@@ -18,6 +18,9 @@ Page({
     this.load(this.currentPath);
   },
 
+  onUnload() {
+  },
+
   load(path) {
     this.currentPath = path || null;
     this.setData({ loading: true, error: '' });

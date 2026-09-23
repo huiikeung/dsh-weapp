@@ -2,6 +2,10 @@ const store = require('../../utils/store');
 const markdown = require('../../utils/markdown');
 const labels = require('../../utils/labels');
 const util = require('../../utils/util');
+const notifyPref = require('../../utils/notify-pref');
+
+// 订阅消息模板 ID：与设置页保持一致；留空则发送时不申请授权。
+const NOTIFY_TEMPLATE_ID = 'QvgkQ88HKFdTNPJVOp0EdOHNDodOQACzB9oDEFDZXKU';
 
 Page({
   data: {
@@ -41,7 +45,7 @@ Page({
     },
     statsLabel: '',
 
-    traceDetail: null
+    traceDetail: null,    recording: false
   },
 
   onLoad(options) {
@@ -369,6 +373,10 @@ Page({
     const text = this.data.draft.trim();
     const images = this.data.images;
     if (!text && !images.length) return;
+    // 实验性：发送任务前申请订阅消息授权（一次性授权，每次发送都需申请）。
+    if (notifyPref.enabled() && NOTIFY_TEMPLATE_ID) {
+      wx.requestSubscribeMessage({ tmplIds: [NOTIFY_TEMPLATE_ID], fail: function () {} });
+    }
     const s = store.sessionState;
     const self = this;
     const sendWithImages = images.length

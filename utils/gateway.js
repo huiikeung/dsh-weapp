@@ -7,6 +7,12 @@
 // 真机以 wss 为主；开发工具需勾选「不校验合法域名」才能连 ws:// 局域网地址。
 
 const util = require('./util');
+const { ClientSession } = require('./relay-e2ee');
+
+/** Uint8Array → 独立 ArrayBuffer（wx.send 要 ArrayBuffer）。 */
+function toArrayBuffer(u8) {
+  return u8.slice().buffer;
+}
 
 const CHANNEL = 'miniprogram';
 const RECONNECT_BASE_DELAY = 1000;
@@ -29,6 +35,8 @@ class GatewayClient {
     this.sessionCreations = {}; // requestId → { resolve, reject, timer }
     this.deviceId = this.loadOrCreateDeviceId();
     this.probeOnly = false; // 主机在线探测：只验 hello，不重连、不发业务请求
+    this.relaySession = null; // v3 relay 模式的 E2EE 会话
+    this.relayMeta = null;    // { nodeId, agentPubKey }
   }
 
   // ---------- 状态 ----------
@@ -67,6 +75,8 @@ class GatewayClient {
     this.wantsConnection = true;
     this.endpoint = endpoint;
     this.pairingCode = opts.pairingCode || null;
+    this.relayMeta = opts.relay || null;
+    this.relaySession = null;
     this.setState('connecting');
 
     const header = {
@@ -74,13 +84,19 @@ class GatewayClient {
       'X-DSH-Device-ID': this.deviceId
     };
     const protocols = [];
+    
+    // 正确方式：子协议通过 protocols 数组传递
+    // 1. 主协议 dsh-mobile-v1 必须加
+    protocols.push('dsh-mobile-v1');
+    
+    // 2. 配对码时额外添加 dsh-pair. 子协议
     if (this.pairingCode) {
-      header['Sec-WebSocket-Protocol'] = 'dsh-mobile-v1, dsh-pair.' + this.pairingCode;
-    } else if (opts.token) {
+      protocols.push('dsh-pair.' + this.pairingCode);
+    }
+    
+    // 3. 已保存 token 时添加 Authorization
+    if (opts.token) {
       header['Authorization'] = 'Bearer ' + opts.token;
-      header['Sec-WebSocket-Protocol'] = 'dsh-mobile-v1';
-    } else {
-      header['Sec-WebSocket-Protocol'] = 'dsh-mobile-v1';
     }
 
     const self = this;
@@ -88,7 +104,7 @@ class GatewayClient {
       this.socketTask = wx.connectSocket({
         url: endpoint,
         header: header,
-        protocols: protocols.length ? protocols : undefined,
+        protocols: protocols,  // 务必传递完整的 protocols 数组
         fail: function (err) {
           self.setState('failed', (err && err.errMsg) || '无法建立 WebSocket 连接');
           self.scheduleReconnect();
@@ -101,9 +117,23 @@ class GatewayClient {
 
     this.socketTask.onOpen(function () {
       self.reconnectAttempts = 0;
+      if (self.relayMeta) {
+        // relay 模式：先完成 E2EE 握手，AgentHello 验签通过后才置 connected
+        self.relaySession = new ClientSession(self.relayMeta.nodeId, self.relayMeta.agentPubKey);
+        try {
+          self.socketTask.send({ data: toArrayBuffer(self.relaySession.hello) });
+        } catch (e) {
+          self.handleTransportFailure('E2EE 握手发送失败');
+        }
+        return;
+      }
       self.setState('connected');
     });
     this.socketTask.onMessage(function (res) {
+      if (self.relayMeta) {
+        self.handleRelayMessage(res.data);
+        return;
+      }
       self.handleFrame(res.data);
     });
     this.socketTask.onError(function (err) {
@@ -189,6 +219,8 @@ class GatewayClient {
       try { socket.close({ code: 1000, reason: 'normal' }); } catch (e) { /* 忽略 */ }
     }
     this.pairingCode = null;
+    this.relaySession = null;
+    this.relayMeta = null;
     this.failAllPending('连接已断开');
     this.setState('disconnected');
   }
@@ -208,6 +240,31 @@ class GatewayClient {
     });
   }
 
+  // ---------- relay（E2EE） ----------
+
+  /** relay 模式的二进制消息：握手包或密文帧。 */
+  handleRelayMessage(data) {
+    if (!(data instanceof ArrayBuffer)) return;
+    const bytes = new Uint8Array(data);
+    const session = this.relaySession;
+    if (!session) return;
+    if (!session.ready) {
+      if (!session.acceptAgentHello(bytes)) {
+        this.handleTransportFailure('E2EE 握手失败：agent 身份验签未通过，可能存在中间人，请重新扫码确认配对信息');
+      } else {
+        this.clearConnectionTimeout();
+        this.setState('connected');
+      }
+      return;
+    }
+    const text = session.open(bytes);
+    if (text === null) {
+      this.handleTransportFailure('E2EE 解密失败，连接已终止');
+      return;
+    }
+    this.handleFrame(text);
+  }
+
   // ---------- 收发 ----------
 
   send(object) {
@@ -216,6 +273,14 @@ class GatewayClient {
       return false;
     }
     try {
+      if (this.relayMeta) {
+        if (!this.relaySession || !this.relaySession.ready) {
+          if (this.cb.onNotice) this.cb.onNotice('E2EE 会话未就绪', true);
+          return false;
+        }
+        this.socketTask.send({ data: toArrayBuffer(this.relaySession.seal(JSON.stringify(object))) });
+        return true;
+      }
       this.socketTask.send({ data: JSON.stringify(object) });
       return true;
     } catch (e) {

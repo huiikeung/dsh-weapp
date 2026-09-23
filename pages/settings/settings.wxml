@@ -1,4 +1,5 @@
 <view class="page page-light settings">
+
   <view class="group-title">新会话默认配置</view>
   <view class="card">
     <view class="card-row" bindtap="pickAgentPreset">
@@ -74,11 +75,23 @@
     </view>
   </view>
 
+  <view class="group-title">实验性功能</view>
+  <view class="card">
+    <view class="card-row">
+      <view class="exp-copy">
+        <text class="card-row-label">订阅通知</text>
+        <text class="exp-desc">发送任务后申请订阅消息授权，回合完成时通过服务通知提醒</text>
+      </view>
+      <switch checked="{{notifyEnabled}}" color="#2E6BE6" bindchange="toggleNotify"/>
+    </view>
+  </view>
+  <view class="group-hint">实验性功能默认关闭，可能随基础库版本变化不稳定，仅供试用。</view>
+
   <view class="group-title">关于</view>
   <view class="card">
     <view class="card-row">
       <text class="card-row-label">客户端</text>
-      <text class="card-row-value">DshMobile 小程序版</text>
+      <text class="card-row-value">DeepSeek Harness 小程序版</text>
     </view>
     <view class="card-row" bindtap="openFiles">
       <text class="card-row-label">工作区文件</text>

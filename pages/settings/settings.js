@@ -1,5 +1,10 @@
 const store = require('../../utils/store');
 const labels = require('../../utils/labels');
+const notifyPref = require('../../utils/notify-pref');
+
+// 订阅消息模板 ID：在小程序管理后台申请「任务完成提醒」类模板后填入。
+// 留空时开启开关仅保存偏好，不发起授权请求。
+const NOTIFY_TEMPLATE_ID = 'QvgkQ88HKFdTNPJVOp0EdOHNDodOQACzB9oDEFDZXKU';
 
 const CONNECTION_LABELS = {
   disconnected: '未连接',
@@ -17,10 +22,14 @@ Page({
     connectionLabel: '未连接',
     connectionClass: 'disconnected',
     port: null,
-    host: {}
+    host: {},
+    notifyEnabled: false
   },
 
   onLoad() {
+    this.setData({
+      notifyEnabled: notifyPref.enabled()
+    });
     this.unsubscribe = store.subscribe((snapshot) => {
       this.syncFromStore(snapshot);
     });
@@ -32,6 +41,36 @@ Page({
 
   onUnload() {
     if (this.unsubscribe) this.unsubscribe();
+  },
+
+  // ---------- 实验性功能 ----------
+
+  toggleNotify(e) {
+    const enabled = !!e.detail.value;
+    const self = this;
+    if (!enabled) {
+      notifyPref.setEnabled(false);
+      this.setData({ notifyEnabled: false });
+      return;
+    }
+    if (!NOTIFY_TEMPLATE_ID) {
+      notifyPref.setEnabled(true);
+      this.setData({ notifyEnabled: true });
+      wx.showModal({
+        title: '待配置模板',
+        content: '尚未配置订阅消息模板 ID（pages/settings/settings.js 中的 NOTIFY_TEMPLATE_ID）。已先记住偏好，配置后发送任务时会自动申请授权。',
+        showCancel: false
+      });
+      return;
+    }
+    wx.requestSubscribeMessage({
+      tmplIds: [NOTIFY_TEMPLATE_ID],
+      complete() {
+        // 无论用户允许/拒绝，都记住开关状态；下次发送任务时会再次申请。
+        notifyPref.setEnabled(true);
+        self.setData({ notifyEnabled: true });
+      }
+    });
   },
 
   syncFromStore(snapshot) {

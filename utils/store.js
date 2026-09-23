@@ -569,11 +569,25 @@ function createStore() {
     profile.endpoints = normalized;
     profile.preferredEndpoint = normalized[0];
     if (payload && String(payload.gatewayName || '').trim()) profile.gatewayName = payload.gatewayName;
+    // v3 relay 模式：记录中继元信息，重连时不再依赖 Bearer token（由 fnOS 连接器注入）。
+    if (payload && payload.mode === 'relay') {
+      profile.relay = true;
+      profile.relayAgentPubKey = payload.agentPubKey || null;
+    } else if (!payload || payload.mode !== 'relay') {
+      profile.relay = false;
+      profile.relayAgentPubKey = null;
+    }
     pendingProfile = profile;
     state.endpoint = normalized[0];
     state.gatewayName = hosts.displayName(profile);
     state.gatewayId = profile.gatewayId;
-    client.connect(normalized[0], { pairingCode: code });
+    if (payload && payload.mode === 'relay') {
+      client.connect(normalized[0], {
+        relay: { nodeId: payload.nodeId || profile.gatewayId, agentPubKey: payload.agentPubKey }
+      });
+    } else {
+      client.connect(normalized[0], { pairingCode: code });
+    }
     return { ok: true };
   }
 
@@ -606,7 +620,7 @@ function createStore() {
     const cred = hosts.loadCredential(profile.id);
     const endpoints = hosts.connectionEndpoints(profile);
     const endpoint = endpoints[0] || (cred && cred.endpoint) || null;
-    if (!endpoint || !cred || !cred.token) {
+    if (!endpoint) {
       state.connection = 'disconnected';
       state.connectionMessage = '缺少连接凭据，请重新扫码配对';
       emit();
@@ -615,6 +629,20 @@ function createStore() {
     state.endpoint = endpoint;
     state.gatewayName = hosts.displayName(profile);
     state.gatewayId = profile.gatewayId;
+    // relay 档案：凭据由 fnOS 连接器持有，小程序端只需 E2EE 元信息
+    if (profile.relay && profile.relayAgentPubKey) {
+      client.lastToken = null;
+      client.connect(endpoint, {
+        relay: { nodeId: profile.gatewayId, agentPubKey: profile.relayAgentPubKey }
+      });
+      return true;
+    }
+    if (!cred || !cred.token) {
+      state.connection = 'disconnected';
+      state.connectionMessage = '缺少连接凭据，请重新扫码配对';
+      emit();
+      return false;
+    }
     client.lastToken = cred.token;
     client.connect(endpoint, { token: cred.token });
     return true;
@@ -812,7 +840,12 @@ function createStore() {
 
     appDidBecomeActive: function () {
       if (state.connection !== 'connected' && state.activeID) {
-        if (client.lastToken && state.endpoint) {
+        const activeProfile = getProfile(state.activeID);
+        if (activeProfile && activeProfile.relay && activeProfile.relayAgentPubKey && state.endpoint) {
+          client.connect(state.endpoint, {
+            relay: { nodeId: activeProfile.gatewayId, agentPubKey: activeProfile.relayAgentPubKey }
+          });
+        } else if (client.lastToken && state.endpoint) {
           client.connect(state.endpoint, { token: client.lastToken });
         } else {
           connectActiveProfile();

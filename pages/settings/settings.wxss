@@ -32,3 +32,17 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+.exp-copy {
+  display: flex;
+  flex-direction: column;
+  margin-right: 24rpx;
+  flex: 1;
+}
+
+.exp-desc {
+  font-size: 24rpx;
+  color: var(--gray);
+  margin-top: 6rpx;
+  line-height: 1.5;
+}
