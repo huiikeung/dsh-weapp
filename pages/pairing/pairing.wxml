@@ -28,6 +28,8 @@
       value="{{pairingPayload}}"
       bindinput="onPayloadInput"
       confirm-type="done"
+      cursor-spacing="24"
+      adjust-position="true"
     />
     <view class="btn-primary glass-press" bindtap="pairManual">连接</view>
   </view>

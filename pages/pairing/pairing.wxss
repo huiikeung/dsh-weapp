@@ -42,6 +42,9 @@
 .manual {
   padding: 36rpx 32rpx;
   margin-bottom: 40rpx;
+  /* 原生 <input> 在 backdrop-filter 祖先下无法聚焦、光标不显示、键盘不弹出，故此卡片取消模糊 */
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .manual-title {
@@ -52,7 +55,12 @@
 }
 
 .input {
-  margin-bottom: 20rpx;
+  width: 100%;
+  height: 100rpx;
+  line-height: 100rpx;
+  font-size: 30rpx;
+  padding: 0 32rpx;
+  margin-bottom: 24rpx;
 }
 
 .hint {
