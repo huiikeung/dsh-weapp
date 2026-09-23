@@ -1,0 +1,145 @@
+<view class="page page-dark home">
+  <view class="deep-bg">
+    <view class="deep-grid"></view>
+    <image class="deep-whale" src="../../assets/icons/bg-whale.png" mode="aspectFit" />
+  </view>
+  <!-- 顶部栏：logo + 配对/设置 -->
+  <view class="topbar">
+    <view class="brand-row">
+      <image class="brand-whale" src="/assets/icons/whale-white.png" mode="aspectFit"/>
+      <view class="brand-text">deepseek</view>
+      <view class="brand-badge">HARNESS</view>
+    </view>
+    <view class="topbar-actions">
+      <view class="icon-btn glass-press" bindtap="openPairing">
+        <image class="icon-img" src="/assets/icons/nav-pair.png"/>
+      </view>
+      <view class="icon-btn glass-press" bindtap="openSettings">
+        <image class="icon-img" src="/assets/icons/nav-gear.png"/>
+      </view>
+    </view>
+  </view>
+
+  <!-- 切换主机（GatewaySwitcherBar 对齐） -->
+  <view class="host-bar glass-press" bindtap="openHostSwitcher">
+    <image class="host-kind" src="/assets/icons/{{hostKindIcon}}"/>
+    <view class="host-name">{{hostLabel}}</view>
+    <view class="host-dot {{hostOnline ? 'on' : ''}}"></view>
+    <image class="host-chev" src="/assets/icons/chev-down-white.png"/>
+  </view>
+
+  <view class="hero">
+    <view class="title-hero">探索未至之境</view>
+    <view class="subtitle-hero">DeepSeek Harness 预览版</view>
+  </view>
+
+  <!-- 工作区选择器 -->
+  <view class="workspace-card glass glass-press" bindtap="openWorkspacePicker">
+    <image class="ws-icon" src="/assets/icons/folder-blue.png"/>
+    <view class="ws-body">
+      <view class="ws-title">{{currentWorkspace.title || '未选择工作区'}}</view>
+      <view class="ws-path text-mono">{{currentWorkspace.path || '轻触以切换工作区'}}</view>
+    </view>
+    <view class="ws-right">
+      <view class="status-dot connected"></view>
+      <image class="ws-chevron" src="/assets/icons/chev-down-white.png"/>
+    </view>
+  </view>
+
+  <!-- 新建会话 -->
+  <view class="new-session glass-press" bindtap="newSession">
+    <view class="plus-circle"><image class="plus-img" src="/assets/icons/plus-white.png"/></view>
+    <text class="new-session-text">新建会话</text>
+  </view>
+
+  <!-- 最近会话 -->
+  <view class="recent-header">
+    <view class="section-title">最近会话</view>
+    <view class="conn-label {{connectionClass}}">{{connectionLabel}}</view>
+  </view>
+
+  <view class="search-box glass">
+    <image class="search-icon" src="/assets/icons/search-white.png"/>
+    <input
+      class="search-input"
+      placeholder="搜索会话内容"
+      placeholder-class="field-placeholder"
+      value="{{searchQuery}}"
+      bindinput="onSearchInput"
+      confirm-type="search"
+    />
+  </view>
+
+  <view class="session-list">
+    <block wx:for="{{displaySessions}}" wx:key="sessionId">
+      <view
+        class="session-row glass-press"
+        bindtap="openSession"
+        data-id="{{item.sessionId}}"
+        data-title="{{item.displayTitle}}"
+        data-preset="{{item.agentPreset}}"
+        bindlongpress="sessionActions"
+        data-index="{{index}}"
+      >
+        <image wx:if="{{item.searchIcon}}" class="search-result-ic" src="/assets/icons/{{item.searchIcon}}"/>
+        <view class="session-dot {{item.running ? 'running' : ''}}"></view>
+        <view class="session-body">
+          <view class="session-title">{{item.displayTitle}}</view>
+          <view class="session-sub text-mono">{{item.idLabel}}{{item.cwd ? ' · ' + item.cwd : ''}}</view>
+        </view>
+        <view class="session-time">{{item.timeLabel}}</view>
+      </view>
+    </block>
+    <view wx:if="{{!displaySessions.length}}" class="empty">暂无会话，点击「新建会话」开始</view>
+  </view>
+
+  <view class="footer-tools">
+    <view class="btn-text" bindtap="openFiles">工作区文件</view>
+  </view>
+
+  <!-- 切换主机 sheet（GatewaySwitcherSheet 对齐） -->
+  <view wx:if="{{hostSheetOpen}}" class="host-mask" bindtap="closeHostSwitcher"></view>
+  <view wx:if="{{hostSheetOpen}}" class="host-sheet">
+    <view class="host-sheet-head">
+      <view class="host-sheet-title">切换主机</view>
+      <view class="host-sheet-actions">
+        <view wx:if="{{hostEditMode && hostSelection.length}}" class="host-sheet-del tap" bindtap="deleteHosts">{{hostSelection.length > 1 ? '批量删除' : '删除'}}</view>
+        <view class="host-sheet-edit tap" bindtap="toggleHostEditMode">{{hostEditMode ? '完成编辑' : '编辑'}}</view>
+      </view>
+    </view>
+    <view class="host-list">
+      <view wx:for="{{hostRows}}" wx:key="id" class="host-row">
+        <view wx:if="{{hostEditMode}}" class="host-select tap" catchtap="toggleHostSelect" data-id="{{item.id}}">
+          <image class="host-select-ic" src="/assets/icons/{{item.selected ? 'circle-filled-white.png' : 'circle-white.png'}}"/>
+        </view>
+        <image class="host-row-kind" src="/assets/icons/{{item.kindIcon}}"/>
+        <view class="host-row-body tap" bindtap="pickHost" data-id="{{item.id}}">
+          <view class="host-row-name">{{item.displayName}}</view>
+          <view class="host-row-sub {{item.isActive ? 'on' : ''}}">{{item.subLabel}}</view>
+        </view>
+        <view class="host-dot {{item.online ? 'on' : ''}}"></view>
+        <view wx:if="{{hostEditMode}}" class="host-edit tap" catchtap="editHostOpen" data-id="{{item.id}}">
+          <image class="host-edit-ic" src="/assets/icons/pencil-white.png"/>
+        </view>
+      </view>
+      <view wx:if="{{!hostRows.length}}" class="host-empty">暂无已保存的主机，请扫码添加</view>
+    </view>
+  </view>
+
+  <!-- 编辑主机 -->
+  <view wx:if="{{hostEditOpen}}" class="host-mask" bindtap="cancelHostEdit"></view>
+  <view wx:if="{{hostEditOpen}}" class="host-edit-panel">
+    <view class="host-edit-title">编辑主机</view>
+    <view class="host-edit-hint">留空使用网关提供的名称：{{editingGatewayName}}</view>
+    <input class="host-edit-input" placeholder="主机别名（留空使用网关名称）" placeholder-class="host-edit-ph" value="{{editAlias}}" bindinput="onHostAliasInput" maxlength="80"/>
+    <view class="host-edit-sub">设备类型</view>
+    <view class="host-kind-row">
+      <view class="host-kind-opt {{editKind === 'desktopcomputer' ? 'on' : ''}} tap" bindtap="setHostKind" data-kind="desktopcomputer">电脑</view>
+      <view class="host-kind-opt {{editKind === 'server.rack' ? 'on' : ''}} tap" bindtap="setHostKind" data-kind="server.rack">服务器</view>
+    </view>
+    <view class="host-edit-actions">
+      <view class="host-edit-btn-cancel tap" bindtap="cancelHostEdit">取消</view>
+      <view class="host-edit-btn-save tap" bindtap="saveHostEdit">保存</view>
+    </view>
+  </view>
+</view>

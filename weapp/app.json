@@ -1,0 +1,20 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/pairing/pairing",
+    "pages/session/session",
+    "pages/settings/settings",
+    "pages/files/files",
+    "pages/workspace-picker/workspace-picker"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#07182B",
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "DshMobile",
+    "backgroundColor": "#07182B",
+    "backgroundTextStyle": "light"
+  },
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
+  "sitemapLocation": "sitemap.json"
+}

@@ -1,0 +1,34 @@
+.settings {
+  padding: 20rpx 40rpx 80rpx;
+}
+
+.chevron {
+  color: var(--gray);
+  font-size: 34rpx;
+  margin-left: 12rpx;
+}
+
+.chevron-img {
+  width: 26rpx;
+  height: 26rpx;
+  margin-left: 12rpx;
+  opacity: 0.55;
+}
+
+.gw-url {
+  font-size: 28rpx;
+  color: var(--ink);
+  word-break: break-all;
+}
+
+.gw-status {
+  display: flex;
+  align-items: center;
+}
+
+.gw-cwd {
+  max-width: 380rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

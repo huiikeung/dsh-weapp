@@ -1,0 +1,24 @@
+<view class="page page-dark picker">
+  <view class="deep-bg">
+    <view class="deep-grid"></view>
+    <image class="deep-whale" src="../../assets/icons/bg-whale.png" mode="aspectFit" />
+  </view>
+  <view class="section-title picker-title">工作区</view>
+  <view class="list">
+    <block wx:for="{{workspaces}}" wx:key="workspaceId">
+      <view class="row glass-press" bindtap="selectWorkspace" data-id="{{item.workspaceId}}">
+        <image class="row-icon" src="/assets/icons/folder-blue.png"/>
+        <view class="row-body">
+          <view class="row-title">{{item.title}}</view>
+          <view class="row-path text-mono">{{item.path}}</view>
+        </view>
+        <image wx:if="{{item.workspaceId === currentId}}" class="row-check" src="/assets/icons/check-white.png"/>
+      </view>
+    </block>
+    <view wx:if="{{!workspaces.length}}" class="empty">暂无工作区</view>
+  </view>
+
+  <view class="new-workspace">
+    <view class="btn-glass glass-press" bindtap="browseDirectory">从目录创建工作区</view>
+  </view>
+</view>

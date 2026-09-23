@@ -1,0 +1,40 @@
+<view class="page page-light files">
+  <!-- 面包屑 -->
+  <scroll-view class="crumbs" scroll-x>
+    <view class="crumb-row">
+      <block wx:for="{{crumbs}}" wx:key="path">
+        <view class="crumb" bindtap="openCrumb" data-path="{{item.path}}">
+          <text>{{item.name}}</text>
+          <text wx:if="{{index < crumbs.length - 1}}" class="crumb-sep">/</text>
+        </view>
+      </block>
+      <view wx:if="{{!crumbs.length}}" class="crumb">
+        <text>{{displayPath}}</text>
+      </view>
+    </view>
+  </scroll-view>
+
+  <view wx:if="{{loading}}" class="empty">正在读取工作区文件…</view>
+  <view wx:elif="{{error}}" class="empty error">{{error}}</view>
+
+  <scroll-view wx:else class="entries" scroll-y>
+    <block wx:for="{{entries}}" wx:key="path">
+      <view class="entry" bindtap="openEntry" data-index="{{index}}">
+        <image class="entry-icon" src="/assets/icons/{{item.iconFile}}"/>
+        <view class="entry-body">
+          <view class="entry-name">{{item.name}}</view>
+          <view class="entry-sub text-mono">{{item.subLabel}}</view>
+        </view>
+        <image wx:if="{{item.kind === 'dir'}}" class="entry-chevron" src="/assets/icons/chev-right-gray.png"/>
+      </view>
+    </block>
+    <view wx:if="{{!entries.length}}" class="empty">空目录</view>
+    <view class="entry-spacer"></view>
+  </scroll-view>
+
+  <view class="actions-bar">
+    <view class="btn-text" bindtap="goUp">返回上级</view>
+    <view class="btn-text" bindtap="newDirectory">新建目录</view>
+    <view wx:if="{{mode === 'picker'}}" class="btn-text strong" bindtap="useThisDirectory">用作工作区</view>
+  </view>
+</view>

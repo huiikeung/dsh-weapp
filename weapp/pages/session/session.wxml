@@ -1,0 +1,283 @@
+<view class="page page-light session">
+  <!-- 顶部导航 -->
+  <view class="navbar">
+    <view class="nav-back glass-light glass-press" bindtap="goBack"><image class="nav-ic" src="/assets/icons/back-black.png"/></view>
+    <view class="nav-title">{{navTitle}}</view>
+    <view class="nav-preset">
+      <view class="status-dot {{running ? 'connected' : 'disconnected'}}"></view>
+      <text>{{presetLabel}}</text>
+    </view>
+    <view class="nav-more glass-light glass-press" bindtap="moreActions"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
+  </view>
+
+  <!-- 对话 / 轨迹 分段控件 -->
+  <view class="segmented glass-light">
+    <view class="segment {{tab === 'conversation' ? 'active' : ''}}" bindtap="switchTab" data-tab="conversation">对话</view>
+    <view class="segment {{tab === 'trajectory' ? 'active' : ''}}" bindtap="switchTab" data-tab="trajectory">轨迹</view>
+  </view>
+
+  <!-- ================= 对话 ================= -->
+  <scroll-view
+    wx:if="{{tab === 'conversation'}}"
+    class="conversation"
+    scroll-y
+    scroll-into-view="{{scrollTarget}}"
+    scroll-with-animation
+    bindscrolltoupper="loadOlder"
+    upper-threshold="80"
+  >
+    <view wx:if="{{hasMoreHistory}}" class="load-more">加载更早的历史…</view>
+
+    <block wx:for="{{rows}}" wx:key="key">
+      <!-- 用户消息 -->
+      <view wx:if="{{item.kind === 'user'}}" class="row-user" id="{{item.key}}">
+        <view class="row-user-title">{{item.title}}</view>
+        <view class="row-user-text">{{item.text}}</view>
+        <view wx:if="{{item.images.length}}" class="attach-grid">
+          <image
+            wx:for="{{item.images}}" wx:for-item="img" wx:key="attachmentId"
+            class="attach-img"
+            src="{{img.localUrl || img.thumbUrl || ''}}"
+            mode="aspectFill"
+            bindtap="previewAttachment"
+            data-id="{{img.attachmentId}}"
+          />
+        </view>
+      </view>
+
+      <!-- 助手消息 -->
+      <view wx:elif="{{item.kind === 'assistant'}}" class="row-assistant" id="{{item.key}}">
+        <view wx:if="{{item.title}}" class="row-streaming-title">{{item.title}}</view>
+
+        <!-- 思考过程 -->
+        <view wx:if="{{item.reasoning}}" class="fold" bindtap="toggleFold" data-key="{{item.key}}">
+          <view class="fold-header">
+            <image class="fold-glyph" src="/assets/icons/think-purple.png"/>
+            <text class="fold-title">思考过程</text>
+            <image class="fold-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-down-gray.png"/>
+          </view>
+          <view wx:if="{{folds[item.key]}}" class="fold-body">{{item.reasoning}}</view>
+        </view>
+
+        <!-- 工具调用 -->
+        <block wx:for="{{item.tools}}" wx:for-item="tool" wx:key="key">
+          <view class="fold tool-fold" bindtap="toggleFold" data-key="{{tool.key}}">
+            <view class="fold-header">
+              <image class="tool-glyph" src="/assets/icons/{{tool.iconFile}}"/>
+              <text class="fold-title">{{tool.name}}</text>
+              <text class="tool-status {{tool.isError ? 'error' : (tool.status === 'done' ? 'done' : '')}}">{{tool.title}}</text>
+              <image class="fold-chevron {{folds[tool.key] ? 'open' : ''}}" src="/assets/icons/chev-down-gray.png"/>
+            </view>
+            <view wx:if="{{folds[tool.key]}}" class="fold-body">
+              <view wx:if="{{tool.argumentsText}}" class="code-block">
+                <view class="code-lang">Arguments</view>
+                <view class="code-body">{{tool.argumentsText}}</view>
+              </view>
+              <view wx:if="{{tool.resultText}}" class="code-block">
+                <view class="code-lang">Result</view>
+                <view class="code-body">{{tool.resultText}}</view>
+              </view>
+            </view>
+          </view>
+        </block>
+
+        <!-- 正文（Markdown） -->
+        <block wx:if="{{item.blocks.length}}">
+          <view wx:for="{{item.blocks}}" wx:for-item="block" wx:key="index" class="md-block">
+            <rich-text wx:if="{{block.type === 'para'}}" class="md-para" nodes="{{block.html}}"></rich-text>
+            <rich-text wx:elif="{{block.type === 'heading'}}" class="md-heading md-h{{block.level}}" nodes="{{block.html}}"></rich-text>
+            <view wx:elif="{{block.type === 'code'}}" class="code-block">
+              <view class="code-lang">{{block.lang || 'CODE'}}</view>
+              <view class="code-body">{{block.text}}</view>
+              <view class="code-copy" catchtap="copyCode" data-text="{{block.text}}">复制</view>
+            </view>
+            <rich-text wx:elif="{{block.type === 'quote'}}" class="md-quote" nodes="{{block.html}}"></rich-text>
+            <view wx:elif="{{block.type === 'hr'}}" class="md-hr"></view>
+            <view wx:elif="{{block.type === 'list'}}" class="md-list">
+              <view wx:for="{{block.items}}" wx:for-item="li" wx:for-index="liIndex" wx:key="liIndex" class="md-li">
+                <text class="md-li-marker">{{block.ordered ? (liIndex + 1) + '.' : '•'}}</text>
+                <rich-text class="md-li-text" nodes="{{li}}"></rich-text>
+              </view>
+            </view>
+          </view>
+        </block>
+
+        <!-- 图片附件 -->
+        <view wx:if="{{item.images && item.images.length}}" class="attach-grid">
+          <image
+            wx:for="{{item.images}}" wx:for-item="img" wx:key="attachmentId"
+            class="attach-img"
+            src="{{img.localUrl || img.thumbUrl || ''}}"
+            mode="aspectFill"
+            bindtap="previewAttachment"
+            data-id="{{img.attachmentId}}"
+          />
+        </view>
+      </view>
+
+      <!-- 其它事件行 -->
+      <view wx:else class="row-event" id="{{item.key}}">
+        <image class="event-ic" src="/assets/icons/{{item.iconFile}}"/>
+        <text class="event-tag {{item.isError ? 'error' : ''}}">{{item.title}}</text>
+        <text class="event-text">{{item.text}}</text>
+      </view>
+    </block>
+
+    <view id="conv-bottom" class="conv-bottom"></view>
+  </scroll-view>
+
+  <!-- ================= 轨迹 ================= -->
+  <scroll-view wx:else class="trajectory" scroll-y>
+    <!-- 时长概览 -->
+    <view class="trace-summary">
+      <view class="trace-summary-head">
+        <view class="trace-summary-stats">
+          <image class="stat-ic" src="/assets/icons/clock-dark.png"/>
+          <text>Duration　{{stats.turns}} Turns　{{stats.steps}} Calls</text>
+        </view>
+        <text class="trace-total text-mono">{{stats.durationLabel}}</text>
+      </view>
+      <view class="trace-lanes">
+        <view class="trace-lane">
+          <text class="lane-label">Input</text>
+          <view class="lane-track"><view class="lane-fill input" style="width: {{stats.inputPct}}%"></view></view>
+        </view>
+        <view class="trace-lane">
+          <text class="lane-label">Model</text>
+          <view class="lane-track"><view class="lane-fill model" style="width: {{stats.modelPct}}%"></view></view>
+        </view>
+        <view class="trace-lane">
+          <text class="lane-label">Tools</text>
+          <view class="lane-track"><view class="lane-fill tools" style="width: {{stats.toolsPct}}%"></view></view>
+        </view>
+      </view>
+      <view class="trace-axis">
+        <text class="text-mono">0s</text>
+        <text class="text-mono">{{stats.durationLabel}}</text>
+      </view>
+    </view>
+
+    <view class="trace-list">
+      <block wx:for="{{trajectory}}" wx:key="key">
+        <view wx:if="{{item.kind === 'turn'}}" class="trace-turn">
+          <text>{{item.label}}</text>
+          <view class="trace-turn-line"></view>
+        </view>
+        <view wx:else class="trace-row" bindtap="openTraceDetail" data-index="{{index}}">
+          <view class="trace-dot {{item.dotClass}}"></view>
+          <view class="trace-badge {{item.badgeClass}}">{{item.badge}}</view>
+          <view class="trace-label" wx:if="{{item.label}}">{{item.label}}</view>
+          <view class="trace-preview">{{item.preview}}</view>
+          <view class="trace-seq text-mono">#{{item.seqLabel}}</view>
+          <image class="trace-chevron" src="/assets/icons/chev-right-gray.png"/>
+        </view>
+      </block>
+      <view wx:if="{{!trajectory.length}}" class="empty">暂无轨迹事件</view>
+    </view>
+  </scroll-view>
+
+  <!-- ================= 待处理请求 ================= -->
+  <!-- Human Question -->
+  <view wx:if="{{question}}" class="pending-card question-card">
+    <view class="pending-title"><image class="q-ic" src="/assets/icons/q-bubble-ocean.png"/>{{question.questions[0].header || '需要你的回答'}}</view>
+    <block wx:for="{{question.questions}}" wx:key="id">
+      <view class="q-item">
+        <view class="q-question">{{item.question}}</view>
+        <view wx:if="{{item.detail}}" class="q-detail">{{item.detail}}</view>
+        <view class="q-options">
+          <view
+            wx:for="{{item.options}}" wx:for-item="opt" wx:key="label"
+            class="q-option {{item.checked[opt.label] ? 'selected' : ''}}"
+            bindtap="toggleOption"
+            qid="{{item.id}}"
+            label="{{opt.label}}"
+          >
+            <view class="q-option-label">{{opt.label}}</view>
+            <view wx:if="{{opt.description}}" class="q-option-desc">{{opt.description}}</view>
+          </view>
+          <input
+            wx:if="{{!item.options || !item.options.length}}"
+            class="field q-custom"
+            placeholder="输入你的回答"
+            placeholder-class="field-placeholder"
+            value="{{question.custom[item.id]}}"
+            bindinput="onCustomInput"
+            qid="{{item.id}}"
+          />
+        </view>
+      </view>
+    </block>
+    <view class="pending-actions">
+      <view class="pending-btn ghost" bindtap="cancelQuestion">取消</view>
+      <view class="pending-btn primary {{questionBusy ? 'disabled' : ''}}" bindtap="submitQuestion">提交</view>
+    </view>
+  </view>
+
+  <!-- 工具审批 -->
+  <view wx:if="{{approval}}" class="pending-card approval-card">
+    <view class="pending-title"><image class="q-ic" src="/assets/icons/shield-excla-gray.png"/>工具审批请求</view>
+    <view class="approval-tool">{{approval.toolName}}</view>
+    <view wx:if="{{approval.reason}}" class="approval-reason">{{approval.reason}}</view>
+    <view class="pending-actions">
+      <view class="pending-btn ghost {{approvalBusy ? 'disabled' : ''}}" bindtap="rejectApproval">拒绝</view>
+      <view class="pending-btn primary {{approvalBusy ? 'disabled' : ''}}" bindtap="allowApproval">允许一次</view>
+    </view>
+  </view>
+
+  <!-- ================= 输入面板 ================= -->
+  <view class="composer glass-light">
+    <textarea
+      class="composer-input"
+      placeholder="描述你想要构建的内容"
+      placeholder-class="field-placeholder"
+      value="{{draft}}"
+      bindinput="onDraftInput"
+      bindconfirm="send"
+      confirm-type="send"
+      auto-height
+      maxlength="-1"
+    />
+    <view wx:if="{{images.length}}" class="composer-images">
+      <view wx:for="{{images}}" wx:key="id" class="composer-thumb">
+        <image src="{{item.tempPath}}" mode="aspectFill" class="composer-thumb-img"/>
+        <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
+      </view>
+    </view>
+    <view class="composer-bar">
+      <view class="chip" bindtap="pickPermission"><image class="chip-ic" src="/assets/icons/{{permissionIcon}}"/>{{permissionLabel}}</view>
+      <view class="chip" bindtap="pickModel">{{modelLabel}}<view class="effort-pill" catchtap="pickEffort">{{effortLabel}}</view><image class="chip-ud" src="/assets/icons/chev-ud-gray.png"/></view>
+      <view class="composer-spacer"></view>
+      <view wx:if="{{contextPct >= 0}}" class="context-ring" style="background: conic-gradient(#2E6BE6 {{contextPct}}%, rgba(128, 128, 128, 0.22) 0);"><view class="context-ring-in"></view></view>
+      <view wx:if="{{canAttach}}" class="chip icon" bindtap="chooseImage"><image class="attach-ic" src="/assets/icons/attach-gray.png"/></view>
+      <view
+        wx:if="{{running}}"
+        class="send-btn stop glass-press"
+        bindtap="stopAgent"
+      >■</view>
+      <view
+        wx:else
+        class="send-btn {{canSend ? '' : 'disabled'}} glass-press"
+        bindtap="send"
+      ><image class="send-ic" src="/assets/icons/arrow-up-white.png"/></view>
+    </view>
+    <view wx:if="{{statsLabel}}" class="composer-stats">{{statsLabel}}</view>
+  </view>
+
+  <!-- 轨迹详情抽屉 -->
+  <view wx:if="{{traceDetail}}" class="sheet-mask" bindtap="closeTraceDetail">
+    <view class="sheet glass-light" catchtap="noop">
+      <view class="sheet-handle"></view>
+      <view class="sheet-title">
+        <view class="trace-badge {{traceDetail.badgeClass}}">{{traceDetail.badge}}</view>
+        <text class="sheet-title-text">{{traceDetail.label || ('#' + traceDetail.seq)}}</text>
+      </view>
+      <scroll-view class="sheet-body" scroll-y>
+        <view class="code-block">
+          <view class="code-lang">Event · #{{traceDetail.seqLabel}}</view>
+          <view class="code-body">{{traceDetail.detail}}</view>
+        </view>
+      </scroll-view>
+      <view class="sheet-copy btn-text" bindtap="copyTraceDetail"><image class="copy-ic" src="/assets/icons/copy-gray.png"/>复制事件内容</view>
+    </view>
+  </view>
+</view>

@@ -1,0 +1,9 @@
+{
+  "desc": "DeepSeek Harness Mobile 微信小程序",
+  "rules": [
+    {
+      "action": "disallow",
+      "page": "*"
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+.picker {
+  padding: 40rpx;
+}
+
+.picker-title {
+  margin-bottom: 30rpx;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  padding: 30rpx 28rpx;
+  margin-bottom: 20rpx;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1rpx solid rgba(255, 255, 255, 0.14);
+  border-radius: 24rpx;
+}
+
+.row-icon {
+  width: 48rpx;
+  height: 48rpx;
+  margin-right: 22rpx;
+  flex-shrink: 0;
+}
+
+.row-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.row-title {
+  color: #FFFFFF;
+  font-size: 32rpx;
+  font-weight: 500;
+}
+
+.row-path {
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 24rpx;
+  margin-top: 6rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row-check {
+  width: 36rpx;
+  height: 36rpx;
+  margin-left: 16rpx;
+  flex-shrink: 0;
+}
+
+.empty {
+  color: rgba(255, 255, 255, 0.45);
+  text-align: center;
+  padding: 60rpx 0;
+}
+
+.new-workspace {
+  margin-top: 50rpx;
+}

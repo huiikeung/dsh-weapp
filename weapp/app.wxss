@@ -1,0 +1,322 @@
+/* DeepSeek Harness Mobile — 全局样式
+ * 视觉语言对齐 iOS 端 Design/design-spec.md：
+ * 深海蓝氛围 + 纸白内容面 + 海洋蓝点缀 + 液态玻璃控件。
+ */
+
+page {
+  --navy: #07182B;
+  --navy-raised: #0D2340;
+  --ocean: #2E6BE6;
+  --mist: #BFD4FF;
+  --ink: #101318;
+  --paper: #F7F8FA;
+  --gray: #7D8592;
+  --purple: #7A54C7;
+  --orange: #F07D14;
+  --amber: #FFAE1F;
+  --success: #2EB85C;
+
+  background: var(--navy);
+  color: var(--ink);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
+  font-size: 28rpx;
+  line-height: 1.5;
+}
+
+/* ---------- 通用容器 ---------- */
+
+.page {
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.page-light {
+  background: #F2F2F7;
+}
+
+.page-dark {
+  background: transparent;
+}
+
+/* ---------- 液态玻璃 ---------- */
+
+.glass {
+  background: rgba(255, 255, 255, 0.10);
+  border: 1rpx solid rgba(255, 255, 255, 0.18);
+  border-radius: 28rpx;
+  backdrop-filter: blur(24rpx);
+  box-shadow: 0 8rpx 32rpx rgba(3, 14, 30, 0.24);
+}
+
+.glass-light {
+  background: rgba(255, 255, 255, 0.86);
+  border: 1rpx solid rgba(16, 19, 24, 0.06);
+  border-radius: 28rpx;
+  backdrop-filter: blur(24rpx);
+  box-shadow: 0 8rpx 28rpx rgba(7, 24, 43, 0.10);
+}
+
+.glass-press {
+  transition: transform 0.12s ease;
+}
+
+.glass-press:active {
+  transform: scale(0.97);
+}
+
+/* ---------- 文本 ---------- */
+
+.title-hero {
+  font-size: 64rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  letter-spacing: 2rpx;
+}
+
+.subtitle-hero {
+  font-size: 30rpx;
+  color: rgba(255, 255, 255, 0.62);
+  margin-top: 8rpx;
+}
+
+.section-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+
+.section-title-light {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.text-quiet {
+  color: var(--gray);
+  font-size: 26rpx;
+}
+
+.text-mono {
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 状态点 ---------- */
+
+.status-dot {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 12rpx;
+}
+
+.status-dot.connected { background: var(--success); }
+.status-dot.connecting { background: var(--amber); }
+.status-dot.disconnected { background: var(--gray); }
+.status-dot.failed { background: #E5484D; }
+
+/* ---------- 按钮 ---------- */
+
+.btn-primary {
+  background: var(--ocean);
+  color: #FFFFFF;
+  border-radius: 28rpx;
+  font-size: 32rpx;
+  font-weight: 600;
+  padding: 26rpx 0;
+  text-align: center;
+  transition: transform 0.12s ease;
+}
+
+.btn-primary:active {
+  transform: scale(0.98);
+}
+
+.btn-primary[disabled] {
+  background: rgba(46, 107, 230, 0.35);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+.btn-glass {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1rpx solid rgba(255, 255, 255, 0.22);
+  color: #FFFFFF;
+  border-radius: 28rpx;
+  font-size: 32rpx;
+  padding: 26rpx 0;
+  text-align: center;
+  transition: transform 0.12s ease;
+}
+
+.btn-glass:active {
+  transform: scale(0.98);
+}
+
+.btn-text {
+  color: var(--ocean);
+  font-size: 30rpx;
+  padding: 20rpx 0;
+}
+
+.btn-text-danger {
+  color: #E5484D;
+  font-size: 30rpx;
+  padding: 20rpx 0;
+}
+
+/* ---------- 表单 ---------- */
+
+.field {
+  background: #FFFFFF;
+  border-radius: 24rpx;
+  padding: 28rpx 32rpx;
+  font-size: 30rpx;
+  color: var(--ink);
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.field-dark {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1rpx solid rgba(255, 255, 255, 0.14);
+  border-radius: 24rpx;
+  padding: 28rpx 32rpx;
+  font-size: 30rpx;
+  color: #FFFFFF;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.field-placeholder {
+  color: var(--gray);
+}
+
+/* ---------- 列表卡片（设置/弹层通用） ---------- */
+
+.card {
+  background: #FFFFFF;
+  border-radius: 28rpx;
+  overflow: hidden;
+}
+
+.card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 30rpx 32rpx;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.card-row + .card-row {
+  border-top: 1rpx solid rgba(16, 19, 24, 0.07);
+}
+
+.card-row-label {
+  font-size: 31rpx;
+  color: var(--ink);
+}
+
+.card-row-value {
+  font-size: 30rpx;
+  color: var(--gray);
+  display: flex;
+  align-items: center;
+}
+
+.group-title {
+  font-size: 30rpx;
+  color: var(--gray);
+  margin: 40rpx 16rpx 18rpx;
+  font-weight: 500;
+}
+
+.group-hint {
+  font-size: 25rpx;
+  color: var(--gray);
+  margin: 18rpx 24rpx 0;
+  line-height: 1.55;
+}
+
+/* ---------- 代码块 ---------- */
+
+.code-block {
+  background: #ECEDEF;
+  border-radius: 20rpx;
+  overflow: hidden;
+  margin: 20rpx 0;
+}
+
+.code-lang {
+  font-size: 24rpx;
+  color: var(--gray);
+  padding: 18rpx 28rpx 0;
+  text-transform: uppercase;
+  letter-spacing: 1rpx;
+}
+
+.code-body {
+  padding: 12rpx 28rpx 26rpx;
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 25rpx;
+  line-height: 1.6;
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.code-block-dark {
+  background: rgba(255, 255, 255, 0.07);
+}
+
+.code-block-dark .code-body {
+  color: var(--mist);
+}
+
+.code-block-dark .code-lang {
+  color: rgba(191, 212, 255, 0.55);
+}
+
+/* ---------- 品牌图标 ---------- */
+
+.brand-whale {
+  width: 44rpx;
+  height: 44rpx;
+  margin-right: 14rpx;
+  flex-shrink: 0;
+}
+
+/* ---------- 深海蓝背景（preview-bg.html 同款：navy + 网格瓦片 + 粒子鲸鱼） ---------- */
+
+.deep-bg {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: var(--navy);
+  pointer-events: none;
+}
+
+.deep-grid {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background-image: url(../../assets/icons/bg-grid.png);
+  background-size: 1050rpx 1050rpx;
+  background-repeat: repeat;
+}
+
+.deep-whale {
+  position: absolute;
+  left: 55%;
+  top: 34%;
+  transform: translate(-50%, -50%);
+  width: 862rpx;
+  height: 862rpx;
+}

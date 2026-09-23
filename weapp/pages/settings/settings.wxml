@@ -1,0 +1,88 @@
+<view class="page page-light settings">
+  <view class="group-title">新会话默认配置</view>
+  <view class="card">
+    <view class="card-row" bindtap="pickAgentPreset">
+      <text class="card-row-label">Agent 预设</text>
+      <view class="card-row-value">
+        <text>{{presetLabel}}</text>
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+      </view>
+    </view>
+    <view class="card-row" bindtap="pickDefaultModel">
+      <text class="card-row-label">默认模型</text>
+      <view class="card-row-value">
+        <text>{{modelLabel}}</text>
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+      </view>
+    </view>
+    <view class="card-row" bindtap="pickDefaultPermission">
+      <text class="card-row-label">权限</text>
+      <view class="card-row-value">
+        <text>{{permissionLabel}}</text>
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+      </view>
+    </view>
+  </view>
+  <view class="group-hint">与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。</view>
+
+  <view class="group-title">Mobile Gateway</view>
+  <view class="card">
+    <view class="card-row">
+      <text class="card-row-label gw-url text-mono">{{endpoint || '未配置'}}</text>
+    </view>
+    <view class="card-row">
+      <view class="card-row-label gw-status">
+        <view class="status-dot {{connectionClass}}"></view>
+        <text>{{connectionLabel}}</text>
+      </view>
+      <view class="card-row-value">
+        <text wx:if="{{port}}">Port {{port}}</text>
+      </view>
+    </view>
+    <view class="card-row" bindtap="disconnect">
+      <text class="btn-text">断开连接</text>
+    </view>
+    <view class="card-row" bindtap="pingGateway">
+      <text class="btn-text">Ping 网关</text>
+    </view>
+    <view class="card-row" bindtap="forgetDevice">
+      <text class="btn-text-danger">忘记此设备</text>
+    </view>
+  </view>
+
+  <view class="group-title">DSH Host</view>
+  <view class="card">
+    <view class="card-row">
+      <text class="card-row-label">版本</text>
+      <text class="card-row-value">{{host.version || '—'}}</text>
+    </view>
+    <view class="card-row">
+      <text class="card-row-label">Provider</text>
+      <text class="card-row-value">{{host.provider || '—'}}</text>
+    </view>
+    <view class="card-row">
+      <text class="card-row-label">Model</text>
+      <text class="card-row-value">{{host.model || '—'}}</text>
+    </view>
+    <view class="card-row">
+      <text class="card-row-label">已连接会话</text>
+      <text class="card-row-value">{{host.attachedSessions !== undefined ? host.attachedSessions : '—'}}</text>
+    </view>
+    <view class="card-row">
+      <text class="card-row-label">工作目录</text>
+      <text class="card-row-value text-mono gw-cwd">{{host.cwd || '—'}}</text>
+    </view>
+  </view>
+
+  <view class="group-title">关于</view>
+  <view class="card">
+    <view class="card-row">
+      <text class="card-row-label">客户端</text>
+      <text class="card-row-value">DshMobile 小程序版</text>
+    </view>
+    <view class="card-row" bindtap="openFiles">
+      <text class="card-row-label">工作区文件</text>
+      <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+    </view>
+  </view>
+</view>
