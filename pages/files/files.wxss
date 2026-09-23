@@ -105,3 +105,39 @@
   color: var(--ocean);
   font-weight: 600;
 }
+
+/* ---------- 深色模式覆盖（page-dark） ---------- */
+
+.page-dark .crumb {
+  color: #E5E5EA;
+}
+
+.page-dark .crumb-sep {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.page-dark .entry-name {
+  color: #E5E5EA;
+}
+
+.page-dark .entry-sub {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.page-dark .empty {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.page-dark .actions-bar {
+  background: rgba(255, 255, 255, 0.05);
+  border-top-color: rgba(255, 255, 255, 0.1);
+}
+
+.page-dark .btn-text.strong {
+  color: var(--ocean);
+}
+
+.page-dark .entry-chevron {
+  opacity: 0.5;
+  filter: invert(1);
+}

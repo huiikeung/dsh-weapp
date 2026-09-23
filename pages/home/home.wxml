@@ -142,4 +142,29 @@
       <view class="host-edit-btn-save tap" bindtap="saveHostEdit">保存</view>
     </view>
   </view>
+
+  <!-- 工作区选择弹窗 -->
+  <view wx:if="{{workspacePickerOpen}}" class="host-mask" bindtap="closeWorkspacePicker"></view>
+  <view wx:if="{{workspacePickerOpen}}" class="workspace-picker-sheet">
+    <view class="picker-sheet-head">
+      <view class="picker-sheet-title">工作区</view>
+      <view class="picker-sheet-close tap" bindtap="closeWorkspacePicker">关闭</view>
+    </view>
+    <view class="picker-list">
+      <block wx:for="{{pickerWorkspaces}}" wx:key="workspaceId">
+        <view class="picker-row tap" bindtap="selectWorkspace" data-id="{{item.workspaceId}}">
+          <image class="picker-row-icon" src="/assets/icons/folder-blue.png"/>
+          <view class="picker-row-body">
+            <view class="picker-row-title">{{item.title}}</view>
+            <view class="picker-row-path text-mono">{{item.path}}</view>
+          </view>
+          <image wx:if="{{item.workspaceId === currentWorkspaceId}}" class="picker-row-check" src="/assets/icons/check-white.png"/>
+        </view>
+      </block>
+      <view wx:if="{{!pickerWorkspaces.length}}" class="picker-empty">暂无工作区</view>
+    </view>
+    <view class="picker-new">
+      <view class="btn-glass tap" bindtap="browseDirectory">从目录创建工作区</view>
+    </view>
+  </view>
 </view>

@@ -1,4 +1,4 @@
-<view class="page page-light settings">
+<view class="page page-dark settings">
 
   <view class="group-title">新会话默认配置</view>
   <view class="card">

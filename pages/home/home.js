@@ -28,7 +28,10 @@ Page({
     editingHostId: '',
     editingGatewayName: '',
     editAlias: '',
-    editKind: 'desktopcomputer'
+    editKind: 'desktopcomputer',
+    workspacePickerOpen: false,
+    pickerWorkspaces: [],
+    currentWorkspaceId: ''
   },
 
   onLoad() {
@@ -230,7 +233,24 @@ Page({
   },
 
   openWorkspacePicker() {
-    wx.navigateTo({ url: '/pages/workspace-picker/workspace-picker' });
+    this.setData({
+      workspacePickerOpen: true,
+      pickerWorkspaces: store.state.workspaces || [],
+      currentWorkspaceId: store.state.currentWorkspaceId || ''
+    });
+  },
+
+  closeWorkspacePicker() {
+    this.setData({ workspacePickerOpen: false });
+  },
+
+  selectWorkspace(e) {
+    store.setCurrentWorkspace(e.currentTarget.dataset.id);
+    this.setData({ workspacePickerOpen: false });
+  },
+
+  browseDirectory() {
+    wx.navigateTo({ url: '/pages/files/files?mode=picker' });
   },
 
   newSession() {

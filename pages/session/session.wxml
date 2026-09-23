@@ -1,4 +1,4 @@
-<view class="page page-light session">
+<view class="page page-dark session">
   <!-- 顶部导航 -->
   <view class="navbar">
     <view class="nav-back glass-light glass-press" bindtap="goBack"><image class="nav-ic" src="/assets/icons/back-black.png"/></view>

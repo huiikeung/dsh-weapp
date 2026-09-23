@@ -927,3 +927,85 @@
   background: rgba(142, 142, 147, 0.14);
   color: var(--gray);
 }
+
+/* ---------- 深色模式覆盖（page-dark） ---------- */
+
+.page-dark .nav-back,
+.page-dark .nav-more {
+  background: rgba(255, 255, 255, 0.08);
+  color: #FFFFFF;
+  border: 1rpx solid rgba(255, 255, 255, 0.15);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.3);
+}
+
+.page-dark .nav-title {
+  color: #FFFFFF;
+}
+
+.page-dark .row-user-text {
+  color: #FFFFFF;
+}
+
+.page-dark .fold-title {
+  color: #FFFFFF;
+}
+
+.page-dark .fold-body {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.page-dark .fold {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.page-dark .md-para {
+  color: #E5E5EA;
+}
+
+.page-dark .md-heading {
+  color: #FFFFFF;
+}
+
+.page-dark .md-li-text {
+  color: #E5E5EA;
+}
+
+.page-dark .code-block {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.page-dark .code-body {
+  color: #E5E5EA;
+}
+
+.page-dark .code-copy {
+  background: rgba(255, 255, 255, 0.1);
+  color: #FFFFFF;
+}
+
+.page-dark .pending-card {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.page-dark .q-custom {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.page-dark .composer-input {
+  color: #FFFFFF;
+}
+
+.page-dark .composer {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+}
+
+.page-dark .context-ring-in {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* 深色模式图标反色 */
+.page-dark .nav-ic {
+  filter: invert(1) brightness(0.85);
+}
