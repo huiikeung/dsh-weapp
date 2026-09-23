@@ -54,16 +54,14 @@
   flex-shrink: 0;
 }
 
-/* ---------- 分段控件 ---------- */
+/* ---------- 分段控件（深色，iOS 对齐） ---------- */
 
 .segmented {
   display: flex;
   margin: 8rpx 40rpx 20rpx;
   border-radius: 999rpx;
   padding: 8rpx;
-  background: rgba(16, 19, 24, 0.06);
-  box-shadow: none;
-  border: none;
+  background: rgba(118, 118, 128, 0.24);
   flex-shrink: 0;
 }
 
@@ -73,14 +71,13 @@
   padding: 18rpx 0;
   border-radius: 999rpx;
   font-size: 30rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.72);
 }
 
 .segment.active {
-  background: #FFFFFF;
-  color: var(--ink);
+  background: #636366;
+  color: #FFFFFF;
   font-weight: 600;
-  box-shadow: 0 4rpx 14rpx rgba(7, 24, 43, 0.10);
 }
 
 /* ---------- 对话 ---------- */
@@ -102,18 +99,18 @@
 
 .row-user {
   padding: 28rpx 0;
-  border-bottom: 1rpx solid rgba(16, 19, 24, 0.06);
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.08);
 }
 
 .row-user-title {
   font-size: 26rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.55);
   margin-bottom: 10rpx;
 }
 
 .row-user-text {
   font-size: 31rpx;
-  color: var(--ink);
+  color: #FFFFFF;
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
@@ -121,7 +118,7 @@
 
 .row-assistant {
   padding: 30rpx 0;
-  border-bottom: 1rpx solid rgba(16, 19, 24, 0.06);
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.08);
 }
 
 .row-streaming-title {
@@ -138,8 +135,8 @@
 
 .event-tag {
   font-size: 22rpx;
-  color: var(--gray);
-  background: rgba(16, 19, 24, 0.06);
+  color: rgba(235, 235, 245, 0.6);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 8rpx;
   padding: 4rpx 12rpx;
   margin-right: 16rpx;
@@ -148,12 +145,12 @@
 
 .event-tag.error {
   color: #E5484D;
-  background: rgba(229, 72, 77, 0.10);
+  background: rgba(229, 72, 77, 0.14);
 }
 
 .event-text {
   font-size: 26rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.55);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -162,7 +159,8 @@
 /* ---------- 折叠行（思考 / 工具） ---------- */
 
 .fold {
-  background: rgba(16, 19, 24, 0.04);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.10);
   border-radius: 18rpx;
   margin: 14rpx 0;
   overflow: hidden;
@@ -191,7 +189,7 @@
 .fold-title {
   flex: 1;
   font-size: 27rpx;
-  color: var(--ink);
+  color: #FFFFFF;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -213,7 +211,7 @@
 
 .tool-status {
   font-size: 24rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.55);
   margin-left: 14rpx;
   flex-shrink: 0;
 }
@@ -224,7 +222,7 @@
 .fold-body {
   padding: 0 24rpx 20rpx;
   font-size: 26rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.65);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -238,13 +236,13 @@
 .md-para {
   font-size: 31rpx;
   line-height: 1.65;
-  color: var(--ink);
+  color: #F2F2F7;
   display: block;
 }
 
 .md-heading {
   display: block;
-  color: var(--ink);
+  color: #FFFFFF;
   font-weight: 700;
   margin-top: 20rpx;
 }
@@ -254,18 +252,28 @@
 .md-h3 { font-size: 33rpx; }
 .md-h4, .md-h5, .md-h6 { font-size: 31rpx; }
 
+.md-inline-code {
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 0.86em;
+  color: #E8EDF5;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1rpx solid rgba(255, 255, 255, 0.10);
+  border-radius: 8rpx;
+  padding: 2rpx 10rpx;
+}
+
 .md-quote {
   display: block;
-  border-left: 6rpx solid var(--mist);
+  border-left: 6rpx solid rgba(191, 212, 255, 0.45);
   padding-left: 20rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.6);
   font-size: 29rpx;
   margin: 16rpx 0;
 }
 
 .md-hr {
   height: 1rpx;
-  background: rgba(16, 19, 24, 0.12);
+  background: rgba(255, 255, 255, 0.14);
   margin: 30rpx 0;
 }
 
@@ -280,7 +288,7 @@
 }
 
 .md-li-marker {
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.55);
   margin-right: 16rpx;
   font-size: 29rpx;
   flex-shrink: 0;
@@ -290,14 +298,54 @@
   flex: 1;
   font-size: 30rpx;
   line-height: 1.6;
-  color: var(--ink);
+  color: #F2F2F7;
+}
+
+/* ---------- Markdown 表格（深色，iOS 对齐） ---------- */
+
+.md-table {
+  margin: 20rpx 0;
+  border: 1rpx solid rgba(255, 255, 255, 0.16);
+  border-radius: 10rpx;
+  overflow: hidden;
+}
+
+.md-tr {
+  display: flex;
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.14);
+}
+
+.md-tr:last-child {
+  border-bottom: none;
+}
+
+.md-td {
+  flex: 1;
+  min-width: 0;
+  padding: 20rpx 24rpx;
+  font-size: 30rpx;
+  line-height: 1.5;
+  color: #F2F2F7;
+  border-left: 1rpx solid rgba(255, 255, 255, 0.10);
+  word-break: break-word;
+}
+
+.md-td:first-child {
+  border-left: none;
+}
+
+.md-tr-head .md-td {
+  font-weight: 700;
+  color: #FFFFFF;
+  font-size: 32rpx;
 }
 
 /* ---------- 代码块 ---------- */
 
 .code-block {
   position: relative;
-  background: #ECEDEF;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1rpx solid rgba(255, 255, 255, 0.10);
   border-radius: 20rpx;
   overflow: hidden;
   margin: 20rpx 0;
@@ -305,7 +353,7 @@
 
 .code-lang {
   font-size: 23rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.45);
   padding: 18rpx 28rpx 0;
   text-transform: uppercase;
   letter-spacing: 1rpx;
@@ -316,7 +364,7 @@
   font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   font-size: 24rpx;
   line-height: 1.6;
-  color: var(--ink);
+  color: #E5E5EA;
   white-space: pre-wrap;
   word-break: break-all;
   max-height: 480rpx;
@@ -328,8 +376,8 @@
   top: 14rpx;
   right: 20rpx;
   font-size: 22rpx;
-  color: var(--ocean);
-  background: rgba(255, 255, 255, 0.85);
+  color: rgba(235, 235, 245, 0.75);
+  background: rgba(255, 255, 255, 0.10);
   border-radius: 999rpx;
   padding: 6rpx 18rpx;
 }
@@ -357,7 +405,8 @@
 /* ---------- 轨迹 ---------- */
 
 .trace-summary {
-  background: rgba(16, 19, 24, 0.05);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.10);
   border-radius: 22rpx;
   padding: 28rpx 28rpx 22rpx;
   margin-bottom: 24rpx;
@@ -368,12 +417,12 @@
   align-items: center;
   justify-content: space-between;
   font-size: 28rpx;
-  color: var(--ink);
+  color: #FFFFFF;
   margin-bottom: 22rpx;
 }
 
 .trace-total {
-  color: var(--ink);
+  color: #FFFFFF;
   font-weight: 600;
 }
 
@@ -386,7 +435,7 @@
 .lane-label {
   width: 110rpx;
   font-size: 25rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.55);
   flex-shrink: 0;
 }
 
@@ -394,7 +443,7 @@
   flex: 1;
   height: 16rpx;
   border-radius: 999rpx;
-  background: rgba(16, 19, 24, 0.08);
+  background: rgba(255, 255, 255, 0.10);
   overflow: hidden;
 }
 
@@ -411,7 +460,7 @@
   display: flex;
   justify-content: space-between;
   font-size: 23rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.45);
   margin-top: 14rpx;
 }
 
@@ -424,7 +473,7 @@
 .trace-turn text {
   font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   font-size: 26rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.55);
   flex-shrink: 0;
   margin-right: 18rpx;
 }
@@ -432,14 +481,14 @@
 .trace-turn-line {
   flex: 1;
   height: 1rpx;
-  background: rgba(16, 19, 24, 0.12);
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .trace-row {
   display: flex;
   align-items: center;
   padding: 18rpx 0;
-  border-bottom: 1rpx solid rgba(16, 19, 24, 0.05);
+  border-bottom: 1rpx solid rgba(255, 255, 255, 0.07);
 }
 
 .trace-badge {
@@ -469,14 +518,14 @@
 }
 
 .trace-badge.event {
-  color: var(--gray);
-  background: rgba(16, 19, 24, 0.08);
+  color: rgba(235, 235, 245, 0.6);
+  background: rgba(255, 255, 255, 0.10);
 }
 
 .trace-label {
   font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   font-size: 26rpx;
-  color: var(--ink);
+  color: #FFFFFF;
   font-weight: 600;
   margin-right: 14rpx;
   flex-shrink: 0;
@@ -490,7 +539,7 @@
   flex: 1;
   font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   font-size: 25rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.55);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -498,7 +547,7 @@
 
 .trace-seq {
   font-size: 24rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.45);
   margin: 0 10rpx 0 14rpx;
   flex-shrink: 0;
 }
@@ -511,7 +560,7 @@
 
 .empty {
   text-align: center;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.45);
   padding: 80rpx 0;
   font-size: 27rpx;
 }
@@ -520,18 +569,18 @@
 
 .pending-card {
   margin: 0 40rpx 20rpx;
-  background: #FFFFFF;
-  border: 1rpx solid rgba(46, 107, 230, 0.25);
+  background: #1C1C1E;
+  border: 1rpx solid rgba(46, 107, 230, 0.45);
   border-radius: 24rpx;
   padding: 28rpx;
-  box-shadow: 0 10rpx 30rpx rgba(7, 24, 43, 0.10);
+  box-shadow: 0 10rpx 30rpx rgba(0, 0, 0, 0.45);
   flex-shrink: 0;
 }
 
 .pending-title {
   font-size: 29rpx;
   font-weight: 600;
-  color: var(--ink);
+  color: #FFFFFF;
   margin-bottom: 16rpx;
 }
 
@@ -541,14 +590,14 @@
 
 .q-question {
   font-size: 30rpx;
-  color: var(--ink);
+  color: #F2F2F7;
   font-weight: 500;
   margin-bottom: 8rpx;
 }
 
 .q-detail {
   font-size: 25rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.55);
   margin-bottom: 12rpx;
 }
 
@@ -558,7 +607,7 @@
 }
 
 .q-option {
-  border: 1rpx solid rgba(16, 19, 24, 0.14);
+  border: 1rpx solid rgba(255, 255, 255, 0.18);
   border-radius: 16rpx;
   padding: 18rpx 22rpx;
   margin-bottom: 12rpx;
@@ -566,23 +615,24 @@
 
 .q-option.selected {
   border-color: var(--ocean);
-  background: rgba(46, 107, 230, 0.08);
+  background: rgba(46, 107, 230, 0.18);
 }
 
 .q-option-label {
   font-size: 28rpx;
-  color: var(--ink);
+  color: #F2F2F7;
 }
 
 .q-option-desc {
   font-size: 24rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.55);
   margin-top: 4rpx;
 }
 
 .q-custom {
-  background: var(--paper);
-  border: 1rpx solid rgba(16, 19, 24, 0.1);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1rpx solid rgba(255, 255, 255, 0.14);
+  color: #FFFFFF;
 }
 
 .pending-actions {
@@ -599,8 +649,8 @@
 }
 
 .pending-btn.ghost {
-  color: var(--gray);
-  border: 1rpx solid rgba(16, 19, 24, 0.16);
+  color: rgba(235, 235, 245, 0.7);
+  border: 1rpx solid rgba(255, 255, 255, 0.22);
 }
 
 .pending-btn.primary {
@@ -615,32 +665,62 @@
 .approval-tool {
   font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   font-size: 30rpx;
-  color: var(--ink);
+  color: #FFFFFF;
   font-weight: 600;
   margin-bottom: 8rpx;
 }
 
 .approval-reason {
   font-size: 26rpx;
-  color: var(--gray);
+  color: rgba(235, 235, 245, 0.6);
   margin-bottom: 10rpx;
+}
+
+/* ---------- 会话统计胶囊（composer 右上方悬浮） ---------- */
+
+.stats-pill {
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  margin: 0 40rpx 14rpx;
+  background: #1C1C1E;
+  border: 1rpx solid rgba(255, 255, 255, 0.10);
+  border-radius: 999rpx;
+  padding: 12rpx 24rpx;
+  flex-shrink: 0;
+  box-shadow: 0 6rpx 20rpx rgba(0, 0, 0, 0.35);
+}
+
+.stats-pill-text {
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 24rpx;
+  color: rgba(235, 235, 245, 0.75);
+}
+
+.stats-pill-chev {
+  width: 24rpx;
+  height: 24rpx;
+  margin-left: 12rpx;
 }
 
 /* ---------- 输入面板 ---------- */
 
 .composer {
   margin: 0 24rpx calc(24rpx + env(safe-area-inset-bottom));
-  padding: 24rpx 28rpx 18rpx;
-  border-radius: 32rpx;
+  padding: 28rpx 28rpx 18rpx;
+  border-radius: 48rpx;
+  background: #1C1C1E;
+  border: 1rpx solid rgba(255, 255, 255, 0.10);
+  box-shadow: 0 12rpx 36rpx rgba(0, 0, 0, 0.45);
   flex-shrink: 0;
 }
 
 .composer-input {
   width: 100%;
-  min-height: 72rpx;
+  min-height: 88rpx;
   max-height: 320rpx;
-  font-size: 30rpx;
-  color: var(--ink);
+  font-size: 31rpx;
+  color: #FFFFFF;
   box-sizing: border-box;
 }
 
@@ -668,7 +748,7 @@
   width: 34rpx;
   height: 34rpx;
   border-radius: 50%;
-  background: rgba(16, 19, 24, 0.65);
+  background: rgba(0, 0, 0, 0.7);
   color: #FFFFFF;
   font-size: 20rpx;
   display: flex;
@@ -683,9 +763,11 @@
 }
 
 .chip {
+  display: flex;
+  align-items: center;
   font-size: 24rpx;
-  color: var(--gray);
-  background: rgba(16, 19, 24, 0.06);
+  color: rgba(235, 235, 245, 0.85);
+  background: rgba(255, 255, 255, 0.08);
   border-radius: 999rpx;
   padding: 10rpx 20rpx;
   margin-right: 14rpx;
@@ -707,8 +789,8 @@
 }
 
 .send-btn {
-  width: 76rpx;
-  height: 76rpx;
+  width: 84rpx;
+  height: 84rpx;
   border-radius: 50%;
   background: var(--ocean);
   color: #FFFFFF;
@@ -730,10 +812,7 @@
 }
 
 .composer-stats {
-  text-align: right;
-  font-size: 23rpx;
-  color: var(--gray);
-  margin-top: 12rpx;
+  display: none;
 }
 
 /* ---------- 抽屉 ---------- */
@@ -741,7 +820,7 @@
 .sheet-mask {
   position: fixed;
   inset: 0;
-  background: rgba(7, 24, 43, 0.4);
+  background: rgba(0, 0, 0, 0.55);
   z-index: 100;
   display: flex;
   align-items: flex-end;
@@ -755,13 +834,14 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
+  background: #1C1C1E;
 }
 
 .sheet-handle {
   width: 80rpx;
   height: 8rpx;
   border-radius: 999rpx;
-  background: rgba(16, 19, 24, 0.18);
+  background: rgba(255, 255, 255, 0.22);
   margin: 8rpx auto 24rpx;
 }
 
@@ -775,7 +855,7 @@
 .sheet-title-text {
   font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   font-size: 30rpx;
-  color: var(--ink);
+  color: #FFFFFF;
   font-weight: 600;
   margin-left: 16rpx;
 }
@@ -890,7 +970,7 @@
   right: 6rpx;
   bottom: 6rpx;
   border-radius: 50%;
-  background: var(--paper);
+  background: #1C1C1E;
 }
 
 .attach-ic {
@@ -928,13 +1008,13 @@
   color: var(--gray);
 }
 
-/* ---------- 深色模式覆盖（page-dark） ---------- */
+/* ---------- 深色补充覆盖（page-dark） ---------- */
 
 .page-dark .nav-back,
 .page-dark .nav-more {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.10);
   color: #FFFFFF;
-  border: 1rpx solid rgba(255, 255, 255, 0.15);
+  border: 1rpx solid rgba(255, 255, 255, 0.14);
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.3);
 }
 
@@ -942,70 +1022,19 @@
   color: #FFFFFF;
 }
 
-.page-dark .row-user-text {
-  color: #FFFFFF;
+.page-dark .nav-preset {
+  color: rgba(235, 235, 245, 0.65);
 }
 
-.page-dark .fold-title {
-  color: #FFFFFF;
-}
-
-.page-dark .fold-body {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.page-dark .fold {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.page-dark .md-para {
-  color: #E5E5EA;
-}
-
-.page-dark .md-heading {
-  color: #FFFFFF;
-}
-
-.page-dark .md-li-text {
-  color: #E5E5EA;
-}
-
-.page-dark .code-block {
-  background: rgba(0, 0, 0, 0.35);
-}
-
-.page-dark .code-body {
-  color: #E5E5EA;
-}
-
-.page-dark .code-copy {
-  background: rgba(255, 255, 255, 0.1);
-  color: #FFFFFF;
-}
-
-.page-dark .pending-card {
+.page-dark .attach-img {
   background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(255, 255, 255, 0.15);
 }
 
-.page-dark .q-custom {
-  background: rgba(255, 255, 255, 0.05);
-}
-
-.page-dark .composer-input {
-  color: #FFFFFF;
-}
-
-.page-dark .composer {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1rpx solid rgba(255, 255, 255, 0.12);
-}
-
-.page-dark .context-ring-in {
-  background: rgba(255, 255, 255, 0.1);
+.page-dark .field-placeholder {
+  color: rgba(235, 235, 245, 0.35);
 }
 
 /* 深色模式图标反色 */
 .page-dark .nav-ic {
-  filter: invert(1) brightness(0.85);
+  filter: invert(1) brightness(0.9);
 }

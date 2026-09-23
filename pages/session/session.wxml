@@ -11,7 +11,7 @@
   </view>
 
   <!-- 对话 / 轨迹 分段控件 -->
-  <view class="segmented glass-light">
+  <view class="segmented">
     <view class="segment {{tab === 'conversation' ? 'active' : ''}}" bindtap="switchTab" data-tab="conversation">对话</view>
     <view class="segment {{tab === 'trajectory' ? 'active' : ''}}" bindtap="switchTab" data-tab="trajectory">轨迹</view>
   </view>
@@ -86,7 +86,15 @@
           <view wx:for="{{item.blocks}}" wx:for-item="block" wx:key="index" class="md-block">
             <rich-text wx:if="{{block.type === 'para'}}" class="md-para" nodes="{{block.html}}"></rich-text>
             <rich-text wx:elif="{{block.type === 'heading'}}" class="md-heading md-h{{block.level}}" nodes="{{block.html}}"></rich-text>
-            <view wx:elif="{{block.type === 'code'}}" class="code-block">
+            <view wx:elif="{{block.type === 'table'}}" class="md-table">
+            <view class="md-tr md-tr-head">
+              <view wx:for="{{block.header}}" wx:for-item="cell" wx:key="index" class="md-td md-th"><rich-text nodes="{{cell}}"></rich-text></view>
+            </view>
+            <view wx:for="{{block.rows}}" wx:for-item="row" wx:key="index" class="md-tr">
+              <view wx:for="{{row}}" wx:for-item="cell" wx:key="index" class="md-td"><rich-text nodes="{{cell}}"></rich-text></view>
+            </view>
+          </view>
+          <view wx:elif="{{block.type === 'code'}}" class="code-block">
               <view class="code-lang">{{block.lang || 'CODE'}}</view>
               <view class="code-body">{{block.text}}</view>
               <view class="code-copy" catchtap="copyCode" data-text="{{block.text}}">复制</view>
@@ -224,8 +232,14 @@
     </view>
   </view>
 
+  <!-- 会话统计胶囊（悬浮在 composer 右上方，iOS 对齐） -->
+  <view wx:if="{{tab === 'conversation' && statsLabel}}" class="stats-pill" bindtap="showStats">
+    <text class="stats-pill-text">{{statsLabel}}</text>
+    <image class="stats-pill-chev" src="/assets/icons/chev-up-gray.png"/>
+  </view>
+
   <!-- ================= 输入面板 ================= -->
-  <view class="composer glass-light">
+  <view class="composer">
     <textarea
       class="composer-input"
       placeholder="描述你想要构建的内容"
@@ -260,12 +274,11 @@
         bindtap="send"
       ><image class="send-ic" src="/assets/icons/arrow-up-white.png"/></view>
     </view>
-    <view wx:if="{{statsLabel}}" class="composer-stats">{{statsLabel}}</view>
   </view>
 
   <!-- 轨迹详情抽屉 -->
   <view wx:if="{{traceDetail}}" class="sheet-mask" bindtap="closeTraceDetail">
-    <view class="sheet glass-light" catchtap="noop">
+    <view class="sheet" catchtap="noop">
       <view class="sheet-handle"></view>
       <view class="sheet-title">
         <view class="trace-badge {{traceDetail.badgeClass}}">{{traceDetail.badge}}</view>

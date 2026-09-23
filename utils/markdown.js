@@ -1,6 +1,6 @@
 // 轻量 Markdown → 结构化块，供小程序渲染。
 // 覆盖 iOS 对话流实际出现的语法：标题、段落、围栏代码块、行内代码、
-// 粗体、斜体、链接、列表、分割线、引用。不追求完整 CommonMark。
+// 粗体、斜体、链接、列表、分割线、引用、表格。不追求完整 CommonMark。
 
 function escapeHtml(text) {
   return String(text)
@@ -31,9 +31,18 @@ function inlineHtml(text) {
  * { type: 'code', lang, text }
  * { type: 'quote', html }
  * { type: 'list', ordered, items: [html] }
+ * { type: 'table', header: [html], rows: [[html]] }
  * { type: 'hr' }
  * { type: 'para', html }
  */
+const TABLE_SEPARATOR = /^\s*\|?(\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$/;
+
+function splitTableRow(line) {
+  let cells = String(line).trim();
+  if (cells.startsWith('|')) cells = cells.slice(1);
+  if (cells.endsWith('|')) cells = cells.slice(0, -1);
+  return cells.split('|').map(function (cell) { return inlineHtml(cell.trim()); });
+}
 function parse(markdown) {
   const lines = String(markdown || '').split(/\r?\n/);
   const blocks = [];
@@ -125,6 +134,20 @@ function parse(markdown) {
       }
       list.items.push(inlineHtml(bullet ? bullet[1] : ordered[2]));
       i += 1;
+      continue;
+    }
+
+    // 表格：当前行含 |，下一行是 |---|---| 分隔行
+    if (line.indexOf('|') !== -1 && i + 1 < lines.length && TABLE_SEPARATOR.test(lines[i + 1])) {
+      flushAll();
+      const header = splitTableRow(line);
+      const rows = [];
+      i += 2;
+      while (i < lines.length && lines[i].indexOf('|') !== -1 && lines[i].trim()) {
+        rows.push(splitTableRow(lines[i]));
+        i += 1;
+      }
+      blocks.push({ type: 'table', header: header, rows: rows });
       continue;
     }
 
