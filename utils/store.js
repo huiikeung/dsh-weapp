@@ -870,7 +870,10 @@ function createStore() {
       const result = pairing.parse(raw, Date.now());
       if (!result.ok) return result;
       const payload = result.payload;
-      if (!isTrustedEndpoint(payload.publicUrl)) {
+      // v3 中继端点每次换节点/重新配对都会变化，且 E2EE 的 agentPubKey
+      // 在 AgentHello 阶段已做密码学验签，端点白名单对它只会阻碍重配对；
+      // 因此白名单仅对 v2 直连地址生效。
+      if (payload.mode !== 'relay' && !isTrustedEndpoint(payload.publicUrl)) {
         return { ok: false, error: '地址未经此主机确认，请重新扫码添加地址。' };
       }
       return beginPairing(payload.publicUrl, payload.pairingCode, payload);
@@ -885,6 +888,7 @@ function createStore() {
       if (!code || /\s/.test(code)) {
         return { ok: false, error: '一次性配对码无效' };
       }
+      // 手动输入只用于 v2 直连（v3 走扫码载荷），保留白名单校验。
       if (!isTrustedEndpoint(normalized)) {
         return { ok: false, error: '地址未经此主机确认，请重新扫码添加地址。' };
       }
