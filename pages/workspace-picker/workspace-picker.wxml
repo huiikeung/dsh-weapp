@@ -38,6 +38,11 @@
             <image class="dir-row-chev" src="/assets/icons/ic-dir-chevron-mist.png"/>
           </view>
           <view class="dir-divider"></view>
+          <!-- DEBUG: 临时调试信息，确认后删除 -->
+          <view style="padding: 16rpx; font-size: 22rpx; color: #ff6b6b; word-break: break-all;">
+            [debug] entries={{dirEntries.length}} loading={{dirLoading}} error={{dirError || '无'}}
+            <block wx:if="{{dirEntries.length}}">\n第一条: {{dirEntries[0].name}} | {{dirEntries[0].path}}</block>
+          </view>
           <block wx:if="{{!dirEntries.length && !dirLoading}}">
             <view class="dir-empty">此目录没有子文件夹</view>
           </block>
