@@ -109,10 +109,6 @@
     <view wx:if="{{!displaySessions.length}}" class="empty">暂无会话，点击「新建会话」开始</view>
   </view>
 
-  <view class="footer-tools">
-    <view class="btn-text" bindtap="openFiles">工作区文件</view>
-  </view>
-
   <!-- 切换主机 sheet（GatewaySwitcherSheet 对齐） -->
   <view wx:if="{{hostSheetOpen}}" class="host-mask" bindtap="closeHostSwitcher"></view>
   <view wx:if="{{hostSheetOpen}}" class="host-sheet">

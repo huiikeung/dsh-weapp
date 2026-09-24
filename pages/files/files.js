@@ -24,6 +24,11 @@ Page({
   },
 
   load(path) {
+    if (store.state.connection !== 'connected') {
+      // 对齐 dsh-mobile browseDirectories：未连接直接提示，不挂起加载态
+      this.setData({ loading: false, error: '请先连接 DeepSeek Harness', entries: [] });
+      return;
+    }
     this.currentPath = path || null;
     this.setData({ loading: true, error: '' });
     store.client.requestDirectories(path)

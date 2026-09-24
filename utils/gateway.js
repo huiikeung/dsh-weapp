@@ -347,17 +347,21 @@ class GatewayClient {
       }
       return;
     }
-    // requestType 关联的控制请求
-    if (frame.requestType && (frame.kind === frame.requestType || frame.kind === 'error')) {
-      const pendingReq = this.pendingRequests['type:' + frame.requestType];
-      if (pendingReq) {
-        delete this.pendingRequests['type:' + frame.requestType];
-        clearTimeout(pendingReq.timer);
-        if (frame.kind === 'error') {
-          pendingReq.reject(new Error(frame.message || frame.code || (frame.requestType + '-failed')));
-        } else {
-          pendingReq.resolve(frame);
-        }
+    // requestType 关联的控制请求；响应帧可能缺 requestType，回退按 kind 匹配
+    // （对齐 dsh-mobile GatewayRuntime 按响应 kind 匹配挂起 lane 的做法）
+    var pendingReq = null;
+    if (frame.requestType && this.pendingRequests['type:' + frame.requestType]) {
+      pendingReq = this.pendingRequests['type:' + frame.requestType];
+    } else if (frame.kind && this.pendingRequests['type:' + frame.kind]) {
+      pendingReq = this.pendingRequests['type:' + frame.kind];
+    }
+    if (pendingReq && (frame.kind === 'error' || !frame.requestType || frame.kind === frame.requestType)) {
+      delete this.pendingRequests[pendingReq.key];
+      clearTimeout(pendingReq.timer);
+      if (frame.kind === 'error') {
+        pendingReq.reject(new Error(frame.message || frame.code || (frame.requestType + '-failed')));
+      } else {
+        pendingReq.resolve(frame);
       }
     }
   }
@@ -385,7 +389,7 @@ class GatewayClient {
         delete self.pendingRequests[key];
         reject(new Error('请求超时：' + object.type));
       }, opts.timeout || REQUEST_TIMEOUT);
-      self.pendingRequests[key] = { resolve: resolve, reject: reject, timer: timer };
+      self.pendingRequests[key] = { resolve: resolve, reject: reject, timer: timer, key: key };
     });
   }
 

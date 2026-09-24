@@ -301,16 +301,6 @@
   font-size: 27rpx;
 }
 
-.footer-tools {
-  display: flex;
-  justify-content: center;
-  margin-top: 40rpx;
-}
-
-.footer-tools .btn-text {
-  color: var(--mist);
-}
-
 /* ---------- 切换主机（GatewaySwitcherBar / Sheet） ---------- */
 
 .host-bar {

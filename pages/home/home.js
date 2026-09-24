@@ -356,10 +356,6 @@ Page({
 
   openSettings() {
     wx.navigateTo({ url: '/pages/settings/settings' });
-  },
-
-  openFiles() {
-    wx.navigateTo({ url: '/pages/files/files' });
   }
 });
 
