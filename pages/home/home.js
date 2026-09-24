@@ -59,7 +59,9 @@ Page({
   syncFromStore(snapshot) {
     const app = snapshot.app;
     const conn = app.connection;
-    const current = (app.workspaces || []).find((w) => w.workspaceId === app.currentWorkspaceId) || null;
+    // 对齐 dsh-mobile workspaceScopedSessions：选中工作区优先，否则回退第一个
+    const workspaces = app.workspaces || [];
+    const current = workspaces.find((w) => w.workspaceId === app.currentWorkspaceId) || workspaces[0] || null;
     const query = app.searchQuery;
     const source = query && app.searchResults
       ? app.searchResults.map((item) => {
@@ -72,7 +74,13 @@ Page({
         })
       : app.sessions || [];
 
-    const displaySessions = source
+    // 工作区声明了 sessionIds 时按其过滤；未声明（旧网关）则保持全量展示
+    let scopedSource = source;
+    if (current && Array.isArray(current.sessionIds)) {
+      scopedSource = source.filter((s) => current.sessionIds.indexOf(s.sessionId) >= 0);
+    }
+
+    const displaySessions = scopedSource
       .filter((s) => !s.blank)
       .map((s) => ({
         sessionId: s.sessionId,
