@@ -1,41 +1,52 @@
 <page-meta page-style="{{pageStyle}}" />
 <view class="page files {{themeClass}}">
-  <!-- 面包屑 -->
-  <scroll-view class="crumbs" scroll-x>
-    <view class="crumb-row">
-      <block wx:for="{{crumbs}}" wx:key="path">
-        <view class="crumb" bindtap="openCrumb" data-path="{{item.path}}">
-          <text>{{item.name}}</text>
-          <text wx:if="{{index < crumbs.length - 1}}" class="crumb-sep">/</text>
-        </view>
-      </block>
-      <view wx:if="{{!crumbs.length}}" class="crumb">
-        <text>{{displayPath}}</text>
-      </view>
+  <view class="wf">
+    <!-- 头部行：上一级 / 新建目录（标题在系统导航栏） -->
+    <view class="wf-header">
+      <view wx:if="{{!isRoot}}" class="wf-back tap" bindtap="goUp">‹ 上一级</view>
+      <view wx:else class="wf-back-ph"></view>
+      <view class="wf-new tap {{loading ? 'disabled' : ''}}" bindtap="newDirectory">新建目录</view>
     </view>
-  </scroll-view>
 
-  <view wx:if="{{loading}}" class="empty">正在读取工作区文件…</view>
-  <view wx:elif="{{error}}" class="empty error">{{error}}</view>
+    <!-- 路径栏：小图标 + 完整路径 + 加载中 -->
+    <view class="wf-pathbar">
+      <image class="wf-path-icon" src="/assets/icons/ic-dir-folder-blue.png"/>
+      <text class="wf-path">{{displayPath}}</text>
+      <view wx:if="{{loading}}" class="wf-spinner"></view>
+    </view>
+    <view class="wf-bar-divider"></view>
 
-  <scroll-view wx:else class="entries" scroll-y>
-    <block wx:for="{{entries}}" wx:key="path">
-      <view class="entry" bindtap="openEntry" data-index="{{index}}">
-        <image class="entry-icon" src="/assets/icons/{{item.iconFile}}"/>
-        <view class="entry-body">
-          <view class="entry-name">{{item.name}}</view>
-          <view class="entry-sub text-mono">{{item.subLabel}}</view>
-        </view>
-        <image wx:if="{{item.kind === 'dir'}}" class="entry-chevron" src="/assets/icons/chev-right-gray.png"/>
+    <!-- 文件列表 -->
+    <scroll-view class="wf-list" scroll-y>
+      <view wx:if="{{loading && !entries.length}}" class="wf-center">
+        <view class="wf-spinner large"></view>
+        <text class="wf-center-text">正在读取工作区文件…</text>
       </view>
-    </block>
-    <view wx:if="{{!entries.length}}" class="empty">空目录</view>
-    <view class="entry-spacer"></view>
-  </scroll-view>
-
-  <view class="actions-bar">
-    <view class="btn-text" bindtap="goUp">返回上级</view>
-    <view class="btn-text" bindtap="newDirectory">新建目录</view>
-    <view wx:if="{{mode === 'picker'}}" class="btn-text strong" bindtap="useThisDirectory">用作工作区</view>
+      <view wx:elif="{{error}}" class="wf-center">
+        <text class="wf-center-text">{{error}}</text>
+      </view>
+      <block wx:else>
+        <view wx:if="{{!entries.length}}" class="wf-center">
+          <text class="wf-center-text">此目录为空</text>
+        </view>
+        <block wx:for="{{entries}}" wx:key="path">
+          <view
+            class="wf-row {{loading ? 'disabled' : ''}}"
+            hover-class="wf-row-hover"
+            bindtap="openEntry"
+            data-index="{{index}}"
+          >
+            <image class="wf-row-icon" src="/assets/icons/{{item.iconFile}}"/>
+            <view class="wf-row-body">
+              <text class="wf-row-name">{{item.name}}</text>
+              <text wx:if="{{item.subLabel}}" class="wf-row-sub">{{item.subLabel}}</text>
+            </view>
+            <image wx:if="{{item.kind === 'dir'}}" class="wf-row-chev" src="/assets/icons/ic-dir-chevron-mist.png"/>
+          </view>
+          <view wx:if="{{index < entries.length - 1}}" class="wf-divider"></view>
+        </block>
+      </block>
+      <view class="wf-list-spacer"></view>
+    </scroll-view>
   </view>
 </view>

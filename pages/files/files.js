@@ -6,7 +6,7 @@ Page({
   data: {
     mode: 'browser', // browser | picker
     displayPath: '工作区根目录',
-    crumbs: [],
+    isRoot: true,
     entries: [],
     loading: true,
     error: ''
@@ -34,21 +34,21 @@ Page({
     store.client.requestDirectories(path)
       .then((frame) => {
         if (!frame) return;
-        const entries = (frame.entries || []).map((item) => ({
-          name: item.name,
-          path: item.path,
+        const entries = (frame.entries || frame.items || []).map((item) => ({
+          name: item.name || item.title || '',
+          path: item.path || '',
           kind: item.kind === 'dir' || item.kind === 'directory' ? 'dir' : 'file',
           iconFile: entryIconFile(item),
           subLabel: describeEntry(item)
         }));
+        const crumbs = frame.crumbs || [];
         this.setData({
           entries: entries,
-          crumbs: frame.crumbs || [],
-          displayPath: frame.crumbs && frame.crumbs.length
-            ? frame.crumbs[frame.crumbs.length - 1].name
-            : (path || '工作区根目录'),
+          isRoot: crumbs.length <= 1,
+          displayPath: frame.path && frame.path !== '.' ? frame.path : '工作区根目录',
           loading: false
         });
+        this.crumbs = crumbs;
       })
       .catch((err) => {
         this.setData({ loading: false, error: err.message || '读取目录失败' });
@@ -75,12 +75,8 @@ Page({
     });
   },
 
-  openCrumb(e) {
-    this.load(e.currentTarget.dataset.path);
-  },
-
   goUp() {
-    const crumbs = this.data.crumbs;
+    const crumbs = this.crumbs || [];
     if (crumbs.length > 1) {
       this.load(crumbs[crumbs.length - 2].path);
     } else {
@@ -134,13 +130,13 @@ Page({
 });
 
 function entryIconFile(item) {
-  if (item.kind === 'dir' || item.kind === 'directory') return 'folder-fill-ocean';
+  if (item.kind === 'dir' || item.kind === 'directory') return 'ic-dir-folder-blue.png';
   const ext = (item.name || '').split('.').pop().toLowerCase();
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'heic'].indexOf(ext) >= 0) return 'photo-ocean';
-  if (['md', 'doc', 'docx', 'rtf', 'pages'].indexOf(ext) >= 0) return 'doc-richtext-ocean';
-  if (['txt', 'log', 'json', 'yaml', 'yml', 'toml', 'xml', 'csv'].indexOf(ext) >= 0) return 'doc-text-ocean';
-  if (['zip', 'tar', 'gz', '7z', 'rar', 'pkg', 'dmg'].indexOf(ext) >= 0) return 'box-ocean';
-  return 'doc-ocean';
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'heic'].indexOf(ext) >= 0) return 'photo-ocean.png';
+  if (['md', 'doc', 'docx', 'rtf', 'pages'].indexOf(ext) >= 0) return 'doc-richtext-ocean.png';
+  if (['txt', 'log', 'json', 'yaml', 'yml', 'toml', 'xml', 'csv'].indexOf(ext) >= 0) return 'doc-text-ocean.png';
+  if (['zip', 'tar', 'gz', '7z', 'rar', 'pkg', 'dmg'].indexOf(ext) >= 0) return 'box-ocean.png';
+  return 'doc-ocean.png';
 }
 
 function describeEntry(item) {
@@ -148,7 +144,15 @@ function describeEntry(item) {
   if (item.kind !== 'dir' && item.kind !== 'directory' && item.bytes !== undefined && item.bytes !== null) {
     parts.push(util.formatBytes(item.bytes));
   }
-  if (item.mediaType) parts.push(item.mediaType);
+  if (item.modifiedAt) parts.push(formatDate(item.modifiedAt));
   if (item.hidden) parts.push('隐藏');
   return parts.join(' · ');
+}
+
+function formatDate(epoch) {
+  const ms = typeof epoch === 'string' ? parseInt(epoch, 10) : epoch;
+  if (!ms || isNaN(ms)) return '';
+  const d = new Date(ms * (ms < 1e12 ? 1000 : 1));
+  const pad = (n) => (n < 10 ? '0' + n : '' + n);
+  return d.getFullYear() + '年' + (d.getMonth() + 1) + '月' + d.getDate() + '日 ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
