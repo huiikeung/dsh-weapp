@@ -34,13 +34,18 @@ Page({
 
   applyFrame(frame, requestedPath) {
     if (!frame) return;
-    const entries = (frame.entries || [])
+    // 兼容不同网关版本：entries 或 items
+    const rawList = frame.entries || frame.items || [];
+    console.log('[workspace-picker] response keys:', Object.keys(frame));
+    console.log('[workspace-picker] raw entries count:', rawList.length);
+    const entries = rawList
       .map((item) => ({
-        name: item.name,
-        path: item.path,
+        name: item.name || item.title || '',
+        path: item.path || item.workspaceId || '',
         hidden: item.hidden === true,
         highlight: false
       }))
+      .filter((item) => item.name && item.path)
       .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
     const crumbs = frame.crumbs || [];
     const parentPath = crumbs.length > 1 ? crumbs[crumbs.length - 2].path : null;
@@ -49,7 +54,8 @@ Page({
       dirCrumbs: crumbs,
       dirPath: frame.path || requestedPath || '',
       parentPath,
-      dirLoading: false
+      dirLoading: false,
+      dirError: entries.length ? '' : '网关未返回目录数据'
     });
   },
 
