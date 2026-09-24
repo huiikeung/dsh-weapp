@@ -243,6 +243,16 @@ class GatewayClient {
   // ---------- relay（E2EE） ----------
 
   /** relay 模式的二进制消息：握手包或密文帧。 */
+  reportDeviceInfo() {
+    let model = '';
+    try {
+      const info = (typeof wx.getSystemInfoSync === 'function') ? wx.getSystemInfoSync() : null;
+      model = (info && info.model) ? String(info.model) : '';
+    } catch (e) { model = ''; }
+    if (model === '') model = (wx.getStorageSync('dsh_device_id') || '').slice(0, 12) || 'WeChat mini-program';
+    this.send({ type: 'device-info', model: model });
+  }
+
   handleRelayMessage(data) {
     if (!(data instanceof ArrayBuffer)) return;
     const bytes = new Uint8Array(data);
@@ -254,6 +264,10 @@ class GatewayClient {
       } else {
         this.clearConnectionTimeout();
         this.setState('connected');
+        // Report the phone model once per connection. The relay connector
+        // relabels the paired gateway device with it, so the trusted-device
+        // list shows this phone instead of the host running the connector.
+        this.reportDeviceInfo();
       }
       return;
     }
