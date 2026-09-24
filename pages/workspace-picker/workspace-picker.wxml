@@ -1,5 +1,9 @@
 <page-meta page-style="{{pageStyle}}" />
 <view class="page picker {{themeClass}}">
+  <!-- DEBUG: 无条件显示，确认后删除 -->
+  <view style="background:#4a0000;padding:12rpx 24rpx;font-size:24rpx;color:#ffdddd;word-break:break-all;">
+    [debug] entries={{dirEntries.length}} loading={{dirLoading}} err={{dirError || '无'}} path={{dirPath || '空'}}
+  </view>
   <!-- 目录浏览器（对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet） -->
   <view class="dir-sheet">
     <view class="dir-sheet-handle"></view>
@@ -38,11 +42,6 @@
             <image class="dir-row-chev" src="/assets/icons/ic-dir-chevron-mist.png"/>
           </view>
           <view class="dir-divider"></view>
-          <!-- DEBUG: 临时调试信息，确认后删除 -->
-          <view style="padding: 16rpx; font-size: 22rpx; color: #ff6b6b; word-break: break-all;">
-            [debug] entries={{dirEntries.length}} loading={{dirLoading}} error={{dirError || '无'}}
-            <block wx:if="{{dirEntries.length}}">\n第一条: {{dirEntries[0].name}} | {{dirEntries[0].path}}</block>
-          </view>
           <block wx:if="{{!dirEntries.length && !dirLoading}}">
             <view class="dir-empty">此目录没有子文件夹</view>
           </block>
