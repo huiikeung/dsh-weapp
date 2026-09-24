@@ -685,13 +685,57 @@
   margin-bottom: 10rpx;
 }
 
-/* ---------- 会话统计胶囊（composer 右上方悬浮） ---------- */
+/* ---------- composer 上方行（预设胶囊 + 统计胶囊） ---------- */
 
-.stats-pill {
-  align-self: flex-end;
+.composer-top-row {
   display: flex;
   align-items: center;
-  margin: 0 40rpx 14rpx;
+  justify-content: space-between;
+  margin: 0 24rpx 14rpx;
+  flex-shrink: 0;
+}
+
+.preset-capsule {
+  display: flex;
+  align-items: center;
+  padding: 12rpx 24rpx;
+  background: var(--surface);
+  border: 1rpx solid var(--border);
+  border-radius: 26rpx;
+  box-shadow: var(--float-shadow);
+  max-width: 60%;
+}
+
+.preset-capsule-ic {
+  width: 32rpx;
+  height: 32rpx;
+  margin-right: 12rpx;
+  flex-shrink: 0;
+}
+
+.preset-capsule-text {
+  font-size: 26rpx;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preset-capsule-chev {
+  width: 20rpx;
+  height: 20rpx;
+  margin-left: 12rpx;
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+
+/* ---------- 会话统计胶囊 ---------- */
+
+.stats-pill {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
   background: var(--surface);
   border: 1rpx solid var(--border-strong);
   border-radius: 999rpx;

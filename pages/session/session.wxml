@@ -233,10 +233,21 @@
     </view>
   </view>
 
-  <!-- 会话统计胶囊（悬浮在 composer 右上方，iOS 对齐） -->
-  <view wx:if="{{tab === 'conversation' && statsLabel}}" class="stats-pill" bindtap="showStats">
-    <text class="stats-pill-text">{{statsLabel}}</text>
-    <image class="stats-pill-chev" src="/assets/icons/chev-up-gray.png"/>
+  <!-- composer 上方行：会话模式胶囊（左）+ 会话统计胶囊（右） -->
+  <view wx:if="{{tab === 'conversation' && (sessionPresetVisible || statsLabel)}}" class="composer-top-row">
+    <view
+      wx:if="{{sessionPresetVisible}}"
+      class="preset-capsule glass-press"
+      bindtap="pickSessionPreset"
+    >
+      <image class="preset-capsule-ic" src="/assets/icons/preset-gray.png"/>
+      <text class="preset-capsule-text">{{sessionPresetName}}</text>
+      <image class="preset-capsule-chev" src="/assets/icons/chev-down-gray.png"/>
+    </view>
+    <view wx:if="{{statsLabel}}" class="stats-pill" bindtap="showStats">
+      <text class="stats-pill-text">{{statsLabel}}</text>
+      <image class="stats-pill-chev" src="/assets/icons/chev-up-gray.png"/>
+    </view>
   </view>
 
   <!-- ================= 输入面板 ================= -->

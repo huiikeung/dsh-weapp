@@ -537,6 +537,15 @@ class GatewayClient {
   // ---------- 部署默认配置 ----------
 
   requestAgentPresets() { return this.request({ type: 'agent-presets' }); }
+
+  // 会话级 Agent 预设（对齐 dsh-mobile v1.6.0 SessionAgentPresetControl）
+  requestSessionAgentPreset(sessionId) {
+    return this.request({ type: 'session-agent-preset', sessionId: sessionId });
+  }
+
+  selectSessionAgentPreset(sessionId, agentPreset) {
+    return this.request({ type: 'select-agent-preset', sessionId: sessionId, agentPreset: agentPreset });
+  }
   requestDefaults() { return this.request({ type: 'defaults' }); }
   requestDefaultModel() { return this.request({ type: 'default-model' }); }
 

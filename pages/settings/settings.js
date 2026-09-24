@@ -16,7 +16,7 @@ const CONNECTION_LABELS = {
 
 Page({
   data: {
-    appearanceMode: 'auto',
+    appearanceLabel: '跟随微信',
     presetLabel: '标准模式',
     modelLabel: '—',
     permissionLabel: '工作区写入',
@@ -31,7 +31,7 @@ Page({
   onLoad() {
     theme.applyTo(this);
     this.setData({
-      appearanceMode: theme.getMode(),
+      appearanceLabel: this.appearanceLabelOf(theme.getMode()),
       notifyEnabled: notifyPref.enabled()
     });
     this.unsubscribe = store.subscribe((snapshot) => {
@@ -45,11 +45,26 @@ Page({
 
   // ---------- 外观模式 ----------
 
-  setAppearance(e) {
-    const mode = e.currentTarget.dataset.mode;
-    if (mode !== 'auto' && mode !== 'light' && mode !== 'dark') return;
-    theme.setMode(mode);
-    this.setData({ appearanceMode: theme.getMode() });
+  pickAppearance() {
+    const modes = [
+      { mode: 'auto', label: '跟随微信' },
+      { mode: 'light', label: '浅色' },
+      { mode: 'dark', label: '深色' }
+    ];
+    const current = theme.getMode();
+    wx.showActionSheet({
+      itemList: modes.map((m) => (m.mode === current ? '✓ ' : '') + m.label),
+      success: (res) => {
+        const picked = modes[res.tapIndex];
+        if (!picked || picked.mode === current) return;
+        theme.setMode(picked.mode);
+        this.setData({ appearanceLabel: this.appearanceLabelOf(theme.getMode()) });
+      }
+    });
+  },
+
+  appearanceLabelOf(mode) {
+    return mode === 'light' ? '浅色' : mode === 'dark' ? '深色' : '跟随微信';
   },
 
   onUnload() {

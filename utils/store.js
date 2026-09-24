@@ -210,6 +210,14 @@ function createStore() {
 
   function handleSessionFrame(frame) {
     switch (frame.kind) {
+      case 'session-agent-preset':
+      case 'session-agent-preset-updated':
+        // 会话级 Agent 预设当前值；锁定状态单向生效
+        if (frame.agentPreset !== undefined && frame.agentPreset !== null) {
+          sessionState.agentPreset = frame.agentPreset;
+          emit();
+        }
+        return;
       case 'event': {
         if (typeof frame.seq === 'number' && frame.event) {
           const raw = {

@@ -110,6 +110,22 @@ Page({
     const question = s.pendingQuestion ? decorateQuestion(s.pendingQuestion, this.questionDraft || {}) : null;
     const approval = s.pendingApproval;
 
+    // 会话级 Agent 预设胶囊（对齐 dsh-mobile v1.6.0）：
+    // 预设目录已加载且会话未在运行时展示；运行中发送会锁定预设
+    const presetsCatalog = store.state.agentPresets;
+    const presetVisible = !!(presetsCatalog && presetsCatalog.presets && presetsCatalog.presets.length && s.sessionId && !s.running);
+    const presetName = s.agentPreset
+      ? this.findPresetName(presetsCatalog, s.agentPreset)
+      : '';
+    if (s.sessionId && presetVisible && !this._presetRequestedFor) {
+      this._presetRequestedFor = s.sessionId;
+      store.client.requestSessionAgentPreset(s.sessionId).catch(() => {});
+    }
+    if (this._presetRequestedFor && this._presetRequestedFor !== s.sessionId) {
+      this._presetRequestedFor = s.sessionId;
+      if (s.sessionId) store.client.requestSessionAgentPreset(s.sessionId).catch(() => {});
+    }
+
     const pressure = (s.stats && s.stats.pressure) || null;
     const contextPct = pressure && pressure.contextWindow > 0
       ? Math.min(100, Math.max(0, Math.round(((pressure.pressureTokens || 0) / pressure.contextWindow) * 100)))
@@ -118,6 +134,8 @@ Page({
     this.setData({
       navTitle: s.title || util.sessionIdLabel(s.sessionId),
       presetLabel: labels.presetModeName(s.agentPreset || 'standard'),
+      sessionPresetVisible: presetVisible,
+      sessionPresetName: presetName || '选择模式',
       running: isRunning(rows),
       rows: rows,
       trajectory: trajectory,
@@ -156,6 +174,33 @@ Page({
 
   switchTab(e) {
     this.setData({ tab: e.currentTarget.dataset.tab });
+  },
+
+  findPresetName(catalog, presetId) {
+    const presets = (catalog && catalog.presets) || [];
+    const found = presets.find((p) => p.id === presetId);
+    return (found && found.name) || labels.presetModeName(presetId);
+  },
+
+  // 对齐 dsh-mobile v1.6.0：会话模式胶囊，点击弹出预设列表
+  pickSessionPreset() {
+    const catalog = store.state.agentPresets;
+    const presets = (catalog && catalog.presets) || [];
+    const sessionId = store.sessionState.sessionId;
+    if (!presets.length || !sessionId) return;
+    const current = store.sessionState.agentPreset;
+    wx.showActionSheet({
+      itemList: presets
+        .map((p) => (p.id === current ? '✓ ' : '') + ((p.name && p.name.trim()) || labels.presetModeName(p.id)))
+        .slice(0, 6),
+      success: (res) => {
+        const picked = presets[res.tapIndex];
+        if (!picked || picked.id === current) return;
+        store.client.selectSessionAgentPreset(sessionId, picked.id).catch((err) => {
+          wx.showToast({ title: err.message || '切换失败', icon: 'none' });
+        });
+      }
+    });
   },
 
   moreActions() {

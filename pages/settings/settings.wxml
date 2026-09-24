@@ -1,19 +1,14 @@
 <page-meta page-style="{{pageStyle}}" />
 <view class="page settings {{themeClass}}">
-  <!-- 外观模式 -->
+  <!-- 外观模式（对齐 dsh-mobile v1.6.0 InterfaceStyleSettingsRow） -->
   <view class="group-title">外观</view>
   <view class="card">
-    <view class="card-row" bindtap="setAppearance" data-mode="auto">
-      <text class="card-row-label">跟随微信</text>
-      <image wx:if="{{appearanceMode === 'auto'}}" class="check-img" src="/assets/icons/check-ocean.png"/>
-    </view>
-    <view class="card-row" bindtap="setAppearance" data-mode="light">
-      <text class="card-row-label">浅色</text>
-      <image wx:if="{{appearanceMode === 'light'}}" class="check-img" src="/assets/icons/check-ocean.png"/>
-    </view>
-    <view class="card-row" bindtap="setAppearance" data-mode="dark">
-      <text class="card-row-label">深色</text>
-      <image wx:if="{{appearanceMode === 'dark'}}" class="check-img" src="/assets/icons/check-ocean.png"/>
+    <view class="card-row" bindtap="pickAppearance">
+      <text class="card-row-label">界面</text>
+      <view class="card-row-value">
+        <text>{{appearanceLabel}}</text>
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+      </view>
     </view>
   </view>
 
