@@ -660,3 +660,298 @@
 .picker-new {
   margin-top: 50rpx;
 }
+
+/* ---------- 目录浏览器弹层（对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet） ---------- */
+
+.dir-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 62;
+  display: flex;
+  flex-direction: column;
+  height: 88vh;
+  background: #171A20;
+  border-radius: 36rpx 36rpx 0 0;
+  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
+}
+
+.dir-sheet-handle {
+  width: 76rpx;
+  height: 10rpx;
+  border-radius: 999rpx;
+  background: rgba(241, 244, 250, 0.30);
+  margin: 16rpx auto 8rpx;
+  flex-shrink: 0;
+}
+
+.dir-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 132rpx;
+  padding: 0 36rpx;
+  flex-shrink: 0;
+}
+
+.dir-head-title {
+  font-size: 36rpx;
+  font-weight: 700;
+  color: #F1F4FA;
+}
+
+.dir-head-btn {
+  position: absolute;
+  left: 36rpx;
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 50%;
+  background: rgba(241, 244, 250, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dir-head-btn.disabled {
+  opacity: 0.4;
+}
+
+.dir-head-folder {
+  width: 52rpx;
+  height: 52rpx;
+}
+
+.dir-head-badge {
+  position: absolute;
+  right: 22rpx;
+  top: 22rpx;
+  width: 22rpx;
+  height: 22rpx;
+  border-radius: 50%;
+  background: #171A20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dir-head-badge text {
+  font-size: 22rpx;
+  line-height: 22rpx;
+  font-weight: 700;
+  color: #F1F4FA;
+  margin-top: -4rpx;
+}
+
+.dir-head-cancel {
+  position: absolute;
+  right: 36rpx;
+  height: 96rpx;
+  padding: 0 40rpx;
+  border-radius: 48rpx;
+  background: rgba(241, 244, 250, 0.88);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32rpx;
+  color: #10141A;
+}
+
+.dir-cwd {
+  padding: 0 44rpx;
+  flex-shrink: 0;
+}
+
+.dir-cwd-label {
+  display: block;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: rgba(241, 244, 250, 0.52);
+}
+
+.dir-cwd-path {
+  display: block;
+  font-size: 26rpx;
+  color: rgba(241, 244, 250, 0.40);
+  margin-top: 4rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-list-card {
+  flex: 1;
+  min-height: 0;
+  margin: 28rpx 36rpx 0;
+  background: #22262D;
+  border-radius: 56rpx 56rpx 0 0;
+  overflow: hidden;
+}
+
+.dir-list {
+  height: 100%;
+  box-sizing: border-box;
+  padding: 20rpx 36rpx;
+}
+
+.dir-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20rpx;
+  padding: 80rpx 0;
+  color: rgba(241, 244, 250, 0.58);
+  font-size: 30rpx;
+}
+
+.dir-row {
+  display: flex;
+  align-items: center;
+  border-radius: 24rpx;
+  padding: 24rpx 16rpx;
+}
+
+.dir-row.disabled {
+  opacity: 0.3;
+}
+
+.dir-row.highlight {
+  background: rgba(46, 107, 230, 0.20);
+}
+
+.dir-row-hover {
+  background: rgba(241, 244, 250, 0.06);
+}
+
+.dir-row-icon {
+  position: relative;
+  width: 68rpx;
+  flex-shrink: 0;
+}
+
+.dir-row-ic {
+  width: 50rpx;
+  height: 50rpx;
+}
+
+.dir-row-badge {
+  position: absolute;
+  right: 6rpx;
+  top: -6rpx;
+  width: 26rpx;
+  height: 26rpx;
+}
+
+.dir-row-body {
+  flex: 1;
+  min-width: 0;
+  margin-left: 12rpx;
+}
+
+.dir-row-name {
+  display: block;
+  font-size: 32rpx;
+  color: #F1F4FA;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-row-sub {
+  display: block;
+  font-size: 24rpx;
+  color: rgba(241, 244, 250, 0.46);
+  margin-top: 2rpx;
+}
+
+.dir-row-chev {
+  width: 36rpx;
+  height: 36rpx;
+  flex-shrink: 0;
+}
+
+.dir-divider {
+  height: 1rpx;
+  margin-left: 116rpx;
+  background: rgba(241, 244, 250, 0.10);
+}
+
+.dir-create-bar {
+  padding: 20rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.dir-create-path {
+  font-size: 24rpx;
+  color: rgba(241, 244, 250, 0.42);
+  max-width: 100%;
+  margin-bottom: 16rpx;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-create-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 104rpx;
+  border-radius: 28rpx;
+  background: #000000;
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #FFFFFF;
+}
+
+.dir-create-btn.disabled {
+  opacity: 0.45;
+}
+
+.dir-create-add {
+  width: 42rpx;
+  height: 42rpx;
+  margin-right: 18rpx;
+}
+
+.dir-creating-hint {
+  display: flex;
+  align-items: center;
+  margin-top: 16rpx;
+  color: rgba(241, 244, 250, 0.52);
+  font-size: 24rpx;
+}
+
+.dir-spinner {
+  width: 40rpx;
+  height: 40rpx;
+  border: 4rpx solid rgba(241, 244, 250, 0.25);
+  border-top-color: rgba(241, 244, 250, 0.9);
+  border-radius: 50%;
+  animation: dir-spin 0.8s linear infinite;
+}
+
+.dir-spinner.small {
+  width: 28rpx;
+  height: 28rpx;
+  border-width: 3rpx;
+  margin-right: 16rpx;
+}
+
+.dir-spinner.light {
+  border-color: rgba(255, 255, 255, 0.30);
+  border-top-color: #FFFFFF;
+  width: 38rpx;
+  height: 38rpx;
+  margin-right: 18rpx;
+}
+
+@keyframes dir-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

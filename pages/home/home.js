@@ -13,6 +13,14 @@ const CONNECTION_LABELS = {
 Page({
   data: {
     pairMenuVisible: false,
+    dirSheetOpen: false,
+    dirLoading: false,
+    dirCreatingWs: false,
+    dirCreatingDir: false,
+    dirPath: '',
+    dirCrumbs: [],
+    dirEntries: [],
+    dirError: '',
     currentWorkspace: {},
     displaySessions: [],
     searchQuery: '',
@@ -258,8 +266,104 @@ Page({
     this.setData({ workspacePickerOpen: false });
   },
 
-  browseDirectory() {
-    wx.navigateTo({ url: '/pages/files/files?mode=picker' });
+  // ---------- 目录浏览器弹层（对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet） ----------
+
+  openDirSheet() {
+    this.closeWorkspacePicker();
+    this.setData({ dirSheetOpen: true, dirEntries: [], dirPath: '', dirLoading: true, dirError: '' });
+    this.browseDirs(null);
+  },
+
+  closeDirSheet() {
+    this.setData({ dirSheetOpen: false });
+  },
+
+  browseDirs(path) {
+    if (store.state.connection !== 'connected') {
+      this.setData({ dirLoading: false, dirError: '请先连接 DeepSeek Harness' });
+      return;
+    }
+    this.setData({ dirLoading: true, dirError: '' });
+    store.client.requestDirectories(path)
+      .then((frame) => {
+        const entries = (frame.entries || [])
+          .filter((item) => item.kind === 'dir' || item.kind === 'directory')
+          .map((item) => ({
+            name: item.name,
+            path: item.path,
+            hidden: item.hidden === true
+          }))
+          .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+        const crumbs = frame.crumbs || [];
+        this.setData({
+          dirEntries: entries,
+          dirCrumbs: crumbs,
+          dirPath: frame.path || path || '',
+          dirLoading: false
+        });
+      })
+      .catch((err) => {
+        this.setData({ dirLoading: false, dirError: err.message || '读取目录失败' });
+      });
+  },
+
+  openDirEntry(e) {
+    const item = this.data.dirEntries[e.currentTarget.dataset.index];
+    if (!item || this.data.dirLoading) return;
+    this.browseDirs(item.path);
+  },
+
+  goParentDir() {
+    const crumbs = this.data.dirCrumbs;
+    if (this.data.dirLoading) return;
+    if (crumbs.length > 1) {
+      this.browseDirs(crumbs[crumbs.length - 2].path);
+    } else {
+      this.browseDirs(null);
+    }
+  },
+
+  newDirectory() {
+    if (this.data.dirLoading || this.data.dirCreatingWs || this.data.dirCreatingDir || !this.data.dirPath) return;
+    const self = this;
+    wx.showModal({
+      title: '新建文件夹',
+      content: '将在当前目录中创建一个新的子文件夹。',
+      editable: true,
+      placeholderText: '文件夹名称',
+      success(res) {
+        if (!res.confirm || !res.content || !res.content.trim()) return;
+        const parent = self.data.dirPath;
+        self.setData({ dirCreatingDir: true });
+        store.client.createDirectory(parent, res.content.trim())
+          .then(() => {
+            self.setData({ dirCreatingDir: false });
+            self.browseDirs(parent);
+          })
+          .catch((err) => {
+            self.setData({ dirCreatingDir: false });
+            wx.showToast({ title: err.message || '创建失败', icon: 'none' });
+          });
+      }
+    });
+  },
+
+  createWorkspaceHere() {
+    const path = this.data.dirPath;
+    if (!path || this.data.dirCreatingWs || this.data.dirCreatingDir || this.data.dirLoading) return;
+    this.setData({ dirCreatingWs: true });
+    store.client.createWorkspace(path)
+      .then(() => {
+        wx.showToast({ title: '工作区已就绪', icon: 'success' });
+        setTimeout(() => {
+          store.client.requestWorkspaces();
+        }, 300);
+        this.setData({ dirCreatingWs: false, dirSheetOpen: false });
+      })
+      .catch((err) => {
+        this.setData({ dirCreatingWs: false });
+        wx.showToast({ title: err.message || '创建失败', icon: 'none' });
+      });
   },
 
   newSession() {
