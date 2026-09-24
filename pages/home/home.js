@@ -310,13 +310,13 @@ Page({
     this.setData({ dirLoading: true, dirError: '' });
     store.client.requestDirectories(path)
       .then((frame) => {
-        const entries = (frame.entries || [])
-          .filter((item) => item.kind === 'dir' || item.kind === 'directory')
+        const entries = (frame.entries || frame.items || [])
           .map((item) => ({
-            name: item.name,
-            path: item.path,
+            name: item.name || item.title || '',
+            path: item.path || '',
             hidden: item.hidden === true
           }))
+          .filter((item) => item.name && item.path)
           .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
         const crumbs = frame.crumbs || [];
         this.setData({
