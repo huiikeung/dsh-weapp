@@ -227,7 +227,7 @@ Page({
       success(res) {
         if (res.confirm) {
           store.forgetDevice();
-          wx.reLaunch({ url: '/pages/pairing/pairing' });
+          wx.reLaunch({ url: '/pages/home/home' });
         }
       }
     });

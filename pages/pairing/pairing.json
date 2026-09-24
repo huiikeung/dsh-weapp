@@ -1,7 +1,0 @@
-{
-  "navigationBarTitleText": "设备配对",
-  "navigationBarBackgroundColor": "@navBgColor",
-  "navigationBarTextStyle": "@navTxtStyle",
-  "backgroundColor": "@bgColor",
-  "usingComponents": {}
-}

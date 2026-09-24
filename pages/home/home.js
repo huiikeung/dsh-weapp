@@ -13,6 +13,11 @@ const CONNECTION_LABELS = {
 Page({
   data: {
     pairMenuVisible: false,
+    manualSheetOpen: false,
+    pairingText: '',
+    pairingResult: '',
+    pairingResultClass: '',
+    pairingConnecting: false,
     dirSheetOpen: false,
     dirLoading: false,
     dirCreatingWs: false,
@@ -112,6 +117,11 @@ Page({
       connectionLabel: CONNECTION_LABELS[conn] || conn,
       connectionClass: conn
     });
+    // 手动配对弹窗：连接成功后自动收起（对齐 dsh-mobile 配对完成反馈）
+    if (this.data.manualSheetOpen && conn === 'connected' && this.data.pairingConnecting) {
+      this.setData({ manualSheetOpen: false, pairingConnecting: false });
+      wx.showToast({ title: '配对成功', icon: 'success' });
+    }
     this.syncHostUI(app);
   },
 
@@ -462,8 +472,27 @@ Page({
   },
 
   pairByManual() {
-    this.setData({ pairMenuVisible: false });
-    wx.navigateTo({ url: '/pages/pairing/pairing' });
+    this.setData({ pairMenuVisible: false, manualSheetOpen: true, pairingText: '', pairingResult: '', pairingResultClass: '', pairingConnecting: false });
+  },
+
+  closeManualSheet() {
+    this.setData({ manualSheetOpen: false });
+  },
+
+  onPairingTextInput(e) {
+    this.setData({ pairingText: e.detail.value, pairingResult: '', pairingResultClass: '' });
+  },
+
+  // 对齐 dsh-mobile ManualGatewayPairingSheet：提交一次性配对信息
+  connectManualPairing() {
+    const raw = String(this.data.pairingText || '').trim();
+    if (!raw || this.data.pairingConnecting) return;
+    const result = store.pairWithPayload(raw);
+    if (!result.ok) {
+      this.setData({ pairingResult: result.error || '配对信息无效', pairingResultClass: 'error' });
+      return;
+    }
+    this.setData({ pairingConnecting: true, pairingResult: '连接中…', pairingResultClass: 'connecting' });
   },
 
   openSettings() {

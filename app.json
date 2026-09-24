@@ -1,7 +1,6 @@
 {
   "pages": [
     "pages/home/home",
-    "pages/pairing/pairing",
     "pages/session/session",
     "pages/settings/settings",
     "pages/files/files",

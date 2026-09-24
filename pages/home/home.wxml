@@ -250,4 +250,31 @@
       </view>
     </view>
   </view>
+
+  <!-- 手动配对弹层（对齐 dsh-mobile v1.6.0 ManualGatewayPairingSheet） -->
+  <view wx:if="{{manualSheetOpen}}" class="host-mask" bindtap="closeManualSheet"></view>
+  <view wx:if="{{manualSheetOpen}}" class="manual-sheet">
+    <view class="manual-sheet-head">
+      <text class="manual-sheet-title">设备认证</text>
+      <view class="manual-sheet-done tap" bindtap="closeManualSheet">完成</view>
+    </view>
+    <scroll-view class="manual-sheet-body" scroll-y>
+      <view class="manual-sec-title">手动输入配对信息</view>
+      <view class="manual-sec-desc">粘贴 Harness WebUI 提供的 Base64URL 配对字符串。长期设备 token 只会安全保存在本机。</view>
+      <textarea
+        class="manual-input text-mono"
+        value="{{pairingText}}"
+        bindinput="onPairingTextInput"
+        placeholder="粘贴 Base64URL 配对字符串或完整配对信息"
+        placeholder-class="manual-input-ph"
+        maxlength="-1"
+      />
+      <view wx:if="{{pairingResult}}" class="manual-result {{pairingResultClass}}">{{pairingResult}}</view>
+      <view class="manual-connect {{pairingText && !pairingConnecting ? '' : 'disabled'}}" bindtap="connectManualPairing">
+        <view wx:if="{{pairingConnecting}}" class="dir-spinner light small-spin"></view>
+        <image wx:else class="manual-connect-ic" src="/assets/icons/ic-link-white.png"/>
+        <text>{{pairingConnecting ? '连接中…' : '连接'}}</text>
+      </view>
+    </scroll-view>
+  </view>
 </view>
