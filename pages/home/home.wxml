@@ -11,14 +11,30 @@
       <view class="brand-badge">HARNESS</view>
     </view>
     <view class="topbar-actions">
-      <view class="icon-btn glass-press" bindtap="openPairing">
-        <image class="icon-img" src="/assets/icons/nav-pair.png"/>
+      <view class="pair-wrap">
+        <view class="icon-btn glass-press" bindtap="togglePairMenu">
+          <image class="icon-img" src="/assets/icons/nav-pair.png"/>
+        </view>
+        <!-- 对齐 dsh-mobile GatewayAuthenticationMenu：点击弹出两个配对选项 -->
+        <view wx:if="{{pairMenuVisible}}" class="pair-menu">
+          <view class="pair-menu-item" hover-class="pair-menu-item-active" bindtap="pairByScan">
+            <image class="pair-menu-ic" src="/assets/icons/target-gray.png"/>
+            <text>扫描二维码</text>
+          </view>
+          <view class="pair-menu-item" hover-class="pair-menu-item-active" bindtap="pairByManual">
+            <image class="pair-menu-ic" src="/assets/icons/pencil-line-gray.png"/>
+            <text>手动输入配对信息</text>
+          </view>
+        </view>
       </view>
       <view class="icon-btn glass-press" bindtap="openSettings">
         <image class="icon-img" src="/assets/icons/nav-gear.png"/>
       </view>
     </view>
   </view>
+
+  <!-- 配对菜单遮罩：点击空白处关闭 -->
+  <view wx:if="{{pairMenuVisible}}" class="pair-menu-mask" bindtap="closePairMenu"></view>
 
   <!-- 切换主机（GatewaySwitcherBar 对齐） -->
   <view class="host-bar glass-press" bindtap="openHostSwitcher">

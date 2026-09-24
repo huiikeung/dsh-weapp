@@ -12,6 +12,7 @@ const CONNECTION_LABELS = {
 
 Page({
   data: {
+    pairMenuVisible: false,
     currentWorkspace: {},
     displaySessions: [],
     searchQuery: '',
@@ -316,7 +317,40 @@ Page({
     });
   },
 
-  openPairing() {
+  togglePairMenu() {
+    this.setData({ pairMenuVisible: !this.data.pairMenuVisible });
+  },
+
+  closePairMenu() {
+    this.setData({ pairMenuVisible: false });
+  },
+
+  // 对齐 dsh-mobile：扫码后直接用一次性配对信息发起配对
+  pairByScan() {
+    this.setData({ pairMenuVisible: false });
+    wx.scanCode({
+      onlyFromCamera: true,
+      success: (res) => {
+        const result = store.pairWithPayload(res.result);
+        if (result.ok) {
+          wx.showToast({ title: '连接中…', icon: 'none' });
+        } else {
+          wx.showToast({ title: result.error || '配对失败', icon: 'none' });
+        }
+      },
+      fail: (err) => {
+        const msg = err && err.errMsg ? err.errMsg : '';
+        if (msg.indexOf('permission') >= 0 || msg.indexOf('auth') >= 0) {
+          wx.showToast({ title: '需要摄像头权限，请在设置中开启', icon: 'none' });
+        } else if (msg.indexOf('cancel') < 0) {
+          wx.showToast({ title: '扫码失败：' + msg, icon: 'none' });
+        }
+      }
+    });
+  },
+
+  pairByManual() {
+    this.setData({ pairMenuVisible: false });
     wx.navigateTo({ url: '/pages/pairing/pairing' });
   },
 
