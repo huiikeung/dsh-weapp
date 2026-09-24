@@ -15,23 +15,39 @@ Page({
   onLoad(options) {
     theme.applyTo(this);
     this.mode = (options && options.mode) || 'browser';
-    this.currentPath = null;
+    this.sessionId = store.sessionState.sessionId;
+    this.workspaceRoot = this.resolveWorkspaceRoot();
+    this.relPath = null; // 相对工作区根的路径，null = 根
     this.setData({ mode: this.mode });
-    this.load(this.currentPath);
+    this.load(null);
   },
 
-  onUnload() {
+  /** 当前会话所属工作区的绝对路径（用于展示）。 */
+  resolveWorkspaceRoot() {
+    const ws = (store.state.workspaces || []).find(
+      (w) => w.workspaceId === store.state.currentWorkspaceId
+    );
+    return (ws && ws.path) || '';
   },
 
-  load(path) {
+  /** 相对路径 → 展示用绝对路径。 */
+  absolutePath(rel) {
+    if (!rel || rel === '.') return this.workspaceRoot || '工作区根目录';
+    return this.workspaceRoot ? this.workspaceRoot + '/' + rel : rel;
+  },
+
+  load(relPath) {
+    if (!this.sessionId) {
+      this.setData({ loading: false, error: '请先打开一个会话', entries: [] });
+      return;
+    }
     if (store.state.connection !== 'connected') {
-      // 对齐 dsh-mobile browseDirectories：未连接直接提示，不挂起加载态
       this.setData({ loading: false, error: '请先连接 DeepSeek Harness', entries: [] });
       return;
     }
-    this.currentPath = path || null;
+    this.relPath = relPath || null;
     this.setData({ loading: true, error: '' });
-    store.client.requestDirectories(path)
+    store.client.requestFileList(this.sessionId, relPath)
       .then((frame) => {
         if (!frame) return;
         const entries = (frame.entries || frame.items || []).map((item) => ({
@@ -41,14 +57,13 @@ Page({
           iconFile: entryIconFile(item),
           subLabel: describeEntry(item)
         }));
-        const crumbs = frame.crumbs || [];
+        this.relPath = frame.path || this.relPath || null;
         this.setData({
           entries: entries,
-          isRoot: crumbs.length <= 1,
-          displayPath: frame.path && frame.path !== '.' ? frame.path : '工作区根目录',
+          isRoot: !this.relPath || this.relPath === '.' || this.relPath === '/',
+          displayPath: this.absolutePath(this.relPath),
           loading: false
         });
-        this.crumbs = crumbs;
       })
       .catch((err) => {
         this.setData({ loading: false, error: err.message || '读取目录失败' });
@@ -76,12 +91,13 @@ Page({
   },
 
   goUp() {
-    const crumbs = this.crumbs || [];
-    if (crumbs.length > 1) {
-      this.load(crumbs[crumbs.length - 2].path);
-    } else {
+    const rel = this.relPath;
+    if (!rel || rel === '.' || rel === '/') {
       this.load(null);
+      return;
     }
+    const idx = rel.lastIndexOf('/');
+    this.load(idx > 0 ? rel.substring(0, idx) : null);
   },
 
   newDirectory() {
@@ -92,10 +108,10 @@ Page({
       placeholderText: '目录名',
       success(res) {
         if (res.confirm && res.content && res.content.trim()) {
-          store.client.createDirectory(self.currentPath || '', res.content.trim())
+          store.client.createDirectory(self.relPath || '', res.content.trim())
             .then(() => {
               wx.showToast({ title: '已创建', icon: 'success' });
-              self.load(self.currentPath);
+              self.load(self.relPath);
             })
             .catch((err) => {
               wx.showToast({ title: err.message || '创建失败', icon: 'none' });
@@ -106,7 +122,7 @@ Page({
   },
 
   useThisDirectory() {
-    this.createWorkspace(this.currentPath || '');
+    this.createWorkspace(this.relPath || '');
   },
 
   createWorkspace(path) {

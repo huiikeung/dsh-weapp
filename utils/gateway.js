@@ -490,6 +490,13 @@ class GatewayClient {
     return this.request({ type: 'session-stats', sessionId: sessionId });
   }
 
+  /** 会话工作区文件列表：网关解析会话所属工作区根目录，path 为相对路径（缺省 = 根）。 */
+  requestFileList(sessionId, path) {
+    const payload = { type: 'file-list', requestId: util.uuid(), sessionId: sessionId };
+    if (path) payload.path = path;
+    return this.request(payload, { matchType: 'file-list' });
+  }
+
   requestContextUsage(sessionId) {
     return this.request({ type: 'context-usage', sessionId: sessionId });
   }
