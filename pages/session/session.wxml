@@ -1,8 +1,7 @@
 <page-meta page-style="{{pageStyle}}" />
 <view class="page session {{themeClass}}">
-  <!-- 顶部导航 -->
+  <!-- 顶部导航（对齐 dsh-mobile：无返回按钮，标题 + 状态点 + 预设 + 更多） -->
   <view class="navbar">
-    <view class="nav-back glass-light glass-press" bindtap="goBack"><image class="nav-ic" src="/assets/icons/back-black.png"/></view>
     <view class="nav-title">{{navTitle}}</view>
     <view class="nav-preset">
       <view class="status-dot {{running ? 'connected' : 'disconnected'}}"></view>

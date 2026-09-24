@@ -17,8 +17,8 @@ function toArrayBuffer(u8) {
 const CHANNEL = 'miniprogram';
 const RECONNECT_BASE_DELAY = 1000;
 const RECONNECT_MAX_DELAY = 30000;
-const REQUEST_TIMEOUT = 20000;
-const SESSION_CREATE_TIMEOUT = 15000;
+const REQUEST_TIMEOUT = 30000;
+const SESSION_CREATE_TIMEOUT = 30000;
 
 class GatewayClient {
   constructor(callbacks) {

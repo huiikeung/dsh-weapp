@@ -14,7 +14,6 @@
   flex-shrink: 0;
 }
 
-.nav-back,
 .nav-more {
   width: 76rpx;
   height: 76rpx;
@@ -27,11 +26,7 @@
   background: rgba(255, 255, 255, 0.9);
   box-shadow: 0 4rpx 16rpx rgba(7, 24, 43, 0.08);
   flex-shrink: 0;
-}
-
-.nav-more {
-  font-size: 34rpx;
-  letter-spacing: 2rpx;
+  margin-left: 16rpx;
 }
 
 .nav-title {
@@ -1071,7 +1066,6 @@
 
 /* ---------- 深色补充覆盖（theme-dark，随外观模式切换） ---------- */
 
-.theme-dark .nav-back,
 .theme-dark .nav-more {
   background: var(--fill-2);
   border: 1rpx solid var(--border-strong);
