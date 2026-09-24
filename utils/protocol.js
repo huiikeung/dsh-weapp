@@ -346,20 +346,12 @@ function applyEvent(agg, normalized) {
     case 'session/title':
       // 结构性/内部事件不进会话行（对齐 dsh-mobile ConversationProjection）
       return false;
-    default: {
-      if (event.text && event.type === 'session/title') return false;
-      pushRow(agg, {
-        kind: 'event',
-        key: 'e-' + seq,
-        type: event.type,
-        title: event.name || event.type,
-        text: oneLine(event.text || event.preview || event.error || '', 80),
-        isError: event.isError === true,
-        iconFile: eventIconFile(event),
-        seq: seq
-      });
-      return true;
-    }
+    default:
+      // 白名单制：只有 user/assistant/tool 五种内容事件生成会话行，
+      // 其余所有协议内部事件（permission/preset、sandbox/mode、
+      // approval/policy、model/selection、command/done、system/message 等）
+      // 一律不进会话行（对齐 dsh-mobile 只渲染用户/助手/工具/系统）
+      return false;
   }
 }
 

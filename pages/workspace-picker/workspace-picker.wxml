@@ -1,22 +1,17 @@
 <page-meta page-style="{{pageStyle}}" />
 <view class="page picker {{themeClass}}">
-  <view class="deep-bg">
-    <view class="deep-grid"></view>
-    <image class="deep-whale" src="../../assets/icons/bg-whale.png" mode="aspectFit" />
-  </view>
-
   <!-- 目录浏览器（对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet） -->
   <view class="dir-sheet">
     <view class="dir-sheet-handle"></view>
 
     <!-- 头部：新建文件夹 / 标题 / 取消 -->
     <view class="dir-head">
-      <view class="dir-head-btn glass-press {{dirLoading || dirCreatingWs || dirCreatingDir || !dirPath ? 'disabled' : ''}}" bindtap="newDirectory">
-        <image class="dir-head-folder" src="/assets/icons/ic-dir-folder-white.png"/>
+      <view class="dir-head-btn tap {{dirLoading || dirCreatingWs || dirCreatingDir || !dirPath ? 'disabled' : ''}}" bindtap="newDirectory">
+        <image class="dir-head-folder" src="/assets/icons/{{theme === 'dark' ? 'ic-dir-folder-white' : 'ic-dir-folder-ink'}}.png"/>
         <view class="dir-head-badge"><text>+</text></view>
       </view>
       <text class="dir-head-title">选择工作区目录</text>
-      <view class="dir-head-cancel glass-press" bindtap="goBack">取消</view>
+      <view class="dir-head-cancel tap" bindtap="goBack">取消</view>
     </view>
 
     <!-- 当前目录 -->
@@ -25,7 +20,7 @@
       <text class="dir-cwd-path text-mono">{{dirPath || '正在读取…'}}</text>
     </view>
 
-    <!-- 目录列表 -->
+    <!-- 目录列表卡片 -->
     <view class="dir-list-card">
       <scroll-view class="dir-list" scroll-y scroll-into-view="{{scrollInto}}">
         <view wx:if="{{dirLoading && !dirEntries.length}}" class="dir-loading">
@@ -73,7 +68,7 @@
     <!-- 底部创建栏 -->
     <view class="dir-create-bar">
       <text wx:if="{{dirPath}}" class="dir-create-path text-mono">{{dirPath}}</text>
-      <view class="dir-create-btn glass-press {{dirPath && !dirCreatingWs && !dirCreatingDir && !dirLoading ? '' : 'disabled'}}" bindtap="createWorkspaceHere">
+      <view class="dir-create-btn {{dirPath && !dirCreatingWs && !dirCreatingDir && !dirLoading ? '' : 'disabled'}}" bindtap="createWorkspaceHere">
         <view wx:if="{{dirCreatingWs}}" class="dir-spinner light"></view>
         <image wx:else class="dir-create-add" src="/assets/icons/ic-dir-add-white.png"/>
         <text>在当前目录创建工作区</text>
