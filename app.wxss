@@ -17,7 +17,7 @@ page {
   --success: #2EB85C;
 
   /* 语义色：浅色默认，深色在下方 @media 覆盖（跟随微信 darkmode） */
-  --bg: #F2F3F7;
+  --bg: #F7F8FA;
   --surface: #FFFFFF;
   --fill: rgba(16, 19, 24, 0.05);
   --fill-2: rgba(16, 19, 24, 0.07);
