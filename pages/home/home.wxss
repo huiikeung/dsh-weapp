@@ -714,7 +714,7 @@
   width: 96rpx;
   height: 96rpx;
   border-radius: 50%;
-  background: rgba(241, 244, 250, 0.88);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -756,7 +756,7 @@
   height: 96rpx;
   padding: 0 40rpx;
   border-radius: 48rpx;
-  background: rgba(241, 244, 250, 0.88);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
