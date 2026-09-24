@@ -187,7 +187,7 @@
     <!-- 头部：新建文件夹 / 标题 / 取消 -->
     <view class="dir-head">
       <view class="dir-head-btn tap {{dirLoading || dirCreatingWs || dirCreatingDir ? 'disabled' : ''}}" bindtap="newDirectory">
-        <image class="dir-head-folder" src="/assets/icons/ic-dir-folder-white.png"/>
+        <image class="dir-head-folder" src="/assets/icons/ic-dir-folder-ink.png"/>
         <view class="dir-head-badge"><text>+</text></view>
       </view>
       <text class="dir-head-title">选择工作区目录</text>
