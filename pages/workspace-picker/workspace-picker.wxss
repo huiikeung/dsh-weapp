@@ -53,21 +53,17 @@
   color: var(--text);
 }
 
-/* 新建文件夹按钮：surface 88% 圆形 */
+/* 新建文件夹按钮：透明背景 */
 .dir-head-btn {
   position: absolute;
   left: 36rpx;
   width: 96rpx;
   height: 96rpx;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.88);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.theme-dark .dir-head-btn {
-  background: rgba(255, 255, 255, 0.10);
 }
 
 .dir-head-btn.disabled {
@@ -105,23 +101,19 @@
   margin-top: -4rpx;
 }
 
-/* 取消按钮：surface 88% 胶囊 */
+/* 取消按钮：透明背景 */
 .dir-head-cancel {
   position: absolute;
   right: 36rpx;
   height: 96rpx;
   padding: 0 40rpx;
   border-radius: 48rpx;
-  background: rgba(255, 255, 255, 0.88);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 32rpx;
   color: var(--text);
-}
-
-.theme-dark .dir-head-cancel {
-  background: rgba(255, 255, 255, 0.10);
 }
 
 /* ---------- 当前目录 ---------- */
