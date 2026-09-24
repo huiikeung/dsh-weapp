@@ -47,43 +47,4 @@
   line-height: 1.5;
 }
 
-/* ---------- 深色模式覆盖（page-dark） ---------- */
-
-.page-dark .card {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1rpx solid rgba(255, 255, 255, 0.15);
-  border-radius: 28rpx;
-  overflow: hidden;
-}
-
-.page-dark .card-row + .card-row {
-  border-top-color: rgba(255, 255, 255, 0.08);
-}
-
-.page-dark .card-row-label {
-  color: #FFFFFF;
-}
-
-.page-dark .gw-url {
-  color: #FFFFFF;
-}
-
-.page-dark .gw-cwd {
-  color: rgba(255, 255, 255, 0.7);
-}
-
-.page-dark .chevron-img {
-  opacity: 0.45;
-}
-
-.page-dark .btn-text {
-  color: var(--ocean);
-}
-
-.page-dark .btn-text-danger {
-  color: #FF6B6B;
-}
-
-.page-dark .status-dot.disconnected {
-  background: rgba(255, 255, 255, 0.4);
-}
+/* 双主题：基础样式已全部变量化（app.wxss / 上方规则），无需 page-dark 覆盖 */

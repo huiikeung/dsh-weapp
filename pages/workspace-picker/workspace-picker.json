@@ -1,5 +1,7 @@
 {
   "navigationBarTitleText": "切换工作区",
-  "navigationBarBackgroundColor": "#07182B",
+  "navigationBarBackgroundColor": "@navBgColor",
+  "navigationBarTextStyle": "@navTxtStyle",
+  "backgroundColor": "@bgColor",
   "usingComponents": {}
 }

@@ -1,4 +1,4 @@
-<view class="page page-dark session">
+<view class="page session">
   <!-- 顶部导航 -->
   <view class="navbar">
     <view class="nav-back glass-light glass-press" bindtap="goBack"><image class="nav-ic" src="/assets/icons/back-black.png"/></view>
@@ -261,7 +261,7 @@
       <view class="chip" bindtap="pickPermission"><image class="chip-ic" src="/assets/icons/{{permissionIcon}}"/>{{permissionLabel}}</view>
       <view class="chip" bindtap="pickModel">{{modelLabel}}<view class="effort-pill" catchtap="pickEffort">{{effortLabel}}</view><image class="chip-ud" src="/assets/icons/chev-ud-gray.png"/></view>
       <view class="composer-spacer"></view>
-      <view wx:if="{{contextPct >= 0}}" class="context-ring" style="background: conic-gradient(#2E6BE6 {{contextPct}}%, rgba(241, 244, 250, 0.22) 0);"><view class="context-ring-in"></view></view>
+      <view wx:if="{{contextPct >= 0}}" class="context-ring" style="background: conic-gradient(#2E6BE6 {{contextPct}}%, var(--ring-track) 0);"><view class="context-ring-in"></view></view>
       <view wx:if="{{canAttach}}" class="chip icon" bindtap="chooseImage"><image class="attach-ic" src="/assets/icons/attach-gray.png"/></view>
       <view
         wx:if="{{running}}"

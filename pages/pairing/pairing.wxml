@@ -1,4 +1,4 @@
-<view class="page page-dark pairing">
+<view class="page pairing">
   <view class="deep-bg">
     <view class="deep-grid"></view>
     <image class="deep-whale" src="../../assets/icons/bg-whale.png" mode="aspectFit" />

@@ -1,4 +1,4 @@
-<view class="page page-dark picker">
+<view class="page picker">
   <view class="deep-bg">
     <view class="deep-grid"></view>
     <image class="deep-whale" src="../../assets/icons/bg-whale.png" mode="aspectFit" />

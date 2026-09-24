@@ -1,7 +1,7 @@
 {
   "navigationBarTitleText": "会话",
-  "navigationBarBackgroundColor": "#FFFFFF",
-  "navigationBarTextStyle": "black",
+  "navigationBarBackgroundColor": "@navBgColor",
+  "navigationBarTextStyle": "@navTxtStyle",
   "disableScroll": true,
   "usingComponents": {}
 }

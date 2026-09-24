@@ -1,6 +1,7 @@
 {
   "navigationBarTitleText": "工作区文件",
-  "navigationBarBackgroundColor": "#FFFFFF",
-  "navigationBarTextStyle": "black",
+  "navigationBarBackgroundColor": "@navBgColor",
+  "navigationBarTextStyle": "@navTxtStyle",
+  "backgroundColor": "@bgColor",
   "usingComponents": {}
 }

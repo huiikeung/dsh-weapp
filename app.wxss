@@ -4,23 +4,66 @@
  */
 
 page {
+  /* 品牌色（双主题共用） */
   --navy: #07182B;
   --navy-raised: #0D2340;
   --ocean: #2E6BE6;
   --mist: #BFD4FF;
   --ink: #101318;
   --paper: #F7F8FA;
-  --gray: #7D8592;
   --purple: #7A54C7;
   --orange: #F07D14;
   --amber: #FFAE1F;
   --success: #2EB85C;
 
-  background: var(--navy);
-  color: var(--ink);
+  /* 语义色：浅色默认，深色在下方 @media 覆盖（跟随微信 darkmode） */
+  --bg: #F2F3F7;
+  --surface: #FFFFFF;
+  --fill: rgba(16, 19, 24, 0.05);
+  --fill-2: rgba(16, 19, 24, 0.07);
+  --border: rgba(16, 19, 24, 0.10);
+  --border-strong: rgba(16, 19, 24, 0.16);
+  --divider: rgba(16, 19, 24, 0.08);
+  --text: #10131A;
+  --text-2: rgba(16, 19, 24, 0.62);
+  --text-3: rgba(16, 19, 24, 0.55);
+  --text-4: rgba(16, 19, 24, 0.45);
+  --placeholder: rgba(16, 19, 24, 0.35);
+  --ring-track: rgba(16, 19, 24, 0.22);
+  --segment-active-bg: #FFFFFF;
+  --segment-active-text: #10131A;
+  --float-shadow: 0 10rpx 30rpx rgba(7, 24, 43, 0.10);
+
+  background: var(--bg);
+  color: var(--text);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "PingFang SC", sans-serif;
   font-size: 28rpx;
   line-height: 1.5;
+}
+
+@media (prefers-color-scheme: dark) {
+  page {
+    --bg: #07182B;
+    --surface: #1C1C1E;
+    --fill: rgba(255, 255, 255, 0.06);
+    --fill-2: rgba(255, 255, 255, 0.10);
+    --border: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.16);
+    --divider: rgba(255, 255, 255, 0.08);
+    --text: #F1F4FA;
+    --text-2: rgba(241, 244, 250, 0.62);
+    --text-3: rgba(241, 244, 250, 0.55);
+    --text-4: rgba(241, 244, 250, 0.45);
+    --placeholder: rgba(241, 244, 250, 0.42);
+    --ring-track: rgba(241, 244, 250, 0.22);
+    --segment-active-bg: #636366;
+    --segment-active-text: #FFFFFF;
+    --float-shadow: 0 10rpx 30rpx rgba(0, 0, 0, 0.45);
+    /* 旧样式里 var(--ink)/var(--gray) 大量用于“正文/次要文字”，
+       深色下一并翻转为 onSurface 色板，避免逐条覆盖 */
+    --ink: #F1F4FA;
+    --gray: rgba(241, 244, 250, 0.55);
+  }
 }
 
 /* ---------- 通用容器 ---------- */
@@ -168,7 +211,7 @@ page {
 /* ---------- 表单 ---------- */
 
 .field {
-  background: #FFFFFF;
+  background: var(--surface);
   border-radius: 24rpx;
   padding: 28rpx 32rpx;
   font-size: 30rpx;
@@ -178,12 +221,12 @@ page {
 }
 
 .field-dark {
-  background: rgba(255, 255, 255, 0.08);
-  border: 1rpx solid rgba(255, 255, 255, 0.14);
+  background: var(--fill);
+  border: 1rpx solid var(--border);
   border-radius: 24rpx;
   padding: 28rpx 32rpx;
   font-size: 30rpx;
-  color: #FFFFFF;
+  color: var(--text);
   box-sizing: border-box;
   width: 100%;
 }
@@ -195,7 +238,7 @@ page {
 /* ---------- 列表卡片（设置/弹层通用） ---------- */
 
 .card {
-  background: #FFFFFF;
+  background: var(--surface);
   border-radius: 28rpx;
   overflow: hidden;
 }
@@ -210,7 +253,7 @@ page {
 }
 
 .card-row + .card-row {
-  border-top: 1rpx solid rgba(16, 19, 24, 0.07);
+  border-top: 1rpx solid var(--divider);
 }
 
 .card-row-label {
@@ -242,7 +285,7 @@ page {
 /* ---------- 代码块 ---------- */
 
 .code-block {
-  background: #ECEDEF;
+  background: var(--fill);
   border-radius: 20rpx;
   overflow: hidden;
   margin: 20rpx 0;

@@ -1,4 +1,4 @@
-<view class="page page-dark files">
+<view class="page files">
   <!-- 面包屑 -->
   <scroll-view class="crumbs" scroll-x>
     <view class="crumb-row">

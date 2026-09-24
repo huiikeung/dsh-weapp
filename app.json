@@ -8,12 +8,14 @@
     "pages/workspace-picker/workspace-picker"
   ],
   "window": {
-    "navigationBarBackgroundColor": "#07182B",
-    "navigationBarTextStyle": "white",
+    "navigationBarBackgroundColor": "@navBgColor",
+    "navigationBarTextStyle": "@navTxtStyle",
     "navigationBarTitleText": "DeepSeek Harness",
-    "backgroundColor": "#07182B",
-    "backgroundTextStyle": "light"
+    "backgroundColor": "@bgColor",
+    "backgroundTextStyle": "@bgTxtStyle"
   },
+  "darkmode": true,
+  "themeLocation": "theme.json",
   "style": "v2",
   "lazyCodeLoading": "requiredComponents",
   "sitemapLocation": "sitemap.json"

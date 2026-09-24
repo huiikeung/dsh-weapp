@@ -11,8 +11,8 @@
   align-items: center;
   padding: 30rpx 28rpx;
   margin-bottom: 20rpx;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1rpx solid rgba(255, 255, 255, 0.14);
+  background: var(--surface);
+  border: 1rpx solid var(--border);
   border-radius: 24rpx;
 }
 
@@ -29,13 +29,13 @@
 }
 
 .row-title {
-  color: #FFFFFF;
+  color: var(--text);
   font-size: 32rpx;
   font-weight: 500;
 }
 
 .row-path {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--text-3);
   font-size: 24rpx;
   margin-top: 6rpx;
   overflow: hidden;
@@ -51,11 +51,18 @@
 }
 
 .empty {
-  color: rgba(255, 255, 255, 0.45);
+  color: var(--text-4);
   text-align: center;
   padding: 60rpx 0;
 }
 
 .new-workspace {
   margin-top: 50rpx;
+}
+
+/* 浅色下的玻璃按钮覆盖（深色沿用 app.wxss 白色透明样式） */
+.picker .btn-glass {
+  background: var(--fill-2);
+  border: 1rpx solid var(--border-strong);
+  color: var(--text);
 }
