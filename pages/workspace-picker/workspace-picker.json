@@ -1,7 +1,8 @@
 {
-  "navigationBarTitleText": "切换工作区",
+  "navigationBarTitleText": "选择工作区目录",
   "navigationBarBackgroundColor": "@navBgColor",
   "navigationBarTextStyle": "@navTxtStyle",
   "backgroundColor": "@bgColor",
+  "disableScroll": true,
   "usingComponents": {}
 }
