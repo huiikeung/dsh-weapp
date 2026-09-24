@@ -115,6 +115,11 @@ function createStore() {
     safeRequest(client.requestAgentPresets());
     if (sessionState.sessionId) {
       client.subscribe(sessionState.sessionId);
+      // 重连后网关不保留订阅与推送状态：重置并重拉会话内容，
+      // 避免后台挂起恢复后打开会话一直空白。
+      sessionState.rowsAgg = protocol.newAggregator();
+      sessionState.rows = [];
+      client.requestHistory(sessionState.sessionId);
     }
   }
 
@@ -950,7 +955,7 @@ function createStore() {
 
     /** 打开会话：重置会话投影并订阅。 */
     openSession: function (sessionId, title, agentPreset) {
-      client.subscribe(sessionId);
+      const subOk = client.subscribe(sessionId);
       sessionState.sessionId = sessionId;
       sessionState.rowsAgg = protocol.newAggregator();
       sessionState.rows = [];
@@ -962,7 +967,17 @@ function createStore() {
       sessionState.stats = null;
       rawBuffer = [];
       emit();
-      client.requestHistory(sessionId);
+      const histOk = client.requestHistory(sessionId);
+      if (!subOk || !histOk) {
+        // 连接/E2EE 未就绪（如后台恢复中）：稍后重试，避免会话页空白。
+        setTimeout(function () {
+          if (sessionState.sessionId !== sessionId || state.connection !== 'connected') return;
+          client.subscribe(sessionId);
+          sessionState.rowsAgg = protocol.newAggregator();
+          sessionState.rows = [];
+          client.requestHistory(sessionId);
+        }, 800);
+      }
       safeRequest(client.requestSessionStats(sessionId));
       safeRequest(client.requestContextUsage(sessionId));
       safeRequest(client.requestPermissionOptions(sessionId));
