@@ -232,12 +232,15 @@ function createStore() {
         } else if (evs.length) {
           ingestEvents(evs);
         }
-        // 运行状态：turn/start 点亮，turn/end 熄灭（对齐 dsh-mobile turn 计数）
-        (evs.length ? evs : []).concat(frame.event ? [frame] : []).forEach((raw) => {
-          const t = raw.event ? raw.event.type : raw.type;
+        // 运行状态：从事件流中检测 turn 边界（多路径覆盖）
+        const allEvents = [];
+        if (evs.length) allEvents.push(...evs);
+        if (frame.event) allEvents.push(frame.event);
+        for (const ev of allEvents) {
+          const t = ev.type || (ev.event && ev.event.type) || '';
           if (t === 'turn/start') sessionState.running = true;
           if (t === 'turn/end') sessionState.running = false;
-        });
+        }
         emit();
         return;
       }

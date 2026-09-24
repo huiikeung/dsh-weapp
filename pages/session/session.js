@@ -606,7 +606,17 @@ function numberWithCommas(n) {
 function isRunning(rows) {
   for (let i = rows.length - 1; i >= 0; i -= 1) {
     const row = rows[i];
-    if (row.kind === 'assistant') return row.streaming === true;
+    if (row.kind === 'assistant') {
+      // 流式中或有未完成工具 → 运行中
+      if (row.streaming === true) return true;
+      if (row.tools && row.tools.some((t) => t.status !== 'done')) return true;
+      return false;
+    }
+    if (row.kind === 'process') {
+      // 过程行有未完成工具 → 运行中；否则继续往前看
+      if (row.tools && row.tools.some((t) => t.status !== 'done')) return true;
+      continue;
+    }
     if (row.kind === 'user') return false;
   }
   return false;
