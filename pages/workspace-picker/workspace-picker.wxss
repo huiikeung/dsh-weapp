@@ -1,347 +1,286 @@
-/* 创建工作区页 —— 对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet
-   浅色: bg #F3F3F8, card #FFF, 按钮 surface 88%
-   深色: bg #171A20, card #22262D
-   创建按钮: 双主题始终纯黑 */
+/* 工作区目录选择页 —— 对齐 dsh-mobile WorkspaceFilesBottomSheet 版式
+   头部（上一级/标题/取消）+ 路径栏 + 扁平列表 + 底部创建栏 */
 
-.picker {
-  height: 100vh;
-  overflow: hidden;
-}
-
-/* ---------- 弹层容器 ---------- */
-
-.dir-sheet {
+.wp {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: #F3F3F8;
-  padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
+  background: var(--bg);
 }
 
-.theme-dark .dir-sheet {
-  background: #171A20;
-}
-
-.dir-sheet-handle {
-  width: 76rpx;
-  height: 10rpx;
-  border-radius: 999rpx;
-  background: rgba(16, 19, 26, 0.18);
-  margin: 16rpx auto 8rpx;
-  flex-shrink: 0;
-}
-
-.theme-dark .dir-sheet-handle {
-  background: rgba(241, 244, 250, 0.30);
-}
-
-/* ---------- 头部 ---------- */
-
-.dir-head {
+/* ===== 头部 ===== */
+.wp-header {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 132rpx;
-  padding: 0 36rpx;
-  flex-shrink: 0;
+  height: 108rpx;
+  padding: 0 24rpx;
 }
 
-.dir-head-title {
+.wp-back {
+  position: absolute;
+  left: 24rpx;
+  top: 0;
+  height: 108rpx;
+  display: flex;
+  align-items: center;
+  font-size: 30rpx;
+  color: var(--text);
+}
+
+.wp-back-ph {
+  position: absolute;
+  left: 24rpx;
+  width: 120rpx;
+}
+
+.wp-title {
   font-size: 36rpx;
   font-weight: 700;
   color: var(--text);
 }
 
-/* 新建文件夹按钮：透明背景 */
-.dir-head-btn {
+.wp-done {
   position: absolute;
-  left: 36rpx;
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: 50%;
-  background: transparent;
+  right: 24rpx;
+  height: 76rpx;
+  padding: 0 36rpx;
+  border-radius: 38rpx;
+  background: var(--surface);
+  box-shadow: var(--float-shadow);
   display: flex;
   align-items: center;
-  justify-content: center;
-}
-
-.dir-head-btn.disabled {
-  opacity: 0.4;
-}
-
-/* 文件夹图标颜色随主题：浅色用 ink 版，深色用 white 版 */
-.dir-head-folder {
-  width: 52rpx;
-  height: 52rpx;
-}
-
-.dir-head-badge {
-  position: absolute;
-  right: 22rpx;
-  top: 22rpx;
-  width: 24rpx;
-  height: 24rpx;
-  border-radius: 50%;
-  background: #F3F3F8;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.theme-dark .dir-head-badge {
-  background: #171A20;
-}
-
-.dir-head-badge text {
-  font-size: 24rpx;
-  line-height: 24rpx;
-  font-weight: 700;
-  color: var(--text);
-  margin-top: -4rpx;
-}
-
-/* 取消按钮：透明背景 */
-.dir-head-cancel {
-  position: absolute;
-  right: 36rpx;
-  height: 96rpx;
-  padding: 0 40rpx;
-  border-radius: 48rpx;
-  background: transparent;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   font-size: 32rpx;
+  font-weight: 500;
   color: var(--text);
 }
 
-/* ---------- 当前目录 ---------- */
+/* ===== 路径栏 ===== */
+.wp-pathbar {
+  display: flex;
+  align-items: center;
+  height: 88rpx;
+  padding: 0 40rpx;
+}
 
-.dir-cwd {
-  padding: 0 44rpx;
+.wp-path-icon {
+  width: 34rpx;
+  height: 34rpx;
   flex-shrink: 0;
 }
 
-.dir-cwd-label {
-  display: block;
+.wp-path {
+  flex: 1;
+  min-width: 0;
+  margin-left: 14rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: 28rpx;
-  font-weight: 600;
   color: var(--text-2);
 }
 
-.dir-cwd-path {
-  display: block;
-  font-size: 26rpx;
-  color: var(--text-4);
-  margin-top: 4rpx;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.wp-bar-divider {
+  height: 1px;
+  background: var(--divider);
+  margin: 0 24rpx;
 }
 
-/* ---------- 目录列表卡片 ---------- */
-
-.dir-list-card {
+/* ===== 列表 ===== */
+.wp-list {
   flex: 1;
   min-height: 0;
-  margin: 28rpx 36rpx 0;
-  background: #FFFFFF;
-  border-radius: 56rpx 56rpx 0 0;
-  overflow: hidden;
 }
 
-.theme-dark .dir-list-card {
-  background: #22262D;
-}
-
-.dir-list {
-  height: 100%;
-  box-sizing: border-box;
-  padding: 20rpx 36rpx;
-}
-
-.dir-loading {
+.wp-center {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 80rpx 0;
+  padding: 140rpx 40rpx;
+}
+
+.wp-center-text {
+  margin-top: 20rpx;
+  font-size: 28rpx;
   color: var(--text-3);
-  font-size: 30rpx;
-  gap: 20rpx;
 }
 
-.dir-error {
-  color: #E5484D;
-}
-
-.dir-empty {
-  text-align: center;
-  padding: 60rpx 0;
-  color: var(--text-4);
-  font-size: 27rpx;
-}
-
-.dir-row {
+.wp-row {
   display: flex;
   align-items: center;
+  min-height: 144rpx;
+  padding: 20rpx 24rpx 20rpx 44rpx;
   border-radius: 24rpx;
-  padding: 24rpx 16rpx;
 }
 
-.dir-row.disabled {
-  opacity: 0.3;
-}
-
-.dir-row.highlight {
-  background: rgba(46, 107, 230, 0.20);
-}
-
-.dir-row-hover {
+.wp-row-hover {
   background: rgba(16, 19, 26, 0.04);
 }
 
-.theme-dark .dir-row-hover {
+.theme-dark .wp-row-hover {
   background: rgba(241, 244, 250, 0.06);
 }
 
-.dir-row-icon {
+.wp-row.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.wp-row.highlight {
+  background: rgba(46, 107, 230, 0.18);
+}
+
+.wp-row-icon-wrap {
   position: relative;
   width: 68rpx;
   flex-shrink: 0;
 }
 
-.dir-row-ic {
+.wp-row-icon {
   width: 50rpx;
   height: 50rpx;
 }
 
-.dir-row-badge {
+.wp-row-badge {
   position: absolute;
-  right: 6rpx;
-  top: -6rpx;
+  right: 2rpx;
+  top: -8rpx;
   width: 26rpx;
   height: 26rpx;
 }
 
-.dir-row-body {
+.wp-row-body {
   flex: 1;
   min-width: 0;
+  margin-left: 22rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.wp-row-name {
+  font-size: 32rpx;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.wp-row-sub {
+  font-size: 24rpx;
+  color: var(--text-3);
+}
+
+.wp-row-chev {
+  width: 32rpx;
+  height: 32rpx;
+  flex-shrink: 0;
   margin-left: 12rpx;
 }
 
-.dir-row-name {
-  display: block;
-  font-size: 32rpx;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.dir-row-sub {
-  display: block;
-  font-size: 24rpx;
-  color: var(--text-3);
-  margin-top: 2rpx;
-}
-
-.dir-row-chev {
-  width: 36rpx;
-  height: 36rpx;
-  flex-shrink: 0;
-}
-
-.dir-divider {
-  height: 1rpx;
-  margin-left: 116rpx;
+.wp-divider {
+  height: 1px;
   background: var(--divider);
+  margin-left: 134rpx;
 }
 
-/* ---------- 底部创建栏（dsh-mobile 始终纯黑按钮） ---------- */
+.wp-list-spacer {
+  height: env(safe-area-inset-bottom);
+}
 
-.dir-create-bar {
-  padding: 20rpx 40rpx;
+/* ===== 底部创建栏 ===== */
+.wp-bottom {
+  padding: 16rpx 40rpx calc(24rpx + env(safe-area-inset-bottom));
   display: flex;
   flex-direction: column;
-  align-items: center;
-  flex-shrink: 0;
+  gap: 14rpx;
 }
 
-.dir-create-path {
+.wp-bottom-path {
+  text-align: center;
   font-size: 24rpx;
-  color: var(--text-4);
-  max-width: 100%;
-  margin-bottom: 16rpx;
+  color: var(--text-3);
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.dir-create-btn {
+.wp-bottom-btns {
+  display: flex;
+  gap: 18rpx;
+}
+
+/* 新建文件夹：次级按钮 */
+.wp-btn-new {
+  flex: 1;
+  height: 100rpx;
+  border-radius: 28rpx;
+  background: var(--surface);
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
-  height: 104rpx;
+  gap: 12rpx;
+  font-size: 30rpx;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.wp-btn-new.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* 创建工作区：黑色主按钮 */
+.wp-btn-create {
+  flex: 2;
+  height: 100rpx;
   border-radius: 28rpx;
   background: #000000;
-  font-size: 32rpx;
-  font-weight: 600;
-  color: #FFFFFF;
-}
-
-.dir-create-btn.disabled {
-  opacity: 0.45;
-}
-
-.dir-create-add {
-  width: 42rpx;
-  height: 42rpx;
-  margin-right: 18rpx;
-}
-
-.dir-creating-hint {
   display: flex;
   align-items: center;
-  margin-top: 16rpx;
-  color: var(--text-3);
-  font-size: 24rpx;
+  justify-content: center;
+  gap: 12rpx;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #ffffff;
 }
 
-/* ---------- 加载转圈 ---------- */
+.wp-btn-create.disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
 
-.dir-spinner {
-  width: 40rpx;
-  height: 40rpx;
-  border: 4rpx solid rgba(16, 19, 26, 0.15);
-  border-top-color: rgba(16, 19, 26, 0.7);
+.wp-btn-add {
+  width: 32rpx;
+  height: 32rpx;
+}
+
+/* ===== Spinner ===== */
+.wp-spinner {
+  width: 30rpx;
+  height: 30rpx;
+  border: 3rpx solid rgba(120, 120, 128, 0.28);
+  border-top-color: var(--ocean);
   border-radius: 50%;
-  animation: dir-spin 0.8s linear infinite;
+  animation: wp-spin 0.8s linear infinite;
   flex-shrink: 0;
 }
 
-.theme-dark .dir-spinner {
-  border-color: rgba(241, 244, 250, 0.25);
-  border-top-color: rgba(241, 244, 250, 0.9);
+.wp-spinner.large {
+  width: 44rpx;
+  height: 44rpx;
+  border-width: 4rpx;
 }
 
-.dir-spinner.small {
-  width: 28rpx;
-  height: 28rpx;
-  border-width: 3rpx;
-  margin-right: 16rpx;
+.wp-spinner.light {
+  border-color: rgba(255, 255, 255, 0.3);
+  border-top-color: #ffffff;
 }
 
-.dir-spinner.light {
-  border-color: rgba(255, 255, 255, 0.30);
-  border-top-color: #FFFFFF;
-  width: 38rpx;
-  height: 38rpx;
-  margin-right: 18rpx;
-}
-
-@keyframes dir-spin {
+@keyframes wp-spin {
   to {
     transform: rotate(360deg);
   }

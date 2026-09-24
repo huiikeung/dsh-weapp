@@ -36,8 +36,6 @@ Page({
     if (!frame) return;
     // 兼容不同网关版本：entries 或 items
     const rawList = frame.entries || frame.items || [];
-    console.log('[workspace-picker] response keys:', Object.keys(frame));
-    console.log('[workspace-picker] raw entries count:', rawList.length);
     const entries = rawList
       .map((item) => ({
         name: item.name || item.title || '',
