@@ -1236,3 +1236,23 @@
   border-radius: 999rpx;
   padding: 8rpx 24rpx;
 }
+
+/* ===== 上下文注入行（system/插件来源的 user/message） ===== */
+.row-context {
+  margin: 12rpx 0 16rpx;
+  padding: 16rpx 20rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 16rpx;
+  background: var(--fill);
+}
+
+.context-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 24rpx;
+  font-weight: 500;
+  color: var(--text-3);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}

@@ -49,11 +49,14 @@ function normalizeRawEvent(raw, sessionId) {
 
   switch (type) {
     case 'user/message': {
-      const source = data.source && data.source.kind;
+      // source 可能是纯字符串或 {kind} 对象（对齐 dsh-mobile GatewayEventSourceSerializer）
+      let source = null;
+      if (typeof data.source === 'string') source = data.source;
+      else if (data.source && typeof data.source.kind === 'string') source = data.source.kind;
       event = {
         type: type,
         text: textBlocks(data.content),
-        source: typeof source === 'string' ? source : null,
+        source: source,
         images: imageBlocks(data.content)
       };
       break;
@@ -281,6 +284,19 @@ function applyEvent(agg, normalized) {
   switch (event.type) {
     case 'user/message': {
       agg.currentAssistant = null;
+      // 对齐 dsh-mobile ConversationProjection：只有 source 为空或 'user' 的才是用户消息，
+      // 其余（system 注入、插件等）作为上下文条目展示，不再冒充用户气泡。
+      if (event.source !== null && event.source !== 'user') {
+        if (!event.text) return false;
+        pushRow(agg, {
+          kind: 'context',
+          key: 'ctx-' + seq,
+          title: '上下文' + (event.source ? ' · ' + event.source : ''),
+          text: event.text || '',
+          seq: seq
+        });
+        return true;
+      }
       pushRow(agg, {
         kind: 'user',
         key: 'u-' + seq,

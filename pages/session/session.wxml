@@ -45,6 +45,15 @@
         </view>
       </view>
 
+      <!-- 上下文注入行（system/插件等非用户来源，对齐 dsh-mobile ProcessContextDisclosure） -->
+      <view wx:if="{{item.kind === 'context'}}" class="row-context" id="{{item.key}}">
+        <view class="disclosure-head" bindtap="toggleFold" data-key="{{item.key}}">
+          <text class="context-title">{{item.title}}</text>
+          <image class="process-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+        </view>
+        <view wx:if="{{folds[item.key]}}" class="disclosure-body">{{item.text}}</view>
+      </view>
+
       <!-- 过程分组行（对齐 dsh-mobile ConversationProcessRow） -->
       <view wx:if="{{item.kind === 'process'}}" class="process-block" id="{{item.key}}">
         <view class="process-head" bindtap="toggleFold" data-key="{{item.key}}">
