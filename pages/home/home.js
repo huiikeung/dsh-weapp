@@ -61,6 +61,7 @@ Page({
       store.client.requestWorkspaces();
       store.client.requestSessions();
     }
+    this.syncHostUI(store.state);
   },
 
   onUnload() {
@@ -127,8 +128,20 @@ Page({
 
   /** 切换主机 UI（GatewaySwitcherBar/Sheet 对齐）。 */
   syncHostUI(app) {
-    const profiles = app.profiles || [];
-    const active = profiles.find((p) => p.id === app.activeID) || null;
+    let profiles = app.profiles || [];
+    const conn = app.connection;
+    // 兜底：已连接但 profiles 为空时（relay 重连未收到 hello），
+    // 用网关连接状态合成一条主机行，确保弹层始终显示当前设备
+    if (!profiles.length && conn === 'connected' && app.gatewayName) {
+      profiles = [{
+        id: app.activeID || '__active__',
+        gatewayName: app.gatewayName,
+        alias: '',
+        deviceKind: 'desktopcomputer',
+        endpoints: app.endpoint ? [app.endpoint] : []
+      }];
+    }
+    const active = profiles.find((p) => p.id === app.activeID) || profiles[0] || null;
     const onlineIDs = app.onlineIDs || [];
     const selected = this.data.hostSelection || [];
     const rows = [];
@@ -136,16 +149,17 @@ Page({
     profiles.forEach((p) => {
       if (!active || p.id !== active.id) rows.push(p);
     });
+    const isOnline = conn === 'connected';
     this.setData({
       hostLabel: active ? hostsLib.displayName(active) : '选择主机',
       hostKindIcon: hostsLib.kindIconFile(active ? active.deviceKind : 'desktopcomputer'),
-      hostOnline: active ? onlineIDs.indexOf(active.id) >= 0 : false,
+      hostOnline: active ? (onlineIDs.indexOf(active.id) >= 0 || isOnline) : false,
       hostRows: rows.map((p) => ({
         id: p.id,
         displayName: hostsLib.displayName(p),
         kindIcon: hostsLib.kindIconFile(p.deviceKind),
-        online: onlineIDs.indexOf(p.id) >= 0,
-        subLabel: p.id === app.activeID ? '当前主机' : '点击连接',
+        online: onlineIDs.indexOf(p.id) >= 0 || (p.id === app.activeID && isOnline),
+        subLabel: (p.id === app.activeID || isOnline) ? '当前主机 · 已连接' : '点击连接',
         isActive: p.id === app.activeID,
         selected: selected.indexOf(p.id) >= 0
       }))
