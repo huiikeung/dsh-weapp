@@ -91,64 +91,62 @@
   color: var(--text-2);
 }
 
-/* 浅色下的品牌与玻璃控件覆盖 */
-.pairing .deep-bg {
+/* 浅色下的品牌与玻璃控件覆盖（theme-light，随外观模式切换） */
+.theme-light .deep-bg {
   display: none;
 }
 
-.pairing .brand-whale {
+.theme-light .brand-whale {
   filter: brightness(0);
   opacity: 0.85;
 }
 
-.pairing .title-hero {
+.theme-light .title-hero {
   color: var(--text);
 }
 
-.pairing .subtitle-hero {
+.theme-light .subtitle-hero {
   color: var(--text-2);
 }
 
-.pairing .btn-glass {
+.theme-light .btn-glass {
   background: var(--fill-2);
   border: 1rpx solid var(--border-strong);
   color: var(--text);
 }
 
-/* ---------- 深色（跟随微信 darkmode）：恢复深海蓝品牌视觉 ---------- */
+/* ---------- 深色：恢复深海蓝品牌视觉（theme-dark） ---------- */
 
-@media (prefers-color-scheme: dark) {
-  .pairing .deep-bg {
-    display: block;
-  }
+.theme-dark .deep-bg {
+  display: block;
+}
 
-  .pairing .brand-whale {
-    filter: none;
-    opacity: 1;
-  }
+.theme-dark .brand-whale {
+  filter: none;
+  opacity: 1;
+}
 
-  .pairing .btn-glass {
-    background: rgba(255, 255, 255, 0.12);
-    border: 1rpx solid rgba(255, 255, 255, 0.22);
-    color: #FFFFFF;
-  }
+.theme-dark .btn-glass {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1rpx solid rgba(255, 255, 255, 0.22);
+  color: #FFFFFF;
+}
 
-  .manual {
-    background: rgba(255, 255, 255, 0.07);
-    border-color: rgba(255, 255, 255, 0.14);
-  }
+.theme-dark .manual {
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.14);
+}
 
-  .brand-badge {
-    color: var(--mist);
-    border-color: rgba(191, 212, 255, 0.5);
-  }
+.theme-dark .brand-badge {
+  color: var(--mist);
+  border-color: rgba(191, 212, 255, 0.5);
+}
 
-  .status-text,
-  .restore {
-    color: var(--mist);
-  }
+.theme-dark .status-text,
+.theme-dark .restore {
+  color: var(--mist);
+}
 
-  .error {
-    color: #FF8589;
-  }
+.theme-dark .error {
+  color: #FF8589;
 }

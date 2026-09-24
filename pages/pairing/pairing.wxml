@@ -1,4 +1,5 @@
-<view class="page pairing">
+<page-meta page-style="{{pageStyle}}" />
+<view class="page pairing {{themeClass}}">
   <view class="deep-bg">
     <view class="deep-grid"></view>
     <image class="deep-whale" src="../../assets/icons/bg-whale.png" mode="aspectFit" />

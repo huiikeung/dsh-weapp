@@ -1,6 +1,7 @@
 const store = require('../../utils/store');
 const labels = require('../../utils/labels');
 const notifyPref = require('../../utils/notify-pref');
+const theme = require('../../utils/theme');
 
 // 订阅消息模板 ID：在小程序管理后台申请「任务完成提醒」类模板后填入。
 // 留空时开启开关仅保存偏好，不发起授权请求。
@@ -15,6 +16,7 @@ const CONNECTION_LABELS = {
 
 Page({
   data: {
+    appearanceMode: 'auto',
     presetLabel: '标准模式',
     modelLabel: '—',
     permissionLabel: '工作区写入',
@@ -27,7 +29,9 @@ Page({
   },
 
   onLoad() {
+    theme.applyTo(this);
     this.setData({
+      appearanceMode: theme.getMode(),
       notifyEnabled: notifyPref.enabled()
     });
     this.unsubscribe = store.subscribe((snapshot) => {
@@ -37,6 +41,15 @@ Page({
     if (store.state.connection === 'connected') {
       store.client.requestHost();
     }
+  },
+
+  // ---------- 外观模式 ----------
+
+  setAppearance(e) {
+    const mode = e.currentTarget.dataset.mode;
+    if (mode !== 'auto' && mode !== 'light' && mode !== 'dark') return;
+    theme.setMode(mode);
+    this.setData({ appearanceMode: theme.getMode() });
   },
 
   onUnload() {

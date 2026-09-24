@@ -1,4 +1,5 @@
-<view class="page files">
+<page-meta page-style="{{pageStyle}}" />
+<view class="page files {{themeClass}}">
   <!-- 面包屑 -->
   <scroll-view class="crumbs" scroll-x>
     <view class="crumb-row">

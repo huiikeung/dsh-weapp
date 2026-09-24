@@ -1,5 +1,6 @@
 const store = require('../../utils/store');
 const util = require('../../utils/util');
+const theme = require('../../utils/theme');
 
 Page({
   data: {
@@ -12,6 +13,7 @@ Page({
   },
 
   onLoad(options) {
+    theme.applyTo(this);
     this.mode = (options && options.mode) || 'browser';
     this.currentPath = null;
     this.setData({ mode: this.mode });

@@ -1,4 +1,5 @@
-<view class="page session">
+<page-meta page-style="{{pageStyle}}" />
+<view class="page session {{themeClass}}">
   <!-- 顶部导航 -->
   <view class="navbar">
     <view class="nav-back glass-light glass-press" bindtap="goBack"><image class="nav-ic" src="/assets/icons/back-black.png"/></view>

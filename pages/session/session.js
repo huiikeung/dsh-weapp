@@ -3,6 +3,7 @@ const markdown = require('../../utils/markdown');
 const labels = require('../../utils/labels');
 const util = require('../../utils/util');
 const notifyPref = require('../../utils/notify-pref');
+const theme = require('../../utils/theme');
 
 // 订阅消息模板 ID：与设置页保持一致；留空则发送时不申请授权。
 const NOTIFY_TEMPLATE_ID = 'QvgkQ88HKFdTNPJVOp0EdOHNDodOQACzB9oDEFDZXKU';
@@ -49,6 +50,7 @@ Page({
   },
 
   onLoad(options) {
+    theme.applyTo(this);
     this.sessionId = options.id || store.sessionState.sessionId;
     this.folds = {};
     this.unsubscribe = store.subscribe((snapshot) => {

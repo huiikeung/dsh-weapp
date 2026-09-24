@@ -1,4 +1,21 @@
-<view class="page settings">
+<page-meta page-style="{{pageStyle}}" />
+<view class="page settings {{themeClass}}">
+  <!-- 外观模式 -->
+  <view class="group-title">外观</view>
+  <view class="card">
+    <view class="card-row" bindtap="setAppearance" data-mode="auto">
+      <text class="card-row-label">跟随微信</text>
+      <image wx:if="{{appearanceMode === 'auto'}}" class="check-img" src="/assets/icons/check-ocean.png"/>
+    </view>
+    <view class="card-row" bindtap="setAppearance" data-mode="light">
+      <text class="card-row-label">浅色</text>
+      <image wx:if="{{appearanceMode === 'light'}}" class="check-img" src="/assets/icons/check-ocean.png"/>
+    </view>
+    <view class="card-row" bindtap="setAppearance" data-mode="dark">
+      <text class="card-row-label">深色</text>
+      <image wx:if="{{appearanceMode === 'dark'}}" class="check-img" src="/assets/icons/check-ocean.png"/>
+    </view>
+  </view>
 
   <view class="group-title">新会话默认配置</view>
   <view class="card">

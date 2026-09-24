@@ -1025,18 +1025,16 @@
   color: var(--gray);
 }
 
-/* ---------- 深色补充覆盖（跟随微信 darkmode） ---------- */
+/* ---------- 深色补充覆盖（theme-dark，随外观模式切换） ---------- */
 
-@media (prefers-color-scheme: dark) {
-  .nav-back,
-  .nav-more {
-    background: var(--fill-2);
-    border: 1rpx solid var(--border-strong);
-    box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.3);
-  }
+.theme-dark .nav-back,
+.theme-dark .nav-more {
+  background: var(--fill-2);
+  border: 1rpx solid var(--border-strong);
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.3);
+}
 
-  /* 深色模式图标反色 */
-  .nav-ic {
-    filter: invert(1) brightness(0.9);
-  }
+/* 深色模式图标反色 */
+.theme-dark .nav-ic {
+  filter: invert(1) brightness(0.9);
 }

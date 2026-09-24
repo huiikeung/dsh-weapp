@@ -106,11 +106,9 @@
   font-weight: 600;
 }
 
-/* ---------- 深色补充覆盖（跟随微信 darkmode） ---------- */
+/* ---------- 深色补充覆盖（theme-dark，随外观模式切换） ---------- */
 
-@media (prefers-color-scheme: dark) {
-  .entry-chevron {
-    opacity: 0.5;
-    filter: invert(1);
-  }
+.theme-dark .entry-chevron {
+  opacity: 0.5;
+  filter: invert(1);
 }

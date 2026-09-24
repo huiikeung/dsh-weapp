@@ -41,6 +41,51 @@ page {
   line-height: 1.5;
 }
 
+/* 手动指定主题时，页面根节点挂 .theme-light / .theme-dark，
+   整体覆盖语义变量（与 page 级媒体查询内容一致） */
+
+.theme-light {
+  --bg: #F7F8FA;
+  --surface: #FFFFFF;
+  --fill: rgba(16, 19, 24, 0.05);
+  --fill-2: rgba(16, 19, 24, 0.07);
+  --border: rgba(16, 19, 24, 0.10);
+  --border-strong: rgba(16, 19, 24, 0.16);
+  --divider: rgba(16, 19, 24, 0.08);
+  --text: #10131A;
+  --text-2: rgba(16, 19, 24, 0.62);
+  --text-3: rgba(16, 19, 24, 0.55);
+  --text-4: rgba(16, 19, 24, 0.45);
+  --placeholder: rgba(16, 19, 24, 0.35);
+  --ring-track: rgba(16, 19, 24, 0.22);
+  --segment-active-bg: #FFFFFF;
+  --segment-active-text: #10131A;
+  --float-shadow: 0 10rpx 30rpx rgba(7, 24, 43, 0.10);
+  --ink: #101318;
+  --gray: #7D8592;
+}
+
+.theme-dark {
+  --bg: #07182B;
+  --surface: #1C1C1E;
+  --fill: rgba(255, 255, 255, 0.06);
+  --fill-2: rgba(255, 255, 255, 0.10);
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --divider: rgba(255, 255, 255, 0.08);
+  --text: #F1F4FA;
+  --text-2: rgba(241, 244, 250, 0.62);
+  --text-3: rgba(241, 244, 250, 0.55);
+  --text-4: rgba(241, 244, 250, 0.45);
+  --placeholder: rgba(241, 244, 250, 0.42);
+  --ring-track: rgba(241, 244, 250, 0.22);
+  --segment-active-bg: #636366;
+  --segment-active-text: #FFFFFF;
+  --float-shadow: 0 10rpx 30rpx rgba(0, 0, 0, 0.45);
+  --ink: #F1F4FA;
+  --gray: rgba(241, 244, 250, 0.55);
+}
+
 @media (prefers-color-scheme: dark) {
   page {
     --bg: #07182B;

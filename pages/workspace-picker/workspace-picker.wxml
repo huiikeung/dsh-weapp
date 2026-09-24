@@ -1,4 +1,5 @@
-<view class="page picker">
+<page-meta page-style="{{pageStyle}}" />
+<view class="page picker {{themeClass}}">
   <view class="deep-bg">
     <view class="deep-grid"></view>
     <image class="deep-whale" src="../../assets/icons/bg-whale.png" mode="aspectFit" />
