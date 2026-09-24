@@ -334,6 +334,13 @@ function applyEvent(agg, normalized) {
       tool.resultText = event.preview || '';
       return true;
     }
+    case 'turn/start':
+    case 'turn/end':
+    case 'step/start':
+    case 'step/end':
+    case 'assistant/attempt':
+      // 结构性事件不进会话行（对齐 dsh-mobile ConversationProjection）
+      return false;
     default: {
       if (event.text && event.type === 'session/title') return false;
       pushRow(agg, {
