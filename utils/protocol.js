@@ -7,7 +7,7 @@ const { jsonDisplayText, oneLine, eventDateMs } = require('./util');
 // ---------- 事件归一化 ----------
 
 function textBlocks(value) {
-  const blocks = (value && value.content) || [];
+  const blocks = Array.isArray(value) ? value : ((value && value.content) || []);
   return blocks
     .filter((b) => b && b.type === 'text')
     .map((b) => b.text || '')
@@ -339,7 +339,12 @@ function applyEvent(agg, normalized) {
     case 'step/start':
     case 'step/end':
     case 'assistant/attempt':
-      // 结构性事件不进会话行（对齐 dsh-mobile ConversationProjection）
+    case 'agent/inbox/spliced':
+    case 'compaction/start':
+    case 'compaction/end':
+    case 'request/header':
+    case 'session/title':
+      // 结构性/内部事件不进会话行（对齐 dsh-mobile ConversationProjection）
       return false;
     default: {
       if (event.text && event.type === 'session/title') return false;
