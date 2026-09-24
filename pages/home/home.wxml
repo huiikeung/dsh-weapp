@@ -222,7 +222,7 @@
           <block wx:for="{{dirEntries}}" wx:key="path">
             <view class="dir-row {{item.highlight ? 'highlight' : ''}}" hover-class="dir-row-hover" bindtap="openDirEntry" data-index="{{index}}">
               <view class="dir-row-icon">
-                <image class="dir-row-ic" src="/assets/icons/ic-dir-folder-ocean.png"/>
+                <image class="dir-row-ic" src="/assets/icons/ic-dir-folder-blue.png"/>
                 <image wx:if="{{item.hidden}}" class="dir-row-badge" src="/assets/icons/ic-dir-badge-question.png"/>
               </view>
               <view class="dir-row-body">
