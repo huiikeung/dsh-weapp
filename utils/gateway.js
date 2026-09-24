@@ -242,17 +242,34 @@ class GatewayClient {
 
   // ---------- relay（E2EE） ----------
 
-  /** relay 模式的二进制消息：握手包或密文帧。 */
+  /**
+   * 上报手机型号。relay connector 解密后不再转发，而是调用插件的
+   * POST /mgw/devices/:id/rename，让 WebUI「可信设备」显示真实手机
+   * 而不是跑 connector 的那台主机。
+   *
+   * 中继会把客户端子协议归一化，所以这条密封帧是唯一能把手机身份
+   * 送出来的通道。
+   */
   reportDeviceInfo() {
-    let model = '';
+    // 安卓上 info.model 只是 Build.MODEL（如 24031PN0DC），单独显示不可读，
+    // 所以优先拼 brand；取不到再退化到存储 id 前缀。
+    let label = '';
     try {
       const info = (typeof wx.getSystemInfoSync === 'function') ? wx.getSystemInfoSync() : null;
-      model = (info && info.model) ? String(info.model) : '';
-    } catch (e) { model = ''; }
-    if (model === '') model = (wx.getStorageSync('dsh_device_id') || '').slice(0, 12) || 'WeChat mini-program';
-    this.send({ type: 'device-info', model: model });
+      const brand = (info && info.brand) ? String(info.brand).trim() : '';
+      const model = (info && info.model) ? String(info.model).trim() : '';
+      label = (brand && model) ? `${brand} ${model}` : (model || brand);
+    } catch (e) { label = ''; }
+    if (label === '') label = (wx.getStorageSync('dsh_device_id') || '').slice(0, 12) || 'WeChat mini-program';
+    const frame = { type: 'device-info', model: label };
+    // 此刻刚 setState('connected')，正常必然发得出去；万一被拒，隔半秒补一次。
+    // connector 侧有 phoneDeviceNameCache 去重，重复上报无害。
+    if (!this.send(frame)) {
+      setTimeout(() => { if (this.state === 'connected') this.send(frame) }, 500);
+    }
   }
 
+  /** relay 模式的二进制消息：握手包或密文帧。 */
   handleRelayMessage(data) {
     if (!(data instanceof ArrayBuffer)) return;
     const bytes = new Uint8Array(data);
