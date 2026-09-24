@@ -13,7 +13,7 @@
     <view class="topbar-actions">
       <view class="pair-wrap">
         <view class="icon-btn glass-press" bindtap="togglePairMenu">
-          <image class="icon-img" src="/assets/icons/nav-pair.png"/>
+          <image class="icon-img pair-ic" src="/assets/icons/ic-gateway-auth.png"/>
         </view>
         <!-- 对齐 dsh-mobile GatewayAuthenticationMenu：点击弹出两个配对选项 -->
         <view wx:if="{{pairMenuVisible}}" class="pair-menu">

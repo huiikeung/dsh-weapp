@@ -1,5 +1,6 @@
 {
   "navigationBarTitleText": "DeepSeek Harness",
   "navigationBarBackgroundColor": "#07182B",
+  "navigationBarTextStyle": "white",
   "usingComponents": {}
 }

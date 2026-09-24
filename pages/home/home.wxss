@@ -231,6 +231,12 @@
   display: block;
 }
 
+/* 配对按钮：对齐 dsh-mobile GlassCircleButton 52dp/22dp 比例 */
+.pair-ic {
+  width: 44rpx;
+  height: 44rpx;
+}
+
 .plus-img {
   width: 30rpx;
   height: 30rpx;
