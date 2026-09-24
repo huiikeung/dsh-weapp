@@ -35,7 +35,6 @@ Page({
   applyFrame(frame, requestedPath) {
     if (!frame) return;
     const entries = (frame.entries || [])
-      .filter((item) => item.kind === 'dir' || item.kind === 'directory')
       .map((item) => ({
         name: item.name,
         path: item.path,
