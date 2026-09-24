@@ -46,41 +46,60 @@
         </view>
       </view>
 
-      <!-- 助手消息 -->
+      <!-- 过程分组行（对齐 dsh-mobile ConversationProcessRow） -->
+      <view wx:if="{{item.kind === 'process'}}" class="process-block" id="{{item.key}}">
+        <view class="process-head" bindtap="toggleFold" data-key="{{item.key}}">
+          <image class="process-glyph" src="/assets/icons/proc-status-gray.png"/>
+          <text class="process-title">{{item.title}}</text>
+          <text wx:if="{{item.preview}}" class="process-dot">·</text>
+          <text wx:if="{{item.preview}}" class="process-preview">{{item.preview}}</text>
+          <image class="process-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+        </view>
+        <view wx:if="{{folds[item.key]}}" class="process-body">
+          <!-- Think disclosure -->
+          <view wx:if="{{item.reasoning}}" class="disclosure">
+            <view class="disclosure-head" bindtap="toggleFold" data-key="{{item.thinkKey}}">
+              <view class="disclosure-icon-box"><image class="disclosure-icon" src="/assets/icons/think-purple.png"/></view>
+              <text class="disclosure-title think">Think</text>
+              <text wx:if="{{item.thinkPreview}}" class="disclosure-preview">{{item.thinkPreview}}</text>
+              <image class="process-chevron {{folds[item.thinkKey] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+            </view>
+            <view wx:if="{{folds[item.thinkKey]}}" class="disclosure-body">{{item.reasoning}}</view>
+          </view>
+          <!-- 工具 disclosures -->
+          <view wx:if="{{item.tools.length}}" class="disclosure">
+            <view class="disclosure-head static">
+              <view class="disclosure-icon-box"><image class="disclosure-icon" src="/assets/icons/wrench-orange.png"/></view>
+              <text class="disclosure-title tool">{{item.toolCount === 1 ? '使用了 1 个工具' : '使用了 ' + item.toolCount + ' 个工具'}}</text>
+              <view class="disclosure-spacer"></view>
+            </view>
+            <block wx:for="{{item.tools}}" wx:for-item="tool" wx:key="key">
+              <view class="disclosure-head nested" bindtap="toggleFold" data-key="{{tool.openKey}}">
+                <view class="disclosure-icon-box"><image class="disclosure-icon" src="/assets/icons/{{tool.iconFile}}"/></view>
+                <text class="disclosure-title">{{tool.name}}</text>
+                <text class="process-dot">·</text>
+                <text class="disclosure-preview">{{tool.title}}</text>
+                <image class="process-chevron {{folds[tool.openKey] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+              </view>
+              <view wx:if="{{folds[tool.openKey]}}" class="disclosure-body">
+                <view wx:if="{{tool.argumentsText}}" class="code-block">
+                  <view class="code-lang">调用参数</view>
+                  <view class="code-body">{{tool.argumentsText}}</view>
+                </view>
+                <view wx:if="{{tool.resultText}}" class="code-block">
+                  <view class="code-lang">结果</view>
+                  <view class="code-body">{{tool.resultText}}</view>
+                </view>
+              </view>
+            </block>
+          </view>
+        </view>
+        <view class="process-divider"></view>
+      </view>
+
+      <!-- 助手消息（简洁正文 + 复制） -->
       <view wx:elif="{{item.kind === 'assistant'}}" class="row-assistant" id="{{item.key}}">
         <view wx:if="{{item.title}}" class="row-streaming-title">{{item.title}}</view>
-
-        <!-- 思考过程 -->
-        <view wx:if="{{item.reasoning}}" class="fold" bindtap="toggleFold" data-key="{{item.key}}">
-          <view class="fold-header">
-            <image class="fold-glyph" src="/assets/icons/think-purple.png"/>
-            <text class="fold-title">思考过程</text>
-            <image class="fold-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-down-gray.png"/>
-          </view>
-          <view wx:if="{{folds[item.key]}}" class="fold-body">{{item.reasoning}}</view>
-        </view>
-
-        <!-- 工具调用 -->
-        <block wx:for="{{item.tools}}" wx:for-item="tool" wx:key="key">
-          <view class="fold tool-fold" bindtap="toggleFold" data-key="{{tool.key}}">
-            <view class="fold-header">
-              <image class="tool-glyph" src="/assets/icons/{{tool.iconFile}}"/>
-              <text class="fold-title">{{tool.name}}</text>
-              <text class="tool-status {{tool.isError ? 'error' : (tool.status === 'done' ? 'done' : '')}}">{{tool.title}}</text>
-              <image class="fold-chevron {{folds[tool.key] ? 'open' : ''}}" src="/assets/icons/chev-down-gray.png"/>
-            </view>
-            <view wx:if="{{folds[tool.key]}}" class="fold-body">
-              <view wx:if="{{tool.argumentsText}}" class="code-block">
-                <view class="code-lang">Arguments</view>
-                <view class="code-body">{{tool.argumentsText}}</view>
-              </view>
-              <view wx:if="{{tool.resultText}}" class="code-block">
-                <view class="code-lang">Result</view>
-                <view class="code-body">{{tool.resultText}}</view>
-              </view>
-            </view>
-          </view>
-        </block>
 
         <!-- 正文（Markdown） -->
         <block wx:if="{{item.blocks.length}}">
@@ -122,6 +141,9 @@
             data-id="{{img.attachmentId}}"
           />
         </view>
+
+        <!-- 复制正文（对齐 dsh-mobile CopyButton） -->
+        <view wx:if="{{item.copyText}}" class="assistant-copy" bindtap="copyAssistantText" data-text="{{item.copyText}}">复制</view>
       </view>
 
       <!-- 其它事件行 -->

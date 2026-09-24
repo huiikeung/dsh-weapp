@@ -219,6 +219,7 @@ function createStore() {
         }
         return;
       case 'event': {
+        const evs = frame.events || [];
         if (typeof frame.seq === 'number' && frame.event) {
           const raw = {
             type: frame.event.type || 'unknown',
@@ -228,7 +229,16 @@ function createStore() {
           };
           ingestEvents([raw]);
           refreshStatsSoon();
+        } else if (evs.length) {
+          ingestEvents(evs);
         }
+        // 运行状态：turn/start 点亮，turn/end 熄灭（对齐 dsh-mobile turn 计数）
+        (evs.length ? evs : []).concat(frame.event ? [frame] : []).forEach((raw) => {
+          const t = raw.event ? raw.event.type : raw.type;
+          if (t === 'turn/start') sessionState.running = true;
+          if (t === 'turn/end') sessionState.running = false;
+        });
+        emit();
         return;
       }
       case 'history': {

@@ -54,23 +54,23 @@
   flex-shrink: 0;
 }
 
-/* ---------- 分段控件（iOS 对齐，双主题） ---------- */
+/* ---------- 分段控件（对齐 dsh-mobile SegmentedControl 32dp 高） ---------- */
 
 .segmented {
   display: flex;
-  margin: 8rpx 40rpx 20rpx;
-  border-radius: 999rpx;
-  padding: 8rpx;
-  background: rgba(118, 118, 128, 0.24);
+  margin: 12rpx 132rpx 16rpx;
+  border-radius: 32rpx;
+  padding: 4rpx;
+  background: var(--fill-2);
   flex-shrink: 0;
 }
 
 .segment {
   flex: 1;
   text-align: center;
-  padding: 18rpx 0;
-  border-radius: 999rpx;
-  font-size: 30rpx;
+  padding: 13rpx 0;
+  border-radius: 28rpx;
+  font-size: 26rpx;
   color: var(--text-2);
 }
 
@@ -1081,4 +1081,164 @@
 /* 深色模式图标反色 */
 .theme-dark .nav-ic {
   filter: invert(1) brightness(0.9);
+}
+
+/* ---------- 过程分组行（对齐 dsh-mobile ConversationProcessRow） ---------- */
+
+.process-block {
+  padding: 14rpx 0;
+  border-bottom: 1rpx solid var(--border-strong);
+}
+
+.process-head {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  min-width: 0;
+}
+
+.process-glyph {
+  width: 32rpx;
+  height: 32rpx;
+  flex-shrink: 0;
+}
+
+.process-title {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: var(--text);
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.process-dot {
+  color: var(--text-4);
+  font-size: 28rpx;
+  flex-shrink: 0;
+}
+
+.process-preview {
+  flex: 1;
+  font-size: 28rpx;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.process-chevron {
+  width: 30rpx;
+  height: 30rpx;
+  margin-left: auto;
+  flex-shrink: 0;
+  transition: transform 0.18s ease;
+}
+
+.process-chevron.open {
+  transform: rotate(90deg);
+}
+
+.process-body {
+  padding: 10rpx 0 6rpx 52rpx;
+}
+
+.process-divider {
+  /* 由 .process-block 的 border-bottom 表达 */
+}
+
+/* 展开内的 disclosure（Think / 工具，对齐 ProcessDisclosure） */
+
+.disclosure {
+  margin: 10rpx 0;
+}
+
+.disclosure-head {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  min-width: 0;
+}
+
+.disclosure-head.static {
+  margin-bottom: 6rpx;
+}
+
+.disclosure-head.nested {
+  padding: 8rpx 0;
+}
+
+.disclosure-icon-box {
+  width: 36rpx;
+  height: 36rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.disclosure-icon {
+  width: 28rpx;
+  height: 28rpx;
+}
+
+.disclosure-title {
+  font-size: 28rpx;
+  font-weight: 500;
+  color: var(--text);
+  flex-shrink: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.disclosure-title.think {
+  color: var(--purple);
+}
+
+.disclosure-title.tool {
+  color: var(--orange);
+}
+
+.disclosure-preview {
+  flex: 1;
+  min-width: 0;
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 24rpx;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.disclosure-spacer {
+  flex: 1;
+}
+
+.disclosure-body {
+  padding: 10rpx 0 6rpx 44rpx;
+  font-size: 28rpx;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.disclosure-body .code-block {
+  margin: 12rpx 0;
+}
+
+/* 助手正文复制按钮（对齐 CopyButton） */
+
+.assistant-copy {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  color: var(--text-3);
+  background: var(--fill-2);
+  border-radius: 999rpx;
+  padding: 8rpx 24rpx;
 }

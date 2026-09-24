@@ -70,16 +70,49 @@ Page({
     const app = snapshot.app;
     if (!s || !s.sessionId) return;
 
-    const rows = (s.rows || []).map((row) => {
-      const copy = Object.assign({}, row);
+    // 对齐 dsh-mobile ConversationDisplayGroups + ConversationProcessRow：
+    // 助手行前的推理/工具聚合为一条过程行，展开为 Think / 工具两级 disclosure
+    const previewOf = (text) => {
+      const t = String(text || '').replace(/\s+/g, ' ').trim();
+      return t.length > 40 ? t.slice(0, 40) + '…' : t;
+    };
+    const rows = [];
+    (s.rows || []).forEach((row) => {
       if (row.kind === 'assistant') {
-        copy.blocks = markdown.parse(row.text || '');
-        copy.images = row.images || [];
+        const reasoning = (row.reasoning || '').trim();
+        const tools = row.tools || [];
+        if (reasoning || tools.length) {
+          const firstTool = tools[0] && tools[0].name ? tools[0].name : '';
+          rows.push({
+            kind: 'process',
+            key: row.key + ':p',
+            thinkKey: row.key + ':think',
+            reasoning: reasoning,
+            thinkPreview: previewOf(reasoning),
+            tools: tools.map((t, i) => Object.assign({}, t, { openKey: row.key + ':t' + i })),
+            toolCount: tools.length,
+            title: tools.length
+              ? (reasoning ? '思考过程 · ' + tools.length + ' 次工具调用' : tools.length + ' 次工具调用')
+              : '思考过程',
+            preview: firstTool
+          });
+        }
+        rows.push({
+          kind: 'assistant',
+          key: row.key,
+          title: row.title || '',
+          text: row.text || '',
+          blocks: markdown.parse(row.text || ''),
+          images: row.images || [],
+          copyText: row.text || ''
+        });
+        return;
       }
+      const copy = Object.assign({}, row);
       if (row.kind === 'user') {
         copy.images = row.images || [];
       }
-      return copy;
+      rows.push(copy);
     });
 
     const trajectory = (s.trajectory || []).map((item) => {
@@ -136,7 +169,7 @@ Page({
       presetLabel: labels.presetModeName(s.agentPreset || 'standard'),
       sessionPresetVisible: presetVisible,
       sessionPresetName: presetName || '选择模式',
-      running: isRunning(rows),
+      running: s.running === true || isRunning(rows),
       rows: rows,
       trajectory: trajectory,
       hasMoreHistory: s.hasMoreHistory,
@@ -174,6 +207,12 @@ Page({
 
   switchTab(e) {
     this.setData({ tab: e.currentTarget.dataset.tab });
+  },
+
+  copyAssistantText(e) {
+    const text = e.currentTarget.dataset.text;
+    if (!text) return;
+    wx.setClipboardData({ data: text });
   },
 
   findPresetName(catalog, presetId) {
