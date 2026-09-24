@@ -261,13 +261,13 @@
       <view class="chip" bindtap="pickPermission"><image class="chip-ic" src="/assets/icons/{{permissionIcon}}"/>{{permissionLabel}}</view>
       <view class="chip" bindtap="pickModel">{{modelLabel}}<view class="effort-pill" catchtap="pickEffort">{{effortLabel}}</view><image class="chip-ud" src="/assets/icons/chev-ud-gray.png"/></view>
       <view class="composer-spacer"></view>
-      <view wx:if="{{contextPct >= 0}}" class="context-ring" style="background: conic-gradient(#2E6BE6 {{contextPct}}%, rgba(128, 128, 128, 0.22) 0);"><view class="context-ring-in"></view></view>
+      <view wx:if="{{contextPct >= 0}}" class="context-ring" style="background: conic-gradient(#2E6BE6 {{contextPct}}%, rgba(241, 244, 250, 0.22) 0);"><view class="context-ring-in"></view></view>
       <view wx:if="{{canAttach}}" class="chip icon" bindtap="chooseImage"><image class="attach-ic" src="/assets/icons/attach-gray.png"/></view>
       <view
         wx:if="{{running}}"
         class="send-btn stop glass-press"
         bindtap="stopAgent"
-      >■</view>
+      ><view class="stop-square"></view></view>
       <view
         wx:else
         class="send-btn {{canSend ? '' : 'disabled'}} glass-press"
