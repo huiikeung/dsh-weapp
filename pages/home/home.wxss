@@ -44,7 +44,6 @@
 
 .pair-wrap {
   position: relative;
-  z-index: 101;
 }
 
 .pair-menu-mask {
