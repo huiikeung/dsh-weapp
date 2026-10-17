@@ -1,0 +1,133 @@
+<!-- 插件详情（对齐 dsh-mobile PluginDetailView / OfficialPluginDetailView / PluginComponentSheet） -->
+<view class="page pdetail {{themeClass}}" style="padding-top: {{statusBarH}}px;">
+  <view class="pdetail-header">
+    <view class="pdetail-back tap" hover-class="press-dim" bindtap="goBack">
+      <image class="pdetail-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
+    </view>
+    <text class="pdetail-title">插件详情</text>
+    <view class="pdetail-back"></view>
+  </view>
+
+  <scroll-view class="pdetail-scroll" scroll-y>
+    <!-- ===== 已安装/可选插件详情 ===== -->
+    <view wx:if="{{mode === 'bundle' && bundle}}" class="pdetail-body">
+      <view class="pdetail-top">
+        <view class="pdetail-icon">
+          <image wx:if="{{bundle.icon}}" class="pdetail-icon-img" src="{{bundle.icon}}"/>
+          <view wx:else class="pdetail-icon-fallback"><text>{{bundle.initial}}</text></view>
+        </view>
+        <switch
+          checked="{{bundle.enabled}}"
+          color="{{theme === 'dark' ? '#1D447F' : '#245AC4'}}"
+          disabled="{{bundle.toggleDisabled}}"
+          bindchange="onBundleToggle"
+        />
+      </view>
+
+      <view class="pdetail-title-row">
+        <text class="pdetail-name">{{bundle.title}}</text>
+        <text wx:if="{{bundle.version}}" class="pdetail-version">v{{bundle.version}}</text>
+      </view>
+      <text class="pdetail-pkg text-mono">{{bundle.name}}</text>
+      <text wx:if="{{bundle.description}}" class="pdetail-desc">{{bundle.description}}</text>
+      <text wx:if="{{bundle.readOnlyReason}}" class="pdetail-warn-sm">{{bundle.readOnlyReason}}</text>
+      <text wx:if="{{bundle.error}}" class="pdetail-err">{{bundle.error}}</text>
+      <text wx:if="{{notice}}" class="pdetail-warn-sm">{{notice}}</text>
+      <text wx:if="{{!connected}}" class="pdetail-warn-sm">网关已断开，插件状态待重新连接确认</text>
+
+      <!-- 包含的组件 -->
+      <view class="pdetail-entries-head">
+        <text class="pdetail-section-title">包含的组件</text>
+        <text class="pdetail-entries-count">共 {{bundle.entries.length}} 个 · {{bundle.activeCount}} 运行中</text>
+      </view>
+      <view wx:for="{{bundle.entries}}" wx:key="id" class="pdetail-entry">
+        <view class="pdetail-entry-main tap" hover-class="press-dim" bindtap="openEntry" data-index="{{index}}">
+          <view class="pdetail-entry-icon">
+            <image wx:if="{{item.icon}}" class="pdetail-entry-icon-img" src="{{item.icon}}"/>
+            <view wx:else class="pdetail-entry-icon-fallback"><text>{{item.initial}}</text></view>
+          </view>
+          <view class="pdetail-entry-body">
+            <text class="pdetail-entry-name">{{item.name}}</text>
+            <view class="pdetail-entry-status">
+              <view class="pdetail-dot {{item.dotClass}}"></view>
+              <text class="pdetail-entry-status-text">{{item.statusText}}</text>
+            </view>
+          </view>
+        </view>
+        <switch
+          wx:if="{{item.entryID}}"
+          checked="{{item.enabled}}"
+          color="{{theme === 'dark' ? '#1D447F' : '#245AC4'}}"
+          disabled="{{item.toggleDisabled}}"
+          bindchange="onEntryToggle"
+          data-entry="{{item.entryID}}"
+          data-enabled="{{item.enabled}}"
+        />
+        <view class="pdetail-entry-chev tap" hover-class="press-dim" bindtap="openEntry" data-index="{{index}}">
+          <image class="pdetail-chev-img" src="/assets/icons/chev-right-gray.png"/>
+        </view>
+      </view>
+    </view>
+
+    <!-- ===== 官方配置项详情 ===== -->
+    <view wx:elif="{{mode === 'official' && official}}" class="pdetail-body">
+      <view class="pdetail-icon">
+        <view class="pdetail-icon-fallback"><text>{{official.initial}}</text></view>
+      </view>
+      <text class="pdetail-name pdetail-gap">{{official.title}}</text>
+      <text wx:if="{{official.description}}" class="pdetail-desc">{{official.description}}</text>
+      <text class="pdetail-section-title pdetail-gap">配置项</text>
+      <text wx:for="{{official.namespaces}}" wx:key="*this" class="pdetail-ns text-mono">{{item}}</text>
+      <text wx:if="{{!official.namespaces.length}}" class="pdetail-desc">暂无公开配置项</text>
+    </view>
+
+    <!-- 目录缺失回退 -->
+    <view wx:else class="plugins-state">
+      <text class="plugins-state-desc">插件目录不可用，请返回后重新进入</text>
+    </view>
+  </scroll-view>
+
+  <!-- 组件详情半屏弹层（对齐 PluginComponentSheet，medium detent） -->
+  <view wx:if="{{sheetEntry}}" class="pdetail-sheet-mask" catchtap="closeEntry" catchtouchmove="noop"></view>
+  <view wx:if="{{sheetEntry}}" class="pdetail-sheet">
+    <view class="pdetail-sheet-handle"></view>
+    <view class="pdetail-sheet-head">
+      <text class="pdetail-sheet-title">组件详情</text>
+      <view class="pdetail-sheet-done tap" hover-class="press-dim" bindtap="closeEntry">完成</view>
+    </view>
+    <scroll-view class="pdetail-sheet-body" scroll-y>
+      <view class="pdetail-sheet-inner">
+        <view class="pdetail-sheet-id-row">
+          <view class="pdetail-entry-icon">
+            <image wx:if="{{sheetEntry.icon}}" class="pdetail-entry-icon-img" src="{{sheetEntry.icon}}"/>
+            <view wx:else class="pdetail-entry-icon-fallback"><text>{{sheetEntry.initial}}</text></view>
+          </view>
+          <text class="pdetail-sheet-name">{{sheetEntry.name}}</text>
+        </view>
+        <view class="pdetail-entry-status">
+          <view class="pdetail-dot {{sheetEntry.dotClass}}"></view>
+          <text class="pdetail-entry-status-text">{{sheetEntry.statusText}}</text>
+        </view>
+        <text wx:if="{{sheetEntry.description}}" class="pdetail-desc">{{sheetEntry.description}}</text>
+        <view class="pdetail-fields">
+          <view class="pdetail-field">
+            <text class="pdetail-field-label">组件 ID</text>
+            <text class="pdetail-field-value text-mono">{{sheetEntry.id}}</text>
+          </view>
+          <view wx:if="{{sheetEntry.moduleName}}" class="pdetail-field">
+            <text class="pdetail-field-label">模块</text>
+            <text class="pdetail-field-value text-mono">{{sheetEntry.moduleName}}</text>
+          </view>
+          <view wx:if="{{sheetEntry.entryID}}" class="pdetail-field">
+            <text class="pdetail-field-label">运行条目 ID</text>
+            <text class="pdetail-field-value text-mono">{{sheetEntry.entryID}}</text>
+          </view>
+          <view wx:if="{{sheetEntry.readOnlyReason}}" class="pdetail-field">
+            <text class="pdetail-field-label">不可修改原因</text>
+            <text class="pdetail-field-value text-mono">{{sheetEntry.readOnlyReason}}</text>
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+</view>

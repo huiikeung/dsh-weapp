@@ -9,9 +9,10 @@
  */
 
 const MODE_KEY = 'appearanceMode';
+// 非 home 页面：纯白 / 纯黑（用户要求，不用其他色阶）
 const PAGE_BG = {
-  light: '#F7F8FA',
-  dark: '#07182B'
+  light: '#FFFFFF',
+  dark: '#000000'
 };
 
 const listeners = new Set();

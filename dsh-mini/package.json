@@ -1,0 +1,13 @@
+{
+  "name": "dsh-mini",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Minimal DeepSeek-Harness-style agent kernel: event-sourced JSONL sessions, streaming LLM, tools, durable retries. Zero dependencies.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "bin": { "dsh-mini": "./bin.js" },
+  "scripts": {
+    "start": "node bin.js",
+    "test": "node test/run-tests.js"
+  }
+}

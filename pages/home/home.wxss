@@ -1,13 +1,193 @@
+/* 内容水平边距对齐 iOS WorkspaceView：.padding(.horizontal, 22) = 44rpx */
 .home {
-  padding: 30rpx 40rpx 60rpx;
+  padding: 30rpx 44rpx 60rpx;
 }
 
+/* ---------- 侧边栏（对齐 dsh-mobile WorkspaceView drawer） ---------- */
+
+.home-root {
+  position: relative;
+  height: 100vh;
+  overflow: hidden;
+  /* 内容右移后露出的底层：浅色白 / 深色 #242426（对齐 iOS drawer 底色） */
+  background: #FFFFFF;
+}
+
+@media (prefers-color-scheme: dark) {
+  .home-root {
+    background: #242426;
+  }
+}
+
+.home-content-wrap {
+  position: relative;
+  height: 100vh;
+  background: var(--navy);
+  transition: border-radius 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.home-content-wrap.shifted {
+  border-radius: 96rpx;
+  overflow: hidden;
+  box-shadow: -4rpx 0 18rpx rgba(0, 0, 0, 0.12), -8rpx 0 52rpx rgba(0, 0, 0, 0.30);
+}
+
+/* 深海背景随内容位移：fixed → absolute（相对位移容器） */
+.home-deep-bg {
+  position: absolute;
+}
+
+.home-scroll {
+  position: relative;
+  height: 100vh;
+}
+
+.drawer-anim {
+  transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.drawer {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: 52;
+  background: #FFFFFF;
+  transform: translateX(-100%);
+}
+
+@media (prefers-color-scheme: dark) {
+  .drawer {
+    background: #242426;
+  }
+}
+
+.drawer-visible {
+  box-shadow: 8rpx 0 40rpx rgba(0, 0, 0, 0.18);
+}
+
+.drawer-body {
+  padding: calc(20rpx + env(safe-area-inset-top)) 36rpx 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.drawer-brand {
+  padding: 0 0 32rpx 24rpx;
+  width: 100%;
+}
+
+.drawer-wordmark {
+  width: 100%;
+  max-width: 432rpx;
+  height: 48rpx;
+}
+
+.drawer-wordmark-dark {
+  display: none;
+}
+
+.drawer-item {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 104rpx;
+  padding: 0 28rpx;
+  border-radius: 24rpx;
+}
+
+.drawer-item-active {
+  background: rgba(16, 19, 24, 0.06);
+}
+
+.drawer-item-ic {
+  width: 44rpx;
+  height: 44rpx;
+  margin-right: 20rpx;
+  flex-shrink: 0;
+}
+
+.drawer-item-ic-clock {
+  width: 40rpx;
+  height: 40rpx;
+  margin-left: 2rpx;
+  margin-right: 22rpx;
+}
+
+.drawer-item-ic-dark {
+  display: none;
+}
+
+.drawer-item-text {
+  font-size: 34rpx;
+  color: var(--ink);
+}
+
+@media (prefers-color-scheme: dark) {
+  .drawer-item-text {
+    color: #F1F4FA;
+  }
+  .drawer-wordmark-light,
+  .drawer-item-ic:not(.drawer-item-ic-dark) {
+    display: none;
+  }
+  .drawer-wordmark-dark,
+  .drawer-item-ic-dark {
+    display: block;
+  }
+  .drawer-item-active {
+    background: rgba(241, 244, 250, 0.08);
+  }
+}
+
+.drawer-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.brand-dim {
+  opacity: 0.7;
+}
+
+
+/* 顶部品牌行：固定在导航区（与胶囊同行），左边距与内容区对齐，不随内容滚动 */
 .topbar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  /* 与内容区同边距：品牌行 / 选择主机 / 标题 / 卡片左边缘严格对齐 */
+  padding-left: 44rpx;
+  padding-right: 44rpx;
+  /* 透明：让深海背景自然延续到顶，不再出现深色条断层 */
+  background: transparent;
+}
+
+.host-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14rpx 8rpx 14rpx 8rpx;
-  margin-bottom: 26rpx;
+  gap: 16rpx;
+  margin-bottom: 48rpx;
+}
+
+.host-row .host-bar {
+  margin-bottom: 0;
+  min-width: 0;
+}
+
+.host-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
 }
 
 .brand-row {
@@ -29,15 +209,13 @@
 
 .brand-badge {
   color: var(--mist);
-  border: 1rpx solid rgba(191, 212, 255, 0.5);
+  border: 2rpx solid rgba(191, 212, 255, 0.5);
   border-radius: 12rpx;
   font-size: 22rpx;
-  padding: 6rpx 14rpx;
+  line-height: 1;
+  padding: 8rpx 14rpx;
   letter-spacing: 2rpx;
-}
-
-.topbar-actions {
-  display: flex;
+  flex-shrink: 0;
 }
 
 /* ---------- 配对菜单（对齐 dsh-mobile GatewayAuthenticationMenu） ---------- */
@@ -52,6 +230,7 @@
   z-index: 90;
 }
 
+/* 配对菜单：与底部弹窗同款深炭玻璃（深色底 + 强模糊 + 发丝亮边） */
 .pair-menu {
   position: absolute;
   top: calc(100% + 12rpx);
@@ -59,10 +238,12 @@
   z-index: 100;
   width: 496rpx;
   padding: 12rpx 0;
-  background: rgba(226, 238, 255, 0.96);
-  border: 1rpx solid rgba(255, 255, 255, 0.62);
-  border-radius: 56rpx;
-  box-shadow: 0 12rpx 48rpx rgba(3, 14, 30, 0.35);
+  background: rgba(10, 14, 24, 0.30);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(20rpx) saturate(1.2);
+  -webkit-backdrop-filter: blur(20rpx) saturate(1.2);
+  border-radius: 36rpx;
+  box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.30);
   overflow: hidden;
 }
 
@@ -73,11 +254,11 @@
   padding: 0 44rpx;
   font-size: 34rpx;
   font-weight: 500;
-  color: var(--ink);
+  color: #FFFFFF;
 }
 
 .pair-menu-item-active {
-  background: rgba(16, 19, 24, 0.06);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .pair-menu-ic {
@@ -95,20 +276,47 @@
   align-items: center;
   justify-content: center;
   margin-left: 18rpx;
+  flex-shrink: 0;
   font-size: 38rpx;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1rpx solid rgba(255, 255, 255, 0.18);
+  /* Liquid Glass 圆钮：左上高光渐变 + 顶部内发光 + 发丝亮边 */
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04));
+  border: 1rpx solid rgba(255, 255, 255, 0.24);
+  backdrop-filter: blur(3rpx);
+  -webkit-backdrop-filter: blur(3rpx);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.14), 0 8rpx 24rpx rgba(3, 14, 30, 0.24);
 }
 
+/* Hero（iOS：32pt bold 标题 + subheadline 副标题；区块间距 18pt = 36rpx） */
 .hero {
-  margin-bottom: 56rpx;
+  margin-bottom: 36rpx;
 }
 
+.title-hero {
+  color: #FFFFFF;
+  font-size: 64rpx;
+  font-weight: 700;
+  letter-spacing: 1rpx;
+}
+
+.subtitle-hero {
+  margin-top: 12rpx;
+  color: rgba(255, 255, 255, 0.65);
+  font-size: 30rpx;
+}
+
+/* 工作区卡片（与新建会话同款玻璃：渐变高光 + 顶部内发光 + 模糊提饱和） */
 .workspace-card {
   display: flex;
   align-items: center;
-  padding: 32rpx 30rpx;
-  margin-bottom: 30rpx;
+  padding: 32rpx;
+  margin-bottom: 36rpx;
+  border-radius: 36rpx;
+  /* 与「新建会话」同一套 Liquid Glass：高光渐变 + 发丝亮边 + 内高光 */
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
+  border: 1rpx solid rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(3rpx);
+  -webkit-backdrop-filter: blur(3rpx);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 8rpx 32rpx rgba(3, 14, 30, 0.18);
 }
 
 .ws-icon {
@@ -125,14 +333,14 @@
 
 .ws-title {
   color: #FFFFFF;
-  font-size: 34rpx;
+  font-size: 30rpx;
   font-weight: 600;
 }
 
 .ws-path {
   color: rgba(255, 255, 255, 0.55);
-  font-size: 25rpx;
-  margin-top: 6rpx;
+  font-size: 24rpx;
+  margin-top: 4rpx;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -150,28 +358,34 @@
   margin-left: 18rpx;
 }
 
+/* 新建会话（iOS glassSurface radius 18pt + white 8% tint） */
 .new-session {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1rpx solid rgba(255, 255, 255, 0.28);
-  border-radius: 32rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.38);
+  border-radius: 36rpx;
   padding: 34rpx 0;
-  margin-bottom: 50rpx;
-  background: rgba(255, 255, 255, 0.07);
-  backdrop-filter: blur(24rpx);
-  transition: transform 0.12s ease;
+  margin-bottom: 36rpx;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
+  backdrop-filter: blur(3rpx);
+  -webkit-backdrop-filter: blur(3rpx);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 8rpx 32rpx rgba(3, 14, 30, 0.18);
+  transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.18s ease;
 }
 
 .new-session:active {
-  transform: scale(0.98);
+  transform: scale(0.97);
+  opacity: 0.85;
 }
 
 .plus-circle {
   width: 56rpx;
   height: 56rpx;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.16);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  border: 1rpx solid rgba(255, 255, 255, 0.20);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.12);
   color: #FFFFFF;
   display: flex;
   align-items: center;
@@ -199,15 +413,26 @@
 
 .conn-label.connected { color: var(--success); }
 .conn-label.connecting { color: var(--amber); }
-.conn-label.disconnected { color: var(--gray); }
+.conn-label.disconnected { color: rgba(255, 255, 255, 0.60); }
 .conn-label.failed { color: #FF8589; }
 
+.status-dot.connecting { background: var(--amber); }
+.status-dot.disconnected { background: rgba(255, 255, 255, 0.34); }
+.status-dot.failed { background: #FF8589; }
+
+/* 搜索框（与新建会话同款玻璃：渐变高光 + 顶部内发光 + 模糊提饱和） */
 .search-box {
   display: flex;
   align-items: center;
-  padding: 22rpx 28rpx;
-  border-radius: 24rpx;
-  margin-bottom: 30rpx;
+  height: 84rpx;
+  padding: 0 24rpx;
+  border-radius: 26rpx;
+  margin-bottom: 36rpx;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012));
+  border: 1rpx solid rgba(255, 255, 255, 0.26);
+  backdrop-filter: blur(3rpx);
+  -webkit-backdrop-filter: blur(3rpx);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.14), 0 8rpx 32rpx rgba(3, 14, 30, 0.16);
 }
 
 .search-icon {
@@ -247,13 +472,35 @@
   font-size: 29rpx;
 }
 
+.home-data-hint {
+  margin: -20rpx 0 16rpx;
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 24rpx;
+}
+
+/* 会话行（iOS sessionRow：padding-v 10pt / 间距 11pt / 点 7pt /
+   分隔线 white 10% 缩进 18pt） */
 .session-row {
   display: flex;
   align-items: center;
-  padding: 28rpx 8rpx;
-  border-bottom: 1rpx solid rgba(255, 255, 255, 0.10);
+  padding: 20rpx 8rpx;
+  position: relative;
   background: transparent;
   border-radius: 16rpx;
+}
+
+.session-row::after {
+  content: '';
+  position: absolute;
+  left: 36rpx;
+  right: 0;
+  bottom: 0;
+  height: 1rpx;
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.session-row:last-child::after {
+  display: none;
 }
 
 .session-dot {
@@ -261,12 +508,17 @@
   height: 14rpx;
   border-radius: 50%;
   background: rgba(255, 255, 255, 0.4);
-  margin-right: 26rpx;
+  margin-right: 22rpx;
   flex-shrink: 0;
 }
 
 .session-dot.running {
   background: var(--success);
+  box-shadow: 0 0 10rpx rgba(46, 184, 92, 0.65);
+}
+
+.session-dot.unread {
+  background: var(--ocean);
 }
 
 .session-body {
@@ -276,7 +528,7 @@
 
 .session-title {
   color: #FFFFFF;
-  font-size: 33rpx;
+  font-size: 30rpx;
   font-weight: 500;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -284,8 +536,8 @@
 }
 
 .session-sub {
-  color: rgba(255, 255, 255, 0.45);
-  font-size: 25rpx;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 22rpx;
   margin-top: 6rpx;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -293,17 +545,24 @@
 }
 
 .session-time {
-  color: rgba(255, 255, 255, 0.5);
-  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 24rpx;
   margin-left: 18rpx;
   flex-shrink: 0;
 }
 
+.session-time.running {
+  color: #0A84FF;
+}
+
+/* 空态（iOS emptySessions：white 4% 底 / radius 15pt / padding 18pt / 左对齐） */
 .empty {
-  color: rgba(255, 255, 255, 0.45);
-  text-align: center;
-  padding: 60rpx 0;
-  font-size: 27rpx;
+  color: rgba(255, 255, 255, 0.5);
+  text-align: left;
+  padding: 36rpx;
+  font-size: 30rpx;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 30rpx;
 }
 
 /* ---------- 切换主机（GatewaySwitcherBar / Sheet） ---------- */
@@ -312,10 +571,13 @@
   display: inline-flex;
   align-items: center;
   padding: 12rpx 24rpx;
-  background: rgba(255, 255, 255, 0.09);
-  border: 1rpx solid rgba(255, 255, 255, 0.14);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.025));
+  border: 1rpx solid rgba(255, 255, 255, 0.20);
   border-radius: 999rpx;
   margin-bottom: 48rpx;
+  backdrop-filter: blur(3rpx);
+  -webkit-backdrop-filter: blur(3rpx);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.14), 0 8rpx 24rpx rgba(3, 14, 30, 0.22);
 }
 
 .host-kind {
@@ -360,65 +622,135 @@
   top: 0;
   right: 0;
   bottom: 0;
-  background: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.55);
   z-index: 60;
 }
 
+/* 主机切换 sheet（对齐 iOS 高 detent 弹层：深炭玻璃 + 抓手 +
+   居中标题 + 左侧编辑玻璃钮 + 内嵌分组卡片；
+   默认紧凑高度，抓手拖拽/点击展开到近全屏） */
 .host-sheet {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 16rpx;
+  right: 16rpx;
+  bottom: 16rpx;
   z-index: 61;
-  background: rgba(10, 22, 42, 0.82);
-  border: 1rpx solid rgba(255, 255, 255, 0.20);
-  border-radius: 36rpx 36rpx 0 0;
-  padding: 30rpx 34rpx 60rpx;
-  backdrop-filter: blur(48rpx) saturate(1.6);
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.28), 0 10rpx 40rpx rgba(3, 14, 30, 0.38);
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  max-height: 86vh;
+  background: rgba(10, 14, 24, 0.30);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(20rpx) saturate(1.2);
+  -webkit-backdrop-filter: blur(20rpx) saturate(1.2);
+  border-radius: 40rpx;
+  padding: 0 28rpx calc(28rpx + env(safe-area-inset-bottom));
+  box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.30);
+  transition: height 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.host-sheet.expanded {
+  height: calc(100vh - 200rpx);
+}
+
+.workspace-picker-sheet.expanded {
+  height: calc(100vh - 200rpx);
+}
+
+.sheet-grabber-zone {
+  display: flex;
+  justify-content: center;
+  padding: 12rpx 0 4rpx;
+  flex-shrink: 0;
 }
 
 .host-sheet-head {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 10rpx;
+  height: 96rpx;
+  flex-shrink: 0;
 }
 
 .host-sheet-title {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
   color: #FFFFFF;
-  font-size: 32rpx;
+  font-size: 34rpx;
   font-weight: 700;
+  pointer-events: none;
 }
 
-.host-sheet-actions {
+.host-sheet-left {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
 }
 
 .host-sheet-edit {
-  color: var(--ocean);
-  font-size: 26rpx;
-  padding: 10rpx 8rpx;
+  color: #FFFFFF;
+  font-size: 28rpx;
+  padding: 14rpx 30rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
+  border: 1rpx solid rgba(255, 255, 255, 0.24);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.30);
 }
 
 .host-sheet-del {
   color: #FF3B30;
   font-size: 26rpx;
-  padding: 10rpx 8rpx;
-  margin-right: 24rpx;
+  margin-right: 20rpx;
+}
+
+.host-diag {
+  font-size: 24rpx;
+  color: rgba(255, 176, 92, 0.95);
+  padding: 10rpx 6rpx 0;
+}
+
+.host-section-label {
+  color: rgba(255, 255, 255, 0.50);
+  font-size: 28rpx;
+  font-weight: 600;
+  margin: 12rpx 8rpx 16rpx;
+  flex-shrink: 0;
 }
 
 .host-list {
-  max-height: 55vh;
+  flex: 1;
   overflow-y: auto;
 }
 
-.host-row {
+.host-group {
+  border-radius: 36rpx;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1rpx solid rgba(255, 255, 255, 0.10);
+  overflow: hidden;
+}
+
+.host-opt {
+  position: relative;
   display: flex;
   align-items: center;
-  padding: 24rpx 4rpx;
-  border-bottom: 1rpx solid rgba(255, 255, 255, 0.08);
+  padding: 26rpx 28rpx;
+}
+
+.host-opt::after {
+  content: '';
+  position: absolute;
+  left: 100rpx;
+  right: 0;
+  bottom: 0;
+  height: 1rpx;
+  background: rgba(255, 255, 255, 0.10);
+}
+
+.host-opt:last-child::after {
+  display: none;
 }
 
 .host-select {
@@ -446,7 +778,8 @@
 
 .host-row-name {
   color: #FFFFFF;
-  font-size: 29rpx;
+  font-size: 30rpx;
+  font-weight: 500;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -454,12 +787,12 @@
 
 .host-row-sub {
   color: rgba(255, 255, 255, 0.45);
-  font-size: 22rpx;
+  font-size: 24rpx;
   margin-top: 6rpx;
 }
 
 .host-row-sub.on {
-  color: var(--ocean);
+  color: rgba(255, 255, 255, 0.60);
 }
 
 .host-edit {
@@ -486,11 +819,12 @@
   right: 0;
   bottom: 0;
   z-index: 63;
-  background: rgba(10, 22, 42, 0.82);
-  border: 1rpx solid rgba(255, 255, 255, 0.20);
-  border-radius: 36rpx 36rpx 0 0;
+  background: rgba(10, 14, 24, 0.30);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(20rpx) saturate(1.2);
+  -webkit-backdrop-filter: blur(20rpx) saturate(1.2);
+  border-radius: 40rpx 40rpx 0 0;
   padding: 34rpx 34rpx 60rpx;
-  backdrop-filter: blur(48rpx) saturate(1.6);
   box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.28), 0 10rpx 40rpx rgba(3, 14, 30, 0.38);
 }
 
@@ -576,16 +910,22 @@
 
 .workspace-picker-sheet {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 16rpx;
+  right: 16rpx;
+  bottom: 16rpx;
   z-index: 61;
-  background: rgba(10, 22, 42, 0.82);
-  border: 1rpx solid rgba(255, 255, 255, 0.20);
-  border-radius: 36rpx 36rpx 0 0;
-  padding: 30rpx 34rpx 60rpx;
-  backdrop-filter: blur(48rpx) saturate(1.6);
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.28), 0 10rpx 40rpx rgba(3, 14, 30, 0.38);
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  max-height: 86vh;
+  background: rgba(10, 14, 24, 0.30);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(20rpx) saturate(1.2);
+  -webkit-backdrop-filter: blur(20rpx) saturate(1.2);
+  border-radius: 40rpx;
+  padding: 0 28rpx calc(28rpx + env(safe-area-inset-bottom));
+  box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.30);
+  transition: height 0.5s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .picker-sheet-head {
@@ -602,7 +942,7 @@
 }
 
 .picker-sheet-close {
-  color: var(--gray);
+  color: rgba(255, 255, 255, 0.60);
   font-size: 28rpx;
 }
 
@@ -670,15 +1010,18 @@
 
 .dir-sheet {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 16rpx;
+  right: 16rpx;
+  bottom: 16rpx;
   z-index: 62;
   display: flex;
   flex-direction: column;
-  height: 88vh;
-  background: #171A20;
-  border-radius: 36rpx 36rpx 0 0;
+  height: 80vh;
+  background: rgba(10, 14, 24, 0.30);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(20rpx) saturate(1.2);
+  -webkit-backdrop-filter: blur(20rpx) saturate(1.2);
+  border-radius: 40rpx;
   padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
 }
 
@@ -966,40 +1309,57 @@
 
 .manual-sheet {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 16rpx;
+  right: 16rpx;
+  bottom: 16rpx;
   z-index: 62;
   display: flex;
   flex-direction: column;
-  height: 88vh;
-  background: #10141A;
-  border-radius: 76rpx 76rpx 0 0;
-  padding-bottom: calc(24rpx + env(safe-area-inset-bottom));
+  height: auto;
+  max-height: 62vh;
+  background: rgba(10, 14, 24, 0.30);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+  border-radius: 40rpx;
+  padding: 0 28rpx calc(28rpx + env(safe-area-inset-bottom));
+  backdrop-filter: blur(20rpx) saturate(1.2);
+  -webkit-backdrop-filter: blur(20rpx) saturate(1.2);
+  box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.30);
+  transition: height 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.manual-sheet.expanded {
+  height: calc(100vh - 200rpx);
+  max-height: none;
 }
 
 .manual-sheet-head {
   position: relative;
   display: flex;
   align-items: center;
-  justify-content: center;
-  height: 144rpx;
+  height: 96rpx;
   flex-shrink: 0;
 }
 
 .manual-sheet-title {
-  font-size: 40rpx;
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 34rpx;
   font-weight: 700;
-  color: #F1F4FA;
+  color: #FFFFFF;
+  pointer-events: none;
 }
 
 .manual-sheet-done {
   position: absolute;
-  right: 44rpx;
+  right: 0;
   height: 96rpx;
-  padding: 0 38rpx;
-  border-radius: 48rpx;
-  background: rgba(241, 244, 250, 0.88);
+  padding: 0 30rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06));
+  border: 1rpx solid rgba(255, 255, 255, 0.24);
+  color: #FFFFFF;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1016,7 +1376,7 @@
 }
 
 .manual-sec-title {
-  font-size: 44rpx;
+  font-size: 34rpx;
   font-weight: 700;
   color: #F1F4FA;
 }

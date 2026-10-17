@@ -1,115 +1,179 @@
 <page-meta page-style="{{pageStyle}}" />
 <view class="page session {{themeClass}}">
-  <!-- 顶部导航（对齐 dsh-mobile：无返回按钮，标题 + 状态点 + 预设 + 更多） -->
-  <view class="navbar">
-    <view class="nav-title">{{navTitle}}</view>
+  <!-- 顶部导航：标题居中，右侧连接状态、模式与菜单 -->
+  <view class="navbar" style="{{navbarStyle}}">
+    <view class="nav-back tap" hover-class="press-dim" bindtap="goBack">
+      <image class="nav-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
+    </view>
+    <view class="nav-title"><view class="nav-title-inner">{{navTitle}}</view></view>
     <view class="nav-preset">
-      <view class="status-dot {{running ? 'connected' : 'disconnected'}}"></view>
+      <view class="status-dot {{connState}}"></view>
       <text>{{presetLabel}}</text>
     </view>
-    <view class="nav-more glass-light glass-press" bindtap="moreActions"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
   </view>
 
-  <!-- 对话 / 轨迹 分段控件 -->
-  <view class="segmented">
-    <view class="segment {{tab === 'conversation' ? 'active' : ''}}" bindtap="switchTab" data-tab="conversation">对话</view>
-    <view class="segment {{tab === 'trajectory' ? 'active' : ''}}" bindtap="switchTab" data-tab="trajectory">轨迹</view>
+  <!-- 对话 / 轨迹 segmented control + 圆形菜单 -->
+  <view class="segmented-row">
+    <view class="segmented">
+      <view class="segment {{tab === 'conversation' ? 'active' : ''}}" bindtap="switchTab" data-tab="conversation">对话</view>
+      <view class="segment {{tab === 'trajectory' ? 'active' : ''}}" bindtap="switchTab" data-tab="trajectory">轨迹</view>
+    </view>
+    <view class="nav-more glass-press" bindtap="moreActions"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
   </view>
 
-  <!-- ================= 对话 ================= -->
+  <!-- ================= 对话（对齐 iOS ConversationView chat ZStack） ================= -->
   <scroll-view
     wx:if="{{tab === 'conversation'}}"
     class="conversation"
+    style="{{conversationStyle}}"
     scroll-y
+    enhanced
+    show-scrollbar="{{false}}"
     scroll-into-view="{{scrollTarget}}"
     scroll-with-animation
+    bindscroll="onConvScroll"
+    bindtouchstart="onConvTouch"
     bindscrolltoupper="loadOlder"
     upper-threshold="80"
   >
-    <view wx:if="{{hasMoreHistory}}" class="load-more">加载更早的历史…</view>
+    <view class="conversation-inner {{rows.length ? 'has-rows' : ''}}" style="{{conversationInnerStyle}}">
+    <!-- 历史加载横幅（iOS historyLoadingBanner：已有内容、后台继续加载更早历史） -->
+    <view wx:if="{{rows.length && historyLoading}}" class="hist-banner">
+      <view class="banner-spinner"></view>
+      <text class="banner-text">{{historyProgressText}}</text>
+    </view>
+    <!-- 加载更早记录（iOS：caption 全宽按钮，仅在还有更多且未加载中） -->
+    <view wx:elif="{{hasMoreHistory && !historyLoading && rows.length}}" class="load-older" bindtap="loadOlder">加载更早记录</view>
+
+    <!-- 创建态（乐观创建：本地创建中，秒进页面） -->
+    <view wx:if="{{historyState === 'creating'}}" class="conv-state">
+      <view class="state-spinner"></view>
+      <view class="state-title">正在创建会话</view>
+      <view class="state-sub">正在从 Mobile Gateway 建立会话…</view>
+    </view>
+    <!-- 创建失败态（可重试） -->
+    <view wx:elif="{{historyState === 'error:create'}}" class="conv-state conv-fail">
+      <image class="hist-warn" src="/assets/icons/warn-orange.png"/>
+      <view class="state-title">创建会话失败</view>
+      <view class="state-sub state-err">{{histError}}</view>
+      <view class="state-btn" bindtap="retryCreate">重试创建</view>
+    </view>
+    <!-- 失败态（iOS historyFailureState：警示 + 错误详情 + 重新加载） -->
+    <view wx:elif="{{!rows.length && histError}}" class="conv-state conv-fail">
+      <image class="hist-warn" src="/assets/icons/warn-orange.png"/>
+      <view class="state-title">历史记录加载失败</view>
+      <view class="state-sub state-err">{{histError}}</view>
+      <view class="state-btn" bindtap="retryHistory">重新加载历史</view>
+    </view>
+    <!-- 加载态（iOS historyLoadingState：海蓝转圈 + 主副标题） -->
+    <view wx:elif="{{!rows.length && historyLoading}}" class="conv-state">
+      <view class="state-spinner"></view>
+      <view class="state-title">正在加载历史记录</view>
+      <view class="state-sub">正在定位到最新消息…</view>
+    </view>
+    <!-- 空态（iOS emptyState） -->
+    <view wx:elif="{{!rows.length && !running && historyLoaded}}" class="conv-empty">
+      <image class="conv-empty-logo" src="/assets/icons/{{theme === 'dark' ? 'whale-white.png' : 'whale-ink.png'}}" mode="aspectFit"/>
+      <view class="conv-empty-title">操作远端 DSH Agent</view>
+      <view class="conv-empty-desc">发送任务后，工具调用、推理进度和最终回复会通过 Mobile Gateway 实时返回。</view>
+      <view wx:if="{{historyState === 'loaded:0ev'}}" class="state-sub">网关返回 0 条历史事件（若这是旧会话，请检查 Host 连接后下拉重试）</view>
+    </view>
 
     <block wx:for="{{rows}}" wx:key="key">
-      <!-- 用户消息 -->
+      <!-- 用户消息（iOS ConversationRow .user：右对齐海蓝气泡 + 气泡下复制钮） -->
       <view wx:if="{{item.kind === 'user'}}" class="row-user" id="{{item.key}}">
-        <view class="row-user-title">{{item.title}}</view>
-        <view class="row-user-text">{{item.text}}</view>
-        <view wx:if="{{item.images.length}}" class="attach-grid">
+        <view wx:if="{{item.images.length === 1}}" class="user-image-single {{item.text ? 'with-text' : ''}}" style="{{item.singleStyle}}">
+          <image class="user-image-one" src="{{item.images[0].localUrl || item.images[0].thumbUrl || ''}}" mode="aspectFill" bindtap="previewAttachment" data-id="{{item.images[0].attachmentId}}"/>
+        </view>
+        <view wx:elif="{{item.images.length > 1}}" class="user-image-stack {{item.text ? 'with-text' : ''}}" style="{{item.stackStyle}}">
           <image
-            wx:for="{{item.images}}" wx:for-item="img" wx:key="attachmentId"
-            class="attach-img"
+            wx:for="{{item.stackImages}}" wx:for-item="img" wx:key="attachmentId"
+            class="user-image-card"
+            style="{{img.style}}"
             src="{{img.localUrl || img.thumbUrl || ''}}"
             mode="aspectFill"
             bindtap="previewAttachment"
             data-id="{{img.attachmentId}}"
           />
+          <view wx:if="{{item.images.length > 1}}" class="user-image-count" style="{{item.stackBadgeStyle}}">{{item.images.length}}张</view>
+        </view>
+        <view wx:if="{{item.text}}" class="row-user-bubble">
+          <view class="row-user-text">{{item.text}}</view>
+        </view>
+        <view wx:if="{{item.copyText}}" class="copy-btn" bindtap="copyAssistantText" data-key="{{item.key}}" data-text="{{item.copyText}}">
+          <image class="copy-ic" src="{{copiedKey === item.key ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/>
         </view>
       </view>
 
-      <!-- 上下文注入行（system/插件等非用户来源，对齐 dsh-mobile ProcessContextDisclosure） -->
-      <view wx:elif="{{item.kind === 'context'}}" class="row-context" id="{{item.key}}">
-        <view class="disclosure-head" bindtap="toggleFold" data-key="{{item.key}}">
-          <text class="context-title">{{item.title}}</text>
-          <image class="process-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
-        </view>
-        <view wx:if="{{folds[item.key]}}" class="disclosure-body">{{item.text}}</view>
-      </view>
-
-      <!-- 过程分组行（对齐 dsh-mobile ConversationProcessRow） -->
-      <view wx:elif="{{item.kind === 'process'}}" class="process-block" id="{{item.key}}">
+      <!-- dsh-mobile ConversationProcessGroup：稳定组头 + 分层 disclosure 节点 -->
+      <view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}}" id="{{item.key}}">
         <view class="process-head" bindtap="toggleFold" data-key="{{item.key}}">
-          <image class="process-glyph" src="/assets/icons/proc-status-gray.png"/>
+          <image wx:if="{{item.command}}" class="process-command-icon" src="/assets/icons/proc-status-gray.png"/>
           <text class="process-title">{{item.title}}</text>
-          <text wx:if="{{item.preview}}" class="process-dot">·</text>
-          <text wx:if="{{item.preview}}" class="process-preview">{{item.preview}}</text>
-          <image class="process-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+          <view class="event-spacer"></view>
+          <image wx:if="{{item.expandable}}" class="process-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
         </view>
+        <view class="process-hairline"></view>
         <view wx:if="{{folds[item.key]}}" class="process-body">
-          <!-- Think disclosure -->
-          <view wx:if="{{item.reasoning}}" class="disclosure">
-            <view class="disclosure-head" bindtap="toggleFold" data-key="{{item.thinkKey}}">
-              <view class="disclosure-icon-box"><image class="disclosure-icon" src="/assets/icons/think-purple.png"/></view>
-              <text class="disclosure-title think">Think</text>
-              <text wx:if="{{item.thinkPreview}}" class="disclosure-preview">{{item.thinkPreview}}</text>
-              <image class="process-chevron {{folds[item.thinkKey] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
-            </view>
-            <view wx:if="{{folds[item.thinkKey]}}" class="disclosure-body">{{item.reasoning}}</view>
-          </view>
-          <!-- 工具 disclosures -->
-          <view wx:if="{{item.tools.length}}" class="disclosure">
-            <view class="disclosure-head static">
-              <view class="disclosure-icon-box"><image class="disclosure-icon" src="/assets/icons/wrench-orange.png"/></view>
-              <text class="disclosure-title tool">{{item.toolCount === 1 ? '使用了 1 个工具' : '使用了 ' + item.toolCount + ' 个工具'}}</text>
-              <view class="disclosure-spacer"></view>
-            </view>
-            <block wx:for="{{item.tools}}" wx:for-item="tool" wx:key="key">
-              <view class="disclosure-head nested" bindtap="toggleFold" data-key="{{tool.openKey}}">
-                <view class="disclosure-icon-box"><image class="disclosure-icon" src="/assets/icons/{{tool.iconFile}}"/></view>
-                <text class="disclosure-title">{{tool.name}}</text>
-                <text class="process-dot">·</text>
-                <text class="disclosure-preview">{{tool.title}}</text>
-                <image class="process-chevron {{folds[tool.openKey] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+          <view wx:if="{{item.commandDetail}}" class="process-command-detail">{{item.commandDetail}}</view>
+          <block wx:for="{{item.children}}" wx:for-item="node" wx:key="key">
+            <view wx:if="{{node.kind === 'context' || node.kind === 'reasoning'}}" class="disclosure">
+              <view class="disclosure-head" bindtap="toggleFold" data-key="{{node.key}}">
+                <image class="event-glyph" src="/assets/icons/{{node.iconFile}}"/>
+                <text class="event-title tint-{{node.tint}}">{{node.title}}</text>
+                <text wx:if="{{node.preview}}" class="event-dot">·</text>
+                <text wx:if="{{node.preview}}" class="event-preview">{{node.preview}}</text>
+                <view class="event-spacer"></view>
+                <image class="event-chevron {{folds[node.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
               </view>
-              <view wx:if="{{folds[tool.openKey]}}" class="disclosure-body">
-                <view wx:if="{{tool.argumentsText}}" class="code-block">
-                  <view class="code-lang">调用参数</view>
-                  <view class="code-body">{{tool.argumentsText}}</view>
-                </view>
-                <view wx:if="{{tool.resultText}}" class="code-block">
-                  <view class="code-lang">结果</view>
-                  <view class="code-body">{{tool.resultText}}</view>
-                </view>
+              <view wx:if="{{folds[node.key]}}" class="event-body">
+                <view class="event-rule"></view>
+                <view class="event-body-text">{{node.text}}</view>
               </view>
-            </block>
-          </view>
+            </view>
+            <view wx:else class="disclosure tool-bundle">
+              <view class="disclosure-head bundle" bindtap="toggleFold" data-key="{{node.key}}">
+                <image class="event-glyph" src="/assets/icons/dsh-process-tool.svg" mode="aspectFit"/>
+                <text class="event-preview bundle-title">{{node.title}}</text>
+                <view class="event-spacer"></view>
+                <image class="event-chevron {{folds[node.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+              </view>
+              <view wx:if="{{folds[node.key]}}" class="tool-bundle-body">
+                <block wx:for="{{node.tools}}" wx:for-item="tool" wx:key="key">
+                  <view class="tool-node">
+                    <view class="disclosure-head tool" bindtap="toggleFold" data-key="{{tool.key}}">
+                      <image class="event-glyph tool-glyph-small {{tool.isError ? 'error' : ''}}" src="/assets/icons/{{tool.iconFile}}" mode="aspectFit"/>
+                      <view class="tool-line">
+                        <view class="tool-line-1">
+                          <text class="tool-act">{{tool.actLabel || tool.name || '工具'}}</text>
+                          <text wx:if="{{tool.waiting}}" class="tool-status">等待结果</text>
+                          <text wx:elif="{{tool.isError}}" class="tool-status err">失败</text>
+                        </view>
+                        <text wx:if="{{tool.actDetail}}" class="tool-note">{{tool.actDetail}}</text>
+                      </view>
+                      <image class="event-chevron {{folds[tool.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+                    </view>
+                    <view wx:if="{{folds[tool.key]}}" class="tool-detail">
+                      <view wx:if="{{tool.argumentsText}}" class="tool-detail-section">
+                        <view class="tool-detail-label">调用参数</view>
+                        <view class="tool-detail-code">{{tool.argumentsText}}</view>
+                      </view>
+                      <view wx:if="{{tool.resultText}}" class="tool-detail-section">
+                        <view class="tool-detail-label {{tool.isError ? 'err' : ''}}">{{tool.resultLabel}}</view>
+                        <view class="tool-detail-output">{{tool.resultText}}</view>
+                      </view>
+                    </view>
+                  </view>
+                </block>
+              </view>
+            </view>
+          </block>
         </view>
-        <view class="process-divider"></view>
       </view>
 
-      <!-- 助手消息（简洁正文 + 复制） -->
+      <!-- 助手消息（iOS .assistant：全宽 Markdown + 复制钮） -->
       <view wx:elif="{{item.kind === 'assistant'}}" class="row-assistant" id="{{item.key}}">
         <view wx:if="{{item.title}}" class="row-streaming-title">{{item.title}}</view>
-
-        <!-- 正文（Markdown） -->
         <block wx:if="{{item.blocks.length}}">
           <view wx:for="{{item.blocks}}" wx:for-item="block" wx:key="index" class="md-block">
             <rich-text wx:if="{{block.type === 'para'}}" class="md-para" nodes="{{block.html}}"></rich-text>
@@ -137,8 +201,6 @@
             </view>
           </view>
         </block>
-
-        <!-- 图片附件 -->
         <view wx:if="{{item.images && item.images.length}}" class="attach-grid">
           <image
             wx:for="{{item.images}}" wx:for-item="img" wx:key="attachmentId"
@@ -149,45 +211,55 @@
             data-id="{{img.attachmentId}}"
           />
         </view>
-
-        <!-- 复制正文（对齐 dsh-mobile CopyButton） -->
-        <view wx:if="{{item.copyText}}" class="assistant-copy" bindtap="copyAssistantText" data-text="{{item.copyText}}">复制</view>
+        <view wx:if="{{item.copyText}}" class="copy-btn" bindtap="copyAssistantText" data-key="{{item.key}}" data-text="{{item.copyText}}">
+          <image class="copy-ic" src="{{copiedKey === item.key ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/>
+        </view>
       </view>
 
-      <!-- 其它事件行 -->
+      <!-- 其它事件行（iOS .system：图标 + caption 标题 + caption 文本 + 6% 底色圆角卡） -->
       <view wx:else class="row-event" id="{{item.key}}">
         <image class="event-ic" src="/assets/icons/{{item.iconFile}}"/>
-        <text class="event-tag {{item.isError ? 'error' : ''}}">{{item.title}}</text>
-        <text class="event-text">{{item.text}}</text>
+        <view class="row-event-body">
+          <text class="event-tag {{item.isError ? 'error' : ''}}">{{item.title}}</text>
+          <text wx:if="{{item.text}}" class="event-text">{{item.text}}</text>
+        </view>
       </view>
     </block>
 
+    <!-- 运行指示条（时间线最后一行，不是悬浮层） -->
+    <view wx:if="{{running}}" class="progress-strip" id="deep-search-progress">
+      <view class="progress-row">
+        <view class="run-tail"><image class="run-tail-sprite" src="/assets/icons/{{theme === 'dark' ? 'whale-tail-sprite-mist.png' : 'whale-tail-sprite-navy.png'}}"/></view>
+        <text class="progress-text">{{runPhrase}}，用时 {{runElapsedText}}…</text>
+      </view>
+    </view>
     <view id="conv-bottom" class="conv-bottom"></view>
+    </view>
   </scroll-view>
 
   <!-- ================= 轨迹 ================= -->
-  <scroll-view wx:else class="trajectory" scroll-y>
-    <!-- 时长概览 -->
+  <scroll-view wx:else class="trajectory" style="{{trajectoryStyle}}" scroll-y enhanced show-scrollbar="{{false}}">
+    <!-- DSH 轨迹：三条时间带 + 原始事件表 -->
     <view class="trace-summary">
       <view class="trace-summary-head">
         <view class="trace-summary-stats">
           <image class="stat-ic" src="/assets/icons/clock-dark.png"/>
-          <text>Duration　{{stats.turns}} Turns　{{stats.steps}} Calls</text>
+          <text>时长　{{stats.turns}} 轮次　{{stats.steps}} 调用</text>
         </view>
         <text class="trace-total text-mono">{{stats.durationLabel}}</text>
       </view>
       <view class="trace-lanes">
         <view class="trace-lane">
-          <text class="lane-label">Input</text>
-          <view class="lane-track"><view class="lane-fill input" style="width: {{stats.inputPct}}%"></view></view>
+          <text class="lane-label">输入</text>
+          <view class="lane-track"><view wx:for="{{stats.inputSegments}}" wx:for-item="seg" wx:key="key" class="lane-segment input" style="{{seg.style}}"></view></view>
         </view>
         <view class="trace-lane">
-          <text class="lane-label">Model</text>
-          <view class="lane-track"><view class="lane-fill model" style="width: {{stats.modelPct}}%"></view></view>
+          <text class="lane-label">模型</text>
+          <view class="lane-track"><view wx:for="{{stats.modelSegments}}" wx:for-item="seg" wx:key="key" class="lane-segment model" style="{{seg.style}}"></view></view>
         </view>
         <view class="trace-lane">
-          <text class="lane-label">Tools</text>
-          <view class="lane-track"><view class="lane-fill tools" style="width: {{stats.toolsPct}}%"></view></view>
+          <text class="lane-label">工具</text>
+          <view class="lane-track"><view wx:for="{{stats.toolSegments}}" wx:for-item="seg" wx:key="key" class="lane-segment tools" style="{{seg.style}}"></view></view>
         </view>
       </view>
       <view class="trace-axis">
@@ -204,9 +276,10 @@
         </view>
         <view wx:else class="trace-row" bindtap="openTraceDetail" data-index="{{index}}">
           <view class="trace-dot {{item.dotClass}}"></view>
-          <view class="trace-badge {{item.badgeClass}}">{{item.badge}}</view>
+          <view class="trace-badge {{item.badgeClass}}">{{item.displayBadge}}</view>
           <view class="trace-label" wx:if="{{item.label}}">{{item.label}}</view>
           <view class="trace-preview">{{item.preview}}</view>
+          <view wx:if="{{item.statusLabel}}" class="trace-status {{item.isError ? 'err' : ''}}">{{item.statusLabel}}</view>
           <view class="trace-seq text-mono">#{{item.seqLabel}}</view>
           <image class="trace-chevron" src="/assets/icons/chev-right-gray.png"/>
         </view>
@@ -216,97 +289,333 @@
   </scroll-view>
 
   <!-- ================= 待处理请求 ================= -->
-  <!-- Human Question -->
-  <view wx:if="{{question}}" class="pending-card question-card">
-    <view class="pending-title"><image class="q-ic" src="/assets/icons/q-bubble-ocean.png"/>{{question.questions[0].header || '需要你的回答'}}</view>
-    <block wx:for="{{question.questions}}" wx:key="id">
-      <view class="q-item">
-        <view class="q-question">{{item.question}}</view>
-        <view wx:if="{{item.detail}}" class="q-detail">{{item.detail}}</view>
-        <view class="q-options">
-          <view
-            wx:for="{{item.options}}" wx:for-item="opt" wx:key="label"
-            class="q-option {{item.checked[opt.label] ? 'selected' : ''}}"
-            bindtap="toggleOption"
-            qid="{{item.id}}"
-            label="{{opt.label}}"
-          >
-            <view class="q-option-label">{{opt.label}}</view>
-            <view wx:if="{{opt.description}}" class="q-option-desc">{{opt.description}}</view>
-          </view>
-          <input
-            wx:if="{{!item.options || !item.options.length}}"
-            class="field q-custom"
-            placeholder="输入你的回答"
-            placeholder-class="field-placeholder"
-            value="{{question.custom[item.id]}}"
-            bindinput="onCustomInput"
-            qid="{{item.id}}"
-          />
-        </view>
-      </view>
-    </block>
-    <view class="pending-actions">
-      <view class="pending-btn ghost" bindtap="cancelQuestion">取消</view>
-      <view class="pending-btn primary {{questionBusy ? 'disabled' : ''}}" bindtap="submitQuestion">提交</view>
-    </view>
-  </view>
 
-  <!-- 工具审批 -->
-  <view wx:if="{{approval}}" class="pending-card approval-card">
-    <view class="pending-title"><image class="q-ic" src="/assets/icons/shield-excla-gray.png"/>工具审批请求</view>
-    <view class="approval-tool">{{approval.toolName}}</view>
-    <view wx:if="{{approval.reason}}" class="approval-reason">{{approval.reason}}</view>
+  <!-- ================= 底部栈（对齐 iOS：滚到底 → 审批/提问卡 互斥替代输入区 → 排队托盘+胶囊行+输入卡） ================= -->
+  <view class="composer-backdrop" aria-hidden="true"></view>
+  <view class="dock-stack {{question ? 'question-active' : ''}}" style="{{dockStyle}}">
+    <view wx:if="{{showJump}}" class="jump-wrap">
+      <view class="jump-bottom" bindtap="jumpToBottom">
+        <view wx:if="{{running}}" class="jump-ring"></view>
+        <image class="jump-ic" src="/assets/icons/{{theme === 'dark' ? 'arrow-down-light.png' : 'arrow-down-dark.png'}}"/>
+      </view>
+    </view>
+
+    <!-- 工具审批（高优先级交互层：出现时替代输入区） -->
+<view wx:if="{{approval}}" class="pending-card approval-card">
+    <view class="approval-head">
+      <view class="approval-dot"></view>
+      <text class="approval-head-title">等待审批</text>
+      <text wx:if="{{approval.replay}}" class="approval-replayed">· 已恢复</text>
+      <view class="approval-spacer"></view>
+    </view>
+    <view class="approval-body">
+      <view class="approval-tool">{{approval.toolName}}</view>
+      <view class="approval-reason">{{approval.reason || approval.toolName + ' 请求执行需要审批的操作'}}</view>
+    </view>
     <view class="pending-actions">
       <view class="pending-btn ghost {{approvalBusy ? 'disabled' : ''}}" bindtap="rejectApproval">拒绝</view>
       <view class="pending-btn primary {{approvalBusy ? 'disabled' : ''}}" bindtap="allowApproval">允许一次</view>
     </view>
   </view>
 
-  <!-- composer 上方行：会话模式胶囊（左）+ 会话统计胶囊（右） -->
-  <view wx:if="{{tab === 'conversation' && (sessionPresetVisible || statsLabel)}}" class="composer-top-row">
-    <view
-      wx:if="{{sessionPresetVisible}}"
-      class="preset-capsule glass-press"
-      bindtap="pickSessionPreset"
-    >
-      <image class="preset-capsule-ic" src="/assets/icons/preset-gray.png"/>
-      <text class="preset-capsule-text">{{sessionPresetName}}</text>
-      <image class="preset-capsule-chev" src="/assets/icons/chev-down-gray.png"/>
-    </view>
-    <view wx:if="{{statsLabel}}" class="stats-pill" bindtap="showStats">
-      <text class="stats-pill-text">{{statsLabel}}</text>
-      <image class="stats-pill-chev" src="/assets/icons/chev-up-gray.png"/>
-    </view>
-  </view>
+    <!-- 会话提问（同上互斥） -->
+<view wx:elif="{{question}}" class="pending-card question-card">
+      <!-- 收起态：对齐 iOS collapsedCard -->
+      <view wx:if="{{qCollapsed}}" class="q-collapsed" bindtap="toggleQCollapse">
+        <image class="q-ic" src="/assets/icons/q-bubble-ocean.png"/>
+        <view class="q-collapsed-main">
+          <text class="q-collapsed-title">Agent 正在等待回答</text>
+          <text class="q-collapsed-sub">{{question.questions[qIndex].question}}</text>
+        </view>
+        <image class="q-chev" src="/assets/icons/chev-up-gray.png"/>
+      </view>
+      <block wx:else>
+        <!-- 确认标题与卡片操作放在同一行 -->
+        <view class="q-confirm-head">
+          <text class="q-header">{{question.questions[qIndex].header || '确认'}}</text>
+          <text wx:if="{{question.replay}}" class="q-replayed">已恢复</text>
+          <view class="q-spacer"></view>
+          <view class="q-head-btn" bindtap="toggleQCollapse">
+            <image class="q-chev" src="/assets/icons/chev-down-gray.png"/>
+          </view>
+          <view class="q-head-btn" bindtap="cancelQuestion">
+            <image class="q-chev" src="/assets/icons/xmark-circle-dark.png"/>
+          </view>
+        </view>
 
-  <!-- ================= 输入面板 ================= -->
-  <view class="composer">
-    <textarea
+        <!-- 当前题（单题展示） -->
+        <view class="q-item">
+          <view class="q-question">{{question.questions[qIndex].question}}</view>
+          <view wx:if="{{question.questions[qIndex].detail}}" class="q-detail">{{question.questions[qIndex].detail}}</view>
+          <view wx:if="{{question.questions[qIndex].allowsMultipleSelections}}" class="q-multi-hint">☑ 可以选择多项</view>
+          <view class="q-options">
+            <view
+              wx:for="{{question.questions[qIndex].options}}" wx:for-item="opt" wx:key="raw"
+              class="q-option {{question.questions[qIndex].checked[opt.raw] ? 'selected' : ''}}"
+              bindtap="toggleOption"
+              data-qid="{{question.questions[qIndex].id}}"
+              data-label="{{opt.raw}}"
+              data-multi="{{question.questions[qIndex].allowsMultipleSelections ? 1 : 0}}"
+            >
+              <view class="q-sel option-number {{question.questions[qIndex].checked[opt.raw] ? 'selected' : ''}}">
+                <text>{{index + 1}}</text>
+              </view>
+              <view class="q-option-main">
+                <view class="q-option-label">{{opt.label}}<text wx:if="{{opt.recommended}}" class="q-recommend">推荐</text></view>
+                <view wx:if="{{opt.description}}" class="q-option-desc">{{opt.description}}</view>
+              </view>
+            </view>
+            <view wx:if="{{!question.questions[qIndex].options.length}}" class="field q-custom">
+              <input
+                confirm-type="done"
+                show-confirm-bar="{{false}}"
+                placeholder="输入你的答案"
+                placeholder-class="field-placeholder"
+                value="{{question.custom[question.questions[qIndex].id]}}"
+                bindinput="onCustomInput"
+                data-qid="{{question.questions[qIndex].id}}"
+              />
+            </view>
+            <view wx:else class="q-custom-row">
+              <image class="q-pencil" src="/assets/icons/pencil-line-gray.png"/>
+              <input
+                class="q-custom-input"
+                confirm-type="done"
+                show-confirm-bar="{{false}}"
+                placeholder="或输入自定义答案"
+                placeholder-class="field-placeholder"
+                value="{{question.custom[question.questions[qIndex].id]}}"
+                bindinput="onCustomInput"
+                data-qid="{{question.questions[qIndex].id}}"
+              />
+            </view>
+          </view>
+        </view>
+
+        <!-- 底部：翻页器 + 跳过 + 下一题/提交（对齐 iOS footer） -->
+        <view class="q-footer">
+          <view class="q-page-btn {{qIndex === 0 ? 'disabled' : ''}}" bindtap="qPrev">
+            <image class="q-chev flip" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+          <text class="q-page-num">{{qIndex + 1}} / {{question.questions.length}}</text>
+          <view class="q-page-btn {{qIndex === question.questions.length - 1 ? 'disabled' : ''}}" bindtap="qNext">
+            <image class="q-chev" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+          <view class="q-spacer"></view>
+          <view class="pending-btn ghost" bindtap="cancelQuestion">跳过问题</view>
+          <view
+            wx:if="{{qIndex < question.questions.length - 1}}"
+            class="pending-btn primary {{questionBusy ? 'disabled' : ''}}"
+            bindtap="qNext"
+          >下一题</view>
+          <view
+            wx:else
+            class="pending-btn primary {{questionBusy ? 'disabled' : ''}}"
+            bindtap="submitQuestion"
+          >提交</view>
+        </view>
+      </block>
+    </view>
+
+    <block wx:else>
+      <!-- 队列、任务和目标仅在对话页展示 -->
+      <block wx:if="{{tab === 'conversation'}}">
+      <!-- 队列 dock 独立于输入卡 -->
+      <view wx:if="{{queue.length}}" class="queue-dock {{queueExpanded || queue.length === 1 ? 'open' : ''}}">
+        <view class="queue-panel">
+          <view wx:if="{{queue.length > 1}}" class="queue-head" bindtap="toggleQueue">
+            <view class="queue-lead"><image class="queue-head-ic" src="/assets/icons/bubble-gray.png"/></view>
+            <text class="queue-head-title">排队消息 · {{queue.length}}</text>
+            <text wx:if="{{queueSending}}" class="queue-head-status">发送中…</text>
+            <view class="event-spacer"></view>
+            <view class="queue-head-chev"><image class="queue-head-chev-ic" src="/assets/icons/{{queueExpanded ? 'chev-down-gray.png' : 'chev-up-gray.png'}}"/></view>
+          </view>
+          <scroll-view wx:if="{{queueExpanded || queue.length === 1}}" class="queue-list {{queue.length > 4 ? 'capped' : ''}}" scroll-y>
+            <block wx:for="{{queue}}" wx:key="id">
+              <view class="queue-row">
+                <view wx:if="{{queue.length === 1}}" class="queue-lead"><image class="queue-row-ic" src="/assets/icons/bubble-gray.png"/></view>
+                <view class="queue-content">
+                  <text wx:if="{{item.preview}}" class="queue-preview">{{item.preview}}</text>
+                  <view wx:if="{{item.attachments.length}}" class="queue-attachments">
+                    <block wx:for="{{item.attachments}}" wx:for-item="attachment" wx:key="key">
+                      <image wx:if="{{attachment.type === 'image'}}" class="queue-thumb" src="{{attachment.url}}" mode="aspectFill"/>
+                      <view wx:else class="queue-file">
+                        <image class="queue-file-ic" src="/assets/icons/paperclip-gray.png"/>
+                        <text class="queue-file-name">{{attachment.name}}</text>
+                      </view>
+                    </block>
+                  </view>
+                  <text wx:if="{{item.attachmentCount}}" class="queue-attachment-label">{{item.attachmentLabel}}</text>
+                </view>
+                <text wx:if="{{item.statusText}}" class="queue-status">{{item.statusText}}</text>
+                <view class="queue-actions">
+                  <view wx:if="{{item.editable}}" class="queue-ic-btn {{queueBusyId === item.id + ':edit' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="edit"><image class="queue-ic" src="/assets/icons/pencil-line-gray.png"/></view>
+                  <view class="queue-ic-btn {{queueBusyId === item.id + ':remove' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="remove"><image class="queue-ic" src="/assets/icons/trash-gray.png"/></view>
+                  <view wx:if="{{running}}" class="queue-ic-btn {{queueBusyId === item.id + ':steer' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="steer"><image class="queue-ic" src="/assets/icons/arrow-up-gray.png"/></view>
+                </view>
+              </view>
+              <view wx:if="{{index < queue.length - 1}}" class="queue-sep"></view>
+            </block>
+          </scroll-view>
+        </view>
+      </view>
+
+      <!-- 任务 / 目标（优先级低于审批提问，高于命令与输入框） -->
+      <view wx:if="{{tasks}}" class="task-panel">
+        <view class="task-head" bindtap="toggleTasks">
+          <image class="task-head-ic" src="/assets/icons/list-gray.png"/>
+          <text class="task-head-title">任务</text>
+          <text class="task-summary">{{taskSummary}}</text>
+          <view class="event-spacer"></view>
+          <image class="task-chev {{tasksExpanded ? 'open' : ''}}" src="/assets/icons/chev-down-gray.png"/>
+        </view>
+        <view wx:if="{{tasksExpanded}}" class="task-list">
+          <view wx:for="{{tasks}}" wx:key="id" class="task-row {{item.status}}">
+            <image class="task-status-ic {{item.status === 'in_progress' ? 'spin' : ''}}" src="/assets/icons/{{item.icon}}"/>
+            <text class="task-content">{{item.content}}</text>
+          </view>
+        </view>
+      </view>
+      <view wx:if="{{goal}}" class="goal-panel">
+        <image class="goal-ic" src="/assets/icons/target-gray.png"/>
+        <view class="goal-main">
+          <text class="goal-phase">{{goal.phaseLabel}}</text>
+          <text class="goal-objective">{{goal.objective}}</text>
+        </view>
+        <view wx:if="{{goalBusy}}" class="goal-spinner"></view>
+        <block wx:else>
+          <view class="goal-action" bindtap="goalAction" data-action="toggle">
+            <image class="goal-action-ic" src="/assets/icons/{{goal.active ? 'sched-clock-gray.png' : 'arrow-up-gray.png'}}"/>
+          </view>
+          <view class="goal-action" bindtap="goalAction" data-action="edit">
+            <image class="goal-action-ic" src="/assets/icons/pencil-line-gray.png"/>
+          </view>
+          <view class="goal-action" bindtap="goalAction" data-action="clear">
+            <image class="goal-action-ic" src="/assets/icons/trash-gray.png"/>
+          </view>
+        </block>
+      </view>
+      </block>
+
+      <!-- 会话胶囊、命令菜单与输入卡在对话/轨迹页共用 -->
+      <!-- 胶囊行 -->
+      <view wx:if="{{sessionPresetVisible}}" class="composer-top-row">
+        <view wx:if="{{sessionPresetVisible}}" class="preset-capsule glass-press" bindtap="pickSessionPreset">
+          <image class="preset-capsule-ic" src="/assets/icons/preset-gray.png"/>
+          <text class="preset-capsule-text">{{sessionPresetName}}</text>
+          <image class="preset-capsule-chev" src="/assets/icons/chev-down-gray.png"/>
+        </view>
+      </view>
+
+      <!-- DSH 指标弹层：运行与 Token 分别展示自己的真实字段 -->
+      <view wx:if="{{statsPopOpen}}" class="stats-pop-mask" bindtap="closeStatsPop"></view>
+      <view wx:if="{{statsPopOpen}}" class="stats-pop {{statsPopKind}}">
+        <view class="stats-pop-title">
+          <text class="stats-pop-heading">{{statsPopTitle}}</text>
+          <text wx:if="{{statsPopTotal}}" class="stats-pop-total">{{statsPopTotal}}</text>
+        </view>
+        <view wx:for="{{statsPopRows}}" wx:key="label" class="stats-pop-row">
+          <text class="stats-pop-label">{{item.label}}</text>
+          <text class="stats-pop-value">{{item.value}}</text>
+        </view>
+      </view>
+
+      <!-- DSH 上下文指标弹层 -->
+      <block wx:if="{{showContextSheet && contextSheet}}">
+        <view class="ctx-pop-mask" bindtap="closeContextSheet"></view>
+        <view class="ctx-pop">
+          <view class="ctx-line">
+            <text class="ctx-label">上下文已用</text>
+            <text class="ctx-pct">{{contextSheet.pct}}%</text>
+            <text class="ctx-tokens">{{contextSheet.usedLabel}} / {{contextSheet.windowLabel}}</text>
+          </view>
+          <view class="ctx-bar"><view class="ctx-bar-fill" style="{{contextSheet.barStyle}}"></view></view>
+          <view wx:for="{{contextSheet.rows}}" wx:key="label" class="ctx-row">
+            <view class="ctx-dot {{item.cls}}"></view>
+            <text class="ctx-row-label">{{item.label}}</text>
+            <text class="ctx-row-val">{{item.valueLabel}}</text>
+          </view>
+        </view>
+      </block>
+
+      <!-- 斜杠命令目录 / 二级选项 -->
+      <view wx:if="{{commandMenu}}" class="command-menu">
+        <view wx:if="{{commandMenu.title}}" class="command-menu-title">{{commandMenu.title}}</view>
+        <view wx:if="{{commandLoading}}" class="command-loading"><view class="command-loading-bar"></view></view>
+        <scroll-view class="command-scroll" scroll-y>
+          <block wx:if="{{commandMenu.type === 'catalog'}}">
+            <block wx:for="{{commandMenu.groups}}" wx:key="id" wx:for-item="group">
+              <view class="command-group-title">{{group.title}}</view>
+              <view wx:for="{{group.items}}" wx:key="id" wx:for-item="command" class="command-row" bindtap="selectCommand" data-name="{{command.name}}">
+                <text class="command-name">/{{command.name}}</text>
+                <text class="command-desc">{{command.description}}</text>
+                <image wx:if="{{command.hasOptions}}" class="command-chev" src="/assets/icons/chev-right-gray.png"/>
+              </view>
+            </block>
+            <view wx:if="{{!commandMenu.groups.length && !commandLoading}}" class="command-empty">没有匹配的命令</view>
+          </block>
+          <block wx:else>
+            <view wx:for="{{commandMenu.options}}" wx:key="id" class="command-option" bindtap="selectCommandOption" data-id="{{item.id}}">
+              <view class="command-option-main">
+                <text class="command-option-label">{{item.label}}</text>
+                <text wx:if="{{item.detail}}" class="command-option-detail">{{item.detail}}</text>
+              </view>
+              <image wx:if="{{item.selected}}" class="command-check" src="/assets/icons/check-ocean.png"/>
+            </view>
+          </block>
+        </scroll-view>
+        <view wx:if="{{commandError}}" class="command-error">{{commandError}}</view>
+      </view>
+
+      <!-- 输入卡 -->
+      <view class="composer">
+      <textarea
       class="composer-input"
-      placeholder="描述你想要构建的内容"
-      placeholder-class="field-placeholder"
+      placeholder="{{composerPlaceholder}}"
+      placeholder-class="composer-placeholder"
+      placeholder-style="{{theme === 'dark' ? 'color:rgba(241,244,250,0.36);font-size:28rpx;' : 'color:rgba(16,19,24,0.28);font-size:28rpx;'}}"
       value="{{draft}}"
       bindinput="onDraftInput"
+      bindfocus="onComposerFocus"
       bindconfirm="send"
       confirm-type="send"
+      bindlongpress="onVoicePress"
+      adjust-position="{{false}}"
+      bindkeyboardheightchange="onKeyboardHeight"
+      bindblur="onKeyboardHide"
+      show-confirm-bar="{{false}}"
+      cursor-spacing="20"
       auto-height
       maxlength="-1"
     />
     <view wx:if="{{images.length}}" class="composer-images">
-      <view wx:for="{{images}}" wx:key="id" class="composer-thumb">
-        <image src="{{item.tempPath}}" mode="aspectFill" class="composer-thumb-img"/>
-        <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
-      </view>
+      <block wx:for="{{images}}" wx:key="id">
+        <view wx:if="{{item.isFile}}" class="pending-file">
+          <image class="pending-file-ic" src="/assets/icons/paperclip-gray.png"/>
+          <text class="pending-file-name">{{item.name}}</text>
+          <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
+        </view>
+        <view wx:else class="composer-thumb">
+          <image src="{{item.tempPath}}" mode="aspectFill" class="composer-thumb-img"/>
+          <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
+        </view>
+      </block>
     </view>
     <view class="composer-bar">
-      <view class="chip" bindtap="pickPermission"><image class="chip-ic" src="/assets/icons/{{permissionIcon}}"/>{{permissionLabel}}</view>
-      <view class="chip" bindtap="pickModel">{{modelLabel}}<view class="effort-pill" catchtap="pickEffort">{{effortLabel}}</view><image class="chip-ud" src="/assets/icons/chev-ud-gray.png"/></view>
+      <view wx:if="{{canAttach}}" class="chip icon" bindtap="attachMenu"><image class="attach-ic" src="/assets/icons/plus-gray.png"/></view>
+      <view wx:if="{{attachSheetOpen}}" class="opt-mask attach-mask" catchtap="closeAttachMenu"></view>
+       <view wx:if="{{attachSheetOpen}}" class="opt-pop attach-pop">
+         <view class="opt-row" catchtap="chooseImage"><image src="/assets/icons/attach-gray.png" class="opt-ic"/><text class="opt-label">图片</text></view>
+         <view class="opt-row" catchtap="chooseFile"><image src="/assets/icons/paperclip-gray.png" class="opt-ic"/><text class="opt-label">文件</text></view>
+       </view>
+       <view class="chip permission-chip" bindtap="pickPermission">
+        <image class="chip-ic" src="/assets/icons/{{permissionIcon}}"/>
+        <text class="chip-label">{{permissionLabel}}</text>
+      </view>
       <view class="composer-spacer"></view>
-      <view wx:if="{{contextPct >= 0}}" class="context-ring" style="background: conic-gradient(#2E6BE6 {{contextPct}}%, var(--ring-track) 0);"><view class="context-ring-in"></view></view>
-      <view wx:if="{{canAttach}}" class="chip icon" bindtap="chooseImage"><image class="attach-ic" src="/assets/icons/attach-gray.png"/></view>
+      <view class="chip model-chip" bindtap="pickModel"><text class="chip-model-name">{{modelLabel}}</text><view class="effort-pill" catchtap="pickEffort">{{effortLabel}}</view><image class="chip-ud" src="/assets/icons/chev-ud-gray.png"/></view>
       <view
-        wx:if="{{running}}"
+        wx:if="{{running && !canSend}}"
         class="send-btn stop glass-press"
         bindtap="stopAgent"
       ><view class="stop-square"></view></view>
@@ -315,6 +624,109 @@
         class="send-btn {{canSend ? '' : 'disabled'}} glass-press"
         bindtap="send"
       ><image class="send-ic" src="/assets/icons/arrow-up-white.png"/></view>
+    </view>
+
+      </view>
+
+      <!-- DSH composer footer：执行指标 / Token 与缓存 / 上下文占用 -->
+      <view wx:if="{{composerMetricsVisible}}" class="composer-metrics">
+        <view wx:if="{{composerRunMetric}}" class="composer-metric run" bindtap="showStats">
+          <image class="metric-icon metric-gauge" src="/assets/icons/dsh-gauge.svg" mode="aspectFit" />
+          <text class="composer-metric-text">{{composerRunMetric}}</text>
+        </view>
+        <view wx:if="{{composerTokenMetric || composerCacheMetric}}" class="composer-metric token" bindtap="showTokenStats">
+          <image class="metric-icon metric-storage" src="/assets/icons/dsh-storage.svg" mode="aspectFit" />
+          <text wx:if="{{composerCacheMetric}}" class="composer-metric-text">{{composerCacheMetric}}</text>
+          <text wx:else class="composer-metric-text">{{composerTokenMetric}}</text>
+        </view>
+        <view wx:if="{{composerContextMetric}}" class="composer-metric context" bindtap="openContextSheet">
+          <view class="metric-context-ring" style="{{contextRingStyle}}"><view class="metric-context-in"></view></view>
+          <text class="composer-metric-text">{{composerContextMetric}}</text>
+        </view>
+      </view>
+    </block>
+  </view>
+
+  <!-- 权限选择浮层（图标选项 + 当前项对勾，对齐 iOS 原生 Menu） -->
+  <view wx:if="{{permissionSheet.length}}" class="opt-mask" bindtap="closePickSheets"></view>
+  <view wx:if="{{permissionSheet.length}}" class="opt-pop permission-pop">
+    <view
+      wx:for="{{permissionSheet}}" wx:key="value"
+      class="opt-row {{item.current ? 'current' : ''}}"
+      bindtap="pickPermissionOption" data-value="{{item.value}}"
+    >
+      <image class="opt-ic" src="/assets/icons/{{item.icon}}"/>
+      <text class="opt-label">{{item.name}}</text>
+      <image wx:if="{{item.current}}" class="opt-check" src="/assets/icons/check-ocean.png"/>
+    </view>
+  </view>
+
+  <!-- 模式选择浮层（模式名 + 描述 + 当前项对勾） -->
+  <view wx:if="{{modeSheet.length}}" class="opt-mask" bindtap="closePickSheets"></view>
+  <view wx:if="{{modeSheet.length}}" class="opt-pop">
+    <view
+      wx:for="{{modeSheet}}" wx:key="id"
+      class="opt-row {{item.current ? 'current' : ''}}"
+      bindtap="pickModeOption" data-id="{{item.id}}"
+    >
+      <view class="opt-main">
+        <text class="opt-label">{{item.name}}</text>
+        <text wx:if="{{item.desc}}" class="opt-desc">{{item.desc}}</text>
+      </view>
+      <image wx:if="{{item.current}}" class="opt-check" src="/assets/icons/check-ocean.png"/>
+    </view>
+  </view>
+
+  <!-- 模型选择浮层（按运营商分组 + 单选圆圈/对勾，对齐软件模型菜单） -->
+  <view wx:if="{{modelSheetOpen}}" class="opt-mask" bindtap="closeModelSheet"></view>
+  <view wx:if="{{modelSheetOpen}}" class="opt-pop model-pop">
+    <scroll-view scroll-y class="model-pop-scroll">
+      <block wx:for="{{modelGroups}}" wx:key="id" wx:for-item="g">
+        <view class="model-group-title">{{g.name}}</view>
+        <view
+          wx:for="{{g.models}}" wx:key="model" wx:for-item="m"
+          class="model-row {{m.current ? 'current' : ''}}"
+          bindtap="pickModelOption"
+          data-provider="{{m.provider}}" data-model="{{m.model}}" data-effort="{{m.effort}}"
+        >
+          <view class="model-radio {{m.current ? 'on' : ''}}">
+            <image wx:if="{{m.current}}" class="model-radio-check" src="/assets/icons/checkmark-gray.png"/>
+          </view>
+          <text class="model-name">{{m.name}}</text>
+        </view>
+      </block>
+    </scroll-view>
+  </view>
+
+  <!-- 思考等级浮层（与模型弹窗同款单选样式，含 Off） -->
+  <view wx:if="{{effortSheetOpen}}" class="opt-mask" bindtap="closeEffortSheet"></view>
+  <view wx:if="{{effortSheetOpen}}" class="opt-pop effort-pop">
+    <view class="model-group-title">思考等级</view>
+    <view
+      wx:for="{{effortSheet}}" wx:key="value" wx:for-item="e"
+      class="model-row {{e.current ? 'current' : ''}}"
+      bindtap="pickEffortOption" data-value="{{e.value}}"
+    >
+      <view class="model-radio {{e.current ? 'on' : ''}}">
+        <image wx:if="{{e.current}}" class="model-radio-check" src="/assets/icons/checkmark-gray.png"/>
+      </view>
+      <text class="model-name">{{e.name}}</text>
+    </view>
+  </view>
+
+  <!-- 会话状态 sheet（对齐 iOS 统计 popover：执行 / Token 用量 / 上下文） -->
+  <view wx:if="{{statsSheetOpen}}" class="sheet-mask" bindtap="closeStatsSheet">
+    <view class="sheet stats-sheet" catchtap="noop">
+      <view class="sheet-handle"></view>
+      <view class="sheet-title">会话状态</view>
+      <view wx:for="{{statsSheet}}" wx:key="title" class="stats-group">
+        <view class="stats-group-title">{{item.title}}</view>
+        <view wx:for="{{item.rows}}" wx:for-item="row" wx:key="index" class="stats-row">
+          <text class="stats-row-label">{{row[0]}}</text>
+          <text class="stats-row-val">{{row[1]}}</text>
+        </view>
+      </view>
+      <view class="stats-sheet-done" bindtap="closeStatsSheet">完成</view>
     </view>
   </view>
 
@@ -335,4 +747,5 @@
       <view class="sheet-copy btn-text" bindtap="copyTraceDetail"><image class="copy-ic" src="/assets/icons/copy-gray.png"/>复制事件内容</view>
     </view>
   </view>
+
 </view>

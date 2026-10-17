@@ -10,43 +10,57 @@ function presetModeName(id) {
   }
 }
 
+/** 模式固定描述（对齐 iOS 模式选择 popover） */
+function presetModeDesc(id) {
+  switch (String(id || '')) {
+    case 'standard': return '完整工具，适合日常开发';
+    case 'code': return '用代码组合多步工具操作';
+    case 'minimal': return '仅用 Shell，轻量直接';
+    case 'cordis': return '创建和调试自定义 Agent';
+    case 'ptc': return 'PTC 模式';
+    default: return '自定义 Agent 模式';
+  }
+}
+
 function presetModeBlurb(id) {
   switch (id) {
     case 'standard': return '功能完整的编码 Agent，支持文件编辑、Shell、检索、Skills、计划与工作流。';
     case 'code': return '通过 Code Mode SDK 组合多步工具操作。';
     case 'minimal': return '精简工具集合，适合轻量、直接的编码任务。';
     case 'cordis': return '用于创建和维护自定义 Agent 预设。';
-    default: return '由 DeepSeek Harness 提供的 Agent 预设。';
+    default: return '由驭鲸 Harness 提供的 Agent 预设。';
   }
 }
 
-// 权限盾牌图标（iOS ConversationView.permissionIcon 对齐）：
-// danger-full-access→exclamationmark.shield / workspace-write→pencil.and.outline /
-// read-only→checkmark.shield / 其他→shield
+// 权限图标（对齐软件权限菜单）：
+// read-only→盾牌✓ / workspace-write→盾牌+列表+铅笔斜笔（工作区内修改）/
+// danger-full-access→盾牌! / auto→盾牌? / 其他→盾牌
 function permissionIconFile(value) {
-  const v = value || '';
-  if (v.indexOf('danger') >= 0) return 'shield-excla-gray';
-  if (v.indexOf('workspace') >= 0) return 'shield-pencil-gray';
-  if (v === 'read-only') return 'shield-check-gray';
-  return 'shield-gray';
+  const v = String(value || '').toLowerCase().replace(/_/g, '-');
+  if (v.indexOf('danger') >= 0) return 'shield-excla-gray.png';
+  if (v.indexOf('workspace') >= 0) return 'shield-write-gray.png';
+  if (v.indexOf('read') >= 0) return 'shield-check-gray.png';
+  if (v === 'auto' || v === 'default' || v.indexOf('auto') >= 0) return 'shield-question-gray.png';
+  return 'shield-gray.png';
 }
 
 function permissionName(id) {
-  switch (id) {
-    case 'read-only': return '只读';
-    case 'workspace-write': return '工作区写入';
-    case 'danger-full-access': return '完全访问';
-    default: return id;
-  }
+  const v = String(id || '').toLowerCase().replace(/_/g, '-');
+  if (v.indexOf('danger') >= 0 || v.indexOf('full-access') >= 0) return '完全访问';
+  if (v.indexOf('workspace') >= 0) return '工作区写入';
+  if (v.indexOf('read') >= 0) return '只读';
+  if (v === 'auto' || v === 'default' || v.indexOf('auto') >= 0) return '自动';
+  return '';
 }
 
 function reasoningEffortName(level) {
-  switch (level) {
-    case 'low': return 'Low';
-    case 'medium': return 'Medium';
-    case 'high': return 'High';
-    default: return level;
-  }
+  const v = String(level || '').toLowerCase();
+  if (v === 'off' || v === 'none' || v === 'disabled') return 'Off';
+  if (v === 'minimal') return 'Minimal';
+  if (v === 'low') return 'Low';
+  if (v === 'medium') return 'Medium';
+  if (v === 'high') return 'High';
+  return level;
 }
 
-module.exports = { presetModeName, presetModeBlurb, permissionName, permissionIconFile, reasoningEffortName };
+module.exports = { presetModeName, presetModeDesc, presetModeBlurb, permissionName, permissionIconFile, reasoningEffortName };

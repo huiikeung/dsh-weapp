@@ -38,6 +38,40 @@
   </view>
   <view class="group-hint">与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。</view>
 
+  <view class="group-title node-group-title">
+    <text>公网节点</text>
+    <view class="node-count" bindtap="refreshNodes" hover-class="node-count-active">
+      <text>{{onlineNodeCount}} 在线 · {{nodeCount}} 个节点</text>
+      <image class="chevron-img" src="/assets/icons/refresh-blue.png"/>
+    </view>
+  </view>
+  <view class="card node-list-card">
+    <view wx:if="{{!nodes.length}}" class="node-empty">
+      <text class="node-empty-title">还没有已配对节点</text>
+      <text class="node-empty-desc">连接插件生成的公网配对二维码或配对信息。</text>
+    </view>
+    <view wx:for="{{nodes}}" wx:key="id" class="node-row {{item.active ? 'node-row-active' : ''}}" data-id="{{item.id}}" bindtap="selectNode">
+      <view class="node-main">
+        <view class="node-name-line">
+          <view class="status-dot {{item.online ? 'connected' : 'disconnected'}}"></view>
+          <text class="node-name">{{item.name}}</text>
+          <text wx:if="{{item.active}}" class="node-current">当前</text>
+        </view>
+        <text class="node-id text-mono">{{item.gatewayId || item.id}}</text>
+      </view>
+      <view class="node-actions">
+        <text class="node-status">{{item.statusLabel}}</text>
+        <text class="node-copy" data-id="{{item.gatewayId || item.id}}" catchtap="copyNodeId">复制 ID</text>
+      </view>
+    </view>
+    <view class="node-add-row" bindtap="addPublicNode" hover-class="node-add-active">
+      <text class="node-add-mark">+</text>
+      <text class="node-add-label">添加公网节点</text>
+      <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+    </view>
+  </view>
+  <view class="group-hint">节点 ID 仅用于识别设备，不是访问凭证。分享有效期须由插件/中继签发并校验；当前插件生成的中继配对载荷尚未包含邀请过期字段。</view>
+
   <view class="group-title">Mobile Gateway</view>
   <view class="card">
     <view class="card-row">
@@ -65,6 +99,10 @@
 
   <view class="group-title">DSH Host</view>
   <view class="card">
+    <view class="card-row">
+      <text class="card-row-label">预览包</text>
+      <text class="card-row-value">{{buildLabel}}</text>
+    </view>
     <view class="card-row">
       <text class="card-row-label">版本</text>
       <text class="card-row-value">{{host.version || '—'}}</text>
@@ -103,11 +141,42 @@
   <view class="card">
     <view class="card-row">
       <text class="card-row-label">客户端</text>
-      <text class="card-row-value">DeepSeek Harness 小程序版</text>
+      <text class="card-row-value">驭鲸 Harness 小程序版</text>
+    </view>
+    <view class="card-row" bindtap="openPrivacyPolicy">
+      <text class="card-row-label">隐私政策</text>
+      <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
     </view>
     <view class="card-row" bindtap="openFiles">
       <text class="card-row-label">工作区文件</text>
       <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+    </view>
+  </view>
+
+  <view wx:if="{{pairSheetOpen}}" class="pair-sheet-mask" catchtap="closePairSheet">
+    <view class="pair-sheet" catchtap="noop">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <view>
+          <text class="pair-sheet-title">添加公网节点</text>
+          <text class="pair-sheet-subtitle">粘贴插件提供的 Base64URL 配对信息</text>
+        </view>
+        <text class="pair-sheet-close" bindtap="closePairSheet">关闭</text>
+      </view>
+      <textarea
+        class="pair-payload-input"
+        value="{{pairingText}}"
+        maxlength="20000"
+        auto-height="false"
+        placeholder="粘贴完整配对字符串"
+        placeholder-class="pair-payload-placeholder"
+        bindinput="onPairingInput"
+        disabled="{{pairingConnecting}}"
+      />
+      <text wx:if="{{pairingError}}" class="pair-result {{pairingConnecting ? 'pair-result-pending' : ''}}">{{pairingError}}</text>
+      <view class="pair-submit {{!pairingText || pairingConnecting ? 'pair-submit-disabled' : ''}}" bindtap="connectPublicNode">
+        <text>{{pairingConnecting ? '连接中…' : '连接节点'}}</text>
+      </view>
     </view>
   </view>
 </view>

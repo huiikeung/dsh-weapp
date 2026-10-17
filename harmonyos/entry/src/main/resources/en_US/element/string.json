@@ -1,0 +1,15 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "DSH Mobile entry module" },
+    { "name": "ability_desc", "value": "DSH Mobile main ability" },
+    { "name": "app_name", "value": "DSH Mobile" },
+    { "name": "internet_reason", "value": "Internet access is required to connect to the Mobile Gateway." },
+    { "name": "tab_conversation", "value": "Conversation" },
+    { "name": "tab_workspace", "value": "Workspace" },
+    { "name": "tab_trajectory", "value": "Trajectory" },
+    { "name": "tab_settings", "value": "Settings" }
+  ],
+  "color": [
+    { "name": "start_window_background", "value": "#06172C" }
+  ]
+}

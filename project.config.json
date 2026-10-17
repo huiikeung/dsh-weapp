@@ -1,5 +1,5 @@
 {
-  "description": "DeepSeek Harness Mobile 微信小程序客户端",
+  "description": "驭鲸 Harness — DeepSeek Harness 微信小程序客户端",
   "packOptions": {
     "ignore": [],
     "include": []
@@ -41,16 +41,19 @@
     "compileWorklet": false,
     "uglifyFileName": false,
     "localPlugins": false,
-    "condition": false
+    "condition": true
   },
   "compileType": "miniprogram",
   "libVersion": "3.4.10",
   "appid": "wx46765c19a7d97682",
-  "projectname": "dsh-mobile-weapp",
+  "projectname": "yunjing-harness",
   "condition": {},
   "editorSetting": {
     "tabIndent": "insertSpaces",
     "tabSize": 2
   },
-  "simulatorPluginLibVersion": {}
+  "simulatorPluginLibVersion": {
+    "wxext14566970e7e9f62": "2.27.3"
+  },
+  "projectArchitecture": "multiPlatform"
 }

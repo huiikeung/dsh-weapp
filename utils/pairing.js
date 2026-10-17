@@ -9,7 +9,7 @@ const { decodeBase64URL } = require('./util');
 
 const PairingError = {
   INVALID_BASE64: '配对内容不是有效的 Base64URL 字符串。',
-  INVALID_JSON: 'Base64URL 解码后的内容不是有效的 DeepSeek Harness 配对 JSON。',
+  INVALID_JSON: 'Base64URL 解码后的内容不是有效的驭鲸 Harness 配对 JSON。',
   UNSUPPORTED_VERSION: '不支持的配对协议版本，当前客户端需要 version 2 或 3。',
   INVALID_ENDPOINT: '二维码中的 publicUrl 不是有效的 WebSocket 地址。',
   INVALID_RELAY: '二维码中的中继地址或节点信息无效。',
@@ -86,7 +86,11 @@ function parseRelayPayload(payload) {
       expiresAt: Number(payload.expiresAt || 0) || Infinity,
       gatewayId: nodeId,
       gatewayName: payload.gatewayName || null,
-      endpoints: [endpoint],
+      // 备用候选：中继不可达时可回落直连 gatewayUrl（如同网段/frp 地址）
+      endpoints: [endpoint].concat(
+        payload.gatewayUrl && /^wss?:\/\//.test(String(payload.gatewayUrl))
+          ? [String(payload.gatewayUrl)] : []
+      ),
       gatewayUrl: payload.gatewayUrl || null
     }
   };

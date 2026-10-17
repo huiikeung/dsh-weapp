@@ -4,12 +4,16 @@
     "pages/session/session",
     "pages/settings/settings",
     "pages/files/files",
-    "pages/workspace-picker/workspace-picker"
+    "pages/workspace-picker/workspace-picker",
+    "pages/schedule/schedule",
+    "pages/plugins/plugins",
+    "pages/plugin-detail/plugin-detail",
+    "pages/privacy/privacy"
   ],
   "window": {
     "navigationBarBackgroundColor": "@navBgColor",
     "navigationBarTextStyle": "@navTxtStyle",
-    "navigationBarTitleText": "DeepSeek Harness",
+    "navigationBarTitleText": "驭鲸 Harness",
     "backgroundColor": "@bgColor",
     "backgroundTextStyle": "@bgTxtStyle"
   },

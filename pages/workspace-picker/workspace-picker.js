@@ -23,7 +23,7 @@ Page({
 
   loadRoot() {
     if (store.state.connection !== 'connected') {
-      this.setData({ dirLoading: false, dirError: '请先连接 DeepSeek Harness', dirEntries: [] });
+      this.setData({ dirLoading: false, dirError: '请先连接驭鲸 Harness', dirEntries: [] });
       return;
     }
     this.setData({ dirLoading: true, dirError: '', dirEntries: [] });
@@ -60,7 +60,7 @@ Page({
   browseTo(path) {
     if (this.data.dirLoading || this.data.dirCreatingWs || this.data.dirCreatingDir) return;
     if (store.state.connection !== 'connected') {
-      this.setData({ dirLoading: false, dirError: '请先连接 DeepSeek Harness' });
+      this.setData({ dirLoading: false, dirError: '请先连接驭鲸 Harness' });
       return;
     }
     this.setData({ dirLoading: true, dirError: '' });

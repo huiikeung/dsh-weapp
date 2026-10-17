@@ -1,2 +1,9 @@
 relay/
 .DS_Store
+
+# 预览构建产物（不入库）
+preview-qr.png
+preview-info.json
+
+# dsh-mini 运行时数据
+dsh-mini/.dsh-mini/

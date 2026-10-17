@@ -37,6 +37,7 @@ class GatewayClient {
     this.probeOnly = false; // 主机在线探测：只验 hello，不重连、不发业务请求
     this.relaySession = null; // v3 relay 模式的 E2EE 会话
     this.relayMeta = null;    // { nodeId, agentPubKey }
+    this.relayTextFrames = 0; // 诊断：连接器经文本通道发来的帧计数
   }
 
   // ---------- 状态 ----------
@@ -73,9 +74,15 @@ class GatewayClient {
       return;
     }
     this.wantsConnection = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     this.endpoint = endpoint;
     this.pairingCode = opts.pairingCode || null;
     this.relayMeta = opts.relay || null;
+    // 重连必须复用完整连接参数（relay 档案丢了 relay 元信息就永远连不回）
+    this.lastConnectOpts = { token: opts.token || null, relay: opts.relay || null };
     this.relaySession = null;
     this.setState('connecting');
 
@@ -200,7 +207,7 @@ class GatewayClient {
     this.reconnectTimer = setTimeout(function () {
       self.reconnectTimer = null;
       if (self.wantsConnection && self.endpoint) {
-        self.connect(self.endpoint, { token: self.lastToken || null });
+        self.connect(self.endpoint, self.lastConnectOpts || { token: self.lastToken || null });
       }
     }, delay);
   }
@@ -271,7 +278,14 @@ class GatewayClient {
 
   /** relay 模式的二进制消息：握手包或密文帧。 */
   handleRelayMessage(data) {
-    if (!(data instanceof ArrayBuffer)) return;
+    if (!(data instanceof ArrayBuffer)) {
+      // 部分连接器用文本通道发送明文控制/数据帧：按普通帧处理而非静默丢弃
+      if (typeof data === 'string') {
+        this.handleFrame(data);
+        this.relayTextFrames += 1;
+      }
+      return;
+    }
     const bytes = new Uint8Array(data);
     const session = this.relaySession;
     if (!session) return;
@@ -386,7 +400,8 @@ class GatewayClient {
     } else if (frame.kind && this.pendingRequests['type:' + frame.kind]) {
       pendingReq = this.pendingRequests['type:' + frame.kind];
     }
-    if (pendingReq && (frame.kind === 'error' || !frame.requestType || frame.kind === frame.requestType)) {
+    if (pendingReq && (frame.kind === 'error' || !frame.requestType
+      || frame.kind === frame.requestType || frame.kind === pendingReq.expectedKind)) {
       delete this.pendingRequests[pendingReq.key];
       clearTimeout(pendingReq.timer);
       if (frame.kind === 'error') {
@@ -420,7 +435,10 @@ class GatewayClient {
         delete self.pendingRequests[key];
         reject(new Error('请求超时：' + object.type));
       }, opts.timeout || REQUEST_TIMEOUT);
-      self.pendingRequests[key] = { resolve: resolve, reject: reject, timer: timer, key: key };
+      self.pendingRequests[key] = {
+        resolve: resolve, reject: reject, timer: timer, key: key,
+        expectedKind: opts.matchType || object.type
+      };
     });
   }
 
@@ -445,6 +463,73 @@ class GatewayClient {
   // ---------- 语义化请求 ----------
 
   ping() { return this.request({ type: 'ping' }, { matchType: 'ping' }); }
+
+  requestQueue(sessionId) {
+    return this.request({ type: 'session-queue', sessionId: sessionId });
+  }
+
+  queueUpdate(sessionId, itemId, action) {
+    // action: 'remove' | 'steer'（对齐 GatewayRequests.queueUpdate）
+    return this.request(
+      { type: 'queue-update', sessionId: sessionId, itemId: itemId, action: action },
+      { matchType: 'queue-item-updated' }
+    );
+  }
+
+  requestCommands(sessionId) {
+    return this.request({ type: 'commands', sessionId: sessionId, locale: 'zh-CN' });
+  }
+
+  requestCommandOptions(sessionId, command) {
+    return this.request(
+      { type: 'command-options', sessionId: sessionId, command: command },
+      { matchType: 'command-options' }
+    );
+  }
+
+  selectCommandOption(sessionId, command, optionId) {
+    return this.request(
+      { type: 'command-select', sessionId: sessionId, command: command, optionId: optionId },
+      { matchType: 'command-selected' }
+    );
+  }
+
+  executeCommand(sessionId, line, images) {
+    return this.request({
+      type: 'command-execute',
+      sessionId: sessionId,
+      line: line,
+      images: (images || []).map(function (img) {
+        return { mediaType: img.mediaType, data: img.data, name: img.name || null };
+      })
+    }, { matchType: 'command-executed' });
+  }
+
+  requestTasks(sessionId) {
+    return this.request({ type: 'tasks', sessionId: sessionId });
+  }
+
+  requestGoal(sessionId) {
+    return this.request({ type: 'goal', sessionId: sessionId });
+  }
+
+  editGoal(sessionId, ref, objective) {
+    return this.request({
+      type: 'goal-edit', sessionId: sessionId, ref: ref, objective: objective
+    }, { matchType: 'goal-edited' });
+  }
+
+  updateGoalState(type, sessionId, ref) {
+    const responseKinds = {
+      'goal-pause': 'goal-paused',
+      'goal-resume': 'goal-resumed',
+      'goal-clear': 'goal-cleared'
+    };
+    return this.request(
+      { type: type, sessionId: sessionId, ref: ref },
+      { matchType: responseKinds[type] || type }
+    );
+  }
   requestWorkspaces() { return this.request({ type: 'workspaces' }); }
   requestSessions() { return this.request({ type: 'sessions' }); }
   requestHost() { return this.request({ type: 'host' }); }
@@ -502,7 +587,15 @@ class GatewayClient {
   }
 
   requestHistory(sessionId, beforeSeq, historyFormatVersion) {
-    const payload = { type: 'history', sessionId: sessionId, maxMessages: 50 };
+    // 对齐 dsh-mobile v1.7.5 的会话视图分页：限制消息数和字节数，
+    // 避免旧会话一次读取过大而在 Host 查询阶段超时。
+    const payload = {
+      type: 'history',
+      sessionId: sessionId,
+      maxMessages: 60,
+      maxBytes: 4 * 1024 * 1024,
+      view: 'conversation'
+    };
     if (beforeSeq !== undefined && beforeSeq !== null && beforeSeq >= 0 && historyFormatVersion) {
       payload.beforeSeq = beforeSeq;
       payload.historyFormatVersion = historyFormatVersion;
@@ -574,6 +667,70 @@ class GatewayClient {
       approvalId: approvalId,
       outcome: outcome // 'allowed-once' | 'rejected'
     }, { rpcId: rpcId });
+  }
+
+  // ---------- 定时任务（对齐 dsh-mobile v1.6.x schedule protocol） ----------
+
+  /** 全部会话的定时任务目录；响应帧 kind=schedule-catalog，items 为任务记录。 */
+  requestScheduleCatalog() {
+    return this.request({ type: 'schedule-catalog' });
+  }
+
+  /**
+   * 更新定时任务。expected 为任务原始记录（乐观并发）；change 为
+   * {kind:'at',at} / {kind:'daily',daily:{time,time_zone}} / {kind:'weekly',weekly:{...}}。
+   * 响应帧 kind=schedule-update（updated 布尔）或 error（requestType=schedule-update），
+   * 由 store 按 requestId 关联处理（对齐 iOS AppStore 手动路由）。
+   */
+  sendScheduleUpdate(sessionId, id, expected, title, prompt, change, requestId) {
+    const payload = {
+      type: 'schedule-update',
+      sessionId: sessionId,
+      id: id,
+      expected: expected,
+      title: title,
+      prompt: prompt,
+      requestId: requestId
+    };
+    if (change) payload.change = change;
+    return this.send(payload);
+  }
+
+  /** 删除定时任务及其投递记录；响应帧 kind=schedule-delete（deleted 布尔）。 */
+  sendScheduleDelete(sessionId, id, requestId) {
+    return this.send({
+      type: 'schedule-delete',
+      sessionId: sessionId,
+      id: id,
+      requestId: requestId
+    });
+  }
+
+  // ---------- 插件管理（对齐 dsh-mobile v1.7.x plugin protocol） ----------
+
+  /** 插件目录；响应帧 kind=plugin-catalog（bundles/plugins/officialItems）。 */
+  sendPluginCatalog(requestId) {
+    return this.send({ type: 'plugin-catalog', requestId: requestId });
+  }
+
+  /** 启用/停用整个插件 bundle；响应帧 kind=plugin-bundle-set-enabled（result.application）。 */
+  sendPluginBundleSetEnabled(requestId, name, enabled) {
+    return this.send({
+      type: 'plugin-bundle-set-enabled',
+      requestId: requestId,
+      name: name,
+      enabled: enabled
+    });
+  }
+
+  /** 启用/停用插件内单个组件条目；响应帧 kind=plugin-entry-set-enabled。 */
+  sendPluginEntrySetEnabled(requestId, entryId, enabled) {
+    return this.send({
+      type: 'plugin-entry-set-enabled',
+      requestId: requestId,
+      entryId: entryId,
+      enabled: enabled
+    });
   }
 
   // ---------- 部署默认配置 ----------

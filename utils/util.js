@@ -67,6 +67,24 @@ function decodeBase64URL(value) {
   }
 }
 
+function encodeBase64URL(value) {
+  const bytes = new TextEncoder().encode(String(value));
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  let out = '';
+  for (let i = 0; i < bytes.length; i += 3) {
+    const a = bytes[i];
+    const hasB = i + 1 < bytes.length;
+    const hasC = i + 2 < bytes.length;
+    const b = hasB ? bytes[i + 1] : 0;
+    const c = hasC ? bytes[i + 2] : 0;
+    out += chars[a >> 2];
+    out += chars[((a & 3) << 4) | (b >> 4)];
+    if (hasB) out += chars[((b & 15) << 2) | (c >> 6)];
+    if (hasC) out += chars[c & 63];
+  }
+  return out;
+}
+
 function base64ToArrayUtf8(base64) {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
   const lookup = {};
@@ -158,6 +176,7 @@ module.exports = {
   sessionIdLabel,
   uuid,
   decodeBase64URL,
+  encodeBase64URL,
   jsonDisplayText,
   oneLine,
   formatBytes

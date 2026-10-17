@@ -120,7 +120,13 @@ function connectionEndpoints(profile) {
 
 function loadProfiles() {
   try {
-    const list = wx.getStorageSync(PROFILES_KEY) || [];
+    let list = wx.getStorageSync(PROFILES_KEY) || [];
+    // 微信开发者工具偶尔会按 dataType=Array 保存、却把 data 作为 JSON
+    // 字符串返回（重新编译/升级工具后尤其常见）。持久化层必须同时兼容
+    // 原生值和序列化值，否则会把已有主机误判成空列表。
+    if (typeof list === 'string') {
+      try { list = JSON.parse(list); } catch (e) { list = []; }
+    }
     if (!Array.isArray(list)) return [];
     return list.filter(function (p) {
       return p && isValidIdentity(p.id) && Array.isArray(p.endpoints) &&
@@ -132,7 +138,9 @@ function loadProfiles() {
 }
 
 function saveProfiles(list) {
-  try { wx.setStorageSync(PROFILES_KEY, list); } catch (e) { /* 存储失败不阻断 */ }
+  // 统一写成 JSON 字符串。开发者工具在不同模拟账号分区/重编译后，
+  // 对 Array/Object 类型的还原行为不稳定；字符串在真机与工具中一致。
+  try { wx.setStorageSync(PROFILES_KEY, JSON.stringify(list || [])); } catch (e) { /* 存储失败不阻断 */ }
 }
 
 function loadActiveID() {
@@ -148,12 +156,18 @@ function setActiveID(id) {
 
 function saveCredential(profileId, endpoint, token) {
   try {
-    wx.setStorageSync(CRED_PREFIX + profileId, { endpoint: endpoint, token: token });
+    wx.setStorageSync(CRED_PREFIX + profileId, JSON.stringify({ endpoint: endpoint, token: token }));
   } catch (e) { /* 忽略 */ }
 }
 
 function loadCredential(profileId) {
-  try { return wx.getStorageSync(CRED_PREFIX + profileId) || null; } catch (e) { return null; }
+  try {
+    let value = wx.getStorageSync(CRED_PREFIX + profileId) || null;
+    if (typeof value === 'string') {
+      try { value = JSON.parse(value); } catch (e) { return null; }
+    }
+    return value;
+  } catch (e) { return null; }
 }
 
 function forgetCredential(profileId) {

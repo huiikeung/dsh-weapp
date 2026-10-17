@@ -6,6 +6,8 @@ const { GatewayClient } = require('./gateway');
 const protocol = require('./protocol');
 const pairing = require('./pairing');
 const hosts = require('./hosts');
+const schedule = require('./schedule');
+const pluginsLib = require('./plugins');
 const util = require('./util');
 
 const STORAGE_KEYS = {
@@ -49,6 +51,22 @@ function createStore() {
     defaultModel: null,
     agentPresets: null,
     modelCatalog: null,
+    coreCompatibilityError: '',
+
+    // 定时任务（对齐 iOS AppStore scheduledTasks*）
+    scheduledTasks: [],
+    scheduledTasksLoading: false,
+    scheduledTasksError: null,
+    scheduledTaskPendingId: null,     // 正在变更的任务 id（按钮禁用）
+    scheduleCompletedRequestId: null, // 最近一次成功变更的 requestId（编辑页据此关闭）
+    scheduleMutationError: null,
+
+    // 插件管理（对齐 iOS AppStore pluginCatalog*）
+    pluginCatalog: null,
+    pluginsLoading: false,
+    pluginsError: null,
+    pluginPendingName: null,
+    pluginNotice: null,
 
     notice: null
   };
@@ -70,9 +88,26 @@ function createStore() {
     questionStatus: 'idle',
     approvalStatus: 'idle',
     stats: null,
+    queue: [],
+    tasks: null,
+    tasksAsOfSeq: null,
+    goal: null,
+    goalAsOfSeq: null,
+    goalMutation: '',
+    commandGroups: [],
+    commandOptions: [],
+    commandOptionsFor: '',
+    commandLoading: false,
+    commandError: '',
+    historyError: '',
+    historyState: 'idle',   // idle | requested | loaded:N | error:msg | sub-failed
+    ingestErrors: 0,
+    lastFrames: [],         // 最近 8 个帧 kind（诊断用）
     permission: null,
     permissionOptions: null,
-    selection: null
+    selection: null,
+    runStartMs: null,       // 运行指示条起始时间（最近一条用户消息时间）
+    runCues: []             // 运行活动线索（供运行指示条短语轮换）
   };
 
   const client = new GatewayClient({
@@ -80,7 +115,56 @@ function createStore() {
       state.connection = status;
       state.connectionMessage = message;
       if (status === 'connected') {
+        // 记住这次真正连通的地址，下次优先使用；轮换游标对齐当前线路
+        endpointCandidates = endpointCandidates.length ? endpointCandidates : [state.endpoint];
+        endpointIdx = Math.max(0, endpointCandidates.indexOf(state.endpoint));
+        if (rotationTimer) { clearTimeout(rotationTimer); rotationTimer = null; }
+        if (state.activeID) {
+          const profile = getProfile(state.activeID);
+          if (profile && profile.preferredEndpoint !== state.endpoint && endpointCandidates.indexOf(state.endpoint) >= 0) {
+            profile.preferredEndpoint = state.endpoint;
+            hosts.saveProfiles(state.profiles);
+          }
+        }
+        state.workspaceRetries = 0;
+        state.sessionsRetries = 0;
+        // 切换主机/重连会先清空业务状态；网络请求返回前先恢复该主机
+        // 最近一次成功快照，避免远端旧网关报错时首页整页白屏。
+        restoreHomeCacheAfterCoreFailure('workspaces');
+        restoreHomeCacheAfterCoreFailure('sessions');
         bootstrap();
+        startDataWatchdog();
+      } else if (status === 'failed') {
+        // 候选地址循环轮换（中继 ↔ 直连互为备份，3s 节流防紧密循环）：
+        // 此前沿单一方向死磕会导致自动连接永远回不到可达的那条路。
+        if (status === 'failed' && endpointCandidates.length > 1) {
+          endpointIdx = (endpointIdx + 1) % endpointCandidates.length;
+          const profile = getProfile(state.activeID);
+          const next = endpointCandidates[endpointIdx];
+          if (profile && next) {
+            state.endpoint = next;
+            state.connectionMessage = '切换线路重连中…';
+            let connectOpts = null;
+            if (profile.relay && profile.relayAgentPubKey) {
+              connectOpts = { relay: { nodeId: profile.gatewayId, agentPubKey: profile.relayAgentPubKey } };
+            } else {
+              const cred = hosts.loadCredential(profile.id);
+              if (cred && cred.token) connectOpts = { token: cred.token };
+            }
+            if (connectOpts) {
+              if (connectOpts.relay) client.lastToken = null;
+              if (rotationTimer) clearTimeout(rotationTimer);
+              rotationTimer = setTimeout(function () {
+                rotationTimer = null;
+                if (client.wantsConnection && state.endpoint === next) {
+                  client.connect(next, connectOpts);
+                }
+              }, 3000);
+            }
+            emit();
+            return;
+          }
+        }
       } else if (status === 'disconnected') {
         state.paired = false;
       }
@@ -106,13 +190,139 @@ function createStore() {
     });
   }
 
+  /** 数据看门狗：握手成功但数据帧静默（fnOS 半死）→ 主动断链，交给端点轮换重连 */
+  function startDataWatchdog() {
+    if (dataWatchdogTimer) clearTimeout(dataWatchdogTimer);
+    dataWatchdogTimer = setTimeout(function () {
+      dataWatchdogTimer = null;
+      if (state.connection !== 'connected') return;
+      if (state.workspaces.length || state.sessions.length) return;
+      if (typeof client.handleTransportFailure === 'function') {
+        client.handleTransportFailure('数据通道无响应，正在重新连接');
+      }
+    }, 12000);
+  }
+
+  /** 会话正文缓存：按 sessionId 存取，LRU 保留最近 20 个（对齐 iOS 缓存立即可呈现） */
+  function saveSessionCache(sessionId, rows) {
+    try {
+      if (!sessionId || !rows || !rows.length) return;
+      const payload = JSON.stringify({ rows: rows, savedAt: Date.now() });
+      if (payload.length > 600000) return;   // 超限不写，避免撑爆 storage
+      wx.setStorageSync('dsh_session_cache.' + sessionId, payload);
+      let idx = wx.getStorageSync('dsh_session_cache.index') || [];
+      if (typeof idx === 'string') { try { idx = JSON.parse(idx); } catch (e) { idx = []; } }
+      if (!Array.isArray(idx)) idx = [];
+      idx = idx.filter(function (id) { return id !== sessionId; });
+      idx.unshift(sessionId);
+      while (idx.length > 20) {
+        wx.removeStorageSync('dsh_session_cache.' + idx.pop());
+      }
+      wx.setStorageSync('dsh_session_cache.index', JSON.stringify(idx));
+    } catch (e) { /* 存储失败不阻断 */ }
+  }
+
+  function loadSessionCache(sessionId) {
+    try {
+      const raw = wx.getStorageSync('dsh_session_cache.' + sessionId);
+      if (!raw) return null;
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (parsed && Array.isArray(parsed.rows) && parsed.rows.length) return parsed;
+    } catch (e) { /* 缓存损坏则忽略 */ }
+    return null;
+  }
+
+  /** 首页缓存：按主机档案命名空间存取（对齐 iOS KMP 本地存储） */
+  function loadHomeCache(activeID) {
+    try {
+      const raw = wx.getStorageSync('dsh_home_cache.' + activeID);
+      if (!raw) return null;
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (parsed && Array.isArray(parsed.sessions) && Array.isArray(parsed.workspaces)) return parsed;
+    } catch (e) { /* 缓存损坏则忽略 */ }
+    return null;
+  }
+
+  function profilesShareGateway(left, right) {
+    if (!left || !right) return false;
+    if (left.id && right.id && left.id === right.id) return true;
+    if (left.gatewayId && right.gatewayId && left.gatewayId === right.gatewayId) return true;
+    const leftEndpoints = left.endpoints || [];
+    const rightEndpoints = right.endpoints || [];
+    const sharesEndpoint = leftEndpoints.some(function (endpoint) {
+      return rightEndpoints.indexOf(endpoint) >= 0;
+    });
+    return sharesEndpoint && String(left.gatewayName || '') === String(right.gatewayName || '');
+  }
+
+  /**
+   * 同一台 Gateway 可能因旧版配对流程留下多个 profile ID。缓存仍以 profile ID
+   * 分区，但首页应继承同名且共享连接地址的最近成功快照，避免“已连接但列表为空”。
+   */
+  function loadCompatibleHomeCache(activeID) {
+    const direct = loadHomeCache(activeID);
+    if (direct && ((direct.sessions || []).length || (direct.workspaces || []).length)) {
+      return { cache: direct, profileId: activeID };
+    }
+    const activeProfile = (state.profiles || []).find(function (profile) {
+      return profile.id === activeID;
+    });
+    if (!activeProfile) return null;
+    const candidates = (state.profiles || [])
+      .filter(function (profile) {
+        return profile.id !== activeID && profilesShareGateway(activeProfile, profile);
+      })
+      .sort(function (left, right) {
+        return (right.lastConnectedAt || 0) - (left.lastConnectedAt || 0);
+      });
+    for (let i = 0; i < candidates.length; i += 1) {
+      const cache = loadHomeCache(candidates[i].id);
+      if (cache && ((cache.sessions || []).length || (cache.workspaces || []).length)) {
+        return { cache: cache, profileId: candidates[i].id };
+      }
+    }
+    return direct ? { cache: direct, profileId: activeID } : null;
+  }
+
+  function saveHomeCache() {
+    try {
+      if (!state.activeID) return;
+      const previousResult = loadCompatibleHomeCache(state.activeID);
+      const previous = previousResult ? previousResult.cache : null;
+      const sessions = (state.sessions || []).length
+        ? state.sessions
+        : ((previous && previous.sessions) || []);
+      const workspaces = (state.workspaces || []).length
+        ? state.workspaces
+        : ((previous && previous.workspaces) || []);
+      const archivedSessionIds = (state.archivedSessionIds || []).length
+        ? state.archivedSessionIds
+        : ((previous && previous.archivedSessionIds) || []);
+      const currentWorkspaceId = state.currentWorkspaceId ||
+        (previous && previous.currentWorkspaceId) ||
+        (workspaces[0] && workspaces[0].workspaceId) || null;
+      wx.setStorageSync('dsh_home_cache.' + state.activeID, JSON.stringify({
+        sessions: sessions,
+        workspaces: workspaces,
+        archivedSessionIds: archivedSessionIds,
+        currentWorkspaceId: currentWorkspaceId,
+        savedAt: Date.now()
+      }));
+    } catch (e) { /* 存储失败不阻断 */ }
+  }
+
   function bootstrap() {
-    safeRequest(client.requestWorkspaces());
-    safeRequest(client.requestSessions());
-    safeRequest(client.requestHost());
-    safeRequest(client.requestDefaults());
-    safeRequest(client.requestDefaultModel());
-    safeRequest(client.requestAgentPresets());
+    state.rpcError = '';
+    safeRequest(client.requestWorkspaces(), '工作区', 'workspaces');
+    safeRequest(client.requestSessions(), '会话列表', 'sessions');
+    safeRequest(client.requestHost(), '主机信息', 'host');
+    safeRequest(client.requestDefaults(), '默认值', 'defaults');
+    safeRequest(client.requestDefaultModel(), '默认模型', 'default-model');
+    safeRequest(client.requestAgentPresets(), '模式目录', 'agent-presets');
+    // 定时任务目录曾拉取过：重连后自动刷新（对齐 iOS onReceive gateway.$state）
+    if (scheduleLoadedOnce) refreshScheduledTasks();
+    // 插件页访问过：重连后确认插件状态（对齐 iOS pluginPageVisited）
+    if (pluginPageVisited) refreshPlugins();
     if (sessionState.sessionId) {
       client.subscribe(sessionState.sessionId);
       // 重连后网关不保留订阅与推送状态：重置并重拉会话内容，
@@ -123,42 +333,239 @@ function createStore() {
     }
   }
 
-  function safeRequest(promise) {
-    if (promise && promise.catch) {
-      promise.catch(function () { /* 失败态由 error 帧或连接状态体现 */ });
+  function restoreHomeCacheAfterCoreFailure(requestType) {
+    if (requestType !== 'workspaces' && requestType !== 'sessions') return false;
+    if (!state.activeID) return false;
+    const cacheResult = loadCompatibleHomeCache(state.activeID);
+    if (!cacheResult) return false;
+    const cached = cacheResult.cache;
+    let restored = false;
+    if (requestType === 'sessions' && !(state.sessions || []).length && (cached.sessions || []).length) {
+      state.sessions = cached.sessions;
+      state.lastSessionsFrame = {
+        count: state.sessions.length,
+        keys: '本地缓存',
+        at: cached.savedAt || Date.now(),
+        cached: true
+      };
+      restored = true;
     }
+    if (requestType === 'workspaces' && !(state.workspaces || []).length && (cached.workspaces || []).length) {
+      state.workspaces = cached.workspaces;
+      state.archivedSessionIds = cached.archivedSessionIds || state.archivedSessionIds || [];
+      state.currentWorkspaceId = cached.currentWorkspaceId ||
+        (state.workspaces[0] && state.workspaces[0].workspaceId) || null;
+      state.lastWorkspacesFrame = {
+        count: state.workspaces.length,
+        keys: '本地缓存',
+        at: cached.savedAt || Date.now(),
+        cached: true
+      };
+      restored = true;
+    }
+    if (restored) state.homeCacheAt = cached.savedAt || state.homeCacheAt || 0;
+    return restored;
+  }
+
+  function safeRequest(promise, label, requestType) {
+    if (promise && promise.catch) {
+      promise.then(function () {
+        // 任一同类请求成功后，清掉之前残留的诊断；避免 UI 永久显示旧错误。
+        if (!state.rpcError || !label || state.rpcError.indexOf(label + '失败：') === 0) {
+          state.rpcError = '';
+          emit();
+        }
+      }, function (err) {
+        // 诊断可见化：请求超时/被拒不再静默，主机弹层会显示最近一次失败
+        const restored = restoreHomeCacheAfterCoreFailure(requestType);
+        const reason = ((err && err.message) || '未知错误');
+        state.rpcError = (label || '请求') + '失败：' + reason +
+          (restored ? '（已显示上次成功加载的数据）' : '');
+        emit();
+      });
+    }
+  }
+
+  /** 历史请求自愈：4s 内没等到 history 帧 → 重发（最多 3 次，之后明确失败） */
+  function scheduleHistoryRetry(sessionId) {
+    if (historyRetryTimer) clearTimeout(historyRetryTimer);
+    let attempt = 0;
+    const tick = function () {
+      historyRetryTimer = null;
+      if (!sessionState.sessionId || sessionState.sessionId !== sessionId) return;
+      if (String(sessionState.historyState || '').indexOf('loaded') === 0) return;
+      attempt += 1;
+      if (attempt > 3) {
+        sessionState.historyState = 'error:history';
+        sessionState.historyError = state.connection === 'connected'
+          ? '历史记录加载超时，请检查 Gateway 连接后重试'
+          : 'Gateway 未连接，无法加载历史记录';
+        emit();
+        return;
+      }
+      if (state.connection !== 'connected') {
+        historyRetryTimer = setTimeout(tick, 4000);
+        return;
+      }
+      const ok = client.requestHistory(sessionId);
+      if (!ok && attempt >= 3) {
+        sessionState.historyState = 'error:history';
+        sessionState.historyError = '历史请求未发送，请重新连接 Gateway';
+        emit();
+        return;
+      }
+      historyRetryTimer = setTimeout(tick, 4000);
+    };
+    historyRetryTimer = setTimeout(tick, 4000);
   }
 
   // ---------- 帧路由 ----------
 
   function handleFrame(frame) {
+    if (frame && frame.kind) {
+      sessionState.lastFrames = sessionState.lastFrames.slice(-7).concat(frame.kind);
+      if (dataWatchdogTimer) { clearTimeout(dataWatchdogTimer); dataWatchdogTimer = null; }
+    }
+    // 诊断：按帧类型计数（连接期），主机弹窗诊断行可见
+    if (frame && frame.kind) {
+      state.frameStats = state.frameStats || {};
+      state.frameStats[frame.kind] = (state.frameStats[frame.kind] || 0) + 1;
+    }
+    // 定时任务帧在会话域之前拦截（对齐 iOS AppStore.handle 顶部的 schedule 路由）
+    if (handleScheduleFrame(frame)) return;
+    // 插件管理帧（对齐 iOS acceptPluginFrame）
+    if (handlePluginFrame(frame)) return;
+    // 通用错误帧不属于普通会话事件，且通常不携带 sessionId。
+    // 必须在主路由中显式交给错误处理器，否则 workspaces/sessions/history
+    // 等请求即使收到服务端 error，首页仍会错误地显示“已连接 + 空列表”。
+    if (frame && frame.kind === 'error') {
+      handleSessionFrame(frame);
+      return;
+    }
     switch (frame.kind) {
       case 'hello':
         acceptIdentity(frame);
         state.gatewayName = frame.gatewayName || state.gatewayName;
         state.clientCount = frame.clients;
+        if (frame.historyFormatVersion) {
+          sessionState.historyFormatVersion = frame.historyFormatVersion;
+        }
         emit();
         return;
       case 'workspaces':
+        if (!Array.isArray(frame.items)) {
+          state.rpcError = '工作区失败：网关返回格式无效';
+          restoreHomeCacheAfterCoreFailure('workspaces');
+          emit();
+          return;
+        }
+        state.rpcError = '';
+        if (!(frame.items || []).length && state.workspaces.length) {
+          state.lastWorkspacesFrame = {
+            count: state.workspaces.length,
+            keys: '本地缓存',
+            at: Date.now(),
+            cached: true
+          };
+          if (Date.now() - (state.lastWorkspaceRetryAt || 0) > 8000
+            && (state.workspaceRetries || 0) < 5) {
+            state.lastWorkspaceRetryAt = Date.now();
+            state.workspaceRetries = (state.workspaceRetries || 0) + 1;
+            safeRequest(client.requestWorkspaces(), '工作区', 'workspaces');
+          }
+          emit();
+          return;
+        }
         state.workspaces = frame.items || [];
         state.archivedSessionIds = frame.archivedSessionIds || [];
+        saveHomeCache();
+        state.lastWorkspacesFrame = {
+          count: state.workspaces.length,
+          keys: state.workspaces.length ? Object.keys((frame.items || [])[0] || {}).slice(0, 8).join(',') : '',
+          at: Date.now()
+        };
         if (!state.currentWorkspaceId && state.workspaces.length) {
           state.currentWorkspaceId = state.workspaces[0].workspaceId;
+        }
+        // 自愈（对称方向）：工作区到了但会话列表仍为空 → 主动补拉
+        if (!state.sessions.length
+          && Date.now() - (state.lastSessionsRetryAt || 0) > 8000
+          && (state.sessionsRetries || 0) < 5) {
+          state.lastSessionsRetryAt = Date.now();
+          state.sessionsRetries = (state.sessionsRetries || 0) + 1;
+          safeRequest(client.requestSessions(), '会话列表');
         }
         emit();
         return;
       case 'workspace-create':
         safeRequest(client.requestWorkspaces());
         return;
-      case 'sessions':
-        state.sessions = (frame.items || []).map(mapSessionSummary);
+      case 'sessions': {
+        state.rpcError = '';
+        const sessionItems = Array.isArray(frame.items)
+          ? frame.items
+          : (Array.isArray(frame.sessions) ? frame.sessions
+            : (frame.data && Array.isArray(frame.data.items) ? frame.data.items : []));
+        if (sessionItems.length || !state.sessions.length) {
+          state.sessions = sessionItems.map(mapSessionSummary);
+        }
+        // 自愈 A：有会话但始终没有工作区数据 → 补拉工作区
+        if (!state.workspaces.length && state.sessions.length
+          && Date.now() - (state.lastWorkspaceRetryAt || 0) > 10000
+          && (state.workspaceRetries || 0) < 5) {
+          state.lastWorkspaceRetryAt = Date.now();
+          state.workspaceRetries = (state.workspaceRetries || 0) + 1;
+          safeRequest(client.requestWorkspaces(), '工作区');
+        }
+        // 自愈 B：已连接但主机回了空会话列表 → 节流补拉（0.8.x 偶发空视图）
+        if (!sessionItems.length && state.connection === 'connected') {
+          if (Date.now() - (state.lastSessionsRetryAt || 0) > 8000
+            && (state.sessionsRetries || 0) < 5) {
+            state.lastSessionsRetryAt = Date.now();
+            state.sessionsRetries = (state.sessionsRetries || 0) + 1;
+            safeRequest(client.requestSessions(), '会话列表');
+          } else if ((state.sessionsRetries || 0) >= 5
+            && Date.now() - (state.lastSessionsRetryAt || 0) > 8000
+            && typeof client.handleTransportFailure === 'function') {
+            // 重试预算用尽：判定线路/主机半死，断链交给端点轮换
+            state.lastSessionsRetryAt = Date.now();
+            client.handleTransportFailure('会话列表持续为空，正在重新连接');
+          }
+        }
+        // 空帧不落缓存：避免瞬时空响应抹掉「秒加载」用的上次列表
+        if (sessionItems.length) saveHomeCache();
+        state.lastSessionsFrame = {
+          count: state.sessions.length,
+          keys: sessionItems.length
+            ? Object.keys(sessionItems[0] || {}).slice(0, 6).join(',')
+            : (state.sessions.length ? '本地缓存' : ('帧[' + Object.keys(frame).slice(0, 8).join(',') + ']')),
+          at: Date.now(),
+          cached: !sessionItems.length && !!state.sessions.length
+        };
+        {
+          // 服务器侧运行标志是全局事实来源：桌面端/其他设备发起的运行同样生效
+          const activeId = sessionState.sessionId;
+          if (activeId) {
+            const mine = state.sessions.find((x) => x.sessionId === activeId);
+            if (mine) {
+              runProbeMisses = 0;
+              if (mine.running !== sessionState.running) setRunning(mine.running);
+            } else if (sessionState.running) {
+              // 该会话已不在列表（归档/删除）：连续探测仍未出现则结束运行态
+              runProbeMisses += 1;
+              if (runProbeMisses >= 3) setRunning(false);
+            }
+          }
+        }
         emit();
         return;
+      }
       case 'search':
         state.searchResults = (frame.items || []);
         emit();
         return;
       case 'host':
+        state.rpcError = '';
         state.host = {
           version: frame.version,
           cwd: frame.cwd,
@@ -207,13 +614,202 @@ function createStore() {
         break;
     }
 
-    // 会话域
+    // 会话域：已打开会话时，匹配 sessionId 或省略 sessionId 的会话域帧都按当前会话处理
+    // （0.8.x 主机对 history/session-snapshot/session-stats 等响应帧缺省 sessionId，iOS 同样按上下文接受）
+    const SESSION_SCOPED = {
+      'history': 1,
+      'session-snapshot': 1,
+      'event': 1,
+      'session-stats': 1,
+      'context-usage': 1,
+      'permission-options': 1,
+      'session-agent-preset': 1,
+      'session-queues': 1,
+      'session-queue': 1,
+      'queue-item-updated': 1,
+      'commands': 1,
+      'command-options': 1,
+      'command-selected': 1,
+      'command-executed': 1,
+      'tasks': 1,
+      'tasks-updated': 1,
+      'goal': 1,
+      'goal-updated': 1,
+      'goal-edited': 1,
+      'goal-paused': 1,
+      'goal-resumed': 1,
+      'goal-cleared': 1,
+      'assistant-stream': 1,
+      'assistant-stream-v1': 1,
+      'assistant-message': 1,
+      'assistant/message': 1    };
     if (frame.sessionId && frame.sessionId === sessionState.sessionId) {
       handleSessionFrame(frame);
+    } else if (sessionState.sessionId && (!frame.sessionId || frame.sessionId === sessionState.sessionId)
+      && (frame.kind === 'assistant-stream' || frame.kind === 'assistant-stream-v1')) {
+      // 流式正文可能带/不带 sessionId，按当前订阅会话接收
+      handleAssistantStream(frame);
+    } else if (sessionState.sessionId && !frame.sessionId && SESSION_SCOPED[frame.kind]) {
+      handleSessionFrame(frame);
+    } else if (frame.kind && frame.sessionId && sessionState.sessionId) {
+      // 诊断：sessionId 不匹配——记录两侧尾部片段
+      sessionState.lastFrames = sessionState.lastFrames.slice(-7).concat(
+        'MISMATCH:' + String(frame.sessionId).slice(-8) + '!=' + String(sessionState.sessionId).slice(-8)
+      );
+      emit();
+    }
+  }
+
+  // ---------- 运行态兜底 ----------
+  //
+  // 运行状态的主信号是事件流里的 turn/start、turn/end。移动端可能在回合中途
+  // 才订阅（拿不到 turn/start），也可能漏掉 turn/end，于是桌面端已经结束、
+  // 小程序却一直显示"处理中"。这里在长时间没有新事件时向主机核实 sessions
+  // 列表里的权威 running 标志，避免永久卡住。
+  let runProbeTimer = null;
+  let runProbeMisses = 0;
+  const RUN_IDLE_PROBE_MS = 4000;
+  const RUN_IDLE_THRESHOLD_MS = 5000;
+
+  function noteSessionActivity() {
+    sessionState.lastEventAt = Date.now();
+  }
+
+  function clearRunProbe() {
+    if (runProbeTimer) { clearInterval(runProbeTimer); runProbeTimer = null; }
+  }
+
+  function setRunning(value) {
+    const next = value === true;
+    runProbeMisses = 0;
+    if (sessionState.running === next) {
+      if (next && !runProbeTimer) scheduleRunProbe();
+      return;
+    }
+    sessionState.running = next;
+    if (next) {
+      noteSessionActivity();
+      scheduleRunProbe();
+    } else {
+      clearRunProbe();
+      // 权威结束：清掉残留的流式标记，避免页面继续显示“正在生成”
+      (sessionState.rows || []).forEach(function (row) {
+        if (row && row.kind === 'assistant') {
+          row.streaming = false;
+          row.reasoningStreaming = false;
+          row.title = '';
+        }
+      });
+    }
+  }
+
+  function scheduleRunProbe() {
+    if (runProbeTimer) return;
+    runProbeTimer = setInterval(function () {
+      if (!sessionState.running) { clearRunProbe(); return; }
+      if (!sessionState.sessionId || state.connection !== 'connected') return;
+      const idle = Date.now() - (sessionState.lastEventAt || 0);
+      if (idle < RUN_IDLE_THRESHOLD_MS) return;
+      // 安静太久：拉一次会话列表，用服务器权威 running 校准
+      safeRequest(client.requestSessions());
+    }, RUN_IDLE_PROBE_MS);
+  }
+
+  // 助手消息结算后：若该条消息不含工具调用、也没有未完成工具，
+  // 说明本回合已经产出最终答复；短暂宽限后结束运行态（若期间无新事件）。
+  let settleClearTimer = null;
+  function scheduleSettleClear() {
+    if (settleClearTimer) clearTimeout(settleClearTimer);
+    settleClearTimer = setTimeout(function () {
+      settleClearTimer = null;
+      if (!sessionState.running) return;
+      if (Date.now() - (sessionState.lastEventAt || 0) < 1400) return;
+      setRunning(false);
+      emit();
+    }, 1600);
+  }
+
+  /** 结算判定：无工具调用且无未完成工具 → 最终答复，安排短宽限结束运行态 */
+  function noteAssistantSettlement(data) {
+    noteSessionActivity();
+    const blocks = (data && data.message && data.message.content) || [];
+    const hasToolCall = Array.isArray(blocks) && blocks.some(function (b) { return b && b.type === 'tool-call'; });
+    const rows = sessionState.rows || [];
+    let lastAssistant = null;
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      if (rows[i] && rows[i].kind === 'assistant') { lastAssistant = rows[i]; break; }
+    }
+    const pendingTool = !!(lastAssistant && (lastAssistant.tools || []).some(function (t) { return t.status !== 'done'; }));
+    if (!hasToolCall && !pendingTool) scheduleSettleClear();
+  }
+
+  let streamFlushTimer = null;
+
+  function addRunCue(activity, at) {
+    if (!sessionState.sessionId || !activity) return;
+    const time = at || Date.now();
+    const cues = sessionState.runCues || (sessionState.runCues = []);
+    // transient chunks can arrive many times per second; keep only the latest cue.
+    if (cues.length && cues[cues.length - 1].activity === activity && cues[cues.length - 1].transient) {
+      cues[cues.length - 1].at = time;
+      return;
+    }
+    cues.push({ activity: activity, at: time, transient: true });
+  }
+
+  /** assistant-stream 帧 → 聚合器 assistant/chunk 事件（正文 text 与参数 argumentsDelta） */
+  function handleAssistantStream(frame) {
+    if (sessionState.cacheDisplay) return;   // 缓存展示中：chunk 不抢先渲染
+    const payload = frame.frame || frame.data || frame.payload || frame;
+    const streamType = payload.type || frame.streamType || 'chunk';
+    if (streamType !== 'chunk' && streamType !== 'delta' && streamType !== 'text') return;
+    const chunk = payload.chunk || payload.delta || payload;
+    const text = typeof chunk.text === 'string' ? chunk.text
+      : (typeof chunk.delta === 'string' ? chunk.delta
+      : (typeof payload.text === 'string' ? payload.text : ''));
+    const argsDelta = typeof chunk.argumentsDelta === 'string' ? chunk.argumentsDelta
+      : (typeof chunk.arguments_delta === 'string' ? chunk.arguments_delta : '');
+    if (!text && !argsDelta) return;
+    noteSessionActivity();
+    addRunCue('composing', frame.time ? util.eventDateMs(frame.time) : Date.now());
+    const raw = {
+      type: 'assistant/chunk',
+      seq: frame.seq || 0,
+      time: frame.time || Date.now() / 1000,
+      data: {
+        turn: payload.turn,
+        step: payload.step,
+        chunk: {
+          type: chunk.type || (argsDelta ? 'tool-call-delta' : 'text'),
+          text: text,
+          argumentsDelta: argsDelta,
+          name: chunk.name || null,
+          id: chunk.id || null
+        }
+      }
+    };
+    if (!sessionState.rowsAgg) sessionState.rowsAgg = protocol.newAggregator();
+    try {
+      protocol.applyEvent(sessionState.rowsAgg, protocol.normalizeRawEvent(raw, sessionState.sessionId));
+      sessionState.rows = sessionState.rowsAgg.rows.slice();
+      if (text) {
+        sessionState.lastAssistantText = (sessionState.lastAssistantText || '') + text;
+      }
+    } catch (e) { /* 单帧失败不中断 */ }
+    // 流式 chunk 频率极高：120ms 合帧刷新，避免逐 token 全页 setData 饿死连接层
+    if (!streamFlushTimer) {
+      streamFlushTimer = setTimeout(function () {
+        streamFlushTimer = null;
+        emit();
+      }, 120);
     }
   }
 
   function handleSessionFrame(frame) {
+    if (frame.kind === 'assistant-stream' || frame.kind === 'assistant-stream-v1') {
+      handleAssistantStream(frame);
+      return;
+    }
     switch (frame.kind) {
       case 'session-agent-preset':
       case 'session-agent-preset-updated':
@@ -223,6 +819,25 @@ function createStore() {
           emit();
         }
         return;
+      case 'assistant-message':
+      case 'assistant/message': {
+        const message = frame.event || frame.message || frame.data || frame;
+        const messageData = message.message ? message : { message: message };
+        const raw = {
+          type: 'assistant/message',
+          seq: frame.seq || message.seq || Date.now(),
+          time: frame.time || message.time || Date.now() / 1000,
+          data: messageData
+        };
+        ingestEvents([raw]);
+        noteSessionActivity();
+        // assistant/message 是 durable settlement，不等于 turn 关闭；
+        // 但若该条消息没有工具调用、也没有未完成工具，说明已是最终答复，
+        // 短暂宽限后结束运行态（turn/end 或新事件会打断这个判定）。
+        noteAssistantSettlement(messageData);
+        emit();
+        return;
+      }
       case 'event': {
         const evs = frame.events || [];
         if (typeof frame.seq === 'number' && frame.event) {
@@ -243,13 +858,23 @@ function createStore() {
         if (frame.event) allEvents.push(frame.event);
         for (const ev of allEvents) {
           const t = ev.type || (ev.event && ev.event.type) || '';
-          if (t === 'turn/start') sessionState.running = true;
-          if (t === 'turn/end') sessionState.running = false;
+          if (t === 'turn/start') {
+            setRunning(true);
+            sessionState.lastAssistantText = '';
+          }
+          if (t === 'turn/end') setRunning(false);
+          if (t === 'assistant/message') noteAssistantSettlement(ev.data || ev.event && ev.event.data);
+          noteSessionActivity();
         }
         emit();
         return;
       }
       case 'history': {
+        sessionState.historyError = '';
+        sessionState.cacheDisplay = false;   // 权威历史到达，退出缓存展示态
+        if (historyRetryTimer) { clearTimeout(historyRetryTimer); historyRetryTimer = null; }
+        sessionState.historyState = 'loaded:' + ((frame.events || []).length) + 'ev'
+          + (sessionState.ingestErrors ? '+' + sessionState.ingestErrors + 'bad' : '');
         const events = frame.events || [];
         if (frame.resetRequired) {
           sessionState.rowsAgg = protocol.newAggregator();
@@ -259,22 +884,43 @@ function createStore() {
         sessionState.hasMoreHistory = frame.hasMore === true;
         sessionState.nextBeforeSeq = frame.nextBeforeSeq;
         if (frame.historyFormatVersion) sessionState.historyFormatVersion = frame.historyFormatVersion;
+        saveSessionCache(sessionState.sessionId, sessionState.rows);
         emit();
         return;
       }
       case 'session-snapshot': {
+        sessionState.cacheDisplay = false;
         sessionState.historyFormatVersion = frame.historyFormatVersion || sessionState.historyFormatVersion;
         if (frame.cursor !== undefined) sessionState.nextBeforeSeq = frame.cursor;
+        const snapEvents = frame.events || [];
         if (frame.replace) {
-          sessionState.rowsAgg = protocol.newAggregator();
-          sessionState.rows = [];
+          if (snapEvents.length || !sessionState.rows.length) {
+            sessionState.rowsAgg = protocol.newAggregator();
+            sessionState.rows = [];
+            ingestEvents(snapEvents);
+            // 流式正文保护：快照未携带当前回复时回填最近流式文本（对齐 iOS 生成前缀恢复）
+            const hasAssistantText = sessionState.rows.some(
+              (r) => r.kind === 'assistant' && r.text
+            );
+            if (sessionState.lastAssistantText && !hasAssistantText && sessionState.rowsAgg) {
+              try {
+                protocol.applyEvent(sessionState.rowsAgg, protocol.normalizeRawEvent({
+                  type: 'assistant/chunk', seq: 0, time: Date.now() / 1000,
+                  data: { chunk: { type: 'text', text: sessionState.lastAssistantText } }
+                }, sessionState.sessionId));
+                sessionState.rows = sessionState.rowsAgg.rows.slice();
+              } catch (e) { /* 回填失败不阻断 */ }
+            }
+          }
+          // 空快照不当作清空指令（0.8.x 完成时可能先推空快照再推历史）
+        } else {
+          ingestEvents(snapEvents);
         }
-        ingestEvents(frame.events || []);
         emit();
         return;
       }
       case 'sent':
-        sessionState.running = true;
+        setRunning(true);
         emit();
         return;
       case 'session-title-updated':
@@ -283,9 +929,81 @@ function createStore() {
         emit();
         return;
       case 'session-cancelled':
-        sessionState.running = false;
+        setRunning(false);
         safeRequest(client.requestSessionStats(sessionState.sessionId));
         safeRequest(client.requestContextUsage(sessionState.sessionId));
+        emit();
+        return;
+      case 'session-queues': {
+        const queues = frame.queues || {};
+        const mine = sessionState.sessionId ? (queues[sessionState.sessionId] || []) : [];
+        sessionState.queue = mine;
+        emit();
+        return;
+      }
+      case 'session-queue': {
+        if (frame.sessionId === sessionState.sessionId) {
+          sessionState.queue = frame.items || [];
+          emit();
+        }
+        return;
+      }
+      case 'queue-item-updated':
+        return; // 队列内容随后续 session-queue 帧刷新
+      case 'commands':
+        sessionState.commandGroups = Array.isArray(frame.groups) ? frame.groups : [];
+        sessionState.commandLoading = false;
+        sessionState.commandError = '';
+        emit();
+        return;
+      case 'command-options':
+        sessionState.commandOptionsFor = typeof frame.command === 'string'
+          ? frame.command : ((frame.command && frame.command.value) || sessionState.commandOptionsFor);
+        sessionState.commandOptions = Array.isArray(frame.options) ? frame.options : [];
+        sessionState.commandLoading = false;
+        sessionState.commandError = '';
+        emit();
+        return;
+      case 'command-selected':
+        sessionState.commandOptions = [];
+        sessionState.commandOptionsFor = '';
+        sessionState.commandLoading = false;
+        if (frame.value && frame.value.provider && frame.value.model) {
+          sessionState.selection = Object.assign({}, sessionState.selection || {}, frame.value);
+        }
+        emit();
+        return;
+      case 'command-executed':
+        sessionState.commandLoading = false;
+        emit();
+        return;
+      case 'tasks':
+      case 'tasks-updated': {
+        const seq = frame.asOfSeq == null ? null : Number(frame.asOfSeq);
+        if (sessionState.tasksAsOfSeq == null || seq == null || seq >= sessionState.tasksAsOfSeq) {
+          sessionState.tasks = Array.isArray(frame.todos) ? frame.todos : null;
+          sessionState.tasksAsOfSeq = seq;
+          emit();
+        }
+        return;
+      }
+      case 'goal':
+      case 'goal-updated': {
+        const seq = frame.asOfSeq == null ? null : Number(frame.asOfSeq);
+        if (sessionState.goalAsOfSeq == null || seq == null || seq >= sessionState.goalAsOfSeq) {
+          sessionState.goal = frame.goal || null;
+          sessionState.goalAsOfSeq = seq;
+          sessionState.goalMutation = '';
+          emit();
+        }
+        return;
+      }
+      case 'goal-edited':
+      case 'goal-paused':
+      case 'goal-resumed':
+      case 'goal-cleared':
+        sessionState.goalMutation = '';
+        safeRequest(client.requestGoal(sessionState.sessionId));
         emit();
         return;
       case 'session-stats':
@@ -312,7 +1030,16 @@ function createStore() {
         emit();
         return;
       case 'select-model':
-        sessionState.selection = frame.selected || sessionState.selection;
+        // 主机回执可能只带模型名：与本地选中态合并，避免丢 provider 导致弹窗无法打勾
+        if (frame.selected) {
+          sessionState.selection = Object.assign({}, sessionState.selection || {}, frame.selected);
+          if (frame.selected.provider && frame.selected.model && state.modelCatalog) {
+            state.modelCatalog.current = {
+              provider: frame.selected.provider,
+              model: frame.selected.model
+            };
+          }
+        }
         emit();
         return;
       case 'question-requested': {
@@ -372,6 +1099,37 @@ function createStore() {
         }
         return;
       case 'error':
+        if (['workspaces', 'sessions', 'host', 'history'].indexOf(frame.requestType) >= 0
+          && /Cannot read properties of undefined \(reading ['"]signal['"]\)/.test(String(frame.message || ''))) {
+          state.coreCompatibilityError = frame.message;
+          state.rpcError = 'NAS 端 Mobile Gateway 与 DSH 版本不兼容';
+          if (frame.requestType === 'history' && sessionState.sessionId) {
+            sessionState.historyError = 'NAS 端服务版本不兼容，无法读取会话历史。请升级 Mobile Gateway 与 DSH。';
+            sessionState.historyState = 'error:host-version';
+          }
+          emit();
+          return;
+        }
+        if (['commands', 'command-options', 'command-select', 'command-execute'].indexOf(frame.requestType) >= 0) {
+          sessionState.commandLoading = false;
+          sessionState.commandError = frame.message || frame.code || '命令请求失败';
+          emit();
+          return;
+        }
+        if (String(frame.requestType || '').indexOf('goal-') === 0) {
+          sessionState.goalMutation = '';
+          safeRequest(client.requestGoal(sessionState.sessionId));
+          state.notice = { text: frame.message || '目标操作失败', isError: true, at: Date.now() };
+          emit();
+          return;
+        }
+        // 历史读取失败：会话页整页错误态（对齐 iOS「历史记录加载失败」）
+        if (frame.requestType === 'history' && sessionState.sessionId) {
+          sessionState.historyError = frame.message || 'Host 无法读取旧格式会话，请修复或升级 Host 后重试。';
+          sessionState.historyState = 'error:' + (frame.message || 'history').slice(0, 40);
+          emit();
+          return;
+        }
         state.notice = { text: frame.message || frame.code || '请求失败', isError: true, at: Date.now() };
         emit();
         return;
@@ -380,33 +1138,437 @@ function createStore() {
     }
   }
 
+  // ---------- 定时任务（对齐 dsh-mobile v1.6.x schedule protocol / iOS AppStore） ----------
+
+  let scheduleCatalogToken = 0;
+  let scheduleCatalogTimer = null;
+  let scheduleMutation = null; // { requestId, kind, timer }
+  let scheduleLoadedOnce = false;
+  let scheduleRefreshQueued = false; // catalog 在途时收到 schedule-changed → 到货后补拉
+
+  /** @returns {boolean} 是否消费了该帧 */
+  function handleScheduleFrame(frame) {
+    // 变更结果（schedule-update / schedule-delete）
+    if (scheduleMutation && frame.kind === scheduleMutation.kind &&
+        frame.requestId === scheduleMutation.requestId) {
+      const succeeded = frame.kind === 'schedule-update'
+        ? frame.updated === true
+        : frame.deleted === true;
+      finishScheduleMutation(succeeded ? null : scheduleFailureMessage(frame.code, frame.message));
+      return true;
+    }
+    if (scheduleMutation && frame.kind === 'error' &&
+        frame.requestType === scheduleMutation.kind &&
+        (!frame.requestId || frame.requestId === scheduleMutation.requestId)) {
+      finishScheduleMutation(scheduleFailureMessage(frame.code, frame.message));
+      return true;
+    }
+    if (frame.kind === 'schedule-catalog') {
+      const tasks = (frame.items || [])
+        .map(schedule.parseTask)
+        .filter(Boolean)
+        .sort(function (a, b) {
+          if (a.status !== b.status) return a.status === 'active' ? -1 : 1;
+          return String(a.scheduledAt) < String(b.scheduledAt) ? -1 : 1;
+        });
+      state.scheduledTasks = tasks;
+      state.scheduledTasksLoading = false;
+      state.scheduledTasksError = null;
+      scheduleLoadedOnce = true;
+      if (scheduleCatalogTimer) {
+        clearTimeout(scheduleCatalogTimer);
+        scheduleCatalogTimer = null;
+      }
+      // 在途期间发生过变更：立即补拉一次（对齐 iOS 无条件刷新语义）
+      if (scheduleRefreshQueued && state.connection === 'connected') {
+        scheduleRefreshQueued = false;
+        refreshScheduledTasks();
+        return true;
+      }
+      scheduleRefreshQueued = false;
+      emit();
+      return true;
+    }
+    if (frame.kind === 'schedule-changed') {
+      if (state.connection === 'connected') {
+        if (state.scheduledTasksLoading) scheduleRefreshQueued = true;
+        else refreshScheduledTasks();
+      }
+      return true;
+    }
+    if (frame.kind === 'error' && frame.requestType === 'schedule-catalog') {
+      state.scheduledTasksLoading = false;
+      state.scheduledTasksError = frame.message || '定时任务加载失败';
+      emit();
+      return true;
+    }
+    return false;
+  }
+
+  /** 拉取定时任务目录（连接后可调用；页面 onShow / 下拉刷新 / schedule-changed 触发）。 */
+  function refreshScheduledTasks() {
+    if (state.connection !== 'connected') {
+      state.scheduledTasksLoading = false;
+      state.scheduledTasksError = '连接网关后可查看定时任务';
+      emit();
+      return;
+    }
+    state.scheduledTasksLoading = true;
+    state.scheduledTasksError = null;
+    const token = ++scheduleCatalogToken;
+    safeRequest(client.requestScheduleCatalog());
+    // 12s 兜底超时（对齐 iOS refreshScheduledTasks）
+    if (scheduleCatalogTimer) clearTimeout(scheduleCatalogTimer);
+    scheduleCatalogTimer = setTimeout(function () {
+      scheduleCatalogTimer = null;
+      if (token !== scheduleCatalogToken || !state.scheduledTasksLoading) return;
+      state.scheduledTasksLoading = false;
+      state.scheduledTasksError = '定时任务请求超时，请重试';
+      emit();
+    }, 12000);
+    emit();
+  }
+
+  function scheduleFailureMessage(code, message) {
+    switch (code) {
+      case 'schedule_conflict': return '任务已被其他设备修改，列表已刷新，请重新打开编辑';
+      case 'schedule_ended': return '任务已结束，无法再编辑';
+      case 'schedule_not_found': return '任务已不存在，列表已刷新';
+      default: return message || '操作失败，请稍后重试';
+    }
+  }
+
+  function beginScheduleMutation(task, kind) {
+    if (state.connection !== 'connected') {
+      state.scheduleMutationError = '连接网关后才能修改定时任务';
+      emit();
+      return null;
+    }
+    if (state.scheduledTaskPendingId) return null;
+    // 乐观并发：任务记录与列表不一致说明已被修改（对齐 iOS beginScheduledTaskMutation）
+    const current = state.scheduledTasks.filter(function (t) {
+      return t.id === task.id && t.sessionId === task.sessionId;
+    })[0];
+    if (!current || JSON.stringify(current.raw) !== JSON.stringify(task.raw)) {
+      state.scheduleMutationError = '任务已变化，列表已刷新，请重新操作';
+      refreshScheduledTasks();
+      emit();
+      return null;
+    }
+    const requestId = util.uuid();
+    scheduleMutation = { requestId: requestId, kind: kind, timer: null };
+    state.scheduledTaskPendingId = task.id;
+    state.scheduleMutationError = null;
+    scheduleMutation.timer = setTimeout(function () {
+      if (scheduleMutation && scheduleMutation.requestId === requestId) {
+        finishScheduleMutation('操作超时，请刷新任务后重试');
+      }
+    }, 15000);
+    emit();
+    return requestId;
+  }
+
+  function finishScheduleMutation(error) {
+    if (scheduleMutation && scheduleMutation.timer) {
+      clearTimeout(scheduleMutation.timer);
+    }
+    if (!error && scheduleMutation) {
+      state.scheduleCompletedRequestId = scheduleMutation.requestId;
+    }
+    state.scheduleMutationError = error || null;
+    state.scheduledTaskPendingId = null;
+    scheduleMutation = null;
+    refreshScheduledTasks();
+  }
+
+  /** 更新定时任务：成功返回 requestId，失败返回 null（错误在 state.scheduleMutationError）。 */
+  function updateScheduledTask(task, title, prompt, change) {
+    const requestId = beginScheduleMutation(task, 'schedule-update');
+    if (requestId === null) return null;
+    client.sendScheduleUpdate(
+      task.sessionId, task.id, task.raw,
+      String(title || '').trim(), String(prompt || '').trim(),
+      change || null, requestId
+    );
+    return requestId;
+  }
+
+  /** 删除定时任务及其投递记录：成功返回 requestId。 */
+  function deleteScheduledTask(task) {
+    const requestId = beginScheduleMutation(task, 'schedule-delete');
+    if (requestId === null) return null;
+    client.sendScheduleDelete(task.sessionId, task.id, requestId);
+    return requestId;
+  }
+
+  // ---------- 插件管理（对齐 dsh-mobile v1.7.x plugin protocol / iOS AppStore） ----------
+
+  let pluginCatalogToken = null;
+  let pluginCatalogTimer = null;
+  let pluginToggleToken = null;
+  let pluginToggleTimer = null;
+  let pluginPageVisited = false;
+
+  /** 插件管理错误 → 用户可读文案（对齐 iOS 语义，补充网关侧版本/配对提示）。 */
+  function pluginFailureMessage(frame) {
+    const code = frame && frame.code;
+    const message = (frame && frame.message) || '';
+    if (code === 'authentication-required') {
+      return '插件管理需要已配对设备：请按中继部署文档重新扫码配对一次（网关会保存凭据）';
+    }
+    if (message.indexOf('unknown message type') === 0) {
+      return '当前网关插件版本不支持插件管理，请升级 dsh-plugin-mobile-gateway 后重试';
+    }
+    return message || '插件目录加载失败';
+  }
+
+  /** @returns {boolean} 是否消费了该帧 */
+  function handlePluginFrame(frame) {
+    if (frame.kind === 'plugin-catalog' &&
+        (!frame.requestId || frame.requestId === pluginCatalogToken)) {
+      state.pluginCatalog = pluginsLib.buildCatalog(frame);
+      state.pluginsLoading = false;
+      state.pluginsError = frame.managementAvailable === true ? null : '当前 Host 不支持插件管理';
+      if (pluginCatalogTimer) {
+        clearTimeout(pluginCatalogTimer);
+        pluginCatalogTimer = null;
+      }
+      emit();
+      return true;
+    }
+    if (frame.kind === 'plugins-changed') {
+      if (pluginPageVisited && state.connection === 'connected') refreshPlugins();
+      return true;
+    }
+    if ((frame.kind === 'plugin-bundle-set-enabled' || frame.kind === 'plugin-entry-set-enabled') &&
+        (!frame.requestId || frame.requestId === pluginToggleToken)) {
+      const application = frame.result && frame.result.application;
+      switch (application) {
+        case 'applied': state.pluginNotice = null; break;
+        case 'restart-required': state.pluginNotice = '设置已保存，请重启 DSH Web 后刷新目录'; break;
+        case 'overridden': state.pluginNotice = '插件状态被其他配置覆盖，请检查 Host 配置'; break;
+        default: state.pluginNotice = (frame.result && frame.result.error) || '插件操作未生效';
+      }
+      finishPluginToggle();
+      return true;
+    }
+    // 插件相关错误帧：requestType 或 requestId 任一匹配即可
+    // （网关 catch-all 错误保证回显 requestId；旧版网关的 unknown-type 错误两者皆无，
+    //   用 message 前缀兜底，避免页面干等 12 秒超时）。
+    const isPluginError = frame.kind === 'error' && (
+      frame.requestType === 'plugin-catalog' ||
+      frame.requestType === 'plugin-bundle-set-enabled' ||
+      frame.requestType === 'plugin-entry-set-enabled' ||
+      (frame.requestId && frame.requestId === pluginCatalogToken) ||
+      (frame.requestId && frame.requestId === pluginToggleToken) ||
+      (typeof frame.message === 'string' && frame.message.indexOf('unknown message type: plugin-') === 0)
+    );
+    if (isPluginError) {
+      console.warn('[plugins] 网关错误帧', JSON.stringify(frame));
+      const isToggle = frame.requestType === 'plugin-bundle-set-enabled' ||
+        frame.requestType === 'plugin-entry-set-enabled' ||
+        (frame.requestId && frame.requestId === pluginToggleToken);
+      if (isToggle) {
+        state.pluginNotice = pluginFailureMessage(frame);
+        finishPluginToggle();
+      } else {
+        state.pluginsLoading = false;
+        state.pluginsError = pluginFailureMessage(frame);
+        if (pluginCatalogTimer) {
+          clearTimeout(pluginCatalogTimer);
+          pluginCatalogTimer = null;
+        }
+        emit();
+      }
+      return true;
+    }
+    return false;
+  }
+
+  function finishPluginToggle() {
+    if (pluginToggleTimer) {
+      clearTimeout(pluginToggleTimer);
+      pluginToggleTimer = null;
+    }
+    pluginToggleToken = null;
+    state.pluginPendingName = null;
+    refreshPlugins();
+  }
+
+  /**
+   * 选择模型：本地乐观更新选中态（弹窗打勾与输入栏标签立即同步），
+   * 主机回执到达后以回执为准；失败则回滚。
+   */
+  function selectModel(sessionId, provider, model, reasoningEffort) {
+    if (!provider || !model) return Promise.reject(new Error('缺少模型信息'));
+    const previous = sessionState.selection;
+    const previousCatalogCurrent = state.modelCatalog ? state.modelCatalog.current : null;
+    const next = { provider: provider, model: model };
+    if (reasoningEffort) next.reasoningEffort = reasoningEffort;
+    else if (previous && previous.provider === provider && previous.model === model && previous.reasoningEffort) {
+      next.reasoningEffort = previous.reasoningEffort;
+    }
+    sessionState.selection = next;
+    if (state.modelCatalog) state.modelCatalog.current = { provider: provider, model: model };
+    emit();
+    return client.selectModel(sessionId, provider, model, reasoningEffort).catch(function (err) {
+      sessionState.selection = previous;
+      if (state.modelCatalog) state.modelCatalog.current = previousCatalogCurrent;
+      emit();
+      throw err;
+    });
+  }
+
+  /** 拉取插件目录（页面 onShow / 下拉刷新 / plugins-changed 触发）。 */  function refreshPlugins() {
+    pluginPageVisited = true;
+    if (state.connection !== 'connected') {
+      state.pluginsLoading = false;
+      state.pluginsError = '连接网关后可查看插件';
+      emit();
+      return;
+    }
+    pluginCatalogToken = util.uuid();
+    state.pluginsLoading = true;
+    state.pluginsError = null;
+    const sent = client.sendPluginCatalog(pluginCatalogToken);
+    if (!sent) {
+      // 发送失败（socket 已死）：不等 12 秒超时，直接给出可读错误
+      pluginCatalogToken = null;
+      state.pluginsLoading = false;
+      state.pluginsError = '连接网关后可查看插件';
+      emit();
+      return;
+    }
+    // 12s 兜底超时（对齐 iOS refreshPlugins）
+    if (pluginCatalogTimer) clearTimeout(pluginCatalogTimer);
+    pluginCatalogTimer = setTimeout(function () {
+      pluginCatalogTimer = null;
+      if (!state.pluginsLoading) return;
+      console.warn('[plugins] 目录请求超时（网关无响应），lastKind=plugin-catalog');
+      state.pluginsLoading = false;
+      state.pluginsError = '插件目录请求超时，请重试';
+      emit();
+    }, 12000);
+    emit();
+  }
+
+  /** 启用/停用插件 bundle 或其单个组件条目（entryId 优先）。 */
+  function setPluginEnabled(name, enabled, entryId) {
+    if (state.connection !== 'connected' ||
+        !state.pluginCatalog || state.pluginCatalog.managementAvailable !== true ||
+        pluginToggleToken !== null) {
+      return false;
+    }
+    const requestId = util.uuid();
+    pluginToggleToken = requestId;
+    state.pluginPendingName = name;
+    state.pluginNotice = null;
+    if (entryId) client.sendPluginEntrySetEnabled(requestId, entryId, enabled);
+    else client.sendPluginBundleSetEnabled(requestId, name, enabled);
+    // 15s 兜底超时（对齐 iOS setPluginEnabled）
+    pluginToggleTimer = setTimeout(function () {
+      if (pluginToggleToken !== requestId) return;
+      pluginToggleToken = null;
+      state.pluginPendingName = null;
+      state.pluginNotice = '操作结果待确认，请刷新插件目录';
+      refreshPlugins();
+    }, 15000);
+    emit();
+    return true;
+  }
+
   function ingestEvents(rawEvents, prepend) {
+    if (sessionState.cacheDisplay) return;   // 缓存展示中：等 history 帧统一重建
     if (!sessionState.rowsAgg) sessionState.rowsAgg = protocol.newAggregator();
     const sessionId = sessionState.sessionId;
     const sorted = rawEvents.slice().sort(function (a, b) { return a.seq - b.seq; });
     if (prepend) {
       // 加载更早历史：整体重建，保证折叠关系正确（数据量在移动端可接受）。
-      rebuildWithMore(sorted);
+      try {
+        rebuildWithMore(sorted);
+      } catch (e) {
+        // 旧版 Host 的事件形态解析失败：跳过坏事件而不是丢弃整批历史
+        sessionState.ingestErrors = (sessionState.ingestErrors || 0) + 1;
+      }
+      sessionState.rows = sessionState.rowsAgg.rows.slice();
+      sessionState.trajectory = protocol.buildTrajectory(allRawEvents(sorted, false), sessionId);
       return;
     }
+    let bad = 0;
     sorted.forEach(function (raw) {
-      const normalized = protocol.normalizeRawEvent(raw, sessionId);
-      protocol.applyEvent(sessionState.rowsAgg, normalized);
+      try {
+        const normalized = protocol.normalizeRawEvent(raw, sessionId);
+        protocol.applyEvent(sessionState.rowsAgg, normalized);
+      } catch (e) {
+        // 老格式/未知形态：计数并跳过，绝不让单条事件炸掉整批历史
+        bad += 1;
+      }
     });
-    sessionState.rows = sessionState.rowsAgg.rows.slice();
-    sessionState.trajectory = protocol.buildTrajectory(allRawEvents(sorted, true), sessionId);
+    if (bad) sessionState.ingestErrors = (sessionState.ingestErrors || 0) + bad;
+    try {
+      sessionState.rows = sessionState.rowsAgg.rows.slice();
+      sessionState.trajectory = protocol.buildTrajectory(allRawEvents(sorted, true), sessionId);
+      rebuildRunCues();
+    } catch (e) {
+      sessionState.ingestErrors = (sessionState.ingestErrors || 0) + 1;
+      sessionState.rows = sessionState.rowsAgg.rows.slice();
+    }
   }
 
   // 保留原始事件缓冲以重建轨迹
   let rawBuffer = [];
+  let rawSeqs = new Set();          // seq 索引：追加去重 O(1)，避免整表 some() 扫描
   function allRawEvents(latest, append) {
     if (append) {
-      rawBuffer = rawBuffer.concat(latest.filter(function (e) {
-        return !rawBuffer.some(function (existing) { return existing.seq === e.seq; });
-      }));
-      rawBuffer.sort(function (a, b) { return a.seq - b.seq; });
+      const fresh = latest.filter(function (e) { return !rawSeqs.has(e.seq); });
+      if (fresh.length) {
+        fresh.forEach(function (e) { rawSeqs.add(e.seq); });
+        rawBuffer = rawBuffer.concat(fresh);
+        rawBuffer.sort(function (a, b) { return a.seq - b.seq; });
+      }
     }
     return rawBuffer;
+  }
+
+  /**
+   * 运行指示条活动线索（对齐 dsh-mobile DeepSearchProgressRow 的 phrase cue）：
+   * 起始时间 = 最近一条用户消息时间；线索 = 该消息之后的事件流，按时间顺序。
+   * 活动映射：context→gathering、reasoning→thinking/revisiting、
+   * tool→exploring、toolResult→reviewing（错误→revisiting）、
+   * assistant→composing、status→working。
+   */
+  let runCueWatermark = -1;         // 已提取线索的最大 seq：增量提取，避免每条事件全量重扫
+  function rebuildRunCues(full) {
+    if (full) runCueWatermark = -1;
+    let startMs = runCueWatermark === -1 ? null : sessionState.runStartMs;
+    const cues = runCueWatermark === -1 ? [] : (sessionState.runCues || []);
+    for (let i = 0; i < rawBuffer.length; i += 1) {
+      const raw = rawBuffer[i];
+      const type = raw && raw.type;
+      if (!type || raw.seq <= runCueWatermark) continue;
+      runCueWatermark = raw.seq;
+      const at = util.eventDateMs(raw.time);
+      if (type === 'user/message') {
+        // 新一轮：重置起始时间与线索
+        startMs = at;
+        cues.length = 0;
+        continue;
+      }
+      if (startMs == null) continue;
+      if (type.indexOf('context') === 0) cues.push({ activity: 'gathering', at: at });
+      else if (type.indexOf('reasoning') === 0) cues.push({ activity: 'reasoning', at: at });
+      else if (type === 'tool/call' || type.indexOf('tool/code-dispatch-start') === 0 || type === 'tool/code-dispatch') {
+        cues.push({ activity: 'exploring', at: at });
+      } else if (type === 'tool/result' || type === 'tool/code-dispatch-result') {
+        const isError = !!(raw.data && (raw.data.error !== undefined && raw.data.error !== null && raw.data.error !== false || raw.data.isError === true));
+        cues.push({ activity: isError ? 'revisiting' : 'reviewing', at: at });
+      } else if (type.indexOf('assistant/') === 0) cues.push({ activity: 'composing', at: at });
+      else if (type === 'status' || type.indexOf('command/') === 0 || type.indexOf('compaction/') === 0) {
+        cues.push({ activity: 'working', at: at });
+      }
+    }
+    sessionState.runStartMs = startMs;
+    sessionState.runCues = cues;
   }
 
   function rebuildWithMore(older) {
@@ -415,6 +1577,7 @@ function createStore() {
     older.forEach(function (e) { merged[e.seq] = e; });
     rawBuffer = Object.keys(merged).map(function (k) { return merged[k]; })
       .sort(function (a, b) { return a.seq - b.seq; });
+    rawSeqs = new Set(rawBuffer.map(function (e) { return e.seq; }));
     sessionState.rows = protocol.buildRows(rawBuffer, sessionState.sessionId);
     sessionState.rowsAgg = protocol.newAggregator();
     rawBuffer.forEach(function (raw) {
@@ -422,9 +1585,12 @@ function createStore() {
     });
     sessionState.rows = sessionState.rowsAgg.rows.slice();
     sessionState.trajectory = protocol.buildTrajectory(rawBuffer, sessionState.sessionId);
+    rebuildRunCues(true);
   }
 
   let statsTimer = null;
+  let historyRetryTimer = null;
+  let dataWatchdogTimer = null;
   function refreshStatsSoon() {
     if (statsTimer) return;
     statsTimer = setTimeout(function () {
@@ -437,16 +1603,25 @@ function createStore() {
   }
 
   function mapSessionSummary(item) {
-    const projections = item.projections || {};
+    const source = item || {};
+    const projections = source.projections || {};
     const values = projections.values || {};
+    const sessionId = source.sessionId || source.session_id || source.id || source.key || '';
+    const title = values.title || source.title || source.name || source.displayName || source.display_title || null;
+    const updated = source.updatedAt || source.updated_at || source.lastActivityAt || source.last_activity_at || source.createdAt || source.created_at;
+    const hasConversation = source.hasConversation !== undefined
+      ? source.hasConversation
+      : source.has_conversation;
     return {
-      sessionId: item.sessionId,
-      updatedAt: item.updatedAt ? util.eventDateMs(item.updatedAt) : Date.now(),
-      running: item.running === true,
-      blank: item.blank === true,
-      cwd: item.cwd || null,
-      agentPreset: item.agentPreset || null,
-      title: values.title || null
+      sessionId: sessionId,
+      updatedAt: updated ? util.eventDateMs(updated) : Date.now(),
+      running: source.running === true || source.status === 'running',
+      hasUnread: source.hasUnread === true || source.has_unread === true,
+      blank: source.blank === true,
+      cwd: source.cwd || source.workingDirectory || source.working_directory || null,
+      agentPreset: source.agentPreset || source.agent_preset || null,
+      hasConversation: hasConversation,
+      title: title
     };
   }
 
@@ -599,11 +1774,20 @@ function createStore() {
     if (payload && payload.mode === 'relay') {
       profile.relay = true;
       profile.relayAgentPubKey = payload.agentPubKey || null;
-    } else if (!payload || payload.mode !== 'relay') {
+      // 中继链路没有 paired/hello 提交帧（E2EE 握手是二进制协议）：
+      // 配对即入库并设为激活，否则档案只在内存里，重启后主机消失。
+      profile.lastConnectedAt = Date.now();
+      upsertProfile(profile);
+      state.activeID = profile.id;
+      hosts.setActiveID(profile.id);
+      state.profiles = state.profiles.slice();
+      pendingProfile = null;
+      emit();
+    } else {
       profile.relay = false;
       profile.relayAgentPubKey = null;
+      pendingProfile = profile;
     }
-    pendingProfile = profile;
     state.endpoint = normalized[0];
     state.gatewayName = hosts.displayName(profile);
     state.gatewayId = profile.gatewayId;
@@ -640,12 +1824,26 @@ function createStore() {
   }
 
   /** 连接激活档案（凭据按档案 ID 读取）。 */
+  let endpointCandidates = [];
+  let endpointIdx = 0;
+  let rotationTimer = null;
+
+  /** 重置候选顺序并连接首选线路（网络恢复/回前台时用，避免死守不可达候选） */
+  function reconnectPreferred() {
+    endpointCandidates = [];
+    endpointIdx = 0;
+    if (rotationTimer) { clearTimeout(rotationTimer); rotationTimer = null; }
+    return connectActiveProfile();
+  }
+
   function connectActiveProfile() {
     const profile = getProfile(state.activeID);
     if (!profile) return false;
     const cred = hosts.loadCredential(profile.id);
     const endpoints = hosts.connectionEndpoints(profile);
     const endpoint = endpoints[0] || (cred && cred.endpoint) || null;
+    endpointCandidates = endpoints;
+    endpointIdx = 0;
     if (!endpoint) {
       state.connection = 'disconnected';
       state.connectionMessage = '缺少连接凭据，请重新扫码配对';
@@ -687,9 +1885,27 @@ function createStore() {
     state.defaultModel = null;
     state.agentPresets = null;
     state.modelCatalog = null;
+    state.coreCompatibilityError = '';
     state.gatewayName = null;
     state.gatewayId = null;
     state.paired = false;
+    state.rpcError = '';
+    state.lastWorkspacesFrame = null;
+    state.lastSessionsFrame = null;
+    state.scheduledTasks = [];
+    state.scheduledTasksLoading = false;
+    state.scheduledTasksError = null;
+    state.scheduledTaskPendingId = null;
+    state.scheduleCompletedRequestId = null;
+    state.scheduleMutationError = null;
+    scheduleMutation = null;
+    scheduleLoadedOnce = false;
+    state.pluginCatalog = null;
+    state.pluginsLoading = false;
+    state.pluginsError = null;
+    state.pluginPendingName = null;
+    state.pluginNotice = null;
+    pluginToggleToken = null;
     sessionState.sessionId = null;
     sessionState.rowsAgg = null;
     sessionState.rows = [];
@@ -701,7 +1917,21 @@ function createStore() {
     sessionState.questionStatus = 'idle';
     sessionState.approvalStatus = 'idle';
     sessionState.stats = null;
+    sessionState.tasks = null;
+    sessionState.tasksAsOfSeq = null;
+    sessionState.goal = null;
+    sessionState.goalAsOfSeq = null;
+    sessionState.goalMutation = '';
+    sessionState.commandGroups = [];
+    sessionState.commandOptions = [];
+    sessionState.commandOptionsFor = '';
+    sessionState.commandLoading = false;
+    sessionState.commandError = '';
     rawBuffer = [];
+    rawSeqs = new Set();
+    runCueWatermark = -1;
+    sessionState.runStartMs = null;
+    sessionState.runCues = [];
   }
 
   function selectHost(id) {
@@ -855,27 +2085,58 @@ function createStore() {
         const activeID = hosts.loadActiveID();
         const known = state.profiles.filter(function (p) { return p.id === activeID; });
         state.activeID = known.length ? activeID : (state.profiles[0] ? state.profiles[0].id : null);
+        // 本地缓存立即可呈现（对齐 iOS「Cached content is immediately presentable」）：
+        // 冷启动不等连接，先把上次的会话/工作区渲染出来，帧到达后无缝替换
+        if (state.activeID) {
+          const cacheResult = loadCompatibleHomeCache(state.activeID);
+          if (cacheResult) {
+            const cached = cacheResult.cache;
+            state.sessions = cached.sessions || [];
+            state.workspaces = cached.workspaces || [];
+            state.archivedSessionIds = cached.archivedSessionIds || [];
+            state.currentWorkspaceId = cached.currentWorkspaceId || null;
+            state.homeCacheAt = cached.savedAt || 0;
+            state.lastSessionsFrame = {
+              count: state.sessions.length,
+              keys: '本地缓存',
+              at: cached.savedAt || Date.now(),
+              cached: true
+            };
+            state.lastWorkspacesFrame = {
+              count: state.workspaces.length,
+              keys: '本地缓存',
+              at: cached.savedAt || Date.now(),
+              cached: true
+            };
+          }
+        }
         if (state.activeID) {
           hosts.setActiveID(state.activeID);
           const scopedDefaults = loadDefaults();
           if (scopedDefaults) state.defaults = scopedDefaults;
           connectActiveProfile();
         }
-      } catch (e) { /* 首次启动无凭据 */ }
+        // 网络恢复（WiFi/蜂窝切换、飞行模式关闭）：立即回首选线路重连
+        if (wx.onNetworkStatusChange) {
+          wx.onNetworkStatusChange(function (res) {
+            if (res.isConnected && state.connection !== 'connected' && state.activeID) {
+              reconnectPreferred();
+            }
+          });
+        }
+      } catch (e) {
+        // 初始化失败不能静默吞掉，否则 UI 只会表现为“选择主机/空列表”，
+        // 无法区分无凭据和持久化数据解析失败。
+        state.connection = 'disconnected';
+        state.connectionMessage = '初始化失败：' + ((e && e.message) || String(e));
+        state.rpcError = state.connectionMessage;
+        emit();
+      }
     },
 
     appDidBecomeActive: function () {
       if (state.connection !== 'connected' && state.activeID) {
-        const activeProfile = getProfile(state.activeID);
-        if (activeProfile && activeProfile.relay && activeProfile.relayAgentPubKey && state.endpoint) {
-          client.connect(state.endpoint, {
-            relay: { nodeId: activeProfile.gatewayId, agentPubKey: activeProfile.relayAgentPubKey }
-          });
-        } else if (client.lastToken && state.endpoint) {
-          client.connect(state.endpoint, { token: client.lastToken });
-        } else {
-          connectActiveProfile();
-        }
+        reconnectPreferred();
       }
     },
 
@@ -962,19 +2223,60 @@ function createStore() {
       sessionState.trajectory = [];
       sessionState.title = title || '';
       sessionState.agentPreset = agentPreset || null;
+      sessionState.historyError = '';
+      sessionState.hasMoreHistory = false;
+      sessionState.nextBeforeSeq = null;
       sessionState.pendingQuestion = null;
       sessionState.pendingApproval = null;
       sessionState.stats = null;
+      sessionState.queue = [];
+      sessionState.tasks = null;
+      sessionState.tasksAsOfSeq = null;
+      sessionState.goal = null;
+      sessionState.goalAsOfSeq = null;
+      sessionState.goalMutation = '';
+      sessionState.commandGroups = [];
+      sessionState.commandOptions = [];
+      sessionState.commandOptionsFor = '';
+      sessionState.commandLoading = false;
+      sessionState.commandError = '';
+      safeRequest(client.requestQueue(sessionId), '排队队列');
       rawBuffer = [];
+      rawSeqs = new Set();
+      runCueWatermark = -1;
+      sessionState.runStartMs = null;
+      sessionState.runCues = [];
+      // 运行态以主机为准：先用已知会话列表播种，再主动补拉一次，
+      // 避免打开一个正在运行的会话时被误判为空闲（或反过来）。
+      {
+        const listed = state.sessions.find(function (x) { return x.sessionId === sessionId; });
+        setRunning(listed ? listed.running === true : false);
+      }
+      safeRequest(client.requestSessions());
+      emit();
+      sessionState.ingestErrors = 0;
+      // 缓存命中：立即呈现上次内容（iOS 缓存立即可呈现），history 帧到达后无缝替换
+      const cached = loadSessionCache(sessionId);
+      if (cached) {
+        sessionState.rows = cached.rows;
+        sessionState.historyState = 'loaded:cached';
+        sessionState.cacheDisplay = true;
+      } else {
+        sessionState.historyState = subOk ? 'requested' : 'sub-failed';
+        sessionState.cacheDisplay = false;
+      }
       emit();
       const histOk = client.requestHistory(sessionId);
+      scheduleHistoryRetry(sessionId);
       if (!subOk || !histOk) {
         // 连接/E2EE 未就绪（如后台恢复中）：稍后重试，避免会话页空白。
         setTimeout(function () {
           if (sessionState.sessionId !== sessionId || state.connection !== 'connected') return;
           client.subscribe(sessionId);
-          sessionState.rowsAgg = protocol.newAggregator();
-          sessionState.rows = [];
+          if (!sessionState.cacheDisplay) {
+            sessionState.rowsAgg = protocol.newAggregator();
+            sessionState.rows = [];
+          }
           client.requestHistory(sessionId);
         }, 800);
       }
@@ -982,25 +2284,95 @@ function createStore() {
       safeRequest(client.requestContextUsage(sessionId));
       safeRequest(client.requestPermissionOptions(sessionId));
       safeRequest(client.requestModels(sessionId));
+      safeRequest(client.requestCommands(sessionId));
+      safeRequest(client.requestTasks(sessionId));
+      safeRequest(client.requestGoal(sessionId));
+    },
+
+    /** 乐观回显：发送后立即本地插入用户行（对齐桌面端即时可见），回显到达时合并 */
+    appendLocalUserRow: function (text, images) {
+      if (!sessionState.rowsAgg) sessionState.rowsAgg = protocol.newAggregator();
+      sessionState.rowsAgg.rows.push({
+        kind: 'user',
+        key: 'local-' + Date.now(),
+        title: '你',
+        text: text || '',
+        images: images || [],
+        pending: true,
+        seq: 9e9
+      });
+      sessionState.rows = sessionState.rowsAgg.rows.slice();
+      emit();
     },
 
     closeSession: function () {
       if (sessionState.sessionId) client.subscribe(null);
+      sessionState.cacheDisplay = false;
       sessionState.sessionId = null;
       sessionState.rowsAgg = null;
       sessionState.rows = [];
       sessionState.trajectory = [];
       rawBuffer = [];
+      rawSeqs = new Set();
+      runCueWatermark = -1;
+      sessionState.runStartMs = null;
+      sessionState.runCues = [];
       emit();
     },
 
     /** 开始新会话：先在网关创建会话，再订阅并打开。 */
     createAndOpenSession: function (workspaceId) {
       const self = this;
-      return client.createSession(workspaceId || state.currentWorkspaceId).then(function (sessionId) {
-        self.openSession(sessionId, '', null);
-        return sessionId;
+      const wsId = workspaceId || state.currentWorkspaceId;
+      // 乐观创建：立即进入本地创建态（秒开会话页），真实创建在后台进行
+      sessionState.creating = true;
+      sessionState.creatingWorkspaceId = wsId;
+      sessionState.sessionId = null;
+      sessionState.rowsAgg = protocol.newAggregator();
+      sessionState.rows = [];
+      sessionState.trajectory = [];
+      sessionState.historyState = 'creating';
+      sessionState.historyError = '';
+      sessionState.cacheDisplay = false;
+      emit();
+      const attempt = function (n) {
+        return client.createSession(wsId).then(function (sessionId) {
+          sessionState.creating = false;
+          self.openSession(sessionId, '', null);
+          return sessionId;
+        }).catch(function (err) {
+          if (n < 3) {
+            return new Promise(function (r) { setTimeout(r, 800); }).then(function () { return attempt(n + 1); });
+          }
+          throw err;
+        });
+      };
+      return attempt(1).catch(function (err) {
+        sessionState.creating = false;
+        sessionState.historyState = 'error:create';
+        sessionState.historyError = '创建会话失败：' + (err && err.message ? err.message : '未知错误');
+        emit();
+        throw err;
       });
+    },
+
+    retryCreateSession: function () {
+      const wsId = sessionState.creatingWorkspaceId || state.currentWorkspaceId;
+      return this.createAndOpenSession(wsId);
+    },
+
+    retryHistory: function () {
+      const id = sessionState.sessionId;
+      if (!id || state.connection !== 'connected') return;
+      sessionState.cacheDisplay = false;
+      sessionState.historyError = '';
+      sessionState.historyState = 'requested';
+      sessionState.rowsAgg = protocol.newAggregator();
+      sessionState.rows = [];
+      client.subscribe(id);
+      client.requestHistory(id);
+      scheduleHistoryRetry(id);
+      emit();
     },
 
     loadOlderHistory: function () {
@@ -1024,7 +2396,54 @@ function createStore() {
 
     setCurrentWorkspace: function (workspaceId) {
       state.currentWorkspaceId = workspaceId;
+      saveHomeCache();
       emit();
+    },
+
+    /** 拉取定时任务目录（页面 onShow / 下拉刷新时调用）。 */
+    refreshScheduledTasks: function () {
+      refreshScheduledTasks();
+    },
+
+    /** 更新定时任务（标题/内容/执行时间）。成功返回 requestId。 */
+    updateScheduledTask: function (task, title, prompt, change) {
+      return updateScheduledTask(task, title, prompt, change);
+    },
+
+    /** 删除定时任务及其投递记录。成功返回 requestId。 */
+    deleteScheduledTask: function (task) {
+      return deleteScheduledTask(task);
+    },
+
+    /** 选择模型（本地乐观更新 + 主机回执校准）。 */
+    selectModel: function (sessionId, provider, model, reasoningEffort) {
+      return selectModel(sessionId, provider, model, reasoningEffort);
+    },
+
+    mutateGoal: function (kind, objective) {
+      const goal = sessionState.goal && sessionState.goal.goal;
+      if (!sessionState.sessionId || !goal || sessionState.goalMutation) return Promise.resolve(false);
+      const ref = { id: goal.id, revision: goal.revision };
+      sessionState.goalMutation = kind;
+      emit();
+      const request = kind === 'goal-edit'
+        ? client.editGoal(sessionState.sessionId, ref, objective)
+        : client.updateGoalState(kind, sessionState.sessionId, ref);
+      return Promise.resolve(request).catch(function (err) {
+        sessionState.goalMutation = '';
+        emit();
+        throw err;
+      });
+    },
+
+    /** 拉取插件目录（插件页 onShow / 刷新按钮）。 */
+    refreshPlugins: function () {
+      refreshPlugins();
+    },
+
+    /** 启用/停用插件 bundle 或单个组件条目。 */
+    setPluginEnabled: function (name, enabled, entryId) {
+      return setPluginEnabled(name, enabled, entryId);
     },
 
     clearNotice: function () {

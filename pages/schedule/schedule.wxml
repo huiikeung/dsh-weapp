@@ -1,0 +1,195 @@
+<!-- 定时任务（对齐 dsh-mobile ScheduledTasksView：自绘头部 + 左滑卡片 + 展开详情 + 编辑弹层） -->
+<view class="page sched {{themeClass}}" style="padding-top: {{statusBarH}}px;">
+  <!-- 头部：玻璃圆返回钮 + 居中标题（对齐 iOS header） -->
+  <view class="sched-header">
+    <view class="sched-back tap" hover-class="sched-back-hover" bindtap="goBack">
+      <image class="sched-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
+    </view>
+    <text class="sched-title">定时任务</text>
+    <view class="sched-back-spacer"></view>
+  </view>
+
+  <scroll-view
+    class="sched-scroll"
+    scroll-y
+    refresher-enabled
+    refresher-triggered="{{refreshing}}"
+    bindrefresherrefresh="onRefresh"
+  >
+    <view class="sched-list">
+      <!-- 加载态 -->
+      <view wx:if="{{loading && !tasks.length}}" class="sched-state">
+        <view class="sched-spinner"></view>
+        <text class="sched-state-text">正在加载定时任务…</text>
+      </view>
+      <!-- 错误态 -->
+      <view wx:elif="{{error && !tasks.length}}" class="sched-state">
+        <image class="sched-state-ic" src="/assets/icons/sched-offline-gray.png"/>
+        <text class="sched-state-title">无法显示定时任务</text>
+        <text class="sched-state-desc">{{error}}</text>
+        <view class="sched-retry tap" bindtap="onRetry">重试</view>
+      </view>
+      <!-- 空态 -->
+      <view wx:elif="{{!tasks.length}}" class="sched-state">
+        <image class="sched-state-ic" src="/assets/icons/sched-clock-gray.png"/>
+        <text class="sched-state-title">暂无定时任务</text>
+        <text class="sched-state-desc">在会话中创建的定时任务会显示在这里</text>
+      </view>
+
+      <!-- 任务卡片 -->
+      <block wx:for="{{tasks}}" wx:key="id">
+        <view class="task-wrap">
+          <!-- 左滑露出的操作钮：编辑（ tertiary 圆）+ 删除（红圆） -->
+          <view class="task-actions">
+            <view
+              class="task-action-btn task-action-edit {{item.canEdit && busyId !== item.id ? '' : 'disabled'}}"
+              catchtap="onEditTap"
+              data-index="{{index}}"
+            >
+              <image class="task-action-ic" src="/assets/icons/sched-pencil-ink.png"/>
+            </view>
+            <view
+              class="task-action-btn task-action-del {{busyId === item.id ? 'disabled' : ''}}"
+              catchtap="onDeleteTap"
+              data-index="{{index}}"
+            >
+              <image class="task-action-ic" src="/assets/icons/sched-trash-white.png"/>
+            </view>
+          </view>
+
+          <!-- 卡片本体 -->
+          <view
+            class="task-card {{draggingIndex === index ? 'dragging' : ''}}"
+            style="transform: translateX({{item.x}}px);"
+            bindtouchstart="onCardTouchStart"
+            bindtouchmove="onCardTouchMove"
+            bindtouchend="onCardTouchEnd"
+            bindtouchcancel="onCardTouchEnd"
+            data-index="{{index}}"
+          >
+            <view class="task-main tap" bindtap="onCardTap" data-index="{{index}}">
+              <text class="task-rule">{{item.ruleShort}}</text>
+              <text class="task-title">{{item.title}}</text>
+              <text class="task-prompt">{{item.prompt}}</text>
+            </view>
+            <view class="task-divider"></view>
+            <view class="task-footer tap" catchtap="onExpandTap" data-index="{{index}}">
+              <text class="task-date">{{item.dateLabel}}</text>
+              <image class="task-chev {{item.expanded ? 'up' : ''}}" src="/assets/icons/chev-down-gray.png"/>
+            </view>
+            <view class="task-details {{item.expanded ? 'open' : ''}}">
+              <view class="td-row">
+                <text class="td-label">执行规则</text>
+                <text class="td-value">{{item.ruleFull}}</text>
+              </view>
+              <view class="td-row">
+                <text class="td-label">下次计划时间</text>
+                <text class="td-value">{{item.nextLabel}}</text>
+              </view>
+              <view class="td-row">
+                <text class="td-label">所属会话</text>
+                <text class="td-value">{{item.sessionLabel}}</text>
+              </view>
+              <view class="td-row">
+                <text class="td-label">状态</text>
+                <text class="td-value">{{item.statusLabel}}</text>
+              </view>
+              <view class="td-row">
+                <text class="td-label">最近投递</text>
+                <text class="td-value">{{item.deliveryLabel}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+      </block>
+    </view>
+  </scroll-view>
+
+  <!-- 编辑定时任务弹层（对齐 iOS ScheduledTaskEditSheet，large detent + 拖拽指示条） -->
+  <view wx:if="{{editingOpen}}" class="edit-mask" bindtap="onEditCancel"></view>
+  <view wx:if="{{editingOpen}}" class="edit-sheet">
+    <view class="edit-handle"></view>
+    <view class="edit-header">
+      <view class="edit-cancel tap" hover-class="btn-dim" bindtap="onEditCancel">取消</view>
+      <text class="edit-title">编辑定时任务</text>
+      <view class="edit-save tap {{editing.canSave && !editing.saving ? '' : 'disabled'}}" hover-class="btn-dim" bindtap="onEditSave">保存</view>
+    </view>
+
+    <scroll-view class="edit-body" scroll-y>
+      <view class="edit-form">
+        <!-- 标题 -->
+        <view class="edit-sec">
+          <text class="edit-label">标题</text>
+          <input
+            class="edit-input"
+            placeholder="任务标题"
+            placeholder-class="edit-ph"
+            value="{{editing.title}}"
+            maxlength="120"
+            bindinput="onTitleInput"
+          />
+          <text class="edit-caption">最多 120 个字</text>
+        </view>
+
+        <!-- 任务内容 -->
+        <view class="edit-sec">
+          <text class="edit-label">任务内容</text>
+          <textarea
+            class="edit-textarea"
+            placeholder="任务提示词"
+            placeholder-class="edit-ph"
+            value="{{editing.prompt}}"
+            maxlength="-1"
+            bindinput="onPromptInput"
+          />
+        </view>
+
+        <!-- 执行时间 -->
+        <view class="edit-sec">
+          <text class="edit-label">执行时间</text>
+          <view wx:if="{{editing.isRepeating}}" class="edit-switch-row">
+            <text class="edit-switch-label">改为指定日期执行一次</text>
+            <switch checked="{{editing.useSpecificDate}}" color="#0882F7" bindchange="onSpecificChange"/>
+          </view>
+
+          <block wx:if="{{editing.useSpecificDate}}">
+            <picker mode="date" start="{{editing.today}}" value="{{editing.date}}" bindchange="onDatePick">
+              <view class="edit-picker tap">
+                <text class="edit-picker-label">执行日期</text>
+                <text class="edit-picker-value">{{editing.date}}</text>
+              </view>
+            </picker>
+            <picker mode="time" value="{{editing.time}}" bindchange="onTimePick">
+              <view class="edit-picker tap">
+                <text class="edit-picker-label">执行时刻</text>
+                <text class="edit-picker-value">{{editing.time}}</text>
+              </view>
+            </picker>
+            <text class="edit-caption">按当前设备时区 {{editing.zone}} 选择，保存后按该时间执行一次。</text>
+            <text wx:if="{{editing.pastWarning}}" class="edit-warning">请选择未来的日期和时间。</text>
+          </block>
+
+          <block wx:elif="{{editing.isRepeating}}">
+            <picker mode="time" value="{{editing.time}}" bindchange="onTimePick">
+              <view class="edit-picker tap">
+                <text class="edit-picker-label">执行时刻</text>
+                <text class="edit-picker-value">{{editing.time}}</text>
+              </view>
+            </picker>
+            <text class="edit-caption">保留原有{{editing.kindLabel}}规则和时区 {{editing.zone}}。</text>
+          </block>
+
+          <block wx:else>
+            <text class="edit-hint">当前规则：{{editing.ruleFull}}。选择上方选项后，可用日期和时间选择器改为单次执行。</text>
+          </block>
+        </view>
+
+        <text wx:if="{{editing.error}}" class="edit-error">{{editing.error}}</text>
+        <view wx:if="{{editing.saving}}" class="edit-saving">
+          <view class="sched-spinner small"></view>
+          <text>正在保存…</text>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+</view>

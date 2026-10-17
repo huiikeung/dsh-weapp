@@ -1,0 +1,19 @@
+<view class="page privacy">
+  <!-- 对齐 dsh-mobile PrivacyPolicySheet：WebView 加载，失败态提供重试 -->
+  <web-view
+    wx:if="{{!loadFailed}}"
+    src="{{url}}"
+    binderror="onWebViewError"
+    bindload="onWebViewLoad"
+  />
+  <view wx:if="{{loadFailed}}" class="privacy-fallback">
+    <image class="privacy-fallback-ic" src="/assets/icons/sched-offline-gray.png"/>
+    <text class="privacy-fallback-title">无法打开隐私政策</text>
+    <text class="privacy-fallback-url text-mono">{{url}}</text>
+    <view class="privacy-actions">
+      <view class="privacy-btn privacy-btn-primary tap" bindtap="copyLink">复制链接</view>
+      <view class="privacy-btn tap" bindtap="retry">重试</view>
+    </view>
+    <text class="privacy-fallback-hint">小程序内嵌网页仅支持已配置的业务域名；可复制链接在浏览器中打开。</text>
+  </view>
+</view>

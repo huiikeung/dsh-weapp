@@ -44,8 +44,15 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 | HumanQuestionView | `pages/session` 提问卡片 | 单选/多选/自定义文本、提交/取消 |
 | ApprovalRequestView | `pages/session` 审批卡片 | 允许一次 / 拒绝 |
 | Composer 输入面板 | 同页 | 权限、模型、思考等级芯片、图片附件、发送、停止回合 |
-| SettingsView | `pages/settings` | Agent 预设、默认模型、权限默认值、Gateway 状态/Ping/断开/忘记设备、DSH Host 信息 |
+| SettingsView | `pages/settings` | Agent 预设、默认模型、权限默认值、Gateway 状态/Ping/断开/忘记设备、DSH Host 信息、关于（隐私政策） |
 | SessionStats | 同页「··· → 查看统计」 | 轮次/步骤/耗时/Tokens |
+| WorkspaceView 侧边栏 drawer | `pages/home`（品牌 logo 点击/右滑唤出） | 品牌字标 + 插件 / 定时任务入口，主内容右移圆角 + 压暗，抽屉内拖拽关闭 |
+| ScheduledTasksView 定时任务 | `pages/schedule` | schedule-catalog 目录、卡片左滑编辑/删除、展开详情、编辑弹层（标题/内容/执行时间）、删除确认、下拉刷新 |
+| PluginsView 插件管理 | `pages/plugins` + `pages/plugin-detail` | plugin-catalog 目录（官方/已安装分组）、bundle 启用开关（停用移动网关需确认）、实验性徽标、官方配置项详情、组件条目开关与半屏组件详情、plugins-changed 自动刷新 |
+| WorkspaceDrawerDestination 插件 | 已升级为真实插件管理页 | （v1.7.x 前为占位页，现对齐 PluginsView） |
+| PrivacyPolicySheet 隐私政策 | `pages/privacy` | web-view 加载在线政策，失败回退（复制链接/重试） |
+| （iOS 无对应）微信分享 | 全部页面（`utils/share.js` 全局注入） | 每个页面支持「转发给朋友」（onShareAppMessage）与「分享到朋友圈」（onShareTimeline），按页面给出中文文案；依赖页面参数的深页（插件详情/文件）转发落地首页。注意：朋友圈入口仅真机可用（开发者工具不显示），对方以单页模式打开 |
+| （对齐 v1.7.2 视觉） | `pages/home` + `theme.js` | 首页对齐 iOS v1.7.2：深海背景（navy + 流体辉光 + 84rpx 技术网格渐隐 + 鲸鱼 screen 混合 + 底部压暗 clear→navy12%→black58%）、玻璃卡片（white 5.5%/6%/8% 填充 + white 14%/10% 描边 + 15pt 圆角）、按压反馈（scale 0.96 + 变暗）、字号/间距/分隔线按 WorkspaceView 度量；除首页外所有页面背景纯白（浅色）/纯黑（深色） |
 
 ## 协议覆盖
 
@@ -55,15 +62,24 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 `attachment` `subscribe`/`unsubscribe` `session-archive` `session-rename`
 `session-cancel` `message` `question-answer` `question-cancel`
 `approval-response` `session-create` `agent-presets` `defaults`
-`default-model` `save-default-model` `set-default`。
+`default-model` `save-default-model` `set-default`
+`schedule-catalog` `schedule-update` `schedule-delete`
+`plugin-catalog` `plugin-bundle-set-enabled` `plugin-entry-set-enabled`。
 
 响应/事件：`paired` `hello` `pong` `subscribed` `sent` `event` `history`
 `session-snapshot` `session-stream-reset` `workspaces` `sessions` `search`
 `host` `models` `permission*` `session-stats` `context-usage`
-`question-*` `approval-*` `session-created` `attachment` `error` 等，
+`question-*` `approval-*` `session-created` `attachment` `error`
+`schedule-catalog`（items 任务目录）`schedule-changed`（变更推送，在途时
+排队补拉）`schedule-update`（updated）`schedule-delete`（deleted）
+`plugin-catalog`（bundles/plugins/officialItems，官方与已安装分组在本地
+完成）`plugins-changed`（插件页访问过时自动刷新）
+`plugin-bundle-set-enabled` / `plugin-entry-set-enabled`
+（result.application：applied / restart-required / overridden）等，
 事件归一化规则（`user/message`、`assistant/chunk`、`assistant/message`、
 `tool/call`、`tool/result` …）与 `shared/protocol` 的
-`RawSessionEvent.normalizedEvent` 一致。
+`RawSessionEvent.normalizedEvent` 一致。定时任务变更错误按 code 本地化
+（`schedule_conflict` / `schedule_ended` / `schedule_not_found`）。
 
 ## 目录结构
 
@@ -71,22 +87,30 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 weapp/
 ├── app.js / app.json / app.wxss     # 入口、页面注册、设计 token + 深海背景组件
 ├── project.config.json              # 开发者工具工程配置
-├── assets/icons/                    # 71 个 PNG：SF Symbols 重建图标 + 品牌标 + 背景素材
-│                                    #   （bg-grid 网格瓦片 / bg-whale 粒子鲸鱼定格）
+├── assets/icons/                    # 90 个 PNG：SF Symbols 重建图标 + 品牌标 + 背景素材
+│                                    #   （bg-grid 网格瓦片 / bg-whale 粒子鲸鱼定格 /
+│                                    #    wordmark 品牌字标 / pinwheel 插件风车）
 ├── utils/
 │   ├── gateway.js                   # WebSocket 客户端（握手/重连/探测/请求关联）
 │   ├── hosts.js                     # 主机档案模型与地址/身份校验（MultiGatewayStore 对齐）
 │   ├── protocol.js                  # 事件归一化 + 对话/轨迹投影
 │   ├── store.js                     # 全局状态仓库与订阅
+│   ├── schedule.js                  # 定时任务模型与规则/时间格式化（ScheduledTaskFormat 对齐）
+│   ├── plugins.js                   # 插件目录模型（MobilePluginCatalog/Bundle/Entry 对齐）
+│   ├── share.js                     # 全局转发/朋友圈分享（包装 Page 注入全部页面）
 │   ├── pairing.js                   # 配对载荷解析（Base64URL + 校验）
 │   ├── markdown.js                  # 轻量 Markdown 块解析
 │   ├── labels.js                    # 预设/权限/思考等级文案（对齐 L10n.swift）
 │   └── util.js                      # 时间、Base64URL、JSON 展示工具
 └── pages/
     ├── pairing/                     # 设备配对
-    ├── home/                        # 工作区首页
+    ├── home/                        # 工作区首页（含侧边栏 drawer）
     ├── workspace-picker/            # 切换工作区
     ├── session/                     # 对话 + 轨迹 + 交互卡片 + 输入面板
+    ├── schedule/                    # 定时任务（左滑卡片 + 编辑弹层）
+    ├── plugins/                      # 插件管理（官方/已安装 + 启用开关）
+    ├── plugin-detail/                # 插件详情（组件列表 + 半屏组件详情）
+    ├── privacy/                     # 隐私政策 web-view
     ├── settings/                    # 设置
     └── files/                       # 工作区目录浏览/创建
 ```
@@ -122,6 +146,18 @@ weapp/
   编辑模式支持多选删除（不删除网关上的会话/工作区）。
 
 ## 与 iOS 的平台差异
+
+### 插件页排障
+
+进入「插件」页若显示错误态，按提示对照处理：
+
+| 提示 | 原因 | 处理 |
+| --- | --- | --- |
+| 当前网关插件版本不支持插件管理，请升级… | 网关插件 < 2025-09-30 构建 | 升级 `dsh-plugin-mobile-gateway`（≥ 0.9） |
+| 插件管理需要已配对设备 | 中继 connector 未持有网关凭据 | 按 `relay/README-relay.md` 重新扫码配对一次（connector 会保存 token） |
+| 当前 Host 不支持插件管理 | DSH Host < 0.2.0 | 升级 DSH Host |
+| 插件目录请求超时 | 帧未到达/未返回（中继掉线等） | 看小程序 Console 的 `[plugins]` 日志；重进页面重试 |
+| 其他英文报错 | 网关透传 DSH 错误 | 对照 DSH Host 日志 |
 
 - 小程序无后台长连接保活：退到后台由微信管理 WebSocket，回前台自动重连
   （iOS 使用系统后台执行时间管理活动任务）。

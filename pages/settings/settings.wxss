@@ -47,4 +47,252 @@
   line-height: 1.5;
 }
 
+.node-group-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.node-count {
+  display: flex;
+  align-items: center;
+  color: var(--text-2);
+  font-size: 24rpx;
+  font-weight: 400;
+}
+
+.node-count .chevron-img {
+  width: 26rpx;
+  height: 26rpx;
+  opacity: 0.9;
+}
+
+.node-count-active,
+.node-add-active {
+  opacity: 0.65;
+}
+
+.node-empty {
+  display: flex;
+  flex-direction: column;
+  padding: 30rpx 32rpx;
+}
+
+.node-empty-title {
+  color: var(--text);
+  font-size: 28rpx;
+  font-weight: 600;
+}
+
+.node-empty-desc {
+  margin-top: 4rpx;
+  color: var(--text-2);
+  font-size: 24rpx;
+  line-height: 1.45;
+}
+
+.node-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 22rpx 32rpx;
+  min-height: 104rpx;
+  border-top: 1rpx solid var(--divider);
+}
+
+.node-row-active {
+  background: var(--fill);
+}
+
+.node-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.node-name-line {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.node-name-line .status-dot {
+  flex-shrink: 0;
+}
+
+.node-name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 28rpx;
+  font-weight: 550;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-current {
+  flex-shrink: 0;
+  margin-left: 12rpx;
+  padding: 2rpx 10rpx;
+  border-radius: 8rpx;
+  background: rgba(46, 107, 230, 0.10);
+  color: var(--ocean);
+  font-size: 21rpx;
+}
+
+.node-id {
+  display: block;
+  max-width: 100%;
+  margin: 4rpx 0 0 26rpx;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: 20rpx;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.node-actions {
+  display: flex;
+  flex-shrink: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4rpx;
+}
+
+.node-status {
+  color: var(--text-2);
+  font-size: 22rpx;
+}
+
+.node-copy {
+  color: var(--ocean);
+  font-size: 22rpx;
+}
+
+.node-add-row {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 32rpx;
+  min-height: 88rpx;
+  border-top: 1rpx solid var(--divider);
+}
+
+.node-add-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34rpx;
+  height: 34rpx;
+  margin-right: 16rpx;
+  border-radius: 50%;
+  background: rgba(46, 107, 230, 0.12);
+  color: var(--ocean);
+  font-size: 30rpx;
+  line-height: 1;
+}
+
+.node-add-label {
+  flex: 1;
+  color: var(--ocean);
+  font-size: 28rpx;
+}
+
+.pair-sheet-mask {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.pair-sheet {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10rpx 40rpx calc(32rpx + env(safe-area-inset-bottom));
+  border-radius: 32rpx 32rpx 0 0;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.pair-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin: 16rpx 0 24rpx;
+}
+
+.pair-sheet-head > view {
+  display: flex;
+  flex-direction: column;
+}
+
+.pair-sheet-title {
+  color: var(--text);
+  font-size: 34rpx;
+  font-weight: 650;
+}
+
+.pair-sheet-subtitle {
+  margin-top: 4rpx;
+  color: var(--text-2);
+  font-size: 23rpx;
+}
+
+.pair-sheet-close {
+  padding: 8rpx 0 8rpx 20rpx;
+  color: var(--text-2);
+  font-size: 25rpx;
+}
+
+.pair-payload-input {
+  width: 100%;
+  height: 240rpx;
+  box-sizing: border-box;
+  padding: 20rpx 22rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 16rpx;
+  background: var(--fill);
+  color: var(--text);
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 23rpx;
+  line-height: 1.45;
+}
+
+.pair-payload-placeholder {
+  color: var(--text-4);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+}
+
+.pair-result {
+  display: block;
+  min-height: 34rpx;
+  margin-top: 12rpx;
+  color: #D14343;
+  font-size: 23rpx;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.pair-result-pending {
+  color: var(--text-2);
+}
+
+.pair-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88rpx;
+  margin-top: 14rpx;
+  border-radius: 16rpx;
+  background: var(--ocean);
+  color: #FFFFFF;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.pair-submit-disabled {
+  opacity: 0.45;
+}
+
 /* 双主题：基础样式已全部变量化（app.wxss / 上方规则），无需 page-dark 覆盖 */

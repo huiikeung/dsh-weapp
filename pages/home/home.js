@@ -1,4 +1,5 @@
 const store = require('../../utils/store');
+const theme = require('../../utils/theme');
 const util = require('../../utils/util');
 const labels = require('../../utils/labels');
 const hostsLib = require('../../utils/hosts');
@@ -14,6 +15,7 @@ Page({
   data: {
     pairMenuVisible: false,
     manualSheetOpen: false,
+    manualSheetExpanded: false,
     pairingText: '',
     pairingResult: '',
     pairingResultClass: '',
@@ -36,6 +38,7 @@ Page({
     hostOnline: false,
     hostRows: [],
     hostSheetOpen: false,
+    hostSheetExpanded: false,
     hostEditMode: false,
     hostSelection: [],
     hostEditOpen: false,
@@ -44,18 +47,89 @@ Page({
     editAlias: '',
     editKind: 'desktopcomputer',
     workspacePickerOpen: false,
+    sheetTheme: 'dark',
+    workspacePickerExpanded: false,
     pickerWorkspaces: [],
-    currentWorkspaceId: ''
+    currentWorkspaceId: '',
+    homeDataHint: '',
+    emptySessionsText: '暂无已知会话。连接服务后创建第一个任务。',
+    // 侧边栏（对齐 dsh-mobile WorkspaceView drawer）
+    drawerOpen: false,
+    drawerDragging: false,
+    drawerAnim: true,
+    drawerW: 280,
+    drawerX: -280,
+    contentX: 0,
+    maskOpacity: 0,
+    contentShifted: false
   },
 
   onLoad() {
+    // 抽屉宽度：min(屏宽 × 0.76, 360pt)（对齐 iOS drawerWidth）
+    try {
+      const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+      this.drawerW = Math.min(Math.round((info.windowWidth || 375) * 0.76), 360);
+      this.statusBarH = info.statusBarHeight || 44;
+      // 系统外观：抽屉打开时据此切换状态栏字色（浅色模式抽屉为白底）
+      try {
+        const sys = typeof wx.getAppBaseInfo === 'function' ? wx.getAppBaseInfo() : wx.getSystemInfoSync();
+        this.systemTheme = sys.theme || 'light';
+      } catch (e2) {
+        this.systemTheme = 'light';
+      }
+    } catch (e) {
+      this.drawerW = 280;
+      this.statusBarH = 44;
+      this.systemTheme = 'light';
+    }
+    // 胶囊按钮矩形：品牌行与其同行对齐。
+    // 底条上下各多铺 6px：滚动内容不会从胶囊行缝隙里透出。
+    let rect = null;
+    try {
+      rect = typeof wx.getMenuButtonBoundingClientRect === 'function'
+        ? wx.getMenuButtonBoundingClientRect() : null;
+    } catch (e2) { rect = null; }
+    const capTop = rect && rect.top ? rect.top : this.statusBarH + 4;
+    const capH = rect && rect.height ? rect.height : 32;
+    this.topbarTop = Math.max(capTop - 6, 0);
+    this.topbarH = capH + 12;
+    // 抽屉字标（48rpx = 24px 高）与首页品牌行/胶囊垂直居中对齐
+    this.drawerTopPad = Math.max(capTop + Math.max((capH - 24) / 2, 0), 8);
+    this.setData({
+      drawerW: this.drawerW,
+      drawerX: -this.drawerW,
+      // 自定义导航：topbar 提升到与右上角胶囊同一行（导航区内），
+      // 内容从 topbar 下方开始滚动。
+      topbarTop: this.topbarTop,
+      topbarHeight: this.topbarH,
+      homePadTop: this.topbarTop + this.topbarH + 14,
+      drawerTopPad: this.drawerTopPad
+    });
     this.unsubscribe = store.subscribe((snapshot) => {
       this.syncFromStore(snapshot);
     });
     this.syncFromStore({ app: store.state, session: store.sessionState });
+    // 弹窗主题：跟随系统外观（浅色弹窗 / 深色弹窗），首页背景保持深海
+    this.applySheetTheme();
+    if (typeof wx.onThemeChange === 'function' && !getApp()._homeThemeWatched) {
+      const app = getApp();
+      app._homeThemeWatched = true;
+      wx.onThemeChange(() => {
+        const pages = getCurrentPages();
+        pages.forEach((p) => {
+          if (p && typeof p.applySheetTheme === 'function') p.applySheetTheme();
+        });
+      });
+    }
+  },
+
+  applySheetTheme() {
+    this.setData({ sheetTheme: theme.resolveTheme() });
   },
 
   onShow() {
+    // 从设置页返回时同步外观模式（手动浅色/深色切换不走 onThemeChange）
+    this.applySheetTheme();
     // 从配对页跳回时刷新一次列表
     if (store.state.connection === 'connected') {
       store.client.requestWorkspaces();
@@ -73,25 +147,32 @@ Page({
   syncFromStore(snapshot) {
     const app = snapshot.app;
     const conn = app.connection;
-    // 对齐 dsh-mobile workspaceScopedSessions：选中工作区优先，否则回退第一个
+    // 对齐 dsh-mobile WorkspaceView.displayedSessions：
+    // 先限定历史可见性和归档状态，再按工作区归属筛选，最后应用搜索结果。
     const workspaces = app.workspaces || [];
-    const current = workspaces.find((w) => w.workspaceId === app.currentWorkspaceId) || workspaces[0] || null;
-    const query = app.searchQuery;
-    const source = query && app.searchResults
-      ? app.searchResults.map((item) => {
-          const base = (app.sessions || []).find((s) => s.sessionId === item.sessionId) || {};
-          return Object.assign({}, base, {
-            sessionId: item.sessionId,
-            snippet: item.snippet,
-            searchIcon: item.kind === 'tool' ? 'wrench-orange' : 'bubble-gray'
-          });
-        })
-      : app.sessions || [];
+    const rawSessions = app.sessions || [];
+    const archivedIds = new Set(app.archivedSessionIds || []);
+    const visibleSessions = rawSessions.filter((s) => (
+      s.hasConversation !== false && !s.blank && !archivedIds.has(s.sessionId)
+    ));
+    const current = workspaces.find((w) => w.workspaceId === app.currentWorkspaceId)
+      || workspaces[0]
+      || null;
+    let scopedSource;
+    if (current) {
+      const workspaceIds = new Set(current.sessionIds || []);
+      scopedSource = visibleSessions.filter((s) => workspaceIds.has(s.sessionId));
+    } else {
+      scopedSource = visibleSessions;
+    }
 
-    // 工作区声明了 sessionIds 时按其过滤；未声明（旧网关）则保持全量展示
-    let scopedSource = source;
-    if (current && Array.isArray(current.sessionIds)) {
-      scopedSource = source.filter((s) => current.sessionIds.indexOf(s.sessionId) >= 0);
+    const query = String(app.searchQuery || '').trim();
+    if (query) {
+      const resultIds = new Set((app.searchResults || []).map((item) => item.sessionId));
+      const queryLower = query.toLowerCase();
+      scopedSource = scopedSource.filter((s) => (
+        resultIds.has(s.sessionId) || String(s.title || '').toLowerCase().indexOf(queryLower) >= 0
+      ));
     }
 
     const displaySessions = scopedSource
@@ -100,23 +181,45 @@ Page({
         sessionId: s.sessionId,
         updatedAt: s.updatedAt || 0,
         running: s.running,
+        hasUnread: s.hasUnread,
         agentPreset: s.agentPreset,
-        displayTitle: s.title || s.snippet || util.sessionIdLabel(s.sessionId),
-        idLabel: util.sessionIdLabel(s.sessionId),
-        cwd: s.cwd ? shortPath(s.cwd) : '',
+        displayTitle: s.title || util.sessionIdLabel(s.sessionId),
+        idLabel: String(s.sessionId || '').slice(0, 16),
         timeLabel: util.formatRelativeTime(s.updatedAt)
       }))
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .slice(0, 12);
+
+    const usingCachedHome = !!(
+      (app.lastSessionsFrame && app.lastSessionsFrame.cached) ||
+      (app.lastWorkspacesFrame && app.lastWorkspacesFrame.cached)
+    );
+    const hostCompatibilityError = !!app.coreCompatibilityError;
+    const currentWorkspace = current ? {
+      title: current.title,
+      path: current.path || '通过 Mobile Gateway 连接',
+      workspaceId: current.workspaceId,
+      ungrouped: false
+    } : {
+      title: 'DeepseekHarnessProject',
+      path: '通过 Mobile Gateway 连接',
+      workspaceId: '',
+      ungrouped: false
+    };
 
     this.setData({
-      currentWorkspace: current ? {
-        title: current.title,
-        path: shortPath(current.path),
-        workspaceId: current.workspaceId
-      } : {},
+      currentWorkspace: currentWorkspace,
       displaySessions: displaySessions,
-      connectionLabel: CONNECTION_LABELS[conn] || conn,
-      connectionClass: conn
+      connectionLabel: hostCompatibilityError ? '服务异常' : (CONNECTION_LABELS[conn] || conn),
+      connectionClass: hostCompatibilityError ? 'failed' : conn,
+      homeDataHint: hostCompatibilityError
+        ? 'NAS 端 Mobile Gateway 与 DSH 版本不兼容，请升级服务端后重试'
+        : (usingCachedHome ? '正在显示上次成功加载的数据' : ''),
+      emptySessionsText: query
+        ? '没有找到匹配的会话。'
+        : (hostCompatibilityError
+          ? '主机已连接，但服务端读取工作区和会话失败。请升级 NAS 上的 Mobile Gateway 与 DSH。'
+          : '暂无已知会话。连接服务后创建第一个任务。')
     });
     // 手动配对弹窗：连接成功后自动收起（对齐 dsh-mobile 配对完成反馈）
     if (this.data.manualSheetOpen && conn === 'connected' && this.data.pairingConnecting) {
@@ -167,7 +270,7 @@ Page({
   },
 
   openHostSwitcher() {
-    this.setData({ hostSheetOpen: true, hostEditMode: false, hostSelection: [] });
+    this.setData({ hostSheetOpen: true, hostSheetExpanded: false, hostEditMode: false, hostSelection: [] });
     this.syncHostUI(store.state);
     store.refreshHostPresence();
     this.stopHostProbeTimer();
@@ -181,10 +284,37 @@ Page({
     store.stopHostProbes();
     this.setData({
       hostSheetOpen: false,
+      hostSheetExpanded: false,
       hostEditMode: false,
       hostSelection: [],
       hostEditOpen: false
     });
+  },
+
+  /* 抓手拖拽/点击：上滑或点按展开到近全屏，下滑或再次点按收回紧凑 */
+  onHostSheetGrabStart(e) {
+    this._hostGrab = { y: e.touches[0].clientY, moved: false, base: this.data.hostSheetExpanded, applied: null };
+  },
+
+  onHostSheetGrabMove(e) {
+    const g = this._hostGrab;
+    if (!g) return;
+    const dy = e.touches[0].clientY - g.y;
+    if (Math.abs(dy) < 24) return;
+    const expand = dy < 0;
+    if (g.applied !== expand) {
+      g.applied = expand;
+      g.moved = true;
+      this.setData({ hostSheetExpanded: expand });
+    }
+  },
+
+  onHostSheetGrabEnd() {
+    const g = this._hostGrab;
+    this._hostGrab = null;
+    if (g && !g.moved) {
+      this.setData({ hostSheetExpanded: !g.base });
+    }
   },
 
   stopHostProbeTimer() {
@@ -274,15 +404,50 @@ Page({
   },
 
   openWorkspacePicker() {
+    const st = store.state;
+    const workspaces = st.workspaces || [];
+    const rows = workspaces.map((w) => ({
+      workspaceId: w.workspaceId,
+      title: w.title || '工作区',
+      path: w.path || (((w.sessionIds || []).length) + ' 个会话'),
+      ungrouped: false
+    }));
     this.setData({
       workspacePickerOpen: true,
-      pickerWorkspaces: store.state.workspaces || [],
-      currentWorkspaceId: store.state.currentWorkspaceId || ''
+      workspacePickerExpanded: false,
+      pickerWorkspaces: rows,
+      currentWorkspaceId: st.currentWorkspaceId || ''
     });
   },
 
   closeWorkspacePicker() {
-    this.setData({ workspacePickerOpen: false });
+    this.setData({ workspacePickerOpen: false, workspacePickerExpanded: false });
+  },
+
+  /* 工作区弹窗抓手：同主机弹窗（拖拽/点击切换紧凑与近全屏） */
+  onPickerSheetGrabStart(e) {
+    this._pickerGrab = { y: e.touches[0].clientY, moved: false, base: this.data.workspacePickerExpanded, applied: null };
+  },
+
+  onPickerSheetGrabMove(e) {
+    const g = this._pickerGrab;
+    if (!g) return;
+    const dy = e.touches[0].clientY - g.y;
+    if (Math.abs(dy) < 24) return;
+    const expand = dy < 0;
+    if (g.applied !== expand) {
+      g.applied = expand;
+      g.moved = true;
+      this.setData({ workspacePickerExpanded: expand });
+    }
+  },
+
+  onPickerSheetGrabEnd() {
+    const g = this._pickerGrab;
+    this._pickerGrab = null;
+    if (g && !g.moved) {
+      this.setData({ workspacePickerExpanded: !g.base });
+    }
   },
 
   selectWorkspace(e) {
@@ -304,7 +469,7 @@ Page({
 
   browseDirs(path) {
     if (store.state.connection !== 'connected') {
-      this.setData({ dirLoading: false, dirError: '请先连接 DeepSeek Harness' });
+      this.setData({ dirLoading: false, dirError: '请先连接驭鲸 Harness' });
       return;
     }
     this.setData({ dirLoading: true, dirError: '' });
@@ -395,22 +560,21 @@ Page({
       wx.showToast({ title: '请先连接 Gateway', icon: 'none' });
       return;
     }
-    wx.showLoading({ title: '创建会话…' });
-    store.createAndOpenSession(store.state.currentWorkspaceId)
-      .then(() => {
-        wx.hideLoading();
-        wx.navigateTo({ url: '/pages/session/session' });
-      })
-      .catch((err) => {
-        wx.hideLoading();
-        wx.showToast({ title: err.message || '创建失败', icon: 'none' });
-      });
+    // 乐观创建：先进入会话页，后台创建结果由会话页呈现
+    const workspaceId = this.data.currentWorkspace.workspaceId || store.state.currentWorkspaceId;
+    const creation = store.createAndOpenSession(workspaceId);
+    wx.navigateTo({ url: '/pages/session/session' });
+    creation.catch(() => {}); // 失败状态已写入 store，由会话页显示重试入口
   },
 
   openSession(e) {
     const { id, title, preset } = e.currentTarget.dataset;
+    if (!id) {
+      wx.showToast({ title: '会话 ID 不可用', icon: 'none' });
+      return;
+    }
     store.openSession(id, title, preset);
-    wx.navigateTo({ url: '/pages/session/session' });
+    wx.navigateTo({ url: '/pages/session/session?id=' + encodeURIComponent(id) });
   },
 
   sessionActions(e) {
@@ -486,11 +650,37 @@ Page({
   },
 
   pairByManual() {
-    this.setData({ pairMenuVisible: false, manualSheetOpen: true, pairingText: '', pairingResult: '', pairingResultClass: '', pairingConnecting: false });
+    this.setData({ pairMenuVisible: false, manualSheetOpen: true, manualSheetExpanded: false, pairingText: '', pairingResult: '', pairingResultClass: '', pairingConnecting: false });
   },
 
   closeManualSheet() {
-    this.setData({ manualSheetOpen: false });
+    this.setData({ manualSheetOpen: false, manualSheetExpanded: false });
+  },
+
+  /* 手动配对弹层抓手：上滑/点按展开到顶栏之下，下滑/再点收回紧凑 */
+  onManualSheetGrabStart(e) {
+    this._manualGrab = { y: e.touches[0].clientY, moved: false, base: this.data.manualSheetExpanded, applied: null };
+  },
+
+  onManualSheetGrabMove(e) {
+    const g = this._manualGrab;
+    if (!g) return;
+    const dy = e.touches[0].clientY - g.y;
+    if (Math.abs(dy) < 24) return;
+    const expand = dy < 0;
+    if (g.applied !== expand) {
+      g.applied = expand;
+      g.moved = true;
+      this.setData({ manualSheetExpanded: expand });
+    }
+  },
+
+  onManualSheetGrabEnd() {
+    const g = this._manualGrab;
+    this._manualGrab = null;
+    if (g && !g.moved) {
+      this.setData({ manualSheetExpanded: !g.base });
+    }
   },
 
   onPairingTextInput(e) {
@@ -511,6 +701,116 @@ Page({
 
   openSettings() {
     wx.navigateTo({ url: '/pages/settings/settings' });
+  },
+
+  // ---------- 侧边栏（对齐 dsh-mobile WorkspaceView drawer 交互） ----------
+
+  applyDrawer(progress) {
+    const w = this.drawerW;
+    this.setData({
+      drawerOpen: progress > 0.5,
+      drawerX: -w + w * progress,
+      contentX: w * progress,
+      maskOpacity: 0.16 * progress,
+      contentShifted: progress > 0.02
+    });
+    // 状态栏字色跟随抽屉底色：浅色模式抽屉为白底 → 黑字；其余白字（navy/深色底）。
+    // 拖拽按帧触发，只在开/合状态切换时调用一次。
+    const open = progress > 0.5;
+    if (this.statusBarFront !== open && typeof wx.setNavigationBarColor === 'function') {
+      this.statusBarFront = open;
+      const darkChrome = this.systemTheme === 'dark' || open;
+      try {
+        wx.setNavigationBarColor({
+          frontColor: darkChrome ? '#ffffff' : '#000000',
+          backgroundColor: open && this.systemTheme !== 'dark' ? '#ffffff' : '#07182B',
+          fail: function () { /* 部分环境不支持，忽略 */ }
+        });
+      } catch (e) { /* 忽略 */ }
+    }
+  },
+
+  openDrawer() {
+    if (this.data.drawerOpen) return;
+    this.setData({ pairMenuVisible: false });
+    this.applyDrawer(1);
+  },
+
+  closeDrawer() {
+    if (!this.data.drawerOpen && !this.data.drawerDragging) return;
+    this.setData({ drawerDragging: false });
+    this.applyDrawer(0);
+  },
+
+  noop() {},
+
+  /** 内容区右滑打开（iOS DrawerGesture：水平位移显著时触发）。 */
+  onContentTouchStart(e) {
+    const t = e.touches && e.touches[0];
+    this.contentGesture = t ? { x: t.clientX, y: t.clientY } : null;
+  },
+
+  onContentTouchEnd(e) {
+    const start = this.contentGesture;
+    this.contentGesture = null;
+    if (!start || this.data.drawerOpen) return;
+    const t = e.changedTouches && e.changedTouches[0];
+    if (!t) return;
+    const dx = t.clientX - start.x;
+    const dy = t.clientY - start.y;
+    if (dx > 60 && Math.abs(dx) > Math.abs(dy) * 1.2) {
+      this.openDrawer();
+    }
+  },
+
+  /** 抽屉上拖拽关闭（iOS drawerDrag）。 */
+  onDrawerTouchStart(e) {
+    const t = e.touches && e.touches[0];
+    this.drawerGesture = t ? { x: t.clientX, y: t.clientY, moved: false } : null;
+  },
+
+  onDrawerTouchMove(e) {
+    const g = this.drawerGesture;
+    if (!g) return;
+    const t = e.touches && e.touches[0];
+    if (!t) return;
+    const dx = t.clientX - g.x;
+    const dy = t.clientY - g.y;
+    if (!g.moved) {
+      if (Math.abs(dx) < 8) return;
+      if (Math.abs(dx) < Math.abs(dy) * 1.2) { this.drawerGesture = null; return; }
+      g.moved = true;
+      this.setData({ drawerDragging: true, pairMenuVisible: false });
+    }
+    const progress = Math.min(1, Math.max(0, 1 + dx / this.drawerW));
+    this.applyDrawer(progress);
+  },
+
+  onDrawerTouchEnd() {
+    const g = this.drawerGesture;
+    this.drawerGesture = null;
+    if (!g || !g.moved) return;
+    // drawerX = -W + W·p → p = (drawerX + W) / W
+    const progress = (this.data.drawerX + this.drawerW) / this.drawerW;
+    this.setData({ drawerDragging: false });
+    this.applyDrawer(progress > 0.5 ? 1 : 0);
+  },
+
+  /** 抽屉项：跳转后无动画复位（对齐 iOS selectDrawerItem）。 */
+  resetDrawerInstant() {
+    this.setData({ drawerAnim: false });
+    this.applyDrawer(0);
+    setTimeout(() => this.setData({ drawerAnim: true }), 60);
+  },
+
+  openPlugins() {
+    this.resetDrawerInstant();
+    wx.navigateTo({ url: '/pages/plugins/plugins' });
+  },
+
+  openScheduledTasks() {
+    this.resetDrawerInstant();
+    wx.navigateTo({ url: '/pages/schedule/schedule' });
   }
 });
 

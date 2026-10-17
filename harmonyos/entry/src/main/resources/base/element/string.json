@@ -1,0 +1,15 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "DSH Mobile entry module" },
+    { "name": "ability_desc", "value": "DSH Mobile main ability" },
+    { "name": "app_name", "value": "DSH Mobile" },
+    { "name": "internet_reason", "value": "连接 Mobile Gateway 需要Internet 访问权限" },
+    { "name": "tab_conversation", "value": "会话" },
+    { "name": "tab_workspace", "value": "工作区" },
+    { "name": "tab_trajectory", "value": "轨迹" },
+    { "name": "tab_settings", "value": "设置" }
+  ],
+  "color": [
+    { "name": "start_window_background", "value": "#06172C" }
+  ]
+}

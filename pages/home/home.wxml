@@ -1,140 +1,209 @@
-<view class="page page-dark home">
-  <view class="deep-bg">
-    <view class="deep-grid"></view>
-    <image class="deep-whale" src="../../assets/icons/bg-whale.png" mode="aspectFit" />
-  </view>
-  <!-- 顶部栏：logo + 配对/设置 -->
-  <view class="topbar">
-    <view class="brand-row">
-      <image class="brand-whale" src="/assets/icons/whale-white.png" mode="aspectFit"/>
-      <view class="brand-text">deepseek</view>
-      <view class="brand-badge">HARNESS</view>
-    </view>
-    <view class="topbar-actions">
-      <view class="pair-wrap">
-        <view class="icon-btn glass-press" bindtap="togglePairMenu">
-          <image class="icon-img pair-ic" src="/assets/icons/ic-pair-auth.png"/>
-        </view>
-        <!-- 对齐 dsh-mobile GatewayAuthenticationMenu：点击弹出两个配对选项 -->
-        <view wx:if="{{pairMenuVisible}}" class="pair-menu">
-          <view class="pair-menu-item" hover-class="pair-menu-item-active" bindtap="pairByScan">
-            <image class="pair-menu-ic" src="/assets/icons/target-gray.png"/>
-            <text>扫描二维码</text>
-          </view>
-          <view class="pair-menu-item" hover-class="pair-menu-item-active" bindtap="pairByManual">
-            <image class="pair-menu-ic" src="/assets/icons/pencil-line-gray.png"/>
-            <text>手动输入配对信息</text>
-          </view>
-        </view>
+<view class="page page-dark home-root">
+  <!-- 侧边栏（对齐 dsh-mobile WorkspaceView drawerContent：品牌字标 + 插件 / 定时任务） -->
+  <view
+    class="drawer {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}} {{drawerOpen || drawerDragging ? 'drawer-visible' : ''}}"
+    style="width: {{drawerW}}px; transform: translateX({{drawerX}}px);"
+    catchtouchmove="onDrawerTouchMove"
+    bindtouchstart="onDrawerTouchStart"
+    bindtouchend="onDrawerTouchEnd"
+    bindtouchcancel="onDrawerTouchEnd"
+  >
+    <view class="drawer-body" style="padding-top: {{drawerTopPad}}px;">
+      <view class="drawer-brand">
+        <image class="drawer-wordmark drawer-wordmark-light" src="/assets/icons/wordmark-ink.png" mode="aspectFit"/>
+        <image class="drawer-wordmark drawer-wordmark-dark" src="/assets/icons/wordmark-white.png" mode="aspectFit"/>
       </view>
-      <view class="icon-btn glass-press" bindtap="openSettings">
-        <image class="icon-img" src="/assets/icons/nav-gear.png"/>
+      <view class="drawer-item" hover-class="drawer-item-active" bindtap="openPlugins">
+        <image class="drawer-item-ic" src="/assets/icons/pinwheel-ink.png"/>
+        <image class="drawer-item-ic drawer-item-ic-dark" src="/assets/icons/pinwheel-white.png"/>
+        <text class="drawer-item-text">插件</text>
+      </view>
+      <view class="drawer-item" hover-class="drawer-item-active" bindtap="openScheduledTasks">
+        <image class="drawer-item-ic drawer-item-ic-clock" src="/assets/icons/clock-dark.png"/>
+        <image class="drawer-item-ic drawer-item-ic-clock drawer-item-ic-dark" src="/assets/icons/clock-white.png"/>
+        <text class="drawer-item-text">定时任务</text>
       </view>
     </view>
   </view>
 
-  <!-- 配对菜单遮罩：点击空白处关闭 -->
-  <view wx:if="{{pairMenuVisible}}" class="pair-menu-mask" bindtap="closePairMenu"></view>
-
-  <!-- 切换主机（GatewaySwitcherBar 对齐） -->
-  <view class="host-bar glass-press" bindtap="openHostSwitcher">
-    <image class="host-kind" src="/assets/icons/{{hostKindIcon}}"/>
-    <view class="host-name">{{hostLabel}}</view>
-    <view class="host-dot {{hostOnline ? 'on' : ''}}"></view>
-    <image class="host-chev" src="/assets/icons/chev-down-white.png"/>
-  </view>
-
-  <view class="hero">
-    <view class="title-hero">探索未至之境</view>
-    <view class="subtitle-hero">DeepSeek Harness 预览版</view>
-  </view>
-
-  <!-- 工作区选择器 -->
-  <view class="workspace-card glass glass-press" bindtap="openWorkspacePicker">
-    <image class="ws-icon" src="/assets/icons/folder-blue.png"/>
-    <view class="ws-body">
-      <view class="ws-title">{{currentWorkspace.title || '未选择工作区'}}</view>
-      <view class="ws-path text-mono">{{currentWorkspace.path || '轻触以切换工作区'}}</view>
+  <!-- 主内容：抽屉打开时右移 + 圆角 + 阴影（对齐 iOS workspaceContent） -->
+  <view
+    class="home-content-wrap {{contentShifted ? 'shifted' : ''}} {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}}"
+    style="transform: translateX({{contentX}}px);"
+    bindtouchstart="onContentTouchStart"
+    bindtouchend="onContentTouchEnd"
+  >
+    <!-- 深海背景随内容一起位移（对齐 iOS DeepOceanBackground 在 workspaceContent 内） -->
+    <view class="deep-bg home-deep-bg">
+      <view class="deep-grid"></view>
+      <image class="deep-whale" src="/assets/icons/bg-whale.png" mode="aspectFit"/>
     </view>
-    <view class="ws-right">
-      <view class="status-dot connected"></view>
-      <image class="ws-chevron" src="/assets/icons/chev-down-white.png"/>
+
+    <!-- 顶部品牌行：与右上角胶囊同行（导航区内固定，不随内容滚动），左边距对齐内容区 -->
+    <view class="topbar" style="top: {{topbarTop}}px; height: {{topbarHeight}}px;">
+      <view class="brand-row tap" hover-class="brand-dim" bindtap="openDrawer">
+        <image class="brand-whale" src="/assets/icons/whale-white.png" mode="aspectFit"/>
+        <view class="brand-text">deepseek</view>
+        <view class="brand-badge">HARNESS</view>
+      </view>
     </view>
-  </view>
 
-  <!-- 新建会话 -->
-  <view class="new-session glass-press" bindtap="newSession">
-    <view class="plus-circle"><image class="plus-img" src="/assets/icons/plus-white.png"/></view>
-    <text class="new-session-text">新建会话</text>
-  </view>
+    <scroll-view class="home-scroll" scroll-y show-scrollbar="{{false}}">
+    <view class="home" style="padding-top: {{homePadTop}}px;">
 
-  <!-- 最近会话 -->
-  <view class="recent-header">
-    <view class="section-title">最近会话</view>
-    <view class="conn-label {{connectionClass}}">{{connectionLabel}}</view>
-  </view>
-
-  <view class="search-box glass">
-    <image class="search-icon" src="/assets/icons/search-white.png"/>
-    <input
-      class="search-input"
-      placeholder="搜索会话内容"
-      placeholder-class="field-placeholder"
-      value="{{searchQuery}}"
-      bindinput="onSearchInput"
-      confirm-type="search"
-    />
-  </view>
-
-  <view class="session-list">
-    <block wx:for="{{displaySessions}}" wx:key="sessionId">
+      <!-- 配对菜单遮罩：点击空白处关闭（留在 wrap 内保证与 pair-menu 同层叠上下文） -->
       <view
-        class="session-row glass-press"
-        bindtap="openSession"
-        data-id="{{item.sessionId}}"
-        data-title="{{item.displayTitle}}"
-        data-preset="{{item.agentPreset}}"
-        bindlongpress="sessionActions"
-        data-index="{{index}}"
-      >
-        <image wx:if="{{item.searchIcon}}" class="search-result-ic" src="/assets/icons/{{item.searchIcon}}"/>
-        <view class="session-dot {{item.running ? 'running' : ''}}"></view>
-        <view class="session-body">
-          <view class="session-title">{{item.displayTitle}}</view>
-          <view class="session-sub text-mono">{{item.idLabel}}{{item.cwd ? ' · ' + item.cwd : ''}}</view>
+        wx:if="{{pairMenuVisible}}"
+        class="pair-menu-mask"
+        catchtap="closePairMenu"
+        catchtouchmove="noop"
+      ></view>
+
+      <!-- 主机切换行：选择主机（左） + 配对/设置（右，与下文右边距对齐） -->
+      <view class="host-row">
+        <view class="host-bar glass-press" bindtap="openHostSwitcher">
+          <image class="host-kind" src="/assets/icons/{{hostKindIcon}}"/>
+          <view class="host-name">{{hostLabel}}</view>
+          <view class="host-dot {{hostOnline ? 'on' : ''}}"></view>
+          <image class="host-chev" src="/assets/icons/chev-down-white.png"/>
         </view>
-        <view class="session-time">{{item.timeLabel}}</view>
+        <view class="host-actions">
+          <view class="pair-wrap">
+            <view class="icon-btn glass-press" catchtap="togglePairMenu">
+              <image class="icon-img pair-ic" src="/assets/icons/ic-pair-auth.png"/>
+            </view>
+            <!-- 对齐 dsh-mobile GatewayAuthenticationMenu：点击弹出两个配对选项 -->
+            <view wx:if="{{pairMenuVisible}}" class="pair-menu">
+              <view class="pair-menu-item" hover-class="pair-menu-item-active" catchtap="pairByScan">
+                <image class="pair-menu-ic" src="/assets/icons/target-gray.png"/>
+                <text>扫描二维码</text>
+              </view>
+              <view class="pair-menu-item" hover-class="pair-menu-item-active" catchtap="pairByManual">
+                <image class="pair-menu-ic" src="/assets/icons/pencil-line-gray.png"/>
+                <text>手动输入配对信息</text>
+              </view>
+            </view>
+          </view>
+          <view class="icon-btn glass-press" catchtap="openSettings">
+            <image class="icon-img" src="/assets/icons/nav-gear.png"/>
+          </view>
+        </view>
       </view>
-    </block>
-    <view wx:if="{{!displaySessions.length}}" class="empty">暂无会话，点击「新建会话」开始</view>
+
+      <view class="hero">
+        <view class="title-hero">探索未至之境</view>
+        <view wx:if="{{connectionClass === 'connected'}}" class="subtitle-hero">已连接 DeepSeek Harness 预览版</view>
+      </view>
+
+      <!-- 工作区选择器 -->
+      <view class="workspace-card glass glass-press" bindtap="openWorkspacePicker">
+        <image class="ws-icon" src="/assets/icons/{{currentWorkspace.ungrouped ? 'tray-white.png' : 'folder-blue.png'}}"/>
+        <view class="ws-body">
+          <view class="ws-title">{{currentWorkspace.title || '未选择工作区'}}</view>
+          <view class="ws-path text-mono">{{currentWorkspace.path || '轻触以切换工作区'}}</view>
+        </view>
+        <view class="ws-right">
+          <view class="status-dot {{connectionClass}}"></view>
+          <image class="ws-chevron" src="/assets/icons/chev-down-white.png"/>
+        </view>
+      </view>
+
+      <!-- 新建会话 -->
+      <view class="new-session glass-press" bindtap="newSession">
+        <view class="plus-circle"><image class="plus-img" src="/assets/icons/plus-white.png"/></view>
+        <text class="new-session-text">新建会话</text>
+      </view>
+
+      <!-- 最近会话 -->
+      <view class="recent-header">
+        <view class="section-title">最近会话</view>
+        <view class="conn-label {{connectionClass}}">{{connectionLabel}}</view>
+      </view>
+
+      <view class="search-box glass">
+        <image class="search-icon" src="/assets/icons/search-white.png"/>
+        <input
+          class="search-input"
+          placeholder="搜索会话内容"
+          placeholder-class="field-placeholder"
+          value="{{searchQuery}}"
+          bindinput="onSearchInput"
+          confirm-type="search"
+        />
+      </view>
+
+      <view wx:if="{{homeDataHint}}" class="home-data-hint">{{homeDataHint}}</view>
+
+      <view class="session-list">
+        <block wx:for="{{displaySessions}}" wx:key="sessionId">
+          <view
+            class="session-row glass-press"
+            bindtap="openSession"
+            data-id="{{item.sessionId}}"
+            data-title="{{item.displayTitle}}"
+            data-preset="{{item.agentPreset}}"
+            bindlongpress="sessionActions"
+            data-index="{{index}}"
+          >
+            <image wx:if="{{item.searchIcon}}" class="search-result-ic" src="/assets/icons/{{item.searchIcon}}"/>
+            <view class="session-dot {{item.running ? 'running' : (item.hasUnread ? 'unread' : '')}}"></view>
+            <view class="session-body">
+              <view class="session-title">{{item.displayTitle}}</view>
+              <view class="session-sub text-mono">{{item.idLabel}}</view>
+            </view>
+            <view class="session-time {{item.running ? 'running' : ''}}">{{item.running ? '运行中' : item.timeLabel}}</view>
+          </view>
+        </block>
+        <view wx:if="{{!displaySessions.length}}" class="empty">{{emptySessionsText}}</view>
+      </view>
+    </view>
+    </scroll-view>
   </view>
+
+  <!-- 抽屉遮罩：压暗主内容，点击关闭（对齐 iOS dim + tap-to-close） -->
+  <view
+    wx:if="{{drawerOpen || drawerDragging}}"
+    class="drawer-mask {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}}"
+    style="opacity: {{maskOpacity}};"
+    catchtap="closeDrawer"
+    catchtouchmove="noop"
+  ></view>
 
   <!-- 切换主机 sheet（GatewaySwitcherSheet 对齐） -->
   <view wx:if="{{hostSheetOpen}}" class="host-mask" bindtap="closeHostSwitcher"></view>
-  <view wx:if="{{hostSheetOpen}}" class="host-sheet">
+  <view wx:if="{{hostSheetOpen}}" class="host-sheet {{hostSheetExpanded ? 'expanded' : ''}}">
+    <view class="sheet-grabber-zone"
+      catchtouchstart="onHostSheetGrabStart"
+      catchtouchmove="onHostSheetGrabMove"
+      catchtouchend="onHostSheetGrabEnd">
+      <view class="sheet-grabber"></view>
+    </view>
     <view class="host-sheet-head">
       <view class="host-sheet-title">切换主机</view>
-      <view class="host-sheet-actions">
+      <view class="host-sheet-left">
         <view wx:if="{{hostEditMode && hostSelection.length}}" class="host-sheet-del tap" bindtap="deleteHosts">{{hostSelection.length > 1 ? '批量删除' : '删除'}}</view>
-        <view class="host-sheet-edit tap" bindtap="toggleHostEditMode">{{hostEditMode ? '完成编辑' : '编辑'}}</view>
+        <view class="host-sheet-edit tap" bindtap="toggleHostEditMode">{{hostEditMode ? '完成' : '编辑'}}</view>
       </view>
     </view>
+    <view class="host-section-label">我的主机</view>
     <view class="host-list">
-      <view wx:for="{{hostRows}}" wx:key="id" class="host-row">
-        <view wx:if="{{hostEditMode}}" class="host-select tap" catchtap="toggleHostSelect" data-id="{{item.id}}">
-          <image class="host-select-ic" src="/assets/icons/{{item.selected ? 'circle-filled-white.png' : 'circle-white.png'}}"/>
+      <view class="host-group">
+        <view wx:for="{{hostRows}}" wx:key="id" class="host-opt">
+          <view wx:if="{{hostEditMode}}" class="host-select tap" catchtap="toggleHostSelect" data-id="{{item.id}}">
+            <image class="host-select-ic" src="/assets/icons/{{item.selected ? 'circle-filled-white.png' : 'circle-white.png'}}"/>
+          </view>
+          <image class="host-row-kind" src="/assets/icons/{{item.kindIcon}}"/>
+          <view class="host-row-body tap" bindtap="pickHost" data-id="{{item.id}}">
+            <view class="host-row-name">{{item.displayName}}</view>
+            <view class="host-row-sub {{item.isActive ? 'on' : ''}}">{{item.subLabel}}</view>
+          </view>
+          <view class="host-dot {{item.online ? 'on' : ''}}"></view>
+          <view wx:if="{{hostEditMode}}" class="host-edit tap" catchtap="editHostOpen" data-id="{{item.id}}">
+            <image class="host-edit-ic" src="/assets/icons/pencil-white.png"/>
+          </view>
         </view>
-        <image class="host-row-kind" src="/assets/icons/{{item.kindIcon}}"/>
-        <view class="host-row-body tap" bindtap="pickHost" data-id="{{item.id}}">
-          <view class="host-row-name">{{item.displayName}}</view>
-          <view class="host-row-sub {{item.isActive ? 'on' : ''}}">{{item.subLabel}}</view>
-        </view>
-        <view class="host-dot {{item.online ? 'on' : ''}}"></view>
-        <view wx:if="{{hostEditMode}}" class="host-edit tap" catchtap="editHostOpen" data-id="{{item.id}}">
-          <image class="host-edit-ic" src="/assets/icons/pencil-white.png"/>
-        </view>
+        <view wx:if="{{!hostRows.length}}" class="host-empty">暂无已保存的主机，请扫码添加</view>
       </view>
-      <view wx:if="{{!hostRows.length}}" class="host-empty">暂无已保存的主机，请扫码添加</view>
     </view>
   </view>
 
@@ -157,7 +226,13 @@
 
   <!-- 工作区选择弹窗 -->
   <view wx:if="{{workspacePickerOpen}}" class="host-mask" bindtap="closeWorkspacePicker"></view>
-  <view wx:if="{{workspacePickerOpen}}" class="workspace-picker-sheet">
+  <view wx:if="{{workspacePickerOpen}}" class="workspace-picker-sheet {{workspacePickerExpanded ? 'expanded' : ''}}">
+    <view class="sheet-grabber-zone"
+      catchtouchstart="onPickerSheetGrabStart"
+      catchtouchmove="onPickerSheetGrabMove"
+      catchtouchend="onPickerSheetGrabEnd">
+      <view class="sheet-grabber"></view>
+    </view>
     <view class="picker-sheet-head">
       <view class="picker-sheet-title">工作区</view>
       <view class="picker-sheet-close tap" bindtap="closeWorkspacePicker">关闭</view>
@@ -165,7 +240,7 @@
     <view class="picker-list">
       <block wx:for="{{pickerWorkspaces}}" wx:key="workspaceId">
         <view class="picker-row tap" bindtap="selectWorkspace" data-id="{{item.workspaceId}}">
-          <image class="picker-row-icon" src="/assets/icons/folder-blue.png"/>
+          <image class="picker-row-icon" src="/assets/icons/{{item.ungrouped ? 'tray-white.png' : 'folder-blue.png'}}"/>
           <view class="picker-row-body">
             <view class="picker-row-title">{{item.title}}</view>
             <view class="picker-row-path text-mono">{{item.path}}</view>
@@ -253,7 +328,13 @@
 
   <!-- 手动配对弹层（对齐 dsh-mobile v1.6.0 ManualGatewayPairingSheet） -->
   <view wx:if="{{manualSheetOpen}}" class="host-mask" bindtap="closeManualSheet"></view>
-  <view wx:if="{{manualSheetOpen}}" class="manual-sheet">
+  <view wx:if="{{manualSheetOpen}}" class="manual-sheet {{manualSheetExpanded ? 'expanded' : ''}}">
+    <view class="sheet-grabber-zone"
+      catchtouchstart="onManualSheetGrabStart"
+      catchtouchmove="onManualSheetGrabMove"
+      catchtouchend="onManualSheetGrabEnd">
+      <view class="sheet-grabber"></view>
+    </view>
     <view class="manual-sheet-head">
       <text class="manual-sheet-title">设备认证</text>
       <view class="manual-sheet-done tap" bindtap="closeManualSheet">完成</view>

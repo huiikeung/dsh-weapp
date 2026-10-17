@@ -17,7 +17,7 @@ page {
   --success: #2EB85C;
 
   /* 语义色：浅色默认，深色在下方 @media 覆盖（跟随微信 darkmode） */
-  --bg: #F7F8FA;
+  --bg: #FFFFFF;
   --surface: #FFFFFF;
   --fill: rgba(16, 19, 24, 0.05);
   --fill-2: rgba(16, 19, 24, 0.07);
@@ -28,11 +28,12 @@ page {
   --text-2: rgba(16, 19, 24, 0.62);
   --text-3: rgba(16, 19, 24, 0.55);
   --text-4: rgba(16, 19, 24, 0.45);
-  --placeholder: rgba(16, 19, 24, 0.35);
+  --placeholder: rgba(16, 19, 24, 0.28);
   --ring-track: rgba(16, 19, 24, 0.22);
   --segment-active-bg: #FFFFFF;
   --segment-active-text: #10131A;
   --float-shadow: 0 10rpx 30rpx rgba(7, 24, 43, 0.10);
+  --card-shadow: 0 2rpx 12rpx rgba(7, 24, 43, 0.05);
 
   background: var(--bg);
   color: var(--text);
@@ -45,7 +46,7 @@ page {
    整体覆盖语义变量（与 page 级媒体查询内容一致） */
 
 .theme-light {
-  --bg: #F7F8FA;
+  --bg: #FFFFFF;
   --surface: #FFFFFF;
   --fill: rgba(16, 19, 24, 0.05);
   --fill-2: rgba(16, 19, 24, 0.07);
@@ -56,17 +57,18 @@ page {
   --text-2: rgba(16, 19, 24, 0.62);
   --text-3: rgba(16, 19, 24, 0.55);
   --text-4: rgba(16, 19, 24, 0.45);
-  --placeholder: rgba(16, 19, 24, 0.35);
+  --placeholder: rgba(16, 19, 24, 0.28);
   --ring-track: rgba(16, 19, 24, 0.22);
   --segment-active-bg: #FFFFFF;
   --segment-active-text: #10131A;
   --float-shadow: 0 10rpx 30rpx rgba(7, 24, 43, 0.10);
+  --card-shadow: 0 2rpx 12rpx rgba(7, 24, 43, 0.05);
   --ink: #101318;
   --gray: #7D8592;
 }
 
 .theme-dark {
-  --bg: #07182B;
+  --bg: #000000;
   --surface: #1C1C1E;
   --fill: rgba(255, 255, 255, 0.06);
   --fill-2: rgba(255, 255, 255, 0.10);
@@ -77,18 +79,19 @@ page {
   --text-2: rgba(241, 244, 250, 0.62);
   --text-3: rgba(241, 244, 250, 0.55);
   --text-4: rgba(241, 244, 250, 0.45);
-  --placeholder: rgba(241, 244, 250, 0.42);
+  --placeholder: rgba(241, 244, 250, 0.36);
   --ring-track: rgba(241, 244, 250, 0.22);
   --segment-active-bg: #636366;
   --segment-active-text: #FFFFFF;
   --float-shadow: 0 10rpx 30rpx rgba(0, 0, 0, 0.45);
+  --card-shadow: none;
   --ink: #F1F4FA;
   --gray: rgba(241, 244, 250, 0.55);
 }
 
 @media (prefers-color-scheme: dark) {
   page {
-    --bg: #07182B;
+    --bg: #000000;
     --surface: #1C1C1E;
     --fill: rgba(255, 255, 255, 0.06);
     --fill-2: rgba(255, 255, 255, 0.10);
@@ -99,11 +102,12 @@ page {
     --text-2: rgba(241, 244, 250, 0.62);
     --text-3: rgba(241, 244, 250, 0.55);
     --text-4: rgba(241, 244, 250, 0.45);
-    --placeholder: rgba(241, 244, 250, 0.42);
+    --placeholder: rgba(241, 244, 250, 0.36);
     --ring-track: rgba(241, 244, 250, 0.22);
     --segment-active-bg: #636366;
     --segment-active-text: #FFFFFF;
     --float-shadow: 0 10rpx 30rpx rgba(0, 0, 0, 0.45);
+  --card-shadow: none;
     /* 旧样式里 var(--ink)/var(--gray) 大量用于“正文/次要文字”，
        深色下一并翻转为 onSurface 色板，避免逐条覆盖 */
     --ink: #F1F4FA;
@@ -126,14 +130,26 @@ page {
   background: transparent;
 }
 
-/* ---------- 液态玻璃 ---------- */
+/* 弹层抓手（iOS sheet grabber：中性灰胶囊） */
+.sheet-grabber {
+  width: 72rpx;
+  height: 10rpx;
+  border-radius: 999rpx;
+  background: rgba(150, 150, 155, 0.55);
+  margin: 14rpx auto 6rpx;
+  flex-shrink: 0;
+}
+
+/* ---------- 液态玻璃（对齐 iOS Liquid Glass / ultraThinMaterial：
+   渐变高光 + 强模糊提饱和 + 顶部内发光 + 发丝亮边） ---------- */
 
 .glass {
-  background: rgba(255, 255, 255, 0.10);
-  border: 1rpx solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012));
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
   border-radius: 28rpx;
-  backdrop-filter: blur(24rpx);
-  box-shadow: 0 8rpx 32rpx rgba(3, 14, 30, 0.24);
+  backdrop-filter: blur(6rpx);
+  -webkit-backdrop-filter: blur(6rpx);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.10), 0 8rpx 32rpx rgba(3, 14, 30, 0.18);
 }
 
 .glass-light {
@@ -144,12 +160,14 @@ page {
   box-shadow: 0 8rpx 28rpx rgba(7, 24, 43, 0.10);
 }
 
+/* 玻璃表面按压反馈（对齐 iOS 按钮交互：轻微缩放 + 提亮） */
 .glass-press {
-  transition: transform 0.12s ease;
+  transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1), opacity 0.18s ease;
 }
 
 .glass-press:active {
-  transform: scale(0.97);
+  transform: scale(0.96);
+  opacity: 0.82;
 }
 
 /* ---------- 文本 ---------- */
@@ -284,8 +302,10 @@ page {
 
 .card {
   background: var(--surface);
+  border: 1rpx solid var(--border);
   border-radius: 28rpx;
   overflow: hidden;
+  box-shadow: var(--card-shadow);
 }
 
 .card-row {
@@ -375,7 +395,8 @@ page {
   flex-shrink: 0;
 }
 
-/* ---------- 深海蓝背景（preview-bg.html 同款：navy + 网格瓦片 + 粒子鲸鱼） ---------- */
+/* ---------- 深海蓝背景（对齐 v1.7.2 HarnessAnimatedBackground 实际观感：
+   亮蓝底 + 顶部辉光 + 斜向流体光带 + 底部压暗到近黑） ---------- */
 
 .deep-bg {
   position: fixed;
@@ -385,21 +406,37 @@ page {
   bottom: 0;
   z-index: -1;
   overflow: hidden;
-  background: var(--navy);
+  background:
+    /* 底部压暗（iOS 同款 clear → navy → black） */
+    linear-gradient(180deg, rgba(4, 10, 22, 0) 52%, rgba(4, 10, 22, 0.30) 74%, rgba(2, 6, 14, 0.72) 100%),
+    /* 流体光带 A（左上向右下的亮斜带） */
+    linear-gradient(118deg, rgba(150, 185, 235, 0) 34%, rgba(160, 195, 240, 0.11) 46%, rgba(200, 222, 248, 0.07) 52%, rgba(150, 185, 235, 0) 63%),
+    /* 流体光带 B（右下向左上的暗斜带） */
+    linear-gradient(62deg, rgba(120, 158, 215, 0) 42%, rgba(135, 170, 225, 0.09) 56%, rgba(120, 158, 215, 0) 70%),
+    /* 顶部右侧主辉光 */
+    radial-gradient(85% 55% at 72% 0%, rgba(64, 110, 192, 0.36) 0%, rgba(30, 62, 120, 0) 62%),
+    /* 中部左侧次辉光 */
+    radial-gradient(110% 70% at 10% 36%, rgba(54, 96, 172, 0.26) 0%, rgba(22, 48, 95, 0) 62%),
+    /* 蓝色渐变底（亮度取原 navy 与上一版的中间值） */
+    linear-gradient(180deg, #1D3A6B 0%, #17315B 38%, #0D2044 68%, #071527 100%);
   pointer-events: none;
 }
 
+/* 技术网格：42pt(84rpx) 方格 white 4.3%，顶部实、向底部渐隐（iOS 同款遮罩） */
 .deep-grid {
   position: absolute;
   left: 0;
   top: 0;
   right: 0;
   bottom: 0;
-  background-image: url(../../assets/icons/bg-grid.png);
-  background-size: 1050rpx 1050rpx;
-  background-repeat: repeat;
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.043) 0 1px, transparent 1px 84rpx),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.043) 0 1px, transparent 1px 84rpx);
+  -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8) 0%, #000 56%, transparent 100%);
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8) 0%, #000 56%, transparent 100%);
 }
 
+/* 鲸鱼粒子剪影：screen 混合（iOS WhaleField 同款 blendMode） */
 .deep-whale {
   position: absolute;
   left: 55%;
@@ -407,4 +444,6 @@ page {
   transform: translate(-50%, -50%);
   width: 862rpx;
   height: 862rpx;
+  mix-blend-mode: screen;
+  opacity: 1;
 }

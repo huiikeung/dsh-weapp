@@ -6,8 +6,18 @@ const { jsonDisplayText, oneLine, eventDateMs } = require('./util');
 
 // ---------- 事件归一化 ----------
 
+/** 块数组安全提取：兼容 块数组 / {content:块数组} / {content:"字符串"} / 纯字符串 */
+function asBlocks(value) {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object' && Array.isArray(value.content)) return value.content;
+  return [];
+}
+
 function textBlocks(value) {
-  const blocks = Array.isArray(value) ? value : ((value && value.content) || []);
+  // content 可能是纯字符串（用户消息回显常见形态）、块数组、或 {content: 块数组}
+  if (typeof value === 'string') return value;
+  if (value && typeof value.content === 'string') return value.content;
+  const blocks = asBlocks(value);
   return blocks
     .filter((b) => b && b.type === 'text')
     .map((b) => b.text || '')
@@ -15,7 +25,8 @@ function textBlocks(value) {
 }
 
 function imageBlocks(value) {
-  const blocks = (value && value.content) || [];
+  if (typeof value === 'string') return [];
+  const blocks = asBlocks(value);
   return blocks
     .filter((b) => b && b.type === 'image' && b.attachment)
     .map((b) => ({
@@ -53,9 +64,19 @@ function normalizeRawEvent(raw, sessionId) {
       let source = null;
       if (typeof data.source === 'string') source = data.source;
       else if (data.source && typeof data.source.kind === 'string') source = data.source.kind;
+      let text = textBlocks(data.content);
+      // 兜底：文本可能挂在 text / message / item.text / parts 等字段（不同连接器版本不一）
+      if (!text && typeof data.text === 'string') text = data.text;
+      if (!text && data.message) text = textBlocks(data.message);
+      if (!text && data.item) text = textBlocks(data.item);
+      if (!text && Array.isArray(data.parts)) {
+        text = data.parts
+          .map((pt) => (typeof pt === 'string' ? pt : (pt && pt.text) || ''))
+          .join('');
+      }
       event = {
         type: type,
-        text: textBlocks(data.content),
+        text: text,
         source: source,
         images: imageBlocks(data.content)
       };
@@ -67,11 +88,14 @@ function normalizeRawEvent(raw, sessionId) {
       if (chunk.type === 'tool-call-delta') {
         tool = { id: chunk.id || null, name: chunk.name || null, argumentsDelta: chunk.argumentsDelta || null };
       }
+      let chunkText = typeof chunk.text === 'string' ? chunk.text : '';
+      if (!chunkText && typeof chunk.delta === 'string') chunkText = chunk.delta;
+      if (!chunkText && typeof chunk.content === 'string') chunkText = chunk.content;
       event = {
         type: type,
         turn: turn,
         step: step,
-        text: chunk.text,
+        text: chunkText,
         chunkType: chunk.type,
         tool: tool,
         usage: chunk.usage,
@@ -80,7 +104,10 @@ function normalizeRawEvent(raw, sessionId) {
       break;
     }
     case 'assistant/message': {
-      const blocks = (data.message && data.message.content) || [];
+      const msgContent = data.message && data.message.content;
+      const blocks = Array.isArray(msgContent)
+        ? msgContent
+        : (typeof msgContent === 'string' ? [{ type: 'text', text: msgContent }] : []);
       const text = blocks.filter((b) => b.type === 'text').map((b) => b.text || '').join('');
       const reasoning = blocks.filter((b) => b.type === 'reasoning').map((b) => b.text || '').join('');
       const calls = blocks
@@ -100,6 +127,23 @@ function normalizeRawEvent(raw, sessionId) {
     }
     case 'assistant/attempt': {
       event = { type: type, turn: turn, step: step };
+      break;
+    }
+    case 'status':
+    case 'command/started':
+    case 'command/completed':
+    case 'command/failed':
+    case 'compaction/started':
+    case 'compaction/summarized': {
+      const commandId = data.commandId || (data.raw && data.raw.commandId) || null;
+      event = {
+        type: 'status',
+        commandId: commandId,
+        name: data.name || (data.raw && data.raw.name) || 'command',
+        phase: type,
+        shadowedItems: data.shadowedItemCount || (data.raw && data.raw.shadowedItemCount) || null,
+        shadowedTokens: data.shadowedTokenCount || (data.raw && data.raw.shadowedTokenCount) || null
+      };
       break;
     }
     case 'tool/call': {
@@ -200,15 +244,14 @@ const TITLES = {
   toolFailed: '工具失败'
 };
 
-// 图标文件映射：对齐 iOS conversationToolGlyph / eventIcon（SF Symbols → PNG 资产）。
-function toolIconFile(name, isError) {
-  if (isError) return 'triangle-red';
-  const n = (name || '').toLowerCase();
-  if (n.indexOf('bash') >= 0) return 'bash-orange';
-  if (n.indexOf('read') >= 0) return 'read-orange';
-  if (n.indexOf('search') >= 0 || n.indexOf('grep') >= 0 || n.indexOf('glob') >= 0) return 'search-orange';
-  if (n.indexOf('write') >= 0 || n.indexOf('edit') >= 0) return 'pencil-orange';
-  return 'wrench-orange';
+// 工具图标映射与 DSH processToolIcon 对齐。
+function toolIconFile(name) {
+  const n = String(name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  if (['write', 'edit', 'writefile', 'editfile', 'applypatch'].indexOf(n) >= 0) return 'dsh-edit.svg';
+  if (['glob', 'grep', 'websearch'].indexOf(n) >= 0) return 'dsh-search.svg';
+  if (['read', 'readfile', 'webfetch', 'cordispackageinspect', 'cordisruntimeinspect'].indexOf(n) >= 0) return 'dsh-read.svg';
+  if (['bash', 'pwsh'].indexOf(n) >= 0) return 'dsh-bash.svg';
+  return 'dsh-process-tool.svg';
 }
 
 function eventIconFile(event) {
@@ -230,8 +273,11 @@ function pushRow(agg, row) {
   return row;
 }
 
-function ensureAssistant(agg, sessionId, seq, turn) {
-  if (!agg.currentAssistant || agg.currentAssistant.turn !== turn) {
+function ensureAssistant(agg, sessionId, seq, turn, startNewAfterSettlement) {
+  const current = agg.currentAssistant;
+  const shouldStartNew = !!(startNewAfterSettlement && current && current.settled &&
+    (current.text || current.reasoning || current.tools.length));
+  if (!current || current.turn !== turn || shouldStartNew) {
     agg.currentAssistant = {
       kind: 'assistant',
       key: 'a-' + seq + '-' + (turn === undefined ? 'x' : turn),
@@ -240,8 +286,10 @@ function ensureAssistant(agg, sessionId, seq, turn) {
       reasoning: '',
       text: '',
       tools: [],
+      events: [],          // 按事件顺序的思考/工具日志（对齐 DSH 过程组扁平列表）
       streaming: false,
       reasoningStreaming: false,
+      settled: false,
       seq: seq,
       sessionId: sessionId,
       markdown: null
@@ -249,6 +297,24 @@ function ensureAssistant(agg, sessionId, seq, turn) {
     pushRow(agg, agg.currentAssistant);
   }
   return agg.currentAssistant;
+}
+
+/** 过程组日志：思考块（相邻合并），对齐 DSH「思考」行 */
+function journalThink(assistant, text) {
+  if (!text) return;
+  const last = assistant.events[assistant.events.length - 1];
+  if (last && last.kind === 'think') {
+    last.text += text;
+  } else {
+    assistant.events.push({ kind: 'think', text: text });
+  }
+}
+
+/** 过程组日志：工具块（按 callId 去重，保持首现顺序） */
+function journalTool(assistant, callId) {
+  const key = callId || '';
+  const exists = assistant.events.some((ev) => ev.kind === 'tool' && (ev.callId || '') === key && key !== '');
+  if (!exists) assistant.events.push({ kind: 'tool', callId: callId || null });
 }
 
 function toolRowForCall(agg, assistant, callId, name) {
@@ -266,13 +332,13 @@ function toolRowForCall(agg, assistant, callId, name) {
       status: 'running',
       isError: false,
       collapsed: true,
-      iconFile: toolIconFile(name, false)
+      iconFile: toolIconFile(name)
     };
     agg.byCallId[key] = tool;
     assistant.tools.push(tool);
   }
   if (name && !tool.name) tool.name = name;
-  tool.iconFile = toolIconFile(tool.name, tool.isError);
+  tool.iconFile = toolIconFile(tool.name);
   return tool;
 }
 
@@ -297,6 +363,16 @@ function applyEvent(agg, normalized) {
         });
         return true;
       }
+      // 乐观回显合并：本地待确认行 + 同文本/空回显 → 就地 adoption，避免双气泡
+      const last = agg.rows.length ? agg.rows[agg.rows.length - 1] : null;
+      if (last && last.kind === 'user' && last.pending &&
+          (!(event.text || '') || (event.text || '') === (last.text || ''))) {
+        last.pending = false;
+        last.key = 'u-' + seq;
+        last.seq = seq;
+        if (event.images && event.images.length) last.images = event.images;
+        return true;
+      }
       pushRow(agg, {
         kind: 'user',
         key: 'u-' + seq,
@@ -308,36 +384,90 @@ function applyEvent(agg, normalized) {
       return true;
     }
     case 'assistant/chunk': {
-      const assistant = ensureAssistant(agg, sessionId, seq, event.turn);
+      const assistant = ensureAssistant(agg, sessionId, seq, event.turn, true);
+      const ct = String(event.chunkType || 'text');
       if (event.text) {
-        assistant.text += event.text;
-        assistant.streaming = true;
-        assistant.title = TITLES.streaming;
+        // 思考流（reasoning/thinking 类块）：进过程组日志；正文流进回答文本
+        if (ct.indexOf('reason') === 0 || ct.indexOf('think') === 0) {
+          assistant.reasoning += event.text;
+          assistant.reasoningStreaming = true;
+          assistant.title = assistant.title || TITLES.streamingReasoning;
+          journalThink(assistant, event.text);
+        } else {
+          assistant.text += event.text;
+          assistant.streaming = true;
+          assistant.title = TITLES.streaming;
+        }
       }
       if (event.tool && event.tool.argumentsDelta) {
         const tool = toolRowForCall(agg, assistant, event.tool.id, event.tool.name);
         tool.argumentsText += event.tool.argumentsDelta;
         tool.title = TITLES.assemblingTool;
+        journalTool(assistant, event.tool.id || null);
       }
       return true;
     }
     case 'assistant/message': {
-      const assistant = ensureAssistant(agg, sessionId, seq, event.turn);
+      let assistant = agg.currentAssistant;
+      const hasFreshContent = !!(event.text || event.reasoning);
+      const completedPreviousStep = assistant && assistant.settled &&
+        assistant.tools.some((tool) => tool.status === 'done' || tool.status === 'error');
+      const differentSettledText = assistant && assistant.settled && hasFreshContent &&
+        ((event.text && event.text !== assistant.text) || (event.reasoning && event.reasoning !== assistant.reasoning));
+      assistant = ensureAssistant(
+        agg, sessionId, seq, event.turn, completedPreviousStep || differentSettledText
+      );
       assistant.streaming = false;
+      assistant.reasoningStreaming = false;
       assistant.title = '';
       if (event.text) assistant.text = event.text;
-      if (event.reasoning) assistant.reasoning = event.reasoning;
+      if (event.reasoning) {
+        // 结算思考：流式已记录则合并去重（整体替换首块），否则补一条日志
+        const thinkCount = assistant.events.filter((ev) => ev.kind === 'think').length;
+        if (!thinkCount) journalThink(assistant, event.reasoning);
+        else assistant.reasoning = event.reasoning;
+        if (!assistant.reasoning) assistant.reasoning = event.reasoning;
+      }
       (event.toolCalls || []).forEach((call) => {
         const tool = toolRowForCall(agg, assistant, call.id, call.name);
         tool.argumentsText = jsonDisplayText(call.arguments, true) || tool.argumentsText;
         tool.title = TITLES.assemblingTool;
+        journalTool(assistant, call.id || null);
       });
+      assistant.settled = true;
+      return true;
+    }
+    case 'status': {
+      const key = 'cmd-' + (event.commandId || seq);
+      let status = agg.statusRows ? agg.statusRows[key] : null;
+      if (!status) {
+        if (!agg.statusRows) agg.statusRows = {};
+        status = agg.statusRows[key] = {
+          kind: 'status',
+          key: key,
+          title: event.name || 'command',
+          text: '正在执行…',
+          seq: seq
+        };
+        pushRow(agg, status);
+        return true;
+      }
+      // 更新已有状态行
+      if (event.phase === 'compaction/started') status.text = '正在压缩…';
+      else if (event.phase === 'command/completed') status.text = '已完成';
+      else if (event.phase === 'command/failed') status.text = '执行失败';
+      else if (event.phase === 'compaction/summarized') {
+        status.text = (event.shadowedItems != null && event.shadowedTokens != null)
+          ? '已压缩 ' + event.shadowedItems + ' 条历史记录（约 ' + event.shadowedTokens + ' tokens）'
+          : '已完成';
+      }
       return true;
     }
     case 'tool/call': {
       const assistant = ensureAssistant(agg, sessionId, seq, event.turn);
       const tool = toolRowForCall(agg, assistant, event.callId, event.name);
       tool.argumentsText = jsonDisplayText(event.arguments, true) || tool.argumentsText;
+      journalTool(assistant, event.callId || null);
       return true;
     }
     case 'tool/result': {
@@ -345,9 +475,10 @@ function applyEvent(agg, normalized) {
       const tool = toolRowForCall(agg, assistant, event.callId, null);
       tool.status = 'done';
       tool.isError = event.isError === true;
-      tool.iconFile = toolIconFile(tool.name, tool.isError);
+      tool.iconFile = toolIconFile(tool.name);
       tool.title = tool.isError ? TITLES.toolFailed : TITLES.toolDone;
       tool.resultText = event.preview || '';
+      journalTool(assistant, event.callId || null);
       return true;
     }
     case 'turn/start':
@@ -388,6 +519,7 @@ function buildRows(events, sessionId) {
  */
 function buildTrajectory(events, sessionId) {
   const items = [];
+  const toolItemsByCallId = {};
   // turn 向前填充：user/message 可能不带 turn，归入其后第一个带 turn 的
   // 事件所属回合，保证 Turn 分组头出现在该回合的 USER 行之前。
   const effectiveTurns = new Array(events.length).fill(null);
@@ -404,7 +536,7 @@ function buildTrajectory(events, sessionId) {
     const turn = effectiveTurns[index];
     if (turn !== undefined && turn !== null && turn !== currentTurn) {
       currentTurn = turn;
-      items.push({ kind: 'turn', key: 'turn-' + turn + '-' + raw.seq, label: 'Turn ' + turn });
+      items.push({ kind: 'turn', key: 'turn-' + turn + '-' + raw.seq, label: '请求 #' + turn });
     }
     let badge = null;
     let label = '';
@@ -428,11 +560,17 @@ function buildTrajectory(events, sessionId) {
         preview = oneLine(jsonDisplayText(event.arguments, false) || '', 36);
         break;
       case 'tool/result': {
-        // 工具结果并入轨迹（iOS 显示完成态），但不重复徽标名。
-        badge = 'TOOL';
-        label = event.isError ? '失败' : '结果';
-        preview = oneLine(event.preview || '', 36);
-        break;
+        const toolItem = event.callId ? toolItemsByCallId[event.callId] : null;
+        if (toolItem) {
+          toolItem.resultPreview = oneLine(event.preview || '', 80);
+          toolItem.preview = [toolItem.preview, toolItem.resultPreview]
+            .filter(Boolean).join(' → ');
+          toolItem.isError = event.isError === true;
+          toolItem.statusLabel = event.isError ? '失败' : '完成';
+          toolItem.detail = [toolItem.detail, jsonDisplayText(event.raw, true)]
+            .filter(Boolean).join('\n\n--- result ---\n');
+        }
+        return;
       }
       case 'turn/start':
       case 'turn/end':
@@ -450,7 +588,7 @@ function buildTrajectory(events, sessionId) {
       : badge === 'ASSISTANT' ? 'dot-assistant'
       : badge === 'TOOL' ? 'dot-tool'
       : 'dot-event';
-    items.push({
+    const item = {
       kind: 'event',
       key: 'ev-' + raw.seq,
       badge: badge,
@@ -460,8 +598,12 @@ function buildTrajectory(events, sessionId) {
       preview: preview,
       seq: raw.seq,
       time: normalized.dateMs,
-      detail: jsonDisplayText(event.raw, true)
-    });
+      detail: jsonDisplayText(event.raw, true),
+      callId: event.callId || null,
+      eventType: event.type
+    };
+    items.push(item);
+    if (event.type === 'tool/call' && event.callId) toolItemsByCallId[event.callId] = item;
   });
   return items;
 }
