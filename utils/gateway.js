@@ -33,10 +33,12 @@ class GatewayClient {
     this.timeoutTimer = null;
     this.pendingRequests = {}; // key → { resolve, reject, timer }
     this.sessionCreations = {}; // requestId → { resolve, reject, timer }
+    this.relayShares = {}; // requestId → { resolve, reject, timer }
     this.deviceId = this.loadOrCreateDeviceId();
     this.probeOnly = false; // 主机在线探测：只验 hello，不重连、不发业务请求
     this.relaySession = null; // v3 relay 模式的 E2EE 会话
     this.relayMeta = null;    // { nodeId, agentPubKey }
+    this.relayAccessToken = null;
     this.relayTextFrames = 0; // 诊断：连接器经文本通道发来的帧计数
   }
 
@@ -83,6 +85,12 @@ class GatewayClient {
     this.relayMeta = opts.relay || null;
     // 重连必须复用完整连接参数（relay 档案丢了 relay 元信息就永远连不回）
     this.lastConnectOpts = { token: opts.token || null, relay: opts.relay || null };
+    if (opts.relay) {
+      this.lastConnectOpts.relay = Object.assign({}, opts.relay, {
+        inviteToken: opts.relay.inviteToken || null,
+        accessToken: opts.relay.accessToken || null
+      });
+    }
     this.relaySession = null;
     this.setState('connecting');
 
@@ -95,10 +103,20 @@ class GatewayClient {
     // 正确方式：子协议通过 protocols 数组传递
     // 1. 主协议 dsh-mobile-v1 必须加
     protocols.push('dsh-mobile-v1');
+
+    if (opts.relay && opts.relay.inviteToken) {
+      protocols.push('dsh-invite.' + opts.relay.inviteToken);
+    } else if (opts.relay && opts.relay.accessToken) {
+      protocols.push('dsh-access.' + opts.relay.accessToken);
+    }
     
     // 2. 配对码时额外添加 dsh-pair. 子协议
     if (this.pairingCode) {
       protocols.push('dsh-pair.' + this.pairingCode);
+    }
+    if (this.relayMeta && this.relayMeta.inviteToken) {
+      this.relayMeta.inviteToken = null;
+      this.lastConnectOpts.relay.inviteToken = null;
     }
     
     // 3. 已保存 token 时添加 Authorization
@@ -228,6 +246,7 @@ class GatewayClient {
     this.pairingCode = null;
     this.relaySession = null;
     this.relayMeta = null;
+    this.relayAccessToken = null;
     this.failAllPending('连接已断开');
     this.setState('disconnected');
   }
@@ -244,6 +263,12 @@ class GatewayClient {
     Object.keys(creations).forEach(function (key) {
       clearTimeout(creations[key].timer);
       creations[key].reject(new Error(message));
+    });
+    const shares = this.relayShares;
+    this.relayShares = {};
+    Object.keys(shares).forEach(function (key) {
+      clearTimeout(shares[key].timer);
+      shares[key].reject(new Error(message));
     });
   }
 
@@ -353,8 +378,50 @@ class GatewayClient {
       if (this.cb.onPaired) this.cb.onPaired(frame);
     }
 
+    if (frame.kind === 'relay-authorized') {
+      this.relayAccessToken = frame.accessToken || null;
+      if (this.lastConnectOpts && this.lastConnectOpts.relay) {
+        this.lastConnectOpts.relay.accessToken = this.relayAccessToken;
+        this.lastConnectOpts.relay.inviteToken = null;
+      }
+      if (this.cb.onRelayAuthorized) this.cb.onRelayAuthorized(frame);
+      return;
+    }
+
+    if (frame.kind === 'relay-share-created' || frame.kind === 'relay-share-error') {
+      const share = frame.requestId && this.relayShares[frame.requestId];
+      if (share) {
+        delete this.relayShares[frame.requestId];
+        clearTimeout(share.timer);
+        if (frame.kind === 'relay-share-created') share.resolve(frame);
+        else share.reject(new Error(frame.message || '创建分享失败'));
+      }
+      return;
+    }
+
     this.resolveCorrelated(frame);
     if (this.cb.onFrame) this.cb.onFrame(frame);
+  }
+
+  createRelayShare(ttlMs) {
+    const requestId = util.uuid();
+    const self = this;
+    return new Promise(function (resolve, reject) {
+      if (!self.relayMeta || self.state !== 'connected') {
+        reject(new Error('公网节点未连接'));
+        return;
+      }
+      const timer = setTimeout(function () {
+        delete self.relayShares[requestId];
+        reject(new Error('创建分享超时'));
+      }, REQUEST_TIMEOUT);
+      self.relayShares[requestId] = { resolve: resolve, reject: reject, timer: timer };
+      if (!self.send({ type: 'relay-share-create', requestId: requestId, ttlMs: ttlMs })) {
+        delete self.relayShares[requestId];
+        clearTimeout(timer);
+        reject(new Error('分享请求发送失败'));
+      }
+    });
   }
 
   resolveCorrelated(frame) {

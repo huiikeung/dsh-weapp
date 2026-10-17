@@ -14,7 +14,7 @@ const PairingError = {
   INVALID_ENDPOINT: '二维码中的 publicUrl 不是有效的 WebSocket 地址。',
   INVALID_RELAY: '二维码中的中继地址或节点信息无效。',
   INVALID_CODE: '二维码中的一次性 pairingCode 无效。',
-  EXPIRED: '二维码配对码已经过期，请在 WebUI 中重新生成。'
+  EXPIRED: '二维码配对码已经过期，请重新生成。'
 };
 
 function parse(rawValue, nowMs) {
@@ -70,8 +70,13 @@ function parseRelayPayload(payload) {
   const relay = String(payload.relay || '').trim();
   const nodeId = String(payload.nodeId || '').trim();
   const agentPubKey = String(payload.agentPubKey || '').trim();
+  const inviteToken = String(payload.inviteToken || '').trim();
+  const expiresAt = Number(payload.expiresAt || 0);
   if (!/^wss:\/\//.test(relay)) return failure(PairingError.INVALID_RELAY);
-  if (!nodeId || !agentPubKey) return failure(PairingError.INVALID_RELAY);
+  if (!nodeId || !agentPubKey || !inviteToken || !/^[A-Za-z0-9_-]{32,128}$/.test(inviteToken)) {
+    return failure(PairingError.INVALID_RELAY);
+  }
+  if (!Number.isFinite(expiresAt) || expiresAt <= Date.now()) return failure(PairingError.EXPIRED);
   const endpoint = relay.replace(/\/$/, '') + '/c/' + nodeId;
   return {
     ok: true,
@@ -82,8 +87,10 @@ function parseRelayPayload(payload) {
       relay: relay,
       nodeId: nodeId,
       agentPubKey: agentPubKey,
+      inviteToken: inviteToken,
+      role: payload.role === 'owner' ? 'owner' : 'guest',
       pairingCode: null,
-      expiresAt: Number(payload.expiresAt || 0) || Infinity,
+      expiresAt: expiresAt,
       gatewayId: nodeId,
       gatewayName: payload.gatewayName || null,
       // 备用候选：中继不可达时可回落直连 gatewayUrl（如同网段/frp 地址）
