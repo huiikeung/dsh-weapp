@@ -1,9 +1,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { clientVersion, gatewayVersionInfo } = require('../utils/version-info');
+const { BUILD_VERSION } = require('../utils/build');
 test('client identifies official/trial/local builds without conflating host version', () => {
   assert.equal(clientVersion({getAccountInfoSync:()=>({miniProgram:{version:'1.2.3',envVersion:'release'}})}).appVersion, '1.2.3（正式版）');
-  assert.match(clientVersion({getAccountInfoSync:()=>({miniProgram:{version:'',envVersion:'trial'}})}).appVersion, /0.9.8（体验版）/);
+  assert.equal(clientVersion({getAccountInfoSync:()=>({miniProgram:{version:'',envVersion:'trial'}})}).appVersion, BUILD_VERSION + '（体验版）');
   assert.doesNotMatch(clientVersion({}).buildLabel, /undefined/);
 });
 test('gateway versions distinguish new/old packages and never substitute host versions', () => {

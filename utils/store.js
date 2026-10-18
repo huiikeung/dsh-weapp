@@ -1526,7 +1526,6 @@ function createStore() {
         sessionState.ingestErrors = (sessionState.ingestErrors || 0) + 1;
       }
       sessionState.rows = sessionState.rowsAgg.rows.slice();
-      sessionState.trajectory = protocol.buildTrajectory(allRawEvents(sorted, false), sessionId);
       return;
     }
     let bad = 0;
@@ -1613,7 +1612,6 @@ function createStore() {
     rawBuffer = Object.keys(merged).map(function (k) { return merged[k]; })
       .sort(function (a, b) { return a.seq - b.seq; });
     rawSeqs = new Set(rawBuffer.map(function (e) { return e.seq; }));
-    sessionState.rows = protocol.buildRows(rawBuffer, sessionState.sessionId);
     sessionState.rowsAgg = protocol.newAggregator();
     rawBuffer.forEach(function (raw) {
       protocol.applyEvent(sessionState.rowsAgg, protocol.normalizeRawEvent(raw, sessionState.sessionId));

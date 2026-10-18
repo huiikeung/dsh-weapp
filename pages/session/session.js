@@ -5,6 +5,7 @@ const util = require('../../utils/util');
 const notifyPref = require('../../utils/notify-pref');
 const theme = require('../../utils/theme');
 const conversationWorkflow = require('../../utils/conversation-workflow');
+const { dataPatch, createMarkdownCache } = require('../../utils/session-render');
 
 // 订阅消息模板 ID：与设置页保持一致；留空则发送时不申请授权。
 const NOTIFY_TEMPLATE_ID = 'QvgkQ88HKFdTNPJVOp0EdOHNDodOQACzB9oDEFDZXKU';
@@ -195,6 +196,8 @@ Page({
   },
 
   onUnload() {
+    this._unloaded = true;
+    this._markdownCache = null;
     this.stopScrollPolling();
     if (this._runTimer) { clearInterval(this._runTimer); this._runTimer = null; }
     this._dockMeasurePending = false;
@@ -227,6 +230,11 @@ Page({
     const s = snapshot.session;
     const app = snapshot.app;
     if (!s || (!s.sessionId && s.historyState !== 'creating' && s.historyState !== 'error:create')) return;
+    if (!this._markdownCache || this._renderSessionId !== s.sessionId) {
+      this._markdownCache = createMarkdownCache(safeParse);
+      this._renderSessionId = s.sessionId;
+    }
+    this._markdownCache.retain((s.rows || []).filter(row => row.kind === 'assistant').map(row => row.key));
 
     // dsh-mobile 同款两段投影：protocol 只产生语义行，conversation-workflow
     // 再组合成 message / processGroup 展示节点。页面不再直接解释事件协议。
@@ -263,7 +271,7 @@ Page({
           });
         });
         semanticRows.push(Object.assign({}, row, {
-          blocks: safeParse(row.text || ''),
+          blocks: this._markdownCache.parse(row.key, row.text || ''),
           images: row.images || [],
           copyText: row.text || '',
           tools: tools
@@ -542,9 +550,8 @@ Page({
     const listed = (app.sessions || []).find((x) => x.sessionId === s.sessionId) || null;
     const fallbackTitle = (listed && (listed.title || listed.snippet)) || (s.historyState === 'creating' ? '新会话' : '会话');
 
-    this.setData(Object.assign({
+    const viewPatch = dataPatch(this.data, Object.assign({
       navTitle: s.title || fallbackTitle,
-      _titleDirty: true,
       presetLabel: labels.presetModeName(s.agentPreset || 'standard'),
       sessionPresetVisible: presetVisible,
       sessionPresetName: presetName || '选择模式',
@@ -593,8 +600,12 @@ Page({
       ,composerCacheMetric: composerCacheMetric
       ,composerContextMetric: composerContextMetric
     }, qReset || {}));
+    const rowsChanged = Object.keys(viewPatch).some(key => key === 'rows' || key.indexOf('rows[') === 0);
+    const dockChanged = ['question', 'approval', 'tasks', 'goal', 'composerMetricsVisible', 'sessionPresetVisible']
+      .some(field => Object.keys(viewPatch).some(key => key === field || key.indexOf(field + '.') === 0 || key.indexOf(field + '[') === 0));
+    if (Object.keys(viewPatch).length) this.setData(viewPatch);
     this.syncCommandMenu(this.data.draft, s);
-    this.updateDockInset();
+    if (dockChanged) this.updateDockInset();
     this.syncRunningStrip(rows, this.data.running);
     const he = store.sessionState.historyError || '';
     if (he !== this.data.histError) this.setData({ histError: he });
@@ -688,6 +699,7 @@ Page({
     if (JSON.stringify(q) !== JSON.stringify(this._lastQueue || [])) {
       this._lastQueue = q;
       this.setData({ queue: q, queueSending: q.some((item) => !!item.statusText) });
+      this.updateDockInset();
     }
 
     if (this.data._titleDirty) {
@@ -697,7 +709,7 @@ Page({
 
     // 新内容到达时贴底；但用户正在触摸列表时不要抢滚动
     const touchingRecently = Date.now() - (this._lastTouchAt || 0) < 1000;
-    if (this.data.tab === 'conversation' && this._convPinned !== false && !touchingRecently) {
+    if ((rowsChanged || justFinished) && this.data.tab === 'conversation' && this._convPinned !== false && !touchingRecently) {
       this.refreshBottomAnchor();
     }
   },
@@ -1302,10 +1314,15 @@ Page({
   },
 
   refreshBottomAnchor() {
+    if (this._bottomAnchorPending || this._unloaded) return;
+    this._bottomAnchorPending = true;
     this._lastScrollTop = undefined;
     this._suppressScrollUntil = Date.now() + 400;
     this.setData({ scrollTarget: '' });
-    wx.nextTick(() => this.setData({ scrollTarget: 'conv-bottom' }));
+    wx.nextTick(() => {
+      this._bottomAnchorPending = false;
+      if (!this._unloaded) this.setData({ scrollTarget: 'conv-bottom' });
+    });
   },
 
   toggleFold(e) {
@@ -1529,11 +1546,12 @@ Page({
     const ui = active && active.ui || {};
     const hint = ui.displayHint || ui.hint || (active && active.input && active.input.hint) || '';
     this._activeCommand = active;
-    this.setData({
+    const patch = dataPatch(this.data, {
       commandMenu: menu,
       canAttach: !active || ui.images === true || (active.input && active.input.images === true),
       composerPlaceholder: hint || (this.data.composerFocused ? '描述你想要构建的内容' : '输入内容或按住说话')
     });
+    if (Object.keys(patch).length) this.setData(patch);
   },
 
   selectCommand(e) {
@@ -1729,8 +1747,10 @@ Page({
         // 列表只需避让固定 dock 的真实高度，再留 12rpx 呼吸空间。
         // 旧实现额外加 54rpx，消息结尾与统计胶囊之间会出现明显大空白。
         const inset = Math.ceil(rect.height * 750 / Math.max(info.windowWidth || 375, 1) + 12);
-        if (Math.abs(inset - this.data.convBottomInset) > 8) this.setData({ convBottomInset: inset });
-        this.syncLayoutStyles();
+        if (Math.abs(inset - this.data.convBottomInset) > 8) {
+          this.setData({ convBottomInset: inset });
+          this.syncLayoutStyles();
+        }
         // 布局稳定后再校准一次：历史/队列渲染会改变 dock 高度
         if (tries < 2) setTimeout(() => this.updateDockInset(tries + 1), 240);
       }).exec();
@@ -1742,7 +1762,7 @@ Page({
     const navHeight = Number(this.data.navHeight) || 0;
     const navMoreRight = Number(this.data.navMoreRight) || 0;
     const kbHeight = Number(this.data.kbHeight) || 0;
-    this.setData({
+    const patch = dataPatch(this.data, {
       navbarStyle: 'padding-top:' + navPadTop + 'px;height:' + (navPadTop + navHeight)
         + 'px;padding-right:' + navMoreRight + 'px;',
       conversationStyle: 'padding-bottom:' + (Number(this.data.convBottomInset) || 520) + 'rpx;'
@@ -1753,6 +1773,7 @@ Page({
       trajectoryStyle: kbHeight ? 'margin-bottom:' + kbHeight + 'px;' : '',
       dockStyle: kbHeight ? 'bottom:' + (kbHeight + 12) + 'px;' : ''
     });
+    if (Object.keys(patch).length) this.setData(patch);
   },
 
   stopAgent() {
