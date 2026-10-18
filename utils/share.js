@@ -75,9 +75,11 @@ function install() {
     ['onLoad', 'onShow'].forEach(function (hook) {
       const original = options[hook];
       options[hook] = function () {
-        ensureShareMenu();
+        if (options.manualShareMenu) {
+          try { wx.hideShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] }); } catch (e) {}
+        } else ensureShareMenu();
         if (typeof original === 'function') {
-          original.apply(this, arguments);
+          return original.apply(this, arguments);
         }
       };
     });

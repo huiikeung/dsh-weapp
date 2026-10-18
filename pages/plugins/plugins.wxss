@@ -28,16 +28,17 @@
 /* ---------- 头部 ---------- */
 
 .plugins-header {
+  position: relative;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 16rpx 40rpx 24rpx;
+  height: 88rpx;                 /* 与右上角胶囊同一行的导航高度 */
+  padding: 0 40rpx;
   flex-shrink: 0;
 }
 
 .plugins-back {
-  width: 92rpx;
-  height: 92rpx;
+  width: 64rpx;
+  height: 64rpx;
   border-radius: 50%;
   background: var(--pg-bg);
   border: 1rpx solid rgba(0, 0, 0, 0.08);
@@ -45,6 +46,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 1;
 }
 
 .plugins.theme-dark .plugins-back {
@@ -56,22 +58,32 @@
 }
 
 .plugins-back-ic {
-  width: 36rpx;
-  height: 36rpx;
+  width: 32rpx;
+  height: 32rpx;
 }
 
 .plugins-title {
-  font-size: 40rpx;
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 34rpx;              /* iOS inline 导航标题 17pt */
   font-weight: 600;
   color: var(--pg-text);
+  pointer-events: none;
 }
 
 .plugins-refresh {
-  width: 92rpx;
-  height: 92rpx;
+  width: 60rpx;
+  height: 60rpx;
+  box-sizing: border-box;
+  border: 1rpx solid rgba(16, 19, 24, 0.14);   /* 透明圆环 */
+  border-radius: 50%;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .plugins-refresh.disabled {
@@ -79,8 +91,8 @@
 }
 
 .plugins-refresh-ic {
-  width: 40rpx;
-  height: 40rpx;
+  width: 34rpx;
+  height: 34rpx;
 }
 
 .brand-dim {
@@ -102,7 +114,7 @@
 }
 
 .plugins-hint {
-  font-size: 30rpx;
+  font-size: 26rpx;
   color: var(--pg-text2);
 }
 
@@ -161,7 +173,7 @@
 .plugin-section {
   display: flex;
   flex-direction: column;
-  gap: 20rpx;
+  gap: 32rpx;
 }
 
 .plugin-section-head {
@@ -172,13 +184,13 @@
 }
 
 .plugin-section-title {
-  font-size: 34rpx;
+  font-size: 30rpx;
   font-weight: 600;
   color: var(--pg-text);
 }
 
 .plugin-section-count {
-  font-size: 30rpx;
+  font-size: 24rpx;
   color: var(--pg-text2);
 }
 
@@ -205,28 +217,34 @@
   width: 96rpx;
   height: 96rpx;
   flex-shrink: 0;
+  box-sizing: border-box;
+  border: 1rpx solid rgba(120, 120, 128, 0.3);   /* iOS RoundedRectangle.strokeBorder(.gray.opacity(0.3)) */
+  border-radius: 26rpx;                            /* iOS 13pt */
+  overflow: hidden;
 }
 
 .plugin-icon-img {
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: 20rpx;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 20rpx;            /* iOS 图标内部留白 11pt */
 }
 
 .plugin-icon-fallback {
-  width: 96rpx;
-  height: 96rpx;
-  border-radius: 20rpx;
-  background: var(--pg-fallback);
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .plugin-icon-fallback text {
-  font-size: 44rpx;
+  font-size: 34rpx;
   font-weight: 600;
-  color: var(--pg-text);
+  color: var(--pg-text2);
   text-transform: uppercase;
 }
 
@@ -246,7 +264,7 @@
 }
 
 .plugin-line-title {
-  font-size: 34rpx;
+  font-size: 30rpx;
   font-weight: 700;
   color: var(--pg-text);
   overflow: hidden;
@@ -256,7 +274,7 @@
 
 .plugin-badge {
   flex-shrink: 0;
-  font-size: 24rpx;
+  font-size: 20rpx;
   font-weight: 500;
   color: var(--pg-badge-text);
   background: var(--pg-badge-bg);
@@ -265,7 +283,7 @@
 }
 
 .plugin-line-sub {
-  font-size: 26rpx;
+  font-size: 24rpx;
   color: var(--pg-text2);
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -283,4 +301,25 @@
   flex-shrink: 0;
   transform: scale(0.86);
   transform-origin: right center;
+}
+
+/* 本地插画（对齐 iOS PluginIcon：图标方框内留白 8pt=16rpx） */
+.plugin-icon-art {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 16rpx;
+}
+
+/* 提示行：文字在左、刷新在右（对齐 iOS toolbar 刷新位置语义） */
+.plugins-hint-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+/* 深色主题：刷新圆环改为白色描边 */
+.plugins.theme-dark .plugins-refresh {
+  border-color: rgba(255, 255, 255, 0.18);
 }

@@ -1,5 +1,11 @@
-relay/
+dsh-console/relay/node_modules/
+dsh-console/relay/relay-state.json
+dsh-console/relay/**/*.log
 .DS_Store
+dsh-console/deploy/.env
+dsh-console/services/public-access/data/
+dsh-console/services/public-access/.env
+dsh-console/services/public-access/node_modules/
 
 # 预览构建产物（不入库）
 preview-qr.png

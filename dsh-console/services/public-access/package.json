@@ -1,0 +1,9 @@
+{
+  "name": "dsh-weapp-console",
+  "version": "1.0.0",
+  "private": true,
+  "description": "鲸尾网页管理台、微信管理员绑定与 DSH 配对服务",
+  "engines": { "node": ">=22" },
+  "scripts": { "start": "node server.cjs", "connector": "node connector.cjs", "test": "node --test test/*.test.cjs" },
+  "dependencies": { "qrcode": "1.5.4" }
+}

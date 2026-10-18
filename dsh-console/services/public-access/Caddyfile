@@ -1,0 +1,16 @@
+{$CONSOLE_DOMAIN} {
+    header Strict-Transport-Security "max-age=31536000"
+    @shareProof path /share/moments/start /share/moments/submit
+    handle @shareProof {
+        request_body {
+            max_size 470000
+        }
+        reverse_proxy console:8790
+    }
+    handle {
+        request_body {
+            max_size 16KB
+        }
+        reverse_proxy console:8790
+    }
+}

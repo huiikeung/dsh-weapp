@@ -3,6 +3,7 @@ const theme = require('../../utils/theme');
 const util = require('../../utils/util');
 const labels = require('../../utils/labels');
 const hostsLib = require('../../utils/hosts');
+const { workspacePopoverLayout } = require('../../utils/workspace-popover');
 
 const CONNECTION_LABELS = {
   disconnected: '未连接',
@@ -13,6 +14,8 @@ const CONNECTION_LABELS = {
 
 Page({
   data: {
+    oceanActive: true,
+    oceanReducedMotion: false,
     pairMenuVisible: false,
     manualSheetOpen: false,
     manualSheetExpanded: false,
@@ -48,8 +51,12 @@ Page({
     editKind: 'desktopcomputer',
     workspacePickerOpen: false,
     sheetTheme: 'dark',
-    workspacePickerExpanded: false,
     pickerWorkspaces: [],
+    popLeft: 16,
+    popTop: 140,
+    popWidth: 300,
+    popHeight: 240,
+    popOriginY: 120,
     currentWorkspaceId: '',
     homeDataHint: '',
     emptySessionsText: '暂无已知会话。连接服务后创建第一个任务。',
@@ -105,6 +112,17 @@ Page({
       homePadTop: this.topbarTop + this.topbarH + 14,
       drawerTopPad: this.drawerTopPad
     });
+    // 让背景网格的横线正好穿过品牌行中心（对齐参考图构图）
+    try {
+      const centerPx = this.topbarTop + this.topbarH / 2;
+      const winW = (typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo().windowWidth : 375) || 375;
+      const centerRpx = centerPx * 750 / winW;
+      const grid = 84;                     // .deep-grid 的网格间距
+      // 网格横线自顶部每 84rpx 一条；正向下移 (center % 84) 正好让一条线穿过中心
+      const offset = (centerRpx % grid + grid) % grid;
+      this.setData({ gridOffsetY: Math.round(offset * 100) / 100 });
+    } catch (e) { /* 布局异常时保持默认 */ }
+
     this.unsubscribe = store.subscribe((snapshot) => {
       this.syncFromStore(snapshot);
     });
@@ -127,9 +145,17 @@ Page({
     this.setData({ sheetTheme: theme.resolveTheme() });
   },
 
+  onHide() {
+    this._workspacePickerRequest = null;
+    this.setData({ oceanActive: false, workspacePickerOpen: false });
+  },
+
   onShow() {
     // 从设置页返回时同步外观模式（手动浅色/深色切换不走 onThemeChange）
     this.applySheetTheme();
+    let settings = {};
+    try { settings = typeof wx.getSystemSetting === 'function' ? wx.getSystemSetting() : {}; } catch (e) { /* 保留动态背景默认。 */ }
+    this.setData({ oceanActive: true, oceanReducedMotion: settings.enableReduceMotion === true });
     // 从配对页跳回时刷新一次列表
     if (store.state.connection === 'connected') {
       store.client.requestWorkspaces();
@@ -139,6 +165,7 @@ Page({
   },
 
   onUnload() {
+    this._workspacePickerRequest = null;
     this.stopHostProbeTimer();
     store.stopHostProbes();
     if (this.unsubscribe) this.unsubscribe();
@@ -155,11 +182,17 @@ Page({
     const visibleSessions = rawSessions.filter((s) => (
       s.hasConversation !== false && !s.blank && !archivedIds.has(s.sessionId)
     ));
-    const current = workspaces.find((w) => w.workspaceId === app.currentWorkspaceId)
+    const isUngrouped = app.isUngroupedWorkspaceSelected === true;
+    const current = isUngrouped ? null : (workspaces.find((w) => w.workspaceId === app.currentWorkspaceId)
       || workspaces[0]
-      || null;
+      || null);
+    const groupedIds = new Set();
+    workspaces.forEach((w) => (w.sessionIds || []).forEach((id) => groupedIds.add(id)));
+    const ungroupedSessions = visibleSessions.filter((s) => !groupedIds.has(s.sessionId));
     let scopedSource;
-    if (current) {
+    if (isUngrouped) {
+      scopedSource = ungroupedSessions;
+    } else if (current) {
       const workspaceIds = new Set(current.sessionIds || []);
       scopedSource = visibleSessions.filter((s) => workspaceIds.has(s.sessionId));
     } else {
@@ -195,7 +228,12 @@ Page({
       (app.lastWorkspacesFrame && app.lastWorkspacesFrame.cached)
     );
     const hostCompatibilityError = !!app.coreCompatibilityError;
-    const currentWorkspace = current ? {
+    const currentWorkspace = isUngrouped ? {
+      title: '未分组',
+      path: ungroupedSessions.length + ' 个未归属会话',
+      workspaceId: '',
+      ungrouped: true
+    } : current ? {
       title: current.title,
       path: current.path || '通过 Mobile Gateway 连接',
       workspaceId: current.workspaceId,
@@ -209,6 +247,7 @@ Page({
 
     this.setData({
       currentWorkspace: currentWorkspace,
+      currentWorkspaceId: currentWorkspace.workspaceId,
       displaySessions: displaySessions,
       connectionLabel: hostCompatibilityError ? '服务异常' : (CONNECTION_LABELS[conn] || conn),
       connectionClass: hostCompatibilityError ? 'failed' : conn,
@@ -219,7 +258,8 @@ Page({
         ? '没有找到匹配的会话。'
         : (hostCompatibilityError
           ? '主机已连接，但服务端读取工作区和会话失败。请升级 NAS 上的 Mobile Gateway 与 DSH。'
-          : '暂无已知会话。连接服务后创建第一个任务。')
+          : (isUngrouped ? '暂无未分组会话。不属于任何工作区的历史会话会显示在这里。'
+            : '暂无已知会话。连接服务后创建第一个任务。'))
     });
     // 手动配对弹窗：连接成功后自动收起（对齐 dsh-mobile 配对完成反馈）
     if (this.data.manualSheetOpen && conn === 'connected' && this.data.pairingConnecting) {
@@ -404,6 +444,9 @@ Page({
   },
 
   openWorkspacePicker() {
+    if (this.data.workspacePickerOpen || this._workspacePickerRequest) return;
+    const request = {};
+    this._workspacePickerRequest = request;
     const st = store.state;
     const workspaces = st.workspaces || [];
     const rows = workspaces.map((w) => ({
@@ -412,42 +455,36 @@ Page({
       path: w.path || (((w.sessionIds || []).length) + ' 个会话'),
       ungrouped: false
     }));
-    this.setData({
-      workspacePickerOpen: true,
-      workspacePickerExpanded: false,
-      pickerWorkspaces: rows,
-      currentWorkspaceId: st.currentWorkspaceId || ''
-    });
+    let windowInfo = {};
+    try {
+      windowInfo = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    } catch (e) { /* Use phone-safe defaults when window metrics are unavailable. */ }
+    const show = (rect) => {
+      if (this._workspacePickerRequest !== request) return;
+      this._workspacePickerRequest = null;
+      const layout = workspacePopoverLayout(rect, windowInfo, rows.length, this.topbarTop + this.topbarH);
+      this.setData(Object.assign({
+        workspacePickerOpen: true,
+        pickerWorkspaces: rows,
+        currentWorkspaceId: this.data.currentWorkspace.workspaceId || st.currentWorkspaceId || '',
+        pairMenuVisible: false
+      }, layout));
+    };
+    try {
+      wx.createSelectorQuery().in(this).select('.workspace-card').boundingClientRect(show).exec();
+    } catch (e) {
+      show(null);
+    }
+  },
+
+  selectUngrouped() {
+    store.setCurrentWorkspace(null);
+    this.setData({ workspacePickerOpen: false });
   },
 
   closeWorkspacePicker() {
-    this.setData({ workspacePickerOpen: false, workspacePickerExpanded: false });
-  },
-
-  /* 工作区弹窗抓手：同主机弹窗（拖拽/点击切换紧凑与近全屏） */
-  onPickerSheetGrabStart(e) {
-    this._pickerGrab = { y: e.touches[0].clientY, moved: false, base: this.data.workspacePickerExpanded, applied: null };
-  },
-
-  onPickerSheetGrabMove(e) {
-    const g = this._pickerGrab;
-    if (!g) return;
-    const dy = e.touches[0].clientY - g.y;
-    if (Math.abs(dy) < 24) return;
-    const expand = dy < 0;
-    if (g.applied !== expand) {
-      g.applied = expand;
-      g.moved = true;
-      this.setData({ workspacePickerExpanded: expand });
-    }
-  },
-
-  onPickerSheetGrabEnd() {
-    const g = this._pickerGrab;
-    this._pickerGrab = null;
-    if (g && !g.moved) {
-      this.setData({ workspacePickerExpanded: !g.base });
-    }
+    this._workspacePickerRequest = null;
+    this.setData({ workspacePickerOpen: false });
   },
 
   selectWorkspace(e) {
@@ -649,6 +686,12 @@ Page({
     });
   },
 
+  /** 配置引导：进入「添加节点」三步说明页 */
+  openPairGuide() {
+    this.setData({ pairMenuVisible: false });
+    wx.navigateTo({ url: '/pages/add-node/add-node' });
+  },
+
   pairByManual() {
     this.setData({ pairMenuVisible: false, manualSheetOpen: true, manualSheetExpanded: false, pairingText: '', pairingResult: '', pairingResultClass: '', pairingConnecting: false });
   },
@@ -700,7 +743,12 @@ Page({
   },
 
   openSettings() {
+    this.resetDrawerInstant();
     wx.navigateTo({ url: '/pages/settings/settings' });
+  },
+
+  openSessionSettings() {
+    wx.navigateTo({ url: '/pages/session-settings/session-settings' });
   },
 
   // ---------- 侧边栏（对齐 dsh-mobile WorkspaceView drawer 交互） ----------

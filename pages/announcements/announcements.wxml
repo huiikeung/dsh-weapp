@@ -1,0 +1,14 @@
+<page-meta page-style="{{pageStyle}}" />
+<view class="announcements-page {{themeClass}}">
+  <view wx:if="{{loading}}" class="notice-state">正在加载公告…</view>
+  <view wx:elif="{{error}}" class="notice-state" role="alert"><text>{{error}}</text><button class="notice-retry" bindtap="refresh">重新加载</button></view>
+  <view wx:elif="{{!items.length}}" class="notice-state"><text>暂无开发者公告</text><text class="notice-empty-hint">更新说明和使用提醒将发布在这里。</text></view>
+  <view wx:for="{{items}}" wx:key="id" class="notice-card {{item.expanded ? 'is-expanded' : ''}}">
+    <view class="notice-toggle" data-id="{{item.id}}" bindtap="toggle" hover-class="notice-pressed" role="button" aria-label="{{item.expanded ? '收起' : '展开'}}公告：{{item.title}}">
+      <view class="notice-heading"><text class="notice-tag">公告</text><text class="notice-title">{{item.title}}</text><view class="notice-chevron {{item.expanded ? 'up' : ''}}"/></view>
+      <text wx:if="{{!item.expanded}}" class="notice-preview">{{item.content}}</text>
+    </view>
+    <view wx:if="{{item.expanded}}" class="notice-body"><text selectable>{{item.content}}</text></view>
+  </view>
+  <text class="notice-footer">公告不会索取密码、配对令牌或模型密钥。</text>
+</view>

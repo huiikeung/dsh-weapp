@@ -1,7 +1,11 @@
 {
   "description": "驭鲸 Harness — DeepSeek Harness 微信小程序客户端",
   "packOptions": {
-    "ignore": [],
+    "ignore": [
+      { "type": "folder", "value": "dsh-console" },
+      { "type": "folder", "value": "tests" },
+      { "type": "folder", "value": "scripts" }
+    ],
     "include": []
   },
   "setting": {

@@ -1,0 +1,83 @@
+name: dsh-public
+
+services:
+  console:
+    build:
+      context: ../services/public-access
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      ACCESS_HOST: 0.0.0.0
+      ACCESS_PORT: 8790
+      ACCESS_STATE_FILE: /app/data/state.json
+    volumes:
+      - console-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8790/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  relay:
+    build:
+      context: ../relay
+    restart: unless-stopped
+    environment:
+      RELAY_HOST: 0.0.0.0
+      RELAY_PORT: 8787
+      RELAY_STATE_FILE: /app/data/relay-state.json
+      RELAY_REQUIRE_PUBLIC_ACCESS: 'true'
+      RELAY_AUTH_URL: http://console:8790/internal/relay/authorize
+      RELAY_AUTH_SECRET: ${RELAY_AUTH_SECRET:?请执行upgrade.sh或install.sh生成内部鉴权密钥}
+    volumes:
+      - relay-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      PUBLIC_DOMAIN: ${PUBLIC_DOMAIN:?请设置PUBLIC_DOMAIN}
+      CADDY_SITE_SCHEME: ${CADDY_SITE_SCHEME:-https}
+    ports:
+      - "${CADDY_HTTP_BIND:-0.0.0.0:80}:80"
+      - "${CADDY_HTTPS_BIND:-0.0.0.0:443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      console:
+        condition: service_healthy
+      relay:
+        condition: service_healthy
+
+volumes:
+  console-data:
+    name: dsh-public-console-data
+  relay-data:
+    name: dsh-public-relay-data
+  caddy-data:
+    name: dsh-public-caddy-data
+  caddy-config:
+    name: dsh-public-caddy-config

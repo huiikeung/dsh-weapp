@@ -1,0 +1,9 @@
+<view class="ocean-background {{active ? '' : 'ocean-paused'}} {{reducedMotion ? 'ocean-still' : ''}}" aria-hidden="true">
+  <view class="ocean-fallback {{ready ? 'ocean-fallback-hidden' : ''}}">
+    <view class="ocean-fallback-light"></view>
+    <image class="ocean-fallback-whale" src="/assets/icons/bg-whale.png" mode="aspectFit" />
+  </view>
+  <image wx:if="{{frameImage}}" class="ocean-frame" src="{{frameImage}}" mode="scaleToFill" aria-hidden="true" />
+  <view class="ocean-depth"></view>
+  <view class="ocean-settle"></view>
+</view>

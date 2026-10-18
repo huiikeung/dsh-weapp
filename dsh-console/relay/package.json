@@ -1,0 +1,10 @@
+{
+  "name": "dsh-weapp-relay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DSH Weapp 公网中继与 fnOS 连接器（outbound-only relay + E2EE）",
+  "dependencies": {
+    "tweetnacl": "^1.0.3",
+    "ws": "^8.18.0"
+  }
+}

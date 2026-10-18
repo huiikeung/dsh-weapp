@@ -141,6 +141,17 @@ Page({
       store.openSession(options.id, '', null);
     }
     this.folds = {};
+    // 字体大小偏好（设置页写入，范围 ±24%）
+    let fontScale = 1;
+    try {
+      const id = wx.getStorageSync('appFontScale') || 'system';
+      const scaleMap = { system: 1, standard: 1, large: 1.12, xlarge: 1.24 };
+      fontScale = scaleMap[id] || 1;
+    } catch (e) { fontScale = 1; }
+    this.setData({
+      fontClass: fontScale > 1.05 ? 'font-large' : '',
+      fontScale: fontScale
+    });
     // 自定义导航：会话标题顶到状态栏下方；右侧避让胶囊按钮
     try {
       const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();

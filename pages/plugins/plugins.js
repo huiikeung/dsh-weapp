@@ -4,6 +4,19 @@
 const store = require('../../utils/store');
 const theme = require('../../utils/theme');
 
+
+const ARTWORK = {
+  shell: 'shell',
+  'agent-loop': 'agent-loop',
+  subagent: 'subagent',
+  'web-search': 'web-search'
+};
+
+/** 对齐 iOS PluginIcon.artworkName：按 id 取本地插画，未知用 default。 */
+function artworkFor(id) {
+  return '/assets/plugin-artwork/' + (ARTWORK[String(id || '')] || 'default') + '.png';
+}
+
 function bundleToView(b, app) {
   const canManage = !!(app.pluginCatalog && app.pluginCatalog.managementAvailable);
   return {
@@ -11,6 +24,7 @@ function bundleToView(b, app) {
     title: b.title,
     description: b.description,
     icon: b.icon,
+    artwork: artworkFor(b.name),
     initial: (b.title || b.name || '?').charAt(0),
     enabled: b.enabled,
     experimental: b.experimental,
@@ -65,6 +79,7 @@ Page({
           id: o.id,
           title: o.title,
           description: o.description,
+          artwork: artworkFor(o.id),
           initial: (o.title || o.id).charAt(0)
         })),
         officialTotal: catalog.officialBundles.length + catalog.officialItems.length,
@@ -79,6 +94,21 @@ Page({
     if (this.data.refreshing && app.pluginsLoading !== true) {
       this.setData({ refreshing: false });
     }
+  },
+
+  // 图标是网关下发的 data URL；SVG base64 在部分基础库无法渲染，失败时回退字母占位
+  onIconError(e) {
+    const name = (e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.name) || '';
+    if (!name || !this.data.catalog) return;
+    const mark = (list) => (list || []).map((item) => (
+      item.name === name ? Object.assign({}, item, { iconBroken: true }) : item
+    ));
+    const catalog = Object.assign({}, this.data.catalog, {
+      officialBundles: mark(this.data.catalog.officialBundles),
+      installedBundles: mark(this.data.catalog.installedBundles),
+      officialItems: mark(this.data.catalog.officialItems)
+    });
+    this.setData({ catalog: catalog });
   },
 
   onRefresh() {

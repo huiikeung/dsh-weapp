@@ -1,7 +1,5 @@
 {
-  "navigationBarTitleText": "设置",
-  "navigationBarBackgroundColor": "@navBgColor",
-  "navigationBarTextStyle": "@navTxtStyle",
   "backgroundColor": "@bgColor",
-  "usingComponents": {}
+  "usingComponents": { "privacy-sheet": "/components/privacy-sheet/privacy-sheet" },
+  "navigationStyle": "custom"
 }

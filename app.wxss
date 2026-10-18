@@ -389,9 +389,10 @@ page {
 /* ---------- 品牌图标 ---------- */
 
 .brand-whale {
-  width: 44rpx;
-  height: 44rpx;
-  margin-right: 14rpx;
+  width: 58rpx;
+  height: 58rpx;
+  margin-right: 7rpx;      /* 缩小一半 */
+  margin-top: -8rpx;      /* 下移一点，与文字基线视觉对齐 */
   flex-shrink: 0;
 }
 
@@ -406,23 +407,73 @@ page {
   bottom: 0;
   z-index: -1;
   overflow: hidden;
-  background:
-    /* 底部压暗（iOS 同款 clear → navy → black） */
-    linear-gradient(180deg, rgba(4, 10, 22, 0) 52%, rgba(4, 10, 22, 0.30) 74%, rgba(2, 6, 14, 0.72) 100%),
-    /* 流体光带 A（左上向右下的亮斜带） */
-    linear-gradient(118deg, rgba(150, 185, 235, 0) 34%, rgba(160, 195, 240, 0.11) 46%, rgba(200, 222, 248, 0.07) 52%, rgba(150, 185, 235, 0) 63%),
-    /* 流体光带 B（右下向左上的暗斜带） */
-    linear-gradient(62deg, rgba(120, 158, 215, 0) 42%, rgba(135, 170, 225, 0.09) 56%, rgba(120, 158, 215, 0) 70%),
-    /* 顶部右侧主辉光 */
-    radial-gradient(85% 55% at 72% 0%, rgba(64, 110, 192, 0.36) 0%, rgba(30, 62, 120, 0) 62%),
-    /* 中部左侧次辉光 */
-    radial-gradient(110% 70% at 10% 36%, rgba(54, 96, 172, 0.26) 0%, rgba(22, 48, 95, 0) 62%),
-    /* 蓝色渐变底（亮度取原 navy 与上一版的中间值） */
-    linear-gradient(180deg, #1D3A6B 0%, #17315B 38%, #0D2044 68%, #071527 100%);
+  background: linear-gradient(180deg, #1D3A6B 0%, #17315B 38%, #0D2044 68%, #071527 100%);
   pointer-events: none;
 }
 
-/* 技术网格：42pt(84rpx) 方格 white 4.3%，顶部实、向底部渐隐（iOS 同款遮罩） */
+/* 流体光效层（近似 iOS Metal 流体场：多层光带缓慢漂移 + 呼吸） */
+.deep-fluid {
+  position: absolute;
+  left: -20%;
+  top: -20%;
+  right: -20%;
+  bottom: -20%;
+  background:
+    linear-gradient(118deg, rgba(150, 185, 235, 0) 34%, rgba(165, 200, 245, 0.16) 46%, rgba(205, 226, 250, 0.10) 52%, rgba(150, 185, 235, 0) 63%),
+    linear-gradient(62deg, rgba(120, 158, 215, 0) 42%, rgba(140, 175, 230, 0.13) 56%, rgba(120, 158, 215, 0) 70%),
+    radial-gradient(85% 55% at 72% 8%, rgba(74, 124, 210, 0.40) 0%, rgba(30, 62, 120, 0) 62%),
+    radial-gradient(110% 70% at 10% 36%, rgba(60, 104, 182, 0.30) 0%, rgba(22, 48, 95, 0) 62%);
+  filter: blur(2rpx);
+  will-change: transform, opacity;
+  animation: fluidDrift 26s ease-in-out infinite alternate;
+}
+
+@keyframes fluidDrift {
+  0%   { transform: translate3d(-2%, -1%, 0) scale(1.02); opacity: 0.85; }
+  50%  { transform: translate3d(1.5%, 2%, 0) scale(1.06); opacity: 1; }
+  100% { transform: translate3d(3%, -2%, 0) scale(1.03); opacity: 0.9; }
+}
+
+/* 缓慢加深的压暗层（背景颜色会慢慢变深） */
+.deep-shade {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, rgba(2, 6, 14, 0) 42%, rgba(2, 6, 14, 0.34) 72%, rgba(0, 0, 0, 0.66) 100%);
+  opacity: 0.55;
+  will-change: opacity;
+  animation: shadeBreath 22s ease-in-out infinite alternate;
+}
+
+@keyframes shadeBreath {
+  0%   { opacity: 0.42; }
+  100% { opacity: 1; }
+}
+
+/* Hero 区域光带（标题/卡片背后的一道柔光，缓慢明暗） */
+.deep-glow {
+  position: absolute;
+  left: -12%;
+  right: -12%;
+  top: 16%;
+  height: 46%;
+  background:
+    radial-gradient(60% 100% at 46% 42%, rgba(175, 210, 255, 0.26) 0%, rgba(120, 165, 235, 0.12) 42%, rgba(30, 70, 130, 0) 74%),
+    linear-gradient(180deg, rgba(190, 220, 255, 0) 0%, rgba(190, 220, 255, 0.10) 38%, rgba(190, 220, 255, 0) 78%);
+  filter: blur(24rpx);
+  will-change: opacity, transform;
+  animation: glowBreath 18s ease-in-out infinite alternate;
+}
+
+@keyframes glowBreath {
+  0%   { opacity: 0.55; transform: translate3d(-1%, 4rpx, 0) scale(0.98); }
+  50%  { opacity: 0.9; transform: translate3d(1%, -6rpx, 0) scale(1.03); }
+  100% { opacity: 0.7; transform: translate3d(2%, 2rpx, 0) scale(1); }
+}
+
+/* 技术网格：42pt(84rpx) 方格，顶部实、向底部渐隐（iOS 同款遮罩，线色已调浅） */
 .deep-grid {
   position: absolute;
   left: 0;
@@ -430,8 +481,8 @@ page {
   right: 0;
   bottom: 0;
   background-image:
-    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.043) 0 1px, transparent 1px 84rpx),
-    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.043) 0 1px, transparent 1px 84rpx);
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.014) 0 1px, transparent 1px 84rpx),
+    repeating-linear-gradient(90deg, rgba(255, 255, 255, 0.014) 0 1px, transparent 1px 84rpx);
   -webkit-mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8) 0%, #000 56%, transparent 100%);
   mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8) 0%, #000 56%, transparent 100%);
 }
@@ -439,7 +490,7 @@ page {
 /* 鲸鱼粒子剪影：screen 混合（iOS WhaleField 同款 blendMode） */
 .deep-whale {
   position: absolute;
-  left: 55%;
+  left: 50%;
   top: 34%;
   transform: translate(-50%, -50%);
   width: 862rpx;

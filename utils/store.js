@@ -9,6 +9,8 @@ const hosts = require('./hosts');
 const schedule = require('./schedule');
 const pluginsLib = require('./plugins');
 const util = require('./util');
+const accessApi = require('./access-api');
+const { normalizeHostInfo } = require('./host-info');
 
 const STORAGE_KEYS = {
   endpoint: 'dsh_endpoint', // 仅用于旧版单主机凭据迁移
@@ -29,6 +31,7 @@ function createStore() {
     connectionMessage: null,
     paired: false,
     gatewayName: null,
+    gatewayMetadata: null,
     gatewayId: null,
     endpoint: null,
     port: null,
@@ -42,6 +45,7 @@ function createStore() {
     workspaces: [],
     archivedSessionIds: [],
     currentWorkspaceId: null,
+    isUngroupedWorkspaceSelected: false,
     sessions: [],
     searchResults: null,
     searchQuery: '',
@@ -114,6 +118,7 @@ function createStore() {
     onState: function (status, message) {
       state.connection = status;
       state.connectionMessage = message;
+      if (status !== 'connected') state.gatewayMetadata = null;
       if (status === 'connected') {
         // 记住这次真正连通的地址，下次优先使用；轮换游标对齐当前线路
         endpointCandidates = endpointCandidates.length ? endpointCandidates : [state.endpoint];
@@ -146,7 +151,15 @@ function createStore() {
             state.connectionMessage = '切换线路重连中…';
             let connectOpts = null;
             if (profile.relay && profile.relayAgentPubKey) {
-              connectOpts = { relay: { nodeId: profile.gatewayId, agentPubKey: profile.relayAgentPubKey } };
+              const relayCred = hosts.loadCredential(profile.id);
+              connectOpts = { token: profile.relayAuthMode === 'gateway' && relayCred ? relayCred.token : null, relay: {
+                authMode: profile.relayAuthMode || 'invite',
+                nodeId: profile.gatewayId,
+                agentPubKey: profile.relayAgentPubKey,
+                accessToken: profile.relayAccessToken || null,
+                role: profile.relayRole || 'guest',
+                expiresAt: profile.relayExpiresAt || null
+              } };
             } else {
               const cred = hosts.loadCredential(profile.id);
               if (cred && cred.token) connectOpts = { token: cred.token };
@@ -173,6 +186,29 @@ function createStore() {
     onPaired: function (frame) {
       state.paired = true;
       acceptIdentity(frame);
+    },
+    onRelayAuthorized: function (frame, relayMeta) {
+      const profile = relayMeta
+        ? state.profiles.find((item) => item.gatewayId === relayMeta.nodeId)
+        : getProfile(state.activeID) || pendingProfile;
+      if (profile) {
+        profile.relayAccessToken = frame.accessToken || null;
+        profile.relayRole = frame.role === 'owner' ? 'owner' : 'guest';
+        // Gateway grants belong to the device registry, not relay invite frames.
+        if (profile.relayAuthMode !== 'gateway') profile.relayExpiresAt = Number(frame.expiresAt || 0) || null;
+        profile.relayClientCount = Number(frame.clientCount || 0);
+        upsertProfile(profile);
+        emit();
+      }
+    },
+    onRelayClientCount: function (count, relayMeta) {
+      const profile = relayMeta
+        ? state.profiles.find((item) => item.gatewayId === relayMeta.nodeId)
+        : getProfile(state.activeID);
+      if (profile && profile.relay) {
+        profile.relayClientCount = count;
+        emit();
+      }
     },
     onFrame: function (frame) {
       handleFrame(frame);
@@ -298,14 +334,15 @@ function createStore() {
       const archivedSessionIds = (state.archivedSessionIds || []).length
         ? state.archivedSessionIds
         : ((previous && previous.archivedSessionIds) || []);
-      const currentWorkspaceId = state.currentWorkspaceId ||
+      const currentWorkspaceId = state.isUngroupedWorkspaceSelected ? null : (state.currentWorkspaceId ||
         (previous && previous.currentWorkspaceId) ||
-        (workspaces[0] && workspaces[0].workspaceId) || null;
+        (workspaces[0] && workspaces[0].workspaceId) || null);
       wx.setStorageSync('dsh_home_cache.' + state.activeID, JSON.stringify({
         sessions: sessions,
         workspaces: workspaces,
         archivedSessionIds: archivedSessionIds,
         currentWorkspaceId: currentWorkspaceId,
+        isUngroupedWorkspaceSelected: state.isUngroupedWorkspaceSelected,
         savedAt: Date.now()
       }));
     } catch (e) { /* 存储失败不阻断 */ }
@@ -353,8 +390,9 @@ function createStore() {
     if (requestType === 'workspaces' && !(state.workspaces || []).length && (cached.workspaces || []).length) {
       state.workspaces = cached.workspaces;
       state.archivedSessionIds = cached.archivedSessionIds || state.archivedSessionIds || [];
-      state.currentWorkspaceId = cached.currentWorkspaceId ||
-        (state.workspaces[0] && state.workspaces[0].workspaceId) || null;
+      state.isUngroupedWorkspaceSelected = cached.isUngroupedWorkspaceSelected === true;
+      state.currentWorkspaceId = state.isUngroupedWorkspaceSelected ? null : (cached.currentWorkspaceId ||
+        (state.workspaces[0] && state.workspaces[0].workspaceId) || null);
       state.lastWorkspacesFrame = {
         count: state.workspaces.length,
         keys: '本地缓存',
@@ -446,6 +484,7 @@ function createStore() {
       case 'hello':
         acceptIdentity(frame);
         state.gatewayName = frame.gatewayName || state.gatewayName;
+        state.gatewayMetadata = { name: frame.gatewayPackage || '', version: frame.gatewayVersion || '' };
         state.clientCount = frame.clients;
         if (frame.historyFormatVersion) {
           sessionState.historyFormatVersion = frame.historyFormatVersion;
@@ -484,7 +523,7 @@ function createStore() {
           keys: state.workspaces.length ? Object.keys((frame.items || [])[0] || {}).slice(0, 8).join(',') : '',
           at: Date.now()
         };
-        if (!state.currentWorkspaceId && state.workspaces.length) {
+        if (!state.isUngroupedWorkspaceSelected && !state.currentWorkspaceId && state.workspaces.length) {
           state.currentWorkspaceId = state.workspaces[0].workspaceId;
         }
         // 自愈（对称方向）：工作区到了但会话列表仍为空 → 主动补拉
@@ -566,14 +605,10 @@ function createStore() {
         return;
       case 'host':
         state.rpcError = '';
-        state.host = {
-          version: frame.version,
-          cwd: frame.cwd,
-          provider: frame.provider,
-          model: frame.model,
-          attachedSessions: frame.attachedSessions,
-          canOpenPath: frame.canOpenPath
-        };
+        state.host = normalizeHostInfo(frame);
+        if (frame.gatewayVersion) {
+          state.gatewayMetadata = { name: frame.gatewayPackage || '', version: frame.gatewayVersion };
+        }
         emit();
         return;
       case 'defaults':
@@ -1696,7 +1731,7 @@ function createStore() {
     const isPending = !!pendingProfile;
     let profile = isPending ? pendingProfile : getProfile(state.activeID);
     const frameGatewayId = frame.gatewayId ? String(frame.gatewayId).toLowerCase() : null;
-    if (frameGatewayId) {
+    if (frameGatewayId && !(profile && profile.relay)) {
       // 网关身份已有归属档案（如配对载荷缺 gatewayId）：并入原档案。
       for (let i = 0; i < state.profiles.length; i += 1) {
         const p = state.profiles[i];
@@ -1713,7 +1748,8 @@ function createStore() {
         preferredEndpoint: state.endpoint
       });
     }
-    if (frameGatewayId) profile.gatewayId = frameGatewayId;
+    // relay 的 nodeId 用于路由和 E2EE 验签，不能被网关自身 UUID 覆盖。
+    if (frameGatewayId && !profile.relay) profile.gatewayId = frameGatewayId;
     const name = String(frame.gatewayName || '').trim();
     if (name) profile.gatewayName = frame.gatewayName;
     if (frame.device && frame.device.id) profile.remoteDeviceId = frame.device.id;
@@ -1770,10 +1806,15 @@ function createStore() {
     profile.endpoints = normalized;
     profile.preferredEndpoint = normalized[0];
     if (payload && String(payload.gatewayName || '').trim()) profile.gatewayName = payload.gatewayName;
-    // v3 relay 模式：记录中继元信息，重连时不再依赖 Bearer token（由 fnOS 连接器注入）。
+    // v3 relay 支持邀请鉴权及插件配对码；后者保存手机独立的网关凭据。
     if (payload && payload.mode === 'relay') {
       profile.relay = true;
       profile.relayAgentPubKey = payload.agentPubKey || null;
+      profile.relayAuthMode = payload.authMode || 'invite';
+      profile.relayRole = payload.role || 'guest';
+      profile.relayInviteExpiresAt = payload.expiresAt;
+      profile.relayAccessToken = null;
+      profile.relayExpiresAt = payload.authMode === 'gateway' ? payload.accessExpiresAt || null : null;
       // 中继链路没有 paired/hello 提交帧（E2EE 握手是二进制协议）：
       // 配对即入库并设为激活，否则档案只在内存里，重启后主机消失。
       profile.lastConnectedAt = Date.now();
@@ -1793,7 +1834,14 @@ function createStore() {
     state.gatewayId = profile.gatewayId;
     if (payload && payload.mode === 'relay') {
       client.connect(normalized[0], {
-        relay: { nodeId: payload.nodeId || profile.gatewayId, agentPubKey: payload.agentPubKey }
+        pairingCode: code,
+        relay: {
+          authMode: payload.authMode || 'invite',
+          nodeId: payload.nodeId || profile.gatewayId,
+          agentPubKey: payload.agentPubKey,
+          inviteToken: payload.inviteToken,
+          role: payload.role
+        }
       });
     } else {
       client.connect(normalized[0], { pairingCode: code });
@@ -1853,11 +1901,25 @@ function createStore() {
     state.endpoint = endpoint;
     state.gatewayName = hosts.displayName(profile);
     state.gatewayId = profile.gatewayId;
-    // relay 档案：凭据由 fnOS 连接器持有，小程序端只需 E2EE 元信息
+    // 配对码模式的长期凭据由手机保存，经 E2EE 交给主机，不发给中继。
     if (profile.relay && profile.relayAgentPubKey) {
+      if (profile.relayAuthMode === 'gateway' && (!cred || !cred.token)) {
+        state.connection = 'disconnected';
+        state.connectionMessage = '缺少配对凭据，请重新扫描 DSH 的二维码';
+        emit();
+        return false;
+      }
       client.lastToken = null;
       client.connect(endpoint, {
-        relay: { nodeId: profile.gatewayId, agentPubKey: profile.relayAgentPubKey }
+        token: profile.relayAuthMode === 'gateway' && cred ? cred.token : null,
+        relay: {
+          authMode: profile.relayAuthMode || 'invite',
+          nodeId: profile.gatewayId,
+          agentPubKey: profile.relayAgentPubKey,
+          accessToken: profile.relayAccessToken || null,
+          role: profile.relayRole || 'guest',
+          expiresAt: profile.relayExpiresAt || null
+        }
       });
       return true;
     }
@@ -1877,10 +1939,12 @@ function createStore() {
     state.workspaces = [];
     state.archivedSessionIds = [];
     state.currentWorkspaceId = null;
+    state.isUngroupedWorkspaceSelected = false;
     state.sessions = [];
     state.searchQuery = '';
     state.searchResults = null;
     state.host = null;
+    state.gatewayMetadata = null;
     state.clientCount = null;
     state.defaultModel = null;
     state.agentPresets = null;
@@ -1989,7 +2053,8 @@ function createStore() {
 
   function probeProfile(profile) {
     const cred = hosts.loadCredential(profile.id);
-    if (!cred || !cred.token) return Promise.resolve(false);
+    if (profile.relay && profile.relayAuthMode !== 'gateway'
+      ? !profile.relayAccessToken : (!cred || !cred.token)) return Promise.resolve(false);
     const endpoints = hosts.connectionEndpoints(profile);
     return new Promise(function (resolve) {
       let index = 0;
@@ -2020,7 +2085,18 @@ function createStore() {
           }
         });
         probeClients.push(probeClient);
-        probeClient.connect(endpoint, { token: cred.token, probe: true });
+        const probeOpts = { token: cred && cred.token, probe: true };
+        if (profile.relay) {
+          probeOpts.token = profile.relayAuthMode === 'gateway' && cred ? cred.token : null;
+          probeOpts.relay = {
+            authMode: profile.relayAuthMode || 'invite',
+            nodeId: profile.gatewayId,
+            agentPubKey: profile.relayAgentPubKey,
+            accessToken: profile.relayAccessToken || null,
+            expiresAt: profile.relayExpiresAt || null
+          };
+        }
+        probeClient.connect(endpoint, probeOpts);
         timer = setTimeout(function () {
           detach();
           tryNext();
@@ -2094,7 +2170,8 @@ function createStore() {
             state.sessions = cached.sessions || [];
             state.workspaces = cached.workspaces || [];
             state.archivedSessionIds = cached.archivedSessionIds || [];
-            state.currentWorkspaceId = cached.currentWorkspaceId || null;
+            state.isUngroupedWorkspaceSelected = cached.isUngroupedWorkspaceSelected === true;
+            state.currentWorkspaceId = state.isUngroupedWorkspaceSelected ? null : (cached.currentWorkspaceId || null);
             state.homeCacheAt = cached.savedAt || 0;
             state.lastSessionsFrame = {
               count: state.sessions.length,
@@ -2135,7 +2212,8 @@ function createStore() {
     },
 
     appDidBecomeActive: function () {
-      if (state.connection !== 'connected' && state.activeID) {
+      // Revalidate the current WeChat identity on return, only for our paid relay.
+      if (state.activeID && (state.connection !== 'connected' || accessApi.isManagedRelay(state.endpoint))) {
         reconnectPreferred();
       }
     },
@@ -2164,6 +2242,60 @@ function createStore() {
         return { ok: false, error: '地址未经此主机确认，请重新扫码添加地址。' };
       }
       return beginPairing(payload.publicUrl, payload.pairingCode, payload);
+    },
+
+    /** 所有者生成兑换码（续期 accessTtlMs，可用 uses 次，码本身 codeTtlMs 有效） */
+    createRedeemCode: function (accessTtlMs, uses, codeTtlMs) {
+      const profile = getProfile(state.activeID);
+      if (!profile || !profile.relay || profile.relayRole !== 'owner' || !profile.relayAccessToken) {
+        return Promise.reject(new Error('只有所有者账号可以生成兑换码'));
+      }
+      return client.createRelayCode(accessTtlMs, uses, codeTtlMs).then(function (res) {
+        return {
+          code: res.code,
+          expiresAt: Number(res.expiresAt) || 0,
+          accessTtlMs: Number(res.accessTtlMs) || accessTtlMs,
+          uses: Number(res.uses) || uses
+        };
+      });
+    },
+
+    /** 兑换续期码：成功后更新本地记录的有效期 */
+    redeemCode: function (code) {
+      const normalized = String(code || '').trim().toUpperCase();
+      if (!normalized) return Promise.reject(new Error('请输入兑换码'));
+      const profile = getProfile(state.activeID);
+      if (!profile || !profile.relay) return Promise.reject(new Error('当前节点不在公网模式'));
+      return client.redeemRelayCode(normalized).then(function (res) {
+        const expiresAt = Number(res.expiresAt) || 0;
+        const target = state.profiles.find(function (item) { return item.id === profile.id; });
+        if (target && expiresAt) target.relayExpiresAt = expiresAt;
+        hosts.saveProfiles(state.profiles);
+        emit();
+        return { expiresAt: expiresAt, remainingUses: Number(res.remainingUses) || 0 };
+      });
+    },
+
+    createRelayShare: function (ttlMs) {
+      const profile = getProfile(state.activeID);
+      if (!profile || !profile.relay || profile.relayRole !== 'owner' || !profile.relayAccessToken) {
+        return Promise.reject(new Error('只有已完成所有者配对的公网节点可以创建分享'));
+      }
+      return client.createRelayShare(ttlMs).then(function (invite) {
+        const endpoint = profile.endpoints[0] || '';
+        const payload = {
+          version: 3,
+          mode: 'relay',
+          relay: endpoint.replace(/\/c\/[^/]+$/, ''),
+          nodeId: profile.gatewayId,
+          agentPubKey: profile.relayAgentPubKey,
+          gatewayName: profile.alias || profile.gatewayName,
+          inviteToken: invite.inviteToken,
+          expiresAt: invite.expiresAt,
+          role: 'guest'
+        };
+        return { raw: util.encodeBase64URL(JSON.stringify(payload)), expiresAt: invite.expiresAt };
+      });
     },
 
     pairManual: function (endpoint, pairingCode) {
@@ -2323,7 +2455,7 @@ function createStore() {
     /** 开始新会话：先在网关创建会话，再订阅并打开。 */
     createAndOpenSession: function (workspaceId) {
       const self = this;
-      const wsId = workspaceId || state.currentWorkspaceId;
+      const wsId = workspaceId === undefined ? state.currentWorkspaceId : workspaceId;
       // 乐观创建：立即进入本地创建态（秒开会话页），真实创建在后台进行
       sessionState.creating = true;
       sessionState.creatingWorkspaceId = wsId;
@@ -2357,7 +2489,7 @@ function createStore() {
     },
 
     retryCreateSession: function () {
-      const wsId = sessionState.creatingWorkspaceId || state.currentWorkspaceId;
+      const wsId = sessionState.creatingWorkspaceId === undefined ? state.currentWorkspaceId : sessionState.creatingWorkspaceId;
       return this.createAndOpenSession(wsId);
     },
 
@@ -2395,7 +2527,9 @@ function createStore() {
     },
 
     setCurrentWorkspace: function (workspaceId) {
-      state.currentWorkspaceId = workspaceId;
+      // null is an explicit selection, not the default-workspace fallback.
+      state.isUngroupedWorkspaceSelected = workspaceId == null;
+      state.currentWorkspaceId = workspaceId == null ? null : workspaceId;
       saveHomeCache();
       emit();
     },

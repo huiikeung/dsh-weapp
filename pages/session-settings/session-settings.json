@@ -1,0 +1,8 @@
+{
+  "navigationBarTitleText": "会话设置",
+  "navigationStyle": "custom",
+  "navigationBarBackgroundColor": "@navBgColor",
+  "navigationBarTextStyle": "@navTxtStyle",
+  "backgroundColor": "@bgColor",
+  "usingComponents": {}
+}

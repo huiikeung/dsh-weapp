@@ -1,7 +1,5 @@
 {
-  "navigationBarTitleText": "隐私政策",
-  "navigationBarBackgroundColor": "@navBgColor",
-  "navigationBarTextStyle": "@navTxtStyle",
+  "navigationStyle": "custom",
   "backgroundColor": "@bgColor",
-  "usingComponents": {}
+  "usingComponents": { "privacy-sheet": "/components/privacy-sheet/privacy-sheet" }
 }

@@ -1,0 +1,15 @@
+:host { display: block; width: 100%; height: 100%; pointer-events: none; }
+.ocean-background { position: absolute; inset: 0; overflow: hidden; pointer-events: none; background: #07182b; }
+.ocean-frame, .ocean-fallback, .ocean-depth, .ocean-settle { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.ocean-fallback { background: linear-gradient(180deg, #193860, #0d2449 55%, #030b18); }
+.ocean-fallback-hidden { visibility: hidden; }
+.ocean-fallback-light { position: absolute; inset: -15%; background: radial-gradient(ellipse at 57% 17%, transparent 30%, rgba(238, 216, 170, 0.24) 33%, transparent 39%); animation: ocean-fallback-drift 22s ease-in-out infinite alternate; }
+.ocean-fallback-whale { position: absolute; left: 55%; top: 34%; width: 115vw; height: 115vw; transform: translate(-50%, -50%); opacity: 0.56; mix-blend-mode: screen; }
+.ocean-depth { background: linear-gradient(180deg, transparent, rgba(6, 23, 43, 0.12) 50%, rgba(0, 0, 0, 0.58)); }
+.ocean-settle { background: #020711; animation: ocean-settle 24s ease-in-out both; }
+.ocean-paused .ocean-settle, .ocean-paused .ocean-fallback-light { animation-play-state: paused; }
+.ocean-still .ocean-fallback-light, .ocean-still .ocean-settle { animation: none; }
+.ocean-still .ocean-settle { opacity: 0.16; }
+@keyframes ocean-settle { from { opacity: 0; } to { opacity: 0.22; } }
+@keyframes ocean-fallback-drift { from { transform: translate(-1%, -1%); opacity: 0.7; } to { transform: translate(2%, 3%); opacity: 0.9; } }
+@media (prefers-reduced-motion: reduce) { .ocean-settle, .ocean-fallback-light { animation: none; } .ocean-settle { opacity: 0.16; } }

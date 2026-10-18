@@ -1,5 +1,5 @@
 <page-meta page-style="{{pageStyle}}" />
-<view class="page session {{themeClass}}">
+<view class="page session {{themeClass}} {{fontClass}}">
   <!-- 顶部导航：标题居中，右侧连接状态、模式与菜单 -->
   <view class="navbar" style="{{navbarStyle}}">
     <view class="nav-back tap" hover-class="press-dim" bindtap="goBack">

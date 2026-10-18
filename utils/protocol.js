@@ -237,7 +237,7 @@ function normalizeRawEvent(raw, sessionId) {
 
 const TITLES = {
   user: '你',
-  streaming: 'DeepSeek · 正在生成',
+  streaming: 'whaletail · 正在生成',
   streamingReasoning: 'Think · 正在推理',
   assemblingTool: 'Tool Call · 正在组装',
   toolDone: '工具完成',

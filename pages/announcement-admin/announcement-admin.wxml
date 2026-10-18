@@ -1,0 +1,19 @@
+<page-meta page-style="{{pageStyle}}" />
+<view class="editor-page {{themeClass}}">
+  <text class="editor-intro">发布后在「设置 → 关于 → 开发者公告」展示，与网页管理台同步。请勿发布密钥或个人隐私。</text>
+  <view wx:if="{{loading || error}}" class="editor-message" role="alert">{{loading ? '正在验证管理员身份…' : error}}</view>
+  <button wx:if="{{!loading && error}}" class="editor-secondary" bindtap="refresh" disabled="{{busy}}">重新加载列表</button>
+  <block wx:if="{{isAdmin}}">
+    <view class="editor-card">
+      <text class="editor-heading">{{editingId ? '编辑公告' : '发布公告'}}</text>
+      <text class="editor-label">标题</text><input class="editor-input" value="{{title}}" maxlength="60" bindinput="inputTitle" disabled="{{busy}}" placeholder="公告标题（最多 60 字）" placeholder-class="editor-placeholder" aria-label="公告标题"/>
+      <text class="editor-label">正文</text><textarea class="editor-textarea" value="{{content}}" maxlength="3000" bindinput="inputContent" disabled="{{busy}}" placeholder="填写更新说明或使用提醒，支持换行" placeholder-class="editor-placeholder" aria-label="公告正文"/>
+      <text class="editor-count">{{content.length}} / 3000</text>
+      <button class="editor-primary" hover-class="editor-primary-hover" bindtap="save" loading="{{busy}}" disabled="{{busy || !title || !content}}">{{editingId ? '保存修改' : '发布公告'}}</button>
+      <button wx:if="{{editingId}}" class="editor-secondary" bindtap="clearEditor" disabled="{{busy}}">取消编辑</button>
+    </view>
+    <view class="editor-list-head"><text class="editor-heading">已发布 · {{items.length}}</text><button class="editor-link" bindtap="refresh" disabled="{{busy}}">刷新</button></view>
+    <view wx:if="{{!items.length}}" class="editor-message">暂无公告，发布后会在这里显示。</view>
+    <view wx:for="{{items}}" wx:key="id" class="editor-card"><text class="editor-item-title">{{item.title}}</text><text class="editor-preview">{{item.content}}</text><view class="editor-actions"><button class="editor-link" data-id="{{item.id}}" bindtap="edit" disabled="{{busy}}">编辑</button><button class="editor-link editor-danger" data-id="{{item.id}}" bindtap="remove" disabled="{{busy}}">删除</button></view></view>
+  </block>
+</view>

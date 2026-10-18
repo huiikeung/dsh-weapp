@@ -1,0 +1,5 @@
+{
+  "server": "https://console.example.com",
+  "token": "在网页新增节点后复制一次性显示的连接器凭据",
+  "gateway": "http://127.0.0.1:填入DSH的WebUI端口"
+}

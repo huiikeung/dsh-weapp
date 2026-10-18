@@ -99,31 +99,34 @@
 }
 
 .pdetail-icon {
-  width: 120rpx;
-  height: 120rpx;
+  width: 96rpx;
+  height: 96rpx;
   flex-shrink: 0;
 }
 
 .pdetail-icon-img {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 24rpx;
+  width: 96rpx;
+  height: 96rpx;
+  box-sizing: border-box;
+  padding: 22rpx;
+  border-radius: 26rpx;
 }
 
 .pdetail-icon-fallback {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 24rpx;
-  background: var(--pd-fallback);
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 26rpx;
+  border: 1rpx solid rgba(120, 120, 128, 0.3);
+  background: transparent;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
 .pdetail-icon-fallback text {
-  font-size: 56rpx;
+  font-size: 40rpx;
   font-weight: 600;
-  color: var(--pd-text);
+  color: var(--pd-text2);
   text-transform: uppercase;
 }
 

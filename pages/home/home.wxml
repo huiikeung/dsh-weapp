@@ -1,7 +1,7 @@
 <view class="page page-dark home-root">
   <!-- 侧边栏（对齐 dsh-mobile WorkspaceView drawerContent：品牌字标 + 插件 / 定时任务） -->
   <view
-    class="drawer {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}} {{drawerOpen || drawerDragging ? 'drawer-visible' : ''}}"
+    class="drawer {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}} {{drawerOpen || drawerDragging ? 'drawer-visible' : ''}} {{sheetTheme === 'dark' ? 'drawer-dark' : ''}}"
     style="width: {{drawerW}}px; transform: translateX({{drawerX}}px);"
     catchtouchmove="onDrawerTouchMove"
     bindtouchstart="onDrawerTouchStart"
@@ -10,8 +10,10 @@
   >
     <view class="drawer-body" style="padding-top: {{drawerTopPad}}px;">
       <view class="drawer-brand">
-        <image class="drawer-wordmark drawer-wordmark-light" src="/assets/icons/wordmark-ink.png" mode="aspectFit"/>
-        <image class="drawer-wordmark drawer-wordmark-dark" src="/assets/icons/wordmark-white.png" mode="aspectFit"/>
+        <image class="drawer-whale drawer-whale-light" src="/assets/icons/whale-ink.png" mode="aspectFit"/>
+        <image class="drawer-whale drawer-whale-dark" src="/assets/icons/whale-white.png" mode="aspectFit"/>
+        <view class="drawer-brand-text">whaletail</view>
+        <view class="drawer-brand-badge">HARNESS</view>
       </view>
       <view class="drawer-item" hover-class="drawer-item-active" bindtap="openPlugins">
         <image class="drawer-item-ic" src="/assets/icons/pinwheel-ink.png"/>
@@ -23,32 +25,36 @@
         <image class="drawer-item-ic drawer-item-ic-clock drawer-item-ic-dark" src="/assets/icons/clock-white.png"/>
         <text class="drawer-item-text">定时任务</text>
       </view>
+      <view class="drawer-footer">
+        <view class="drawer-item drawer-settings" hover-class="drawer-item-active" bindtap="openSettings" role="button" aria-label="设置">
+          <image class="drawer-item-ic" src="/assets/icons/settings-ink.svg" mode="aspectFit"/>
+          <image class="drawer-item-ic drawer-item-ic-dark" src="/assets/icons/settings-white.svg" mode="aspectFit"/>
+          <text class="drawer-item-text">设置</text>
+        </view>
+      </view>
     </view>
   </view>
 
   <!-- 主内容：抽屉打开时右移 + 圆角 + 阴影（对齐 iOS workspaceContent） -->
   <view
     class="home-content-wrap {{contentShifted ? 'shifted' : ''}} {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}}"
-    style="transform: translateX({{contentX}}px);"
+    style="transform: {{contentX ? 'translateX(' + contentX + 'px)' : 'none'}};"
     bindtouchstart="onContentTouchStart"
     bindtouchend="onContentTouchEnd"
   >
     <!-- 深海背景随内容一起位移（对齐 iOS DeepOceanBackground 在 workspaceContent 内） -->
-    <view class="deep-bg home-deep-bg">
-      <view class="deep-grid"></view>
-      <image class="deep-whale" src="/assets/icons/bg-whale.png" mode="aspectFit"/>
-    </view>
+    <view class="deep-bg home-deep-bg"><ocean-background id="home-ocean" active="{{oceanActive}}" reduced-motion="{{oceanReducedMotion}}" /></view>
 
     <!-- 顶部品牌行：与右上角胶囊同行（导航区内固定，不随内容滚动），左边距对齐内容区 -->
     <view class="topbar" style="top: {{topbarTop}}px; height: {{topbarHeight}}px;">
       <view class="brand-row tap" hover-class="brand-dim" bindtap="openDrawer">
         <image class="brand-whale" src="/assets/icons/whale-white.png" mode="aspectFit"/>
-        <view class="brand-text">deepseek</view>
+        <view class="brand-text">whaletail</view>
         <view class="brand-badge">HARNESS</view>
       </view>
     </view>
 
-    <scroll-view class="home-scroll" scroll-y show-scrollbar="{{false}}">
+    <scroll-view class="home-scroll" scroll-y="{{!workspacePickerOpen}}" show-scrollbar="{{false}}">
     <view class="home" style="padding-top: {{homePadTop}}px;">
 
       <!-- 配对菜单遮罩：点击空白处关闭（留在 wrap 内保证与 pair-menu 同层叠上下文） -->
@@ -69,35 +75,54 @@
         </view>
         <view class="host-actions">
           <view class="pair-wrap">
-            <view class="icon-btn glass-press" catchtap="togglePairMenu">
-              <image class="icon-img pair-ic" src="/assets/icons/ic-pair-auth.png"/>
+            <view class="icon-btn glass-press" catchtap="togglePairMenu" role="button" aria-label="设备配置">
+              <image class="icon-img pair-ic" src="/assets/icons/person-key-white.svg" mode="aspectFit"/>
             </view>
             <!-- 对齐 dsh-mobile GatewayAuthenticationMenu：点击弹出两个配对选项 -->
             <view wx:if="{{pairMenuVisible}}" class="pair-menu">
               <view class="pair-menu-item" hover-class="pair-menu-item-active" catchtap="pairByScan">
-                <image class="pair-menu-ic" src="/assets/icons/target-gray.png"/>
+                <view class="pair-menu-ic" aria-hidden="true">
+                  <view class="ico-scan">
+                    <view class="corner tl"></view><view class="corner tr"></view>
+                    <view class="corner bl"></view><view class="corner br"></view>
+                    <view class="find a"></view><view class="find b"></view><view class="find c"></view>
+                    <view class="dots"><view></view><view></view><view></view><view></view></view>
+                  </view>
+                </view>
                 <text>扫描二维码</text>
               </view>
               <view class="pair-menu-item" hover-class="pair-menu-item-active" catchtap="pairByManual">
-                <image class="pair-menu-ic" src="/assets/icons/pencil-line-gray.png"/>
+                <view class="pair-menu-ic" aria-hidden="true">
+                  <view class="ico-keyboard">
+                    <view class="kb-row"><view></view><view></view><view></view><view></view><view></view></view>
+                    <view class="kb-row"><view></view><view></view><view></view><view></view><view></view></view>
+                    <view class="kb-row kb-last"><view></view><view class="kb-bar"></view><view></view></view>
+                  </view>
+                </view>
                 <text>手动输入配对信息</text>
+              </view>
+              <view class="pair-menu-item" hover-class="pair-menu-item-active" catchtap="openPairGuide" role="button" aria-label="配置引导">
+                <view class="pair-menu-ic" aria-hidden="true">
+                  <image class="pair-guide-icon" src="/assets/icons/setup-guide-white.svg" mode="aspectFit"/>
+                </view>
+                <text>配置引导</text>
               </view>
             </view>
           </view>
-          <view class="icon-btn glass-press" catchtap="openSettings">
-            <image class="icon-img" src="/assets/icons/nav-gear.png"/>
+          <view class="icon-btn glass-press" catchtap="openSessionSettings" role="button" aria-label="会话设置">
+            <image class="icon-img" src="/assets/icons/sliders-white.svg" mode="aspectFit"/>
           </view>
         </view>
       </view>
 
       <view class="hero">
         <view class="title-hero">探索未至之境</view>
-        <view wx:if="{{connectionClass === 'connected'}}" class="subtitle-hero">已连接 DeepSeek Harness 预览版</view>
+        <view wx:if="{{connectionClass === 'connected'}}" class="subtitle-hero">已连接 whaletail Harness 预览版</view>
       </view>
 
       <!-- 工作区选择器 -->
-      <view class="workspace-card glass glass-press" bindtap="openWorkspacePicker">
-        <image class="ws-icon" src="/assets/icons/{{currentWorkspace.ungrouped ? 'tray-white.png' : 'folder-blue.png'}}"/>
+      <view class="workspace-card glass glass-press {{workspacePickerOpen ? 'workspace-card-menu-open' : ''}}" bindtap="openWorkspacePicker" role="button" aria-label="选择工作区" aria-hidden="{{workspacePickerOpen}}">
+        <image class="ws-icon" src="/assets/icons/workspace-folder-blue.svg" mode="aspectFit"/>
         <view class="ws-body">
           <view class="ws-title">{{currentWorkspace.title || '未选择工作区'}}</view>
           <view class="ws-path text-mono">{{currentWorkspace.path || '轻触以切换工作区'}}</view>
@@ -179,10 +204,12 @@
       <view class="sheet-grabber"></view>
     </view>
     <view class="host-sheet-head">
-      <view class="host-sheet-title">切换主机</view>
       <view class="host-sheet-left">
-        <view wx:if="{{hostEditMode && hostSelection.length}}" class="host-sheet-del tap" bindtap="deleteHosts">{{hostSelection.length > 1 ? '批量删除' : '删除'}}</view>
         <view class="host-sheet-edit tap" bindtap="toggleHostEditMode">{{hostEditMode ? '完成' : '编辑'}}</view>
+      </view>
+      <view class="host-sheet-title">切换主机</view>
+      <view class="host-sheet-right">
+        <view wx:if="{{hostEditMode && hostSelection.length}}" class="host-sheet-del tap" bindtap="deleteHosts">{{hostSelection.length > 1 ? '批量删除' : '删除'}}</view>
       </view>
     </view>
     <view class="host-section-label">我的主机</view>
@@ -224,35 +251,35 @@
     </view>
   </view>
 
-  <!-- 工作区选择弹窗 -->
-  <view wx:if="{{workspacePickerOpen}}" class="host-mask" bindtap="closeWorkspacePicker"></view>
-  <view wx:if="{{workspacePickerOpen}}" class="workspace-picker-sheet {{workspacePickerExpanded ? 'expanded' : ''}}">
-    <view class="sheet-grabber-zone"
-      catchtouchstart="onPickerSheetGrabStart"
-      catchtouchmove="onPickerSheetGrabMove"
-      catchtouchend="onPickerSheetGrabEnd">
-      <view class="sheet-grabber"></view>
+  <!-- 工作区选择：卡片锚点弹窗（对齐 iOS workspaceCard 的 Menu） -->
+  <view wx:if="{{workspacePickerOpen}}" class="ws-pop-mask" catchtap="closeWorkspacePicker" catchtouchmove="noop"></view>
+  <view
+    wx:if="{{workspacePickerOpen}}"
+    class="ws-pop"
+    style="left: {{popLeft}}px; top: {{popTop}}px; width: {{popWidth}}px; height: {{popHeight}}px; transform-origin: 50% {{popOriginY}}px;"
+    catchtap="noop"
+    role="dialog" aria-label="选择工作区"
+  >
+    <scroll-view class="ws-pop-scroll" scroll-y show-scrollbar="{{false}}">
+    <view class="ws-pop-content">
+    <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="selectUngrouped" role="button" aria-label="未分组">
+      <image class="ws-pop-ic" src="/assets/icons/{{currentWorkspace.ungrouped ? 'check-fill-ink.png' : 'tray-ink.png'}}" mode="aspectFit"/>
+      <text class="ws-pop-label">未分组</text>
     </view>
-    <view class="picker-sheet-head">
-      <view class="picker-sheet-title">工作区</view>
-      <view class="picker-sheet-close tap" bindtap="closeWorkspacePicker">关闭</view>
+    <view wx:if="{{pickerWorkspaces.length}}" class="ws-pop-divider"></view>
+    <block wx:for="{{pickerWorkspaces}}" wx:key="workspaceId">
+      <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="selectWorkspace" data-id="{{item.workspaceId}}" role="button" aria-label="{{item.title}}">
+        <image class="ws-pop-ic" src="/assets/icons/{{item.workspaceId === currentWorkspaceId ? 'check-fill-ink.png' : 'folder-ink.png'}}" mode="aspectFit"/>
+        <text class="ws-pop-label">{{item.title}}</text>
+      </view>
+    </block>
+    <view class="ws-pop-divider"></view>
+    <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="openDirSheet" role="button" aria-label="添加工作区">
+      <image class="ws-pop-ic" src="/assets/icons/plus-ink.png" mode="aspectFit"/>
+      <text class="ws-pop-label">添加工作区</text>
     </view>
-    <view class="picker-list">
-      <block wx:for="{{pickerWorkspaces}}" wx:key="workspaceId">
-        <view class="picker-row tap" bindtap="selectWorkspace" data-id="{{item.workspaceId}}">
-          <image class="picker-row-icon" src="/assets/icons/{{item.ungrouped ? 'tray-white.png' : 'folder-blue.png'}}"/>
-          <view class="picker-row-body">
-            <view class="picker-row-title">{{item.title}}</view>
-            <view class="picker-row-path text-mono">{{item.path}}</view>
-          </view>
-          <image wx:if="{{item.workspaceId === currentWorkspaceId}}" class="picker-row-check" src="/assets/icons/check-white.png"/>
-        </view>
-      </block>
-      <view wx:if="{{!pickerWorkspaces.length}}" class="picker-empty">暂无工作区</view>
     </view>
-    <view class="picker-new">
-      <view class="btn-glass tap" bindtap="openDirSheet">从目录创建工作区</view>
-    </view>
+    </scroll-view>
   </view>
 
   <!-- 目录浏览器弹层（对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet） -->

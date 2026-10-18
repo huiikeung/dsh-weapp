@@ -1,0 +1,33 @@
+services:
+  console:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - console-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      CONSOLE_DOMAIN: ${CONSOLE_DOMAIN:?请设置CONSOLE_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      console:
+        condition: service_healthy
+volumes:
+  console-data:
+  caddy-data:
+  caddy-config:

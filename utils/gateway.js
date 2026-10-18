@@ -8,6 +8,7 @@
 
 const util = require('./util');
 const { ClientSession } = require('./relay-e2ee');
+const accessApi = require('./access-api');
 
 /** Uint8Array → 独立 ArrayBuffer（wx.send 要 ArrayBuffer）。 */
 function toArrayBuffer(u8) {
@@ -34,6 +35,8 @@ class GatewayClient {
     this.pendingRequests = {}; // key → { resolve, reject, timer }
     this.sessionCreations = {}; // requestId → { resolve, reject, timer }
     this.relayShares = {}; // requestId → { resolve, reject, timer }
+    this.relayCodes = {};  // requestId → 兑换码生成挂起
+    this.relayRedemptions = {}; // requestId → 兑换挂起
     this.deviceId = this.loadOrCreateDeviceId();
     this.probeOnly = false; // 主机在线探测：只验 hello，不重连、不发业务请求
     this.relaySession = null; // v3 relay 模式的 E2EE 会话
@@ -68,11 +71,36 @@ class GatewayClient {
 
   /** pairingCode 非空表示一次性配对握手；否则使用已保存的 Bearer 凭据。 */
   connect(endpoint, options) {
+    if (!accessApi.isManagedRelay(endpoint)) return this.connectTransport(endpoint, options);
+    // Only our hosted relay is metered. LAN/direct/self-hosted connections keep
+    // their existing behavior and never depend on the account server.
+    this.disconnect({ keepWant: false });
+    const generation = this.connectGeneration;
+    this.setState('connecting', '正在验证公网有效期…');
+    const opts = options || {};
+    if (!opts.relay || !opts.relay.nodeId) {
+      this.setState('failed', '请扫描 DSH 插件生成的公网配对二维码');
+      return;
+    }
+    return accessApi.publicLease(opts.relay.nodeId, this.deviceId).then(lease => {
+      if (generation !== this.connectGeneration) return;
+      this.connectTransport(endpoint, opts, lease);
+    }).catch(error => {
+      if (generation !== this.connectGeneration) return;
+      this.setState('failed', error.message || '公网授权验证失败；局域网不受影响');
+    });
+  }
+
+  connectTransport(endpoint, options, serviceLease) {
     const opts = options || {};
     this.disconnect({ keepWant: false });
     this.probeOnly = !!opts.probe;
     if (!/^wss?:\/\//.test(endpoint || '')) {
       this.setState('failed', '二维码中的 publicUrl 不是有效的 ws:// 或 wss:// 地址');
+      return;
+    }
+    if (opts.relay && opts.relay.authMode !== 'gateway' && opts.relay.expiresAt && Number(opts.relay.expiresAt) <= Date.now()) {
+      this.setState('failed', '公网访问已过期，请重新扫码获取邀请');
       return;
     }
     this.wantsConnection = true;
@@ -83,6 +111,7 @@ class GatewayClient {
     this.endpoint = endpoint;
     this.pairingCode = opts.pairingCode || null;
     this.relayMeta = opts.relay || null;
+    this.relayAccessToken = (opts.relay && opts.relay.accessToken) || null;
     // 重连必须复用完整连接参数（relay 档案丢了 relay 元信息就永远连不回）
     this.lastConnectOpts = { token: opts.token || null, relay: opts.relay || null };
     if (opts.relay) {
@@ -103,6 +132,10 @@ class GatewayClient {
     // 正确方式：子协议通过 protocols 数组传递
     // 1. 主协议 dsh-mobile-v1 必须加
     protocols.push('dsh-mobile-v1');
+    if (serviceLease) {
+      protocols.push('dsh-public.' + serviceLease.token);
+      if (opts.relay && opts.relay.authMode === 'gateway') protocols.push('dsh-gateway-auth');
+    }
 
     if (opts.relay && opts.relay.inviteToken) {
       protocols.push('dsh-invite.' + opts.relay.inviteToken);
@@ -111,7 +144,7 @@ class GatewayClient {
     }
     
     // 2. 配对码时额外添加 dsh-pair. 子协议
-    if (this.pairingCode) {
+    if (this.pairingCode && !(opts.relay && opts.relay.authMode === 'gateway')) {
       protocols.push('dsh-pair.' + this.pairingCode);
     }
     if (this.relayMeta && this.relayMeta.inviteToken) {
@@ -120,17 +153,19 @@ class GatewayClient {
     }
     
     // 3. 已保存 token 时添加 Authorization
-    if (opts.token) {
+    if (opts.token && !(opts.relay && opts.relay.authMode === 'gateway')) {
       header['Authorization'] = 'Bearer ' + opts.token;
     }
 
     const self = this;
+    let transportTask;
     try {
       this.socketTask = wx.connectSocket({
         url: endpoint,
         header: header,
         protocols: protocols,  // 务必传递完整的 protocols 数组
         fail: function (err) {
+          if (transportTask && self.socketTask !== transportTask) return;
           self.setState('failed', (err && err.errMsg) || '无法建立 WebSocket 连接');
           self.scheduleReconnect();
         }
@@ -140,8 +175,16 @@ class GatewayClient {
       return;
     }
 
+    transportTask = this.socketTask;
+
     this.socketTask.onOpen(function () {
+      if (self.socketTask !== transportTask) return;
       self.reconnectAttempts = 0;
+      if (serviceLease) {
+        self.publicLeaseTimer = setTimeout(() => {
+          if (self.wantsConnection) self.connect(self.endpoint, self.lastConnectOpts);
+        }, Math.max(1, serviceLease.expiresAt - Date.now()));
+      }
       if (self.relayMeta) {
         // relay 模式：先完成 E2EE 握手，AgentHello 验签通过后才置 connected
         self.relaySession = new ClientSession(self.relayMeta.nodeId, self.relayMeta.agentPubKey);
@@ -155,6 +198,7 @@ class GatewayClient {
       self.setState('connected');
     });
     this.socketTask.onMessage(function (res) {
+      if (self.socketTask !== transportTask) return;
       if (self.relayMeta) {
         self.handleRelayMessage(res.data);
         return;
@@ -162,11 +206,21 @@ class GatewayClient {
       self.handleFrame(res.data);
     });
     this.socketTask.onError(function (err) {
+      if (self.socketTask !== transportTask) return;
       self.handleTransportFailure((err && err.errMsg) || '连接发生错误');
     });
-    this.socketTask.onClose(function () {
+    this.socketTask.onClose(function (res) {
+      if (self.socketTask !== transportTask) return;
       if (self.state === 'connected' || self.state === 'connecting') {
-        self.handleTransportFailure('连接已关闭');
+        if (res && Number(res.code) === 4003) {
+          if (res.reason === 'public-lease-expired') { self.handleTransportFailure('正在刷新公网授权'); }
+          else if (/^public-access-/.test(res.reason || '')) self.handleAuthorizationFailure('公网服务未开通、已到期或验证失败，请在设置→公网访问检查或兑换；局域网不受影响');
+          else self.handleAuthorizationFailure('设备配对已失效，请重新扫描 DSH 二维码');
+        } else if (res && Number(res.code) === 4004) {
+          self.handleAuthorizationFailure('DSH 电脑端连接器未支持安全公网配对，请升级插件连接器');
+        } else {
+          self.handleTransportFailure('连接已关闭');
+        }
       }
     });
 
@@ -191,6 +245,7 @@ class GatewayClient {
   }
 
   handleTransportFailure(message) {
+    clearTimeout(this.publicLeaseTimer);
     this.clearConnectionTimeout();
     const wasDeliberate = !this.wantsConnection;
     const socket = this.socketTask;
@@ -210,8 +265,27 @@ class GatewayClient {
       this.setState('failed', message + '，配对码已失效，请重新扫码');
       return;
     }
+    if (this.relayMeta && !this.relayAccessToken &&
+        !(this.relayMeta.authMode === 'gateway' && this.lastConnectOpts && this.lastConnectOpts.token)) {
+      this.wantsConnection = false;
+      this.setState('failed', '公网邀请已使用或失效，请重新获取配对信息');
+      return;
+    }
     this.setState('failed', message);
     this.scheduleReconnect();
+  }
+
+  handleAuthorizationFailure(message) {
+    clearTimeout(this.publicLeaseTimer);
+    this.clearConnectionTimeout();
+    this.wantsConnection = false;
+    const socket = this.socketTask;
+    this.socketTask = null;
+    if (socket) {
+      try { socket.close({}); } catch (e) { /* 忽略 */ }
+    }
+    this.failAllPending(message);
+    this.setState('failed', message);
   }
 
   scheduleReconnect() {
@@ -231,6 +305,9 @@ class GatewayClient {
   }
 
   disconnect(options) {
+    this.connectGeneration = (this.connectGeneration || 0) + 1;
+    clearTimeout(this.publicLeaseTimer);
+    this.publicLeaseTimer = null;
     const keepWant = options && options.keepWant;
     this.wantsConnection = !!keepWant;
     this.clearConnectionTimeout();
@@ -306,6 +383,11 @@ class GatewayClient {
     if (!(data instanceof ArrayBuffer)) {
       // 部分连接器用文本通道发送明文控制/数据帧：按普通帧处理而非静默丢弃
       if (typeof data === 'string') {
+        // 中继明文只允许自身控制帧，不能伪造 hello/paired 或业务数据。
+        let frame;
+        try { frame = JSON.parse(data); } catch (e) { return; }
+        if (this.relayMeta.authMode === 'gateway') return;
+        if (frame.kind !== 'relay-authorized' && frame.kind !== 'relay-client-count') return;
         this.handleFrame(data);
         this.relayTextFrames += 1;
       }
@@ -318,6 +400,21 @@ class GatewayClient {
       if (!session.acceptAgentHello(bytes)) {
         this.handleTransportFailure('E2EE 握手失败：agent 身份验签未通过，可能存在中间人，请重新扫码确认配对信息');
       } else {
+        if (this.relayMeta.authMode === 'gateway') {
+          // 先验证主机身份，再通过密文交付一次性码/设备 token。
+          // 等收到网关 hello 才触发 connected 和首页数据加载。
+          const auth = { type: 'relay-auth', deviceId: this.deviceId };
+          if (this.pairingCode) auth.pairingCode = this.pairingCode;
+          else auth.token = this.lastConnectOpts && this.lastConnectOpts.token;
+          if (!auth.pairingCode && !auth.token) {
+            this.handleAuthorizationFailure('缺少配对凭据，请重新扫描 DSH 的二维码');
+            return;
+          }
+          try {
+            this.socketTask.send({ data: toArrayBuffer(session.seal(JSON.stringify(auth))) });
+          } catch (e) { this.handleTransportFailure('发送加密配对凭据失败'); }
+          return;
+        }
         this.clearConnectionTimeout();
         this.setState('connected');
         // Report the phone model once per connection. The relay connector
@@ -360,7 +457,6 @@ class GatewayClient {
   }
 
   handleFrame(data) {
-    this.clearConnectionTimeout();
     let frame;
     try {
       frame = typeof data === 'string' ? JSON.parse(data) : JSON.parse(String(data));
@@ -372,10 +468,26 @@ class GatewayClient {
     if (!frame.kind && typeof frame.sessionId === 'string' && typeof frame.seq === 'number' && frame.event) {
       frame.kind = 'event';
     }
+    if (frame.kind !== 'relay-authorized' && frame.kind !== 'relay-client-count') {
+      this.clearConnectionTimeout();
+    }
 
     if (frame.kind === 'paired') {
       this.lastToken = frame.token || null;
+      if (this.lastToken) {
+        this.pairingCode = null;
+        this.lastConnectOpts.token = this.lastToken;
+      }
       if (this.cb.onPaired) this.cb.onPaired(frame);
+    }
+
+    if (frame.kind === 'relay-auth-error') {
+      this.handleAuthorizationFailure(frame.message || '配对码或设备凭据无效，请重新扫码');
+      return;
+    }
+    if (frame.kind === 'hello' && this.relayMeta && this.relayMeta.authMode === 'gateway' && this.state === 'connecting') {
+      this.setState('connected');
+      this.reportDeviceInfo();
     }
 
     if (frame.kind === 'relay-authorized') {
@@ -384,7 +496,34 @@ class GatewayClient {
         this.lastConnectOpts.relay.accessToken = this.relayAccessToken;
         this.lastConnectOpts.relay.inviteToken = null;
       }
-      if (this.cb.onRelayAuthorized) this.cb.onRelayAuthorized(frame);
+      if (this.cb.onRelayAuthorized) this.cb.onRelayAuthorized(frame, this.relayMeta);
+      return;
+    }
+
+    if (frame.kind === 'relay-client-count') {
+      if (this.cb.onRelayClientCount) this.cb.onRelayClientCount(Number(frame.count || 0), this.relayMeta);
+      return;
+    }
+
+    if (frame.kind === 'relay-code-created' || frame.kind === 'relay-code-error') {
+      const pending = frame.requestId && this.relayCodes[frame.requestId];
+      if (pending) {
+        delete this.relayCodes[frame.requestId];
+        clearTimeout(pending.timer);
+        if (frame.kind === 'relay-code-created') pending.resolve(frame);
+        else pending.reject(new Error(frame.message || '生成兑换码失败'));
+      }
+      return;
+    }
+
+    if (frame.kind === 'relay-code-redeemed' || (frame.kind === 'relay-code-error' && frame.requestId && this.relayRedemptions[frame.requestId])) {
+      const pending = frame.requestId && this.relayRedemptions[frame.requestId];
+      if (pending) {
+        delete this.relayRedemptions[frame.requestId];
+        clearTimeout(pending.timer);
+        if (frame.kind === 'relay-code-redeemed') pending.resolve(frame);
+        else pending.reject(new Error(frame.message || '兑换失败'));
+      }
       return;
     }
 
@@ -401,6 +540,51 @@ class GatewayClient {
 
     this.resolveCorrelated(frame);
     if (this.cb.onFrame) this.cb.onFrame(frame);
+  }
+
+  /** 所有者生成兑换码：续期 accessTtlMs，可用 uses 次 */
+  createRelayCode(accessTtlMs, uses, codeTtlMs) {
+    const requestId = util.uuid();
+    const self = this;
+    return new Promise(function (resolve, reject) {
+      if (!self.relayMeta || self.state !== 'connected') {
+        reject(new Error('公网节点未连接'));
+        return;
+      }
+      const timer = setTimeout(function () {
+        delete self.relayCodes[requestId];
+        reject(new Error('生成兑换码超时'));
+      }, REQUEST_TIMEOUT);
+      self.relayCodes[requestId] = { resolve: resolve, reject: reject, timer: timer };
+      if (!self.send({ type: 'relay-code-create', requestId: requestId,
+        accessTtlMs: accessTtlMs, uses: uses, codeTtlMs: codeTtlMs })) {
+        delete self.relayCodes[requestId];
+        clearTimeout(timer);
+        reject(new Error('兑换码请求发送失败'));
+      }
+    });
+  }
+
+  /** 访客兑换续期码 */
+  redeemRelayCode(code) {
+    const requestId = util.uuid();
+    const self = this;
+    return new Promise(function (resolve, reject) {
+      if (!self.relayMeta || self.state !== 'connected') {
+        reject(new Error('公网节点未连接'));
+        return;
+      }
+      const timer = setTimeout(function () {
+        delete self.relayRedemptions[requestId];
+        reject(new Error('兑换超时'));
+      }, REQUEST_TIMEOUT);
+      self.relayRedemptions[requestId] = { resolve: resolve, reject: reject, timer: timer };
+      if (!self.send({ type: 'relay-code-redeem', requestId: requestId, code: code })) {
+        delete self.relayRedemptions[requestId];
+        clearTimeout(timer);
+        reject(new Error('兑换请求发送失败'));
+      }
+    });
   }
 
   createRelayShare(ttlMs) {

@@ -4,6 +4,12 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 （`DeepSeekHarnessMobile/`），通过 `dsh-plugin-mobile-gateway` 的 WebSocket
 协议连接 DeepSeek Harness。
 
+## 公网服务端与部署
+
+服务器相关代码统一放在 [dsh-console/](dsh-console/README.md)，内部按 `deploy/`（部署升级）、`services/public-access/`（管理后台）、`relay/`（公网中继）区分，小程序代码仍保留在仓库根目录。
+
+宝塔上传时，只把本地 `dsh-console/` **里面的内容**上传到 `/www/wwwroot/dsh-console/`，不要重复嵌套同名目录；保留服务器原 `deploy/.env` 和数据，不上传本机运行数据或依赖。已部署服务器仍执行 `cd /www/wwwroot/dsh-console/deploy`、`bash upgrade.sh`。详见 [统一部署教程](dsh-console/deploy/README.md)。
+
 ## 运行方式
 
 1. 安装并打开 [微信开发者工具](https://developers.weixin.qq.com/miniprogram/dev/devtools/download.html)。
@@ -18,6 +24,18 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 `127.0.0.1` 只适用于开发者工具模拟器。
 
 ## 连接与配对
+
+### 小程序构建与版本显示
+
+每次编译、预览或上传前，在小程序项目根目录运行 `node scripts/stamp-build.cjs`，然后在微信开发者工具编译。
+「小程序版本 / 当前版本」优先使用微信包版本，开发包回退到 `utils/build.js` 的版本号；「构建记录」是生成脚本记录的北京时间与源码摘要，不是安装时间，也不是主机版本。源码修改后需要重新执行脚本。
+「主机版本」来自网关的主机信息；「已连接网关版本」只使用网关自身版本或唯一启用的匹配插件目录，不再拿主机版本替代。适配基线按插件分开：小程序网关0.8.6+，旧移动网关0.10.0+，不代表全部主机功能均已支持。
+旧插件未上报版本时显示「未上报」。仓库插件升级器已加入握手与主机查询的版本字段；需在用户自己的DSH安装更新并正常重启后生效，不需要为此重新部署公网后台。不会通过公开管理端口读取版本。
+
+### 隐私政策与首页背景
+
+隐私政策为本地全屏底部弹窗，支持顶部拖动条下拉关闭、正文滚动和深浅色。发布前请核对 `utils/privacy-policy.js` 中的实际运营主体、客服渠道、保存与删除流程，并同步微信后台隐私声明；本页不替代微信的权限授权流程。
+首页背景改编自DSH iOS手机流体场与粒子鲸尾，保留MIT声明（见 `THIRD_PARTY_NOTICES.md`）。光带强度按本客户端可读性压低，24秒内逐渐压暗；离页暂停，返回续播。为避免微信原生画布遮挡首页，使用离屏渲染加普通图片显示，限制15帧/秒及输出尺寸；不支持离屏画布时显示静态鲸鱼和柔和背景，不阻塞主机与会话操作。
 
 与 iOS 完全一致：
 
@@ -50,7 +68,7 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 | ScheduledTasksView 定时任务 | `pages/schedule` | schedule-catalog 目录、卡片左滑编辑/删除、展开详情、编辑弹层（标题/内容/执行时间）、删除确认、下拉刷新 |
 | PluginsView 插件管理 | `pages/plugins` + `pages/plugin-detail` | plugin-catalog 目录（官方/已安装分组）、bundle 启用开关（停用移动网关需确认）、实验性徽标、官方配置项详情、组件条目开关与半屏组件详情、plugins-changed 自动刷新 |
 | WorkspaceDrawerDestination 插件 | 已升级为真实插件管理页 | （v1.7.x 前为占位页，现对齐 PluginsView） |
-| PrivacyPolicySheet 隐私政策 | `pages/privacy` | web-view 加载在线政策，失败回退（复制链接/重试） |
+| PrivacyPolicySheet 隐私政策 | `components/privacy-sheet` | 设置页底部滑出全屏弹窗，本地正文、顶部拖动条下拉关闭；旧路由复用同一组件 |
 | （iOS 无对应）微信分享 | 全部页面（`utils/share.js` 全局注入） | 每个页面支持「转发给朋友」（onShareAppMessage）与「分享到朋友圈」（onShareTimeline），按页面给出中文文案；依赖页面参数的深页（插件详情/文件）转发落地首页。注意：朋友圈入口仅真机可用（开发者工具不显示），对方以单页模式打开 |
 | （对齐 v1.7.2 视觉） | `pages/home` + `theme.js` | 首页对齐 iOS v1.7.2：深海背景（navy + 流体辉光 + 84rpx 技术网格渐隐 + 鲸鱼 screen 混合 + 底部压暗 clear→navy12%→black58%）、玻璃卡片（white 5.5%/6%/8% 填充 + white 14%/10% 描边 + 15pt 圆角）、按压反馈（scale 0.96 + 变暗）、字号/间距/分隔线按 WorkspaceView 度量；除首页外所有页面背景纯白（浅色）/纯黑（深色） |
 
@@ -87,6 +105,10 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 weapp/
 ├── app.js / app.json / app.wxss     # 入口、页面注册、设计 token + 深海背景组件
 ├── project.config.json              # 开发者工具工程配置
+├── dsh-console/                     # 服务端部署包，不打入小程序
+│   ├── deploy/                      # 安装、升级和备份恢复脚本
+│   ├── services/public-access/      # 管理后台与公网授权 API
+│   └── relay/                       # 公网中继与插件连接器
 ├── assets/icons/                    # 90 个 PNG：SF Symbols 重建图标 + 品牌标 + 背景素材
 │                                    #   （bg-grid 网格瓦片 / bg-whale 粒子鲸鱼定格 /
 │                                    #    wordmark 品牌字标 / pinwheel 插件风车）
@@ -110,7 +132,7 @@ weapp/
     ├── schedule/                    # 定时任务（左滑卡片 + 编辑弹层）
     ├── plugins/                      # 插件管理（官方/已安装 + 启用开关）
     ├── plugin-detail/                # 插件详情（组件列表 + 半屏组件详情）
-    ├── privacy/                     # 隐私政策 web-view
+    ├── privacy/                     # 隐私政策全屏弹窗兼容路由
     ├── settings/                    # 设置
     └── files/                       # 工作区目录浏览/创建
 ```
@@ -154,7 +176,7 @@ weapp/
 | 提示 | 原因 | 处理 |
 | --- | --- | --- |
 | 当前网关插件版本不支持插件管理，请升级… | 网关插件 < 2025-09-30 构建 | 升级 `dsh-plugin-mobile-gateway`（≥ 0.9） |
-| 插件管理需要已配对设备 | 中继 connector 未持有网关凭据 | 按 `relay/README-relay.md` 重新扫码配对一次（connector 会保存 token） |
+| 插件管理需要已配对设备 | 中继 connector 未持有网关凭据 | 按 `dsh-console/relay/README-relay.md` 重新扫码配对一次（connector 会保存 token） |
 | 当前 Host 不支持插件管理 | DSH Host < 0.2.0 | 升级 DSH Host |
 | 插件目录请求超时 | 帧未到达/未返回（中继掉线等） | 看小程序 Console 的 `[plugins]` 日志；重进页面重试 |
 | 其他英文报错 | 网关透传 DSH 错误 | 对照 DSH Host 日志 |

@@ -1,0 +1,30 @@
+{$CADDY_SITE_SCHEME}://{$PUBLIC_DOMAIN} {
+    header Strict-Transport-Security "max-age=31536000"
+
+    # The public relay URL is wss://PUBLIC_DOMAIN/relay. Caddy strips this
+    # prefix before forwarding, so the existing relay receives /a/<nodeId>
+    # and /c/<nodeId> without a protocol change.
+    handle_path /relay/* {
+        reverse_proxy relay:8787
+    }
+
+    handle /internal/* {
+        respond 404
+    }
+
+    # Only authenticated evidence uploads need larger bodies; other APIs stay 16KB.
+    @shareProof path /share/moments/start /share/moments/submit
+    handle @shareProof {
+        request_body {
+            max_size 470000
+        }
+        reverse_proxy console:8790
+    }
+
+    handle {
+        request_body {
+            max_size 16KB
+        }
+        reverse_proxy console:8790
+    }
+}

@@ -99,6 +99,15 @@ function applyTo(page) {
         fail: () => {}
       });
     }
+    // 顶部状态栏/下拉区域背景：手动切深色时必须同步，否则导航栏上方会露白
+    if (typeof wx.setBackgroundColor === 'function') {
+      wx.setBackgroundColor({
+        backgroundColor: PAGE_BG[theme],
+        backgroundColorTop: PAGE_BG[theme],
+        backgroundColorBottom: PAGE_BG[theme],
+        fail: () => {}
+      });
+    }
   };
   render();
 

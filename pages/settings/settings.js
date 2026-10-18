@@ -1,11 +1,29 @@
 const store = require('../../utils/store');
-const labels = require('../../utils/labels');
 const notifyPref = require('../../utils/notify-pref');
 const theme = require('../../utils/theme');
+const accessApi = require('../../utils/access-api');
+const { getPublicAccessState } = require('../../utils/public-access-state');
+const { nodePresentation } = require('../../utils/node-presentation');
+const { clientVersion, gatewayVersionInfo } = require('../../utils/version-info');
 
 // 订阅消息模板 ID：在小程序管理后台申请「任务完成提醒」类模板后填入。
 // 留空时开启开关仅保存偏好，不发起授权请求。
 const NOTIFY_TEMPLATE_ID = 'QvgkQ88HKFdTNPJVOp0EdOHNDodOQACzB9oDEFDZXKU';
+
+// 语言 / 字体大小偏好（与 iOS AppLanguage / FontScale 对齐）
+const LANGUAGE_KEY = 'appLanguage';
+const FONT_SCALE_KEY = 'appFontScale';
+const LANGUAGE_OPTIONS = [
+  { id: 'system', title: '跟随系统' },
+  { id: 'zh', title: '简体中文' },
+  { id: 'en', title: 'English' }
+];
+const FONT_OPTIONS = [
+  { id: 'system', title: '跟随系统', scale: 1 },
+  { id: 'standard', title: '标准', scale: 1 },
+  { id: 'large', title: '较大', scale: 1.12 },
+  { id: 'xlarge', title: '特大', scale: 1.24 }
+];
 
 const CONNECTION_LABELS = {
   disconnected: '未连接',
@@ -15,42 +33,111 @@ const CONNECTION_LABELS = {
 };
 
 Page({
+  manualShareMenu: true,
   data: {
-    buildLabel: '',          // 构建时间标记：用于确认手机上运行的是最新预览包
+    navPadTop: 50,
+    navHeight: 32,
+    referralEnabled: false, contentLoaded: false, contentError: '', shareSaving: false,
+    accountDeviceId: '', accountIdHint: '', referralSheetOpen: false, referralBusy: false, referralError: '', referralToken: '', referralDays: 0, referralHint: '',
+    adminAdvancedOpen: false,
+    privacyOpen: false,
+    buildLabel: '',
+    appVersion: '',
+    minGatewayVersion: '小程序网关 ≥ 0.8.6',
+    connectedGatewayVersion: '未连接',
+    languageLabel: '跟随系统',
+    fontSizeLabel: '跟随系统',          // 构建时间标记：用于确认手机上运行的是最新预览包
     appearanceLabel: '跟随微信',
-    presetLabel: '标准模式',
-    modelLabel: '—',
-    permissionLabel: '工作区写入',
     endpoint: '',
     connectionLabel: '未连接',
     connectionClass: 'disconnected',
     port: null,
     host: {},
     nodes: [],
+    nodeDetailId: '',
+    nodeDetail: null,
+    nodePingBusy: false,
+    nodeEditMode: false,
+    nodeSelection: [],
     nodeCount: 0,
+    activeNodeName: '',
     onlineNodeCount: 0,
+    managementPanel: '',
     pairSheetOpen: false,
     pairingText: '',
     pairingError: '',
     pairingConnecting: false,
-    notifyEnabled: false
+    publicOn: false,
+    publicStatusLabel: '未开通',
+    publicId: '',
+    publicExpiryLabel: '',
+    publicTitle: '尚未建立公网身份',
+    publicSub: '添加 Agent 节点后自动建立',
+    publicHint: '公网身份由节点 ID 标识；分享后对方凭一次性邀请连接，到期自动失效。',
+    isRelayOwner: false,
+    redeemBusy: false,
+    redeemResultLabel: '',
+    shareEnabled: false,
+    sharePayload: '',
+    shareExpiresLabel: '',
+    notifyEnabled: false,
+    accountBusy: false,
+    isWechatAdmin: false,
+    accountLabel: '识别中…',
+    accountHint: '自动识别当前微信身份，无需手动切换',
+    shareReason: '',
+    redeemAvailable: false
   },
 
-  onLoad() {
+  onLoad(options) {
     theme.applyTo(this);
+    this.updateNavigationLayout();
     this.setData({
       appearanceLabel: this.appearanceLabelOf(theme.getMode()),
       notifyEnabled: notifyPref.enabled(),
-      buildLabel: '构建 ' + require('utils/build.js').BUILD_TIME
+      ...clientVersion(wx)
     });
     this.unsubscribe = store.subscribe((snapshot) => {
       this.syncFromStore(snapshot);
     });
     this.syncFromStore({ app: store.state, session: store.sessionState });
     store.refreshHostPresence();
+    if (options && options.pair) {
+      const result = store.pairWithPayload(options.pair);
+      if (result.ok) {
+        this._pairingAttemptActive = true;
+        wx.showToast({ title: '正在连接分享节点…', icon: 'none' });
+      } else {
+        wx.showModal({ title: '分享链接无效', content: result.error || '请让所有者重新生成邀请。', showCancel: false });
+      }
+    }
     if (store.state.connection === 'connected') {
       store.client.requestHost();
     }
+  },
+
+  updateNavigationLayout() {
+    let info = {};
+    let rect = null;
+    try {
+      info = (typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync()) || {};
+    } catch (e) { /* 胶囊 API 可独立提供正确位置。 */ }
+    try {
+      rect = wx.getMenuButtonBoundingClientRect();
+    } catch (e) { /* 旧基础库或异常设备按状态栏高度回退。 */ }
+    const validRect = rect && Number.isFinite(rect.top) && rect.top > 0 &&
+      Number.isFinite(rect.height) && rect.height > 0;
+    const statusBarHeight = Number.isFinite(info.statusBarHeight) && info.statusBarHeight >= 0
+      ? info.statusBarHeight : 44;
+    // nav 为 content-box：顶部留白只计算一次，内容中心与胶囊中心相同。
+    this.setData({
+      navPadTop: validRect ? rect.top : statusBarHeight + 6,
+      navHeight: validRect ? rect.height : 32
+    });
+  },
+
+  onResize() {
+    this.updateNavigationLayout();
   },
 
   // ---------- 外观模式 ----------
@@ -77,7 +164,24 @@ Page({
     return mode === 'light' ? '浅色' : mode === 'dark' ? '深色' : '跟随微信';
   },
 
+  onShow() {
+    return Promise.all([this.refreshWechatAccount(), this.refreshAppContent()]);
+  },
+
+  onHide() {
+    this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
+    this.setData({ nodePingBusy: false });
+    this._contentGeneration = (this._contentGeneration || 0) + 1;
+    this.setData({ referralEnabled: false, contentLoaded: false, shareSaving: false, referralToken: '' });
+    this._accountGeneration = (this._accountGeneration || 0) + 1;
+    this._publicAccount = null;
+    this.setData({ accountBusy: false, redeemBusy: false, isWechatAdmin: false, adminAdvancedOpen: false, accountLabel: '识别中…', referralSheetOpen: false, referralBusy: false, accountDeviceId: '' });
+  },
+
   onUnload() {
+    this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
+    this._contentGeneration = (this._contentGeneration || 0) + 1;
+    this._accountGeneration = (this._accountGeneration || 0) + 1;
     if (this.unsubscribe) this.unsubscribe();
   },
 
@@ -113,12 +217,6 @@ Page({
 
   syncFromStore(snapshot) {
     const app = snapshot.app;
-    const defaults = app.defaults || {};
-    const defaultModel = app.defaultModel || {};
-    const presetId = defaults.agentPresetDefault || 'standard';
-    const modelLabel = defaultModel.model
-      ? (defaultModel.model + (defaultModel.reasoningEffort ? ' · ' + capitalize(defaultModel.reasoningEffort) : ''))
-      : '—';
     const onlineIDs = app.onlineIDs || [];
     const nodes = (app.profiles || []).map((profile) => {
       const online = onlineIDs.indexOf(profile.id) >= 0 ||
@@ -126,12 +224,36 @@ Page({
       return {
         id: profile.id,
         gatewayId: profile.gatewayId || '',
-        name: profile.alias || profile.gatewayName || '未命名节点',
+        name: nodePresentation(profile, app).name,
         online: online,
-        statusLabel: online ? '在线' : '离线',
-        active: profile.id === app.activeID
+        statusLabel: online
+          ? (profile.relay && profile.relayClientCount ? profile.relayClientCount + ' 台设备' : '在线')
+          : '离线',
+        active: profile.id === app.activeID,
+        selected: (this.data.nodeSelection || []).indexOf(profile.id) >= 0
       };
     });
+    const activeProfile = (app.profiles || []).find((profile) => profile.id === app.activeID);
+    const detailProfile = (app.profiles || []).find((profile) => profile.id === this.data.nodeDetailId);
+    const nodeDetail = nodePresentation(detailProfile, app);
+    this.setData({ nodeDetail });
+    if (this.data.nodeDetailId && !nodeDetail) {
+      this.setData({ nodeDetailId: '', nodePingBusy: false, managementPanel: this.data.managementPanel === 'gateway' ? 'nodes' : this.data.managementPanel });
+    }
+    const publicState = getPublicAccessState(activeProfile, app.connection);
+    const relayOwner = publicState.isRelayOwner;
+    const nodeId = activeProfile ? (activeProfile.gatewayId || activeProfile.id || '') : '';
+    const { expiresAt, authorized, publicOn, publicStatusLabel, publicTitle } = publicState;
+    const publicSub = activeProfile
+      ? (activeProfile.alias || activeProfile.gatewayName || '当前节点')
+      : '请先在节点管理中配对设备';
+    const publicHint = publicState.publicHint;
+    const shareEnabled = publicState.shareEnabled;
+    const profileId = activeProfile ? activeProfile.id : null;
+    if (this._shareProfileId !== profileId || !shareEnabled) {
+      this.setData({ sharePayload: '', shareExpiresLabel: '' });
+    }
+    this._shareProfileId = profileId;
 
     if (this._pairingAttemptActive && app.connection === 'connected') {
       this._pairingAttemptActive = false;
@@ -146,9 +268,6 @@ Page({
     }
 
     this.setData({
-      presetLabel: (app.agentPresets && findPresetName(app.agentPresets.presets, presetId)) || labels.presetModeName(presetId),
-      modelLabel: modelLabel,
-      permissionLabel: labels.permissionName(defaults.permissionDefault || 'workspace-write') || (defaults.permissionDefault || '工作区写入'),
       endpoint: app.endpoint || '',
       connectionLabel: CONNECTION_LABELS[app.connection] || app.connection,
       connectionClass: app.connection,
@@ -156,137 +275,468 @@ Page({
       host: app.host || {},
       nodes: nodes,
       nodeCount: nodes.length,
-      onlineNodeCount: nodes.filter((node) => node.online).length
+      activeNodeName: ((nodes.find((node) => node.active) || {}).name) ||
+        (app.connection === 'connected' && app.gatewayName ? app.gatewayName : ''),
+      onlineNodeCount: nodes.filter((node) => node.online).length,
+      ...gatewayVersionInfo(app),
+      shareEnabled: shareEnabled,
+      shareReason: publicState.shareReason,
+      redeemAvailable: accessApi.configured(),
+      isRelayOwner: relayOwner,
+      publicOn: publicOn,
+      publicStatusLabel: publicStatusLabel,
+      publicId: activeProfile && activeProfile.relay ? nodeId : '',
+      publicExpiryLabel: expiresAt ? formatExpiry(expiresAt) : authorized ? (publicState.gatewayMode ? '以网关设备授权为准' : '未设置到期时间') : '',
+      publicTitle: publicTitle,
+      publicSub: publicSub,
+      publicHint: publicHint
     });
-  },
-
-  // ---------- 新会话默认配置 ----------
-
-  pickAgentPreset() {
-    const catalog = store.state.agentPresets;
-    const presets = (catalog && catalog.presets) || [];
-    const list = presets.length
-      ? presets
-      : [
-          { id: 'standard' },
-          { id: 'code' },
-          { id: 'minimal' },
-          { id: 'cordis' }
-        ];
-    wx.showActionSheet({
-      itemList: list.map((p) => p.name || labels.presetModeName(p.id)).slice(0, 6),
-      success(res) {
-        const picked = list[res.tapIndex];
-        store.client.setDefault('agent-preset', picked.id).catch((err) => {
-          wx.showToast({ title: err.message || '设置失败', icon: 'none' });
-        });
-      }
-    });
-  },
-
-  pickDefaultModel() {
-    const self = this;
-    const catalog = store.state.modelCatalog;
-    const flat = flattenModels(catalog);
-    if (!flat.length) {
-      store.client.requestModels(null).then(() => {
-        const refreshed = flattenModels(store.state.modelCatalog);
-        if (refreshed.length) {
-          self.showModelSheet(refreshed);
-        } else {
-          wx.showToast({ title: '网关未提供模型目录', icon: 'none' });
-        }
-      }).catch(() => {
-        wx.showToast({ title: '模型目录加载失败', icon: 'none' });
+    // Subscription belongs to WeChat, never to the selected LAN/DSH device.
+    if (accessApi.configured()) {
+      const account = this._publicAccount;
+      const expiry = Number(account && account.publicAccessExpiresAt) || 0;
+      const active = !!(account && account.publicAccess === true && (account.isAdmin === true || expiry > Date.now()));
+      this.setData({
+        publicOn: active,
+        publicStatusLabel: !account ? '待验证' : active ? '已开通' : expiry ? '已到期' : '未开通',
+        publicTitle: active ? '公网服务可用' : expiry ? '公网服务已到期' : '兑换开通公网服务',
+        publicExpiryLabel: account && account.isAdmin && active ? '管理员权限' : expiry ? formatExpiry(expiry) : '',
+        publicSub: '仅控制鲸尾公网中继，局域网直连不受影响',
+        publicHint: '兑换码开通当前微信账号的公网有效期；设备仍需扫描自己 DSH 插件的二维码配对。无需把电脑添加到后台或填写连接器 JSON。',
+        shareEnabled: active && shareEnabled,
+        shareReason: active ? publicState.shareReason : '请先兑换开通公网服务。分享设备邀请不会赠送公网有效期。'
       });
-      return;
     }
-    this.showModelSheet(flat);
   },
 
-  showModelSheet(flat) {
-    const self = this;
-    wx.showActionSheet({
-      itemList: flat.map((m) => m.label).slice(0, 6),
-      success(res) {
-        const picked = flat[res.tapIndex];
-        store.client.saveDefaultModel(picked.provider, picked.model, picked.defaultEffort)
-          .then(() => {
-            wx.showToast({ title: '已保存', icon: 'success' });
-          })
-          .catch((err) => {
-            wx.showToast({ title: err.message || '保存失败', icon: 'none' });
-          });
-        self.setData({ modelLabel: picked.model });
-      }
-    });
-  },
-
-  pickDefaultPermission() {
-    wx.showActionSheet({
-      itemList: ['只读', '工作区写入', '完全访问'],
-      success(res) {
-        const values = ['read-only', 'workspace-write', 'danger-full-access'];
-        store.client.setDefault('permission', values[res.tapIndex]).catch((err) => {
-          wx.showToast({ title: err.message || '设置失败', icon: 'none' });
-        });
-      }
-    });
-  },
-
-  // ---------- Mobile Gateway ----------
+  // ---------- 网关连接 ----------
 
   disconnect() {
+    const id = this.data.nodeDetailId;
+    const detail = this.currentNodeDetail();
+    if (!detail || !detail.canDisconnect) return;
     wx.showModal({
       title: '断开连接',
-      content: '将断开与 Mobile Gateway 的连接。',
+      content: '将断开「' + detail.name + '」的网关连接。',
       success(res) {
-        if (res.confirm) store.client.disconnect();
+        if (res.confirm && store.state.activeID === id && (store.state.profiles || []).some(p => p.id === id)) store.client.disconnect();
       }
     });
   },
 
   pingGateway() {
+    const detail = this.currentNodeDetail();
+    if (!detail || !detail.canPing || this.data.nodePingBusy) return;
+    const generation = this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
+    const id = detail.id;
+    const isCurrent = () => generation === this._nodePingGeneration && this.data.nodeDetailId === id && store.state.activeID === id;
     const started = Date.now();
+    this.setData({ nodePingBusy: true });
     store.client.ping()
       .then(() => {
+        if (!isCurrent()) return;
         wx.showToast({ title: '往返 ' + (Date.now() - started) + 'ms', icon: 'none' });
       })
       .catch((err) => {
-        wx.showToast({ title: err.message || 'Ping 失败', icon: 'none' });
-      });
+        if (!isCurrent()) return;
+        wx.showToast({ title: detail.isPublic ? 'Ping 失败，请检查节点连接' : err.message || 'Ping 失败', icon: 'none' });
+      })
+      .finally(() => { if (generation === this._nodePingGeneration) this.setData({ nodePingBusy: false }); });
   },
 
   forgetDevice() {
+    const detail = this.currentNodeDetail();
+    if (!detail) return;
+    const id = detail.id;
     wx.showModal({
       title: '忘记此设备',
-      content: '将删除本机保存的配对凭据，需要重新扫码配对。',
+      content: '将删除「' + detail.name + '」在本机保存的配对凭据，需要重新扫码配对。',
       confirmColor: '#E5484D',
-      success(res) {
+      success: (res) => {
         if (res.confirm) {
-          store.forgetDevice();
-          wx.reLaunch({ url: '/pages/home/home' });
+          store.removeHosts([id]);
+          this.syncFromStore({ app: store.state });
         }
       }
     });
   },
 
-  // ---------- 公网节点 ----------
+  gatewayVersionText(app) {
+    return gatewayVersionInfo(app).connectedGatewayVersion;
+  },
+
+  goBack() {
+    wx.navigateBack({
+      fail() { wx.reLaunch({ url: '/pages/home/home' }); }
+    });
+  },
+
+  readAppVersion() {
+    return clientVersion(wx).appVersion;
+  },
+
+  readLanguageLabel() {
+    try {
+      const id = wx.getStorageSync(LANGUAGE_KEY) || 'system';
+      const found = LANGUAGE_OPTIONS.find((item) => item.id === id);
+      return found ? found.title : '跟随系统';
+    } catch (e) { return '跟随系统'; }
+  },
+
+  readFontLabel() {
+    try {
+      const id = wx.getStorageSync(FONT_SCALE_KEY) || 'system';
+      const found = FONT_OPTIONS.find((item) => item.id === id);
+      return found && found.id !== 'system' && found.id !== 'standard' ? found.title : '跟随系统';
+    } catch (e) { return '跟随系统'; }
+  },
+
+  pickLanguage() {
+    wx.showActionSheet({
+      itemList: LANGUAGE_OPTIONS.map((item) => item.title),
+      success: (res) => {
+        const option = LANGUAGE_OPTIONS[res.tapIndex];
+        if (!option) return;
+        wx.setStorageSync(LANGUAGE_KEY, option.id);
+        this.setData({ languageLabel: option.title });
+        const app = getApp();
+        if (app && app.globalData) app.globalData.appLanguage = option.id;
+        wx.showToast({ title: '语言将在重启后生效', icon: 'none' });
+      }
+    });
+  },
+
+  pickFontSize() {
+    wx.showActionSheet({
+      itemList: FONT_OPTIONS.map((item) => item.title),
+      success: (res) => {
+        const option = FONT_OPTIONS[res.tapIndex];
+        if (!option) return;
+        wx.setStorageSync(FONT_SCALE_KEY, option.id);
+        const app = getApp();
+        if (app && app.globalData) app.globalData.fontScale = option.scale;
+        this.setData({ fontSizeLabel: option.id === 'system' || option.id === 'standard' ? '跟随系统' : option.title });
+        wx.showToast({ title: '字体大小已更新', icon: 'success' });
+      }
+    });
+  },
+
+  // ---------- 公网访问 / 节点管理（独立入口） ----------
+
+  refreshWechatAccount() {
+    if (this.data.accountBusy) return;
+    const generation = this._accountGeneration = (this._accountGeneration || 0) + 1;
+    if (!accessApi.configured()) {
+      this.setData({ accountBusy: false, isWechatAdmin: false, accountLabel: '待识别',
+        accountHint: '身份服务待配置，管理员入口暂未启用' });
+      return Promise.resolve();
+    }
+    this.setData({ accountBusy: true, isWechatAdmin: false, accountDeviceId: '', accountLabel: '识别中…',
+      accountHint: '自动匹配服务端绑定的管理员微信身份' });
+    this._publicAccount = null;
+    this.syncFromStore({ app: store.state });
+    return accessApi.ensureAccount({ freshLogin: true }).then(account => {
+      if (generation !== this._accountGeneration) return;
+      if (!account || typeof account.isAdmin !== 'boolean') throw new Error('身份服务响应无效');
+      const admin = account && account.isAdmin === true;
+      this._publicAccount = account;
+      this.syncFromStore({ app: store.state });
+      this.setData({ isWechatAdmin: admin, accountDeviceId: account.deviceId || '', accountLabel: admin ? '管理员' : '普通用户',
+        accountHint: admin ? '已匹配服务端绑定的管理员微信身份' : '已自动识别当前微信账号',
+        accountIdHint: account.deviceId ? '' : '后台尚未支持设备 ID，请升级后台' });
+    }).catch((error) => {
+      if (generation !== this._accountGeneration) return;
+      this._publicAccount = null;
+      this.syncFromStore({ app: store.state });
+      this.setData({ isWechatAdmin: false, accountLabel: '待识别',
+        accountHint: error.message || '暂时无法确认身份，重新进入页面将自动重试' });
+    }).finally(() => { if (generation === this._accountGeneration) this.setData({ accountBusy: false }); });
+  },
+
+  openCodeManagement() {
+    if (!this.data.isWechatAdmin || this.data.accountBusy) return;
+    wx.navigateTo({ url: '/pages/redeem-admin/redeem-admin' });
+  },
+
+  openAnnouncements() { wx.navigateTo({ url: '/pages/announcements/announcements' }); },
+  openAnnouncementManagement() {
+    if (this.data.isWechatAdmin && !this.data.accountBusy) wx.navigateTo({ url: '/pages/announcement-admin/announcement-admin' });
+  },
+  onContactError() {
+    wx.showModal({ title: '客服暂未接通', content: '请稍后重试。管理员需在微信公众平台启用小程序客服并添加客服人员。请勿发送密码、配对令牌或模型密钥。', showCancel: false });
+  },
+  applySharing(enabled) {
+    this.setData({ referralEnabled: enabled === true, ...(enabled ? {} : { referralSheetOpen: false, referralToken: '', referralBusy: false }) });
+    // Settings must not re-enable the platform sharing menu when this activity is off.
+    try { wx.hideShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] }); } catch (e) {}
+  },
+  async refreshAppContent() {
+    const generation = this._contentGeneration = (this._contentGeneration || 0) + 1;
+    this.setData({ contentLoaded: false, contentError: '' });
+    this.applySharing(false);
+    try {
+      const content = await accessApi.appContent();
+      if (generation !== this._contentGeneration) return;
+      this.applySharing(content.shareEnabled === true);
+      this.setData({ contentLoaded: true });
+    } catch (error) {
+      if (generation === this._contentGeneration) this.setData({ contentError: error.message || '分享设置同步失败，请重试' });
+    }
+  },
+  async toggleReferralSharing(event) {
+    if (!this.data.isWechatAdmin || this.data.accountBusy || !this.data.contentLoaded || this.data.shareSaving) return;
+    const generation = this._contentGeneration, accountGeneration = this._accountGeneration;
+    const enabled = event.detail.value === true;
+    this.setData({ shareSaving: true });
+    try {
+      const current = await accessApi.ensureAccount();
+      if (generation !== this._contentGeneration || accountGeneration !== this._accountGeneration) return;
+      if (!current.isAdmin) throw Object.assign(new Error('管理员权限已移除'), { code: 'FORBIDDEN' });
+      const value = await accessApi.setSharingEnabled(enabled);
+      if (generation !== this._contentGeneration || accountGeneration !== this._accountGeneration) return;
+      this.applySharing(value.shareEnabled);
+      wx.showToast({ title: value.shareEnabled ? '分享已开启' : '分享已关闭', icon: 'success' });
+    } catch (error) {
+      if (generation !== this._contentGeneration || accountGeneration !== this._accountGeneration) return;
+      this.applySharing(this.data.referralEnabled);
+      if (['FORBIDDEN', 'UNAUTHORIZED', 'LOGIN_REQUIRED'].includes(error.code)) this.setData({ isWechatAdmin: false });
+      wx.showModal({ title: '设置未保存', content: error.message || '请稍后重试', showCancel: false });
+    } finally { if (generation === this._contentGeneration && accountGeneration === this._accountGeneration) this.setData({ shareSaving: false }); }
+  },
+
+  toggleAdminAdvanced() {
+    if (!this.data.isWechatAdmin || this.data.accountBusy) return;
+    this.setData({ adminAdvancedOpen: !this.data.adminAdvancedOpen });
+  },
+
+  openPairingManagement() {
+    if (!this.data.isWechatAdmin || this.data.accountBusy) return;
+    wx.navigateTo({ url: '/pages/pairing-admin/pairing-admin' });
+  },
+
+  bindWechatAdmin() {
+    if (this.data.accountBusy) return;
+    if (!accessApi.configured()) {
+      wx.showModal({ title: '请先部署管理后台', content: '在服务器启动鲸尾管理台、配置微信凭据，并将管理台 HTTPS 地址填入小程序配置后，即可绑定管理员。', showCancel: false });
+      return;
+    }
+    wx.showModal({ title: '绑定管理员微信', editable: true, placeholderText: '输入网页后台生成的 WB- 绑定码',
+      success: async res => {
+        if (!res.confirm) return;
+        const code = String(res.content || '').trim().toUpperCase();
+        if (!/^WB-(?:[A-F0-9]{6}-){3}[A-F0-9]{6}$/.test(code)) {
+          wx.showToast({ title: '请输入完整身份绑定码，不是设备配对码', icon: 'none' }); return;
+        }
+        const generation = this._accountGeneration;
+        this.setData({ accountBusy: true });
+        try {
+          await accessApi.ensureAccount({ freshLogin: true });
+          if (generation !== this._accountGeneration) return;
+          await accessApi.claimAdminBinding(code);
+          if (generation !== this._accountGeneration) return;
+          wx.showModal({ title: '身份已提交', content: '请回到网页管理台核对并批准。批准后重新进入此页面，将自动识别管理员身份。', showCancel: false });
+        } catch (error) {
+          if (generation === this._accountGeneration) wx.showToast({ title: error.message || '绑定失败，请重试', icon: 'none' });
+        } finally { if (generation === this._accountGeneration) this.setData({ accountBusy: false }); }
+      }
+    });
+  },
+
+  openPublicAccess() {
+    this.syncFromStore({ app: store.state, session: store.sessionState });
+    this.setData({ managementPanel: 'public', pairSheetOpen: false });
+    this.refreshAppContent();
+  },
+
+  async openReferralShare() {
+    if (!this.data.referralEnabled || this.data.referralBusy) return;
+    const generation = this._accountGeneration;
+    this.setData({ referralSheetOpen: true, referralBusy: true, referralError: '', referralToken: '' });
+    try {
+      await accessApi.ensureAccount({ freshLogin: true });
+      if (generation !== this._accountGeneration) return;
+      const status = await accessApi.shareStatus();
+      if (generation !== this._accountGeneration) return;
+      if (!status.rules.enabled) { this.applySharing(false); return; }
+      const result = status.rules.enabled ? await accessApi.shareInvite() : status;
+      if (generation !== this._accountGeneration) return;
+      const tiers = result.rules.tiers;
+      this.setData({ referralDays: result.earnedDays,
+        referralError: result.rules.enabled ? '' : '分享活动暂未开放',
+        referralToken: result.rules.enabled ? result.inviteToken : '',
+        referralHint: '每位朋友首次有效打开，按人数阶梯赠送 ' + tiers.map(t => t.days).join(' / ') + ' 天公网访问。' });
+    } catch (e) { if (generation === this._accountGeneration) this.setData({ referralError: e.message || '加载失败，请重试' }); }
+    finally { if (generation === this._accountGeneration) this.setData({ referralBusy: false }); }
+  },
+  closeReferralShare() { this.setData({ referralSheetOpen: false }); },
+  openShareRules() { this.setData({ referralSheetOpen: false }); wx.navigateTo({ url: '/pages/share-activity/share-activity?rules=1' }); },
+  openMomentsActivity() { this.setData({ referralSheetOpen: false }); wx.navigateTo({ url: '/pages/share-activity/share-activity?moments=1' }); },
+
+  openNodeManagement() {
+    this.setData({ managementPanel: 'nodes', pairSheetOpen: false, nodeDetailId: '', nodeDetail: null });
+    this.refreshNodes();
+  },
+
+  closeManagementPanel() {
+    this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
+    this.setData({ managementPanel: this.data.managementPanel === 'gateway' ? 'nodes' : '', nodeDetailId: '', nodeDetail: null, nodePingBusy: false });
+  },
 
   refreshNodes() {
     store.refreshHostPresence();
   },
 
+  toggleNodeEditMode() {
+    const next = !this.data.nodeEditMode;
+    this.setData({ nodeEditMode: next, nodeSelection: [] });
+    this.syncFromStore({ app: store.state, session: store.sessionState });
+  },
+
+  toggleNodeSelect(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id) return;
+    const current = this.data.nodeSelection || [];
+    const next = current.indexOf(id) >= 0
+      ? current.filter((item) => item !== id)
+      : current.concat([id]);
+    this.setData({ nodeSelection: next });
+    this.syncFromStore({ app: store.state, session: store.sessionState });
+  },
+
+  deleteSelectedNodes() {
+    const ids = this.data.nodeSelection || [];
+    if (!ids.length) return;
+    const names = (this.data.nodes || []).filter((n) => ids.indexOf(n.id) >= 0).map((n) => n.name);
+    wx.showModal({
+      title: ids.length > 1 ? '删除 ' + ids.length + ' 个节点？' : '删除节点？',
+      content: '将移除：' + names.join('、') + '。删除后需重新配对才能连接。',
+      confirmText: '删除',
+      confirmColor: '#E5533C',
+      success: (res) => {
+        if (!res.confirm) return;
+        store.removeHosts(ids);
+        this.setData({ nodeSelection: [], nodeEditMode: false });
+        this.syncFromStore({ app: store.state, session: store.sessionState });
+        wx.showToast({ title: '已删除', icon: 'success' });
+      }
+    });
+  },
+
   selectNode(e) {
     const id = e.currentTarget.dataset.id;
-    if (!id || id === store.state.activeID) return;
-    store.selectHost(id);
+    if (!(store.state.profiles || []).some(p => p.id === id)) return;
+    if (this.data.nodeEditMode) { this.toggleNodeSelect(e); return; }
+    this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
+    this.setData({ nodeDetailId: id, managementPanel: 'gateway', nodePingBusy: false });
+    this.syncFromStore({ app: store.state });
+  },
+
+  currentNodeDetail() {
+    return nodePresentation((store.state.profiles || []).find(p => p.id === this.data.nodeDetailId), store.state);
+  },
+
+  connectNode() {
+    const detail = this.currentNodeDetail();
+    if (!detail || detail.canDisconnect) return;
+    store.selectHost(detail.id);
+    this.syncFromStore({ app: store.state });
   },
 
   copyNodeId(e) {
     const id = e.currentTarget.dataset.id;
     if (!id) return;
     wx.setClipboardData({ data: id });
+  },
+
+  /** 账号续期不依赖已配对节点，断线/到期后也能兑换。 */
+  redeemRenewal() {
+    if (this.data.redeemBusy) return;
+    if (!accessApi.configured()) {
+      wx.showModal({ title: '兑换服务待配置', content: '请先配置公网服务后台。局域网直连不受影响。', showCancel: false });
+      return;
+    }
+    const generation = this._accountGeneration;
+    wx.showModal({
+      title: '兑换公网有效期',
+      editable: true,
+      placeholderText: '输入管理员提供的兑换码',
+      success: (res) => {
+        if (!res.confirm) return;
+        const code = String(res.content || '').trim().toUpperCase();
+        if (!code) {
+          wx.showToast({ title: '请输入兑换码', icon: 'none' });
+          return;
+        }
+        if (generation !== this._accountGeneration) return;
+        this.setData({ redeemBusy: true, redeemResultLabel: '' });
+        accessApi.ensureAccount({ freshLogin: true }).then(() => accessApi.redeemPublicAccess(code)).then(async (result) => {
+          if (generation !== this._accountGeneration) return;
+          this.setData({
+            redeemBusy: false,
+            redeemResultLabel: result.expiresAt
+              ? '兑换成功，有效期至 ' + formatExpiry(result.expiresAt)
+              : '兑换成功'
+          });
+          this.syncFromStore({ app: store.state, session: store.sessionState });
+          await this.refreshWechatAccount();
+          store.appDidBecomeActive();
+          wx.showToast({ title: '兑换成功', icon: 'success' });
+        }).catch((err) => {
+          if (generation !== this._accountGeneration) return;
+          this.setData({ redeemBusy: false });
+          wx.showToast({ title: err.message || '兑换失败', icon: 'none' });
+        });
+      }
+    });
+  },
+
+  createNodeShare() {
+    if (!this.data.shareEnabled) {
+      wx.showModal({ title: '暂不能分享公网访问', content: this.data.shareReason || '当前节点暂不支持分享。', showCancel: false });
+      return;
+    }
+    const profileId = store.state.activeID;
+    wx.showActionSheet({
+      itemList: ['1 小时', '1 天', '7 天'],
+      success: (res) => {
+        const choices = [3600000, 86400000, 604800000];
+        const ttl = choices[res.tapIndex];
+        if (!ttl || profileId !== store.state.activeID || !this.data.shareEnabled) return;
+        wx.showLoading({ title: '正在生成', mask: true });
+        store.createRelayShare(ttl).then((share) => {
+          wx.hideLoading();
+          if (profileId !== store.state.activeID || !this.data.shareEnabled) return;
+          this.setData({
+            sharePayload: share.raw,
+            shareExpiresLabel: '邀请有效至 ' + formatExpiry(share.expiresAt)
+          });
+        }).catch((err) => {
+          wx.hideLoading();
+          wx.showToast({ title: err.message || '生成分享失败', icon: 'none' });
+        });
+      }
+    });
+  },
+
+  copyNodeShare() {
+    if (!this.data.sharePayload) return;
+    wx.setClipboardData({
+      data: this.data.sharePayload,
+      success: () => wx.showToast({ title: '配对信息已复制', icon: 'success' })
+    });
+  },
+
+  onShareAppMessage(event) {
+    if (this.data.referralEnabled && event && event.target && event.target.dataset && event.target.dataset.referral && this.data.referralToken) {
+      return { title: '鲸尾 · 随时连接自己的 DSH', path: '/pages/share-activity/share-activity?ref=' + this.data.referralToken, imageUrl: '/assets/brand/app-icon-share-500x400.png' };
+    }
+    if (this.data.sharePayload) {
+      return {
+        title: '邀请你连接「' + (store.state.gatewayName || '公网节点') + '」',
+        path: '/pages/settings/settings?pair=' + this.data.sharePayload
+      };
+    }
+    return { title: 'whaletail Harness · 公网节点', path: '/pages/settings/settings' };
   },
 
   addPublicNode() {
@@ -297,6 +747,11 @@ Page({
         if (res.tapIndex === 1) this.openPairSheet();
       }
     });
+  },
+
+  /** 添加节点：进入三步引导页 */
+  addNode() {
+    wx.navigateTo({ url: '/pages/add-node/add-node' });
   },
 
   scanPublicNode() {
@@ -323,7 +778,7 @@ Page({
   },
 
   openPairSheet() {
-    this.setData({ pairSheetOpen: true, pairingText: '', pairingError: '', pairingConnecting: false });
+    this.setData({ managementPanel: 'nodes', pairSheetOpen: true, pairingText: '', pairingError: '', pairingConnecting: false });
   },
 
   closePairSheet() {
@@ -349,39 +804,19 @@ Page({
     this.setData({ pairingConnecting: true, pairingError: '正在连接…' });
   },
 
-  openFiles() {
-    wx.navigateTo({ url: '/pages/files/files' });
-  },
-
-  /** 隐私政策（对齐 dsh-mobile SettingsView 关于 → 隐私政策）。 */
+  /** 全屏底部弹窗，关闭后保留设置列表位置。 */
   openPrivacyPolicy() {
-    wx.navigateTo({ url: '/pages/privacy/privacy' });
+    this.setData({ privacyOpen: true });
+  },
+  closePrivacyPolicy() {
+    this.setData({ privacyOpen: false });
   }
 });
 
-function findPresetName(presets, id) {
-  const found = (presets || []).find((p) => p.id === id);
-  return found ? (found.name || labels.presetModeName(id)) : null;
-}
 
-function flattenModels(catalog) {
-  const flat = [];
-  if (catalog && catalog.groups) {
-    catalog.groups.forEach((group) => {
-      (group.models || []).forEach((model) => {
-        flat.push({
-          provider: group.id,
-          model: model.id,
-          label: (group.name || group.id) + ' · ' + (model.name || model.id),
-          defaultEffort: model.reasoning && model.reasoning.defaultEffort
-        });
-      });
-    });
-  }
-  return flat;
-}
-
-function capitalize(text) {
-  if (!text) return '';
-  return text.charAt(0).toUpperCase() + text.slice(1);
+function formatExpiry(value) {
+  const date = new Date(value);
+  const pad = (n) => n < 10 ? '0' + n : String(n);
+  return date.getFullYear() + '/' + pad(date.getMonth() + 1) + '/' + pad(date.getDate()) + ' ' +
+    pad(date.getHours()) + ':' + pad(date.getMinutes());
 }

@@ -68,7 +68,9 @@ function decodeBase64URL(value) {
 }
 
 function encodeBase64URL(value) {
-  const bytes = new TextEncoder().encode(String(value));
+  const encoded = unescape(encodeURIComponent(String(value)));
+  const bytes = new Uint8Array(encoded.length);
+  for (let i = 0; i < encoded.length; i += 1) bytes[i] = encoded.charCodeAt(i);
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
   let out = '';
   for (let i = 0; i < bytes.length; i += 3) {

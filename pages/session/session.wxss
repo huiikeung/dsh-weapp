@@ -3870,3 +3870,14 @@
 .opt-pop.permission-pop .opt-label { font-size: 28rpx; }
 .attach-sheet { bottom: 76rpx; border-radius: 22rpx; padding: 10rpx; }
 .attach-sheet-item { width: 100rpx; min-height: 84rpx; }
+
+
+/* 字体大小偏好：整体放大正文与代码（对齐 iOS FontScale） */
+.font-large .row-user-text { font-size: 34rpx; }
+.font-large .md-para,
+.font-large .md-li-text,
+.font-large .md-quote { font-size: 32rpx; line-height: 1.65; }
+.font-large .md-heading { font-size: 36rpx; }
+.font-large .code-body { font-size: 25rpx; }
+.font-large .event-preview,
+.font-large .tool-act { font-size: 28rpx; }

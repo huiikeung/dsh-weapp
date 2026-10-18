@@ -9,14 +9,8 @@
   position: relative;
   height: 100vh;
   overflow: hidden;
-  /* 内容右移后露出的底层：浅色白 / 深色 #242426（对齐 iOS drawer 底色） */
-  background: #FFFFFF;
-}
-
-@media (prefers-color-scheme: dark) {
-  .home-root {
-    background: #242426;
-  }
+  /* 内容右移后露出的底层：与深海内容同色，交界处不出现白边 */
+  background: var(--navy);
 }
 
 .home-content-wrap {
@@ -35,10 +29,12 @@
 /* 深海背景随内容位移：fixed → absolute（相对位移容器） */
 .home-deep-bg {
   position: absolute;
+  z-index: 0;
 }
 
 .home-scroll {
   position: relative;
+  z-index: 1;
   height: 100vh;
 }
 
@@ -56,32 +52,71 @@
   transform: translateX(-100%);
 }
 
-@media (prefers-color-scheme: dark) {
-  .drawer {
-    background: #242426;
-  }
-}
-
 .drawer-visible {
   box-shadow: 8rpx 0 40rpx rgba(0, 0, 0, 0.18);
 }
 
 .drawer-body {
-  padding: calc(20rpx + env(safe-area-inset-top)) 36rpx 0;
+  padding: calc(20rpx + env(safe-area-inset-top)) 36rpx calc(24rpx + env(safe-area-inset-bottom));
+  height: 100%;
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
 }
 
+.drawer-footer { width: 100%; margin-top: auto; padding-top: 24rpx; flex-shrink: 0; }
+.drawer-settings { box-sizing: border-box; }
+
 .drawer-brand {
+  display: flex;
+  align-items: center;
   padding: 0 0 32rpx 24rpx;
   width: 100%;
 }
 
+.drawer-whale {
+  width: 58rpx;
+  height: 58rpx;
+  margin-right: 7rpx;      /* 缩小一半，与首页一致 */
+  margin-top: -8rpx;
+  flex: none;
+}
+
+.drawer-brand-text {
+  color: var(--ink);
+  font-family: 'Avenir Next', 'Montserrat', 'Futura', 'Helvetica Neue', -apple-system, sans-serif;
+  font-size: 42rpx;
+  font-weight: 500;
+  letter-spacing: -0.6rpx;
+  margin-right: 0;
+  padding-right: 46rpx;
+  transform: scaleX(1.22);
+  transform-origin: left center;
+}
+
+.drawer-brand-badge {
+  color: #FFFFFF;
+  background: #10151F;
+  border: 0;
+  border-radius: 8rpx;
+  font-size: 19rpx;
+  font-weight: 600;
+  line-height: 30rpx;
+  height: 30rpx;
+  padding: 0 12rpx;
+  margin-top: 1rpx;
+  letter-spacing: 1rpx;
+  flex-shrink: 0;
+}
+
+.drawer-whale-dark {
+  display: none;
+}
+
 .drawer-wordmark {
-  width: 100%;
-  max-width: 432rpx;
-  height: 48rpx;
+  max-width: 360rpx;
+  height: 44rpx;
 }
 
 .drawer-wordmark-dark {
@@ -109,10 +144,11 @@
 }
 
 .drawer-item-ic-clock {
-  width: 40rpx;
-  height: 40rpx;
-  margin-left: 2rpx;
-  margin-right: 22rpx;
+  /* 时钟图标视觉略大，单独缩到 36rpx 与风车观感一致 */
+  width: 36rpx;
+  height: 36rpx;
+  margin-left: 4rpx;
+  flex-shrink: 0;
 }
 
 .drawer-item-ic-dark {
@@ -122,23 +158,6 @@
 .drawer-item-text {
   font-size: 34rpx;
   color: var(--ink);
-}
-
-@media (prefers-color-scheme: dark) {
-  .drawer-item-text {
-    color: #F1F4FA;
-  }
-  .drawer-wordmark-light,
-  .drawer-item-ic:not(.drawer-item-ic-dark) {
-    display: none;
-  }
-  .drawer-wordmark-dark,
-  .drawer-item-ic-dark {
-    display: block;
-  }
-  .drawer-item-active {
-    background: rgba(241, 244, 250, 0.08);
-  }
 }
 
 .drawer-mask {
@@ -202,19 +221,28 @@
 
 .brand-text {
   color: #FFFFFF;
-  font-size: 38rpx;
-  font-weight: 700;
-  margin-right: 16rpx;
+  font-family: 'Avenir Next', 'Montserrat', 'Futura', 'Helvetica Neue', -apple-system, sans-serif;
+  font-size: 42rpx;
+  font-weight: 500;
+  letter-spacing: -0.6rpx;
+  margin-right: 0;
+  padding-right: 46rpx;        /* 恰好补上 22% 横向拉伸的溢出，白块不会被覆盖 */
+  transform: scaleX(1.22);     /* 字形更扁 */
+  transform-origin: left center;
 }
 
 .brand-badge {
-  color: var(--mist);
-  border: 2rpx solid rgba(191, 212, 255, 0.5);
-  border-radius: 12rpx;
-  font-size: 22rpx;
-  line-height: 1;
-  padding: 8rpx 14rpx;
-  letter-spacing: 2rpx;
+  color: #10151F;
+  background: #FFFFFF;
+  border: 0;
+  border-radius: 8rpx;
+  font-size: 19rpx;
+  font-weight: 600;
+  line-height: 30rpx;
+  height: 30rpx;          /* 与 whaletail 大写字高一致 */
+  padding: 0 12rpx;
+  margin-top: 1rpx;
+  letter-spacing: 1rpx;
   flex-shrink: 0;
 }
 
@@ -262,10 +290,116 @@
 }
 
 .pair-menu-ic {
-  width: 44rpx;
-  height: 44rpx;
-  margin-right: 18rpx;
+  width: 36rpx;          /* 固定宽度：保证右侧文字对齐 */
+  height: 36rpx;
+  margin-right: 14rpx;
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 扫描图标：CSS 绘制，矢量清晰（四角括 + 3 定位块 + 点阵） */
+.ico-scan {
+  position: relative;
+  width: 36rpx;
+  height: 36rpx;
+}
+
+.ico-scan .corner {
+  position: absolute;
+  width: 11rpx;
+  height: 11rpx;
+  border: 3rpx solid #FFFFFF;
+  box-sizing: border-box;
+}
+
+.ico-scan .corner.tl { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 5rpx; }
+.ico-scan .corner.tr { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 5rpx; }
+.ico-scan .corner.bl { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 5rpx; }
+.ico-scan .corner.br { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 5rpx; }
+
+.ico-scan .find {
+  position: absolute;
+  width: 10rpx;
+  height: 10rpx;
+  border: 2rpx solid #FFFFFF;
+  box-sizing: border-box;
+  border-radius: 2rpx;
+}
+
+.ico-scan .find::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3rpx;
+  height: 3rpx;
+  margin-left: -1.5rpx;
+  margin-top: -1.5rpx;
+  background: #FFFFFF;
+  border-radius: 1rpx;
+}
+
+.ico-scan .find.a { left: 7rpx; top: 7rpx; }
+.ico-scan .find.b { right: 7rpx; top: 7rpx; }
+.ico-scan .find.c { left: 7rpx; bottom: 7rpx; }
+
+.ico-scan .dots {
+  position: absolute;
+  right: 6rpx;
+  bottom: 6rpx;
+  width: 8rpx;
+  height: 8rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rpx;
+}
+
+.ico-scan .dots view {
+  width: 3rpx;
+  height: 3rpx;
+  background: #FFFFFF;
+  border-radius: 1rpx;
+}
+
+/* 键盘图标：CSS 绘制（圆角外框 + 两排键 + 空格条） */
+.ico-keyboard {
+  position: relative;
+  width: 36rpx;                 /* 与另两个图标等宽 */
+  height: 26rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #FFFFFF;
+  border-radius: 6rpx;
+  padding: 4rpx 4rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.ico-keyboard .kb-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ico-keyboard .kb-row view {
+  width: 4rpx;
+  height: 4rpx;
+  background: #FFFFFF;
+  border-radius: 1rpx;
+}
+
+.ico-keyboard .kb-last {
+  justify-content: space-between;
+}
+
+.ico-keyboard .kb-bar {
+  flex: 1;
+  width: auto;
+  height: 4rpx;
+  margin: 0 2rpx;
+  border-radius: 2rpx;
 }
 
 .icon-btn {
@@ -293,9 +427,9 @@
 
 .title-hero {
   color: #FFFFFF;
-  font-size: 64rpx;
+  font-size: 64rpx;      /* iOS 32pt bold */
   font-weight: 700;
-  letter-spacing: 1rpx;
+  letter-spacing: 0;
 }
 
 .subtitle-hero {
@@ -396,7 +530,7 @@
 
 .new-session-text {
   color: #FFFFFF;
-  font-size: 36rpx;
+  font-size: 34rpx;      /* iOS headline 17pt */
   font-weight: 600;
 }
 
@@ -408,7 +542,7 @@
 }
 
 .conn-label {
-  font-size: 26rpx;
+  font-size: 24rpx;      /* iOS caption 12pt */
 }
 
 .conn-label.connected { color: var(--success); }
@@ -469,7 +603,7 @@
 .search-input {
   flex: 1;
   color: #FFFFFF;
-  font-size: 29rpx;
+  font-size: 34rpx;      /* iOS body 17pt */
 }
 
 .home-data-hint {
@@ -638,6 +772,7 @@
   display: flex;
   flex-direction: column;
   height: auto;
+  min-height: 46vh;      /* 默认高度更高 */
   max-height: 86vh;
   background: rgba(10, 14, 24, 0.30);
   border: 1rpx solid rgba(255, 255, 255, 0.12);
@@ -668,6 +803,7 @@
   position: relative;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   height: 96rpx;
   flex-shrink: 0;
 }
@@ -700,10 +836,22 @@
   box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.30);
 }
 
+.host-sheet-right {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+}
+
 .host-sheet-del {
   color: #FF3B30;
-  font-size: 26rpx;
-  margin-right: 20rpx;
+  font-size: 28rpx;
+  margin-left: 20rpx;
+  padding: 14rpx 30rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(165deg, rgba(255, 59, 48, 0.22), rgba(255, 59, 48, 0.10));
+  border: 1rpx solid rgba(255, 59, 48, 0.45);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.18);
 }
 
 .host-diag {
@@ -1447,4 +1595,154 @@
   height: 38rpx;
   border-width: 3rpx;
   margin-right: 18rpx;
+}
+
+
+/* 配置引导：步骤手册，圆角描边与菜单其他线性图标对齐。 */
+.pair-guide-icon { display: block; width: 36rpx; height: 36rpx; flex-shrink: 0; }
+
+
+/* 动态粒子鲸鱼（对齐 iOS HarnessAnimatedBackground 的 WhaleField） */
+/* 背景循环（16s，纯 CSS）：鲸鱼游动 → 下潜 → 浮出水面 → 继续游动 */
+.deep-whale-swim {
+  position: absolute;
+  left: 50%;
+  top: 34%;
+  width: 880rpx;      /* 背景鲸鱼尺寸 */
+  height: 880rpx;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  will-change: transform, opacity;
+  animation: whaleSwimCycle 16s ease-in-out infinite;
+}
+
+@keyframes whaleSwimCycle {
+  0%   { opacity: 1; transform: translate(-50%, -50%) translate3d(0, 0, 0) scale(1) rotate(0deg) skewX(0deg); }
+  12%  { opacity: 1; transform: translate(-50%, -50%) translate3d(-14rpx, -18rpx, 0) scale(1.02) rotate(-2.6deg) skewX(-1.6deg); }
+  25%  { opacity: 1; transform: translate(-50%, -50%) translate3d(10rpx, 16rpx, 0) scale(1.005) rotate(2.8deg) skewX(1.8deg); }
+  38%  { opacity: 1; transform: translate(-50%, -50%) translate3d(-8rpx, -14rpx, 0) scale(1.018) rotate(-2.2deg) skewX(-1.4deg); }
+  50%  { opacity: 1; transform: translate(-50%, -50%) translate3d(6rpx, 10rpx, 0) scale(1) rotate(2deg) skewX(1.2deg); }
+  62%  { opacity: 1; transform: translate(-50%, -50%) translate3d(-12rpx, -8rpx, 0) scale(1.015) rotate(-2.4deg) skewX(-1.2deg); }
+  75%  { opacity: 1; transform: translate(-50%, -50%) translate3d(8rpx, 14rpx, 0) scale(1.005) rotate(2.6deg) skewX(1.5deg); }
+  88%  { opacity: 1; transform: translate(-50%, -50%) translate3d(-6rpx, -10rpx, 0) scale(1.012) rotate(-1.8deg) skewX(-1deg); }
+  100% { opacity: 1; transform: translate(-50%, -50%) translate3d(0, 0, 0) scale(1) rotate(0deg) skewX(0deg); }
+}
+
+
+/* 搜索占位符：对齐 iOS `.white.opacity(0.58)` */
+.field-placeholder {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+/* 夜间模式抽屉：跟随 sheetTheme 的 drawer-dark 类（手动深色 / 系统深色都生效） */
+.drawer.drawer-dark {
+  background: #242426;
+}
+
+.drawer-dark .drawer-item-text,
+.drawer-dark .drawer-brand-text {
+  color: #F1F4FA;
+}
+
+.drawer-dark .drawer-item-active {
+  background: rgba(241, 244, 250, 0.08);
+}
+
+.drawer-dark .drawer-brand-badge {
+  color: #10151F;
+  background: #FFFFFF;
+}
+
+.drawer-dark .drawer-whale-light,
+.drawer-dark .drawer-item-ic:not(.drawer-item-ic-dark) {
+  display: none;
+}
+
+.drawer-dark .drawer-whale-dark,
+.drawer-dark .drawer-item-ic-dark {
+  display: block;
+}
+
+/* ---------- 工作区选择：卡片锚点弹窗（对齐 iOS Menu） ---------- */
+.workspace-card-menu-open {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.ws-pop-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  background: transparent;
+}
+
+.ws-pop {
+  position: fixed;
+  z-index: 61;
+  box-sizing: border-box;
+  border-radius: 64rpx;
+  background: linear-gradient(145deg, rgba(173, 196, 229, 0.88), rgba(200, 212, 231, 0.83));
+  border: 1rpx solid rgba(235, 244, 255, 0.40);
+  box-shadow: 0 24rpx 72rpx rgba(4, 12, 28, 0.28), inset 0 1rpx 2rpx rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(48rpx) saturate(1.25);
+  -webkit-backdrop-filter: blur(48rpx) saturate(1.25);
+  overflow: hidden;
+  animation: ws-pop-appear 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.ws-pop-scroll {
+  height: 100%;
+}
+
+.ws-pop-content {
+  padding: 16rpx 0;
+}
+
+.ws-pop-row {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+  height: 84rpx;
+  min-height: 44px;
+  padding: 0 48rpx;
+  box-sizing: border-box;
+}
+
+.ws-pop-row-pressed {
+  background: rgba(16, 19, 26, 0.06);
+}
+
+.ws-pop-ic {
+  width: 36rpx;
+  height: 36rpx;
+  flex-shrink: 0;
+}
+
+.ws-pop-label {
+  font-size: 32rpx;
+  color: #10131A;
+  min-width: 0;
+  flex: 1;
+  line-height: 1.3;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ws-pop-divider {
+  height: 1rpx;
+  margin: 12rpx 44rpx;
+  background: rgba(25, 49, 78, 0.12);
+}
+
+@keyframes ws-pop-appear {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-pop { animation: none; }
 }
