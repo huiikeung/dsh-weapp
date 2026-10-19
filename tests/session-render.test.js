@@ -72,7 +72,7 @@ test('completion does not reparse or resend historical Markdown', () => {
   const beforeBytes = Buffer.byteLength(JSON.stringify(f.page.data.rows));
   f.store.sessionState.running = false; f.store.sessionState.rows.at(-1).streaming = false; f.sync();
   const report = f.report();
-  assert.equal(report.parses, 0); assert.equal(report.scrolls, 1); assert.equal(report.measurements, 0);
+  assert.equal(report.parses, 0); assert.equal(report.scrolls, 1); assert.equal(report.measurements, 1); // Docked whale disappears at completion.
   assert.ok(report.bytes < beforeBytes / 20, JSON.stringify({ report, beforeBytes }));
   assert.ok(f.patches.every(patch => !Object.hasOwn(patch, 'rows')));
   assert.equal(f.page.data.running, false); assert.equal(f.page.data.rows.at(-1).text, '测试完成');
@@ -102,6 +102,27 @@ test('bottom scrolling coalesces callbacks and never updates an unloaded page', 
   f.page._unloaded = true; f.ticks.shift()(); assert.equal(f.patches.length, 1);
 });
 module.exports = { fixture };
+
+test('inactive trajectory skips projection and view updates but opens with latest source', () => {
+  const f = fixture();
+  const view = require('../miniprogram/utils/trajectory-presentation');
+  const original = view.listRow; let projections = 0;
+  view.listRow = row => { projections++; return original(row); };
+  try {
+    f.store.sessionState.trajectory = [{ kind: 'event', key: 'event-1', badge: 'USER', label: 'User', seq: 1, text: 'first' }];
+    f.sync();
+    assert.equal(projections, 0); assert.equal(f.page.data.trajectory.length, 0);
+    f.store.sessionState.trajectory = [{ kind: 'event', key: 'event-2', badge: 'USER', label: 'User', seq: 2, text: 'latest' }];
+    f.sync(); assert.equal(projections, 0);
+    f.page.data.tab = 'trajectory'; f.sync();
+    assert.equal(projections, 1); assert.equal(f.page.data.trajectory[0].key, 'event-2');
+    f.reset(); f.sync(); assert.equal(projections, 1);
+    assert.ok(f.patches.every(patch => !Object.keys(patch).some(key => key.startsWith('trajectory') || key.startsWith('traceOverview'))));
+    f.store.sessionState.sessionId = 'next-session';
+    f.store.sessionState.trajectory = []; f.sync();
+    assert.equal(f.page.data.trajectory.length, 0);
+  } finally { view.listRow = original; }
+});
 
 test('authoritative history rebuilds semantic rows and trajectory only once', () => {
   const real = require('../miniprogram/utils/protocol');

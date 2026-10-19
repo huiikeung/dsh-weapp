@@ -39,13 +39,14 @@ test('copy command preserves literal shell characters and line breaks', () => {
  assert.equal(copied,command);
 });
 
-test('command glyph stays visible at rest, including expanded completed steps', () => {
+test('command glyph changes to persistent arrow only while the step is expanded', () => {
  const template=fs.readFileSync(require.resolve('../miniprogram/pages/session/session.wxml'),'utf8');
  const css=fs.readFileSync(require.resolve('../miniprogram/pages/session/session.wxss'),'utf8');
  const head=template.slice(template.indexOf('<view class="disclosure-head tool"'),template.indexOf('<view wx:if="{{folds[tool.key] && tool.isCommand'));
  assert.match(head,/hover-class="tool-head-hover"/);
  assert.match(head,/hover-stay-time="200"/);
- const slot=head.slice(head.indexOf('class="command-icon-slot"'),head.indexOf('<image wx:else'));
+ const slot=head.slice(head.indexOf('class="command-icon-slot '),head.indexOf('<image wx:else'));
+ assert.ok(slot.includes("folds[tool.key] ? 'disclosed' : ''"));
  assert.match(slot,/class="event-glyph tool-glyph-small command-tool-icon"/);
  assert.match(slot,/theme === 'dark' \? tool.darkIconFile : tool.iconFile/);
  assert.match(slot,/class="command-chevron \{\{folds\[tool.key\] \? 'open' : ''\}\}"/);
@@ -53,10 +54,11 @@ test('command glyph stays visible at rest, including expanded completed steps', 
  assert.match(css,/\.command-tool-icon\s*\{\s*opacity:1;/);
  assert.match(css,/\.command-chevron\s*\{[^}]*opacity:0;/);
  assert.doesNotMatch(css.match(/\.command-chevron\.open\s*\{([^}]*)\}/)[1],/opacity|visibility|display/);
- for(const selector of ['.tool-head-hover', '.disclosure-head.tool:hover']) {
+ for(const selector of ['.command-icon-slot.disclosed']) {
    assert.ok(css.includes(selector+' .command-tool-icon { opacity:0; }'));
    assert.ok(css.includes(selector+' .command-chevron { opacity:.65; }'));
  }
+ assert.ok(!css.includes('.tool-head-hover .command-tool-icon'), 'touch feedback must not override expanded state');
  const { buildEntries }=require('../miniprogram/utils/conversation-workflow');
  const group=buildEntries([{kind:'assistant',key:'a',turnClosed:true,turnEndReason:'completed',tools:[{callId:'c',name:'bash',status:'done',argumentsText:'{"command":"echo ok"}'}]}])[0];
  assert.equal(group.completed,true);

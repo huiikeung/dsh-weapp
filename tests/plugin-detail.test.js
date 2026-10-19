@@ -51,3 +51,15 @@ test('failed icons fall back and disabled component switches cannot mutate state
   page.onEntryToggle({ detail: { value: false }, currentTarget: { dataset: { entry: 'entry-title' } } });
   assert.equal(calls.length, 0);
 });
+test('voice detail cold entry refreshes catalog without requiring the plugin list', () => {
+  const { page, store, calls } = fixture();
+  store.refreshPlugins = () => { calls.push('catalog'); store.state.pluginsLoading = true; };
+  store.state.pluginCatalog = null;
+  page.onShow(); page.onShow(); assert.deepEqual(calls, ['catalog']);
+  store.state.pluginsLoading = false;
+  store.state.pluginCatalog = { bundles: [] }; page.onShow();
+  assert.deepEqual(calls, ['catalog']);
+  const route = require('../miniprogram/utils/voice-preference').SETTINGS_URL;
+  const bundle = decodeURIComponent(route.split('bundle=')[1]);
+  assert.equal(require('../miniprogram/utils/plugin-settings').kindFor(null, bundle), 'voice');
+});

@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const preferences = require('../miniprogram/utils/ui-preferences');
 const root = path.resolve(__dirname, '..', 'miniprogram');
-const dictionary = { ...require('../miniprogram/i18n/trajectory'), ...require('../miniprogram/i18n/interface') };
+const dictionary = { ...require('../miniprogram/i18n/trajectory'), ...require('../miniprogram/i18n/interface'), ...require('../miniprogram/i18n/voice'), ...require('../miniprogram/i18n/files') };
 const han = /[\u3400-\u9fff]/;
 function setup(language = 'en') {
   const storage = { appLanguage: language };
@@ -58,6 +58,30 @@ test('native modal buttons follow app language, not WeChat language', () => {
     preferences.install(); wx.showModal({ title: '删除节点？', content: '用户内容：不要改动' });
     assert.equal(modal.title, 'Delete node?'); assert.equal(modal.confirmText, 'Confirm'); assert.equal(modal.cancelText, 'Cancel'); assert.equal(modal.content, '用户内容：不要改动');
     preferences.setLanguage('zh'); wx.showModal({ title: '删除节点？' }); assert.equal(modal.cancelText, '取消');
+  } finally { delete global.Page; delete global.wx; }
+});
+test('page load resolves locale once per tree and unchanged show sends no dictionary', () => {
+  const storage = setup('system'); let definition, reads = 0, systemReads = 0, callbacks = 0;
+  const patches = [];
+  wx.getStorageSync = key => { reads++; return storage[key]; };
+  wx.getAppBaseInfo = () => { systemReads++; return { language: 'zh_CN' }; };
+  global.Page = value => { definition = value; };
+  try {
+    preferences.install();
+    Page({ data: { choices: Array.from({ length: 500 }, () => ({ label: '未连接' })) }, onUiPreferencesChange() { callbacks++; } });
+    const page = { ...definition, data: { ...definition.data }, setData(patch) { patches.push(patch); Object.assign(this.data, patch); } };
+    reads = 0; systemReads = 0; page.onLoad();
+    assert.ok(reads < 20, 'Translation must not read storage for every label');
+    assert.ok(systemReads <= 2, 'Resolve the system language once per pass');
+    assert.equal(callbacks, 1); assert.ok(!patches.some(patch => 'ui' in patch));
+    patches.length = 0; page.onShow(); page.onShow();
+    assert.equal(patches.length, 0); assert.equal(callbacks, 1);
+    preferences.setFontSize(15); assert.equal(page.data.contentFontSize, 15);
+    assert.ok(!patches.some(patch => 'ui' in patch), 'Font changes must not resend the dictionary');
+    patches.length = 0; preferences.setLanguage('en');
+    assert.equal(patches.filter(patch => 'ui' in patch).length, 1);
+    assert.equal(page.data.ui['未连接'], 'Disconnected');
+    page.onUnload();
   } finally { delete global.Page; delete global.wx; }
 });
 test('plugin metadata, schedules and cached setting choices follow locale', () => {

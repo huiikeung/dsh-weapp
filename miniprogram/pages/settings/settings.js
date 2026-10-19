@@ -4,6 +4,7 @@ const workSteps = require('../../utils/work-step-presentation');
 const statusAppearance = require('../../utils/status-appearance');
 const store = require('../../utils/store');
 const notifyPref = require('../../utils/notify-pref');
+const voicePreference = require('../../utils/voice-preference');
 const theme = require('../../utils/theme');
 const accessApi = require('../../utils/access-api');
 const { getPublicAccessState } = require('../../utils/public-access-state');
@@ -76,18 +77,48 @@ Page({
     sharePayload: '',
     shareExpiresLabel: '',
     notifyEnabled: false,
+    voiceEnabled: false,
     accountBusy: false,
     isWechatAdmin: false,
     accountLabel: uiText('识别中…'),
     accountHint: uiText('自动识别当前微信身份，无需手动切换'),
     shareReason: '',
-    redeemAvailable: false
+    redeemAvailable: false,
+    codeSheet: false,
+    codeSheetExpanded: false,
+    codeSheetMaxH: 745,
+    codeSheetExpandedMaxH: 836,
+    codeSheetDefaultH: 717,
+    annSheet: false,
+    devAnnSheet: false,
+    devAnnLoading: false,
+    devAnnError: '',
+    devAnnItems: [],
+    annLoading: false,
+    annIsAdmin: false,
+    annError: '',
+    annItems: [],
+    annBusy: false,
+    annEditingId: '',
+    annRevision: null,
+    annTitle: '',
+    annContent: '',
+    codeLoading: false,
+    codeError: '',
+    codeIsAdmin: false,
+    codeBusy: false,
+    codeItems: [],
+    codeDurations: ['3 天', '7 天', '30 天', '半年', '1 年'],
+    codeDurationIndex: 2,
+    codeCounts: ['1 次', '5 次', '20 次'],
+    codeCountIndex: 0,
+    codeGenerated: '',
+    codeGeneratedMeta: '',
+    codeGeneratedId: ''
   },
 
   onLoad(options) {
     theme.applyTo(this);
-    this.setData(workSteps.view(workSteps.read()));
-    this.setData(statusAppearance.view(statusAppearance.read()));
     this.updateNavigationLayout();
     this.setData({
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
@@ -95,10 +126,9 @@ Page({
       ...clientVersion(wx)
     });
     this.unsubscribe = store.subscribe((snapshot) => {
-      this.syncFromStore(snapshot);
+      if (this._settingsVisible !== false) this.syncFromStore(snapshot);
     });
     this.syncFromStore({ app: store.state, session: store.sessionState });
-    store.refreshHostPresence();
     if (options && options.pair) {
       const result = store.pairWithPayload(options.pair);
       if (result.ok) {
@@ -107,9 +137,6 @@ Page({
       } else {
         wx.showModal({ title: uiText('分享链接无效'), content: result.error || uiText('请让所有者重新生成邀请。'), showCancel: false });
       }
-    }
-    if (store.state.connection === 'connected') {
-      store.client.requestHost();
     }
   },
 
@@ -127,9 +154,20 @@ Page({
     const statusBarHeight = Number.isFinite(info.statusBarHeight) && info.statusBarHeight >= 0
       ? info.statusBarHeight : 44;
     // nav 为 content-box：顶部留白只计算一次，内容中心与胶囊中心相同。
+    const navPadTop = validRect ? rect.top : statusBarHeight + 6;
+    const navHeight = validRect ? rect.height : 32;
+    const windowHeight = Number.isFinite(info.windowHeight) && info.windowHeight > 0 ? info.windowHeight : 667;
+    // 默认高度：顶边在胶囊下沿；展开高度：继续往上到顶部标题下方
+    const codeSheetMaxH = Math.max(260, Math.round(windowHeight - (navPadTop + navHeight) - 16));
+    const codeSheetExpandedMaxH = Math.max(codeSheetMaxH, Math.round(windowHeight - statusBarHeight - 8));
+    // 打开位置：略高于半屏
+    const codeSheetDefaultH = Math.max(codeSheetMaxH < 300 ? codeSheetMaxH : Math.round(windowHeight * 0.85), 420);
     this.setData({
-      navPadTop: validRect ? rect.top : statusBarHeight + 6,
-      navHeight: validRect ? rect.height : 32
+      navPadTop: navPadTop,
+      navHeight: navHeight,
+      codeSheetMaxH: codeSheetMaxH,
+      codeSheetExpandedMaxH: codeSheetExpandedMaxH,
+      codeSheetDefaultH: codeSheetDefaultH
     });
   },
 
@@ -184,13 +222,46 @@ Page({
   },
 
   onShow() {
-    this.onUiPreferencesChange();
-    this.setData(workSteps.view(workSteps.read()));
-    this.setData(statusAppearance.view(statusAppearance.read()));
-    return Promise.all([this.refreshWechatAccount(), this.refreshAppContent()]);
+    this._settingsVisible = true;
+    this.setData({ voiceEnabled: voicePreference.enabled(),
+      ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()),
+      appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())) });
+    this.syncFromStore({ app: store.state, session: store.sessionState });
+    this.cancelSettingsRefresh();
+    // Local settings render first; identity is freshly verified after the first paint.
+    return new Promise(resolve => {
+      this._settingsRefresh = { resolve };
+      this.scheduleSettingsRefresh();
+    });
+  },
+
+  onReady() {
+    this._settingsReady = true;
+    this.scheduleSettingsRefresh();
+  },
+
+  scheduleSettingsRefresh() {
+    if (!this._settingsReady || !this._settingsVisible || !this._settingsRefresh || this._settingsRefreshTimer) return;
+    const request = this._settingsRefresh;
+    this._settingsRefreshTimer = setTimeout(() => {
+      this._settingsRefreshTimer = null;
+      if (!this._settingsVisible || this._settingsRefresh !== request) return;
+      this._settingsRefresh = null;
+      store.refreshHostPresence();
+      if (store.state.connection === 'connected') store.client.requestHost();
+      Promise.all([this.refreshWechatAccount(), this.refreshAppContent()]).then(request.resolve, request.resolve);
+    }, 80);
+  },
+
+  cancelSettingsRefresh() {
+    clearTimeout(this._settingsRefreshTimer); this._settingsRefreshTimer = null;
+    if (this._settingsRefresh) this._settingsRefresh.resolve();
+    this._settingsRefresh = null;
   },
 
   onHide() {
+    this._settingsVisible = false;
+    this.cancelSettingsRefresh();
     this.setData({ preferenceMenu: '' });
     this.setData({ workStepMenu: '' });
     this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
@@ -203,6 +274,8 @@ Page({
   },
 
   onUnload() {
+    this._settingsVisible = false;
+    this.cancelSettingsRefresh();
     this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
     this._contentGeneration = (this._contentGeneration || 0) + 1;
     this._accountGeneration = (this._accountGeneration || 0) + 1;
@@ -210,6 +283,12 @@ Page({
   },
 
   // ---------- 实验性功能 ----------
+  toggleVoice(e) {
+    try { this.setData({ voiceEnabled: voicePreference.save(!!e.detail.value) }); }
+    catch (_) { this.setData({ voiceEnabled: voicePreference.enabled() }); wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' }); }
+  },
+
+  openVoiceSettings() { wx.navigateTo({ url: voicePreference.SETTINGS_URL }); },
 
   toggleNotify(e) {
     const enabled = !!e.detail.value;
@@ -402,8 +481,10 @@ Page({
   readLanguageLabel() { return preferences.snapshot().languageLabel; },
   readFontLabel() { return preferences.snapshot().fontSizeLabel; },
   onUiLocaleChange() { this.syncFromStore({ app: store.state }); },
-  onUiPreferencesChange() {
-    this.setData({ ...preferences.snapshot(), ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()),
+  onUiPreferencesChange(next) {
+    // The global Page wrapper already sent changed preferences. Never resend its dictionary.
+    const { ui, ...localPreferences } = next || preferences.snapshot();
+    this.setData({ ...localPreferences, ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()),
       workStepModes: workSteps.MODES.map(item => ({ ...item, label: uiText(item.label) })), workStepTimings: workSteps.TIMINGS.map(item => ({ ...item, label: uiText(item.label) })), statusStyleChoices: statusAppearance.choices(), appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       languageOptions: [{ id: 'system', label: preferences.t('跟随系统') }, { id: 'zh', label: '简体中文' }, { id: 'en', label: 'English' }] });
   },
@@ -468,14 +549,310 @@ Page({
     }).finally(() => { if (generation === this._accountGeneration) this.setData({ accountBusy: false }); });
   },
 
+  // ---------- 兑换码管理（弹窗，对齐设置页其它弹窗样式） ----------
+
   openCodeManagement() {
-    if (!this.data.isWechatAdmin || this.data.accountBusy) return;
-    wx.navigateTo({ url: '/pages/redeem-admin/redeem-admin' });
+    if (this.data.accountBusy) return;   /* 弹窗内部会再次校验管理员 */
+    this.setData({
+      codeSheet: true,
+      codeSheetExpanded: false,
+      codeLoading: true,
+      codeError: '',
+      codeIsAdmin: false,
+      codeItems: [],
+      codeGenerated: '',
+      codeGeneratedMeta: '',
+      codeGeneratedId: '',
+      codeBusy: false
+    });
+    this.loadCodes();
   },
 
-  openAnnouncements() { wx.navigateTo({ url: '/pages/announcements/announcements' }); },
+  codeGrabStart(e) {
+    this._codeGrab = {
+      y: e.touches[0].clientY,
+      moved: false,
+      base: this.data.codeSheetExpanded,
+      applied: null
+    };
+  },
+
+  codeGrabMove(e) {
+    const g = this._codeGrab;
+    if (!g) return;
+    const dy = e.touches[0].clientY - g.y;
+    if (Math.abs(dy) < 20) return;
+    const expand = dy < 0;
+    if (g.applied !== expand) {
+      g.applied = expand;
+      g.moved = true;
+      this.setData({ codeSheetExpanded: expand });
+    }
+  },
+
+  codeGrabEnd() {
+    const g = this._codeGrab;
+    this._codeGrab = null;
+    if (g && !g.moved) this.setData({ codeSheetExpanded: !g.base });
+  },
+
+  closeCodeManagement() {
+    this._codeGen = (this._codeGen || 0) + 1;
+    this.setData({ codeSheet: false, codeLoading: false, codeBusy: false, codeError: '' });
+  },
+
+  loadCodes() {
+    const generation = this._codeGen = (this._codeGen || 0) + 1;
+    this.setData({ codeLoading: true, codeError: '' });
+    accessApi.ensureAccount({ freshLogin: true })
+      .then((account) => {
+        if (generation !== this._codeGen) return null;
+        if (!account || account.isAdmin !== true) {
+          this.setData({ codeLoading: false, codeIsAdmin: false, codeError: uiText('当前微信不是管理员，不能生成或管理兑换码。') });
+          return null;
+        }
+        return accessApi.codes().then((items) => {
+          if (generation !== this._codeGen) return;
+          this.setData({ codeLoading: false, codeIsAdmin: true, codeItems: this.formatCodes(items) });
+        });
+      })
+      .catch((err) => {
+        if (generation === this._codeGen) this.setData({ codeLoading: false, codeIsAdmin: false, codeError: err.message || uiText('加载失败，请重试') });
+      });
+  },
+
+  formatCodes(items) {
+    const pad = (n) => (n < 10 ? '0' + n : '' + n);
+    return (items || []).map((item) => {
+      const d = new Date(item.expiresAt);
+      const expiry = d.getFullYear() + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate());
+      const statusLabel = item.revokedAt ? uiText('已停用')
+        : item.expiresAt <= Date.now() ? uiText('已过期')
+        : item.used >= item.uses ? uiText('已用完') : uiText('可兑换');
+      return Object.assign({}, item, {
+        title: item.days + uiText(' 天 · ') + item.uses + uiText(' 次'),
+        usageLabel: uiText('已用 ') + item.used + ' / ' + item.uses + uiText(' 次'),
+        expiryLabel: expiry,
+        statusLabel: statusLabel,
+        canRevoke: !item.revokedAt && item.expiresAt > Date.now() && item.used < item.uses
+      });
+    });
+  },
+
+  codePickDuration(e) {
+    if (!this.data.codeBusy) this.setData({ codeDurationIndex: Number(e.detail.value) });
+  },
+
+  codePickCount(e) {
+    if (!this.data.codeBusy) this.setData({ codeCountIndex: Number(e.detail.value) });
+  },
+
+  codeGenerate() {
+    if (this.data.codeBusy || !this.data.codeIsAdmin) return;
+    const DAYS = [3, 7, 30, 180, 365];
+    const USES = [1, 5, 20];
+    const days = DAYS[this.data.codeDurationIndex];
+    const uses = USES[this.data.codeCountIndex];
+    if (!days || !uses) return;
+    const generation = this._codeGen;
+    this.setData({ codeBusy: true, codeError: '', codeGenerated: '', codeGeneratedMeta: '', codeGeneratedId: '' });
+    accessApi.createCode(null, days, uses)
+      .then((result) => {
+        if (generation !== this._codeGen) return;
+        this.setData({
+          codeBusy: false,
+          codeGenerated: result.code || '',
+          codeGeneratedId: result.id || '',
+          codeGeneratedMeta: days + uiText(' 天 · ') + uses + uiText(' 次')
+        });
+        this.loadCodes();
+      })
+      .catch((err) => {
+        if (generation === this._codeGen) this.setData({ codeBusy: false, codeError: err.message || uiText('生成失败，请重试') });
+      });
+  },
+
+  codeCopyGenerated() {
+    const code = this.data.codeGenerated;
+    if (!code) return;
+    wx.setClipboardData({ data: code, success: () => wx.showToast({ title: uiText('已复制'), icon: 'success' }) });
+  },
+
+  codeCopyItem(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id || this.data.codeBusy) return;
+    this.setData({ codeBusy: true });
+    accessApi.copyCode(id)
+      .then((result) => {
+        this.setData({ codeBusy: false });
+        wx.setClipboardData({ data: result.code || '', success: () => wx.showToast({ title: uiText('已复制'), icon: 'success' }) });
+      })
+      .catch((err) => this.setData({ codeBusy: false, codeError: err.message || uiText('复制失败') }));
+  },
+
+  codeRevokeItem(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id || this.data.codeBusy) return;
+    this.setData({ codeBusy: true });
+    accessApi.revokeCode(id)
+      .then(() => { this.setData({ codeBusy: false }); this.loadCodes(); })
+      .catch((err) => this.setData({ codeBusy: false, codeError: err.message || uiText('停用失败') }));
+  },
+
+  codeDeleteItem(e) {
+    const id = e.currentTarget.dataset.id;
+    if (!id || this.data.codeBusy) return;
+    this.setData({ codeBusy: true });
+    accessApi.deleteCode(id)
+      .then(() => { this.setData({ codeBusy: false, codeGenerated: '', codeGeneratedId: '' }); this.loadCodes(); })
+      .catch((err) => this.setData({ codeBusy: false, codeError: err.message || uiText('删除失败') }));
+  },
+
+  openAnnouncements() {
+    this.setData({ devAnnSheet: true, devAnnLoading: true, devAnnError: '', devAnnItems: [] });
+    this.loadDevAnnouncements();
+  },
+
+  closeDevAnnouncements() {
+    this._devAnnGen = (this._devAnnGen || 0) + 1;
+    this.setData({ devAnnSheet: false, devAnnLoading: false, devAnnError: '' });
+  },
+
+  loadDevAnnouncements() {
+    const generation = this._devAnnGen = (this._devAnnGen || 0) + 1;
+    this.setData({ devAnnLoading: true, devAnnError: '' });
+    accessApi.appContent()
+      .then((value) => {
+        if (generation !== this._devAnnGen) return;
+        const opened = {};
+        (this.data.devAnnItems || []).forEach((item) => { if (item.expanded) opened[item.id] = true; });
+        this.setData({
+          devAnnLoading: false,
+          devAnnItems: ((value && value.items) || []).map((item) => Object.assign({}, item, { expanded: !!opened[item.id] }))
+        });
+      })
+      .catch((err) => {
+        if (generation === this._devAnnGen) this.setData({ devAnnLoading: false, devAnnError: err.message || uiText('公告暂时加载失败，请重试') });
+      });
+  },
+
+  toggleDevAnnouncement(e) {
+    const id = e.currentTarget.dataset.id;
+    this.setData({
+      devAnnItems: (this.data.devAnnItems || []).map((item) => (
+        item.id === id ? Object.assign({}, item, { expanded: !item.expanded }) : item
+      ))
+    });
+  },
+  // ---------- 发布公告（弹窗） ----------
+
   openAnnouncementManagement() {
-    if (this.data.isWechatAdmin && !this.data.accountBusy) wx.navigateTo({ url: '/pages/announcement-admin/announcement-admin' });
+    if (!this.data.isWechatAdmin || this.data.accountBusy) return;
+    this.setData({
+      annSheet: true,
+      annLoading: true,
+      annIsAdmin: false,
+      annError: '',
+      annItems: [],
+      annBusy: false,
+      annEditingId: '',
+      annRevision: null,
+      annTitle: '',
+      annContent: ''
+    });
+    this.loadAnnouncements();
+  },
+
+  closeAnnouncementSheet() {
+    this._annGen = (this._annGen || 0) + 1;
+    this.setData({ annSheet: false, annBusy: false, annError: '' });
+  },
+
+  loadAnnouncements() {
+    const generation = this._annGen = (this._annGen || 0) + 1;
+    this.setData({ annLoading: true, annError: '' });
+    accessApi.ensureAccount({ freshLogin: true })
+      .then((account) => {
+        if (generation !== this._annGen) return null;
+        if (!account || account.isAdmin !== true) {
+          this.setData({ annLoading: false, annIsAdmin: false, annError: uiText('当前微信没有管理员权限') });
+          return null;
+        }
+        return accessApi.announcements().then((result) => {
+          if (generation !== this._annGen) return;
+          this.setData({ annLoading: false, annIsAdmin: true, annItems: (result && result.items) || [] });
+        });
+      })
+      .catch((err) => {
+        if (generation === this._annGen) this.setData({ annLoading: false, annIsAdmin: false, annError: err.message || uiText('加载失败') });
+      });
+  },
+
+  annInputTitle(e) { this.setData({ annTitle: e.detail.value }); },
+  annInputContent(e) { this.setData({ annContent: e.detail.value }); },
+
+  annEdit(e) {
+    const id = e.currentTarget.dataset.id;
+    const item = (this.data.annItems || []).find((entry) => entry.id === id);
+    if (!item || this.data.annBusy) return;
+    this.setData({ annEditingId: item.id, annRevision: item.revision, annTitle: item.title, annContent: item.content, annError: '' });
+  },
+
+  annClearEditor() {
+    this.setData({ annEditingId: '', annRevision: null, annTitle: '', annContent: '' });
+  },
+
+  annSave() {
+    if (this.data.annBusy || this.data.annLoading || !this.data.annIsAdmin) return;
+    const title = String(this.data.annTitle || '').trim();
+    const content = String(this.data.annContent || '').trim();
+    if (!title || !content) {
+      this.setData({ annError: uiText('请填写标题和正文') });
+      return;
+    }
+    const input = { title, content };
+    if (this.data.annEditingId) {
+      input.id = this.data.annEditingId;
+      input.revision = this.data.annRevision;
+    }
+    this.annMutate(() => accessApi.saveAnnouncement(input), uiText('公告已发布'), true);
+  },
+
+  annRemove(e) {
+    const id = e.currentTarget.dataset.id;
+    const item = (this.data.annItems || []).find((entry) => entry.id === id);
+    if (!item || this.data.annBusy) return;
+    wx.showModal({
+      title: uiText('删除公告？'),
+      content: '「' + item.title + uiText('」将从所有用户的公告列表移除。'),
+      success: (res) => {
+        if (!res.confirm) return;
+        this.annMutate(() => accessApi.deleteAnnouncement(item.id, item.revision), uiText('公告已删除'), this.data.annEditingId === item.id);
+      }
+    });
+  },
+
+  annMutate(action, message, clearEditor) {
+    if (this.data.annBusy || !this.data.annIsAdmin) return;
+    const generation = this._annGen;
+    this.setData({ annBusy: true, annError: '' });
+    let saved = false;
+    action()
+      .then(() => {
+        saved = true;
+        if (generation !== this._annGen) return;
+        if (clearEditor) this.annClearEditor();
+        wx.showToast({ title: message, icon: 'success' });
+      })
+      .catch((err) => {
+        if (generation !== this._annGen) return;
+        this.setData({ annError: err.message || uiText('操作失败，请稍后重试') });
+      })
+      .finally(() => {
+        if (generation !== this._annGen) return;
+        this.setData({ annBusy: false });
+        if (saved) this.loadAnnouncements();
+      });
   },
   onContactError() {
     wx.showModal({ title: uiText('客服暂未接通'), content: uiText('请稍后重试。管理员需在微信公众平台启用小程序客服并添加客服人员。请勿发送密码、配对令牌或模型密钥。'), showCancel: false });

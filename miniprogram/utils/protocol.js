@@ -4,6 +4,7 @@ const { t: uiText } = require('./ui-preferences');
 // assistant/message、tool/call、tool/result 等事件的字段提取规则一致。
 
 const { jsonDisplayText, oneLine, eventDateMs } = require('./util');
+const { mutationPath } = require('./workspace-changes');
 
 // ---------- 事件归一化 ----------
 
@@ -136,6 +137,20 @@ function normalizeRawEvent(raw, sessionId) {
       event = { type: type, turn: turn, step: step };
       break;
     }
+    case 'workspace/changes': {
+      event = { type, turn, valid: Number.isSafeInteger(turn) && turn > 0 && Number.isSafeInteger(raw.seq) && raw.seq >= 0 };
+      break;
+    }
+    case 'deliverables/presented': {
+      // Only durable declarations create cards; preparing a `present` call does not.
+      const valid = Number.isSafeInteger(turn) && turn > 0 && typeof data.callId === 'string' && data.callId.length > 0;
+      event = { type, turn, files: valid && Array.isArray(data.files) ? data.files.map((file, index) => {
+        if (!file || typeof file.path !== 'string' || !file.path.trim() ||
+          (file.description !== undefined && typeof file.description !== 'string')) return null;
+        return { path: file.path, description: file.description || '', seq: raw.seq, index, sessionId };
+      }).filter(Boolean) : [] };
+      break;
+    }
     case 'status':
     case 'command/started':
     case 'command/completed':
@@ -176,6 +191,7 @@ function normalizeRawEvent(raw, sessionId) {
         step: step,
         callId: data.callId || (data.message && (data.message.toolCallId || data.message.source && data.message.source.callId)),
         isError: isError,
+        appendOrigin: raw.surfaceOp === undefined || raw.surfaceOp === 'append',
         preview: typeof data.preview === 'string' ? data.preview : toolResultText(data.message)
       };
       break;
@@ -369,6 +385,26 @@ function applyEvent(agg, normalized) {
   const sessionId = normalized.sessionId;
   const seq = normalized.seq;
   switch (event.type) {
+    case 'workspace/changes': {
+      if (!event.valid) return false;
+      let row = agg.rows.find(item => item.kind === 'changes' && item.turn === event.turn && item.sessionId === sessionId);
+      if (!row) row = pushRow(agg, { kind: 'changes', key: 'changes-' + seq, sessionId, turn: event.turn, seq, files: [] });
+      if (row.changeSeq === undefined || seq > row.changeSeq) row.changeSeq = seq;
+      return true;
+    }
+    case 'deliverables/presented': {
+      if (!event.files.length) return false;
+      let row = agg.rows.find(item => item.kind === 'files' && item.turn === event.turn && item.sessionId === sessionId);
+      if (!row) row = pushRow(agg, { kind: 'files', key: 'files-' + seq, sessionId, turn: event.turn, seq, files: [] });
+      event.files.forEach(file => {
+        const index = row.files.findIndex(item => item.path === file.path);
+        if (index >= 0 && row.files[index].seq > file.seq) return;
+        const key = index >= 0 ? row.files[index].key : 'file-' + seq + '-' + file.index;
+        const next = Object.assign({}, file, { key });
+        if (index >= 0) row.files[index] = next; else row.files.push(next);
+      });
+      return true;
+    }
     case 'user/message': {
       agg.currentAssistant = null;
       // 对齐 dsh-mobile ConversationProjection：只有 source 为空或 'user' 的才是用户消息，
@@ -501,6 +537,7 @@ function applyEvent(agg, normalized) {
       const tool = toolRowForCall(agg, assistant, event.callId, event.name);
       tool.phase = 'start';
       tool.argumentsText = jsonDisplayText(event.arguments, true) || tool.argumentsText;
+      tool.mutationPath = mutationPath(event.name, event.arguments);
       journalTool(assistant, event.callId || null);
       return true;
     }
@@ -518,6 +555,13 @@ function applyEvent(agg, normalized) {
       tool.title = tool.isError ? TITLES.toolFailed : TITLES.toolDone;
       tool.resultText = event.preview || '';
       journalTool(assistant, event.callId || null);
+      if (!tool.isError && event.appendOrigin && tool.mutationPath && Number.isSafeInteger(event.turn) && event.turn > 0) {
+        let row = agg.rows.find(item => item.kind === 'changes' && item.turn === event.turn && item.sessionId === sessionId);
+        if (!row) row = pushRow(agg, { kind: 'changes', key: 'changes-' + seq, sessionId, turn: event.turn, seq, files: [] });
+        if (!row.files.some(file => file.path === tool.mutationPath)) row.files.push({
+          path: tool.mutationPath, key: 'changed-' + seq, sessionId, seq
+        });
+      }
       return true;
     }
     case 'turn/start':

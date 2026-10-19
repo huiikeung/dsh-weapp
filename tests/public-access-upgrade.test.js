@@ -54,6 +54,17 @@ test('plugin connector installer preserves identity, makes one backup and refuse
   fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'unrelated-plugin' }));
   assert.throws(() => install(dir), /未修改/);
 });
+test('connector-only upgrade preserves independently patched gateway code and UI', t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-connector-only-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  fs.mkdirSync(path.join(dir, 'relay')); fs.mkdirSync(path.join(dir, 'lib'));
+  fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'dsh-plugin-weapp-gateway' }));
+  fs.writeFileSync(path.join(dir, 'relay/agent-connector.js'), '// dsh-weapp-e2ee-v1 MGMT_URL old');
+  for (const file of ['client.js', 'index.mjs', 'relay-connector.mjs']) fs.writeFileSync(path.join(dir, 'lib', file), 'preserve-custom-patches');
+  install(dir, { connectorOnly: true });
+  for (const file of ['client.js', 'index.mjs', 'relay-connector.mjs']) assert.equal(fs.readFileSync(path.join(dir, 'lib', file), 'utf8'), 'preserve-custom-patches');
+  assert.equal(fs.readFileSync(path.join(dir, 'relay/agent-connector.js'), 'utf8'), fs.readFileSync(path.join(root, 'relay/agent-connector.js'), 'utf8'));
+});
 function upgradeFixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-deploy-upgrade-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));

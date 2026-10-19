@@ -35,7 +35,7 @@ test('all step disclosures share touch feedback with no trailing arrows', () => 
   const process = xml.slice(xml.indexOf('<!-- dsh-mobile ConversationProcessGroup'), xml.indexOf('<!-- 助手消息'));
   assert.doesNotMatch(process, /class="event-chevron|class="process-chevron/);
   assert.match(process, /item.completed \? 'completed-chevron' : ''/);
-  assert.match(process, /wx:if="\{\{tool.phase !== 'preparing'\}\}" class="command-icon-slot"/);
+  assert.match(process, /wx:if="\{\{tool.phase !== 'preparing'\}\}" class="command-icon-slot \{\{folds\[tool.key\]/);
   const heads = [...process.matchAll(/<view[^>]*class="(?:process-head|disclosure-head[^"]*)"[^>]*>/g)];
   assert.equal(heads.length, 4);
   heads.forEach(([head]) => {

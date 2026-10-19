@@ -38,7 +38,8 @@ test('session settings retain model and permission APIs, file navigation and pri
     defaults: { agentPresetDefault: 'code', permissionDefault: 'read-only' }, defaultModel: {model: 'fixture-model'}, host: {version: '1.0'},
     agentPresets: {presets: [{id:'code', name:'编程'}]}, modelCatalog: {groups:[{id:'fixture',name:'测试',models:[{id:'next',name:'模型'}]}]} };
   const store = { state, subscribe(fn) { subscriber = fn; return () => calls.push(['unsubscribe']); },
-    client: { requestHost() {calls.push(['host']);}, setDefault: async (...args) => calls.push(args), saveDefaultModel: async (...args) => calls.push(args) } };
+    client: { requestHost() {calls.push(['host']);}, setDefault: async (...args) => calls.push(args), saveDefaultModel: async (...args) => calls.push(args),
+      requestFileList: async () => ({ entries: [{ name: 'README.md', path: 'README.md', kind: 'file', bytes: 10 }] }) } };
   const wx = { showActionSheet(o) { wx.sheet = o; }, showModal() { throw Error('Must use bottom sheet'); }, showToast() {}, navigateTo(o) {calls.push(['navigate',o.url]);} };
   vm.runInNewContext(read('pages/session-settings/session-settings.js'), {Page: d=>{definition=d;},wx,require: name=>{
     if(name.endsWith('/ui-preferences'))return require('../miniprogram/utils/ui-preferences');
@@ -59,10 +60,22 @@ test('session settings retain model and permission APIs, file navigation and pri
   wx.reLaunch = o => calls.push(['relaunch',o.url]);
   page.goBack(); assert.deepEqual(calls.at(-1),['back']);
   wx.backOptions.fail(); assert.deepEqual(calls.at(-1),['relaunch','/pages/home/home']);
-  page.pickAgentPreset(); wx.sheet.success({tapIndex:0}); assert.deepEqual(calls.at(-1),['agent-preset','code']);
-  page.pickDefaultPermission(); wx.sheet.success({tapIndex:1}); assert.deepEqual(calls.at(-1),['permission','workspace-write']);
-  page.pickDefaultModel(); wx.sheet.success({tapIndex:0}); assert.deepEqual(calls.at(-1),['fixture','next',undefined]);
-  page.openFiles(); assert.deepEqual(calls.at(-1),['navigate','/pages/files/files']);
+  // 预设/权限/模型改为自绘底部弹窗（非系统 ActionSheet）
+  page.pickAgentPreset(); assert.equal(page.data.picker,'preset');
+  const presetIndex = page.data.pickerOptions.findIndex(o => o.id === 'code');
+  page.choosePicker({ currentTarget: { dataset: { index: presetIndex } } });
+  assert.deepEqual(calls.filter(c => c[0] === 'agent-preset').at(-1),['agent-preset','code']);
+  page.pickDefaultPermission(); assert.equal(page.data.picker,'permission');
+  const permissionIndex = page.data.pickerOptions.findIndex(o => o.id === 'workspace-write');
+  page.choosePicker({ currentTarget: { dataset: { index: permissionIndex } } });
+  assert.deepEqual(calls.filter(c => c[0] === 'permission').at(-1),['permission','workspace-write']);
+  page.pickDefaultModel(); assert.equal(page.data.picker,'model');
+  const modelIndex = page.data.pickerOptions.findIndex(o => !o.header && o.model === 'next');
+  page.choosePicker({ currentTarget: { dataset: { index: modelIndex } } });
+  assert.deepEqual(calls.at(-1),['fixture','next','']);
+  // 工作区文件改为弹窗浏览，不再跳转页面
+  page.openFiles(); assert.equal(page.data.filesSheet,true);
+  assert.equal(calls.filter(c => c[0] === 'navigate').length,0);
   page.showDiagnostics(); assert.equal(page.data.utilitySheet,'diagnostics'); assert.equal(page.data.diagnostics[1].label,'公网标识'); assert.equal(page.data.diagnostics[1].value,'public-id'); assert.doesNotMatch(JSON.stringify(page.data.diagnostics),/hidden.example/);
   subscriber({app:{...state,defaultModel:{model:'changed'}}}); assert.equal(page.data.modelLabel,'changed');
   assert.equal(page.data.hostInfo.model, 'changed');

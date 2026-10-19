@@ -85,14 +85,6 @@
 
 .drawer-brand-text {
   color: var(--ink);
-  font-family: 'Avenir Next', 'Montserrat', 'Futura', 'Helvetica Neue', -apple-system, sans-serif;
-  font-size: 42rpx;
-  font-weight: 500;
-  letter-spacing: -0.6rpx;
-  margin-right: 0;
-  padding-right: 46rpx;
-  transform: scaleX(1.22);
-  transform-origin: left center;
 }
 
 .drawer-brand-badge {
@@ -221,14 +213,6 @@
 
 .brand-text {
   color: #FFFFFF;
-  font-family: 'Avenir Next', 'Montserrat', 'Futura', 'Helvetica Neue', -apple-system, sans-serif;
-  font-size: 42rpx;
-  font-weight: 500;
-  letter-spacing: -0.6rpx;
-  margin-right: 0;
-  padding-right: 46rpx;        /* 恰好补上 22% 横向拉伸的溢出，白块不会被覆盖 */
-  transform: scaleX(1.22);     /* 字形更扁 */
-  transform-origin: left center;
 }
 
 .brand-badge {
@@ -442,7 +426,7 @@
 .workspace-card {
   display: flex;
   align-items: center;
-  padding: 32rpx;
+  padding: 24rpx 28rpx;   /* 高度减小一点 */
   margin-bottom: 36rpx;
   border-radius: 36rpx;
   /* 与「新建会话」同一套 Liquid Glass：高光渐变 + 发丝亮边 + 内高光 */
@@ -498,8 +482,8 @@
   align-items: center;
   justify-content: center;
   border: 1rpx solid rgba(255, 255, 255, 0.38);
-  border-radius: 36rpx;
-  padding: 34rpx 0;
+  border-radius: 32rpx;
+  padding: 18rpx 0;      /* 卡片高度减小 */
   margin-bottom: 36rpx;
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
   backdrop-filter: blur(3rpx);
@@ -514,8 +498,8 @@
 }
 
 .plus-circle {
-  width: 56rpx;
-  height: 56rpx;
+  width: 48rpx;
+  height: 48rpx;
   border-radius: 50%;
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
   border: 1rpx solid rgba(255, 255, 255, 0.20);
@@ -524,13 +508,13 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 40rpx;
+  font-size: 34rpx;
   margin-right: 22rpx;
 }
 
 .new-session-text {
   color: #FFFFFF;
-  font-size: 34rpx;      /* iOS headline 17pt */
+  font-size: 30rpx;      /* iOS headline 17pt */
   font-weight: 600;
 }
 
@@ -1090,8 +1074,11 @@
 }
 
 .picker-sheet-close {
-  color: rgba(255, 255, 255, 0.60);
-  font-size: 28rpx;
+  color: #FF7178;
+  font-size: 32rpx;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .picker-list {
@@ -1745,4 +1732,27 @@
 
 @media (prefers-reduced-motion: reduce) {
   .ws-pop { animation: none; }
+}
+
+/* 抽屉文字：不依赖 --ink（系统深色 + 应用浅色时 --ink 会被翻转，导致白底白字） */
+.drawer .drawer-item-text,
+.drawer .drawer-brand-text {
+  color: #10131A;
+}
+
+.drawer.drawer-dark .drawer-item-text,
+.drawer.drawer-dark .drawer-brand-text {
+  color: #F1F4FA;
+}
+
+/* 品牌字：首页与左侧栏共用同一套排版（大小/粗细/字距/横向拉伸完全一致） */
+.brand-wordmark {
+  font-family: 'Avenir Next', 'Montserrat', 'Futura', 'Helvetica Neue', -apple-system, sans-serif;
+  font-size: 42rpx;
+  font-weight: 500;
+  letter-spacing: -0.6rpx;
+  margin-right: 0;
+  padding-right: 46rpx;
+  transform: scaleX(1.22);
+  transform-origin: left center;
 }

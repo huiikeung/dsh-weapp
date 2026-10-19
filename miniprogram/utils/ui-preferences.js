@@ -1,6 +1,8 @@
 const trajectory = require('../i18n/trajectory');
 const common = require('../i18n/interface');
-const dictionary = { ...trajectory, ...common };
+const voice = require('../i18n/voice');
+const files = require('../i18n/files');
+const dictionary = { ...trajectory, ...common, ...voice, ...files };
 const reverse = {};
 Object.keys(dictionary).forEach(zh => { if (/[a-z]/i.test(dictionary[zh])) reverse[dictionary[zh]] = zh; });
 const listeners = new Set();
@@ -11,17 +13,18 @@ const SIZE_KEYS = { text: 'appFontSize', code: 'appCodeFontSize', terminal: 'app
 const FAMILY_KEYS = { text: 'appTextFontFamily', code: 'appCodeFontFamily', terminal: 'appTerminalFontFamily' };
 function read(key) { try { return wx.getStorageSync(key); } catch (_) { return undefined; } }
 function language() { const v = read('appLanguage'); return ['zh', 'zh-Hans', 'en'].includes(v) ? v === 'zh-Hans' ? 'zh' : v : 'system'; }
-function locale() {
-  if (language() !== 'system') return language();
+function locale(selected = language()) {
+  if (selected !== 'system') return selected;
   try { const info = typeof wx.getAppBaseInfo === 'function' ? wx.getAppBaseInfo() : wx.getSystemInfoSync(); return /^en/i.test(info.language || '') ? 'en' : 'zh'; } catch (_) { return 'zh'; }
 }
 // Only translate interface copy, never messages, tool output or user names.
-function t(text, values) {
+function translate(text, values, activeLocale) {
   const zh = Object.prototype.hasOwnProperty.call(dictionary, text) ? text : reverse[text] || text;
-  let result = locale() === 'en' ? Object.prototype.hasOwnProperty.call(dictionary, zh) ? dictionary[zh] : text : zh;
+  let result = activeLocale === 'en' ? Object.prototype.hasOwnProperty.call(dictionary, zh) ? dictionary[zh] : text : zh;
   if (values) Object.keys(values).forEach(key => { result = result.split('{' + key + '}').join(String(values[key])); });
   return result;
 }
+function t(text, values) { return translate(text, values, locale()); }
 function fontSize(role = 'text') {
   const spec = FONTS[role]; if (!spec) throw Error('Invalid font role');
   const value = read(SIZE_KEYS[role]);
@@ -39,18 +42,25 @@ function fontFamily(role) {
   if (!FAMILY_KEYS[role]) throw Error('Invalid font role');
   try { return normalizeFontFamily(read(FAMILY_KEYS[role]) || ''); } catch (_) { return ''; }
 }
-function familyCss(role) {
-  const names = fontFamily(role).split(', ').filter(Boolean).map(name => ['serif', 'sans-serif', 'monospace', 'system-ui'].includes(name) ? name : '"' + name + '"');
+function familyCss(role, family = fontFamily(role)) {
+  const names = family.split(', ').filter(Boolean).map(name => ['serif', 'sans-serif', 'monospace', 'system-ui'].includes(name) ? name : '"' + name + '"');
   return names.concat(role === 'text' ? ['-apple-system', 'BlinkMacSystemFont', 'sans-serif'] : ['Menlo', 'Consolas', 'monospace']).join(',');
 }
+const uiByLocale = {};
 function snapshot() {
-  const ui = {}, activeLocale = locale(); Object.keys(dictionary).forEach(key => { ui[key] = activeLocale === 'en' ? dictionary[key] : key; });
-  Object.keys(reverse).forEach(key => { if (!Object.prototype.hasOwnProperty.call(ui, key)) ui[key] = activeLocale === 'en' ? key : reverse[key]; });
-  const size = fontSize();
+  const selected = language(), activeLocale = locale(selected);
+  if (!uiByLocale[activeLocale]) {
+    const ui = {};
+    Object.keys(dictionary).forEach(key => { ui[key] = activeLocale === 'en' ? dictionary[key] : key; });
+    Object.keys(reverse).forEach(key => { if (!Object.prototype.hasOwnProperty.call(ui, key)) ui[key] = activeLocale === 'en' ? key : reverse[key]; });
+    uiByLocale[activeLocale] = ui;
+  }
+  const ui = uiByLocale[activeLocale];
   const fontSizes = {}, fontFamilies = {};
   Object.keys(FONTS).forEach(role => { fontSizes[role] = fontSize(role); fontFamilies[role] = fontFamily(role); });
-  const style = '--dsh-content-font-size:' + size + 'px;' + Object.keys(FONTS).map(role => '--dsh-' + role + '-font-size:' + fontSizes[role] + 'px;--dsh-font-family-' + role + ':' + familyCss(role) + ';').join('');
-  return { ui, uiLocale: locale(), language: language(), languageLabel: language() === 'system' ? t('跟随系统') : language() === 'en' ? 'English' : '简体中文',
+  const size = fontSizes.text;
+  const style = '--dsh-content-font-size:' + size + 'px;' + Object.keys(FONTS).map(role => '--dsh-' + role + '-font-size:' + fontSizes[role] + 'px;--dsh-font-family-' + role + ':' + familyCss(role, fontFamilies[role]) + ';').join('');
+  return { ui, uiLocale: activeLocale, language: selected, languageLabel: selected === 'system' ? translate('跟随系统', null, activeLocale) : selected === 'en' ? 'English' : '简体中文',
     fontSizes, fontFamilies, contentFontSize: size, fontSizeLabel: size + ' px', contentFontStyle: style };
 }
 function notify() { listeners.forEach(fn => { try { fn(); } catch (_) { /* A closed page must not block other listeners. */ } }); }
@@ -88,11 +98,11 @@ function nativeCopy() {
 function setLanguage(v) { if (!['system', 'zh', 'en'].includes(v)) throw Error('Invalid language'); wx.setStorageSync('appLanguage', v); notify(); }
 function setFontSize(v, role = 'text') { const spec = FONTS[role]; if (!spec || !Number.isInteger(v) || v < spec.min || v > spec.max) throw Error('Invalid font size'); wx.setStorageSync(SIZE_KEYS[role], v); notify(); }
 function setFontFamily(role, value) { if (!FAMILY_KEYS[role]) throw Error('Invalid font role'); wx.setStorageSync(FAMILY_KEYS[role], normalizeFontFamily(value)); notify(); }
-function initialCopy(value) {
-  if (typeof value === 'string') return t(value);
-  if (Array.isArray(value)) return value.map(initialCopy);
+function initialCopy(value, activeLocale) {
+  if (typeof value === 'string') return translate(value, null, activeLocale);
+  if (Array.isArray(value)) return value.map(item => initialCopy(item, activeLocale));
   if (!value || typeof value !== 'object') return value;
-  const result = {}; Object.keys(value).forEach(key => { result[key] = initialCopy(value[key]); }); return result;
+  const result = {}; Object.keys(value).forEach(key => { result[key] = initialCopy(value[key], activeLocale); }); return result;
 }
 function install() {
   nativeCopy();
@@ -100,15 +110,24 @@ function install() {
   Page = function (options) {
     const load = options.onLoad, show = options.onShow, unload = options.onUnload;
     const initialData = options.data || {};
-    options.data = { ...snapshot(), ...options.data };
+    const registeredPreferences = snapshot();
+    options.data = { ...registeredPreferences, ...options.data };
     options.onLoad = function () {
-      this.setData(initialCopy(initialData));
+      this.setData(initialCopy(initialData, locale()));
+      this._uiSnapshot = registeredPreferences;
       this._refreshUiPreferences = () => {
         const next = snapshot(), changed = this._uiLocale !== next.uiLocale;
-        this._uiLocale = next.uiLocale; this.setData(next);
+        const patch = {};
+        Object.keys(next).forEach(key => {
+          const previous = this._uiSnapshot[key];
+          if (key === 'ui' ? previous !== next[key] : JSON.stringify(previous) !== JSON.stringify(next[key])) patch[key] = next[key];
+        });
+        const first = this._uiLocale === undefined;
+        this._uiLocale = next.uiLocale; this._uiSnapshot = next;
+        if (Object.keys(patch).length) this.setData(patch);
         const title = navigationTitles[this.route || this.__route__];
-        if (title && typeof wx.setNavigationBarTitle === 'function') wx.setNavigationBarTitle({ title: t(title) });
-        if (typeof this.onUiPreferencesChange === 'function') this.onUiPreferencesChange();
+        if (changed && title && typeof wx.setNavigationBarTitle === 'function') wx.setNavigationBarTitle({ title: translate(title, null, next.uiLocale) });
+        if ((first || Object.keys(patch).length) && typeof this.onUiPreferencesChange === 'function') this.onUiPreferencesChange(next);
         if (changed && this._uiLoaded && typeof this.onUiLocaleChange === 'function') this.onUiLocaleChange();
       };
       listeners.add(this._refreshUiPreferences); this._refreshUiPreferences();

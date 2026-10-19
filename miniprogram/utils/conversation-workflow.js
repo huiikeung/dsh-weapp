@@ -258,7 +258,19 @@ function buildEntries(rows, options) {
     }
   }
 
-  // Keep live work next to the timeline's progress strip, below narration.
+  // DSH places declared files beneath the turn's closing reply.
+  entries.filter(entry => entry.kind === 'files' || entry.kind === 'changes').forEach(files => {
+    const index = entries.indexOf(files);
+    let closing = index;
+    for (let i = index + 1; i < entries.length; i += 1) {
+      const next = entries[i];
+      if (next.kind === 'user' || (next.turn !== undefined && next.turn !== files.turn)) break;
+      if (next.kind === 'assistant') closing = i;
+    }
+    if (closing > index) { entries.splice(index, 1); entries.splice(closing, 0, files); }
+  });
+
+  // Keep live work below narration; live whale status is in the fixed dock.
   const activeIndex = entries.findIndex(entry => entry.kind === 'processGroup' && entry.running);
   if (activeIndex >= 0 && activeIndex < entries.length - 1) {
     entries.push(entries.splice(activeIndex, 1)[0]);

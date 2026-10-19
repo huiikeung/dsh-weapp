@@ -70,6 +70,24 @@ class GatewayClient {
 
   // ---------- 连接 ----------
 
+  deviceName() {
+    let info;
+    try {
+      if (typeof wx.getDeviceInfo === 'function') info = wx.getDeviceInfo();
+    } catch (e) { /* 旧基础库退回兼容接口 */ }
+    if (!info || (!info.brand && !info.model)) {
+      try { info = wx.getSystemInfoSync(); } catch (e) { info = {}; }
+    }
+    info = info || {};
+    const clean = value => Array.from(String(value || ''))
+      .filter(ch => !/^[\uD800-\uDFFF]$/.test(ch)).join('')
+      .replace(/[\u0000-\u001f\u007f\ufffd]/g, '').trim();
+    const brand = clean(info.brand), model = clean(info.model);
+    const name = brand && model && !model.toLowerCase().startsWith(brand.toLowerCase())
+      ? brand + ' ' + model : model || brand;
+    return (name || '小程序 ' + this.deviceId.slice(0, 8)).slice(0, 80).replace(/[\uD800-\uDBFF]$/, '');
+  }
+
   /** pairingCode 非空表示一次性配对握手；否则使用已保存的 Bearer 凭据。 */
   connect(endpoint, options) {
     if (!accessApi.isManagedRelay(endpoint)) return this.connectTransport(endpoint, options);
@@ -128,6 +146,11 @@ class GatewayClient {
       'X-DSH-Channel': CHANNEL,
       'X-DSH-Device-ID': this.deviceId
     };
+    if (!opts.relay) {
+      // 网关要求 UTF-8 标准 Base64；不能直接把中文或 Base64URL 放进头部。
+      const name = util.encodeBase64URL(this.deviceName()).replace(/-/g, '+').replace(/_/g, '/');
+      header['X-DSH-Device-Name'] = name + '='.repeat((4 - name.length % 4) % 4);
+    }
     const protocols = [];
     
     // 正确方式：子协议通过 protocols 数组传递
@@ -361,19 +384,9 @@ class GatewayClient {
    * 送出来的通道。
    */
   reportDeviceInfo() {
-    // 安卓上 info.model 只是 Build.MODEL（如 24031PN0DC），单独显示不可读，
-    // 所以优先拼 brand；取不到再退化到存储 id 前缀。
-    let label = '';
-    try {
-      const info = (typeof wx.getSystemInfoSync === 'function') ? wx.getSystemInfoSync() : null;
-      const brand = (info && info.brand) ? String(info.brand).trim() : '';
-      const model = (info && info.model) ? String(info.model).trim() : '';
-      label = (brand && model) ? `${brand} ${model}` : (model || brand);
-    } catch (e) { label = ''; }
-    if (label === '') label = (wx.getStorageSync('dsh_device_id') || '').slice(0, 12) || 'WeChat mini-program';
-    const frame = { type: 'device-info', model: label };
+    const frame = { type: 'device-info', model: this.deviceName() };
     // 此刻刚 setState('connected')，正常必然发得出去；万一被拒，隔半秒补一次。
-    // connector 侧有 phoneDeviceNameCache 去重，重复上报无害。
+    // connector 只更新当前已认证设备，重复上报无害。
     if (!this.send(frame)) {
       setTimeout(() => { if (this.state === 'connected') this.send(frame) }, 500);
     }
@@ -404,7 +417,7 @@ class GatewayClient {
         if (this.relayMeta.authMode === 'gateway') {
           // 先验证主机身份，再通过密文交付一次性码/设备 token。
           // 等收到网关 hello 才触发 connected 和首页数据加载。
-          const auth = { type: 'relay-auth', deviceId: this.deviceId };
+          const auth = { type: 'relay-auth', deviceId: this.deviceId, deviceName: this.deviceName() };
           if (this.pairingCode) auth.pairingCode = this.pairingCode;
           else auth.token = this.lastConnectOpts && this.lastConnectOpts.token;
           if (!auth.pairingCode && !auth.token) {
@@ -610,6 +623,22 @@ class GatewayClient {
   }
 
   resolveCorrelated(frame) {
+    // Download errors have requestType but no requestId/transferId on older gateways.
+    // Keep one request per file-operation lane and validate success ownership.
+    const fileTypes = { 'file-download-opened': 'file-download-open', 'file-download-chunk': 'file-download-read', 'file-download-cancelled': 'file-download-cancel' };
+    const fileType = frame.kind === 'error' ? frame.requestType : fileTypes[frame.kind];
+    const fileKey = fileType && 'file:' + fileType;
+    const fileRequest = fileKey && this.pendingRequests[fileKey];
+    if (fileRequest) {
+      if (frame.kind !== 'error' && (frame.kind !== fileRequest.expectedKind ||
+        (fileRequest.requestId && frame.requestId !== fileRequest.requestId) ||
+        (fileRequest.transferId && frame.transferId !== fileRequest.transferId) ||
+        (fileRequest.sessionId && frame.sessionId !== fileRequest.sessionId))) return;
+      delete this.pendingRequests[fileKey]; clearTimeout(fileRequest.timer);
+      if (frame.kind === 'error') fileRequest.reject(Object.assign(new Error(frame.message || frame.code), { code: frame.code }));
+      else fileRequest.resolve(frame);
+      return;
+    }
     // Legacy gateways omit correlation metadata for unknown message types.
     if (frame.kind === 'error' && !frame.requestId && typeof frame.message === 'string') {
       const unknown = /^unknown message type: (plugin-market-(?:indexes|set-indexes|search)|plugin-credential-(?:describe|set)|plugin-translation-limits)$/.exec(frame.message);
@@ -869,6 +898,37 @@ class GatewayClient {
     return this.request(payload, { matchType: 'file-list' });
   }
 
+  requestChangesSummary(sessionId, seq) {
+    return this.requestPlugin('workspace-changes-summary', { sessionId, seq });
+  }
+
+  requestChangesDiff(sessionId, seq, index) {
+    return this.requestPlugin('workspace-changes-diff', { sessionId, seq, index });
+  }
+
+  requestFileTransfer(payload, expectedKind) {
+    const key = 'file:' + payload.type;
+    return new Promise((resolve, reject) => {
+      if (this.pendingRequests[key]) { reject(new Error(uiText('文件正在下载，请稍候'))); return; }
+      const timer = setTimeout(() => { delete this.pendingRequests[key]; reject(new Error(uiText('文件下载超时，请重试'))); }, REQUEST_TIMEOUT);
+      this.pendingRequests[key] = { key, resolve, reject, timer, expectedKind,
+        requestId: payload.requestId, transferId: payload.transferId, sessionId: payload.sessionId };
+      if (!this.send(payload)) { delete this.pendingRequests[key]; clearTimeout(timer); reject(new Error(uiText('请先连接网关'))); }
+    });
+  }
+
+  openFileDownload(sessionId, path) {
+    return this.requestFileTransfer({ type: 'file-download-open', requestId: util.uuid(), sessionId, path }, 'file-download-opened');
+  }
+
+  readFileDownload(transferId, offset) {
+    return this.requestFileTransfer({ type: 'file-download-read', transferId, offset }, 'file-download-chunk');
+  }
+
+  cancelFileDownload(transferId) {
+    return this.requestFileTransfer({ type: 'file-download-cancel', transferId }, 'file-download-cancelled');
+  }
+
   requestContextUsage(sessionId) {
     return this.request({ type: 'context-usage', sessionId: sessionId });
   }
@@ -1011,7 +1071,7 @@ class GatewayClient {
   requestPlugin(type, payload, timeout) {
     const object = Object.assign({}, payload || {}, { type: type });
     object.requestId = object.requestId || util.uuid();
-    const expectedKind = { 'plugin-inspect': 'plugin-inspection', 'plugin-install': 'plugin-install-result', 'speech-configure': 'speech-configured', 'speech-prepare': 'speech-preparing', 'speech-cancel-preparation': 'speech-preparation-cancelled' }[type] || type;
+    const expectedKind = { 'plugin-inspect': 'plugin-inspection', 'plugin-install': 'plugin-install-result', 'speech-configure': 'speech-configured', 'speech-prepare': 'speech-preparing', 'speech-cancel-preparation': 'speech-preparation-cancelled', 'speech-transcribe': 'speech-transcript', 'speech-cancel': 'speech-cancelled', 'speech-subscribe': 'speech-subscribed', 'speech-unsubscribe': 'speech-unsubscribed' }[type] || type;
     const key = 'plugin:' + object.requestId;
     return new Promise((resolve, reject) => {
       if (this.pendingRequests[key]) { reject(new Error(uiText('插件请求正在进行'))); return; }

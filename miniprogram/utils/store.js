@@ -34,6 +34,7 @@ function createStore() {
     paired: false,
     gatewayName: null,
     gatewayMetadata: null,
+    gatewayCapabilities: [],
     gatewayId: null,
     endpoint: null,
     port: null,
@@ -122,7 +123,7 @@ function createStore() {
       state.connection = status;
       state.connectionMessage = message;
       pluginInstaller.connectionChanged(status);
-      if (status !== 'connected') state.gatewayMetadata = null;
+      if (status !== 'connected') { state.gatewayMetadata = null; state.gatewayCapabilities = []; }
       if (status === 'connected') {
         // 记住这次真正连通的地址，下次优先使用；轮换游标对齐当前线路
         endpointCandidates = endpointCandidates.length ? endpointCandidates : [state.endpoint];
@@ -479,6 +480,14 @@ function createStore() {
     if (handleScheduleFrame(frame)) return;
     // 插件管理帧（对齐 iOS acceptPluginFrame）
     if (handlePluginFrame(frame)) return;
+    if (String(frame.kind || '').indexOf('workspace-changes-') === 0 ||
+      frame.kind === 'error' && String(frame.requestType || '').indexOf('workspace-changes-') === 0) return;
+    // File transfer replies belong to the file viewer, not conversation projection.
+    if (String(frame.kind || '').indexOf('file-download-') === 0 ||
+      frame.kind === 'error' && String(frame.requestType || '').indexOf('file-download-') === 0) return;
+    // Speech RPCs belong to their requester, never to conversation/history errors.
+    if (String(frame.kind || '').indexOf('speech-') === 0 ||
+      frame.kind === 'error' && String(frame.requestType || '').indexOf('speech-') === 0) return;
     // 通用错误帧不属于普通会话事件，且通常不携带 sessionId。
     // 必须在主路由中显式交给错误处理器，否则 workspaces/sessions/history
     // 等请求即使收到服务端 error，首页仍会错误地显示“已连接 + 空列表”。
@@ -488,6 +497,7 @@ function createStore() {
     }
     switch (frame.kind) {
       case 'hello':
+        state.gatewayCapabilities = Array.isArray(frame.capabilities) ? frame.capabilities : [];
         acceptIdentity(frame);
         state.gatewayName = frame.gatewayName || state.gatewayName;
         state.gatewayMetadata = { name: frame.gatewayPackage || '', version: frame.gatewayVersion || '' };

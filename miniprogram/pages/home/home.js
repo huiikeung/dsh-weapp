@@ -148,11 +148,17 @@ Page({
   },
 
   onHide() {
+    this._homeHidden = true;
     this._workspacePickerRequest = null;
-    this.setData({ oceanActive: false, workspacePickerOpen: false });
+    this.setData({ oceanActive: false, workspacePickerOpen: false,
+      drawerAnim: false, drawerOpen: false, drawerDragging: false,
+      drawerX: -(this.drawerW || this.data.drawerW), contentX: 0, maskOpacity: 0, contentShifted: false });
+    this.statusBarFront = false;
   },
 
   onShow() {
+    this._homeHidden = false;
+    this._openingSettings = false;
     const creator = store.state.pendingPluginCreator;
     if (creator) {
       store.state.pendingPluginCreator = null;
@@ -167,16 +173,17 @@ Page({
     this.applySheetTheme();
     let settings = {};
     try { settings = typeof wx.getSystemSetting === 'function' ? wx.getSystemSetting() : {}; } catch (e) { /* 保留动态背景默认。 */ }
-    this.setData({ oceanActive: true, oceanReducedMotion: settings.enableReduceMotion === true });
+    this.setData({ oceanActive: true, drawerAnim: true, oceanReducedMotion: settings.enableReduceMotion === true });
     // 从配对页跳回时刷新一次列表
     if (store.state.connection === 'connected') {
       store.client.requestWorkspaces();
       store.client.requestSessions();
     }
-    this.syncHostUI(store.state);
+    this.syncFromStore({ app: store.state, session: store.sessionState });
   },
 
   onUnload() {
+    this._homeHidden = true;
     this._workspacePickerRequest = null;
     this.stopHostProbeTimer();
     store.stopHostProbes();
@@ -184,6 +191,8 @@ Page({
   },
 
   syncFromStore(snapshot) {
+    // Stream updates still enter the store, but hidden pages must not rebuild lists.
+    if (this._homeHidden) return;
     const app = snapshot.app;
     const conn = app.connection;
     // 对齐 dsh-mobile WorkspaceView.displayedSessions：
@@ -755,8 +764,18 @@ Page({
   },
 
   openSettings() {
-    this.resetDrawerInstant();
-    wx.navigateTo({ url: '/pages/settings/settings' });
+    if (this._openingSettings) return;
+    this._openingSettings = true;
+    this._homeHidden = true;
+    const ocean = this.selectComponent && this.selectComponent('#home-ocean');
+    if (ocean) ocean.pause();
+    this.setData({ oceanActive: false });
+    // Navigate first; reset the covered drawer in onHide, without its 60ms timer.
+    wx.navigateTo({ url: '/pages/settings/settings', fail: () => {
+      this._openingSettings = false; this._homeHidden = false;
+      this.setData({ oceanActive: true });
+      this.syncFromStore({ app: store.state, session: store.sessionState });
+    } });
   },
 
   openSessionSettings() {

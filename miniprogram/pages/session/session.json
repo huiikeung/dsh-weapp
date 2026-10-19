@@ -2,5 +2,5 @@
   "navigationStyle": "custom",
   "navigationBarTextStyle": "@navTxtStyle",
   "disableScroll": true,
-  "usingComponents": {}
+  "usingComponents": { "voice-overlay": "/components/voice-overlay/voice-overlay" }
 }

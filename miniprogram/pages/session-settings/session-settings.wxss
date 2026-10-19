@@ -1,8 +1,19 @@
 .session-settings { padding: 0 40rpx calc(60rpx + env(safe-area-inset-bottom)); color: var(--text); }
 .session-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 10; padding-left: 40rpx; padding-right: 40rpx; background: var(--bg); display: flex; align-items: center; box-sizing: content-box; }
 .session-nav-placeholder { margin-bottom: 20rpx; }
-.session-nav-back { position: relative; width: 64rpx; height: 44px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-.session-nav-back::before { content: ''; position: absolute; left: 50%; top: 0; width: 44px; height: 44px; transform: translateX(-50%); }
+.session-nav-back {
+  position: relative;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
+  background: var(--fill);          /* 与左侧栏设置页一致的圆形底 */
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 20rpx;
+}
+.session-nav-back::before { content: ''; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
 .session-nav-back-icon { width: 32rpx; height: 32rpx; }
 .session-nav-title { position: absolute; left: 96rpx; right: 96rpx; display: flex; align-items: center; justify-content: center; font-size: 34rpx; font-weight: 600; color: var(--text); pointer-events: none; }
 .session-nav-pressed { opacity: .65; }
@@ -16,7 +27,7 @@
 .utility-sheet { width: 100%; max-height: 85vh; box-sizing: border-box; padding: 10rpx 40rpx calc(32rpx + env(safe-area-inset-bottom)); border-radius: 32rpx 32rpx 0 0; background: var(--surface); color: var(--text); display: flex; flex-direction: column; }
 .utility-header { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; margin: 8rpx 0 16rpx; flex-shrink: 0; }
 .utility-title { font-size: 34rpx; font-weight: 650; }
-.utility-sheet .utility-close { margin: 0; padding: 20rpx 0 20rpx 20rpx; min-width: 88rpx; background: transparent; color: var(--text-2); font-size: 25rpx; font-weight: normal; line-height: 1.5; text-align: right; }
+.utility-sheet .utility-close { margin: 0; padding: 20rpx 0 20rpx 20rpx; min-width: 88rpx; background: transparent; color: #E5484D; font-size: 34rpx; font-weight: 600; line-height: 1.5; text-align: right; white-space: nowrap; }
 .utility-scroll { min-height: 0; max-height: 50vh; }
 .diagnostic-list { border: 1rpx solid var(--border); border-radius: 24rpx; overflow: hidden; }
 .diagnostic-row { display: flex; gap: 24rpx; align-items: flex-start; padding: 24rpx; }
@@ -37,3 +48,191 @@
 .utility-sheet .utility-done { flex: none; margin-top: 24rpx; background: var(--fill); color: var(--text); }
 .utility-sheet button[disabled] { opacity: .5; }
 .session-settings .build-value { white-space: normal; font-size: 24rpx; overflow-wrap: anywhere; text-align: right; }
+
+/* ---------- 与设置页一致的底部弹窗（选择项） ---------- */
+.pair-sheet-mask {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.pair-sheet {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10rpx 40rpx calc(32rpx + env(safe-area-inset-bottom));
+  border-radius: 32rpx 32rpx 0 0;
+  background: var(--surface);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+}
+
+.pair-sheet-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin: 16rpx 0 24rpx;
+}
+
+.pair-sheet-title {
+  color: var(--text);
+  font-size: 34rpx;
+  font-weight: 650;
+}
+
+.pair-sheet-close {
+  padding: 8rpx 0 8rpx 20rpx;
+  color: #E5484D;
+  font-size: 34rpx;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.picker-option-list {
+  border: 1rpx solid var(--border);
+  border-radius: 24rpx;
+  overflow: hidden;
+  margin-bottom: 16rpx;
+  flex: none;            /* 高度由上方的 max-height 决定，内部独立滚动 */
+  width: 100%;
+}
+
+.picker-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 26rpx 28rpx;
+  font-size: 30rpx;
+  color: var(--text);
+}
+
+.picker-option + .picker-option {
+  border-top: 1rpx solid var(--divider);
+}
+
+.picker-option:active {
+  background: var(--fill);
+}
+
+.picker-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-option.checked .picker-option-label {
+  color: var(--ocean);
+  font-weight: 600;
+}
+
+.picker-option-check {
+  flex: none;
+  color: var(--ocean);
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+/* 模型弹窗：供应商分组标题 */
+.picker-group {
+  padding: 20rpx 28rpx 10rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  letter-spacing: 0.5rpx;
+  color: var(--text-3);
+  background: var(--fill);
+}
+
+/* ---------- 工作区文件弹窗 ---------- */
+.files-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin: 0 0 12rpx;
+}
+
+.files-up {
+  padding: 10rpx 4rpx;
+  color: var(--ocean);
+  font-size: 27rpx;
+}
+
+.files-up.disabled {
+  visibility: hidden;
+}
+
+.files-list {
+  flex: none;
+}
+
+.files-center {
+  padding: 40rpx 20rpx;
+  text-align: center;
+  color: var(--text-2);
+  font-size: 27rpx;
+}
+
+.files-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 22rpx 28rpx;
+}
+
+.files-row + .files-row {
+  border-top: 1rpx solid var(--divider);
+}
+
+.files-row-hover {
+  background: var(--fill);
+}
+
+.files-row-icon {
+  width: 48rpx;
+  height: 48rpx;
+  flex-shrink: 0;
+}
+
+.files-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.files-row-name {
+  font-size: 29rpx;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-row-sub {
+  font-size: 23rpx;
+  color: var(--text-3);
+}
+
+.files-row-chevron {
+  flex: none;
+  color: var(--text-3);
+  font-size: 30rpx;
+}
+
+/* 当前路径：弹窗底部、左对齐 */
+.files-path-footer {
+  padding: 16rpx 8rpx 4rpx;
+  color: var(--text-2);
+  font-size: 24rpx;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

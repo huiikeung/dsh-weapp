@@ -10,7 +10,7 @@
     <button class="activity-secondary" bindtap="enterApp">{{ui['进入鲸尾']}}</button>
   </view>
   <view class="activity-card reward-overview">
-    <image class="activity-logo" src="/assets/brand/app-icon-black-1024.png" mode="aspectFit"/>
+    <image class="activity-logo" src="/assets/brand/app-icon-black-256.png" mode="aspectFit"/>
     <text class="activity-heading">{{ui['鲸尾 · 远程助手']}}</text>
     <text class="activity-intro">{{ui['随时连接自己的 DSH，查看进展、继续对话。']}}</text>
     <text class="activity-reward-hint">{{ui['朋友首次有效打开，按阶梯获赠公网访问']}}</text>

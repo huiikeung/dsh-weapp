@@ -357,8 +357,11 @@
 
 .pair-sheet-close {
   padding: 8rpx 0 8rpx 20rpx;
-  color: var(--text-2);
-  font-size: 25rpx;
+  color: #E5484D;
+  font-size: 34rpx;
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .pair-payload-input {

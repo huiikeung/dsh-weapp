@@ -260,6 +260,41 @@ function connectRelay() {
 
 const pipes = new Map(); // bridgeId → { session, gateway, agentWs }
 
+function normalizeDeviceName(value) {
+  if (typeof value !== 'string' || /[\u0000-\u001f\u007f\ufffd]/.test(value)) return '';
+  return value.trim().slice(0, 80).replace(/[\uD800-\uDBFF]$/, '');
+}
+
+// Only a gateway-authenticated device id may be renamed. Never trust an id
+// supplied by the phone or the public relay; the name arrives inside E2EE.
+async function updateDeviceName(pipe, name) {
+  if (name !== undefined) pipe.phoneDeviceName = normalizeDeviceName(name);
+  if (!pipe.authenticatedDeviceId || !pipe.phoneDeviceName || pipe.renamingDevice
+      || pipe.savedDeviceName === pipe.phoneDeviceName) return;
+  const targetName = pipe.phoneDeviceName;
+  pipe.renamingDevice = true;
+  try {
+    const response = await fetch(MGMT_URL.replace(/\/$/, '') + '/mgw/devices/'
+      + encodeURIComponent(pipe.authenticatedDeviceId) + '/rename', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: targetName })
+    });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    pipe.savedDeviceName = targetName;
+  } catch (error) { log('设备名称更新失败: ' + error.message); }
+  finally { pipe.renamingDevice = false; }
+  if (pipe.phoneDeviceName !== targetName) void updateDeviceName(pipe);
+}
+
+function captureDeviceIdentity(pipe, text) {
+  let message; try { message = JSON.parse(text); } catch { return; }
+  if (message.kind !== 'hello' || message.authenticated !== true
+      || !message.device || typeof message.device.id !== 'string') return;
+  pipe.authenticatedDeviceId = message.device.id;
+  pipe.savedDeviceName = message.device.name;
+  void updateDeviceName(pipe);
+}
+
 async function requestPairingCode(deviceName) {
   try {
     const response = await fetch(MGMT_URL.replace(/\/$/, '') + '/mgw/pair', {
@@ -331,6 +366,7 @@ async function handleClientOpen(frame, agentWs) {
   gateway.on('message', (data) => {
     const text = data.toString('utf8');
     captureToken(text, deviceId);
+    captureDeviceIdentity(pipe, text);
     if (!session.ready) return;
     try {
       sendPipeFrame(agentWs, bridgeId, session.seal(text));
@@ -376,6 +412,11 @@ function authenticateGateway(pipe, bridgeId, frame) {
   }
   const protocols = ['dsh-mobile-v1'];
   const headers = { 'X-DSH-Channel': 'miniprogram', 'X-DSH-Device-ID': pipe.deviceId };
+  const deviceName = normalizeDeviceName(frame.deviceName);
+  if (deviceName) {
+    pipe.phoneDeviceName = deviceName;
+    headers['X-DSH-Device-Name'] = Buffer.from(deviceName, 'utf8').toString('base64');
+  }
   if (valid(frame.token)) headers.Authorization = 'Bearer ' + frame.token;
   else protocols.push('dsh-pair.' + frame.pairingCode);
   const gateway = pipe.gateway = new WebSocket(GATEWAY, protocols, { headers });
@@ -403,6 +444,7 @@ function authenticateGateway(pipe, bridgeId, frame) {
         pending.push(text); return;
       }
       if (message.authenticated !== true) return rejectDevice();
+      captureDeviceIdentity(pipe, text);
       pipe.gatewayReady = true; clearTimeout(pipe.authTimer);
       pipe.agentWs.send(JSON.stringify({ kind: 'client-ready', bridgeId }));
       for (const paired of pending) sendPipeFrame(pipe.agentWs, bridgeId, pipe.session.seal(paired));
@@ -448,6 +490,12 @@ function handleRelayBinary(data) {
     }
     let frame;
     try { frame = JSON.parse(text); } catch (error) { frame = null; }
+    if (frame && frame.type === 'device-info') {
+      // Compatibility with already-installed clients and legacy invite mode.
+      // Cache early reports until the gateway confirms this pipe's identity.
+      void updateDeviceName(pipe, frame.model);
+      return;
+    }
     if (pipe.requiresDeviceAuth) {
       if (!pipe.authStarted) { authenticateGateway(pipe, bridgeId, frame); return; }
       if (frame && frame.type === 'relay-auth') return;

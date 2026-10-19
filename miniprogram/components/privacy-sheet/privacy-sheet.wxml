@@ -1,5 +1,5 @@
 <view wx:if="{{mounted}}" class="privacy-overlay {{closing ? 'privacy-overlay-closing' : ''}} {{theme === 'dark' ? 'privacy-dark' : 'privacy-light'}}" catchtouchmove="noop">
-  <view class="privacy-sheet {{dragging ? 'privacy-sheet-dragging' : ''}}" style="padding-top:{{topInset}}px;transform:translateY({{dragOffset}}px);" role="dialog" aria-label="{{ui['隐私政策']}}">
+  <view class="privacy-sheet {{dragging ? 'privacy-sheet-dragging' : ''}}" style="padding-top:0;transform:translateY({{dragOffset}}px);" role="dialog" aria-label="{{ui['隐私政策']}}">
     <view class="privacy-grabber-area" catchtouchstart="onDragStart" catchtouchmove="onDragMove" catchtouchend="onDragEnd" catchtouchcancel="onDragCancel" aria-label="{{ui['下拉关闭隐私政策']}}">
       <view class="privacy-grabber"></view>
     </view>

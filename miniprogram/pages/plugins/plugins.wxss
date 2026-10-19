@@ -69,7 +69,7 @@
 .plugin-sheet { position: relative; width: 100%; max-height: 88vh; background: var(--pg-bg); border-radius: 32rpx 32rpx 0 0; display: flex; flex-direction: column; padding-bottom: env(safe-area-inset-bottom); }
 .plugin-sheet-handle { width: 64rpx; height: 8rpx; border-radius: 8rpx; margin: 16rpx auto 4rpx; background: var(--pg-border); flex-shrink: 0; }
 .plugin-sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 16rpx 32rpx 20rpx; font-size: 32rpx; font-weight: 600; flex-shrink: 0; }
-.plugins .plugin-sheet-close { width: 60rpx; height: 60rpx; font-size: 40rpx; color: var(--pg-text2); }
+.plugins .plugin-sheet-close { width: 60rpx; height: 60rpx; font-size: 42rpx; color: #E5484D; }
 .plugin-sheet-scroll { max-height: 72vh; min-height: 0; }
 .plugin-sheet-content { padding: 0 32rpx 36rpx; display: flex; flex-direction: column; gap: 24rpx; }
 .plugin-sheet-desc { font-size: 26rpx; line-height: 1.6; }
@@ -120,7 +120,7 @@
 .registry-mask { position: absolute; inset: 0; background: #00000066; }
 .registry-panel { position: relative; width: 100%; max-height: 80vh; padding: 0 32rpx calc(32rpx + env(safe-area-inset-bottom)); box-sizing: border-box; background: var(--pg-bg); border-radius: 32rpx 32rpx 0 0; display: flex; flex-direction: column; }
 .registry-head { display: flex; align-items: center; justify-content: space-between; font-size: 36rpx; font-weight: 600; padding: 16rpx 0; }
-.plugins .registry-close { width: 60rpx; height: 60rpx; font-size: 40rpx; color: var(--pg-text2); }
+.plugins .registry-close { width: 60rpx; height: 60rpx; font-size: 42rpx; color: #E5484D; }
 .registry-description { font-size: 27rpx; color: var(--pg-text2); line-height: 1.6; margin-bottom: 24rpx; }
 .registry-list { min-height: 0; max-height: 52vh; }
 .plugins .registry-option { display: flex; align-items: center; justify-content: space-between; width: 100%; min-width: 0; padding: 24rpx; margin-bottom: 12rpx; gap: 24rpx; border-radius: 20rpx; border: 1rpx solid var(--pg-border); text-align: left; }
@@ -160,7 +160,7 @@
 .sources-mask { position: absolute; inset: 0; background: #00000066; }
 .sources-dialog { position: relative; width: 100%; max-width: 960rpx; max-height: 80vh; overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 24rpx; padding: 32rpx; background: var(--pg-bg); border: 1rpx solid var(--pg-border); border-radius: 28rpx; box-shadow: 0 24rpx 80rpx #00000024; }
 .sources-heading { display: flex; align-items: center; justify-content: space-between; font-size: 34rpx; font-weight: 600; }
-.plugins .sources-close { width: 48rpx; height: 48rpx; font-size: 38rpx; color: var(--pg-text2); flex-shrink: 0; display: flex; justify-content: center; align-items: center; }
+.plugins .sources-close { width: 48rpx; height: 48rpx; font-size: 40rpx; color: #E5484D; flex-shrink: 0; display: flex; justify-content: center; align-items: center; }
 .sources-description { font-size: 26rpx; line-height: 42rpx; color: var(--pg-text2); }
 .sources-list { max-height: 32vh; }
 .source-row { display: flex; align-items: center; gap: 18rpx; padding: 20rpx 0; border-bottom: 1rpx solid var(--pg-border); }

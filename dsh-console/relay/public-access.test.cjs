@@ -21,6 +21,7 @@ async function waitFor(fn, timeout = 6000) {
 test('paid own-device relay: both credentials required, E2EE works, expired reconnect denied', { timeout: 25000 }, async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-public-e2e-'));
   let clock = Date.now(), gatewayDials = 0, pairCalls = 0, debugAuthDisabled = false;
+  const gatewayHeaders = [], renames = [];
   const children = [], sockets = [];
   const consoleServer = createService({ stateFile: path.join(dir, 'access.json'), relayAuthSecret: SECRET,
     adminOpenIds: ['fixture-admin'], exchangeCode: async code => code === 'admin' ? 'fixture-admin' : 'fixture-user', now: () => clock });
@@ -35,19 +36,25 @@ test('paid own-device relay: both credentials required, E2EE works, expired reco
   const gateway = new WebSocketServer({ noServer: true });
   gatewayServer.on('upgrade', (req, socket, head) => {
     gatewayDials++;
+    gatewayHeaders.push(req.headers);
     const allowed = req.headers.authorization === 'Bearer fixture-device-token-1234567890' ||
       String(req.headers['sec-websocket-protocol']).includes('dsh-pair.fixture-device-pairing-1234567890');
     if (!allowed && !debugAuthDisabled) { socket.end('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n'); return; }
     gateway.handleUpgrade(req, socket, head, ws => {
       sockets.push(ws);
       ws.send(JSON.stringify({ kind: 'paired', token: 'fixture-device-token-1234567890' }));
-      ws.send(JSON.stringify({ kind: 'hello', authenticated: allowed }));
+      ws.send(JSON.stringify({ kind: 'hello', authenticated: allowed, device: { id: 'registry-phone', name: req.headers['x-dsh-device-name'] ? Buffer.from(req.headers['x-dsh-device-name'], 'base64').toString('utf8') : '未命名设备' } }));
       ws.on('message', () => ws.send(JSON.stringify({ kind: 'pong' })));
     });
   });
   const gatewayPort = await listen(gatewayServer);
   const mgmt = http.createServer((req, res) => {
     if (req.url === '/mgw/pair') pairCalls++;
+    if (req.url === '/mgw/devices/registry-phone/rename') {
+      let body = ''; req.on('data', data => { body += data; });
+      req.on('end', () => { renames.push({ url: req.url, ...JSON.parse(body) }); res.writeHead(200, { 'Content-Type': 'application/json' }); res.end('{}'); });
+      return;
+    }
     req.resume(); res.writeHead(req.url === '/mgw/relay' ? 200 : 404, { 'Content-Type': 'application/json' }); res.end('{}');
   });
   const mgmtPort = await listen(mgmt);
@@ -115,13 +122,24 @@ test('paid own-device relay: both credentials required, E2EE works, expired reco
   await waitFor(() => insecure.frames.some(f => f.kind === 'relay-auth-error'));
   assert.equal(insecure.frames.some(f => f.kind === 'hello' || f.kind === 'paired'), false, 'Debug auth-off gateway must not leak frames or device tokens');
   insecure.ws.terminate(); debugAuthDisabled = false;
-  const valid = await encryptedClient(lease, { pairingCode: 'fixture-device-pairing-1234567890' });
+  const valid = await encryptedClient(lease, { pairingCode: 'fixture-device-pairing-1234567890', deviceName: '华为 测试手机' });
   await waitFor(() => valid.frames.some(f => f.kind === 'hello'));
+  assert.equal(Buffer.from(gatewayHeaders.at(-1)['x-dsh-device-name'], 'base64').toString('utf8'), '华为 测试手机');
+  assert.equal(renames.length, 0, 'Header already updates the authenticated device without management writes');
+  valid.ws.send(Buffer.from(valid.session.seal(JSON.stringify({ type: 'device-info', model: 'Apple iPhone', deviceId: 'another-device' }))));
+  await waitFor(() => renames.length === 1);
+  assert.deepEqual(renames[0], { url: '/mgw/devices/registry-phone/rename', name: 'Apple iPhone' });
   valid.ws.send(Buffer.from(valid.session.seal(JSON.stringify({ type: 'ping' }))));
   await waitFor(() => valid.frames.some(f => f.kind === 'pong'));
   assert.equal(valid.frames.some(f => f.kind === 'paired'), true, 'Valid device token is released after authenticated hello');
   assert.equal(pairCalls, 0, 'Service cannot obtain a pairing code on behalf of a stranger');
   valid.ws.terminate();
+  const legacy = await encryptedClient(lease, { token: 'fixture-device-token-1234567890' });
+  await waitFor(() => legacy.frames.some(f => f.kind === 'hello'));
+  legacy.ws.send(Buffer.from(legacy.session.seal(JSON.stringify({ type: 'device-info', model: '旧版手机' }))));
+  await waitFor(() => renames.length === 2);
+  assert.equal(renames[1].name, '旧版手机', 'Existing clients can correct unnamed records after authenticated reconnect');
+  legacy.ws.terminate();
   // Advance the service clock to verify expiry on reconnect without waiting days.
   clock = redeemed.expiresAt - 900;
   const nearUser = await api('/session', null, { code: 'user' });

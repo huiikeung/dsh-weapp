@@ -104,6 +104,22 @@ test('detail selection refreshes request/tool content and closes on session swit
   const tool = page.data.trajectory.find(r => r.badge === 'TOOL');
   page.openTraceDetail({ currentTarget: { dataset: { key: tool.key } } });
   Object.assign(page.data, page.traceSelectionPatch(project(fixture())));
-  assert.equal(page.data.traceDetail.outputText, 'File contents');
+  assert.ok(page.data.traceDetailSection.text.includes('File contents'));
+  assert.equal(page.data.traceDetail.sourceRecords, undefined, 'raw records stay off the view bridge');
   page._renderSessionId = 'other'; assert.equal(page.traceSelectionPatch(project(fixture())).traceDetail, null);
+});
+test('trajectory list keeps summaries but never sends full messages or source events', () => {
+  const rows = project(fixture().concat(event(13, 'assistant/message', { message: { content: 'large body '.repeat(10000) } })));
+  const list = rows.map(view.listRow);
+  assert.ok(Buffer.byteLength(JSON.stringify(list)) < 6000);
+  for (const row of list) for (const key of ['sourceRecords', 'outputText', 'thinkingText', 'schema', 'detail', 'options']) assert.equal(row[key], undefined);
+  assert.ok(list.find(row => row.badge === 'ASSISTANT').request.key);
+  assert.deepEqual(view.overview(list), view.overview(rows));
+});
+test('lazy detail sections match full sections and tab metadata', () => {
+  for (const row of project(fixture()).filter(row => row.kind === 'event').flatMap(row => row.request ? [row, row.request] : [row])) {
+    const all = view.sections(row);
+    assert.deepEqual(view.tabs(row), all.map(({ id, label }) => ({ id, label })));
+    for (const section of all) assert.deepEqual(view.sections(row, section.id), [section]);
+  }
 });

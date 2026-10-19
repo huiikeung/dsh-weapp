@@ -22,6 +22,7 @@ for (const patch of [{ relay: 'ws://relay.example.com' }, { relay: 'wss://user@r
 let socketOptions;
 const sent = [];
 global.wx = { getStorageSync: () => 'fixture-device-id', setStorageSync() {},
+  getDeviceInfo: () => ({ brand: '华为', model: '测试手机' }),
   connectSocket(options) { socketOptions = options; return {
     onOpen() {}, onMessage() {}, onError() {}, onClose() {},
     send(value) { sent.push(value.data); }, close() {}
@@ -31,6 +32,7 @@ client.reportDeviceInfo = () => {};
 client.connect(parsed.payload.publicUrl, { pairingCode: payload.pairingCode, relay: parsed.payload });
 assert.deepEqual(socketOptions.protocols, ['dsh-mobile-v1']);
 assert.equal(socketOptions.header.Authorization, undefined);
+assert.equal(socketOptions.header['X-DSH-Device-Name'], undefined, 'Device name is not exposed to the relay');
 let auth;
 client.relaySession = { ready: false, acceptAgentHello() { this.ready = true; return true; },
   seal(text) { auth = JSON.parse(text); return new Uint8Array([3]); } };
@@ -38,6 +40,7 @@ client.handleRelayMessage(new Uint8Array([2]).buffer);
 assert.equal(client.state, 'connecting', 'E2EE alone must not report authenticated');
 assert.equal(auth.type, 'relay-auth');
 assert.equal(auth.pairingCode, payload.pairingCode);
+assert.equal(auth.deviceName, '华为 测试手机');
 client.handleRelayMessage(JSON.stringify({ kind: 'paired', token: 'forged' }));
 assert.equal(client.lastToken, undefined, 'Plaintext relay must not inject gateway frames');
 client.handleFrame(JSON.stringify({ kind: 'paired', token: 'c'.repeat(43) }));
@@ -48,6 +51,7 @@ assert.equal(client.lastConnectOpts.token, 'c'.repeat(43));
 client.connect(parsed.payload.publicUrl, client.lastConnectOpts);
 assert.equal(socketOptions.header.Authorization, undefined, 'Reconnect token stays inside E2EE');
 assert.deepEqual(socketOptions.protocols, ['dsh-mobile-v1']);
+assert.equal(socketOptions.header['X-DSH-Device-Name'], undefined);
 client.handleFrame(JSON.stringify({ kind: 'relay-auth-error', message: 'revoked' }));
 assert.equal(client.wantsConnection, false);
 assert.equal(client.state, 'failed');

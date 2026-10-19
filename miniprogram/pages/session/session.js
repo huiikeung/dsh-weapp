@@ -8,6 +8,11 @@ const markdown = require('../../utils/markdown');
 const labels = require('../../utils/labels');
 const util = require('../../utils/util');
 const notifyPref = require('../../utils/notify-pref');
+const voicePreference = require('../../utils/voice-preference');
+const voiceActions = require('./voice-actions');
+const fileActions = require('./file-actions');
+const changesActions = require('./changes-actions');
+const fileDeliverables = require('../../utils/file-deliverables');
 const theme = require('../../utils/theme');
 const conversationWorkflow = require('../../utils/conversation-workflow');
 const { dataPatch, createMarkdownCache } = require('../../utils/session-render');
@@ -18,8 +23,13 @@ const NOTIFY_TEMPLATE_ID = 'QvgkQ88HKFdTNPJVOp0EdOHNDodOQACzB9oDEFDZXKU';
 const { toolPresentation } = require('../../utils/tool-presentation');
 
 Page({
+  ...voiceActions,
+  ...fileActions,
+  ...changesActions,
   data: {
+    fileExpanded: {}, fileSheet: null, filePreview: null, changesDiff: null, fileBusyKey: '', fileProgress: 0,
     tab: 'conversation', // conversation | trajectory
+    trajectoryMounted: false,
     navTitle: uiText('会话'),
     navPadTop: 48,      // 自定义导航：状态栏下沿前的顶部偏移
     navHeight: 32,      // 与右上角原生胶囊同高
@@ -83,10 +93,13 @@ Page({
     commandMenu: null,
     commandLoading: false,
     commandError: '',
-    composerPlaceholder: uiText('输入内容或按住说话'),
+    ...voicePreference.view(),
+    voicePhase: 'idle', voiceOverlayVisible: false, voiceCancelArmed: false, voiceStatus: '',
+    voiceTyping: false, composerFocus: false, voicePendingText: '',
     convBottomInset: 520,   // 首帧安全默认值：真实高度由 dock 测量校准
     statsSheet: [],
     statsSheetOpen: false,
+    moreSheetOpen: false,
     statsPopOpen: false,
     statsPopKind: 'run',
     statsPopTitle: '',
@@ -113,7 +126,7 @@ Page({
     composerCacheMetric: '',
     composerContextMetric: '',
 
-    traceDetail: null,    recording: false
+    traceDetail: null
   },
 
   onLoad(options) {
@@ -125,7 +138,6 @@ Page({
       store.openSession(options.id, '', null);
     }
     this.folds = {};
-    this.setData(preferences.snapshot());
     // 自定义导航：会话标题顶到状态栏下方；右侧避让胶囊按钮
     try {
       const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
@@ -147,7 +159,7 @@ Page({
     }
     this.syncLayoutStyles();
     this.unsubscribe = store.subscribe((snapshot) => {
-      this.syncFromStore(snapshot);
+      this.scheduleStoreSync(snapshot);
     });
     this.syncFromStore({ app: store.state, session: store.sessionState });
   },
@@ -160,10 +172,15 @@ Page({
   },
 
   onHide() {
+    this.cancelFileDownload();
+    this._voiceHidden = true; this.cancelVoice();
+    if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
+    this._storeSyncTimer = null; this._pendingStoreSnapshot = null;
     this.stopScrollPolling();
   },
 
   onShow() {
+    this._voiceHidden = false; this.syncVoicePreference();
     if (store.sessionState && store.sessionState.sessionId) this.syncFromStore({ app: store.state, session: store.sessionState });
     this.setData(statusAppearance.view(statusAppearance.read()));
     // 返回前台/切回页面：dock 高度可能变化（键盘、队列、审批卡）
@@ -171,9 +188,19 @@ Page({
   },
 
   onUnload() {
+    this.disposePresentedFiles();
+    this.cancelVoice();
+    if (this._voice) this._voice.dispose();
     this._unloaded = true;
+    if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
+    this._storeSyncTimer = null;
+    this._pendingStoreSnapshot = null;
     if (this._traceHighlightTimer) clearTimeout(this._traceHighlightTimer);
     this._markdownCache = null;
+    this._traceRows = null;
+    this._traceByKey = null;
+    this._traceSource = null;
+    this._traceCache = null;
     this.stopScrollPolling();
     if (this._runTimer) { clearInterval(this._runTimer); this._runTimer = null; }
     this._dockMeasurePending = false;
@@ -181,6 +208,28 @@ Page({
   },
 
   // ---------- 状态同步 ----------
+
+  scheduleStoreSync(snapshot) {
+    if (this._unloaded || this._voiceHidden) return;
+    this._pendingStoreSnapshot = snapshot;
+    if (this._storeSyncTimer) return;
+    const delay = Math.max(32, (this._interactionUntil || 0) - Date.now());
+    this._storeSyncTimer = setTimeout(() => {
+      this._storeSyncTimer = null;
+      const latest = this._pendingStoreSnapshot;
+      this._pendingStoreSnapshot = null;
+      if (!this._unloaded && !this._voiceHidden && latest) this.syncFromStore(latest);
+    }, delay);
+  },
+
+  prioritizeInteraction(duration = 160) {
+    // Let the tap and 160ms sheet transition paint before the next stream projection.
+    // Only snapshots are coalesced; the store still receives every protocol event.
+    this._interactionUntil = Date.now() + duration;
+    if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
+    this._storeSyncTimer = null;
+    if (this._pendingStoreSnapshot) this.scheduleStoreSync(this._pendingStoreSnapshot);
+  },
 
   syncFromStore(snapshot) {
     try {
@@ -203,10 +252,16 @@ Page({
   },
 
   syncFromStoreInner(snapshot) {
+    this.checkVoiceContext();
     const s = snapshot.session;
     const app = snapshot.app;
     if (!s || (!s.sessionId && s.historyState !== 'creating' && s.historyState !== 'error:create')) return;
     if (!this._markdownCache || this._renderSessionId !== s.sessionId) {
+      if (this._renderSessionId && this._renderSessionId !== s.sessionId) {
+        this.disposePresentedFiles();
+        this.closeChangesDiff();
+        this.setData({ fileSheet: null, filePreview: null, fileExpanded: {} });
+      }
       this._markdownCache = createMarkdownCache(safeParse);
       this._renderSessionId = s.sessionId;
       this._processRunningDone = '';
@@ -241,6 +296,11 @@ Page({
     const semanticRows = [];
     const listedSession = (app.sessions || []).find(item => item.id === s.sessionId || item.sessionId === s.sessionId);
     (s.rows || []).forEach((row) => {
+      if (row.kind === 'changes') { semanticRows.push(this.decorateChanges(row)); return; }
+      if (row.kind === 'files') {
+        semanticRows.push(Object.assign({}, row, { files: row.files.map(fileDeliverables.describe) }));
+        return;
+      }
       if (row.kind === 'assistant') {
         const tools = (row.tools || []).map((tool) => {
           const activity = toolPresentation(tool.name, tool.argumentsText, s.cwd || (listedSession && listedSession.cwd));
@@ -313,13 +373,9 @@ Page({
       if (entry.kind === 'user') entry.copyText = entry.showCopy ? entry.text || '' : '';
     });
 
-    const trajectory = (s.trajectory || []).map((item) => {
-      const copy = trajectoryView.localize(item);
-      copy.badgeClass = String(item.badge || '').toLowerCase();
-      copy.displayBadge = item.displayBadge || '';
-      copy.seqLabel = typeof item.seq === 'number' ? numberWithCommas(item.seq) : '';
-      return copy;
-    });
+    this._traceRows = s.trajectory || [];
+    // Hidden trajectory stays out of the view bridge while the conversation streams.
+    const tracePatch = this.data.tab === 'trajectory' ? this.trajectoryPatch() : {};
 
     const stats = s.stats && s.stats.stats ? s.stats.stats : {};
     const llmMs = stats.llmMs || 0;
@@ -521,9 +577,7 @@ Page({
       lastRowKind: rows.length ? rows[rows.length - 1].kind : '',
       rows: rows,
       folds: processFolds,
-      trajectory: trajectory,
-      traceOverview: trajectoryView.overview(trajectory),
-      ...this.traceSelectionPatch(trajectory),
+      ...tracePatch,
       hasMoreHistory: s.hasMoreHistory,
       question: question,
       questionBusy: s.questionStatus === 'submitting' || s.questionStatus === 'accepted',
@@ -562,9 +616,10 @@ Page({
       ,composerContextMetric: composerContextMetric
     }, qReset || {}));
     const rowsChanged = Object.keys(viewPatch).some(key => key === 'rows' || key.indexOf('rows[') === 0);
-    const dockChanged = ['question', 'approval', 'tasks', 'goal', 'composerMetricsVisible', 'sessionPresetVisible']
+    const dockChanged = ['running', 'question', 'approval', 'tasks', 'goal', 'composerMetricsVisible', 'sessionPresetVisible']
       .some(field => Object.keys(viewPatch).some(key => key === field || key.indexOf(field + '.') === 0 || key.indexOf(field + '[') === 0));
     if (Object.keys(viewPatch).length) this.setData(viewPatch);
+    this.loadChangesSummaries();
     this.syncCommandMenu(this.data.draft, s);
     if (dockChanged) this.updateDockInset();
     this.syncRunningStrip(rows, this.data.running);
@@ -896,49 +951,44 @@ Page({
 
   switchTab(e) {
     const tab = e.currentTarget.dataset.tab;
-    this.setData({ tab: tab });
+    if (!['conversation', 'trajectory'].includes(tab) || tab === this.data.tab) return;
+    this.cancelVoice();
+    this.prioritizeInteraction();
+    const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
+    this.setData({ tab, kbHeight: 0, composerFocused: false, showJump: false,
+      ...(tab === 'trajectory' ? { trajectoryMounted: true, ...dataPatch(this.data, this.trajectoryPatch()) } : {}),
+      statsPopOpen: false, showContextSheet: false, commandMenu: null,
+      attachSheetOpen: false, modelSheetOpen: false, effortSheetOpen: false,
+      permissionSheet: [], modeSheet: [], ...this.layoutPatch({ kbHeight: 0 }) });
+    if (hadKeyboard && typeof wx.hideKeyboard === 'function') wx.hideKeyboard();
     if (tab === 'conversation') {
+      this.updateDockInset();
       this.startScrollPolling();
-      this._userScrolledUp = false;
-      this._lastScrollTop = undefined;
-      this._lastTouchAt = 0;
-      this._convPinned = true;
-      if (this.data.showJump) this.setData({ showJump: false });
-      wx.nextTick(() => this.refreshBottomAnchor());
+      // Mounted scroll views retain their position; do not force a jump on every switch.
+      if (this._convPinned !== false) wx.nextTick(() => this.refreshBottomAnchor());
     } else {
       this.stopScrollPolling();
     }
   },
 
-  /** 长按输入框语音（对齐 iOS VoiceInputAdapter）：小程序端无转写服务，走 iOS 同款不可用弹窗 */
   /** 键盘高度：手动把输入条抬到键盘上方（adjust-position 关闭，避免整页顶起） */
   onKeyboardHeight(e) {
-    const h = (e.detail && e.detail.height) || 0;
+    const h = this.data.tab === 'conversation' ? ((e.detail && e.detail.height) || 0) : 0;
     if (h !== this.data.kbHeight) this.setData({ kbHeight: h }, () => this.syncLayoutStyles());
   },
 
   onComposerFocus() {
+    this.prioritizeInteraction();
     // 占位双态（iOS：聚焦后切换为「描述你想要构建的内容」）
-    if (!this.data.composerFocused) this.setData({ composerFocused: true });
+    if (!this.data.composerFocused) this.setData({ composerFocused: true, voiceTyping: true });
   },
 
   onKeyboardHide() {
-    this.setData({ kbHeight: 0, composerFocused: false });
+    this.setData({ kbHeight: 0, composerFocused: false, composerFocus: false, voiceTyping: false });
     if (this.data.kbHeight) this.setData({ kbHeight: 0 });
     this.syncLayoutStyles();
   },
 
-  onVoicePress() {
-    if (this._voiceAlerting) return;
-    this._voiceAlerting = true;
-    wx.showModal({
-      title: uiText('语音输入暂不可用'),
-      content: uiText('当前环境暂不支持语音转写，请使用键盘输入。'),
-      confirmText: uiText('知道了'),
-      showCancel: false,
-      complete: () => { this._voiceAlerting = false; }
-    });
-  },
 
   copyToolCommand(e) {
     const text = e.currentTarget.dataset.text;
@@ -993,50 +1043,58 @@ Page({
   },
 
   moreActions() {
+    if (this.data.moreSheetOpen) return;
+    this.prioritizeInteraction();
+    const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
+    this.setData({ moreSheetOpen: true, statsPopOpen: false, statsSheetOpen: false,
+      showContextSheet: false, commandMenu: null, traceDetail: null,
+      modelSheetOpen: false, effortSheetOpen: false, permissionSheet: [], modeSheet: [],
+      attachSheetOpen: false, kbHeight: 0, composerFocused: false, ...this.layoutPatch({ kbHeight: 0 }) });
+    this.stopScrollPolling();
+    if (hadKeyboard && typeof wx.hideKeyboard === 'function') wx.hideKeyboard();
+  },
+
+  closeMoreActions() {
+    this.prioritizeInteraction();
+    this.setData({ moreSheetOpen: false });
+    if (this.data.tab === 'conversation') this.startScrollPolling();
+  },
+
+  selectMoreAction(e) {
+    if (!this.data.moreSheetOpen) return;
+    const action = e.currentTarget.dataset.action;
     const s = store.sessionState;
-    const self = this;
-    wx.showActionSheet({
-      itemList: [uiText('重命名会话'), uiText('查看统计'), uiText('工作区文件'), uiText('取消当前回合'), uiText('归档会话')],
-      success(res) {
-        switch (res.tapIndex) {
-          case 0:
-            wx.showModal({
-              title: uiText('重命名会话'),
-              editable: true,
-              placeholderText: self.data.navTitle,
-              success(r) {
-                if (r.confirm && r.content && r.content.trim()) {
-                  store.client.renameSession(s.sessionId, r.content.trim());
-                  self.setData({ navTitle: r.content.trim() });
-                }
-              }
-            });
-            break;
-          case 1:
-            self.showStats();
-            break;
-          case 2:
-            wx.navigateTo({ url: '/pages/files/files' });
-            break;
-          case 3:
-            store.client.cancelSession(s.sessionId);
-            break;
-          case 4:
-            wx.showModal({
-              title: uiText('归档会话'),
-              content: uiText('归档后会话将从列表隐藏。'),
-              success(r) {
-                if (r.confirm) {
-                  store.client.archiveSession(s.sessionId);
-                  wx.navigateBack();
-                }
-              }
-            });
-            break;
-          default:
+    if (action === 'cancel' && !s.running) return;
+    this.closeMoreActions();
+    if (action === 'stats') { this.openFullStats(); return; }
+    if (action === 'files') { wx.navigateTo({ url: '/pages/files/files' }); return; }
+    if (!s.sessionId) return;
+    if (action === 'rename') {
+      wx.showModal({
+        title: uiText('重命名会话'), editable: true, placeholderText: this.data.navTitle,
+        success: r => {
+          const title = r.content && r.content.trim();
+          if (!r.confirm || !title) return;
+          if (store.client.renameSession(s.sessionId, title) === false) {
+            wx.showToast({ title: uiText('操作失败'), icon: 'none' }); return;
+          }
+          if (store.sessionState.sessionId === s.sessionId) this.setData({ navTitle: title });
         }
-      }
-    });
+      });
+    } else if (action === 'cancel') {
+      this.stopAgent();
+    } else if (action === 'archive') {
+      wx.showModal({
+        title: uiText('归档会话'), content: uiText('归档后会话将从列表隐藏。'),
+        success: r => {
+          if (!r.confirm) return;
+          if (store.client.archiveSession(s.sessionId) === false) {
+            wx.showToast({ title: uiText('操作失败'), icon: 'none' }); return;
+          }
+          if (store.sessionState.sessionId === s.sessionId) wx.navigateBack();
+        }
+      });
+    }
   },
 
   /** 运行指标 → DSH「会话统计」popover */
@@ -1236,7 +1294,7 @@ Page({
 
   /** 兜底轮询：部分设备 bindscroll 不可靠，定时读一次真实滚动偏移 */
   pollScrollPosition() {
-    if (this.data.tab !== 'conversation') return;
+    if (this._unloaded || this.data.tab !== 'conversation' || this.data.moreSheetOpen) return;
     if (this._scrollPollPending) return;
     this._scrollPollPending = true;
     const query = wx.createSelectorQuery().in(this);
@@ -1245,15 +1303,13 @@ Page({
     query.select('.conversation-inner').boundingClientRect();
     query.exec((res) => {
       this._scrollPollPending = false;
+      if (this._unloaded || this.data.tab !== 'conversation' || this.data.moreSheetOpen) return;
       const view = res && res[0];
       const offset = res && res[1];
       const inner = res && res[2];
       if (!view || !offset || !inner) return;
-      const winW = 375;
-      const rpx = (typeof wx.getWindowInfo === 'function' ? (wx.getWindowInfo().windowWidth) : winW) || winW;
-      const padPx = Math.ceil((Number(this.data.convBottomInset) || 0) * rpx / 750);
-      // scrollHeight ≈ 内层内容高度 + 顶部 8px + 底部留白
-      const scrollHeight = Math.max(0, Number(inner.height) || 0) + padPx + 8;
+      // The measured inner content already includes the explicit dock spacer.
+      const scrollHeight = Math.max(0, Number(inner.height) || 0) + 8;
       this.applyScrollPosition({
         scrollTop: Number(offset.scrollTop) || 0,
         scrollHeight: scrollHeight,
@@ -1280,19 +1336,21 @@ Page({
   },
 
   refreshBottomAnchor() {
-    if (this._bottomAnchorPending || this._unloaded) return;
+    if (this._bottomAnchorPending || this._unloaded || this.data.tab !== 'conversation') return;
     this._bottomAnchorPending = true;
     this._lastScrollTop = undefined;
     this._suppressScrollUntil = Date.now() + 400;
     this.setData({ scrollTarget: '' });
     wx.nextTick(() => {
       this._bottomAnchorPending = false;
-      if (!this._unloaded) this.setData({ scrollTarget: 'conv-bottom' });
+      if (!this._unloaded && this.data.tab === 'conversation') this.setData({ scrollTarget: 'conv-bottom' });
     });
   },
 
   toggleFold(e) {
     const key = e.currentTarget.dataset.key;
+    if (!key) return;
+    this.prioritizeInteraction();
     const patch = {};
     patch['folds.' + key] = !this.data.folds[key];
     this.setData(patch);
@@ -1461,9 +1519,20 @@ Page({
   // ---------- 输入面板 ----------
 
   onDraftInput(e) {
+    this.prioritizeInteraction();
+    this._draftRevision = (this._draftRevision || 0) + 1;
+    this._composerCursor = e.detail.cursor;
     const value = e.detail.value;
     this.setData({ draft: value, canSend: !!value.trim() || this.data.images.length > 0 });
     this.syncCommandMenu(value, store.sessionState);
+  },
+
+  onComposerLineChange(e) {
+    // Native textarea reports actual height changes; typing every character must not
+    // start another three-pass selector query/retry chain across the data bridge.
+    const height = e.detail && e.detail.height;
+    if (!Number.isFinite(height) || height === this._composerHeight) return;
+    this._composerHeight = height;
     this.updateDockInset();
   },
 
@@ -1515,9 +1584,12 @@ Page({
     const patch = dataPatch(this.data, {
       commandMenu: menu,
       canAttach: !active || ui.images === true || (active.input && active.input.images === true),
-      composerPlaceholder: hint || (this.data.composerFocused ? uiText('描述你想要构建的内容') : uiText('输入内容或按住说话'))
+      composerPlaceholder: hint || uiText(this.data.voiceEnabled ? '输入内容或按住说话' : '输入内容')
     });
-    if (Object.keys(patch).length) this.setData(patch);
+    if (Object.keys(patch).length) {
+      this.setData(patch);
+      if (Object.keys(patch).some(key => key === 'commandMenu' || key.indexOf('commandMenu.') === 0 || key.indexOf('commandMenu[') === 0)) this.updateDockInset();
+    }
   },
 
   selectCommand(e) {
@@ -1655,9 +1727,11 @@ Page({
   },
 
   send() {
+    if (this.data.voiceOverlayVisible) return;
     const text = this.data.draft.trim();
     const images = this.data.images;
     if (!text && !images.length) return;
+    this._draftRevision = (this._draftRevision || 0) + 1;
     // 实验性：发送任务前申请订阅消息授权（一次性授权，每次发送都需申请）。
     if (notifyPref.enabled() && NOTIFY_TEMPLATE_ID) {
       wx.requestSubscribeMessage({ tmplIds: [NOTIFY_TEMPLATE_ID], fail: function () {} });
@@ -1695,6 +1769,7 @@ Page({
   },
 
   updateDockInset(attempt) {
+    if (this._unloaded || this.data.tab !== 'conversation') { this._dockMeasurePending = false; return; }
     const tries = typeof attempt === 'number' ? attempt : 0;
     // 首帧调用允许排队；重试调用直接测量，避免被 pending 标志吞掉
     if (tries === 0) {
@@ -1702,9 +1777,15 @@ Page({
       this._dockMeasurePending = true;
     }
     wx.nextTick(() => {
+      if (this._unloaded || this.data.tab !== 'conversation') { this._dockMeasurePending = false; return; }
       const query = wx.createSelectorQuery().in(this);
-      query.select('.dock-stack').boundingClientRect((rect) => {
+      query.select('.dock-stack').boundingClientRect();
+      query.select('.conversation').boundingClientRect();
+      query.exec((rects) => {
+        const rect = rects && rects[0];
+        const viewport = rects && rects[1];
         this._dockMeasurePending = false;
+        if (this._unloaded || this.data.tab !== 'conversation') return;
         if (!rect || !rect.height) {
           // dock 还没完成布局（首帧/历史渲染中）：短间隔重试，
           // 否则会一直沿用默认留白，底部内容被输入区遮挡很久。
@@ -1712,35 +1793,39 @@ Page({
           return;
         }
         const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
-        // 列表只需避让固定 dock 的真实高度，再留 12rpx 呼吸空间。
-        // 旧实现额外加 54rpx，消息结尾与统计胶囊之间会出现明显大空白。
-        const inset = Math.ceil(rect.height * 750 / Math.max(info.windowWidth || 375, 1) + 12);
-        if (Math.abs(inset - this.data.convBottomInset) > 8) {
-          this.setData({ convBottomInset: inset });
-          this.syncLayoutStyles();
+        // Include the dock's bottom offset / safe area, not just its height.
+        const overlap = viewport && Number.isFinite(viewport.bottom) && Number.isFinite(rect.top)
+          ? Math.max(0, viewport.bottom - rect.top)
+          : rect.height + Math.max(0, (info.windowHeight || rect.bottom) - rect.bottom);
+        const inset = Math.ceil(overlap * 750 / Math.max(info.windowWidth || 375, 1) + 20);
+        if (Math.abs(inset - this.data.convBottomInset) > 2) {
+          this.setData({ convBottomInset: inset }, () => {
+            if (this._convPinned) this.refreshBottomAnchor();
+          });
         }
         // 布局稳定后再校准一次：历史/队列渲染会改变 dock 高度
         if (tries < 2) setTimeout(() => this.updateDockInset(tries + 1), 240);
-      }).exec();
+      });
+    });
+  },
+
+  layoutPatch(overrides) {
+    const navPadTop = Number(this.data.navPadTop) || 0;
+    const navHeight = Number(this.data.navHeight) || 0;
+    const navMoreRight = Number(this.data.navMoreRight) || 0;
+    const kbHeight = Number(overrides && overrides.kbHeight !== undefined ? overrides.kbHeight : this.data.kbHeight) || 0;
+    return dataPatch(this.data, {
+      navbarStyle: 'padding-top:' + navPadTop + 'px;height:' + (navPadTop + navHeight)
+        + 'px;padding-right:' + navMoreRight + 'px;',
+      conversationStyle: 'padding-bottom:0;' + (kbHeight ? 'margin-bottom:' + kbHeight + 'px;' : ''),
+      conversationInnerStyle: 'min-height:100%;',
+      trajectoryStyle: kbHeight ? 'margin-bottom:' + kbHeight + 'px;' : '',
+      dockStyle: kbHeight ? 'bottom:' + (kbHeight + 12) + 'px;' : ''
     });
   },
 
   syncLayoutStyles() {
-    const navPadTop = Number(this.data.navPadTop) || 0;
-    const navHeight = Number(this.data.navHeight) || 0;
-    const navMoreRight = Number(this.data.navMoreRight) || 0;
-    const kbHeight = Number(this.data.kbHeight) || 0;
-    const patch = dataPatch(this.data, {
-      navbarStyle: 'padding-top:' + navPadTop + 'px;height:' + (navPadTop + navHeight)
-        + 'px;padding-right:' + navMoreRight + 'px;',
-      conversationStyle: 'padding-bottom:' + (Number(this.data.convBottomInset) || 520) + 'rpx;'
-        + (kbHeight ? 'transform:translateY(-' + kbHeight + 'px);' : ''),
-      // scroll-view 的 padding-bottom 已完整避让 dock；内层只扣 80rpx，
-      // 让短会话最后一条停在统计胶囊上方，而不是重复扣除整个输入栈。
-      conversationInnerStyle: 'min-height:calc(100% - 80rpx);',
-      trajectoryStyle: kbHeight ? 'margin-bottom:' + kbHeight + 'px;' : '',
-      dockStyle: kbHeight ? 'bottom:' + (kbHeight + 12) + 'px;' : ''
-    });
+    const patch = this.layoutPatch();
     if (Object.keys(patch).length) this.setData(patch);
   },
 
@@ -1903,34 +1988,78 @@ Page({
 
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onUiPreferencesChange() {
-    const trajectory = (this.data.trajectory || []).map(trajectoryView.localize);
-    this.setData({ trajectory, traceOverview: trajectoryView.overview(trajectory), ...this.traceSelectionPatch(trajectory) });
+    this._traceLocale = null;
+    this._traceCache = null;
+    if (this.data.tab === 'trajectory') this.setData(dataPatch(this.data, this.trajectoryPatch()));
     if (typeof this.updateDockInset === 'function' && this._renderSessionId) this.updateDockInset();
   },
 
   // ---------- 轨迹详情 ----------
 
+  trajectoryPatch() {
+    const source = this._traceRows || store.sessionState.trajectory || [];
+    const locale = preferences.locale();
+    if (this._traceSource !== source || this._traceLocale !== locale || this._traceRenderSessionId !== this._renderSessionId) {
+      this._traceSource = source;
+      this._traceLocale = locale;
+      this._traceRenderSessionId = this._renderSessionId;
+      this._traceByKey = new Map();
+      source.forEach(row => { this._traceByKey.set(row.key, row); if (row.request) this._traceByKey.set(row.request.key, row.request); });
+      this._traceList = source.map(trajectoryView.listRow);
+      this._traceOverview = trajectoryView.overview(this._traceList);
+    }
+    return { trajectory: this._traceList, traceOverview: this._traceOverview, ...this.traceSelectionPatch(source) };
+  },
+
+  traceItem(key) {
+    if (this._traceByKey) return this._traceByKey.get(key);
+    for (const row of this.data.trajectory || []) {
+      if (row.key === key) return row;
+      if (row.request && row.request.key === key) return row.request;
+    }
+    return null;
+  },
+
+  traceDetailPatch(item, selected) {
+    const locale = preferences.locale();
+    let cache = this._traceCache;
+    if (!cache || cache.item !== item || cache.locale !== locale) {
+      // Source records can contain thousands of chunks; they are not view data.
+      const content = {};
+      Object.keys(item).forEach(key => { if (!['sourceRecords', 'detail', 'request'].includes(key)) content[key] = item[key]; });
+      const signature = JSON.stringify(content);
+      if (!cache || cache.signature !== signature || cache.locale !== locale || cache.sessionId !== this._renderSessionId) {
+        cache = { signature, locale, sessionId: this._renderSessionId, sections: {}, item };
+      }
+      cache.item = item;
+      this._traceCache = cache;
+    }
+    const row = trajectoryView.localize(item);
+    const tabs = trajectoryView.tabs(row);
+    const active = tabs.find(tab => tab.id === selected) || tabs[0];
+    if (!cache.sections[active.id]) cache.sections[active.id] = trajectoryView.sections(row, active.id)[0];
+    return { traceDetail: { key: row.key, label: row.label, badge: row.badge, displayBadge: row.displayBadge, seqLabel: String(row.seqLabel || row.seq || '') },
+      traceDetailTabs: tabs, traceDetailTab: active.id, traceDetailSection: cache.sections[active.id] };
+  },
+
   traceSelectionPatch(rows) {
     if (!this.data.traceDetail) return {};
-    const item = rows.reduce((found, row) => found || (row.key === this.data.traceDetail.key ? row : row.request && row.request.key === this.data.traceDetail.key ? row.request : null), null);
+    const item = this._traceByKey ? this._traceByKey.get(this.data.traceDetail.key)
+      : rows.reduce((found, row) => found || (row.key === this.data.traceDetail.key ? row : row.request && row.request.key === this.data.traceDetail.key ? row.request : null), null);
     if (!item || (this._traceSessionId && this._traceSessionId !== this._renderSessionId)) return { traceDetail: null, traceDetailTabs: [], traceDetailSection: null };
-    const tabs = trajectoryView.sections(item);
-    const active = tabs.find(tab => tab.id === this.data.traceDetailTab) || tabs[0];
-    return { traceDetail: item, traceDetailTabs: tabs.map(({id,label})=>({id,label})), traceDetailTab: active.id, traceDetailSection: active };
+    return this.traceDetailPatch(item, this.data.traceDetailTab);
   },
   openTraceDetail(e) {
-    const item = this.data.trajectory.find(row => row.key === e.currentTarget.dataset.key);
+    const item = this.traceItem(e.currentTarget.dataset.key);
     if (!item || item.kind !== 'event') return;
     this._traceSessionId = this._renderSessionId;
-    const tabs = trajectoryView.sections(item);
-    this.setData({ traceDetail: item, traceDetailTab: 'summary', traceThinkingExpanded: false, traceDetailTabs: tabs.map(({id,label})=>({id,label})), traceDetailSection: tabs[0] });
+    this.setData({ ...this.traceDetailPatch(item, 'summary'), traceThinkingExpanded: false });
   },
   openTraceRequest(e) {
-    const row = this.data.trajectory.find(item => item.key === e.currentTarget.dataset.key);
+    const row = this.traceItem(e.currentTarget.dataset.key);
     if (!row || !row.request) return;
     this._traceSessionId = this._renderSessionId;
-    const tabs = trajectoryView.sections(row.request);
-    this.setData({ traceDetail: row.request, traceDetailTab: 'summary', traceThinkingExpanded: false, traceDetailTabs: tabs.map(({id,label})=>({id,label})), traceDetailSection: tabs[0] });
+    this.setData({ ...this.traceDetailPatch(row.request, 'summary'), traceThinkingExpanded: false });
   },
   jumpToTrace(e) {
     const key = e.currentTarget.dataset.key;
@@ -1945,8 +2074,11 @@ Page({
   toggleTraceThinking() { this.setData({ traceThinkingExpanded: !this.data.traceThinkingExpanded }); },
   selectTraceDetailTab(e) {
     if (!this.data.traceDetail) return;
-    const section = trajectoryView.sections(this.data.traceDetail).find(tab => tab.id === e.currentTarget.dataset.id);
-    if (section) this.setData({ traceDetailTab: section.id, traceDetailSection: section });
+    const item = this.traceItem(this.data.traceDetail.key);
+    if (item) {
+      const patch = dataPatch(this.data, this.traceDetailPatch(item, e.currentTarget.dataset.id));
+      if (Object.keys(patch).length) this.setData(patch);
+    }
   },
   closeTraceDetail() { this.setData({ traceDetail: null, traceDetailTabs: [], traceDetailSection: null }); },
   copyTraceDetail() {

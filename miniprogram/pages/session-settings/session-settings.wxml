@@ -33,6 +33,70 @@
     <view class="card-row"><text class="card-row-label">{{ui['工作目录']}}</text><text class="card-row-value host-value text-mono" selectable>{{host.cwd || '—'}}</text></view>
   </view>
   <view class="group-hint">{{buildNote}}</view>
+  <!-- 选择弹窗：与设置页同款底部弹窗（抓手 + 标题 + 关闭 + 勾选行） -->
+  <view wx:if="{{picker}}" class="pair-sheet-mask" catchtap="closePickerSheet" catchtouchmove="noop">
+    <view class="pair-sheet" style="max-height: {{sheetMaxH}}px;" catchtap="noop" role="dialog" aria-label="{{pickerTitle}}">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <text class="pair-sheet-title">{{pickerTitle}}</text>
+        <text class="pair-sheet-close" bindtap="closePickerSheet">{{ui['关闭']}}</text>
+      </view>
+      <scroll-view class="picker-option-list" style="max-height: {{pickerListH}}px;" scroll-y enhanced show-scrollbar="{{false}}" enable-flex>
+        <block wx:for="{{pickerOptions}}" wx:key="key">
+          <view wx:if="{{item.header}}" class="picker-group">{{item.header}}</view>
+          <view
+            wx:else
+            class="picker-option {{item.checked ? 'checked' : ''}}"
+            data-index="{{index}}"
+            bindtap="choosePicker"
+            role="button"
+          >
+            <text class="picker-option-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+            <text wx:if="{{item.checked}}" class="picker-option-check">✓</text>
+          </view>
+        </block>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- 工作区文件弹窗：与选择弹窗同款底部弹窗 -->
+  <view wx:if="{{filesSheet}}" class="pair-sheet-mask" catchtap="closeFiles" catchtouchmove="noop">
+    <view class="pair-sheet" style="max-height: {{sheetMaxH}}px;" catchtap="noop" role="dialog" aria-label="{{ui['工作区文件']}}">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <text class="pair-sheet-title">{{ui['工作区文件']}}</text>
+        <text class="pair-sheet-close" bindtap="closeFiles">{{ui['关闭']}}</text>
+      </view>
+      <view class="files-toolbar">
+        <view wx:if="{{!filesIsRoot}}" class="files-up tap" bindtap="filesGoUp">{{ui['‹ 上一级']}}</view>
+        <view wx:else class="files-up disabled"></view>
+      </view>
+      <scroll-view class="picker-option-list files-list" style="max-height: {{pickerListH}}px;" scroll-y enhanced show-scrollbar="{{false}}" enable-flex>
+        <view wx:if="{{filesLoading && !filesEntries.length}}" class="files-center">{{ui['正在读取工作区文件…']}}</view>
+        <view wx:elif="{{filesError}}" class="files-center">{{ui[filesError] !== undefined ? ui[filesError] : filesError}}</view>
+        <view wx:elif="{{!filesEntries.length}}" class="files-center">{{ui['此目录为空']}}</view>
+        <block wx:else>
+          <view
+            wx:for="{{filesEntries}}"
+            wx:key="key"
+            class="files-row"
+            data-index="{{index}}"
+            bindtap="filesOpenEntry"
+            hover-class="files-row-hover"
+          >
+            <image class="files-row-icon" src="/assets/icons/{{item.iconFile}}"/>
+            <view class="files-row-body">
+              <text class="files-row-name">{{item.name}}</text>
+              <text wx:if="{{item.subLabel}}" class="files-row-sub">{{item.subLabel}}</text>
+            </view>
+            <text wx:if="{{item.kind === 'dir'}}" class="files-row-chevron">›</text>
+          </view>
+        </block>
+      </scroll-view>
+      <view class="files-path-footer">{{filesPathLabel}}</view>
+    </view>
+  </view>
+
   <view wx:if="{{utilitySheet}}" class="utility-mask" catchtap="closeUtilitySheet" catchtouchmove="noop">
     <view class="utility-sheet" catchtap="noop" role="dialog" aria-label="{{utilitySheet === 'diagnostics' ? ui['诊断信息'] : ui['清理缓存']}}">
       <view class="sheet-grabber"></view>

@@ -9,7 +9,7 @@ const CONNECTION_LABELS = { disconnected: uiText('未连接'), connecting: uiTex
 
 Page({
   manualShareMenu: true,
-  data: { navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '' },
+  data: { navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerOptions: [], sheetMaxH: 480, pickerListH: 348, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true },
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onLoad() {
     theme.applyTo(this);
@@ -32,7 +32,14 @@ Page({
     try { rect = wx.getMenuButtonBoundingClientRect(); } catch (e) { /* 旧基础库按状态栏回退。 */ }
     const validRect = rect && Number.isFinite(rect.top) && rect.top > 0 && Number.isFinite(rect.height) && rect.height > 0;
     const statusBarHeight = Number.isFinite(info.statusBarHeight) && info.statusBarHeight >= 0 ? info.statusBarHeight : 44;
-    this.setData({ navPadTop: validRect ? rect.top : statusBarHeight + 6, navHeight: validRect ? rect.height : 32 });
+    const navPadTop = validRect ? rect.top : statusBarHeight + 6;
+    const navHeight = validRect ? rect.height : 32;
+    // 弹窗最高到「胶囊下沿」为止：可用高度 = 屏幕高 - 胶囊下沿 - 安全间距
+    const windowHeight = Number.isFinite(info.windowHeight) && info.windowHeight > 0 ? info.windowHeight : 667;
+    const capBottom = navPadTop + navHeight;
+    const sheetMaxH = Math.max(240, Math.round(windowHeight - capBottom - 16));
+    const pickerListH = Math.max(160, sheetMaxH - 132);   // 抓手+标题+底部安全区
+    this.setData({ navPadTop, navHeight, sheetMaxH, pickerListH });
   },
   onResize() { this.updateNavigationLayout(); },
   goBack() {
@@ -46,6 +53,9 @@ Page({
     const model = app.defaultModel || {};
     const presetId = defaults.agentPresetDefault || 'standard';
     this.setData({
+      presetId: presetId,
+      modelId: model.model || '',
+      modelProvider: model.provider || '',
       presetLabel: (app.agentPresets && findPresetName(app.agentPresets.presets, presetId)) || labels.presetModeName(presetId),
       modelLabel: model.model ? model.model + (model.reasoningEffort ? ' · ' + capitalize(model.reasoningEffort) : '') : '—',
       permissionLabel: labels.permissionName(defaults.permissionDefault || 'workspace-write') || defaults.permissionDefault || uiText('工作区写入'),
@@ -66,15 +76,14 @@ Page({
           { id: 'minimal' },
           { id: 'cordis' }
         ];
-    wx.showActionSheet({
-      itemList: list.map((p) => p.name || labels.presetModeName(p.id)).slice(0, 6),
-      success(res) {
-        const picked = list[res.tapIndex];
-        store.client.setDefault('agent-preset', picked.id).catch((err) => {
-          wx.showToast({ title: err.message || uiText('设置失败'), icon: 'none' });
-        });
-      }
-    });
+    // 当前预设来自部署级 defaults（与页面顶部标签同源）
+    const defaults = (store.state && store.state.defaults) || {};
+    const current = this.data.presetId || defaults.agentPresetDefault || 'standard';
+    this.openPickerSheet('preset', uiText('Agent 预设'), list.slice(0, 8).map((p) => ({
+      id: p.id,
+      label: p.name || labels.presetModeName(p.id),
+      checked: p.id === current
+    })));
   },
 
   pickDefaultModel() {
@@ -98,33 +107,120 @@ Page({
   },
 
   showModelSheet(flat) {
-    const self = this;
-    wx.showActionSheet({
-      itemList: flat.map((m) => m.label).slice(0, 6),
-      success(res) {
-        const picked = flat[res.tapIndex];
-        store.client.saveDefaultModel(picked.provider, picked.model, picked.defaultEffort)
-          .then(() => {
-            wx.showToast({ title: uiText('已保存'), icon: 'success' });
-          })
-          .catch((err) => {
-            wx.showToast({ title: err.message || uiText('保存失败'), icon: 'none' });
-          });
-        self.setData({ modelLabel: picked.model });
+    const defaults = (store.state && store.state.defaults) || {};
+    const currentModel = this.data.modelId || defaults.model || '';
+    const currentProvider = this.data.modelProvider || defaults.provider || '';
+    let marked = false;
+    // 按供应商分组：每组一个标题行，其后是该供应商的模型
+    const groups = [];
+    flat.forEach((m) => {
+      let group = groups.find((g) => g.provider === m.provider);
+      if (!group) {
+        group = { provider: m.provider, title: capitalize(m.provider), models: [] };
+        groups.push(group);
       }
+      group.models.push(m);
     });
+    const options = [];
+    groups.forEach((group) => {
+      options.push({ header: group.title || group.provider, key: 'h-' + group.provider });
+      group.models.forEach((m) => {
+        // 精确匹配「供应商 + 模型」，且只标记第一项，避免同名模型出现多个勾
+        const providerMatch = currentProvider ? m.provider === currentProvider : true;
+        const hit = !marked && providerMatch && m.model === currentModel;
+        if (hit) marked = true;
+        options.push({
+          key: m.provider + '|' + m.model,
+          id: m.provider + '|' + m.model + '|' + (m.defaultEffort || ''),
+          label: m.label,
+          checked: hit,
+          provider: m.provider,
+          model: m.model,
+          efforts: m.efforts || [],
+          defaultEffort: m.defaultEffort || ''
+        });
+      });
+    });
+    this.openPickerSheet('model', uiText('默认模型'), options);
   },
 
   pickDefaultPermission() {
-    wx.showActionSheet({
-      itemList: [uiText('只读'), uiText('工作区写入'), uiText('完全访问')],
-      success(res) {
-        const values = ['read-only', 'workspace-write', 'danger-full-access'];
-        store.client.setDefault('permission', values[res.tapIndex]).catch((err) => {
-          wx.showToast({ title: err.message || uiText('设置失败'), icon: 'none' });
-        });
-      }
+    const values = ['read-only', 'workspace-write', 'danger-full-access'];
+    const labelsText = [uiText('只读'), uiText('工作区写入'), uiText('完全访问')];
+    const current = (store.state && store.state.defaults && store.state.defaults.permissionDefault) || '';
+    this.openPickerSheet('permission', uiText('权限'), values.map((value, index) => ({
+      id: value,
+      label: labelsText[index],
+      checked: value === current
+    })));
+  },
+
+  /** 保存默认模型；若该模型支持思考强度，先让用户选择强度。 */
+  applyModelSelection(provider, model, efforts, effort) {
+    const currentEffort = (store.state && store.state.defaultModel && store.state.defaultModel.reasoningEffort) || '';
+    if (efforts && efforts.length && !effort) {
+      this.setData({
+        pendingModel: { provider, model, efforts },
+        picker: 'effort',
+        pickerTitle: uiText('思考强度'),
+        pickerOptions: efforts.map((item) => ({
+          id: item.id,
+          label: item.name || item.id,
+          checked: item.id === currentEffort
+        }))
+      });
+      return;
+    }
+    const chosen = effort || (efforts && efforts.length ? (efforts.find((item) => item.id === currentEffort) || {}).id || currentEffort : '');
+    store.client.saveDefaultModel(provider, model, chosen || '')
+      .then(() => { wx.showToast({ title: uiText('已保存'), icon: 'success' }); })
+      .catch((err) => { wx.showToast({ title: err.message || uiText('保存失败'), icon: 'none' }); });
+    this.setData({
+      modelId: model,
+      modelProvider: provider,
+      modelLabel: model + (chosen ? ' · ' + capitalize(chosen) : ''),
+      pendingModel: null
     });
+  },
+
+  // ---------- 通用选择弹窗（与设置页弹窗样式一致） ----------
+
+  openPickerSheet(kind, title, options) {
+    this.setData({ picker: kind, pickerTitle: title, pickerOptions: options || [] });
+  },
+
+  closePickerSheet() {
+    this.setData({ picker: '', pickerTitle: '', pickerOptions: [] });
+  },
+
+  choosePicker(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const option = (this.data.pickerOptions || [])[index];
+    const kind = this.data.picker;
+    if (!option || option.header) return;   /* 分组标题不可点 */
+    this.closePickerSheet();
+    if (kind === 'preset') {
+      // 先乐观更新标签，再写入部署级默认值
+      this.setData({ presetId: option.id, presetLabel: option.label });
+      store.client.setDefault('agent-preset', option.id).catch((err) => {
+        wx.showToast({ title: err.message || uiText('设置失败'), icon: 'none' });
+      });
+      return;
+    }
+    if (kind === 'permission') {
+      store.client.setDefault('permission', option.id).catch((err) => {
+        wx.showToast({ title: err.message || uiText('设置失败'), icon: 'none' });
+      });
+      return;
+    }
+    if (kind === 'model') {
+      this.applyModelSelection(option.provider, option.model, option.efforts || [], '');
+      return;
+    }
+    if (kind === 'effort') {
+      const pending = this.data.pendingModel || {};
+      this.applyModelSelection(pending.provider, pending.model, pending.efforts || [], option.id);
+    }
   },
 
   openPlugins() {
@@ -132,7 +228,73 @@ Page({
   },
 
   openFiles() {
-    wx.navigateTo({ url: '/pages/files/files' });
+    this._filesRel = null;
+    this.setData({ filesSheet: true, filesEntries: [], filesLoading: true, filesError: '' });
+    this.loadFiles(null);
+  },
+
+  closeFiles() {
+    this.setData({ filesSheet: false, filesEntries: [], filesError: '', filesLoading: false });
+  },
+
+  /** 读取工作区目录（相对会话工作区根）。 */
+  loadFiles(relPath) {
+    const sessionId = (store.sessionState && store.sessionState.sessionId) || '';
+    if (!sessionId) {
+      this.setData({ filesLoading: false, filesError: uiText('请先打开一个会话'), filesEntries: [] });
+      return;
+    }
+    if (store.state.connection !== 'connected') {
+      this.setData({ filesLoading: false, filesError: uiText('请先连接驭鲸 Harness'), filesEntries: [] });
+      return;
+    }
+    this._filesRel = relPath || null;
+    this.setData({ filesLoading: true, filesError: '' });
+    store.client.requestFileList(sessionId, relPath)
+      .then((frame) => {
+        if (!frame) return;
+        const entries = (frame.entries || frame.items || []).map((item, index) => ({
+          name: item.name || item.title || '',
+          path: item.path || '',
+          kind: item.kind === 'dir' || item.kind === 'directory' ? 'dir' : 'file',
+          iconFile: fileIconFor(item),
+          subLabel: describeFileEntry(item),
+          key: (item.path || '') + '/' + index
+        }));
+        this._filesRel = frame.path || this._filesRel || null;
+        const rel = this._filesRel;
+        const isRoot = !rel || rel === '.' || rel === '/';
+        this.setData({
+          filesEntries: entries,
+          filesIsRoot: isRoot,
+          filesPathLabel: isRoot ? uiText('工作区根目录') : String(rel),
+          filesLoading: false
+        });
+      })
+      .catch((err) => {
+        this.setData({ filesLoading: false, filesError: err.message || uiText('读取目录失败') });
+      });
+  },
+
+  filesOpenEntry(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const item = (this.data.filesEntries || [])[index];
+    if (!item) return;
+    if (item.kind === 'dir') {
+      this.loadFiles(item.path);
+      return;
+    }
+    wx.showModal({ title: item.name, content: item.path, showCancel: false, confirmText: uiText('知道了') });
+  },
+
+  filesGoUp() {
+    const rel = this._filesRel;
+    if (!rel || rel === '.' || rel === '/') {
+      this.loadFiles(null);
+      return;
+    }
+    const idx = rel.lastIndexOf('/');
+    this.loadFiles(idx > 0 ? rel.substring(0, idx) : null);
   },
 
   openSchedule() {
@@ -196,11 +358,13 @@ function flattenModels(catalog) {
   if (catalog && catalog.groups) {
     catalog.groups.forEach((group) => {
       (group.models || []).forEach((model) => {
+        const reasoning = model.reasoning || null;
         flat.push({
           provider: group.id,
           model: model.id,
           label: (group.name || group.id) + ' · ' + (model.name || model.id),
-          defaultEffort: model.reasoning && model.reasoning.defaultEffort
+          defaultEffort: reasoning && reasoning.defaultEffort,
+          efforts: (reasoning && Array.isArray(reasoning.efforts)) ? reasoning.efforts : []
         });
       });
     });
@@ -211,4 +375,38 @@ function flattenModels(catalog) {
 function capitalize(text) {
   if (!text) return '';
   return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/* ---------- 工作区文件弹窗辅助（与 pages/files 保持一致） ---------- */
+function fileIconFor(item) {
+  if (item.kind === 'dir' || item.kind === 'directory') return 'ic-dir-folder-blue.png';
+  const ext = String(item.name || '').split('.').pop().toLowerCase();
+  if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'heic'].indexOf(ext) >= 0) return 'photo-ocean.png';
+  if (['md', 'doc', 'docx', 'rtf', 'pages'].indexOf(ext) >= 0) return 'doc-richtext-ocean.png';
+  if (['txt', 'log', 'json', 'yaml', 'yml', 'toml', 'xml', 'csv'].indexOf(ext) >= 0) return 'doc-text-ocean.png';
+  if (['zip', 'tar', 'gz', '7z', 'rar', 'pkg', 'dmg'].indexOf(ext) >= 0) return 'box-ocean.png';
+  return 'doc-ocean.png';
+}
+
+function describeFileEntry(item) {
+  const parts = [];
+  const isDir = item.kind === 'dir' || item.kind === 'directory';
+  if (!isDir && item.bytes !== undefined && item.bytes !== null) parts.push(formatSize(item.bytes));
+  if (item.modifiedAt) parts.push(formatFileDate(item.modifiedAt));
+  return parts.join(' · ');
+}
+
+function formatSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(1) + ' MB';
+}
+
+function formatFileDate(epoch) {
+  const ms = typeof epoch === 'string' ? parseInt(epoch, 10) : epoch;
+  if (!ms || isNaN(ms)) return '';
+  const d = new Date(ms * (ms < 1e12 ? 1000 : 1));
+  const pad = (n) => (n < 10 ? '0' + n : '' + n);
+  return d.getFullYear() + '/' + pad(d.getMonth() + 1) + '/' + pad(d.getDate()) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
 }

@@ -9,7 +9,7 @@ const wxss = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings
 
 function createPage(apiOptions) {
   let definition;
-  const calls = [];
+  const calls = [], timers = new Map(); let timerId = 0;
   const api = Object.assign({ configured: () => false, ensureAccount: async () => ({ isAdmin: false }) }, apiOptions);
   const store = {
     state: { profiles: [], activeID: null, connection: 'disconnected' },
@@ -44,17 +44,21 @@ function createPage(apiOptions) {
       if (name === '../../utils/version-info') return require('../miniprogram/utils/version-info');
       if (name === '../../utils/labels') return { presetModeName: (v) => v, permissionName: (v) => v };
       if (name === '../../utils/notify-pref') return { enabled: () => false };
+      if (name === '../../utils/voice-preference') return require('../miniprogram/utils/voice-preference');
       if (name === '../../utils/theme') return { applyTo() {}, getMode: () => 'auto' };
       if (name === '../../utils/build') return { BUILD_TIME: 'test-build' };
       throw new Error('Unexpected dependency: ' + name);
     },
-    wx, Date
+    wx, Date,
+    setTimeout(fn) { timers.set(++timerId, fn); return timerId; },
+    clearTimeout(id) { timers.delete(id); }
   }, { filename: pagePath });
   const page = Object.assign({}, definition, {
     data: JSON.parse(JSON.stringify(definition.data)),
     setData(update) { Object.assign(this.data, update); }
   });
-  return { page, store, wx, calls, api };
+  const paint = () => { page.onReady(); const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); };
+  return { page, store, wx, calls, api, paint, timers };
 }
 
 const { page, store, wx, calls } = createPage();
@@ -97,7 +101,7 @@ page.openPrivacyPolicy();
 assert.equal(page.data.privacyOpen, true);
 page.closePrivacyPolicy();
 assert.equal(page.data.privacyOpen, false);
-assert.deepEqual(calls, ['refresh']);
+assert.deepEqual(calls, [], 'First paint must not wait for host probes');
 calls.length = 0;
 page.openPublicAccess();
 assert.equal(page.data.managementPanel, 'public');
@@ -267,22 +271,25 @@ async function testShareRace() {
 }
 
 async function testAutomaticIdentity() {
-  const { page, calls, api } = createPage({ configured: () => true,
+  const { page, calls, api, paint } = createPage({ configured: () => true,
     ensureAccount: async options => { assert.equal(options.freshLogin, true); return { isAdmin: true }; } });
-  await page.onShow();
+  const show = () => { const pending = page.onShow(); paint(); return pending; };
+  await show();
   assert.equal(page.data.isWechatAdmin, true);
   assert.equal(page.data.accountLabel, '管理员');
-  assert.equal(calls.length, 0, 'Automatic verification must not prompt or toast');
+  assert.deepEqual(calls, ['refresh'], 'Automatic verification only refreshes silently');
+  calls.length = 0;
   assert.equal(page.data.adminAdvancedOpen, false);
   page.toggleAdminAdvanced();
   assert.equal(page.data.adminAdvancedOpen, true, 'Verified admin can expand optional management');
   page.openCodeManagement();
-  assert.equal(calls[0][0], 'navigate');
+  // 兑换码管理改为弹窗：不再跳转页面
+  assert.equal(page.data.codeSheet, true);
   page.onHide();
   assert.equal(page.data.isWechatAdmin, false);
   assert.equal(page.data.adminAdvancedOpen, false, 'Leaving settings collapses advanced tools');
   api.ensureAccount = async () => ({ isAdmin: false });
-  await page.onShow();
+  await show();
   assert.equal(page.data.accountLabel, '普通用户');
   calls.length = 0;
   page.openCodeManagement();
@@ -290,28 +297,40 @@ async function testAutomaticIdentity() {
   assert.equal(page.data.adminAdvancedOpen, false, 'Ordinary users cannot expand advanced tools');
   assert.equal(calls.length, 0, 'Ordinary users cannot enter management');
   api.ensureAccount = async () => { throw new Error('offline'); };
-  await page.onShow();
+  await show();
   assert.equal(page.data.isWechatAdmin, false);
   assert.equal(page.data.accountLabel, '待识别');
   let resolveOld;
   api.ensureAccount = () => new Promise(resolve => { resolveOld = resolve; });
-  const old = page.onShow();
+  const old = show();
   page.onHide();
   api.ensureAccount = async () => ({ isAdmin: false });
-  await page.onShow();
+  await show();
   resolveOld({ isAdmin: true });
   await old;
   assert.equal(page.data.isWechatAdmin, false, 'Late admin response cannot restore old identity');
   assert.equal(page.data.accountBusy, false);
   const unconfigured = createPage();
-  await unconfigured.page.onShow();
+  const pending = unconfigured.page.onShow(); unconfigured.paint(); await pending;
   assert.equal(unconfigured.page.data.accountLabel, '待识别');
   assert.equal(unconfigured.page.data.isWechatAdmin, false);
   assert.doesNotMatch(wxml, /verifyWechatAccount|验证微信身份/);
   assert.match(wxml, /wx:if="{{isWechatAdmin}}"/);
 }
 
-Promise.all([testShareRace(), testAutomaticIdentity(), testNodeDetails()]).then(() => console.log('settings independent panels, node details and automatic identity: PASS')).catch((err) => {
+async function testDeferredRefresh() {
+  const { page, calls, paint } = createPage();
+  page.onLoad({});
+  const pending = page.onShow();
+  assert.deepEqual(calls, []);
+  page.onHide(); paint(); await pending;
+  assert.deepEqual(calls, [], 'Leaving before first paint cancels network work');
+  page.openVoiceSettings();
+  assert.equal(calls.at(-1)[1], require('../miniprogram/utils/voice-preference').SETTINGS_URL);
+  assert.ok(decodeURIComponent(calls.at(-1)[1]).includes('dsh-experimental-voice-input-bundle'));
+}
+
+Promise.all([testShareRace(), testAutomaticIdentity(), testNodeDetails(), testDeferredRefresh()]).then(() => console.log('settings independent panels, node details and automatic identity: PASS')).catch((err) => {
   console.error(err);
   process.exitCode = 1;
 });

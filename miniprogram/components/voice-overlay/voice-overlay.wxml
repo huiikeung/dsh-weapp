@@ -1,0 +1,8 @@
+<view class="voice-overlay {{visible ? 'visible' : (leaving ? 'leaving' : '')}} {{theme}} {{displayCancelArmed ? 'cancelling' : ''}}" aria-hidden="{{!visible}}">
+  <view class="voice-halo"></view>
+  <view class="voice-masked">
+    <view class="voice-glow"></view>
+    <canvas wx:if="{{visible}}" type="2d" id="voice-particles" class="voice-particles"></canvas>
+    <text class="voice-status" aria-live="polite">{{displayStatus}}</text>
+  </view>
+</view>

@@ -12,7 +12,7 @@
       <view class="drawer-brand">
         <image class="drawer-whale drawer-whale-light" src="/assets/icons/whale-ink.png" mode="aspectFit"/>
         <image class="drawer-whale drawer-whale-dark" src="/assets/icons/whale-white.png" mode="aspectFit"/>
-        <view class="drawer-brand-text">whaletail</view>
+        <view class="brand-wordmark drawer-brand-text">whaletail</view>
         <view class="drawer-brand-badge">HARNESS</view>
       </view>
       <view class="drawer-item" hover-class="drawer-item-active" bindtap="openPlugins">
@@ -49,7 +49,7 @@
     <view class="topbar" style="top: {{topbarTop}}px; height: {{topbarHeight}}px;">
       <view class="brand-row tap" hover-class="brand-dim" bindtap="openDrawer">
         <image class="brand-whale" src="/assets/icons/whale-white.png" mode="aspectFit"/>
-        <view class="brand-text">whaletail</view>
+        <view class="brand-wordmark brand-text">whaletail</view>
         <view class="brand-badge">HARNESS</view>
       </view>
     </view>

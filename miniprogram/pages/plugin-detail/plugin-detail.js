@@ -75,7 +75,12 @@ Page(Object.assign({}, settingsActions, {
     this.setData({ statusBarH: top, detailScrollHeight: Math.max(160, (Number(info.windowHeight) || 800) - top - 92 * width / 750) });
   },
   onResize(e) { this.updateDetailViewport(e.size || {}); },
-  onShow() {this.voiceHidden=false;if(this.configForm && this.configForm.kind==='voice')this.loadVoiceSettings();},
+  onShow() {
+    this.voiceHidden = false;
+    // Direct entry from settings must not depend on visiting the plugin list first.
+    if (!store.state.pluginCatalog && !store.state.pluginsLoading) store.refreshPlugins();
+    if (this.configForm && this.configForm.kind === 'voice') this.loadVoiceSettings();
+  },
   onHide() {this.voiceHidden=true;clearTimeout(this.voiceTimer);},
   onUnload() {
     this.configDisposed = true; this.configGeneration = (this.configGeneration || 0) + 1; this.configSecret = '';

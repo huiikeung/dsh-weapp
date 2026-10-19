@@ -7,6 +7,10 @@ Metal 手机流体场与粒子运动移植为 WebGL，保留原作者许可。
 
 MIT License
 
+components/voice-overlay/voice-field.js 的粒子几何及 voice-overlay 的蒙层、
+配色和动画参数改编自同一项目的 VoiceRipplePanel.swift（2026-10-19 主分支）。
+下列 MIT 许可同样适用于这些改编内容。
+
 Copyright (c) 2026 Chaofan Li
 
 Permission is hereby granted, free of charge, to any person obtaining a copy

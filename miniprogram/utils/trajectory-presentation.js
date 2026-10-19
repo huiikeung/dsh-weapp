@@ -43,7 +43,9 @@ function build(source, sessionId, normalize) {
     rows.push(row); return row;
   }
   function record(row, raw) {
-    if (!row.sourceRecords.some(r => r.seq === raw.seq)) row.sourceRecords.push(raw);
+    // Events are sequence-sorted. Avoid rescanning every earlier streaming chunk.
+    const last = row.sourceRecords[row.sourceRecords.length - 1];
+    if (!last || last.seq !== raw.seq) row.sourceRecords.push(raw);
     row.endedAt = timestamp(raw.time);
   }
   function assistant(raw) {
@@ -124,7 +126,7 @@ function build(source, sessionId, normalize) {
     if (row.startedAt != null && row.endedAt != null) row.durationMs = Math.max(0, row.endedAt - row.startedAt);
     row.durationLabel = seconds(row.durationMs); row.seqLabel = String(row.seq); row.stepLabel = row.step == null ? '' : t('第 {step} 步', { step: row.step });
     row.statusLabel = row.isError ? 'Failed' : row.interrupted ? 'Interrupted' : row.completed ? 'Completed' : row.stopped ? 'Incomplete' : 'Running';
-    row.detail = json(row.sourceRecords);
+    // Keep original records in logic memory; stringify only when raw detail is opened.
     if (row.badge === 'ASSISTANT') {
       const tokens = usage(row.usage);
       Object.keys(cumulative).forEach(key => { if (tokens[key] != null) cumulative[key] = (cumulative[key] || 0) + tokens[key]; });
@@ -157,10 +159,12 @@ function overview(rows) {
   });
   return { durationLabel: seconds(duration), turns: new Set(events.filter(r => r.turn != null).map(r => r.turn)).size, calls: events.filter(r => ['TOOL', 'SUBTOOL'].includes(r.badge)).length, lanes };
 }
-function sections(row) {
+function sections(row, selectedId) {
   const tabs = [], field = (label, value) => ({ label: copy(label), value: value == null ? '—' : String(value) });
-  const block = (title, text, code, collapsible) => ({ title: copy(title), text: text || '', code: !!code, collapsible: !!collapsible, blocks: code ? [] : markdown.parse(text || '') });
+  const richPreview = !selectedId || selectedId === 'summary' || selectedId === 'preview';
+  const block = (title, text, code, collapsible) => ({ title: copy(title), text: text || '', code: !!code, collapsible: !!collapsible, blocks: code || !richPreview ? [] : markdown.parse(text || '') });
   function add(id, label, fields, blocks) {
+    if (selectedId && selectedId !== id) return;
     tabs.push({ id, label: copy(label), fields: fields || [], blocks: blocks || [], text: (fields || []).map(f => f.label + ': ' + f.value).concat((blocks || []).map(b => b.title + '\n' + b.text)).join('\n\n') });
   }
   const date = row.startedAt == null ? null : new Date(row.startedAt), pad = (n, len) => String(n).padStart(len || 2, '0');
@@ -202,10 +206,29 @@ function sections(row) {
     if (row.thinkingText) raw.push(block(t('思考'), row.thinkingText, true));
     if (row.outputText || row.inputText) raw.push(block(t('文本'), row.outputText || row.inputText, true));
     (row.toolCalls || []).forEach(c => raw.push(block(t('工具调用') + ' ' + c.name, display(c.arguments), true)));
-    if (!raw.length) raw.push(block(t('内容'), row.detail || '', true));
+    if (!raw.length && (!selectedId || selectedId === 'raw')) raw.push(block(t('内容'), row.detail || json(row.sourceRecords) || '', true));
     add('raw', '原始', [], raw.map((b, i) => ({ ...b, title: t('块 #{index} {type}', { index: i + 1, type: b.title }) })));
   }
   return tabs;
+}
+function tabs(row) {
+  const entries = row.badge === 'REQUEST'
+    ? [['summary', '摘要'], ['options', '选项'], ['usage', '用量'], ['timing', '耗时']]
+    : ['TOOL', 'SUBTOOL'].includes(row.badge)
+      ? [['summary', '摘要'], ['input', '参数'], ['output', '结果'], ...(row.badge === 'TOOL' ? [['schema', 'Schema']] : []), ['timing', '耗时']]
+      : [['summary', '摘要'], ['preview', '预览'], ['raw', '原始']];
+  return entries.map(([id, label]) => ({ id, label: copy(label) }));
+}
+function listRow(row) {
+  const item = localize(row);
+  const out = {};
+  for (const key of ['kind', 'key', 'turn', 'label', 'badge', 'displayBadge', 'badgeClass', 'preview', 'seqLabel', 'requestNumber', 'durationMs']) {
+    if (item[key] !== undefined) out[key] = item[key];
+  }
+  out.badgeClass = String(item.badge || '').toLowerCase();
+  out.seqLabel = typeof item.seq === 'number' ? String(item.seq).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '';
+  if (item.request) out.request = { key: item.request.key };
+  return out;
 }
 function filter(rows, query, kind) {
   const q = String(query || '').trim().toLowerCase(), out = []; let heading = null;
@@ -228,4 +251,4 @@ function localize(row) {
   if (row.request) value.request = localize(row.request);
   return value;
 }
-module.exports = { build, sections, filter, timestamp, overview, localize };
+module.exports = { build, sections, tabs, listRow, filter, timestamp, overview, localize };

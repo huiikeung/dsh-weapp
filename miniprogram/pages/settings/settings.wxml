@@ -77,6 +77,13 @@
   <view class="group-title">{{ui['对话']}}</view>
   <view wx:if="{{workStepMenu}}" class="work-step-menu-mask" catchtap="closeWorkStepMenu"></view>
   <view class="card work-step-settings">
+    <view class="card-row">
+      <view class="work-step-copy"><text class="card-row-label">{{ui['语音输入']}}</text><text class="work-step-hint">{{ui['按住说话，由已连接的 DSH 语音插件转写']}}</text></view>
+      <switch checked="{{voiceEnabled}}" color="#2E6BE6" bindchange="toggleVoice" aria-label="{{ui['语音输入']}}"/>
+    </view>
+    <view wx:if="{{voiceEnabled}}" class="card-row" bindtap="openVoiceSettings" role="button">
+      <text class="card-row-label">{{ui['语音插件设置']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+    </view>
     <view class="card-row work-step-row">
       <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤展示']}}</text><text class="work-step-hint">{{ui['选择希望看到多少工具调用细节']}}</text></view>
       <view class="work-step-select" bindtap="toggleWorkStepMenu" data-field="mode" role="button" aria-label="{{ui['工作步骤展示：']}}{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}"><text>{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}</text><image class="work-step-select-chevron" src="/assets/icons/chev-right-gray.png"/></view>
@@ -319,6 +326,181 @@
       <button class="referral-cancel" bindtap="closeReferralShare">{{ui['取消']}}</button>
     </view>
   </view>
+  <!-- 开发者公告弹窗 -->
+  <view wx:if="{{devAnnSheet}}" class="pair-sheet-mask" catchtap="closeDevAnnouncements" catchtouchmove="noop">
+    <view class="pair-sheet devann-sheet" catchtap="noop" catchtouchmove="noop" role="dialog" aria-label="{{ui['开发者公告']}}">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <text class="pair-sheet-title">{{ui['开发者公告']}}</text>
+        <text class="pair-sheet-close" bindtap="closeDevAnnouncements">{{ui['关闭']}}</text>
+      </view>
+      <scroll-view class="devann-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+        <view wx:if="{{devAnnLoading}}" class="code-message">{{ui['正在加载公告…']}}</view>
+        <view wx:if="{{devAnnError}}" class="code-message error">{{ui[devAnnError] !== undefined ? ui[devAnnError] : devAnnError}}</view>
+        <view wx:if="{{!devAnnLoading && !devAnnError && !devAnnItems.length}}" class="devann-empty">
+          <text class="devann-empty-title">{{ui['暂无开发者公告']}}</text>
+          <text class="devann-empty-desc">{{ui['更新说明和使用提醒将发布在这里。']}}</text>
+        </view>
+        <view
+          wx:for="{{devAnnItems}}"
+          wx:key="id"
+          class="devann-item"
+          data-id="{{item.id}}"
+          bindtap="toggleDevAnnouncement"
+        >
+          <view class="devann-item-head">
+            <text class="devann-item-title">{{item.title}}</text>
+            <text class="devann-item-time">{{item.dateLabel}}</text>
+          </view>
+          <text class="devann-item-body {{item.expanded ? 'expanded' : ''}}">{{item.content}}</text>
+          <text class="devann-item-more">{{item.expanded ? ui['收起'] : ui['展开']}}</text>
+        </view>
+        <view class="devann-note">{{ui['公告不会索取密码、配对令牌或模型密钥。']}}</view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- 发布公告弹窗（管理员） -->
+  <view wx:if="{{annSheet}}" class="pair-sheet-mask" catchtap="closeAnnouncementSheet" catchtouchmove="noop">
+    <view class="pair-sheet ann-sheet" catchtap="noop" catchtouchmove="noop" role="dialog" aria-label="{{ui['发布公告']}}">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <view>
+          <text class="pair-sheet-title">{{ui['发布公告']}}</text>
+          <text class="pair-sheet-subtitle">{{ui['发布后在「设置 → 关于 → 开发者公告」展示，与网页管理台同步。请勿发布密钥或个人隐私。']}}</text>
+        </view>
+        <text class="pair-sheet-close" bindtap="closeAnnouncementSheet">{{ui['关闭']}}</text>
+      </view>
+
+      <view wx:if="{{annLoading}}" class="code-message">{{ui['正在验证管理员身份…']}}</view>
+      <view wx:if="{{annError}}" class="code-message error">{{ui[annError] !== undefined ? ui[annError] : annError}}</view>
+
+      <block wx:if="{{annIsAdmin && !annLoading}}">
+        <scroll-view class="ann-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+          <view class="ann-form">
+            <input
+              class="ann-input"
+              value="{{annTitle}}"
+              bindinput="annInputTitle"
+              maxlength="60"
+              placeholder="{{ui['公告标题']}}"
+              placeholder-class="ann-placeholder"
+              disabled="{{annBusy}}"
+            />
+            <textarea
+              class="ann-textarea"
+              value="{{annContent}}"
+              bindinput="annInputContent"
+              maxlength="2000"
+              auto-height="{{false}}"
+              placeholder="{{ui['填写更新说明或使用提醒，支持换行']}}"
+              placeholder-class="ann-placeholder"
+              disabled="{{annBusy}}"
+            ></textarea>
+          </view>
+          <view class="ann-actions">
+            <button class="ann-primary" bindtap="annSave" disabled="{{annBusy}}">{{annBusy ? ui['保存中…'] : (annEditingId ? ui['保存修改'] : ui['发布公告'])}}</button>
+            <button wx:if="{{annEditingId}}" class="ann-ghost" bindtap="annClearEditor" disabled="{{annBusy}}">{{ui['取消编辑']}}</button>
+          </view>
+          <view class="ann-hint">{{ui['发布后在「设置 → 关于 → 开发者公告」展示，与网页管理台同步。请勿发布密钥或个人隐私。']}}</view>
+
+          <view class="ann-list-head">
+            <text class="ann-list-title">{{ui['公告']}}</text>
+            <text class="code-refresh" bindtap="loadAnnouncements">{{ui['刷新']}}</text>
+          </view>
+          <view wx:if="{{!annItems.length}}" class="code-message">{{ui['暂无公告，发布后会在这里显示。']}}</view>
+          <view wx:for="{{annItems}}" wx:key="id" class="ann-item">
+            <view class="ann-item-head">
+              <text class="ann-item-title">{{item.title}}</text>
+              <text class="ann-item-status">{{ui['已发布 ·']}} {{item.timeLabel}}</text>
+            </view>
+            <text class="ann-item-body">{{item.content}}</text>
+            <view class="ann-item-actions">
+              <button class="code-btn" data-id="{{item.id}}" bindtap="annEdit" disabled="{{annBusy}}">{{ui['编辑']}}</button>
+              <button class="code-btn danger" data-id="{{item.id}}" bindtap="annRemove" disabled="{{annBusy}}">{{ui['删除']}}</button>
+            </view>
+          </view>
+        </scroll-view>
+      </block>
+    </view>
+  </view>
+
+  <!-- 兑换码管理弹窗（管理员） -->
+  <view wx:if="{{codeSheet}}" class="pair-sheet-mask" catchtap="closeCodeManagement" catchtouchmove="noop">
+    <view
+      class="pair-sheet code-sheet"
+      style="height: {{codeSheetExpanded ? codeSheetExpandedMaxH : codeSheetDefaultH}}px;"
+      catchtap="noop"
+      catchtouchmove="noop"
+      role="dialog"
+      aria-label="{{ui['兑换码管理']}}"
+    >
+      <view
+        class="sheet-grabber-zone"
+        catchtouchstart="codeGrabStart"
+        catchtouchmove="codeGrabMove"
+        catchtouchend="codeGrabEnd"
+      >
+        <view class="sheet-grabber"></view>
+      </view>
+      <view class="pair-sheet-head">
+        <view>
+          <text class="pair-sheet-title">{{ui['兑换码管理']}}</text>
+          <text class="pair-sheet-subtitle">{{ui['管理员生成 · 复制分发 · 用户兑换']}}</text>
+        </view>
+        <text class="pair-sheet-close" bindtap="closeCodeManagement">{{ui['关闭']}}</text>
+      </view>
+
+      <view wx:if="{{codeLoading}}" class="code-message">{{ui['正在验证管理员身份…']}}</view>
+      <view wx:if="{{codeError}}" class="code-message error">{{ui[codeError] !== undefined ? ui[codeError] : codeError}}</view>
+
+      <block wx:if="{{codeIsAdmin && !codeLoading}}">
+        <scroll-view class="code-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+          <view class="code-form">
+            <view class="card-row"><text class="card-row-label">{{ui['适用范围']}}</text><text class="code-value">{{ui['全部公网节点']}}</text></view>
+            <picker range="{{codeDurations}}" value="{{codeDurationIndex}}" bindchange="codePickDuration" disabled="{{codeBusy}}">
+              <view class="card-row"><text class="card-row-label">{{ui['访问时长']}}</text><text class="code-value">{{codeDurations[codeDurationIndex]}} ›</text></view>
+            </picker>
+            <picker range="{{codeCounts}}" value="{{codeCountIndex}}" bindchange="codePickCount" disabled="{{codeBusy}}">
+              <view class="card-row"><text class="card-row-label">{{ui['可兑换次数']}}</text><text class="code-value">{{codeCounts[codeCountIndex]}} ›</text></view>
+            </picker>
+          </view>
+
+          <button class="code-primary" bindtap="codeGenerate" disabled="{{codeBusy}}">{{codeBusy ? ui['生成中…'] : ui['生成兑换码']}}</button>
+
+          <view wx:if="{{codeGenerated}}" class="code-result">
+            <text class="code-result-label">{{ui['请妥善保管，可在最近生成列表中再次复制或删除']}}</text>
+            <text class="code-result-value" selectable>{{codeGenerated}}</text>
+            <text class="code-result-meta">{{codeGeneratedMeta}}</text>
+            <view class="code-result-actions">
+              <button class="code-btn" bindtap="codeCopyGenerated">{{ui['复制']}}</button>
+              <button wx:if="{{codeGeneratedId}}" class="code-btn danger" data-id="{{codeGeneratedId}}" bindtap="codeDeleteItem">{{ui['删除']}}</button>
+            </view>
+          </view>
+
+          <view class="code-list-head">
+            <text class="code-list-title">{{ui['最近生成']}}</text>
+            <text class="code-refresh" bindtap="loadCodes">{{ui['刷新']}}</text>
+          </view>
+          <view wx:if="{{!codeItems.length}}" class="code-message">{{ui['还没有生成兑换码']}}</view>
+          <view wx:for="{{codeItems}}" wx:key="id" class="code-item">
+            <view class="code-item-head">
+              <text class="code-item-title">{{item.title}}</text>
+              <text class="code-item-status">{{ui[item.statusLabel] !== undefined ? ui[item.statusLabel] : item.statusLabel}}</text>
+            </view>
+            <text class="code-item-meta">{{ui['范围']}} {{item.nodeId ? item.nodeId : ui['全部公网节点']}}</text>
+            <text class="code-item-meta">{{ui[item.usageLabel] !== undefined ? ui[item.usageLabel] : item.usageLabel}} · {{ui[item.expiryLabel] !== undefined ? ui[item.expiryLabel] : item.expiryLabel}} {{ui['到期']}}</text>
+            <view class="code-item-actions">
+              <button class="code-btn" data-id="{{item.id}}" bindtap="codeCopyItem" disabled="{{codeBusy}}">{{ui['复制']}}</button>
+              <button wx:if="{{item.canRevoke}}" class="code-btn" data-id="{{item.id}}" bindtap="codeRevokeItem" disabled="{{codeBusy}}">{{ui['停用']}}</button>
+              <button class="code-btn danger" data-id="{{item.id}}" bindtap="codeDeleteItem" disabled="{{codeBusy}}">{{ui['删除']}}</button>
+            </view>
+          </view>
+        </scroll-view>
+      </block>
+    </view>
+  </view>
+
   <view wx:if="{{pairSheetOpen}}" class="pair-sheet-mask" catchtap="closePairSheet" catchtouchmove="noop">
     <view class="pair-sheet" catchtap="noop">
       <view class="sheet-grabber"></view>

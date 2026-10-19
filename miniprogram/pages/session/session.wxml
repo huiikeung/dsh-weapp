@@ -15,16 +15,16 @@
   <!-- 对话 / 轨迹 segmented control + 圆形菜单 -->
   <view class="segmented-row">
     <view class="segmented">
-      <view class="segment {{tab === 'conversation' ? 'active' : ''}}" bindtap="switchTab" data-tab="conversation">{{ui['对话']}}</view>
-      <view class="segment {{tab === 'trajectory' ? 'active' : ''}}" bindtap="switchTab" data-tab="trajectory">{{ui['轨迹']}}</view>
+      <view class="segment {{tab === 'conversation' ? 'active' : ''}}" bindtap="switchTab" data-tab="conversation" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['对话']}}">{{ui['对话']}}</view>
+      <view class="segment {{tab === 'trajectory' ? 'active' : ''}}" bindtap="switchTab" data-tab="trajectory" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['轨迹']}}">{{ui['轨迹']}}</view>
     </view>
-    <view class="nav-more glass-press" bindtap="moreActions"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
+    <view class="nav-more glass-press" bindtap="moreActions" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['更多']}}"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
   </view>
 
   <!-- ================= 对话（对齐 iOS ConversationView chat ZStack） ================= -->
   <scroll-view
-    wx:if="{{tab === 'conversation'}}"
-    class="conversation"
+    hidden="{{tab !== 'conversation'}}"
+    class="conversation {{tab !== 'conversation' ? 'session-panel-hidden' : ''}}"
     style="{{conversationStyle}}"
     scroll-y
     enhanced
@@ -108,7 +108,7 @@
       <!-- dsh-mobile ConversationProcessGroup：稳定组头 + 分层 disclosure 节点 -->
       <view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}}" id="{{item.key}}">
         <view class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
-          <view class="command-icon-slot" aria-hidden="true">
+          <view class="command-icon-slot {{folds[item.key] ? 'disclosed' : ''}}" aria-hidden="true">
             <image wx:if="{{!item.completed}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
             <image wx:if="{{item.completed || item.expandable}}" class="command-chevron {{item.completed ? 'completed-chevron' : ''}} {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
           </view>
@@ -139,7 +139,7 @@
             </view>
             <view wx:elif="{{node.kind === 'context'}}" class="disclosure">
               <view class="disclosure-head" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{node.key}}">
-                <view class="command-icon-slot" aria-hidden="true"><image class="event-glyph command-tool-icon" src="/assets/icons/{{theme === 'dark' ? node.darkIconFile : node.iconFile}}" mode="aspectFit"/><image class="command-chevron {{folds[node.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/></view>
+                <view class="command-icon-slot {{folds[node.key] ? 'disclosed' : ''}}" aria-hidden="true"><image class="event-glyph command-tool-icon" src="/assets/icons/{{theme === 'dark' ? node.darkIconFile : node.iconFile}}" mode="aspectFit"/><image class="command-chevron {{folds[node.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/></view>
                 <text class="event-title tint-{{node.tint}}">{{ui[node.title] !== undefined ? ui[node.title] : node.title}}</text>
                 <text wx:if="{{node.preview}}" class="event-dot">·</text>
                 <text wx:if="{{node.preview}}" class="event-preview">{{node.preview}}</text>
@@ -155,7 +155,7 @@
                 <block wx:for="{{node.tools}}" wx:for-item="tool" wx:key="key">
                   <view class="tool-node {{tool.isCommand ? 'command-node' : ''}}">
                     <view class="disclosure-head tool" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="{{tool.phase === 'preparing' ? '' : 'toggleFold'}}" data-key="{{tool.key}}">
-                      <view wx:if="{{tool.phase !== 'preparing'}}" class="command-icon-slot" aria-hidden="true">
+                      <view wx:if="{{tool.phase !== 'preparing'}}" class="command-icon-slot {{folds[tool.key] ? 'disclosed' : ''}}" aria-hidden="true">
                         <image class="event-glyph tool-glyph-small command-tool-icon" src="/assets/icons/{{theme === 'dark' ? tool.darkIconFile : tool.iconFile}}" mode="aspectFit"/>
                         <image class="command-chevron {{folds[tool.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
                       </view>
@@ -248,6 +248,39 @@
         </view>
       </view>
 
+      <view wx:elif="{{item.kind === 'changes'}}" class="changed-files" id="{{item.key}}">
+        <view class="changed-files-head" bindtap="{{item.files.length === 1 ? 'openChangedFile' : 'toggleChangedFiles'}}" data-row="{{item.key}}" data-key="{{item.key}}" data-index="0" hover-class="delivered-file-pressed" role="button" aria-label="{{item.title}}">
+          <view class="delivered-file-icon"><image src="{{item.files.length === 1 ? item.files[0].icon : '/assets/icons/deliverable-code.svg'}}" mode="aspectFit"/></view>
+          <view class="delivered-file-copy"><text class="delivered-file-name">{{item.title}}</text>
+            <view wx:if="{{item.hasCounts}}" class="changed-counts"><text class="changed-added">+{{item.added}}</text><text class="changed-deleted">−{{item.deleted}}</text></view>
+          </view>
+        </view>
+        <view wx:if="{{item.summaryNote}}" class="changed-files-note" bindtap="retryChanges" data-key="{{item.key}}">{{item.summaryNote}}</view>
+        <view wx:if="{{item.files.length > 1}}" class="changed-file-list">
+          <block wx:for="{{item.files}}" wx:for-item="file" wx:for-index="fileIndex" wx:key="key">
+            <view wx:if="{{fileIndex < 4 || fileExpanded[item.key]}}" class="changed-file-row" bindtap="openChangedFile" data-row="{{item.key}}" data-index="{{fileIndex}}" hover-class="changed-file-pressed" role="button" aria-label="{{file.display}}">
+              <text class="changed-file-path">{{file.display}}</text>
+              <view wx:if="{{file.hasCounts}}" class="changed-counts"><text class="changed-added">+{{file.added}}</text><text class="changed-deleted">−{{file.deleted}}</text></view>
+            </view>
+          </block>
+        </view>
+        <view wx:if="{{item.files.length > 4}}" class="delivered-file-toggle" bindtap="toggleChangedFiles" data-key="{{item.key}}">{{fileExpanded[item.key] ? ui['收起'] : ui['显示全部文件'] + ' (' + item.files.length + ')'}}</view>
+      </view>
+
+      <view wx:elif="{{item.kind === 'files'}}" class="delivered-files" id="{{item.key}}">
+        <block wx:for="{{item.files}}" wx:for-item="file" wx:for-index="fileIndex" wx:key="key">
+          <view wx:if="{{fileIndex < 4 || fileExpanded[item.key]}}" class="delivered-file" bindtap="openPresentedFile" data-key="{{file.key}}" hover-class="delivered-file-pressed" role="button" aria-label="{{ui['打开']}} {{file.name}}">
+            <view class="delivered-file-icon"><image src="{{file.icon}}" mode="aspectFit"/></view>
+            <view class="delivered-file-copy"><text class="delivered-file-name">{{file.name}}</text><text class="delivered-file-description">{{fileBusyKey === file.key ? ui['正在下载文件'] + ' ' + fileProgress + '%' : file.subtitle}}</text></view>
+            <view class="delivered-file-controls">
+              <view class="delivered-file-open" catchtap="openPresentedFile" data-key="{{file.key}}" role="button" aria-label="{{ui['预览']}}"><image src="/assets/icons/deliverable-open.svg"/></view>
+              <view class="delivered-file-more" catchtap="showFileActions" data-key="{{file.key}}" role="button" aria-label="{{ui['更多']}}"><view class="delivered-chevron"/></view>
+            </view>
+          </view>
+        </block>
+        <view wx:if="{{item.files.length > 4}}" class="delivered-file-toggle" bindtap="toggleFileCards" data-key="{{item.key}}">{{fileExpanded[item.key] ? ui['收起'] : ui['显示全部文件'] + ' (' + item.files.length + ')'}}</view>
+      </view>
+
       <!-- 其它事件行（iOS .system：图标 + caption 标题 + caption 文本 + 6% 底色圆角卡） -->
       <view wx:else class="row-event" id="{{item.key}}">
         <image class="event-ic" src="/assets/icons/{{item.iconFile}}"/>
@@ -258,19 +291,13 @@
       </view>
     </block>
 
-    <!-- 运行指示条（时间线最后一行，不是悬浮层） -->
-    <view wx:if="{{running}}" class="progress-strip" id="deep-search-progress">
-      <view class="progress-row status-look-{{statusAppearance}}">
-        <view class="status-tail"><image class="status-tail-image" mode="aspectFit" src="/assets/icons/official-sway-{{theme === 'dark' ? 'dark' : 'light'}}.gif"/></view>
-        <view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? statusDarkStyle : statusLightStyle}}">{{runPhrase}}{{ui['，用时']}} {{runElapsedText}}…</text></view>
-      </view>
-    </view>
+    <view class="conversation-dock-spacer" style="height:{{convBottomInset}}rpx;" aria-hidden="true"></view>
     <view id="conv-bottom" class="conv-bottom"></view>
     </view>
   </scroll-view>
 
   <!-- ================= 轨迹：DSH 原生时间轴 ================= -->
-  <view wx:else class="trajectory-panel" style="{{trajectoryStyle}}">
+  <view wx:if="{{trajectoryMounted}}" hidden="{{tab !== 'trajectory'}}" class="trajectory-panel {{tab !== 'trajectory' ? 'session-panel-hidden' : ''}}" style="{{trajectoryStyle}}">
     <view class="trace-overview">
       <view class="trace-overview-head"><text>◷ {{ui['时长']}}</text><text>{{traceOverview.turns}} {{ui['轮次']}}</text><text>{{traceOverview.calls}} {{ui['调用']}}</text><text class="trace-overview-duration">{{ui[traceOverview.durationLabel] !== undefined ? ui[traceOverview.durationLabel] : traceOverview.durationLabel}}</text></view>
       <view wx:for="{{traceOverview.lanes}}" wx:for-item="lane" wx:key="id" class="trace-overview-lane">
@@ -285,13 +312,13 @@
       <view class="trace-list">
         <block wx:for="{{trajectory}}" wx:key="key">
           <view wx:if="{{item.kind === 'turn'}}" class="trace-turn"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><view class="trace-turn-line"/></view>
-          <view wx:else id="trace-{{item.key}}" class="trace-native-row {{traceHighlightedKey === item.key ? 'highlighted' : ''}}">
+          <view wx:else id="trace-{{item.key}}" class="trace-native-row {{traceHighlightedKey === item.key ? 'highlighted' : ''}}" bindtap="openTraceDetail" data-key="{{item.key}}" hover-class="trace-row-pressed" hover-start-time="0" hover-stay-time="100" role="button" aria-label="{{ui['打开']}} {{item.displayBadge}} #{{ui[item.seqLabel] !== undefined ? ui[item.seqLabel] : item.seqLabel}}">
             <view class="trace-spine">
               <view wx:if="{{item.request}}" class="trace-dot-hit" catchtap="openTraceRequest" data-key="{{item.key}}" role="button" aria-label="{{ui['打开请求']}} #{{item.requestNumber}}"><view class="trace-node-dot request"/></view>
               <view wx:else class="trace-dot-hit"><view class="trace-node-dot {{item.badgeClass}}"/></view>
               <view class="trace-spine-line"/>
             </view>
-            <view class="trace-native-content" bindtap="openTraceDetail" data-key="{{item.key}}" role="button" aria-label="{{ui['打开']}} {{item.displayBadge}} #{{ui[item.seqLabel] !== undefined ? ui[item.seqLabel] : item.seqLabel}}">
+            <view class="trace-native-content">
               <text class="trace-native-badge {{item.badgeClass}}">{{item.displayBadge}}</text>
               <text wx:if="{{item.badge !== 'USER' && item.badge !== 'ASSISTANT'}}" class="trace-native-name">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
               <text class="trace-native-preview">{{item.preview}}</text>
@@ -307,7 +334,14 @@
   <!-- ================= 待处理请求 ================= -->
 
   <!-- ================= 底部栈（对齐 iOS：滚到底 → 审批/提问卡 互斥替代输入区 → 排队托盘+胶囊行+输入卡） ================= -->
-  <view class="dock-stack {{question ? 'question-active' : ''}}" style="{{dockStyle}}">
+  <view hidden="{{tab !== 'conversation'}}" class="dock-stack {{voiceOverlayVisible ? 'voice-holding' : ''}} {{question ? 'question-active' : ''}} {{tab !== 'conversation' ? 'session-panel-hidden' : ''}}" style="{{dockStyle}}">
+    <!-- Keep live status in the fixed dock; message scrolling cannot hide the whale. -->
+    <view wx:if="{{running}}" class="progress-strip dock-progress" id="deep-search-progress">
+      <view class="progress-row status-look-{{statusAppearance}}">
+        <view class="status-tail"><image class="status-tail-image" mode="aspectFit" src="/assets/icons/official-sway-{{theme === 'dark' ? 'dark' : 'light'}}.gif"/></view>
+        <view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? statusDarkStyle : statusLightStyle}}">{{runPhrase}}{{ui['，用时']}} {{runElapsedText}}…</text></view>
+      </view>
+    </view>
     <view wx:if="{{showJump}}" class="jump-wrap">
       <view class="jump-bottom" bindtap="jumpToBottom">
         <view wx:if="{{running}}" class="jump-ring"></view>
@@ -512,7 +546,7 @@
       </view>
       </block>
 
-      <!-- 会话胶囊、命令菜单与输入卡在对话/轨迹页共用 -->
+      <!-- 会话胶囊、命令菜单与输入卡只在对话页显示 -->
       <!-- 胶囊行 -->
       <view wx:if="{{sessionPresetVisible}}" class="composer-top-row">
         <view wx:if="{{sessionPresetVisible}}" class="preset-capsule glass-press" bindtap="pickSessionPreset">
@@ -583,9 +617,10 @@
       </view>
 
       <!-- 输入卡 -->
-      <view class="composer-surface">
+      <view class="composer-surface {{voiceOverlayVisible ? 'voice-holding' : ''}}">
       <view class="composer-backdrop" aria-hidden="true"></view>
       <view class="composer">
+      <view class="voice-input-wrap">
       <textarea
       class="composer-input"
       placeholder="{{ui[composerPlaceholder] !== undefined ? ui[composerPlaceholder] : composerPlaceholder}}"
@@ -593,10 +628,12 @@
       placeholder-style="{{theme === 'dark' ? 'color:rgba(241,244,250,0.36);font-size:28rpx;' : 'color:rgba(16,19,24,0.28);font-size:28rpx;'}}"
       value="{{draft}}"
       bindinput="onDraftInput"
+      bindlinechange="onComposerLineChange"
       bindfocus="onComposerFocus"
       bindconfirm="send"
       confirm-type="send"
-      bindlongpress="onVoicePress"
+      focus="{{composerFocus}}"
+      disabled="{{voiceOverlayVisible}}"
       adjust-position="{{false}}"
       bindkeyboardheightchange="onKeyboardHeight"
       bindblur="onKeyboardHide"
@@ -605,6 +642,11 @@
       auto-height
       maxlength="-1"
     />
+      <!-- A dedicated touch surface avoids fighting native text selection/keyboard gestures. -->
+      <view wx:if="{{voiceEnabled && ((!composerFocused && !voiceTyping && voicePhase === 'idle') || voiceOverlayVisible)}}" class="voice-touch-surface" catchtouchstart="onVoiceTouchStart" catchtouchmove="onVoiceTouchMove" catchtouchend="onVoiceTouchEnd" catchtouchcancel="cancelVoice" role="button" aria-label="{{ui['轻点输入，按住说话，上滑取消']}}"></view>
+      </view>
+      <view wx:if="{{voicePhase === 'transcribing' || voicePhase === 'stopping'}}" class="voice-progress"><text>{{ui['正在转文字…']}}</text><view class="voice-inline-action" bindtap="cancelVoice" role="button">{{ui['取消']}}</view></view>
+      <view wx:if="{{voicePendingText}}" class="voice-transcript"><text class="voice-transcript-hint">{{ui['草稿已修改，识别文字待插入']}}</text><text class="voice-transcript-text" selectable>{{voicePendingText}}</text><view class="voice-transcript-actions"><view class="voice-inline-action" bindtap="discardPendingVoiceText" role="button">{{ui['丢弃识别文字']}}</view><view class="voice-inline-action" bindtap="insertPendingVoiceText" role="button">{{ui['插入文字']}}</view></view></view>
     <view wx:if="{{images.length}}" class="composer-images">
       <block wx:for="{{images}}" wx:key="id">
         <view wx:if="{{item.isFile}}" class="pending-file">
@@ -638,9 +680,9 @@
       ><view class="stop-square"></view></view>
       <view
         wx:else
-        class="send-btn {{canSend ? '' : 'disabled'}} glass-press"
-        bindtap="send"
-      ><image class="send-ic" src="/assets/icons/arrow-up-white.png"/></view>
+        class="send-btn {{canSend || voiceEnabled ? '' : 'disabled'}} glass-press"
+        bindtap="onComposerAction" role="button" aria-label="{{canSend || !voiceEnabled ? ui['发送'] : (voiceTyping ? ui['切换到语音输入'] : ui['切换到文字输入'])}}"
+      ><image class="send-ic" src="/assets/icons/{{canSend || !voiceEnabled ? 'arrow-up-white.png' : (voiceTyping ? 'voice-wave.svg' : 'voice-keyboard.svg')}}"/></view>
     </view>
 
       </view>
@@ -732,7 +774,72 @@
     </view>
   </view>
 
+  <view wx:if="{{fileSheet}}" class="sheet-mask" catchtap="closeFileActions" catchtouchmove="noop">
+    <view class="sheet delivered-actions" catchtap="noop">
+      <view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{fileSheet.name}}</text><view bindtap="closeFileActions">{{ui['关闭']}}</view></view>
+      <view class="delivered-action" bindtap="previewSelectedFile">{{ui['预览文件']}}</view>
+      <view class="delivered-action" bindtap="shareSelectedFile">{{ui['转发文件']}}</view>
+      <view class="delivered-action" bindtap="copyPresentedPath">{{ui['复制文件路径']}}</view>
+    </view>
+  </view>
+  <view wx:if="{{filePreview}}" class="sheet-mask" catchtap="closeFilePreview" catchtouchmove="noop">
+    <view class="sheet delivered-preview" catchtap="noop">
+      <view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{filePreview.name}}</text><view bindtap="closeFilePreview">{{ui['关闭']}}</view></view>
+      <text wx:if="{{filePreview.sourceCode}}" class="delivered-preview-note">{{ui['安全源码预览，不执行脚本']}}</text>
+      <text wx:if="{{filePreview.truncated}}" class="delivered-preview-note">{{ui['仅预览前 128 KB，完整内容请转发文件查看']}}</text>
+      <scroll-view scroll-y class="delivered-preview-scroll"><text selectable class="delivered-preview-text">{{filePreview.text || ui['空文件']}}</text></scroll-view>
+      <view class="delivered-action" bindtap="shareSelectedFile">{{ui['转发文件']}}</view>
+    </view>
+  </view>
+
+  <view wx:if="{{changesDiff}}" class="sheet-mask" catchtap="closeChangesDiff" catchtouchmove="noop">
+    <view class="sheet delivered-preview changes-preview" catchtap="noop">
+      <view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{changesDiff.title}}</text><view bindtap="closeChangesDiff">{{ui['关闭']}}</view></view>
+      <text wx:if="{{changesDiff.loading}}" class="delivered-preview-note">{{ui['正在加载文件变更…']}}</text>
+      <text wx:if="{{changesDiff.note}}" class="delivered-preview-note">{{changesDiff.note}}</text>
+      <scroll-view scroll-y class="delivered-preview-scroll">
+        <view wx:for="{{changesDiff.hunks}}" wx:for-item="hunk" wx:key="key" class="changes-hunk">
+          <text class="changes-hunk-label">{{hunk.label}}</text>
+          <text wx:for="{{hunk.lines}}" wx:for-item="line" wx:key="key" selectable class="changes-line {{line.kind}}">{{line.text}}</text>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
   <!-- 会话状态 sheet（对齐 iOS 统计 popover：执行 / Token 用量 / 上下文） -->
+  <view class="sheet-mask session-menu-mask {{moreSheetOpen ? 'is-open' : ''}}" aria-hidden="{{!moreSheetOpen}}" catchtap="closeMoreActions" catchtouchmove="noop">
+    <view class="sheet session-menu" catchtap="noop">
+      <view class="sheet-handle" aria-hidden="true"/>
+      <view class="session-menu-head">
+        <view class="session-menu-heading">
+          <text class="session-menu-title">{{ui['更多']}}</text>
+        </view>
+        <view class="session-menu-close" bindtap="closeMoreActions" hover-class="press-dim" role="button">{{ui['关闭']}}</view>
+      </view>
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="session-menu-scroll">
+        <view class="session-menu-group">
+          <view class="session-menu-row" bindtap="selectMoreAction" data-action="rename" hover-class="session-menu-pressed" role="button">
+            <image class="session-menu-icon" src="/assets/icons/pencil-line-gray.png" mode="aspectFit"/><text class="session-menu-label">{{ui['重命名会话']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+          <view class="session-menu-row" bindtap="selectMoreAction" data-action="stats" hover-class="session-menu-pressed" role="button">
+            <image class="session-menu-icon" src="/assets/icons/dsh-gauge.svg" mode="aspectFit"/><text class="session-menu-label">{{ui['查看统计']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+          <view class="session-menu-row" bindtap="selectMoreAction" data-action="files" hover-class="session-menu-pressed" role="button">
+            <image class="session-menu-icon session-menu-folder" src="/assets/icons/{{theme === 'dark' ? 'ic-dir-folder-white.png' : 'ic-dir-folder-ink.png'}}" mode="aspectFit"/><text class="session-menu-label">{{ui['工作区文件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+        </view>
+        <view class="session-menu-group">
+          <view class="session-menu-row {{running ? '' : 'disabled'}}" bindtap="selectMoreAction" data-action="cancel" hover-class="{{running ? 'session-menu-pressed' : 'none'}}" role="button" aria-disabled="{{!running}}">
+            <image class="session-menu-icon" src="/assets/icons/session-stop.svg" mode="aspectFit"/><text class="session-menu-label">{{ui['取消当前回合']}}</text>
+          </view>
+          <view class="session-menu-row" bindtap="selectMoreAction" data-action="archive" hover-class="session-menu-pressed" role="button">
+            <image class="session-menu-icon" src="/assets/icons/session-archive.svg" mode="aspectFit"/><text class="session-menu-label">{{ui['归档会话']}}</text>
+          </view>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
   <view wx:if="{{statsSheetOpen}}" class="sheet-mask" bindtap="closeStatsSheet">
     <view class="sheet stats-sheet" catchtap="noop">
       <view class="sheet-handle"></view>
@@ -781,4 +888,5 @@
     </view>
   </view>
 
+  <voice-overlay id="voice-overlay" visible="{{voiceOverlayVisible && tab === 'conversation'}}" theme="{{theme}}" cancel-armed="{{voiceCancelArmed}}" status="{{voiceStatus}}" />
 </view>

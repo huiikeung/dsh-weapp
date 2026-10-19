@@ -75,7 +75,7 @@ test('desktop live chunks and committed messages share one visible assistant ste
 test('composer backdrop starts at its card, not above the jump button or queued work',()=>{
   const xml=fs.readFileSync(path.resolve(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
   const css=fs.readFileSync(path.resolve(__dirname,'../miniprogram/pages/session/session.wxss'),'utf8');
-  const surface=xml.indexOf('class="composer-surface"'),backdrop=xml.indexOf('class="composer-backdrop"');
+  const surface=xml.indexOf('class="composer-surface'),backdrop=xml.indexOf('class="composer-backdrop"');
   assert.ok(surface>xml.indexOf('class="jump-wrap"'));
   assert.ok(backdrop>surface);assert.ok(backdrop<xml.indexOf('class="composer"'));
   assert.equal((xml.match(/class="composer-backdrop"/g)||[]).length,1);
