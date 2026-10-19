@@ -1,0 +1,318 @@
+/* 插件详情页（对齐 dsh-mobile PluginDetailView / PluginComponentSheet） */
+
+.pdetail {
+  --pd-bg: #FFFFFF;
+  --pd-text: #111216;
+  --pd-text2: rgba(60, 60, 67, 0.6);
+  --pd-text3: rgba(60, 60, 67, 0.35);
+  --pd-fallback: #E5E5EA;
+  --pd-capsule: rgba(120, 120, 128, 0.12);
+  --pd-warn: #FF9500;
+  --pd-err: #FF3B30;
+  --pd-dot-ok: #34C759;
+  --pd-dot-bad: #FF3B30;
+  --pd-dot-off: #8E8E93;
+  --pd-divider: rgba(60, 60, 67, 0.12);
+  height: 100vh;
+  overflow: hidden;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: var(--pd-bg);
+  color: var(--pd-text);
+}
+
+.pdetail.theme-dark {
+  --pd-bg: #141518;
+  --pd-text: #FFFFFF;
+  --pd-text2: rgba(235, 235, 245, 0.6);
+  --pd-text3: rgba(235, 235, 245, 0.35);
+  --pd-fallback: #3A3A3C;
+  --pd-capsule: rgba(120, 120, 128, 0.24);
+  --pd-dot-ok: #30D158;
+  --pd-dot-bad: #FF453A;
+  --pd-dot-off: #98989D;
+}
+
+/* ---------- 头部 ---------- */
+
+.pdetail-header { display:flex;align-items:center;padding:12rpx 24rpx 24rpx;flex-shrink:0; }
+
+.pdetail-back { display:flex;align-items:center;gap:8rpx;min-height:56rpx;color:var(--pd-text2);font-size:26rpx; }
+
+.press-dim {
+  opacity: 0.65;
+}
+
+.pdetail-back-ic { width:22rpx;height:22rpx;opacity:.55; }
+
+.pdetail-scroll {
+  flex: none;
+  height: calc(100vh - 100px);
+  min-height: 0;
+  width: 100%;
+}
+
+.pdetail-body { padding:20rpx 24rpx calc(48rpx + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:18rpx; }
+
+.pdetail-gap {
+  margin-top: 32rpx;
+}
+
+/* ---------- 概要 ---------- */
+
+.pdetail-top { display:flex;align-items:center;justify-content:space-between;margin-bottom:22rpx; }
+
+.pdetail-icon { width:100rpx;height:100rpx;flex-shrink:0;border:1rpx solid var(--pd-divider);border-radius:24rpx;box-sizing:border-box;overflow:hidden; }
+
+.pdetail-icon-img { width:100%;height:100%;box-sizing:border-box;padding:12rpx; }
+
+.pdetail-icon-fallback {
+  width: 96rpx;
+  height: 96rpx;
+  border-radius: 26rpx;
+  border: 1rpx solid rgba(120, 120, 128, 0.3);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdetail-icon-fallback text {
+  font-size: 40rpx;
+  font-weight: 600;
+  color: var(--pd-text2);
+  text-transform: uppercase;
+}
+
+.pdetail-title-row { display:flex;align-items:center;gap:12rpx;flex-wrap:wrap; }
+
+.pdetail-name { font-size:36rpx;font-weight:600;color:var(--pd-text);line-height:1.4;overflow-wrap:anywhere; }
+
+.pdetail-version { font-size:20rpx;line-height:1.4;color:var(--pd-text2);background:var(--pd-capsule);border-radius:999rpx;padding:4rpx 14rpx; }
+
+.pdetail-pkg { font-size:22rpx;color:var(--pd-text2);overflow-wrap:anywhere; }
+
+.pdetail-desc { font-size:26rpx;color:var(--pd-text2);line-height:1.6; }
+
+.pdetail-warn-sm {
+  font-size: 24rpx;
+  color: var(--pd-warn);
+}
+
+.pdetail-err {
+  font-size: 24rpx;
+  color: var(--pd-err);
+}
+
+/* ---------- 组件列表 ---------- */
+
+.pdetail-entries-head { display:flex;align-items:center;gap:16rpx;margin-top:48rpx;flex-wrap:wrap; }
+
+.pdetail-section-title { font-size:26rpx;font-weight:500;color:var(--pd-text); }
+
+.pdetail-entries-count { font-size:22rpx;color:var(--pd-text2); }
+
+.pdetail-entry { display:flex;align-items:center;min-height:120rpx;gap:16rpx;padding:16rpx 0; }
+
+.pdetail-entry-main {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.pdetail-entry-icon { width:84rpx;height:84rpx;flex-shrink:0;border:1rpx solid var(--pd-divider);border-radius:20rpx;box-sizing:border-box;overflow:hidden; }
+
+.pdetail-entry-icon-img { width:100%;height:100%;box-sizing:border-box;padding:10rpx; }
+
+.pdetail-entry-icon-fallback {
+  width: 88rpx;
+  height: 88rpx;
+  border-radius: 18rpx;
+  background: var(--pd-fallback);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdetail-entry-icon-fallback text {
+  font-size: 40rpx;
+  font-weight: 600;
+  color: var(--pd-text);
+  text-transform: uppercase;
+}
+
+.pdetail-entry-body { flex:1;min-width:0;display:flex;flex-direction:column;gap:6rpx; }
+
+.pdetail-entry-name { font-size:26rpx;font-weight:500;color:var(--pd-text);overflow-wrap:anywhere;line-height:1.45; }
+
+.pdetail-entry-status { display:flex;align-items:center;gap:8rpx;flex-shrink:0; }
+
+.pdetail-dot { width:10rpx;height:10rpx;border-radius:50%;background:var(--pd-dot-off); }
+
+.pdetail-dot.ok { background: var(--pd-dot-ok); }
+.pdetail-dot.bad { background: var(--pd-dot-bad); }
+
+.pdetail-entry-status-text { font-size:22rpx;color:var(--pd-text2);white-space:nowrap; }
+
+.pdetail-switch,
+.pdetail-entry switch { flex-shrink:0;zoom:.68; }
+
+.pdetail-entry-chev {
+  width: 60rpx;
+  height: 88rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pdetail-chev-img {
+  width: 32rpx;
+  height: 32rpx;
+}
+
+/* 官方配置项 */
+.pdetail-ns {
+  font-size: 30rpx;
+  color: var(--pd-text2);
+}
+
+/* ---------- 组件详情弹层 ---------- */
+
+.pdetail-sheet-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 70;
+}
+
+.pdetail-sheet {
+  position: fixed;
+  left: 16rpx;
+  right: 16rpx;
+  bottom: 16rpx;
+  z-index: 71;
+  height: 68vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--pd-bg);
+  border-radius: 36rpx;
+  padding-bottom: calc(16rpx + env(safe-area-inset-bottom));
+}
+
+.pdetail-sheet-handle {
+  width: 76rpx;
+  height: 10rpx;
+  border-radius: 999rpx;
+  background: rgba(120, 120, 128, 0.28);
+  margin: 16rpx auto 4rpx;
+  flex-shrink: 0;
+}
+
+.pdetail-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16rpx 40rpx 20rpx;
+  flex-shrink: 0;
+}
+
+.pdetail-sheet-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: var(--pd-text);
+}
+
+.pdetail-sheet-done {
+  font-size: 32rpx;
+  color: #007AFF;
+}
+
+.pdetail-sheet-body {
+  flex: 1;
+  min-height: 0;
+}
+
+.pdetail-sheet-inner {
+  padding: 16rpx 44rpx 60rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.pdetail-sheet-id-row {
+  display: flex;
+  align-items: center;
+  gap: 28rpx;
+}
+
+.pdetail-sheet-name {
+  font-size: 38rpx;
+  font-weight: 700;
+  color: var(--pd-text);
+}
+
+.pdetail-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 24rpx;
+  padding-top: 16rpx;
+}
+
+.pdetail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8rpx;
+}
+
+.pdetail-field-label {
+  font-size: 24rpx;
+  color: var(--pd-text2);
+}
+
+.pdetail-field-value {
+  font-size: 30rpx;
+  color: var(--pd-text);
+  word-break: break-all;
+}
+
+.pdetail-badge { font-size:20rpx;line-height:1.4;padding:4rpx 14rpx;border-radius:999rpx;background:#edf2ff;color:#527aff; }
+.pdetail.theme-dark .pdetail-badge { background:#202d4c;color:#94adff; }
+.pdetail-entry-desc,.pdetail-entry-id { font-family:var(--dsh-font-family-code,monospace);font-size:20rpx;line-height:1.5;color:var(--pd-text2);overflow-wrap:anywhere; }
+.pdetail-source { display:flex;flex-direction:column;margin-top:48rpx; }
+.pdetail-source > .pdetail-section-title { margin-bottom:28rpx; }
+.pdetail-source-row { display:flex;align-items:flex-start;justify-content:space-between;gap:32rpx;padding:30rpx 4rpx;border-bottom:1rpx solid var(--pd-divider);font-size:24rpx;line-height:1.5; }
+.pdetail-source-label { flex-shrink:0;color:var(--pd-text2); }
+.pdetail-source-value { min-width:0;text-align:right;overflow-wrap:anywhere; }
+@media (max-width:380px) { .pdetail-entry { flex-wrap:wrap;gap:12rpx; } .pdetail-entry-main { flex-basis:100%; } .pdetail-entry > .pdetail-entry-status { margin-left:104rpx; } .pdetail-entry > switch { margin-left:auto; } }
+/* DSH SettingsForm: inherited font, compact fields, quiet hints and staged actions. */
+.config-panel { display:flex;flex-direction:column;gap:16rpx;min-width:0; }
+.config-panel:empty { display:none; }
+.config-field { display:flex;flex-direction:column;gap:12rpx;margin:12rpx 0; }
+.config-heading { display:block;font-size:1em;font-weight:600;margin-top:24rpx; }
+.config-label { display:block;font-size:.93em;line-height:1.5; }
+.config-label-row,.config-toggle { display:flex;align-items:center;gap:12rpx; }
+.config-toggle { justify-content:space-between; }
+.config-toggle switch { flex-shrink:0;transform:scale(.8);transform-origin:right; }
+.config-hint { display:block;font-size:.85em;line-height:1.65;color:var(--pd-text2);white-space:pre-wrap;word-break:break-word; }
+.config-input { width:100%;min-height:72rpx;height:72rpx;box-sizing:border-box;padding:12rpx 18rpx;border:1rpx solid var(--pd-divider);border-radius:12rpx;background:var(--pd-bg);color:var(--pd-text);font:inherit; }
+.config-select { display:flex;align-items:center;justify-content:space-between;gap:20rpx; }
+.config-chevron { width:12rpx;height:12rpx;border-right:2rpx solid var(--pd-text2);border-bottom:2rpx solid var(--pd-text2);transform:rotate(45deg);flex-shrink:0;margin:0 8rpx 6rpx; }
+.config-chevron-open { transform:rotate(225deg);margin-top:12rpx; }
+.config-actions { display:flex;gap:16rpx;margin-top:22rpx; }
+.config-button,.config-reset { font:inherit;font-size:.87em;line-height:1.5;padding:14rpx 22rpx;min-height:64rpx;border-radius:12rpx;background:var(--pd-capsule);color:var(--pd-text);margin:0; }
+.config-button::after,.config-reset::after { border:none; }
+.config-button[disabled],.config-reset[disabled] { opacity:.4;color:var(--pd-text2); }
+.config-save { background:var(--pd-text);color:var(--pd-bg); }
+.config-reset { background:transparent;color:var(--pd-text2);padding:8rpx;min-height:44rpx;margin-left:auto; }
+.config-tag { font-size:.75em;color:var(--pd-text2);background:var(--pd-capsule);border-radius:6rpx;padding:3rpx 8rpx;white-space:nowrap; }
+.config-model { display:flex;align-items:center;gap:12rpx;padding:14rpx 0; }
+.config-model checkbox { transform:scale(.8); }
+.config-link { color:#4679da;font-size:.87em; }
+.config-voice-card { display:flex;flex-direction:column;gap:16rpx;border-top:1rpx solid var(--pd-divider);padding:24rpx 0; }
+.config-step { display:flex;justify-content:space-between;gap:16rpx;padding:10rpx;font-size:.85em;color:var(--pd-text2); }

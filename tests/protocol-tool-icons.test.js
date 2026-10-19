@@ -1,7 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const protocol = require('../utils/protocol');
+const protocol = require('../miniprogram/utils/protocol');
 
 const expected = {
   read_file: 'dsh-read.svg',
@@ -12,7 +12,7 @@ const expected = {
 };
 
 Object.entries(expected).forEach(([name, iconFile], seq) => {
-  assert.equal(fs.existsSync(path.join(__dirname, '..', 'assets', 'icons', iconFile)), true, iconFile);
+  assert.equal(fs.existsSync(path.join(__dirname, '..', 'miniprogram', 'assets', 'icons', iconFile)), true, iconFile);
   const aggregator = protocol.newAggregator();
   protocol.applyEvent(aggregator, {
     sessionId: 'icons-test',

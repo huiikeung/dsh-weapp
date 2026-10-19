@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { buildEntries } = require('../utils/conversation-workflow');
+const { buildEntries } = require('../miniprogram/utils/conversation-workflow');
 
 const entries = buildEntries([
   { kind: 'user', key: 'u-1', text: '检查并修复问题' },
@@ -15,8 +15,10 @@ const entries = buildEntries([
 ]);
 
 assert.deepEqual(entries.map((entry) => entry.kind), ['user', 'processGroup', 'assistant']);
-assert.match(entries[1].title, /2 次工具调用/);
-assert.equal(entries[1].children.find((child) => child.kind === 'toolBundle').tools.length, 2);
+assert.equal(entries[1].title, '已完成');
+assert.match(entries[1].summary, /2 次工具调用/);
+assert.deepEqual(entries[1].children.map(c => c.kind), ['reasoning','toolBundle','reasoning','toolBundle']);
+assert.equal(entries[1].children.filter((child) => child.kind === 'toolBundle').flatMap(child => child.tools).length, 2);
 assert.equal(entries[2].text, '问题已修复。');
 
 const runningCommand = buildEntries([
@@ -47,7 +49,7 @@ const splitByNextUser = buildEntries([
 ]);
 
 assert.deepEqual(splitByNextUser.map((entry) => entry.kind), ['processGroup', 'user', 'processGroup']);
-assert.match(splitByNextUser[0].title, /1 次工具调用/);
-assert.match(splitByNextUser[2].title, /1 次工具调用/);
+assert.match(splitByNextUser[0].summary, /1 次工具调用/);
+assert.match(splitByNextUser[2].summary, /1 次工具调用/);
 
 console.log('conversation workflow multi-step grouping: PASS');

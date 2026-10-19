@@ -1,0 +1,63 @@
+<page-meta page-style="{{pageStyle}}" />
+<view class="page session-settings {{themeClass}}" style="{{contentFontStyle}}">
+  <view class="session-nav" style="padding-top:{{navPadTop}}px;height:{{navHeight}}px;">
+    <view class="session-nav-back" bindtap="goBack" hover-class="session-nav-pressed" role="button" aria-label="{{ui['返回']}}">
+      <image class="session-nav-back-icon" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
+    </view>
+    <text class="session-nav-title" style="top:{{navPadTop}}px;height:{{navHeight}}px;">{{ui['会话设置']}}</text>
+  </view>
+  <view class="session-nav-placeholder" style="height:{{navPadTop + navHeight}}px;" aria-hidden="true"></view>
+  <view class="group-title">{{ui['新会话默认配置']}}</view>
+  <view class="card">
+    <view class="card-row" bindtap="pickAgentPreset" role="button"><text class="card-row-label">{{ui['Agent 预设']}}</text><view class="card-row-value"><text>{{ui[presetLabel] !== undefined ? ui[presetLabel] : presetLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+    <view class="card-row" bindtap="pickDefaultModel" role="button"><text class="card-row-label">{{ui['默认模型']}}</text><view class="card-row-value"><text>{{modelLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+    <view class="card-row" bindtap="pickDefaultPermission" role="button"><text class="card-row-label">{{ui['权限']}}</text><view class="card-row-value"><text>{{ui[permissionLabel] !== undefined ? ui[permissionLabel] : permissionLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+  </view>
+  <view class="group-hint">{{ui['与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。']}}</view>
+  <view class="group-title">{{ui['功能']}}</view>
+  <view class="card">
+    <view class="card-row" bindtap="openFiles" role="button"><text class="card-row-label">{{ui['工作区文件']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+    <view class="card-row" bindtap="openPlugins" role="button"><text class="card-row-label">{{ui['插件管理']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+    <view class="card-row" bindtap="openSchedule" role="button"><text class="card-row-label">{{ui['定时任务']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+    <view class="card-row" bindtap="showDiagnostics" role="button"><text class="card-row-label">{{ui['诊断信息']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+    <view class="card-row" bindtap="clearLocalCache" role="button"><text class="card-row-label">{{ui['清理缓存']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+  </view>
+  <view class="group-title">{{ui['主机信息']}}</view>
+  <view class="card">
+    <view class="card-row"><text class="card-row-label">{{ui['小程序版本']}}</text><text class="card-row-value host-value">{{appVersion}}</text></view>
+    <view class="card-row"><text class="card-row-label">{{ui['构建记录']}}</text><text class="card-row-value host-value build-value">{{ui[buildLabel] !== undefined ? ui[buildLabel] : buildLabel}}</text></view>
+    <view class="card-row"><text class="card-row-label">{{ui['主机版本']}}</text><text class="card-row-value host-value" selectable>{{hostInfo.version}}</text></view>
+    <view class="card-row"><text class="card-row-label">{{ui['模型服务商']}}</text><text class="card-row-value host-value" selectable>{{hostInfo.provider}}</text></view>
+    <view class="card-row"><text class="card-row-label">{{ui['模型']}}</text><text class="card-row-value host-value" selectable>{{hostInfo.model}}</text></view>
+    <view class="card-row"><text class="card-row-label">{{ui['已连接会话']}}</text><text class="card-row-value host-value">{{host.attachedSessions !== undefined ? host.attachedSessions : '—'}}</text></view>
+    <view class="card-row"><text class="card-row-label">{{ui['工作目录']}}</text><text class="card-row-value host-value text-mono" selectable>{{host.cwd || '—'}}</text></view>
+  </view>
+  <view class="group-hint">{{buildNote}}</view>
+  <view wx:if="{{utilitySheet}}" class="utility-mask" catchtap="closeUtilitySheet" catchtouchmove="noop">
+    <view class="utility-sheet" catchtap="noop" role="dialog" aria-label="{{utilitySheet === 'diagnostics' ? ui['诊断信息'] : ui['清理缓存']}}">
+      <view class="sheet-grabber"></view>
+      <view class="utility-header">
+        <text class="utility-title">{{utilitySheet === 'diagnostics' ? ui['诊断信息'] : ui['清理缓存']}}</text>
+        <button class="utility-close" bindtap="closeUtilitySheet" disabled="{{cacheClearing}}" aria-label="{{ui['关闭弹窗']}}">{{ui['关闭']}}</button>
+      </view>
+      <scroll-view scroll-y enhanced class="utility-scroll">
+        <view wx:if="{{utilitySheet === 'diagnostics'}}" class="diagnostic-list">
+          <view wx:for="{{diagnostics}}" wx:key="label" class="diagnostic-row">
+            <text class="diagnostic-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+            <text class="diagnostic-value {{item.mono ? 'text-mono' : ''}}" selectable>{{item.value}}</text>
+          </view>
+        </view>
+        <view wx:else class="cache-description">
+          <text>{{ui['仅清理本机的会话列表与正文缓存，下次打开时重新加载。']}}</text>
+          <text class="cache-note">{{ui['不会删除聊天记录、配对信息或公网有效期。']}}</text>
+          <text wx:if="{{cacheError}}" class="cache-error">{{ui[cacheError] !== undefined ? ui[cacheError] : cacheError}}</text>
+        </view>
+      </scroll-view>
+      <view wx:if="{{utilitySheet === 'cache'}}" class="utility-actions">
+        <button class="utility-button utility-cancel" bindtap="closeUtilitySheet" disabled="{{cacheClearing}}">{{ui['取消']}}</button>
+        <button class="utility-button utility-confirm" bindtap="confirmClearCache" disabled="{{cacheClearing}}">{{cacheClearing ? ui['清理中…'] : ui['确认清理']}}</button>
+      </view>
+      <button wx:else class="utility-button utility-done" bindtap="closeUtilitySheet">{{ui['知道了']}}</button>
+    </view>
+  </view>
+</view>

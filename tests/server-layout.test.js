@@ -13,7 +13,8 @@ test('server bundle stays separate from miniapp and retains Compose build contex
     assert.equal(fs.existsSync(path.join(root, directory)), false);
   }
   const config = JSON.parse(fs.readFileSync(path.join(root, 'project.config.json'), 'utf8'));
-  assert.ok(config.packOptions.ignore.some(item => item.type === 'folder' && item.value === 'dsh-console'));
+  assert.equal(config.miniprogramRoot, 'miniprogram/');
+  assert.equal(fs.existsSync(path.join(root, config.miniprogramRoot, 'dsh-console')), false);
   const compose = fs.readFileSync(path.join(bundle, 'deploy/compose.yaml'), 'utf8');
   const contexts = [...compose.matchAll(/^      context: (.+)$/gm)].map(match => match[1]);
   assert.deepEqual(contexts, ['../services/public-access', '../relay']);

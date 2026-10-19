@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { normalizeHostInfo, hostDisplay } = require('../utils/host-info');
+const { normalizeHostInfo, hostDisplay } = require('../miniprogram/utils/host-info');
 
 test('host frame maps Remote Gateway metadata without treating its transport name as a version', () => {
   const host = normalizeHostInfo({ version: 'remote-gateway', dshVersion: '0.1.7-rc.2', defaultProvider: 'deepseek', defaultModel: 'deepseek-flash', cwd: '/workspace', attachedSessions: 0, canOpenPath: false });

@@ -9,10 +9,10 @@ function fixture() {
   const api = { ensureAccount: async options => { assert.equal(options.freshLogin, true); return { isAdmin: true, grantReady: true }; }, codes: async () => [], createCode: async () => ({ code: 'fixture-code', id: 'fixture-id', expiresAt: Date.now() + 60000 }) };
   const context = {
     Page: value => { definition = value; },
-    require: name => name.endsWith('access-api') ? api : name.endsWith('theme') ? { applyTo() {} } : { state: { profiles: [{ relay: true, gatewayId: 'fixture-node' }] } },
+    require: name => name.endsWith('ui-preferences') ? require('../miniprogram/utils/ui-preferences') : name.endsWith('access-api') ? api : name.endsWith('theme') ? { applyTo() {} } : { state: { profiles: [{ relay: true, gatewayId: 'fixture-node' }] } },
     wx: {}, Date
   };
-  const file = path.join(__dirname, '../pages/redeem-admin/redeem-admin.js');
+  const file = path.join(__dirname, '../miniprogram/pages/redeem-admin/redeem-admin.js');
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), context);
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)), setData(update) { Object.assign(this.data, update); } };
   return { page, api, wx: context.wx };

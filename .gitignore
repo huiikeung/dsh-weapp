@@ -13,3 +13,12 @@ preview-info.json
 
 # dsh-mini 运行时数据
 dsh-mini/.dsh-mini/
+
+# Native multi-platform staging and local WeChat settings
+native-app/generated-miniprogram/
+miniprogram/project.private.config.json
+miniprogram/preview-qr.png
+miniprogram/preview-info.json
+
+# Locally assembled release packages
+release-artifacts/

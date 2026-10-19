@@ -1,0 +1,58 @@
+/* DSH TrajectoryView: fixed overview, 42pt rows and typed detail sheets. */
+.trajectory-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.trajectory-panel .trajectory { height: 0; flex: 1; padding: 12rpx 36rpx 330rpx; }
+.trace-overview { flex-shrink: 0; padding: 24rpx 40rpx 20rpx; background: var(--fill); border-bottom: 1rpx solid var(--divider); }
+.trace-overview-head { display: flex; align-items: center; gap: 18rpx; font-size: 24rpx; color: var(--text); margin-bottom: 18rpx; white-space: nowrap; }
+.trace-overview-duration { margin-left: auto; font-variant-numeric: tabular-nums; }
+.trace-overview-lane { display: flex; align-items: center; height: 38rpx; gap: 16rpx; }
+.trace-overview-label { width: 68rpx; flex-shrink: 0; color: var(--text-3); font-size: 22rpx; }
+.trace-overview-track { position: relative; flex: 1; height: 1rpx; background: var(--divider); }
+.trace-overview-bar { position: absolute; top: -7rpx; height: 14rpx; min-width: 3rpx; border-radius: 2rpx; max-width: 100%; }
+.trace-overview-bar::after { content: ''; position: absolute; inset: -10rpx -2rpx; }
+.trace-overview-bar.user, .trace-node-dot.user { background: var(--ocean); }
+.trace-overview-bar.assistant, .trace-node-dot.assistant { background: var(--purple); }
+.trace-overview-bar.assistant { height: 18rpx; top: -9rpx; }
+.trace-overview-bar.context, .trace-node-dot.context { background: #40a66f; }
+.trace-overview-bar.tool, .trace-overview-bar.subtool, .trace-node-dot.tool, .trace-node-dot.subtool { background: var(--orange); }
+.trace-overview-axis { display: flex; justify-content: space-between; color: var(--text-3); font-size: 22rpx; margin-top: 12rpx; font-variant-numeric: tabular-nums; }
+.trajectory-panel .trace-turn { height: 36rpx; margin: 0; padding: 0 16rpx; }
+.trajectory-panel .trace-turn text { font-size: 22rpx; margin-right: 16rpx; }
+.trace-native-row { display: flex; height: 84rpx; padding: 0 16rpx; gap: 18rpx; border-radius: 20rpx; box-sizing: border-box; }
+.trace-native-row.highlighted { background: rgba(46,107,230,.12); }
+.trace-spine { width: 20rpx; flex-shrink: 0; display: flex; align-items: center; flex-direction: column; }
+.trace-dot-hit { width: 30rpx; height: 40rpx; display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
+.trace-node-dot { width: 14rpx; height: 14rpx; border-radius: 50%; }
+.trace-node-dot.request { width: 20rpx; height: 20rpx; background: var(--text-3); }
+.trace-spine-line { width: 2rpx; flex: 1; background: var(--border-strong); }
+.trace-native-content { display: flex; align-items: center; flex: 1; min-width: 0; gap: 16rpx; height: 40rpx; }
+.trace-native-badge { flex-shrink: 0; font-size: 22rpx; font-weight: 600; border: 1rpx solid; padding: 4rpx 10rpx; border-radius: 12rpx; line-height: 26rpx; }
+.trace-native-badge.user { color: var(--ocean); background: rgba(46,107,230,.10); border-color: rgba(46,107,230,.14); }
+.trace-native-badge.assistant { color: var(--purple); background: rgba(122,84,199,.10); border-color: rgba(122,84,199,.14); }
+.trace-native-badge.tool, .trace-native-badge.subtool { color: var(--orange); background: rgba(240,125,20,.10); border-color: rgba(240,125,20,.14); }
+.trace-native-badge.context { color: #40a66f; background: rgba(64,166,111,.10); border-color: rgba(64,166,111,.14); }
+.trace-native-name { color: var(--text); font-size: 28rpx; font-weight: 500; max-width: 35%; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trace-native-preview { flex: 1; min-width: 0; color: var(--text-3); font-size: 24rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trace-native-seq { color: var(--text-3); font-size: 22rpx; flex-shrink: 0; font-family: Menlo, Consolas, monospace; }
+.trace-native-chevron { color: var(--text-4); font-size: 30rpx; flex-shrink: 0; }
+.sheet-mask.trace-inspector-mask { z-index: 1000; align-items: flex-end; }
+.trace-inspector { width: 100%; max-height: 88vh; height: 76vh; display: flex; flex-direction: column; background: var(--surface); color: var(--text); border-radius: 28rpx 28rpx 0 0; overflow: hidden; padding-bottom: env(safe-area-inset-bottom); box-sizing: border-box; }
+.trace-inspector-handle { height: 8rpx; width: 72rpx; background: var(--border-strong); border-radius: 99rpx; margin: 12rpx auto 8rpx; flex-shrink: 0; }
+.trace-inspector-head { position: relative; min-height: 80rpx; display: flex; align-items: center; justify-content: center; padding: 0 120rpx; flex-shrink: 0; }
+.trace-inspector-title { font-size: 32rpx; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.trace-inspector-close { position: absolute; right: 36rpx; color: var(--ocean); font-size: 30rpx; padding: 16rpx 0; }
+.trace-detail-tab-strip { display: flex; flex-shrink: 0; padding: 8rpx 24rpx 0; border-bottom: 1rpx solid var(--divider); }
+.trace-detail-tab { flex: 1; text-align: center; font-size: 28rpx; color: var(--text-3); padding: 14rpx 0 16rpx; border-bottom: 4rpx solid transparent; }
+.trace-detail-tab.active { color: var(--ocean); font-weight: 600; border-bottom-color: var(--ocean); }
+.trace-inspector-body { height: 0; min-height: 0; flex: 1; }
+.trace-inspector-page { padding: 40rpx 44rpx 80rpx; }
+.trace-detail-field { display: flex; align-items: baseline; gap: 24rpx; margin-bottom: 22rpx; font-size: 28rpx; line-height: 1.5; }
+.trace-detail-field-label { width: 270rpx; max-width: 45%; flex-shrink: 0; color: var(--text-3); }
+.trace-detail-field-value { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.trace-detail-section { padding: 28rpx 0; border-top: 1rpx solid var(--divider); }
+.trace-section-title { font-size: 30rpx; color: var(--text-3); font-weight: 600; margin-bottom: 20rpx; }
+.trace-thinking-toggle { display: flex; justify-content: space-between; }
+.trace-section-code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; font-family: Menlo, Consolas, monospace; font-size: 26rpx; line-height: 1.65; }
+.trace-inspector-footer { display: flex; justify-content: space-between; gap: 16rpx; font-size: 24rpx; color: var(--text-3); padding: 22rpx 36rpx; border-top: 1rpx solid var(--divider); flex-shrink: 0; }
+.trace-inspector-footer view { color: var(--ocean); }
+.theme-dark .trace-native-badge { background: rgba(128,128,128,.16); border-color: currentColor; }
+@media (max-width: 360px) { .trace-native-content { gap: 8rpx; } .trace-native-badge { font-size: 20rpx; padding-left: 6rpx; padding-right: 6rpx; } .trace-overview-head { gap: 12rpx; } }

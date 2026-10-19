@@ -18,8 +18,8 @@ function client() {
         : { account: { isAdmin: currentAdmin } } });
     }
   };
-  const context = { module: { exports: {} }, require: () => config, wx, Date: { now: () => clock } };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/access-api.js'), 'utf8'), context);
+  const context = { module: { exports: {} }, require: n => n.endsWith('ui-preferences') ? require('../miniprogram/utils/ui-preferences') : config, wx, Date: { now: () => clock } };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../miniprogram/utils/access-api.js'), 'utf8'), context);
   return { api: context.module.exports, config, wx, saved, requests, tick: ms => { clock += ms; }, setAdmin: value => { currentAdmin = value; }, logins: () => loginCount };
 }
 test('legacy backend share route gives an actionable upgrade message', async () => {

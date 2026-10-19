@@ -1,0 +1,79 @@
+<page-meta page-style="{{pageStyle}}" />
+<view class="page picker {{themeClass}}" style="{{contentFontStyle}}">
+  <view class="wp">
+    <!-- 头部：上一级 / 标题 / 取消（对齐 dsh-mobile WorkspaceFilesBottomSheet） -->
+    <view class="wp-header">
+      <view wx:if="{{parentPath}}" class="wp-back tap" bindtap="goParentDir">{{ui['‹ 上一级']}}</view>
+      <view wx:else class="wp-back-ph"></view>
+      <text class="wp-title">{{ui['选择工作区目录']}}</text>
+      <view class="wp-done tap" bindtap="goBack">{{ui['取消']}}</view>
+    </view>
+
+    <!-- 路径栏：小图标 + 当前路径 + 加载中 -->
+    <view class="wp-pathbar">
+      <image class="wp-path-icon" src="/assets/icons/ic-dir-folder-blue.png"/>
+      <text class="wp-path">{{dirPath || ui['正在读取…']}}</text>
+      <view wx:if="{{dirLoading}}" class="wp-spinner"></view>
+    </view>
+    <view class="wp-bar-divider"></view>
+
+    <!-- 目录列表 -->
+    <scroll-view class="wp-list" scroll-y scroll-into-view="{{scrollInto}}">
+      <view wx:if="{{dirLoading && !dirEntries.length}}" class="wp-center">
+        <view class="wp-spinner large"></view>
+        <text class="wp-center-text">{{ui['正在读取远程目录…']}}</text>
+      </view>
+      <view wx:elif="{{dirError}}" class="wp-center">
+        <text class="wp-center-text">{{ui[dirError] !== undefined ? ui[dirError] : dirError}}</text>
+      </view>
+      <block wx:else>
+        <view wx:if="{{!dirEntries.length}}" class="wp-center">
+          <text class="wp-center-text">{{ui['此目录为空']}}</text>
+        </view>
+        <block wx:for="{{dirEntries}}" wx:key="path">
+          <view
+            id="dir-{{index}}"
+            class="wp-row {{item.highlight ? 'highlight' : ''}} {{dirLoading ? 'disabled' : ''}}"
+            hover-class="wp-row-hover"
+            bindtap="openDirEntry"
+            data-index="{{index}}"
+          >
+            <view class="wp-row-icon-wrap">
+              <image class="wp-row-icon" src="/assets/icons/ic-dir-folder-blue.png"/>
+              <image wx:if="{{item.hidden}}" class="wp-row-badge" src="/assets/icons/ic-dir-badge-question.png"/>
+            </view>
+            <view class="wp-row-body">
+              <text class="wp-row-name">{{item.name}}</text>
+              <text wx:if="{{item.hidden}}" class="wp-row-sub">{{ui['隐藏目录']}}</text>
+            </view>
+            <image class="wp-row-chev" src="/assets/icons/ic-dir-chevron-mist.png"/>
+          </view>
+          <view wx:if="{{index < dirEntries.length - 1}}" class="wp-divider"></view>
+        </block>
+      </block>
+      <view class="wp-list-spacer"></view>
+    </scroll-view>
+
+    <!-- 底部创建栏 -->
+    <view class="wp-bottom">
+      <text wx:if="{{dirPath}}" class="wp-bottom-path text-mono">{{dirPath}}</text>
+      <view class="wp-bottom-btns">
+        <view
+          class="wp-btn-new {{dirLoading || dirCreatingWs || dirCreatingDir || !dirPath ? 'disabled' : ''}}"
+          bindtap="newDirectory"
+        >
+          <view wx:if="{{dirCreatingDir}}" class="wp-spinner"></view>
+          <text>{{ui['新建文件夹']}}</text>
+        </view>
+        <view
+          class="wp-btn-create {{dirPath && !dirCreatingWs && !dirCreatingDir && !dirLoading ? '' : 'disabled'}}"
+          bindtap="createWorkspaceHere"
+        >
+          <view wx:if="{{dirCreatingWs}}" class="wp-spinner light"></view>
+          <image wx:else class="wp-btn-add" src="/assets/icons/ic-dir-add-white.png"/>
+          <text>{{ui['在当前目录创建工作区']}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+</view>

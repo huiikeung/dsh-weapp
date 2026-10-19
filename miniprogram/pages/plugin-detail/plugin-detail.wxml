@@ -1,0 +1,135 @@
+<!-- Desktop DSH plugin details, adapted to a narrow viewport. -->
+<view class="page pdetail {{themeClass}}" style="{{contentFontStyle}}padding-top: {{statusBarH}}px;">
+  <view class="pdetail-header">
+    <view class="pdetail-back tap" hover-class="press-dim" bindtap="goBack" role="button" aria-label="{{ui['返回插件']}}">
+      <image class="pdetail-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
+      <text>{{ui['插件']}}</text>
+    </view>
+  </view>
+
+  <scroll-view class="pdetail-scroll" style="height: {{detailScrollHeight}}px;" scroll-y>
+    <!-- ===== 已安装/可选插件详情 ===== -->
+    <view wx:if="{{mode === 'bundle' && bundle}}" class="pdetail-body">
+      <view class="pdetail-top">
+        <view class="pdetail-icon">
+          <image wx:if="{{bundle.icon && !bundle.iconBroken}}" class="pdetail-icon-img" src="{{bundle.icon}}" mode="aspectFit" data-src="{{bundle.icon}}" binderror="onIconError"/>
+          <image wx:else class="pdetail-icon-img" src="{{bundle.artwork}}" mode="aspectFit"/>
+        </view>
+        <switch
+          checked="{{bundle.enabled}}"
+          class="pdetail-switch" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}"
+          disabled="{{bundle.toggleDisabled}}"
+          bindchange="onBundleToggle"
+        />
+      </view>
+
+      <view class="pdetail-title-row">
+        <text class="pdetail-name">{{ui[bundle.title] !== undefined ? ui[bundle.title] : bundle.title}}</text>
+        <text wx:if="{{bundle.version}}" class="pdetail-version">v{{bundle.version}}</text>
+        <text wx:if="{{bundle.experimental}}" class="pdetail-badge">{{ui['实验性']}}</text>
+      </view>
+      <text class="pdetail-pkg text-mono">{{bundle.name}}</text>
+      <text wx:if="{{bundle.description}}" class="pdetail-desc">{{bundle.description}}</text>
+      <text wx:if="{{bundle.readOnlyReason}}" class="pdetail-warn-sm">{{bundle.readOnlyReason}}</text>
+      <text wx:if="{{bundle.error}}" class="pdetail-err">{{ui[bundle.error] !== undefined ? ui[bundle.error] : bundle.error}}</text>
+      <text wx:if="{{notice}}" class="pdetail-warn-sm">{{ui[notice] !== undefined ? ui[notice] : notice}}</text>
+      <text wx:if="{{!connected}}" class="pdetail-warn-sm">{{ui['网关已断开，插件状态待重新连接确认']}}</text>
+
+<include src="settings-form.wxml"/>
+      <!-- 包含的组件 -->
+      <view class="pdetail-entries-head">
+        <text class="pdetail-section-title">{{ui['包含的组件']}}</text>
+        <text class="pdetail-entries-count">{{ui['共']}} {{bundle.entries.length}} {{ui['个 ·']}} {{bundle.activeCount}} {{ui['运行中']}}</text>
+      </view>
+      <view wx:for="{{bundle.entries}}" wx:key="id" class="pdetail-entry">
+        <view class="pdetail-entry-main tap" hover-class="press-dim" bindtap="openEntry" data-index="{{index}}">
+          <view class="pdetail-entry-icon">
+            <image wx:if="{{item.icon && !item.iconBroken}}" class="pdetail-entry-icon-img" src="{{item.icon}}" mode="aspectFit" data-src="{{item.icon}}" binderror="onIconError"/>
+            <image wx:else class="pdetail-entry-icon-img" src="{{item.artwork}}" mode="aspectFit"/>
+          </view>
+          <view class="pdetail-entry-body">
+            <text class="pdetail-entry-name">{{item.name}}</text>
+<text wx:if="{{item.description}}" class="pdetail-entry-desc">{{item.description}}</text>
+            <text class="pdetail-entry-id">{{item.id}}</text>
+          </view>
+        </view>
+<view class="pdetail-entry-status"><view class="pdetail-dot {{item.dotClass}}"></view><text class="pdetail-entry-status-text">{{ui[item.statusText] !== undefined ? ui[item.statusText] : item.statusText}}</text></view>
+        <switch
+          wx:if="{{item.entryID}}"
+          checked="{{item.enabled}}"
+          class="pdetail-switch" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}"
+          disabled="{{item.toggleDisabled}}"
+          bindchange="onEntryToggle"
+          data-entry="{{item.entryID}}"
+          data-enabled="{{item.enabled}}"
+        />
+
+      </view>
+      <view wx:if="{{!bundle.entries.length}}" class="pdetail-desc">{{ui['这个插件包不包含任何组件。']}}</view>
+      <view class="pdetail-source">
+        <text class="pdetail-section-title">{{ui['来源信息']}}</text>
+        <view class="pdetail-source-row"><text class="pdetail-source-label">{{ui['代码来源']}}</text><text class="pdetail-source-value" selectable>{{bundle.sourceLabel}}</text></view>
+        <view wx:if="{{bundle.version}}" class="pdetail-source-row"><text class="pdetail-source-label">{{ui['当前版本']}}</text><text class="pdetail-source-value" selectable>{{bundle.version}}</text></view>
+      </view>
+    </view>
+
+    <!-- ===== 官方配置项详情 ===== -->
+    <view wx:elif="{{mode === 'official' && official}}" class="pdetail-body">
+      <view class="pdetail-icon">
+        <image class="pdetail-icon-img" src="{{official.artwork}}" mode="aspectFit"/>
+      </view>
+      <text class="pdetail-name pdetail-gap">{{ui[official.title] !== undefined ? ui[official.title] : official.title}}</text>
+      <text wx:if="{{config.labels.description || config.labels.subagentDescription || official.description}}" class="pdetail-desc">{{config.labels.description || config.labels.subagentDescription || official.description}}</text>
+<include src="settings-form.wxml"/>
+    </view>
+
+    <!-- 目录缺失回退 -->
+    <view wx:else class="plugins-state">
+      <text class="plugins-state-desc">{{ui['插件目录不可用，请返回后重新进入']}}</text>
+    </view>
+  </scroll-view>
+
+  <!-- 组件详情半屏弹层（对齐 PluginComponentSheet，medium detent） -->
+  <view wx:if="{{sheetEntry}}" class="pdetail-sheet-mask" catchtap="closeEntry" catchtouchmove="noop"></view>
+  <view wx:if="{{sheetEntry}}" class="pdetail-sheet">
+    <view class="pdetail-sheet-handle"></view>
+    <view class="pdetail-sheet-head">
+      <text class="pdetail-sheet-title">{{ui['组件详情']}}</text>
+      <view class="pdetail-sheet-done tap" hover-class="press-dim" bindtap="closeEntry">{{ui['完成']}}</view>
+    </view>
+    <scroll-view class="pdetail-sheet-body" scroll-y>
+      <view class="pdetail-sheet-inner">
+        <view class="pdetail-sheet-id-row">
+          <view class="pdetail-entry-icon">
+            <image wx:if="{{sheetEntry.icon && !sheetEntry.iconBroken}}" class="pdetail-entry-icon-img" src="{{sheetEntry.icon}}" mode="aspectFit" data-src="{{sheetEntry.icon}}" binderror="onIconError"/>
+            <image wx:else class="pdetail-entry-icon-img" src="{{sheetEntry.artwork}}" mode="aspectFit"/>
+          </view>
+          <text class="pdetail-sheet-name">{{sheetEntry.name}}</text>
+        </view>
+        <view class="pdetail-entry-status">
+          <view class="pdetail-dot {{sheetEntry.dotClass}}"></view>
+          <text class="pdetail-entry-status-text">{{ui[sheetEntry.statusText] !== undefined ? ui[sheetEntry.statusText] : sheetEntry.statusText}}</text>
+        </view>
+        <text wx:if="{{sheetEntry.description}}" class="pdetail-desc">{{sheetEntry.description}}</text>
+        <view class="pdetail-fields">
+          <view class="pdetail-field">
+            <text class="pdetail-field-label">{{ui['组件 ID']}}</text>
+            <text class="pdetail-field-value text-mono">{{sheetEntry.id}}</text>
+          </view>
+          <view wx:if="{{sheetEntry.moduleName}}" class="pdetail-field">
+            <text class="pdetail-field-label">{{ui['模块']}}</text>
+            <text class="pdetail-field-value text-mono">{{sheetEntry.moduleName}}</text>
+          </view>
+          <view wx:if="{{sheetEntry.entryID}}" class="pdetail-field">
+            <text class="pdetail-field-label">{{ui['运行条目 ID']}}</text>
+            <text class="pdetail-field-value text-mono">{{sheetEntry.entryID}}</text>
+          </view>
+          <view wx:if="{{sheetEntry.readOnlyReason}}" class="pdetail-field">
+            <text class="pdetail-field-label">{{ui['不可修改原因']}}</text>
+            <text class="pdetail-field-value text-mono">{{sheetEntry.readOnlyReason}}</text>
+          </view>
+        </view>
+      </view>
+    </scroll-view>
+  </view>
+</view>

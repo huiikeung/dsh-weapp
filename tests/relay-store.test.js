@@ -8,7 +8,7 @@ global.wx = {
   setStorageSync: (k, v) => memory.set(k, v),
   removeStorageSync: (k) => memory.delete(k)
 };
-const hosts = require('../utils/hosts');
+const hosts = require('../miniprogram/utils/hosts');
 const instances = [];
 class Client {
   constructor(cb) { this.cb = cb; instances.push(this); }
@@ -16,7 +16,7 @@ class Client {
   disconnect() {}
 }
 const moduleObject = { exports: {} };
-const file = path.join(__dirname, '../utils/store.js');
+const file = path.join(__dirname, '../miniprogram/utils/store.js');
 vm.runInNewContext(fs.readFileSync(file, 'utf8'), {
   module: moduleObject, wx: global.wx, Date, console,
   setTimeout: () => 1, clearTimeout() {}, setInterval: () => 1, clearInterval() {},

@@ -1,0 +1,50 @@
+  <view class="config-panel">
+    <text wx:if="{{!connected && !config}}" class="config-hint">{{ui['网关已断开，插件状态待重新连接确认']}}</text>
+    <text wx:if="{{configStatus === 'loading'}}" class="config-hint">{{ui['正在加载设置…']}}</text>
+    <text wx:if="{{configError}}" class="pdetail-err">{{ui[configError] !== undefined ? ui[configError] : configError}}</text>
+    <button wx:if="{{configStatus === 'error'}}" class="config-button" bindtap="loadSettings">{{ui['重试']}}</button>
+    <block wx:if="{{config}}">
+      <text wx:if="{{!connected}}" class="config-hint">{{ui['网关已断开，插件状态待重新连接确认']}}</text>
+      <text wx:if="{{!config.writable && config.kind !== 'voice'}}" class="config-hint">{{ui['本部署的设置为只读。']}}</text>
+      <block wx:if="{{config.kind === 'web-search'}}">
+        <view class="config-toggle"><text class="config-label">{{config.labels.useSearchApi}}</text><switch checked="{{config.useSearchApi}}" disabled="{{config.disabled || !config.switchAvailable}}" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}" bindchange="onSearchApiChange"/></view>
+        <text class="config-hint">{{config.labels.useSearchApiHint}}</text>
+        <text class="config-link" bindtap="openSearchGuide">{{config.labels.searchGuide}}</text>
+        <view class="config-field"><text class="config-label">{{config.labels.apiKey}}</text>
+          <input class="config-input" password value="{{config.secret}}" disabled="{{config.disabled || !config.credential.writable}}" bindinput="onConfigSecret" maxlength="8192"/>
+          <text class="config-hint">{{config.labels.apiKeyHint}}</text>
+          <text wx:if="{{config.credential.unavailable}}" class="config-hint">{{ui['当前网关尚未开放此功能，请更新网关后重试。']}}</text>
+          <text wx:elif="{{config.credential}}" class="config-hint">{{config.credential.configured ? config.labels.apiKeySet : config.labels.apiKeyUnset}}</text>
+        </view>
+      </block>
+      <block wx:if="{{config.kind === 'cot-translation'}}">
+        <text class="config-hint">{{config.labels.privacy}}</text>
+        <text class="config-hint">{{config.translationPaid ? config.labels.paidNotice : config.labels.anonymousNotice}}</text>
+        <text wx:if="{{configProvidersUnavailable}}" class="config-hint">{{config.labels.providerUnavailable}}</text>
+      </block>
+      <text wx:if="{{config.kind === 'subagent'}}" class="config-heading">{{config.labels.subagentLimitsTitle}}</text>
+      <view wx:for="{{config.fields}}" wx:key="id" class="config-field">
+        <view class="config-label-row"><text class="config-label">{{item.label}}</text><text wx:if="{{item.overridden}}" class="config-tag">{{ui['已覆盖']}}</text><button wx:if="{{item.overridden || config.dirty}}" class="config-reset" disabled="{{config.disabled || !item.available}}" data-id="{{item.id}}" bindtap="resetConfigField">{{ui['恢复默认']}}</button></view>
+        <picker wx:if="{{item.isChoice}}" range="{{item.choiceLabels}}" value="{{item.choiceIndex}}" disabled="{{config.disabled || !item.available || configProvidersUnavailable}}" data-id="{{item.id}}" bindchange="onConfigChoice"><view class="config-input config-select"><text>{{item.choiceLabel || item.value}}</text><view class="config-chevron"></view></view></picker>
+        <input wx:else class="config-input" value="{{item.value}}" placeholder="{{item.placeholder}}" disabled="{{config.disabled || !item.available}}" data-id="{{item.id}}" bindinput="onConfigInput" type="{{item.numeric ? 'digit' : 'text'}}" maxlength="2048"/>
+        <text wx:if="{{item.hint}}" class="config-hint">{{item.hint}}</text>
+        <text wx:if="{{!item.available}}" class="config-hint">{{ui['该插件当前未加载，暂时无法配置。']}}</text>
+      </view>
+      <block wx:if="{{config.kind === 'subagent'}}">
+        <text class="config-heading">{{config.labels.subagentModelSelectionTitle}}</text>
+        <view class="config-toggle"><text class="config-label">{{config.labels.subagentModelSelectionToggle}}</text><switch checked="{{config.modelEnabled}}" disabled="{{config.disabled || !config.modelAvailable}}" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}" bindchange="onModelSelectionChange"/></view>
+        <text class="config-hint">{{config.modelEnabled ? config.labels.subagentModelSelectionChoose : config.labels.subagentModelSelectionOff}}</text>
+        <text wx:if="{{!config.modelAvailable}}" class="config-hint">{{ui['该插件当前未加载，暂时无法配置。']}}</text>
+        <block wx:elif="{{config.modelEnabled}}">
+          <text class="config-label">{{config.labels.subagentModelSelectionAllowed}}</text>
+          <text wx:if="{{configModelsStatus === 'loading'}}" class="config-hint">{{config.labels.subagentModelSelectionLoading}}</text>
+          <text wx:if="{{configModelsStatus === 'partial'}}" class="config-hint">{{config.labels.subagentModelSelectionPartial}}</text>
+          <view wx:if="{{configModelsStatus === 'error'}}"><text class="config-hint">{{config.labels.subagentModelSelectionLoadFailed}}</text><button class="config-button" bindtap="loadConfigModels">{{ui['重试']}}</button></view>
+          <text wx:if="{{configModelsStatus === 'ready' && !config.models.length}}" class="config-hint">{{config.labels.subagentModelSelectionEmpty}}</text>
+          <view wx:for="{{config.models}}" wx:key="key" class="config-model" data-index="{{index}}" bindtap="onConfigModelToggle"><checkbox checked="{{item.selected}}" disabled="{{config.disabled || (!item.available && !item.selected)}}" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}"/><view><text class="config-label">{{item.name}}</text><text class="config-hint">{{item.label}}{{!item.available ? ' · ' + config.labels.subagentModelSelectionUnavailable : ''}}</text></view></view>
+        </block>
+      </block>
+      <block wx:if="{{config.kind === 'voice'}}"><include src="voice-settings.wxml"/></block>
+      <view wx:if="{{config.kind !== 'voice'}}" class="config-actions"><button class="config-button config-save" disabled="{{config.disabled || !config.dirty}}" loading="{{configSaving}}" bindtap="saveSettings">{{configSaving ? ui['保存中…'] : ui['保存']}}</button><button class="config-button" disabled="{{configSaving}}" bindtap="discardSettings">{{ui['放弃修改']}}</button></view>
+    </block>
+  </view>

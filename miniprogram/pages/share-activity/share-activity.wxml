@@ -1,0 +1,39 @@
+<page-meta page-style="{{pageStyle}}" />
+<view class="activity-page {{themeClass}}" style="{{contentFontStyle}}">
+  <view wx:if="{{error}}" class="activity-message" role="alert">{{ui[error] !== undefined ? ui[error] : error}}</view>
+  <view wx:if="{{loading}}" class="activity-message">{{ui['正在同步活动信息…']}}</view>
+  <view wx:elif="{{!enabled && !error}}" class="activity-message">{{ui['活动暂未开放，已有公网有效期不受影响。']}}</view>
+  <view wx:if="{{incoming}}" class="activity-card invitation-card">
+    <text class="card-title">{{ui['朋友邀请你认识鲸尾']}}</text><text class="activity-intro">{{ui['确认后，服务端使用当前微信在本小程序中的身份去重，符合规则才为邀请人增加时长。']}}</text>
+    <text wx:if="{{openResult}}" class="activity-message">{{ui[openResult] !== undefined ? ui[openResult] : openResult}}</text>
+    <button wx:if="{{!accepted}}" class="activity-primary" bindtap="acceptInvitation" disabled="{{busy || loading || !enabled}}">{{ui['确认有效打开']}}</button>
+    <button class="activity-secondary" bindtap="enterApp">{{ui['进入鲸尾']}}</button>
+  </view>
+  <view class="activity-card reward-overview">
+    <image class="activity-logo" src="/assets/brand/app-icon-black-1024.png" mode="aspectFit"/>
+    <text class="activity-heading">{{ui['鲸尾 · 远程助手']}}</text>
+    <text class="activity-intro">{{ui['随时连接自己的 DSH，查看进展、继续对话。']}}</text>
+    <text class="activity-reward-hint">{{ui['朋友首次有效打开，按阶梯获赠公网访问']}}</text>
+    <text class="overview-label">{{ui['分享累计获得']}}</text><view class="reward-number">{{earnedDays}}<text> {{ui['天']}}</text></view><text class="activity-intro">{{validOpens}} {{ui['位朋友有效打开 · 公网时长自动累加']}}</text>
+    <button wx:if="{{enabled}}" class="activity-primary" open-type="share" disabled="{{!inviteToken || loading}}">{{ui['分享给好友或群聊']}}</button>
+    <view class="activity-links"><button bindtap="toggleRules">{{rulesOpen ? ui['收起规则'] : ui['活动规则']}}</button><button bindtap="refresh" disabled="{{busy || loading}}">{{ui['刷新记录']}}</button></view>
+    <text class="activity-intro activity-scope">{{ui['仅赠送公网服务，不影响局域网，不分享设备权限。']}}</text>
+  </view>
+  <view wx:if="{{rulesOpen}}" class="activity-card">
+    <text class="card-title">{{ui['好友分享规则']}}</text>
+    <view wx:for="{{tiers}}" wx:key="from" class="rule-row"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text>{{ui['每人 +']}}{{item.days}} {{ui['天']}}</text></view>
+    <text class="activity-intro">{{ui['按累计有效人数决定本次奖励，不补发历史差额。同一微信在整个活动中只计一次；自己打开、重复打开不计奖。无需连接电脑，但必须由微信服务端核验身份并确认打开。不同微信不等于不同实体设备。']}}</text>
+  </view>
+  <view class="activity-card">
+    <view class="card-heading"><text class="card-title">{{ui['分享到朋友圈']}}</text><text class="reward-chip">{{ui['审核通过 +']}}{{momentsDays}} {{ui['天']}}</text></view>
+    <text class="activity-intro">{{ui['每日可登记一次（北京时间）。发布后先上传截图，满 24 小时后上传仍保留的截图，后台审核通过才发奖。截图是人工审核依据，不能自动证明一直保留。']}}</text>
+    <view wx:if="{{enabled}}" class="activity-actions"><button class="activity-secondary" bindtap="momentsGuide">{{ui['分享方法']}}</button><button class="activity-secondary" bindtap="uploadProof" disabled="{{busy || loading}}">{{ui['登记今日截图']}}</button></view>
+    <view wx:for="{{moments}}" wx:key="id" class="moment-item">
+      <view class="rule-row"><text>{{item.day}}</text><text>{{ui[item.statusLabel] !== undefined ? ui[item.statusLabel] : item.statusLabel}}</text></view>
+      <text wx:if="{{item.status === 'waiting'}}" class="activity-intro">{{ui['复核时间：']}}{{ui[item.eligibleLabel] !== undefined ? ui[item.eligibleLabel] : item.eligibleLabel}}</text><text wx:if="{{item.note}}" class="activity-intro">{{ui['审核说明：']}}{{item.note}}</text>
+      <button wx:if="{{item.canSubmit}}" class="activity-secondary" data-id="{{item.id}}" bindtap="uploadProof" disabled="{{busy || !enabled}}">{{ui['提交保留截图']}}</button>
+    </view>
+  </view>
+  <view wx:if="{{records.length}}" class="activity-card"><text class="card-title">{{ui['奖励记录']}}</text><view wx:for="{{records}}" wx:key="id" class="record-item"><view><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="record-time">{{ui[item.timeLabel] !== undefined ? ui[item.timeLabel] : item.timeLabel}}</text></view><text class="reward-chip">+{{item.days}} {{ui['天']}}</text></view></view>
+  <text class="activity-footer">{{ui['鲸尾 · 只分享服务，不分享设备权限']}}</text>
+</view>

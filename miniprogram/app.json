@@ -1,0 +1,72 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/session/session",
+    "pages/settings/settings",
+    "pages/session-settings/session-settings",
+    "pages/announcements/announcements",
+    "pages/share-activity/share-activity",
+    "pages/add-node/add-node",
+    "pages/files/files",
+    "pages/workspace-picker/workspace-picker",
+    "pages/privacy/privacy"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "@navBgColor",
+    "navigationBarTextStyle": "@navTxtStyle",
+    "navigationBarTitleText": "驭鲸 Harness",
+    "backgroundColor": "@bgColor",
+    "backgroundTextStyle": "@bgTxtStyle",
+    "backgroundColorTop": "@bgColor",
+    "backgroundColorBottom": "@bgColor"
+  },
+  "darkmode": true,
+  "themeLocation": "theme.json",
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
+  "sitemapLocation": "sitemap.json",
+  "subPackages": [
+    {
+      "root": "pages/plugins",
+      "name": "plugins",
+      "pages": [
+        "plugins"
+      ]
+    },
+    {
+      "root": "pages/plugin-detail",
+      "name": "plugin-detail",
+      "pages": [
+        "plugin-detail"
+      ]
+    },
+    {
+      "root": "pages/schedule",
+      "name": "schedule",
+      "pages": [
+        "schedule"
+      ]
+    },
+    {
+      "root": "pages/announcement-admin",
+      "name": "announcement-admin",
+      "pages": [
+        "announcement-admin"
+      ]
+    },
+    {
+      "root": "pages/pairing-admin",
+      "name": "pairing-admin",
+      "pages": [
+        "pairing-admin"
+      ]
+    },
+    {
+      "root": "pages/redeem-admin",
+      "name": "redeem-admin",
+      "pages": [
+        "redeem-admin"
+      ]
+    }
+  ]
+}

@@ -31,10 +31,10 @@ function fixture(lease) {
     require(name) {
       if (name === './access-api') return access;
       if (name === './relay-e2ee') return { ClientSession: Session };
-      return require(path.join(__dirname, '../utils', name));
+      return require(path.join(__dirname, '../miniprogram/utils', name));
     }
   };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../utils/gateway.js'), 'utf8'), context);
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../miniprogram/utils/gateway.js'), 'utf8'), context);
   const client = new context.module.exports.GatewayClient();
   client.reportDeviceInfo = () => {};
   return { client, sockets, leases, timers };

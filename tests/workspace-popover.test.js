@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { workspacePopoverLayout: layout } = require('../utils/workspace-popover');
-const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+const { workspacePopoverLayout: layout } = require('../miniprogram/utils/workspace-popover');
+const read = file => fs.readFileSync(path.join(__dirname, '..', 'miniprogram', file), 'utf8');
 const phone = { windowWidth: 390, windowHeight: 844, statusBarHeight: 47, safeArea: { bottom: 810 } };
 
 test('workspace card keeps the iOS blue outline folder even when ungrouped is selected', () => {
@@ -54,7 +54,7 @@ function setup() {
   } };
   vm.runInNewContext(read('pages/home/home.js'), {
     Page: value => { definition = value; }, wx,
-    require: name => name.endsWith('workspace-popover') ? { workspacePopoverLayout: layout }
+    require: name => name.endsWith('ui-preferences') ? require('../miniprogram/utils/ui-preferences') : name.endsWith('workspace-popover') ? { workspacePopoverLayout: layout }
       : name.endsWith('/store') ? { state, setCurrentWorkspace: id => selections.push(id) } : {}
   });
   const page = { ...definition, data: { ...definition.data, currentWorkspace: { workspaceId: 'ws-a' } },

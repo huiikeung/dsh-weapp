@@ -4,13 +4,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const root = path.join(__dirname, '..');
+const root = path.join(__dirname, '..', 'miniprogram');
 function pageFixture(name, overrides = {}) {
   let definition; const calls = [];
   const api = { appContent: async () => ({ items: [{ id: 'one', title: '公告', content: '正文', revision: 1 }], shareEnabled: false }), ensureAccount: async () => ({ isAdmin: true }),
     announcements: async () => ({ items: [] }), saveAnnouncement: async x => { calls.push(x); return {}; }, deleteAnnouncement: async () => ({}), ...overrides };
   const wx = { showToast() {}, pageScrollTo() {}, stopPullDownRefresh() {}, showModal(o) { wx.modal = o; } };
-  vm.runInNewContext(fs.readFileSync(path.join(root, 'pages', name, name + '.js'), 'utf8'), { Page: d => { definition = d; }, require: n => n.endsWith('access-api') ? api : { applyTo() {} }, wx, Date, Set });
+  vm.runInNewContext(fs.readFileSync(path.join(root, 'pages', name, name + '.js'), 'utf8'), { Page: d => { definition = d; }, require: n => n.endsWith('ui-preferences') ? require('../miniprogram/utils/ui-preferences') : n.endsWith('access-api') ? api : { applyTo() {} }, wx, Date, Set });
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)), setData(v) { Object.assign(this.data, v); } };
   return { page, api, calls, wx };
 }
@@ -40,7 +40,7 @@ test('announcement admin ignores a completed write after leaving the page', asyn
   assert.equal(f.page.data.isAdmin, false); assert.equal(f.page.data.items.length, 0); assert.equal(f.page.data.busy, false);
 });
 test('about entries, one WX ID, natural truncation and activity button visibility use the requested layout', () => {
-  const html = fs.readFileSync(path.join(root, 'pages/settings/settings.wxml'), 'utf8');
+  const html = fs.readFileSync(path.join(root, 'pages/settings/settings.wxml'), 'utf8').replace(/\{\{ui\['([^']+)'\]\}\}/g, (_, key) => key);
   const about = html.slice(html.indexOf('<view class="group-title">关于</view>'));
   assert.ok(about.indexOf('开发者公告') < about.indexOf('联系客服'));
   assert.ok(about.includes('open-type="contact"'));
@@ -54,7 +54,7 @@ test('about entries, one WX ID, natural truncation and activity button visibilit
 });
 test('global sharing wrapper honors manual control and returns lifecycle promises', async () => {
   let wrapped; const menus = [];
-  const context = { Page: o => { wrapped = o; }, module: { exports: {} }, wx: { showShareMenu: () => menus.push('show'), hideShareMenu: () => menus.push('hide') } };
+  const context = { require: n => require('../miniprogram/utils/ui-preferences'), Page: o => { wrapped = o; }, module: { exports: {} }, wx: { showShareMenu: () => menus.push('show'), hideShareMenu: () => menus.push('hide') } };
   vm.runInNewContext(fs.readFileSync(path.join(root, 'utils/share.js'), 'utf8'), context);
   context.module.exports.install(); context.Page({ manualShareMenu: true, onShow: async () => 'done' });
   assert.equal(await wrapped.onShow(), 'done'); assert.deepEqual(menus, ['hide']);

@@ -4,17 +4,28 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 （`DeepSeekHarnessMobile/`），通过 `dsh-plugin-mobile-gateway` 的 WebSocket
 协议连接 DeepSeek Harness。
 
+## 多端目录与上传边界
+
+- `miniprogram/`：微信小程序唯一源码/上传目录；开发者工具请直接导入此目录。
+- `dsh-console/`：独立控制台、中继和服务端，部署路径保持不变。
+- `harmonyos/`：鸿蒙原生工程。
+- `native-app/`：Android/iOS 多端配置和资源；执行 `node scripts/prepare-native-app.cjs` 生成独立的 `generated-miniprogram/` 多端工程。
+- `dsh-mini/`：独立 Node CLI 内核。
+- `resources/`：原始美术素材和语言字典源文件，不上传；字典编辑后执行 `node scripts/sync-i18n.cjs`。
+- `scripts/`、`tests/`、`docs/`：构建、测试和文档，不上传。
+
+主包保留聊天、首页和设置；插件、插件详情、定时任务及管理页面使用普通分包，原跳转路径不变。上传前体积检查按每包 1.8 MiB 原始源码预算预留编译余量，最终大小以开发者工具上传结果为准。
+
 ## 公网服务端与部署
 
-服务器相关代码统一放在 [dsh-console/](dsh-console/README.md)，内部按 `deploy/`（部署升级）、`services/public-access/`（管理后台）、`relay/`（公网中继）区分，小程序代码仍保留在仓库根目录。
+服务器相关代码统一放在 [dsh-console/](dsh-console/README.md)，内部按 `deploy/`（部署升级）、`services/public-access/`（管理后台）、`relay/`（公网中继）区分，微信小程序代码独立放在 `miniprogram/`，上传不会包含控制台、鸿蒙、原生端或开发工具。
 
 宝塔上传时，只把本地 `dsh-console/` **里面的内容**上传到 `/www/wwwroot/dsh-console/`，不要重复嵌套同名目录；保留服务器原 `deploy/.env` 和数据，不上传本机运行数据或依赖。已部署服务器仍执行 `cd /www/wwwroot/dsh-console/deploy`、`bash upgrade.sh`。详见 [统一部署教程](dsh-console/deploy/README.md)。
 
 ## 运行方式
 
 1. 安装并打开 [微信开发者工具](https://developers.weixin.qq.com/miniprogram/dev/devtools/download.html)。
-2. 「导入项目」→ 选择本目录（`weapp/`）→ AppID 可先用「测试号」（`project.config.json`
-   中默认为 `touristappid`）。
+2. 「导入项目」→ 选择 `D:\Other\P-Program\dsh-weapp\miniprogram`。该目录有独立的 `project.config.json`，保留现有 AppID。旧根目录工程也通过 `miniprogramRoot` 指向同一份小程序源码。
 3. 详情 → 本地设置 → 勾选 **不校验合法域名、web-view、TLS 版本以及 HTTPS 证书**
    （开发期连接 `ws://` 局域网地址必需；正式发布必须使用 `wss://` 并在小程序后台
    配置 socket 合法域名）。
@@ -27,14 +38,14 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 
 ### 小程序构建与版本显示
 
-每次编译、预览或上传前，在小程序项目根目录运行 `node scripts/stamp-build.cjs`，然后在微信开发者工具编译。
-「小程序版本 / 当前版本」优先使用微信包版本，开发包回退到 `utils/build.js` 的版本号；「构建记录」是生成脚本记录的北京时间与源码摘要，不是安装时间，也不是主机版本。源码修改后需要重新执行脚本。
+每次编译、预览或上传前，在仓库根目录依次运行 `node scripts/check-miniprogram-package.cjs`、`node scripts/stamp-build.cjs`，然后在微信开发者工具编译。
+「小程序版本 / 当前版本」优先使用微信包版本，开发包回退到 `miniprogram/utils/build.js` 的版本号；「构建记录」是生成脚本记录的北京时间与源码摘要，不是安装时间，也不是主机版本。源码修改后需要重新执行脚本。
 「主机版本」来自网关的主机信息；「已连接网关版本」只使用网关自身版本或唯一启用的匹配插件目录，不再拿主机版本替代。适配基线按插件分开：小程序网关0.8.6+，旧移动网关0.10.0+，不代表全部主机功能均已支持。
 旧插件未上报版本时显示「未上报」。仓库插件升级器已加入握手与主机查询的版本字段；需在用户自己的DSH安装更新并正常重启后生效，不需要为此重新部署公网后台。不会通过公开管理端口读取版本。
 
 ### 隐私政策与首页背景
 
-隐私政策为本地全屏底部弹窗，支持顶部拖动条下拉关闭、正文滚动和深浅色。发布前请核对 `utils/privacy-policy.js` 中的实际运营主体、客服渠道、保存与删除流程，并同步微信后台隐私声明；本页不替代微信的权限授权流程。
+隐私政策为本地全屏底部弹窗，支持顶部拖动条下拉关闭、正文滚动和深浅色。发布前请核对 `miniprogram/utils/privacy-policy.js` 中的实际运营主体、客服渠道、保存与删除流程，并同步微信后台隐私声明；本页不替代微信的权限授权流程。
 首页背景改编自DSH iOS手机流体场与粒子鲸尾，保留MIT声明（见 `THIRD_PARTY_NOTICES.md`）。光带强度按本客户端可读性压低，24秒内逐渐压暗；离页暂停，返回续播。为避免微信原生画布遮挡首页，使用离屏渲染加普通图片显示，限制15帧/秒及输出尺寸；不支持离屏画布时显示静态鲸鱼和柔和背景，不阻塞主机与会话操作。
 
 与 iOS 完全一致：

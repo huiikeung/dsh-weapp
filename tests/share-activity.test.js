@@ -9,7 +9,7 @@ function fixture() {
   const state={rules:{enabled:true,tiers:[{from:1,days:3},{from:11,days:7},{from:16,days:30}],momentsDays:3},earnedDays:0,validOpens:0,moments:[],records:[],inviteToken:''};
   const api={ensureAccount:async()=>({isAdmin:false}),shareStatus:async()=>state,shareInvite:async()=>({...state,inviteToken:'X'.repeat(32)}),recordShareOpen:async token=>{calls.push(token);return {counted:true};}};
   const wx={showModal:o=>{wx.modal=o;},showToast(){},chooseMedia:o=>{wx.choice=o;},reLaunch(){},getFileSystemManager:()=>({readFileSync:()=> 'iVBOR-test'})};
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../pages/share-activity/share-activity.js'),'utf8'),{Page:x=>{definition=x;},require:n=>n.endsWith('access-api')?api:{applyTo(){}},wx,Date});
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname,'../miniprogram/pages/share-activity/share-activity.js'),'utf8'),{Page:x=>{definition=x;},require: n => n.endsWith('ui-preferences') ? require('../miniprogram/utils/ui-preferences') : n.endsWith('access-api')?api:{applyTo(){}},wx,Date});
   const page={...definition,data:JSON.parse(JSON.stringify(definition.data)),setData(v){Object.assign(this.data,v);}};
   return {page,api,state,calls,wx};
 }
@@ -37,7 +37,7 @@ test('Moments explains review and only uploads after consent; picker return pres
   await wx.choice.success({tempFiles:[{size:999999,tempFilePath:'test'}]});assert.equal(uploads,0);assert.match(page.data.error,/330KB/);
 });
 test('settings hides ordinary identity, removes admin pairing entry, keeps node scanning and sharing',()=>{
-  const html=fs.readFileSync(path.join(__dirname,'../pages/settings/settings.wxml'),'utf8');
+  const html=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/settings/settings.wxml'),'utf8').replace(/\{\{ui\['([^']+)'\]\}\}/g, (_, key) => key);
   const at=html.indexOf('<view class="group-title">微信身份</view>');
   assert.ok(html.slice(at-48,at).includes('wx:if="{{isWechatAdmin}}"'));
   assert.ok(!html.includes('bindtap="openPairingManagement"'));

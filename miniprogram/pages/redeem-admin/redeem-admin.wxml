@@ -1,0 +1,42 @@
+<page-meta page-style="{{pageStyle}}" />
+<view class="page admin-page {{themeClass}}" style="{{contentFontStyle}}">
+  <view class="admin-intro">
+    <text class="admin-title">{{ui['兑换码管理']}}</text>
+    <text class="admin-subtitle">{{ui['管理员生成 · 复制分发 · 用户兑换']}}</text>
+  </view>
+  <view wx:if="{{loading}}" class="admin-message">{{ui['正在验证管理员身份…']}}</view>
+  <view wx:if="{{error}}" class="admin-message" role="alert">{{ui[error] !== undefined ? ui[error] : error}}</view>
+  <button wx:if="{{!loading && !isAdmin}}" class="admin-primary" bindtap="refresh">{{ui['重新验证']}}</button>
+  <block wx:if="{{isAdmin && !loading}}">
+    <view class="group-title">{{ui['生成兑换码']}}</view>
+    <view class="card">
+      <view class="card-row"><text class="card-row-label">{{ui['适用范围']}}</text><text class="admin-value">{{ui['全部公网节点']}}</text></view>
+      <picker range="{{durations}}" value="{{durationIndex}}" bindchange="pickDuration" disabled="{{busy}}">
+        <view class="card-row"><text class="card-row-label">{{ui['访问时长']}}</text><text class="admin-value">{{durations[durationIndex]}} ›</text></view>
+      </picker>
+      <picker range="{{counts}}" value="{{countIndex}}" bindchange="pickCount" disabled="{{busy}}">
+        <view class="card-row"><text class="card-row-label">{{ui['可兑换次数']}}</text><text class="admin-value">{{counts[countIndex]}} ›</text></view>
+      </picker>
+      <view class="card-row"><text class="card-row-label">{{ui['兑换期限']}}</text><text class="admin-value">{{ui['生成后 30 天内']}}</text></view>
+    </view>
+    <view class="group-hint">{{ui['兑换码只控制公网访问权限，不影响局域网连接。用户兑换后，可扫描自己 DSH 插件生成的公网二维码连接自己的设备。']}}</view>
+    <button class="admin-primary" bindtap="generate" disabled="{{busy || !grantReady}}">{{busy ? ui['生成中…'] : ui['生成兑换码']}}</button>
+    <view wx:if="{{generatedCode}}" class="card code-result">
+      <text class="code-result-label">{{ui['请妥善保管，可在最近生成列表中再次复制或删除']}}</text>
+      <text class="code-value" selectable>{{generatedCode}}</text>
+      <text class="code-meta">{{generatedMeta}}</text>
+      <button class="admin-secondary" bindtap="copyCode">{{ui['复制并分发']}}</button>
+      <button class="admin-secondary" bindtap="deleteItem" data-id="{{generatedId}}" disabled="{{!!actionId}}">{{ui['删除兑换码']}}</button>
+    </view>
+    <view class="admin-list-head"><text class="group-title">{{ui['最近生成']}}</text><text class="admin-link" bindtap="refresh">{{ui['刷新']}}</text></view>
+    <view wx:if="{{!items.length}}" class="admin-message">{{ui['还没有生成兑换码']}}</view>
+    <view wx:for="{{items}}" wx:key="id" class="card code-item">
+      <view class="code-heading"><text class="code-title">{{item.title}}</text><text class="code-status">{{ui[item.statusLabel] !== undefined ? ui[item.statusLabel] : item.statusLabel}}</text></view>
+      <text class="code-meta">{{ui['编号']}} {{item.id}}</text>
+      <text class="code-meta">{{ui['范围']}} {{item.nodeId ? item.nodeId : ui['全部公网节点']}}</text>
+      <view class="code-footer"><text class="code-meta">{{ui[item.usageLabel] !== undefined ? ui[item.usageLabel] : item.usageLabel}} · {{ui[item.expiryLabel] !== undefined ? ui[item.expiryLabel] : item.expiryLabel}} {{ui['到期']}}</text></view>
+      <view class="code-actions"><button class="admin-stop" data-id="{{item.id}}" bindtap="copyItem" disabled="{{!!actionId || busy}}">{{ui['复制']}}</button><button wx:if="{{item.canRevoke}}" class="admin-stop" data-id="{{item.id}}" bindtap="revoke" disabled="{{!!actionId || busy}}">{{ui['停用']}}</button><button class="admin-stop" data-id="{{item.id}}" bindtap="deleteItem" disabled="{{!!actionId || busy}}">{{ui['删除']}}</button></view>
+      <text wx:if="{{!item.canCopy}}" class="code-meta">{{ui['旧版仅存哈希，无法恢复原码；可删除后重新生成。']}}</text>
+    </view>
+  </block>
+</view>

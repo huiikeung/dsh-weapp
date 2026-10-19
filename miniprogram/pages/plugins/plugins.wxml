@@ -1,0 +1,144 @@
+<template name="bundleRows">
+  <view wx:for="{{rows}}" wx:key="name" class="plugin-row">
+    <view class="plugin-line" hover-class="plugin-line-hover" bindtap="openBundle" data-name="{{item.name}}" role="button">
+      <view class="plugin-icon">
+        <image wx:if="{{item.icon && !item.iconBroken}}" class="plugin-icon-img" src="{{item.icon}}" mode="aspectFit" data-name="{{item.name}}" binderror="onIconError"/>
+        <image wx:else class="plugin-icon-art" src="{{item.artwork}}" mode="aspectFit"/>
+      </view>
+      <view class="plugin-line-body">
+        <view class="plugin-line-title-row"><text class="plugin-line-title">{{item.title}}</text><text wx:if="{{item.experimental}}" class="plugin-badge">{{ui['实验性']}}</text></view>
+        <text wx:if="{{item.description}}" class="plugin-line-sub">{{item.description}}</text><text wx:if="{{item.needsInstall}}" class="plugin-install-needed">{{ui['开启时安装']}}</text>
+      </view>
+    </view>
+    <view wx:if="{{pendingName === item.name}}" class="plugins-spinner small"></view>
+    <switch class="plugin-switch" checked="{{item.enabled}}" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}" disabled="{{item.toggleDisabled}}" bindchange="onBundleToggle" data-name="{{item.name}}" data-enabled="{{item.enabled}}" aria-label="{{ui['启用']}}{{item.title}}"/>
+  </view>
+</template>
+<view class="page plugins {{themeClass}}" style="{{contentFontStyle}}padding-top: {{statusBarH}}px;">
+  <view class="plugins-header">
+    <view class="plugins-back tap" hover-class="brand-dim" bindtap="goBack" role="button" aria-label="{{ui['返回']}}"><image class="plugins-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/></view>
+    <text class="plugins-title">{{showingMore ? ui['实验性插件'] : ui['插件']}}</text>
+  </view>
+  <scroll-view class="plugins-scroll" scroll-y refresher-enabled refresher-triggered="{{refreshing}}" bindrefresherrefresh="onRefresh">
+    <view class="plugins-body">
+      <view wx:if="{{!showingMore}}" class="plugins-toolbar">
+        <text class="plugins-hint">{{ui['安装、启用和配置插件']}}</text>
+        <view wx:if="{{pluginTab === 'installed'}}" class="plugins-actions">
+          <button class="plugins-refresh" disabled="{{loading || !connected}}" bindtap="onRefresh" aria-label="{{ui['刷新插件']}}"><image class="plugins-refresh-ic" src="/assets/icons/{{theme === 'dark' ? 'refresh.png' : 'refresh-ink.png'}}"/></button>
+          <view class="plugin-add-group {{canAdd ? '' : 'disabled'}}"><button class="plugin-add" disabled="{{!canAdd}}" bindtap="openAdd">{{ui['＋ 添加插件']}}</button><button class="plugin-add-arrow" disabled="{{!canAdd}}" bindtap="toggleAddMenu" aria-label="{{ui['选择添加方式']}}"><view class="plugin-chevron {{addMenuOpen ? 'is-open' : ''}}"></view></button></view>
+        </view>
+      </view>
+      <view wx:if="{{!showingMore}}" class="plugin-tabs" role="tablist"><button class="plugin-tab {{pluginTab === 'installed' ? 'selected' : ''}}" data-tab="installed" bindtap="selectPluginTab" role="tab" aria-selected="{{pluginTab === 'installed'}}">{{ui['已安装']}}</button><button class="plugin-tab {{pluginTab === 'discover' ? 'selected' : ''}}" data-tab="discover" bindtap="selectPluginTab" role="tab" aria-selected="{{pluginTab === 'discover'}}">{{ui['发现']}}</button></view>
+      <view wx:if="{{pluginTab === 'discover' && !showingMore}}" class="plugin-discover">
+        <view wx:if="{{marketStatus === 'loading'}}" class="market-empty"><view class="plugins-spinner"></view><text class="market-empty-description">{{ui['正在读取索引源…']}}</text></view>
+        <view wx:elif="{{marketStatus === 'error'}}" class="market-empty"><image class="market-artwork" src="/assets/plugin-artwork/default.png" mode="aspectFit"/><text class="market-empty-title">{{ui['无法读取索引源']}}</text><text class="market-empty-description">{{ui[marketError] !== undefined ? ui[marketError] : marketError}}</text><view class="market-empty-actions"><button class="market-subtle" bindtap="loadMarketSources" disabled="{{!connected}}">{{ui['重试']}}</button><button class="market-add" bindtap="openSources">{{ui['＋ 添加索引源']}}</button></view></view>
+        <view wx:elif="{{!marketSources.length}}" class="market-empty"><image class="market-artwork" src="/assets/plugin-artwork/default.png" mode="aspectFit"/><text class="market-empty-title">{{ui['还没有插件市场']}}</text><text class="market-empty-description">{{ui['添加一个插件市场索引，即可在这里浏览和安装其中的插件']}}</text><button class="market-add" bindtap="openSources">{{ui['＋ 添加索引源']}}</button></view>
+        <block wx:else>
+          <view class="market-toolbar">
+            <view class="market-picker">
+              <button class="market-picker-trigger" bindtap="toggleMarketMenu" aria-label="{{ui['切换插件市场']}}" aria-expanded="{{marketMenuOpen}}"><text>{{marketTitle || marketSelectedLabel || ui['插件市场']}}</text><view class="plugin-chevron {{marketMenuOpen ? 'is-open' : ''}}"></view></button>
+              <block wx:if="{{marketMenuOpen}}"><view class="market-menu-mask" bindtap="closeMarketMenu" catchtouchmove="noop"></view><view class="market-menu"><scroll-view scroll-y class="market-menu-list"><button wx:for="{{marketSources}}" wx:key="url" class="market-menu-option {{marketSelected === item.url ? 'selected' : ''}}" data-url="{{item.url}}" bindtap="selectMarket"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="market-check">{{marketSelected === item.url ? '✓' : ''}}</text></button></scroll-view><button class="market-menu-manage" bindtap="openSources">{{ui['管理索引源…']}}</button></view></block>
+            </view>
+            <view class="market-search-field"><view class="market-search-icon"></view><input value="{{marketQuery}}" bindinput="editMarketQuery" bindconfirm="searchMarket" confirm-type="search" placeholder="{{ui['搜索插件']}}" aria-label="{{ui['搜索插件']}}"/><button wx:if="{{marketQuery}}" class="market-clear" bindtap="clearMarketQuery" aria-label="{{ui['清空搜索']}}">×</button></view>
+          </view>
+          <view wx:if="{{marketCategories.length}}" class="market-category-panel">
+            <view class="market-category-heading"><view class="market-category-caption"><text>{{ui['分类']}}</text><text class="market-category-count">{{marketCategories.length}}</text></view><button wx:if="{{marketCategories.length > 7}}" class="market-category-expand" bindtap="toggleMarketCategories" aria-expanded="{{marketCategoriesExpanded}}"><text>{{marketCategoriesExpanded ? ui['收起'] : ui['展开全部']}}</text><view class="plugin-chevron {{marketCategoriesExpanded ? 'is-open' : ''}}"></view></button></view>
+            <view class="market-categories" role="group" aria-label="{{ui['插件分类']}}">
+            <button class="market-category {{!marketCategory ? 'selected' : ''}}" data-category="" bindtap="selectMarketCategory" aria-pressed="{{!marketCategory}}">{{ui['全部']}}</button>
+            <block wx:for="{{marketCategories}}" wx:key="id"><button wx:if="{{marketCategoriesExpanded || index < 7 || marketCategory === item.id}}" class="market-category {{marketCategory === item.id ? 'selected' : ''}}" data-category="{{item.id}}" bindtap="selectMarketCategory" aria-pressed="{{marketCategory === item.id}}">{{item.title}}</button></block>
+            </view>
+          </view>
+          <view wx:if="{{marketListingError}}" class="market-read-error"><text class="source-error">{{ui[marketListingError] !== undefined ? ui[marketListingError] : marketListingError}}</text><button class="market-retry" bindtap="searchMarket" disabled="{{!connected || marketListingBusy}}">{{ui['重试']}}</button></view>
+          <view wx:if="{{marketListingBusy && !marketEntries.length}}" class="market-skeleton-list" aria-label="{{ui['正在读取索引']}}"><view wx:for="{{[1,2,3]}}" wx:key="*this" class="market-entry"><view class="market-entry-icon market-skeleton"></view><view class="market-entry-body"><view class="market-skeleton skeleton-title"></view><view class="market-skeleton skeleton-description"></view><view class="market-skeleton skeleton-meta"></view></view></view></view>
+          <view class="market-list">
+            <view wx:for="{{marketEntries}}" wx:key="name" class="market-entry" hover-class="plugin-line-hover">
+              <view class="market-entry-icon"><image wx:if="{{item.icon && !item.iconBroken}}" class="market-entry-image" src="{{item.icon}}" mode="aspectFit" data-name="{{item.name}}" binderror="onMarketIconError"/><image wx:else class="market-entry-art" src="/assets/plugin-artwork/default.png" mode="aspectFit"/></view>
+              <view class="market-entry-body"><text class="market-entry-title">{{item.title}}</text><text wx:if="{{item.description}}" class="market-entry-description">{{item.description}}</text><text class="market-entry-meta">{{item.meta || item.version}}</text></view>
+              <button class="market-install {{(item.installLabel === ui['已安装'] || item.installLabel === 'Installed' || item.installLabel === '已安装') ? 'is-installed' : ''}}" data-name="{{item.name}}" bindtap="installMarketEntry" disabled="{{!canAdd || installBusy || !item.installable}}">{{ui[item.installLabel] !== undefined ? ui[item.installLabel] : item.installLabel}}</button>
+            </view>
+          </view>
+          <view wx:if="{{!marketListingBusy && !marketListingError && !marketEntries.length}}" class="market-no-results"><text>{{marketQuery || marketCategory ? ui['没有符合条件的插件'] : ui['此索引没有插件']}}</text><button wx:if="{{marketQuery}}" class="market-subtle" bindtap="clearMarketQuery">{{ui['清空搜索']}}</button></view>
+          <button wx:if="{{marketNext !== null && !marketListingError}}" class="market-load-more" bindtap="loadMoreMarket" disabled="{{marketListingBusy}}">{{marketListingBusy ? ui['正在加载…'] : ui['显示更多']}}</button>
+        </block>
+      </view>
+<text wx:if="{{!connected}}" class="plugins-warn">{{ui['网关未连接，连接后可安装和管理插件']}}</text>
+      <text wx:if="{{notice}}" class="plugins-notice">{{ui[notice] !== undefined ? ui[notice] : notice}}</text>
+      <view wx:if="{{install}}" class="install-banner {{install.phase === 'failed' ? 'install-banner-failed' : ''}}" bindtap="openAdd" role="button"><text class="install-banner-summary">{{ui[install.summary] !== undefined ? ui[install.summary] : install.summary}}</text><text class="install-banner-action">{{install.phase === 'failed' ? ui['查看详情'] : ui['查看任务']}} ›</text></view>
+      <view wx:if="{{error && pluginTab === 'installed'}}" class="plugins-state"><image class="plugins-state-ic" src="/assets/icons/plugin-error-gray.png" mode="aspectFit"/><text class="plugins-state-title">{{ui[error] !== undefined ? ui[error] : error}}</text><text class="plugins-state-desc">{{ui['请检查网关连接后重试']}}</text><button class="plugin-text-button" bindtap="onRefresh" disabled="{{loading || !connected}}">{{ui['重试']}}</button></view>
+      <view wx:elif="{{loading && !catalog && pluginTab === 'installed'}}" class="plugins-state"><view class="plugins-spinner"></view><text class="plugins-state-desc">{{ui['正在加载插件…']}}</text></view>
+      <block wx:if="{{catalog && catalog.canManage && (pluginTab === 'installed' || showingMore)}}">
+        <block wx:if="{{showingMore}}"><view class="plugin-section"><text class="plugins-hint">{{ui['查看所有实验性插件；启用后会显示在主列表']}}</text><template is="bundleRows" data="{{rows: catalog.moreBundles, pendingName, theme, ui, uiLocale}}"/></view></block>
+        <block wx:else>
+          <view wx:if="{{catalog.officialItems.length}}" class="plugin-section">
+            <view class="plugin-section-head"><text class="plugin-section-title">{{ui['内置插件配置']}}</text></view>
+            <view wx:for="{{catalog.officialItems}}" wx:key="id" class="plugin-row builtin-row" hover-class="plugin-line-hover" bindtap="openOfficial" data-id="{{item.id}}" role="button">
+              <view class="plugin-icon"><image class="plugin-icon-art" src="{{item.artwork}}" mode="aspectFit"/></view>
+              <view class="plugin-line-body"><text class="plugin-line-title">{{item.title}}</text><text class="plugin-line-sub">{{item.description}}</text></view>
+            </view>
+          </view>
+          <view wx:if="{{catalog.moreBundles.length}}" class="plugin-section"><view class="plugin-section-head"><text class="plugin-section-title">{{ui['实验性插件']}}</text><button class="plugin-more" bindtap="openMore">{{ui['更多']}} <text>›</text></button></view><template is="bundleRows" data="{{rows: catalog.featuredBundles, pendingName, theme, ui, uiLocale}}"/></view>
+          <view class="plugin-section"><view class="plugin-section-head"><text class="plugin-section-title">{{ui['已安装插件']}}</text><text class="plugin-section-count">{{catalog.installedBundles.length}}</text></view><template is="bundleRows" data="{{rows: catalog.installedBundles, pendingName, theme, ui, uiLocale}}"/><text wx:if="{{!catalog.installedBundles.length}}" class="plugins-hint plugin-empty">{{ui['还没有安装第三方插件']}}</text></view>
+        </block>
+      </block>
+    </view>
+  </scroll-view>
+  <block wx:if="{{addMenuOpen}}">
+    <view class="plugin-menu-mask" bindtap="closeAddMenu" catchtouchmove="noop"></view>
+    <view class="plugin-add-menu" style="top: calc({{statusBarH}}px + 198rpx);"><view class="plugin-menu-item" bindtap="openAdd"><text>{{ui['安装第三方插件']}}</text><text class="plugin-menu-desc">{{ui['支持 npm 包、Git 仓库和主机目录']}}</text></view><view class="plugin-menu-item" bindtap="createPluginSession"><text>{{creatingPlugin ? ui['正在打开…'] : ui['让 Agent 创建插件']}}</text><text class="plugin-menu-desc">{{ui['新建创造模式会话，制作自己的 DSH 插件']}}</text></view></view>
+  </block>
+  <view wx:if="{{addOpen}}" class="plugin-sheet-overlay">
+    <view class="plugin-sheet-mask" bindtap="closeAdd" catchtouchmove="noop"></view>
+    <view class="plugin-sheet">
+      <view class="plugin-sheet-handle"></view>
+      <view class="plugin-sheet-head"><text>{{ui['添加插件']}}</text><button class="plugin-sheet-close" bindtap="closeAdd" aria-label="{{ui['关闭安装面板']}}">×</button></view>
+      <scroll-view class="plugin-sheet-scroll" scroll-y><view class="plugin-sheet-content">
+        <text class="plugin-sheet-desc">{{officialInstallName ? ui['此插件需先下载，将使用主机提供的兼容版本安装并启用。'] : ui['输入 npm 包名、Git 仓库地址或 DSH 主机上的插件目录路径。']}}</text>
+        <block wx:if="{{installEditable || install && install.phase === 'checking'}}">
+          <input class="plugin-spec-input" value="{{spec}}" bindinput="onSpecInput" maxlength="512" placeholder="{{ui['例如 dsh-plugin-whale-pet']}}" disabled="{{!installEditable || officialInstallName}}" adjust-position cursor-spacing="32"/>
+          <view class="plugin-install-options"><button class="plugin-text-button plugin-guide-toggle" bindtap="toggleGuide"><text>{{guideOpen ? ui['收起引导'] : ui['安装引导和示例']}}</text><view class="plugin-chevron {{guideOpen ? 'is-open' : ''}}"></view></button><button class="plugin-registry" bindtap="openRegistry" disabled="{{!installEditable || registryLoading}}"><text>{{ui['安装源']}}</text><text class="plugin-registry-value">{{registryLoading ? ui['读取中…'] : registryOptions[registryIndex].label}}</text><view class="plugin-chevron {{registryOpen ? 'is-open' : ''}}"></view></button></view>
+          <input wx:if="{{registryOptions[registryIndex].value === 'custom'}}" class="plugin-spec-input" value="{{customRegistry}}" bindinput="onCustomRegistryInput" maxlength="2048" disabled="{{!installEditable}}" placeholder="https://npm.example.com/"/>
+          <view wx:if="{{guideOpen}}" class="plugin-guide"><text>{{ui['包名：dsh-plugin-whale-pet 或 @作者/插件名']}}</text><text>{{ui['Git：填写实际仓库地址']}}</text><text>{{ui['目录：填写电脑上的绝对路径，不是手机路径']}}</text><text>{{ui['私有安装源凭据请配置在 DSH 主机的 .npmrc 中']}}</text></view>
+          <text wx:if="{{registryError}}" class="plugin-inline-error">{{ui[registryError] !== undefined ? ui[registryError] : registryError}}</text>
+        </block>
+        <view wx:if="{{install && install.phase !== 'checking'}}" class="plugin-install-summary"><text class="plugin-install-name" selectable>{{install.name}}</text><text wx:if="{{install.version}}">{{ui['版本']}} {{install.version}}</text><text class="plugin-install-source" selectable>{{install.spec}}</text></view>
+        <view class="plugin-safety">{{ui['请确认插件来源可信。插件将在所连接的 DSH 主机以你的权限运行，可能读取、修改或泄露数据。安装操作不会在手机上执行。']}}</view>
+        <view wx:if="{{install && install.phase === 'ready'}}" class="plugin-enable-row"><text>{{ui['安装后立即启用']}}</text><switch checked="{{enableAfterInstall}}" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}" bindchange="onEnableChange"/></view>
+        <view wx:if="{{install}}" class="plugin-install-status {{install.phase === 'failed' ? 'is-error' : ''}}"><view wx:if="{{installBusy}}" class="plugins-spinner small"></view><text>{{ui[install.message] !== undefined ? ui[install.message] : install.message}}</text></view>
+        <text wx:if="{{actionError}}" class="plugin-inline-error">{{ui[actionError] !== undefined ? ui[actionError] : actionError}}</text>
+        <block wx:if="{{install && install.logs}}"><button class="plugin-text-button" bindtap="toggleLogs">{{logsOpen ? ui['收起安装详情'] : ui['查看安装详情']}}</button><view wx:if="{{logsOpen}}" class="plugin-install-log"><text selectable>{{install.logs}}</text></view></block>
+        <view wx:if="{{install && install.pendingBuilds.length}}" class="plugin-builds"><text>{{ui['以下依赖需要运行安装脚本：']}}</text><text wx:for="{{install.pendingBuilds}}" wx:key="*this">{{item}}</text><button class="plugin-secondary-button" bindtap="approveBuilds" disabled="{{!canAdd || installBusy}}">{{ui['审阅授权并重试']}}</button></view>
+        <button wx:if="{{installEditable || install && install.phase === 'checking'}}" class="plugin-primary-button" bindtap="checkPlugin" disabled="{{!canAdd || !spec || installBusy || registryLoading}}">{{install && install.phase === 'checking' ? ui['正在准备…'] : ui['安装']}}</button>
+        <view wx:elif="{{install && install.phase === 'ready'}}" class="plugin-sheet-buttons"><button class="plugin-secondary-button" bindtap="editInstall">{{ui['返回编辑']}}</button><button class="plugin-primary-button" bindtap="confirmInstall" disabled="{{!canAdd}}">{{ui['确认安装']}}</button></view>
+        <view wx:elif="{{installActive}}" class="plugin-sheet-buttons"><button class="plugin-secondary-button" bindtap="cancelInstall" disabled="{{!connected || install.cancelling || install.phase === 'applying'}}">{{install.cancelling ? ui['取消中…'] : ui['取消安装']}}</button><button class="plugin-primary-button" bindtap="reconcileInstall" disabled="{{!connected || install.recovering}}">{{install.recovering ? ui['核对中…'] : ui['核对安装状态']}}</button></view>
+        <view wx:elif="{{install && install.phase === 'done'}}" class="plugin-sheet-buttons"><button class="plugin-secondary-button" bindtap="editInstall">{{ui['继续添加']}}</button><button class="plugin-primary-button" bindtap="closeAdd">{{ui['完成']}}</button></view>
+        <text wx:if="{{installActive}}" class="plugin-sheet-footnote">{{ui['关闭面板不会取消主机安装，可从页面“查看任务”继续查看。']}}</text>
+      </view></scroll-view>
+    </view>
+  </view>
+  <view wx:if="{{registryOpen && addOpen}}" class="registry-overlay">
+    <view class="registry-mask" bindtap="closeRegistry" catchtouchmove="noop"></view>
+    <view class="registry-panel"><view class="plugin-sheet-handle"></view>
+      <view class="registry-head"><text>{{ui['安装来源']}}</text><button class="registry-close" bindtap="closeRegistry" aria-label="{{ui['关闭安装来源']}}">×</button></view>
+      <text class="registry-description">{{ui['选择 DSH 主机下载 npm 插件使用的安装源']}}</text>
+      <scroll-view class="registry-list" scroll-y>
+        <button wx:for="{{registryOptions}}" wx:key="value" class="registry-option {{registryIndex === index ? 'selected' : ''}}" data-index="{{index}}" bindtap="selectRegistry">
+          <view class="registry-option-copy"><text class="registry-option-title">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="registry-option-detail">{{item.value === 'host' ? ui['跟随当前 DSH 主机配置'] : item.value === null ? ui['使用主机 .npmrc 中的配置'] : item.value === 'custom' ? ui['输入私有或其他 npm 源地址'] : item.value}}</text></view><view class="registry-radio {{registryIndex === index ? 'selected' : ''}}"><view wx:if="{{registryIndex === index}}"></view></view>
+        </button>
+      </scroll-view><text class="registry-footnote">{{ui['Git 仓库和主机目录不通过 npm 安装源下载']}}</text>
+    </view>
+  </view>
+  <view wx:if="{{sourcesOpen}}" class="sources-overlay">
+    <view class="sources-mask" bindtap="closeSources" catchtouchmove="noop"></view>
+    <view class="sources-dialog" role="dialog" aria-label="{{ui['索引源']}}">
+      <view class="sources-heading"><text>{{ui['索引源']}}</text><button class="sources-close" bindtap="closeSources" aria-label="{{ui['关闭']}}">×</button></view>
+      <text class="sources-description">{{ui['插件市场以一个索引文件的 URL 提供，「发现」从这里列出的索引浏览插件']}}</text>
+      <scroll-view wx:if="{{marketSources.length}}" scroll-y class="sources-list">
+        <view wx:for="{{marketSources}}" wx:key="url" class="source-row"><view class="source-copy"><text class="source-name">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="source-url">{{item.url}}</text><text wx:if="{{item.error}}" class="source-error">{{ui[item.error] !== undefined ? ui[item.error] : item.error}}</text></view><button class="source-remove" data-url="{{item.url}}" bindtap="removeSource" disabled="{{sourceSaving || marketStatus !== 'ready' || !connected}}" aria-label="{{ui['移除']}}{{ui[item.label] !== undefined ? ui[item.label] : item.label}}"><view class="source-trash"><view></view></view></button></view>
+      </scroll-view>
+      <view class="source-form"><input class="source-input" value="{{sourceDraft}}" bindinput="editSourceDraft" bindconfirm="addSource" placeholder="https://example.com/index.json" maxlength="2048" confirm-type="done" disabled="{{sourceSaving}}" aria-label="{{ui['索引 URL']}}"/><button class="source-submit" bindtap="addSource" disabled="{{sourceSaving || !sourceDraft || marketStatus !== 'ready' || !connected}}">{{sourceSaving ? ui['保存中…'] : ui['＋ 添加']}}</button></view>
+      <text wx:if="{{sourceError}}" class="source-error" role="alert">{{ui[sourceError] !== undefined ? ui[sourceError] : sourceError}}</text>
+      <view wx:if="{{marketStatus !== 'ready'}}" class="sources-availability"><text>{{marketStatus === 'loading' ? ui['正在读取主机索引源…'] : marketError || ui['连接网关后可管理索引源']}}</text><button wx:if="{{marketStatus !== 'loading'}}" class="market-subtle" bindtap="loadMarketSources" disabled="{{!connected}}">{{ui['重试']}}</button></view>
+      <view class="sources-trust"><text class="sources-warning-icon">!</text><text>{{ui['索引由第三方提供。只添加你信任的来源：其中的插件安装后以你的权限运行']}}</text></view>
+    </view>
+  </view>
+</view>

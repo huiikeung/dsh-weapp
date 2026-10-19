@@ -1,0 +1,27 @@
+<page-meta page-style="{{pageStyle}}" />
+<view class="page admin-page {{themeClass}}" style="{{contentFontStyle}}">
+  <view class="admin-intro"><text class="admin-title">{{ui['配对码管理']}}</text><text class="admin-subtitle">{{ui['与服务器后台共用节点、期限和签发记录']}}</text></view>
+  <view wx:if="{{loading}}" class="admin-message">{{ui['正在验证管理员身份…']}}</view>
+  <view wx:if="{{error}}" class="admin-message" role="alert">{{ui[error] !== undefined ? ui[error] : error}}</view>
+  <button wx:if="{{!loading && !isAdmin}}" class="admin-primary" bindtap="refresh">{{ui['重新验证']}}</button>
+  <block wx:if="{{isAdmin && !loading}}">
+    <view class="group-title">{{ui['生成限时配对码']}}</view>
+    <view class="card">
+      <picker range="{{nodes}}" range-key="label" value="{{nodeIndex}}" bindchange="pickNode" disabled="{{busy || !nodes.length}}"><view class="card-row"><text class="card-row-label">{{ui['后台节点']}}</text><text class="admin-value">{{nodes.length ? nodes[nodeIndex].label : ui['请在后台添加节点']}} ›</text></view></picker>
+      <picker range="{{durations}}" range-key="label" value="{{durationIndex}}" bindchange="pickDuration" disabled="{{busy}}"><view class="card-row"><text class="card-row-label">{{ui['访问期限']}}</text><text class="admin-value">{{durations[durationIndex].label}} ›</text></view></picker>
+      <view class="card-row"><text class="card-row-label">{{ui['计时规则']}}</text><text class="admin-value">{{ui['签发成功时开始计时']}}</text></view>
+    </view>
+    <view class="group-hint">{{ui['半年按 180 天、1 年按 365 天。配对码本身短期、一次性使用；配对后的设备访问期限由电脑端强制执行。']}}</view>
+    <view wx:if="{{nodes.length && !selectedReady}}" class="admin-message">{{ui['节点离线或未安装限时配对扩展，请在电脑端检查连接器与插件。不能生成无到期控制的假限时码。']}}</view>
+    <button class="admin-primary" bindtap="generate" disabled="{{busy || !selectedReady || !durations.length}}">{{busy ? ui['正在请求电脑签发…'] : ui['生成配对码']}}</button>
+    <view wx:if="{{generatedCode}}" class="card code-result"><text class="code-result-label">{{ui['完整配对内容仅本次显示']}}</text><text class="code-value pairing-code" selectable>{{generatedCode}}</text><text class="code-meta">{{generatedMeta}}</text><button class="admin-secondary" bindtap="copyCode">{{ui['复制并分发']}}</button></view>
+    <view class="admin-list-head"><text class="group-title">{{ui['后台签发记录']}}</text><text class="admin-link" bindtap="sync">{{syncing ? ui['同步中…'] : ui['刷新']}}</text></view>
+    <text class="sync-label">{{ui['页面打开时每 10 秒同步 ·']}} {{ui[syncedLabel] !== undefined ? ui[syncedLabel] : syncedLabel}}</text>
+    <view wx:if="{{!items.length}}" class="admin-message">{{ui['还没有限时配对记录']}}</view>
+    <view wx:for="{{items}}" wx:key="id" class="card code-item">
+      <view class="code-heading"><text class="code-title">{{item.title}}</text><text class="code-status">{{ui[item.statusLabel] !== undefined ? ui[item.statusLabel] : item.statusLabel}}</text></view>
+      <text class="code-meta">{{ui[item.originLabel] !== undefined ? ui[item.originLabel] : item.originLabel}} · {{ui[item.createdLabel] !== undefined ? ui[item.createdLabel] : item.createdLabel}}</text><text class="code-meta">{{ui['访问到期']}} {{ui[item.accessLabel] !== undefined ? ui[item.accessLabel] : item.accessLabel}}</text><text class="code-meta">{{ui['配对截止']}} {{ui[item.codeLabel] !== undefined ? ui[item.codeLabel] : item.codeLabel}}</text>
+      <view class="code-footer"><text class="code-meta">{{ui['编号']}} {{item.id}}</text><button wx:if="{{item.canRevoke}}" class="admin-stop" data-id="{{item.id}}" bindtap="revoke" disabled="{{!!actionId}}">{{ui['停用']}}</button></view>
+    </view>
+  </block>
+</view>

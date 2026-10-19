@@ -3,9 +3,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-const pagePath = path.join(__dirname, '../pages/settings/settings.js');
-const wxml = fs.readFileSync(path.join(__dirname, '../pages/settings/settings.wxml'), 'utf8');
-const wxss = fs.readFileSync(path.join(__dirname, '../pages/settings/settings.wxss'), 'utf8');
+const pagePath = path.join(__dirname, '../miniprogram/pages/settings/settings.js');
+const wxml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8').replace(/\{\{ui\['([^']+)'\]\}\}/g, '$1');
+const wxss = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
 
 function createPage(apiOptions) {
   let definition;
@@ -35,10 +35,13 @@ function createPage(apiOptions) {
     Page(value) { definition = value; },
     require(name) {
       if (name === '../../utils/store') return store;
+      if (name === '../../utils/ui-preferences') return require('../miniprogram/utils/ui-preferences');
+      if (name === '../../utils/work-step-presentation') return require('../miniprogram/utils/work-step-presentation');
+      if (name === '../../utils/status-appearance') return require('../miniprogram/utils/status-appearance');
       if (name === '../../utils/access-api') return api;
-      if (name === '../../utils/public-access-state') return require('../utils/public-access-state');
-      if (name === '../../utils/node-presentation') return require('../utils/node-presentation');
-      if (name === '../../utils/version-info') return require('../utils/version-info');
+      if (name === '../../utils/public-access-state') return require('../miniprogram/utils/public-access-state');
+      if (name === '../../utils/node-presentation') return require('../miniprogram/utils/node-presentation');
+      if (name === '../../utils/version-info') return require('../miniprogram/utils/version-info');
       if (name === '../../utils/labels') return { presetModeName: (v) => v, permissionName: (v) => v };
       if (name === '../../utils/notify-pref') return { enabled: () => false };
       if (name === '../../utils/theme') return { applyTo() {}, getMode: () => 'auto' };
@@ -89,7 +92,7 @@ const { page, store, wx, calls } = createPage();
 }
 const sync = () => page.syncFromStore({ app: store.state });
 page.onLoad({});
-assert.equal(page.data.buildLabel, require('../utils/version-info').clientVersion(wx).buildLabel);
+assert.equal(page.data.buildLabel, require('../miniprogram/utils/version-info').clientVersion(wx).buildLabel);
 page.openPrivacyPolicy();
 assert.equal(page.data.privacyOpen, true);
 page.closePrivacyPolicy();
@@ -186,7 +189,7 @@ assert.match(wxml, /managementPanel === 'nodes'/);
 assert.match(wxml, /auto-height="{{false}}"/, 'Textarea needs a boolean false, not a truthy string');
 assert.doesNotMatch(landing, />Mobile Gateway<|bindtap="disconnect"|bindtap="pingGateway"|bindtap="forgetDevice"/);
 assert.match(wxml, /managementPanel === 'gateway' && nodeDetail/);
-assert.match(wxml, /managementPanel === 'gateway' \? '网关连接'/);
+assert.match(wxml, /managementPanel === 'gateway' \? ui\['网关连接'\]/);
 assert.doesNotMatch(wxml, /Mobile Gateway/);
 assert.match(wxml, /wx:if="{{nodeDetail.isPublic}}"/);
 

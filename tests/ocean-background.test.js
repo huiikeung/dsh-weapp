@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
+const read = file => fs.readFileSync(path.join(__dirname, '..', 'miniprogram', file), 'utf8');
 test('particle mask preserves separate tail wave and native phone composition', () => {
-  const dots = require('../utils/ocean-particles');
+  const dots = require('../miniprogram/utils/ocean-particles');
   assert.ok(dots.length > 1000 && dots.length < 3600);
   assert.ok(dots.some(p => p[0] > 0.9));
   for (const p of dots) { assert.equal(p.length, 6); assert.ok(p.every(Number.isFinite)); assert.ok(p[0] > 0 && p[0] < 1 && p[1] > 0 && p[1] < 1); }

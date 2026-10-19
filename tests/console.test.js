@@ -9,7 +9,7 @@ test('web console relay pairing shape is accepted by the miniapp', () => {
   const raw = Buffer.from(JSON.stringify({ version: 3, mode: 'relay', relay: 'wss://relay.example.test',
     nodeId, agentPubKey: Buffer.alloc(32, 7).toString('base64'), pairingCode: 'fixture-pairing-credential-123456',
     expiresAt: Date.now() + 120000, gatewayName: '验收节点' })).toString('base64url');
-  const result = require('../utils/pairing.js').parse(raw);
+  const result = require('../miniprogram/utils/pairing.js').parse(raw);
   assert.equal(result.ok, true);
   assert.equal(result.payload.authMode, 'gateway');
   assert.equal(result.payload.nodeId, nodeId);

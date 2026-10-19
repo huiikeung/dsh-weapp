@@ -2,9 +2,18 @@
   "description": "驭鲸 Harness — DeepSeek Harness 微信小程序客户端",
   "packOptions": {
     "ignore": [
-      { "type": "folder", "value": "dsh-console" },
-      { "type": "folder", "value": "tests" },
-      { "type": "folder", "value": "scripts" }
+      {
+        "type": "file",
+        "value": "project.config.json"
+      },
+      {
+        "type": "file",
+        "value": "project.private.config.json"
+      },
+      {
+        "type": "file",
+        "value": "README.md"
+      }
     ],
     "include": []
   },
@@ -59,5 +68,6 @@
   "simulatorPluginLibVersion": {
     "wxext14566970e7e9f62": "2.27.3"
   },
-  "projectArchitecture": "multiPlatform"
+  "miniprogramRoot": "miniprogram/",
+  "srcMiniprogramRoot": "miniprogram/"
 }

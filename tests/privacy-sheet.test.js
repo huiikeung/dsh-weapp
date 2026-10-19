@@ -3,14 +3,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const root = path.join(__dirname, '..');
+const root = path.join(__dirname, '..', 'miniprogram');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8');
 function setup() {
   let definition; const events = []; const timers = new Map(); let id = 0;
   const wx = { getMenuButtonBoundingClientRect: () => ({ bottom: 86 }), showToast: o => events.push(o.title) };
   vm.runInNewContext(read('components/privacy-sheet/privacy-sheet.js'), {
     Component: d => { definition = d; }, wx,
-    require: () => require('../utils/privacy-policy'),
+    require: n => n.endsWith('ui-preferences') ? require('../miniprogram/utils/ui-preferences') : require('../miniprogram/utils/privacy-policy'),
     setTimeout: fn => { timers.set(++id, fn); return id; }, clearTimeout: key => timers.delete(key)
   });
   const component = { ...definition.methods, data: { ...definition.data }, setData(v) { Object.assign(this.data, v); }, triggerEvent(e) { events.push(e); } };
@@ -43,7 +43,7 @@ test('privacy is fullscreen, scrollable, themed, and no longer an external webvi
   assert.match(css, /position: fixed; inset: 0/); assert.match(css, /privacy-dark/); assert.match(css, /env\(safe-area-inset-bottom\)/);
   assert.doesNotMatch(read('pages/privacy/privacy.wxml'), /web-view/);
   assert.doesNotMatch(read('pages/privacy/privacy.js'), /github.io|PRIVACY_URL/);
-  const policy = JSON.stringify(require('../utils/privacy-policy'));
+  const policy = JSON.stringify(require('../miniprogram/utils/privacy-policy'));
   for (const term of ['鲸尾助手', 'OpenID', 'WX-', '局域网', '朋友圈', '清理缓存', '联系客服']) assert.ok(policy.includes(term), term);
 });
 test('announcement publish button is transparent with a translucent border in all states', () => {

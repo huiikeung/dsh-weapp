@@ -9,8 +9,8 @@ function fixture() {
   const state = { nodes: [{ id: 'server-node', name: '电脑', managedPairingReady: true, online: true }], durations: [3, 7, 30, 180, 365].map(days => ({ days, label: days + ' 天' })), items: [], syncedAt: Date.now() };
   const api = { ensureAccount: async options => { assert.equal(options.freshLogin, true); return { isAdmin: true }; }, pairings: async () => state, createPairing: async () => { throw new Error('Unexpected generation'); } };
   const wx = { showModal: options => { wx.modal = options; } };
-  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../pages/pairing-admin/pairing-admin.js'), 'utf8'), {
-    Page: value => { definition = value; }, require: name => name.endsWith('access-api') ? api : { applyTo() {} }, wx, Date,
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../miniprogram/pages/pairing-admin/pairing-admin.js'), 'utf8'), {
+    Page: value => { definition = value; }, require: name => name.endsWith('ui-preferences') ? require('../miniprogram/utils/ui-preferences') : name.endsWith('access-api') ? api : { applyTo() {} }, wx, Date,
     setInterval: (fn, delay) => { assert.equal(delay, 10000); timers.set(++nextTimer, fn); return nextTimer; }, clearInterval: id => timers.delete(id)
   });
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)), setData(update) { Object.assign(this.data, update); } };

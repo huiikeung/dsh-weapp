@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
-const { parse, PairingError } = require('../utils/pairing');
-const { GatewayClient } = require('../utils/gateway');
+const { parse, PairingError } = require('../miniprogram/utils/pairing');
+const { GatewayClient } = require('../miniprogram/utils/gateway');
 const raw = (p) => Buffer.from(JSON.stringify(p)).toString('base64url');
 const payload = { version: 3, mode: 'relay', relay: 'wss://relay.example.com',
   nodeId: '12345678-1234-4234-8234-123456789012', agentPubKey: Buffer.alloc(32, 1).toString('base64'),

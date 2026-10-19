@@ -1,0 +1,362 @@
+<page-meta page-style="{{pageStyle}}" />
+<view class="page settings {{themeClass}}" style="{{contentFontStyle}}">
+  <!-- 自定义导航：与右上角胶囊同一水平线，避免原生导航在手动深色时露白 -->
+  <view class="nav" style="padding-top:{{navPadTop}}px;height:{{navHeight}}px;">
+    <view class="nav-back tap" bindtap="goBack" hover-class="press-dim" role="button" aria-label="{{ui['返回']}}">
+      <image class="nav-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
+    </view>
+    <text class="nav-title">{{ui['设置']}}</text>
+  </view>
+  <view class="nav-placeholder" style="height:{{navPadTop + navHeight}}px;" aria-hidden="true"></view>
+
+  <!-- 两个独立入口，具体操作只放在各自面板内。 -->
+  <view class="group-title">{{ui['公网访问']}}</view>
+  <view class="card">
+    <view class="card-row management-entry" bindtap="openPublicAccess" hover-class="management-entry-active" role="button" aria-label="{{ui['公网访问']}}">
+      <view class="management-entry-copy">
+        <text class="card-row-label">{{publicExpiryLabel || ui['公网访问']}}</text>
+        <text class="management-entry-desc">{{ui['兑换公网有效期 · 不影响局域网']}}</text>
+      </view>
+      <view class="card-row-value management-entry-value">
+        <text>{{ui[publicStatusLabel] !== undefined ? ui[publicStatusLabel] : publicStatusLabel}}</text>
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+      </view>
+    </view>
+  </view>
+
+  <view class="group-title">{{ui['节点管理']}}</view>
+  <view class="card">
+    <view class="card-row management-entry" bindtap="openNodeManagement" hover-class="management-entry-active" role="button" aria-label="{{ui['节点管理']}}">
+      <view class="management-entry-copy">
+        <text class="card-row-label">{{activeNodeName || ui['节点管理']}}</text>
+        <text class="management-entry-desc">{{onlineNodeCount}} {{ui['个在线 · 扫码或输入配对信息']}}</text>
+      </view>
+      <view class="card-row-value management-entry-value">
+        <text>{{nodeCount}} {{ui['个']}}</text>
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+      </view>
+    </view>
+  </view>
+
+  <block wx:if="{{isWechatAdmin}}">
+  <view class="group-title">{{ui['微信身份']}}</view>
+  <view class="card">
+    <view class="card-row management-entry">
+      <view class="management-entry-copy">
+        <text class="card-row-label">{{ui['当前身份']}}</text>
+        <text class="management-entry-desc">{{ui[accountHint] !== undefined ? ui[accountHint] : accountHint}}</text>
+      </view>
+      <view class="card-row-value management-entry-value">
+        <text>{{ui[accountLabel] !== undefined ? ui[accountLabel] : accountLabel}}</text>
+      </view>
+    </view>
+  </view>
+  </block>
+  <block wx:if="{{isWechatAdmin}}">
+    <view class="group-title">{{ui['管理员']}}</view>
+    <view class="card">
+      <view class="card-row management-entry" bindtap="openCodeManagement" hover-class="management-entry-active" role="button">
+        <view class="management-entry-copy">
+          <text class="card-row-label">{{ui['兑换码管理']}}</text>
+          <text class="management-entry-desc">{{ui['生成、复制分发与删除']}}</text>
+        </view>
+        <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+      </view>
+      <view class="card-row management-entry" bindtap="openAnnouncementManagement" hover-class="management-entry-active" role="button">
+        <view class="management-entry-copy"><text class="card-row-label">{{ui['发布公告']}}</text><text class="management-entry-desc">{{ui['发布、编辑与删除 · 与后台同步']}}</text></view>
+        <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+      </view>
+      <view class="card-row management-entry">
+        <view class="management-entry-copy"><text class="card-row-label">{{ui['分享活动']}}</text><text class="management-entry-desc">{{shareSaving ? ui['正在保存…'] : (contentLoaded ? ui['关闭后隐藏分享入口，已获时长不变'] : (contentError || ui['正在同步设置…']))}}</text></view>
+        <switch checked="{{referralEnabled}}" disabled="{{shareSaving || !contentLoaded || accountBusy}}" color="#2E6BE6" bindchange="toggleReferralSharing" aria-label="{{ui['分享活动开关']}}"/>
+      </view>
+      <view wx:if="{{contentError}}" class="card-row" bindtap="refreshAppContent" hover-class="management-entry-active" role="button"><text class="card-row-label">{{ui['重试同步分享设置']}}</text></view>
+    </view>
+  </block>
+
+  <view class="group-title">{{ui['对话']}}</view>
+  <view wx:if="{{workStepMenu}}" class="work-step-menu-mask" catchtap="closeWorkStepMenu"></view>
+  <view class="card work-step-settings">
+    <view class="card-row work-step-row">
+      <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤展示']}}</text><text class="work-step-hint">{{ui['选择希望看到多少工具调用细节']}}</text></view>
+      <view class="work-step-select" bindtap="toggleWorkStepMenu" data-field="mode" role="button" aria-label="{{ui['工作步骤展示：']}}{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}"><text>{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}</text><image class="work-step-select-chevron" src="/assets/icons/chev-right-gray.png"/></view>
+      <view wx:if="{{workStepMenu === 'mode'}}" class="work-step-menu">
+        <view wx:for="{{workStepModes}}" wx:key="id" class="work-step-option" bindtap="chooseWorkStep" data-field="mode" data-id="{{item.id}}" role="button"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="work-step-selected">{{workStepMode === item.id ? '✓' : ''}}</text></view>
+      </view>
+    </view>
+    <view class="card-row work-step-row">
+      <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤收起时机']}}</text><text class="work-step-hint">{{ui['选择何时自动收起工作步骤']}}</text></view>
+      <view class="work-step-select" bindtap="toggleWorkStepMenu" data-field="timing" role="button" aria-label="{{ui['工作步骤收起时机：']}}{{ui[workStepTimingLabel] !== undefined ? ui[workStepTimingLabel] : workStepTimingLabel}}"><text>{{ui[workStepTimingLabel] !== undefined ? ui[workStepTimingLabel] : workStepTimingLabel}}</text><image class="work-step-select-chevron" src="/assets/icons/chev-right-gray.png"/></view>
+      <view wx:if="{{workStepMenu === 'timing'}}" class="work-step-menu timing-menu">
+        <view wx:for="{{workStepTimings}}" wx:key="id" class="work-step-option" bindtap="chooseWorkStep" data-field="timing" data-id="{{item.id}}" role="button"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="work-step-selected">{{workStepTiming === item.id ? '✓' : ''}}</text></view>
+      </view>
+    </view>
+  </view>
+  <view class="group-hint">{{ui['完全展开时不自动收起；设置保存在当前小程序。']}}</view>
+
+  <!-- 外观模式（对齐 dsh-mobile v1.6.0 InterfaceStyleSettingsRow） -->
+  <view class="group-title">{{ui['外观']}}</view>
+  <view class="card">
+    <view class="card-row" bindtap="pickAppearance">
+      <text class="card-row-label">{{ui['界面']}}</text>
+      <view class="card-row-value">
+        <text>{{ui[appearanceLabel] !== undefined ? ui[appearanceLabel] : appearanceLabel}}</text>
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+      </view>
+    </view>
+    <view class="card-row" bindtap="openStatusStyles" role="button" aria-label="{{ui['选择对话状态条样式']}}">
+      <text class="card-row-label">{{ui['对话状态条']}}</text>
+      <view class="card-row-value"><text>{{ui[statusAppearanceLabel] !== undefined ? ui[statusAppearanceLabel] : statusAppearanceLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+    </view>
+  </view>
+
+  <view class="group-title">{{ui['通用设置']}}</view>
+  <view class="card general-preferences">
+    <view class="card-row preference-language-row">
+      <text class="card-row-label">{{ui['语言']}}</text>
+      <view class="preference-select" bindtap="pickLanguage" role="button"><text>{{ui[languageLabel] !== undefined ? ui[languageLabel] : languageLabel}}</text><view class="preference-chevron {{preferenceMenu === 'language' ? 'expanded' : ''}}" aria-hidden="true"><view class="preference-chevron-line"/></view></view>
+      <view wx:if="{{preferenceMenu === 'language'}}" class="preference-menu">
+        <view wx:for="{{languageOptions}}" wx:key="id" class="preference-option" bindtap="chooseLanguage" data-id="{{item.id}}" role="button"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="preference-check">{{language === item.id ? '✓' : ''}}</text></view>
+      </view>
+    </view>
+    <view class="card-row preference-font-row">
+      <view class="preference-description" bindtap="toggleFontSettings" role="button"><text class="card-row-label">{{ui['字号大小']}}</text><text class="preference-hint">{{ui['仅影响会话内容的字号']}}</text></view>
+      <view class="font-number-control"><input class="font-number" type="number" value="{{fontSizes.text}}" data-role="text" bindblur="commitFontSize" bindconfirm="commitFontSize" maxlength="2"/><text class="font-unit">px</text></view>
+      <view class="font-expand" bindtap="toggleFontSettings" role="button" aria-label="{{fontSettingsExpanded ? ui['收起字体设置'] : ui['更多字体设置']}}"><view class="preference-chevron {{fontSettingsExpanded ? 'expanded' : ''}}" aria-hidden="true"><view class="preference-chevron-line"/></view></view>
+    </view>
+    <block wx:if="{{fontSettingsExpanded}}">
+      <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['正文字体']}}</text><text class="preference-hint">{{ui['用于界面与会话正文。多个字体用逗号分隔，留空使用默认字体']}}</text></view><input class="font-family-input" value="{{fontFamilies.text}}" placeholder="{{ui['默认']}}" placeholder-class="font-family-placeholder" data-role="text" bindblur="commitFontFamily" bindconfirm="commitFontFamily" maxlength="500"/></view>
+      <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['代码字体']}}</text><text class="preference-hint">{{ui['用于代码块、行内代码与工具输出。多个字体用逗号分隔，留空使用默认字体']}}</text></view><input class="font-family-input" value="{{fontFamilies.code}}" placeholder="{{ui['默认']}}" placeholder-class="font-family-placeholder" data-role="code" bindblur="commitFontFamily" bindconfirm="commitFontFamily" maxlength="500"/></view>
+      <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['代码字号']}}</text><text class="preference-hint">{{ui['用于代码块、行内代码与工具输出']}}</text></view><view class="font-number-control"><input class="font-number" type="number" value="{{fontSizes.code}}" data-role="code" bindblur="commitFontSize" bindconfirm="commitFontSize" maxlength="2"/><text class="font-unit">px</text></view></view>
+      <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['终端字体']}}</text><text class="preference-hint">{{ui['用于侧栏终端。多个字体用逗号分隔，留空使用默认字体']}}</text></view><input class="font-family-input" value="{{fontFamilies.terminal}}" placeholder="{{ui['默认']}}" placeholder-class="font-family-placeholder" data-role="terminal" bindblur="commitFontFamily" bindconfirm="commitFontFamily" maxlength="500"/></view>
+      <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['终端字号']}}</text><text class="preference-hint">{{ui['用于侧栏终端']}}</text></view><view class="font-number-control"><input class="font-number" type="number" value="{{fontSizes.terminal}}" data-role="terminal" bindblur="commitFontSize" bindconfirm="commitFontSize" maxlength="2"/><text class="font-unit">px</text></view></view>
+      <view class="font-preview-panel"><text class="preference-hint">{{ui['字体预览']}}</text><text class="font-preview-text">{{ui['正文字体']}} · DeepSeek Harness</text><text class="font-preview-code">const answer = 42;</text><text class="font-preview-terminal">$ dsh --version</text><text class="preference-hint">{{ui['实际可用字体取决于设备；找不到的字体将使用后备字体。']}}</text><text class="preference-hint">{{ui['当前小程序暂无侧栏终端；终端偏好已保存，下方预览可查看效果。']}}</text></view>
+    </block>
+
+  </view>
+
+
+  <view class="group-title">{{ui['实验性功能']}}</view>
+  <view class="card">
+    <view class="card-row">
+      <view class="exp-copy">
+        <text class="card-row-label">{{ui['订阅通知']}}</text>
+        <text class="exp-desc">{{ui['发送任务后申请订阅消息授权，回合完成时通过服务通知提醒']}}</text>
+      </view>
+      <switch checked="{{notifyEnabled}}" color="#2E6BE6" bindchange="toggleNotify"/>
+    </view>
+  </view>
+  <view class="group-hint">{{ui['实验性功能默认关闭，可能随基础库版本变化不稳定，仅供试用。']}}</view>
+
+  <view class="group-title">{{ui['关于']}}</view>
+  <view class="card">
+    <view class="card-row management-entry" bindtap="openAnnouncements" hover-class="management-entry-active" role="button">
+      <text class="card-row-label">{{ui['开发者公告']}}</text>
+      <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+    </view>
+    <button class="card-row about-contact" open-type="contact" session-from="whaletail-settings" binderror="onContactError" hover-class="management-entry-active">
+      <text class="card-row-label">{{ui['联系客服']}}</text>
+      <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+    </button>
+    <view class="card-row">
+      <text class="card-row-label">{{ui['客户端']}}</text>
+      <text class="card-row-value">{{ui['鲸尾助手小程序版']}}</text>
+    </view>
+    <view class="card-row">
+      <text class="card-row-label">{{ui['当前版本']}}</text>
+      <text class="card-row-value">{{appVersion}}</text>
+    </view>
+    <view class="card-row">
+      <text class="card-row-label">{{ui['要求网关版本']}}</text>
+      <text class="card-row-value about-version-value">{{minGatewayVersion}}</text>
+    </view>
+    <view class="card-row">
+      <text class="card-row-label">{{ui['已连接网关版本']}}</text>
+      <text class="card-row-value">{{connectedGatewayVersion}}</text>
+    </view>
+    <view class="card-row" bindtap="openPrivacyPolicy" role="button" aria-label="{{ui['查看隐私政策']}}">
+      <text class="card-row-label">{{ui['隐私政策']}}</text>
+      <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+    </view>
+  </view>
+  <view class="group-hint">{{ui[gatewayVersionHint] !== undefined ? ui[gatewayVersionHint] : gatewayVersionHint}}</view>
+  <privacy-sheet id="settings-privacy" visible="{{privacyOpen}}" theme="{{theme}}" bindclose="closePrivacyPolicy" />
+
+  <view wx:if="{{managementPanel && !pairSheetOpen}}" class="pair-sheet-mask" catchtap="closeManagementPanel" catchtouchmove="noop">
+    <view class="pair-sheet management-sheet" catchtap="noop">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <view>
+          <text class="pair-sheet-title">{{managementPanel === 'public' ? ui['公网访问'] : (managementPanel === 'gateway' ? ui['网关连接'] : ui['节点管理'])}}</text>
+          <text class="pair-sheet-subtitle">{{managementPanel === 'public' ? ui['管理当前微信账号的公网有效期'] : (managementPanel === 'gateway' ? nodeDetail.name : ui['点击节点查看连接信息与操作'])}}</text>
+        </view>
+        <text class="pair-sheet-close" bindtap="closeManagementPanel" role="button">{{managementPanel === 'gateway' ? ui['返回'] : ui['关闭']}}</text>
+      </view>
+      <scroll-view scroll-y enhanced class="management-scroll">
+        <block wx:if="{{managementPanel === 'public'}}">
+          <view class="card public-card">
+            <view class="public-head">
+              <image class="public-icon" src="/assets/icons/node-router.svg" mode="aspectFit"/>
+              <view class="public-main">
+                <text class="public-title">{{publicTitle}}</text>
+                <text class="public-sub">{{publicSub}}</text>
+              </view>
+            </view>
+            <view class="public-detail-row">
+              <text class="public-detail-label">{{ui['访问状态']}}</text>
+              <view class="public-pill {{publicOn ? 'on' : ''}}">
+                <view class="public-pill-dot"></view>
+                <text>{{ui[publicStatusLabel] !== undefined ? ui[publicStatusLabel] : publicStatusLabel}}</text>
+              </view>
+            </view>
+            <view class="public-detail-row public-device-row">
+              <text class="public-detail-label">{{ui['设备ID']}}</text>
+              <text class="public-device-value text-mono" selectable>{{accountDeviceId || (accountBusy ? ui['识别中…'] : (accountIdHint || ui['暂未识别，请重试']))}}</text>
+              <text wx:if="{{accountDeviceId}}" class="public-copy-id" data-id="{{accountDeviceId}}" bindtap="copyNodeId">{{ui['复制']}}</text>
+            </view>
+            <view wx:if="{{publicExpiryLabel}}" class="public-detail-row">
+              <text class="public-detail-label">{{ui['访问有效期']}}</text>
+              <text class="public-detail-value">{{ui[publicExpiryLabel] !== undefined ? ui[publicExpiryLabel] : publicExpiryLabel}}</text>
+            </view>
+            <view class="public-actions">
+              <button wx:if="{{referralEnabled}}" class="public-share" bindtap="openReferralShare" hover-class="public-share-hover">{{ui['分享']}}</button>
+              <button class="public-redeem" disabled="{{redeemBusy}}" bindtap="redeemRenewal" hover-class="public-share-hover">
+                {{redeemBusy ? ui['兑换中…'] : (redeemAvailable ? ui['兑换续期'] : ui['兑换说明'])}}
+              </button>
+            </view>
+            <view wx:if="{{redeemResultLabel}}" class="public-redeem-result">{{ui[redeemResultLabel] !== undefined ? ui[redeemResultLabel] : redeemResultLabel}}</view>
+            <view wx:if="{{referralEnabled && sharePayload}}" class="public-share-meta">
+              <text class="public-share-expiry">{{ui[shareExpiresLabel] !== undefined ? ui[shareExpiresLabel] : shareExpiresLabel}}</text>
+              <view class="public-share-actions">
+                <button open-type="share">{{ui['转发']}}</button>
+                <text class="public-share-copy" bindtap="copyNodeShare">{{ui['复制邀请']}}</text>
+              </view>
+            </view>
+          </view>
+          <view class="group-hint">{{ui[publicHint] !== undefined ? ui[publicHint] : publicHint}}</view>
+        </block>
+        <block wx:elif="{{managementPanel === 'nodes'}}">
+          <view class="node-group-title">
+            <text class="node-count">{{onlineNodeCount}} {{ui['在线 ·']}} {{nodeCount}} {{ui['个节点']}}</text>
+            <view class="node-head-actions">
+              <text wx:if="{{!nodeEditMode}}" class="node-refresh" bindtap="refreshNodes" role="button">{{ui['刷新']}}</text>
+              <text
+                wx:if="{{nodeEditMode && nodeSelection.length}}"
+                class="node-delete-inline"
+                bindtap="deleteSelectedNodes"
+                role="button"
+              >{{nodeSelection.length > 1 ? ui['删除 '] + nodeSelection.length + ui[' 个'] : ui['删除']}}</text>
+              <text wx:if="{{nodes.length}}" class="node-edit-toggle" bindtap="toggleNodeEditMode" role="button">{{nodeEditMode ? ui['完成'] : ui['编辑']}}</text>
+            </view>
+          </view>
+          <view class="card node-list-card">
+            <view wx:if="{{!nodes.length}}" class="node-empty">
+              <text class="node-empty-title">{{ui['还没有已配对节点']}}</text>
+              <text class="node-empty-desc">{{ui['点击下方「添加节点」，按引导完成电脑端准备后扫码配对。']}}</text>
+            </view>
+            <view wx:for="{{nodes}}" wx:key="id" class="node-row {{item.active ? 'node-row-active' : ''}}" data-id="{{item.id}}" bindtap="selectNode" hover-class="management-entry-active" role="button" aria-label="{{ui['查看']}}{{item.name}}{{ui['连接详情']}}">
+              <view wx:if="{{nodeEditMode}}" class="node-select" catchtap="toggleNodeSelect" data-id="{{item.id}}">
+                <image class="node-select-ic" src="/assets/icons/{{item.selected ? 'circle-filled-white.png' : 'circle-white.png'}}"/>
+              </view>
+              <view class="node-main">
+                <view class="node-name-line">
+                  <view class="status-dot {{item.online ? 'connected' : 'disconnected'}}"></view>
+                  <text class="node-name">{{item.name}}</text>
+                  <text wx:if="{{item.active}}" class="node-current">{{ui['当前']}}</text>
+                </view>
+                <text class="node-id text-mono">{{item.gatewayId || item.id}}</text>
+              </view>
+              <view class="node-actions">
+                <text class="node-status">{{ui[item.statusLabel] !== undefined ? ui[item.statusLabel] : item.statusLabel}}</text>
+                <text class="node-copy" data-id="{{item.gatewayId || item.id}}" catchtap="copyNodeId">{{ui['复制 ID']}}</text>
+              </view>
+              <image wx:if="{{!nodeEditMode}}" class="node-detail-chevron" src="/assets/icons/chev-right-gray.png"/>
+            </view>
+          </view>
+          <view class="node-pair-actions">
+            <button class="node-pair-button" bindtap="addNode" hover-class="node-add-active">
+              <text class="node-add-plus">+</text>
+              <text class="node-add-text">{{ui['添加节点']}}</text>
+            </button>
+          </view>
+        </block>
+        <block wx:elif="{{managementPanel === 'gateway' && nodeDetail}}">
+          <view class="card gateway-detail-card">
+            <view wx:if="{{nodeDetail.isPublic}}" class="card-row gateway-identity-row">
+              <text class="gateway-identity-label">{{ui['公网标识']}}</text>
+              <text class="gateway-identity-value text-mono" selectable>{{nodeDetail.identifier}}</text>
+              <text class="node-copy gateway-copy" data-id="{{nodeDetail.identifier}}" bindtap="copyNodeId" role="button">{{ui['复制']}}</text>
+            </view>
+            <view wx:else class="card-row">
+              <text class="card-row-label gw-url text-mono" selectable>{{nodeDetail.endpoint || ui['未配置']}}</text>
+            </view>
+            <view class="card-row gateway-status-row">
+              <view class="card-row-label gw-status"><view class="status-dot {{nodeDetail.connection}}"></view><text>{{ui[nodeDetail.connectionLabel] !== undefined ? ui[nodeDetail.connectionLabel] : nodeDetail.connectionLabel}}</text></view>
+              <view class="card-row-value"><text wx:if="{{!nodeDetail.isPublic && nodeDetail.port}}">Port {{nodeDetail.port}}</text><text wx:elif="{{nodeDetail.isPublic}}">{{ui['公网连接']}}</text></view>
+            </view>
+            <button wx:if="{{!nodeDetail.canDisconnect}}" class="card-row gateway-action" bindtap="connectNode" hover-class="management-entry-active"><text class="btn-text">{{nodeDetail.active ? ui['重新连接'] : ui['连接此节点']}}</text></button>
+            <button wx:else class="card-row gateway-action" bindtap="disconnect" hover-class="management-entry-active"><text class="btn-text">{{ui['断开连接']}}</text></button>
+            <button class="card-row gateway-action" bindtap="pingGateway" disabled="{{!nodeDetail.canPing || nodePingBusy}}" hover-class="management-entry-active"><text class="btn-text">{{nodePingBusy ? ui['Ping 检测中…'] : ui['Ping 网关']}}</text></button>
+            <button class="card-row gateway-action" bindtap="forgetDevice" hover-class="management-entry-active"><text class="btn-text-danger">{{ui['忘记此设备']}}</text></button>
+          </view>
+          <view class="group-hint">{{nodeDetail.isPublic ? ui['通过公网标识识别节点，不展示公网地址。'] : ui['局域网连接保留原地址与端口；不会消耗公网有效期。']}}</view>
+        </block>
+      </scroll-view>
+    </view>
+  </view>
+
+  <view wx:if="{{referralSheetOpen}}" class="referral-mask" catchtap="closeReferralShare" catchtouchmove="noop">
+    <view class="referral-sheet" catchtap="noop">
+      <view class="sheet-grabber"></view>
+      <text class="referral-title">{{ui['分享']}}</text>
+      <text class="referral-subtitle">{{ui['已累计获得']}} {{referralDays}} {{ui['天公网访问']}}</text>
+      <text wx:if="{{referralBusy || referralError}}" class="referral-subtitle">{{referralBusy ? ui['正在获取分享信息…'] : referralError}}</text>
+      <button class="referral-option" open-type="share" data-referral="true" disabled="{{!referralToken || referralBusy}}">
+        <view class="referral-copy"><text>{{ui['好友或群聊']}}</text><text class="referral-desc">{{referralHint || ui['朋友首次有效打开后，自动增加公网时长']}}</text></view><text class="referral-chevron">›</text>
+      </button>
+      <button class="referral-option" bindtap="openMomentsActivity"><view class="referral-copy"><text>{{ui['朋友圈']}}</text><text class="referral-desc">{{ui['保留满 24 小时，提交凭证审核领取']}}</text></view><text class="referral-chevron">›</text></button>
+      <button class="referral-rules" bindtap="openShareRules">{{ui['活动规则']}}</button>
+      <button class="referral-cancel" bindtap="closeReferralShare">{{ui['取消']}}</button>
+    </view>
+  </view>
+  <view wx:if="{{pairSheetOpen}}" class="pair-sheet-mask" catchtap="closePairSheet" catchtouchmove="noop">
+    <view class="pair-sheet" catchtap="noop">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <view>
+          <text class="pair-sheet-title">{{ui['添加公网节点']}}</text>
+          <text class="pair-sheet-subtitle">{{ui['粘贴插件提供的 Base64URL 配对信息']}}</text>
+        </view>
+        <text class="pair-sheet-close" bindtap="closePairSheet">{{ui['关闭']}}</text>
+      </view>
+      <textarea
+        class="pair-payload-input"
+        value="{{pairingText}}"
+        maxlength="20000"
+        auto-height="{{false}}"
+        placeholder="{{ui['粘贴完整配对字符串']}}"
+        placeholder-class="pair-payload-placeholder"
+        bindinput="onPairingInput"
+        disabled="{{pairingConnecting}}"
+      />
+      <text wx:if="{{pairingError}}" class="pair-result {{pairingConnecting ? 'pair-result-pending' : ''}}">{{ui[pairingError] !== undefined ? ui[pairingError] : pairingError}}</text>
+      <view class="pair-submit {{!pairingText || pairingConnecting ? 'pair-submit-disabled' : ''}}" bindtap="connectPublicNode">
+        <text>{{pairingConnecting ? ui['连接中…'] : ui['连接节点']}}</text>
+      </view>
+    </view>
+  </view>
+</view>
+
+<view wx:if="{{statusStyleSheetOpen}}" class="status-style-mask {{themeClass}}" catchtap="closeStatusStyles" catchtouchmove="noop">
+  <view class="status-style-sheet" catchtap="noop">
+    <view class="status-style-head"><view><view class="status-style-title">{{ui['对话状态条']}}</view><view class="status-style-hint">{{ui['只改变外观，保留原有文案和计时']}}</view></view><text class="status-style-close" bindtap="closeStatusStyles" role="button">{{ui['完成']}}</text></view>
+    <scroll-view class="status-style-list" scroll-y enhanced show-scrollbar="{{false}}">
+      <view wx:for="{{statusStyleChoices}}" wx:key="id" class="status-style-option {{statusAppearance === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="chooseStatusStyle" role="button" aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}} {{statusAppearance === item.id ? ui['已选择'] : ''}}">
+        <view class="status-style-option-head"><text class="status-style-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="status-style-check">{{statusAppearance === item.id ? ui['已选择'] : ''}}</text></view>
+        <view class="status-style-preview status-look-{{item.id}}"><view class="status-tail"><image class="status-tail-image" mode="aspectFit" src="/assets/icons/official-sway-{{theme === 'dark' ? 'dark' : 'light'}}.gif"/></view><view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? item.darkStyle : item.lightStyle}}">{{ui['正在思考，用时 12 秒…']}}</text></view></view>
+        <view class="status-style-description">{{item.detail}}</view>
+      </view>
+    </scroll-view>
+    <view class="status-style-footer">{{ui['所有样式均使用 Official sway 鲸尾动画 · 自动保存']}}</view>
+  </view>
+</view>

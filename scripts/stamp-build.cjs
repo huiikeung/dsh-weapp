@@ -2,7 +2,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const root = path.join(__dirname, '..');
+const root = path.join(__dirname, '..', 'miniprogram');
+require('./check-miniprogram-package.cjs').check();
 const file = path.join(root, 'utils/build.js');
 const version = require(file).BUILD_VERSION;
 const hash = crypto.createHash('sha256');

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { dataPatch, createMarkdownCache } = require('../utils/session-render');
+const { dataPatch, createMarkdownCache } = require('../miniprogram/utils/session-render');
 const clone = value => JSON.parse(JSON.stringify(value));
 function apply(data, patch) {
   Object.entries(patch).forEach(([key, value]) => {
@@ -50,13 +50,13 @@ function fixture(source) {
     store.sessionState.rows.push({ kind: 'assistant', key: 'a' + i, text: '## 标题 ' + i + '\n\n' + '历史回复内容。'.repeat(150), tools: [] });
   }
   store.sessionState.rows.push({ kind: 'assistant', key: 'current', reasoning: '检查完成', text: '测试完成', streaming: true, tools: [] });
-  const filename = path.join(__dirname, '../pages/session/session.js');
+  const filename = path.join(__dirname, '../miniprogram/pages/session/session.js');
   vm.runInNewContext(source || fs.readFileSync(filename, 'utf8'), {
     Page: value => { definition = value; }, Date, console,
     wx: { nextTick: fn => ticks.push(fn) },
     require(name) {
       if (name.endsWith('/store')) return store;
-      if (name.endsWith('/markdown')) return { parse(text) { parses++; return require('../utils/markdown').parse(text); } };
+      if (name.endsWith('/markdown')) return { parse(text) { parses++; return require('../miniprogram/utils/markdown').parse(text); } };
       return require(path.resolve(path.dirname(filename), name));
     }
   });
@@ -86,7 +86,7 @@ test('final text, in-place tool updates, history prepend and session switch stil
   const f = fixture(); f.sync(); f.reset();
   f.store.sessionState.rows.at(-1).text = '**新的最终答复**'; f.sync();
   assert.equal(f.report().parses, 1);
-  assert.ok(f.page.data.rows.at(-1).blocks[0].html.includes('<strong>新的最终答复</strong>'));
+  assert.ok(f.page.data.rows.find(row=>row.key==='current').blocks[0].html.includes('<strong>新的最终答复</strong>'));
   f.store.sessionState.rows.at(-1).tools = [{ callId: 'tool', name: 'read', status: 'running' }]; f.sync();
   f.store.sessionState.rows.at(-1).tools[0].status = 'done'; f.sync();
   const group = f.page.data.rows.find(row => row.kind === 'processGroup');
@@ -104,14 +104,14 @@ test('bottom scrolling coalesces callbacks and never updates an unloaded page', 
 module.exports = { fixture };
 
 test('authoritative history rebuilds semantic rows and trajectory only once', () => {
-  const real = require('../utils/protocol');
+  const real = require('../miniprogram/utils/protocol');
   let applies = 0, trajectories = 0, builds = 0;
   const protocol = { ...real,
     applyEvent(...args) { applies++; return real.applyEvent(...args); },
     buildRows(...args) { builds++; return real.buildRows(...args); },
     buildTrajectory(...args) { trajectories++; return real.buildTrajectory(...args); }
   };
-  const filename = path.join(__dirname, '../utils/store.js');
+  const filename = path.join(__dirname, '../miniprogram/utils/store.js');
   const module = { exports: {} };
   class Client { constructor(callbacks) { this.callbacks = callbacks; } }
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {

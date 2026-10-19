@@ -23,7 +23,7 @@ async function main() {
     const nx = (x + 0.5) / size, ny = (y + 0.5) / size;
     particles.push([nx, ny, luminance, missing / 8, particles.length, Math.max(0, 1 - Math.hypot(nx - 0.3, ny - 0.28) / 0.92)].map(n => +n.toFixed(6)));
   }
-  fs.writeFileSync(path.join(__dirname, '../utils/ocean-particles.js'), '// Generated from dsh-mobile HeroWhaleMask (MIT). See THIRD_PARTY_NOTICES.md.\nmodule.exports = ' + JSON.stringify(particles) + ';\n');
+  fs.writeFileSync(path.join(__dirname, '../miniprogram/utils/ocean-particles.js'), '// Generated from dsh-mobile HeroWhaleMask (MIT). See THIRD_PARTY_NOTICES.md.\nmodule.exports = ' + JSON.stringify(particles) + ';\n');
   console.log('Generated ' + particles.length + ' whale particles');
 }
 main().catch(error => { console.error(error.message); process.exitCode = 1; });

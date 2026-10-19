@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const root = path.join(__dirname, '..');
-const read = file => fs.readFileSync(path.join(root, file), 'utf8');
+const root = path.join(__dirname, '..', 'miniprogram');
+const read = file => { const text = fs.readFileSync(path.join(root, file), 'utf8'); return file.endsWith('.wxml') ? text.replace(/\{\{ui\['([^']+)'\]\}\}/g, '$1') : text; };
 
 test('sidebar application settings and home session settings have separate entries and modules', () => {
   const home = read('pages/home/home.wxml');
@@ -41,12 +41,13 @@ test('session settings retain model and permission APIs, file navigation and pri
     client: { requestHost() {calls.push(['host']);}, setDefault: async (...args) => calls.push(args), saveDefaultModel: async (...args) => calls.push(args) } };
   const wx = { showActionSheet(o) { wx.sheet = o; }, showModal() { throw Error('Must use bottom sheet'); }, showToast() {}, navigateTo(o) {calls.push(['navigate',o.url]);} };
   vm.runInNewContext(read('pages/session-settings/session-settings.js'), {Page: d=>{definition=d;},wx,require: name=>{
+    if(name.endsWith('/ui-preferences'))return require('../miniprogram/utils/ui-preferences');
     if(name.endsWith('/store'))return store;
     if(name.endsWith('/theme'))return {applyTo(){}};
     if(name.endsWith('/labels'))return {presetModeName:v=>v,permissionName:v=>v};
-    if(name.endsWith('/node-presentation'))return require('../utils/node-presentation');
-    if(name.endsWith('/host-info'))return require('../utils/host-info');
-    if(name.endsWith('/version-info'))return require('../utils/version-info');
+    if(name.endsWith('/node-presentation'))return require('../miniprogram/utils/node-presentation');
+    if(name.endsWith('/host-info'))return require('../miniprogram/utils/host-info');
+    if(name.endsWith('/version-info'))return require('../miniprogram/utils/version-info');
     if(name.endsWith('/build'))return {BUILD_TIME:'fixture'};
     throw Error('Unexpected dependency '+name);
   }});

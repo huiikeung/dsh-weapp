@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const root = path.join(__dirname, '..');
+const root = path.join(__dirname, '..', 'miniprogram');
 const workspaces = [
   { workspaceId: 'a', title: '工作区 A', sessionIds: ['grouped-a'] },
   { workspaceId: 'b', title: '工作区 B', sessionIds: ['grouped-b'] }
