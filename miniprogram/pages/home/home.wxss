@@ -1152,10 +1152,10 @@
   display: flex;
   flex-direction: column;
   height: 80vh;
-  background: rgba(10, 14, 24, 0.30);
-  border: 1rpx solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(20rpx) saturate(1.2);
-  -webkit-backdrop-filter: blur(20rpx) saturate(1.2);
+  background: rgba(16, 24, 40, 0.62);      /* 与弹层整体同一层玻璃，减少割裂 */
+  border: 1rpx solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(30rpx) saturate(1.25);
+  -webkit-backdrop-filter: blur(30rpx) saturate(1.25);
   border-radius: 40rpx;
   padding-bottom: calc(20rpx + env(safe-area-inset-bottom));
 }
@@ -1267,16 +1267,17 @@
 .dir-list-card {
   flex: 1;
   min-height: 0;
-  margin: 28rpx 36rpx 0;
-  background: #22262D;
-  border-radius: 56rpx 56rpx 0 0;
+  margin: 20rpx 24rpx 0;
+  background: rgba(255, 255, 255, 0.04);   /* 由实心色块改为轻玻璃，避免中间断层 */
+  border: 1rpx solid rgba(255, 255, 255, 0.08);
+  border-radius: 32rpx;
   overflow: hidden;
 }
 
 .dir-list {
   height: 100%;
   box-sizing: border-box;
-  padding: 20rpx 36rpx;
+  padding: 10rpx 16rpx;
 }
 
 .dir-loading {
@@ -1292,9 +1293,10 @@
 .dir-row {
   display: flex;
   align-items: center;
-  border-radius: 24rpx;
-  padding: 24rpx 16rpx;
+  border-radius: 20rpx;
+  padding: 22rpx 16rpx;
 }
+
 
 .dir-row.disabled {
   opacity: 0.3;
@@ -1357,8 +1359,8 @@
 
 .dir-divider {
   height: 1rpx;
-  margin-left: 116rpx;
-  background: rgba(241, 244, 250, 0.10);
+  margin-left: 108rpx;
+  background: rgba(241, 244, 250, 0.07);
 }
 
 .dir-create-bar {
@@ -1383,13 +1385,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 100%;
+  width: calc(100% - 48rpx);
   height: 104rpx;
-  border-radius: 28rpx;
-  background: #000000;
-  font-size: 32rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, rgba(90, 140, 235, 0.92), rgba(58, 100, 200, 0.92));
+  border: 1rpx solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 10rpx 30rpx rgba(10, 30, 70, 0.35);
+  font-size: 31rpx;
   font-weight: 600;
   color: #FFFFFF;
+  margin: 0 auto;
 }
 
 .dir-create-btn.disabled {

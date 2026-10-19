@@ -333,7 +333,7 @@
 
 .pair-sheet-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   margin: 16rpx 0 24rpx;
 }
@@ -356,11 +356,12 @@
 }
 
 .pair-sheet-close {
-  padding: 8rpx 0 8rpx 20rpx;
-  color: #E5484D;
-  font-size: 34rpx;
-  font-weight: 600;
-  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 88rpx;
+  min-height: 64rpx;
+  padding: 0;
   flex-shrink: 0;
 }
 

@@ -91,7 +91,7 @@
           <text class="pair-sheet-title">{{ui['输入配对信息']}}</text>
           <text class="pair-sheet-subtitle">{{ui['粘贴插件提供的 Base64URL 配对信息']}}</text>
         </view>
-        <text class="pair-sheet-close" bindtap="closePairSheet">{{ui['关闭']}}</text>
+        <view class="pair-sheet-close tap" bindtap="closePairSheet"><view class="sheet-close-x"></view></view>
       </view>
       <textarea
         class="pair-payload-input"

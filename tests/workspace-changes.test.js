@@ -15,6 +15,105 @@ const summary = { turn: 1, total: 2, added: 13, deleted: 2, files: [
 const diff = { kind: 'text', path: '/work/a.wxss', display: 'a.wxss', before: true, after: true, coarse: false,
   hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ['-old', '+new'] }] };
 
+function changesFixture() {
+  const row = { kind: 'changes', key: 'c', sessionId: 's', turn: 1, changeSeq: 12, files: [{ path: '/old/expired.txt' }] };
+  const store = { state: { connection: 'connected', gatewayCapabilities: ['workspace-changes-v1'] },
+    sessionState: { sessionId: 's', rows: [row] }, client: { connectGeneration: 1 } };
+  const filename = path.resolve(__dirname, '../miniprogram/pages/session/changes-actions.js'), module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(filename, 'utf8'), { module, Promise, Map, require(name) {
+    if (name.endsWith('/store')) return store; return require(path.resolve(path.dirname(filename), name));
+  } });
+  const page = { ...module.exports, data: { tab: 'conversation', rows: [], fileExpanded: {} },
+    setData(patch) { Object.assign(this.data, patch); },
+    syncFromStore() { this.data.rows = store.sessionState.rows.map(item => item.kind === 'changes' ? this.decorateChanges(item) : item).filter(Boolean); } };
+  const ready = (value = summary) => { page.changesContext().cache.set(12, { state: 'ready', value }); page.syncFromStore(); };
+  return { page, row, store, ready };
+}
+
+test('DSH-style cards hide missing, expired, loading, invalid and unsupported snapshots without tool-path fallback', () => {
+  const { page, row, store, ready } = changesFixture();
+  assert.equal(page.decorateChanges(row), null);
+  for (const state of ['loading', 'missing', 'error']) {
+    page.changesContext().cache.set(12, { state });
+    assert.equal(page.decorateChanges(row), null, state);
+  }
+  for (const value of [null, { ...summary, turn: 2 }, { ...summary, files: [] }]) {
+    ready(value); assert.equal(page.decorateChanges(row), null);
+  }
+  ready();
+  assert.equal(page.data.rows[0].title, '已编辑 2 个文件');
+  assert.equal(page.data.rows[0].files[0].name, 'a.wxss');
+  assert.equal(page.data.rows[0].files[1].name, 'b.wxml');
+  assert.ok(page.data.rows[0].files.every(file => file.path !== '/old/expired.txt'));
+  store.state.gatewayCapabilities = []; assert.equal(page.decorateChanges(row), null);
+});
+
+test('single edited file uses its real basename, type icon and binary status instead of invented counts', () => {
+  const { page, ready } = changesFixture();
+  ready({ ...summary, total: 1, files: [{ path: '/work/很长的目录/最终报告.pdf', display: '很长的目录/最终报告.pdf', added: 0, deleted: 0, binary: true }] });
+  const card = page.data.rows[0];
+  assert.equal(card.title, '已编辑 最终报告.pdf'); assert.equal(card.singleFile, true);
+  assert.match(card.files[0].icon, /deliverable-pdf/);
+  assert.equal(card.files[0].hasCounts, false); assert.match(card.statusNote, /二进制/);
+  ready({ ...summary, total: 3, files: [summary.files[0]] });
+  assert.equal(page.data.rows[0].singleFile, false); assert.equal(page.data.rows[0].title, '已编辑 3 个文件');
+});
+
+test('expired diff removes only the edited snapshot card while preserving explicit delivery cards', async () => {
+  const { page, store, ready } = changesFixture();
+  const delivered = { kind: 'files', key: 'delivered', files: [{ path: 'report.pdf' }] };
+  store.sessionState.rows.push(delivered); ready();
+  store.client.requestChangesDiff = async (sessionId, seq, index) => ({ sessionId, seq, index, value: null });
+  await page.openChangedFile({ currentTarget: { dataset: { row: 'c', index: 0 } } });
+  assert.equal(page.data.rows.length, 1); assert.equal(page.data.rows[0], delivered);
+  assert.equal(page.changesContext().cache.get(12).state, 'missing');
+  assert.match(page.data.changesDiff.note, /已失效/);
+});
+
+test('stale or mismatched diff replies never expire another session snapshot', async () => {
+  for (const mode of ['session', 'reconnect', 'coordinates']) {
+    const { page, store, ready } = changesFixture(); ready();
+    store.client.requestChangesDiff = async (sessionId, seq, index) => {
+      if (mode === 'session') store.sessionState.sessionId = 'another';
+      if (mode === 'reconnect') store.client.connectGeneration++;
+      return { sessionId, seq: mode === 'coordinates' ? seq + 1 : seq, index, value: null };
+    };
+    const cache = page.changesContext().cache;
+    await page.openChangedFile({ currentTarget: { dataset: { row: 'c', index: 0 } } });
+    assert.equal(cache.get(12).state, 'ready', mode);
+  }
+});
+
+test('edited card rows show actual names and native page projection excludes hidden cards', () => {
+  const xml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
+  assert.ok(xml.includes('class="changed-file-name">{{file.name}}</text>'));
+  assert.ok(xml.includes('class="changed-file-icon"'));
+  assert.ok(!xml.includes('item.summaryNote'));
+  assert.ok(js.includes('if (changes) semanticRows.push(changes)'));
+});
+
+test('native file cards and forwarding controls render correctly in light and dark themes', { skip: !fs.existsSync(process.env.WECHAT_WCC || '') }, t => {
+  const os = require('node:os'), { execFileSync } = require('node:child_process');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-file-cards-')), output = path.join(dir, 'session.js');
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  execFileSync(process.env.WECHAT_WCC, ['-o', output, 'pages/session/session.wxml'], { cwd: path.resolve(__dirname, '../miniprogram') });
+  const context = vm.createContext({ window: {}, console }); vm.runInContext(fs.readFileSync(output, 'utf8'), context);
+  const render = context.$gwx('pages/session/session.wxml');
+  const { page, ready } = changesFixture(); ready();
+  for (const theme of ['light', 'dark']) {
+    const data = { ...require('../miniprogram/utils/ui-preferences').snapshot(), ...page.data, tab: 'conversation', theme,
+      themeClass: 'theme-' + theme, filePreview: { key: 'preview', name: '完整报告.html', text: '<html>安全源码</html>' } };
+    let tree = JSON.stringify(render(data, {}, {}));
+    for (const text of ['a.wxss', 'b.wxml', '已编辑 2 个文件', '转发到微信', 'shareSelectedFile', 'changed-file-icon']) assert.ok(tree.includes(text), text);
+    assert.ok(!tree.includes('expired.txt')); assert.ok(!tree.includes('该轮变更快照已失效'));
+    tree = JSON.stringify(render({ ...data, fileBusyKey: 'preview', fileProgress: 42 }, {}, {}));
+    assert.ok(tree.includes('正在下载文件 42%'));
+    tree = JSON.stringify(render({ ...data, fileSharingKey: 'preview' }, {}, {}));
+    assert.ok(tree.includes('正在打开微信转发…'));
+  }
+});
+
 test('only supported successful mutations create edited file cards, stable on history and replay', () => {
   const events = [event(1, 'turn/start', { turn: 1 }),
     event(2, 'tool/call', { turn: 1, callId: 'a', name: 'write', arguments: JSON.stringify({ file_path: '/work/a.wxss', content: 'a' }) }),

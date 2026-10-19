@@ -552,6 +552,19 @@ class GatewayClient {
       return;
     }
 
+    // Inspector history must never replace the active conversation or subscription.
+    // Old gateway history errors omit sessionId. They cannot be attributed to
+    // the parent safely while an inspector is outstanding; its timeout owns them.
+    if (frame.kind === 'error' && frame.requestType === 'history' && !frame.sessionId
+      && Object.keys(this.pendingRequests).some(key => key.indexOf('inspector:') === 0)) return;
+    const inspectorKey = frame.sessionId && 'inspector:' + frame.sessionId;
+    const inspector = inspectorKey && this.pendingRequests[inspectorKey];
+    if (inspector && (frame.kind === 'history' || frame.kind === 'error' && frame.requestType === 'history')) {
+      delete this.pendingRequests[inspectorKey]; clearTimeout(inspector.timer);
+      if (frame.kind === 'error') inspector.reject(new Error(frame.message || frame.code));
+      else inspector.resolve(frame);
+      if (this.activeSessionId !== frame.sessionId) return;
+    }
     this.resolveCorrelated(frame);
     if (this.cb.onFrame) this.cb.onFrame(frame);
   }
@@ -950,11 +963,33 @@ class GatewayClient {
     return this.send(payload);
   }
 
+  inspectSession(sessionId) {
+    const key = 'inspector:' + sessionId;
+    if (this.pendingRequests[key]) return this.pendingRequests[key].promise;
+    const promise = new Promise((resolve,reject) => {
+      if (!sessionId) return reject(new Error(uiText('加载记录失败，请重试')));
+      const pending = { resolve, reject, timer:null };
+      // Older gateways omit requestId. Retain timed-out ownership until its late
+      // reply or disconnect so it cannot resolve a retry or enter conversation state.
+      pending.timer = setTimeout(() => {
+        pending.resolve = () => {}; pending.reject = () => {};
+        const error = new Error(uiText('记录请求超时，请重新连接后重试')); error.code = 'INSPECTOR_TIMEOUT'; reject(error);
+      }, REQUEST_TIMEOUT);
+      this.pendingRequests[key] = pending;
+      if (!this.send({type:'history',sessionId,maxMessages:20,maxBytes:256*1024,view:'conversation'})) {
+        delete this.pendingRequests[key]; clearTimeout(pending.timer); reject(new Error(uiText('请先连接网关')));
+      }
+    });
+    if (this.pendingRequests[key]) this.pendingRequests[key].promise = promise;
+    return promise;
+  }
+
   requestAttachment(sessionId, attachmentId) {
     return this.request({ type: 'attachment', sessionId: sessionId, attachmentId: attachmentId });
   }
 
   subscribe(sessionId) {
+    this.activeSessionId = sessionId || null;
     if (sessionId) {
       return this.send({ type: 'subscribe', sessionId: sessionId, assistantStream: true });
     }

@@ -39,7 +39,7 @@
       <view class="sheet-grabber"></view>
       <view class="pair-sheet-head">
         <text class="pair-sheet-title">{{pickerTitle}}</text>
-        <text class="pair-sheet-close" bindtap="closePickerSheet">{{ui['关闭']}}</text>
+        <view class="pair-sheet-close tap" bindtap="closePickerSheet" role="button">{{ui['关闭']}}</view>
       </view>
       <scroll-view class="picker-option-list" style="max-height: {{pickerListH}}px;" scroll-y enhanced show-scrollbar="{{false}}" enable-flex>
         <block wx:for="{{pickerOptions}}" wx:key="key">
@@ -65,7 +65,7 @@
       <view class="sheet-grabber"></view>
       <view class="pair-sheet-head">
         <text class="pair-sheet-title">{{ui['工作区文件']}}</text>
-        <text class="pair-sheet-close" bindtap="closeFiles">{{ui['关闭']}}</text>
+        <view class="pair-sheet-close tap" bindtap="closeFiles" role="button">{{ui['关闭']}}</view>
       </view>
       <view class="files-toolbar">
         <view wx:if="{{!filesIsRoot}}" class="files-up tap" bindtap="filesGoUp">{{ui['‹ 上一级']}}</view>

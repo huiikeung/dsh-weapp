@@ -5,6 +5,7 @@ const { t: uiText } = require('./ui-preferences');
 
 const { GatewayClient } = require('./gateway');
 const protocol = require('./protocol');
+const collaboration = require('./collaboration');
 const pairing = require('./pairing');
 const hosts = require('./hosts');
 const schedule = require('./schedule');
@@ -85,6 +86,7 @@ function createStore() {
     rowsAgg: null,
     rows: [],
     trajectory: [],
+    collaboration: collaboration.create(null),
     running: false,
     historyFormatVersion: null,
     hasMoreHistory: false,
@@ -1020,6 +1022,8 @@ function createStore() {
         return;
       }
       case 'history': {
+        if (sessionState.collaboration.sessionId !== sessionState.sessionId) sessionState.collaboration = collaboration.create(sessionState.sessionId);
+        collaboration.baseline(sessionState.collaboration, frame.projections);
         sessionState.historyError = '';
         sessionState.cacheDisplay = false;   // 权威历史到达，退出缓存展示态
         if (historyRetryTimer) { clearTimeout(historyRetryTimer); historyRetryTimer = null; }
@@ -1039,6 +1043,8 @@ function createStore() {
         return;
       }
       case 'session-snapshot': {
+        if (sessionState.collaboration.sessionId !== sessionState.sessionId) sessionState.collaboration = collaboration.create(sessionState.sessionId);
+        collaboration.baseline(sessionState.collaboration, frame.projections);
         sessionState.cacheDisplay = false;
         if (frame.assistantStream) clearLiveAttempt();
         sessionState.historyFormatVersion = frame.historyFormatVersion || sessionState.historyFormatVersion;
@@ -1651,6 +1657,8 @@ function createStore() {
   }
 
   function ingestEvents(rawEvents, prepend) {
+    if (sessionState.collaboration.sessionId !== sessionState.sessionId) sessionState.collaboration = collaboration.create(sessionState.sessionId);
+    collaboration.ingest(sessionState.collaboration, rawEvents);
     promoteCachedRows();
     if (!sessionState.rowsAgg) sessionState.rowsAgg = protocol.newAggregator();
     const sessionId = sessionState.sessionId;
@@ -1789,6 +1797,7 @@ function createStore() {
       sessionId: sessionId,
       updatedAt: updated ? util.eventDateMs(updated) : Date.now(),
       running: source.running === true || source.status === 'running',
+      runningKnown: typeof source.running === 'boolean' || typeof source.status === 'string',
       hasUnread: source.hasUnread === true || source.has_unread === true,
       blank: source.blank === true,
       cwd: source.cwd || source.workingDirectory || source.working_directory || null,
@@ -2110,6 +2119,7 @@ function createStore() {
     state.pluginNotice = null;
     pluginToggleToken = null;
     sessionState.sessionId = null;
+    sessionState.collaboration = collaboration.create(null);
     sessionState.rowsAgg = null;
     sessionState.rows = [];
     sessionState.trajectory = [];
@@ -2490,6 +2500,7 @@ function createStore() {
       clearLiveAttempt();
       const subOk = client.subscribe(sessionId);
       sessionState.sessionId = sessionId;
+      sessionState.collaboration = collaboration.create(sessionId);
       sessionState.cacheDisplay = false;
       sessionState.rowsAgg = protocol.newAggregator();
       sessionState.rows = [];

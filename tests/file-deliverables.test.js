@@ -134,11 +134,11 @@ test('gateway correlates open, chunks and errors without confusing stale transfe
   client.send=()=>false;await assert.rejects(client.openFileDownload('session','file'));assert.equal(Object.keys(client.pendingRequests).length,0);
 });
 
-test('running whale lives outside scroll-view and inside measured fixed dock',()=>{
+test('running whale follows content before the bottom anchor, never floats over messages',()=>{
   const xml=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
-  const scrollEnd=xml.indexOf('</scroll-view>'),dock=xml.indexOf('class="dock-stack'),whale=xml.indexOf('id="deep-search-progress"');
-  assert.ok(whale>scrollEnd);assert.ok(whale>dock);assert.equal((xml.match(/id="deep-search-progress"/g)||[]).length,1);
-  assert.match(xml.slice(dock,whale),/wx:if="{{running}}"/);
+  const dock=xml.indexOf('class="dock-stack'),whale=xml.indexOf('id="deep-search-progress"'),anchor=xml.indexOf('id="conv-bottom"');
+  assert.ok(whale<anchor);assert.ok(anchor<dock);assert.equal((xml.match(/id="deep-search-progress"/g)||[]).length,1);
+  assert.match(xml.slice(whale-100,whale),/wx:if="{{running}}"/);
 });
 
 test('file action UI uses safe plain-text HTML and declines stale session cards',async()=>{
@@ -159,4 +159,75 @@ test('file action UI uses safe plain-text HTML and declines stale session cards'
   await page.presentFile(file,'share');assert.equal(calls.at(-1)[0],'share');
   store.sessionState.sessionId='different';assert.equal(page.findPresentedFile({currentTarget:{dataset:{key:'file'}}}),null);
   const count=calls.length;await page.presentFile(file,'preview');assert.equal(calls.length,count);
+});
+
+function shareFixture() {
+  const filename=path.resolve(__dirname,'../miniprogram/pages/session/file-actions.js'),module={exports:{}};
+  const calls=[],removed=[];let downloads=0;
+  const store={sessionState:{sessionId:'session'},state:{sessions:[]},client:{connectGeneration:1}};
+  const api={getFileSystemManager:()=>({}),showModal:o=>calls.push(['modal',o]),showToast:o=>calls.push(['toast',o]),
+    shareFileMessage:o=>calls.push(['share',o])};
+  vm.runInNewContext(fs.readFileSync(filename,'utf8'),{module,wx:api,require(name){
+    if(name.endsWith('/store'))return store;
+    if(name.endsWith('/file-download'))return {downloadFile:async(c,f)=>{downloads++;return {...f,localPath:'/tmp/'+downloads+'-'+f.name,size:32};},
+      removeFile:async p=>removed.push(p),fsCall:async()=>({data:'完整文件'})};
+    return require(path.resolve(path.dirname(filename),name));
+  }});
+  const page={...module.exports,data:{rows:[],filePreview:null,fileSheet:null},setData(p){Object.assign(this.data,p);}};
+  return {page,store,api,calls,removed,downloads:()=>downloads};
+}
+
+test('preview forwarding opens native WeChat file sharing synchronously without downloading twice',async()=>{
+  const f=shareFixture();
+  await f.page.presentFile(file,'preview');
+  assert.equal(f.downloads(),1);assert.equal(f.page.data.filePreview.name,'test.md');
+  f.page.shareSelectedFile();
+  assert.equal(f.downloads(),1);assert.equal(f.calls.length,1);
+  assert.equal(f.calls[0][0],'share');assert.equal(f.calls[0][1].fileName,'test.md');
+  assert.equal(f.calls[0][1].filePath,'/tmp/1-test.md');
+  f.page.shareSelectedFile();assert.equal(f.calls.length,1,'prevent repeated native pickers');
+  f.calls[0][1].complete();assert.equal(f.page.data.fileSharingKey,'');
+});
+
+test('share cancellation is quiet, real failures are visible and a retry preserves the selected file',async()=>{
+  const f=shareFixture();await f.page.presentFile(file,'preview');f.page.shareSelectedFile();
+  let share=f.calls[0][1];share.fail({errMsg:'shareFileMessage:fail cancel'});share.complete();
+  assert.equal(f.calls.length,1);assert.ok(f.page.data.filePreview);
+  f.page.shareSelectedFile();share=f.calls.at(-1)[1];share.fail({errMsg:'shareFileMessage:fail permission denied'});share.complete();
+  assert.equal(f.calls.at(-1)[0],'modal');assert.match(f.calls.at(-1)[1].content,/permission denied/);
+  assert.equal(f.downloads(),1);assert.ok(f.page.data.filePreview);
+});
+
+test('reopening the same file forwards the current preview and keeps local downloads bounded',async()=>{
+  const f=shareFixture();
+  for(let i=0;i<5;i++)await f.page.presentFile(file,'preview');
+  assert.equal(f.page._localPresentedFiles.length,3);
+  f.page.shareSelectedFile();
+  assert.equal(f.calls.at(-1)[1].filePath,'/tmp/5-test.md');
+  assert.equal(f.downloads(),5);
+});
+
+test('file menu forwarding retains a direct retry after a user-gesture rejection',async()=>{
+  const f=shareFixture();f.page.data.fileSheet=describe(file);
+  await f.page.shareSelectedFile();
+  const share=f.calls.find(c=>c[0]==='share')[1];
+  share.fail({errMsg:'shareFileMessage:fail can only be invoked by user TAP gesture'});share.complete();
+  assert.ok(f.page.data.fileSheet);assert.equal(f.calls.at(-1)[0],'toast');
+  f.page.shareSelectedFile();assert.equal(f.calls.at(-1)[0],'share');assert.equal(f.downloads(),1);
+});
+
+test('active native share retains its file until completion even when the page is disposed',async()=>{
+  const f=shareFixture();await f.page.presentFile(file,'preview');f.page.shareSelectedFile();
+  f.page.disposePresentedFiles();assert.equal(f.removed.length,0);
+  f.calls[0][1].complete();assert.deepEqual(f.removed,['/tmp/1-test.md']);
+});
+
+test('unsupported sharing and busy downloads provide feedback, stale session files never share',async()=>{
+  const f=shareFixture();await f.page.presentFile(file,'preview');
+  f.api.shareFileMessage=undefined;f.page.shareSelectedFile();
+  assert.equal(f.calls.at(-1)[0],'modal');assert.match(f.calls.at(-1)[1].content,/升级微信/);
+  f.page._localPresentedFiles=[];f.page._fileJob={};await f.page.shareSelectedFile();
+  assert.equal(f.calls.at(-1)[0],'toast');assert.match(f.calls.at(-1)[1].title,/下载/);
+  f.page._fileJob=null;f.store.sessionState.sessionId='another';
+  const before=f.calls.length;await f.page.shareSelectedFile();assert.equal(f.calls.length,before);
 });

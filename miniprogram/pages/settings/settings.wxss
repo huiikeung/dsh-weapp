@@ -93,26 +93,31 @@
   gap: 16rpx;
 }
 
-.management-sheet .pair-sheet-head > view { flex: 1; min-width: 0; }
+.management-sheet .pair-sheet-head > view:first-child {
+  flex: 1;
+  min-width: 0;
+}
 .management-sheet .pair-sheet-subtitle { overflow-wrap: anywhere; word-break: break-all; }
-.management-sheet .pair-sheet-close {
-  padding: 8rpx 0 8rpx 20rpx;
-  color: #E5484D;
-  font-size: 34rpx;
-  font-weight: 600;
-  white-space: nowrap;
-  flex-shrink: 0;
-  line-height: 1.2;
+.pair-sheet-close {
+  flex: none;
+  margin-left: auto;          /* 贴住右侧 */
+  align-self: center;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 64rpx;
+  height: 64rpx;
+  padding: 0;
 }
 
 /* 标题区可压缩，避免把「关闭」挤成两行 */
-.pair-sheet-head > view {
+.pair-sheet-head > view:first-child {
   flex: 1;
   min-width: 0;
 }
 
 /* 标题区可压缩，避免把「关闭」挤成两行 */
-.pair-sheet-head > view {
+.pair-sheet-head > view:first-child {
   flex: 1;
   min-width: 0;
 }
@@ -722,14 +727,15 @@
 
 .pair-sheet-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;        /* 关闭图标与标题同一水平线 */
   justify-content: space-between;
+  gap: 16rpx;
   margin: 16rpx 0 24rpx;
 }
 
-.pair-sheet-head > view {
-  display: flex;
-  flex-direction: column;
+.pair-sheet-head > view:first-child {
+  flex: 1;
+  min-width: 0;
 }
 
 .pair-sheet-title {
@@ -745,13 +751,13 @@
 }
 
 .pair-sheet-close {
-  padding: 8rpx 0 8rpx 20rpx;
-  color: #E5484D;
-  font-size: 34rpx;
-  font-weight: 600;
-  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 64rpx;
+  min-height: 64rpx;
+  padding: 0;
   flex-shrink: 0;
-  line-height: 1.2;
 }
 
 .pair-payload-input {
@@ -960,7 +966,7 @@
 .code-sheet {
   display: flex;
   flex-direction: column;
-  transition: height 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+  height: 90%;              /* 固定 90%，不随点击变化 */
 }
 
 /* 弹窗内容整体可滚动，高度由抓手拖拽决定 */
@@ -1128,7 +1134,7 @@
 .ann-sheet {
   display: flex;
   flex-direction: column;
-  height: 82vh;
+  height: 90%;
 }
 
 .ann-scroll {

@@ -10,6 +10,7 @@ dsh-console/services/public-access/node_modules/
 # 预览构建产物（不入库）
 preview-qr.png
 preview-info.json
+upload-info.json
 
 # dsh-mini 运行时数据
 dsh-mini/.dsh-mini/

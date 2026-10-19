@@ -14,6 +14,11 @@
 
   <!-- 对话 / 轨迹 segmented control + 圆形菜单 -->
   <view class="segmented-row">
+    <view class="collab-trigger {{collaborationOpen ? 'selected' : ''}}" bindtap="openCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['协作详情']}}">
+      <image class="collab-icon" src="/assets/icons/{{theme === 'dark' ? 'dsh-team-dark.svg' : 'dsh-team.svg'}}" mode="aspectFit"/>
+      <text>{{ui['协作']}}</text><text wx:if="{{collaborationCount}}" class="collab-count">{{collaborationCount}}</text>
+      <view wx:if="{{collaborationActive}}" class="collab-active-dot" aria-label="{{ui['运行中']}}"/>
+    </view>
     <view class="segmented">
       <view class="segment {{tab === 'conversation' ? 'active' : ''}}" bindtap="switchTab" data-tab="conversation" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['对话']}}">{{ui['对话']}}</view>
       <view class="segment {{tab === 'trajectory' ? 'active' : ''}}" bindtap="switchTab" data-tab="trajectory" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['轨迹']}}">{{ui['轨迹']}}</view>
@@ -249,17 +254,18 @@
       </view>
 
       <view wx:elif="{{item.kind === 'changes'}}" class="changed-files" id="{{item.key}}">
-        <view class="changed-files-head" bindtap="{{item.files.length === 1 ? 'openChangedFile' : 'toggleChangedFiles'}}" data-row="{{item.key}}" data-key="{{item.key}}" data-index="0" hover-class="delivered-file-pressed" role="button" aria-label="{{item.title}}">
-          <view class="delivered-file-icon"><image src="{{item.files.length === 1 ? item.files[0].icon : '/assets/icons/deliverable-code.svg'}}" mode="aspectFit"/></view>
+        <view class="changed-files-head" bindtap="openChangedFile" data-row="{{item.key}}" data-index="0" hover-class="delivered-file-pressed" role="button" aria-label="{{item.singleFile ? item.files[0].display : item.title}}">
+          <view class="delivered-file-icon"><image src="{{item.singleFile ? item.files[0].icon : '/assets/icons/deliverable-code.svg'}}" mode="aspectFit"/></view>
           <view class="delivered-file-copy"><text class="delivered-file-name">{{item.title}}</text>
-            <view wx:if="{{item.hasCounts}}" class="changed-counts"><text class="changed-added">+{{item.added}}</text><text class="changed-deleted">−{{item.deleted}}</text></view>
+            <text wx:if="{{item.statusNote}}" class="delivered-file-description">{{item.statusNote}}</text>
+            <view wx:else class="changed-counts"><text class="changed-added">+{{item.added}}</text><text class="changed-deleted">−{{item.deleted}}</text></view>
           </view>
         </view>
-        <view wx:if="{{item.summaryNote}}" class="changed-files-note" bindtap="retryChanges" data-key="{{item.key}}">{{item.summaryNote}}</view>
-        <view wx:if="{{item.files.length > 1}}" class="changed-file-list">
+        <view wx:if="{{!item.singleFile}}" class="changed-file-list">
           <block wx:for="{{item.files}}" wx:for-item="file" wx:for-index="fileIndex" wx:key="key">
             <view wx:if="{{fileIndex < 4 || fileExpanded[item.key]}}" class="changed-file-row" bindtap="openChangedFile" data-row="{{item.key}}" data-index="{{fileIndex}}" hover-class="changed-file-pressed" role="button" aria-label="{{file.display}}">
-              <text class="changed-file-path">{{file.display}}</text>
+              <image class="changed-file-icon" src="{{file.icon}}" mode="aspectFit"/>
+              <view class="changed-file-copy"><text class="changed-file-name">{{file.name}}</text><text wx:if="{{file.display !== file.name}}" class="changed-file-path">{{file.display}}</text><text wx:if="{{file.statusNote}}" class="changed-file-path">{{file.statusNote}}</text></view>
               <view wx:if="{{file.hasCounts}}" class="changed-counts"><text class="changed-added">+{{file.added}}</text><text class="changed-deleted">−{{file.deleted}}</text></view>
             </view>
           </block>
@@ -291,7 +297,13 @@
       </view>
     </block>
 
-    <view class="conversation-dock-spacer" style="height:{{convBottomInset}}rpx;" aria-hidden="true"></view>
+    <!-- The whale belongs to the conversation tail, inside its clipped viewport. -->
+    <view wx:if="{{running}}" class="progress-strip conversation-progress" id="deep-search-progress">
+      <view class="progress-row status-look-{{statusAppearance}}">
+        <view class="status-tail"><image class="status-tail-image" mode="aspectFit" src="/assets/icons/official-sway-{{theme === 'dark' ? 'dark' : 'light'}}.gif"/></view>
+        <view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? statusDarkStyle : statusLightStyle}}">{{runPhrase}}{{ui['，用时']}} {{runElapsedText}}…</text></view>
+      </view>
+    </view>
     <view id="conv-bottom" class="conv-bottom"></view>
     </view>
   </scroll-view>
@@ -335,13 +347,6 @@
 
   <!-- ================= 底部栈（对齐 iOS：滚到底 → 审批/提问卡 互斥替代输入区 → 排队托盘+胶囊行+输入卡） ================= -->
   <view hidden="{{tab !== 'conversation'}}" class="dock-stack {{voiceOverlayVisible ? 'voice-holding' : ''}} {{question ? 'question-active' : ''}} {{tab !== 'conversation' ? 'session-panel-hidden' : ''}}" style="{{dockStyle}}">
-    <!-- Keep live status in the fixed dock; message scrolling cannot hide the whale. -->
-    <view wx:if="{{running}}" class="progress-strip dock-progress" id="deep-search-progress">
-      <view class="progress-row status-look-{{statusAppearance}}">
-        <view class="status-tail"><image class="status-tail-image" mode="aspectFit" src="/assets/icons/official-sway-{{theme === 'dark' ? 'dark' : 'light'}}.gif"/></view>
-        <view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? statusDarkStyle : statusLightStyle}}">{{runPhrase}}{{ui['，用时']}} {{runElapsedText}}…</text></view>
-      </view>
-    </view>
     <view wx:if="{{showJump}}" class="jump-wrap">
       <view class="jump-bottom" bindtap="jumpToBottom">
         <view wx:if="{{running}}" class="jump-ring"></view>
@@ -684,7 +689,6 @@
         bindtap="onComposerAction" role="button" aria-label="{{canSend || !voiceEnabled ? ui['发送'] : (voiceTyping ? ui['切换到语音输入'] : ui['切换到文字输入'])}}"
       ><image class="send-ic" src="/assets/icons/{{canSend || !voiceEnabled ? 'arrow-up-white.png' : (voiceTyping ? 'voice-wave.svg' : 'voice-keyboard.svg')}}"/></view>
     </view>
-
       </view>
 
       <!-- DSH composer footer：执行指标 / Token 与缓存 / 上下文占用 -->
@@ -776,31 +780,89 @@
 
   <view wx:if="{{fileSheet}}" class="sheet-mask" catchtap="closeFileActions" catchtouchmove="noop">
     <view class="sheet delivered-actions" catchtap="noop">
-      <view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{fileSheet.name}}</text><view bindtap="closeFileActions">{{ui['关闭']}}</view></view>
+      <view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{fileSheet.name}}</text><view class="close-x-wrap" bindtap="closeFileActions"><view class="sheet-close-x"></view></view></view>
       <view class="delivered-action" bindtap="previewSelectedFile">{{ui['预览文件']}}</view>
-      <view class="delivered-action" bindtap="shareSelectedFile">{{ui['转发文件']}}</view>
+      <view class="delivered-action" bindtap="shareSelectedFile" role="button" aria-disabled="{{!!fileBusyKey || !!fileSharingKey}}">{{fileBusyKey === fileSheet.key ? ui['正在下载文件'] + ' ' + fileProgress + '%' : fileSharingKey ? ui['正在打开微信转发…'] : ui['转发到微信']}}</view>
       <view class="delivered-action" bindtap="copyPresentedPath">{{ui['复制文件路径']}}</view>
     </view>
   </view>
   <view wx:if="{{filePreview}}" class="sheet-mask" catchtap="closeFilePreview" catchtouchmove="noop">
     <view class="sheet delivered-preview" catchtap="noop">
-      <view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{filePreview.name}}</text><view bindtap="closeFilePreview">{{ui['关闭']}}</view></view>
+      <view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{filePreview.name}}</text><view class="close-x-wrap" bindtap="closeFilePreview"><view class="sheet-close-x"></view></view></view>
       <text wx:if="{{filePreview.sourceCode}}" class="delivered-preview-note">{{ui['安全源码预览，不执行脚本']}}</text>
       <text wx:if="{{filePreview.truncated}}" class="delivered-preview-note">{{ui['仅预览前 128 KB，完整内容请转发文件查看']}}</text>
       <scroll-view scroll-y class="delivered-preview-scroll"><text selectable class="delivered-preview-text">{{filePreview.text || ui['空文件']}}</text></scroll-view>
-      <view class="delivered-action" bindtap="shareSelectedFile">{{ui['转发文件']}}</view>
+      <view class="delivered-action" bindtap="shareSelectedFile" role="button" aria-disabled="{{!!fileBusyKey || !!fileSharingKey}}">{{fileBusyKey === filePreview.key ? ui['正在下载文件'] + ' ' + fileProgress + '%' : fileSharingKey ? ui['正在打开微信转发…'] : ui['转发到微信']}}</view>
     </view>
   </view>
 
   <view wx:if="{{changesDiff}}" class="sheet-mask" catchtap="closeChangesDiff" catchtouchmove="noop">
     <view class="sheet delivered-preview changes-preview" catchtap="noop">
-      <view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{changesDiff.title}}</text><view bindtap="closeChangesDiff">{{ui['关闭']}}</view></view>
+      <view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{changesDiff.title}}</text><view class="close-x-wrap" bindtap="closeChangesDiff"><view class="sheet-close-x"></view></view></view>
       <text wx:if="{{changesDiff.loading}}" class="delivered-preview-note">{{ui['正在加载文件变更…']}}</text>
       <text wx:if="{{changesDiff.note}}" class="delivered-preview-note">{{changesDiff.note}}</text>
       <scroll-view scroll-y class="delivered-preview-scroll">
         <view wx:for="{{changesDiff.hunks}}" wx:for-item="hunk" wx:key="key" class="changes-hunk">
           <text class="changes-hunk-label">{{hunk.label}}</text>
           <text wx:for="{{hunk.lines}}" wx:for-item="line" wx:key="key" selectable class="changes-line {{line.kind}}">{{line.text}}</text>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <view wx:if="{{collaborationOpen}}" class="sheet-mask collab-mask" catchtap="closeCollaboration" catchtouchmove="noop">
+    <view class="sheet collab-sheet {{collaborationExpanded ? 'is-expanded' : ''}}" catchtap="noop" role="dialog" aria-label="{{ui['协作详情']}}">
+      <view class="collab-resize-handle" catchtap="toggleCollaborationExpanded" role="button" aria-expanded="{{collaborationExpanded}}" aria-label="{{collaborationExpanded ? ui['收起协作面板'] : ui['展开协作面板至九成屏幕']}}" hover-class="press-dim" hover-start-time="0" hover-stay-time="60">
+        <view class="sheet-handle" aria-hidden="true"/>
+      </view>
+      <view class="collab-heading">
+        <text class="collab-title">{{ui['协作']}}</text>
+        <view class="collab-action collab-refresh {{collaborationBusy ? 'busy' : ''}}" bindtap="refreshCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新协作状态']}}" aria-disabled="{{collaborationBusy}}">
+          <view class="collab-action-disc"><image class="collab-action-icon" src="/assets/icons/sheet-refresh{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/></view>
+        </view>
+        <view class="collab-action collab-close" bindtap="closeCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['关闭']}}">
+          <view class="collab-action-disc"><image class="collab-action-icon" src="/assets/icons/collab-close{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/></view>
+        </view>
+      </view>
+      <view class="collab-tabs">
+        <view wx:for="{{collaborationTabs}}" wx:key="id" class="collab-tab {{collaborationTab === item.id ? 'active' : ''}}" bindtap="selectCollaborationTab" data-id="{{item.id}}" role="button" aria-label="{{item.label}} {{item.count}}" aria-pressed="{{collaborationTab === item.id}}" hover-class="press-dim" hover-start-time="0" hover-stay-time="60">
+          <view class="collab-tab-summary">
+            <image class="collab-tab-icon" src="/assets/icons/{{item.icon}}{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/>
+            <text class="collab-tab-count">{{item.count}}</text>
+          </view>
+          <text class="collab-tab-label">{{item.label}}</text>
+          <view class="collab-tab-indicator" aria-hidden="true"/>
+        </view>
+      </view>
+      <scroll-view class="collab-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+        <view wx:if="{{collaborationPreview}}" class="collab-preview">
+          <view class="collab-back" bindtap="backCollaborationList" role="button">‹ {{ui['返回列表']}}</view>
+          <view class="collab-preview-title">{{collaborationPreview.title}}</view>
+          <view wx:if="{{!collaborationPreview.task}}" class="collab-note">{{ui['只读记录，不会切换当前对话或发送任务']}}</view>
+          <view wx:if="{{collaborationPreview.loading}}" class="collab-empty">{{ui['正在加载记录…']}}</view>
+          <view wx:elif="{{collaborationPreview.error}}" class="collab-empty">{{collaborationPreview.errorText || ui['加载记录失败，请重试']}}</view>
+          <block wx:elif="{{collaborationPreview.task}}">
+            <view class="collab-task-meta">{{collaborationPreview.statusText}} · {{collaborationPreview.owner}}</view>
+            <text class="collab-message-text" selectable>{{collaborationPreview.text}}</text>
+            <view wx:if="{{collaborationPreview.blocked}}" class="collab-note">{{ui['阻塞任务']}} · {{collaborationPreview.blocked}}</view>
+          </block>
+          <block wx:else>
+            <view wx:if="{{collaborationPreview.children.length}}" class="collab-section-label">{{ui['下级子智能体']}}</view>
+            <view wx:for="{{collaborationPreview.children}}" wx:key="id" class="collab-row" bindtap="openCollaborationItem" data-id="{{item.id}}" role="button"><view class="collab-row-copy"><text class="collab-row-title">{{item.title}}</text><text class="collab-subtitle">{{item.subtitle}}</text></view><text class="collab-status">{{item.statusText}}</text><view class="collab-chevron"/></view>
+            <view wx:for="{{collaborationPreview.rows}}" wx:key="key" class="collab-message"><text class="collab-section-label">{{item.role}}</text><text class="collab-message-text" selectable>{{item.text}}</text></view>
+            <view wx:if="{{!collaborationPreview.rows.length}}" class="collab-empty">{{ui['暂无可显示的消息']}}</view>
+            <view wx:if="{{collaborationPreview.hasMore}}" class="collab-note">{{ui['更多记录可在 DSH 客户端查看']}}</view>
+          </block>
+        </view>
+        <view wx:else class="collab-list">
+          <view wx:if="{{collaborationNote}}" class="collab-note">{{collaborationNote}}</view>
+          <view wx:for="{{collaborationRows}}" wx:key="id" class="collab-row {{item.current ? 'current' : ''}}" bindtap="openCollaborationItem" data-id="{{item.id}}" hover-class="press-dim" role="button" aria-disabled="{{!item.canOpen && collaborationTab !== 'tasks'}}">
+            <view class="collab-state {{item.status}}"/>
+            <view class="collab-row-copy"><text class="collab-row-title">{{item.title}}</text><text class="collab-subtitle">{{item.subtitle}}</text><text wx:if="{{item.error}}" class="collab-error">{{item.error}}</text></view>
+            <view class="collab-row-meta"><text class="collab-status {{item.status}}">{{item.statusText}}</text><text wx:if="{{item.current}}" class="collab-current">{{ui['当前会话']}}</text></view>
+            <view wx:if="{{item.canOpen || collaborationTab === 'tasks'}}" class="collab-chevron"/>
+          </view>
+          <view wx:if="{{!collaborationRows.length}}" class="collab-empty">{{collaborationTab === 'members' ? ui['暂无成员'] : collaborationTab === 'children' ? ui['暂无子智能体'] : collaborationTab === 'tasks' ? ui['暂无团队任务'] : ui['暂无工具调用']}}</view>
         </view>
       </scroll-view>
     </view>

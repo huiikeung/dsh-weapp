@@ -568,33 +568,6 @@ Page({
     this.loadCodes();
   },
 
-  codeGrabStart(e) {
-    this._codeGrab = {
-      y: e.touches[0].clientY,
-      moved: false,
-      base: this.data.codeSheetExpanded,
-      applied: null
-    };
-  },
-
-  codeGrabMove(e) {
-    const g = this._codeGrab;
-    if (!g) return;
-    const dy = e.touches[0].clientY - g.y;
-    if (Math.abs(dy) < 20) return;
-    const expand = dy < 0;
-    if (g.applied !== expand) {
-      g.applied = expand;
-      g.moved = true;
-      this.setData({ codeSheetExpanded: expand });
-    }
-  },
-
-  codeGrabEnd() {
-    const g = this._codeGrab;
-    this._codeGrab = null;
-    if (g && !g.moved) this.setData({ codeSheetExpanded: !g.base });
-  },
 
   closeCodeManagement() {
     this._codeGen = (this._codeGen || 0) + 1;

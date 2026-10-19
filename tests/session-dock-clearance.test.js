@@ -22,23 +22,36 @@ function pageFixture(rects) {
     setData(patch, callback) { Object.assign(this.data, patch); if (callback) callback(); }, refreshBottomAnchor() { scrolled++; } };
   return { page, flush() { while(ticks.length) ticks.shift()(); }, scrolled: () => scrolled };
 }
-test('real content spacer precedes bottom anchor, no native scroll-view padding dependency', () => {
+test('whale stays in conversation flow with the viewport above the composer', () => {
   const xml = fs.readFileSync(path.join(root, 'session.wxml'), 'utf8');
-  assert.ok(xml.indexOf('conversation-dock-spacer') < xml.indexOf('id="conv-bottom"'));
-  assert.match(xml, /height:{{convBottomInset}}rpx/);
+  assert.doesNotMatch(xml, /conversation-dock-spacer|dock-progress/);
+  assert.ok(xml.indexOf('conversation-progress') < xml.indexOf('id="conv-bottom"'));
+  assert.ok(xml.indexOf('id="conv-bottom"') < xml.indexOf('class="dock-stack'));
   const { page } = pageFixture([]);
-  assert.equal(page.layoutPatch().conversationStyle, 'padding-bottom:0;');
-  assert.equal(page.layoutPatch({ kbHeight: 300 }).conversationStyle, 'padding-bottom:0;margin-bottom:300px;');
+  assert.equal(page.data.conversationStyle, 'padding-bottom:0;margin-bottom:520rpx;');
+  assert.equal(page.layoutPatch({ kbHeight: 300 }).conversationStyle, 'padding-bottom:0;margin-bottom:calc(520rpx + 300px);');
 });
-test('clearance includes safe-area bottom gap, keyboard and live whale without double counting', () => {
-  for (const [dock, view, expected] of [
-    [{ height: 180, top: 598, bottom: 778 }, { bottom: 812 }, 448],
-    [{ height: 260, top: 518, bottom: 778 }, { bottom: 812 }, 608],
-    [{ height: 180, top: 320, bottom: 500 }, { bottom: 512 }, 404]
+test('viewport clearance includes safe area and keyboard without feedback or double counting', () => {
+  for (const [dock, keyboard, expected] of [
+    [{ height: 180, top: 598, bottom: 778 }, 0, 440],
+    [{ height: 260, top: 518, bottom: 778 }, 0, 600],
+    [{ height: 180, top: 320, bottom: 500 }, 300, 396]
   ]) {
-    const f = pageFixture([dock, view]); f.page.updateDockInset(); f.flush();
+    const f = pageFixture([dock]); f.page.data.kbHeight = keyboard; f.page.updateDockInset(); f.flush();
     assert.equal(f.page.data.convBottomInset, expected); assert.equal(f.scrolled(), 1);
+    assert.ok(f.page.data.conversationStyle.includes(expected + 'rpx'));
+    f.page.updateDockInset(); f.flush();
+    assert.equal(f.scrolled(), 1, 'remeasuring a clipped viewport must not oscillate');
     f.page._convPinned = false; f.page.data.convBottomInset = 520; f.page.updateDockInset(); f.flush();
     assert.equal(f.scrolled(), 1, 'reading old messages must not be dragged to bottom');
   }
+});
+test('jump arrow follows real content end, not former transparent dock area', () => {
+  const { page } = pageFixture([]);
+  page.applyScrollPosition({scrollTop:900,scrollHeight:1400,clientHeight:400});
+  assert.equal(page.data.showJump,true);assert.equal(page._convPinned,false);
+  page.applyScrollPosition({scrollTop:1000,scrollHeight:1400,clientHeight:400});
+  assert.equal(page.data.showJump,false);assert.equal(page._convPinned,true);
+  const css = fs.readFileSync(path.join(root, 'session.wxss'),'utf8');
+  assert.match(css,/\.jump-wrap\s*\{[^}]*position: absolute;[^}]*bottom: calc\(100% \+ 16rpx\)/);
 });

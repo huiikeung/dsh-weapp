@@ -500,3 +500,36 @@ page {
 }
 /* User-selected body family does not change the UI font size. */
 .page { font-family: var(--dsh-font-family-text, -apple-system, BlinkMacSystemFont, sans-serif); }
+
+/* ---------- 弹窗关闭按钮（统一为协作弹窗样式：圆形底 + ×） ---------- */
+.sheet-close-x {
+  position: relative;
+  width: 60rpx;
+  height: 60rpx;
+  border-radius: 50%;
+  background: var(--fill);
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.sheet-close-x::before,
+.sheet-close-x::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3rpx;
+  height: 30rpx;
+  margin-left: -1.5rpx;
+  margin-top: -15rpx;
+  border-radius: 2rpx;
+  background: #565D68;
+}
+
+.sheet-close-x::before { transform: rotate(45deg); }
+.sheet-close-x::after { transform: rotate(-45deg); }
+
+.theme-dark .sheet-close-x::before,
+.theme-dark .sheet-close-x::after {
+  background: #C0C4CC;
+}

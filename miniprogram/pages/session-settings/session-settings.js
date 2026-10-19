@@ -379,7 +379,7 @@ function capitalize(text) {
 
 /* ---------- 工作区文件弹窗辅助（与 pages/files 保持一致） ---------- */
 function fileIconFor(item) {
-  if (item.kind === 'dir' || item.kind === 'directory') return 'ic-dir-folder-blue.png';
+  if (item.kind === 'dir' || item.kind === 'directory') return 'folder-blue.png';   /* 与首页工作区卡片同款蓝色渐变文件夹 */
   const ext = String(item.name || '').split('.').pop().toLowerCase();
   if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'svg', 'heic'].indexOf(ext) >= 0) return 'photo-ocean.png';
   if (['md', 'doc', 'docx', 'rtf', 'pages'].indexOf(ext) >= 0) return 'doc-richtext-ocean.png';

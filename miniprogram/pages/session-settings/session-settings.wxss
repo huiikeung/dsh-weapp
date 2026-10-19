@@ -27,7 +27,22 @@
 .utility-sheet { width: 100%; max-height: 85vh; box-sizing: border-box; padding: 10rpx 40rpx calc(32rpx + env(safe-area-inset-bottom)); border-radius: 32rpx 32rpx 0 0; background: var(--surface); color: var(--text); display: flex; flex-direction: column; }
 .utility-header { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; margin: 8rpx 0 16rpx; flex-shrink: 0; }
 .utility-title { font-size: 34rpx; font-weight: 650; }
-.utility-sheet .utility-close { margin: 0; padding: 20rpx 0 20rpx 20rpx; min-width: 88rpx; background: transparent; color: #E5484D; font-size: 34rpx; font-weight: 600; line-height: 1.5; text-align: right; white-space: nowrap; }
+.utility-sheet .utility-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding: 0 30rpx;
+  min-height: 60rpx;
+  border-radius: 999rpx;
+  background: rgba(229, 72, 77, 0.10);
+  border: 1rpx solid rgba(229, 72, 77, 0.30);
+  color: #E5484D;
+  font-size: 27rpx;
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+}
 .utility-scroll { min-height: 0; max-height: 50vh; }
 .diagnostic-list { border: 1rpx solid var(--border); border-radius: 24rpx; overflow: hidden; }
 .diagnostic-row { display: flex; gap: 24rpx; align-items: flex-start; padding: 24rpx; }
@@ -72,7 +87,7 @@
 
 .pair-sheet-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   margin: 16rpx 0 24rpx;
 }
@@ -84,10 +99,17 @@
 }
 
 .pair-sheet-close {
-  padding: 8rpx 0 8rpx 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 64rpx;
+  padding: 0 30rpx;
+  border-radius: 999rpx;
+  background: rgba(229, 72, 77, 0.10);
+  border: 1rpx solid rgba(229, 72, 77, 0.30);
   color: #E5484D;
-  font-size: 34rpx;
-  font-weight: 600;
+  font-size: 27rpx;
+  font-weight: 500;
   white-space: nowrap;
   flex-shrink: 0;
 }

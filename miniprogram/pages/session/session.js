@@ -12,6 +12,8 @@ const voicePreference = require('../../utils/voice-preference');
 const voiceActions = require('./voice-actions');
 const fileActions = require('./file-actions');
 const changesActions = require('./changes-actions');
+const collaboration = require('../../utils/collaboration');
+const protocol = require('../../utils/protocol');
 const fileDeliverables = require('../../utils/file-deliverables');
 const theme = require('../../utils/theme');
 const conversationWorkflow = require('../../utils/conversation-workflow');
@@ -27,7 +29,9 @@ Page({
   ...fileActions,
   ...changesActions,
   data: {
-    fileExpanded: {}, fileSheet: null, filePreview: null, changesDiff: null, fileBusyKey: '', fileProgress: 0,
+    collaborationOpen: false, collaborationExpanded: false, collaborationTab: 'members', collaborationRows: [], collaborationTabs: [],
+    collaborationCount: 0, collaborationActive: 0, collaborationNote: '', collaborationPreview: null, collaborationBusy: false,
+    fileExpanded: {}, fileSheet: null, filePreview: null, changesDiff: null, fileBusyKey: '', fileSharingKey: '', fileProgress: 0,
     tab: 'conversation', // conversation | trajectory
     trajectoryMounted: false,
     navTitle: uiText('会话'),
@@ -35,8 +39,8 @@ Page({
     navHeight: 32,      // 与右上角原生胶囊同高
     navMoreRight: 100,  // 右侧胶囊避让宽度
     navbarStyle: 'padding-top:48px;height:80px;padding-right:100px;',
-    conversationStyle: 'padding-bottom:520rpx;',
-    conversationInnerStyle: 'min-height:calc(100% - 80rpx);',
+    conversationStyle: 'padding-bottom:0;margin-bottom:520rpx;',
+    conversationInnerStyle: 'min-height:100%;',
     trajectoryStyle: '',
     dockStyle: '',
     presetLabel: '',
@@ -172,6 +176,8 @@ Page({
   },
 
   onHide() {
+    this._collaborationRequest = null; this._collaborationRefresh = null;
+    this.setData({ collaborationOpen:false, collaborationPreview:null, collaborationBusy:false });
     this.cancelFileDownload();
     this._voiceHidden = true; this.cancelVoice();
     if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
@@ -188,6 +194,8 @@ Page({
   },
 
   onUnload() {
+    this._collaborationRequest = null;
+    this._collaborationRefresh = null;
     this.disposePresentedFiles();
     this.cancelVoice();
     if (this._voice) this._voice.dispose();
@@ -258,6 +266,8 @@ Page({
     if (!s || (!s.sessionId && s.historyState !== 'creating' && s.historyState !== 'error:create')) return;
     if (!this._markdownCache || this._renderSessionId !== s.sessionId) {
       if (this._renderSessionId && this._renderSessionId !== s.sessionId) {
+        this._collaborationRequest = null; this._collaborationRefresh = null;
+        this.setData({ collaborationOpen:false, collaborationPreview:null, collaborationRows:[], collaborationBusy:false });
         this.disposePresentedFiles();
         this.closeChangesDiff();
         this.setData({ fileSheet: null, filePreview: null, fileExpanded: {} });
@@ -296,7 +306,11 @@ Page({
     const semanticRows = [];
     const listedSession = (app.sessions || []).find(item => item.id === s.sessionId || item.sessionId === s.sessionId);
     (s.rows || []).forEach((row) => {
-      if (row.kind === 'changes') { semanticRows.push(this.decorateChanges(row)); return; }
+      if (row.kind === 'changes') {
+        const changes = this.decorateChanges(row);
+        if (changes) semanticRows.push(changes);
+        return;
+      }
       if (row.kind === 'files') {
         semanticRows.push(Object.assign({}, row, { files: row.files.map(fileDeliverables.describe) }));
         return;
@@ -569,6 +583,7 @@ Page({
     const fallbackTitle = (listed && (listed.title || listed.snippet)) || (s.historyState === 'creating' ? uiText('新会话') : uiText('会话'));
 
     const viewPatch = dataPatch(this.data, Object.assign({
+      ...this.collaborationPatch(s, app),
       navTitle: s.title || fallbackTitle,
       presetLabel: labels.presetModeName(s.agentPreset || 'standard'),
       sessionPresetVisible: presetVisible,
@@ -955,7 +970,8 @@ Page({
     this.cancelVoice();
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
-    this.setData({ tab, kbHeight: 0, composerFocused: false, showJump: false,
+    this._collaborationRequest = null; this._collaborationRefresh = null;
+    this.setData({ tab, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
       ...(tab === 'trajectory' ? { trajectoryMounted: true, ...dataPatch(this.data, this.trajectoryPatch()) } : {}),
       statsPopOpen: false, showContextSheet: false, commandMenu: null,
       attachSheetOpen: false, modelSheetOpen: false, effortSheetOpen: false,
@@ -1046,7 +1062,8 @@ Page({
     if (this.data.moreSheetOpen) return;
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
-    this.setData({ moreSheetOpen: true, statsPopOpen: false, statsSheetOpen: false,
+    this._collaborationRequest = null; this._collaborationRefresh = null;
+    this.setData({ moreSheetOpen: true, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, statsPopOpen: false, statsSheetOpen: false,
       showContextSheet: false, commandMenu: null, traceDetail: null,
       modelSheetOpen: false, effortSheetOpen: false, permissionSheet: [], modeSheet: [],
       attachSheetOpen: false, kbHeight: 0, composerFocused: false, ...this.layoutPatch({ kbHeight: 0 }) });
@@ -1260,9 +1277,6 @@ Page({
     const clientHeight = Math.max(0, Number(pos.clientHeight) || 0);
     const HIDE_WITHIN = 56;
 
-    const insetRpx = Number(this.data.convBottomInset) || 0;
-    const winW = (typeof wx.getWindowInfo === 'function' ? (wx.getWindowInfo().windowWidth) : 375) || 375;
-    const dockPx = Math.round(insetRpx * winW / 750);
     const maxScroll = Math.max(0, scrollHeight - clientHeight);
 
     // 距底距离；scrollHeight 不可信时退回 scrollTop 近似
@@ -1270,8 +1284,8 @@ Page({
       ? scrollHeight - scrollTop - clientHeight
       : (scrollTop <= 8 ? 0 : scrollTop);
 
-    // 视觉底部：最多吃掉一半可滚动距离，避免留白把阈值顶穿
-    const ARROW_HIDE_WITHIN = Math.min(Math.max(HIDE_WITHIN, dockPx), Math.max(HIDE_WITHIN, maxScroll * 0.5));
+    // The viewport now ends above the composer; there is no hidden dock spacer.
+    const ARROW_HIDE_WITHIN = HIDE_WITHIN;
     const ARROW_SHOW_AFTER = ARROW_HIDE_WITHIN + Math.min(24, Math.max(12, maxScroll * 0.05));
 
     const pinned = distance <= HIDE_WITHIN;
@@ -1294,7 +1308,7 @@ Page({
 
   /** 兜底轮询：部分设备 bindscroll 不可靠，定时读一次真实滚动偏移 */
   pollScrollPosition() {
-    if (this._unloaded || this.data.tab !== 'conversation' || this.data.moreSheetOpen) return;
+    if (this._unloaded || this.data.tab !== 'conversation' || this.data.moreSheetOpen || this.data.collaborationOpen) return;
     if (this._scrollPollPending) return;
     this._scrollPollPending = true;
     const query = wx.createSelectorQuery().in(this);
@@ -1303,12 +1317,12 @@ Page({
     query.select('.conversation-inner').boundingClientRect();
     query.exec((res) => {
       this._scrollPollPending = false;
-      if (this._unloaded || this.data.tab !== 'conversation' || this.data.moreSheetOpen) return;
+      if (this._unloaded || this.data.tab !== 'conversation' || this.data.moreSheetOpen || this.data.collaborationOpen) return;
       const view = res && res[0];
       const offset = res && res[1];
       const inner = res && res[2];
       if (!view || !offset || !inner) return;
-      // The measured inner content already includes the explicit dock spacer.
+      // The viewport excludes the dock; only actual conversation content is measured.
       const scrollHeight = Math.max(0, Number(inner.height) || 0) + 8;
       this.applyScrollPosition({
         scrollTop: Number(offset.scrollTop) || 0,
@@ -1780,10 +1794,8 @@ Page({
       if (this._unloaded || this.data.tab !== 'conversation') { this._dockMeasurePending = false; return; }
       const query = wx.createSelectorQuery().in(this);
       query.select('.dock-stack').boundingClientRect();
-      query.select('.conversation').boundingClientRect();
       query.exec((rects) => {
         const rect = rects && rects[0];
-        const viewport = rects && rects[1];
         this._dockMeasurePending = false;
         if (this._unloaded || this.data.tab !== 'conversation') return;
         if (!rect || !rect.height) {
@@ -1793,13 +1805,13 @@ Page({
           return;
         }
         const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
-        // Include the dock's bottom offset / safe area, not just its height.
-        const overlap = viewport && Number.isFinite(viewport.bottom) && Number.isFinite(rect.top)
-          ? Math.max(0, viewport.bottom - rect.top)
-          : rect.height + Math.max(0, (info.windowHeight || rect.bottom) - rect.bottom);
-        const inset = Math.ceil(overlap * 750 / Math.max(info.windowWidth || 375, 1) + 20);
+        // Measure against the window, NEVER the already shortened scroll viewport.
+        // Keep keyboard height separate so its first frame can reposition immediately.
+        const kbHeight = Number(this.data.kbHeight) || 0;
+        const overlap = Math.max(0, (info.windowHeight || rect.bottom) - rect.top - kbHeight);
+        const inset = Math.ceil(overlap * 750 / Math.max(info.windowWidth || 375, 1) + 12);
         if (Math.abs(inset - this.data.convBottomInset) > 2) {
-          this.setData({ convBottomInset: inset }, () => {
+          this.setData({ convBottomInset: inset, ...this.layoutPatch({ convBottomInset: inset }) }, () => {
             if (this._convPinned) this.refreshBottomAnchor();
           });
         }
@@ -1814,10 +1826,11 @@ Page({
     const navHeight = Number(this.data.navHeight) || 0;
     const navMoreRight = Number(this.data.navMoreRight) || 0;
     const kbHeight = Number(overrides && overrides.kbHeight !== undefined ? overrides.kbHeight : this.data.kbHeight) || 0;
+    const dockInset = Number(overrides && overrides.convBottomInset !== undefined ? overrides.convBottomInset : this.data.convBottomInset) || 0;
     return dataPatch(this.data, {
       navbarStyle: 'padding-top:' + navPadTop + 'px;height:' + (navPadTop + navHeight)
         + 'px;padding-right:' + navMoreRight + 'px;',
-      conversationStyle: 'padding-bottom:0;' + (kbHeight ? 'margin-bottom:' + kbHeight + 'px;' : ''),
+      conversationStyle: 'padding-bottom:0;margin-bottom:' + (kbHeight ? 'calc(' + dockInset + 'rpx + ' + kbHeight + 'px)' : dockInset + 'rpx') + ';',
       conversationInnerStyle: 'min-height:100%;',
       trajectoryStyle: kbHeight ? 'margin-bottom:' + kbHeight + 'px;' : '',
       dockStyle: kbHeight ? 'bottom:' + (kbHeight + 12) + 'px;' : ''
@@ -1992,6 +2005,91 @@ Page({
     this._traceCache = null;
     if (this.data.tab === 'trajectory') this.setData(dataPatch(this.data, this.trajectoryPatch()));
     if (typeof this.updateDockInset === 'function' && this._renderSessionId) this.updateDockInset();
+  },
+
+  // ---------- 协作（只读，不切换父会话、不发送任务） ----------
+  collaborationPatch(session = store.sessionState, app = store.state) {
+    const result = collaboration.view(session.collaboration, app && app.sessions, session, app && app.connection === 'connected');
+    const patch = { collaborationCount:result.total, collaborationActive:result.active };
+    if (!this.data.collaborationOpen) return patch;
+    const calls = (session.trajectory || []).filter(row => row.badge === 'TOOL' || row.badge === 'SUBTOOL');
+    const tabs = [{id:'members',icon:'dsh-team',label:uiText('成员'),count:result.members.length},
+      {id:'children',icon:'dsh-agent',label:uiText('子智能体'),count:result.children.length},
+      {id:'tasks',icon:'dsh-checklist',label:uiText('团队任务'),count:result.tasks.length},
+      {id:'calls',icon:'dsh-process-tool',label:uiText('工具调用'),count:calls.length}];
+    const rows = this.data.collaborationTab === 'calls' ? calls.slice(-200).reverse().map(row => ({
+      id:row.key,title:row.label,subtitle:row.preview,status:row.isError ? 'failed' : row.completed ? 'done' : row.stopped ? 'unknown' : 'running',
+      statusText:uiText(row.isError ? '失败' : row.completed ? '已完成' : row.stopped ? '未完成' : '运行中'),canOpen:true
+    })) : result[this.data.collaborationTab] || [];
+    return { ...patch,collaborationTabs:tabs,collaborationRows:rows,collaborationNote:
+      this.data.collaborationTab === 'calls' ? calls.length > 200 ? uiText('仅显示最近 200 次调用') : uiText('已加载的调用') : result.note };
+  },
+  openCollaboration() {
+    this.cancelVoice(); this.prioritizeInteraction();
+    this._collaborationRequest = null; this._collaborationRefresh = null;
+    this.setData({collaborationOpen:true,collaborationExpanded:false,collaborationPreview:null,collaborationBusy:false,moreSheetOpen:false,statsPopOpen:false,statsSheetOpen:false,
+      showContextSheet:false,traceDetail:null,attachSheetOpen:false,modelSheetOpen:false,effortSheetOpen:false,permissionSheet:[],modeSheet:[],
+      kbHeight:0,composerFocused:false,composerFocus:false,...this.layoutPatch({kbHeight:0})});
+    this.setData(this.collaborationPatch()); this.stopScrollPolling();
+    if (typeof wx.hideKeyboard === 'function') wx.hideKeyboard();
+    this.refreshCollaboration();
+  },
+  closeCollaboration() {
+    this._collaborationRequest = null; this._collaborationRefresh = null;
+    this.setData({collaborationOpen:false,collaborationExpanded:false,collaborationPreview:null,collaborationBusy:false});
+    if (this.data.tab === 'conversation') this.startScrollPolling();
+  },
+  toggleCollaborationExpanded() {
+    if (!this.data.collaborationOpen) return;
+    this.setData({collaborationExpanded:!this.data.collaborationExpanded});
+  },
+  selectCollaborationTab(e) {
+    const tab = e.currentTarget.dataset.id;
+    if (!['members','children','tasks','calls'].includes(tab)) return;
+    this._collaborationRequest = null; this.setData({collaborationTab:tab,collaborationPreview:null}); this.setData(this.collaborationPatch());
+  },
+  refreshCollaboration() {
+    if (!store.state || store.state.connection !== 'connected' || !store.client || this.data.collaborationBusy || typeof store.client.requestSessions !== 'function') return;
+    const client=store.client, generation=client.connectGeneration, sessionId=store.sessionState.sessionId;
+    const request={}; this._collaborationRefresh=request;
+    this.setData({collaborationBusy:true});
+    Promise.resolve(client.requestSessions()).catch(() => {}).finally(() => {
+      if (this._collaborationRefresh===request && !this._unloaded && !this._voiceHidden && client===store.client && generation===client.connectGeneration && sessionId===store.sessionState.sessionId) {
+        this._collaborationRefresh=null;
+        this.setData({collaborationBusy:false}); if(this.data.collaborationOpen)this.setData(this.collaborationPatch());
+      }
+    });
+  },
+  backCollaborationList() { this._collaborationRequest=null; this.setData({collaborationPreview:null}); },
+  async openCollaborationItem(e) {
+    const id=e.currentTarget.dataset.id;
+    if (this.data.collaborationPreview && this.data.collaborationPreview.loading && this.data.collaborationPreview.id===id) return;
+    const row=(this.data.collaborationRows || []).find(item=>item.id===id) ||
+      ((this.data.collaborationPreview || {}).children || []).find(item=>item.id===id);
+    if (!row || !this.data.collaborationOpen) return;
+    if (this.data.collaborationTab === 'calls' && !this.data.collaborationPreview) {
+      this.closeCollaboration(); this.trajectoryPatch(); this.openTraceDetail({currentTarget:{dataset:{key:id}}}); return;
+    }
+    if (this.data.collaborationTab === 'tasks' && !this.data.collaborationPreview) {
+      this.setData({collaborationPreview:{title:row.title,task:true,text:row.description,statusText:row.statusText,owner:row.subtitle,blocked:row.blockedBy.join(', ')}});return;
+    }
+    if (!row.canOpen || id===store.sessionState.sessionId) return;
+    const client=store.client, generation=client.connectGeneration, sessionId=store.sessionState.sessionId, request={};
+    this._collaborationRequest=request;
+    const current=()=>!this._unloaded && !this._voiceHidden && this.data.collaborationOpen && this._collaborationRequest===request &&
+      client===store.client && generation===client.connectGeneration && sessionId===store.sessionState.sessionId;
+    this.setData({collaborationPreview:{id,title:row.title,loading:true,rows:[],children:[]}});
+    try {
+      if (!store.state || store.state.connection !== 'connected') throw Error('offline');
+      const frame=await client.inspectSession(id); if(!current())return;
+      if(frame.sessionId!==id || !Array.isArray(frame.events))throw Error('invalid history');
+      const state=collaboration.create(id);collaboration.baseline(state,frame.projections);collaboration.ingest(state,frame.events);
+      const childView=collaboration.view(state,store.state.sessions,{sessionId:id},true);
+      const agg=protocol.newAggregator();
+      frame.events.slice().sort((a,b)=>a.seq-b.seq).forEach(event=>protocol.applyEvent(agg,protocol.normalizeRawEvent(event,id)));
+      const rows=agg.rows.filter(item=>['user','assistant'].includes(item.kind) && item.text).slice(-20).map(item=>({key:item.key,role:uiText(item.kind==='user'?'用户':'助手'),text:item.text.slice(0,20000)}));
+      this.setData({collaborationPreview:{id,title:row.title,loading:false,rows,children:childView.children.filter(item=>item.id!==id && item.id!==sessionId),hasMore:frame.hasMore===true}});
+    } catch (error) { if(current())this.setData({collaborationPreview:{id,title:row.title,error:true,errorText:error && error.code==='INSPECTOR_TIMEOUT' ? uiText('记录请求超时，请重新连接后重试') : uiText('加载记录失败，请重试'),rows:[],children:[]}}); }
   },
 
   // ---------- 轨迹详情 ----------

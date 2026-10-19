@@ -5,7 +5,7 @@
     </view>
     <view class="privacy-header">
       <view class="privacy-heading"><text class="privacy-eyebrow">{{ui['鲸尾助手小程序版']}}</text><text class="privacy-title">{{ui['隐私政策']}}</text></view>
-      <button class="privacy-close" bindtap="close" hover-class="privacy-pressed" aria-label="{{ui['关闭隐私政策']}}">{{ui['关闭']}}</button>
+      <button class="privacy-close" bindtap="close" hover-class="privacy-pressed" aria-label="{{ui['关闭隐私政策']}}"><view class="sheet-close-x"></view></button>
     </view>
     <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="privacy-scroll" scroll-top="{{scrollTop}}">
       <view class="privacy-content">

@@ -23,21 +23,21 @@ module.exports = {
     const context = this.changesContext();
     const entry = context.cache.get(row.changeSeq);
     const summary = entry && entry.value;
-    const ready = summary && validSummary(summary, row.turn);
-    const files = (ready ? summary.files : row.files || []).map((file, index) => Object.assign(describe(file), {
-      key: file.key || row.key + '-file-' + index, sessionId: row.sessionId, index,
-      display: file.display || file.path, hasCounts: !!ready
-    }));
+    // Match DSH: tool-call paths do not prove a reviewable snapshot still exists.
     const supported = (store.state.gatewayCapabilities || []).includes('workspace-changes-v1');
-    const state = ready ? 'ready' : row.changeSeq === undefined ? 'fallback' :
-      !supported ? 'unsupported' : entry ? entry.state : 'loading';
-    const title = files.length === 1 ? t('已编辑 {name}', { name: files[0].name }) :
-      files.length ? t('已编辑 {count} 个文件', { count: ready ? summary.total : files.length }) : t('已编辑文件');
-    return Object.assign({}, row, { files, title, hasCounts: !!ready, total: ready ? summary.total : files.length,
-      added: ready ? summary.added : null, deleted: ready ? summary.deleted : null, summaryState: state,
-      summaryNote: state === 'loading' ? t('正在加载文件变更…') : state === 'unsupported' ? t('更新网关后可查看完整文件变更') :
-        state === 'missing' ? t('该轮变更快照已失效，仍显示已确认的编辑文件') :
-        state === 'error' ? t('文件变更加载失败，点击重试') : '' });
+    if (!supported || !entry || entry.state !== 'ready' || !validSummary(summary, row.turn) || !summary.files.length) return null;
+    const files = summary.files.map((file, index) => Object.assign(describe(file), {
+      key: file.key || row.key + '-file-' + index, sessionId: row.sessionId, index,
+      display: file.display || file.path, hasCounts: !file.binary && !file.oversized,
+      statusNote: file.binary ? t('二进制文件已变更，无法显示文本差异') :
+        file.oversized ? t('文件过大，无法显示文本差异') : ''
+    }));
+    const singleFile = summary.total === 1;
+    const title = singleFile ? t('已编辑 {name}', { name: files[0].name }) :
+      t('已编辑 {count} 个文件', { count: summary.total });
+    return Object.assign({}, row, { files, title, singleFile, hasCounts: true, total: summary.total,
+      added: summary.added, deleted: summary.deleted, summaryState: 'ready',
+      statusNote: singleFile ? files[0].statusNote : '' });
   },
   loadChangesSummaries() {
     if (this._unloaded || this._voiceHidden || this.data.tab !== 'conversation' || store.state.connection !== 'connected' ||
@@ -62,12 +62,6 @@ module.exports = {
       });
     }
   },
-  retryChanges(e) {
-    const row = this.data.rows.find(item => item.key === e.currentTarget.dataset.key);
-    if (!row || row.summaryState !== 'error') return;
-    this.changesContext().cache.delete(row.changeSeq);
-    this.loadChangesSummaries();
-  },
   toggleChangedFiles(e) {
     const key = e.currentTarget.dataset.key;
     this.setData({ fileExpanded: Object.assign({}, this.data.fileExpanded, { [key]: !this.data.fileExpanded[key] }) });
@@ -77,7 +71,7 @@ module.exports = {
     const row = this.data.rows.find(item => item.key === e.currentTarget.dataset.row);
     const index = Number(e.currentTarget.dataset.index), file = row && row.files[index];
     if (!file || row.sessionId !== store.sessionState.sessionId) return;
-    if (!row.hasCounts) return this.presentFile(file, 'preview');
+    if (!row.hasCounts) return;
     const context = this.changesContext(), request = {}; this._changesDiffRequest = request;
     const current = () => this.changesCurrent(context) && this._changesDiffRequest === request;
     this.setData({ changesDiff: { title: file.display, loading: true, hunks: [] } });
@@ -86,7 +80,12 @@ module.exports = {
       if (!current()) return;
       if (frame.sessionId !== row.sessionId || frame.seq !== row.changeSeq || frame.index !== index) throw Error('Mismatched file diff');
       const value = frame.value;
-      if (value == null) { this.setData({ changesDiff: { title: file.display, note: t('该文件的变更快照已失效') } }); return; }
+      if (value == null) {
+        context.cache.set(row.changeSeq, { state: 'missing' });
+        this.setData({ changesDiff: { title: file.display, note: t('该文件的变更快照已失效') } });
+        this.syncFromStore({ app: store.state, session: store.sessionState });
+        return;
+      }
       if (!validDiff(value) || value.path !== file.path) throw Error('Invalid file diff');
       let remaining = 1200, truncated = false;
       const hunks = (value.hunks || []).map((hunk, hunkIndex) => {
