@@ -96,6 +96,22 @@ test('final text, in-place tool updates, history prepend and session switch stil
   f.store.sessionState.sessionId = 'another'; f.store.sessionState.rows = [{ kind: 'assistant', key: 'a0', text: '另一会话' }]; f.sync();
   assert.equal(f.page.data.rows.length, 1); assert.equal(f.page.data.rows[0].text, '另一会话');
 });
+test('switching sessions keeps independent unsent drafts and image attachments', () => {
+  const f = fixture(); f.sync();
+  f.page.data.draft = 'Draft for first conversation';
+  f.page.data.images = [{ path: '/tmp/first.png' }];
+  f.store.sessionState.sessionId = 'second-session';
+  f.store.sessionState.rows = [{ kind: 'user', key: 'second-user', text: 'second' }];
+  f.sync();
+  assert.equal(f.page.data.draft, ''); assert.deepEqual(f.page.data.images, []);
+  f.page.data.draft = 'Draft for second conversation';
+  f.page.data.images = [{ path: '/tmp/second.png' }];
+  f.store.sessionState.sessionId = 'performance-test';
+  f.store.sessionState.rows = [{ kind: 'user', key: 'first-user', text: 'first' }];
+  f.sync();
+  assert.equal(f.page.data.draft, 'Draft for first conversation');
+  assert.deepEqual(f.page.data.images, [{ path: '/tmp/first.png' }]);
+});
 test('bottom scrolling coalesces callbacks and never updates an unloaded page', () => {
   const f = fixture(); f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
   f.page.refreshBottomAnchor(); f.page.refreshBottomAnchor(); assert.equal(f.ticks.length, 1);

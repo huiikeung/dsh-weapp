@@ -44,6 +44,8 @@
   "自动化任务": "Automations",
   "新建会话": "New conversation",
   "最近会话": "Recent conversations",
+  "会话快捷切换": "Quick switch",
+  "没有匹配的会话": "No matching conversations",
   "扫描二维码": "Scan QR code",
   "手动输入配对信息": "Enter pairing info",
   "配置引导": "Setup guide",

@@ -18,6 +18,7 @@ const fileDeliverables = require('../../utils/file-deliverables');
 const theme = require('../../utils/theme');
 const conversationWorkflow = require('../../utils/conversation-workflow');
 const composerMenu = require('../../utils/composer-menu');
+const sessionSwitcher = require('../../utils/session-switcher');
 const { dataPatch, createMarkdownCache } = require('../../utils/session-render');
 
 // 订阅消息模板 ID：与设置页保持一致；留空则发送时不申请授权。
@@ -36,6 +37,11 @@ Page({
     tab: 'conversation', // conversation | trajectory
     trajectoryMounted: false,
     navTitle: uiText('会话'),
+    sessionSwitcherOpen: false,
+    sessionSwitcherExpanded: false,
+    sessionSwitcherHeight: 60,
+    sessionSwitcherQuery: '',
+    sessionSwitcherItems: [],
     navPadTop: 48,      // 自定义导航：状态栏下沿前的顶部偏移
     navHeight: 32,      // 与右上角原生胶囊同高
     navMoreRight: 100,  // 右侧胶囊避让宽度
@@ -152,6 +158,7 @@ Page({
   onLoad(options) {
     theme.applyTo(this);
     this.setData(statusAppearance.view(statusAppearance.read()));
+    this._sessionDrafts = {};
     this.sessionId = options.id || store.sessionState.sessionId;
     this._pendingQueue = [];
     if (options.id && store.sessionState.sessionId !== options.id) {
@@ -292,6 +299,20 @@ Page({
     if (!s || (!s.sessionId && s.historyState !== 'creating' && s.historyState !== 'error:create')) return;
     if (!this._markdownCache || this._renderSessionId !== s.sessionId) {
       if (this._renderSessionId && this._renderSessionId !== s.sessionId) {
+        this._sessionDrafts = this._sessionDrafts || {};
+        this._sessionDrafts[this._renderSessionId] = {
+          draft: this.data.draft || '',
+          images: Array.isArray(this.data.images) ? this.data.images.slice() : []
+        };
+        const savedDraft = this._sessionDrafts[s.sessionId] || { draft: '', images: [] };
+        this.setData({
+          draft: savedDraft.draft,
+          images: savedDraft.images,
+          canSend: !!String(savedDraft.draft || '').trim() || savedDraft.images.length > 0,
+          composerFocused: false,
+          composerFocus: false,
+          kbHeight: 0
+        });
         this._collaborationRequest = null; this._collaborationRefresh = null;
         this.setData({ collaborationOpen:false, collaborationPreview:null, collaborationRows:[], collaborationBusy:false });
         this.disposePresentedFiles();
@@ -1083,6 +1104,132 @@ Page({
     store.client.selectSessionAgentPreset(sessionId, id).catch((err) => {
       wx.showToast({ title: err.message || uiText('切换失败'), icon: 'none' });
     });
+  },
+
+  sessionSwitcherRows(app = store.state, query = '') {
+    const session = store.sessionState || {};
+    const source = sessionSwitcher.buildItems(app && app.sessions, {
+      currentSessionId: session.sessionId,
+      currentTitle: session.title,
+      currentRunning: session.running,
+      currentPreset: session.agentPreset,
+      archivedSessionIds: app && app.archivedSessionIds
+    });
+    return sessionSwitcher.filterItems(source, query).map(item => ({
+      ...item,
+      displayTitle: item.current && session.title ? session.title
+        : item.title || util.sessionIdLabel(item.sessionId),
+      activityLabel: item.running ? uiText('运行中') : util.formatRelativeTime(item.updatedAt)
+    }));
+  },
+
+  openSessionSwitcher() {
+    if (this.data.sessionSwitcherOpen) return;
+    this.prioritizeInteraction();
+    const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
+    this.setData({
+      sessionSwitcherOpen: true,
+      sessionSwitcherExpanded: false,
+      sessionSwitcherHeight: 60,
+      sessionSwitcherQuery: '',
+      sessionSwitcherItems: this.sessionSwitcherRows(store.state, ''),
+      moreSheetOpen: false,
+      collaborationOpen: false,
+      collaborationPreview: null,
+      collaborationBusy: false,
+      statsPopOpen: false,
+      statsSheetOpen: false,
+      modelSheetOpen: false,
+      effortSheetOpen: false,
+      permissionSheet: [],
+      modeSheet: [],
+      showContextSheet: false,
+      traceDetail: null,
+      attachSheetOpen: false,
+      kbHeight: 0,
+      composerFocused: false,
+      composerFocus: false,
+      ...this.layoutPatch({ kbHeight: 0 })
+    });
+    this.stopScrollPolling();
+    if (hadKeyboard && typeof wx.hideKeyboard === 'function') wx.hideKeyboard();
+  },
+
+  onSessionSwitcherSearch(e) {
+    const query = e && e.detail ? String(e.detail.value || '') : '';
+    this.setData({
+      sessionSwitcherQuery: query,
+      sessionSwitcherItems: this.sessionSwitcherRows(store.state, query)
+    });
+  },
+
+  closeSessionSwitcher() {
+    if (!this.data.sessionSwitcherOpen) return;
+    this.setData({ sessionSwitcherOpen: false, sessionSwitcherExpanded: false, sessionSwitcherHeight: 60, sessionSwitcherQuery: '' });
+    if (this.data.tab === 'conversation') this.startScrollPolling();
+  },
+
+  expandSessionSwitcher() {
+    if ((this._sessionSwitcherSuppressTapUntil || 0) > Date.now()) return;
+    this.setData({ sessionSwitcherExpanded: true, sessionSwitcherHeight: 90 });
+  },
+
+  sessionSwitcherGrabStart(e) {
+    const touch = e && e.touches && e.touches[0];
+    if (!touch) return;
+    let windowHeight = 800;
+    try {
+      const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+      windowHeight = Number(info && info.windowHeight) || windowHeight;
+    } catch (_) { /* Keep a safe viewport estimate for older WeChat builds. */ }
+    this._sessionSwitcherGrab = {
+      y: touch.clientY,
+      delta: 0,
+      startHeight: Number(this.data.sessionSwitcherHeight) || 60,
+      windowHeight: windowHeight,
+      moved: false
+    };
+  },
+
+  sessionSwitcherGrabMove(e) {
+    const grab = this._sessionSwitcherGrab;
+    const touch = e && e.touches && e.touches[0];
+    if (!grab || !touch) return;
+    const delta = touch.clientY - grab.y;
+    if (Math.abs(delta) < 18) return;
+    grab.moved = true;
+    grab.delta = delta;
+    const height = Math.max(60, Math.min(90, Math.round(grab.startHeight - delta / grab.windowHeight * 100)));
+    if (this.data.sessionSwitcherHeight !== height) {
+      this.setData({ sessionSwitcherHeight: height, sessionSwitcherExpanded: height > 60 });
+    }
+  },
+
+  sessionSwitcherGrabEnd() {
+    const grab = this._sessionSwitcherGrab;
+    this._sessionSwitcherGrab = null;
+    if (grab && grab.moved) {
+      const height = grab.delta < 0 ? 90 : 60;
+      this.setData({ sessionSwitcherHeight: height, sessionSwitcherExpanded: height > 60 });
+      this._sessionSwitcherSuppressTapUntil = Date.now() + 300;
+    } else if (grab) {
+      // Some WeChat builds suppress tap after a caught touch sequence; treat a still touch as a tap.
+      this.setData({ sessionSwitcherHeight: 90, sessionSwitcherExpanded: true });
+    }
+  },
+
+  switchSessionFromSwitcher(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset.sessionId;
+    const item = (this.data.sessionSwitcherItems || []).find(row => row.sessionId === id);
+    if (!id || !item) return;
+    this.setData({ sessionSwitcherOpen: false, sessionSwitcherExpanded: false, sessionSwitcherHeight: 60, sessionSwitcherQuery: '' });
+    if (id === store.sessionState.sessionId) {
+      if (this.data.tab === 'conversation') this.startScrollPolling();
+      return;
+    }
+    store.openSession(id, item.displayTitle, item.agentPreset || null);
+    this.sessionId = id;
+    if (this.data.tab === 'conversation') this.startScrollPolling();
   },
 
   moreActions() {

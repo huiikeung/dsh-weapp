@@ -7,7 +7,7 @@ function fixture() {
   const file = path.resolve(__dirname, '../miniprogram/pages/session/session.js');
   let definition; const calls = [], ticks = [], timers = new Map(), patches = [];
   let timerId = 0;
-  const store = { sessionState: { sessionId: 's1', running: true }, client: {
+  const store = { state: { sessions: [], archivedSessionIds: [] }, sessionState: { sessionId: 's1', running: true }, openSession: (...args) => calls.push(['open', ...args]), client: {
     renameSession: (...args) => calls.push(['rename', ...args]), archiveSession: (...args) => calls.push(['archive', ...args]), cancelSession: (...args) => calls.push(['cancel', ...args])
   } };
   const wx = { hideKeyboard: () => calls.push(['hideKeyboard']), nextTick: fn => ticks.push(fn),
@@ -68,6 +68,73 @@ test('more menu works on trajectory, opens standalone stats and dispatches exist
   assert.ok(!calls.some(call => call[0] === 'archive'));
   page.moreActions(); page.selectMoreAction(event('action', 'archive')); page.runConfirmSheet();
   assert.ok(calls.some(call => call[0] === 'archive'));
+});
+
+test('session quick switch filters recent sessions and switches in place', () => {
+  const { page, store, calls } = fixture();
+  store.state.sessions = [
+    { sessionId: 's1', title: 'Current', updatedAt: 100, running: true },
+    { sessionId: 's2', title: 'Second task', updatedAt: 200, agentPreset: 'standard' },
+    { sessionId: 's3', title: 'Archived', updatedAt: 300 }
+  ];
+  store.state.archivedSessionIds = ['s3'];
+  page.openSessionSwitcher();
+  assert.equal(page.data.sessionSwitcherOpen, true);
+  assert.deepEqual(page.data.sessionSwitcherItems.map(item => item.sessionId), ['s2', 's1']);
+  assert.equal(page.data.sessionSwitcherItems[1].current, true);
+  page.onSessionSwitcherSearch({ detail: { value: 'second' } });
+  assert.deepEqual(page.data.sessionSwitcherItems.map(item => item.sessionId), ['s2']);
+  page.switchSessionFromSwitcher(event('sessionId', 's2'));
+  assert.equal(page.data.sessionSwitcherOpen, false);
+  assert.deepEqual(calls.find(call => call[0] === 'open'), ['open', 's2', 'Second task', 'standard']);
+  assert.equal(page.sessionId, 's2');
+});
+
+test('quick switch controls use a narrow bottom sheet and a wide right-side popover', () => {
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
+  assert.ok(xml.includes('bindtap="openSessionSwitcher"'));
+  assert.ok(xml.includes('class="session-switch-mask'));
+  assert.ok(xml.includes('class="session-switch-handle-zone"'), 'the mobile sheet keeps its visible drag handle');
+  assert.ok(xml.includes('bindtap="switchSessionFromSwitcher"'));
+  assert.match(css, /\.session-switch-panel\s*\{[^}]*border-radius: 32rpx 32rpx 0 0;/);
+  assert.match(css, /@media\s*\(min-width:\s*700px\)[\s\S]*?\.session-switch-panel\s*\{[\s\S]*?right:\s*16px;/);
+  assert.match(css, /\.session-switch-handle\s*\{[^}]*flex: 0 0 84rpx;/, 'drag handle keeps its full pill width');
+  assert.match(css, /\.session-switch-lines\s*\{\s*gap: 12rpx;/, 'hamburger bars have wider vertical spacing');
+  assert.match(css, /\.session \.segmented-row \.nav-actions \.nav-more::before\s*\{[^}]*width: 48rpx;[^}]*height: 48rpx;/, 'ellipsis circle is smaller than its tap target');
+});
+
+test('quick switch sheet expands to 90 percent by tapping or dragging its handle', () => {
+  const { page } = fixture();
+  page.sessionSwitcherGrabStart({ touches: [{ clientY: 120 }] });
+  page.sessionSwitcherGrabEnd();
+  assert.equal(page.data.sessionSwitcherHeight, 90, 'a tap completed through the caught touch handlers expands the sheet');
+  page.data.sessionSwitcherHeight = 60;
+  page.data.sessionSwitcherExpanded = false;
+  page.expandSessionSwitcher();
+  assert.equal(page.data.sessionSwitcherExpanded, true);
+  assert.equal(page.data.sessionSwitcherHeight, 90);
+  page.data.sessionSwitcherHeight = 60;
+  page.data.sessionSwitcherExpanded = false;
+  page.sessionSwitcherGrabStart({ touches: [{ clientY: 120 }] });
+  page.sessionSwitcherGrabMove({ touches: [{ clientY: 0 }] });
+  assert.ok(page.data.sessionSwitcherHeight > 60 && page.data.sessionSwitcherHeight <= 90);
+  page.sessionSwitcherGrabEnd();
+  assert.equal(page.data.sessionSwitcherExpanded, true);
+  assert.equal(page.data.sessionSwitcherHeight, 90);
+  page.expandSessionSwitcher(); // A completed drag must not also trigger a tap.
+  assert.equal(page.data.sessionSwitcherExpanded, true);
+  page.sessionSwitcherGrabStart({ touches: [{ clientY: 60 }] });
+  page.sessionSwitcherGrabMove({ touches: [{ clientY: 100 }] });
+  page.sessionSwitcherGrabEnd();
+  assert.equal(page.data.sessionSwitcherExpanded, false);
+  assert.equal(page.data.sessionSwitcherHeight, 60);
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  assert.match(xml, /height: \{\{sessionSwitcherHeight\}\}vh/);
+  assert.match(xml, /session-switch-state \{\{item.current \? 'current' : ''\}\}/);
+  const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
+  assert.match(css, /\.session-switch-panel\s*\{[^}]*max-height: 90vh;/, 'the mobile sheet can reach its configured 90vh height');
+  assert.match(css, /\.session-switch-state\.current\s*\{[^}]*background: #31b77a;/);
 });
 module.exports = { fixture, event };
 test('more sheet omits the session subtitle and uses larger theme-aware red close text', () => {

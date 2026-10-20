@@ -23,7 +23,12 @@
       <view class="segment {{tab === 'conversation' ? 'active' : ''}}" bindtap="switchTab" data-tab="conversation" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['对话']}}">{{ui['对话']}}</view>
       <view class="segment {{tab === 'trajectory' ? 'active' : ''}}" bindtap="switchTab" data-tab="trajectory" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['轨迹']}}">{{ui['轨迹']}}</view>
     </view>
-    <view class="nav-more glass-press" bindtap="moreActions" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['更多']}}"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
+    <view class="nav-actions">
+      <view class="nav-more glass-press" bindtap="moreActions" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['更多']}}"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
+      <view class="session-switch-trigger glass-press" bindtap="openSessionSwitcher" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['会话快捷切换']}}">
+        <view class="session-switch-lines" aria-hidden="true"><view/><view/><view/></view>
+      </view>
+    </view>
   </view>
 
   <!-- ================= 对话（对齐 iOS ConversationView chat ZStack） ================= -->
@@ -926,6 +931,33 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
             <image class="session-menu-icon" src="/assets/icons/session-archive.svg" mode="aspectFit"/><text class="session-menu-label">{{ui['归档会话']}}</text>
           </view>
         </view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <view class="session-switch-mask {{sessionSwitcherOpen ? 'is-open' : ''}}" aria-hidden="{{!sessionSwitcherOpen}}" catchtap="closeSessionSwitcher" catchtouchmove="noop">
+    <view class="session-switch-panel" style="height: {{sessionSwitcherHeight}}vh;" catchtap="noop" role="dialog" aria-label="{{ui['会话快捷切换']}}">
+      <view class="session-switch-handle-zone" bindtap="expandSessionSwitcher" catchtouchstart="sessionSwitcherGrabStart" catchtouchmove="sessionSwitcherGrabMove" catchtouchend="sessionSwitcherGrabEnd" role="button" aria-label="{{ui['展开']}}">
+        <view class="session-switch-handle" aria-hidden="true"/>
+      </view>
+      <view class="session-switch-head">
+        <text class="session-switch-title">{{ui['会话快捷切换']}}</text>
+        <view class="session-switch-close" bindtap="closeSessionSwitcher" role="button" aria-label="{{ui['关闭']}}"><view class="sheet-close-x"/></view>
+      </view>
+      <view class="session-switch-search">
+        <image class="session-switch-search-icon" src="/assets/icons/search-white.png" mode="aspectFit"/>
+        <input class="session-switch-search-input" value="{{sessionSwitcherQuery}}" placeholder="{{ui['搜索会话内容']}}" placeholder-class="field-placeholder" bindinput="onSessionSwitcherSearch" confirm-type="search"/>
+      </view>
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="session-switch-list">
+        <view wx:for="{{sessionSwitcherItems}}" wx:key="sessionId" class="session-switch-row {{item.current ? 'current' : ''}}" bindtap="switchSessionFromSwitcher" data-session-id="{{item.sessionId}}" hover-class="session-switch-row-pressed" role="button" aria-label="{{item.displayTitle}}">
+          <view class="session-switch-state {{item.current ? 'current' : ''}} {{item.running ? 'running' : ''}} {{item.hasUnread ? 'unread' : ''}}"/>
+          <view class="session-switch-copy">
+            <text class="session-switch-row-title">{{item.displayTitle}}</text>
+            <text wx:if="{{item.activityLabel}}" class="session-switch-activity">{{item.activityLabel}}</text>
+          </view>
+          <text wx:if="{{item.current}}" class="session-switch-current">{{ui['当前会话']}}</text>
+        </view>
+        <view wx:if="{{!sessionSwitcherItems.length}}" class="session-switch-empty">{{ui['没有匹配的会话']}}</view>
       </scroll-view>
     </view>
   </view>
