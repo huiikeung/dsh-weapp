@@ -20,6 +20,7 @@ Page({
     pairMenuVisible: false,
     manualSheetOpen: false,
     manualSheetExpanded: false,
+    manualInputFocused: false,
     pairingText: '',
     pairingResult: '',
     pairingResultClass: '',
@@ -722,11 +723,20 @@ Page({
   },
 
   pairByManual() {
-    this.setData({ pairMenuVisible: false, manualSheetOpen: true, manualSheetExpanded: false, pairingText: '', pairingResult: '', pairingResultClass: '', pairingConnecting: false });
+    this.setData({ pairMenuVisible: false, manualSheetOpen: true, manualSheetExpanded: false, manualInputFocused: false, pairingText: '', pairingResult: '', pairingResultClass: '', pairingConnecting: false });
   },
 
   closeManualSheet() {
-    this.setData({ manualSheetOpen: false, manualSheetExpanded: false });
+    this.setData({ manualSheetOpen: false, manualSheetExpanded: false, manualInputFocused: false });
+  },
+
+  // 输入框聚焦时高亮边框，避免在深色半透明弹层里看不清输入区域。
+  onManualInputFocus() {
+    if (!this.data.manualInputFocused) this.setData({ manualInputFocused: true });
+  },
+
+  onManualInputBlur() {
+    if (this.data.manualInputFocused) this.setData({ manualInputFocused: false });
   },
 
   /* 手动配对弹层抓手：上滑/点按展开到顶栏之下，下滑/再点收回紧凑 */

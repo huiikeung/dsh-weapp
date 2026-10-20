@@ -25,7 +25,7 @@
     </view>
     <view class="nav-actions">
       <view class="nav-more glass-press" bindtap="moreActions" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['更多']}}"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
-      <view class="session-switch-trigger glass-press" bindtap="openSessionSwitcher" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['会话快捷切换']}}">
+      <view wx:if="{{rows.length}}" class="session-switch-trigger glass-press" bindtap="openSessionSwitcher" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['会话快捷切换']}}">
         <view class="session-switch-lines" aria-hidden="true"><view/><view/><view/></view>
       </view>
     </view>
@@ -901,17 +901,23 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
     </view>
   </view>
 
-  <!-- 会话状态 sheet（对齐 iOS 统计 popover：执行 / Token 用量 / 上下文） -->
+  <!-- 更多菜单：重命名 / 查看统计 / 工作区文件都在当前弹层内切换，不再叠加新的底部弹窗 -->
   <view class="sheet-mask session-menu-mask {{moreSheetOpen ? 'is-open' : ''}}" aria-hidden="{{!moreSheetOpen}}" catchtap="closeMoreActions" catchtouchmove="noop">
-    <view class="sheet session-menu" catchtap="noop">
-      <view class="sheet-handle" aria-hidden="true"/>
+    <view class="sheet session-menu {{moreSheetExpanded ? 'expanded' : ''}}" style="margin-bottom: {{renameKeyboard}}px;" catchtap="noop">
+      <view class="session-menu-grabber-zone" catchtouchstart="moreSheetGrabStart" catchtouchmove="moreSheetGrabMove" catchtouchend="moreSheetGrabEnd" role="button" aria-label="{{moreSheetExpanded ? ui['收起'] : ui['展开']}}">
+        <view class="sheet-handle"></view>
+      </view>
       <view class="session-menu-head">
         <view class="session-menu-heading">
-          <text class="session-menu-title">{{ui['更多']}}</text>
+          <view wx:if="{{morePane !== 'menu'}}" class="session-menu-back" bindtap="backToMoreMenu" hover-class="session-menu-back-pressed" role="button" aria-label="{{ui['返回']}}">
+            <image class="session-menu-back-ic" src="/assets/icons/chev-right-gray.png" mode="aspectFit"/>
+          </view>
+          <text class="session-menu-title">{{morePane === 'rename' ? ui['重命名会话'] : morePane === 'stats' ? ui['会话状态'] : morePane === 'files' ? ui['工作区文件'] : ui['更多']}}</text>
         </view>
         <view class="session-menu-close" bindtap="closeMoreActions" role="button"><view class="sheet-close-x"></view></view>
       </view>
-      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="session-menu-scroll">
+
+      <scroll-view wx:if="{{morePane === 'menu'}}" scroll-y enhanced show-scrollbar="{{false}}" class="session-menu-scroll">
         <view class="session-menu-group">
           <view class="session-menu-row" bindtap="selectMoreAction" data-action="rename" hover-class="session-menu-pressed" role="button">
             <image class="session-menu-icon" src="/assets/icons/pencil-line-gray.png" mode="aspectFit"/><text class="session-menu-label">{{ui['重命名会话']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
@@ -932,6 +938,50 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           </view>
         </view>
       </scroll-view>
+
+      <!-- 重命名：在当前弹层内展开输入与保存，不再另起弹窗 -->
+      <view wx:elif="{{morePane === 'rename'}}" class="session-menu-pane">
+        <view class="session-sheet-field">
+          <input class="session-sheet-input" value="{{renameValue}}" focus="{{morePane === 'rename'}}" bindinput="onRenameInput" bindfocus="onRenameFocus" bindblur="onRenameBlur" bindkeyboardheightchange="onRenameKeyboard" maxlength="60" cursor-spacing="24" adjust-position="{{false}}" placeholder="{{ui['重命名会话']}}" placeholder-class="session-sheet-placeholder" confirm-type="done" bindconfirm="confirmRename"/>
+        </view>
+        <view class="session-sheet-actions">
+          <view class="session-sheet-ghost" bindtap="backToMoreMenu" role="button">{{ui['取消']}}</view>
+          <view class="session-sheet-primary" bindtap="confirmRename" role="button">{{ui['保存']}}</view>
+        </view>
+      </view>
+
+      <!-- 查看统计：在当前弹层内展开统计数据，不再另起弹窗 -->
+      <scroll-view wx:elif="{{morePane === 'stats'}}" scroll-y enhanced show-scrollbar="{{false}}" class="session-menu-scroll session-menu-stats">
+        <view wx:for="{{statsSheet}}" wx:key="title" class="session-stat-group">
+          <view class="session-stat-group-title">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</view>
+          <view wx:for="{{item.rows}}" wx:for-item="row" wx:key="index" class="session-stat-row">
+            <text class="session-stat-label">{{row[0]}}</text>
+            <text class="session-stat-value">{{row[1]}}</text>
+          </view>
+        </view>
+        <view class="session-sheet-note">{{ui['会话状态']}}</view>
+      </scroll-view>
+
+      <!-- 工作区文件：也在当前弹层内浏览，不再另起底部弹窗 -->
+      <view wx:elif="{{morePane === 'files'}}" class="session-menu-pane session-menu-files">
+        <view class="more-files-toolbar">
+          <view wx:if="{{!filesIsRoot}}" class="more-files-up" bindtap="sessionFilesGoUp" role="button">{{ui['‹ 上一级']}}</view>
+          <view wx:else class="more-files-up disabled"></view>
+        </view>
+        <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="more-files-scroll session-menu-files-scroll">
+          <view wx:if="{{filesLoading && !filesEntries.length}}" class="more-files-center">{{ui['正在读取工作区文件…']}}</view>
+          <view wx:elif="{{filesError}}" class="more-files-center">{{ui[filesError] !== undefined ? ui[filesError] : filesError}}</view>
+          <view wx:elif="{{!filesEntries.length}}" class="more-files-center">{{ui['此目录为空']}}</view>
+          <block wx:else>
+            <view wx:for="{{filesEntries}}" wx:key="key" class="more-files-row" data-index="{{index}}" bindtap="openSessionFile" hover-class="session-menu-pressed" role="button">
+              <image class="more-files-icon" src="/assets/icons/{{item.iconFile}}" mode="aspectFit"/>
+              <text class="more-files-name">{{item.name}}</text>
+              <text wx:if="{{item.kind === 'dir'}}" class="more-files-chev">›</text>
+            </view>
+          </block>
+        </scroll-view>
+        <view class="more-files-path">{{filesPathLabel}}</view>
+      </view>
     </view>
   </view>
 
@@ -958,28 +1008,6 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           <text wx:if="{{item.current}}" class="session-switch-current">{{ui['当前会话']}}</text>
         </view>
         <view wx:if="{{!sessionSwitcherItems.length}}" class="session-switch-empty">{{ui['没有匹配的会话']}}</view>
-      </scroll-view>
-    </view>
-  </view>
-
-  <view wx:if="{{statsSheetOpen}}" class="sheet-mask" catchtap="closeStatsSheet" catchtouchmove="noop">
-    <view class="sheet session-card-sheet stats-card-sheet" style="height: {{statsSheetExpanded ? 90 : 80}}vh;" catchtap="noop" role="dialog" aria-label="{{ui['会话状态']}}">
-      <view class="sheet-grabber-zone" catchtouchstart="statsGrabStart" catchtouchmove="statsGrabMove" catchtouchend="statsGrabEnd">
-        <view class="sheet-handle"></view>
-      </view>
-      <view class="session-sheet-head">
-        <text class="session-sheet-title">{{ui['会话状态']}}</text>
-        <view class="session-sheet-close" bindtap="closeStatsSheet" role="button" aria-label="{{ui['关闭']}}"><view class="sheet-close-x"></view></view>
-      </view>
-      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="session-sheet-scroll">
-        <view wx:for="{{statsSheet}}" wx:key="title" class="session-stat-group">
-          <view class="session-stat-group-title">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</view>
-          <view wx:for="{{item.rows}}" wx:for-item="row" wx:key="index" class="session-stat-row">
-            <text class="session-stat-label">{{row[0]}}</text>
-            <text class="session-stat-value">{{row[1]}}</text>
-          </view>
-        </view>
-        <view class="session-sheet-note">{{ui['会话状态']}}</view>
       </scroll-view>
     </view>
   </view>
@@ -1016,26 +1044,6 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
         </block>
       </scroll-view>
       <view class="more-files-path">{{filesPathLabel}}</view>
-    </view>
-  </view>
-
-  <!-- 重命名会话弹窗 -->
-  <view wx:if="{{renameSheetOpen}}" class="sheet-mask" catchtap="closeRenameSheet" catchtouchmove="noop">
-    <view class="sheet session-card-sheet rename-sheet" style="transform: translateY(-{{renameKeyboard}}px);" catchtap="noop" role="dialog" aria-label="{{ui['重命名会话']}}">
-      <view class="sheet-handle"></view>
-      <view class="session-sheet-head">
-        <text class="session-sheet-title">{{ui['重命名会话']}}</text>
-        <view class="session-sheet-close" bindtap="closeRenameSheet" role="button" aria-label="{{ui['关闭']}}"><view class="sheet-close-x"></view></view>
-      </view>
-      <view class="session-sheet-scroll">
-        <view class="session-sheet-field">
-          <input class="session-sheet-input" value="{{renameValue}}" bindinput="onRenameInput" bindfocus="onRenameFocus" bindblur="onRenameBlur" maxlength="60" cursor-spacing="24" adjust-position="{{false}}" placeholder="{{ui['重命名会话']}}" placeholder-class="session-sheet-placeholder" confirm-type="done" bindconfirm="confirmRename"/>
-        </view>
-      </view>
-      <view class="session-sheet-actions">
-        <view class="session-sheet-ghost" bindtap="closeRenameSheet" role="button">{{ui['取消']}}</view>
-        <view class="session-sheet-primary" bindtap="confirmRename" role="button">{{ui['保存']}}</view>
-      </view>
     </view>
   </view>
 

@@ -41,21 +41,27 @@ test('trajectory tab clears keyboard/popovers but preserves draft and never meas
   page.updateDockInset = () => calls.push(['measure']); page.switchTab(event('tab', 'conversation'));
   assert.ok(calls.some(call => call[0] === 'measure')); assert.equal(page.data.draft, 'unsent');
 });
-test('more menu works on trajectory, opens standalone stats and dispatches existing actions', () => {
+test('more menu expands rename, stats and files inside the same sheet and dispatches existing actions', () => {
   const { page, calls, store } = fixture(); page.data.tab = 'trajectory';
-  page.moreActions(); assert.equal(page.data.moreSheetOpen, true);
-  page.selectMoreAction(event('action', 'stats')); assert.equal(page.data.statsSheetOpen, true); assert.equal(page.data.moreSheetOpen, false);
-  // 工作区文件：改为页内底部弹窗
-  page.moreActions(); page.selectMoreAction(event('action', 'files'));
-  assert.equal(page.data.filesSheetOpen, true);
-  assert.ok(!calls.some(call => call[0] === 'navigate'), '不应再跳转文件页面');
-  page.closeFilesSheet();
-  // 重命名：页内输入弹窗
-  page.moreActions(); page.selectMoreAction(event('action', 'rename'));
-  assert.equal(page.data.renameSheetOpen, true);
+  page.moreActions(); assert.equal(page.data.moreSheetOpen, true); assert.equal(page.data.morePane, 'menu');
+  // 查看统计：在当前弹层内展开，不再另开底部弹窗
+  page.selectMoreAction(event('action', 'stats'));
+  assert.equal(page.data.moreSheetOpen, true); assert.equal(page.data.morePane, 'stats');
+  assert.equal(page.data.statsSheet.length, 3);
+  page.backToMoreMenu(); assert.equal(page.data.morePane, 'menu');
+  // 重命名：同样在当前弹层内展开
+  page.selectMoreAction(event('action', 'rename'));
+  assert.equal(page.data.moreSheetOpen, true); assert.equal(page.data.morePane, 'rename');
   page.onRenameInput({ detail: { value: ' New name ' } });
   page.confirmRename();
+  assert.equal(page.data.moreSheetOpen, false); assert.equal(page.data.morePane, 'menu');
   assert.equal(page.data.navTitle, 'New name'); assert.deepEqual(calls.at(-1), ['rename', 's1', 'New name']);
+  // 工作区文件：也在「更多」弹层内展开
+  page.moreActions(); page.selectMoreAction(event('action', 'files'));
+  assert.equal(page.data.moreSheetOpen, true); assert.equal(page.data.morePane, 'files');
+  assert.equal(page.data.filesSheetOpen, false, '不再另开文件底部弹窗');
+  assert.ok(!calls.some(call => call[0] === 'navigateTo'), '不应再跳转文件页面');
+  page.backToMoreMenu(); assert.equal(page.data.morePane, 'menu');
   // 取消回合：确认弹窗
   page.moreActions(); store.sessionState.running = false; page.selectMoreAction(event('action', 'cancel'));
   assert.equal(page.data.moreSheetOpen, true); assert.ok(!calls.some(call => call[0] === 'cancel'));
@@ -68,6 +74,30 @@ test('more menu works on trajectory, opens standalone stats and dispatches exist
   assert.ok(!calls.some(call => call[0] === 'archive'));
   page.moreActions(); page.selectMoreAction(event('action', 'archive')); page.runConfirmSheet();
   assert.ok(calls.some(call => call[0] === 'archive'));
+});
+
+test('more sheet handle expands on tap or upward drag and collapses again', () => {
+  const { page } = fixture();
+  page.moreActions(); assert.equal(page.data.moreSheetExpanded, false);
+  page.moreSheetGrabStart({ touches: [{ clientY: 120 }] });
+  page.moreSheetGrabEnd();
+  assert.equal(page.data.moreSheetExpanded, true, 'tap on the handle floats the sheet up');
+  page.moreSheetGrabStart({ touches: [{ clientY: 120 }] });
+  page.moreSheetGrabEnd();
+  assert.equal(page.data.moreSheetExpanded, false, 'tapping again restores the compact sheet');
+  page.moreSheetGrabStart({ touches: [{ clientY: 160 }] });
+  page.moreSheetGrabMove({ touches: [{ clientY: 40 }] });
+  page.moreSheetGrabEnd();
+  assert.equal(page.data.moreSheetExpanded, true, 'dragging the handle up expands it');
+  page.moreSheetGrabStart({ touches: [{ clientY: 40 }] });
+  page.moreSheetGrabMove({ touches: [{ clientY: 160 }] });
+  page.moreSheetGrabEnd();
+  assert.equal(page.data.moreSheetExpanded, false, 'dragging down collapses it');
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  assert.ok(xml.includes('catchtouchstart="moreSheetGrabStart"'));
+  assert.match(xml, /class="sheet session-menu \{\{moreSheetExpanded \? 'expanded' : ''\}\}"/);
+  const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
+  assert.match(css, /\.sheet\.session-menu\.expanded\s*\{[^}]*height: 86vh;/);
 });
 
 test('session quick switch filters recent sessions and switches in place', () => {
@@ -94,6 +124,7 @@ test('quick switch controls use a narrow bottom sheet and a wide right-side popo
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
   assert.ok(xml.includes('bindtap="openSessionSwitcher"'));
+  assert.match(xml, /wx:if="\{\{rows\.length\}\}" class="session-switch-trigger/, 'the quick switcher is hidden until the conversation has messages');
   assert.ok(xml.includes('class="session-switch-mask'));
   assert.ok(xml.includes('class="session-switch-handle-zone"'), 'the mobile sheet keeps its visible drag handle');
   assert.ok(xml.includes('bindtap="switchSessionFromSwitcher"'));
@@ -137,17 +168,25 @@ test('quick switch sheet expands to 90 percent by tapping or dragging its handle
   assert.match(css, /\.session-switch-state\.current\s*\{[^}]*background: #31b77a;/);
 });
 module.exports = { fixture, event };
-test('more sheet omits the session subtitle and uses larger theme-aware red close text', () => {
+test('more sheet omits the session subtitle and hosts rename/stats/files panes in place', () => {
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
-  const menu = xml.slice(xml.indexOf('class="sheet session-menu"'), xml.indexOf('<view wx:if="{{statsSheetOpen}}"'));
+  const menu = xml.slice(xml.indexOf('class="sheet session-menu '), xml.indexOf('class="session-switch-mask'));
   assert.ok(menu.includes("ui['更多']")); assert.ok(menu.includes('class="sheet-close-x"'));
   assert.ok(!menu.includes('navTitle'));
+  assert.ok(menu.includes("morePane === 'rename'"), '重命名在当前弹层内展开');
+  assert.ok(menu.includes("morePane === 'stats'"), '统计在当前弹层内展开');
+  assert.ok(menu.includes("morePane === 'files'"), '工作区文件在当前弹层内展开');
+  assert.ok(!xml.includes('statsSheetOpen'), '统计不再单独开弹窗');
+  assert.ok(!xml.includes('renameSheetOpen'), '重命名不再单独开弹窗');
   assert.match(xml, /class="trace-native-row[^"]*" bindtap="openTraceDetail"/);
   assert.ok(xml.includes('catchtap="openTraceRequest"'), 'request dot must not also open the parent detail');
-  // 关闭按钮统一为圆形 × 图标并右对齐
+  // 返回按钮是图标 + 圆形描边，不带填充底；关闭按钮统一为圆形 × 图标并右对齐
+  assert.match(css, /\.session-menu-back\s*\{[^}]*background: transparent;[^}]*border: 1rpx solid var\(--border\);/);
   assert.match(css, /\.session-menu-close\s*\{[^}]*justify-content: flex-end;/);
   assert.ok(xml.includes('class="session-menu-close" bindtap="closeMoreActions" role="button"><view class="sheet-close-x">'));
+  // 工作区文件底部弹窗保留给输入区「引用工作区文件」入口
+  assert.ok(xml.includes('wx:if="{{filesSheetOpen}}"'));
 });
 
 test('detail cache parses only once for repeated clicks and no Markdown for raw tab', () => {

@@ -375,17 +375,19 @@
       <view class="manual-sec-title">{{ui['手动输入配对信息']}}</view>
       <view class="manual-sec-desc">{{ui['粘贴 Harness WebUI 提供的 Base64URL 配对字符串。长期设备 token 只会安全保存在本机。']}}</view>
       <textarea
-        class="manual-input text-mono"
+        class="manual-input text-mono {{manualInputFocused ? 'focused' : ''}}"
         value="{{pairingText}}"
         bindinput="onPairingTextInput"
+        bindfocus="onManualInputFocus"
+        bindblur="onManualInputBlur"
         placeholder="{{ui['粘贴 Base64URL 配对字符串或完整配对信息']}}"
         placeholder-class="manual-input-ph"
         maxlength="-1"
       />
       <view wx:if="{{pairingResult}}" class="manual-result {{pairingResultClass}}">{{ui[pairingResult] !== undefined ? ui[pairingResult] : pairingResult}}</view>
-      <view class="manual-connect {{pairingText && !pairingConnecting ? '' : 'disabled'}}" bindtap="connectManualPairing">
+      <view class="manual-connect {{pairingText && !pairingConnecting ? '' : 'disabled'}}" hover-class="manual-connect-press" bindtap="connectManualPairing">
         <view wx:if="{{pairingConnecting}}" class="dir-spinner light small-spin"></view>
-        <image wx:else class="manual-connect-ic" src="/assets/icons/ic-link-white.png"/>
+        <image wx:else class="manual-connect-ic" src="/assets/icons/node-router-white.svg" mode="aspectFit"/>
         <text>{{pairingConnecting ? ui['连接中…'] : ui['连接']}}</text>
       </view>
     </scroll-view>

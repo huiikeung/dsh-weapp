@@ -1335,11 +1335,16 @@ to{transform:translateX(340%)}
 /* ===== 图标资产尺寸（iOS 对齐） ===== */
 .session-menu-mask { background: rgba(0, 0, 0, .42); z-index: 1000; visibility: hidden; pointer-events: none; opacity: 0; transition: opacity 160ms ease-out, visibility 0s 160ms; }
 .session-menu-mask.is-open { visibility: visible; pointer-events: auto; opacity: 1; transition-delay: 0s; }
-.sheet.session-menu { padding: 10rpx 40rpx calc(24rpx + env(safe-area-inset-bottom)); border-radius: 32rpx 32rpx 0 0; color: var(--text); transform: translateY(32rpx); transition: transform 160ms ease-out; }
+.sheet.session-menu { padding: 10rpx 40rpx calc(24rpx + env(safe-area-inset-bottom)); border-radius: 32rpx 32rpx 0 0; color: var(--text); transform: translateY(32rpx); transition: transform 160ms ease-out, height 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
+.sheet.session-menu.expanded { height: 86vh; max-height: 86vh; }
 .session-menu-mask.is-open .session-menu { transform: translateY(0); }
+.session-menu-grabber-zone { padding: 10rpx 0 6rpx; margin: -10rpx 0 0; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .session-menu .sheet-handle { height: 8rpx; margin: 10rpx auto 12rpx; background: var(--border-strong); opacity: 1; flex-shrink: 0; }
 .session-menu-head { display: flex; align-items: center; gap: 24rpx; margin-bottom: 24rpx; flex-shrink: 0; }
-.session-menu-heading { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.session-menu-heading { display: flex; flex-direction: row; align-items: center; gap: 12rpx; flex: 1; min-width: 0; }
+.session-menu-back { flex: none; display: flex; align-items: center; justify-content: center; width: 52rpx; height: 52rpx; margin-left: -10rpx; border-radius: 50%; background: transparent; border: 1rpx solid var(--border); box-sizing: border-box; }
+.session-menu-back-pressed { background: var(--fill); opacity: .85; }
+.session-menu-back-ic { width: 24rpx; height: 24rpx; transform: rotate(180deg); opacity: .75; }
 .session-menu-title { font-size: 34rpx; font-weight: 650; color: var(--text); }
 .session-menu-close { flex: none; margin-left: auto; display: flex; align-items: center; justify-content: flex-end; width: 64rpx; height: 64rpx; padding: 0; flex-shrink: 0; }
 .session-menu-scroll { min-height: 0; max-height: 55vh; }
@@ -1352,7 +1357,20 @@ to{transform:translateX(340%)}
 .session-menu-chevron { width: 24rpx; height: 24rpx; opacity: .55; flex-shrink: 0; }
 .session-menu-pressed { background: var(--surface); }
 .session-menu-row.disabled { opacity: .4; }
-@media (prefers-reduced-motion: reduce) { .session-menu-mask, .sheet.session-menu { transition: none; } }
+/* 更多弹层内的二级页面（重命名 / 查看统计 / 工作区文件）：在当前弹层内切换，不再另开底部弹窗 */
+.session-menu-pane { padding: 8rpx 0 4rpx; animation: session-menu-pane-in 180ms ease-out; }
+.session-menu-pane .session-sheet-input { height: 88rpx; }
+.session-menu-stats { max-height: 60vh; }
+.sheet.session-menu.expanded .session-menu-scroll { max-height: none; }
+.sheet.session-menu.expanded .session-menu-scroll.session-menu-stats { flex: 1 1 auto; min-height: 0; }
+.session-menu-files { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; padding: 0; }
+.session-menu-files-scroll { flex: 1 1 auto; min-height: 0; max-height: 46vh; }
+.sheet.session-menu.expanded .session-menu-files-scroll { max-height: none; }
+@keyframes session-menu-pane-in {
+  from { opacity: 0; transform: translateY(12rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) { .session-menu-mask, .sheet.session-menu, .session-menu-pane { transition: none; animation: none; } }
 
 .nav-ic {
   width: 20rpx;      /* 三个点图标，进一步缩小 */
@@ -4208,21 +4226,6 @@ to{transform:translateX(340%)}
   color: var(--text);
   font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   overflow-wrap: anywhere;
-}
-
-/* 重命名弹窗：贴近键盘上方，便于输入 */
-.rename-sheet {
-  transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1);
-}
-
-/* 会话状态弹窗：默认 80% 高度 */
-.stats-card-sheet {
-  height: 80vh;
-  max-height: 80vh;
-}
-
-.stats-card-sheet .session-sheet-scroll {
-  max-height: none;
 }
 
 /* ---------- 执行中：方形格子闪动加载图标 ---------- */

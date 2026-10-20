@@ -112,9 +112,9 @@ Page({
     voiceTyping: false, composerFocus: false, voicePendingText: '',
     convBottomInset: 520,   // 首帧安全默认值：真实高度由 dock 测量校准
     statsSheet: [],
-    statsSheetOpen: false,
-    statsSheetExpanded: false,
     moreSheetOpen: false,
+    morePane: 'menu',   // menu | rename | stats | files：都在同一个「更多」弹层内切换
+    moreSheetExpanded: false,
     filesSheetOpen: false,
     filesEntries: [],
     filesLoading: false,
@@ -122,7 +122,6 @@ Page({
     filesPathLabel: '',
     filesIsRoot: true,
     filesSheetExpanded: false,
-    renameSheetOpen: false,
     renameValue: '',
     renameKeyboard: 0,
     confirmSheet: '',
@@ -1138,7 +1137,8 @@ Page({
       collaborationPreview: null,
       collaborationBusy: false,
       statsPopOpen: false,
-      statsSheetOpen: false,
+      morePane: 'menu',
+      renameKeyboard: 0,
       modelSheetOpen: false,
       effortSheetOpen: false,
       permissionSheet: [],
@@ -1237,7 +1237,7 @@ Page({
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
     this._collaborationRequest = null; this._collaborationRefresh = null;
-    this.setData({ moreSheetOpen: true, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, statsPopOpen: false, statsSheetOpen: false,
+    this.setData({ moreSheetOpen: true, morePane: 'menu', moreSheetExpanded: false, renameKeyboard: 0, fileReferenceMode: false, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, statsPopOpen: false,
       showContextSheet: false, commandMenu: null, traceDetail: null,
       modelSheetOpen: false, effortSheetOpen: false, permissionSheet: [], modeSheet: [],
       attachSheetOpen: false, kbHeight: 0, composerFocused: false, ...this.layoutPatch({ kbHeight: 0 }) });
@@ -1247,8 +1247,42 @@ Page({
 
   closeMoreActions() {
     this.prioritizeInteraction();
-    this.setData({ moreSheetOpen: false });
+    this._renameDraft = null;
+    this._filesRequest = null;
+    this.setData({ moreSheetOpen: false, morePane: 'menu', moreSheetExpanded: false, renameKeyboard: 0, fileReferenceMode: false });
     if (this.data.tab === 'conversation') this.startScrollPolling();
+  },
+
+  // 从重命名/统计/文件子页返回「更多」列表，不关闭整个弹层。
+  backToMoreMenu() {
+    this._renameDraft = null;
+    this._filesRequest = null;
+    this.setData({ morePane: 'menu', renameKeyboard: 0, fileReferenceMode: false });
+    if (typeof wx.hideKeyboard === 'function') wx.hideKeyboard();
+  },
+
+  /* 拖动条：点击或上拖把「更多」弹层抬高到 86vh，下滑/再点收回 */
+  moreSheetGrabStart(e) {
+    this._moreGrab = { y: e.touches[0].clientY, moved: false, base: this.data.moreSheetExpanded, applied: null };
+  },
+
+  moreSheetGrabMove(e) {
+    const g = this._moreGrab;
+    if (!g) return;
+    const dy = e.touches[0].clientY - g.y;
+    if (Math.abs(dy) < 20) return;
+    const expand = dy < 0;
+    if (g.applied !== expand) {
+      g.applied = expand;
+      g.moved = true;
+      this.setData({ moreSheetExpanded: expand });
+    }
+  },
+
+  moreSheetGrabEnd() {
+    const g = this._moreGrab;
+    this._moreGrab = null;
+    if (g && !g.moved) this.setData({ moreSheetExpanded: !this.data.moreSheetExpanded });
   },
 
   selectMoreAction(e) {
@@ -1256,21 +1290,33 @@ Page({
     const action = e.currentTarget.dataset.action;
     const s = store.sessionState;
     if (action === 'cancel' && !s.running) return;
-    this.closeMoreActions();
-    if (action === 'stats') { this.openFullStats(); return; }
-    if (action === 'files') { this.openFilesSheet(); return; }
-    if (!s.sessionId) return;
+    // 统计 / 重命名 / 工作区文件都在当前「更多」弹层内展开，不再叠加新的底部弹窗。
+    if (action === 'stats') { this.openStatsPane(); return; }
+    if (action === 'files') { this.openFilesPane(); return; }
     if (action === 'rename') {
+      if (!s.sessionId) return;
       this._renameDraft = this.data.navTitle || '';
-      this.setData({ renameSheetOpen: true, renameValue: this.data.navTitle || '', renameKeyboard: 0 });
-    } else if (action === 'cancel') {
+      this.setData({ morePane: 'rename', renameValue: this.data.navTitle || '', renameKeyboard: 0 });
+      return;
+    }
+    this.closeMoreActions();
+    if (!s.sessionId) return;
+    if (action === 'cancel') {
       this.setData({ confirmSheet: 'cancel' });
     } else if (action === 'archive') {
       this.setData({ confirmSheet: 'archive' });
     }
   },
 
-  // ---------- 更多菜单里的底部弹窗 ----------
+  // ---------- 更多菜单 / 工作区文件 ----------
+
+  // 工作区文件作为「更多」弹层内的一个页面打开（不再另起底部弹窗）。
+  openFilesPane(referenceMode = false) {
+    this._filesRel = null;
+    this._filesRequest = null;
+    this.setData({ morePane: 'files', fileReferenceMode: referenceMode === true, filesEntries: [], filesLoading: true, filesError: '', filesPathLabel: '' });
+    this.loadSessionFiles(null);
+  },
 
   openFilesSheet(referenceMode = false) {
     this._filesRel = null;
@@ -1322,7 +1368,9 @@ Page({
     }
     this._filesRel = relPath || null;
     const request = this._filesRequest = {}, context = this.composerContextKey();
-    const current = () => !this._unloaded && this._filesRequest === request && this.data.filesSheetOpen && this.composerContextKey() === context;
+    const current = () => !this._unloaded && this._filesRequest === request
+      && (this.data.filesSheetOpen || (this.data.moreSheetOpen && this.data.morePane === 'files'))
+      && this.composerContextKey() === context;
     this.setData({ filesLoading: true, filesError: '' });
     store.client.requestFileList(sessionId, relPath)
       .then((frame) => {
@@ -1386,14 +1434,14 @@ Page({
     this.loadSessionFiles(idx > 0 ? rel.substring(0, idx) : null);
   },
 
-  closeRenameSheet() {
-    this._renameDraft = null;
-    this.setData({ renameSheetOpen: false, renameKeyboard: 0 });
-  },
-
   onRenameInput(e) {
     // 只记录草稿，不 setData：受控 input 在长按删除时会出现光标/内容抖动
     this._renameDraft = e.detail && e.detail.value != null ? e.detail.value : '';
+  },
+
+  onRenameKeyboard(e) {
+    const height = Number(e && e.detail && e.detail.height) || 0;
+    if (height !== this.data.renameKeyboard) this.setData({ renameKeyboard: height });
   },
 
   onRenameFocus(e) {
@@ -1417,8 +1465,7 @@ Page({
     // 先本地更新标题，避免等待 Host 回帧导致顶部标题不刷新
     if (typeof store.setSessionTitle === 'function') store.setSessionTitle(s.sessionId, title);
     if (store.sessionState.sessionId === s.sessionId) this.setData({ navTitle: title });
-    this._renameDraft = null;
-    this.setData({ renameSheetOpen: false, renameKeyboard: 0 });
+    this.closeMoreActions();
   },
 
   closeConfirmSheet() {
@@ -1520,32 +1567,12 @@ Page({
     this.setData({ statsPopOpen: false });
   },
 
-  /** 紧凑浮窗 → 完整会话状态 sheet */
-  statsGrabStart(e) {
-    this._statsGrab = { y: e.touches[0].clientY, moved: false, applied: null };
+  /** 在「更多」弹层内展开会话统计（执行 / Token 用量 / 上下文） */
+  openStatsPane() {
+    this.setData({ statsPopOpen: false, statsSheet: this.buildStatsGroups(), morePane: 'stats' });
   },
 
-  statsGrabMove(e) {
-    const g = this._statsGrab;
-    if (!g) return;
-    const dy = e.touches[0].clientY - g.y;
-    if (Math.abs(dy) < 20) return;
-    const expand = dy < 0;
-    if (g.applied !== expand) {
-      g.applied = expand;
-      g.moved = true;
-      this.setData({ statsSheetExpanded: expand });
-    }
-  },
-
-  statsGrabEnd() {
-    const g = this._statsGrab;
-    this._statsGrab = null;
-    if (g && !g.moved) this.setData({ statsSheetExpanded: !this.data.statsSheetExpanded });
-  },
-
-  openFullStats() {
-    // 会话状态 sheet（对齐 iOS 统计 popover/sheet：执行 / Token 用量 / 上下文）
+  buildStatsGroups() {
     const bundle = store.sessionState.stats || {};
     const st = bundle.stats || {};
     const tu = bundle.tokenUsage || {};
@@ -1571,7 +1598,7 @@ Page({
     const contextWindow = pressure.contextWindow != null
       ? pressure.contextWindow
       : (bundle.stats && bundle.stats.contextWindow != null ? bundle.stats.contextWindow : null);
-    const groups = [
+    return [
       {
         title: uiText('执行'),
         rows: [
@@ -1599,11 +1626,6 @@ Page({
         ]
       }
     ];
-    this.setData({ statsPopOpen: false, statsSheet: groups, statsSheetOpen: true });
-  },
-
-  closeStatsSheet() {
-    this.setData({ statsSheetOpen: false });
   },
 
   // ---------- 对话交互 ----------
@@ -2506,7 +2528,7 @@ Page({
   openCollaboration() {
     this.cancelVoice(); this.prioritizeInteraction();
     this._collaborationRequest = null; this._collaborationRefresh = null;
-    this.setData({collaborationOpen:true,collaborationExpanded:false,collaborationPreview:null,collaborationBusy:false,moreSheetOpen:false,statsPopOpen:false,statsSheetOpen:false,
+    this.setData({collaborationOpen:true,collaborationExpanded:false,collaborationPreview:null,collaborationBusy:false,moreSheetOpen:false,statsPopOpen:false,morePane:'menu',renameKeyboard:0,
       showContextSheet:false,traceDetail:null,attachSheetOpen:false,modelSheetOpen:false,effortSheetOpen:false,permissionSheet:[],modeSheet:[],
       kbHeight:0,composerFocused:false,composerFocus:false,...this.layoutPatch({kbHeight:0})});
     this.setData(this.collaborationPatch()); this.stopScrollPolling();
