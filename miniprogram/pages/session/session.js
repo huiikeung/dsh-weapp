@@ -2030,13 +2030,9 @@ Page({
 
   stopAgent() {
     const s = store.sessionState;
-    wx.showModal({
-      title: uiText('停止当前回合'),
-      content: uiText('将取消 Agent 正在执行的回合。'),
-      success(res) {
-        if (res.confirm) store.client.cancelSession(s.sessionId);
-      }
-    });
+    if (!s.sessionId || !s.running) return;
+    // 与「更多菜单 → 取消当前回合」共用底部确认弹窗，避免系统弹窗样式割裂
+    this.setData({ confirmSheet: 'cancel', confirmSheetFromStop: true });
   },
 
   // ---------- 选择器 ----------

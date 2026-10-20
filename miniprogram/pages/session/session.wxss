@@ -4181,13 +4181,55 @@
 .rename-actions { display: flex; }
 .rename-save { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 88rpx; border-radius: 999rpx; background: var(--ocean); color: #FFFFFF; font-size: 29rpx; font-weight: 600; }
 
-.confirm-title { font-size: 34rpx; font-weight: 650; color: var(--text); margin: 8rpx 0 12rpx; }
-.confirm-body { font-size: 27rpx; line-height: 1.6; color: var(--text-2); margin-bottom: 28rpx; }
+.confirm-sheet {
+  padding-top: 24rpx;
+}
+
+.confirm-title {
+  font-size: 33rpx;
+  font-weight: 650;
+  color: var(--text);
+  text-align: center;
+  margin: 16rpx 0 10rpx;
+}
+
+.confirm-body {
+  font-size: 27rpx;
+  line-height: 1.65;
+  color: var(--text-2);
+  text-align: center;
+  margin: 0 auto 32rpx;
+  max-width: 520rpx;
+}
+
 .confirm-actions { display: flex; gap: 20rpx; }
-.confirm-cancel, .confirm-ok { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 88rpx; border-radius: 999rpx; font-size: 29rpx; font-weight: 600; }
-.confirm-cancel { background: var(--fill); color: var(--text); }
-.confirm-ok { background: var(--ocean); color: #FFFFFF; }
-.confirm-ok.danger { background: #E5484D; }
+
+.confirm-cancel,
+.confirm-ok {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 92rpx;
+  border-radius: 999rpx;
+  font-size: 29rpx;
+  font-weight: 600;
+}
+
+.confirm-cancel {
+  background: var(--fill);
+  color: var(--text);
+}
+
+.confirm-ok {
+  background: linear-gradient(135deg, #4C8BF5, #2E6BE6);
+  color: #FFFFFF;
+}
+
+.confirm-ok.danger {
+  background: linear-gradient(135deg, #F0565B, #D93A41);
+  box-shadow: 0 10rpx 24rpx rgba(217, 58, 65, 0.28);
+}
 
 /* ---------- 会话设置类弹窗（统计 / 重命名等统一设计） ---------- */
 .session-card-sheet {
