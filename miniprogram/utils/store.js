@@ -2495,6 +2495,27 @@ function createStore() {
       stopHostProbes();
     },
 
+    /** 本地更新会话标题（重命名后立即生效，无需等待 Host 回帧）。 */
+    setSessionTitle: function (sessionId, title) {
+      const id = String(sessionId || '');
+      const next = String(title == null ? '' : title).trim();
+      if (!id || !next) return false;
+      let changed = false;
+      if (sessionState.sessionId === id && sessionState.title !== next) {
+        sessionState.title = next;
+        changed = true;
+      }
+      const list = state.sessions || [];
+      for (let i = 0; i < list.length; i += 1) {
+        if (list[i] && list[i].sessionId === id) {
+          list[i] = Object.assign({}, list[i], { title: next });
+          changed = true;
+        }
+      }
+      if (changed) emit();
+      return changed;
+    },
+
     /** 打开会话：重置会话投影并订阅。 */
     openSession: function (sessionId, title, agentPreset) {
       clearLiveAttempt();

@@ -114,7 +114,11 @@
       <view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}}" id="{{item.key}}">
         <view class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
           <view class="command-icon-slot {{folds[item.key] ? 'disclosed' : ''}}" aria-hidden="true">
-            <image wx:if="{{!item.completed}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
+            <view wx:if="{{item.running && !item.completed}}" class="proc-loader">
+              <view class="proc-cell c1"></view><view class="proc-cell c2"></view>
+              <view class="proc-cell c3"></view><view class="proc-cell c4"></view>
+            </view>
+            <image wx:elif="{{!item.completed}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
             <image wx:if="{{item.completed || item.expandable}}" class="command-chevron {{item.completed ? 'completed-chevron' : ''}} {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
           </view>
           <text class="process-title {{item.failed ? 'failed' : ''}}">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</text>
@@ -812,7 +816,15 @@
 
   <view wx:if="{{collaborationOpen}}" class="sheet-mask collab-mask" catchtap="closeCollaboration" catchtouchmove="noop">
     <view class="sheet collab-sheet {{collaborationExpanded ? 'is-expanded' : ''}}" catchtap="noop" role="dialog" aria-label="{{ui['协作详情']}}">
-      <view class="collab-resize-handle" catchtap="toggleCollaborationExpanded" role="button" aria-expanded="{{collaborationExpanded}}" aria-label="{{collaborationExpanded ? ui['收起协作面板'] : ui['展开协作面板至九成屏幕']}}" hover-class="press-dim" hover-start-time="0" hover-stay-time="60">
+      <view
+        class="collab-resize-handle"
+        catchtouchstart="collabGrabStart"
+        catchtouchmove="collabGrabMove"
+        catchtouchend="collabGrabEnd"
+        role="button"
+        aria-expanded="{{collaborationExpanded}}"
+        aria-label="{{collaborationExpanded ? ui['收起协作面板'] : ui['展开协作面板至九成屏幕']}}"
+      >
         <view class="sheet-handle" aria-hidden="true"/>
       </view>
       <view class="collab-heading">
@@ -876,7 +888,7 @@
         <view class="session-menu-heading">
           <text class="session-menu-title">{{ui['更多']}}</text>
         </view>
-        <view class="session-menu-close" bindtap="closeMoreActions" hover-class="press-dim" role="button">{{ui['关闭']}}</view>
+        <view class="session-menu-close" bindtap="closeMoreActions" role="button"><view class="sheet-close-x"></view></view>
       </view>
       <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="session-menu-scroll">
         <view class="session-menu-group">
@@ -902,18 +914,93 @@
     </view>
   </view>
 
-  <view wx:if="{{statsSheetOpen}}" class="sheet-mask" bindtap="closeStatsSheet">
-    <view class="sheet stats-sheet" catchtap="noop">
+  <view wx:if="{{statsSheetOpen}}" class="sheet-mask" catchtap="closeStatsSheet" catchtouchmove="noop">
+    <view class="sheet session-card-sheet stats-card-sheet" style="height: {{statsSheetExpanded ? 90 : 80}}vh;" catchtap="noop" role="dialog" aria-label="{{ui['会话状态']}}">
+      <view class="sheet-grabber-zone" catchtouchstart="statsGrabStart" catchtouchmove="statsGrabMove" catchtouchend="statsGrabEnd">
+        <view class="sheet-handle"></view>
+      </view>
+      <view class="session-sheet-head">
+        <text class="session-sheet-title">{{ui['会话状态']}}</text>
+        <view class="session-sheet-close" bindtap="closeStatsSheet" role="button" aria-label="{{ui['关闭']}}"><view class="sheet-close-x"></view></view>
+      </view>
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="session-sheet-scroll">
+        <view wx:for="{{statsSheet}}" wx:key="title" class="session-stat-group">
+          <view class="session-stat-group-title">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</view>
+          <view wx:for="{{item.rows}}" wx:for-item="row" wx:key="index" class="session-stat-row">
+            <text class="session-stat-label">{{row[0]}}</text>
+            <text class="session-stat-value">{{row[1]}}</text>
+          </view>
+        </view>
+        <view class="session-sheet-note">{{ui['会话状态']}}</view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- 工作区文件弹窗（更多菜单） -->
+  <view wx:if="{{filesSheetOpen}}" class="sheet-mask" catchtap="closeFilesSheet" catchtouchmove="noop">
+    <view class="sheet more-files-sheet" style="height: {{filesSheetExpanded ? 90 : 62}}vh;" catchtap="noop" role="dialog" aria-label="{{ui['工作区文件']}}">
+      <view
+        class="files-grabber-zone"
+        catchtouchstart="filesGrabStart"
+        catchtouchmove="filesGrabMove"
+        catchtouchend="filesGrabEnd"
+      >
+        <view class="sheet-handle"></view>
+      </view>
+      <view class="session-menu-head">
+        <text class="session-menu-title">{{ui['工作区文件']}}</text>
+        <view class="session-menu-close" bindtap="closeFilesSheet" role="button"><view class="sheet-close-x"></view></view>
+      </view>
+      <view class="more-files-toolbar">
+        <view wx:if="{{!filesIsRoot}}" class="more-files-up" bindtap="sessionFilesGoUp" role="button">{{ui['‹ 上一级']}}</view>
+        <view wx:else class="more-files-up disabled"></view>
+      </view>
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="more-files-scroll">
+        <view wx:if="{{filesLoading && !filesEntries.length}}" class="more-files-center">{{ui['正在读取工作区文件…']}}</view>
+        <view wx:elif="{{filesError}}" class="more-files-center">{{ui[filesError] !== undefined ? ui[filesError] : filesError}}</view>
+        <view wx:elif="{{!filesEntries.length}}" class="more-files-center">{{ui['此目录为空']}}</view>
+        <block wx:else>
+          <view wx:for="{{filesEntries}}" wx:key="key" class="more-files-row" data-index="{{index}}" bindtap="openSessionFile" hover-class="session-menu-pressed" role="button">
+            <image class="more-files-icon" src="/assets/icons/{{item.iconFile}}" mode="aspectFit"/>
+            <text class="more-files-name">{{item.name}}</text>
+            <text wx:if="{{item.kind === 'dir'}}" class="more-files-chev">›</text>
+          </view>
+        </block>
+      </scroll-view>
+      <view class="more-files-path">{{filesPathLabel}}</view>
+    </view>
+  </view>
+
+  <!-- 重命名会话弹窗 -->
+  <view wx:if="{{renameSheetOpen}}" class="sheet-mask" catchtap="closeRenameSheet" catchtouchmove="noop">
+    <view class="sheet session-card-sheet rename-sheet" style="transform: translateY(-{{renameKeyboard}}px);" catchtap="noop" role="dialog" aria-label="{{ui['重命名会话']}}">
       <view class="sheet-handle"></view>
-      <view class="sheet-title">{{ui['会话状态']}}</view>
-      <view wx:for="{{statsSheet}}" wx:key="title" class="stats-group">
-        <view class="stats-group-title">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</view>
-        <view wx:for="{{item.rows}}" wx:for-item="row" wx:key="index" class="stats-row">
-          <text class="stats-row-label">{{row[0]}}</text>
-          <text class="stats-row-val">{{row[1]}}</text>
+      <view class="session-sheet-head">
+        <text class="session-sheet-title">{{ui['重命名会话']}}</text>
+        <view class="session-sheet-close" bindtap="closeRenameSheet" role="button" aria-label="{{ui['关闭']}}"><view class="sheet-close-x"></view></view>
+      </view>
+      <view class="session-sheet-scroll">
+        <view class="session-sheet-field">
+          <input class="session-sheet-input" value="{{renameValue}}" bindinput="onRenameInput" bindfocus="onRenameFocus" bindblur="onRenameBlur" maxlength="60" cursor-spacing="24" adjust-position="{{false}}" placeholder="{{ui['重命名会话']}}" placeholder-class="session-sheet-placeholder" confirm-type="done" bindconfirm="confirmRename"/>
         </view>
       </view>
-      <view class="stats-sheet-done" bindtap="closeStatsSheet">{{ui['完成']}}</view>
+      <view class="session-sheet-actions">
+        <view class="session-sheet-ghost" bindtap="closeRenameSheet" role="button">{{ui['取消']}}</view>
+        <view class="session-sheet-primary" bindtap="confirmRename" role="button">{{ui['保存']}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 取消回合 / 归档会话确认弹窗 -->
+  <view wx:if="{{confirmSheet}}" class="sheet-mask" catchtap="closeConfirmSheet" catchtouchmove="noop">
+    <view class="sheet confirm-sheet" catchtap="noop" role="dialog">
+      <view class="sheet-handle"></view>
+      <view class="confirm-title">{{confirmSheet === 'cancel' ? ui['停止当前回合'] : ui['归档会话']}}</view>
+      <view class="confirm-body">{{confirmSheet === 'cancel' ? ui['将取消 Agent 正在执行的回合。'] : ui['归档后会话将从列表隐藏。']}}</view>
+      <view class="confirm-actions">
+        <view class="confirm-cancel" bindtap="closeConfirmSheet" role="button">{{ui['取消']}}</view>
+        <view class="confirm-ok {{confirmSheet === 'cancel' ? 'danger' : ''}}" bindtap="runConfirmSheet" role="button">{{confirmSheet === 'cancel' ? ui['停止当前回合'] : ui['归档会话']}}</view>
+      </view>
     </view>
   </view>
 

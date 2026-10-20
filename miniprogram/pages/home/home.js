@@ -809,8 +809,25 @@ Page({
     }
   },
 
+  /** 震动反馈：优先中等强度短震，失败再退回长震；不支持的环境静默忽略。 */
+  hapticLight() {
+    try {
+      if (typeof wx.vibrateShort === 'function') {
+        wx.vibrateShort({
+          type: 'medium',
+          fail: () => {
+            try { if (typeof wx.vibrateLong === 'function') wx.vibrateLong({ fail() {} }); } catch (e) { /* 忽略 */ }
+          }
+        });
+        return;
+      }
+      if (typeof wx.vibrateLong === 'function') wx.vibrateLong({ fail() {} });
+    } catch (e) { /* 忽略 */ }
+  },
+
   openDrawer() {
     if (this.data.drawerOpen) return;
+    this.hapticLight();
     this.setData({ pairMenuVisible: false });
     this.applyDrawer(1);
   },

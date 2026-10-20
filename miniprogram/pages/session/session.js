@@ -103,7 +103,19 @@ Page({
     convBottomInset: 520,   // 首帧安全默认值：真实高度由 dock 测量校准
     statsSheet: [],
     statsSheetOpen: false,
+    statsSheetExpanded: false,
     moreSheetOpen: false,
+    filesSheetOpen: false,
+    filesEntries: [],
+    filesLoading: false,
+    filesError: '',
+    filesPathLabel: '',
+    filesIsRoot: true,
+    filesSheetExpanded: false,
+    renameSheetOpen: false,
+    renameValue: '',
+    renameKeyboard: 0,
+    confirmSheet: '',
     statsPopOpen: false,
     statsPopKind: 'run',
     statsPopTitle: '',
@@ -1084,33 +1096,172 @@ Page({
     if (action === 'cancel' && !s.running) return;
     this.closeMoreActions();
     if (action === 'stats') { this.openFullStats(); return; }
-    if (action === 'files') { wx.navigateTo({ url: '/pages/files/files' }); return; }
+    if (action === 'files') { this.openFilesSheet(); return; }
     if (!s.sessionId) return;
     if (action === 'rename') {
-      wx.showModal({
-        title: uiText('重命名会话'), editable: true, placeholderText: this.data.navTitle,
-        success: r => {
-          const title = r.content && r.content.trim();
-          if (!r.confirm || !title) return;
-          if (store.client.renameSession(s.sessionId, title) === false) {
-            wx.showToast({ title: uiText('操作失败'), icon: 'none' }); return;
-          }
-          if (store.sessionState.sessionId === s.sessionId) this.setData({ navTitle: title });
-        }
-      });
+      this._renameDraft = this.data.navTitle || '';
+      this.setData({ renameSheetOpen: true, renameValue: this.data.navTitle || '', renameKeyboard: 0 });
     } else if (action === 'cancel') {
-      this.stopAgent();
+      this.setData({ confirmSheet: 'cancel' });
     } else if (action === 'archive') {
-      wx.showModal({
-        title: uiText('归档会话'), content: uiText('归档后会话将从列表隐藏。'),
-        success: r => {
-          if (!r.confirm) return;
-          if (store.client.archiveSession(s.sessionId) === false) {
-            wx.showToast({ title: uiText('操作失败'), icon: 'none' }); return;
-          }
-          if (store.sessionState.sessionId === s.sessionId) wx.navigateBack();
-        }
+      this.setData({ confirmSheet: 'archive' });
+    }
+  },
+
+  // ---------- 更多菜单里的底部弹窗 ----------
+
+  openFilesSheet() {
+    this._filesRel = null;
+    this.setData({ filesSheetOpen: true, filesSheetExpanded: false, filesEntries: [], filesLoading: true, filesError: '' });
+    this.loadSessionFiles(null);
+  },
+
+  closeFilesSheet() {
+    this.setData({ filesSheetOpen: false, filesSheetExpanded: false, filesEntries: [], filesError: '', filesLoading: false });
+  },
+
+  filesGrabStart(e) {
+    this._filesGrab = {
+      y: e.touches[0].clientY,
+      moved: false,
+      applied: null
+    };
+  },
+
+  filesGrabMove(e) {
+    const g = this._filesGrab;
+    if (!g) return;
+    const dy = e.touches[0].clientY - g.y;
+    if (Math.abs(dy) < 20) return;
+    const expand = dy < 0;
+    if (g.applied !== expand) {
+      g.applied = expand;
+      g.moved = true;
+      this.setData({ filesSheetExpanded: expand });
+    }
+  },
+
+  filesGrabEnd() {
+    const g = this._filesGrab;
+    this._filesGrab = null;
+    if (g && !g.moved) this.setData({ filesSheetExpanded: !this.data.filesSheetExpanded });
+  },
+
+  loadSessionFiles(relPath) {
+    const sessionId = (store.sessionState && store.sessionState.sessionId) || '';
+    if (!sessionId) {
+      this.setData({ filesLoading: false, filesError: uiText('请先打开一个会话'), filesEntries: [] });
+      return;
+    }
+    if (!store.state || store.state.connection !== 'connected') {
+      this.setData({ filesLoading: false, filesError: uiText('请先连接驭鲸 Harness'), filesEntries: [] });
+      return;
+    }
+    this._filesRel = relPath || null;
+    this.setData({ filesLoading: true, filesError: '' });
+    store.client.requestFileList(sessionId, relPath)
+      .then((frame) => {
+        if (!frame) return;
+        const entries = (frame.entries || frame.items || []).map((item, index) => {
+          const isDir = item.kind === 'dir' || item.kind === 'directory';
+          return {
+            name: item.name || item.title || '',
+            path: item.path || '',
+            kind: isDir ? 'dir' : 'file',
+            iconFile: isDir ? 'folder-blue.png' : 'doc-ocean.png',
+            key: (item.path || '') + '/' + index
+          };
+        });
+        this._filesRel = frame.path || this._filesRel || null;
+        const rel = this._filesRel;
+        const isRoot = !rel || rel === '.' || rel === '/';
+        this.setData({
+          filesEntries: entries,
+          filesIsRoot: isRoot,
+          filesPathLabel: isRoot ? uiText('工作区根目录') : String(rel),
+          filesLoading: false
+        });
+      })
+      .catch((err) => {
+        this.setData({ filesLoading: false, filesError: err.message || uiText('读取目录失败') });
       });
+  },
+
+  openSessionFile(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const item = (this.data.filesEntries || [])[index];
+    if (!item) return;
+    if (item.kind === 'dir') {
+      this.loadSessionFiles(item.path);
+      return;
+    }
+    wx.showModal({ title: item.name, content: item.path, showCancel: false, confirmText: uiText('知道了') });
+  },
+
+  sessionFilesGoUp() {
+    const rel = this._filesRel;
+    if (!rel || rel === '.' || rel === '/') {
+      this.loadSessionFiles(null);
+      return;
+    }
+    const idx = rel.lastIndexOf('/');
+    this.loadSessionFiles(idx > 0 ? rel.substring(0, idx) : null);
+  },
+
+  closeRenameSheet() {
+    this._renameDraft = null;
+    this.setData({ renameSheetOpen: false, renameKeyboard: 0 });
+  },
+
+  onRenameInput(e) {
+    // 只记录草稿，不 setData：受控 input 在长按删除时会出现光标/内容抖动
+    this._renameDraft = e.detail && e.detail.value != null ? e.detail.value : '';
+  },
+
+  onRenameFocus(e) {
+    const height = e && e.detail && Number(e.detail.height);
+    if (Number.isFinite(height) && height > 0) this.setData({ renameKeyboard: height });
+  },
+
+  onRenameBlur() {
+    this.setData({ renameKeyboard: 0 });
+  },
+
+  confirmRename() {
+    const s = store.sessionState;
+    const draft = this._renameDraft != null ? this._renameDraft : this.data.renameValue;
+    const title = String(draft || '').trim();
+    if (!s.sessionId || !title) return;
+    if (store.client.renameSession(s.sessionId, title) === false) {
+      wx.showToast({ title: uiText('操作失败'), icon: 'none' });
+      return;
+    }
+    // 先本地更新标题，避免等待 Host 回帧导致顶部标题不刷新
+    if (typeof store.setSessionTitle === 'function') store.setSessionTitle(s.sessionId, title);
+    if (store.sessionState.sessionId === s.sessionId) this.setData({ navTitle: title });
+    this._renameDraft = null;
+    this.setData({ renameSheetOpen: false, renameKeyboard: 0 });
+  },
+
+  closeConfirmSheet() {
+    this.setData({ confirmSheet: '' });
+  },
+
+  runConfirmSheet() {
+    const kind = this.data.confirmSheet;
+    const s = store.sessionState;
+    this.setData({ confirmSheet: '' });
+    if (kind === 'cancel') {
+      if (s.sessionId) store.client.cancelSession(s.sessionId);
+      return;
+    }
+    if (kind === 'archive') {
+      if (!s.sessionId) return;
+      if (store.client.archiveSession(s.sessionId) === false) {
+        wx.showToast({ title: uiText('操作失败'), icon: 'none' });
+        return;
+      }
+      if (store.sessionState.sessionId === s.sessionId) wx.navigateBack();
     }
   },
 
@@ -1192,6 +1343,29 @@ Page({
   },
 
   /** 紧凑浮窗 → 完整会话状态 sheet */
+  statsGrabStart(e) {
+    this._statsGrab = { y: e.touches[0].clientY, moved: false, applied: null };
+  },
+
+  statsGrabMove(e) {
+    const g = this._statsGrab;
+    if (!g) return;
+    const dy = e.touches[0].clientY - g.y;
+    if (Math.abs(dy) < 20) return;
+    const expand = dy < 0;
+    if (g.applied !== expand) {
+      g.applied = expand;
+      g.moved = true;
+      this.setData({ statsSheetExpanded: expand });
+    }
+  },
+
+  statsGrabEnd() {
+    const g = this._statsGrab;
+    this._statsGrab = null;
+    if (g && !g.moved) this.setData({ statsSheetExpanded: !this.data.statsSheetExpanded });
+  },
+
   openFullStats() {
     // 会话状态 sheet（对齐 iOS 统计 popover/sheet：执行 / Token 用量 / 上下文）
     const bundle = store.sessionState.stats || {};
@@ -1205,7 +1379,20 @@ Page({
       if (v >= 1000) return Math.round(v / 1000) + 's';
       return Math.round(v) + 'ms';
     };
-    const fmtTok = (n) => (n == null ? '—' : n + ' tok');
+    const fmtTok = (n) => (n == null ? '—' : numberWithCommas(Math.round(Number(n))) + ' tok');
+    // 网关可能把 Token 放在 totals，也可能直接放在 tokenUsage 上，两者都要兼容
+    const pickToken = (name) => {
+      if (tu[name] != null) return Number(tu[name]);
+      if (totals[name] != null) return Number(totals[name]);
+      return null;
+    };
+    // 部分网关把上下文压力放在 stats.pressure，也可能挂在 stats 里
+    const pressureTokens = pressure.pressureTokens != null
+      ? pressure.pressureTokens
+      : (bundle.stats && bundle.stats.pressureTokens != null ? bundle.stats.pressureTokens : null);
+    const contextWindow = pressure.contextWindow != null
+      ? pressure.contextWindow
+      : (bundle.stats && bundle.stats.contextWindow != null ? bundle.stats.contextWindow : null);
     const groups = [
       {
         title: uiText('执行'),
@@ -1220,18 +1407,17 @@ Page({
       {
         title: uiText('Token 用量'),
         rows: [
-          [uiText('输入'), fmtTok(totals.inputTokens)],
-          [uiText('输出'), fmtTok(totals.outputTokens)],
-          [uiText('缓存读取'), fmtTok(totals.cacheReadTokens)],
-          [uiText('缓存写入'), fmtTok(totals.cacheWriteTokens)],
-          [uiText('推理'), fmtTok(totals.reasoningTokens)]
+          [uiText('输入'), fmtTok(pickToken('inputTokens') != null ? pickToken('inputTokens') : pickToken('uncachedInputTokens'))],
+          [uiText('输出'), fmtTok(pickToken('outputTokens'))],
+          [uiText('缓存读取'), fmtTok(pickToken('cacheReadTokens'))],
+          [uiText('缓存写入'), fmtTok(pickToken('cacheWriteTokens'))]
         ]
       },
       {
         title: uiText('上下文'),
         rows: [
-          [uiText('当前压力'), fmtTok(pressure.pressureTokens)],
-          [uiText('上下文窗口'), fmtTok(pressure.contextWindow)]
+          [uiText('当前压力'), fmtTok(pressureTokens)],
+          [uiText('上下文窗口'), fmtTok(contextWindow)]
         ]
       }
     ];
@@ -2042,6 +2228,27 @@ Page({
   toggleCollaborationExpanded() {
     if (!this.data.collaborationOpen) return;
     this.setData({collaborationExpanded:!this.data.collaborationExpanded});
+  },
+  collabGrabStart(e) {
+    if (!this.data.collaborationOpen) return;
+    this._collabGrab = { y: e.touches[0].clientY, moved: false, applied: null };
+  },
+  collabGrabMove(e) {
+    const g = this._collabGrab;
+    if (!g) return;
+    const dy = e.touches[0].clientY - g.y;
+    if (Math.abs(dy) < 20) return;
+    const expand = dy < 0;
+    if (g.applied !== expand) {
+      g.applied = expand;
+      g.moved = true;
+      this.setData({ collaborationExpanded: expand });
+    }
+  },
+  collabGrabEnd() {
+    const g = this._collabGrab;
+    this._collabGrab = null;
+    if (g && !g.moved) this.setData({ collaborationExpanded: !this.data.collaborationExpanded });
   },
   selectCollaborationTab(e) {
     const tab = e.currentTarget.dataset.id;

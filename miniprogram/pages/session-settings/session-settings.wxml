@@ -35,11 +35,11 @@
   <view class="group-hint">{{buildNote}}</view>
   <!-- 选择弹窗：与设置页同款底部弹窗（抓手 + 标题 + 关闭 + 勾选行） -->
   <view wx:if="{{picker}}" class="pair-sheet-mask" catchtap="closePickerSheet" catchtouchmove="noop">
-    <view class="pair-sheet" style="max-height: {{sheetMaxH}}px;" catchtap="noop" role="dialog" aria-label="{{pickerTitle}}">
-      <view class="sheet-grabber"></view>
+    <view class="pair-sheet resizable {{sheetExpanded.picker ? 'expanded' : ''}}" style="{{sheetExpanded.picker ? 'height: 90vh;' : ''}}max-height: {{sheetMaxH}}px;" catchtap="noop" role="dialog" aria-label="{{pickerTitle}}">
+      <view class="sheet-grabber-zone" data-sheet="picker" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
       <view class="pair-sheet-head">
         <text class="pair-sheet-title">{{pickerTitle}}</text>
-        <view class="pair-sheet-close tap" bindtap="closePickerSheet" role="button">{{ui['关闭']}}</view>
+        <view class="pair-sheet-close tap" bindtap="closePickerSheet" role="button"><view class="sheet-close-x"></view></view>
       </view>
       <scroll-view class="picker-option-list" style="max-height: {{pickerListH}}px;" scroll-y enhanced show-scrollbar="{{false}}" enable-flex>
         <block wx:for="{{pickerOptions}}" wx:key="key">
@@ -61,11 +61,11 @@
 
   <!-- 工作区文件弹窗：与选择弹窗同款底部弹窗 -->
   <view wx:if="{{filesSheet}}" class="pair-sheet-mask" catchtap="closeFiles" catchtouchmove="noop">
-    <view class="pair-sheet" style="max-height: {{sheetMaxH}}px;" catchtap="noop" role="dialog" aria-label="{{ui['工作区文件']}}">
-      <view class="sheet-grabber"></view>
+    <view class="pair-sheet resizable" style="height: {{sheetExpanded.files ? 90 : 62}}vh; max-height: {{sheetMaxH}}px;" catchtap="noop" role="dialog" aria-label="{{ui['工作区文件']}}">
+      <view class="sheet-grabber-zone" data-sheet="files" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
       <view class="pair-sheet-head">
         <text class="pair-sheet-title">{{ui['工作区文件']}}</text>
-        <view class="pair-sheet-close tap" bindtap="closeFiles" role="button">{{ui['关闭']}}</view>
+        <view class="pair-sheet-close tap" bindtap="closeFiles" role="button"><view class="sheet-close-x"></view></view>
       </view>
       <view class="files-toolbar">
         <view wx:if="{{!filesIsRoot}}" class="files-up tap" bindtap="filesGoUp">{{ui['‹ 上一级']}}</view>
@@ -98,11 +98,11 @@
   </view>
 
   <view wx:if="{{utilitySheet}}" class="utility-mask" catchtap="closeUtilitySheet" catchtouchmove="noop">
-    <view class="utility-sheet" catchtap="noop" role="dialog" aria-label="{{utilitySheet === 'diagnostics' ? ui['诊断信息'] : ui['清理缓存']}}">
-      <view class="sheet-grabber"></view>
+    <view class="utility-sheet resizable {{sheetExpanded.utility ? 'expanded' : ''}}" style="{{sheetExpanded.utility ? 'height: 90vh;' : ''}}max-height: 92vh;" catchtap="noop" role="dialog" aria-label="{{utilitySheet === 'diagnostics' ? ui['诊断信息'] : ui['清理缓存']}}">
+      <view class="sheet-grabber-zone" data-sheet="utility" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
       <view class="utility-header">
         <text class="utility-title">{{utilitySheet === 'diagnostics' ? ui['诊断信息'] : ui['清理缓存']}}</text>
-        <button class="utility-close" bindtap="closeUtilitySheet" disabled="{{cacheClearing}}" aria-label="{{ui['关闭弹窗']}}">{{ui['关闭']}}</button>
+        <button wx:if="{{utilitySheet === 'diagnostics'}}" class="utility-close" bindtap="closeUtilitySheet" disabled="{{cacheClearing}}" aria-label="{{ui['关闭弹窗']}}"><view class="sheet-close-x"></view></button>
       </view>
       <scroll-view scroll-y enhanced class="utility-scroll">
         <view wx:if="{{utilitySheet === 'diagnostics'}}" class="diagnostic-list">

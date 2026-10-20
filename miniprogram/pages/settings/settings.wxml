@@ -101,6 +101,36 @@
   </view>
   <view class="group-hint">{{ui['完全展开时不自动收起；设置保存在当前小程序。']}}</view>
 
+  <!-- 外观（界面）弹窗 -->
+  <view wx:if="{{appearanceSheet}}" class="pair-sheet-mask" catchtap="closeAppearanceSheet" catchtouchmove="noop">
+    <view class="pair-sheet appearance-sheet" catchtap="noop" role="dialog" aria-label="{{ui['外观']}}">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <view>
+          <text class="pair-sheet-title">{{ui['外观']}}</text>
+          <text class="pair-sheet-subtitle">{{ui['跟随微信']}}</text>
+        </view>
+        <view class="pair-sheet-close tap" bindtap="closeAppearanceSheet" role="button"><view class="sheet-close-x"></view></view>
+      </view>
+      <view class="appearance-options">
+        <view
+          wx:for="{{appearanceModes}}"
+          wx:key="mode"
+          class="appearance-option {{appearanceMode === item.mode ? 'selected' : ''}}"
+          data-mode="{{item.mode}}"
+          bindtap="chooseAppearance"
+          role="button"
+        >
+          <view class="appearance-option-icon appearance-{{item.mode}}">
+            <view class="appearance-swatch"></view>
+          </view>
+          <text class="appearance-option-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+          <text class="appearance-option-check">{{appearanceMode === item.mode ? '✓' : ''}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
   <!-- 外观模式（对齐 dsh-mobile v1.6.0 InterfaceStyleSettingsRow） -->
   <view class="group-title">{{ui['外观']}}</view>
   <view class="card">
@@ -190,8 +220,8 @@
   <privacy-sheet id="settings-privacy" visible="{{privacyOpen}}" theme="{{theme}}" bindclose="closePrivacyPolicy" />
 
   <view wx:if="{{managementPanel && !pairSheetOpen}}" class="pair-sheet-mask" catchtap="closeManagementPanel" catchtouchmove="noop">
-    <view class="pair-sheet management-sheet" catchtap="noop">
-      <view class="sheet-grabber"></view>
+    <view class="pair-sheet management-sheet resizable" style="height: {{sheetExpanded.management ? 90 : 62}}vh;" catchtap="noop">
+      <view class="sheet-grabber-zone" data-sheet="management" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
       <view class="pair-sheet-head">
         <view>
           <text class="pair-sheet-title">{{managementPanel === 'public' ? ui['公网访问'] : (managementPanel === 'gateway' ? ui['网关连接'] : ui['节点管理'])}}</text>
@@ -227,9 +257,28 @@
             </view>
             <view class="public-actions">
               <button wx:if="{{referralEnabled}}" class="public-share" bindtap="openReferralShare" hover-class="public-share-hover">{{ui['分享']}}</button>
-              <button class="public-redeem" disabled="{{redeemBusy}}" bindtap="redeemRenewal" hover-class="public-share-hover">
+              <button wx:if="{{!redeemFormOpen}}" class="public-redeem" disabled="{{redeemBusy}}" bindtap="redeemRenewal" hover-class="public-share-hover">
                 {{redeemBusy ? ui['兑换中…'] : (redeemAvailable ? ui['兑换续期'] : ui['兑换说明'])}}
               </button>
+            </view>
+            <view wx:if="{{redeemFormOpen}}" class="public-redeem-form">
+              <view class="public-redeem-form-head">
+                <text class="public-redeem-form-title">{{ui['兑换公网有效期']}}</text>
+                <text class="public-redeem-form-cancel" bindtap="closeRedeemForm" role="button">{{ui['取消']}}</text>
+              </view>
+              <input
+                class="public-redeem-input"
+                value="{{redeemCode}}"
+                bindinput="onRedeemInput"
+                maxlength="40"
+                placeholder="XXXX-XXXX-XXXX"
+                placeholder-class="public-redeem-placeholder"
+                confirm-type="done"
+                bindconfirm="submitRedeem"
+                cursor-spacing="24"
+              />
+              <view class="public-redeem-form-hint">{{ui['输入管理员提供的兑换码']}}</view>
+              <button class="public-redeem-submit" bindtap="submitRedeem" disabled="{{redeemBusy}}">{{redeemBusy ? ui['兑换中…'] : ui['兑换续期']}}</button>
             </view>
             <view wx:if="{{redeemResultLabel}}" class="public-redeem-result">{{ui[redeemResultLabel] !== undefined ? ui[redeemResultLabel] : redeemResultLabel}}</view>
             <view wx:if="{{referralEnabled && sharePayload}}" class="public-share-meta">
@@ -496,8 +545,8 @@
   </view>
 
   <view wx:if="{{pairSheetOpen}}" class="pair-sheet-mask" catchtap="closePairSheet" catchtouchmove="noop">
-    <view class="pair-sheet" catchtap="noop">
-      <view class="sheet-grabber"></view>
+    <view class="pair-sheet resizable" style="height: {{sheetExpanded.pair ? 90 : 62}}vh;" catchtap="noop">
+      <view class="sheet-grabber-zone" data-sheet="pair" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
       <view class="pair-sheet-head">
         <view>
           <text class="pair-sheet-title">{{ui['添加公网节点']}}</text>

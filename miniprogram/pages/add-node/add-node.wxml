@@ -66,11 +66,24 @@
         <text class="section-sub">{{ui['扫码绑定你的 Agent 节点，建立手机与电脑的安全连接。配对后支持同一局域网内安全直连，也支持公网连接。']}}</text>
         <view class="pair-actions">
           <button class="btn-scan" bindtap="scan" hover-class="btn-press" disabled="{{scanning}}">
-            <image class="btn-ic" src="/assets/icons/target-white.png"/>
+            <view class="btn-ic" aria-hidden="true">
+              <view class="ico-scan">
+                <view class="corner tl"></view><view class="corner tr"></view>
+                <view class="corner bl"></view><view class="corner br"></view>
+                <view class="find a"></view><view class="find b"></view><view class="find c"></view>
+                <view class="dots"><view></view><view></view><view></view><view></view></view>
+              </view>
+            </view>
             <text class="btn-label">{{scanning ? ui['正在连接…'] : ui['扫描配对']}}</text>
           </button>
           <button class="btn-ghost pair-ghost" bindtap="manual" hover-class="btn-press">
-            <image class="btn-ic" src="/assets/icons/pencil-line-gray.png"/>
+            <view class="btn-ic" aria-hidden="true">
+              <view class="ico-keyboard">
+                <view class="kb-row"><view></view><view></view><view></view><view></view><view></view></view>
+                <view class="kb-row"><view></view><view></view><view></view><view></view><view></view></view>
+                <view class="kb-row kb-last"><view></view><view class="kb-bar"></view><view></view></view>
+              </view>
+            </view>
             <text class="btn-label">{{ui['输入配对信息']}}</text>
           </button>
         </view>

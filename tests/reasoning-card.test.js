@@ -31,7 +31,8 @@ test('reasoning is a scrollable card with independent full-reading control', () 
 });
 test('completed process hides its leading icon without hiding running icons', () => {
  const wxml=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
- assert.match(wxml,/<image wx:if="\{\{!item.completed\}\}" class="process-command-icon command-tool-icon"/);
+ assert.match(wxml,/<view wx:if="\{\{item.running && !item.completed\}\}" class="proc-loader"/);
+ assert.match(wxml,/<image wx:elif="\{\{!item.completed\}\}" class="process-command-icon command-tool-icon"/);
  assert.match(wxml,/item.completed \? 'completed-chevron' : ''/);
  const done=buildEntries([{kind:'assistant',key:'a',reasoning:'Done',turnClosed:true,turnEndReason:'completed'}])[0];
  const running=buildEntries([{kind:'assistant',key:'a',reasoning:'Thinking'}],{running:true})[0];

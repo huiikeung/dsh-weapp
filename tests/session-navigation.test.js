@@ -45,16 +45,28 @@ test('more menu works on trajectory, opens standalone stats and dispatches exist
   const { page, calls, store } = fixture(); page.data.tab = 'trajectory';
   page.moreActions(); assert.equal(page.data.moreSheetOpen, true);
   page.selectMoreAction(event('action', 'stats')); assert.equal(page.data.statsSheetOpen, true); assert.equal(page.data.moreSheetOpen, false);
-  page.moreActions(); page.selectMoreAction(event('action', 'files')); assert.equal(calls.at(-1)[1].url, '/pages/files/files');
-  page.moreActions(); page.selectMoreAction(event('action', 'rename')); calls.at(-1)[1].success({ confirm: true, content: ' New name ' });
+  // 工作区文件：改为页内底部弹窗
+  page.moreActions(); page.selectMoreAction(event('action', 'files'));
+  assert.equal(page.data.filesSheetOpen, true);
+  assert.ok(!calls.some(call => call[0] === 'navigate'), '不应再跳转文件页面');
+  page.closeFilesSheet();
+  // 重命名：页内输入弹窗
+  page.moreActions(); page.selectMoreAction(event('action', 'rename'));
+  assert.equal(page.data.renameSheetOpen, true);
+  page.onRenameInput({ detail: { value: ' New name ' } });
+  page.confirmRename();
   assert.equal(page.data.navTitle, 'New name'); assert.deepEqual(calls.at(-1), ['rename', 's1', 'New name']);
+  // 取消回合：确认弹窗
   page.moreActions(); store.sessionState.running = false; page.selectMoreAction(event('action', 'cancel'));
   assert.equal(page.data.moreSheetOpen, true); assert.ok(!calls.some(call => call[0] === 'cancel'));
-  store.sessionState.running = true; page.selectMoreAction(event('action', 'cancel')); calls.at(-1)[1].success({ confirm: true });
+  store.sessionState.running = true; page.selectMoreAction(event('action', 'cancel'));
+  assert.equal(page.data.confirmSheet, 'cancel'); page.runConfirmSheet();
   assert.deepEqual(calls.at(-1), ['cancel', 's1']);
-  page.moreActions(); page.selectMoreAction(event('action', 'archive')); calls.at(-1)[1].success({ confirm: false });
+  // 归档：确认弹窗
+  page.moreActions(); page.selectMoreAction(event('action', 'archive'));
+  assert.equal(page.data.confirmSheet, 'archive'); page.closeConfirmSheet();
   assert.ok(!calls.some(call => call[0] === 'archive'));
-  page.moreActions(); page.selectMoreAction(event('action', 'archive')); calls.at(-1)[1].success({ confirm: true });
+  page.moreActions(); page.selectMoreAction(event('action', 'archive')); page.runConfirmSheet();
   assert.ok(calls.some(call => call[0] === 'archive'));
 });
 module.exports = { fixture, event };
@@ -62,12 +74,13 @@ test('more sheet omits the session subtitle and uses larger theme-aware red clos
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
   const menu = xml.slice(xml.indexOf('class="sheet session-menu"'), xml.indexOf('<view wx:if="{{statsSheetOpen}}"'));
-  assert.ok(menu.includes("ui['更多']")); assert.ok(menu.includes("ui['关闭']"));
+  assert.ok(menu.includes("ui['更多']")); assert.ok(menu.includes('class="sheet-close-x"'));
   assert.ok(!menu.includes('navTitle'));
   assert.match(xml, /class="trace-native-row[^"]*" bindtap="openTraceDetail"/);
   assert.ok(xml.includes('catchtap="openTraceRequest"'), 'request dot must not also open the parent detail');
-  assert.match(css, /\.session-menu-close\s*\{[^}]*font-size: 32rpx;[^}]*color: #E5484D;/);
-  assert.match(css, /\.theme-dark \.session-menu-close\s*\{[^}]*#FF7178/);
+  // 关闭按钮统一为圆形 × 图标并右对齐
+  assert.match(css, /\.session-menu-close\s*\{[^}]*justify-content: flex-end;/);
+  assert.ok(xml.includes('class="session-menu-close" bindtap="closeMoreActions" role="button"><view class="sheet-close-x">'));
 });
 
 test('detail cache parses only once for repeated clicks and no Markdown for raw tab', () => {

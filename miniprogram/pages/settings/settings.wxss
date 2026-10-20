@@ -85,7 +85,12 @@
 .management-sheet {
   display: flex;
   flex-direction: column;
-  max-height: 85vh;
+  max-height: 92vh;
+}
+
+.management-sheet .management-scroll {
+  flex: 1;
+  min-height: 0;
 }
 
 .management-sheet .pair-sheet-head {
@@ -739,13 +744,15 @@
 }
 
 .pair-sheet-title {
+  display: block;
   color: var(--text);
   font-size: 34rpx;
   font-weight: 650;
 }
 
 .pair-sheet-subtitle {
-  margin-top: 4rpx;
+  display: block;
+  margin-top: 8rpx;
   color: var(--text-2);
   font-size: 23rpx;
 }
@@ -1372,3 +1379,161 @@
   color: var(--text-3);
   text-align: center;
 }
+
+
+/* ---------- 可拖动/点击调整高度的弹窗 ---------- */
+.sheet-grabber-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48rpx;
+  padding: 8rpx 0;
+  margin-bottom: 4rpx;
+  flex-shrink: 0;
+}
+
+.pair-sheet.resizable {
+  transition: height 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/* ---------- 外观（界面）弹窗 ---------- */
+.appearance-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+
+.appearance-option {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 22rpx 24rpx;
+  border-radius: 22rpx;
+  border: 1rpx solid var(--border);
+  background: var(--fill);
+}
+
+.appearance-option.selected {
+  border-color: rgba(76, 108, 224, 0.55);
+  background: rgba(76, 108, 224, 0.10);
+}
+
+.appearance-option-icon {
+  width: 76rpx;
+  height: 52rpx;
+  border-radius: 14rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  border: 1rpx solid var(--border);
+  overflow: hidden;
+}
+
+.appearance-auto .appearance-swatch {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, #F5F7FB 0 50%, #1B2130 50% 100%);
+}
+
+.appearance-light .appearance-swatch {
+  width: 100%;
+  height: 100%;
+  background: #F5F7FB;
+}
+
+.appearance-dark .appearance-swatch {
+  width: 100%;
+  height: 100%;
+  background: #1B2130;
+}
+
+.appearance-option-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 29rpx;
+  color: var(--text);
+}
+
+.appearance-option-check {
+  flex: none;
+  font-size: 30rpx;
+  font-weight: 600;
+  color: var(--ocean);
+}
+
+/* ---------- 公网访问弹窗内的兑换表单 ---------- */
+.public-redeem-form {
+  margin-top: 20rpx;
+  padding: 24rpx;
+  border-radius: 24rpx;
+  border: 1rpx solid rgba(76, 108, 224, 0.35);
+  background: rgba(76, 108, 224, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 14rpx;
+}
+
+.public-redeem-form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+}
+
+.public-redeem-form-title {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.public-redeem-form-cancel {
+  font-size: 25rpx;
+  color: var(--text-2);
+}
+
+.public-redeem-input {
+  width: 100%;
+  box-sizing: border-box;
+  height: 88rpx;
+  padding: 0 22rpx;
+  border-radius: 18rpx;
+  background: var(--surface);
+  border: 1rpx solid var(--border);
+  color: var(--text);
+  font-size: 29rpx;
+  letter-spacing: 1rpx;
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+
+.public-redeem-placeholder {
+  color: rgba(128, 136, 150, 0.55);   /* 浅色默认格式提示 */
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  letter-spacing: 1rpx;
+}
+
+.public-redeem-form-hint {
+  font-size: 23rpx;
+  color: var(--text-3);
+  line-height: 1.5;
+}
+
+.public-redeem-submit {
+  margin: 4rpx 0 0;
+  padding: 0;
+  width: 100%;
+  height: 84rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #4C8BF5, #2E6BE6);
+  color: #FFFFFF;
+  font-size: 28rpx;
+  font-weight: 600;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.public-redeem-submit::after { border: 0; }
+.public-redeem-submit[disabled] { opacity: 0.6; }

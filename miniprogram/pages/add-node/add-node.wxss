@@ -414,3 +414,134 @@
 .pair-submit-disabled {
   opacity: 0.45;
 }
+
+/* ---------- 与首页配对菜单一致的 CSS 图标 ---------- */
+.btn-ic {
+  width: 36rpx;
+  height: 36rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ico-scan {
+  position: relative;
+  width: 36rpx;
+  height: 36rpx;
+}
+
+.ico-scan .corner {
+  position: absolute;
+  width: 11rpx;
+  height: 11rpx;
+  border: 3rpx solid #FFFFFF;
+  box-sizing: border-box;
+}
+
+.ico-scan .corner.tl { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 5rpx; }
+.ico-scan .corner.tr { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 5rpx; }
+.ico-scan .corner.bl { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 5rpx; }
+.ico-scan .corner.br { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 5rpx; }
+
+.ico-scan .find {
+  position: absolute;
+  width: 10rpx;
+  height: 10rpx;
+  border: 2rpx solid #FFFFFF;
+  border-radius: 3rpx;
+  box-sizing: border-box;
+}
+
+.ico-scan .find::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3rpx;
+  height: 3rpx;
+  margin: -1.5rpx 0 0 -1.5rpx;
+  border-radius: 1rpx;
+  background: #FFFFFF;
+}
+
+.ico-scan .find.a { left: 7rpx; top: 7rpx; }
+.ico-scan .find.b { right: 7rpx; top: 7rpx; }
+.ico-scan .find.c { left: 7rpx; bottom: 7rpx; }
+
+.ico-scan .dots {
+  position: absolute;
+  right: 6rpx;
+  bottom: 6rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rpx;
+  width: 16rpx;
+}
+
+.ico-scan .dots view {
+  width: 3rpx;
+  height: 3rpx;
+  background: #FFFFFF;
+  border-radius: 1rpx;
+}
+
+/* 键盘图标（浅色按钮上使用深灰线条） */
+.ico-keyboard {
+  position: relative;
+  width: 36rpx;
+  height: 26rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #565D68;
+  border-radius: 6rpx;
+  padding: 4rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.ico-keyboard .kb-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ico-keyboard .kb-row view {
+  width: 4rpx;
+  height: 4rpx;
+  background: #565D68;
+  border-radius: 1rpx;
+}
+
+.ico-keyboard .kb-bar {
+  flex: 1;
+  width: auto;
+  height: 4rpx;
+  margin: 0 2rpx;
+  border-radius: 2rpx;
+}
+
+/* 配对按钮：图标与文字严格垂直居中 */
+.pair-actions .btn-scan,
+.pair-actions .btn-ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  line-height: 1;
+}
+
+.pair-actions .btn-ic {
+  align-self: center;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pair-actions .btn-label {
+  display: flex;
+  align-items: center;
+  line-height: 1;
+  margin: 0;
+}

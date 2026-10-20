@@ -73,6 +73,8 @@ Page({
     isRelayOwner: false,
     redeemBusy: false,
     redeemResultLabel: '',
+    redeemFormOpen: false,
+    redeemCode: '',
     shareEnabled: false,
     sharePayload: '',
     shareExpiresLabel: '',
@@ -84,6 +86,14 @@ Page({
     accountHint: uiText('自动识别当前微信身份，无需手动切换'),
     shareReason: '',
     redeemAvailable: false,
+    sheetExpanded: {},
+    appearanceSheet: false,
+    appearanceMode: 'auto',
+    appearanceModes: [
+      { mode: 'auto', label: uiText('跟随微信') },
+      { mode: 'light', label: uiText('浅色') },
+      { mode: 'dark', label: uiText('深色') }
+    ],
     codeSheet: false,
     codeSheetExpanded: false,
     codeSheetMaxH: 745,
@@ -126,7 +136,16 @@ Page({
       ...clientVersion(wx)
     });
     this.unsubscribe = store.subscribe((snapshot) => {
-      if (this._settingsVisible !== false) this.syncFromStore(snapshot);
+      if (this._settingsVisible === false) return;
+      // 合并短时间内的多次 store 通知，避免弹窗打开时背景页频繁重绘闪烁
+      this._pendingSnapshot = snapshot;
+      if (this._syncThrottleTimer) return;
+      this._syncThrottleTimer = setTimeout(() => {
+        this._syncThrottleTimer = null;
+        const next = this._pendingSnapshot;
+        this._pendingSnapshot = null;
+        if (next && this._settingsVisible !== false) this.syncFromStore(next);
+      }, 160);
     });
     this.syncFromStore({ app: store.state, session: store.sessionState });
     if (options && options.pair) {
@@ -200,20 +219,21 @@ Page({
   },
 
   pickAppearance() {
-    const modes = [
-      { mode: 'auto', label: uiText('跟随微信') },
-      { mode: 'light', label: uiText('浅色') },
-      { mode: 'dark', label: uiText('深色') }
-    ];
-    const current = theme.getMode();
-    wx.showActionSheet({
-      itemList: modes.map((m) => (m.mode === current ? '✓ ' : '') + preferences.t(m.label)),
-      success: (res) => {
-        const picked = modes[res.tapIndex];
-        if (!picked || picked.mode === current) return;
-        theme.setMode(picked.mode);
-        this.setData({ appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())) });
-      }
+    this.setData({ appearanceSheet: true, appearanceMode: theme.getMode() });
+  },
+
+  closeAppearanceSheet() {
+    this.setData({ appearanceSheet: false });
+  },
+
+  chooseAppearance(e) {
+    const mode = e.currentTarget.dataset.mode;
+    if (!mode) return;
+    if (mode !== theme.getMode()) theme.setMode(mode);
+    this.setData({
+      appearanceMode: theme.getMode(),
+      appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
+      appearanceSheet: false
     });
   },
 
@@ -261,6 +281,9 @@ Page({
 
   onHide() {
     this._settingsVisible = false;
+    clearTimeout(this._syncThrottleTimer);
+    this._syncThrottleTimer = null;
+    this._pendingSnapshot = null;
     this.cancelSettingsRefresh();
     this.setData({ preferenceMenu: '' });
     this.setData({ workStepMenu: '' });
@@ -275,6 +298,9 @@ Page({
 
   onUnload() {
     this._settingsVisible = false;
+    clearTimeout(this._syncThrottleTimer);
+    this._syncThrottleTimer = null;
+    this._pendingSnapshot = null;
     this.cancelSettingsRefresh();
     this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
     this._contentGeneration = (this._contentGeneration || 0) + 1;
@@ -942,6 +968,39 @@ Page({
     this.refreshNodes();
   },
 
+
+  // ---------- 通用：弹窗拖动条（点击/拖动调整高度） ----------
+
+  sheetGrabStart(e) {
+    const key = e.currentTarget.dataset.sheet;
+    if (!key) return;
+    this._sheetGrab = { key: key, y: e.touches[0].clientY, moved: false, applied: null };
+  },
+
+  sheetGrabMove(e) {
+    const g = this._sheetGrab;
+    if (!g || !g.key) return;
+    const dy = e.touches[0].clientY - g.y;
+    if (Math.abs(dy) < 20) return;
+    const expand = dy < 0;
+    if (g.applied === expand) return;
+    g.applied = expand;
+    g.moved = true;
+    const patch = {};
+    patch['sheetExpanded.' + g.key] = expand;
+    this.setData(patch);
+  },
+
+  sheetGrabEnd() {
+    const g = this._sheetGrab;
+    this._sheetGrab = null;
+    if (!g || !g.key || g.moved) return;
+    const expanded = !!(this.data.sheetExpanded && this.data.sheetExpanded[g.key]);
+    const patch = {};
+    patch['sheetExpanded.' + g.key] = !expanded;
+    this.setData(patch);
+  },
+
   closeManagementPanel() {
     this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
     this.setData({ managementPanel: this.data.managementPanel === 'gateway' ? 'nodes' : '', nodeDetailId: '', nodeDetail: null, nodePingBusy: false });
@@ -1020,14 +1079,26 @@ Page({
       wx.showModal({ title: uiText('兑换服务待配置'), content: uiText('请先配置公网服务后台。局域网直连不受影响。'), showCancel: false });
       return;
     }
+    // 在公网访问弹窗内展开兑换表单，并把弹窗增高到 90%
+    this._redeemDraft = '';
+    const expanded = Object.assign({}, this.data.sheetExpanded, { management: true });
+    this.setData({ redeemFormOpen: true, redeemCode: '', sheetExpanded: expanded });
+  },
+
+  onRedeemInput(e) {
+    // 非受控：避免逐字 setData 造成光标/内容抖动
+    this._redeemDraft = e.detail && e.detail.value != null ? e.detail.value : '';
+  },
+
+  closeRedeemForm() {
+    this._redeemDraft = '';
+    this.setData({ redeemFormOpen: false, redeemCode: '', redeemError: '' });
+  },
+
+  submitRedeem() {
+    if (this.data.redeemBusy) return;
     const generation = this._accountGeneration;
-    wx.showModal({
-      title: uiText('兑换公网有效期'),
-      editable: true,
-      placeholderText: uiText('输入管理员提供的兑换码'),
-      success: (res) => {
-        if (!res.confirm) return;
-        const code = String(res.content || '').trim().toUpperCase();
+        const code = String(this._redeemDraft != null ? this._redeemDraft : this.data.redeemCode || '').trim().toUpperCase();
         if (!code) {
           wx.showToast({ title: uiText('请输入兑换码'), icon: 'none' });
           return;
@@ -1036,8 +1107,11 @@ Page({
         this.setData({ redeemBusy: true, redeemResultLabel: '' });
         accessApi.ensureAccount({ freshLogin: true }).then(() => accessApi.redeemPublicAccess(code)).then(async (result) => {
           if (generation !== this._accountGeneration) return;
+          this._redeemDraft = '';
           this.setData({
             redeemBusy: false,
+            redeemFormOpen: false,
+            redeemCode: '',
             redeemResultLabel: result.expiresAt
               ? uiText('兑换成功，有效期至 ') + formatExpiry(result.expiresAt)
               : uiText('兑换成功')
@@ -1051,8 +1125,6 @@ Page({
           this.setData({ redeemBusy: false });
           wx.showToast({ title: err.message || uiText('兑换失败'), icon: 'none' });
         });
-      }
-    });
   },
 
   createNodeShare() {

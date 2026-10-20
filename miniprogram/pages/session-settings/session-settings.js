@@ -9,7 +9,7 @@ const CONNECTION_LABELS = { disconnected: uiText('未连接'), connecting: uiTex
 
 Page({
   manualShareMenu: true,
-  data: { navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerOptions: [], sheetMaxH: 480, pickerListH: 348, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true },
+  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerOptions: [], sheetMaxH: 480, pickerListH: 348, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true },
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onLoad() {
     theme.applyTo(this);
@@ -187,6 +187,39 @@ Page({
 
   openPickerSheet(kind, title, options) {
     this.setData({ picker: kind, pickerTitle: title, pickerOptions: options || [] });
+  },
+
+
+  // ---------- 通用：弹窗拖动条（点击/拖动调整高度） ----------
+
+  sheetGrabStart(e) {
+    const key = e.currentTarget.dataset.sheet;
+    if (!key) return;
+    this._sheetGrab = { key: key, y: e.touches[0].clientY, moved: false, applied: null };
+  },
+
+  sheetGrabMove(e) {
+    const g = this._sheetGrab;
+    if (!g || !g.key) return;
+    const dy = e.touches[0].clientY - g.y;
+    if (Math.abs(dy) < 20) return;
+    const expand = dy < 0;
+    if (g.applied === expand) return;
+    g.applied = expand;
+    g.moved = true;
+    const patch = {};
+    patch['sheetExpanded.' + g.key] = expand;
+    this.setData(patch);
+  },
+
+  sheetGrabEnd() {
+    const g = this._sheetGrab;
+    this._sheetGrab = null;
+    if (!g || !g.key || g.moved) return;
+    const expanded = !!(this.data.sheetExpanded && this.data.sheetExpanded[g.key]);
+    const patch = {};
+    patch['sheetExpanded.' + g.key] = !expanded;
+    this.setData(patch);
   },
 
   closePickerSheet() {
