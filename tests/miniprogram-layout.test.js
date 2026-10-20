@@ -4,7 +4,7 @@ const root=path.resolve(__dirname,'../miniprogram');
 const app=JSON.parse(fs.readFileSync(path.join(root,'app.json'),'utf8'));
 const routes=require('./helpers/routes.cjs')(app);
 test('WeChat root contains only runtime files and all packages stay inside source budget',()=>{
-  const report=require('../scripts/check-miniprogram-package.cjs').check();assert.ok(report.groups[0].bytes<1.8*1024*1024);assert.ok(report.groups[0].mediaBytes<=200*1024);
+  const report=require('../scripts/check-miniprogram-package.cjs').check();assert.ok(report.groups[0].bytes<1.8*1024*1024);assert.ok(report.groups[0].mediaBytes<=require('../scripts/check-miniprogram-package.cjs').MEDIA_BUDGET);
   assert.equal(routes.length,16);assert.equal(new Set(routes).size,16);
   for(const route of routes)for(const ext of ['js','json','wxml','wxss'])assert.ok(fs.existsSync(path.join(root,route+'.'+ext)),route+'.'+ext);
   assert.equal(fs.existsSync(path.join(root,'../app.js')),false);

@@ -1,7 +1,9 @@
 const { t: uiText } = require('../../utils/ui-preferences');
+const haptics = require('../../utils/haptics');
 const preferences = require('../../utils/ui-preferences');
 const workSteps = require('../../utils/work-step-presentation');
 const statusAppearance = require('../../utils/status-appearance');
+const procIconStyle = require('../../utils/proc-icon-style');
 const store = require('../../utils/store');
 const notifyPref = require('../../utils/notify-pref');
 const voicePreference = require('../../utils/voice-preference');
@@ -32,6 +34,9 @@ Page({
     ...workSteps.view(),
     statusStyleSheetOpen: false,
     statusStyleChoices: statusAppearance.choices(),
+    procIconSheetOpen: false,
+    procIconChoices: procIconStyle.choices(),
+    ...procIconStyle.view(procIconStyle.read()),
     navHeight: 32,
     referralEnabled: false, contentLoaded: false, contentError: '', shareSaving: false,
     accountDeviceId: '', accountIdHint: '', referralSheetOpen: false, referralBusy: false, referralError: '', referralToken: '', referralDays: 0, referralHint: '',
@@ -88,6 +93,14 @@ Page({
     redeemAvailable: false,
     sheetExpanded: {},
     appearanceSheet: false,
+    hapticsSheet: false,
+    hapticsLevel: 'medium',
+    hapticsOptions: [
+      { level: 'off', label: uiText('关闭') },
+      { level: 'light', label: uiText('轻') },
+      { level: 'medium', label: uiText('中') },
+      { level: 'heavy', label: uiText('重') }
+    ],
     appearanceMode: 'auto',
     appearanceModes: [
       { mode: 'auto', label: uiText('跟随微信') },
@@ -217,6 +230,14 @@ Page({
       this.setData(statusAppearance.view(id));
     } catch (_) { wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' }); }
   },
+  openProcIcons() { this.setData({ procIconSheetOpen: true, 'sheetExpanded.procIcon': false, ...procIconStyle.view(procIconStyle.read()) }); },
+  closeProcIcons() { this.setData({ procIconSheetOpen: false }); },
+  chooseProcIcon(event) {
+    try {
+      const id = procIconStyle.save(event.currentTarget.dataset.id);
+      this.setData(procIconStyle.view(id));
+    } catch (_) { wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' }); }
+  },
 
   pickAppearance() {
     this.setData({ appearanceSheet: true, appearanceMode: theme.getMode() });
@@ -224,6 +245,40 @@ Page({
 
   closeAppearanceSheet() {
     this.setData({ appearanceSheet: false });
+  },
+
+  openHapticsPicker() {
+    const level = haptics.getLevel();
+    this.setData({ hapticsSheet: true, hapticsLevel: level, hapticsStatusText: '' });
+    haptics.vibrate();
+  },
+
+  closeHapticsSheet() {
+    this.setData({ hapticsSheet: false });
+  },
+
+  chooseHaptics(e) {
+    const level = e.currentTarget.dataset.level;
+    const value = haptics.setLevel(level);
+    this.setData({ hapticsLevel: value });
+    if (value !== 'off') {
+      const first = haptics.vibrate();
+      // 依次补一记震动，便于确认是否生效
+      setTimeout(() => haptics.vibrate(), 160);
+      this.setData({ hapticsStatusText: '最近调用：' + ((first && first.api) || '-') + ' · ' + (first && first.ok ? 'ok' : 'fail') });
+    } else {
+      this.setData({ hapticsStatusText: '已关闭震动' });
+    }
+  },
+
+  testHaptics() {
+    haptics.test((result) => {
+      const lines = (result.report || []).map((row) => row.name + ': ' + (row.ok ? 'ok' : 'fail') + (row.detail ? ' (' + row.detail + ')' : ''));
+      const title = result.ok ? uiText('已触发震动') : uiText('当前手机或微信未开启震动，请在系统设置中打开');
+      const content = lines.join('\n');
+      this.setData({ hapticsStatusText: (result.ok ? 'ok · ' : 'fail · ') + lines.join(' | ') });
+      wx.showModal({ title, content, showCancel: false, confirmText: uiText('知道了') });
+    });
   },
 
   chooseAppearance(e) {
@@ -244,8 +299,9 @@ Page({
   onShow() {
     this._settingsVisible = true;
     this.setData({ voiceEnabled: voicePreference.enabled(),
-      ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()),
-      appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())) });
+      ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
+      appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
+      hapticsLevel: haptics.getLevel() });
     this.syncFromStore({ app: store.state, session: store.sessionState });
     this.cancelSettingsRefresh();
     // Local settings render first; identity is freshly verified after the first paint.
@@ -510,8 +566,8 @@ Page({
   onUiPreferencesChange(next) {
     // The global Page wrapper already sent changed preferences. Never resend its dictionary.
     const { ui, ...localPreferences } = next || preferences.snapshot();
-    this.setData({ ...localPreferences, ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()),
-      workStepModes: workSteps.MODES.map(item => ({ ...item, label: uiText(item.label) })), workStepTimings: workSteps.TIMINGS.map(item => ({ ...item, label: uiText(item.label) })), statusStyleChoices: statusAppearance.choices(), appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
+    this.setData({ ...localPreferences, ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
+      workStepModes: workSteps.MODES.map(item => ({ ...item, label: uiText(item.label) })), workStepTimings: workSteps.TIMINGS.map(item => ({ ...item, label: uiText(item.label) })), statusStyleChoices: statusAppearance.choices(), procIconChoices: procIconStyle.choices(), appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       languageOptions: [{ id: 'system', label: preferences.t('跟随系统') }, { id: 'zh', label: '简体中文' }, { id: 'en', label: 'English' }] });
   },
   pickLanguage() { this.setData({ preferenceMenu: this.data.preferenceMenu === 'language' ? '' : 'language' }); },

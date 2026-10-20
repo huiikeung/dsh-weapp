@@ -37,3 +37,11 @@ miniprogram/assets/icons/wordmark-white.png 与 wordmark-ink.png 由 Outfit 600
 （Google Fonts，https://fonts.google.com/specimen/Outfit）栅格化生成，该字体使用
 SIL Open Font License 1.1（https://openfontlicense.org）。仓库只分发栅格化后的
 字标图片，不分发字体文件；源图位于 resources/artwork/brand/。
+
+# 执行状态图标动效
+
+miniprogram/assets/icons/proc-icon-terra-*.gif 与 proc-icon-morph-*.gif 的点阵
+球体旋转与圆/三角/方形变形参考自 Jakub Antalík 的 thinking-orbs
+（https://github.com/Jakubantalik/thinking-orbs），按小程序 32 x 32、72 帧、
+4 秒循环重新实现，未引入其源码。该项目的 MIT 许可全文见
+docs/licenses/thinking-orbs.txt。

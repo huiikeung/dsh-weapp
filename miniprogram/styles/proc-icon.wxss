@@ -1,0 +1,58 @@
+/* ---------- 执行中：方形格子闪动加载图标 ---------- */
+/* Shared by the session process head and the execution-icon picker previews. */
+.proc-loader {
+  width: 32rpx;
+  height: 32rpx;
+  box-sizing: border-box;
+  display: flex;
+  flex-shrink: 0;
+}
+
+.proc-loader.proc-look-cells {
+  border-radius: 8rpx;
+  border: 1rpx solid rgba(127, 127, 127, 0.32);
+  background: rgba(127, 127, 127, 0.06);
+  padding: 4rpx;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-content: space-between;
+}
+
+.proc-loader-image {
+  width: 32rpx;
+  height: 32rpx;
+  display: block;
+}
+
+.proc-cell {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 2rpx;
+  background: #6C6C6C;
+  opacity: 0.25;
+  animation: procCellBlink 1.2s ease-in-out infinite;
+}
+
+.theme-dark .proc-cell { background: #969696; }
+
+@media (prefers-color-scheme: dark) {
+  .proc-cell { background: #969696; }
+}
+
+.proc-cell.c1 { animation-delay: 0s; }
+.proc-cell.c2 { animation-delay: 0.15s; }
+.proc-cell.c3 { animation-delay: 0.3s; }
+.proc-cell.c4 { animation-delay: 0.45s; }
+
+@keyframes procCellBlink {
+  0%, 100% { opacity: 0.22; transform: scale(0.9); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .proc-cell { animation-duration: 2.4s; }
+}
+
+/* Settings preview mirrors the process head: loader followed by the running title. */
+.proc-preview { gap: 14rpx; }
+.proc-preview-title { font-size: 28rpx; color: var(--text); }

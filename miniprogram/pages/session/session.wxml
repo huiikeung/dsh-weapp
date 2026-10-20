@@ -25,7 +25,7 @@
     </view>
     <view class="nav-actions">
       <view class="nav-more glass-press" bindtap="moreActions" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['更多']}}"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
-      <view wx:if="{{rows.length}}" class="session-switch-trigger glass-press" bindtap="openSessionSwitcher" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['会话快捷切换']}}">
+      <view wx:if="{{rows.length}}" class="session-switch-trigger glass-press" bindtap="openTurnNavigator" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['对话']}}">
         <view class="session-switch-lines" aria-hidden="true"><view/><view/><view/></view>
       </view>
     </view>
@@ -40,7 +40,7 @@
     enhanced
     show-scrollbar="{{false}}"
     scroll-into-view="{{scrollTarget}}"
-    scroll-with-animation="{{false}}"
+    scroll-with-animation="{{scrollAnim}}"
     bindscroll="onConvScroll"
     bindtouchstart="onConvTouch"
     bindscrolltoupper="loadOlder"
@@ -119,9 +119,10 @@
       <view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}}" id="{{item.key}}">
         <view class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
           <view class="command-icon-slot {{folds[item.key] ? 'disclosed' : ''}}" aria-hidden="true">
-            <view wx:if="{{item.running && !item.completed}}" class="proc-loader">
-              <view class="proc-cell c1"></view><view class="proc-cell c2"></view>
-              <view class="proc-cell c3"></view><view class="proc-cell c4"></view>
+            <view wx:if="{{item.running && !item.completed}}" class="proc-loader proc-look-{{procIconStyle}}">
+              <block wx:if="{{procIconStyle === 'cells'}}"><view class="proc-cell c1"></view><view class="proc-cell c2"></view>
+              <view class="proc-cell c3"></view><view class="proc-cell c4"></view></block>
+              <image wx:else class="proc-loader-image" mode="aspectFit" src="/assets/icons/{{procIconFile}}-{{theme === 'dark' ? 'dark' : 'light'}}.gif"/>
             </view>
             <image wx:elif="{{!item.completed}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
             <image wx:if="{{(item.completed || item.expandable) && !item.running}}" class="command-chevron {{item.completed ? 'completed-chevron' : ''}} {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
@@ -604,11 +605,10 @@
 
 <!-- + 和斜杠共用主机命令目录；附件选择是菜单中的本地动作。 -->
 <view wx:if="{{commandMenu}}" class="command-menu-mask" catchtap="closeAttachMenu"></view>
-<view wx:if="{{commandMenu}}" class="command-menu {{commandMenu.type === 'catalog' ? 'command-catalog' : commandMenu.type === 'attachments' ? 'command-attachments' : 'command-options'}}" catchtap="noop" role="dialog" aria-label="{{ui['添加与指令']}}">
+<view wx:if="{{commandMenu}}" class="command-menu {{commandMenu.type === 'catalog' ? 'command-catalog' : 'command-options'}}" catchtap="noop" role="dialog" aria-label="{{ui['添加与指令']}}">
 <view wx:if="{{commandMenu.type !== 'catalog'}}" class="command-menu-toolbar">
-<view wx:if="{{commandMenu.type === 'attachments'}}" class="command-menu-return command-row" bindtap="backToComposerCommands" role="button" aria-label="{{ui['返回']}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="command-menu-icon-slot"><image class="command-menu-icon command-return-icon command-monochrome" mode="aspectFit" src="/assets/icons/chev-right-gray.png"/></view><text class="command-menu-caption">{{ui['添加文件']}}</text></view>
-<view wx:else class="command-options-return" bindtap="backToComposerCommands" role="button" aria-label="{{ui['返回']}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><image class="command-options-back command-monochrome" mode="aspectFit" src="/assets/icons/chev-right-gray.png"/><text class="command-options-title">{{commandMenu.title}}</text></view>
-<view class="command-close" bindtap="closeAttachMenu" role="button" aria-label="{{ui['关闭']}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="{{commandMenu.type === 'options' ? 'command-close-glyph' : 'sheet-close-x'}}"></view></view>
+<view class="command-options-return" bindtap="backToComposerCommands" role="button" aria-label="{{ui['返回']}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><image class="command-options-back command-monochrome" mode="aspectFit" src="/assets/icons/chev-right-gray.png"/><text class="command-options-title">{{commandMenu.title}}</text></view>
+<view class="command-close" bindtap="closeAttachMenu" role="button" aria-label="{{ui['关闭']}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="command-close-glyph"></view></view>
 </view>
 <view wx:if="{{commandMenu.type === 'options'}}" class="command-search-field"><image class="command-search-icon" mode="aspectFit" src="/assets/icons/dsh-search{{theme === 'dark' ? '-dark' : ''}}.svg"/><input class="command-search" value="{{commandMenuQuery}}" bindinput="onCommandMenuSearch" placeholder="{{ui['搜索指令或选项']}}" aria-label="{{ui['搜索指令或选项']}}" placeholder-class="command-search-placeholder" adjust-position="{{false}}" bindkeyboardheightchange="onKeyboardHeight"/></view>
 <view wx:if="{{commandPaletteLoading || commandLoading}}" class="command-loading"><view class="command-loading-bar"></view></view>
@@ -617,18 +617,12 @@
 <block wx:for="{{commandMenu.groups}}" wx:key="id" wx:for-item="group">
 <view class="command-group-title">{{ui[group.title] !== undefined ? ui[group.title] : group.title}}</view>
 <view wx:for="{{group.items}}" wx:key="id" wx:for-item="command" class="command-row" bindtap="selectCommand" data-name="{{command.name}}" data-id="{{command.id}}" data-action="{{command.action}}" role="button" aria-label="{{command.label}} {{command.name}} {{command.description}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100">
-<view class="command-menu-icon-slot"><image class="command-menu-icon {{command.action === 'file' ? 'command-monochrome' : ''}}" mode="aspectFit" src="/assets/icons/{{command.icon}}"/></view>
-<view class="command-identity"><text class="command-name">{{command.label}}</text><text wx:if="{{command.label !== '/' + command.name}}" class="command-alias">{{command.name}}</text></view>
-<text wx:if="{{command.action !== 'file' && command.description}}" class="command-desc">{{command.description}}</text>
+<view class="command-menu-icon-slot"><image class="command-menu-icon {{command.action ? 'command-monochrome' : ''}}" mode="aspectFit" src="/assets/icons/{{command.icon}}"/></view>
+<view class="command-identity"><text class="command-name">{{command.label}}</text><text wx:if="{{command.label !== '/' + command.name && !command.action}}" class="command-alias">{{command.name}}</text></view>
+<text wx:if="{{!command.action && command.description}}" class="command-desc">{{command.description}}</text>
 </view>
 </block>
 <view wx:if="{{!commandMenu.groups.length && !commandLoading && !commandPaletteLoading}}" class="command-empty">{{ui['没有匹配的命令']}}</view>
-</block>
-<block wx:elif="{{commandMenu.type === 'attachments'}}">
-<view class="command-row" bindtap="chooseImage" role="button" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="command-menu-icon-slot"><image class="command-menu-icon command-monochrome" mode="aspectFit" src="/assets/icons/menu-image.svg"/></view><text class="command-name">{{ui['相册或拍照']}}</text></view>
-<view class="command-row" bindtap="chooseFile" role="button" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="command-menu-icon-slot"><image class="command-menu-icon command-monochrome" mode="aspectFit" src="/assets/icons/menu-chat-image.svg"/></view><text class="command-name">{{ui['聊天中的图片']}}</text></view>
-<view class="command-row" bindtap="chooseWorkspaceReference" role="button" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="command-menu-icon-slot"><image class="command-menu-icon command-monochrome" mode="aspectFit" src="/assets/icons/menu-folder.svg"/></view><text class="command-name">{{ui['工作区文件']}}</text></view>
-<view class="command-file-hint">{{ui['当前网关支持图片发送；普通文件请从工作区引用。']}}</view>
 </block>
 <block wx:else>
 <view wx:for="{{commandMenu.options}}" wx:key="id" class="command-option {{item.selected ? 'selected' : ''}}" bindtap="selectCommandOption" data-id="{{item.id}}" role="button" aria-pressed="{{item.selected}}" aria-disabled="{{commandPaletteLoading}}" aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}} {{item.badge || ''}} {{item.detail}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100">
@@ -901,6 +895,44 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
     </view>
   </view>
 
+  <!-- 对话节点定位：全屏蒙版 + 垂直居中展开的对话大纲 -->
+  <view wx:if="{{turnNavOpen}}" class="turn-overlay" catchtap="closeTurnNavigator" catchtouchmove="noop">
+    <view class="turn-overlay-inner" catchtap="noop" role="dialog" aria-label="{{ui['对话']}}">
+      <view class="turn-scrub-body" id="turn-scrub-body">
+        <scroll-view
+          scroll-y
+          enhanced
+          show-scrollbar="{{false}}"
+          class="turn-scrub-list"
+          id="turn-scrub-list"
+          bindscroll="onTurnListScroll"
+          bindtouchstart="onTurnScrubStart"
+          bindtouchmove="onTurnScrubMove"
+          bindtouchend="onTurnScrubEnd"
+          bindtouchcancel="onTurnScrubEnd"
+        >
+          <view class="turn-scrub-inner">
+            <view
+              wx:for="{{turnNavItems}}"
+              wx:key="key"
+              class="turn-scrub-row {{turnNavActiveIndex === index ? 'active' : ''}}"
+            >
+              <view class="turn-scrub-row-copy">
+                <text class="turn-scrub-row-title">{{item.label}}</text>
+                <text wx:if="{{turnNavActiveIndex === index && item.preview}}" class="turn-scrub-row-body">{{item.preview}}</text>
+              </view>
+              <view class="turn-scrub-rail-cell">
+                <view class="turn-scrub-row-line" style="width: {{turnNavWidths[index] || 30}}rpx;"></view>
+                <view wx:if="{{turnNavActiveIndex === index}}" class="turn-scrub-dot"></view>
+              </view>
+            </view>
+          </view>
+        </scroll-view>
+        <view wx:if="{{!turnNavItems.length}}" class="turn-nav-empty">{{ui['暂无可显示的消息']}}</view>
+      </view>
+    </view>
+  </view>
+
   <!-- 更多菜单：重命名 / 查看统计 / 工作区文件都在当前弹层内切换，不再叠加新的底部弹窗 -->
   <view class="sheet-mask session-menu-mask {{moreSheetOpen ? 'is-open' : ''}}" aria-hidden="{{!moreSheetOpen}}" catchtap="closeMoreActions" catchtouchmove="noop">
     <view class="sheet session-menu {{moreSheetExpanded ? 'expanded' : ''}}" style="margin-bottom: {{renameKeyboard}}px;" catchtap="noop">
@@ -928,6 +960,9 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           <view class="session-menu-row" bindtap="selectMoreAction" data-action="files" hover-class="session-menu-pressed" role="button">
             <image class="session-menu-icon session-menu-folder" src="/assets/icons/{{theme === 'dark' ? 'ic-dir-folder-white.png' : 'ic-dir-folder-ink.png'}}" mode="aspectFit"/><text class="session-menu-label">{{ui['工作区文件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
           </view>
+          <view class="session-menu-row" bindtap="selectMoreAction" data-action="switchSessions" hover-class="session-menu-pressed" role="button">
+            <image class="session-menu-icon" src="/assets/icons/list-gray.png" mode="aspectFit"/><text class="session-menu-label">{{ui['会话快捷切换']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
+          </view>
         </view>
         <view class="session-menu-group">
           <view class="session-menu-row {{running ? '' : 'disabled'}}" bindtap="selectMoreAction" data-action="cancel" hover-class="{{running ? 'session-menu-pressed' : 'none'}}" role="button" aria-disabled="{{!running}}">
@@ -948,6 +983,25 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           <view class="session-sheet-ghost" bindtap="backToMoreMenu" role="button">{{ui['取消']}}</view>
           <view class="session-sheet-primary" bindtap="confirmRename" role="button">{{ui['保存']}}</view>
         </view>
+      </view>
+
+      <!-- 会话快捷切换：在当前弹层内搜索并切换会话 -->
+      <view wx:elif="{{morePane === 'switch'}}" class="session-menu-pane">
+        <view class="session-switch-search">
+          <image class="session-switch-search-icon" src="/assets/icons/search-white.png" mode="aspectFit"/>
+          <input class="session-switch-search-input" value="{{sessionSwitcherQuery}}" placeholder="{{ui['搜索会话内容']}}" placeholder-class="field-placeholder" bindinput="onSessionSwitcherSearch" confirm-type="search"/>
+        </view>
+        <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="session-menu-scroll">
+          <view wx:for="{{sessionSwitcherItems}}" wx:key="sessionId" class="session-switch-row {{item.current ? 'current' : ''}}" bindtap="switchSessionFromMore" data-session-id="{{item.sessionId}}" hover-class="session-switch-row-pressed" role="button" aria-label="{{item.displayTitle}}">
+            <view class="session-switch-state {{item.current ? 'current' : ''}} {{item.running ? 'running' : ''}} {{item.hasUnread ? 'unread' : ''}}"/>
+            <view class="session-switch-copy">
+              <text class="session-switch-row-title">{{item.displayTitle}}</text>
+              <text wx:if="{{item.activityLabel}}" class="session-switch-activity">{{item.activityLabel}}</text>
+            </view>
+            <text wx:if="{{item.current}}" class="session-switch-current">{{ui['当前会话']}}</text>
+          </view>
+          <view wx:if="{{!sessionSwitcherItems.length}}" class="session-switch-empty">{{ui['没有匹配的会话']}}</view>
+        </scroll-view>
       </view>
 
       <!-- 查看统计：在当前弹层内展开统计数据，不再另起弹窗 -->
@@ -985,21 +1039,27 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
     </view>
   </view>
 
-  <view class="session-switch-mask {{sessionSwitcherOpen ? 'is-open' : ''}}" aria-hidden="{{!sessionSwitcherOpen}}" catchtap="closeSessionSwitcher" catchtouchmove="noop">
-    <view class="session-switch-panel" style="height: {{sessionSwitcherHeight}}vh;" catchtap="noop" role="dialog" aria-label="{{ui['会话快捷切换']}}">
-      <view class="session-switch-handle-zone" bindtap="expandSessionSwitcher" catchtouchstart="sessionSwitcherGrabStart" catchtouchmove="sessionSwitcherGrabMove" catchtouchend="sessionSwitcherGrabEnd" role="button" aria-label="{{ui['展开']}}">
-        <view class="session-switch-handle" aria-hidden="true"/>
-      </view>
-      <view class="session-switch-head">
-        <text class="session-switch-title">{{ui['会话快捷切换']}}</text>
-        <view class="session-switch-close" bindtap="closeSessionSwitcher" role="button" aria-label="{{ui['关闭']}}"><view class="sheet-close-x"/></view>
-      </view>
-      <view class="session-switch-search">
+  <view class="session-switch-overlay {{sessionSwitcherOpen ? 'is-open' : ''}}" aria-hidden="{{!sessionSwitcherOpen}}" catchtap="closeSessionSwitcher" catchtouchmove="noop">
+    <view class="session-switch-top" style="top: {{navPadTop}}px; height: {{navHeight}}px;" catchtap="noop">
+      <view
+        class="session-switch-search {{sessionSwitcherSearchOpen ? 'open' : ''}}"
+        style="{{sessionSwitcherSearchOpen ? 'width: min(520rpx, calc(100vw - ' + (navMoreRight + 48) + 'px));' : ''}}"
+        catchtap="expandSwitcherSearch"
+        role="button"
+        aria-label="{{ui['搜索会话内容']}}"
+      >
         <image class="session-switch-search-icon" src="/assets/icons/search-white.png" mode="aspectFit"/>
-        <input class="session-switch-search-input" value="{{sessionSwitcherQuery}}" placeholder="{{ui['搜索会话内容']}}" placeholder-class="field-placeholder" bindinput="onSessionSwitcherSearch" confirm-type="search"/>
+        <input wx:if="{{sessionSwitcherSearchOpen}}" class="session-switch-search-input" focus="{{sessionSwitcherSearchOpen}}" value="{{sessionSwitcherQuery}}" placeholder="{{ui['搜索会话内容']}}" placeholder-class="field-placeholder" bindinput="onSessionSwitcherSearch" confirm-type="search"/>
       </view>
-      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="session-switch-list">
-        <view wx:for="{{sessionSwitcherItems}}" wx:key="sessionId" class="session-switch-row {{item.current ? 'current' : ''}}" bindtap="switchSessionFromSwitcher" data-session-id="{{item.sessionId}}" hover-class="session-switch-row-pressed" role="button" aria-label="{{item.displayTitle}}">
+    </view>
+    <view class="session-switch-panel" style="padding-top: {{navPadTop + navHeight - 16}}px;" role="dialog" aria-label="{{ui['会话快捷切换']}}">
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="session-switch-list" style="max-height: calc(90vh - {{navPadTop + navHeight + 8}}px);" bindtap="closeSessionSwitcher">
+        <block wx:for="{{sessionSwitcherItems}}" wx:key="key">
+        <view wx:if="{{item.header}}" class="session-switch-group">
+          <text class="session-switch-group-title">{{item.title}}</text>
+          <text class="session-switch-group-count">{{item.count}}</text>
+        </view>
+        <view wx:else class="session-switch-row {{item.current ? 'current' : ''}}" bindtap="switchSessionFromSwitcher" data-session-id="{{item.sessionId}}" hover-class="session-switch-row-pressed" role="button" aria-label="{{item.displayTitle}}">
           <view class="session-switch-state {{item.current ? 'current' : ''}} {{item.running ? 'running' : ''}} {{item.hasUnread ? 'unread' : ''}}"/>
           <view class="session-switch-copy">
             <text class="session-switch-row-title">{{item.displayTitle}}</text>
@@ -1007,6 +1067,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           </view>
           <text wx:if="{{item.current}}" class="session-switch-current">{{ui['当前会话']}}</text>
         </view>
+        </block>
         <view wx:if="{{!sessionSwitcherItems.length}}" class="session-switch-empty">{{ui['没有匹配的会话']}}</view>
       </scroll-view>
     </view>

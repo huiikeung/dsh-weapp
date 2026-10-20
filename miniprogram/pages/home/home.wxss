@@ -169,6 +169,15 @@
   background: transparent;
 }
 
+/* 品牌行随内容滚动（在 scroll-view 内） */
+.topbar-inline {
+  display: flex;
+  align-items: center;
+  padding: 0;              /* 水平位置由 .home 的 44rpx 内边距决定，保持原位 */
+  margin-bottom: 14px;     /* 与改动前一致（原间距是 px，不是 rpx） */
+  flex-shrink: 0;
+}
+
 .host-row {
   display: flex;
   align-items: center;

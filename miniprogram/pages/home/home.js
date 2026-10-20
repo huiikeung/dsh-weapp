@@ -1,3 +1,4 @@
+const haptics = require('../../utils/haptics');
 const { t: uiText } = require('../../utils/ui-preferences');
 const store = require('../../utils/store');
 const theme = require('../../utils/theme');
@@ -827,20 +828,9 @@ Page({
     }
   },
 
-  /** 震动反馈：优先中等强度短震，失败再退回长震；不支持的环境静默忽略。 */
+  /** 震动反馈：等级由全局设置决定（设置 → 震动反馈）。 */
   hapticLight() {
-    try {
-      if (typeof wx.vibrateShort === 'function') {
-        wx.vibrateShort({
-          type: 'medium',
-          fail: () => {
-            try { if (typeof wx.vibrateLong === 'function') wx.vibrateLong({ fail() {} }); } catch (e) { /* 忽略 */ }
-          }
-        });
-        return;
-      }
-      if (typeof wx.vibrateLong === 'function') wx.vibrateLong({ fail() {} });
-    } catch (e) { /* 忽略 */ }
+    haptics.vibrate();
   },
 
   openDrawer() {

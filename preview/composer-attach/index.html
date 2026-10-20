@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>输入框 + 菜单 · 附件入口全部在一级</title>
+<style>
+  :root {
+    --bg:#F2F4F7; --surface:#FFFFFF; --text:#10131A; --text-2:rgba(16,25,42,.62); --text-3:rgba(16,25,42,.48);
+    --border:rgba(16,19,24,.10); --border-strong:rgba(16,19,24,.16); --fill:rgba(16,19,24,.05); --fill-2:rgba(16,19,24,.07);
+    --shadow:0 8px 24px rgba(7,24,43,.10);
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",sans-serif; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:920px; margin:0 auto; padding:44px 24px 56px; }
+  .eyebrow { font-size:11px; letter-spacing:.2em; color:#2E6BE6; font-weight:600; }
+  h1 { font-size:26px; margin:10px 0 8px; letter-spacing:-.01em; }
+  .lede { margin:0; color:var(--text-2); font-size:13px; line-height:1.7; max-width:760px; }
+  .panel-wrap { display:grid; grid-template-columns:minmax(340px,520px) 1fr; gap:26px; margin-top:28px; align-items:start; }
+  .label { font-size:12px; color:var(--text-2); margin:0 0 8px 6px; font-weight:500; }
+  .panel { position:relative; border-radius:24px; background:#fff; border:1px solid var(--border); box-shadow:0 10px 30px rgba(7,24,43,.06); padding:16px 16px 76px; min-height:430px; overflow:hidden; }
+  .panel::after { content:""; position:absolute; left:16px; right:16px; bottom:16px; height:48px; border-radius:16px; background:#fff; border:1px solid var(--border); box-shadow:0 8px 20px rgba(7,24,43,.06); }
+  .plus-chip { position:absolute; left:26px; bottom:28px; width:28px; height:28px; border-radius:50%; background:var(--fill-2); display:flex; align-items:center; justify-content:center; font-size:18px; color:var(--text); z-index:2; }
+  .composer-lines { position:absolute; left:70px; right:30px; bottom:40px; display:flex; flex-direction:column; gap:5px; z-index:2; }
+  .composer-lines i { height:7px; border-radius:4px; background:var(--fill); display:block; }
+  .composer-lines i:first-child { width:62%; }
+  .composer-lines i:last-child { width:38%; }
+  .menu { position:relative; z-index:3; border:1px solid var(--border-strong); background:var(--surface); border-radius:12px; box-shadow:var(--shadow); padding:4px; }
+  .group-title { padding:8px 6px 6px; font-size:11px; line-height:16px; color:var(--text-3); }
+  .row { min-height:40px; padding:0 8px; border-radius:8px; display:flex; align-items:center; gap:6px; }
+  .icon { width:20px; height:20px; flex:0 0 20px; display:flex; align-items:center; justify-content:center; }
+  .icon img { width:16px; height:16px; display:block; filter:grayscale(1); opacity:.85; }
+  .name { font-size:14px; line-height:20px; color:var(--text); }
+  .desc { margin-left:auto; font-size:12px; line-height:18px; color:var(--text-3); }
+  .notes { display:grid; gap:14px; }
+  .note { padding:14px 16px; border:1px solid var(--border); border-radius:14px; background:#fff; font-size:12px; color:var(--text-2); line-height:1.75; }
+  .note b { color:var(--text); }
+  .note.warn { border-style:dashed; border-color:var(--border-strong); background:transparent; }
+  @media (max-width:760px) { .panel-wrap { grid-template-columns:1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">驭鲸 HARNESS · 输入框 + 菜单</div>
+  <h1>附件入口全部收进一级弹窗</h1>
+  <p class="lede">「文件」入口和它的二级页面已删除。点「＋」后，「添加」分组直接是：添加图片 / 聊天中的图片 / 工作区文件 / 聊天中的文件，点任意一项直接打开对应选择器，不再跳二级。</p>
+
+  <div class="panel-wrap">
+    <div>
+      <p class="label">点「＋」后 · 一级弹窗</p>
+      <div class="panel">
+        <div class="plus-chip">＋</div>
+        <div class="composer-lines"><i></i><i></i></div>
+        <div class="menu">
+          <div class="group-title">添加</div>
+          <div class="row"><span class="icon"><img src="../../miniprogram/assets/icons/menu-image.svg" alt=""></span><span class="name">添加图片</span><span class="desc">相册/相机</span></div>
+          <div class="row"><span class="icon"><img src="../../miniprogram/assets/icons/menu-chat-image.svg" alt=""></span><span class="name">聊天中的图片</span><span class="desc">聊天图片选择器</span></div>
+          <div class="row"><span class="icon"><img src="../../miniprogram/assets/icons/menu-folder.svg" alt=""></span><span class="name">工作区文件</span><span class="desc">引用远端工作区</span></div>
+          <div class="row"><span class="icon"><img src="../../miniprogram/assets/icons/menu-chat-file.svg" alt=""></span><span class="name">聊天中的文件</span><span class="desc">聊天文件选择器</span></div>
+          <div class="row"><span class="icon"><img src="../../miniprogram/assets/icons/dsh-goal.svg" alt=""></span><span class="name">目标</span><span class="desc">设置或查看长期任务目标</span></div>
+          <div class="row"><span class="icon"><img src="../../miniprogram/assets/icons/dsh-plan.svg" alt=""></span><span class="name">计划</span><span class="desc">进入或退出计划模式</span></div>
+          <div class="row"><span class="icon"><img src="../../miniprogram/assets/icons/dsh-question.svg" alt=""></span><span class="name">反馈</span><span class="desc">发送关于当前会话的反馈</span></div>
+          <div class="group-title">指令</div>
+          <div class="row"><span class="icon"><img src="../../miniprogram/assets/icons/dsh-context.svg" alt=""></span><span class="name">压缩</span><span class="desc">压缩以上对话内容</span></div>
+          <div class="row"><span class="icon"><img src="../../miniprogram/assets/icons/dsh-agent.svg" alt=""></span><span class="name">权限</span><span class="desc">切换权限预设</span></div>
+          <div class="row"><span class="icon"><img src="../../miniprogram/assets/icons/dsh-code.svg" alt=""></span><span class="name">模型</span><span class="desc">选择当前会话的模型</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notes">
+      <div class="note"><b>改动</b><br>· 删除一级「文件」和「添加文件」二级页；<br>· 四个附件来源全部在一级，放在「添加」分组；<br>· 「聊天中的文件」放在「工作区文件」下面；<br>· 指令不接受附件时，这四项一起隐藏。</div>
+      <div class="note warn"><b>两个限制</b><br>· 「手机的文件」暂不做：微信小程序只能用 wx.chooseMessageFile 选聊天记录里的文件，调不起手机系统文件管理器（要系统选择器得 web-view/H5 或原生端）。<br>· 当前网关只接受图片附件；聊天文件选中后会显示在输入框，但发送会被拦截并提示「当前网关不支持普通文件上传」，待网关协议支持普通文件后再放开。</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

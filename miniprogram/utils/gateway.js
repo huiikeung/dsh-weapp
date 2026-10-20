@@ -240,6 +240,12 @@ class GatewayClient {
           if (res.reason === 'public-lease-expired') { self.handleTransportFailure(uiText('正在刷新公网授权')); }
           else if (/^public-access-/.test(res.reason || '')) self.handleAuthorizationFailure(uiText('公网服务未开通、已到期或验证失败，请在设置→公网访问检查或兑换；局域网不受影响'));
           else self.handleAuthorizationFailure(uiText('设备配对已失效，请重新扫描 DSH 二维码'));
+        } else if (res && Number(res.code) === 4001) {
+          // 中继报告电脑端连接器不在线：停止自动重试，直接把原因显示出来
+          self.wantsConnection = false;
+          self.publicLeaseTimer && clearTimeout(self.publicLeaseTimer);
+          self.handleTransportFailure(uiText('电脑端的公网连接器已离线，请在 DSH 中重新开启「微信连接」后重试'));
+          return;
         } else if (res && Number(res.code) === 4004) {
           self.handleAuthorizationFailure(uiText('DSH 电脑端连接器未支持安全公网配对，请升级插件连接器'));
         } else {

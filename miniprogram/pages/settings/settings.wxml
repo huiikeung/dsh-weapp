@@ -101,6 +101,35 @@
   </view>
   <view class="group-hint">{{ui['完全展开时不自动收起；设置保存在当前小程序。']}}</view>
 
+  <!-- 震动反馈弹窗 -->
+  <view wx:if="{{hapticsSheet}}" class="pair-sheet-mask" catchtap="closeHapticsSheet" catchtouchmove="noop">
+    <view class="pair-sheet appearance-sheet" catchtap="noop" role="dialog" aria-label="{{ui['震动反馈']}}">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <view>
+          <text class="pair-sheet-title">{{ui['震动反馈']}}</text>
+          <text class="pair-sheet-subtitle">{{ui['点击与滑动时的震动强度，全局生效。']}}</text>
+        </view>
+        <view class="pair-sheet-close tap" bindtap="closeHapticsSheet" role="button"><view class="sheet-close-x"></view></view>
+      </view>
+      <view class="appearance-options">
+        <view
+          wx:for="{{hapticsOptions}}"
+          wx:key="level"
+          class="appearance-option {{hapticsLevel === item.level ? 'selected' : ''}}"
+          data-level="{{item.level}}"
+          bindtap="chooseHaptics"
+          role="button"
+        >
+          <text class="appearance-option-label">{{item.label}}</text>
+          <text class="appearance-option-check">{{hapticsLevel === item.level ? '✓' : ''}}</text>
+        </view>
+      </view>
+      <view class="haptics-test-row" bindtap="testHaptics" role="button">{{ui['测试震动']}}</view>
+      <view wx:if="{{hapticsStatusText}}" class="haptics-status">{{hapticsStatusText}}</view>
+    </view>
+  </view>
+
   <!-- 外观（界面）弹窗 -->
   <view wx:if="{{appearanceSheet}}" class="pair-sheet-mask" catchtap="closeAppearanceSheet" catchtouchmove="noop">
     <view class="pair-sheet appearance-sheet" catchtap="noop" role="dialog" aria-label="{{ui['外观']}}">
@@ -145,10 +174,21 @@
       <text class="card-row-label">{{ui['对话状态条']}}</text>
       <view class="card-row-value"><text>{{ui[statusAppearanceLabel] !== undefined ? ui[statusAppearanceLabel] : statusAppearanceLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
     </view>
+    <view class="card-row" bindtap="openProcIcons" role="button" aria-label="{{ui['选择执行图标动效']}}">
+      <text class="card-row-label">{{ui['执行图标']}}</text>
+      <view class="card-row-value"><text>{{ui[procIconLabel] !== undefined ? ui[procIconLabel] : procIconLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+    </view>
   </view>
 
   <view class="group-title">{{ui['通用设置']}}</view>
   <view class="card general-preferences">
+    <view class="card-row" bindtap="openHapticsPicker" role="button" aria-label="{{ui['震动反馈']}}">
+      <text class="card-row-label">{{ui['震动反馈']}}</text>
+      <view class="card-row-value">
+        <text>{{hapticsLevel === 'off' ? ui['关闭'] : (hapticsLevel === 'light' ? ui['轻'] : (hapticsLevel === 'medium' ? ui['中'] : ui['重']))}}</text>
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+      </view>
+    </view>
     <view class="card-row preference-language-row">
       <text class="card-row-label">{{ui['语言']}}</text>
       <view class="preference-select" bindtap="pickLanguage" role="button"><text>{{ui[languageLabel] !== undefined ? ui[languageLabel] : languageLabel}}</text><view class="preference-chevron {{preferenceMenu === 'language' ? 'expanded' : ''}}" aria-hidden="true"><view class="preference-chevron-line"/></view></view>
@@ -583,6 +623,21 @@
         <view class="status-style-description">{{item.detail}}</view>
       </view>
     </scroll-view>
-    <view class="status-style-footer">{{ui['所有样式均使用 Official sway 鲸尾动画 · 自动保存']}}</view>
+    <view class="status-style-footer">{{ui['只改变文字流光 · 自动保存']}}</view>
+  </view>
+</view>
+
+<view wx:if="{{procIconSheetOpen}}" class="status-style-mask {{themeClass}}" catchtap="closeProcIcons" catchtouchmove="noop">
+  <view class="status-style-sheet resizable" style="height: {{sheetExpanded.procIcon ? 90 : 72}}vh;" catchtap="noop">
+    <view class="sheet-grabber-zone" data-sheet="procIcon" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
+    <view class="status-style-head"><view><view class="status-style-title">{{ui['执行图标']}}</view><view class="status-style-hint">{{ui['只改变执行中标题前的方形动效，标题与步骤保持不变']}}</view></view></view>
+    <scroll-view class="status-style-list" scroll-y enhanced show-scrollbar="{{false}}">
+      <view wx:for="{{procIconChoices}}" wx:key="id" class="status-style-option {{procIconStyle === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="chooseProcIcon" role="button" aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}} {{procIconStyle === item.id ? ui['已选择'] : ''}}">
+        <view class="status-style-option-head"><text class="status-style-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="status-style-check">{{procIconStyle === item.id ? ui['已选择'] : ''}}</text></view>
+        <view class="status-style-preview proc-preview"><view class="proc-loader proc-look-{{item.id}}"><block wx:if="{{item.id === 'cells'}}"><view class="proc-cell c1"></view><view class="proc-cell c2"></view><view class="proc-cell c3"></view><view class="proc-cell c4"></view></block><image wx:else class="proc-loader-image" mode="aspectFit" src="/assets/icons/{{item.file}}-{{theme === 'dark' ? 'dark' : 'light'}}.gif"/></view><text class="proc-preview-title">{{ui['正在执行命令']}}</text></view>
+        <view class="status-style-description">{{item.detail}}</view>
+      </view>
+    </scroll-view>
+    <view class="status-style-footer">{{ui['图标动效保存在当前小程序 · 自动保存']}}</view>
   </view>
 </view>

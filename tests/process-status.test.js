@@ -5,6 +5,7 @@ const path = require('node:path');
 const protocol = require('../miniprogram/utils/protocol');
 const { buildEntries } = require('../miniprogram/utils/conversation-workflow');
 const appearance = require('../miniprogram/utils/status-appearance');
+const procIcon = require('../miniprogram/utils/proc-icon-style');
 function events(reason) { return [
   { seq: 1, time: 1000, type: 'user/message', data: { content: '检查文件' } },
   { seq: 2, time: 1001, type: 'turn/start', data: { turn: 1 } },
@@ -72,18 +73,33 @@ test('style choice persists, invalid values fall back and storage failures surfa
     wx.setStorageSync=()=>{throw Error('storage full');};assert.throws(()=>appearance.save('neon'));
   } finally { delete global.wx; }
 });
+test('execution icon choice persists, defaults to cells, invalid values fall back and storage failures surface', () => {
+  let stored; global.wx = { getStorageSync:()=>stored, setStorageSync:(key,value)=>{ assert.equal(key,procIcon.KEY);assert.equal(key,'procIconStyle');stored=value; } };
+  try {
+    assert.equal(procIcon.read(),'cells');
+    assert.equal(procIcon.OPTIONS[0].id,'cells');
+    assert.equal(procIcon.OPTIONS.find(item=>item.id==='cells').file,'');
+    assert.equal(procIcon.view('cells').procIconFile,'');
+    for (const item of procIcon.OPTIONS) {
+      procIcon.save(item.id);assert.equal(procIcon.read(),item.id);
+      const view=procIcon.view(item.id);assert.equal(view.procIconStyle,item.id);assert.equal(view.procIconLabel,item.label);assert.equal(view.procIconFile,item.file);
+    }
+    stored='invalid';assert.equal(procIcon.read(),'cells');
+    wx.setStorageSync=()=>{throw Error('storage full');};assert.throws(()=>procIcon.save('terra'));
+  } finally { delete global.wx; }
+});
 test('all styles preserve status phrases and use the official four-second contour loop', () => {
   const template=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
   assert.match(template,/\{\{runPhrase\}\}\{\{ui\['，用时'\]\}\} \{\{runElapsedText\}\}…/);
-  assert.match(template,/official-sway-/);
+  assert.match(template,/<image class="status-tail-image" mode="aspectFit" src="\/assets\/icons\/official-sway-\{\{theme === 'dark' \? 'dark' : 'light'\}\}\.gif"\/>/);
   const css=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-appearance.wxss'),'utf8');
   assert.doesNotMatch(css,/officialTailSway|status-tail-atlas|transform:translate/);
   assert.match(template,/class="status-tail-image" mode="aspectFit"/);
-  for (const mode of ['light','dark']) {
-    const gif = fs.readFileSync(path.join(__dirname,'../miniprogram/assets/icons/official-sway-' + mode + '.gif'));
-    assert.equal(gif.subarray(0,6).toString(),'GIF89a');
-    assert.equal(gif.readUInt16LE(6),40);assert.equal(gif.readUInt16LE(8),40);
-    let at=19, frames=0, duration=0;
+  const readGif=name=>{
+    const gif = fs.readFileSync(path.join(__dirname,'../miniprogram/assets/icons/'+name));
+    assert.equal(gif.subarray(0,6).toString(),'GIF89a',name);
+    const gct=gif[10]&0x80?3*(1<<((gif[10]&7)+1)):0;
+    let at=13+gct, frames=0, duration=0;
     while (at < gif.length && gif[at] !== 0x3b) {
       if (gif[at] === 0x21) {
         const type=gif[at+1]; at+=2;
@@ -98,7 +114,18 @@ test('all styles preserve status phrases and use the official four-second contou
         at++;
       }
     }
-    assert.equal(frames,96);assert.equal(duration,4000);
+    return { width: gif.readUInt16LE(6), height: gif.readUInt16LE(8), frames, duration };
+  };
+  // Official sway keeps its established 40 x 40 / 96-frame contour loop.
+  for (const mode of ['light','dark']) {
+    const gif=readGif('official-sway-'+mode+'.gif');
+    assert.equal(gif.width,40);assert.equal(gif.height,40);assert.equal(gif.frames,96);assert.equal(gif.duration,4000);
+  }
+  // Execution icons ship as 32 x 32 / 72-frame GIFs on the same 4-second loop.
+  for (const choice of procIcon.OPTIONS.filter(item=>item.file)) for (const mode of ['light','dark']) {
+    const name=choice.file+'-'+mode+'.gif', gif=readGif(name);
+    assert.equal(gif.width,32,name);assert.equal(gif.height,32,name);
+    assert.equal(gif.frames,72,name);assert.equal(gif.duration,4000,name);
   }
   for(const choice of appearance.choices()){assert.match(choice.lightStyle,/linear-gradient/);assert.match(choice.darkStyle,/linear-gradient/);}
 });

@@ -5,10 +5,14 @@ const item = (name, kind = 'immediate', source = 'host') => ({ id: source + ':' 
 const groups = [{ id: 'commands', items: [item('export'), item('goal', 'input'), item('model', 'select'), item('compact'), item('plan', 'input'), item('feedback', 'input'), item('permission', 'select')] }, { id: 'skills', items: [item('goal', 'input', 'skill')] }];
 test('plus follows desktop Add and Commands order without inventing host actions', () => {
   const result = menu.catalog(groups, { t: x => x });
-  assert.deepEqual(result[0].items.map(x => x.name), ['file', 'goal', 'plan', 'feedback']);
+  assert.deepEqual(result[0].items.map(x => x.name), ['image', 'chatImage', 'workspace', 'chatFile', 'goal', 'plan', 'feedback']);
   assert.deepEqual(result[1].items.map(x => x.name), ['compact', 'permission', 'model', 'export']);
   assert.equal(result[2].items[0].label, '/goal');
-  assert.deepEqual(menu.catalog([], { t: x => x })[0].items.map(x => x.name), ['file']);
+  const empty = menu.catalog([], { t: x => x })[0].items;
+  assert.deepEqual(empty.map(x => x.name), ['image', 'chatImage', 'workspace', 'chatFile']);
+  assert.deepEqual(empty.map(x => x.action), ['image', 'chatImage', 'workspace', 'chatFile']);
+  assert.deepEqual(empty.map(x => x.icon), ['menu-image.svg', 'menu-chat-image.svg', 'menu-folder.svg', 'menu-chat-file.svg']);
+  assert.deepEqual(empty.map(x => x.label), ['添加图片', '聊天中的图片', '工作区文件', '聊天中的文件']);
 });
 test('model display uses catalog names and limits the desktop 1017 badge to official Flash', () => {
   const catalog = { groups: [{ id: 'deepseek-official', models: [{ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' }] }, { id: 'custom', models: [{ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' }] }] };
@@ -20,7 +24,8 @@ test('model display uses catalog names and limits the desktop 1017 badge to offi
 test('menu searches localized names and respects inline and attachment availability', () => {
   assert.equal(menu.catalog(groups, { t: x => x, query: '压缩' })[0].items[0].name, 'compact');
   const rows = menu.catalog(groups, { t: x => x, leading: false, canAttach: false }).flatMap(x => x.items);
-  assert.ok(!rows.some(x => ['goal', 'plan', 'feedback', 'file'].includes(x.name)));
+  assert.ok(!rows.some(x => ['goal', 'plan', 'feedback', 'image', 'chatImage', 'workspace', 'chatFile'].includes(x.name)));
+  assert.deepEqual(menu.catalog(groups, { t: x => x, query: '相册' })[0].items.map(x => x.name), ['image', 'chatImage']);
   assert.equal(menu.acceptsAttachments(item('goal', 'input')), false);
   assert.equal(menu.acceptsAttachments({ input: { attachments: true } }), true);
 });

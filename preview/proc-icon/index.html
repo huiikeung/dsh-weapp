@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>执行图标动效 · 样式预览</title>
+<style>
+  :root {
+    --bg: #F7F8FA;
+    --surface: #FFFFFF;
+    --surface-2: #F1F3F7;
+    --text: #10131A;
+    --text-2: rgba(16,25,42,.62);
+    --text-3: rgba(16,25,42,.48);
+    --border: rgba(16,19,24,.10);
+    --border-strong: rgba(16,19,24,.16);
+    --accent: #2E6BE6;
+    --accent-soft: rgba(46,107,230,.08);
+  }
+  .screen.light {
+    --bg: #F7F8FA; --surface: #FFFFFF; --surface-2: #F1F3F7;
+    --text: #10131A; --text-2: rgba(16,25,42,.62); --text-3: rgba(16,25,42,.48);
+    --border: rgba(16,19,24,.10); --border-strong: rgba(16,19,24,.16);
+    --accent: #2E6BE6; --accent-soft: rgba(46,107,230,.08);
+    color-scheme: light;
+  }
+  .dark, body.dark {
+    --bg: #05070C;
+    --surface: #12151C;
+    --surface-2: #191D26;
+    --text: #F1F4FA;
+    --text-2: rgba(241,244,250,.62);
+    --text-3: rgba(241,244,250,.46);
+    --border: rgba(255,255,255,.10);
+    --border-strong: rgba(255,255,255,.16);
+    --accent: #7FA6FF;
+    --accent-soft: rgba(120,160,255,.10);
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background:
+      radial-gradient(1100px 520px at 12% -8%, rgba(46,107,230,.10), transparent 62%),
+      radial-gradient(900px 520px at 88% 0%, rgba(122,84,199,.09), transparent 60%),
+      var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "SF Pro Text", "Helvetica Neue", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100vh;
+    transition: background .25s ease, color .25s ease;
+  }
+  body.dark { background: radial-gradient(1100px 520px at 12% -8%, rgba(46,107,230,.16), transparent 62%), radial-gradient(900px 520px at 88% 0%, rgba(122,84,199,.14), transparent 60%), var(--bg); }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 56px 28px 80px; }
+  .eyebrow { font-size: 12px; letter-spacing: .22em; color: var(--accent); font-weight: 600; text-transform: uppercase; }
+  h1 { font-size: 34px; line-height: 1.18; margin: 12px 0 10px; letter-spacing: -.02em; }
+  .lede { max-width: 740px; margin: 0; color: var(--text-2); font-size: 15px; line-height: 1.7; }
+  .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  .pill { font-size: 12px; color: var(--text-2); border: 1px solid var(--border); background: var(--surface); border-radius: 999px; padding: 5px 11px; }
+  .toolbar { display: flex; align-items: center; gap: 12px; margin-top: 26px; }
+  .toggle { display: inline-flex; background: var(--surface-2); border-radius: 999px; padding: 4px; border: 1px solid var(--border); }
+  .toggle button { border: 0; background: transparent; color: var(--text-2); font-size: 13px; padding: 7px 18px; border-radius: 999px; cursor: pointer; font-family: inherit; transition: background .2s, color .2s; }
+  .toggle button.on { background: var(--surface); color: var(--text); box-shadow: 0 2px 8px rgba(7,24,43,.08); }
+  .hint { font-size: 12px; color: var(--text-3); }
+  section { margin-top: 54px; }
+  .sec-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  h2 { font-size: 19px; margin: 0; letter-spacing: -.01em; }
+  .sec-note { color: var(--text-3); font-size: 12.5px; }
+  .sec-sub { color: var(--text-2); font-size: 13px; line-height: 1.65; margin: 6px 0 22px; max-width: 760px; }
+
+  /* -------- the actual loader component (mirrors .proc-loader / .proc-cell) -------- */
+  .pl {
+    width: 16px; height: 16px; flex: none; box-sizing: border-box;
+    border-radius: 4px; border: 1px solid rgba(127,127,127,.32); background: rgba(127,127,127,.06);
+    padding: 2px; display: flex; flex-wrap: wrap; justify-content: space-between; align-content: space-between;
+  }
+  .pl b { width: 5px; height: 5px; border-radius: 1px; background: #6C6C6C; opacity: .25; animation: cellBlink 1.2s ease-in-out infinite; }
+  .dark .pl b { background: #969696; }
+  .pl b:nth-child(2) { animation-delay: .15s; }
+  .pl b:nth-child(3) { animation-delay: .3s; }
+  .pl b:nth-child(4) { animation-delay: .45s; }
+  @keyframes cellBlink { 0%,100% { opacity: .22; transform: scale(.9); } 40% { opacity: 1; transform: scale(1); } }
+  .pl.zoom { transform: scale(4); transform-origin: center; }
+  .zoom-stage { width: 76px; height: 76px; display: flex; align-items: center; justify-content: center; }
+  .proc-gif { width: 16px; height: 16px; display: block; flex: none; }
+  .proc-gif.zoom { width: 64px; height: 64px; }
+
+  /* -------- cards -------- */
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(214px, 1fr)); gap: 14px; }
+  .card { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 18px 18px 16px; box-shadow: 0 1px 2px rgba(7,24,43,.04); }
+  .card .stage { height: 92px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: var(--surface-2); }
+  body.dark .card .stage { background: #080A0F; }
+  .card .stage img { width: 64px; height: 64px; display: block; }
+  .card h3 { font-size: 14.5px; margin: 14px 0 3px; font-weight: 600; }
+  .card p { margin: 0; font-size: 12px; line-height: 1.55; color: var(--text-3); min-height: 34px; }
+  .tag { position: absolute; top: 12px; right: 12px; font-size: 10.5px; padding: 3px 8px; border-radius: 999px; letter-spacing: .02em; }
+  .tag { color: var(--text-2); background: var(--surface-2); border: 1px solid var(--border); }
+
+  /* -------- actual-size rows (process head mock) -------- */
+  .rows { display: grid; gap: 6px; }
+  .proc-row { display: flex; align-items: center; gap: 6px; padding: 9px 13px; border-radius: 12px; background: var(--surface); border: 1px solid var(--border); }
+  .proc-row .row-name { width: 62px; flex: none; font-size: 12px; color: var(--text-3); }
+  .proc-row .proc-title { font-size: 15px; color: #18365A; font-weight: 500; }
+  body.dark .proc-row .proc-title { color: #A8BEDB; }
+  .proc-row .proc-detail { font-size: 12px; color: var(--text-3); margin-left: 6px; }
+
+  /* -------- sheet phone mockups -------- */
+  .phones { display: grid; grid-template-columns: repeat(auto-fit, minmax(368px, 1fr)); gap: 26px; align-items: start; }
+  .phone { border-radius: 30px; padding: 12px; background: var(--surface-2); border: 1px solid var(--border); }
+  .screen { position: relative; overflow: hidden; border-radius: 22px; height: 680px; background: var(--bg); border: 1px solid var(--border); color: var(--text); }
+  .screen .convo { padding: 22px 18px; display: flex; flex-direction: column; gap: 14px; height: 100%; }
+  .bubble { align-self: flex-end; max-width: 76%; background: #2E6BE6; color: #fff; font-size: 12.5px; line-height: 1.5; padding: 10px 13px; border-radius: 14px 14px 4px 14px; }
+  .bubble.agent { align-self: flex-start; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 14px 14px 14px 4px; }
+  .live-head { display: flex; align-items: center; gap: 6px; padding: 8px 2px; }
+  .live-head .proc-title { font-size: 15px; color: #18365A; font-weight: 500; }
+  .screen.dark .live-head .proc-title { color: #A8BEDB; }
+  .live-head .proc-detail { font-size: 12px; color: var(--text-3); }
+
+  .sheet-mask { position: absolute; inset: 0; background: rgba(0,0,0,.38); display: flex; align-items: flex-end; border-radius: 22px; }
+  .sheet { width: 100%; max-height: 89%; display: flex; flex-direction: column; background: var(--bg); color: var(--text); border-radius: 18px 18px 0 0; padding: 6px 16px 14px; box-shadow: 0 -20px 50px rgba(0,0,0,.30); }
+  .grabber-zone { height: 18px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .grabber { width: 34px; height: 4px; border-radius: 3px; background: var(--border-strong); }
+  .sheet-head { margin: 2px 0 12px; }
+  .sheet-title { font-size: 17px; font-weight: 600; letter-spacing: -.01em; }
+  .sheet-hint { font-size: 12px; color: var(--text-3); margin-top: 5px; }
+  .sheet-list { overflow: auto; flex: 1; min-height: 0; padding-right: 2px; }
+  .opt { padding: 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface-2); margin-bottom: 8px; }
+  .opt.selected { border-color: #6B87D7; background: var(--accent-soft); }
+  .opt-head { display: flex; align-items: center; justify-content: space-between; }
+  .opt-label { font-size: 14px; font-weight: 500; }
+  .opt-check { font-size: 11px; color: #5676C8; }
+  .dark .opt-check { color: #9DB4F0; }
+  .opt-preview { display: flex; align-items: center; gap: 6px; margin: 10px 0 7px; }
+  .opt-preview .proc-title { font-size: 15px; color: var(--text); }
+  .opt-preview .proc-detail { font-size: 12px; color: var(--text-3); }
+  .opt-desc { font-size: 11px; color: var(--text-3); line-height: 1.55; }
+  .sheet-footer { padding-top: 9px; text-align: center; font-size: 11px; color: var(--text-3); flex: none; }
+
+  footer { margin-top: 60px; padding-top: 22px; border-top: 1px solid var(--border); color: var(--text-3); font-size: 12px; line-height: 1.8; }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; }
+  .missing { display: inline-flex; align-items: center; justify-content: center; width: 64px; height: 64px; border: 1px dashed var(--border-strong); border-radius: 10px; font-size: 10px; color: var(--text-3); }
+  @media (prefers-reduced-motion: reduce) {
+    .pl b { animation: none; opacity: .6; }
+    body, .toggle button { transition: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="eyebrow">驭鲸 Harness · 执行状态</div>
+  <h1>执行图标动效</h1>
+  <p class="lede">对话执行时，「正在执行命令 / 正在读取文件…」前面的正方形动效（就是进程标题前那个闪动的方格）。这里放了 7 个候选样式：设置里新增「执行图标」入口，弹窗样式参考「对话状态条」，点一下就保存，用户随时可以自己换。</p>
+  <div class="meta">
+    <span class="pill">32 × 32 px GIF</span>
+    <span class="pill">72 帧 / 4 秒循环</span>
+    <span class="pill">浅色 / 深色各一套</span>
+    <span class="pill">原位 32rpx（16px）</span>
+  </div>
+
+  <div class="toolbar">
+    <div class="toggle" role="group" aria-label="主题预览">
+      <button type="button" id="btn-light" class="on" onclick="setTheme('light')">浅色</button>
+      <button type="button" id="btn-dark" onclick="setTheme('dark')">深色</button>
+    </div>
+    <span class="hint">切换深浅色后，动图会自动换用对应的一套 GIF。</span>
+  </div>
+
+  <section aria-labelledby="zoom-title">
+    <div class="sec-head"><h2 id="zoom-title">放大查看</h2><span class="sec-note">4× 显示 · 动图实时播放</span></div>
+    <p class="sec-sub">默认的「格子」保留现在的四格闪动（纯 CSS，无额外包体）；其余 6 个是本地 GIF；全部为中性灰、无彩色，深浅色跟随主题。</p>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section aria-labelledby="row-title">
+    <div class="sec-head"><h2 id="row-title">真实尺寸对比</h2><span class="sec-note">图标 16px · 标题 15px</span></div>
+    <p class="sec-sub">按进程标题行的实际尺寸排列，右边是「正在执行命令 · 4 次工具调用」在浅色下的样子。</p>
+    <div class="rows" id="rows"></div>
+  </section>
+
+  <section aria-labelledby="sheet-title">
+    <div class="sec-head"><h2 id="sheet-title">设置弹窗</h2><span class="sec-note">参考现有「对话状态条」弹窗</span></div>
+    <p class="sec-sub">底部弹窗、可下拉加高、选项卡片里直接预览进程标题行、点击即保存。下面是浅色与深色两套实际效果。</p>
+    <div class="phones">
+      <div class="phone"><div class="screen light" id="screen-light"></div></div>
+      <div class="phone"><div class="screen dark" id="screen-dark"></div></div>
+    </div>
+  </section>
+
+  <footer>
+    <strong>样式说明</strong>：「思考球 / 变形方」的几何与节奏参考 TerraWork 的 thinking-orbs（MIT，<a href="https://github.com/Jakubantalik/thinking-orbs">Jakub Antalík · thinking-orbs</a>），其余样式按同一套点阵语言为本项目绘制；所有图标均为中性灰、不带彩色。默认「格子」为原有 CSS 动画，不新增资源；所有 GIF 在本地生成、不联网；进程标题、步骤内容与耗时逻辑保持原样。<br>
+    本页只用于选型，不计入小程序包体；最终资源位于 <code>miniprogram/assets/icons/proc-icon-*.gif</code>，选择结果保存在本机 <code>procIconStyle</code>。
+  </footer>
+</div>
+
+<script>
+  var ICONS = [
+    { id: 'cells',  name: '格子',   desc: '方形四格依次闪动 · 默认',      tag: '默认' },
+    { id: 'terra',  name: '思考球', desc: '点阵球体旋转 · 参考 TerraWork', tag: 'TerraWork' },
+    { id: 'morph',  name: '变形方', desc: '圆 · 三角 · 方形的点阵变形',    tag: '' },
+    { id: 'grid',   name: '点阵',   desc: '九宫格呼吸脉冲',                tag: '' },
+    { id: 'orbit',  name: '轨道',   desc: '光点沿方形轨道环绕',            tag: '' },
+    { id: 'ripple', name: '波纹',   desc: '方形波纹向外扩散',              tag: '' },
+    { id: 'wave',   name: '声波',   desc: '等宽声波起伏',                  tag: '' }
+  ];
+  var SELECTED = 'cells';
+  var pageTheme = 'light';
+
+  function loader(t, cls) {
+    return '<span class="pl ' + (cls || '') + '"><b></b><b></b><b></b><b></b></span>';
+  }
+  function fileOf(id, t) { return '../../miniprogram/assets/icons/proc-icon-' + id + '-' + t + '.gif'; }
+  function icon(id, t, zoom) {
+    if (id === 'cells') return zoom ? '<span class="zoom-stage">' + loader(t, 'zoom') + '</span>' : loader(t, '');
+    var cls = zoom ? 'proc-gif zoom' : 'proc-gif';
+    return '<img class="' + cls + '" alt="' + nameOf(id) + ' 执行图标" src="' + fileOf(id, t) + '" onerror="this.replaceWith(missingIcon(\'' + cls + '\'))">';
+  }
+  function missingIcon(cls) {
+    var s = document.createElement('span');
+    s.className = 'missing ' + (cls === 'proc-gif zoom' ? '' : 'sm');
+    s.textContent = '待生成';
+    return s;
+  }
+  function nameOf(id) { for (var i = 0; i < ICONS.length; i++) if (ICONS[i].id === id) return ICONS[i].name; return id; }
+
+  function renderCards() {
+    document.getElementById('cards').innerHTML = ICONS.map(function (item) {
+      return '<div class="card">' +
+        (item.tag ? '<span class="tag ' + (item.tag === 'TerraWork' ? 'terra' : 'default') + '">' + item.tag + '</span>' : '') +
+        '<div class="stage">' + icon(item.id, pageTheme, true) + '</div>' +
+        '<h3>' + item.name + '</h3><p>' + item.desc + '</p></div>';
+    }).join('');
+  }
+  function renderRows() {
+    document.getElementById('rows').innerHTML = ICONS.map(function (item) {
+      return '<div class="proc-row"><span class="row-name">' + item.name + '</span>' +
+        icon(item.id, pageTheme, false) +
+        '<span class="proc-title">正在执行命令</span><span class="proc-detail">4 次工具调用</span></div>';
+    }).join('');
+  }
+  function sheetHtml(t) {
+    var opts = ICONS.map(function (item) {
+      return '<div class="opt ' + (item.id === SELECTED ? 'selected' : '') + '">' +
+        '<div class="opt-head"><span class="opt-label">' + item.name + '</span>' +
+        '<span class="opt-check">' + (item.id === SELECTED ? '已选择' : '') + '</span></div>' +
+        '<div class="opt-preview">' + icon(item.id, t, false) +
+        '<span class="proc-title">正在执行命令</span><span class="proc-detail">4 次工具调用</span></div>' +
+        '<div class="opt-desc">' + item.desc + '</div></div>';
+    }).join('');
+    return '<div class="convo">' +
+        '<div class="bubble">把这次发布说明整理成三条</div>' +
+        '<div class="bubble agent">好的，我先看一下改动范围。</div>' +
+        '<div class="live-head">' + icon(SELECTED, t, false) +
+        '<span class="proc-title">正在执行命令</span><span class="proc-detail">4 次工具调用</span></div>' +
+        '<div class="bubble agent">发布说明已整理完成，共三条。</div>' +
+      '</div>' +
+      '<div class="sheet-mask"><div class="sheet">' +
+        '<div class="grabber-zone"><span class="grabber"></span></div>' +
+        '<div class="sheet-head"><div class="sheet-title">执行图标</div>' +
+        '<div class="sheet-hint">只改变执行中标题前的方形动效，标题与步骤保持不变</div></div>' +
+        '<div class="sheet-list">' + opts + '</div>' +
+        '<div class="sheet-footer">图标动效保存在当前小程序 · 自动保存</div>' +
+      '</div></div>';
+  }
+  function renderSheets() {
+    document.getElementById('screen-light').innerHTML = sheetHtml('light');
+    document.getElementById('screen-dark').innerHTML = sheetHtml('dark');
+  }
+  function setTheme(next) {
+    pageTheme = next;
+    document.body.classList.toggle('dark', next === 'dark');
+    document.getElementById('btn-light').classList.toggle('on', next === 'light');
+    document.getElementById('btn-dark').classList.toggle('on', next === 'dark');
+    renderCards();
+    renderRows();
+  }
+  renderCards();
+  renderRows();
+  renderSheets();
+</script>
+</body>
+</html>

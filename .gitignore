@@ -11,6 +11,10 @@ dsh-console/services/public-access/node_modules/
 preview-qr.png
 preview-info.json
 upload-info.json
+login-qr.png
+
+# 设计预览截图（HTML/shoot.cjs 入库，图片可重新生成）
+preview/**/*.png
 
 # dsh-mini 运行时数据
 dsh-mini/.dsh-mini/

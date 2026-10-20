@@ -110,63 +110,52 @@ test('session quick switch filters recent sessions and switches in place', () =>
   store.state.archivedSessionIds = ['s3'];
   page.openSessionSwitcher();
   assert.equal(page.data.sessionSwitcherOpen, true);
-  assert.deepEqual(page.data.sessionSwitcherItems.map(item => item.sessionId), ['s2', 's1']);
-  assert.equal(page.data.sessionSwitcherItems[1].current, true);
+  assert.deepEqual(Array.from(page.data.sessionSwitcherItems.filter(item => !item.header).map(item => item.sessionId)), ['s2', 's1']);
+  assert.equal(page.data.sessionSwitcherItems.find(item => item.sessionId === 's1').current, true);
   page.onSessionSwitcherSearch({ detail: { value: 'second' } });
-  assert.deepEqual(page.data.sessionSwitcherItems.map(item => item.sessionId), ['s2']);
+  assert.deepEqual(Array.from(page.data.sessionSwitcherItems.filter(item => !item.header).map(item => item.sessionId)), ['s2']);
   page.switchSessionFromSwitcher(event('sessionId', 's2'));
   assert.equal(page.data.sessionSwitcherOpen, false);
   assert.deepEqual(calls.find(call => call[0] === 'open'), ['open', 's2', 'Second task', 'standard']);
   assert.equal(page.sessionId, 's2');
 });
 
-test('quick switch controls use a narrow bottom sheet and a wide right-side popover', () => {
+test('quick switch opens as a full-screen overlay like the turn navigator', () => {
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
-  assert.ok(xml.includes('bindtap="openSessionSwitcher"'));
-  assert.match(xml, /wx:if="\{\{rows\.length\}\}" class="session-switch-trigger/, 'the quick switcher is hidden until the conversation has messages');
-  assert.ok(xml.includes('class="session-switch-mask'));
-  assert.ok(xml.includes('class="session-switch-handle-zone"'), 'the mobile sheet keeps its visible drag handle');
+  // 三横线按钮改为「对话节点定位」，会话快捷切换移入更多菜单并以蒙版呈现
+  assert.ok(xml.includes('bindtap="openTurnNavigator"'));
+  assert.ok(xml.includes('data-action="switchSessions"'));
+  assert.match(xml, /wx:if="\{\{rows\.length\}\}" class="session-switch-trigger/, 'the turn navigator is hidden until the conversation has messages');
+  assert.ok(xml.includes('class="session-switch-overlay'));
+  assert.ok(!xml.includes('session-switch-handle-zone'), 'overlay no longer uses a bottom-sheet handle');
   assert.ok(xml.includes('bindtap="switchSessionFromSwitcher"'));
-  assert.match(css, /\.session-switch-panel\s*\{[^}]*border-radius: 32rpx 32rpx 0 0;/);
-  assert.match(css, /@media\s*\(min-width:\s*700px\)[\s\S]*?\.session-switch-panel\s*\{[\s\S]*?right:\s*16px;/);
-  assert.match(css, /\.session-switch-handle\s*\{[^}]*flex: 0 0 84rpx;/, 'drag handle keeps its full pill width');
+  assert.match(css, /\.session-switch-overlay\s*\{[^}]*position: fixed;[^}]*inset: 0;/, 'overlay covers the viewport');
+  assert.match(css, /\.session-switch-overlay\s*\{[^}]*background: rgba\(8, 10, 16/, 'overlay dims the page like the turn navigator');
+  assert.match(css, /\.session-switch-panel\s*\{[^}]*max-height: 90vh;/, 'panel still caps at 90vh');
   assert.match(css, /\.session-switch-lines\s*\{\s*gap: 12rpx;/, 'hamburger bars have wider vertical spacing');
-  assert.match(css, /\.session \.segmented-row \.nav-actions \.nav-more::before\s*\{[^}]*width: 48rpx;[^}]*height: 48rpx;/, 'ellipsis circle is smaller than its tap target');
 });
 
-test('quick switch sheet expands to 90 percent by tapping or dragging its handle', () => {
-  const { page } = fixture();
-  page.sessionSwitcherGrabStart({ touches: [{ clientY: 120 }] });
-  page.sessionSwitcherGrabEnd();
-  assert.equal(page.data.sessionSwitcherHeight, 90, 'a tap completed through the caught touch handlers expands the sheet');
-  page.data.sessionSwitcherHeight = 60;
-  page.data.sessionSwitcherExpanded = false;
-  page.expandSessionSwitcher();
-  assert.equal(page.data.sessionSwitcherExpanded, true);
-  assert.equal(page.data.sessionSwitcherHeight, 90);
-  page.data.sessionSwitcherHeight = 60;
-  page.data.sessionSwitcherExpanded = false;
-  page.sessionSwitcherGrabStart({ touches: [{ clientY: 120 }] });
-  page.sessionSwitcherGrabMove({ touches: [{ clientY: 0 }] });
-  assert.ok(page.data.sessionSwitcherHeight > 60 && page.data.sessionSwitcherHeight <= 90);
-  page.sessionSwitcherGrabEnd();
-  assert.equal(page.data.sessionSwitcherExpanded, true);
-  assert.equal(page.data.sessionSwitcherHeight, 90);
-  page.expandSessionSwitcher(); // A completed drag must not also trigger a tap.
-  assert.equal(page.data.sessionSwitcherExpanded, true);
-  page.sessionSwitcherGrabStart({ touches: [{ clientY: 60 }] });
-  page.sessionSwitcherGrabMove({ touches: [{ clientY: 100 }] });
-  page.sessionSwitcherGrabEnd();
-  assert.equal(page.data.sessionSwitcherExpanded, false);
-  assert.equal(page.data.sessionSwitcherHeight, 60);
+test('quick switch overlay keeps search, list and in-place switching', () => {
+  const { page, store, calls } = fixture();
+  store.state.sessions = [
+    { sessionId: 's1', title: 'Current', updatedAt: 100, running: true },
+    { sessionId: 's2', title: 'Second task', updatedAt: 200, agentPreset: 'standard' }
+  ];
+  page.openSessionSwitcher();
+  assert.equal(page.data.sessionSwitcherOpen, true);
+  page.onSessionSwitcherSearch({ detail: { value: 'second' } });
+  assert.deepEqual(Array.from(page.data.sessionSwitcherItems.filter(item => !item.header).map(item => item.sessionId)), ['s2']);
+  page.switchSessionFromSwitcher(event('sessionId', 's2'));
+  assert.equal(page.data.sessionSwitcherOpen, false);
+  assert.equal(page.sessionId, 's2');
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
-  assert.match(xml, /height: \{\{sessionSwitcherHeight\}\}vh/);
   assert.match(xml, /session-switch-state \{\{item.current \? 'current' : ''\}\}/);
   const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
-  assert.match(css, /\.session-switch-panel\s*\{[^}]*max-height: 90vh;/, 'the mobile sheet can reach its configured 90vh height');
   assert.match(css, /\.session-switch-state\.current\s*\{[^}]*background: #31b77a;/);
+  assert.ok(calls.find(call => call[0] === 'open'));
 });
+
 module.exports = { fixture, event };
 test('more sheet omits the session subtitle and hosts rename/stats/files panes in place', () => {
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');

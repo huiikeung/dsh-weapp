@@ -46,17 +46,17 @@
     <!-- 深海背景随内容一起位移（对齐 iOS DeepOceanBackground 在 workspaceContent 内） -->
     <view class="deep-bg home-deep-bg"><ocean-background id="home-ocean" active="{{oceanActive}}" reduced-motion="{{oceanReducedMotion}}" /></view>
 
-    <!-- 顶部品牌行：与右上角胶囊同行（导航区内固定，不随内容滚动），左边距对齐内容区 -->
-    <view class="topbar" style="top: {{topbarTop}}px; height: {{topbarHeight}}px;">
-      <view class="brand-row tap" hover-class="brand-dim" bindtap="openDrawer" role="button" aria-label="whaletail HARNESS">
-        <image class="brand-whale" src="/assets/icons/whale-white.png" mode="aspectFit" aria-hidden="true"/>
-        <image class="brand-wordmark" src="/assets/icons/wordmark-white.png" mode="widthFix" aria-hidden="true"/>
-        <view class="brand-badge">HARNESS</view>
-      </view>
-    </view>
-
     <scroll-view class="home-scroll" scroll-y="{{!workspacePickerOpen}}" show-scrollbar="{{false}}">
-    <view class="home" style="padding-top: {{homePadTop}}px;">
+    <view class="home" style="padding-top: {{topbarTop}}px;">
+
+      <!-- 顶部品牌行：随页面一起滚动（不再固定） -->
+      <view class="topbar-inline" style="height: {{topbarHeight}}px;">
+        <view class="brand-row tap" hover-class="brand-dim" bindtap="openDrawer" role="button" aria-label="whaletail HARNESS">
+          <image class="brand-whale" src="/assets/icons/whale-white.png" mode="aspectFit" aria-hidden="true"/>
+          <image class="brand-wordmark" src="/assets/icons/wordmark-white.png" mode="widthFix" aria-hidden="true"/>
+          <view class="brand-badge">HARNESS</view>
+        </view>
+      </view>
 
       <!-- 配对菜单遮罩：点击空白处关闭（留在 wrap 内保证与 pair-menu 同层叠上下文） -->
       <view

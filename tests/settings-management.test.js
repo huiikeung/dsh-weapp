@@ -38,6 +38,7 @@ function createPage(apiOptions) {
       if (name === '../../utils/ui-preferences') return require('../miniprogram/utils/ui-preferences');
       if (name === '../../utils/work-step-presentation') return require('../miniprogram/utils/work-step-presentation');
       if (name === '../../utils/status-appearance') return require('../miniprogram/utils/status-appearance');
+      if (name === '../../utils/proc-icon-style') return require('../miniprogram/utils/proc-icon-style');
       if (name === '../../utils/access-api') return api;
       if (name === '../../utils/public-access-state') return require('../miniprogram/utils/public-access-state');
       if (name === '../../utils/node-presentation') return require('../miniprogram/utils/node-presentation');
@@ -45,6 +46,7 @@ function createPage(apiOptions) {
       if (name === '../../utils/labels') return { presetModeName: (v) => v, permissionName: (v) => v };
       if (name === '../../utils/notify-pref') return { enabled: () => false };
       if (name === '../../utils/voice-preference') return require('../miniprogram/utils/voice-preference');
+      if (name === '../../utils/haptics') return require('../miniprogram/utils/haptics');
       if (name === '../../utils/theme') return { applyTo() {}, getMode: () => 'auto' };
       if (name === '../../utils/build') return { BUILD_TIME: 'test-build' };
       throw new Error('Unexpected dependency: ' + name);

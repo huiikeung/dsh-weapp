@@ -146,13 +146,54 @@ test('settings retry label and inherited text follow the manually selected theme
 test('conversation status style sheet has a resizable grabber and no text close action', () => {
   const html = read('pages/settings/settings.wxml');
   const css = read('pages/settings/settings.wxss');
-  const statusSheet = html.match(/<view wx:if="\{\{statusStyleSheetOpen\}\}"[\s\S]*?<\/view>\s*<\/view>\s*<\/view>/);
+  const statusSheet = html.match(/<view wx:if="\{\{statusStyleSheetOpen\}\}"[\s\S]*?status-style-footer[\s\S]*?<\/view>\s*<\/view>\s*<\/view>/);
   assert.ok(statusSheet, 'status style sheet exists');
   assert.match(statusSheet[0], /class="sheet-grabber-zone" data-sheet="statusStyle"[^>]*sheetGrabStart[^>]*sheetGrabMove[^>]*sheetGrabEnd/);
   assert.match(statusSheet[0], /sheetExpanded\.statusStyle \? 90 : 72/);
   assert.doesNotMatch(statusSheet[0], /status-style-close|\{\{ui\['完成'\]\}\}/);
   assert.match(css, /\.status-style-sheet\.resizable\s*\{[^}]*transition:height/);
   assert.match(css, /\.status-style-list\s*\{[^}]*flex:1/);
+  // The status-strip preview keeps the official whale icon.
+  assert.match(statusSheet[0], /src="\/assets\/icons\/official-sway-\{\{theme === 'dark' \? 'dark' : 'light'\}\}\.gif"/);
+  assert.doesNotMatch(statusSheet[0], /statusIconFile/);
+});
+
+test('execution icon row follows the status style row and mirrors its resizable sheet', () => {
+  const html = read('pages/settings/settings.wxml');
+  const js = read('pages/settings/settings.js');
+  const css = read('pages/settings/settings.wxss');
+  const styleIndex = html.indexOf('bindtap="openStatusStyles"');
+  const iconIndex = html.indexOf('bindtap="openProcIcons"');
+  const styleLabel = html.indexOf('>对话状态条</text>');
+  const iconLabel = html.indexOf('>执行图标</text>');
+  assert.ok(styleIndex >= 0 && iconIndex > styleIndex && iconLabel > iconIndex, 'execution icon row follows the status style row');
+  assert.ok(styleLabel > styleIndex && styleLabel < iconIndex, 'status style row keeps its label');
+  assert.ok(!html.slice(styleIndex, iconLabel).includes('group-title'), 'both rows share the Appearance group');
+  assert.match(html.slice(styleIndex, iconLabel), /bindtap="openProcIcons"/);
+  const sheet = html.match(/<view wx:if="\{\{procIconSheetOpen\}\}"[\s\S]*?status-style-footer[\s\S]*?<\/view>\s*<\/view>\s*<\/view>/);
+  assert.ok(sheet, 'execution icon sheet exists');
+  assert.match(sheet[0], /class="sheet-grabber-zone" data-sheet="procIcon"[^>]*sheetGrabStart[^>]*sheetGrabMove[^>]*sheetGrabEnd/);
+  assert.match(sheet[0], /sheetExpanded\.procIcon \? 90 : 72/);
+  assert.match(sheet[0], /wx:for="\{\{procIconChoices\}\}"/);
+  assert.match(sheet[0], /class="proc-loader proc-look-\{\{item\.id\}\}"/);
+  assert.match(sheet[0], /item\.id === 'cells'/);
+  assert.match(sheet[0], /class="proc-cell c1"/);
+  assert.match(sheet[0], /src="\/assets\/icons\/\{\{item\.file\}\}-\{\{theme === 'dark' \? 'dark' : 'light'\}\}\.gif"/);
+  assert.match(sheet[0], /正在执行命令/);
+  assert.match(sheet[0], /bindtap="chooseProcIcon"/);
+  assert.match(sheet[0], /图标动效保存在当前小程序 · 自动保存/);
+  assert.doesNotMatch(sheet[0], /status-style-close|\{\{ui\['完成'\]\}\}/);
+  for (const handler of ['openProcIcons', 'closeProcIcons', 'chooseProcIcon']) assert.match(js, new RegExp(handler + '\\('), handler);
+  assert.match(js, /procIconStyle\.save\(/);
+  // The loader styles are shared by the session head and the picker previews.
+  const procCss = read('styles/proc-icon.wxss');
+  assert.match(procCss, /\.proc-loader\s*\{[^}]*width:\s*32rpx[^}]*height:\s*32rpx/);
+  assert.match(procCss, /\.proc-loader\.proc-look-cells\s*\{[^}]*border-radius:\s*8rpx/);
+  assert.match(procCss, /\.proc-loader-image\s*\{[^}]*width:\s*32rpx[^}]*height:\s*32rpx/);
+  assert.match(procCss, /@keyframes procCellBlink/);
+  assert.doesNotMatch(read('pages/session/session.wxss'), /@keyframes procCellBlink/, 'loader keyframes live in the shared stylesheet');
+  assert.match(read('pages/session/session.wxss'), /@import "\.\.\/\.\.\/styles\/proc-icon\.wxss"/);
+  assert.match(css, /@import "\.\.\/\.\.\/styles\/proc-icon\.wxss"/);
 });
 
 test('utility panels are bottom sheets with theme colors and concise feature labels', () => {

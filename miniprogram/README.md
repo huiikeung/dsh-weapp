@@ -15,3 +15,5 @@ node --test tests/miniprogram-layout.test.js
 语言字典源文件在 `../resources/i18n/`；修改后运行 `node scripts/sync-i18n.cjs`。运行时仍使用 JS 模块，避免 JSON require 导致启动空白。
 
 主包和各分包原始源码预算为 1.8 MiB，预留编译/封装余量。该检查不等同于微信服务器实际上传大小，实际预览需在开发者工具中完成。
+
+主包图片/音频软预算为 300 KiB（执行中状态图标可选动效 GIF 约 82 KiB）；主包源码总量仍受 1.8 MiB 约束，新增媒体资源前请先评估该预算。

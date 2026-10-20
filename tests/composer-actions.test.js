@@ -45,6 +45,47 @@ test('plus opens commands without inserting slash or clearing draft and attachme
   assert.equal(page.data.commandMenu.type, 'catalog'); assert.ok(calls.some(x => x[0] === 'commands'));
   page.attachMenu(); assert.equal(page.data.commandMenu, null); assert.equal(page.data.draft, 'unfinished');
 });
+test('every attachment source sits on the plus first level and opens directly, without a sub-page', async () => {
+  const { page, pickers } = fixture(); await page.attachMenu();
+  const rows = page.data.commandMenu.groups.flatMap(group => group.items);
+  assert.deepEqual(rows.slice(0, 4).map(item => [item.name, item.action]), [['image', 'image'], ['chatImage', 'chatImage'], ['workspace', 'workspace'], ['chatFile', 'chatFile']]);
+  assert.deepEqual(rows.slice(0, 4).map(item => item.label), ['添加图片', '聊天中的图片', '工作区文件', '聊天中的文件']);
+
+  page.selectCommand(event({ id: 'local:image', name: 'image', action: 'image' }));
+  assert.equal(pickers.length, 1); assert.equal(page.data.commandMenu, null);
+  pickers[0].fail({ errMsg: 'chooseMedia:fail cancel' });
+
+  await page.attachMenu();
+  page.selectCommand(event({ id: 'local:chat-image', name: 'chatImage', action: 'chatImage' }));
+  assert.equal(pickers.length, 2); assert.equal(pickers[1].type, 'image'); assert.equal(page.data.commandMenu, null);
+  pickers[1].fail({ errMsg: 'chooseMessageFile:fail cancel' });
+
+  await page.attachMenu();
+  page.selectCommand(event({ id: 'local:workspace', name: 'workspace', action: 'workspace' }));
+  assert.equal(page.data.filesSheetOpen, true); assert.equal(page.data.commandMenu, null);
+
+  await page.attachMenu();
+  page.selectCommand(event({ id: 'local:chat-file', name: 'chatFile', action: 'chatFile' }));
+  assert.equal(pickers.length, 3); assert.equal(pickers[2].type, 'file'); assert.equal(page.data.commandMenu, null);
+  pickers[2].fail({ errMsg: 'chooseMessageFile:fail cancel' });
+});
+
+test('chat file picker stages document chips until the gateway supports file uploads', async () => {
+  const { page, pickers, calls } = fixture(); await page.attachMenu();
+  page.selectCommand(event({ id: 'local:chat-file', name: 'chatFile', action: 'chatFile' }));
+  assert.equal(pickers.length, 1); assert.equal(pickers[0].type, 'file');
+  await pickers[0].success({ tempFiles: [
+    { path: '/tmp/report.pdf', name: 'report.pdf', size: 2048, type: 'file' },
+    { path: '/tmp/deck.pptx', name: 'deck.pptx', size: 4096, type: 'file' }
+  ] });
+  assert.equal(page.data.images.length, 2);
+  assert.ok(page.data.images.every(item => item.isFile));
+  assert.equal(page.data.images[1].name, 'deck.pptx');
+  assert.equal(page.data.attachmentPicking, false);
+  page.send();
+  assert.ok(calls.some(call => call[0] === 'toast' && /普通文件上传/.test(call[1])));
+  assert.ok(!calls.some(call => call[0] === 'send'));
+});
 test('model shortcut retains provider grouping, selection identity, default effort and draft', () => {
   const { page, store, calls } = fixture();
   page.data.draft = 'Keep this draft';
@@ -108,7 +149,7 @@ test('permission shortcut mirrors desktop labels, auto badge and shield without 
 test('plus stays useful for commands which refuse attachments and slash uses same rows', async () => {
   const { page } = fixture(); page.data.draft = '/goal task'; page.syncCommandMenu(page.data.draft, { commandGroups: [{ items: [command('goal', 'input')] }] });
   assert.equal(page.data.canAttach, false); await page.attachMenu();
-  assert.equal(page.data.commandMenu.type, 'catalog'); assert.ok(!page.data.commandMenu.groups.flatMap(x => x.items).some(x => x.action === 'file'));
+  assert.equal(page.data.commandMenu.type, 'catalog'); assert.ok(!page.data.commandMenu.groups.flatMap(x => x.items).some(x => x.action === 'file' || x.action === 'image'));
   page.closeAttachMenu(); page.onDraftInput({ detail: { value: '/compact', cursor: 8 } });
   assert.equal(page.data.commandMenu.groups[0].items[0].name, 'compact');
   page.closeAttachMenu(); page.syncCommandMenu('/compact', { commandGroups: [{ items: [command('compact')] }] }); assert.equal(page.data.commandMenu, null);
@@ -228,12 +269,12 @@ test('successful send resets an old scroll gesture and immediately follows the t
   assert.equal(page._convPinned,false);assert.equal(scrolls,1);assert.equal(page.data.draft,'retry');
 });
 const compiler = process.env.WECHAT_WCC || 'D:/Program Files (x86)/Tencent/微信web开发者工具/resources/app.asar.unpacked/node_modules/wcc-exec/wcc.exe';
-test('native WXML renders the plus menu, attachments, choices and blocked-attachment plus in both themes', { skip: !fs.existsSync(compiler) }, () => {
+test('native WXML renders the plus menu, choices and blocked-attachment plus in both themes', { skip: !fs.existsSync(compiler) }, () => {
   const root = path.resolve(__dirname, '../miniprogram'), output = path.join(os.tmpdir(), 'dsh-composer-' + process.pid + '.js');
   try {
     execFileSync(compiler, ['-o', output, 'pages/session/session.wxml'], { cwd: root });
     const context = vm.createContext({ window: {}, console }); vm.runInContext(fs.readFileSync(output, 'utf8'), context); const render = context.$gwx('pages/session/session.wxml');
-    for (const theme of ['light', 'dark']) for (const type of ['catalog', 'attachments', 'options']) {
+    for (const theme of ['light', 'dark']) for (const type of ['catalog', 'options']) {
       const { page, store } = fixture(); Object.assign(page.data, preferences.snapshot(), { theme, canAttach: false, attachSheetOpen: true, commandMenu: { type, title: '/model', groups: menu.catalog(store.sessionState.commandGroups, { t: preferences.t, dark: theme === 'dark' }), options: [{ id: 'one', label: 'First option', detail: 'Primary option', badge: 'NEW', selected: true }, { id: 'two', label: 'Second option', detail: 'Alternative', selected: false }] } });
       const rendered = render(page.data, {}, {}), tree = JSON.stringify(rendered); assert.ok(tree.includes('composer-plus'));
       assert.equal(tree.includes('command-menu-toolbar'), type !== 'catalog');
@@ -258,15 +299,12 @@ test('native WXML renders the plus menu, attachments, choices and blocked-attach
         assert.ok(!tree.includes('command-chev')); assert.ok(!tree.includes('command-option-main'));
         assert.ok(!JSON.stringify(rows[0]).includes('command-desc'));
         assert.ok(nodes.some(node => hasClass(node, 'command-alias') && JSON.stringify(node.children).includes('goal')));
-      }
-      if (type === 'attachments') {
-        assert.ok(tree.includes('工作区文件'));
-        const chatImages = rows.find(row => row.attr.bindtap === 'chooseFile');
-        assert.equal(chatImages.children[0].children[0].attr.src, '/assets/icons/menu-chat-image.svg');
-        assert.equal(rows.find(row => row.attr.bindtap === 'chooseImage').children[0].children[0].attr.src, '/assets/icons/menu-image.svg');
-        assert.equal(rows[0].attr.bindtap, 'backToComposerCommands');
-        assert.ok(hasClass(rows[0], 'command-menu-return'));
-        assert.equal(rows.find(row => row.attr.bindtap === 'chooseWorkspaceReference').children[0].children[0].attr.src, '/assets/icons/menu-folder.svg');
+        for (const label of ['添加图片', '聊天中的图片', '工作区文件', '聊天中的文件']) assert.ok(tree.includes(label), label);
+        assert.ok(rows.some(row => JSON.stringify(row).includes('menu-image.svg')));
+        assert.ok(rows.some(row => JSON.stringify(row).includes('menu-chat-image.svg')));
+        assert.ok(rows.some(row => JSON.stringify(row).includes('menu-folder.svg')));
+        assert.ok(rows.some(row => JSON.stringify(row).includes('menu-chat-file.svg')));
+        assert.ok(!tree.includes('command-menu-return'));
       }
       if (type === 'options') {
         assert.ok(tree.includes('First option'));
@@ -403,7 +441,6 @@ test('menu uses compact rows, trailing checks, right-aligned details and pointer
     '@media(hover:hover)and(pointer:fine){.command-row:hover,.command-option:hover{background:var(--fill-2)}',
     '.command-row-pressed{background:var(--fill-2)}',
     '.command-menu-icon-slot{width:20px;height:20px;flex:0020px;display:flex;align-items:center;justify-content:center}',
-    '.command-attachments.command-menu-toolbar{padding:0;gap:0}',
     '.command-check-slot{width:14px;height:18px;flex:0014px;margin-left:auto;',
     '.command-options.command-option,.command-options-return{min-height:44px}',
     '.opt-pop.permission-pop.opt-row:hover{background:var(--fill-2)}',

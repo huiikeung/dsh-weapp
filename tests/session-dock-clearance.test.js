@@ -88,5 +88,5 @@ test('scroll events without viewport height use the last measured viewport', () 
   page.onConvTouch(); page.onConvScroll({detail:{scrollTop:800,scrollHeight:1400}});
   assert.equal(page._convPinned, false);
   const xml = fs.readFileSync(path.join(root, 'session.wxml'), 'utf8');
-  assert.match(xml, /scroll-into-view="\{\{scrollTarget\}\}"\s+scroll-with-animation="\{\{false\}\}"/);
+  assert.match(xml, /scroll-into-view="\{\{scrollTarget\}\}"\s+scroll-with-animation="\{\{scrollAnim\}\}"/);
 });

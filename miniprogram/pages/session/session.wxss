@@ -1,5 +1,6 @@
 @import "../../styles/status-appearance.wxss";
 @import "../../styles/trajectory.wxss";
+@import "../../styles/proc-icon.wxss";
 .session {
   display: flex;
   flex-direction: column;
@@ -294,19 +295,11 @@
 .command-close-glyph{position:relative;width:14px;height:14px;color:var(--text-2)}
 .command-close-glyph::before,.command-close-glyph::after{content:'';position:absolute;left:6.5px;top:1px;width:1px;height:12px;background:currentColor;border-radius:1px;transform:rotate(45deg)}
 .command-close-glyph::after{transform:rotate(-45deg)}
-.command-menu-caption{flex:1;font-size:28rpx;color:var(--text)}
 .command-close{width:56rpx;height:56rpx;flex-shrink:0;display:flex;align-items:center;justify-content:center}
 .command-close .sheet-close-x{width:46rpx;height:46rpx}
 .command-menu-icon-slot{width:20px;height:20px;flex:0 0 20px;display:flex;align-items:center;justify-content:center}
 .command-menu-icon{display:block;width:16px;height:16px;flex-shrink:0;filter:grayscale(1);opacity:.85}
-.command-return-icon{transform:rotate(180deg)}
-.command-attachments .command-menu-toolbar{padding:0;gap:0}
-.command-menu-return{flex:1;min-width:0}
-.command-attachments .command-menu-caption{font-size:14px;line-height:20px}
-.command-attachments .command-close{width:34px;height:34px}
-.command-attachments .command-close .sheet-close-x{width:24px;height:24px}
 .theme-dark .command-monochrome{filter:brightness(0) invert(1);opacity:.8}
-.command-file-hint{color:var(--text-3);font-size:23rpx;line-height:1.5;padding:16rpx 28rpx 24rpx}
 .command-row-pressed{background:var(--fill-2)}
 .command-retry{flex-shrink:0;padding:8rpx 14rpx;color:var(--text)}
 .composer-plus.active{background:var(--fill-2)}
@@ -322,7 +315,6 @@
 @media (hover:hover) and (pointer:fine){.command-row:hover,.command-option:hover{background:var(--fill-2)}
 }
 @media (hover:none),(pointer:coarse){.command-row,.command-option{min-height:44px}
-.command-attachments .command-close{width:44px;height:44px}
 }
 .command-options .command-option{min-height:30px;padding:5px 7px;gap:6px;border-radius:6px;font-size:12px;color:var(--text)}
 .command-option.selected{background:var(--fill)}
@@ -4228,44 +4220,7 @@ to{transform:translateX(340%)}
   overflow-wrap: anywhere;
 }
 
-/* ---------- 执行中：方形格子闪动加载图标 ---------- */
-.proc-loader {
-  width: 32rpx;
-  height: 32rpx;
-  border-radius: 8rpx;
-  border: 1rpx solid rgba(127, 127, 127, 0.32);
-  background: rgba(127, 127, 127, 0.06);
-  box-sizing: border-box;
-  padding: 4rpx;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  align-content: space-between;
-  flex-shrink: 0;
-}
-
-.proc-cell {
-  width: 10rpx;
-  height: 10rpx;
-  border-radius: 2rpx;
-  background: var(--ocean);
-  opacity: 0.25;
-  animation: procCellBlink 1.2s ease-in-out infinite;
-}
-
-.proc-cell.c1 { animation-delay: 0s; }
-.proc-cell.c2 { animation-delay: 0.15s; }
-.proc-cell.c3 { animation-delay: 0.3s; }
-.proc-cell.c4 { animation-delay: 0.45s; }
-
-@keyframes procCellBlink {
-  0%, 100% { opacity: 0.22; transform: scale(0.9); }
-  40% { opacity: 1; transform: scale(1); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .proc-cell { animation-duration: 2.4s; }
-}
+/* ---------- 执行中：方形格子闪动加载图标（styles/proc-icon.wxss） ---------- */
 
 /* Quick session switching: a bottom sheet on phones, a DSH-style right popover on wide screens. */
 .session .segmented-row .nav-actions {
@@ -4311,19 +4266,25 @@ to{transform:translateX(340%)}
 .session-switch-lines view:nth-child(2) { width: 78%; }
 .session-switch-lines view:nth-child(3) { width: 90%; }
 
-.session-switch-mask {
+/* 会话快捷切换：与对话节点一致的全屏蒙版，内容样式保持原样 */
+.session-switch-overlay {
   position: fixed;
   inset: 0;
   z-index: 1200;
   display: flex;
-  align-items: flex-end;
-  background: rgba(5, 14, 25, .44);
+  align-items: center;
+  justify-content: center;
+  padding: calc(env(safe-area-inset-top) + 20rpx) 0 calc(env(safe-area-inset-bottom) + 20rpx);
+  box-sizing: border-box;
+  background: rgba(8, 10, 16, 0.72);
+  backdrop-filter: blur(18rpx);
+  -webkit-backdrop-filter: blur(18rpx);
   visibility: hidden;
   pointer-events: none;
   opacity: 0;
   transition: opacity 160ms ease-out, visibility 0s 160ms;
 }
-.session-switch-mask.is-open {
+.session-switch-overlay.is-open {
   visibility: visible;
   pointer-events: auto;
   opacity: 1;
@@ -4332,17 +4293,13 @@ to{transform:translateX(340%)}
 .session-switch-panel {
   width: 100%;
   max-height: 90vh;
-  padding: 12rpx 32rpx calc(24rpx + env(safe-area-inset-bottom));
+  padding: 8rpx 40rpx calc(16rpx + env(safe-area-inset-bottom));
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  border-radius: 32rpx 32rpx 0 0;
-  background: var(--surface);
+  background: transparent;
   color: var(--text);
-  transform: translateY(28rpx);
-  transition: transform 160ms ease-out;
 }
-.session-switch-mask.is-open .session-switch-panel { transform: translateY(0); }
 .session-switch-handle-zone {
   width: 100%;
   height: 44rpx;
@@ -4377,23 +4334,42 @@ to{transform:translateX(340%)}
   align-items: center;
   justify-content: flex-end;
 }
+.session-switch-top {
+  position: absolute;
+  left: 40rpx;                 /* 图标靠左 */
+  display: flex;
+  align-items: center;         /* 与胶囊垂直居中对齐 */
+  justify-content: flex-start;
+  z-index: 2;
+  pointer-events: none;
+}
+
+.session-switch-top .session-switch-search { pointer-events: auto; }
+
 .session-switch-search {
-  height: 76rpx;
-  padding: 0 20rpx;
-  margin-bottom: 16rpx;
+  height: 64rpx;
+  width: 64rpx;
+  padding: 0;
+  margin: 0;
   box-sizing: border-box;
   display: flex;
   align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  border-radius: 999rpx;
+  overflow: hidden;
+  transition: width 0.18s ease, padding 0.18s ease, background 0.18s ease;
   gap: 14rpx;
   border: 1rpx solid var(--border);
   border-radius: 18rpx;
   background: var(--fill);
   flex: 0 0 auto;
 }
-.session-switch-search-icon { width: 30rpx; height: 30rpx; flex: 0 0 30rpx; opacity: .65; }
+.session-switch-search-icon { width: 32rpx; height: 32rpx; flex: 0 0 32rpx; opacity: .8; }
 .theme-light .session-switch-search-icon { filter: brightness(0); }
-.session-switch-search-input { flex: 1; min-width: 0; color: var(--text); font-size: 27rpx; }
-.session-switch-list { min-height: 120rpx; max-height: none; flex: 1; }
+.session-switch-search-input { flex: 1; min-width: 0; color: var(--text); font-size: 26rpx; }
+.session-switch-list { min-height: 0; padding-top: 0; }
+.session-switch-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .session-switch-row {
   min-height: 96rpx;
   padding: 12rpx 14rpx;
@@ -4510,4 +4486,226 @@ to{transform:translateX(340%)}
 
 @media (prefers-reduced-motion: reduce) {
   .session-switch-mask, .session-switch-panel { transition: none; }
+}
+
+/* ---------- 对话节点定位：全屏蒙版 + 垂直居中的对话大纲 ---------- */
+.turn-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  background: rgba(8, 10, 16, 0.72);
+  backdrop-filter: blur(18rpx);
+  -webkit-backdrop-filter: blur(18rpx);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: calc(env(safe-area-inset-top) + 20rpx) 0 calc(env(safe-area-inset-bottom) + 20rpx);
+  animation: turnOverlayIn 0.18s ease-out;
+}
+
+@keyframes turnOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.turn-overlay-inner {
+  width: 100%;
+  max-height: 90vh;              /* 内容最高占屏幕 90% */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 0 40rpx;
+  box-sizing: border-box;
+}
+
+.turn-scrub-body {
+  position: relative;
+  width: 100%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.turn-scrub-list {
+  max-height: 90vh;
+}
+
+/* 内容不足一屏时垂直居中，超出后滚动；选中行向上下两侧撑开 */
+.turn-scrub-inner {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 8rpx 0;
+  box-sizing: border-box;
+}
+
+/* 每一轮：标题 + 助手回答，右侧渐变横线 */
+.turn-scrub-row {
+  height: 76rpx;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 0 8rpx;
+  border-radius: 18rpx;
+  border: 1rpx solid transparent;
+  transition: height 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+}
+
+.turn-scrub-row.active {
+  height: 128rpx;
+  background: linear-gradient(90deg, rgba(255, 122, 69, 0.20), rgba(255, 122, 69, 0.03) 70%, transparent);
+  border-color: rgba(255, 122, 69, 0.35);
+  box-shadow: 0 10rpx 28rpx rgba(0, 0, 0, 0.35);
+}
+
+/* 标题在左，宽度最多 90%，右侧留出刻度 */
+.turn-scrub-row-copy {
+  flex: 1;
+  min-width: 0;
+  max-width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  padding: 12rpx 0;
+}
+
+.turn-scrub-row-title {
+  font-size: 27rpx;
+  line-height: 1.4;
+  color: rgba(241, 244, 250, 0.68);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color 0.14s ease;
+}
+
+.turn-scrub-row.active .turn-scrub-row-title {
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+/* 选中行第二行：助手回答正文（浅色两行） */
+.turn-scrub-row-body {
+  font-size: 23rpx;
+  line-height: 1.5;
+  color: rgba(241, 244, 250, 0.46);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+/* 右侧横线列：线靠右，圆点在线右侧 */
+.turn-scrub-rail-cell {
+  width: 108rpx;
+  height: 100%;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12rpx;
+}
+
+.turn-scrub-row-line {
+  height: 4rpx;
+  border-radius: 3rpx;
+  background: linear-gradient(90deg, rgba(241, 244, 250, 0.04), rgba(241, 244, 250, 0.42));
+  transition: width 0.16s ease, background 0.16s ease;
+}
+
+.turn-scrub-row.active .turn-scrub-row-line {
+  height: 6rpx;
+  background: linear-gradient(90deg, rgba(255, 122, 69, 0.15), #FF7A45);
+  box-shadow: 0 0 16rpx rgba(255, 122, 69, 0.55);
+}
+
+.turn-scrub-dot {
+  flex: none;
+  width: 18rpx;
+  height: 18rpx;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #FFD7A8, #FF7A45 70%);
+  box-shadow: 0 0 18rpx rgba(255, 122, 69, 0.7);
+}
+
+.turn-nav-empty {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 45%;
+  text-align: center;
+  color: rgba(241, 244, 250, 0.6);
+  font-size: 26rpx;
+}
+
+/* 切换器在蒙版上使用浅色文字，保证可读性（内容结构不变） */
+.session-switch-overlay .session-switch-title { color: #F1F4FA; }
+.session-switch-overlay .session-switch-close .sheet-close-x { background: rgba(241, 244, 250, 0.12); }
+.session-switch-overlay .session-switch-close .sheet-close-x::before,
+.session-switch-overlay .session-switch-close .sheet-close-x::after { background: #C0C4CC; }
+.session-switch-overlay .session-switch-search {
+  background: rgba(241, 244, 250, 0.08);
+  border-color: rgba(241, 244, 250, 0.16);
+}
+.session-switch-overlay .session-switch-search-input { color: #F1F4FA; }
+.session-switch-overlay .session-switch-search-icon { filter: none; opacity: .55; }
+.session-switch-overlay .session-switch-row-title { color: rgba(241, 244, 250, 0.92); }
+.session-switch-overlay .session-switch-activity { color: rgba(241, 244, 250, 0.45); }
+.session-switch-overlay .session-switch-current { color: #8EB7FF; }
+.session-switch-overlay .session-switch-empty { color: rgba(241, 244, 250, 0.5); }
+.session-switch-overlay .session-switch-row.current { background: rgba(241, 244, 250, 0.10); }
+.session-switch-overlay .session-switch-row-pressed { background: rgba(241, 244, 250, 0.06); }
+.session-switch-overlay .session-switch-state { background: rgba(241, 244, 250, 0.38); }
+
+/* 蒙版上的搜索框：默认 64rpx 圆钮，点击展开为全圆角搜索框 */
+.session-switch-overlay .session-switch-search {
+  width: 64rpx;
+  height: 64rpx;
+  padding: 0;
+  justify-content: center;
+  background: rgba(241, 244, 250, 0.10);
+  border: 1rpx solid rgba(241, 244, 250, 0.16);
+  backdrop-filter: blur(12rpx);
+}
+
+.session-switch-overlay .session-switch-search.open {
+  padding: 0 22rpx;
+  justify-content: flex-start;
+  background: rgba(241, 244, 250, 0.12);
+}
+
+.session-switch-overlay .session-switch-search-icon {
+  filter: none;
+  opacity: 0.85;
+}
+
+/* 快捷切换：工作区分组标题 */
+.session-switch-group {
+  display: flex;
+  align-items: baseline;
+  gap: 12rpx;
+  padding: 4rpx 8rpx 4rpx;
+}
+
+.session-switch-group-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 23rpx;
+  font-weight: 600;
+  letter-spacing: 1rpx;
+  color: rgba(241, 244, 250, 0.55);
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-switch-group-count {
+  flex: none;
+  font-size: 21rpx;
+  color: rgba(241, 244, 250, 0.4);
 }

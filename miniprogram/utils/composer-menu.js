@@ -32,8 +32,15 @@ function catalog(groups, options) {
       icon: (face ? face[2] : item.source === 'skill' ? 'dsh-plugin' : 'dsh-code') + (dark ? '-dark' : '') + '.svg', hasOptions: item.ui.kind === 'select', action: '' };
   };
   const pick = names => names.flatMap(name => all.filter(item => item.source !== 'skill' && item.name === name).map(row));
+  // Every attachment source opens directly from the + first level; there is no attachment sub-page.
+  const attachRows = canAttach ? [
+    { id: 'local:image', name: 'image', label: t('添加图片'), description: t('从相册或相机选择'), searchText: 'image photo album camera 图片 相册 拍照 添加图片', icon: 'menu-image.svg', action: 'image', hasOptions: false },
+    { id: 'local:chat-image', name: 'chatImage', label: t('聊天中的图片'), description: t('从聊天记录选择图片'), searchText: 'chat image 聊天 图片 相册 记录', icon: 'menu-chat-image.svg', action: 'chatImage', hasOptions: false },
+    { id: 'local:workspace', name: 'workspace', label: t('工作区文件'), description: t('引用远端工作区文件'), searchText: 'workspace file 工作区 文件 引用 目录', icon: 'menu-folder.svg', action: 'workspace', hasOptions: false },
+    { id: 'local:chat-file', name: 'chatFile', label: t('聊天中的文件'), description: t('从聊天记录选择文件'), searchText: 'chat file 聊天 文件 记录 附件', icon: 'menu-chat-file.svg', action: 'chatFile', hasOptions: false }
+  ] : [];
   const sections = [
-    { id: 'add', title: t('添加'), items: (canAttach ? [{ id: 'local:file', name: 'file', label: t('文件'), description: t('添加图片或引用工作区文件'), searchText: 'file image photo 文件 图片 附件', icon: 'paperclip-gray.png', action: 'file', hasOptions: true }] : []).concat(pick(ADD)) },
+    { id: 'add', title: t('添加'), items: attachRows.concat(pick(ADD)) },
     { id: 'commands', title: t('指令'), items: pick(COMMANDS).concat(all.filter(item => item.source !== 'skill' && !ADD.concat(COMMANDS).includes(item.name)).map(row)) },
     { id: 'skills', title: t('技能'), items: all.filter(item => item.source === 'skill').map(row) }
   ];

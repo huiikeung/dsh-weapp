@@ -1819,7 +1819,11 @@ function createStore() {
       cwd: source.cwd || source.workingDirectory || source.working_directory || null,
       agentPreset: source.agentPreset || source.agent_preset || null,
       hasConversation: hasConversation,
-      title: title
+      title: title,
+      // 子代理（subagent/child）会话与工作区归属：用于快捷切换时过滤
+      parentSessionId: source.parentSessionId || source.parent_session_id || source.parentId || source.parent_id || null,
+      kind: source.kind || source.type || null,
+      workspaceId: source.workspaceId || source.workspace_id || null
     };
   }
 
