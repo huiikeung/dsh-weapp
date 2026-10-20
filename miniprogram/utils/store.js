@@ -5,6 +5,7 @@ const { t: uiText } = require('./ui-preferences');
 
 const { GatewayClient } = require('./gateway');
 const protocol = require('./protocol');
+const { recentWindow } = require('./history-window');
 const collaboration = require('./collaboration');
 const pairing = require('./pairing');
 const hosts = require('./hosts');
@@ -90,6 +91,7 @@ function createStore() {
     running: false,
     historyFormatVersion: null,
     hasMoreHistory: false,
+    historyPaging: false,
     nextBeforeSeq: null,
     title: '',
     agentPreset: null,
@@ -127,6 +129,7 @@ function createStore() {
       pluginInstaller.connectionChanged(status);
       if (status !== 'connected') { state.gatewayMetadata = null; state.gatewayCapabilities = []; }
       if (status === 'connected') {
+        resetHistoryPaging();
         // 记住这次真正连通的地址，下次优先使用；轮换游标对齐当前线路
         endpointCandidates = endpointCandidates.length ? endpointCandidates : [state.endpoint];
         endpointIdx = Math.max(0, endpointCandidates.indexOf(state.endpoint));
@@ -248,11 +251,32 @@ function createStore() {
     }, 12000);
   }
 
-  /** 会话正文缓存：按 sessionId 存取，LRU 保留最近 20 个（对齐 iOS 缓存立即可呈现） */
+  // 内存与磁盘只恢复最近窗口；旧记录由用户按需分页。
+  const sessionMemoryCache = new Map();
+  const sessionCacheWrites = new Map();
+  const sessionCacheKey = id => String(state.activeID || state.endpoint || '') + ':' + id;
   function saveSessionCache(sessionId, rows) {
     try {
       if (!sessionId || !rows || !rows.length) return;
-      const payload = JSON.stringify({ rows: rows, savedAt: Date.now() });
+      const cached = recentWindow({ rows, events: rawBuffer, savedAt: Date.now(),
+        hasMore: sessionState.hasMoreHistory, nextBeforeSeq: sessionState.nextBeforeSeq,
+        historyFormatVersion: sessionState.historyFormatVersion }, protocol, sessionId);
+      const key = sessionCacheKey(sessionId);
+      sessionMemoryCache.delete(key);
+      sessionMemoryCache.set(key, cached);
+      while (sessionMemoryCache.size > 20) sessionMemoryCache.delete(sessionMemoryCache.keys().next().value);
+      // 连续历史页只更新内存；短暂空闲后再序列化、写盘，避免每页同步写全量记录。
+      if (sessionCacheWrites.has(key)) clearTimeout(sessionCacheWrites.get(key));
+      sessionCacheWrites.set(key, setTimeout(() => {
+        sessionCacheWrites.delete(key);
+        persistSessionCache(sessionId, cached);
+      }, 1000));
+    } catch (e) { /* 存储失败不阻断 */ }
+  }
+
+  function persistSessionCache(sessionId, cached) {
+    try {
+      const payload = JSON.stringify(cached);
       if (payload.length > 600000) return;   // 超限不写，避免撑爆 storage
       wx.setStorageSync('dsh_session_cache.' + sessionId, payload);
       let idx = wx.getStorageSync('dsh_session_cache.index') || [];
@@ -268,11 +292,13 @@ function createStore() {
   }
 
   function loadSessionCache(sessionId) {
+    const cached = sessionMemoryCache.get(sessionCacheKey(sessionId));
+    if (cached) return cached;
     try {
       const raw = wx.getStorageSync('dsh_session_cache.' + sessionId);
       if (!raw) return null;
       const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (parsed && Array.isArray(parsed.rows) && parsed.rows.length) return parsed;
+      if (parsed && Array.isArray(parsed.rows) && parsed.rows.length) return recentWindow(parsed, protocol, sessionId);
     } catch (e) { /* 缓存损坏则忽略 */ }
     return null;
   }
@@ -1048,6 +1074,7 @@ function createStore() {
         const events = frame.events || [];
         if (frame.resetRequired) {
           sessionState.rowsAgg = protocol.newAggregator();
+          rawBuffer = []; rawSeqs = new Set();
         }
         const prepend = !!frame.beforeSeqPlaceholder || rawBuffer.length > 0 || sessionState.rows.length > 0;
         ingestEvents(events, prepend);
@@ -1055,6 +1082,7 @@ function createStore() {
         sessionState.nextBeforeSeq = frame.nextBeforeSeq;
         if (frame.historyFormatVersion) sessionState.historyFormatVersion = frame.historyFormatVersion;
         saveSessionCache(sessionState.sessionId, sessionState.rows);
+        finishHistoryPage();
         emit();
         return;
       }
@@ -1068,12 +1096,16 @@ function createStore() {
         const snapEvents = frame.events || [];
         if (frame.replace) {
           if (frame.assistantStream || snapEvents.length || !sessionState.rows.length) {
+            // replace 仅替换快照覆盖的尾部；保留已经分页补齐的更早记录。
+            const firstSeq = snapEvents.reduce((min, event) => Math.min(min, event.seq), Infinity);
+            const older = !frame.resetRequired && Number.isFinite(firstSeq)
+              ? rawBuffer.filter(event => event.seq < firstSeq) : [];
             sessionState.rowsAgg = protocol.newAggregator();
             sessionState.rows = [];
             rawBuffer = [];
             rawSeqs = new Set();
             runCueWatermark = -1;
-            ingestEvents(snapEvents);
+            ingestEvents(older.concat(snapEvents));
             // 流式正文保护：快照未携带当前回复时回填最近流式文本（对齐 iOS 生成前缀恢复）
             const hasAssistantText = sessionState.rows.some(
               (r) => r.kind === 'assistant' && r.text
@@ -1098,6 +1130,8 @@ function createStore() {
           sessionState.hasMoreHistory = frame.hasMore === true;
           sessionState.nextBeforeSeq = frame.nextBeforeSeq;
         }
+        if (frame.hasMore !== undefined) sessionState.hasMoreHistory = frame.hasMore === true;
+        saveSessionCache(sessionState.sessionId, sessionState.rows);
         emit();
         return;
       }
@@ -1281,6 +1315,7 @@ function createStore() {
         }
         return;
       case 'error':
+        if (frame.requestType === 'history') finishHistoryPage();
         if (['workspaces', 'sessions', 'host', 'history'].indexOf(frame.requestType) >= 0
           && /Cannot read properties of undefined \(reading ['"]signal['"]\)/.test(String(frame.message || ''))) {
           state.coreCompatibilityError = frame.message;
@@ -1679,8 +1714,18 @@ function createStore() {
     if (!sessionState.rowsAgg) sessionState.rowsAgg = protocol.newAggregator();
     const sessionId = sessionState.sessionId;
     const sorted = rawEvents.slice().sort(function (a, b) { return a.seq - b.seq; });
+    if (prepend && sessionState.rowsAgg.rows.length && rawBuffer.length) {
+      const existing = new Map(rawBuffer.map(event => [event.seq, event]));
+      const changed = sorted.filter(event => !existing.has(event.seq) || JSON.stringify(existing.get(event.seq)) !== JSON.stringify(event));
+      if (!changed.length) return;
+      // A fresh latest page often only extends the live tail. Do not replay the whole session.
+      if (changed.every(event => event.seq > rawBuffer[rawBuffer.length - 1].seq)) {
+        ingestEvents(changed, false);
+        return;
+      }
+    }
     if (prepend) {
-      // 加载更早历史：整体重建，保证折叠关系正确（数据量在移动端可接受）。
+      // 真正的旧页/修订需要重放，以保持跨页工具、回合与结算关系正确。
       try {
         rebuildWithMore(sorted);
       } catch (e) {
@@ -1704,7 +1749,8 @@ function createStore() {
     if (bad) sessionState.ingestErrors = (sessionState.ingestErrors || 0) + bad;
     try {
       sessionState.rows = sessionState.rowsAgg.rows.slice();
-      sessionState.trajectory = protocol.buildTrajectory(allRawEvents(sorted, true), sessionId);
+      allRawEvents(sorted, true);
+      invalidateTrajectory();
       rebuildRunCues();
     } catch (e) {
       sessionState.ingestErrors = (sessionState.ingestErrors || 0) + 1;
@@ -1715,6 +1761,17 @@ function createStore() {
   // 保留原始事件缓冲以重建轨迹
   let rawBuffer = [];
   let rawSeqs = new Set();          // seq 索引：追加去重 O(1)，避免整表 some() 扫描
+  let trajectoryActive = false;
+  let trajectoryDirty = true;
+  function invalidateTrajectory() {
+    trajectoryDirty = true;
+    if (trajectoryActive) refreshTrajectory();
+  }
+  function refreshTrajectory() {
+    if (!trajectoryDirty) return;
+    sessionState.trajectory = protocol.buildTrajectory(rawBuffer, sessionState.sessionId);
+    trajectoryDirty = false;
+  }
   function allRawEvents(latest, append) {
     if (append) {
       const fresh = latest.filter(function (e) { return !rawSeqs.has(e.seq); });
@@ -1780,13 +1837,54 @@ function createStore() {
       protocol.applyEvent(sessionState.rowsAgg, protocol.normalizeRawEvent(raw, sessionState.sessionId));
     });
     sessionState.rows = sessionState.rowsAgg.rows.slice();
-    sessionState.trajectory = protocol.buildTrajectory(rawBuffer, sessionState.sessionId);
+    invalidateTrajectory();
     rebuildRunCues(true);
     replayLiveAttempt();
   }
 
   let statsTimer = null;
   let historyRetryTimer = null;
+  let olderHistoryTimeout = null;
+  let olderHistoryPending = null;
+
+  function finishHistoryPage() {
+    if (olderHistoryTimeout) clearTimeout(olderHistoryTimeout);
+    olderHistoryTimeout = null; olderHistoryPending = null;
+    sessionState.historyPaging = false;
+  }
+
+  function resetHistoryPaging() {
+    finishHistoryPage();
+  }
+
+  function failOlderHistory(pending) {
+    if (olderHistoryPending !== pending) return;
+    finishHistoryPage();
+    if (pending.id !== sessionState.sessionId || pending.generation !== client.connectGeneration) return;
+    sessionState.historyError = uiText('记录同步暂时中断，请重试');
+    emit();
+  }
+
+  function requestOlderHistory() {
+    const id = sessionState.sessionId, cursor = sessionState.nextBeforeSeq;
+    if (!id || !sessionState.hasMoreHistory || olderHistoryPending || state.connection !== 'connected') return;
+    if (!Number.isSafeInteger(cursor) || cursor < 0 || !sessionState.historyFormatVersion) {
+      sessionState.historyError = uiText('网关未提供有效历史游标，请更新网关后重试');
+      emit(); return;
+    }
+    sessionState.historyError = '';
+    const pending = { id, cursor, generation: client.connectGeneration };
+    olderHistoryPending = pending;
+    sessionState.historyPaging = true;
+    const sent = client.requestHistory(id, cursor, sessionState.historyFormatVersion);
+    if (sent === false) { failOlderHistory(pending); return; }
+    olderHistoryTimeout = setTimeout(() => {
+      if (olderHistoryPending !== pending) return;
+      failOlderHistory(pending);
+    }, 8000);
+    emit();
+  }
+
   let dataWatchdogTimer = null;
   function refreshStatsSoon() {
     if (statsTimer) return;
@@ -2168,6 +2266,7 @@ function createStore() {
     sessionState.rowsAgg = null;
     sessionState.rows = [];
     sessionState.trajectory = [];
+    trajectoryDirty = true; trajectoryActive = false;
     sessionState.title = '';
     sessionState.agentPreset = null;
     sessionState.pendingQuestion = null;
@@ -2564,6 +2663,8 @@ function createStore() {
 
     /** 打开会话：重置会话投影并订阅。 */
     openSession: function (sessionId, title, agentPreset) {
+      saveSessionCache(sessionState.sessionId, sessionState.rows);
+      resetHistoryPaging();
       clearLiveAttempt();
       const subOk = client.subscribe(sessionId);
       sessionState.sessionId = sessionId;
@@ -2572,6 +2673,7 @@ function createStore() {
       sessionState.rowsAgg = protocol.newAggregator();
       sessionState.rows = [];
       sessionState.trajectory = [];
+      trajectoryDirty = true;
       sessionState.title = title || '';
       sessionState.agentPreset = agentPreset || null;
       sessionState.historyError = '';
@@ -2604,12 +2706,18 @@ function createStore() {
         setRunning(listed ? listed.running === true : false);
       }
       safeRequest(client.requestSessions());
-      emit();
       sessionState.ingestErrors = 0;
       // 缓存命中：立即呈现上次内容（iOS 缓存立即可呈现），history 帧到达后无缝替换
       const cached = loadSessionCache(sessionId);
       if (cached) {
         sessionState.rows = cached.rows;
+        sessionState.trajectory = [];
+        trajectoryDirty = true;
+        sessionState.hasMoreHistory = cached.hasMore === true;
+        sessionState.nextBeforeSeq = cached.nextBeforeSeq;
+        sessionState.historyFormatVersion = cached.historyFormatVersion;
+        rawBuffer = Array.isArray(cached.events) ? cached.events.slice() : [];
+        rawSeqs = new Set(rawBuffer.map(event => event.seq));
         sessionState.historyState = 'loaded:cached';
         sessionState.cacheDisplay = true;
       } else {
@@ -2663,6 +2771,7 @@ function createStore() {
       sessionState.rowsAgg = null;
       sessionState.rows = [];
       sessionState.trajectory = [];
+      trajectoryDirty = true; trajectoryActive = false;
       rawBuffer = [];
       rawSeqs = new Set();
       runCueWatermark = -1;
@@ -2677,6 +2786,7 @@ function createStore() {
       const wsId = workspaceId === undefined ? state.currentWorkspaceId : workspaceId;
       // 乐观创建：立即进入本地创建态（秒开会话页），真实创建在后台进行
       sessionState.creating = true;
+      trajectoryDirty = true; trajectoryActive = false;
       sessionState.creatingWorkspaceId = wsId;
       sessionState.creatingAgentPreset = agentPreset || null;
       sessionState.agentPreset = agentPreset || null;
@@ -2717,6 +2827,7 @@ function createStore() {
     retryHistory: function () {
       const id = sessionState.sessionId;
       if (!id || state.connection !== 'connected') return;
+      resetHistoryPaging();
       sessionState.cacheDisplay = false;
       sessionState.historyError = '';
       sessionState.historyState = 'requested';
@@ -2729,12 +2840,12 @@ function createStore() {
     },
 
     loadOlderHistory: function () {
-      if (!sessionState.sessionId || !sessionState.hasMoreHistory) return;
-      client.requestHistory(
-        sessionState.sessionId,
-        sessionState.nextBeforeSeq,
-        sessionState.historyFormatVersion
-      );
+      requestOlderHistory();
+    },
+
+    setTrajectoryActive: function (active) {
+      trajectoryActive = active === true;
+      if (trajectoryActive) refreshTrajectory();
     },
 
     updateSearch: function (query) {

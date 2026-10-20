@@ -152,8 +152,10 @@ Page({
 
   onHide() {
     this._homeHidden = true;
+    this.stopHostProbeTimer();
+    store.stopHostProbes();
     this._workspacePickerRequest = null;
-    this.setData({ oceanActive: false, workspacePickerOpen: false,
+    this.setData({ oceanActive: false, workspacePickerOpen: false, hostSheetOpen: false,
       drawerAnim: false, drawerOpen: false, drawerDragging: false,
       drawerX: -(this.drawerW || this.data.drawerW), contentX: 0, maskOpacity: 0, contentShifted: false });
     this.statusBarFront = false;
@@ -269,7 +271,7 @@ Page({
       ungrouped: false
     };
 
-    this.setData({
+    this.setHomePatch({
       currentWorkspace: currentWorkspace,
       currentWorkspaceId: currentWorkspace.workspaceId,
       displaySessions: displaySessions,
@@ -294,6 +296,14 @@ Page({
   },
 
   /** 切换主机 UI（GatewaySwitcherBar/Sheet 对齐）。 */
+  setHomePatch(values) {
+    const patch = {};
+    Object.keys(values).forEach(key => {
+      if (JSON.stringify(this.data[key]) !== JSON.stringify(values[key])) patch[key] = values[key];
+    });
+    if (Object.keys(patch).length) this.setData(patch);
+  },
+
   syncHostUI(app) {
     let profiles = app.profiles || [];
     const conn = app.connection;
@@ -317,7 +327,7 @@ Page({
       if (!active || p.id !== active.id) rows.push(p);
     });
     const isOnline = conn === 'connected';
-    this.setData({
+    this.setHomePatch({
       hostLabel: active ? hostsLib.displayName(active) : uiText('选择主机'),
       hostKindIcon: hostsLib.kindIconFile(active ? active.deviceKind : 'desktopcomputer'),
       hostOnline: active ? (onlineIDs.indexOf(active.id) >= 0 || isOnline) : false,

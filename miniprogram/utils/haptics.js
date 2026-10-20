@@ -5,6 +5,14 @@ const DEFAULT_LEVEL = 'medium';
 
 let level = null;
 let lastResult = null;
+let lastTickAt = 0;
+
+// 连续滑动沿用当前档位并限频，避免反馈堆积。
+function tick() {
+  if (getLevel() === 'off' || Date.now() - lastTickAt < 60) return;
+  lastTickAt = Date.now();
+  return vibrate();
+}
 
 function readStorage() {
   try {
@@ -35,72 +43,51 @@ function record(api, ok, detail) {
 
 /**
  * 按当前等级触发震动；off 时静默。
- * iOS 上短震（触感反馈）在静音/低电量时经常被系统吞掉，因此统一走 vibrateLong
- * 的系统马达震动，再叠加一次短震（可用时）增强手感。
+ * 优先使用支持强度参数的短震；仅旧环境缺少短震接口时降级长震。
+ * 短震失败不叠加长震，避免轻档突然出现重反馈。
  */
-function vibrate() {
+function vibrate(callback) {
   const value = getLevel();
-  if (value === 'off') { record('off', false, 'level=off'); return lastResult; }
+  const finish = (api, ok, detail) => {
+    const result = record(api, ok, detail);
+    if (typeof callback === 'function') callback(result);
+    return result;
+  };
+  if (value === 'off') return finish('off', false, 'level=off');
+  record('pending', false, value);
   try {
-    if (typeof wx.vibrateLong === 'function') {
-      wx.vibrateLong({
-        success: () => record('long', true, value),
-        fail: (err) => record('long', false, (err && (err.errMsg || err.message)) || 'fail')
-      });
-    } else if (typeof wx.vibrateShort === 'function') {
+    if (typeof wx.vibrateShort === 'function') {
       wx.vibrateShort({
         type: value,
-        success: () => record('short', true, value),
-        fail: (err) => record('short', false, (err && (err.errMsg || err.message)) || 'fail')
+        success: () => finish('short', true, value),
+        fail: (err) => finish('short', false, (err && (err.errMsg || err.message)) || 'fail')
+      });
+    } else if (typeof wx.vibrateLong === 'function') {
+      wx.vibrateLong({
+        success: () => finish('long', true, value),
+        fail: (err) => finish('long', false, (err && (err.errMsg || err.message)) || 'fail')
       });
     } else {
-      record('none', false, 'no vibrate api');
+      finish('none', false, 'no vibrate api');
     }
   } catch (e) {
-    record('exception', false, (e && e.message) || 'exception');
+    finish('exception', false, (e && e.message) || 'exception');
   }
   return lastResult;
 }
 
-/** 直接测试长震（不受等级关闭影响），用于设置页验证硬件/权限。 */
+/** 测试当前档位一次，与实际交互反馈保持一致。 */
 function test(callback) {
   const done = typeof callback === 'function' ? callback : function () {};
-  const report = [];
-  let pending = 0;
-  const finishOnce = (() => {
-    let doneCalled = false;
-    return () => {
-      if (doneCalled) return;
-      doneCalled = true;
-      done({ ok: report.some((x) => x.ok), report, env: environmentHint() });
-    };
-  })();
-  const track = (name) => {
-    pending += 1;
-    return (ok, detail) => { report.push({ name, ok, detail: detail || '' }); pending -= 1; if (pending <= 0) finishOnce(); };
+  let finished = false;
+  const finish = result => {
+    if (finished) return;
+    finished = true;
+    clearTimeout(timer);
+    done({ ok: result.ok, report: [{ name: result.api, ok: result.ok, detail: result.detail }], env: environmentHint() });
   };
-  const steps = [];
-  if (typeof wx.vibrateShort === 'function') {
-    steps.push(() => { const cb = track('vibrateShort(heavy)'); wx.vibrateShort({ type: 'heavy', success: () => cb(true), fail: (e) => cb(false, (e && e.errMsg) || 'fail') }); });
-    steps.push(() => { const cb = track('vibrateShort(default)'); wx.vibrateShort({ success: () => cb(true), fail: (e) => cb(false, (e && e.errMsg) || 'fail') }); });
-  } else {
-    report.push({ name: 'vibrateShort', ok: false, detail: 'missing api' });
-  }
-  if (typeof wx.vibrateLong === 'function') {
-    steps.push(() => { const cb = track('vibrateLong'); wx.vibrateLong({ success: () => cb(true), fail: (e) => cb(false, (e && e.errMsg) || 'fail') }); });
-  } else {
-    report.push({ name: 'vibrateLong', ok: false, detail: 'missing api' });
-  }
-  try {
-    steps.forEach((step, index) => setTimeout(() => {
-      try { step(); } catch (e) { report.push({ name: 'exception', ok: false, detail: (e && e.message) || 'exception' }); finishOnce(); }
-    }, index * 220));
-    if (!steps.length) finishOnce();
-    setTimeout(finishOnce, steps.length * 220 + 600);
-  } catch (e) {
-    report.push({ name: 'exception', ok: false, detail: (e && e.message) || 'exception' });
-    finishOnce();
-  }
+  const timer = setTimeout(() => finish({ api: 'timeout', ok: false, detail: '' }), 1200);
+  vibrate(finish);
 }
 
 /** 当前环境是否可能震动（开发者工具/模拟器不会震动）。 */
@@ -118,4 +105,4 @@ function environmentHint() {
   return 'device';
 }
 
-module.exports = { LEVELS, DEFAULT_LEVEL, getLevel, setLevel, vibrate, test, environmentHint, getLastResult };
+module.exports = { LEVELS, DEFAULT_LEVEL, getLevel, setLevel, vibrate, tick, test, environmentHint, getLastResult };

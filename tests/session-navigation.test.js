@@ -15,7 +15,9 @@ function fixture() {
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), { Page: value => { definition = value; }, wx, console,
     setTimeout: (fn, delay) => { timers.set(++timerId, { fn, delay }); return timerId; },
     clearTimeout: id => timers.delete(id),
-    require: name => name.endsWith('/store') ? store : require(path.resolve(path.dirname(file), name)) });
+    require: name => name.endsWith('/store') ? store : name.endsWith('/haptics')
+      ? { vibrate: () => calls.push(['haptic']), tick: () => calls.push(['tick']) }
+      : require(path.resolve(path.dirname(file), name)) });
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)), setData(patch) {
     patches.push(patch);
     for (const [key, value] of Object.entries(patch)) {
@@ -29,6 +31,89 @@ function fixture() {
   return { page, store, calls, ticks, timers, patches };
 }
 const event = (key, value) => ({ currentTarget: { dataset: { [key]: value } } });
+test('large outline selection patches only nearby bars and history keeps manual loading controls', () => {
+  const { page, patches } = fixture();
+  page.setData(page.turnNavigatorPatch(Array.from({ length: 2000 }, (_, i) => ({ kind: 'user', key: 'u' + i, text: 'Q' + i }))));
+  page.applyTurnIndex(0, false); patches.length = 0; page.applyTurnIndex(1000);
+  assert.ok(Object.keys(patches[0]).length <= 23);
+  assert.ok(!('turnNavWidths' in patches[0]));
+  page._turnListRect = { top: 100, rowHeight: 38, activeRowHeight: 64 };
+  page._turnListScrollTop = 0;
+  assert.equal(page.turnIndexAt(104 + 1000 * 38 + 63), 1000);
+  assert.equal(page.turnIndexAt(104 + 1000 * 38 + 64), 1001);
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  assert.ok(xml.includes('加载更早记录'));
+  assert.equal((xml.match(/bindscrolltoupper="loadOlder"/g) || []).length, 2);
+});
+test('horizontal gestures switch cached panels with feedback while vertical/cancelled gestures do not', () => {
+  const { page, calls } = fixture();
+  page.updateDockInset = () => {};
+  let projections = 0; page.trajectoryPatch = () => { projections++; return {}; };
+  const gesture = (x, y, dx, dy) => {
+    page.onPanelTouchStart({ touches: [{ clientX: x, clientY: y }] });
+    page.onPanelTouchMove({ touches: [{ clientX: x + dx, clientY: y + dy }] });
+    page.onPanelTouchEnd({ changedTouches: [{ clientX: x + dx, clientY: y + dy }] });
+  };
+  gesture(300, 100, -150, 10); assert.equal(page.data.tab, 'trajectory');
+  gesture(100, 100, 150, 10); assert.equal(page.data.tab, 'conversation');
+  assert.equal(projections, 1, 'only entering trajectory activates its projection');
+  assert.equal(calls.filter(call => call[0] === 'haptic').length, 2);
+  gesture(300, 100, -30, 120); assert.equal(page.data.tab, 'conversation');
+  page.onPanelTouchStart({ touches: [{ clientX: 300, clientY: 100 }] });
+  page.onPanelTouchCancel();
+  page.onPanelTouchEnd({ changedTouches: [{ clientX: 50, clientY: 100 }] });
+  assert.equal(page.data.tab, 'conversation');
+  page.data.moreSheetOpen = true; gesture(300, 100, -150, 10);
+  assert.equal(page.data.tab, 'conversation');
+});
+test('navigator caches every turn and updates an open list while older history arrives', () => {
+  const { page, calls } = fixture();
+  const rows = Array.from({ length: 80 }, (_, index) => [
+    { kind: 'user', key: 'u' + index, text: 'Question ' + index },
+    { kind: 'assistant', key: 'a' + index, text: 'Answer ' + index }
+  ]).flat();
+  page.setData(page.turnNavigatorPatch(rows));
+  page.openTurnNavigator();
+  assert.equal(page.data.turnNavActiveIndex, 0, 'default selection is ready before measurement');
+  assert.equal(page.data.turnNavWidths[0], 112);
+  assert.equal(page.data.turnNavItems.length, 80);
+  assert.equal(page.data.turnNavItems[0].key, 'u79');
+  page.applyTurnIndex(20);
+  const selected = page.data.turnNavItems[20].key;
+  page.setData(page.turnNavigatorPatch([{ kind: 'user', key: 'older', text: 'Oldest' }, ...rows]));
+  assert.equal(page.data.turnNavItems.length, 81);
+  assert.equal(page.data.turnNavItems[page.data.turnNavActiveIndex].key, selected);
+  page._turnListRect = { top: 0, rowHeight: 38, activeRowHeight: 64 };
+  page.onTurnListScroll({ detail: { scrollTop: 80 } });
+  assert.equal(calls.filter(call => call[0] === 'tick').length, 1, 'programmatic scroll stays silent');
+  page.applyTurnIndex(20); assert.equal(calls.filter(call => call[0] === 'tick').length, 1);
+  page.onTurnScrubCancel(); page.onTurnScrubEnd(); assert.equal(page.data.turnNavOpen, true);
+});
+test('whole-list scrubbing expands the selected row, reshapes the rail and emits one tick per change', () => {
+  const { page, calls } = fixture();
+  page.setData(page.turnNavigatorPatch(Array.from({ length: 50 }, (_, i) => ({ kind: 'user', key: 'u' + i, text: 'Question ' + i }))));
+  page.openTurnNavigator();
+  page._turnListRect = { top: 100, height: 400, rowHeight: 38, activeRowHeight: 64 };
+  page.onTurnScrubStart({ touches: [{ clientY: 120 }] });
+  assert.equal(page.data.turnNavActiveIndex, 0);
+  page.onTurnScrubMove({ touches: [{ clientY: 180 }] });
+  assert.equal(page.data.turnNavActiveIndex, 1);
+  assert.equal(page.data.turnNavWidths[1], 112); assert.equal(page.data.turnNavWidths[0], 96);
+  page.onTurnScrubMove({ touches: [{ clientY: 180 }] });
+  assert.equal(calls.filter(call => call[0] === 'tick').length, 1);
+  page.onTurnListScroll({ detail: { scrollTop: 600 } });
+  assert.ok(page.data.turnNavActiveIndex > 10, 'long lists still reach older turns');
+  assert.equal(calls.filter(call => call[0] === 'tick').length, 2);
+  page.onTurnScrubCancel(); page.onTurnScrubEnd();
+  assert.equal(page.data.turnNavOpen, true, 'cancel does not navigate');
+  page.onTurnScrubStart({ touches: [{ clientY: 180 }] });
+  page.onTurnScrubEnd();
+  assert.equal(page.data.turnNavOpen, false); assert.equal(page._convPinned, false);
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  const list = xml.slice(xml.indexOf('id="turn-scrub-list"'), xml.indexOf('<view class="turn-scrub-inner">'));
+  for (const handler of ['onTurnScrubStart', 'onTurnScrubMove', 'onTurnScrubEnd', 'onTurnScrubCancel']) assert.ok(list.includes(handler));
+  assert.ok(list.includes('min(76vh,'), 'short outlines remain vertically centered without clipping long lists');
+});
 test('trajectory tab clears keyboard/popovers but preserves draft and never measures hidden dock', () => {
   const { page, calls, ticks } = fixture();
   Object.assign(page.data, { draft: 'unsent', images: [{ id: 'image' }], kbHeight: 320, statsPopOpen: true, showContextSheet: true });
@@ -218,6 +303,9 @@ test('compiled template retains hidden panels and pre-mounts the menu in both th
     assert.ok(trajectory.includes('session-panel-hidden')); assert.ok(trajectory.includes('trajectory-panel'));
     assert.ok(conversation.includes('trajectory-panel'), 'retain timeline nodes for repeat switches');
     const closed = JSON.stringify(render({ ...data, moreSheetOpen: false }, {}, {}));
+    const unformatted = JSON.stringify(render({ ...data, rows: [{ kind: 'assistant', key: 'old', text: '旧记录立即可见', blocks: [] }] }, {}, {}));
+    assert.ok(unformatted.includes('assistant-plain-text'));
+    assert.ok(unformatted.includes('旧记录立即可见'));
     assert.ok(closed.includes('session-menu-mask ')); assert.ok(!closed.includes('session-menu-mask is-open'));
     assert.ok(conversation.includes('session-menu-mask is-open'));
     for (const tree of [conversation, trajectory]) {

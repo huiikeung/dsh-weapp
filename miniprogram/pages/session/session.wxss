@@ -436,6 +436,8 @@ to{transform:translateX(340%)}
   padding: 24rpx 0;               /* vertical 12pt */
 }
 
+.conversation-window-row { display: flow-root; }
+.assistant-plain-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; }
 .row-assistant .copy-btn {
   margin-top: 0;
   padding-bottom: 16rpx;          /* 8pt */
@@ -4528,6 +4530,7 @@ to{transform:translateX(340%)}
 }
 
 .turn-scrub-list {
+  height: 76vh;
   max-height: 90vh;
 }
 
@@ -4536,13 +4539,14 @@ to{transform:translateX(340%)}
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   padding: 8rpx 0;
   box-sizing: border-box;
 }
 
 /* 每一轮：标题 + 助手回答，右侧渐变横线 */
 .turn-scrub-row {
+  flex-shrink: 0;
   height: 76rpx;
   box-sizing: border-box;
   display: flex;

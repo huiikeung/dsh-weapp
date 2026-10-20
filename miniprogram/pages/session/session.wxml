@@ -41,19 +41,23 @@
     show-scrollbar="{{false}}"
     scroll-into-view="{{scrollTarget}}"
     scroll-with-animation="{{scrollAnim}}"
+    scroll-top="{{conversationScrollTop}}"
     bindscroll="onConvScroll"
-    bindtouchstart="onConvTouch"
+    bindtouchstart="onPanelTouchStart"
+    bindtouchmove="onPanelTouchMove"
+    bindtouchend="onPanelTouchEnd"
+    bindtouchcancel="onPanelTouchCancel"
     bindscrolltoupper="loadOlder"
     upper-threshold="80"
   >
     <view class="conversation-inner {{rows.length ? 'has-rows' : ''}}" style="{{conversationInnerStyle}}">
     <!-- 历史加载横幅（iOS historyLoadingBanner：已有内容、后台继续加载更早历史） -->
     <view wx:if="{{rows.length && historyLoading}}" class="hist-banner">
-      <view class="banner-spinner"></view>
+      <view wx:if="{{!histError && connState === 'connected'}}" class="banner-spinner"></view>
       <text class="banner-text">{{historyProgressText}}</text>
+      <text wx:if="{{histError}}" bindtap="loadOlder">{{ui['重试']}}</text>
     </view>
-    <!-- 加载更早记录（iOS：caption 全宽按钮，仅在还有更多且未加载中） -->
-    <view wx:elif="{{hasMoreHistory && !historyLoading && rows.length}}" class="load-older" bindtap="loadOlder">{{ui['加载更早记录']}}</view>
+    <view wx:elif="{{rows.length && hasMoreHistory}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
 
     <!-- 创建态（乐观创建：本地创建中，秒进页面） -->
     <view wx:if="{{historyState === 'creating'}}" class="conv-state">
@@ -89,7 +93,8 @@
       <view wx:if="{{historyState === 'loaded:0ev'}}" class="state-sub">{{ui['网关返回 0 条历史事件（若这是旧会话，请检查 Host 连接后下拉重试）']}}</view>
     </view>
 
-    <block wx:for="{{rows}}" wx:key="key">
+    <view style="height:{{conversationTopSpace}}px" aria-hidden="true"></view>
+    <view wx:for="{{rows}}" wx:key="key" class="conversation-window-row">
       <!-- 用户消息（iOS ConversationRow .user：右对齐海蓝气泡 + 气泡下复制钮） -->
       <view wx:if="{{item.kind === 'user'}}" class="row-user" id="{{item.key}}">
         <view wx:if="{{item.images.length === 1}}" class="user-image-single {{item.text ? 'with-text' : ''}}" style="{{item.singleStyle}}">
@@ -248,6 +253,7 @@
             </view>
           </view>
         </block>
+        <text wx:if="{{!item.blocks.length && item.text}}" class="assistant-plain-text" selectable>{{item.text}}</text>
         <view wx:if="{{item.images && item.images.length}}" class="attach-grid">
           <image
             wx:for="{{item.images}}" wx:for-item="img" wx:key="attachmentId"
@@ -305,7 +311,8 @@
           <text wx:if="{{item.text}}" class="event-text">{{item.text}}</text>
         </view>
       </view>
-    </block>
+    </view>
+    <view style="height:{{conversationBottomSpace}}px" aria-hidden="true"></view>
 
     <!-- The whale belongs to the conversation tail, inside its clipped viewport. -->
     <view wx:if="{{running}}" class="progress-strip conversation-progress" id="deep-search-progress">
@@ -319,7 +326,7 @@
   </scroll-view>
 
   <!-- ================= 轨迹：DSH 原生时间轴 ================= -->
-  <view wx:if="{{trajectoryMounted}}" hidden="{{tab !== 'trajectory'}}" class="trajectory-panel {{tab !== 'trajectory' ? 'session-panel-hidden' : ''}}" style="{{trajectoryStyle}}">
+  <view wx:if="{{trajectoryMounted}}" hidden="{{tab !== 'trajectory'}}" class="trajectory-panel {{tab !== 'trajectory' ? 'session-panel-hidden' : ''}}" style="{{trajectoryStyle}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
     <view class="trace-overview">
       <view class="trace-overview-head"><text>◷ {{ui['时长']}}</text><text>{{traceOverview.turns}} {{ui['轮次']}}</text><text>{{traceOverview.calls}} {{ui['调用']}}</text><text class="trace-overview-duration">{{ui[traceOverview.durationLabel] !== undefined ? ui[traceOverview.durationLabel] : traceOverview.durationLabel}}</text></view>
       <view wx:for="{{traceOverview.lanes}}" wx:for-item="lane" wx:key="id" class="trace-overview-lane">
@@ -329,8 +336,8 @@
       <view class="trace-overview-axis"><text>0 {{ui['秒']}}</text><text>{{ui[traceOverview.durationLabel] !== undefined ? ui[traceOverview.durationLabel] : traceOverview.durationLabel}}</text></view>
     </view>
     <scroll-view class="trajectory" scroll-y enhanced show-scrollbar="{{false}}" scroll-into-view="{{traceScrollTarget}}" scroll-with-animation bindscrolltoupper="loadOlder" upper-threshold="80">
-      <view wx:if="{{historyLoading}}" class="hist-banner"><view class="banner-spinner"/><text class="banner-text">{{trajectory.length ? ui['正在补齐较早的轨迹记录…'] : ui['正在生成轨迹…']}}</text></view>
-      <view wx:elif="{{hasMoreHistory}}" class="load-older" bindtap="loadOlder">{{ui['加载更早记录']}}</view>
+      <view wx:if="{{historyLoading}}" class="hist-banner"><view class="banner-spinner"/><text class="banner-text">{{historyProgressText}}</text></view>
+      <view wx:elif="{{hasMoreHistory}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
       <view class="trace-list">
         <block wx:for="{{trajectory}}" wx:key="key">
           <view wx:if="{{item.kind === 'turn'}}" class="trace-turn"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><view class="trace-turn-line"/></view>
@@ -896,20 +903,24 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
   </view>
 
   <!-- 对话节点定位：全屏蒙版 + 垂直居中展开的对话大纲 -->
-  <view wx:if="{{turnNavOpen}}" class="turn-overlay" catchtap="closeTurnNavigator" catchtouchmove="noop">
+  <view hidden="{{!turnNavOpen}}" class="turn-overlay {{!turnNavOpen ? 'session-panel-hidden' : ''}}" catchtap="closeTurnNavigator" catchtouchmove="noop">
     <view class="turn-overlay-inner" catchtap="noop" role="dialog" aria-label="{{ui['对话']}}">
       <view class="turn-scrub-body" id="turn-scrub-body">
+        <view wx:if="{{historyLoading}}" class="hist-banner"><text>{{historyProgressText}} · {{turnNavItems.length}}</text></view>
+        <view wx:elif="{{hasMoreHistory}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
         <scroll-view
           scroll-y
           enhanced
           show-scrollbar="{{false}}"
           class="turn-scrub-list"
           id="turn-scrub-list"
+          style="height: min(76vh, {{turnNavItems.length * 76 + (turnNavActiveIndex >= 0 ? 52 : 0) + 16}}rpx);"
+          scroll-top="{{turnNavScrollTop}}"
           bindscroll="onTurnListScroll"
           bindtouchstart="onTurnScrubStart"
           bindtouchmove="onTurnScrubMove"
           bindtouchend="onTurnScrubEnd"
-          bindtouchcancel="onTurnScrubEnd"
+          bindtouchcancel="onTurnScrubCancel"
         >
           <view class="turn-scrub-inner">
             <view

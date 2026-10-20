@@ -4,7 +4,7 @@ Component({
     active: { type: Boolean, value: true, observer: 'syncPlayback' },
     reducedMotion: { type: Boolean, value: false, observer: 'syncPlayback' }
   },
-  data: { ready: false, failed: false, frameImage: '' },
+  data: { ready: false, failed: false, frameImage: '', buffered: false, frameA: '', frameB: '', frontSlot: '', frameAId: 0, frameBId: 0 },
   lifetimes: {
     ready() {
       this._visible = true; this._disposed = false; this._elapsed = 0;
@@ -28,13 +28,16 @@ Component({
         try {
           let info = {};
           try { info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync(); } catch (e) { /* Canvas has measured dimensions. */ }
+          let device = {};
+          try { device = wx.getDeviceInfo ? wx.getDeviceInfo() : wx.getSystemInfoSync(); } catch (e) { /* Keep the existing renderer on unknown platforms. */ }
+          this.setData({ buffered: String(device.platform || '').toLowerCase() === 'ios' });
           // Native canvas compositing can cover ordinary WXML on some runtimes.
           // Render entirely offscreen and present an ordinary image below content.
           this._pixelRatio = Math.min(info.pixelRatio || 1, 480 / field.width, 900 / field.height);
           this._canvas = wx.createOffscreenCanvas({ type: 'webgl', width: field.width, height: field.height });
           this._renderer = createOceanRenderer(this._canvas, field.width, field.height, this._pixelRatio);
           this.draw(this._elapsed || 0);
-          this.setData({ ready: true, failed: false });
+          this.setData({ ...(!this.data.buffered ? { ready: true } : {}), failed: false });
           this.syncPlayback();
         } catch (e) { this.onCanvasError(); }
       });
@@ -62,10 +65,34 @@ Component({
       this._raf = null;
     },
     draw(time) {
+      // iOS 不改写正在显示的图片；解码和换层未完成时也不继续发送帧。
+      if (this.data.buffered && this._pendingFrame) return;
       this._renderer.draw(time);
-      this.setData({ frameImage: this._canvas.toDataURL('image/jpeg', 0.82) });
+      const image = this._canvas.toDataURL('image/jpeg', 0.82);
+      if (!this.data.buffered) { this.setData({ frameImage: image }); return; }
+      if (!image || image === 'data:,') { this.onCanvasError(); return; }
+      const slot = this.data.frontSlot === 'a' ? 'b' : 'a';
+      const id = this._frameSerial = (this._frameSerial || 0) + 1;
+      this._pendingFrame = { slot, id };
+      this.setData(slot === 'a' ? { frameA: image, frameAId: id } : { frameB: image, frameBId: id });
+    },
+    onFrameLoad(e) {
+      const pending = this._pendingFrame;
+      const data = e.currentTarget.dataset;
+      if (this._disposed || !pending || pending.committing || data.slot !== pending.slot || Number(data.frameId) !== pending.id) return;
+      pending.committing = true;
+      this.setData({ frontSlot: pending.slot, ready: true, failed: false }, () => {
+        // 必须等视图层提交换层后，才能覆盖原来的前台图片。
+        if (this._pendingFrame === pending) this._pendingFrame = null;
+      });
+    },
+    onFrameError(e) {
+      const pending = this._pendingFrame;
+      const data = e.currentTarget.dataset;
+      if (!this._disposed && pending && data.slot === pending.slot && Number(data.frameId) === pending.id) this.onCanvasError();
     },
     release() {
+      this._pendingFrame = null;
       if (this._renderer) this._renderer.dispose();
       this._renderer = null;
     },
@@ -78,8 +105,13 @@ Component({
         this.draw(this.data.reducedMotion ? 0 : this._elapsed);
       });
     },
-    onContextLost() { this.pause(); this.release(); this.setData({ ready: false }); },
+    onContextLost() { this.onCanvasError(); },
     onContextRestored() { if (!this._disposed) this.initialize(); },
-    onCanvasError() { this.pause(); this.release(); if (!this._disposed) this.setData({ ready: false, failed: true, frameImage: '' }); }
+    onCanvasError() {
+      this.pause(); this.release();
+      // 解码失败时保留已经显示的完整帧，不闪回纯色背景。
+      if (!this._disposed) this.setData(this.data.buffered && this.data.frontSlot
+        ? { failed: true } : { ready: false, failed: true, frameImage: '' });
+    }
   }
 });

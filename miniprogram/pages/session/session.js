@@ -14,6 +14,7 @@ const voicePreference = require('../../utils/voice-preference');
 const voiceActions = require('./voice-actions');
 const fileActions = require('./file-actions');
 const changesActions = require('./changes-actions');
+const viewportActions = require('./viewport-actions');
 const collaboration = require('../../utils/collaboration');
 const protocol = require('../../utils/protocol');
 const fileDeliverables = require('../../utils/file-deliverables');
@@ -29,6 +30,7 @@ const NOTIFY_TEMPLATE_ID = 'QvgkQ88HKFdTNPJVOp0EdOHNDodOQACzB9oDEFDZXKU';
 const { toolPresentation } = require('../../utils/tool-presentation');
 
 Page({
+  ...viewportActions,
   ...voiceActions,
   ...fileActions,
   ...changesActions,
@@ -38,6 +40,7 @@ Page({
     fileExpanded: {}, fileSheet: null, filePreview: null, changesDiff: null, fileBusyKey: '', fileSharingKey: '', fileProgress: 0,
     tab: 'conversation', // conversation | trajectory
     trajectoryMounted: false,
+    conversationTopSpace: 0, conversationBottomSpace: 0, conversationScrollTop: 0,
     navTitle: uiText('会话'),
     sessionSwitcherOpen: false,
     sessionSwitcherExpanded: false,
@@ -66,6 +69,7 @@ Page({
     turnNavItems: [],
     turnNavPreview: null,
     turnNavActiveIndex: -1,
+    turnNavScrollTop: 0,
     turnNavWidths: [],
     turnNavCardTop: 0,
     hasMoreHistory: false,
@@ -209,20 +213,26 @@ Page({
   },
 
   onHide() {
+    if (store.setTrajectoryActive) store.setTrajectoryActive(false);
     if (this.data.commandMenu) this.closeAttachMenu();
     this._collaborationRequest = null; this._collaborationRefresh = null;
     this.setData({ collaborationOpen:false, collaborationPreview:null, collaborationBusy:false });
     this.cancelFileDownload();
     this._voiceHidden = true; this.cancelVoice();
+    if (this._historyFormatTimer) clearTimeout(this._historyFormatTimer);
+    this._historyFormatTimer = null;
     if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
     this._storeSyncTimer = null; this._pendingStoreSnapshot = null;
     this.stopScrollPolling();
   },
 
   onShow() {
+    if (store.setTrajectoryActive) store.setTrajectoryActive(this.data.tab === 'trajectory');
     this._voiceHidden = false; this.syncVoicePreference();
+    this.resetConversationScroll();
     this.startScrollPolling();
     if (store.sessionState && store.sessionState.sessionId) this.syncFromStore({ app: store.state, session: store.sessionState });
+    this.refreshBottomAnchor();
     this.setData(statusAppearance.view(statusAppearance.read()));
     this.setData(procIconStyle.view(procIconStyle.read()));
     // 返回前台/切回页面：dock 高度可能变化（键盘、队列、审批卡）
@@ -230,6 +240,7 @@ Page({
   },
 
   onUnload() {
+    if (store.setTrajectoryActive) store.setTrajectoryActive(false);
     this._commandRequest = null; this._commandOptionRequest = null; this._attachmentRequest = null; this._filesRequest = null;
     this._collaborationRequest = null;
     this._collaborationRefresh = null;
@@ -237,6 +248,8 @@ Page({
     this.cancelVoice();
     if (this._voice) this._voice.dispose();
     this._unloaded = true;
+    if (this._historyFormatTimer) clearTimeout(this._historyFormatTimer);
+    this._historyFormatTimer = null; this._pendingHistoryFormat = null;
     if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
     this._storeSyncTimer = null;
     this._pendingStoreSnapshot = null;
@@ -254,6 +267,36 @@ Page({
 
   // ---------- 状态同步 ----------
 
+  scheduleHistoryFormatting() {
+    if (this._historyFormatTimer || this._voiceHidden || this._unloaded || !this._pendingHistoryFormat || !this._pendingHistoryFormat.size) return;
+    const sessionId = this._renderSessionId;
+    this._historyFormatTimer = setTimeout(() => {
+      this._historyFormatTimer = null;
+      if (this._voiceHidden || this._unloaded || sessionId !== this._renderSessionId) return;
+      if (this._turnScrubbing || Date.now() < (this._interactionUntil || 0)) { this.scheduleHistoryFormatting(); return; }
+      const indices = new Map((this.data.rows || []).map((row, index) => [row.key, index]));
+      const patch = {}, started = Date.now();
+      let count = 0;
+      for (const [key, text] of this._pendingHistoryFormat) {
+        if (!indices.has(key)) continue;
+        this._pendingHistoryFormat.delete(key);
+        const index = indices.get(key), row = this.data.rows[index];
+        if (row && row.kind === 'assistant' && row.text === text) {
+          const blocks = this._markdownCache.parse(key, text);
+          patch['rows[' + index + '].blocks'] = blocks;
+          const source = (this._conversationRows || []).find(item => item.key === key);
+          if (source) source.blocks = blocks;
+        }
+        if (++count >= 4 || Date.now() - started >= 8) break;
+      }
+      if (Object.keys(patch).length) this.setData(patch, () => {
+        this.measureConversationWindow();
+        if (!this._unloaded && !this._voiceHidden && sessionId === this._renderSessionId && this._convPinned !== false) this.refreshBottomAnchor();
+      });
+      if ([...this._pendingHistoryFormat.keys()].some(key => indices.has(key))) this.scheduleHistoryFormatting();
+    }, 32);
+  },
+
   scheduleStoreSync(snapshot) {
     if (this._unloaded || this._voiceHidden) return;
     this._pendingStoreSnapshot = snapshot;
@@ -262,6 +305,11 @@ Page({
     this._storeSyncTimer = setTimeout(() => {
       this._storeSyncTimer = null;
       const latest = this._pendingStoreSnapshot;
+      if (this._turnScrubbing && latest && !this._unloaded && !this._voiceHidden) {
+        this._interactionUntil = Date.now() + 100;
+        this.scheduleStoreSync(latest);
+        return;
+      }
       this._pendingStoreSnapshot = null;
       if (!this._unloaded && !this._voiceHidden && latest) this.syncFromStore(latest);
     }, delay);
@@ -308,6 +356,8 @@ Page({
     const s = snapshot.session;
     const app = snapshot.app;
     if (!s || (!s.sessionId && s.historyState !== 'creating' && s.historyState !== 'error:create')) return;
+    const sessionChanged = this._renderSessionId !== s.sessionId;
+    if (sessionChanged) this.resetConversationScroll();
     if (!this._markdownCache || this._renderSessionId !== s.sessionId) {
       if (this._renderSessionId && this._renderSessionId !== s.sessionId) {
         this._sessionDrafts = this._sessionDrafts || {};
@@ -331,6 +381,9 @@ Page({
         this.setData({ fileSheet: null, filePreview: null, fileExpanded: {} });
       }
       this._markdownCache = createMarkdownCache(safeParse);
+      if (this._historyFormatTimer) clearTimeout(this._historyFormatTimer);
+      this._historyFormatTimer = null;
+      this._pendingHistoryFormat = new Map();
       this._renderSessionId = s.sessionId;
       this._processRunningDone = '';
       this._lastRunSeconds = 0;
@@ -363,7 +416,7 @@ Page({
     }
     const semanticRows = [];
     const listedSession = (app.sessions || []).find(item => item.id === s.sessionId || item.sessionId === s.sessionId);
-    (s.rows || []).forEach((row) => {
+    (s.rows || []).forEach((row, rowIndex) => {
       if (row.kind === 'changes') {
         const changes = this.decorateChanges(row);
         if (changes) semanticRows.push(changes);
@@ -374,6 +427,11 @@ Page({
         return;
       }
       if (row.kind === 'assistant') {
+        const text = row.text || '';
+        let blocks = this._markdownCache.peek(row.key, text);
+        if (!blocks && rowIndex >= s.rows.length - 12) blocks = this._markdownCache.parse(row.key, text);
+        if (!blocks) this._pendingHistoryFormat.set(row.key, text);
+        else this._pendingHistoryFormat.delete(row.key);
         const tools = (row.tools || []).map((tool) => {
           const activity = toolPresentation(tool.name, tool.argumentsText, s.cwd || (listedSession && listedSession.cwd));
           return Object.assign({}, tool, {
@@ -387,7 +445,7 @@ Page({
           });
         });
         semanticRows.push(Object.assign({}, row, {
-          blocks: this._markdownCache.parse(row.key, row.text || ''),
+          blocks: blocks || [],
           images: row.images || [],
           copyText: row.text || '',
           tools: tools
@@ -446,7 +504,7 @@ Page({
     });
 
     this._traceRows = s.trajectory || [];
-    // Hidden trajectory stays out of the view bridge while the conversation streams.
+    // 两页提前投影并保持挂载，点击/横滑时只切可见性，不现场解析历史。
     const tracePatch = this.data.tab === 'trajectory' ? this.trajectoryPatch() : {};
 
     const stats = s.stats && s.stats.stats ? s.stats.stats : {};
@@ -619,7 +677,7 @@ Page({
 
     const workPrefs = workSteps.read();
     const policyKey = s.sessionId + '/' + workPrefs.mode + '/' + workPrefs.timing;
-    const processFolds = workSteps.apply(rows, workPrefs, this.data.folds, this.data.rows, this._workPolicyKey !== policyKey);
+    const processFolds = workSteps.apply(rows, workPrefs, this.data.folds, this._conversationRows || this.data.rows, this._workPolicyKey !== policyKey);
     this._workPolicyKey = policyKey;
     this._processRunning = processRunning;
 
@@ -647,7 +705,8 @@ Page({
       sessionPresetName: presetName || uiText('选择模式'),
       running: s.running === true,
       lastRowKind: rows.length ? rows[rows.length - 1].kind : '',
-      rows: rows,
+      ...this.conversationWindowPatch(rows),
+      ...this.turnNavigatorPatch(rows),
       folds: processFolds,
       ...tracePatch,
       hasMoreHistory: s.hasMoreHistory,
@@ -691,7 +750,8 @@ Page({
     const rowsChanged = Object.keys(viewPatch).some(key => key === 'rows' || key.indexOf('rows[') === 0);
     const dockChanged = ['running', 'question', 'approval', 'tasks', 'goal', 'composerMetricsVisible', 'sessionPresetVisible']
       .some(field => Object.keys(viewPatch).some(key => key === field || key.indexOf(field + '.') === 0 || key.indexOf(field + '[') === 0));
-    if (Object.keys(viewPatch).length) this.setData(viewPatch);
+    if (Object.keys(viewPatch).length) this.setData(viewPatch, () => { this.scheduleHistoryFormatting(); this.measureConversationWindow(); });
+    else this.scheduleHistoryFormatting();
     this.loadChangesSummaries();
     this.syncCommandMenu(this.data.draft, s);
     if (dockChanged) this.updateDockInset();
@@ -700,13 +760,9 @@ Page({
     if (he !== this.data.histError) this.setData({ histError: he });
     const hs = String(s.historyState || 'idle');
     if (hs !== this.data.historyState) this.setData({ historyState: hs });
-    const historyLoading = hs === 'requested' && !rows.length && !this.data.running;
+    const historyLoading = s.historyPaging === true || (hs === 'requested' && !rows.length && !this.data.running);
     const historyLoaded = hs.indexOf('loaded') === 0 || hs === 'idle' || hs.indexOf('error') === 0;
-    // 对齐 iOS historyProgressText
-    const loadedMatch = /loaded:(\d+)ev/.exec(hs);
-    const historyProgressText = hs === 'requested'
-      ? uiText('正在从 Mobile Gateway 同步会话内容…')
-      : (loadedMatch ? uiText('正在加载历史记录 · ') + loadedMatch[1] + uiText(' 个事件') : uiText('正在从 Mobile Gateway 同步会话内容…'));
+    const historyProgressText = he || uiText('正在从 Mobile Gateway 同步会话内容…');
     if (historyLoading !== this.data.historyLoading || historyLoaded !== this.data.historyLoaded
       || historyProgressText !== this.data.historyProgressText) {
       this.setData({
@@ -798,7 +854,7 @@ Page({
 
     // 新内容到达时贴底；但用户正在触摸列表时不要抢滚动
     const touchingRecently = Date.now() - (this._lastTouchAt || 0) < 1000;
-    if ((rowsChanged || justFinished) && this.data.tab === 'conversation' && this._convPinned !== false && !touchingRecently) {
+    if ((sessionChanged || rowsChanged || justFinished) && this.data.tab === 'conversation' && this._convPinned !== false && !touchingRecently) {
       this.refreshBottomAnchor();
     }
   },
@@ -1025,13 +1081,16 @@ Page({
   switchTab(e) {
     const tab = e.currentTarget.dataset.tab;
     if (!['conversation', 'trajectory'].includes(tab) || tab === this.data.tab) return;
+    haptics.vibrate();
     this.cancelVoice();
     this.closeAttachMenu(false);
+    if (store.setTrajectoryActive) store.setTrajectoryActive(tab === 'trajectory');
+    let tracePatch = {};
+    if (tab === 'trajectory') { this._traceRows = store.sessionState.trajectory || []; tracePatch = dataPatch(this.data, this.trajectoryPatch()); }
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
     this._collaborationRequest = null; this._collaborationRefresh = null;
-    this.setData({ tab, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
-      ...(tab === 'trajectory' ? { trajectoryMounted: true, ...dataPatch(this.data, this.trajectoryPatch()) } : {}),
+    this.setData({ tab, trajectoryMounted: this.data.trajectoryMounted || tab === 'trajectory', ...tracePatch, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
       statsPopOpen: false, showContextSheet: false, commandMenu: null,
       attachSheetOpen: false, modelSheetOpen: false, effortSheetOpen: false,
       permissionSheet: [], modeSheet: [], ...this.layoutPatch({ kbHeight: 0 }) });
@@ -1045,6 +1104,36 @@ Page({
       this.stopScrollPolling();
     }
   },
+
+  onPanelTouchStart(e) {
+    if (this.data.tab === 'conversation') this.onConvTouch();
+    const touch = e.touches && e.touches.length === 1 && e.touches[0];
+    this._panelGesture = touch ? { x: touch.clientX, y: touch.clientY, axis: '', tab: this.data.tab } : null;
+  },
+
+  onPanelTouchMove(e) {
+    const gesture = this._panelGesture;
+    if (!gesture) return;
+    if (!e.touches || e.touches.length !== 1) { this._panelGesture = null; return; }
+    const dx = e.touches[0].clientX - gesture.x, dy = e.touches[0].clientY - gesture.y;
+    if (!gesture.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 12) {
+      gesture.axis = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'horizontal' : 'vertical';
+    }
+  },
+
+  onPanelTouchEnd(e) {
+    const gesture = this._panelGesture;
+    this._panelGesture = null;
+    const touch = e.changedTouches && e.changedTouches[0];
+    if (!gesture || !touch || gesture.axis === 'vertical' || gesture.tab !== this.data.tab) return;
+    const dx = touch.clientX - gesture.x, dy = touch.clientY - gesture.y;
+    if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (this.data.moreSheetOpen || this.data.turnNavOpen || this.data.sessionSwitcherOpen || this.data.collaborationOpen) return;
+    const tab = dx < 0 ? 'trajectory' : 'conversation';
+    this.switchTab({ currentTarget: { dataset: { tab } } });
+  },
+
+  onPanelTouchCancel() { this._panelGesture = null; },
 
   /** 键盘高度：手动把输入条抬到键盘上方（adjust-position 关闭，避免整页顶起） */
   onKeyboardHeight(e) {
@@ -1742,6 +1831,7 @@ Page({
       clientHeight: Number(d.clientHeight) || 0,
       deltaY: Number(d.deltaY) || 0
     });
+    this.updateConversationWindow(Number(d.scrollTop) || 0);
   },
 
   // Content growth and intermediate programmatic positions must not cancel following.
@@ -1789,7 +1879,7 @@ Page({
 
   // Recheck the measured viewport when native scroll events omit its height.
   pollScrollPosition() {
-    if (this._unloaded || this.data.tab !== 'conversation' || this.data.moreSheetOpen || this.data.collaborationOpen) return;
+    if (this._unloaded || this._voiceHidden || this.data.turnNavOpen || this.data.tab !== 'conversation' || this.data.moreSheetOpen || this.data.collaborationOpen) return;
     if (this._scrollPollPending) return;
     this._scrollPollPending = true;
     const query = wx.createSelectorQuery().in(this);
@@ -1798,7 +1888,7 @@ Page({
     query.select('.conversation-inner').boundingClientRect();
     query.exec((res) => {
       this._scrollPollPending = false;
-      if (this._unloaded || this.data.tab !== 'conversation' || this.data.moreSheetOpen || this.data.collaborationOpen) return;
+      if (this._unloaded || this._voiceHidden || this.data.turnNavOpen || this.data.tab !== 'conversation' || this.data.moreSheetOpen || this.data.collaborationOpen) return;
       const view = res && res[0];
       const offset = res && res[1];
       const inner = res && res[2];
@@ -1823,9 +1913,8 @@ Page({
   },
 
   /** 当前对话的节点定位：列出用户消息 / 过程 / 助手回复，可跳到任意节点。 */
-  openTurnNavigator() {
+  turnNavigatorPatch(rows) {
     // 对齐 DSH 客户端右侧对话大纲：标题＝用户发送内容，正文＝该轮助手的回答
-    const rows = (this.data.rows || []);
     const snippet = (value, max) => {
       const text = String(value || '').replace(/\s+/g, ' ').trim();
       const limit = max || 60;
@@ -1867,18 +1956,30 @@ Page({
         detail: uiText('轮次') + ' ' + userIndex,
         // 选中行第二行显示助手回答正文（浅色、两行）
         preview: snippet(replyPreview, 120),
-        full: replyPreview || turn.sent
+        full: snippet(replyPreview || turn.sent, 800)
       };
     }).reverse();
+    const selected = (this.data.turnNavItems || [])[this.data.turnNavActiveIndex];
+    const selectedIndex = selected ? items.findIndex(item => item.key === selected.key) : -1;
+    const active = selectedIndex >= 0 ? selectedIndex : (this.data.turnNavOpen && items.length ? 0 : -1);
+    return { turnNavItems: items, turnNavActiveIndex: active,
+      turnNavWidths: items.map((_, index) => active < 0 ? 30 : Math.max(30, 112 - Math.abs(index - active) * 16)) };
+  },
+
+  openTurnNavigator() {
+    this.prioritizeInteraction();
     this._turnScrollTop = 0;
+    this._turnListRect = null;
+    this._turnScrubbing = false;
+    this._turnNavigatorTouched = false;
+    const active = this.data.turnNavItems.length ? 0 : -1;
     this.setData({
       turnNavOpen: true,
-      turnNavItems: items,
-      turnNavActiveIndex: -1,
-      turnNavWidths: items.map(() => 30),
+      turnNavScrollTop: 0,
+      turnNavActiveIndex: active,
+      turnNavWidths: this.data.turnNavItems.map((_, index) => Math.max(30, 112 - index * 16)),
       turnNavPreview: null
-    });
-    setTimeout(() => this.measureTurnRail(), 60);
+    }, () => wx.nextTick(() => { if (this.data.turnNavOpen && !this._unloaded) this.measureTurnRail(); }));
   },
 
   measureTurnRail() {
@@ -1889,8 +1990,8 @@ Page({
       windowWidth = Number(info && info.windowWidth) || windowWidth;
     } catch (e) { /* 忽略 */ }
     query.select('#turn-scrub-list').boundingClientRect((rect) => {
-      if (!rect || rect.height <= 0) return;
-      // 行高：未选中单行 72rpx，选中展开 112rpx
+      if (!this.data.turnNavOpen || this._unloaded || !rect || rect.height <= 0) return;
+      // 行高必须与目录样式一致。
       this._turnListRect = {
         top: rect.top,
         height: rect.height,
@@ -1898,19 +1999,27 @@ Page({
         activeRowHeight: 128 * windowWidth / 750
       };
     }).exec();
+    if (this._convPinned !== false || this.data.tab !== 'conversation') return;
     // 找当前对话正在看的位置：视口内第一条用户消息，默认高亮它
     query.select('.conversation').boundingClientRect((conv) => {
       query.selectAll('.row-user').boundingClientRect((rows) => {
-        if (!conv || !rows || !rows.length) return;
+        if (!this.data.turnNavOpen || this._unloaded || this._turnNavigatorTouched || this._convPinned !== false || !conv || !conv.height || !rows || !rows.length) return;
         const total = (this.data.turnNavItems || []).length;
         if (!total) return;
-        let firstVisible = rows.length - 1;
+        let firstVisible = 0;
         for (let i = 0; i < rows.length; i += 1) {
-          if (rows[i].bottom > conv.top + 12) { firstVisible = i; break; }
+          if (rows[i].top <= conv.top + 12) firstVisible = i;
+          else break;
         }
         // items 是倒序（最新在上），用户行是正序
         const index = Math.max(0, Math.min(total - 1, total - 1 - firstVisible));
-        if (this.data.turnNavActiveIndex < 0) this.applyTurnIndex(index);
+        this.applyTurnIndex(index, false);
+        const rect = this._turnListRect;
+        if (rect) {
+          const top = Math.max(0, index * rect.rowHeight - (rect.height - rect.activeRowHeight) / 2);
+          this._turnScrollTop = top;
+          this.setData({ turnNavScrollTop: top });
+        }
       }).exec();
     }).exec();
   },
@@ -1919,60 +2028,71 @@ Page({
     const rect = this._turnListRect;
     const items = this.data.turnNavItems || [];
     if (!rect || !items.length || !rect.rowHeight) return -1;
-    const localY = clientY - rect.top + (this._turnScrollTop || 0);
+    const localY = clientY - rect.top + (this._turnScrollTop || 0) - rect.rowHeight * 8 / 76;
     const active = this.data.turnNavActiveIndex;
-    let cursor = 0;
-    for (let i = 0; i < items.length; i += 1) {
-      const height = i === active ? (rect.activeRowHeight || rect.rowHeight) : rect.rowHeight;
-      if (localY < cursor + height) return i;
-      cursor += height;
-    }
-    return items.length - 1;
+    const extra = active >= 0 ? (rect.activeRowHeight || rect.rowHeight) - rect.rowHeight : 0;
+    const activeTop = active * rect.rowHeight;
+    if (active >= 0 && localY >= activeTop && localY < activeTop + rect.rowHeight + extra) return active;
+    const y = active >= 0 && localY >= activeTop + rect.rowHeight + extra ? localY - extra : localY;
+    return Math.max(0, Math.min(items.length - 1, Math.floor(y / rect.rowHeight)));
   },
 
   onTurnListScroll(e) {
-    this._turnScrollTop = Number(e.detail && e.detail.scrollTop) || 0;
+    const top = Number(e.detail && e.detail.scrollTop) || 0;
+    this._turnScrollTop = top;
+    if (this._turnScrubbing && this._turnFingerY != null) this.applyTurnIndex(this.turnIndexAt(this._turnFingerY));
   },
 
-  applyTurnIndex(index) {
+  applyTurnIndex(index, feedback = true) {
     const items = this.data.turnNavItems || [];
     const item = items[index];
     if (!item) return;
     if (index === this.data.turnNavActiveIndex) return;
-    // 选中行横线最长，上下按距离逐步缩短到恒定长度
-    const widths = items.map((entry, i) => {
-      const distance = Math.abs(i - index);
-      if (distance === 0) return 112;
-      return Math.max(30, 112 - distance * 16);
+    // 只有新旧选中项周围五条横线会变化，不随整个历史长度增长。
+    const patch = { turnNavActiveIndex: index };
+    const affected = new Set();
+    for (const center of [this.data.turnNavActiveIndex, index]) {
+      if (center < 0) continue;
+      for (let i = Math.max(0, center - 5); i <= Math.min(items.length - 1, center + 5); i++) affected.add(i);
+    }
+    affected.forEach(i => {
+      const width = Math.max(30, 112 - Math.abs(i - index) * 16);
+      if (this.data.turnNavWidths[i] !== width) patch['turnNavWidths[' + i + ']'] = width;
     });
-    const patch = {
-      turnNavActiveIndex: index,
-      turnNavWidths: widths
-    };
-    haptics.vibrate();
+    if (feedback) haptics.tick();
     this.setData(patch);
   },
 
   onTurnScrubStart(e) {
     const touch = e.touches && e.touches[0];
     if (!touch) return;
-    if (!this._turnRailRect) this.measureTurnRail();
+    this._turnNavigatorTouched = true;
+    this._turnScrubbing = true;
+    this._turnFingerY = touch.clientY;
+    if (!this._turnListRect) this.measureTurnRail();
     const index = this.turnIndexAt(touch.clientY);
     if (index >= 0) this.applyTurnIndex(index);
   },
 
   onTurnScrubMove(e) {
+    if (!this._turnScrubbing) return;
     const touch = e.touches && e.touches[0];
     if (!touch) return;
+    this._turnFingerY = touch.clientY;
     const index = this.turnIndexAt(touch.clientY);
     if (index >= 0) this.applyTurnIndex(index);
   },
 
   onTurnScrubEnd() {
+    if (!this._turnScrubbing) return;
+    this._turnScrubbing = false;
     const index = this.data.turnNavActiveIndex;
     const items = this.data.turnNavItems || [];
     const item = items[index];
     if (!item || !item.key) return;
+    if (this.data.tab !== 'conversation') this.switchTab({ currentTarget: { dataset: { tab: 'conversation' } } });
+    this._convPinned = false;
+    this.revealConversationRow(item.key);
     this.setData({ turnNavOpen: false, turnNavActiveIndex: -1, turnNavPreview: null, scrollTarget: '', scrollAnim: true }, () => {
       wx.nextTick(() => {
         this.setData({ scrollTarget: item.key });
@@ -1985,8 +2105,12 @@ Page({
   },
 
   closeTurnNavigator() {
+    this._turnListScrolling = false;
+    this._turnScrubbing = false;
     this.setData({ turnNavOpen: false, turnNavPreview: null });
   },
+
+  onTurnScrubCancel() { this._turnScrubbing = false; this._turnFingerY = null; },
 
   /** 手指划过/悬停某一条时，在列表上方浮出该轮消息卡片。 */
   showTurnPreview(e) {
@@ -2010,6 +2134,10 @@ Page({
   jumpToTurn(e) {
     const key = e.currentTarget.dataset.key;
     if (!key) return;
+    haptics.vibrate();
+    if (this.data.tab !== 'conversation') this.switchTab({ currentTarget: { dataset: { tab: 'conversation' } } });
+    this._convPinned = false;
+    this.revealConversationRow(key);
     this.setData({ turnNavOpen: false, scrollTarget: '', scrollAnim: true }, () => {
       wx.nextTick(() => {
         this.setData({ scrollTarget: key });
@@ -2021,12 +2149,20 @@ Page({
     });
   },
 
-  jumpToBottom() {
+  // 每次进入/切换会话都重新跟随最新消息，不继承上次阅读历史的位置。
+  resetConversationScroll() {
+    if (this._turnJumpTimer) clearTimeout(this._turnJumpTimer);
+    this._turnJumpTimer = null;
     this._convPinned = true;
     this._lastTouchAt = 0;
     this._userScrolledUp = false;
     this._lastScrollTop = undefined;
-    if (this.data.showJump) this.setData({ showJump: false });
+    this.setData({ showJump: false, scrollAnim: false, scrollTarget: '' });
+  },
+
+  jumpToBottom() {
+    this.resetConversationScroll();
+    if (this._conversationRows) this.setData(dataPatch(this.data, this.conversationWindowPatch(this._conversationRows)));
     this.refreshBottomAnchor();
   },
 
@@ -2050,7 +2186,7 @@ Page({
     this.prioritizeInteraction();
     const patch = {};
     patch['folds.' + key] = !this.data.folds[key];
-    this.setData(patch);
+    this.setData(patch, () => this.measureConversationWindow());
   },
 
   copyCode(e) {

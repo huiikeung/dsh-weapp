@@ -40,7 +40,7 @@ test('markdown cache checks actual text and prunes removed messages', () => {
 });
 function fixture(source) {
   let definition, parses = 0, scrolls = 0, measurements = 0;
-  const patches = [], ticks = [];
+  const patches = [], ticks = [], timers = new Map(); let timerId = 0;
   const store = { state: { connection: 'connected', sessions: [] }, sessionState: {
     sessionId: 'performance-test', rows: [], trajectory: [], running: true,
     runStartMs: Date.now() - 3000, historyState: 'loaded:300ev', stats: null
@@ -53,6 +53,7 @@ function fixture(source) {
   const filename = path.join(__dirname, '../miniprogram/pages/session/session.js');
   vm.runInNewContext(source || fs.readFileSync(filename, 'utf8'), {
     Page: value => { definition = value; }, Date, console,
+    setTimeout(fn) { timers.set(++timerId, fn); return timerId; }, clearTimeout(id) { timers.delete(id); },
     wx: { nextTick: fn => ticks.push(fn) },
     require(name) {
       if (name.endsWith('/store')) return store;
@@ -65,8 +66,26 @@ function fixture(source) {
     syncRunningStrip() {}, updateDockInset() { measurements++; }, refreshBottomAnchor() { scrolls++; } };
   const sync = () => page.syncFromStoreInner({ app: store.state, session: store.sessionState });
   const reset = () => { patches.length = 0; parses = 0; scrolls = 0; measurements = 0; };
-  return { page, store, definition, ticks, sync, reset, patches, report: () => ({ parses, scrolls, measurements, bytes: Buffer.byteLength(JSON.stringify(patches)) }) };
+  return { page, store, definition, ticks, timers, sync, reset, patches, report: () => ({ parses, scrolls, measurements, bytes: Buffer.byteLength(JSON.stringify(patches)) }) };
 }
+test('first paint renders a bounded tail and formats history only when it enters the window', () => {
+  const f = fixture(); f.sync();
+  assert.ok(f.report().parses <= 12);
+  assert.ok(f.page.data.rows.length <= 40);
+  assert.ok(!f.page.data.rows.some(row => row.key === 'a0'));
+  assert.ok(f.page.data.rows.find(row => row.key === 'current').blocks.length);
+  f.reset();
+  f.page._convPinned = false; f.page.updateConversationWindow(0); f.patches.length = 0;
+  let batches = 0;
+  while (f.timers.size && batches++ < 100) {
+    const [id, fn] = f.timers.entries().next().value; f.timers.delete(id);
+    const before = f.report().parses; fn();
+    assert.ok(f.report().parses - before <= 4);
+  }
+  assert.ok(f.page._pendingHistoryFormat.size > 0, 'offscreen messages stay unformatted');
+  assert.ok(f.page.data.rows.find(row => row.key === 'a0').blocks.length);
+  assert.ok(f.patches.every(patch => Object.keys(patch).every(key => /^rows\[\d+\]\.blocks$/.test(key))));
+});
 test('completion does not reparse or resend historical Markdown', () => {
   const f = fixture(); f.sync(); f.reset();
   const beforeBytes = Buffer.byteLength(JSON.stringify(f.page.data.rows));
@@ -92,6 +111,8 @@ test('final text, in-place tool updates, history prepend and session switch stil
   const group = f.page.data.rows.find(row => row.kind === 'processGroup');
   assert.equal(group.children.find(child => child.kind === 'toolBundle').tools[0].waiting, false);
   f.store.sessionState.rows.unshift({ kind: 'user', key: 'older', text: '更早历史' }); f.sync();
+  assert.equal(f.page._conversationRows[0].key, 'older');
+  f.page._convPinned = false; f.page.revealConversationRow('older');
   assert.equal(f.page.data.rows[0].key, 'older');
   f.store.sessionState.sessionId = 'another'; f.store.sessionState.rows = [{ kind: 'assistant', key: 'a0', text: '另一会话' }]; f.sync();
   assert.equal(f.page.data.rows.length, 1); assert.equal(f.page.data.rows[0].text, '另一会话');
@@ -118,15 +139,60 @@ test('bottom scrolling coalesces callbacks and never updates an unloaded page', 
   f.page._unloaded = true; f.ticks.shift()(); assert.equal(f.patches.length, 1);
 });
 module.exports = { fixture };
+test('reentering a loaded conversation scrolls to the latest message even without new rows', () => {
+  const f = fixture(); f.sync(); f.reset();
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  f.page.syncVoicePreference = () => {};
+  f.page.startScrollPolling = () => {};
+  f.page._convPinned = false;
+  f.page._lastTouchAt = Date.now();
+  f.page._lastScrollTop = 200;
+  f.page.data.showJump = true;
+  f.page.data.scrollAnim = true;
+  f.page._voiceHidden = true;
+  f.page.onShow();
+  while (f.ticks.length) f.ticks.shift()();
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom');
+  assert.equal(f.page._convPinned, true);
+  assert.equal(f.page._lastTouchAt, 0);
+  assert.equal(f.page._lastScrollTop, undefined);
+  assert.equal(f.page.data.showJump, false);
+  assert.equal(f.page.data.scrollAnim, false);
+});
+test('switching conversations resets history reading even when rendered rows are identical', () => {
+  const f = fixture(); f.sync(); f.reset();
+  f.page._convPinned = false; f.page._lastTouchAt = Date.now();
+  f.store.sessionState.sessionId = 'another-session';
+  f.sync();
+  assert.equal(f.page._convPinned, true);
+  assert.equal(f.page._lastTouchAt, 0);
+  assert.equal(f.report().scrolls, 1);
+});
+test('delayed history stays pinned on entry but manual upward scrolling still stops following', () => {
+  const f = fixture();
+  f.store.sessionState.rows = []; f.store.sessionState.running = false;
+  f.store.sessionState.historyState = 'loading'; f.sync(); f.reset();
+  f.page.applyScrollPosition({ scrollTop: 0, scrollHeight: 1600, clientHeight: 400 });
+  assert.equal(f.page._convPinned, true);
+  f.store.sessionState.rows = [{ kind: 'assistant', key: 'latest', text: '最新回复' }];
+  f.store.sessionState.historyState = 'loaded:1ev'; f.sync();
+  assert.ok(f.report().scrolls > 0);
+  f.page.applyScrollPosition({ scrollTop: 1200, scrollHeight: 1600, clientHeight: 400 });
+  f.page.onConvTouch();
+  f.page.applyScrollPosition({ scrollTop: 800, scrollHeight: 1600, clientHeight: 400 });
+  f.reset(); f.store.sessionState.rows[0].text += '更新'; f.sync();
+  assert.equal(f.page._convPinned, false);
+  assert.equal(f.report().scrolls, 0);
+});
 test('files arriving after completion publish immediately and respect history reading', () => {
   for (const pinned of [true, false]) {
     const f=fixture();f.sync();f.store.sessionState.running=false;f.sync();f.reset();f.page._convPinned=pinned;
     f.store.sessionState.rows.push({kind:'files',key:'delivered',turn:1,sessionId:'performance-test',files:[{key:'file-1',path:'output/report.pdf',description:'Completed report',seq:900,index:0}]});
     f.sync();
-    const card=f.page.data.rows.find(row=>row.kind==='files');
+    const card=f.page._conversationRows.find(row=>row.kind==='files');
     assert.equal(card.files[0].name,'report.pdf');assert.equal(card.files[0].subtitle,'Completed report');
     assert.equal(f.report().parses,0);assert.equal(f.report().scrolls,Number(pinned));
-    assert.ok(f.patches.some(p=>Object.keys(p).some(key=>key.startsWith('rows['))));
+    if (pinned) assert.ok(f.patches.some(p=>Object.keys(p).some(key=>key.startsWith('rows['))));
   }
 });
 test('bottom anchor reset commits before targeting and a new touch cancels the pending jump', () => {
@@ -152,7 +218,7 @@ test('empty conversation keeps its centered state instead of jumping to the bott
   assert.equal(f.ticks.length, 1);            // 有消息后恢复贴底
 });
 
-test('inactive trajectory skips projection and view updates but opens with latest source', () => {
+test('inactive trajectory does no presentation work and activation uses the latest events', () => {
   const f = fixture();
   const view = require('../miniprogram/utils/trajectory-presentation');
   const original = view.listRow; let projections = 0;
@@ -161,6 +227,7 @@ test('inactive trajectory skips projection and view updates but opens with lates
     f.store.sessionState.trajectory = [{ kind: 'event', key: 'event-1', badge: 'USER', label: 'User', seq: 1, text: 'first' }];
     f.sync();
     assert.equal(projections, 0); assert.equal(f.page.data.trajectory.length, 0);
+    assert.equal(f.page.data.trajectoryMounted, false);
     f.store.sessionState.trajectory = [{ kind: 'event', key: 'event-2', badge: 'USER', label: 'User', seq: 2, text: 'latest' }];
     f.sync(); assert.equal(projections, 0);
     f.page.data.tab = 'trajectory'; f.sync();
@@ -173,7 +240,7 @@ test('inactive trajectory skips projection and view updates but opens with lates
   } finally { view.listRow = original; }
 });
 
-test('authoritative history rebuilds semantic rows and trajectory only once', () => {
+test('identical history is not replayed and hidden trajectory builds only when dirty and activated', () => {
   const real = require('../miniprogram/utils/protocol');
   let applies = 0, trajectories = 0, builds = 0;
   const protocol = { ...real,
@@ -204,6 +271,13 @@ test('authoritative history rebuilds semantic rows and trajectory only once', ()
   applies = 0; trajectories = 0; builds = 0;
   store.client.callbacks.onFrame({ kind: 'history', sessionId: 'history-test', events });
   assert.deepEqual(clone(store.sessionState.rows), expected);
-  assert.equal(applies, 2); assert.equal(trajectories, 1); assert.equal(builds, 0);
+  assert.equal(applies, 0); assert.equal(trajectories, 0); assert.equal(builds, 0);
+  store.setTrajectoryActive(true); assert.equal(trajectories, 1);
+  store.setTrajectoryActive(true); assert.equal(trajectories, 1);
+  store.setTrajectoryActive(false);
+  store.client.callbacks.onFrame({ kind: 'history', sessionId: 'history-test', events: [...events, { type: 'user/message', seq: 3, data: { text: 'next' } }] });
+  assert.equal(applies, 1, 'only the appended event is applied');
+  assert.equal(trajectories, 1);
+  store.setTrajectoryActive(true); assert.equal(trajectories, 2);
 });
 

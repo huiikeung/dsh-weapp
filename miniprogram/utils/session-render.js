@@ -31,6 +31,10 @@ function dataPatch(previous, next) {
 function createMarkdownCache(parse) {
   const entries = new Map();
   return {
+    peek(key, text) {
+      const cached = entries.get(key);
+      return cached && cached.text === text ? cached.blocks : null;
+    },
     parse(key, text) {
       const cached = entries.get(key);
       if (cached && cached.text === text) return cached.blocks;

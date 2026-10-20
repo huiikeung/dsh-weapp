@@ -3,7 +3,11 @@
     <view class="ocean-fallback-light"></view>
     <image class="ocean-fallback-whale" src="/assets/icons/bg-whale.png" mode="aspectFit" />
   </view>
-  <image wx:if="{{frameImage}}" class="ocean-frame" src="{{frameImage}}" mode="scaleToFill" aria-hidden="true" />
+  <block wx:if="{{buffered}}">
+    <image wx:if="{{frameA}}" class="ocean-frame ocean-buffer {{frontSlot === 'a' ? 'ocean-buffer-front' : ''}}" src="{{frameA}}" data-slot="a" data-frame-id="{{frameAId}}" bindload="onFrameLoad" binderror="onFrameError" mode="scaleToFill" aria-hidden="true" />
+    <image wx:if="{{frameB}}" class="ocean-frame ocean-buffer {{frontSlot === 'b' ? 'ocean-buffer-front' : ''}}" src="{{frameB}}" data-slot="b" data-frame-id="{{frameBId}}" bindload="onFrameLoad" binderror="onFrameError" mode="scaleToFill" aria-hidden="true" />
+  </block>
+  <image wx:elif="{{frameImage}}" class="ocean-frame" src="{{frameImage}}" mode="scaleToFill" aria-hidden="true" />
   <view class="ocean-depth"></view>
   <view class="ocean-settle"></view>
 </view>

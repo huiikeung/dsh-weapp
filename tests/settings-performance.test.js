@@ -6,10 +6,10 @@ const vm = require('node:vm');
 function homeFixture() {
   const file = path.resolve(__dirname, '../miniprogram/pages/home/home.js');
   let definition, subscriber, navigation; const calls = [];
-  const store = { state: { profiles: [], sessions: [], workspaces: [], connection: 'disconnected' }, sessionState: {}, subscribe(fn) { subscriber = fn; return () => {}; } };
+  const store = { state: { profiles: [], sessions: [], workspaces: [], connection: 'disconnected' }, sessionState: {}, stopHostProbes() { calls.push('stopProbes'); }, subscribe(fn) { subscriber = fn; return () => {}; } };
   const wx = { getWindowInfo: () => ({ windowWidth: 375, statusBarHeight: 44 }), getAppBaseInfo: () => ({ theme: 'light' }),
     navigateTo(options) { calls.push('navigate'); navigation = options; } };
-  vm.runInNewContext(fs.readFileSync(file, 'utf8'), { Page: value => { definition = value; }, wx,
+  vm.runInNewContext(fs.readFileSync(file, 'utf8'), { Page: value => { definition = value; }, wx, clearInterval: id => calls.push(['clearInterval', id]),
     require: name => name.endsWith('/store') ? store : name.endsWith('/theme') ? { resolveTheme: () => 'light' } : require(path.resolve(path.dirname(file), name)) });
   const page = { ...definition, data: { ...definition.data }, setData(patch) { Object.assign(this.data, patch); },
     selectComponent() { return { pause() { calls.push('pause'); } }; } };
@@ -33,4 +33,17 @@ test('failed settings navigation restores the live home and allows retry', () =>
   const f = homeFixture(); f.page.openSettings(); f.navigation().fail();
   assert.equal(f.page._homeHidden, false); assert.equal(f.page.data.oceanActive, true);
   f.page.openSettings(); assert.equal(f.calls.filter(x => x === 'navigate').length, 2);
+});
+
+test('unchanged session emissions do not resend home lists and hide stops host polling', () => {
+  const f = homeFixture(); let patches = 0;
+  const set = f.page.setData; f.page.setData = patch => { patches++; set.call(f.page, patch); };
+  for (let i = 0; i < 100; i++) f.emit();
+  assert.equal(patches, 0);
+  f.store.state.sessions.push({ sessionId: 'live', title: '新记录' });
+  f.emit(); assert.equal(patches, 1);
+  f.page.hostSheetTimer = 123; f.page.onHide();
+  assert.ok(f.calls.some(call => Array.isArray(call) && call[0] === 'clearInterval' && call[1] === 123));
+  assert.ok(f.calls.includes('stopProbes'));
+  assert.equal(f.page.data.hostSheetOpen, false);
 });

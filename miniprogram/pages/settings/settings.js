@@ -262,21 +262,28 @@ Page({
     const value = haptics.setLevel(level);
     this.setData({ hapticsLevel: value });
     if (value !== 'off') {
-      const first = haptics.vibrate();
-      // 依次补一记震动，便于确认是否生效
-      setTimeout(() => haptics.vibrate(), 160);
-      this.setData({ hapticsStatusText: '最近调用：' + ((first && first.api) || '-') + ' · ' + (first && first.ok ? 'ok' : 'fail') });
+      haptics.vibrate();
+      this.setData({ hapticsStatusText: uiText('已选择震动强度，请感受手机反馈。') });
     } else {
-      this.setData({ hapticsStatusText: '已关闭震动' });
+      this.setData({ hapticsStatusText: uiText('已关闭震动') });
     }
   },
 
   testHaptics() {
+    if (haptics.getLevel() === 'off') {
+      this.setData({ hapticsStatusText: uiText('已关闭震动') });
+      wx.showModal({ title: uiText('震动测试'), content: uiText('已关闭震动'), showCancel: false, confirmText: uiText('知道了') });
+      return;
+    }
     haptics.test((result) => {
-      const lines = (result.report || []).map((row) => row.name + ': ' + (row.ok ? 'ok' : 'fail') + (row.detail ? ' (' + row.detail + ')' : ''));
-      const title = result.ok ? uiText('已触发震动') : uiText('当前手机或微信未开启震动，请在系统设置中打开');
-      const content = lines.join('\n');
-      this.setData({ hapticsStatusText: (result.ok ? 'ok · ' : 'fail · ') + lines.join(' | ') });
+      const simulator = result.env === 'devtools';
+      const title = uiText('震动测试');
+      const content = simulator
+        ? uiText('开发者工具无法体验震动，请在手机微信中测试。')
+        : result.ok
+          ? uiText('已发送震动测试，请感受手机反馈。若没有感觉到震动，请检查手机的震动与触感设置。')
+          : uiText('暂时无法触发震动，请检查手机的震动与触感设置，或稍后重试。');
+      this.setData({ hapticsStatusText: content });
       wx.showModal({ title, content, showCancel: false, confirmText: uiText('知道了') });
     });
   },
