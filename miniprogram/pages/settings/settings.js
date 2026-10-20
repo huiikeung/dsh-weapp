@@ -858,8 +858,12 @@ Page({
   },
   applySharing(enabled) {
     this.setData({ referralEnabled: enabled === true, ...(enabled ? {} : { referralSheetOpen: false, referralToken: '', referralBusy: false }) });
-    // Settings must not re-enable the platform sharing menu when this activity is off.
-    try { wx.hideShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] }); } catch (e) {}
+    // 活动开启时才开放平台转发菜单（设置页自己的分享按钮仍可用）；
+    // 关闭时连朋友圈一起隐藏，避免分享入口指向已关闭的活动。
+    try {
+      if (enabled) wx.showShareMenu({ menus: ['shareAppMessage'] });
+      else wx.hideShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] });
+    } catch (e) { /* 忽略 */ }
   },
   async refreshAppContent() {
     const generation = this._contentGeneration = (this._contentGeneration || 0) + 1;
@@ -1164,7 +1168,10 @@ Page({
   },
 
   onShareAppMessage(event) {
-    if (this.data.referralEnabled && event && event.target && event.target.dataset && event.target.dataset.referral && this.data.referralToken) {
+    const dataset = event && event.target && event.target.dataset;
+    // 右上角菜单转发（无 event/target）与活动里的「好友或群聊」按钮都分享邀请页；
+    // 公网节点的「转发」按钮（无 data-referral）继续分享配对信息。
+    if (this.data.referralEnabled && this.data.referralToken && (!dataset || dataset.referral === true)) {
       return { title: uiText('鲸尾 · 随时连接自己的 DSH'), path: '/pages/share-activity/share-activity?ref=' + this.data.referralToken, imageUrl: '/assets/brand/app-icon-share-500x400.png' };
     }
     if (this.data.sharePayload) {

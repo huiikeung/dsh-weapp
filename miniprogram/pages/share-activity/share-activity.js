@@ -54,7 +54,8 @@ Page({
   enterApp() { wx.reLaunch({ url: '/pages/home/home' }); },
   toggleRules() { this.setData({ rulesOpen: !this.data.rulesOpen }); },
   onShareAppMessage() {
-    return { title: uiText('鲸尾 · 随时连接自己的 DSH'), path: this.data.enabled ? '/pages/share-activity/share-activity' + (this.data.inviteToken ? '?ref=' + this.data.inviteToken : '') : '/pages/home/home', imageUrl: '/assets/brand/app-icon-share-500x400.png' };
+    const token = this.data.enabled ? this.data.inviteToken : '';
+    return { title: uiText('鲸尾 · 随时连接自己的 DSH'), path: this.data.enabled ? '/pages/share-activity/share-activity' + (token ? '?ref=' + token : '') : '/pages/home/home', imageUrl: '/assets/brand/app-icon-share-500x400.png' };
   },
   onShareTimeline() { return { title: uiText('鲸尾 · 随时连接自己的 DSH'), query: 'timeline=1', imageUrl: '/assets/brand/app-icon-share-500x400.png' }; },
   momentsGuide() { wx.showModal({ title: uiText('分享到朋友圈'), content: uiText('点击右上角「…」→「分享到朋友圈」。发布后提交首张截图，保留满 24 小时再提交复核截图。微信不提供保留时长证明，需要后台人工审核；点击分享不会立即发奖。'), showCancel: false }); },

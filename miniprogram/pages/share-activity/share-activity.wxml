@@ -15,7 +15,7 @@
     <text class="activity-intro">{{ui['随时连接自己的 DSH，查看进展、继续对话。']}}</text>
     <text class="activity-reward-hint">{{ui['朋友首次有效打开，按阶梯获赠公网访问']}}</text>
     <text class="overview-label">{{ui['分享累计获得']}}</text><view class="reward-number">{{earnedDays}}<text> {{ui['天']}}</text></view><text class="activity-intro">{{validOpens}} {{ui['位朋友有效打开 · 公网时长自动累加']}}</text>
-    <button wx:if="{{enabled}}" class="activity-primary" open-type="share" disabled="{{!inviteToken || loading}}">{{ui['分享给好友或群聊']}}</button>
+    <button wx:if="{{enabled}}" class="activity-primary" open-type="share" disabled="{{loading}}">{{ui['分享给好友或群聊']}}</button>
     <view class="activity-links"><button bindtap="toggleRules">{{rulesOpen ? ui['收起规则'] : ui['活动规则']}}</button><button bindtap="refresh" disabled="{{busy || loading}}">{{ui['刷新记录']}}</button></view>
     <text class="activity-intro activity-scope">{{ui['仅赠送公网服务，不影响局域网，不分享设备权限。']}}</text>
   </view>
