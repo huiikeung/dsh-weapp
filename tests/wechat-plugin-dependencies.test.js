@@ -17,6 +17,54 @@ test('plugin configuration mixins use explicit imports for WeChat packaging', ()
   }
 });
 
+test('subpackage artwork manifests stay inside their package roots', () => {
+  const mainManifest = path.join(root, 'assets/plugin-artwork/desktop/manifest.js');
+  assert.equal(fs.existsSync(mainManifest), false, 'subpackage-only mapping must not remain in the main package');
+  for (const page of ['pages/plugins', 'pages/plugin-detail']) {
+    const source = fs.readFileSync(path.join(root, page, 'plugin-artwork.js'), 'utf8');
+    assert.match(source, /require\('\.\/assets\/plugin-artwork\/desktop\/manifest'\)/, page + ' loads its local manifest');
+    assert.ok(fs.existsSync(path.join(root, page, 'assets/plugin-artwork/desktop/manifest.js')), page + ' has its own packaged manifest');
+  }
+});
+
+test('main-package utilities are reached by main pages or their components, not subpackages alone', { skip: !fs.existsSync(archive) }, async () => {
+  const analyzer = installedAnalyzer();
+  const app = JSON.parse(fs.readFileSync(path.join(root, 'app.json'), 'utf8'));
+  const helper = {
+    mtime: file => fs.statSync(path.join(root, file)).mtimeMs,
+    getString: async file => fs.readFileSync(path.join(root, file), 'utf8'),
+    existFile: file => fs.existsSync(path.join(root, file)),
+    existDir: file => fs.existsSync(path.join(root, file))
+  };
+  const queue = ['app.js', ...app.pages.map(route => route + '.js')];
+  for (const route of app.pages) {
+    const config = path.join(root, route + '.json');
+    if (!fs.existsSync(config)) continue;
+    for (const component of Object.values(JSON.parse(fs.readFileSync(config, 'utf8')).usingComponents || {})) {
+      if (component.startsWith('/')) queue.push(component.slice(1) + '.js');
+    }
+  }
+  const reached = new Set();
+  for (let i = 0; i < queue.length; i++) {
+    const file = queue[i];
+    if (reached.has(file) || !helper.existFile(file)) continue;
+    reached.add(file);
+    for (const dependency of await analyzer.analyseSingeFile(file, helper)) {
+      if (dependency.path && !reached.has(dependency.path)) queue.push(dependency.path);
+    }
+  }
+  const files = [];
+  const walk = directory => {
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      const file = path.join(directory, entry.name);
+      if (entry.isDirectory()) walk(file);
+      else if (file.endsWith('.js')) files.push(path.relative(root, file).replace(/\\/g, '/'));
+    }
+  };
+  walk(path.join(root, 'utils'));
+  assert.deepEqual(files.filter(file => !reached.has(file)), []);
+});
+
 function installedAnalyzer() {
   const fd = fs.openSync(archive, 'r');
   let source;
@@ -58,7 +106,7 @@ test('installed WeChat analyzer includes the complete plugin configuration depen
   const pageDeps = await deps(entry);
   assert.ok(pageDeps.some(dep => dep.path === actions));
   const actionDeps = await deps(actions);
-  for (const file of [voice, 'utils/plugin-settings.js', 'utils/plugin-settings-copy.js']) {
+  for (const file of [voice, 'pages/plugin-detail/plugin-settings.js', 'pages/plugin-detail/plugin-settings-copy.js']) {
     assert.ok(actionDeps.some(dep => dep.path === file), 'missing packaged dependency: ' + file);
   }
   for (const file of [entry, actions, voice]) {

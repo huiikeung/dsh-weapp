@@ -35,7 +35,7 @@
     enhanced
     show-scrollbar="{{false}}"
     scroll-into-view="{{scrollTarget}}"
-    scroll-with-animation
+    scroll-with-animation="{{false}}"
     bindscroll="onConvScroll"
     bindtouchstart="onConvTouch"
     bindscrolltoupper="loadOlder"
@@ -351,7 +351,7 @@
 
   <!-- ================= 底部栈（对齐 iOS：滚到底 → 审批/提问卡 互斥替代输入区 → 排队托盘+胶囊行+输入卡） ================= -->
   <view hidden="{{tab !== 'conversation'}}" class="dock-stack {{voiceOverlayVisible ? 'voice-holding' : ''}} {{question ? 'question-active' : ''}} {{tab !== 'conversation' ? 'session-panel-hidden' : ''}}" style="{{dockStyle}}">
-    <view wx:if="{{showJump}}" class="jump-wrap">
+    <view wx:if="{{showJump && rows.length}}" class="jump-wrap">
       <view class="jump-bottom" bindtap="jumpToBottom">
         <view wx:if="{{running}}" class="jump-ring"></view>
         <image class="jump-ic" src="/assets/icons/{{theme === 'dark' ? 'arrow-down-light.png' : 'arrow-down-dark.png'}}"/>
@@ -569,6 +569,7 @@
       <view wx:if="{{statsPopOpen}}" class="stats-pop-mask" bindtap="closeStatsPop"></view>
       <view wx:if="{{statsPopOpen}}" class="stats-pop {{statsPopKind}}">
         <view class="stats-pop-title">
+          <image class="metric-icon" src="/assets/icons/{{statsPopKind === 'run' ? 'dsh-gauge' : 'dsh-storage'}}.svg" mode="aspectFit" aria-hidden="true"/>
           <text class="stats-pop-heading">{{ui[statsPopTitle] !== undefined ? ui[statsPopTitle] : statsPopTitle}}</text>
           <text wx:if="{{statsPopTotal}}" class="stats-pop-total">{{statsPopTotal}}</text>
         </view>
@@ -596,34 +597,45 @@
         </view>
       </block>
 
-      <!-- 斜杠命令目录 / 二级选项 -->
-      <view wx:if="{{commandMenu}}" class="command-menu">
-        <view wx:if="{{commandMenu.title}}" class="command-menu-title">{{ui[commandMenu.title] !== undefined ? ui[commandMenu.title] : commandMenu.title}}</view>
-        <view wx:if="{{commandLoading}}" class="command-loading"><view class="command-loading-bar"></view></view>
-        <scroll-view class="command-scroll" scroll-y>
-          <block wx:if="{{commandMenu.type === 'catalog'}}">
-            <block wx:for="{{commandMenu.groups}}" wx:key="id" wx:for-item="group">
-              <view class="command-group-title">{{ui[group.title] !== undefined ? ui[group.title] : group.title}}</view>
-              <view wx:for="{{group.items}}" wx:key="id" wx:for-item="command" class="command-row" bindtap="selectCommand" data-name="{{command.name}}">
-                <text class="command-name">/{{command.name}}</text>
-                <text class="command-desc">{{command.description}}</text>
-                <image wx:if="{{command.hasOptions}}" class="command-chev" src="/assets/icons/chev-right-gray.png"/>
-              </view>
-            </block>
-            <view wx:if="{{!commandMenu.groups.length && !commandLoading}}" class="command-empty">{{ui['没有匹配的命令']}}</view>
-          </block>
-          <block wx:else>
-            <view wx:for="{{commandMenu.options}}" wx:key="id" class="command-option" bindtap="selectCommandOption" data-id="{{item.id}}">
-              <view class="command-option-main">
-                <text class="command-option-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
-                <text wx:if="{{item.detail}}" class="command-option-detail">{{item.detail}}</text>
-              </view>
-              <image wx:if="{{item.selected}}" class="command-check" src="/assets/icons/check-ocean.png"/>
-            </view>
-          </block>
-        </scroll-view>
-        <view wx:if="{{commandError}}" class="command-error">{{ui[commandError] !== undefined ? ui[commandError] : commandError}}</view>
-      </view>
+<!-- + 和斜杠共用主机命令目录；附件选择是菜单中的本地动作。 -->
+<view wx:if="{{commandMenu}}" class="command-menu-mask" catchtap="closeAttachMenu"></view>
+<view wx:if="{{commandMenu}}" class="command-menu {{commandMenu.type === 'catalog' ? 'command-catalog' : commandMenu.type === 'attachments' ? 'command-attachments' : 'command-options'}}" catchtap="noop" role="dialog" aria-label="{{ui['添加与指令']}}">
+<view wx:if="{{commandMenu.type !== 'catalog'}}" class="command-menu-toolbar">
+<view wx:if="{{commandMenu.type === 'attachments'}}" class="command-menu-return command-row" bindtap="backToComposerCommands" role="button" aria-label="{{ui['返回']}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="command-menu-icon-slot"><image class="command-menu-icon command-return-icon command-monochrome" mode="aspectFit" src="/assets/icons/chev-right-gray.png"/></view><text class="command-menu-caption">{{ui['添加文件']}}</text></view>
+<view wx:else class="command-options-return" bindtap="backToComposerCommands" role="button" aria-label="{{ui['返回']}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><image class="command-options-back command-monochrome" mode="aspectFit" src="/assets/icons/chev-right-gray.png"/><text class="command-options-title">{{commandMenu.title}}</text></view>
+<view class="command-close" bindtap="closeAttachMenu" role="button" aria-label="{{ui['关闭']}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="{{commandMenu.type === 'options' ? 'command-close-glyph' : 'sheet-close-x'}}"></view></view>
+</view>
+<view wx:if="{{commandMenu.type === 'options'}}" class="command-search-field"><image class="command-search-icon" mode="aspectFit" src="/assets/icons/dsh-search{{theme === 'dark' ? '-dark' : ''}}.svg"/><input class="command-search" value="{{commandMenuQuery}}" bindinput="onCommandMenuSearch" placeholder="{{ui['搜索指令或选项']}}" aria-label="{{ui['搜索指令或选项']}}" placeholder-class="command-search-placeholder" adjust-position="{{false}}" bindkeyboardheightchange="onKeyboardHeight"/></view>
+<view wx:if="{{commandPaletteLoading || commandLoading}}" class="command-loading"><view class="command-loading-bar"></view></view>
+<scroll-view class="command-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+<block wx:if="{{commandMenu.type === 'catalog'}}">
+<block wx:for="{{commandMenu.groups}}" wx:key="id" wx:for-item="group">
+<view class="command-group-title">{{ui[group.title] !== undefined ? ui[group.title] : group.title}}</view>
+<view wx:for="{{group.items}}" wx:key="id" wx:for-item="command" class="command-row" bindtap="selectCommand" data-name="{{command.name}}" data-id="{{command.id}}" data-action="{{command.action}}" role="button" aria-label="{{command.label}} {{command.name}} {{command.description}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100">
+<view class="command-menu-icon-slot"><image class="command-menu-icon {{command.action === 'file' ? 'command-monochrome' : ''}}" mode="aspectFit" src="/assets/icons/{{command.icon}}"/></view>
+<view class="command-identity"><text class="command-name">{{command.label}}</text><text wx:if="{{command.label !== '/' + command.name}}" class="command-alias">{{command.name}}</text></view>
+<text wx:if="{{command.action !== 'file' && command.description}}" class="command-desc">{{command.description}}</text>
+</view>
+</block>
+<view wx:if="{{!commandMenu.groups.length && !commandLoading && !commandPaletteLoading}}" class="command-empty">{{ui['没有匹配的命令']}}</view>
+</block>
+<block wx:elif="{{commandMenu.type === 'attachments'}}">
+<view class="command-row" bindtap="chooseImage" role="button" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="command-menu-icon-slot"><image class="command-menu-icon command-monochrome" mode="aspectFit" src="/assets/icons/menu-image.svg"/></view><text class="command-name">{{ui['相册或拍照']}}</text></view>
+<view class="command-row" bindtap="chooseFile" role="button" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="command-menu-icon-slot"><image class="command-menu-icon command-monochrome" mode="aspectFit" src="/assets/icons/menu-chat-image.svg"/></view><text class="command-name">{{ui['聊天中的图片']}}</text></view>
+<view class="command-row" bindtap="chooseWorkspaceReference" role="button" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="command-menu-icon-slot"><image class="command-menu-icon command-monochrome" mode="aspectFit" src="/assets/icons/menu-folder.svg"/></view><text class="command-name">{{ui['工作区文件']}}</text></view>
+<view class="command-file-hint">{{ui['当前网关支持图片发送；普通文件请从工作区引用。']}}</view>
+</block>
+<block wx:else>
+<view wx:for="{{commandMenu.options}}" wx:key="id" class="command-option {{item.selected ? 'selected' : ''}}" bindtap="selectCommandOption" data-id="{{item.id}}" role="button" aria-pressed="{{item.selected}}" aria-disabled="{{commandPaletteLoading}}" aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}} {{item.badge || ''}} {{item.detail}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100">
+<view class="command-option-main"><text class="command-option-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text wx:if="{{item.badge}}" class="command-option-badge">{{item.badge}}</text></view>
+<text wx:if="{{item.detail}}" class="command-option-detail">{{ui[item.detail] !== undefined ? ui[item.detail] : item.detail}}</text>
+<view class="command-check-slot" aria-hidden="true"><view wx:if="{{item.selected}}" class="command-check"></view></view>
+</view>
+<view wx:if="{{!commandMenu.options.length && !commandPaletteLoading}}" class="command-empty">{{ui['没有匹配的选项']}}</view>
+</block>
+</scroll-view>
+<view wx:if="{{commandPaletteError || commandError}}" class="command-error"><text>{{commandPaletteError || commandError}}</text><view class="command-retry" bindtap="refreshComposerCommands" role="button">{{ui['重试']}}</view></view>
+</view>
 
       <!-- 输入卡 -->
       <view class="composer-surface {{voiceOverlayVisible ? 'voice-holding' : ''}}">
@@ -664,24 +676,19 @@
           <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
         </view>
         <view wx:else class="composer-thumb">
-          <image src="{{item.tempPath}}" mode="aspectFill" class="composer-thumb-img"/>
+          <image src="{{item.tempPath}}" mode="aspectFill" class="composer-thumb-img" bindtap="previewPendingImage" data-index="{{index}}"/>
           <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
         </view>
       </block>
     </view>
     <view class="composer-bar">
-      <view wx:if="{{canAttach}}" class="chip icon" bindtap="attachMenu"><image class="attach-ic" src="/assets/icons/plus-gray.png"/></view>
-      <view wx:if="{{attachSheetOpen}}" class="opt-mask attach-mask" catchtap="closeAttachMenu"></view>
-       <view wx:if="{{attachSheetOpen}}" class="opt-pop attach-pop">
-         <view class="opt-row" catchtap="chooseImage"><image src="/assets/icons/attach-gray.png" class="opt-ic"/><text class="opt-label">{{ui['图片']}}</text></view>
-         <view class="opt-row" catchtap="chooseFile"><image src="/assets/icons/paperclip-gray.png" class="opt-ic"/><text class="opt-label">{{ui['文件']}}</text></view>
-       </view>
-       <view class="chip permission-chip" bindtap="pickPermission">
-        <image class="chip-ic" src="/assets/icons/{{permissionIcon}}"/>
+      <view class="chip icon composer-plus {{attachSheetOpen ? 'active' : ''}}" bindtap="attachMenu" role="button" aria-label="{{ui['添加与指令']}}" aria-expanded="{{attachSheetOpen}}"><image class="attach-ic" src="/assets/icons/plus-gray.png"/></view>
+       <view class="chip permission-chip" bindtap="pickPermission" role="button" aria-label="{{ui['权限']}}" aria-expanded="{{permissionSheet.length > 0}}">
+        <image class="chip-ic" src="/assets/icons/{{permissionIcon}}" mode="aspectFit"/>
         <text class="chip-label">{{ui[permissionLabel] !== undefined ? ui[permissionLabel] : permissionLabel}}</text>
       </view>
       <view class="composer-spacer"></view>
-      <view class="chip model-chip" bindtap="pickModel"><text class="chip-model-name">{{modelLabel}}</text><view class="effort-pill" catchtap="pickEffort">{{effortLabel}}</view><image class="chip-ud" src="/assets/icons/chev-ud-gray.png"/></view>
+      <view class="chip model-chip" bindtap="pickModel" hover-class="model-trigger-pressed" hover-start-time="0" hover-stay-time="100" role="button" aria-label="{{ui['模型']}} {{modelLabel}} {{effortLabel}}" aria-expanded="{{modelSheetOpen || effortSheetOpen}}"><text class="chip-model-name">{{modelLabel}}</text><text wx:if="{{modelBadge}}" class="model-release-badge">{{modelBadge}}</text><text class="model-trigger-effort">{{effortLabel}}</text><view class="model-trigger-chevron {{modelSheetOpen || effortSheetOpen ? 'open' : ''}}"></view></view>
       <view
         wx:if="{{running && !canSend}}"
         class="send-btn stop glass-press"
@@ -715,72 +722,81 @@
     </block>
   </view>
 
-  <!-- 权限选择浮层（图标选项 + 当前项对勾，对齐 iOS 原生 Menu） -->
-  <view wx:if="{{permissionSheet.length}}" class="opt-mask" bindtap="closePickSheets"></view>
-  <view wx:if="{{permissionSheet.length}}" class="opt-pop permission-pop">
-    <view
-      wx:for="{{permissionSheet}}" wx:key="value"
-      class="opt-row {{item.current ? 'current' : ''}}"
-      bindtap="pickPermissionOption" data-value="{{item.value}}"
-    >
-      <image class="opt-ic" src="/assets/icons/{{item.icon}}"/>
-      <text class="opt-label">{{item.name}}</text>
-      <image wx:if="{{item.current}}" class="opt-check" src="/assets/icons/check-ocean.png"/>
-    </view>
-  </view>
+<!-- DSH permission menu: aligned glyphs, labels, EXP badge and trailing check. -->
+<view wx:if="{{permissionSheet.length}}" class="opt-mask" bindtap="closePickSheets"></view>
+<view wx:if="{{permissionSheet.length}}" class="opt-pop permission-pop" role="dialog" aria-label="{{ui['权限']}}">
+<scroll-view class="permission-pop-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+<view
+wx:for="{{permissionSheet}}" wx:key="value"
+class="opt-row {{item.current ? 'current' : ''}}"
+bindtap="pickPermissionOption" data-value="{{item.value}}"
+role="button" aria-pressed="{{item.current}}" aria-label="{{item.name}} {{item.badge || ''}}"
+hover-class="permission-row-pressed" hover-start-time="0" hover-stay-time="100"
+>
+<view class="permission-icon-slot"><image class="opt-ic" src="/assets/icons/{{item.icon}}" mode="aspectFit"/></view>
+<view class="permission-option-name"><text class="opt-label">{{item.name}}</text><text wx:if="{{item.badge}}" class="permission-option-badge">{{item.badge}}</text></view>
+<view class="permission-check-slot" aria-hidden="true"><view wx:if="{{item.current}}" class="permission-check"></view></view>
+</view>
+</scroll-view>
+</view>
 
-  <!-- 模式选择浮层（模式名 + 描述 + 当前项对勾） -->
-  <view wx:if="{{modeSheet.length}}" class="opt-mask" bindtap="closePickSheets"></view>
-  <view wx:if="{{modeSheet.length}}" class="opt-pop">
-    <view
-      wx:for="{{modeSheet}}" wx:key="id"
-      class="opt-row {{item.current ? 'current' : ''}}"
-      bindtap="pickModeOption" data-id="{{item.id}}"
-    >
-      <view class="opt-main">
-        <text class="opt-label">{{item.name}}</text>
-        <text wx:if="{{item.desc}}" class="opt-desc">{{ui[item.desc] !== undefined ? ui[item.desc] : item.desc}}</text>
-      </view>
-      <image wx:if="{{item.current}}" class="opt-check" src="/assets/icons/check-ocean.png"/>
-    </view>
-  </view>
+<!-- 模式选择浮层（模式名 + 描述 + 当前项对勾） -->
+<view wx:if="{{modeSheet.length}}" class="opt-mask" bindtap="closePickSheets"></view>
+<view wx:if="{{modeSheet.length}}" class="opt-pop">
+<view
+wx:for="{{modeSheet}}" wx:key="id"
+class="opt-row {{item.current ? 'current' : ''}}"
+bindtap="pickModeOption" data-id="{{item.id}}"
+>
+<view class="opt-main">
+<text class="opt-label">{{item.name}}</text>
+<text wx:if="{{item.desc}}" class="opt-desc">{{ui[item.desc] !== undefined ? ui[item.desc] : item.desc}}</text>
+</view>
+<image wx:if="{{item.current}}" class="opt-check" src="/assets/icons/check-ocean.png"/>
+</view>
+</view>
 
-  <!-- 模型选择浮层（按运营商分组 + 单选圆圈/对勾，对齐软件模型菜单） -->
-  <view wx:if="{{modelSheetOpen}}" class="opt-mask" bindtap="closeModelSheet"></view>
-  <view wx:if="{{modelSheetOpen}}" class="opt-pop model-pop">
-    <scroll-view scroll-y class="model-pop-scroll">
-      <block wx:for="{{modelGroups}}" wx:key="id" wx:for-item="g">
-        <view class="model-group-title">{{g.name}}</view>
-        <view
-          wx:for="{{g.models}}" wx:key="model" wx:for-item="m"
-          class="model-row {{m.current ? 'current' : ''}}"
-          bindtap="pickModelOption"
-          data-provider="{{m.provider}}" data-model="{{m.model}}" data-effort="{{m.effort}}"
-        >
-          <view class="model-radio {{m.current ? 'on' : ''}}">
-            <image wx:if="{{m.current}}" class="model-radio-check" src="/assets/icons/checkmark-gray.png"/>
-          </view>
-          <text class="model-name">{{m.name}}</text>
-        </view>
-      </block>
-    </scroll-view>
-  </view>
+<!-- DSH model list: provider groups and trailing selection check. -->
+<view wx:if="{{modelSheetOpen}}" class="opt-mask" bindtap="closeModelSheet"></view>
+<view wx:if="{{modelSheetOpen}}" class="opt-pop model-pop {{modelMenuPane === 'root' ? 'model-root' : 'model-list'}}" role="dialog" aria-label="{{ui['模型']}}">
+<block wx:if="{{modelMenuPane === 'root'}}">
+<view class="model-row model-menu-entry" bindtap="openModelList" role="button" hover-class="model-row-pressed" hover-start-time="0" hover-stay-time="100"><text class="model-entry-label">{{ui['模型']}}</text><view class="model-entry-value"><text class="model-value-text">{{modelLabel}}</text><text wx:if="{{modelBadge}}" class="model-release-badge">{{modelBadge}}</text></view><view class="model-entry-chevron"></view></view>
+<view class="model-row model-menu-entry" bindtap="pickEffort" role="button" hover-class="model-row-pressed" hover-start-time="0" hover-stay-time="100"><text class="model-entry-label">{{ui['推理等级']}}</text><view class="model-entry-value">{{effortLabel}}</view><view class="model-entry-chevron"></view></view>
+</block>
+<block wx:else>
+<scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="model-pop-scroll">
+<block wx:for="{{modelGroups}}" wx:key="id" wx:for-item="g">
+<view class="model-group-title">{{g.name}}</view>
+<view
+wx:for="{{g.models}}" wx:key="model" wx:for-item="m"
+class="model-row {{m.current ? 'current' : ''}}"
+bindtap="pickModelOption"
+data-provider="{{m.provider}}" data-model="{{m.model}}" data-effort="{{m.effort}}"
+role="button" aria-label="{{g.name}} {{m.name}}" aria-pressed="{{m.current}}"
+hover-class="model-row-pressed" hover-start-time="0" hover-stay-time="100"
+>
+<view class="model-identity"><text class="model-name">{{m.name}}</text><text wx:if="{{m.badge}}" class="model-release-badge">{{m.badge}}</text></view>
+<view class="model-check-slot" aria-hidden="true"><view wx:if="{{m.current}}" class="model-check"></view></view>
+</view>
+</block>
+</scroll-view>
+</block>
+</view>
 
-  <!-- 思考等级浮层（与模型弹窗同款单选样式，含 Off） -->
-  <view wx:if="{{effortSheetOpen}}" class="opt-mask" bindtap="closeEffortSheet"></view>
-  <view wx:if="{{effortSheetOpen}}" class="opt-pop effort-pop">
-    <view class="model-group-title">{{ui['思考等级']}}</view>
-    <view
-      wx:for="{{effortSheet}}" wx:key="value" wx:for-item="e"
-      class="model-row {{e.current ? 'current' : ''}}"
-      bindtap="pickEffortOption" data-value="{{e.value}}"
-    >
-      <view class="model-radio {{e.current ? 'on' : ''}}">
-        <image wx:if="{{e.current}}" class="model-radio-check" src="/assets/icons/checkmark-gray.png"/>
-      </view>
-      <text class="model-name">{{e.name}}</text>
-    </view>
-  </view>
+<!-- 思考等级浮层（与模型弹窗同款单选样式，含 Off） -->
+<view wx:if="{{effortSheetOpen}}" class="opt-mask" bindtap="closeEffortSheet"></view>
+<view wx:if="{{effortSheetOpen}}" class="opt-pop model-pop" role="dialog" aria-label="{{ui['推理等级']}}">
+<view class="model-row model-menu-back" bindtap="backToModelMenu" role="button" aria-label="{{ui['返回']}}" hover-class="model-row-pressed" hover-start-time="0" hover-stay-time="100"><view class="model-entry-chevron"></view><text>{{ui['推理等级']}}</text></view>
+<view
+wx:for="{{effortSheet}}" wx:key="value" wx:for-item="e"
+class="model-row {{e.current ? 'current' : ''}}"
+bindtap="pickEffortOption" data-value="{{e.value}}"
+role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover-start-time="0" hover-stay-time="100"
+>
+<text class="model-name">{{e.name}}</text>
+<view class="model-check-slot" aria-hidden="true"><view wx:if="{{e.current}}" class="model-check"></view></view>
+</view>
+</view>
 
   <view wx:if="{{fileSheet}}" class="sheet-mask" catchtap="closeFileActions" catchtouchmove="noop">
     <view class="sheet delivered-actions" catchtap="noop">
@@ -948,7 +964,7 @@
         <view class="sheet-handle"></view>
       </view>
       <view class="session-menu-head">
-        <text class="session-menu-title">{{ui['工作区文件']}}</text>
+        <text class="session-menu-title">{{fileReferenceMode ? ui['引用工作区文件'] : ui['工作区文件']}}</text>
         <view class="session-menu-close" bindtap="closeFilesSheet" role="button"><view class="sheet-close-x"></view></view>
       </view>
       <view class="more-files-toolbar">

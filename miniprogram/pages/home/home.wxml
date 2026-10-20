@@ -12,7 +12,8 @@
       <view class="drawer-brand">
         <image class="drawer-whale drawer-whale-light" src="/assets/icons/whale-ink.png" mode="aspectFit"/>
         <image class="drawer-whale drawer-whale-dark" src="/assets/icons/whale-white.png" mode="aspectFit"/>
-        <view class="brand-wordmark drawer-brand-text">whaletail</view>
+        <image class="brand-wordmark drawer-wordmark-light" src="/assets/icons/wordmark-ink.png" mode="widthFix" aria-hidden="true"/>
+        <image class="brand-wordmark drawer-wordmark-dark" src="/assets/icons/wordmark-white.png" mode="widthFix" aria-hidden="true"/>
         <view class="drawer-brand-badge">HARNESS</view>
       </view>
       <view class="drawer-item" hover-class="drawer-item-active" bindtap="openPlugins">
@@ -47,9 +48,9 @@
 
     <!-- 顶部品牌行：与右上角胶囊同行（导航区内固定，不随内容滚动），左边距对齐内容区 -->
     <view class="topbar" style="top: {{topbarTop}}px; height: {{topbarHeight}}px;">
-      <view class="brand-row tap" hover-class="brand-dim" bindtap="openDrawer">
-        <image class="brand-whale" src="/assets/icons/whale-white.png" mode="aspectFit"/>
-        <view class="brand-wordmark brand-text">whaletail</view>
+      <view class="brand-row tap" hover-class="brand-dim" bindtap="openDrawer" role="button" aria-label="whaletail HARNESS">
+        <image class="brand-whale" src="/assets/icons/whale-white.png" mode="aspectFit" aria-hidden="true"/>
+        <image class="brand-wordmark" src="/assets/icons/wordmark-white.png" mode="widthFix" aria-hidden="true"/>
         <view class="brand-badge">HARNESS</view>
       </view>
     </view>

@@ -83,10 +83,6 @@
   flex: none;
 }
 
-.drawer-brand-text {
-  color: var(--ink);
-}
-
 .drawer-brand-badge {
   color: #FFFFFF;
   background: #10151F;
@@ -103,15 +99,6 @@
 }
 
 .drawer-whale-dark {
-  display: none;
-}
-
-.drawer-wordmark {
-  max-width: 360rpx;
-  height: 44rpx;
-}
-
-.drawer-wordmark-dark {
   display: none;
 }
 
@@ -209,10 +196,6 @@
 .brand-mark {
   font-size: 40rpx;
   margin-right: 14rpx;
-}
-
-.brand-text {
-  color: #FFFFFF;
 }
 
 .brand-badge {
@@ -1631,8 +1614,7 @@
   background: #242426;
 }
 
-.drawer-dark .drawer-item-text,
-.drawer-dark .drawer-brand-text {
+.drawer-dark .drawer-item-text {
   color: #F1F4FA;
 }
 
@@ -1740,24 +1722,38 @@
 }
 
 /* 抽屉文字：不依赖 --ink（系统深色 + 应用浅色时 --ink 会被翻转，导致白底白字） */
-.drawer .drawer-item-text,
-.drawer .drawer-brand-text {
+.drawer .drawer-item-text {
   color: #10131A;
 }
 
-.drawer.drawer-dark .drawer-item-text,
-.drawer.drawer-dark .drawer-brand-text {
+.drawer.drawer-dark .drawer-item-text {
   color: #F1F4FA;
 }
 
-/* 品牌字：首页与左侧栏共用同一套排版（大小/粗细/字距/横向拉伸完全一致） */
+/* 品牌字标：Outfit 600 预渲染 PNG（whale 白/墨 + tail 雾蓝/海洋蓝），
+   深色面用 wordmark-white.png、浅色面用 wordmark-ink.png；
+   首页顶部与左侧栏共用同一套尺寸，375 宽下字高约 16px（源图 351×64 @4x）。 */
 .brand-wordmark {
-  font-family: 'Avenir Next', 'Montserrat', 'Futura', 'Helvetica Neue', -apple-system, sans-serif;
-  font-size: 42rpx;
-  font-weight: 500;
-  letter-spacing: -0.6rpx;
-  margin-right: 0;
-  padding-right: 46rpx;
-  transform: scaleX(1.22);
-  transform-origin: left center;
+  width: 168.75rpx;
+  height: auto;
+  margin-right: 18rpx;
+  flex: none;
+  display: block;
+}
+
+/* 抽屉字标按 drawer-dark 切换；选择器带 .drawer 前缀以压过 .brand-wordmark 的 display */
+.drawer .drawer-wordmark-light {
+  display: block;
+}
+
+.drawer .drawer-wordmark-dark {
+  display: none;
+}
+
+.drawer.drawer-dark .drawer-wordmark-light {
+  display: none;
+}
+
+.drawer.drawer-dark .drawer-wordmark-dark {
+  display: block;
 }

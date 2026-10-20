@@ -4,10 +4,13 @@ const root=path.resolve(__dirname,'../miniprogram');
 const app=JSON.parse(fs.readFileSync(path.join(root,'app.json'),'utf8'));
 const routes=require('./helpers/routes.cjs')(app);
 test('WeChat root contains only runtime files and all packages stay inside source budget',()=>{
-  const report=require('../scripts/check-miniprogram-package.cjs').check();assert.ok(report.groups[0].bytes<1.8*1024*1024);
+  const report=require('../scripts/check-miniprogram-package.cjs').check();assert.ok(report.groups[0].bytes<1.8*1024*1024);assert.ok(report.groups[0].mediaBytes<=200*1024);
   assert.equal(routes.length,16);assert.equal(new Set(routes).size,16);
   for(const route of routes)for(const ext of ['js','json','wxml','wxss'])assert.ok(fs.existsSync(path.join(root,route+'.'+ext)),route+'.'+ext);
   assert.equal(fs.existsSync(path.join(root,'../app.js')),false);
+  for(const file of ['plugin-artwork.js','plugin-presentation.js','plugin-settings.js','plugin-settings-copy.js'])assert.equal(fs.existsSync(path.join(root,'utils',file)),false);
+  assert.equal(fs.existsSync(path.join(root,'utils/schedule-editor.js')),false);
+  assert.ok(fs.existsSync(path.join(root,'pages/plugin-detail/plugin-settings-copy.js')));
 });
 test('subpackages do not import each other and main package does not import subpackages',()=>{
   const roots=app.subPackages.map(p=>p.root+'/');const owner=f=>roots.find(r=>f.startsWith(r))||'';
@@ -32,7 +35,7 @@ test('offline direct entry remains visible with explicit disconnected state',()=
 const compiler=process.env.WECHAT_WCC || 'D:/Program Files (x86)/Tencent/微信web开发者工具/resources/app.asar.unpacked/node_modules/wcc-exec/wcc.exe';
 test('native-compiled WXML renders all builtin form labels and error/offline states',{skip:!fs.existsSync(compiler)},()=>{
   const output=path.join(os.tmpdir(),'dsh-detail-render-'+process.pid+'.js');execFileSync(compiler,['-o',output,'pages/plugin-detail/plugin-detail.wxml','pages/plugin-detail/settings-form.wxml','pages/plugin-detail/voice-settings.wxml'],{cwd:root});
-  const context=vm.createContext({window:{},console});vm.runInContext(fs.readFileSync(output,'utf8'),context);const render=context.$gwx('pages/plugin-detail/plugin-detail.wxml');const prefs=require('../miniprogram/utils/ui-preferences'),{PluginSettings}=require('../miniprogram/utils/plugin-settings');
+  const context=vm.createContext({window:{},console});vm.runInContext(fs.readFileSync(output,'utf8'),context);const render=context.$gwx('pages/plugin-detail/plugin-detail.wxml');const prefs=require('../miniprogram/utils/ui-preferences'),{PluginSettings}=require('../miniprogram/pages/plugin-detail/plugin-settings');
   for(const id of ['shell','agent-loop','subagent','web-search']){const model=new PluginSettings(id,{namespaces:[],writable:false}),fields=model.fields();const tree=JSON.stringify(render({mode:'official',official:{title:id},detailScrollHeight:600,configStatus:'ready',config:{kind:id,fields,labels:{}},...prefs.snapshot()},{},{}));for(const field of fields)assert.ok(tree.includes(field.label),id+' missing '+field.label);assert.ok(tree.includes('height: 600px'));}
   const snapshot=prefs.snapshot();const offline=JSON.stringify(render({mode:'official',official:{title:'终端'},connected:false,...snapshot},{},{}));assert.ok(offline.includes('网关已断开'));
   const failed=JSON.stringify(render({mode:'official',official:{title:'终端'},connected:true,configStatus:'error',configError:'无法加载插件设置，请确认网关版本并重试。',...snapshot},{},{}));assert.ok(failed.includes('无法加载插件设置'));assert.ok(failed.includes('重试'));

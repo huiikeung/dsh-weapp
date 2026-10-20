@@ -2,7 +2,7 @@
 const { t: uiText } = require('../../utils/ui-preferences');
 const store = require('../../utils/store');
 const schedule = require('../../utils/schedule');
-const editor = require('../../utils/schedule-editor');
+const editor = require('./schedule-editor');
 const theme = require('../../utils/theme');
 const week = [uiText('一'), uiText('二'), uiText('三'), uiText('四'), uiText('五'), uiText('六'), uiText('日')];
 Page({

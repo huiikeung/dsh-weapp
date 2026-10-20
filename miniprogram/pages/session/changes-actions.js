@@ -45,7 +45,8 @@ module.exports = {
     const context = this.changesContext();
     if (!context.client || typeof context.client.requestChangesSummary !== 'function') return;
     const rows = (store.sessionState.rows || []).filter(row => row.kind === 'changes' && row.changeSeq !== undefined).slice().reverse();
-    for (const row of rows) {
+    for (const source of rows) {
+      const row = { ...source };
       if (context.active >= 2) break;
       if (context.cache.has(row.changeSeq)) continue;
       context.active++; context.cache.set(row.changeSeq, { state: 'loading' });

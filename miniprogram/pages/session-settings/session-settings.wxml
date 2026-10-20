@@ -41,19 +41,89 @@
         <text class="pair-sheet-title">{{pickerTitle}}</text>
         <view class="pair-sheet-close tap" bindtap="closePickerSheet" role="button"><view class="sheet-close-x"></view></view>
       </view>
-      <scroll-view class="picker-option-list" style="max-height: {{pickerListH}}px;" scroll-y enhanced show-scrollbar="{{false}}" enable-flex>
-        <block wx:for="{{pickerOptions}}" wx:key="key">
-          <view wx:if="{{item.header}}" class="picker-group">{{item.header}}</view>
+      <scroll-view class="picker-option-list {{picker === 'preset' ? 'preset-picker-list' : picker === 'model' ? 'model-picker-list' : picker === 'permission' ? 'permission-picker-list' : ''}}" style="max-height: {{pickerListH}}px;" scroll-y enhanced show-scrollbar="{{false}}" enable-flex>
+        <view wx:if="{{pickerIntro}}" class="picker-intro">{{ui[pickerIntro] !== undefined ? ui[pickerIntro] : pickerIntro}}</view>
+        <block wx:if="{{picker === 'preset'}}">
           <view
-            wx:else
-            class="picker-option {{item.checked ? 'checked' : ''}}"
+            wx:for="{{pickerOptions}}"
+            wx:key="id"
+            class="preset-option-card {{item.checked ? 'selected' : ''}} {{item.broken ? 'broken' : ''}}"
             data-index="{{index}}"
             bindtap="choosePicker"
+            hover-class="picker-card-hover"
             role="button"
           >
-            <text class="picker-option-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
-            <text wx:if="{{item.checked}}" class="picker-option-check">✓</text>
+            <view class="preset-card-head">
+              <text class="preset-card-name">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+              <text class="preset-card-id">{{item.id}}</text>
+              <text wx:if="{{item.checked}}" class="picker-current-badge">{{ui['当前使用']}}</text>
+            </view>
+            <text class="preset-card-description">{{ui[item.description] !== undefined ? ui[item.description] : item.description}}</text>
+            <text wx:if="{{item.broken}}" class="preset-card-warning">⚠ {{ui[item.brokenReason] !== undefined ? ui[item.brokenReason] : item.brokenReason || ui['该预设存在配置错误，暂时不能设为默认值']}}</text>
           </view>
+        </block>
+        <block wx:elif="{{picker === 'model'}}">
+          <block wx:for="{{pickerOptions}}" wx:for-index="optionIndex" wx:key="key">
+            <view wx:if="{{item.header}}" class="picker-provider-title">{{ui[item.header] !== undefined ? ui[item.header] : item.header}}</view>
+            <view wx:else class="model-option-card {{item.checked ? 'selected' : ''}}">
+              <view class="model-option-main" data-index="{{optionIndex}}" bindtap="choosePicker" hover-class="model-option-main-hover" role="button">
+                <text class="model-option-name">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+                <text wx:if="{{item.checked}}" class="picker-current-badge">{{ui['当前使用']}}</text>
+              </view>
+              <view wx:if="{{item.efforts && item.efforts.length}}" class="model-effort-section">
+                <text class="model-effort-label">{{ui['思考等级']}}</text>
+                <view class="model-effort-options">
+                  <view
+                    wx:for="{{item.efforts}}"
+                    wx:for-item="effort"
+                    wx:for-index="effortIndex"
+                    wx:key="id"
+                    class="model-effort-chip {{effort.checked ? 'selected' : ''}}"
+                    data-option-index="{{optionIndex}}"
+                    data-effort-index="{{effortIndex}}"
+                    catchtap="chooseModelEffort"
+                    hover-class="model-effort-chip-hover"
+                    role="button"
+                  >{{effort.label}}</view>
+                </view>
+              </view>
+            </view>
+          </block>
+        </block>
+        <block wx:elif="{{picker === 'permission'}}">
+          <view
+            wx:for="{{pickerOptions}}"
+            wx:key="id"
+            class="preset-option-card permission-option-card {{item.checked ? 'selected' : ''}}"
+            data-index="{{index}}"
+            bindtap="choosePicker"
+            hover-class="picker-card-hover"
+            role="button"
+          >
+            <view class="permission-card-head">
+              <image class="permission-card-icon" src="/assets/icons/{{item.icon}}" mode="aspectFit"/>
+              <text class="preset-card-name">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+              <text class="preset-card-id">{{item.id}}</text>
+              <text wx:if="{{item.badge}}" class="permission-experimental-badge">{{item.badge}}</text>
+              <text wx:if="{{item.checked}}" class="picker-current-badge">{{ui['当前使用']}}</text>
+            </view>
+            <text class="preset-card-description">{{ui[item.description] !== undefined ? ui[item.description] : item.description}}</text>
+          </view>
+        </block>
+        <block wx:else>
+          <block wx:for="{{pickerOptions}}" wx:key="key">
+            <view wx:if="{{item.header}}" class="picker-group">{{item.header}}</view>
+            <view
+              wx:else
+              class="picker-option {{item.checked ? 'checked' : ''}}"
+              data-index="{{index}}"
+              bindtap="choosePicker"
+              role="button"
+            >
+              <text class="picker-option-label">{{picker === 'effort' ? item.label : ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+              <text wx:if="{{item.checked}}" class="picker-option-check">✓</text>
+            </view>
+          </block>
         </block>
       </scroll-view>
     </view>

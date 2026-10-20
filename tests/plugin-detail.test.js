@@ -4,7 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { buildCatalog } = require('../miniprogram/utils/plugins');
-const { artworkFor, imageSource } = require('../miniprogram/utils/plugin-artwork');
+const { artworkFor, imageSource } = require('../miniprogram/pages/plugin-detail/plugin-artwork');
+const pluginListArtwork = require('../miniprogram/pages/plugins/plugin-artwork');
 const root = path.resolve(__dirname, '..', 'miniprogram');
 const name = '@deepseek-ai/dsh-experimental-session-titles-bundle';
 function fixture() {
@@ -25,9 +26,12 @@ test('detail header has one back link and no decorative right circle', () => {
   for (const text of ['来源信息', '代码来源', 'bundle.experimental', 'item.description', 'item.id']) assert.ok(xml.includes(text));
 });
 test('original desktop icon is shared by list and detail; component fallback matches desktop', () => {
-  assert.equal(artworkFor(name), '/assets/plugin-artwork/desktop/dsh-experimental-session-titles-bundle.svg');
+  assert.equal(artworkFor(name), '/pages/plugin-detail/assets/plugin-artwork/desktop/dsh-experimental-session-titles-bundle.svg');
   assert.ok(fs.readFileSync(path.join(root,artworkFor(name).slice(1)),'utf8').includes('session-title-bubble'));
-  assert.equal(artworkFor('',true), '/assets/plugin-artwork/subagent.png');
+  assert.equal(artworkFor('',true), '/pages/plugin-detail/assets/plugin-artwork/subagent.png');
+  for (const icon of [artworkFor(name), artworkFor('',true), pluginListArtwork.artworkFor(name), pluginListArtwork.artworkFor('',true)]) {
+    assert.ok(fs.existsSync(path.join(root, icon.slice(1))), 'missing subpackage artwork: ' + icon);
+  }
   assert.equal(imageSource('./icon.svg'), null); assert.equal(imageSource('javascript:alert(1)'), null);
   assert.equal(imageSource('https://example.com/icon.svg'), 'https://example.com/icon.svg');
 });
@@ -61,5 +65,5 @@ test('voice detail cold entry refreshes catalog without requiring the plugin lis
   assert.deepEqual(calls, ['catalog']);
   const route = require('../miniprogram/utils/voice-preference').SETTINGS_URL;
   const bundle = decodeURIComponent(route.split('bundle=')[1]);
-  assert.equal(require('../miniprogram/utils/plugin-settings').kindFor(null, bundle), 'voice');
+  assert.equal(require('../miniprogram/pages/plugin-detail/plugin-settings').kindFor(null, bundle), 'voice');
 });

@@ -5,7 +5,7 @@ const { t: uiText } = require('../../utils/ui-preferences');
 const store = require('../../utils/store');
 const theme = require('../../utils/theme');
 const plugins = require('../../utils/plugins');
-const { artworkFor, imageSource } = require('../../utils/plugin-artwork');
+const { artworkFor, imageSource } = require('./plugin-artwork');
 const { ACTIVE } = require('../../utils/plugin-install');
 // WeChat's dependency scanner skips require() inside object spread.
 const settingsActions = require('./settings-actions');

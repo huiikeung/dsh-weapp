@@ -61,7 +61,7 @@ function fixture(source) {
     }
   });
   const page = { ...definition, data: clone(definition.data),
-    setData(patch) { patches.push(clone(patch)); apply(this.data, patch); },
+    setData(patch, callback) { patches.push(clone(patch)); apply(this.data, patch); if (callback) callback(); },
     syncRunningStrip() {}, updateDockInset() { measurements++; }, refreshBottomAnchor() { scrolls++; } };
   const sync = () => page.syncFromStoreInner({ app: store.state, session: store.sessionState });
   const reset = () => { patches.length = 0; parses = 0; scrolls = 0; measurements = 0; };
@@ -102,6 +102,39 @@ test('bottom scrolling coalesces callbacks and never updates an unloaded page', 
   f.page._unloaded = true; f.ticks.shift()(); assert.equal(f.patches.length, 1);
 });
 module.exports = { fixture };
+test('files arriving after completion publish immediately and respect history reading', () => {
+  for (const pinned of [true, false]) {
+    const f=fixture();f.sync();f.store.sessionState.running=false;f.sync();f.reset();f.page._convPinned=pinned;
+    f.store.sessionState.rows.push({kind:'files',key:'delivered',turn:1,sessionId:'performance-test',files:[{key:'file-1',path:'output/report.pdf',description:'Completed report',seq:900,index:0}]});
+    f.sync();
+    const card=f.page.data.rows.find(row=>row.kind==='files');
+    assert.equal(card.files[0].name,'report.pdf');assert.equal(card.files[0].subtitle,'Completed report');
+    assert.equal(f.report().parses,0);assert.equal(f.report().scrolls,Number(pinned));
+    assert.ok(f.patches.some(p=>Object.keys(p).some(key=>key.startsWith('rows['))));
+  }
+});
+test('bottom anchor reset commits before targeting and a new touch cancels the pending jump', () => {
+  const f=fixture(), commits=[];
+  f.page.refreshBottomAnchor=f.definition.refreshBottomAnchor;
+  f.page.setData=(patch, callback)=>{apply(f.page.data,patch);if(callback)commits.push(callback);};
+  f.page.refreshBottomAnchor();assert.equal(f.ticks.length,0);assert.equal(f.page.data.scrollTarget,'');
+  commits.shift()();assert.equal(f.ticks.length,1);f.ticks.shift()();assert.equal(f.page.data.scrollTarget,'conv-bottom');
+  f.page.refreshBottomAnchor();commits.shift()();f.page.onConvTouch();f.ticks.shift()();
+  assert.equal(f.page.data.scrollTarget,'');assert.equal(f.page._bottomAnchorPending,false);
+});
+test('empty conversation keeps its centered state instead of jumping to the bottom anchor', () => {
+  const f = fixture();
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  f.page.data.historyLoaded = true;
+  f.page.data.rows = [];
+  f.page.refreshBottomAnchor();
+  assert.equal(f.ticks.length, 0);            // 空态不触发 scroll-into-view，避免被贴底顶高
+  assert.equal(f.page.data.scrollTarget, '');
+  assert.ok(!f.page._bottomAnchorPending);
+  f.page.data.rows = [{ kind: 'user', key: 'u1', text: 'hi' }];
+  f.page.refreshBottomAnchor();
+  assert.equal(f.ticks.length, 1);            // 有消息后恢复贴底
+});
 
 test('inactive trajectory skips projection and view updates but opens with latest source', () => {
   const f = fixture();

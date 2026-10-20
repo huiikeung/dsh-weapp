@@ -17,6 +17,7 @@ const protocol = require('../../utils/protocol');
 const fileDeliverables = require('../../utils/file-deliverables');
 const theme = require('../../utils/theme');
 const conversationWorkflow = require('../../utils/conversation-workflow');
+const composerMenu = require('../../utils/composer-menu');
 const { dataPatch, createMarkdownCache } = require('../../utils/session-render');
 
 // 订阅消息模板 ID：与设置页保持一致；留空则发送时不申请授权。
@@ -50,7 +51,7 @@ Page({
     traceOverview: trajectoryView.overview([]), traceScrollTarget: '', traceHighlightedKey: '', traceThinkingExpanded: false,
     traceDetailTab: 'summary', traceDetailTabs: [], traceDetailSection: null,
     folds: {},
-    scrollTarget: 'conv-bottom',
+    scrollTarget: '',
     hasMoreHistory: false,
 
     question: null,
@@ -64,6 +65,8 @@ Page({
     composerFocused: false,
     canAttach: true,
     attachSheetOpen: false,
+    attachSourceOpen: false, commandMenuQuery: '', commandPaletteLoading: false, commandPaletteError: '',
+    attachmentPicking: false, sendingAttachments: false, fileReferenceMode: false,
     permissionLabel: uiText('工作区写入'),
     permissionIcon: 'shield-write-gray.png',
     modelLabel: 'DeepSeek',
@@ -82,6 +85,7 @@ Page({
     permissionSheet: [],
     modeSheet: [],
     modelSheetOpen: false,
+    modelMenuPane: 'root', modelBadge: '',
     modelGroups: [],
     effortSheetOpen: false,
     effortSheet: [],
@@ -188,6 +192,7 @@ Page({
   },
 
   onHide() {
+    if (this.data.commandMenu) this.closeAttachMenu();
     this._collaborationRequest = null; this._collaborationRefresh = null;
     this.setData({ collaborationOpen:false, collaborationPreview:null, collaborationBusy:false });
     this.cancelFileDownload();
@@ -199,6 +204,7 @@ Page({
 
   onShow() {
     this._voiceHidden = false; this.syncVoicePreference();
+    this.startScrollPolling();
     if (store.sessionState && store.sessionState.sessionId) this.syncFromStore({ app: store.state, session: store.sessionState });
     this.setData(statusAppearance.view(statusAppearance.read()));
     // 返回前台/切回页面：dock 高度可能变化（键盘、队列、审批卡）
@@ -206,6 +212,7 @@ Page({
   },
 
   onUnload() {
+    this._commandRequest = null; this._commandOptionRequest = null; this._attachmentRequest = null; this._filesRequest = null;
     this._collaborationRequest = null;
     this._collaborationRefresh = null;
     this.disposePresentedFiles();
@@ -273,6 +280,13 @@ Page({
 
   syncFromStoreInner(snapshot) {
     this.checkVoiceContext();
+    if (this._composerContextKey && this._composerContextKey !== this.composerContextKey()) {
+      this._commandRequest = null; this._commandOptionRequest = null; this._attachmentRequest = null;
+      this._commandOptionName = ''; this._commandOptions = [];
+      this.setData({ attachSheetOpen: false, attachSourceOpen: false, commandMenu: null, commandMenuQuery: '', commandPaletteLoading: false, commandPaletteError: '', attachmentPicking: false });
+      if (this.data.fileReferenceMode) this.closeFilesSheet();
+    }
+    this._composerContextKey = this.composerContextKey();
     const s = snapshot.session;
     const app = snapshot.app;
     if (!s || (!s.sessionId && s.historyState !== 'creating' && s.historyState !== 'error:create')) return;
@@ -480,9 +494,8 @@ Page({
     const composerContextMetric = contextPct >= 0 ? contextPct + '%' : '';
 
     const selection = s.selection || app.modelCatalog && app.modelCatalog.current || app.defaultModel;
-    const modelLabel = selection
-      ? (selection.model || selection.provider || uiText('模型'))
-      : uiText('模型');
+    const modelFace = composerMenu.modelFace(app.modelCatalog, selection);
+    const modelLabel = modelFace.label || uiText('模型');
     const effort = selection && selection.reasoningEffort
       ? labels.reasoningEffortName(selection.reasoningEffort)
       : (app.defaultModel && app.defaultModel.reasoningEffort
@@ -619,6 +632,7 @@ Page({
       permissionLabel: labels.permissionName(s.permission || 'workspace-write') || (s.permission || uiText('工作区写入')),
       permissionIcon: labels.permissionIconFile(s.permission || 'workspace-write'),
       modelLabel: modelLabel,
+      modelBadge: modelFace.badge,
       effortLabel: effort,
       contextPct: contextPct,
       contextRingStyle: contextPct >= 0
@@ -980,6 +994,7 @@ Page({
     const tab = e.currentTarget.dataset.tab;
     if (!['conversation', 'trajectory'].includes(tab) || tab === this.data.tab) return;
     this.cancelVoice();
+    this.closeAttachMenu(false);
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
     this._collaborationRequest = null; this._collaborationRefresh = null;
@@ -1110,14 +1125,15 @@ Page({
 
   // ---------- 更多菜单里的底部弹窗 ----------
 
-  openFilesSheet() {
+  openFilesSheet(referenceMode = false) {
     this._filesRel = null;
-    this.setData({ filesSheetOpen: true, filesSheetExpanded: false, filesEntries: [], filesLoading: true, filesError: '' });
+    this.setData({ fileReferenceMode: referenceMode === true, filesSheetOpen: true, filesSheetExpanded: false, filesEntries: [], filesLoading: true, filesError: '' });
     this.loadSessionFiles(null);
   },
 
   closeFilesSheet() {
-    this.setData({ filesSheetOpen: false, filesSheetExpanded: false, filesEntries: [], filesError: '', filesLoading: false });
+    this._filesRequest = null;
+    this.setData({ fileReferenceMode: false, filesSheetOpen: false, filesSheetExpanded: false, filesEntries: [], filesError: '', filesLoading: false });
   },
 
   filesGrabStart(e) {
@@ -1158,10 +1174,12 @@ Page({
       return;
     }
     this._filesRel = relPath || null;
+    const request = this._filesRequest = {}, context = this.composerContextKey();
+    const current = () => !this._unloaded && this._filesRequest === request && this.data.filesSheetOpen && this.composerContextKey() === context;
     this.setData({ filesLoading: true, filesError: '' });
     store.client.requestFileList(sessionId, relPath)
       .then((frame) => {
-        if (!frame) return;
+        if (!current() || !frame) return;
         const entries = (frame.entries || frame.items || []).map((item, index) => {
           const isDir = item.kind === 'dir' || item.kind === 'directory';
           return {
@@ -1183,6 +1201,7 @@ Page({
         });
       })
       .catch((err) => {
+        if (!current()) return;
         this.setData({ filesLoading: false, filesError: err.message || uiText('读取目录失败') });
       });
   },
@@ -1193,6 +1212,18 @@ Page({
     if (!item) return;
     if (item.kind === 'dir') {
       this.loadSessionFiles(item.path);
+      return;
+    }
+    if (this.data.fileReferenceMode) {
+      const reference = composerMenu.fileReference(item.path);
+      if (!reference) { wx.showToast({ title: uiText('无法引用此文件路径'), icon: 'none' }); return; }
+      const draft = this.data.draft, cursor = Number.isInteger(this._composerCursor) ? Math.max(0, Math.min(draft.length, this._composerCursor)) : draft.length;
+      const before = draft.slice(0, cursor), after = draft.slice(cursor);
+      const value = before + (before && !/\s$/.test(before) ? ' ' : '') + reference + ' ' + after;
+      this._draftRevision = (this._draftRevision || 0) + 1;
+      this.closeFilesSheet();
+      this.setData({ draft: value, canSend: true, composerFocus: true });
+      this.syncCommandMenu(value, store.sessionState);
       return;
     }
     wx.showModal({ title: item.name, content: item.path, showCancel: false, confirmText: uiText('知道了') });
@@ -1437,8 +1468,7 @@ Page({
   },
 
   onConvTouch() {
-    // 只有最近有触摸，才把 scrollTop 变化当用户滚动（历史 prepend 会让
-    // scrollTop 骤降，不能用它判断"用户离开底部"）
+    this._suppressScrollUntil = 0;
     this._lastTouchAt = Date.now();
   },
 
@@ -1452,15 +1482,13 @@ Page({
     });
   },
 
-  /**
-   * 统一的滚动位置判定：bindscroll 和兜底轮询共用。
-   * - 贴底（距真实底部 ≤56px）：自动吸底
-   * - 箭头：离开视觉底部（扣除输入区留白）即显示，回到视觉底部自动收起
-   */
+  // Content growth and intermediate programmatic positions must not cancel following.
   applyScrollPosition(pos) {
     const scrollTop = Math.max(0, Number(pos.scrollTop) || 0);
     const scrollHeight = Math.max(0, Number(pos.scrollHeight) || 0);
-    const clientHeight = Math.max(0, Number(pos.clientHeight) || 0);
+    const clientHeight = Math.max(0, Number(pos.clientHeight) || this._convClientHeight || 0);
+    if (!clientHeight) return;
+    this._convClientHeight = clientHeight;
     const HIDE_WITHIN = 56;
 
     const maxScroll = Math.max(0, scrollHeight - clientHeight);
@@ -1477,13 +1505,18 @@ Page({
     const pinned = distance <= HIDE_WITHIN;
     const atVisualBottom = distance <= ARROW_HIDE_WITHIN;
 
-    // 程序化滚动窗口内（加载更早历史/自动吸底）只更新贴底状态，不动箭头
     if (Date.now() < (this._suppressScrollUntil || 0)) {
       this._lastScrollTop = scrollTop;
-      this._convPinned = pinned;
+      if (pinned) this._convPinned = true;
       return;
     }
 
+    const movedUp = this._lastScrollTop !== undefined && scrollTop < this._lastScrollTop - 2;
+    if (this._convPinned === true && !pinned && !movedUp) {
+      this._lastScrollTop = scrollTop;
+      if (Date.now() - (this._lastTouchAt || 0) >= 1000) this.refreshBottomAnchor();
+      return;
+    }
     this._lastScrollTop = scrollTop;
     const showJump = atVisualBottom
       ? false
@@ -1492,7 +1525,7 @@ Page({
     this._convPinned = pinned;
   },
 
-  /** 兜底轮询：部分设备 bindscroll 不可靠，定时读一次真实滚动偏移 */
+  // Recheck the measured viewport when native scroll events omit its height.
   pollScrollPosition() {
     if (this._unloaded || this.data.tab !== 'conversation' || this.data.moreSheetOpen || this.data.collaborationOpen) return;
     if (this._scrollPollPending) return;
@@ -1529,6 +1562,7 @@ Page({
 
   jumpToBottom() {
     this._convPinned = true;
+    this._lastTouchAt = 0;
     this._userScrolledUp = false;
     this._lastScrollTop = undefined;
     if (this.data.showJump) this.setData({ showJump: false });
@@ -1537,14 +1571,16 @@ Page({
 
   refreshBottomAnchor() {
     if (this._bottomAnchorPending || this._unloaded || this.data.tab !== 'conversation') return;
+    // 空对话的空态（鲸鱼 + 说明）本身要垂直居中，贴底滚动会把整块内容顶高；
+    // 有消息后再贴底，所以空态下直接跳过这次贴底。
+    if (!this.data.rows.length && this.data.historyLoaded && !this.data.running) return;
     this._bottomAnchorPending = true;
-    this._lastScrollTop = undefined;
     this._suppressScrollUntil = Date.now() + 400;
-    this.setData({ scrollTarget: '' });
-    wx.nextTick(() => {
+    const touch = this._lastTouchAt;
+    this.setData({ scrollTarget: '' }, () => wx.nextTick(() => {
       this._bottomAnchorPending = false;
-      if (!this._unloaded && this.data.tab === 'conversation') this.setData({ scrollTarget: 'conv-bottom' });
-    });
+      if (!this._unloaded && !this._voiceHidden && this.data.tab === 'conversation' && touch === this._lastTouchAt && this._convPinned !== false) this.setData({ scrollTarget: 'conv-bottom' });
+    }));
   },
 
   toggleFold(e) {
@@ -1723,6 +1759,8 @@ Page({
     this._draftRevision = (this._draftRevision || 0) + 1;
     this._composerCursor = e.detail.cursor;
     const value = e.detail.value;
+    this._dismissedCommandDraft = null;
+    if (this.data.attachSheetOpen) this.closeAttachMenu();
     this.setData({ draft: value, canSend: !!value.trim() || this.data.images.length > 0 });
     this.syncCommandMenu(value, store.sessionState);
   },
@@ -1739,43 +1777,26 @@ Page({
   syncCommandMenu(value, session) {
     const text = String(value || '');
     const groups = Array.isArray(session.commandGroups) ? session.commandGroups : [];
-    const commands = [];
-    groups.forEach((group) => {
-      (group.items || []).forEach((command) => commands.push(Object.assign({
-        groupId: group.id, groupTitle: group.title
-      }, command)));
-    });
-    const active = commands.find((command) => commandMatchesInput(command, text)) || null;
-    const lookup = text.charAt(0) === '/' && text.slice(1).indexOf(' ') < 0;
+    const commands = composerMenu.commands(groups);
+    const active = commands.find(command => command.id === this._commandInputId && commandMatchesInput(command, text))
+      || commands.find((command) => commandMatchesInput(command, text)) || null;
+    const lookup = text.charAt(0) === '/' && !/\s/.test(text.slice(1)) && this._dismissedCommandDraft !== text;
     const query = lookup ? text.slice(1).toLowerCase() : '';
     let menu = null;
-    if (session.commandOptionsFor) {
+    if (this._commandOptionName) {
       menu = {
         type: 'options',
-        title: '/' + session.commandOptionsFor,
-        command: session.commandOptionsFor,
+        title: composerMenu.optionTitle(this._commandOptionName, uiText),
+        command: this._commandOptionName,
         groups: [],
-        options: (session.commandOptions || []).map((option) => ({
-          id: option.id,
-          label: option.label || option.id,
-          detail: option.description || option.detail || '',
-          selected: option.selected === true
-        }))
+        options: composerMenu.optionRows(this._commandOptionName, this._commandOptions, { t: uiText, query: this.data.commandMenuQuery })
       };
-    } else if (lookup) {
-      const filtered = groups.map((group) => ({
-        id: group.id,
-        title: group.title,
-        items: (group.items || []).filter((command) => {
-          const haystack = [command.name, command.description, command.whenToUse].join(' ').toLowerCase();
-          return !query || haystack.indexOf(query) >= 0;
-        }).map((command) => ({
-          id: command.id || ((command.source || 'item') + ':' + command.name),
-          name: command.name,
-          description: command.description || '',
-          hasOptions: command.ui && command.ui.kind === 'select'
-        }))
-      })).filter((group) => group.items.length);
+    } else if (this.data.attachSourceOpen) {
+      menu = { type: 'attachments', title: uiText('文件'), groups: [], options: [] };
+    } else if (lookup || this.data.attachSheetOpen) {
+      const cursor = Number.isInteger(this._composerCursor) ? Math.max(0, Math.min(text.length, this._composerCursor)) : text.length;
+      const filtered = composerMenu.catalog(groups, { t: uiText, dark: this.data.theme === 'dark', query: this.data.commandMenuQuery || (this.data.attachSheetOpen ? '' : query),
+        leading: lookup || !text.slice(0, cursor).trim(), canAttach: composerMenu.acceptsAttachments(active) });
       menu = { type: 'catalog', title: '', groups: filtered, options: [] };
     }
     const ui = active && active.ui || {};
@@ -1783,9 +1804,10 @@ Page({
     this._activeCommand = active;
     const patch = dataPatch(this.data, {
       commandMenu: menu,
-      canAttach: !active || ui.images === true || (active.input && active.input.images === true),
+      canAttach: composerMenu.acceptsAttachments(active),
       composerPlaceholder: hint || uiText(this.data.voiceEnabled ? '输入内容或按住说话' : '输入内容')
     });
+    if (this.data.tab !== 'conversation') patch.commandMenu = null;
     if (Object.keys(patch).length) {
       this.setData(patch);
       if (Object.keys(patch).some(key => key === 'commandMenu' || key.indexOf('commandMenu.') === 0 || key.indexOf('commandMenu[') === 0)) this.updateDockInset();
@@ -1793,145 +1815,257 @@ Page({
   },
 
   selectCommand(e) {
+    if (this._commandSubmitting || this.data.sendingAttachments) return;
+    if (e.currentTarget.dataset.action === 'file') { this.openAttachmentSources(); return; }
     const name = e.currentTarget.dataset.name;
-    const groups = store.sessionState.commandGroups || [];
-    let command = null;
-    groups.some((group) => {
-      command = (group.items || []).find((item) => item.name === name) || null;
-      return !!command;
-    });
+    const id = e.currentTarget.dataset.id;
+    const command = composerMenu.commands(store.sessionState.commandGroups).find(item => id ? item.id === id : item.name === name);
     if (!command || !command.ui) return;
+    if (!store.state || store.state.connection !== 'connected' || !store.sessionState.sessionId) {
+      this.setData({ commandPaletteError: uiText('连接主机后可读取指令') }); return;
+    }
+    if (this.data.images.length && !composerMenu.acceptsAttachments(command)) {
+      wx.showToast({ title: uiText('此指令不接受附件，请先移除附件'), icon: 'none' }); return;
+    }
     const ui = command.ui;
-    const insertText = ui.insertText || ('/' + command.name + (ui.kind === 'input' ? ' ' : ''));
     if (ui.kind === 'select') {
-      this.setData({ draft: insertText, canSend: false });
-      store.sessionState.commandLoading = true;
-      store.sessionState.commandOptionsFor = command.name;
-      store.client.requestCommandOptions(store.sessionState.sessionId, command.name).catch((err) => {
-        wx.showToast({ title: err.message || uiText('选项加载失败'), icon: 'none' });
-      });
-      this.syncCommandMenu(insertText, store.sessionState);
-      return;
+      return this.openCommandOptions(command.name);
     }
     if (ui.kind === 'input') {
-      this.setData({ draft: insertText, canSend: false });
+      const insertText = composerMenu.inputDraft(command, this.data.draft);
+      this.closeAttachMenu();
+      this._commandInputId = command.id;
+      this._draftRevision = (this._draftRevision || 0) + 1;
+      this.setData({ draft: insertText, canSend: !!insertText.trim(), composerFocus: true });
       this.syncCommandMenu(insertText, store.sessionState);
       return;
     }
+    const typed = this.data.draft.startsWith('/') && !this.data.attachSheetOpen;
+    const draft = this.data.draft;
+    this.closeAttachMenu();
     const line = ui.submitText || ('/' + command.name);
-    this.submitCommand(command, line, []);
+    return this.submitCommand(command, line, [], true).then(result => {
+      if (result !== false && typed && this.data.draft === draft && !this._unloaded) this.setData({ draft: '', canSend: this.data.images.length > 0 });
+    });
   },
 
   selectCommandOption(e) {
     const optionId = e.currentTarget.dataset.id;
-    const command = store.sessionState.commandOptionsFor;
-    if (!command || !optionId || store.sessionState.commandLoading) return;
-    store.sessionState.commandLoading = true;
-    this.setData({ draft: '', canSend: false, commandLoading: true });
-    store.client.selectCommandOption(store.sessionState.sessionId, command, optionId).catch((err) => {
-      wx.showToast({ title: err.message || uiText('选择失败'), icon: 'none' });
+    const command = this._commandOptionName;
+    if (!command || !optionId || this.data.commandPaletteLoading || this._commandSubmitting || !(this._commandOptions || []).some(item => item.id === optionId)) return;
+    const context = this.composerContextKey(), request = this._commandOptionRequest = {};
+    this._commandSubmitting = true;
+    this.setData({ commandPaletteLoading: true, commandPaletteError: '' });
+    return store.client.selectCommandOption(store.sessionState.sessionId, command, optionId).then(() => {
+      if (!this._unloaded && this._commandOptionRequest === request && this.composerContextKey() === context) {
+        const typed = this._commandOptionTypedDraft;
+        if (typed && this.data.draft === typed) this.setData({ draft: '', canSend: this.data.images.length > 0 });
+        this.closeAttachMenu();
+      }
+    }).catch(err => {
+      if (!this._unloaded && this._commandOptionRequest === request && this.composerContextKey() === context) this.setData({ commandPaletteError: err.message || uiText('选择失败') });
+    }).finally(() => {
+      this._commandSubmitting = false;
+      if (!this._unloaded && this.composerContextKey() === context) this.setData({ commandPaletteLoading: false });
     });
   },
 
-  submitCommand(command, line, encodedImages) {
+  submitCommand(command, line, encodedImages, preserveDraft = false) {
     const request = command.ui && command.ui.submitRequest;
+    const context = this.composerContextKey(), revision = this._draftRevision || 0;
+    if ((encodedImages || []).length && !composerMenu.acceptsAttachments(command)) return Promise.resolve(false);
     if (request === 'message') {
       const mode = store.sessionState.running ? 'queue' : undefined;
       const sent = store.client.sendMessage(line, store.sessionState.sessionId, store.state.currentWorkspaceId, encodedImages, mode);
       if (sent !== false) {
         store.appendLocalUserRow(line, []);
         if (mode === 'queue') this.rememberQueuedSubmission(line, encodedImages);
+        this.jumpToBottom();
       }
-      this.setData({ draft: '', images: [], canSend: false, commandMenu: null });
+      if (sent !== false && !preserveDraft) this.setData({ draft: '', images: [], canSend: false, commandMenu: null });
       return Promise.resolve(sent);
     }
     if (request === 'command-execute') {
+      if (this._commandSubmitting) return Promise.resolve(false);
+      this._commandSubmitting = true;
       this.setData({ commandLoading: true });
       return store.client.executeCommand(store.sessionState.sessionId, line, encodedImages).then(() => {
-        this.setData({ draft: '', images: [], canSend: false, commandMenu: null, commandLoading: false });
+        if (this._unloaded || this.composerContextKey() !== context) return false;
+        if (!preserveDraft && (this._draftRevision || 0) === revision) this.setData({ draft: '', images: [], canSend: false, commandMenu: null });
+        this.setData({ commandLoading: false });
+        this.jumpToBottom();
+        return true;
       }).catch((err) => {
+        if (this._unloaded || this.composerContextKey() !== context) return false;
         this.setData({ commandLoading: false });
         wx.showToast({ title: err.message || uiText('命令执行失败'), icon: 'none' });
-      });
+        return false;
+      }).finally(() => { this._commandSubmitting = false; });
     }
     return Promise.resolve(false);
   },
 
-  /** + 附件菜单（对齐 DSH 桌面端：图片 / 文件） */
-  attachMenu() {
-    this.setData({ attachSheetOpen: !this.data.attachSheetOpen });
+  composerContextKey() {
+    return [store.state && store.state.activeID, store.client && store.client.connectGeneration, store.sessionState.sessionId].join(':');
   },
 
-  closeAttachMenu() {
-    this.setData({ attachSheetOpen: false });
+  /** The desktop + and slash trigger share one Host-backed command menu. */
+  attachMenu() {
+    if (this.data.attachSheetOpen || this._commandOptionName) { this.closeAttachMenu(); return; }
+    if (this.data.sendingAttachments || this._commandSubmitting || this.data.voiceOverlayVisible) return;
+    this.prioritizeInteraction();
+    this._composerContextKey = this.composerContextKey();
+    this._dismissedCommandDraft = null;
+    this.setData({ attachSheetOpen: true, attachSourceOpen: false, commandMenuQuery: '', commandPaletteError: '', modelSheetOpen: false, effortSheetOpen: false, permissionSheet: [], composerFocus: false });
+    this.syncCommandMenu(this.data.draft, store.sessionState);
+    return this.refreshComposerCommands();
+  },
+
+  closeAttachMenu(measure = true) {
+    const hadMenu = !!this.data.commandMenu;
+    this._commandRequest = null; this._commandOptionRequest = null;
+    this._commandOptionName = ''; this._commandOptions = [];
+    this._dismissedCommandDraft = this.data.draft;
+    const patch = dataPatch(this.data, { attachSheetOpen: false, attachSourceOpen: false, commandMenu: null, commandMenuQuery: '', commandPaletteLoading: false, commandPaletteError: '' });
+    if (Object.keys(patch).length) this.setData(patch);
+    if (measure !== false && hadMenu) this.updateDockInset();
+  },
+
+  onCommandMenuSearch(e) {
+    this.setData({ commandMenuQuery: e.detail.value });
+    this.syncCommandMenu(this.data.draft, store.sessionState);
+  },
+
+  refreshComposerCommands() {
+    if (this._commandOptionName) return this.openCommandOptions(this._commandOptionName);
+    if (!store.sessionState.sessionId || !store.state || store.state.connection !== 'connected') {
+      this.setData({ commandPaletteError: uiText('连接主机后可读取指令') }); return Promise.resolve();
+    }
+    const request = this._commandRequest = {}, context = this.composerContextKey();
+    const current = () => !this._unloaded && this._commandRequest === request && this.composerContextKey() === context;
+    this.setData({ commandPaletteLoading: true, commandPaletteError: '' });
+    return store.client.requestCommands(store.sessionState.sessionId).then(frame => {
+      if (!current()) return;
+      if (!frame || !Array.isArray(frame.groups)) throw Error(uiText('无效的主机响应'));
+      store.sessionState.commandGroups = frame.groups;
+      this.syncCommandMenu(this.data.draft, store.sessionState);
+    }).catch(err => { if (current()) this.setData({ commandPaletteError: err.message || uiText('指令加载失败') }); })
+      .finally(() => { if (current()) this.setData({ commandPaletteLoading: false }); });
+  },
+
+  openCommandOptions(name) {
+    this._composerContextKey = this.composerContextKey();
+    if (!this._commandOptionName) this._commandOptionTypedDraft = !this.data.attachSheetOpen && this.data.draft.startsWith('/') ? this.data.draft : '';
+    const request = this._commandOptionRequest = {}, context = this.composerContextKey();
+    const current = () => !this._unloaded && this._commandOptionRequest === request && this.composerContextKey() === context;
+    this._commandRequest = null; this._commandOptionName = name; this._commandOptions = [];
+    this.setData({ attachSheetOpen: true, attachSourceOpen: false, commandMenuQuery: '', commandPaletteLoading: true, commandPaletteError: '' });
+    this.syncCommandMenu(this.data.draft, store.sessionState);
+    return store.client.requestCommandOptions(store.sessionState.sessionId, name).then(frame => {
+      if (!current()) return;
+      if (!frame || !Array.isArray(frame.options)) throw Error(uiText('无效的主机响应'));
+      this._commandOptions = frame.options; this.syncCommandMenu(this.data.draft, store.sessionState);
+    }).catch(err => { if (current()) this.setData({ commandPaletteError: err.message || uiText('选项加载失败') }); })
+      .finally(() => { if (current()) this.setData({ commandPaletteLoading: false }); });
+  },
+
+  backToComposerCommands() {
+    this.closeAttachMenu(); return this.attachMenu();
+  },
+
+  openAttachmentSources() {
+    if (!this.data.canAttach) return;
+    this._commandOptionName = ''; this._commandRequest = null;
+    this.setData({ attachSheetOpen: true, attachSourceOpen: true, commandMenuQuery: '', commandPaletteLoading: false, commandPaletteError: '' });
+    this.syncCommandMenu(this.data.draft, store.sessionState);
+  },
+
+  chooseWorkspaceReference() {
+    if (!this.data.canAttach || this.data.sendingAttachments) return;
+    this._composerContextKey = this.composerContextKey();
+    this.closeAttachMenu(); this.openFilesSheet(true);
   },
 
   chooseFile() {
-    this.setData({ attachSheetOpen: false });
-    const self = this;
-    wx.chooseMessageFile({
-      count: 4,
-      type: 'file',
-      success(res) {
-        const kept = [];
-        let skipped = 0;
-        res.tempFiles.forEach((file) => {
-          if ((file.size || 0) > 8 * 1024 * 1024) { skipped += 1; return; }
-          kept.push({
-            id: util.uuid(),
-            tempPath: file.path,
-            mediaType: mimeByName(file.name),
-            name: file.name,
-            isFile: true
-          });
-        });
-        if (skipped) wx.showToast({ title: skipped + uiText(' 个文件超过 8MB'), icon: 'none' });
-        if (!kept.length) return;
-        self.setData({
-          images: self.data.images.concat(kept),
-          canSend: !!self.data.draft.trim() || self.data.images.length + kept.length > 0
-        });
-      }
-    });
+    return this.pickComposerImages(true);
   },
 
   chooseImage() {
-    this.setData({ attachSheetOpen: false });
-    const self = this;
-    wx.chooseMedia({
-      count: 4,
-      mediaType: ['image'],
-      sizeType: ['compressed'],
-      success(res) {
-        const files = res.tempFiles.map((file) => ({
-          id: util.uuid(),
-          tempPath: file.tempFilePath,
-          mediaType: 'image/jpeg',
-          name: 'image.jpg'
-        }));
-        self.setData({
-          images: self.data.images.concat(files),
-          canSend: !!self.data.draft.trim() || self.data.images.length + files.length > 0
-        });
+    return this.pickComposerImages(false);
+  },
+
+  pickComposerImages(fromChat) {
+    if (!this.data.canAttach || this.data.attachmentPicking || this.data.sendingAttachments) return;
+    const remaining = 20 - this.data.images.length;
+    if (remaining <= 0) { wx.showToast({ title: uiText('最多添加 20 张图片'), icon: 'none' }); return; }
+    const request = this._attachmentRequest = {}, context = this.composerContextKey();
+    this._composerContextKey = context;
+    const current = () => !this._unloaded && this._attachmentRequest === request && this.composerContextKey() === context;
+    this.closeAttachMenu();
+    this.setData({ attachmentPicking: true });
+    const finish = () => { if (current()) { this._attachmentRequest = null; this.setData({ attachmentPicking: false }); } };
+    const fail = err => {
+      if (current() && !/cancel/i.test(err && err.errMsg || '')) wx.showToast({ title: uiText('选择图片失败，请重试'), icon: 'none' });
+      finish();
+    };
+    const options = { count: Math.min(9, remaining), success: async res => {
+      let skipped = false;
+      const kept = [];
+      for (const file of res.tempFiles || []) {
+        if (!current()) return;
+        if (Number(file.size) > 8 * 1024 * 1024) { skipped = true; continue; }
+        const tempPath = file.tempFilePath || file.path;
+        if (!tempPath) { skipped = true; continue; }
+        try {
+          const info = await new Promise((resolve, reject) => wx.getImageInfo({ src: tempPath, success: resolve, fail: reject }));
+          const mediaType = composerMenu.imageType('image.' + info.type);
+          if (!mediaType) { skipped = true; continue; }
+          kept.push({ id: util.uuid(), tempPath, mediaType, name: file.name || 'image.' + info.type, size: Number(file.size) || 0 });
+        } catch (_) { skipped = true; }
       }
-    });
+      if (!current()) return;
+      if (!this.data.canAttach) { finish(); return; }
+      const images = this.data.images.concat(kept).slice(0, 20);
+      this.setData({ images, canSend: !!this.data.draft.trim() || images.length > 0 });
+      if (skipped) wx.showToast({ title: uiText('仅支持 8MB 内的 PNG、JPEG、GIF、WebP 图片'), icon: 'none' });
+      finish(); this.updateDockInset();
+    }, fail };
+    try {
+      if (fromChat) wx.chooseMessageFile(Object.assign(options, { type: 'image' }));
+      else wx.chooseMedia(Object.assign(options, { mediaType: ['image'], sizeType: ['compressed'] }));
+    } catch (error) { fail(error); }
+  },
+
+  previewPendingImage(e) {
+    const image = this.data.images[Number(e.currentTarget.dataset.index)];
+    if (image && !image.isFile) wx.previewImage({ current: image.tempPath, urls: this.data.images.filter(item => !item.isFile).map(item => item.tempPath) });
   },
 
   removeImage(e) {
+    if (this.data.sendingAttachments) return;
     const images = this.data.images.slice();
     images.splice(e.currentTarget.dataset.index, 1);
     this.setData({
       images: images,
       canSend: !!this.data.draft.trim() || images.length > 0
     });
+    this.updateDockInset();
   },
 
   send() {
-    if (this.data.voiceOverlayVisible) return;
+    if (this.data.voiceOverlayVisible || this.data.sendingAttachments || this.data.attachmentPicking || this._commandSubmitting) return;
     const text = this.data.draft.trim();
     const images = this.data.images;
     if (!text && !images.length) return;
+    if (images.some(image => image.isFile || !/^image\/(png|jpeg|gif|webp)$/.test(image.mediaType))) {
+      wx.showToast({ title: uiText('当前网关不支持普通文件上传，请改用工作区文件引用'), icon: 'none' }); return;
+    }
+    if (images.length && !composerMenu.acceptsAttachments(this._activeCommand)) {
+      wx.showToast({ title: uiText('此指令不接受附件，请先移除附件'), icon: 'none' }); return;
+    }
     this._draftRevision = (this._draftRevision || 0) + 1;
+    const revision = this._draftRevision, context = this.composerContextKey(), client = store.client, workspaceId = store.state.currentWorkspaceId;
+    this.setData({ sendingAttachments: true });
     // 实验性：发送任务前申请订阅消息授权（一次性授权，每次发送都需申请）。
     if (notifyPref.enabled() && NOTIFY_TEMPLATE_ID) {
       wx.requestSubscribeMessage({ tmplIds: [NOTIFY_TEMPLATE_ID], fail: function () {} });
@@ -1942,16 +2076,18 @@ Page({
       ? Promise.all(images.map(readImageBase64))
       : Promise.resolve([]);
 
-    sendWithImages.then((encoded) => {
+    return sendWithImages.then((encoded) => {
+      if (this._unloaded || this.composerContextKey() !== context || store.client !== client) return;
+      if (this._draftRevision !== revision) return;
       const activeCommand = this._activeCommand;
       if (activeCommand && activeCommand.ui && activeCommand.ui.kind === 'input') {
         return this.submitCommand(activeCommand, text, encoded);
       }
       const mode = s.running ? 'queue' : undefined;
-      const sent = store.client.sendMessage(
+      const sent = client.sendMessage(
         text,
         s.sessionId,
-        store.state.currentWorkspaceId,
+        workspaceId,
         encoded,
         mode
       );
@@ -1959,13 +2095,16 @@ Page({
         // 乐观回显：消息立即可见（对齐桌面端），网关回显到达时自动合并
         store.appendLocalUserRow(text, []);
         if (mode === 'queue') self.rememberQueuedSubmission(text, encoded);
+      } else {
+        wx.showToast({ title: uiText('发送失败，草稿已保留'), icon: 'none' }); return;
       }
       self.setData({ draft: '', images: [], canSend: false });
-      this._convPinned = true;
-      this.refreshBottomAnchor();
+      this.closeAttachMenu();
+      this.jumpToBottom();
     }).catch((err) => {
+      if (this._unloaded || this.composerContextKey() !== context) return;
       wx.showToast({ title: err.message || uiText('附件处理失败'), icon: 'none' });
-    });
+    }).finally(() => { if (!this._unloaded) this.setData({ sendingAttachments: false }); });
   },
 
   updateDockInset(attempt) {
@@ -2059,13 +2198,8 @@ Page({
       return labels.permissionIconFile(key);
     };
     this.setData({
-      permissionSheet: options.map((o) => ({
-        value: o.value,
-        // 弹窗统一显示中文：优先本地文案，主机返回英文值时不再直接展示
-        name: labels.permissionName(o.value) || o.name || o.value,
-        icon: iconOf(o.value),
-        current: o.value === current
-      }))
+      permissionSheet: composerMenu.optionRows('permission', options.map(o => ({ id: o.value, label: o.name || o.value, badge: o.badge, selected: o.value === current })), { t: uiText })
+        .map(o => ({ value: o.id, name: o.label, icon: iconOf(o.id), badge: o.badge, current: o.selected }))
     });
   },
 
@@ -2088,6 +2222,20 @@ Page({
   },
 
   pickModel() {
+    if (this.data.modelSheetOpen || this.data.effortSheetOpen) { this.setData({ modelSheetOpen: false, effortSheetOpen: false }); return; }
+    this.backToModelMenu();
+  },
+
+  backToModelMenu() {
+    const selection = store.sessionState.selection || store.state.modelCatalog && store.state.modelCatalog.current || store.state.defaultModel;
+    const face = composerMenu.modelFace(store.state.modelCatalog, selection);
+    this.closeAttachMenu(false);
+    this.setData({ modelSheetOpen: true, modelMenuPane: 'root', effortSheetOpen: false, permissionSheet: [],
+      modelLabel: face.label || this.data.modelLabel, modelBadge: face.badge,
+      effortLabel: selection && selection.reasoningEffort ? labels.reasoningEffortName(selection.reasoningEffort) : this.data.effortLabel });
+  },
+
+  openModelList() {
     const catalog = store.state.modelCatalog;
     const s = store.sessionState;
     const selection = s.selection || (catalog && catalog.current) || store.state.defaultModel || {};
@@ -2103,13 +2251,14 @@ Page({
           provider: group.id,
           model: model.id,
           name: model.name || model.id,
+          badge: composerMenu.modelFace(catalog, { provider: group.id, model: model.id }).badge,
           effort: model.reasoning && model.reasoning.defaultEffort,
           current: isCurrent(group.id, model.id)
         }));
         if (models.length) {
           groups.push({
             id: group.id,
-            name: group.name || group.id,
+            name: uiText(({ 'deepseek-account': 'DeepSeek 账号', 'deepseek-official': 'DeepSeek 官方 API' })[group.id] || group.name || group.id),
             models: models
           });
         }
@@ -2121,7 +2270,7 @@ Page({
       this.setData({ modelSheetOpen: false, modelGroups: [] });
       return;
     }
-    this.setData({ modelGroups: groups, modelSheetOpen: true });
+    this.setData({ modelGroups: groups, modelSheetOpen: true, modelMenuPane: 'model', effortSheetOpen: false });
   },
 
   pickModelOption(e) {
@@ -2135,7 +2284,8 @@ Page({
         wx.showToast({ title: err.message || uiText('切换失败'), icon: 'none' });
       });
     this.setData({
-      modelLabel: model,
+      modelLabel: composerMenu.modelFace(store.state.modelCatalog, { provider, model }).label,
+      modelBadge: composerMenu.modelFace(store.state.modelCatalog, { provider, model }).badge,
       effortLabel: ds.effort ? labels.reasoningEffortName(ds.effort) : this.data.effortLabel
     });
   },
@@ -2160,7 +2310,7 @@ Page({
         name: lv.name,
         current: lv.value === current
       })),
-      effortSheetOpen: true
+      effortSheetOpen: true, modelSheetOpen: false
     });
   },
 
@@ -2484,21 +2634,6 @@ function mdToPlain(md) {
     .replace(/[*_~]{1,3}([^*_\n]+)[*_~]{1,3}/g, '$1')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
-}
-
-function mimeByName(name) {
-  const ext = String(name || '').split('.').pop().toLowerCase();
-  const map = {
-    pdf: 'application/pdf', txt: 'text/plain', md: 'text/markdown',
-    markdown: 'text/markdown', json: 'application/json', csv: 'text/csv',
-    doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    xls: 'application/vnd.ms-excel', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    ppt: 'application/vnd.ms-powerpoint', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    zip: 'application/zip', html: 'text/html', xml: 'application/xml',
-    js: 'text/javascript', ts: 'text/typescript', py: 'text/x-python',
-    sh: 'text/x-sh', yaml: 'text/yaml', yml: 'text/yaml'
-  };
-  return map[ext] || 'application/octet-stream';
 }
 
 function readImageBase64(image) {

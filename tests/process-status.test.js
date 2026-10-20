@@ -72,7 +72,7 @@ test('style choice persists, invalid values fall back and storage failures surfa
     wx.setStorageSync=()=>{throw Error('storage full');};assert.throws(()=>appearance.save('neon'));
   } finally { delete global.wx; }
 });
-test('all styles preserve status phrases and use the official 150-frame loop', () => {
+test('all styles preserve status phrases and use the official four-second contour loop', () => {
   const template=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
   assert.match(template,/\{\{runPhrase\}\}\{\{ui\['，用时'\]\}\} \{\{runElapsedText\}\}…/);
   assert.match(template,/official-sway-/);
@@ -82,6 +82,7 @@ test('all styles preserve status phrases and use the official 150-frame loop', (
   for (const mode of ['light','dark']) {
     const gif = fs.readFileSync(path.join(__dirname,'../miniprogram/assets/icons/official-sway-' + mode + '.gif'));
     assert.equal(gif.subarray(0,6).toString(),'GIF89a');
+    assert.equal(gif.readUInt16LE(6),40);assert.equal(gif.readUInt16LE(8),40);
     let at=19, frames=0, duration=0;
     while (at < gif.length && gif[at] !== 0x3b) {
       if (gif[at] === 0x21) {
@@ -97,7 +98,7 @@ test('all styles preserve status phrases and use the official 150-frame loop', (
         at++;
       }
     }
-    assert.equal(frames,150);assert.equal(duration,4000);
+    assert.equal(frames,96);assert.equal(duration,4000);
   }
   for(const choice of appearance.choices()){assert.match(choice.lightStyle,/linear-gradient/);assert.match(choice.darkStyle,/linear-gradient/);}
 });

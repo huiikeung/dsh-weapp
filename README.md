@@ -169,7 +169,14 @@ weapp/
   上下文用量圆环（`conic-gradient` + 内圆盖心，来自 `context-usage` 的
   `pressureTokens/contextWindow`）+ 图片附件 + 发送/停止。
 - **品牌 logo 颜色规则**：深色背景用 `whale-white.png`（白色图标），浅色背景用
-  `whale-ink.png`（深色图标）。
+  `whale-ink.png`（深色图标）；字标同理，深色面用 `wordmark-white.png`、浅色面用
+  `wordmark-ink.png`。
+- **品牌字标**：`assets/icons/wordmark-{white,ink}.png` 为 Outfit 600 预渲染 PNG
+  （`whale` + `tail` 两段配色：深色面 `#FFFFFF` + 雾蓝 `#BFD4FF`，浅色面
+  `#101318` + 海洋蓝 `#2E6BE6`），首页顶部与左侧栏共用同一张图，按
+  `width: 168.75rpx` + `mode="widthFix"` 显示（375 宽下字高 16px），不再用 CSS 文字
+  加 `scaleX` 横向拉伸（Android 会回退到系统默认字体、字形被拉变形）。源图见
+  `resources/artwork/brand/wordmark-*@4x.png`，字体许可见 `THIRD_PARTY_NOTICES.md`。
 - **切换主机**（首页顶部栏下方胶囊 + 底部 sheet）：对齐 iOS
   `GatewaySwitcherBar`/`GatewaySwitcherSheet`/`MultiGatewayStore` —— 主机档案
   （`gateway.profiles.v1`，v4 UUID）含地址候选（≤16，publicUrl 优先，默认路径

@@ -36,7 +36,7 @@ test('session settings retain model and permission APIs, file navigation and pri
   let definition, subscriber; const calls = [];
   const state = { connection: 'connected', activeID: 'node', profiles: [{id: 'node', relay: true, gatewayId: 'public-id'}], endpoint: 'wss://hidden.example/relay/c/node',
     defaults: { agentPresetDefault: 'code', permissionDefault: 'read-only' }, defaultModel: {model: 'fixture-model'}, host: {version: '1.0'},
-    agentPresets: {presets: [{id:'code', name:'编程'}]}, modelCatalog: {groups:[{id:'fixture',name:'测试',models:[{id:'next',name:'模型'}]}]} };
+    agentPresets: {presets: [{id:'code', name:'编程', description:'用于编码工作'}]}, modelCatalog: {groups:[{id:'fixture',name:'测试',models:[{id:'next',name:'模型'},{id:'thinking',name:'思考模型',reasoning:{efforts:[{id:'off',name:'Off'},{id:'low',name:'Low'},{id:'high',name:'High'}],defaultEffort:'low'}}]}]} };
   const store = { state, subscribe(fn) { subscriber = fn; return () => calls.push(['unsubscribe']); },
     client: { requestHost() {calls.push(['host']);}, setDefault: async (...args) => calls.push(args), saveDefaultModel: async (...args) => calls.push(args),
       requestFileList: async () => ({ entries: [{ name: 'README.md', path: 'README.md', kind: 'file', bytes: 10 }] }) } };
@@ -45,7 +45,7 @@ test('session settings retain model and permission APIs, file navigation and pri
     if(name.endsWith('/ui-preferences'))return require('../miniprogram/utils/ui-preferences');
     if(name.endsWith('/store'))return store;
     if(name.endsWith('/theme'))return {applyTo(){}};
-    if(name.endsWith('/labels'))return {presetModeName:v=>v,permissionName:v=>v};
+    if(name.endsWith('/labels'))return {presetModeName:v=>v,presetModeBlurb:v=>'描述 '+v,reasoningEffortName:v=>({off:'Off',low:'Low',high:'High'}[v]||v),permissionName:v=>v,permissionIconFile:v=>require('../miniprogram/utils/labels').permissionIconFile(v)};
     if(name.endsWith('/node-presentation'))return require('../miniprogram/utils/node-presentation');
     if(name.endsWith('/host-info'))return require('../miniprogram/utils/host-info');
     if(name.endsWith('/version-info'))return require('../miniprogram/utils/version-info');
@@ -62,17 +62,36 @@ test('session settings retain model and permission APIs, file navigation and pri
   wx.backOptions.fail(); assert.deepEqual(calls.at(-1),['relaunch','/pages/home/home']);
   // 预设/权限/模型改为自绘底部弹窗（非系统 ActionSheet）
   page.pickAgentPreset(); assert.equal(page.data.picker,'preset');
+  assert.equal(page.data.pickerIntro,'预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。');
+  assert.equal(page.data.pickerOptions.find(o=>o.id==='code').description,'用于编码工作');
   const presetIndex = page.data.pickerOptions.findIndex(o => o.id === 'code');
   page.choosePicker({ currentTarget: { dataset: { index: presetIndex } } });
   assert.deepEqual(calls.filter(c => c[0] === 'agent-preset').at(-1),['agent-preset','code']);
   page.pickDefaultPermission(); assert.equal(page.data.picker,'permission');
+  assert.deepEqual(Array.from(page.data.pickerOptions, o=>o.label),['仅可查看','工作区内修改','完全权限','自动审查']);
+  assert.deepEqual(Array.from(page.data.pickerOptions, o=>o.icon),['shield-check-gray.png','shield-write-gray.png','shield-excla-gray.png','shield-auto-gray.svg']);
+  assert.equal(page.data.pickerOptions.find(o=>o.id==='auto').badge,'EXP');
+  assert.ok(page.data.pickerOptions.find(o=>o.id==='read-only').checked);
   const permissionIndex = page.data.pickerOptions.findIndex(o => o.id === 'workspace-write');
   page.choosePicker({ currentTarget: { dataset: { index: permissionIndex } } });
   assert.deepEqual(calls.filter(c => c[0] === 'permission').at(-1),['permission','workspace-write']);
   page.pickDefaultModel(); assert.equal(page.data.picker,'model');
+  assert.equal(page.data.pickerIntro,'为之后新建的会话设置默认模型与思考等级。这会更新部署级设置，同步影响 WebUI，运行中的会话保持启动时的配置。');
+  assert.equal(page.data.pickerOptions.find(o=>o.model==='thinking').efforts.length,3);
   const modelIndex = page.data.pickerOptions.findIndex(o => !o.header && o.model === 'next');
   page.choosePicker({ currentTarget: { dataset: { index: modelIndex } } });
   assert.deepEqual(calls.at(-1),['fixture','next','']);
+  state.defaultModel = {provider:'fixture', model:'thinking', reasoningEffort:'high'};
+  page.syncFromStore({app:state});
+  assert.equal(page.data.modelLabel,'思考模型 · High');
+  page.pickDefaultModel();
+  const thinkingIndex = page.data.pickerOptions.findIndex(o => !o.header && o.model === 'thinking');
+  assert.equal(page.data.pickerOptions[thinkingIndex].checked,true);
+  assert.equal(page.data.pickerOptions[thinkingIndex].efforts[2].checked,true);
+  assert.deepEqual(Array.from(page.data.pickerOptions[thinkingIndex].efforts, effort => effort.label),['Off','Low','High']);
+  page.chooseModelEffort({ currentTarget: { dataset: { optionIndex: thinkingIndex, effortIndex: 2 } } });
+  assert.deepEqual(calls.at(-1),['fixture','thinking','high']);
+  assert.equal(page.data.modelLabel,'思考模型 · High');
   // 工作区文件改为弹窗浏览，不再跳转页面
   page.openFiles(); assert.equal(page.data.filesSheet,true);
   assert.equal(calls.filter(c => c[0] === 'navigate').length,0);
@@ -97,6 +116,7 @@ test('session settings retain model and permission APIs, file navigation and pri
   page.confirmClearCache(); assert.match(page.data.cacheError,/未清理/); assert.equal(page.data.cacheClearing,false);
   page.onHide(); assert.equal(page.data.utilitySheet,'');
   for(const match of read('pages/session-settings/session-settings.wxml').matchAll(/bindtap="([^"]+)"/g))assert.equal(typeof page[match[1]],'function',match[1]);
+  for(const match of read('pages/session-settings/session-settings.wxml').matchAll(/catchtap="([^"]+)"/g))assert.equal(typeof page[match[1]],'function',match[1]);
   page.onUnload(); assert.deepEqual(calls.at(-1),['unsubscribe']);
 });
 
@@ -123,6 +143,18 @@ test('settings retry label and inherited text follow the manually selected theme
   assert.match(globalCss, /\.theme-light\s*\{[^}]*--ink:\s*#101318/);
 });
 
+test('conversation status style sheet has a resizable grabber and no text close action', () => {
+  const html = read('pages/settings/settings.wxml');
+  const css = read('pages/settings/settings.wxss');
+  const statusSheet = html.match(/<view wx:if="\{\{statusStyleSheetOpen\}\}"[\s\S]*?<\/view>\s*<\/view>\s*<\/view>/);
+  assert.ok(statusSheet, 'status style sheet exists');
+  assert.match(statusSheet[0], /class="sheet-grabber-zone" data-sheet="statusStyle"[^>]*sheetGrabStart[^>]*sheetGrabMove[^>]*sheetGrabEnd/);
+  assert.match(statusSheet[0], /sheetExpanded\.statusStyle \? 90 : 72/);
+  assert.doesNotMatch(statusSheet[0], /status-style-close|\{\{ui\['完成'\]\}\}/);
+  assert.match(css, /\.status-style-sheet\.resizable\s*\{[^}]*transition:height/);
+  assert.match(css, /\.status-style-list\s*\{[^}]*flex:1/);
+});
+
 test('utility panels are bottom sheets with theme colors and concise feature labels', () => {
   const html=read('pages/session-settings/session-settings.wxml');
   const css=read('pages/session-settings/session-settings.wxss');
@@ -132,4 +164,24 @@ test('utility panels are bottom sheets with theme colors and concise feature lab
   assert.match(css,/\.utility-mask[^}]*align-items: flex-end/);
   assert.match(css,/\.utility-sheet[^}]*env\(safe-area-inset-bottom\)[^}]*background: var\(--surface\)/);
   assert.match(css,/\.theme-dark.*utility-confirm/);
+});
+
+test('default preset and model sheets retain the bottom modal and use dsh-mobile style cards', () => {
+  const html = read('pages/session-settings/session-settings.wxml');
+  const css = read('pages/session-settings/session-settings.wxss');
+  assert.match(html, /class="pair-sheet-mask"[\s\S]*?class="pair-sheet resizable/);
+  assert.match(html, /class="preset-option-card[\s\S]*?preset-card-description/);
+  assert.match(html, /class="picker-current-badge"/);
+  assert.match(html, /class="picker-provider-title"/);
+  assert.match(html, /class="model-option-card[\s\S]*?class="model-effort-chip/);
+  assert.match(html, />\{\{effort\.label\}\}<\/view>/);
+  assert.match(html, /picker === 'permission'[\s\S]*?permission-card-icon/);
+  assert.match(html, /permission-card-icon" src="\/assets\/icons\/\{\{item.icon\}\}"/);
+  assert.match(html, /model-option-main" data-index="\{\{optionIndex\}\}"/);
+  assert.match(css, /\.preset-option-card\.selected/);
+  assert.match(css, /\.preset-option-card\.selected,[\s\S]*?border:\s*1rpx solid var\(--text\)/);
+  assert.match(css, /\.picker-option-list\.permission-picker-list/);
+  assert.match(css, /\.preset-card-name,[\s\S]*?font-weight:\s*600/);
+  assert.match(css, /\.model-effort-chip\.selected/);
+  assert.match(css, /\.picker-option-list\.model-picker-list/);
 });

@@ -1,7 +1,7 @@
 const store = require('../../utils/store');
 const { t } = require('../../utils/ui-preferences');
-const { PluginSettings, kindFor, routeKey } = require('../../utils/plugin-settings');
-const copy = require('../../utils/plugin-settings-copy');
+const { PluginSettings, kindFor, routeKey } = require('./plugin-settings');
+const copy = require('./plugin-settings-copy');
 // Keep this dependency explicit so lazy subpackage builds include voice actions.
 const voiceActions = require('./voice-actions');
 module.exports = Object.assign({}, voiceActions, {

@@ -48,10 +48,45 @@ test('viewport clearance includes safe area and keyboard without feedback or dou
 });
 test('jump arrow follows real content end, not former transparent dock area', () => {
   const { page } = pageFixture([]);
+  page._lastScrollTop = 1000;
   page.applyScrollPosition({scrollTop:900,scrollHeight:1400,clientHeight:400});
   assert.equal(page.data.showJump,true);assert.equal(page._convPinned,false);
   page.applyScrollPosition({scrollTop:1000,scrollHeight:1400,clientHeight:400});
   assert.equal(page.data.showJump,false);assert.equal(page._convPinned,true);
   const css = fs.readFileSync(path.join(root, 'session.wxss'),'utf8');
   assert.match(css,/\.jump-wrap\s*\{[^}]*position: absolute;[^}]*bottom: calc\(100% \+ 16rpx\)/);
+});
+test('empty and status states fill the viewport instead of scrolling', () => {
+  const css = fs.readFileSync(path.join(root, 'session.wxss'), 'utf8');
+  const xml = fs.readFileSync(path.join(root, 'session.wxml'), 'utf8');
+  // 空态/加载/失败态用 flex 铺满可视对话区（跟随 .conversation-inner 的 min-height:100%），
+  // 不再用 100vh 魔数撑出滚动；没有内容就不显示"回到底部"箭头。
+  assert.match(css, /\.conv-empty,\s*\.conv-state\s*\{[^}]*flex:\s*1 1 auto/);
+  assert.doesNotMatch(css, /min-height:\s*calc\(100vh - 420rpx\)/);
+  assert.match(xml, /<view wx:if="\{\{showJump && rows\.length\}\}" class="jump-wrap">/);
+});
+test('growing content and intermediate scroll positions retain following until the user scrolls up', () => {
+  const f = pageFixture([]), page = f.page;
+  page._lastScrollTop = 1000;
+  page._suppressScrollUntil = Date.now() + 500;
+  page.applyScrollPosition({scrollTop:1000,scrollHeight:1700,clientHeight:400});
+  assert.equal(page._convPinned, true);
+  page._suppressScrollUntil = 0;
+  page.applyScrollPosition({scrollTop:1000,scrollHeight:1700,clientHeight:400});
+  assert.equal(page._convPinned, true); assert.equal(f.scrolled(), 1);
+  page.onConvTouch();
+  page.applyScrollPosition({scrollTop:850,scrollHeight:1700,clientHeight:400});
+  assert.equal(page._convPinned, false); assert.equal(page.data.showJump, true);
+  page.jumpToBottom();
+  assert.equal(page._convPinned, true); assert.equal(page._lastTouchAt, 0); assert.equal(page.data.showJump, false);
+});
+test('scroll events without viewport height use the last measured viewport', () => {
+  const {page} = pageFixture([]);
+  page.onConvScroll({detail:{scrollTop:1000,scrollHeight:1400}});
+  assert.equal(page._convPinned, true);
+  page.applyScrollPosition({scrollTop:1000,scrollHeight:1400,clientHeight:400});
+  page.onConvTouch(); page.onConvScroll({detail:{scrollTop:800,scrollHeight:1400}});
+  assert.equal(page._convPinned, false);
+  const xml = fs.readFileSync(path.join(root, 'session.wxml'), 'utf8');
+  assert.match(xml, /scroll-into-view="\{\{scrollTarget\}\}"\s+scroll-with-animation="\{\{false\}\}"/);
 });

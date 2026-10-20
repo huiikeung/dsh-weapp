@@ -9,7 +9,7 @@ const CONNECTION_LABELS = { disconnected: uiText('未连接'), connecting: uiTex
 
 Page({
   manualShareMenu: true,
-  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerOptions: [], sheetMaxH: 480, pickerListH: 348, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true },
+  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], sheetMaxH: 480, pickerListH: 348, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true },
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onLoad() {
     theme.applyTo(this);
@@ -57,7 +57,7 @@ Page({
       modelId: model.model || '',
       modelProvider: model.provider || '',
       presetLabel: (app.agentPresets && findPresetName(app.agentPresets.presets, presetId)) || labels.presetModeName(presetId),
-      modelLabel: model.model ? model.model + (model.reasoningEffort ? ' · ' + capitalize(model.reasoningEffort) : '') : '—',
+      modelLabel: model.model ? formatModelLabel(app.modelCatalog, model.provider, model.model, model.reasoningEffort) : '—',
       permissionLabel: labels.permissionName(defaults.permissionDefault || 'workspace-write') || defaults.permissionDefault || uiText('工作区写入'),
       host: app.host || {},
       hostInfo: hostDisplay(app)
@@ -82,8 +82,11 @@ Page({
     this.openPickerSheet('preset', uiText('Agent 预设'), list.slice(0, 8).map((p) => ({
       id: p.id,
       label: p.name || labels.presetModeName(p.id),
+      description: p.description || labels.presetModeBlurb(p.id),
+      broken: p.broken === true || (typeof p.broken === 'string' && !!p.broken),
+      brokenReason: p.brokenReason || (typeof p.broken === 'string' ? p.broken : ''),
       checked: p.id === current
-    })));
+    })), uiText('预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。'));
   },
 
   pickDefaultModel() {
@@ -110,13 +113,14 @@ Page({
     const defaults = (store.state && store.state.defaults) || {};
     const currentModel = this.data.modelId || defaults.model || '';
     const currentProvider = this.data.modelProvider || defaults.provider || '';
+    const currentEffort = (store.state && store.state.defaultModel && store.state.defaultModel.reasoningEffort) || '';
     let marked = false;
     // 按供应商分组：每组一个标题行，其后是该供应商的模型
     const groups = [];
     flat.forEach((m) => {
       let group = groups.find((g) => g.provider === m.provider);
       if (!group) {
-        group = { provider: m.provider, title: capitalize(m.provider), models: [] };
+        group = { provider: m.provider, title: m.providerName || m.provider, models: [] };
         groups.push(group);
       }
       group.models.push(m);
@@ -132,27 +136,35 @@ Page({
         options.push({
           key: m.provider + '|' + m.model,
           id: m.provider + '|' + m.model + '|' + (m.defaultEffort || ''),
-          label: m.label,
+          label: m.name || m.model,
           checked: hit,
           provider: m.provider,
           model: m.model,
-          efforts: m.efforts || [],
+          efforts: (m.efforts || []).map((effort) => ({
+            id: effort.id,
+            label: effortDisplayName(effort),
+            checked: hit && effort.id === currentEffort
+          })),
           defaultEffort: m.defaultEffort || ''
         });
       });
     });
-    this.openPickerSheet('model', uiText('默认模型'), options);
+    this.openPickerSheet('model', uiText('默认模型'), options, uiText('为之后新建的会话设置默认模型与思考等级。这会更新部署级设置，同步影响 WebUI，运行中的会话保持启动时的配置。'));
   },
 
   pickDefaultPermission() {
-    const values = ['read-only', 'workspace-write', 'danger-full-access'];
-    const labelsText = [uiText('只读'), uiText('工作区写入'), uiText('完全访问')];
     const current = (store.state && store.state.defaults && store.state.defaults.permissionDefault) || '';
-    this.openPickerSheet('permission', uiText('权限'), values.map((value, index) => ({
-      id: value,
-      label: labelsText[index],
-      checked: value === current
-    })));
+    const options = [
+      { id: 'read-only', label: uiText('仅可查看'), description: uiText('以只读方式使用工作区，适合查看和分析任务。') },
+      { id: 'workspace-write', label: uiText('工作区内修改'), description: uiText('允许在工作区中修改文件，适合日常开发。') },
+      { id: 'danger-full-access', label: uiText('完全权限'), description: uiText('启用完整访问能力，风险较高，请谨慎选择。') },
+      { id: 'auto', label: uiText('自动审查'), description: uiText('无沙箱运行；每次原生工具调用和 PTC 内层调用前由同一模型进行实验性审查。'), badge: 'EXP' }
+    ].map((option) => ({
+      ...option,
+      icon: labels.permissionIconFile(option.id),
+      checked: option.id === current
+    }));
+    this.openPickerSheet('permission', uiText('权限'), options, uiText('权限预设用于控制新会话可以执行的操作。'));
   },
 
   /** 保存默认模型；若该模型支持思考强度，先让用户选择强度。 */
@@ -163,9 +175,10 @@ Page({
         pendingModel: { provider, model, efforts },
         picker: 'effort',
         pickerTitle: uiText('思考强度'),
+        pickerIntro: '',
         pickerOptions: efforts.map((item) => ({
           id: item.id,
-          label: item.name || item.id,
+          label: effortDisplayName(item),
           checked: item.id === currentEffort
         }))
       });
@@ -178,15 +191,15 @@ Page({
     this.setData({
       modelId: model,
       modelProvider: provider,
-      modelLabel: model + (chosen ? ' · ' + capitalize(chosen) : ''),
+      modelLabel: formatModelLabel(store.state && store.state.modelCatalog, provider, model, chosen),
       pendingModel: null
     });
   },
 
   // ---------- 通用选择弹窗（与设置页弹窗样式一致） ----------
 
-  openPickerSheet(kind, title, options) {
-    this.setData({ picker: kind, pickerTitle: title, pickerOptions: options || [] });
+  openPickerSheet(kind, title, options, intro) {
+    this.setData({ picker: kind, pickerTitle: title, pickerIntro: intro || '', pickerOptions: options || [] });
   },
 
 
@@ -223,14 +236,24 @@ Page({
   },
 
   closePickerSheet() {
-    this.setData({ picker: '', pickerTitle: '', pickerOptions: [] });
+    this.setData({ picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [] });
+  },
+
+  chooseModelEffort(e) {
+    const optionIndex = Number(e.currentTarget.dataset.optionIndex);
+    const effortIndex = Number(e.currentTarget.dataset.effortIndex);
+    const option = (this.data.pickerOptions || [])[optionIndex];
+    const effort = option && (option.efforts || [])[effortIndex];
+    if (!option || !effort) return;
+    this.closePickerSheet();
+    this.applyModelSelection(option.provider, option.model, option.efforts || [], effort.id);
   },
 
   choosePicker(e) {
     const index = Number(e.currentTarget.dataset.index);
     const option = (this.data.pickerOptions || [])[index];
     const kind = this.data.picker;
-    if (!option || option.header) return;   /* 分组标题不可点 */
+    if (!option || option.header || option.broken) return;   /* 分组标题和无效预设不可点 */
     this.closePickerSheet();
     if (kind === 'preset') {
       // 先乐观更新标签，再写入部署级默认值
@@ -394,10 +417,14 @@ function flattenModels(catalog) {
         const reasoning = model.reasoning || null;
         flat.push({
           provider: group.id,
+          providerName: ({ 'deepseek-account': uiText('DeepSeek 账号'), 'deepseek-official': uiText('DeepSeek 官方 API') })[group.id] || group.name || group.id,
           model: model.id,
-          label: (group.name || group.id) + ' · ' + (model.name || model.id),
+          name: model.name || model.id,
           defaultEffort: reasoning && reasoning.defaultEffort,
-          efforts: (reasoning && Array.isArray(reasoning.efforts)) ? reasoning.efforts : []
+          efforts: (reasoning && Array.isArray(reasoning.efforts)) ? reasoning.efforts.map((effort) => {
+            if (typeof effort === 'string') return { id: effort, name: effortDisplayName(effort) };
+            return effort && typeof effort.id === 'string' ? { id: effort.id, name: effortDisplayName(effort) } : null;
+          }).filter(Boolean) : []
         });
       });
     });
@@ -405,9 +432,32 @@ function flattenModels(catalog) {
   return flat;
 }
 
-function capitalize(text) {
-  if (!text) return '';
-  return text.charAt(0).toUpperCase() + text.slice(1);
+function findModelName(catalog, provider, modelId) {
+  if (!catalog || !Array.isArray(catalog.groups) || !modelId) return '';
+  let fallback = '';
+  for (const group of catalog.groups) {
+    for (const model of group.models || []) {
+      if (model.id !== modelId) continue;
+      const name = model.name || model.id;
+      if (provider && group.id === provider) return name;
+      if (!fallback) fallback = name;
+    }
+  }
+  return fallback;
+}
+
+function formatModelLabel(catalog, provider, modelId, effort) {
+  if (!modelId) return '—';
+  const name = findModelName(catalog, provider, modelId) || modelId;
+  return name + (effort ? ' · ' + labels.reasoningEffortName(effort) : '');
+}
+
+function effortDisplayName(effort) {
+  const id = typeof effort === 'string' ? effort : effort && effort.id;
+  if (!id) return '';
+  const key = String(id).toLowerCase();
+  if (/^(off|none|disabled|minimal|low|medium|high|xhigh|max|ultra)$/.test(key)) return labels.reasoningEffortName(key);
+  return (effort && typeof effort === 'object' && effort.name) || labels.reasoningEffortName(id);
 }
 
 /* ---------- 工作区文件弹窗辅助（与 pages/files 保持一致） ---------- */

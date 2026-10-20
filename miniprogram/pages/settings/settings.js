@@ -209,7 +209,7 @@ Page({
       this.setData({ ...workSteps.view(value), workStepMenu: '' });
     } catch (_) { wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' }); }
   },
-  openStatusStyles() { this.setData({ statusStyleSheetOpen: true, ...statusAppearance.view(statusAppearance.read()) }); },
+  openStatusStyles() { this.setData({ statusStyleSheetOpen: true, 'sheetExpanded.statusStyle': false, ...statusAppearance.view(statusAppearance.read()) }); },
   closeStatusStyles() { this.setData({ statusStyleSheetOpen: false }); },
   chooseStatusStyle(event) {
     try {

@@ -198,3 +198,15 @@ test('summary responses are cached and cannot write into a different session', a
   assert.equal(row.added, 13); assert.equal(row.files.length, 2); assert.equal(row.files[0].previewKind, 'text');
   page.loadChangesSummaries(); assert.equal(requests, 2);
 });
+test('live change-sequence advancement cannot poison pending or newer summary cache entries', async () => {
+  const {page,row,store}=changesFixture();const pending=[];
+  store.client.requestChangesSummary=(sessionId,seq)=>new Promise(resolve=>pending.push({sessionId,seq,resolve}));
+  page.loadChangesSummaries();await new Promise(setImmediate);
+  row.changeSeq=13;page.loadChangesSummaries();await new Promise(setImmediate);
+  assert.deepEqual(pending.map(p=>p.seq),[12,13]);
+  pending[0].resolve({sessionId:'s',seq:12,value:summary});await new Promise(setImmediate);
+  assert.equal(page.changesContext().cache.get(12).state,'ready');
+  assert.equal(page.changesContext().cache.get(13).state,'loading');
+  pending[1].resolve({sessionId:'s',seq:13,value:{...summary,added:21}});await new Promise(setImmediate);
+  assert.equal(page.changesContext().cache.get(13).state,'ready');assert.equal(page.data.rows[0].added,21);
+});

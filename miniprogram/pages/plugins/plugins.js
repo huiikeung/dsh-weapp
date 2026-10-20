@@ -5,12 +5,12 @@ const store = require('../../utils/store');
 const theme = require('../../utils/theme');
 const plugins = require('../../utils/plugins');
 const { ACTIVE } = require('../../utils/plugin-install');
-const { installSummary } = require('../../utils/plugin-presentation');
+const { installSummary } = require('./plugin-presentation');
 const installActions = require('./install-actions');
 const marketActions = require('./market-actions');
 
 
-const { artworkFor, imageSource } = require('../../utils/plugin-artwork');
+const { artworkFor, imageSource } = require('./plugin-artwork');
 
 function bundleToView(b, app) {
   const canManage = !!(app.pluginCatalog && app.pluginCatalog.managementAvailable);

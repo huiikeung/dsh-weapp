@@ -4,7 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
-const { installSummary } = require('../miniprogram/utils/plugin-presentation');
+const { installSummary } = require('../miniprogram/pages/plugins/plugin-presentation');
 const { GatewayClient } = require('../miniprogram/utils/gateway');
 const bridge = require('../scripts/install-plugin-market-bridge.cjs');
 function fixture() {

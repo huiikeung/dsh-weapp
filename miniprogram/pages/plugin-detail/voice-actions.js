@@ -1,6 +1,6 @@
 const store = require('../../utils/store');
 const { t, localized } = require('../../utils/ui-preferences');
-const copy = require('../../utils/plugin-settings-copy').voice;
+const copy = require('./plugin-settings-copy').voice;
 function text(key, args={}) {let result=t(copy[key]||key);for(const name of Object.keys(args))result=result.split('{'+name+'}').join(String(args[name]));return result;}
 function metric(state) {
   if(typeof state.completedBytes==='number') {const completed=(state.completedBytes/1e6).toFixed(1);return state.totalBytes>0?text('downloadBytes',{completed,total:(state.totalBytes/1e6).toFixed(1),percent:Math.floor(state.completedBytes/state.totalBytes*100)}):text('downloadUnknown',{completed});}

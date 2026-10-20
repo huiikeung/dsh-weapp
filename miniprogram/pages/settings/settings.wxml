@@ -573,8 +573,9 @@
 </view>
 
 <view wx:if="{{statusStyleSheetOpen}}" class="status-style-mask {{themeClass}}" catchtap="closeStatusStyles" catchtouchmove="noop">
-  <view class="status-style-sheet" catchtap="noop">
-    <view class="status-style-head"><view><view class="status-style-title">{{ui['对话状态条']}}</view><view class="status-style-hint">{{ui['只改变外观，保留原有文案和计时']}}</view></view><text class="status-style-close" bindtap="closeStatusStyles" role="button">{{ui['完成']}}</text></view>
+  <view class="status-style-sheet resizable" style="height: {{sheetExpanded.statusStyle ? 90 : 72}}vh;" catchtap="noop">
+    <view class="sheet-grabber-zone" data-sheet="statusStyle" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
+    <view class="status-style-head"><view><view class="status-style-title">{{ui['对话状态条']}}</view><view class="status-style-hint">{{ui['只改变外观，保留原有文案和计时']}}</view></view></view>
     <scroll-view class="status-style-list" scroll-y enhanced show-scrollbar="{{false}}">
       <view wx:for="{{statusStyleChoices}}" wx:key="id" class="status-style-option {{statusAppearance === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="chooseStatusStyle" role="button" aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}} {{statusAppearance === item.id ? ui['已选择'] : ''}}">
         <view class="status-style-option-head"><text class="status-style-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="status-style-check">{{statusAppearance === item.id ? ui['已选择'] : ''}}</text></view>

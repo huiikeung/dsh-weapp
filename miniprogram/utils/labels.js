@@ -35,9 +35,10 @@ function presetModeBlurb(id) {
 
 // 权限图标（对齐软件权限菜单）：
 // read-only→盾牌✓ / workspace-write→盾牌+列表+铅笔斜笔（工作区内修改）/
-// danger-full-access→盾牌! / auto→盾牌? / 其他→盾牌
+// danger-full-access→盾牌! / auto→盾牌 A / 其他→盾牌
 function permissionIconFile(value) {
   const v = String(value || '').toLowerCase().replace(/_/g, '-');
+  if (v === 'auto') return 'shield-auto-gray.svg';
   if (v.indexOf('danger') >= 0) return 'shield-excla-gray.png';
   if (v.indexOf('workspace') >= 0) return 'shield-write-gray.png';
   if (v.indexOf('read') >= 0) return 'shield-check-gray.png';
@@ -50,7 +51,7 @@ function permissionName(id) {
   if (v.indexOf('danger') >= 0 || v.indexOf('full-access') >= 0) return uiText('完全访问');
   if (v.indexOf('workspace') >= 0) return uiText('工作区写入');
   if (v.indexOf('read') >= 0) return uiText('只读');
-  if (v === 'auto' || v === 'default' || v.indexOf('auto') >= 0) return uiText('自动');
+  if (v === 'auto' || v === 'default' || v.indexOf('auto') >= 0) return uiText('自动审查');
   return '';
 }
 
@@ -67,4 +68,14 @@ function reasoningEffortName(level) {
   return level;
 }
 
-module.exports = { presetModeName, presetModeDesc, presetModeBlurb, permissionName, permissionIconFile, reasoningEffortName };
+function reasoningEffortDisplayName(level) {
+  const v = String(level || '').toLowerCase();
+  const localized = {
+    off: '关闭推理', none: '关闭推理', disabled: '关闭推理',
+    minimal: '极低', low: '低', medium: '中', high: '高',
+    xhigh: '超高', max: '最大', ultra: '极致'
+  }[v];
+  return localized ? uiText(localized) : reasoningEffortName(level);
+}
+
+module.exports = { presetModeName, presetModeDesc, presetModeBlurb, permissionName, permissionIconFile, reasoningEffortName, reasoningEffortDisplayName };

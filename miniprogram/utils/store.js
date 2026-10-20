@@ -957,6 +957,16 @@ function createStore() {
     }
   }
 
+  let artifactRefresh = null;
+  function refreshArtifactsSoon() {
+    if (artifactRefresh) clearTimeout(artifactRefresh);
+    const id = sessionState.sessionId, generation = client.connectGeneration;
+    artifactRefresh = setTimeout(() => {
+      artifactRefresh = null;
+      if (id === sessionState.sessionId && generation === client.connectGeneration && state.connection === 'connected') client.requestHistory(id);
+    }, 80);
+  }
+
   function handleSessionFrame(frame) {
     if (frame.kind === 'assistant-stream' || frame.kind === 'assistant-stream-v1') {
       handleAssistantStream(frame);
@@ -997,6 +1007,8 @@ function createStore() {
             type: frame.event.type || 'unknown',
             seq: frame.seq,
             time: frame.time || Date.now() / 1000,
+            surfaceOp: frame.surfaceOp,
+            sourceEventSeqs: frame.sourceEventSeqs,
             data: frame.event.data || frame.event
           };
           ingestEvents([raw]);
@@ -1010,6 +1022,10 @@ function createStore() {
         if (frame.event) allEvents.push(frame.event);
         for (const ev of allEvents) {
           const t = ev.type || (ev.event && ev.event.type) || '';
+          const data = ev.data || ev.event && (ev.event.data || ev.event) || ev;
+          // Legacy gateways forward only the type of these durable events.
+          if ((t === 'deliverables/presented' && (!Array.isArray(data.files) || !data.callId || !Number.isSafeInteger(data.turn))) ||
+              (t === 'workspace/changes' && !Number.isSafeInteger(data.turn))) refreshArtifactsSoon();
           if (t === 'turn/start') {
             setRunning(true);
             sessionState.lastAssistantText = '';
@@ -1033,7 +1049,7 @@ function createStore() {
         if (frame.resetRequired) {
           sessionState.rowsAgg = protocol.newAggregator();
         }
-        const prepend = !!frame.beforeSeqPlaceholder || sessionState.rows.length > 0;
+        const prepend = !!frame.beforeSeqPlaceholder || rawBuffer.length > 0 || sessionState.rows.length > 0;
         ingestEvents(events, prepend);
         sessionState.hasMoreHistory = frame.hasMore === true;
         sessionState.nextBeforeSeq = frame.nextBeforeSeq;

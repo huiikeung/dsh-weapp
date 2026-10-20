@@ -132,7 +132,202 @@
   font-weight: 600;
 }
 
-/* 模型弹窗：供应商分组标题 */
+/* Agent preset and model cards follow dsh-mobile while staying in the existing sheet. */
+.picker-option-list.preset-picker-list,
+.picker-option-list.model-picker-list,
+.picker-option-list.permission-picker-list {
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  padding: 0 2rpx 8rpx;
+  box-sizing: border-box;
+}
+
+.picker-intro {
+  margin: 0 8rpx 20rpx;
+  color: var(--text-2);
+  font-size: 25rpx;
+  line-height: 1.55;
+}
+
+.preset-option-card,
+.model-option-card {
+  box-sizing: border-box;
+  margin-bottom: 14rpx;
+  padding: 26rpx 28rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 24rpx;
+  background: var(--fill);
+  transition: background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;
+}
+
+.preset-option-card.selected,
+.model-option-card.selected {
+  border: 1rpx solid var(--text);
+}
+
+.preset-option-card.broken {
+  opacity: .68;
+}
+
+.picker-card-hover,
+.model-option-main-hover {
+  background: var(--fill-2);
+}
+
+.preset-card-head,
+.model-option-main {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.permission-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.permission-card-icon {
+  width: 42rpx;
+  height: 42rpx;
+  flex: none;
+}
+
+.preset-card-name,
+.model-option-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--text);
+  font-size: 29rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.preset-card-id {
+  flex: none;
+  max-width: 190rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 999rpx;
+  background: var(--fill-2);
+  color: var(--text-2);
+  font-size: 21rpx;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-current-badge {
+  flex: none;
+  margin-left: auto;
+  padding: 7rpx 14rpx;
+  border-radius: 999rpx;
+  background: #111315;
+  color: #FFFFFF;
+  font-size: 21rpx;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.permission-experimental-badge {
+  flex: none;
+  padding: 5rpx 9rpx;
+  border-radius: 8rpx;
+  background: rgba(196, 102, 11, .12);
+  color: #B65B00;
+  font-size: 18rpx;
+  font-weight: 700;
+  letter-spacing: .4rpx;
+}
+
+.theme-dark .permission-experimental-badge {
+  background: rgba(255, 180, 84, .16);
+  color: #FFB454;
+}
+
+.preset-card-description {
+  display: block;
+  margin-top: 14rpx;
+  color: var(--text-2);
+  font-size: 25rpx;
+  line-height: 1.55;
+}
+
+.preset-card-warning {
+  display: block;
+  margin-top: 14rpx;
+  color: #C4660B;
+  font-size: 23rpx;
+  line-height: 1.45;
+}
+
+.theme-dark .preset-card-warning {
+  color: #FFB454;
+}
+
+/* Model groups use provider headings and one bordered card per model. */
+.picker-provider-title {
+  margin: 18rpx 6rpx 10rpx;
+  color: var(--text-2);
+  font-size: 25rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.picker-provider-title:first-child {
+  margin-top: 0;
+}
+
+.model-option-main {
+  min-height: 42rpx;
+  border-radius: 8rpx;
+}
+
+.model-effort-section {
+  margin-top: 18rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid var(--divider);
+}
+
+.model-effort-label {
+  display: block;
+  margin-bottom: 10rpx;
+  color: var(--text-2);
+  font-size: 22rpx;
+  font-weight: 500;
+}
+
+.model-effort-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+}
+
+.model-effort-chip {
+  padding: 8rpx 16rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 999rpx;
+  background: var(--fill);
+  color: var(--text);
+  font-size: 22rpx;
+  line-height: 1.3;
+}
+
+.model-effort-chip.selected {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.model-effort-chip-hover {
+  opacity: .72;
+}
+
+/* General picker group headings (permissions / reasoning effort) */
 .picker-group {
   padding: 20rpx 28rpx 10rpx;
   font-size: 24rpx;

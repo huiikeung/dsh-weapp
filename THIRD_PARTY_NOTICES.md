@@ -30,3 +30,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+# 品牌字标字体
+
+miniprogram/assets/icons/wordmark-white.png 与 wordmark-ink.png 由 Outfit 600
+（Google Fonts，https://fonts.google.com/specimen/Outfit）栅格化生成，该字体使用
+SIL Open Font License 1.1（https://openfontlicense.org）。仓库只分发栅格化后的
+字标图片，不分发字体文件；源图位于 resources/artwork/brand/。

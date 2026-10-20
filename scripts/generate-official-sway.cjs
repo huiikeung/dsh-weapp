@@ -1,11 +1,14 @@
-// Encodes the existing upstream official contour atlas as a fixed-size GIF.
-// Usage: node scripts/generate-official-sway.cjs <150 * 72 * 72 alpha-index bytes>
+// Encodes the official contour frames as a compact fixed-size GIF.
+// Usage: node scripts/generate-official-sway.cjs <alpha-index bytes> [side] [frames] [output directory]
 // Source/license and rasterization details: docs/status-appearance.md.
 const fs = require('node:fs');
 const path = require('node:path');
-const pixels = fs.readFileSync(process.argv[2]);
-const side = 72, frameSize = side * side, count = 150;
-if (pixels.length !== frameSize * count) throw Error('Expected 150 full 72px frames');
+const input = process.argv[2];
+const side = Number(process.argv[3] || 72), count = Number(process.argv[4] || 150);
+const output = process.argv[5] || path.join(__dirname, '../miniprogram/assets/icons');
+if (!input || !Number.isInteger(side) || side < 1 || !Number.isInteger(count) || count < 1) throw Error('Invalid input, frame size or frame count');
+const pixels = fs.readFileSync(input), frameSize = side * side;
+if (pixels.length !== frameSize * count) throw Error('Expected ' + count + ' full ' + side + 'px frames');
 function lzw(input) {
   let dictionary, next, size;
   const reset = () => { dictionary = new Map(); next = 6; size = 3; };
@@ -47,6 +50,6 @@ for (const [theme, color] of [['light',[87,101,184]], ['dark',[181,160,242]]]) {
   }
   blocks.push(Buffer.from([0x3b]));
   const result = Buffer.concat(blocks);
-  fs.writeFileSync(path.join(__dirname,'../miniprogram/assets/icons/official-sway-' + theme + '.gif'), result);
-  console.log(theme, result.length, 'bytes; 150 frames; 4000 ms');
+  fs.writeFileSync(path.join(output,'official-sway-' + theme + '.gif'), result);
+  console.log(theme, result.length, 'bytes;', count, 'frames; 4000 ms');
 }
