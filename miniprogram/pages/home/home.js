@@ -50,6 +50,7 @@ Page({
     editingGatewayName: '',
     editAlias: '',
     editKind: 'desktopcomputer',
+    hostEditKb: 0,
     workspacePickerOpen: false,
     sheetTheme: 'dark',
     pickerWorkspaces: [],
@@ -418,6 +419,7 @@ Page({
     if (!profile) return;
     this.setData({
       hostEditOpen: true,
+      hostEditKb: 0,
       editingHostId: id,
       editingGatewayName: profile.gatewayName || uiText('未命名主机'),
       editAlias: profile.alias || '',
@@ -429,17 +431,23 @@ Page({
     this.setData({ editAlias: e.detail.value });
   },
 
+  // 键盘弹起时把编辑卡片整体抬到键盘上方，保证「取消 / 保存」始终可见。
+  onHostEditKeyboard(e) {
+    const height = Math.max(0, Number((e.detail && e.detail.height) || 0));
+    if (height !== this.data.hostEditKb) this.setData({ hostEditKb: height });
+  },
+
   setHostKind(e) {
     this.setData({ editKind: e.currentTarget.dataset.kind });
   },
 
   cancelHostEdit() {
-    this.setData({ hostEditOpen: false });
+    this.setData({ hostEditOpen: false, hostEditKb: 0 });
   },
 
   saveHostEdit() {
     store.editHost(this.data.editingHostId, this.data.editAlias, this.data.editKind);
-    this.setData({ hostEditOpen: false });
+    this.setData({ hostEditOpen: false, hostEditKb: 0 });
   },
 
   deleteHosts() {

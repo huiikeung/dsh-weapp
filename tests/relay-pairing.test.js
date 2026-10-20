@@ -13,6 +13,13 @@ assert.equal(parsed.payload.gatewayId, payload.nodeId);
 const invite = parse(raw({ ...payload, inviteToken: 'b'.repeat(43) }));
 assert.equal(invite.payload.authMode, 'invite');
 assert.equal(invite.payload.pairingCode, null);
+// 可选字段：主机平台 / 设备类型；缺失或非法时按 null 忽略，不影响配对。
+const withDevice = parse(raw({ ...payload, hostPlatform: 'linux', deviceKind: 'server.rack' }));
+assert.equal(withDevice.payload.hostPlatform, 'linux');
+assert.equal(withDevice.payload.deviceKind, 'server.rack');
+const noDevice = parse(raw({ ...payload, hostPlatform: 42, deviceKind: 'weird' }));
+assert.equal(noDevice.payload.hostPlatform, null);
+assert.equal(noDevice.payload.deviceKind, null);
 assert.equal(parse(raw({ ...payload, pairingCode: null })).error, PairingError.MISSING_RELAY_AUTH);
 assert.equal(parse(raw({ ...payload, expiresAt: 1 })).error, PairingError.EXPIRED);
 for (const patch of [{ relay: 'ws://relay.example.com' }, { relay: 'wss://user@relay.example.com' },

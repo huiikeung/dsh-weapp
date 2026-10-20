@@ -8,6 +8,16 @@ const { t: uiText } = require('./ui-preferences');
 
 const { decodeBase64URL } = require('./util');
 
+// 主机平台/设备类型是可选的附加字段：新版中继连接器会带 hostPlatform，
+// 网关插件后续也可以直接带 deviceKind；老载荷没有这些字段也能正常配对。
+function deviceFields(payload) {
+  const kind = payload && (payload.deviceKind === 'server.rack' || payload.deviceKind === 'desktopcomputer')
+    ? payload.deviceKind : null;
+  const platform = payload && typeof payload.hostPlatform === 'string'
+    ? payload.hostPlatform.trim().slice(0, 32) || null : null;
+  return { deviceKind: kind, hostPlatform: platform };
+}
+
 const PairingError = {
   INVALID_BASE64: uiText('配对内容不是有效的 Base64URL 字符串。'),
   INVALID_JSON: uiText('Base64URL 解码后的内容不是有效的驭鲸 Harness 配对 JSON。'),
@@ -63,7 +73,8 @@ function parse(rawValue, nowMs) {
       expiresAt: expiresAt,
       gatewayId: payload.gatewayId || null,
       gatewayName: payload.gatewayName || null,
-      endpoints: Array.isArray(payload.endpoints) ? payload.endpoints : []
+      endpoints: Array.isArray(payload.endpoints) ? payload.endpoints : [],
+      ...deviceFields(payload)
     }
   };
 }
@@ -106,7 +117,8 @@ function parseRelayPayload(payload, now) {
       accessExpiresAt: Number.isSafeInteger(payload.accessExpiresAt) && payload.accessExpiresAt > now ? payload.accessExpiresAt : null,
       accessDays: [3, 7, 30, 180, 365].includes(payload.accessDays) ? payload.accessDays : null,
       gatewayName: payload.gatewayName || null,
-      endpoints: [endpoint]
+      endpoints: [endpoint],
+      ...deviceFields(payload)
     }
   };
 }

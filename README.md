@@ -180,7 +180,10 @@ weapp/
 - **切换主机**（首页顶部栏下方胶囊 + 底部 sheet）：对齐 iOS
   `GatewaySwitcherBar`/`GatewaySwitcherSheet`/`MultiGatewayStore` —— 主机档案
   （`gateway.profiles.v1`，v4 UUID）含地址候选（≤16，publicUrl 优先，默认路径
-  `/ws/mobile`，ws 仅限本地）、网关身份、别名、设备类型（电脑/服务器）；凭据按
+  `/ws/mobile`，ws 仅限本地）、网关身份、别名、设备类型（电脑/服务器）；设备类型
+  优先用配对载荷的 `deviceKind` / `hostPlatform`（中继连接器会上报
+  `process.platform`），否则按主机名特征推断，无法判断时默认「电脑」；「编辑主机」
+  手动选择后不会被自动推断覆盖。凭据按
   档案 ID 命名空间（`dsh_creds.<id>`），旧版 `dsh_endpoint`/`dsh_token` 自动迁移；
   切换即断开重连并清空上一台主机的业务数据；在线探测 3s/端点、30s 自动刷新；
   编辑模式支持多选删除（不删除网关上的会话/工作区）。

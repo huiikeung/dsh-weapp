@@ -535,6 +535,7 @@ function pairingPayload(offer) {
     agentPubKey: identity.signPublicKey,
     gatewayName: GATEWAY_NAME,
     gatewayUrl: GATEWAY,
+    hostPlatform: process.platform,
     inviteToken: offer.inviteToken,
     expiresAt: offer.expiresAt,
     role: 'owner'

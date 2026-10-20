@@ -93,6 +93,13 @@ function createConsole({ options, getState, commit, body, respond, now, limit, e
     // Only transport fields needed by the miniapp; never disclose the gateway's LAN endpoint.
     const payload = { version: 3, mode: 'relay', relay: p.relay, nodeId: p.nodeId, agentPubKey: p.agentPubKey,
       pairingCode: p.pairingCode, expiresAt: p.expiresAt, gatewayName: node.name };
+    // 可选：插件升级后会带上主机平台/设备类型，校验后透传，供小程序选择电脑/服务器图标。
+    if (typeof p.hostPlatform === 'string' && /^[A-Za-z0-9 _.+-]{1,32}$/.test(p.hostPlatform)) {
+      payload.hostPlatform = p.hostPlatform;
+    }
+    if (p.deviceKind === 'desktopcomputer' || p.deviceKind === 'server.rack') {
+      payload.deviceKind = p.deviceKind;
+    }
     if (policy) {
       if (p.managedPairingId !== policy.id || p.accessDays !== policy.days || !Number.isSafeInteger(p.accessExpiresAt) || Math.abs(p.accessExpiresAt - (now() + policy.days * DAY)) > 60000) throw failure(502, 'ACCESS_POLICY_MISMATCH', '网关没有确认所选访问期限，请升级限时配对扩展并校准电脑时间');
       Object.assign(payload, { managedPairingId: policy.id, accessDays: policy.days, accessExpiresAt: p.accessExpiresAt });

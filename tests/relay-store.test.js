@@ -26,7 +26,8 @@ const store = moduleObject.exports;
 const nodeId = '12345678-1234-4234-8234-123456789012';
 const gatewayId = '87654321-4321-4321-8321-210987654321';
 const payload = { version: 3, mode: 'relay', relay: 'wss://relay.example.com', nodeId,
-  agentPubKey: Buffer.alloc(32, 1).toString('base64'), pairingCode: 'a'.repeat(43), expiresAt: Date.now() + 60000, accessDays: 365, accessExpiresAt: Date.now() + 365 * 86400000 };
+  agentPubKey: Buffer.alloc(32, 1).toString('base64'), pairingCode: 'a'.repeat(43), expiresAt: Date.now() + 60000, accessDays: 365, accessExpiresAt: Date.now() + 365 * 86400000,
+  hostPlatform: 'linux' };
 const result = store.pairWithPayload(Buffer.from(JSON.stringify(payload)).toString('base64url'));
 assert.equal(result.ok, true);
 const client = instances[0];
@@ -43,6 +44,8 @@ client.cb.onFrame({ kind: 'hello', gatewayId });
 assert.equal(store.state.gatewayMetadata.version, '', 'An older node must not inherit a previous plugin version');
 const profile = store.state.profiles[0];
 assert.equal(profile.gatewayId, nodeId, 'Local gateway UUID must not replace the relay routing/signature ID');
+assert.equal(profile.deviceKind, 'server.rack', 'Relay payload hostPlatform selects the device kind');
+assert.equal(profile.deviceKindSource, 'payload');
 assert.equal(hosts.loadCredential(profile.id).token, client.lastToken);
 assert.equal(profile.relayExpiresAt, payload.accessExpiresAt);
 client.cb.onRelayAuthorized({ role: 'guest', expiresAt: 0 }, { nodeId });

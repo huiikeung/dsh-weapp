@@ -237,14 +237,18 @@
 
   <!-- 编辑主机 -->
   <view wx:if="{{hostEditOpen}}" class="host-mask" bindtap="cancelHostEdit"></view>
-  <view wx:if="{{hostEditOpen}}" class="host-edit-panel">
+  <view wx:if="{{hostEditOpen}}" class="host-edit-panel" style="bottom: {{hostEditKb}}px;">
     <view class="host-edit-title">{{ui['编辑主机']}}</view>
     <view class="host-edit-hint">{{ui['留空使用网关提供的名称：']}}{{editingGatewayName}}</view>
-    <input class="host-edit-input" placeholder="{{ui['主机别名（留空使用网关名称）']}}" placeholder-class="host-edit-ph" value="{{editAlias}}" bindinput="onHostAliasInput" maxlength="80"/>
+    <input class="host-edit-input" placeholder="{{ui['主机别名（留空使用网关名称）']}}" placeholder-class="host-edit-ph" value="{{editAlias}}" bindinput="onHostAliasInput" bindkeyboardheightchange="onHostEditKeyboard" adjust-position="{{false}}" cursor-spacing="24" maxlength="80"/>
     <view class="host-edit-sub">{{ui['设备类型']}}</view>
     <view class="host-kind-row">
-      <view class="host-kind-opt {{editKind === 'desktopcomputer' ? 'on' : ''}} tap" bindtap="setHostKind" data-kind="desktopcomputer">{{ui['电脑']}}</view>
-      <view class="host-kind-opt {{editKind === 'server.rack' ? 'on' : ''}} tap" bindtap="setHostKind" data-kind="server.rack">{{ui['服务器']}}</view>
+      <view class="host-kind-opt {{editKind === 'desktopcomputer' ? 'on' : ''}} tap" bindtap="setHostKind" data-kind="desktopcomputer">
+        <image class="host-kind-ic" src="/assets/icons/desktop-white.png" mode="aspectFit" aria-hidden="true"/>{{ui['电脑']}}
+      </view>
+      <view class="host-kind-opt {{editKind === 'server.rack' ? 'on' : ''}} tap" bindtap="setHostKind" data-kind="server.rack">
+        <image class="host-kind-ic" src="/assets/icons/server-white.png" mode="aspectFit" aria-hidden="true"/>{{ui['服务器']}}
+      </view>
     </view>
     <view class="host-edit-actions">
       <view class="host-edit-btn-cancel tap" bindtap="cancelHostEdit">{{ui['取消']}}</view>

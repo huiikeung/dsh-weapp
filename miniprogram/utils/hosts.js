@@ -75,6 +75,54 @@ function normalizeEndpoints(publicUrl, endpoints) {
   return values;
 }
 
+// ---------- 设备类型（电脑 / 服务器） ----------
+// 网关协议（paired / hello / host）目前不上报主机平台，无法 100% 判断；
+// 优先级：配对载荷显式 deviceKind > hostPlatform > 主机名特征 > 默认电脑。
+// 默认电脑是因为 DSH 多数跑在个人电脑上；服务器用户在「编辑主机」里手改，
+// 手动结果（deviceKindSource=user）不会被自动推断覆盖。
+
+const DEVICE_KINDS = ['desktopcomputer', 'server.rack'];
+
+function normalizeDeviceKind(kind) {
+  return DEVICE_KINDS.indexOf(kind) >= 0 ? kind : null;
+}
+
+function kindFromPlatform(platform) {
+  const value = String(platform || '').trim().toLowerCase();
+  if (!value) return null;
+  if (/(darwin|mac|ios|win|windows)/.test(value)) return 'desktopcomputer';
+  if (/(linux|unix|bsd|ubuntu|debian|centos|rhel|fedora)/.test(value)) return 'server.rack';
+  return null;
+}
+
+function kindFromName(name) {
+  const value = String(name || '').trim().toLowerCase();
+  if (!value) return null;
+  if (/(macbook|imac|mac-?mini|mac-?studio|surface|thinkpad|ideapad|redmibook|laptop|notebook|desktop|windows|win\d{1,2})/.test(value)) {
+    return 'desktopcomputer';
+  }
+  if (/(vps|server|ubuntu|debian|centos|rocky|alma|rhel|fedora|ec2|gcp|azure|nas|cloud|rack)/.test(value)) {
+    return 'server.rack';
+  }
+  return null;
+}
+
+/** 推导设备类型与来源：payload（显式）/ platform / name / default。 */
+function deriveDeviceKind(opts) {
+  const o = opts || {};
+  const explicit = normalizeDeviceKind(o.deviceKind);
+  if (explicit) return { kind: explicit, source: 'payload' };
+  const platform = kindFromPlatform(o.platform);
+  if (platform) return { kind: platform, source: 'platform' };
+  const named = kindFromName(o.gatewayName);
+  if (named) return { kind: named, source: 'name' };
+  return { kind: 'desktopcomputer', source: 'default' };
+}
+
+function resolveDeviceKind(opts) {
+  return deriveDeviceKind(opts).kind;
+}
+
 // ---------- 档案模型 ----------
 
 function newProfile(fields) {
@@ -88,7 +136,9 @@ function newProfile(fields) {
     preferredEndpoint: f.preferredEndpoint || null,
     remoteDeviceId: f.remoteDeviceId || null,
     lastConnectedAt: f.lastConnectedAt || null,
-    deviceKind: f.deviceKind === 'server.rack' ? 'server.rack' : 'desktopcomputer'
+    deviceKind: normalizeDeviceKind(f.deviceKind) || 'desktopcomputer',
+    deviceKindSource: f.deviceKindSource === 'user' ? 'user'
+      : (f.deviceKindSource === 'payload' ? 'payload' : 'auto')
   };
 }
 
@@ -129,10 +179,24 @@ function loadProfiles() {
       try { list = JSON.parse(list); } catch (e) { list = []; }
     }
     if (!Array.isArray(list)) return [];
-    return list.filter(function (p) {
+    const valid = list.filter(function (p) {
       return p && isValidIdentity(p.id) && Array.isArray(p.endpoints) &&
         p.endpoints.length > 0 && p.endpoints.length <= 16;
     });
+    // 旧版本按「局域网=电脑 / 公网=服务器」猜测，公网扫码的电脑会被存成服务器。
+    // 没有显式来源（user / payload）的档案在加载时按新规则重新推断并落盘。
+    let changed = false;
+    const repaired = valid.map(function (p) {
+      const source = p.deviceKindSource;
+      if (source === 'user' || source === 'payload') return p;
+      const kind = resolveDeviceKind({ gatewayName: p.gatewayName });
+      if (p.deviceKind === kind && source === 'auto') return p;
+      changed = true;
+      const next = Object.assign({}, p, { deviceKind: kind, deviceKindSource: 'auto' });
+      return next;
+    });
+    if (changed) saveProfiles(repaired);
+    return repaired;
   } catch (e) {
     return [];
   }
@@ -184,6 +248,9 @@ module.exports = {
   newProfile: newProfile,
   displayName: displayName,
   kindIconFile: kindIconFile,
+  normalizeDeviceKind: normalizeDeviceKind,
+  deriveDeviceKind: deriveDeviceKind,
+  resolveDeviceKind: resolveDeviceKind,
   connectionEndpoints: connectionEndpoints,
   loadProfiles: loadProfiles,
   saveProfiles: saveProfiles,

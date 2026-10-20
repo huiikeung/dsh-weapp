@@ -1915,6 +1915,12 @@ function createStore() {
     if (frameGatewayId && !profile.relay) profile.gatewayId = frameGatewayId;
     const name = String(frame.gatewayName || '').trim();
     if (name) profile.gatewayName = frame.gatewayName;
+    // 老档案没有设备来源：连上后用最新网关名重新推断一次（默认电脑），并随档案落盘。
+    if (profile.deviceKindSource !== 'user' && profile.deviceKindSource !== 'payload') {
+      const derived = hosts.deriveDeviceKind({ gatewayName: profile.gatewayName });
+      profile.deviceKind = derived.kind;
+      profile.deviceKindSource = 'auto';
+    }
     if (frame.device && frame.device.id) profile.remoteDeviceId = frame.device.id;
     if (client.lastToken && state.endpoint) {
       hosts.saveCredential(profile.id, state.endpoint, client.lastToken);
@@ -1956,14 +1962,31 @@ function createStore() {
       }
     }
     const hostPart = hostLabelFromEndpoint(normalized[0]);
+    const gatewayName = (payload && payload.gatewayName) || hostPart || uiText('新主机');
+    // 设备类型：显式 deviceKind > 配对载荷 hostPlatform > 主机名特征 > 默认电脑。
+    // payload / platform 属于网关明确给的信息，按 payload 来源保存，连接后不再推翻。
+    const device = hosts.deriveDeviceKind({
+      deviceKind: payload && payload.deviceKind,
+      platform: payload && payload.hostPlatform,
+      gatewayName: gatewayName
+    });
+    const explicitKind = device.source === 'payload' || device.source === 'platform';
     if (!profile) {
       profile = hosts.newProfile({
         gatewayId: gid,
-        gatewayName: (payload && payload.gatewayName) || hostPart || uiText('新主机'),
+        gatewayName: gatewayName,
         endpoints: normalized,
         preferredEndpoint: normalized[0],
-        deviceKind: hosts.isLocalHost(hostPart) ? 'desktopcomputer' : 'server.rack'
+        deviceKind: device.kind,
+        deviceKindSource: explicitKind ? 'payload' : 'auto'
       });
+    }
+    // 重新扫码代表用户重新确认了这台主机：自动识别的类型可以刷新；
+    // 「编辑主机」里手动选过的类型（user）保持不变，明确来源优先于旧推断。
+    if (profile.deviceKindSource !== 'user'
+      && (explicitKind || profile.deviceKindSource !== 'payload')) {
+      profile.deviceKind = device.kind;
+      profile.deviceKindSource = explicitKind ? 'payload' : 'auto';
     }
     // 重新扫码代表用户明确认可本次地址集合；publicUrl 优先（iOS pair 对齐）。
     profile.endpoints = normalized;
@@ -2020,11 +2043,13 @@ function createStore() {
       if (!endpoint || !token) return;
       if (hosts.loadProfiles().length) return;
       const hostPart = hostLabelFromEndpoint(endpoint);
+      const legacyKind = hosts.deriveDeviceKind({ gatewayName: hostPart });
       const profile = hosts.newProfile({
         gatewayName: hostPart || uiText('原有主机'),
         endpoints: [endpoint],
         preferredEndpoint: endpoint,
-        deviceKind: hosts.isLocalHost(hostPart) ? 'desktopcomputer' : 'server.rack'
+        deviceKind: legacyKind.kind,
+        deviceKindSource: 'auto'
       });
       hosts.saveCredential(profile.id, endpoint, token);
       hosts.saveProfiles([profile]);
@@ -2184,6 +2209,7 @@ function createStore() {
     if (!profile) return;
     profile.alias = String(alias || '').trim().slice(0, 80);
     profile.deviceKind = kind === 'server.rack' ? 'server.rack' : 'desktopcomputer';
+    profile.deviceKindSource = 'user';
     hosts.saveProfiles(state.profiles);
     if (state.activeID === id) state.gatewayName = hosts.displayName(profile);
     emit();
