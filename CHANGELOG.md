@@ -1,5 +1,12 @@
 # 更新记录
 
+## v0.9.26 — 2026-10-22
+
+- 修复网关 `context-dashboard` 读取：Host adapter 的 `sessions.history` 返回原始 `session/follow` 快照（没有 `kind` 字段），桥接层误判为失败并返回 `context-unavailable`，小程序因此显示「需升级网关」。现在同时接受原始快照与 `kind: 'history'` 包装形状，并补充回归测试；`mobileContext` / `context-fleet` 协议与客户端不变。
+- 对应网关插件 v0.8.17（本地提交 `7473c3d`，含 README 发布说明）；升级网关后需正常重启 DSH 生效。
+
+验证说明：项目全量测试 564 个（554 pass / 0 fail / 10 skipped）；网关自带 `test/context-bridge.test.mjs` 通过；本次为脚本/桥接修复，小程序包代码与 v0.9.25 一致。
+
 ## v0.9.25 — 2026-10-21
 
 - 会话页新增「编队」第四分段（对话｜轨迹｜上下文｜编队）：展示当前 Agent 的父链与全部子 Agent，卡片含运行状态脉冲、上下文占用、7 类组成色条、token、轮次/步数、活跃时长与模式徽标；当前 Agent 高亮，点击卡片打开该 Agent 的会话并切到「上下文」。
