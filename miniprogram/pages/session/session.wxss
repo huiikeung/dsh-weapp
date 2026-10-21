@@ -78,8 +78,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 36rpx;
-  font-weight: 700;
+  font-size: 27rpx;   /* 与对话/轨迹切换字号一致 */
+  font-weight: 600;
   color: var(--ink);
   vertical-align: middle;
 }
@@ -146,8 +146,9 @@
 .collab-action-icon { width:34rpx;height:34rpx;display:block; }
 .collab-refresh.busy { opacity:.45; }
 .collab-refresh.busy .collab-action-icon { animation:collab-refresh-turn 1s linear infinite; }
-.collab-tabs { display:flex;margin:0 28rpx;flex-shrink:0;gap:8rpx;border-bottom:1rpx solid var(--divider); }
-.collab-tab { position:relative;display:flex;flex:1;min-width:0;min-height:44px;box-sizing:border-box;padding:12rpx 4rpx 20rpx;align-items:center;justify-content:center;flex-direction:column;gap:10rpx;font-size:24rpx;line-height:1.4;color:var(--text-2); }
+.collab-tabs { margin:0 28rpx;flex-shrink:0;border-bottom:1rpx solid var(--divider); white-space:nowrap; overflow:hidden; }
+.collab-tabs-track { display:flex; gap:22rpx; align-items:stretch; width:max-content; padding-right:24rpx; box-sizing:content-box; }
+.collab-tab { position:relative;display:flex;flex:0 0 auto;min-width:132rpx;min-height:44px;box-sizing:border-box;padding:12rpx 4rpx 20rpx;align-items:center;justify-content:center;flex-direction:column;gap:10rpx;font-size:24rpx;line-height:1.4;color:var(--text-2); }
 .collab-tab.active { color:var(--ink);font-weight:600; }
 .collab-tab-summary { display:flex;align-items:center;justify-content:center;gap:10rpx;max-width:100%;height:34rpx; }
 .collab-tab-icon { width:32rpx;height:32rpx;flex-shrink:0; }
@@ -739,6 +740,14 @@ to{transform:translateX(340%)}
   flex-wrap: wrap;
   margin-top: 16rpx;
 }
+
+.message-attachments { display:flex; flex-direction:column; gap:12rpx; margin-top:12rpx; max-width:620rpx; }
+.message-attachment { display:flex; align-items:center; gap:16rpx; min-height:76rpx; padding:14rpx 18rpx; border-radius:14rpx; background:rgba(127,143,160,.10); }
+.message-attachment-icon { width:38rpx; height:38rpx; flex:none; }
+.message-attachment-copy { min-width:0; display:flex; flex-direction:column; gap:4rpx; }
+.message-attachment-name { max-width:500rpx; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:26rpx; }
+.message-attachment-path { max-width:500rpx; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:rgba(100,110,120,.72); font-size:22rpx; }
+.assistant-attachments { margin-left:0; }
 
 /* 单图：max 640×560 aspectFit；多图：双列 aspectFill 圆角22 白描边 */
 .attach-grid.single .attach-img {
@@ -3097,8 +3106,8 @@ to{transform:translateX(340%)}
 
 .navbar {
   display: grid;
-  grid-template-columns: 64rpx minmax(0, 1fr) minmax(0, auto);
-  column-gap: 8rpx;
+  grid-template-columns: 46rpx minmax(0, 1fr) minmax(0, auto);
+  column-gap: 0;
   min-height: 0;
   height: auto;
   padding-left: 20rpx;
@@ -3834,10 +3843,17 @@ to{transform:translateX(340%)}
 @media (hover: none), (pointer: coarse){.model-pop .model-row{min-height:44px}.composer-bar .chip.model-chip{height:44px}.model-name{font-size:14px;line-height:20px}}
 
 .navbar .nav-back {
-  background: transparent !important;
-  border: 0 !important;
-  border-radius: 0 !important;
+  width: 46rpx;
+  height: 46rpx;
+  background: var(--fill) !important;          /* 可见圆形底 */
+  border: 1rpx solid var(--border) !important;
+  border-radius: 50% !important;
   box-shadow: none !important;
+  margin-right: 0;
+}
+
+.navbar .nav-back:active {
+  background: var(--fill-2) !important;
 }
 .navbar .nav-back::after {
   border: 0 !important;
@@ -4715,4 +4731,354 @@ to{transform:translateX(340%)}
   flex: none;
   font-size: 21rpx;
   color: rgba(241, 244, 250, 0.4);
+}
+
+/* 文件 / 变更卡片之间留出间距（行包装器是兄弟节点，原相邻选择器不生效） */
+.conversation-window-row.row-file-card + .conversation-window-row.row-file-card {
+  margin-top: 16rpx;
+}
+
+/* 协作面板头部：模式标签（绿点 + 图标 + 名称）靠右，紧邻刷新按钮 */
+.collab-mode {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  margin-left: auto;
+  margin-right: 4rpx;
+  flex-shrink: 0;
+  min-width: 0;
+}
+
+.collab-mode-icon {
+  width: 26rpx;
+  height: 26rpx;
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.collab-mode-text {
+  font-size: 26rpx;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200rpx;
+}
+
+
+/* 模式图标：已连接时图标本身为绿色，断开时为灰色，无圆环背景 */
+.collab-mode .collab-mode-icon {
+  width: 30rpx;
+  height: 30rpx;
+  flex-shrink: 0;
+  opacity: 1;
+}
+
+/* 协作入口：放在原模式位置（导航栏右侧），紧凑显示 */
+.navbar .nav-collab {
+  margin-left: 12rpx;
+  min-height: 0;
+  height: 100%;
+  padding: 0 6rpx;
+  gap: 6rpx;
+  font-size: 25rpx;
+  color: var(--text-2);
+  flex-shrink: 0;
+}
+
+.navbar .nav-collab .collab-icon {
+  width: 30rpx;
+  height: 30rpx;
+}
+
+.navbar .nav-collab.selected {
+  color: var(--ink);
+}
+
+/* 对话 / 轨迹：DSH 官方风格的下划线 Tab */
+.session .segmented-row .segmented {
+  border-radius: 0;
+  padding: 0;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+}
+
+.session .segmented-row .segment {
+  position: relative;
+  padding: 10rpx 0 16rpx;
+  border-radius: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  font-size: 27rpx;
+  color: var(--text-2);
+  transition: color 0.16s ease;
+}
+
+.session .segmented-row .segment.active {
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.session .segmented-row .segment.active::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -1rpx;
+  width: 48rpx;
+  height: 4rpx;
+  border-radius: 4rpx;
+  background: var(--ink);
+  transform: translateX(-50%);
+}
+
+/* 会话标题：与「对话/轨迹」切换字号一致（覆盖前面重复定义的 34rpx） */
+.session .navbar .nav-title .nav-title-inner {
+  font-size: 32rpx !important;
+  font-weight: 600;
+}
+
+/* 返回按钮：弱化对比，避免在标题旁过于抢眼 */
+.navbar .nav-back-ic {
+  width: 22rpx;
+  height: 22rpx;
+  opacity: 0.55;
+}
+
+.theme-dark .navbar .nav-back-ic {
+  opacity: 0.65;
+}
+
+/* 对话 / 轨迹：收紧两者间距 */
+.session .segmented-row .segmented {
+  width: auto;
+  min-width: 0;
+  display: flex;
+  justify-content: flex-start;
+  gap: 40rpx;
+}
+
+.session .segmented-row .segment {
+  flex: none;
+  padding: 10rpx 4rpx 16rpx;
+}
+
+/* 对话 / 轨迹：靠左显示，不再绝对居中 */
+.session .segmented-row {
+  justify-content: flex-start;
+  padding-left: 40rpx;
+}
+
+.session .segmented-row .segmented {
+  position: static;
+  left: auto;
+  top: auto;
+  transform: none;
+  margin: 0;
+}
+
+/* 顶部导航：去掉底部内边距，内容区高度=胶囊高度，标题与胶囊严格同一水平线 */
+.session .navbar {
+  padding-bottom: 0 !important;
+}
+
+/* ---------- 上下文面板（移植 dsh-context Context tab） ---------- */
+.context-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.context-toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 12rpx; padding: 12rpx 40rpx 4rpx; }
+.context-toolbar-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
+.context-toolbar-meta { max-width: 260rpx; font-size: 22rpx; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.context-toolbar-spacer { flex: 1; }
+.context-refresh { width: 64rpx; height: 64rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; flex-shrink: 0; }
+.context-refresh-ic { width: 34rpx; height: 34rpx; opacity: .72; }
+.context-refresh.busy .context-refresh-ic { animation: ctx-spin 1s linear infinite; }
+@keyframes ctx-spin { to { transform: rotate(360deg); } }
+.context-scroll { flex: 1; height: 0; box-sizing: border-box; padding: 8rpx 32rpx calc(40rpx + env(safe-area-inset-bottom)); }
+.context-state { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 100rpx 24rpx 40rpx; text-align: center; }
+.context-state-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
+.context-state-text { font-size: 26rpx; line-height: 1.7; color: var(--text-3); overflow-wrap: anywhere; }
+.context-retry { margin-top: 8rpx; min-height: 44px; padding: 0 44rpx; display: flex; align-items: center; justify-content: center; border-radius: 999rpx; background: var(--fill-2); color: var(--text); font-size: 26rpx; }
+.ctx-skeleton { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 16rpx; margin-top: 16rpx; }
+.ctx-skeleton-row { width: 100%; height: 30rpx; border-radius: 10rpx; background: var(--fill-2); animation: ctx-pulse 1.2s ease-in-out infinite; }
+.ctx-skeleton-row:nth-child(2) { width: 82%; }
+.ctx-skeleton-row:nth-child(3) { width: 63%; }
+@keyframes ctx-pulse { 0%, 100% { opacity: .45; } 50% { opacity: 1; } }
+.ctx-card { margin-top: 24rpx; padding: 26rpx 28rpx; border-radius: 24rpx; background: var(--surface); border: 1rpx solid var(--border); box-shadow: var(--card-shadow); }
+.ctx-card-head { display: flex; align-items: baseline; gap: 12rpx; margin-bottom: 18rpx; }
+.ctx-card-title { font-size: 28rpx; font-weight: 600; color: var(--text); }
+.ctx-card-sub { margin-left: auto; font-size: 22rpx; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ctx-card-sub + .ctx-card-sub { margin-left: 12rpx; }
+.ctx-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18rpx; }
+.ctx-tile { min-width: 0; padding: 18rpx; border-radius: 18rpx; background: var(--fill); display: flex; flex-direction: column; gap: 8rpx; }
+.ctx-tile-label { font-size: 22rpx; color: var(--text-3); }
+.ctx-tile-value { font-size: 34rpx; font-weight: 650; line-height: 1.2; color: var(--text); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-tile-sub { font-size: 21rpx; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-tool-row { display: flex; justify-content: space-between; gap: 8rpx; font-size: 22rpx; line-height: 1.5; color: var(--text-2); }
+.ctx-tool-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-tool-count { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.ctx-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 12rpx 8rpx; }
+.ctx-metric { display: flex; flex-direction: column; min-width: 0; }
+.ctx-metric-value { font-size: 27rpx; font-weight: 600; line-height: 1.25; color: var(--text); font-variant-numeric: tabular-nums; }
+.ctx-metric-label { font-size: 20rpx; color: var(--text-3); }
+.ctx-chips { display: flex; flex-wrap: wrap; gap: 10rpx; }
+.ctx-chip { min-width: 68rpx; padding: 8rpx 12rpx; display: flex; flex-direction: column; align-items: center; border-radius: 14rpx; background: var(--surface); border: 1rpx solid var(--border); }
+.ctx-chip-value { font-size: 26rpx; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; }
+.ctx-chip-label { font-size: 20rpx; color: var(--text-3); }
+.ctx-chip-inject { border-color: rgba(122, 84, 199, .35); }
+.ctx-chip-compaction { border-color: rgba(240, 125, 20, .35); }
+.ctx-chip-prune { border-color: rgba(46, 107, 230, .35); }
+.ctx-empty { padding: 28rpx 0; text-align: center; color: var(--text-3); font-size: 24rpx; }
+.ctx-token-total { margin-bottom: 16rpx; font-size: 44rpx; font-weight: 650; color: var(--text); font-variant-numeric: tabular-nums; }
+.ctx-token-total-unit { margin-left: 4rpx; font-size: 24rpx; font-weight: 500; color: var(--text-3); }
+.ctx-compose { display: flex; height: 16rpx; margin-bottom: 18rpx; border-radius: 999rpx; overflow: hidden; background: var(--fill-2); }
+.ctx-compose-seg { height: 100%; min-width: 2rpx; }
+.ctx-legend { display: flex; flex-direction: column; }
+.ctx-legend-row { display: flex; align-items: center; gap: 12rpx; padding: 7rpx 0; font-size: 24rpx; }
+.ctx-dot { width: 16rpx; height: 16rpx; border-radius: 50%; flex-shrink: 0; }
+.ctx-legend-name { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-legend-pct { min-width: 92rpx; text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ctx-legend-value { min-width: 110rpx; text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+.ctx-timing-bar { display: flex; height: 16rpx; margin-bottom: 16rpx; border-radius: 999rpx; overflow: hidden; background: var(--fill-2); }
+.ctx-timing-seg { height: 100%; min-width: 2rpx; }
+.ctx-timing-row { display: flex; align-items: center; gap: 12rpx; padding: 7rpx 0; font-size: 24rpx; }
+.ctx-timing-count { min-width: 110rpx; text-align: right; color: var(--text-4); font-size: 21rpx; }
+.ctx-trend-scroll { width: 100%; white-space: nowrap; }
+.ctx-trend-track { display: inline-flex; flex-direction: column; align-items: flex-start; }
+.ctx-trend-bars { display: flex; align-items: flex-end; gap: 6rpx; height: 200rpx; padding-top: 26rpx; box-sizing: content-box; }
+.ctx-trend-col { width: 18rpx; flex-shrink: 0; display: flex; justify-content: center; }
+.ctx-trend-bar-wrap { position: relative; width: 18rpx; height: 200rpx; display: flex; align-items: flex-end; justify-content: center; }
+.ctx-trend-marker { position: absolute; top: -24rpx; left: 50%; transform: translateX(-50%); font-size: 20rpx; line-height: 1; color: #C28220; white-space: nowrap; }
+.ctx-trend-bar { width: 100%; display: flex; flex-direction: column-reverse; border-radius: 3rpx 3rpx 0 0; overflow: hidden; background: var(--fill-2); }
+.ctx-trend-bar.empty { height: 2rpx !important; background: var(--border-strong); }
+.ctx-trend-seg { width: 100%; min-height: 1rpx; }
+.ctx-trend-axis { position: relative; width: 100%; height: 28rpx; margin-top: 8rpx; }
+.ctx-trend-axis-label { position: absolute; top: 0; font-size: 18rpx; line-height: 1; color: var(--text-4); white-space: nowrap; }
+.ctx-event-row { display: flex; align-items: center; gap: 10rpx; padding: 8rpx 0; font-size: 22rpx; color: var(--text-2); }
+.ctx-event-time { flex-shrink: 0; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.ctx-event-kind { flex-shrink: 0; font-weight: 600; }
+.ctx-event-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-event-tokens { flex-shrink: 0; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ctx-event-count { flex-shrink: 0; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.ctx-bottom-space { height: 24rpx; }
+
+/* 组成色板（与 dsh-context CATS 语义一致；深色主题下同一组色仍可辨） */
+.ctx-c-system { background: #6366F1; }
+.ctx-c-tools { background: #F59E0B; }
+.ctx-c-user { background: #22C55E; }
+.ctx-c-inject { background: #A855F7; }
+.ctx-c-skill { background: #F97316; }
+.ctx-c-assistant { background: #3B82F6; }
+.ctx-c-tool { background: #14B8A6; }
+.ctx-c-output { background: #EC4899; }
+.ctx-t-wait { background: #3B82F6; }
+.ctx-t-reply { background: #6366F1; }
+.ctx-t-tools { background: #F59E0B; }
+.ctx-e-inject { color: #A855F7; }
+.ctx-e-compaction { color: #C28220; }
+.ctx-e-prune { color: #2E6BE6; }
+.theme-dark .ctx-e-compaction { color: #E0A94A; }
+.theme-dark .ctx-e-prune { color: #7FA7F2; }
+@media (max-width: 350px) { .ctx-grid { grid-template-columns: 1fr; } .context-scroll { padding-left: 24rpx; padding-right: 24rpx; } }
+
+/* 顶部背景遮罩：覆盖导航与切换栏，底边截止在「对话/轨迹」下划线处 */
+.session-header {
+  position: relative;
+  z-index: 3;
+  flex-shrink: 0;
+  background: var(--bg);
+}
+
+
+/* ---------- 编队面板（当前 Agent 的家族网络） ---------- */
+.fleet-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.fleet-toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 12rpx; padding: 12rpx 40rpx 4rpx; }
+.fleet-toolbar-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
+.fleet-toolbar-meta { max-width: 320rpx; font-size: 22rpx; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fleet-toolbar-spacer { flex: 1; }
+.fleet-refresh { width: 64rpx; height: 64rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; flex-shrink: 0; }
+.fleet-refresh-ic { width: 34rpx; height: 34rpx; opacity: .72; }
+.fleet-refresh.busy .fleet-refresh-ic { animation: ctx-spin 1s linear infinite; }
+.fleet-scroll { flex: 1; height: 0; box-sizing: border-box; padding: 8rpx 32rpx calc(40rpx + env(safe-area-inset-bottom)); }
+.fleet-state { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 100rpx 24rpx 40rpx; text-align: center; }
+.fleet-state-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
+.fleet-state-text { font-size: 26rpx; line-height: 1.7; color: var(--text-3); overflow-wrap: anywhere; }
+.fleet-retry { margin-top: 8rpx; min-height: 44px; padding: 0 44rpx; display: flex; align-items: center; justify-content: center; border-radius: 999rpx; background: var(--fill-2); color: var(--text); font-size: 26rpx; }
+.fleet-overview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14rpx; margin-top: 8rpx; }
+.fleet-overview-tile { min-width: 0; padding: 22rpx 14rpx; border-radius: 22rpx; background: var(--surface); border: 1rpx solid var(--border); box-shadow: var(--card-shadow); display: flex; flex-direction: column; align-items: center; gap: 6rpx; }
+.fleet-overview-value-row { display: flex; align-items: baseline; min-width: 0; }
+.fleet-overview-value { font-size: 38rpx; font-weight: 650; line-height: 1.15; color: var(--text); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fleet-overview-unit { font-size: 20rpx; color: var(--text-3); }
+.fleet-overview-label { font-size: 21rpx; color: var(--text-3); }
+.fleet-overview-sub { font-size: 19rpx; color: var(--text-4); font-variant-numeric: tabular-nums; }
+.fleet-card { margin-top: 18rpx; padding: 24rpx 26rpx; border-radius: 24rpx; background: var(--surface); border: 1rpx solid var(--border); box-shadow: var(--card-shadow); }
+.fleet-card.current { border-color: var(--ink); box-shadow: 0 0 0 2rpx var(--ink); }
+.fleet-card-pressed { opacity: .86; }
+.fleet-card-head { display: flex; align-items: center; gap: 12rpx; }
+.fleet-pulse { width: 14rpx; height: 14rpx; border-radius: 50%; flex-shrink: 0; background: var(--text-4); }
+.fleet-pulse.on { background: #22C55E; animation: fleet-pulse 1.4s ease-in-out infinite; }
+@keyframes fleet-pulse { 0%, 100% { opacity: .35; transform: scale(.8); } 50% { opacity: 1; transform: scale(1.15); } }
+.fleet-card-title { flex: 1; min-width: 0; font-size: 28rpx; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fleet-mode { flex-shrink: 0; padding: 2rpx 10rpx; border-radius: 8rpx; font-size: 19rpx; font-weight: 600; color: var(--text-2); background: var(--fill); }
+.fleet-card-tags { display: flex; align-items: center; flex-wrap: wrap; gap: 10rpx; margin-top: 10rpx; }
+.fleet-tag { flex-shrink: 0; padding: 2rpx 10rpx; border-radius: 8rpx; font-size: 19rpx; font-weight: 600; }
+.fleet-tag-current { color: var(--ink); background: var(--fill-2); }
+.fleet-tag-root { color: var(--text-2); background: var(--fill); }
+.fleet-card-state { font-size: 21rpx; color: var(--text-3); }
+.fleet-card-state.running { color: #22C55E; }
+.fleet-occupancy { margin-top: 14rpx; }
+.fleet-occupancy-head { display: flex; align-items: baseline; gap: 10rpx; font-size: 21rpx; color: var(--text-3); }
+.fleet-occupancy-label { flex-shrink: 0; }
+.fleet-occupancy-pct { color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; }
+.fleet-occupancy-tokens { margin-left: auto; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fleet-occupancy-bar { margin-top: 8rpx; height: 10rpx; border-radius: 999rpx; overflow: hidden; background: var(--fill-2); }
+.fleet-occupancy-fill { height: 100%; border-radius: 999rpx; background: var(--ink); }
+.fleet-compose { display: flex; height: 12rpx; margin-top: 14rpx; border-radius: 999rpx; overflow: hidden; background: var(--fill-2); }
+.fleet-compose-seg { height: 100%; min-width: 1rpx; }
+.fleet-card-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 8rpx 16rpx; margin-top: 12rpx; font-size: 21rpx; color: var(--text-3); }
+.fleet-card-metric { font-variant-numeric: tabular-nums; }
+.fleet-card-token { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-2); }
+@media (max-width: 350px) { .fleet-scroll { padding-left: 24rpx; padding-right: 24rpx; } .fleet-overview { grid-template-columns: 1fr; } .fleet-card { padding: 20rpx; } }
+
+/* 切换行底部不留空隙：下划线即顶部区域最低点 */
+.session .session-header .segmented-row {
+  padding-bottom: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+.session .session-header .segmented-row .segment {
+  padding-bottom: 22rpx;   /* 文字与下划线之间留出间距 */
+}
+
+.session .session-header .segmented-row .segment.active::after {
+  bottom: 0;
+}
+
+/* 顶部遮罩严格止于切换下划线：容器与后续内容都不再追加留白 */
+.session .session-header {
+  padding-bottom: 0 !important;
+  margin-bottom: 0 !important;
+  border-bottom: 0 !important;
+  box-shadow: none !important;
+}
+
+.session .session-header .segmented-row {
+  min-height: 0 !important;
+  margin: 0 !important;
+}
+
+.session .conversation,
+.session .trajectory {
+  padding-top: 0 !important;
+}
+
+/* 第二行整体下移，拉开与右上角胶囊的垂直距离（不改变左右位置） */
+.session .session-header .segmented-row {
+  margin-top: 12px !important;
+}
+
+/* 恢复：下划线下方留一点空白，遮罩不止于横线 */
+.session .session-header .segmented-row {
+  padding-bottom: 6px !important;
 }

@@ -45,3 +45,16 @@ miniprogram/assets/icons/proc-icon-terra-*.gif 与 proc-icon-morph-*.gif 的点�
 （https://github.com/Jakubantalik/thinking-orbs），按小程序 32 x 32、72 帧、
 4 秒循环重新实现，未引入其源码。该项目的 MIT 许可全文见
 docs/licenses/thinking-orbs.txt。
+
+# 上下文面板（Context tab）口径与算法
+
+会话页「上下文」分段的数据口径、token 估算与组成分类移植自以下项目；本仓库
+为小程序/网关运行环境用 JavaScript 独立重写，未直接分发其源码：
+
+- `bowenliang123/dsh-context`（Apache-2.0）：Context tab 的组成分类
+  （system/tools/user/inject/skill/assistant/tool/output）、请求趋势与事件
+  语义、计费分摊规则。完整许可见 `docs/licenses/dsh-context-apache-2.0.txt`。
+- `@deepseek-ai/dsh-token-meter`（MIT）：固定密度 token 启发式
+  （4 字符 ≈ 1 token、每 block +4、role +4）与 context breakdown 的
+  surface 替换/定价规则，用于保证与宿主官方 `contextBreakdown` 口径一致。
+  完整许可见 `docs/licenses/dsh-token-meter-mit.txt`。

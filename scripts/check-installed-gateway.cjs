@@ -125,6 +125,16 @@ async function check({ gateway, management, publicEndpoint = false }) {
       assert.deepEqual(Object.keys(credential.result).sort(), ['configured', 'writable']);
       report.credentialMetadataOnly = true;
     }
+    // The context dashboard is an optional gateway bridge: an old/unpatched
+    // gateway answers unknown-command, so the probe is advisory only.
+    if (chosen) {
+      try {
+        const dashboard = await query('context-dashboard', { sessionId: chosen.sessionId || chosen.id });
+        report.contextDashboard = dashboard.value !== undefined && dashboard.value.v === 1;
+      } catch (_) {
+        report.contextDashboard = false;
+      }
+    }
     return report;
   } catch (error) {
     error.report = report;

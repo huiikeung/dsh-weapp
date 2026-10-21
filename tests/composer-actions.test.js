@@ -83,7 +83,7 @@ test('chat file picker stages document chips until the gateway supports file upl
   assert.equal(page.data.images[1].name, 'deck.pptx');
   assert.equal(page.data.attachmentPicking, false);
   page.send();
-  assert.ok(calls.some(call => call[0] === 'toast' && /普通文件上传/.test(call[1])));
+  assert.ok(calls.some(call => call[0] === 'toast' && /工作区文件或目录/.test(call[1])));
   assert.ok(!calls.some(call => call[0] === 'send'));
 });
 test('model shortcut retains provider grouping, selection identity, default effort and draft', () => {
@@ -229,7 +229,14 @@ test('command failure or late settlement keeps typed and newer drafts', async ()
 test('workspace references quote spaces and ignore closed-directory responses', async () => {
   const { page, store } = fixture(); page.data.draft = 'Read '; page._composerCursor = 5; page.chooseWorkspaceReference();
   await new Promise(resolve => setImmediate(resolve)); page.openSessionFile(event({ index: 0 }));
-  assert.equal(page.data.draft, 'Read @"src/a b.js" '); assert.equal(page.data.filesSheetOpen, false);
+  // 工作区文件以附件形式暂存（保留原始路径，含空格），草稿文本不变
+  assert.equal(page.data.images.length, 1);
+  assert.equal(page.data.images[0].isWorkspaceRef, true);
+  assert.equal(page.data.images[0].workspaceKind, 'file');
+  assert.equal(page.data.images[0].path, 'src/a b.js');
+  assert.equal(page.data.draft, 'Read ');
+  assert.equal(page.data.canSend, true);
+  assert.equal(page.data.filesSheetOpen, false);
   const pending = deferred(); store.client.requestFileList = () => pending.promise; page.openFilesSheet(true); page.closeFilesSheet();
   pending.resolve({ entries: [{ name: 'late', path: 'late', kind: 'file' }] }); await new Promise(resolve => setImmediate(resolve));
   assert.equal(page.data.filesEntries.length, 0);

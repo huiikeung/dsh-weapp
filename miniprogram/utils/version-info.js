@@ -25,11 +25,12 @@ function gatewayVersionInfo(app) {
   const candidates = bundles.filter(item => item && GATEWAY_BASELINES[item.name] && item.enabled !== false);
   const bundle = metadata.name ? candidates.find(item => item.name === metadata.name) : candidates.length === 1 ? candidates[0] : null;
   const name = GATEWAY_BASELINES[metadata.name] ? metadata.name : bundle && bundle.name || '';
-  const current = (name && version(metadata.version)) || (bundle && version(bundle.version)) || '';
+  // 网关自报的版本优先展示（不要求包名命中基线，未上报版本的老网关才会回落到插件目录）。
+  const current = version(metadata.version) || (bundle && version(bundle.version)) || '';
   return {
     connectedGatewayVersion: connection !== 'connected' ? uiText('未连接') : current || uiText('未上报'),
-    minGatewayVersion: name ? (name === 'dsh-plugin-weapp-gateway' ? uiText('小程序网关 ≥ ') : uiText('移动网关 ≥ ')) + GATEWAY_BASELINES[name] : uiText('小程序网关 ≥ 0.8.6'),
-    gatewayVersionHint: uiText('适配基线：小程序网关 0.8.6+；旧版移动网关 0.10.0+。不同插件分别判断，具体功能还取决于主机与协议支持。') + (connection === 'connected' && !current ? uiText(' 当前插件未上报版本，需更新插件后重新连接。') : '')
+    minGatewayVersion: name ? '≥ ' + GATEWAY_BASELINES[name] : '≥ 0.8.6',
+    gatewayVersionHint: uiText('适配基线：0.8.6+；旧版移动网关 0.10.0+。不同插件分别判断，具体功能还取决于主机与协议支持。') + (connection === 'connected' && !current ? uiText(' 当前插件未上报版本，需更新插件后重新连接。') : '')
   };
 }
 module.exports = { clientVersion, gatewayVersionInfo, GATEWAY_BASELINES, version };

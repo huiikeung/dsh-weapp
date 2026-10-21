@@ -44,6 +44,7 @@ function createPage(apiOptions) {
       if (name === '../../utils/public-access-state') return require('../miniprogram/utils/public-access-state');
       if (name === '../../utils/node-presentation') return require('../miniprogram/utils/node-presentation');
       if (name === '../../utils/version-info') return require('../miniprogram/utils/version-info');
+      if (name === '../../utils/account-view') return require('../miniprogram/utils/account-view');
       if (name === '../../utils/labels') return { presetModeName: (v) => v, permissionName: (v) => v };
       if (name === '../../utils/notify-pref') return { enabled: () => false };
       if (name === '../../utils/voice-preference') return require('../miniprogram/utils/voice-preference');

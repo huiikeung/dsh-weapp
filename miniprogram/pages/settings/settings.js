@@ -13,6 +13,7 @@ const accessApi = require('../../utils/access-api');
 const { getPublicAccessState } = require('../../utils/public-access-state');
 const { nodePresentation } = require('../../utils/node-presentation');
 const { clientVersion, gatewayVersionInfo } = require('../../utils/version-info');
+const accountView = require('../../utils/account-view');
 
 const CONNECTION_LABELS = {
   disconnected: uiText('未连接'),
@@ -41,7 +42,7 @@ Page({
     privacyOpen: false,
     buildLabel: '',
     appVersion: '',
-    minGatewayVersion: uiText('小程序网关 ≥ 0.8.6'),
+    minGatewayVersion: '≥ 0.8.6',
     connectedGatewayVersion: uiText('未连接'),
     languageLabel: uiText('跟随系统'), preferenceMenu: '', fontSettingsExpanded: false, contentFontSize: 14,
     fontSizeLabel: '14 px',          // 构建时间标记：用于确认手机上运行的是最新预览包
@@ -97,6 +98,8 @@ Page({
     isWechatAdmin: false,
     accountLabel: uiText('识别中…'),
     accountHint: uiText('自动识别当前微信身份，无需手动切换'),
+    dshAccount: accountView.normalize({}),
+    dshAccountBusy: false,
     shareReason: '',
     redeemAvailable: false,
     sheetExpanded: {},
@@ -170,6 +173,7 @@ Page({
       }, 160);
     });
     this.syncFromStore({ app: store.state, session: store.sessionState });
+    this.refreshDshAccount();
     if (options && options.pair) {
       const result = store.pairWithPayload(options.pair);
       if (result.ok) {
@@ -320,6 +324,10 @@ Page({
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       hapticsLevel: haptics.getLevel() });
     this.syncFromStore({ app: store.state, session: store.sessionState });
+    this.refreshDshAccount();
+    // 「已连接网关版本」显示真实数据：网关未在 hello 里自报版本时，拉一次插件目录取网关插件版本。
+    const gatewayMetadata = store.state.gatewayMetadata || {};
+    if (store.state.connection === 'connected' && !store.state.pluginCatalog && !gatewayMetadata.version) store.refreshPlugins();
     this.cancelSettingsRefresh();
     // Local settings render first; identity is freshly verified after the first paint.
     return new Promise(resolve => {
@@ -374,10 +382,13 @@ Page({
     this.setData({ clawbotPanelOpen: false, clawbotSessionsOpen: false, clawbotQrPath: '', clawbotStatus: safeClawbotStatus });
     this._publicAccount = null;
     this.setData({ accountBusy: false, redeemBusy: false, isWechatAdmin: false, adminAdvancedOpen: false, accountLabel: uiText('识别中…'), referralSheetOpen: false, referralBusy: false, accountDeviceId: '' });
+    this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1;
+    this.setData({ dshAccountBusy: false });
   },
 
   onUnload() {
     this._settingsVisible = false;
+    this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1;
     clearTimeout(this._syncThrottleTimer);
     this._syncThrottleTimer = null;
     this._pendingSnapshot = null;
@@ -389,6 +400,33 @@ Page({
     this._clawbotGeneration = (this._clawbotGeneration || 0) + 1;
     this.removeClawbotQr();
     if (this.unsubscribe) this.unsubscribe();
+  },
+
+  refreshDshAccount() {
+    if (this.data.dshAccountBusy || store.state.connection !== 'connected' || !store.client || typeof store.client.requestAccount !== 'function') return;
+    const generation = this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1;
+    const owner = store.state.activeID;
+    const version = clientVersion(wx).appVersion || '0.0.0';
+    let locale = 'zh';
+    try { locale = preferences.locale(); } catch (_) {}
+    const client = { version, locale, timezoneOffsetSeconds: -(new Date()).getTimezoneOffset() * 60 };
+    this.setData({ dshAccountBusy: true });
+    store.client.requestAccount(client).then(snapshot => {
+      if (generation !== this._dshAccountGeneration || this._settingsVisible === false || owner !== store.state.activeID) return;
+      this.setData({ dshAccount: accountView.normalize(snapshot) });
+    }).catch(error => {
+      if (generation !== this._dshAccountGeneration || this._settingsVisible === false || owner !== store.state.activeID) return;
+      this.setData({ dshAccount: accountView.normalize({ error: error.message || uiText('账号信息读取失败') }) });
+    }).finally(() => {
+      if (generation === this._dshAccountGeneration) this.setData({ dshAccountBusy: false });
+    });
+  },
+
+  openDshAccountLink(e) {
+    const url = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.url;
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return;
+    if (typeof wx.openUrl === 'function') wx.openUrl({ url });
+    else wx.setClipboardData({ data: url });
   },
 
   // ---------- 实验性功能 ----------
@@ -543,7 +581,7 @@ Page({
   },
 
   async callClawbot(action, fields) {
-    if (typeof store.client.requestClawbot !== 'function') throw new Error(uiText('请更新小程序网关以使用 ClawBot 接线'));
+    if (typeof store.client.requestClawbot !== 'function') throw new Error(uiText('请更新网关以使用 ClawBot 接线'));
     if (store.state.connection !== 'connected') throw new Error(uiText('请先连接电脑端网关'));
     if (!this.gatewaySupportsClawbot()) {
       const version = store.state.gatewayMetadata && store.state.gatewayMetadata.version;

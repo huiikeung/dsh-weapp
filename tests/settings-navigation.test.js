@@ -26,7 +26,10 @@ test('sidebar application settings and home session settings have separate entri
     assert.ok(!settings.includes('>' + label + '</view>'), label);
   }
   assert.ok(!settings.includes('工作区文件'));
-  assert.match(sessions, /bindtap="openFiles"[^>]*><text[^>]*>工作区文件/);
+  // 会话设置的功能/主机信息精简：这些入口和版本行已移除
+  assert.doesNotMatch(sessions, /bindtap="openFiles"[^>]*><text[^>]*>工作区文件/);
+  for (const handler of ['openPlugins', 'openSchedule']) assert.ok(!sessions.includes('bindtap="' + handler + '"'), handler);
+  for (const label of ['小程序版本', '构建记录', '主机版本']) assert.ok(!sessions.includes('>' + label + '</text>'), label);
   assert.ok(JSON.parse(read('app.json')).pages.includes('pages/session-settings/session-settings'));
   assert.equal(JSON.parse(read('pages/session-settings/session-settings.json')).navigationBarTitleText, '会话设置');
   assert.match(read('pages/home/home.wxss'), /\.drawer-footer[^}]*margin-top: auto/);
@@ -51,6 +54,7 @@ test('session settings retain model and permission APIs, file navigation and pri
     if(name.endsWith('/node-presentation'))return require('../miniprogram/utils/node-presentation');
     if(name.endsWith('/host-info'))return require('../miniprogram/utils/host-info');
     if(name.endsWith('/version-info'))return require('../miniprogram/utils/version-info');
+    if(name.endsWith('/account-view'))return require('../miniprogram/utils/account-view');
     if(name.endsWith('/build'))return {BUILD_TIME:'fixture'};
     throw Error('Unexpected dependency '+name);
   }});

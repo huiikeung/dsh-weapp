@@ -1,5 +1,5 @@
 module.exports = {
-  '协作':'Team', '成员':'Members', '子智能体':'Subagents', '团队任务':'Team tasks',
+  '协作':'Team', '成员':'Members', '智能体团队':'Agent team', '编队':'Squads', '编队总览':'Squad overview', '后台任务':'Background tasks', '子智能体':'Subagents', '团队任务':'Team tasks',
   '团队数据版本暂不支持':'This team data version is not supported yet',
   '创建中':'Starting', '状态待同步':'Status unavailable', '空闲':'Idle',
   '主智能体':'Lead agent', '团队成员':'Teammate', '一次性子智能体':'One-shot subagent',

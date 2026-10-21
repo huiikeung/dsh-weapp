@@ -9,6 +9,39 @@
   </view>
   <view class="nav-placeholder" style="height:{{navPadTop + navHeight}}px;" aria-hidden="true"></view>
 
+  <!-- DSH 客户端账号区：结构与桌面端 AccountSection 对齐。 -->
+  <view class="dsh-account-section" aria-label="{{ui['账号与余额']}}">
+    <view class="dsh-account-card">
+      <view class="dsh-account-identity">
+        <view class="dsh-account-avatar">
+          <image wx:if="{{dshAccount.avatarUrl}}" class="dsh-account-avatar-image" src="{{dshAccount.avatarUrl}}" mode="aspectFill"/>
+          <image wx:else class="dsh-account-avatar-user" mode="aspectFit" src="/assets/icons/account-user{{theme === 'dark' ? '-dark' : ''}}.svg"/>
+        </view>
+        <view class="dsh-account-identity-copy">
+          <text class="dsh-account-name">{{dshAccount.name}}</text>
+          <text class="dsh-account-status">{{dshAccountBusy ? ui['加载中…'] : dshAccount.status}}</text>
+        </view>
+      </view>
+    </view>
+    <view class="dsh-balance-card">
+      <view class="dsh-balance-row">
+        <text>{{ui['充值余额']}}</text>
+        <view wx:if="{{dshAccount.balance.length}}" class="dsh-balance-amount"><text wx:for="{{dshAccount.balance}}" wx:key="*this">{{item}}</text></view>
+        <text wx:elif="{{dshAccount.balanceState === 'signed-out'}}" class="dsh-account-muted">{{ui['登录后查看']}}</text>
+        <text wx:elif="{{dshAccount.balanceState === 'loading'}}" class="dsh-account-muted">{{ui['加载中…']}}</text>
+        <text wx:else class="dsh-account-unavailable" data-url="{{dshAccount.usageUrl}}" bindtap="openDshAccountLink" role="button">{{ui['前往开放平台查看']}}</text>
+      </view>
+      <block wx:if="{{dshAccount.showBonusRow}}">
+        <view class="dsh-account-divider"></view>
+        <view class="dsh-balance-row">
+          <text>{{ui['赠金余额']}}</text>
+          <view wx:if="{{dshAccount.bonusBalance.length}}" class="dsh-balance-bonus"><view class="dsh-balance-amount"><text wx:for="{{dshAccount.bonusBalance}}" wx:key="*this">{{item}}</text></view></view>
+          <text wx:else class="dsh-account-muted">{{ui['加载中…']}}</text>
+        </view>
+      </block>
+    </view>
+  </view>
+
   <!-- 两个独立入口，具体操作只放在各自面板内。 -->
   <view class="group-title">{{ui['公网访问']}}</view>
   <view class="card">

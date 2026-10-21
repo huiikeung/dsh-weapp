@@ -684,6 +684,15 @@ class GatewayClient {
       }
       return;
     }
+    const accountKey = frame.requestId && 'account:' + frame.requestId;
+    const accountRequest = accountKey && this.pendingRequests[accountKey];
+    if (accountRequest && (frame.kind === accountRequest.expectedKind || frame.kind === 'error')) {
+      delete this.pendingRequests[accountKey];
+      clearTimeout(accountRequest.timer);
+      if (frame.kind === 'error') accountRequest.reject(Object.assign(new Error(frame.message || frame.code || uiText('账号信息读取失败')), { code: frame.code }));
+      else accountRequest.resolve(frame);
+      return;
+    }
     const clawbotKey = frame.requestId && 'clawbot:' + frame.requestId;
     const clawbotRequest = clawbotKey && this.pendingRequests[clawbotKey];
     if (clawbotRequest && (frame.kind === clawbotRequest.expectedKind || frame.kind === 'error')) {
@@ -877,6 +886,21 @@ class GatewayClient {
   requestWorkspaces() { return this.request({ type: 'workspaces' }); }
   requestSessions() { return this.request({ type: 'sessions' }); }
   requestHost() { return this.request({ type: 'host' }); }
+  requestAccount(client) {
+    const requestId = util.uuid();
+    return new Promise((resolve, reject) => {
+      if (!this.send({ type: 'account', requestId, client })) {
+        reject(new Error(uiText('WebSocket 尚未连接')));
+        return;
+      }
+      const key = 'account:' + requestId;
+      const timer = setTimeout(() => {
+        delete this.pendingRequests[key];
+        reject(new Error(uiText('账号信息读取超时')));
+      }, REQUEST_TIMEOUT);
+      this.pendingRequests[key] = { resolve, reject, timer, key, expectedKind: 'account' };
+    });
+  }
   searchSessions(query) { return this.request({ type: 'search', query: query }); }
 
   requestDirectories(path) {
@@ -917,6 +941,16 @@ class GatewayClient {
 
   requestSessionStats(sessionId) {
     return this.request({ type: 'session-stats', sessionId: sessionId });
+  }
+
+  /** 会话上下文面板：宿主 mobileContext 投影 + 官方 breakdown/usage/stats。 */
+  requestContextDashboard(sessionId) {
+    return this.request({ type: 'context-dashboard', sessionId: sessionId });
+  }
+
+  /** 会话编队（当前 Agent 家族网络）：宿主 context-fleet 请求。 */
+  requestContextFleet(sessionId) {
+    return this.request({ type: 'context-fleet', sessionId: sessionId });
   }
 
   /** 会话工作区文件列表：网关解析会话所属工作区根目录，path 为相对路径（缺省 = 根）。 */
@@ -999,6 +1033,18 @@ class GatewayClient {
     return promise;
   }
 
+  /** 取消未完成的 inspector 请求，避免超时后阻塞再次查看。 */
+  cancelInspector(sessionId) {
+    const key = 'inspector:' + sessionId;
+    const pending = this.pendingRequests[key];
+    if (!pending) return false;
+    if (pending.timer) clearTimeout(pending.timer);
+    pending.resolve = () => {};
+    pending.reject = () => {};
+    delete this.pendingRequests[key];
+    return true;
+  }
+
   requestAttachment(sessionId, attachmentId) {
     return this.request({ type: 'attachment', sessionId: sessionId, attachmentId: attachmentId });
   }
@@ -1023,13 +1069,16 @@ class GatewayClient {
     return this.send({ type: 'session-cancel', sessionId: sessionId });
   }
 
-  /** images: [{ mediaType, data(base64), name }] */
-  sendMessage(text, sessionId, workspaceId, images, mode, notificationTicket) {
+  /** images: [{ mediaType, data(base64), name }], attachments: workspace refs */
+  sendMessage(text, sessionId, workspaceId, images, mode, notificationTicket, attachments) {
     const payload = {
       type: 'message',
       text: text,
       images: (images || []).map(function (img) {
         return { mediaType: img.mediaType, data: img.data, name: img.name || null };
+      }),
+      attachments: (attachments || []).map(function (item) {
+        return { kind: item.kind === 'directory' ? 'directory' : 'file', path: item.path, name: item.name || null };
       }),
       clientTimeZone: this.timeZone()
     };

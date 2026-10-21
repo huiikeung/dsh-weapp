@@ -47,6 +47,10 @@ Page({
     hostOnline: false,
     hostRows: [],
     hostSheetOpen: false,
+    hostDeleteOpen: false,
+    hostDeleteCount: 0,
+    hostDeleteTitle: '',
+    hostDeleteNames: '',
     hostSheetExpanded: false,
     hostEditMode: false,
     hostSelection: [],
@@ -469,19 +473,27 @@ Page({
   },
 
   deleteHosts() {
-    const count = this.data.hostSelection.length;
-    if (!count) return;
-    wx.showModal({
-      title: count === 1 ? uiText('删除主机？') : uiText('批量删除主机？'),
-      content: uiText('从 App 移除选中的 ') + count + uiText(' 台主机及连接凭证；网关上的会话和工作区不会被删除。再次连接需重新配对。'),
-      confirmText: uiText('删除'),
-      confirmColor: '#FF3B30',
-      success: (res) => {
-        if (!res.confirm) return;
-        store.removeHosts(this.data.hostSelection);
-        this.setData({ hostSelection: [], hostEditMode: false });
-      }
+    const selected = this.data.hostSelection || [];
+    if (!selected.length) return;
+    const rows = (this.data.hostRows || []).filter((row) => selected.indexOf(row.id) >= 0);
+    this.setData({
+      hostDeleteOpen: true,
+      hostDeleteCount: selected.length,
+      hostDeleteTitle: selected.length === 1 ? uiText('删除主机？') : uiText('批量删除主机？'),
+      hostDeleteNames: rows.map((row) => row.name).filter(Boolean).join('、')
     });
+  },
+
+  cancelDeleteHosts() {
+    this.setData({ hostDeleteOpen: false });
+  },
+
+  confirmDeleteHosts() {
+    const selected = this.data.hostSelection || [];
+    this.setData({ hostDeleteOpen: false });
+    if (!selected.length) return;
+    store.removeHosts(selected);
+    this.setData({ hostSelection: [], hostEditMode: false });
   },
 
   onSearchInput(e) {

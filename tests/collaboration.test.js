@@ -98,14 +98,17 @@ test('stale refresh cannot unlock or mutate a newly opened collaboration panel',
   pending[1]();await new Promise(setImmediate);assert.equal(page.data.collaborationBusy,false);
 });
 test('collaboration icon tabs retain real counts, selection, and both theme assets',()=>{
-  const {page,store}=fixture();store.state={connection:'connected',sessions:[]};
+  const {page,store}=fixture();store.state={connection:'connected',sessions:[],
+    scheduledTasks:[{id:'t1',title:'Nightly digest',status:'active',scheduledAt:new Date().toISOString(),rule:{kind:'daily',hour:9,minute:0}}]};
   store.sessionState.collaboration=collaboration.create('s1');
   store.sessionState.trajectory=[{key:'call',badge:'TOOL',label:'Read file',completed:true}];
   collaboration.baseline(store.sessionState.collaboration,projection(8,{agentTeam:{members:[member('worker')],tasks:[{id:'task',subject:'Check',status:'pending'}]},subagentCatalog:[{id:'child',mode:'continuable'}]}));
   page.openCollaboration();
   assert.equal(JSON.stringify(page.data.collaborationTabs.map(({id,icon,count})=>({id,icon,count}))),JSON.stringify([
     {id:'members',icon:'dsh-team',count:2},{id:'children',icon:'dsh-agent',count:1},
-    {id:'tasks',icon:'dsh-checklist',count:1},{id:'calls',icon:'dsh-process-tool',count:1}
+    {id:'tasks',icon:'dsh-checklist',count:1},{id:'calls',icon:'dsh-process-tool',count:1},
+    {id:'background',icon:'dsh-gauge',count:1},
+    {id:'schedule',icon:'automation',count:1}
   ]));
   for(const tab of page.data.collaborationTabs){
     for(const suffix of ['', '-dark'])assert.ok(fs.existsSync(path.resolve(__dirname,'../miniprogram/assets/icons',tab.icon+suffix+'.svg')));
@@ -113,8 +116,8 @@ test('collaboration icon tabs retain real counts, selection, and both theme asse
     assert.ok(page.data.collaborationRows.length);
   }
   const template=fs.readFileSync(path.resolve(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
-  assert.ok(template.indexOf('class="collab-trigger ')<template.indexOf('class="segmented"'),'keep collaboration left of conversation');
-  const heading=template.slice(template.indexOf('<view class="collab-heading">'),template.indexOf('<view class="collab-tabs">'));
+  assert.ok(template.indexOf('class="collab-trigger nav-collab')>template.indexOf('class="nav-title"'),'collaboration entry sits in the nav bar');
+  const heading=template.slice(template.indexOf('<view class="collab-heading">'),template.indexOf('class="collab-tabs"'));
   assert.match(heading,/bindtap="refreshCollaboration"/);assert.match(heading,/bindtap="closeCollaboration"/);
   assert.match(heading,/aria-disabled="{{collaborationBusy}}"/);
   assert.match(heading,/collab-close{{theme/);assert.match(heading,/sheet-refresh/);

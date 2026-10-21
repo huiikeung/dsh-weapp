@@ -41,6 +41,29 @@ function imageBlocks(value) {
     }));
 }
 
+function attachmentBlocks(value) {
+  if (typeof value === 'string') return [];
+  return asBlocks(value).flatMap((b) => {
+    if (!b || typeof b !== 'object') return [];
+    if (b.type === 'image' && b.attachment) return [{ kind: 'image', ...b.attachment }];
+    if (b.type === 'file') {
+      const ref = b.attachment || b.file || b;
+      return [{
+        kind: 'file',
+        ...(b.receiptId ? { receiptId: b.receiptId } : {}),
+        ...(ref.attachmentId ? { attachmentId: ref.attachmentId } : {}),
+        ...(ref.name ? { name: ref.name } : {}),
+        ...(ref.bytes ? { bytes: ref.bytes } : {}),
+        ...(ref.mediaType ? { mediaType: ref.mediaType } : {}),
+      }];
+    }
+    if ((b.type === 'directory' || b.type === 'folder') && (b.path || b.name)) {
+      return [{ kind: 'directory', path: b.path || b.name, name: b.name || b.path }];
+    }
+    return [];
+  });
+}
+
 function toolResultText(message) {
   const outer = (message && message.content) || [];
   const parts = [];
@@ -70,6 +93,7 @@ function normalizeRawEvent(raw, sessionId) {
       if (typeof data.source === 'string') source = data.source;
       else if (data.source && typeof data.source.kind === 'string') source = data.source.kind;
       let text = textBlocks(data.content);
+      const attachments = attachmentBlocks(data.content).concat(Array.isArray(data.attachments) ? data.attachments : []);
       // 兜底：文本可能挂在 text / message / item.text / parts 等字段（不同连接器版本不一）
       if (!text && typeof data.text === 'string') text = data.text;
       if (!text && data.message) text = textBlocks(data.message);
@@ -83,7 +107,8 @@ function normalizeRawEvent(raw, sessionId) {
         type: type,
         text: text,
         source: source,
-        images: imageBlocks(data.content).length ? imageBlocks(data.content) : (Array.isArray(data.images) ? data.images : [])
+        images: imageBlocks(data.content).length ? imageBlocks(data.content) : (Array.isArray(data.images) ? data.images : []),
+        attachments
       };
       break;
     }
@@ -129,6 +154,7 @@ function normalizeRawEvent(raw, sessionId) {
         reasoning: reasoning,
         toolCalls: calls.length ? calls : (Array.isArray(data.toolCalls) ? data.toolCalls : []),
         images: imageBlocks(data.message).length ? imageBlocks(data.message) : (Array.isArray(data.images) ? data.images : []),
+        attachments: attachmentBlocks(data.message).concat(Array.isArray(data.attachments) ? data.attachments : []),
         interrupted: data.interrupted === true
       };
       break;
@@ -323,6 +349,8 @@ function ensureAssistant(agg, sessionId, seq, turn, startNewAfterSettlement) {
       reasoning: '',
       text: '',
       tools: [],
+      images: [],
+      attachments: [],
       events: [],          // 按事件顺序的思考/工具日志（对齐 DSH 过程组扁平列表）
       streaming: false,
       reasoningStreaming: false,
@@ -428,6 +456,7 @@ function applyEvent(agg, normalized) {
         last.key = 'u-' + seq;
         last.seq = seq;
         if (event.images && event.images.length) last.images = event.images;
+        if (event.attachments && event.attachments.length) last.attachments = event.attachments;
         return true;
       }
       pushRow(agg, {
@@ -436,6 +465,7 @@ function applyEvent(agg, normalized) {
         title: TITLES.user,
         text: event.text || '',
         images: event.images || [],
+        attachments: event.attachments || [],
         seq: seq
       });
       return true;
@@ -500,6 +530,8 @@ function applyEvent(agg, normalized) {
         tool.title = TITLES.assemblingTool;
         journalTool(assistant, call.id || null);
       });
+      if (event.images && event.images.length) assistant.images = event.images;
+      if (event.attachments && event.attachments.length) assistant.attachments = event.attachments;
       assistant.settled = true;
       return true;
     }

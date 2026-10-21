@@ -1,5 +1,27 @@
 # 更新记录
 
+## v0.9.25 — 2026-10-21
+
+- 会话页新增「编队」第四分段（对话｜轨迹｜上下文｜编队）：展示当前 Agent 的父链与全部子 Agent，卡片含运行状态脉冲、上下文占用、7 类组成色条、token、轮次/步数、活跃时长与模式徽标；当前 Agent 高亮，点击卡片打开该 Agent 的会话并切到「上下文」。
+- 网关桥新增 `context-fleet` 请求：注入宿主 `sessions` / `sessionProjections` / `agents` 服务，按 `parentSession`/`origin` 关系由当前会话上溯到 root 再下溯子 Agent，逐会话读取投影快照（标题、contextPressure、tokenUsage、sessionStats、subagentTiming、mobileContext），最多 40 个 Agent；纯 JSON、单个会话快照失败时保留基础字段。
+- 安装脚本升级为幂等升级路径：已装有 `context-dashboard` 桥的网关重跑即可补入编队请求与服务注入，自动修正旧补丁，`--check` 保持只读；安装目标必须是实际生效的网关目录（用 `readlink` 解析 profile 的 `node_modules` 链接，`local-plugins/` 副本不一定被加载）。
+- 主包源码 1,849,026 B / 1,887,436 B 预算（余约 37.5 KiB），后续新增主包资源需先腾空间。
+
+升级说明：上下文与编队都需要网关桥接并正常重启 DSH；旧网关/未打桥时两个分段显示升级提示，不影响对话/轨迹。网关插件更新后重跑 `node scripts/install-context-bridge.cjs <网关包绝对路径>` 即可。
+
+验证说明：自动化测试 563 个（553 pass / 0 fail / 10 skipped）、WXML wcc 编译、源码包体积检查通过；真机深浅色与窄屏视觉验收待进行。本次 Git 发布不等同于上传微信体验版。
+
+## v0.9.24 — 2026-10-21
+
+- 会话页新增「上下文」第三分段，与「对话」「轨迹」同排：统计（工具调用、当前会话、上下文事件、会话用量）、Token 统计（8 类组成、缓存命中率、估算项带 ≈、输出与总数精确）、耗时统计（活跃时长、模型等待/回复/工具执行）、上下文趋势（堆叠柱、压缩/剪枝 ✂ 标记、按轮聚合）与最近上下文事件；进入分段、回合结束或手动刷新时拉取。
+- 网关新增 `mobileContext` 会话投影与 `context-dashboard` 请求（`scripts/lib/context-bridge.mjs`、`scripts/install-context-bridge.cjs`），官方 `dsh-plugin-mobile-gateway` 与本仓库 `dsh-plugin-weapp-gateway` 均可桥接；token 估算与 surface 替换对齐宿主官方 `contextBreakdown`，组成/趋势/事件口径对齐 dsh-context。真实 32620 事件会话验证：system/tools 与官方投影完全一致，五类合计 = `messageTokens` − 休眠 system 节点，响应帧约 59–63KB。
+- 修复网关桥接注入的配对鉴权条件运算符优先级问题；安装脚本支持重复执行、自动修复旧补丁，并在 `--check` 下保持只读。
+- 补充上下文面板实现契约、协议与口径文档（docs/context-dashboard.md），更新 README 协议覆盖与第三方许可说明。
+
+升级说明：上下文面板需要给已安装网关补桥接并正常重启 DSH（详见 README「上下文面板与网关桥接」）；旧网关或未安装桥时面板显示升级提示，不影响对话/轨迹等其他功能，无需重新配对或迁移数据。
+
+验证说明：小程序自动化测试（含 SDK/视图派生/投影 oracle 与真实日志对账）、WXML 编译、源码包体积检查通过；真机深浅色与窄屏视觉验收待进行。本次 Git 发布不等同于上传微信体验版。
+
 ## v0.9.23 — 2026-10-21
 
 - 新增任务完成订阅提醒：小程序在用户同意微信订阅后申请一次性票据，公网服务安全保存并在网关回报任务完成时发送通知；支持任务名、耗时、Token 和缓存命中率。

@@ -1800,3 +1800,91 @@
 .drawer.drawer-dark .drawer-wordmark-dark {
   display: block;
 }
+
+/* ---------- 删除主机确认弹窗 ---------- */
+.host-confirm-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 220;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.46);
+}
+
+.host-confirm {
+  width: calc(100% - 32rpx);
+  margin: 0 16rpx 16rpx;
+  box-sizing: border-box;
+  padding: 16rpx 40rpx calc(36rpx + env(safe-area-inset-bottom));
+  border-radius: 36rpx;
+  /* 与切换主机面板同款深色玻璃：不依赖主题变量，浅色模式下文字依然可读 */
+  background: rgba(16, 22, 34, 0.94);
+  border: 1rpx solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(28rpx) saturate(1.2);
+  -webkit-backdrop-filter: blur(28rpx) saturate(1.2);
+  color: #F1F4FA;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20rpx 60rpx rgba(0, 0, 0, 0.45);
+  animation: hostConfirmRise 0.2s ease-out;
+}
+
+@keyframes hostConfirmRise {
+  from { transform: translateY(24rpx); opacity: 0.6; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.host-confirm-title {
+  margin: 12rpx 0 8rpx;
+  font-size: 34rpx;
+  font-weight: 650;
+  text-align: center;
+}
+
+.host-confirm-names {
+  margin: 4rpx auto 0;
+  max-width: 100%;
+  font-size: 25rpx;
+  color: rgba(241, 244, 250, 0.6);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.host-confirm-body {
+  margin: 16rpx auto 32rpx;
+  max-width: 560rpx;
+  font-size: 26rpx;
+  line-height: 1.65;
+  color: rgba(241, 244, 250, 0.66);
+  text-align: center;
+}
+
+.host-confirm-actions {
+  display: flex;
+  gap: 20rpx;
+}
+
+.host-confirm-cancel,
+.host-confirm-ok {
+  flex: 1;
+  min-height: 92rpx;
+  border-radius: 999rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 29rpx;
+  font-weight: 600;
+}
+
+.host-confirm-cancel {
+  background: rgba(241, 244, 250, 0.10);
+  color: #F1F4FA;
+}
+
+.host-confirm-ok {
+  background: linear-gradient(135deg, #F0565B, #D93A41);
+  color: #FFFFFF;
+  box-shadow: 0 10rpx 24rpx rgba(217, 58, 65, 0.3);
+}

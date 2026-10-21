@@ -1,6 +1,33 @@
 .session-settings { padding: 0 40rpx calc(60rpx + env(safe-area-inset-bottom)); color: var(--text); }
 .session-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 10; padding-left: 40rpx; padding-right: 40rpx; background: var(--bg); display: flex; align-items: center; box-sizing: content-box; }
 .session-nav-placeholder { margin-bottom: 20rpx; }
+
+/* DSH desktop AccountSection: 8px section inset, 16px card gap, 20px radius. */
+.dsh-account-section { display: flex; flex-direction: column; gap: 32rpx; padding: 16rpx 0 0; color: var(--text); font-size: 26rpx; line-height: 44rpx; }
+.dsh-account-card,
+.dsh-balance-card { box-sizing: border-box; border: 1rpx solid var(--border); border-radius: 20rpx; background: var(--surface); padding: 24rpx 32rpx; }
+.dsh-account-card { display: flex; align-items: center; justify-content: space-between; gap: 32rpx; }
+.dsh-account-identity { display: flex; align-items: center; gap: 20rpx; min-width: 0; min-height: 88rpx; }
+.dsh-account-avatar { width: 64rpx; height: 64rpx; flex: none; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; color: var(--text-3); background: var(--fill); font-size: 21rpx; font-weight: 600; }
+.dsh-account-avatar-image { width: 100%; height: 100%; }
+.dsh-account-avatar-user { width: 32rpx; height: 32rpx; display: block; }
+.dsh-account-avatar-placeholder { line-height: 1; }
+.dsh-account-identity-copy { min-width: 0; display: flex; flex-direction: column; }
+.dsh-account-name { color: var(--text); font-size: 28rpx; font-weight: 500; line-height: 44rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-account-status, .dsh-account-muted, .dsh-account-secondary { color: var(--text-3); }
+.dsh-account-status { display: block; font-size: 26rpx; line-height: 36rpx; }
+.dsh-account-info { flex: none; color: var(--text); font-size: 26rpx; line-height: 44rpx; white-space: nowrap; }
+.dsh-balance-card { display: flex; flex-direction: column; gap: 16rpx; }
+.dsh-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 32rpx; min-height: 80rpx; padding: 12rpx 0; box-sizing: border-box; }
+.dsh-balance-row > text:first-child { color: var(--text); }
+.dsh-balance-amount { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0; color: var(--text); font-size: 36rpx; font-weight: 510; line-height: 56rpx; }
+.dsh-balance-amount text + text::before { content: ' + '; white-space: pre; }
+.dsh-balance-bonus { display: flex; align-items: center; justify-content: flex-end; gap: 16rpx; }
+.dsh-account-divider { border-top: 1rpx solid var(--divider); }
+.dsh-account-unavailable { color: var(--text-3); text-decoration: underline; text-underline-offset: 6rpx; }
+.dsh-account-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 20rpx; }
+.dsh-account-link-button { min-width: 116rpx; height: 72rpx; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 0 28rpx; border: 1rpx solid var(--border-strong); border-radius: 12rpx; color: var(--text); font-size: 28rpx; line-height: 44rpx; white-space: nowrap; }
+.dsh-account-primary { color: #fff; background: var(--ocean); border-color: transparent; font-weight: 500; }
 .session-nav-back {
   position: relative;
   width: 64rpx;

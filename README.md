@@ -40,7 +40,7 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 
 每次编译、预览或上传前，在仓库根目录依次运行 `node scripts/check-miniprogram-package.cjs`、`node scripts/stamp-build.cjs`，然后在微信开发者工具编译。
 「小程序版本 / 当前版本」优先使用微信包版本，开发包回退到 `miniprogram/utils/build.js` 的版本号；「构建记录」是生成脚本记录的北京时间与源码摘要，不是安装时间，也不是主机版本。源码修改后需要重新执行脚本。
-「主机版本」来自网关的主机信息；「已连接网关版本」只使用网关自身版本或唯一启用的匹配插件目录，不再拿主机版本替代。适配基线按插件分开：小程序网关0.8.6+，旧移动网关0.10.0+，不代表全部主机功能均已支持。
+「主机版本」来自网关的主机信息；「已连接网关版本」优先显示网关自报的版本（不要求包名匹配），未自报时取唯一启用的匹配插件目录版本，不再拿主机版本替代。适配基线按插件分开：0.8.6+，旧移动网关0.10.0+，不代表全部主机功能均已支持。
 旧插件未上报版本时显示「未上报」。仓库插件升级器已加入握手与主机查询的版本字段；需在用户自己的DSH安装更新并正常重启后生效，不需要为此重新部署公网后台。不会通过公开管理端口读取版本。
 
 ### 隐私政策与首页背景
@@ -70,6 +70,8 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 | GatewaySwitcher / DirectoryBrowser | `pages/workspace-picker` + `pages/files` | 工作区切换、远端目录浏览、新建目录、目录创建会话 |
 | ConversationView 对话 | `pages/session`（对话分段） | Markdown/代码块、思考过程与工具调用折叠行、图片附件、流式生成 |
 | TrajectoryView 轨迹 | `pages/session`（轨迹分段） | Turn 分组、USER/ASSISTANT/TOOL 徽标、#seq、时长概览、事件详情抽屉 |
+| dsh-context 上下文 | `pages/session`（上下文分段） | 与「对话」「轨迹」同排；上下文统计、Token 组成、耗时统计、上下文趋势与最近事件；数据来自宿主 `mobileContext` 投影（需网关桥接，见下文） |
+| dsh-context 编队 | `pages/session`（编队分段） | 当前 Agent 的家族网络：父链与全部子 Agent 卡片，含运行状态、上下文占用、7 类组成条、token/轮次/步数/活跃时长；点击卡片跳到该 Agent 的「上下文」；数据来自宿主 `context-fleet` 请求（需网关桥接） |
 | HumanQuestionView | `pages/session` 提问卡片 | 单选/多选/自定义文本、提交/取消 |
 | ApprovalRequestView | `pages/session` 审批卡片 | 允许一次 / 拒绝 |
 | Composer 输入面板 | 同页 | 权限、模型、思考等级芯片、图片附件、发送、停止回合 |
@@ -87,7 +89,7 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 
 请求：`ping` `workspaces` `sessions` `host` `search` `directories`
 `directory-create` `workspace-create` `models` `select-model`
-`permission-options` `permission` `context-usage` `session-stats` `history`
+`permission-options` `permission` `context-usage` `session-stats` `context-dashboard` `context-fleet` `history`
 `attachment` `subscribe`/`unsubscribe` `session-archive` `session-rename`
 `session-cancel` `message` `question-answer` `question-cancel`
 `approval-response` `session-create` `agent-presets` `defaults`
@@ -97,7 +99,10 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 
 响应/事件：`paired` `hello` `pong` `subscribed` `sent` `event` `history`
 `session-snapshot` `session-stream-reset` `workspaces` `sessions` `search`
-`host` `models` `permission*` `session-stats` `context-usage`
+`host` `models` `permission*` `session-stats` `context-usage` `context-dashboard`
+`context-fleet`（`mobileContext` 投影 + 官方 `breakdown`/`usage`/`stats`；
+编队为宿主侧家族列表；旧网关回 `unknown-command`、未装桥回
+`context-unavailable`）
 `question-*` `approval-*` `session-created` `attachment` `error`
 `schedule-catalog`（items 任务目录）`schedule-changed`（变更推送，在途时
 排队补拉）`schedule-update`（updated）`schedule-delete`（deleted）
@@ -109,6 +114,30 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 `tool/call`、`tool/result` …）与 `shared/protocol` 的
 `RawSessionEvent.normalizedEvent` 一致。定时任务变更错误按 code 本地化
 （`schedule_conflict` / `schedule_ended` / `schedule_not_found`）。
+
+## 上下文 / 编队与网关桥接
+
+「上下文」分段读取宿主注册的 `mobileContext` 会话投影（组成、请求趋势、事件、
+工具调用与耗时），并附带宿主官方的 `tokenUsage` / `sessionStats` /
+`contextBreakdown` 投影；token 分摊规则与 dsh-context 一致（估算项带 ≈，
+输出与总数精确）。「编队」分段通过同一桥接的 `context-fleet` 请求，在宿主侧按
+会话 `parentSession`/`origin` 关系汇总当前 Agent 家族，读取各会话投影快照生成
+卡片。完整协议与 derive 规则见 [docs/context-dashboard.md](docs/context-dashboard.md)。
+
+已安装网关需要补桥接（官方 `dsh-plugin-mobile-gateway` 与本仓库的
+`dsh-plugin-weapp-gateway` 都支持）。**注意先解析实际生效的网关目录**：桌面
+profile 的 `dependencies` 可能用 `link:` 指向另一个 checkout，`local-plugins/`
+下的副本不一定被加载。
+
+```bash
+# 实际生效的 weapp 网关目录（示例输出：/Users/you/Downloads/dsh-plugin-weapp-gateway）
+readlink ~/.dsh/profiles/desktop/node_modules/dsh-plugin-weapp-gateway
+node scripts/install-context-bridge.cjs "$(readlink -f ~/.dsh/profiles/desktop/node_modules/dsh-plugin-weapp-gateway)" --check
+node scripts/install-context-bridge.cjs "$(readlink -f ~/.dsh/profiles/desktop/node_modules/dsh-plugin-weapp-gateway)"
+```
+
+安装后正常重启 DSH 并让小程序重新连接；不需要重新配对或迁移数据。未安装桥
+或网关版本过旧时，面板显示「需升级网关」的提示，不影响其他功能。
 
 ## 目录结构
 

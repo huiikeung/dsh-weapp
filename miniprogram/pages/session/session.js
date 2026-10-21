@@ -1,7 +1,9 @@
 const { t: uiText } = require('../../utils/ui-preferences');
+const scheduleUtil = require('../../utils/schedule');
 const haptics = require('../../utils/haptics');
 const preferences = require('../../utils/ui-preferences');
 const trajectoryView = require('../../utils/trajectory-presentation');
+const contextView = require('../../utils/context-view');
 const workSteps = require('../../utils/work-step-presentation');
 const statusAppearance = require('../../utils/status-appearance');
 const procIconStyle = require('../../utils/proc-icon-style');
@@ -35,8 +37,13 @@ Page({
     collaborationOpen: false, collaborationExpanded: false, collaborationTab: 'members', collaborationRows: [], collaborationTabs: [],
     collaborationCount: 0, collaborationActive: 0, collaborationNote: '', collaborationPreview: null, collaborationBusy: false,
     fileExpanded: {}, fileSheet: null, filePreview: null, changesDiff: null, fileBusyKey: '', fileSharingKey: '', fileProgress: 0,
-    tab: 'conversation', // conversation | trajectory
+    tab: 'conversation', // conversation | trajectory | context | fleet
     trajectoryMounted: false,
+    contextMounted: false,
+    fleetMounted: false,
+    // 首帧之前先用「未连接」空态占位，避免 WXML 读取 null 面板。
+    contextPanel: contextView.buildPanel(null, { t: uiText, connected: false, hasSession: false }),
+    fleetPanel: contextView.buildFleetPanel(null, { t: uiText, connected: false, hasSession: false }),
     conversationTopSpace: 0, conversationBottomSpace: 0, conversationScrollTop: 0,
     navTitle: uiText('会话'),
     sessionSwitcherOpen: false,
@@ -190,7 +197,7 @@ Page({
       } catch (e2) { rect = null; }
       this.viewportRpx = winW * 2;
       this.setData({
-        navPadTop: rect && rect.top ? Math.max(rect.top + 3, sbH + 3) : sbH + 7,
+        navPadTop: rect && rect.top ? rect.top : sbH + 7,
         navHeight: rect && rect.height ? rect.height : 32,
         navMoreRight: rect && rect.left ? Math.max(Math.round(winW - rect.left) + 8, 96) : 100
       });
@@ -213,6 +220,8 @@ Page({
 
   onHide() {
     if (store.setTrajectoryActive) store.setTrajectoryActive(false);
+    if (store.setContextActive) store.setContextActive(false);
+    if (store.setFleetActive) store.setFleetActive(false);
     if (this.data.commandMenu) this.closeAttachMenu();
     this._collaborationRequest = null; this._collaborationRefresh = null;
     this.setData({ collaborationOpen:false, collaborationPreview:null, collaborationBusy:false });
@@ -227,6 +236,8 @@ Page({
 
   onShow() {
     if (store.setTrajectoryActive) store.setTrajectoryActive(this.data.tab === 'trajectory');
+    if (store.setContextActive) store.setContextActive(this.data.tab === 'context');
+    if (store.setFleetActive) store.setFleetActive(this.data.tab === 'fleet');
     this._voiceHidden = false; this.syncVoicePreference();
     this.resetConversationScroll();
     this.startScrollPolling();
@@ -240,6 +251,8 @@ Page({
 
   onUnload() {
     if (store.setTrajectoryActive) store.setTrajectoryActive(false);
+    if (store.setContextActive) store.setContextActive(false);
+    if (store.setFleetActive) store.setFleetActive(false);
     this._commandRequest = null; this._commandOptionRequest = null; this._attachmentRequest = null; this._filesRequest = null;
     this._collaborationRequest = null;
     this._collaborationRefresh = null;
@@ -698,6 +711,8 @@ Page({
 
     const viewPatch = dataPatch(this.data, Object.assign({
       ...this.collaborationPatch(s, app),
+      ...this.contextPanelPatch(s, app),
+      ...this.fleetPanelPatch(s, app),
       navTitle: s.title || fallbackTitle,
       presetLabel: labels.presetModeName(s.agentPreset || 'standard'),
       sessionPresetVisible: presetVisible,
@@ -1080,17 +1095,23 @@ Page({
 
   switchTab(e) {
     const tab = e.currentTarget.dataset.tab;
-    if (!['conversation', 'trajectory'].includes(tab) || tab === this.data.tab) return;
+    if (!['conversation', 'trajectory', 'context', 'fleet'].includes(tab) || tab === this.data.tab) return;
     haptics.vibrate();
     this.cancelVoice();
     this.closeAttachMenu(false);
     if (store.setTrajectoryActive) store.setTrajectoryActive(tab === 'trajectory');
+    if (store.setContextActive) store.setContextActive(tab === 'context');
+    if (store.setFleetActive) store.setFleetActive(tab === 'fleet');
     let tracePatch = {};
     if (tab === 'trajectory') { this._traceRows = store.sessionState.trajectory || []; tracePatch = dataPatch(this.data, this.trajectoryPatch()); }
+    let contextPatch = {};
+    if (tab === 'context') contextPatch = this.contextPanelPatch();
+    let fleetPatch = {};
+    if (tab === 'fleet') fleetPatch = this.fleetPanelPatch();
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
     this._collaborationRequest = null; this._collaborationRefresh = null;
-    this.setData({ tab, trajectoryMounted: this.data.trajectoryMounted || tab === 'trajectory', ...tracePatch, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
+    this.setData({ tab, trajectoryMounted: this.data.trajectoryMounted || tab === 'trajectory', contextMounted: this.data.contextMounted || tab === 'context', fleetMounted: this.data.fleetMounted || tab === 'fleet', ...tracePatch, ...contextPatch, ...fleetPatch, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
       statsPopOpen: false, showContextSheet: false, commandMenu: null,
       attachSheetOpen: false, modelSheetOpen: false, effortSheetOpen: false,
       permissionSheet: [], modeSheet: [], ...this.layoutPatch({ kbHeight: 0 }) });
@@ -1103,6 +1124,72 @@ Page({
     } else {
       this.stopScrollPolling();
     }
+  },
+
+  /** 上下文面板派生：store 快照 → 纯函数视图模型（缓存原始 value 身份，避免每次 emit 重算趋势）。 */
+  contextPanelPatch(session, app) {
+    const s = session || store.sessionState;
+    const a = app || store.state;
+    const dashboard = (s && s.contextDashboard) || null;
+    const locale = this.data.uiLocale || '';
+    const connected = !a || a.connection === 'connected';
+    const sessionId = (s && s.sessionId) || '';
+    const cache = this._contextPanelCache;
+    if (cache && cache.dashboard === dashboard && cache.locale === locale
+      && cache.connected === connected && cache.sessionId === sessionId) {
+      return { contextPanel: cache.panel };
+    }
+    const panel = contextView.buildPanel(dashboard, {
+      t: uiText, connected: connected, hasSession: !!sessionId
+    });
+    this._contextPanelCache = { dashboard, locale, connected, sessionId, panel };
+    return { contextPanel: panel };
+  },
+
+  /** 手动刷新上下文面板（卡片区右上角）。 */
+  refreshContextDashboard() {
+    if (store.refreshContextDashboard) {
+      haptics.tick ? haptics.tick() : haptics.vibrate();
+      store.refreshContextDashboard();
+    }
+  },
+
+  /** 编队面板派生：store 快照 → 纯函数视图模型（缓存原始 value 身份，避免每次 emit 重算卡片）。 */
+  fleetPanelPatch(session, app) {
+    const s = session || store.sessionState;
+    const a = app || store.state;
+    const fleet = (s && s.contextFleet) || null;
+    const locale = this.data.uiLocale || '';
+    const connected = !a || a.connection === 'connected';
+    const sessionId = (s && s.sessionId) || '';
+    const cache = this._fleetPanelCache;
+    if (cache && cache.fleet === fleet && cache.locale === locale
+      && cache.connected === connected && cache.sessionId === sessionId) {
+      return { fleetPanel: cache.panel };
+    }
+    const panel = contextView.buildFleetPanel(fleet, {
+      t: uiText, connected: connected, hasSession: !!sessionId
+    });
+    this._fleetPanelCache = { fleet, locale, connected, sessionId, panel };
+    return { fleetPanel: panel };
+  },
+
+  /** 手动刷新编队面板（卡片区右上角）。 */
+  refreshContextFleet() {
+    if (store.refreshContextFleet) {
+      haptics.tick ? haptics.tick() : haptics.vibrate();
+      store.refreshContextFleet();
+    }
+  },
+
+  /** 点击编队中的 Agent：打开该会话并切到「上下文」分段查看其上下文明细。 */
+  openFleetAgent(e) {
+    const dataset = (e && e.currentTarget && e.currentTarget.dataset) || {};
+    const sessionId = dataset.id;
+    if (!sessionId) return;
+    haptics.vibrate();
+    if (store.openSession) store.openSession(sessionId, dataset.title || '', null);
+    this.switchTab({ currentTarget: { dataset: { tab: 'context' } } });
   },
 
   onPanelTouchStart(e) {
@@ -1129,8 +1216,13 @@ Page({
     const dx = touch.clientX - gesture.x, dy = touch.clientY - gesture.y;
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     if (this.data.moreSheetOpen || this.data.turnNavOpen || this.data.sessionSwitcherOpen || this.data.collaborationOpen) return;
-    const tab = dx < 0 ? 'trajectory' : 'conversation';
-    this.switchTab({ currentTarget: { dataset: { tab } } });
+    // 四段顺序：对话 ⇄ 轨迹 ⇄ 上下文 ⇄ 编队；左滑前进、右滑后退，两端不越界。
+    const order = ['conversation', 'trajectory', 'context', 'fleet'];
+    const index = order.indexOf(gesture.tab);
+    if (index < 0) return;
+    const nextIndex = dx < 0 ? Math.min(order.length - 1, index + 1) : Math.max(0, index - 1);
+    if (nextIndex === index) return;
+    this.switchTab({ currentTarget: { dataset: { tab: order[nextIndex] } } });
   },
 
   onPanelTouchCancel() { this._panelGesture = null; },
@@ -1592,15 +1684,10 @@ Page({
       return;
     }
     if (this.data.fileReferenceMode) {
-      const reference = composerMenu.fileReference(item.path);
-      if (!reference) { wx.showToast({ title: uiText('无法引用此文件路径'), icon: 'none' }); return; }
-      const draft = this.data.draft, cursor = Number.isInteger(this._composerCursor) ? Math.max(0, Math.min(draft.length, this._composerCursor)) : draft.length;
-      const before = draft.slice(0, cursor), after = draft.slice(cursor);
-      const value = before + (before && !/\s$/.test(before) ? ' ' : '') + reference + ' ' + after;
+      const next = this.data.images.concat([{ id: util.uuid(), isFile: true, isWorkspaceRef: true, workspaceKind: item.kind === 'dir' ? 'directory' : 'file', path: item.path, name: item.name }]);
       this._draftRevision = (this._draftRevision || 0) + 1;
       this.closeFilesSheet();
-      this.setData({ draft: value, canSend: true, composerFocus: true });
-      this.syncCommandMenu(value, store.sessionState);
+      this.setData({ images: next, canSend: true, composerFocus: true });
       return;
     }
     wx.showModal({ title: item.name, content: item.path, showCancel: false, confirmText: uiText('知道了') });
@@ -2217,11 +2304,48 @@ Page({
       return;
     }
     // 按需从网关拉取图片附件
-    store.client.requestAttachment(store.sessionState.sessionId, id).then(() => {
-      wx.showToast({ title: uiText('已请求附件'), icon: 'none' });
+    store.client.requestAttachment(store.sessionState.sessionId, id).then((frame) => {
+      if (!frame || typeof frame.data !== 'string') throw new Error(uiText('附件数据为空'));
+      const ext = String(frame.attachment?.mediaType || img?.mediaType || 'image/jpeg').split('/')[1] || 'jpg';
+      const path = `${wx.env.USER_DATA_PATH}/attachment-${id.replace(/[^a-zA-Z0-9_-]/g, '_')}.${ext}`;
+      wx.getFileSystemManager().writeFile({ filePath: path, data: frame.data, encoding: 'base64', success: () => {
+        const rows = this.data.rows.map((item) => ({ ...item, images: (item.images || []).map((entry) => entry.attachmentId === id ? { ...entry, localUrl: path } : entry) }));
+        this.setData({ rows });
+        wx.previewImage({ urls: [path] });
+      }, fail: () => wx.showToast({ title: uiText('附件保存失败'), icon: 'none' }) });
     }).catch((err) => {
       wx.showToast({ title: err.message || uiText('附件加载失败'), icon: 'none' });
     });
+  },
+
+  openMessageAttachment(e) {
+    const dataset = e && e.currentTarget && e.currentTarget.dataset;
+    const rowIndex = Number(dataset && dataset.rowIndex);
+    const attachmentIndex = Number(dataset && dataset.attachmentIndex);
+    const row = Number.isInteger(rowIndex) && rowIndex >= 0 ? this.data.rows[rowIndex] : null;
+    const att = row && Array.isArray(row.attachments) && Number.isInteger(attachmentIndex)
+      ? row.attachments[attachmentIndex]
+      : null;
+    if (!att) return;
+    if (att.kind === 'directory') {
+      wx.showToast({ title: att.path || '工作区目录', icon: 'none' });
+      return;
+    }
+    if (att.attachmentId) {
+      this.previewAttachment({ currentTarget: { dataset: { id: att.attachmentId } } });
+      return;
+    }
+    if (att.path && typeof this.presentFile === 'function') {
+      return this.presentFile({
+        sessionId: store.sessionState.sessionId,
+        path: att.path,
+        name: att.name || att.path,
+        mediaType: att.mediaType,
+        size: att.bytes,
+        key: `message-attachment:${row.key || rowIndex}:${attachmentIndex}`
+      }, 'preview');
+    }
+    wx.showToast({ title: att.name || att.path || '文件附件', icon: 'none' });
   },
 
   // ---------- 问题应答 ----------
@@ -2706,8 +2830,10 @@ Page({
     const text = this.data.draft.trim();
     const images = this.data.images;
     if (!text && !images.length) return;
-    if (images.some(image => image.isFile || !/^image\/(png|jpeg|gif|webp)$/.test(image.mediaType))) {
-      wx.showToast({ title: uiText('当前网关不支持普通文件上传，请改用工作区文件引用'), icon: 'none' }); return;
+    const workspaceRefs = images.filter(image => image.isWorkspaceRef && image.path).map(image => ({ kind: image.workspaceKind, path: image.path, name: image.name }));
+    const uploadImages = images.filter(image => !image.isFile);
+    if (images.some(image => image.isFile && !image.isWorkspaceRef)) {
+      wx.showToast({ title: uiText('请选择工作区文件或目录发送'), icon: 'none' }); return;
     }
     if (images.length && !composerMenu.acceptsAttachments(this._activeCommand)) {
       wx.showToast({ title: uiText('此指令不接受附件，请先移除附件'), icon: 'none' }); return;
@@ -2719,8 +2845,8 @@ Page({
     const notificationTicket = notifySubscription.requestCompletionTicket();
     const s = store.sessionState;
     const self = this;
-    const sendWithImages = images.length
-      ? Promise.all(images.map(readImageBase64))
+    const sendWithImages = uploadImages.length
+      ? Promise.all(uploadImages.map(readImageBase64))
       : Promise.resolve([]);
 
     return Promise.all([sendWithImages, notificationTicket]).then(([encoded, ticket]) => {
@@ -2737,11 +2863,12 @@ Page({
         workspaceId,
         encoded,
         mode,
-        ticket
+        ticket,
+        workspaceRefs
       );
       if (sent !== false) {
         // 乐观回显：消息立即可见（对齐桌面端），网关回显到达时自动合并
-        store.appendLocalUserRow(text, []);
+        store.appendLocalUserRow(text, uploadImages.map((image) => ({ attachmentId: image.id, name: image.name })), workspaceRefs);
         if (mode === 'queue') self.rememberQueuedSubmission(text, encoded);
       } else {
         wx.showToast({ title: uiText('发送失败，草稿已保留'), icon: 'none' }); return;
@@ -2993,16 +3120,56 @@ Page({
     const patch = { collaborationCount:result.total, collaborationActive:result.active };
     if (!this.data.collaborationOpen) return patch;
     const calls = (session.trajectory || []).filter(row => row.badge === 'TOOL' || row.badge === 'SUBTOOL');
-    const tabs = [{id:'members',icon:'dsh-team',label:uiText('成员'),count:result.members.length},
+    const scheduled = (app && app.scheduledTasks) || [];
+    // 后台任务：当前会话里仍在运行的子智能体与团队任务
+    const runningTasks = (result.tasks || []).filter((task) => ['running', 'in_progress', 'pending'].indexOf(String(task.status || '').toLowerCase()) >= 0);
+    const runningChildren = (result.children || []).filter((child) => String(child.status || '').toLowerCase() === 'running');
+    const tabs = [{id:'members',icon:'dsh-team',label:uiText('智能体团队'),count:result.members.length},
       {id:'children',icon:'dsh-agent',label:uiText('子智能体'),count:result.children.length},
       {id:'tasks',icon:'dsh-checklist',label:uiText('团队任务'),count:result.tasks.length},
-      {id:'calls',icon:'dsh-process-tool',label:uiText('工具调用'),count:calls.length}];
-    const rows = this.data.collaborationTab === 'calls' ? calls.slice(-200).reverse().map(row => ({
-      id:row.key,title:row.label,subtitle:row.preview,status:row.isError ? 'failed' : row.completed ? 'done' : row.stopped ? 'unknown' : 'running',
-      statusText:uiText(row.isError ? '失败' : row.completed ? '已完成' : row.stopped ? '未完成' : '运行中'),canOpen:true
-    })) : result[this.data.collaborationTab] || [];
-    return { ...patch,collaborationTabs:tabs,collaborationRows:rows,collaborationNote:
-      this.data.collaborationTab === 'calls' ? calls.length > 200 ? uiText('仅显示最近 200 次调用') : uiText('已加载的调用') : result.note };
+      {id:'calls',icon:'dsh-process-tool',label:uiText('工具调用'),count:calls.length},
+      {id:'background',icon:'dsh-gauge',label:uiText('后台任务'),count:runningChildren.length + runningTasks.length},
+      {id:'schedule',icon:'automation',label:uiText('自动化任务'),count:scheduled.length}];
+    const scheduleRows = scheduled.slice().sort((a, b) => (Date.parse(a.scheduledAt) || 0) - (Date.parse(b.scheduledAt) || 0)).map((task) => ({
+      id: task.id,
+      title: task.title || task.prompt || task.id,
+      subtitle: (task.status === 'active' ? scheduleUtil.fullRule(task) + ' · ' + scheduleUtil.formatDate(task.scheduledAt) : uiText('已结束')),
+      status: task.status === 'active' ? 'running' : 'done',
+      statusText: task.status === 'active' ? uiText('已开启') : uiText('已结束'),
+      canOpen: false,
+      scheduleTask: true
+    }));
+    let rows = result[this.data.collaborationTab] || [];
+    if (this.data.collaborationTab === 'calls') {
+      rows = calls.slice(-200).reverse().map(row => ({
+        id:row.key,title:row.label,subtitle:row.preview,status:row.isError ? 'failed' : row.completed ? 'done' : row.stopped ? 'unknown' : 'running',
+        statusText:uiText(row.isError ? '失败' : row.completed ? '已完成' : row.stopped ? '未完成' : '运行中'),canOpen:true
+      }));
+    } else if (this.data.collaborationTab === 'schedule') {
+      rows = scheduleRows;
+    } else if (this.data.collaborationTab === 'background') {
+      rows = runningChildren.map((child) => ({
+        id: child.id,
+        title: child.title,
+        subtitle: uiText('子智能体') + (child.subtitle ? ' · ' + child.subtitle : ''),
+        status: 'running',
+        statusText: child.statusText || uiText('运行中'),
+        canOpen: !!child.canOpen
+      })).concat(runningTasks.map((task) => ({
+        id: task.id,
+        title: task.title,
+        subtitle: uiText('团队任务') + (task.subtitle ? ' · ' + task.subtitle : ''),
+        status: 'running',
+        statusText: task.statusText || uiText('运行中'),
+        canOpen: false
+      })));
+    }
+    const note = this.data.collaborationTab === 'calls'
+      ? (calls.length > 200 ? uiText('仅显示最近 200 次调用') : uiText('已加载的调用'))
+      : this.data.collaborationTab === 'schedule'
+        ? (app && app.scheduledTasksError ? app.scheduledTasksError : uiText('自动化任务'))
+        : result.note;
+    return { ...patch,collaborationTabs:tabs,collaborationRows:rows,collaborationNote:note };
   },
   openCollaboration() {
     this.cancelVoice(); this.prioritizeInteraction();
@@ -3046,7 +3213,10 @@ Page({
   },
   selectCollaborationTab(e) {
     const tab = e.currentTarget.dataset.id;
-    if (!['members','children','tasks','calls'].includes(tab)) return;
+    if (tab === 'schedule' && typeof store.refreshScheduledTasks === 'function') {
+      store.refreshScheduledTasks();
+    }
+    if (!['members','children','tasks','calls','background','schedule'].includes(tab)) return;
     this._collaborationRequest = null; this.setData({collaborationTab:tab,collaborationPreview:null}); this.setData(this.collaborationPatch());
   },
   refreshCollaboration() {
@@ -3068,6 +3238,11 @@ Page({
     const row=(this.data.collaborationRows || []).find(item=>item.id===id) ||
       ((this.data.collaborationPreview || {}).children || []).find(item=>item.id===id);
     if (!row || !this.data.collaborationOpen) return;
+    if (row.scheduleTask) {
+      this.closeCollaboration();
+      wx.navigateTo({ url: '/pages/schedule/schedule' });
+      return;
+    }
     if (this.data.collaborationTab === 'calls' && !this.data.collaborationPreview) {
       this.closeCollaboration(); this.trajectoryPatch(); this.openTraceDetail({currentTarget:{dataset:{key:id}}}); return;
     }
@@ -3080,17 +3255,41 @@ Page({
     const current=()=>!this._unloaded && !this._voiceHidden && this.data.collaborationOpen && this._collaborationRequest===request &&
       client===store.client && generation===client.connectGeneration && sessionId===store.sessionState.sessionId;
     this.setData({collaborationPreview:{id,title:row.title,loading:true,rows:[],children:[]}});
+    // 预览子会话时加本地超时：网关不返回时给出可读提示，而不是一直「正在加载记录」
+    const timeout = new Promise((_, reject) => setTimeout(() => {
+      const error = new Error(uiText('记录请求超时，请重新连接后重试'));
+      error.code = 'INSPECTOR_TIMEOUT';
+      reject(error);
+    }, 8000));
     try {
       if (!store.state || store.state.connection !== 'connected') throw Error('offline');
-      const frame=await client.inspectSession(id); if(!current())return;
+      if (typeof client.cancelInspector === 'function') client.cancelInspector(id);
+      const frame=await Promise.race([client.inspectSession(id), timeout]); if(!current())return;
       if(frame.sessionId!==id || !Array.isArray(frame.events))throw Error('invalid history');
       const state=collaboration.create(id);collaboration.baseline(state,frame.projections);collaboration.ingest(state,frame.events);
       const childView=collaboration.view(state,store.state.sessions,{sessionId:id},true);
       const agg=protocol.newAggregator();
       frame.events.slice().sort((a,b)=>a.seq-b.seq).forEach(event=>protocol.applyEvent(agg,protocol.normalizeRawEvent(event,id)));
-      const rows=agg.rows.filter(item=>['user','assistant'].includes(item.kind) && item.text).slice(-20).map(item=>({key:item.key,role:uiText(item.kind==='user'?'用户':'助手'),text:item.text.slice(0,20000)}));
+      // 子智能体预览：展示网关返回记录里的全部用户/助手消息，不再只截取最近 20 条
+      const rows=agg.rows.filter(item=>['user','assistant'].includes(item.kind) && item.text).map(item=>({
+        key:item.key,
+        role:uiText(item.kind==='user'?'用户':'助手'),
+        text:String(item.text).slice(0,50000)
+      }));
       this.setData({collaborationPreview:{id,title:row.title,loading:false,rows,children:childView.children.filter(item=>item.id!==id && item.id!==sessionId),hasMore:frame.hasMore===true}});
-    } catch (error) { if(current())this.setData({collaborationPreview:{id,title:row.title,error:true,errorText:error && error.code==='INSPECTOR_TIMEOUT' ? uiText('记录请求超时，请重新连接后重试') : uiText('加载记录失败，请重试'),rows:[],children:[]}}); }
+    } catch (error) {
+      if (typeof client.cancelInspector === 'function') client.cancelInspector(id);
+      if (!current()) return;
+      const timedOut = error && error.code === 'INSPECTOR_TIMEOUT';
+      this.setData({collaborationPreview:{
+        id,
+        title: row.title,
+        error: true,
+        errorText: timedOut ? uiText('记录请求超时，请重新连接后重试') : uiText('加载记录失败，请重试'),
+        rows: row.subtitle ? [{ key: 'summary', role: row.statusText || '', text: row.subtitle }] : [],
+        children: []
+      }});
+    }
   },
 
   // ---------- 轨迹详情 ----------
@@ -3206,6 +3405,7 @@ function goalPhaseLabel(phase) {
     case 'blocked': return uiText('受阻的目标');
     default: return uiText('当前目标');
   }
+
 }
 
 function isRunning(rows) {

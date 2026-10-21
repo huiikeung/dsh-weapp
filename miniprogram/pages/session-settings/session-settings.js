@@ -5,11 +5,13 @@ const theme = require('../../utils/theme');
 const { nodePresentation } = require('../../utils/node-presentation');
 const { hostDisplay } = require('../../utils/host-info');
 const { clientVersion } = require('../../utils/version-info');
+const accountView = require('../../utils/account-view');
+const preferences = require('../../utils/ui-preferences');
 const CONNECTION_LABELS = { disconnected: uiText('未连接'), connecting: uiText('连接中'), connected: uiText('已连接'), failed: uiText('连接失败') };
 
 Page({
   manualShareMenu: true,
-  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true },
+  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true, dshAccount: accountView.normalize({}), dshAccountBusy: false },
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onLoad() {
     this._alive = true;
@@ -18,6 +20,7 @@ Page({
     this.setData(clientVersion(wx));
     this.unsubscribe = store.subscribe(snapshot => this.syncFromStore(snapshot));
     this.syncFromStore({ app: store.state });
+    this.refreshDshAccount();
     if (store.state.connection === 'connected') {
       ['requestHost', 'requestDefaultModel', 'requestModels'].forEach(method => {
         if (typeof store.client[method] !== 'function') return;
@@ -47,8 +50,35 @@ Page({
   goBack() {
     wx.navigateBack({ fail() { wx.reLaunch({ url: '/pages/home/home' }); } });
   },
-  onUnload() { this._alive = false; if (this.unsubscribe) this.unsubscribe(); },
-  onHide() { this.setData({ utilitySheet: '', cacheError: '' }); },
+
+  refreshDshAccount() {
+    if (this.data.dshAccountBusy || store.state.connection !== 'connected' || !store.client || typeof store.client.requestAccount !== 'function') return;
+    const generation = this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1;
+    const owner = store.state.activeID;
+    const version = clientVersion(wx).appVersion || '0.0.0';
+    let locale = 'zh';
+    try { locale = preferences.locale(); } catch (_) {}
+    const client = { version, locale, timezoneOffsetSeconds: -(new Date()).getTimezoneOffset() * 60 };
+    this.setData({ dshAccountBusy: true });
+    store.client.requestAccount(client).then(snapshot => {
+      if (generation !== this._dshAccountGeneration || this._alive === false || owner !== store.state.activeID) return;
+      this.setData({ dshAccount: accountView.normalize(snapshot) });
+    }).catch(error => {
+      if (generation !== this._dshAccountGeneration || this._alive === false || owner !== store.state.activeID) return;
+      this.setData({ dshAccount: accountView.normalize({ error: error.message || uiText('账号信息读取失败') }) });
+    }).finally(() => {
+      if (generation === this._dshAccountGeneration) this.setData({ dshAccountBusy: false });
+    });
+  },
+
+  openDshAccountLink(e) {
+    const url = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.url;
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) return;
+    if (typeof wx.openUrl === 'function') wx.openUrl({ url });
+    else wx.setClipboardData({ data: url });
+  },
+  onUnload() { this._alive = false; this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1; if (this.unsubscribe) this.unsubscribe(); },
+  onHide() { this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1; this.setData({ utilitySheet: '', cacheError: '', dshAccountBusy: false }); },
   syncFromStore(snapshot) {
     const app = snapshot.app;
     const defaults = app.defaults || {};

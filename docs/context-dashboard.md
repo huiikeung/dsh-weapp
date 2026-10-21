@@ -1,0 +1,254 @@
+# 会话「上下文」面板（移植 dsh-context）实现契约 v1
+
+目标：把 `dsh-context` 插件的上下文洞察能力移植进小程序会话页，作为与
+「对话」「轨迹」同一排的第三个分段 **「上下文」**。数据由小程序网关
+（`dsh-plugin-mobile-gateway` / `dsh-plugin-weapp-gateway`）内新增的
+session projection + 查询帧提供；小程序端只渲染，不重算事件日志。
+
+参考实现：`bowenliang123/dsh-context` v0.74.0（Apache-2.0），本仓库只移植
+其「Context tab」核心卡片，不含 Fleet/编队、Context Browser 全文、File Activity、
+记忆系统与 Context Insights 独立页。
+
+## 1. 数据来源与分块
+
+| 数据 | 来源 |
+| --- | --- |
+| 当前组成 `current`、请求趋势 `requests`、上下文事件 `events`、工具调用计数、耗时 `wallMs`、注入/压缩/剪枝计数、技能加载数 | 本仓库网关桥新增投影 `mobileContext` |
+| 官方组成 `breakdown`（system/tools/messages） | DSH 自带 `contextBreakdown` 投影（同一次 history 快照里读取） |
+| 计费 token `usage` | DSH 自带 `tokenUsage` 投影 |
+| 轮次/步骤/耗时 | DSH 自带 `sessionStats` 投影 |
+
+投影由 `scripts/install-context-bridge.cjs` 注入**实际生效的**网关插件（两种网关都支持。
+桌面 profile 的 `dependencies` 可能用 `link:` 指向独立 checkout，先
+`readlink ~/.dsh/profiles/desktop/node_modules/dsh-plugin-weapp-gateway` 解析真实目录再安装），
+小程序通过 `context-dashboard` 帧读取。旧网关/未安装桥时返回
+`context-unavailable`，小程序显示可操作的空态（提示升级网关），不报错崩溃。
+
+## 2. Host 侧：`mobileContext` 投影
+
+- key：`mobileContext`，`stateVersion: 1`。
+- 注册：网关插件 `apply()` 内 `ctx.inject(['sessionProjections'], ...)` 注册；
+  桥文件 `scripts/lib/context-bridge.mjs` 自包含（除 `zod` 外不依赖 DSH 包）。
+- fold 规则对齐 DSH `dsh-token-meter`（保证 `systemTokens/toolsTokens/messageTokens`
+  与官方 `contextBreakdown` 精确一致），分类对齐 `dsh-context/src/host/fold.ts`：
+  - 事件集合：`system/message`、`developer/message`、`user/message`、
+    `assistant/message`、`tool/result`（仅当事件带 `surfaceOp`）。
+  - token 估算：DSH 固定密度启发式（4 字符 ≈ 1 token，每 block +4，role +4；
+    image block 按结构 JSON 估算；`system/message` 用系统提示词公式）。
+  - `request/header` → `toolsTokens = ceil(JSON.stringify(canonicalHeader(header).tools).length/4)+4`，
+    并记录 `config.model/provider`。
+  - `request/context` → `contextWindow/model/provider`。
+  - `surfaceOp` 为 `{op:'replace',startSeq,endSeq}` 的替换事件：找到节点区间
+    splice 替换（与 DSH breakdown 一致）；找不到端点时退化为 append。
+  - 分类：`assistant/message`→assistant；`tool/result`→tool；
+    `developer/message`→inject；`source.kind` 为 `user` 或缺失→user；
+    `source.kind` 为 `skill-invocation`/`skill-catalog`→skill；其余→inject。
+    配对的 tool 名为 `skill` 且结果文本含 `<skill_content name="…">` 时，该
+    tool/result 改判 skill（技能加载），并从 tool 移到 skill。
+    `system/message` 不计入 5 类，只更新 `systemTokens`。
+  - 计数：`humanInputs`（非注入 user/message）、`answers`（有文本的 assistant/message，
+    客户端显示为「模型回复」）、`toolCalls`（有成对 call 名的 tool/result，按名计数）、
+    `skillLoads`（skill 工具加载 + `/skill` 调用，不含 skills 目录注入）、
+    `injects`、`compactions`、`prunes`。
+  - **休眠 system 节点**：replace 型 `system/message` 会就地替换旧节点；从未被替换、
+    且不是当前生效节点的旧 system 节点（append 后残留）称为 dormant。
+    `current.system` 只取「最后一个非空 system 节点」（与 harness 的规则一致），
+    其余 dormant system 节点不计入 5 类。因此 `sums` 合计 = 官方 `messageTokens` −
+    dormant system 节点 token；客户端 Token 卡用官方 `breakdown` 锚定总数，比例来自
+    `current`，与 dsh-context 行为一致。
+  - `requests`：每个 `assistant/message` 在把该回复加入 surface **之前**记录一条
+    `{seq,time,turn,step,system,tools,user,inject,skill,assistant,tool,total}`；
+    只保留最近 300 条，超出置 `truncated.requests=true`。
+  - `events`：`inject/compaction/prune`（注入来自 user/developer 非普通用户消息、
+    技能加载；压缩/剪枝来自 `compaction/summary` / `compaction/prune`），保留最近 120 条。
+  - `wallMs`：`step/start`→`step/end` 累计，减去审批等待（`approval/asked`→`approval/decided`）
+    与 `ask_user_question` 工具等待。
+  - `tool/call` 记录 `callId → {name,start}`，`tool/result` 消费并配对。
+  - 压缩/剪枝的 token 回收量：`compaction/summary|prune.data.shadowedTokenCount` 原样计入事件。
+
+状态上限（防止缓存膨胀）：surface 节点 4000、requests 300、events 120；
+裁剪 surface 时同步扣减分类合计，并置 `truncated.surface=true`。
+
+### 2.1 投影 wire view
+
+```json
+{
+  "v": 1,
+  "model": "glm-5.3-flash",
+  "provider": "zaicoding",
+  "contextWindow": 262144,
+  "current": {"system":2154,"tools":10439,"user":123,"inject":456,"skill":78,"assistant":9000,"tool":3000,"total":25250},
+  "counts": {"humanInputs":12,"answers":16,"toolCalls":4304,"skillLoads":0,"injects":700,"compactions":12,"prunes":42},
+  "tools": {"total":4304,"names":[{"name":"bash","count":221},{"name":"read","count":32}]},
+  "timing": {"wallMs":4980000},
+  "requests": [{"seq":53,"time":1791807408490,"turn":2,"step":1,"system":2154,"tools":10439,"total":12593}],
+  "events": [{"seq":1065,"time":1791818836065,"kind":"compaction","tokens":128609,"count":279}],
+  "truncated": {"requests":false,"events":false,"surface":false}
+}
+```
+
+`tools.names` 按 count 降序，最多 20 项；其余由客户端显示为「其他 +N」。
+`requests` 记录只输出大于 0 的分类键（`system`/`tools`/`total` 恒有），客户端
+缺失键按 0 处理。所有字段必须是无 `undefined` 的纯 JSON。
+
+## 3. 网关查询帧
+
+请求：`{"type":"context-dashboard","sessionId":"<id>"}`
+
+响应：
+```json
+{
+  "kind": "context-dashboard",
+  "sessionId": "session-abc",
+  "asOfSeq": 32619,
+  "value": {
+    "...": "mobileContext wire view",
+    "breakdown": {"systemTokens":2154,"toolsTokens":10439,"messageTokens":475830},
+    "usage": {"uncachedInputTokens":18428410,"outputTokens":2005193,"cacheReadTokens":1418019922,"cacheWriteTokens":757534},
+    "stats": {"turns":476,"steps":4586,"llmMs":42456270,"toolMs":12253849,"ttftMs":19504165,"ttftSteps":4566,"decodeMs":22898931,"decodeTokens":2005193}
+  }
+}
+```
+
+不可用：`{"kind":"error","code":"context-unavailable","requestType":"context-dashboard","sessionId":"…","message":"…"}`
+（旧网关：未知 type 会回 `unknown-command`；小程序两种都按「需升级网关」处理。）
+
+## 4. 客户端派生规则（对齐 dsh-context）
+
+- `input = uncachedInputTokens + cacheReadTokens + cacheWriteTokens`；
+  `total = input + outputTokens`（与输入框统计条同一口径）。
+- 组成分类（固定顺序与颜色语义）：
+  1. 系统提示词 `system`
+  2. 工具定义 `tools`
+  3. 用户消息 `user`
+  4. 注入内容 `inject`
+  5. 技能注入 `skill`
+  6. 助手消息 `assistant`
+  7. 工具结果 `tool`
+  8. 输出 `output`（provider 精确值，不参与 ≈）
+- 官方值锚定：`system = breakdown.systemTokens ?? current.system`，
+  `tools = breakdown.toolsTokens ?? current.tools`，
+  `messages = breakdown.messageTokens ?? (user+inject+skill+assistant+tool)`；
+  五类消息按 `current` 比例拆分（最大类吸收四舍五入残差）。
+- 计费分摊：把上面估算的 prompt 组成按比例缩放到 `input`，`output` 原值。
+  估算项显示 `≈`，`output` 精确；总数为精确值。
+- 缓存命中率：`cacheReadTokens / input * 100`（一位小数）。
+- 耗时：模型等待 = `ttftMs`/`ttftSteps` 次；模型回复 = `decodeMs`/`answers` 次
+  （answers 为 0 时退回 `stats.steps`）；工具执行 = `toolMs`/`toolCalls` 次；
+  活跃时长 = `timing.wallMs`。
+- 上下文事件：注入 = `injects`、压缩 = `compactions`、剪枝 = `prunes`。
+- 趋势图：`requests` 升序，每根柱按 7 类组成堆叠（system/tools/user/inject/skill/assistant/tool），
+  柱高 = `total`；`events` 中 compaction/prune 在对应 seq 处标 `✂`。
+  `requests.length > 120` 时按 turn 聚合（取该轮最后一条），避免柱子过密。
+
+## 5. 界面要求（v1）
+
+会话页分段新增「上下文」：`对话 | 轨迹 | 上下文`，与现有 segmented control
+同排同风格（含滑动手势：conversation ⇄ trajectory 保持，trajectory ⇄ context 也支持）。
+面板滚动区，卡片：
+
+1. **统计**
+   - 工具调用卡：总数 + 前 3 工具名及次数 + 「其他 +N」。
+   - 当前会话卡：轮次、步数、技能加载、模型回复（2×2）。
+   - 上下文事件卡：注入 / 压缩 / 剪枝 三个 chip 计数。
+   - 会话用量卡：总 token（75.2M 格式）+ 缓存命中率。
+2. **Token 统计**：组成条（横向堆叠色条或环形）+ 8 行图例（色点、名称、百分比、≈token）；
+   标题右侧缓存命中率；总数居中/置顶。
+3. **耗时统计**：活跃时长大字 + 三段横向条（模型等待/模型回复/工具执行），
+   每段显示百分比、时长、次数。
+4. **上下文趋势**：横向滚动堆叠柱图 + 压缩标记 + 轮次轴；无需交互详情。
+5. **上下文事件**（可选）：最近事件列表（时间、类型、名称、token 变化）。
+
+> 统计卡中的 Agent 网络/编队属后续版本；v1 用「会话用量」卡（总 token + 缓存命中率）替代。
+
+### 5.1 已在真实会话上验证的口径（32620 事件、v4 日志）
+
+- `current.system` = 2154、`current.tools` = 10439，与 DSH `contextBreakdown` 精确一致；
+  5 类合计 471523 = `messageTokens`(475830) − 休眠 system 节点(4307)。
+- 计数：humanInputs 502、answers 1233、toolCalls 4262、skillLoads 5、injects 278、
+  compactions 12、prunes 42；`tools.names` 前 20 截断。
+- `requests` 截断为 300 条（`truncated.requests=true`）、`events` 120 条；
+  wire 大小 ≈ 59KB（< 200KB 预算），fold 全量 32.6k 事件耗时 ≈ 260ms。
+
+状态：
+- 加载中：骨架/spinner；
+- 无会话/未连接：提示；
+- `context-unavailable`/`unknown-command`：提示「需升级网关以显示上下文」；
+- 其他错误：错误文案 + 重试按钮。
+刷新：进入 tab、回合结束（turn/end 后 800ms 内）、手动点卡片区刷新。
+深浅色、i18n（中文/英文）与现有页面一致。数字缩写：`k`/`M`（一位小数）。
+
+## 6. 文件与职责
+
+| 文件 | 负责 |
+| --- | --- |
+| `scripts/lib/context-bridge.mjs` | 投影 fold + 查询 handler |
+| `scripts/install-context-bridge.cjs` | 注入两种已安装网关 |
+| `tests/context-bridge.test.js` | fold 单测 + 真实会话 oracle |
+| `miniprogram/utils/context-view.js` | 纯数据派生（token 分摊、耗时、趋势聚合） |
+| `miniprogram/utils/gateway.js` | `requestContextDashboard` |
+| `miniprogram/utils/store.js` | 帧处理与状态 |
+| `miniprogram/pages/session/session.{js,wxml,wxss}` | 分段与面板 |
+| `resources/i18n/*.json` + `miniprogram/i18n/*.js` | 文案 |
+| `tests/context-view.test.js` | 派生规则单测 |
+| `README.md`、`CHANGELOG.md`、`docs/` | 文档 |
+
+## 7. 「编队」分段（Fleet，v1.1）
+
+同一排第四个分段「编队」展示当前 Agent 的家族网络（当前 Agent、父链、全部
+子 Agent）。数据由网关桥新增 `context-fleet` 请求在宿主侧汇总，小程序只渲染。
+
+### 7.1 Host 侧数据来源
+
+- `ctx.sessions.list()`：每行的 `header` 含 `parentSession` / `origin` / `createdAt`；
+  `origin === 'subagent'` 的行是子 Agent。
+- 由当前会话沿 `parentSession` 上溯到 root，再从 root 按 `origin === 'subagent'`
+  的 `parentSession` 关系下溯，得到家族（最多 40 个 Agent）。
+- 每个家族会话读取一次投影快照（`ctx.sessionProjections.snapshot(session)`）：
+  `title`、`contextPressure`、`tokenUsage`、`sessionStats`、`subagentTiming`、
+  `subagent`（mode/label）、本桥的 `mobileContext.current`。
+- `running`：`ctx.agents.get(sessionId)?.status === 'running'`（无 agents 服务时一律 false）。
+
+### 7.2 请求/响应
+
+请求：`{"type":"context-fleet","sessionId":"<当前会话 id>"}`
+
+响应：
+```json
+{
+  "kind": "context-fleet",
+  "sessionId": "session-abc",
+  "value": {
+    "rootSessionId": "session-root",
+    "currentSessionId": "session-abc",
+    "agents": [
+      {
+        "sessionId": "session-root", "title": "主会话", "depth": 0,
+        "isCurrent": false, "isRoot": true, "running": false,
+        "mode": null, "createdAt": 1791806835279,
+        "model": "glm-5.3-flash", "provider": "zaicoding",
+        "contextWindow": 262144, "pressureTokens": 1500,
+        "tokensTotal": 10461, "turns": 2, "steps": 3, "activeMs": 12000,
+        "composition": {"system":2154,"tools":10439,"user":120,"inject":0,"skill":0,"assistant":900,"tool":300,"total":13913}
+      }
+    ],
+    "counts": {"agents": 1, "running": 0, "subagents": 0}
+  }
+}
+```
+
+- 顺序：root 起 DFS 先序，同层按 `createdAt` 升序；`isCurrent` 标记当前会话。
+- `mode`：`one-shot` / `continuable` / `null`（root 或未记录）。
+- 不可用时与 `context-dashboard` 相同：`context-unavailable` / `unknown-command`。
+- 所有字段纯 JSON、无 `undefined`；单个会话快照失败时该 Agent 保留基础字段
+  （sessionId/title/parent/depth），其余字段省略。
+
+### 7.3 客户端展示
+
+- 顶部总览：Agent 数、运行中数量、家族总 token。
+- Agent 卡片按 depth 缩进：标题（子 Agent 用 label/title）、运行中脉冲点、
+  上下文占用条（`pressureTokens/contextWindow`）、7 类组成色条、token、轮次/步数、
+  模式徽标；当前 Agent 高亮描边。
+- 点击卡片打开该 Agent 的会话并切到「上下文」分段。
+- 状态：loading / 未连接 / 无会话 / unsupported（需升级网关）/ error+重试；
+  进入分段、回合结束、手动刷新时拉取。

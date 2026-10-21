@@ -1,27 +1,27 @@
 <page-meta page-style="{{pageStyle}}" />
 <view class="page session {{themeClass}}" style="{{contentFontStyle}}">
+  <!-- 顶部区域：导航 + 切换栏，背景遮罩截止到切换下划线 -->
+  <view class="session-header">
   <!-- 顶部导航：标题居中，右侧连接状态、模式与菜单 -->
   <view class="navbar" style="{{navbarStyle}}">
     <view class="nav-back tap" hover-class="press-dim" bindtap="goBack">
       <image class="nav-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
     </view>
     <view class="nav-title"><view class="nav-title-inner">{{navTitle}}</view></view>
-    <view class="nav-preset">
-      <view class="status-dot {{connState}}"></view>
-      <text>{{ui[presetLabel] !== undefined ? ui[presetLabel] : presetLabel}}</text>
+    <view class="collab-trigger nav-collab {{collaborationOpen ? 'selected' : ''}}" bindtap="openCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['协作详情']}}">
+      <image class="collab-icon" src="/assets/icons/{{theme === 'dark' ? 'dsh-team-dark.svg' : 'dsh-team.svg'}}" mode="aspectFit"/>
+      <text wx:if="{{collaborationCount}}" class="collab-count">{{collaborationCount}}</text>
+      <view wx:if="{{collaborationActive}}" class="collab-active-dot" aria-label="{{ui['运行中']}}"/>
     </view>
   </view>
 
-  <!-- 对话 / 轨迹 segmented control + 圆形菜单 -->
+  <!-- 对话 / 轨迹 / 上下文 / 编队 segmented control + 圆形菜单 -->
   <view class="segmented-row">
-    <view class="collab-trigger {{collaborationOpen ? 'selected' : ''}}" bindtap="openCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['协作详情']}}">
-      <image class="collab-icon" src="/assets/icons/{{theme === 'dark' ? 'dsh-team-dark.svg' : 'dsh-team.svg'}}" mode="aspectFit"/>
-      <text>{{ui['协作']}}</text><text wx:if="{{collaborationCount}}" class="collab-count">{{collaborationCount}}</text>
-      <view wx:if="{{collaborationActive}}" class="collab-active-dot" aria-label="{{ui['运行中']}}"/>
-    </view>
     <view class="segmented">
       <view class="segment {{tab === 'conversation' ? 'active' : ''}}" bindtap="switchTab" data-tab="conversation" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['对话']}}">{{ui['对话']}}</view>
       <view class="segment {{tab === 'trajectory' ? 'active' : ''}}" bindtap="switchTab" data-tab="trajectory" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['轨迹']}}">{{ui['轨迹']}}</view>
+      <view class="segment {{tab === 'context' ? 'active' : ''}}" bindtap="switchTab" data-tab="context" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['上下文']}}">{{ui['上下文']}}</view>
+      <view class="segment {{tab === 'fleet' ? 'active' : ''}}" bindtap="switchTab" data-tab="fleet" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['编队']}}">{{ui['编队']}}</view>
     </view>
     <view class="nav-actions">
       <view class="nav-more glass-press" bindtap="moreActions" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['更多']}}"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
@@ -29,6 +29,7 @@
         <view class="session-switch-lines" aria-hidden="true"><view/><view/><view/></view>
       </view>
     </view>
+  </view>
   </view>
 
   <!-- ================= 对话（对齐 iOS ConversationView chat ZStack） ================= -->
@@ -94,7 +95,7 @@
     </view>
 
     <view style="height:{{conversationTopSpace}}px" aria-hidden="true"></view>
-    <view wx:for="{{rows}}" wx:key="key" class="conversation-window-row">
+    <view wx:for="{{rows}}" wx:for-index="rowIndex" wx:key="key" class="conversation-window-row {{item.kind === 'files' || item.kind === 'changes' ? 'row-file-card' : ''}}">
       <!-- 用户消息（iOS ConversationRow .user：右对齐海蓝气泡 + 气泡下复制钮） -->
       <view wx:if="{{item.kind === 'user'}}" class="row-user" id="{{item.key}}">
         <view wx:if="{{item.images.length === 1}}" class="user-image-single {{item.text ? 'with-text' : ''}}" style="{{item.singleStyle}}">
@@ -114,6 +115,12 @@
         </view>
         <view wx:if="{{item.text}}" class="row-user-bubble">
           <view class="row-user-text">{{item.text}}</view>
+        </view>
+        <view wx:if="{{item.attachments && item.attachments.length}}" class="message-attachments">
+          <view wx:for="{{item.attachments}}" wx:for-item="att" wx:for-index="attachmentIndex" wx:key="index" wx:if="{{att.kind !== 'image'}}" class="message-attachment" bindtap="openMessageAttachment" data-row-index="{{rowIndex}}" data-attachment-index="{{attachmentIndex}}">
+            <image class="message-attachment-icon" src="{{att.kind === 'directory' ? '/assets/icons/ic-dir-folder-ink.png' : '/assets/icons/paperclip-gray.png'}}" mode="aspectFit"/>
+            <view class="message-attachment-copy"><text class="message-attachment-name">{{att.name || att.path || '文件附件'}}</text><text wx:if="{{att.path && att.name !== att.path}}" class="message-attachment-path">{{att.path}}</text></view>
+          </view>
         </view>
         <view wx:if="{{item.copyText}}" class="copy-btn" bindtap="copyAssistantText" data-key="{{item.key}}" data-text="{{item.copyText}}">
           <image class="copy-ic" src="{{copiedKey === item.key ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/>
@@ -264,6 +271,12 @@
             data-id="{{img.attachmentId}}"
           />
         </view>
+        <view wx:if="{{item.attachments && item.attachments.length}}" class="message-attachments assistant-attachments">
+          <view wx:for="{{item.attachments}}" wx:for-item="att" wx:for-index="attachmentIndex" wx:key="index" wx:if="{{att.kind !== 'image'}}" class="message-attachment" bindtap="openMessageAttachment" data-row-index="{{rowIndex}}" data-attachment-index="{{attachmentIndex}}">
+            <image class="message-attachment-icon" src="{{att.kind === 'directory' ? '/assets/icons/ic-dir-folder-ink.png' : '/assets/icons/paperclip-gray.png'}}" mode="aspectFit"/>
+            <view class="message-attachment-copy"><text class="message-attachment-name">{{att.name || att.path || '文件附件'}}</text><text wx:if="{{att.path && att.name !== att.path}}" class="message-attachment-path">{{att.path}}</text></view>
+          </view>
+        </view>
         <view wx:if="{{item.copyText}}" class="copy-btn" bindtap="copyAssistantText" data-key="{{item.key}}" data-text="{{item.copyText}}">
           <image class="copy-ic" src="{{copiedKey === item.key ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/>
         </view>
@@ -357,6 +370,231 @@
         </block>
         <view wx:if="{{!trajectory.length && !historyLoading}}" class="empty">{{histError || ui['暂无轨迹事件']}}</view>
       </view>
+    </scroll-view>
+  </view>
+
+  <!-- ================= 上下文：dsh-context Context tab 移植 ================= -->
+  <view wx:if="{{contextMounted}}" hidden="{{tab !== 'context'}}" class="context-panel {{tab !== 'context' ? 'session-panel-hidden' : ''}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
+    <view class="context-toolbar">
+      <text wx:if="{{contextPanel.meta.model}}" class="context-toolbar-title">{{contextPanel.meta.model}}</text>
+      <text wx:if="{{contextPanel.meta.contextWindowText}}" class="context-toolbar-meta">{{contextPanel.meta.contextWindowText}}</text>
+      <view class="context-toolbar-spacer"></view>
+      <view class="context-refresh {{contextPanel.loading ? 'busy' : ''}}" bindtap="refreshContextDashboard" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新上下文']}}">
+        <image class="context-refresh-ic" src="/assets/icons/{{theme === 'dark' ? 'refresh.png' : 'refresh-ink.png'}}" mode="aspectFit"/>
+      </view>
+    </view>
+    <scroll-view class="context-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+      <view wx:if="{{!contextPanel || contextPanel.status === 'loading'}}" class="context-state">
+        <view class="state-spinner"></view>
+        <text class="context-state-text">{{ui['正在加载上下文…']}}</text>
+        <view class="ctx-skeleton"><view class="ctx-skeleton-row"/><view class="ctx-skeleton-row"/><view class="ctx-skeleton-row"/></view>
+      </view>
+      <view wx:elif="{{contextPanel.status === 'disconnected' || contextPanel.status === 'empty'}}" class="context-state">
+        <text class="context-state-text">{{contextPanel.stateText}}</text>
+      </view>
+      <view wx:elif="{{contextPanel.status === 'unsupported'}}" class="context-state">
+        <text class="context-state-title">{{contextPanel.stateText}}</text>
+        <text class="context-state-text">{{contextPanel.hintText}}</text>
+      </view>
+      <view wx:elif="{{contextPanel.status === 'error'}}" class="context-state">
+        <text class="context-state-title">{{ui['上下文数据加载失败']}}</text>
+        <text class="context-state-text">{{contextPanel.errorText}}</text>
+        <view class="context-retry" bindtap="refreshContextDashboard" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['重试']}}">{{ui['重试']}}</view>
+      </view>
+      <block wx:else>
+        <!-- 统计 -->
+        <view class="ctx-card">
+          <view class="ctx-card-head">
+            <text class="ctx-card-title">{{ui['统计']}}</text>
+          </view>
+          <view class="ctx-grid">
+            <view class="ctx-tile">
+              <text class="ctx-tile-label">{{ui['工具调用']}}</text>
+              <text class="ctx-tile-value">{{contextPanel.stats.toolTotalText}}</text>
+              <view wx:for="{{contextPanel.stats.toolNames}}" wx:key="name" class="ctx-tool-row"><text class="ctx-tool-name">{{item.name}}</text><text class="ctx-tool-count">{{item.countText}}</text></view>
+              <text wx:if="{{contextPanel.stats.otherText}}" class="ctx-tile-sub">{{contextPanel.stats.otherText}}</text>
+            </view>
+            <view class="ctx-tile">
+              <text class="ctx-tile-label">{{ui['当前会话']}}</text>
+              <view class="ctx-metrics">
+                <view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.turnsText}}</text><text class="ctx-metric-label">{{ui['轮次']}}</text></view>
+                <view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.stepsText}}</text><text class="ctx-metric-label">{{ui['步数']}}</text></view>
+                <view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.skillsText}}</text><text class="ctx-metric-label">{{ui['技能加载']}}</text></view>
+                <view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.answersText}}</text><text class="ctx-metric-label">{{ui['模型回复']}}</text></view>
+              </view>
+            </view>
+            <view class="ctx-tile">
+              <text class="ctx-tile-label">{{ui['上下文事件']}}</text>
+              <view class="ctx-chips">
+                <view wx:for="{{contextPanel.stats.chips}}" wx:key="key" class="ctx-chip ctx-chip-{{item.key}}"><text class="ctx-chip-value">{{item.text}}</text><text class="ctx-chip-label">{{item.label}}</text></view>
+              </view>
+            </view>
+            <view class="ctx-tile">
+              <text class="ctx-tile-label">{{ui['会话用量']}}</text>
+              <text class="ctx-tile-value">{{contextPanel.stats.usageTotalText}}</text>
+              <text class="ctx-tile-sub">{{ui['缓存命中']}} {{contextPanel.stats.usageCacheText}}</text>
+            </view>
+          </view>
+        </view>
+
+        <!-- Token 统计 -->
+        <view class="ctx-card">
+          <view class="ctx-card-head">
+            <text class="ctx-card-title">{{ui['Token 统计']}}</text>
+            <text class="ctx-card-sub">{{ui['缓存命中']}} {{contextPanel.tokens.cacheHitText}}</text>
+          </view>
+          <view wx:if="{{!contextPanel.tokens.available}}" class="ctx-empty">{{ui['暂无 Token 用量']}}</view>
+          <block wx:else>
+            <view class="ctx-token-total">{{contextPanel.tokens.totalText}}<text class="ctx-token-total-unit"> tok</text></view>
+            <view class="ctx-compose"><view wx:for="{{contextPanel.tokens.bar}}" wx:key="key" class="ctx-compose-seg ctx-c-{{item.key}}" style="width:{{item.width}}%;"/></view>
+            <view class="ctx-legend">
+              <view wx:for="{{contextPanel.tokens.rows}}" wx:key="key" class="ctx-legend-row">
+                <view class="ctx-dot ctx-c-{{item.key}}"></view>
+                <text class="ctx-legend-name">{{item.label}}</text>
+                <text class="ctx-legend-pct">{{item.pct}}</text>
+                <text class="ctx-legend-value">{{item.display}}</text>
+              </view>
+            </view>
+          </block>
+        </view>
+
+        <!-- 耗时统计 -->
+        <view class="ctx-card">
+          <view class="ctx-card-head">
+            <text class="ctx-card-title">{{ui['耗时统计']}}</text>
+            <text class="ctx-card-sub">{{contextPanel.timing.activeLabel}} {{contextPanel.timing.activeText}}</text>
+          </view>
+          <view wx:if="{{!contextPanel.timing.hasData}}" class="ctx-empty">{{ui['暂无耗时数据']}}</view>
+          <block wx:else>
+            <view class="ctx-timing-bar"><view wx:for="{{contextPanel.timing.segments}}" wx:key="key" class="ctx-timing-seg ctx-t-{{item.key}}" style="width:{{item.width}}%;"/></view>
+            <view wx:for="{{contextPanel.timing.segments}}" wx:key="key" class="ctx-timing-row">
+              <view class="ctx-dot ctx-t-{{item.key}}"></view>
+              <text class="ctx-legend-name">{{item.label}}</text>
+              <text class="ctx-legend-pct">{{item.pctText}}</text>
+              <text class="ctx-legend-value">{{item.durationText}}</text>
+              <text class="ctx-timing-count">{{item.countText}}</text>
+            </view>
+          </block>
+        </view>
+
+        <!-- 上下文趋势 -->
+        <view class="ctx-card">
+          <view class="ctx-card-head">
+            <text class="ctx-card-title">{{ui['上下文趋势']}}</text>
+            <text wx:if="{{contextPanel.trend.aggregated}}" class="ctx-card-sub">{{ui['按轮聚合']}}</text>
+            <text class="ctx-card-sub">{{contextPanel.trend.count}}/{{contextPanel.trend.totalCount}}</text>
+          </view>
+          <view wx:if="{{contextPanel.trend.empty}}" class="ctx-empty">{{ui['暂无上下文数据']}}</view>
+          <scroll-view wx:else class="ctx-trend-scroll" scroll-x enhanced show-scrollbar="{{false}}" catchtouchstart="noop">
+            <view class="ctx-trend-track" style="width:{{contextPanel.trend.trackWidth}}rpx;">
+              <view class="ctx-trend-bars">
+                <view wx:for="{{contextPanel.trend.bars}}" wx:key="key" class="ctx-trend-col">
+                  <view class="ctx-trend-bar-wrap">
+                    <text wx:if="{{item.marker}}" class="ctx-trend-marker">{{item.marker}}</text>
+                    <view class="ctx-trend-bar {{item.hasData ? '' : 'empty'}}" style="height:{{item.height}}%;">
+                      <view wx:for="{{item.segments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-seg ctx-c-{{seg.key}}" style="flex:{{seg.weight}} 1 0;"/>
+                    </view>
+                  </view>
+                </view>
+              </view>
+              <view class="ctx-trend-axis">
+                <text wx:for="{{contextPanel.trend.axis}}" wx:key="key" class="ctx-trend-axis-label" style="left:{{item.left}}rpx;">{{item.text}}</text>
+              </view>
+            </view>
+          </scroll-view>
+        </view>
+
+        <!-- 最近上下文事件 -->
+        <view wx:if="{{contextPanel.events.rows.length}}" class="ctx-card">
+          <view class="ctx-card-head"><text class="ctx-card-title">{{ui['最近上下文事件']}}</text></view>
+          <view wx:for="{{contextPanel.events.rows}}" wx:key="key" class="ctx-event-row">
+            <text class="ctx-event-time">{{item.timeText}}</text>
+            <text class="ctx-event-kind ctx-e-{{item.kindClass}}">{{item.kindText}}</text>
+            <text class="ctx-event-name">{{item.name}}</text>
+            <text class="ctx-event-tokens">{{item.tokensText}}</text>
+            <text class="ctx-event-count">{{item.countText}}</text>
+          </view>
+        </view>
+        <view class="ctx-bottom-space"></view>
+      </block>
+    </scroll-view>
+  </view>
+
+  <!-- ================= 编队：当前 Agent 的家族网络 ================= -->
+  <view wx:if="{{fleetMounted}}" hidden="{{tab !== 'fleet'}}" class="fleet-panel {{tab !== 'fleet' ? 'session-panel-hidden' : ''}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
+    <view class="fleet-toolbar">
+      <text class="fleet-toolbar-title">{{ui['编队总览']}}</text>
+      <text wx:if="{{fleetPanel.status === 'ready'}}" class="fleet-toolbar-meta">{{ui['Agent 数量']}} {{fleetPanel.overview.agentsText}} · {{ui['运行中']}} {{fleetPanel.overview.runningText}}</text>
+      <view class="fleet-toolbar-spacer"></view>
+      <view class="fleet-refresh {{fleetPanel.loading ? 'busy' : ''}}" bindtap="refreshContextFleet" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新编队']}}">
+        <image class="fleet-refresh-ic" src="/assets/icons/{{theme === 'dark' ? 'refresh.png' : 'refresh-ink.png'}}" mode="aspectFit"/>
+      </view>
+    </view>
+    <scroll-view class="fleet-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+      <view wx:if="{{!fleetPanel || fleetPanel.status === 'loading'}}" class="fleet-state">
+        <view class="state-spinner"></view>
+        <text class="fleet-state-text">{{ui['正在加载编队…']}}</text>
+        <view class="ctx-skeleton"><view class="ctx-skeleton-row"/><view class="ctx-skeleton-row"/><view class="ctx-skeleton-row"/></view>
+      </view>
+      <view wx:elif="{{fleetPanel.status === 'disconnected' || fleetPanel.status === 'empty'}}" class="fleet-state">
+        <text class="fleet-state-text">{{fleetPanel.stateText}}</text>
+      </view>
+      <view wx:elif="{{fleetPanel.status === 'unsupported'}}" class="fleet-state">
+        <text class="fleet-state-title">{{fleetPanel.stateText}}</text>
+        <text class="fleet-state-text">{{fleetPanel.hintText}}</text>
+      </view>
+      <view wx:elif="{{fleetPanel.status === 'error'}}" class="fleet-state">
+        <text class="fleet-state-title">{{ui['编队数据加载失败']}}</text>
+        <text class="fleet-state-text">{{fleetPanel.errorText}}</text>
+        <view class="fleet-retry" bindtap="refreshContextFleet" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['重试']}}">{{ui['重试']}}</view>
+      </view>
+      <block wx:else>
+        <!-- 总览：Agent 数 / 运行中 / 家族总 token -->
+        <view class="fleet-overview">
+          <view class="fleet-overview-tile">
+            <text class="fleet-overview-value">{{fleetPanel.overview.agentsText}}</text>
+            <text class="fleet-overview-label">{{ui['Agent 数量']}}</text>
+            <text class="fleet-overview-sub">{{ui['子 Agent']}} {{fleetPanel.overview.subagentsText}}</text>
+          </view>
+          <view class="fleet-overview-tile">
+            <text class="fleet-overview-value">{{fleetPanel.overview.runningText}}</text>
+            <text class="fleet-overview-label">{{ui['运行中']}}</text>
+          </view>
+          <view class="fleet-overview-tile">
+            <view class="fleet-overview-value-row"><text class="fleet-overview-value">{{fleetPanel.overview.tokensText}}</text><text class="fleet-overview-unit"> tok</text></view>
+            <text class="fleet-overview-label">{{ui['家族 Token']}}</text>
+          </view>
+        </view>
+        <!-- Agent 卡片：按 depth 缩进，当前 Agent 高亮描边 -->
+        <view wx:for="{{fleetPanel.agents}}" wx:key="key" class="fleet-card {{item.isCurrent ? 'current' : ''}}" style="{{item.indentStyle}}" bindtap="openFleetAgent" data-id="{{item.sessionId}}" data-title="{{item.title}}" hover-class="fleet-card-pressed" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['点击查看上下文']}}">
+          <view class="fleet-card-head">
+            <view class="fleet-pulse {{item.running ? 'on' : ''}}"></view>
+            <text class="fleet-card-title">{{item.title}}</text>
+            <text wx:if="{{item.modeText}}" class="fleet-mode">{{item.modeText}}</text>
+          </view>
+          <view class="fleet-card-tags">
+            <text wx:if="{{item.isCurrent}}" class="fleet-tag fleet-tag-current">{{ui['当前 Agent']}}</text>
+            <text wx:elif="{{item.isRoot}}" class="fleet-tag fleet-tag-root">{{ui['根 Agent']}}</text>
+            <text class="fleet-card-state {{item.running ? 'running' : ''}}">{{item.stateText}}</text>
+          </view>
+          <view wx:if="{{item.occupancy.hasData}}" class="fleet-occupancy">
+            <view class="fleet-occupancy-head">
+              <text class="fleet-occupancy-label">{{ui['上下文占用']}}</text>
+              <text class="fleet-occupancy-pct">{{item.occupancy.pctText}}</text>
+              <text class="fleet-occupancy-tokens">{{item.occupancy.usedText}} / {{item.occupancy.windowText}}</text>
+            </view>
+            <view class="fleet-occupancy-bar"><view class="fleet-occupancy-fill" style="width:{{item.occupancy.width}}%;"/></view>
+          </view>
+          <view wx:if="{{item.composition.hasData}}" class="fleet-compose"><view wx:for="{{item.composition.segments}}" wx:for-item="seg" wx:key="key" class="fleet-compose-seg ctx-c-{{seg.key}}" style="width:{{seg.width}}%;"/></view>
+          <view class="fleet-card-foot">
+            <text class="fleet-card-metric">{{ui['轮次']}} {{item.turnsText}}</text>
+            <text class="fleet-card-metric">{{ui['步数']}} {{item.stepsText}}</text>
+            <text class="fleet-card-metric">{{ui['活跃时长']}} {{item.activeText}}</text>
+            <text class="fleet-card-token">{{ui['会话用量']}} {{item.tokensText}}</text>
+          </view>
+        </view>
+        <view class="ctx-bottom-space"></view>
+      </block>
     </scroll-view>
   </view>
 
@@ -851,6 +1089,15 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
       </view>
       <view class="collab-heading">
         <text class="collab-title">{{ui['协作']}}</text>
+        <view class="collab-mode">
+          <image
+            class="collab-mode-icon"
+            src="/assets/icons/{{connState === 'connected' ? (theme === 'dark' ? 'dsh-agent-green-dark.svg' : 'dsh-agent-green.svg') : (theme === 'dark' ? 'dsh-agent-dark.svg' : 'dsh-agent.svg')}}"
+            mode="aspectFit"
+            aria-hidden="true"
+          />
+          <text class="collab-mode-text">{{ui[presetLabel] !== undefined ? ui[presetLabel] : presetLabel}}</text>
+        </view>
         <view class="collab-action collab-refresh {{collaborationBusy ? 'busy' : ''}}" bindtap="refreshCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新协作状态']}}" aria-disabled="{{collaborationBusy}}">
           <view class="collab-action-disc"><image class="collab-action-icon" src="/assets/icons/sheet-refresh{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/></view>
         </view>
@@ -858,16 +1105,18 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           <view class="collab-action-disc"><image class="collab-action-icon" src="/assets/icons/collab-close{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/></view>
         </view>
       </view>
-      <view class="collab-tabs">
-        <view wx:for="{{collaborationTabs}}" wx:key="id" class="collab-tab {{collaborationTab === item.id ? 'active' : ''}}" bindtap="selectCollaborationTab" data-id="{{item.id}}" role="button" aria-label="{{item.label}} {{item.count}}" aria-pressed="{{collaborationTab === item.id}}" hover-class="press-dim" hover-start-time="0" hover-stay-time="60">
-          <view class="collab-tab-summary">
-            <image class="collab-tab-icon" src="/assets/icons/{{item.icon}}{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/>
-            <text class="collab-tab-count">{{item.count}}</text>
+      <scroll-view class="collab-tabs" scroll-x enhanced show-scrollbar="{{false}}" enable-flex>
+        <view class="collab-tabs-track">
+          <view wx:for="{{collaborationTabs}}" wx:key="id" class="collab-tab {{collaborationTab === item.id ? 'active' : ''}}" bindtap="selectCollaborationTab" data-id="{{item.id}}" role="button" aria-label="{{item.label}} {{item.count}}" aria-pressed="{{collaborationTab === item.id}}" hover-class="press-dim" hover-start-time="0" hover-stay-time="60">
+            <view class="collab-tab-summary">
+              <image class="collab-tab-icon" src="/assets/icons/{{item.icon}}{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/>
+              <text class="collab-tab-count">{{item.count}}</text>
+            </view>
+            <text class="collab-tab-label">{{item.label}}</text>
+            <view class="collab-tab-indicator" aria-hidden="true"/>
           </view>
-          <text class="collab-tab-label">{{item.label}}</text>
-          <view class="collab-tab-indicator" aria-hidden="true"/>
         </view>
-      </view>
+      </scroll-view>
       <scroll-view class="collab-scroll" scroll-y enhanced show-scrollbar="{{false}}">
         <view wx:if="{{collaborationPreview}}" class="collab-preview">
           <view class="collab-back" bindtap="backCollaborationList" role="button">‹ {{ui['返回列表']}}</view>

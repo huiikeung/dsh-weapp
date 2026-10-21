@@ -195,6 +195,20 @@
     catchtouchmove="noop"
   ></view>
 
+  <!-- 删除主机确认弹窗 -->
+  <view wx:if="{{hostDeleteOpen}}" class="host-confirm-mask" catchtap="cancelDeleteHosts" catchtouchmove="noop">
+    <view class="host-confirm" catchtap="noop" role="dialog" aria-label="{{hostDeleteTitle}}">
+      <view class="sheet-grabber"></view>
+      <view class="host-confirm-title">{{hostDeleteTitle}}</view>
+      <view wx:if="{{hostDeleteNames}}" class="host-confirm-names">{{hostDeleteNames}}</view>
+      <view class="host-confirm-body">{{ui['从 App 移除选中的']}} {{hostDeleteCount}} {{ui['台主机及连接凭证；网关上的会话和工作区不会被删除。再次连接需重新配对。']}}</view>
+      <view class="host-confirm-actions">
+        <view class="host-confirm-cancel" bindtap="cancelDeleteHosts" role="button">{{ui['取消']}}</view>
+        <view class="host-confirm-ok" bindtap="confirmDeleteHosts" role="button">{{hostDeleteCount > 1 ? ui['批量删除'] : ui['删除']}}</view>
+      </view>
+    </view>
+  </view>
+
   <!-- 切换主机 sheet（GatewaySwitcherSheet 对齐） -->
   <view wx:if="{{hostSheetOpen}}" class="host-mask" bindtap="closeHostSwitcher"></view>
   <view wx:if="{{hostSheetOpen}}" class="host-sheet {{hostSheetExpanded ? 'expanded' : ''}}">
