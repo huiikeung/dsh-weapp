@@ -19,7 +19,12 @@ Page({
     this.unsubscribe = store.subscribe(snapshot => this.syncFromStore(snapshot));
     this.syncFromStore({ app: store.state });
   },
-  onShow() { store.refreshScheduledTasks(); },
+  onShow() {
+    // 从会话页返回时上一轮创建请求一定已结束（成功或失败），
+    // 清掉页面级防重入标记，避免底部「新建」按钮因卡住的 creating 变灰不可点。
+    if (this.data.creating) this.setData({ creating: false });
+    store.refreshScheduledTasks();
+  },
   onUnload() { this.alive = false; this.historyRead++; if (this.unsubscribe) this.unsubscribe(); },
   syncFromStore(snapshot) {
     const app = snapshot.app, host = this.owner(), connected = app.connection === 'connected';
@@ -66,10 +71,21 @@ Page({
   onRetry() { store.refreshScheduledTasks(); },
   goBack() { if (this.data.editingOpen) { this.onEditCancel(); return; } if (this.data.selected) { this.closeDetail(); return; } wx.navigateBack({ fail() { wx.reLaunch({ url: '/pages/home/home' }); } }); },
   newTask() {
-    if (!this.data.connected || this.data.creating) return;
+    if (this.data.creating) return;
+    if (!this.data.connected) {
+      wx.showToast({ title: uiText('请先连接驭鲸 Harness'), icon: 'none' });
+      return;
+    }
     this.setData({ creating: true }); const host = this.owner();
     const creation = store.createAndOpenSession(store.state.currentWorkspaceId);
-    wx.navigateTo({ url: '/pages/session/session' });
+    wx.navigateTo({
+      url: '/pages/session/session',
+      fail: () => {
+        // 导航失败（页面栈满/路径异常）时恢复按钮并给出提示，不再静默无响应。
+        if (this.alive && this.owner() === host) this.setData({ creating: false });
+        wx.showToast({ title: uiText('打开会话失败，请重试'), icon: 'none' });
+      }
+    });
     creation.catch(() => {}).finally(() => { if (this.alive && this.owner() === host) this.setData({ creating: false }); });
   },
   openDetail(e) { const item = this.data.tasks.find(t => t.id === e.currentTarget.dataset.id); if (!item) return; this.historyRead++; this.setData({ selected: item, detailTab: 'rule', history: [], historyNext: '', historyError: '', historyLoading: false, historyPruned: false, historyRetention: '' }); },

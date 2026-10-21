@@ -9,9 +9,10 @@ const CONNECTION_LABELS = { disconnected: uiText('未连接'), connecting: uiTex
 
 Page({
   manualShareMenu: true,
-  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], sheetMaxH: 480, pickerListH: 348, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true },
+  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true },
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onLoad() {
+    this._alive = true;
     theme.applyTo(this);
     this.updateNavigationLayout();
     this.setData(clientVersion(wx));
@@ -39,13 +40,14 @@ Page({
     const capBottom = navPadTop + navHeight;
     const sheetMaxH = Math.max(240, Math.round(windowHeight - capBottom - 16));
     const pickerListH = Math.max(160, sheetMaxH - 132);   // 抓手+标题+底部安全区
-    this.setData({ navPadTop, navHeight, sheetMaxH, pickerListH });
+    const pickerCreatorListH = Math.max(120, pickerListH - 88);
+    this.setData({ navPadTop, navHeight, sheetMaxH, pickerListH, pickerCreatorListH });
   },
   onResize() { this.updateNavigationLayout(); },
   goBack() {
     wx.navigateBack({ fail() { wx.reLaunch({ url: '/pages/home/home' }); } });
   },
-  onUnload() { if (this.unsubscribe) this.unsubscribe(); },
+  onUnload() { this._alive = false; if (this.unsubscribe) this.unsubscribe(); },
   onHide() { this.setData({ utilitySheet: '', cacheError: '' }); },
   syncFromStore(snapshot) {
     const app = snapshot.app;
@@ -87,6 +89,38 @@ Page({
       brokenReason: p.brokenReason || (typeof p.broken === 'string' ? p.broken : ''),
       checked: p.id === current
     })), uiText('预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。'));
+  },
+
+  async createCustomAgentPreset() {
+    if (this.data.creatingPreset) return;
+    const ownerOf = () => store.state.activeID || store.state.gatewayId || store.state.endpoint || '';
+    const owner = ownerOf();
+    if (store.state.connection !== 'connected') {
+      wx.showToast({ title: uiText('请先连接网关'), icon: 'none' });
+      return;
+    }
+    this.setData({ creatingPreset: true });
+    try {
+      const roster = await store.client.requestAgentPresets();
+      if (!this._alive || owner !== ownerOf()) return;
+      if (!(roster && roster.presets || []).some(preset => preset.id === 'cordis')) {
+        throw new Error(uiText('当前 DSH 配置未提供创造模式'));
+      }
+      store.state.pendingAgentPresetCreator = { owner, workspaceId: store.state.currentWorkspaceId };
+      this.closePickerSheet();
+      const pages = getCurrentPages();
+      const homeIndex = pages.findIndex(page => page.route === 'pages/home/home');
+      const failed = () => {
+        store.state.pendingAgentPresetCreator = null;
+        wx.showToast({ title: uiText('无法打开新会话，请重试'), icon: 'none' });
+      };
+      if (homeIndex >= 0) wx.navigateBack({ delta: pages.length - 1 - homeIndex, fail: failed });
+      else wx.reLaunch({ url: '/pages/home/home', fail: failed });
+    } catch (error) {
+      if (this._alive) wx.showToast({ title: error.message || uiText('无法打开创造模式'), icon: 'none' });
+    } finally {
+      if (this._alive) this.setData({ creatingPreset: false });
+    }
   },
 
   pickDefaultModel() {
@@ -199,7 +233,8 @@ Page({
   // ---------- 通用选择弹窗（与设置页弹窗样式一致） ----------
 
   openPickerSheet(kind, title, options, intro) {
-    this.setData({ picker: kind, pickerTitle: title, pickerIntro: intro || '', pickerOptions: options || [] });
+    this.setData({ picker: kind, pickerTitle: title, pickerIntro: intro || '', pickerOptions: options || [],
+      presetCreatorAvailable: kind === 'preset' && (options || []).some(option => option.id === 'cordis') });
   },
 
 
@@ -236,7 +271,7 @@ Page({
   },
 
   closePickerSheet() {
-    this.setData({ picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [] });
+    this.setData({ picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false });
   },
 
   chooseModelEffort(e) {

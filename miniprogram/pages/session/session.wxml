@@ -904,39 +904,43 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
 
   <!-- 对话节点定位：全屏蒙版 + 垂直居中展开的对话大纲 -->
   <view hidden="{{!turnNavOpen}}" class="turn-overlay {{!turnNavOpen ? 'session-panel-hidden' : ''}}" catchtap="closeTurnNavigator" catchtouchmove="noop">
-    <view class="turn-overlay-inner" catchtap="noop" role="dialog" aria-label="{{ui['对话']}}">
+    <view class="turn-overlay-inner" catchtap="closeTurnNavigator" role="dialog" aria-label="{{ui['对话']}}">
       <view class="turn-scrub-body" id="turn-scrub-body">
-        <view wx:if="{{historyLoading}}" class="hist-banner"><text>{{historyProgressText}} · {{turnNavItems.length}}</text></view>
-        <view wx:elif="{{hasMoreHistory}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
+        <view wx:if="{{historyLoading}}" class="turn-history-status">{{historyProgressText}} · {{turnNavItems.length}}</view>
+        <view wx:elif="{{hasMoreHistory && histError}}" class="turn-history-status turn-history-error" catchtap="retryTurnNavigatorHistory">{{histError}} · {{ui['重试']}}</view>
         <scroll-view
           scroll-y
           enhanced
           show-scrollbar="{{false}}"
           class="turn-scrub-list"
           id="turn-scrub-list"
-          style="height: min(76vh, {{turnNavItems.length * 76 + (turnNavActiveIndex >= 0 ? 52 : 0) + 16}}rpx);"
+          style="height: 76vh;"
           scroll-top="{{turnNavScrollTop}}"
           bindscroll="onTurnListScroll"
           bindtouchstart="onTurnScrubStart"
-          bindtouchmove="onTurnScrubMove"
           bindtouchend="onTurnScrubEnd"
           bindtouchcancel="onTurnScrubCancel"
         >
           <view class="turn-scrub-inner">
+            <view class="turn-scrub-spacer" style="height: {{turnNavSpacerPx}}px;"></view>
             <view
               wx:for="{{turnNavItems}}"
               wx:key="key"
               class="turn-scrub-row {{turnNavActiveIndex === index ? 'active' : ''}}"
+              style="{{turnNavRowStyles[index] || ''}}"
+              data-key="{{item.key}}"
+              catchtap="jumpToTurn"
+              role="button"
             >
               <view class="turn-scrub-row-copy">
                 <text class="turn-scrub-row-title">{{item.label}}</text>
-                <text wx:if="{{turnNavActiveIndex === index && item.preview}}" class="turn-scrub-row-body">{{item.preview}}</text>
               </view>
               <view class="turn-scrub-rail-cell">
                 <view class="turn-scrub-row-line" style="width: {{turnNavWidths[index] || 30}}rpx;"></view>
                 <view wx:if="{{turnNavActiveIndex === index}}" class="turn-scrub-dot"></view>
               </view>
             </view>
+            <view class="turn-scrub-spacer" style="height: {{turnNavSpacerPx}}px;"></view>
           </view>
         </scroll-view>
         <view wx:if="{{!turnNavItems.length}}" class="turn-nav-empty">{{ui['暂无可显示的消息']}}</view>

@@ -2,7 +2,7 @@ FROM node:22-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci --omit=dev && npm cache clean --force
-COPY --chown=node:node server.cjs console.cjs connector.cjs durations.cjs engagement.cjs announcements.cjs ./
+COPY --chown=node:node server.cjs console.cjs connector.cjs durations.cjs engagement.cjs announcements.cjs notifications.cjs ./
 COPY --chown=node:node web ./web
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node

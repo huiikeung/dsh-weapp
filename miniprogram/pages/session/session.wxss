@@ -4534,17 +4534,16 @@ to{transform:translateX(340%)}
   max-height: 90vh;
 }
 
-/* 内容不足一屏时垂直居中，超出后滚动；选中行向上下两侧撑开 */
 .turn-scrub-inner {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  padding: 8rpx 0;
+  padding: 0;
   box-sizing: border-box;
 }
 
-/* 每一轮：标题 + 助手回答，右侧渐变横线 */
+.turn-scrub-spacer { width: 1px; flex: none; }
+
 .turn-scrub-row {
   flex-shrink: 0;
   height: 76rpx;
@@ -4555,25 +4554,25 @@ to{transform:translateX(340%)}
   padding: 0 8rpx;
   border-radius: 18rpx;
   border: 1rpx solid transparent;
-  transition: height 0.16s ease, background 0.16s ease, border-color 0.16s ease;
+  transition: opacity 0.12s ease, filter 0.12s ease, transform 0.12s ease, background 0.16s ease, border-color 0.16s ease;
+  will-change: opacity, filter, transform;
 }
 
 .turn-scrub-row.active {
-  height: 128rpx;
-  background: linear-gradient(90deg, rgba(255, 122, 69, 0.20), rgba(255, 122, 69, 0.03) 70%, transparent);
-  border-color: rgba(255, 122, 69, 0.35);
-  box-shadow: 0 10rpx 28rpx rgba(0, 0, 0, 0.35);
+  background: linear-gradient(90deg, rgba(255, 122, 69, 0.24), rgba(255, 122, 69, 0.06) 72%, transparent);
+  border-color: rgba(255, 122, 69, 0.48);
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, 0.30), 0 0 28rpx rgba(255, 122, 69, 0.10);
 }
 
-/* 标题在左，宽度最多 90%，右侧留出刻度 */
 .turn-scrub-row-copy {
   flex: 1;
   min-width: 0;
   max-width: 90%;
   display: flex;
   flex-direction: column;
-  gap: 10rpx;
-  padding: 12rpx 0;
+  justify-content: center;
+  gap: 0;
+  padding: 0;
 }
 
 .turn-scrub-row-title {
@@ -4589,18 +4588,6 @@ to{transform:translateX(340%)}
 .turn-scrub-row.active .turn-scrub-row-title {
   color: #FFFFFF;
   font-weight: 600;
-}
-
-/* 选中行第二行：助手回答正文（浅色两行） */
-.turn-scrub-row-body {
-  font-size: 23rpx;
-  line-height: 1.5;
-  color: rgba(241, 244, 250, 0.46);
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  overflow: hidden;
-  overflow-wrap: anywhere;
 }
 
 /* 右侧横线列：线靠右，圆点在线右侧 */
@@ -4645,6 +4632,22 @@ to{transform:translateX(340%)}
   color: rgba(241, 244, 250, 0.6);
   font-size: 26rpx;
 }
+
+.turn-history-status {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 8rpx;
+  right: 8rpx;
+  padding: 12rpx 18rpx;
+  border-radius: 999rpx;
+  background: rgba(19, 24, 33, 0.72);
+  color: rgba(241, 244, 250, 0.64);
+  font-size: 22rpx;
+  text-align: center;
+  pointer-events: none;
+}
+.turn-history-error { color: #FFB49B; pointer-events: auto; }
 
 /* 切换器在蒙版上使用浅色文字，保证可读性（内容结构不变） */
 .session-switch-overlay .session-switch-title { color: #F1F4FA; }

@@ -26,7 +26,57 @@ Node.js 22+，二维码使用 qrcode，核心身份 API 使用 Node 内置库，
 
 进入本服务目录，先运行 npm ci --omit=dev，再运行 node --env-file=.env server.cjs。Docker / HTTPS 完整配置见 README-deploy.md。
 
-将固定 HTTPS 域名加入微信后台 request 合法域名，并填写 utils/access-config.js 的 baseUrl。对应 WSS 域名加入 socket 合法域名，不带 /relay 路径。不要关闭 TLS 校验。小程序编译已排除 services、tests、deploy 和 relay 目录。
+将固定 HTTPS 域名加入微信后台 request 合法域名，并填写 utils/access-config.js 的 baseUrl。对应 WSS 域名加入 socket 合法域名，不带 /relay 路径。不要关闭 TLS 校验。网关插件的 `notificationServiceUrl` 也必须指向同一个公网服务（默认 `https://dsh.ahwe.top`）；自托管时需在 DSH 网关配置中改成自己的 HTTPS 服务地址并重启插件。小程序编译已排除 services、tests、deploy 和 relay 目录。
+
+任务完成提醒使用与小程序内置 ID 相同的「任务完成提醒」模板；模板需已添加到该 AppID 下的「订阅消息 → 我的模板」。**模板 ID 只在小程序端配置**（`miniprogram/utils/notify-config.js`），小程序申请票据时随请求提交 `templateId`，服务端按票据携带的模板 ID 发送；服务端内置默认值仅用于兼容未提交模板 ID 的旧版小程序。修改模板时只改小程序端即可。设置开关只保存偏好；用户发送任务时小程序请求微信一次性订阅授权，只有用户接受后才向此服务申请限时票据。票据摘要持久化保存、3 天过期，网关在对应 DSH 回合结束后回调 `/notifications/complete`；回调幂等且绑定到该会话，服务重启后可继续处理未完成票据。后台通过服务端 AppSecret 调用微信 `subscribeMessage/send`。通知不包含任务正文或模型回复；此接口依赖新版小程序、网关插件与本服务同时部署，旧版网关不会发送完成回调。
+
+### 自定义通知模板字段
+
+微信公众号订阅消息的关键词标签由微信固定，不可自定义。因此时长和缓存命中率组合进「任务结果」或「备注」字段的值里，指标名自带在值字符串中。
+
+网关回调 `/notifications/complete` 时可附带 `taskName`、`durationMs`、`tokens`、`cacheHitRate`。**模板想显示真实任务数据时，网关必须实际提交这些字段**；服务端无法从票据或会话 ID 推算耗时、Token 或缓存命中率。服务端根据模板内容中的关键词自动匹配字段并填充真实值。旧网关或未提交指标时会发送通用占位值，其中 number 类型使用 `0`，不会伪显示成消耗了 1 个 Token。
+
+推荐的关键词选择与指标映射：
+
+| 指标 | 微信关键词 | 字段类型 | 显示效果 |
+|------|-----------|---------|---------|
+| 任务名称 | 任务名称 | thing | `重构通知模块` |
+| Token 消耗 | Token | character_string（若模板允许） | `12.3K` |
+| 任务时长 + 缓存命中率 | 任务结果（或备注） | thing | `时长2m30s · 缓存命中85%` |
+| 完成时间 | 完成时间 | time | `2026-10-21 18:00` |
+
+通知显示效果：
+```
+任务完成
+
+任务名称：重构通知模块
+Token：12.3K
+任务结果：时长2m30s · 缓存命中85%
+完成时间：2026-10-21 18:00
+```
+
+回调字段说明：
+- `taskName`（字符串，最长 200 字符）：任务名称
+- `durationMs`（非负数字）：任务时长（毫秒）
+- `tokens`（非负数字）：Token 消耗量
+- `cacheHitRate`（0–1 之间的数字）：缓存命中率
+
+示例回调体：
+```json
+{
+  "ticket": "...",
+  "sessionId": "...",
+  "status": "completed",
+  "taskName": "重构通知模块",
+  "durationMs": 150000,
+  "tokens": 12345,
+  "cacheHitRate": 0.85
+}
+```
+
+在微信公众平台「订阅消息」中选用包含上述关键词的模板后，只需把模板 ID 更新到 `miniprogram/utils/notify-config.js` 的 `TEMPLATE_ID` 并重新发布小程序；服务端会使用票据中携带的模板 ID 发送（`notifications.cjs` 的 `DEFAULT_TEMPLATE_ID` 仅用于兼容未提交模板 ID 的旧版小程序）。
+
+Token 字段若在微信模板中定义为 `number`，服务端会发送纯数字（如 `12345`）以满足微信校验；只有字段类型是 `character_string` 时才会格式化为 `12.3K`。模板关键词及字段类型由微信模板决定，不能由服务端覆盖。
 
 ## 自动识别管理员
 

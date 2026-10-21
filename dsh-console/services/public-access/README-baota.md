@@ -1,6 +1,6 @@
 # 鲸尾后台：宝塔面板搭建步骤
 
-本次设备 ID 管理员绑定、兑换码复制/删除、分享活动配置与验收见 [统一部署教程](../../deploy/README.md#本次更新管理员设备-id兑换码与分享活动)。完整上传需要包含 engagement.cjs；分享活动默认暂停，由网页确认平台规则后启用。若使用手动 Nginx 配置，两个 /share/moments/start、/share/moments/submit 上传接口须允许 470000 字节请求体，其余保持原限制。自动 Compose 反代已更新，外层宝塔上传限制也不能更小。
+本次设备 ID 管理员绑定、兑换码复制/删除、分享活动配置与验收见 [统一部署教程](../../deploy/README.md#本次更新管理员设备-id兑换码与分享活动)。完整上传需要包含 engagement.cjs、announcements.cjs 和 notifications.cjs；分享活动默认暂停，由网页确认平台规则后启用。任务完成提醒还需按通知说明同步发布小程序，并升级网关插件。若使用手动 Nginx 配置，两个 /share/moments/start、/share/moments/submit 上传接口须允许 470000 字节请求体，其余保持原限制。自动 Compose 反代已更新，外层宝塔上传限制也不能更小。
 
 **已用统一部署且源码在 /www/wwwroot/dsh-console：将本地 dsh-console/ 里面的内容上传到该目录，不要再嵌套一层 dsh-console。保留原 deploy/.env，不上传本机 .env、node_modules、data、relay-state.json、日志或备份，然后执行下面两行，不重新安装。**
 

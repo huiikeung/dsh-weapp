@@ -7,15 +7,12 @@ const procIconStyle = require('../../utils/proc-icon-style');
 const store = require('../../utils/store');
 const notifyPref = require('../../utils/notify-pref');
 const voicePreference = require('../../utils/voice-preference');
+const homeAnimationPreference = require('../../utils/home-animation-pref');
 const theme = require('../../utils/theme');
 const accessApi = require('../../utils/access-api');
 const { getPublicAccessState } = require('../../utils/public-access-state');
 const { nodePresentation } = require('../../utils/node-presentation');
 const { clientVersion, gatewayVersionInfo } = require('../../utils/version-info');
-
-// 订阅消息模板 ID：在小程序管理后台申请「任务完成提醒」类模板后填入。
-// 留空时开启开关仅保存偏好，不发起授权请求。
-const NOTIFY_TEMPLATE_ID = 'QvgkQ88HKFdTNPJVOp0EdOHNDodOQACzB9oDEFDZXKU';
 
 const CONNECTION_LABELS = {
   disconnected: uiText('未连接'),
@@ -84,7 +81,18 @@ Page({
     sharePayload: '',
     shareExpiresLabel: '',
     notifyEnabled: false,
-    voiceEnabled: false,
+    clawbotPanelOpen: false,
+    clawbotStatus: null,
+    clawbotStateLabel: '',
+    clawbotError: '',
+    clawbotLoading: false,
+    clawbotBusy: false,
+    clawbotQrPath: '',
+    clawbotSessions: [],
+    clawbotSessionsOpen: false,
+    clawbotVerifyCode: '',
+    homeAnimationEnabled: true,
+    voiceEnabled: true,
     accountBusy: false,
     isWechatAdmin: false,
     accountLabel: uiText('识别中…'),
@@ -146,6 +154,7 @@ Page({
     this.setData({
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       notifyEnabled: notifyPref.enabled(),
+      homeAnimationEnabled: homeAnimationPreference.enabled(),
       ...clientVersion(wx)
     });
     this.unsubscribe = store.subscribe((snapshot) => {
@@ -306,6 +315,7 @@ Page({
   onShow() {
     this._settingsVisible = true;
     this.setData({ voiceEnabled: voicePreference.enabled(),
+      homeAnimationEnabled: homeAnimationPreference.enabled(),
       ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       hapticsLevel: haptics.getLevel() });
@@ -355,6 +365,13 @@ Page({
     this._contentGeneration = (this._contentGeneration || 0) + 1;
     this.setData({ referralEnabled: false, contentLoaded: false, shareSaving: false, referralToken: '' });
     this._accountGeneration = (this._accountGeneration || 0) + 1;
+    this.stopClawbotPolling();
+    this._clawbotGeneration = (this._clawbotGeneration || 0) + 1;
+    this.removeClawbotQr();
+    const clawbotStatus = this.data.clawbotStatus;
+    const safeClawbotStatus = clawbotStatus && clawbotStatus.pairing
+      ? { ...clawbotStatus, pairing: { ...clawbotStatus.pairing, qrDataUrl: '' } } : clawbotStatus;
+    this.setData({ clawbotPanelOpen: false, clawbotSessionsOpen: false, clawbotQrPath: '', clawbotStatus: safeClawbotStatus });
     this._publicAccount = null;
     this.setData({ accountBusy: false, redeemBusy: false, isWechatAdmin: false, adminAdvancedOpen: false, accountLabel: uiText('识别中…'), referralSheetOpen: false, referralBusy: false, accountDeviceId: '' });
   },
@@ -368,43 +385,291 @@ Page({
     this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
     this._contentGeneration = (this._contentGeneration || 0) + 1;
     this._accountGeneration = (this._accountGeneration || 0) + 1;
+    this.stopClawbotPolling();
+    this._clawbotGeneration = (this._clawbotGeneration || 0) + 1;
+    this.removeClawbotQr();
     if (this.unsubscribe) this.unsubscribe();
   },
 
   // ---------- 实验性功能 ----------
+  openClawbotPanel() {
+    if (this.data.clawbotPanelOpen) {
+      this.closeClawbotPanel();
+      return;
+    }
+    this._clawbotGeneration = (this._clawbotGeneration || 0) + 1;
+    this.setData({ clawbotPanelOpen: true, clawbotError: '', clawbotSessionsOpen: false });
+    this.refreshClawbotStatus(false);
+    this.scheduleClawbotPolling();
+  },
+
+  closeClawbotPanel() {
+    this.stopClawbotPolling();
+    this._clawbotGeneration = (this._clawbotGeneration || 0) + 1;
+    this.removeClawbotQr();
+    const status = this.data.clawbotStatus;
+    const safeStatus = status && status.pairing
+      ? { ...status, pairing: { ...status.pairing, qrDataUrl: '' } } : status;
+    this.setData({ clawbotPanelOpen: false, clawbotSessionsOpen: false, clawbotQrPath: '', clawbotStatus: safeStatus });
+  },
+
+  scheduleClawbotPolling() {
+    this.stopClawbotPolling();
+    if (!this.data.clawbotPanelOpen || this._settingsVisible === false) return;
+    this._clawbotPollTimer = setTimeout(() => {
+      this._clawbotPollTimer = null;
+      if (!this.data.clawbotPanelOpen || this._settingsVisible === false) return;
+      if (!this.data.clawbotBusy) this.refreshClawbotStatus(true);
+      this.scheduleClawbotPolling();
+    }, 5000);
+  },
+
+  stopClawbotPolling() {
+    if (this._clawbotPollTimer) clearTimeout(this._clawbotPollTimer);
+    this._clawbotPollTimer = null;
+  },
+
+  clawbotStateText(status) {
+    if (status.enabled) return status.state === 'error' ? uiText('接线异常') : uiText('私聊接线已启用');
+    if (status.paired) return status.bindingState === 'expired' ? uiText('微信连接已失效') : uiText('微信已绑定，尚未启用');
+    return uiText('尚未绑定微信');
+  },
+
+  applyClawbotStatus(status, generation) {
+    if (!status || status.supported !== true || generation !== this._clawbotGeneration) return;
+    const safeStatus = status.pairing
+      ? { ...status, pairing: { ...status.pairing, qrDataUrl: '' } } : status;
+    this.setData({
+      clawbotStatus: safeStatus,
+      clawbotStateLabel: this.clawbotStateText(status),
+      clawbotError: '',
+    });
+    const pairing = status.pairing;
+    if (pairing && pairing.id && pairing.qrDataUrl) this.writeClawbotQr(pairing, generation);
+    else {
+      this.removeClawbotQr();
+      if (this.data.clawbotQrPath) this.setData({ clawbotQrPath: '' });
+    }
+  },
+
+  writeClawbotQr(pairing, generation) {
+    if (this._clawbotQrId === pairing.id && this.data.clawbotQrPath) return;
+    const dataUrl = /^data:image\/png;base64,([A-Za-z0-9+/=]+)$/.exec(pairing.qrDataUrl);
+    const fileManager = typeof wx.getFileSystemManager === 'function' ? wx.getFileSystemManager() : null;
+    const basePath = wx.env && wx.env.USER_DATA_PATH;
+    if (!dataUrl || !fileManager || !basePath) {
+      this.setData({ clawbotQrPath: '' });
+      this._clawbotQrId = '';
+      return;
+    }
+    this.removeClawbotQr();
+    const path = basePath + '/clawbot-login-' + String(pairing.id).replace(/[^a-zA-Z0-9_-]/g, '') + '.png';
+    fileManager.writeFile({
+      filePath: path,
+      data: dataUrl[1],
+      encoding: 'base64',
+      success: () => {
+        if (generation !== this._clawbotGeneration || !this.data.clawbotPanelOpen) {
+          try { fileManager.unlink({ filePath: path }); } catch (_) { /* Best-effort cleanup. */ }
+          return;
+        }
+        this._clawbotQrId = pairing.id;
+        this._clawbotQrPath = path;
+        this.setData({ clawbotQrPath: path });
+      },
+      fail: () => {
+        this._clawbotQrId = '';
+        this.setData({ clawbotQrPath: '' });
+      }
+    });
+  },
+
+  removeClawbotQr() {
+    const path = this._clawbotQrPath;
+    const fileManager = typeof wx.getFileSystemManager === 'function' ? wx.getFileSystemManager() : null;
+    if (path && fileManager) {
+      try { fileManager.unlink({ filePath: path }); } catch (_) { /* Best-effort cleanup. */ }
+    }
+    this._clawbotQrPath = '';
+    this._clawbotQrId = '';
+  },
+
+  gatewaySupportsClawbot() {
+    const capabilities = store.state.gatewayCapabilities;
+    return Array.isArray(capabilities) && capabilities.includes('wechat-clawbot-control-v2');
+  },
+
+  clawbotErrorText(error, fallback) {
+    const message = error && typeof error.message === 'string' ? error.message : '';
+    // Replace the former plugin-proxy response with gateway migration guidance.
+    if (/dsh-wechat-remote|clawbot is unavailable.*component status/i.test(message)) {
+      return uiText('电脑端仍返回旧版 ClawBot 接线响应。请重启升级后的 DSH，并在小程序中重新连接；无需单独安装插件。');
+    }
+    return message || uiText(fallback);
+  },
+
+  async refreshClawbotStatus(silent) {
+    if (this._clawbotRefreshing || this.data.clawbotBusy) return;
+    const generation = this._clawbotGeneration;
+    if (store.state.connection !== 'connected' || typeof store.client.requestClawbot !== 'function') {
+      if (generation === this._clawbotGeneration) {
+        this.setData({ clawbotLoading: false, clawbotError: uiText('请先连接支持 ClawBot 的电脑端网关') });
+      }
+      return;
+    }
+    if (!this.gatewaySupportsClawbot()) {
+      const version = store.state.gatewayMetadata && store.state.gatewayMetadata.version;
+      const message = version
+        ? uiText('当前连接的网关版本为 {version}，未提供 ClawBot 控制能力。请重启升级后的 DSH 并在小程序中重新连接。', { version })
+        : uiText('当前连接的网关未报告 ClawBot 控制能力，请重启升级后的 DSH 并在小程序中重新连接。');
+      if (generation === this._clawbotGeneration) this.setData({ clawbotLoading: false, clawbotError: message });
+      return;
+    }
+    this._clawbotRefreshing = true;
+    if (!silent && !this.data.clawbotStatus) this.setData({ clawbotLoading: true, clawbotError: '' });
+    try {
+      const frame = await store.client.requestClawbot({ action: 'status' });
+      const status = frame && (frame.value || frame.status);
+      if (!status || status.supported !== true) throw new Error(uiText('当前网关未提供 ClawBot 接线服务'));
+      this.applyClawbotStatus(status, generation);
+    } catch (error) {
+      if (generation === this._clawbotGeneration) this.setData({
+        clawbotError: this.clawbotErrorText(error, '读取 ClawBot 状态失败，请更新网关后重试'),
+      });
+    } finally {
+      this._clawbotRefreshing = false;
+      if (generation === this._clawbotGeneration) this.setData({ clawbotLoading: false });
+    }
+  },
+
+  async callClawbot(action, fields) {
+    if (typeof store.client.requestClawbot !== 'function') throw new Error(uiText('请更新小程序网关以使用 ClawBot 接线'));
+    if (store.state.connection !== 'connected') throw new Error(uiText('请先连接电脑端网关'));
+    if (!this.gatewaySupportsClawbot()) {
+      const version = store.state.gatewayMetadata && store.state.gatewayMetadata.version;
+      throw new Error(version
+        ? uiText('当前连接的网关版本为 {version}，未提供 ClawBot 控制能力。请重启升级后的 DSH 并在小程序中重新连接。', { version })
+        : uiText('当前连接的网关未报告 ClawBot 控制能力，请重启升级后的 DSH 并在小程序中重新连接。'));
+    }
+    const frame = await store.client.requestClawbot(Object.assign({ action: action }, fields || {}));
+    return frame && (frame.value || frame);
+  },
+
+  async runClawbotAction(action, fields) {
+    if (this.data.clawbotBusy) return null;
+    const generation = this._clawbotGeneration;
+    this.setData({ clawbotBusy: true, clawbotError: '' });
+    try {
+      const value = await this.callClawbot(action, fields);
+      if (generation !== this._clawbotGeneration) return value;
+      if (value && value.supported === true) this.applyClawbotStatus(value, generation);
+      if (value && Array.isArray(value.sessions)) {
+        this.setData({ clawbotSessions: value.sessions, clawbotSessionsOpen: true });
+      }
+      return value;
+    } catch (error) {
+      if (generation === this._clawbotGeneration) this.setData({
+        clawbotError: this.clawbotErrorText(error, 'ClawBot 操作失败，请刷新状态后重试'),
+      });
+      return null;
+    } finally {
+      if (generation === this._clawbotGeneration) this.setData({ clawbotBusy: false });
+    }
+  },
+
+  async startClawbotLogin() {
+    const status = this.data.clawbotStatus || {};
+    if (status.enabled) {
+      wx.showToast({ title: uiText('请先暂停私聊接线，再重新绑定微信'), icon: 'none' });
+      return;
+    }
+    await this.runClawbotAction('login.start', { expectedRevision: status.revision });
+  },
+
+  async openClawbotSessions() {
+    const value = await this.runClawbotAction('sessions');
+    if (value && Array.isArray(value.sessions)) this.setData({ clawbotSessionsOpen: true });
+  },
+
+  async chooseClawbotSession(event) {
+    const status = this.data.clawbotStatus || {};
+    const sessionId = event.currentTarget.dataset.id;
+    if (typeof sessionId !== 'string' || !sessionId) return;
+    const value = await this.runClawbotAction('route', { expectedRevision: status.revision, sessionId });
+    if (value && value.supported === true) this.setData({ clawbotSessionsOpen: false });
+  },
+
+  async toggleClawbot(event) {
+    const status = this.data.clawbotStatus;
+    const enabled = !!event.detail.value;
+    if (!status) {
+      if (!this.data.clawbotPanelOpen) this.openClawbotPanel();
+      else this.refreshClawbotStatus(false);
+      return;
+    }
+    if (enabled && (!status.paired || !status.target)) {
+      this.setData({ clawbotStatus: { ...status } });
+      if (!this.data.clawbotPanelOpen) this.openClawbotPanel();
+      wx.showToast({ title: uiText('请先绑定微信并选择接入会话'), icon: 'none' });
+      return;
+    }
+    await this.runClawbotAction('enabled', { enabled, expectedRevision: status.revision });
+  },
+
+  cancelClawbotLogin() {
+    const pairing = this.data.clawbotStatus && this.data.clawbotStatus.pairing;
+    if (pairing) this.runClawbotAction('login.cancel', { loginId: pairing.id });
+  },
+
+  onClawbotVerifyCode(event) { this.setData({ clawbotVerifyCode: event.detail.value || '' }); },
+
+  async submitClawbotVerifyCode() {
+    const pairing = this.data.clawbotStatus && this.data.clawbotStatus.pairing;
+    const verifyCode = String(this.data.clawbotVerifyCode || '').trim();
+    if (!pairing || !verifyCode) return;
+    await this.runClawbotAction('login.poll', { loginId: pairing.id, verifyCode });
+    this.setData({ clawbotVerifyCode: '' });
+  },
+
+  disconnectClawbot() {
+    const status = this.data.clawbotStatus;
+    if (!status) return;
+    if (status.enabled) {
+      wx.showToast({ title: uiText('请先暂停私聊接线，再移除绑定'), icon: 'none' });
+      return;
+    }
+    wx.showModal({
+      title: uiText('移除微信绑定'),
+      content: uiText('这会移除此电脑端的本地绑定并停止未完成的微信渠道消息；已开始的 DSH 任务不会取消，也不会撤销微信账号侧的授权。是否继续？'),
+      confirmText: uiText('移除绑定'),
+      success: async result => {
+        if (!result.confirm) return;
+        const value = await this.runClawbotAction('disconnect', { expectedRevision: status.revision, abandonPending: true });
+        if (value && value.supported === true) this.setData({ clawbotSessions: [], clawbotSessionsOpen: false });
+      }
+    });
+  },
+
   toggleVoice(e) {
     try { this.setData({ voiceEnabled: voicePreference.save(!!e.detail.value) }); }
     catch (_) { this.setData({ voiceEnabled: voicePreference.enabled() }); wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' }); }
+  },
+
+  toggleHomeAnimation(e) {
+    try { this.setData({ homeAnimationEnabled: homeAnimationPreference.setEnabled(!!e.detail.value) }); }
+    catch (_) {
+      this.setData({ homeAnimationEnabled: homeAnimationPreference.enabled() });
+      wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
+    }
   },
 
   openVoiceSettings() { wx.navigateTo({ url: voicePreference.SETTINGS_URL }); },
 
   toggleNotify(e) {
     const enabled = !!e.detail.value;
-    const self = this;
-    if (!enabled) {
-      notifyPref.setEnabled(false);
-      this.setData({ notifyEnabled: false });
-      return;
-    }
-    if (!NOTIFY_TEMPLATE_ID) {
-      notifyPref.setEnabled(true);
-      this.setData({ notifyEnabled: true });
-      wx.showModal({
-        title: uiText('待配置模板'),
-        content: uiText('尚未配置订阅消息模板 ID（pages/settings/settings.js 中的 NOTIFY_TEMPLATE_ID）。已先记住偏好，配置后发送任务时会自动申请授权。'),
-        showCancel: false
-      });
-      return;
-    }
-    wx.requestSubscribeMessage({
-      tmplIds: [NOTIFY_TEMPLATE_ID],
-      complete() {
-        // 无论用户允许/拒绝，都记住开关状态；下次发送任务时会再次申请。
-        notifyPref.setEnabled(true);
-        self.setData({ notifyEnabled: true });
-      }
-    });
+    // WeChat 一次性订阅必须由具体任务发送动作触发；开关只控制是否询问。
+    notifyPref.setEnabled(enabled);
+    this.setData({ notifyEnabled: enabled });
   },
 
   syncFromStore(snapshot) {

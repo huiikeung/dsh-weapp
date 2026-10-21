@@ -42,9 +42,8 @@ function record(api, ok, detail) {
 }
 
 /**
- * 按当前等级触发震动；off 时静默。
- * 优先使用支持强度参数的短震；仅旧环境缺少短震接口时降级长震。
- * 短震失败不叠加长震，避免轻档突然出现重反馈。
+ * 按当前等级触发震动；把轻档映射到 medium 短震，中档映射到 heavy，重档使用长震增强。
+ * 旧环境缺少短震接口时仍降级到长震。
  */
 function vibrate(callback) {
   const value = getLevel();
@@ -56,10 +55,16 @@ function vibrate(callback) {
   if (value === 'off') return finish('off', false, 'level=off');
   record('pending', false, value);
   try {
-    if (typeof wx.vibrateShort === 'function') {
+    if (value === 'heavy' && typeof wx.vibrateLong === 'function') {
+      wx.vibrateLong({
+        success: () => finish('long', true, 'heavy-enhanced'),
+        fail: (err) => finish('long', false, (err && (err.errMsg || err.message)) || 'fail')
+      });
+    } else if (typeof wx.vibrateShort === 'function') {
+      const strength = value === 'light' ? 'medium' : 'heavy';
       wx.vibrateShort({
-        type: value,
-        success: () => finish('short', true, value),
+        type: strength,
+        success: () => finish('short', true, strength),
         fail: (err) => finish('short', false, (err && (err.errMsg || err.message)) || 'fail')
       });
     } else if (typeof wx.vibrateLong === 'function') {

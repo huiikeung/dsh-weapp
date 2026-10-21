@@ -684,6 +684,15 @@ class GatewayClient {
       }
       return;
     }
+    const clawbotKey = frame.requestId && 'clawbot:' + frame.requestId;
+    const clawbotRequest = clawbotKey && this.pendingRequests[clawbotKey];
+    if (clawbotRequest && (frame.kind === clawbotRequest.expectedKind || frame.kind === 'error')) {
+      delete this.pendingRequests[clawbotKey];
+      clearTimeout(clawbotRequest.timer);
+      if (frame.kind === 'error') clawbotRequest.reject(Object.assign(new Error(frame.message || frame.code || uiText('ClawBot 请求失败')), { code: frame.code }));
+      else clawbotRequest.resolve(frame);
+      return;
+    }
     const historyKey = frame.requestId && 'schedule-history:' + frame.requestId;
     const historyRequest = historyKey && this.pendingRequests[historyKey];
     if (historyRequest && (frame.kind === 'schedule-history' || frame.kind === 'error')) {
@@ -1015,7 +1024,7 @@ class GatewayClient {
   }
 
   /** images: [{ mediaType, data(base64), name }] */
-  sendMessage(text, sessionId, workspaceId, images, mode) {
+  sendMessage(text, sessionId, workspaceId, images, mode, notificationTicket) {
     const payload = {
       type: 'message',
       text: text,
@@ -1027,6 +1036,7 @@ class GatewayClient {
     // An omitted mode is a normal immediate message. Only add queue/steer
     // when the caller explicitly requests an in-flight conversation action.
     if (mode) payload.mode = mode;
+    if (typeof notificationTicket === 'string' && /^[A-Za-z0-9_-]{43}$/.test(notificationTicket)) payload.notificationTicket = notificationTicket;
     if (sessionId) payload.sessionId = sessionId;
     if (!sessionId && workspaceId) payload.workspaceId = workspaceId;
     return this.send(payload);
@@ -1104,6 +1114,26 @@ class GatewayClient {
       sessionId: sessionId,
       id: id,
       requestId: requestId
+    });
+  }
+
+  /** Gateway-owned ClawBot controls use a separate protocol from plugin RPC. */
+  requestClawbot(payload) {
+    const object = Object.assign({}, payload || {}, { type: 'clawbot-control' });
+    object.requestId = object.requestId || util.uuid();
+    const key = 'clawbot:' + object.requestId;
+    return new Promise((resolve, reject) => {
+      if (this.pendingRequests[key]) { reject(new Error(uiText('ClawBot 请求正在进行'))); return; }
+      const timer = setTimeout(() => {
+        delete this.pendingRequests[key];
+        reject(new Error(uiText('ClawBot 请求超时，请刷新状态后重试')));
+      }, 30000);
+      this.pendingRequests[key] = { resolve, reject, timer, key, expectedKind: 'clawbot-control' };
+      if (!this.send(object)) {
+        clearTimeout(timer);
+        delete this.pendingRequests[key];
+        reject(new Error(uiText('连接网关后才能管理 ClawBot')));
+      }
     });
   }
 

@@ -15,7 +15,8 @@ function createPage(apiOptions) {
     state: { profiles: [], activeID: null, connection: 'disconnected' },
     sessionState: {},
     subscribe() { return () => {}; },
-    client: { requestHost() {} },
+    client: Object.assign({ requestHost() {} }, typeof api.requestClawbot === 'function'
+      ? { requestClawbot: api.requestClawbot } : {}),
     refreshHostPresence() { calls.push('refresh'); },
     pairWithPayload(raw) { calls.push(['pair', raw]); return { ok: true }; },
     selectHost(id) { calls.push(['select', id]); },
@@ -46,6 +47,7 @@ function createPage(apiOptions) {
       if (name === '../../utils/labels') return { presetModeName: (v) => v, permissionName: (v) => v };
       if (name === '../../utils/notify-pref') return { enabled: () => false };
       if (name === '../../utils/voice-preference') return require('../miniprogram/utils/voice-preference');
+      if (name === '../../utils/home-animation-pref') return { enabled: () => true, setEnabled: value => value === true };
       if (name === '../../utils/haptics') return require('../miniprogram/utils/haptics');
       if (name === '../../utils/theme') return { applyTo() {}, getMode: () => 'auto' };
       if (name === '../../utils/build') return { BUILD_TIME: 'test-build' };
@@ -332,7 +334,94 @@ async function testDeferredRefresh() {
   assert.ok(decodeURIComponent(calls.at(-1)[1]).includes('dsh-experimental-voice-input-bundle'));
 }
 
-Promise.all([testShareRace(), testAutomaticIdentity(), testNodeDetails(), testDeferredRefresh()]).then(() => console.log('settings independent panels, node details and automatic identity: PASS')).catch((err) => {
+async function testClawbotExperimentalControls() {
+  let status = { supported: true, revision: 2, enabled: false, paired: false, bindingState: 'unpaired',
+    target: null, state: 'disabled', message: '', pending: 0, uncertain: 0 };
+  const requests = [];
+  const { page, store, wx, calls } = createPage({ requestClawbot: async request => {
+    requests.push(request);
+    if (request.action === 'status') return { kind: 'clawbot-control', value: status };
+    if (request.action === 'login.start') {
+      status = { ...status, revision: 3, pairing: { id: 'login-1', status: 'wait', qrDataUrl: '' } };
+      return { value: status };
+    }
+    if (request.action === 'sessions') return { value: { sessions: [{ id: 's1', title: 'Target session' }] } };
+    if (request.action === 'route') {
+      status = { ...status, revision: 4, paired: true, bindingState: 'paired', target: { id: request.sessionId, title: 'Target session' } };
+      return { value: status };
+    }
+    if (request.action === 'enabled') {
+      status = { ...status, revision: 5, enabled: request.enabled, state: request.enabled ? 'ready' : 'disabled' };
+      return { value: status };
+    }
+    throw new Error('unexpected action: ' + request.action);
+  } });
+  store.state.connection = 'connected';
+  store.state.gatewayCapabilities = ['wechat-clawbot-control-v2'];
+  page.openClawbotPanel();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(requests[0].action, 'status');
+  assert.equal(page.data.clawbotBusy, false, 'Unbound service switch remains clickable so it can explain setup requirements');
+  const beforeEnable = requests.length;
+  await page.toggleClawbot({ detail: { value: true } });
+  assert.equal(requests.length, beforeEnable, 'Unbound service is not enabled remotely');
+  assert.equal(page.data.clawbotStatus.enabled, false, 'Rejected enable attempts restore the off state');
+  assert.equal(calls.at(-1)[0], 'toast');
+  assert.match(calls.at(-1)[1], /绑定微信/);
+  await page.startClawbotLogin();
+  assert.equal(requests.at(-1).action, 'login.start');
+  assert.equal(requests.at(-1).expectedRevision, 2);
+  await page.openClawbotSessions();
+  assert.equal(page.data.clawbotSessions[0].id, 's1');
+  await page.chooseClawbotSession({ currentTarget: { dataset: { id: 's1' } } });
+  assert.equal(requests.at(-1).expectedRevision, 3);
+  await page.toggleClawbot({ detail: { value: true } });
+  assert.equal(requests.at(-1).action, 'enabled');
+  assert.equal(requests.at(-1).enabled, true);
+  assert.equal(page.data.clawbotStateLabel, '私聊接线已启用');
+  assert.match(wxml, /bindtap="openClawbotPanel"/);
+  assert.match(wxml, /bindchange="toggleClawbot"/);
+  assert.match(wxml, /bindtap="startClawbotLogin"/);
+  assert.match(wxml, /bindtap="chooseClawbotSession"/);
+  assert.match(wxml, /clawbotStatus\.pairing\.status === 'need_verifycode'/);
+  page.onHide();
+  assert.equal(page.data.clawbotPanelOpen, false);
+
+  const firstTapStatus = { supported: true, revision: 1, enabled: false, paired: false, target: null, access: { allowed: true } };
+  const firstTapRequests = [];
+  const firstTap = createPage({ requestClawbot: async request => {
+    firstTapRequests.push(request);
+    return { value: firstTapStatus };
+  } });
+  firstTap.store.state.connection = 'connected';
+  firstTap.store.state.gatewayCapabilities = ['wechat-clawbot-control-v2'];
+  await firstTap.page.toggleClawbot({ detail: { value: true } });
+  await new Promise(resolve => setImmediate(resolve));
+  await firstTap.page.toggleClawbot({ detail: { value: true } });
+  assert.equal(firstTap.page.data.clawbotPanelOpen, true, 'Tapping the switch opens setup when status has not loaded');
+  assert.equal(firstTapRequests[0].action, 'status');
+  assert.equal(firstTap.calls.at(-1)[0], 'toast');
+
+  const unsupported = createPage({ requestClawbot: async () => { throw new Error('Must not request without the capability'); } });
+  unsupported.store.state.connection = 'connected';
+  unsupported.store.state.gatewayCapabilities = [];
+  unsupported.store.state.gatewayMetadata = { version: '0.8.10' };
+  unsupported.page.openClawbotPanel();
+  assert.match(unsupported.page.data.clawbotError, /0\.8\.10/);
+  assert.match(unsupported.page.data.clawbotError, /重启/);
+
+  const legacyReply = createPage({ requestClawbot: async () => {
+    throw new Error('ClawBot is unavailable. Update dsh-wechat-remote and check its component status.');
+  } });
+  legacyReply.store.state.connection = 'connected';
+  legacyReply.store.state.gatewayCapabilities = ['wechat-clawbot-control-v2'];
+  legacyReply.page.openClawbotPanel();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(legacyReply.page.data.clawbotError, /重启升级后的 DSH/);
+  assert.doesNotMatch(legacyReply.page.data.clawbotError, /dsh-wechat-remote/i);
+}
+
+Promise.all([testShareRace(), testAutomaticIdentity(), testNodeDetails(), testDeferredRefresh(), testClawbotExperimentalControls()]).then(() => console.log('settings independent panels, node details, ClawBot controls and automatic identity: PASS')).catch((err) => {
   console.error(err);
   process.exitCode = 1;
 });

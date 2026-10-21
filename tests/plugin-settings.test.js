@@ -58,6 +58,14 @@ test('credential bridge is idempotent, scoped, write-only and rejects unbound re
 test('speech operations use existing gateway response kinds',async()=>{
   const client=Object.create(GatewayClient.prototype);client.pendingRequests={};client.send=()=>true;for(const[type,kind]of [['speech-configure','speech-configured'],['speech-prepare','speech-preparing'],['speech-cancel-preparation','speech-preparation-cancelled']]){const result=client.requestPlugin(type,{requestId:type},1000);client.resolveCorrelated({kind,requestId:type});assert.equal((await result).kind,kind);}
 });
+test('ClawBot owner controls use a correlated paired-gateway request',async()=>{
+  const sent=[];const client=Object.create(GatewayClient.prototype);client.pendingRequests={};client.send=frame=>{sent.push(frame);return true;};
+  const pending=client.requestClawbot({action:'status'});assert.equal(sent[0].type,'clawbot-control');assert.equal(sent[0].action,'status');
+  assert.equal(client.pendingRequests['clawbot:'+sent[0].requestId].expectedKind,'clawbot-control');
+  assert.equal(client.pendingRequests['plugin:'+sent[0].requestId],undefined,'ClawBot controls do not use the plugin-management request lane');
+  client.resolveCorrelated({kind:'clawbot-control',requestId:sent[0].requestId,value:{supported:true,revision:1}});
+  assert.equal((await pending).value.supported,true);
+});
 test('voice view renders actual progress, failure reason and available download sources',()=>{
   const {page}=fixture();page.voiceCatalog={selection:{providerId:'local',language:'zh'},providers:[{id:'local',name:'Local',location:'host-local',languages:['auto','zh'],downloadSources:['https://hf-mirror.com'],preparation:{phase:'failed',message:'bad',download:{reason:'dns',resource:'model',source:'https://hf-mirror.com',code:'DNS'},steps:[{kind:'model',status:'failed'}]}}]};page.renderVoiceSettings();assert.match(page.data.voice.providers[0].failure,/解析/);assert.equal(page.data.voice.providers[0].sources[0],'https://hf-mirror.com');assert.equal(page.data.voice.languageName,'中文');assert.equal(page.data.voice.providers[0].canPrepare,true);
 });

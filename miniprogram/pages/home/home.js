@@ -6,6 +6,8 @@ const util = require('../../utils/util');
 const labels = require('../../utils/labels');
 const hostsLib = require('../../utils/hosts');
 const { workspacePopoverLayout } = require('../../utils/workspace-popover');
+const homeAnimationPreference = require('../../utils/home-animation-pref');
+const initialHomeAnimationEnabled = homeAnimationPreference.enabled();
 
 const CONNECTION_LABELS = {
   disconnected: uiText('未连接'),
@@ -17,7 +19,8 @@ const CONNECTION_LABELS = {
 Page({
   data: {
     oceanActive: true,
-    oceanReducedMotion: false,
+    oceanReducedMotion: !initialHomeAnimationEnabled,
+    homeAnimationEnabled: initialHomeAnimationEnabled,
     pairMenuVisible: false,
     manualSheetOpen: false,
     manualSheetExpanded: false,
@@ -164,9 +167,10 @@ Page({
   onShow() {
     this._homeHidden = false;
     this._openingSettings = false;
-    const creator = store.state.pendingPluginCreator;
+    const creator = store.state.pendingPluginCreator || store.state.pendingAgentPresetCreator;
     if (creator) {
       store.state.pendingPluginCreator = null;
+      store.state.pendingAgentPresetCreator = null;
       const owner = store.state.activeID || store.state.gatewayId || store.state.endpoint || '';
       if (creator.owner === owner && store.state.connection === 'connected') {
         const creation = store.createAndOpenSession(creator.workspaceId, 'cordis');
@@ -178,7 +182,9 @@ Page({
     this.applySheetTheme();
     let settings = {};
     try { settings = typeof wx.getSystemSetting === 'function' ? wx.getSystemSetting() : {}; } catch (e) { /* 保留动态背景默认。 */ }
-    this.setData({ oceanActive: true, drawerAnim: true, oceanReducedMotion: settings.enableReduceMotion === true });
+    const homeAnimationEnabled = homeAnimationPreference.enabled();
+    this.setData({ oceanActive: true, drawerAnim: true, homeAnimationEnabled,
+      oceanReducedMotion: !homeAnimationEnabled || settings.enableReduceMotion === true });
     // 从配对页跳回时刷新一次列表
     if (store.state.connection === 'connected') {
       store.client.requestWorkspaces();

@@ -28,10 +28,15 @@ function fixture(options = {}) {
   const stop = async () => { const handler = handlers.Stop; if (handler) await handler({ tempFilePath:'/tmp/test.pcm', fileSize:pcm.byteLength }); };
   return { voice, calls, states, texts, errors, handlers, levels, client, wx, stop, permission:() => permission, response:() => response, context:value => { context = value; } };
 }
-test('setting defaults off, persists choice and switches placeholder', () => {
+test('setting defaults on, persists explicit choice and switches placeholder', () => {
   const pref = require('../miniprogram/utils/voice-preference'), storage = {};
   global.wx = { getStorageSync:k => storage[k], setStorageSync:(k,v) => { storage[k]=v; } };
-  try { assert.equal(pref.enabled(), false); assert.equal(pref.view().composerPlaceholder, '输入内容'); pref.save(true); assert.equal(pref.view().composerPlaceholder,'输入内容或按住说话'); pref.save(false); assert.equal(pref.enabled(),false); } finally { delete global.wx; }
+  try {
+    assert.equal(pref.enabled(), true);
+    assert.equal(pref.view().composerPlaceholder, '输入内容或按住说话');
+    pref.save(false); assert.equal(pref.enabled(), false);
+    pref.save(true); assert.equal(pref.enabled(), true);
+  } finally { delete global.wx; }
 });
 test('catalog requires ready/standby host and honors byte/duration limits', () => {
   assert.equal(catalogLimits(catalog()).duration,120000);

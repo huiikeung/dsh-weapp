@@ -182,6 +182,10 @@
 
   <view class="group-title">{{ui['通用设置']}}</view>
   <view class="card general-preferences">
+    <view class="card-row">
+      <view class="exp-copy"><text class="card-row-label">{{ui['首页动画']}}</text><text class="exp-desc">{{ui['控制首页动态海洋背景，关闭后保留静态画面']}}</text></view>
+      <switch checked="{{homeAnimationEnabled}}" color="#2E6BE6" bindchange="toggleHomeAnimation" aria-label="{{ui['首页动画']}}"/>
+    </view>
     <view class="card-row" bindtap="openHapticsPicker" role="button" aria-label="{{ui['震动反馈']}}">
       <text class="card-row-label">{{ui['震动反馈']}}</text>
       <view class="card-row-value">
@@ -221,6 +225,53 @@
         <text class="exp-desc">{{ui['发送任务后申请订阅消息授权，回合完成时通过服务通知提醒']}}</text>
       </view>
       <switch checked="{{notifyEnabled}}" color="#2E6BE6" bindchange="toggleNotify"/>
+    </view>
+    <view class="card-row clawbot-experimental-row">
+      <view class="exp-copy" bindtap="openClawbotPanel" role="button">
+        <text class="card-row-label">{{ui['微信 ClawBot 私聊接线']}}</text>
+        <text class="exp-desc">{{ui['将微信私聊接入指定 DSH 会话；微信凭据保存在电脑端']}}</text>
+      </view>
+      <switch checked="{{clawbotStatus ? clawbotStatus.enabled : false}}" disabled="{{clawbotBusy}}" color="#2E6BE6" bindchange="toggleClawbot"/>
+    </view>
+    <view wx:if="{{clawbotPanelOpen}}" class="clawbot-panel">
+      <view class="clawbot-panel-head">
+        <view class="clawbot-state {{clawbotStatus && clawbotStatus.enabled ? 'is-on' : ''}}">{{clawbotStateLabel || ui['尚未读取状态']}}</view>
+        <view class="clawbot-panel-actions">
+          <view class="clawbot-text-action" bindtap="refreshClawbotStatus">{{ui['刷新']}}</view>
+          <view class="clawbot-text-action" bindtap="closeClawbotPanel">{{ui['收起']}}</view>
+        </view>
+      </view>
+      <text wx:if="{{clawbotError}}" class="clawbot-error">{{clawbotError}}</text>
+      <text wx:if="{{clawbotLoading}}" class="clawbot-muted">{{ui['正在读取 ClawBot 状态…']}}</text>
+      <block wx:if="{{clawbotStatus}}">
+        <view class="clawbot-info-row"><text>{{ui['接入会话']}}</text><text class="clawbot-info-value">{{clawbotStatus.target ? clawbotStatus.target.title : ui['尚未选择']}}</text></view>
+        <view class="clawbot-info-row" wx:if="{{clawbotStatus.message}}"><text>{{ui['状态说明']}}</text><text class="clawbot-info-value">{{clawbotStatus.message}}</text></view>
+        <view class="clawbot-info-row" wx:if="{{clawbotStatus.pending || clawbotStatus.uncertain}}"><text>{{ui['待处理 / 不确定消息']}}</text><text class="clawbot-info-value">{{clawbotStatus.pending || 0}} / {{clawbotStatus.uncertain || 0}}</text></view>
+        <view class="clawbot-action-row">
+          <view class="clawbot-action {{clawbotBusy || clawbotStatus.enabled ? 'is-disabled' : ''}}" bindtap="startClawbotLogin">{{clawbotStatus.paired ? ui['重新绑定微信'] : ui['绑定微信']}}</view>
+          <view class="clawbot-action {{clawbotBusy ? 'is-disabled' : ''}}" bindtap="openClawbotSessions">{{ui['选择接入会话']}}</view>
+          <view wx:if="{{clawbotStatus.paired}}" class="clawbot-action is-danger {{clawbotBusy || clawbotStatus.enabled ? 'is-disabled' : ''}}" bindtap="disconnectClawbot">{{ui['移除绑定']}}</view>
+        </view>
+        <view wx:if="{{clawbotStatus.pairing}}" class="clawbot-pairing">
+          <image wx:if="{{clawbotQrPath}}" class="clawbot-qr" src="{{clawbotQrPath}}" mode="aspectFit" show-menu-by-longpress="true"/>
+          <text wx:else class="clawbot-muted">{{ui['二维码暂不可显示，请更新微信基础库或在电脑端扫码']}}</text>
+          <text class="clawbot-pairing-hint">{{clawbotStatus.pairing.status === 'scaned' || clawbotStatus.pairing.status === 'scaned_but_redirect' ? ui['已扫码，请在微信中确认'] : ui['请用微信扫一扫扫描二维码并确认']}}</text>
+          <view wx:if="{{clawbotStatus.pairing.status === 'need_verifycode'}}" class="clawbot-verify-row">
+            <input class="clawbot-verify-input" value="{{clawbotVerifyCode}}" placeholder="{{ui['输入微信确认码']}}" bindinput="onClawbotVerifyCode" maxlength="128"/>
+            <view class="clawbot-action" bindtap="submitClawbotVerifyCode">{{ui['提交确认码']}}</view>
+          </view>
+          <view class="clawbot-text-action clawbot-cancel-login" bindtap="cancelClawbotLogin">{{ui['取消绑定流程']}}</view>
+        </view>
+        <view wx:if="{{clawbotSessionsOpen}}" class="clawbot-session-list">
+          <text class="clawbot-list-title">{{ui['选择一个普通 DSH 会话作为接入目标']}}</text>
+          <view wx:for="{{clawbotSessions}}" wx:key="id" class="clawbot-session-option {{clawbotStatus.target && clawbotStatus.target.id === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="chooseClawbotSession">
+            <view class="clawbot-session-copy"><text class="clawbot-session-title">{{item.title}}</text><text wx:if="{{item.workspaceTitle}}" class="clawbot-muted">{{item.workspaceTitle}}</text></view>
+            <text class="clawbot-session-check">{{clawbotStatus.target && clawbotStatus.target.id === item.id ? '✓' : ''}}</text>
+          </view>
+          <text wx:if="{{!clawbotSessions.length}}" class="clawbot-muted">{{ui['没有可用会话，请先在电脑端新建普通会话']}}</text>
+        </view>
+        <view class="clawbot-footnote">{{ui['启用后，微信私聊会提交到所选会话；这不会创建新的 Agent 预设或绕过电脑端权限。']}}</view>
+      </block>
     </view>
   </view>
   <view class="group-hint">{{ui['实验性功能默认关闭，可能随基础库版本变化不稳定，仅供试用。']}}</view>

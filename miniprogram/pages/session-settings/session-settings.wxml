@@ -41,7 +41,7 @@
         <text class="pair-sheet-title">{{pickerTitle}}</text>
         <view class="pair-sheet-close tap" bindtap="closePickerSheet" role="button"><view class="sheet-close-x"></view></view>
       </view>
-      <scroll-view class="picker-option-list {{picker === 'preset' ? 'preset-picker-list' : picker === 'model' ? 'model-picker-list' : picker === 'permission' ? 'permission-picker-list' : ''}}" style="max-height: {{pickerListH}}px;" scroll-y enhanced show-scrollbar="{{false}}" enable-flex>
+      <scroll-view class="picker-option-list {{picker === 'preset' ? 'preset-picker-list' : picker === 'model' ? 'model-picker-list' : picker === 'permission' ? 'permission-picker-list' : ''}}" style="max-height: {{picker === 'preset' && presetCreatorAvailable ? pickerCreatorListH : pickerListH}}px;" scroll-y enhanced show-scrollbar="{{false}}" enable-flex>
         <view wx:if="{{pickerIntro}}" class="picker-intro">{{ui[pickerIntro] !== undefined ? ui[pickerIntro] : pickerIntro}}</view>
         <block wx:if="{{picker === 'preset'}}">
           <view
@@ -126,6 +126,14 @@
           </block>
         </block>
       </scroll-view>
+      <view wx:if="{{picker === 'preset' && presetCreatorAvailable}}" class="preset-create-entry {{creatingPreset ? 'busy' : ''}}" bindtap="createCustomAgentPreset" hover-class="preset-create-pressed" role="button" aria-disabled="{{creatingPreset}}">
+        <view class="preset-create-plus">+</view>
+        <view class="preset-create-copy">
+          <text class="preset-create-title">{{creatingPreset ? ui['正在打开…'] : ui['添加自定义 Agent 预设']}}</text>
+          <text class="preset-create-description">{{ui['新建创造模式会话，让 Agent 创建或维护预设']}}</text>
+        </view>
+        <image class="preset-create-chevron" src="/assets/icons/chev-right-gray.png" mode="aspectFit"/>
+      </view>
     </view>
   </view>
 

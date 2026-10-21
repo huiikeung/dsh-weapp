@@ -34,14 +34,16 @@ test('sidebar application settings and home session settings have separate entri
 
 test('session settings retain model and permission APIs, file navigation and privacy-safe diagnostics', async () => {
   let definition, subscriber; const calls = [];
-  const state = { connection: 'connected', activeID: 'node', profiles: [{id: 'node', relay: true, gatewayId: 'public-id'}], endpoint: 'wss://hidden.example/relay/c/node',
+  const state = { connection: 'connected', activeID: 'node', currentWorkspaceId: 'workspace-1', profiles: [{id: 'node', relay: true, gatewayId: 'public-id'}], endpoint: 'wss://hidden.example/relay/c/node',
     defaults: { agentPresetDefault: 'code', permissionDefault: 'read-only' }, defaultModel: {model: 'fixture-model'}, host: {version: '1.0'},
-    agentPresets: {presets: [{id:'code', name:'编程', description:'用于编码工作'}]}, modelCatalog: {groups:[{id:'fixture',name:'测试',models:[{id:'next',name:'模型'},{id:'thinking',name:'思考模型',reasoning:{efforts:[{id:'off',name:'Off'},{id:'low',name:'Low'},{id:'high',name:'High'}],defaultEffort:'low'}}]}]} };
+    agentPresets: {authorable: false, presets: [{id:'code', name:'编程', description:'用于编码工作'}, {id:'cordis', name:'创造模式'}]}, modelCatalog: {groups:[{id:'fixture',name:'测试',models:[{id:'next',name:'模型'},{id:'thinking',name:'思考模型',reasoning:{efforts:[{id:'off',name:'Off'},{id:'low',name:'Low'},{id:'high',name:'High'}],defaultEffort:'low'}}]}]} };
   const store = { state, subscribe(fn) { subscriber = fn; return () => calls.push(['unsubscribe']); },
-    client: { requestHost() {calls.push(['host']);}, setDefault: async (...args) => calls.push(args), saveDefaultModel: async (...args) => calls.push(args),
+    client: { requestHost() {calls.push(['host']);}, requestAgentPresets: async () => { calls.push(['agent-presets']); return {authorable:false,presets:[{id:'cordis'}]}; }, setDefault: async (...args) => calls.push(args), saveDefaultModel: async (...args) => calls.push(args),
       requestFileList: async () => ({ entries: [{ name: 'README.md', path: 'README.md', kind: 'file', bytes: 10 }] }) } };
   const wx = { showActionSheet(o) { wx.sheet = o; }, showModal() { throw Error('Must use bottom sheet'); }, showToast() {}, navigateTo(o) {calls.push(['navigate',o.url]);} };
-  vm.runInNewContext(read('pages/session-settings/session-settings.js'), {Page: d=>{definition=d;},wx,require: name=>{
+  vm.runInNewContext(read('pages/session-settings/session-settings.js'), {Page: d=>{definition=d;},wx,
+    getCurrentPages: () => [{route:'pages/home/home'},{route:'pages/session-settings/session-settings'}],
+    require: name=>{
     if(name.endsWith('/ui-preferences'))return require('../miniprogram/utils/ui-preferences');
     if(name.endsWith('/store'))return store;
     if(name.endsWith('/theme'))return {applyTo(){}};
@@ -61,9 +63,10 @@ test('session settings retain model and permission APIs, file navigation and pri
   page.goBack(); assert.deepEqual(calls.at(-1),['back']);
   wx.backOptions.fail(); assert.deepEqual(calls.at(-1),['relaunch','/pages/home/home']);
   // 预设/权限/模型改为自绘底部弹窗（非系统 ActionSheet）
-  page.pickAgentPreset(); assert.equal(page.data.picker,'preset');
+  page.pickAgentPreset(); assert.equal(page.data.picker,'preset'); assert.equal(page.data.presetCreatorAvailable,true);
   assert.equal(page.data.pickerIntro,'预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。');
   assert.equal(page.data.pickerOptions.find(o=>o.id==='code').description,'用于编码工作');
+  assert.match(read('pages/session-settings/session-settings.wxml'), /picker === 'preset'[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
   const presetIndex = page.data.pickerOptions.findIndex(o => o.id === 'code');
   page.choosePicker({ currentTarget: { dataset: { index: presetIndex } } });
   assert.deepEqual(calls.filter(c => c[0] === 'agent-preset').at(-1),['agent-preset','code']);
@@ -92,6 +95,15 @@ test('session settings retain model and permission APIs, file navigation and pri
   page.chooseModelEffort({ currentTarget: { dataset: { optionIndex: thinkingIndex, effortIndex: 2 } } });
   assert.deepEqual(calls.at(-1),['fixture','thinking','high']);
   assert.equal(page.data.modelLabel,'思考模型 · High');
+  page.pickAgentPreset();
+  wx.navigateBack = options => { calls.push(['creator-back', options.delta]); };
+  await page.createCustomAgentPreset();
+  assert.deepEqual(calls.filter(call => call[0] === 'agent-presets').at(-1), ['agent-presets']);
+  assert.equal(state.pendingAgentPresetCreator.owner, 'node');
+  assert.equal(state.pendingAgentPresetCreator.workspaceId, 'workspace-1');
+  assert.ok(calls.some(call => call[0] === 'creator-back' && call[1] === 1));
+  assert.equal(page.data.picker, '', 'the preset sheet closes before returning to Home');
+  assert.equal(page.data.creatingPreset, false);
   // 工作区文件改为弹窗浏览，不再跳转页面
   page.openFiles(); assert.equal(page.data.filesSheet,true);
   assert.equal(calls.filter(c => c[0] === 'navigate').length,0);

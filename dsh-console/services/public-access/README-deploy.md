@@ -61,7 +61,7 @@ sudo ss -lntp '( sport = :80 or sport = :443 or sport = :8790 )'
 
 ~~~bash
 cd /Users/0the/Downloads/dsh-weapp/dsh-console/services/public-access
-tar -czf /tmp/dsh-console-code.tar.gz server.cjs console.cjs connector.cjs durations.cjs engagement.cjs announcements.cjs package.json package-lock.json web gateway test Dockerfile compose.yaml Caddyfile .dockerignore .env.example README.md README-deploy.md README-baota.md connector.example.json
+tar -czf /tmp/dsh-console-code.tar.gz server.cjs console.cjs connector.cjs durations.cjs engagement.cjs announcements.cjs notifications.cjs package.json package-lock.json web gateway test Dockerfile compose.yaml Caddyfile .dockerignore .env.example README.md README-deploy.md README-baota.md connector.example.json
 scp /tmp/dsh-console-code.tar.gz ubuntu@你的服务器IP:/tmp/dsh-console-code.tar.gz
 ssh ubuntu@你的服务器IP
 ~~~
@@ -72,7 +72,7 @@ ssh ubuntu@你的服务器IP
 sudo install -d -m 0755 -o "$(id -un)" -g "$(id -gn)" /opt/dsh-console
 tar -xzf /tmp/dsh-console-code.tar.gz -C /opt/dsh-console
 cd /opt/dsh-console
-ls server.cjs console.cjs durations.cjs package-lock.json compose.yaml web/index.html
+ls server.cjs console.cjs durations.cjs announcements.cjs notifications.cjs package-lock.json compose.yaml web/index.html
 ~~~
 
 已有部署请先看后面的升级/备份章节，不能重新初始化或生成新主密钥。

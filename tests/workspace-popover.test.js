@@ -54,7 +54,8 @@ function setup() {
   } };
   vm.runInNewContext(read('pages/home/home.js'), {
     Page: value => { definition = value; }, wx,
-    require: name => name.endsWith('ui-preferences') ? require('../miniprogram/utils/ui-preferences') : name.endsWith('workspace-popover') ? { workspacePopoverLayout: layout }
+    require: name => name.endsWith('ui-preferences') ? require('../miniprogram/utils/ui-preferences') : name.endsWith('home-animation-pref') ? { enabled: () => true }
+      : name.endsWith('workspace-popover') ? { workspacePopoverLayout: layout }
       : name.endsWith('/store') ? { state, stopHostProbes() {}, setCurrentWorkspace: id => selections.push(id) } : {}
   });
   const page = { ...definition, data: { ...definition.data, currentWorkspace: { workspaceId: 'ws-a' } },

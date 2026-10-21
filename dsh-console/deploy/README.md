@@ -32,6 +32,8 @@ bash upgrade.sh
 
 **这次升级须配套更新小程序和电脑插件连接器**：服务端升级不会自动发布小程序，也无法远程更新用户电脑插件。旧公网客户端缺少授权票据会被拒绝，旧连接器会明确提示升级。请先准备好下述兼容版本，再安排维护窗口；局域网不依赖这些公网升级。
 
+**订阅消息模板 ID 只在小程序端配置**（`miniprogram/utils/notify-config.js`）；小程序申请票据时会把模板 ID 一起提交，服务端按票据里的 ID 发送，服务器 `.env` 无需填写模板 ID。换模板后重新发布小程序即可。
+
 ## 用户如何开通和连接自己的 DSH
 
 1. 运营者在网页配置小程序 AppID/AppSecret，核实并绑定微信管理员。管理员生成「鲸尾公网服务」兑换码，支持 3 天、7 天、30 天、半年（180 天）、1 年（365 天），与小程序管理员页面同步。
@@ -76,9 +78,9 @@ node /Users/0the/Downloads/dsh-weapp/dsh-console/relay/install-plugin-connector.
 
 网页「微信与管理员」统一只通过 WX- 开头的设备ID绑定；已移除旧绑定码及直接填写 OpenID 的界面。旧管理员权限不丢失，本人打开新版小程序设置后，网页刷新即可显示对应 WX- ID。历史兼容接口仍保留。小程序公网面板只显示该设备ID，不再混放电脑节点ID；宽度不足时末尾省略，复制仍是完整ID。
 
-上传时必须包含新增的 announcements.cjs，并更新 web。执行 bash upgrade.sh 后还需重新编译发布小程序；服务端更新不会自动替换手机上的旧包。
+上传时必须包含新增的 announcements.cjs、notifications.cjs，并更新 web。执行 bash upgrade.sh 后还需重新编译发布小程序；服务端更新不会自动替换手机上的旧包。
 
-本次服务端代码有变更，需上传完整源码后运行上面的 bash upgrade.sh；不需要重装或重新初始化。Dockerfile 已包含新的 engagement.cjs。不要只上传 web 文件夹。小程序还需单独编译、预览、审核发布；服务器升级不会改变用户手机上的旧包。
+本次服务端代码有变更，需上传完整源码后运行上面的 bash upgrade.sh；不需要重装或重新初始化。Dockerfile 已包含 engagement.cjs、announcements.cjs 和 notifications.cjs。不要只上传 web 文件夹。小程序还需单独编译、预览、审核发布；服务器升级不会改变用户手机上的旧包。
 
 ### 输入设备 ID 绑定微信管理员
 

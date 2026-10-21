@@ -50,6 +50,67 @@
   line-height: 1.5;
 }
 
+.clawbot-experimental-row { gap: 12rpx; }
+.clawbot-experimental-row .exp-copy { min-width: 0; }
+.clawbot-panel {
+  margin: 0 24rpx 24rpx;
+  padding: 22rpx;
+  border-radius: 22rpx;
+  background: var(--fill);
+  border: 1rpx solid var(--border);
+}
+.clawbot-panel-head,
+.clawbot-panel-actions,
+.clawbot-action-row,
+.clawbot-info-row,
+.clawbot-verify-row,
+.clawbot-session-option {
+  display: flex;
+  align-items: center;
+}
+.clawbot-panel-head { justify-content: space-between; gap: 18rpx; }
+.clawbot-panel-actions { gap: 24rpx; flex: none; }
+.clawbot-state { font-size: 27rpx; font-weight: 600; color: var(--text); }
+.clawbot-state.is-on { color: #198754; }
+.clawbot-text-action { color: var(--ocean); font-size: 24rpx; line-height: 1.4; }
+.clawbot-error,
+.clawbot-muted,
+.clawbot-footnote { display: block; color: var(--text-3); font-size: 23rpx; line-height: 1.55; }
+.clawbot-error { margin-top: 14rpx; color: #c44848; overflow-wrap: anywhere; }
+.clawbot-info-row { align-items: flex-start; justify-content: space-between; gap: 20rpx; margin-top: 16rpx; color: var(--text-2); font-size: 24rpx; }
+.clawbot-info-value { flex: 1; min-width: 0; text-align: right; color: var(--text); overflow-wrap: anywhere; }
+.clawbot-action-row { flex-wrap: wrap; gap: 12rpx; margin-top: 20rpx; }
+.clawbot-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 62rpx;
+  padding: 0 20rpx;
+  border-radius: 999rpx;
+  background: var(--surface);
+  border: 1rpx solid var(--border);
+  color: var(--text);
+  font-size: 23rpx;
+  box-sizing: border-box;
+}
+.clawbot-action.is-danger { color: #c44848; }
+.clawbot-action.is-disabled { opacity: 0.45; }
+.clawbot-pairing { display: flex; flex-direction: column; align-items: center; gap: 12rpx; margin-top: 22rpx; padding: 18rpx; border-radius: 18rpx; background: var(--surface); }
+.clawbot-qr { width: 340rpx; height: 340rpx; border-radius: 10rpx; background: #fff; }
+.clawbot-pairing-hint { color: var(--text); font-size: 24rpx; text-align: center; }
+.clawbot-verify-row { width: 100%; gap: 12rpx; margin-top: 4rpx; }
+.clawbot-verify-input { flex: 1; min-width: 0; height: 68rpx; padding: 0 16rpx; border: 1rpx solid var(--border); border-radius: 12rpx; background: var(--fill); color: var(--text); font-size: 25rpx; }
+.clawbot-cancel-login { padding: 8rpx 12rpx; }
+.clawbot-session-list { margin-top: 20rpx; padding-top: 18rpx; border-top: 1rpx solid var(--border); }
+.clawbot-list-title { display: block; margin-bottom: 10rpx; color: var(--text-2); font-size: 23rpx; }
+.clawbot-session-option { min-height: 76rpx; justify-content: space-between; gap: 14rpx; padding: 12rpx 6rpx; border-top: 1rpx solid var(--border); }
+.clawbot-session-option.selected .clawbot-session-title,
+.clawbot-session-check { color: var(--ocean); }
+.clawbot-session-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3rpx; }
+.clawbot-session-title { color: var(--text); font-size: 24rpx; overflow-wrap: anywhere; }
+.clawbot-session-check { flex: none; font-size: 28rpx; }
+.clawbot-footnote { margin-top: 18rpx; }
+
 /* ---------- 独立管理入口与面板 ---------- */
 .management-entry {
   gap: 20rpx;

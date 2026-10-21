@@ -7,24 +7,35 @@ const crypto = require('node:crypto');
 const { createConsole } = require('./console.cjs');
 const { createEngagement } = require('./engagement.cjs');
 const { createAnnouncements } = require('./announcements.cjs');
+const { DEFAULT_TEMPLATE_ID, createWechatNotificationSender } = require('./notifications.cjs');
 const DAY = 86400000;
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const nodeIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function fail(status, code, message) { return Object.assign(new Error(message), { status, code }); }
-function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exchangeCode, grantAccess, consoleOptions, relayAuthSecret = '', now = Date.now }) {
+function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exchangeCode, grantAccess, consoleOptions, relayAuthSecret = '', now = Date.now,
+  notificationTemplateId = DEFAULT_TEMPLATE_ID, sendNotification }) {
   if (!stateFile || !Array.isArray(adminOpenIds) || !Array.isArray(managedNodeIds) || (!consoleOptions && (!adminOpenIds.length || typeof exchangeCode !== 'function'))) throw new Error('Missing server configuration');
   if (relayAuthSecret && !/^[A-Za-z0-9_-]{32,128}$/.test(relayAuthSecret)) throw new Error('Invalid relay authorization secret');
   const admins = new Set(adminOpenIds), nodes = new Set(managedNodeIds.map(id => id.toLowerCase()));
   if ([...nodes].some(id => !nodeIdPattern.test(id))) throw new Error('Invalid managed node ID');
-  let state = { version: 2, codes: {}, redemptions: {}, access: {} };
+  let state = { version: 2, codes: {}, redemptions: {}, access: {}, notificationTickets: {} };
   try {
     state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
     if (![1, 2].includes(state.version) || !state.codes || !state.redemptions) throw new Error('Unsupported state');
     if (state.version === 1 && state.access === undefined) state.access = {};
     if (!state.access || typeof state.access !== 'object' || Array.isArray(state.access) || Object.values(state.access).some(r => !r || !Number.isSafeInteger(r.expiresAt) || r.expiresAt < 0)) throw new Error('Invalid access state');
+    if (state.notificationTickets === undefined) state.notificationTickets = {};
+    if (!state.notificationTickets || typeof state.notificationTickets !== 'object' || Array.isArray(state.notificationTickets) ||
+      Object.entries(state.notificationTickets).some(([key, item]) => !/^[a-f0-9]{64}$/.test(key) || !item || !/^[a-f0-9]{64}$/.test(item.openidHash || '') ||
+        !['issued', 'sending', 'sent', 'failed'].includes(item.status) || !Number.isSafeInteger(item.expiresAt) || item.expiresAt < 0 ||
+        !Number.isSafeInteger(item.createdAt) || item.createdAt < 0 || item.sessionId != null && (typeof item.sessionId !== 'string' || item.sessionId.length > 256) ||
+        item.templateId != null && (typeof item.templateId !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(item.templateId)))) throw new Error('Invalid notification state');
+    // A process may stop after persisting "sending" but before recording the result.
+    // Let the gateway's idempotent retry resume the notification after restart.
+    for (const item of Object.values(state.notificationTickets)) if (item.status === 'sending') item.status = 'issued';
     if (state.version === 1) state.version = 2;
   } catch (e) { if (e.code !== 'ENOENT') throw new Error('Cannot read authorization state; refusing to reset it'); }
-  const sessions = new Map(), leases = new Map(), limits = new Map(), inFlight = new Set();
+  const sessions = new Map(), leases = new Map(), limits = new Map(), inFlight = new Set(), notificationSends = new Map();
   function commit(change) {
     const next = JSON.parse(JSON.stringify(state));
     const result = change(next);
@@ -32,7 +43,7 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
     const temp = stateFile + '.' + crypto.randomUUID() + '.tmp';
     try {
       fs.writeFileSync(temp, JSON.stringify(next), { mode: 0o600, flag: 'wx' });
-      const fd = fs.openSync(temp, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      const fd = fs.openSync(temp, 'r+'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
       fs.renameSync(temp, stateFile);
       state = next;
     } finally { try { fs.unlinkSync(temp); } catch (e) { if (e.code !== 'ENOENT') throw e; } }
@@ -103,8 +114,19 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
   const announcements = createAnnouncements({ getState: () => state, commit, now });
   const consoleApp = createConsole({ options: consoleOptions, getState: () => state, commit, body, respond, now, limit, engagement,
     envAdmins: [...admins], invalidateSessions: () => { sessions.clear(); leases.clear(); }, hasPendingGrants: () => Object.values(state.redemptions).some(r => r.status === 'pending') });
+  const deliverNotification = sendNotification || createWechatNotificationSender({
+    getWechatConfig: async () => consoleApp?.wechat(), templateId: notificationTemplateId, now,
+  });
+  function cleanupNotificationTickets() {
+    const expired = Object.entries(state.notificationTickets).filter(([, item]) => item.expiresAt <= now()).map(([key]) => key);
+    if (expired.length) commit(next => { for (const key of expired) delete next.notificationTickets[key]; });
+  }
+  cleanupNotificationTickets();
   engagement.cleanup();
-  const proofCleanup = setInterval(() => { try { engagement.cleanup(); } catch { console.error('Share evidence cleanup failed; check state storage'); } }, 60000);
+  const proofCleanup = setInterval(() => {
+    try { engagement.cleanup(); cleanupNotificationTickets(); }
+    catch { console.error('Public service cleanup failed; check state storage'); }
+  }, 60000);
   proofCleanup.unref();
   const server = http.createServer(async (req, res) => {
     try {
@@ -145,8 +167,76 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
         sessions.set(hash(token), { openid, expiresAt });
         respond(res, 201, { token, expiresAt, account: account(openid) }); return;
       }
+      if (req.method === 'POST' && route === '/notifications/complete') {
+        const input = await body(req);
+        const ticket = typeof input.ticket === 'string' ? input.ticket : '';
+        const sessionId = typeof input.sessionId === 'string' ? input.sessionId.trim() : '';
+        if (!/^[A-Za-z0-9_-]{43}$/.test(ticket) || !sessionId || sessionId.length > 256 || input.status !== 'completed') throw fail(400, 'INVALID_NOTIFICATION', '任务通知凭据无效');
+        // 可选指标：网关在回合结束后提交，用于填充自定义模板字段。
+        const taskName = typeof input.taskName === 'string' ? input.taskName.slice(0, 200) : undefined;
+        const durationMs = input.durationMs != null && Number.isFinite(Number(input.durationMs)) && Number(input.durationMs) >= 0 ? Number(input.durationMs) : undefined;
+        const tokens = input.tokens != null && Number.isFinite(Number(input.tokens)) && Number(input.tokens) >= 0 ? Number(input.tokens) : undefined;
+        const cacheHitRate = input.cacheHitRate != null && Number.isFinite(Number(input.cacheHitRate)) && Number(input.cacheHitRate) >= 0 && Number(input.cacheHitRate) <= 1 ? Number(input.cacheHitRate) : undefined;
+        const metrics = {};
+        if (taskName !== undefined) metrics.taskName = taskName;
+        if (durationMs !== undefined) metrics.durationMs = durationMs;
+        if (tokens !== undefined) metrics.tokens = tokens;
+        if (cacheHitRate !== undefined) metrics.cacheHitRate = cacheHitRate;
+        const key = hash(ticket), entry = state.notificationTickets[key];
+        if (!entry || entry.expiresAt <= now()) {
+          if (entry) commit(next => { delete next.notificationTickets[key]; });
+          throw fail(404, 'NOTIFICATION_EXPIRED', '任务通知凭据已失效');
+        }
+        if (entry.sessionId && entry.sessionId !== sessionId) throw fail(409, 'NOTIFICATION_SESSION_MISMATCH', '任务通知凭据已用于其他会话');
+        if (entry.status === 'sent') { respond(res, 200, { sent: true, duplicate: true }); return; }
+        if (entry.status === 'failed') throw fail(409, 'NOTIFICATION_UNAVAILABLE', '任务通知无法发送');
+        let sending = notificationSends.get(key);
+        if (!sending) {
+          commit(next => { next.notificationTickets[key].status = 'sending'; next.notificationTickets[key].sessionId = sessionId; });
+          const openid = state.engagement?.identities?.[entry.openidHash]?.openid;
+          if (!openid) {
+            commit(next => { next.notificationTickets[key].status = 'failed'; });
+            throw fail(409, 'NOTIFICATION_UNAVAILABLE', '任务通知身份已失效');
+          }
+          const notificationContext = { sessionId };
+          if (entry.templateId) notificationContext.templateId = entry.templateId;
+          sending = Promise.resolve().then(() => deliverNotification(openid, { ...notificationContext, ...metrics }))
+            .then(() => commit(next => { next.notificationTickets[key].status = 'sent'; next.notificationTickets[key].sentAt = now(); }))
+            .catch(error => {
+              // 记录微信返回的具体错误码（WECHAT_API_xxx / TEMPLATE_NOT_FOUND 等），否则「收不到通知」无从排查。
+              console.error('Task completion notification failed:', error && error.code || 'UNKNOWN', error && error.message || '');
+              commit(next => { next.notificationTickets[key].status = error && error.retryable ? 'issued' : 'failed'; });
+              throw error;
+            }).finally(() => notificationSends.delete(key));
+          notificationSends.set(key, sending);
+        }
+        await sending;
+        respond(res, 200, { sent: true }); return;
+      }
       const user = handled?.user || auth(req);
       if (req.method === 'GET' && route === '/me') { respond(res, 200, { account: account(user.openid) }); return; }
+      if (req.method === 'POST' && route === '/notifications/tickets') {
+        const input = await body(req);
+        limit('notification-ticket:' + user.openid, 20);
+        // 模板 ID 由小程序传入（唯一来源），服务端只校验格式并随票据保存。
+        const templateId = typeof input.templateId === 'string' ? input.templateId : '';
+        if (templateId && !/^[A-Za-z0-9_-]{43}$/.test(templateId)) throw fail(400, 'INVALID_TEMPLATE_ID', '通知模板 ID 无效');
+        if (typeof sendNotification !== 'function') {
+          const config = consoleApp?.wechat();
+          if (!config?.appId || !config?.appSecret) throw fail(503, 'WECHAT_NOT_CONFIGURED', '微信订阅通知尚未配置，请联系管理员');
+        }
+        const time = now();
+        const activeTickets = Object.values(state.notificationTickets).filter(item => item.expiresAt > time).length;
+        if (activeTickets >= 10000) throw fail(503, 'BUSY', '通知服务繁忙，请稍后重试');
+        const ticket = crypto.randomBytes(32).toString('base64url');
+        const expiresAt = time + 3 * DAY;
+        const openidHash = hash(user.openid);
+        commit(next => {
+          for (const [key, item] of Object.entries(next.notificationTickets)) if (item.expiresAt <= time) delete next.notificationTickets[key];
+          next.notificationTickets[hash(ticket)] = { openidHash, status: 'issued', createdAt: time, expiresAt, ...(templateId ? { templateId } : {}) };
+        });
+        respond(res, 201, { ticket, expiresAt }); return;
+      }
       if (req.method === 'GET' && route === '/share') { respond(res, 200, engagement.summary(user.openid)); return; }
       if (req.method === 'POST' && route === '/share/invite') { await body(req); limit('invite:'+user.openid,10); respond(res, 200, engagement.invitation(user.openid)); return; }
       if (req.method === 'POST' && route === '/share/open') { const input=await body(req); respond(res, 200, engagement.open(user.openid,input.token)); return; }

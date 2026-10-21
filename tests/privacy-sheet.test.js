@@ -44,7 +44,8 @@ test('privacy is fullscreen, scrollable, themed, and no longer an external webvi
   assert.doesNotMatch(read('pages/privacy/privacy.wxml'), /web-view/);
   assert.doesNotMatch(read('pages/privacy/privacy.js'), /github.io|PRIVACY_URL/);
   const policy = JSON.stringify(require('../miniprogram/utils/privacy-policy'));
-  for (const term of ['鲸尾助手', 'OpenID', 'WX-', '局域网', '朋友圈', '清理缓存', '联系客服']) assert.ok(policy.includes(term), term);
+  for (const term of ['鲸尾助手', 'OpenID', 'WX-', '局域网', '朋友圈', '清理缓存', '联系客服', 'ClawBot', '网关内置接入服务']) assert.ok(policy.includes(term), term);
+  assert.doesNotMatch(policy, /dsh-wechat-remote/u, 'ClawBot runs in the gateway and is not a plugin dependency');
 });
 test('announcement publish button is transparent with a translucent border in all states', () => {
   const css = read('pages/announcement-admin/announcement-admin.wxss');

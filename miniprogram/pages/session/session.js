@@ -9,7 +9,7 @@ const store = require('../../utils/store');
 const markdown = require('../../utils/markdown');
 const labels = require('../../utils/labels');
 const util = require('../../utils/util');
-const notifyPref = require('../../utils/notify-pref');
+const notifySubscription = require('../../utils/notify-subscription');
 const voicePreference = require('../../utils/voice-preference');
 const voiceActions = require('./voice-actions');
 const fileActions = require('./file-actions');
@@ -23,9 +23,6 @@ const conversationWorkflow = require('../../utils/conversation-workflow');
 const composerMenu = require('../../utils/composer-menu');
 const sessionSwitcher = require('../../utils/session-switcher');
 const { dataPatch, createMarkdownCache } = require('../../utils/session-render');
-
-// 订阅消息模板 ID：与设置页保持一致；留空则发送时不申请授权。
-const NOTIFY_TEMPLATE_ID = 'QvgkQ88HKFdTNPJVOp0EdOHNDodOQACzB9oDEFDZXKU';
 
 const { toolPresentation } = require('../../utils/tool-presentation');
 
@@ -71,6 +68,8 @@ Page({
     turnNavActiveIndex: -1,
     turnNavScrollTop: 0,
     turnNavWidths: [],
+    turnNavRowStyles: [],
+    turnNavSpacerPx: 0,
     turnNavCardTop: 0,
     hasMoreHistory: false,
 
@@ -771,6 +770,7 @@ Page({
         historyProgressText: historyProgressText
       });
     }
+    if (this.data.turnNavOpen) this.autoLoadTurnNavigatorHistory(null, true);
     const cs = app.connection || 'disconnected';
     if (cs !== this.data.connState) this.setData({ connState: cs });
     // DSH 的队列项是 UserMessage：正文在 content[] block 中，而不是顶层字符串。
@@ -1913,6 +1913,14 @@ Page({
   },
 
   /** 当前对话的节点定位：列出用户消息 / 过程 / 助手回复，可跳到任意节点。 */
+  turnNavRowStyle(index, activeIndex) {
+    const distance = activeIndex < 0 ? 0 : Math.abs(index - activeIndex);
+    const blur = Math.min(4, distance * 0.7);
+    const opacity = Math.max(0.14, 1 - distance * 0.16);
+    const scale = Math.max(0.9, 1 - distance * 0.018);
+    return `opacity:${opacity.toFixed(2)};filter:blur(${blur.toFixed(1)}px);transform:scale(${scale.toFixed(3)});`;
+  },
+
   turnNavigatorPatch(rows) {
     // 对齐 DSH 客户端右侧对话大纲：标题＝用户发送内容，正文＝该轮助手的回答
     const snippet = (value, max) => {
@@ -1963,7 +1971,8 @@ Page({
     const selectedIndex = selected ? items.findIndex(item => item.key === selected.key) : -1;
     const active = selectedIndex >= 0 ? selectedIndex : (this.data.turnNavOpen && items.length ? 0 : -1);
     return { turnNavItems: items, turnNavActiveIndex: active,
-      turnNavWidths: items.map((_, index) => active < 0 ? 30 : Math.max(30, 112 - Math.abs(index - active) * 16)) };
+      turnNavWidths: items.map((_, index) => active < 0 ? 30 : Math.max(30, 112 - Math.abs(index - active) * 16)),
+      turnNavRowStyles: items.map((_, index) => this.turnNavRowStyle(index, active)) };
   },
 
   openTurnNavigator() {
@@ -1971,6 +1980,7 @@ Page({
     this._turnScrollTop = 0;
     this._turnListRect = null;
     this._turnScrubbing = false;
+    this._turnOlderRequestKey = '';
     this._turnNavigatorTouched = false;
     const active = this.data.turnNavItems.length ? 0 : -1;
     this.setData({
@@ -1978,8 +1988,13 @@ Page({
       turnNavScrollTop: 0,
       turnNavActiveIndex: active,
       turnNavWidths: this.data.turnNavItems.map((_, index) => Math.max(30, 112 - index * 16)),
+      turnNavRowStyles: this.data.turnNavItems.map((_, index) => this.turnNavRowStyle(index, active)),
       turnNavPreview: null
-    }, () => wx.nextTick(() => { if (this.data.turnNavOpen && !this._unloaded) this.measureTurnRail(); }));
+    }, () => wx.nextTick(() => {
+      if (!this.data.turnNavOpen || this._unloaded) return;
+      this.measureTurnRail();
+      this.autoLoadTurnNavigatorHistory(null, true);
+    }));
   },
 
   measureTurnRail() {
@@ -1991,13 +2006,15 @@ Page({
     } catch (e) { /* 忽略 */ }
     query.select('#turn-scrub-list').boundingClientRect((rect) => {
       if (!this.data.turnNavOpen || this._unloaded || !rect || rect.height <= 0) return;
-      // 行高必须与目录样式一致。
+      const rowHeight = 76 * windowWidth / 750;
+      const spacer = Math.max(0, (rect.height - rowHeight) / 2);
       this._turnListRect = {
         top: rect.top,
         height: rect.height,
-        rowHeight: 76 * windowWidth / 750,
-        activeRowHeight: 128 * windowWidth / 750
+        rowHeight,
+        spacer
       };
+      if (Math.abs((Number(this.data.turnNavSpacerPx) || 0) - spacer) > 1) this.setData({ turnNavSpacerPx: spacer });
     }).exec();
     if (this._convPinned !== false || this.data.tab !== 'conversation') return;
     // 找当前对话正在看的位置：视口内第一条用户消息，默认高亮它
@@ -2016,7 +2033,7 @@ Page({
         this.applyTurnIndex(index, false);
         const rect = this._turnListRect;
         if (rect) {
-          const top = Math.max(0, index * rect.rowHeight - (rect.height - rect.activeRowHeight) / 2);
+          const top = Math.max(0, index * rect.rowHeight);
           this._turnScrollTop = top;
           this.setData({ turnNavScrollTop: top });
         }
@@ -2024,23 +2041,13 @@ Page({
     }).exec();
   },
 
-  turnIndexAt(clientY) {
-    const rect = this._turnListRect;
-    const items = this.data.turnNavItems || [];
-    if (!rect || !items.length || !rect.rowHeight) return -1;
-    const localY = clientY - rect.top + (this._turnScrollTop || 0) - rect.rowHeight * 8 / 76;
-    const active = this.data.turnNavActiveIndex;
-    const extra = active >= 0 ? (rect.activeRowHeight || rect.rowHeight) - rect.rowHeight : 0;
-    const activeTop = active * rect.rowHeight;
-    if (active >= 0 && localY >= activeTop && localY < activeTop + rect.rowHeight + extra) return active;
-    const y = active >= 0 && localY >= activeTop + rect.rowHeight + extra ? localY - extra : localY;
-    return Math.max(0, Math.min(items.length - 1, Math.floor(y / rect.rowHeight)));
-  },
-
   onTurnListScroll(e) {
-    const top = Number(e.detail && e.detail.scrollTop) || 0;
+    const detail = (e && e.detail) || {};
+    const top = Number(detail.scrollTop) || 0;
     this._turnScrollTop = top;
-    if (this._turnScrubbing && this._turnFingerY != null) this.applyTurnIndex(this.turnIndexAt(this._turnFingerY));
+    const rect = this._turnListRect;
+    if (rect && rect.rowHeight > 0) this.applyTurnIndex(Math.round(top / rect.rowHeight));
+    this.autoLoadTurnNavigatorHistory(detail, false);
   },
 
   applyTurnIndex(index, feedback = true) {
@@ -2048,14 +2055,19 @@ Page({
     const item = items[index];
     if (!item) return;
     if (index === this.data.turnNavActiveIndex) return;
-    // 只有新旧选中项周围五条横线会变化，不随整个历史长度增长。
     const patch = { turnNavActiveIndex: index };
-    const affected = new Set();
+    const styled = new Set();
+    const railed = new Set();
     for (const center of [this.data.turnNavActiveIndex, index]) {
       if (center < 0) continue;
-      for (let i = Math.max(0, center - 5); i <= Math.min(items.length - 1, center + 5); i++) affected.add(i);
+      for (let i = Math.max(0, center - 8); i <= Math.min(items.length - 1, center + 8); i++) styled.add(i);
+      for (let i = Math.max(0, center - 5); i <= Math.min(items.length - 1, center + 5); i++) railed.add(i);
     }
-    affected.forEach(i => {
+    styled.forEach(i => {
+      const style = this.turnNavRowStyle(i, index);
+      if (this.data.turnNavRowStyles[i] !== style) patch['turnNavRowStyles[' + i + ']'] = style;
+    });
+    railed.forEach(i => {
       const width = Math.max(30, 112 - Math.abs(i - index) * 16);
       if (this.data.turnNavWidths[i] !== width) patch['turnNavWidths[' + i + ']'] = width;
     });
@@ -2064,44 +2076,47 @@ Page({
   },
 
   onTurnScrubStart(e) {
-    const touch = e.touches && e.touches[0];
-    if (!touch) return;
+    if (!e || !e.touches || !e.touches[0]) return;
     this._turnNavigatorTouched = true;
     this._turnScrubbing = true;
-    this._turnFingerY = touch.clientY;
-    if (!this._turnListRect) this.measureTurnRail();
-    const index = this.turnIndexAt(touch.clientY);
-    if (index >= 0) this.applyTurnIndex(index);
-  },
-
-  onTurnScrubMove(e) {
-    if (!this._turnScrubbing) return;
-    const touch = e.touches && e.touches[0];
-    if (!touch) return;
-    this._turnFingerY = touch.clientY;
-    const index = this.turnIndexAt(touch.clientY);
-    if (index >= 0) this.applyTurnIndex(index);
   },
 
   onTurnScrubEnd() {
-    if (!this._turnScrubbing) return;
     this._turnScrubbing = false;
-    const index = this.data.turnNavActiveIndex;
+  },
+
+  autoLoadTurnNavigatorHistory(detail, fillViewport, force) {
     const items = this.data.turnNavItems || [];
-    const item = items[index];
-    if (!item || !item.key) return;
-    if (this.data.tab !== 'conversation') this.switchTab({ currentTarget: { dataset: { tab: 'conversation' } } });
-    this._convPinned = false;
-    this.revealConversationRow(item.key);
-    this.setData({ turnNavOpen: false, turnNavActiveIndex: -1, turnNavPreview: null, scrollTarget: '', scrollAnim: true }, () => {
-      wx.nextTick(() => {
-        this.setData({ scrollTarget: item.key });
-        this._turnJumpTimer = setTimeout(() => {
-          this._convPinned = false;
-          this.setData({ scrollAnim: false });
-        }, 400);
-      });
-    });
+    if (!this.data.turnNavOpen || !this.data.hasMoreHistory || this.data.historyLoading) return;
+    if (this.data.histError && !force) return;
+
+    const rect = this._turnListRect || {};
+    let windowWidth = 375;
+    let windowHeight = 800;
+    try {
+      const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+      windowWidth = Number(info && info.windowWidth) || windowWidth;
+      windowHeight = Number(info && info.windowHeight) || windowHeight;
+    } catch (_) { /* Keep a safe viewport estimate. */ }
+    const rowHeight = rect.rowHeight || 76 * windowWidth / 750;
+    const clientHeight = Number(detail && detail.clientHeight) || rect.height || windowHeight * 0.76;
+    const scrollTop = Number(detail && detail.scrollTop) || 0;
+    const contentHeight = Number(detail && detail.scrollHeight)
+      || items.length * rowHeight + 2 * (rect.spacer || Math.max(0, (clientHeight - rowHeight) / 2));
+    const nearOlderEdge = scrollTop + clientHeight >= contentHeight - Math.max(rowHeight * 2, 80);
+    if (!nearOlderEdge && !(fillViewport && items.length < 8)) return;
+
+    const session = store.sessionState || {};
+    const requestKey = String(session.sessionId || '') + ':' + String(session.nextBeforeSeq == null ? '' : session.nextBeforeSeq);
+    if (!requestKey || (this._turnOlderRequestKey === requestKey && !force)) return;
+    this._turnOlderRequestKey = requestKey;
+    this.loadOlder();
+  },
+
+  retryTurnNavigatorHistory() {
+    this._turnOlderRequestKey = '';
+    this.setData({ histError: '' });
+    this.autoLoadTurnNavigatorHistory(null, true, true);
   },
 
   closeTurnNavigator() {
@@ -2110,7 +2125,7 @@ Page({
     this.setData({ turnNavOpen: false, turnNavPreview: null });
   },
 
-  onTurnScrubCancel() { this._turnScrubbing = false; this._turnFingerY = null; },
+  onTurnScrubCancel() { this._turnScrubbing = false; },
 
   /** 手指划过/悬停某一条时，在列表上方浮出该轮消息卡片。 */
   showTurnPreview(e) {
@@ -2469,20 +2484,25 @@ Page({
     });
   },
 
-  submitCommand(command, line, encodedImages, preserveDraft = false) {
+  submitCommand(command, line, encodedImages, preserveDraft = false, notificationTicket) {
     const request = command.ui && command.ui.submitRequest;
     const context = this.composerContextKey(), revision = this._draftRevision || 0;
     if ((encodedImages || []).length && !composerMenu.acceptsAttachments(command)) return Promise.resolve(false);
     if (request === 'message') {
-      const mode = store.sessionState.running ? 'queue' : undefined;
-      const sent = store.client.sendMessage(line, store.sessionState.sessionId, store.state.currentWorkspaceId, encodedImages, mode);
-      if (sent !== false) {
-        store.appendLocalUserRow(line, []);
-        if (mode === 'queue') this.rememberQueuedSubmission(line, encodedImages);
-        this.jumpToBottom();
-      }
-      if (sent !== false && !preserveDraft) this.setData({ draft: '', images: [], canSend: false, commandMenu: null });
-      return Promise.resolve(sent);
+      const ticketPromise = notificationTicket === undefined
+        ? notifySubscription.requestCompletionTicket()
+        : Promise.resolve(notificationTicket || '');
+      return ticketPromise.then(ticket => {
+        const mode = store.sessionState.running ? 'queue' : undefined;
+        const sent = store.client.sendMessage(line, store.sessionState.sessionId, store.state.currentWorkspaceId, encodedImages, mode, ticket);
+        if (sent !== false) {
+          store.appendLocalUserRow(line, []);
+          if (mode === 'queue') this.rememberQueuedSubmission(line, encodedImages);
+          this.jumpToBottom();
+        }
+        if (sent !== false && !preserveDraft) this.setData({ draft: '', images: [], canSend: false, commandMenu: null });
+        return sent;
+      });
     }
     if (request === 'command-execute') {
       if (this._commandSubmitting) return Promise.resolve(false);
@@ -2695,22 +2715,20 @@ Page({
     this._draftRevision = (this._draftRevision || 0) + 1;
     const revision = this._draftRevision, context = this.composerContextKey(), client = store.client, workspaceId = store.state.currentWorkspaceId;
     this.setData({ sendingAttachments: true });
-    // 实验性：发送任务前申请订阅消息授权（一次性授权，每次发送都需申请）。
-    if (notifyPref.enabled() && NOTIFY_TEMPLATE_ID) {
-      wx.requestSubscribeMessage({ tmplIds: [NOTIFY_TEMPLATE_ID], fail: function () {} });
-    }
+    // The task-send tap is the only reliable gesture context for WeChat's one-time subscription prompt.
+    const notificationTicket = notifySubscription.requestCompletionTicket();
     const s = store.sessionState;
     const self = this;
     const sendWithImages = images.length
       ? Promise.all(images.map(readImageBase64))
       : Promise.resolve([]);
 
-    return sendWithImages.then((encoded) => {
+    return Promise.all([sendWithImages, notificationTicket]).then(([encoded, ticket]) => {
       if (this._unloaded || this.composerContextKey() !== context || store.client !== client) return;
       if (this._draftRevision !== revision) return;
       const activeCommand = this._activeCommand;
       if (activeCommand && activeCommand.ui && activeCommand.ui.kind === 'input') {
-        return this.submitCommand(activeCommand, text, encoded);
+        return this.submitCommand(activeCommand, text, encoded, false, ticket);
       }
       const mode = s.running ? 'queue' : undefined;
       const sent = client.sendMessage(
@@ -2718,7 +2736,8 @@ Page({
         s.sessionId,
         workspaceId,
         encoded,
-        mode
+        mode,
+        ticket
       );
       if (sent !== false) {
         // 乐观回显：消息立即可见（对齐桌面端），网关回显到达时自动合并

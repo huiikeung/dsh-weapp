@@ -7,7 +7,7 @@ function fixture() {
   const file = path.resolve(__dirname, '../miniprogram/pages/session/session.js');
   let definition; const calls = [], ticks = [], timers = new Map(), patches = [];
   let timerId = 0;
-  const store = { state: { sessions: [], archivedSessionIds: [] }, sessionState: { sessionId: 's1', running: true }, openSession: (...args) => calls.push(['open', ...args]), client: {
+  const store = { state: { sessions: [], archivedSessionIds: [] }, sessionState: { sessionId: 's1', running: true }, openSession: (...args) => calls.push(['open', ...args]), loadOlderHistory: () => calls.push(['loadOlderHistory']), client: {
     renameSession: (...args) => calls.push(['rename', ...args]), archiveSession: (...args) => calls.push(['archive', ...args]), cancelSession: (...args) => calls.push(['cancel', ...args])
   } };
   const wx = { hideKeyboard: () => calls.push(['hideKeyboard']), nextTick: fn => ticks.push(fn),
@@ -31,18 +31,29 @@ function fixture() {
   return { page, store, calls, ticks, timers, patches };
 }
 const event = (key, value) => ({ currentTarget: { dataset: { [key]: value } } });
-test('large outline selection patches only nearby bars and history keeps manual loading controls', () => {
-  const { page, patches } = fixture();
+test('large outline selection patches nearby blur effects and auto-loads at the older edge', () => {
+  const { page, patches, calls, store } = fixture();
   page.setData(page.turnNavigatorPatch(Array.from({ length: 2000 }, (_, i) => ({ kind: 'user', key: 'u' + i, text: 'Q' + i }))));
   page.applyTurnIndex(0, false); patches.length = 0; page.applyTurnIndex(1000);
-  assert.ok(Object.keys(patches[0]).length <= 23);
+  assert.ok(Object.keys(patches[0]).length <= 50);
   assert.ok(!('turnNavWidths' in patches[0]));
-  page._turnListRect = { top: 100, rowHeight: 38, activeRowHeight: 64 };
-  page._turnListScrollTop = 0;
-  assert.equal(page.turnIndexAt(104 + 1000 * 38 + 63), 1000);
-  assert.equal(page.turnIndexAt(104 + 1000 * 38 + 64), 1001);
+  assert.match(page.data.turnNavRowStyles[1000], /blur\(0\.0px\)/);
+  page._turnListRect = { top: 100, height: 300, rowHeight: 38, spacer: 131 };
+  page.data.turnNavOpen = true;
+  page.data.hasMoreHistory = true;
+  store.sessionState.nextBeforeSeq = 400;
+  page.onTurnListScroll({ detail: { scrollTop: 700, scrollHeight: 1000, clientHeight: 300 } });
+  assert.equal(page.data.turnNavActiveIndex, 18, 'the row nearest the viewport center becomes active');
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
+  page.onTurnListScroll({ detail: { scrollTop: 700, scrollHeight: 1000, clientHeight: 300 } });
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1, 'scroll events do not duplicate an in-flight page request');
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
-  assert.ok(xml.includes('加载更早记录'));
+  const outlineStart = xml.indexOf('class="turn-overlay');
+  const outline = xml.slice(outlineStart, xml.indexOf('<!-- 更多菜单', outlineStart));
+  assert.ok(outline.includes('bindscroll="onTurnListScroll"'));
+  assert.ok(!outline.includes('bindtap="loadOlder"'), 'normal history loading is driven by scroll, not a manual button');
+  // 空白区域（列表外/列表内非行位置）点击都要关闭大纲浮层。
+  assert.match(outline, /class="turn-overlay-inner"[^>]*catchtap="closeTurnNavigator"/);
   assert.equal((xml.match(/bindscrolltoupper="loadOlder"/g) || []).length, 2);
 });
 test('horizontal gestures switch cached panels with feedback while vertical/cancelled gestures do not', () => {
@@ -78,41 +89,42 @@ test('navigator caches every turn and updates an open list while older history a
   assert.equal(page.data.turnNavWidths[0], 112);
   assert.equal(page.data.turnNavItems.length, 80);
   assert.equal(page.data.turnNavItems[0].key, 'u79');
-  page.applyTurnIndex(20);
+  page.applyTurnIndex(20, false);
   const selected = page.data.turnNavItems[20].key;
   page.setData(page.turnNavigatorPatch([{ kind: 'user', key: 'older', text: 'Oldest' }, ...rows]));
   assert.equal(page.data.turnNavItems.length, 81);
   assert.equal(page.data.turnNavItems[page.data.turnNavActiveIndex].key, selected);
   page._turnListRect = { top: 0, rowHeight: 38, activeRowHeight: 64 };
   page.onTurnListScroll({ detail: { scrollTop: 80 } });
-  assert.equal(calls.filter(call => call[0] === 'tick').length, 1, 'programmatic scroll stays silent');
-  page.applyTurnIndex(20); assert.equal(calls.filter(call => call[0] === 'tick').length, 1);
+  assert.equal(page.data.turnNavActiveIndex, 2, 'scrolling keeps the center row selected');
+  assert.equal(calls.filter(call => call[0] === 'tick').length, 1);
+  page.applyTurnIndex(2); assert.equal(calls.filter(call => call[0] === 'tick').length, 1);
   page.onTurnScrubCancel(); page.onTurnScrubEnd(); assert.equal(page.data.turnNavOpen, true);
 });
-test('whole-list scrubbing expands the selected row, reshapes the rail and emits one tick per change', () => {
+test('turn wheel keeps the centered row highlighted while scrolling and only jumps when tapped', () => {
   const { page, calls } = fixture();
   page.setData(page.turnNavigatorPatch(Array.from({ length: 50 }, (_, i) => ({ kind: 'user', key: 'u' + i, text: 'Question ' + i }))));
   page.openTurnNavigator();
-  page._turnListRect = { top: 100, height: 400, rowHeight: 38, activeRowHeight: 64 };
+  page._turnListRect = { top: 100, height: 400, rowHeight: 38, spacer: 181 };
   page.onTurnScrubStart({ touches: [{ clientY: 120 }] });
   assert.equal(page.data.turnNavActiveIndex, 0);
-  page.onTurnScrubMove({ touches: [{ clientY: 180 }] });
+  page.onTurnListScroll({ detail: { scrollTop: 38 } });
   assert.equal(page.data.turnNavActiveIndex, 1);
-  assert.equal(page.data.turnNavWidths[1], 112); assert.equal(page.data.turnNavWidths[0], 96);
-  page.onTurnScrubMove({ touches: [{ clientY: 180 }] });
+  assert.match(page.data.turnNavRowStyles[1], /blur\(0\.0px\)/);
+  assert.match(page.data.turnNavRowStyles[0], /blur\(0\.7px\)/);
   assert.equal(calls.filter(call => call[0] === 'tick').length, 1);
-  page.onTurnListScroll({ detail: { scrollTop: 600 } });
-  assert.ok(page.data.turnNavActiveIndex > 10, 'long lists still reach older turns');
-  assert.equal(calls.filter(call => call[0] === 'tick').length, 2);
-  page.onTurnScrubCancel(); page.onTurnScrubEnd();
-  assert.equal(page.data.turnNavOpen, true, 'cancel does not navigate');
-  page.onTurnScrubStart({ touches: [{ clientY: 180 }] });
   page.onTurnScrubEnd();
-  assert.equal(page.data.turnNavOpen, false); assert.equal(page._convPinned, false);
+  assert.equal(page.data.turnNavOpen, true, 'scrolling does not close the wheel selector');
+  page.revealConversationRow = key => calls.push(['reveal', key]);
+  page.jumpToTurn(event('key', page.data.turnNavItems[1].key));
+  assert.equal(page.data.turnNavOpen, false, 'tapping a turn performs the jump');
+  assert.ok(calls.some(call => call[0] === 'reveal'));
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const list = xml.slice(xml.indexOf('id="turn-scrub-list"'), xml.indexOf('<view class="turn-scrub-inner">'));
-  for (const handler of ['onTurnScrubStart', 'onTurnScrubMove', 'onTurnScrubEnd', 'onTurnScrubCancel']) assert.ok(list.includes(handler));
-  assert.ok(list.includes('min(76vh,'), 'short outlines remain vertically centered without clipping long lists');
+  assert.ok(list.includes('bindscroll="onTurnListScroll"'));
+  assert.ok(list.includes('76vh'), 'the list keeps a stable viewport so its center does not shift');
+  assert.ok(xml.includes('turnNavSpacerPx'), 'top and bottom spacers let the first and last turns sit in the center');
+  assert.ok(xml.includes('catchtap="jumpToTurn"'));
 });
 test('trajectory tab clears keyboard/popovers but preserves draft and never measures hidden dock', () => {
   const { page, calls, ticks } = fixture();

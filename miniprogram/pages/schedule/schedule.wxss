@@ -10,6 +10,11 @@
 .sched-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16rpx; }.sched-intro { color:var(--sp-text2); font-size:24rpx; }.sched-toolbar-actions { display:flex; gap:16rpx; align-items:center; }
 .sched .sched-refresh { width:56rpx; height:56rpx; border:1rpx solid var(--sp-border); border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; }.sched-refresh-image { width:28rpx; height:28rpx; opacity:.7; }
 .sched .sched-primary { background:var(--sp-primary); color:var(--sp-on-primary); padding:16rpx 26rpx; border-radius:14rpx; text-align:center; }.sched .sched-new { padding:12rpx 22rpx; font-size:25rpx; white-space:nowrap; }
+.sched .sched-cta { display:flex; align-items:center; justify-content:center; min-height:88rpx; padding:18rpx 36rpx; font-size:27rpx; font-weight:500; }
+.sched .sched-cta.is-disabled { opacity:.4; }
+.sched .sched-cta-pressed { opacity:.82; }
+.sched-empty-footer { flex-shrink:0; padding:20rpx 32rpx calc(20rpx + env(safe-area-inset-bottom)); border-top:1rpx solid var(--sp-border); background:var(--sp-bg); }
+.sched-empty-footer .sched-cta { width:100%; box-sizing:border-box; }
 .sched .sched-outline { border:1rpx solid var(--sp-border); padding:14rpx 24rpx; border-radius:14rpx; text-align:center; }
 .sched-search { display:flex; align-items:center; gap:18rpx; height:76rpx; padding:0 22rpx; border:1rpx solid var(--sp-border); border-radius:18rpx; }.sched-search input { flex:1; min-width:0; font-size:27rpx; height:100%; border:0; background:transparent; color:var(--sp-text); }.sched-search button { font-size:34rpx; color:var(--sp-text2); width:40rpx; }
 .sched-search-icon { width:24rpx; height:24rpx; border:2rpx solid var(--sp-text2); border-radius:50%; position:relative; box-sizing:border-box; }.sched-search-icon:after { content:''; width:10rpx; position:absolute; right:-8rpx; bottom:-4rpx; border-top:2rpx solid var(--sp-text2); transform:rotate(45deg); }

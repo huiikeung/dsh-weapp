@@ -107,8 +107,18 @@ function publicLease(nodeId, deviceId) {
     return result;
   });
 }
+function issueCompletionNotificationTicket(templateId) {
+  // 模板 ID 的唯一来源是小程序；服务端按票据携带的模板 ID 发送，避免两端配置不一致。
+  const body = typeof templateId === 'string' && /^[A-Za-z0-9_-]{43}$/.test(templateId) ? { templateId } : {};
+  return ensureAccount().then(() => request('/notifications/tickets', body)).then(result => {
+    if (!result || !/^[A-Za-z0-9_-]{43}$/.test(result.ticket || '') || !Number.isSafeInteger(result.expiresAt) || result.expiresAt <= Date.now()) {
+      throw error(uiText('通知服务响应无效'), 'INVALID_RESPONSE');
+    }
+    return result;
+  });
+}
 function claimAdminBinding(code) { return request('/admin-binding/claim', { code }); }
 function pairings() { return request('/admin/pairings'); }
 function createPairing(nodeId, days) { return request('/admin/pairings', { nodeId, days }, false, 30000); }
 function revokePairing(id) { return request('/admin/pairings/' + encodeURIComponent(id) + '/revoke', {}); }
-module.exports = { configured, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, hasPublicAccess, isManagedRelay, publicLease, claimAdminBinding, pairings, createPairing, revokePairing, clear };
+module.exports = { configured, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, hasPublicAccess, isManagedRelay, publicLease, issueCompletionNotificationTicket, claimAdminBinding, pairings, createPairing, revokePairing, clear };
