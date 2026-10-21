@@ -901,13 +901,20 @@ export async function handleContextQuery(api, msg) {
     return unavailable(requestType, sessionId, 'Session history is unavailable on this host')
   }
   try {
+    // The host adapter returns the raw `session/follow` snapshot (no `kind`):
+    // only the gateway's proxyQuery helper stamps a kind. Accept both shapes so
+    // the handler works with the adapter directly and with legacy mocks.
     const history = await api.sessions.history({ sessionId, maxMessages: 1 })
-    if (!history || history.kind !== 'history') {
-      return history && history.kind === 'error'
-        ? { ...history, requestType, sessionId }
-        : unavailable(requestType, sessionId, 'Unable to read the session projection')
+    if (history && history.kind === 'error') {
+      return { ...history, requestType, sessionId }
     }
-    const projections = history.projections !== null && typeof history.projections === 'object' ? history.projections : undefined
+    const projections = history !== null && typeof history === 'object'
+      && history.projections !== null && typeof history.projections === 'object'
+      ? history.projections
+      : undefined
+    if (projections === undefined) {
+      return unavailable(requestType, sessionId, 'The session projection snapshot is unavailable')
+    }
     const values = projections && projections.values !== null && typeof projections.values === 'object' ? projections.values : {}
     const context = values.mobileContext
     if (context === null || typeof context !== 'object') {

@@ -1046,3 +1046,45 @@ test('installer transform is idempotent and keeps the paired-device check parent
     }
   }
 })
+
+// ---------------------------------------------------------------------------
+// The host adapter returns the raw session/follow snapshot (no `kind`); the
+// dashboard handler must accept that shape instead of demanding the gateway's
+// proxyQuery `kind: 'history'` wrapper (live 0.8.16 regression).
+// ---------------------------------------------------------------------------
+test('handleContextQuery accepts the adapter snapshot shape without a kind', async () => {
+  const { handleContextQuery } = require('../scripts/lib/context-bridge.mjs')
+  const snapshot = {
+    cursor: 32619,
+    historyFormatVersion: 4,
+    events: [],
+    hasMore: false,
+    projections: {
+      asOfSeq: 32619,
+      values: {
+        mobileContext: { v: 1, current: { system: 1, tools: 2, total: 3 }, requests: [], events: [] },
+        contextBreakdown: { systemTokens: 1, toolsTokens: 2, messageTokens: 0 },
+        tokenUsage: { uncachedInputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 0 },
+        sessionStats: { turns: 1, steps: 2 },
+      },
+    },
+  }
+  const frame = await handleContextQuery({ sessions: { history: async () => snapshot } }, { type: 'context-dashboard', sessionId: 'session-x' })
+  assert.equal(frame.kind, 'context-dashboard')
+  assert.equal(frame.sessionId, 'session-x')
+  assert.equal(frame.asOfSeq, 32619)
+  assert.equal(frame.value.v, 1)
+  assert.deepEqual(frame.value.breakdown, { systemTokens: 1, toolsTokens: 2, messageTokens: 0 })
+  assert.deepEqual(frame.value.usage, { uncachedInputTokens: 1, outputTokens: 2, cacheReadTokens: 3, cacheWriteTokens: 0 })
+  assert.deepEqual(frame.value.stats, { turns: 1, steps: 2 })
+
+  const legacy = await handleContextQuery({
+    sessions: { history: async () => ({ ...snapshot, kind: 'history' }) },
+  }, { type: 'context-dashboard', sessionId: 'session-x' })
+  assert.equal(legacy.kind, 'context-dashboard')
+
+  const missing = await handleContextQuery({ sessions: { history: async () => ({ cursor: 1, events: [] }) } },
+    { type: 'context-dashboard', sessionId: 'session-x' })
+  assert.equal(missing.kind, 'error')
+  assert.equal(missing.code, 'context-unavailable')
+})
