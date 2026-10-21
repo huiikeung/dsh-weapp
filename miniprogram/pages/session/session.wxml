@@ -402,80 +402,178 @@
         <view class="context-retry" bindtap="refreshContextDashboard" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['重试']}}">{{ui['重试']}}</view>
       </view>
       <block wx:else>
-        <!-- 统计 -->
         <view class="ctx-card">
-          <view class="ctx-card-head">
-            <text class="ctx-card-title">{{ui['统计']}}</text>
-          </view>
-          <view class="ctx-grid">
-            <view class="ctx-tile">
-              <text class="ctx-tile-label">{{ui['工具调用']}}</text>
-              <text class="ctx-tile-value">{{contextPanel.stats.toolTotalText}}</text>
-              <view wx:for="{{contextPanel.stats.toolNames}}" wx:key="name" class="ctx-tool-row"><text class="ctx-tool-name">{{item.name}}</text><text class="ctx-tool-count">{{item.countText}}</text></view>
-              <text wx:if="{{contextPanel.stats.otherText}}" class="ctx-tile-sub">{{contextPanel.stats.otherText}}</text>
-            </view>
-            <view class="ctx-tile">
-              <text class="ctx-tile-label">{{ui['当前会话']}}</text>
-              <view class="ctx-metrics">
-                <view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.turnsText}}</text><text class="ctx-metric-label">{{ui['轮次']}}</text></view>
-                <view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.stepsText}}</text><text class="ctx-metric-label">{{ui['步数']}}</text></view>
-                <view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.skillsText}}</text><text class="ctx-metric-label">{{ui['技能加载']}}</text></view>
-                <view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.answersText}}</text><text class="ctx-metric-label">{{ui['模型回复']}}</text></view>
-              </view>
-            </view>
-            <view class="ctx-tile">
-              <text class="ctx-tile-label">{{ui['上下文事件']}}</text>
-              <view class="ctx-chips">
-                <view wx:for="{{contextPanel.stats.chips}}" wx:key="key" class="ctx-chip ctx-chip-{{item.key}}"><text class="ctx-chip-value">{{item.text}}</text><text class="ctx-chip-label">{{item.label}}</text></view>
-              </view>
-            </view>
-            <view class="ctx-tile">
-              <text class="ctx-tile-label">{{ui['会话用量']}}</text>
-              <text class="ctx-tile-value">{{contextPanel.stats.usageTotalText}}</text>
-              <text class="ctx-tile-sub">{{ui['缓存命中']}} {{contextPanel.stats.usageCacheText}}</text>
-            </view>
-          </view>
-        </view>
+<view class="ctx-card-head">
+<text class="ctx-card-title">{{ui['统计']}}</text>
+<view wx:if="{{contextPanel.running}}" class="fleet-pulse on ctx-live-dot"></view>
+</view>
+<view class="ctx-grid">
+<view class="ctx-tile">
+<text class="ctx-tile-label">{{ui['输入输出']}}</text>
+<view class="ctx-chips">
+<view wx:for="{{contextPanel.stats.activity.chips}}" wx:key="key" class="ctx-chip ctx-chip-io-{{item.key}}"><text class="ctx-chip-value">{{item.text}}</text><text class="ctx-chip-label">{{item.label}}</text></view>
+</view>
+</view>
+<view class="ctx-tile">
+<text class="ctx-tile-label">{{ui['当前会话']}}</text>
+<view class="ctx-metrics">
+<view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.turnsText}}</text><text class="ctx-metric-label">{{ui['轮次']}}</text></view>
+<view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.stepsText}}</text><text class="ctx-metric-label">{{ui['步数']}}</text></view>
+<view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.skillsText}}</text><text class="ctx-metric-label">{{ui['技能加载']}}</text></view>
+<view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.answersText}}</text><text class="ctx-metric-label">{{ui['模型回复']}}</text></view>
+</view>
+</view>
+<view class="ctx-tile">
+<text class="ctx-tile-label">{{ui['工具调用']}}</text>
+<text class="ctx-tile-value">{{contextPanel.stats.toolTotalText}}</text>
+<view wx:for="{{contextPanel.stats.toolNames}}" wx:key="name" class="ctx-tool-row"><text class="ctx-tool-name">{{item.name}}</text><text class="ctx-tool-count">{{item.countText}}</text></view>
+<text wx:if="{{contextPanel.stats.otherText}}" class="ctx-tile-sub">{{contextPanel.stats.otherText}}</text>
+</view>
+<view wx:if="{{contextPanel.stats.network.hasData}}" class="ctx-tile">
+<text class="ctx-tile-label">{{ui['Agent 网络']}}</text>
+<view class="ctx-tile-value-row"><text class="ctx-tile-value">{{contextPanel.stats.network.agentTokensText}}</text><text class="ctx-tile-unit"> tok</text></view>
+<text class="ctx-tile-sub">{{contextPanel.stats.network.subagentLabel}} ×{{contextPanel.stats.network.subagentsText}}</text>
+<text class="ctx-tile-sub">{{ui['Agent 数量']}} {{contextPanel.stats.network.agentsText}}</text>
+</view>
+<view class="ctx-tile">
+<text class="ctx-tile-label">{{ui['上下文事件']}}</text>
+<view class="ctx-chips">
+<view wx:for="{{contextPanel.stats.chips}}" wx:key="key" class="ctx-chip ctx-chip-{{item.key}}"><text class="ctx-chip-value">{{item.text}}</text><text class="ctx-chip-label">{{item.label}}</text></view>
+</view>
+</view>
+</view>
+</view>
 
-        <!-- Token 统计 -->
-        <view class="ctx-card">
-          <view class="ctx-card-head">
-            <text class="ctx-card-title">{{ui['Token 统计']}}</text>
-            <text class="ctx-card-sub">{{ui['缓存命中']}} {{contextPanel.tokens.cacheHitText}}</text>
-          </view>
-          <view wx:if="{{!contextPanel.tokens.available}}" class="ctx-empty">{{ui['暂无 Token 用量']}}</view>
-          <block wx:else>
-            <view class="ctx-token-total">{{contextPanel.tokens.totalText}}<text class="ctx-token-total-unit"> tok</text></view>
-            <view class="ctx-compose"><view wx:for="{{contextPanel.tokens.bar}}" wx:key="key" class="ctx-compose-seg ctx-c-{{item.key}}" style="width:{{item.width}}%;"/></view>
-            <view class="ctx-legend">
-              <view wx:for="{{contextPanel.tokens.rows}}" wx:key="key" class="ctx-legend-row">
-                <view class="ctx-dot ctx-c-{{item.key}}"></view>
-                <text class="ctx-legend-name">{{item.label}}</text>
-                <text class="ctx-legend-pct">{{item.pct}}</text>
-                <text class="ctx-legend-value">{{item.display}}</text>
-              </view>
-            </view>
-          </block>
-        </view>
+<view class="ctx-card">
+<view class="ctx-card-head">
+<text class="ctx-card-title">{{ui['当前上下文']}}</text>
+<text wx:if="{{contextPanel.current.hasData}}" class="ctx-card-sub">{{contextPanel.current.usedPctText}} · {{contextPanel.current.pressureText}} / {{contextPanel.current.windowText}}</text>
+</view>
+<view wx:if="{{!contextPanel.current.hasData}}" class="ctx-empty">{{ui['暂无上下文数据']}}</view>
+<block wx:else>
+<view class="ctx-window-bar">
+<view wx:for="{{contextPanel.current.segments}}" wx:key="key" class="ctx-window-seg ctx-c-{{item.key}}" style="width:{{item.width}}%;"/>
+<view class="ctx-window-remaining" style="width:{{contextPanel.current.remainingWidth}}%;"/>
+<view class="ctx-window-reserve" style="width:{{contextPanel.current.reserveWidth}}%;"/>
+</view>
+<view class="ctx-window-foot">
+<text class="ctx-window-hint">{{contextPanel.current.remainingLabel}} {{contextPanel.current.remainingText}}</text>
+<text class="ctx-window-hint">{{contextPanel.current.reserveLabel}} {{contextPanel.current.reserveText}}</text>
+</view>
+<view class="ctx-legend">
+<view wx:for="{{contextPanel.current.rows}}" wx:key="key" class="ctx-legend-row">
+<view class="ctx-dot ctx-c-{{item.key}}"></view>
+<text class="ctx-legend-name">{{item.label}}</text>
+<text class="ctx-legend-pct">{{item.pctText}}</text>
+<text class="ctx-legend-value">{{item.tokenText}}</text>
+</view>
+</view>
+</block>
+</view>
 
-        <!-- 耗时统计 -->
-        <view class="ctx-card">
-          <view class="ctx-card-head">
-            <text class="ctx-card-title">{{ui['耗时统计']}}</text>
-            <text class="ctx-card-sub">{{contextPanel.timing.activeLabel}} {{contextPanel.timing.activeText}}</text>
-          </view>
-          <view wx:if="{{!contextPanel.timing.hasData}}" class="ctx-empty">{{ui['暂无耗时数据']}}</view>
-          <block wx:else>
-            <view class="ctx-timing-bar"><view wx:for="{{contextPanel.timing.segments}}" wx:key="key" class="ctx-timing-seg ctx-t-{{item.key}}" style="width:{{item.width}}%;"/></view>
-            <view wx:for="{{contextPanel.timing.segments}}" wx:key="key" class="ctx-timing-row">
-              <view class="ctx-dot ctx-t-{{item.key}}"></view>
-              <text class="ctx-legend-name">{{item.label}}</text>
-              <text class="ctx-legend-pct">{{item.pctText}}</text>
-              <text class="ctx-legend-value">{{item.durationText}}</text>
-              <text class="ctx-timing-count">{{item.countText}}</text>
-            </view>
-          </block>
-        </view>
+<view class="ctx-card">
+<view class="ctx-card-head">
+<text class="ctx-card-title">{{ui['Token 统计']}}</text>
+<text class="ctx-card-sub">{{ui['缓存命中']}} {{contextPanel.tokens.cacheHitText}}</text>
+</view>
+<view wx:if="{{!contextPanel.tokens.available}}" class="ctx-empty">{{ui['暂无 Token 用量']}}</view>
+<block wx:else>
+<view class="ctx-hero">
+<view class="ctx-donut" style="{{contextPanel.tokens.donut.style}}">
+<view class="ctx-donut-hole">
+<text class="ctx-donut-value">{{contextPanel.tokens.totalText}}</text>
+<text class="ctx-donut-unit">tok</text>
+</view>
+</view>
+<view class="ctx-hero-side">
+<text class="ctx-hero-label">{{ui['总计']}}</text>
+<text class="ctx-hero-value">{{contextPanel.tokens.totalText}} tok</text>
+<text class="ctx-hero-meta">{{ui['输入']}} {{contextPanel.tokens.inputText}} · {{ui['输出']}} {{contextPanel.tokens.outputText}}</text>
+</view>
+</view>
+<view class="ctx-legend">
+<view wx:for="{{contextPanel.tokens.rows}}" wx:key="key" class="ctx-legend-row">
+<view class="ctx-dot ctx-c-{{item.key}}"></view>
+<text class="ctx-legend-name">{{item.label}}</text>
+<text class="ctx-legend-pct">{{item.pct}}</text>
+<text class="ctx-legend-value">{{item.display}}</text>
+</view>
+</view>
+</block>
+</view>
+
+<view class="ctx-card">
+<view class="ctx-card-head">
+<text class="ctx-card-title">{{ui['耗时统计']}}</text>
+<text class="ctx-card-sub">{{contextPanel.timing.activeLabel}} {{contextPanel.timing.activeText}}</text>
+</view>
+<view wx:if="{{!contextPanel.timing.hasData}}" class="ctx-empty">{{ui['暂无耗时数据']}}</view>
+<block wx:else>
+<view class="ctx-hero">
+<view class="ctx-donut" style="{{contextPanel.timing.donutStyle}}">
+<view class="ctx-donut-hole">
+<text class="ctx-donut-value">{{contextPanel.timing.activeText}}</text>
+<text class="ctx-donut-unit">{{contextPanel.timing.activeLabel}}</text>
+</view>
+</view>
+<view class="ctx-hero-side">
+<text class="ctx-hero-label">{{ui['输出速度']}}</text>
+<text class="ctx-hero-value">{{contextPanel.timing.speedText}}</text>
+</view>
+</view>
+<view class="ctx-timing-bar"><view wx:for="{{contextPanel.timing.rows}}" wx:key="key" class="ctx-timing-seg ctx-t-{{item.key}}" style="width:{{item.width}}%;"/></view>
+<view wx:for="{{contextPanel.timing.rows}}" wx:key="key" class="ctx-timing-row">
+<view class="ctx-dot ctx-t-{{item.key}}"></view>
+<text class="ctx-legend-name">{{item.label}}</text>
+<text class="ctx-legend-pct">{{item.pctText}}</text>
+<text class="ctx-legend-value">{{item.durationText}}</text>
+<text class="ctx-timing-count">{{item.countText}}</text>
+</view>
+<view wx:if="{{contextPanel.timing.hasTimeline}}" class="ctx-timeline">
+<view class="ctx-timeline-head"><text class="ctx-card-title">{{ui['时间轴']}}</text></view>
+<scroll-view class="ctx-timeline-scroll" scroll-x enhanced show-scrollbar="{{false}}" catchtouchstart="noop">
+<view class="ctx-timeline-track" style="width:{{contextPanel.timing.timelineWidth}}rpx;">
+<view wx:for="{{contextPanel.timing.timeline}}" wx:key="key" class="ctx-timeline-span ctx-span-{{item.kind}}" style="{{item.style}}"/>
+</view>
+</scroll-view>
+
+</view>
+</block>
+</view>
+
+<view class="ctx-card">
+<view class="ctx-card-head">
+<text class="ctx-card-title">{{ui['上下文浏览器']}}</text>
+<text wx:if="{{contextPanel.browser.countText}}" class="ctx-card-sub">{{contextPanel.browser.countText}}</text>
+</view>
+<view wx:if="{{contextPanel.browser.empty}}" class="ctx-empty">{{ui['暂无请求记录']}}</view>
+<block wx:else>
+<view class="ctx-browser-nav">
+<view class="ctx-browser-step {{contextPanel.browser.canPrev ? '' : 'disabled'}}" bindtap="contextBrowserStep" data-step="-1">‹ {{ui['上一步']}}</view>
+<picker class="ctx-browser-picker" range="{{contextPanel.browser.options}}" range-key="label" value="{{contextPanel.browser.selectedIndex}}" bindchange="contextBrowserPick">
+<view class="ctx-browser-picker-value">{{contextPanel.browser.selectedLabel}}<text class="ctx-browser-caret">▾</text></view>
+</picker>
+<view class="ctx-browser-step {{contextPanel.browser.canNext ? '' : 'disabled'}}" bindtap="contextBrowserStep" data-step="1">{{ui['下一步']}} ›</view>
+</view>
+<view class="ctx-browser-meta">
+<text class="ctx-browser-meta-item">{{contextPanel.browser.estimatedLabel}} {{contextPanel.browser.estimatedText}}</text>
+<text class="ctx-browser-meta-item">{{contextPanel.browser.promptLabel}} {{contextPanel.browser.promptText}}</text>
+<text wx:if="{{contextPanel.browser.timeText}}" class="ctx-browser-meta-item">{{contextPanel.browser.timeText}}</text>
+</view>
+<view wx:for="{{contextPanel.browser.rows}}" wx:key="key" class="ctx-browser-row {{item.expanded ? 'expanded' : ''}}" bindtap="toggleContextBrowserRow" data-key="{{item.key}}">
+<view class="ctx-browser-row-head">
+<view class="ctx-dot ctx-c-{{item.key}}"></view>
+<text class="ctx-browser-name">{{item.label}}</text>
+<text class="ctx-browser-items">{{item.itemsText}}</text>
+<text class="ctx-browser-tokens">{{item.tokenText}}</text>
+<text class="ctx-browser-pct">{{item.pctText}}</text>
+<text class="ctx-browser-delta ctx-delta-{{item.deltaClass}}">{{item.deltaText}}</text>
+<text class="ctx-browser-chevron">{{item.expanded ? '▴' : '▾'}}</text>
+</view>
+<view wx:if="{{item.expanded}}" class="ctx-browser-detail"><text class="ctx-browser-detail-text">{{item.detailText}}</text></view>
+</view>
+</block>
+</view>
 
         <!-- 上下文趋势 -->
         <view class="ctx-card">
@@ -565,17 +663,27 @@
             <text class="fleet-overview-label">{{ui['家族 Token']}}</text>
           </view>
         </view>
+        <view wx:if="{{fleetPanel.subagentHint}}" class="fleet-hint">
+          <view class="fleet-hint-dot"></view>
+          <text class="fleet-hint-text">{{fleetPanel.subagentHint}}</text>
+        </view>
         <!-- Agent 卡片：按 depth 缩进，当前 Agent 高亮描边 -->
         <view wx:for="{{fleetPanel.agents}}" wx:key="key" class="fleet-card {{item.isCurrent ? 'current' : ''}}" style="{{item.indentStyle}}" bindtap="openFleetAgent" data-id="{{item.sessionId}}" data-title="{{item.title}}" hover-class="fleet-card-pressed" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['点击查看上下文']}}">
           <view class="fleet-card-head">
-            <view class="fleet-pulse {{item.running ? 'on' : ''}}"></view>
+            <view class="fleet-pulse {{item.running || item.phaseClass === 'active' ? 'on' : ''}}"></view>
             <text class="fleet-card-title">{{item.title}}</text>
             <text wx:if="{{item.modeText}}" class="fleet-mode">{{item.modeText}}</text>
           </view>
           <view class="fleet-card-tags">
             <text wx:if="{{item.isCurrent}}" class="fleet-tag fleet-tag-current">{{ui['当前 Agent']}}</text>
             <text wx:elif="{{item.isRoot}}" class="fleet-tag fleet-tag-root">{{ui['根 Agent']}}</text>
+            <text wx:if="{{item.roleText}}" class="fleet-tag fleet-tag-role">{{item.roleText}}</text>
+            <text wx:if="{{item.phaseText}}" class="fleet-tag fleet-tag-phase ctx-phase-{{item.phaseClass}}">{{item.phaseText}}</text>
             <text class="fleet-card-state {{item.running ? 'running' : ''}}">{{item.stateText}}</text>
+          </view>
+          <view wx:if="{{item.hasAnswer}}" class="fleet-answer">
+            <text class="fleet-answer-label">{{ui['最新回答']}}</text>
+            <text class="fleet-answer-text">{{item.lastAnswer}}</text>
           </view>
           <view wx:if="{{item.occupancy.hasData}}" class="fleet-occupancy">
             <view class="fleet-occupancy-head">
@@ -591,6 +699,18 @@
             <text class="fleet-card-metric">{{ui['步数']}} {{item.stepsText}}</text>
             <text class="fleet-card-metric">{{ui['活跃时长']}} {{item.activeText}}</text>
             <text class="fleet-card-token">{{ui['会话用量']}} {{item.tokensText}}</text>
+          </view>
+        </view>
+        <view class="fleet-card fleet-task-card">
+          <view class="ctx-card-head">
+            <text class="ctx-card-title">{{ui['任务']}}</text>
+            <text wx:if="{{fleetPanel.team.taskCountText}}" class="ctx-card-sub">{{fleetPanel.team.taskCountText}}</text>
+          </view>
+          <view wx:if="{{fleetPanel.team.tasksEmpty}}" class="fleet-task-empty">{{fleetPanel.team.tasksEmptyText}}</view>
+          <view wx:for="{{fleetPanel.team.tasks}}" wx:key="key" class="fleet-task-row">
+            <text class="fleet-task-status ctx-task-{{item.statusClass}}">{{item.statusText}}</text>
+            <text class="fleet-task-subject">{{item.subject}}</text>
+            <text wx:if="{{item.hasOwner}}" class="fleet-task-owner">{{item.ownerText}}</text>
           </view>
         </view>
         <view class="ctx-bottom-space"></view>

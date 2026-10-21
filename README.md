@@ -70,8 +70,8 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 | GatewaySwitcher / DirectoryBrowser | `pages/workspace-picker` + `pages/files` | 工作区切换、远端目录浏览、新建目录、目录创建会话 |
 | ConversationView 对话 | `pages/session`（对话分段） | Markdown/代码块、思考过程与工具调用折叠行、图片附件、流式生成 |
 | TrajectoryView 轨迹 | `pages/session`（轨迹分段） | Turn 分组、USER/ASSISTANT/TOOL 徽标、#seq、时长概览、事件详情抽屉 |
-| dsh-context 上下文 | `pages/session`（上下文分段） | 与「对话」「轨迹」同排；上下文统计、Token 组成、耗时统计、上下文趋势与最近事件；数据来自宿主 `mobileContext` 投影（需网关桥接，见下文） |
-| dsh-context 编队 | `pages/session`（编队分段） | 当前 Agent 的家族网络：父链与全部子 Agent 卡片，含运行状态、上下文占用、7 类组成条、token/轮次/步数/活跃时长；点击卡片跳到该 Agent 的「上下文」；数据来自宿主 `context-fleet` 请求（需网关桥接） |
+| dsh-context 上下文 | `pages/session`（上下文分段） | 与「对话」「轨迹」同排；输入输出/当前会话/工具调用/Agent 网络/上下文事件、当前上下文占用、Token 环形、耗时六段+输出速度+时间轴、上下文浏览器（估算 vs 实际、对比上一步）、趋势与最近事件；运行中每 2.5s 自动刷新；数据来自宿主 `mobileContext` 投影（需网关桥接，见下文） |
+| dsh-context 编队 | `pages/session`（编队分段） | 当前 Agent 的家族网络：汇总 chips、成员卡片（role/phase、运行状态、最新回答、占用与组成条、token/轮次/步数/活跃时长）、团队任务与空态；点击卡片跳到该 Agent 的「上下文」；运行中自动刷新；数据来自宿主 `context-fleet` 请求（需网关桥接） |
 | HumanQuestionView | `pages/session` 提问卡片 | 单选/多选/自定义文本、提交/取消 |
 | ApprovalRequestView | `pages/session` 审批卡片 | 允许一次 / 拒绝 |
 | Composer 输入面板 | 同页 | 权限、模型、思考等级芯片、图片附件、发送、停止回合 |

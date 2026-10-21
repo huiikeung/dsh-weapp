@@ -35,6 +35,16 @@ function createStore() {
   let contextActive = false;
   // 编队面板同理：独立可见性，避免每次事件都传整份家族快照。
   let fleetActive = false;
+  // v2 动态刷新：上下文/编队面板可见且会话运行中时每 2.5s 拉一次快照。
+  // 上一帧未返回时跳过下一拍（不叠加请求）；切走/停止/切会话立即清 timer。
+  const CONTEXT_POLL_MS = 2500;
+  const CONTEXT_REQUEST_TIMEOUT_MS = 8000;
+  let contextPollTimer = null;
+  let fleetPollTimer = null;
+  let contextRequestPending = false;
+  let fleetRequestPending = false;
+  let contextRequestTimer = null;
+  let fleetRequestTimer = null;
   function createContextDashboardState() {
     return { loading: false, error: null, code: '', unsupported: false, asOfSeq: null, value: null };
   }
@@ -142,7 +152,13 @@ function createStore() {
       state.connection = status;
       state.connectionMessage = message;
       pluginInstaller.connectionChanged(status);
-      if (status !== 'connected') { state.gatewayMetadata = null; state.gatewayCapabilities = []; }
+      if (status !== 'connected') {
+        state.gatewayMetadata = null;
+        state.gatewayCapabilities = [];
+        // 断链后快照不会再来：停自动刷新并释放 in-flight 标记，重连后重新拉取。
+        stopContextPolling();
+        stopFleetPolling();
+      }
       if (status === 'connected') {
         resetHistoryPaging();
         // 记住这次真正连通的地址，下次优先使用；轮换游标对齐当前线路
@@ -163,8 +179,10 @@ function createStore() {
         restoreHomeCacheAfterCoreFailure('workspaces');
         restoreHomeCacheAfterCoreFailure('sessions');
         bootstrap();
-        if (contextActive) refreshContextDashboard();
-        if (fleetActive) refreshContextFleet();
+        if (contextActive) refreshContextDashboard(true);
+        if (fleetActive) refreshContextFleet(true);
+        syncContextPolling();
+        syncFleetPolling();
         startDataWatchdog();
       } else if (status === 'failed') {
         // 候选地址循环轮换（中继 ↔ 直连互为备份，3s 节流防紧密循环）：
@@ -782,6 +800,9 @@ function createStore() {
     runProbeMisses = 0;
     if (sessionState.running === next) {
       if (next && !runProbeTimer) scheduleRunProbe();
+      // 运行态未变但面板可能刚切到前台：补一次轮询调度（可见且运行中才启动）。
+      syncContextPolling();
+      syncFleetPolling();
       return;
     }
     sessionState.running = next;
@@ -799,6 +820,9 @@ function createStore() {
         }
       });
     }
+    // 运行中才自动刷新；停止后立即清 timer（面板保留最后一帧值）。
+    syncContextPolling();
+    syncFleetPolling();
   }
 
   function scheduleRunProbe() {
@@ -1253,6 +1277,7 @@ function createStore() {
         return;
       case 'context-dashboard': {
         // 上下文面板快照；asOfSeq 用于诊断与旧帧丢弃（只接受不早于当前的值）。
+        settleContextRequest();
         const seq = frame.asOfSeq == null ? null : Number(frame.asOfSeq);
         const previous = sessionState.contextDashboard || createContextDashboardState();
         if (previous.asOfSeq != null && seq != null && seq < previous.asOfSeq) return;
@@ -1266,6 +1291,7 @@ function createStore() {
       }
       case 'context-fleet': {
         // 编队快照：与上下文面板相同的旧帧丢弃规则，值保留到下一次刷新。
+        settleFleetRequest();
         const seq = frame.asOfSeq == null ? null : Number(frame.asOfSeq);
         const previous = sessionState.contextFleet || createContextFleetState();
         if (previous.asOfSeq != null && seq != null && seq < previous.asOfSeq) return;
@@ -1390,6 +1416,7 @@ function createStore() {
         // 上下文面板：旧网关回 unknown-command、未安装桥回 context-unavailable，
         // 两种都指引升级网关，不当成普通请求失败弹通知。
         if (frame.requestType === 'context-dashboard') {
+          settleContextRequest();
           const code = String(frame.code || '');
           const unsupported = code === 'context-unavailable' || code === 'unknown-command'
             || /unknown message type/i.test(String(frame.message || ''));
@@ -1406,6 +1433,7 @@ function createStore() {
         }
         // 编队面板：与上下文面板相同的升级指引；两者互不影响。
         if (frame.requestType === 'context-fleet') {
+          settleFleetRequest();
           const code = String(frame.code || '');
           const unsupported = code === 'context-unavailable' || code === 'unknown-command'
             || /unknown message type/i.test(String(frame.message || ''));
@@ -1981,25 +2009,88 @@ function createStore() {
     }, 800);
   }
 
-  /** 请求上下文面板快照；保留旧值以便刷新期间不闪空。 */
-  function refreshContextDashboard() {
+  /**
+   * 请求上下文面板快照；保留旧值以便刷新期间不闪空。
+   * @param {boolean} [force] 手动刷新/切入分段时强制发一次（自动轮询不加塞）
+   */
+  function refreshContextDashboard(force) {
     if (!sessionState.sessionId || state.connection !== 'connected') return false;
+    // 上一帧还没回来：自动轮询跳过这一拍，避免请求叠加；手动刷新仍允许。
+    if (contextRequestPending && force !== true) return false;
     const previous = sessionState.contextDashboard || createContextDashboardState();
     sessionState.contextDashboard = Object.assign({}, previous, { loading: true, error: null });
+    contextRequestPending = true;
+    if (contextRequestTimer) clearTimeout(contextRequestTimer);
+    contextRequestTimer = setTimeout(settleContextRequest, CONTEXT_REQUEST_TIMEOUT_MS);
     emit();
     safeRequest(client.requestContextDashboard(sessionState.sessionId));
     return true;
   }
 
-  /** 请求编队面板快照；保留旧值以便刷新期间不闪空。 */
-  function refreshContextFleet() {
+  /** 请求编队面板快照；保留旧值以便刷新期间不闪空（force 语义同上）。 */
+  function refreshContextFleet(force) {
     if (!sessionState.sessionId || state.connection !== 'connected') return false;
+    if (fleetRequestPending && force !== true) return false;
     const previous = sessionState.contextFleet || createContextFleetState();
     sessionState.contextFleet = Object.assign({}, previous, { loading: true, error: null });
+    fleetRequestPending = true;
+    if (fleetRequestTimer) clearTimeout(fleetRequestTimer);
+    fleetRequestTimer = setTimeout(settleFleetRequest, CONTEXT_REQUEST_TIMEOUT_MS);
     emit();
     safeRequest(client.requestContextFleet(sessionState.sessionId));
     return true;
   }
+
+  // ---------- v2 运行中自动刷新（2.5s；上一帧未返回不叠加） ----------
+
+  function settleContextRequest() {
+    contextRequestPending = false;
+    if (contextRequestTimer) { clearTimeout(contextRequestTimer); contextRequestTimer = null; }
+  }
+
+  function settleFleetRequest() {
+    fleetRequestPending = false;
+    if (fleetRequestTimer) { clearTimeout(fleetRequestTimer); fleetRequestTimer = null; }
+  }
+
+  function contextPollingWanted() {
+    return contextActive === true && sessionState.running === true && state.connection === 'connected' && !!sessionState.sessionId;
+  }
+
+  function fleetPollingWanted() {
+    return fleetActive === true && sessionState.running === true && state.connection === 'connected' && !!sessionState.sessionId;
+  }
+
+  function stopContextPoll() { if (contextPollTimer) { clearTimeout(contextPollTimer); contextPollTimer = null; } }
+  function stopFleetPoll() { if (fleetPollTimer) { clearTimeout(fleetPollTimer); fleetPollTimer = null; } }
+
+  /** 停自动刷新并释放 in-flight 标记（断链/切会话时）。 */
+  function stopContextPolling() {
+    stopContextPoll(); stopFleetPoll(); settleContextRequest(); settleFleetRequest();
+  }
+
+  function scheduleContextPoll() {
+    if (contextPollTimer || !contextPollingWanted()) return;
+    contextPollTimer = setTimeout(function () {
+      contextPollTimer = null;
+      if (!contextPollingWanted()) return;
+      refreshContextDashboard();
+      scheduleContextPoll();
+    }, CONTEXT_POLL_MS);
+  }
+
+  function scheduleFleetPoll() {
+    if (fleetPollTimer || !fleetPollingWanted()) return;
+    fleetPollTimer = setTimeout(function () {
+      fleetPollTimer = null;
+      if (!fleetPollingWanted()) return;
+      refreshContextFleet();
+      scheduleFleetPoll();
+    }, CONTEXT_POLL_MS);
+  }
+
+  function syncContextPolling() { if (contextPollingWanted()) scheduleContextPoll(); else stopContextPoll(); }
+  function syncFleetPolling() { if (fleetPollingWanted()) scheduleFleetPoll(); else stopFleetPoll(); }
 
   function mapSessionSummary(item) {
     const source = item || {};
@@ -2373,6 +2464,7 @@ function createStore() {
     trajectoryDirty = true; trajectoryActive = false;
     contextActive = false;
     fleetActive = false;
+    stopContextPolling();
     sessionState.title = '';
     sessionState.agentPreset = null;
     sessionState.pendingQuestion = null;
@@ -2774,6 +2866,8 @@ function createStore() {
       saveSessionCache(sessionState.sessionId, sessionState.rows);
       resetHistoryPaging();
       clearLiveAttempt();
+      // 切会话：停掉旧会话的自动刷新，避免旧请求/旧 timer 污染新面板。
+      stopContextPolling();
       const subOk = client.subscribe(sessionId);
       sessionState.sessionId = sessionId;
       sessionState.collaboration = collaboration.create(sessionId);
@@ -2851,8 +2945,11 @@ function createStore() {
       }
       safeRequest(client.requestSessionStats(sessionId));
       safeRequest(client.requestContextUsage(sessionId));
-      if (contextActive) refreshContextDashboard();
-      if (fleetActive) refreshContextFleet();
+      if (contextActive) refreshContextDashboard(true);
+      if (fleetActive) refreshContextFleet(true);
+      // 新会话已运行且面板可见：立即恢复 2.5s 自动刷新（旧会话 timer 已清）。
+      syncContextPolling();
+      syncFleetPolling();
       safeRequest(client.requestPermissionOptions(sessionId));
       safeRequest(client.requestModels(sessionId));
       safeRequest(client.requestCommands(sessionId));
@@ -2888,6 +2985,7 @@ function createStore() {
       sessionState.contextFleet = createContextFleetState();
       contextActive = false;
       fleetActive = false;
+      stopContextPolling();
       trajectoryDirty = true; trajectoryActive = false;
       rawBuffer = [];
       rawSeqs = new Set();
@@ -2913,6 +3011,7 @@ function createStore() {
       sessionState.trajectory = [];
       sessionState.contextDashboard = createContextDashboardState();
       sessionState.contextFleet = createContextFleetState();
+      stopContextPolling();
       sessionState.historyState = 'creating';
       sessionState.historyError = '';
       sessionState.cacheDisplay = false;
@@ -2967,30 +3066,33 @@ function createStore() {
       if (trajectoryActive) refreshTrajectory();
     },
 
-    /** 上下文分段可见性：切入「上下文」时立即拉一次；离开后停止随回合自动刷新。 */
+    /** 上下文分段可见性：切入「上下文」时立即拉一次；离开后停止自动刷新。 */
     setContextActive: function (active) {
       const next = active === true;
       const changed = contextActive !== next;
       contextActive = next;
-      if (next && changed) refreshContextDashboard();
+      if (next && changed) refreshContextDashboard(true);
+      // 可见且运行中 → 开 2.5s 轮询；切走/停止 → 清 timer。
+      syncContextPolling();
     },
 
     /** 手动/进入 tab 刷新上下文面板。 */
     refreshContextDashboard: function () {
-      return refreshContextDashboard();
+      return refreshContextDashboard(true);
     },
 
-    /** 编队分段可见性：切入「编队」时立即拉一次；离开后停止随回合自动刷新。 */
+    /** 编队分段可见性：切入「编队」时立即拉一次；离开后停止自动刷新。 */
     setFleetActive: function (active) {
       const next = active === true;
       const changed = fleetActive !== next;
       fleetActive = next;
-      if (next && changed) refreshContextFleet();
+      if (next && changed) refreshContextFleet(true);
+      syncFleetPolling();
     },
 
     /** 手动/进入 tab 刷新编队面板。 */
     refreshContextFleet: function () {
-      return refreshContextFleet();
+      return refreshContextFleet(true);
     },
 
     updateSearch: function (query) {

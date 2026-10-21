@@ -58,7 +58,7 @@ session projection + 查询帧提供；小程序端只渲染，不重算事件�
     `current`，与 dsh-context 行为一致。
   - `requests`：每个 `assistant/message` 在把该回复加入 surface **之前**记录一条
     `{seq,time,turn,step,system,tools,user,inject,skill,assistant,tool,total}`；
-    只保留最近 300 条，超出置 `truncated.requests=true`。
+    只保留最近 300 条（v2 起为 200 条），超出置 `truncated.requests=true`。
   - `events`：`inject/compaction/prune`（注入来自 user/developer 非普通用户消息、
     技能加载；压缩/剪枝来自 `compaction/summary` / `compaction/prune`），保留最近 120 条。
   - `wallMs`：`step/start`→`step/end` 累计，减去审批等待（`approval/asked`→`approval/decided`）
@@ -167,8 +167,11 @@ session projection + 查询帧提供；小程序端只渲染，不重算事件�
   5 类合计 471523 = `messageTokens`(475830) − 休眠 system 节点(4307)。
 - 计数：humanInputs 502、answers 1233、toolCalls 4262、skillLoads 5、injects 278、
   compactions 12、prunes 42；`tools.names` 前 20 截断。
-- `requests` 截断为 300 条（`truncated.requests=true`）、`events` 120 条；
-  wire 大小 ≈ 59KB（< 200KB 预算），fold 全量 32.6k 事件耗时 ≈ 260ms。
+- `requests` 截断为 200 条（v2；`truncated.requests=true`）、`events` 120 条、`spans` 600 段；
+  wire 大小 ≈ 90KB（< 250KB 预算），fold 全量 32.6k 事件耗时 ≈ 130ms。
+- v2 真实日志数值：activity 502/333/460/81/75；timing wall 54,545,763、ttft 17,109,907、
+  reasoning 13,664,807、text 2,463,399、toolArg 8,790,429、tools 12,253,849、other 263,372；
+  speed 2,005,193 tok / 22,898,931 ms；stateVersion 升为 2（旧缓存整段 refold）。
 
 状态：
 - 加载中：骨架/spinner；
@@ -252,3 +255,94 @@ session projection + 查询帧提供；小程序端只渲染，不重算事件�
 - 点击卡片打开该 Agent 的会话并切到「上下文」分段。
 - 状态：loading / 未连接 / 无会话 / unsupported（需升级网关）/ error+重试；
   进入分段、回合结束、手动刷新时拉取。
+
+## 8. v2（对齐 dsh-context 完整卡片）
+
+v1 只覆盖了核心统计；v2 补齐 dsh-context Context tab 与 Fleet tab 的主要卡片，
+并让面板在 Agent 运行中自动刷新。以下为增量契约（与第 2/7 节合并生效）。
+
+### 8.1 `mobileContext` wire 增量
+
+```json
+{
+  "activity": { "userInputs": 16, "reads": 36, "writes": 38, "searches": 26, "images": 4 },
+  "timing": {
+    "wallMs": 4980000, "ttftMs": 1598000, "reasoningMs": 1825000, "textMs": 99000,
+    "toolArgMs": 617000, "toolsMs": 840000, "otherMs": 1500,
+    "waitCount": 313, "reasoningCount": 201, "textCount": 16, "toolArgCount": 313, "toolCount": 318,
+    "speedTokens": 204000, "speedMs": 2550000
+  },
+  "spans": [[0, 1791806835279, 1791807000000], [1, 1791807000000, 1791807500000]],
+  "lastAnswer": "同步完成，本地已经和 GitHub…（≤240 字）",
+  "requests": [{
+    "seq": 53, "time": 1791807408490, "turn": 2, "step": 1,
+    "system": 2154, "tools": 10439, "total": 12593,
+    "items": { "system": 1, "tools": 79, "user": 3 },
+    "prompt": 11200, "output": 191
+  }]
+}
+```
+
+- `activity`：`userInputs` = 非注入 user/message 数；`reads/writes/searches` 按配对
+  工具名分类（read*/read_image→reads；write*/edit/apply_patch/str_replace_editor→writes；
+  grep/glob/list/search/web_search/ripgrep→searches）；`images` = 全部 user/message 中
+  image block 数。
+- `timing`：流式事件解码得到 `ttftMs`（step/start→首个 token/首个 block 起点）、
+  `reasoningMs/textMs/toolArgMs`（block-start 标记切分的 span 合计）、`toolsMs`
+  （tool/call→tool/result 配对）、`otherMs` = 活跃时长 − 前五项（≥0）；
+  `speedTokens/speedMs` 用于输出速度 = tokens/(ms/1000)；对应 count 为段数/次数。
+- `spans`：时间轴条，`[kindIndex, start, end]`，kindIndex 0=wait,1=reasoning,
+  2=text,3=toolarg,4=tools,5=other；保留最近 600 段（可裁剪，不比 wire 超预算）。
+- `lastAnswer`：最近一条有文本的 assistant 消息，压缩空白后截断 240 字。
+- `requests[].items`：该请求发出时 surface 各类节点数（system 恒 1，tools=header.tools.length）；
+  `prompt/output` 为 provider 实报（input+cacheRead+cacheWrite / output）。
+- 兼容：所有字段 additive-optional，缺省时客户端回退到 v1 展示。
+
+### 8.2 `context-fleet` wire 增量
+
+```json
+{
+  "team": {
+    "members": [{ "id": "session-a", "name": "lead", "role": "lead", "phase": "active" }],
+    "tasks": [{ "id": "task-1", "subject": "实现组件", "status": "in_progress", "ownerName": "阿青", "ownerId": "session-b" }],
+    "failure": ""
+  },
+  "agents": [{ "sessionId": "session-a", "phase": "active", "lastAnswer": "…" }]
+}
+```
+
+- `team` 来自宿主 `agentTeam` 投影（members/tasks 各截断 20 条），没有该投影时省略。
+- `agents[].lastAnswer` 取该会话 `mobileContext.lastAnswer`；`phase` 取 team 成员 phase
+  （当前会话缺省 `active`）。
+- 摘要数值（总 token/运行中/子 Agent 数）由客户端从 agents 汇总。
+
+### 8.3 客户端展示（v2）
+
+Context tab 卡片顺序：
+1. **统计**：输入输出（用户输入/读取/写入/搜索/图片五个 chip）、当前会话（2×2）、
+   工具调用（总数+前 3+其他）、Agent 网络（当前 Agent tokens、子 Agent ×N）、
+   上下文事件（注入/压缩/剪枝）。
+2. **当前上下文**：`pressureTokens/contextWindow` 百分比 + 占满窗口的组成条
+   （7 类比例）+ 图例（估算 token 与占比）；窗口剩余/压缩保留区用浅色/斜纹表示。
+3. **Token 统计**：环形图（conic-gradient 或 canvas）+ 8 行图例（≈/精确、百分比、
+   缓存命中率）。
+4. **耗时统计**：环形图（活跃时长）+ 6 行（模型等待/思考/回复/工具参数/工具执行/其他开销，
+   每行百分比、时长、次数）+ 输出速度 + 时间轴条（`spans`）。
+5. **上下文浏览器**：上一次/下一次请求切换 + 请求下拉（最近 30 条）；显示该请求
+   估算合计/实际 prompt；7 类折叠行（类名、项数、≈token、占比、对比上一步 ±）；
+   当前（下一次请求）用 `current`；不展示单项正文（后续版本）。
+6. **上下文趋势**（保留 v1）。
+7. **最近上下文事件**（保留 v1）。
+
+Fleet tab 卡片顺序：
+1. 顶部汇总 chips：Agent 数、运行中、家族总 token。
+2. **编队成员**：每个 Agent 卡（当前高亮、role/phase、运行脉冲、最新回答 2 行截断、
+   token/轮次/步数/活跃时长、占用条、组成条）；只有一个 Agent 时显示
+   「还没有子 Agent —— 当 Agent 通过 subagent 工具委派任务时，协作网络会在这里展开」。
+3. **任务**：`team.tasks` 列表（subject、status 徽标、ownerName）；为空时
+   「暂无任务，可以通过对话创建」。
+4. 网络关系仍用 depth 缩进/连线表示（移动端不做自由节点图）。
+
+动态刷新：Context/Fleet 面板在可见且会话运行中时每 2.5s 自动刷新一次
+（请求去重、上一帧未返回不叠加）；切走/停止后停止轮询；刷新按钮可手动触发。
+条形/环形使用 CSS transition 让数值变化有过渡；运行中显示脉冲/转圈。

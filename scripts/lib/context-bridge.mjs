@@ -14,11 +14,22 @@
  * `contextBreakdown` projection exactly. Category classification and the
  * request/event tallies follow `dsh-context` (Apache-2.0, bowenliang123).
  *
+ * Wire v2 (docs/context-dashboard.md §8.1/§8.2) adds the desktop dashboard's
+ * missing data as additive-optional fields: per-category activity counters
+ * (`activity`), the six-way duration split plus its timeline (`timing`/`spans`),
+ * per-request surface item counts and provider-reported usage
+ * (`requests[].items/prompt/output`), the newest answer preview (`lastAnswer`),
+ * and, for `context-fleet`, the host `agentTeam` roster/task board (`team`) plus
+ * each agent's `lastAnswer`/`phase`. The embedded assistant `data.stream`
+ * decoders under "Assistant stream decoding" are ported from
+ * `dsh-context/src/host/logShapes.ts` (Apache-2.0) so the split matches the
+ * desktop plugin's semantics.
+ *
  * The fold state is plain JSON and bounded so the harness projection cache can
- * checkpoint it: at most MAX_SURFACE nodes, MAX_REQUESTS request records and
- * MAX_EVENTS context events. `init`/`apply`/`view` are copied on every change
- * (never mutated in place) because the registry shares the previous state with
- * the persisted cache.
+ * checkpoint it: at most MAX_SURFACE nodes, MAX_REQUESTS request records,
+ * MAX_EVENTS context events and MAX_SPANS timeline segments. `init`/`apply`/
+ * `view` are copied on every change (never mutated in place) because the
+ * registry shares the previous state with the persisted cache.
  */
 
 const CHARS_PER_TOKEN = 4
@@ -29,10 +40,39 @@ const SURFACE_TYPES = new Set(['system/message', 'developer/message', 'user/mess
 const MESSAGE_CATS = ['user', 'inject', 'skill', 'assistant', 'tool']
 
 const MAX_SURFACE = 4000
-const MAX_REQUESTS = 300
+const MAX_REQUESTS = 200
 const MAX_EVENTS = 120
 const MAX_TOOL_NAMES = 20
 const MAX_CALL_NAMES = 2000
+const MAX_SPANS = 600
+const MAX_STEP_SPANS = 2000
+const MAX_LAST_ANSWER = 240
+const MAX_TEAM_ROWS = 20
+
+// Timeline span kinds on the wire (docs §8.1): the client colors the strip by
+// these indices, so the vocabulary is frozen here.
+const SPAN_WAIT = 0
+const SPAN_REASONING = 1
+const SPAN_TEXT = 2
+const SPAN_TOOLARG = 3
+const SPAN_TOOLS = 4
+const SPAN_OTHER = 5
+const DECODE_SPAN_KINDS = { reasoning: SPAN_REASONING, text: SPAN_TEXT, toolarg: SPAN_TOOLARG }
+const TEAM_PHASES = new Set(['provisioning', 'active', 'failed'])
+
+// Activity classification of a PAIRED tool call by its durable tool name
+// (docs §8.1). Prefixes stay permissive for read*/write*/search* variants while
+// the explicit names cover the harness's editor/search tools.
+const WRITE_TOOL_NAMES = new Set(['edit', 'apply_patch', 'str_replace_editor'])
+const SEARCH_TOOL_NAMES = new Set(['grep', 'glob', 'list', 'search', 'web_search', 'ripgrep', 'search_files'])
+
+function toolActivityOf(name) {
+  if (typeof name !== 'string' || name === '') return ''
+  if (name.startsWith('read')) return 'reads'
+  if (name.startsWith('write') || WRITE_TOOL_NAMES.has(name)) return 'writes'
+  if (SEARCH_TOOL_NAMES.has(name) || name.startsWith('search')) return 'searches'
+  return ''
+}
 
 // A plain object with the only method the projection registry calls. Keeping the
 // bridge free of a zod dependency lets the same module load in the host plugin
@@ -128,8 +168,182 @@ function estimateToolsTokens(header) {
 }
 
 // ---------------------------------------------------------------------------
+// Assistant stream decoding (ported from dsh-context/src/host/logShapes.ts,
+// Apache-2.0, bowenliang123) — total over untrusted input; unknown chunks,
+// missing times and non-array streams are skipped rather than thrown.
+// ---------------------------------------------------------------------------
+
+/** Whether a raw stream chunk carries a token delta (mirrors dsh-llm's `isTokenDelta`). */
+function isTokenChunk(chunk) {
+  if (chunk === null || typeof chunk !== 'object') return false
+  switch (chunk.type) {
+    case 'text-delta':
+    case 'reasoning-delta':
+      return typeof chunk.text === 'string' && chunk.text !== ''
+    case 'tool-call-delta':
+      return (typeof chunk.argumentsDelta === 'string' && chunk.argumentsDelta !== '') || chunk.name !== undefined
+    default:
+      return false
+  }
+}
+
+/** The decode bucket a `block-start.blockType` names, or undefined for a marker we cannot price. */
+function decodeKindOfBlock(blockType) {
+  if (blockType === 'reasoning') return 'reasoning'
+  if (blockType === 'text') return 'text'
+  if (blockType === 'tool-call') return 'toolarg'
+  return undefined
+}
+
+/**
+ * Decode spans and `block-start` counts inside one embedded assistant stream.
+ * Each marker owns the interval up to the next one; the last one owns up to
+ * `endTime`. Unknown markers leave their interval unpriced.
+ *
+ * @param {unknown} stream
+ * @param {number} endTime
+ * @returns {{spans: {reasoning:number,text:number,toolarg:number}, blocks: {reasoning:number,text:number,toolarg:number}}}
+ */
+function decodeTallyOfStream(stream, endTime) {
+  const tally = {
+    spans: { reasoning: 0, text: 0, toolarg: 0 },
+    blocks: { reasoning: 0, text: 0, toolarg: 0 },
+  }
+  if (!Array.isArray(stream) || !Number.isFinite(endTime)) return tally
+  let kind
+  let since = 0
+  for (const record of stream) {
+    if (record === null || typeof record !== 'object') continue
+    if (record.type !== 'chunk' || record.chunk === null || typeof record.chunk !== 'object') continue
+    const chunk = record.chunk
+    if (chunk.type !== 'block-start') continue
+    const time = record.time
+    if (typeof time !== 'number' || !Number.isFinite(time)) continue
+    if (kind !== undefined) tally.spans[kind] += Math.max(0, time - since)
+    kind = decodeKindOfBlock(chunk.blockType)
+    if (kind !== undefined) tally.blocks[kind] += 1
+    since = time
+  }
+  if (kind !== undefined) tally.spans[kind] += Math.max(0, endTime - since)
+  return tally
+}
+
+/** The ORDERED decode spans of one embedded assistant stream (same ownership rule as the tally). */
+function decodeSpansOfStream(stream, endTime) {
+  const spans = []
+  if (!Array.isArray(stream) || !Number.isFinite(endTime)) return spans
+  let kind
+  let since = 0
+  const close = to => {
+    if (kind !== undefined && to > since) spans.push({ kind, start: since, end: to })
+  }
+  for (const record of stream) {
+    if (record === null || typeof record !== 'object') continue
+    if (record.type !== 'chunk' || record.chunk === null || typeof record.chunk !== 'object') continue
+    const chunk = record.chunk
+    if (chunk.type !== 'block-start') continue
+    const time = record.time
+    if (typeof time !== 'number' || !Number.isFinite(time)) continue
+    close(time)
+    kind = decodeKindOfBlock(chunk.blockType)
+    since = time
+  }
+  close(endTime)
+  return spans
+}
+
+/** The first token's instant inside one packed delta run, or undefined. */
+function runFirstTokenTime(record) {
+  const time0 = record.time0
+  if (typeof time0 !== 'number' || !Number.isFinite(time0)) return undefined
+  if (record.type === 'tool-call-chunks' && record.name !== undefined) return time0
+  const fragments = record.type === 'tool-call-chunks' ? record.args : record.texts
+  if (!Array.isArray(fragments)) return undefined
+  const dt = Array.isArray(record.dt) ? record.dt : []
+  let time = time0
+  for (let index = 0; index < fragments.length; index += 1) {
+    if (index > 0) {
+      const step = dt[index - 1]
+      if (typeof step !== 'number' || !Number.isFinite(step)) return undefined
+      time += step
+    }
+    if (typeof fragments[index] === 'string' && fragments[index] !== '') return time
+  }
+  return undefined
+}
+
+/** The first token's instant inside an embedded assistant stream, or undefined when it carries no token. */
+function firstTokenTimeOfStream(stream) {
+  if (!Array.isArray(stream)) return undefined
+  for (const record of stream) {
+    if (record === null || typeof record !== 'object') continue
+    if (record.type === 'chunk') {
+      const time = record.time
+      if (typeof time === 'number' && Number.isFinite(time) && isTokenChunk(record.chunk)) return time
+      continue
+    }
+    const time = runFirstTokenTime(record)
+    if (time !== undefined) return time
+  }
+  return undefined
+}
+
+/** One provider-reported usage bucket as a non-negative integer, or null when unreadable. */
+function tokenCountOf(value) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? Math.max(0, Math.round(value)) : null
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : null
+  }
+  return null
+}
+
+/** A non-negative duration between two instants; 0 for non-finite input. */
+function durOf(from, to) {
+  if (typeof from !== 'number' || typeof to !== 'number' || !Number.isFinite(from) || !Number.isFinite(to)) return 0
+  return Math.max(0, to - from)
+}
+
+/** Image blocks inside one user message (the activity ledger's `images`, unclipped). */
+function countImageBlocks(message) {
+  if (message === null || typeof message !== 'object' || !Array.isArray(message.content)) return 0
+  let count = 0
+  for (const block of message.content) {
+    if (block !== null && typeof block === 'object' && block.type === 'image') count += 1
+  }
+  return count
+}
+
+// ---------------------------------------------------------------------------
 // Fold state
 // ---------------------------------------------------------------------------
+
+function emptyTiming() {
+  return {
+    ttftMs: 0,
+    reasoningMs: 0,
+    textMs: 0,
+    toolArgMs: 0,
+    toolsMs: 0,
+    waitCount: 0,
+    reasoningCount: 0,
+    textCount: 0,
+    toolArgCount: 0,
+    toolCount: 0,
+    speedTokens: 0,
+    speedMs: 0,
+  }
+}
+
+function emptyActivity() {
+  return { reads: 0, writes: 0, searches: 0, images: 0 }
+}
+
+function emptySurfaceCounts() {
+  return { user: 0, inject: 0, skill: 0, assistant: 0, tool: 0 }
+}
 
 /** A bounded, plain-JSON fold state (see the module header). */
 export function createState() {
@@ -138,12 +352,17 @@ export function createState() {
     sums: { user: 0, inject: 0, skill: 0, assistant: 0, tool: 0 },
     systemTokens: 0,
     toolsTokens: 0,
+    toolDefs: 0,
     counts: { humanInputs: 0, answers: 0, skillLoads: 0, injects: 0, compactions: 0, prunes: 0, toolCalls: 0 },
+    activity: emptyActivity(),
+    timing: emptyTiming(),
+    surfaceCounts: emptySurfaceCounts(),
     toolNames: {},
     wallMs: 0,
     callNames: {},
     requests: [],
     events: [],
+    spans: [],
     truncated: { requests: false, events: false, surface: false },
   }
 }
@@ -154,17 +373,36 @@ function cloneState(state) {
     sums: { ...state.sums },
     systemTokens: state.systemTokens,
     toolsTokens: state.toolsTokens,
+    toolDefs: safeInt(state.toolDefs),
     ...(state.model !== undefined ? { model: state.model } : {}),
     ...(state.provider !== undefined ? { provider: state.provider } : {}),
     ...(state.contextWindow !== undefined ? { contextWindow: state.contextWindow } : {}),
     counts: { ...state.counts },
+    activity: { ...emptyActivity(), ...(state.activity !== null && typeof state.activity === 'object' ? state.activity : {}) },
+    timing: { ...emptyTiming(), ...(state.timing !== null && typeof state.timing === 'object' ? state.timing : {}) },
+    surfaceCounts: { ...emptySurfaceCounts(), ...(state.surfaceCounts !== null && typeof state.surfaceCounts === 'object' ? state.surfaceCounts : {}) },
     toolNames: { ...state.toolNames },
     wallMs: state.wallMs,
     callNames: { ...state.callNames },
     requests: [...state.requests],
     events: [...state.events],
+    // Shared copy-on-write: only `step/end` appends, and it re-slices before
+    // touching the array, so a shared reference can never be mutated.
+    spans: Array.isArray(state.spans) ? state.spans : [],
     truncated: { ...state.truncated },
-    ...(state.stepStart !== undefined ? { stepStart: { time: state.stepStart.time, waits: [...state.stepStart.waits] } } : {}),
+    ...(typeof state.lastAnswer === 'string' && state.lastAnswer !== '' ? { lastAnswer: state.lastAnswer } : {}),
+    ...(state.stepStart !== undefined
+      ? {
+        stepStart: {
+          time: state.stepStart.time,
+          waits: Array.isArray(state.stepStart.waits) ? [...state.stepStart.waits] : [],
+          ...(typeof state.stepStart.firstToken === 'number' && Number.isFinite(state.stepStart.firstToken)
+            ? { firstToken: state.stepStart.firstToken }
+            : {}),
+        },
+      }
+      : {}),
+    ...(Array.isArray(state.stepSpans) ? { stepSpans: state.stepSpans.map(span => [span[0], span[1], span[2]]) } : {}),
     ...(state.approvals !== undefined ? { approvals: { ...state.approvals } } : {}),
   }
 }
@@ -206,12 +444,18 @@ function replaceRangeOf(surfaceOp) {
 
 function addNodeSums(state, node) {
   if (node.cat === 'system') return
-  if (MESSAGE_CATS.includes(node.cat)) state.sums[node.cat] += node.tokens
+  if (MESSAGE_CATS.includes(node.cat)) {
+    state.sums[node.cat] += node.tokens
+    state.surfaceCounts[node.cat] = (state.surfaceCounts[node.cat] || 0) + 1
+  }
 }
 
 function removeNodeSums(state, node) {
   if (node.cat === 'system') return
-  if (MESSAGE_CATS.includes(node.cat)) state.sums[node.cat] = Math.max(0, state.sums[node.cat] - node.tokens)
+  if (MESSAGE_CATS.includes(node.cat)) {
+    state.sums[node.cat] = Math.max(0, state.sums[node.cat] - node.tokens)
+    state.surfaceCounts[node.cat] = Math.max(0, (state.surfaceCounts[node.cat] || 0) - 1)
+  }
 }
 
 function recomputeSystemTokens(state) {
@@ -268,10 +512,34 @@ function trimState(state) {
     state.events.splice(0, state.events.length - MAX_EVENTS)
     state.truncated.events = true
   }
+  if (Array.isArray(state.spans) && state.spans.length > MAX_SPANS) {
+    state.spans = state.spans.slice(state.spans.length - MAX_SPANS)
+  }
   if (Object.keys(state.callNames).length > MAX_CALL_NAMES) {
     const keys = Object.keys(state.callNames)
     for (const key of keys.slice(0, keys.length - MAX_CALL_NAMES)) delete state.callNames[key]
   }
+}
+
+/**
+ * Buffer one span of the open step (`[kind, start, end]`, absolute ms). The
+ * buffer is bounded: a hostile stream or replay cannot grow the persisted state,
+ * and a dropped span simply becomes part of the step/end residue.
+ */
+function pushStepSpan(state, span) {
+  if (!Array.isArray(span)) return
+  const start = span[1]
+  const end = span[2]
+  if (typeof start !== 'number' || !Number.isFinite(start)) return
+  if (typeof end !== 'number' || !Number.isFinite(end) || end <= start) return
+  if (!Array.isArray(state.stepSpans)) state.stepSpans = []
+  if (state.stepSpans.length >= MAX_STEP_SPANS) return
+  state.stepSpans.push([span[0], start, end])
+}
+
+/** A non-negative integer for the wire; non-finite/hostile input degrades to 0. */
+function safeInt(value) {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0
 }
 
 function firstText(blocks) {
@@ -349,6 +617,7 @@ export function applyContextEvent(state, event) {
         const header = data && data.header !== null && typeof data.header === 'object' ? data.header : undefined
         const next = cloneState(state)
         next.toolsTokens = estimateToolsTokens(header)
+        next.toolDefs = header !== undefined && Array.isArray(header.tools) ? header.tools.length : 0
         const config = header && header.config !== null && typeof header.config === 'object' ? header.config : undefined
         if (config && typeof config.model === 'string') next.model = config.model
         if (config && typeof config.provider === 'string') next.provider = config.provider
@@ -380,8 +649,17 @@ export function applyContextEvent(state, event) {
       }
       case 'user/message':
       case 'developer/message': {
-        if (!isSurfaceEvent(event)) return state
         const message = deriveEventMessage(event)
+        // The image tally is independent of the CURRENT surface: the desktop
+        // activity card counts every user upload in the log, including ones a
+        // later compaction replaced (docs §8.1).
+        const images = event.type === 'user/message' ? countImageBlocks(message) : 0
+        if (!isSurfaceEvent(event)) {
+          if (images === 0) return state
+          const next = cloneState(state)
+          next.activity.images += images
+          return next
+        }
         const source = message && message.source
         // Skill machinery is its own bucket: skill invocations and the
         // available-skills catalog are durable user/message injections that the
@@ -392,6 +670,7 @@ export function applyContextEvent(state, event) {
           ? (isSkillSource ? 'skill' : 'inject')
           : 'user'
         const next = cloneState(state)
+        if (images > 0) next.activity.images += images
         applySurface(next, event, cat, message)
         if (event.type === 'developer/message' || isInjectionSource(source)) {
           const source = message && message.source
@@ -416,12 +695,18 @@ export function applyContextEvent(state, event) {
       }
       case 'assistant/message': {
         const message = deriveEventMessage(event)
+        const eventTime = timeOf(event)
+        const usage = data && data.usage !== null && typeof data.usage === 'object' ? data.usage : null
+        // `null` means "no readable output bucket", not a fabricated 0 (see the
+        // output-speed rule: it only counts when provider usage is readable).
+        const output = usage !== null ? tokenCountOf(usage.outputTokens) : null
+        const answerText = firstText(message && message.content)
         const next = cloneState(state)
         // The request record is the prompt this response was assembled for:
         // capture it BEFORE the response joins the surface.
         const record = {
           seq: event.seq,
-          time: timeOf(event),
+          time: eventTime,
           ...(data && Number.isFinite(data.turn) ? { turn: data.turn } : {}),
           ...(data && Number.isFinite(data.step) ? { step: data.step } : {}),
           system: next.systemTokens,
@@ -432,12 +717,94 @@ export function applyContextEvent(state, event) {
         for (const cat of MESSAGE_CATS) {
           if (next.sums[cat] > 0) record[cat] = next.sums[cat]
         }
+        // v2 request detail (docs §8.1): the surface node counts the request was
+        // assembled from (`system` is always the one live system prompt, `tools`
+        // the current header's tool definition count) and the provider-reported
+        // billed prompt / output buckets.
+        const items = { system: 1, tools: next.toolDefs }
+        for (const cat of MESSAGE_CATS) {
+          if (next.surfaceCounts[cat] > 0) items[cat] = next.surfaceCounts[cat]
+        }
+        record.items = items
+        if (usage !== null) {
+          const input = tokenCountOf(usage.inputTokens)
+          const cacheRead = tokenCountOf(usage.cacheReadTokens)
+          const cacheWrite = tokenCountOf(usage.cacheWriteTokens)
+          if (input !== null || cacheRead !== null || cacheWrite !== null || output !== null) {
+            record.prompt = (input ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0)
+            if (output !== null) record.output = output
+          }
+        }
         next.requests.push(record)
+        // v2 last answer: the newest assistant text, whitespace-collapsed and
+        // bounded; tool-only steps leave the previous preview in place.
+        if (answerText !== '') {
+          const compressed = answerText.replace(/\s+/g, ' ').trim()
+          if (compressed !== '') {
+            next.lastAnswer = compressed.length > MAX_LAST_ANSWER ? compressed.slice(0, MAX_LAST_ANSWER) : compressed
+          }
+        }
+        // v2 timing split (docs §8.1): only an open step with an observable
+        // first token is priced; an unattributed stream lands in the card's
+        // `other` residue instead of charging the wait.
+        const stepStart = state.stepStart
+        if (stepStart !== undefined && Number.isFinite(stepStart.time)) {
+          const stream = data && data.stream
+          const firstToken = typeof stepStart.firstToken === 'number'
+            ? stepStart.firstToken
+            : firstTokenTimeOfStream(stream)
+          if (firstToken !== undefined) {
+            const decodeSpans = decodeSpansOfStream(stream, eventTime)
+            let decodeStart = firstToken
+            for (const span of decodeSpans) decodeStart = Math.min(decodeStart, span.start)
+            next.timing.ttftMs += durOf(stepStart.time, decodeStart)
+            next.timing.waitCount += 1
+            pushStepSpan(next, [SPAN_WAIT, stepStart.time, decodeStart])
+            // The decode blocks tile [decodeStart, eventTime] in stream order; the
+            // first block reaches back to the wait boundary, later ones keep their
+            // own start so the rows and the strip read the same window.
+            let pushedAny = false
+            for (const span of decodeSpans) {
+              const to = Math.min(eventTime, span.end)
+              if (to <= span.start) continue
+              const start = pushedAny ? span.start : decodeStart
+              if (to > start) {
+                pushStepSpan(next, [DECODE_SPAN_KINDS[span.kind], start, to])
+                pushedAny = true
+              }
+            }
+            const tally = decodeTallyOfStream(stream, eventTime)
+            next.timing.reasoningMs += tally.spans.reasoning
+            next.timing.reasoningCount += tally.blocks.reasoning
+            next.timing.textMs += tally.spans.text
+            next.timing.textCount += tally.blocks.text
+            next.timing.toolArgMs += tally.spans.toolarg
+            next.timing.toolArgCount += tally.blocks.toolarg
+            // Output speed pairs the first-token anchor with the provider's own
+            // output count; it only counts when both are known.
+            if (output !== null) {
+              next.timing.speedMs += durOf(firstToken, eventTime)
+              next.timing.speedTokens += output
+            }
+          }
+        }
         if (isSurfaceEvent(event)) {
           const node = applySurface(next, event, 'assistant', message)
-          if (node.tokens > 0 && firstText(message && message.content) !== '') next.counts.answers += 1
+          if (node.tokens > 0 && answerText !== '') next.counts.answers += 1
         }
         trimState(next)
+        return next
+      }
+      case 'assistant/attempt': {
+        // An attempt that committed no surface message can still carry the
+        // step's first token (a retried / aborted call): stamp it on the open
+        // step so TTFT stays real instead of falling into the residue.
+        const start = state.stepStart
+        if (start === undefined || typeof start.firstToken === 'number') return state
+        const first = firstTokenTimeOfStream(data && data.stream)
+        if (first === undefined) return state
+        const next = cloneState(state)
+        next.stepStart.firstToken = first
         return next
       }
       case 'tool/call': {
@@ -455,13 +822,22 @@ export function applyContextEvent(state, event) {
         const source = message && message.source !== null && typeof message.source === 'object' ? message.source : undefined
         const callId = source && typeof source.callId === 'string' ? source.callId : ''
         const pending = callId !== '' ? state.callNames[callId] : undefined
+        const eventTime = timeOf(event)
         const next = cloneState(state)
         const node = applySurface(next, event, 'tool', message)
         if (pending !== undefined) {
           next.counts.toolCalls += 1
           next.toolNames[pending.name] = (next.toolNames[pending.name] || 0) + 1
+          // v2 activity: classify the paired run by its durable tool name.
+          const activityKey = toolActivityOf(pending.name)
+          if (activityKey !== '') next.activity[activityKey] += 1
+          // v2 tool timing: the paired run's wall slice, priced on the same
+          // call/result pairing the tool tallies use.
+          next.timing.toolsMs += durOf(pending.start, eventTime)
+          next.timing.toolCount += 1
+          pushStepSpan(next, [SPAN_TOOLS, pending.start, eventTime])
           if (pending.name === 'ask_user_question' && next.stepStart !== undefined) {
-            next.stepStart.waits.push({ start: pending.start, end: timeOf(event) })
+            next.stepStart.waits.push({ start: pending.start, end: eventTime })
           }
           if (callId !== '') delete next.callNames[callId]
           // A skill tool's result is harness-injected skill content: give it the
@@ -472,8 +848,10 @@ export function applyContextEvent(state, event) {
               next.sums.tool = Math.max(0, next.sums.tool - node.tokens)
               node.cat = 'skill'
               next.sums.skill += node.tokens
+              next.surfaceCounts.tool = Math.max(0, next.surfaceCounts.tool - 1)
+              next.surfaceCounts.skill += 1
               next.counts.skillLoads += 1
-              next.events.push({ seq: event.seq, time: timeOf(event), kind: 'inject', form: 'instructions', sub: 'skill', name: skillName })
+              next.events.push({ seq: event.seq, time: eventTime, kind: 'inject', form: 'instructions', sub: 'skill', name: skillName })
               next.counts.injects += 1
             }
           }
@@ -488,6 +866,8 @@ export function applyContextEvent(state, event) {
       case 'step/start': {
         const next = cloneState(state)
         next.stepStart = { time: timeOf(event), waits: [] }
+        // A superseded step's span buffer belongs to the old window.
+        delete next.stepSpans
         return next
       }
       case 'step/end': {
@@ -497,7 +877,29 @@ export function applyContextEvent(state, event) {
         const endTime = timeOf(event)
         const duration = Math.max(0, endTime - start.time)
         next.wallMs = state.wallMs + Math.max(0, duration - clampWaitMs(start, endTime))
+        // Tile the step's span buffer across [step start, step end]: first-wins
+        // de-overlap so parallel tool runs paint their union once, and every hole
+        // is filled with the `other` residue so the strip stays gapless.
+        const painted = []
+        for (const span of Array.isArray(state.stepSpans) ? state.stepSpans : []) {
+          const from = Math.max(start.time, span[1])
+          const to = Math.min(endTime, span[2])
+          if (to > from) painted.push([span[0], from, to])
+        }
+        painted.sort((left, right) => (left[1] - right[1]) || (left[2] - right[2]))
+        next.spans = state.spans.slice()
+        let cursor = start.time
+        for (const span of painted) {
+          const from = Math.max(cursor, span[1])
+          if (span[2] <= from) continue
+          if (from > cursor) next.spans.push([SPAN_OTHER, cursor, from])
+          next.spans.push([span[0], from, span[2]])
+          cursor = span[2]
+        }
+        if (endTime > cursor) next.spans.push([SPAN_OTHER, cursor, endTime])
+        if (next.spans.length > MAX_SPANS) next.spans = next.spans.slice(next.spans.length - MAX_SPANS)
         delete next.stepStart
+        delete next.stepSpans
         if (next.approvals !== undefined && Object.keys(next.approvals).length === 0) delete next.approvals
         return next
       }
@@ -567,6 +969,17 @@ export function contextView(state) {
     tool: state.sums.tool,
   }
   current.total = current.system + current.tools + current.user + current.inject + current.skill + current.assistant + current.tool
+  const activity = state.activity !== null && typeof state.activity === 'object' ? state.activity : {}
+  const timingRaw = state.timing !== null && typeof state.timing === 'object' ? state.timing : {}
+  // The six-way split: the five measured buckets plus the residue, so the card's
+  // percentages always add up and `otherMs` is never negative (docs §8.1).
+  const wallMs = safeInt(state.wallMs)
+  const ttftMs = safeInt(timingRaw.ttftMs)
+  const reasoningMs = safeInt(timingRaw.reasoningMs)
+  const textMs = safeInt(timingRaw.textMs)
+  const toolArgMs = safeInt(timingRaw.toolArgMs)
+  const toolsMs = safeInt(timingRaw.toolsMs)
+  const measuredMs = ttftMs + reasoningMs + textMs + toolArgMs + toolsMs
   return {
     v: 1,
     ...(state.model !== undefined ? { model: state.model } : {}),
@@ -582,9 +995,38 @@ export function contextView(state) {
       compactions: state.counts.compactions,
       prunes: state.counts.prunes,
     },
+    // v2 activity ledger (docs §8.1): `userInputs` mirrors the v1 `humanInputs`.
+    activity: {
+      userInputs: state.counts.humanInputs,
+      reads: safeInt(activity.reads),
+      writes: safeInt(activity.writes),
+      searches: safeInt(activity.searches),
+      images: safeInt(activity.images),
+    },
     tools: { total: state.counts.toolCalls, names: sortedToolNames(state) },
-    timing: { wallMs: Math.round(state.wallMs) },
-    requests: state.requests.map(record => ({ ...record })),
+    timing: {
+      wallMs,
+      ttftMs,
+      reasoningMs,
+      textMs,
+      toolArgMs,
+      toolsMs,
+      otherMs: Math.max(0, wallMs - measuredMs),
+      waitCount: safeInt(timingRaw.waitCount),
+      reasoningCount: safeInt(timingRaw.reasoningCount),
+      textCount: safeInt(timingRaw.textCount),
+      toolArgCount: safeInt(timingRaw.toolArgCount),
+      toolCount: safeInt(timingRaw.toolCount),
+      speedTokens: safeInt(timingRaw.speedTokens),
+      speedMs: safeInt(timingRaw.speedMs),
+    },
+    // v2 timeline: newest MAX_SPANS segments, each [kind, start, end].
+    spans: (Array.isArray(state.spans) ? state.spans : []).map(span => [span[0], span[1], span[2]]),
+    ...(typeof state.lastAnswer === 'string' && state.lastAnswer !== '' ? { lastAnswer: state.lastAnswer } : {}),
+    requests: state.requests.map(record => ({
+      ...record,
+      ...(record.items !== undefined && record.items !== null ? { items: { ...record.items } } : {}),
+    })),
     events: state.events.map(record => ({ ...record })),
     truncated: { ...state.truncated },
   }
@@ -593,7 +1035,9 @@ export function contextView(state) {
 /** The `mobileContext` projection definition registered on `ctx.sessionProjections`. */
 export const contextProjectionDefinition = {
   key: 'mobileContext',
-  stateVersion: 1,
+  // v2 added state accumulators (activity/timing/spans/toolDefs/lastAnswer): a
+  // cached v1 row must refold rather than serve zeros for the new cards.
+  stateVersion: 2,
   stateSchema: passthroughSchema,
   init: () => createState(),
   apply: (state, event) => applyContextEvent(state, event),
@@ -644,6 +1088,49 @@ const MAX_FLEET_AGENTS = 40
 
 function fleetNumber(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
+}
+
+/**
+ * Bound one host `agentTeam` projection value to the wire shape docs §8.2
+ * names: at most MAX_TEAM_ROWS members and MAX_TEAM_ROWS tasks, minimal fields,
+ * always a plain-JSON object. Returns null when the value carries no roster.
+ */
+function teamOf(agentTeam) {
+  if (agentTeam === null || typeof agentTeam !== 'object' || Array.isArray(agentTeam)) return null
+  if (!Array.isArray(agentTeam.members) && !Array.isArray(agentTeam.tasks)) return null
+  const members = []
+  for (const member of Array.isArray(agentTeam.members) ? agentTeam.members : []) {
+    if (members.length >= MAX_TEAM_ROWS) break
+    if (member === null || typeof member !== 'object') continue
+    if (typeof member.id !== 'string' || member.id === '') continue
+    const entry = {
+      id: member.id,
+      name: typeof member.name === 'string' ? member.name : '',
+      role: member.role === 'lead' ? 'lead' : 'teammate',
+      phase: TEAM_PHASES.has(member.phase) ? member.phase : 'active',
+    }
+    if (typeof member.error === 'string' && member.error !== '') entry.error = member.error
+    members.push(entry)
+  }
+  const tasks = []
+  for (const task of Array.isArray(agentTeam.tasks) ? agentTeam.tasks : []) {
+    if (tasks.length >= MAX_TEAM_ROWS) break
+    if (task === null || typeof task !== 'object') continue
+    if (typeof task.id !== 'string' || task.id === '') continue
+    const entry = {
+      id: task.id,
+      subject: typeof task.subject === 'string' ? task.subject : '',
+      status: typeof task.status === 'string' ? task.status : 'pending',
+    }
+    if (typeof task.ownerName === 'string' && task.ownerName !== '') entry.ownerName = task.ownerName
+    if (typeof task.ownerId === 'string' && task.ownerId !== '') entry.ownerId = task.ownerId
+    tasks.push(entry)
+  }
+  return {
+    members,
+    tasks,
+    failure: typeof agentTeam.failure === 'string' ? agentTeam.failure : '',
+  }
 }
 
 /**
@@ -722,18 +1209,42 @@ export function buildFleetValue(currentSessionId, records, snapshotOf, runningOf
     order.push({ record: byId.get(current), depth: Math.max(0, ancestors.length - 1) })
   }
 
+  // Resolve every family snapshot once: the team roster comes from the ROOT
+  // session's `agentTeam` projection (each session's team projection is scoped
+  // to itself), and the per-agent cards read from the same snapshot.
+  const resolved = order.map(item => {
+    try {
+      return resolve(item.record.id)
+    } catch (_) {
+      return null
+    }
+  })
+  const valuesOf = index => resolved[index] !== null && typeof resolved[index] === 'object' ? resolved[index] : {}
+  let team = null
+  let teamPhaseById = null
+  const teamCandidateOrder = []
+  const rootIndex = order.findIndex(item => item.record.id === rootId)
+  if (rootIndex >= 0) teamCandidateOrder.push(rootIndex)
+  for (let index = 0; index < order.length; index += 1) if (index !== rootIndex) teamCandidateOrder.push(index)
+  for (const index of teamCandidateOrder) {
+    const candidate = teamOf(valuesOf(index).agentTeam)
+    if (candidate !== null) {
+      team = candidate
+      break
+    }
+  }
+  if (team !== null) {
+    teamPhaseById = new Map()
+    for (const member of team.members) teamPhaseById.set(member.id, member.phase)
+  }
+
   const agents = []
   let running = 0
   let subagents = 0
-  for (const item of order) {
+  for (let index = 0; index < order.length; index += 1) {
+    const item = order[index]
     const record = item.record
-    let values = null
-    try {
-      values = resolve(record.id)
-    } catch (_) {
-      values = null
-    }
-    const v = values !== null && typeof values === 'object' ? values : {}
+    const v = valuesOf(index)
     const subagent = v.subagent !== null && typeof v.subagent === 'object' ? v.subagent : null
     const pressure = v.contextPressure !== null && typeof v.contextPressure === 'object' ? v.contextPressure : null
     const usage = v.tokenUsage !== null && typeof v.tokenUsage === 'object' ? v.tokenUsage : null
@@ -791,6 +1302,17 @@ export function buildFleetValue(currentSessionId, records, snapshotOf, runningOf
       const wallMs = fleetNumber(context.timing.wallMs)
       if (wallMs > 0) entry.activeMs = wallMs
     }
+    // v2 fleet card fields (docs §8.2): the newest answer preview and the team
+    // member phase; the current session defaults to `active` when the roster
+    // exists but does not list it.
+    if (context !== null && typeof context.lastAnswer === 'string' && context.lastAnswer !== '') {
+      entry.lastAnswer = context.lastAnswer
+    }
+    if (teamPhaseById !== null) {
+      const phase = teamPhaseById.get(record.id)
+      if (typeof phase === 'string' && TEAM_PHASES.has(phase)) entry.phase = phase
+      else if (record.id === current) entry.phase = 'active'
+    }
     agents.push(entry)
   }
 
@@ -798,6 +1320,7 @@ export function buildFleetValue(currentSessionId, records, snapshotOf, runningOf
     rootSessionId: rootId,
     currentSessionId: current,
     agents,
+    ...(team !== null ? { team } : {}),
     counts: { agents: agents.length, running, subagents },
   }
 }

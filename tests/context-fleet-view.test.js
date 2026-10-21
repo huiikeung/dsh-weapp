@@ -308,7 +308,7 @@ function storeFixture() {
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
     module: storeModule, Date: Date, console: console,
     wx: { getStorageSync() {}, setStorageSync() {}, removeStorageSync() {} },
-    setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {},
+    setTimeout(fn, delay) { if (fn) fn.delay = delay; timers.push(fn); return timers.length; }, clearTimeout() {},
     setInterval() { return 1; }, clearInterval() {},
     require(name) {
       return name === './gateway' ? { GatewayClient: Client }
@@ -483,3 +483,130 @@ test('tapping a fleet agent opens its session and switches to the context tab', 
   assert.equal(page.data.tab, 'fleet');
 });
 
+
+// ---------- v2：team（成员 role/phase、最新回答、任务） ----------
+
+function sampleTeamFleet(overrides) {
+  return Object.assign(sampleFleet(), {
+    team: {
+      members: [
+        { id: 'session-root', name: 'lead', role: 'lead', phase: 'active' },
+        { id: 'session-child', name: 'reviewer', role: 'reviewer', phase: 'idle' }
+      ],
+      tasks: [
+        { id: 'task-1', subject: '实现组件', status: 'in_progress', ownerName: '阿青', ownerId: 'session-root' },
+        { id: 'task-2', subject: '审查实现', status: 'completed', ownerName: '小北' },
+        { id: 'task-3', subject: '补充测试', status: 'pending' }
+      ],
+      failure: ''
+    },
+    agents: [
+      Object.assign({}, sampleFleet().agents[0], {
+        phase: 'active', lastAnswer: '同步完成，本地已经和 GitHub 对齐。\n等待下一步指令。'
+      }),
+      Object.assign({}, sampleFleet().agents[1], {
+        phase: 'idle', lastAnswer: '审阅完成：没有发现阻塞问题。'
+      }),
+      sampleFleet().agents[2]
+    ]
+  }, overrides || {});
+}
+
+test('v2 fleet matches team members to agents and shows role / phase / latest answer', () => {
+  const panel = build(sampleTeamFleet());
+  assert.equal(panel.status, 'ready');
+  const [root, child] = panel.agents;
+  assert.equal(root.role, 'lead');
+  assert.equal(root.roleText, '角色 lead');
+  assert.equal(root.phaseText, '运行中');
+  assert.equal(root.phaseClass, 'active');
+  assert.equal(root.hasAnswer, true);
+  assert.match(root.lastAnswer, /GitHub/);
+  assert.equal(child.role, 'reviewer');
+  assert.equal(child.phaseText, '空闲');
+  assert.equal(child.phaseClass, 'idle');
+  assert.equal(panel.agents[2].hasAnswer, false);
+  assert.equal(panel.agents[2].phaseText, '');
+  assertNoUndefined(panel);
+});
+
+test('v2 fleet truncates the latest answer and ignores hostile team payloads', () => {
+  const long = 'x'.repeat(400);
+  const panel = build(sampleFleet({
+    team: { members: 'nope', tasks: 'nope', failure: 42 },
+    agents: [{ sessionId: 's', title: 's', lastAnswer: long, phase: 'weird' }]
+  }));
+  assert.equal(panel.agents[0].lastAnswer.length, 241, 'the client caps the answer at 240 chars plus an ellipsis');
+  assert.equal(panel.agents[0].phaseText, 'weird', 'unknown phases pass through as data');
+  assert.equal(panel.team.hasTeam, true);
+  assert.deepEqual(panel.team.tasks, []);
+  assert.equal(panel.team.tasksEmpty, true);
+});
+
+test('v2 fleet task rows carry subject, status badge and owner with an empty state', () => {
+  const panel = build(sampleTeamFleet());
+  assert.equal(panel.team.hasTeam, true);
+  assert.equal(panel.team.tasks.length, 3);
+  assert.deepEqual(panel.team.tasks.map(task => task.subject), ['实现组件', '审查实现', '补充测试']);
+  assert.deepEqual(panel.team.tasks.map(task => task.statusText), ['进行中', '已完成', '待处理']);
+  assert.deepEqual(panel.team.tasks.map(task => task.statusClass), ['active', 'done', 'pending']);
+  assert.equal(panel.team.tasks[0].ownerText, '阿青');
+  assert.equal(panel.team.tasks[2].hasOwner, false);
+  assert.equal(panel.team.taskCountText, '3');
+  // 没有 team 投影：显示空任务态。
+  const noTeam = build(sampleFleet({ team: undefined }));
+  assert.equal(noTeam.team.hasTeam, false);
+  assert.equal(noTeam.team.tasksEmpty, true);
+  assert.ok(noTeam.team.tasksEmptyText.length > 0);
+  assert.equal(build(sampleTeamFleet({ team: { tasks: [] } })).team.tasksEmpty, true);
+});
+
+test('v2 fleet shows the delegation hint only for a single agent', () => {
+  const single = build({ rootSessionId: 'session-root', agents: [sampleFleet().agents[0]] });
+  assert.equal(single.agents.length, 1);
+  assert.match(single.subagentHint, /还没有子 Agent/);
+  assert.match(single.subagentHint, /subagent/);
+  assert.equal(build(sampleFleet()).subagentHint, '');
+});
+
+// ---------- store v2：编队轮询 ----------
+
+test('visible fleet tab polls every 2.5s while running and stops on turn end', () => {
+  const f = storeFixture();
+  const fleets = () => f.requested.filter(item => item[0] === 'fleet').length;
+  f.frame({ kind: 'sent' });
+  f.store.setFleetActive(true);
+  assert.equal(fleets(), 1);
+  f.frame({ kind: 'context-fleet', asOfSeq: 1, value: sampleFleet() });
+  const poll = () => f.timers.filter(fn => fn.delay === 2500).forEach(fn => fn());
+  poll();
+  assert.equal(fleets(), 2);
+  // 上一帧未返回：自动轮询不叠加。
+  poll();
+  assert.equal(fleets(), 2);
+  f.frame({ kind: 'context-fleet', asOfSeq: 2, value: sampleFleet() });
+  poll();
+  assert.equal(fleets(), 3);
+  f.frame({ kind: 'event', event: { type: 'turn/end' } });
+  poll();
+  assert.equal(fleets(), 3);
+  // 切走编队分段后再次运行也不轮询。
+  f.frame({ kind: 'event', event: { type: 'turn/start' } });
+  f.store.setFleetActive(false);
+  poll();
+  assert.equal(fleets(), 3);
+});
+
+test('closing a session stops both panel pollers', () => {
+  const f = storeFixture();
+  f.frame({ kind: 'sent' });
+  f.store.setContextActive(true);
+  f.store.setFleetActive(true);
+  f.frame({ kind: 'context-dashboard', asOfSeq: 1, value: { current: { system: 1 } } });
+  f.frame({ kind: 'context-fleet', asOfSeq: 1, value: sampleFleet() });
+  f.store.closeSession();
+  const before = f.requested.length;
+  f.store.sessionState.running = true;
+  f.timers.filter(fn => fn.delay === 2500).forEach(fn => fn());
+  assert.equal(f.requested.length, before, 'no panel request after the session was closed');
+});

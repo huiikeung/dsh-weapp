@@ -220,20 +220,20 @@ test('deriveTiming splits wait / reply / tool execution with shares, durations a
     timing: { wallMs: 10000 }
   });
   assert.equal(timing.activeText, '10.0s');
-  assert.deepEqual(timing.segments.map(segment => segment.pctText), ['16.7%', '50.0%', '33.3%']);
-  assert.deepEqual(timing.segments.map(segment => segment.durationText), ['1.0s', '3.0s', '2.0s']);
-  assert.deepEqual(timing.segments.map(segment => segment.countText), ['2 次', '4 次', '2 次']);
-  const width = timing.segments.reduce((sum, segment) => sum + segment.width, 0);
+  assert.deepEqual(timing.rows.map(row => row.pctText), ['16.7%', '50.0%', '33.3%']);
+  assert.deepEqual(timing.rows.map(row => row.durationText), ['1.0s', '3.0s', '2.0s']);
+  assert.deepEqual(timing.rows.map(row => row.countText), ['2 次', '4 次', '2 次']);
+  const width = timing.rows.reduce((sum, row) => sum + row.width, 0);
   assert.ok(Math.abs(width - 100) < 1e-9);
 });
 
 test('deriveTiming falls back to steps for replies and shows dashes when nothing ran', () => {
   const timing = contextView.deriveTiming({ counts: {}, stats: { decodeMs: 900, steps: 3 }, timing: {} });
-  assert.equal(timing.segments[1].countText, '3 次');
+  assert.equal(timing.rows[1].countText, '3 次');
   assert.equal(timing.activeText, '—');
   const empty = contextView.deriveTiming({});
   assert.equal(empty.hasData, false);
-  assert.deepEqual(empty.segments.map(segment => segment.pctText), ['—', '—', '—']);
+  assert.deepEqual(empty.rows.map(row => row.pctText), ['—', '—', '—']);
 });
 
 // ---------- 趋势 ----------
@@ -330,7 +330,7 @@ test('buildPanel distinguishes disconnected, empty, loading, unsupported, error 
   assert.equal(ready.meta.contextWindowText, '262.1k');
   assert.equal(ready.stats.toolTotalText, '4.3k');
   assert.equal(ready.tokens.rows.length, 8);
-  assert.equal(ready.timing.segments.length, 3);
+  assert.equal(ready.timing.rows.length, 3);
   assert.equal(ready.trend.count, 1);
   assert.equal(ready.events.rows.length, 1);
 });
@@ -384,8 +384,8 @@ test('buildPanel localises every authored label through the injected t()', () =>
   assert.equal(panel.tokens.rows[0].label, 'E:系统提示词');
   assert.equal(panel.stats.chips[0].label, 'E:注入');
   assert.equal(panel.stats.otherText, 'E:其他 +4.1k');
-  assert.equal(panel.timing.segments[0].label, 'E:模型等待');
-  assert.equal(panel.timing.segments[0].countText, 'E:4.6k 次');
+  assert.equal(panel.timing.rows[0].label, 'E:模型等待');
+  assert.equal(panel.timing.rows[0].countText, 'E:4.6k 次');
 });
 
 test('buildPanel keeps the previous value while a refresh is in flight', () => {
@@ -408,7 +408,8 @@ function storeFixture() {
   const requested = [];
   class Client {
     constructor(callbacks) { this.callbacks = callbacks; }
-    requestContextDashboard(sessionId) { requested.push(sessionId); return Promise.resolve(); }
+    requestContextDashboard(sessionId) { requested.push(['dashboard', sessionId]); return Promise.resolve(); }
+    requestContextFleet(sessionId) { requested.push(['fleet', sessionId]); return Promise.resolve(); }
     requestSessionStats() { return Promise.resolve(); }
     requestContextUsage() { return Promise.resolve(); }
     subscribe() { return true; }
@@ -416,7 +417,7 @@ function storeFixture() {
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
     module: module, Date: Date, console: console,
     wx: { getStorageSync() {}, setStorageSync() {}, removeStorageSync() {} },
-    setTimeout(fn) { timers.push(fn); return timers.length; }, clearTimeout() {},
+    setTimeout(fn, delay) { if (fn) fn.delay = delay; timers.push(fn); return timers.length; }, clearTimeout() {},
     setInterval() { return 1; }, clearInterval() {},
     require(name) {
       return name === './gateway' ? { GatewayClient: Client }
@@ -460,14 +461,15 @@ test('store maps context-unavailable / unknown-command errors to the upgrade sta
 test('store requests the dashboard when the context tab becomes visible', () => {
   const f = storeFixture();
   f.store.setContextActive(true);
-  assert.equal(f.requested.length, 1);
-  assert.equal(f.requested[0], 'session-1');
+  const dashboards = () => f.requested.filter(item => item[0] === 'dashboard').length;
+  assert.equal(dashboards(), 1);
+  assert.deepEqual(f.requested[0], ['dashboard', 'session-1']);
   assert.equal(f.store.sessionState.contextDashboard.loading, true);
   f.store.setContextActive(false);
   f.store.setContextActive(false);
-  assert.equal(f.requested.length, 1, 're-activating an already-visible tab does not refetch');
+  assert.equal(dashboards(), 1, 're-activating an already-visible tab does not refetch');
   f.store.setContextActive(true);
-  assert.equal(f.requested.length, 2);
+  assert.equal(dashboards(), 2);
 });
 
 test('closing a session clears the context dashboard', () => {
@@ -478,4 +480,280 @@ test('closing a session clears the context dashboard', () => {
   assert.equal(dashboard.value, null);
   assert.equal(dashboard.asOfSeq, null);
   assert.equal(dashboard.unsupported, false);
+});
+
+// ---------- v2：统计 / 当前上下文 / 环形 / 耗时六段 / 浏览器 ----------
+
+/** docs/context-dashboard.md 8.1 的 v2 增量示例（叠加在 v1 样例之上）。 */
+function sampleV2Value(overrides) {
+  return Object.assign(sampleValue(), {
+    activity: { userInputs: 16, reads: 36, writes: 38, searches: 26, images: 4 },
+    timing: {
+      wallMs: 4980000, ttftMs: 1598000, reasoningMs: 1825000, textMs: 99000,
+      toolArgMs: 617000, toolsMs: 840000, otherMs: 1500,
+      waitCount: 313, reasoningCount: 201, textCount: 16, toolArgCount: 313, toolCount: 318,
+      speedTokens: 204000, speedMs: 2550000
+    },
+    spans: [[0, 1000, 2000], [1, 2000, 5000], [2, 5000, 5100], [4, 5100, 6000], [5, 6000, 6100]],
+    lastAnswer: '同步完成，本地已经和 GitHub 对齐。',
+    requests: [{
+      seq: 53, time: 1791807408490, turn: 2, step: 1,
+      system: 2154, tools: 10439, user: 123, inject: 456, skill: 78, assistant: 9000, tool: 3000,
+      total: 25250, items: { system: 1, tools: 79, user: 3 }, prompt: 11200, output: 191
+    }]
+  }, overrides || {});
+}
+
+test('v2 statistics expose the five input/output chips and the tool/event groups', () => {
+  const stats = contextView.deriveStats(sampleV2Value(), contextView.deriveTokens(sampleV2Value(), key => key), key => key);
+  assert.equal(stats.activity.hasData, true);
+  assert.deepEqual(stats.activity.chips.map(chip => chip.key), ['userInputs', 'reads', 'writes', 'searches', 'images']);
+  assert.deepEqual(stats.activity.chips.map(chip => chip.text), ['16', '36', '38', '26', '4']);
+  assert.deepEqual(stats.activity.chips.map(chip => chip.label), ['用户输入', '读取', '写入', '搜索', '图片']);
+  // 工具/事件 v1 字段保持不变。
+  assert.equal(stats.toolTotalText, '4.3k');
+  assert.deepEqual(stats.chips.map(chip => chip.text), ['700', '12', '42']);
+  // 没有 v2 activity 的旧帧：整组 chip 显示占位符，不凭空造 0。
+  const legacy = contextView.deriveStats(sampleValue(), contextView.deriveTokens(sampleValue(), key => key), key => key);
+  assert.equal(legacy.activity.hasData, false);
+  assert.ok(legacy.activity.chips.every(chip => chip.text === '—'));
+});
+
+test('v2 Agent network derives current-agent tokens and subagent count from the fleet snapshot', () => {
+  const tokens = contextView.deriveTokens(sampleV2Value(), key => key);
+  const fleet = { currentSessionId: 'session-child', counts: { agents: 3, running: 1, subagents: 2 },
+    agents: [{ sessionId: 'session-root', tokensTotal: 10 }, { sessionId: 'session-child', tokensTotal: 2500 }] };
+  const network = contextView.deriveNetwork(sampleV2Value(), tokens, fleet, key => key);
+  assert.equal(network.hasData, true);
+  assert.equal(network.agentTokensText, '2.5k');
+  assert.equal(network.subagentsText, '2');
+  // 旧网关没有编队快照 → 整块隐藏，避免显示假的 ×0。
+  const hidden = contextView.deriveNetwork(sampleV2Value(), tokens, null, key => key);
+  assert.equal(hidden.hasData, false);
+});
+
+test('v2 current context fills the window with seven categories plus remaining/reserve zones', () => {
+  const current = contextView.deriveCurrent({
+    current: { system: 100, tools: 200, user: 50, inject: 20, skill: 10, assistant: 400, tool: 20, total: 800 },
+    contextWindow: 1000
+  }, key => key);
+  assert.equal(current.hasData, true);
+  assert.equal(current.usedWidth, 80);
+  assert.equal(current.usedPctText, '80.0%');
+  assert.equal(current.remainingWidth, 10);
+  assert.equal(current.reserveWidth, 10);
+  assert.equal(current.rows.length, 7);
+  const totalWidth = current.remainingWidth + current.reserveWidth
+    + current.rows.reduce((sum, row) => sum + row.width, 0);
+  assert.ok(Math.abs(totalWidth - 100) < 1e-6, 'the stacked bar always fills the window');
+  assert.equal(current.rows[0].tokenText, '≈100');
+  assert.equal(current.rows[0].pctText, '12.5%');
+  // 窗口几乎占满时保留区被挤掉，不出现负宽度。
+  const full = contextView.deriveCurrent({ current: { system: 1000, total: 1000 }, contextWindow: 1000 }, key => key);
+  assert.equal(full.usedWidth, 100);
+  assert.equal(full.remainingWidth, 0);
+  assert.equal(full.reserveWidth, 0);
+  // 没有窗口/上下文时明确空态，不渲染空条。
+  assert.equal(contextView.deriveCurrent({ current: {}, contextWindow: 0 }, key => key).hasData, false);
+});
+
+test('v2 token donut builds a conic-gradient from the eight legend rows and keeps v1 fields', () => {
+  const tokens = contextView.deriveTokens(sampleV2Value(), key => key);
+  assert.equal(tokens.available, true);
+  assert.equal(tokens.rows.length, 8);
+  assert.match(tokens.donut.style, /^background:conic-gradient\(/);
+  assert.match(tokens.donut.style, /var\(--ctx-c-system\)/);
+  assert.match(tokens.donut.style, /var\(--ctx-c-output\)/);
+  assert.equal(tokens.inputText, '1.4B');
+  assert.equal(tokens.outputText, '2.0M');
+  const unavailable = contextView.deriveTokens({ current: {}, usage: null }, key => key);
+  assert.equal(unavailable.donut.available, false);
+  assert.equal(unavailable.donut.style, '');
+});
+
+test('v2 timing splits six segments with shares, durations, counts, speed and timeline spans', () => {
+  const timing = contextView.deriveTiming(sampleV2Value());
+  assert.equal(timing.v2, true);
+  assert.deepEqual(timing.rows.map(row => row.key), ['wait', 'reasoning', 'text', 'toolarg', 'tools', 'other']);
+  assert.deepEqual(timing.rows.map(row => row.label), ['模型等待', '模型思考', '模型回复', '工具参数', '工具执行', '其他开销']);
+  assert.deepEqual(timing.rows.map(row => row.pctText), ['32.1%', '36.6%', '2.0%', '12.4%', '16.9%', '<0.1%']);
+  assert.deepEqual(timing.rows.map(row => row.durationText), ['26m38s', '30m25s', '1m39s', '10m17s', '14m0s', '1.5s']);
+  assert.deepEqual(timing.rows.map(row => row.countText), ['313 次', '201 次', '16 次', '313 次', '318 次', '']);
+  assert.match(timing.donutStyle, /conic-gradient/);
+  assert.equal(timing.hasSpeed, true);
+  assert.equal(timing.speedText, '80.0 tok/s');
+  assert.equal(timing.hasTimeline, true);
+  assert.deepEqual(timing.timeline.map(span => span.kind), ['wait', 'reasoning', 'text', 'tools', 'other']);
+  assert.match(timing.timeline[0].style, /left:0\.00%;width:19\.61%;/);
+  // v1 只有 stats 时仍显示三段，不被 v2 空字段吞掉。
+  const legacy = contextView.deriveTiming({ counts: { answers: 4 }, stats: { ttftMs: 1000, decodeMs: 3000, toolMs: 2000 } }, key => key);
+  assert.equal(legacy.v2, false);
+  assert.equal(legacy.rows.length, 3);
+  assert.equal(legacy.hasSpeed, false);
+  assert.equal(legacy.hasTimeline, false);
+});
+
+test('v2 timing tolerates hostile spans and missing speed counters', () => {
+  const timing = contextView.deriveTiming({
+    timing: { wallMs: 1000, ttftMs: 1000, speedTokens: 0, speedMs: 0 },
+    spans: [[0, 'x', 'y'], 'nope', [9, 500, 400], [1, 100, 200]]
+  }, key => key);
+  assert.equal(timing.v2, true);
+  assert.equal(timing.hasSpeed, false);
+  assert.equal(timing.speedText, '—');
+  assert.deepEqual(timing.timeline.map(span => span.kind), ['reasoning']);
+});
+
+test('v2 context browser defaults to the current composition and walks historical requests', () => {
+  const browser = contextView.deriveBrowser(sampleV2Value(), key => key, {});
+  assert.equal(browser.empty, false);
+  assert.equal(browser.isCurrent, true);
+  assert.equal(browser.options.length, 2, 'one historical request plus "current"');
+  assert.equal(browser.options[1].label, '当前（下一次请求）');
+  assert.equal(browser.selectedIndex, 1);
+  assert.equal(browser.canPrev, true);
+  assert.equal(browser.canNext, false);
+  assert.equal(browser.estimated, 25250);
+  assert.equal(browser.estimatedText, '≈25.3k');
+  assert.equal(browser.promptText, '—');
+  assert.equal(browser.rows.length, 7);
+  assert.ok(browser.rows.every(row => row.itemsText === '—'));
+  // 切到历史请求：显示该请求 total 与实际 prompt，并与上一条（无）对比。
+  const historical = contextView.deriveBrowser(sampleV2Value(), key => key, { seq: 53 });
+  assert.equal(historical.selectedIndex, 0);
+  assert.equal(historical.isCurrent, false);
+  assert.equal(historical.promptText, '11.2k');
+  assert.equal(historical.estimatedText, '≈25.3k');
+  assert.equal(historical.canPrev, false);
+  assert.equal(historical.canNext, true);
+  assert.equal(historical.rows[0].itemsText, '1');
+  assert.equal(historical.rows[1].itemsText, '79');
+  assert.equal(historical.rows[0].deltaText, '—');
+  assert.equal(historical.timeText.length, 8);
+});
+
+test('v2 context browser compares each category with the previous request', () => {
+  const requests = [
+    { seq: 10, time: 1000, turn: 1, system: 100, tools: 200, total: 300, items: { system: 1, tools: 5 }, prompt: 280, output: 10 },
+    { seq: 20, time: 2000, turn: 2, system: 120, tools: 180, total: 300, items: { system: 2, tools: 4 }, prompt: 290, output: 20 }
+  ];
+  const browser = contextView.deriveBrowser({ requests: requests, current: { system: 130, tools: 170, total: 300 } }, key => key, { seq: 20 });
+  assert.equal(browser.selectedIndex, 1);
+  assert.equal(browser.rows[0].deltaText, '+20');
+  assert.equal(browser.rows[0].deltaClass, 'up');
+  assert.equal(browser.rows[1].deltaText, '−20');
+  assert.equal(browser.rows[1].deltaClass, 'down');
+  assert.equal(browser.rows[2].deltaText, '0');
+  // 「当前（下一次请求）」与最后一条历史请求对比。
+  const currentEntry = contextView.deriveBrowser({ requests: requests, current: { system: 130, tools: 170, total: 300 } }, key => key, { seq: null });
+  assert.equal(currentEntry.selectedIndex, 2);
+  assert.equal(currentEntry.rows[0].deltaText, '+10');
+  assert.equal(currentEntry.rows[2].deltaText, '0');
+  // 展开行的明细文案与宽度。
+  const expanded = contextView.deriveBrowser({ requests: requests }, key => key, { seq: 20, expanded: ['system'] });
+  assert.equal(expanded.rows[0].expanded, true);
+  assert.equal(expanded.rows[1].expanded, false);
+  assert.match(expanded.rows[0].detailText, /明细暂不展示/);
+});
+
+test('v2 context browser caps at the latest 30 requests and degrades hostile data', () => {
+  const many = requests(45);
+  const browser = contextView.deriveBrowser({ requests: many }, key => key, {});
+  assert.equal(browser.count, 30);
+  assert.equal(browser.options.length, 31);
+  assert.equal(browser.options[30].label, '当前（下一次请求）');
+  assert.equal(browser.options[0].seq, 30, 'the window keeps the latest 30 records');
+  const empty = contextView.deriveBrowser({ requests: [] }, key => key, {});
+  assert.equal(empty.empty, true);
+  assert.equal(empty.canPrev, false);
+  assert.equal(empty.canNext, false);
+  const hostile = contextView.deriveBrowser({ requests: [{ seq: 1, items: 'x', prompt: 'nope' }, null, 'x'] }, key => key, { seq: '1' });
+  assert.equal(hostile.rows.length, 7);
+  assert.equal(hostile.promptText, '—');
+  assert.ok(hostile.rows.every(row => row.itemsText === '—'));
+});
+
+test('buildPanel v2 keeps every ready field defined and renderable', () => {
+  const panel = contextView.buildPanel(dashboard(sampleV2Value()), {
+    connected: true, hasSession: true, running: true,
+    fleet: { currentSessionId: 'session-1', counts: { agents: 2, subagents: 1 }, agents: [{ sessionId: 'session-1', tokensTotal: 500 }] },
+    browserSeq: 53, expanded: ['tools']
+  });
+  assert.equal(panel.status, 'ready');
+  assert.equal(panel.running, true);
+  assert.equal(panel.stats.activity.hasData, true);
+  assert.equal(panel.stats.network.hasData, true);
+  assert.equal(panel.current.hasData, true);
+  assert.equal(panel.tokens.donut.available, true);
+  assert.equal(panel.timing.v2, true);
+  assert.equal(panel.timing.hasTimeline, true);
+  assert.equal(panel.browser.selectedIndex, 0);
+  assert.equal(panel.browser.rows[1].expanded, true);
+  assertNoUndefined(panel);
+});
+
+/** 视图模型必须能被 setData 序列化：任何 undefined 都会在 WXML 里丢字段。 */
+function assertNoUndefined(value, path) {
+  if (value === undefined) assert.fail('undefined at ' + (path || 'root'));
+  if (value === null || typeof value !== 'object') return;
+  Object.keys(value).forEach(function (key) {
+    assert.notEqual(value[key], undefined, 'undefined at ' + (path ? path + '.' : '') + key);
+    assertNoUndefined(value[key], (path ? path + '.' : '') + key);
+  });
+}
+
+// ---------- store v2 动态刷新 ----------
+
+test('running context tab auto-refreshes every 2.5s without stacking requests', () => {
+  const f = storeFixture();
+  f.frame({ kind: 'sent' }); // running = true
+  f.store.setContextActive(true);
+  const dashboards = () => f.requested.filter(item => item[0] === 'dashboard').length;
+  assert.equal(dashboards(), 1);
+  f.frame({ kind: 'context-dashboard', asOfSeq: 1, value: { current: { system: 1 } } });
+  const flush = delay => f.timers.filter(fn => delay === undefined || fn.delay === delay)
+    .forEach(fn => fn());
+  const poll = () => f.timers.filter(fn => fn.delay === 2500).forEach(fn => fn());
+  // 运行中：下一拍自动刷新。
+  poll();
+  assert.equal(dashboards(), 2);
+  // 上一帧未返回：这一拍被跳过，不叠加请求。
+  poll();
+  assert.equal(dashboards(), 2);
+  // 帧返回后恢复；看门狗超时也会释放 in-flight 标记。
+  f.frame({ kind: 'context-dashboard', asOfSeq: 2, value: { current: { system: 2 } } });
+  poll();
+  assert.equal(dashboards(), 3);
+  flush(8000);
+  poll();
+  assert.equal(dashboards(), 4);
+  // 停止运行：timer 到点也不再请求。
+  f.frame({ kind: 'event', event: { type: 'turn/end' } });
+  poll();
+  assert.equal(dashboards(), 4);
+  // 切走分段：重新运行也不会自动刷新（手动刷新仍可用）。
+  f.frame({ kind: 'event', event: { type: 'turn/start' } });
+  f.store.setContextActive(false);
+  poll();
+  assert.equal(dashboards(), 4);
+  // 手动刷新仍然可用（切走分段不会禁用刷新按钮）。
+  assert.equal(f.store.refreshContextDashboard(), true);
+  assert.equal(dashboards(), 5);
+});
+
+test('visible fleet tab polls only while running and clears its timer when switched away', () => {
+  const f = storeFixture();
+  const fleets = () => f.requested.filter(item => item[0] === 'fleet').length;
+  f.store.setFleetActive(true);
+  assert.equal(fleets(), 1);
+  f.frame({ kind: 'context-fleet', asOfSeq: 1, value: { agents: [] } });
+  // 空闲时不轮询。
+  f.timers.filter(fn => fn.delay === 2500).forEach(fn => fn());
+  assert.equal(fleets(), 1);
+  f.frame({ kind: 'sent' });
+  f.timers.filter(fn => fn.delay === 2500).forEach(fn => fn());
+  assert.equal(fleets(), 2);
+  f.store.setFleetActive(false);
+  f.timers.filter(fn => fn.delay === 2500).forEach(fn => fn());
+  assert.equal(fleets(), 2);
 });

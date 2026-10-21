@@ -41,6 +41,9 @@ Page({
     trajectoryMounted: false,
     contextMounted: false,
     fleetMounted: false,
+    // 上下文浏览器（v2）：所选请求 seq（null = 当前/下一次请求）与展开的 7 类折叠行。
+    contextBrowserSeq: null,
+    contextBrowserExpanded: [],
     // 首帧之前先用「未连接」空态占位，避免 WXML 读取 null 面板。
     contextPanel: contextView.buildPanel(null, { t: uiText, connected: false, hasSession: false }),
     fleetPanel: contextView.buildFleetPanel(null, { t: uiText, connected: false, hasSession: false }),
@@ -369,7 +372,13 @@ Page({
     const app = snapshot.app;
     if (!s || (!s.sessionId && s.historyState !== 'creating' && s.historyState !== 'error:create')) return;
     const sessionChanged = this._renderSessionId !== s.sessionId;
-    if (sessionChanged) this.resetConversationScroll();
+    if (sessionChanged) {
+      this.resetConversationScroll();
+      // 切会话：浏览器游标/折叠状态属于上一个会话，清空并从「当前」重新开始。
+      this._contextPanelCache = null;
+      this._fleetPanelCache = null;
+      this.setData({ contextBrowserSeq: null, contextBrowserExpanded: [] });
+    }
     if (!this._markdownCache || this._renderSessionId !== s.sessionId) {
       if (this._renderSessionId && this._renderSessionId !== s.sessionId) {
         this._sessionDrafts = this._sessionDrafts || {};
@@ -1131,19 +1140,74 @@ Page({
     const s = session || store.sessionState;
     const a = app || store.state;
     const dashboard = (s && s.contextDashboard) || null;
+    // v2：编队快照参与「Agent 网络」派生；运行态驱动面板脉冲。
+    const fleet = (s && s.contextFleet) || null;
+    const fleetValue = fleet && fleet.value ? fleet.value : null;
     const locale = this.data.uiLocale || '';
     const connected = !a || a.connection === 'connected';
     const sessionId = (s && s.sessionId) || '';
+    const running = !!(s && s.running);
+    const browserSeq = this.data.contextBrowserSeq == null ? null : Number(this.data.contextBrowserSeq);
+    const expanded = Array.isArray(this.data.contextBrowserExpanded) ? this.data.contextBrowserExpanded : [];
+    const expandedKey = expanded.join(',');
     const cache = this._contextPanelCache;
     if (cache && cache.dashboard === dashboard && cache.locale === locale
-      && cache.connected === connected && cache.sessionId === sessionId) {
+      && cache.connected === connected && cache.sessionId === sessionId
+      && cache.fleetValue === fleetValue && cache.running === running
+      && cache.browserSeq === browserSeq && cache.expandedKey === expandedKey) {
       return { contextPanel: cache.panel };
     }
     const panel = contextView.buildPanel(dashboard, {
-      t: uiText, connected: connected, hasSession: !!sessionId
+      t: uiText, connected: connected, hasSession: !!sessionId,
+      running: running, fleet: fleetValue, browserSeq: browserSeq, expanded: expanded
     });
-    this._contextPanelCache = { dashboard, locale, connected, sessionId, panel };
+    this._contextPanelCache = {
+      dashboard, locale, connected, sessionId,
+      fleetValue, running, browserSeq, expandedKey, panel
+    };
     return { contextPanel: panel };
+  },
+
+  /** 浏览器游标/折叠变化：立刻重建面板，不等 store emit。 */
+  setContextBrowser(seq, expanded) {
+    const patch = { contextBrowserSeq: seq == null ? null : Number(seq) };
+    if (Array.isArray(expanded)) patch.contextBrowserExpanded = expanded;
+    this.setData(patch);
+    this.setData(this.contextPanelPatch());
+  },
+
+  /** 上一步（step=-1）/下一步（step=1）请求。 */
+  contextBrowserStep(e) {
+    const browser = (this.data.contextPanel && this.data.contextPanel.browser) || null;
+    const step = Number(e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.step : 0);
+    if (!browser) return;
+    const can = step < 0 ? browser.canPrev : browser.canNext;
+    if (!can) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setContextBrowser(step < 0 ? browser.prevSeq : browser.nextSeq);
+  },
+
+  /** 请求下拉选择。 */
+  contextBrowserPick(e) {
+    const browser = (this.data.contextPanel && this.data.contextPanel.browser) || null;
+    const index = Number(e && e.detail ? e.detail.value : NaN);
+    if (!browser || !browser.options || !Number.isFinite(index) || index < 0 || index >= browser.options.length) return;
+    const option = browser.options[index];
+    if (!option || option.seq === undefined) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setContextBrowser(option.seq);
+  },
+
+  /** 展开/折叠某类（v2 折叠行）。 */
+  toggleContextBrowserRow(e) {
+    const browser = (this.data.contextPanel && this.data.contextPanel.browser) || null;
+    const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.key : '';
+    if (!browser || !key) return;
+    const expanded = (Array.isArray(this.data.contextBrowserExpanded) ? this.data.contextBrowserExpanded.slice() : []);
+    const index = expanded.indexOf(key);
+    if (index >= 0) expanded.splice(index, 1); else expanded.push(key);
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setContextBrowser(this.data.contextBrowserSeq, expanded);
   },
 
   /** 手动刷新上下文面板（卡片区右上角）。 */
@@ -1162,15 +1226,17 @@ Page({
     const locale = this.data.uiLocale || '';
     const connected = !a || a.connection === 'connected';
     const sessionId = (s && s.sessionId) || '';
+    const running = !!(s && s.running);
     const cache = this._fleetPanelCache;
     if (cache && cache.fleet === fleet && cache.locale === locale
-      && cache.connected === connected && cache.sessionId === sessionId) {
+      && cache.connected === connected && cache.sessionId === sessionId
+      && cache.running === running) {
       return { fleetPanel: cache.panel };
     }
     const panel = contextView.buildFleetPanel(fleet, {
-      t: uiText, connected: connected, hasSession: !!sessionId
+      t: uiText, connected: connected, hasSession: !!sessionId, running: running
     });
-    this._fleetPanelCache = { fleet, locale, connected, sessionId, panel };
+    this._fleetPanelCache = { fleet, locale, connected, sessionId, running, panel };
     return { fleetPanel: panel };
   },
 

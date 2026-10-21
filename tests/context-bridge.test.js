@@ -63,7 +63,9 @@ const WIRE_LIMIT_BYTES = 200 * 1024
 const FIXTURE_EXPECTED = {
   breakdown: { systemTokens: 1951, toolsTokens: 7492, messageTokens: 44873 },
   counts: { humanInputs: 17, answers: 126, toolCalls: 415, skillLoads: 0, injects: 23, compactions: 2, prunes: 13 },
-  requests: 300,
+  // v2 drops the request record cap to 200 to keep the bigger per-record wire
+  // (items/prompt/output) inside the frame budget (docs §8.1).
+  requests: 200,
   events: 38,
   contextEvents: { inject: 23, compaction: 2, prune: 13 },
 }
@@ -93,7 +95,7 @@ const REAL_EXPECTED = {
   },
   current: { system: 2154, tools: 10439, user: 2893, inject: 7506, skill: 927, assistant: 321936, tool: 138261 },
   counts: { humanInputs: 502, answers: 1233, toolCalls: 4262, skillLoads: 5, injects: 278, compactions: 12, prunes: 42 },
-  requests: 300,
+  requests: 200,
   events: 120,
   surfaceNodes: 2289,
   model: 'deepseek-flash',
@@ -589,7 +591,7 @@ test('fixture request records are capped, ordered, sparse and self-consistent', 
   assert.equal(manual.assistantSeqs.length, 418)
   assert.equal(view.requests.length, FIXTURE_EXPECTED.requests)
   assert.equal(view.truncated.requests, true)
-  assert.deepEqual(view.requests.map(record => record.seq), manual.assistantSeqs.slice(-300))
+  assert.deepEqual(view.requests.map(record => record.seq), manual.assistantSeqs.slice(-FIXTURE_EXPECTED.requests))
   for (let index = 1; index < view.requests.length; index += 1) {
     assert.ok(view.requests[index].seq > view.requests[index - 1].seq)
   }
@@ -771,7 +773,8 @@ test('projection definition and fold helpers expose one coherent projection', as
   const { fixture } = readFixture()
   const definition = bridge.contextProjectionDefinition
   assert.equal(definition.key, 'mobileContext')
-  assert.equal(definition.stateVersion, 1)
+  // v2 state accumulators: a cached v1 row must refold instead of serving zeros.
+  assert.equal(definition.stateVersion, 2)
   assert.equal(typeof definition.init, 'function')
   assert.equal(typeof definition.apply, 'function')
   assert.equal(typeof definition.wire.view, 'function')

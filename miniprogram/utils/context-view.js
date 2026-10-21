@@ -33,6 +33,21 @@ var TREND_BAR_PITCH = 24;
 var TREND_BAR_GAP = 6;
 var MAX_EVENTS = 12;
 var MAX_TOOL_ROWS = 3;
+// ---------- v2 常量 ----------
+var MAX_BROWSER_REQUESTS = 30;
+var RESERVE_RATIO = 0.1;
+var RESERVE_MAX_WIDTH = 10;
+var MAX_TIMELINE_SPANS = 600;
+var TIMELINE_MIN_WIDTH = 600;
+var TIMELINE_MAX_WIDTH = 2400;
+var MAX_TEAM_TASKS = 20;
+var MAX_LAST_ANSWER = 240;
+var TIMING_KINDS = ['wait', 'reasoning', 'text', 'toolarg', 'tools', 'other'];
+var TIMING_LABELS = { wait: '模型等待', reasoning: '模型思考', text: '模型回复', toolarg: '工具参数', tools: '工具执行', other: '其他开销' };
+var ACTIVITY_KEYS = ['userInputs', 'reads', 'writes', 'searches', 'images'];
+var ACTIVITY_LABELS = { userInputs: '用户输入', reads: '读取', writes: '写入', searches: '搜索', images: '图片' };
+var PHASE_LABELS = { active: '运行中', running: '运行中', idle: '空闲', waiting: '等待中', pending: '等待中', done: '已完成', completed: '已完成', failed: '失败', cancelled: '已取消', canceled: '已取消', blocked: '已阻塞' };
+var TASK_STATUS_LABELS = { pending: '待处理', todo: '待处理', in_progress: '进行中', inprogress: '进行中', active: '进行中', running: '进行中', completed: '已完成', done: '已完成', failed: '失败', cancelled: '已取消', canceled: '已取消', blocked: '已阻塞' };
 
 function isObject(value) {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -183,17 +198,21 @@ function deriveTokens(value, t) {
   });
   rows.push(tokenRow('output', output, false, total, usage, t));
   var cacheHit = input > 0 ? Math.min(100, (cacheRead / input) * 100) : null;
+  var donut = tokenDonut(rows, total);
   return {
     available: usage !== null,
     input: input,
     output: output,
     total: total,
     totalText: usage !== null ? formatCompact(total) : '—',
+    inputText: formatCompact(input),
+    outputText: formatCompact(output),
     cacheHit: cacheHit,
     cacheHitText: cacheHit === null ? '—' : cacheHit.toFixed(1) + '%',
     cacheHitLabel: t('缓存命中'),
     rows: rows,
-    bar: rows.filter(function (row) { return row.value > 0; })
+    bar: rows.filter(function (row) { return row.value > 0; }),
+    donut: donut
   };
 }
 
@@ -212,7 +231,13 @@ function tokenRow(key, value, estimate, total, usage, t) {
 
 // ---------- 统计卡 ----------
 
-function deriveStats(value, tokens, t) {
+/** 输入输出 5 chip（v2 activity；旧帧缺失时整组显示 —）。 */
+function deriveActivity(value, t) { t = identity(t); var a = isObject(value.activity) ? value.activity : null; var chips = ACTIVITY_KEYS.map(function (k) { var on = a !== null && finiteNumber(a[k]); return { key: k, label: t(ACTIVITY_LABELS[k]), text: on ? formatCompact(a[k]) : '—' }; }); return { hasData: chips.some(function (c) { return c.text !== '—'; }), chips: chips }; }
+
+/** Agent 网络：当前 Agent token + 子 Agent 数（来自 context-fleet；缺失隐藏）。 */
+function deriveNetwork(value, tokens, fleet, t) { t = identity(t); if (isObject(fleet) !== true) return { hasData: false, agentTokensText: '', subagentsText: '', subagents: 0 }; var agents = Array.isArray(fleet.agents) ? fleet.agents.filter(isObject) : null; var counts = isObject(fleet.counts) ? fleet.counts : {}; var currentSessionId = text(fleet.currentSessionId); var current = null; if (agents) { for (var i = 0; i < agents.length; i += 1) { if (agents[i].isCurrent === true || (currentSessionId && text(agents[i].sessionId) === currentSessionId)) { current = agents[i]; break; } } } var tokensTotal = current && finiteNumber(current.tokensTotal) ? num(current.tokensTotal) : (tokens && tokens.available ? num(tokens.total) : null); var subagents = finiteNumber(counts.subagents) ? num(counts.subagents) : (agents ? Math.max(0, agents.length - 1) : 0); return { hasData: !!(finiteNumber(counts.agents) || (agents && agents.length)), agentsText: finiteNumber(counts.agents) ? formatCompact(counts.agents) : (agents ? formatCompact(agents.length) : '0'), agentTokensText: tokensTotal === null ? '—' : formatCompact(tokensTotal), subagents: subagents, subagentsText: formatCompact(subagents), subagentLabel: t('子 Agent') }; }
+
+function deriveStats(value, tokens, t, fleet) {
   t = identity(t);
   var counts = isObject(value.counts) ? value.counts : {};
   var tools = isObject(value.tools) ? value.tools : {};
@@ -245,60 +270,133 @@ function deriveStats(value, tokens, t) {
       { key: 'compaction', label: t('压缩'), value: num(counts.compactions), text: formatCompact(counts.compactions) },
       { key: 'prune', label: t('剪枝'), value: num(counts.prunes), text: formatCompact(counts.prunes) }
     ],
+    activity: deriveActivity(value, t),
+    network: deriveNetwork(value, tokens, fleet, t),
     usageTotalText: tokens.totalText,
     usageCacheText: tokens.cacheHitText,
     usageCacheLabel: tokens.cacheHitLabel
   };
 }
 
+// ---------- 当前上下文 / 环形图 ----------
+
+/** 当前上下文：窗口占用 + 7 类组成 + 窗口剩余/压缩保留区（压力缺失时用 current.total）。 */
+function deriveCurrent(value, t) {
+  t = identity(t);
+  var cur = isObject(value.current) ? value.current : {};
+  var win = num(value.contextWindow);
+  var values = CATEGORY_KEYS.map(function (k) { return num(cur[k]); });
+  var pressure = num(cur.total) || values.reduce(function (a, b) { return a + b; }, 0);
+  var hasData = win > 0 && pressure > 0;
+  var usedWidth = hasData ? Math.min(100, (pressure / win) * 100) : 0;
+  var remainingWidth = Math.max(0, 100 - usedWidth);
+  var reserveWidth = Math.min(RESERVE_MAX_WIDTH, remainingWidth);
+  remainingWidth -= reserveWidth;
+  var rows = CATEGORY_KEYS.map(function (k, i) {
+    return {
+      key: k,
+      label: t(CATEGORY_LABELS[k] || k),
+      width: hasData ? (values[i] / pressure) * usedWidth : 0,
+      tokenText: values[i] > 0 ? '≈' + formatCompact(values[i]) : '0',
+      pctText: formatPercent(values[i], pressure)
+    };
+  });
+  return {
+    hasData: hasData,
+    usedWidth: usedWidth,
+    pressureText: hasData ? '≈' + formatCompact(pressure) : '—',
+    windowText: win > 0 ? formatCompact(win) : '—',
+    usedPctText: hasData ? formatPercent(pressure, win) : '—',
+    remainingWidth: remainingWidth,
+    reserveWidth: reserveWidth,
+    remainingText: hasData ? '≈' + formatCompact(Math.max(0, win - pressure)) : '—',
+    reserveText: win > 0 ? '≈' + formatCompact(Math.round(win * RESERVE_RATIO)) : '—',
+    segments: rows.filter(function (r) { return r.width > 0; }),
+    rows: rows,
+    remainingLabel: t('窗口剩余'),
+    reserveLabel: t('压缩保留区')
+  };
+}
+
+/** 环形图（conic-gradient）：rows 的占比；色值走主题 CSS 变量。 */
+function tokenDonut(rows, total) { var goal = num(total), acc = 0, stops = []; if (goal <= 0) return { available: false, style: '' }; rows.forEach(function (r) { if (r.value <= 0) return; var end = Math.min(100, ((acc + r.value) / goal) * 100); stops.push('var(--ctx-c-' + r.key + ') ' + acc.toFixed(2) + '% ' + end.toFixed(2) + '%'); acc += r.value; }); return { available: stops.length > 0, style: stops.length ? 'background:conic-gradient(' + stops.join(',') + ');' : '' }; }
+
 // ---------- 耗时统计 ----------
+
+function timingHasV2(timing) { if (!isObject(timing)) return false; return ['ttftMs', 'reasoningMs', 'textMs', 'toolArgMs', 'toolsMs', 'otherMs', 'waitCount', 'reasoningCount', 'textCount', 'toolArgCount', 'toolCount', 'speedTokens', 'speedMs'] .some(function (k) { return finiteNumber(timing[k]); }); }
+
+/** v2 六段耗时：模型等待/思考/回复/工具参数/工具执行/其他开销。 */
+function timingDetailRows(value, t) { var timing = isObject(value.timing) ? value.timing : {}; var ms = { wait: num(timing.ttftMs), reasoning: num(timing.reasoningMs), text: num(timing.textMs), toolarg: num(timing.toolArgMs), tools: num(timing.toolsMs), other: num(timing.otherMs) }; var counts = { wait: num(timing.waitCount), reasoning: num(timing.reasoningCount), text: num(timing.textCount), toolarg: num(timing.toolArgCount), tools: num(timing.toolCount) }; var sum = TIMING_KINDS.reduce(function (a, k) { return a + ms[k]; }, 0); return TIMING_KINDS.map(function (k) { var c = counts[k] || 0; return { key: k, label: t(TIMING_LABELS[k]), ms: ms[k], pctText: formatPercent(ms[k], sum), width: sum > 0 ? (ms[k] / sum) * 100 : 0, durationText: formatDuration(ms[k]), countText: c > 0 ? t('{n} 次', { n: formatCompact(c) }) : '' }; }); }
+
+/** 时间轴：spans [kind,start,end] → 按总时长比例定位色段。 */
+function deriveTimeline(value) { var spans = []; (Array.isArray(value.spans) ? value.spans : []).forEach(function (span) { if (!Array.isArray(span) || span.length < 3) return; var start = Number(span[1]), end = Number(span[2]); if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return; spans.push({ kind: TIMING_KINDS[Math.floor(num(span[0]))] || 'other', start: start, end: end }); }); spans = spans.slice(-MAX_TIMELINE_SPANS); if (!spans.length) return { hasData: false, items: [], trackWidth: TIMELINE_MIN_WIDTH }; var min = Infinity, max = -Infinity; spans.forEach(function (span) { if (span.start < min) min = span.start; if (span.end > max) max = span.end; }); var range = max - min > 0 ? max - min : 1; var items = spans.map(function (span, index) { var left = Math.max(0, Math.min(100, ((span.start - min) / range) * 100)); var width = Math.max(0.15, Math.min(100 - left, ((span.end - span.start) / range) * 100)); return { key: 'span-' + index + '-' + span.start, kind: span.kind, style: 'left:' + left.toFixed(2) + '%;width:' + width.toFixed(2) + '%;' }; }); return { hasData: true, items: items, trackWidth: Math.round(Math.max(TIMELINE_MIN_WIDTH, Math.min(TIMELINE_MAX_WIDTH, items.length * 6))) }; }
 
 function deriveTiming(value, t) {
   t = identity(t);
   var stats = isObject(value.stats) ? value.stats : {};
   var counts = isObject(value.counts) ? value.counts : {};
   var timing = isObject(value.timing) ? value.timing : {};
-  var waitMs = num(stats.ttftMs);
-  var replyMs = num(stats.decodeMs);
-  var toolMs = num(stats.toolMs);
+  var waitMs = num(stats.ttftMs), replyMs = num(stats.decodeMs), toolMs = num(stats.toolMs);
   var sum = waitMs + replyMs + toolMs;
-  var waitCount = num(stats.ttftSteps);
-  var replyCount = num(counts.answers) || num(stats.steps);
-  var toolCount = num(counts.toolCalls);
-  var countText = function (count) {
-    return count > 0 ? t('{n} 次', { n: formatCompact(count) }) : '';
-  };
-  var segment = function (key, label, ms, count) {
+  var seg = function (key, label, ms, count) {
     return {
-      key: key,
-      label: label,
-      ms: ms,
+      key: key, label: label, ms: ms,
       pctText: formatPercent(ms, sum),
       width: sum > 0 ? (ms / sum) * 100 : 0,
       durationText: formatDuration(ms),
-      countText: countText(count)
+      countText: count > 0 ? t('{n} 次', { n: formatCompact(count) }) : ''
     };
   };
+  var legacy = [
+    seg('wait', t('模型等待'), waitMs, num(stats.ttftSteps)),
+    seg('reply', t('模型回复'), replyMs, num(counts.answers) || num(stats.steps)),
+    seg('tools', t('工具执行'), toolMs, num(counts.toolCalls))
+  ];
+  var v2 = timingHasV2(timing);
+  var rows = v2 ? timingDetailRows(value, t) : legacy;
+  var ringSum = 0, acc = 0, stops = [];
+  rows.forEach(function (row) { ringSum += num(row.ms); });
+  rows.forEach(function (row) {
+    if (row.ms <= 0 || ringSum <= 0) return;
+    var end = Math.min(100, ((acc + row.ms) / ringSum) * 100);
+    stops.push('var(--ctx-t-' + row.key + ') ' + acc.toFixed(2) + '% ' + end.toFixed(2) + '%');
+    acc += row.ms;
+  });
+  var speedMs = num(timing.speedMs);
+  var timeline = deriveTimeline(value, t);
   return {
-    activeMs: num(timing.wallMs),
     activeText: formatDuration(timing.wallMs),
     activeLabel: t('活跃时长'),
     totalMs: sum,
-    hasData: num(timing.wallMs) > 0 || sum > 0,
-    segments: [
-      segment('wait', t('模型等待'), waitMs, waitCount),
-      segment('reply', t('模型回复'), replyMs, replyCount),
-      segment('tools', t('工具执行'), toolMs, toolCount)
-    ]
+    hasData: num(timing.wallMs) > 0 || sum > 0 || ringSum > 0,
+    v2: v2,
+    rows: rows,
+    donutStyle: stops.length ? 'background:conic-gradient(' + stops.join(',') + ');' : '',
+    hasSpeed: num(timing.speedTokens) > 0 && speedMs > 0,
+    speedText: speedTextOf(speedMs > 0 ? num(timing.speedTokens) / (speedMs / 1000) : 0),
+    timeline: timeline.items,
+    timelineWidth: timeline.trackWidth,
+    hasTimeline: timeline.hasData
   };
 }
+
+function speedTextOf(speed) { if (!(speed > 0)) return '—'; return (speed >= 100 ? String(Math.round(speed)) : speed.toFixed(speed >= 10 ? 1 : 2)) + ' tok/s'; }
 
 // ---------- 上下文趋势 ----------
 
 function normalizeRequest(request) {
   var source = isObject(request) ? request : {};
+  var items = isObject(source.items) ? source.items : null;
+  var normalizedItems = null;
+  if (items) {
+    normalizedItems = {};
+    CATEGORY_KEYS.forEach(function (key) {
+      if (items[key] !== undefined && items[key] !== null) normalizedItems[key] = num(items[key]);
+    });
+  }
   return {
     seq: num(source.seq),
+    time: num(source.time),
     turn: num(source.turn),
     total: num(source.total),
     system: num(source.system),
@@ -307,7 +405,10 @@ function normalizeRequest(request) {
     inject: num(source.inject),
     skill: num(source.skill),
     assistant: num(source.assistant),
-    tool: num(source.tool)
+    tool: num(source.tool),
+    items: normalizedItems,
+    prompt: finiteNumber(source.prompt) ? num(source.prompt) : null,
+    output: finiteNumber(source.output) ? num(source.output) : null
   };
 }
 
@@ -396,6 +497,73 @@ function deriveTrend(value, t) {
   };
 }
 
+// ---------- 上下文浏览器（v2：逐请求查看 7 类组成） ----------
+
+function sortedRequests(value) { return (Array.isArray(value.requests) ? value.requests : []).map(normalizeRequest) .filter(function (r) { return Number.isFinite(r.seq); }).sort(function (a, b) { return a.seq - b.seq; }); }
+
+function currentRequestOf(value) { var cur = isObject(value.current) ? value.current : {}; var request = { seq: null, time: 0, turn: 0, items: null, prompt: null, output: null }; var sum = 0; CATEGORY_KEYS.forEach(function (k) { request[k] = num(cur[k]); sum += request[k]; }); request.total = num(cur.total) || sum; return request; }
+
+function categoryDelta(current, previous, key) { if (!previous) return { text: '—', className: '' }; var diff = num(current) - num(previous.request[key]); if (diff === 0) return { text: '0', className: 'flat' }; return diff > 0 ? { text: '+' + formatCompact(diff), className: 'up' } : { text: '−' + formatCompact(-diff), className: 'down' }; }
+
+/** 请求下拉（最近 30 条 +「当前（下一次请求）」）、上/下一步、7 类折叠行。 */
+function deriveBrowser(value, t, options) {
+  t = identity(t);
+  var opts = options || {};
+  var expanded = Array.isArray(opts.expanded) ? opts.expanded : [];
+  var requests = sortedRequests(value).slice(-MAX_BROWSER_REQUESTS);
+  var entries = requests.map(function (r) {
+    return { key: 'req-' + r.seq, seq: r.seq, isCurrent: false, request: r, label: t('请求 #{n}', { n: formatCompact(r.seq) }) };
+  });
+  entries.push({ key: 'req-current', seq: null, isCurrent: true, request: currentRequestOf(value), label: t('当前（下一次请求）') });
+  var selectedIndex = entries.length - 1;
+  if (finiteNumber(opts.seq)) {
+    for (var i = 0; i < entries.length; i += 1) {
+      if (entries[i].seq === num(opts.seq)) { selectedIndex = i; break; }
+    }
+  }
+  var selected = entries[selectedIndex];
+  var previous = selectedIndex > 0 ? entries[selectedIndex - 1] : null;
+  var request = selected.request;
+  var estimated = request.total > 0 ? request.total
+    : CATEGORY_KEYS.reduce(function (a, k) { return a + num(request[k]); }, 0);
+  var rows = CATEGORY_KEYS.map(function (key) {
+    var v = num(request[key]);
+    var delta = categoryDelta(v, previous, key);
+    var pctText = formatPercent(v, estimated);
+    return {
+      key: key,
+      label: t(CATEGORY_LABELS[key] || key),
+      itemsText: request.items && finiteNumber(request.items[key]) ? formatCompact(request.items[key]) : '—',
+      tokenText: '≈' + formatCompact(v),
+      pctText: pctText,
+      deltaText: delta.text,
+      deltaClass: delta.className,
+      expanded: expanded.indexOf(key) >= 0,
+      detailText: t('≈{tokens} tok · 占本请求 {pct} · 明细暂不展示', { tokens: formatCompact(v), pct: pctText })
+    };
+  });
+  return {
+    empty: requests.length === 0,
+    count: requests.length,
+    countText: requests.length > 0 ? t('最近 {n} 条', { n: formatCompact(requests.length) }) : '',
+    options: entries.map(function (e) { return { key: e.key, seq: e.seq, label: e.label }; }),
+    selectedIndex: selectedIndex,
+    selectedLabel: selected.label,
+    isCurrent: selected.isCurrent,
+    canPrev: selectedIndex > 0,
+    canNext: selectedIndex < entries.length - 1,
+    prevSeq: selectedIndex > 0 ? entries[selectedIndex - 1].seq : null,
+    nextSeq: selectedIndex < entries.length - 1 ? entries[selectedIndex + 1].seq : null,
+    estimated: estimated,
+    estimatedText: estimated > 0 ? '≈' + formatCompact(estimated) : '—',
+    promptText: request.prompt === null ? '—' : formatCompact(request.prompt),
+    timeText: selected.isCurrent ? '' : formatTime(selected.request.time),
+    rows: rows,
+    estimatedLabel: t('估算合计'),
+    promptLabel: t('实际 prompt')
+  };
+}
+
 // ---------- 最近上下文事件 ----------
 
 function eventKindText(kind, t) {
@@ -444,6 +612,7 @@ function emptyPanel(t, status, stateText) {
   return {
     status: status,
     loading: status === 'loading',
+    running: false,
     errorText: '',
     stateText: stateText || '',
     hintText: '',
@@ -453,6 +622,8 @@ function emptyPanel(t, status, stateText) {
     stats: null,
     tokens: null,
     timing: null,
+    current: null,
+    browser: null,
     trend: null,
     events: null
   };
@@ -492,9 +663,11 @@ function buildPanel(dashboard, options) {
   }
   try {
     var tokens = deriveTokens(value, t);
+    var fleetValue = isObject(opts.fleet) ? opts.fleet : null;
     var panel = {
       status: 'ready',
       loading: dashboard.loading === true,
+      running: opts.running === true,
       errorText: '',
       stateText: '',
       hintText: '',
@@ -505,9 +678,11 @@ function buildPanel(dashboard, options) {
         contextWindow: num(value.contextWindow),
         contextWindowText: num(value.contextWindow) > 0 ? formatCompact(value.contextWindow) : ''
       },
-      stats: deriveStats(value, tokens, t),
+      stats: deriveStats(value, tokens, t, fleetValue),
       tokens: tokens,
       timing: deriveTiming(value, t),
+      current: deriveCurrent(value, t),
+      browser: deriveBrowser(value, t, { seq: opts.browserSeq, expanded: opts.expanded }),
       trend: deriveTrend(value, t),
       events: deriveEvents(value, t)
     };
@@ -534,17 +709,27 @@ function emptyFleetPanel(status, stateText) {
   return {
     status: status,
     loading: status === 'loading',
+    running: false,
     errorText: '',
     stateText: stateText || '',
     hintText: '',
     asOfSeq: null,
     overview: null,
-    agents: []
+    agents: [],
+    team: null,
+    subagentHint: ''
   };
 }
 
+/** 任务状态徽标：未知状态原样展示（数据，不是文案）。 */
+function taskStatusClassOf(raw) { var value = text(raw).toLowerCase(); if (value === 'in_progress' || value === 'inprogress' || value === 'active' || value === 'running') return 'active'; if (value === 'completed' || value === 'done') return 'done'; if (value === 'failed') return 'failed'; if (value === 'blocked') return 'blocked'; if (value === 'cancelled' || value === 'canceled') return 'cancelled'; return 'pending'; }
+
+function taskStatusOf(status, t) { var raw = text(status); var label = TASK_STATUS_LABELS[raw]; return { statusText: label ? t(label) : (raw || t('待处理')), statusClass: taskStatusClassOf(raw) }; }
+
+function normalizedPhaseOf(raw) { var value = text(raw).toLowerCase(); if (!value) return ''; if (value === 'active' || value === 'running' || value === 'inprogress' || value === 'in_progress') return 'active'; if (value === 'failed') return 'failed'; if (value === 'blocked') return 'blocked'; if (value === 'done' || value === 'completed') return 'done'; if (value === 'cancelled' || value === 'canceled') return 'cancelled'; if (value === 'waiting' || value === 'pending') return 'waiting'; return 'idle'; }
+
 /** 单个 Agent 卡片：宿主字段全部可选，缺失按空/0 处理，类型错误降级。 */
-function fleetAgentCard(raw, rootSessionId, currentSessionId, t) {
+function fleetAgentCard(raw, rootSessionId, currentSessionId, t, membersById) {
   var source = isObject(raw) ? raw : {};
   var sessionId = text(source.sessionId) || text(source.id);
   if (!sessionId) return null;
@@ -556,6 +741,16 @@ function fleetAgentCard(raw, rootSessionId, currentSessionId, t) {
   var title = text(source.title) || label || sessionId;
   var mode = text(source.mode);
   var modeText = FLEET_MODE_LABELS[mode] ? t(FLEET_MODE_LABELS[mode]) : '';
+
+  var member = membersById && membersById[sessionId] ? membersById[sessionId] : null;
+  var role = member ? text(member.role) || text(member.name) : '';
+  var rawPhase = text(source.phase) || (member ? text(member.phase) : '');
+  var phaseKey = normalizedPhaseOf(rawPhase);
+  var knownPhase = rawPhase ? PHASE_LABELS[rawPhase.toLowerCase()] : '';
+  // 已知 phase 走字典；未知 phase 原样当作数据展示，不误标成「空闲」。
+  var phaseLabel = knownPhase ? t(knownPhase) : rawPhase;
+  var lastAnswer = text(source.lastAnswer).replace(/\s+/g, ' ');
+  if (lastAnswer.length > MAX_LAST_ANSWER) lastAnswer = lastAnswer.slice(0, MAX_LAST_ANSWER) + '…';
 
   var pressureTokens = finiteNumber(source.pressureTokens) ? num(source.pressureTokens) : null;
   var contextWindow = finiteNumber(source.contextWindow) ? num(source.contextWindow) : 0;
@@ -609,6 +804,13 @@ function fleetAgentCard(raw, rootSessionId, currentSessionId, t) {
     running: running,
     stateText: running ? t('运行中') : t('空闲'),
     modeText: modeText,
+    role: role,
+    roleText: role ? t('角色') + ' ' + role : '',
+    phase: phaseKey,
+    phaseText: phaseLabel || '',
+    phaseClass: phaseKey,
+    lastAnswer: lastAnswer,
+    hasAnswer: lastAnswer !== '',
     occupancy: occupancy,
     composition: {
       hasData: hasComposition,
@@ -685,9 +887,18 @@ function buildFleetPanel(fleet, options) {
     var rootSessionId = text(value.rootSessionId);
     var currentSessionId = text(value.currentSessionId);
     var rawAgents = (hasAgentList ? value.agents : []).slice(0, MAX_FLEET_AGENTS);
+    var team = isObject(value.team) ? value.team : null;
+    var membersById = {};
+    if (team && Array.isArray(team.members)) {
+      team.members.forEach(function (member) {
+        if (!isObject(member)) return;
+        var memberId = text(member.id) || text(member.sessionId);
+        if (memberId) membersById[memberId] = member;
+      });
+    }
     var cards = [];
     rawAgents.forEach(function (raw) {
-      var card = fleetAgentCard(raw, rootSessionId, currentSessionId, t);
+      var card = fleetAgentCard(raw, rootSessionId, currentSessionId, t, membersById);
       if (card) cards.push(card);
     });
     var asOfSeq = finiteNumber(fleet.asOfSeq) ? Number(fleet.asOfSeq)
@@ -696,17 +907,23 @@ function buildFleetPanel(fleet, options) {
       var empty = emptyFleetPanel('empty', t('暂无编队'));
       empty.loading = fleet.loading === true;
       empty.asOfSeq = asOfSeq;
+      empty.running = opts.running === true;
       return empty;
     }
     return {
       status: 'ready',
       loading: fleet.loading === true,
+      running: opts.running === true,
       errorText: '',
       stateText: '',
       hintText: '',
       asOfSeq: asOfSeq,
       overview: deriveFleetOverview(value, rawAgents, cards),
-      agents: cards
+      agents: cards,
+      subagentHint: cards.length <= 1
+        ? t('还没有子 Agent —— 当 Agent 通过 subagent 工具委派任务时，协作网络会在这里展开')
+        : '',
+      team: deriveFleetTeam(team, t)
     };
   } catch (error) {
     var broken = emptyFleetPanel('error', '');
@@ -714,6 +931,9 @@ function buildFleetPanel(fleet, options) {
     return broken;
   }
 }
+
+/** 编队任务列表：team.tasks（subject/status/ownerName）；空态提示。 */
+function deriveFleetTeam(team, t) { if (!team) { return { hasTeam: false, tasks: [], tasksEmpty: true, tasksEmptyText: t('暂无任务，可以通过对话创建'), taskCountText: '', failure: '' }; } var tasks = (Array.isArray(team.tasks) ? team.tasks : []) .filter(function (task) { return isObject(task); }) .slice(0, MAX_TEAM_TASKS) .map(function (task, index) { var status = taskStatusOf(task.status, t); var owner = text(task.ownerName); return { key: 'task-' + index + '-' + (text(task.id) || index), subject: text(task.subject) || text(task.title) || t('任务'), statusText: status.statusText, statusClass: status.statusClass, ownerText: owner, hasOwner: owner !== '' }; }); return { hasTeam: true, tasks: tasks, tasksEmpty: tasks.length === 0, tasksEmptyText: t('暂无任务，可以通过对话创建'), taskCountText: tasks.length > 0 ? formatCompact(tasks.length) : '', failure: text(team.failure), label: t('任务') }; }
 
 module.exports = {
   CATEGORY_KEYS: CATEGORY_KEYS,
@@ -728,8 +948,13 @@ module.exports = {
   scaleParts: scaleParts,
   deriveTokens: deriveTokens,
   deriveStats: deriveStats,
+  deriveActivity: deriveActivity,
+  deriveNetwork: deriveNetwork,
+  deriveCurrent: deriveCurrent,
   deriveTiming: deriveTiming,
+  deriveTimeline: deriveTimeline,
   deriveTrend: deriveTrend,
+  deriveBrowser: deriveBrowser,
   deriveEvents: deriveEvents,
   hasContextShape: hasContextShape,
   buildPanel: buildPanel,

@@ -1,5 +1,17 @@
 # 更新记录
 
+## v0.9.27 — 2026-10-22
+
+- 上下文 v2：新增输入输出（用户输入/读取/写入/搜索/图片）、当前上下文占用（7 类组成+窗口剩余/压缩保留区）、耗时六段（模型等待/思考/回复/工具参数/工具执行/其他开销）+ 输出速度 + 时间轴条、上下文浏览器（最近 30 次请求、估算合计 vs 实际 prompt、7 类折叠行与对比上一步 ±）；Token/耗时改为环形图，数值变化带过渡动画。
+- 编队 v2：新增顶部汇总 chips、成员 role/phase、最新回答、团队任务与空态；仅一个 Agent 时显示子 Agent 委派提示；点击成员卡片打开对应会话并切到上下文。
+- 动态刷新：上下文/编队面板在可见且会话运行中时每 2.5s 自动刷新（上一请求未返回不叠加，8s 看门狗兜底），切走/停止/切会话立即停止；加载中保留旧值不闪空。
+- 宿主桥接 v2（网关插件 v0.8.18）：`activity`、`timing`（六段+counts+输出速度）、`spans`（≤600）、`requests[].items/prompt/output`（上限 200）、`lastAnswer`；`context-fleet` 增加 `team`（成员/任务，各 20）与每个 Agent 的 `lastAnswer/phase`；`mobileContext` stateVersion 升到 2（旧缓存自动 refold）。
+- 主包源码 1,880,015 B / 1,887,436 B 预算（余约 7.4 KiB）；真实会话 wire ≈90KB（<250KB 预算）。
+
+升级说明：网关插件需更新到 v0.8.18（或重跑 `scripts/install-context-bridge.cjs` 指向实际生效的网关目录）并正常重启 DSH；小程序重新编译 v0.9.27。旧网关下新卡片会逐项回退到 v1 展示。
+
+验证说明：默认全量 587 pass / 0 fail / 11 skipped；上下文/编队/浏览器派生与本机 wcc 编译通过；真机视觉验收待进行。
+
 ## v0.9.26 — 2026-10-22
 
 - 修复网关 `context-dashboard` 读取：Host adapter 的 `sessions.history` 返回原始 `session/follow` 快照（没有 `kind` 字段），桥接层误判为失败并返回 `context-unavailable`，小程序因此显示「需升级网关」。现在同时接受原始快照与 `kind: 'history'` 包装形状，并补充回归测试；`mobileContext` / `context-fleet` 协议与客户端不变。
