@@ -98,6 +98,7 @@ Page({
     showContextPanel: true,
     showFleetPanel: true,
     showCostCard: false,
+    costCardReady: false,
     voiceEnabled: true,
     accountBusy: false,
     isWechatAdmin: false,
@@ -767,6 +768,11 @@ Page({
   /** 左侧栏额度卡片显示开关：保存到已连接电脑的网关设置。 */
   async toggleCostCard(e) {
     const enabled = !!(e && e.detail && e.detail.value);
+    if (!this.data.costCardReady && store.state.connection !== 'connected') {
+      this.setData({ showCostCard: !enabled });
+      wx.showToast({ title: uiText('请先连接电脑端网关'), icon: 'none' });
+      return;
+    }
     if (store.state.connection !== 'connected') {
       this.setData({ showCostCard: !enabled });
       wx.showToast({ title: uiText('请先连接电脑端网关'), icon: 'none' });
@@ -800,8 +806,10 @@ Page({
     try {
       const frame = await store.client.requestCostMeter('config');
       const visible = !!(frame && frame.config && frame.config.display && frame.config.display.sidebarVisible === true);
-      if (this.data.showCostCard !== visible) this.setData({ showCostCard: visible });
-    } catch (_) { /* 未启用额度能力时保持默认值 */ }
+      this.setData({ showCostCard: visible, costCardReady: true });
+    } catch (_) {
+      this.setData({ costCardReady: false });
+    }
     finally { this._costCardVisibleLoading = false; this._costCardVisibilityAt = Date.now(); }
   },
 

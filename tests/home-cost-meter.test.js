@@ -150,3 +150,33 @@ test('opening the drawer triggers a summary request when connected', () => {
   assert.equal(f.requests.length, 1);
   assert.equal(f.page.data.drawerOpen, true);
 });
+
+
+test('returning from settings invalidates the cached quota card so the switch is honoured', async () => {
+  const f = fixture();
+  f.store.state.connection = 'connected';
+  f.emit();
+  f.requests[0].resolve(frame());
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(f.page.data.costSidebar);
+  f.page.onShow();
+  assert.equal(f.requests.length, 2, 'the home page re-reads the gateway after settings');
+  const hiddenFrame = frame();
+  hiddenFrame.dashboard.display = { ...hiddenFrame.dashboard.display, sidebarVisible: false };
+  f.requests[1].resolve(hiddenFrame);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.page.data.costSidebar, null);
+});
+
+test('losing the connection immediately hides a stale sidebar card', async () => {
+  const f = fixture();
+  f.store.state.connection = 'connected';
+  f.emit();
+  f.requests[0].resolve(frame());
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(f.page.data.costSidebar);
+  f.store.state.connection = 'disconnected';
+  f.emit();
+  assert.equal(f.page.data.costSidebar, null);
+  assert.equal(f.page.data.costDashboard, null);
+});

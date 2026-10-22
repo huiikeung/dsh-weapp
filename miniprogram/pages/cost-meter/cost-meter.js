@@ -100,6 +100,7 @@ Page({
   onShow() {
     this.syncFromStore({ app: store.state });
     if (store.state.connection === 'connected') this.loadAll(false);
+    else this.setData({ loading: false, error: uiText('请先连接电脑端网关') });
   },
 
   onResize() { this.updateNavigationLayout(); },
@@ -150,7 +151,7 @@ Page({
       this.setData({ loading: false, error: uiText('额度卡片需要重启或更新网关') });
       return;
     }
-    if (!this.loadedFor) this.loadAll(false);
+    if (!this.loadedFor || (!this.data.view && !this.requestInFlight)) this.loadAll(false);
   },
 
   isCurrent(generation, owner) {
@@ -159,7 +160,7 @@ Page({
   },
 
   async loadAll(force) {
-    if (!this.alive || store.state.connection !== 'connected') return;
+    if (!this.alive || store.state.connection !== 'connected' || this.requestInFlight) return;
     const generation = this.requestGeneration = (this.requestGeneration || 0) + 1;
     const owner = this.owner;
     this.requestInFlight = true;
@@ -175,6 +176,11 @@ Page({
     } catch (error) {
       if (!this.isCurrent(generation, owner)) return;
       this.setData({ loading: false, error: (error && error.message) || uiText('额度数据读取失败') });
+      // 刚启动/刚重连时客户端可能还没进入 connected 状态：稍后自动重试，避免页面停在“读取失败”。
+      if ((this._costRetry || 0) < 3) {
+        this._costRetry = (this._costRetry || 0) + 1;
+        setTimeout(() => { this._costRetry = 0; if (this.alive && store.state.connection === 'connected') this.loadAll(force); }, 1200 * this._costRetry);
+      }
     } finally {
       if (this.requestGeneration === generation) this.requestInFlight = false;
     }
@@ -295,6 +301,7 @@ Page({
       });
     });
     const budget = (this.summaryFrame && this.summaryFrame.budget) || {};
+    this._costRetry = 0;
     this.setData({
       config,
       dashboard: this.dashboardFrame || null,

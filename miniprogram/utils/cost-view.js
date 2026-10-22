@@ -164,75 +164,10 @@ function normalizeDashboard(dashboard, now = Date.now()) {
   return normalized;
 }
 
-const DEFAULT_DASHBOARD_PREFERENCES = Object.freeze({
-  showBalance: true,
-  showGo: true,
-  showPeak: true,
-  sidebarVisible: false,
-  customBalances: {},
-  style: 'compact',
-});
-
-function normalizeDashboardPreferences(value) {
-  const input = value && typeof value === 'object' ? value : {};
-  const customBalances = {};
-  if (input.customBalances && typeof input.customBalances === 'object' && !Array.isArray(input.customBalances)) {
-    Object.keys(input.customBalances).forEach(key => {
-      if (/^\d+$/.test(key) && typeof input.customBalances[key] === 'boolean') customBalances[key] = input.customBalances[key];
-    });
-  }
-  return {
-    showBalance: input.showBalance !== false,
-    showGo: input.showGo !== false,
-    showPeak: input.showPeak !== false,
-    // 左侧栏额度卡片的显示开关：默认关闭，开启后才请求并渲染卡片（按设备/主机保存在本地）。
-    sidebarVisible: input.sidebarVisible === true,
-    customBalances,
-    style: input.style === 'standard' ? 'standard' : 'compact',
-  };
-}
-
 /** 同一台主机（节点/端点）共用一个额度卡片显示偏好。 */
 function dashboardOwner(state) {
   const value = state || {};
   return [value.activeID || '', value.gatewayId || '', value.endpoint || ''].join('|');
-}
-
-function dashboardPreferenceKey(owner) {
-  return 'dsh.cost-meter.dashboard.' + encodeURIComponent(owner || '');
-}
-
-function readDashboardPreferences(owner, api) {
-  const target = api || (typeof wx !== 'undefined' ? wx : null);
-  let saved = null;
-  if (target) {
-    try { saved = target.getStorageSync(dashboardPreferenceKey(owner)); } catch (_) { /* 存储不可用时用默认值 */ }
-  }
-  return normalizeDashboardPreferences(saved);
-}
-
-function writeDashboardPreferences(owner, preferences, api) {
-  const target = api || (typeof wx !== 'undefined' ? wx : null);
-  const normalized = normalizeDashboardPreferences(preferences);
-  if (target) target.setStorageSync(dashboardPreferenceKey(owner), normalized);
-  return normalized;
-}
-
-function applyDashboardPreferences(dashboard, preferences) {
-  if (!dashboard || typeof dashboard !== 'object') return null;
-  const prefs = normalizeDashboardPreferences(preferences);
-  const customBalances = (Array.isArray(dashboard.customBalances) ? dashboard.customBalances : [])
-    .filter(row => prefs.customBalances[String(row.index)] !== false);
-  const result = {
-    ...dashboard,
-    balance: prefs.showBalance ? dashboard.balance : null,
-    go: prefs.showGo ? dashboard.go : null,
-    peak: prefs.showPeak ? dashboard.peak : null,
-    customBalances,
-    style: prefs.style,
-  };
-  result.hasContent = !!(result.balance || result.go || result.peak || customBalances.length);
-  return result;
 }
 
 /**
@@ -270,28 +205,6 @@ function normalize(summary) {
     budget, balance,
     updatedAt: summary.updatedAt,
     updatedAtFmt: formatRelativeTime(summary.updatedAt)
-  };
-}
-
-/**
- * Normalize bridge config into settings view model.
- * Returns:
- *   { currency, budget:{enabled,amount,amountFmt,period,customStart,customEnd}, balance:{display}, hideBudget, showTotalWithPlan, locale, includeSubagentCost }
- */
-function normalizeConfig(config, currencyForFmt) {
-  if (!config) return null;
-  const cur = config.currency || 'CNY';
-  return {
-    currency: cur,
-    budget: config.budget ? {
-      ...config.budget,
-      amountFmt: formatCurrency(config.budget.amount, cur)
-    } : { enabled: false, amount: 0, amountFmt: formatCurrency(0, cur), period: 'month' },
-    balance: config.balance || { display: 'both' },
-    hideBudget: !!config.hideBudget,
-    showTotalWithPlan: !!config.showTotalWithPlan,
-    locale: config.locale || 'auto',
-    includeSubagentCost: !!config.includeSubagentCost
   };
 }
 
@@ -423,12 +336,6 @@ function quotaWindowRows(windows, options = {}) {
     });
   }
   return rows;
-}
-
-function planMainRow(plan) {
-  if (!plan) return null;
-  const rows = quotaWindowRows(plan.windows, { main: plan.main });
-  return rows[0] || null;
 }
 
 /** Build the shared quota view model (settings page + sidebar card). */
@@ -590,9 +497,7 @@ function quotaSidebarModel(view, style) {
 
 module.exports = {
   UNITS, formatCurrency, formatTokens, formatPercent, formatRelativeTime,
-  normalize, normalizeConfig, normalizeDashboard, normalizeDashboardPreferences,
-  applyDashboardPreferences, DEFAULT_DASHBOARD_PREFERENCES, preciseAmount, validatePatch,
-  dashboardOwner, dashboardPreferenceKey, readDashboardPreferences, writeDashboardPreferences,
+  normalize, normalizeDashboard, validatePatch, dashboardOwner,
   SIDEBAR_STYLES, DISPLAY_OPTIONS, PLAN_WINDOW_LABELS,
   quotaAmountText, quotaPercentText, quotaBarWidth, quotaResetText, quotaWindowRows,
   normalizeQuotaDashboard, quotaSidebarModel

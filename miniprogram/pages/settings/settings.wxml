@@ -226,8 +226,8 @@
       </view>
     </view>
     <view class="card-row">
-      <view class="exp-copy"><text class="card-row-label">{{ui['显示额度卡片']}}</text><text class="exp-desc">{{ui['在左侧栏显示余额与额度卡片']}}</text></view>
-      <switch checked="{{showCostCard}}" color="#2E6BE6" bindchange="toggleCostCard" aria-label="{{ui['显示额度卡片']}}"/>
+      <view class="exp-copy"><text class="card-row-label">{{ui['显示额度卡片']}}</text><text class="exp-desc">{{costCardReady ? ui['在左侧栏显示余额与额度卡片'] : (connected ? ui['正在读取电脑端额度设置…'] : ui['未连接电脑端网关'])}}</text></view>
+      <switch checked="{{showCostCard}}" disabled="{{!costCardReady}}" color="#2E6BE6" bindchange="toggleCostCard" aria-label="{{ui['显示额度卡片']}}"/>
     </view>
   </view>
 

@@ -2027,5 +2027,7 @@
   "保存密钥": "Save secret",
   "保存该条配置": "Save this entry",
   "＋ 添加自定义余额": "+ Add custom balance",
-  "个账号": "accounts"
+  "个账号": "accounts",
+  "正在读取电脑端额度设置…": "Reading quota settings from the computer…",
+  "未连接电脑端网关": "Not connected to the computer gateway"
 }

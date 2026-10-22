@@ -540,3 +540,15 @@ test('sidebar quota card switch is off by default and persists when enabled', as
   await flushCostRequests(costRequests, { kind: 'cost-meter' });
   assert.equal(page.data.showCostCard, true);
 });
+
+
+test('quota-card switch stays disabled until the computer settings are read', async () => {
+  const { page, store, costRequests } = createPage();
+  store.state = { connection: 'connected', activeID: 'host-1', profiles: [], gatewayCapabilities: ['cost-meter-v1'] };
+  page.onLoad({});
+  assert.equal(page.data.costCardReady, false);
+  assert.equal(page.data.showCostCard, false);
+  await flushCostRequests(costRequests, { config: { display: { sidebarVisible: true } } });
+  assert.equal(page.data.costCardReady, true);
+  assert.equal(page.data.showCostCard, true);
+});

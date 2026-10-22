@@ -180,6 +180,9 @@ Page({
   onShow() {
     this._homeHidden = false;
     this._openingSettings = false;
+    // 从设置页返回时额度开关可能已变化：作废短缓存，重新读取侧栏额度。
+    this._costMeterCache = null;
+    this._costMeterAttempt = null;
     const creator = store.state.pendingPluginCreator || store.state.pendingAgentPresetCreator;
     if (creator) {
       store.state.pendingPluginCreator = null;
@@ -220,6 +223,14 @@ Page({
     if (this._homeHidden) return;
     const app = snapshot.app;
     const conn = app.connection;
+    if (this._costMeterConn !== conn) {
+      this._costMeterConn = conn;
+      this._costMeterCache = null;
+      this._costMeterAttempt = null;
+      if (conn !== 'connected' && (this.data.costDashboard || this.data.costSidebar || this.data.costCardError)) {
+        this.setData({ costDashboard: null, costSidebar: null, costCardError: '' });
+      }
+    }
     if (this._scanRelayPending && (conn === 'connected' || conn === 'failed')) {
       this._scanRelayPending = false;
       if (conn === 'failed') publicAccessPrompt.showPublicAccessFailure(app.connectionMessage, app.connectionErrorCode);
