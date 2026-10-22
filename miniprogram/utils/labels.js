@@ -29,7 +29,7 @@ function presetModeBlurb(id) {
     case 'code': return uiText('通过 Code Mode SDK 组合多步工具操作。');
     case 'minimal': return uiText('精简工具集合，适合轻量、直接的编码任务。');
     case 'cordis': return uiText('用于创建和维护自定义 Agent 预设。');
-    default: return uiText('由驭鲸 Harness 提供的 Agent 预设。');
+    default: return uiText('由鲸尾 Harness 提供的 Agent 预设。');
   }
 }
 

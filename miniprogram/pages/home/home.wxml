@@ -26,6 +26,23 @@
         <image class="drawer-item-ic drawer-item-ic-clock drawer-item-ic-dark" src="/assets/icons/automation-white.svg" mode="aspectFit"/>
         <text class="drawer-item-text">{{ui['自动化任务']}}</text>
       </view>
+      <view wx:if="{{costCard}}" class="drawer-cost" bindtap="openCostDetail" hover-class="drawer-item-active" role="button" aria-label="{{ui['用量与费用']}}">
+        <view class="drawer-cost-row">
+          <text class="drawer-cost-label">{{ui['今日']}}</text>
+          <text class="drawer-cost-value">{{costCard.todayText}}</text>
+        </view>
+        <view class="drawer-cost-row" wx:if="{{costCard.monthText}}">
+          <text class="drawer-cost-label">{{ui['本月']}}</text>
+          <text class="drawer-cost-value">{{costCard.monthText}}</text>
+        </view>
+        <view class="drawer-cost-row" wx:if="{{costCard.balanceText}}">
+          <text class="drawer-cost-label">{{ui['余额']}}</text>
+          <text class="drawer-cost-value {{costCard.balanceLow ? 'drawer-cost-low' : ''}}">{{costCard.balanceText}}</text>
+        </view>
+      </view>
+      <view wx:elif="{{costCardError}}" class="drawer-cost drawer-cost-muted">
+        <text class="drawer-cost-hint">{{costCardError}}</text>
+      </view>
       <view class="drawer-footer">
         <view class="drawer-item drawer-settings" hover-class="drawer-item-active" bindtap="openSettings" role="button" aria-label="{{ui['设置']}}">
           <image class="drawer-item-ic" src="/assets/icons/settings-ink.svg" mode="aspectFit"/>

@@ -21,6 +21,10 @@ test('sidebar application settings and home session settings have separate entri
     assert.ok(settings.includes('>' + label + '</view>'), label);
     assert.ok(!sessions.includes('>' + label + '</view>'), label);
   }
+  const panelSettings = settings.slice(settings.indexOf('会话面板'));
+  assert.match(panelSettings, /checked="\{\{showContextPanel\}\}"[\s\S]*?bindchange="toggleContextPanel"[\s\S]*?checked="\{\{showFleetPanel\}\}"[\s\S]*?bindchange="toggleFleetPanel"/);
+  assert.match(read('pages/settings/settings.js'), /toggleContextPanel\(e\)[\s\S]*?contextPanelsPreference\.set\('context'/);
+  assert.match(read('pages/settings/settings.js'), /toggleFleetPanel\(e\)[\s\S]*?contextPanelsPreference\.set\('fleet'/);
   for (const label of ['新会话默认配置', '功能', '主机信息']) {
     assert.ok(sessions.includes('>' + label + '</view>'), label);
     assert.ok(!settings.includes('>' + label + '</view>'), label);

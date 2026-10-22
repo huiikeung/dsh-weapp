@@ -20,7 +20,7 @@ function deviceFields(payload) {
 
 const PairingError = {
   INVALID_BASE64: uiText('配对内容不是有效的 Base64URL 字符串。'),
-  INVALID_JSON: uiText('Base64URL 解码后的内容不是有效的驭鲸 Harness 配对 JSON。'),
+  INVALID_JSON: uiText('Base64URL 解码后的内容不是有效的鲸尾 Harness 配对 JSON。'),
   UNSUPPORTED_VERSION: uiText('不支持的配对协议版本，当前客户端需要 version 2 或 3。'),
   INVALID_ENDPOINT: uiText('二维码中的 publicUrl 不是有效的 WebSocket 地址。'),
   INVALID_RELAY: uiText('二维码中的中继地址或节点信息无效。'),

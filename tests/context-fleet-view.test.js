@@ -369,6 +369,17 @@ test('store requests the fleet only while the fleet tab is visible', () => {
   assert.equal(f.requested.filter(function (item) { return item[0] === 'fleet'; }).length, 3);
 });
 
+test('disconnecting the gateway stops context and fleet polling without throwing', () => {
+  const f = storeFixture();
+  f.store.setContextActive(true);
+  f.store.setFleetActive(true);
+
+  assert.doesNotThrow(function () {
+    f.store.client.callbacks.onState('disconnected', 'connection closed');
+  });
+  assert.equal(f.store.state.connection, 'disconnected');
+});
+
 test('turn/end schedules a fleet refresh after 800ms while the fleet tab is visible', () => {
   const f = storeFixture();
   f.store.setFleetActive(true);

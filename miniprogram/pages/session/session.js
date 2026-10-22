@@ -13,6 +13,7 @@ const labels = require('../../utils/labels');
 const util = require('../../utils/util');
 const notifySubscription = require('../../utils/notify-subscription');
 const voicePreference = require('../../utils/voice-preference');
+const contextPanelsPreference = require('../../utils/context-panels-pref');
 const voiceActions = require('./voice-actions');
 const fileActions = require('./file-actions');
 const changesActions = require('./changes-actions');
@@ -38,12 +39,22 @@ Page({
     collaborationCount: 0, collaborationActive: 0, collaborationNote: '', collaborationPreview: null, collaborationBusy: false,
     fileExpanded: {}, fileSheet: null, filePreview: null, changesDiff: null, fileBusyKey: '', fileSharingKey: '', fileProgress: 0,
     tab: 'conversation', // conversation | trajectory | context | fleet
+    showContextPanel: contextPanelsPreference.read().context,
+    showFleetPanel: contextPanelsPreference.read().fleet,
     trajectoryMounted: false,
     contextMounted: false,
     fleetMounted: false,
     // 上下文浏览器（v2）：所选请求 seq（null = 当前/下一次请求）与展开的 7 类折叠行。
     contextBrowserSeq: null,
     contextBrowserExpanded: [],
+    contextFileFilter: 'all',
+    contextFileSort: 'activity',
+    contextNodeDetail: null,
+    contextNodeLoadingSeq: null,
+    // 趋势默认自动聚合；用户可切换粒度、总量/变化视图并选中单次请求。
+    contextTrendSeq: null,
+    contextTrendGroupBy: 'auto',
+    contextTrendDisplayMode: 'total',
     // 首帧之前先用「未连接」空态占位，避免 WXML 读取 null 面板。
     contextPanel: contextView.buildPanel(null, { t: uiText, connected: false, hasSession: false }),
     fleetPanel: contextView.buildFleetPanel(null, { t: uiText, connected: false, hasSession: false }),
@@ -238,9 +249,7 @@ Page({
   },
 
   onShow() {
-    if (store.setTrajectoryActive) store.setTrajectoryActive(this.data.tab === 'trajectory');
-    if (store.setContextActive) store.setContextActive(this.data.tab === 'context');
-    if (store.setFleetActive) store.setFleetActive(this.data.tab === 'fleet');
+    this.syncContextPanelPreferences();
     this._voiceHidden = false; this.syncVoicePreference();
     this.resetConversationScroll();
     this.startScrollPolling();
@@ -377,7 +386,19 @@ Page({
       // 切会话：浏览器游标/折叠状态属于上一个会话，清空并从「当前」重新开始。
       this._contextPanelCache = null;
       this._fleetPanelCache = null;
-      this.setData({ contextBrowserSeq: null, contextBrowserExpanded: [] });
+      this._contextContentCache = Object.create(null);
+      this._contextContentPending = Object.create(null);
+      this.setData({
+        contextBrowserSeq: null,
+        contextBrowserExpanded: [],
+        contextFileFilter: 'all',
+        contextFileSort: 'activity',
+        contextNodeDetail: null,
+        contextNodeLoadingSeq: null,
+        contextTrendSeq: null,
+        contextTrendGroupBy: 'auto',
+        contextTrendDisplayMode: 'total'
+      });
     }
     if (!this._markdownCache || this._renderSessionId !== s.sessionId) {
       if (this._renderSessionId && this._renderSessionId !== s.sessionId) {
@@ -1105,6 +1126,8 @@ Page({
   switchTab(e) {
     const tab = e.currentTarget.dataset.tab;
     if (!['conversation', 'trajectory', 'context', 'fleet'].includes(tab) || tab === this.data.tab) return;
+    if (tab === 'context' && !this.data.showContextPanel) return;
+    if (tab === 'fleet' && !this.data.showFleetPanel) return;
     haptics.vibrate();
     this.cancelVoice();
     this.closeAttachMenu(false);
@@ -1135,6 +1158,18 @@ Page({
     }
   },
 
+  /** Refresh local tab visibility after returning from the settings page. */
+  syncContextPanelPreferences() {
+    const panelPrefs = contextPanelsPreference.read();
+    const tab = (this.data.tab === 'context' && !panelPrefs.context)
+      || (this.data.tab === 'fleet' && !panelPrefs.fleet) ? 'conversation' : this.data.tab;
+    this.setData({ showContextPanel: panelPrefs.context, showFleetPanel: panelPrefs.fleet, tab });
+    if (store.setTrajectoryActive) store.setTrajectoryActive(tab === 'trajectory');
+    if (store.setContextActive) store.setContextActive(tab === 'context');
+    if (store.setFleetActive) store.setFleetActive(tab === 'fleet');
+    return tab;
+  },
+
   /** 上下文面板派生：store 快照 → 纯函数视图模型（缓存原始 value 身份，避免每次 emit 重算趋势）。 */
   contextPanelPatch(session, app) {
     const s = session || store.sessionState;
@@ -1143,6 +1178,7 @@ Page({
     // v2：编队快照参与「Agent 网络」派生；运行态驱动面板脉冲。
     const fleet = (s && s.contextFleet) || null;
     const fleetValue = fleet && fleet.value ? fleet.value : null;
+    const contextPressure = s && s.stats ? s.stats.pressure : null;
     const locale = this.data.uiLocale || '';
     const connected = !a || a.connection === 'connected';
     const sessionId = (s && s.sessionId) || '';
@@ -1150,20 +1186,34 @@ Page({
     const browserSeq = this.data.contextBrowserSeq == null ? null : Number(this.data.contextBrowserSeq);
     const expanded = Array.isArray(this.data.contextBrowserExpanded) ? this.data.contextBrowserExpanded : [];
     const expandedKey = expanded.join(',');
+    const trendSeq = this.data.contextTrendSeq == null ? null : Number(this.data.contextTrendSeq);
+    const trendGroupBy = this.data.contextTrendGroupBy || 'auto';
+    const trendDisplayMode = this.data.contextTrendDisplayMode === 'delta' ? 'delta' : 'total';
+    const fileFilter = this.data.contextFileFilter || 'all';
+    const fileSort = this.data.contextFileSort || 'activity';
     const cache = this._contextPanelCache;
     if (cache && cache.dashboard === dashboard && cache.locale === locale
       && cache.connected === connected && cache.sessionId === sessionId
       && cache.fleetValue === fleetValue && cache.running === running
-      && cache.browserSeq === browserSeq && cache.expandedKey === expandedKey) {
+      && cache.contextPressure === contextPressure
+      && cache.browserSeq === browserSeq && cache.expandedKey === expandedKey
+      && cache.fileFilter === fileFilter && cache.fileSort === fileSort
+      && cache.trendSeq === trendSeq && cache.trendGroupBy === trendGroupBy
+      && cache.trendDisplayMode === trendDisplayMode) {
       return { contextPanel: cache.panel };
     }
     const panel = contextView.buildPanel(dashboard, {
       t: uiText, connected: connected, hasSession: !!sessionId,
-      running: running, fleet: fleetValue, browserSeq: browserSeq, expanded: expanded
+      running: running, fleet: fleetValue, contextPressure: contextPressure,
+      browserSeq: browserSeq, expanded: expanded,
+      trendSeq: trendSeq, trendGroupBy: trendGroupBy, trendDisplayMode: trendDisplayMode,
+      fileFilter: fileFilter, fileSort: fileSort
     });
     this._contextPanelCache = {
       dashboard, locale, connected, sessionId,
-      fleetValue, running, browserSeq, expandedKey, panel
+      fleetValue, running, contextPressure, browserSeq, expandedKey,
+      fileFilter, fileSort,
+      trendSeq, trendGroupBy, trendDisplayMode, panel
     };
     return { contextPanel: panel };
   },
@@ -1172,8 +1222,47 @@ Page({
   setContextBrowser(seq, expanded) {
     const patch = { contextBrowserSeq: seq == null ? null : Number(seq) };
     if (Array.isArray(expanded)) patch.contextBrowserExpanded = expanded;
+    patch.contextNodeDetail = null;
     this.setData(patch);
     this.setData(this.contextPanelPatch());
+  },
+
+  /** Read the selected surface/header event body lazily instead of shipping transcripts on every refresh. */
+  openContextNode(e) {
+    const rawSeq = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.seq : null;
+    const seq = Number(rawSeq);
+    const sessionId = store.sessionState && store.sessionState.sessionId;
+    if (!Number.isSafeInteger(seq) || seq < 0 || !sessionId) return;
+    const key = sessionId + ':' + seq;
+    this._contextContentCache = this._contextContentCache || Object.create(null);
+    this._contextContentPending = this._contextContentPending || Object.create(null);
+    const cached = this._contextContentCache[key];
+    if (cached) {
+      this.setData({ contextNodeDetail: cached, contextNodeLoadingSeq: null });
+      return;
+    }
+    if (this._contextContentPending[key]) return;
+    if (!store.client || typeof store.client.requestContextContent !== 'function') return;
+    this._contextContentPending[key] = true;
+    this.setData({ contextNodeLoadingSeq: seq, contextNodeDetail: null });
+    store.client.requestContextContent(sessionId, seq).then((frame) => {
+      if (!this.data || this.data.contextNodeLoadingSeq !== seq
+        || !store.sessionState || store.sessionState.sessionId !== sessionId) return;
+      const value = frame && frame.value && typeof frame.value === 'object' ? frame.value : null;
+      if (!value || typeof value.text !== 'string') throw new Error(uiText('上下文明细不可用'));
+      const detail = { seq: seq, type: value.type || '', text: value.text,
+        truncated: value.truncated === true };
+      this._contextContentCache[key] = detail;
+      const cacheKeys = Object.keys(this._contextContentCache);
+      if (cacheKeys.length > 64) delete this._contextContentCache[cacheKeys[0]];
+      this.setData({ contextNodeDetail: detail, contextNodeLoadingSeq: null });
+    }).catch((error) => {
+      if (!this.data || this.data.contextNodeLoadingSeq !== seq) return;
+      this.setData({
+        contextNodeLoadingSeq: null,
+        contextNodeDetail: { seq: seq, type: '', text: error && error.message ? error.message : uiText('上下文明细读取失败') }
+      });
+    }).finally(() => { delete this._contextContentPending[key]; });
   },
 
   /** 上一步（step=-1）/下一步（step=1）请求。 */
@@ -1210,12 +1299,74 @@ Page({
     this.setContextBrowser(this.data.contextBrowserSeq, expanded);
   },
 
+  /** 选择趋势图中的请求，并同步更新下方的请求组成详情。 */
+  contextTrendSelect(e) {
+    const raw = e && e.currentTarget && e.currentTarget.dataset
+      ? e.currentTarget.dataset.seq : null;
+    const seq = Number(raw);
+    if (!Number.isFinite(seq)) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextTrendSeq: seq });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
+  /** 趋势粒度：按单次模型请求（步骤）或每轮最后一次请求聚合。 */
+  contextTrendGroup(e) {
+    const groupBy = e && e.currentTarget && e.currentTarget.dataset
+      ? e.currentTarget.dataset.group : '';
+    if (groupBy !== 'step' && groupBy !== 'turn') return;
+    const currentGroup = this.data.contextPanel && this.data.contextPanel.trend
+      ? this.data.contextPanel.trend.groupBy : this.data.contextTrendGroupBy;
+    if (groupBy === currentGroup) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextTrendGroupBy: groupBy, contextTrendSeq: null });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
+  /** 趋势显示完整上下文规模，或相邻请求之间的增长/回收量。 */
+  contextTrendMode(e) {
+    const mode = e && e.currentTarget && e.currentTarget.dataset
+      ? e.currentTarget.dataset.mode : '';
+    if (mode !== 'total' && mode !== 'delta') return;
+    if (mode === this.data.contextTrendDisplayMode) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextTrendDisplayMode: mode });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
   /** 手动刷新上下文面板（卡片区右上角）。 */
   refreshContextDashboard() {
     if (store.refreshContextDashboard) {
       haptics.tick ? haptics.tick() : haptics.vibrate();
       store.refreshContextDashboard();
     }
+  },
+
+  contextFileActivitySelect(e) {
+    const path = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.path : '';
+    if (!path) return;
+    wx.showModal({ title: uiText('文件活动'), content: path, showCancel: false, confirmText: uiText('关闭') });
+  },
+
+  setContextFileFilter(e) {
+    const filter = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.filter : '';
+    if (['all', 'read', 'write', 'search'].indexOf(filter) < 0 || filter === this.data.contextFileFilter) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextFileFilter: filter });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
+  setContextFileSort(e) {
+    const sort = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sort : '';
+    if (['activity', 'recent'].indexOf(sort) < 0 || sort === this.data.contextFileSort) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextFileSort: sort });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
   },
 
   /** 编队面板派生：store 快照 → 纯函数视图模型（缓存原始 value 身份，避免每次 emit 重算卡片）。 */
@@ -1283,7 +1434,9 @@ Page({
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
     if (this.data.moreSheetOpen || this.data.turnNavOpen || this.data.sessionSwitcherOpen || this.data.collaborationOpen) return;
     // 四段顺序：对话 ⇄ 轨迹 ⇄ 上下文 ⇄ 编队；左滑前进、右滑后退，两端不越界。
-    const order = ['conversation', 'trajectory', 'context', 'fleet'];
+    const order = ['conversation', 'trajectory'];
+    if (this.data.showContextPanel) order.push('context');
+    if (this.data.showFleetPanel) order.push('fleet');
     const index = order.indexOf(gesture.tab);
     if (index < 0) return;
     const nextIndex = dx < 0 ? Math.min(order.length - 1, index + 1) : Math.max(0, index - 1);
@@ -1703,7 +1856,7 @@ Page({
       return;
     }
     if (!store.state || store.state.connection !== 'connected') {
-      this.setData({ filesLoading: false, filesError: uiText('请先连接驭鲸 Harness'), filesEntries: [] });
+      this.setData({ filesLoading: false, filesError: uiText('请先连接鲸尾 Harness'), filesEntries: [] });
       return;
     }
     this._filesRel = relPath || null;

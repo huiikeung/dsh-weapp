@@ -366,7 +366,7 @@ Page({
       return;
     }
     if (store.state.connection !== 'connected') {
-      this.setData({ filesLoading: false, filesError: uiText('请先连接驭鲸 Harness'), filesEntries: [] });
+      this.setData({ filesLoading: false, filesError: uiText('请先连接鲸尾 Harness'), filesEntries: [] });
       return;
     }
     this._filesRel = relPath || null;

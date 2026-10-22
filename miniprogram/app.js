@@ -1,4 +1,4 @@
-// 驭鲸 Harness（dsh-weapp）— 微信小程序客户端
+// 鲸尾 Harness（dsh-weapp）— 微信小程序客户端
 // 全局入口：初始化 Gateway Store，恢复已保存的配对凭据并尝试连接。
 
 // 必须在任何 Page() 注册之前安装。

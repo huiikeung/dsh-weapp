@@ -68,6 +68,50 @@
 .drawer-footer { width: 100%; margin-top: auto; padding-top: 24rpx; flex-shrink: 0; }
 .drawer-settings { box-sizing: border-box; }
 
+/* 费用概览卡片（抽屉内，位于自动化任务与设置之间） */
+.drawer-cost {
+  margin: 8rpx 0 12rpx;
+  background: rgba(16, 19, 24, 0.04);
+  border-radius: 20rpx;
+  padding: 16rpx 28rpx;
+}
+.drawer-dark .drawer-cost {
+  background: rgba(241, 244, 250, 0.06);
+}
+.drawer-cost-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40rpx;
+}
+.drawer-cost-label {
+  font-size: 26rpx;
+  color: var(--ink-muted, #6B7280);
+}
+.drawer-dark .drawer-cost-label {
+  color: rgba(241, 244, 250, 0.55);
+}
+.drawer-cost-value {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: right;
+  max-width: 55%;
+}
+.drawer-dark .drawer-cost-value {
+  color: #F1F4FA;
+}
+.drawer-cost-low {
+  color: #D97706 !important;
+}
+.drawer-cost-muted {
+  opacity: 0.6;
+}
+.drawer-cost-hint {
+  font-size: 24rpx;
+  color: var(--ink-muted, #6B7280);
+}
+
 .drawer-brand {
   display: flex;
   align-items: center;

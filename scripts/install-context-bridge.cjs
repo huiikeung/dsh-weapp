@@ -24,9 +24,12 @@ function transform(source) {
   // 1. Import the bridge module next to the plugin-management import (both
   //    gateway packages ship it; the weapp fork also has workspace changes).
   const oldImport = "import { handleContextQuery, registerContextProjection, CONTEXT_REQUEST_TYPES } from './context-bridge.mjs'";
-  const newImport = "import { handleContextQuery, handleContextFleet, registerContextProjection, registerContextServices, CONTEXT_REQUEST_TYPES } from './context-bridge.mjs'";
+  const fleetImport = "import { handleContextQuery, handleContextFleet, registerContextProjection, registerContextServices, CONTEXT_REQUEST_TYPES } from './context-bridge.mjs'";
+  const newImport = "import { handleContextQuery, handleContextFleet, handleContextContent, registerContextProjection, registerContextServices, CONTEXT_REQUEST_TYPES } from './context-bridge.mjs'";
   if (source.includes(oldImport)) {
     source = source.replace(oldImport, newImport);
+  } else if (source.includes(fleetImport)) {
+    source = source.replace(fleetImport, newImport);
   } else if (!source.includes(newImport)) {
     const importAfter = has(source, "import { handleWorkspaceChanges, WORKSPACE_CHANGES_TYPES } from './workspace-changes-bridge.mjs'")
       ? "import { handleWorkspaceChanges, WORKSPACE_CHANGES_TYPES } from './workspace-changes-bridge.mjs'"
@@ -48,6 +51,11 @@ function transform(source) {
         dispatchAfter + "\n  if (msg.type === 'context-fleet') return handleContextFleet(msg)"
         + '\n  if (CONTEXT_REQUEST_TYPES.has(msg.type)) return handleContextQuery(api, msg)');
     }
+  }
+  if (!source.includes("msg.type === 'context-content'")) {
+    const fleetDispatch = "  if (msg.type === 'context-fleet') return handleContextFleet(msg)";
+    source = once(source, fleetDispatch,
+      fleetDispatch + "\n  if (msg.type === 'context-content') return handleContextContent(api, msg)");
   }
 
   // 3. Register the projection once the plugin context (and its optional
@@ -119,10 +127,16 @@ function transform(source) {
   ];
   const capabilityAnchor = capabilityAnchors.find(anchor => has(source, anchor));
   if (!capabilityAnchor) throw Error('Unsupported gateway source: hello capabilities not found');
-  source = once(source, capabilityAnchor, capabilityAnchor + "\n              'context-dashboard-v1',");
+  if (!source.includes("'context-dashboard-v1'")) {
+    source = once(source, capabilityAnchor, capabilityAnchor + "\n              'context-dashboard-v1',");
+  }
   if (!source.includes("'context-fleet-v1'")) {
     source = once(source, "              'context-dashboard-v1',",
       "              'context-dashboard-v1',\n              'context-fleet-v1',");
+  }
+  if (!source.includes("'context-content-v1'")) {
+    source = once(source, "              'context-fleet-v1',",
+      "              'context-fleet-v1',\n              'context-content-v1',");
   }
 
   return source;

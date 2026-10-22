@@ -249,6 +249,18 @@
 
   </view>
 
+  <view class="group-title">{{ui['会话面板']}}</view>
+  <view class="card general-preferences">
+    <view class="card-row">
+      <view class="exp-copy"><text class="card-row-label">{{ui['显示上下文']}}</text><text class="exp-desc">{{ui['在会话顶部显示上下文标签页']}}</text></view>
+      <switch checked="{{showContextPanel}}" color="#2E6BE6" bindchange="toggleContextPanel" aria-label="{{ui['显示上下文']}}"/>
+    </view>
+    <view class="card-row">
+      <view class="exp-copy"><text class="card-row-label">{{ui['显示编队']}}</text><text class="exp-desc">{{ui['在会话顶部显示编队标签页']}}</text></view>
+      <switch checked="{{showFleetPanel}}" color="#2E6BE6" bindchange="toggleFleetPanel" aria-label="{{ui['显示编队']}}"/>
+    </view>
+  </view>
+
 
   <view class="group-title">{{ui['实验性功能']}}</view>
   <view class="card">

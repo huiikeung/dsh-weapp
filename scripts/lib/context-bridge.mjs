@@ -40,6 +40,9 @@ const SURFACE_TYPES = new Set(['system/message', 'developer/message', 'user/mess
 const MESSAGE_CATS = ['user', 'inject', 'skill', 'assistant', 'tool']
 
 const MAX_SURFACE = 4000
+const MAX_ARCHIVE_NODES = 400
+const MAX_HEADER_EPOCHS = 100
+const MAX_FILE_OPS = 400
 const MAX_REQUESTS = 200
 const MAX_EVENTS = 120
 const MAX_TOOL_NAMES = 20
@@ -89,7 +92,7 @@ const passthroughSchema = Object.freeze({
   }),
 })
 
-export const CONTEXT_REQUEST_TYPES = new Set(['context-dashboard', 'context-fleet'])
+export const CONTEXT_REQUEST_TYPES = new Set(['context-dashboard', 'context-fleet', 'context-content'])
 
 // ---------------------------------------------------------------------------
 // Token pricing (DSH token-meter fixed-density heuristic)
@@ -316,6 +319,83 @@ function countImageBlocks(message) {
   return count
 }
 
+function parseCallArgs(raw) {
+  if (typeof raw !== 'string' || raw === '') return null
+  try {
+    const value = JSON.parse(raw)
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value : null
+  } catch (_) { return null }
+}
+
+function fileCallMeta(name, raw) {
+  const args = parseCallArgs(raw)
+  if (args === null) return null
+  let kind = ''
+  if (name === 'read' || name === 'read_image') kind = 'read'
+  else if (name === 'write' || name === 'edit') kind = 'write'
+  else if (name === 'grep' || name === 'glob') kind = 'search'
+  else if (name === 'str_replace_editor') kind = args.command === 'view' ? 'read' : 'write'
+  if (kind === '') return null
+  let path = ''
+  if ((name === 'grep' || name === 'glob') && typeof args.path !== 'string') {
+    path = typeof args.pattern === 'string' ? args.pattern : ''
+  } else {
+    for (const key of ['file_path', 'filePath', 'path']) {
+      if (typeof args[key] === 'string' && args[key] !== '') { path = args[key]; break }
+    }
+  }
+  if (!path) return null
+  const added = name === 'write' ? lineCount(args.content)
+    : name === 'edit' ? lineCount(args.new_string)
+      : name === 'str_replace_editor' && ['str_replace', 'insert', 'create'].includes(args.command)
+        ? lineCount(args.command === 'create' ? args.file_text : args.new_str) : 0
+  const removed = name === 'edit' ? lineCount(args.old_string)
+    : name === 'str_replace_editor' && args.command === 'str_replace' ? lineCount(args.old_str) : 0
+  return {
+    kind, path: path.slice(0, 2000), added, removed,
+    ...(kind === 'search' && !(typeof args.path === 'string' && args.path !== '') ? { pattern: true } : {}),
+    ...(kind === 'read' && Number.isFinite(args.limit) && args.limit > 0 ? { readCount: Math.floor(args.limit) } : {}),
+  }
+}
+
+function lineCount(value) {
+  if (typeof value !== 'string' || value === '') return 0
+  const breaks = (value.match(/\n/g) || []).length
+  return value.endsWith('\n') ? breaks : breaks + 1
+}
+
+function fileOpsOf(event, message, pending) {
+  const meta = pending && pending.file
+  if (!meta) return []
+  const common = {
+    seq: event.seq, time: timeOf(event), path: meta.path, kind: meta.kind,
+    tool: pending.name, err: !!(message && message.isError === true),
+    added: meta.added, removed: meta.removed,
+    ...(meta.pattern === true ? { pattern: true } : {}),
+    ...(meta.readCount !== undefined ? { readCount: meta.readCount } : {}),
+  }
+  const eventMeta = event && event.data && event.data.meta
+  const resultMeta = message && message.meta !== null && typeof message.meta === 'object'
+    ? message.meta : eventMeta !== null && typeof eventMeta === 'object' ? eventMeta : null
+  if (meta.kind === 'search' && resultMeta && resultMeta.truncated === false) {
+    const found = []
+    if (resultMeta.shape === 'matches' && Array.isArray(resultMeta.files)) {
+      for (const row of resultMeta.files.slice(0, 100)) {
+        if (row && typeof row.path === 'string' && Array.isArray(row.matches)) found.push({ path: row.path.slice(0, 2000), hits: row.matches.length })
+      }
+    } else if (resultMeta.shape === 'paths' && Array.isArray(resultMeta.paths)) {
+      for (const path of resultMeta.paths.slice(0, 100)) if (typeof path === 'string') found.push({ path: path.slice(0, 2000), hits: 0 })
+    }
+    if (found.length > 0) return found.map(file => ({ ...common, ...file, pattern: false }))
+  }
+  if (meta.kind === 'read' && resultMeta && typeof resultMeta.offset === 'number'
+    && Array.isArray(resultMeta.lines) && resultMeta.lines.length > 0) {
+    common.readStart = Math.max(1, Math.floor(resultMeta.offset))
+    common.readCount = resultMeta.lines.length
+  }
+  return [common]
+}
+
 // ---------------------------------------------------------------------------
 // Fold state
 // ---------------------------------------------------------------------------
@@ -349,6 +429,9 @@ function emptySurfaceCounts() {
 export function createState() {
   return {
     surface: [],
+    archive: [],
+    headerEpochs: [],
+    fileOps: [],
     sums: { user: 0, inject: 0, skill: 0, assistant: 0, tool: 0 },
     systemTokens: 0,
     toolsTokens: 0,
@@ -370,6 +453,11 @@ export function createState() {
 function cloneState(state) {
   return {
     surface: [...state.surface],
+    archive: Array.isArray(state.archive) ? [...state.archive] : [],
+    ...(Number.isFinite(state.archiveFloor) ? { archiveFloor: state.archiveFloor } : {}),
+    headerEpochs: Array.isArray(state.headerEpochs) ? [...state.headerEpochs] : [],
+    fileOps: Array.isArray(state.fileOps) ? [...state.fileOps] : [],
+    ...(Number.isFinite(state.fileOpsFloor) ? { fileOpsFloor: state.fileOpsFloor } : {}),
     sums: { ...state.sums },
     systemTokens: state.systemTokens,
     toolsTokens: state.toolsTokens,
@@ -471,6 +559,32 @@ function recomputeSystemTokens(state) {
 
 function applySurface(state, event, cat, message) {
   const node = { seq: event.seq, cat, tokens: estimateMessage(message) }
+  const eventTime = timeOf(event)
+  if (eventTime > 0) node.time = eventTime
+  const source = message !== null && typeof message === 'object' ? message.source : null
+  if (source !== null && typeof source === 'object') {
+    if (typeof source.form === 'string' && source.form !== '') node.form = source.form
+    if (typeof source.name === 'string' && source.name !== '') node.name = source.name.slice(0, 160)
+  }
+  if (cat === 'assistant') {
+    const answer = firstText(Array.isArray(message && message.content) ? message.content : [])
+    if (answer !== '') node.text = answer.replace(/\s+/g, ' ').trim().slice(0, MAX_LAST_ANSWER)
+    else {
+      const calls = Array.isArray(message && message.content)
+        ? message.content.filter(block => block && typeof block === 'object' && block.type === 'tool-call')
+          .map(block => typeof block.name === 'string' ? block.name.slice(0, 100) : '')
+          .filter(Boolean).slice(0, 3)
+        : []
+      if (calls.length > 0) node.calls = calls
+    }
+  } else if (cat === 'tool') {
+    const callId = source && typeof source.callId === 'string' ? source.callId : ''
+    const call = callId !== '' ? state.callNames[callId] : null
+    if (call && typeof call.name === 'string') node.tool = call.name.slice(0, 100)
+    if (message && message.isError === true) node.err = true
+  }
+  const images = countImageBlocks(message)
+  if (images > 0) node.imgs = images
   const range = replaceRangeOf(event.surfaceOp)
   if (range !== null) {
     let startIndex = -1
@@ -484,9 +598,17 @@ function applySurface(state, event, cat, message) {
     }
     if (startIndex >= 0 && endIndex >= startIndex) {
       const removed = state.surface.splice(startIndex, endIndex - startIndex + 1, node)
-      for (const old of removed) removeNodeSums(state, old)
+      for (const old of removed) {
+        removeNodeSums(state, old)
+        state.archive.push({ ...old, gone: event.seq })
+        for (let index = 0; index < state.fileOps.length; index += 1) {
+          const op = state.fileOps[index]
+          if (op.seq === old.seq && op.gone === undefined) state.fileOps[index] = { ...op, gone: event.seq }
+        }
+      }
       addNodeSums(state, node)
       if (cat === 'system') recomputeSystemTokens(state)
+      trimState(state)
       return node
     }
   }
@@ -514,6 +636,17 @@ function trimState(state) {
   }
   if (Array.isArray(state.spans) && state.spans.length > MAX_SPANS) {
     state.spans = state.spans.slice(state.spans.length - MAX_SPANS)
+  }
+  if (Array.isArray(state.archive) && state.archive.length > MAX_ARCHIVE_NODES) {
+    const removed = state.archive.splice(0, state.archive.length - MAX_ARCHIVE_NODES)
+    for (const node of removed) state.archiveFloor = Math.max(state.archiveFloor || 0, safeInt(node.gone))
+  }
+  if (Array.isArray(state.headerEpochs) && state.headerEpochs.length > MAX_HEADER_EPOCHS) {
+    state.headerEpochs.splice(0, state.headerEpochs.length - MAX_HEADER_EPOCHS)
+  }
+  if (Array.isArray(state.fileOps) && state.fileOps.length > MAX_FILE_OPS) {
+    const removed = state.fileOps.splice(0, state.fileOps.length - MAX_FILE_OPS)
+    for (const op of removed) state.fileOpsFloor = Math.max(state.fileOpsFloor || 0, safeInt(op.seq))
   }
   if (Object.keys(state.callNames).length > MAX_CALL_NAMES) {
     const keys = Object.keys(state.callNames)
@@ -618,6 +751,13 @@ export function applyContextEvent(state, event) {
         const next = cloneState(state)
         next.toolsTokens = estimateToolsTokens(header)
         next.toolDefs = header !== undefined && Array.isArray(header.tools) ? header.tools.length : 0
+        if (header !== undefined) {
+          const tools = Array.isArray(header.tools) ? header.tools.slice(0, 100).map(tool => {
+            const item = tool !== null && typeof tool === 'object' ? tool : {}
+            return { name: typeof item.name === 'string' ? item.name.slice(0, 120) : '?' }
+          }) : []
+          next.headerEpochs.push({ seq: event.seq, time: timeOf(event), tools })
+        }
         const config = header && header.config !== null && typeof header.config === 'object' ? header.config : undefined
         if (config && typeof config.model === 'string') next.model = config.model
         if (config && typeof config.provider === 'string') next.provider = config.provider
@@ -812,20 +952,31 @@ export function applyContextEvent(state, event) {
         const name = data && typeof data.name === 'string' ? data.name : ''
         if (callId === '' || name === '') return state
         const next = cloneState(state)
-        next.callNames[callId] = { name, start: timeOf(event) }
+        const file = fileCallMeta(name, data && data.arguments)
+        next.callNames[callId] = { name, start: timeOf(event), ...(file !== null ? { file } : {}) }
         trimState(next)
         return next
       }
       case 'tool/result': {
-        if (!isSurfaceEvent(event)) return state
         const message = deriveEventMessage(event)
         const source = message && message.source !== null && typeof message.source === 'object' ? message.source : undefined
         const callId = source && typeof source.callId === 'string' ? source.callId : ''
         const pending = callId !== '' ? state.callNames[callId] : undefined
         const eventTime = timeOf(event)
+        if (!isSurfaceEvent(event)) {
+          if (pending === undefined) return state
+          const ops = fileOpsOf(event, message, pending)
+          if (ops.length === 0) return state
+          const next = cloneState(state)
+          next.fileOps.push(...ops)
+          if (callId !== '') delete next.callNames[callId]
+          trimState(next)
+          return next
+        }
         const next = cloneState(state)
         const node = applySurface(next, event, 'tool', message)
         if (pending !== undefined) {
+          next.fileOps.push(...fileOpsOf(event, message, pending))
           next.counts.toolCalls += 1
           next.toolNames[pending.name] = (next.toolNames[pending.name] || 0) + 1
           // v2 activity: classify the paired run by its durable tool name.
@@ -1022,6 +1173,16 @@ export function contextView(state) {
     },
     // v2 timeline: newest MAX_SPANS segments, each [kind, start, end].
     spans: (Array.isArray(state.spans) ? state.spans : []).map(span => [span[0], span[1], span[2]]),
+    // Slim browser index; full message/header bodies are fetched only when a row is opened.
+    surface: (Array.isArray(state.surface) ? state.surface : []).map(node => ({ ...node })),
+    archive: (Array.isArray(state.archive) ? state.archive : []).map(node => ({ ...node })),
+    headerEpochs: (Array.isArray(state.headerEpochs) ? state.headerEpochs : []).map(epoch => ({
+      ...epoch,
+      tools: Array.isArray(epoch.tools) ? epoch.tools.map(tool => ({ ...tool })) : [],
+    })),
+    fileOps: (Array.isArray(state.fileOps) ? state.fileOps : []).map(op => ({ ...op })),
+    ...(Number.isFinite(state.archiveFloor) ? { archiveFloor: state.archiveFloor } : {}),
+    ...(Number.isFinite(state.fileOpsFloor) ? { fileOpsFloor: state.fileOpsFloor } : {}),
     ...(typeof state.lastAnswer === 'string' && state.lastAnswer !== '' ? { lastAnswer: state.lastAnswer } : {}),
     requests: state.requests.map(record => ({
       ...record,
@@ -1035,9 +1196,8 @@ export function contextView(state) {
 /** The `mobileContext` projection definition registered on `ctx.sessionProjections`. */
 export const contextProjectionDefinition = {
   key: 'mobileContext',
-  // v2 added state accumulators (activity/timing/spans/toolDefs/lastAnswer): a
-  // cached v1 row must refold rather than serve zeros for the new cards.
-  stateVersion: 2,
+  // v4 adds bounded file-operation records; older cache rows refold to populate File Activity.
+  stateVersion: 4,
   stateSchema: passthroughSchema,
   init: () => createState(),
   apply: (state, event) => applyContextEvent(state, event),
@@ -1403,6 +1563,98 @@ export function registerContextProjection(ctx) {
 
 function unavailable(requestType, sessionId, message) {
   return { kind: 'error', code: 'context-unavailable', requestType, sessionId, message }
+}
+
+function boundedContextText(value, max, meta) {
+  if (typeof value !== 'string') return ''
+  if (value.length > max && meta) meta.truncated = true
+  return value.slice(0, max)
+}
+
+function eventContentText(event, meta) {
+  const data = event && event.data && typeof event.data === 'object' ? event.data : {}
+  if (event.type === 'request/header') {
+    const header = data.header && typeof data.header === 'object' ? data.header : {}
+    const tools = Array.isArray(header.tools) ? header.tools.slice(0, 100) : []
+    const lines = []
+    const config = header.config && typeof header.config === 'object' ? header.config : {}
+    if (typeof config.provider === 'string' || typeof config.model === 'string') {
+      lines.push(`Provider: ${config.provider || '—'} · Model: ${config.model || '—'}`)
+    }
+    for (const tool of tools) {
+      if (tool === null || typeof tool !== 'object') continue
+      const name = typeof tool.name === 'string' ? tool.name : 'Tool'
+      lines.push(`\n${name}${typeof tool.description === 'string' && tool.description !== '' ? `\n${tool.description}` : ''}`)
+      if (tool.parameters !== undefined || tool.inputSchema !== undefined || tool.schema !== undefined) {
+        let schema
+        try { schema = JSON.stringify(tool.parameters ?? tool.inputSchema ?? tool.schema) } catch (_) { schema = '' }
+        if (schema) lines.push(`\nSchema: ${boundedContextText(schema, 5000, meta)}`)
+      }
+    }
+    return lines.join('\n')
+  }
+  if (event.type === 'request/context') {
+    return [
+      `Model: ${typeof data.model === 'string' ? data.model : '—'}`,
+      `Provider: ${typeof data.provider === 'string' ? data.provider : '—'}`,
+      `Context window: ${Number.isFinite(data.contextWindow) ? data.contextWindow : '—'}`,
+    ].join('\n')
+  }
+  const message = event.type === 'user/message' ? data
+    : data.message !== null && typeof data.message === 'object' ? data.message : null
+  const blocks = message && Array.isArray(message.content) ? message.content : []
+  const lines = []
+  for (const block of blocks) {
+    if (block === null || typeof block !== 'object') continue
+    if ((block.type === 'text' || block.type === 'reasoning') && typeof block.text === 'string') {
+      lines.push(block.text)
+    } else if (block.type === 'tool-call') {
+      const name = typeof block.name === 'string' ? block.name : 'tool'
+      lines.push(`[${name}]${typeof block.arguments === 'string' && block.arguments !== '' ? `\n${boundedContextText(block.arguments, 8000, meta)}` : ''}`)
+    } else if (block.type === 'image') {
+      lines.push('[image attachment]')
+    } else {
+      let summary
+      try { summary = JSON.stringify(block) } catch (_) { summary = '' }
+      if (summary) lines.push(boundedContextText(summary, 1000, meta))
+    }
+  }
+  return lines.join('\n\n')
+}
+
+/** Fetch one durable event body only when the user opens that row in the browser. */
+export async function handleContextContent(api, msg) {
+  const requestType = msg && msg.type
+  const sessionId = msg && typeof msg.sessionId === 'string' && msg.sessionId.trim() !== '' ? msg.sessionId.trim() : null
+  const seq = msg && Number.isSafeInteger(msg.seq) && msg.seq >= 0 ? msg.seq : null
+  if (sessionId === null || seq === null) {
+    return { kind: 'error', code: 'bad-request', requestType, ...(sessionId !== null ? { sessionId } : {}), message: 'context-content requires a sessionId and seq' }
+  }
+  if (!api || !api.sessions || typeof api.sessions.history !== 'function') {
+    return unavailable(requestType, sessionId, 'Session history is unavailable on this host')
+  }
+  try {
+    const history = await api.sessions.history({ sessionId, throughSeq: seq, beforeSeq: seq + 1, maxMessages: 1 })
+    if (history && history.kind === 'error') return { ...history, requestType, sessionId }
+    const entries = history && Array.isArray(history.events) ? history.events : []
+    let found = null
+    for (const entry of entries) {
+      const candidate = entry && typeof entry === 'object' && entry.event && typeof entry.event === 'object'
+        ? entry.event : entry
+      if (candidate && candidate.seq === seq && typeof candidate.type === 'string') { found = candidate; break }
+    }
+    if (found === null) return unavailable(requestType, sessionId, 'The selected context item is no longer available')
+    const allowed = new Set(['system/message', 'developer/message', 'user/message', 'assistant/message', 'tool/result', 'request/header', 'request/context'])
+    if (!allowed.has(found.type)) return { kind: 'error', code: 'bad-request', requestType, sessionId, message: 'The selected event is not a context item' }
+    const textMeta = { truncated: false }
+    const text = boundedContextText(eventContentText(found, textMeta), 24000, textMeta)
+    return {
+      kind: 'context-content', sessionId, seq,
+      value: { seq, time: timeOf(found), type: found.type, text, ...(textMeta.truncated ? { truncated: true } : {}) },
+    }
+  } catch (_) {
+    return unavailable(requestType, sessionId, 'Unable to read the selected context item')
+  }
 }
 
 /**

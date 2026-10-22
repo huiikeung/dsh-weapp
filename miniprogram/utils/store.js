@@ -157,7 +157,6 @@ function createStore() {
         state.gatewayCapabilities = [];
         // 断链后快照不会再来：停自动刷新并释放 in-flight 标记，重连后重新拉取。
         stopContextPolling();
-        stopFleetPolling();
       }
       if (status === 'connected') {
         resetHistoryPaging();

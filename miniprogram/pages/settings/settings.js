@@ -8,6 +8,7 @@ const store = require('../../utils/store');
 const notifyPref = require('../../utils/notify-pref');
 const voicePreference = require('../../utils/voice-preference');
 const homeAnimationPreference = require('../../utils/home-animation-pref');
+const contextPanelsPreference = require('../../utils/context-panels-pref');
 const theme = require('../../utils/theme');
 const accessApi = require('../../utils/access-api');
 const { getPublicAccessState } = require('../../utils/public-access-state');
@@ -93,6 +94,8 @@ Page({
     clawbotSessionsOpen: false,
     clawbotVerifyCode: '',
     homeAnimationEnabled: true,
+    showContextPanel: true,
+    showFleetPanel: true,
     voiceEnabled: true,
     accountBusy: false,
     isWechatAdmin: false,
@@ -154,10 +157,13 @@ Page({
   onLoad(options) {
     theme.applyTo(this);
     this.updateNavigationLayout();
+    const contextPanelPrefs = contextPanelsPreference.read();
     this.setData({
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       notifyEnabled: notifyPref.enabled(),
       homeAnimationEnabled: homeAnimationPreference.enabled(),
+      showContextPanel: contextPanelPrefs.context,
+      showFleetPanel: contextPanelPrefs.fleet,
       ...clientVersion(wx)
     });
     this.unsubscribe = store.subscribe((snapshot) => {
@@ -318,8 +324,11 @@ Page({
 
   onShow() {
     this._settingsVisible = true;
+    const contextPanelPrefs = contextPanelsPreference.read();
     this.setData({ voiceEnabled: voicePreference.enabled(),
       homeAnimationEnabled: homeAnimationPreference.enabled(),
+      showContextPanel: contextPanelPrefs.context,
+      showFleetPanel: contextPanelPrefs.fleet,
       ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       hapticsLevel: haptics.getLevel() });
@@ -697,6 +706,22 @@ Page({
     try { this.setData({ homeAnimationEnabled: homeAnimationPreference.setEnabled(!!e.detail.value) }); }
     catch (_) {
       this.setData({ homeAnimationEnabled: homeAnimationPreference.enabled() });
+      wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
+    }
+  },
+
+  toggleContextPanel(e) {
+    try { this.setData({ showContextPanel: contextPanelsPreference.set('context', !!e.detail.value).context }); }
+    catch (_) {
+      this.setData({ showContextPanel: contextPanelsPreference.read().context });
+      wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
+    }
+  },
+
+  toggleFleetPanel(e) {
+    try { this.setData({ showFleetPanel: contextPanelsPreference.set('fleet', !!e.detail.value).fleet }); }
+    catch (_) {
+      this.setData({ showFleetPanel: contextPanelsPreference.read().fleet });
       wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
     }
   },

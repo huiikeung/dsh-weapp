@@ -183,25 +183,41 @@ class GatewayClient {
 
     const self = this;
     let transportTask;
+    let earlyFailure = null;
     try {
-      this.socketTask = wx.connectSocket({
+      const task = wx.connectSocket({
         url: endpoint,
         header: header,
         protocols: protocols,  // 务必传递完整的 protocols 数组
         fail: function (err) {
           if (transportTask && self.socketTask !== transportTask) return;
-          self.setState('failed', (err && err.errMsg) || uiText('无法建立 WebSocket 连接'));
-          self.scheduleReconnect();
+          const message = (err && err.errMsg) || uiText('无法建立 WebSocket 连接');
+          // Some test/runtime shims may invoke fail before connectSocket returns.
+          if (!transportTask) {
+            earlyFailure = message;
+            return;
+          }
+          self.handleTransportFailure(message);
         }
       });
+      this.socketTask = task;
+      transportTask = task;
+      if (earlyFailure) {
+        this.handleTransportFailure(earlyFailure);
+        return;
+      }
+      if (!task || typeof task.onOpen !== 'function' || typeof task.onMessage !== 'function' ||
+          typeof task.onError !== 'function' || typeof task.onClose !== 'function') {
+        this.handleTransportFailure(uiText('无法建立 WebSocket 连接'));
+        return;
+      }
     } catch (e) {
-      this.setState('failed', e.message || uiText('无法建立 WebSocket 连接'));
+      this.handleTransportFailure((e && e.message) || uiText('无法建立 WebSocket 连接'));
       return;
     }
 
-    transportTask = this.socketTask;
-
-    this.socketTask.onOpen(function () {
+    try {
+      transportTask.onOpen(function () {
       if (self.socketTask !== transportTask) return;
       self.reconnectAttempts = 0;
       if (serviceLease) {
@@ -220,20 +236,20 @@ class GatewayClient {
         return;
       }
       self.setState('connected');
-    });
-    this.socketTask.onMessage(function (res) {
+      });
+      transportTask.onMessage(function (res) {
       if (self.socketTask !== transportTask) return;
       if (self.relayMeta) {
         self.handleRelayMessage(res.data);
         return;
       }
       self.handleFrame(res.data);
-    });
-    this.socketTask.onError(function (err) {
+      });
+      transportTask.onError(function (err) {
       if (self.socketTask !== transportTask) return;
       self.handleTransportFailure((err && err.errMsg) || uiText('连接发生错误'));
-    });
-    this.socketTask.onClose(function (res) {
+      });
+      transportTask.onClose(function (res) {
       if (self.socketTask !== transportTask) return;
       if (self.state === 'connected' || self.state === 'connecting') {
         if (res && Number(res.code) === 4003) {
@@ -242,9 +258,7 @@ class GatewayClient {
           else self.handleAuthorizationFailure(uiText('设备配对已失效，请重新扫描 DSH 二维码'));
         } else if (res && Number(res.code) === 4001) {
           // 中继报告电脑端连接器不在线：停止自动重试，直接把原因显示出来
-          self.wantsConnection = false;
-          self.publicLeaseTimer && clearTimeout(self.publicLeaseTimer);
-          self.handleTransportFailure(uiText('电脑端的公网连接器已离线，请在 DSH 中重新开启「微信连接」后重试'));
+          self.handleAuthorizationFailure(uiText('电脑端的公网连接器已离线，请在 DSH 中重新开启「微信连接」后重试'));
           return;
         } else if (res && Number(res.code) === 4004) {
           self.handleAuthorizationFailure(uiText('DSH 电脑端连接器未支持安全公网配对，请升级插件连接器'));
@@ -252,9 +266,14 @@ class GatewayClient {
           self.handleTransportFailure(uiText('连接已关闭'));
         }
       }
-    });
+      });
 
-    this.startConnectionTimeout();
+      this.startConnectionTimeout();
+    } catch (e) {
+      if (this.socketTask === transportTask) {
+        this.handleTransportFailure((e && e.message) || uiText('无法建立 WebSocket 连接'));
+      }
+    }
   }
 
   startConnectionTimeout() {
@@ -948,6 +967,11 @@ class GatewayClient {
     return this.request({ type: 'context-dashboard', sessionId: sessionId });
   }
 
+  /** 按需读取上下文浏览器中单个 surface/header 事件的正文。 */
+  requestContextContent(sessionId, seq) {
+    return this.request({ type: 'context-content', sessionId: sessionId, seq: seq });
+  }
+
   /** 会话编队（当前 Agent 家族网络）：宿主 context-fleet 请求。 */
   requestContextFleet(sessionId) {
     return this.request({ type: 'context-fleet', sessionId: sessionId });
@@ -1211,6 +1235,13 @@ class GatewayClient {
   /** 插件目录；响应帧 kind=plugin-catalog（bundles/plugins/officialItems）。 */
   sendPluginCatalog(requestId) {
     return this.send({ type: 'plugin-catalog', requestId: requestId });
+  }
+
+  /** 读取费用/成本概览（仅 summary 动作，无需登录网关）。 */
+  async requestCostMeter(action = 'summary') {
+    if (this.state.connection !== 'connected') throw new Error(uiText('未连接'));
+    const payload = { type: 'cost-meter', requestId: util.uuid(), action };
+    return await this.requestPlugin('cost-meter', payload, 8000);
   }
 
   /** 启用/停用整个插件 bundle；响应帧 kind=plugin-bundle-set-enabled（result.application）。 */

@@ -1,8 +1,10 @@
 /* DSH TrajectoryView: fixed overview, 42pt rows and typed detail sheets. */
 .trajectory-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .trajectory-panel .trajectory { height: 0; flex: 1; padding: 12rpx 36rpx calc(24rpx + env(safe-area-inset-bottom)); }
-.trace-overview { flex-shrink: 0; padding: 24rpx 40rpx 20rpx; background: var(--fill); border-bottom: 1rpx solid var(--divider); }
+.trace-overview { flex-shrink: 0; padding: 22rpx 40rpx 20rpx; background: var(--fill); border-bottom: 1rpx solid var(--divider); }
 .trace-overview-head { display: flex; align-items: center; gap: 18rpx; font-size: 24rpx; color: var(--text); margin-bottom: 18rpx; white-space: nowrap; }
+.trace-overview-head-label { display: flex; align-items: center; gap: 10rpx; flex-shrink: 0; }
+.trace-overview-clock { width: 36rpx; height: 36rpx; flex: 0 0 36rpx; display: block; }
 .trace-overview-duration { margin-left: auto; font-variant-numeric: tabular-nums; }
 .trace-overview-lane { display: flex; align-items: center; height: 38rpx; gap: 16rpx; }
 .trace-overview-label { width: 68rpx; flex-shrink: 0; color: var(--text-3); font-size: 22rpx; }

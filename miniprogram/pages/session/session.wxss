@@ -11,12 +11,12 @@
 /* Keep mounted lists and the draft intact; flex layouts must also honor hidden. */
 .session-panel-hidden { display: none !important; }
 
-/* ---------- 顶部导航 ---------- */
+/* ---------- 椤堕儴瀵艰埅 ---------- */
 
 .navbar {
   display: flex;
   align-items: center;
-  padding: 16rpx 24rpx;
+  padding: 8rpx 24rpx;
   flex-shrink: 0;
 }
 
@@ -78,7 +78,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 27rpx;   /* 与对话/轨迹切换字号一致 */
+  font-size: 27rpx;   /* 涓庡璇?杞ㄨ抗鍒囨崲瀛楀彿涓€鑷?*/
   font-weight: 600;
   color: var(--ink);
   vertical-align: middle;
@@ -93,7 +93,7 @@
   flex-shrink: 0;
 }
 
-/* ---------- 对话/轨迹 分段控件 + 更多（同行） ---------- */
+/* ---------- 瀵硅瘽/杞ㄨ抗 鍒嗘鎺т欢 + 鏇村锛堝悓琛岋級 ---------- */
 
 .segmented-row {
   display: flex;
@@ -189,10 +189,10 @@
 .theme-dark .collab-status.running { color:#73C7A0; }
 @media (max-width:350px) { .segmented-row { padding-left:24rpx;padding-right:24rpx;gap:12rpx; }.collab-trigger { gap:6rpx; }.collab-tab { font-size:22rpx; } }
 
-/* ---------- 对话 ---------- */
+/* ---------- 瀵硅瘽 ---------- */
 
-/* 隐藏滚动条：对话 / 轨迹只保留手势滚动，不显示滑块
-   （scroll-view 的 show-scrollbar 在部分平台不生效，这里再兜一层） */
+/* 闅愯棌婊氬姩鏉★細瀵硅瘽 / 杞ㄨ抗鍙繚鐣欐墜鍔挎粴鍔紝涓嶆樉绀烘粦鍧?
+   锛坰croll-view 鐨?show-scrollbar 鍦ㄩ儴鍒嗗钩鍙颁笉鐢熸晥锛岃繖閲屽啀鍏滀竴灞傦級 */
 .conversation::-webkit-scrollbar,
 .trajectory::-webkit-scrollbar {
   width: 0;
@@ -210,11 +210,11 @@
   flex: 1;
   min-height: 0;
   box-sizing: border-box;
-  padding: 16rpx 40rpx 0;   /* iOS：viewport .padding(.horizontal, 20) .padding(.top, 8) */
+  padding: 16rpx 40rpx 0;   /* iOS锛歷iewport .padding(.horizontal, 20) .padding(.top, 8) */
 }
 
-/* ChatLayout 同款：内容不足一屏时贴近输入区，而不是把剩余高度
-   全留在最后一条消息下方；超过一屏后仍按自然高度滚动。 */
+/* ChatLayout 鍚屾锛氬唴瀹逛笉瓒充竴灞忔椂璐磋繎杈撳叆鍖猴紝鑰屼笉鏄妸鍓╀綑楂樺害
+   鍏ㄧ暀鍦ㄦ渶鍚庝竴鏉℃秷鎭笅鏂癸紱瓒呰繃涓€灞忓悗浠嶆寜鑷劧楂樺害婊氬姩銆?*/
 .conversation-inner {
   display: flex;
   flex-direction: column;
@@ -227,7 +227,7 @@
 .conversation-inner > view { flex-shrink: 0; }
 .conversation { height: 0; overflow: hidden; }
 
-/* 底部栈固定后，列表预留空间：胶囊行 + 输入卡 + 滚到底按钮的完整高度 */
+/* 搴曢儴鏍堝浐瀹氬悗锛屽垪琛ㄩ鐣欑┖闂达細鑳跺泭琛?+ 杈撳叆鍗?+ 婊氬埌搴曟寜閽殑瀹屾暣楂樺害 */
 .conversation,
 .trajectory {
   padding-bottom: 330rpx;
@@ -344,7 +344,7 @@
 to{transform:translateX(340%)}
 }
 
-/* 历史加载横幅（iOS historyLoadingBanner：转圈 + caption + Spacer，h10 v8） */
+/* 鍘嗗彶鍔犺浇妯箙锛坕OS historyLoadingBanner锛氳浆鍦?+ caption + Spacer锛宧10 v8锛?*/
 .hist-banner {
   display: flex;
   align-items: center;
@@ -370,7 +370,7 @@ to{transform:translateX(340%)}
   white-space: nowrap;
 }
 
-/* 加载更早记录（iOS：caption 全宽按钮） */
+/* 鍔犺浇鏇存棭璁板綍锛坕OS锛歝aption 鍏ㄥ鎸夐挳锛?*/
 .load-older {
   font-size: 24rpx;         /* caption 12pt */
   color: #2E6BE6;
@@ -378,7 +378,7 @@ to{transform:translateX(340%)}
   padding: 20rpx 0;
 }
 
-/* 用户消息（iOS .user：右对齐；leading 34pt；行 v12；气泡与复制钮间距 5pt） */
+/* 鐢ㄦ埛娑堟伅锛坕OS .user锛氬彸瀵归綈锛沴eading 34pt锛涜 v12锛涙皵娉′笌澶嶅埗閽棿璺?5pt锛?*/
 .row-user {
   display: flex;
   flex-direction: column;
@@ -386,12 +386,12 @@ to{transform:translateX(340%)}
   padding: 24rpx 0 24rpx 68rpx;   /* leading 34pt / vertical 12pt */
 }
 
-/* iOS userBubbleFill：ocean 11%（浅）/24%（深）；描边 8%/34%；半径 15pt */
+/* iOS userBubbleFill锛歰cean 11%锛堟祬锛?24%锛堟繁锛夛紱鎻忚竟 8%/34%锛涘崐寰?15pt */
 .row-user-bubble {
   max-width: 100%;
   box-sizing: border-box;
   border-radius: 30rpx;
-  padding: 20rpx 28rpx;           /* iOS 生产路径：H14 / V10 */
+  padding: 20rpx 28rpx;           /* iOS 鐢熶骇璺緞锛欻14 / V10 */
   background: rgba(46, 107, 230, 0.11);
   border: 1.4rpx solid rgba(46, 107, 230, 0.08);   /* 0.7pt */
 }
@@ -417,7 +417,7 @@ to{transform:translateX(340%)}
   word-break: break-word;
 }
 
-/* 复制钮（iOS CopyMessageButton：16x26pt，位于气泡下方 5pt） */
+/* 澶嶅埗閽紙iOS CopyMessageButton锛?6x26pt锛屼綅浜庢皵娉′笅鏂?5pt锛?*/
 .copy-btn {
   width: 52rpx;                   /* 26pt */
   height: 52rpx;
@@ -432,7 +432,7 @@ to{transform:translateX(340%)}
   height: 32rpx;
 }
 
-/* 助手消息（iOS .assistant：全宽 Markdown，v12；复制钮 padding-bottom 8） */
+/* 鍔╂墜娑堟伅锛坕OS .assistant锛氬叏瀹?Markdown锛寁12锛涘鍒堕挳 padding-bottom 8锛?*/
 .row-assistant {
   padding: 24rpx 0;               /* vertical 12pt */
 }
@@ -453,7 +453,7 @@ to{transform:translateX(340%)}
   margin-bottom: 14rpx;           /* spacing 7 */
 }
 
-/* 其它事件行（iOS .system：spacing 9；padding 10；tint 6% 底；radius 11） */
+/* 鍏跺畠浜嬩欢琛岋紙iOS .system锛歴pacing 9锛沺adding 10锛泃int 6% 搴曪紱radius 11锛?*/
 .row-event {
   display: flex;
   align-items: flex-start;
@@ -502,7 +502,7 @@ to{transform:translateX(340%)}
   white-space: nowrap;
 }
 
-/* ---------- 折叠行（思考 / 工具） ---------- */
+/* ---------- 鎶樺彔琛岋紙鎬濊€?/ 宸ュ叿锛?---------- */
 
 .fold {
   background: var(--fill);
@@ -606,9 +606,9 @@ to{transform:translateX(340%)}
   color: var(--text);
 }
 
-/* ---------- Markdown 表格（深色，iOS 对齐） ---------- */
+/* ---------- Markdown 琛ㄦ牸锛堟繁鑹诧紝iOS 瀵归綈锛?---------- */
 
-/* 对齐 dsh-mobile Markwon TablePlugin：边框 onSurface 20%、表头底色 onSurface 8%、隔行 3.5% */
+/* 瀵归綈 dsh-mobile Markwon TablePlugin锛氳竟妗?onSurface 20%銆佽〃澶村簳鑹?onSurface 8%銆侀殧琛?3.5% */
 
 .md-table {
   margin: 20rpx 0;
@@ -652,7 +652,7 @@ to{transform:translateX(340%)}
   background: var(--fill);
 }
 
-/* ---------- 代码块 ---------- */
+/* ---------- 浠ｇ爜鍧?---------- */
 
 .code-block {
   position: relative;
@@ -693,7 +693,7 @@ to{transform:translateX(340%)}
   padding: 6rpx 18rpx;
 }
 
-/* ---------- 图片附件 ---------- */
+/* ---------- 鍥剧墖闄勪欢 ---------- */
 
 .attach-grid {
   display: flex;
@@ -709,7 +709,7 @@ to{transform:translateX(340%)}
 .message-attachment-path { max-width:500rpx; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:rgba(100,110,120,.72); font-size:22rpx; }
 .assistant-attachments { margin-left:0; }
 
-/* 单图：max 640×560 aspectFit；多图：双列 aspectFill 圆角22 白描边 */
+/* 鍗曞浘锛歮ax 640脳560 aspectFit锛涘鍥撅細鍙屽垪 aspectFill 鍦嗚22 鐧芥弿杈?*/
 .attach-grid.single .attach-img {
   width: 640rpx;
   height: 560rpx;
@@ -789,7 +789,7 @@ to{transform:translateX(340%)}
   font-size: 27rpx;
 }
 
-/* ---------- 待处理卡片 ---------- */
+/* ---------- 寰呭鐞嗗崱鐗?---------- */
 
 .pending-card {
   margin: 0 40rpx 20rpx;
@@ -905,7 +905,7 @@ to{transform:translateX(340%)}
   margin-bottom: 10rpx;
 }
 
-/* ---------- composer 上方行（预设胶囊 + 统计胶囊） ---------- */
+/* ---------- composer 涓婃柟琛岋紙棰勮鑳跺泭 + 缁熻鑳跺泭锛?---------- */
 
 .composer-top-row {
   display: flex;
@@ -917,7 +917,7 @@ to{transform:translateX(340%)}
 .preset-capsule {
   display: flex;
   align-items: center;
-  height: 68rpx;                  /* 高 34 */
+  height: 68rpx;                  /* 楂?34 */
   box-sizing: border-box;
   padding: 0 24rpx;               /* padding h12 */
   background: var(--surface);
@@ -951,10 +951,10 @@ to{transform:translateX(340%)}
   flex-shrink: 0;
 }
 
-/* ---------- 输入面板 ---------- */
+/* ---------- 杈撳叆闈㈡澘 ---------- */
 
-/* 底部统一栈（对齐 iOS 底部 VStack）：滚到底 / 审批·提问卡 / 排队托盘 / 胶囊行 / 输入卡
-   键盘弹出时整栈 bottom = 键盘高度，所有元素同步浮起，互不遮挡 */
+/* 搴曢儴缁熶竴鏍堬紙瀵归綈 iOS 搴曢儴 VStack锛夛細婊氬埌搴?/ 瀹℃壒路鎻愰棶鍗?/ 鎺掗槦鎵樼洏 / 鑳跺泭琛?/ 杈撳叆鍗?
+   閿洏寮瑰嚭鏃舵暣鏍?bottom = 閿洏楂樺害锛屾墍鏈夊厓绱犲悓姝ユ诞璧凤紝浜掍笉閬尅 */
 .dock-stack {
   position: fixed;
   left: 24rpx;
@@ -969,7 +969,7 @@ to{transform:translateX(340%)}
 
 .composer {
   position: relative;
-  z-index: 1;                    /* 输入卡叠压排队托盘下沿（iOS zIndex(1) + spacing -24） */
+  z-index: 1;                    /* 杈撳叆鍗″彔鍘嬫帓闃熸墭鐩樹笅娌匡紙iOS zIndex(1) + spacing -24锛?*/
   padding: 28rpx 28rpx 24rpx;     /* h14 / t14 / b12 */
   border-radius: 48rpx;           /* radius 24 */
   background: var(--surface);
@@ -1033,7 +1033,7 @@ to{transform:translateX(340%)}
   margin-top: 16rpx;
 }
 
-/* 对齐 dsh-mobile：输入栏控件为扁平图标+文字（onSurface 62%），无胶囊底色 */
+/* 瀵归綈 dsh-mobile锛氳緭鍏ユ爮鎺т欢涓烘墎骞冲浘鏍?鏂囧瓧锛坥nSurface 62%锛夛紝鏃犺兌鍥婂簳鑹?*/
 .chip {
   display: flex;
   align-items: center;
@@ -1089,7 +1089,7 @@ to{transform:translateX(340%)}
   background: #FFFFFF;
 }
 
-/* ---------- 抽屉 ---------- */
+/* ---------- 鎶藉眽 ---------- */
 
 .sheet-mask {
   position: fixed;
@@ -1120,7 +1120,7 @@ to{transform:translateX(340%)}
   margin: 6rpx auto 20rpx;
 }
 
-/* ===== 图标资产尺寸（iOS 对齐） ===== */
+/* ===== 鍥炬爣璧勪骇灏哄锛坕OS 瀵归綈锛?===== */
 .session-menu-mask { background: rgba(0, 0, 0, .42); z-index: 1000; visibility: hidden; pointer-events: none; opacity: 0; transition: opacity 160ms ease-out, visibility 0s 160ms; }
 .session-menu-mask.is-open { visibility: visible; pointer-events: auto; opacity: 1; transition-delay: 0s; }
 .sheet.session-menu { padding: 10rpx 40rpx calc(24rpx + env(safe-area-inset-bottom)); border-radius: 32rpx 32rpx 0 0; color: var(--text); transform: translateY(32rpx); transition: transform 160ms ease-out, height 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
@@ -1145,7 +1145,7 @@ to{transform:translateX(340%)}
 .session-menu-chevron { width: 24rpx; height: 24rpx; opacity: .55; flex-shrink: 0; }
 .session-menu-pressed { background: var(--surface); }
 .session-menu-row.disabled { opacity: .4; }
-/* 更多弹层内的二级页面（重命名 / 查看统计 / 工作区文件）：在当前弹层内切换，不再另开底部弹窗 */
+/* 鏇村寮瑰眰鍐呯殑浜岀骇椤甸潰锛堥噸鍛藉悕 / 鏌ョ湅缁熻 / 宸ヤ綔鍖烘枃浠讹級锛氬湪褰撳墠寮瑰眰鍐呭垏鎹紝涓嶅啀鍙﹀紑搴曢儴寮圭獥 */
 .session-menu-pane { padding: 8rpx 0 4rpx; animation: session-menu-pane-in 180ms ease-out; }
 .session-menu-pane .session-sheet-input { height: 88rpx; }
 .session-menu-stats { max-height: 60vh; }
@@ -1161,7 +1161,7 @@ to{transform:translateX(340%)}
 @media (prefers-reduced-motion: reduce) { .session-menu-mask, .sheet.session-menu, .session-menu-pane { transition: none; animation: none; } }
 
 .nav-ic {
-  width: 20rpx;      /* 三个点图标，进一步缩小 */
+  width: 20rpx;      /* 涓変釜鐐瑰浘鏍囷紝杩涗竴姝ョ缉灏?*/
   height: 20rpx;
   display: block;
 }
@@ -1204,7 +1204,7 @@ to{transform:translateX(340%)}
   margin-right: 10rpx;
 }
 
-/* 窄屏（手机）：模式芯片仅显示图标；宽屏显示图标+文字 */
+/* 绐勫睆锛堟墜鏈猴級锛氭ā寮忚姱鐗囦粎鏄剧ず鍥炬爣锛涘灞忔樉绀哄浘鏍?鏂囧瓧 */
 .chip-label {
   display: none;
 }
@@ -1324,7 +1324,7 @@ to{transform:translateX(340%)}
   color: var(--gray);
 }
 
-/* ---------- 深色补充覆盖（theme-dark，随外观模式切换） ---------- */
+/* ---------- 娣辫壊琛ュ厖瑕嗙洊锛坱heme-dark锛岄殢澶栬妯″紡鍒囨崲锛?---------- */
 
 .theme-dark .nav-more {
   background: var(--fill-2);
@@ -1332,14 +1332,14 @@ to{transform:translateX(340%)}
   box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.3);
 }
 
-/* 深色模式图标反色 */
+/* 娣辫壊妯″紡鍥炬爣鍙嶈壊 */
 .theme-dark .nav-ic {
   filter: invert(1) brightness(0.9);
 }
 
-/* ---------- 过程分组行（对齐 dsh-mobile ConversationProcessRow） ---------- */
+/* ---------- 杩囩▼鍒嗙粍琛岋紙瀵归綈 dsh-mobile ConversationProcessRow锛?---------- */
 
-/* 过程组（对齐 DSH：左箭头 ▾ 收起 / ▴ 展开 + 标题 + 底部发丝线） */
+/* 杩囩▼缁勶紙瀵归綈 DSH锛氬乏绠ご 鈻?鏀惰捣 / 鈻?灞曞紑 + 鏍囬 + 搴曢儴鍙戜笣绾匡級 */
 .process-block {
   padding: 0;
   margin: 0;
@@ -1381,7 +1381,7 @@ to{transform:translateX(340%)}
 }
 
 .process-chevron.open {
-  transform: rotate(-90deg);      /* 展开：▴ */
+  transform: rotate(-90deg);      /* 灞曞紑锛氣柎 */
 }
 
 .process-hairline {
@@ -1407,9 +1407,9 @@ to{transform:translateX(340%)}
   word-break: break-word;
 }
 
-/* 展开内的 disclosure（Think / 工具，对齐 ProcessDisclosure） */
+/* 灞曞紑鍐呯殑 disclosure锛圱hink / 宸ュ叿锛屽榻?ProcessDisclosure锛?*/
 
-/* ===== 事件行（iOS ConversationFallbackEventRow：图标18宽 + 标题 tint + · + 预览） ===== */
+/* ===== 浜嬩欢琛岋紙iOS ConversationFallbackEventRow锛氬浘鏍?8瀹?+ 鏍囬 tint + 路 + 棰勮锛?===== */
 .event-row {
   padding: 4rpx 0;                /* vertical 2 */
 }
@@ -1471,7 +1471,7 @@ to{transform:translateX(340%)}
   transform: rotate(90deg);
 }
 
-/* 事件详情体（iOS：1px 灰线 + compact markdown secondary；leading 5/top 5/bottom 3） */
+/* 浜嬩欢璇︽儏浣擄紙iOS锛?px 鐏扮嚎 + compact markdown secondary锛沴eading 5/top 5/bottom 3锛?*/
 .event-body {
   display: flex;
   gap: 20rpx;                     /* spacing 10 */
@@ -1503,7 +1503,7 @@ to{transform:translateX(340%)}
   margin: 12rpx 0;
 }
 
-/* ===== 过程组内 disclosures（iOS 节点树指标） ===== */
+/* ===== 杩囩▼缁勫唴 disclosures锛坕OS 鑺傜偣鏍戞寚鏍囷級 ===== */
 .disclosure {
   margin: 0;
   border-bottom: 1rpx solid rgba(142, 142, 147, 0.12);
@@ -1586,7 +1586,7 @@ to{transform:translateX(340%)}
   word-break: break-word;
 }
 
-/* ===== 上下文注入行（system/插件来源的 user/message） ===== */
+/* ===== 涓婁笅鏂囨敞鍏ヨ锛坰ystem/鎻掍欢鏉ユ簮鐨?user/message锛?===== */
 .row-context {
   margin: 12rpx 0 16rpx;
   padding: 16rpx 20rpx;
@@ -1595,7 +1595,7 @@ to{transform:translateX(340%)}
   background: var(--fill);
 }
 
-/* ---------- 上下文浮窗（对齐 iOS popover：锚定环按钮上方，带小箭头） ---------- */
+/* ---------- 涓婁笅鏂囨诞绐楋紙瀵归綈 iOS popover锛氶敋瀹氱幆鎸夐挳涓婃柟锛屽甫灏忕澶达級 ---------- */
 
 .ctx-pop-mask {
   position: fixed;
@@ -1621,9 +1621,9 @@ to{transform:translateX(340%)}
   padding: 32rpx;
 }
 
-/* 指向环按钮的小箭头：中心对准上下文圆环图标
-   屏幕右侧 → 圆环中心 = dock 28 + composer 28 + 发送键 84 + 间距 14 + 环 margin 16 + 环半径 22 = 192rpx
-   弹窗 right 28 + 箭头 right + 箭头半宽 10 = 192 → 箭头 right = 154rpx */
+/* 鎸囧悜鐜寜閽殑灏忕澶达細涓績瀵瑰噯涓婁笅鏂囧渾鐜浘鏍?
+   灞忓箷鍙充晶 鈫?鍦嗙幆涓績 = dock 28 + composer 28 + 鍙戦€侀敭 84 + 闂磋窛 14 + 鐜?margin 16 + 鐜崐寰?22 = 192rpx
+   寮圭獥 right 28 + 绠ご right + 绠ご鍗婂 10 = 192 鈫?绠ご right = 154rpx */
 .ctx-pop::after {
   content: '';
   position: absolute;
@@ -1637,7 +1637,7 @@ to{transform:translateX(340%)}
   transform: rotate(45deg);
 }
 
-/* 待发文件条目（+ → 文件） */
+/* 寰呭彂鏂囦欢鏉＄洰锛? 鈫?鏂囦欢锛?*/
 .pending-file {
   display: flex;
   align-items: center;
@@ -1665,13 +1665,13 @@ to{transform:translateX(340%)}
   white-space: nowrap;
 }
 
-/* ---------- 运行指示条（对齐 iOS deep-search-progress） ---------- */
+/* ---------- 杩愯鎸囩ず鏉★紙瀵归綈 iOS deep-search-progress锛?---------- */
 
-/* 运行指示条（iOS DeepSearchProgressRow） */
+/* 杩愯鎸囩ず鏉★紙iOS DeepSearchProgressRow锛?*/
 .progress-strip {
   display: flex;
   flex-direction: column;
-  margin-top: 16rpx;            /* 外层 padding-top 8pt */
+  margin-top: 16rpx;            /* 澶栧眰 padding-top 8pt */
 }
 
 .conversation-progress {
@@ -1684,12 +1684,12 @@ to{transform:translateX(340%)}
   display: flex;
   align-items: flex-start;
   height: 112rpx;               /* iOS 56pt */
-  padding: 26rpx 4rpx 0;        /* 内层 padding-top 13pt */
+  padding: 26rpx 4rpx 0;        /* 鍐呭眰 padding-top 13pt */
 }
 
 @keyframes whaleTailPlay {
   from { transform: translateX(0); }
-  to { transform: translateX(-2160rpx); }  /* 60 帧无缝循环 */
+  to { transform: translateX(-2160rpx); }  /* 60 甯ф棤缂濆惊鐜?*/
 }
 
 .theme-light .progress-text,
@@ -1726,7 +1726,7 @@ to{transform:translateX(340%)}
   to { background-position: -40% 0; }
 }
 
-/* 工具行摘要（对齐 iOS 工具头：摘要标签+注释+失败/等待结果+参数两行） */
+/* 宸ュ叿琛屾憳瑕侊紙瀵归綈 iOS 宸ュ叿澶达細鎽樿鏍囩+娉ㄩ噴+澶辫触/绛夊緟缁撴灉+鍙傛暟涓よ锛?*/
 .tool-line {
   flex: 1;
   min-width: 0;
@@ -1783,7 +1783,7 @@ to{transform:translateX(340%)}
   overflow: hidden;
 }
 
-/* 滚到底按钮（36×36 玻璃圆） */
+/* 婊氬埌搴曟寜閽紙36脳36 鐜荤拑鍦嗭級 */
 .jump-wrap {
   position: absolute;
   right: 0;
@@ -1793,7 +1793,7 @@ to{transform:translateX(340%)}
 
 .jump-bottom {
   position: relative;
-  width: 72rpx;                 /* 36pt 玻璃圆，对齐 DSH */
+  width: 72rpx;                 /* 36pt 鐜荤拑鍦嗭紝瀵归綈 DSH */
   height: 72rpx;
   border-radius: 50%;
   background: rgba(120, 120, 128, 0.24);
@@ -1813,7 +1813,7 @@ to{transform:translateX(340%)}
   to { transform: rotate(360deg); }
 }
 
-/* 运行时：箭头不变，外圈套一条海蓝进度环（对齐 DSH ocean 进度色） */
+/* 杩愯鏃讹細绠ご涓嶅彉锛屽鍦堝涓€鏉℃捣钃濊繘搴︾幆锛堝榻?DSH ocean 杩涘害鑹诧級 */
 .jump-ring {
   position: absolute;
   left: 0;
@@ -1826,10 +1826,10 @@ to{transform:translateX(340%)}
   animation: runSpin 0.9s linear infinite;
 }
 
-/* 状态行（命令/压缩） */
-/* 状态行（iOS .status：spacing 9；subheadline 15pt；vertical 6） */
+/* 鐘舵€佽锛堝懡浠?鍘嬬缉锛?*/
+/* 鐘舵€佽锛坕OS .status锛歴pacing 9锛泂ubheadline 15pt锛泇ertical 6锛?*/
 .delivered-files { display:flex; flex-direction:column; gap:20rpx; min-width:0; }
-/* Each turn-tail block is independent, including presented → edited cards. */
+/* Each turn-tail block is independent, including presented 鈫?edited cards. */
 .delivered-files + .changed-files,
 .changed-files + .delivered-files,
 .delivered-files + .delivered-files,
@@ -1908,7 +1908,7 @@ to{transform:translateX(340%)}
   color: var(--text-2);
 }
 
-/* ============ 排队消息 dock（对齐 iOS queue dock） ============ */
+/* ============ 鎺掗槦娑堟伅 dock锛堝榻?iOS queue dock锛?============ */
 .queue-dock {
   width: 100%;
   margin: 0 0 12rpx;
@@ -2139,7 +2139,7 @@ to{transform:translateX(340%)}
   background: rgba(255, 255, 255, 0.14);
 }
 
-/* ============ 会话状态紧凑浮窗（统计胶囊上方） ============ */
+/* ============ 浼氳瘽鐘舵€佺揣鍑戞诞绐楋紙缁熻鑳跺泭涓婃柟锛?============ */
 .stats-pop-mask {
   position: fixed;
   left: 0;
@@ -2202,7 +2202,7 @@ to{transform:translateX(340%)}
   font-variant-numeric: tabular-nums;
 }
 
-/* ============ 对话空态 ============ */
+/* ============ 瀵硅瘽绌烘€?============ */
 .conv-empty {
   display: flex;
   flex-direction: column;
@@ -2231,7 +2231,7 @@ to{transform:translateX(340%)}
   line-height: 1.6;
 }
 
-/* ============ 审批卡（对齐 iOS ApprovalRequestView amber 体系） ============ */
+/* ============ 瀹℃壒鍗★紙瀵归綈 iOS ApprovalRequestView amber 浣撶郴锛?============ */
 .approval-card {
   border: 1rpx solid rgba(245, 156, 13, 0.78);
   background: var(--surface);
@@ -2291,7 +2291,7 @@ to{transform:translateX(340%)}
   line-height: 1.5;
 }
 
-/* ============ 提问卡补充（对齐 iOS HumanQuestionView） ============ */
+/* ============ 鎻愰棶鍗¤ˉ鍏咃紙瀵归綈 iOS HumanQuestionView锛?============ */
 .q-spacer {
   flex: 1;
 }
@@ -2330,7 +2330,7 @@ to{transform:translateX(340%)}
   margin-top: 4rpx;
 }
 
-/* ============ 顶栏连接状态点（8×8pt + 同色外发光，spec §6） ============ */
+/* ============ 椤舵爮杩炴帴鐘舵€佺偣锛?脳8pt + 鍚岃壊澶栧彂鍏夛紝spec 搂6锛?============ */
 .status-dot {
   width: 16rpx;
   height: 16rpx;
@@ -2357,7 +2357,7 @@ to{transform:translateX(340%)}
   background: #98A2B3;
 }
 
-/* ============ 选择浮层（权限/模式：图标行 + 当前项对勾） ============ */
+/* ============ 閫夋嫨娴眰锛堟潈闄?妯″紡锛氬浘鏍囪 + 褰撳墠椤瑰鍕撅級 ============ */
 .opt-mask {
   position: fixed;
   inset: 0;
@@ -2419,7 +2419,7 @@ to{transform:translateX(340%)}
   height: 30rpx;
 }
 
-/* ============ 提问卡：单题翻页 + 收起态（对齐 iOS HumanQuestionView） ============ */
+/* ============ 鎻愰棶鍗★細鍗曢缈婚〉 + 鏀惰捣鎬侊紙瀵归綈 iOS HumanQuestionView锛?============ */
 .q-collapsed {
   display: flex;
   align-items: center;
@@ -2474,7 +2474,7 @@ to{transform:translateX(340%)}
   margin-bottom: 6rpx;
 }
 
-/* 选项前置选择指示器：radio 圆形 / checkbox 方形（iOS largecircle/square 对齐） */
+/* 閫夐」鍓嶇疆閫夋嫨鎸囩ず鍣細radio 鍦嗗舰 / checkbox 鏂瑰舰锛坕OS largecircle/square 瀵归綈锛?*/
 .q-option {
   display: flex;
   align-items: flex-start;
@@ -2515,7 +2515,7 @@ to{transform:translateX(340%)}
   min-width: 0;
 }
 
-/* 自定义答案行（pencil.line + 输入框，对齐 iOS） */
+/* 鑷畾涔夌瓟妗堣锛坧encil.line + 杈撳叆妗嗭紝瀵归綈 iOS锛?*/
 .q-custom-row {
   display: flex;
   align-items: center;
@@ -2536,7 +2536,7 @@ to{transform:translateX(340%)}
   color: var(--text);
 }
 
-/* 底部翻页器 */
+/* 搴曢儴缈婚〉鍣?*/
 .q-footer {
   display: flex;
   align-items: center;
@@ -2662,7 +2662,7 @@ to{transform:translateX(340%)}
   font-size: 26rpx;
 }
 
-/* ============ 会话区三态（对齐 iOS ConversationView） ============ */
+/* ============ 浼氳瘽鍖轰笁鎬侊紙瀵归綈 iOS ConversationView锛?============ */
 .conv-state {
   padding: 120rpx 56rpx;
   display: flex;
@@ -2702,7 +2702,7 @@ to{transform:translateX(340%)}
   text-align: center;
 }
 
-/* 重新加载历史（iOS .bordered 按钮） */
+/* 閲嶆柊鍔犺浇鍘嗗彶锛坕OS .bordered 鎸夐挳锛?*/
 .state-btn {
   margin-top: 8rpx;
   font-size: 28rpx;
@@ -2744,6 +2744,7 @@ to{transform:translateX(340%)}
   padding-left: 20rpx;
   box-sizing: border-box;
   align-items: center;
+  padding-bottom: 4rpx;
 }
 
 .nav-title {
@@ -3073,7 +3074,7 @@ to{transform:translateX(340%)}
   box-shadow: 0 16rpx 36rpx rgba(0, 0, 0, 0.34);
 }
 
-/* DSH composer footer：轮次/步骤、Token/缓存、上下文均位于输入卡下方 */
+/* DSH composer footer锛氳疆娆?姝ラ銆乀oken/缂撳瓨銆佷笂涓嬫枃鍧囦綅浜庤緭鍏ュ崱涓嬫柟 */
 .composer-metrics {
   position: relative;
   z-index: 2;
@@ -3203,9 +3204,9 @@ to{transform:translateX(340%)}
   border-radius: 6rpx;
 }
 
-/* 空态/状态整块铺满可视对话区（底部 dock 之上）并垂直居中：
-   高度跟滚动视口走（.conversation-inner 的 min-height:100%），内容不会比视口高，
-   因此默认不产生滚动，也不会触发右下角"回到底部"箭头。 */
+/* 绌烘€?鐘舵€佹暣鍧楅摵婊″彲瑙嗗璇濆尯锛堝簳閮?dock 涔嬩笂锛夊苟鍨傜洿灞呬腑锛?
+   楂樺害璺熸粴鍔ㄨ鍙ｈ蛋锛?conversation-inner 鐨?min-height:100%锛夛紝鍐呭涓嶄細姣旇鍙ｉ珮锛?
+   鍥犳榛樿涓嶄骇鐢熸粴鍔紝涔熶笉浼氳Е鍙戝彸涓嬭"鍥炲埌搴曢儴"绠ご銆?*/
 .conv-empty,
 .conv-state {
   box-sizing: border-box;
@@ -3380,13 +3381,54 @@ to{transform:translateX(340%)}
 
 
 /* Collaboration shares the switcher row; override earlier centered-only layouts. */
-.session .segmented-row { position:relative;padding:8rpx 24rpx;gap:16rpx;justify-content:space-between; }
-/* 对话/轨迹：绝对居中，协作与更多分居两侧 */
-.session .segmented-row .segmented { position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);flex:0 0 auto;min-width:0;width:min(340rpx, calc(100% - 260rpx));margin:0; }
-.session .segmented-row .nav-more { position:static;flex:0 0 64rpx;margin:0;align-self:center;top:auto;right:auto;display:flex;align-items:center;justify-content:center; }
-@media (max-width:350px) { .session .segmented-row { padding-left:24rpx;gap:12rpx; } }
+.session .segmented-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding-top: 0;
+  padding-bottom: 0;
+  padding-left: 20rpx;
+  padding-right: 20rpx;
+  gap: 16rpx;
+  justify-content: space-between;
+  min-height: 50rpx;
+  box-sizing: border-box;
+}
+/* 瀵硅瘽/杞ㄨ抗锛氱粷瀵瑰眳涓紝鍗忎綔涓庢洿澶氬垎灞呬袱渚?*/
+.session .segmented-row .segmented {
+  position: static;
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  width: auto;
+  transform: none;
+  left: auto;
+  top: auto;
+}
+.session .segmented-row .nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  flex-shrink: 0;
+  padding-bottom: 0;
+  margin-bottom: 0;   /* center the round buttons on the tab labels */
+}
+.session .segmented-row .nav-more {
+  position: static;
+  flex: 0 0 64rpx;
+  margin: 0;
+  align-self: center;
+  top: auto;
+  right: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+@media (max-width:350px) {
+  .session .segmented-row { padding-left:24rpx;gap:12rpx; }
+}
 
-/* 加号按钮与权限图标同尺寸（24rpx） */
+/* 鍔犲彿鎸夐挳涓庢潈闄愬浘鏍囧悓灏哄锛?4rpx锛?*/
 .composer-bar .chip.icon {
   width: 46rpx;
   height: 46rpx;
@@ -3395,7 +3437,7 @@ to{transform:translateX(340%)}
 .composer-bar .chip.icon .attach-ic { width: 24rpx; height: 24rpx; }
 .composer-bar .chip-ic { width: 34rpx; height: 34rpx; margin-right: 8rpx; }
 
-/* 权限控件：图标固定，文字使用剩余宽度，过长时省略 */
+/* 鏉冮檺鎺т欢锛氬浘鏍囧浐瀹氾紝鏂囧瓧浣跨敤鍓╀綑瀹藉害锛岃繃闀挎椂鐪佺暐 */
 .composer-bar .permission-chip {
   flex: 0 0 auto;
   min-width: 0;
@@ -3456,7 +3498,7 @@ to{transform:translateX(340%)}
 .navbar .nav-back {
   width: 46rpx;
   height: 46rpx;
-  background: var(--fill) !important;          /* 可见圆形底 */
+  background: var(--fill) !important;          /* 鍙鍦嗗舰搴?*/
   border: 1rpx solid var(--border) !important;
   border-radius: 50% !important;
   box-shadow: none !important;
@@ -3472,9 +3514,9 @@ to{transform:translateX(340%)}
 
 
 
-/* 弹窗菜单使用正常字号与图标尺寸（输入栏 + 图标尺寸不受影响） */
+/* 寮圭獥鑿滃崟浣跨敤姝ｅ父瀛楀彿涓庡浘鏍囧昂瀵革紙杈撳叆鏍?+ 鍥炬爣灏哄涓嶅彈褰卞搷锛?*/
 .opt-pop .opt-ic { width: 36rpx; height: 36rpx; }
-/* 夜间模式：灰阶图标统一反白，保证对比度 */
+/* 澶滈棿妯″紡锛氱伆闃跺浘鏍囩粺涓€鍙嶇櫧锛屼繚璇佸姣斿害 */
 .theme-dark .opt-pop .opt-ic {
   filter: brightness(0) invert(1);
   opacity: 0.92;
@@ -3609,7 +3651,7 @@ to{transform:translateX(340%)}
 }
 .session .tool-detail-code, .session .tool-detail-output { font-family: var(--dsh-font-family-code, monospace); font-size: var(--dsh-code-font-size, 11px); }
 
-/* ---------- 更多菜单内的底部弹窗 ---------- */
+/* ---------- 鏇村鑿滃崟鍐呯殑搴曢儴寮圭獥 ---------- */
 .more-files-sheet {
   max-height: 90vh;
   display: flex;
@@ -3617,7 +3659,7 @@ to{transform:translateX(340%)}
   transition: height 0.24s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
-/* 抓手整块可点/可拖：点击或上拖增高到 90% */
+/* 鎶撴墜鏁村潡鍙偣/鍙嫋锛氱偣鍑绘垨涓婃嫋澧為珮鍒?90% */
 .files-grabber-zone {
   padding: 10rpx 0 6rpx;
   margin: -10rpx 0 0;
@@ -3795,25 +3837,16 @@ to{transform:translateX(340%)}
   overflow-wrap: anywhere;
 }
 
-/* ---------- 执行中：方形格子闪动加载图标（styles/proc-icon.wxss） ---------- */
+/* ---------- 鎵ц涓細鏂瑰舰鏍煎瓙闂姩鍔犺浇鍥炬爣锛坰tyles/proc-icon.wxss锛?---------- */
 
 /* Quick session switching: a bottom sheet on phones, a DSH-style right popover on wide screens. */
-.session .segmented-row .nav-actions {
-  position: absolute;
-  right: 20rpx;
-  top: 50%;
-  transform: translateY(-50%);
-  display: flex;
-  align-items: center;
-  gap: 8rpx;
-  height: 72rpx;
-}
-.session .segmented-row .nav-actions .nav-more {
-  position: static;
-  margin: 0;
-}
 .session .segmented-row .segmented {
-  width: min(340rpx, calc(100% - 340rpx));
+  width: auto;
+  flex: 1;
+  min-width: 0;
+  transform: none;
+  left: auto;
+  top: auto;
 }
 .session-switch-trigger {
   width: 64rpx;
@@ -3841,7 +3874,11 @@ to{transform:translateX(340%)}
 .session-switch-lines view:nth-child(2) { width: 78%; }
 .session-switch-lines view:nth-child(3) { width: 90%; }
 
-/* 会话快捷切换：与对话节点一致的全屏蒙版，内容样式保持原样 */
+/* session-switch-lines: wider vertical spacing on phones */
+.session-switch-lines { gap: 12rpx; }
+.session-switch-lines view { height: 3rpx; }
+
+/* 浼氳瘽蹇嵎鍒囨崲锛氫笌瀵硅瘽鑺傜偣涓€鑷寸殑鍏ㄥ睆钂欑増锛屽唴瀹规牱寮忎繚鎸佸師鏍?*/
 .session-switch-overlay {
   position: fixed;
   inset: 0;
@@ -3877,9 +3914,9 @@ to{transform:translateX(340%)}
 }
 .session-switch-top {
   position: absolute;
-  left: 40rpx;                 /* 图标靠左 */
+  left: 40rpx;                 /* 鍥炬爣闈犲乏 */
   display: flex;
-  align-items: center;         /* 与胶囊垂直居中对齐 */
+  align-items: center;         /* 涓庤兌鍥婂瀭鐩村眳涓榻?*/
   justify-content: flex-start;
   z-index: 2;
   pointer-events: none;
@@ -3973,9 +4010,16 @@ to{transform:translateX(340%)}
   background: rgba(255, 255, 255, .08);
   box-shadow: none;
 }
-.session-switch-lines { gap: 12rpx; }
-.session-switch-lines view { height: 3rpx; }
-
+.session-switch-trigger {
+  width: 64rpx;
+  height: 64rpx;
+  flex: 0 0 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--text-2);
+}
 @media (min-width: 700px) {
   .session .segmented-row .nav-actions { right: 28rpx; gap: 8rpx; }
   .session .segmented-row .nav-actions .nav-more { width: 48px; height: 48px; min-width: 48px; max-width: 48px; flex: 0 0 48px; }
@@ -4029,7 +4073,7 @@ to{transform:translateX(340%)}
   .session-switch-mask, .session-switch-panel { transition: none; }
 }
 
-/* ---------- 对话节点定位：全屏蒙版 + 垂直居中的对话大纲 ---------- */
+/* ---------- 瀵硅瘽鑺傜偣瀹氫綅锛氬叏灞忚挋鐗?+ 鍨傜洿灞呬腑鐨勫璇濆ぇ绾?---------- */
 .turn-overlay {
   position: fixed;
   inset: 0;
@@ -4051,7 +4095,7 @@ to{transform:translateX(340%)}
 
 .turn-overlay-inner {
   width: 100%;
-  max-height: 90vh;              /* 内容最高占屏幕 90% */
+  max-height: 90vh;              /* 鍐呭鏈€楂樺崰灞忓箷 90% */
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -4129,7 +4173,7 @@ to{transform:translateX(340%)}
   font-weight: 600;
 }
 
-/* 右侧横线列：线靠右，圆点在线右侧 */
+/* 鍙充晶妯嚎鍒楋細绾块潬鍙筹紝鍦嗙偣鍦ㄧ嚎鍙充晶 */
 .turn-scrub-rail-cell {
   width: 108rpx;
   height: 100%;
@@ -4188,7 +4232,7 @@ to{transform:translateX(340%)}
 }
 .turn-history-error { color: #FFB49B; pointer-events: auto; }
 
-/* 切换器在蒙版上使用浅色文字，保证可读性（内容结构不变） */
+/* 鍒囨崲鍣ㄥ湪钂欑増涓婁娇鐢ㄦ祬鑹叉枃瀛楋紝淇濊瘉鍙鎬э紙鍐呭缁撴瀯涓嶅彉锛?*/
 .session-switch-overlay .session-switch-title { color: #F1F4FA; }
 .session-switch-overlay .session-switch-close .sheet-close-x { background: rgba(241, 244, 250, 0.12); }
 .session-switch-overlay .session-switch-close .sheet-close-x::before,
@@ -4207,7 +4251,7 @@ to{transform:translateX(340%)}
 .session-switch-overlay .session-switch-row-pressed { background: rgba(241, 244, 250, 0.06); }
 .session-switch-overlay .session-switch-state { background: rgba(241, 244, 250, 0.38); }
 
-/* 蒙版上的搜索框：默认 64rpx 圆钮，点击展开为全圆角搜索框 */
+/* 钂欑増涓婄殑鎼滅储妗嗭細榛樿 64rpx 鍦嗛挳锛岀偣鍑诲睍寮€涓哄叏鍦嗚鎼滅储妗?*/
 .session-switch-overlay .session-switch-search {
   width: 64rpx;
   height: 64rpx;
@@ -4229,7 +4273,7 @@ to{transform:translateX(340%)}
   opacity: 0.85;
 }
 
-/* 快捷切换：工作区分组标题 */
+/* 蹇嵎鍒囨崲锛氬伐浣滃尯鍒嗙粍鏍囬 */
 .session-switch-group {
   display: flex;
   align-items: baseline;
@@ -4256,12 +4300,12 @@ to{transform:translateX(340%)}
   color: rgba(241, 244, 250, 0.4);
 }
 
-/* 文件 / 变更卡片之间留出间距（行包装器是兄弟节点，原相邻选择器不生效） */
+/* 鏂囦欢 / 鍙樻洿鍗＄墖涔嬮棿鐣欏嚭闂磋窛锛堣鍖呰鍣ㄦ槸鍏勫紵鑺傜偣锛屽師鐩搁偦閫夋嫨鍣ㄤ笉鐢熸晥锛?*/
 .conversation-window-row.row-file-card + .conversation-window-row.row-file-card {
   margin-top: 16rpx;
 }
 
-/* 协作面板头部：模式标签（绿点 + 图标 + 名称）靠右，紧邻刷新按钮 */
+/* 鍗忎綔闈㈡澘澶撮儴锛氭ā寮忔爣绛撅紙缁跨偣 + 鍥炬爣 + 鍚嶇О锛夐潬鍙筹紝绱ч偦鍒锋柊鎸夐挳 */
 .collab-mode {
   display: flex;
   align-items: center;
@@ -4289,7 +4333,7 @@ to{transform:translateX(340%)}
 }
 
 
-/* 模式图标：已连接时图标本身为绿色，断开时为灰色，无圆环背景 */
+/* 妯″紡鍥炬爣锛氬凡杩炴帴鏃跺浘鏍囨湰韬负缁胯壊锛屾柇寮€鏃朵负鐏拌壊锛屾棤鍦嗙幆鑳屾櫙 */
 .collab-mode .collab-mode-icon {
   width: 30rpx;
   height: 30rpx;
@@ -4297,7 +4341,7 @@ to{transform:translateX(340%)}
   opacity: 1;
 }
 
-/* 协作入口：放在原模式位置（导航栏右侧），紧凑显示 */
+/* 鍗忎綔鍏ュ彛锛氭斁鍦ㄥ師妯″紡浣嶇疆锛堝鑸爮鍙充晶锛夛紝绱у噾鏄剧ず */
 .navbar .nav-collab {
   margin-left: 12rpx;
   min-height: 0;
@@ -4318,7 +4362,7 @@ to{transform:translateX(340%)}
   color: var(--ink);
 }
 
-/* 对话 / 轨迹：DSH 官方风格的下划线 Tab */
+/* 瀵硅瘽 / 杞ㄨ抗锛欴SH 瀹樻柟椋庢牸鐨勪笅鍒掔嚎 Tab */
 .session .segmented-row .segmented {
   border-radius: 0;
   padding: 0;
@@ -4358,13 +4402,13 @@ to{transform:translateX(340%)}
   transform: translateX(-50%);
 }
 
-/* 会话标题：与「对话/轨迹」切换字号一致（覆盖前面重复定义的 34rpx） */
+/* 浼氳瘽鏍囬锛氫笌銆屽璇?杞ㄨ抗銆嶅垏鎹㈠瓧鍙蜂竴鑷达紙瑕嗙洊鍓嶉潰閲嶅瀹氫箟鐨?34rpx锛?*/
 .session .navbar .nav-title .nav-title-inner {
   font-size: 32rpx !important;
   font-weight: 600;
 }
 
-/* 返回按钮：弱化对比，避免在标题旁过于抢眼 */
+/* 杩斿洖鎸夐挳锛氬急鍖栧姣旓紝閬垮厤鍦ㄦ爣棰樻梺杩囦簬鎶㈢溂 */
 .navbar .nav-back-ic {
   width: 22rpx;
   height: 22rpx;
@@ -4375,7 +4419,7 @@ to{transform:translateX(340%)}
   opacity: 0.65;
 }
 
-/* 对话 / 轨迹：收紧两者间距 */
+/* 瀵硅瘽 / 杞ㄨ抗锛氭敹绱т袱鑰呴棿璺?*/
 .session .segmented-row .segmented {
   width: auto;
   min-width: 0;
@@ -4386,10 +4430,10 @@ to{transform:translateX(340%)}
 
 .session .segmented-row .segment {
   flex: none;
-  padding: 10rpx 4rpx 16rpx;
+  padding: 16rpx 4rpx;   /* symmetric: label centers on the buttons' axis */
 }
 
-/* 对话 / 轨迹：靠左显示，不再绝对居中 */
+/* 瀵硅瘽 / 杞ㄨ抗锛氶潬宸︽樉绀猴紝涓嶅啀缁濆灞呬腑 */
 .session .segmented-row {
   justify-content: flex-start;
   padding-left: 40rpx;
@@ -4403,14 +4447,14 @@ to{transform:translateX(340%)}
   margin: 0;
 }
 
-/* 顶部导航：去掉底部内边距，内容区高度=胶囊高度，标题与胶囊严格同一水平线 */
+/* 椤堕儴瀵艰埅锛氬幓鎺夊簳閮ㄥ唴杈硅窛锛屽唴瀹瑰尯楂樺害=鑳跺泭楂樺害锛屾爣棰樹笌鑳跺泭涓ユ牸鍚屼竴姘村钩绾?*/
 .session .navbar {
   padding-bottom: 0 !important;
 }
 
-/* ---------- 上下文面板（移植 dsh-context Context tab） ---------- */
+/* ---------- 涓婁笅鏂囬潰鏉匡紙绉绘 dsh-context Context tab锛?---------- */
 .context-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.context-toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 12rpx; padding: 12rpx 40rpx 4rpx; }
+.context-toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 12rpx; padding: 22rpx 40rpx 4rpx; }
 .context-toolbar-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
 .context-toolbar-meta { max-width: 260rpx; font-size: 22rpx; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .context-toolbar-spacer { flex: 1; }
@@ -4482,7 +4526,7 @@ to{transform:translateX(340%)}
 .ctx-event-count { flex-shrink: 0; color: var(--text-4); font-variant-numeric: tabular-nums; }
 .ctx-bottom-space { height: 24rpx; }
 
-/* 组成色板（与 dsh-context CATS 语义一致；深色主题下同一组色仍可辨） */
+/* 缁勬垚鑹叉澘锛堜笌 dsh-context CATS 璇箟涓€鑷达紱娣辫壊涓婚涓嬪悓涓€缁勮壊浠嶅彲杈級 */
 .ctx-c-system { background: #6366F1; }
 .ctx-c-tools { background: #F59E0B; }
 .ctx-c-user { background: #22C55E; }
@@ -4501,7 +4545,7 @@ to{transform:translateX(340%)}
 .theme-dark .ctx-e-prune { color: #7FA7F2; }
 @media (max-width: 350px) { .ctx-grid { grid-template-columns: 1fr; } .context-scroll { padding-left: 24rpx; padding-right: 24rpx; } }
 
-/* 顶部背景遮罩：覆盖导航与切换栏，底边截止在「对话/轨迹」下划线处 */
+/* 椤堕儴鑳屾櫙閬僵锛氳鐩栧鑸笌鍒囨崲鏍忥紝搴曡竟鎴鍦ㄣ€屽璇?杞ㄨ抗銆嶄笅鍒掔嚎澶?*/
 .session-header {
   position: relative;
   z-index: 3;
@@ -4510,9 +4554,9 @@ to{transform:translateX(340%)}
 }
 
 
-/* ---------- 编队面板（当前 Agent 的家族网络） ---------- */
+/* ---------- 缂栭槦闈㈡澘锛堝綋鍓?Agent 鐨勫鏃忕綉缁滐級 ---------- */
 .fleet-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.fleet-toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 12rpx; padding: 12rpx 40rpx 4rpx; }
+.fleet-toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 12rpx; padding: 22rpx 40rpx 4rpx; }
 .fleet-toolbar-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
 .fleet-toolbar-meta { max-width: 320rpx; font-size: 22rpx; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fleet-toolbar-spacer { flex: 1; }
@@ -4560,21 +4604,21 @@ to{transform:translateX(340%)}
 .fleet-card-token { margin-left: auto; font-variant-numeric: tabular-nums; color: var(--text-2); }
 @media (max-width: 350px) { .fleet-scroll { padding-left: 24rpx; padding-right: 24rpx; } .fleet-overview { grid-template-columns: 1fr; } .fleet-card { padding: 20rpx; } }
 
-/* 切换行底部不留空隙：下划线即顶部区域最低点 */
+/* 鍒囨崲琛屽簳閮ㄤ笉鐣欑┖闅欙細涓嬪垝绾垮嵆椤堕儴鍖哄煙鏈€浣庣偣 */
 .session .session-header .segmented-row {
   padding-bottom: 0 !important;
   margin-bottom: 0 !important;
 }
 
 .session .session-header .segmented-row .segment {
-  padding-bottom: 22rpx;   /* 文字与下划线之间留出间距 */
+  padding: 16rpx 4rpx;   /* symmetric: label centers on the buttons' axis */
 }
 
 .session .session-header .segmented-row .segment.active::after {
   bottom: 0;
 }
 
-/* 顶部遮罩严格止于切换下划线：容器与后续内容都不再追加留白 */
+/* 椤堕儴閬僵涓ユ牸姝簬鍒囨崲涓嬪垝绾匡細瀹瑰櫒涓庡悗缁唴瀹归兘涓嶅啀杩藉姞鐣欑櫧 */
 .session .session-header {
   padding-bottom: 0 !important;
   margin-bottom: 0 !important;
@@ -4592,17 +4636,17 @@ to{transform:translateX(340%)}
   padding-top: 0 !important;
 }
 
-/* 第二行整体下移，拉开与右上角胶囊的垂直距离（不改变左右位置） */
+/* 绗簩琛屾暣浣撲笅绉伙紝鎷夊紑涓庡彸涓婅鑳跺泭鐨勫瀭鐩磋窛绂伙紙涓嶆敼鍙樺乏鍙充綅缃級 */
 .session .session-header .segmented-row {
   margin-top: 12px !important;
 }
 
-/* 恢复：下划线下方留一点空白，遮罩不止于横线 */
+/* Header background ends at the tab underline; each panel owns its top gap. */
 .session .session-header .segmented-row {
-  padding-bottom: 6px !important;
+  padding-bottom: 0 !important;
 }
 
-/* ================= v2：上下文/编队完整卡片（对齐 dsh-context Context/Fleet tab） ================= */
+/* ================= v2锛氫笂涓嬫枃/缂栭槦瀹屾暣鍗＄墖锛堝榻?dsh-context Context/Fleet tab锛?================= */
 .session{--ctx-c-system:#6366F1;--ctx-c-tools:#F59E0B;--ctx-c-user:#22C55E;--ctx-c-inject:#A855F7;--ctx-c-skill:#F97316;--ctx-c-assistant:#3B82F6;--ctx-c-tool:#14B8A6;--ctx-c-output:#EC4899;--ctx-t-wait:#3B82F6;--ctx-t-reasoning:#8B5CF6;--ctx-t-text:#6366F1;--ctx-t-toolarg:#F59E0B;--ctx-t-tools:#14B8A6;--ctx-t-reply:#6366F1;--ctx-t-other:#94A3B8;--ctx-window-rest:rgba(16,19,24,.06);--ctx-window-reserve:rgba(16,19,24,.10);}
 .session.theme-dark{--ctx-window-rest:rgba(241,244,250,.08);--ctx-window-reserve:rgba(241,244,250,.14);}
 .ctx-live-dot{width:16rpx;height:16rpx;margin-left:auto;}
@@ -4665,6 +4709,21 @@ to{transform:translateX(340%)}
 .ctx-browser-chevron{flex-shrink:0;width:24rpx;text-align:center;font-size:18rpx;color:var(--text-4);}
 .ctx-browser-detail{padding:8rpx 0 2rpx 26rpx;}
 .ctx-browser-detail-text{font-size:20rpx;color:var(--text-3);}
+.ctx-browser-partial{margin:4rpx 0 10rpx;padding:10rpx 14rpx;border-radius:10rpx;background:rgba(224,122,31,.1);font-size:19rpx;color:var(--text-3);}
+.ctx-browser-node{margin-top:10rpx;padding:12rpx 14rpx;border-radius:12rpx;background:var(--fill-2);}
+.ctx-browser-node-head{display:flex;align-items:center;gap:12rpx;min-height:28rpx;}
+.ctx-browser-node-name{flex:1;min-width:0;font-size:21rpx;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.ctx-browser-node-time,.ctx-browser-node-tokens{font-size:18rpx;color:var(--text-3);white-space:nowrap;}
+.ctx-browser-node-content{display:block;margin-top:10rpx;max-height:420rpx;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:20rpx;line-height:1.55;color:var(--text-2);}
+.ctx-file-summary{display:flex;flex-wrap:wrap;gap:8rpx 18rpx;margin:4rpx 0 14rpx;font-size:19rpx;color:var(--text-3);}
+.ctx-file-controls{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10rpx;margin:0 0 8rpx;}
+.ctx-file-filter-group{display:flex;flex-wrap:wrap;gap:6rpx;padding:4rpx;border-radius:12rpx;background:var(--fill);}
+.ctx-file-control{padding:7rpx 12rpx;border-radius:9rpx;font-size:18rpx;color:var(--text-3);}
+.ctx-file-control.active{background:var(--surface);color:var(--ink);box-shadow:0 1rpx 4rpx rgba(0,0,0,.08);}
+.ctx-file-row{padding:14rpx 0;border-top:1rpx solid var(--divider);}
+.ctx-file-path{display:block;font-size:21rpx;color:var(--ink);word-break:break-all;line-height:1.45;}
+.ctx-file-meta{display:flex;flex-wrap:wrap;gap:6rpx 16rpx;margin-top:8rpx;font-size:18rpx;color:var(--text-3);}
+.ctx-file-error{color:#c43f39;}
 .fleet-hint{display:flex;align-items:flex-start;gap:12rpx;margin-top:18rpx;padding:20rpx 22rpx;border-radius:20rpx;background:var(--fill);border:1rpx dashed var(--border-strong);}
 .fleet-hint-dot{width:12rpx;height:12rpx;margin-top:10rpx;border-radius:50%;flex-shrink:0;background:var(--text-4);}
 .fleet-hint-text{flex:1;min-width:0;font-size:22rpx;line-height:1.6;color:var(--text-3);}
@@ -4687,3 +4746,41 @@ to{transform:translateX(340%)}
 .fleet-task-subject{flex:1;min-width:0;font-size:22rpx;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .fleet-task-owner{flex-shrink:0;max-width:180rpx;font-size:20rpx;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .fleet-task-empty{padding:18rpx 0 6rpx;font-size:22rpx;color:var(--text-3);text-align:center;}
+
+/* Stable keyed bars interpolate when a new snapshot arrives. */
+.ctx-trend-controls { display:flex;flex-wrap:wrap;align-items:center;gap:12rpx;margin-bottom:12rpx; }
+.ctx-trend-control-group { display:flex;padding:4rpx;border-radius:12rpx;background:var(--fill); }
+.ctx-trend-control { padding:12rpx 16rpx;font-size:22rpx;color:var(--text-3);border-radius:10rpx; }
+.ctx-trend-control.active { background:var(--surface);color:var(--text);box-shadow:var(--card-shadow); }
+.ctx-trend-aggregate-note { font-size:20rpx;color:var(--text-4); }
+.ctx-trend-col { position:relative;border-radius:4rpx;transition:background-color .2s ease; }
+.ctx-trend-col::before { content:'';position:absolute;top:0;bottom:0;left:50%;width:44rpx;transform:translateX(-50%); }
+.ctx-trend-col.selected { background:var(--fill-2);box-shadow:0 0 0 2rpx var(--text-3); }
+.ctx-trend-pressed { opacity:.65; }
+.ctx-trend-bar, .ctx-trend-delta-stack { transition:height .35s ease; }
+.ctx-trend-seg, .ctx-trend-delta-seg { transition:flex-grow .35s ease; }
+.ctx-trend-delta-plot { position:relative;width:100%;height:100%; }
+.ctx-trend-delta-zero { position:absolute;top:50%;left:-3rpx;right:-3rpx;height:1rpx;background:var(--border-strong); }
+.ctx-trend-delta-stack { position:absolute;left:0;right:0;display:flex;flex-direction:column;overflow:hidden; }
+.ctx-trend-delta-stack.positive { bottom:50%;flex-direction:column-reverse;border-radius:3rpx 3rpx 0 0; }
+.ctx-trend-delta-stack.negative { top:50%;border-radius:0 0 3rpx 3rpx; }
+.ctx-trend-delta-seg { width:100%;min-height:1rpx; }
+.ctx-trend-detail { margin-top:20rpx;padding-top:16rpx;border-top:1rpx solid var(--divider); }
+.ctx-trend-detail-head { display:flex;align-items:center;flex-wrap:wrap;gap:8rpx 14rpx; }
+.ctx-trend-detail-title { font-size:23rpx;font-weight:600;color:var(--text); }
+.ctx-trend-detail-meta { font-size:20rpx;color:var(--text-4);font-variant-numeric:tabular-nums; }
+.ctx-trend-detail-summary { display:flex;flex-wrap:wrap;gap:8rpx 16rpx;margin:12rpx 0;font-size:20rpx;color:var(--text-3);font-variant-numeric:tabular-nums; }
+.ctx-trend-delta-up, .ctx-trend-detail-delta.ctx-delta-up { color:#E07A1F; }
+.ctx-trend-delta-down, .ctx-trend-detail-delta.ctx-delta-down { color:#2E8B57; }
+.ctx-trend-detail-row { display:flex;align-items:center;gap:10rpx;padding:7rpx 0;border-top:1rpx solid var(--divider);font-size:21rpx; }
+.ctx-trend-detail-name { flex:1;min-width:0;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap; }
+.ctx-trend-detail-pct { min-width:72rpx;text-align:right;color:var(--text-4);font-variant-numeric:tabular-nums; }
+.ctx-trend-detail-value { min-width:92rpx;text-align:right;color:var(--text-2);font-variant-numeric:tabular-nums; }
+.ctx-trend-detail-delta { min-width:88rpx;text-align:right;color:var(--text-4);font-variant-numeric:tabular-nums; }
+.fleet-occupancy-fill { transition:width .45s ease; }
+.fleet-compose-seg { transition:width .45s ease; }
+@media (prefers-reduced-motion:reduce) {
+  .ctx-trend-col,.ctx-trend-bar,.ctx-trend-delta-stack,.ctx-trend-seg,.ctx-trend-delta-seg,
+  .fleet-occupancy-fill,.fleet-compose-seg { transition:none; }
+}
+/* auto-preview test */

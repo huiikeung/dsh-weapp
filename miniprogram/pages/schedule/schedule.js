@@ -73,7 +73,7 @@ Page({
   newTask() {
     if (this.data.creating) return;
     if (!this.data.connected) {
-      wx.showToast({ title: uiText('请先连接驭鲸 Harness'), icon: 'none' });
+      wx.showToast({ title: uiText('请先连接鲸尾 Harness'), icon: 'none' });
       return;
     }
     this.setData({ creating: true }); const host = this.owner();

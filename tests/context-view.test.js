@@ -225,6 +225,9 @@ test('deriveTiming splits wait / reply / tool execution with shares, durations a
   assert.deepEqual(timing.rows.map(row => row.countText), ['2 次', '4 次', '2 次']);
   const width = timing.rows.reduce((sum, row) => sum + row.width, 0);
   assert.ok(Math.abs(width - 100) < 1e-9);
+  assert.match(timing.donutStyle, /ctx-t-wait\) 0\.00% 16\.67%/);
+  const donutStops = Array.from(timing.donutStyle.matchAll(/(\d+(?:\.\d+)?)%/g), match => Number(match[1]));
+  assert.ok(donutStops.every(value => value <= 100));
 });
 
 test('deriveTiming falls back to steps for replies and shows dashes when nothing ran', () => {
@@ -285,6 +288,53 @@ test('deriveTrend keeps bars empty and safe without requests', () => {
   assert.equal(trend.bars.length, 0);
 });
 
+test('deriveTrend switches step/turn grouping and shows positive and negative changes', () => {
+  const value = {
+    requests: [
+      { seq: 1, turn: 1, step: 1, system: 100, tools: 200, total: 300 },
+      { seq: 2, turn: 1, step: 2, system: 150, tools: 150, total: 300 },
+      { seq: 3, turn: 2, step: 1, system: 120, tools: 130, total: 250 }
+    ]
+  };
+  const delta = contextView.deriveTrend(value, key => key, {
+    groupBy: 'step', displayMode: 'delta', selectedSeq: 2
+  });
+  assert.equal(delta.groupBy, 'step');
+  assert.equal(delta.displayMode, 'delta');
+  assert.deepEqual(delta.bars.map(bar => bar.selected), [false, true, false]);
+  assert.deepEqual(delta.bars[1].segments.map(segment => segment.key), ['system']);
+  assert.deepEqual(delta.bars[1].decreaseSegments.map(segment => segment.key), ['tools']);
+  assert.ok(delta.bars[1].positiveHeight > 0);
+  assert.ok(delta.bars[1].negativeHeight > 0);
+  // Axis labels are intentionally thinned to avoid overlap on dense histories.
+  assert.deepEqual(delta.axis.map(item => item.text), ['第 {n} 步']);
+
+  const turns = contextView.deriveTrend(value, key => key, { groupBy: 'turn' });
+  assert.equal(turns.count, 2);
+  assert.deepEqual(turns.bars.map(bar => bar.seq), [2, 3], 'turn grouping keeps each turn final request');
+  assert.equal(turns.selectedSeq, 3);
+});
+
+test('deriveTrendSelection exposes request composition and provider usage details', () => {
+  const value = { requests: [
+    { seq: 10, turn: 2, step: 3, time: 1700000001000, system: 20, tools: 30, user: 10, total: 60, prompt: 55, output: 8, items: { tools: 2 } },
+    { seq: 20, turn: 2, step: 4, time: 1700000002000, system: 25, tools: 25, user: 10, total: 60, prompt: 58, output: 9, items: { tools: 3 } }
+  ] };
+  const detail = contextView.deriveTrendSelection(value, 20, (key, values) => {
+    return Object.keys(values || {}).reduce((label, name) => label.replace('{' + name + '}', String(values[name])), key);
+  });
+  assert.equal(detail.requestLabel, '请求 #20');
+  assert.equal(detail.turnText, '第 2 轮');
+  assert.equal(detail.stepText, '第 4 步');
+  assert.equal(detail.estimatedText, '≈60');
+  assert.equal(detail.actualPromptText, '58');
+  assert.equal(detail.outputText, '9');
+  assert.equal(detail.deltaText, '0');
+  assert.equal(detail.rows.find(row => row.key === 'tools').itemsText, '3');
+  assert.equal(detail.rows.find(row => row.key === 'tools').pctText, '41.7%');
+  assert.equal(detail.rows.find(row => row.key === 'tools').deltaText, '−5');
+});
+
 // ---------- 事件列表 ----------
 
 test('deriveEvents lists the latest events first with labels and token deltas', () => {
@@ -304,6 +354,34 @@ test('deriveEvents lists the latest events first with labels and token deltas', 
   assert.equal(events.rows[2].kindText, '注入');
   assert.equal(events.rows[2].name, 'system prompt');
   assert.match(events.rows[0].timeText, /^\d{2}:\d{2}:\d{2}$/);
+});
+
+test('deriveFileActivity aggregates operations by path and honors the selected step cutoff', () => {
+  const value = {
+    fileOps: [
+      { seq: 2, time: 1000, path: 'src/a.js', kind: 'read', tool: 'read', err: false, added: 0, removed: 0, readCount: 20 },
+      { seq: 3, time: 1100, path: 'src/a.js', kind: 'write', tool: 'edit', err: false, added: 4, removed: 2 },
+      { seq: 5, time: 1200, path: 'tests/a.test.js', kind: 'search', tool: 'grep', err: true, added: 0, removed: 0 }
+    ],
+    fileOpsFloor: 1
+  };
+  const files = contextView.deriveFileActivity(value, null, 3);
+  assert.equal(files.totalRows, 1);
+  assert.equal(files.rows[0].path, 'src/a.js');
+  assert.equal(files.rows[0].readsText, '读取 1');
+  assert.equal(files.rows[0].writesText, '写入 1');
+  assert.equal(files.rows[0].deltaText, '+4 / −2 行');
+  assert.equal(files.rows[0].lastSeq, 3);
+  assert.equal(files.truncated, true);
+  const filtered = contextView.deriveFileActivity(value, key => key, null, { filter: 'write', sort: 'recent' });
+  assert.equal(filtered.filter, 'write');
+  assert.equal(filtered.sort, 'recent');
+  assert.deepEqual(filtered.rows.map(row => row.path), ['src/a.js']);
+  const searches = contextView.deriveFileActivity(value, key => key, null, { filter: 'search' });
+  assert.deepEqual(searches.rows.map(row => row.path), ['tests/a.test.js']);
+  const noMatch = contextView.deriveFileActivity(value, key => key, 3, { filter: 'search' });
+  assert.equal(noMatch.empty, false, 'records still exist outside the selected cutoff/filter');
+  assert.equal(noMatch.noMatches, true, 'the UI keeps its filter controls visible');
 });
 
 // ---------- 面板状态 / 防御性校验 ----------
@@ -653,7 +731,40 @@ test('v2 context browser compares each category with the previous request', () =
   const expanded = contextView.deriveBrowser({ requests: requests }, key => key, { seq: 20, expanded: ['system'] });
   assert.equal(expanded.rows[0].expanded, true);
   assert.equal(expanded.rows[1].expanded, false);
-  assert.match(expanded.rows[0].detailText, /明细暂不展示/);
+  assert.doesNotMatch(expanded.rows[0].detailText, /明细暂不展示/);
+  assert.deepEqual(expanded.rows[0].nodes, []);
+});
+
+test('context browser reconstructs the selected surface and exposes expandable request-header entries', () => {
+  const value = {
+    requests: [
+      { seq: 10, time: 1000, turn: 1, system: 10, tools: 20, user: 5, total: 35 },
+      { seq: 20, time: 2000, turn: 1, system: 10, tools: 20, user: 5, total: 35 }
+    ],
+    surface: [
+      { seq: 5, cat: 'user', tokens: 5 },
+      { seq: 15, cat: 'assistant', tokens: 4, text: 'working' },
+      { seq: 25, cat: 'user', tokens: 8 }
+    ],
+    archive: [
+      { seq: 3, cat: 'user', tokens: 2, gone: 8 },
+      { seq: 7, cat: 'user', tokens: 3, gone: 25 }
+    ],
+    headerEpochs: [{ seq: 2, tools: [{ name: 'read_file' }, { name: 'write_file' }] }]
+  };
+  const browser = contextView.deriveBrowser(value, key => key, { seq: 20, expanded: ['user', 'tools'] });
+  assert.deepEqual(browser.rows.find(row => row.key === 'user').nodes.map(node => node.seq), [7, 5]);
+  assert.deepEqual(browser.rows.find(row => row.key === 'tools').nodes.map(node => node.label), ['read_file', 'write_file']);
+  assert.deepEqual(contextView.deriveBrowser(value, key => key, { seq: null }).rows.find(row => row.key === 'user').nodes.map(node => node.seq), [25, 5]);
+});
+
+test('context browser warns when archive trimming makes a selected historical view incomplete', () => {
+  const value = { archiveFloor: 12, requests: [{ seq: 10, total: 1 }], current: { total: 2 } };
+  const old = contextView.deriveBrowser(value, key => key, { seq: 10 });
+  assert.equal(old.historyPartial, true);
+  assert.equal(old.historyPartialText, '历史明细可能不完整');
+  const current = contextView.deriveBrowser(value, key => key, { seq: null });
+  assert.equal(current.historyPartial, false);
 });
 
 test('v2 context browser caps at the latest 30 requests and degrades hostile data', () => {

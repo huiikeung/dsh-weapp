@@ -43,7 +43,7 @@ Page({
       return;
     }
     if (store.state.connection !== 'connected') {
-      this.setData({ loading: false, error: uiText('请先连接驭鲸 Harness'), entries: [] });
+      this.setData({ loading: false, error: uiText('请先连接鲸尾 Harness'), entries: [] });
       return;
     }
     this.relPath = relPath || null;

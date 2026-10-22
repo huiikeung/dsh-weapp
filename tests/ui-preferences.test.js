@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const preferences = require('../miniprogram/utils/ui-preferences');
+const contextPanelsPreference = require('../miniprogram/utils/context-panels-pref');
 const trajectory = require('../miniprogram/utils/trajectory-presentation');
 const protocol = require('../miniprogram/utils/protocol');
 function setup() {
@@ -100,6 +101,26 @@ test('settings numeric inputs clamp each role and disclosure survives writes', (
     page.commitFontFamily({ currentTarget: { dataset: { role: 'code' } }, detail: { value: 'Consolas' } });
     assert.equal(page.data.fontFamilies.code, 'Consolas');
     page.resetFontSize({ currentTarget: { dataset: { role: 'code' } } }); assert.equal(preferences.fontSize('code'), 11);
+  } finally { delete global.wx; }
+});
+
+test('settings switches persist context and fleet visibility independently', () => {
+  setup(); let definition;
+  const file = path.join(__dirname, '../miniprogram/pages/settings/settings.js');
+  try {
+    vm.runInNewContext(fs.readFileSync(file, 'utf8'), {
+      Page: value => { definition = value; }, wx: global.wx, console,
+      require: name => require(path.resolve(path.dirname(file), name))
+    });
+    const page = { ...definition, data: { ...definition.data }, setData(patch) { Object.assign(this.data, patch); } };
+    page.toggleContextPanel({ detail: { value: false } });
+    assert.equal(page.data.showContextPanel, false);
+    assert.deepEqual(contextPanelsPreference.read(), { context: false, fleet: true });
+    page.toggleFleetPanel({ detail: { value: false } });
+    assert.equal(page.data.showFleetPanel, false);
+    assert.deepEqual(contextPanelsPreference.read(), { context: false, fleet: false });
+    page.toggleContextPanel({ detail: { value: true } });
+    assert.deepEqual(contextPanelsPreference.read(), { context: true, fleet: false });
   } finally { delete global.wx; }
 });
 

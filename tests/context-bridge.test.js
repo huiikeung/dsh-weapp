@@ -773,8 +773,8 @@ test('projection definition and fold helpers expose one coherent projection', as
   const { fixture } = readFixture()
   const definition = bridge.contextProjectionDefinition
   assert.equal(definition.key, 'mobileContext')
-  // v2 state accumulators: a cached v1 row must refold instead of serving zeros.
-  assert.equal(definition.stateVersion, 2)
+  // v4 adds bounded browser and file-activity state; older rows must refold.
+  assert.equal(definition.stateVersion, 4)
   assert.equal(typeof definition.init, 'function')
   assert.equal(typeof definition.apply, 'function')
   assert.equal(typeof definition.wire.view, 'function')

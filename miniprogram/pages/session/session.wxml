@@ -20,8 +20,8 @@
     <view class="segmented">
       <view class="segment {{tab === 'conversation' ? 'active' : ''}}" bindtap="switchTab" data-tab="conversation" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['对话']}}">{{ui['对话']}}</view>
       <view class="segment {{tab === 'trajectory' ? 'active' : ''}}" bindtap="switchTab" data-tab="trajectory" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['轨迹']}}">{{ui['轨迹']}}</view>
-      <view class="segment {{tab === 'context' ? 'active' : ''}}" bindtap="switchTab" data-tab="context" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['上下文']}}">{{ui['上下文']}}</view>
-      <view class="segment {{tab === 'fleet' ? 'active' : ''}}" bindtap="switchTab" data-tab="fleet" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['编队']}}">{{ui['编队']}}</view>
+      <view wx:if="{{showContextPanel}}" class="segment {{tab === 'context' ? 'active' : ''}}" bindtap="switchTab" data-tab="context" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['上下文']}}">{{ui['上下文']}}</view>
+      <view wx:if="{{showFleetPanel}}" class="segment {{tab === 'fleet' ? 'active' : ''}}" bindtap="switchTab" data-tab="fleet" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['编队']}}">{{ui['编队']}}</view>
     </view>
     <view class="nav-actions">
       <view class="nav-more glass-press" bindtap="moreActions" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['更多']}}"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
@@ -341,7 +341,7 @@
   <!-- ================= 轨迹：DSH 原生时间轴 ================= -->
   <view wx:if="{{trajectoryMounted}}" hidden="{{tab !== 'trajectory'}}" class="trajectory-panel {{tab !== 'trajectory' ? 'session-panel-hidden' : ''}}" style="{{trajectoryStyle}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
     <view class="trace-overview">
-      <view class="trace-overview-head"><text>◷ {{ui['时长']}}</text><text>{{traceOverview.turns}} {{ui['轮次']}}</text><text>{{traceOverview.calls}} {{ui['调用']}}</text><text class="trace-overview-duration">{{ui[traceOverview.durationLabel] !== undefined ? ui[traceOverview.durationLabel] : traceOverview.durationLabel}}</text></view>
+      <view class="trace-overview-head"><view class="trace-overview-head-label"><image class="trace-overview-clock" src="/assets/icons/{{theme === 'dark' ? 'dsh-clock-dark.svg' : 'dsh-clock.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{ui['时长']}}</text></view><text>{{traceOverview.turns}} {{ui['轮次']}}</text><text>{{traceOverview.calls}} {{ui['调用']}}</text><text class="trace-overview-duration">{{ui[traceOverview.durationLabel] !== undefined ? ui[traceOverview.durationLabel] : traceOverview.durationLabel}}</text></view>
       <view wx:for="{{traceOverview.lanes}}" wx:for-item="lane" wx:key="id" class="trace-overview-lane">
         <text class="trace-overview-label">{{ui[lane.label] !== undefined ? ui[lane.label] : lane.label}}</text>
         <view class="trace-overview-track"><view wx:for="{{lane.segments}}" wx:for-item="segment" wx:key="key" class="trace-overview-bar {{segment.badgeClass}}" style="{{segment.style}}" bindtap="jumpToTrace" data-key="{{segment.key}}" role="button" aria-label="{{ui['定位轨迹记录']}}"/></view>
@@ -374,7 +374,7 @@
   </view>
 
   <!-- ================= 上下文：dsh-context Context tab 移植 ================= -->
-  <view wx:if="{{contextMounted}}" hidden="{{tab !== 'context'}}" class="context-panel {{tab !== 'context' ? 'session-panel-hidden' : ''}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
+  <view wx:if="{{contextMounted && showContextPanel}}" hidden="{{tab !== 'context'}}" class="context-panel {{tab !== 'context' ? 'session-panel-hidden' : ''}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
     <view class="context-toolbar">
       <text wx:if="{{contextPanel.meta.model}}" class="context-toolbar-title">{{contextPanel.meta.model}}</text>
       <text wx:if="{{contextPanel.meta.contextWindowText}}" class="context-toolbar-meta">{{contextPanel.meta.contextWindowText}}</text>
@@ -560,6 +560,7 @@
 <text class="ctx-browser-meta-item">{{contextPanel.browser.promptLabel}} {{contextPanel.browser.promptText}}</text>
 <text wx:if="{{contextPanel.browser.timeText}}" class="ctx-browser-meta-item">{{contextPanel.browser.timeText}}</text>
 </view>
+<view wx:if="{{contextPanel.browser.historyPartial}}" class="ctx-browser-partial">{{contextPanel.browser.historyPartialText}}</view>
 <view wx:for="{{contextPanel.browser.rows}}" wx:key="key" class="ctx-browser-row {{item.expanded ? 'expanded' : ''}}" bindtap="toggleContextBrowserRow" data-key="{{item.key}}">
 <view class="ctx-browser-row-head">
 <view class="ctx-dot ctx-c-{{item.key}}"></view>
@@ -570,7 +571,16 @@
 <text class="ctx-browser-delta ctx-delta-{{item.deltaClass}}">{{item.deltaText}}</text>
 <text class="ctx-browser-chevron">{{item.expanded ? '▴' : '▾'}}</text>
 </view>
-<view wx:if="{{item.expanded}}" class="ctx-browser-detail"><text class="ctx-browser-detail-text">{{item.detailText}}</text></view>
+<view wx:if="{{item.expanded}}" class="ctx-browser-detail">
+<text class="ctx-browser-detail-text">{{item.detailText}}</text>
+<view wx:for="{{item.nodes}}" wx:for-item="node" wx:key="key" class="ctx-browser-node" catchtap="openContextNode" data-seq="{{node.seq}}">
+<view class="ctx-browser-node-head"><text class="ctx-browser-node-name">{{node.label}}</text><text wx:if="{{node.timeText}}" class="ctx-browser-node-time">{{node.timeText}}</text><text class="ctx-browser-node-tokens">{{node.tokenText}}</text><text wx:if="{{contextNodeLoadingSeq === node.seq}}" class="ctx-browser-node-time">{{ui['加载中']}}</text></view>
+<text wx:if="{{contextNodeDetail && contextNodeDetail.seq === node.seq}}" class="ctx-browser-node-content">{{contextNodeDetail.text}}</text>
+<text wx:if="{{contextNodeDetail && contextNodeDetail.seq === node.seq && contextNodeDetail.truncated}}" class="ctx-browser-detail-text">{{ui['内容已截断']}}</text>
+</view>
+<text wx:if="{{item.moreNodes > 0}}" class="ctx-browser-detail-text">{{ui['还有更多项目']}} {{item.moreNodes}}</text>
+<text wx:if="{{!item.nodes.length}}" class="ctx-browser-detail-text">{{ui['此请求没有可展开项目']}}</text>
+</view>
 </view>
 </block>
 </view>
@@ -579,18 +589,37 @@
         <view class="ctx-card">
           <view class="ctx-card-head">
             <text class="ctx-card-title">{{ui['上下文趋势']}}</text>
-            <text wx:if="{{contextPanel.trend.aggregated}}" class="ctx-card-sub">{{ui['按轮聚合']}}</text>
             <text class="ctx-card-sub">{{contextPanel.trend.count}}/{{contextPanel.trend.totalCount}}</text>
+          </view>
+          <view class="ctx-trend-controls">
+            <view class="ctx-trend-control-group">
+              <view class="ctx-trend-control {{contextPanel.trend.groupBy === 'step' ? 'active' : ''}}" bindtap="contextTrendGroup" data-group="step" hover-class="press-dim" role="button">{{ui['按步骤']}}</view>
+              <view class="ctx-trend-control {{contextPanel.trend.groupBy === 'turn' ? 'active' : ''}}" bindtap="contextTrendGroup" data-group="turn" hover-class="press-dim" role="button">{{ui['按轮次']}}</view>
+            </view>
+            <view class="ctx-trend-control-group">
+              <view class="ctx-trend-control {{contextPanel.trend.displayMode === 'total' ? 'active' : ''}}" bindtap="contextTrendMode" data-mode="total" hover-class="press-dim" role="button">{{ui['总量']}}</view>
+              <view class="ctx-trend-control {{contextPanel.trend.displayMode === 'delta' ? 'active' : ''}}" bindtap="contextTrendMode" data-mode="delta" hover-class="press-dim" role="button">{{ui['增量']}}</view>
+            </view>
+            <text wx:if="{{contextPanel.trend.aggregated}}" class="ctx-trend-aggregate-note">{{ui['按轮聚合']}}</text>
           </view>
           <view wx:if="{{contextPanel.trend.empty}}" class="ctx-empty">{{ui['暂无上下文数据']}}</view>
           <scroll-view wx:else class="ctx-trend-scroll" scroll-x enhanced show-scrollbar="{{false}}" catchtouchstart="noop">
             <view class="ctx-trend-track" style="width:{{contextPanel.trend.trackWidth}}rpx;">
               <view class="ctx-trend-bars">
-                <view wx:for="{{contextPanel.trend.bars}}" wx:key="key" class="ctx-trend-col">
+                <view wx:for="{{contextPanel.trend.bars}}" wx:key="key" class="ctx-trend-col {{item.selected ? 'selected' : ''}}" bindtap="contextTrendSelect" data-seq="{{item.seq}}" hover-class="ctx-trend-pressed" role="button" aria-label="{{item.seqText}}">
                   <view class="ctx-trend-bar-wrap">
                     <text wx:if="{{item.marker}}" class="ctx-trend-marker">{{item.marker}}</text>
-                    <view class="ctx-trend-bar {{item.hasData ? '' : 'empty'}}" style="height:{{item.height}}%;">
+                    <view wx:if="{{contextPanel.trend.displayMode === 'total'}}" class="ctx-trend-bar {{item.hasData ? '' : 'empty'}}" style="height:{{item.height}}%;">
                       <view wx:for="{{item.segments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-seg ctx-c-{{seg.key}}" style="flex:{{seg.weight}} 1 0;"/>
+                    </view>
+                    <view wx:else class="ctx-trend-delta-plot">
+                      <view class="ctx-trend-delta-stack positive" style="height:{{item.positiveHeight}}%;">
+                        <view wx:for="{{item.segments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-delta-seg ctx-c-{{seg.key}}" style="flex:{{seg.weight}} 1 0;"/>
+                      </view>
+                      <view class="ctx-trend-delta-zero"/>
+                      <view class="ctx-trend-delta-stack negative" style="height:{{item.negativeHeight}}%;">
+                        <view wx:for="{{item.decreaseSegments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-delta-seg ctx-c-{{seg.key}}" style="flex:{{seg.weight}} 1 0;"/>
+                      </view>
                     </view>
                   </view>
                 </view>
@@ -600,6 +629,29 @@
               </view>
             </view>
           </scroll-view>
+          <view wx:if="{{contextPanel.trendDetail.hasData}}" class="ctx-trend-detail">
+            <view class="ctx-trend-detail-head">
+              <text class="ctx-trend-detail-title">{{contextPanel.trendDetail.requestLabel}}</text>
+              <text wx:if="{{contextPanel.trendDetail.turnText}}" class="ctx-trend-detail-meta">{{contextPanel.trendDetail.turnText}}</text>
+              <text wx:if="{{contextPanel.trendDetail.stepText}}" class="ctx-trend-detail-meta">{{contextPanel.trendDetail.stepText}}</text>
+              <text class="ctx-trend-detail-meta">{{contextPanel.trendDetail.timeText}}</text>
+            </view>
+            <view class="ctx-trend-detail-summary">
+              <text>{{contextPanel.trendDetail.estimatedLabel}} {{contextPanel.trendDetail.estimatedText}}</text>
+              <text>{{contextPanel.trendDetail.promptLabel}} {{contextPanel.trendDetail.actualPromptText}}</text>
+              <text>{{contextPanel.trendDetail.outputLabel}} {{contextPanel.trendDetail.outputText}}</text>
+              <text class="ctx-trend-delta-{{contextPanel.trendDetail.deltaClass}}">{{contextPanel.trendDetail.deltaLabel}} {{contextPanel.trendDetail.deltaText}}</text>
+            </view>
+            <view class="ctx-trend-detail-rows">
+              <view wx:for="{{contextPanel.trendDetail.rows}}" wx:key="key" class="ctx-trend-detail-row">
+                <view class="ctx-dot ctx-c-{{item.key}}"/>
+                <text class="ctx-trend-detail-name">{{item.label}}</text>
+                <text class="ctx-trend-detail-pct">{{item.pctText}}</text>
+                <text class="ctx-trend-detail-value">{{item.valueText}}</text>
+                <text class="ctx-trend-detail-delta ctx-delta-{{item.deltaClass}}">{{item.deltaText}}</text>
+              </view>
+            </view>
+          </view>
         </view>
 
         <!-- 最近上下文事件 -->
@@ -613,13 +665,43 @@
             <text class="ctx-event-count">{{item.countText}}</text>
           </view>
         </view>
+        <view class="ctx-card">
+          <view class="ctx-card-head">
+            <text class="ctx-card-title">{{ui['文件活动']}}</text>
+            <text wx:if="{{!contextPanel.files.empty}}" class="ctx-card-sub">{{contextPanel.files.totalRows}} {{ui['个文件']}}</text>
+          </view>
+          <view wx:if="{{contextPanel.files.empty}}" class="ctx-empty">{{ui['暂无文件操作记录']}}</view>
+          <view wx:else class="ctx-file-summary">
+            <text>{{contextPanel.files.readsText}}</text><text>{{contextPanel.files.writesText}}</text><text>{{contextPanel.files.searchesText}}</text>
+            <text wx:if="{{contextPanel.files.deltaText}}">{{contextPanel.files.deltaText}}</text>
+          </view>
+          <view wx:if="{{!contextPanel.files.empty}}" class="ctx-file-controls">
+            <view class="ctx-file-filter-group">
+              <view class="ctx-file-control {{contextPanel.files.filter === 'all' ? 'active' : ''}}" bindtap="setContextFileFilter" data-filter="all" hover-class="press-dim">{{ui['全部']}}</view>
+              <view class="ctx-file-control {{contextPanel.files.filter === 'read' ? 'active' : ''}}" bindtap="setContextFileFilter" data-filter="read" hover-class="press-dim">{{ui['读取']}}</view>
+              <view class="ctx-file-control {{contextPanel.files.filter === 'write' ? 'active' : ''}}" bindtap="setContextFileFilter" data-filter="write" hover-class="press-dim">{{ui['写入']}}</view>
+              <view class="ctx-file-control {{contextPanel.files.filter === 'search' ? 'active' : ''}}" bindtap="setContextFileFilter" data-filter="search" hover-class="press-dim">{{ui['搜索']}}</view>
+            </view>
+            <view class="ctx-file-filter-group">
+              <view class="ctx-file-control {{contextPanel.files.sort === 'activity' ? 'active' : ''}}" bindtap="setContextFileSort" data-sort="activity" hover-class="press-dim">{{ui['按活动']}}</view>
+              <view class="ctx-file-control {{contextPanel.files.sort === 'recent' ? 'active' : ''}}" bindtap="setContextFileSort" data-sort="recent" hover-class="press-dim">{{ui['按最近']}}</view>
+            </view>
+          </view>
+          <view wx:if="{{contextPanel.files.noMatches}}" class="ctx-empty">{{ui['未找到匹配的文件活动']}}</view>
+          <view wx:for="{{contextPanel.files.rows}}" wx:key="key" class="ctx-file-row" bindtap="contextFileActivitySelect" data-path="{{item.path}}" hover-class="press-dim">
+            <text class="ctx-file-path">{{item.path}}</text>
+            <view class="ctx-file-meta"><text wx:if="{{item.readsText}}">{{item.readsText}}</text><text wx:if="{{item.writesText}}">{{item.writesText}}</text><text wx:if="{{item.searchesText}}">{{item.searchesText}}</text><text wx:if="{{item.deltaText}}">{{item.deltaText}}</text><text wx:if="{{item.errorsText}}" class="ctx-file-error">{{item.errorsText}}</text><text wx:if="{{item.timeText}}">{{item.timeText}}</text></view>
+          </view>
+          <text wx:if="{{contextPanel.files.moreCount}}" class="ctx-card-sub">{{ui['还有更多项目']}} {{contextPanel.files.moreCount}}</text>
+          <text wx:if="{{contextPanel.files.truncated}}" class="ctx-card-sub">{{contextPanel.files.floorText}}</text>
+        </view>
         <view class="ctx-bottom-space"></view>
       </block>
     </scroll-view>
   </view>
 
   <!-- ================= 编队：当前 Agent 的家族网络 ================= -->
-  <view wx:if="{{fleetMounted}}" hidden="{{tab !== 'fleet'}}" class="fleet-panel {{tab !== 'fleet' ? 'session-panel-hidden' : ''}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
+  <view wx:if="{{fleetMounted && showFleetPanel}}" hidden="{{tab !== 'fleet'}}" class="fleet-panel {{tab !== 'fleet' ? 'session-panel-hidden' : ''}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
     <view class="fleet-toolbar">
       <text class="fleet-toolbar-title">{{ui['编队总览']}}</text>
       <text wx:if="{{fleetPanel.status === 'ready'}}" class="fleet-toolbar-meta">{{ui['Agent 数量']}} {{fleetPanel.overview.agentsText}} · {{ui['运行中']}} {{fleetPanel.overview.runningText}}</text>

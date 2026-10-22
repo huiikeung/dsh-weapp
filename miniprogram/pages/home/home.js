@@ -8,6 +8,7 @@ const hostsLib = require('../../utils/hosts');
 const { workspacePopoverLayout } = require('../../utils/workspace-popover');
 const homeAnimationPreference = require('../../utils/home-animation-pref');
 const initialHomeAnimationEnabled = homeAnimationPreference.enabled();
+const costView = require('../../utils/cost-view');
 
 const CONNECTION_LABELS = {
   disconnected: uiText('未连接'),
@@ -79,7 +80,10 @@ Page({
     drawerX: -280,
     contentX: 0,
     maskOpacity: 0,
-    contentShifted: false
+    contentShifted: false,
+    costCard: null,
+    costCardError: '',
+    _costMeterFresh: false
   },
 
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
@@ -193,6 +197,7 @@ Page({
     if (store.state.connection === 'connected') {
       store.client.requestWorkspaces();
       store.client.requestSessions();
+      this.loadCostMeterSummary();
     }
     this.syncFromStore({ app: store.state, session: store.sessionState });
   },
@@ -565,7 +570,7 @@ Page({
 
   browseDirs(path) {
     if (store.state.connection !== 'connected') {
-      this.setData({ dirLoading: false, dirError: uiText('请先连接驭鲸 Harness') });
+      this.setData({ dirLoading: false, dirError: uiText('请先连接鲸尾 Harness') });
       return;
     }
     this.setData({ dirLoading: true, dirError: '' });
@@ -943,7 +948,57 @@ Page({
   openScheduledTasks() {
     this.resetDrawerInstant();
     wx.navigateTo({ url: '/pages/schedule/schedule' });
-  }
+  },
+
+  openCostDetail() {
+    this.resetDrawerInstant();
+    wx.navigateTo({ url: '/pages/plugin-detail/plugin-detail?bundle=' + encodeURIComponent('@deepseek-ai/dsh-cost-meter') });
+  },
+
+  /** 抽屉打开时刷新费用摘要（30s 内不再重复拉取）。 */
+  loadCostMeterSummary() {
+    if (this._costMeterFresh) return;
+    this._costMeterFresh = true;
+    setTimeout(() => { this._costMeterFresh = false; }, 30000);
+    if (store.state.connection !== 'connected') {
+      this.setData({ costCard: null, costCardError: '' });
+      return;
+    }
+    this.setData({ costCardError: '' });
+    store.client.requestCostMeter('summary').then((frame) => {
+      if (this._homeHidden) return;
+      const summary = costView.normalize(frame && frame.summary);
+      this.setData({ costCard: this.buildCostCard(summary) });
+    }).catch((error) => {
+      if (this._homeHidden) return;
+      // 旧网关没有 cost-meter 服务：不显示抽屉条目，不打扰用户。
+      if (error.code === 'cost-meter-unavailable') this.setData({ costCard: null, costCardError: '' });
+      else this.setData({ costCard: null, costCardError: uiText('费用数据暂不可用') });
+    });
+  },
+
+  buildCostCard(summary) {
+    if (!summary) return null;
+    const cur = summary.currency || 'CNY';
+    const today = summary.today;
+    const month = summary.month;
+    const balance = summary.balance;
+    const budget = summary.budget;
+    let todayText = uiText('无数据');
+    if (today) todayText = costView.formatCurrency(today.amount, cur) + ' / ' + costView.formatTokens(today.tokens) + ' tokens';
+    let monthText = month ? costView.formatCurrency(month.amount, cur) + ' / ' + costView.formatTokens(month.tokens) + ' tokens' : '';
+    let balanceText = '';
+    let balanceLow = false;
+    if (balance && (balance.total > 0 || balance.granted > 0 || balance.toppedUp > 0)) {
+      balanceText = balance.currency + ' ' + costView.formatCurrency(balance.total, balance.currency || cur);
+      balanceLow = balance.total < 1;
+    }
+    let budgetText = '';
+    if (budget && budget.enabled && budget.amount > 0) {
+      budgetText = costView.formatPercent(budget.percent) + ' · ' + costView.formatCurrency(budget.used, cur);
+    }
+    return { todayText, monthText, balanceText, balanceLow, budgetText, currency: cur, updatedAtFmt: summary.updatedAtFmt };
+  },
 });
 
 function shortPath(path) {

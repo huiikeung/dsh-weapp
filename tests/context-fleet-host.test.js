@@ -124,8 +124,9 @@ test('fleet value reads subagent timing as active time when present', () => {
   assert.equal(value.agents[0].activeMs, 12345);
 });
 
-test('context request types cover both dashboard and fleet', () => {
+test('context request types include dashboard, fleet and on-demand item content', () => {
   assert.equal(CONTEXT_REQUEST_TYPES.has('context-dashboard'), true);
   assert.equal(CONTEXT_REQUEST_TYPES.has('context-fleet'), true);
-  assert.equal(CONTEXT_REQUEST_TYPES.size, 2);
+  assert.equal(CONTEXT_REQUEST_TYPES.has('context-content'), true);
+  assert.equal(CONTEXT_REQUEST_TYPES.size, 3);
 });

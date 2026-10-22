@@ -68,6 +68,7 @@ function pageFixture() {
   const file = path.resolve(__dirname, '../miniprogram/pages/session/session.js');
   let definition;
   const calls = [];
+  const panelPrefs = { value: { context: true, fleet: true }, read() { return { ...this.value }; } };
   const store = {
     state: { sessions: [], archivedSessionIds: [], connection: 'connected' },
     sessionState: {
@@ -80,6 +81,7 @@ function pageFixture() {
     loadOlderHistory: () => calls.push(['loadOlderHistory']),
     setFleetActive: active => calls.push(['fleetActive', active]),
     setContextActive: active => calls.push(['contextActive', active]),
+    setTrajectoryActive: active => calls.push(['trajectoryActive', active]),
     refreshContextDashboard: () => calls.push(['refreshDashboard']),
     refreshContextFleet: () => calls.push(['refreshFleet']),
     client: {}
@@ -89,6 +91,7 @@ function pageFixture() {
     setTimeout: () => 1, clearTimeout: () => {},
     require: name => name.endsWith('/store') ? store
       : name.endsWith('/haptics') ? { vibrate: () => calls.push(['haptic']), tick: () => calls.push(['tick']) }
+        : name.endsWith('/context-panels-pref') ? panelPrefs
         : require(path.resolve(path.dirname(file), name))
   });
   const page = {
@@ -107,7 +110,7 @@ function pageFixture() {
     },
     startScrollPolling() {}, stopScrollPolling() {}, refreshBottomAnchor() {}
   };
-  return { page, calls, store };
+  return { page, calls, store, panelPrefs };
 }
 
 test('browser cursor handlers walk requests and reset to the current composition', () => {
@@ -163,6 +166,85 @@ test('browser handlers survive a panel without browser data (loading/error state
   assert.equal(calls.filter(call => call[0] === 'refreshDashboard').length, 0);
 });
 
+test('file activity filter and sort controls update the visible file list', () => {
+  const { page, store } = pageFixture();
+  store.sessionState.contextDashboard.value.fileOps = [
+    { seq: 1, time: 100, path: 'src/a.js', kind: 'read' },
+    { seq: 2, time: 200, path: 'src/a.js', kind: 'write', added: 2 },
+    { seq: 3, time: 300, path: 'tests/a.js', kind: 'search' }
+  ];
+  page.setData(page.contextPanelPatch());
+  page.setContextFileFilter({ currentTarget: { dataset: { filter: 'write' } } });
+  assert.deepEqual(page.data.contextPanel.files.rows.map(row => row.path), ['src/a.js']);
+  assert.equal(page.data.contextPanel.files.filter, 'write');
+  page.setContextFileFilter({ currentTarget: { dataset: { filter: 'search' } } });
+  assert.deepEqual(page.data.contextPanel.files.rows.map(row => row.path), ['tests/a.js']);
+  page.setContextFileFilter({ currentTarget: { dataset: { filter: 'all' } } });
+  page.setContextFileSort({ currentTarget: { dataset: { sort: 'recent' } } });
+  assert.deepEqual(page.data.contextPanel.files.rows.map(row => row.path), ['tests/a.js', 'src/a.js']);
+});
+
+test('context content opens are deduplicated and preserve the host truncation marker', async () => {
+  const { page, store } = pageFixture();
+  let resolveContent;
+  let requests = 0;
+  store.client.requestContextContent = () => {
+    requests += 1;
+    return new Promise(resolve => { resolveContent = resolve; });
+  };
+  const event = { currentTarget: { dataset: { seq: '10' } } };
+  page.openContextNode(event);
+  page.openContextNode(event);
+  assert.equal(requests, 1);
+  resolveContent({ value: { type: 'user/message', text: 'long content', truncated: true } });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(page.data.contextNodeDetail.text, 'long content');
+  assert.equal(page.data.contextNodeDetail.truncated, true);
+  assert.equal(page.data.contextNodeLoadingSeq, null);
+});
+
+test('trend controls select a request, change grouping, and switch to delta mode', () => {
+  const { page } = pageFixture();
+  page.data.tab = 'context';
+  page.setData(page.contextPanelPatch());
+  assert.equal(page.data.contextPanel.trend.groupBy, 'step');
+  assert.equal(page.data.contextPanel.trend.displayMode, 'total');
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 40);
+
+  page.contextTrendSelect({ currentTarget: { dataset: { seq: '20' } } });
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 20);
+  assert.equal(page.data.contextPanel.trendDetail.seq, 20);
+  assert.equal(page.data.contextPanel.trendDetail.actualPromptText, '11.2k');
+  page.contextTrendGroup({ currentTarget: { dataset: { group: 'step' } } });
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 20, 'tapping the active auto-resolved group keeps the selection');
+
+  page.contextTrendGroup({ currentTarget: { dataset: { group: 'turn' } } });
+  assert.equal(page.data.contextTrendSeq, null);
+  assert.equal(page.data.contextPanel.trend.groupBy, 'turn');
+  assert.equal(page.data.contextPanel.trendDetail.seq, 40);
+  page.contextTrendMode({ currentTarget: { dataset: { mode: 'delta' } } });
+  assert.equal(page.data.contextPanel.trend.displayMode, 'delta');
+  assert.equal(page.data.contextPanel.trend.bars[0].positiveHeight, 46);
+});
+
+test('disabled session panels disappear and an active hidden panel falls back to conversation', () => {
+  const { page, calls, panelPrefs } = pageFixture();
+  page.data.tab = 'context';
+  panelPrefs.value.context = false;
+  panelPrefs.value.fleet = false;
+  assert.equal(page.syncContextPanelPreferences(), 'conversation');
+  assert.equal(page.data.tab, 'conversation');
+  assert.equal(page.data.showContextPanel, false);
+  assert.equal(page.data.showFleetPanel, false);
+  assert.ok(calls.some(call => call[0] === 'contextActive' && call[1] === false));
+  assert.ok(calls.some(call => call[0] === 'fleetActive' && call[1] === false));
+
+  page.switchTab({ currentTarget: { dataset: { tab: 'context' } } });
+  page.switchTab({ currentTarget: { dataset: { tab: 'fleet' } } });
+  assert.equal(page.data.tab, 'conversation', 'hidden tabs cannot be opened through stale events');
+});
+
 // ---------- 原生 WXML 渲染（ready / loading / unsupported） ----------
 
 test('native session template renders v2 context/fleet panels without throwing', { skip: !fs.existsSync(compiler) }, () => {
@@ -175,7 +257,7 @@ test('native session template renders v2 context/fleet panels without throwing',
 
   const readyPanel = contextView.buildPanel(
     { loading: false, error: null, code: '', unsupported: false, asOfSeq: 5, value: sampleBrowserValue() },
-    { connected: true, hasSession: true, running: true, browserSeq: 20, expanded: ['tools'] }
+    { connected: true, hasSession: true, running: true, browserSeq: 20, expanded: ['tools'], trendSeq: 20, trendGroupBy: 'step', trendDisplayMode: 'delta' }
   );
   const fleetPanel = contextView.buildFleetPanel({
     loading: false,
@@ -198,6 +280,8 @@ test('native session template renders v2 context/fleet panels without throwing',
   const base = {
     ...snapshot,
     tab: 'context',
+    showContextPanel: true,
+    showFleetPanel: true,
     theme: 'light',
     themeClass: '',
     contextMounted: true,
@@ -210,6 +294,9 @@ test('native session template renders v2 context/fleet panels without throwing',
   };
   const readyTree = JSON.stringify(render({ ...base }, {}, {}));
   assert.ok(readyTree.includes('ctx-browser'), 'browser card renders');
+  assert.ok(readyTree.includes('ctx-trend-controls'), 'trend grouping and display controls render');
+  assert.ok(readyTree.includes('ctx-trend-detail'), 'selected request details render');
+  assert.ok(readyTree.includes('ctx-trend-delta-plot'), 'delta chart mode renders');
   assert.ok(readyTree.includes('ctx-timeline'), 'timing timeline renders');
   assert.ok(readyTree.includes('ctx-donut'), 'donuts render');
   assert.ok(readyTree.includes('fleet-answer'), 'fleet latest answer renders');

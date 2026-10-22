@@ -24,7 +24,7 @@ Page({
 
   loadRoot() {
     if (store.state.connection !== 'connected') {
-      this.setData({ dirLoading: false, dirError: uiText('请先连接驭鲸 Harness'), dirEntries: [] });
+      this.setData({ dirLoading: false, dirError: uiText('请先连接鲸尾 Harness'), dirEntries: [] });
       return;
     }
     this.setData({ dirLoading: true, dirError: '', dirEntries: [] });
@@ -61,7 +61,7 @@ Page({
   browseTo(path) {
     if (this.data.dirLoading || this.data.dirCreatingWs || this.data.dirCreatingDir) return;
     if (store.state.connection !== 'connected') {
-      this.setData({ dirLoading: false, dirError: uiText('请先连接驭鲸 Harness') });
+      this.setData({ dirLoading: false, dirError: uiText('请先连接鲸尾 Harness') });
       return;
     }
     this.setData({ dirLoading: true, dirError: '' });
