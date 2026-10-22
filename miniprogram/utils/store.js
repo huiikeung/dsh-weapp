@@ -431,10 +431,10 @@ function createStore() {
     if (pluginPageVisited) refreshPlugins();
     if (sessionState.sessionId) {
       client.subscribe(sessionState.sessionId);
-      // 重连后网关不保留订阅与推送状态：重置并重拉会话内容，
-      // 避免后台挂起恢复后打开会话一直空白。
-      sessionState.rowsAgg = protocol.newAggregator();
-      sessionState.rows = [];
+      // 重连后网关不保留订阅与推送状态：需要重拉会话内容。
+      // 但不要清空 rows/rowsAgg —— 原始事件缓冲 rawBuffer 仍然完整，
+      // 新 history 帧到达后会经 rebuildWithMore 合并去重后原地重建。
+      // 清空只会让页面在两次帧之间闪出空态/骨架屏（用户看到的「页面重新加载」）。
       client.requestHistory(sessionState.sessionId);
     }
   }

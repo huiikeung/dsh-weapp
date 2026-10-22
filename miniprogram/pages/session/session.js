@@ -246,15 +246,19 @@ Page({
     if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
     this._storeSyncTimer = null; this._pendingStoreSnapshot = null;
     this.stopScrollPolling();
+    // 记录本次隐藏的原因：原生选择器/预览浮层会把小程序切到后台，
+    // 此时 onShow 不是「页面切换」，不能重置滚动、也不能强制整页重投影。
+    this._hiddenByNativeOverlay = !!(store.nativeOverlayActive && store.nativeOverlayActive());
   },
 
   onShow() {
     this.syncContextPanelPreferences();
     this._voiceHidden = false; this.syncVoicePreference();
-    // 原生选择器（chooseMedia / chooseMessageFile）关闭时，会触发 app.onHide→onShow。
-    // 此时并非真正的页面切换，不要强制 syncFromStore（整页重投影）和 resetConversationScroll。
-    // 数据更新由 subscribe 流自然推进；只需恢复可见性和重测 dock。
-    if (store.nativeOverlayActive()) {
+    // 从原生浮层（chooseMedia / chooseMessageFile / previewImage）返回：
+    // 页面并未真正切换，强制 syncFromStore 与 resetConversationScroll 会让
+    // 会话区闪一下并把滚动位置拽走。数据更新交给 subscribe 流推进即可。
+    if (this._hiddenByNativeOverlay) {
+      this._hiddenByNativeOverlay = false;
       this.startScrollPolling();
       this.setData(statusAppearance.view(statusAppearance.read()));
       this.setData(procIconStyle.view(procIconStyle.read()));

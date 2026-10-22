@@ -116,6 +116,7 @@ NavigationStack 页面（由 RootView push 进入）
 - 生成中断：助手行 title 变 `生成已中断` 且 isError（ConversationProjection.kt:217-226, 243）；渲染上仍是 Markdown 气泡，无额外横幅。
 - 历史加载失败（整页覆盖，ConversationView.swift:712-728）：`exclamationmark.triangle` largeTitle 橙色 + `历史记录加载失败` title3 semibold + 错误文案（旧格式错误固定文案：`Host 无法读取旧格式会话，请修复或升级 Host 后重试。原始记录未修改。`）+ bordered 按钮 `重新加载历史`。a11y id `history-load-failure`。
 - 历史加载中（冷会话整页遮罩 :763-799）：不透明底 + 大号菊花（ocean）+ `正在加载历史记录` /（定位期）`正在准备会话` + 进度文案（`正在从 Mobile Gateway 同步会话内容…`、`正在加载历史记录 · loaded/total`、`正在加载更早记录…`、`正在加载更早记录 · 已同步 N 个事件`、`正在自动加载更早记录 · 已同步 N 个事件`）。遮罩在列表真正提交且对齐到底部后才撤下（ConversationViewport.swift:738-743, ConversationView.swift:624-637）。
+- 小程序实现差异：**重连不清空已有会话内容**。原生选择器（`wx.chooseMedia` / `wx.chooseMessageFile`）与图片预览会把小程序切到后台，返回时 `app.onShow` 触发重连；此时原始事件缓冲 `rawBuffer` 仍完整，新 history 帧经 `rebuildWithMore` 按 seq 合并去重后原地重建行，因此整页遮罩/空态不会闪现（此前重连会先清空 `rows`，导致页面闪出空态再填满）。遮罩只用于真正的冷会话（首次进入且无缓存）。
 - 顶部"加载更早"横幅（:801-811, 1823-1825）：HStack spacing 9：小菊花(ocean) + caption 进度文案，padding H10 V8。分页按钮（:1829-1837）：caption 文案 `加载更早记录`，占满整行。
 - 空会话（:696-706）：鲸鱼 logo（`DshOrcaMark`）52pt，dark 白 / light 黑；`操作远端 DSH Agent` title3 semibold；`发送任务后，工具调用、推理进度和最终回复会通过 Mobile Gateway 实时返回。` subheadline secondary 居中。
 
