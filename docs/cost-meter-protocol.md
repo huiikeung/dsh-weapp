@@ -10,20 +10,29 @@
 
 | Action | Optional fields | Behavior |
 | --- | --- | --- |
-| `summary` | - | Project recorded session token usage and read the quota dashboard. |
-| `refresh` | - | Bypass balance/quota caches and refresh available data. |
-| `config` | - | Read display and quota settings without folding session history. |
-| `update` | `patch` | Validate and persist allowlisted display/peak/Go settings on the host. |
-| `set-go-key` | `value` | Save an OpenCode Go key through the DSH credential service; never persist it in dashboard JSON or return it to the client. |
-| `clear-go-key` | - | Remove the dedicated `OPENCODE_GO_API_KEY` credential. |
+| `summary` | - | Project session token usage and return the cached quota dashboard. Sidebar-visible sources are refreshed when stale. |
+| `config` | - | Read display and quota settings plus the cached dashboard; no network queries are performed for quota sources. |
+| `refresh` | - | Force-refresh every enabled quota source and return the full dashboard. |
+| `update` | `patch` | Validate and persist display/sidebar/budget/peak/Go/Coding Plan/custom balance/gateway source settings. |
+| `refresh-source` | `source` | Refresh one source (`plan:<id>`, `gateway:<id>`, `custom:<index>`). |
+| `source-config` | - | Secret-free snapshot of every configurable source and whether a credential is configured. |
+| `set-source-key` / `clear-source-key` | `source`, `value`, optional `secret` | Write/clear a provider credential in the DSH credential store. Never returns the value. |
+| `set-go-key` / `clear-go-key` | `value` | OpenCode Go credential (legacy aliases). |
+| `set-balance-key` / `clear-balance-key` | `value` | DeepSeek balance API key fallback. |
 
-## Data sources and storage
+`patch` supports: `currency`, `symbol`, `decimals`, `exchangeRate`, `display` (`sidebarStyle`: `summary` / `simple` / `standard` / `compact`, `sidebarVisible`, `peakStyle`), `balance`, `goQuota`, `budget` (display only; amount/period go to the cost-meter summary layer), `peak`, `codingPlans` (`enabled`, `display`, `refreshMinutes` plus per-vendor fields), `customBalances` (up to 8 entries) and `gatewayQuotas.sources` (up to 4 CLIProxyAPI sources).
 
-- Official account balance uses the Host `accountController.getBalance()` API when available.
-- OpenCode Go usage comes from the fixed HTTPS endpoint `https://opencode.ai/zen/go/v1/usage`; keys resolve from DSH credentials, environment variables, or OpenCode's local auth file.
-- Peak/off-peak windows and Go display choices are stored in `$DSH_HOME/storages/weapp-cost-dashboard.json` (or `~/.dsh/...` when unset) with restrictive file permissions. API keys stay in the Host credential store.
-- Session-token usage remains a separate projection over host session history. The compact sidebar does not render fee summaries in the conversation header or composer.
+## Quota sources
 
-## Security
+- **Official account balance** uses Host `accountController.getBalance()`; when not signed in, `DSH_WEAPP_DEEPSEEK_BALANCE_API_KEY` / `DEEPSEEK_API_KEY` can read the DeepSeek Platform balance.
+- **OpenCode Go** reads `https://opencode.ai/zen/go/v1/usage`; keys resolve from DSH credentials, environment variables or OpenCode's local auth file.
+- **Coding Plan vendors** (OpenDesign, Factory, Anthropic, Z.ai, MiniMax, Kimi, OpenRouter, SiliconFlow, CommandCode, Cline Pass, SCNet, Volcano Ark, Qwen, MiMo, WorkBuddy) are queried by the gateway with the same vendor adapters as the reference plugin (vendored under the gateway's `lib/vendor/cost-meter/`, MIT). SCNet and Qwen estimate credits from local per-model session usage and require a monthly Credits quota; the others use provider credentials, OAuth tokens or console cookies.
+- **CLIProxyAPI gateway sources** aggregate account quotas from local/LAN proxy gateways. Only exact `allowedHosts` entries are accepted; non-loopback HTTP additionally requires `allowInsecureHttp`.
+- **Custom Provider balances** call a user-supplied HTTP endpoint with declarative JSON-path extraction (`remaining`, optional `maxBudget`/`spend`), at most 8 entries. Header values support `{{VAR}}` placeholders resolved from the DSH credential store or the environment. Secrets are stored only in the Host credential store; response payloads expose `configured` booleans.
 
-Requests are accepted only over a paired control connection. Credential values are never included in responses, dashboard settings, or logs. The quota endpoint is fixed to the official OpenCode HTTPS origin; no user-supplied URL is fetched.
+## Storage and security
+
+- Display/quota settings live in `$DSH_HOME/storages/weapp-cost-dashboard.json` (override with `DSH_WEAPP_COST_DASHBOARD_FILE`) with mode `0600`.
+- Credential values never appear in responses, persisted settings or logs.
+- Fixed vendor endpoints are used for Coding Plans; custom balance endpoints require `https` (loopback may use `http`), refuse redirects and honour the explicit host allowlist before sending credentials.
+- Session token usage stays a separate projection over host session history; per-day/per-model buckets only back the local SCNet/Qwen estimates.

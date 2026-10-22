@@ -8,30 +8,28 @@ function fixture(options = {}) {
   const file = path.resolve(__dirname, '../miniprogram/pages/home/home.js');
   const requests = [];
   const store = {
-    state: { profiles: [], sessions: [], workspaces: [], connection: 'disconnected', activeID: 'host-a', gatewayCapabilities: ['cost-meter-v1'] },
+    state: {
+      profiles: [], sessions: [], workspaces: [], connection: 'disconnected',
+      activeID: 'host-a', gatewayId: 'gw', endpoint: 'ws://gw',
+      gatewayCapabilities: options.capabilities || ['cost-meter-v1'],
+    },
     sessionState: {},
     client: {
       requestCostMeter(action) {
         return new Promise((resolve, reject) => requests.push({ action, resolve, reject }));
-      }
+      },
+      requestWorkspaces() {},
+      requestSessions() {},
     },
     subscribe(fn) { this.subscriber = fn; return () => {}; },
-    stopHostProbes() {}
+    stopHostProbes() {},
   };
-  const storage = new Map();
-  // 默认给这个主机预置“已开启额度卡片”，让既有用例覆盖开启后的行为；
-  // 需要验证默认关闭时用 fixture({ seedEnabled: false })。
-  if (options.seedEnabled !== false) {
-    ['host-a||', 'host-b||'].forEach(owner => {
-      storage.set('dsh.cost-meter.dashboard.' + encodeURIComponent(owner), { sidebarVisible: true });
-    });
-  }
   const wx = {
     getWindowInfo: () => ({ windowWidth: 375, statusBarHeight: 44 }),
     getAppBaseInfo: () => ({ theme: 'light' }),
     setNavigationBarColor() {},
-    getStorageSync: key => storage.get(key),
-    setStorageSync: (key, value) => storage.set(key, value)
+    getStorageSync() {},
+    setStorageSync() {},
   };
   let definition;
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), {
@@ -40,153 +38,115 @@ function fixture(options = {}) {
     getApp: () => ({}),
     require: name => name.endsWith('/store') ? store
       : name.endsWith('/theme') ? { resolveTheme: () => 'light' }
-        : require(path.resolve(path.dirname(file), name))
+        : require(path.resolve(path.dirname(file), name)),
   });
   const page = {
     ...definition,
-    data: { ...definition.data },
+    data: JSON.parse(JSON.stringify(definition.data)),
     setData(patch) { Object.assign(this.data, patch); },
-    hapticLight() {}
+    hapticLight() {},
   };
   page.onLoad();
-  return { page, store, requests, wx, storage, emit() { store.subscriber({ app: store.state, session: store.sessionState }); } };
+  return { page, store, requests, emit() { store.subscriber({ app: store.state, session: store.sessionState }); } };
 }
 
-function summary(amount) {
-  return {
-    available: true,
-    currency: 'CNY',
-    today: { amount, tokens: 1250 },
-    month: { amount: amount * 2, tokens: 2500 },
-    balance: null
+function frame(overrides = {}) {
+  const config = {
+    currency: 'CNY', symbol: '¥', decimals: 3, exchangeRate: 7.2,
+    display: { sidebarStyle: 'summary', sidebarVisible: true, peakStyle: 'progress' },
+    balance: { enabled: true, display: 'both', refreshMinutes: 5 },
+    goQuota: { enabled: true, display: 'both', refreshMinutes: 15, detail: true, main: 'rolling', barDirection: 'used' },
+    peak: { enabled: true, display: 'both', windows: [{ start: 1, end: 4 }] },
   };
+  const dashboard = {
+    currency: 'CNY', symbol: '¥', decimals: 3,
+    display: config.display,
+    balance: { enabled: true, display: 'both', refreshMinutes: 5, status: 'ok', message: '', currency: 'CNY', totalBalance: 7.289, granted: 1, toppedUp: 6.289, keyConfigured: true },
+    customBalances: [{ index: 0, label: '自定义', unit: 'CNY', display: 'both', enabled: true, status: 'ok', message: '', remaining: 42, maxBudget: 100, percent: 42 }],
+    goQuota: { enabled: true, display: 'both', refreshMinutes: 15, detail: true, main: 'rolling', barDirection: 'used', configured: true, status: 'ok', message: '', rolling: { percent: 21, resetsAt: '' }, weekly: { percent: 5, resetsAt: '' }, monthly: { percent: 3, resetsAt: '' } },
+    plans: [{ id: 'siliconflow', label: 'SiliconFlow 硅基流动', enabled: true, display: 'sidebar', refreshMinutes: 30, status: 'ok', message: '', windows: { balance: { text: '余额 ¥12.50', resetsAt: '' } } }],
+    gatewayQuotas: [],
+    peak: { enabled: true, display: 'both', label: '平价', remainingText: '2 小时', progressText: '20%', switchText: '明天 01:00 转峰时' },
+    settings: {},
+  };
+  const summary = { budget: { enabled: true, amount: 100, used: 42, percent: 42, period: 'month' } };
+  if (overrides.dashboard) Object.assign(dashboard, overrides.dashboard);
+  if (overrides.config) Object.assign(config, overrides.config);
+  return { kind: 'cost-meter', config, dashboard, summary };
 }
 
-test('sidebar usage loads when the gateway connects without reopening the home page', async () => {
+test('sidebar quota card renders the chosen layout from the gateway dashboard', async () => {
   const f = fixture();
-  assert.equal(f.requests.length, 0);
   f.store.state.connection = 'connected';
   f.emit();
-  assert.equal(f.requests.length, 1);
   assert.equal(f.requests[0].action, 'summary');
-  f.requests[0].resolve({ summary: summary(1.25) });
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.match(f.page.data.costCard.todayText, /¥1\.25/);
-  f.store.state.connection = 'disconnected';
-  f.emit();
-  assert.equal(f.page.data.costCard, null);
-  f.store.state.connection = 'connected';
-  f.emit();
-  assert.match(f.page.data.costCard.todayText, /¥1\.25/, 'recent cached summary is restored after reconnect');
-  assert.equal(f.requests.length, 1, 'connected store updates should use the short-lived summary cache');
+  f.requests[0].resolve(frame());
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(f.page.data.costSidebar, 'sidebar model is built');
+  assert.equal(f.page.data.costSidebar.style, 'summary');
+  assert.equal(f.page.data.costSidebar.balance.amountText, '¥7.289');
+  assert.equal(f.page.data.costSidebar.budget.percentText, '42%');
+  assert.equal(f.page.data.costSidebar.go.rows.length, 3);
+  assert.equal(f.page.data.costSidebar.plans.length, 1);
+  assert.equal(f.page.data.costSidebar.custom.length, 1);
 });
 
-test('a stale request from a disconnected or switched host cannot replace current sidebar usage', async () => {
+test('server-side sidebar visibility hides the card without rendering stale data', async () => {
   const f = fixture();
   f.store.state.connection = 'connected';
   f.emit();
-  f.store.state.connection = 'disconnected';
-  f.emit();
-  assert.equal(f.page.data.costCard, null);
-  f.store.state.activeID = 'host-b';
-  f.store.state.connection = 'connected';
-  f.emit();
-  assert.equal(f.requests.length, 2);
-  f.requests[0].resolve({ summary: summary(1) });
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(f.page.data.costCard, null, 'response from the previous connection is ignored');
-  f.requests[1].resolve({ summary: summary(2) });
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.match(f.page.data.costCard.todayText, /¥2\.00/);
+  const hidden = frame();
+  hidden.dashboard.display = { ...hidden.dashboard.display, sidebarVisible: false };
+  f.requests[0].resolve(hidden);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.page.data.costSidebar, null);
 });
 
-test('opening the sidebar triggers a summary request when already connected', () => {
-  const f = fixture();
-  f.store.state.connection = 'connected';
-  f.page.openDrawer();
-  assert.equal(f.requests.length, 1);
-  assert.equal(f.page.data.drawerOpen, true);
+test('the four layout styles are carried into the drawer model', async () => {
+  for (const style of ['summary', 'simple', 'standard', 'compact']) {
+    const f = fixture();
+    f.store.state.connection = 'connected';
+    f.emit();
+    const next = frame();
+    next.dashboard.display = { ...next.dashboard.display, sidebarStyle: style };
+    f.requests[0].resolve(next);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(f.page.data.costSidebar.style, style);
+  }
 });
 
-test('unsupported gateways show an upgrade hint instead of waiting for a request timeout', () => {
-  const f = fixture();
+test('unsupported gateways show an upgrade hint instead of requesting quota data', () => {
+  const f = fixture({ capabilities: [] });
   f.store.state.connection = 'connected';
-  f.store.state.gatewayCapabilities = [];
-  f.page.openDrawer();
+  f.emit();
   assert.equal(f.requests.length, 0);
   assert.match(f.page.data.costCardError, /网关/);
 });
 
-test('sidebar renders the reference-style quota card from native cost-meter state', async () => {
+test('a cached summary avoids repeated requests while the drawer is reused', async () => {
   const f = fixture();
   f.store.state.connection = 'connected';
   f.emit();
-  f.requests[0].resolve({
-    summary: summary(1.25),
-    dashboard: {
-      currency: 'CNY', exchangeRate: 7.2, decimals: 3,
-      balance: { enabled: true, status: 'ok', currency: 'CNY', totalBalance: 7.289 },
-      customBalances: [{ index: 0, enabled: true, display: 'sidebar', label: '赛博', status: 'ok', remaining: -0.0114, unit: 'USD' }],
-      goQuota: { enabled: true, status: 'ok', main: 'rolling', barDirection: 'used', rolling: { percent: 3, resetsAt: '' } },
-      peak: { enabled: false, windows: [] },
-    },
-  });
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(f.page.data.costDashboard.balance.amountText, '¥7.289');
-  assert.equal(f.page.data.costDashboard.customBalances[0].amountText, '$-0.0114');
-  assert.equal(f.page.data.costDashboard.go.percentText, '3%');
-  assert.equal(f.page.data.costCardError, '');
+  f.requests[0].resolve(frame());
+  await new Promise(resolve => setImmediate(resolve));
+  f.emit();
+  assert.equal(f.requests.length, 1, 'recent summary is reused for 30 seconds');
 });
 
-test('sidebar handles temporarily empty native data without prompting for a plugin', async () => {
+test('failed reads surface a non-blocking hint and clear the card', async () => {
   const f = fixture();
   f.store.state.connection = 'connected';
   f.emit();
-  f.requests[0].resolve({ summary: summary(1), dashboard: null });
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.equal(f.page.data.costDashboard, null);
-  assert.equal(f.page.data.costCardError, '');
+  f.requests[0].reject(new Error('boom'));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(f.page.data.costSidebar, null);
+  assert.match(f.page.data.costCardError, /额度数据暂不可用/);
 });
 
-
-test('the sidebar quota card is off by default and requests no data until enabled', () => {
-  const f = fixture({ seedEnabled: false });
-  f.store.state.connection = 'connected';
-  f.emit();
-  assert.equal(f.requests.length, 0, 'hidden card must not request quota data');
-  assert.equal(f.page.data.costDashboard, null);
-  assert.equal(f.page.data.costCardError, '');
-  f.page.openDrawer();
-  assert.equal(f.requests.length, 0, 'opening the drawer keeps the hidden card off');
-  assert.equal(f.page.data.drawerOpen, true);
-});
-
-test('showing the quota card again loads it on the next drawer open', async () => {
+test('opening the drawer triggers a summary request when connected', () => {
   const f = fixture();
-  const key = 'dsh.cost-meter.dashboard.' + encodeURIComponent('host-a||');
-  f.storage.set(key, { sidebarVisible: false });
   f.store.state.connection = 'connected';
-  f.emit();
-  assert.equal(f.requests.length, 0);
-
-  // 模拟在「设置 → 侧栏」里打开开关后返回首页并打开左侧栏。
-  f.storage.set(key, { sidebarVisible: true });
   f.page.openDrawer();
   assert.equal(f.requests.length, 1);
-  f.requests[0].resolve({
-    summary: summary(1),
-    dashboard: {
-      currency: 'CNY', decimals: 2,
-      balance: { enabled: true, status: 'ok', currency: 'CNY', totalBalance: 3 },
-      customBalances: [], goQuota: { enabled: false }, peak: { enabled: false, windows: [] },
-    },
-  });
-  await Promise.resolve();
-  await Promise.resolve();
-  assert.ok(f.page.data.costDashboard);
+  assert.equal(f.page.data.drawerOpen, true);
 });

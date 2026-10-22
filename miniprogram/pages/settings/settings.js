@@ -16,7 +16,6 @@ const { nodePresentation } = require('../../utils/node-presentation');
 const { clientVersion, gatewayVersionInfo } = require('../../utils/version-info');
 const accountView = require('../../utils/account-view');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
-const costView = require('../../utils/cost-view');
 
 const CONNECTION_LABELS = {
   disconnected: uiText('未连接'),
@@ -170,7 +169,6 @@ Page({
       homeAnimationEnabled: homeAnimationPreference.enabled(),
       showContextPanel: contextPanelPrefs.context,
       showFleetPanel: contextPanelPrefs.fleet,
-      showCostCard: costCardVisible(),
       ...clientVersion(wx)
     });
     this.unsubscribe = store.subscribe((snapshot) => {
@@ -340,7 +338,6 @@ Page({
       homeAnimationEnabled: homeAnimationPreference.enabled(),
       showContextPanel: contextPanelPrefs.context,
       showFleetPanel: contextPanelPrefs.fleet,
-      showCostCard: costCardVisible(),
       ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       hapticsLevel: haptics.getLevel() });
@@ -767,25 +764,45 @@ Page({
     wx.navigateTo({ url: '/pages/cost-meter/cost-meter' });
   },
 
-  /** 节点/网关切换后，侧栏额度卡片开关跟随该主机的本地偏好。 */
-  syncCostCardVisibility() {
-    const owner = settingsOwnerKey();
-    if (this._costCardOwner === owner) return;
-    this._costCardOwner = owner;
-    this.setData({ showCostCard: costCardVisible() });
+  /** 左侧栏额度卡片显示开关：保存到已连接电脑的网关设置。 */
+  async toggleCostCard(e) {
+    const enabled = !!(e && e.detail && e.detail.value);
+    if (store.state.connection !== 'connected') {
+      this.setData({ showCostCard: !enabled });
+      wx.showToast({ title: uiText('请先连接电脑端网关'), icon: 'none' });
+      return;
+    }
+    const capabilities = store.state.gatewayCapabilities || [];
+    if (!capabilities.includes('cost-meter-v1')) {
+      this.setData({ showCostCard: !enabled });
+      wx.showToast({ title: uiText('额度卡片需要重启或更新网关'), icon: 'none' });
+      return;
+    }
+    const previous = this.data.showCostCard;
+    this.setData({ showCostCard: enabled });
+    try {
+      const frame = await store.client.requestCostMeter('update', { patch: { display: { sidebarVisible: enabled } } });
+      if (frame && frame.kind === 'error') throw new Error(frame.message || uiText('保存失败，请重试'));
+      wx.showToast({ title: uiText('已保存'), icon: 'success' });
+    } catch (error) {
+      this.setData({ showCostCard: previous });
+      wx.showToast({ title: (error && error.message) || uiText('保存失败，请重试'), icon: 'none' });
+    }
   },
 
-  toggleCostCard(e) {
-    const enabled = !!(e && e.detail && e.detail.value);
+  /** 打开设置页时读取电脑端保存的侧栏显示状态。 */
+  async loadCostCardVisibility() {
+    if (this._costCardVisibleLoading || store.state.connection !== 'connected') return;
+    const capabilities = store.state.gatewayCapabilities || [];
+    if (!capabilities.includes('cost-meter-v1')) return;
+    if (this._costCardVisibilityAt && Date.now() - this._costCardVisibilityAt < 30000) return;
+    this._costCardVisibleLoading = true;
     try {
-      const owner = settingsOwnerKey();
-      const current = costView.readDashboardPreferences(owner, wx);
-      costView.writeDashboardPreferences(owner, Object.assign({}, current, { sidebarVisible: enabled }), wx);
-      this.setData({ showCostCard: enabled });
-    } catch (_) {
-      this.setData({ showCostCard: costCardVisible() });
-      wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
-    }
+      const frame = await store.client.requestCostMeter('config');
+      const visible = !!(frame && frame.config && frame.config.display && frame.config.display.sidebarVisible === true);
+      if (this.data.showCostCard !== visible) this.setData({ showCostCard: visible });
+    } catch (_) { /* 未启用额度能力时保持默认值 */ }
+    finally { this._costCardVisibleLoading = false; this._costCardVisibilityAt = Date.now(); }
   },
 
   openVoiceSettings() { wx.navigateTo({ url: voicePreference.SETTINGS_URL }); },
@@ -799,7 +816,7 @@ Page({
 
   syncFromStore(snapshot) {
     const app = snapshot.app;
-    this.syncCostCardVisibility();
+    this.loadCostCardVisibility();
     const onlineIDs = app.onlineIDs || [];
     const nodes = (app.profiles || []).map((profile) => {
       const online = onlineIDs.indexOf(profile.id) >= 0 ||
@@ -1747,13 +1764,4 @@ function formatExpiry(value) {
   const pad = (n) => n < 10 ? '0' + n : String(n);
   return date.getFullYear() + '/' + pad(date.getMonth() + 1) + '/' + pad(date.getDate()) + ' ' +
     pad(date.getHours()) + ':' + pad(date.getMinutes());
-}
-
-/** 与首页/额度设置页共用同一份「按主机」显示偏好。 */
-function settingsOwnerKey() {
-  return costView.dashboardOwner(store.state);
-}
-
-function costCardVisible() {
-  return costView.readDashboardPreferences(settingsOwnerKey(), wx).sidebarVisible !== false;
 }

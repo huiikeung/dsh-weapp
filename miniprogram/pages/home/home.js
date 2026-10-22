@@ -82,8 +82,8 @@ Page({
     contentX: 0,
     maskOpacity: 0,
     contentShifted: false,
-    costCard: null,
     costDashboard: null,
+    costSidebar: null,
     costCardError: '',
     publicAccessDialog: null,
     publicAccessDialogOpen: false
@@ -224,7 +224,7 @@ Page({
       this._scanRelayPending = false;
       if (conn === 'failed') publicAccessPrompt.showPublicAccessFailure(app.connectionMessage, app.connectionErrorCode);
     }
-    if (conn === 'connected' || this.data.costCard || this.data.costCardError || this._costMeterInFlight) {
+    if (conn === 'connected' || this.data.costDashboard || this.data.costCardError || this._costMeterInFlight) {
       this.loadCostMeterSummary();
     }
     // 对齐 dsh-mobile WorkspaceView.displayedSessions：
@@ -973,29 +973,16 @@ Page({
 
   onCostCardTap() { this.loadCostMeterSummary(true); },
 
-  /** 刷新费用摘要；连接建立后和打开抽屉时都会触发。 */
+  /** 刷新额度卡片；连接建立后和打开抽屉时都会触发。 */
   loadCostMeterSummary(force) {
     if (this._homeHidden) return;
-    const owner = costOwnerKey();
-    // 侧栏显示开关关闭时不请求、也不渲染卡片；设置页仍保留入口。
-    if (!dashboardPreferencesFor(owner).sidebarVisible) {
-      if (this._costMeterInFlight) {
-        this._costMeterInFlight = null;
-        this._costMeterGeneration = (this._costMeterGeneration || 0) + 1;
-        this._costMeterAttempt = null;
-      }
-      if (this.data.costCard || this.data.costDashboard || this.data.costCardError) {
-        this.setData({ costCard: null, costDashboard: null, costCardError: '' });
-      }
-      return;
-    }
     if (store.state.connection !== 'connected') {
       if (this._costMeterInFlight) {
         this._costMeterInFlight = null;
         this._costMeterGeneration = (this._costMeterGeneration || 0) + 1;
         this._costMeterAttempt = null;
       }
-      this.setData({ costCard: null, costDashboard: null, costCardError: '' });
+      this.setData({ costDashboard: null, costSidebar: null, costCardError: '' });
       return;
     }
     const capabilities = store.state.gatewayCapabilities || [];
@@ -1005,24 +992,21 @@ Page({
         this._costMeterGeneration = (this._costMeterGeneration || 0) + 1;
       }
       this._costMeterAttempt = null;
-      this.setData({ costCard: null, costDashboard: null, costCardError: uiText('当前网关尚未开放此功能，请更新网关后重试。') });
+      this.setData({ costDashboard: null, costSidebar: null, costCardError: uiText('当前网关尚未开放此功能，请更新网关后重试。') });
       return;
     }
 
+    const owner = costOwnerKey();
     const now = Date.now();
     if (this._costMeterOwner !== owner) {
       this._costMeterOwner = owner;
       this._costMeterCache = null;
       this._costMeterAttempt = null;
-      this.setData({ costCard: null, costDashboard: null, costCardError: '' });
+      this.setData({ costDashboard: null, costSidebar: null, costCardError: '' });
     }
     const cached = this._costMeterCache;
     if (!force && cached && cached.owner === owner && now - cached.at < 30000) {
-      const dashboard = costView.applyDashboardPreferences(cached.dashboard, dashboardPreferencesFor(owner));
-      if ((!this.data.costCard && cached.card) || (!this.data.costDashboard && dashboard && dashboard.hasContent) || this.data.costCardError ||
-          JSON.stringify(this.data.costDashboard) !== JSON.stringify(dashboard)) {
-        this.setData({ costCard: cached.card, costDashboard: dashboard && dashboard.hasContent ? dashboard : null, costCardError: cached.error || '' });
-      }
+      this.applyQuotaFrame(cached.dashboard, cached.summary);
       return;
     }
     const attempted = this._costMeterAttempt;
@@ -1035,46 +1019,36 @@ Page({
     this.setData({ costCardError: '' });
     store.client.requestCostMeter(force ? 'refresh' : 'summary').then((frame) => {
       if (this._homeHidden || this._costMeterInFlight !== request || request.generation !== (this._costMeterGeneration || 0) ||
-          store.state.connection !== 'connected' || owner !== costOwnerKey() || !dashboardPreferencesFor(owner).sidebarVisible) return;
-      const summary = costView.normalize(frame && frame.summary);
-      const card = this.buildCostCard(summary);
-      const normalizedDashboard = costView.normalizeDashboard(frame && frame.dashboard);
-      const dashboard = costView.applyDashboardPreferences(normalizedDashboard, dashboardPreferencesFor(owner));
-      const error = '';
-      this._costMeterCache = { owner, at: Date.now(), card, dashboard: normalizedDashboard, error };
-      this.setData({ costCard: card, costDashboard: dashboard && dashboard.hasContent ? dashboard : null, costCardError: error });
+          store.state.connection !== 'connected' || owner !== costOwnerKey()) return;
+      this._costMeterCache = { owner, at: Date.now(), dashboard: frame && frame.dashboard, summary: frame && frame.summary };
+      this.applyQuotaFrame(frame && frame.dashboard, frame && frame.summary);
     }).catch((error) => {
       if (this._homeHidden || this._costMeterInFlight !== request || request.generation !== (this._costMeterGeneration || 0) ||
-          store.state.connection !== 'connected' || owner !== costOwnerKey() || !dashboardPreferencesFor(owner).sidebarVisible) return;
+          store.state.connection !== 'connected' || owner !== costOwnerKey()) return;
       // 旧网关没有 cost-meter 服务：不显示抽屉条目，不打扰用户。
-      if (error.code === 'cost-meter-unavailable') this.setData({ costCard: null, costDashboard: null, costCardError: uiText('费用服务暂不可用，请重启 DSH 后重试') });
-      else this.setData({ costCard: null, costDashboard: null, costCardError: uiText('费用数据暂不可用') });
+      this.setData({
+        costDashboard: null,
+        costSidebar: null,
+        costCardError: error.code === 'cost-meter-unavailable' ? uiText('费用服务暂不可用，请重启 DSH 后重试') : uiText('额度数据暂不可用'),
+      });
     }).finally(() => {
       if (this._costMeterInFlight === request) this._costMeterInFlight = null;
     });
   },
 
-  buildCostCard(summary) {
-    if (!summary) return null;
-    const cur = summary.currency || 'CNY';
-    const today = summary.today;
-    const month = summary.month;
-    const balance = summary.balance;
-    const budget = summary.budget;
-    let todayText = uiText('无数据');
-    if (today) todayText = costView.formatCurrency(today.amount, cur) + ' / ' + costView.formatTokens(today.tokens) + ' tokens';
-    let monthText = month ? costView.formatCurrency(month.amount, cur) + ' / ' + costView.formatTokens(month.tokens) + ' tokens' : '';
-    let balanceText = '';
-    let balanceLow = false;
-    if (balance && (balance.total > 0 || balance.granted > 0 || balance.toppedUp > 0)) {
-      balanceText = balance.currency + ' ' + costView.formatCurrency(balance.total, balance.currency || cur);
-      balanceLow = balance.total < 1;
+  /** 把网关返回的额度 dashboard 转成侧栏可渲染的视图模型。 */
+  applyQuotaFrame(dashboard, summary) {
+    const view = costView.normalizeQuotaDashboard(dashboard, summary);
+    if (!view) {
+      if (this.data.costDashboard || this.data.costSidebar) this.setData({ costDashboard: null, costSidebar: null });
+      return;
     }
-    let budgetText = '';
-    if (budget && budget.enabled && budget.amount > 0) {
-      budgetText = costView.formatPercent(budget.percent) + ' · ' + costView.formatCurrency(budget.used, cur);
+    const visible = view.display && view.display.sidebarVisible === true;
+    const sidebar = visible ? costView.quotaSidebarModel(view, view.display.sidebarStyle) : null;
+    const nextSidebar = sidebar && !sidebar.empty ? sidebar : null;
+    if (JSON.stringify(this.data.costDashboard) !== JSON.stringify(view) || JSON.stringify(this.data.costSidebar) !== JSON.stringify(nextSidebar)) {
+      this.setData({ costDashboard: view, costSidebar: nextSidebar, costCardError: '' });
     }
-    return { todayText, monthText, balanceText, balanceLow, budgetText, currency: cur, updatedAtFmt: summary.updatedAtFmt };
   },
 });
 
@@ -1088,6 +1062,3 @@ function costOwnerKey() {
   return costView.dashboardOwner(store.state);
 }
 
-function dashboardPreferencesFor(owner) {
-  return costView.readDashboardPreferences(owner, wx);
-}

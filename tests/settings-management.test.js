@@ -24,11 +24,15 @@ function createPage(apiOptions) {
   let definition;
   const calls = [], timers = new Map(); let timerId = 0;
   const api = Object.assign({ configured: () => false, ensureAccount: async () => ({ isAdmin: false }) }, apiOptions);
+  const costRequests = [];
   const store = {
-    state: { profiles: [], activeID: null, connection: 'disconnected' },
+    state: { profiles: [], activeID: null, connection: 'disconnected', gatewayCapabilities: ['cost-meter-v1'] },
     sessionState: {},
     subscribe() { return () => {}; },
-    client: Object.assign({ requestHost() {} }, typeof api.requestAccount === 'function'
+    client: Object.assign({ requestHost() {},
+      requestCostMeter(action, payload) {
+        return new Promise((resolve, reject) => costRequests.push({ action, payload, resolve, reject }));
+      } }, typeof api.requestAccount === 'function'
       ? { requestAccount: api.requestAccount } : {}, typeof api.requestClawbot === 'function'
       ? { requestClawbot: api.requestClawbot } : {}),
     refreshHostPresence() { calls.push('refresh'); },
@@ -86,7 +90,7 @@ function createPage(apiOptions) {
     setData(update) { Object.assign(this.data, update); }
   });
   const paint = () => { page.onReady(); const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); };
-  return { page, store, wx, calls, api, paint, timers, storage };
+  return { page, store, wx, calls, api, paint, timers, storage, costRequests };
 }
 
 test('signed-out account area explains the desktop sign-in flow', () => {
@@ -502,35 +506,37 @@ Promise.all([testShareRace(), testAutomaticIdentity(), testNodeDetails(), testDe
 });
 
 
-test('sidebar quota-card entry and visibility switch live in settings and persist per host', () => {
-  const { page, wx, store, calls } = createPage();
-  store.state = { connection: 'connected', activeID: 'host-1', gatewayId: 'gw-1', endpoint: 'ws://gw', profiles: [] };
-  const key = 'dsh.cost-meter.dashboard.' + encodeURIComponent('host-1|gw-1|ws://gw');
-  wx.setStorageSync(key, { sidebarVisible: false, style: 'standard', showGo: false });
+const flushCostRequests = async (costRequests, frame = { config: { display: { sidebarVisible: false } } }) => {
+  for (const item of costRequests.splice(0)) item.resolve(frame);
+  await new Promise(resolve => setImmediate(resolve));
+};
+
+test('sidebar quota-card entry and visibility switch read and write the gateway config', async () => {
+  const { page, store, calls, costRequests } = createPage();
+  store.state = { connection: 'connected', activeID: 'host-1', gatewayId: 'gw-1', endpoint: 'ws://gw', profiles: [], gatewayCapabilities: ['cost-meter-v1'] };
   page.onLoad({});
-  assert.equal(page.data.showCostCard, false, 'the switch reflects the saved sidebar visibility');
+  await flushCostRequests(costRequests);
+  assert.equal(page.data.showCostCard, false);
 
   page.openCostMeter();
   assert.deepEqual(calls.filter(item => Array.isArray(item) && item[0] === 'navigate').pop(),
-    ['navigate', '/pages/cost-meter/cost-meter'], 'the card settings entry opens the dedicated quota page');
+    ['navigate', '/pages/cost-meter/cost-meter'], 'the quota entry opens the dedicated page');
 
   page.toggleCostCard({ detail: { value: true } });
+  const update = costRequests.find(item => item.action === 'update');
+  assert.ok(update, 'the switch persists through the gateway');
+  assert.equal(JSON.stringify(update.payload.patch), JSON.stringify({ display: { sidebarVisible: true } }));
+  await flushCostRequests(costRequests, { kind: 'cost-meter' });
   assert.equal(page.data.showCostCard, true);
-  const saved = wx.getStorageSync(key);
-  assert.equal(saved.sidebarVisible, true);
-  assert.equal(saved.style, 'standard', 'toggling visibility keeps the card display preferences');
-  assert.equal(saved.showGo, false);
-  assert.equal(saved.showBalance, true);
 });
 
-
-test('sidebar quota card switch is off by default and persists when enabled', () => {
-  const { page, wx, store } = createPage();
-  store.state = { connection: 'connected', activeID: 'host-1', profiles: [] };
+test('sidebar quota card switch is off by default and persists when enabled', async () => {
+  const { page, store, costRequests } = createPage();
+  store.state = { connection: 'connected', activeID: 'host-1', profiles: [], gatewayCapabilities: ['cost-meter-v1'] };
   page.onLoad({});
+  await flushCostRequests(costRequests);
   assert.equal(page.data.showCostCard, false, 'the quota card stays hidden until the user opts in');
   page.toggleCostCard({ detail: { value: true } });
+  await flushCostRequests(costRequests, { kind: 'cost-meter' });
   assert.equal(page.data.showCostCard, true);
-  const saved = wx.getStorageSync('dsh.cost-meter.dashboard.' + encodeURIComponent('host-1||'));
-  assert.equal(saved.sidebarVisible, true);
 });

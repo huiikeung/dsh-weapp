@@ -80,3 +80,41 @@
 .cost-spinner { width: 28rpx; height: 28rpx; border: 3rpx solid var(--border); border-top-color: #16856D; border-radius: 50%; animation: cost-turn .8s linear infinite; }
 @keyframes cost-turn { to { transform: rotate(360deg); } }
 @media (max-width: 350px) { .cost-stat-value { font-size: 33rpx; } .cost-budget-input-wrap input { width: 116rpx; } }
+
+/* ------------------------------------------------------------------ */
+/* Quota dashboard v2 additions                                        */
+/* ------------------------------------------------------------------ */
+.cost-style-row { display: flex; flex-wrap: wrap; gap: 12rpx; margin: 18rpx 0 0; }
+.cost-style-chip { display: flex; align-items: center; justify-content: center; min-height: 56rpx; padding: 0 22rpx; border: 1rpx solid var(--border); border-radius: 999rpx; background: var(--surface); color: var(--text-2); font-size: 24rpx; }
+.cost-style-chip.active { border-color: transparent; background: #16856D; color: #fff; }
+.cost-inline-input { box-sizing: border-box; width: 300rpx; height: 66rpx; padding: 0 16rpx; border: 1rpx solid var(--border); border-radius: 12rpx; color: var(--text); font-size: 25rpx; text-align: right; }
+.cost-inline-input.short { width: 140rpx; }
+.cost-row-block { display: flex; flex-direction: column; gap: 10rpx; padding: 18rpx 28rpx; }
+.cost-textarea { box-sizing: border-box; width: 100%; min-height: 96rpx; padding: 14rpx 16rpx; border: 1rpx solid var(--border); border-radius: 12rpx; color: var(--text); font-size: 24rpx; line-height: 1.5; }
+.cost-quota-row { display: flex; flex-direction: column; gap: 8rpx; padding: 16rpx 28rpx; }
+.cost-quota-row.inline { padding: 10rpx 0; }
+.cost-quota-head { display: flex; min-height: 40rpx; align-items: center; justify-content: space-between; gap: 12rpx; }
+.cost-quota-label { color: var(--text-2); font-size: 24rpx; }
+.cost-quota-percent { color: var(--text); font-size: 25rpx; font-weight: 650; font-variant-numeric: tabular-nums; }
+.cost-quota-reset { color: var(--text-3); font-size: 21rpx; }
+.cost-progress { overflow: hidden; height: 10rpx; border-radius: 20rpx; background: var(--fill); }
+.cost-progress-fill { height: 100%; min-width: 4rpx; border-radius: inherit; background: #80aaff; }
+.cost-balance-summary { display: flex; align-items: flex-end; justify-content: space-between; gap: 16rpx; padding: 20rpx 28rpx 6rpx; }
+.cost-balance-main { display: flex; min-width: 0; flex-direction: column; gap: 4rpx; }
+.cost-balance-amount { overflow: hidden; color: var(--text); font-size: 44rpx; font-weight: 700; line-height: 1.1; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cost-balance-label { color: var(--text-3); font-size: 22rpx; }
+.cost-balance-meta { display: flex; flex: none; flex-direction: column; gap: 4rpx; color: var(--text-3); font-size: 21rpx; text-align: right; }
+.cost-inline-error { display: block; padding: 6rpx 28rpx 10rpx; color: #c34f4f; font-size: 22rpx; line-height: 1.4; }
+.cost-row-hint.is-error { color: #c34f4f; }
+.cost-plan-card { margin-bottom: 16rpx; }
+.cost-plan-card.is-off { opacity: .78; }
+.cost-plan-actions { display: flex; flex: none; align-items: center; gap: 10rpx; }
+.cost-mini-btn { display: flex; align-items: center; justify-content: center; min-height: 52rpx; padding: 0 18rpx; border: 1rpx solid var(--border); border-radius: 10rpx; color: var(--text-2); font-size: 22rpx; }
+.cost-mini-btn.wide { margin: 8rpx 28rpx 16rpx; }
+.cost-mini-btn.danger { color: #c34f4f; border-color: rgba(195, 79, 79, .35); }
+.cost-plan-windows { padding-bottom: 10rpx; }
+.cost-gateway-account { padding: 4rpx 28rpx 10rpx; }
+.cost-gateway-label { display: block; padding: 10rpx 0 4rpx; color: var(--text); font-size: 23rpx; font-weight: 600; }
+.cost-row-buttons { display: flex; justify-content: flex-end; gap: 12rpx; padding: 10rpx 28rpx 22rpx; }
+.cost-add-source { display: flex; align-items: center; justify-content: center; min-height: 76rpx; margin-top: 14rpx; border: 1rpx dashed var(--border); border-radius: 16rpx; color: var(--ocean); font-size: 25rpx; }
+.cost-save-button.ghost { background: transparent; border: 1rpx solid var(--border); color: var(--text-2); }
