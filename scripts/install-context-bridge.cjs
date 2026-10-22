@@ -83,10 +83,14 @@ function transform(source) {
 
   // 4. Route the request through the paired-device whitelist. Skip when a
   //    previous install already names the request type.
-  const whitelistPatched = 'CONTEXT_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) {';
-  if (!source.includes(whitelistPatched)) {
+  const whitelistPatched = [
+    'CONTEXT_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) {',
+    'CONTEXT_REQUEST_TYPES.has(msg.type) || COST_METER_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) {',
+  ];
+  if (!whitelistPatched.some(marker => source.includes(marker))) {
     const whitelistAnchors = [
       '                       ACCOUNT_REQUEST_TYPES.has(msg.type) || WORKSPACE_CHANGES_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) {',
+      '                       ACCOUNT_REQUEST_TYPES.has(msg.type) || WORKSPACE_CHANGES_TYPES.has(msg.type) || CONTEXT_REQUEST_TYPES.has(msg.type) || COST_METER_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) {',
       '                       PLUGIN_REQUEST_TYPES.has(msg.type)) {',
     ];
     const whitelistAnchor = whitelistAnchors.find(anchor => has(source, anchor));
@@ -99,6 +103,7 @@ function transform(source) {
   //    (upstream mobile gateway) needs the inserted group parenthesised.
   const authPatched = [
     "if ((CONTEXT_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) && !ws.deviceId) {",
+    "if ((COST_METER_REQUEST_TYPES.has(msg.type) || CONTEXT_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) && !ws.deviceId) {",
     "CONTEXT_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type) || msg.type === 'clawbot-control') && !ws.deviceId) {",
   ].some(marker => source.includes(marker));
   const buggyAuth = 'if (CONTEXT_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type) && !ws.deviceId) {';

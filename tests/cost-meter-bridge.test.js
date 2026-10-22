@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { handleCostMeter, COST_METER_REQUEST_TYPES, foldSessionEvents } = require('../scripts/lib/cost-meter-bridge.mjs');
+const { handleCostMeterWithDashboard } = require('../scripts/lib/cost-meter-dashboard-bridge.mjs');
 const costView = require('../miniprogram/utils/cost-view');
 
 // One known instant; bucket boundaries are derived from it.
@@ -99,6 +100,18 @@ test('CNY conversion uses exchange rate', async () => {
   assert.equal(out.summary.currency, 'CNY');
 });
 
+test('budget usage is compared in the configured display currency', async () => {
+  const api = makeApi([
+    { sessionId: 's1', events: [assistantEvent(NOW, usage(1000000, 0), 'deepseek-chat')] },
+  ]);
+  const out = await handleCostMeter(api, { requestId: 'r-cny-budget', action: 'summary' }, {
+    now: () => NOW,
+    configOverride: { currency: 'CNY', exchangeRate: 7.2, budget: { enabled: true, amount: 10, period: 'day' } },
+  });
+  assert.ok(Math.abs(out.summary.budget.used - 1.944) < 1e-9);
+  assert.ok(Math.abs(out.summary.budget.percent - 19.4) < 0.1);
+});
+
 test('config action returns settings without folding', async () => {
   let folded = false;
   const api = {
@@ -125,6 +138,28 @@ test('update action validates and applies patch', async () => {
   assert.ok(out.summary.available);
 });
 
+test('update action persists budget and subagent settings through the allowlist', async () => {
+  const previousFile = process.env.DSH_WEAPP_COST_STATE_FILE;
+  const file = path.join(fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'cost-meter-config-')), 'state.json');
+  process.env.DSH_WEAPP_COST_STATE_FILE = file;
+  try {
+    const out = await handleCostMeter(makeApi([]), {
+      requestId: 'r-config-save', action: 'update',
+      patch: { budget: { enabled: true, amount: 25, period: 'day' }, includeSubagentCost: false },
+    }, { now: () => NOW });
+    assert.equal(out.kind, 'cost-meter');
+    assert.equal(out.config.budget.enabled, true);
+    assert.equal(out.config.budget.amount, 25);
+    assert.equal(out.config.includeSubagentCost, false);
+    const persisted = JSON.parse(fs.readFileSync(file, 'utf8'));
+    assert.equal(persisted.config.budget.amount, 25);
+    assert.equal(persisted.config.includeSubagentCost, false);
+  } finally {
+    if (previousFile === undefined) delete process.env.DSH_WEAPP_COST_STATE_FILE;
+    else process.env.DSH_WEAPP_COST_STATE_FILE = previousFile;
+  }
+});
+
 test('update rejects invalid patches gracefully', async () => {
   const out = await handleCostMeter(makeApi([]), { requestId: 'r6', action: 'update', patch: { currency: 'JPY' } }, { now: () => NOW });
   assert.equal(out.code, 'bad-request');
@@ -147,6 +182,113 @@ test('host exception never leaks details', async () => {
   const out = await handleCostMeter(api, { requestId: 'r8', action: 'summary' }, { now: () => NOW });
   assert.equal(out.summary.total, null);
   assert.doesNotMatch(JSON.stringify(out), /secret database string 42/);
+});
+
+test('standalone session usage bridge continues to work without any dashboard plugin', async () => {
+  const api = makeApi([{ sessionId: 's-native', events: [assistantEvent(NOW, usage(300, 100), 'deepseek-chat')] }]);
+  const out = await handleCostMeter(api, { requestId: 'native-1', action: 'refresh' }, { now: () => NOW });
+  assert.equal(out.kind, 'cost-meter');
+  assert.equal(out.summary.today.tokens, 400);
+  assert.equal(out.summary.available, true);
+});
+
+test('native dashboard reads official account and Go quota without querying a costMeter service', async () => {
+  const previousFile = process.env.DSH_WEAPP_COST_DASHBOARD_FILE;
+  const file = path.join(fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'cost-dashboard-')), 'settings.json');
+  process.env.DSH_WEAPP_COST_DASHBOARD_FILE = file;
+  fs.writeFileSync(file, JSON.stringify({ settings: { goQuota: { enabled: true, main: 'weekly', barDirection: 'remaining' } } }));
+  const calls = [];
+  const api = { account: { async getBalance(client) {
+    assert.equal(client.version, 'dsh-weapp/1');
+    return { status: 'ready', value: [{ currency: 'USD', balance: '5' }, { currency: 'CNY', balance: '7.2' }], bonusWallets: [{ currency: 'CNY', balance: '0.089' }] };
+  } } };
+  const hostContext = { get(name) {
+    calls.push(name);
+    assert.notEqual(name, 'costMeter', 'dashboard must not depend on dsh-cost-meter');
+    return { async resolve(ref) { return ref === 'OPENCODE_GO_API_KEY' ? { value: 'secret-key' } : null; } };
+  } };
+  try {
+    const frame = await handleCostMeterWithDashboard(api, { requestId: 'native-dashboard', action: 'refresh' }, {
+      hostContext,
+      now: () => NOW,
+      async fetch(url, options) {
+        assert.equal(url, 'https://opencode.ai/zen/go/v1/usage');
+        assert.equal(options.headers.authorization, 'Bearer secret-key');
+        return { ok: true, async json() { return { usage: { rolling: { percent: 3, resetsAt: '2026-10-22T17:00:00Z' }, weekly: { percent: 22, resetsAt: '2026-10-26T00:00:00Z' } } }; } };
+      },
+    });
+    assert.equal(frame.kind, 'cost-meter');
+    assert.ok(Math.abs(frame.dashboard.balance.totalBalance - 7.289) < 1e-9);
+    assert.equal(frame.dashboard.goQuota.weekly.percent, 22);
+    assert.equal(frame.dashboard.goQuota.main, 'weekly');
+    assert.equal(frame.dashboard.goQuota.configured, true);
+    assert.equal(frame.dashboard.peak.enabled, true);
+    assert.ok(calls.length > 0);
+    assert.ok(calls.every(name => name === 'settings' || name === 'credentials'));
+    assert.doesNotMatch(JSON.stringify(frame), /secret-key/);
+  } finally {
+    if (previousFile === undefined) delete process.env.DSH_WEAPP_COST_DASHBOARD_FILE;
+    else process.env.DSH_WEAPP_COST_DASHBOARD_FILE = previousFile;
+  }
+});
+
+test('official balance falls back to the fixed DeepSeek API endpoint and never returns the API key', async () => {
+  const credentials = { async resolve(ref) { return ref === 'DSH_WEAPP_DEEPSEEK_BALANCE_API_KEY' ? { value: 'deepseek-secret' } : null; } };
+  const hostContext = { get(name) {
+    if (name === 'settings') return { get() { return { providers: {} }; } };
+    assert.notEqual(name, 'costMeter');
+    return credentials;
+  } };
+  const frame = await handleCostMeterWithDashboard({ account: { async getBalance() { return null; } } }, {
+    requestId: 'official-api-balance', action: 'refresh',
+  }, {
+    hostContext,
+    async fetch(url, options) {
+      assert.equal(url, 'https://api.deepseek.com/user/balance');
+      assert.equal(options.headers.authorization, 'Bearer deepseek-secret');
+      return { ok: true, async json() { return { balance_infos: [
+        { currency: 'USD', total_balance: '2.5' },
+        { currency: 'CNY', total_balance: '0' },
+      ] }; } };
+    },
+  });
+  assert.equal(frame.dashboard.balance.currency, 'USD');
+  assert.equal(frame.dashboard.balance.totalBalance, 2.5);
+  assert.equal(frame.dashboard.settings.balanceKeyConfigured, true);
+  assert.doesNotMatch(JSON.stringify(frame), /deepseek-secret/);
+});
+
+test('dashboard settings persist without storing Go secrets and Go keys use the DSH credential store', async () => {
+  const previousFile = process.env.DSH_WEAPP_COST_DASHBOARD_FILE;
+  const file = path.join(fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'cost-dashboard-save-')), 'settings.json');
+  process.env.DSH_WEAPP_COST_DASHBOARD_FILE = file;
+  let stored;
+  const hostContext = { get(name) {
+    assert.equal(name, 'credentials');
+    return {
+      async set(ref, value) { stored = { ref, value }; },
+      async resolve() { return stored ? { value: stored.value } : null; },
+    };
+  } };
+  try {
+    const keyFrame = await handleCostMeterWithDashboard({}, { requestId: 'save-key', action: 'set-go-key', value: 'top-secret' }, {
+      hostContext, async fetch() { return { ok: true, async json() { return { usage: { rolling: { percent: 9 } } }; } }; },
+    });
+    assert.deepEqual(stored, { ref: 'OPENCODE_GO_API_KEY', value: 'top-secret' });
+    assert.doesNotMatch(JSON.stringify(keyFrame), /top-secret/);
+    const frame = await handleCostMeterWithDashboard({}, { requestId: 'save-settings', action: 'update', patch: {
+      goQuota: { main: 'monthly', barDirection: 'remaining' }, peak: { enabled: false, windows: [{ start: 3, end: 7 }] },
+    } }, { hostContext });
+    assert.equal(frame.dashboard.settings.goQuota.main, 'monthly');
+    assert.equal(frame.dashboard.settings.peak.enabled, false);
+    assert.equal(frame.dashboard.goQuota.barDirection, 'remaining');
+    const saved = fs.readFileSync(file, 'utf8');
+    assert.match(saved, /"main": "monthly"/);
+    assert.doesNotMatch(saved, /top-secret/);
+  } finally {
+    if (previousFile === undefined) delete process.env.DSH_WEAPP_COST_DASHBOARD_FILE;
+    else process.env.DSH_WEAPP_COST_DASHBOARD_FILE = previousFile;
+  }
 });
 
 test('foldSessionEvents attributes by time bucket', () => {
@@ -229,6 +371,23 @@ test('normalize parses summary correctly', () => {
   assert.equal(view.budget.percentFmt, '25.0%');
   assert.ok(view.balance);
   assert.equal(view.balance.totalFmt, '¥500.00');
+});
+
+test('compact sidebar projection formats authoritative balance, custom balance and Go quota', () => {
+  const view = costView.normalizeDashboard({
+    currency: 'CNY', exchangeRate: 7.2, decimals: 3,
+    balance: { enabled: true, status: 'ok', currency: 'CNY', totalBalance: 7.289 },
+    customBalances: [{ index: 0, enabled: true, display: 'sidebar', label: '赛博', status: 'ok', remaining: -0.0114, unit: 'USD' }],
+    goQuota: { enabled: true, status: 'ok', main: 'rolling', barDirection: 'used', rolling: { percent: 3, resetsAt: '' } },
+    peak: { enabled: false, windows: [] },
+  });
+  assert.equal(view.balance.amountText, '¥7.289');
+  assert.equal(view.customBalances[0].label, '赛博');
+  assert.equal(view.customBalances[0].amountText, '$-0.0114');
+  assert.equal(view.go.label, 'Go 5h');
+  assert.equal(view.go.percentText, '3%');
+  assert.equal(view.go.barWidth, '3%');
+  assert.equal(view.hasContent, true);
 });
 
 test('validatePatch rejects invalid patches', () => {

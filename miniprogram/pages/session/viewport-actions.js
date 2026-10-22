@@ -23,7 +23,11 @@ module.exports = {
     const window = this._conversationWindow;
     if (!window) return;
     const patch = dataPatch(this.data, window.select(top, this._convClientHeight || 700));
-    if (Object.keys(patch).length) this.setData(patch, () => { this.scheduleHistoryFormatting(); this.measureConversationWindow(); });
+    if (Object.keys(patch).length) this.setData(patch, () => {
+      this.scheduleHistoryFormatting(); this.measureConversationWindow();
+      // 滚动带出的新图也需要回填本地缓存路径，否则进入窗口后是空白图。
+      if (typeof this.scheduleAttachmentThumbs === 'function') this.scheduleAttachmentThumbs();
+    });
   },
   revealConversationRow(key) {
     const window = this._conversationWindow; if (!window) return;

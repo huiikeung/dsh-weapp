@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 function client() {
-  let clock = Date.now(), currentAdmin = true, loginCount = 0;
+  let clock = Date.now(), currentAdmin = true, currentPublicAccount = null, loginCount = 0;
   const saved = new Map(), requests = [];
   const config = { baseUrl: 'https://identity.example.test' };
   const wx = {
@@ -14,13 +14,15 @@ function client() {
     request: options => {
       requests.push(options);
       options.success({ statusCode: 200, data: options.url.endsWith('/session')
-        ? { token: 'fixture-session-' + loginCount, expiresAt: clock + 60000, account: { isAdmin: currentAdmin } }
-        : { account: { isAdmin: currentAdmin } } });
+        ? { token: 'fixture-session-' + loginCount, expiresAt: clock + 60000, account: currentPublicAccount || { isAdmin: currentAdmin } }
+        : options.url.endsWith('/public-access/lease')
+          ? { token: 'L'.repeat(43), expiresAt: clock + 60000 }
+        : { account: currentPublicAccount || { isAdmin: currentAdmin } } });
     }
   };
   const context = { module: { exports: {} }, require: n => n.endsWith('ui-preferences') ? require('../miniprogram/utils/ui-preferences') : config, wx, Date: { now: () => clock } };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../miniprogram/utils/access-api.js'), 'utf8'), context);
-  return { api: context.module.exports, config, wx, saved, requests, tick: ms => { clock += ms; }, setAdmin: value => { currentAdmin = value; }, logins: () => loginCount };
+  return { api: context.module.exports, config, wx, saved, requests, tick: ms => { clock += ms; }, setAdmin: value => { currentAdmin = value; }, setPublicAccount: value => { currentPublicAccount = value; }, logins: () => loginCount };
 }
 test('legacy backend share route gives an actionable upgrade message', async () => {
   const f=client();await f.api.ensureAccount({freshLogin:true});
@@ -99,4 +101,24 @@ test('only the configured operator relay is metered; cached expiry never grants 
   f.saved.set('public-access.expiresAt', Date.now() + 365 * 86400000);
   assert.equal(f.api.hasPublicAccess(), false);
   assert.equal(f.api.hasPublicAccess({ isAdmin: false, publicAccess: true, publicAccessExpiresAt: 1 }), false);
+});
+test('public relay authorization distinguishes first-time access from an expired entitlement', async () => {
+  const fresh = client();
+  fresh.setPublicAccount({ isAdmin: false, publicAccess: false, publicAccessExpiresAt: null });
+  await assert.rejects(fresh.api.publicLease('fixture-node', 'fixture-device'), error =>
+    error.code === 'PUBLIC_ACCESS_REQUIRED' && error.message.includes('尚未开通') && error.message.includes('局域网连接不受影响'));
+  assert.equal(fresh.requests.some(request => request.url.endsWith('/public-access/lease')), false);
+
+  const expired = client();
+  expired.setPublicAccount({ isAdmin: false, publicAccess: false, publicAccessExpiresAt: Date.now() - 1000 });
+  await assert.rejects(expired.api.publicLease('fixture-node', 'fixture-device'), error =>
+    error.code === 'PUBLIC_ACCESS_EXPIRED' && error.message.includes('有效期已到期') && error.message.includes('兑换续期'));
+  assert.equal(expired.requests.some(request => request.url.endsWith('/public-access/lease')), false);
+});
+test('an active public-access grant still receives a relay lease', async () => {
+  const f = client();
+  f.setPublicAccount({ isAdmin: false, publicAccess: true, publicAccessExpiresAt: Date.now() + 86400000 });
+  const lease = await f.api.publicLease('fixture-node', 'fixture-device');
+  assert.equal(lease.token, 'L'.repeat(43));
+  assert.equal(f.requests.some(request => request.url.endsWith('/public-access/lease')), true);
 });

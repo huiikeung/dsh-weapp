@@ -27,3 +27,6 @@ miniprogram/preview-info.json
 
 # Locally assembled release packages
 release-artifacts/
+
+# 配对二维码（含一次性凭据，不入库）
+pairing-qr.png

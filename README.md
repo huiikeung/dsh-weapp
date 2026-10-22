@@ -77,7 +77,7 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 | Composer 输入面板 | 同页 | 权限、模型、思考等级芯片、图片附件、发送、停止回合 |
 | SettingsView | `pages/settings` | Agent 预设、默认模型、权限默认值、Gateway 状态/Ping/断开/忘记设备、DSH Host 信息、关于（隐私政策） |
 | SessionStats | 同页「··· → 查看统计」 | 轮次/步骤/耗时/Tokens |
-| WorkspaceView 侧边栏 drawer | `pages/home`（品牌 logo 点击/右滑唤出） | 品牌字标 + 插件 / 定时任务入口，主内容右移圆角 + 压暗，抽屉内拖拽关闭 |
+| WorkspaceView 侧边栏 drawer | `pages/home`（品牌 logo 点击/右滑唤出） | 品牌字标 + 插件 / 定时任务入口 + 可选额度卡片（默认关闭，显示开关在 设置 → 侧栏），主内容右移圆角 + 压暗，抽屉内拖拽关闭 |
 | ScheduledTasksView 定时任务 | `pages/schedule` | schedule-catalog 目录、卡片左滑编辑/删除、展开详情、编辑弹层（标题/内容/执行时间）、删除确认、下拉刷新 |
 | PluginsView 插件管理 | `pages/plugins` + `pages/plugin-detail` | plugin-catalog 目录（官方/已安装分组）、bundle 启用开关（停用移动网关需确认）、实验性徽标、官方配置项详情、组件条目开关与半屏组件详情、plugins-changed 自动刷新 |
 | WorkspaceDrawerDestination 插件 | 已升级为真实插件管理页 | （v1.7.x 前为占位页，现对齐 PluginsView） |
@@ -234,7 +234,8 @@ weapp/
 - 小程序无后台长连接保活：退到后台由微信管理 WebSocket，回前台自动重连
   （iOS 使用系统后台执行时间管理活动任务）。
 - 图片附件按需经 `FileSystemManager` 读为 Base64 走协议 3 `images`；
-  附件回显需调用 `attachment` 请求拉取（iOS 有本地附件缓存）。
+  回显时按 `attachmentId` 调用 `attachment` 拉取并缓存到 `USER_DATA_PATH`，
+  会话行进入视口即自动回填（失败退避 30 秒后重试，本机刚发送的图片直接复用临时文件）。
 - 正式发布需在小程序后台配置 socket 合法域名（`wss://`），本地开发需勾选
   「不校验合法域名」。
 - 图标为 PNG 栅格而非 SF Symbols 矢量（小程序 `<image>` 不可靠支持 SVG）；

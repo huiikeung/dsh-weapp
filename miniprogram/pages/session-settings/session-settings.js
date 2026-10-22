@@ -11,7 +11,7 @@ const CONNECTION_LABELS = { disconnected: uiText('未连接'), connecting: uiTex
 
 Page({
   manualShareMenu: true,
-  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true, dshAccount: accountView.normalize({}), dshAccountBusy: false },
+  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true, dshAccount: accountView.normalize({}), dshAccountBusy: false, dshAccountVisible: false },
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onLoad() {
     this._alive = true;
@@ -65,13 +65,20 @@ Page({
     let locale = 'zh';
     try { locale = preferences.locale(); } catch (_) {}
     const client = { version, locale, timezoneOffsetSeconds: -(new Date()).getTimezoneOffset() * 60 };
-    this.setData({ dshAccountBusy: true });
+    this.setData({ dshAccountBusy: true, dshAccountVisible: true });
     store.client.requestAccount(client).then(snapshot => {
       if (generation !== this._dshAccountGeneration || this._alive === false || owner !== store.state.activeID) return;
-      this.setData({ dshAccount: accountView.normalize(snapshot) });
+      this.setData({ dshAccount: accountView.normalize(snapshot), dshAccountVisible: true });
     }).catch(error => {
       if (generation !== this._dshAccountGeneration || this._alive === false || owner !== store.state.activeID) return;
-      this.setData({ dshAccount: accountView.normalize({ error: error.message || uiText('账号信息读取失败') }) });
+      const code = String((error && error.code) || '');
+      const unsupported = code === 'account-unavailable' || code === 'unknown-command'
+        || /unknown message type/i.test(String((error && error.message) || ''));
+      if (unsupported) {
+        this.setData({ dshAccountVisible: false, dshAccount: accountView.normalize({}) });
+        return;
+      }
+      this.setData({ dshAccount: accountView.normalize({ error: (error && error.message) || uiText('账号信息读取失败') }), dshAccountVisible: true });
     }).finally(() => {
       if (generation === this._dshAccountGeneration) this.setData({ dshAccountBusy: false });
     });
@@ -104,6 +111,18 @@ Page({
     if (hostVersion && hostVersion !== this._dshAccountHostVersion) {
       this._dshAccountHostVersion = hostVersion;
       this.refreshDshAccount();
+    }
+    // 账号区只在已连接网关时显示；断开后立即隐藏并清掉上次快照。
+    const accountConnected = app.connection === 'connected';
+    if (accountConnected !== this._dshAccountConnected) {
+      this._dshAccountConnected = accountConnected;
+      if (!accountConnected) {
+        this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1;
+        this.setData({ dshAccountVisible: false, dshAccountBusy: false, dshAccount: accountView.normalize({}) });
+      } else {
+        this.setData({ dshAccountVisible: true });
+        this.refreshDshAccount();
+      }
     }
     if (this.data.utilitySheet === 'diagnostics') this.setData({ diagnostics: this.diagnosticRows(app) });
   },

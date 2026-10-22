@@ -8,6 +8,7 @@ const endpoint = 'wss://dsh.ahwe.top/relay/c/fixture-node';
 const relay = { nodeId: 'fixture-node', authMode: 'gateway', agentPubKey: 'fixture-key' };
 function fixture(lease) {
   const sockets = [], leases = [], timers = new Map();
+  let onboardingPrompts = 0;
   let timerId = 0;
   const wx = {
     getStorageSync: () => 'fixture-device', setStorageSync() {},
@@ -24,6 +25,7 @@ function fixture(lease) {
   const access = { isManagedRelay: value => value === endpoint, publicLease(nodeId, deviceId) {
     leases.push({ nodeId, deviceId }); return lease();
   } };
+  const publicAccessPrompt = { promptFirstAuthorizedUse(proceed) { onboardingPrompts++; proceed(); } };
   class Session { constructor() { this.hello = new Uint8Array([1]); } }
   const context = { module: { exports: {} }, wx, Date, Uint8Array, ArrayBuffer,
     setTimeout(fn, ms) { const id = ++timerId; timers.set(id, { fn, ms }); return id; },
@@ -31,13 +33,14 @@ function fixture(lease) {
     require(name) {
       if (name === './access-api') return access;
       if (name === './relay-e2ee') return { ClientSession: Session };
+      if (name === './public-access-prompt') return publicAccessPrompt;
       return require(path.join(__dirname, '../miniprogram/utils', name));
     }
   };
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../miniprogram/utils/gateway.js'), 'utf8'), context);
   const client = new context.module.exports.GatewayClient();
   client.reportDeviceInfo = () => {};
-  return { client, sockets, leases, timers };
+  return { client, sockets, leases, timers, onboardingPrompts: () => onboardingPrompts };
 }
 test('LAN, direct WSS and self-hosted relay never depend on public subscription', () => {
   const f = fixture(() => { throw new Error('subscription unavailable'); });
@@ -54,6 +57,15 @@ test('expired or unavailable public account cannot open a relay socket', async (
   await f.client.connect(endpoint, { relay });
   assert.equal(f.sockets.length, 0); assert.equal(f.client.state, 'failed');
   assert.equal(f.leases.length, 1); f.client.disconnect();
+});
+test('public entitlement error codes survive the gateway status callback', async () => {
+  const error = Object.assign(new Error('Public access has expired'), { code: 'PUBLIC_ACCESS_EXPIRED' });
+  const f = fixture(() => Promise.reject(error));
+  const statuses = [];
+  f.client.cb.onState = (...args) => statuses.push(args);
+  await f.client.connect(endpoint, { relay });
+  assert.deepEqual(statuses.at(-1), ['failed', 'Public access has expired', 'PUBLIC_ACCESS_EXPIRED']);
+  assert.equal(f.onboardingPrompts(), 0, 'expired users never see the first-authorized-use prompt');
 });
 test('switching to LAN cancels in-flight subscription response and ignores stale socket events', async () => {
   let resolve;

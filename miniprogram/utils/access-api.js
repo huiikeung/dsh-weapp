@@ -1,6 +1,7 @@
 const { t: uiText } = require('./ui-preferences');
 const config = require('./access-config');
 const KEY = 'public-access.session.v1';
+const GRANT_KEY = 'public-access.grant.v1';
 let session = null;
 let account = null;
 let loginPromise = null;
@@ -101,9 +102,33 @@ function isManagedRelay(endpoint) {
   const prefix = config.baseUrl.replace(/^https:/, 'wss:').replace(/\/$/, '') + '/relay/c/';
   return typeof endpoint === 'string' && endpoint.indexOf(prefix) === 0 && /^[A-Za-z0-9_-]{8,128}$/.test(endpoint.slice(prefix.length));
 }
+/** 最近一次公网授权成功的凭据（本地判断有效期，冷启动时避免重复弹窗）。 */
+function saveGrant(nodeId, lease) {
+  try { wx.setStorageSync(GRANT_KEY, JSON.stringify({ nodeId, expiresAt: Number(lease.expiresAt) || 0, at: Date.now() })); } catch (e) {}
+}
+function lastGrant() {
+  try {
+    const saved = wx.getStorageSync(GRANT_KEY);
+    const value = typeof saved === 'string' ? JSON.parse(saved) : saved;
+    if (value && Number(value.expiresAt) > Date.now()) return value;
+  } catch (e) {}
+  return null;
+}
+
 function publicLease(nodeId, deviceId) {
-  return ensureAccount({ freshLogin: true }).then(() => request('/public-access/lease', { nodeId, deviceId })).then(result => {
+  return ensureAccount({ freshLogin: true }).then(current => {
+    if (!hasPublicAccess(current)) {
+      const expiresAt = Number(current && current.publicAccessExpiresAt) || 0;
+      const expired = expiresAt > 0 && expiresAt <= Date.now();
+      throw error(expired
+        ? uiText('公网访问有效期已到期，请在设置→公网访问兑换续期；局域网连接不受影响。')
+        : uiText('当前微信账号尚未开通公网访问，请在设置→公网访问兑换开通；局域网连接不受影响。'),
+      expired ? 'PUBLIC_ACCESS_EXPIRED' : 'PUBLIC_ACCESS_REQUIRED');
+    }
+    return request('/public-access/lease', { nodeId, deviceId });
+  }).then(result => {
     if (!result || !/^[A-Za-z0-9_-]{43}$/.test(result.token || '') || !Number.isSafeInteger(result.expiresAt) || result.expiresAt <= Date.now()) throw error(uiText('公网授权响应无效'), 'INVALID_RESPONSE');
+    saveGrant(nodeId, result);
     return result;
   });
 }
@@ -121,4 +146,4 @@ function claimAdminBinding(code) { return request('/admin-binding/claim', { code
 function pairings() { return request('/admin/pairings'); }
 function createPairing(nodeId, days) { return request('/admin/pairings', { nodeId, days }, false, 30000); }
 function revokePairing(id) { return request('/admin/pairings/' + encodeURIComponent(id) + '/revoke', {}); }
-module.exports = { configured, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, hasPublicAccess, isManagedRelay, publicLease, issueCompletionNotificationTicket, claimAdminBinding, pairings, createPairing, revokePairing, clear };
+module.exports = { configured, lastGrant, saveGrant, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, hasPublicAccess, isManagedRelay, publicLease, issueCompletionNotificationTicket, claimAdminBinding, pairings, createPairing, revokePairing, clear };

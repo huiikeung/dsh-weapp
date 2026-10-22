@@ -15,6 +15,8 @@ const { getPublicAccessState } = require('../../utils/public-access-state');
 const { nodePresentation } = require('../../utils/node-presentation');
 const { clientVersion, gatewayVersionInfo } = require('../../utils/version-info');
 const accountView = require('../../utils/account-view');
+const publicAccessPrompt = require('../../utils/public-access-prompt');
+const costView = require('../../utils/cost-view');
 
 const CONNECTION_LABELS = {
   disconnected: uiText('未连接'),
@@ -96,6 +98,7 @@ Page({
     homeAnimationEnabled: true,
     showContextPanel: true,
     showFleetPanel: true,
+    showCostCard: false,
     voiceEnabled: true,
     accountBusy: false,
     isWechatAdmin: false,
@@ -103,6 +106,9 @@ Page({
     accountHint: uiText('自动识别当前微信身份，无需手动切换'),
     dshAccount: accountView.normalize({}),
     dshAccountBusy: false,
+    dshAccountVisible: false,
+    publicAccessDialog: null,
+    publicAccessDialogOpen: false,
     shareReason: '',
     redeemAvailable: false,
     sheetExpanded: {},
@@ -164,6 +170,7 @@ Page({
       homeAnimationEnabled: homeAnimationPreference.enabled(),
       showContextPanel: contextPanelPrefs.context,
       showFleetPanel: contextPanelPrefs.fleet,
+      showCostCard: costCardVisible(),
       ...clientVersion(wx)
     });
     this.unsubscribe = store.subscribe((snapshot) => {
@@ -180,6 +187,8 @@ Page({
     });
     this.syncFromStore({ app: store.state, session: store.sessionState });
     this.refreshDshAccount();
+    // 从公网授权弹窗「继续」跳入时，直接展开公网访问面板。
+    if (options && options.panel === 'public') this.openPublicAccess();
     if (options && options.pair) {
       const result = store.pairWithPayload(options.pair);
       if (result.ok) {
@@ -190,6 +199,8 @@ Page({
       }
     }
   },
+
+  onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
 
   updateNavigationLayout() {
     let info = {};
@@ -329,6 +340,7 @@ Page({
       homeAnimationEnabled: homeAnimationPreference.enabled(),
       showContextPanel: contextPanelPrefs.context,
       showFleetPanel: contextPanelPrefs.fleet,
+      showCostCard: costCardVisible(),
       ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       hapticsLevel: haptics.getLevel() });
@@ -425,15 +437,33 @@ Page({
     let locale = 'zh';
     try { locale = preferences.locale(); } catch (_) {}
     const client = { version, locale, timezoneOffsetSeconds: -(new Date()).getTimezoneOffset() * 60 };
-    this.setData({ dshAccountBusy: true });
+    this.setData({ dshAccountBusy: true, dshAccountVisible: true });
     store.client.requestAccount(client).then(snapshot => {
       if (generation !== this._dshAccountGeneration || this._settingsVisible === false || owner !== store.state.activeID) return;
-      this.setData({ dshAccount: accountView.normalize(snapshot) });
+      this.setData({ dshAccount: accountView.normalize(snapshot), dshAccountVisible: true });
     }).catch(error => {
       if (generation !== this._dshAccountGeneration || this._settingsVisible === false || owner !== store.state.activeID) return;
-      this.setData({ dshAccount: accountView.normalize({ error: error.message || uiText('账号信息读取失败') }) });
+      const code = String((error && error.code) || '');
+      const unsupported = code === 'account-unavailable' || code === 'unknown-command'
+        || /unknown message type/i.test(String((error && error.message) || ''));
+      if (unsupported) {
+        this.setData({ dshAccountVisible: false, dshAccount: accountView.normalize({}) });
+        return;
+      }
+      this.setData({ dshAccount: accountView.normalize({ error: (error && error.message) || uiText('账号信息读取失败') }), dshAccountVisible: true });
     }).finally(() => {
       if (generation === this._dshAccountGeneration) this.setData({ dshAccountBusy: false });
+    });
+  },
+
+  /** 手机端无法完成 DeepSeek 授权回调，引导到电脑端登录后自动同步。 */
+  explainDshAccountSignIn() {
+    wx.showModal({
+      title: uiText('登录 DeepSeek'),
+      content: uiText('手机端暂不支持直接登录 DeepSeek 账号。请在电脑端 DSH 的「设置 → 账号与余额」完成登录，登录后回到本页会自动同步。'),
+      confirmText: uiText('刷新'),
+      cancelText: uiText('知道了'),
+      success: (result) => { if (result && result.confirm) this.refreshDshAccount(); }
     });
   },
 
@@ -732,6 +762,32 @@ Page({
     }
   },
 
+  /** 侧栏额度卡片：入口搬到设置页，开关只控制左侧栏是否显示卡片。 */
+  openCostMeter() {
+    wx.navigateTo({ url: '/pages/cost-meter/cost-meter' });
+  },
+
+  /** 节点/网关切换后，侧栏额度卡片开关跟随该主机的本地偏好。 */
+  syncCostCardVisibility() {
+    const owner = settingsOwnerKey();
+    if (this._costCardOwner === owner) return;
+    this._costCardOwner = owner;
+    this.setData({ showCostCard: costCardVisible() });
+  },
+
+  toggleCostCard(e) {
+    const enabled = !!(e && e.detail && e.detail.value);
+    try {
+      const owner = settingsOwnerKey();
+      const current = costView.readDashboardPreferences(owner, wx);
+      costView.writeDashboardPreferences(owner, Object.assign({}, current, { sidebarVisible: enabled }), wx);
+      this.setData({ showCostCard: enabled });
+    } catch (_) {
+      this.setData({ showCostCard: costCardVisible() });
+      wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
+    }
+  },
+
   openVoiceSettings() { wx.navigateTo({ url: voicePreference.SETTINGS_URL }); },
 
   toggleNotify(e) {
@@ -743,6 +799,7 @@ Page({
 
   syncFromStore(snapshot) {
     const app = snapshot.app;
+    this.syncCostCardVisibility();
     const onlineIDs = app.onlineIDs || [];
     const nodes = (app.profiles || []).map((profile) => {
       const online = onlineIDs.indexOf(profile.id) >= 0 ||
@@ -783,13 +840,19 @@ Page({
 
     if (this._pairingAttemptActive && app.connection === 'connected') {
       this._pairingAttemptActive = false;
+      this._scanRelayPending = false;
       this.setData({ pairSheetOpen: false, pairingConnecting: false, pairingText: '', pairingError: '' });
       wx.showToast({ title: uiText('节点已连接'), icon: 'success' });
     } else if (this._pairingAttemptActive && app.connection === 'failed') {
       this._pairingAttemptActive = false;
+      const connectionMessage = app.connectionMessage || uiText('连接失败，请检查配对信息');
+      if (this._scanRelayPending) {
+        this._scanRelayPending = false;
+        publicAccessPrompt.showPublicAccessFailure(connectionMessage, app.connectionErrorCode);
+      }
       this.setData({
         pairingConnecting: false,
-        pairingError: app.connectionMessage || uiText('连接失败，请检查配对信息')
+        pairingError: connectionMessage
       });
     }
 
@@ -817,6 +880,23 @@ Page({
       publicSub: publicSub,
       publicHint: publicHint
     });
+    // 账号区只在已连接网关时显示；断开后立即隐藏并清掉上次快照。
+    const accountConnected = app.connection === 'connected';
+    const accountHostVersion = app.host && app.host.version;
+    if (accountConnected && accountHostVersion && accountHostVersion !== this._dshAccountHostVersion) {
+      this._dshAccountHostVersion = accountHostVersion;
+      this.refreshDshAccount();
+    }
+    if (accountConnected !== this._dshAccountConnected) {
+      this._dshAccountConnected = accountConnected;
+      if (!accountConnected) {
+        this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1;
+        this.setData({ dshAccountVisible: false, dshAccountBusy: false, dshAccount: accountView.normalize({}) });
+      } else {
+        this.setData({ dshAccountVisible: true });
+        this.refreshDshAccount();
+      }
+    }
     // Subscription belongs to WeChat, never to the selected LAN/DSH device.
     if (accessApi.configured()) {
       const account = this._publicAccount;
@@ -1604,11 +1684,13 @@ Page({
     wx.scanCode({
       onlyFromCamera: true,
       success: (res) => {
+        this._scanRelayPending = !!publicAccessPrompt.managedRelayPayload(res.result);
         const result = store.pairWithPayload(res.result);
         if (result.ok) {
           this._pairingAttemptActive = true;
           wx.showToast({ title: uiText('连接中…'), icon: 'none' });
         } else {
+          this._scanRelayPending = false;
           wx.showToast({ title: result.error || uiText('配对失败'), icon: 'none' });
         }
       },
@@ -1665,4 +1747,13 @@ function formatExpiry(value) {
   const pad = (n) => n < 10 ? '0' + n : String(n);
   return date.getFullYear() + '/' + pad(date.getMonth() + 1) + '/' + pad(date.getDate()) + ' ' +
     pad(date.getHours()) + ':' + pad(date.getMinutes());
+}
+
+/** 与首页/额度设置页共用同一份「按主机」显示偏好。 */
+function settingsOwnerKey() {
+  return costView.dashboardOwner(store.state);
+}
+
+function costCardVisible() {
+  return costView.readDashboardPreferences(settingsOwnerKey(), wx).sidebarVisible !== false;
 }

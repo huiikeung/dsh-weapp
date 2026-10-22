@@ -67,6 +67,7 @@ test('session settings retain model and permission APIs, file navigation and pri
   assert.equal(page.data.presetLabel,'编程'); assert.equal(page.data.modelLabel,'fixture-model');
   assert.equal(accountRequests[0].version, '1.0', 'Session settings send the DSH Host version, not the mini-program version');
   assert.equal(page.data.dshAccount.balanceText, '¥12.34');
+  assert.equal(page.data.dshAccountVisible, true, 'connected session settings show the account area');
   wx.getMenuButtonBoundingClientRect = () => ({top: 60, height: 32});
   page.onResize(); assert.equal(page.data.navPadTop + page.data.navHeight / 2, 76);
   wx.navigateBack = o => {calls.push(['back']); wx.backOptions=o;};

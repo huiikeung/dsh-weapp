@@ -122,9 +122,7 @@
             <view class="message-attachment-copy"><text class="message-attachment-name">{{att.name || att.path || '文件附件'}}</text><text wx:if="{{att.path && att.name !== att.path}}" class="message-attachment-path">{{att.path}}</text></view>
           </view>
         </view>
-        <view wx:if="{{item.copyText}}" class="copy-btn" bindtap="copyAssistantText" data-key="{{item.key}}" data-text="{{item.copyText}}">
-          <image class="copy-ic" src="{{copiedKey === item.key ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/>
-        </view>
+        <view wx:if="{{item.copyText}}" class="turn-footer-wrap"><view class="turn-footer"><view class="turn-footer-left"><view class="copy-btn" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view><view wx:if="{{item.turnMetaText}}" class="turn-meta" catchtap="openTurnUsage" data-key="{{item.turnMetaKey || item.key}}" role="button" aria-label="{{item.turnMetaText}}"><image class="turn-meta-ic" src="/assets/icons/{{theme === 'dark' ? 'token-usage-dark.svg' : 'token-usage.svg'}}" mode="aspectFit"/><text class="turn-meta-text">{{item.turnMetaText}}</text></view></view><text wx:if="{{item.turnTimeText}}" class="turn-time">{{item.turnTimeText}}</text></view></view>
       </view>
 
       <!-- dsh-mobile ConversationProcessGroup：稳定组头 + 分层 disclosure 节点 -->
@@ -282,7 +280,8 @@
         </view>
       </view>
 
-      <view wx:elif="{{item.kind === 'changes'}}" class="changed-files" id="{{item.key}}">
+      <view wx:elif="{{item.kind === 'changes'}}" class="file-card-wrap" id="{{item.key}}">
+      <view class="changed-files">
         <view class="changed-files-head" bindtap="openChangedFile" data-row="{{item.key}}" data-index="0" hover-class="delivered-file-pressed" role="button" aria-label="{{item.singleFile ? item.files[0].display : item.title}}">
           <view class="delivered-file-icon"><image src="{{item.singleFile ? item.files[0].icon : '/assets/icons/deliverable-code.svg'}}" mode="aspectFit"/></view>
           <view class="delivered-file-copy"><text class="delivered-file-name">{{item.title}}</text>
@@ -301,8 +300,11 @@
         </view>
         <view wx:if="{{item.files.length > 4}}" class="delivered-file-toggle" bindtap="toggleChangedFiles" data-key="{{item.key}}">{{fileExpanded[item.key] ? ui['收起'] : ui['显示全部文件'] + ' (' + item.files.length + ')'}}</view>
       </view>
+        <view wx:if="{{item.copyText}}" class="turn-footer-wrap"><view class="turn-footer"><view class="turn-footer-left"><view class="copy-btn file-copy-btn" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view><view wx:if="{{item.turnMetaText}}" class="turn-meta" catchtap="openTurnUsage" data-key="{{item.turnMetaKey || item.copyKey || item.key}}" role="button" aria-label="{{item.turnMetaText}}"><image class="turn-meta-ic" src="/assets/icons/{{theme === 'dark' ? 'token-usage-dark.svg' : 'token-usage.svg'}}" mode="aspectFit"/><text class="turn-meta-text">{{item.turnMetaText}}</text></view></view><text wx:if="{{item.turnTimeText}}" class="turn-time">{{item.turnTimeText}}</text></view></view>
+      </view>
 
-      <view wx:elif="{{item.kind === 'files'}}" class="delivered-files" id="{{item.key}}">
+      <view wx:elif="{{item.kind === 'files'}}" class="file-card-wrap" id="{{item.key}}">
+      <view class="delivered-files">
         <block wx:for="{{item.files}}" wx:for-item="file" wx:for-index="fileIndex" wx:key="key">
           <view wx:if="{{fileIndex < 4 || fileExpanded[item.key]}}" class="delivered-file" bindtap="openPresentedFile" data-key="{{file.key}}" hover-class="delivered-file-pressed" role="button" aria-label="{{ui['打开']}} {{file.name}}">
             <view class="delivered-file-icon"><image src="{{file.icon}}" mode="aspectFit"/></view>
@@ -314,6 +316,8 @@
           </view>
         </block>
         <view wx:if="{{item.files.length > 4}}" class="delivered-file-toggle" bindtap="toggleFileCards" data-key="{{item.key}}">{{fileExpanded[item.key] ? ui['收起'] : ui['显示全部文件'] + ' (' + item.files.length + ')'}}</view>
+      </view>
+        <view wx:if="{{item.copyText}}" class="turn-footer-wrap"><view class="turn-footer"><view class="turn-footer-left"><view class="copy-btn file-copy-btn" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view><view wx:if="{{item.turnMetaText}}" class="turn-meta" catchtap="openTurnUsage" data-key="{{item.turnMetaKey || item.copyKey || item.key}}" role="button" aria-label="{{item.turnMetaText}}"><image class="turn-meta-ic" src="/assets/icons/{{theme === 'dark' ? 'token-usage-dark.svg' : 'token-usage.svg'}}" mode="aspectFit"/><text class="turn-meta-text">{{item.turnMetaText}}</text></view></view><text wx:if="{{item.turnTimeText}}" class="turn-time">{{item.turnTimeText}}</text></view></view>
       </view>
 
       <!-- 其它事件行（iOS .system：图标 + caption 标题 + caption 文本 + 6% 底色圆角卡） -->
@@ -407,15 +411,25 @@
 <text class="ctx-card-title">{{ui['统计']}}</text>
 <view wx:if="{{contextPanel.running}}" class="fleet-pulse on ctx-live-dot"></view>
 </view>
-<view class="ctx-grid">
-<view class="ctx-tile">
-<text class="ctx-tile-label">{{ui['输入输出']}}</text>
+<view class="ctx-flow" id="ctxFlow">
+<canvas type="2d" id="ctxFlowCanvas" class="ctx-flow-canvas" style="width:{{ctxFlowW}}px;height:{{ctxFlowH}}px;"></canvas>
+<view class="ctx-flow-row ctx-flow-row-top">
+<view class="ctx-flow-node" id="ctxNodeInputs">
+<view class="ctx-flow-head"><text class="ctx-tile-label">{{ui['输入输出']}}</text><text class="ctx-flow-total">{{contextPanel.stats.ioTotalText}}</text></view>
 <view class="ctx-chips">
 <view wx:for="{{contextPanel.stats.activity.chips}}" wx:key="key" class="ctx-chip ctx-chip-io-{{item.key}}"><text class="ctx-chip-value">{{item.text}}</text><text class="ctx-chip-label">{{item.label}}</text></view>
 </view>
 </view>
-<view class="ctx-tile">
-<text class="ctx-tile-label">{{ui['当前会话']}}</text>
+<view class="ctx-flow-node" id="ctxNodeEvents">
+<view class="ctx-flow-head"><text class="ctx-tile-label">{{ui['上下文事件']}}</text><text class="ctx-flow-total">{{contextPanel.stats.eventTotalText}}</text></view>
+<view class="ctx-chips">
+<view wx:for="{{contextPanel.stats.chips}}" wx:key="key" class="ctx-chip ctx-chip-{{item.key}}"><text class="ctx-chip-value">{{item.text}}</text><text class="ctx-chip-label">{{item.label}}</text></view>
+</view>
+</view>
+</view>
+<view class="ctx-flow-mid">
+<view class="ctx-flow-node ctx-flow-self" id="ctxNodeSession">
+<view class="ctx-flow-head"><text class="ctx-tile-label">{{ui['当前会话']}}</text></view>
 <view class="ctx-metrics">
 <view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.turnsText}}</text><text class="ctx-metric-label">{{ui['轮次']}}</text></view>
 <view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.stepsText}}</text><text class="ctx-metric-label">{{ui['步数']}}</text></view>
@@ -423,22 +437,18 @@
 <view class="ctx-metric"><text class="ctx-metric-value">{{contextPanel.stats.answersText}}</text><text class="ctx-metric-label">{{ui['模型回复']}}</text></view>
 </view>
 </view>
-<view class="ctx-tile">
-<text class="ctx-tile-label">{{ui['工具调用']}}</text>
-<text class="ctx-tile-value">{{contextPanel.stats.toolTotalText}}</text>
+</view>
+<view class="ctx-flow-row ctx-flow-row-bottom">
+<view class="ctx-flow-node" id="ctxNodeTools">
+<view class="ctx-flow-head"><text class="ctx-tile-label">{{ui['工具调用']}}</text><text class="ctx-flow-total">{{contextPanel.stats.toolTotalText}}</text></view>
 <view wx:for="{{contextPanel.stats.toolNames}}" wx:key="name" class="ctx-tool-row"><text class="ctx-tool-name">{{item.name}}</text><text class="ctx-tool-count">{{item.countText}}</text></view>
 <text wx:if="{{contextPanel.stats.otherText}}" class="ctx-tile-sub">{{contextPanel.stats.otherText}}</text>
 </view>
-<view wx:if="{{contextPanel.stats.network.hasData}}" class="ctx-tile">
-<text class="ctx-tile-label">{{ui['Agent 网络']}}</text>
-<view class="ctx-tile-value-row"><text class="ctx-tile-value">{{contextPanel.stats.network.agentTokensText}}</text><text class="ctx-tile-unit"> tok</text></view>
+<view class="ctx-flow-node" id="ctxNodeNet">
+<view class="ctx-flow-head"><text class="ctx-tile-label">{{ui['Agent 网络']}}</text><text class="ctx-flow-total">{{contextPanel.stats.network.agentTokensText}}</text></view>
+<text class="ctx-tile-unit">tok</text>
 <text class="ctx-tile-sub">{{contextPanel.stats.network.subagentLabel}} ×{{contextPanel.stats.network.subagentsText}}</text>
 <text class="ctx-tile-sub">{{ui['Agent 数量']}} {{contextPanel.stats.network.agentsText}}</text>
-</view>
-<view class="ctx-tile">
-<text class="ctx-tile-label">{{ui['上下文事件']}}</text>
-<view class="ctx-chips">
-<view wx:for="{{contextPanel.stats.chips}}" wx:key="key" class="ctx-chip ctx-chip-{{item.key}}"><text class="ctx-chip-value">{{item.text}}</text><text class="ctx-chip-label">{{item.label}}</text></view>
 </view>
 </view>
 </view>
@@ -1620,5 +1630,25 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
     </view>
   </view>
 
+  <!-- 本轮用量详情（浮动卡片，非底部弹窗） -->
+  <view wx:if="{{turnUsageOpen}}" class="turn-usage-mask" catchtap="closeTurnUsage" catchtouchmove="noop">
+    <view class="turn-usage-card {{turnUsagePos.placeBelow ? 'below' : 'above'}}" style="left:{{turnUsagePos.left}}px; top:{{turnUsagePos.top}}px; width:{{turnUsagePos.width}}px;" catchtap="noop" role="dialog" aria-label="{{ui['本轮用量']}}">
+      <view class="turn-usage-total">
+        <image class="turn-usage-ic" src="/assets/icons/{{theme === 'dark' ? 'token-usage-dark.svg' : 'token-usage.svg'}}" mode="aspectFit"/>
+        <text class="turn-usage-total-label">{{ui['本轮用量']}}</text>
+        <text class="turn-usage-total-value">{{turnUsageSheet.total}} tok</text>
+      </view>
+      <view class="turn-usage-rows">
+        <view wx:if="{{turnUsageSheet.routes}}" class="turn-usage-row"><text class="turn-usage-label">{{ui['提供方 / 模型']}}</text><text class="turn-usage-value">{{turnUsageSheet.routes}}</text></view>
+        <view wx:if="{{turnUsageSheet.cacheHit !== null}}" class="turn-usage-row"><text class="turn-usage-label">{{ui['缓存命中']}}</text><text class="turn-usage-value">{{turnUsageSheet.cacheHit}}%</text></view>
+        <view class="turn-usage-row"><text class="turn-usage-label">{{ui['未缓存输入']}}</text><text class="turn-usage-value">{{turnUsageSheet.uncached}} tok</text></view>
+        <view class="turn-usage-row"><text class="turn-usage-label">{{ui['缓存读取']}}</text><text class="turn-usage-value">{{turnUsageSheet.cacheRead}} tok</text></view>
+        <view class="turn-usage-row"><text class="turn-usage-label">{{ui['缓存写入']}}</text><text class="turn-usage-value">{{turnUsageSheet.cacheWrite}} tok</text></view>
+        <view class="turn-usage-row"><text class="turn-usage-label">{{ui['输出']}}</text><text class="turn-usage-value">{{turnUsageSheet.output}} tok</text></view>
+      </view>
+    </view>
+  </view>
+
   <voice-overlay id="voice-overlay" visible="{{voiceOverlayVisible && tab === 'conversation'}}" theme="{{theme}}" cancel-armed="{{voiceCancelArmed}}" status="{{voiceStatus}}" />
+  <public-access-dialog visible="{{publicAccessDialogOpen}}" dialog="{{publicAccessDialog}}" theme="{{theme}}" bindconfirm="onPublicAccessDialogConfirm" />
 </view>

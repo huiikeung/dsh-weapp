@@ -234,7 +234,7 @@ function tokenRow(key, value, estimate, total, usage, t) {
 // ---------- 统计卡 ----------
 
 /** 输入输出 5 chip（v2 activity；旧帧缺失时整组显示 —）。 */
-function deriveActivity(value, t) { t = identity(t); var a = isObject(value.activity) ? value.activity : null; var chips = ACTIVITY_KEYS.map(function (k) { var on = a !== null && finiteNumber(a[k]); return { key: k, label: t(ACTIVITY_LABELS[k]), text: on ? formatCompact(a[k]) : '—' }; }); return { hasData: chips.some(function (c) { return c.text !== '—'; }), chips: chips }; }
+function deriveActivity(value, t) { t = identity(t); var a = isObject(value.activity) ? value.activity : null; var chips = ACTIVITY_KEYS.map(function (k) { var on = a !== null && finiteNumber(a[k]); return { key: k, label: t(ACTIVITY_LABELS[k]), text: on ? formatCompact(a[k]) : '—' }; }); var total = 0; ACTIVITY_KEYS.forEach(function (k) { if (a !== null && finiteNumber(a[k])) total += num(a[k]); }); return { hasData: chips.some(function (c) { return c.text !== '—'; }), chips: chips, totalText: a === null ? '—' : formatCompact(total) }; }
 
 /** Agent 网络：当前 Agent token + 子 Agent 数（来自 context-fleet；缺失隐藏）。 */
 function deriveNetwork(value, tokens, fleet, t) { t = identity(t); if (isObject(fleet) !== true) return { hasData: false, agentTokensText: '', subagentsText: '', subagents: 0 }; var agents = Array.isArray(fleet.agents) ? fleet.agents.filter(isObject) : null; var counts = isObject(fleet.counts) ? fleet.counts : {}; var currentSessionId = text(fleet.currentSessionId); var current = null; if (agents) { for (var i = 0; i < agents.length; i += 1) { if (agents[i].isCurrent === true || (currentSessionId && text(agents[i].sessionId) === currentSessionId)) { current = agents[i]; break; } } } var tokensTotal = current && finiteNumber(current.tokensTotal) ? num(current.tokensTotal) : (tokens && tokens.available ? num(tokens.total) : null); var subagents = finiteNumber(counts.subagents) ? num(counts.subagents) : (agents ? Math.max(0, agents.length - 1) : 0); return { hasData: !!(finiteNumber(counts.agents) || (agents && agents.length)), agentsText: finiteNumber(counts.agents) ? formatCompact(counts.agents) : (agents ? formatCompact(agents.length) : '0'), agentTokensText: tokensTotal === null ? '—' : formatCompact(tokensTotal), subagents: subagents, subagentsText: formatCompact(subagents), subagentLabel: t('子 Agent') }; }
@@ -242,6 +242,7 @@ function deriveNetwork(value, tokens, fleet, t) { t = identity(t); if (isObject(
 function deriveStats(value, tokens, t, fleet) {
   t = identity(t);
   var counts = isObject(value.counts) ? value.counts : {};
+  var activityValue = isObject(value.activity) ? value.activity : null;
   var tools = isObject(value.tools) ? value.tools : {};
   var stats = isObject(value.stats) ? value.stats : {};
   var toolTotal = num(tools.total) || num(counts.toolCalls);
@@ -254,7 +255,15 @@ function deriveStats(value, tokens, t, fleet) {
     });
   var topSum = top.reduce(function (sum, item) { return sum + item.count; }, 0);
   var otherCount = Math.max(0, toolTotal - topSum);
+  var ioTotal = 0;
+  if (activityValue !== null) {
+    ['userInputs', 'reads', 'writes', 'searches', 'images'].forEach(function (k) { if (finiteNumber(activityValue[k])) ioTotal += num(activityValue[k]); });
+  }
+  var ioTotalText = activityValue === null ? '—' : formatCompact(ioTotal);
+  var eventTotal = num(counts.injects) + num(counts.compactions) + num(counts.prunes);
   return {
+    ioTotalText: ioTotalText,
+    eventTotalText: formatCompact(eventTotal),
     toolTotal: toolTotal,
     toolTotalText: formatCompact(toolTotal),
     toolNames: top,

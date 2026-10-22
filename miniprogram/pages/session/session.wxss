@@ -147,8 +147,9 @@
 .collab-refresh.busy { opacity:.45; }
 .collab-refresh.busy .collab-action-icon { animation:collab-refresh-turn 1s linear infinite; }
 .collab-tabs { margin:0 28rpx;flex-shrink:0;border-bottom:1rpx solid var(--divider); white-space:nowrap; overflow:hidden; }
-.collab-tabs-track { display:flex; gap:22rpx; align-items:stretch; width:max-content; padding-right:24rpx; box-sizing:content-box; }
-.collab-tab { position:relative;display:flex;flex:0 0 auto;min-width:132rpx;min-height:44px;box-sizing:border-box;padding:12rpx 4rpx 20rpx;align-items:center;justify-content:center;flex-direction:column;gap:10rpx;font-size:24rpx;line-height:1.4;color:var(--text-2); }
+/* 默认一屏正好显示 4 个标签，两端对齐；更多标签横向滑动查看 */
+.collab-tabs-track { display:flex; gap:0; align-items:stretch; width:max-content; padding-right:0; box-sizing:border-box; }
+.collab-tab { position:relative;display:flex;flex:0 0 calc((750rpx - 56rpx) / 4);min-width:0;min-height:44px;box-sizing:border-box;padding:12rpx 4rpx 20rpx;align-items:center;justify-content:center;flex-direction:column;gap:10rpx;font-size:24rpx;line-height:1.4;color:var(--text-2); }
 .collab-tab.active { color:var(--ink);font-weight:600; }
 .collab-tab-summary { display:flex;align-items:center;justify-content:center;gap:10rpx;max-width:100%;height:34rpx; }
 .collab-tab-icon { width:32rpx;height:32rpx;flex-shrink:0; }
@@ -4784,3 +4785,268 @@ to{transform:translateX(340%)}
   .fleet-occupancy-fill,.fleet-compose-seg { transition:none; }
 }
 /* auto-preview test */
+
+/* 文件 / 变更卡片底部的复制按钮（跟随卡片左对齐） */
+.file-copy-btn {
+  margin: 4rpx 0 0 8rpx;
+  padding-bottom: 6rpx;
+}
+
+/* 文件卡片外层：宽度撑满，卡片保持原样，复制按钮在卡片之外 */
+.file-card-wrap {
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.file-card-wrap .changed-files,
+.file-card-wrap .delivered-files {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.file-card-wrap .file-copy-btn {
+  align-self: flex-start;
+  margin: 6rpx 0 0 8rpx;
+}
+
+/* ---------- 每轮底部：复制按钮 + 用量/时间 ---------- */
+.turn-footer-wrap {
+  display: block;
+}
+
+.turn-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 14rpx;
+  padding: 4rpx 0;
+}
+
+.turn-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+
+/* 用量：胶囊底色 + 图标 + 文字 */
+.turn-meta {
+  display: flex;
+  align-items: center;
+  gap: 8rpx;
+  padding: 8rpx 14rpx;
+  border-radius: 999rpx;
+  background: var(--fill);
+  flex-shrink: 0;
+}
+
+/* 时间：单独显示在右侧 */
+.turn-time {
+  font-size: 23rpx;
+  color: var(--text-3);
+  white-space: nowrap;
+  margin-left: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.turn-meta-ic {
+  width: 26rpx;
+  height: 26rpx;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+
+.turn-meta-text {
+  font-size: 23rpx;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+/* ---------- 本轮用量详情（贴按钮浮卡，跟随主题） ---------- */
+.turn-usage-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  background: rgba(0, 0, 0, 0.12);
+}
+
+.theme-dark .turn-usage-mask {
+  background: rgba(0, 0, 0, 0.32);
+}
+
+.turn-usage-card {
+  position: fixed;
+  box-sizing: border-box;
+  padding: 24rpx 28rpx 12rpx;
+  border-radius: 24rpx;
+  background: var(--surface);
+  border: 1rpx solid var(--border);
+  box-shadow: 0 18rpx 48rpx rgba(7, 24, 43, 0.18);
+  display: flex;
+  flex-direction: column;
+  color: var(--text);
+}
+
+.theme-dark .turn-usage-card {
+  box-shadow: 0 18rpx 48rpx rgba(0, 0, 0, 0.55);
+}
+
+.turn-usage-card.above {
+  transform: translateY(-100%);
+}
+
+.turn-usage-card.below {
+  transform: none;
+}
+
+.turn-usage-total {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  padding: 4rpx 4rpx 20rpx;
+  border-bottom: 1rpx solid var(--divider);
+}
+
+.turn-usage-ic {
+  width: 34rpx;
+  height: 34rpx;
+  flex-shrink: 0;
+}
+
+.turn-usage-total-label {
+  flex: 1;
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.turn-usage-total-value {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.turn-usage-rows {
+  display: flex;
+  flex-direction: column;
+  padding: 4rpx 4rpx 6rpx;
+}
+
+.turn-usage-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24rpx;
+  padding: 13rpx 0;
+}
+
+.turn-usage-label {
+  font-size: 25rpx;
+  color: var(--text-2);
+}
+
+.turn-usage-value {
+  font-size: 25rpx;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+/* ---------- 上下文统计：流动连接（对齐 dsh-context 的 Agent Flow，竖向布局） ---------- */
+.ctx-flow {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 88rpx;
+  padding: 8rpx 0;
+}
+
+.ctx-flow-canvas {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ctx-flow-row {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: stretch;
+  gap: 18rpx;
+}
+
+.ctx-flow-row-top .ctx-flow-node,
+.ctx-flow-row-bottom .ctx-flow-node {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.ctx-flow-mid {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.ctx-flow-mid .ctx-flow-node {
+  width: 82%;
+}
+
+.ctx-flow-node {
+  background: var(--fill);
+  border: 1rpx solid var(--border);
+  border-radius: 16rpx;
+  padding: 16rpx 18rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 10rpx;
+  min-width: 0;
+}
+
+.ctx-flow-self {
+  background: var(--fill-2);
+  border-color: var(--border);
+}
+
+.ctx-flow-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8rpx;
+  min-width: 0;
+}
+
+.ctx-flow-total {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: 26rpx;
+  font-weight: 650;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.ctx-flow-mid .ctx-metrics {
+  grid-template-columns: 1fr 1fr;
+  gap: 14rpx 8rpx;
+}
+
+.ctx-flow .ctx-chip-label,
+.ctx-flow .ctx-chip-value,
+.ctx-flow .ctx-tool-row,
+.ctx-flow .ctx-tile-sub {
+  font-size: 22rpx;
+}
+
+@media (max-width: 350px) {
+  .ctx-flow { gap: 72rpx; }
+  .ctx-flow-node { padding: 14rpx 14rpx; }
+}

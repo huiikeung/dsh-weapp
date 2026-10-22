@@ -9,6 +9,7 @@ const { workspacePopoverLayout } = require('../../utils/workspace-popover');
 const homeAnimationPreference = require('../../utils/home-animation-pref');
 const initialHomeAnimationEnabled = homeAnimationPreference.enabled();
 const costView = require('../../utils/cost-view');
+const publicAccessPrompt = require('../../utils/public-access-prompt');
 
 const CONNECTION_LABELS = {
   disconnected: uiText('未连接'),
@@ -82,8 +83,10 @@ Page({
     maskOpacity: 0,
     contentShifted: false,
     costCard: null,
+    costDashboard: null,
     costCardError: '',
-    _costMeterFresh: false
+    publicAccessDialog: null,
+    publicAccessDialogOpen: false
   },
 
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
@@ -161,6 +164,8 @@ Page({
     this.setData({ sheetTheme: theme.resolveTheme() });
   },
 
+  onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
+
   onHide() {
     this._homeHidden = true;
     this.stopHostProbeTimer();
@@ -215,6 +220,13 @@ Page({
     if (this._homeHidden) return;
     const app = snapshot.app;
     const conn = app.connection;
+    if (this._scanRelayPending && (conn === 'connected' || conn === 'failed')) {
+      this._scanRelayPending = false;
+      if (conn === 'failed') publicAccessPrompt.showPublicAccessFailure(app.connectionMessage, app.connectionErrorCode);
+    }
+    if (conn === 'connected' || this.data.costCard || this.data.costCardError || this._costMeterInFlight) {
+      this.loadCostMeterSummary();
+    }
     // 对齐 dsh-mobile WorkspaceView.displayedSessions：
     // 先限定历史可见性和归档状态，再按工作区归属筛选，最后应用搜索结果。
     const workspaces = app.workspaces || [];
@@ -276,12 +288,12 @@ Page({
       ungrouped: true
     } : current ? {
       title: current.title,
-      path: current.path || uiText('通过 Mobile Gateway 连接'),
+      path: current.path || uiText('通过 Weapp Gateway 连接'),
       workspaceId: current.workspaceId,
       ungrouped: false
     } : {
       title: 'DeepseekHarnessProject',
-      path: uiText('通过 Mobile Gateway 连接'),
+      path: uiText('通过 Weapp Gateway 连接'),
       workspaceId: '',
       ungrouped: false
     };
@@ -732,10 +744,12 @@ Page({
     wx.scanCode({
       onlyFromCamera: true,
       success: (res) => {
+        this._scanRelayPending = !!publicAccessPrompt.managedRelayPayload(res.result);
         const result = store.pairWithPayload(res.result);
         if (result.ok) {
           wx.showToast({ title: uiText('连接中…'), icon: 'none' });
         } else {
+          this._scanRelayPending = false;
           wx.showToast({ title: result.error || uiText('配对失败'), icon: 'none' });
         }
       },
@@ -867,10 +881,12 @@ Page({
   },
 
   openDrawer() {
-    if (this.data.drawerOpen) return;
-    this.hapticLight();
-    this.setData({ pairMenuVisible: false });
-    this.applyDrawer(1);
+    if (!this.data.drawerOpen) {
+      this.hapticLight();
+      this.setData({ pairMenuVisible: false });
+      this.applyDrawer(1);
+    }
+    this.loadCostMeterSummary();
   },
 
   closeDrawer() {
@@ -952,28 +968,89 @@ Page({
 
   openCostDetail() {
     this.resetDrawerInstant();
-    wx.navigateTo({ url: '/pages/plugin-detail/plugin-detail?bundle=' + encodeURIComponent('@deepseek-ai/dsh-cost-meter') });
+    wx.navigateTo({ url: '/pages/cost-meter/cost-meter' });
   },
 
-  /** 抽屉打开时刷新费用摘要（30s 内不再重复拉取）。 */
-  loadCostMeterSummary() {
-    if (this._costMeterFresh) return;
-    this._costMeterFresh = true;
-    setTimeout(() => { this._costMeterFresh = false; }, 30000);
-    if (store.state.connection !== 'connected') {
-      this.setData({ costCard: null, costCardError: '' });
+  onCostCardTap() { this.loadCostMeterSummary(true); },
+
+  /** 刷新费用摘要；连接建立后和打开抽屉时都会触发。 */
+  loadCostMeterSummary(force) {
+    if (this._homeHidden) return;
+    const owner = costOwnerKey();
+    // 侧栏显示开关关闭时不请求、也不渲染卡片；设置页仍保留入口。
+    if (!dashboardPreferencesFor(owner).sidebarVisible) {
+      if (this._costMeterInFlight) {
+        this._costMeterInFlight = null;
+        this._costMeterGeneration = (this._costMeterGeneration || 0) + 1;
+        this._costMeterAttempt = null;
+      }
+      if (this.data.costCard || this.data.costDashboard || this.data.costCardError) {
+        this.setData({ costCard: null, costDashboard: null, costCardError: '' });
+      }
       return;
     }
+    if (store.state.connection !== 'connected') {
+      if (this._costMeterInFlight) {
+        this._costMeterInFlight = null;
+        this._costMeterGeneration = (this._costMeterGeneration || 0) + 1;
+        this._costMeterAttempt = null;
+      }
+      this.setData({ costCard: null, costDashboard: null, costCardError: '' });
+      return;
+    }
+    const capabilities = store.state.gatewayCapabilities || [];
+    if (!capabilities.includes('cost-meter-v1')) {
+      if (this._costMeterInFlight) {
+        this._costMeterInFlight = null;
+        this._costMeterGeneration = (this._costMeterGeneration || 0) + 1;
+      }
+      this._costMeterAttempt = null;
+      this.setData({ costCard: null, costDashboard: null, costCardError: uiText('当前网关尚未开放此功能，请更新网关后重试。') });
+      return;
+    }
+
+    const now = Date.now();
+    if (this._costMeterOwner !== owner) {
+      this._costMeterOwner = owner;
+      this._costMeterCache = null;
+      this._costMeterAttempt = null;
+      this.setData({ costCard: null, costDashboard: null, costCardError: '' });
+    }
+    const cached = this._costMeterCache;
+    if (!force && cached && cached.owner === owner && now - cached.at < 30000) {
+      const dashboard = costView.applyDashboardPreferences(cached.dashboard, dashboardPreferencesFor(owner));
+      if ((!this.data.costCard && cached.card) || (!this.data.costDashboard && dashboard && dashboard.hasContent) || this.data.costCardError ||
+          JSON.stringify(this.data.costDashboard) !== JSON.stringify(dashboard)) {
+        this.setData({ costCard: cached.card, costDashboard: dashboard && dashboard.hasContent ? dashboard : null, costCardError: cached.error || '' });
+      }
+      return;
+    }
+    const attempted = this._costMeterAttempt;
+    if (!force && attempted && attempted.owner === owner && now - attempted.at < 5000) return;
+    if (this._costMeterInFlight && this._costMeterInFlight.owner === owner) return;
+
+    const request = { owner, generation: this._costMeterGeneration || 0 };
+    this._costMeterInFlight = request;
+    this._costMeterAttempt = { owner, at: now };
     this.setData({ costCardError: '' });
-    store.client.requestCostMeter('summary').then((frame) => {
-      if (this._homeHidden) return;
+    store.client.requestCostMeter(force ? 'refresh' : 'summary').then((frame) => {
+      if (this._homeHidden || this._costMeterInFlight !== request || request.generation !== (this._costMeterGeneration || 0) ||
+          store.state.connection !== 'connected' || owner !== costOwnerKey() || !dashboardPreferencesFor(owner).sidebarVisible) return;
       const summary = costView.normalize(frame && frame.summary);
-      this.setData({ costCard: this.buildCostCard(summary) });
+      const card = this.buildCostCard(summary);
+      const normalizedDashboard = costView.normalizeDashboard(frame && frame.dashboard);
+      const dashboard = costView.applyDashboardPreferences(normalizedDashboard, dashboardPreferencesFor(owner));
+      const error = '';
+      this._costMeterCache = { owner, at: Date.now(), card, dashboard: normalizedDashboard, error };
+      this.setData({ costCard: card, costDashboard: dashboard && dashboard.hasContent ? dashboard : null, costCardError: error });
     }).catch((error) => {
-      if (this._homeHidden) return;
+      if (this._homeHidden || this._costMeterInFlight !== request || request.generation !== (this._costMeterGeneration || 0) ||
+          store.state.connection !== 'connected' || owner !== costOwnerKey() || !dashboardPreferencesFor(owner).sidebarVisible) return;
       // 旧网关没有 cost-meter 服务：不显示抽屉条目，不打扰用户。
-      if (error.code === 'cost-meter-unavailable') this.setData({ costCard: null, costCardError: '' });
-      else this.setData({ costCard: null, costCardError: uiText('费用数据暂不可用') });
+      if (error.code === 'cost-meter-unavailable') this.setData({ costCard: null, costDashboard: null, costCardError: uiText('费用服务暂不可用，请重启 DSH 后重试') });
+      else this.setData({ costCard: null, costDashboard: null, costCardError: uiText('费用数据暂不可用') });
+    }).finally(() => {
+      if (this._costMeterInFlight === request) this._costMeterInFlight = null;
     });
   },
 
@@ -1005,4 +1082,12 @@ function shortPath(path) {
   if (!path) return '';
   const parts = String(path).split('/');
   return parts.length > 3 ? '…/' + parts.slice(-2).join('/') : path;
+}
+
+function costOwnerKey() {
+  return costView.dashboardOwner(store.state);
+}
+
+function dashboardPreferencesFor(owner) {
+  return costView.readDashboardPreferences(owner, wx);
 }

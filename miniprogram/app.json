@@ -40,6 +40,13 @@
       ]
     },
     {
+      "root": "pages/cost-meter",
+      "name": "cost-meter",
+      "pages": [
+        "cost-meter"
+      ]
+    },
+    {
       "root": "pages/plugin-detail",
       "name": "plugin-detail",
       "pages": [

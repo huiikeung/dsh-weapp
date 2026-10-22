@@ -9,10 +9,14 @@ const wxml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings
 const sessionSettingsWxml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session-settings/session-settings.wxml'), 'utf8');
 const wxss = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
 
-assert.match(wxml, /<view wx:if="\{\{dshAccount\.signedIn\}\}" class="dsh-account-section"/,
-  'Hide the account identity and recharge balance when the DSH client is signed out');
+assert.match(wxml, /<view wx:if="\{\{dshAccountVisible\}\}" class="dsh-account-section"/,
+  'Show the account area only while a gateway is connected');
 assert.match(wxml, /wx:if="\{\{dshAccount\.balanceText\}\}" class="dsh-balance-amount"/,
   'Render the formatted recharge amount directly instead of iterating a nested array');
+assert.match(sessionSettingsWxml, /wx:if="\{\{dshAccountVisible\}\}" class="dsh-account-section"/,
+  'Hide the session-settings account area while the gateway is disconnected');
+assert.match(wxml, /dsh-account-link-button dsh-account-primary[^>]*bindtap="explainDshAccountSignIn"/,
+  'Signed-out settings expose a sign-in explanation entry');
 assert.match(sessionSettingsWxml, /wx:if="\{\{dshAccount\.balanceText\}\}" class="dsh-balance-amount"/,
   'Keep the session settings balance display in sync');
 
@@ -32,7 +36,10 @@ function createPage(apiOptions) {
     selectHost(id) { calls.push(['select', id]); },
     createRelayShare() { return Promise.resolve({ raw: 'test-share', expiresAt: Date.now() + 60000 }); }
   };
+  const storage = new Map();
   const wx = {
+    getStorageSync(key) { return storage.get(key); },
+    setStorageSync(key, value) { storage.set(key, value); },
     showToast(options) { calls.push(['toast', options.title]); },
     showModal(options) { calls.push(['modal', options.title]); wx.modal = options; },
     navigateTo(options) { calls.push(['navigate', options.url]); },
@@ -64,6 +71,8 @@ function createPage(apiOptions) {
         set: (panel, value) => ({ context: true, fleet: true, [panel]: value === true })
       };
       if (name === '../../utils/haptics') return require('../miniprogram/utils/haptics');
+      if (name === '../../utils/public-access-prompt') return require('../miniprogram/utils/public-access-prompt');
+      if (name === '../../utils/cost-view') return require('../miniprogram/utils/cost-view');
       if (name === '../../utils/theme') return { applyTo() {}, getMode: () => 'auto' };
       if (name === '../../utils/build') return { BUILD_TIME: 'test-build', BUILD_VERSION: '0.9.27' };
       throw new Error('Unexpected dependency: ' + name);
@@ -77,8 +86,40 @@ function createPage(apiOptions) {
     setData(update) { Object.assign(this.data, update); }
   });
   const paint = () => { page.onReady(); const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); };
-  return { page, store, wx, calls, api, paint, timers };
+  return { page, store, wx, calls, api, paint, timers, storage };
 }
+
+test('signed-out account area explains the desktop sign-in flow', () => {
+  const { page, wx } = createPage();
+  page.explainDshAccountSignIn();
+  assert.equal(wx.modal.title, '登录 DeepSeek');
+  assert.match(wx.modal.content, /电脑端 DSH 的「设置 → 账号与余额」完成登录/);
+  assert.equal(wx.modal.confirmText, '刷新');
+  assert.equal(wx.modal.cancelText, '知道了');
+});
+
+test('settings account area shows login and balance while connected and hides when disconnected', async () => {
+  const { page, store } = createPage({
+    requestAccount: async () => ({ state: { status: 'signed-out' } })
+  });
+  store.state = { connection: 'disconnected', activeID: 'host-1', profiles: [] };
+  page.syncFromStore({ app: store.state });
+  assert.equal(page.data.dshAccountVisible, false, 'disconnected gateways must not show the account area');
+
+  store.state = { connection: 'connected', activeID: 'host-1', profiles: [], host: { version: '0.2.1-rc.2' } };
+  page.syncFromStore({ app: store.state });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(page.data.dshAccountVisible, true, 'connected gateways show the account area even when signed out');
+  assert.equal(page.data.dshAccount.signedIn, false);
+  assert.equal(page.data.dshAccount.balanceState, 'signed-out');
+  assert.equal(page.data.dshAccount.name, '尚未登录');
+
+  store.state = { connection: 'disconnected', activeID: 'host-1', profiles: [] };
+  page.syncFromStore({ app: store.state });
+  assert.equal(page.data.dshAccountVisible, false, 'disconnecting hides the account area again');
+  assert.equal(page.data.dshAccount.signedIn, false);
+});
 
 test('settings account lookup uses the connected DSH Host version', async () => {
   const requestClients = [];
@@ -458,4 +499,38 @@ async function testClawbotExperimentalControls() {
 Promise.all([testShareRace(), testAutomaticIdentity(), testNodeDetails(), testDeferredRefresh(), testClawbotExperimentalControls()]).then(() => console.log('settings independent panels, node details, ClawBot controls and automatic identity: PASS')).catch((err) => {
   console.error(err);
   process.exitCode = 1;
+});
+
+
+test('sidebar quota-card entry and visibility switch live in settings and persist per host', () => {
+  const { page, wx, store, calls } = createPage();
+  store.state = { connection: 'connected', activeID: 'host-1', gatewayId: 'gw-1', endpoint: 'ws://gw', profiles: [] };
+  const key = 'dsh.cost-meter.dashboard.' + encodeURIComponent('host-1|gw-1|ws://gw');
+  wx.setStorageSync(key, { sidebarVisible: false, style: 'standard', showGo: false });
+  page.onLoad({});
+  assert.equal(page.data.showCostCard, false, 'the switch reflects the saved sidebar visibility');
+
+  page.openCostMeter();
+  assert.deepEqual(calls.filter(item => Array.isArray(item) && item[0] === 'navigate').pop(),
+    ['navigate', '/pages/cost-meter/cost-meter'], 'the card settings entry opens the dedicated quota page');
+
+  page.toggleCostCard({ detail: { value: true } });
+  assert.equal(page.data.showCostCard, true);
+  const saved = wx.getStorageSync(key);
+  assert.equal(saved.sidebarVisible, true);
+  assert.equal(saved.style, 'standard', 'toggling visibility keeps the card display preferences');
+  assert.equal(saved.showGo, false);
+  assert.equal(saved.showBalance, true);
+});
+
+
+test('sidebar quota card switch is off by default and persists when enabled', () => {
+  const { page, wx, store } = createPage();
+  store.state = { connection: 'connected', activeID: 'host-1', profiles: [] };
+  page.onLoad({});
+  assert.equal(page.data.showCostCard, false, 'the quota card stays hidden until the user opts in');
+  page.toggleCostCard({ detail: { value: true } });
+  assert.equal(page.data.showCostCard, true);
+  const saved = wx.getStorageSync('dsh.cost-meter.dashboard.' + encodeURIComponent('host-1||'));
+  assert.equal(saved.sidebarVisible, true);
 });

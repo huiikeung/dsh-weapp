@@ -64,6 +64,26 @@ function attachmentBlocks(value) {
   });
 }
 
+/** 回显合并：网关回显只带 attachmentId，保留本地刚发送时的临时图片路径，
+ *  让图片在回显替换后仍然立即可见（随后再落到附件缓存）。 */
+function mergeLocalImages(previous, next) {
+  const local = Array.isArray(previous) ? previous : [];
+  return (next || []).map((image, index) => {
+    if (!image) return image;
+    if (image.localUrl || image.thumbUrl) return image;
+    let source = local.find((item) => item && item.attachmentId === image.attachmentId && (item.localUrl || item.tempPath));
+    // 乐观回显的 id 是客户端 uuid，和网关 attachmentId 对不上；条数一致时按发送顺序对齐。
+    if (!source && local.length === next.length) {
+      const candidate = local[index];
+      if (candidate && (candidate.localUrl || candidate.tempPath)) source = candidate;
+    }
+    if (!source) return image;
+    const localUrl = source.localUrl || source.tempPath;
+    if (!localUrl) return image;
+    return Object.assign({}, image, { localUrl }, source.tempPath ? { tempPath: source.tempPath } : {});
+  });
+}
+
 function toolResultText(message) {
   const outer = (message && message.content) || [];
   const parts = [];
@@ -155,6 +175,7 @@ function normalizeRawEvent(raw, sessionId) {
         toolCalls: calls.length ? calls : (Array.isArray(data.toolCalls) ? data.toolCalls : []),
         images: imageBlocks(data.message).length ? imageBlocks(data.message) : (Array.isArray(data.images) ? data.images : []),
         attachments: attachmentBlocks(data.message).concat(Array.isArray(data.attachments) ? data.attachments : []),
+        usage: data.usage || (data.message && data.message.usage) || null,
         interrupted: data.interrupted === true
       };
       break;
@@ -275,7 +296,7 @@ function normalizeRawEvent(raw, sessionId) {
     sessionId: sessionId,
     seq: raw.seq,
     time: raw.time,
-    dateMs: eventDateMs(raw.time),
+    dateMs: raw.time ? eventDateMs(raw.time) : 0,
     event: event
   };
 }
@@ -325,6 +346,45 @@ function eventIconFile(event) {
   if (n.indexOf('context') >= 0) return 'context-green';
   if (n.indexOf('status') >= 0 || n.indexOf('plan') >= 0 || n.indexOf('terminal') >= 0) return 'terminal-gray';
   return event.isError === true ? 'excla-circle-red' : 'antenna-ocean';
+}
+
+
+/** 累计单轮 token 用量：同一 step 以最后一次 usage 为准，避免流式重复计数。 */
+function addTurnUsage(row, usage, step, turn) {
+  if (!usage) return;
+  const num = (value) => (value == null ? 0 : Number(value) || 0);
+  const detail = {
+    input: num(usage.inputTokens != null ? usage.inputTokens : usage.promptTokens),
+    output: num(usage.outputTokens != null ? usage.outputTokens : usage.completionTokens),
+    cacheRead: num(usage.cacheReadTokens),
+    cacheWrite: num(usage.cacheWriteTokens),
+    uncached: num(usage.uncachedInputTokens),
+    total: 0,
+    provider: usage.provider || usage.providerId || '',
+    model: usage.model || usage.modelId || ''
+  };
+  // 与 DSH 客户端一致：单次请求总量 = 未缓存输入 + 缓存读取 + 缓存写入 + 输出
+  const uncachedInput = usage.uncachedInputTokens != null ? detail.uncached : detail.input;
+  detail.uncached = uncachedInput;
+  detail.total = uncachedInput + detail.cacheRead + detail.cacheWrite + detail.output;
+  if (!detail.total) return;
+  if (!row.usageByStep) row.usageByStep = {};
+  row.usageAttempt = row.usageAttempt || 0;
+  row.usageByStep[row.usageAttempt + ':' + String(step === undefined || step === null ? 'x' : step)] = detail;
+  const sum = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, uncached: 0, total: 0, provider: '', model: '' };
+  Object.keys(row.usageByStep).forEach((k) => {
+    const item = row.usageByStep[k];
+    sum.input += item.input;
+    sum.output += item.output;
+    sum.cacheRead += item.cacheRead;
+    sum.cacheWrite += item.cacheWrite;
+    sum.uncached += item.uncached;
+    sum.total += item.total;
+    if (!sum.provider && item.provider) sum.provider = item.provider;
+    if (!sum.model && item.model) sum.model = item.model;
+  });
+  row.usageTokens = sum.total;
+  row.usageDetail = sum;
 }
 
 function newAggregator() {
@@ -455,7 +515,7 @@ function applyEvent(agg, normalized) {
         last.pending = false;
         last.key = 'u-' + seq;
         last.seq = seq;
-        if (event.images && event.images.length) last.images = event.images;
+        if (event.images && event.images.length) last.images = mergeLocalImages(last.images, event.images);
         if (event.attachments && event.attachments.length) last.attachments = event.attachments;
         return true;
       }
@@ -488,6 +548,7 @@ function applyEvent(agg, normalized) {
           assistant.title = TITLES.streaming;
         }
       }
+      addTurnUsage(assistant, event.usage, event.step, event.turn);
       if (event.tool) {
         const tool = toolRowForCall(agg, assistant, event.tool.id, event.tool.name);
         if (!tool.phase || tool.phase === 'preparing') {
@@ -511,6 +572,7 @@ function applyEvent(agg, normalized) {
         agg, sessionId, seq, event.turn, completedPreviousStep || differentSettledText
       );
       if (event.step !== undefined && event.step !== null) assistant.step = event.step;
+      if (event.usage) addTurnUsage(assistant, event.usage, event.step, event.turn);
       assistant.streaming = false;
       assistant.reasoningStreaming = false;
       assistant.interrupted = event.interrupted === true;
@@ -611,6 +673,7 @@ function applyEvent(agg, normalized) {
         if (row.turn !== undefined && row.turn !== turn) continue;
         row.turnClosed = true;
         row.turnEndReason = event.reason || 'completed';
+        row.finishedAtMs = normalized.dateMs || 0;
         row.durationMs = start && normalized.dateMs ? Math.max(0, normalized.dateMs - start) : 0;
         row.streaming = false;
         row.reasoningStreaming = false;
@@ -619,9 +682,13 @@ function applyEvent(agg, normalized) {
       }
       return changed;
     }
+    case 'assistant/attempt': {
+      const attemptAssistant = ensureAssistant(agg, sessionId, seq, event.turn);
+      attemptAssistant.usageAttempt = (attemptAssistant.usageAttempt || 0) + 1;
+      return false;
+    }
     case 'step/start':
     case 'step/end':
-    case 'assistant/attempt':
     case 'agent/inbox/spliced':
     case 'compaction/start':
     case 'compaction/end':

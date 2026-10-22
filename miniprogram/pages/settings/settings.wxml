@@ -10,7 +10,7 @@
   <view class="nav-placeholder" style="height:{{navPadTop + navHeight}}px;" aria-hidden="true"></view>
 
   <!-- DSH 客户端账号区：结构与桌面端 AccountSection 对齐。 -->
-  <view wx:if="{{dshAccount.signedIn}}" class="dsh-account-section" aria-label="{{ui['账号与余额']}}">
+  <view wx:if="{{dshAccountVisible}}" class="dsh-account-section" aria-label="{{ui['账号与余额']}}">
     <view class="dsh-account-card">
       <view class="dsh-account-identity">
         <view class="dsh-account-avatar">
@@ -22,6 +22,7 @@
           <text class="dsh-account-status">{{dshAccountBusy ? ui['加载中…'] : dshAccount.status}}</text>
         </view>
       </view>
+      <view wx:if="{{!dshAccount.signedIn && !dshAccountBusy}}" class="dsh-account-link-button dsh-account-primary" bindtap="explainDshAccountSignIn" hover-class="press-dim" role="button" aria-label="{{ui['登录']}}">{{ui['登录']}}</view>
     </view>
     <view class="dsh-balance-card">
       <view class="dsh-balance-row">
@@ -210,6 +211,23 @@
     <view class="card-row" bindtap="openProcIcons" role="button" aria-label="{{ui['选择执行图标动效']}}">
       <text class="card-row-label">{{ui['执行图标']}}</text>
       <view class="card-row-value"><text>{{ui[procIconLabel] !== undefined ? ui[procIconLabel] : procIconLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+    </view>
+  </view>
+
+  <view class="group-title">{{ui['侧栏']}}</view>
+  <view class="card">
+    <view class="card-row management-entry" bindtap="openCostMeter" hover-class="management-entry-active" role="button" aria-label="{{ui['额度卡片']}}">
+      <view class="management-entry-copy">
+        <text class="card-row-label">{{ui['额度卡片']}}</text>
+        <text class="management-entry-desc">{{ui['调整卡片内容、密度与密钥']}}</text>
+      </view>
+      <view class="card-row-value management-entry-value">
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+      </view>
+    </view>
+    <view class="card-row">
+      <view class="exp-copy"><text class="card-row-label">{{ui['显示额度卡片']}}</text><text class="exp-desc">{{ui['在左侧栏显示余额与额度卡片']}}</text></view>
+      <switch checked="{{showCostCard}}" color="#2E6BE6" bindchange="toggleCostCard" aria-label="{{ui['显示额度卡片']}}"/>
     </view>
   </view>
 
@@ -737,3 +755,4 @@
     <view class="status-style-footer">{{ui['图标动效保存在当前小程序 · 自动保存']}}</view>
   </view>
 </view>
+<public-access-dialog visible="{{publicAccessDialogOpen}}" dialog="{{publicAccessDialog}}" theme="{{theme}}" bindconfirm="onPublicAccessDialogConfirm" />

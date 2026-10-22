@@ -1,0 +1,222 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+body { margin:0; background:#eef1f6; font-family:-apple-system,"PingFang SC",sans-serif; display:flex; gap:28px; padding:28px; }
+.stage { position:relative; width:460px; height:520px; border-radius:18px; overflow:hidden; display:flex; align-items:center; justify-content:center; padding:28px 22px; box-sizing:border-box; }
+.stage.light { background:rgba(10,18,30,0.38); }
+.stage.dark { background:rgba(0,0,0,0.56); }
+
+
+.access-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 28px 22px;
+  animation: access-fade-in 180ms ease-out;
+}
+
+.access-light { background: rgba(10, 18, 30, 0.38); }
+.access-dark { background: rgba(0, 0, 0, 0.56); }
+
+.access-light {
+  --card-bg: #ffffff;
+  --card-border: rgba(16, 24, 39, 0.08);
+  --card-text: #10131A;
+  --card-muted: #6B7280;
+  --card-divider: rgba(16, 24, 39, 0.07);
+  --card-accent: #2E6BE6;
+  --card-accent-2: #4C8BF5;
+  --card-icon-bg: rgba(46, 107, 230, 0.10);
+  --card-hint-bg: rgba(16, 24, 39, 0.04);
+  --card-warn: #D97706;
+  --card-warn-bg: rgba(217, 119, 6, 0.12);
+  --card-shadow: 0 14px 40px rgba(9, 22, 44, 0.22);
+}
+
+.access-dark {
+  --card-bg: #1A1E26;
+  --card-border: rgba(255, 255, 255, 0.09);
+  --card-text: #F1F4FA;
+  --card-muted: #9AA3B2;
+  --card-divider: rgba(255, 255, 255, 0.08);
+  --card-accent: #5B9BFF;
+  --card-accent-2: #3F7DF0;
+  --card-icon-bg: rgba(91, 155, 255, 0.14);
+  --card-hint-bg: rgba(255, 255, 255, 0.05);
+  --card-warn: #F5B95C;
+  --card-warn-bg: rgba(245, 185, 92, 0.16);
+  --card-shadow: 0 14px 40px rgba(0, 0, 0, 0.55);
+}
+
+.access-dialog {
+  position: relative;
+  width: 100%;
+  max-width: 310px;
+  box-sizing: border-box;
+  padding: 20px 18px 16px;
+  border: 0.5px solid var(--card-border);
+  border-radius: 15px;
+  background: var(--card-bg);
+  color: var(--card-text);
+  box-shadow: var(--card-shadow);
+  animation: access-pop-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.access-top {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.access-icon {
+  position: relative;
+  width: 46px;
+  height: 46px;
+  flex-shrink: 0;
+  border-radius: 13px;
+  background: var(--card-icon-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.access-icon-img {
+  width: 28px;
+  height: 28px;
+}
+
+.icon-badge {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid var(--card-bg);
+  background: var(--card-warn);
+  box-sizing: border-box;
+}
+
+.access-heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.access-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  color: var(--card-accent);
+}
+
+.access-dialog-expired .access-eyebrow,
+.access-dialog-required .access-eyebrow {
+  color: var(--card-warn);
+}
+
+.access-title {
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.35;
+  color: var(--card-text);
+}
+
+.access-content {
+  display: block;
+  margin-top: 13px;
+  font-size: 13.5px;
+  line-height: 1.7;
+  color: var(--card-muted);
+}
+
+.access-hint {
+  margin-top: 11px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--card-hint-bg);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--card-muted);
+}
+
+.access-action {
+  margin-top: 14px;
+  width: 100%;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(120deg, var(--card-accent-2), var(--card-accent));
+  box-shadow: 0 6px 14px rgba(46, 107, 230, 0.28);
+  color: #ffffff;
+  font-size: 15.5px;
+  font-weight: 600;
+  line-height: 44px;
+  letter-spacing: 0.5px;
+}
+
+.access-action::after { border: 0; }
+
+.access-action-pressed { opacity: 0.86; transform: translateY(0.5px); }
+
+@keyframes access-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes access-pop-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .access-mask, .access-dialog { animation-duration: 1ms; }
+}
+
+</style></head><body>
+<div class="stage light"><div class="access-light">
+  <div class="access-dialog access-dialog-welcome" role="dialog">
+    <div class="access-top">
+      <div class="access-icon"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 64 64" fill="none">
+  <!-- 信号波 -->
+  <path d="M25.5 21.5a9.2 9.2 0 0 1 13 0" stroke="#4C8CF5" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M20.5 15.6a16.4 16.4 0 0 1 23 0" stroke="#4C8CF5" stroke-width="3.2" stroke-linecap="round"/>
+  <!-- 天线 -->
+  <path d="M32 26.2v5.4" stroke="#4C8CF5" stroke-width="3.2" stroke-linecap="round"/>
+  <!-- 设备本体 -->
+  <rect x="14.5" y="33.5" width="35" height="17" rx="4.6" stroke="#4C8CF5" stroke-width="3.2"/>
+  <!-- 状态灯 -->
+  <circle cx="23.6" cy="42" r="2.1" fill="#4C8CF5"/>
+  <circle cx="31.2" cy="42" r="2.1" fill="#4C8CF5"/>
+</svg>
+</div>
+      <div class="access-heading"><div class="access-eyebrow">首次连接</div><div class="access-title">首次使用公网连接</div></div>
+    </div>
+    <div class="access-content">已验证当前微信账号的公网访问权限。首次连接公网节点会通过互联网中继；局域网连接不受影响。</div>
+    <button class="access-action">继续</button>
+  </div>
+</div></div>
+<div class="stage dark"><div class="access-dark">
+  <div class="access-dialog access-dialog-expired" role="dialog">
+    <div class="access-top">
+      <div class="access-icon"><svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 64 64" fill="none">
+  <!-- 信号波 -->
+  <path d="M25.5 21.5a9.2 9.2 0 0 1 13 0" stroke="#4C8CF5" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M20.5 15.6a16.4 16.4 0 0 1 23 0" stroke="#4C8CF5" stroke-width="3.2" stroke-linecap="round"/>
+  <!-- 天线 -->
+  <path d="M32 26.2v5.4" stroke="#4C8CF5" stroke-width="3.2" stroke-linecap="round"/>
+  <!-- 设备本体 -->
+  <rect x="14.5" y="33.5" width="35" height="17" rx="4.6" stroke="#4C8CF5" stroke-width="3.2"/>
+  <!-- 状态灯 -->
+  <circle cx="23.6" cy="42" r="2.1" fill="#4C8CF5"/>
+  <circle cx="31.2" cy="42" r="2.1" fill="#4C8CF5"/>
+</svg>
+<div class="icon-badge"></div></div>
+      <div class="access-heading"><div class="access-eyebrow">需要续期</div><div class="access-title">公网访问已到期</div></div>
+    </div>
+    <div class="access-content">公网访问有效期已到期，请在设置→公网访问兑换续期；局域网连接不受影响。</div>
+    <button class="access-action">继续</button>
+  </div>
+</div></div>
+</body></html>

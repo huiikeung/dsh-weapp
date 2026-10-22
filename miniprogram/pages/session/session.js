@@ -4,6 +4,7 @@ const haptics = require('../../utils/haptics');
 const preferences = require('../../utils/ui-preferences');
 const trajectoryView = require('../../utils/trajectory-presentation');
 const contextView = require('../../utils/context-view');
+const turnUsageUtil = require('../../utils/turn-usage');
 const workSteps = require('../../utils/work-step-presentation');
 const statusAppearance = require('../../utils/status-appearance');
 const procIconStyle = require('../../utils/proc-icon-style');
@@ -15,6 +16,7 @@ const notifySubscription = require('../../utils/notify-subscription');
 const voicePreference = require('../../utils/voice-preference');
 const contextPanelsPreference = require('../../utils/context-panels-pref');
 const voiceActions = require('./voice-actions');
+const publicAccessPrompt = require('../../utils/public-access-prompt');
 const fileActions = require('./file-actions');
 const changesActions = require('./changes-actions');
 const viewportActions = require('./viewport-actions');
@@ -25,6 +27,7 @@ const theme = require('../../utils/theme');
 const conversationWorkflow = require('../../utils/conversation-workflow');
 const composerMenu = require('../../utils/composer-menu');
 const sessionSwitcher = require('../../utils/session-switcher');
+const attachmentCache = require('../../utils/attachment-cache');
 const { dataPatch, createMarkdownCache } = require('../../utils/session-render');
 
 const { toolPresentation } = require('../../utils/tool-presentation');
@@ -35,6 +38,9 @@ Page({
   ...fileActions,
   ...changesActions,
   data: {
+    publicAccessDialog: null,
+    publicAccessDialogOpen: false,
+    turnUsageSheet: null, turnUsageOpen: false, turnUsagePos: null, ctxFlowW: 0, ctxFlowH: 0,
     collaborationOpen: false, collaborationExpanded: false, collaborationTab: 'members', collaborationRows: [], collaborationTabs: [],
     collaborationCount: 0, collaborationActive: 0, collaborationNote: '', collaborationPreview: null, collaborationBusy: false,
     fileExpanded: {}, fileSheet: null, filePreview: null, changesDiff: null, fileBusyKey: '', fileSharingKey: '', fileProgress: 0,
@@ -275,7 +281,10 @@ Page({
     this.updateDockInset();
   },
 
+  onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
+
   onUnload() {
+    this.stopContextFlow();
     if (store.setTrajectoryActive) store.setTrajectoryActive(false);
     if (store.setContextActive) store.setContextActive(false);
     if (store.setFleetActive) store.setFleetActive(false);
@@ -288,6 +297,8 @@ Page({
     this._unloaded = true;
     if (this._historyFormatTimer) clearTimeout(this._historyFormatTimer);
     this._historyFormatTimer = null; this._pendingHistoryFormat = null;
+    if (this._thumbTimer) clearTimeout(this._thumbTimer);
+    this._thumbTimer = null; this._thumbQueue = null; this._thumbQueued = null; this._thumbFailed = null;
     if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
     this._storeSyncTimer = null;
     this._pendingStoreSnapshot = null;
@@ -375,7 +386,7 @@ Page({
           title: row.title || '',
           text: row.text || '',
           blocks: [],
-          images: row.images || []
+          images: this.decorateRowImages(row.images)
         }));
         this.setData({ rows: fallbackRows, running: s.running === true });
       } catch (e2) { /* 放弃 */ }
@@ -505,7 +516,7 @@ Page({
         });
         semanticRows.push(Object.assign({}, row, {
           blocks: blocks || [],
-          images: row.images || [],
+          images: this.decorateRowImages(row.images),
           copyText: row.text || '',
           tools: tools
         }));
@@ -520,7 +531,7 @@ Page({
         copy.title = row.title || uiText('上下文');
       }
       if (row.kind === 'user') {
-        copy.images = row.images || [];
+        copy.images = this.decorateRowImages(row.images);
         const availableWidth = Math.max(192, (this.viewportRpx || 750) - 148);
         const visibleCount = Math.min(copy.images.length, 3);
         const side = Math.min(328, Math.max(192, availableWidth - 24 * (visibleCount - 1)));
@@ -748,7 +759,60 @@ Page({
       const row = rows[idx];
       if (row.kind !== 'assistant') return;
       const nextConv = k + 1 < convIdx.length ? rows[convIdx[k + 1]].kind : null;
-      row.copyText = nextConv === 'assistant' ? '' : (row.text || '');
+      let copyText = nextConv === 'assistant' ? '' : (row.text || '');
+      // 若本轮末尾紧跟文件/变更卡片，把复制按钮下沉到最后一张卡片下面
+      if (copyText) {
+        const end = k + 1 < convIdx.length ? convIdx[k + 1] : rows.length;
+        let lastFileIdx = -1;
+        for (let i = idx + 1; i < end; i += 1) {
+          if (rows[i] && (rows[i].kind === 'files' || rows[i].kind === 'changes')) lastFileIdx = i;
+        }
+        if (lastFileIdx >= 0) {
+          rows[lastFileIdx].copyText = copyText;
+          rows[lastFileIdx].copyKey = row.key;
+          rows[lastFileIdx].usageTokens = row.usageTokens;
+          rows[lastFileIdx].usageDetail = row.usageDetail;
+          rows[lastFileIdx].durationMs = row.durationMs;
+          rows[lastFileIdx].finishedAtMs = row.finishedAtMs;
+          copyText = '';
+        }
+      }
+      row.copyText = copyText;
+    });
+
+    // 每轮底部信息：本轮 token 用量 + 耗时（与复制按钮同一行，靠右）
+    const compactTokens = (value) => {
+      const n = Number(value) || 0;
+      if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+      if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+      return String(n);
+    };
+    const compactDuration = (ms) => {
+      const n = Number(ms) || 0;
+      if (n >= 60000) return Math.floor(n / 60000) + 'm ' + Math.round((n % 60000) / 1000) + 's';
+      if (n >= 1000) return Math.round(n / 1000) + 's';
+      return n > 0 ? Math.round(n) + 'ms' : '';
+    };
+    // 每轮精确用量：直接使用 DSH deriveTurnTokenUsage 的折叠结果
+    const turnUsageMap = (s && s.turnUsage) || {};
+    rows.forEach((row) => {
+      if (row.turn === undefined || row.turn === null) return;
+      const usage = turnUsageMap[row.turn];
+      if (usage) row.turnUsage = usage;
+    });
+    const clockLabel = (ms) => {
+      const value = Number(ms) || 0;
+      if (!value) return '';
+      const date = new Date(value);
+      return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+    };
+    rows.forEach((row) => {
+      if (!row.copyText) return;
+      const usage = row.turnUsage || (row.copyKey && (rows.find((item) => item.key === row.copyKey) || {}).turnUsage) || null;
+      row.turnUsage = usage || null;
+      row.turnMetaText = usage ? (uiText('用量') + ' ' + turnUsageUtil.compact(usage.totalTokens) + ' tok') : '';
+      row.turnTimeText = clockLabel(row.finishedAtMs) || compactDuration(row.durationMs);
+      row.turnMetaKey = row.copyKey || row.key;
     });
 
     // 顶部标题：实时标题优先；其次回查会话列表（直连打开/列表迟到时）；
@@ -811,8 +875,14 @@ Page({
     const rowsChanged = Object.keys(viewPatch).some(key => key === 'rows' || key.indexOf('rows[') === 0);
     const dockChanged = ['running', 'question', 'approval', 'tasks', 'goal', 'composerMetricsVisible', 'sessionPresetVisible']
       .some(field => Object.keys(viewPatch).some(key => key === field || key.indexOf(field + '.') === 0 || key.indexOf(field + '[') === 0));
-    if (Object.keys(viewPatch).length) this.setData(viewPatch, () => { this.scheduleHistoryFormatting(); this.measureConversationWindow(); });
+    if (Object.keys(viewPatch).length) this.setData(viewPatch, () => {
+      this.scheduleHistoryFormatting();
+      this.measureConversationWindow();
+      if (this.data.tab === 'context') this.scheduleContextFlow();
+    });
     else this.scheduleHistoryFormatting();
+    // 会话行只有 attachmentId，图片需要异步回填本地缓存路径才会显示。
+    this.scheduleAttachmentThumbs();
     this.loadChangesSummaries();
     this.syncCommandMenu(this.data.draft, s);
     if (dockChanged) this.updateDockInset();
@@ -834,7 +904,11 @@ Page({
     }
     if (this.data.turnNavOpen) this.autoLoadTurnNavigatorHistory(null, true);
     const cs = app.connection || 'disconnected';
-    if (cs !== this.data.connState) this.setData({ connState: cs });
+    if (cs !== this.data.connState) {
+      this.setData({ connState: cs });
+      // 断线期间的图片加载会失败；重连后清掉失败标记再试一次。
+      if (cs === 'connected') { this._thumbFailed = null; this.scheduleAttachmentThumbs(); }
+    }
     this.syncQueueDock();
 
     if (this.data._titleDirty) {
@@ -1274,6 +1348,8 @@ Page({
       attachSheetOpen: false, modelSheetOpen: false, effortSheetOpen: false,
       permissionSheet: [], modeSheet: [], ...this.layoutPatch({ kbHeight: 0 }) });
     if (hadKeyboard && typeof wx.hideKeyboard === 'function') wx.hideKeyboard();
+    if (tab === 'context') this.scheduleContextFlow();
+    else this.stopContextFlow();
     if (tab === 'conversation') {
       this.updateDockInset();
       this.startScrollPolling();
@@ -2609,7 +2685,10 @@ Page({
 
   jumpToBottom() {
     this.resetConversationScroll();
-    if (this._conversationRows) this.setData(dataPatch(this.data, this.conversationWindowPatch(this._conversationRows)));
+    if (this._conversationRows) {
+      this.setData(dataPatch(this.data, this.conversationWindowPatch(this._conversationRows)));
+      this.scheduleAttachmentThumbs();
+    }
     this.refreshBottomAnchor();
   },
 
@@ -2640,26 +2719,147 @@ Page({
     wx.setClipboardData({ data: e.currentTarget.dataset.text || '' });
   },
 
+  // ---------- 图片附件回显 ----------
+
+  /** 把本地缓存路径补回 localUrl：历史行只有 attachmentId，直接渲染会得到空白图。 */
+  decorateRowImages(images) {
+    if (!Array.isArray(images) || !images.length) return images || [];
+    let changed = false;
+    const next = images.map((image) => {
+      if (!image || image.localUrl || image.thumbUrl || !image.attachmentId) return image;
+      const local = attachmentCache.localPath(image, { api: wx });
+      if (!local) return image;
+      changed = true;
+      return Object.assign({}, image, { localUrl: local });
+    });
+    return changed ? next : images;
+  },
+
+  /** 合并短时间内的多次渲染，避免流式输出时反复扫描会话行。 */
+  scheduleAttachmentThumbs() {
+    if (this._unloaded || this._thumbTimer) return;
+    const self = this;
+    this._thumbTimer = setTimeout(() => {
+      self._thumbTimer = null;
+      if (!self._unloaded) self.collectAttachmentThumbs();
+    }, 80);
+  },
+
+  /** 收集当前可见行里尚未缓存的图片，按顺序串行回填（网关同类型请求只能有一个在途）。 */
+  collectAttachmentThumbs() {
+    const client = store.client, sessionId = store.sessionState && store.sessionState.sessionId;
+    if (!client || !sessionId || this._unloaded) return;
+    if (this._thumbSession !== sessionId) {
+      this._thumbSession = sessionId;
+      this._thumbQueued = new Set();
+      this._thumbFailed = null;
+      this._thumbQueue = [];
+    }
+    const queue = this._thumbQueue || (this._thumbQueue = []);
+    const queued = this._thumbQueued || (this._thumbQueued = new Set());
+    const failed = this._thumbFailed || (this._thumbFailed = new Map());
+    const now = Date.now();
+    (this.data.rows || []).forEach((row) => {
+      if (!row || row.pending || !row.images || !row.images.length) return;
+      row.images.forEach((image) => {
+        if (!image || !image.attachmentId) return;
+        const id = String(image.attachmentId);
+        if (queued.has(id) || attachmentCache.localPath(image, { api: wx })) return;
+        const failure = failed.get(id);
+        if (failure && now < failure.at) return;
+        // 本机刚发送的图片已有临时文件：复制进缓存即可，不必再向网关要一遍字节。
+        if (!image.tempPath && image.localUrl) return;
+        queued.add(id);
+        queue.push({ attachmentId: id, mediaType: image.mediaType, name: image.name, tempPath: image.tempPath || '' });
+      });
+    });
+    this.pumpAttachmentThumbs();
+  },
+
+  pumpAttachmentThumbs() {
+    if (this._thumbBusy || this._unloaded) return;
+    const queue = this._thumbQueue;
+    if (!queue || !queue.length) return;
+    const sessionId = store.sessionState && store.sessionState.sessionId;
+    const client = store.client;
+    if (!client || !sessionId) return;
+    const next = queue.shift();
+    this._thumbBusy = true;
+    const load = next.tempPath
+      ? attachmentCache.adoptFromFile(next, next.tempPath, { api: wx })
+        .catch(() => attachmentCache.fetchImage(client, sessionId, next, { api: wx }))
+      : attachmentCache.fetchImage(client, sessionId, next, { api: wx });
+    load.then((path) => {
+      if (this._unloaded || !path) return;
+      if (!store.sessionState || store.sessionState.sessionId !== sessionId) return;
+      this.applyAttachmentPaths({ [next.attachmentId]: path });
+    }).catch(() => {
+      // 失败退避：30s 起、逐次翻倍、上限 5 分钟，避免坏附件反复打网关。
+      const failure = this._thumbFailed && this._thumbFailed.get(next.attachmentId);
+      const count = failure ? (failure.count || 1) + 1 : 1;
+      const delay = Math.min(300000, 30000 * Math.pow(2, count - 1));
+      if (this._thumbFailed) this._thumbFailed.set(next.attachmentId, { at: Date.now() + delay, count });
+    }).finally(() => {
+      this._thumbBusy = false;
+      // 成功与否都放回可重试集合：成功由缓存命中兜底，失败由退避时间兜底。
+      if (this._thumbQueued) this._thumbQueued.delete(next.attachmentId);
+      if (!this._unloaded) this.pumpAttachmentThumbs();
+    });
+  },
+
+  /** 图片本地路径就绪后只 patch 变化的 image 字段，并把窗口行对象一起更新。 */
+  applyAttachmentPaths(paths) {
+    const ids = Object.keys(paths || {});
+    if (!ids.length) return;
+    const patchRow = (row) => {
+      if (!row || !Array.isArray(row.images) || !row.images.length) return row;
+      let changed = false;
+      const images = row.images.map((image) => {
+        const path = image && paths[image.attachmentId];
+        if (!path || image.localUrl === path) return image;
+        changed = true;
+        return Object.assign({}, image, { localUrl: path });
+      });
+      if (!changed) return row;
+      const next = Object.assign({}, row, { images });
+      if (Array.isArray(row.stackImages)) {
+        next.stackImages = row.stackImages.map((image) => {
+          const path = image && paths[image.attachmentId];
+          return path && image.localUrl !== path ? Object.assign({}, image, { localUrl: path }) : image;
+        });
+      }
+      return next;
+    };
+    // 窗口缓存复用同一批行对象，就地更新，下一次窗口切片才不会退回空白。
+    if (Array.isArray(this._conversationRows)) {
+      this._conversationRows = this._conversationRows.map((row) => {
+        const next = patchRow(row);
+        if (next !== row) Object.assign(row, next);
+        return row;
+      });
+    }
+    const rows = (this.data.rows || []).map(patchRow);
+    const patch = dataPatch(this.data, { rows });
+    if (Object.keys(patch).length) this.setData(patch);
+  },
+
   previewAttachment(e) {
     const id = e.currentTarget.dataset.id;
     const row = this.data.rows.find((r) => (r.images || []).some((img) => img.attachmentId === id));
-    const img = row && row.images.find((i) => i.attachmentId === id);
-    if (img && img.localUrl) {
-      wx.previewImage({ urls: [img.localUrl] });
+    const image = (row && row.images.find((img) => img.attachmentId === id)) || { attachmentId: id };
+    const cached = image.localUrl || attachmentCache.localPath(image, { api: wx });
+    if (cached) {
+      this.applyAttachmentPaths({ [id]: cached });
+      wx.previewImage({ urls: [cached] });
       return;
     }
-    // 按需从网关拉取图片附件
-    store.client.requestAttachment(store.sessionState.sessionId, id).then((frame) => {
-      if (!frame || typeof frame.data !== 'string') throw new Error(uiText('附件数据为空'));
-      const ext = String(frame.attachment?.mediaType || img?.mediaType || 'image/jpeg').split('/')[1] || 'jpg';
-      const path = `${wx.env.USER_DATA_PATH}/attachment-${id.replace(/[^a-zA-Z0-9_-]/g, '_')}.${ext}`;
-      wx.getFileSystemManager().writeFile({ filePath: path, data: frame.data, encoding: 'base64', success: () => {
-        const rows = this.data.rows.map((item) => ({ ...item, images: (item.images || []).map((entry) => entry.attachmentId === id ? { ...entry, localUrl: path } : entry) }));
-        this.setData({ rows });
-        wx.previewImage({ urls: [path] });
-      }, fail: () => wx.showToast({ title: uiText('附件保存失败'), icon: 'none' }) });
+    const sessionId = store.sessionState.sessionId;
+    attachmentCache.fetchImage(store.client, sessionId, image, { api: wx }).then((path) => {
+      if (this._unloaded) return;
+      this.applyAttachmentPaths({ [id]: path });
+      wx.previewImage({ urls: [path] });
     }).catch((err) => {
-      wx.showToast({ title: err.message || uiText('附件加载失败'), icon: 'none' });
+      wx.showToast({ title: (err && err.message) || uiText('附件加载失败'), icon: 'none' });
     });
   },
 
@@ -3255,8 +3455,15 @@ Page({
         workspaceRefs
       );
       if (sent !== false) {
-        // 乐观回显：消息立即可见（对齐桌面端），网关回显到达时自动合并
-        store.appendLocalUserRow(text, uploadImages.map((image) => ({ attachmentId: image.id, name: image.name })), workspaceRefs);
+        // 乐观回显：消息立即可见（对齐桌面端），网关回显到达时自动合并。
+        // 图片带上临时路径，发送后先显示本地图片，不必等附件回填。
+        store.appendLocalUserRow(text, uploadImages.map((image) => ({
+          attachmentId: image.id,
+          name: image.name,
+          mediaType: image.mediaType,
+          localUrl: image.tempPath,
+          tempPath: image.tempPath
+        })), workspaceRefs);
       } else {
         wx.showToast({ title: uiText('发送失败，草稿已保留'), icon: 'none' }); return;
       }
@@ -3501,6 +3708,116 @@ Page({
     if (typeof this.updateDockInset === 'function' && this._renderSessionId) this.updateDockInset();
   },
 
+
+  // ---------- 上下文统计：流动连接（移植 dsh-context Agent Flow） ----------
+  stopContextFlow() {
+    if (this._ctxFlowTimer) { clearTimeout(this._ctxFlowTimer); this._ctxFlowTimer = null; }
+    const flow = this._ctxFlow;
+    this._ctxFlow = null;
+    if (!flow) return;
+    try { flow.canvas.cancelAnimationFrame(flow.raf); } catch (e) { /* 画布已销毁 */ }
+  },
+
+  scheduleContextFlow() {
+    if (this._ctxFlowTimer) clearTimeout(this._ctxFlowTimer);
+    this._ctxFlowTimer = setTimeout(() => {
+      this._ctxFlowTimer = null;
+      this.drawContextFlow();
+    }, 60);
+  },
+
+  drawContextFlow() {
+    if (this._unloaded || this.data.tab !== 'context' || !this.data.showContextPanel) { this.stopContextFlow(); return; }
+    this.stopContextFlow();
+    const selectors = ['#ctxNodeInputs', '#ctxNodeEvents', '#ctxNodeSession', '#ctxNodeTools', '#ctxNodeNet'];
+    const query = wx.createSelectorQuery().in(this);
+    query.select('#ctxFlow').boundingClientRect();
+    selectors.forEach((selector) => query.select(selector).boundingClientRect());
+    query.select('#ctxFlowCanvas').fields({ node: true, size: true });
+    query.exec((res) => {
+      if (!res || !res[0]) return;
+      const flowRect = res[0];
+      const nodes = {};
+      selectors.forEach((selector, index) => { nodes[selector] = res[index + 1] || null; });
+      const canvasRes = res[selectors.length + 1];
+      if (!canvasRes || !canvasRes.node) return;
+      const canvas = canvasRes.node;
+      const ctx = canvas.getContext('2d');
+      let pixelRatio = 2;
+      try {
+        const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+        pixelRatio = info.pixelRatio || 2;
+      } catch (e) { /* 默认 2 */ }
+      const width = flowRect.width;
+      const height = flowRect.height;
+      if (Math.abs((Number(this.data.ctxFlowW) || 0) - width) > 0.5 || Math.abs((Number(this.data.ctxFlowH) || 0) - height) > 0.5) {
+        this.setData({ ctxFlowW: width, ctxFlowH: height }, () => { this.scheduleContextFlow(); });
+        return; // 等画布尺寸同步后再画，避免画布尺寸与 CSS 尺寸不一致
+      }
+      canvas.width = Math.round(width * pixelRatio);
+      canvas.height = Math.round(height * pixelRatio);
+      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+
+      // 竖向布局：上排两节点 → 中间会话 → 下排两节点
+      const links = [
+        { from: '#ctxNodeInputs', to: '#ctxNodeSession', fromSide: 'bottom', fromAt: 0.72, toSide: 'top', toAt: 0.25, color: '#22C55E' },
+        { from: '#ctxNodeEvents', to: '#ctxNodeSession', fromSide: 'bottom', fromAt: 0.28, toSide: 'top', toAt: 0.75, color: '#A855F7' },
+        { from: '#ctxNodeSession', to: '#ctxNodeTools', fromSide: 'bottom', fromAt: 0.25, toSide: 'top', toAt: 0.72, color: '#14B8A6' },
+        { from: '#ctxNodeSession', to: '#ctxNodeNet', fromSide: 'bottom', fromAt: 0.75, toSide: 'top', toAt: 0.28, color: '#EC4899' }
+      ].map((link) => {
+        const a = nodes[link.from];
+        const b = nodes[link.to];
+        if (!a || !b) return null;
+        const ax = a.left - flowRect.left + a.width * link.fromAt;
+        const ay = link.fromSide === 'bottom' ? a.top - flowRect.top + a.height : a.top - flowRect.top;
+        const bx = b.left - flowRect.left + b.width * link.toAt;
+        const by = link.toSide === 'bottom' ? b.top - flowRect.top + b.height : b.top - flowRect.top;
+        const k = Math.max(20, Math.abs(by - ay) / 2);
+        return {
+          color: link.color,
+          ax, ay, bx, by,
+          cx1: ax, cy1: ay + k * (link.fromSide === 'bottom' ? 1 : -1),
+          cx2: bx, cy2: by - k * (link.toSide === 'top' ? 1 : -1)
+        };
+      }).filter(Boolean);
+
+      const draw = (offset) => {
+        ctx.clearRect(0, 0, width, height);
+        const stroke = (link) => {
+          ctx.beginPath();
+          ctx.moveTo(link.ax, link.ay);
+          ctx.bezierCurveTo(link.cx1, link.cy1, link.cx2, link.cy2, link.bx, link.by);
+          ctx.stroke();
+        };
+        ctx.lineCap = 'round';
+        links.forEach((link) => {
+          ctx.strokeStyle = link.color;
+          ctx.globalAlpha = 0.13;
+          ctx.lineWidth = 14;
+          ctx.setLineDash([]);
+          stroke(link);
+          ctx.globalAlpha = 0.55;
+          ctx.lineWidth = 1.5;
+          ctx.setLineDash([2, 7]);
+          ctx.lineDashOffset = offset;
+          stroke(link);
+        });
+        ctx.globalAlpha = 1;
+      };
+
+      const state = { canvas, raf: 0, startedAt: Date.now() };
+      const loop = () => {
+        if (this._ctxFlow !== state) return;
+        const elapsed = Date.now() - state.startedAt;
+        draw(-(elapsed / 1000 * 10) % 9);
+        state.raf = canvas.requestAnimationFrame(loop);
+      };
+      this._ctxFlow = state;
+      draw(0);
+      state.raf = canvas.requestAnimationFrame(loop);
+    });
+  },
+
   // ---------- 协作（只读，不切换父会话、不发送任务） ----------
   collaborationPatch(session = store.sessionState, app = store.state) {
     const result = collaboration.view(session.collaboration, app && app.sessions, session, app && app.connection === 'connected');
@@ -3558,6 +3875,58 @@ Page({
         : result.note;
     return { ...patch,collaborationTabs:tabs,collaborationRows:rows,collaborationNote:note };
   },
+  openTurnUsage(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.key;
+    const rows = this.data.rows || [];
+    const row = rows.find((item) => item && (item.key === key || item.turnMetaKey === key)) || null;
+    if (!row) return;
+    const usage = row.turnUsage || null;
+    if (!usage) {
+      wx.showToast({ title: uiText('本轮用量暂不可用'), icon: 'none' });
+      return;
+    }
+    const routes = Array.isArray(usage.routes) ? usage.routes : [];
+    const cache = turnUsageUtil.cacheHit(usage);
+    // 贴着触发按钮弹出：按点按位置计算卡片边界，靠上时翻转到下方
+    let windowWidth = 375;
+    let windowHeight = 667;
+    try {
+      const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+      windowWidth = info.windowWidth || windowWidth;
+      windowHeight = info.windowHeight || windowHeight;
+    } catch (err) { /* 取不到就按默认尺寸 */ }
+    const rpx = windowWidth / 750;
+    const width = Math.min(Math.round(560 * rpx), Math.round(windowWidth * 0.9));
+    const detail = (e && e.detail) || {};
+    const anchorX = Number(detail.x || (e.touches && e.touches[0] && e.touches[0].clientX)) || windowWidth / 2;
+    const anchorY = Number(detail.y || (e.touches && e.touches[0] && e.touches[0].clientY)) || windowHeight / 2;
+    const left = Math.max(12, Math.min(anchorX - width / 2, windowWidth - width - 12));
+    const cardHeight = Math.round(430 * rpx);
+    const navBottom = (Number(this.data.navPadTop) || 44) + (Number(this.data.navHeight) || 32);
+    const placeBelow = anchorY - cardHeight < navBottom + 12;
+    const top = placeBelow
+      ? Math.min(anchorY + 12, windowHeight - cardHeight - 12)
+      : Math.max(navBottom + 12, anchorY - 10);
+    this.setData({
+      turnUsageOpen: true,
+      turnUsagePos: { left, top, width, placeBelow },
+      turnUsageSheet: {
+        total: turnUsageUtil.exact(usage.totalTokens),
+        routes: routes.map((route) => route.provider + '/' + route.model).join(', '),
+        cacheHit: cache,
+        uncached: turnUsageUtil.exact(usage.uncachedInputTokens),
+        cacheRead: usage.cacheReadTokens === undefined ? '—' : turnUsageUtil.exact(usage.cacheReadTokens),
+        cacheWrite: usage.cacheWriteTokens === undefined ? '—' : turnUsageUtil.exact(usage.cacheWriteTokens),
+        output: turnUsageUtil.exact(usage.outputTokens),
+        reasoning: usage.reasoningTokens === undefined ? '' : turnUsageUtil.exact(usage.reasoningTokens)
+      }
+    });
+  },
+
+  closeTurnUsage() {
+    this.setData({ turnUsageOpen: false, turnUsageSheet: null });
+  },
+
   openCollaboration() {
     this.cancelVoice(); this.prioritizeInteraction();
     this._collaborationRequest = null; this._collaborationRefresh = null;

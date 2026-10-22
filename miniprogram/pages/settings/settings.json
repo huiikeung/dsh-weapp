@@ -1,5 +1,8 @@
 {
   "backgroundColor": "@bgColor",
-  "usingComponents": { "privacy-sheet": "/components/privacy-sheet/privacy-sheet" },
+  "usingComponents": {
+    "privacy-sheet": "/components/privacy-sheet/privacy-sheet",
+    "public-access-dialog": "/components/public-access-dialog/public-access-dialog"
+  },
   "navigationStyle": "custom"
 }

@@ -10,6 +10,7 @@ const { t: uiText } = require('./ui-preferences');
 const util = require('./util');
 const { ClientSession } = require('./relay-e2ee');
 const accessApi = require('./access-api');
+const publicAccessPrompt = require('./public-access-prompt');
 
 /** Uint8Array → 独立 ArrayBuffer（wx.send 要 ArrayBuffer）。 */
 function toArrayBuffer(u8) {
@@ -48,9 +49,9 @@ class GatewayClient {
 
   // ---------- 状态 ----------
 
-  setState(state, message) {
+  setState(state, message, errorCode) {
     this.state = state;
-    if (this.cb.onState) this.cb.onState(state, message || null);
+    if (this.cb.onState) this.cb.onState(state, message || null, errorCode || null);
   }
 
   // ---------- 设备标识 ----------
@@ -103,10 +104,13 @@ class GatewayClient {
     }
     return accessApi.publicLease(opts.relay.nodeId, this.deviceId).then(lease => {
       if (generation !== this.connectGeneration) return;
-      this.connectTransport(endpoint, opts, lease);
+      publicAccessPrompt.promptFirstAuthorizedUse(() => {
+        if (generation !== this.connectGeneration) return;
+        this.connectTransport(endpoint, opts, lease);
+      });
     }).catch(error => {
       if (generation !== this.connectGeneration) return;
-      this.setState('failed', error.message || uiText('公网授权验证失败；局域网不受影响'));
+      this.setState('failed', error.message || uiText('公网授权验证失败；局域网不受影响'), error.code || null);
     });
   }
 
@@ -1238,10 +1242,10 @@ class GatewayClient {
   }
 
   /** 读取费用/成本概览（仅 summary 动作，无需登录网关）。 */
-  async requestCostMeter(action = 'summary') {
+  async requestCostMeter(action = 'summary', payload = {}) {
     if (this.state.connection !== 'connected') throw new Error(uiText('未连接'));
-    const payload = { type: 'cost-meter', requestId: util.uuid(), action };
-    return await this.requestPlugin('cost-meter', payload, 8000);
+    const request = Object.assign({}, payload || {}, { type: 'cost-meter', requestId: util.uuid(), action });
+    return await this.requestPlugin('cost-meter', request, 20000);
   }
 
   /** 启用/停用整个插件 bundle；响应帧 kind=plugin-bundle-set-enabled（result.application）。 */

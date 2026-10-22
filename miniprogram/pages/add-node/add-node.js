@@ -2,6 +2,7 @@ const { t: uiText } = require('../../utils/ui-preferences');
 // 添加节点引导：三步（介绍 → 电脑端准备 → 扫码配对）
 const store = require('../../utils/store');
 const theme = require('../../utils/theme');
+const publicAccessPrompt = require('../../utils/public-access-prompt');
 
 const PLUGIN_NAME = 'dsh-plugin-weapp-gateway';
 const TOTAL_DOTS = 2;   // 准备 / 配对
@@ -19,7 +20,9 @@ Page({
     pairSheetOpen: false,
     pairingText: '',
     pairingError: '',
-    pairingConnecting: false
+    pairingConnecting: false,
+    publicAccessDialog: null,
+    publicAccessDialogOpen: false
   },
 
   onLoad() {
@@ -44,16 +47,22 @@ Page({
       const app = snapshot.app || {};
       if (this._pairing && app.connection === 'connected') {
         this._pairing = false;
+        this._scanRelayPending = false;
         this.setData({ pairSheetOpen: false, pairingConnecting: false, pairingText: '' });
         wx.showToast({ title: uiText('节点已连接'), icon: 'success' });
         setTimeout(() => wx.navigateBack({ delta: 1 }), 600);
       } else if (this._pairing && app.connection === 'failed') {
         this._pairing = false;
+        const connectionMessage = app.connectionMessage || uiText('连接失败，请检查配对信息');
+        if (this._scanRelayPending) {
+          this._scanRelayPending = false;
+          publicAccessPrompt.showPublicAccessFailure(connectionMessage, app.connectionErrorCode);
+        }
         this.setData({
           scanning: false,
-          pairError: app.connectionMessage || uiText('连接失败，请检查配对信息'),
+          pairError: connectionMessage,
           pairingConnecting: false,
-          pairingError: app.connectionMessage || uiText('连接失败，请检查配对信息')
+          pairingError: connectionMessage
         });
       }
     });
@@ -62,6 +71,8 @@ Page({
   onUnload() {
     if (this.unsubscribe) this.unsubscribe();
   },
+
+  onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
 
   goBack() {
     wx.navigateBack({ delta: 1 });
@@ -86,7 +97,10 @@ Page({
     if (this.data.scanning) return;
     wx.scanCode({
       onlyFromCamera: true,
-      success: (res) => this.connect(res.result),
+      success: (res) => {
+        this._scanRelayPending = !!publicAccessPrompt.managedRelayPayload(res.result);
+        this.connect(res.result);
+      },
       fail: (err) => {
         const message = (err && err.errMsg) || '';
         if (message.indexOf('permission') >= 0 || message.indexOf('auth') >= 0) {
@@ -129,6 +143,7 @@ Page({
   connect(raw) {
     const result = store.pairWithPayload(raw);
     if (!result.ok) {
+      this._scanRelayPending = false;
       this.setData({ pairError: result.error || uiText('配对信息无效') });
       wx.showToast({ title: result.error || uiText('配对信息无效'), icon: 'none' });
       return;

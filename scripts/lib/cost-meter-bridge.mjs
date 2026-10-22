@@ -313,17 +313,18 @@ function amountOf(bucket, config, apiOnly) {
   const base = bucket ? bucket.cost : 0
   const currency = config.currency || 'CNY'
   const rate = numeric(config.exchangeRate, 1)
-  if (currency === 'CNY' || currency === 'EUR') return base * rate
+  if (currency === 'CNY') return base * rate
   return base
 }
 
 function summaryOf(acc, config) {
   if (!acc) return null
-  const currency = ['CNY', 'USD', 'EUR'].includes(config.currency) ? config.currency : 'CNY'
+  const currency = ['CNY', 'USD'].includes(config.currency) ? config.currency : 'CNY'
   const budget = config.budget || {}
   const budgetAmount = numeric(budget.amount)
+  const budgetBucket = budget.period === 'day' ? acc.today : budget.period === 'all' ? acc.total : acc.month
   const budgetUsed = budgetAmount > 0
-    ? (budget.period === 'day' ? acc.today.cost : budget.period === 'all' ? acc.total.cost : acc.month.cost)
+    ? amountOf(budgetBucket, config)
     : 0
   const budgetPercent = budgetAmount > 0 ? Math.min(999, Math.round(budgetUsed / budgetAmount * 1000) / 10) : null
   return {
@@ -341,13 +342,13 @@ function summaryOf(acc, config) {
 function configOf(config) {
   if (!config) return null
   return {
-    currency: ['CNY', 'USD', 'EUR'].includes(config.currency) ? config.currency : 'CNY',
+    currency: ['CNY', 'USD'].includes(config.currency) ? config.currency : 'CNY',
     budget: { enabled: config.budget?.enabled === true, amount: numeric(config.budget?.amount), period: ['day', 'month', 'all', 'custom'].includes(config.budget?.period) ? config.budget.period : 'month', customStart: config.budget?.customStart, customEnd: config.budget?.customEnd },
     balance: { display: ['sidebar', 'settings', 'both', 'off'].includes(config.balance?.display) ? config.balance.display : 'both' },
     hideBudget: config.hideBudget === true,
     showTotalWithPlan: config.showTotalWithPlan === true,
     locale: ['zh', 'en', 'auto'].includes(config.locale) ? config.locale : 'auto',
-    includeSubagentCost: config.includeSubagentCost === true,
+    includeSubagentCost: config.includeSubagentCost !== false,
   }
 }
 
@@ -355,7 +356,7 @@ function validatePatch(patch) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, message: 'patch 必须是对象' }
   const errors = []
   const cur = patch.currency
-  if (cur !== undefined && !['CNY', 'USD', 'EUR'].includes(cur)) errors.push('currency 必须是 CNY、USD 或 EUR')
+  if (cur !== undefined && !['CNY', 'USD'].includes(cur)) errors.push('currency 必须是 CNY 或 USD')
   if (patch.budget !== undefined) {
     const b = patch.budget
     if (b && typeof b === 'object' && !Array.isArray(b)) {
@@ -369,6 +370,7 @@ function validatePatch(patch) {
   }
   if (patch.hideBudget !== undefined && typeof patch.hideBudget !== 'boolean') errors.push('hideBudget 必须是布尔值')
   if (patch.showTotalWithPlan !== undefined && typeof patch.showTotalWithPlan !== 'boolean') errors.push('showTotalWithPlan 必须是布尔值')
+  if (patch.includeSubagentCost !== undefined && typeof patch.includeSubagentCost !== 'boolean') errors.push('includeSubagentCost 必须是布尔值')
   if (errors.length > 0) return { ok: false, message: errors.join('；') }
   return { ok: true, patch }
 }
@@ -396,7 +398,7 @@ function dropCache() { cache.clear() }
  *
  * @param {object} api DSH host adapter (`sessions.list`, `sessions.history`)
  * @param {{requestId?:string, action?:string, patch?:object}} msg mobile frame
- * @param {object} [options] `{ now?, signal?, configOverride? }` for tests
+ * @param {object} [options] `{ now?, signal?, configOverride?, hostContext? }` for tests
  * @returns {Promise<object>} wire frame
  */
 export async function handleCostMeter(api, msg, options) {
@@ -409,7 +411,7 @@ export async function handleCostMeter(api, msg, options) {
   const config = options && options.configOverride ? { ...DEFAULT_CONFIG, ...options.configOverride } : readConfig()
 
   if (action === 'config') {
-    return { kind: 'cost-meter', requestId, action: 'config', config: configOf(config) }
+      return { kind: 'cost-meter', requestId, action: 'config', config: configOf(config) }
   }
 
   if (action === 'update') {
@@ -427,7 +429,10 @@ export async function handleCostMeter(api, msg, options) {
     if (patch.balance !== undefined && patch.balance !== null) Object.assign(next.balance, patch.balance)
     if (patch.hideBudget !== undefined) next.hideBudget = patch.hideBudget
     if (patch.showTotalWithPlan !== undefined) next.showTotalWithPlan = patch.showTotalWithPlan
-    if (!(options && options.configOverride)) writeConfig(next)
+    if (patch.includeSubagentCost !== undefined) next.includeSubagentCost = patch.includeSubagentCost
+    if (!(options && options.configOverride) && !writeConfig(next)) {
+      return fail(requestId, 'cost-meter-unavailable', '费用设置保存失败')
+    }
     dropCache()
     const acc = await foldAll(api, next, now, signal)
     return { kind: 'cost-meter', requestId, action: 'update', summary: summaryOf(acc, next), config: configOf(next) }

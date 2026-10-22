@@ -1,0 +1,105 @@
+<view class="cost-page {{themeClass}}" style="{{contentFontStyle}}">
+  <view class="cost-nav" style="padding-top:{{navPadTop}}px;height:{{navHeight}}px;">
+    <view class="cost-nav-back" bindtap="goBack" hover-class="cost-pressed" role="button" aria-label="{{ui['返回']}}">
+      <image class="cost-nav-back-icon" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
+    </view>
+    <text class="cost-nav-title">{{ui['额度卡片']}}</text>
+    <view class="cost-nav-refresh {{loading ? 'is-loading' : ''}}" bindtap="onRefresh" hover-class="cost-pressed" role="button" aria-label="{{ui['刷新']}}">↻</view>
+  </view>
+  <view class="cost-nav-placeholder" style="height:{{navPadTop + navHeight}}px;"></view>
+
+  <view wx:if="{{error}}" class="cost-notice {{!connected || !supported ? 'cost-notice-warn' : ''}}">
+    <text class="cost-notice-title">{{!connected ? ui['尚未连接'] : !supported ? ui['网关尚未启用额度卡片'] : ui['读取失败']}}</text>
+    <text class="cost-notice-body">{{error}}</text>
+    <view wx:if="{{connected && supported}}" class="cost-retry" bindtap="onRefresh" role="button">{{ui['重试']}}</view>
+  </view>
+
+  <view wx:if="{{dashboard && dashboard.hasContent}}" class="cost-section">
+    <text class="cost-section-title">{{ui['侧栏卡片预览']}}</text>
+    <view class="cost-preview cost-preview-{{dashboard.style}}">
+      <view wx:if="{{dashboard.balance}}" class="cost-preview-line">
+        <text class="cost-preview-name">{{ui['余额']}} <text class="cost-preview-link">↗</text></text>
+        <text class="cost-preview-amount">{{dashboard.balance.amountText}}</text>
+      </view>
+      <view wx:for="{{dashboard.customBalances}}" wx:key="index" class="cost-preview-line">
+        <text class="cost-preview-name">{{item.label}}</text>
+        <text class="cost-preview-amount">{{item.amountText}}</text>
+      </view>
+      <view wx:if="{{dashboard.go}}" class="cost-preview-quota">
+        <view class="cost-preview-line cost-preview-quota-heading">
+          <text class="cost-preview-name cost-preview-quota-title">{{dashboard.go.label}}</text>
+          <text class="cost-preview-amount cost-preview-quota-percent">{{dashboard.go.percentText}}</text>
+        </view>
+        <view class="cost-preview-progress"><view class="cost-preview-progress-fill" style="width:{{dashboard.go.barWidth}};"></view></view>
+      </view>
+      <view wx:if="{{dashboard.peak}}" class="cost-preview-peak">
+        <view class="cost-preview-line cost-preview-peak-heading">
+          <text class="cost-preview-phase"><text class="cost-preview-dot"></text>{{dashboard.peak.label}}</text>
+          <text class="cost-preview-switch">{{ui['剩余']}} {{dashboard.peak.remainingText}}</text>
+        </view>
+        <view class="cost-preview-peak-progress"><view class="cost-preview-peak-progress-fill" style="width:{{dashboard.peak.progressText}};"></view></view>
+        <view class="cost-preview-peak-footer">{{dashboard.peak.switchText}}</view>
+      </view>
+    </view>
+    <text class="cost-source-note">{{ui['此显示设置仅作用于小程序左侧栏。']}}</text>
+  </view>
+
+  <view class="cost-section">
+    <text class="cost-section-title">{{ui['卡片内容']}}</text>
+    <view class="cost-card">
+      <view class="cost-row">
+        <view class="cost-row-copy"><text class="cost-row-label">{{ui['官方余额']}}</text><text class="cost-row-hint">{{ui['读取 DSH 官方账号余额，无需额外安装插件']}}</text></view>
+        <switch color="#16856D" checked="{{cardPreferences.showBalance}}" bindchange="onBalanceToggle" disabled="{{!supported}}"/>
+      </view>
+      <view class="cost-balance-key-settings">
+        <view class="cost-key-state">
+          <text class="cost-row-hint">{{dashboardSettings.balanceKeyConfigured ? ui['DeepSeek API Key 已保存在电脑端凭据库'] : ui['可选：配置 DeepSeek 开放平台 API Key']}}</text>
+          <text wx:if="{{dashboardSettings.balanceKeyConfigured}}" class="cost-key-clear" bindtap="onClearBalanceKey">{{ui['清除']}}</text>
+        </view>
+        <view class="cost-key-input-row">
+          <input class="cost-key-input" type="text" password="true" value="{{balanceKeyDraft}}" bindinput="onBalanceKeyInput" maxlength="4096" placeholder="{{ui['粘贴 DeepSeek API Key']}}" disabled="{{!supported || saving}}"/>
+          <button class="cost-save-button" bindtap="onSaveBalanceKey" disabled="{{!supported || saving || !balanceKeyDraft}}">{{saving ? ui['保存中…'] : ui['保存']}}</button>
+        </view>
+        <text class="cost-row-hint">{{ui['优先读取 DSH 登录账号余额；未登录时可使用此 API Key。密钥保存到电脑端凭据库。']}}</text>
+      </view>
+      <view class="cost-divider"></view>
+      <view class="cost-row">
+        <view class="cost-row-copy"><text class="cost-row-label">{{ui['OpenCode Go 额度']}}</text><text class="cost-row-hint">{{ui['从 OpenCode 官方接口读取滚动、周或月用量']}}</text></view>
+        <switch color="#16856D" checked="{{dashboardSettings.goQuota.enabled}}" bindchange="onGoToggle" disabled="{{!supported || saving}}"/>
+      </view>
+      <view class="cost-go-key-settings">
+        <view class="cost-key-state">
+          <text class="cost-row-hint">{{dashboardSettings.goKeyConfigured ? ui['Go API Key 已保存在电脑端凭据库'] : ui['尚未配置 Go API Key']}}</text>
+          <text wx:if="{{dashboardSettings.goKeyConfigured}}" class="cost-key-clear" bindtap="onClearGoKey">{{ui['清除']}}</text>
+        </view>
+        <view class="cost-key-input-row">
+          <input class="cost-key-input" type="text" password="true" value="{{keyDraft}}" bindinput="onGoKeyInput" maxlength="4096" placeholder="{{ui['粘贴 OpenCode Go API Key']}}" disabled="{{!supported || saving}}"/>
+          <button class="cost-save-button" bindtap="onSaveGoKey" disabled="{{!supported || saving || !keyDraft}}">{{saving ? ui['保存中…'] : ui['保存']}}</button>
+        </view>
+        <text class="cost-row-hint">{{ui['密钥由 DSH 凭据库保存，不会写入卡片配置或返回小程序。']}}</text>
+      </view>
+      <view class="cost-divider"></view>
+      <view class="cost-row" bindtap="onGoWindowTap" role="button">
+        <view class="cost-row-copy"><text class="cost-row-label">{{ui['主用量窗口']}}</text><text class="cost-row-hint">{{ui['选择卡片上显示的 OpenCode Go 周期']}}</text></view>
+        <view class="cost-row-value">{{dashboardSettings.goQuota.main === 'weekly' ? ui['本周'] : dashboardSettings.goQuota.main === 'monthly' ? ui['本月'] : ui['滚动 5 小时']}}<text class="cost-chevron">›</text></view>
+      </view>
+      <view class="cost-divider"></view>
+      <view class="cost-row">
+        <view class="cost-row-copy"><text class="cost-row-label">{{ui['峰谷时段']}}</text><text class="cost-row-hint">{{ui['显示当前电价时段与下次切换']}}</text></view>
+        <switch color="#16856D" checked="{{dashboardSettings.peak.enabled && cardPreferences.showPeak}}" bindchange="onPeakToggle" disabled="{{!supported || saving}}"/>
+      </view>
+      <view class="cost-peak-settings" bindtap="onPeakWindowsTap" role="button">
+        <text class="cost-row-label">{{ui['峰时段']}}</text>
+        <text class="cost-row-hint">{{ui['按 UTC 时间设置，多个时段用逗号分隔']}}</text>
+        <text class="cost-peak-value">{{peakWindowsText}}</text>
+      </view>
+      <view class="cost-divider"></view>
+      <view class="cost-row" bindtap="onStyleTap" role="button">
+        <view class="cost-row-copy"><text class="cost-row-label">{{ui['卡片密度']}}</text><text class="cost-row-hint">{{ui['调整左侧栏额度卡片的留白与字号']}}</text></view>
+        <view class="cost-row-value">{{cardPreferences.style === 'compact' ? ui['紧凑'] : ui['舒展']}}<text class="cost-chevron">›</text></view>
+      </view>
+    </view>
+    <text class="cost-source-note">{{ui['额度功能已整合进小程序网关，不依赖独立插件。API Key 仅保存在已配对的电脑端 DSH 凭据库。']}}</text>
+  </view>
+  <view wx:if="{{loading && !dashboard}}" class="cost-loading"><view class="cost-spinner"></view><text>{{ui['正在读取额度…']}}</text></view>
+</view>

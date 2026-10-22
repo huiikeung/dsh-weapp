@@ -48,6 +48,193 @@ function formatRelativeTime(ts) {
   return (d.getMonth() + 1) + '/' + d.getDate() + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
 }
 
+function preciseAmount(value, unit, decimals) {
+  if (!Number.isFinite(value)) return '—';
+  const symbols = { CNY: '¥', USD: '$', EUR: '€', CREDITS: '' };
+  const precision = Math.max(0, Math.min(6, Number.isInteger(decimals) ? decimals : 2));
+  const abs = Math.abs(value).toFixed(precision).split('.');
+  const integer = abs[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const fraction = precision ? '.' + abs[1] : '';
+  const amount = (value < 0 ? '-' : '') + integer + fraction;
+  return (symbols[unit] === undefined ? '' : symbols[unit]) + amount + (unit === 'CREDITS' ? ' Credits' : '');
+}
+
+function peakAt(at, windows, holidays, effectiveAt) {
+  if (Number.isFinite(effectiveAt) && at < effectiveAt) return false;
+  const beijing = new Date(at + 8 * 60 * 60 * 1000);
+  const dateKey = beijing.toISOString().slice(0, 10);
+  if (holidays.includes(dateKey) || beijing.getUTCDay() === 0 || beijing.getUTCDay() === 6) return false;
+  const hour = new Date(at).getUTCHours();
+  return windows.some(window => {
+    const start = Number(window.start), end = Number(window.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) return false;
+    return start < end ? hour >= start && hour < end : hour >= start || hour < end;
+  });
+}
+
+function peakProgress(peak, now) {
+  if (!peak || peak.enabled !== true || !Array.isArray(peak.windows) || peak.windows.length === 0) return null;
+  const effectiveAt = Date.parse(peak.effectiveAt || '');
+  const holidays = Array.isArray(peak.holidays) ? peak.holidays : [];
+  const hourMs = 60 * 60 * 1000;
+  const start = Math.floor(now / hourMs) * hourMs - 9 * 24 * hourMs;
+  let previous = null, next = null;
+  let priorPhase = peakAt(start, peak.windows, holidays, effectiveAt);
+  for (let at = start + hourMs; at <= start + 18 * 24 * hourMs; at += hourMs) {
+    const phase = peakAt(at, peak.windows, holidays, effectiveAt);
+    if (phase !== priorPhase) {
+      if (at <= now) previous = { at, phase };
+      else { next = { at, phase }; break; }
+    }
+    priorPhase = phase;
+  }
+  if (!next) return null;
+  const current = peakAt(now, peak.windows, holidays, effectiveAt);
+  const previousAt = previous ? previous.at : now;
+  const percent = previous && next.at > previous.at
+    ? Math.max(0, Math.min(100, (now - previousAt) / (next.at - previousAt) * 100)) : 0;
+  const remainingMinutes = Math.max(0, Math.floor((next.at - now) / 60000));
+  const remainingHours = Math.floor(remainingMinutes / 60);
+  const remainingText = remainingHours >= 24
+    ? `${Math.floor(remainingHours / 24)}天 ${remainingHours % 24}小时 ${remainingMinutes % 60}分`
+    : `${remainingHours}小时 ${remainingMinutes % 60}分`;
+  const date = new Date(next.at + 8 * 60 * 60 * 1000);
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const timeText = `${weekdays[date.getUTCDay()]} ${String(date.getUTCHours()).padStart(2, '0')}:00`;
+  return {
+    label: current ? '峰时' : (holidays.includes(new Date(now + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)) ? '节假日平价' : '平价'),
+    inPeak: current,
+    nextIntoPeak: next.phase,
+    remainingText,
+    switchText: `${timeText} 转${next.phase ? '峰时' : '平价'}`,
+    progress: percent,
+  };
+}
+
+function normalizeDashboard(dashboard, now = Date.now()) {
+  if (!dashboard || typeof dashboard !== 'object') return null;
+  const configCurrency = dashboard.currency === 'USD' ? 'USD' : 'CNY';
+  const decimals = Number.isInteger(dashboard.decimals) ? dashboard.decimals : 2;
+  const balance = dashboard.balance && typeof dashboard.balance === 'object' ? dashboard.balance : {};
+  const balanceUnit = ['USD', 'CNY', 'EUR'].includes(balance.currency) ? balance.currency : configCurrency;
+  const balanceView = balance.enabled ? {
+    status: balance.status,
+    label: '余额',
+    amountText: balance.status === 'ok' ? preciseAmount(balance.totalBalance, balanceUnit, decimals) : '—',
+    fetchedAt: balance.fetchedAt,
+  } : null;
+  const customBalances = (Array.isArray(dashboard.customBalances) ? dashboard.customBalances : [])
+    .filter(row => row && row.enabled === true && row.display !== 'off')
+    .map(row => {
+      let amount = row.remaining;
+      let unit = row.unit;
+      if (row.convertToDisplayCurrency === true && unit === 'USD' && configCurrency === 'CNY') {
+        amount *= Number(dashboard.exchangeRate) || 1;
+        unit = 'CNY';
+      }
+      return {
+        index: row.index,
+        label: row.label || row.labelEn || '自定义余额',
+        status: row.status,
+        amountText: row.status === 'ok' ? preciseAmount(amount, unit, unit === 'CREDITS' ? 0 : 4) : '—',
+      };
+    });
+  const go = dashboard.goQuota && typeof dashboard.goQuota === 'object' ? dashboard.goQuota : {};
+  const key = ['weekly', 'monthly'].includes(go.main) ? go.main : 'rolling';
+  const window = go[key];
+  const rawPercent = window && Number.isFinite(window.percent) ? Math.max(0, Math.min(100, window.percent)) : null;
+  const goPercent = rawPercent === null ? null : Math.round(rawPercent);
+  const remaining = go.barDirection === 'remaining';
+  const goView = go.enabled ? {
+    status: go.status,
+    configured: go.configured === true,
+    label: `Go ${key === 'rolling' ? '5h' : key === 'weekly' ? '7d' : '30d'}`,
+    percentText: goPercent === null ? '—' : `${remaining ? 100 - goPercent : goPercent}%`,
+    barWidth: `${goPercent === null ? 0 : remaining ? 100 - goPercent : goPercent}%`,
+    resetText: window && window.resetsAt ? `重置 ${formatRelativeTime(Date.parse(window.resetsAt))}` : '',
+  } : null;
+  const peak = peakProgress(dashboard.peak, now);
+  const normalized = {
+    balance: balanceView,
+    customBalances,
+    go: goView,
+    peak: peak ? { ...peak, progressText: `${Math.round(peak.progress)}%` } : null,
+  };
+  normalized.hasContent = !!(balanceView || customBalances.length || goView || normalized.peak);
+  return normalized;
+}
+
+const DEFAULT_DASHBOARD_PREFERENCES = Object.freeze({
+  showBalance: true,
+  showGo: true,
+  showPeak: true,
+  sidebarVisible: false,
+  customBalances: {},
+  style: 'compact',
+});
+
+function normalizeDashboardPreferences(value) {
+  const input = value && typeof value === 'object' ? value : {};
+  const customBalances = {};
+  if (input.customBalances && typeof input.customBalances === 'object' && !Array.isArray(input.customBalances)) {
+    Object.keys(input.customBalances).forEach(key => {
+      if (/^\d+$/.test(key) && typeof input.customBalances[key] === 'boolean') customBalances[key] = input.customBalances[key];
+    });
+  }
+  return {
+    showBalance: input.showBalance !== false,
+    showGo: input.showGo !== false,
+    showPeak: input.showPeak !== false,
+    // 左侧栏额度卡片的显示开关：默认关闭，开启后才请求并渲染卡片（按设备/主机保存在本地）。
+    sidebarVisible: input.sidebarVisible === true,
+    customBalances,
+    style: input.style === 'standard' ? 'standard' : 'compact',
+  };
+}
+
+/** 同一台主机（节点/端点）共用一个额度卡片显示偏好。 */
+function dashboardOwner(state) {
+  const value = state || {};
+  return [value.activeID || '', value.gatewayId || '', value.endpoint || ''].join('|');
+}
+
+function dashboardPreferenceKey(owner) {
+  return 'dsh.cost-meter.dashboard.' + encodeURIComponent(owner || '');
+}
+
+function readDashboardPreferences(owner, api) {
+  const target = api || (typeof wx !== 'undefined' ? wx : null);
+  let saved = null;
+  if (target) {
+    try { saved = target.getStorageSync(dashboardPreferenceKey(owner)); } catch (_) { /* 存储不可用时用默认值 */ }
+  }
+  return normalizeDashboardPreferences(saved);
+}
+
+function writeDashboardPreferences(owner, preferences, api) {
+  const target = api || (typeof wx !== 'undefined' ? wx : null);
+  const normalized = normalizeDashboardPreferences(preferences);
+  if (target) target.setStorageSync(dashboardPreferenceKey(owner), normalized);
+  return normalized;
+}
+
+function applyDashboardPreferences(dashboard, preferences) {
+  if (!dashboard || typeof dashboard !== 'object') return null;
+  const prefs = normalizeDashboardPreferences(preferences);
+  const customBalances = (Array.isArray(dashboard.customBalances) ? dashboard.customBalances : [])
+    .filter(row => prefs.customBalances[String(row.index)] !== false);
+  const result = {
+    ...dashboard,
+    balance: prefs.showBalance ? dashboard.balance : null,
+    go: prefs.showGo ? dashboard.go : null,
+    peak: prefs.showPeak ? dashboard.peak : null,
+    customBalances,
+    style: prefs.style,
+  };
+  result.hasContent = !!(result.balance || result.go || result.peak || customBalances.length);
+  return result;
+}
+
 /**
  * Normalize bridge summary into the view model used by home drawer / plugin detail.
  * Returns:
@@ -115,7 +302,7 @@ function normalizeConfig(config, currencyForFmt) {
 function validatePatch(patch) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return { ok: false, message: 'patch 必须是对象' };
   const errors = [];
-  if (patch.currency !== undefined && !['CNY', 'USD', 'EUR'].includes(patch.currency)) errors.push('currency 必须是 CNY、USD 或 EUR');
+  if (patch.currency !== undefined && !['CNY', 'USD'].includes(patch.currency)) errors.push('currency 必须是 CNY 或 USD');
   if (patch.budget !== undefined) {
     const b = patch.budget;
     if (b && typeof b === 'object' && !Array.isArray(b)) {
@@ -134,5 +321,7 @@ function validatePatch(patch) {
 
 module.exports = {
   UNITS, formatCurrency, formatTokens, formatPercent, formatRelativeTime,
-  normalize, normalizeConfig, validatePatch
+  normalize, normalizeConfig, normalizeDashboard, normalizeDashboardPreferences,
+  applyDashboardPreferences, DEFAULT_DASHBOARD_PREFERENCES, preciseAmount, validatePatch,
+  dashboardOwner, dashboardPreferenceKey, readDashboardPreferences, writeDashboardPreferences
 };

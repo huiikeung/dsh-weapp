@@ -123,3 +123,4 @@
     </view>
   </view>
 </view>
+<public-access-dialog visible="{{publicAccessDialogOpen}}" dialog="{{publicAccessDialog}}" theme="{{theme}}" bindconfirm="onPublicAccessDialogConfirm" />

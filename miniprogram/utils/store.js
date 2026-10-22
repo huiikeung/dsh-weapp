@@ -10,6 +10,7 @@ const collaboration = require('./collaboration');
 const pairing = require('./pairing');
 const hosts = require('./hosts');
 const schedule = require('./schedule');
+const turnUsage = require('./turn-usage');
 const pluginsLib = require('./plugins');
 const { createInstaller } = require('./plugin-install');
 const util = require('./util');
@@ -54,6 +55,7 @@ function createStore() {
   const state = {
     connection: 'disconnected', // disconnected | connecting | connected | failed
     connectionMessage: null,
+    connectionErrorCode: null,
     paired: false,
     gatewayName: null,
     gatewayMetadata: null,
@@ -148,9 +150,10 @@ function createStore() {
   };
 
   const client = new GatewayClient({
-    onState: function (status, message) {
+    onState: function (status, message, errorCode) {
       state.connection = status;
       state.connectionMessage = message;
+      state.connectionErrorCode = errorCode || null;
       pluginInstaller.connectionChanged(status);
       if (status !== 'connected') {
         state.gatewayMetadata = null;
@@ -193,6 +196,7 @@ function createStore() {
           if (profile && next) {
             state.endpoint = next;
             state.connectionMessage = uiText('切换线路重连中…');
+            state.connectionErrorCode = null;
             let connectOpts = null;
             if (profile.relay && profile.relayAgentPubKey) {
               const relayCred = hosts.loadCredential(profile.id);
@@ -287,6 +291,33 @@ function createStore() {
 
   // 内存与磁盘只恢复最近窗口；旧记录由用户按需分页。
   const sessionMemoryCache = new Map();
+  // 上下文/编队面板：会话内即时复用上次结果，避免二次进入重新等待网关回放
+  const contextPanelMemory = new Map();
+  let prefetchedPanelSession = null;
+
+  function rememberContextPanels(sessionId) {
+    if (!sessionId) return;
+    const dashboard = sessionState.contextDashboard;
+    const fleet = sessionState.contextFleet;
+    if (!dashboard || dashboard.loading) return;
+    contextPanelMemory.set(String(sessionId), { dashboard, fleet, savedAt: Date.now() });
+    if (contextPanelMemory.size > 20) contextPanelMemory.delete(contextPanelMemory.keys().next().value);
+  }
+
+  function restoreContextPanels(sessionId) {
+    const cached = contextPanelMemory.get(String(sessionId || ''));
+    if (!cached) return { dashboard: null, fleet: null };
+    return { dashboard: cached.dashboard, fleet: cached.fleet };
+  }
+
+  /** 会话打开后预取上下文/编队快照，用户切到对应标签时通常已有数据。 */
+  function prefetchContextPanels() {
+    if (state.connection !== 'connected' || !sessionState.sessionId) return;
+    if (prefetchedPanelSession === sessionState.sessionId) return;
+    prefetchedPanelSession = sessionState.sessionId;
+    refreshContextDashboard(false);
+    refreshContextFleet(false);
+  }
   const sessionCacheWrites = new Map();
   const sessionCacheKey = id => String(state.activeID || state.endpoint || '') + ':' + id;
   function saveSessionCache(sessionId, rows) {
@@ -1285,6 +1316,7 @@ function createStore() {
           loading: false, error: null, code: '', unsupported: false,
           asOfSeq: seq, value: value
         };
+        rememberContextPanels(sessionState.sessionId);
         emit();
         return;
       }
@@ -1299,6 +1331,7 @@ function createStore() {
           loading: false, error: null, code: '', unsupported: false,
           asOfSeq: seq, value: value
         };
+        rememberContextPanels(sessionState.sessionId);
         emit();
         return;
       }
@@ -1840,6 +1873,7 @@ function createStore() {
         sessionState.ingestErrors = (sessionState.ingestErrors || 0) + 1;
       }
       sessionState.rows = sessionState.rowsAgg.rows.slice();
+      refreshTurnUsage(rawBuffer);
       return;
     }
     let bad = 0;
@@ -1857,11 +1891,24 @@ function createStore() {
     try {
       sessionState.rows = sessionState.rowsAgg.rows.slice();
       allRawEvents(sorted, true);
+      refreshTurnUsage(sorted);
       invalidateTrajectory();
       rebuildRunCues();
     } catch (e) {
       sessionState.ingestErrors = (sessionState.ingestErrors || 0) + 1;
       sessionState.rows = sessionState.rowsAgg.rows.slice();
+    }
+  }
+
+  // 每轮精确用量（移植 DSH deriveTurnTokenUsage）：仅在回合边界或重放时重算
+  function refreshTurnUsage(batch) {
+    try {
+      const events = Array.isArray(batch) ? batch : [];
+      const boundary = events.some((event) => event && (event.type === 'turn/end' || event.type === 'turn/start'));
+      if (!boundary && sessionState.turnUsage) return;
+      sessionState.turnUsage = turnUsage.deriveAll(rawBuffer);
+    } catch (e) {
+      sessionState.turnUsage = sessionState.turnUsage || {};
     }
   }
 
@@ -2913,8 +2960,15 @@ function createStore() {
       sessionState.pendingQuestion = null;
       sessionState.pendingApproval = null;
       sessionState.stats = null;
-      sessionState.contextDashboard = createContextDashboardState();
-      sessionState.contextFleet = createContextFleetState();
+      {
+        const cachedPanels = restoreContextPanels(sessionId);
+        sessionState.contextDashboard = cachedPanels.dashboard
+          ? Object.assign({}, cachedPanels.dashboard, { loading: true })
+          : createContextDashboardState();
+        sessionState.contextFleet = cachedPanels.fleet
+          ? Object.assign({}, cachedPanels.fleet, { loading: true })
+          : createContextFleetState();
+      }
       sessionState.queue = [];
       sessionState.tasks = null;
       sessionState.tasksAsOfSeq = null;
@@ -2974,6 +3028,8 @@ function createStore() {
       }
       safeRequest(client.requestSessionStats(sessionId));
       safeRequest(client.requestContextUsage(sessionId));
+      // 打开会话即预取上下文/编队快照（缓存中的旧值已先行展示）
+      prefetchContextPanels();
       if (contextActive) refreshContextDashboard(true);
       if (fleetActive) refreshContextFleet(true);
       // 新会话已运行且面板可见：立即恢复 2.5s 自动刷新（旧会话 timer 已清）。
