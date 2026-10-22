@@ -65,7 +65,7 @@ test('WeChat credentials are encrypted and never echoed; AppID is locked', async
   assert.equal(overview.settings.secretConfigured, true);
   assert.equal(JSON.stringify(overview).includes(secret), false);
   assert.equal(fs.readFileSync(f.stateFile, 'utf8').includes(secret), false);
-  assert.equal(fs.statSync(f.stateFile).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(f.stateFile).mode & 0o777, 0o600);
   assert.equal((await f.call('/console/api/settings', { appId: 'wx1123456789abcdef', appSecret: secret })).status, 409);
   assert.throws(() => createService({ ...f.options, consoleOptions: { ...f.options.consoleOptions, masterKey: 'cd'.repeat(32) } }));
 });

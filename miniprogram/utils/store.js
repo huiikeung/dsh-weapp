@@ -2490,6 +2490,21 @@ function createStore() {
     sessionState.runCues = [];
   }
 
+  // ---------- 原生浮层期间的连接抑制 ----------
+  // chooseMedia / chooseMessageFile / previewImage 等原生浮层会触发 app.onHide→onShow，
+  // 若此时按“回到前台”处理去重连（付费中继每次都会 reconnect），会造成连接抖动
+  // 和整页重投影（用户看到的“页面一直跳”）。浮层打开期间挂起重连，关闭后再补一次。
+
+  let nativeOverlayDepth = 0;
+  let appActive = false;
+
+  function maybeReconnectOnActive() {
+    if (nativeOverlayDepth > 0) return;
+    if (state.activeID && (state.connection !== 'connected' || accessApi.isManagedRelay(state.endpoint))) {
+      reconnectPreferred();
+    }
+  }
+
   function selectHost(id) {
     const profile = getProfile(id);
     if (!profile) return;
@@ -2705,14 +2720,29 @@ function createStore() {
     },
 
     appDidBecomeActive: function () {
-      // Revalidate the current WeChat identity on return, only for our paid relay.
-      if (state.activeID && (state.connection !== 'connected' || accessApi.isManagedRelay(state.endpoint))) {
-        reconnectPreferred();
-      }
+      appActive = true;
+      maybeReconnectOnActive();
     },
 
     appDidEnterBackground: function () {
+      appActive = false;
       // 小程序无真正后台 WebSocket 保活；交由平台管理，仅记录状态。
+    },
+
+    /** 原生浮层（chooseMedia 等）打开：挂起重连直到浮层全部关闭。 */
+    beginNativeOverlay: function () {
+      nativeOverlayDepth += 1;
+    },
+
+    /** 原生浮层关闭：若已无浮层且 app 在前台，补一次可能被挂起的重连。 */
+    endNativeOverlay: function () {
+      if (nativeOverlayDepth > 0) nativeOverlayDepth -= 1;
+      if (nativeOverlayDepth === 0 && appActive) maybeReconnectOnActive();
+    },
+
+    /** 是否有原生浮层正打开（用于区分「浮层导致的 onHide」与「页面跳转」）。 */
+    nativeOverlayActive: function () {
+      return nativeOverlayDepth > 0;
     },
 
     subscribe: function (listener) {

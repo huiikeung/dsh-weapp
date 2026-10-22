@@ -1815,5 +1815,8 @@
   "按最近": "Most recent",
   "历史明细可能不完整": "Older context details may be incomplete",
   "内容已截断": "Content was truncated",
-  "未找到匹配的文件活动": "No file activity matches this filter"
+  "未找到匹配的文件活动": "No file activity matches this filter",
+  "未连接主机，消息仍在队列中": "Not connected to host; message stays queued",
+  "发送失败，消息仍在队列中": "Send failed; message stays queued",
+  "会话已切换，消息已丢弃": "Session changed; the message was dropped"
 }

@@ -330,7 +330,7 @@
     <!-- The whale belongs to the conversation tail, inside its clipped viewport. -->
     <view wx:if="{{running}}" class="progress-strip conversation-progress" id="deep-search-progress">
       <view class="progress-row status-look-{{statusAppearance}}">
-        <view class="status-tail"><image class="status-tail-image" mode="aspectFit" src="/assets/icons/official-sway-{{theme === 'dark' ? 'dark' : 'light'}}.gif"/></view>
+        <view class="status-tail status-tail-{{statusAppearance}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" style="{{theme === 'dark' ? statusDarkTailAnimationStyle : statusLightTailAnimationStyle}}"><image class="status-tail-image" mode="aspectFit" src="/assets/icons/dsh-running-whale.png" style="filter:{{theme === 'dark' ? statusDarkTailFilter : statusLightTailFilter}}"/></view>
         <view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? statusDarkStyle : statusLightStyle}}">{{runPhrase}}{{ui['，用时']}} {{runElapsedText}}…</text></view>
       </view>
     </view>
@@ -962,7 +962,7 @@
                 <view class="queue-actions">
                   <view wx:if="{{item.editable}}" class="queue-ic-btn {{queueBusyId === item.id + ':edit' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="edit"><image class="queue-ic" src="/assets/icons/pencil-line-gray.png"/></view>
                   <view class="queue-ic-btn {{queueBusyId === item.id + ':remove' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="remove"><image class="queue-ic" src="/assets/icons/trash-gray.png"/></view>
-                  <view wx:if="{{running}}" class="queue-ic-btn {{queueBusyId === item.id + ':steer' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="steer"><image class="queue-ic" src="/assets/icons/arrow-up-gray.png"/></view>
+                  <view wx:if="{{running || item.local}}" class="queue-ic-btn {{queueBusyId === item.id + ':steer' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="steer"><image class="queue-ic" src="/assets/icons/arrow-up-gray.png"/></view>
                 </view>
               </view>
               <view wx:if="{{index < queue.length - 1}}" class="queue-sep"></view>

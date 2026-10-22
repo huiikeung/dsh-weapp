@@ -27,17 +27,18 @@ test('subpackage artwork manifests stay inside their package roots', () => {
   }
 });
 
-test('main-package utilities are reached by main pages or their components, not subpackages alone', { skip: !fs.existsSync(archive) }, async () => {
+test('main-package utilities are reached by runtime pages or their components', { skip: !fs.existsSync(archive) }, async () => {
   const analyzer = installedAnalyzer();
   const app = JSON.parse(fs.readFileSync(path.join(root, 'app.json'), 'utf8'));
+  const routes = require('./helpers/routes.cjs')(app);
   const helper = {
     mtime: file => fs.statSync(path.join(root, file)).mtimeMs,
     getString: async file => fs.readFileSync(path.join(root, file), 'utf8'),
     existFile: file => fs.existsSync(path.join(root, file)),
     existDir: file => fs.existsSync(path.join(root, file))
   };
-  const queue = ['app.js', ...app.pages.map(route => route + '.js')];
-  for (const route of app.pages) {
+  const queue = ['app.js', ...routes.map(route => route + '.js')];
+  for (const route of routes) {
     const config = path.join(root, route + '.json');
     if (!fs.existsSync(config)) continue;
     for (const component of Object.values(JSON.parse(fs.readFileSync(config, 'utf8')).usingComponents || {})) {

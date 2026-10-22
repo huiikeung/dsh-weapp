@@ -251,6 +251,16 @@ Page({
   onShow() {
     this.syncContextPanelPreferences();
     this._voiceHidden = false; this.syncVoicePreference();
+    // 原生选择器（chooseMedia / chooseMessageFile）关闭时，会触发 app.onHide→onShow。
+    // 此时并非真正的页面切换，不要强制 syncFromStore（整页重投影）和 resetConversationScroll。
+    // 数据更新由 subscribe 流自然推进；只需恢复可见性和重测 dock。
+    if (store.nativeOverlayActive()) {
+      this.startScrollPolling();
+      this.setData(statusAppearance.view(statusAppearance.read()));
+      this.setData(procIconStyle.view(procIconStyle.read()));
+      this.updateDockInset();
+      return;
+    }
     this.resetConversationScroll();
     this.startScrollPolling();
     if (store.sessionState && store.sessionState.sessionId) this.syncFromStore({ app: store.state, session: store.sessionState });
@@ -372,6 +382,9 @@ Page({
     this.checkVoiceContext();
     if (this._composerContextKey && this._composerContextKey !== this.composerContextKey()) {
       this._commandRequest = null; this._commandOptionRequest = null; this._attachmentRequest = null;
+      this._filesRequest = null;
+      this._collaborationRequest = null;
+      this._collaborationRefresh = null;
       this._commandOptionName = ''; this._commandOptions = [];
       this.setData({ attachSheetOpen: false, commandMenu: null, commandMenuQuery: '', commandPaletteLoading: false, commandPaletteError: '', attachmentPicking: false });
       if (this.data.fileReferenceMode) this.closeFilesSheet();
@@ -818,79 +831,7 @@ Page({
     if (this.data.turnNavOpen) this.autoLoadTurnNavigatorHistory(null, true);
     const cs = app.connection || 'disconnected';
     if (cs !== this.data.connState) this.setData({ connState: cs });
-    // DSH 的队列项是 UserMessage：正文在 content[] block 中，而不是顶层字符串。
-    // Gateway 不同版本还可能包在 message/source/payload 下，统一在这里解包。
-    const qContentOf = (it) => {
-      const candidates = [it && it.content, it && it.message && it.message.content,
-        it && it.source && it.source.content, it && it.payload && it.payload.content];
-      for (let i = 0; i < candidates.length; i += 1) {
-        if (Array.isArray(candidates[i])) return candidates[i];
-      }
-      return [];
-    };
-    const qTextOf = (it) => {
-      for (let i = 0; i < 6; i++) {
-        const k = ['text', 'preview', 'message', 'content', 'prompt', 'value'][i];
-        if (typeof it[k] === 'string' && it[k]) return it[k];
-      }
-      const nested = [it && it.message, it && it.source, it && it.payload];
-      for (let i = 0; i < nested.length; i += 1) {
-        const value = nested[i];
-        if (value && typeof value.text === 'string' && value.text) return value.text;
-      }
-      return qContentOf(it).map((block) => {
-        if (typeof block === 'string') return block;
-        if (!block || typeof block !== 'object') return '';
-        if (block.type === 'text' || typeof block.text === 'string') return block.text || '';
-        if (block.type === 'file') return uiText('[文件]');
-        if (block.type === 'image') return uiText('[图片]');
-        return '';
-      }).filter(Boolean).join(' ');
-    };
-    let q = (s.queue || []).map((it, index) => {
-      const rawText = qTextOf(it);
-      const contentBlocks = qContentOf(it);
-      const contentAttachments = contentBlocks.filter((block) => block && (block.type === 'image' || block.type === 'file'))
-        .map((block) => Object.assign({}, block.attachment || block, { type: block.type }));
-      const sourceAttachments = Array.isArray(it.attachments) && it.attachments.length
-        ? it.attachments
-        : (Array.isArray(it.images) && it.images.length ? it.images : contentAttachments);
-      const attachments = sourceAttachments.map((attachment, attachmentIndex) => {
-        const isImage = attachment && (attachment.type === 'image'
-          || String(attachment.mediaType || '').indexOf('image/') === 0
-          || !!attachment.tempPath || !!attachment.localUrl || !!attachment.thumbUrl);
-        return {
-          key: String(attachment && (attachment.id || attachment.attachmentId || attachment.name) || index) + ':' + attachmentIndex,
-          type: isImage ? 'image' : 'file',
-          url: attachment && (attachment.url || attachment.previewUrl || attachment.tempPath || attachment.localUrl || attachment.thumbUrl) || '',
-          name: attachment && (attachment.name || attachment.fileName || uiText('附件')) || uiText('附件')
-        };
-      }).filter((attachment) => attachment.type !== 'image' || attachment.url);
-      return {
-        id: it.id,
-        rawText: rawText,
-        preview: rawText.replace(/\s+/g, ' ').trim(),
-        attachmentCount: it.attachmentCount || attachments.length,
-        attachmentLabel: (it.attachmentCount || attachments.length) + uiText(' 个附件'),
-        attachments: attachments,
-        statusText: it.statusText || (it.status === 'sending' ? uiText('发送中…') : ''),
-        editable: it.editable !== false
-      };
-    });
-    // DSH 会在 Host 回执前展示本地 pending submission，避免快速连续发送时数量短暂少算。
-    const pending = this._pendingQueue || [];
-    const unmatched = pending.slice();
-    q.forEach((item) => {
-      if (!item.rawText) return;
-      const match = unmatched.findIndex((candidate) => candidate.rawText === item.rawText);
-      if (match >= 0) unmatched.splice(match, 1);
-    });
-    q = q.concat(unmatched);
-    if (JSON.stringify(q) !== JSON.stringify(this._lastQueue || [])) {
-      this._lastQueue = q;
-      this.setData({ queue: q, queueSending: q.some((item) => !!item.statusText) });
-      this.updateDockInset();
-    }
+    this.syncQueueDock();
 
     if (this.data._titleDirty) {
       this.setData({ _titleDirty: false });
@@ -1066,6 +1007,31 @@ Page({
     const { id, action } = e.currentTarget.dataset;
     const s = store.sessionState;
     if (!s.sessionId || this.data.queueBusyId) return;
+    const pending = this.pendingSubmission(id);
+    if (pending) {
+      // 本地排队项：编辑取回草稿、删除直接丢弃；发送箭头才真正发出去。
+      if (action === 'edit') {
+        const text = pending.rawText || pending.preview;
+        const restored = (pending.stagedImages || []).concat((pending.workspaceRefs || []).map((ref) => ({
+          id: util.uuid(),
+          isFile: true,
+          isWorkspaceRef: true,
+          workspaceKind: ref.kind === 'directory' ? 'directory' : 'file',
+          path: ref.path,
+          name: ref.name
+        })));
+        const images = this.data.images.concat(restored).slice(0, 20);
+        this.setData({
+          draft: this.data.draft ? this.data.draft + '\n\n' + text : text,
+          images: images,
+          canSend: true
+        });
+        this.dropPendingSubmission(id);
+        return;
+      }
+      if (action === 'remove') { this.dropPendingSubmission(id); return; }
+      return this.releasePendingSubmission(pending);
+    }
     if (action === 'edit') {
       const item = this.data.queue.find((q) => q.id === id);
       if (!item) return;
@@ -1086,23 +1052,179 @@ Page({
     }, 20000);
   },
 
-  rememberQueuedSubmission(text, images) {
-    if (!store.sessionState.running || !text) return;
-    const attachments = (images || []).map((image, index) => ({
+  /** 队列 dock 数据源 = 网关队列 + 本地待发队列（尚未真正发出的消息）。 */
+  syncQueueDock() {
+    // DSH 的队列项是 UserMessage：正文在 content[] block 中，而不是顶层字符串。
+    // Gateway 不同版本还可能包在 message/source/payload 下，统一在这里解包。
+    const qContentOf = (it) => {
+      const candidates = [it && it.content, it && it.message && it.message.content,
+        it && it.source && it.source.content, it && it.payload && it.payload.content];
+      for (let i = 0; i < candidates.length; i += 1) {
+        if (Array.isArray(candidates[i])) return candidates[i];
+      }
+      return [];
+    };
+    const qTextOf = (it) => {
+      for (let i = 0; i < 6; i++) {
+        const k = ['text', 'preview', 'message', 'content', 'prompt', 'value'][i];
+        if (typeof it[k] === 'string' && it[k]) return it[k];
+      }
+      const nested = [it && it.message, it && it.source, it && it.payload];
+      for (let i = 0; i < nested.length; i += 1) {
+        const value = nested[i];
+        if (value && typeof value.text === 'string' && value.text) return value.text;
+      }
+      return qContentOf(it).map((block) => {
+        if (typeof block === 'string') return block;
+        if (!block || typeof block !== 'object') return '';
+        if (block.type === 'text' || typeof block.text === 'string') return block.text || '';
+        if (block.type === 'file') return uiText('[文件]');
+        if (block.type === 'image') return uiText('[图片]');
+        return '';
+      }).filter(Boolean).join(' ');
+    };
+    let q = (store.sessionState.queue || []).map((it, index) => {
+      const rawText = qTextOf(it);
+      const contentBlocks = qContentOf(it);
+      const contentAttachments = contentBlocks.filter((block) => block && (block.type === 'image' || block.type === 'file'))
+        .map((block) => Object.assign({}, block.attachment || block, { type: block.type }));
+      const sourceAttachments = Array.isArray(it.attachments) && it.attachments.length
+        ? it.attachments
+        : (Array.isArray(it.images) && it.images.length ? it.images : contentAttachments);
+      const attachments = sourceAttachments.map((attachment, attachmentIndex) => {
+        const isImage = attachment && (attachment.type === 'image'
+          || String(attachment.mediaType || '').indexOf('image/') === 0
+          || !!attachment.tempPath || !!attachment.localUrl || !!attachment.thumbUrl);
+        return {
+          key: String(attachment && (attachment.id || attachment.attachmentId || attachment.name) || index) + ':' + attachmentIndex,
+          type: isImage ? 'image' : 'file',
+          url: attachment && (attachment.url || attachment.previewUrl || attachment.tempPath || attachment.localUrl || attachment.thumbUrl) || '',
+          name: attachment && (attachment.name || attachment.fileName || uiText('附件')) || uiText('附件')
+        };
+      }).filter((attachment) => attachment.type !== 'image' || attachment.url);
+      return {
+        id: it.id,
+        rawText: rawText,
+        preview: rawText.replace(/\s+/g, ' ').trim(),
+        attachmentCount: it.attachmentCount || attachments.length,
+        attachmentLabel: (it.attachmentCount || attachments.length) + uiText(' 个附件'),
+        attachments: attachments,
+        statusText: it.statusText || (it.status === 'sending' ? uiText('发送中…') : ''),
+        editable: it.editable !== false
+      };
+    });
+    // DSH 会在 Host 回执前展示本地 pending submission，避免快速连续发送时数量短暂少算。
+    // local: true 的项是本机暂存（尚未发给网关），始终展示在最后。
+    // 本地待发项按会话隔离：切到别的会话后不显示、也不会被误发。
+    const currentSessionId = store.sessionState.sessionId;
+    const localItems = (this._pendingQueue || []).filter((item) => item.local && item.sessionId === currentSessionId).map((item) => ({
+      id: item.id,
+      local: true,
+      rawText: item.rawText,
+      preview: item.preview,
+      attachmentCount: item.attachmentCount,
+      attachmentLabel: item.attachmentLabel,
+      attachments: item.attachments,
+      statusText: item.statusText || '',
+      editable: item.editable !== false
+    }));
+    const pending = (this._pendingQueue || []).filter((item) => !item.local);
+    const unmatched = pending.slice();
+    q.forEach((item) => {
+      if (!item.rawText) return;
+      const match = unmatched.findIndex((candidate) => candidate.rawText === item.rawText);
+      if (match >= 0) unmatched.splice(match, 1);
+    });
+    q = q.concat(unmatched, localItems);
+    if (JSON.stringify(q) !== JSON.stringify(this._lastQueue || [])) {
+      this._lastQueue = q;
+      this.setData({ queue: q, queueSending: q.some((item) => !!item.statusText) });
+      this.updateDockInset();
+    }
+  },
+
+  /**
+   * 运行中发送：消息只进本地队列，向网关发送前先等用户点队列行的发送箭头。
+   * 这样可以避免宿主把 queue 模式的消息在回合结束时自动发出。
+   * @param {string} text 正文
+   * @param {Array} encodedImages 已编码图片（点箭头发送时直接复用）
+   * @param {Array} stagedImages 输入框里的图片（用于队列缩略图与「编辑」还原）
+   * @param {Array} workspaceRefs 工作区文件/目录引用
+   * @param {string} ticket 一次性订阅通知票据
+   */
+  enqueueSubmission(text, encodedImages, stagedImages, workspaceRefs, ticket) {
+    if (!store.sessionState.running || (!text && !(stagedImages || []).length)) return false;
+    const attachments = (stagedImages || []).map((image, index) => ({
       key: 'pending:' + index + ':' + (image.name || 'attachment'),
-      type: String(image.mediaType || '').indexOf('image/') === 0 ? 'image' : 'file',
+      type: image.isFile ? 'file' : 'image',
       url: image.previewUrl || image.tempPath || '',
       name: image.name || uiText('附件')
     })).filter((item) => item.type !== 'image' || item.url);
+    (workspaceRefs || []).forEach((ref, index) => {
+      attachments.push({
+        key: 'ref:' + index + ':' + (ref.path || ref.name || ''),
+        type: 'file',
+        url: '',
+        name: ref.name || ref.path || uiText('附件')
+      });
+    });
     this._pendingQueue = (this._pendingQueue || []).concat([{
       id: 'pending-' + util.uuid(),
-      rawText: text,
-      preview: text.replace(/\s+/g, ' ').trim(),
+      local: true,
+      sessionId: store.sessionState.sessionId,
+      rawText: text || '',
+      preview: String(text || '').replace(/\s+/g, ' ').trim(),
       attachmentCount: attachments.length,
+      attachmentLabel: attachments.length + uiText(' 个附件'),
       attachments: attachments,
-      statusText: uiText('发送中…'),
-      editable: false
+      statusText: '',
+      editable: true,
+      // 点箭头发送时复用这些载荷：已编码图片、工作区引用、通知票据
+      images: (encodedImages || []).map((image) => ({ mediaType: image.mediaType, data: image.data, name: image.name || null })),
+      stagedImages: (stagedImages || []).map((image) => Object.assign({}, image)),
+      workspaceRefs: (workspaceRefs || []).map((ref) => Object.assign({}, ref)),
+      ticket: ticket || ''
     }]);
+    this.syncQueueDock();
+    return true;
+  },
+
+  pendingSubmission(id) {
+    return (this._pendingQueue || []).find((item) => item.id === id) || null;
+  },
+
+  dropPendingSubmission(id) {
+    this._pendingQueue = (this._pendingQueue || []).filter((item) => item.id !== id);
+    this.syncQueueDock();
+  },
+
+  /** 点发送箭头：把本地排队项真正发给网关（运行中仍是插话，回合结束后是普通发送）。 */
+  releasePendingSubmission(pending) {
+    const s = store.sessionState;
+    if (!pending || !s.sessionId) return;
+    // 排队项属于入队时的会话；已经切走就不能再发到当前会话。
+    if (pending.sessionId && pending.sessionId !== s.sessionId) {
+      this.dropPendingSubmission(pending.id);
+      wx.showToast({ title: uiText('会话已切换，消息已丢弃'), icon: 'none' });
+      return;
+    }
+    if (store.state.connection !== 'connected') {
+      wx.showToast({ title: uiText('未连接主机，消息仍在队列中'), icon: 'none' }); return;
+    }
+    const mode = s.running ? 'steer' : undefined;
+    const sent = store.client.sendMessage(
+      pending.rawText, s.sessionId, store.state.currentWorkspaceId,
+      pending.images || [], mode, pending.ticket || '', pending.workspaceRefs || []
+    );
+    if (sent === false) {
+      wx.showToast({ title: uiText('发送失败，消息仍在队列中'), icon: 'none' }); return;
+    }
+    this.dropPendingSubmission(pending.id);
+    // 立即发送（非插话）时补一条乐观回显；插话消息由网关按运行中回显合并。
+    if (mode !== 'steer') {
+      store.appendLocalUserRow(pending.rawText, [], pending.workspaceRefs || []);
+    }
+    this.jumpToBottom();
   },
 
   openContextSheet() {
@@ -2835,15 +2957,23 @@ Page({
       const ticketPromise = notificationTicket === undefined
         ? notifySubscription.requestCompletionTicket()
         : Promise.resolve(notificationTicket || '');
+      const self = this;
       return ticketPromise.then(ticket => {
-        const mode = store.sessionState.running ? 'queue' : undefined;
-        const sent = store.client.sendMessage(line, store.sessionState.sessionId, store.state.currentWorkspaceId, encodedImages, mode, ticket);
+        if (self._unloaded) return false;
+        if (store.sessionState.running) {
+          // 运行中发送：消息进本机队列等待用户点“发送”箭头，
+          // 不再走网关 queue 模式（会被宿主在回合结束时自动发出）。
+          self.enqueueSubmission(line, encodedImages || [], [], [], ticket);
+          if (!preserveDraft) self.setData({ draft: '', images: [], canSend: false, commandMenu: null });
+          self.jumpToBottom();
+          return true;
+        }
+        const sent = store.client.sendMessage(line, store.sessionState.sessionId, store.state.currentWorkspaceId, encodedImages, undefined, ticket);
         if (sent !== false) {
           store.appendLocalUserRow(line, []);
-          if (mode === 'queue') this.rememberQueuedSubmission(line, encodedImages);
-          this.jumpToBottom();
+          self.jumpToBottom();
         }
-        if (sent !== false && !preserveDraft) this.setData({ draft: '', images: [], canSend: false, commandMenu: null });
+        if (sent !== false && !preserveDraft) self.setData({ draft: '', images: [], canSend: false, commandMenu: null });
         return sent;
       });
     }
@@ -2959,73 +3089,100 @@ Page({
     if (!this.data.canAttach || this.data.attachmentPicking || this.data.sendingAttachments) return;
     const remaining = 20 - this.data.images.length;
     if (remaining <= 0) { wx.showToast({ title: uiText('最多添加 20 个附件'), icon: 'none' }); return; }
-    const request = this._attachmentRequest = {}, context = this.composerContextKey();
-    this._composerContextKey = context;
-    const current = () => !this._unloaded && this._attachmentRequest === request && this.composerContextKey() === context;
+    store.beginNativeOverlay();
+    const request = this._attachmentRequest = {};
+    const hostId = store.state && store.state.activeID, sessionId = store.sessionState.sessionId;
+    this._composerContextKey = this.composerContextKey();
+    // 选图期间允许连接抖动（重连不丢选择），但换主机或换会话必须作废，避免把旧会话的附件带进新会话。
+    const current = () => !this._unloaded && this._attachmentRequest === request
+      && store.state && store.state.activeID === hostId && store.sessionState.sessionId === sessionId;
+    const finish = () => {
+      store.endNativeOverlay();
+      if (!this._unloaded && this._attachmentRequest === request) {
+        this._attachmentRequest = null;
+        this.setData({ attachmentPicking: false });
+      }
+    };
     this.closeAttachMenu();
     this.setData({ attachmentPicking: true });
-    const finish = () => { if (current()) { this._attachmentRequest = null; this.setData({ attachmentPicking: false }); } };
-    const fail = err => {
-      if (current() && !/cancel/i.test(err && err.errMsg || '')) wx.showToast({ title: uiText('选择文件失败，请重试'), icon: 'none' });
-      finish();
-    };
     const options = { count: Math.min(9, remaining), type: 'file', success: res => {
-      if (!current()) return;
+      if (!current()) { finish(); return; }
       const kept = [];
       for (const file of res.tempFiles || []) {
         const tempPath = file.path || file.tempFilePath;
         if (!tempPath) continue;
         kept.push({ id: util.uuid(), isFile: true, tempPath, name: file.name || 'file', size: Number(file.size) || 0 });
       }
-      if (!kept.length) { finish(); return; }
-      const images = this.data.images.concat(kept);
+      if (!kept.length) { finish(); wx.showToast({ title: uiText('未能读取所选文件'), icon: 'none' }); return; }
+      if (!current()) { finish(); return; }
+      const images = this.data.images.concat(kept).slice(0, 20);
       this._attachmentRequest = null;
       this.setData({ images, canSend: !!this.data.draft.trim() || images.length > 0, attachmentPicking: false });
-      this.updateDockInset();
-    }, fail };
-    try { wx.chooseMessageFile(options); } catch (error) { fail(error); }
+    }, fail: err => {
+      if (current() && !/cancel/i.test(err && err.errMsg || '')) wx.showToast({ title: uiText('选择文件失败，请重试'), icon: 'none' });
+      finish();
+    } };
+    try { wx.chooseMessageFile(options); } catch (error) { options.fail(error); }
   },
 
   pickComposerImages(fromChat) {
     if (!this.data.canAttach || this.data.attachmentPicking || this.data.sendingAttachments) return;
     const remaining = 20 - this.data.images.length;
     if (remaining <= 0) { wx.showToast({ title: uiText('最多添加 20 张图片'), icon: 'none' }); return; }
-    const request = this._attachmentRequest = {}, context = this.composerContextKey();
-    this._composerContextKey = context;
-    const current = () => !this._unloaded && this._attachmentRequest === request && this.composerContextKey() === context;
+    store.beginNativeOverlay();
+    const request = this._attachmentRequest = {};
+    const hostId = store.state && store.state.activeID, sessionId = store.sessionState.sessionId;
+    this._composerContextKey = this.composerContextKey();
+    // 选图期间允许连接抖动（重连不丢选择），但换主机或换会话必须作废。
+    const current = () => !this._unloaded && this._attachmentRequest === request
+      && store.state && store.state.activeID === hostId && store.sessionState.sessionId === sessionId;
+    const finish = () => {
+      store.endNativeOverlay();
+      if (!this._unloaded && this._attachmentRequest === request) {
+        this._attachmentRequest = null;
+        this.setData({ attachmentPicking: false });
+      }
+    };
     this.closeAttachMenu();
     this.setData({ attachmentPicking: true });
-    const finish = () => { if (current()) { this._attachmentRequest = null; this.setData({ attachmentPicking: false }); } };
-    const fail = err => {
-      if (current() && !/cancel/i.test(err && err.errMsg || '')) wx.showToast({ title: uiText('选择图片失败，请重试'), icon: 'none' });
-      finish();
-    };
     const options = { count: Math.min(9, remaining), success: async res => {
+      if (!current()) { finish(); return; }
       let skipped = false;
       const kept = [];
       for (const file of res.tempFiles || []) {
-        if (!current()) return;
+        if (!current()) { finish(); return; }
         if (Number(file.size) > 8 * 1024 * 1024) { skipped = true; continue; }
         const tempPath = file.tempFilePath || file.path;
         if (!tempPath) { skipped = true; continue; }
+        let info = null;
         try {
-          const info = await new Promise((resolve, reject) => wx.getImageInfo({ src: tempPath, success: resolve, fail: reject }));
-          const mediaType = composerMenu.imageType('image.' + info.type);
-          if (!mediaType) { skipped = true; continue; }
-          kept.push({ id: util.uuid(), tempPath, mediaType, name: file.name || 'image.' + info.type, size: Number(file.size) || 0 });
-        } catch (_) { skipped = true; }
+          info = await new Promise((resolve, reject) => wx.getImageInfo({ src: tempPath, success: resolve, fail: reject }));
+        } catch (_) { /* ignore, fall back to filename */ }
+        let mediaType = '';
+        if (info && info.type) {
+          mediaType = composerMenu.imageType('image.' + info.type);
+        } else {
+          // Derive from filename when getImageInfo fails (rare edge cases)
+          const match = String(file.name || '').match(/\.([a-z0-9]+)(?:\?|$)/i);
+          if (match) mediaType = composerMenu.imageType('image.' + match[1]);
+        }
+        if (!mediaType) { skipped = true; continue; }
+        kept.push({ id: util.uuid(), tempPath, mediaType, name: file.name || 'image', size: Number(file.size) || 0 });
       }
-      if (!current()) return;
+      if (!current()) { finish(); return; }
       if (!this.data.canAttach) { finish(); return; }
       const images = this.data.images.concat(kept).slice(0, 20);
       this.setData({ images, canSend: !!this.data.draft.trim() || images.length > 0 });
       if (skipped) wx.showToast({ title: uiText('仅支持 8MB 内的 PNG、JPEG、GIF、WebP 图片'), icon: 'none' });
-      finish(); this.updateDockInset();
-    }, fail };
+      finish();
+    }, fail: err => {
+      if (current() && !/cancel/i.test(err && err.errMsg || '')) wx.showToast({ title: uiText('选择图片失败，请重试'), icon: 'none' });
+      finish();
+    } };
     try {
       if (fromChat) wx.chooseMessageFile(Object.assign(options, { type: 'image' }));
       else wx.chooseMedia(Object.assign(options, { mediaType: ['image'], sizeType: ['compressed'] }));
-    } catch (error) { fail(error); }
+    } catch (error) { options.fail(error); }
   },
 
   previewPendingImage(e) {
@@ -3075,20 +3232,27 @@ Page({
       if (activeCommand && activeCommand.ui && activeCommand.ui.kind === 'input') {
         return this.submitCommand(activeCommand, text, encoded, false, ticket);
       }
-      const mode = s.running ? 'queue' : undefined;
+      if (s.running) {
+        // 运行中发送：只进本机队列，等用户点队列行的发送箭头再真正发出。
+        // 之前走网关 queue 模式，宿主会在回合结束时把消息自动发出，绕过了队列的发送按钮。
+        this.enqueueSubmission(text, encoded, uploadImages, workspaceRefs, ticket);
+        self.setData({ draft: '', images: [], canSend: false });
+        this.closeAttachMenu();
+        this.jumpToBottom();
+        return;
+      }
       const sent = client.sendMessage(
         text,
         s.sessionId,
         workspaceId,
         encoded,
-        mode,
+        undefined,
         ticket,
         workspaceRefs
       );
       if (sent !== false) {
         // 乐观回显：消息立即可见（对齐桌面端），网关回显到达时自动合并
         store.appendLocalUserRow(text, uploadImages.map((image) => ({ attachmentId: image.id, name: image.name })), workspaceRefs);
-        if (mode === 'queue') self.rememberQueuedSubmission(text, encoded);
       } else {
         wx.showToast({ title: uiText('发送失败，草稿已保留'), icon: 'none' }); return;
       }

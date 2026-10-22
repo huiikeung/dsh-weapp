@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "updatedAt": 1792650406745,
+  "config": {
+    "currency": "CNY",
+    "exchangeRate": 7.2,
+    "budget": {
+      "enabled": true,
+      "amount": 100,
+      "period": "month"
+    },
+    "balance": {
+      "display": "both"
+    },
+    "hideBudget": false,
+    "showTotalWithPlan": false,
+    "includeSubagentCost": true,
+    "locale": "zh"
+  }
+}

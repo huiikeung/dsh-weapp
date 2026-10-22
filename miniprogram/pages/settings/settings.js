@@ -412,10 +412,16 @@ Page({
   },
 
   refreshDshAccount() {
-    if (this.data.dshAccountBusy || store.state.connection !== 'connected' || !store.client || typeof store.client.requestAccount !== 'function') return;
-    const generation = this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1;
+    if (store.state.connection !== 'connected' || !store.client || typeof store.client.requestAccount !== 'function') return;
+    // The account API validates the DSH Host version, not the mini-program package version.
+    const version = store.state.host && store.state.host.version;
+    if (!version) return;
     const owner = store.state.activeID;
-    const version = clientVersion(wx).appVersion || '0.0.0';
+    if (this.data.dshAccountBusy && this._dshAccountRequestedVersion === version && this._dshAccountRequestOwner === owner) return;
+    if (this.data.dshAccountBusy) this.setData({ dshAccountBusy: false });
+    const generation = this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1;
+    this._dshAccountRequestedVersion = version;
+    this._dshAccountRequestOwner = owner;
     let locale = 'zh';
     try { locale = preferences.locale(); } catch (_) {}
     const client = { version, locale, timezoneOffsetSeconds: -(new Date()).getTimezoneOffset() * 60 };
@@ -826,6 +832,11 @@ Page({
         shareEnabled: active && shareEnabled,
         shareReason: active ? publicState.shareReason : uiText('请先兑换开通公网服务。分享设备邀请不会赠送公网有效期。')
       });
+    }
+    const hostVersion = app.host && app.host.version;
+    if (hostVersion && hostVersion !== this._dshAccountHostVersion) {
+      this._dshAccountHostVersion = hostVersion;
+      this.refreshDshAccount();
     }
   },
 

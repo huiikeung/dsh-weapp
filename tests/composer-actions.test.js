@@ -23,7 +23,9 @@ function fixture(items = [command('goal', 'input'), command('compact'), command(
       executeCommand: async (...args) => { calls.push(['execute', ...args]); },
       sendMessage: (...args) => { calls.push(['send', ...args]); return true; },
       requestFileList: async () => ({ path: '.', entries: [{ name: 'a b.js', path: 'src/a b.js', kind: 'file' }] })
-    } };
+    },
+    beginNativeOverlay: () => {}, endNativeOverlay: () => {}, nativeOverlayActive: () => false
+  };
   const wx = { hideKeyboard() {}, showToast: data => calls.push(['toast', data.title]),
     chooseMedia: options => pickers.push(options), chooseMessageFile: options => pickers.push(options),
     getImageInfo: options => options.success({ type: 'png' }), previewImage: options => calls.push(['preview', options]),
@@ -36,7 +38,7 @@ function fixture(items = [command('goal', 'input'), command('compact'), command(
       parts.slice(0, -1).forEach((part, i) => { if (target[part] == null) target[part] = /^\d+$/.test(parts[i + 1]) ? [] : {}; target = target[part]; });
       target[parts.at(-1)] = value;
     }
-  }, updateDockInset() {}, prioritizeInteraction() {}, refreshBottomAnchor() {}, rememberQueuedSubmission: (...args) => calls.push(['queue', ...args]) };
+  }, updateDockInset() {}, prioritizeInteraction() {}, refreshBottomAnchor() {} };
   return { page, store, calls, pickers, reads, wx };
 }
 test('plus opens commands without inserting slash or clearing draft and attachments', async () => {
@@ -261,11 +263,43 @@ test('send refusal keeps draft; while reading attachments send is locked and sco
   const pending = page.send(); page.send(); assert.equal(reads.length, 1);
   store.sessionState.sessionId = 's2'; reads[0].success({ data: 'aGVsbG8=' }); await pending; assert.ok(!calls.some(x => x[0] === 'send')); assert.equal(page.data.draft, 'keep');
 });
-test('normal image messages use immediate mode; running sessions explicitly queue', async () => {
+test('normal image messages use immediate mode; running sessions hold locally until the send arrow releases them', async () => {
   const { page, store, calls, reads } = fixture(); page.data.draft = 'image task'; page.data.images = [{ id: 'i', tempPath: '/tmp/i', mediaType: 'image/png', name: 'i.png' }];
   const pending = page.send(); reads[0].success({ data: 'aGVsbG8=' }); await pending;
   const sent = calls.find(x => x[0] === 'send'); assert.equal(sent[5], undefined); assert.equal(sent[4][0].mediaType, 'image/png'); assert.equal(page.data.draft, '');
-  store.sessionState.running = true; page.data.draft = 'next'; await page.send(); assert.equal(calls.filter(x => x[0] === 'send').at(-1)[5], 'queue');
+  store.sessionState.running = true; page.data.draft = 'next'; await page.send();
+  // 运行中发送：不进网关，只进本地队列；发送箭头点击后才真正发出
+  assert.ok(!calls.some(x => x[0] === 'send' && x[1] === 'next'));
+  assert.equal(page.data.queue.length, 1);
+  assert.equal(page.data.queue[0].rawText, 'next');
+  assert.equal(page.data.draft, '');
+  // 点发送箭头（仍在运行） → steer
+  page.queueAction(event({ id: page.data.queue[0].id, action: 'steer' }));
+  const sent2 = calls.filter(x => x[0] === 'send').at(-1);
+  assert.equal(sent2[1], 'next'); assert.equal(sent2[5], 'steer');
+  assert.equal(page.data.queue.length, 0);
+});
+test('queued local messages support edit, remove and post-run release with optimistic echo', async () => {
+  const { page, store, calls } = fixture();
+  // 运行时入队
+  store.sessionState.running = true; page.data.draft = 'hold-me'; await page.send();
+  assert.equal(page.data.queue.length, 1);
+  // 编辑：回到草稿
+  page.queueAction(event({ id: page.data.queue[0].id, action: 'edit' }));
+  assert.equal(page.data.draft, 'hold-me'); assert.equal(page.data.queue.length, 0);
+  // 重新入队并点删除
+  page.data.draft = 'hold-me'; await page.send();
+  page.queueAction(event({ id: page.data.queue[0].id, action: 'remove' }));
+  assert.equal(page.data.queue.length, 0);
+  // 仍在运行时再次入队，然后结束回合 → 点击发送箭头：立即发出 + 乐观回显
+  page.data.draft = 'after-run'; await page.send();
+  assert.equal(page.data.queue.length, 1);
+  store.sessionState.running = false;  // 回合结束，但消息仍在队列
+  page.queueAction(event({ id: page.data.queue[0].id, action: 'steer' }));
+  const sent = calls.filter(x => x[0] === 'send').at(-1);
+  assert.equal(sent[1], 'after-run'); assert.equal(sent[5], undefined);  // 回合结束 → 正常发送
+  assert.ok(calls.some(x => x[0] === 'echo' && x[1] === 'after-run'));
+  assert.equal(page.data.queue.length, 0);
 });
 test('successful send resets an old scroll gesture and immediately follows the tail', async () => {
   const {page,store}=fixture();let scrolls=0;page.refreshBottomAnchor=()=>scrolls++;

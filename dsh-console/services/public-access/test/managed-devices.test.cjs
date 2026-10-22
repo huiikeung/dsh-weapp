@@ -37,7 +37,7 @@ test('all five durations enforce expiration across reconnects and active sockets
       assert.deepEqual(actions, [4003, 'terminated']);
     }
   }
-  assert.equal(fs.statSync(f.file).mode & 0o777, 0o600);
+  if (process.platform !== 'win32') assert.equal(fs.statSync(f.file).mode & 0o777, 0o600);
 });
 test('restart retains active expiry and invalidates unclaimed codes without storing tokens', t => {
   const f = fixture(t), registry = f.create();

@@ -2,7 +2,6 @@
   "pages": [
     "pages/home/home",
     "pages/session/session",
-    "pages/settings/settings",
     "pages/session-settings/session-settings",
     "pages/announcements/announcements",
     "pages/share-activity/share-activity",
@@ -26,6 +25,13 @@
   "lazyCodeLoading": "requiredComponents",
   "sitemapLocation": "sitemap.json",
   "subPackages": [
+    {
+      "root": "pages/settings",
+      "name": "settings",
+      "pages": [
+        "settings"
+      ]
+    },
     {
       "root": "pages/plugins",
       "name": "plugins",

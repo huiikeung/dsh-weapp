@@ -44,7 +44,7 @@ function fixture(source) {
   const store = { state: { connection: 'connected', sessions: [] }, sessionState: {
     sessionId: 'performance-test', rows: [], trajectory: [], running: true,
     runStartMs: Date.now() - 3000, historyState: 'loaded:300ev', stats: null
-  } };
+  }, beginNativeOverlay: () => {}, endNativeOverlay: () => {}, nativeOverlayActive: () => false };
   for (let i = 0; i < 150; i++) {
     store.sessionState.rows.push({ kind: 'user', key: 'u' + i, text: '问题' + i });
     store.sessionState.rows.push({ kind: 'assistant', key: 'a' + i, text: '## 标题 ' + i + '\n\n' + '历史回复内容。'.repeat(150), tools: [] });

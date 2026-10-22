@@ -88,13 +88,30 @@ test('execution icon choice persists, defaults to cells, invalid values fall bac
     wx.setStorageSync=()=>{throw Error('storage full');};assert.throws(()=>procIcon.save('terra'));
   } finally { delete global.wx; }
 });
-test('all styles preserve status phrases and use the official four-second contour loop', () => {
+test('all status styles animate the DSH whale through the same selected text palette', () => {
   const template=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
   assert.match(template,/\{\{runPhrase\}\}\{\{ui\['，用时'\]\}\} \{\{runElapsedText\}\}…/);
-  assert.match(template,/<image class="status-tail-image" mode="aspectFit" src="\/assets\/icons\/official-sway-\{\{theme === 'dark' \? 'dark' : 'light'\}\}\.gif"\/>/);
+  assert.match(template,/<view class="status-tail status-tail-\{\{statusAppearance\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}" style="\{\{theme === 'dark' \? statusDarkTailAnimationStyle : statusLightTailAnimationStyle\}\}"><image class="status-tail-image" mode="aspectFit" src="\/assets\/icons\/dsh-running-whale\.png" style="filter:\{\{theme === 'dark' \? statusDarkTailFilter : statusLightTailFilter\}\}"\/>/);
   const css=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-appearance.wxss'),'utf8');
-  assert.doesNotMatch(css,/officialTailSway|status-tail-atlas|transform:translate/);
-  assert.match(template,/class="status-tail-image" mode="aspectFit"/);
+  assert.match(css,/\.status-tail\s*\{[^}]*width:36rpx[^}]*height:36rpx/);
+  assert.match(css,/\.status-tail-image\s*\{[^}]*width:28rpx[^}]*height:28rpx/);
+  const preview=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/settings/settings.wxml'),'utf8');
+  assert.match(preview,/class="status-tail status-tail-\{\{item\.id\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}" style="\{\{theme === 'dark' \? item\.darkTailAnimationStyle : item\.lightTailAnimationStyle\}\}"/);
+  assert.match(css,/@keyframes statusTailNeonHue[\s\S]*?hue-rotate\(82deg\)/);
+  assert.match(css,/@keyframes statusTailClassicHue[\s\S]*?hue-rotate\(360deg\)/);
+  assert.match(css,/@keyframes statusTailTerminalLight[\s\S]*?brightness\(83%\)/);
+  assert.match(css,/@keyframes statusTailTerminalDark[\s\S]*?brightness\(130%\)/);
+  for(const choice of appearance.choices()) {
+    assert.equal(choice.lightTailAnimationStyle.match(/animation-duration:[^;]+/)[0],choice.lightStyle.match(/animation-duration:[^;]+/)[0],choice.id);
+    assert.equal(choice.darkTailAnimationStyle.match(/animation-duration:[^;]+/)[0],choice.darkStyle.match(/animation-duration:[^;]+/)[0],choice.id);
+    assert.equal(choice.lightTailAnimationStyle.match(/animation-direction:[^;]+/)[0],choice.lightStyle.match(/animation-direction:[^;]+/)[0],choice.id);
+    assert.equal(choice.darkTailAnimationStyle.match(/animation-direction:[^;]+/)[0],choice.darkStyle.match(/animation-direction:[^;]+/)[0],choice.id);
+  }
+  const simple=appearance.choices().find(choice=>choice.id==='original');
+  assert.equal(simple.light[0],'rgb(52.4,93.7,186.2)');
+  assert.equal(simple.dark[0],'rgb(125.15,153.8,222.5)');
+  assert.match(simple.lightTailFilter,/invert\(0\.634\).*hue-rotate\(185\.7deg\)/);
+  assert.match(simple.darkTailFilter,/invert\(0\.431\).*hue-rotate\(184\.5deg\)/);
   const readGif=name=>{
     const gif = fs.readFileSync(path.join(__dirname,'../miniprogram/assets/icons/'+name));
     assert.equal(gif.subarray(0,6).toString(),'GIF89a',name);
@@ -116,11 +133,19 @@ test('all styles preserve status phrases and use the official four-second contou
     }
     return { width: gif.readUInt16LE(6), height: gif.readUInt16LE(8), frames, duration };
   };
-  // Official sway keeps its established 40 x 40 / 96-frame contour loop.
-  for (const mode of ['light','dark']) {
-    const gif=readGif('official-sway-'+mode+'.gif');
-    assert.equal(gif.width,40);assert.equal(gif.height,40);assert.equal(gif.frames,96);assert.equal(gif.duration,4000);
+  // This is the 28x28, 60-frame APNG used by the DSH desktop client.
+  const whale=fs.readFileSync(path.join(__dirname,'../miniprogram/assets/icons/dsh-running-whale.png'));
+  assert.equal(whale.subarray(1,4).toString(),'PNG');
+  assert.equal(whale.readUInt32BE(16),28);assert.equal(whale.readUInt32BE(20),28);
+  let chunkOffset=8,animationFrames=0,animationDuration=0;
+  while(chunkOffset<whale.length){
+    const size=whale.readUInt32BE(chunkOffset),type=whale.toString('ascii',chunkOffset+4,chunkOffset+8);
+    if(type==='acTL') animationFrames=whale.readUInt32BE(chunkOffset+8);
+    if(type==='fcTL') animationDuration+=whale.readUInt16BE(chunkOffset+28)/(whale.readUInt16BE(chunkOffset+30)||100)*1000;
+    chunkOffset+=size+12;
   }
+  assert.equal(animationFrames,60);assert.equal(animationDuration,3000);
+  for(const choice of appearance.choices()) assert.notEqual(choice.lightTailFilter,choice.darkTailFilter,choice.id);
   // Execution icons ship as 32 x 32 / 72-frame GIFs on the same 4-second loop.
   for (const choice of procIcon.OPTIONS.filter(item=>item.file)) for (const mode of ['light','dark']) {
     const name=choice.file+'-'+mode+'.gif', gif=readGif(name);

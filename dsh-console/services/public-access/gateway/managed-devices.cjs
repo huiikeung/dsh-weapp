@@ -22,7 +22,7 @@ function createManagedRegistry(base, file, now = Date.now) {
     const tmp = file + '.' + crypto.randomUUID() + '.tmp';
     try {
       fs.writeFileSync(tmp, JSON.stringify(next), { flag: 'wx', mode: 0o600 });
-      const fd = fs.openSync(tmp, 'r'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+      const fd = fs.openSync(tmp, 'r+'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
       fs.renameSync(tmp, file); state = next;
     } finally { try { fs.unlinkSync(tmp); } catch (e) { if (e.code !== 'ENOENT') throw e; } }
   }

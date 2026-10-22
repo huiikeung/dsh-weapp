@@ -40,12 +40,12 @@ test('sidebar application settings and home session settings have separate entri
 });
 
 test('session settings retain model and permission APIs, file navigation and privacy-safe diagnostics', async () => {
-  let definition, subscriber; const calls = [];
+  let definition, subscriber; const calls = [], accountRequests = [];
   const state = { connection: 'connected', activeID: 'node', currentWorkspaceId: 'workspace-1', profiles: [{id: 'node', relay: true, gatewayId: 'public-id'}], endpoint: 'wss://hidden.example/relay/c/node',
     defaults: { agentPresetDefault: 'code', permissionDefault: 'read-only' }, defaultModel: {model: 'fixture-model'}, host: {version: '1.0'},
     agentPresets: {authorable: false, presets: [{id:'code', name:'编程', description:'用于编码工作'}, {id:'cordis', name:'创造模式'}]}, modelCatalog: {groups:[{id:'fixture',name:'测试',models:[{id:'next',name:'模型'},{id:'thinking',name:'思考模型',reasoning:{efforts:[{id:'off',name:'Off'},{id:'low',name:'Low'},{id:'high',name:'High'}],defaultEffort:'low'}}]}]} };
   const store = { state, subscribe(fn) { subscriber = fn; return () => calls.push(['unsubscribe']); },
-    client: { requestHost() {calls.push(['host']);}, requestAgentPresets: async () => { calls.push(['agent-presets']); return {authorable:false,presets:[{id:'cordis'}]}; }, setDefault: async (...args) => calls.push(args), saveDefaultModel: async (...args) => calls.push(args),
+    client: { requestHost() {calls.push(['host']);}, requestAccount: async client => { accountRequests.push(client); return { state: { status: 'credential-stored' }, balance: { status: 'ready', value: [{ currency: 'CNY', balance: '12.34' }] } }; }, requestAgentPresets: async () => { calls.push(['agent-presets']); return {authorable:false,presets:[{id:'cordis'}]}; }, setDefault: async (...args) => calls.push(args), saveDefaultModel: async (...args) => calls.push(args),
       requestFileList: async () => ({ entries: [{ name: 'README.md', path: 'README.md', kind: 'file', bytes: 10 }] }) } };
   const wx = { showActionSheet(o) { wx.sheet = o; }, showModal() { throw Error('Must use bottom sheet'); }, showToast() {}, navigateTo(o) {calls.push(['navigate',o.url]);} };
   vm.runInNewContext(read('pages/session-settings/session-settings.js'), {Page: d=>{definition=d;},wx,
@@ -59,11 +59,14 @@ test('session settings retain model and permission APIs, file navigation and pri
     if(name.endsWith('/host-info'))return require('../miniprogram/utils/host-info');
     if(name.endsWith('/version-info'))return require('../miniprogram/utils/version-info');
     if(name.endsWith('/account-view'))return require('../miniprogram/utils/account-view');
-    if(name.endsWith('/build'))return {BUILD_TIME:'fixture'};
+    if(name.endsWith('/build'))return {BUILD_TIME:'fixture',BUILD_VERSION:'0.9.27'};
     throw Error('Unexpected dependency '+name);
   }});
   const page={...definition,data:{...definition.data},setData(v){Object.assign(this.data,v);}};
-  page.onLoad(); assert.equal(page.data.presetLabel,'编程'); assert.equal(page.data.modelLabel,'fixture-model');
+  page.onLoad(); await Promise.resolve(); await Promise.resolve();
+  assert.equal(page.data.presetLabel,'编程'); assert.equal(page.data.modelLabel,'fixture-model');
+  assert.equal(accountRequests[0].version, '1.0', 'Session settings send the DSH Host version, not the mini-program version');
+  assert.equal(page.data.dshAccount.balanceText, '¥12.34');
   wx.getMenuButtonBoundingClientRect = () => ({top: 60, height: 32});
   page.onResize(); assert.equal(page.data.navPadTop + page.data.navHeight / 2, 76);
   wx.navigateBack = o => {calls.push(['back']); wx.backOptions=o;};
@@ -173,8 +176,8 @@ test('conversation status style sheet has a resizable grabber and no text close 
   assert.doesNotMatch(statusSheet[0], /status-style-close|\{\{ui\['完成'\]\}\}/);
   assert.match(css, /\.status-style-sheet\.resizable\s*\{[^}]*transition:height/);
   assert.match(css, /\.status-style-list\s*\{[^}]*flex:1/);
-  // The status-strip preview keeps the official whale icon.
-  assert.match(statusSheet[0], /src="\/assets\/icons\/official-sway-\{\{theme === 'dark' \? 'dark' : 'light'\}\}\.gif"/);
+  // The status-strip preview uses the same DSH whale asset as the live conversation row.
+  assert.match(statusSheet[0], /src="\/assets\/icons\/dsh-running-whale\.png"/);
   assert.doesNotMatch(statusSheet[0], /statusIconFile/);
 });
 

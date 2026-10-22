@@ -71,5 +71,5 @@ test('status text stays lighter and its line box does not exceed the icon height
   assert.match(rule,/font-size:24rpx/);
   assert.match(rule,/font-weight:400/);
   assert.match(rule,/line-height:36rpx/);
-  assert.match(css,/\.status-tail-image\s*\{[^}]*height:36rpx/);
+  assert.match(css,/\.status-tail\s*\{[^}]*height:36rpx/);
 });

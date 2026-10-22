@@ -326,7 +326,7 @@ VStack(spacing: 14)，padding(.horizontal, 28)，a11y id "history-load-failure"
   |---|---|---|
   | `pencil` | 编辑排队消息 | `item.editable` |
   | `trash` | 删除排队消息 | 恒可点 |
-  | `arrow.up` | 立即插话 | 会话运行中 |
+  | `arrow.up` | 立即插话 | 会话运行中（小程序的本地待发队列项始终可点） |
   - 统一禁用：`!supportsQueueControl` / 网关未连接 / 有 pending 操作。
 - 行间分隔线：`Rectangle().fill(Color.primary.opacity(dark 0.14 / light 0.08)).frame(height: 0.5)`，`.padding(.horizontal, 10)`，最后一行不画。
 - 执行中（pendingItemId 命中）：该行显示 `ProgressView().frame(36×40)`。

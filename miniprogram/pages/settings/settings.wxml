@@ -10,7 +10,7 @@
   <view class="nav-placeholder" style="height:{{navPadTop + navHeight}}px;" aria-hidden="true"></view>
 
   <!-- DSH 客户端账号区：结构与桌面端 AccountSection 对齐。 -->
-  <view class="dsh-account-section" aria-label="{{ui['账号与余额']}}">
+  <view wx:if="{{dshAccount.signedIn}}" class="dsh-account-section" aria-label="{{ui['账号与余额']}}">
     <view class="dsh-account-card">
       <view class="dsh-account-identity">
         <view class="dsh-account-avatar">
@@ -26,7 +26,7 @@
     <view class="dsh-balance-card">
       <view class="dsh-balance-row">
         <text>{{ui['充值余额']}}</text>
-        <view wx:if="{{dshAccount.balance.length}}" class="dsh-balance-amount"><text wx:for="{{dshAccount.balance}}" wx:key="*this">{{item}}</text></view>
+        <view wx:if="{{dshAccount.balanceText}}" class="dsh-balance-amount"><text>{{dshAccount.balanceText}}</text></view>
         <text wx:elif="{{dshAccount.balanceState === 'signed-out'}}" class="dsh-account-muted">{{ui['登录后查看']}}</text>
         <text wx:elif="{{dshAccount.balanceState === 'loading'}}" class="dsh-account-muted">{{ui['加载中…']}}</text>
         <text wx:else class="dsh-account-unavailable" data-url="{{dshAccount.usageUrl}}" bindtap="openDshAccountLink" role="button">{{ui['前往开放平台查看']}}</text>
@@ -715,7 +715,7 @@
     <scroll-view class="status-style-list" scroll-y enhanced show-scrollbar="{{false}}">
       <view wx:for="{{statusStyleChoices}}" wx:key="id" class="status-style-option {{statusAppearance === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="chooseStatusStyle" role="button" aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}} {{statusAppearance === item.id ? ui['已选择'] : ''}}">
         <view class="status-style-option-head"><text class="status-style-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="status-style-check">{{statusAppearance === item.id ? ui['已选择'] : ''}}</text></view>
-        <view class="status-style-preview status-look-{{item.id}}"><view class="status-tail"><image class="status-tail-image" mode="aspectFit" src="/assets/icons/official-sway-{{theme === 'dark' ? 'dark' : 'light'}}.gif"/></view><view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? item.darkStyle : item.lightStyle}}">{{ui['正在思考，用时 12 秒…']}}</text></view></view>
+        <view class="status-style-preview status-look-{{item.id}}"><view class="status-tail status-tail-{{item.id}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" style="{{theme === 'dark' ? item.darkTailAnimationStyle : item.lightTailAnimationStyle}}"><image class="status-tail-image" mode="aspectFit" src="/assets/icons/dsh-running-whale.png" style="filter:{{theme === 'dark' ? item.darkTailFilter : item.lightTailFilter}}"/></view><view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? item.darkStyle : item.lightStyle}}">{{ui['正在思考，用时 12 秒…']}}</text></view></view>
         <view class="status-style-description">{{item.detail}}</view>
       </view>
     </scroll-view>

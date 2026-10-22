@@ -1,12 +1,25 @@
-/* Fixed viewport: native GIF playback cannot translate or interpolate atlas tiles. */
-.status-tail { width:36rpx;height:36rpx;flex-shrink:0;margin-right:14rpx; }
-.status-tail-image { width:36rpx;height:36rpx;display:block; }
+/* Use a native image component: Mini Program WXSS cannot reliably load local CSS masks. */
+.status-tail { width:36rpx;height:36rpx;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:12rpx; }
+.status-tail-image { width:28rpx;height:28rpx;display:block; }
+.status-tail-classic,.status-tail-neon,.status-tail-terminal,.status-tail-candy,.status-tail-glitch { animation-timing-function:linear;animation-iteration-count:infinite; }
+.status-tail-classic { animation-name:statusTailClassicHue; }
+.status-tail-neon { animation-name:statusTailNeonHue; }
+.status-tail-terminal.status-tail-light { animation-name:statusTailTerminalLight; }
+.status-tail-terminal.status-tail-dark { animation-name:statusTailTerminalDark; }
+.status-tail-candy { animation-name:statusTailCandyHue; }
+.status-tail-glitch { animation-name:statusTailGlitchHue; }
 .status-gradient { display:block;font-size:24rpx;font-weight:400;line-height:36rpx;background-size:200% 100%;background-repeat:repeat-x;-webkit-background-clip:text;background-clip:text;color:transparent;animation:statusColorFlow 4s linear infinite;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .status-text-motion { min-width:0;flex:1; }
 .status-look-terminal .status-gradient { font-family:ui-monospace,monospace; }
 .status-look-neon .status-text-motion,.status-look-candy .status-text-motion { animation:statusBreathe 3s ease-in-out infinite; }
 .status-look-glitch .status-text-motion { animation:statusGlitch 4s step-end infinite; }
 @keyframes statusColorFlow { from {background-position:0 0} to {background-position:200% 0} }
+@keyframes statusTailClassicHue { 0% {filter:hue-rotate(0deg)} 16.7% {filter:hue-rotate(35deg)} 33.3% {filter:hue-rotate(65deg)} 50% {filter:hue-rotate(125deg)} 66.7% {filter:hue-rotate(195deg)} 83.3% {filter:hue-rotate(265deg)} 92% {filter:hue-rotate(325deg)} 100% {filter:hue-rotate(360deg)} }
+@keyframes statusTailNeonHue { 0% {filter:hue-rotate(0deg)} 50% {filter:hue-rotate(82deg)} 80% {filter:hue-rotate(142deg)} 100% {filter:hue-rotate(360deg)} }
+@keyframes statusTailTerminalLight { 0%,100% {filter:brightness(100%)} 50% {filter:brightness(83%)} }
+@keyframes statusTailTerminalDark { 0%,100% {filter:brightness(100%)} 50% {filter:brightness(130%)} }
+@keyframes statusTailCandyHue { 0% {filter:hue-rotate(0deg)} 33% {filter:hue-rotate(45deg)} 67% {filter:hue-rotate(-13deg)} 100% {filter:hue-rotate(0deg)} }
+@keyframes statusTailGlitchHue { 0% {filter:hue-rotate(0deg)} 50% {filter:hue-rotate(200deg)} 100% {filter:hue-rotate(360deg)} }
 @keyframes statusBreathe { 0%,100% {opacity:1} 50% {opacity:.74} }
 @keyframes statusGlitch { 0%,90%,100% {text-shadow:none} 92% {text-shadow:1px 0 #ff5f6d,-1px 0 #5fd4ff} 94% {text-shadow:-1px 0 #ff5f6d,1px 0 #5fd4ff} }
-@media (prefers-reduced-motion:reduce) { .status-gradient,.status-text-motion { animation:none !important; } }
+@media (prefers-reduced-motion:reduce) { .status-gradient,.status-text-motion,.status-tail { animation:none !important; } }

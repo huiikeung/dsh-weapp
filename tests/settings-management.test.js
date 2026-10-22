@@ -2,10 +2,19 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const { test } = require('node:test');
 
 const pagePath = path.join(__dirname, '../miniprogram/pages/settings/settings.js');
 const wxml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8').replace(/\{\{ui\['([^']+)'\]\}\}/g, '$1');
+const sessionSettingsWxml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session-settings/session-settings.wxml'), 'utf8');
 const wxss = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+
+assert.match(wxml, /<view wx:if="\{\{dshAccount\.signedIn\}\}" class="dsh-account-section"/,
+  'Hide the account identity and recharge balance when the DSH client is signed out');
+assert.match(wxml, /wx:if="\{\{dshAccount\.balanceText\}\}" class="dsh-balance-amount"/,
+  'Render the formatted recharge amount directly instead of iterating a nested array');
+assert.match(sessionSettingsWxml, /wx:if="\{\{dshAccount\.balanceText\}\}" class="dsh-balance-amount"/,
+  'Keep the session settings balance display in sync');
 
 function createPage(apiOptions) {
   let definition;
@@ -15,7 +24,8 @@ function createPage(apiOptions) {
     state: { profiles: [], activeID: null, connection: 'disconnected' },
     sessionState: {},
     subscribe() { return () => {}; },
-    client: Object.assign({ requestHost() {} }, typeof api.requestClawbot === 'function'
+    client: Object.assign({ requestHost() {} }, typeof api.requestAccount === 'function'
+      ? { requestAccount: api.requestAccount } : {}, typeof api.requestClawbot === 'function'
       ? { requestClawbot: api.requestClawbot } : {}),
     refreshHostPresence() { calls.push('refresh'); },
     pairWithPayload(raw) { calls.push(['pair', raw]); return { ok: true }; },
@@ -49,9 +59,13 @@ function createPage(apiOptions) {
       if (name === '../../utils/notify-pref') return { enabled: () => false };
       if (name === '../../utils/voice-preference') return require('../miniprogram/utils/voice-preference');
       if (name === '../../utils/home-animation-pref') return { enabled: () => true, setEnabled: value => value === true };
+      if (name === '../../utils/context-panels-pref') return {
+        read: () => ({ context: true, fleet: true }),
+        set: (panel, value) => ({ context: true, fleet: true, [panel]: value === true })
+      };
       if (name === '../../utils/haptics') return require('../miniprogram/utils/haptics');
       if (name === '../../utils/theme') return { applyTo() {}, getMode: () => 'auto' };
-      if (name === '../../utils/build') return { BUILD_TIME: 'test-build' };
+      if (name === '../../utils/build') return { BUILD_TIME: 'test-build', BUILD_VERSION: '0.9.27' };
       throw new Error('Unexpected dependency: ' + name);
     },
     wx, Date,
@@ -65,6 +79,25 @@ function createPage(apiOptions) {
   const paint = () => { page.onReady(); const pending = [...timers.values()]; timers.clear(); pending.forEach(fn => fn()); };
   return { page, store, wx, calls, api, paint, timers };
 }
+
+test('settings account lookup uses the connected DSH Host version', async () => {
+  const requestClients = [];
+  const { page: accountPage, store: accountStore } = createPage({
+    requestAccount(client) {
+      requestClients.push(client);
+      return Promise.resolve({ state: { status: 'credential-stored' }, balance: { status: 'ready', value: [{ currency: 'CNY', balance: '12.34' }] } });
+    }
+  });
+  accountStore.state = { connection: 'connected', activeID: 'host-1', host: { version: '0.2.1-rc.2' } };
+  accountPage.refreshDshAccount();
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.equal(requestClients.length, 1);
+  assert.equal(requestClients[0].version, '0.2.1-rc.2');
+  assert.notEqual(requestClients[0].version, '0.9.27', 'Do not send the unrelated mini-program version');
+  assert.equal(accountPage.data.dshAccount.balanceText, '¥12.34');
+});
 
 const { page, store, wx, calls } = createPage();
 // 顶部留白只加一次，返回按钮和标题的中心跟随原生胶囊。

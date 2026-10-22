@@ -7,6 +7,10 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const { install } = require('../dsh-console/relay/install-plugin-connector.cjs');
 const root = path.join(__dirname, '../dsh-console');
+const bashAvailable = (() => {
+  const result = spawnSync('bash', ['--version'], { stdio: 'ignore' });
+  return !result.error && result.status === 0;
+})();
 const { customizeClient, customizeSupervisor, customizeGatewayMetadata } = require('../dsh-console/relay/plugin-customization.cjs');
 test('gateway reports plugin version separately from host, with idempotent guarded patch', () => {
   const original = "const PLUGIN_VERSION = '0.8.6';\nconst hello = {\n            kind: 'hello',\n            ...gatewayIdentity,\n};\nreturn proxyQuery(api, 'host', api.host.describe.bind(api.host), {})";
@@ -97,7 +101,7 @@ function upgradeFixture(t) {
   } };
 }
 for (const failure of ['', 'build', 'backup', 'up']) {
-  test('upgrade shell with mock Docker preserves configuration and handles ' + (failure || 'success'), t => {
+  test('upgrade shell with mock Docker preserves configuration and handles ' + (failure || 'success'), { skip: !bashAvailable }, t => {
     const f = upgradeFixture(t), { result, calls } = f.run(failure);
     assert.equal(result.status, failure ? 9 : 0, result.stdout + result.stderr);
     const after = fs.readFileSync(path.join(f.dir, '.env'), 'utf8');

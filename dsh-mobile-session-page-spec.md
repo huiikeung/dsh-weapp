@@ -308,6 +308,7 @@ groupHeader(组, isExpanded, isExpandable)            depth0
 - 有排队消息时显示在输入条上方，与输入条叠压 24pt（VStack spacing -24 :867）：背景 `secondarySystemBackground`，顶部圆角 24（其余 0），底部延伸 24 到输入条圆角后方；描边 primary 22%(dark)/14%(light) 0.5pt。
 - 头部（>1 条时）：`text.bubble` + `排队消息 · N`（subheadline）+ `chevron.up`（展开时旋转 180°），padding 10；单条时不显示头部。
 - 行（:1221-1254）：预览 subheadline 2 行 + `N 个附件` caption secondary；行尾动作按钮 36×40（图标 15pt）：`pencil` 编辑排队消息、`trash` 删除排队消息、`arrow.up` 立即插话（仅会话运行中可用）；行间 0.5pt 分隔线（primary dark14%/light8%，H padding 10）；执行中显示菊花；任一操作 pending 时全部禁用；>3 条时列表限高 192 滚动。
+- 小程序实现差异：运行中发送的普通消息**不直接走网关 queue 模式**，而是先存本机待发队列（`local: true`），只有用户点该行的 `arrow.up` 才真正发给网关（运行中按 steer 插话、回合结束后按普通发送并补一条乐观回显）。这样宿主不会在回合结束时自动把消息发出去；本地队列行的 `arrow.up` 因此在非运行状态也可用，`pencil` 可把正文与附件取回草稿。
 - 队列动画：easeInOut 0.25（reduceMotion easeOut 0.15）（:880-882）。
 - "编辑排队消息"把文本取回草稿：`draft = draft.isEmpty ? text : draft + "\n\n" + text` 并聚焦（:1162-1168）。
 

@@ -19,9 +19,36 @@ function style(item, mode) {
   const colors = mode === 'dark' ? item.dark : item.light;
   return 'background-image:linear-gradient(90deg,' + colors.concat(colors[0]).join(',') + ');animation-duration:' + item.speed + 's;animation-direction:' + (['terminal','glitch'].includes(item.id) ? 'reverse' : 'normal') + ';';
 }
+const DSH_TAIL_FILTERS = {
+  'rgb(52.4,93.7,186.2)': 'brightness(0) invert(0.634) sepia(100%) saturate(493%) hue-rotate(185.7deg) brightness(79.6%) contrast(99%)',
+  'rgb(125.15,153.8,222.5)': 'brightness(0) invert(0.431) sepia(57.5%) saturate(383%) hue-rotate(184.5deg) brightness(98.2%) contrast(77.3%)'
+};
+function tailFilter(color) {
+  // Calibrated to the first stop of DSH's light/dark "simple" text gradients.
+  if (DSH_TAIL_FILTERS[color]) return DSH_TAIL_FILTERS[color];
+  const rgb = color.startsWith('rgb(')
+    ? color.match(/[\d.]+/g).slice(0, 3).map(Number)
+    : color.match(/[\da-f]{2}/gi).slice(0, 3).map(value => parseInt(value, 16));
+  const max = Math.max(...rgb) / 255, min = Math.min(...rgb) / 255;
+  let hue = 0;
+  if (max !== min) {
+    const delta = max - min;
+    if (max === rgb[0] / 255) hue = (rgb[1] - rgb[2]) / 255 / delta + (rgb[1] < rgb[2] ? 6 : 0);
+    else if (max === rgb[1] / 255) hue = (rgb[2] - rgb[0]) / 255 / delta + 2;
+    else hue = (rgb[0] - rgb[1]) / 255 / delta + 4;
+    hue *= 60;
+  }
+  const rotate = Math.round((hue - 55 + 360) % 360);
+  const luminance = (rgb[0] * 0.2126 + rgb[1] * 0.7152 + rgb[2] * 0.0722) / 255;
+  const brightness = Math.round(80 + luminance * 45);
+  return 'brightness(0) saturate(100%) invert(1) sepia(100%) saturate(5000%) hue-rotate(' + rotate + 'deg) brightness(' + brightness + '%)';
+}
+function tailAnimationStyle(item) {
+  return 'animation-duration:' + item.speed + 's;animation-direction:' + (['terminal','glitch'].includes(item.id) ? 'reverse' : 'normal') + ';';
+}
 function view(id) {
   const item = selected(id);
-  return { statusAppearance: item.id, statusAppearanceLabel: uiText(item.label), statusLightStyle: style(item, 'light'), statusDarkStyle: style(item, 'dark') };
+  return { statusAppearance: item.id, statusAppearanceLabel: uiText(item.label), statusLightStyle: style(item, 'light'), statusDarkStyle: style(item, 'dark'), statusLightTailFilter: tailFilter(item.light[0]), statusDarkTailFilter: tailFilter(item.dark[0]), statusLightTailAnimationStyle: tailAnimationStyle(item), statusDarkTailAnimationStyle: tailAnimationStyle(item) };
 }
-function choices() { return OPTIONS.map(item => ({ ...item, label: uiText(item.label), detail: uiText(item.detail), lightStyle: style(item, 'light'), darkStyle: style(item, 'dark') })); }
+function choices() { return OPTIONS.map(item => ({ ...item, label: uiText(item.label), detail: uiText(item.detail), lightStyle: style(item, 'light'), darkStyle: style(item, 'dark'), lightTailFilter: tailFilter(item.light[0]), darkTailFilter: tailFilter(item.dark[0]), lightTailAnimationStyle: tailAnimationStyle(item), darkTailAnimationStyle: tailAnimationStyle(item) })); }
 module.exports = { KEY, OPTIONS, normalize, read, save, selected, view, choices };
