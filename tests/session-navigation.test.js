@@ -296,13 +296,14 @@ test('detail cache parses only once for repeated clicks and no Markdown for raw 
   } finally { markdown.parse = original; }
 });
 
-test('compiled template retains hidden panels and pre-mounts the menu in both themes', { skip: !fs.existsSync(process.env.WECHAT_WCC || '') }, t => {
+const compiler = require('./helpers/wechat-wcc.cjs');
+test('compiled template retains hidden panels and pre-mounts the menu in both themes', { skip: !compiler }, t => {
   const os = require('node:os'); const { execFileSync } = require('node:child_process');
   const root = path.resolve(__dirname, '../miniprogram');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-session-template-'));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const output = path.join(dir, 'session.js');
-  execFileSync(process.env.WECHAT_WCC, ['-o', output, 'pages/session/session.wxml'], { cwd: root });
+  execFileSync(compiler, ['-o', output, 'pages/session/session.wxml'], { cwd: root });
   const context = vm.createContext({ window: {}, console }); vm.runInContext(fs.readFileSync(output, 'utf8'), context);
   const render = context.$gwx('pages/session/session.wxml');
   const { page } = fixture();

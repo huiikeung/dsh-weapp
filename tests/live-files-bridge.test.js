@@ -32,9 +32,18 @@ test('installer checks compatibility, backs up the original and applies only onc
   const result=install(root);assert.equal(result.updated,1);assert.equal(fs.readFileSync(result.backup,'utf8'),source);
   assert.equal(install(root).updated,0);assert.equal(install(root,true).changes,0);
 });
-const gateway=process.env.DSH_TEST_GATEWAY;
+const gatewayCandidate=process.env.DSH_TEST_GATEWAY || path.resolve(__dirname,'../../dsh-plugin-weapp-gateway');
+const gateway=fs.existsSync(path.join(gatewayCandidate,'lib/index.mjs'))?gatewayCandidate:null;
 test('real gateway encoder forwards file and snapshot announcements',{skip:!gateway},()=>{
-  const code=transform(fs.readFileSync(path.join(gateway,'lib/index.mjs'),'utf8'));
+  const source=fs.readFileSync(path.join(gateway,'lib/index.mjs'),'utf8');
+  let code;
+  try { code=transform(source); }
+  catch(error) {
+    if(!/Existing or incompatible file event handling/.test(String(error&&error.message))) throw error;
+    // Installed/newer gateways may already implement these events; exercise their encoder directly.
+    code=source;
+  }
   const start=code.indexOf('function buildWireEvent(session, event) {'),end=code.indexOf('function parseWireImages(',start);
+  assert.ok(start>=0&&end>start,'gateway must expose a compatible wire-event encoder');
   checkEncoder(vm.runInNewContext(code.slice(start,end)+'\nbuildWireEvent;'));
 });

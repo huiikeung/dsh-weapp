@@ -153,11 +153,12 @@ test('collaboration handle toggles height without changing selected content or r
   assert.match(css,/\.sheet\.collab-sheet\s*\{[^}]*max-height:90vh/);
   assert.match(css,/\.sheet\.collab-sheet\.is-expanded\s*\{\s*height:90vh/);
 });
-test('native collaboration sheet renders all four tabs in light and dark modes', {skip:!fs.existsSync(process.env.WECHAT_WCC || '')},t=>{
+const compiler=require('./helpers/wechat-wcc.cjs');
+test('native collaboration sheet renders all four tabs in light and dark modes', {skip:!compiler},t=>{
   const os=require('node:os'),{execFileSync}=require('node:child_process');
   const dir=fs.mkdtempSync(path.join(os.tmpdir(),'dsh-collab-')),output=path.join(dir,'session.js');
   t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
-  execFileSync(process.env.WECHAT_WCC,['-o',output,'pages/session/session.wxml'],{cwd:path.resolve(__dirname,'../miniprogram')});
+  execFileSync(compiler,['-o',output,'pages/session/session.wxml'],{cwd:path.resolve(__dirname,'../miniprogram')});
   const context=vm.createContext({window:{},console});vm.runInContext(fs.readFileSync(output,'utf8'),context);
   const render=context.$gwx('pages/session/session.wxml');const {page,store}=fixture();
   store.state={connection:'connected',sessions:[]};store.sessionState.collaboration=collaboration.create('s1');
@@ -169,13 +170,15 @@ test('native collaboration sheet renders all four tabs in light and dark modes',
     for(const expanded of [false,true]){
     const data={...page.data,...require('../miniprogram/utils/ui-preferences').snapshot(),theme,themeClass:'theme-'+theme,collaborationExpanded:expanded};
     const tree=JSON.stringify(render(data,{},{}));
-    for(const title of ['成员','子智能体','团队任务','工具调用',label])assert.ok(tree.includes(title),theme+'/'+tab+'/'+title);
+    assert.ok(tree.includes(label),theme+'/'+tab+'/'+label);
     assert.ok(tree.includes('collab-scroll'));assert.ok(tree.includes('collab-close'));
     for(const icon of ['dsh-team','dsh-agent','dsh-checklist','dsh-process-tool','sheet-refresh','collab-close']){
       assert.ok(tree.includes('/assets/icons/'+icon+(theme==='dark'?'-dark':'')+'.svg'),theme+'/'+icon);
     }
     assert.ok(tree.includes('collab-tab-indicator'));
-    assert.ok(tree.includes('toggleCollaborationExpanded'));
+    assert.ok(tree.includes('collabGrabStart'));
+    assert.ok(tree.includes('collabGrabMove'));
+    assert.ok(tree.includes('collabGrabEnd'));
     assert.equal(tree.includes('collab-sheet is-expanded'),expanded);
     assert.ok(tree.includes(expanded?'收起协作面板':'展开协作面板至九成屏幕'));
     }

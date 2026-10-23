@@ -49,9 +49,13 @@ const REAL_PROJ_CACHE_PATH = path.join(
 const REAL_SNAPSHOT_SEQ = 32619
 
 const LOCAL_PLUGINS = path.join(os.homedir(), '.dsh', 'profiles', 'desktop', 'local-plugins')
+const siblingWeappGateway = process.env.DSH_TEST_GATEWAY || path.resolve(ROOT, '..', 'dsh-plugin-weapp-gateway')
+const weappGateway = fs.existsSync(path.join(siblingWeappGateway, 'package.json'))
+  ? siblingWeappGateway
+  : path.join(LOCAL_PLUGINS, 'dsh-plugin-weapp-gateway')
 const GATEWAY_DIRS = [
   path.join(LOCAL_PLUGINS, 'dsh-plugin-mobile-gateway'),
-  path.join(LOCAL_PLUGINS, 'dsh-plugin-weapp-gateway'),
+  weappGateway,
 ]
 
 const SURFACE_TYPES = new Set(['system/message', 'developer/message', 'user/message', 'assistant/message', 'tool/result'])
@@ -1034,7 +1038,7 @@ test('installer transform is idempotent and keeps the paired-device check parent
   const indexFile = (gateway) => path.join(gateway, 'lib', 'index.mjs')
   const gateways = [
     path.join(os.homedir(), '.dsh/profiles/desktop/local-plugins/dsh-plugin-mobile-gateway'),
-    path.join(os.homedir(), '.dsh/profiles/desktop/local-plugins/dsh-plugin-weapp-gateway'),
+    weappGateway,
   ].filter(gateway => fs.existsSync(indexFile(gateway)))
   if (gateways.length === 0) return t.skip('no installed gateway package on this machine')
   for (const gateway of gateways) {

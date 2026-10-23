@@ -93,11 +93,12 @@ test('edited card rows show actual names and native page projection excludes hid
   assert.ok(js.includes('if (changes) semanticRows.push(changes)'));
 });
 
-test('native file cards and forwarding controls render correctly in light and dark themes', { skip: !fs.existsSync(process.env.WECHAT_WCC || '') }, t => {
+const compiler=require('./helpers/wechat-wcc.cjs');
+test('native file cards and forwarding controls render correctly in light and dark themes', { skip: !compiler }, t => {
   const os = require('node:os'), { execFileSync } = require('node:child_process');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-file-cards-')), output = path.join(dir, 'session.js');
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
-  execFileSync(process.env.WECHAT_WCC, ['-o', output, 'pages/session/session.wxml'], { cwd: path.resolve(__dirname, '../miniprogram') });
+  execFileSync(compiler, ['-o', output, 'pages/session/session.wxml'], { cwd: path.resolve(__dirname, '../miniprogram') });
   const context = vm.createContext({ window: {}, console }); vm.runInContext(fs.readFileSync(output, 'utf8'), context);
   const render = context.$gwx('pages/session/session.wxml');
   const { page, ready } = changesFixture(); ready();

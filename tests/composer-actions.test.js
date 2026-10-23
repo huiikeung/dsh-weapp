@@ -309,8 +309,8 @@ test('successful send resets an old scroll gesture and immediately follows the t
   page._convPinned=false;page.data.draft='retry';store.client.sendMessage=()=>false;await page.send();
   assert.equal(page._convPinned,false);assert.equal(scrolls,1);assert.equal(page.data.draft,'retry');
 });
-const compiler = process.env.WECHAT_WCC || 'D:/Program Files (x86)/Tencent/微信web开发者工具/resources/app.asar.unpacked/node_modules/wcc-exec/wcc.exe';
-test('native WXML renders the plus menu, choices and blocked-attachment plus in both themes', { skip: !fs.existsSync(compiler) }, () => {
+const compiler = require('./helpers/wechat-wcc.cjs');
+test('native WXML renders the plus menu, choices and blocked-attachment plus in both themes', { skip: !compiler }, () => {
   const root = path.resolve(__dirname, '../miniprogram'), output = path.join(os.tmpdir(), 'dsh-composer-' + process.pid + '.js');
   try {
     execFileSync(compiler, ['-o', output, 'pages/session/session.wxml'], { cwd: root });
