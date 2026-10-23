@@ -1243,7 +1243,10 @@ class GatewayClient {
 
   /** 读取费用/成本概览（仅 summary 动作，无需登录网关）。 */
   async requestCostMeter(action = 'summary', payload = {}) {
-    if (this.state.connection !== 'connected') throw new Error(uiText('未连接'));
+    // this.state 是字符串（'disconnected' | 'connecting' | 'connected' | 'failed'），
+    // 不是 store 的连接状态对象；误写成 this.state.connection 会永远读出 undefined，
+    // 导致每次请求都抛「未连接」，额度卡片/额度页一直显示数据不可用。
+    if (this.state !== 'connected') throw new Error(uiText('未连接'));
     const request = Object.assign({}, payload || {}, { type: 'cost-meter', requestId: util.uuid(), action });
     return await this.requestPlugin('cost-meter', request, 20000);
   }

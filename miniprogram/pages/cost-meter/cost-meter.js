@@ -16,6 +16,7 @@ const BUDGET_PERIODS = [
   { id: 'day', label: '今日' },
   { id: 'month', label: '本月' },
   { id: 'all', label: '累计' },
+  { id: 'custom', label: '自定义区间' },
 ];
 
 function defaultCustomEntry() {
@@ -23,6 +24,7 @@ function defaultCustomEntry() {
     enabled: false,
     adapter: 'custom',
     label: '',
+    labelEn: '',
     unit: 'USD',
     display: 'both',
     refreshMinutes: 15,
@@ -30,9 +32,40 @@ function defaultCustomEntry() {
     allowInsecureHttp: false,
     allowedHosts: [],
     secretHeader: 'Authorization',
-    request: { url: '', method: 'GET', headers: {} },
+    request: { url: '', method: 'GET', headers: {}, body: '' },
     extract: { remaining: 'data.remaining', maxBudget: '', spend: '', unit: 'USD' },
   };
+}
+
+/** 参考实现的四个预设：空 custom / 阿里云千问 / Token Rhythm / WorkBuddy2API 积分。 */
+function customPreset(kind) {
+  const base = defaultCustomEntry();
+  if (kind === 'aliyun') {
+    return Object.assign({}, base, {
+      adapter: 'aliyun', label: '千问 / 阿里云余额', unit: 'CNY',
+      request: { url: 'https://business.aliyuncs.com/', method: 'POST', headers: {}, body: '' },
+    });
+  }
+  if (kind === 'tokenrhythm') {
+    return Object.assign({}, base, {
+      adapter: 'tokenrhythm', label: 'Token Rhythm 余额', unit: 'CNY',
+      request: { url: 'https://tokenrhythm.studio/api/wallet/summary', method: 'GET', headers: {}, body: '' },
+    });
+  }
+  if (kind === 'workbuddy') {
+    return Object.assign({}, base, {
+      label: 'WorkBuddy2API 积分', unit: 'CREDITS',
+      request: {
+        url: 'http://127.0.0.1:8790/api/credits/expiry?package_limit=1',
+        method: 'GET',
+        headers: { 'X-Admin-Token': '{{WORKBUDDY2API_ADMIN_TOKEN}}' },
+        body: '',
+      },
+      extract: { remaining: 'summary.available_remaining', maxBudget: '', spend: '', unit: 'CREDITS' },
+      allowedHosts: ['127.0.0.1:8790'],
+    });
+  }
+  return base;
 }
 
 function defaultGatewaySource() {
@@ -71,6 +104,15 @@ Page({
     displayOptions: costView.DISPLAY_OPTIONS,
     budgetPeriods: BUDGET_PERIODS,
     displayForm: { currency: 'CNY', symbol: '¥', decimals: 3, exchangeRate: 7.2, sidebarStyle: 'standard', sidebarVisible: false, peakStyle: 'progress', refreshLabel: '15 分钟' },
+    sidebarOrderCells: [],
+    previewComponent: 'budget',
+    previewSidebar: null,
+    previewSections: [],
+    /* 弹窗：'' 关闭；'display' | 'balance' | 'go' | 'budget' | 'peak' | 'plan' | 'gateway' | 'custom' */
+    sheet: '',
+    sheetPlan: {},
+    sheetGateway: {},
+    sheetCustom: {},
     balanceForm: { enabled: true, display: 'both', refreshMinutes: 5 },
     goForm: { enabled: false, display: 'both', refreshMinutes: 15, main: 'rolling', barDirection: 'used', detail: true },
     budgetForm: { enabled: false, amount: '', period: 'month', display: 'both' },
@@ -129,6 +171,88 @@ Page({
 
   goBack() {
     wx.navigateBack({ fail() { wx.reLaunch({ url: '/pages/home/home' }); } });
+  },
+
+  // ---------- 弹窗 ----------
+
+  noop() {},
+
+  closeSheet() { this.setData({ sheet: '' }); },
+
+  openDisplaySheet() { this.setData({ sheet: 'display' }); },
+  openBalanceSheet() { this.setData({ sheet: 'balance' }); },
+  openGoSheet() { this.setData({ sheet: 'go' }); },
+  openBudgetSheet() { this.setData({ sheet: 'budget' }); },
+  openPeakSheet() { this.setData({ sheet: 'peak' }); },
+
+  openPlanSheet(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const cell = (this.data.planCells || [])[index];
+    if (!cell) return;
+    this.setData({ sheet: 'plan', sheetPlan: Object.assign({}, cell, { index }) });
+  },
+  openGatewaySheet(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const cell = (this.data.gatewayCells || [])[index];
+    if (!cell) return;
+    this.setData({ sheet: 'gateway', sheetGateway: Object.assign({}, cell, { index }) });
+  },
+  openCustomSheet(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const cell = (this.data.customCells || [])[index];
+    if (!cell) return;
+    this.setData({ sheet: 'custom', sheetCustom: Object.assign({}, cell, { index }) });
+  },
+
+  /**
+   * 弹窗里的字段编辑：同时写 cells（保存按钮按 index 取）与 sheet<Kind>（弹窗显示用）。
+   * 原地返回同一引用以外的浅拷贝，避免 setData 路径写入被后续 applyFrame 覆盖。
+   */
+  syncSheetField(kind, index, field, value) {
+    const cellsKey = kind + 'Cells';
+    const sheetKey = 'sheet' + kind.charAt(0).toUpperCase() + kind.slice(1);
+    const cells = (this.data[cellsKey] || []).map((cell, i) => (i === index ? Object.assign({}, cell, { [field]: value }) : cell));
+    const patch = { [cellsKey]: cells };
+    patch[sheetKey] = Object.assign({}, this.data[sheetKey] || {}, { [field]: value, index });
+    this.setData(patch);
+  },
+  onCustomFieldInput(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    this.syncSheetField('custom', index, e.currentTarget.dataset.field, e.detail.value);
+  },
+  onGatewayFieldInput(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    this.syncSheetField('gateway', index, e.currentTarget.dataset.field, e.detail.value);
+  },
+  /** 密钥输入：draft 按 save 函数用的键存（plan/gateway 用 id，custom 用 index），并同步弹窗显示。 */
+  onGatewayKeyInput(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const cell = (this.data.gatewayCells || [])[index];
+    if (!cell) return;
+    const drafts = Object.assign({}, this.data.gatewayKeyDrafts, { [cell.id]: e.detail.value });
+    this.setData({ gatewayKeyDrafts: drafts, 'sheetGateway.keyDraft': e.detail.value });
+  },
+  onCustomKeyInput(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const drafts = Object.assign({}, this.data.customKeyDrafts, { [index]: e.detail.value });
+    this.setData({ customKeyDrafts: drafts, 'sheetCustom.keyDraft': e.detail.value });
+  },
+  onPlanKeyInput(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const cell = (this.data.planCells || [])[index];
+    if (!cell) return;
+    const drafts = Object.assign({}, this.data.planKeyDrafts, { [cell.id]: e.detail.value });
+    this.setData({ planKeyDrafts: drafts, 'sheetPlan.keyDraft': e.detail.value });
+  },
+  onPlanFieldInput(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const field = Number(e.currentTarget.dataset.field);
+    const cells = (this.data.planCells || []).map((cell, i) => {
+      if (i !== index) return cell;
+      const fields = (cell.fields || []).map((f, fi) => (fi === field ? Object.assign({}, f, { value: e.detail.value }) : f));
+      return Object.assign({}, cell, { fields });
+    });
+    this.setData({ planCells: cells, sheetPlan: cells[index] || this.data.sheetPlan });
   },
 
   syncFromStore(snapshot) {
@@ -231,10 +355,24 @@ Page({
     if (!this.config && this.data.config) this.config = this.data.config;
     if (!this.dashboardFrame && this.data.dashboard) this.dashboardFrame = this.data.dashboard;
     if (!this.sourcesFrame && this.data.sources) this.sourcesFrame = this.data.sources;
+
+    // 同一份 frame 被反复 apply（store 广播 / refresh 回调）时，帧内容不变就不重建，
+    // 否则 15 家 plan + 预览区全量 map + JSON.stringify 深比较会让页面滑动明显卡顿。
+    // 用三个帧对象的引用做指纹：同一帧对象重复 apply 直接跳过。
+    if (this._applyStamp
+      && this._applyStamp[0] === this.config
+      && this._applyStamp[1] === this.dashboardFrame
+      && this._applyStamp[2] === this.sourcesFrame
+      && this._applyStamp[3] === this.summaryFrame
+      && this.data.view) return;
+    this._applyStamp = [this.config, this.dashboardFrame, this.sourcesFrame, this.summaryFrame];
+
     const config = this.config || {};
     const view = costView.normalizeQuotaDashboard(this.dashboardFrame, this.summaryFrame);
     const display = config.display || {};
     const peak = config.peak || {};
+    const sidebarOrder = Array.isArray(config.sidebarOrder) ? config.sidebarOrder : [];
+    const sidebarOrderCells = this.buildSidebarOrderCells(config, view, sidebarOrder);
     const plans = (this.sourcesFrame && Array.isArray(this.sourcesFrame.plans) ? this.sourcesFrame.plans : []).map(meta => {
       const settings = (config.codingPlans && config.codingPlans[meta.id]) || meta.settings || {};
       const result = view && view.plans ? (view.plans.find(item => item.id === meta.id) || {}) : {};
@@ -278,6 +416,7 @@ Page({
         keyDraft: (this.data.customKeyDrafts || {})[index] || '',
         expanded: this.data.expandedCustom === index,
         headersText: this.headersToText(entry.request && entry.request.headers),
+        bodyText: this.bodyToText(entry.request && entry.request.body),
         extractRemaining: this.ruleToText(entry.extract && entry.extract.remaining),
         extractMax: this.ruleToText(entry.extract && entry.extract.maxBudget),
         extractSpend: this.ruleToText(entry.extract && entry.extract.spend),
@@ -302,27 +441,43 @@ Page({
     });
     const budget = (this.summaryFrame && this.summaryFrame.budget) || {};
     this._costRetry = 0;
+    // 预览模型要在 setData 之前算好：它读 this.data.displayForm，而 displayForm 正是这次
+    // setData 要写入的新值，放到 setData 里调用只会读到上一次的旧表单。
+    const nextDisplayForm = {
+      currency: config.currency || 'CNY',
+      symbol: config.symbol || (config.currency === 'USD' ? '$' : (config.currency === 'EUR' ? '€' : '¥')),
+      decimals: config.decimals === undefined ? 3 : config.decimals,
+      exchangeRate: config.exchangeRate === undefined ? 7.2 : config.exchangeRate,
+      exchangeRateAuto: config.exchangeRateAuto === true,
+      sidebarStyle: display.sidebarStyle || 'standard',
+      sidebarVisible: display.sidebarVisible === true,
+      sidebarTodayMetric: display.sidebarTodayMetric || 'both',
+      sidebarTodayBalanceInline: display.sidebarTodayBalanceInline === true,
+      peakStyle: display.peakStyle || 'progress',
+      peakTimeDisplay: display.peakTimeDisplay || 'both',
+    };
+    const previewSidebar = this.previewSidebarFrom(nextDisplayForm);
+    const previewSections = previewSidebar && !previewSidebar.empty
+      ? costView.quotaSidebarSections(previewSidebar, sidebarOrder)
+      : [];
     this.setData({
       config,
       dashboard: this.dashboardFrame || null,
       summary: this.summaryFrame || null,
       sources: this.sourcesFrame || null,
       view,
-      displayForm: {
-        currency: config.currency || 'CNY',
-        symbol: config.symbol || (config.currency === 'USD' ? '$' : '¥'),
-        decimals: config.decimals === undefined ? 3 : config.decimals,
-        exchangeRate: config.exchangeRate === undefined ? 7.2 : config.exchangeRate,
-        sidebarStyle: display.sidebarStyle || 'standard',
-        sidebarVisible: display.sidebarVisible === true,
-        peakStyle: display.peakStyle || 'progress',
-      },
-      balanceForm: Object.assign({ enabled: true, display: 'both', refreshMinutes: 5 }, config.balance || {}),
+      displayForm: nextDisplayForm,
+      balanceForm: Object.assign({ enabled: true, display: 'both', refreshMinutes: 5, showProgressBar: false, barDirection: 'remaining' }, config.balance || {}),
       goForm: Object.assign({ enabled: false, display: 'both', refreshMinutes: 15, main: 'rolling', barDirection: 'used', detail: true }, config.goQuota || {}),
+      // 设置项取 config.budget（用户可改的开关），运行时段值取 summaryFrame.budget
       budgetForm: {
-        enabled: budget.enabled === true,
-        amount: budget.amount === undefined || budget.amount === null ? '' : String(budget.amount),
-        period: budget.period || 'month',
+        enabled: (config.budget && config.budget.enabled) === true,
+        amount: config.budget && config.budget.amount !== undefined && config.budget.amount !== null ? String(config.budget.amount) : '',
+        period: (config.budget && config.budget.period) || 'month',
+        customStart: (config.budget && config.budget.customStart) || '',
+        customEnd: (config.budget && config.budget.customEnd) || '',
+        detail: !config.budget || config.budget.detail !== false,
+        barDirection: config.budget && config.budget.barDirection === 'remaining' ? 'remaining' : 'used',
         display: (config.budget && config.budget.display) || 'both',
         percentText: budget.enabled ? costView.quotaPercentText(budget.percent) : '',
         barWidth: budget.enabled ? costView.quotaBarWidth(budget.percent) : '0%',
@@ -333,13 +488,277 @@ Page({
         enabled: peak.enabled !== false,
         display: peak.display || 'both',
         style: display.peakStyle || 'progress',
+        peakTimeDisplay: display.peakTimeDisplay || 'both',
+        peakAlertEnabled: peak.peakAlertEnabled === true,
+        peakAlertAhead: peak.peakAlertAhead === undefined ? 2 : peak.peakAlertAhead,
+        peakAlertTarget: peak.peakAlertTarget || 'both',
+        peakAlertPosition: peak.peakAlertPosition || 'corner',
+        holidaysText: (peak.holidays || []).join(', '),
         windowsLabel: this.formatPeakWindows(peak.windows),
       },
       planCells: plans,
       customCells,
       gatewayCells,
+      sidebarOrderCells,
+      previewSidebar,
+      previewSections,
     });
     theme.applyTo(this);
+  },
+
+  /** 预览用侧栏模型：与 home 页同一套 quotaSidebarModel，套用给定（或当前）显示设置。 */
+  buildPreviewSidebar(displayForm) {
+    if (!this.dashboardFrame) return null;
+    const form = displayForm || this.data.displayForm || {};
+    if (form.sidebarVisible !== true) return null;
+    const view = costView.normalizeQuotaDashboard(this.dashboardFrame, this.summaryFrame);
+    if (!view) return null;
+    // 预览要反映「正在编辑」的显示设置，所以用传入的 displayForm 覆盖 dashboard.display
+    const patched = Object.assign({}, view, {
+      display: {
+        sidebarStyle: form.sidebarStyle,
+        sidebarVisible: true,
+        sidebarTodayMetric: form.sidebarTodayMetric,
+        peakStyle: form.peakStyle,
+        peakTimeDisplay: form.peakTimeDisplay,
+        sidebarTodayBalanceInline: form.sidebarTodayBalanceInline,
+      },
+    });
+    return costView.quotaSidebarModel(patched, form.sidebarStyle);
+  },
+
+  buildPreviewSections() {
+    const sidebar = this.buildPreviewSidebar();
+    if (!sidebar || sidebar.empty) return [];
+    const order = (this.config && this.config.sidebarOrder) || [];
+    return costView.quotaSidebarSections(sidebar, order);
+  },
+
+  /** applyFrame 内部用：基于即将写入的 displayForm 算预览，避免读到上一次的旧表单。 */
+  previewSidebarFrom(displayForm) {
+    return this.buildPreviewSidebar(displayForm);
+  },
+
+  previewPlanOf(key) {
+    const id = String(key || '').slice(5);
+    return (this.data.previewSidebar && this.data.previewSidebar.plans || []).find(item => item.id === id) || {};
+  },
+  previewGatewayOf(key) {
+    const id = String(key || '').slice(8);
+    return (this.data.previewSidebar && this.data.previewSidebar.gateway || []).find(item => item.id === id) || { accounts: [] };
+  },
+  previewCustomOf(key) {
+    const index = Number(String(key || '').slice(7));
+    return (this.data.previewSidebar && this.data.previewSidebar.custom || [])[index] || {};
+  },
+
+  /** 预览检查器：可调整的组件清单（与侧栏分区一一对应）。 */
+  previewComponents() {
+    const cells = [
+      { id: 'balance', label: uiText('余额'), path: 'balance' },
+      { id: 'budget', label: uiText('预算'), path: 'budget' },
+      { id: 'go', label: 'OpenCode Go', path: 'goQuota' },
+      { id: 'peak', label: uiText('峰谷'), path: 'peak' },
+    ];
+    const plans = ((this.sourcesFrame && this.sourcesFrame.plans) || []).map(meta => ({
+      id: 'plan:' + meta.id, label: meta.label || meta.id, path: 'codingPlans.' + meta.id,
+    }));
+    const gateway = ((this.config && this.config.gatewayQuotas && this.config.gatewayQuotas.sources) || []).map(source => ({
+      id: 'gateway:' + source.id, label: source.label || source.id, path: 'gatewayQuotas.sources.' + source.id,
+    }));
+    const custom = (this.data.customCells || []).map((cell, index) => ({
+      id: 'custom:' + index, label: cell.label || cell.labelEn || (uiText('自定义余额') + ' ' + (index + 1)),
+      path: 'customBalances.' + index,
+    }));
+    return cells.concat(plans, gateway, custom);
+  },
+
+  previewComponentMeta() {
+    const list = this.previewComponents();
+    return list.find(item => item.id === this.data.previewComponent) || list[0] || null;
+  },
+
+  previewComponentLabel() {
+    const meta = this.previewComponentMeta();
+    return meta ? meta.label : uiText('预算');
+  },
+
+  /** 当前组件在配置里的 display 值（用于「显示位置」行）。 */
+  previewComponentDisplay() {
+    const meta = this.previewComponentMeta();
+    if (!meta) return 'both';
+    const parts = meta.path.split('.');
+    let node = this.config || {};
+    for (const part of parts) {
+      if (node == null) return 'both';
+      node = node[part];
+    }
+    if (Array.isArray(node)) node = node[Number(parts[parts.length - 1])] || {};
+    return (node && node.display) || 'both';
+  },
+
+  previewComponentDisplayLabel() {
+    return this.displayLabel(this.previewComponentDisplay());
+  },
+
+  /** 当前组件是否启用（balance/go/peak 用 enabled，plan/gateway/custom 用 enabled）。 */
+  previewComponentEnabled() {
+    const meta = this.previewComponentMeta();
+    if (!meta) return false;
+    if (meta.id === 'budget') return this.data.budgetForm.enabled === true;
+    const parts = meta.path.split('.');
+    let node = this.config || {};
+    for (const part of parts) {
+      if (node == null) return false;
+      node = node[part];
+    }
+    if (Array.isArray(node)) node = node[Number(parts[parts.length - 1])] || {};
+    return node && node.enabled === true;
+  },
+
+  pickPreviewComponent() {
+    const list = this.previewComponents();
+    if (!list.length) { wx.showToast({ title: uiText('暂无可调整组件'), icon: 'none' }); return; }
+    wx.showActionSheet({
+      itemList: list.map(item => item.label),
+      success: res => {
+        const picked = list[res.tapIndex];
+        if (!picked) return;
+        this.setData({ previewComponent: picked.id });
+      },
+    });
+  },
+
+  pickPreviewDisplay() {
+    const meta = this.previewComponentMeta();
+    if (!meta) return;
+    this.pickDisplay(value => {
+      this.commitComponentDisplay(meta, value);
+    });
+  },
+
+  /** 把 display 写到组件对应的配置路径。 */
+  commitComponentDisplay(meta, value) {
+    const id = meta.id;
+    if (id === 'balance') { this.setData({ 'balanceForm.display': value }); this.commitPatch({ balance: { display: value } }); return; }
+    if (id === 'budget') { this.setData({ 'budgetForm.display': value }); this.commitPatch({ budget: { display: value } }); return; }
+    if (id === 'go') { this.setData({ 'goForm.display': value }); this.commitPatch({ goQuota: { display: value } }); return; }
+    if (id === 'peak') { this.setData({ 'peakForm.display': value }); this.commitPatch({ peak: { display: value } }); return; }
+    if (id.indexOf('plan:') === 0) {
+      const planId = id.slice(5);
+      const cells = (this.data.planCells || []).map(cell => cell.id === planId ? Object.assign({}, cell, { display: value, displayLabel: this.displayLabel(value) }) : cell);
+      this.setData({ planCells: cells });
+      this.commitPatch({ codingPlans: { [planId]: { display: value } } });
+      return;
+    }
+    if (id.indexOf('gateway:') === 0) {
+      const sourceId = id.slice(8);
+      const cells = (this.data.gatewayCells || []).map(cell => cell.id === sourceId ? Object.assign({}, cell, { display: value, displayLabel: this.displayLabel(value) }) : cell);
+      this.setData({ gatewayCells: cells });
+      const sources = ((this.config && this.config.gatewayQuotas && this.config.gatewayQuotas.sources) || []).map(source => source.id === sourceId ? Object.assign({}, source, { display: value }) : source);
+      this.commitPatch({ gatewayQuotas: { sources } });
+      return;
+    }
+    if (id.indexOf('custom:') === 0) {
+      const index = Number(id.slice(7));
+      const cells = (this.data.customCells || []).map((cell, i) => i === index ? Object.assign({}, cell, { display: value, displayLabel: this.displayLabel(value) }) : cell);
+      this.setData({ customCells: cells });
+      const entries = (this.data.config.customBalances || []).map((entry, i) => i === index ? Object.assign({}, entry, { display: value }) : entry);
+      this.commitPatch({ customBalances: entries });
+    }
+  },
+
+  togglePreviewComponent(e) {
+    const on = !!(e && e.detail && e.detail.value);
+    const meta = this.previewComponentMeta();
+    if (!meta) return;
+    const id = meta.id;
+    if (id === 'balance') { this.setData({ 'balanceForm.enabled': on }); this.commitPatch({ balance: { enabled: on } }); return; }
+    if (id === 'budget') { this.setData({ 'budgetForm.enabled': on }); this.commitPatch({ budget: { enabled: on } }); return; }
+    if (id === 'go') { this.setData({ 'goForm.enabled': on }); this.commitPatch({ goQuota: { enabled: on } }); return; }
+    if (id === 'peak') { this.setData({ 'peakForm.enabled': on }); this.commitPatch({ peak: { enabled: on } }); return; }
+    if (id.indexOf('plan:') === 0) {
+      const planId = id.slice(5);
+      const cells = (this.data.planCells || []).map(cell => cell.id === planId ? Object.assign({}, cell, { enabled: on }) : cell);
+      this.setData({ planCells: cells });
+      this.commitPatch({ codingPlans: { [planId]: { enabled: on } } });
+      return;
+    }
+    if (id.indexOf('gateway:') === 0) {
+      const sourceId = id.slice(8);
+      const cells = (this.data.gatewayCells || []).map(cell => cell.id === sourceId ? Object.assign({}, cell, { enabled: on }) : cell);
+      this.setData({ gatewayCells: cells });
+      const sources = ((this.config && this.config.gatewayQuotas && this.config.gatewayQuotas.sources) || []).map(source => source.id === sourceId ? Object.assign({}, source, { enabled: on }) : source);
+      this.commitPatch({ gatewayQuotas: { sources } });
+      return;
+    }
+    if (id.indexOf('custom:') === 0) {
+      const index = Number(id.slice(7));
+      const cells = (this.data.customCells || []).map((cell, i) => i === index ? Object.assign({}, cell, { enabled: on }) : cell);
+      this.setData({ customCells: cells });
+      const entries = (this.data.config.customBalances || []).map((entry, i) => i === index ? Object.assign({}, entry, { enabled: on }) : entry);
+      this.commitPatch({ customBalances: entries });
+    }
+  },
+
+  /**
+   * 构造侧栏排序行：把所有可见分区列出来（含 plan:<id>/gateway:<id>/custom:<index>），
+   * 已启用且 display 允许进侧栏的才参与；未配置 sidebarOrder 时用默认顺序。
+   */
+  buildSidebarOrderCells(config, view, order) {
+    const plans = ((this.sourcesFrame && this.sourcesFrame.plans) || []).map(meta => {
+      const settings = (config.codingPlans && config.codingPlans[meta.id]) || {};
+      return { key: 'plan:' + meta.id, label: meta.label || meta.id, enabled: settings.enabled === true, display: settings.display || 'settings' };
+    });
+    const gateway = ((config.gatewayQuotas && config.gatewayQuotas.sources) || []).map(source => ({
+      key: 'gateway:' + source.id, label: source.label || source.id, enabled: source.enabled !== false, display: source.display || 'both',
+    }));
+    const custom = (config.customBalances || []).map((entry, index) => ({
+      key: 'custom:' + index, label: entry.label || entry.labelEn || ('自定义余额 ' + (index + 1)),
+      enabled: entry.enabled === true, display: entry.display || 'both',
+    }));
+    const fixed = [
+      { key: 'balance', label: uiText('余额'), enabled: (config.balance || {}).enabled !== false, display: (config.balance || {}).display || 'both' },
+      { key: 'budget', label: uiText('预算'), enabled: (config.budget || {}).enabled === true, display: (config.budget || {}).display || 'both' },
+      { key: 'go', label: 'OpenCode Go', enabled: (config.goQuota || {}).enabled === true, display: (config.goQuota || {}).display || 'both' },
+      { key: 'peak', label: uiText('峰谷'), enabled: (config.peak || {}).enabled !== false, display: (config.peak || {}).display || 'both' },
+    ];
+
+    const all = fixed.concat(plans, gateway, custom);
+    const inSidebar = item => item.enabled && (item.display === 'sidebar' || item.display === 'both');
+    const visible = all.filter(inSidebar);
+
+    const cells = [];
+    const used = new Set();
+    const push = item => { if (item && !used.has(item.key)) { used.add(item.key); cells.push(item); } };
+    if (Array.isArray(order)) {
+      for (const key of order) {
+        if (typeof key !== 'string') continue;
+        const hit = visible.find(item => item.key === key.trim());
+        if (hit) push(hit);
+      }
+    }
+    // 未在排序配置里的可见分区按默认顺序补齐，保证用户总能调到每一项
+    for (const item of visible) push(item);
+    // 只列可见分区：不可见的 15 家 plan 全列会让这页渲染量暴涨、滑动卡顿。
+    // 用户先在各家卡片的「显示位置」里设为侧栏/两者，这里才会出现可排序行。
+    return cells;
+  },
+
+  moveSidebarOrder(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    const dir = Number(e.currentTarget.dataset.dir);
+    const cells = (this.data.sidebarOrderCells || []).slice();
+    const target = index + dir;
+    if (index < 0 || target < 0 || target >= cells.length) return;
+    const picked = cells.splice(index, 1)[0];
+    cells.splice(target, 0, picked);
+    this.setData({ sidebarOrderCells: cells });
+    this.commitPatch({ sidebarOrder: cells.map(item => item.key) });
+  },
+  resetSidebarOrder() {
+    this.setData({ sidebarOrderCells: this.buildSidebarOrderCells(this.config || {}, this.dashboardFrame, []) });
+    this.commitPatch({ sidebarOrder: [] });
   },
 
   displayLabel(display) {
@@ -356,6 +775,17 @@ Page({
   headersToText(headers) {
     if (!headers || typeof headers !== 'object') return '';
     return Object.keys(headers).map(name => name + ': ' + headers[name]).join('\n');
+  },
+  /** request.body 可能是字符串或 JSON 对象，统一转成可编辑文本。 */
+  bodyToText(body) {
+    if (body === undefined || body === null || body === '') return '';
+    if (typeof body === 'string') return body;
+    try { return JSON.stringify(body, null, 2); } catch (e) { return ''; }
+  },
+  textToBody(text) {
+    const value = String(text || '').trim();
+    if (!value) return '';
+    try { return JSON.parse(value); } catch (e) { return value; }
   },
   textToHeaders(text) {
     const headers = {};
@@ -393,7 +823,8 @@ Page({
     if (!this.alive || store.state.connection !== 'connected') return false;
     const generation = this.requestGeneration;
     const owner = this.owner;
-    this.setData({ saving: options.key || 'settings' });
+    // 本地表单已改，先让 applyFrame 的帧缓存失效，否则预览不会反映这次编辑
+    this._applyStamp = null;    this.setData({ saving: options.key || 'settings' });
     try {
       const frame = await store.client.requestCostMeter('update', { patch });
       if (!this.isCurrent(generation, owner)) return false;
@@ -446,11 +877,17 @@ Page({
   // ---------- display / format ----------
 
   pickCurrency() {
-    wx.showActionSheet({ itemList: ['人民币 CNY', '美元 USD'], success: res => {
-      const currency = res.tapIndex === 0 ? 'CNY' : 'USD';
-      const symbol = currency === 'CNY' ? '¥' : '$';
-      this.setData({ displayForm: Object.assign({}, this.data.displayForm, { currency, symbol }) });
-      this.commitPatch({ currency, symbol });
+    wx.showActionSheet({ itemList: ['人民币 CNY', '美元 USD', '欧元 EUR'], success: res => {
+      const currency = res.tapIndex === 0 ? 'CNY' : res.tapIndex === 1 ? 'USD' : 'EUR';
+      const previous = this.data.displayForm || {};
+      // 符号仅在仍是「旧币种默认值」时跟随切换；用户自定义过符号就保留，
+      // 这样货币与符号可以分别编辑，不会互相覆盖。
+      const previousDefault = previous.currency === 'USD' ? '$' : previous.currency === 'EUR' ? '€' : '¥';
+      const customized = !!previous.symbol && previous.symbol !== previousDefault;
+      const fallback = currency === 'CNY' ? '¥' : currency === 'USD' ? '$' : '€';
+      const symbol = customized ? previous.symbol : fallback;
+      this.setData({ displayForm: Object.assign({}, previous, { currency, symbol }) });
+      this.commitPatch(customized ? { currency } : { currency, symbol });
     } });
   },
 
@@ -464,11 +901,16 @@ Page({
     this.setData({ 'displayForm.exchangeRate': e.detail.value });
   },
   commitDisplay() {
-    this.commitPatch({
-      symbol: this.data.displayForm.symbol,
-      decimals: Number(this.data.displayForm.decimals),
-      exchangeRate: Number(this.data.displayForm.exchangeRate),
-    });
+    // 空值/非法值不提交，避免 Number('')===0 触发插件校验报错把用户卡在错误态。
+    const form = this.data.displayForm || {};
+    const patch = {};
+    if (String(form.symbol || '').trim()) patch.symbol = String(form.symbol).trim();
+    const decimals = Number(form.decimals);
+    if (Number.isInteger(decimals) && decimals >= 2 && decimals <= 6) patch.decimals = decimals;
+    const rate = Number(form.exchangeRate);
+    if (Number.isFinite(rate) && rate > 0 && rate <= 1000) patch.exchangeRate = rate;
+    if (!Object.keys(patch).length) return;
+    this.commitPatch(patch);
   },
   pickSidebarStyle(e) {
     const picked = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.id;
@@ -492,6 +934,39 @@ Page({
     this.setData({ 'displayForm.sidebarVisible': visible });
     this.commitPatch({ display: { sidebarVisible: visible } });
   },
+  toggleTodayInline(e) {
+    const inline = !!(e && e.detail && e.detail.value);
+    this.setData({ 'displayForm.sidebarTodayBalanceInline': inline });
+    this.commitPatch({ display: { sidebarTodayBalanceInline: inline } });
+  },
+  pickTodayMetric() {
+    wx.showActionSheet({ itemList: ['仅金额', '仅 Token', '金额 + Token'], success: res => {
+      const metric = res.tapIndex === 0 ? 'amount' : res.tapIndex === 1 ? 'tokens' : 'both';
+      this.setData({ 'displayForm.sidebarTodayMetric': metric });
+      this.commitPatch({ display: { sidebarTodayMetric: metric } });
+    } });
+  },
+  pickPeakTimeDisplay() {
+    wx.showActionSheet({ itemList: ['倒计时 + 切换时间', '只看倒计时', '只看切换时间'], success: res => {
+      const value = res.tapIndex === 0 ? 'both' : res.tapIndex === 1 ? 'countdown' : 'switch';
+      this.setData({ 'displayForm.peakTimeDisplay': value, 'peakForm.peakTimeDisplay': value });
+      this.commitPatch({ display: { peakTimeDisplay: value } });
+    } });
+  },
+  pickBarDirection(scope) {
+    wx.showActionSheet({ itemList: ['已用', '剩余'], success: res => {
+      const value = res.tapIndex === 0 ? 'used' : 'remaining';
+      if (scope === 'balance') {
+        this.setData({ 'balanceForm.barDirection': value });
+        this.commitPatch({ balance: { barDirection: value } });
+      } else {
+        this.setData({ 'budgetForm.barDirection': value });
+        this.commitPatch({ budget: { barDirection: value } });
+      }
+    } });
+  },
+  pickBalanceBarDirection() { this.pickBarDirection('balance'); },
+  pickBudgetBarDirection() { this.pickBarDirection('budget'); },
   pickPeakStyle() {
     wx.showActionSheet({ itemList: ['进度条', '经典'], success: res => {
       const style = res.tapIndex === 0 ? 'progress' : 'classic';
@@ -509,6 +984,11 @@ Page({
   },
   pickBalanceDisplay() { this.pickDisplay(value => { this.setData({ 'balanceForm.display': value }); this.commitPatch({ balance: { display: value } }); }); },
   pickBalanceRefresh() { this.pickRefresh(value => { this.setData({ 'balanceForm.refreshMinutes': value }); this.commitPatch({ balance: { refreshMinutes: value } }); }); },
+  toggleBalanceProgress(e) {
+    const show = !!(e && e.detail && e.detail.value);
+    this.setData({ 'balanceForm.showProgressBar': show });
+    this.commitPatch({ balance: { showProgressBar: show } });
+  },
   onBalanceKeyInput(e) { this.setData({ balanceKeyDraft: e.detail.value }); },
   async saveBalanceKey() {
     const value = String(this.data.balanceKeyDraft || '').trim();
@@ -579,10 +1059,23 @@ Page({
     this.commitPatch({ budget: { enabled } });
   },
   onBudgetAmountInput(e) { this.setData({ 'budgetForm.amount': e.detail.value }); },
+  onBudgetCustomStart(e) { this.setData({ 'budgetForm.customStart': e.detail.value }); },
+  onBudgetCustomEnd(e) { this.setData({ 'budgetForm.customEnd': e.detail.value }); },
   commitBudget() {
-    const amount = Number(this.data.budgetForm.amount);
+    const form = this.data.budgetForm;
+    const amount = Number(form.amount);
     if (!Number.isFinite(amount) || amount < 0) { wx.showToast({ title: uiText('请输入有效的预算金额'), icon: 'none' }); return; }
-    this.commitPatch({ budget: { amount, enabled: this.data.budgetForm.enabled, period: this.data.budgetForm.period } });
+    const patch = { amount, enabled: form.enabled === true, period: form.period || 'month', detail: form.detail !== false };
+    if (form.period === 'custom') {
+      patch.customStart = String(form.customStart || '').trim();
+      patch.customEnd = String(form.customEnd || '').trim();
+    }
+    this.commitPatch({ budget: patch });
+  },
+  toggleBudgetDetail(e) {
+    const detail = !!(e && e.detail && e.detail.value);
+    this.setData({ 'budgetForm.detail': detail });
+    this.commitPatch({ budget: { detail } });
   },
   pickBudgetPeriod() {
     wx.showActionSheet({ itemList: BUDGET_PERIODS.map(item => item.label), success: res => {
@@ -625,6 +1118,42 @@ Page({
         this.commitPatch({ peak: { windows } });
       },
     });
+  },
+  onPeakHolidaysInput(e) { this.setData({ 'peakForm.holidaysText': e.detail.value }); },
+  commitPeakHolidays() {
+    const days = String(this.data.peakForm.holidaysText || '')
+      .split(/[,，\s]+/).map(item => item.trim()).filter(Boolean);
+    const invalid = days.find(day => !/^\d{4}-\d{2}-\d{2}$/.test(day));
+    if (invalid) { wx.showToast({ title: uiText('节假日应使用 YYYY-MM-DD 格式'), icon: 'none' }); return; }
+    this.commitPatch({ peak: { holidays: days.slice(0, 100) } });
+  },
+  togglePeakAlert(e) {
+    const on = !!(e && e.detail && e.detail.value);
+    this.setData({ 'peakForm.peakAlertEnabled': on });
+    this.commitPatch({ peak: { peakAlertEnabled: on } });
+  },
+  onPeakAlertAheadInput(e) { this.setData({ 'peakForm.peakAlertAhead': e.detail.value }); },
+  commitPeakAlert() {
+    const ahead = Number(this.data.peakForm.peakAlertAhead);
+    if (!Number.isInteger(ahead) || ahead < 1 || ahead > 30) {
+      wx.showToast({ title: uiText('提前提醒应为 1–30 分钟'), icon: 'none' });
+      return;
+    }
+    this.commitPatch({ peak: { peakAlertAhead: ahead } });
+  },
+  pickPeakAlertTarget() {
+    wx.showActionSheet({ itemList: ['峰和谷', '进入峰时', '进入谷时'], success: res => {
+      const value = res.tapIndex === 0 ? 'both' : res.tapIndex === 1 ? 'peak' : 'offpeak';
+      this.setData({ 'peakForm.peakAlertTarget': value });
+      this.commitPatch({ peak: { peakAlertTarget: value } });
+    } });
+  },
+  pickPeakAlertPosition() {
+    wx.showActionSheet({ itemList: ['右下角', '屏幕中心'], success: res => {
+      const value = res.tapIndex === 0 ? 'corner' : 'center';
+      this.setData({ 'peakForm.peakAlertPosition': value });
+      this.commitPatch({ peak: { peakAlertPosition: value } });
+    } });
   },
 
   // ---------- generic pickers ----------
@@ -691,12 +1220,6 @@ Page({
     });
     this.commitPatch({ codingPlans: { [cell.id]: patch } });
   },
-  onPlanKeyInput(e) {
-    const index = Number(e.currentTarget.dataset.index);
-    const cell = this.data.planCells[index];
-    if (!cell) return;
-    this.setData({ planKeyDrafts: Object.assign({}, this.data.planKeyDrafts, { [cell.id]: e.detail.value }) });
-  },
   savePlanKey(e) {
     const index = Number(e.currentTarget.dataset.index);
     const cell = this.data.planCells[index];
@@ -729,8 +1252,19 @@ Page({
   async addCustom() {
     if (this.data.customCells.length >= 8) { wx.showToast({ title: uiText('最多配置 8 条自定义余额'), icon: 'none' }); return; }
     const entries = (this.data.config.customBalances || []).concat([defaultCustomEntry()]);
-    const ok = await this.commitPatch({ customBalances: entries });
-    if (ok) this.setData({ expandedCustom: entries.length - 1 });
+    // 先标记展开再提交：commitPatch 内部的 applyFrame 会用当前 expandedCustom
+    // 重建 customCells，若放在 await 之后，新条目会以收起态渲染，用户点"展开"
+    // 反而变成收起，需要点两次才能编辑。
+    this.setData({ expandedCustom: entries.length - 1 });
+    await this.commitPatch({ customBalances: entries });
+  },
+  /** 按参考实现的预设新增：阿里云千问 / Token Rhythm / WorkBuddy2API 积分。 */
+  async addCustomPreset(e) {
+    const kind = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.kind;
+    if (this.data.customCells.length >= 8) { wx.showToast({ title: uiText('最多配置 8 条自定义余额'), icon: 'none' }); return; }
+    const entries = (this.data.config.customBalances || []).concat([customPreset(kind)]);
+    this.setData({ expandedCustom: entries.length - 1 });
+    await this.commitPatch({ customBalances: entries });
   },
   async saveCustom(e) {
     const index = Number(e.currentTarget.dataset.index);
@@ -742,6 +1276,7 @@ Page({
       enabled: cell.enabled === true,
       adapter: cell.adapter || 'custom',
       label: String(cell.label || '').slice(0, 40),
+      labelEn: String(cell.labelEn || '').slice(0, 40),
       unit: String(cell.unit || 'USD').slice(0, 16),
       display: cell.display || 'both',
       refreshMinutes: cell.refreshMinutes || 15,
@@ -753,6 +1288,7 @@ Page({
         url: String(cell.request && cell.request.url || '').slice(0, 2048),
         method: cell.request && cell.request.method === 'POST' ? 'POST' : 'GET',
         headers: this.textToHeaders(cell.headersText),
+        body: String(cell.request && cell.request.body || '').slice(0, 8192),
       },
       extract: {
         remaining: this.textToRule(cell.extractRemaining),
@@ -779,17 +1315,20 @@ Page({
   },
   toggleCustomExpand(e) {
     const index = Number(e.currentTarget.dataset.index);
-    this.setData({ expandedCustom: this.data.expandedCustom === index ? -1 : index });
-    this.applyFrame();
-  },
-  onCustomFieldInput(e) {
-    const index = Number(e.currentTarget.dataset.index);
-    const field = e.currentTarget.dataset.field;
-    this.setData({ [`customCells[${index}].${field}`]: e.detail.value });
+    const next = this.data.expandedCustom === index ? -1 : index;
+    this.setData({
+      expandedCustom: next,
+      // 只翻转展开态，不走 applyFrame：帧内容没变，重建整个 cells 列表既慢又会被帧缓存跳过
+      customCells: (this.data.customCells || []).map((cell, i) => (i === index ? Object.assign({}, cell, { expanded: next === index }) : cell)),
+    });
   },
   onCustomRequestInput(e) {
     const index = Number(e.currentTarget.dataset.index);
     const field = e.currentTarget.dataset.field;
+    if (field === 'body') {
+      this.setData({ [`customCells[${index}].request.body`]: e.detail.value });
+      return;
+    }
     this.setData({ [`customCells[${index}].request.${field}`]: e.detail.value });
   },
   pickCustomAdapter(e) {
@@ -809,11 +1348,11 @@ Page({
   },
   pickCustomMethod(e) {
     const index = Number(e.currentTarget.dataset.index);
-    wx.showActionSheet({ itemList: ['GET', 'POST'], success: res => this.setData({ [`customCells[${index}].request.method`]: res.tapIndex === 1 ? 'POST' : 'GET' }) });
-  },
-  onCustomKeyInput(e) {
-    const index = Number(e.currentTarget.dataset.index);
-    this.setData({ customKeyDrafts: Object.assign({}, this.data.customKeyDrafts, { [index]: e.detail.value }) });
+    wx.showActionSheet({ itemList: ['GET', 'POST'], success: res => {
+      const method = res.tapIndex === 1 ? 'POST' : 'GET';
+      const cells = (this.data.customCells || []).map((cell, i) => (i === index ? Object.assign({}, cell, { request: Object.assign({}, cell.request, { method }) }) : cell));
+      this.setData({ customCells: cells, sheetCustom: Object.assign({}, this.data.sheetCustom, { request: Object.assign({}, this.data.sheetCustom.request, { method }) }) });
+    } });
   },
   saveCustomKey(e) {
     const index = Number(e.currentTarget.dataset.index);
@@ -835,8 +1374,9 @@ Page({
   async addGateway() {
     if (this.data.gatewayCells.length >= 4) { wx.showToast({ title: uiText('最多配置 4 个网关额度来源'), icon: 'none' }); return; }
     const sources = ((this.data.config.gatewayQuotas && this.data.config.gatewayQuotas.sources) || []).concat([defaultGatewaySource()]);
-    const ok = await this.commitPatch({ gatewayQuotas: { sources } });
-    if (ok) this.setData({ expandedGateway: sources.length - 1 });
+    // 同 addCustom：先标记展开，否则 applyFrame 重建后新来源呈收起态。
+    this.setData({ expandedGateway: sources.length - 1 });
+    await this.commitPatch({ gatewayQuotas: { sources } });
   },
   async saveGateway(e) {
     const index = Number(e.currentTarget.dataset.index);
@@ -882,17 +1422,6 @@ Page({
   pickGatewayRefresh(e) {
     const index = Number(e.currentTarget.dataset.index);
     this.pickRefresh(value => this.setData({ [`gatewayCells[${index}].refreshMinutes`]: value }));
-  },
-  onGatewayFieldInput(e) {
-    const index = Number(e.currentTarget.dataset.index);
-    const field = e.currentTarget.dataset.field;
-    this.setData({ [`gatewayCells[${index}].${field}`]: e.detail.value });
-  },
-  onGatewayKeyInput(e) {
-    const index = Number(e.currentTarget.dataset.index);
-    const cell = this.data.gatewayCells[index];
-    if (!cell) return;
-    this.setData({ gatewayKeyDrafts: Object.assign({}, this.data.gatewayKeyDrafts, { [cell.id]: e.detail.value }) });
   },
   saveGatewayKey(e) {
     const index = Number(e.currentTarget.dataset.index);

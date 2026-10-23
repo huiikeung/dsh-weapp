@@ -20,7 +20,8 @@ const compiler = process.env.WECHAT_WCC
 
 function sampleBrowserValue(overrides) {
   const requests = [];
-  for (let i = 0; i < 4; i += 1) {
+  // Six requests: enough for the 5th-column step flag to render in the template.
+  for (let i = 0; i < 6; i += 1) {
     requests.push({
       seq: 10 + i * 10,
       time: 1791807408490 + i * 1000,
@@ -57,6 +58,13 @@ function sampleBrowserValue(overrides) {
     lastAnswer: '同步完成。',
     requests: requests,
     events: [{ seq: 20, time: 1791807500000, kind: 'compaction', tokens: 1024 }],
+    // Live surface the DNA face reads, in storage order (not reading order).
+    surface: [
+      { seq: 60, cat: 'tool', tokens: 300 },
+      { seq: 10, cat: 'user', tokens: 123 },
+      { seq: 20, cat: 'assistant', tokens: 900 },
+      { seq: 30, cat: 'inject', tokens: 40 }
+    ],
     usage: { uncachedInputTokens: 100, cacheReadTokens: 900, cacheWriteTokens: 50, outputTokens: 80 },
     breakdown: { systemTokens: 2154, toolsTokens: 10439, messageTokens: 1323 }
   }, overrides || {});
@@ -69,6 +77,7 @@ function pageFixture() {
   let definition;
   const calls = [];
   const panelPrefs = { value: { context: true, fleet: true }, read() { return { ...this.value }; } };
+  const wx = { hideKeyboard() {}, nextTick: fn => fn() };
   const store = {
     state: { sessions: [], archivedSessionIds: [], connection: 'connected' },
     sessionState: {
@@ -87,7 +96,7 @@ function pageFixture() {
     client: {}
   };
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), {
-    Page: value => { definition = value; }, wx: { hideKeyboard() {}, nextTick: fn => fn() }, console,
+    Page: value => { definition = value; }, wx, console,
     setTimeout: () => 1, clearTimeout: () => {},
     require: name => name.endsWith('/store') ? store
       : name.endsWith('/haptics') ? { vibrate: () => calls.push(['haptic']), tick: () => calls.push(['tick']) }
@@ -110,29 +119,60 @@ function pageFixture() {
     },
     startScrollPolling() {}, stopScrollPolling() {}, refreshBottomAnchor() {}
   };
-  return { page, calls, store, panelPrefs };
+  return { page, calls, store, panelPrefs, wx };
 }
+
+test('statistics flow computes four visible animated connector paths from measured nodes', () => {
+  const { page, wx } = pageFixture();
+  page.data.tab = 'context';
+  wx.createSelectorQuery = () => {
+    const results = [
+      { left: 20, top: 100, width: 375, height: 600 },
+      { left: 32, top: 130, width: 155, height: 100 },
+      { left: 220, top: 130, width: 155, height: 100 },
+      { left: 60, top: 330, width: 255, height: 100 },
+      { left: 32, top: 530, width: 155, height: 60 },
+      { left: 220, top: 530, width: 155, height: 60 }
+    ];
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect() { return query; } }; },
+      exec(callback) { callback(results); }
+    };
+    return query;
+  };
+  page.drawContextFlow();
+  const links = page.data.contextFlowLinks;
+  assert.ok(links.length > 4, 'curves are decomposed into native segments');
+  assert.deepEqual(new Set(links.filter(item => item.kind === 'glow').map(item => item.style.match(/background:([^;]+)/)[1])),
+    new Set(['#22C55E', '#A855F7', '#14B8A6', '#EC4899']));
+  assert.ok(links.some(item => item.kind === 'dash' && item.style.includes('animation-delay')));
+});
 
 test('browser cursor handlers walk requests and reset to the current composition', () => {
   const { page } = pageFixture();
   page.data.tab = 'context';
   page.setData(page.contextPanelPatch());
   const browser = page.data.contextPanel.browser;
-  assert.equal(browser.isCurrent, true);
-  assert.equal(browser.selectedIndex, browser.options.length - 1);
-  // 上一步 → 停在最新一条历史请求。
+  assert.equal(browser.isCurrent, false);
+  assert.equal(browser.selectedSeq, 60, 'the browser initially follows the latest trend bar');
+  assert.equal(browser.selectedIndex, browser.options.length - 2);
+  // 上一步 → 跟随趋势退到较早请求（seq 50）。
   page.contextBrowserStep({ currentTarget: { dataset: { step: '-1' } } });
-  assert.equal(page.data.contextBrowserSeq, 40);
+  assert.equal(page.data.contextBrowserSeq, 50);
   assert.equal(page.data.contextPanel.browser.isCurrent, false);
   assert.equal(page.data.contextPanel.browser.promptText, '11.2k');
   // 继续往更早走。
   page.contextBrowserStep({ currentTarget: { dataset: { step: '-1' } } });
-  assert.equal(page.data.contextBrowserSeq, 30);
+  assert.equal(page.data.contextBrowserSeq, 40);
   // 下一步回到更新的请求，最后回到「当前（下一次请求）」。
   page.contextBrowserStep({ currentTarget: { dataset: { step: '1' } } });
-  assert.equal(page.data.contextBrowserSeq, 40);
+  assert.equal(page.data.contextBrowserSeq, 50);
+  page.contextBrowserStep({ currentTarget: { dataset: { step: '1' } } });
+  assert.equal(page.data.contextPanel.browser.selectedSeq, 60);
   page.contextBrowserStep({ currentTarget: { dataset: { step: '1' } } });
   assert.equal(page.data.contextBrowserSeq, null);
+  assert.equal(page.data.contextBrowserIsCurrent, true);
   assert.equal(page.data.contextPanel.browser.isCurrent, true);
   assert.equal(page.data.contextPanel.browser.canNext, false);
 });
@@ -204,13 +244,47 @@ test('context content opens are deduplicated and preserve the host truncation ma
   assert.equal(page.data.contextNodeLoadingSeq, null);
 });
 
+test('trend selection and the context browser stay linked in both directions', () => {
+  const { page } = pageFixture();
+  page.data.tab = 'context';
+  page.setData(page.contextPanelPatch());
+
+  // 默认浏览器跟随趋势图最新一条；「当前（下一次请求）」仍可单独选取。
+  assert.equal(page.data.contextPanel.browser.selectedSeq, 60);
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 60);
+
+  // 点趋势柱 → 浏览器跟着切到同一请求，展开它的实际拼接内容。
+  page.contextTrendSelect({ currentTarget: { dataset: { seq: '20' } } });
+  assert.equal(page.data.contextTrendSeq, 20);
+  assert.equal(page.data.contextBrowserSeq, 20, 'the browser follows the bar');
+  assert.equal(page.data.contextPanel.browser.isCurrent, false);
+  assert.equal(page.data.contextPanel.trendDetail.seq, 20);
+
+  // 浏览器后退一步 → 趋势图选中项回写，不会形成往返抖动。
+  page.contextBrowserStep({ currentTarget: { dataset: { step: '-1' } } });
+  assert.equal(page.data.contextBrowserSeq, 10);
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 10, 'the bar follows the browser');
+
+  // 下拉跳到另一条 → 两边仍一致。
+  page.contextBrowserPick({ detail: { value: '3' } });
+  assert.equal(page.data.contextBrowserSeq, 40);
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 40);
+
+  // 再点一次取消固定，趋势与浏览器一起回到最新历史请求。
+  page.contextTrendSelect({ currentTarget: { dataset: { seq: '40' } } });
+  assert.equal(page.data.contextTrendSeq, null);
+  assert.equal(page.data.contextPanel.browser.selectedSeq, 60);
+  assert.equal(page.data.contextPanel.browser.isCurrent, false);
+  assert.equal(page.data.contextPanel.trend.selectedSeq, page.data.contextPanel.browser.selectedSeq);
+});
+
 test('trend controls select a request, change grouping, and switch to delta mode', () => {
   const { page } = pageFixture();
   page.data.tab = 'context';
   page.setData(page.contextPanelPatch());
   assert.equal(page.data.contextPanel.trend.groupBy, 'step');
   assert.equal(page.data.contextPanel.trend.displayMode, 'total');
-  assert.equal(page.data.contextPanel.trend.selectedSeq, 40);
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 60);
 
   page.contextTrendSelect({ currentTarget: { dataset: { seq: '20' } } });
   assert.equal(page.data.contextPanel.trend.selectedSeq, 20);
@@ -220,12 +294,71 @@ test('trend controls select a request, change grouping, and switch to delta mode
   assert.equal(page.data.contextPanel.trend.selectedSeq, 20, 'tapping the active auto-resolved group keeps the selection');
 
   page.contextTrendGroup({ currentTarget: { dataset: { group: 'turn' } } });
-  assert.equal(page.data.contextTrendSeq, null);
+  assert.equal(page.data.contextTrendSeq, 20);
   assert.equal(page.data.contextPanel.trend.groupBy, 'turn');
-  assert.equal(page.data.contextPanel.trendDetail.seq, 40);
+  assert.equal(page.data.contextPanel.trendDetail.seq, 20);
   page.contextTrendMode({ currentTarget: { dataset: { mode: 'delta' } } });
   assert.equal(page.data.contextPanel.trend.displayMode, 'delta');
-  assert.equal(page.data.contextPanel.trend.bars[0].positiveHeight, 46);
+  // Delta geometry is px primitives now: the two arms always sum to the plot height.
+  assert.equal(
+    page.data.contextPanel.trend.upPx + page.data.contextPanel.trend.downPx,
+    contextView.TREND_CHART_H
+  );
+  assert.ok(page.data.contextPanel.trend.bars[0].growth > 0);
+  assert.equal(page.data.contextPanel.trend.bars[0].growthText.charAt(0), '+');
+  // The turn strip rides the same grid in both granularities.
+  assert.ok(page.data.contextPanel.trend.turnStrip.length > 0);
+  // Switching to delta drops DNA, which has no signed change to show.
+  page.contextTrendDna();
+  assert.equal(page.data.contextTrendDna, true);
+  page.contextTrendMode({ currentTarget: { dataset: { mode: 'total' } } });
+  assert.equal(page.data.contextPanel.trend.displayMode, 'total');
+  assert.equal(page.data.contextPanel.trend.dna, true);
+  assert.ok(page.data.contextPanel.trend.bars[0].dna !== null);
+  assert.ok(page.data.contextPanel.trend.bars[0].dna.length > 0);
+  page.contextTrendMode({ currentTarget: { dataset: { mode: 'delta' } } });
+  assert.equal(page.data.contextPanel.trend.dna, false, 'delta mode cannot show DNA bands');
+  assert.equal(page.data.contextPanel.trend.bars[0].dna, null);
+
+  // The overview is the other face of the same chart: turning it on clears DNA.
+  page.contextTrendOverview();
+  assert.equal(page.data.contextTrendOverview, true);
+  assert.equal(page.data.contextTrendDna, false);
+  assert.equal(page.data.contextPanel.trend.overview, true);
+  assert.equal(page.data.contextPanel.trend.dna, false);
+  assert.equal(page.data.contextPanel.trend.ribbon.count, page.data.contextPanel.trend.count);
+  assert.equal(page.data.contextPanel.trend.ribbon.bands.length, contextView.CATEGORY_KEYS.length);
+  assert.equal(page.data.contextBrowserSeq, page.data.contextPanel.trend.selectedSeq, 'the browser stays on the bar selected by the overview');
+  // Turning DNA back on drops the overview.
+  page.contextTrendDna();
+  assert.equal(page.data.contextTrendDna, true);
+  assert.equal(page.data.contextTrendOverview, false);
+});
+
+test('adaptive, duration, overview, turn selection and context browser stay in sync', () => {
+  const { page } = pageFixture();
+  page.data.tab = 'context';
+  page.setData(page.contextPanelPatch());
+
+  page.contextTrendAdaptive();
+  assert.equal(page.data.contextPanel.trend.adaptive, true);
+  assert.equal(page.data.contextPanel.trend.overview, false);
+  assert.equal(page.data.contextBrowserSeq, page.data.contextPanel.trend.selectedSeq);
+
+  page.contextTrendDuration();
+  assert.equal(page.data.contextPanel.trend.showDuration, false);
+  assert.equal(page.data.contextPanel.trend.hasDuration, false);
+  page.contextTrendDuration();
+  assert.equal(page.data.contextPanel.trend.showDuration, true);
+
+  page.contextTrendOverview();
+  assert.equal(page.data.contextPanel.trend.overview, true);
+  assert.equal(page.data.contextPanel.trend.adaptive, false, 'overview replaces adaptive scaling');
+  assert.equal(page.data.contextBrowserSeq, page.data.contextPanel.trend.selectedSeq);
+
+  page.contextTrendPickTurn({ currentTarget: { dataset: { turn: '2' } } });
+  assert.equal(page.data.contextPanel.trendDetail.turnText, '第 2 轮');
+  assert.equal(page.data.contextBrowserSeq, page.data.contextPanel.trend.selectedSeq);
 });
 
 test('disabled session panels disappear and an active hidden panel falls back to conversation', () => {
@@ -286,6 +419,8 @@ test('native session template renders v2 context/fleet panels without throwing',
     themeClass: '',
     contextMounted: true,
     fleetMounted: true,
+    contextFlowLinks: [{ key: 'flow-test', kind: 'glow', style: 'left:1px;top:2px;width:10px;' }],
+    contextFlowW: 320, contextFlowH: 600,
     rows: [], images: [], queue: [], tasks: [], folds: {},
     ui: snapshot.ui || {},
     stats: {}, commandMenu: null,
@@ -294,9 +429,18 @@ test('native session template renders v2 context/fleet panels without throwing',
   };
   const readyTree = JSON.stringify(render({ ...base }, {}, {}));
   assert.ok(readyTree.includes('ctx-browser'), 'browser card renders');
+  assert.ok(readyTree.includes('ctx-flow-segment'), 'statistics flow uses renderable native view segments');
   assert.ok(readyTree.includes('ctx-trend-controls'), 'trend grouping and display controls render');
   assert.ok(readyTree.includes('ctx-trend-detail'), 'selected request details render');
-  assert.ok(readyTree.includes('ctx-trend-delta-plot'), 'delta chart mode renders');
+  assert.ok(readyTree.includes('ctx-trend-deltaplot'), 'delta chart mode renders');
+  assert.ok(readyTree.includes('ctx-trend-axis-tick'), 'y-axis ticks render');
+  assert.ok(readyTree.includes('ctx-trend-grid'), 'grid lines render');
+  assert.ok(readyTree.includes('ctx-trend-turn'), 'turn strip renders');
+  assert.ok(readyTree.includes('ctx-trend-flagpole'), 'step flags render');
+  const template = fs.readFileSync(path.join(root, 'pages/session/session.wxml'), 'utf8');
+  assert.ok(template.indexOf('<!-- 上下文趋势 -->') < template.indexOf("ui['上下文浏览器']"), 'context browser follows the trend chart');
+  assert.ok(template.includes("ui['DNA 模式']") && template.includes("ui['自适应']") && template.includes("ui['耗时']"), 'plugin trend modes are exposed');
+  assert.doesNotMatch(template, /class="ctx-trend-marker(?:\s|")/, 'trend has no scissors overlay');
   assert.ok(readyTree.includes('ctx-timeline'), 'timing timeline renders');
   assert.ok(readyTree.includes('ctx-donut'), 'donuts render');
   assert.ok(readyTree.includes('fleet-answer'), 'fleet latest answer renders');

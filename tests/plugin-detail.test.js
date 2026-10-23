@@ -26,12 +26,14 @@ test('detail header has one back link and no decorative right circle', () => {
   for (const text of ['来源信息', '代码来源', 'bundle.experimental', 'item.description', 'item.id']) assert.ok(xml.includes(text));
 });
 test('original desktop icon is shared by list and detail; component fallback matches desktop', () => {
-  assert.equal(artworkFor(name), '/pages/plugin-detail/assets/plugin-artwork/desktop/dsh-experimental-session-titles-bundle.svg');
+  assert.equal(artworkFor(name), '/assets/plugin-artwork/desktop/dsh-experimental-session-titles-bundle.svg');
   assert.ok(fs.readFileSync(path.join(root,artworkFor(name).slice(1)),'utf8').includes('session-title-bubble'));
-  assert.equal(artworkFor('',true), '/pages/plugin-detail/assets/plugin-artwork/subagent.png');
+  assert.equal(artworkFor('',true), '/assets/icons/dsh-team.svg');
   for (const icon of [artworkFor(name), artworkFor('',true), pluginListArtwork.artworkFor(name), pluginListArtwork.artworkFor('',true)]) {
-    assert.ok(fs.existsSync(path.join(root, icon.slice(1))), 'missing subpackage artwork: ' + icon);
+    assert.ok(fs.existsSync(path.join(root, icon.slice(1))), 'missing artwork: ' + icon);
   }
+  assert.equal(pluginListArtwork.artworkFor('shell'), '/assets/icons/dsh-bash.svg');
+  assert.equal(pluginListArtwork.artworkFor('unlisted-plugin'), '/assets/icons/dsh-plugin.svg');
   assert.equal(imageSource('./icon.svg'), null); assert.equal(imageSource('javascript:alert(1)'), null);
   assert.equal(imageSource('https://example.com/icon.svg'), 'https://example.com/icon.svg');
 });

@@ -2,7 +2,7 @@
 //
 // 输入是网关 `context-dashboard` 帧的 value（mobileContext wire view +
 // breakdown/usage/stats），输出是页面可直接渲染的视图模型：所有 label 在
-// 这里通过注入的 t() 本地化，所有数字格式化、比例、堆叠柱、✂ 标记都在
+// 这里通过注入的 t() 本地化，所有数字格式化、比例和堆叠柱都在
 // 这里算好，WXML 只做插值（不写复杂表达式）。
 //
 // 该模块不依赖 wx / 页面，可直接在 Node 中 require 测试。
@@ -26,12 +26,33 @@ var CATEGORY_LABELS = {
 };
 var MESSAGE_KEYS = ['user', 'inject', 'skill', 'assistant', 'tool'];
 var TREND_KEYS = ['system', 'tools', 'user', 'inject', 'skill', 'assistant', 'tool'];
-var MAX_TREND_BARS = 120;
-var MAX_TREND_STEPS = 200;
-var TREND_LABEL_GAP = 5;
-// 趋势柱列宽（rpx）：与 session.wxss 的 .ctx-trend-col / gap 保持一致。
-var TREND_BAR_PITCH = 24;
-var TREND_BAR_GAP = 6;
+// 趋势图几何：与 dsh-context trendWindow.ts / trendChart.tsx / trendChart.css 逐值对齐。
+// dsh 用 px（14px 柱 + 2px 缝 + 112px 绘图区 + 18px 顶 padding），小程序按 rpx = px × 2
+// 落地，在 375pt 机上得到与 Web 面板完全一致的真实像素几何。
+var TREND_BAR_W = 28;
+var TREND_BAR_GAP = 4;
+var TREND_BAR_PITCH = TREND_BAR_W + TREND_BAR_GAP;
+var TREND_CHART_H = 224;
+var TREND_TOP_PAD = 36;
+var TREND_CHART_BOX = TREND_CHART_H + TREND_TOP_PAD;
+// 轴/网格刻度：top 36 / q3 92 / mid 148 / q1 204 / zero 260（与 .lc-grid 一致）。
+var TREND_AXIS_W = 80;
+var TREND_TURN_H = 28;
+var TREND_TURN_GAP = TREND_BAR_GAP;
+var TREND_TURN_MARGIN = 8;
+var TREND_STEP_FLAG_EVERY = 5;
+var TREND_RISE_CAP = 200;
+var TREND_WINDOW_MIN = 240;
+// 自动聚合阈值：超过这么多列时默认切到按轮，避免密到无法读。
+// 与 dsh-context 的 DOM 窗口阈值（TREND_WINDOW_MIN）是两件事，各自取值。
+var TREND_AUTO_TURN_BARS = 120;
+var TREND_WINDOW_OVERSCAN = 36;
+var TREND_WINDOW_HYSTERESIS = 8;
+var TREND_LABEL_FONT = 20;
+var TREND_LABEL_FONT_MIN = 12;
+var TREND_MARKER_FONT = 22;
+var TREND_FLAG_FONT = 18;
+var TREND_AXIS_FONT = 22;
 var MAX_EVENTS = 12;
 var MAX_TOOL_ROWS = 3;
 var MAX_FILE_ROWS = 30;
@@ -426,7 +447,10 @@ function normalizeRequest(request) {
     tool: num(source.tool),
     items: normalizedItems,
     prompt: finiteNumber(source.prompt) ? num(source.prompt) : null,
-    output: finiteNumber(source.output) ? num(source.output) : null
+    output: finiteNumber(source.output) ? num(source.output) : null,
+    // The duration curve's per-request active time; absent when the fold had no
+    // step boundary to measure (undefined, not 0 — a 0 would draw a flat line).
+    activeMs: finiteNumber(source.activeMs) ? num(source.activeMs) : undefined
   };
 }
 
@@ -438,30 +462,58 @@ function deriveTrend(value, t, options) {
     .filter(function (request) { return Number.isFinite(request.seq); })
     .sort(function (a, b) { return a.seq - b.seq; });
   var totalCount = requests.length;
-  var groupBy = opts.groupBy === 'turn' ? 'turn' : (opts.groupBy === 'step' ? 'step' : (totalCount > MAX_TREND_BARS ? 'turn' : 'step'));
+  // dsh-context auto-picks turn granularity past its own bar budget so the
+  // chart never degenerates into an unreadable haircomb.
+  var groupBy = opts.groupBy === 'turn' ? 'turn' : (opts.groupBy === 'step' ? 'step' : (totalCount > TREND_AUTO_TURN_BARS ? 'turn' : 'step'));
   var displayMode = opts.displayMode === 'delta' ? 'delta' : 'total';
+  // The overview ribbon squashes the whole session into the pane width; it is
+  // mutually exclusive with DNA and adaptive visible-window scaling.
+  var overviewOn = opts.overview === true;
+  var adaptiveOn = opts.adaptive === true && !overviewOn;
+  var durationOn = opts.showDuration !== false;
+  // dsh-context aggregateByTurn: a run of equal turns collapses to its LAST
+  // record, tagged `stepCount`; `activeMs` is the run's SUM.
   var bars = requests;
   var aggregated = groupBy === 'turn';
   if (groupBy === 'turn') {
-    // Keep the last request per turn; missing turn ids remain separate steps.
-    var lastByTurn = Object.create(null);
-    var order = [];
+    var collapsed = [];
+    var runSteps = 0;
+    var runActiveMs = 0;
+    var runHasActiveMs = false;
     requests.forEach(function (request) {
-      var key = request.turn > 0 ? 'turn-' + request.turn : 'seq-' + request.seq;
-      if (!Object.prototype.hasOwnProperty.call(lastByTurn, key)) order.push(key);
-      lastByTurn[key] = request;
+      var last = collapsed.length > 0 ? collapsed[collapsed.length - 1] : null;
+      if (last !== null && (last.turn || 0) === (request.turn || 0)) {
+        runSteps += 1;
+        if (request.activeMs !== undefined) { runActiveMs += request.activeMs; runHasActiveMs = true; }
+        // The LAST record stands for the run, tagged with the run's step count
+        // and the SUM of its steps' active time (dsh-context aggregateByTurn).
+        var merged = {};
+        for (var key in request) merged[key] = request[key];
+        merged.stepCount = runSteps;
+        if (runHasActiveMs) merged.activeMs = runActiveMs;
+        collapsed[collapsed.length - 1] = merged;
+      } else {
+        runSteps = 1;
+        runActiveMs = request.activeMs || 0;
+        runHasActiveMs = request.activeMs !== undefined;
+        var first = {};
+        for (var firstKey in request) first[firstKey] = request[firstKey];
+        first.stepCount = 1;
+        collapsed.push(first);
+      }
     });
-    bars = order.map(function (key) { return lastByTurn[key]; });
-  } else if (bars.length > MAX_TREND_STEPS) {
-    bars = bars.slice(-MAX_TREND_STEPS);
+    bars = collapsed;
   }
   var maxTotal = 0;
-  var maxChange = 0;
+  var maxUp = 0;
+  var maxDown = 0;
+  var maxActiveMs = 0;
   var rows = bars.map(function (request) {
     var total = request.total;
     var sum = TREND_KEYS.reduce(function (acc, key) { return acc + request[key]; }, 0);
     if (total <= 0) total = sum;
     if (total > maxTotal) maxTotal = total;
+    if (request.activeMs !== undefined && request.activeMs > maxActiveMs) maxActiveMs = request.activeMs;
     return { request: request, total: total };
   });
   if (maxTotal <= 0) maxTotal = 1;
@@ -475,25 +527,90 @@ function deriveTrend(value, t, options) {
     });
     row.positiveTotal = positive;
     row.negativeTotal = negative;
-    if (positive > maxChange) maxChange = positive;
-    if (negative > maxChange) maxChange = negative;
+    if (positive > maxUp) maxUp = positive;
+    if (negative > maxDown) maxDown = negative;
   });
-  if (maxChange <= 0) maxChange = 1;
+  var visibleRange = isObject(opts.visibleRange) ? opts.visibleRange : null;
+  if (adaptiveOn && visibleRange) {
+    var from = Math.max(0, Math.floor(num(visibleRange.from)));
+    var to = Math.min(rows.length - 1, Math.floor(num(visibleRange.to)));
+    if (to >= from) {
+      maxTotal = 0;
+      maxUp = 0;
+      maxDown = 0;
+      maxActiveMs = 0;
+      for (var visibleIndex = from; visibleIndex <= to; visibleIndex += 1) {
+        var visibleRow = rows[visibleIndex];
+        if (visibleRow.total > maxTotal) maxTotal = visibleRow.total;
+        if (visibleRow.positiveTotal > maxUp) maxUp = visibleRow.positiveTotal;
+        if (visibleRow.negativeTotal > maxDown) maxDown = visibleRow.negativeTotal;
+        if (visibleRow.request.activeMs !== undefined && visibleRow.request.activeMs > maxActiveMs) {
+          maxActiveMs = visibleRow.request.activeMs;
+        }
+      }
+    }
+  }
+  if (maxActiveMs <= 0) maxActiveMs = 1;
+  // dsh-context trendMaxima: the axis scale and the ribbon's px-per-token.
+  var span = Math.max(1, maxUp + maxDown);
+  var deltaScale = TREND_CHART_H / span;
+  var upPx = Math.round(maxUp * deltaScale);
+  var downPx = TREND_CHART_H - upPx;
+  // A delta quarter mark yields when its label box would overlap the zero label.
+  var q3Clear = Math.abs(92 - 13 - upPx) >= 22;
+  var q1Clear = Math.abs(204 - 13 - upPx) >= 22;
   var events = (Array.isArray(value.events) ? value.events : []).filter(function (event) {
     return isObject(event) && (event.kind === 'compaction' || event.kind === 'prune');
   });
+  // dsh-context attachMarkers: each boundary event attaches to the first
+  // request logged at/after it, so the detail panel and the chart agree.
   var markers = {};
   events.forEach(function (event) {
     var seq = num(event.seq);
     for (var i = 0; i < rows.length; i += 1) {
       if (rows[i].request.seq >= seq) {
-        markers[i] = (markers[i] || 0) + 1;
+        markers[i] = event;
         break;
       }
     }
   });
-  var lastLabel = -TREND_LABEL_GAP;
-  var axis = [];
+  // Turn strip groups: `span` counts the STEP columns the group covers, so the
+  // strip blocks align with the bars in both granularities.
+  var groups = [];
+  rows.forEach(function (row) {
+    var request = row.request;
+    var turn = request.turn || 0;
+    var grp = groups.length > 0 ? groups[groups.length - 1] : null;
+    if (grp === null || grp.turn !== turn) {
+      grp = { turn: turn, count: 0, span: 0 };
+      groups.push(grp);
+    }
+    grp.count += 1;
+    grp.span += 1;
+  });
+  var turnOffsets = [];
+  var turnWidths = [];
+  (function () {
+    var x = 0;
+    groups.forEach(function (grp) {
+      var w = grp.span * TREND_BAR_PITCH - TREND_BAR_GAP;
+      turnOffsets.push(x);
+      turnWidths.push(w);
+      x += w + TREND_BAR_GAP;
+    });
+  }());
+  // Turn label auto-shrink: floor LABEL_FONT_MIN when the tightest adjacent
+  // pair would collide (mirrors dsh-context's labelFont chain).
+  var labelFont = '';
+  (function () {
+    var scale = 1;
+    for (var i = 0; i + 1 < groups.length; i += 1) {
+      var avail = (turnWidths[i] + turnWidths[i + 1]) / 2 + TREND_BAR_GAP;
+      var need = (6.5 * String(groups[i].turn).length + 6.5 * String(groups[i + 1].turn).length) / 2 + 2;
+      if (need > avail) scale = Math.min(scale, avail / need);
+    }
+    if (scale < 1) labelFont = Math.max(TREND_LABEL_FONT_MIN, Math.floor(TREND_LABEL_FONT * scale)) + 'rpx';
+  }());
   var selectedSeq = finiteNumber(opts.selectedSeq) ? num(opts.selectedSeq) : null;
   var selectedIndex = -1;
   if (selectedSeq !== null) {
@@ -503,61 +620,156 @@ function deriveTrend(value, t, options) {
   }
   if (selectedIndex < 0 && rows.length) selectedIndex = rows.length - 1;
   if (selectedIndex >= 0) selectedSeq = rows[selectedIndex].request.seq;
+  var riseFrom = Math.max(0, rows.length - TREND_RISE_CAP);
+  var windowed = rows.length > TREND_WINDOW_MIN;
+  // DNA and the overview ribbon are mutually exclusive faces of the same chart
+  // (dsh-context: the overview is "exclusive with DNA mode and Adaptive").
+  var dnaOn = opts.dna === true && displayMode !== 'delta' && !overviewOn && !adaptiveOn;
   var result = rows.map(function (row, index) {
     var request = row.request;
-    var groupValue = groupBy === 'turn'
-      ? request.turn
-      : (request.step > 0 ? request.step : index + 1);
-    var previousRequest = index > 0 ? rows[index - 1].request : null;
-    var previousGroupValue = previousRequest
-      ? (groupBy === 'turn' ? previousRequest.turn : (previousRequest.step > 0 ? previousRequest.step : index))
-      : null;
-    var groupChanged = index === 0 || (previousRequest && request.turn !== previousRequest.turn)
-      || (groupBy === 'turn' ? request.turn !== previousGroupValue : groupValue !== previousGroupValue);
-    var showGroup = index === 0 || (groupChanged && index - lastLabel >= TREND_LABEL_GAP);
-    if (showGroup) {
-      lastLabel = index;
-      axis.push({ key: 'axis-' + index, left: index * TREND_BAR_PITCH,
-        text: groupBy === 'turn'
-          ? t('第 {n} 轮', { n: groupValue })
-          : t('第 {n} 步', { n: groupValue }) });
-    }
+    var marker = markers[index];
+    // Step flags: a pole every TREND_STEP_FLAG_EVERY columns, step granularity only.
+    var flag = groupBy === 'step' && (index + 1) % TREND_STEP_FLAG_EVERY === 0 ? index + 1 : null;
     var segments = [];
     var decreaseSegments = [];
     TREND_KEYS.forEach(function (key) {
       var amount = request[key];
       if (displayMode === 'delta' && index > 0) amount -= rows[index - 1].request[key];
-      if (amount > 0) segments.push({ key: key, weight: amount });
-      else if (displayMode === 'delta' && amount < 0) decreaseSegments.push({ key: key, weight: -amount });
+      if (amount > 0) segments.push({ key: key, px: Math.max(1, Math.round(amount * deltaScale)) });
+      else if (displayMode === 'delta' && amount < 0) decreaseSegments.push({ key: key, px: Math.max(1, Math.round(-amount * deltaScale)) });
     });
     var growth = row.positiveTotal;
     var decrease = row.negativeTotal;
+    // px (not %) heights: the stack is content-driven, so % heights would
+    // collapse against an indefinite base (dsh-context .lc-bar-stack note).
+    var stackSegments = segments.map(function (seg) {
+      return { key: seg.key, px: displayMode === 'delta' ? seg.px : Math.max(1, Math.round(request[seg.key] / maxTotal * TREND_CHART_H)) };
+    });
+    // DNA face: one band per item the model read, in reading order, on the same
+    // total/maxTotal scale as the segmented stack.
+    var dnaBands = null;
+    if (dnaOn) {
+      var rawBands = dnaBandsAt(value, request.seq);
+      dnaBands = rawBands.map(function (band) {
+        return { key: band.key, px: Math.max(1, Math.round(band.tokens / maxTotal * TREND_CHART_H)), tokens: band.tokens };
+      });
+    }
     return {
-      // seq 唯一且稳定：刷新时未变化的柱子可以继续做深比较，避免整块 setData。
       key: 'bar-' + request.seq,
       seq: request.seq,
+      turn: request.turn,
       seqText: '#' + request.seq,
       total: row.total,
       totalText: formatCompact(row.total),
-      height: displayMode === 'total'
-        ? (row.total > 0 ? Math.max(1.5, Math.round((row.total / maxTotal) * 100)) : 0)
-        : 0,
       hasData: row.total > 0,
-      segments: segments,
+      segments: stackSegments,
       decreaseSegments: decreaseSegments,
-      positiveHeight: displayMode === 'delta' && growth > 0 ? Math.max(1, Math.round((growth / maxChange) * 46)) : 0,
-      negativeHeight: displayMode === 'delta' && decrease > 0 ? Math.max(1, Math.round((decrease / maxChange) * 46)) : 0,
-      positiveText: displayMode === 'delta' ? '+' + formatCompact(growth) : '',
-      negativeText: displayMode === 'delta' && decrease > 0 ? '−' + formatCompact(decrease) : '',
-      netDelta: previousTotalOf(rows, index),
+      dna: dnaBands,
+      dnaCount: dnaBands === null ? 0 : dnaBands.length,
+      // Delta geometry as primitives: zero-line offsets in rpx, one scale for both arms.
+      upPx: upPx,
+      downPx: downPx,
+      deltaScale: deltaScale,
+      growth: growth,
+      decrease: decrease,
+      growthText: (growth > 0 ? '+' : '') + formatCompact(growth),
+      decreaseText: decrease > 0 ? '−' + formatCompact(decrease) : '',
+      marker: marker ? 'event' : '',
+      markerTitle: marker ? eventLabelOf(marker) : '',
+      flag: flag,
+      rise: index >= riseFrom,
       selected: index === selectedIndex,
-      marker: markers[index] ? '✂' + (markers[index] > 1 ? '×' + markers[index] : '') : '',
-      showTurn: showGroup,
-      turnText: showGroup
-        ? (groupBy === 'turn' ? t('第 {n} 轮', { n: groupValue }) : t('第 {n} 步', { n: groupValue }))
-        : ''
+      inTurn: opts.activeTurn !== undefined && opts.activeTurn !== null && (request.turn || 0) === opts.activeTurn,
+      dimmed: opts.activeTurn !== undefined && opts.activeTurn !== null && (request.turn || 0) !== opts.activeTurn
     };
   });
+  // Axis ticks: total mode reads maxTotal, delta mode reads the signed span.
+  var axis = displayMode === 'delta'
+    ? [
+      { key: 'top', top: 13, text: fmtSigned(maxUp) },
+      { key: 'q3', top: 41, text: q3Clear ? fmtSigned(Math.round(maxUp - span / 4)) : '' },
+      { key: 'mid', top: 69, text: '0' },
+      { key: 'q1', top: 97, text: q1Clear ? fmtSigned(Math.round(maxUp - 3 * span / 4)) : '' },
+      { key: 'bot', top: 125, text: fmtSigned(-maxDown) }
+    ]
+    : [
+      { key: 'top', top: 13, text: formatCompact(maxTotal) },
+      { key: 'q3', top: 41, text: formatCompact(Math.round(maxTotal * 3 / 4)) },
+      { key: 'mid', top: 69, text: formatCompact(Math.round(maxTotal / 2)) },
+      { key: 'q1', top: 97, text: formatCompact(Math.round(maxTotal / 4)) },
+      { key: 'bot', top: 125, text: '0' }
+    ];
+  // Duration curve geometry: one polyline over the bar area, y scaled to maxActiveMs.
+  // Every y is clamped into the plot: a stale maxActiveMs or a hostile record must
+  // not push the curve outside the module.
+  var durationRuns = [];
+  var durationDots = [];
+  if (durationOn) (function () {
+    var scale = TREND_CHART_H / maxActiveMs;
+    var clampY = function (value) { return Math.max(0, Math.min(TREND_CHART_H, value)); };
+    var run = [];
+    var flush = function () {
+      if (run.length >= 2) durationRuns.push(run.join(' '));
+      else if (run.length === 1) durationDots.push(run[0]);
+      run = [];
+    };
+    for (var i = 0; i < rows.length; i += 1) {
+      var m = rows[i].request.activeMs;
+      if (m === undefined) { flush(); continue; }
+      run.push((i * TREND_BAR_PITCH + TREND_BAR_W / 2) + ',' + Math.round(clampY(TREND_CHART_H - m * scale) * 100) / 100);
+    }
+    flush();
+  }());
+  var turnStrip = groups.map(function (grp, gi) {
+    return {
+      key: 'turn-' + gi,
+      turn: grp.turn,
+      turnText: String(grp.turn),
+      width: turnWidths[gi],
+      // Overview stretches the strip to the pane width: each block takes the
+      // share of records it covers, so it stays aligned with the ribbon.
+      flex: grp.span,
+      left: turnOffsets[gi],
+      zebra: gi % 2 === 0 ? 'even' : 'odd',
+      on: opts.activeTurn !== undefined && opts.activeTurn !== null && opts.activeTurn === grp.turn,
+      dimmed: opts.activeTurn !== undefined && opts.activeTurn !== null && opts.activeTurn !== grp.turn
+    };
+  });
+  // Right-hand duration axis (dsh-context .lc-axis-r), shown only with the curve.
+  var durationAxis = [
+    { key: 'top', top: 13, text: formatDuration(maxActiveMs) },
+    { key: 'q3', top: 41, text: formatDuration(Math.round(maxActiveMs * 3 / 4)) },
+    { key: 'mid', top: 69, text: formatDuration(Math.round(maxActiveMs / 2)) },
+    { key: 'q1', top: 97, text: formatDuration(Math.round(maxActiveMs / 4)) },
+    { key: 'bot', top: 125, text: '0' }
+  ];
+  // Overview ribbon geometry: x in record units (stretched edge to edge), y in px.
+  var ribbon = {
+    count: rows.length,
+    width: rows.length,
+    height: TREND_CHART_H,
+    bands: overviewOn ? ribbonBandsOf(rows, maxTotal) : [],
+    durationRuns: overviewOn && durationOn ? ribbonDurationRuns(rows, maxActiveMs) : [],
+    durationDots: [],
+    // Quartile and full-span flags, as percentages of the stretched width.
+    flags: overviewOn ? [
+      { key: 'q1', left: (rows.length * 0.25 / Math.max(1, rows.length)) * 100, text: formatCompact(Math.round(rows.length / 4)) },
+      { key: 'mid', left: (rows.length * 0.5 / Math.max(1, rows.length)) * 100, text: formatCompact(Math.round(rows.length / 2)) },
+      { key: 'q3', left: (rows.length * 0.75 / Math.max(1, rows.length)) * 100, text: formatCompact(Math.round(rows.length * 0.75)) },
+      { key: 'end', left: 100, text: formatCompact(rows.length) }
+    ] : [],
+    // The pinned record's cursor, as a percentage so it needs no px math.
+    cursorLeft: selectedIndex >= 0 && rows.length
+      ? ((selectedIndex + 0.5) / rows.length) * 100
+      : -1,
+    cursorSeq: selectedIndex >= 0 ? rows[selectedIndex].request.seq : null
+  };
+  var trackWidth = rows.length ? (rows.length * TREND_BAR_PITCH - TREND_BAR_GAP) : 0;
+  // .ctx-trend-chart 用 box-sizing: border-box + 左右各 4rpx padding，
+  // 所以外宽必须是轨道宽 + 两侧 padding，否则内容溢出会被裁剪切到柱子。
+  var chartWidth = trackWidth + 2 * TREND_BAR_GAP;
+  // The right-hand duration axis rides on the curve: both need readable activeMs.
+  var hasDurationData = durationOn && rows.some(function (row) { return row.request.activeMs !== undefined; });
   return {
     empty: result.length === 0,
     count: result.length,
@@ -567,18 +779,128 @@ function deriveTrend(value, t, options) {
     displayMode: displayMode,
     selectedSeq: selectedSeq,
     maxTotalText: formatCompact(maxTotal === 1 && rows.length === 0 ? 0 : maxTotal),
+    maxTotal: maxTotal,
+    maxActiveMs: maxActiveMs,
+    maxActiveMsText: formatDuration(maxActiveMs),
+    hasDuration: hasDurationData,
     bars: result,
+    // Delta zero-line geometry (rpx): the arms hang off these in delta mode.
+    upPx: upPx,
+    downPx: downPx,
     axis: axis,
-    // 末尾留出轮次标签的宽度，避免最后一条轴文字被 scroll-view 裁掉。
-    trackWidth: result.length ? (result.length * TREND_BAR_PITCH - TREND_BAR_GAP + 72) : 0
+    grid: [
+      { key: 'top', top: 0 },
+      { key: 'q3', top: 56, show: displayMode === 'total' || q3Clear },
+      { key: 'q1', top: 168, show: displayMode === 'total' || q1Clear },
+      { key: 'mid', top: 112, show: displayMode === 'total' },
+      { key: 'zero', top: TREND_CHART_H, show: true }
+    ],
+    turnStrip: turnStrip,
+    turnStripWidth: turnStrip.length ? (turnOffsets[turnOffsets.length - 1] + turnWidths[turnWidths.length - 1]) : 0,
+    labelFont: labelFont,
+    durationAxis: durationAxis,
+    hasDurationAxis: hasDurationData,
+    durationRuns: durationRuns,
+    durationDots: durationDots,
+    durationWidth: trackWidth,
+    dna: dnaOn,
+    adaptive: adaptiveOn,
+    showDuration: durationOn,
+    overview: overviewOn,
+    ribbon: ribbon,
+    windowed: windowed,
+    trackWidth: trackWidth,
+    chartWidth: chartWidth
   };
 }
 
-function previousTotalOf(rows, index) {
-  if (index <= 0) return null;
-  var current = rows[index].total;
-  var previous = rows[index - 1].total;
-  return current - previous;
+function fmtSigned(v) {
+  if (v > 0) return '+' + formatCompact(v);
+  if (v < 0) return '−' + formatCompact(-v);
+  return '0';
+}
+
+/**
+ * DNA bands for one request: every surface item the model actually read, in
+ * reading order, each as its own slice (dsh-context `dnaAt`). Steps older than
+ * a compaction are reconstructed from the removed-message archive.
+ */
+function dnaBandsAt(value, seq) {
+  var nodes = [];
+  var surface = Array.isArray(value.surface) ? value.surface : [];
+  surface.forEach(function (node) {
+    if (!isObject(node) || !finiteNumber(node.seq)) return;
+    if (num(node.seq) > seq) return;
+    nodes.push(node);
+  });
+  var archive = Array.isArray(value.archive) ? value.archive : [];
+  archive.forEach(function (node) {
+    if (!isObject(node) || !finiteNumber(node.seq)) return;
+    if (num(node.seq) > seq) return;
+    // Still live at this request: removed later, so the model did read it.
+    if (!finiteNumber(node.gone) || num(node.gone) <= seq) return;
+    nodes.push(node);
+  });
+  nodes.sort(function (a, b) { return num(a.seq) - num(b.seq); });
+  var bands = [];
+  nodes.forEach(function (node) {
+    var tokens = num(node.tokens);
+    if (tokens <= 0) return;
+    var key = text(node.cat);
+    if (CATEGORY_KEYS.indexOf(key) < 0) return;
+    bands.push({ key: key, tokens: tokens });
+  });
+  return bands;
+}
+
+/** Overview ribbon: one polygon per category, x in record units, y in px. */
+function ribbonBandsOf(rows, maxTotal) {
+  var bands = [];
+  TREND_KEYS.forEach(function (key, index) {
+    var top = [];
+    var bottom = [];
+    for (var i = 0; i < rows.length; i += 1) {
+      var request = rows[i].request;
+      var before = 0;
+      for (var j = 0; j < index; j += 1) before += request[TREND_KEYS[j]];
+      var after = before + request[key];
+      top.push(i + ',' + Math.round((TREND_CHART_H - after / maxTotal * TREND_CHART_H) * 100) / 100);
+      bottom.push(i + ',' + Math.round((TREND_CHART_H - before / maxTotal * TREND_CHART_H) * 100) / 100);
+    }
+    if (!rows.length) return;
+    // Close the polygon: right along the top edge, left along the bottom edge.
+    var points = top.join(' ');
+    for (var k = bottom.length - 1; k >= 0; k -= 1) points += ' ' + bottom[k];
+    bands.push({ key: key, points: points, hasValue: rows.some(function (row) { return row.request[key] > 0; }) });
+  });
+  return bands;
+}
+
+/** Overview ribbon's duration curve: x in record units, y clamped into the plot. */
+function ribbonDurationRuns(rows, maxActiveMs) {
+  var scale = TREND_CHART_H / maxActiveMs;
+  var clampY = function (value) { return Math.max(0, Math.min(TREND_CHART_H, value)); };
+  var runs = [];
+  var run = [];
+  var flush = function () {
+    if (run.length >= 2) runs.push(run.join(' '));
+    run = [];
+  };
+  for (var i = 0; i < rows.length; i += 1) {
+    var m = rows[i].request.activeMs;
+    if (m === undefined) { flush(); continue; }
+    run.push(i + ',' + Math.round(clampY(TREND_CHART_H - m * scale) * 100) / 100);
+  }
+  flush();
+  return runs;
+}
+
+function eventLabelOf(event) {
+  if (!isObject(event)) return '';
+  var kind = text(event.kind);
+  var at = num(event.time);
+  var when = at > 0 ? formatTime(at) + ' — ' : '';
+  return when + (kind === 'compaction' ? '压缩' : kind === 'prune' ? '剪枝' : kind);
 }
 
 function deriveTrendSelection(value, seq, t) {
@@ -596,6 +918,24 @@ function deriveTrendSelection(value, seq, t) {
   var estimated = request.total > 0 ? request.total : TREND_KEYS.reduce(function (sum, key) { return sum + request[key]; }, 0);
   var previousTotal = previous ? (previous.total || TREND_KEYS.reduce(function (sum, key) { return sum + previous[key]; }, 0)) : null;
   var difference = previousTotal === null ? null : estimated - previousTotal;
+  // Surface compaction/prune as text in the selected request detail, without
+  // adding a glyph that is absent from the mobile reference.
+  var marker = null;
+  (Array.isArray(value.events) ? value.events : []).forEach(function (event) {
+    if (!isObject(event)) return;
+    if (event.kind !== 'compaction' && event.kind !== 'prune') return;
+    if (finiteNumber(event.seq) && num(event.seq) > request.seq) return;
+    if (marker !== null && num(marker.seq) >= num(event.seq)) return;
+    marker = event;
+  });
+  var markerText = '';
+  if (marker !== null) {
+    var kind = text(marker.kind) === 'prune' ? t('剪枝') : t('压缩');
+    var reclaimed = num(marker.tokens);
+    markerText = kind
+      + (reclaimed > 0 ? ' · ' + t('回收') + ' ' + formatCompact(reclaimed) : '')
+      + (finiteNumber(marker.count) && num(marker.count) > 0 ? ' · ' + formatCompact(num(marker.count)) + ' ' + t('条') : '');
+  }
   var rows = TREND_KEYS.map(function (key) {
     var delta = previous ? request[key] - previous[key] : null;
     return {
@@ -620,6 +960,7 @@ function deriveTrendSelection(value, seq, t) {
     outputText: request.output === null ? '—' : formatCompact(request.output),
     deltaText: difference === null ? '—' : (difference > 0 ? '+' : difference < 0 ? '−' : '') + formatCompact(Math.abs(difference)),
     deltaClass: difference > 0 ? 'up' : difference < 0 ? 'down' : 'flat',
+    markerText: markerText,
     estimatedLabel: t('估算合计'),
     promptLabel: t('实际 prompt'),
     outputLabel: t('输出'),
@@ -700,7 +1041,8 @@ function deriveBrowser(value, t, options) {
   });
   entries.push({ key: 'req-current', seq: null, isCurrent: true, request: currentRequestOf(value), label: t('当前（下一次请求）') });
   var selectedIndex = entries.length - 1;
-  if (finiteNumber(opts.seq)) {
+  if (opts.current === true) selectedIndex = entries.length - 1;
+  else if (finiteNumber(opts.seq)) {
     for (var i = 0; i < entries.length; i += 1) {
       if (entries[i].seq === num(opts.seq)) { selectedIndex = i; break; }
     }
@@ -733,9 +1075,10 @@ function deriveBrowser(value, t, options) {
     empty: requests.length === 0,
     count: requests.length,
     countText: requests.length > 0 ? t('最近 {n} 条', { n: formatCompact(requests.length) }) : '',
-    options: entries.map(function (e) { return { key: e.key, seq: e.seq, label: e.label }; }),
+    options: entries.map(function (e) { return { key: e.key, seq: e.seq, isCurrent: e.isCurrent, label: e.label }; }),
     selectedIndex: selectedIndex,
     selectedLabel: selected.label,
+    selectedSeq: selected.isCurrent ? null : selected.seq,
     isCurrent: selected.isCurrent,
     historyPartial: !selected.isCurrent && finiteNumber(value.archiveFloor)
       && num(value.archiveFloor) > num(selected.seq),
@@ -929,7 +1272,13 @@ function buildPanel(dashboard, options) {
     var trend = deriveTrend(value, t, {
       groupBy: opts.trendGroupBy,
       displayMode: opts.trendDisplayMode,
-      selectedSeq: opts.trendSeq
+      selectedSeq: opts.trendSeq,
+      activeTurn: opts.trendActiveTurn,
+      dna: opts.trendDna === true,
+      overview: opts.trendOverview === true,
+      adaptive: opts.trendAdaptive === true,
+      showDuration: opts.trendShowDuration !== false,
+      visibleRange: opts.trendVisibleRange
     });
     var panel = {
       status: 'ready',
@@ -949,11 +1298,15 @@ function buildPanel(dashboard, options) {
       tokens: tokens,
       timing: deriveTiming(value, t),
       current: deriveCurrent(value, t, opts.contextPressure),
-      browser: deriveBrowser(value, t, { seq: opts.browserSeq, expanded: opts.expanded }),
+      browser: deriveBrowser(value, t, {
+        seq: opts.browserCurrent === true ? null : (finiteNumber(opts.browserSeq) ? opts.browserSeq : trend.selectedSeq),
+        current: opts.browserCurrent === true,
+        expanded: opts.expanded
+      }),
       trend: trend,
       trendDetail: deriveTrendSelection(value, trend.selectedSeq, t),
       events: deriveEvents(value, t),
-      files: deriveFileActivity(value, t, opts.browserSeq, { filter: opts.fileFilter, sort: opts.fileSort })
+      files: deriveFileActivity(value, t, opts.browserCurrent === true ? null : (finiteNumber(opts.browserSeq) ? opts.browserSeq : trend.selectedSeq), { filter: opts.fileFilter, sort: opts.fileSort })
     };
     return panel;
   } catch (error) {
@@ -1207,7 +1560,17 @@ function deriveFleetTeam(team, t) { if (!team) { return { hasTeam: false, tasks:
 module.exports = {
   CATEGORY_KEYS: CATEGORY_KEYS,
   CATEGORY_LABELS: CATEGORY_LABELS,
-  MAX_TREND_BARS: MAX_TREND_BARS,
+  // 趋势几何常量：测试用它核对与 dsh-context trendWindow/trendChart 的一致性。
+  TREND_BAR_W: TREND_BAR_W,
+  TREND_BAR_GAP: TREND_BAR_GAP,
+  TREND_BAR_PITCH: TREND_BAR_PITCH,
+  TREND_CHART_H: TREND_CHART_H,
+  TREND_TOP_PAD: TREND_TOP_PAD,
+  TREND_STEP_FLAG_EVERY: TREND_STEP_FLAG_EVERY,
+  TREND_RISE_CAP: TREND_RISE_CAP,
+  TREND_WINDOW_MIN: TREND_WINDOW_MIN,
+  TREND_WINDOW_OVERSCAN: TREND_WINDOW_OVERSCAN,
+  TREND_WINDOW_HYSTERESIS: TREND_WINDOW_HYSTERESIS,
   MAX_FLEET_AGENTS: MAX_FLEET_AGENTS,
   formatCompact: formatCompact,
   formatPercent: formatPercent,

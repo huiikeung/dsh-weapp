@@ -495,10 +495,69 @@ function quotaSidebarModel(view, style) {
   return model;
 }
 
+/** 侧栏卡片默认渲染顺序（与 quotaSidebarModel 的字段一一对应）。 */
+const SIDEBAR_DEFAULT_ORDER = ['balance', 'budget', 'go', 'plans', 'gateway', 'custom', 'peak'];
+
+/**
+ * 把侧栏模型按 sidebarOrder 摊平成一个有序 sections 数组。
+ * 每个 section: { kind, key, label, ...payload }
+ *   kind: 'balance' | 'budget' | 'go' | 'plan' | 'gateway' | 'custom' | 'peak'
+ *   key : 排序键（balance/budget/go/peak/today/models/codex 或 plan:<id> / gateway:<id>）
+ * sidebarOrder 中未提到的分区按默认顺序追加到末尾；重复/非法键忽略。
+ */
+function quotaSidebarSections(model, order) {
+  if (!model) return [];
+  const buckets = {
+    balance: model.balance ? [{ kind: 'balance', key: 'balance', label: (model.balance.title || '余额') }] : [],
+    budget: model.budget && model.budget.enabled ? [{ kind: 'budget', key: 'budget', label: '预算' }] : [],
+    go: model.go ? [{ kind: 'go', key: 'go', label: 'OpenCode Go' }] : [],
+    plans: (model.plans || []).map(plan => ({ kind: 'plan', key: 'plan:' + plan.id, label: plan.label || plan.id })),
+    gateway: (model.gateway || []).map(source => ({ kind: 'gateway', key: 'gateway:' + source.id, label: source.label || source.id })),
+    custom: (model.custom || []).map(entry => ({ kind: 'custom', key: 'custom:' + entry.index, label: entry.label || '自定义余额' })),
+    peak: model.peak ? [{ kind: 'peak', key: 'peak', label: '峰谷' }] : [],
+    // today / models / codex 在小程序侧无独立载体，保留键位以便排序配置不丢失
+    today: [], models: [], codex: [],
+  };
+
+  const sections = [];
+  const used = new Set();
+  const push = (section) => {
+    if (!section || used.has(section.key)) return;
+    used.add(section.key);
+    sections.push(section);
+  };
+
+  if (Array.isArray(order)) {
+    // 排序键的分区名与 buckets 键的映射（plan/gateway/custom 是集合，需按完整键精确匹配）
+    const HEAD_TO_BUCKET = { plan: 'plans', gateway: 'gateway', custom: 'custom' };
+    for (const raw of order) {
+      if (typeof raw !== 'string') continue;
+      const key = raw.trim();
+      if (!key) continue;
+      const colon = key.indexOf(':');
+      const head = colon > 0 ? key.slice(0, colon) : key;
+      const bucketName = HEAD_TO_BUCKET[head] || head;
+      const bucket = buckets[bucketName];
+      if (!bucket) continue;
+      if (bucketName === 'plans' || bucketName === 'gateway' || bucketName === 'custom') {
+        const hit = bucket.find(item => item.key === key);
+        if (hit) push(hit);
+      } else {
+        bucket.forEach(push);
+      }
+    }
+  }
+  // 未在 order 中出现的分区按默认顺序补齐
+  for (const head of SIDEBAR_DEFAULT_ORDER) {
+    (buckets[head] || []).forEach(push);
+  }
+  return sections;
+}
+
 module.exports = {
   UNITS, formatCurrency, formatTokens, formatPercent, formatRelativeTime,
   normalize, normalizeDashboard, validatePatch, dashboardOwner,
-  SIDEBAR_STYLES, DISPLAY_OPTIONS, PLAN_WINDOW_LABELS,
+  SIDEBAR_STYLES, DISPLAY_OPTIONS, PLAN_WINDOW_LABELS, SIDEBAR_DEFAULT_ORDER,
   quotaAmountText, quotaPercentText, quotaBarWidth, quotaResetText, quotaWindowRows,
-  normalizeQuotaDashboard, quotaSidebarModel
+  normalizeQuotaDashboard, quotaSidebarModel, quotaSidebarSections
 };

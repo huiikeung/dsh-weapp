@@ -23,7 +23,12 @@ test('subpackage artwork manifests stay inside their package roots', () => {
   for (const page of ['pages/plugins', 'pages/plugin-detail']) {
     const source = fs.readFileSync(path.join(root, page, 'plugin-artwork.js'), 'utf8');
     assert.match(source, /require\('\.\/assets\/plugin-artwork\/desktop\/manifest'\)/, page + ' loads its local manifest');
-    assert.ok(fs.existsSync(path.join(root, page, 'assets/plugin-artwork/desktop/manifest.js')), page + ' has its own packaged manifest');
+    const manifestPath = path.join(root, page, 'assets/plugin-artwork/desktop/manifest.js');
+    assert.ok(fs.existsSync(manifestPath), page + ' has its own packaged manifest');
+    for (const artwork of Object.values(require(manifestPath))) {
+      assert.ok(artwork.startsWith('/assets/plugin-artwork/desktop/'));
+      assert.ok(fs.existsSync(path.join(root, artwork.slice(1))), page + ' references shared artwork: ' + artwork);
+    }
   }
 });
 

@@ -64,6 +64,7 @@ Page({
     hostEditKb: 0,
     workspacePickerOpen: false,
     sheetTheme: 'dark',
+    themeClass: 'theme-dark',
     pickerWorkspaces: [],
     popLeft: 16,
     popTop: 140,
@@ -84,6 +85,7 @@ Page({
     contentShifted: false,
     costDashboard: null,
     costSidebar: null,
+    costSections: [],
     costCardError: '',
     publicAccessDialog: null,
     publicAccessDialogOpen: false
@@ -161,7 +163,11 @@ Page({
   },
 
   applySheetTheme() {
-    this.setData({ sheetTheme: theme.resolveTheme() });
+    const resolved = theme.resolveTheme();
+    // themeClass 驱动 app.wxss 的语义变量（--surface/--text/--border…）。
+    // 首页早先只切 drawer-dark，手动深色下变量仍是浅色值，额度卡片等
+    // 用 var() 的组件会变成深字深底；这里补上类名切换。
+    this.setData({ sheetTheme: resolved, themeClass: 'theme-' + resolved });
   },
 
   onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
@@ -228,7 +234,7 @@ Page({
       this._costMeterCache = null;
       this._costMeterAttempt = null;
       if (conn !== 'connected' && (this.data.costDashboard || this.data.costSidebar || this.data.costCardError)) {
-        this.setData({ costDashboard: null, costSidebar: null, costCardError: '' });
+        this.setData({ costDashboard: null, costSidebar: null, costSections: [], costCardError: '' });
       }
     }
     if (this._scanRelayPending && (conn === 'connected' || conn === 'failed')) {
@@ -993,7 +999,7 @@ Page({
         this._costMeterGeneration = (this._costMeterGeneration || 0) + 1;
         this._costMeterAttempt = null;
       }
-      this.setData({ costDashboard: null, costSidebar: null, costCardError: '' });
+      this.setData({ costDashboard: null, costSidebar: null, costSections: [], costCardError: '' });
       return;
     }
     const capabilities = store.state.gatewayCapabilities || [];
@@ -1003,7 +1009,7 @@ Page({
         this._costMeterGeneration = (this._costMeterGeneration || 0) + 1;
       }
       this._costMeterAttempt = null;
-      this.setData({ costDashboard: null, costSidebar: null, costCardError: uiText('当前网关尚未开放此功能，请更新网关后重试。') });
+      this.setData({ costDashboard: null, costSidebar: null, costSections: [], costCardError: uiText('当前网关尚未开放此功能，请更新网关后重试。') });
       return;
     }
 
@@ -1013,7 +1019,7 @@ Page({
       this._costMeterOwner = owner;
       this._costMeterCache = null;
       this._costMeterAttempt = null;
-      this.setData({ costDashboard: null, costSidebar: null, costCardError: '' });
+      this.setData({ costDashboard: null, costSidebar: null, costSections: [], costCardError: '' });
     }
     const cached = this._costMeterCache;
     if (!force && cached && cached.owner === owner && now - cached.at < 30000) {
@@ -1040,6 +1046,7 @@ Page({
       this.setData({
         costDashboard: null,
         costSidebar: null,
+        costSections: [],
         costCardError: error.code === 'cost-meter-unavailable' ? uiText('费用服务暂不可用，请重启 DSH 后重试') : uiText('额度数据暂不可用'),
       });
     }).finally(() => {
@@ -1048,17 +1055,37 @@ Page({
   },
 
   /** 把网关返回的额度 dashboard 转成侧栏可渲染的视图模型。 */
+  /** 按排序键取侧栏模型中的对应项，供 WXML 的 sections 渲染使用。 */
+  planOf(key) {
+    const id = String(key || '').slice(5);
+    return (this.data.costSidebar && this.data.costSidebar.plans || []).find(item => item.id === id) || {};
+  },
+  gatewayOf(key) {
+    const id = String(key || '').slice(8);
+    return (this.data.costSidebar && this.data.costSidebar.gateway || []).find(item => item.id === id) || { accounts: [] };
+  },
+  customOf(key) {
+    const index = Number(String(key || '').slice(7));
+    return (this.data.costSidebar && this.data.costSidebar.custom || [])[index] || {};
+  },
+
   applyQuotaFrame(dashboard, summary) {
     const view = costView.normalizeQuotaDashboard(dashboard, summary);
     if (!view) {
-      if (this.data.costDashboard || this.data.costSidebar) this.setData({ costDashboard: null, costSidebar: null });
+      if (this.data.costDashboard || this.data.costSidebar) this.setData({ costDashboard: null, costSidebar: null, costSections: [] });
       return;
     }
     const visible = view.display && view.display.sidebarVisible === true;
     const sidebar = visible ? costView.quotaSidebarModel(view, view.display.sidebarStyle) : null;
     const nextSidebar = sidebar && !sidebar.empty ? sidebar : null;
-    if (JSON.stringify(this.data.costDashboard) !== JSON.stringify(view) || JSON.stringify(this.data.costSidebar) !== JSON.stringify(nextSidebar)) {
-      this.setData({ costDashboard: view, costSidebar: nextSidebar, costCardError: '' });
+    // 按网关下发的 sidebarOrder 摊平成分区序列，侧栏按这个顺序渲染。
+    const sections = nextSidebar
+      ? costView.quotaSidebarSections(nextSidebar, dashboard && dashboard.settings && dashboard.settings.sidebarOrder)
+      : [];
+    if (JSON.stringify(this.data.costDashboard) !== JSON.stringify(view)
+      || JSON.stringify(this.data.costSidebar) !== JSON.stringify(nextSidebar)
+      || JSON.stringify(this.data.costSections) !== JSON.stringify(sections)) {
+      this.setData({ costDashboard: view, costSidebar: nextSidebar, costSections: sections, costCardError: '' });
     }
   },
 });

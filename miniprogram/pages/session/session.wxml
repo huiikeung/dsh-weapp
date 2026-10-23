@@ -386,7 +386,7 @@
         <image class="context-refresh-ic" src="/assets/icons/{{theme === 'dark' ? 'refresh.png' : 'refresh-ink.png'}}" mode="aspectFit"/>
       </view>
     </view>
-    <scroll-view class="context-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+    <scroll-view class="context-scroll" scroll-y enhanced show-scrollbar="{{false}}" bindscroll="contextPanelScroll">
       <view wx:if="{{!contextPanel || contextPanel.status === 'loading'}}" class="context-state">
         <view class="state-spinner"></view>
         <text class="context-state-text">{{ui['正在加载上下文…']}}</text>
@@ -411,7 +411,10 @@
 <view wx:if="{{contextPanel.running}}" class="fleet-pulse on ctx-live-dot"></view>
 </view>
 <view class="ctx-flow" id="ctxFlow">
-<canvas type="2d" id="ctxFlowCanvas" class="ctx-flow-canvas" style="width:{{ctxFlowW}}px;height:{{ctxFlowH}}px;"></canvas>
+<!-- 用原生 view 线段拼成平滑连接曲线；微信小程序不稳定支持 WXML 内联 SVG。 -->
+<view wx:if="{{contextFlowLinks.length}}" class="ctx-flow-canvas" style="width:{{contextFlowW}}px;height:{{contextFlowH}}px;">
+  <view wx:for="{{contextFlowLinks}}" wx:key="key" class="ctx-flow-segment ctx-flow-{{item.kind}}" style="{{item.style}}" />
+</view>
 <view class="ctx-flow-row ctx-flow-row-top">
 <view class="ctx-flow-node" id="ctxNodeInputs">
 <view class="ctx-flow-head"><text class="ctx-tile-label">{{ui['输入输出']}}</text><text class="ctx-flow-total">{{contextPanel.stats.ioTotalText}}</text></view>
@@ -550,6 +553,155 @@
 </block>
 </view>
 
+
+
+        <!-- 上下文趋势 -->
+        <view class="ctx-card">
+          <view class="ctx-card-head">
+            <text class="ctx-card-title">{{ui['上下文趋势']}}</text>
+            <text class="ctx-card-sub">{{contextPanel.trend.count}}/{{contextPanel.trend.totalCount}}</text>
+          </view>
+          <view class="ctx-trend-controls">
+            <view class="ctx-trend-control-group">
+              <view class="ctx-trend-control {{contextPanel.trend.dna ? 'active' : ''}}" bindtap="contextTrendDna" hover-class="press-dim" role="button">{{ui['DNA 模式']}}</view>
+              <view class="ctx-trend-control {{contextPanel.trend.adaptive ? 'active' : ''}}" bindtap="contextTrendAdaptive" hover-class="press-dim" role="button">{{ui['自适应']}}</view>
+              <view class="ctx-trend-control {{contextPanel.trend.showDuration ? 'active' : ''}}" bindtap="contextTrendDuration" hover-class="press-dim" role="button">{{ui['耗时']}}</view>
+              <view class="ctx-trend-control {{contextPanel.trend.overview ? 'active' : ''}}" bindtap="contextTrendOverview" hover-class="press-dim" role="button">{{ui['总览']}}</view>
+            </view>
+            <view class="ctx-trend-control-group">
+              <view class="ctx-trend-control {{contextPanel.trend.groupBy === 'step' ? 'active' : ''}}" bindtap="contextTrendGroup" data-group="step" hover-class="press-dim" role="button">{{ui['按步骤']}}</view>
+              <view class="ctx-trend-control {{contextPanel.trend.groupBy === 'turn' ? 'active' : ''}}" bindtap="contextTrendGroup" data-group="turn" hover-class="press-dim" role="button">{{ui['按轮次']}}</view>
+            </view>
+            <view class="ctx-trend-control-group">
+              <view class="ctx-trend-control {{contextPanel.trend.displayMode === 'total' ? 'active' : ''}}" bindtap="contextTrendMode" data-mode="total" hover-class="press-dim" role="button">{{ui['全量']}}</view>
+              <view class="ctx-trend-control {{contextPanel.trend.displayMode === 'delta' ? 'active' : ''}}" bindtap="contextTrendMode" data-mode="delta" hover-class="press-dim" role="button">{{ui['增量']}}</view>
+            </view>
+            <text wx:if="{{contextPanel.trend.aggregated}}" class="ctx-trend-aggregate-note">{{ui['按轮聚合']}}</text>
+          </view>
+          <view wx:if="{{contextPanel.trend.empty}}" class="ctx-empty">{{ui['暂无上下文数据']}}</view>
+          <!-- 总览：整段会话压进可视宽度的连续堆叠带，不横向滚动 -->
+          <view wx:elif="{{contextPanel.trend.overview}}" class="ctx-trend-row">
+            <view class="ctx-trend-axis">
+              <text wx:for="{{contextPanel.trend.axis}}" wx:key="key" class="ctx-trend-axis-tick" style="top:{{item.top}}rpx;">{{item.text}}</text>
+            </view>
+            <view class="ctx-trend-main">
+              <view class="ctx-trend-fit" catchtouchstart="contextTrendFitTouch" catchtouchmove="contextTrendFitTouch" catchtouchend="contextTrendFitPick">
+                <view class="ctx-trend-chart ctx-trend-chart-fit">
+                  <view wx:for="{{contextPanel.trend.grid}}" wx:key="key" class="ctx-trend-grid ctx-trend-grid-{{item.key}}" style="top:{{item.top}}rpx;" />
+                  <!-- x 用记录序号作 viewBox 单位（整幅拉伸），y 用 px -->
+                  <svg class="ctx-trend-fit-svg" width="{{contextPanel.trend.ribbon.width}}" height="224" viewBox="0 0 {{contextPanel.trend.ribbon.width}} 224" preserveAspectRatio="none">
+                    <polygon wx:for="{{contextPanel.trend.ribbon.bands}}" wx:for-item="band" wx:key="key" class="ctx-fit-band ctx-c-{{band.key}}" points="{{band.points}}" />
+                    <polyline wx:for="{{contextPanel.trend.ribbon.durationRuns}}" wx:key="key" class="ctx-fit-duration" points="{{item}}" />
+                  </svg>
+                  <!-- 四分位/全程旗标 -->
+                  <block wx:for="{{contextPanel.trend.ribbon.flags}}" wx:key="key">
+                    <view class="ctx-trend-flagpole ctx-fit-flagpole" style="left:{{item.left}}%;">
+                      <text class="ctx-trend-flaglabel">{{item.text}}</text>
+                    </view>
+                  </block>
+                  <!-- 选中记录的光标 -->
+                  <view wx:if="{{contextPanel.trend.ribbon.cursorLeft >= 0}}" class="ctx-fit-cursor" style="left:{{contextPanel.trend.ribbon.cursorLeft}}%;" />
+                </view>
+              </view>
+              <view class="ctx-trend-turns ctx-trend-turns-fit{{contextPanel.trendActiveTurn !== null && contextPanel.trendActiveTurn !== undefined ? ' ctx-trend-turns-dim' : ''}}">
+                <view wx:for="{{contextPanel.trend.turnStrip}}" wx:key="key" class="ctx-trend-turn {{item.on ? 'on' : ''}} {{item.dimmed ? 'dimmed' : ''}} zebra-{{item.zebra}}" style="flex:{{item.flex}} 1 0;" data-turn="{{item.turn}}" bindtap="contextTrendPickTurn" hover-class="press-dim">
+                  <text class="ctx-trend-turnlabel">{{item.turnText}}</text>
+                </view>
+              </view>
+            </view>
+            <view wx:if="{{contextPanel.trend.hasDurationAxis}}" class="ctx-trend-axis ctx-trend-axis-r">
+              <text wx:for="{{contextPanel.trend.durationAxis}}" wx:key="key" class="ctx-trend-axis-tick" style="top:{{item.top}}rpx;">{{item.text}}</text>
+            </view>
+          </view>
+          <view wx:else class="ctx-trend-row">
+            <!-- Y 轴：5 档刻度，与 dsh-context .lc-axis 一致（top/q3/mid/q1/bot） -->
+            <view class="ctx-trend-axis">
+              <text wx:for="{{contextPanel.trend.axis}}" wx:key="key" class="ctx-trend-axis-tick" style="top:{{item.top}}rpx;">{{item.text}}</text>
+            </view>
+            <view class="ctx-trend-main">
+              <scroll-view class="ctx-trend-scroll" scroll-x enhanced show-scrollbar="{{false}}" catchtouchstart="noop" bindscroll="contextTrendScroll" scroll-into-view="{{contextPanel.trendAnchor}}">
+                <view class="ctx-trend-chart" style="width:{{contextPanel.trend.chartWidth}}rpx;">
+                  <!-- 网格线：total 模式 5 条全显；delta 模式 q3/q1 让位给零线标签 -->
+                  <view wx:for="{{contextPanel.trend.grid}}" wx:key="key" class="ctx-trend-grid ctx-trend-grid-{{item.key}}" style="top:{{item.top}}rpx;" />
+                  <!-- 步进旗标：每 5 步一根细线与编号小盒。 -->
+                  <block wx:for="{{contextPanel.trend.bars}}" wx:key="key">
+                    <view wx:if="{{item.flag}}" class="ctx-trend-flagpole" style="left:{{index * 28 + 26}}rpx;">
+                      <text class="ctx-trend-flaglabel">{{item.flag}}</text>
+                    </view>
+                  </block>
+                  <view wx:for="{{contextPanel.trend.bars}}" wx:key="key" class="ctx-trend-col {{item.selected ? 'selected' : ''}} {{item.dimmed ? 'dimmed' : ''}}" data-seq="{{item.seq}}" bindtap="contextTrendSelect" bindlongpress="contextTrendSelect" hover-class="ctx-trend-pressed" role="button" aria-label="{{item.seqText}}">
+                    <view class="ctx-trend-barwrap">
+                      <!-- DNA 模式：每个条目一条带，按模型阅读顺序排列 -->
+                      <block wx:if="{{contextPanel.trend.dna && item.dna !== null}}">
+                        <view class="ctx-trend-bar">
+                          <view wx:for="{{item.dna}}" wx:for-item="band" wx:key="key" class="ctx-trend-seg ctx-c-{{band.key}}" style="height:{{band.px}}rpx;" />
+                        </view>
+                      </block>
+                      <view wx:elif="{{contextPanel.trend.displayMode === 'total'}}" class="ctx-trend-bar">
+                        <view wx:for="{{item.segments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-seg ctx-c-{{seg.key}}" style="height:{{seg.px}}rpx;" />
+                      </view>
+                      <view wx:else class="ctx-trend-deltaplot">
+                        <view class="ctx-trend-deltaarm down" style="top:{{item.upPx}}rpx;">
+                          <view wx:for="{{item.decreaseSegments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-deltaseg ctx-c-{{seg.key}}" style="height:{{seg.px}}rpx;" />
+                        </view>
+                        <view class="ctx-trend-deltaarm up" style="bottom:{{item.downPx}}rpx;">
+                          <view wx:for="{{item.segments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-deltaseg ctx-c-{{seg.key}}" style="height:{{seg.px}}rpx;" />
+                        </view>
+                      </view>
+                    </view>
+                  </view>
+                  <!-- 时长曲线：一条 polyline 骑在柱区上，y 按 maxActiveMs 缩放。
+                       宽高都显式给出：只给宽度时小程序会把 viewBox 非等比拉伸，
+                       曲线被推出模块（dsh-context 的 DurationCurve 同样两个尺寸都传）。 -->
+                  <svg wx:if="{{contextPanel.trend.hasDuration}}" class="ctx-trend-duration" style="width:{{contextPanel.trend.durationWidth}}rpx;height:224rpx;" width="{{contextPanel.trend.durationWidth}}" height="224" viewBox="0 0 {{contextPanel.trend.durationWidth}} 224" preserveAspectRatio="none">
+                    <polyline wx:for="{{contextPanel.trend.durationRuns}}" wx:key="key" points="{{item}}" />
+                    <circle wx:for="{{contextPanel.trend.durationDots}}" wx:key="key" cx="{{item.split(',')[0]}}" cy="{{item.split(',')[1]}}" r="2" />
+                  </svg>
+                </view>
+              </scroll-view>
+              <!-- 轮次条：与柱网同一栅格，中性斑马纹，永不用分类色 -->
+              <scroll-view class="ctx-trend-turnscroll" scroll-x enhanced show-scrollbar="{{false}}" scroll-left="{{contextPanel.trendTurnLeft}}">
+                <view class="ctx-trend-turns" style="width:{{contextPanel.trend.turnStripWidth}}rpx;{{contextPanel.trend.labelFont ? 'font-size:' + contextPanel.trend.labelFont + ';' : ''}}">
+                  <view wx:for="{{contextPanel.trend.turnStrip}}" wx:key="key" class="ctx-trend-turn {{item.on ? 'on' : ''}} {{item.dimmed ? 'dimmed' : ''}} zebra-{{item.zebra}}" style="width:{{item.width}}rpx;" data-turn="{{item.turn}}" bindtap="contextTrendPickTurn" hover-class="press-dim">
+                    <text class="ctx-trend-turnlabel">{{item.turnText}}</text>
+                  </view>
+                </view>
+              </scroll-view>
+            </view>
+            <!-- 右侧时长轴：仅在有 activeMs 数据时出现 -->
+            <view wx:if="{{contextPanel.trend.hasDurationAxis}}" class="ctx-trend-axis ctx-trend-axis-r">
+              <text wx:for="{{contextPanel.trend.durationAxis}}" wx:key="key" class="ctx-trend-axis-tick" style="top:{{item.top}}rpx;">{{item.text}}</text>
+            </view>
+          </view>
+          <view wx:if="{{contextPanel.trendDetail.hasData}}" class="ctx-trend-detail">
+            <view class="ctx-trend-detail-head">
+              <text class="ctx-trend-detail-title">{{contextPanel.trendDetail.requestLabel}}</text>
+              <text wx:if="{{contextPanel.trendDetail.turnText}}" class="ctx-trend-detail-meta">{{contextPanel.trendDetail.turnText}}</text>
+              <text wx:if="{{contextPanel.trendDetail.stepText}}" class="ctx-trend-detail-meta">{{contextPanel.trendDetail.stepText}}</text>
+              <text class="ctx-trend-detail-meta">{{contextPanel.trendDetail.timeText}}</text>
+            </view>
+            <view class="ctx-trend-detail-summary">
+              <text>{{contextPanel.trendDetail.estimatedLabel}} {{contextPanel.trendDetail.estimatedText}}</text>
+              <text>{{contextPanel.trendDetail.promptLabel}} {{contextPanel.trendDetail.actualPromptText}}</text>
+              <text>{{contextPanel.trendDetail.outputLabel}} {{contextPanel.trendDetail.outputText}}</text>
+              <text class="ctx-trend-delta-{{contextPanel.trendDetail.deltaClass}}">{{contextPanel.trendDetail.deltaLabel}} {{contextPanel.trendDetail.deltaText}}</text>
+            </view>
+            <!-- 压缩与剪枝作为文字事件信息展示，不额外叠加剪刀图标。 -->
+            <view wx:if="{{contextPanel.trendDetail.markerText}}" class="ctx-trend-markernote">
+              <text class="ctx-trend-markernote-text">{{contextPanel.trendDetail.markerText}}</text>
+            </view>
+            <view class="ctx-trend-detail-rows">
+              <view wx:for="{{contextPanel.trendDetail.rows}}" wx:key="key" class="ctx-trend-detail-row">
+                <view class="ctx-dot ctx-c-{{item.key}}"/>
+                <text class="ctx-trend-detail-name">{{item.label}}</text>
+                <text class="ctx-trend-detail-pct">{{item.pctText}}</text>
+                <text class="ctx-trend-detail-value">{{item.valueText}}</text>
+                <text class="ctx-trend-detail-delta ctx-delta-{{item.deltaClass}}">{{item.deltaText}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+
 <view class="ctx-card">
 <view class="ctx-card-head">
 <text class="ctx-card-title">{{ui['上下文浏览器']}}</text>
@@ -594,76 +746,7 @@
 </block>
 </view>
 
-        <!-- 上下文趋势 -->
-        <view class="ctx-card">
-          <view class="ctx-card-head">
-            <text class="ctx-card-title">{{ui['上下文趋势']}}</text>
-            <text class="ctx-card-sub">{{contextPanel.trend.count}}/{{contextPanel.trend.totalCount}}</text>
-          </view>
-          <view class="ctx-trend-controls">
-            <view class="ctx-trend-control-group">
-              <view class="ctx-trend-control {{contextPanel.trend.groupBy === 'step' ? 'active' : ''}}" bindtap="contextTrendGroup" data-group="step" hover-class="press-dim" role="button">{{ui['按步骤']}}</view>
-              <view class="ctx-trend-control {{contextPanel.trend.groupBy === 'turn' ? 'active' : ''}}" bindtap="contextTrendGroup" data-group="turn" hover-class="press-dim" role="button">{{ui['按轮次']}}</view>
-            </view>
-            <view class="ctx-trend-control-group">
-              <view class="ctx-trend-control {{contextPanel.trend.displayMode === 'total' ? 'active' : ''}}" bindtap="contextTrendMode" data-mode="total" hover-class="press-dim" role="button">{{ui['总量']}}</view>
-              <view class="ctx-trend-control {{contextPanel.trend.displayMode === 'delta' ? 'active' : ''}}" bindtap="contextTrendMode" data-mode="delta" hover-class="press-dim" role="button">{{ui['增量']}}</view>
-            </view>
-            <text wx:if="{{contextPanel.trend.aggregated}}" class="ctx-trend-aggregate-note">{{ui['按轮聚合']}}</text>
-          </view>
-          <view wx:if="{{contextPanel.trend.empty}}" class="ctx-empty">{{ui['暂无上下文数据']}}</view>
-          <scroll-view wx:else class="ctx-trend-scroll" scroll-x enhanced show-scrollbar="{{false}}" catchtouchstart="noop">
-            <view class="ctx-trend-track" style="width:{{contextPanel.trend.trackWidth}}rpx;">
-              <view class="ctx-trend-bars">
-                <view wx:for="{{contextPanel.trend.bars}}" wx:key="key" class="ctx-trend-col {{item.selected ? 'selected' : ''}}" bindtap="contextTrendSelect" data-seq="{{item.seq}}" hover-class="ctx-trend-pressed" role="button" aria-label="{{item.seqText}}">
-                  <view class="ctx-trend-bar-wrap">
-                    <text wx:if="{{item.marker}}" class="ctx-trend-marker">{{item.marker}}</text>
-                    <view wx:if="{{contextPanel.trend.displayMode === 'total'}}" class="ctx-trend-bar {{item.hasData ? '' : 'empty'}}" style="height:{{item.height}}%;">
-                      <view wx:for="{{item.segments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-seg ctx-c-{{seg.key}}" style="flex:{{seg.weight}} 1 0;"/>
-                    </view>
-                    <view wx:else class="ctx-trend-delta-plot">
-                      <view class="ctx-trend-delta-stack positive" style="height:{{item.positiveHeight}}%;">
-                        <view wx:for="{{item.segments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-delta-seg ctx-c-{{seg.key}}" style="flex:{{seg.weight}} 1 0;"/>
-                      </view>
-                      <view class="ctx-trend-delta-zero"/>
-                      <view class="ctx-trend-delta-stack negative" style="height:{{item.negativeHeight}}%;">
-                        <view wx:for="{{item.decreaseSegments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-delta-seg ctx-c-{{seg.key}}" style="flex:{{seg.weight}} 1 0;"/>
-                      </view>
-                    </view>
-                  </view>
-                </view>
-              </view>
-              <view class="ctx-trend-axis">
-                <text wx:for="{{contextPanel.trend.axis}}" wx:key="key" class="ctx-trend-axis-label" style="left:{{item.left}}rpx;">{{item.text}}</text>
-              </view>
-            </view>
-          </scroll-view>
-          <view wx:if="{{contextPanel.trendDetail.hasData}}" class="ctx-trend-detail">
-            <view class="ctx-trend-detail-head">
-              <text class="ctx-trend-detail-title">{{contextPanel.trendDetail.requestLabel}}</text>
-              <text wx:if="{{contextPanel.trendDetail.turnText}}" class="ctx-trend-detail-meta">{{contextPanel.trendDetail.turnText}}</text>
-              <text wx:if="{{contextPanel.trendDetail.stepText}}" class="ctx-trend-detail-meta">{{contextPanel.trendDetail.stepText}}</text>
-              <text class="ctx-trend-detail-meta">{{contextPanel.trendDetail.timeText}}</text>
-            </view>
-            <view class="ctx-trend-detail-summary">
-              <text>{{contextPanel.trendDetail.estimatedLabel}} {{contextPanel.trendDetail.estimatedText}}</text>
-              <text>{{contextPanel.trendDetail.promptLabel}} {{contextPanel.trendDetail.actualPromptText}}</text>
-              <text>{{contextPanel.trendDetail.outputLabel}} {{contextPanel.trendDetail.outputText}}</text>
-              <text class="ctx-trend-delta-{{contextPanel.trendDetail.deltaClass}}">{{contextPanel.trendDetail.deltaLabel}} {{contextPanel.trendDetail.deltaText}}</text>
-            </view>
-            <view class="ctx-trend-detail-rows">
-              <view wx:for="{{contextPanel.trendDetail.rows}}" wx:key="key" class="ctx-trend-detail-row">
-                <view class="ctx-dot ctx-c-{{item.key}}"/>
-                <text class="ctx-trend-detail-name">{{item.label}}</text>
-                <text class="ctx-trend-detail-pct">{{item.pctText}}</text>
-                <text class="ctx-trend-detail-value">{{item.valueText}}</text>
-                <text class="ctx-trend-detail-delta ctx-delta-{{item.deltaClass}}">{{item.deltaText}}</text>
-              </view>
-            </view>
-          </view>
-        </view>
-
-        <!-- 最近上下文事件 -->
+                <!-- 最近上下文事件 -->
         <view wx:if="{{contextPanel.events.rows.length}}" class="ctx-card">
           <view class="ctx-card-head"><text class="ctx-card-title">{{ui['最近上下文事件']}}</text></view>
           <view wx:for="{{contextPanel.events.rows}}" wx:key="key" class="ctx-event-row">

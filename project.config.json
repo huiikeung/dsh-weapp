@@ -31,7 +31,7 @@
     "scopeDataCheck": false,
     "checkInvalidKey": true,
     "checkSiteMap": true,
-    "uploadWithSourceMap": true,
+    "uploadWithSourceMap": false,
     "compileHotReLoad": true,
     "useMultiFrameRuntime": true,
     "useApiHook": true,

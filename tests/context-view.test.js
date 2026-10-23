@@ -246,11 +246,72 @@ test('deriveTrend sorts requests ascending and stacks only non-zero categories',
   assert.equal(trend.count, 2);
   assert.deepEqual(trend.bars.map(bar => bar.seq), [0, 5]);
   assert.deepEqual(trend.bars[0].segments.map(segment => segment.key), ['system', 'tools', 'user', 'assistant', 'tool']);
-  assert.equal(trend.bars[0].height, 100);
-  assert.equal(trend.bars[0].showTurn, true);
-  assert.equal(trend.axis.length, 1, 'dense turn changes are thinned out');
-  assert.equal(trend.axis[0].left, 0);
-  assert.equal(trend.trackWidth, 2 * 24 - 6 + 72);
+  // px heights on the chart's own scale (not % against an indefinite base).
+  assert.equal(trend.bars[0].segments[0].px, Math.max(1, Math.round(requests(1)[0].system / trend.maxTotal * contextView.TREND_CHART_H)));
+  // 5 axis ticks, dsh-context .lc-axis: top/q3/mid/q1/bot.
+  assert.deepEqual(trend.axis.map(item => item.key), ['top', 'q3', 'mid', 'q1', 'bot']);
+  assert.deepEqual(trend.axis.map(item => item.top), [13, 41, 69, 97, 125]);
+  assert.equal(trend.axis[4].text, '0');
+  // Track width: bars × pitch − one trailing gap (no label overhang reserve).
+  assert.equal(trend.trackWidth, 2 * contextView.TREND_BAR_PITCH - contextView.TREND_BAR_GAP);
+  // 5 grid lines; the zero line is solid in both modes.
+  assert.equal(trend.grid.length, 5);
+  assert.deepEqual(trend.grid.map(item => item.key), ['top', 'q3', 'q1', 'mid', 'zero']);
+  assert.equal(trend.grid[4].show, true);
+  // Every 5th step column carries a flag; step 1 does not.
+  assert.equal(trend.bars[0].flag, null);
+  assert.equal(trend.bars[1].flag, null);
+});
+
+test('adaptive trend scales to its visible window and duration can be toggled independently', () => {
+  const value = { requests: [
+    { seq: 1, turn: 1, step: 1, system: 100, total: 100, activeMs: 100 },
+    { seq: 2, turn: 2, step: 1, system: 1000, total: 1000, activeMs: 1000 },
+    { seq: 3, turn: 3, step: 1, system: 200, total: 200, activeMs: 200 }
+  ] };
+  const adaptive = contextView.deriveTrend(value, key => key, {
+    groupBy: 'step', adaptive: true, showDuration: true, visibleRange: { from: 0, to: 0 }
+  });
+  assert.equal(adaptive.adaptive, true);
+  assert.equal(adaptive.maxTotal, 100);
+  assert.equal(adaptive.maxActiveMs, 100);
+  assert.equal(adaptive.bars[0].segments[0].px, contextView.TREND_CHART_H);
+  assert.equal(adaptive.hasDuration, true);
+
+  const withoutDuration = contextView.deriveTrend(value, key => key, {
+    groupBy: 'step', showDuration: false, overview: true
+  });
+  assert.equal(withoutDuration.showDuration, false);
+  assert.equal(withoutDuration.hasDuration, false);
+  assert.deepEqual(withoutDuration.ribbon.durationRuns, []);
+});
+
+test('deriveTrend flags every fifth step column', () => {
+  const trend = contextView.deriveTrend({ requests: requests(7) }, key => key);
+  assert.deepEqual(trend.bars.map(bar => bar.flag), [null, null, null, null, 5, null, null]);
+  // Turn granularity never shows step flags.
+  const turns = contextView.deriveTrend({ requests: requests(7) }, key => key, { groupBy: 'turn' });
+  assert.deepEqual(turns.bars.map(bar => bar.flag), [null, null, null, null, null, null, null]);
+});
+
+test('deriveTrend exposes the turn strip on the same grid as the bars', () => {
+  const trend = contextView.deriveTrend({
+    requests: [
+      { seq: 1, turn: 1, step: 1, system: 100, tools: 200, total: 300 },
+      { seq: 2, turn: 1, step: 2, system: 150, tools: 150, total: 300 },
+      { seq: 3, turn: 2, step: 1, system: 120, tools: 130, total: 250 }
+    ]
+  }, key => key);
+  assert.equal(trend.turnStrip.length, 2);
+  assert.deepEqual(trend.turnStrip.map(item => item.turn), [1, 2]);
+  // Turn 1 spans two step columns, so its block is two pitches minus one gap.
+  assert.equal(trend.turnStrip[0].width, 2 * contextView.TREND_BAR_PITCH - contextView.TREND_BAR_GAP);
+  assert.equal(trend.turnStrip[1].width, contextView.TREND_BAR_PITCH - contextView.TREND_BAR_GAP);
+  assert.equal(trend.turnStrip[0].left, 0);
+  assert.equal(trend.turnStrip[1].left, trend.turnStrip[0].width + contextView.TREND_BAR_GAP);
+  // Neutral zebra, never the category palette.
+  assert.equal(trend.turnStrip[0].zebra, 'even');
+  assert.equal(trend.turnStrip[1].zebra, 'odd');
 });
 
 test('deriveTrend aggregates more than 120 requests by turn using each turn last record', () => {
@@ -265,7 +326,7 @@ test('deriveTrend aggregates more than 120 requests by turn using each turn last
   assert.equal(trend.bars[0].seq, 2);
 });
 
-test('deriveTrend attaches ✂ markers to the first bar at/after the event seq', () => {
+test('deriveTrend attaches compaction events to the first bar at/after the event seq', () => {
   const trend = contextView.deriveTrend({
     requests: requests(5),
     events: [
@@ -274,7 +335,7 @@ test('deriveTrend attaches ✂ markers to the first bar at/after the event seq',
       { seq: 99, kind: 'inject' }
     ]
   }, key => key);
-  assert.equal(trend.bars[2].marker, '✂×2');
+  assert.equal(trend.bars[2].marker, 'event');
   assert.equal(trend.bars[0].marker, '');
   assert.equal(trend.bars[4].marker, '');
   // inject 事件不参与压缩/剪枝标记。
@@ -286,6 +347,9 @@ test('deriveTrend keeps bars empty and safe without requests', () => {
   assert.equal(trend.empty, true);
   assert.equal(trend.count, 0);
   assert.equal(trend.bars.length, 0);
+  assert.equal(trend.turnStrip.length, 0);
+  assert.equal(trend.trackWidth, 0);
+  assert.equal(trend.hasDuration, false);
 });
 
 test('deriveTrend switches step/turn grouping and shows positive and negative changes', () => {
@@ -304,15 +368,244 @@ test('deriveTrend switches step/turn grouping and shows positive and negative ch
   assert.deepEqual(delta.bars.map(bar => bar.selected), [false, true, false]);
   assert.deepEqual(delta.bars[1].segments.map(segment => segment.key), ['system']);
   assert.deepEqual(delta.bars[1].decreaseSegments.map(segment => segment.key), ['tools']);
-  assert.ok(delta.bars[1].positiveHeight > 0);
-  assert.ok(delta.bars[1].negativeHeight > 0);
-  // Axis labels are intentionally thinned to avoid overlap on dense histories.
-  assert.deepEqual(delta.axis.map(item => item.text), ['第 {n} 步']);
+  // Delta geometry as primitives: signed segment px plus one zero-line offset.
+  assert.ok(delta.bars[1].segments[0].px > 0);
+  assert.ok(delta.bars[1].decreaseSegments[0].px > 0);
+  assert.ok(delta.bars[1].growth > 0);
+  assert.ok(delta.bars[1].decrease > 0);
+  assert.equal(delta.bars[1].growthText.charAt(0), '+');
+  assert.equal(delta.bars[1].decreaseText.charAt(0), '−');
+  assert.equal(delta.upPx + delta.downPx, contextView.TREND_CHART_H);
+  // Delta axis reads the signed span, and the quarter marks yield to the zero label.
+  assert.deepEqual(delta.axis.map(item => item.key), ['top', 'q3', 'mid', 'q1', 'bot']);
+  assert.equal(delta.axis[0].text.charAt(0), '+');
+  assert.equal(delta.axis[4].text.charAt(0), '−');
+  assert.equal(delta.axis[2].text, '0');
+  assert.equal(delta.grid[4].top, contextView.TREND_CHART_H);
 
   const turns = contextView.deriveTrend(value, key => key, { groupBy: 'turn' });
   assert.equal(turns.count, 2);
   assert.deepEqual(turns.bars.map(bar => bar.seq), [2, 3], 'turn grouping keeps each turn final request');
   assert.equal(turns.selectedSeq, 3);
+});
+
+test('deriveTrend sums activeMs across a turn and feeds the duration curve', () => {
+  const value = {
+    requests: [
+      { seq: 1, turn: 1, step: 1, system: 100, tools: 0, total: 100, activeMs: 400 },
+      { seq: 2, turn: 1, step: 2, system: 120, tools: 0, total: 120, activeMs: 600 },
+      { seq: 3, turn: 2, step: 1, system: 130, tools: 0, total: 130, activeMs: 200 }
+    ]
+  };
+  // Turn granularity: turn 1's two steps collapse to one bar whose activeMs is their SUM (1000).
+  const turns = contextView.deriveTrend(value, key => key, { groupBy: 'turn' });
+  assert.equal(turns.hasDuration, true);
+  assert.equal(turns.maxActiveMs, 1000);
+  assert.equal(turns.durationRuns.length, 1);
+  let points = turns.durationRuns[0].split(' ');
+  assert.equal(points.length, 2, 'turn grouping draws one point per turn');
+  // x sits on each column's centre: i * pitch + barW / 2.
+  assert.equal(Number(points[0].split(',')[0]), contextView.TREND_BAR_W / 2);
+  assert.equal(Number(points[1].split(',')[0]), contextView.TREND_BAR_PITCH + contextView.TREND_BAR_W / 2);
+  // The largest activeMs (turn 1's 1000ms sum) reaches the plot floor.
+  assert.equal(Number(points[0].split(',')[1]), 0);
+  // Turn 2's 200ms rides 4/5 of the way down the 224rpx plot.
+  assert.equal(Number(points[1].split(',')[1]), Math.round((contextView.TREND_CHART_H - 200 / 1000 * contextView.TREND_CHART_H) * 100) / 100);
+
+  // Step granularity keeps every request's own activeMs.
+  const steps = contextView.deriveTrend(value, key => key, { groupBy: 'step' });
+  assert.equal(steps.maxActiveMs, 600);
+  points = steps.durationRuns[0].split(' ');
+  assert.equal(points.length, 3);
+  assert.equal(Number(points[1].split(',')[1]), 0, 'the 600ms step is the tallest');
+});
+
+test('deriveTrend omits the duration curve when no request carries activeMs', () => {
+  const trend = contextView.deriveTrend({
+    requests: [
+      { seq: 1, turn: 1, step: 1, system: 100, tools: 0, total: 100 },
+      { seq: 2, turn: 1, step: 2, system: 120, tools: 0, total: 120 }
+    ]
+  }, key => key);
+  assert.equal(trend.hasDuration, false);
+  assert.equal(trend.durationRuns.length, 0);
+  assert.equal(trend.durationDots.length, 0);
+});
+
+test('deriveTrend keeps the duration curve inside the plot on hostile input', () => {
+  // A record whose activeMs exceeds the fold's own maximum, plus a negative one:
+  // both must clamp into [0, CHART_H] so the polyline never paints outside the module.
+  const trend = contextView.deriveTrend({
+    requests: [
+      { seq: 1, turn: 1, step: 1, system: 100, tools: 0, total: 100, activeMs: 100 },
+      { seq: 2, turn: 1, step: 2, system: 120, tools: 0, total: 120, activeMs: 999999 },
+      { seq: 3, turn: 2, step: 1, system: 130, tools: 0, total: 130, activeMs: -50 }
+    ]
+  }, key => key, { groupBy: 'step' });
+  const points = trend.durationRuns[0].split(' ').map((point) => point.split(',').map(Number));
+  assert.equal(points.length, 3);
+  points.forEach(([, y]) => {
+    assert.ok(y >= 0, 'y never goes above the plot');
+    assert.ok(y <= contextView.TREND_CHART_H, 'y never drops below the baseline');
+  });
+  // The tallest record sits exactly on the floor; the negative one clamps to the ceiling.
+  assert.equal(points[1][1], 0);
+  assert.equal(points[2][1], contextView.TREND_CHART_H);
+});
+
+test('deriveTrend reports a chart width that covers the bars plus side padding', () => {
+  const trend = contextView.deriveTrend({ requests: requests(3) }, key => key);
+  // .ctx-trend-chart is border-box with 4rpx padding on each side; the content box
+  // must hold exactly the bar track or the overflow clip would shave the columns.
+  assert.equal(trend.chartWidth, trend.trackWidth + 2 * contextView.TREND_BAR_GAP);
+  assert.equal(trend.trackWidth, 3 * contextView.TREND_BAR_PITCH - contextView.TREND_BAR_GAP);
+});
+
+test('deriveTrend exposes a right-hand duration axis alongside the curve', () => {
+  const trend = contextView.deriveTrend({
+    requests: [
+      { seq: 1, turn: 1, step: 1, system: 100, tools: 0, total: 100, activeMs: 1000 },
+      { seq: 2, turn: 1, step: 2, system: 120, tools: 0, total: 120, activeMs: 500 }
+    ]
+  }, key => key, { groupBy: 'step' });
+  assert.equal(trend.hasDuration, true);
+  assert.equal(trend.hasDurationAxis, true);
+  assert.deepEqual(trend.durationAxis.map(item => item.key), ['top', 'q3', 'mid', 'q1', 'bot']);
+  // Same five offsets as the token axis, so the two columns line up.
+  assert.deepEqual(trend.durationAxis.map(item => item.top), [13, 41, 69, 97, 125]);
+  assert.equal(trend.durationAxis[0].text, contextView.formatDuration(1000));
+  assert.equal(trend.durationAxis[1].text, contextView.formatDuration(750));
+  assert.equal(trend.durationAxis[2].text, contextView.formatDuration(500));
+  assert.equal(trend.durationAxis[3].text, contextView.formatDuration(250));
+  assert.equal(trend.durationAxis[4].text, '0');
+
+  // Without readable activeMs there is no curve, so no second axis either.
+  const bare = contextView.deriveTrend({ requests: [{ seq: 1, turn: 1, step: 1, system: 1, tools: 1, total: 2 }] }, key => key);
+  assert.equal(bare.hasDuration, false);
+  assert.equal(bare.hasDurationAxis, false);
+});
+
+test('deriveTrend DNA mode lays one band per read item in reading order', () => {
+  const value = {
+    requests: [
+      { seq: 10, turn: 1, step: 1, system: 500, tools: 0, user: 100, total: 600 },
+      { seq: 30, turn: 1, step: 2, system: 500, tools: 0, user: 100, assistant: 200, total: 800 }
+    ],
+    surface: [
+      { seq: 30, cat: 'assistant', tokens: 200 },
+      { seq: 10, cat: 'user', tokens: 100 },
+      { seq: 40, cat: 'tool', tokens: 900 }
+    ],
+    // Removed at 30, so the model still read it at seq 10 but not at seq 30.
+    archive: [{ seq: 5, cat: 'skill', tokens: 50, gone: 30 }]
+  };
+  const trend = contextView.deriveTrend(value, key => key, { groupBy: 'step', dna: true });
+  assert.equal(trend.dna, true);
+  assert.equal(trend.bars[0].dnaCount, 2, 'system + user + archived skill');
+  // Reading order is by seq, not by the surface array's storage order.
+  assert.deepEqual(trend.bars[0].dna.map(band => band.key), ['skill', 'user']);
+  assert.deepEqual(trend.bars[1].dna.map(band => band.key), ['user', 'assistant']);
+  assert.equal(trend.bars[1].dnaCount, 2, 'the skill was compacted away by seq 30');
+
+  // DNA and delta are incompatible: DNA shows composition, not signed change.
+  const delta = contextView.deriveTrend(value, key => key, { groupBy: 'step', dna: true, displayMode: 'delta' });
+  assert.equal(delta.dna, false);
+  assert.equal(delta.bars[0].dna, null);
+
+  // DNA and the overview are mutually exclusive faces.
+  const both = contextView.deriveTrend(value, key => key, { dna: true, overview: true });
+  assert.equal(both.dna, false);
+  assert.equal(both.overview, true);
+});
+
+test('deriveTrend overview squashes the session into one stretched ribbon', () => {
+  const trend = contextView.deriveTrend({
+    requests: [
+      { seq: 1, turn: 1, step: 1, system: 100, tools: 200, user: 50, total: 350 },
+      { seq: 2, turn: 1, step: 2, system: 100, tools: 260, user: 50, total: 410 },
+      { seq: 3, turn: 2, step: 1, system: 100, tools: 300, user: 50, total: 450 }
+    ]
+  }, key => key, { groupBy: 'step', overview: true });
+  assert.equal(trend.overview, true);
+  assert.equal(trend.ribbon.count, 3);
+  assert.equal(trend.ribbon.width, 3, 'x is one unit per record');
+  assert.equal(trend.ribbon.height, contextView.TREND_CHART_H);
+  // One polygon per category — zero-value bands are emitted too and flagged, so
+  // the template can skip them without a second pass.
+  assert.equal(trend.ribbon.bands.length, contextView.CATEGORY_KEYS.length);
+  const systemBand = trend.ribbon.bands.find(band => band.key === 'system');
+  assert.ok(systemBand.hasValue);
+  const points = systemBand.points.split(' ');
+  assert.equal(points.length, 6, '3 top-edge points then 3 bottom-edge points');
+  // x runs 0,1,2 across the top edge and 2,1,0 back along the bottom.
+  assert.deepEqual(points.slice(0, 3).map(p => Number(p.split(',')[0])), [0, 1, 2]);
+  assert.deepEqual(points.slice(3).map(p => Number(p.split(',')[0])), [2, 1, 0]);
+  // system is constant 100/450 of the plot, so both edges sit near the floor.
+  const systemTop = Number(points[0].split(',')[1]);
+  const systemBottom = Number(points[5].split(',')[1]);
+  assert.ok(systemBottom > systemTop, 'the band has thickness');
+  assert.ok(systemTop > 0 && systemBottom <= contextView.TREND_CHART_H);
+  // Categories with no value are flagged so the template can skip them.
+  assert.equal(trend.ribbon.bands.find(band => band.key === 'skill').hasValue, false);
+
+  // Quartile + full-span flags, and the pinned cursor at the record's centre.
+  assert.deepEqual(trend.ribbon.flags.map(flag => flag.key), ['q1', 'mid', 'q3', 'end']);
+  assert.equal(trend.ribbon.flags[3].left, 100);
+  // The newest of 3 records is pinned at its own centre, i.e. 2.5/3 of the width.
+  assert.ok(Math.abs(trend.ribbon.cursorLeft - (2.5 / 3) * 100) < 1e-9);
+  assert.equal(trend.ribbon.cursorSeq, 3);
+  // The turn strip stretches: each block takes the share of records it covers.
+  assert.deepEqual(trend.turnStrip.map(item => item.flex), [2, 1]);
+  // Off by default.
+  const plain = contextView.deriveTrend({ requests: trend.bars.map(b => ({ seq: b.seq, turn: 1, step: 1, system: 1, total: 1 })) }, key => key);
+  assert.equal(plain.overview, false);
+  assert.equal(plain.ribbon.bands.length, 0);
+});
+
+test('deriveTrend dims other turns when one turn is focused', () => {
+  const trend = contextView.deriveTrend({
+    requests: [
+      { seq: 1, turn: 1, step: 1, system: 100, tools: 0, total: 100 },
+      { seq: 2, turn: 2, step: 1, system: 120, tools: 0, total: 120 }
+    ]
+  }, key => key, { activeTurn: 2 });
+  assert.deepEqual(trend.bars.map(bar => bar.inTurn), [false, true]);
+  assert.deepEqual(trend.bars.map(bar => bar.dimmed), [true, false]);
+  assert.deepEqual(trend.turnStrip.map(item => item.on), [false, true]);
+  assert.deepEqual(trend.turnStrip.map(item => item.dimmed), [true, false]);
+});
+
+test('deriveTrendSelection explains compaction without adding a scissors glyph', () => {
+  const value = {
+    requests: [
+      { seq: 10, turn: 1, step: 1, system: 100, tools: 0, total: 100 },
+      { seq: 20, turn: 1, step: 2, system: 100, tools: 0, total: 260 },
+      { seq: 30, turn: 2, step: 1, system: 100, tools: 0, total: 260 }
+    ],
+    events: [
+      { seq: 25, kind: 'compaction', tokens: 1024, count: 3 },
+      { seq: 99, kind: 'prune', tokens: 40 }
+    ]
+  };
+  const detail = contextView.deriveTrendSelection(value, 30, key => key);
+  assert.equal(detail.hasData, true);
+  // The compaction at seq 25 landed on/before seq 30, so it explains that bar.
+  assert.ok(detail.markerText.indexOf('压缩') === 0, 'names the event kind without a leading icon');
+  assert.equal(detail.markerText.includes('✂'), false);
+  assert.ok(detail.markerText.indexOf('1.0k') > 0, 'reports the reclaimed tokens');
+  assert.ok(detail.markerText.indexOf('3') > 0, 'reports the removed-message count');
+
+  // The prune at seq 99 is in the future: it belongs to a later bar.
+  const earlier = contextView.deriveTrendSelection(value, 10, key => key);
+  assert.equal(earlier.markerText, '', 'no event has happened yet at seq 10');
+});
+
+test('deriveTrendSelection reports no marker when nothing was compacted', () => {
+  const detail = contextView.deriveTrendSelection({
+    requests: [{ seq: 1, turn: 1, step: 1, system: 1, tools: 1, total: 2 }],
+    events: [{ seq: 1, kind: 'inject', tokens: 5 }]
+  }, 1, key => key);
+  assert.equal(detail.markerText, '', 'inject events do not create a compaction note');
 });
 
 test('deriveTrendSelection exposes request composition and provider usage details', () => {

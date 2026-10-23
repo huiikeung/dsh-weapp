@@ -1,8 +1,12 @@
 const desktop = require('./assets/plugin-artwork/desktop/manifest');
-const prefix = '/pages/plugin-detail/assets/plugin-artwork/';
-const builtins = { shell: 'shell', 'agent-loop': 'agent-loop', subagent: 'subagent', 'web-search': 'web-search' };
+const builtins = {
+  shell: '/assets/icons/dsh-bash.svg',
+  'agent-loop': '/assets/icons/dsh-agent.svg',
+  subagent: '/assets/icons/dsh-team.svg',
+  'web-search': '/assets/icons/dsh-search.svg'
+};
 function artworkFor(name, row = false) {
-  return desktop[name] ? desktop[name].replace('/assets/plugin-artwork/', prefix) : prefix + (builtins[name] || (row ? 'subagent' : 'default')) + '.png';
+  return desktop[name] || builtins[name] || (row ? builtins.subagent : '/assets/icons/dsh-plugin.svg');
 }
 function imageSource(value) {
   if (typeof value !== 'string') return null;

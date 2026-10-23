@@ -1,4 +1,4 @@
-<view class="page page-dark home-root" style="{{contentFontStyle}}">
+<view class="page page-dark home-root {{themeClass}}" style="{{contentFontStyle}}">
   <!-- 侧边栏（对齐 dsh-mobile WorkspaceView drawerContent：品牌字标 + 插件 / 自动化任务） -->
   <view
     class="drawer {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}} {{drawerOpen || drawerDragging ? 'drawer-visible' : ''}} {{sheetTheme === 'dark' ? 'drawer-dark' : ''}}"
@@ -26,11 +26,50 @@
         <image class="drawer-item-ic drawer-item-ic-clock drawer-item-ic-dark" src="/assets/icons/automation-white.svg" mode="aspectFit"/>
         <text class="drawer-item-text">{{ui['自动化任务']}}</text>
       </view>
+      <!-- 底部组：额度卡片 + 设置入口，靠 margin-top:auto 贴底（对齐参考实现的底部卡片） -->
+      <view class="drawer-bottom">
       <view wx:if="{{costSidebar}}" class="drawer-quota drawer-quota-{{costSidebar.style}}" hover-class="drawer-quota-pressed" bindtap="onCostCardTap" role="button" aria-label="{{ui['用量额度卡片，点击刷新']}}">
-        <view wx:if="{{costSidebar.balance}}" class="dq-line dq-balance">
-          <text class="dq-name">{{costSidebar.balance.title}} <text class="dq-link">↗</text></text>
-          <text class="dq-value">{{costSidebar.balance.amountText}}</text>
-        </view>
+        <!-- 按网关 sidebarOrder 渲染；costSections 为空时回落到下面固定顺序 -->
+        <block wx:if="{{costSections.length}}" wx:for="{{costSections}}" wx:key="key" wx:for-item="sec">
+          <view wx:if="{{sec.kind === 'balance'}}" class="dq-line dq-balance">
+            <text class="dq-name">{{costSidebar.balance.title}} <text class="dq-link">↗</text></text>
+            <text class="dq-value">{{costSidebar.balance.amountText}}</text>
+          </view>
+          <view wx:if="{{sec.kind === 'budget'}}" class="dq-block">
+            <view class="dq-line"><text class="dq-name">{{ui['预算']}}</text><text class="dq-value">{{costSidebar.budget.percentText}}</text></view>
+            <view class="dq-progress"><view class="dq-progress-fill" style="width:{{costSidebar.budget.barWidth}};"></view></view>
+            <text class="dq-meta">{{costSidebar.budget.usedText}} / {{costSidebar.budget.amountText}}</text>
+          </view>
+          <view wx:if="{{sec.kind === 'go'}}" class="dq-block">
+            <view wx:for="{{costSidebar.go.rows}}" wx:for-item="win" wx:key="key" class="dq-window">
+              <view class="dq-line"><text class="dq-name">{{ui[win.label] !== undefined ? ui[win.label] : win.label}}</text><text class="dq-value">{{win.percentText}}</text></view>
+              <view class="dq-progress"><view class="dq-progress-fill" style="width:{{win.barWidth}};"></view></view>
+              <text wx:if="{{win.resetsText}}" class="dq-meta">{{ui['重置']}} {{win.resetsText}}</text>
+            </view>
+          </view>
+          <view wx:if="{{sec.kind === 'plan'}}" class="dq-block dq-plan">
+            <view class="dq-line"><text class="dq-name">{{sec.label}}</text><text class="dq-value">{{planOf(sec.key).main ? planOf(sec.key).main.percentText : '—'}}</text></view>
+            <view wx:if="{{planOf(sec.key).main}}" class="dq-progress"><view class="dq-progress-fill" style="width:{{planOf(sec.key).main.barWidth}};"></view></view>
+          </view>
+          <view wx:if="{{sec.kind === 'gateway'}}" class="dq-line dq-source">
+            <text class="dq-name">{{sec.label}}</text>
+            <text class="dq-value">{{gatewayOf(sec.key).accounts.length ? gatewayOf(sec.key).accounts.length + ' ' + ui['个账号'] : (gatewayOf(sec.key).status === 'ok' ? ui['正常'] : gatewayOf(sec.key).status)}}</text>
+          </view>
+          <view wx:if="{{sec.kind === 'custom'}}" class="dq-block">
+            <view class="dq-line"><text class="dq-name">{{customOf(sec.key).label}}</text><text class="dq-value">{{customOf(sec.key).amountText}}</text></view>
+            <view wx:if="{{customOf(sec.key).percent !== null}}" class="dq-progress"><view class="dq-progress-fill" style="width:{{customOf(sec.key).barWidth}};"></view></view>
+          </view>
+          <view wx:if="{{sec.kind === 'peak'}}" class="dq-block dq-peak">
+            <view class="dq-line"><text class="dq-name dq-peak-phase"><text class="dq-dot"></text>{{costSidebar.peak.label}}</text><text class="dq-value">{{costSidebar.peak.remainingText}}</text></view>
+            <view class="dq-progress"><view class="dq-progress-fill" style="width:{{costSidebar.peak.progressText}};"></view></view>
+            <text class="dq-meta">{{costSidebar.peak.switchText}}</text>
+          </view>
+        </block>
+        <block wx:if="{{!costSections.length}}">
+          <view class="dq-line dq-balance">
+            <text class="dq-name">{{costSidebar.balance.title}} <text class="dq-link">↗</text></text>
+            <text class="dq-value">{{costSidebar.balance.amountText}}</text>
+          </view>
         <view wx:if="{{costSidebar.budget}}" class="dq-block">
           <view class="dq-line"><text class="dq-name">{{ui['预算']}}</text><text class="dq-value">{{costSidebar.budget.percentText}}</text></view>
           <view class="dq-progress"><view class="dq-progress-fill" style="width:{{costSidebar.budget.barWidth}};"></view></view>
@@ -59,6 +98,7 @@
           <view class="dq-progress"><view class="dq-progress-fill" style="width:{{costSidebar.peak.progressText}};"></view></view>
           <text class="dq-meta">{{costSidebar.peak.switchText}}</text>
         </view>
+        </block>
       </view>
       <view wx:elif="{{costCardError}}" class="drawer-cost-unavailable" bindtap="openCostDetail" role="button">
         <text class="drawer-cost-unavailable-title">{{ui['额度卡片暂不可用']}}</text>
@@ -70,6 +110,7 @@
           <image class="drawer-item-ic drawer-item-ic-dark" src="/assets/icons/settings-white.svg" mode="aspectFit"/>
           <text class="drawer-item-text">{{ui['设置']}}</text>
         </view>
+      </view>
       </view>
     </view>
   </view>

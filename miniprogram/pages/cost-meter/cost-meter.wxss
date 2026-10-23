@@ -63,7 +63,8 @@
 .cost-go-key-settings,.cost-balance-key-settings { padding: 0 28rpx 24rpx; }
 .cost-key-state { display: flex; align-items: center; justify-content: space-between; min-height: 56rpx; gap: 16rpx; }
 .cost-key-clear { color: #c34f4f; font-size: 23rpx; }
-.cost-key-input-row { display: flex; align-items: center; gap: 12rpx; margin: 6rpx 0 12rpx; }
+/* 与 .cost-row 的水平内边距对齐，避免 input 顶到卡片左沿形成左下角空白块 */
+.cost-key-input-row { display: flex; align-items: center; gap: 12rpx; margin: 6rpx 0 12rpx; padding: 0 28rpx; }
 .cost-key-input { box-sizing: border-box; min-width: 0; height: 68rpx; flex: 1; padding: 0 16rpx; border: 1rpx solid var(--border); border-radius: 12rpx; color: var(--text); font-size: 24rpx; }
 .cost-peak-settings { display: flex; flex-direction: column; gap: 8rpx; padding: 22rpx 28rpx 24rpx; }
 .cost-peak-value { color: var(--text-2); font-size: 24rpx; line-height: 1.45; font-variant-numeric: tabular-nums; }
@@ -117,4 +118,41 @@
 .cost-gateway-label { display: block; padding: 10rpx 0 4rpx; color: var(--text); font-size: 23rpx; font-weight: 600; }
 .cost-row-buttons { display: flex; justify-content: flex-end; gap: 12rpx; padding: 10rpx 28rpx 22rpx; }
 .cost-add-source { display: flex; align-items: center; justify-content: center; min-height: 76rpx; margin-top: 14rpx; border: 1rpx dashed var(--border); border-radius: 16rpx; color: var(--ocean); font-size: 25rpx; }
+/* 预设新增行：阿里云 / Token Rhythm / WorkBuddy2API */
+.cost-preset-row { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 12rpx; }
+.cost-preset-row .cost-mini-btn { flex: 1 1 30%; justify-content: center; }
+/* 侧栏卡片排序 */
+.cost-order-list { display: flex; flex-direction: column; gap: 8rpx; margin-top: 12rpx; }
+.cost-order-row { display: flex; align-items: center; gap: 12rpx; padding: 10rpx 14rpx; border: 1rpx solid var(--border); border-radius: 12rpx; background: var(--surface); }
+.cost-order-index { flex: none; width: 36rpx; color: var(--text-3); font-size: 22rpx; text-align: center; }
+.cost-order-label { flex: 1; min-width: 0; overflow: hidden; color: var(--text); font-size: 24rpx; text-overflow: ellipsis; white-space: nowrap; }
+.cost-order-actions { display: flex; flex-shrink: 0; gap: 8rpx; }
+.cost-mini-btn.is-disabled { opacity: .35; }
+
+/* 侧栏预览：左侧仿侧栏 + 右侧检查器 */
+.cost-preview { display: flex; gap: 16rpx; margin-top: 12rpx; }
+.cost-preview-rail { display: flex; flex: none; flex-direction: column; align-items: center; gap: 10rpx; width: 44rpx; padding: 14rpx 0; border: 1rpx solid var(--border); border-radius: 14rpx; background: var(--surface); }
+.cost-preview-dot { width: 12rpx; height: 12rpx; border-radius: 50%; background: var(--fill-2); }
+.cost-preview-rail-label { color: var(--text-3); font-size: 16rpx; writing-mode: vertical-rl; }
+.cost-preview-body { flex: 1; min-width: 0; max-height: 520rpx; padding: 12rpx; border: 1rpx solid var(--border); border-radius: 14rpx; background: var(--bg); }
+.cost-preview-body .drawer-quota { margin: 0; }
+.cost-preview-body .drawer-footer { padding-top: 12rpx; }
+.cost-preview-empty { padding: 40rpx 20rpx; color: var(--text-3); font-size: 22rpx; text-align: center; }
+.cost-preview-inspector { margin-top: 14rpx; padding: 6rpx 0; border: 1rpx solid var(--border); border-radius: 14rpx; background: var(--surface); }
+.cost-preview-inspector .cost-row { min-height: 84rpx; padding: 10rpx 20rpx; }
+
+/* ---------- 弹窗（供应商配置 / 显示设置） ---------- */
+.cost-sheet-mask { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; justify-content: center; background: rgba(0, 0, 0, .45); }
+.cost-sheet { display: flex; flex-direction: column; width: 100%; max-height: 88vh; border-radius: 28rpx 28rpx 0 0; background: var(--bg); animation: cost-sheet-in .22s ease-out; }
+@keyframes cost-sheet-in { from { transform: translateY(6%); opacity: .6; } to { transform: translateY(0); opacity: 1; } }
+.cost-sheet-head { display: flex; flex: none; align-items: center; justify-content: space-between; padding: 26rpx 32rpx 18rpx; border-bottom: 1rpx solid var(--divider); }
+.cost-sheet-title { color: var(--text); font-size: 32rpx; font-weight: 620; }
+.cost-sheet-close { display: flex; align-items: center; justify-content: center; width: 52rpx; height: 52rpx; border-radius: 50%; background: var(--fill); color: var(--text-2); font-size: 26rpx; }
+.cost-sheet-body { flex: 1; min-height: 0; padding-bottom: 20rpx; }
+.cost-sheet-foot { display: flex; flex: none; gap: 16rpx; padding: 16rpx 32rpx calc(24rpx + env(safe-area-inset-bottom)); border-top: 1rpx solid var(--divider); }
+.cost-sheet-btn { display: flex; flex: 1; align-items: center; justify-content: center; min-height: 84rpx; border: 1rpx solid var(--border); border-radius: 16rpx; background: var(--surface); color: var(--text); font-size: 27rpx; }
+.cost-sheet-btn.primary { border: 0; background: var(--ocean); color: #FFFFFF; font-weight: 600; }
+/* 列表入口卡：整卡可点，switch 单独响应 */
+.cost-entry-card { transition: opacity .15s ease; }
+.cost-entry-card:active { opacity: .72; }
 .cost-save-button.ghost { background: transparent; border: 1rpx solid var(--border); color: var(--text-2); }

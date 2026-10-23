@@ -4,13 +4,24 @@ const root=path.resolve(__dirname,'../miniprogram');
 const app=JSON.parse(fs.readFileSync(path.join(root,'app.json'),'utf8'));
 const routes=require('./helpers/routes.cjs')(app);
 test('WeChat root contains only runtime files and all packages stay inside source budget',()=>{
-  const report=require('../scripts/check-miniprogram-package.cjs').check();assert.ok(report.groups[0].bytes<1.8*1024*1024);assert.ok(report.groups[0].mediaBytes<=require('../scripts/check-miniprogram-package.cjs').MEDIA_BUDGET);
+  const checker=require('../scripts/check-miniprogram-package.cjs');const report=checker.check();assert.ok(report.groups[0].bytes<checker.BUDGET);assert.ok(report.groups[0].mediaBytes<checker.MEDIA_BUDGET);assert.ok(report.packagedMediaBytes<checker.MEDIA_BUDGET);
   assert.equal(routes.length,17);assert.equal(new Set(routes).size,17);
   for(const route of routes)for(const ext of ['js','json','wxml','wxss'])assert.ok(fs.existsSync(path.join(root,route+'.'+ext)),route+'.'+ext);
   assert.equal(fs.existsSync(path.join(root,'../app.js')),false);
   for(const file of ['plugin-artwork.js','plugin-presentation.js','plugin-settings.js','plugin-settings-copy.js'])assert.equal(fs.existsSync(path.join(root,'utils',file)),false);
   assert.equal(fs.existsSync(path.join(root,'utils/schedule-editor.js')),false);
   assert.ok(fs.existsSync(path.join(root,'pages/plugin-detail/plugin-settings-copy.js')));
+});
+test('running whale status artwork retains its animated PNG frames',()=>{
+  const image=fs.readFileSync(path.join(root,'assets/icons/dsh-running-whale.png'));
+  let animation=null;
+  for(let offset=8;offset+12<=image.length;){
+    const size=image.readUInt32BE(offset),type=image.toString('ascii',offset+4,offset+8);
+    assert.ok(offset+size+12<=image.length,'PNG chunk must stay within the image');
+    if(type==='acTL')animation={frames:image.readUInt32BE(offset+8),plays:image.readUInt32BE(offset+12)};
+    offset+=size+12;
+  }
+  assert.deepEqual(animation,{frames:60,plays:0});
 });
 test('subpackages do not import each other and main package does not import subpackages',()=>{
   const roots=app.subPackages.map(p=>p.root+'/');const owner=f=>roots.find(r=>f.startsWith(r))||'';
@@ -33,6 +44,16 @@ for(const language of ['zh','en'])for(const id of ['shell','agent-loop','subagen
 });
 test('offline direct entry remains visible with explicit disconnected state',()=>{const {page}=runtime('zh',false);page.onLoad({official:'subagent'});assert.equal(page.data.official.title,'子智能体');assert.equal(page.data.connected,false);assert.ok(page.data.detailScrollHeight>0);page.onUnload();});
 const compiler=process.env.WECHAT_WCC || 'D:/Program Files (x86)/Tencent/微信web开发者工具/resources/app.asar.unpacked/node_modules/wcc-exec/wcc.exe';
+test('every page WXML compiles: an unbalanced <block>/<view> breaks the whole build',{skip:!fs.existsSync(compiler)},()=>{
+  // wcc 只报第一个错误就退出，所以逐个编译，让失败的页面名直接出现在信息里。
+  const pages=app.pages.map(route=>route+'.wxml');
+  const failures=[];
+  for(const page of pages){
+    try{execFileSync(compiler,['-o',path.join(os.tmpdir(),'dsh-wxml-check.js'),page],{cwd:root,stdio:'pipe'});}
+    catch(err){failures.push(page+': '+String(err.stderr||err.message).split('\n').filter(l=>l.trim()).slice(0,3).join(' | '));}
+  }
+  assert.deepEqual(failures,[],'WXML 编译失败');
+});
 test('native-compiled WXML renders all builtin form labels and error/offline states',{skip:!fs.existsSync(compiler)},()=>{
   const output=path.join(os.tmpdir(),'dsh-detail-render-'+process.pid+'.js');execFileSync(compiler,['-o',output,'pages/plugin-detail/plugin-detail.wxml','pages/plugin-detail/settings-form.wxml','pages/plugin-detail/voice-settings.wxml'],{cwd:root});
   const context=vm.createContext({window:{},console});vm.runInContext(fs.readFileSync(output,'utf8'),context);const render=context.$gwx('pages/plugin-detail/plugin-detail.wxml');const prefs=require('../miniprogram/utils/ui-preferences'),{PluginSettings}=require('../miniprogram/pages/plugin-detail/plugin-settings');

@@ -40,7 +40,9 @@ Page({
   data: {
     publicAccessDialog: null,
     publicAccessDialogOpen: false,
-    turnUsageSheet: null, turnUsageOpen: false, turnUsagePos: null, ctxFlowW: 0, ctxFlowH: 0,
+    turnUsageSheet: null, turnUsageOpen: false, turnUsagePos: null,
+    // ctx-flow 连接线：用原生 view 线段拼成曲线，避免小程序内联 SVG 不渲染。
+    contextFlowLinks: [], contextFlowW: 0, contextFlowH: 0,
     collaborationOpen: false, collaborationExpanded: false, collaborationTab: 'members', collaborationRows: [], collaborationTabs: [],
     collaborationCount: 0, collaborationActive: 0, collaborationNote: '', collaborationPreview: null, collaborationBusy: false,
     fileExpanded: {}, fileSheet: null, filePreview: null, changesDiff: null, fileBusyKey: '', fileSharingKey: '', fileProgress: 0,
@@ -52,6 +54,7 @@ Page({
     fleetMounted: false,
     // 上下文浏览器（v2）：所选请求 seq（null = 当前/下一次请求）与展开的 7 类折叠行。
     contextBrowserSeq: null,
+    contextBrowserIsCurrent: false,
     contextBrowserExpanded: [],
     contextFileFilter: 'all',
     contextFileSort: 'activity',
@@ -61,6 +64,15 @@ Page({
     contextTrendSeq: null,
     contextTrendGroupBy: 'auto',
     contextTrendDisplayMode: 'total',
+    contextTrendAdaptive: false,
+    contextTrendShowDuration: true,
+    contextTrendVisibleRange: null,
+    // DNA 模式与总览是互斥的两个面向；默认都关（标准堆叠柱）。
+    contextTrendDna: false,
+    contextTrendOverview: false,
+    // 轮次条聚焦（dsh-context 的 activeTurn）：点亮一轮并淡出其余柱。
+    contextTrendActiveTurn: null,
+    contextTrendTurnLeft: 0,
     // 首帧之前先用「未连接」空态占位，避免 WXML 读取 null 面板。
     contextPanel: contextView.buildPanel(null, { t: uiText, connected: false, hasSession: false }),
     fleetPanel: contextView.buildFleetPanel(null, { t: uiText, connected: false, hasSession: false }),
@@ -418,6 +430,7 @@ Page({
       this._contextContentPending = Object.create(null);
       this.setData({
         contextBrowserSeq: null,
+        contextBrowserIsCurrent: false,
         contextBrowserExpanded: [],
         contextFileFilter: 'all',
         contextFileSort: 'activity',
@@ -425,7 +438,9 @@ Page({
         contextNodeLoadingSeq: null,
         contextTrendSeq: null,
         contextTrendGroupBy: 'auto',
-        contextTrendDisplayMode: 'total'
+        contextTrendDisplayMode: 'total',
+        contextTrendAdaptive: false,
+        contextTrendVisibleRange: null
       });
     }
     if (!this._markdownCache || this._renderSessionId !== s.sessionId) {
@@ -1386,11 +1401,19 @@ Page({
     const sessionId = (s && s.sessionId) || '';
     const running = !!(s && s.running);
     const browserSeq = this.data.contextBrowserSeq == null ? null : Number(this.data.contextBrowserSeq);
+    const browserIsCurrent = this.data.contextBrowserIsCurrent === true;
     const expanded = Array.isArray(this.data.contextBrowserExpanded) ? this.data.contextBrowserExpanded : [];
     const expandedKey = expanded.join(',');
     const trendSeq = this.data.contextTrendSeq == null ? null : Number(this.data.contextTrendSeq);
     const trendGroupBy = this.data.contextTrendGroupBy || 'auto';
     const trendDisplayMode = this.data.contextTrendDisplayMode === 'delta' ? 'delta' : 'total';
+    const trendActiveTurn = this.data.contextTrendActiveTurn == null ? null : Number(this.data.contextTrendActiveTurn);
+    const trendDna = this.data.contextTrendDna === true;
+    const trendOverview = this.data.contextTrendOverview === true;
+    const trendAdaptive = this.data.contextTrendAdaptive === true;
+    const trendShowDuration = this.data.contextTrendShowDuration !== false;
+    const trendVisibleRange = this.data.contextTrendVisibleRange || null;
+    const trendVisibleRangeKey = trendVisibleRange ? trendVisibleRange.from + ':' + trendVisibleRange.to : '';
     const fileFilter = this.data.contextFileFilter || 'all';
     const fileSort = this.data.contextFileSort || 'activity';
     const cache = this._contextPanelCache;
@@ -1398,35 +1421,94 @@ Page({
       && cache.connected === connected && cache.sessionId === sessionId
       && cache.fleetValue === fleetValue && cache.running === running
       && cache.contextPressure === contextPressure
-      && cache.browserSeq === browserSeq && cache.expandedKey === expandedKey
+      && cache.browserSeq === browserSeq && cache.browserIsCurrent === browserIsCurrent && cache.expandedKey === expandedKey
       && cache.fileFilter === fileFilter && cache.fileSort === fileSort
       && cache.trendSeq === trendSeq && cache.trendGroupBy === trendGroupBy
-      && cache.trendDisplayMode === trendDisplayMode) {
+      && cache.trendDisplayMode === trendDisplayMode
+      && cache.trendActiveTurn === trendActiveTurn
+      && cache.trendDna === trendDna && cache.trendOverview === trendOverview
+      && cache.trendAdaptive === trendAdaptive && cache.trendShowDuration === trendShowDuration
+      && cache.trendVisibleRangeKey === trendVisibleRangeKey) {
       return { contextPanel: cache.panel };
     }
     const panel = contextView.buildPanel(dashboard, {
       t: uiText, connected: connected, hasSession: !!sessionId,
       running: running, fleet: fleetValue, contextPressure: contextPressure,
-      browserSeq: browserSeq, expanded: expanded,
+      browserSeq: browserSeq, browserCurrent: browserIsCurrent, expanded: expanded,
       trendSeq: trendSeq, trendGroupBy: trendGroupBy, trendDisplayMode: trendDisplayMode,
+      trendActiveTurn: trendActiveTurn, trendDna: trendDna, trendOverview: trendOverview,
+      trendAdaptive: trendAdaptive, trendShowDuration: trendShowDuration,
+      trendVisibleRange: trendVisibleRange,
       fileFilter: fileFilter, fileSort: fileSort
     });
     this._contextPanelCache = {
       dashboard, locale, connected, sessionId,
-      fleetValue, running, contextPressure, browserSeq, expandedKey,
+      fleetValue, running, contextPressure, browserSeq, browserIsCurrent, expandedKey,
       fileFilter, fileSort,
-      trendSeq, trendGroupBy, trendDisplayMode, panel
+      trendSeq, trendGroupBy, trendDisplayMode, trendActiveTurn, trendDna, trendOverview,
+      trendAdaptive, trendShowDuration, trendVisibleRangeKey, panel
     };
     return { contextPanel: panel };
   },
 
-  /** 浏览器游标/折叠变化：立刻重建面板，不等 store emit。 */
-  setContextBrowser(seq, expanded) {
-    const patch = { contextBrowserSeq: seq == null ? null : Number(seq) };
+  /**
+   * 浏览器游标/折叠变化：立刻重建面板，不等 store emit。
+   *
+   * 游标变化同时回写到趋势图的选中项，两个模块始终指向同一请求
+   * （dsh-context 的 live linkage 是双向的：hover 柱预览、离开回到自选）。
+   */
+  setContextBrowser(seq, expanded, isCurrent) {
+    const next = seq == null ? null : Number(seq);
+    const patch = { contextBrowserSeq: next, contextBrowserIsCurrent: isCurrent === true };
+    // 只有真的变了才动趋势图，避免自己触发的那次回写形成往返。
+    if ((this.data.contextTrendSeq == null ? null : Number(this.data.contextTrendSeq)) !== next) {
+      patch.contextTrendSeq = next;
+      this._contextPanelCache = null;
+    }
     if (Array.isArray(expanded)) patch.contextBrowserExpanded = expanded;
     patch.contextNodeDetail = null;
     this.setData(patch);
     this.setData(this.contextPanelPatch());
+  },
+
+  /** Rebuild after a control change, then pin the browser to the bar the new chart actually selected. */
+  rebuildContextTrendSelection() {
+    this._contextPanelCache = null;
+    const nextPanel = this.contextPanelPatch().contextPanel;
+    const selected = nextPanel && nextPanel.trend ? nextPanel.trend.selectedSeq : null;
+    const seq = selected !== null && selected !== undefined && Number.isFinite(Number(selected))
+      ? Number(selected) : null;
+    this.setData({ contextTrendSeq: seq, contextBrowserSeq: seq, contextBrowserIsCurrent: false });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
+  /** Adaptive scales follow the visible horizontal window, like the desktop chart. */
+  measureContextTrendViewport(scrollLeft) {
+    if (!this.data.contextTrendAdaptive || this.data.contextTrendOverview || this.data.tab !== 'context') return;
+    if (!wx || typeof wx.createSelectorQuery !== 'function') return;
+    const query = wx.createSelectorQuery().in(this);
+    query.select('.ctx-trend-scroll').boundingClientRect();
+    query.exec((res) => {
+      const rect = res && res[0];
+      if (!rect || !(rect.width > 0)) return;
+      let windowWidth = 375;
+      try {
+        const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+        if (info && Number(info.windowWidth) > 0) windowWidth = Number(info.windowWidth);
+      } catch (_) {}
+      const pxToRpx = 750 / windowWidth;
+      const pitch = contextView.TREND_BAR_PITCH;
+      const from = Math.max(0, Math.floor((Math.max(0, scrollLeft) * pxToRpx) / pitch) - 1);
+      const visible = Math.max(1, Math.ceil((rect.width * pxToRpx) / pitch));
+      const to = from + visible + 1;
+      const previous = this.data.contextTrendVisibleRange;
+      if (previous && previous.from === from && previous.to === to) return;
+      this.setData({ contextTrendVisibleRange: { from, to } }, () => {
+        this._contextPanelCache = null;
+        this.setData(this.contextPanelPatch());
+      });
+    });
   },
 
   /** Read the selected surface/header event body lazily instead of shipping transcripts on every refresh. */
@@ -1475,7 +1557,8 @@ Page({
     const can = step < 0 ? browser.canPrev : browser.canNext;
     if (!can) return;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setContextBrowser(step < 0 ? browser.prevSeq : browser.nextSeq);
+    const seq = step < 0 ? browser.prevSeq : browser.nextSeq;
+    this.setContextBrowser(seq, undefined, seq == null);
   },
 
   /** 请求下拉选择。 */
@@ -1486,7 +1569,7 @@ Page({
     const option = browser.options[index];
     if (!option || option.seq === undefined) return;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setContextBrowser(option.seq);
+    this.setContextBrowser(option.seq, undefined, option.isCurrent === true);
   },
 
   /** 展开/折叠某类（v2 折叠行）。 */
@@ -1498,19 +1581,69 @@ Page({
     const index = expanded.indexOf(key);
     if (index >= 0) expanded.splice(index, 1); else expanded.push(key);
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setContextBrowser(this.data.contextBrowserSeq, expanded);
+    this.setContextBrowser(this.data.contextBrowserSeq, expanded, browser.isCurrent === true);
   },
 
-  /** 选择趋势图中的请求，并同步更新下方的请求组成详情。 */
+  /**
+   * 选择趋势图中的请求。
+   *
+   * 同时驱动下方详情面板与「上下文浏览器」——后者切到同一请求，展开该请求
+   * 实际拼接出来的内容（dsh-context 的 live linkage： hovering a bar previews
+   * that step's assembled context in the Context browser）。再次点同一根柱子
+   * 取消选中，浏览器回到「当前（下一次请求）」。
+   */
   contextTrendSelect(e) {
     const raw = e && e.currentTarget && e.currentTarget.dataset
       ? e.currentTarget.dataset.seq : null;
     const seq = Number(raw);
     if (!Number.isFinite(seq)) return;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setData({ contextTrendSeq: seq });
+    const next = this.data.contextTrendSeq === seq ? null : seq;
+    this.setData({ contextTrendSeq: next });
+    this.setContextBrowser(next, this.data.contextBrowserExpanded);
+  },
+
+  /**
+   * 点击轮次条：点亮该轮并定位到它的第一根柱（dsh-context 的 onPickTurn）。
+   * 再次点击同一轮取消聚焦。
+   */
+  contextTrendPickTurn(e) {
+    const raw = e && e.currentTarget && e.currentTarget.dataset
+      ? e.currentTarget.dataset.turn : null;
+    const turn = Number(raw);
+    if (!Number.isFinite(turn)) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    const active = this.data.contextTrendActiveTurn === turn ? null : turn;
+    const trend = this.data.contextPanel && this.data.contextPanel.trend;
+    const matching = trend && Array.isArray(trend.bars) ? trend.bars.filter((bar) => bar.turn === turn) : [];
+    const selected = matching.length ? matching[matching.length - 1].seq : null;
+    this.setData({ contextTrendActiveTurn: active, contextTrendSeq: selected });
     this._contextPanelCache = null;
-    this.setData(this.contextPanelPatch());
+    if (active !== null) this._scrollTrendToTurn(active);
+    this.setContextBrowser(selected);
+  },
+
+  /** 轮次条与柱区共享横向滚动：把柱区的偏移同步给轮次条。 */
+  contextTrendScroll(e) {
+    const left = e && e.detail ? e.detail.scrollLeft : 0;
+    if (this.data.contextTrendTurnLeft !== left) this.setData({ contextTrendTurnLeft: left });
+    if (!this.data.contextTrendAdaptive) return;
+    this._contextTrendMeasureLeft = left;
+    if (this._contextTrendMeasureTimer) clearTimeout(this._contextTrendMeasureTimer);
+    this._contextTrendMeasureTimer = setTimeout(() => {
+      this._contextTrendMeasureTimer = null;
+      this.measureContextTrendViewport(this._contextTrendMeasureLeft || 0);
+    }, 80);
+  },
+
+  /** 把指定轮次的第一根柱滚到可视区左侧（不居中，保持与 Web 面板一致的跟随感）。 */
+  _scrollTrendToTurn(turn) {
+    const trend = this.data.contextPanel && this.data.contextPanel.trend;
+    if (!trend || !Array.isArray(trend.turnStrip)) return;
+    const index = trend.turnStrip.findIndex(function (item) { return item.turn === turn; });
+    if (index < 0) return;
+    const left = trend.turnStrip[index].left || 0;
+    this.setData({ contextTrendScrollLeft: left });
   },
 
   /** 趋势粒度：按单次模型请求（步骤）或每轮最后一次请求聚合。 */
@@ -1522,9 +1655,29 @@ Page({
       ? this.data.contextPanel.trend.groupBy : this.data.contextTrendGroupBy;
     if (groupBy === currentGroup) return;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setData({ contextTrendGroupBy: groupBy, contextTrendSeq: null });
+    this.setData({ contextTrendGroupBy: groupBy, contextTrendActiveTurn: null, contextTrendVisibleRange: null });
     this._contextPanelCache = null;
-    this.setData(this.contextPanelPatch());
+    this.rebuildContextTrendSelection();
+    if (this.data.contextTrendAdaptive) this.measureContextTrendViewport(this._contextTrendMeasureLeft || 0);
+  },
+
+  /** Adaptive rescales bars/curve against the visible window; overview is its mutually exclusive counterpart. */
+  contextTrendAdaptive() {
+    const next = !(this.data.contextTrendAdaptive === true);
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextTrendAdaptive: next, contextTrendOverview: false, contextTrendDna: false,
+      contextTrendVisibleRange: next ? this.data.contextTrendVisibleRange : null });
+    this._contextPanelCache = null;
+    this.rebuildContextTrendSelection();
+    if (next) this.measureContextTrendViewport(this._contextTrendMeasureLeft || 0);
+  },
+
+  /** Show or hide the independent request-duration curve and its right axis. */
+  contextTrendDuration() {
+    this.setData({ contextTrendShowDuration: this.data.contextTrendShowDuration === false });
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this._contextPanelCache = null;
+    this.rebuildContextTrendSelection();
   },
 
   /** 趋势显示完整上下文规模，或相邻请求之间的增长/回收量。 */
@@ -1534,9 +1687,60 @@ Page({
     if (mode !== 'total' && mode !== 'delta') return;
     if (mode === this.data.contextTrendDisplayMode) return;
     haptics.tick ? haptics.tick() : haptics.vibrate();
+    // DNA 画的是构成指纹，没有"逐类增减"可讲，切到增量时自动让位。
+    if (mode === 'delta') this.setData({ contextTrendDna: false });
     this.setData({ contextTrendDisplayMode: mode });
     this._contextPanelCache = null;
-    this.setData(this.contextPanelPatch());
+    this.rebuildContextTrendSelection();
+  },
+
+  /** DNA 模式：每根柱子改成一条条带，按模型阅读顺序平铺（与总览互斥）。 */
+  contextTrendDna() {
+    const next = !(this.data.contextTrendDna === true);
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextTrendDna: next, contextTrendOverview: false, contextTrendAdaptive: false,
+      contextTrendVisibleRange: null });
+    this._contextPanelCache = null;
+    this.rebuildContextTrendSelection();
+  },
+
+  /** 总览：整段会话压进可视宽度的连续堆叠带（与 DNA 互斥）。 */
+  contextTrendOverview() {
+    const next = !(this.data.contextTrendOverview === true);
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextTrendOverview: next, contextTrendDna: false, contextTrendAdaptive: false,
+      contextTrendVisibleRange: null });
+    this._contextPanelCache = null;
+    this.rebuildContextTrendSelection();
+  },
+
+  /**
+   * 总览带上的触摸：记录横向比例，touchend 时换算成记录序号并选中，
+   * 让整段压扁后仍能逐条定位（dsh-context 的 hover-to-scrub / click-to-pin）。
+   */
+  contextTrendFitTouch(e) {
+    const x = e && e.touches && e.touches[0] ? e.touches[0].x : null;
+    if (x === null) return;
+    const trend = this.data.contextPanel && this.data.contextPanel.trend;
+    if (!trend || !trend.ribbon || !trend.ribbon.count) return;
+    const query = wx.createSelectorQuery().in(this);
+    query.select('.ctx-trend-chart-fit').boundingClientRect();
+    query.exec((res) => {
+      const rect = res && res[0];
+      if (!rect || !(rect.width > 0)) return;
+      const ratio = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
+      const index = Math.min(trend.ribbon.count - 1, Math.floor(ratio * trend.ribbon.count));
+      const seq = trend.bars[index] && trend.bars[index].seq;
+      if (seq === undefined) return;
+      if (this._ctxFitSeq === seq) return;
+      this._ctxFitSeq = seq;
+      this.setContextBrowser(seq);
+    });
+  },
+
+  /** 总览带上抬手：清掉滑动去抖记录，下次触摸重新定位。 */
+  contextTrendFitPick() {
+    this._ctxFitSeq = null;
   },
 
   /** 手动刷新上下文面板（卡片区右上角）。 */
@@ -3710,20 +3914,23 @@ Page({
 
 
   // ---------- 上下文统计：流动连接（移植 dsh-context Agent Flow） ----------
+  // 原生 view 曲线兼容 WXML；分段位置只在节点几何变化时重算。
   stopContextFlow() {
     if (this._ctxFlowTimer) { clearTimeout(this._ctxFlowTimer); this._ctxFlowTimer = null; }
-    const flow = this._ctxFlow;
-    this._ctxFlow = null;
-    if (!flow) return;
-    try { flow.canvas.cancelAnimationFrame(flow.raf); } catch (e) { /* 画布已销毁 */ }
   },
 
-  scheduleContextFlow() {
+  scheduleContextFlow(delay = 60) {
     if (this._ctxFlowTimer) clearTimeout(this._ctxFlowTimer);
     this._ctxFlowTimer = setTimeout(() => {
       this._ctxFlowTimer = null;
       this.drawContextFlow();
-    }, 60);
+    }, delay);
+  },
+
+  /** 面板滚动时重新测量：节点随内容移动，连接线必须跟着重算。 */
+  contextPanelScroll() {
+    if (this.data.tab !== 'context' || !this.data.showContextPanel) return;
+    this.scheduleContextFlow();
   },
 
   drawContextFlow() {
@@ -3733,33 +3940,30 @@ Page({
     const query = wx.createSelectorQuery().in(this);
     query.select('#ctxFlow').boundingClientRect();
     selectors.forEach((selector) => query.select(selector).boundingClientRect());
-    query.select('#ctxFlowCanvas').fields({ node: true, size: true });
     query.exec((res) => {
-      if (!res || !res[0]) return;
+      if (!res || !res[0] || selectors.some((_, index) => !res[index + 1])) {
+        this._ctxFlowRetries = (this._ctxFlowRetries || 0) + 1;
+        if (this._ctxFlowRetries <= 4) this.scheduleContextFlow(120);
+        return;
+      }
       const flowRect = res[0];
       const nodes = {};
       selectors.forEach((selector, index) => { nodes[selector] = res[index + 1] || null; });
-      const canvasRes = res[selectors.length + 1];
-      if (!canvasRes || !canvasRes.node) return;
-      const canvas = canvasRes.node;
-      const ctx = canvas.getContext('2d');
-      let pixelRatio = 2;
-      try {
-        const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
-        pixelRatio = info.pixelRatio || 2;
-      } catch (e) { /* 默认 2 */ }
       const width = flowRect.width;
       const height = flowRect.height;
-      if (Math.abs((Number(this.data.ctxFlowW) || 0) - width) > 0.5 || Math.abs((Number(this.data.ctxFlowH) || 0) - height) > 0.5) {
-        this.setData({ ctxFlowW: width, ctxFlowH: height }, () => { this.scheduleContextFlow(); });
-        return; // 等画布尺寸同步后再画，避免画布尺寸与 CSS 尺寸不一致
+      if (!(width > 0) || !(height > 0)) {
+        this._ctxFlowRetries = (this._ctxFlowRetries || 0) + 1;
+        if (this._ctxFlowRetries <= 4) this.scheduleContextFlow(120);
+        return;
       }
-      canvas.width = Math.round(width * pixelRatio);
-      canvas.height = Math.round(height * pixelRatio);
-      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      this._ctxFlowRetries = 0;
+
+      // 所有坐标钳制在模块内：节点测量异常时曲线也不会画到模块外。
+      const clampX = (value) => Math.max(0, Math.min(width, value));
+      const clampY = (value) => Math.max(0, Math.min(height, value));
 
       // 竖向布局：上排两节点 → 中间会话 → 下排两节点
-      const links = [
+      const paths = [
         { from: '#ctxNodeInputs', to: '#ctxNodeSession', fromSide: 'bottom', fromAt: 0.72, toSide: 'top', toAt: 0.25, color: '#22C55E' },
         { from: '#ctxNodeEvents', to: '#ctxNodeSession', fromSide: 'bottom', fromAt: 0.28, toSide: 'top', toAt: 0.75, color: '#A855F7' },
         { from: '#ctxNodeSession', to: '#ctxNodeTools', fromSide: 'bottom', fromAt: 0.25, toSide: 'top', toAt: 0.72, color: '#14B8A6' },
@@ -3768,53 +3972,60 @@ Page({
         const a = nodes[link.from];
         const b = nodes[link.to];
         if (!a || !b) return null;
-        const ax = a.left - flowRect.left + a.width * link.fromAt;
-        const ay = link.fromSide === 'bottom' ? a.top - flowRect.top + a.height : a.top - flowRect.top;
-        const bx = b.left - flowRect.left + b.width * link.toAt;
-        const by = link.toSide === 'bottom' ? b.top - flowRect.top + b.height : b.top - flowRect.top;
+        const ax = clampX(a.left - flowRect.left + a.width * link.fromAt);
+        const ay = clampY(link.fromSide === 'bottom' ? a.top - flowRect.top + a.height : a.top - flowRect.top);
+        const bx = clampX(b.left - flowRect.left + b.width * link.toAt);
+        const by = clampY(link.toSide === 'bottom' ? b.top - flowRect.top + b.height : b.top - flowRect.top);
+        // 控制点同样钳制：k 兜底 20 在节点贴近时会把曲线推出模块。
         const k = Math.max(20, Math.abs(by - ay) / 2);
-        return {
-          color: link.color,
-          ax, ay, bx, by,
-          cx1: ax, cy1: ay + k * (link.fromSide === 'bottom' ? 1 : -1),
-          cx2: bx, cy2: by - k * (link.toSide === 'top' ? 1 : -1)
+        const cx1 = clampX(ax);
+        const cy1 = clampY(ay + k * (link.fromSide === 'bottom' ? 1 : -1));
+        const cx2 = clampX(bx);
+        const cy2 = clampY(by - k * (link.toSide === 'top' ? 1 : -1));
+        const pointAt = (t) => {
+          const u = 1 - t;
+          return {
+            x: u * u * u * ax + 3 * u * u * t * cx1 + 3 * u * t * t * cx2 + t * t * t * bx,
+            y: u * u * u * ay + 3 * u * u * t * cy1 + 3 * u * t * t * cy2 + t * t * t * by
+          };
         };
-      }).filter(Boolean);
+        const segments = [];
+        const steps = 16;
+        for (let i = 0; i < steps; i += 1) {
+          const p0 = pointAt(i / steps);
+          const p1 = pointAt((i + 1) / steps);
+          const dx = p1.x - p0.x;
+          const dy = p1.y - p0.y;
+          const length = Math.sqrt(dx * dx + dy * dy);
+          const angle = Math.atan2(dy, dx) * 180 / Math.PI;
+          const left = Math.min(width, Math.max(0, p0.x));
+          const top = Math.min(height, Math.max(0, p0.y));
+          const common = `transform:rotate(${angle}deg);background:${link.color};transform-origin:0 50%;`;
+          segments.push({
+            key: link.from + '>' + link.to + ':g:' + i,
+            kind: 'glow',
+            style: `left:${left}px;top:${top - 7}px;width:${length + 1}px;${common}`
+          });
+          if (i % 3 === 1) {
+            const dashStart = pointAt((i + 0.25) / steps);
+            segments.push({
+              key: link.from + '>' + link.to + ':d:' + i,
+              kind: 'dash',
+              style: `left:${dashStart.x}px;top:${dashStart.y - 1}px;width:${Math.max(2, length * 0.5)}px;animation-delay:-${(i * 70) % 900}ms;${common}`
+            });
+          }
+        }
+        return segments;
+      }).flat().filter(Boolean);
 
-      const draw = (offset) => {
-        ctx.clearRect(0, 0, width, height);
-        const stroke = (link) => {
-          ctx.beginPath();
-          ctx.moveTo(link.ax, link.ay);
-          ctx.bezierCurveTo(link.cx1, link.cy1, link.cx2, link.cy2, link.bx, link.by);
-          ctx.stroke();
-        };
-        ctx.lineCap = 'round';
-        links.forEach((link) => {
-          ctx.strokeStyle = link.color;
-          ctx.globalAlpha = 0.13;
-          ctx.lineWidth = 14;
-          ctx.setLineDash([]);
-          stroke(link);
-          ctx.globalAlpha = 0.55;
-          ctx.lineWidth = 1.5;
-          ctx.setLineDash([2, 7]);
-          ctx.lineDashOffset = offset;
-          stroke(link);
-        });
-        ctx.globalAlpha = 1;
-      };
-
-      const state = { canvas, raf: 0, startedAt: Date.now() };
-      const loop = () => {
-        if (this._ctxFlow !== state) return;
-        const elapsed = Date.now() - state.startedAt;
-        draw(-(elapsed / 1000 * 10) % 9);
-        state.raf = canvas.requestAnimationFrame(loop);
-      };
-      this._ctxFlow = state;
-      draw(0);
-      state.raf = canvas.requestAnimationFrame(loop);
+      // 尺寸没变且连线没变就跳过 setData：滚动时不该反复触发渲染。
+      const sameSize = Math.abs((Number(this.data.contextFlowW) || 0) - width) < 0.5
+        && Math.abs((Number(this.data.contextFlowH) || 0) - height) < 0.5;
+      const flowKey = paths.map((link) => link.key + ':' + link.style).join('|');
+      const sameLinks = sameSize && this._ctxFlowKey === flowKey;
+      if (sameLinks) return;
+      this._ctxFlowKey = flowKey;
+      this.setData({ contextFlowLinks: paths, contextFlowW: width, contextFlowH: height });
     });
   },
 

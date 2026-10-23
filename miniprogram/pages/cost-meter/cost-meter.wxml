@@ -1,346 +1,770 @@
-<view class="cost-page {{themeClass}}">
-  <view class="cost-nav" style="padding-top:{{navPadTop}}px;height:{{navHeight}}px;">
-    <view class="cost-nav-back" bindtap="goBack" hover-class="cost-pressed" role="button" aria-label="{{ui['返回']}}">
-      <image class="cost-nav-back-icon" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
+<view class="page page-dark home-root {{themeClass}}" style="{{contentFontStyle}}">
+  <view class="cost-page {{themeClass}}">
+    <view class="cost-nav" style="padding-top:{{navPadTop}}px;height:{{navHeight}}px;">
+      <view class="cost-nav-back" bindtap="goBack" hover-class="cost-pressed" role="button" aria-label="{{ui['返回']}}">
+        <image class="cost-nav-back-icon" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
+      </view>
+      <text class="cost-nav-title">{{ui['额度卡片']}}</text>
+      <view class="cost-nav-refresh {{loading || refreshing ? 'is-loading' : ''}}" bindtap="onRefresh" hover-class="cost-pressed" role="button" aria-label="{{ui['刷新']}}">↻</view>
     </view>
-    <text class="cost-nav-title">{{ui['额度卡片']}}</text>
-    <view class="cost-nav-refresh {{loading || refreshing ? 'is-loading' : ''}}" bindtap="onRefresh" hover-class="cost-pressed" role="button" aria-label="{{ui['刷新']}}">↻</view>
-  </view>
-  <view class="cost-nav-placeholder" style="height:{{navPadTop + navHeight}}px;"></view>
+    <view class="cost-nav-placeholder" style="height:{{navPadTop + navHeight}}px;"></view>
 
-  <view wx:if="{{error}}" class="cost-notice {{!connected || !supported ? 'cost-notice-warn' : ''}}">
-    <text class="cost-notice-title">{{!connected ? ui['尚未连接'] : !supported ? ui['网关尚未启用额度卡片'] : ui['读取失败']}}</text>
-    <text class="cost-notice-body">{{error}}</text>
-    <view wx:if="{{connected && supported}}" class="cost-retry" bindtap="onRefresh" role="button">{{ui['重试']}}</view>
-  </view>
-
-  <!-- 显示与左侧栏样式 -->
-  <view wx:if="{{connected && supported}}" class="cost-section">
-    <text class="cost-section-title">{{ui['显示设置']}}</text>
-    <view class="cost-card">
-      <view class="cost-row" bindtap="pickCurrency" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['货币单位']}}</text><text class="cost-row-hint">{{ui['显示金额使用的币种']}}</text></view>
-        <view class="cost-row-value">{{displayForm.currency === 'USD' ? 'USD' : 'CNY'}}<text class="cost-chevron">›</text></view>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['货币符号']}}</text><text class="cost-row-hint">{{ui['金额前缀，留空自动选择']}}</text></view>
-        <input class="cost-inline-input" value="{{displayForm.symbol}}" bindinput="onSymbolInput" bindblur="commitDisplay" maxlength="8"/>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['小数位数']}}</text><text class="cost-row-hint">{{ui['2–6 位']}}</text></view>
-        <input class="cost-inline-input" type="number" value="{{displayForm.decimals}}" bindinput="onDecimalsInput" bindblur="commitDisplay" maxlength="1"/>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['汇率']}}</text><text class="cost-row-hint">{{ui['1 美元 = ? 目标币种']}}</text></view>
-        <input class="cost-inline-input" type="digit" value="{{displayForm.exchangeRate}}" bindinput="onExchangeRateInput" bindblur="commitDisplay"/>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="pickSidebarStyle" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['左侧栏样式']}}</text><text class="cost-row-hint">{{ui['合并卡片 / 简洁 / 标准 / 紧凑']}}</text></view>
-        <view class="cost-row-value">{{displayForm.sidebarStyle === 'summary' ? ui['合并卡片'] : displayForm.sidebarStyle === 'simple' ? ui['简洁'] : displayForm.sidebarStyle === 'compact' ? ui['紧凑'] : ui['标准']}}<text class="cost-chevron">›</text></view>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['在左侧栏显示额度卡片']}}</text><text class="cost-row-hint">{{ui['关闭后侧栏不显示额度卡片']}}</text></view>
-        <switch color="#16856D" checked="{{displayForm.sidebarVisible}}" bindchange="toggleSidebarVisible"/>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="pickPeakStyle" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['峰谷样式']}}</text><text class="cost-row-hint">{{ui['进度条或经典条']}}</text></view>
-        <view class="cost-row-value">{{displayForm.peakStyle === 'classic' ? ui['经典'] : ui['进度条']}}<text class="cost-chevron">›</text></view>
-      </view>
+    <view wx:if="{{error}}" class="cost-notice {{!connected || !supported ? 'cost-notice-warn' : ''}}">
+      <text class="cost-notice-title">{{!connected ? ui['尚未连接'] : !supported ? ui['网关尚未启用额度卡片'] : ui['读取失败']}}</text>
+      <text class="cost-notice-body">{{error}}</text>
+      <view wx:if="{{connected && supported}}" class="cost-retry" bindtap="onRefresh" role="button">{{ui['重试']}}</view>
     </view>
-    <view class="cost-style-row">
-      <view wx:for="{{styleOptions}}" wx:key="id" class="cost-style-chip {{displayForm.sidebarStyle === item.id ? 'active' : ''}}" bindtap="pickSidebarStyle" data-id="{{item.id}}">
-        <text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
-      </view>
-    </view>
-    <text class="cost-source-note">{{ui['这些显示设置只作用于小程序左侧栏。']}}</text>
-  </view>
 
-  <!-- 官方账户余额 -->
-  <view wx:if="{{connected && supported && balanceForm}}" class="cost-section">
-    <text class="cost-section-title">{{ui['官方账户余额']}}</text>
-    <view class="cost-card">
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用官方余额']}}</text><text class="cost-row-hint">{{ui['优先读取 DSH 登录账号余额']}}</text></view>
-        <switch color="#16856D" checked="{{balanceForm.enabled}}" bindchange="toggleBalance"/>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="pickBalanceDisplay" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
-        <view class="cost-row-value">{{balanceForm.display === 'both' ? ui['侧栏 + 设置页'] : balanceForm.display === 'sidebar' ? ui['仅侧栏'] : balanceForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="pickBalanceRefresh" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
-        <view class="cost-row-value">{{balanceForm.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-balance-summary">
-        <view class="cost-balance-main"><text class="cost-balance-amount">{{view.balance.amountText}}</text><text class="cost-balance-label">{{view.balance.title}}</text></view>
-        <view class="cost-balance-meta"><text>{{ui['赠送']}} {{view.balance.grantedText}}</text><text>{{ui['充值']}} {{view.balance.toppedUpText}}</text></view>
-      </view>
-      <view wx:if="{{view.balance.message}}" class="cost-inline-error">{{view.balance.message}}</view>
-      <view class="cost-key-input-row">
-        <input class="cost-key-input" password="true" value="{{balanceKeyDraft}}" bindinput="saveBalanceKeyDraft" placeholder="{{ui['可选：DeepSeek 开放平台 API Key']}}" maxlength="4096"/>
-        <button class="cost-save-button" bindtap="saveBalanceKey">{{ui['保存']}}</button>
-        <button class="cost-save-button ghost" bindtap="clearBalanceKey">{{ui['清除']}}</button>
-      </view>
-    </view>
-  </view>
-
-  <!-- OpenCode Go -->
-  <view wx:if="{{connected && supported && goForm}}" class="cost-section">
-    <text class="cost-section-title">{{ui['OpenCode Go 订阅额度']}}</text>
-    <view class="cost-card">
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用 OpenCode Go']}}</text><text class="cost-row-hint">{{ui['滚动 5 小时 / 本周 / 本月']}}</text></view>
-        <switch color="#16856D" checked="{{goForm.enabled}}" bindchange="toggleGo"/>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="pickGoDisplay" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
-        <view class="cost-row-value">{{goForm.display === 'both' ? ui['侧栏 + 设置页'] : goForm.display === 'sidebar' ? ui['仅侧栏'] : goForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="pickGoRefresh" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
-        <view class="cost-row-value">{{goForm.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="pickGoMain" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['主用量窗口']}}</text></view>
-        <view class="cost-row-value">{{goForm.main === 'weekly' ? ui['本周'] : goForm.main === 'monthly' ? ui['本月'] : ui['滚动 5 小时']}}<text class="cost-chevron">›</text></view>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="pickGoDirection" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['进度条方向']}}</text></view>
-        <view class="cost-row-value">{{goForm.barDirection === 'remaining' ? ui['剩余'] : ui['已用']}}<text class="cost-chevron">›</text></view>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示详情']}}</text><text class="cost-row-hint">{{ui['显示三档窗口的重置时间']}}</text></view>
-        <switch color="#16856D" checked="{{goForm.detail}}" bindchange="toggleGoDetail"/>
-      </view>
-      <block wx:if="{{view.go}}">
-        <view wx:for="{{view.go.rows}}" wx:key="key" class="cost-quota-row">
-          <view class="cost-quota-head"><text class="cost-quota-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="cost-quota-percent">{{item.percentText}}</text></view>
-          <view class="cost-progress"><view class="cost-progress-fill" style="width:{{item.barWidth}};"></view></view>
-          <text wx:if="{{item.resetsText}}" class="cost-quota-reset">{{ui['重置']}} {{item.resetsText}}</text>
+    <!-- 显示与左侧栏样式：点卡片开弹窗，弹窗内含实时预览 -->
+    <view wx:if="{{connected && supported}}" class="cost-section">
+      <text class="cost-section-title">{{ui['显示设置']}}</text>
+      <view class="cost-card cost-entry-card" bindtap="openDisplaySheet" role="button" aria-label="{{ui['显示设置']}}">
+        <view class="cost-row">
+          <view class="cost-row-copy">
+            <text class="cost-row-label">{{ui['左侧栏样式']}}</text>
+            <text class="cost-row-hint">{{displayForm.sidebarStyle === 'summary' ? ui['合并卡片'] : displayForm.sidebarStyle === 'simple' ? ui['简洁'] : displayForm.sidebarStyle === 'compact' ? ui['紧凑'] : ui['标准']}} · {{ui['货币单位']}} {{displayForm.currency}}</text>
+          </view>
+          <view class="cost-row-value"><text class="cost-chevron">›</text></view>
         </view>
-      </block>
-      <view wx:if="{{view.go.message}}" class="cost-inline-error">{{view.go.message}}</view>
-      <view class="cost-key-input-row">
-        <input class="cost-key-input" password="true" value="{{goKeyDraft}}" bindinput="saveGoKeyDraft" placeholder="{{ui['OpenCode Go API Key']}}" maxlength="4096"/>
-        <button class="cost-save-button" bindtap="saveGoKey">{{ui['保存']}}</button>
-        <button class="cost-save-button ghost" bindtap="clearGoKey">{{ui['清除']}}</button>
-      </view>
-    </view>
-  </view>
-
-  <!-- 预算 -->
-  <view wx:if="{{connected && supported && budgetForm}}" class="cost-section">
-    <text class="cost-section-title">{{ui['预算']}}</text>
-    <view class="cost-card">
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用预算']}}</text><text class="cost-row-hint">{{ui['按选定周期统计估算费用']}}</text></view>
-        <switch color="#16856D" checked="{{budgetForm.enabled}}" bindchange="toggleBudget"/>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['预算额度']}}</text></view>
-        <input class="cost-inline-input" type="digit" value="{{budgetForm.amount}}" bindinput="onBudgetAmountInput" bindblur="commitBudget" placeholder="{{ui['请输入有效的预算金额']}}"/>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="pickBudgetPeriod" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['预算周期']}}</text></view>
-        <view class="cost-row-value">{{budgetForm.period === 'day' ? ui['今日'] : budgetForm.period === 'all' ? ui['累计'] : ui['本月']}}<text class="cost-chevron">›</text></view>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="pickBudgetDisplay" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
-        <view class="cost-row-value">{{budgetForm.display === 'both' ? ui['侧栏 + 设置页'] : budgetForm.display === 'sidebar' ? ui['仅侧栏'] : budgetForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
-      </view>
-      <block wx:if="{{budgetForm.enabled}}">
-        <view class="cost-quota-row">
-          <view class="cost-quota-head"><text class="cost-quota-label">{{ui['已用']}} {{budgetForm.usedText}}</text><text class="cost-quota-percent">{{budgetForm.percentText}}</text></view>
-          <view class="cost-progress"><view class="cost-progress-fill" style="width:{{budgetForm.barWidth}};"></view></view>
-          <text class="cost-quota-reset">{{ui['预算']}} {{budgetForm.amountText}}</text>
-        </view>
-      </block>
-    </view>
-  </view>
-
-  <!-- 峰谷 -->
-  <view wx:if="{{connected && supported && peakForm}}" class="cost-section">
-    <text class="cost-section-title">{{ui['峰谷时段']}}</text>
-    <view class="cost-card">
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用峰谷显示']}}</text><text class="cost-row-hint">{{ui['显示当前电价时段与下次切换']}}</text></view>
-        <switch color="#16856D" checked="{{peakForm.enabled}}" bindchange="togglePeak"/>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="pickPeakDisplay" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
-        <view class="cost-row-value">{{peakForm.display === 'both' ? ui['侧栏 + 设置页'] : peakForm.display === 'sidebar' ? ui['仅侧栏'] : peakForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row" bindtap="editPeakWindows" role="button">
-        <view class="cost-row-copy"><text class="cost-row-label">{{ui['峰时段']}}</text><text class="cost-row-hint">{{ui['按 UTC 时间设置，多个时段用逗号分隔']}}</text></view>
-        <view class="cost-row-value">{{peakForm.windowsLabel}}<text class="cost-chevron">›</text></view>
-      </view>
-      <block wx:if="{{view.peak && view.peak.enabled}}">
-        <view class="cost-quota-row">
-          <view class="cost-quota-head"><text class="cost-quota-label">{{view.peak.label}}</text><text class="cost-quota-percent">{{view.peak.remainingText}}</text></view>
-          <view class="cost-progress"><view class="cost-progress-fill" style="width:{{view.peak.progressText}};"></view></view>
-          <text class="cost-quota-reset">{{view.peak.switchText}}</text>
-        </view>
-      </block>
-    </view>
-  </view>
-
-  <!-- Coding Plans -->
-  <view wx:if="{{connected && supported}}" class="cost-section">
-    <text class="cost-section-title">{{ui['Coding Plan 订阅额度']}}</text>
-    <text class="cost-source-note">{{ui['逐家启用；凭据保存在电脑端 DSH 凭据库，移动端只显示是否已配置。']}}</text>
-    <view wx:for="{{planCells}}" wx:key="id" class="cost-card cost-plan-card {{item.enabled ? '' : 'is-off'}}">
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{item.label}}</text><text class="cost-row-hint {{item.status === 'error' ? 'is-error' : ''}}">{{item.status === 'ok' ? ui['正常'] : item.status === 'unconfigured' ? ui['未配置凭据'] : item.status === 'off' ? ui['未启用或无订阅'] : item.message || ui['待刷新']}}</text></view>
-        <switch color="#16856D" checked="{{item.enabled}}" data-index="{{index}}" bindchange="togglePlan"/>
-      </view>
-      <view class="cost-divider"></view>
-      <view class="cost-row">
-        <view class="cost-row-copy" bindtap="togglePlanExpand" data-id="{{item.id}}" role="button"><text class="cost-row-label">{{ui['详细设置']}}</text><text class="cost-row-hint">{{item.configured ? ui['凭据已配置'] : ui['凭据未配置']}}</text></view>
-        <view class="cost-plan-actions">
-          <view class="cost-mini-btn" bindtap="refreshPlan" data-index="{{index}}">{{ui['刷新']}}</view>
-          <view class="cost-mini-btn" bindtap="togglePlanExpand" data-id="{{item.id}}">{{item.expanded ? ui['收起'] : ui['展开']}}</view>
-        </view>
-      </view>
-      <view wx:if="{{item.rows.length}}" class="cost-plan-windows">
-        <view wx:for="{{item.rows}}" wx:for-item="win" wx:key="key" class="cost-quota-row">
-          <view class="cost-quota-head"><text class="cost-quota-label">{{ui[win.label] !== undefined ? ui[win.label] : win.label}}</text><text class="cost-quota-percent">{{win.percentText}}</text></view>
-          <view class="cost-progress"><view class="cost-progress-fill" style="width:{{win.barWidth}};"></view></view>
-          <text wx:if="{{win.resetsText}}" class="cost-quota-reset">{{ui['重置']}} {{win.resetsText}}</text>
-        </view>
-      </view>
-      <block wx:if="{{item.expanded}}">
         <view class="cost-divider"></view>
         <view class="cost-row">
-          <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
-          <view class="cost-row-value" bindtap="pickPlanDisplay" data-index="{{index}}" role="button">{{item.displayLabel}}<text class="cost-chevron">›</text></view>
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['侧栏预览']}}</text><text class="cost-row-hint">{{ui['点开可预览并确认样式']}}</text></view>
+          <view class="cost-row-value"><text class="cost-chevron">›</text></view>
         </view>
+      </view>
+    </view>
+
+    <!-- 官方账户余额 -->
+    <view wx:if="{{connected && supported && balanceForm}}" class="cost-section">
+      <text class="cost-section-title">{{ui['官方账户余额']}}</text>
+      <view class="cost-card cost-entry-card" bindtap="openBalanceSheet" role="button" aria-label="{{ui['官方账户余额']}}">
         <view class="cost-row">
+          <view class="cost-row-copy">
+            <text class="cost-row-label">{{ui['官方账户余额']}}</text>
+            <text class="cost-row-hint">{{view.balance.amountText}} · {{view.balance.status === 'ok' ? ui['正常'] : (view.balance.message || ui['待刷新'])}}</text>
+          </view>
+          <switch color="#16856D" checked="{{balanceForm.enabled}}" bindchange="toggleBalance"/>
+        </view>
+      </view>
+    </view>
+
+    <!-- OpenCode Go -->
+    <view wx:if="{{connected && supported && goForm}}" class="cost-section">
+      <text class="cost-section-title">{{ui['OpenCode Go 订阅额度']}}</text>
+      <view class="cost-card cost-entry-card" bindtap="openGoSheet" role="button" aria-label="{{ui['OpenCode Go 订阅额度']}}">
+        <view class="cost-row">
+          <view class="cost-row-copy">
+            <text class="cost-row-label">OpenCode Go</text>
+            <text class="cost-row-hint">{{goForm.enabled ? (view.go && view.go.rows.length ? view.go.rows[0].percentText : ui['待刷新']) : ui['未启用']}}</text>
+          </view>
+          <switch color="#16856D" checked="{{goForm.enabled}}" bindchange="toggleGo"/>
+        </view>
+      </view>
+    </view>
+
+    <!-- 预算 -->
+    <view wx:if="{{connected && supported && budgetForm}}" class="cost-section">
+      <text class="cost-section-title">{{ui['预算']}}</text>
+      <view class="cost-card cost-entry-card" bindtap="openBudgetSheet" role="button" aria-label="{{ui['预算']}}">
+        <view class="cost-row">
+          <view class="cost-row-copy">
+            <text class="cost-row-label">{{ui['预算']}}</text>
+            <text class="cost-row-hint">{{budgetForm.enabled ? (budgetForm.amountText + ' · ' + budgetForm.percentText) : ui['未启用']}}</text>
+          </view>
+          <switch color="#16856D" checked="{{budgetForm.enabled}}" bindchange="toggleBudget"/>
+        </view>
+      </view>
+    </view>
+
+    <!-- 峰谷 -->
+    <view wx:if="{{connected && supported && peakForm}}" class="cost-section">
+      <text class="cost-section-title">{{ui['峰谷时段']}}</text>
+      <view class="cost-card cost-entry-card" bindtap="openPeakSheet" role="button" aria-label="{{ui['峰谷时段']}}">
+        <view class="cost-row">
+          <view class="cost-row-copy">
+            <text class="cost-row-label">{{ui['峰谷时段']}}</text>
+            <text class="cost-row-hint">{{peakForm.enabled ? (view.peak && view.peak.enabled ? (view.peak.label + ' · ' + view.peak.remainingText) : ui['待刷新']) : ui['未启用']}}</text>
+          </view>
+          <switch color="#16856D" checked="{{peakForm.enabled}}" bindchange="togglePeak"/>
+        </view>
+      </view>
+    </view>
+
+    <!-- Coding Plans：列表只留摘要，配置进弹窗 -->
+    <view wx:if="{{connected && supported}}" class="cost-section">
+      <text class="cost-section-title">{{ui['Coding Plan 订阅额度']}}</text>
+      <text class="cost-source-note">{{ui['逐家启用；凭据保存在电脑端 DSH 凭据库，移动端只显示是否已配置。点卡片配置。']}}</text>
+      <view wx:for="{{planCells}}" wx:key="id" class="cost-card cost-entry-card {{item.enabled ? '' : 'is-off'}}" bindtap="openPlanSheet" data-index="{{index}}" role="button" aria-label="{{item.label}}">
+        <view class="cost-row">
+          <view class="cost-row-copy">
+            <text class="cost-row-label">{{item.label}}</text>
+            <text class="cost-row-hint {{item.status === 'error' ? 'is-error' : ''}}">{{item.status === 'ok' ? (item.rows.length ? item.rows[0].percentText : ui['正常']) : item.status === 'unconfigured' ? ui['未配置凭据'] : item.status === 'off' ? ui['未启用或无订阅'] : item.message || ui['待刷新']}}</text>
+          </view>
+          <switch color="#16856D" checked="{{item.enabled}}" data-index="{{index}}" bindchange="togglePlan"/>
+        </view>
+      </view>
+    </view>
+
+    <!-- 网关额度 -->
+    <view wx:if="{{connected && supported}}" class="cost-section">
+      <text class="cost-section-title">{{ui['CLIProxyAPI 网关额度']}}</text>
+      <text class="cost-source-note">{{ui['集中查看本地/局域网代理网关的账号额度；最多 4 个来源。']}}</text>
+      <view wx:for="{{gatewayCells}}" wx:key="id" class="cost-card cost-entry-card {{item.enabled ? '' : 'is-off'}}" bindtap="openGatewaySheet" data-index="{{index}}" role="button" aria-label="{{item.label}}">
+        <view class="cost-row">
+          <view class="cost-row-copy">
+            <text class="cost-row-label">{{item.label || item.id}}</text>
+            <text class="cost-row-hint {{item.status === 'error' ? 'is-error' : ''}}">{{item.status === 'ok' ? (item.accounts.length ? item.accounts.length + ' ' + ui['个账号'] : ui['正常']) : item.status === 'partial' ? ui['部分可用'] : item.message || ui['待刷新']}}</text>
+          </view>
+          <switch color="#16856D" checked="{{item.enabled}}" data-index="{{index}}" bindchange="toggleGateway"/>
+        </view>
+      </view>
+      <view class="cost-add-source" bindtap="addGateway" role="button">{{ui['＋ 添加网关额度来源']}}</view>
+    </view>
+
+    <!-- 自定义 Provider 余额 -->
+    <view wx:if="{{connected && supported}}" class="cost-section">
+      <text class="cost-section-title">{{ui['自定义 Provider 余额']}}</text>
+      <text class="cost-source-note">{{ui['任意 HTTP 端点 + JSON 路径提取；最多 8 条。密钥仅在电脑端凭据库保存。']}}</text>
+      <view wx:for="{{customCells}}" wx:key="index" class="cost-card cost-entry-card {{item.enabled ? '' : 'is-off'}}" bindtap="openCustomSheet" data-index="{{index}}" role="button" aria-label="{{item.label}}">
+        <view class="cost-row">
+          <view class="cost-row-copy">
+            <text class="cost-row-label">{{item.label || ui['自定义余额']}}</text>
+            <text class="cost-row-hint {{item.status === 'error' ? 'is-error' : ''}}">{{item.status === 'ok' ? item.amountText : item.message || ui['待刷新']}}</text>
+          </view>
+          <switch color="#16856D" checked="{{item.enabled}}" data-index="{{index}}" bindchange="toggleCustom"/>
+        </view>
+      </view>
+      <view class="cost-add-source" bindtap="addCustom" role="button">{{ui['＋ 添加自定义余额']}}</view>
+      <view class="cost-preset-row">
+        <view class="cost-mini-btn" bindtap="addCustomPreset" data-kind="aliyun">{{ui['＋ 千问 / 阿里云余额']}}</view>
+        <view class="cost-mini-btn" bindtap="addCustomPreset" data-kind="tokenrhythm">{{ui['＋ Token Rhythm 余额']}}</view>
+        <view class="cost-mini-btn" bindtap="addCustomPreset" data-kind="workbuddy">{{ui['＋ WorkBuddy2API 积分']}}</view>
+      </view>
+    </view>
+
+    <view wx:if="{{loading && !view}}" class="cost-loading"><view class="cost-spinner"></view><text>{{ui['正在读取额度…']}}</text></view>
+  </view>
+
+  <!-- ============ 弹窗：显示设置（含侧栏预览与确认） ============ -->
+  <view wx:if="{{sheet === 'display'}}" class="cost-sheet-mask" bindtap="closeSheet">
+    <view class="cost-sheet" catchtap="noop">
+      <view class="cost-sheet-head">
+        <text class="cost-sheet-title">{{ui['显示设置']}}</text>
+        <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
+      </view>
+      <scroll-view scroll-y class="cost-sheet-body">
+        <view class="cost-row" bindtap="pickCurrency" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['货币单位']}}</text><text class="cost-row-hint">{{ui['显示金额使用的币种']}}</text></view>
+          <view class="cost-row-value">{{displayForm.currency}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['货币符号']}}</text><text class="cost-row-hint">{{ui['金额前缀，留空自动选择']}}</text></view>
+          <input class="cost-inline-input" value="{{displayForm.symbol}}" bindinput="onSymbolInput" bindblur="commitDisplay" maxlength="8"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['小数位数']}}</text><text class="cost-row-hint">{{ui['2–6 位']}}</text></view>
+          <input class="cost-inline-input short" type="number" value="{{displayForm.decimals}}" bindinput="onDecimalsInput" bindblur="commitDisplay" maxlength="1"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['汇率']}}</text><text class="cost-row-hint">{{ui['1 美元 = ? 目标币种']}}</text></view>
+          <input class="cost-inline-input" type="digit" value="{{displayForm.exchangeRate}}" bindinput="onExchangeRateInput" bindblur="commitDisplay"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['在左侧栏显示额度卡片']}}</text><text class="cost-row-hint">{{ui['关闭后侧栏不显示额度卡片']}}</text></view>
+          <switch color="#16856D" checked="{{displayForm.sidebarVisible}}" bindchange="toggleSidebarVisible"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickTodayMetric" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['今日显示项']}}</text><text class="cost-row-hint">{{ui['侧栏今日行显示金额 / Token / 两者']}}</text></view>
+          <view class="cost-row-value">{{displayForm.sidebarTodayMetric === 'amount' ? ui['仅金额'] : displayForm.sidebarTodayMetric === 'tokens' ? ui['仅 Token'] : ui['金额 + Token']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickPeakTimeDisplay" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['峰谷时间显示']}}</text><text class="cost-row-hint">{{ui['倒计时与切换时间的显示方式']}}</text></view>
+          <view class="cost-row-value">{{displayForm.peakTimeDisplay === 'countdown' ? ui['只看倒计时'] : displayForm.peakTimeDisplay === 'switch' ? ui['只看切换时间'] : ui['倒计时 + 切换时间']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['今日与余额同行']}}</text><text class="cost-row-hint">{{ui['侧栏今日行与余额行并排显示']}}</text></view>
+          <switch color="#16856D" checked="{{displayForm.sidebarTodayBalanceInline}}" bindchange="toggleTodayInline"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickBalanceBarDirection" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['余额进度条方向']}}</text><text class="cost-row-hint">{{ui['已用或剩余']}}</text></view>
+          <view class="cost-row-value">{{balanceForm.barDirection === 'used' ? ui['已用'] : ui['剩余']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickBudgetBarDirection" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['预算进度条方向']}}</text><text class="cost-row-hint">{{ui['已用或剩余']}}</text></view>
+          <view class="cost-row-value">{{budgetForm.barDirection === 'used' ? ui['已用'] : ui['剩余']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickPeakStyle" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['峰谷样式']}}</text><text class="cost-row-hint">{{ui['进度条或经典条']}}</text></view>
+          <view class="cost-row-value">{{displayForm.peakStyle === 'classic' ? ui['经典'] : ui['进度条']}}<text class="cost-chevron">›</text></view>
+        </view>
+
+        <!-- 侧栏样式选择 + 实时预览 -->
+        <view class="cost-divider"></view>
+        <view class="cost-row-block">
+          <text class="cost-row-label">{{ui['侧栏样式']}}</text>
+          <view class="cost-style-row">
+            <view wx:for="{{styleOptions}}" wx:key="id" class="cost-style-chip {{displayForm.sidebarStyle === item.id ? 'active' : ''}}" bindtap="pickSidebarStyle" data-id="{{item.id}}">
+              <text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+            </view>
+          </view>
+          <view class="cost-preview">
+            <view class="cost-preview-rail">
+              <view class="cost-preview-brand"><view class="cost-preview-dot"></view><view class="cost-preview-dot"></view><view class="cost-preview-dot"></view></view>
+              <text class="cost-preview-rail-label">{{ui['工作区']}}</text>
+            </view>
+            <scroll-view scroll-y class="cost-preview-body">
+              <block wx:if="{{previewSidebar}}">
+                <view class="drawer-quota drawer-quota-{{previewSidebar.style}}">
+                  <block wx:for="{{previewSections}}" wx:key="key" wx:for-item="sec">
+                    <view wx:if="{{sec.kind === 'balance'}}" class="dq-line dq-balance">
+                      <text class="dq-name">{{previewSidebar.balance.title}} <text class="dq-link">↗</text></text>
+                      <text class="dq-value">{{previewSidebar.balance.amountText}}</text>
+                    </view>
+                    <view wx:if="{{sec.kind === 'budget'}}" class="dq-block">
+                      <view class="dq-line"><text class="dq-name">{{ui['预算']}}</text><text class="dq-value">{{previewSidebar.budget.percentText}}</text></view>
+                      <view class="dq-progress"><view class="dq-progress-fill" style="width:{{previewSidebar.budget.barWidth}};"></view></view>
+                      <text class="dq-meta">{{previewSidebar.budget.usedText}} / {{previewSidebar.budget.amountText}}</text>
+                    </view>
+                    <view wx:if="{{sec.kind === 'go'}}" class="dq-block">
+                      <view wx:for="{{previewSidebar.go.rows}}" wx:for-item="win" wx:key="key" class="dq-window">
+                        <view class="dq-line"><text class="dq-name">{{ui[win.label] !== undefined ? ui[win.label] : win.label}}</text><text class="dq-value">{{win.percentText}}</text></view>
+                        <view class="dq-progress"><view class="dq-progress-fill" style="width:{{win.barWidth}};"></view></view>
+                        <text wx:if="{{win.resetsText}}" class="dq-meta">{{ui['重置']}} {{win.resetsText}}</text>
+                      </view>
+                    </view>
+                    <view wx:if="{{sec.kind === 'plan'}}" class="dq-block dq-plan">
+                      <view class="dq-line"><text class="dq-name">{{sec.label}}</text><text class="dq-value">{{previewPlanOf(sec.key).main ? previewPlanOf(sec.key).main.percentText : '—'}}</text></view>
+                      <view wx:if="{{previewPlanOf(sec.key).main}}" class="dq-progress"><view class="dq-progress-fill" style="width:{{previewPlanOf(sec.key).main.barWidth}};"></view></view>
+                    </view>
+                    <view wx:if="{{sec.kind === 'gateway'}}" class="dq-line dq-source">
+                      <text class="dq-name">{{sec.label}}</text>
+                      <text class="dq-value">{{previewGatewayOf(sec.key).accounts.length ? previewGatewayOf(sec.key).accounts.length + ' ' + ui['个账号'] : (previewGatewayOf(sec.key).status === 'ok' ? ui['正常'] : previewGatewayOf(sec.key).status)}}</text>
+                    </view>
+                    <view wx:if="{{sec.kind === 'custom'}}" class="dq-block">
+                      <view class="dq-line"><text class="dq-name">{{previewCustomOf(sec.key).label}}</text><text class="dq-value">{{previewCustomOf(sec.key).amountText}}</text></view>
+                      <view wx:if="{{previewCustomOf(sec.key).percent !== null}}" class="dq-progress"><view class="dq-progress-fill" style="width:{{previewCustomOf(sec.key).barWidth}};"></view></view>
+                    </view>
+                    <view wx:if="{{sec.kind === 'peak'}}" class="dq-block dq-peak">
+                      <view class="dq-line"><text class="dq-name dq-peak-phase"><text class="dq-dot"></text>{{previewSidebar.peak.label}}</text><text class="dq-value">{{previewSidebar.peak.remainingText}}</text></view>
+                      <view class="dq-progress"><view class="dq-progress-fill" style="width:{{previewSidebar.peak.progressText}};"></view></view>
+                      <text class="dq-meta">{{previewSidebar.peak.switchText}}</text>
+                    </view>
+                  </block>
+                </view>
+                <view class="drawer-footer"><view class="drawer-item drawer-settings"><image class="drawer-item-ic" src="/assets/icons/settings-ink.svg" mode="aspectFit"/><text class="drawer-item-text">{{ui['设置']}}</text></view></view>
+              </block>
+              <view wx:elif="{{!previewSidebar}}" class="cost-preview-empty">{{ui['侧栏卡片已关闭，打开「在左侧栏显示额度卡片」后可见']}}</view>
+            </scroll-view>
+          </view>
+          <text class="cost-source-note">{{ui['预览使用当前额度数据；切换样式可对比四种布局。']}}</text>
+        </view>
+
+        <!-- 组件检查器 -->
+        <view class="cost-divider"></view>
+        <view class="cost-row-block">
+          <text class="cost-row-label">{{ui['调整组件']}}</text>
+          <view class="cost-row" bindtap="pickPreviewComponent" role="button">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['组件']}}</text></view>
+            <view class="cost-row-value">{{previewComponentLabel}}<text class="cost-chevron">›</text></view>
+          </view>
+          <view class="cost-row">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示此组件']}}</text></view>
+            <switch color="#16856D" checked="{{previewComponentEnabled}}" bindchange="togglePreviewComponent"/>
+          </view>
+          <view wx:if="{{previewComponent === 'budget'}}" class="cost-row">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['预算图框详细信息']}}</text></view>
+            <switch color="#16856D" checked="{{budgetForm.detail}}" bindchange="toggleBudgetDetail"/>
+          </view>
+          <view wx:if="{{previewComponent === 'budget'}}" class="cost-row">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['今日消费与余额同行']}}</text></view>
+            <switch color="#16856D" checked="{{displayForm.sidebarTodayBalanceInline}}" bindchange="toggleTodayInline"/>
+          </view>
+          <view wx:if="{{previewComponent === 'balance'}}" class="cost-row">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示进度条']}}</text></view>
+            <switch color="#16856D" checked="{{balanceForm.showProgressBar}}" bindchange="toggleBalanceProgress"/>
+          </view>
+          <view wx:if="{{previewComponent === 'go'}}" class="cost-row">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示详情']}}</text></view>
+            <switch color="#16856D" checked="{{goForm.detail}}" bindchange="toggleGoDetail"/>
+          </view>
+          <view class="cost-row">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
+            <view class="cost-row-value" bindtap="pickPreviewDisplay">{{previewComponentDisplayLabel}}<text class="cost-chevron">›</text></view>
+          </view>
+        </view>
+
+        <!-- 侧栏卡片顺序 -->
+        <view class="cost-divider"></view>
+        <view class="cost-row-block">
+          <text class="cost-row-label">{{ui['侧栏卡片顺序']}}</text>
+          <text class="cost-row-hint">{{ui['用上下按钮调整左侧栏卡片的先后顺序']}}</text>
+          <view class="cost-order-list">
+            <view wx:for="{{sidebarOrderCells}}" wx:key="key" class="cost-order-row">
+              <text class="cost-order-index">{{index + 1}}</text>
+              <text class="cost-order-label">{{item.label}}</text>
+              <view class="cost-order-actions">
+                <view class="cost-mini-btn {{index === 0 ? 'is-disabled' : ''}}" bindtap="moveSidebarOrder" data-index="{{index}}" data-dir="-1">{{ui['上移']}}</view>
+                <view class="cost-mini-btn {{index === sidebarOrderCells.length - 1 ? 'is-disabled' : ''}}" bindtap="moveSidebarOrder" data-index="{{index}}" data-dir="1">{{ui['下移']}}</view>
+              </view>
+            </view>
+          </view>
+          <view class="cost-row-buttons">
+            <view class="cost-mini-btn" bindtap="resetSidebarOrder">{{ui['恢复默认顺序']}}</view>
+          </view>
+        </view>
+      </scroll-view>
+      <view class="cost-sheet-foot">
+        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- ============ 弹窗：官方余额 ============ -->
+  <view wx:if="{{sheet === 'balance'}}" class="cost-sheet-mask" bindtap="closeSheet">
+    <view class="cost-sheet" catchtap="noop">
+      <view class="cost-sheet-head">
+        <text class="cost-sheet-title">{{ui['官方账户余额']}}</text>
+        <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
+      </view>
+      <scroll-view scroll-y class="cost-sheet-body">
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用官方余额']}}</text><text class="cost-row-hint">{{ui['优先读取 DSH 登录账号余额']}}</text></view>
+          <switch color="#16856D" checked="{{balanceForm.enabled}}" bindchange="toggleBalance"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickBalanceDisplay" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
+          <view class="cost-row-value">{{balanceForm.display === 'both' ? ui['侧栏 + 设置页'] : balanceForm.display === 'sidebar' ? ui['仅侧栏'] : balanceForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickBalanceRefresh" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
-          <view class="cost-row-value" bindtap="pickPlanRefresh" data-index="{{index}}" role="button">{{item.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
+          <view class="cost-row-value">{{balanceForm.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
         </view>
-        <view wx:for="{{item.fields}}" wx:for-item="field" wx:for-index="fieldIndex" wx:key="key" class="cost-row">
-          <view class="cost-row-copy"><text class="cost-row-label">{{field.label}}</text></view>
-          <input class="cost-inline-input {{field.type === 'number' ? 'short' : ''}}" value="{{field.value}}" data-index="{{index}}" data-field="{{fieldIndex}}" bindinput="onPlanFieldInput" placeholder="{{field.label}}"/>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示进度条']}}</text><text class="cost-row-hint">{{ui['侧栏余额卡片显示三段进度条']}}</text></view>
+          <switch color="#16856D" checked="{{balanceForm.showProgressBar}}" bindchange="toggleBalanceProgress"/>
         </view>
-        <view wx:if="{{item.fields.length}}" class="cost-mini-btn wide" bindtap="savePlanFields" data-index="{{index}}">{{ui['保存该厂商选项']}}</view>
-        <block wx:if="{{!item.noKey}}">
-          <view class="cost-key-input-row">
-            <input class="cost-key-input" password="true" value="{{item.keyDraft}}" data-index="{{index}}" bindinput="onPlanKeyInput" placeholder="{{item.needsSecret ? ui['AccessKeyID || SecretAccessKey'] : ui['粘贴 API Key / Cookie / OAuth Token']}}" maxlength="4096"/>
-            <button class="cost-save-button" bindtap="savePlanKey" data-index="{{index}}">{{ui['保存']}}</button>
-            <button wx:if="{{item.configured}}" class="cost-save-button ghost" bindtap="clearPlanKey" data-index="{{index}}">{{ui['清除']}}</button>
+        <view class="cost-divider"></view>
+        <view class="cost-balance-summary">
+          <view class="cost-balance-main"><text class="cost-balance-amount">{{view.balance.amountText}}</text><text class="cost-balance-label">{{view.balance.title}}</text></view>
+          <view class="cost-balance-meta"><text>{{ui['赠送']}} {{view.balance.grantedText}}</text><text>{{ui['充值']}} {{view.balance.toppedUpText}}</text></view>
+        </view>
+        <view wx:if="{{view.balance.message}}" class="cost-inline-error">{{view.balance.message}}</view>
+        <view class="cost-key-input-row">
+          <input class="cost-key-input" password="true" value="{{balanceKeyDraft}}" bindinput="saveBalanceKeyDraft" placeholder="{{ui['可选：DeepSeek 开放平台 API Key']}}" maxlength="4096"/>
+          <button class="cost-save-button" bindtap="saveBalanceKey">{{ui['保存']}}</button>
+          <button class="cost-save-button ghost" bindtap="clearBalanceKey">{{ui['清除']}}</button>
+        </view>
+      </scroll-view>
+      <view class="cost-sheet-foot">
+        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- ============ 弹窗：OpenCode Go ============ -->
+  <view wx:if="{{sheet === 'go'}}" class="cost-sheet-mask" bindtap="closeSheet">
+    <view class="cost-sheet" catchtap="noop">
+      <view class="cost-sheet-head">
+        <text class="cost-sheet-title">{{ui['OpenCode Go 订阅额度']}}</text>
+        <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
+      </view>
+      <scroll-view scroll-y class="cost-sheet-body">
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用 OpenCode Go']}}</text><text class="cost-row-hint">{{ui['滚动 5 小时 / 本周 / 本月']}}</text></view>
+          <switch color="#16856D" checked="{{goForm.enabled}}" bindchange="toggleGo"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickGoDisplay" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
+          <view class="cost-row-value">{{goForm.display === 'both' ? ui['侧栏 + 设置页'] : goForm.display === 'sidebar' ? ui['仅侧栏'] : goForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickGoRefresh" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
+          <view class="cost-row-value">{{goForm.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickGoMain" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['主用量窗口']}}</text></view>
+          <view class="cost-row-value">{{goForm.main === 'weekly' ? ui['本周'] : goForm.main === 'monthly' ? ui['本月'] : ui['滚动 5 小时']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickGoDirection" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['进度条方向']}}</text></view>
+          <view class="cost-row-value">{{goForm.barDirection === 'remaining' ? ui['剩余'] : ui['已用']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示详情']}}</text><text class="cost-row-hint">{{ui['显示三档窗口的重置时间']}}</text></view>
+          <switch color="#16856D" checked="{{goForm.detail}}" bindchange="toggleGoDetail"/>
+        </view>
+        <block wx:if="{{view.go}}">
+          <view wx:for="{{view.go.rows}}" wx:key="key" class="cost-quota-row">
+            <view class="cost-quota-head"><text class="cost-quota-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="cost-quota-percent">{{item.percentText}}</text></view>
+            <view class="cost-progress"><view class="cost-progress-fill" style="width:{{item.barWidth}};"></view></view>
+            <text wx:if="{{item.resetsText}}" class="cost-quota-reset">{{ui['重置']}} {{item.resetsText}}</text>
           </view>
         </block>
-        <text wx:if="{{item.noKey}}" class="cost-row-hint">{{ui['该厂商使用本地估算或本机登录态，无需填写凭据。']}}</text>
-        <text wx:if="{{item.message}}" class="cost-inline-error">{{item.message}}</text>
-      </block>
+        <view wx:if="{{view.go.message}}" class="cost-inline-error">{{view.go.message}}</view>
+        <view class="cost-key-input-row">
+          <input class="cost-key-input" password="true" value="{{goKeyDraft}}" bindinput="saveGoKeyDraft" placeholder="{{ui['OpenCode Go API Key']}}" maxlength="4096"/>
+          <button class="cost-save-button" bindtap="saveGoKey">{{ui['保存']}}</button>
+          <button class="cost-save-button ghost" bindtap="clearGoKey">{{ui['清除']}}</button>
+        </view>
+      </scroll-view>
+      <view class="cost-sheet-foot">
+        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
+      </view>
     </view>
   </view>
 
-  <!-- 网关额度 -->
-  <view wx:if="{{connected && supported}}" class="cost-section">
-    <text class="cost-section-title">{{ui['CLIProxyAPI 网关额度']}}</text>
-    <text class="cost-source-note">{{ui['集中查看本地/局域网代理网关的账号额度；最多 4 个来源。']}}</text>
-    <view wx:for="{{gatewayCells}}" wx:key="id" class="cost-card cost-plan-card {{item.enabled ? '' : 'is-off'}}">
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{item.label || item.id}}</text><text class="cost-row-hint {{item.status === 'error' ? 'is-error' : ''}}">{{item.status === 'ok' ? ui['正常'] : item.status === 'partial' ? ui['部分可用'] : item.message || ui['待刷新']}}</text></view>
-        <switch color="#16856D" checked="{{item.enabled}}" data-index="{{index}}" bindchange="toggleGateway"/>
+  <!-- ============ 弹窗：预算 ============ -->
+  <view wx:if="{{sheet === 'budget'}}" class="cost-sheet-mask" bindtap="closeSheet">
+    <view class="cost-sheet" catchtap="noop">
+      <view class="cost-sheet-head">
+        <text class="cost-sheet-title">{{ui['预算']}}</text>
+        <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
       </view>
-      <block wx:if="{{item.accounts.length}}">
-        <view wx:for="{{item.accounts}}" wx:for-item="account" wx:key="id" class="cost-gateway-account">
-          <text class="cost-gateway-label">{{account.label}} · {{account.provider}}</text>
-          <view wx:for="{{account.rows}}" wx:for-item="win" wx:key="key" class="cost-quota-row inline">
-            <view class="cost-quota-head"><text class="cost-quota-label">{{win.label}}</text><text class="cost-quota-percent">{{win.percentText}}</text></view>
+      <scroll-view scroll-y class="cost-sheet-body">
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用预算']}}</text><text class="cost-row-hint">{{ui['按选定周期统计估算费用']}}</text></view>
+          <switch color="#16856D" checked="{{budgetForm.enabled}}" bindchange="toggleBudget"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['预算额度']}}</text></view>
+          <input class="cost-inline-input" type="digit" value="{{budgetForm.amount}}" bindinput="onBudgetAmountInput" bindblur="commitBudget" placeholder="{{ui['请输入有效的预算金额']}}"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickBudgetPeriod" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['预算周期']}}</text></view>
+          <view class="cost-row-value">{{budgetForm.period === 'day' ? ui['今日'] : budgetForm.period === 'all' ? ui['累计'] : budgetForm.period === 'custom' ? ui['自定义区间'] : ui['本月']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <block wx:if="{{budgetForm.period === 'custom'}}">
+          <view class="cost-divider"></view>
+          <view class="cost-row">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['开始日期']}}</text><text class="cost-row-hint">YYYY-MM-DD</text></view>
+            <input class="cost-inline-input" value="{{budgetForm.customStart}}" bindinput="onBudgetCustomStart" bindblur="commitBudget" placeholder="2026-10-01" maxlength="10"/>
+          </view>
+          <view class="cost-divider"></view>
+          <view class="cost-row">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['结束日期']}}</text><text class="cost-row-hint">{{ui['留空为今日']}}</text></view>
+            <input class="cost-inline-input" value="{{budgetForm.customEnd}}" bindinput="onBudgetCustomEnd" bindblur="commitBudget" placeholder="2026-10-31" maxlength="10"/>
+          </view>
+        </block>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['预算明细']}}</text><text class="cost-row-hint">{{ui['侧栏预算卡显示今日/本月占用']}}</text></view>
+          <switch color="#16856D" checked="{{budgetForm.detail}}" bindchange="toggleBudgetDetail"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickBudgetDisplay" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
+          <view class="cost-row-value">{{budgetForm.display === 'both' ? ui['侧栏 + 设置页'] : budgetForm.display === 'sidebar' ? ui['仅侧栏'] : budgetForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <block wx:if="{{budgetForm.enabled}}">
+          <view class="cost-quota-row">
+            <view class="cost-quota-head"><text class="cost-quota-label">{{ui['已用']}} {{budgetForm.usedText}}</text><text class="cost-quota-percent">{{budgetForm.percentText}}</text></view>
+            <view class="cost-progress"><view class="cost-progress-fill" style="width:{{budgetForm.barWidth}};"></view></view>
+            <text class="cost-quota-reset">{{ui['预算']}} {{budgetForm.amountText}}</text>
+          </view>
+        </block>
+      </scroll-view>
+      <view class="cost-sheet-foot">
+        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- ============ 弹窗：峰谷 ============ -->
+  <view wx:if="{{sheet === 'peak'}}" class="cost-sheet-mask" bindtap="closeSheet">
+    <view class="cost-sheet" catchtap="noop">
+      <view class="cost-sheet-head">
+        <text class="cost-sheet-title">{{ui['峰谷时段']}}</text>
+        <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
+      </view>
+      <scroll-view scroll-y class="cost-sheet-body">
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用峰谷显示']}}</text><text class="cost-row-hint">{{ui['显示当前电价时段与下次切换']}}</text></view>
+          <switch color="#16856D" checked="{{peakForm.enabled}}" bindchange="togglePeak"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickPeakDisplay" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
+          <view class="cost-row-value">{{peakForm.display === 'both' ? ui['侧栏 + 设置页'] : peakForm.display === 'sidebar' ? ui['仅侧栏'] : peakForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="editPeakWindows" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['峰时段']}}</text><text class="cost-row-hint">{{ui['按 UTC 时间设置，多个时段用逗号分隔']}}</text></view>
+          <view class="cost-row-value">{{peakForm.windowsLabel}}<text class="cost-chevron">›</text></view>
+        </view>
+        <block wx:if="{{view.peak && view.peak.enabled}}">
+          <view class="cost-quota-row">
+            <view class="cost-quota-head"><text class="cost-quota-label">{{view.peak.label}}</text><text class="cost-quota-percent">{{view.peak.remainingText}}</text></view>
+            <view class="cost-progress"><view class="cost-progress-fill" style="width:{{view.peak.progressText}};"></view></view>
+            <text class="cost-quota-reset">{{view.peak.switchText}}</text>
+          </view>
+        </block>
+        <view class="cost-divider"></view>
+        <view class="cost-row-block"><text class="cost-row-label">{{ui['法定假日']}}</text><text class="cost-row-hint">{{ui['北京日期，逗号分隔']}}</text><input class="cost-inline-input" value="{{peakForm.holidaysText}}" bindinput="onPeakHolidaysInput" bindblur="commitPeakHolidays" placeholder="2026-10-01, 2026-10-02" maxlength="500"/></view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['切换前弹窗提醒']}}</text><text class="cost-row-hint">{{ui['峰/谷切换前弹出提醒']}}</text></view>
+          <switch color="#16856D" checked="{{peakForm.peakAlertEnabled}}" bindchange="togglePeakAlert"/>
+        </view>
+        <block wx:if="{{peakForm.peakAlertEnabled}}">
+          <view class="cost-divider"></view>
+          <view class="cost-row">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['提前提醒（分钟）']}}</text></view>
+            <input class="cost-inline-input short" type="number" value="{{peakForm.peakAlertAhead}}" bindinput="onPeakAlertAheadInput" bindblur="commitPeakAlert" maxlength="2"/>
+          </view>
+          <view class="cost-divider"></view>
+          <view class="cost-row" bindtap="pickPeakAlertTarget" role="button">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['提醒类型']}}</text></view>
+            <view class="cost-row-value">{{peakForm.peakAlertTarget === 'peak' ? ui['进入峰时'] : peakForm.peakAlertTarget === 'offpeak' ? ui['进入谷时'] : ui['峰和谷']}}<text class="cost-chevron">›</text></view>
+          </view>
+          <view class="cost-divider"></view>
+          <view class="cost-row" bindtap="pickPeakAlertPosition" role="button">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['弹窗位置']}}</text></view>
+            <view class="cost-row-value">{{peakForm.peakAlertPosition === 'center' ? ui['屏幕中心'] : ui['右下角']}}<text class="cost-chevron">›</text></view>
+          </view>
+        </block>
+      </scroll-view>
+      <view class="cost-sheet-foot">
+        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- ============ 弹窗：Coding Plan 配置 ============ -->
+  <view wx:if="{{sheet === 'plan'}}" class="cost-sheet-mask" bindtap="closeSheet">
+    <view class="cost-sheet" catchtap="noop">
+      <view class="cost-sheet-head">
+        <text class="cost-sheet-title">{{sheetPlan.label}}</text>
+        <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
+      </view>
+      <scroll-view scroll-y class="cost-sheet-body">
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用']}}</text><text class="cost-row-hint">{{sheetPlan.status === 'ok' ? ui['正常'] : sheetPlan.message || ui['待刷新']}}</text></view>
+          <switch color="#16856D" checked="{{sheetPlan.enabled}}" data-index="{{sheetPlan.index}}" bindchange="togglePlan"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickPlanDisplay" data-index="{{sheetPlan.index}}" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
+          <view class="cost-row-value">{{sheetPlan.displayLabel}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickPlanRefresh" data-index="{{sheetPlan.index}}" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
+          <view class="cost-row-value">{{sheetPlan.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <block wx:if="{{sheetPlan.rows.length}}">
+          <view class="cost-divider"></view>
+          <view wx:for="{{sheetPlan.rows}}" wx:for-item="win" wx:key="key" class="cost-quota-row">
+            <view class="cost-quota-head"><text class="cost-quota-label">{{ui[win.label] !== undefined ? ui[win.label] : win.label}}</text><text class="cost-quota-percent">{{win.percentText}}</text></view>
             <view class="cost-progress"><view class="cost-progress-fill" style="width:{{win.barWidth}};"></view></view>
+            <text wx:if="{{win.resetsText}}" class="cost-quota-reset">{{ui['重置']}} {{win.resetsText}}</text>
+          </view>
+        </block>
+        <block wx:if="{{sheetPlan.fields.length}}">
+          <view class="cost-divider"></view>
+          <view wx:for="{{sheetPlan.fields}}" wx:for-item="field" wx:for-index="fieldIndex" wx:key="key" class="cost-row">
+            <view class="cost-row-copy"><text class="cost-row-label">{{field.label}}</text></view>
+            <input class="cost-inline-input {{field.type === 'number' ? 'short' : ''}}" value="{{field.value}}" data-index="{{sheetPlan.index}}" data-field="{{fieldIndex}}" bindinput="onPlanFieldInput" placeholder="{{field.label}}"/>
+          </view>
+          <view class="cost-row-buttons">
+            <view class="cost-mini-btn" bindtap="savePlanFields" data-index="{{sheetPlan.index}}">{{ui['保存该厂商选项']}}</view>
+          </view>
+        </block>
+        <block wx:if="{{!sheetPlan.noKey}}">
+          <view class="cost-divider"></view>
+          <view class="cost-row-block">
+            <text class="cost-row-label">{{sheetPlan.needsSecret ? ui['AccessKeyID || SecretAccessKey'] : ui['粘贴 API Key / Cookie / OAuth Token']}}</text>
+            <view class="cost-key-input-row">
+              <input class="cost-key-input" password="true" value="{{sheetPlan.keyDraft}}" data-index="{{sheetPlan.index}}" bindinput="onPlanKeyInput" placeholder="{{sheetPlan.needsSecret ? ui['AccessKeyID || SecretAccessKey'] : ui['粘贴 API Key / Cookie / OAuth Token']}}" maxlength="4096"/>
+              <button class="cost-save-button" bindtap="savePlanKey" data-index="{{sheetPlan.index}}">{{ui['保存']}}</button>
+              <button wx:if="{{sheetPlan.configured}}" class="cost-save-button ghost" bindtap="clearPlanKey" data-index="{{sheetPlan.index}}">{{ui['清除']}}</button>
+            </view>
+            <text class="cost-row-hint">{{ui['该厂商使用本地估算或本机登录态，无需填写凭据。']}}</text>
+          </view>
+        </block>
+        <text wx:if="{{sheetPlan.noKey}}" class="cost-row-hint">{{ui['该厂商使用本地估算或本机登录态，无需填写凭据。']}}</text>
+        <text wx:if="{{sheetPlan.message}}" class="cost-inline-error">{{sheetPlan.message}}</text>
+      </scroll-view>
+      <view class="cost-sheet-foot">
+        <view class="cost-sheet-btn" bindtap="refreshPlan" data-index="{{sheetPlan.index}}" role="button">{{ui['刷新']}}</view>
+        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- ============ 弹窗：网关来源配置 ============ -->
+  <view wx:if="{{sheet === 'gateway'}}" class="cost-sheet-mask" bindtap="closeSheet">
+    <view class="cost-sheet" catchtap="noop">
+      <view class="cost-sheet-head">
+        <text class="cost-sheet-title">{{sheetGateway.label || sheetGateway.id}}</text>
+        <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
+      </view>
+      <scroll-view scroll-y class="cost-sheet-body">
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用']}}</text><text class="cost-row-hint">{{sheetGateway.status === 'ok' ? ui['正常'] : sheetGateway.message || ui['待刷新']}}</text></view>
+          <switch color="#16856D" checked="{{sheetGateway.enabled}}" data-index="{{sheetGateway.index}}" bindchange="toggleGateway"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['名称']}}</text></view>
+          <input class="cost-inline-input" value="{{sheetGateway.label}}" data-index="{{sheetGateway.index}}" data-field="label" bindinput="onGatewayFieldInput" maxlength="80"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['Base URL']}}</text></view>
+          <input class="cost-inline-input" value="{{sheetGateway.baseURL}}" data-index="{{sheetGateway.index}}" data-field="baseURL" bindinput="onGatewayFieldInput" placeholder="http://127.0.0.1:8317" maxlength="2048"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickGatewayDisplay" data-index="{{sheetGateway.index}}" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
+          <view class="cost-row-value">{{sheetGateway.displayLabel}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickGatewayRefresh" data-index="{{sheetGateway.index}}" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
+          <view class="cost-row-value">{{sheetGateway.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <block wx:if="{{sheetGateway.accounts.length}}">
+          <view class="cost-divider"></view>
+          <view wx:for="{{sheetGateway.accounts}}" wx:for-item="account" wx:key="id" class="cost-gateway-account">
+            <text class="cost-gateway-label">{{account.label}} · {{account.provider}}</text>
+            <view wx:for="{{account.rows}}" wx:for-item="win" wx:key="key" class="cost-quota-row inline">
+              <view class="cost-quota-head"><text class="cost-quota-label">{{win.label}}</text><text class="cost-quota-percent">{{win.percentText}}</text></view>
+              <view class="cost-progress"><view class="cost-progress-fill" style="width:{{win.barWidth}};"></view></view>
+            </view>
+          </view>
+        </block>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['允许非回环 HTTP']}}</text></view>
+          <switch color="#16856D" checked="{{sheetGateway.allowInsecureHttp}}" data-index="{{sheetGateway.index}}" bindchange="onGatewayInsecure"/>
+        </view>
+        <view class="cost-row-block">
+          <text class="cost-row-label">{{ui['允许的主机']}}</text>
+          <input class="cost-inline-input" value="{{sheetGateway.allowedHostsText}}" data-index="{{sheetGateway.index}}" data-field="allowedHostsText" bindinput="onGatewayFieldInput" maxlength="255"/>
+        </view>
+        <view class="cost-row-block">
+          <text class="cost-row-label">{{ui['Management Key']}}</text>
+          <view class="cost-key-input-row">
+            <input class="cost-key-input" password="true" value="{{sheetGateway.keyDraft}}" data-index="{{sheetGateway.index}}" bindinput="onGatewayKeyInput" placeholder="{{ui['密钥值（保存在电脑端凭据库）']}}" maxlength="4096"/>
+            <button class="cost-save-button" bindtap="saveGatewayKey" data-index="{{sheetGateway.index}}">{{ui['保存']}}</button>
+            <button wx:if="{{sheetGateway.keyConfigured}}" class="cost-save-button ghost" bindtap="clearGatewayKey" data-index="{{sheetGateway.index}}">{{ui['清除']}}</button>
           </view>
         </view>
-      </block>
-      <view class="cost-mini-btn" bindtap="toggleGatewayExpand" data-index="{{index}}">{{item.expanded ? ui['收起'] : ui['编辑来源']}}</view>
-      <block wx:if="{{item.expanded}}">
-        <view class="cost-divider"></view>
-        <view class="cost-row"><view class="cost-row-copy"><text class="cost-row-label">{{ui['名称']}}</text></view><input class="cost-inline-input" value="{{item.label}}" data-index="{{index}}" data-field="label" bindinput="onGatewayFieldInput" maxlength="80"/></view>
-        <view class="cost-row"><view class="cost-row-copy"><text class="cost-row-label">{{ui['Base URL']}}</text></view><input class="cost-inline-input" value="{{item.baseURL}}" data-index="{{index}}" data-field="baseURL" bindinput="onGatewayFieldInput" placeholder="http://127.0.0.1:8317" maxlength="2048"/></view>
-        <view class="cost-row"><view class="cost-row-copy"><text class="cost-row-label">{{ui['允许的主机']}}</text><text class="cost-row-hint">{{ui['精确主机:端口，逗号分隔']}}</text></view><input class="cost-inline-input" value="{{item.allowedHostsText}}" data-index="{{index}}" data-field="allowedHostsText" bindinput="onGatewayFieldInput" maxlength="255"/></view>
-        <view class="cost-row" bindtap="pickGatewayDisplay" data-index="{{index}}" role="button"><view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view><view class="cost-row-value">{{item.displayLabel}}<text class="cost-chevron">›</text></view></view>
-        <view class="cost-row" bindtap="pickGatewayRefresh" data-index="{{index}}" role="button"><view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view><view class="cost-row-value">{{item.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view></view>
-        <view class="cost-row"><view class="cost-row-copy"><text class="cost-row-label">{{ui['允许非回环 HTTP']}}</text><text class="cost-row-hint">{{ui['仅在本机/局域网可信环境开启']}}</text></view><switch color="#16856D" checked="{{item.allowInsecureHttp}}" data-index="{{index}}" bindchange="onGatewayInsecure"/></view>
-        <view class="cost-key-input-row">
-          <input class="cost-key-input" password="true" value="{{item.keyDraft}}" data-index="{{index}}" bindinput="onGatewayKeyInput" placeholder="{{ui['Management Key']}}" maxlength="4096"/>
-          <button class="cost-save-button" bindtap="saveGatewayKey" data-index="{{index}}">{{ui['保存']}}</button>
-          <button wx:if="{{item.keyConfigured}}" class="cost-save-button ghost" bindtap="clearGatewayKey" data-index="{{index}}">{{ui['清除']}}</button>
-        </view>
         <view class="cost-row-buttons">
-          <view class="cost-mini-btn" bindtap="saveGateway" data-index="{{index}}">{{ui['保存来源设置']}}</view>
-          <view class="cost-mini-btn danger" bindtap="removeGateway" data-index="{{index}}">{{ui['删除来源']}}</view>
+          <view class="cost-mini-btn" bindtap="saveGateway" data-index="{{sheetGateway.index}}">{{ui['保存该来源设置']}}</view>
+          <view class="cost-mini-btn danger" bindtap="removeGateway" data-index="{{sheetGateway.index}}">{{ui['删除']}}</view>
         </view>
-      </block>
+      </scroll-view>
+      <view class="cost-sheet-foot">
+        <view class="cost-sheet-btn" bindtap="refreshGateway" data-index="{{sheetGateway.index}}" role="button">{{ui['刷新']}}</view>
+        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
+      </view>
     </view>
-    <view class="cost-add-source" bindtap="addGateway" role="button">{{ui['＋ 添加网关额度来源']}}</view>
   </view>
 
-  <!-- 自定义余额 -->
-  <view wx:if="{{connected && supported}}" class="cost-section">
-    <text class="cost-section-title">{{ui['自定义 Provider 余额']}}</text>
-    <text class="cost-source-note">{{ui['任意 HTTP 端点 + JSON 路径提取；最多 8 条。密钥仅在电脑端凭据库保存。']}}</text>
-    <view wx:for="{{customCells}}" wx:key="index" class="cost-card cost-plan-card {{item.enabled ? '' : 'is-off'}}">
-      <view class="cost-row">
-        <view class="cost-row-copy"><text class="cost-row-label">{{item.label || ui['自定义余额']}}</text><text class="cost-row-hint {{item.status === 'error' ? 'is-error' : ''}}">{{item.status === 'ok' ? item.amountText : item.message || ui['待刷新']}}</text></view>
-        <switch color="#16856D" checked="{{item.enabled}}" data-index="{{index}}" bindchange="toggleCustom"/>
+  <!-- ============ 弹窗：自定义余额配置 ============ -->
+  <view wx:if="{{sheet === 'custom'}}" class="cost-sheet-mask" bindtap="closeSheet">
+    <view class="cost-sheet" catchtap="noop">
+      <view class="cost-sheet-head">
+        <text class="cost-sheet-title">{{sheetCustom.label || ui['自定义余额']}}</text>
+        <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
       </view>
-      <block wx:if="{{item.percentText && item.percentText !== '—'}}">
-        <view class="cost-quota-row"><view class="cost-quota-head"><text class="cost-quota-label">{{ui['余额']}} / {{ui['额度上限']}}</text><text class="cost-quota-percent">{{item.percentText}}</text></view><view class="cost-progress"><view class="cost-progress-fill" style="width:{{item.barWidth}};"></view></view></view>
-      </block>
-      <view class="cost-plan-actions">
-        <view class="cost-mini-btn" bindtap="refreshCustom" data-index="{{index}}">{{ui['刷新']}}</view>
-        <view class="cost-mini-btn" bindtap="toggleCustomExpand" data-index="{{index}}">{{item.expanded ? ui['收起'] : ui['展开']}}</view>
-      </view>
-      <block wx:if="{{item.expanded}}">
+      <scroll-view scroll-y class="cost-sheet-body">
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用']}}</text><text class="cost-row-hint">{{sheetCustom.status === 'ok' ? sheetCustom.amountText : sheetCustom.message || ui['待刷新']}}</text></view>
+          <switch color="#16856D" checked="{{sheetCustom.enabled}}" data-index="{{sheetCustom.index}}" bindchange="toggleCustom"/>
+        </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickCustomAdapter" data-index="{{index}}" role="button"><view class="cost-row-copy"><text class="cost-row-label">{{ui['类型']}}</text></view><view class="cost-row-value">{{item.adapter === 'aliyun' ? '阿里云余额' : item.adapter === 'tokenrhythm' ? 'Token Rhythm' : ui['自定义 HTTP']}}<text class="cost-chevron">›</text></view></view>
-        <view class="cost-row"><view class="cost-row-copy"><text class="cost-row-label">{{ui['名称']}}</text></view><input class="cost-inline-input" value="{{item.label}}" data-index="{{index}}" data-field="label" bindinput="onCustomFieldInput" maxlength="40"/></view>
-        <view class="cost-row"><view class="cost-row-copy"><text class="cost-row-label">{{ui['单位']}}</text></view><input class="cost-inline-input short" value="{{item.unit}}" data-index="{{index}}" data-field="unit" bindinput="onCustomFieldInput" maxlength="16"/></view>
-        <view class="cost-row" bindtap="pickCustomDisplay" data-index="{{index}}" role="button"><view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view><view class="cost-row-value">{{item.displayLabel}}<text class="cost-chevron">›</text></view></view>
-        <view class="cost-row" bindtap="pickCustomRefresh" data-index="{{index}}" role="button"><view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view><view class="cost-row-value">{{item.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view></view>
-        <view class="cost-row"><view class="cost-row-copy"><text class="cost-row-label">{{ui['接口地址']}}</text></view><input class="cost-inline-input" value="{{item.request.url}}" data-index="{{index}}" data-field="url" bindinput="onCustomRequestInput" placeholder="https://api.example.com/balance" maxlength="2048"/></view>
-        <view class="cost-row" bindtap="pickCustomMethod" data-index="{{index}}" role="button"><view class="cost-row-copy"><text class="cost-row-label">{{ui['请求方法']}}</text></view><view class="cost-row-value">{{item.request.method}}<text class="cost-chevron">›</text></view></view>
-        <view class="cost-row-block"><text class="cost-row-label">{{ui['请求头（每行 Name: Value，可用 {{VAR}}）']}}</text><textarea class="cost-textarea" value="{{item.headersText}}" data-index="{{index}}" data-field="headersText" bindinput="onCustomFieldInput" maxlength="2048" auto-height/></view>
-        <view class="cost-row-block"><text class="cost-row-label">{{ui['密钥请求头']}}</text><input class="cost-inline-input" value="{{item.secretHeader}}" data-index="{{index}}" data-field="secretHeader" bindinput="onCustomFieldInput" placeholder="Authorization" maxlength="80"/></view>
-        <view class="cost-row-block"><text class="cost-row-label">{{ui['剩余额度 JSON 路径']}}</text><input class="cost-inline-input" value="{{item.extractRemaining}}" data-index="{{index}}" data-field="extractRemaining" bindinput="onCustomFieldInput" placeholder="data.remaining" maxlength="200"/></view>
-        <view class="cost-row-block"><text class="cost-row-label">{{ui['额度上限 JSON 路径（可选）']}}</text><input class="cost-inline-input" value="{{item.extractMax}}" data-index="{{index}}" data-field="extractMax" bindinput="onCustomFieldInput" placeholder="data.limit" maxlength="200"/></view>
-        <view class="cost-row"><view class="cost-row-copy"><text class="cost-row-label">{{ui['按显示币种折算']}}</text></view><switch color="#16856D" checked="{{item.convertToDisplayCurrency}}" data-index="{{index}}" bindchange="onCustomConvert"/></view>
-        <view class="cost-row"><view class="cost-row-copy"><text class="cost-row-label">{{ui['允许非回环 HTTP']}}</text></view><switch color="#16856D" checked="{{item.allowInsecureHttp}}" data-index="{{index}}" bindchange="onCustomInsecure"/></view>
-        <view class="cost-row-block"><text class="cost-row-label">{{ui['允许的主机']}}</text><input class="cost-inline-input" value="{{item.allowedHostsText}}" data-index="{{index}}" data-field="allowedHostsText" bindinput="onCustomFieldInput" maxlength="255"/></view>
+        <view class="cost-row" bindtap="pickCustomAdapter" data-index="{{sheetCustom.index}}" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['类型']}}</text></view>
+          <view class="cost-row-value">{{sheetCustom.adapter === 'aliyun' ? '阿里云余额' : sheetCustom.adapter === 'tokenrhythm' ? 'Token Rhythm' : ui['自定义 HTTP']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['名称']}}</text></view>
+          <input class="cost-inline-input" value="{{sheetCustom.label}}" data-index="{{sheetCustom.index}}" data-field="label" bindinput="onCustomFieldInput" maxlength="40"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['英文名称']}}</text><text class="cost-row-hint">{{ui['可选']}}</text></view>
+          <input class="cost-inline-input" value="{{sheetCustom.labelEn}}" data-index="{{sheetCustom.index}}" data-field="labelEn" bindinput="onCustomFieldInput" maxlength="40"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['单位']}}</text></view>
+          <input class="cost-inline-input short" value="{{sheetCustom.unit}}" data-index="{{sheetCustom.index}}" data-field="unit" bindinput="onCustomFieldInput" maxlength="16"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickCustomDisplay" data-index="{{sheetCustom.index}}" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
+          <view class="cost-row-value">{{sheetCustom.displayLabel}}<text class="cost-chevron">›</text></view>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row" bindtap="pickCustomRefresh" data-index="{{sheetCustom.index}}" role="button">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
+          <view class="cost-row-value">{{sheetCustom.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
+        </view>
+        <block wx:if="{{sheetCustom.adapter === 'custom'}}">
+          <view class="cost-divider"></view>
+          <view class="cost-row">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['接口地址']}}</text></view>
+            <input class="cost-inline-input" value="{{sheetCustom.request.url}}" data-index="{{sheetCustom.index}}" data-field="url" bindinput="onCustomRequestInput" placeholder="https://api.example.com/balance" maxlength="2048"/>
+          </view>
+          <view class="cost-divider"></view>
+          <view class="cost-row" bindtap="pickCustomMethod" data-index="{{sheetCustom.index}}" role="button">
+            <view class="cost-row-copy"><text class="cost-row-label">{{ui['请求方法']}}</text></view>
+            <view class="cost-row-value">{{sheetCustom.request.method}}<text class="cost-chevron">›</text></view>
+          </view>
+          <view class="cost-row-block"><text class="cost-row-label">{{ui['请求头（每行 Name: Value，可用 {{VAR}}）']}}</text><textarea class="cost-textarea" value="{{sheetCustom.headersText}}" data-index="{{sheetCustom.index}}" data-field="headersText" bindinput="onCustomFieldInput" maxlength="2048" auto-height/></view>
+          <view wx:if="{{sheetCustom.request.method !== 'GET'}}" class="cost-row-block"><text class="cost-row-label">{{ui['请求体（JSON，留空不发送）']}}</text><textarea class="cost-textarea" value="{{sheetCustom.bodyText}}" data-index="{{sheetCustom.index}}" data-field="body" bindinput="onCustomRequestInput" maxlength="8192" auto-height/></view>
+        </block>
+        <view class="cost-row-block"><text class="cost-row-label">{{ui['剩余额度 JSON 路径']}}</text><input class="cost-inline-input" value="{{sheetCustom.extractRemaining}}" data-index="{{sheetCustom.index}}" data-field="extractRemaining" bindinput="onCustomFieldInput" placeholder="data.remaining" maxlength="200"/></view>
+        <view class="cost-row-block"><text class="cost-row-label">{{ui['额度上限 JSON 路径（可选）']}}</text><input class="cost-inline-input" value="{{sheetCustom.extractMax}}" data-index="{{sheetCustom.index}}" data-field="extractMax" bindinput="onCustomFieldInput" placeholder="data.limit" maxlength="200"/></view>
+        <view class="cost-divider"></view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['按显示币种折算']}}</text></view>
+          <switch color="#16856D" checked="{{sheetCustom.convertToDisplayCurrency}}" data-index="{{sheetCustom.index}}" bindchange="onCustomConvert"/>
+        </view>
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['允许非回环 HTTP']}}</text></view>
+          <switch color="#16856D" checked="{{sheetCustom.allowInsecureHttp}}" data-index="{{sheetCustom.index}}" bindchange="onCustomInsecure"/>
+        </view>
+        <view class="cost-row-block"><text class="cost-row-label">{{ui['允许的主机']}}</text><input class="cost-inline-input" value="{{sheetCustom.allowedHostsText}}" data-index="{{sheetCustom.index}}" data-field="allowedHostsText" bindinput="onCustomFieldInput" maxlength="255"/></view>
+        <view class="cost-row-block"><text class="cost-row-label">{{ui['密钥请求头']}}</text><input class="cost-inline-input" value="{{sheetCustom.secretHeader}}" data-index="{{sheetCustom.index}}" data-field="secretHeader" bindinput="onCustomFieldInput" placeholder="Authorization" maxlength="80"/></view>
         <view class="cost-key-input-row">
-          <input class="cost-key-input" password="true" value="{{item.keyDraft}}" data-index="{{index}}" bindinput="onCustomKeyInput" placeholder="{{ui['密钥值（保存在电脑端凭据库）']}}" maxlength="4096"/>
-          <button class="cost-save-button" bindtap="saveCustomKey" data-index="{{index}}">{{ui['保存密钥']}}</button>
-          <button wx:if="{{item.keyConfigured}}" class="cost-save-button ghost" bindtap="clearCustomKey" data-index="{{index}}">{{ui['清除']}}</button>
+          <input class="cost-key-input" password="true" value="{{sheetCustom.keyDraft}}" data-index="{{sheetCustom.index}}" bindinput="onCustomKeyInput" placeholder="{{ui['密钥值（保存在电脑端凭据库）']}}" maxlength="4096"/>
+          <button class="cost-save-button" bindtap="saveCustomKey" data-index="{{sheetCustom.index}}">{{ui['保存']}}</button>
+          <button wx:if="{{sheetCustom.keyConfigured}}" class="cost-save-button ghost" bindtap="clearCustomKey" data-index="{{sheetCustom.index}}">{{ui['清除']}}</button>
         </view>
         <view class="cost-row-buttons">
-          <view class="cost-mini-btn" bindtap="saveCustom" data-index="{{index}}">{{ui['保存该条配置']}}</view>
-          <view class="cost-mini-btn danger" bindtap="removeCustom" data-index="{{index}}">{{ui['删除']}}</view>
+          <view class="cost-mini-btn" bindtap="saveCustom" data-index="{{sheetCustom.index}}">{{ui['保存该条配置']}}</view>
+          <view class="cost-mini-btn danger" bindtap="removeCustom" data-index="{{sheetCustom.index}}">{{ui['删除']}}</view>
         </view>
-      </block>
+      </scroll-view>
+      <view class="cost-sheet-foot">
+        <view class="cost-sheet-btn" bindtap="refreshCustom" data-index="{{sheetCustom.index}}" role="button">{{ui['刷新']}}</view>
+        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
+      </view>
     </view>
-    <view class="cost-add-source" bindtap="addCustom" role="button">{{ui['＋ 添加自定义余额']}}</view>
   </view>
-
-  <view wx:if="{{loading && !view}}" class="cost-loading"><view class="cost-spinner"></view><text>{{ui['正在读取额度…']}}</text></view>
 </view>

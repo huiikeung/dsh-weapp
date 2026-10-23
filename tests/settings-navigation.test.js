@@ -36,7 +36,10 @@ test('sidebar application settings and home session settings have separate entri
   for (const label of ['小程序版本', '构建记录', '主机版本']) assert.ok(!sessions.includes('>' + label + '</text>'), label);
   assert.ok(JSON.parse(read('app.json')).pages.includes('pages/session-settings/session-settings'));
   assert.equal(JSON.parse(read('pages/session-settings/session-settings.json')).navigationBarTitleText, '会话设置');
-  assert.match(read('pages/home/home.wxss'), /\.drawer-footer[^}]*margin-top: auto/);
+  // 设置入口贴在抽屉底部：贴底职责由包住卡片的 .drawer-bottom 承担（margin-top:auto），
+  // 额度卡片与设置入口同在 .drawer-bottom 内，卡片位于设置上方。
+  assert.match(read('pages/home/home.wxss'), /\.drawer-bottom[^}]*margin-top: auto/);
+  assert.match(home, /<view class="drawer-bottom">[\s\S]*?drawer-footer[\s\S]*?bindtap="openSettings"/);
 });
 
 test('session settings retain model and permission APIs, file navigation and privacy-safe diagnostics', async () => {
