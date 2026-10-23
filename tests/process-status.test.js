@@ -78,11 +78,11 @@ test('execution icon choice persists, defaults to cells, invalid values fall bac
   try {
     assert.equal(procIcon.read(),'cells');
     assert.equal(procIcon.OPTIONS[0].id,'cells');
-    assert.equal(procIcon.OPTIONS.find(item=>item.id==='cells').file,'');
-    assert.equal(procIcon.view('cells').procIconFile,'');
+    assert.equal('file' in procIcon.OPTIONS.find(item=>item.id==='cells'),false);
+    assert.deepEqual(procIcon.view('cells'),{procIconStyle:'cells',procIconLabel:'格子'});
     for (const item of procIcon.OPTIONS) {
       procIcon.save(item.id);assert.equal(procIcon.read(),item.id);
-      const view=procIcon.view(item.id);assert.equal(view.procIconStyle,item.id);assert.equal(view.procIconLabel,item.label);assert.equal(view.procIconFile,item.file);
+      const view=procIcon.view(item.id);assert.equal(view.procIconStyle,item.id);assert.equal(view.procIconLabel,item.label);assert.equal('procIconFile' in view,false);
     }
     stored='invalid';assert.equal(procIcon.read(),'cells');
     wx.setStorageSync=()=>{throw Error('storage full');};assert.throws(()=>procIcon.save('terra'));
@@ -112,27 +112,6 @@ test('all status styles animate the DSH whale through the same selected text pal
   assert.equal(simple.dark[0],'rgb(125.15,153.8,222.5)');
   assert.match(simple.lightTailFilter,/invert\(0\.634\).*hue-rotate\(185\.7deg\)/);
   assert.match(simple.darkTailFilter,/invert\(0\.431\).*hue-rotate\(184\.5deg\)/);
-  const readGif=name=>{
-    const gif = fs.readFileSync(path.join(__dirname,'../miniprogram/assets/icons/'+name));
-    assert.equal(gif.subarray(0,6).toString(),'GIF89a',name);
-    const gct=gif[10]&0x80?3*(1<<((gif[10]&7)+1)):0;
-    let at=13+gct, frames=0, duration=0;
-    while (at < gif.length && gif[at] !== 0x3b) {
-      if (gif[at] === 0x21) {
-        const type=gif[at+1]; at+=2;
-        if(type===0xf9) duration+=gif.readUInt16LE(at+2)*10;
-        while(gif[at]) at+=gif[at]+1;
-        at++;
-      } else {
-        assert.equal(gif[at],0x2c);frames++;
-        assert.equal(gif.readUInt16LE(at+1),0);assert.equal(gif.readUInt16LE(at+3),0);
-        at+=10;at++;
-        while(gif[at]) at+=gif[at]+1;
-        at++;
-      }
-    }
-    return { width: gif.readUInt16LE(6), height: gif.readUInt16LE(8), frames, duration };
-  };
   // This is the 28x28, 60-frame APNG used by the DSH desktop client.
   const whale=fs.readFileSync(path.join(__dirname,'../miniprogram/assets/icons/dsh-running-whale.png'));
   assert.equal(whale.subarray(1,4).toString(),'PNG');
@@ -146,12 +125,12 @@ test('all status styles animate the DSH whale through the same selected text pal
   }
   assert.equal(animationFrames,60);assert.equal(animationDuration,3000);
   for(const choice of appearance.choices()) assert.notEqual(choice.lightTailFilter,choice.darkTailFilter,choice.id);
-  // Execution icons ship as 32 x 32 / 72-frame GIFs on the same 4-second loop.
-  for (const choice of procIcon.OPTIONS.filter(item=>item.file)) for (const mode of ['light','dark']) {
-    const name=choice.file+'-'+mode+'.gif', gif=readGif(name);
-    assert.equal(gif.width,32,name);assert.equal(gif.height,32,name);
-    assert.equal(gif.frames,72,name);assert.equal(gif.duration,4000,name);
-  }
+  const glyph=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/proc-icon.wxml'),'utf8');
+  const procCss=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/proc-icon.wxss'),'utf8');
+  for (const choice of procIcon.OPTIONS) assert.ok(glyph.includes(`styleId === '${choice.id}'`) || choice.id === 'wave');
+  assert.match(glyph,/wx:else class="proc-wave"/);
+  for (const animation of ['procTerraSpin','procMorphShape','procGridPulse','procOrbitSpin','procRipple','procWave']) assert.match(procCss,new RegExp('@keyframes '+animation));
+  assert.equal(fs.readdirSync(path.join(__dirname,'../miniprogram/assets/icons')).some(name=>name.startsWith('proc-icon-')),false);
   for(const choice of appearance.choices()){assert.match(choice.lightStyle,/linear-gradient/);assert.match(choice.darkStyle,/linear-gradient/);}
 });
 

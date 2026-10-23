@@ -200,9 +200,8 @@ test('execution icon row follows the status style row and mirrors its resizable 
   assert.match(sheet[0], /sheetExpanded\.procIcon \? 90 : 72/);
   assert.match(sheet[0], /wx:for="\{\{procIconChoices\}\}"/);
   assert.match(sheet[0], /class="proc-loader proc-look-\{\{item\.id\}\}"/);
-  assert.match(sheet[0], /item\.id === 'cells'/);
-  assert.match(sheet[0], /class="proc-cell c1"/);
-  assert.match(sheet[0], /src="\/assets\/icons\/\{\{item\.file\}\}-\{\{theme === 'dark' \? 'dark' : 'light'\}\}\.gif"/);
+  assert.match(sheet[0], /template is="procIconGlyph" data="\{\{styleId: item\.id\}\}"/);
+  assert.doesNotMatch(sheet[0], /\.gif|item\.file/);
   assert.match(sheet[0], /正在执行命令/);
   assert.match(sheet[0], /bindtap="chooseProcIcon"/);
   assert.match(sheet[0], /图标动效保存在当前小程序 · 自动保存/);
@@ -213,8 +212,8 @@ test('execution icon row follows the status style row and mirrors its resizable 
   const procCss = read('styles/proc-icon.wxss');
   assert.match(procCss, /\.proc-loader\s*\{[^}]*width:\s*32rpx[^}]*height:\s*32rpx/);
   assert.match(procCss, /\.proc-loader\.proc-look-cells\s*\{[^}]*border-radius:\s*8rpx/);
-  assert.match(procCss, /\.proc-loader-image\s*\{[^}]*width:\s*32rpx[^}]*height:\s*32rpx/);
   assert.match(procCss, /@keyframes procCellBlink/);
+  for (const animation of ['procTerraSpin', 'procMorphShape', 'procGridPulse', 'procOrbitSpin', 'procRipple', 'procWave']) assert.match(procCss, new RegExp('@keyframes ' + animation));
   assert.doesNotMatch(read('pages/session/session.wxss'), /@keyframes procCellBlink/, 'loader keyframes live in the shared stylesheet');
   assert.match(read('pages/session/session.wxss'), /@import "\.\.\/\.\.\/styles\/proc-icon\.wxss"/);
   assert.match(css, /@import "\.\.\/\.\.\/styles\/proc-icon\.wxss"/);

@@ -22,7 +22,7 @@
         <text class="drawer-item-text">{{ui['插件']}}</text>
       </view>
       <view class="drawer-item" hover-class="drawer-item-active" bindtap="openScheduledTasks">
-        <image class="drawer-item-ic drawer-item-ic-clock" src="/assets/icons/automation-ink.svg" mode="aspectFit"/>
+        <image class="drawer-item-ic drawer-item-ic-clock" src="/assets/icons/automation.svg" mode="aspectFit"/>
         <image class="drawer-item-ic drawer-item-ic-clock drawer-item-ic-dark" src="/assets/icons/automation-white.svg" mode="aspectFit"/>
         <text class="drawer-item-text">{{ui['自动化任务']}}</text>
       </view>

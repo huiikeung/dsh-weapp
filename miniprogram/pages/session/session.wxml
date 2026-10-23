@@ -1,4 +1,5 @@
 <page-meta page-style="{{pageStyle}}" />
+<import src="../../styles/proc-icon.wxml" />
 <view class="page session {{themeClass}}" style="{{contentFontStyle}}">
   <!-- 顶部区域：导航 + 切换栏，背景遮罩截止到切换下划线 -->
   <view class="session-header">
@@ -130,9 +131,7 @@
         <view class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
           <view class="command-icon-slot {{folds[item.key] ? 'disclosed' : ''}}" aria-hidden="true">
             <view wx:if="{{item.running && !item.completed}}" class="proc-loader proc-look-{{procIconStyle}}">
-              <block wx:if="{{procIconStyle === 'cells'}}"><view class="proc-cell c1"></view><view class="proc-cell c2"></view>
-              <view class="proc-cell c3"></view><view class="proc-cell c4"></view></block>
-              <image wx:else class="proc-loader-image" mode="aspectFit" src="/assets/icons/{{procIconFile}}-{{theme === 'dark' ? 'dark' : 'light'}}.gif"/>
+              <template is="procIconGlyph" data="{{styleId: procIconStyle}}" />
             </view>
             <image wx:elif="{{!item.completed}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
             <image wx:if="{{(item.completed || item.expandable) && !item.running}}" class="command-chevron {{item.completed ? 'completed-chevron' : ''}} {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>

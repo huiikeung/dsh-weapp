@@ -38,7 +38,7 @@
  *
  * No npm dependencies. GIF LZW encoder/decoder below are self-contained.
  *
- * Usage: node scripts/generate-proc-icon-styles.cjs [--out <dir>]
+ * Usage: node scripts/generate-proc-icon-styles.cjs --out <dir-outside-miniprogram>
  */
 'use strict';
 
@@ -750,10 +750,16 @@ const RENDER = {
 // ---------------------------------------------------------------------------
 function main() {
   const args = process.argv.slice(2);
-  let outDir = path.join(__dirname, '..', 'miniprogram', 'assets', 'icons');
+  let outDir = null;
   for (let i = 0; i < args.length; i++) {
     if (args[i] === '--out' && args[i + 1]) outDir = path.resolve(args[++i]);
     else throw new Error('unknown argument ' + args[i]);
+  }
+  if (!outDir) throw new Error('specify --out <dir-outside-miniprogram> to avoid adding generated GIFs to the mini-program package');
+  const miniProgramDir = path.resolve(__dirname, '..', 'miniprogram');
+  const relativeOut = path.relative(miniProgramDir, outDir);
+  if (relativeOut === '' || (!relativeOut.startsWith('..' + path.sep) && relativeOut !== '..' && !path.isAbsolute(relativeOut))) {
+    throw new Error('output directory must be outside the mini-program package: ' + miniProgramDir);
   }
   fs.mkdirSync(outDir, { recursive: true });
   const report = [];

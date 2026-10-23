@@ -62,7 +62,7 @@ function createPage(apiOptions) {
       if (name === '../../utils/status-appearance') return require('../miniprogram/utils/status-appearance');
       if (name === '../../utils/proc-icon-style') return require('../miniprogram/utils/proc-icon-style');
       if (name === '../../utils/access-api') return api;
-      if (name === '../../utils/public-access-state') return require('../miniprogram/utils/public-access-state');
+      if (name === './public-access-state') return require('../miniprogram/pages/settings/public-access-state');
       if (name === '../../utils/node-presentation') return require('../miniprogram/utils/node-presentation');
       if (name === '../../utils/version-info') return require('../miniprogram/utils/version-info');
       if (name === '../../utils/account-view') return require('../miniprogram/utils/account-view');

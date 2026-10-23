@@ -1,4 +1,4 @@
-const { t: uiText } = require('./ui-preferences');
+const { t: uiText } = require('../../utils/ui-preferences');
 // 连接状态与商业授权能力是不同的概念，不能仅凭 invite token 判断公网是否可用。
 function getPublicAccessState(profile, connection) {
   const relay = !!(profile && profile.relay);

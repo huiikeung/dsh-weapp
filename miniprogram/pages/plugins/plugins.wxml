@@ -24,7 +24,7 @@
       <view wx:if="{{!showingMore}}" class="plugins-toolbar">
         <text class="plugins-hint">{{ui['安装、启用和配置插件']}}</text>
         <view wx:if="{{pluginTab === 'installed'}}" class="plugins-actions">
-          <button class="plugins-refresh" disabled="{{loading || !connected}}" bindtap="onRefresh" aria-label="{{ui['刷新插件']}}"><image class="plugins-refresh-ic" src="/pages/plugins/assets/icons/{{theme === 'dark' ? 'refresh.png' : 'refresh-ink.png'}}"/></button>
+          <button class="plugins-refresh" disabled="{{loading || !connected}}" bindtap="onRefresh" aria-label="{{ui['刷新插件']}}"><image class="plugins-refresh-ic" src="/assets/icons/{{theme === 'dark' ? 'refresh.png' : 'refresh-ink.png'}}"/></button>
           <view class="plugin-add-group {{canAdd ? '' : 'disabled'}}"><button class="plugin-add" disabled="{{!canAdd}}" bindtap="openAdd">{{ui['＋ 添加插件']}}</button><button class="plugin-add-arrow" disabled="{{!canAdd}}" bindtap="toggleAddMenu" aria-label="{{ui['选择添加方式']}}"><view class="plugin-chevron {{addMenuOpen ? 'is-open' : ''}}"></view></button></view>
         </view>
       </view>

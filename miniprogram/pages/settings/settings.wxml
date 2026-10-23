@@ -1,4 +1,5 @@
 <page-meta page-style="{{pageStyle}}" />
+<import src="../../styles/proc-icon.wxml" />
 <view class="page settings {{themeClass}}" style="{{contentFontStyle}}">
   <!-- 自定义导航：与右上角胶囊同一水平线，避免原生导航在手动深色时露白 -->
   <view class="nav" style="padding-top:{{navPadTop}}px;height:{{navHeight}}px;">
@@ -748,7 +749,7 @@
     <scroll-view class="status-style-list" scroll-y enhanced show-scrollbar="{{false}}">
       <view wx:for="{{procIconChoices}}" wx:key="id" class="status-style-option {{procIconStyle === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="chooseProcIcon" role="button" aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}} {{procIconStyle === item.id ? ui['已选择'] : ''}}">
         <view class="status-style-option-head"><text class="status-style-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="status-style-check">{{procIconStyle === item.id ? ui['已选择'] : ''}}</text></view>
-        <view class="status-style-preview proc-preview"><view class="proc-loader proc-look-{{item.id}}"><block wx:if="{{item.id === 'cells'}}"><view class="proc-cell c1"></view><view class="proc-cell c2"></view><view class="proc-cell c3"></view><view class="proc-cell c4"></view></block><image wx:else class="proc-loader-image" mode="aspectFit" src="/assets/icons/{{item.file}}-{{theme === 'dark' ? 'dark' : 'light'}}.gif"/></view><text class="proc-preview-title">{{ui['正在执行命令']}}</text></view>
+        <view class="status-style-preview proc-preview"><view class="proc-loader proc-look-{{item.id}}"><template is="procIconGlyph" data="{{styleId: item.id}}" /></view><text class="proc-preview-title">{{ui['正在执行命令']}}</text></view>
         <view class="status-style-description">{{item.detail}}</view>
       </view>
     </scroll-view>

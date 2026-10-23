@@ -1,0 +1,33 @@
+<template name="procIconGlyph">
+  <block wx:if="{{styleId === 'cells'}}">
+    <view class="proc-cell c1"></view><view class="proc-cell c2"></view>
+    <view class="proc-cell c3"></view><view class="proc-cell c4"></view>
+  </block>
+  <view wx:elif="{{styleId === 'terra'}}" class="proc-terra">
+    <view class="proc-terra-dot d1"></view><view class="proc-terra-dot d2"></view>
+    <view class="proc-terra-dot d3"></view><view class="proc-terra-dot d4"></view>
+    <view class="proc-terra-dot d5"></view><view class="proc-terra-dot d6"></view>
+  </view>
+  <view wx:elif="{{styleId === 'morph'}}" class="proc-morph">
+    <view class="proc-morph-shape circle"></view><view class="proc-morph-shape triangle"></view>
+    <view class="proc-morph-shape square"></view>
+  </view>
+  <view wx:elif="{{styleId === 'grid'}}" class="proc-grid">
+    <view class="proc-grid-dot d1"></view><view class="proc-grid-dot d2"></view><view class="proc-grid-dot d3"></view>
+    <view class="proc-grid-dot d4"></view><view class="proc-grid-dot d5"></view><view class="proc-grid-dot d6"></view>
+    <view class="proc-grid-dot d7"></view><view class="proc-grid-dot d8"></view><view class="proc-grid-dot d9"></view>
+  </view>
+  <view wx:elif="{{styleId === 'orbit'}}" class="proc-orbit">
+    <view class="proc-orbit-track"></view><view class="proc-orbit-rotator"><view class="proc-orbit-dot"></view></view>
+    <view class="proc-orbit-rotator reverse"><view class="proc-orbit-dot small"></view></view>
+  </view>
+  <view wx:elif="{{styleId === 'ripple'}}" class="proc-ripple">
+    <view class="proc-ripple-ring r1"></view><view class="proc-ripple-ring r2"></view>
+    <view class="proc-ripple-ring r3"></view>
+  </view>
+  <view wx:else class="proc-wave">
+    <view class="proc-wave-bar b1"></view><view class="proc-wave-bar b2"></view>
+    <view class="proc-wave-bar b3"></view><view class="proc-wave-bar b4"></view>
+    <view class="proc-wave-bar b5"></view>
+  </view>
+</template>
