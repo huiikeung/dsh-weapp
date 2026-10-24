@@ -34,7 +34,10 @@ test('sidebar application settings and home session settings have separate entri
   assert.doesNotMatch(sessions, /bindtap="openFiles"[^>]*><text[^>]*>工作区文件/);
   for (const handler of ['openPlugins', 'openSchedule']) assert.ok(!sessions.includes('bindtap="' + handler + '"'), handler);
   for (const label of ['小程序版本', '构建记录', '主机版本']) assert.ok(!sessions.includes('>' + label + '</text>'), label);
-  assert.ok(JSON.parse(read('app.json')).pages.includes('pages/session-settings/session-settings'));
+  // 「会话设置」在分包里按需加载：主包页面只负责 navigateTo，路径保持不变。
+  const appJson = JSON.parse(read('app.json'));
+  assert.ok(!appJson.pages.includes('pages/session-settings/session-settings'));
+  assert.ok(appJson.subPackages.some(pkg => pkg.root === 'pages/session-settings' && pkg.pages.includes('session-settings')));
   assert.equal(JSON.parse(read('pages/session-settings/session-settings.json')).navigationBarTitleText, '会话设置');
   // 设置入口贴在抽屉底部：贴底职责由包住卡片的 .drawer-bottom 承担（margin-top:auto），
   // 额度卡片与设置入口同在 .drawer-bottom 内，卡片位于设置上方。
@@ -58,10 +61,11 @@ test('session settings retain model and permission APIs, file navigation and pri
     if(name.endsWith('/store'))return store;
     if(name.endsWith('/theme'))return {applyTo(){}};
     if(name.endsWith('/labels'))return {presetModeName:v=>v,presetModeBlurb:v=>'描述 '+v,reasoningEffortName:v=>({off:'Off',low:'Low',high:'High'}[v]||v),permissionName:v=>v,permissionIconFile:v=>require('../miniprogram/utils/labels').permissionIconFile(v)};
-    if(name.endsWith('/node-presentation'))return require('../miniprogram/utils/node-presentation');
+    if(name.endsWith('/node-presentation'))return require('../miniprogram/pages/settings/utils/node-presentation');
+    if(name.endsWith('/connection-status'))return require('../miniprogram/utils/connection-status');
     if(name.endsWith('/host-info'))return require('../miniprogram/utils/host-info');
-    if(name.endsWith('/version-info'))return require('../miniprogram/utils/version-info');
-    if(name.endsWith('/account-view'))return require('../miniprogram/utils/account-view');
+    if(name.endsWith('/version-info'))return require('../miniprogram/pages/settings/utils/version-info');
+    if(name.endsWith('/account-view'))return require('../miniprogram/pages/settings/utils/account-view');
     if(name.endsWith('/build'))return {BUILD_TIME:'fixture',BUILD_VERSION:'0.9.27'};
     throw Error('Unexpected dependency '+name);
   }});
@@ -176,12 +180,12 @@ test('conversation status style sheet has a resizable grabber and no text close 
   const statusSheet = html.match(/<view wx:if="\{\{statusStyleSheetOpen\}\}"[\s\S]*?status-style-footer[\s\S]*?<\/view>\s*<\/view>\s*<\/view>/);
   assert.ok(statusSheet, 'status style sheet exists');
   assert.match(statusSheet[0], /class="sheet-grabber-zone" data-sheet="statusStyle"[^>]*sheetGrabStart[^>]*sheetGrabMove[^>]*sheetGrabEnd/);
-  assert.match(statusSheet[0], /sheetExpanded\.statusStyle \? 90 : 72/);
+  assert.match(statusSheet[0], /sheetExpanded\.statusStyle \? 90 : 90/);
   assert.doesNotMatch(statusSheet[0], /status-style-close|\{\{ui\['完成'\]\}\}/);
   assert.match(css, /\.status-style-sheet\.resizable\s*\{[^}]*transition:height/);
   assert.match(css, /\.status-style-list\s*\{[^}]*flex:1/);
   // The status-strip preview uses the same DSH whale asset as the live conversation row.
-  assert.match(statusSheet[0], /src="\/assets\/icons\/dsh-running-whale\.png"/);
+  assert.match(statusSheet[0], /<canvas type="2d" id="statusPreviewCanvas-\{\{item\.id\}\}" class="status-tail-canvas" style="width:28rpx;height:28rpx;">/);
   assert.doesNotMatch(statusSheet[0], /statusIconFile/);
 });
 
@@ -200,7 +204,7 @@ test('execution icon row follows the status style row and mirrors its resizable 
   const sheet = html.match(/<view wx:if="\{\{procIconSheetOpen\}\}"[\s\S]*?status-style-footer[\s\S]*?<\/view>\s*<\/view>\s*<\/view>/);
   assert.ok(sheet, 'execution icon sheet exists');
   assert.match(sheet[0], /class="sheet-grabber-zone" data-sheet="procIcon"[^>]*sheetGrabStart[^>]*sheetGrabMove[^>]*sheetGrabEnd/);
-  assert.match(sheet[0], /sheetExpanded\.procIcon \? 90 : 72/);
+  assert.match(sheet[0], /sheetExpanded\.procIcon \? 90 : 90/);
   assert.match(sheet[0], /wx:for="\{\{procIconChoices\}\}"/);
   assert.match(sheet[0], /class="proc-loader proc-look-\{\{item\.id\}\}"/);
   assert.match(sheet[0], /template is="procIconGlyph" data="\{\{styleId: item\.id\}\}"/);
@@ -252,3 +256,24 @@ test('default preset and model sheets retain the bottom modal and use dsh-mobile
   assert.match(css, /\.model-effort-chip\.selected/);
   assert.match(css, /\.picker-option-list\.model-picker-list/);
 });
+
+// 两个设置页顶部的账号区：余额卡必须点上面的身份卡才展开，且仅已登录有效。
+for (const [name, wxml, js] of [
+  ['settings', 'pages/settings/settings.wxml', 'pages/settings/settings.js'],
+  ['session-settings', 'pages/session-settings/session-settings.wxml', 'pages/session-settings/session-settings.js']
+]) {
+  test(name + ': the balance card stays collapsed until the identity card is tapped', () => {
+    const view = read(wxml);
+    const code = read(js);
+    assert.match(view, /dsh-account-card \{\{dshAccount\.signedIn \? 'tappable has-chevron' : ''\}\}" bindtap="toggleDshBalance"[\s\S]{0,120}aria-expanded="\{\{dshBalanceExpanded\}\}"/);
+    // 余额卡同时要求"已点开"和"已登录"
+    assert.match(view, /<view wx:if="\{\{dshBalanceExpanded && dshAccount\.signedIn\}\}" class="dsh-balance-card">/);
+    // 已登录才给展开箭头，未登录连可点暗示都没有
+    assert.match(view, /wx:if="\{\{dshAccount\.signedIn\}\}" class="dsh-account-chevron/);
+    // 登录按钮不能冒泡到身份卡，否则未登录点一下也会展开
+    assert.doesNotMatch(view, /bindtap="explainDshAccountSignIn"/);
+    assert.match(code, /toggleDshBalance\(\)\s*\{\s*if \(!this\.data\.dshAccount \|\| this\.data\.dshAccount\.signedIn !== true\) return;/);
+    assert.match(code, /dshBalanceExpanded: false/);
+    assert.match(code, /dshAccountVisible: false, dshAccount: accountView\.normalize\(\{\}\), dshBalanceExpanded: false/);
+  });
+}

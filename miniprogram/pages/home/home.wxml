@@ -1,3 +1,4 @@
+<import src="../../templates/quota-sidebar.wxml"/>
 <view class="page page-dark home-root {{themeClass}}" style="{{contentFontStyle}}">
   <!-- 侧边栏（对齐 dsh-mobile WorkspaceView drawerContent：品牌字标 + 插件 / 自动化任务） -->
   <view
@@ -28,81 +29,16 @@
       </view>
       <!-- 底部组：额度卡片 + 设置入口，靠 margin-top:auto 贴底（对齐参考实现的底部卡片） -->
       <view class="drawer-bottom">
-      <view wx:if="{{costSidebar}}" class="drawer-quota drawer-quota-{{costSidebar.style}}" hover-class="drawer-quota-pressed" bindtap="onCostCardTap" role="button" aria-label="{{ui['用量额度卡片，点击刷新']}}">
-        <!-- 按网关 sidebarOrder 渲染；costSections 为空时回落到下面固定顺序 -->
-        <block wx:if="{{costSections.length}}" wx:for="{{costSections}}" wx:key="key" wx:for-item="sec">
-          <view wx:if="{{sec.kind === 'balance'}}" class="dq-line dq-balance">
-            <text class="dq-name">{{costSidebar.balance.title}} <text class="dq-link">↗</text></text>
-            <text class="dq-value">{{costSidebar.balance.amountText}}</text>
-          </view>
-          <view wx:if="{{sec.kind === 'budget'}}" class="dq-block">
-            <view class="dq-line"><text class="dq-name">{{ui['预算']}}</text><text class="dq-value">{{costSidebar.budget.percentText}}</text></view>
-            <view class="dq-progress"><view class="dq-progress-fill" style="width:{{costSidebar.budget.barWidth}};"></view></view>
-            <text class="dq-meta">{{costSidebar.budget.usedText}} / {{costSidebar.budget.amountText}}</text>
-          </view>
-          <view wx:if="{{sec.kind === 'go'}}" class="dq-block">
-            <view wx:for="{{costSidebar.go.rows}}" wx:for-item="win" wx:key="key" class="dq-window">
-              <view class="dq-line"><text class="dq-name">{{ui[win.label] !== undefined ? ui[win.label] : win.label}}</text><text class="dq-value">{{win.percentText}}</text></view>
-              <view class="dq-progress"><view class="dq-progress-fill" style="width:{{win.barWidth}};"></view></view>
-              <text wx:if="{{win.resetsText}}" class="dq-meta">{{ui['重置']}} {{win.resetsText}}</text>
-            </view>
-          </view>
-          <view wx:if="{{sec.kind === 'plan'}}" class="dq-block dq-plan">
-            <view class="dq-line"><text class="dq-name">{{sec.label}}</text><text class="dq-value">{{planOf(sec.key).main ? planOf(sec.key).main.percentText : '—'}}</text></view>
-            <view wx:if="{{planOf(sec.key).main}}" class="dq-progress"><view class="dq-progress-fill" style="width:{{planOf(sec.key).main.barWidth}};"></view></view>
-          </view>
-          <view wx:if="{{sec.kind === 'gateway'}}" class="dq-line dq-source">
-            <text class="dq-name">{{sec.label}}</text>
-            <text class="dq-value">{{gatewayOf(sec.key).accounts.length ? gatewayOf(sec.key).accounts.length + ' ' + ui['个账号'] : (gatewayOf(sec.key).status === 'ok' ? ui['正常'] : gatewayOf(sec.key).status)}}</text>
-          </view>
-          <view wx:if="{{sec.kind === 'custom'}}" class="dq-block">
-            <view class="dq-line"><text class="dq-name">{{customOf(sec.key).label}}</text><text class="dq-value">{{customOf(sec.key).amountText}}</text></view>
-            <view wx:if="{{customOf(sec.key).percent !== null}}" class="dq-progress"><view class="dq-progress-fill" style="width:{{customOf(sec.key).barWidth}};"></view></view>
-          </view>
-          <view wx:if="{{sec.kind === 'peak'}}" class="dq-block dq-peak">
-            <view class="dq-line"><text class="dq-name dq-peak-phase"><text class="dq-dot"></text>{{costSidebar.peak.label}}</text><text class="dq-value">{{costSidebar.peak.remainingText}}</text></view>
-            <view class="dq-progress"><view class="dq-progress-fill" style="width:{{costSidebar.peak.progressText}};"></view></view>
-            <text class="dq-meta">{{costSidebar.peak.switchText}}</text>
-          </view>
-        </block>
-        <block wx:if="{{!costSections.length}}">
-          <view class="dq-line dq-balance">
-            <text class="dq-name">{{costSidebar.balance.title}} <text class="dq-link">↗</text></text>
-            <text class="dq-value">{{costSidebar.balance.amountText}}</text>
-          </view>
-        <view wx:if="{{costSidebar.budget}}" class="dq-block">
-          <view class="dq-line"><text class="dq-name">{{ui['预算']}}</text><text class="dq-value">{{costSidebar.budget.percentText}}</text></view>
-          <view class="dq-progress"><view class="dq-progress-fill" style="width:{{costSidebar.budget.barWidth}};"></view></view>
-          <text class="dq-meta">{{costSidebar.budget.usedText}} / {{costSidebar.budget.amountText}}</text>
-        </view>
-        <view wx:if="{{costSidebar.go}}" class="dq-block">
-          <view wx:for="{{costSidebar.go.rows}}" wx:for-item="win" wx:key="key" class="dq-window">
-            <view class="dq-line"><text class="dq-name">{{ui[win.label] !== undefined ? ui[win.label] : win.label}}</text><text class="dq-value">{{win.percentText}}</text></view>
-            <view class="dq-progress"><view class="dq-progress-fill" style="width:{{win.barWidth}};"></view></view>
-            <text wx:if="{{win.resetsText}}" class="dq-meta">{{ui['重置']}} {{win.resetsText}}</text>
-          </view>
-        </view>
-        <view wx:for="{{costSidebar.plans}}" wx:key="id" class="dq-block dq-plan">
-          <view class="dq-line"><text class="dq-name">{{item.label}}</text><text class="dq-value">{{item.main ? item.main.percentText : '—'}}</text></view>
-          <view wx:if="{{item.main}}" class="dq-progress"><view class="dq-progress-fill" style="width:{{item.main.barWidth}};"></view></view>
-        </view>
-        <view wx:for="{{costSidebar.gateway}}" wx:key="id" class="dq-line dq-source">
-          <text class="dq-name">{{item.label}}</text><text class="dq-value">{{item.accounts.length ? item.accounts.length + ' ' + ui['个账号'] : (item.status === 'ok' ? ui['正常'] : item.status)}}</text>
-        </view>
-        <view wx:for="{{costSidebar.custom}}" wx:key="index" class="dq-block">
-          <view class="dq-line"><text class="dq-name">{{item.label}}</text><text class="dq-value">{{item.amountText}}</text></view>
-          <view wx:if="{{item.percent !== null}}" class="dq-progress"><view class="dq-progress-fill" style="width:{{item.barWidth}};"></view></view>
-        </view>
-        <view wx:if="{{costSidebar.peak}}" class="dq-block dq-peak">
-          <view class="dq-line"><text class="dq-name dq-peak-phase"><text class="dq-dot"></text>{{costSidebar.peak.label}}</text><text class="dq-value">{{costSidebar.peak.remainingText}}</text></view>
-          <view class="dq-progress"><view class="dq-progress-fill" style="width:{{costSidebar.peak.progressText}};"></view></view>
-          <text class="dq-meta">{{costSidebar.peak.switchText}}</text>
-        </view>
-        </block>
+      <view wx:if="{{costSidebar}}" class="qs-wrap" hover-class="qs-pressed" bindtap="onCostCardTap" role="button" aria-label="{{ui['用量额度卡片，点击刷新']}}">
+        <template is="quota-sidebar" data="{{sections: costSections, mode: costSidebar.style, model: costSidebar, ui: ui}}"/>
       </view>
       <view wx:elif="{{costCardError}}" class="drawer-cost-unavailable" bindtap="openCostDetail" role="button">
         <text class="drawer-cost-unavailable-title">{{ui['额度卡片暂不可用']}}</text>
         <text class="drawer-cost-unavailable-hint">{{costCardError}}</text>
+      </view>
+      <view wx:elif="{{connectionClass !== 'connected'}}" class="drawer-cost-unavailable" bindtap="retryGatewayConnection" role="button">
+        <text class="drawer-cost-unavailable-title">{{ui['额度卡片未连接到 DSH 网关']}}</text>
+        <text class="drawer-cost-unavailable-hint">{{ui['点此重新连接']}}</text>
       </view>
       <view class="drawer-footer">
         <view class="drawer-item drawer-settings" hover-class="drawer-item-active" bindtap="openSettings" role="button" aria-label="{{ui['设置']}}">
@@ -150,7 +86,7 @@
         <view class="host-bar glass-press" bindtap="openHostSwitcher">
           <image class="host-kind" src="/assets/icons/{{hostKindIcon}}"/>
           <view class="host-name">{{hostLabel}}</view>
-          <view class="host-dot {{hostOnline ? 'on' : ''}}"></view>
+          <view class="host-dot {{hostDotClass}}"></view>
           <image class="host-chev" src="/assets/icons/chev-down-white.png"/>
         </view>
         <view class="host-actions">
@@ -237,7 +173,7 @@
         />
       </view>
 
-      <view wx:if="{{homeDataHint}}" class="home-data-hint">{{ui[homeDataHint] !== undefined ? ui[homeDataHint] : homeDataHint}}</view>
+      <view wx:if="{{homeDataHint}}" class="home-data-hint {{connectionHintIsError ? 'home-connection-error' : ''}}">{{ui[homeDataHint] !== undefined ? ui[homeDataHint] : homeDataHint}}</view>
 
       <view class="session-list">
         <block wx:for="{{displaySessions}}" wx:key="sessionId">

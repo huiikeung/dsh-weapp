@@ -133,7 +133,7 @@ test('scaleParts proportions the heuristic composition onto the billed input exa
   assert.equal(sum, 5000);
 });
 
-test('deriveTokens follows the doc billing rules: exact total, ≈ estimates, output exact, one-decimal cache hit', () => {
+test('deriveTokens follows the doc billing rules: exact total, ≈ estimates, output exact, two-decimal truncated cache hit', () => {
   const tokens = contextView.deriveTokens({
     current: { system: 1000, tools: 500, user: 100, inject: 100, skill: 100, assistant: 100, tool: 100 },
     breakdown: { systemTokens: 2000, toolsTokens: 1000, messageTokens: 400 },
@@ -144,7 +144,7 @@ test('deriveTokens follows the doc billing rules: exact total, ≈ estimates, ou
   assert.equal(tokens.output, 500);
   assert.equal(tokens.total, 5500);
   assert.equal(tokens.totalText, '5.5k');
-  assert.equal(tokens.cacheHitText, '60.0%');
+  assert.equal(tokens.cacheHitText, '60.00%');
   assert.equal(tokens.rows.length, 8);
   const promptRows = tokens.rows.slice(0, 7);
   assert.equal(promptRows.reduce((sum, row) => sum + row.value, 0), 5000);
@@ -283,7 +283,7 @@ test('adaptive trend scales to its visible window and duration can be toggled in
   });
   assert.equal(withoutDuration.showDuration, false);
   assert.equal(withoutDuration.hasDuration, false);
-  assert.deepEqual(withoutDuration.ribbon.durationRuns, []);
+  assert.ok(withoutDuration.ribbon.columns.length > 0);
 });
 
 test('deriveTrend flags every fifth step column', () => {
@@ -314,10 +314,20 @@ test('deriveTrend exposes the turn strip on the same grid as the bars', () => {
   assert.equal(trend.turnStrip[1].zebra, 'odd');
 });
 
-test('deriveTrend aggregates more than 120 requests by turn using each turn last record', () => {
+test('deriveTrend keeps step granularity by default for long histories', () => {
   const trend = contextView.deriveTrend({
     requests: requests(130, { turnOf: index => Math.floor(index / 2) + 1 })
   }, key => key);
+  assert.equal(trend.totalCount, 130);
+  assert.equal(trend.groupBy, 'step');
+  assert.equal(trend.aggregated, false);
+  assert.equal(trend.count, 130);
+});
+
+test('deriveTrend aggregates long histories by turn only when requested', () => {
+  const trend = contextView.deriveTrend({
+    requests: requests(130, { turnOf: index => Math.floor(index / 2) + 1 })
+  }, key => key, { groupBy: 'turn' });
   assert.equal(trend.totalCount, 130);
   assert.equal(trend.aggregated, true);
   assert.equal(trend.count, 65);
@@ -530,23 +540,14 @@ test('deriveTrend overview squashes the session into one stretched ribbon', () =
   assert.equal(trend.ribbon.count, 3);
   assert.equal(trend.ribbon.width, 3, 'x is one unit per record');
   assert.equal(trend.ribbon.height, contextView.TREND_CHART_H);
-  // One polygon per category — zero-value bands are emitted too and flagged, so
-  // the template can skip them without a second pass.
-  assert.equal(trend.ribbon.bands.length, contextView.CATEGORY_KEYS.length);
-  const systemBand = trend.ribbon.bands.find(band => band.key === 'system');
-  assert.ok(systemBand.hasValue);
-  const points = systemBand.points.split(' ');
-  assert.equal(points.length, 6, '3 top-edge points then 3 bottom-edge points');
-  // x runs 0,1,2 across the top edge and 2,1,0 back along the bottom.
-  assert.deepEqual(points.slice(0, 3).map(p => Number(p.split(',')[0])), [0, 1, 2]);
-  assert.deepEqual(points.slice(3).map(p => Number(p.split(',')[0])), [2, 1, 0]);
-  // system is constant 100/450 of the plot, so both edges sit near the floor.
-  const systemTop = Number(points[0].split(',')[1]);
-  const systemBottom = Number(points[5].split(',')[1]);
-  assert.ok(systemBottom > systemTop, 'the band has thickness');
-  assert.ok(systemTop > 0 && systemBottom <= contextView.TREND_CHART_H);
-  // Categories with no value are flagged so the template can skip them.
-  assert.equal(trend.ribbon.bands.find(band => band.key === 'skill').hasValue, false);
+  // The overview is rendered as bounded CSS stacked columns (WXML has no inline SVG).
+  assert.ok(trend.ribbon.columns.length > 0 && trend.ribbon.columns.length <= 140);
+  const firstColumn = trend.ribbon.columns[0];
+  const systemSegment = firstColumn.segments.find(segment => segment.key === 'system');
+  assert.ok(systemSegment, 'system segment is present');
+  assert.equal(systemSegment.px, Math.round(100 / 450 * contextView.TREND_CHART_H));
+  // Zero-value categories are skipped by the template.
+  assert.ok(trend.ribbon.columns.every(column => column.segments.every(segment => segment.key !== 'skill')));
 
   // Quartile + full-span flags, and the pinned cursor at the record's centre.
   assert.deepEqual(trend.ribbon.flags.map(flag => flag.key), ['q1', 'mid', 'q3', 'end']);
@@ -559,7 +560,7 @@ test('deriveTrend overview squashes the session into one stretched ribbon', () =
   // Off by default.
   const plain = contextView.deriveTrend({ requests: trend.bars.map(b => ({ seq: b.seq, turn: 1, step: 1, system: 1, total: 1 })) }, key => key);
   assert.equal(plain.overview, false);
-  assert.equal(plain.ribbon.bands.length, 0);
+  assert.equal(plain.ribbon.columns.length, 0);
 });
 
 test('deriveTrend dims other turns when one turn is focused', () => {
@@ -642,11 +643,27 @@ test('deriveEvents lists the latest events first with labels and token deltas', 
   assert.equal(events.rows[0].kindText, '剪枝');
   assert.equal(events.rows[0].tokensText, '−2.0k');
   assert.equal(events.rows[1].kindText, '压缩');
-  assert.equal(events.rows[1].countText, '×3');
+  assert.equal(events.rows[1].countText, '');
+  assert.equal(events.rows[1].name, '压缩上下文（摘要替换 {n} 条消息）');
   assert.equal(events.rows[1].tokensText, '−128.6k');
   assert.equal(events.rows[2].kindText, '注入');
-  assert.equal(events.rows[2].name, 'system prompt');
+  assert.equal(events.rows[2].name, '上下文注入 · system prompt');
   assert.match(events.rows[0].timeText, /^\d{2}:\d{2}:\d{2}$/);
+  assert.equal(events.hasData, true);
+  assert.deepEqual(events.filters.map(function (filter) { return filter.key; }), ['inject', 'compaction', 'prune', 'model', 'mode']);
+  assert.deepEqual(events.filters.map(function (filter) { return filter.active; }), [true, true, true, true, true]);
+  const onlyCompactions = contextView.deriveEvents({ events: [
+    { seq: 1, kind: 'inject', tokens: 10 },
+    { seq: 2, kind: 'compaction', tokens: 20 }
+  ] }, key => key, 'compaction');
+  assert.deepEqual(onlyCompactions.selected, ['compaction']);
+  assert.deepEqual(onlyCompactions.rows.map(function (row) { return row.kindClass; }), ['compaction']);
+  const subst = (key, values) => (values ? Object.keys(values).reduce((text, name) => text.split('{' + name + '}').join(String(values[name])), key) : key);
+  const modelChange = contextView.deriveEvents({ events: [{ seq: 3, kind: 'model', from: 'model-a', to: 'model-b' }] }, subst);
+  assert.equal(modelChange.rows[0].kindText, '模型');
+  assert.equal(modelChange.rows[0].name, '模型切换：model-a → model-b');
+  const modeChange = contextView.deriveEvents({ events: [{ seq: 4, kind: 'mode', name: 'plan.on' }] }, subst);
+  assert.equal(modeChange.rows[0].name, '进入计划模式');
 });
 
 test('deriveFileActivity aggregates operations by path and honors the selected step cutoff', () => {
@@ -661,20 +678,48 @@ test('deriveFileActivity aggregates operations by path and honors the selected s
   const files = contextView.deriveFileActivity(value, null, 3);
   assert.equal(files.totalRows, 1);
   assert.equal(files.rows[0].path, 'src/a.js');
-  assert.equal(files.rows[0].readsText, '读取 1');
-  assert.equal(files.rows[0].writesText, '写入 1');
-  assert.equal(files.rows[0].deltaText, '+4 / −2 行');
+  assert.deepEqual(files.rows[0].badges.map(function (badge) { return [badge.key, badge.count]; }), [['read', 1], ['write', 1]]);
+  assert.equal(files.rows[0].addedText, '+4');
+  assert.equal(files.rows[0].removedText, '−2');
+  assert.equal(files.rows[0].glyph.label, 'JS');
   assert.equal(files.rows[0].lastSeq, 3);
   assert.equal(files.truncated, true);
-  const filtered = contextView.deriveFileActivity(value, key => key, null, { filter: 'write', sort: 'recent' });
+  const filtered = contextView.deriveFileActivity(value, key => key, null, { filter: 'write', sort: 'latest' });
   assert.equal(filtered.filter, 'write');
-  assert.equal(filtered.sort, 'recent');
+  assert.equal(filtered.sort, 'latest');
   assert.deepEqual(filtered.rows.map(row => row.path), ['src/a.js']);
   const searches = contextView.deriveFileActivity(value, key => key, null, { filter: 'search' });
   assert.deepEqual(searches.rows.map(row => row.path), ['tests/a.test.js']);
   const noMatch = contextView.deriveFileActivity(value, key => key, 3, { filter: 'search' });
   assert.equal(noMatch.empty, false, 'records still exist outside the selected cutoff/filter');
   assert.equal(noMatch.noMatches, true, 'the UI keeps its filter controls visible');
+});
+
+test('deriveFileActivity adds image filtering, path search, richer sorts and expandable operation details', () => {
+  const value = { fileOps: [
+    { seq: 1, time: 1000, path: 'src/z.js', kind: 'read', tool: 'read', readCount: 20 },
+    { seq: 2, time: 2000, path: 'src/z.js', kind: 'write', tool: 'edit', added: 3, removed: 1 },
+    { seq: 3, time: 3000, path: 'assets/logo.png', kind: 'read', tool: 'read_image' },
+    { seq: 4, time: 4000, path: 'docs/a.md', kind: 'write', tool: 'write_file', added: 2 }
+  ] };
+  const images = contextView.deriveFileActivity(value, key => key, null, { filter: 'image' });
+  assert.equal(images.imageFiles, 1);
+  assert.deepEqual(images.rows.map(function (row) { return row.path; }), ['assets/logo.png']);
+
+  const queried = contextView.deriveFileActivity(value, key => key, null, { query: 'SRC/Z', expandedPath: 'src/z.js' });
+  assert.deepEqual(queried.rows.map(function (row) { return row.path; }), ['src/z.js']);
+  assert.equal(queried.rows[0].expanded, true);
+  assert.equal(queried.rows[0].ops[0].kindText, '写入');
+  assert.equal(queried.rows[0].ops[0].toolText, 'edit');
+  assert.equal(queried.rows[0].ops[0].deltaText, '+3 / −1');
+  assert.equal(queried.rows[0].ops[1].readText, '≈{n} 行');
+
+  const byLines = contextView.deriveFileActivity(value, key => key, null, { sort: 'lines' });
+  assert.equal(byLines.rows[0].path, 'src/z.js', 'added and removed line volume sorts first');
+  const byName = contextView.deriveFileActivity(value, key => key, null, { sort: 'name' });
+  assert.deepEqual(byName.rows.map(function (row) { return row.path; }), ['docs/a.md', 'assets/logo.png', 'src/z.js']);
+  const missing = contextView.deriveFileActivity(value, key => key, null, { query: 'missing' });
+  assert.equal(missing.noMatches, true);
 });
 
 // ---------- 面板状态 / 防御性校验 ----------
@@ -948,7 +993,7 @@ test('v2 timing splits six segments with shares, durations, counts, speed and ti
   assert.deepEqual(timing.rows.map(row => row.key), ['wait', 'reasoning', 'text', 'toolarg', 'tools', 'other']);
   assert.deepEqual(timing.rows.map(row => row.label), ['模型等待', '模型思考', '模型回复', '工具参数', '工具执行', '其他开销']);
   assert.deepEqual(timing.rows.map(row => row.pctText), ['32.1%', '36.6%', '2.0%', '12.4%', '16.9%', '<0.1%']);
-  assert.deepEqual(timing.rows.map(row => row.durationText), ['26m38s', '30m25s', '1m39s', '10m17s', '14m0s', '1.5s']);
+  assert.deepEqual(timing.rows.map(row => row.durationText), ['26m38s', '30m25s', '1m39s', '10m17s', '14m0s', '1.0s']);
   assert.deepEqual(timing.rows.map(row => row.countText), ['313 次', '201 次', '16 次', '313 次', '318 次', '']);
   assert.match(timing.donutStyle, /conic-gradient/);
   assert.equal(timing.hasSpeed, true);
@@ -988,7 +1033,8 @@ test('v2 context browser defaults to the current composition and walks historica
   assert.equal(browser.estimatedText, '≈25.3k');
   assert.equal(browser.promptText, '—');
   assert.equal(browser.rows.length, 7);
-  assert.ok(browser.rows.every(row => row.itemsText === '—'));
+  assert.equal(browser.rows[0].countText, '{n} 项', 'system counts as one item (t is identity here)');
+  assert.ok(browser.rows.every(row => typeof row.countText === 'string'));
   // 切到历史请求：显示该请求 total 与实际 prompt，并与上一条（无）对比。
   const historical = contextView.deriveBrowser(sampleV2Value(), key => key, { seq: 53 });
   assert.equal(historical.selectedIndex, 0);
@@ -997,9 +1043,10 @@ test('v2 context browser defaults to the current composition and walks historica
   assert.equal(historical.estimatedText, '≈25.3k');
   assert.equal(historical.canPrev, false);
   assert.equal(historical.canNext, true);
-  assert.equal(historical.rows[0].itemsText, '1');
-  assert.equal(historical.rows[1].itemsText, '79');
-  assert.equal(historical.rows[0].deltaText, '—');
+  assert.equal(historical.rows[0].countText, '{n} 项');
+  assert.equal(historical.rows[1].countText, '{n} 项');
+  assert.equal(historical.rows[0].countDeltaText, '');
+  assert.equal(historical.rows[0].tokenDeltaText, '');
   assert.equal(historical.timeText.length, 8);
 });
 
@@ -1010,21 +1057,21 @@ test('v2 context browser compares each category with the previous request', () =
   ];
   const browser = contextView.deriveBrowser({ requests: requests, current: { system: 130, tools: 170, total: 300 } }, key => key, { seq: 20 });
   assert.equal(browser.selectedIndex, 1);
-  assert.equal(browser.rows[0].deltaText, '+20');
-  assert.equal(browser.rows[0].deltaClass, 'up');
-  assert.equal(browser.rows[1].deltaText, '−20');
-  assert.equal(browser.rows[1].deltaClass, 'down');
-  assert.equal(browser.rows[2].deltaText, '0');
+  assert.equal(browser.rows[0].tokenDeltaText, '+20');
+  assert.equal(browser.rows[0].tokenDeltaClass, 'up');
+  assert.equal(browser.rows[0].countDeltaText, '+1');
+  assert.equal(browser.rows[1].tokenDeltaText, '−20');
+  assert.equal(browser.rows[1].tokenDeltaClass, 'down');
+  assert.equal(browser.rows[2].tokenDeltaText, '');
   // 「当前（下一次请求）」与最后一条历史请求对比。
   const currentEntry = contextView.deriveBrowser({ requests: requests, current: { system: 130, tools: 170, total: 300 } }, key => key, { seq: null });
   assert.equal(currentEntry.selectedIndex, 2);
-  assert.equal(currentEntry.rows[0].deltaText, '+10');
-  assert.equal(currentEntry.rows[2].deltaText, '0');
+  assert.equal(currentEntry.rows[0].tokenDeltaText, '+10');
+  assert.equal(currentEntry.rows[2].tokenDeltaText, '');
   // 展开行的明细文案与宽度。
   const expanded = contextView.deriveBrowser({ requests: requests }, key => key, { seq: 20, expanded: ['system'] });
   assert.equal(expanded.rows[0].expanded, true);
   assert.equal(expanded.rows[1].expanded, false);
-  assert.doesNotMatch(expanded.rows[0].detailText, /明细暂不展示/);
   assert.deepEqual(expanded.rows[0].nodes, []);
 });
 
@@ -1047,7 +1094,7 @@ test('context browser reconstructs the selected surface and exposes expandable r
   };
   const browser = contextView.deriveBrowser(value, key => key, { seq: 20, expanded: ['user', 'tools'] });
   assert.deepEqual(browser.rows.find(row => row.key === 'user').nodes.map(node => node.seq), [7, 5]);
-  assert.deepEqual(browser.rows.find(row => row.key === 'tools').nodes.map(node => node.label), ['read_file', 'write_file']);
+  assert.deepEqual(browser.rows.find(row => row.key === 'tools').nodes.map(node => node.chips[0]), ['read_file', 'write_file']);
   assert.deepEqual(contextView.deriveBrowser(value, key => key, { seq: null }).rows.find(row => row.key === 'user').nodes.map(node => node.seq), [25, 5]);
 });
 
@@ -1074,7 +1121,7 @@ test('v2 context browser caps at the latest 30 requests and degrades hostile dat
   const hostile = contextView.deriveBrowser({ requests: [{ seq: 1, items: 'x', prompt: 'nope' }, null, 'x'] }, key => key, { seq: '1' });
   assert.equal(hostile.rows.length, 7);
   assert.equal(hostile.promptText, '—');
-  assert.ok(hostile.rows.every(row => row.itemsText === '—'));
+  assert.ok(hostile.rows.every(row => typeof row.countText === 'string' && typeof row.tokenText === 'string'));
 });
 
 test('buildPanel v2 keeps every ready field defined and renderable', () => {

@@ -53,7 +53,7 @@ test('history image bytes are written to USER_DATA_PATH once and reused', async 
   assert.equal(requests, 1, 'a second render must not hit the gateway again');
 });
 
-test('requests are serialized by the gateway single-lane rule and deduplicated per id', async () => {
+test('requests run concurrently up to the protocol limit and deduplicate per id', async () => {
   attachmentCache._reset();
   const store = memoryFs();
   const order = [];
@@ -74,7 +74,7 @@ test('requests are serialized by the gateway single-lane rule and deduplicated p
   const second = attachmentCache.fetchImage(client, 's1', { attachmentId: 'b', mediaType: 'image/jpeg' }, { api: store.api });
   assert.equal(first, same, 'concurrent calls share one promise');
   const paths = await Promise.all([first, same, second]);
-  assert.equal(maxActive, 1, 'attachment requests must not overlap');
+  assert.equal(maxActive, 2, 'different images may overlap up to the 3-request cap');
   assert.deepEqual(order, ['a', 'b']);
   assert.equal(paths[0], paths[1]);
   assert.notEqual(paths[0], paths[2]);

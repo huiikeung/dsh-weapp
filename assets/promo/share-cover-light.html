@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>whaletail Harness · 分享封面（浅色）</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1000px; height: 800px; overflow: hidden; background: #F7F8FA; }
+  body {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+  .canvas { position: relative; width: 1000px; height: 800px; overflow: hidden; background: #F7F8FA; }
+
+  .bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(58% 52% at 80% 38%, rgba(168,203,255,.62) 0%, rgba(220,233,252,.28) 52%, rgba(247,248,250,0) 76%),
+      radial-gradient(46% 40% at 88% 84%, rgba(214,231,255,.55) 0%, rgba(247,248,250,0) 70%),
+      radial-gradient(60% 52% at 6% 4%, rgba(232,240,252,.9) 0%, rgba(247,248,250,0) 70%),
+      linear-gradient(165deg, #FBFCFE 0%, #F5F8FC 46%, #EDF3FA 100%);
+  }
+  .dots {
+    position: absolute; inset: 0;
+    background-image: radial-gradient(circle, rgba(22,48,88,.30) 0.9px, transparent 1.1px);
+    background-size: 26px 26px; opacity: .18;
+    -webkit-mask-image: radial-gradient(72% 68% at 74% 40%, #000 0%, rgba(0,0,0,.30) 58%, transparent 84%);
+    mask-image: radial-gradient(72% 68% at 74% 40%, #000 0%, rgba(0,0,0,.30) 58%, transparent 84%);
+  }
+
+  /* soft stage behind the whale */
+  .stage {
+    position: absolute; left: 500px; top: 88px; width: 520px; height: 520px; border-radius: 50%;
+    background: radial-gradient(circle at 50% 46%, rgba(255,255,255,.95) 0%, rgba(233,242,255,.75) 52%, rgba(233,242,255,0) 72%);
+    filter: blur(6px);
+  }
+  .ring { position: absolute; border-radius: 50%; border: 1px solid rgba(22,48,88,.10); }
+  .ring-a { left: 474px; top: 56px; width: 600px; height: 600px; border-color: rgba(22,48,88,.12); }
+
+  .whale-wrap { position: absolute; left: 576px; top: 148px; width: 396px; height: 396px; transform: rotate(-3deg); }
+  .whale-wrap .front { position: relative; display: block; width: 100%; height: 100%; object-fit: contain;
+    filter: drop-shadow(0 34px 54px rgba(28,64,140,.22)); }
+  .whale-wrap img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
+  /* water / horizon */
+  .water { position: absolute; left: 0; right: 0; bottom: 0; height: 190px; }
+  .water::before {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 190px;
+    background: linear-gradient(to top, rgba(206,224,250,.55) 0%, rgba(233,242,252,.28) 46%, rgba(247,248,250,0) 100%);
+  }
+  .water::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 96px; height: 1px;
+    background: linear-gradient(90deg, rgba(22,48,88,0) 6%, rgba(70,120,200,.22) 42%, rgba(70,120,200,.16) 72%, rgba(22,48,88,0) 100%);
+  }
+  .wave-svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+  .brand { position: absolute; left: 72px; top: 52px; display: flex; align-items: center; gap: 10px; }
+  .brand-whale { height: 40px; width: auto; }
+  .brand-wordmark { height: 25px; width: auto; margin-left: 2px; }
+  .brand-badge {
+    margin-left: 4px; padding: 4px 10px 4px 11px; border-radius: 7px;
+    border: 1px solid rgba(16,19,26,.24);
+    font-size: 11px; font-weight: 600; letter-spacing: .24em;
+    color: rgba(16,19,26,.62); line-height: 1;
+  }
+
+  .content { position: absolute; left: 72px; top: 0; bottom: 0; width: 560px; display: flex; flex-direction: column; justify-content: center; }
+  .eyebrow { font-size: 19px; font-weight: 600; letter-spacing: .20em; color: #2E6BE6; margin-bottom: 22px; }
+  h1 { font-size: 86px; line-height: 1.02; font-weight: 700; letter-spacing: .01em; color: #0E141C; }
+  .sub { margin-top: 26px; font-size: 33px; line-height: 1.42; color: rgba(16,22,32,.78); }
+  .sub-em { color: #2E6BE6; font-weight: 600; }
+  .sub-small { margin-top: 12px; font-size: 24px; line-height: 1.5; color: rgba(16,22,32,.46); letter-spacing: .06em; }
+
+  .pills { display: flex; gap: 10px; margin-top: 34px; }
+  .pill {
+    display: flex; align-items: center; gap: 8px;
+    height: 38px; padding: 0 17px; border-radius: 19px;
+    background: rgba(255,255,255,.86);
+    border: 1px solid rgba(16,30,60,.10);
+    box-shadow: 0 6px 16px rgba(16,40,90,.06);
+    font-size: 21px; letter-spacing: .04em; color: rgba(16,22,32,.72);
+  }
+  .pill i { width: 6px; height: 6px; border-radius: 50%; background: #2E6BE6; box-shadow: 0 0 0 3px rgba(46,107,230,.12); }
+
+  .footer { position: absolute; left: 72px; bottom: 46px; display: flex; align-items: center; gap: 10px; font-size: 19px; letter-spacing: .10em; color: rgba(16,22,32,.42); }
+  .footer b { font-weight: 600; color: rgba(16,22,32,.62); }
+  .footer .sep { width: 3px; height: 3px; border-radius: 50%; background: rgba(16,22,32,.32); }
+
+  .grain { position: absolute; inset: 0; opacity: .035; mix-blend-mode: multiply; }
+</style>
+</head>
+<body>
+<div class="canvas">
+  <div class="bg"></div>
+  <div class="dots"></div>
+
+  <div class="stage"></div>
+  <div class="ring ring-a"></div>
+
+  <svg class="wave-svg" viewBox="0 0 1000 800" preserveAspectRatio="none" aria-hidden="true">
+    <defs>
+      <linearGradient id="lw1" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#2E6BE6" stop-opacity="0"/>
+        <stop offset=".46" stop-color="#2E6BE6" stop-opacity=".16"/>
+        <stop offset="1" stop-color="#2E6BE6" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="lw2" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#1D4ED8" stop-opacity="0"/>
+        <stop offset=".5" stop-color="#1D4ED8" stop-opacity=".12"/>
+        <stop offset="1" stop-color="#1D4ED8" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <path d="M-40 712 C 190 676, 372 752, 574 726 S 890 678, 1050 708" fill="none" stroke="url(#lw1)" stroke-width="1.4"/>
+    <path d="M-40 752 C 224 714, 430 788, 640 756 S 902 720, 1050 748" fill="none" stroke="url(#lw2)" stroke-width="2"/>
+    <path d="M-40 786 C 250 760, 470 814, 712 784 S 942 760, 1050 780" fill="none" stroke="url(#lw1)" stroke-width="1" opacity=".7"/>
+  </svg>
+  <div class="water"></div>
+
+  <div class="whale-wrap">
+    <img class="front" src="whale-silhouette-ocean.png" alt="">
+  </div>
+
+  <div class="brand">
+    <img class="brand-whale" src="whale-silhouette-navy.png" alt="">
+    <img class="brand-wordmark" src="../../miniprogram/assets/icons/wordmark-ink.png" alt="whaletail">
+    <span class="brand-badge">HARNESS</span>
+  </div>
+
+  <div class="content">
+    <div class="eyebrow">DEEPSEEK HARNESS · 微信小程序</div>
+    <h1>探索未至之境</h1>
+    <div class="sub">手机远程连接你的 <span class="sub-em">DSH</span></div>
+    <div class="sub-small">随时查看进展 · 继续对话 · 审批操作</div>
+    <div class="pills">
+      <span class="pill"><i></i>实时对话</span>
+      <span class="pill"><i></i>会话轨迹</span>
+      <span class="pill"><i></i>上下文透视</span>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><b>鲸尾 Harness</b></span>
+    <span class="sep"></span>
+    <span>随时连接自己的 DSH</span>
+  </div>
+
+  <svg class="grain" width="1000" height="800" aria-hidden="true">
+    <filter id="g2"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>
+    <rect width="1000" height="800" filter="url(#g2)"/>
+  </svg>
+</div>
+</body>
+</html>

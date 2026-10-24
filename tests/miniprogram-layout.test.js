@@ -5,23 +5,21 @@ const app=JSON.parse(fs.readFileSync(path.join(root,'app.json'),'utf8'));
 const routes=require('./helpers/routes.cjs')(app);
 test('WeChat root contains only runtime files and all packages stay inside source budget',()=>{
   const checker=require('../scripts/check-miniprogram-package.cjs');const report=checker.check();assert.ok(report.groups[0].bytes<checker.BUDGET);assert.ok(report.groups[0].mediaBytes<checker.MEDIA_BUDGET);assert.ok(report.packagedMediaBytes<checker.MEDIA_BUDGET);
-  assert.equal(routes.length,17);assert.equal(new Set(routes).size,17);
+  assert.equal(routes.length,18);assert.equal(new Set(routes).size,18);
   for(const route of routes)for(const ext of ['js','json','wxml','wxss'])assert.ok(fs.existsSync(path.join(root,route+'.'+ext)),route+'.'+ext);
   assert.equal(fs.existsSync(path.join(root,'../app.js')),false);
   for(const file of ['plugin-artwork.js','plugin-presentation.js','plugin-settings.js','plugin-settings-copy.js'])assert.equal(fs.existsSync(path.join(root,'utils',file)),false);
   assert.equal(fs.existsSync(path.join(root,'utils/schedule-editor.js')),false);
   assert.ok(fs.existsSync(path.join(root,'pages/plugin-detail/plugin-settings-copy.js')));
 });
-test('running whale status artwork retains its animated PNG frames',()=>{
+test('running whale status artwork stays a tiny gray+alpha mask',()=>{
+  // 鲸尾图标改画布绘制后只取一帧做取色遮罩，60 帧动画不会再被渲染；
+  // 资源因此换成 28x28 灰度+透明静态 PNG（21.6KB → 0.5KB）。
   const image=fs.readFileSync(path.join(root,'assets/icons/dsh-running-whale.png'));
-  let animation=null;
-  for(let offset=8;offset+12<=image.length;){
-    const size=image.readUInt32BE(offset),type=image.toString('ascii',offset+4,offset+8);
-    assert.ok(offset+size+12<=image.length,'PNG chunk must stay within the image');
-    if(type==='acTL')animation={frames:image.readUInt32BE(offset+8),plays:image.readUInt32BE(offset+12)};
-    offset+=size+12;
-  }
-  assert.deepEqual(animation,{frames:60,plays:0});
+  assert.equal(image.subarray(1,4).toString(),'PNG');
+  assert.equal(image.readUInt32BE(16),28);assert.equal(image.readUInt32BE(20),28);
+  assert.equal(image.readUInt8(24),8,'8-bit');assert.equal(image.readUInt8(25),4,'gray + alpha');
+  assert.ok(image.length<2048,'mask must stay tiny');
 });
 test('subpackages do not import each other and main package does not import subpackages',()=>{
   const roots=app.subPackages.map(p=>p.root+'/');const owner=f=>roots.find(r=>f.startsWith(r))||'';

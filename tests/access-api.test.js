@@ -122,3 +122,15 @@ test('an active public-access grant still receives a relay lease', async () => {
   assert.equal(lease.token, 'L'.repeat(43));
   assert.equal(f.requests.some(request => request.url.endsWith('/public-access/lease')), true);
 });
+test('a granted lease is cached with its token so reconnects skip the account server', async () => {
+  const f = client();
+  f.setPublicAccount({ isAdmin: false, publicAccess: true, publicAccessExpiresAt: Date.now() + 86400000 });
+  await f.api.publicLease('fixture-node', 'fixture-device');
+  const cached = f.api.cachedLease('fixture-node');
+  assert.equal(cached.token, 'L'.repeat(43), 'the lease token must be persisted, not just its expiry');
+  assert.ok(cached.expiresAt > Date.now());
+  assert.equal(f.api.cachedLease('another-node'), null, 'a lease is scoped to its node');
+  // 过期后不再复用：把虚拟时钟推过租赁的 60s 有效期
+  f.tick(120000);
+  assert.equal(f.api.cachedLease('fixture-node'), null);
+});

@@ -68,6 +68,35 @@ function fixture(source) {
   const reset = () => { patches.length = 0; parses = 0; scrolls = 0; measurements = 0; };
   return { page, store, definition, ticks, timers, sync, reset, patches, report: () => ({ parses, scrolls, measurements, bytes: Buffer.byteLength(JSON.stringify(patches)) }) };
 }
+test('composer metrics use DSH whole-session projections and prefer projected context occupancy', () => {
+  const f = fixture();
+  f.store.sessionState.stats = {
+    stats: { turns: 2, steps: 11 },
+    tokenUsage: { uncachedInputTokens: 1200, cacheReadTokens: 300, cacheWriteTokens: 0, outputTokens: 75 },
+    pressure: { projectedTokens: 16384, pressureTokens: 8192, contextWindow: 32768 }
+  };
+  // A partial-window cache must not be summed and shown as a whole-session total.
+  f.store.sessionState.turnUsage = {
+    1: { uncachedInputTokens: 99999, outputTokens: 99999, cacheReadTokens: 99999, cacheWriteTokens: 99999 }
+  };
+  f.sync();
+
+  assert.equal(f.page.data.composerRunMetric, '2 轮 11 步');
+  assert.equal(f.page.data.composerTokenMetric, '1.6K tok · 20%');
+  assert.equal(f.page.data.composerCacheMetric, '1.6K tok · 20%');
+  assert.equal(f.page.data.composerContextMetric, '50%');
+});
+test('missing DSH projections stay unknown instead of using partial local history estimates', () => {
+  const f = fixture();
+  f.store.sessionState.turnUsage = {
+    1: { uncachedInputTokens: 100, outputTokens: 20, cacheReadTokens: 25, cacheWriteTokens: 0 }
+  };
+  f.sync();
+
+  assert.equal(f.page.data.composerRunMetric, '— 轮 — 步');
+  assert.equal(f.page.data.composerTokenMetric, '— tok');
+  assert.equal(f.page.data.composerContextMetric, '—%');
+});
 test('first paint renders a bounded tail and formats history only when it enters the window', () => {
   const f = fixture(); f.sync();
   assert.ok(f.report().parses <= 12);

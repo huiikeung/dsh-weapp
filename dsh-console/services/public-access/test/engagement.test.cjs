@@ -83,6 +83,24 @@ test('web and miniapp copy encrypted codes and deletion retains redeemed access 
   const stored=Object.values(JSON.parse(fs.readFileSync(f.stateFile)).codes)[0];
   assert.ok(stored.deletedAt);assert.equal(stored.sealedCode,undefined);
 });
+test('redeeming after access expiry starts the new term at the current time',async t=>{
+  const f=await fixture(t), admin=await f.login('admin'), user=await f.login('expired-user');
+  await f.webLogin();
+  await f.call('/console/api/admins/device',{deviceId:admin.account.deviceId});
+  const firstCode=await f.call('/admin/codes',{days:3,uses:1},admin.token);
+  const firstRedemption=await f.call('/redemptions',{code:firstCode.code},user.token);
+  assert.equal(firstRedemption.expiresAt,f.now()+3*DAY);
+
+  f.tick(3*DAY+1);
+  const expiredUser=await f.login('expired-user');
+  assert.equal(expiredUser.account.publicAccess,false);
+
+  const currentAdmin=await f.login('admin');
+  const secondCode=await f.call('/admin/codes',{days:7,uses:1},currentAdmin.token);
+  const secondRedemption=await f.call('/redemptions',{code:secondCode.code},expiredUser.token);
+  assert.equal(secondRedemption.status,200);
+  assert.equal(secondRedemption.expiresAt,f.now()+7*DAY);
+});
 test('friend campaign is opt-in, deduplicates across links/restart, and tier boundaries grant atomically',async t=>{
   const f=await fixture(t), owner=await f.login('owner');
   assert.equal((await f.call('/share/invite',{},owner.token)).code,'CAMPAIGN_PAUSED');

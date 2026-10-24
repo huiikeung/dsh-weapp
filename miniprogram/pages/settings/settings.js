@@ -9,20 +9,17 @@ const notifyPref = require('../../utils/notify-pref');
 const voicePreference = require('../../utils/voice-preference');
 const homeAnimationPreference = require('../../utils/home-animation-pref');
 const contextPanelsPreference = require('../../utils/context-panels-pref');
+const contextPreferences = require('../../utils/context-prefs');
 const theme = require('../../utils/theme');
 const accessApi = require('../../utils/access-api');
 const { getPublicAccessState } = require('./public-access-state');
-const { nodePresentation } = require('../../utils/node-presentation');
-const { clientVersion, gatewayVersionInfo } = require('../../utils/version-info');
-const accountView = require('../../utils/account-view');
+const { nodePresentation } = require('./utils/node-presentation');
+const { connectionView } = require('../../utils/connection-status');
+const { normalizeHostInfo } = require('../../utils/host-info');
+const storageUsage = require('./utils/storage-usage');
+const { clientVersion, gatewayVersionInfo } = require('./utils/version-info');
+const accountView = require('./utils/account-view');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
-
-const CONNECTION_LABELS = {
-  disconnected: uiText('未连接'),
-  connecting: uiText('连接中'),
-  connected: uiText('已连接'),
-  failed: uiText('连接失败')
-};
 
 Page({
   manualShareMenu: true,
@@ -41,6 +38,11 @@ Page({
     referralEnabled: false, contentLoaded: false, contentError: '', shareSaving: false,
     accountDeviceId: '', accountIdHint: '', referralSheetOpen: false, referralBusy: false, referralError: '', referralToken: '', referralDays: 0, referralHint: '',
     adminAdvancedOpen: false,
+    adminSheet: false,
+    contextSheet: false,
+    fontSheet: false,
+    storageSheet: false, storageLoading: false, storageBusy: false,
+    storageUsage: null, storageDetailInfo: null,
     privacyOpen: false,
     buildLabel: '',
     appVersion: '',
@@ -97,8 +99,11 @@ Page({
     homeAnimationEnabled: true,
     showContextPanel: true,
     showFleetPanel: true,
-    showCostCard: false,
-    costCardReady: false,
+    contextTrendGroupBy: contextPreferences.read().trendGroupBy,
+    contextTrendDisplayMode: contextPreferences.read().trendDisplayMode,
+    contextTrendShowDuration: contextPreferences.read().trendShowDuration,
+    contextBrowserBase: contextPreferences.read().base,
+    contextFileSort: contextPreferences.read().fileSort,
     voiceEnabled: true,
     accountBusy: false,
     isWechatAdmin: false,
@@ -107,6 +112,8 @@ Page({
     dshAccount: accountView.normalize({}),
     dshAccountBusy: false,
     dshAccountVisible: false,
+    // 余额卡默认收起：点上面的身份卡才展开，且仅已登录时有效。
+    dshBalanceExpanded: false,
     publicAccessDialog: null,
     publicAccessDialogOpen: false,
     shareReason: '',
@@ -170,7 +177,9 @@ Page({
       homeAnimationEnabled: homeAnimationPreference.enabled(),
       showContextPanel: contextPanelPrefs.context,
       showFleetPanel: contextPanelPrefs.fleet,
-      ...clientVersion(wx)
+      ...this.contextPreferenceData(),
+      ...clientVersion(wx),
+      storageUsage: storageUsage.collect()
     });
     this.unsubscribe = store.subscribe((snapshot) => {
       if (this._settingsVisible === false) return;
@@ -251,8 +260,118 @@ Page({
       this.setData({ ...workSteps.view(value), workStepMenu: '' });
     } catch (_) { wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' }); }
   },
-  openStatusStyles() { this.setData({ statusStyleSheetOpen: true, 'sheetExpanded.statusStyle': false, ...statusAppearance.view(statusAppearance.read()) }); },
-  closeStatusStyles() { this.setData({ statusStyleSheetOpen: false }); },
+
+
+  // ---------- 对话状态条预览：六种主题各自用画布绘制同色鲸尾 ----------
+  startStatusPreviews() {
+    this.stopStatusPreviews();
+    if (!this.data.statusStyleSheetOpen) return;
+    const dark = this.data.theme === 'dark';
+    const byId = {};
+    statusAppearance.OPTIONS.forEach((option) => { byId[option.id] = option; });
+    const states = (this.data.statusStyleChoices || []).map((choice) => {
+      const option = byId[choice.id] || {};
+      return {
+        id: choice.id,
+        colors: (dark ? option.dark : option.light) || [],
+        speed: Math.max(0.8, Number(option.speed) || 4),
+        reverse: choice.id === 'terminal' || choice.id === 'glitch',
+        canvas: null, ctx: null, image: null, width: 0, height: 0, ready: false, querying: false
+      };
+    });
+    this._statusPreviews = states;
+    this._statusPreviewAnchor = Date.now();
+    this.queryStatusPreviews();
+    // 统一节拍：不依赖画布自带的 rAF（在滚动弹层里不可靠）
+    this._statusPreviewTimer = setInterval(() => {
+      if (!this._statusPreviews) return;
+      this._statusPreviewTick = (this._statusPreviewTick || 0) + 1;
+      // 每 ~10s 重新核对一次节点，滚动导致节点回收后能自动恢复
+      if (this._statusPreviewTick % 125 === 0) {
+        this._statusPreviews.forEach((state) => {
+          state.ready = false; state.querying = false; state.canvas = null; state.ctx = null; state.image = null;
+        });
+        this.queryStatusPreviews();
+      }
+      this._statusPreviews.forEach((state) => this.paintStatusPreview(state));
+    }, 80);
+  },
+
+  queryStatusPreviews() {
+    if (!this._statusPreviews || typeof wx.createSelectorQuery !== 'function') return;
+    this._statusPreviews.forEach((state) => {
+      if (state.ready || state.querying) return;
+      state.querying = true;
+      const query = wx.createSelectorQuery().in(this);
+      query.select('#statusPreviewCanvas-' + state.id).fields({ node: true, size: true }).exec((res) => {
+        state.querying = false;
+        if (!this._statusPreviews || this._statusPreviews.indexOf(state) < 0) return;
+        const item = res && res[0];
+        const width = (item && item.width) || 0;
+        const height = (item && item.height) || 0;
+        // 弹层是 setData 后立刻查询的，画布往往还没渲染出来（node 为空或尺寸为 0）。
+        // 必须短退避重试：否则要等 10s 后的重置拍才补上，鲸尾图标看着就是"不显示"。
+        if (!item || !item.node || !(width >= 4) || !(height >= 4)) {
+          this.scheduleStatusPreviewRetry();
+          return;
+        }
+        let pixelRatio = 2;
+        try {
+          const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+          pixelRatio = info.pixelRatio || 2;
+        } catch (e) { /* 默认 2 */ }
+        const canvas = item.node;
+        canvas.width = Math.round(width * pixelRatio);
+        canvas.height = Math.round(height * pixelRatio);
+        state.canvas = canvas;
+        state.ctx = canvas.getContext('2d');
+        state.ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        state.width = width;
+        state.height = height;
+        state.ready = true;
+        if (!state.image) {
+          const image = canvas.createImage();
+          image.onload = () => { state.image = image; };
+          image.src = '/assets/icons/dsh-running-whale.png';
+        }
+      });
+    });
+  },
+
+  paintStatusPreview(state) {
+    if (!state.ready || !state.image || !state.ctx) return;
+    const raw = ((Date.now() - this._statusPreviewAnchor) / 1000 / state.speed) % 1;
+    const phase = state.reverse ? 1 - raw : raw;
+    const ctx = state.ctx;
+    ctx.clearRect(0, 0, state.width, state.height);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(state.image, 0, 0, state.width, state.height);
+    ctx.globalCompositeOperation = 'source-in';
+    ctx.fillStyle = statusAppearance.sampleColor(state.colors, phase);
+    ctx.fillRect(0, 0, state.width, state.height);
+    ctx.globalCompositeOperation = 'source-over';
+  },
+
+  /** 画布尚未量到（弹层刚打开）：120ms 后补一次查询，直到全部就绪。 */
+  scheduleStatusPreviewRetry() {
+    if (this._statusPreviewRetry) return;
+    this._statusPreviewRetry = setTimeout(() => {
+      this._statusPreviewRetry = null;
+      if (this._statusPreviews) this.queryStatusPreviews();
+    }, 120);
+  },
+
+  stopStatusPreviews() {
+    if (this._statusPreviewTimer) { clearInterval(this._statusPreviewTimer); this._statusPreviewTimer = null; }
+    if (this._statusPreviewRetry) { clearTimeout(this._statusPreviewRetry); this._statusPreviewRetry = null; }
+    this._statusPreviews = null;
+  },
+
+  openStatusStyles() {
+    this.setData({ statusStyleSheetOpen: true, 'sheetExpanded.statusStyle': false, ...statusAppearance.view(statusAppearance.read()) });
+    this.startStatusPreviews();
+  },
+  closeStatusStyles() { this.stopStatusPreviews(); this.setData({ statusStyleSheetOpen: false }); },
   chooseStatusStyle(event) {
     try {
       const id = statusAppearance.save(event.currentTarget.dataset.id);
@@ -284,6 +403,73 @@ Page({
 
   closeHapticsSheet() {
     this.setData({ hapticsSheet: false });
+  },
+
+  openAdminSheet() {
+    this.setData({ adminSheet: true });
+  },
+
+  closeAdminSheet() {
+    this.setData({ adminSheet: false });
+  },
+
+  openContextSheet() {
+    this.setData({ contextSheet: true });
+  },
+
+  closeContextSheet() {
+    this.setData({ contextSheet: false });
+  },
+
+  openFontSheet() {
+    this.setData({ fontSheet: true, fontSettingsExpanded: true });
+  },
+
+  closeFontSheet() {
+    this.setData({ fontSheet: false });
+  },
+
+  openStorageSheet() {
+    this.setData({ storageSheet: true, storageDetailInfo: null });
+    this.refreshStorageUsage();
+  },
+
+  closeStorageSheet() {
+    if (!this.data.storageBusy) this.setData({ storageSheet: false, storageDetailInfo: null });
+  },
+
+  refreshStorageUsage() {
+    if (this.data.storageBusy) return;
+    this.setData({ storageUsage: storageUsage.collect(), storageLoading: false });
+  },
+
+  openStorageDetail(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.key : '';
+    const found = ((this.data.storageUsage || {}).categories || []).find((cat) => cat.key === key);
+    if (found) this.setData({ storageDetailInfo: found });
+  },
+
+  backToStorageList() {
+    this.setData({ storageDetailInfo: null });
+  },
+
+  clearStorageCategory() {
+    const info = this.data.storageDetailInfo;
+    if (!info || this.data.storageBusy) return;
+    wx.showModal({
+      title: uiText('清理本机缓存'),
+      content: uiText('删除后可重新加载。'),
+      success: (res) => { if (res.confirm) this.performStorageClear(info.key); }
+    });
+  },
+
+  performStorageClear(key) {
+    this.setData({ storageBusy: true });
+    const freed = storageUsage.clearCategory(key) || 0;
+    if (freed && store.refreshHosts) store.refreshHosts();
+    wx.showToast({ title: freed ? uiText('已清理 ') + storageUsage.formatBytes(freed) : uiText('没有可清理的缓存'), icon: 'none' });
+    const usage = storageUsage.collect();
+    this.setData({ storageBusy: false, storageUsage: usage, storageDetailInfo: usage.categories.find((cat) => cat.key === key) || null });
   },
 
   chooseHaptics(e) {
@@ -339,6 +525,7 @@ Page({
       homeAnimationEnabled: homeAnimationPreference.enabled(),
       showContextPanel: contextPanelPrefs.context,
       showFleetPanel: contextPanelPrefs.fleet,
+      ...this.contextPreferenceData(),
       ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       hapticsLevel: haptics.getLevel() });
@@ -380,6 +567,9 @@ Page({
   },
 
   onHide() {
+    this.stopStatusPreviews();
+    if (this._dshAccountHostWait) { clearTimeout(this._dshAccountHostWait); this._dshAccountHostWait = null; }
+    this._dshAccountHostTries = 0;
     this._settingsVisible = false;
     clearTimeout(this._syncThrottleTimer);
     this._syncThrottleTimer = null;
@@ -400,12 +590,14 @@ Page({
       ? { ...clawbotStatus, pairing: { ...clawbotStatus.pairing, qrDataUrl: '' } } : clawbotStatus;
     this.setData({ clawbotPanelOpen: false, clawbotSessionsOpen: false, clawbotQrPath: '', clawbotStatus: safeClawbotStatus });
     this._publicAccount = null;
-    this.setData({ accountBusy: false, redeemBusy: false, isWechatAdmin: false, adminAdvancedOpen: false, accountLabel: uiText('识别中…'), referralSheetOpen: false, referralBusy: false, accountDeviceId: '' });
+    this.setData({ accountBusy: false, redeemBusy: false, isWechatAdmin: false, adminAdvancedOpen: false, accountLabel: uiText('识别中…'), referralSheetOpen: false, referralBusy: false, accountDeviceId: '', adminSheet: false, contextSheet: false, fontSheet: false });
     this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1;
     this.setData({ dshAccountBusy: false });
   },
 
   onUnload() {
+    this.stopStatusPreviews();
+    if (this._dshAccountHostWait) { clearTimeout(this._dshAccountHostWait); this._dshAccountHostWait = null; }
     this._settingsVisible = false;
     this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1;
     clearTimeout(this._syncThrottleTimer);
@@ -423,9 +615,21 @@ Page({
 
   refreshDshAccount() {
     if (store.state.connection !== 'connected' || !store.client || typeof store.client.requestAccount !== 'function') return;
-    // The account API validates the DSH Host version, not the mini-program package version.
-    const version = store.state.host && store.state.host.version;
-    if (!version) return;
+    // 账号 API 校验 DSH 主机版本；host.version 可能是网关占位标记，取规范化后的真版本。
+    const version = normalizeHostInfo(store.state.host).version;
+    // host 帧在公网中继下可能明显变慢：先等它，不要 silently 放弃，
+    // 否则设置页顶部的账号与余额永远不出现。
+    if (!version) {
+      // 最多等 3 次：host 帧迟到时账号区仍会出现，但页面不会永远空转。
+      if (this._dshAccountHostWait || (this._dshAccountHostTries || 0) >= 3) return;
+      this._dshAccountHostTries = (this._dshAccountHostTries || 0) + 1;
+      this._dshAccountHostWait = setTimeout(() => {
+        this._dshAccountHostWait = null;
+        if (this._settingsVisible !== false) this.refreshDshAccount();
+      }, 1200);
+      return;
+    }
+    this._dshAccountHostTries = 0;
     const owner = store.state.activeID;
     if (this.data.dshAccountBusy && this._dshAccountRequestedVersion === version && this._dshAccountRequestOwner === owner) return;
     if (this.data.dshAccountBusy) this.setData({ dshAccountBusy: false });
@@ -445,13 +649,19 @@ Page({
       const unsupported = code === 'account-unavailable' || code === 'unknown-command'
         || /unknown message type/i.test(String((error && error.message) || ''));
       if (unsupported) {
-        this.setData({ dshAccountVisible: false, dshAccount: accountView.normalize({}) });
+        this.setData({ dshAccountVisible: false, dshAccount: accountView.normalize({}), dshBalanceExpanded: false });
         return;
       }
       this.setData({ dshAccount: accountView.normalize({ error: (error && error.message) || uiText('账号信息读取失败') }), dshAccountVisible: true });
     }).finally(() => {
       if (generation === this._dshAccountGeneration) this.setData({ dshAccountBusy: false });
     });
+  },
+
+  /** 展开/收起余额卡。未登录时点击不显示任何余额。 */
+  toggleDshBalance() {
+    if (!this.data.dshAccount || this.data.dshAccount.signedIn !== true) return;
+    this.setData({ dshBalanceExpanded: !this.data.dshBalanceExpanded });
   },
 
   /** 手机端无法完成 DeepSeek 授权回调，引导到电脑端登录后自动同步。 */
@@ -760,57 +970,59 @@ Page({
     }
   },
 
+  /** 上下文偏好面板的数据快照（趋势粒度/模式/耗时曲线、基线、文件排序）。 */
+  contextPreferenceData() {
+    const prefs = contextPreferences.read();
+    return {
+      contextTrendGroupBy: prefs.trendGroupBy,
+      contextTrendDisplayMode: prefs.trendDisplayMode,
+      contextTrendShowDuration: prefs.trendShowDuration,
+      contextBrowserBase: prefs.base,
+      contextFileSort: prefs.fileSort
+    };
+  },
+
+  saveContextPreference(patch) {
+    try {
+      contextPreferences.set(patch);
+      this.setData(this.contextPreferenceData());
+    } catch (_) {
+      this.setData(this.contextPreferenceData());
+      wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
+    }
+  },
+
+  setContextTrendGroup(e) {
+    const group = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.group : '';
+    if (['step', 'turn'].indexOf(group) < 0 || group === this.data.contextTrendGroupBy) return;
+    this.saveContextPreference({ trendGroupBy: group });
+  },
+
+  setContextTrendMode(e) {
+    const mode = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.mode : '';
+    if (['total', 'delta'].indexOf(mode) < 0 || mode === this.data.contextTrendDisplayMode) return;
+    this.saveContextPreference({ trendDisplayMode: mode });
+  },
+
+  toggleContextTrendDuration(e) {
+    this.saveContextPreference({ trendShowDuration: !!(e && e.detail && e.detail.value) });
+  },
+
+  setContextBrowserBase(e) {
+    const base = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.base : '';
+    if (['step', 'turn'].indexOf(base) < 0 || base === this.data.contextBrowserBase) return;
+    this.saveContextPreference({ base: base });
+  },
+
+  setContextFileSort(e) {
+    const sort = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sort : '';
+    if (['count', 'lines', 'latest', 'path', 'name'].indexOf(sort) < 0 || sort === this.data.contextFileSort) return;
+    this.saveContextPreference({ fileSort: sort });
+  },
+
   /** 侧栏额度卡片：入口搬到设置页，开关只控制左侧栏是否显示卡片。 */
   openCostMeter() {
     wx.navigateTo({ url: '/pages/cost-meter/cost-meter' });
-  },
-
-  /** 左侧栏额度卡片显示开关：保存到已连接电脑的网关设置。 */
-  async toggleCostCard(e) {
-    const enabled = !!(e && e.detail && e.detail.value);
-    if (!this.data.costCardReady && store.state.connection !== 'connected') {
-      this.setData({ showCostCard: !enabled });
-      wx.showToast({ title: uiText('请先连接电脑端网关'), icon: 'none' });
-      return;
-    }
-    if (store.state.connection !== 'connected') {
-      this.setData({ showCostCard: !enabled });
-      wx.showToast({ title: uiText('请先连接电脑端网关'), icon: 'none' });
-      return;
-    }
-    const capabilities = store.state.gatewayCapabilities || [];
-    if (!capabilities.includes('cost-meter-v1')) {
-      this.setData({ showCostCard: !enabled });
-      wx.showToast({ title: uiText('额度卡片需要重启或更新网关'), icon: 'none' });
-      return;
-    }
-    const previous = this.data.showCostCard;
-    this.setData({ showCostCard: enabled });
-    try {
-      const frame = await store.client.requestCostMeter('update', { patch: { display: { sidebarVisible: enabled } } });
-      if (frame && frame.kind === 'error') throw new Error(frame.message || uiText('保存失败，请重试'));
-      wx.showToast({ title: uiText('已保存'), icon: 'success' });
-    } catch (error) {
-      this.setData({ showCostCard: previous });
-      wx.showToast({ title: (error && error.message) || uiText('保存失败，请重试'), icon: 'none' });
-    }
-  },
-
-  /** 打开设置页时读取电脑端保存的侧栏显示状态。 */
-  async loadCostCardVisibility() {
-    if (this._costCardVisibleLoading || store.state.connection !== 'connected') return;
-    const capabilities = store.state.gatewayCapabilities || [];
-    if (!capabilities.includes('cost-meter-v1')) return;
-    if (this._costCardVisibilityAt && Date.now() - this._costCardVisibilityAt < 30000) return;
-    this._costCardVisibleLoading = true;
-    try {
-      const frame = await store.client.requestCostMeter('config');
-      const visible = !!(frame && frame.config && frame.config.display && frame.config.display.sidebarVisible === true);
-      this.setData({ showCostCard: visible, costCardReady: true });
-    } catch (_) {
-      this.setData({ costCardReady: false });
-    }
-    finally { this._costCardVisibleLoading = false; this._costCardVisibilityAt = Date.now(); }
   },
 
   openVoiceSettings() { wx.navigateTo({ url: voicePreference.SETTINGS_URL }); },
@@ -822,9 +1034,25 @@ Page({
     this.setData({ notifyEnabled: enabled });
   },
 
+  /** 仅在值真正变化时 setData：网关/账号状态每 100~200ms 推送一次，重复写入会让模块闪烁。 */
+  applySettingsPatch(patch) {
+    const last = this._appliedSettingsPatch || (this._appliedSettingsPatch = {});
+    const changed = {};
+    let count = 0;
+    Object.keys(patch).forEach((key) => {
+      let signature;
+      try { signature = JSON.stringify(patch[key]); } catch (e) { signature = String(patch[key]); }
+      if (last[key] !== signature) {
+        changed[key] = patch[key];
+        last[key] = signature;
+        count += 1;
+      }
+    });
+    if (count) this.setData(changed);
+  },
+
   syncFromStore(snapshot) {
     const app = snapshot.app;
-    this.loadCostCardVisibility();
     const onlineIDs = app.onlineIDs || [];
     const nodes = (app.profiles || []).map((profile) => {
       const online = onlineIDs.indexOf(profile.id) >= 0 ||
@@ -881,18 +1109,8 @@ Page({
       });
     }
 
-    this.setData({
-      endpoint: app.endpoint || '',
-      connectionLabel: CONNECTION_LABELS[app.connection] || app.connection,
-      connectionClass: app.connection,
-      port: app.port,
-      host: app.host || {},
-      nodes: nodes,
-      nodeCount: nodes.length,
-      activeNodeName: ((nodes.find((node) => node.active) || {}).name) ||
-        (app.connection === 'connected' && app.gatewayName ? app.gatewayName : ''),
-      onlineNodeCount: nodes.filter((node) => node.online).length,
-      ...gatewayVersionInfo(app),
+    // 公网状态只算一次再 setData：避免同一帧先写网关值、再写账号值造成模块闪烁。
+    const publicPatch = {
       shareEnabled: shareEnabled,
       shareReason: publicState.shareReason,
       redeemAvailable: accessApi.configured(),
@@ -904,10 +1122,37 @@ Page({
       publicTitle: publicTitle,
       publicSub: publicSub,
       publicHint: publicHint
+    };
+    if (accessApi.configured()) {
+      const account = this._publicAccount;
+      const expiry = Number(account && account.publicAccessExpiresAt) || 0;
+      const active = !!(account && account.publicAccess === true && (account.isAdmin === true || expiry > Date.now()));
+      publicPatch.publicOn = active;
+      publicPatch.publicStatusLabel = !account ? uiText('待验证') : active ? uiText('已开通') : expiry ? uiText('已到期') : uiText('未开通');
+      publicPatch.publicTitle = active ? uiText('公网服务可用') : expiry ? uiText('公网服务已到期') : uiText('兑换开通公网服务');
+      publicPatch.publicExpiryLabel = account && account.isAdmin && active ? uiText('管理员权限') : expiry ? formatExpiry(expiry) : '';
+      publicPatch.publicSub = uiText('仅控制鲸尾公网中继，局域网直连不受影响');
+      publicPatch.publicHint = uiText('兑换码开通当前微信账号的公网有效期；设备仍需扫描自己 DSH 插件的二维码配对。无需把电脑添加到后台或填写连接器 JSON。');
+      publicPatch.shareEnabled = active && shareEnabled;
+      publicPatch.shareReason = active ? publicState.shareReason : uiText('请先兑换开通公网服务。分享设备邀请不会赠送公网有效期。');
+    }
+    this.applySettingsPatch({
+      endpoint: app.endpoint || '',
+      connectionLabel: connectionView(app).label,
+      connectionClass: connectionView(app).key,
+      port: app.port,
+      host: app.host || {},
+      nodes: nodes,
+      nodeCount: nodes.length,
+      activeNodeName: ((nodes.find((node) => node.active) || {}).name) ||
+        (app.connection === 'connected' && app.gatewayName ? app.gatewayName : ''),
+      onlineNodeCount: nodes.filter((node) => node.online).length,
+      ...gatewayVersionInfo(app),
+      ...publicPatch
     });
     // 账号区只在已连接网关时显示；断开后立即隐藏并清掉上次快照。
     const accountConnected = app.connection === 'connected';
-    const accountHostVersion = app.host && app.host.version;
+    const accountHostVersion = normalizeHostInfo(app.host).version;
     if (accountConnected && accountHostVersion && accountHostVersion !== this._dshAccountHostVersion) {
       this._dshAccountHostVersion = accountHostVersion;
       this.refreshDshAccount();
@@ -922,23 +1167,7 @@ Page({
         this.refreshDshAccount();
       }
     }
-    // Subscription belongs to WeChat, never to the selected LAN/DSH device.
-    if (accessApi.configured()) {
-      const account = this._publicAccount;
-      const expiry = Number(account && account.publicAccessExpiresAt) || 0;
-      const active = !!(account && account.publicAccess === true && (account.isAdmin === true || expiry > Date.now()));
-      this.setData({
-        publicOn: active,
-        publicStatusLabel: !account ? uiText('待验证') : active ? uiText('已开通') : expiry ? uiText('已到期') : uiText('未开通'),
-        publicTitle: active ? uiText('公网服务可用') : expiry ? uiText('公网服务已到期') : uiText('兑换开通公网服务'),
-        publicExpiryLabel: account && account.isAdmin && active ? uiText('管理员权限') : expiry ? formatExpiry(expiry) : '',
-        publicSub: uiText('仅控制鲸尾公网中继，局域网直连不受影响'),
-        publicHint: uiText('兑换码开通当前微信账号的公网有效期；设备仍需扫描自己 DSH 插件的二维码配对。无需把电脑添加到后台或填写连接器 JSON。'),
-        shareEnabled: active && shareEnabled,
-        shareReason: active ? publicState.shareReason : uiText('请先兑换开通公网服务。分享设备邀请不会赠送公网有效期。')
-      });
-    }
-    const hostVersion = app.host && app.host.version;
+    const hostVersion = normalizeHostInfo(app.host).version;
     if (hostVersion && hostVersion !== this._dshAccountHostVersion) {
       this._dshAccountHostVersion = hostVersion;
       this.refreshDshAccount();
@@ -1679,7 +1908,7 @@ Page({
     // 右上角菜单转发（无 event/target）与活动里的「好友或群聊」按钮都分享邀请页；
     // 公网节点的「转发」按钮（无 data-referral）继续分享配对信息。
     if (this.data.referralEnabled && this.data.referralToken && (!dataset || dataset.referral === true)) {
-      return { title: uiText('鲸尾 · 随时连接自己的 DSH'), path: '/pages/share-activity/share-activity?ref=' + this.data.referralToken, imageUrl: '/assets/brand/app-icon-share-500x400.png' };
+      return { title: uiText('鲸尾 · 随时连接自己的 DSH'), path: '/pages/share-activity/share-activity?ref=' + this.data.referralToken, imageUrl: '/assets/brand/app-icon-share-500x400.jpg' };
     }
     if (this.data.sharePayload) {
       return {

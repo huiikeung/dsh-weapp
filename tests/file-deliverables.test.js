@@ -78,7 +78,7 @@ test('chunk download writes incrementally, verifies digest then atomically renam
   for(const bytes of [Buffer.from('hello 文件'),Buffer.alloc(0)]) {
     const f=transferFixture(bytes),result=await downloadFile(f.client,file,f.options);
     assert.deepEqual(f.disk.get(result.localPath),bytes);assert.equal(f.disk.size,1);
-    assert.equal(f.operations.at(-1),'rename');assert.equal(f.progress.at(-1),100);assert.equal(f.client._activeFileDownload,null);
+    assert.equal(f.operations.at(-1),'rename');assert.equal(f.progress.at(-1),100);assert.equal(f.client._activeFileDownloads.size,0);
   }
 });
 
@@ -110,12 +110,25 @@ test('cancel, session switch and reconnect cannot finish or open a stale downloa
   }
 });
 
-test('single file transfer ownership prevents overlapping download races',async()=>{
-  const f=transferFixture();let release;const open=f.client.openFileDownload;
-  f.client.openFileDownload=(...args)=>new Promise(resolve=>{release=()=>resolve(open(...args));});
-  const first=downloadFile(f.client,file,f.options);
-  await assert.rejects(downloadFile(f.client,file,{api:f.api}),/正在下载/);
-  release();await first;assert.equal(f.disk.size,1);
+test('bounded transfer pool allows the gateway concurrency and rejects beyond it',async()=>{
+  const f=transferFixture();const {MAX_CONCURRENT_DOWNLOADS}=require('../miniprogram/utils/file-download');
+  const pending=[];const open=f.client.openFileDownload;
+  f.client.openFileDownload=(...args)=>new Promise(resolve=>{pending.push(()=>resolve(open(...args)));});
+  const perJob=()=>Object.assign({},f.options,{job:{}});
+  const flights=[];const rejected=[];
+  for(let i=0;i<MAX_CONCURRENT_DOWNLOADS+1;i++) {
+    flights.push(downloadFile(f.client,file,perJob()).catch(error=>{rejected.push(error);}));
+  }
+  // 第 N+1 个必须在开门前就被拒，不能插进传输队列抢通道
+  await new Promise(resolve=>setTimeout(resolve,0));
+  assert.equal(rejected.length,1,'one over-limit download is rejected');
+  assert.match(rejected[0].message,/正在下载/);
+  assert.equal(f.client._activeFileDownloads.size,MAX_CONCURRENT_DOWNLOADS);
+  assert.equal(pending.length,MAX_CONCURRENT_DOWNLOADS,'only the allowed transfers reached the gateway');
+  pending.splice(0).forEach(release=>release());
+  await Promise.all(flights);
+  assert.equal(f.disk.size,MAX_CONCURRENT_DOWNLOADS);
+  assert.equal(f.client._activeFileDownloads.size,0,'pool drains after completion');
 });
 
 test('gateway correlates open, chunks and errors without confusing stale transfers',async()=>{

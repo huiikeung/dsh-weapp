@@ -46,9 +46,39 @@ function tailFilter(color) {
 function tailAnimationStyle(item) {
   return 'animation-duration:' + item.speed + 's;animation-direction:' + (['terminal','glitch'].includes(item.id) ? 'reverse' : 'normal') + ';';
 }
+function rgbOf(value) {
+  const text = String(value || '').trim();
+  if (/^#[0-9a-f]{3}$/i.test(text)) return text.slice(1).split('').map(c => parseInt(c + c, 16));
+  if (/^#[0-9a-f]{6}$/i.test(text)) return [1, 3, 5].map(i => parseInt(text.slice(i, i + 2), 16));
+  const rgb = text.match(/[\d.]+/g);
+  if (rgb && rgb.length >= 3) return [Number(rgb[0]), Number(rgb[1]), Number(rgb[2])];
+  return null;
+}
+
+/** 文字渐变当前相位最左侧的颜色（图标与文字同色）。 */
+function sampleColor(colors, phase) {
+  const list = Array.isArray(colors) ? colors.filter(Boolean) : [];
+  if (!list.length) return '#888888';
+  const count = list.length;
+  const position = (((phase % 1) + 1) % 1) * count;
+  const index = Math.floor(position) % count;
+  const mix = position - Math.floor(position);
+  const from = rgbOf(list[index]);
+  const to = rgbOf(list[(index + 1) % count]);
+  if (!from || !to) return list[index];
+  const blend = (a, b) => Math.round(a + (b - a) * mix);
+  return 'rgb(' + blend(from[0], to[0]) + ',' + blend(from[1], to[1]) + ',' + blend(from[2], to[2]) + ')';
+}
+
+function palette(id, mode) {
+  const item = selected(id);
+  const colors = (mode === 'dark' ? item.dark : item.light).slice();
+  return { colors: colors, speed: item.speed };
+}
+
 function view(id) {
   const item = selected(id);
-  return { statusAppearance: item.id, statusAppearanceLabel: uiText(item.label), statusLightStyle: style(item, 'light'), statusDarkStyle: style(item, 'dark'), statusLightTailFilter: tailFilter(item.light[0]), statusDarkTailFilter: tailFilter(item.dark[0]), statusLightTailAnimationStyle: tailAnimationStyle(item), statusDarkTailAnimationStyle: tailAnimationStyle(item) };
+  return { statusReverse: ['terminal','glitch'].includes(item.id), statusColors: palette(item.id, 'light').colors, statusColorsDark: palette(item.id, 'dark').colors, statusSpeed: item.speed, statusAppearance: item.id, statusAppearanceLabel: uiText(item.label), statusLightStyle: style(item, 'light'), statusDarkStyle: style(item, 'dark'), statusLightTailFilter: tailFilter(item.light[0]), statusDarkTailFilter: tailFilter(item.dark[0]), statusLightTailAnimationStyle: tailAnimationStyle(item), statusDarkTailAnimationStyle: tailAnimationStyle(item) };
 }
 function choices() { return OPTIONS.map(item => ({ ...item, label: uiText(item.label), detail: uiText(item.detail), lightStyle: style(item, 'light'), darkStyle: style(item, 'dark'), lightTailFilter: tailFilter(item.light[0]), darkTailFilter: tailFilter(item.dark[0]), lightTailAnimationStyle: tailAnimationStyle(item), darkTailAnimationStyle: tailAnimationStyle(item) })); }
-module.exports = { KEY, OPTIONS, normalize, read, save, selected, view, choices };
+module.exports = { KEY, OPTIONS, normalize, read, save, selected, view, choices, palette, sampleColor, rgbOf };

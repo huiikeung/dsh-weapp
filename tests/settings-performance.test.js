@@ -5,11 +5,15 @@ const path = require('node:path');
 const vm = require('node:vm');
 function homeFixture() {
   const file = path.resolve(__dirname, '../miniprogram/pages/home/home.js');
-  let definition, subscriber, navigation; const calls = [];
-  const store = { state: { profiles: [], sessions: [], workspaces: [], connection: 'disconnected' }, sessionState: {}, stopHostProbes() { calls.push('stopProbes'); }, subscribe(fn) { subscriber = fn; return () => {}; } };
+  let definition, subscriber, navigation, timerId = 0; const calls = [];
+  const store = { state: { profiles: [], sessions: [], workspaces: [], connection: 'connected', everConnected: true, gatewayCapabilities: ['cost-meter-v1'] }, sessionState: {},
+    client: { requestWorkspaces() {}, requestSessions() {}, requestCostMeter() { return new Promise(() => {}); } },
+    stopHostProbes() { calls.push('stopProbes'); }, subscribe(fn) { subscriber = fn; return () => {}; } };
   const wx = { getWindowInfo: () => ({ windowWidth: 375, statusBarHeight: 44 }), getAppBaseInfo: () => ({ theme: 'light' }),
     navigateTo(options) { calls.push('navigate'); navigation = options; } };
-  vm.runInNewContext(fs.readFileSync(file, 'utf8'), { Page: value => { definition = value; }, wx, clearInterval: id => calls.push(['clearInterval', id]),
+  vm.runInNewContext(fs.readFileSync(file, 'utf8'), { Page: value => { definition = value; }, wx,
+    setTimeout: () => ++timerId, clearTimeout: id => calls.push(['clearTimeout', id]),
+    clearInterval: id => calls.push(['clearInterval', id]),
     require: name => name.endsWith('/store') ? store : name.endsWith('/theme') ? { resolveTheme: () => 'light' } : require(path.resolve(path.dirname(file), name)) });
   const page = { ...definition, data: { ...definition.data }, setData(patch) { Object.assign(this.data, patch); },
     selectComponent() { return { pause() { calls.push('pause'); } }; } };

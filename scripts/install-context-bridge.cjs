@@ -25,7 +25,7 @@ function transform(source) {
   //    gateway packages ship it; the weapp fork also has workspace changes).
   const oldImport = "import { handleContextQuery, registerContextProjection, CONTEXT_REQUEST_TYPES } from './context-bridge.mjs'";
   const fleetImport = "import { handleContextQuery, handleContextFleet, registerContextProjection, registerContextServices, CONTEXT_REQUEST_TYPES } from './context-bridge.mjs'";
-  const newImport = "import { handleContextQuery, handleContextFleet, handleContextContent, registerContextProjection, registerContextServices, CONTEXT_REQUEST_TYPES } from './context-bridge.mjs'";
+  const newImport = "import { handleContextQuery, handleContextFleet, handleContextContent, handleContextInsights, handleContextComms, registerContextProjection, registerContextServices, CONTEXT_REQUEST_TYPES } from './context-bridge.mjs'";
   if (source.includes(oldImport)) {
     source = source.replace(oldImport, newImport);
   } else if (source.includes(fleetImport)) {
@@ -35,6 +35,27 @@ function transform(source) {
       ? "import { handleWorkspaceChanges, WORKSPACE_CHANGES_TYPES } from './workspace-changes-bridge.mjs'"
       : "import { handlePluginQuery, PLUGIN_REQUEST_TYPES } from './plugin-management.mjs'";
     source = once(source, importAfter, importAfter + "\n" + newImport);
+  }
+
+  // 1b. Older installs already imported the bridge without the newest handlers:
+  //     rewrite that import so the dispatch lines below resolve.
+  if (!source.includes('handleContextInsights') || !source.includes('handleContextComms')) {
+    source = source.replace(/import \{ handleContextQuery[^}]*\} from '\.\/context-bridge\.mjs'/, newImport);
+  }
+
+  // 1c. A partial earlier install can leave TWO bridge imports behind; ES
+  //     modules reject duplicate bindings, so the plugin would fail to boot.
+  //     Collapse them into one canonical import at the first position.
+  const bridgeImportRe = /^import \{[^}]*\} from '\.\/context-bridge\.mjs'\r?$/gm;
+  const bridgeImports = source.match(bridgeImportRe);
+  if (bridgeImports && bridgeImports.length > 1) {
+    let kept = false;
+    source = source.replace(bridgeImportRe, () => {
+      if (kept) return '';
+      kept = true;
+      return newImport;
+    });
+    source = source.replace(/\n{3,}/g, '\n\n');
   }
 
   // 2. Dispatch the new request type from handleQuery.
@@ -56,6 +77,18 @@ function transform(source) {
     const fleetDispatch = "  if (msg.type === 'context-fleet') return handleContextFleet(msg)";
     source = once(source, fleetDispatch,
       fleetDispatch + "\n  if (msg.type === 'context-content') return handleContextContent(api, msg)");
+  }
+  if (!source.includes("msg.type === 'context-insights'")) {
+    const contentDispatch = "  if (msg.type === 'context-content') return handleContextContent(api, msg)";
+    source = once(source, contentDispatch,
+      contentDispatch + "\n  if (msg.type === 'context-insights') return handleContextInsights(msg)");
+  }
+  if (!source.includes("msg.type === 'context-comms'")) {
+    const insightsDispatch = "  if (msg.type === 'context-insights') return handleContextInsights(msg)";
+    const contentDispatch = "  if (msg.type === 'context-content') return handleContextContent(api, msg)";
+    const fleetDispatch = "  if (msg.type === 'context-fleet') return handleContextFleet(msg)";
+    const anchor = source.includes(insightsDispatch) ? insightsDispatch : (source.includes(contentDispatch) ? contentDispatch : fleetDispatch);
+    source = once(source, anchor, anchor + "\n  if (msg.type === 'context-comms') return handleContextComms(api, msg)");
   }
 
   // 3. Register the projection once the plugin context (and its optional
@@ -142,6 +175,15 @@ function transform(source) {
   if (!source.includes("'context-content-v1'")) {
     source = once(source, "              'context-fleet-v1',",
       "              'context-fleet-v1',\n              'context-content-v1',");
+  }
+  // 洞察页/通讯面板也要能发现能力，否则客户端会一直显示「需升级网关」。
+  if (!source.includes("'context-insights-v1'")) {
+    source = once(source, "              'context-content-v1',",
+      "              'context-content-v1',\n              'context-insights-v1',");
+  }
+  if (!source.includes("'context-comms-v1'")) {
+    source = once(source, "              'context-insights-v1',",
+      "              'context-insights-v1',\n              'context-comms-v1',");
   }
 
   return source;

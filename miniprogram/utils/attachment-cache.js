@@ -5,7 +5,7 @@ const { t } = require('./ui-preferences');
 
 const DIR_NAME = 'dsh-attachment-cache';
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
-const MAX_CACHED_FILES = 120;
+const MAX_CACHED_FILES = 200;
 const PRUNE_INTERVAL = 5 * 60 * 1000;
 const EXTENSIONS = ['jpg', 'png', 'gif', 'webp', 'heic', 'bmp'];
 const MEDIA_EXT = {
@@ -16,8 +16,26 @@ const MEDIA_EXT = {
 const memory = new Map();     // attachmentId -> 本地文件路径
 const absent = new Set();     // 已确认本地不存在的 id，避免每帧同步 stat
 const inflight = new Map();   // attachmentId -> 进行中的 Promise
-let chain = Promise.resolve(); // 网关同类型请求只能有一个在途，串行排队
+const MAX_CONCURRENT = 3;     // 协议允许 2–4 个附件请求并发
+let activeRequests = 0;
+const waiters = [];
 let lastPruneAt = 0;
+
+/** 限流并发，避免一次性几十张图同时打网关。 */
+function withSlot(task) {
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      activeRequests += 1;
+      Promise.resolve().then(task).then(resolve, reject).finally(() => {
+        activeRequests -= 1;
+        const next = waiters.shift();
+        if (next) next();
+      });
+    };
+    if (activeRequests < MAX_CONCURRENT) run();
+    else waiters.push(run);
+  });
+}
 
 function defaultApi(options) {
   const given = options && options.api;
@@ -115,7 +133,7 @@ function prune(api) {
 
 /**
  * 拉取一张图片并写入本地缓存。同 id 并发调用复用同一个 Promise；
- * 不同类型请求在网关侧只能串行，这里按调用顺序排队。
+ * 不同图片最多 3 个并发（协议建议 2–4），明显加快多图会话的首屏。
  */
 function fetchImage(client, sessionId, ref, options) {
   const api = defaultApi(options);
@@ -127,7 +145,7 @@ function fetchImage(client, sessionId, ref, options) {
   const cached = localPath(ref, { api: api });
   if (cached) return Promise.resolve(cached);
   if (inflight.has(id)) return inflight.get(id);
-  const run = chain.then(() => client.requestAttachment(sessionId, id)).then((frame) => {
+  const run = withSlot(() => client.requestAttachment(sessionId, id)).then((frame) => {
     if (!frame || typeof frame.data !== 'string' || !frame.data) throw new Error(t('附件数据为空'));
     const attachment = frame.attachment || {};
     const bytes = Number(attachment.bytes);
@@ -148,7 +166,6 @@ function fetchImage(client, sessionId, ref, options) {
   });
   const tracked = run.finally(() => { inflight.delete(id); });
   inflight.set(id, tracked);
-  chain = tracked.then(() => undefined, () => undefined);
   return tracked;
 }
 
@@ -162,7 +179,7 @@ function adoptFromFile(ref, tempPath, options) {
   if (inflight.has(id)) return inflight.get(id);
   ensureDir(api);
   const path = targetPath(api, ref);
-  const run = chain.then(() => fsCall(api.getFileSystemManager(), 'copyFile', {
+  const run = withSlot(() => fsCall(api.getFileSystemManager(), 'copyFile', {
     srcPath: tempPath, destPath: path
   })).then(() => {
     remember(ref, path);
@@ -171,7 +188,6 @@ function adoptFromFile(ref, tempPath, options) {
   });
   const tracked = run.finally(() => { inflight.delete(id); });
   inflight.set(id, tracked);
-  chain = tracked.then(() => undefined, () => undefined);
   return tracked;
 }
 
@@ -179,7 +195,8 @@ function reset() {
   memory.clear();
   absent.clear();
   inflight.clear();
-  chain = Promise.resolve();
+  activeRequests = 0;
+  waiters.length = 0;
   lastPruneAt = 0;
 }
 

@@ -9,8 +9,12 @@
 .dsh-account-section { display: flex; flex-direction: column; gap: 32rpx; padding: 16rpx 0 0; color: var(--text); font-size: 26rpx; line-height: 44rpx; }
 .dsh-account-card,
 .dsh-balance-card { box-sizing: border-box; border: 1rpx solid var(--border); border-radius: 20rpx; background: var(--surface); padding: 24rpx 32rpx; }
-.dsh-account-card { display: flex; align-items: center; justify-content: space-between; gap: 32rpx; }
-.dsh-account-identity { display: flex; align-items: center; gap: 20rpx; min-width: 0; min-height: 88rpx; }
+/* 箭头用绝对定位贴右缘：微信里 <image> 是原生组件，flex 布局不可靠。 */
+.dsh-account-card { position: relative; display: flex; align-items: center; gap: 32rpx; }
+.dsh-account-card.has-chevron { padding-right: 76rpx; }
+.dsh-account-chevron { position: absolute; right: 32rpx; top: 50%; width: 32rpx; height: 32rpx; transform: translateY(-50%); transition: transform 0.16s ease; }
+.dsh-account-chevron.open { transform: translateY(-50%) rotate(90deg); }
+.dsh-account-identity { display: flex; flex: 1; align-items: center; gap: 20rpx; min-width: 0; min-height: 88rpx; }
 .dsh-account-avatar { width: 64rpx; height: 64rpx; flex: none; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; color: var(--text-3); background: var(--fill); font-size: 21rpx; font-weight: 600; }
 .dsh-account-avatar-image { width: 100%; height: 100%; }
 .dsh-account-avatar-user { width: 32rpx; height: 32rpx; display: block; }
@@ -1656,3 +1660,47 @@
   text-align: center;
   overflow-wrap: anywhere;
 }
+/* 上下文偏好：分段按钮（dsh-context settings.css 的 pill 组） */
+.card-row.card-row-stack { display: flex; flex-direction: column; align-items: stretch; gap: 14rpx; }
+.card-row.card-row-stack .exp-copy { width: 100%; margin-right: 0; }
+.ctx-seg{display:flex;flex-wrap:wrap;gap:6rpx;padding:4rpx;border-radius:14rpx;background:var(--fill);}
+.ctx-seg-btn{min-height:48rpx;padding:0 16rpx;display:flex;align-items:center;border-radius:10rpx;font-size:21rpx;color:var(--text-2);}
+.ctx-seg-btn.on{background:var(--surface);color:var(--text);box-shadow:0 1rpx 4rpx rgba(0,0,0,.08);}
+.ctx-seg-pressed{opacity:.7;}
+.ctx-seg-scroll{max-width:100%;}
+.ctx-seg-wide{width:100%;flex-wrap:nowrap;box-sizing:border-box;}
+.ctx-seg-wide .ctx-seg-btn{flex:1;min-width:0;justify-content:center;padding:0 8rpx;white-space:nowrap;}
+
+/* 存储空间弹窗（dsh-mobile StorageSpaceView） */
+.storage-head-row { display:flex; align-items:center; gap:16rpx; min-width:0; }
+.storage-back { font-size:26rpx; color:var(--text-2); flex-shrink:0; }
+.storage-donut { position:relative; width:320rpx; height:320rpx; margin:6rpx auto 26rpx; border-radius:50%; background:var(--fill-2); box-shadow:0 14rpx 34rpx rgba(0,0,0,.10); }
+.storage-donut-hole { position:absolute; left:50%; top:50%; width:226rpx; height:226rpx; margin:-113rpx 0 0 -113rpx; border-radius:50%; background:var(--surface); display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6rpx; }
+.storage-donut-total { font-size:40rpx; font-weight:650; color:var(--text); font-variant-numeric:tabular-nums; }
+.storage-donut-label { font-size:22rpx; letter-spacing:2rpx; color:var(--text-3); }
+.storage-hero { padding:30rpx 28rpx 0; margin-bottom:24rpx; background:radial-gradient(120% 74% at 50% 0%, var(--fill) 0%, var(--surface) 64%); }
+.storage-list { margin-bottom:18rpx; }
+.storage-quota { display:flex; align-items:center; justify-content:space-between; margin-top:6rpx; padding:22rpx 4rpx 26rpx; border-top:1rpx solid var(--divider); font-size:23rpx; color:var(--text-3); }
+.storage-quota-copy { display:flex; flex-direction:column; gap:4rpx; }
+.storage-quota-hint { font-size:20rpx; color:var(--text-4); }
+.storage-quota-value { font-size:24rpx; color:var(--text-2); font-variant-numeric:tabular-nums; }
+.storage-row { display:flex; align-items:center; gap:24rpx; padding:26rpx 28rpx; }
+.storage-row + .storage-row { border-top:1rpx solid var(--divider); }
+.storage-row-right { display:flex; flex-direction:column; align-items:flex-end; gap:4rpx; flex-shrink:0; }
+.storage-row-pct { font-size:21rpx; color:var(--text-4); font-variant-numeric:tabular-nums; }
+/* 内衬留白：图形永不贴到色块边框（对齐 iOS icon.padding） */
+.storage-icon { width:76rpx; height:76rpx; padding:18rpx; box-sizing:border-box; border-radius:19rpx; flex-shrink:0; box-shadow:inset 0 -6rpx 14rpx rgba(0,0,0,.14), inset 0 1rpx 0 rgba(255,255,255,.20); }
+.storage-icon-img { width:100%; height:100%; filter:brightness(0) invert(1); opacity:.95; }
+.storage-row-copy { flex:1; min-width:0; display:flex; flex-direction:column; gap:6rpx; }
+.storage-row-title { font-size:28rpx; color:var(--text); }
+.storage-row-detail { font-size:22rpx; color:var(--text-3); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.storage-row-size { font-size:26rpx; color:var(--text-2); font-variant-numeric:tabular-nums; flex-shrink:0; }
+.storage-state { padding:90rpx 0; text-align:center; color:var(--text-3); font-size:26rpx; }
+.storage-detail-card { padding:26rpx 28rpx; }
+.storage-detail-head { display:flex; align-items:center; gap:26rpx; }
+.storage-detail-size { margin-left:auto; font-size:30rpx; font-weight:650; color:var(--text); font-variant-numeric:tabular-nums; }
+.storage-icon-lg { width:112rpx; height:112rpx; padding:26rpx; border-radius:28rpx; }
+.storage-detail-title { font-size:32rpx; font-weight:650; color:var(--text); }
+.storage-clear-text { flex:1; text-align:center; color:#FA5150; font-size:29rpx; padding:22rpx 0; }
+.storage-clear.is-disabled { opacity:.5; }
+.storage-row-chevron { flex-shrink:0; }

@@ -28,12 +28,12 @@ function model() {
 test('sidebar sections follow sidebarOrder and append the rest in default order', () => {
   const sections = costView.quotaSidebarSections(model(), ['peak', 'plan:kimi', 'balance']);
   const keys = sections.map(s => s.key);
-  assert.deepEqual(keys, ['peak', 'plan:kimi', 'balance', 'budget', 'plan:siliconflow', 'gateway:gw-1', 'custom:0']);
+  assert.deepEqual(keys, ['peak', 'plan:kimi', 'balance', 'plan:siliconflow', 'budget', 'gateway:gw-1', 'custom:0']);
 });
 
 test('empty or invalid order falls back to the default section order', () => {
   const fallback = costView.quotaSidebarSections(model(), []).map(s => s.key);
-  assert.deepEqual(fallback, ['balance', 'budget', 'plan:siliconflow', 'plan:kimi', 'gateway:gw-1', 'custom:0', 'peak']);
+  assert.deepEqual(fallback, ['balance', 'peak', 'plan:siliconflow', 'plan:kimi', 'budget', 'gateway:gw-1', 'custom:0']);
   const bogus = costView.quotaSidebarSections(model(), ['nope', 42, null, 'plan:missing']).map(s => s.key);
   assert.deepEqual(bogus, fallback, '非法/不存在键必须被忽略而不是打乱顺序');
   assert.deepEqual(costView.quotaSidebarSections(null, ['balance']), []);
@@ -41,7 +41,7 @@ test('empty or invalid order falls back to the default section order', () => {
 
 test('duplicate order keys are de-duplicated', () => {
   const keys = costView.quotaSidebarSections(model(), ['balance', 'balance', 'budget', 'budget']).map(s => s.key);
-  assert.deepEqual(keys, ['balance', 'budget', 'plan:siliconflow', 'plan:kimi', 'gateway:gw-1', 'custom:0', 'peak']);
+  assert.deepEqual(keys, ['balance', 'budget', 'peak', 'plan:siliconflow', 'plan:kimi', 'gateway:gw-1', 'custom:0']);
 });
 
 test('quota page sidebar order moves a card and commits the new key list', async () => {

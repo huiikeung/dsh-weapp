@@ -261,8 +261,15 @@ function normalizeRawEvent(raw, sessionId) {
     case 'turn/end':
     case 'step/start':
     case 'step/end': {
-      const reason = typeof data.reason === 'string' ? data.reason : (data.reason && data.reason.kind);
-      event = { type: type, turn: turn, step: step, reason: reason };
+      // 兼容两种形状：旧网关只给 reason.kind，新网关给完整 {kind,error:{...}}。
+      const r = data.reason;
+      const obj = r && typeof r === 'object' ? r : null;
+      event = { type: type, turn: turn, step: step, reason: typeof r === 'string' ? r : (obj && obj.kind) };
+      const f = obj && obj.kind === 'error' && obj.error && typeof obj.error === 'object' ? obj.error : null;
+      if (f) {
+        event.failureMessage = typeof f.message === 'string' ? f.message : '';
+        event.failureCode = typeof f.code === 'string' ? f.code : '';
+      }
       break;
     }
     case 'session/title': {
@@ -666,6 +673,13 @@ function applyEvent(agg, normalized) {
     case 'turn/end': {
       const turn = event.turn !== undefined ? event.turn : agg.lastTurn;
       const start = agg.turnStarts && agg.turnStarts[turn];
+      // DSH 失败原因原样带到行上，由视图层按桌面端口径渲染。
+      const failure = event.reason === 'error' ? {
+        message: event.failureMessage || '',
+        code: event.failureCode || '',
+        status: event.failureStatus,
+        requestId: event.failureRequestId || ''
+      } : null;
       let changed = false;
       for (let i = agg.rows.length - 1; i >= 0; i -= 1) {
         const row = agg.rows[i];
@@ -673,6 +687,7 @@ function applyEvent(agg, normalized) {
         if (row.turn !== undefined && row.turn !== turn) continue;
         row.turnClosed = true;
         row.turnEndReason = event.reason || 'completed';
+        row.turnFailure = failure;
         row.finishedAtMs = normalized.dateMs || 0;
         row.durationMs = start && normalized.dateMs ? Math.max(0, normalized.dateMs - start) : 0;
         row.streaming = false;

@@ -220,7 +220,8 @@ page {
 .status-dot.connected { background: var(--success); }
 .status-dot.connecting { background: var(--amber); }
 .status-dot.disconnected { background: var(--gray); }
-.status-dot.failed { background: #E5484D; }
+.status-dot.failed { background: var(--orange); }
+.status-dot.dropped { background: #E5484D; }
 
 /* ---------- 按钮 ---------- */
 

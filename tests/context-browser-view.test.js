@@ -76,6 +76,7 @@ function pageFixture() {
   const file = path.resolve(__dirname, '../miniprogram/pages/session/session.js');
   let definition;
   const calls = [];
+  const setDataPatches = [];
   const panelPrefs = { value: { context: true, fleet: true }, read() { return { ...this.value }; } };
   const wx = { hideKeyboard() {}, nextTick: fn => fn() };
   const store = {
@@ -106,7 +107,8 @@ function pageFixture() {
   const page = {
     ...definition,
     data: JSON.parse(JSON.stringify(definition.data)),
-    setData(patch) {
+    setData(patch, callback) {
+      setDataPatches.push(patch);
       for (const [key, value] of Object.entries(patch)) {
         const parts = key.replace(/\[(\d+)\]/g, '.$1').split('.');
         let target = this.data;
@@ -116,11 +118,46 @@ function pageFixture() {
         });
         target[parts.at(-1)] = value;
       }
+      if (typeof callback === 'function') callback();
     },
     startScrollPolling() {}, stopScrollPolling() {}, refreshBottomAnchor() {}
   };
-  return { page, calls, store, panelPrefs, wx };
+  return { page, calls, setDataPatches, store, panelPrefs, wx };
 }
+
+test('long context histories auto-open overview once at the upstream 200-request threshold', () => {
+  const { page, store } = pageFixture();
+  const requests = Array.from({ length: 199 }, (_, index) => ({
+    seq: index + 1, time: 1791807408490 + index * 1000, turn: Math.floor(index / 12) + 1,
+    step: index % 12 + 1, system: 100, tools: 200, total: 300
+  }));
+  store.sessionState.contextDashboard.value.requests = requests;
+  assert.equal(page.contextTrendAutoOverviewPatch(store.sessionState), null);
+
+  requests.push({ seq: 200, time: 1791807608490, turn: 17, step: 1, system: 100, tools: 200, total: 300 });
+  const autoPatch = page.contextTrendAutoOverviewPatch(store.sessionState);
+  assert.deepEqual(Object.assign({}, autoPatch), {
+    contextTrendOverview: true,
+    contextTrendDna: false,
+    contextTrendAdaptive: false,
+    contextTrendVisibleRange: null
+  });
+  const panel = page.contextPanelPatch(store.sessionState, store.state, autoPatch).contextPanel;
+  assert.equal(panel.trend.overview, true);
+  assert.equal(panel.trend.count, 200, 'overview retains every request rather than collapsing steps');
+
+  // A deliberate manual toggle after the auto-switch sticks for this session.
+  page.setData(Object.assign({}, page.contextPanelPatch(store.sessionState, store.state, autoPatch), autoPatch));
+  page.contextTrendDna();
+  assert.equal(page.data.contextTrendOverview, false);
+  assert.equal(page.data.contextPanel.trend.dna, true);
+  assert.equal(page.data.contextPanel.browser.dna, true);
+  assert.equal(page.contextTrendAutoOverviewPatch(store.sessionState), null);
+  assert.equal(page._contextTrendOverviewAutoFired['session-1'], true);
+
+  const secondSession = Object.assign({}, store.sessionState, { sessionId: 'session-2' });
+  assert.equal(page.contextTrendAutoOverviewPatch(secondSession).contextTrendOverview, true);
+});
 
 test('statistics flow computes four visible animated connector paths from measured nodes', () => {
   const { page, wx } = pageFixture();
@@ -145,8 +182,26 @@ test('statistics flow computes four visible animated connector paths from measur
   const links = page.data.contextFlowLinks;
   assert.ok(links.length > 4, 'curves are decomposed into native segments');
   assert.deepEqual(new Set(links.filter(item => item.kind === 'glow').map(item => item.style.match(/background:([^;]+)/)[1])),
-    new Set(['#22C55E', '#A855F7', '#14B8A6', '#EC4899']));
+    new Set(['#00C950', '#AD46FF', '#00BBA7', '#F6339A']));
   assert.ok(links.some(item => item.kind === 'dash' && item.style.includes('animation-delay')));
+  assert.deepEqual(new Set(links.map(item => item.pathKey)), new Set([
+    '#ctxNodeInputs>#ctxNodeSession', '#ctxNodeEvents>#ctxNodeSession',
+    '#ctxNodeTools>#ctxNodeSession', '#ctxNodeNet>#ctxNodeSession'
+  ]), 'all surrounding modules feed into the current session');
+  for (const pathKey of new Set(links.map(item => item.pathKey))) {
+    assert.equal(links.filter(item => item.pathKey === pathKey && item.kind === 'glow').length, 40,
+      'each ribbon is sampled densely enough to look continuous');
+    const dashes = links.filter(item => item.pathKey === pathKey && item.kind === 'dash');
+    assert.equal(dashes.length, 10, 'spaced dash segments sit on top of the smooth ribbon');
+    assert.ok(dashes.every((item, index) => index === 0
+      || Number(item.style.match(/animation-delay:(\d+)ms/)[1]) > Number(dashes[index - 1].style.match(/animation-delay:(\d+)ms/)[1])),
+    'successive dashes light toward the central session');
+  }
+  const styles = fs.readFileSync(path.resolve(root, 'pages/session/session.wxss'), 'utf8');
+  // 会话节点按 dsh-context 改成两行 kv（17px/700），不再是 2×2 metric 网格。
+  assert.match(styles, /\.ctx-flow-self-stats\s*\{\s*display:\s*flex/);
+  assert.match(styles, /\.ctx-flow-kv-value\s*\{\s*font-size:\s*34rpx;\s*font-weight:\s*700/);
+  assert.match(styles, /\.theme-dark \.ctx-flow-self\s*\{[^}]*border-color:\s*rgba\(249, 250, 251, \.40\)/s);
 });
 
 test('browser cursor handlers walk requests and reset to the current composition', () => {
@@ -177,6 +232,58 @@ test('browser cursor handlers walk requests and reset to the current composition
   assert.equal(page.data.contextPanel.browser.canNext, false);
 });
 
+test('DNA selection stays active and opens a detailed browser feed for the selected request', () => {
+  const { page, store, setDataPatches } = pageFixture();
+  store.sessionState.contextDashboard.value.surface.push({ seq: 55, cat: 'user', tokens: 0, name: 'empty-but-read' });
+  page.data.tab = 'context';
+  page.setData(page.contextPanelPatch());
+  setDataPatches.length = 0;
+  page.contextTrendDna();
+  assert.equal(setDataPatches.length, 1, 'mode, selected request and browser update atomically');
+  assert.equal(page.data.contextPanel.trend.dna, true);
+  assert.equal(page.data.contextPanel.browser.dna, true);
+  assert.equal(page.data.contextPanel.browser.selectedSeq, 60);
+  assert.deepEqual(page.data.contextPanel.browser.dnaRows.map(row => row.seq), [10, 20, 30, 55, 60]);
+  assert.deepEqual(page.data.contextPanel.browser.dnaRows.map(row => row.category), ['user', 'assistant', 'inject', 'user', 'tool']);
+  assert.ok(page.data.contextPanel.browser.dnaRows.every(row => row.tokenText && row.label && row.posText && row.stamp !== undefined));
+
+  const template = fs.readFileSync(path.resolve(root, 'pages/session/session.wxml'), 'utf8');
+  assert.match(template, /ctx-gran-btn \{\{contextPanel\.browser\.dna \? 'on' : ''\}\}/);
+  assert.match(template, /aria-pressed="\{\{contextPanel\.browser\.dna\}\}"/);
+  assert.match(template, /class="ctx-br-scroll ctx-trend-dna"/);
+
+  page.contextTrendSelect({ currentTarget: { dataset: { seq: '20' } } });
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 20);
+  assert.equal(page.data.contextPanel.browser.selectedSeq, 20);
+  assert.deepEqual(page.data.contextPanel.browser.dnaRows.map(row => row.seq), [10, 20]);
+
+  page.contextTrendDna();
+  assert.equal(page.data.contextPanel.trend.dna, false);
+  assert.equal(page.data.contextPanel.browser.dna, false, 'the browser toggle shares the chart DNA state');
+});
+
+test('overview toggle atomically renders the overview ribbon and clears the DNA browser', () => {
+  const { page, setDataPatches } = pageFixture();
+  page.data.tab = 'context';
+  page.setData(page.contextPanelPatch());
+  page.contextTrendDna();
+  setDataPatches.length = 0;
+
+  page.contextTrendOverview();
+  assert.equal(setDataPatches.length, 1, 'overview mode and its linked browser selection update atomically');
+  assert.equal(page.data.contextPanel.trend.overview, true);
+  assert.equal(page.data.contextPanel.trend.dna, false);
+  assert.ok(page.data.contextPanel.trend.ribbon.columns.length > 0);
+  assert.ok(page.data.contextPanel.trend.ribbon.columns.every(column => column.segments.length > 0));
+  assert.equal(page.data.contextPanel.browser.dna, false);
+  assert.equal(page.data.contextBrowserSeq, page.data.contextPanel.trend.selectedSeq);
+
+  const styles = fs.readFileSync(path.resolve(root, 'pages/session/session.wxss'), 'utf8');
+  for (const category of ['system', 'tools', 'user', 'inject', 'skill', 'assistant', 'tool']) {
+    assert.match(styles, new RegExp('\\.ctx-c-' + category + '\\s*\\{'))
+  }
+});
+
 test('browser picker jumps to the chosen request and the fold rows toggle', () => {
   const { page } = pageFixture();
   page.data.tab = 'context';
@@ -187,10 +294,10 @@ test('browser picker jumps to the chosen request and the fold rows toggle', () =
   const row = page.data.contextPanel.browser.rows[1];
   assert.equal(row.expanded, false);
   page.toggleContextBrowserRow({ currentTarget: { dataset: { key: row.key } } });
-  assert.deepEqual(page.data.contextBrowserExpanded, ['tools']);
+  assert.deepEqual([...page.data.contextBrowserExpanded], ['tools']);
   assert.equal(page.data.contextPanel.browser.rows[1].expanded, true);
   page.toggleContextBrowserRow({ currentTarget: { dataset: { key: row.key } } });
-  assert.deepEqual(page.data.contextBrowserExpanded, []);
+  assert.deepEqual([...page.data.contextBrowserExpanded], []);
   assert.equal(page.data.contextPanel.browser.rows[1].expanded, false);
 });
 
@@ -202,7 +309,7 @@ test('browser handlers survive a panel without browser data (loading/error state
   page.contextBrowserPick({ detail: { value: 0 } });
   page.toggleContextBrowserRow({ currentTarget: { dataset: { key: 'system' } } });
   assert.equal(page.data.contextBrowserSeq, null);
-  assert.deepEqual(page.data.contextBrowserExpanded, []);
+  assert.deepEqual([...page.data.contextBrowserExpanded], []);
   assert.equal(calls.filter(call => call[0] === 'refreshDashboard').length, 0);
 });
 
@@ -220,8 +327,27 @@ test('file activity filter and sort controls update the visible file list', () =
   page.setContextFileFilter({ currentTarget: { dataset: { filter: 'search' } } });
   assert.deepEqual(page.data.contextPanel.files.rows.map(row => row.path), ['tests/a.js']);
   page.setContextFileFilter({ currentTarget: { dataset: { filter: 'all' } } });
-  page.setContextFileSort({ currentTarget: { dataset: { sort: 'recent' } } });
+  page.setContextFileSort({ currentTarget: { dataset: { sort: 'latest' } } });
   assert.deepEqual(page.data.contextPanel.files.rows.map(row => row.path), ['tests/a.js', 'src/a.js']);
+});
+
+test('stats chips jump to the matching browser and file filter (event pills stay inert)', () => {
+  const { page, store } = pageFixture();
+  store.sessionState.contextDashboard.value.activity = { userInputs: 1, reads: 2, writes: 1, searches: 0, images: 0 };
+  store.sessionState.contextDashboard.value.events.push({ seq: 99, time: 1791807501000, kind: 'prune', tokens: 10 });
+
+  page.contextStatsJump({ currentTarget: { dataset: { key: 'reads' } } });
+  assert.equal(page.data.contextFileFilter, 'read');
+  assert.equal(page.data.contextScrollTarget, 'ctxFileCard');
+
+  // 事件胶囊在插件里不是链接：点击不筛选、不跳转（dsh-context statsContext §3.4）。
+  page.contextStatsJump({ currentTarget: { dataset: { key: 'prune' } } });
+  assert.equal(page.data.contextEventFilter, null);
+  assert.equal(page.data.contextScrollTarget, 'ctxFileCard');
+
+  page.contextStatsJump({ currentTarget: { dataset: { key: 'userInputs' } } });
+  assert.equal(page.data.contextBrowserSeq, 60);
+  assert.equal(page.data.contextScrollTarget, 'ctxBrowserCard');
 });
 
 test('context content opens are deduplicated and preserve the host truncation marker', async () => {
@@ -327,7 +453,7 @@ test('trend controls select a request, change grouping, and switch to delta mode
   assert.equal(page.data.contextPanel.trend.overview, true);
   assert.equal(page.data.contextPanel.trend.dna, false);
   assert.equal(page.data.contextPanel.trend.ribbon.count, page.data.contextPanel.trend.count);
-  assert.equal(page.data.contextPanel.trend.ribbon.bands.length, contextView.CATEGORY_KEYS.length);
+  assert.ok(page.data.contextPanel.trend.ribbon.columns.length > 0);
   assert.equal(page.data.contextBrowserSeq, page.data.contextPanel.trend.selectedSeq, 'the browser stays on the bar selected by the overview');
   // Turning DNA back on drops the overview.
   page.contextTrendDna();

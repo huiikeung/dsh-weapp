@@ -1,4 +1,5 @@
 const { t: uiText } = require('../../utils/ui-preferences');
+const { connectionView } = require('../../utils/connection-status');
 const scheduleUtil = require('../../utils/schedule');
 const haptics = require('../../utils/haptics');
 const preferences = require('../../utils/ui-preferences');
@@ -15,9 +16,11 @@ const util = require('../../utils/util');
 const notifySubscription = require('../../utils/notify-subscription');
 const voicePreference = require('../../utils/voice-preference');
 const contextPanelsPreference = require('../../utils/context-panels-pref');
+const contextPreferences = require('../../utils/context-prefs');
 const voiceActions = require('./voice-actions');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
 const fileActions = require('./file-actions');
+const imageBlocks = require('./image-blocks');
 const changesActions = require('./changes-actions');
 const viewportActions = require('./viewport-actions');
 const collaboration = require('../../utils/collaboration');
@@ -31,13 +34,31 @@ const attachmentCache = require('../../utils/attachment-cache');
 const { dataPatch, createMarkdownCache } = require('../../utils/session-render');
 
 const { toolPresentation } = require('../../utils/tool-presentation');
+const CONTEXT_TREND_OVERVIEW_AUTO_STEPS = 200;
+
+function formatSessionCacheHitPercent(cacheReadTokens, billedInputTokens) {
+  if (!(billedInputTokens > 0) || cacheReadTokens == null) return null;
+  if (cacheReadTokens >= billedInputTokens) return '100';
+  const ratio = Math.max(0, cacheReadTokens) / billedInputTokens;
+  for (let precision = 0; precision <= 6; precision += 1) {
+    const scale = Math.pow(10, precision);
+    const units = Math.floor(ratio * 100 * scale + 0.5);
+    if (units < 100 * scale) {
+      const text = (units / scale).toFixed(precision);
+      return text.indexOf('.') < 0 ? text : text.replace(/0+$/, '').replace(/\.$/, '');
+    }
+  }
+  return '99.999999';
+}
 
 Page({
   ...viewportActions,
   ...voiceActions,
   ...fileActions,
+  ...imageBlocks,
   ...changesActions,
   data: {
+    statusFlowDelay: 0,
     publicAccessDialog: null,
     publicAccessDialogOpen: false,
     turnUsageSheet: null, turnUsageOpen: false, turnUsagePos: null,
@@ -56,16 +77,28 @@ Page({
     contextBrowserSeq: null,
     contextBrowserIsCurrent: false,
     contextBrowserExpanded: [],
+    contextBrowserBase: contextPreferences.read().base,
+    contextCurrentHighlight: '',
+    contextCommandFilter: 'all',
+    contextCommandExpanded: '',
+    contextModalOpen: false,
+    contextBrowserQuery: '',
+    contextBrowserKind: '',
+    contextBrowserTool: '',
+    contextScrollTarget: '',
+    contextEventFilter: null,
     contextFileFilter: 'all',
-    contextFileSort: 'activity',
+    contextFileSort: contextPreferences.read().fileSort,
+    contextFileQuery: '',
+    contextFileExpandedPath: '',
     contextNodeDetail: null,
     contextNodeLoadingSeq: null,
-    // 趋势默认自动聚合；用户可切换粒度、总量/变化视图并选中单次请求。
+    // 与 dsh-context 一样默认按步骤；长历史达到阈值时自动进入总览带。
     contextTrendSeq: null,
-    contextTrendGroupBy: 'auto',
-    contextTrendDisplayMode: 'total',
+    contextTrendGroupBy: contextPreferences.read().trendGroupBy,
+    contextTrendDisplayMode: contextPreferences.read().trendDisplayMode,
     contextTrendAdaptive: false,
-    contextTrendShowDuration: true,
+    contextTrendShowDuration: contextPreferences.read().trendShowDuration,
     contextTrendVisibleRange: null,
     // DNA 模式与总览是互斥的两个面向；默认都关（标准堆叠柱）。
     contextTrendDna: false,
@@ -75,6 +108,14 @@ Page({
     contextTrendTurnLeft: 0,
     // 首帧之前先用「未连接」空态占位，避免 WXML 读取 null 面板。
     contextPanel: contextView.buildPanel(null, { t: uiText, connected: false, hasSession: false }),
+    fleetSelectedId: '',
+    fleetStageWidth: 0,
+    fleetAllOpen: false,
+    fleetMemberQuery: '',
+    fleetMemberStatus: 'all',
+    fleetMemberSort: 'derived',
+    fleetCommsState: 'idle',
+    fleetCommsFilter: '',
     fleetPanel: contextView.buildFleetPanel(null, { t: uiText, connected: false, hasSession: false }),
     conversationTopSpace: 0, conversationBottomSpace: 0, conversationScrollTop: 0,
     navTitle: uiText('会话'),
@@ -111,6 +152,9 @@ Page({
     turnNavSpacerPx: 0,
     turnNavCardTop: 0,
     hasMoreHistory: false,
+    // 旧历史分页在途标志。must be mirrored into page data: maybePrefetchOlderHistory
+    // 用它避免请求叠加，此前只读不写，导致"已在分页"判断永远为假。
+    historyPaging: false,
 
     question: null,
     questionBusy: false,
@@ -121,6 +165,11 @@ Page({
     images: [],
     canSend: false,
     composerFocused: false,
+    commandToken: '', commandTokenLabel: '', draftArg: '',
+    // 输入框 Markdown 预览：composerPreview 开时用 composerPreviewBlocks 渲染，
+    // 与发送后的用户消息共用 mdBlocks，保证"看到的就是发出去的"。
+    composerPreview: false,
+    composerPreviewBlocks: [],
     canAttach: true,
     attachSheetOpen: false,
     commandMenuQuery: '', commandPaletteLoading: false, commandPaletteError: '',
@@ -139,6 +188,7 @@ Page({
     historyProgressText: '',
     historyState: 'idle',
     connState: 'disconnected',
+    connected: false,
     kbHeight: 0,
     permissionSheet: [],
     modeSheet: [],
@@ -185,7 +235,7 @@ Page({
     runSeconds: 0,
     runElapsedText: '',
     runHeader: '',
-    contextSheet: null,
+    contextSheet: { pct: '—', barStyle: 'width:0%;', usedLabel: '— tok', windowLabel: '— tok', rows: [] },
     showContextSheet: false,
 
     stats: {
@@ -197,11 +247,11 @@ Page({
       toolsPct: 0
     },
     statsLabel: '',
-    composerMetricsVisible: false,
-    composerRunMetric: '',
-    composerTokenMetric: '',
-    composerCacheMetric: '',
-    composerContextMetric: '',
+    composerMetricsVisible: true,
+    composerRunMetric: '— 轮 — 步',
+    composerTokenMetric: '— tok',
+    composerCacheMetric: '— tok',
+    composerContextMetric: '—%',
 
     traceDetail: null
   },
@@ -246,6 +296,7 @@ Page({
   onReady() {
     // 首帧渲染完成后立即测量 dock，避免默认留白遮挡底部内容
     this.updateDockInset();
+    this.measureFleetStage();
     this.refreshBottomAnchor();
     this.startScrollPolling();
   },
@@ -304,6 +355,7 @@ Page({
     this._collaborationRequest = null;
     this._collaborationRefresh = null;
     this.disposePresentedFiles();
+    this.disposeMarkdownImages();
     this.cancelVoice();
     if (this._voice) this._voice.dispose();
     this._unloaded = true;
@@ -342,8 +394,9 @@ Page({
         if (!indices.has(key)) continue;
         this._pendingHistoryFormat.delete(key);
         const index = indices.get(key), row = this.data.rows[index];
-        if (row && row.kind === 'assistant' && row.text === text) {
-          const blocks = this._markdownCache.parse(key, text);
+        // 助手与用户消息都走 Markdown：进入窗口后补解析并写回 blocks。
+        if (row && (row.kind === 'assistant' || row.kind === 'user') && row.text === text) {
+          const blocks = this.prepareImageBlocks(this._markdownCache.parse(key, text));
           patch['rows[' + index + '].blocks'] = blocks;
           const source = (this._conversationRows || []).find(item => item.key === key);
           if (source) source.blocks = blocks;
@@ -432,17 +485,29 @@ Page({
         contextBrowserSeq: null,
         contextBrowserIsCurrent: false,
         contextBrowserExpanded: [],
+        contextBrowserBase: contextPreferences.read().base,
+        contextCurrentHighlight: '',
+        contextCommandFilter: 'all',
+        contextCommandExpanded: '',
+        contextModalOpen: false,
+        contextBrowserQuery: '',
+        contextBrowserKind: '',
+        contextBrowserTool: '',
+        contextEventFilter: null,
         contextFileFilter: 'all',
-        contextFileSort: 'activity',
+        contextFileSort: contextPreferences.read().fileSort,
+        contextFileQuery: '',
+        contextFileExpandedPath: '',
         contextNodeDetail: null,
         contextNodeLoadingSeq: null,
         contextTrendSeq: null,
-        contextTrendGroupBy: 'auto',
-        contextTrendDisplayMode: 'total',
+        contextTrendGroupBy: contextPreferences.read().trendGroupBy,
+        contextTrendDisplayMode: contextPreferences.read().trendDisplayMode,
         contextTrendAdaptive: false,
         contextTrendVisibleRange: null
       });
     }
+    const trendAutoOverviewPatch = this.contextTrendAutoOverviewPatch(s);
     if (!this._markdownCache || this._renderSessionId !== s.sessionId) {
       if (this._renderSessionId && this._renderSessionId !== s.sessionId) {
         this._sessionDrafts = this._sessionDrafts || {};
@@ -474,7 +539,8 @@ Page({
       this._lastRunSeconds = 0;
       this._processRunning = false;
     }
-    this._markdownCache.retain((s.rows || []).filter(row => row.kind === 'assistant').map(row => row.key));
+    // 用户消息现在也走 Markdown 缓存，必须一起 retain，否则每次 emit 都被清空重解析。
+    this._markdownCache.retain((s.rows || []).filter(row => row.kind === 'assistant' || row.kind === 'user').map(row => row.key));
 
     // dsh-mobile 同款两段投影：protocol 只产生语义行，conversation-workflow
     // 再组合成 message / processGroup 展示节点。页面不再直接解释事件协议。
@@ -500,6 +566,8 @@ Page({
       this._processRunningDone = lastProcessRow ? lastProcessRow.key : '';
     }
     const semanticRows = [];
+    // 图片预取不参与渲染：历史行到达时先排队下载，滚到可见位置通常已就绪。
+    this.prefetchImageMarkdown(s.rows || []);
     const listedSession = (app.sessions || []).find(item => item.id === s.sessionId || item.sessionId === s.sessionId);
     (s.rows || []).forEach((row, rowIndex) => {
       if (row.kind === 'changes') {
@@ -515,6 +583,7 @@ Page({
         const text = row.text || '';
         let blocks = this._markdownCache.peek(row.key, text);
         if (!blocks && rowIndex >= s.rows.length - 12) blocks = this._markdownCache.parse(row.key, text);
+        if (blocks) blocks = this.prepareImageBlocks(blocks);
         if (!blocks) this._pendingHistoryFormat.set(row.key, text);
         else this._pendingHistoryFormat.delete(row.key);
         const tools = (row.tools || []).map((tool) => {
@@ -547,6 +616,15 @@ Page({
       }
       if (row.kind === 'user') {
         copy.images = this.decorateRowImages(row.images);
+        // 用户消息也按 Markdown 渲染，但沿用助手消息的懒解析策略：只有接近尾部
+        // 的行才立即 parse，更早的进 _pendingHistoryFormat，滚进窗口再格式化。
+        const text = row.text || '';
+        let blocks = this._markdownCache.peek(row.key, text);
+        if (!blocks && rowIndex >= s.rows.length - 12) blocks = this._markdownCache.parse(row.key, text);
+        if (blocks) blocks = this.prepareImageBlocks(blocks);
+        if (blocks) this._pendingHistoryFormat.delete(row.key);
+        else this._pendingHistoryFormat.set(row.key, text);
+        copy.blocks = blocks || [];
         const availableWidth = Math.max(192, (this.viewportRpx || 750) - 148);
         const visibleCount = Math.min(copy.images.length, 3);
         const side = Math.min(328, Math.max(192, availableWidth - 24 * (visibleCount - 1)));
@@ -596,14 +674,31 @@ Page({
     const llmMs = stats.llmMs || 0;
     const toolMs = stats.toolMs || 0;
     const totalMs = Math.max(llmMs + toolMs, 1);
-    const turns = stats.turns || 0;
-    const steps = stats.steps || 0;
+    const turns = stats.turns == null || !Number.isFinite(Number(stats.turns)) || Number(stats.turns) < 0
+      ? null : Number(stats.turns);
+    const steps = stats.steps == null || !Number.isFinite(Number(stats.steps)) || Number(stats.steps) < 0
+      ? null : Number(stats.steps);
     const durationSeconds = totalMs / 1000;
-    const tokenUsage = (s.stats && s.stats.tokenUsage) || {};
+    const statsPayload = (s.stats && s.stats.stats) || {};
+    const tokenUsage = Object.assign({}, statsPayload.tokenUsage || {}, (s.stats && s.stats.tokenUsage) || {});
     const tokenTotals = tokenUsage.totals || {};
-    const pressure = (s.stats && s.stats.pressure) || null;
-    const contextPct = pressure && pressure.contextWindow > 0
-      ? Math.min(100, Math.max(0, Math.round(((pressure.pressureTokens || 0) / pressure.contextWindow) * 100)))
+    const pressure = [
+      s.stats && s.stats.pressure,
+      statsPayload.pressure,
+      statsPayload
+    ].find((item) => item && item.contextWindow != null &&
+      (item.projectedTokens != null || item.pressureTokens != null)) || null;
+    const finiteToken = (value) => {
+      const number = Number(value);
+      return value != null && Number.isFinite(number) && number >= 0 ? number : null;
+    };
+    const contextUsedTokens = pressure
+      ? finiteToken(pressure.projectedTokens) != null
+        ? finiteToken(pressure.projectedTokens) : finiteToken(pressure.pressureTokens)
+      : null;
+    const contextWindow = pressure ? finiteToken(pressure.contextWindow) : null;
+    const contextPct = contextUsedTokens != null && contextWindow > 0
+      ? Math.min(100, Math.max(0, Math.round((contextUsedTokens / contextWindow) * 100)))
       : -1;
     let decodeRate = stats.decodeMs > 0 && stats.decodeTokens != null
       ? Number(stats.decodeTokens) / (Number(stats.decodeMs) / 1000)
@@ -612,61 +707,36 @@ Page({
     if (decodeRate == null && tokenTotals.outputTokens && stats.llmMs) {
       decodeRate = Number(tokenTotals.outputTokens) / (Number(stats.llmMs) / 1000);
     }
-    const tokenValues = [
-      tokenTotals.inputTokens, tokenTotals.outputTokens,
-      tokenTotals.cacheReadTokens, tokenTotals.cacheWriteTokens
-    ].filter((value) => value != null).map(Number);
-    const tokenTotalForCache = tokenValues.reduce((sum, value) => sum + value, 0);
-    const uncachedInputForCache = tokenUsage.uncachedInputTokens != null
-      ? Number(tokenUsage.uncachedInputTokens)
-      : (tokenTotals.inputTokens != null ? Number(tokenTotals.inputTokens) : null);
-    const cacheReadForCache = tokenUsage.cacheReadTokens != null
-      ? Number(tokenUsage.cacheReadTokens)
-      : (tokenTotals.cacheReadTokens != null ? Number(tokenTotals.cacheReadTokens) : null);
-    const cacheHitBase = uncachedInputForCache != null && cacheReadForCache != null
-      ? uncachedInputForCache + cacheReadForCache
-      : tokenTotalForCache;
-    const cacheHitPct = cacheHitBase > 0 && cacheReadForCache != null
-      ? Math.round(Math.min(1, Math.max(0, cacheReadForCache / cacheHitBase)) * 100)
-      : null;
+    const tokenUsageValue = (name) => finiteToken(
+      tokenUsage[name] != null ? tokenUsage[name] : tokenTotals[name]
+    );
+    const uncachedInputTokens = tokenUsageValue('uncachedInputTokens');
+    const cacheReadTokens = tokenUsageValue('cacheReadTokens');
+    const cacheWriteTokens = tokenUsageValue('cacheWriteTokens');
+    const inputTokens = tokenUsageValue('inputTokens');
+    const outputTokens = tokenUsageValue('outputTokens');
+    const hasDisjointInput = uncachedInputTokens != null && cacheReadTokens != null && cacheWriteTokens != null;
+    const billedInputTokens = hasDisjointInput
+      ? uncachedInputTokens + cacheReadTokens + cacheWriteTokens
+      : inputTokens;
+    const tokenTotal = billedInputTokens != null && outputTokens != null
+      ? billedInputTokens + outputTokens : null;
+    const cacheHitPct = formatSessionCacheHitPercent(cacheReadTokens, billedInputTokens);
     const compactMetricToken = (value) => {
       const n = Number(value || 0);
       if (n >= 1000000) return (n / 1000000).toFixed(n % 1000000 === 0 ? 0 : 1) + 'M';
       if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
       return String(Math.round(n));
     };
-    const hasStatsSnapshot = !!(s.stats && (s.stats.stats || s.stats.tokenUsage || s.stats.pressure));
-    const composerRunMetric = hasStatsSnapshot
-      ? (turns || 0) + uiText(' 轮 ') + (steps || 0) + uiText(' 步')
-      : '';
-    // Gateway 既可能返回 totals.inputTokens，也可能只返回分项 Token。
-    // 底部指标必须在两种快照格式下都能显示，优先使用输入总量以保持 DSH 的含义。
-    const finiteToken = (value) => {
-      const number = Number(value);
-      return Number.isFinite(number) && number >= 0 ? number : null;
-    };
-    const totalInputTokens = finiteToken(tokenTotals.inputTokens);
-    const uncachedInputTokens = finiteToken(tokenUsage.uncachedInputTokens);
-    const cacheReadTokens = finiteToken(
-      tokenUsage.cacheReadTokens != null ? tokenUsage.cacheReadTokens : tokenTotals.cacheReadTokens
-    );
-    const outputTokens = finiteToken(
-      tokenUsage.outputTokens != null ? tokenUsage.outputTokens : tokenTotals.outputTokens
-    );
-    const fallbackInputTokens = [uncachedInputTokens, cacheReadTokens]
-      .filter((value) => value != null)
-      .reduce((sum, value) => sum + value, 0);
-    const composerTokenValue = totalInputTokens != null
-      ? totalInputTokens
-      : (fallbackInputTokens > 0 ? fallbackInputTokens : outputTokens);
-    const composerTokenMetric = composerTokenValue != null
-      ? compactMetricToken(composerTokenValue) + ' tok' : '';
-    const tokenStatsAvailable = composerTokenValue != null
-      || uncachedInputForCache != null || cacheReadForCache != null;
-    const composerCacheMetric = tokenStatsAvailable
-      ? uiText('缓存命中 ') + (cacheHitPct == null ? '—' : cacheHitPct + '%')
-      : '';
-    const composerContextMetric = contextPct >= 0 ? contextPct + '%' : '';
+    const composerRunMetric = (turns != null ? turns : '—') + uiText(' 轮 ') +
+      (steps != null ? steps : '—') + uiText(' 步');
+    // Match DSH's session tokenUsage projection: billed input buckets plus output;
+    // never sum the current page's per-turn cache as if it were the whole session.
+    const composerTokenMetric = tokenTotal != null
+      ? compactMetricToken(tokenTotal) + ' tok' + (cacheHitPct != null ? ' · ' + cacheHitPct + '%' : '')
+      : '— tok';
+    const composerCacheMetric = composerTokenMetric;
+    const composerContextMetric = contextPct >= 0 ? contextPct + '%' : '—%';
 
     const selection = s.selection || app.modelCatalog && app.modelCatalog.current || app.defaultModel;
     const modelFace = composerMenu.modelFace(app.modelCatalog, selection);
@@ -752,13 +822,19 @@ Page({
       ].filter((r) => r.value != null);
     }
     contextRows = contextRows.map((r) => ({ label: r.label, cls: r.cls, valueLabel: compactTok(r.value) + ' tok' }));
-    const contextSheet = pressure && pressure.contextWindow > 0 ? {
+    const contextSheet = pressure && contextWindow > 0 && contextUsedTokens != null ? {
       pct: contextPct,
       barStyle: 'width:' + contextPct + '%;',
-      usedLabel: '~' + compactTok(pressure.pressureTokens || 0),
-      windowLabel: compactTok(pressure.contextWindow),
+      usedLabel: '~' + compactTok(contextUsedTokens),
+      windowLabel: compactTok(contextWindow),
       rows: contextRows
-    } : null;
+    } : {
+      pct: '—',
+      barStyle: 'width:0%;',
+      usedLabel: '— tok',
+      windowLabel: '— tok',
+      rows: []
+    };
 
     const workPrefs = workSteps.read();
     const policyKey = s.sessionId + '/' + workPrefs.mode + '/' + workPrefs.timing;
@@ -835,21 +911,28 @@ Page({
     const listed = (app.sessions || []).find((x) => x.sessionId === s.sessionId) || null;
     const fallbackTitle = (listed && (listed.title || listed.snippet)) || (s.historyState === 'creating' ? uiText('新会话') : uiText('会话'));
 
+    const historyMerged = !!(s && s.historyMergeId && s.historyMergeId !== (this._historyMergeId || 0));
+    // 上下文/编队面板只在对应 Tab（或弹窗）可见时才派生视图模型。
+    // 否则每次流式 emit 都会重算整棵上下文浏览器与编队卡片，导致页面卡顿。
+    const activeTab = this.data.tab;
+    const contextVisible = activeTab === 'context' || this.data.contextModalOpen === true;
     const viewPatch = dataPatch(this.data, Object.assign({
       ...this.collaborationPatch(s, app),
-      ...this.contextPanelPatch(s, app),
-      ...this.fleetPanelPatch(s, app),
+      ...(contextVisible ? this.contextPanelPatch(s, app, trendAutoOverviewPatch) : {}),
+      ...(contextVisible ? (trendAutoOverviewPatch || {}) : {}),
+      ...(activeTab === 'fleet' ? this.fleetPanelPatch(s, app) : {}),
       navTitle: s.title || fallbackTitle,
       presetLabel: labels.presetModeName(s.agentPreset || 'standard'),
       sessionPresetVisible: presetVisible,
       sessionPresetName: presetName || uiText('选择模式'),
       running: s.running === true,
       lastRowKind: rows.length ? rows[rows.length - 1].kind : '',
-      ...this.conversationWindowPatch(rows),
+      ...this.conversationWindowPatch(rows, historyMerged && activeTab === 'conversation' && this._convPinned === false ? { anchor: true } : null),
       ...this.turnNavigatorPatch(rows),
       folds: processFolds,
       ...tracePatch,
       hasMoreHistory: s.hasMoreHistory,
+      historyPaging: s.historyPaging === true,
       question: question,
       questionBusy: s.questionStatus === 'submitting' || s.questionStatus === 'accepted',
       approval: approval,
@@ -880,20 +963,26 @@ Page({
         modelStyle: 'width:' + Math.min(100, Math.round((llmMs / totalMs) * 85 + 10)) + '%;',
         toolsStyle: 'width:' + Math.min(100, Math.round((toolMs / totalMs) * 95 + 5)) + '%;'
       },
-      statsLabel: turns || steps ? (turns + uiText(' 轮 · ') + steps + uiText(' 步')) : ''
-      ,composerMetricsVisible: !!(composerRunMetric || composerTokenMetric || composerCacheMetric || composerContextMetric)
+      statsLabel: turns != null || steps != null
+        ? ((turns != null ? turns : '—') + uiText(' 轮 · ') + (steps != null ? steps : '—') + uiText(' 步'))
+        : ''
+      ,composerMetricsVisible: true
       ,composerRunMetric: composerRunMetric
       ,composerTokenMetric: composerTokenMetric
       ,composerCacheMetric: composerCacheMetric
       ,composerContextMetric: composerContextMetric
     }, qReset || {}));
+    if (s && s.historyMergeId) this._historyMergeId = s.historyMergeId;
     const rowsChanged = Object.keys(viewPatch).some(key => key === 'rows' || key.indexOf('rows[') === 0);
     const dockChanged = ['running', 'question', 'approval', 'tasks', 'goal', 'composerMetricsVisible', 'sessionPresetVisible']
       .some(field => Object.keys(viewPatch).some(key => key === field || key.indexOf(field + '.') === 0 || key.indexOf(field + '[') === 0));
+    const wasRunning = this.data.running;
     if (Object.keys(viewPatch).length) this.setData(viewPatch, () => {
       this.scheduleHistoryFormatting();
       this.measureConversationWindow();
       if (this.data.tab === 'context') this.scheduleContextFlow();
+      // 运行刚开始：重置文字渐变相位；鲸尾图标为纯 CSS 动画，随节点挂载自动同相起跑。
+      if (!wasRunning && this.data.running) this.setData({ statusFlowDelay: 0 });
     });
     else this.scheduleHistoryFormatting();
     // 会话行只有 attachmentId，图片需要异步回填本地缓存路径才会显示。
@@ -906,7 +995,12 @@ Page({
     if (he !== this.data.histError) this.setData({ histError: he });
     const hs = String(s.historyState || 'idle');
     if (hs !== this.data.historyState) this.setData({ historyState: hs });
-    const historyLoading = s.historyPaging === true || (hs === 'requested' && !rows.length && !this.data.running);
+    // 没有任何可显示的行时必须给占位（加载中 / 空态）。原来这里用
+    // `!this.data.running` 把运行中的会话排除掉，结果打开一个正在执行的会话时
+    // （无本地缓存 + 历史还没回来）四个占位分支全部落空：对话区一片空白，
+    // 只剩底部鲸尾运行条，用户以为内容没有同步过来。
+    const hasRows = rows.length > 0;
+    const historyLoading = s.historyPaging === true || (hs === 'requested' && !hasRows);
     const historyLoaded = hs.indexOf('loaded') === 0 || hs === 'idle' || hs.indexOf('error') === 0;
     const historyProgressText = he || uiText('正在从 Mobile Gateway 同步会话内容…');
     if (historyLoading !== this.data.historyLoading || historyLoaded !== this.data.historyLoaded
@@ -919,8 +1013,10 @@ Page({
     }
     if (this.data.turnNavOpen) this.autoLoadTurnNavigatorHistory(null, true);
     const cs = app.connection || 'disconnected';
-    if (cs !== this.data.connState) {
-      this.setData({ connState: cs });
+    // 连接展示状态与首页/设置共用：断链红、故障橙、已连接绿，未连接灰。
+    const connection = connectionView(app);
+    if (cs !== this.data.connState || connection.connected !== this.data.connected) {
+      this.setData({ connState: cs, connected: connection.connected });
       // 断线期间的图片加载会失败；重连后清掉失败标记再试一次。
       if (cs === 'connected') { this._thumbFailed = null; this.scheduleAttachmentThumbs(); }
     }
@@ -929,6 +1025,15 @@ Page({
     if (this.data._titleDirty) {
       this.setData({ _titleDirty: false });
 
+    }
+
+    // 更早历史页到达后，若用户仍在顶部附近，继续预取下一页，保证继续上滑时已就绪。
+    // 必须挂在 historyMerged 上：原来每个 emit 都跑一遍，配合失效的在途判断，
+    // 只要用户停在顶部附近就会每 350ms 补拉一页，每页又全量重放整段会话，
+    // 主线程被占满 → 横幅一直转"正在同步"、新插入的旧内容始终画不出来。
+    if (historyMerged && this.data.tab === 'conversation' && !this.data.historyPaging && this._convPinned === false) {
+      const top = Number(this._lastScrollTop) || 0;
+      if (top > 0 && top < 4000) this.maybePrefetchOlderHistory(top);
     }
 
     // 新内容到达时贴底；但用户正在触摸列表时不要抢滚动
@@ -1119,6 +1224,7 @@ Page({
           images: images,
           canSend: true
         });
+        this.syncCommandMenu(this.data.draft, store.sessionState);
         this.dropPendingSubmission(id);
         return;
       }
@@ -1134,6 +1240,7 @@ Page({
       this.setData({
         draft: this.data.draft ? this.data.draft + '\n\n' + text : text
       });
+      this.syncCommandMenu(this.data.draft, store.sessionState);
     }
     this.setData({ queueBusyId: id + ':' + action });
     store.client.queueUpdate(s.sessionId, id, action === 'steer' ? 'steer' : 'remove');
@@ -1355,10 +1462,17 @@ Page({
     if (tab === 'context') contextPatch = this.contextPanelPatch();
     let fleetPatch = {};
     if (tab === 'fleet') fleetPatch = this.fleetPanelPatch();
+    // 离开对应 Tab 时清掉大对象，减少 page data 体积与内存占用（切回时按需重建）。
+    const clearPatch = {};
+    if (tab !== 'context') { clearPatch.contextPanel = null; clearPatch.contextModalOpen = false; clearPatch.contextFlowLinks = []; }
+    if (tab !== 'fleet') clearPatch.fleetPanel = null;
+    if (tab !== 'trajectory') clearPatch.traceRows = [];
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
     this._collaborationRequest = null; this._collaborationRefresh = null;
-    this.setData({ tab, trajectoryMounted: this.data.trajectoryMounted || tab === 'trajectory', contextMounted: this.data.contextMounted || tab === 'context', fleetMounted: this.data.fleetMounted || tab === 'fleet', ...tracePatch, ...contextPatch, ...fleetPatch, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
+    // 只挂载当前 Tab 的面板：离开后销毁对应节点树，避免隐藏面板保留大量
+    // 节点/绑定拖慢对话页（数据仍在 store 缓存，切回时按需重建）。
+    this.setData({ tab, trajectoryMounted: tab === 'trajectory', contextMounted: tab === 'context', fleetMounted: tab === 'fleet', ...clearPatch, ...tracePatch, ...contextPatch, ...fleetPatch, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
       statsPopOpen: false, showContextSheet: false, commandMenu: null,
       attachSheetOpen: false, modelSheetOpen: false, effortSheetOpen: false,
       permissionSheet: [], modeSheet: [], ...this.layoutPatch({ kbHeight: 0 }) });
@@ -1387,8 +1501,26 @@ Page({
     return tab;
   },
 
+  /** Match dsh-context: once a session reaches 200 retained requests, open its overview ribbon once. */
+  contextTrendAutoOverviewPatch(session) {
+    const sessionId = session && session.sessionId;
+    const dashboard = session && session.contextDashboard;
+    const requests = dashboard && dashboard.value && dashboard.value.requests;
+    if (!sessionId || !Array.isArray(requests) || requests.length < CONTEXT_TREND_OVERVIEW_AUTO_STEPS
+      || dashboard.loading === true || dashboard.unsupported === true || dashboard.error) return null;
+    this._contextTrendOverviewAutoFired = this._contextTrendOverviewAutoFired || Object.create(null);
+    if (this._contextTrendOverviewAutoFired[sessionId]) return null;
+    this._contextTrendOverviewAutoFired[sessionId] = true;
+    return {
+      contextTrendOverview: true,
+      contextTrendDna: false,
+      contextTrendAdaptive: false,
+      contextTrendVisibleRange: null
+    };
+  },
+
   /** 上下文面板派生：store 快照 → 纯函数视图模型（缓存原始 value 身份，避免每次 emit 重算趋势）。 */
-  contextPanelPatch(session, app) {
+  contextPanelPatch(session, app, trendOverrides) {
     const s = session || store.sessionState;
     const a = app || store.state;
     const dashboard = (s && s.contextDashboard) || null;
@@ -1400,29 +1532,55 @@ Page({
     const connected = !a || a.connection === 'connected';
     const sessionId = (s && s.sessionId) || '';
     const running = !!(s && s.running);
-    const browserSeq = this.data.contextBrowserSeq == null ? null : Number(this.data.contextBrowserSeq);
-    const browserIsCurrent = this.data.contextBrowserIsCurrent === true;
+    const overrides = trendOverrides || {};
+    const browserSeqValue = overrides.contextBrowserSeq !== undefined
+      ? overrides.contextBrowserSeq : this.data.contextBrowserSeq;
+    const browserSeq = browserSeqValue == null ? null : Number(browserSeqValue);
+    const browserIsCurrent = overrides.contextBrowserIsCurrent !== undefined
+      ? overrides.contextBrowserIsCurrent === true : this.data.contextBrowserIsCurrent === true;
     const expanded = Array.isArray(this.data.contextBrowserExpanded) ? this.data.contextBrowserExpanded : [];
     const expandedKey = expanded.join(',');
-    const trendSeq = this.data.contextTrendSeq == null ? null : Number(this.data.contextTrendSeq);
-    const trendGroupBy = this.data.contextTrendGroupBy || 'auto';
-    const trendDisplayMode = this.data.contextTrendDisplayMode === 'delta' ? 'delta' : 'total';
-    const trendActiveTurn = this.data.contextTrendActiveTurn == null ? null : Number(this.data.contextTrendActiveTurn);
-    const trendDna = this.data.contextTrendDna === true;
-    const trendOverview = this.data.contextTrendOverview === true;
-    const trendAdaptive = this.data.contextTrendAdaptive === true;
-    const trendShowDuration = this.data.contextTrendShowDuration !== false;
-    const trendVisibleRange = this.data.contextTrendVisibleRange || null;
+    const currentHighlight = this.data.contextCurrentHighlight || '';
+    const commandFilter = this.data.contextCommandFilter || 'all';
+    const commandExpandedId = this.data.contextCommandExpanded || '';
+    const browserBase = this.data.contextBrowserBase === 'turn' ? 'turn' : 'step';
+    const browserQuery = this.data.contextBrowserQuery || '';
+    const browserKind = ['think', 'tools', 'answer'].includes(this.data.contextBrowserKind) ? this.data.contextBrowserKind : '';
+    const browserTool = this.data.contextBrowserTool || '';
+    const eventFilter = Array.isArray(this.data.contextEventFilter) ? this.data.contextEventFilter : null;
+    const trendSeqValue = overrides.contextTrendSeq !== undefined
+      ? overrides.contextTrendSeq : this.data.contextTrendSeq;
+    const trendSeq = trendSeqValue == null ? null : Number(trendSeqValue);
+    const trendGroupBy = overrides.contextTrendGroupBy || this.data.contextTrendGroupBy || 'step';
+    const trendDisplayMode = (overrides.contextTrendDisplayMode || this.data.contextTrendDisplayMode) === 'delta' ? 'delta' : 'total';
+    const trendActiveTurnValue = overrides.contextTrendActiveTurn !== undefined
+      ? overrides.contextTrendActiveTurn : this.data.contextTrendActiveTurn;
+    const trendActiveTurn = trendActiveTurnValue == null ? null : Number(trendActiveTurnValue);
+    const trendDna = overrides.contextTrendDna !== undefined ? overrides.contextTrendDna === true : this.data.contextTrendDna === true;
+    const trendOverview = overrides.contextTrendOverview !== undefined ? overrides.contextTrendOverview === true : this.data.contextTrendOverview === true;
+    const trendAdaptive = overrides.contextTrendAdaptive !== undefined ? overrides.contextTrendAdaptive === true : this.data.contextTrendAdaptive === true;
+    const trendShowDuration = overrides.contextTrendShowDuration !== undefined
+      ? overrides.contextTrendShowDuration !== false : this.data.contextTrendShowDuration !== false;
+    const trendVisibleRange = overrides.contextTrendVisibleRange !== undefined
+      ? overrides.contextTrendVisibleRange : (this.data.contextTrendVisibleRange || null);
     const trendVisibleRangeKey = trendVisibleRange ? trendVisibleRange.from + ':' + trendVisibleRange.to : '';
     const fileFilter = this.data.contextFileFilter || 'all';
-    const fileSort = this.data.contextFileSort || 'activity';
+    const fileSort = this.data.contextFileSort || 'count';
+    const fileQuery = this.data.contextFileQuery || '';
+    const fileExpandedPath = this.data.contextFileExpandedPath || '';
     const cache = this._contextPanelCache;
     if (cache && cache.dashboard === dashboard && cache.locale === locale
       && cache.connected === connected && cache.sessionId === sessionId
       && cache.fleetValue === fleetValue && cache.running === running
       && cache.contextPressure === contextPressure
       && cache.browserSeq === browserSeq && cache.browserIsCurrent === browserIsCurrent && cache.expandedKey === expandedKey
+      && cache.currentHighlight === currentHighlight
+      && cache.commandFilter === commandFilter && cache.commandExpandedId === commandExpandedId
+      && cache.browserBase === browserBase && cache.browserQuery === browserQuery && cache.browserKind === browserKind
+      && cache.browserTool === browserTool
+      && cache.eventFilter === eventFilter
       && cache.fileFilter === fileFilter && cache.fileSort === fileSort
+      && cache.fileQuery === fileQuery && cache.fileExpandedPath === fileExpandedPath
       && cache.trendSeq === trendSeq && cache.trendGroupBy === trendGroupBy
       && cache.trendDisplayMode === trendDisplayMode
       && cache.trendActiveTurn === trendActiveTurn
@@ -1435,16 +1593,21 @@ Page({
       t: uiText, connected: connected, hasSession: !!sessionId,
       running: running, fleet: fleetValue, contextPressure: contextPressure,
       browserSeq: browserSeq, browserCurrent: browserIsCurrent, expanded: expanded,
+      browserBase: browserBase, browserQuery: browserQuery, browserKind: browserKind, browserTool: browserTool,
+      currentHighlight: currentHighlight,
+      commandFilter: commandFilter, commandExpandedId: commandExpandedId,
       trendSeq: trendSeq, trendGroupBy: trendGroupBy, trendDisplayMode: trendDisplayMode,
       trendActiveTurn: trendActiveTurn, trendDna: trendDna, trendOverview: trendOverview,
       trendAdaptive: trendAdaptive, trendShowDuration: trendShowDuration,
       trendVisibleRange: trendVisibleRange,
-      fileFilter: fileFilter, fileSort: fileSort
+      eventFilter: eventFilter,
+      fileFilter: fileFilter, fileSort: fileSort, fileQuery: fileQuery, fileExpandedPath: fileExpandedPath
     });
     this._contextPanelCache = {
       dashboard, locale, connected, sessionId,
-      fleetValue, running, contextPressure, browserSeq, browserIsCurrent, expandedKey,
-      fileFilter, fileSort,
+      fleetValue, running, contextPressure, currentHighlight, commandFilter, commandExpandedId, browserSeq, browserIsCurrent, expandedKey,
+      browserBase, browserQuery, browserKind, browserTool,
+      eventFilter, fileFilter, fileSort, fileQuery, fileExpandedPath,
       trendSeq, trendGroupBy, trendDisplayMode, trendActiveTurn, trendDna, trendOverview,
       trendAdaptive, trendShowDuration, trendVisibleRangeKey, panel
     };
@@ -1457,6 +1620,83 @@ Page({
    * 游标变化同时回写到趋势图的选中项，两个模块始终指向同一请求
    * （dsh-context 的 live linkage 是双向的：hover 柱预览、离开回到自选）。
    */
+  /** 基线切换：比前步 / 比前轮（dsh-context browser.tsx 的 base gran）。 */
+  /** 命令执行卡：筛选 chips（全部/失败/慢/后台）。 */
+  setContextCommandFilter(e) {
+    const filter = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.filter : '';
+    if (['all', 'failed', 'slow', 'background'].indexOf(filter) < 0 || filter === this.data.contextCommandFilter) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextCommandFilter: filter });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
+  /** 命令行展开/收起（同一时刻只展开一条）。 */
+  toggleContextCommand(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.key : '';
+    if (!key) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextCommandExpanded: this.data.contextCommandExpanded === key ? '' : key });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
+  /** 复制命令原文。 */
+  copyContextCommand(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.key : '';
+    const commands = this.data.contextPanel && this.data.contextPanel.commands;
+    const row = commands && Array.isArray(commands.rows) ? commands.rows.find(item => item.key === key) : null;
+    if (!row) return;
+    wx.setClipboardData({ data: row.commandText, success: () => wx.showToast({ title: uiText('已复制'), icon: 'success' }) });
+  },
+
+  /** 在上下文浏览器里定位该命令对应的 tool result。 */
+  locateContextCommand(e) {
+    const seq = Number(e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.seq : NaN);
+    if (!Number.isSafeInteger(seq) || seq < 0) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setContextBrowser(seq, ['tool'], false);
+    this.jumpContextTo('ctxBrowserCard');
+  },
+
+  /** 当前上下文图例/组成条：点一个类别高亮（其余淡出），再点取消。 */
+  contextCurrentTap(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.key : '';
+    if (!key) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextCurrentHighlight: this.data.contextCurrentHighlight === key ? '' : key });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
+  setContextBrowserBase(e) {
+    const base = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.base : '';
+    if (!['step', 'turn'].includes(base) || base === this.data.contextBrowserBase) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextBrowserBase: base });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
+  /** 类别内过滤：输入即过滤当前展开类别的行（按标签/预览/工具/参数）。 */
+  setContextBrowserQuery(e) {
+    const value = e && e.detail && typeof e.detail.value === 'string' ? e.detail.value : '';
+    if (value === this.data.contextBrowserQuery) return;
+    this.setData({ contextBrowserQuery: value });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
+  /** 助手类别按「思考 / 工具 / 回答」过滤；再点同一枚取消。 */
+  setContextBrowserKind(e) {
+    const kind = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.kind : '';
+    if (!['think', 'tools', 'answer'].includes(kind)) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextBrowserKind: this.data.contextBrowserKind === kind ? '' : kind });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
   setContextBrowser(seq, expanded, isCurrent) {
     const next = seq == null ? null : Number(seq);
     const patch = { contextBrowserSeq: next, contextBrowserIsCurrent: isCurrent === true };
@@ -1466,21 +1706,39 @@ Page({
       this._contextPanelCache = null;
     }
     if (Array.isArray(expanded)) patch.contextBrowserExpanded = expanded;
+    // 切步骤：关闭已展开类别并清空类别内过滤（dsh-context browser.tsx B:285-289）。
+    if (next !== (this.data.contextBrowserSeq == null ? null : Number(this.data.contextBrowserSeq))) {
+      patch.contextBrowserExpanded = [];
+      patch.contextBrowserQuery = '';
+      patch.contextBrowserTool = '';
+    }
     patch.contextNodeDetail = null;
     this.setData(patch);
     this.setData(this.contextPanelPatch());
   },
 
-  /** Rebuild after a control change, then pin the browser to the bar the new chart actually selected. */
-  rebuildContextTrendSelection() {
+  /** Commit the control and both linked views together so no stale mode can flash between setData calls. */
+  rebuildContextTrendSelection(statePatch) {
+    const patch = statePatch || {};
+    const overrides = Object.assign({}, patch);
     this._contextPanelCache = null;
-    const nextPanel = this.contextPanelPatch().contextPanel;
+    const nextPanel = this.contextPanelPatch(undefined, undefined, overrides).contextPanel;
     const selected = nextPanel && nextPanel.trend ? nextPanel.trend.selectedSeq : null;
     const seq = selected !== null && selected !== undefined && Number.isFinite(Number(selected))
       ? Number(selected) : null;
-    this.setData({ contextTrendSeq: seq, contextBrowserSeq: seq, contextBrowserIsCurrent: false });
+    const linkedPatch = Object.assign({}, patch, {
+      contextTrendSeq: seq,
+      contextBrowserSeq: seq,
+      contextBrowserIsCurrent: false
+    });
+    Object.assign(overrides, {
+      contextTrendSeq: seq,
+      contextBrowserSeq: seq,
+      contextBrowserIsCurrent: false
+    });
     this._contextPanelCache = null;
-    this.setData(this.contextPanelPatch());
+    const panelPatch = this.contextPanelPatch(undefined, undefined, overrides);
+    this.setData(Object.assign({}, linkedPatch, panelPatch));
   },
 
   /** Adaptive scales follow the visible horizontal window, like the desktop chart. */
@@ -1512,6 +1770,19 @@ Page({
   },
 
   /** Read the selected surface/header event body lazily instead of shipping transcripts on every refresh. */
+  /** 复制当前展开的上下文明细正文（web 详情段头右侧的复制按钮）。 */
+  copyContextNodeText() {
+    const detail = this.data.contextNodeDetail;
+    if (!detail || typeof detail.text !== 'string' || !detail.text) return;
+    wx.setClipboardData({ data: detail.text, success: () => {
+      this.setData({ 'contextNodeDetail.copied': true });
+      clearTimeout(this._contextCopyTimer);
+      this._contextCopyTimer = setTimeout(() => {
+        if (this.data && this.data.contextNodeDetail) this.setData({ 'contextNodeDetail.copied': false });
+      }, 1200);
+    } });
+  },
+
   openContextNode(e) {
     const rawSeq = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.seq : null;
     const seq = Number(rawSeq);
@@ -1534,8 +1805,9 @@ Page({
         || !store.sessionState || store.sessionState.sessionId !== sessionId) return;
       const value = frame && frame.value && typeof frame.value === 'object' ? frame.value : null;
       if (!value || typeof value.text !== 'string') throw new Error(uiText('上下文明细不可用'));
+      const lines = String(value.text).split('\n').length;
       const detail = { seq: seq, type: value.type || '', text: value.text,
-        truncated: value.truncated === true };
+        truncated: value.truncated === true, lineText: uiText('{n} 行', { n: lines }), copied: false };
       this._contextContentCache[key] = detail;
       const cacheKeys = Object.keys(this._contextContentCache);
       if (cacheKeys.length > 64) delete this._contextContentCache[cacheKeys[0]];
@@ -1573,15 +1845,48 @@ Page({
   },
 
   /** 展开/折叠某类（v2 折叠行）。 */
+  /** 行点击分发：工具定义行就地展开参数表，其它行按需拉取正文。 */
+  contextBrowserNodeTap(e) {
+    const cat = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.cat : '';
+    if (cat === 'tools') { this.toggleContextToolRow(e); return; }
+    this.openContextNode(e);
+  },
+
+  /** 工具定义行：就地展开描述/参数表，不请求历史内容（header epoch 已在 wire 里）。 */
+  toggleContextToolRow(e) {
+    const name = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.name : '';
+    const browser = (this.data.contextPanel && this.data.contextPanel.browser) || null;
+    const row = browser && Array.isArray(browser.rows) ? browser.rows.find(item => item.key === 'tools') : null;
+    const node = row && Array.isArray(row.nodes) ? row.nodes.find(item => item.name === name) : null;
+    if (!node) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextBrowserTool: this.data.contextBrowserTool === name ? '' : name });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
   toggleContextBrowserRow(e) {
     const browser = (this.data.contextPanel && this.data.contextPanel.browser) || null;
     const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.key : '';
     if (!browser || !key) return;
+    // 空类别不可展开（插件里计数为 0 的行整行置灰且点击无效）。
+    const row = Array.isArray(browser.rows) ? browser.rows.find(item => item.key === key) : null;
+    if (!row || row.disabled) return;
     const expanded = (Array.isArray(this.data.contextBrowserExpanded) ? this.data.contextBrowserExpanded.slice() : []);
     const index = expanded.indexOf(key);
     if (index >= 0) expanded.splice(index, 1); else expanded.push(key);
     haptics.tick ? haptics.tick() : haptics.vibrate();
     this.setContextBrowser(this.data.contextBrowserSeq, expanded, browser.isCurrent === true);
+  },
+
+  toggleContextDnaNode(e) {
+    const seq = Number(e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.seq : NaN);
+    if (!Number.isSafeInteger(seq) || seq < 0) return;
+    if (this.data.contextNodeDetail && this.data.contextNodeDetail.seq === seq) {
+      this.setData({ contextNodeDetail: null, contextNodeLoadingSeq: null });
+      return;
+    }
+    this.openContextNode(e);
   },
 
   /**
@@ -1592,6 +1897,18 @@ Page({
    * that step's assembled context in the Context browser）。再次点同一根柱子
    * 取消选中，浏览器回到「当前（下一次请求）」。
    */
+  /** Step brief 行/chip → 浏览器定位该节点（dsh-context brief.ts onLocate）。 */
+  contextBriefLocate(e) {
+    const raw = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.seq : null;
+    const seq = Number(raw);
+    const cat = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.cat : '';
+    if (!Number.isSafeInteger(seq) || seq < 0) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    const expanded = ['user', 'inject', 'skill', 'assistant', 'tool', 'system', 'tools'].includes(cat) ? [cat] : [];
+    this.setContextBrowser(seq, expanded, false);
+    this.jumpContextTo('ctxBrowserCard');
+  },
+
   contextTrendSelect(e) {
     const raw = e && e.currentTarget && e.currentTarget.dataset
       ? e.currentTarget.dataset.seq : null;
@@ -1655,29 +1972,35 @@ Page({
       ? this.data.contextPanel.trend.groupBy : this.data.contextTrendGroupBy;
     if (groupBy === currentGroup) return;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setData({ contextTrendGroupBy: groupBy, contextTrendActiveTurn: null, contextTrendVisibleRange: null });
-    this._contextPanelCache = null;
-    this.rebuildContextTrendSelection();
+    this.rebuildContextTrendSelection({
+      contextTrendGroupBy: groupBy,
+      contextTrendActiveTurn: null,
+      contextTrendVisibleRange: null
+    });
     if (this.data.contextTrendAdaptive) this.measureContextTrendViewport(this._contextTrendMeasureLeft || 0);
   },
 
   /** Adaptive rescales bars/curve against the visible window; overview is its mutually exclusive counterpart. */
   contextTrendAdaptive() {
-    const next = !(this.data.contextTrendAdaptive === true);
+    const current = this.data.contextPanel && this.data.contextPanel.trend
+      ? this.data.contextPanel.trend.adaptive : this.data.contextTrendAdaptive === true;
+    const next = !current;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setData({ contextTrendAdaptive: next, contextTrendOverview: false, contextTrendDna: false,
-      contextTrendVisibleRange: next ? this.data.contextTrendVisibleRange : null });
-    this._contextPanelCache = null;
-    this.rebuildContextTrendSelection();
+    this.rebuildContextTrendSelection({
+      contextTrendAdaptive: next,
+      contextTrendOverview: false,
+      contextTrendDna: false,
+      contextTrendVisibleRange: next ? this.data.contextTrendVisibleRange : null
+    });
     if (next) this.measureContextTrendViewport(this._contextTrendMeasureLeft || 0);
   },
 
   /** Show or hide the independent request-duration curve and its right axis. */
   contextTrendDuration() {
-    this.setData({ contextTrendShowDuration: this.data.contextTrendShowDuration === false });
+    const current = this.data.contextPanel && this.data.contextPanel.trend
+      ? this.data.contextPanel.trend.showDuration : this.data.contextTrendShowDuration !== false;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this._contextPanelCache = null;
-    this.rebuildContextTrendSelection();
+    this.rebuildContextTrendSelection({ contextTrendShowDuration: !current });
   },
 
   /** 趋势显示完整上下文规模，或相邻请求之间的增长/回收量。 */
@@ -1688,30 +2011,38 @@ Page({
     if (mode === this.data.contextTrendDisplayMode) return;
     haptics.tick ? haptics.tick() : haptics.vibrate();
     // DNA 画的是构成指纹，没有"逐类增减"可讲，切到增量时自动让位。
-    if (mode === 'delta') this.setData({ contextTrendDna: false });
-    this.setData({ contextTrendDisplayMode: mode });
-    this._contextPanelCache = null;
-    this.rebuildContextTrendSelection();
+    this.rebuildContextTrendSelection({
+      contextTrendDisplayMode: mode,
+      contextTrendDna: mode === 'delta' ? false : this.data.contextTrendDna
+    });
   },
 
   /** DNA 模式：每根柱子改成一条条带，按模型阅读顺序平铺（与总览互斥）。 */
   contextTrendDna() {
-    const next = !(this.data.contextTrendDna === true);
+    const current = this.data.contextPanel && this.data.contextPanel.trend
+      ? this.data.contextPanel.trend.dna : this.data.contextTrendDna === true;
+    const next = !current;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setData({ contextTrendDna: next, contextTrendOverview: false, contextTrendAdaptive: false,
-      contextTrendVisibleRange: null });
-    this._contextPanelCache = null;
-    this.rebuildContextTrendSelection();
+    this.rebuildContextTrendSelection({
+      contextTrendDna: next,
+      contextTrendDisplayMode: next ? 'total' : this.data.contextTrendDisplayMode,
+      contextTrendOverview: false, contextTrendAdaptive: false,
+      contextTrendVisibleRange: null
+    });
   },
 
   /** 总览：整段会话压进可视宽度的连续堆叠带（与 DNA 互斥）。 */
   contextTrendOverview() {
-    const next = !(this.data.contextTrendOverview === true);
+    const current = this.data.contextPanel && this.data.contextPanel.trend
+      ? this.data.contextPanel.trend.overview : this.data.contextTrendOverview === true;
+    const next = !current;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setData({ contextTrendOverview: next, contextTrendDna: false, contextTrendAdaptive: false,
-      contextTrendVisibleRange: null });
-    this._contextPanelCache = null;
-    this.rebuildContextTrendSelection();
+    this.rebuildContextTrendSelection({
+      contextTrendOverview: next,
+      contextTrendDna: false,
+      contextTrendAdaptive: false,
+      contextTrendVisibleRange: null
+    });
   },
 
   /**
@@ -1743,6 +2074,38 @@ Page({
     this._ctxFitSeq = null;
   },
 
+  /** 打开跨会话 Context Insights 页（插件里是侧栏一级面板）。 */
+  openContextInsights() {
+    const sessionId = store.sessionState && store.sessionState.sessionId;
+    if (!sessionId) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    wx.navigateTo({ url: '/pages/insights/insights?sessionId=' + encodeURIComponent(String(sessionId)) });
+  },
+
+  /** 打开 /context 等价的居中弹窗（插件里来自斜杠命令；小程序放工具栏入口）。 */
+  openContextModal() {
+    if (!this.data.contextPanel || this.data.contextPanel.status === 'loading') return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextModalOpen: true, showJump: false });
+  },
+
+  closeContextModal() {
+    if (!this.data.contextModalOpen) return;
+    this.setData({ contextModalOpen: false });
+  },
+
+  /** 弹窗里的类别行：关闭弹窗、回到页面浏览器卡片并展开该类别（避免两处重复渲染大列表）。 */
+  contextModalCategoryTap(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.key : '';
+    if (!key) return;
+    const browser = this.data.contextPanel && this.data.contextPanel.browser;
+    const row = browser && Array.isArray(browser.rows) ? browser.rows.find(item => item.key === key) : null;
+    if (!row || row.disabled) return;
+    this.setData({ contextModalOpen: false });
+    this.setContextBrowser(this.data.contextBrowserSeq, [key], this.data.contextBrowserIsCurrent);
+    this.jumpContextTo('ctxBrowserCard');
+  },
+
   /** 手动刷新上下文面板（卡片区右上角）。 */
   refreshContextDashboard() {
     if (store.refreshContextDashboard) {
@@ -1754,25 +2117,113 @@ Page({
   contextFileActivitySelect(e) {
     const path = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.path : '';
     if (!path) return;
-    wx.showModal({ title: uiText('文件活动'), content: path, showCancel: false, confirmText: uiText('关闭') });
+    const next = this.data.contextFileExpandedPath === path ? '' : path;
+    this.setData({ contextFileExpandedPath: next });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
+  /** 事件筛选 chips：默认全选；点一枚只留它；再点其它追加；只剩一枚时点它恢复全选（dsh-context events.tsx）。 */
+  setContextEventFilter(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.filter : '';
+    const kinds = ['inject', 'compaction', 'prune', 'model', 'mode'];
+    if (!kinds.includes(key)) return;
+    const current = Array.isArray(this.data.contextEventFilter) ? this.data.contextEventFilter.slice() : kinds.slice();
+    let next;
+    if (current.length >= kinds.length) next = [key];
+    else if (current.includes(key)) {
+      next = current.filter(item => item !== key);
+      if (!next.length) next = kinds.slice();
+    } else next = kinds.filter(item => current.includes(item) || item === key);
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ contextEventFilter: next });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
   },
 
   setContextFileFilter(e) {
     const filter = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.filter : '';
-    if (['all', 'read', 'write', 'search'].indexOf(filter) < 0 || filter === this.data.contextFileFilter) return;
+    if (['all', 'read', 'write', 'search', 'image'].indexOf(filter) < 0 || filter === this.data.contextFileFilter) return;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setData({ contextFileFilter: filter });
+    this.setData({ contextFileFilter: filter, contextFileExpandedPath: '' });
     this._contextPanelCache = null;
     this.setData(this.contextPanelPatch());
   },
 
+  /** 文件操作行 → 上下文浏览器里定位该步骤并展开工具结果（插件 locateStepOf 行为）。 */
+  contextFileOpTap(e) {
+    const seq = Number(e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.seq : NaN);
+    if (!Number.isSafeInteger(seq) || seq < 0) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setContextBrowser(seq, ['tool'], false);
+    this.jumpContextTo('ctxBrowserCard');
+  },
+
   setContextFileSort(e) {
     const sort = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sort : '';
-    if (['activity', 'recent'].indexOf(sort) < 0 || sort === this.data.contextFileSort) return;
+    if (['count', 'lines', 'latest', 'path', 'name'].indexOf(sort) < 0 || sort === this.data.contextFileSort) return;
     haptics.tick ? haptics.tick() : haptics.vibrate();
     this.setData({ contextFileSort: sort });
     this._contextPanelCache = null;
     this.setData(this.contextPanelPatch());
+  },
+
+  setContextFileQuery(e) {
+    const query = e && e.detail ? String(e.detail.value || '') : '';
+    if (query === this.data.contextFileQuery) return;
+    this.setData({ contextFileQuery: query, contextFileExpandedPath: '' });
+    this._contextPanelCache = null;
+    this.setData(this.contextPanelPatch());
+  },
+
+  jumpContextTo(target) {
+    if (!target) return;
+    this.setData({ contextScrollTarget: '' }, () => {
+      this.setData({ contextScrollTarget: target });
+    });
+  },
+
+  /** 统计卡的 `?`（web 用 hover 气泡；触屏改为模态说明）。 */
+  contextStatTip(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.tip : '';
+    const tips = {
+      humanInputs: uiText('当前会话中的用户消息与问题回答次数。'),
+      subCost: uiText('全部层级的子 Agent 会话各自累计费用（同口径估算）的合计，不含当前 Agent 自身。'),
+      cacheHit: uiText('整个会话累计的缓存读取占计费输入的比例。'),
+      tps: uiText('输出速度（TPS）：累计解码输出 tokens ÷ 累计解码时长，与 DeepSeek Harness 会话统计同口径。')
+    };
+    if (!tips[key]) return;
+    wx.showModal({ title: uiText('上下文统计'), content: tips[key], showCancel: false, confirmText: uiText('知道了') });
+  },
+
+  contextStatsJump(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.key : '';
+    // 会话节点第二行：技能加载 → 浏览器技能注入；模型回复 → 浏览器回答。
+    if (key === 'skills' || key === 'answers') {
+      const category = key === 'skills' ? 'skill' : 'assistant';
+      this.setContextBrowser(this.data.contextBrowserSeq, [category], this.data.contextBrowserIsCurrent);
+      this.jumpContextTo('ctxBrowserCard');
+      return;
+    }
+    if (key === 'userInputs') {
+      const trend = this.data.contextPanel && this.data.contextPanel.trend;
+      const bars = trend && Array.isArray(trend.bars) ? trend.bars : [];
+      const latest = bars.length ? bars[bars.length - 1].seq : null;
+      this.setContextBrowser(latest, undefined, latest == null);
+      this.jumpContextTo('ctxBrowserCard');
+      return;
+    }
+    const fileFilter = { reads: 'read', writes: 'write', searches: 'search', images: 'image' }[key];
+    if (fileFilter) {
+      this.setContextFileFilter({ currentTarget: { dataset: { filter: fileFilter } } });
+      this.jumpContextTo('ctxFileCard');
+      return;
+    }
+  },
+
+  openContextFleet() {
+    if (!this.data.showFleetPanel) return;
+    this.switchTab({ currentTarget: { dataset: { tab: 'fleet' } } });
   },
 
   /** 编队面板派生：store 快照 → 纯函数视图模型（缓存原始 value 身份，避免每次 emit 重算卡片）。 */
@@ -1784,16 +2235,28 @@ Page({
     const connected = !a || a.connection === 'connected';
     const sessionId = (s && s.sessionId) || '';
     const running = !!(s && s.running);
+    const stageWidth = this.data.fleetStageWidth || 343;
+    const selectedId = this.data.fleetSelectedId || '';
+    const memberQuery = this.data.fleetMemberQuery || '';
+    const memberStatus = this.data.fleetMemberStatus || 'all';
+    const memberSort = this.data.fleetMemberSort || 'derived';
+    const commsFilter = this.data.fleetCommsFilter || '';
+    const commsValue = this._fleetComms || null;
     const cache = this._fleetPanelCache;
     if (cache && cache.fleet === fleet && cache.locale === locale
       && cache.connected === connected && cache.sessionId === sessionId
-      && cache.running === running) {
+      && cache.running === running && cache.stageWidth === stageWidth && cache.selectedId === selectedId
+      && cache.memberQuery === memberQuery && cache.memberStatus === memberStatus && cache.memberSort === memberSort
+      && cache.commsFilter === commsFilter && cache.commsValue === commsValue) {
       return { fleetPanel: cache.panel };
     }
     const panel = contextView.buildFleetPanel(fleet, {
-      t: uiText, connected: connected, hasSession: !!sessionId, running: running
+      t: uiText, connected: connected, hasSession: !!sessionId, running: running,
+      stageWidth: stageWidth, selectedId: selectedId,
+      memberQuery: memberQuery, memberStatus: memberStatus, memberSort: memberSort,
+      commsValue: commsValue, commsFilter: commsFilter
     });
-    this._fleetPanelCache = { fleet, locale, connected, sessionId, running, panel };
+    this._fleetPanelCache = { fleet, locale, connected, sessionId, running, stageWidth, selectedId, memberQuery, memberStatus, memberSort, commsFilter, commsValue, panel };
     return { fleetPanel: panel };
   },
 
@@ -1813,6 +2276,112 @@ Page({
     haptics.vibrate();
     if (store.openSession) store.openSession(sessionId, dataset.title || '', null);
     this.switchTab({ currentTarget: { dataset: { tab: 'context' } } });
+  },
+
+  /** 网络图节点：点卡 = 选中/取消（插件 hover 血统高亮的触屏替代）。 */
+  fleetSelectAgent(e) {
+    const id = (e && e.currentTarget && e.currentTarget.dataset) ? e.currentTarget.dataset.id : '';
+    if (!id) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ fleetSelectedId: this.data.fleetSelectedId === id ? '' : id });
+    this._fleetPanelCache = null;
+    this.setData(this.fleetPanelPatch());
+  },
+
+  /** 网络图节点右上角「→」：打开该 Agent 的会话并切到上下文分段。 */
+  fleetOpenAgent(e) {
+    const id = (e && e.currentTarget && e.currentTarget.dataset) ? e.currentTarget.dataset.id : '';
+    if (!id) return;
+    this.openFleetAgent({ currentTarget: { dataset: { id: id } } });
+  },
+
+  /** 展开全部 / 收起（舞台固定 1120rpx，超出时滚动）。 */
+  fleetToggleAll() {
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ fleetAllOpen: !this.data.fleetAllOpen });
+  },
+
+  /** 通讯面板：按需扫描当前家族的会话日志（宿主 context-comms）。 */
+  scanFleetComms() {
+    if (this.data.fleetCommsState === 'scanning') return;
+    const panel = this.data.fleetPanel;
+    const cards = panel && Array.isArray(panel.agents) ? panel.agents : [];
+    const sessionIds = cards.map(card => card.sessionId).filter(Boolean).slice(0, 12);
+    if (!sessionIds.length) return;
+    const client = store.client;
+    if (!client || typeof client.requestContextComms !== 'function') {
+      wx.showToast({ title: uiText('需升级网关以显示通讯记录'), icon: 'none' });
+      return;
+    }
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ fleetCommsState: 'scanning' });
+    client.requestContextComms(sessionIds).then((frame) => {
+      if (!this.data || this.data.fleetCommsState !== 'scanning') return;
+      const value = frame && frame.value && typeof frame.value === 'object' ? frame.value : null;
+      if (!value) throw new Error('bad frame');
+      this._fleetComms = value;
+      this._fleetPanelCache = null;
+      this.setData({ fleetCommsState: 'ready', fleetCommsFilter: '' });
+      this.setData(this.fleetPanelPatch());
+    }).catch(() => {
+      if (!this.data) return;
+      this.setData({ fleetCommsState: 'error' });
+      wx.showToast({ title: uiText('扫描失败，请重试'), icon: 'none' });
+    });
+  },
+
+  setFleetCommsFilter(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
+    if (id === this.data.fleetCommsFilter) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ fleetCommsFilter: id || '' });
+    this._fleetPanelCache = null;
+    this.setData(this.fleetPanelPatch());
+  },
+
+  setFleetMemberQuery(e) {
+    const value = e && e.detail && typeof e.detail.value === 'string' ? e.detail.value : '';
+    if (value === this.data.fleetMemberQuery) return;
+    this.setData({ fleetMemberQuery: value });
+    this._fleetPanelCache = null;
+    this.setData(this.fleetPanelPatch());
+  },
+
+  setFleetMemberStatus(e) {
+    const status = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.status : '';
+    if (['all', 'running', 'done', 'idle'].indexOf(status) < 0 || status === this.data.fleetMemberStatus) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ fleetMemberStatus: status });
+    this._fleetPanelCache = null;
+    this.setData(this.fleetPanelPatch());
+  },
+
+  setFleetMemberSort(e) {
+    const sort = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sort : '';
+    if (['derived', 'context', 'duration', 'steps'].indexOf(sort) < 0 || sort === this.data.fleetMemberSort) return;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ fleetMemberSort: sort });
+    this._fleetPanelCache = null;
+    this.setData(this.fleetPanelPatch());
+  },
+
+  fleetOpenMember(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
+    if (!id) return;
+    this.openFleetAgent({ currentTarget: { dataset: { id: id } } });
+  },
+
+  /** 舞台宽度（px）：卡片左右 padding 各 8px；用于网络图 tidy-tree 布局。 */
+  measureFleetStage() {
+    let width = 343;
+    try {
+      const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+      if (info && Number.isFinite(info.windowWidth)) width = Math.max(240, Math.round(info.windowWidth - 32));
+    } catch (_) { /* 保持默认宽度 */ }
+    if (width !== this.data.fleetStageWidth) {
+      this.setData({ fleetStageWidth: width });
+      this._fleetPanelCache = null;
+    }
   },
 
   onPanelTouchStart(e) {
@@ -1887,6 +2456,26 @@ Page({
       if (this._copyTimer) clearTimeout(this._copyTimer);
       this._copyTimer = setTimeout(() => this.setData({ copiedKey: '' }), 1400);
     }
+  },
+
+  /** 长按消息正文：打开可选中/复制的纯文本弹层。 */
+  openTextSelection(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.key : '';
+    const rows = (this._conversationRows && this._conversationRows.length ? this._conversationRows : this.data.rows) || [];
+    const row = rows.find((item) => item.key === key);
+    const text = row && row.text ? mdToPlain(row.text) : '';
+    if (!text) return;
+    haptics.vibrate();
+    this.setData({ filePreview: { name: uiText('选择文字'), text, selection: true } });
+  },
+
+  copyTextSelection() {
+    const text = this.data.filePreview && this.data.filePreview.selection ? this.data.filePreview.text : '';
+    if (!text) return;
+    wx.setClipboardData({ data: text, success: () => {
+      wx.showToast({ title: uiText('已复制'), icon: 'success' });
+      this.setData({ filePreview: null });
+    } });
   },
 
   findPresetName(catalog, presetId) {
@@ -2431,16 +3020,12 @@ Page({
     const output = pick('outputTokens');
     const cacheWrite = pick('cacheWriteTokens');
     const input = pick('inputTokens');
-    const knownTotal = [uncachedInput, cacheRead, output].filter((value) => value != null)
-      .reduce((sum, value) => sum + value, 0);
-    const displayTotal = knownTotal > 0 ? knownTotal : (input == null ? 0 : input);
-    const cacheBase = uncachedInput != null && cacheRead != null
-      ? uncachedInput + cacheRead
-      : [input, output, cacheRead, cacheWrite].filter((value) => value != null)
-        .reduce((sum, value) => sum + value, 0);
-    const cacheHit = cacheBase > 0 && cacheRead != null
-      ? Math.round(Math.min(1, Math.max(0, cacheRead / cacheBase)) * 100) + '%'
-      : '—';
+    const hasDisjointInput = uncachedInput != null && cacheRead != null && cacheWrite != null;
+    const billedInput = hasDisjointInput
+      ? uncachedInput + cacheRead + cacheWrite : input;
+    const displayTotal = billedInput != null && output != null ? billedInput + output : null;
+    const cacheHitPct = formatSessionCacheHitPercent(cacheRead, billedInput);
+    const cacheHit = cacheHitPct == null ? '—' : cacheHitPct + '%';
     const fullToken = (value) => value == null ? '—' : numberWithCommas(Math.round(value)) + ' tok';
     this.setData({
       statsPopKind: 'token',
@@ -2524,6 +3109,11 @@ Page({
 
   // ---------- 对话交互 ----------
 
+  onHistoryBannerTap() {
+    if (this.data.historyLoading) return;
+    this.loadOlder();
+  },
+
   loadOlder() {
     // 加载更早历史会让 scrollTop 骤降，抑制这次位移的手势判定
     this._suppressScrollUntil = Date.now() + 600;
@@ -2544,6 +3134,19 @@ Page({
       deltaY: Number(d.deltaY) || 0
     });
     this.updateConversationWindow(Number(d.scrollTop) || 0);
+    this.maybePrefetchOlderHistory(Number(d.scrollTop) || 0);
+  },
+
+  /** 接近顶部时提前拉下一页历史，避免用户滑到顶后才开始慢加载。 */
+  maybePrefetchOlderHistory(scrollTop) {
+    if (this.data.tab !== 'conversation' || this.data.turnNavOpen) return;
+    if (this.data.historyPaging || !this.data.hasMoreHistory || this.data.histError) return;
+    if (this._suppressPins === true || Date.now() < (this._suppressScrollUntil || 0)) return;
+    if (scrollTop <= 0 || scrollTop > 4000) return;
+    const now = Date.now();
+    if (now - (this._olderPrefetchAt || 0) < 350) return;
+    this._olderPrefetchAt = now;
+    store.loadOlderHistory();
   },
 
   // Content growth and intermediate programmatic positions must not cancel following.
@@ -2571,7 +3174,7 @@ Page({
 
     if (Date.now() < (this._suppressScrollUntil || 0)) {
       this._lastScrollTop = scrollTop;
-      if (pinned) this._convPinned = true;
+      if (pinned && this._suppressPins !== true) this._convPinned = true;
       return;
     }
 
@@ -2627,10 +3230,10 @@ Page({
   /** 当前对话的节点定位：列出用户消息 / 过程 / 助手回复，可跳到任意节点。 */
   turnNavRowStyle(index, activeIndex) {
     const distance = activeIndex < 0 ? 0 : Math.abs(index - activeIndex);
-    const blur = Math.min(4, distance * 0.7);
-    const opacity = Math.max(0.14, 1 - distance * 0.16);
-    const scale = Math.max(0.9, 1 - distance * 0.018);
-    return `opacity:${opacity.toFixed(2)};filter:blur(${blur.toFixed(1)}px);transform:scale(${scale.toFixed(3)});`;
+    // 不用 filter:blur：几十行同时做模糊会让真机 GPU 发烫、滚动掉帧。
+    const opacity = Math.max(0.16, 1 - distance * 0.14);
+    const scale = Math.max(0.92, 1 - distance * 0.014);
+    return `opacity:${opacity.toFixed(2)};transform:scale(${scale.toFixed(3)});`;
   },
 
   turnNavigatorPatch(rows) {
@@ -2688,12 +3291,14 @@ Page({
   },
 
   openTurnNavigator() {
+    if (this.data.turnNavOpen) return;
     this.prioritizeInteraction();
     this._turnScrollTop = 0;
     this._turnListRect = null;
     this._turnScrubbing = false;
     this._turnOlderRequestKey = '';
     this._turnNavigatorTouched = false;
+    this._turnAutoFillDone = false;
     const active = this.data.turnNavItems.length ? 0 : -1;
     this.setData({
       turnNavOpen: true,
@@ -2772,8 +3377,8 @@ Page({
     const railed = new Set();
     for (const center of [this.data.turnNavActiveIndex, index]) {
       if (center < 0) continue;
-      for (let i = Math.max(0, center - 8); i <= Math.min(items.length - 1, center + 8); i++) styled.add(i);
-      for (let i = Math.max(0, center - 5); i <= Math.min(items.length - 1, center + 5); i++) railed.add(i);
+      for (let i = Math.max(0, center - 6); i <= Math.min(items.length - 1, center + 6); i++) styled.add(i);
+      for (let i = Math.max(0, center - 4); i <= Math.min(items.length - 1, center + 4); i++) railed.add(i);
     }
     styled.forEach(i => {
       const style = this.turnNavRowStyle(i, index);
@@ -2816,7 +3421,14 @@ Page({
     const contentHeight = Number(detail && detail.scrollHeight)
       || items.length * rowHeight + 2 * (rect.spacer || Math.max(0, (clientHeight - rowHeight) / 2));
     const nearOlderEdge = scrollTop + clientHeight >= contentHeight - Math.max(rowHeight * 2, 80);
-    if (!nearOlderEdge && !(fillViewport && items.length < 8)) return;
+    if (detail) {
+      if (!nearOlderEdge) return;
+    } else {
+      // store 更新也会调用本方法；这里最多补一页让大纲有内容，绝不能
+      // 在每次 emit 时继续向更早历史翻页（会连续请求整段历史，真机发热卡死）。
+      if (!fillViewport || this._turnAutoFillDone) return;
+      this._turnAutoFillDone = true;
+    }
 
     const session = store.sessionState || {};
     const requestKey = String(session.sessionId || '') + ':' + String(session.nextBeforeSeq == null ? '' : session.nextBeforeSeq);
@@ -2864,12 +3476,17 @@ Page({
     haptics.vibrate();
     if (this.data.tab !== 'conversation') this.switchTab({ currentTarget: { dataset: { tab: 'conversation' } } });
     this._convPinned = false;
+    // 程序化跳转期间禁止 scroll 事件重新贴底，否则 key 会被 conv-bottom 覆盖。
+    this._suppressPins = true;
+    this._suppressScrollUntil = Date.now() + 900;
     this.revealConversationRow(key);
     this.setData({ turnNavOpen: false, scrollTarget: '', scrollAnim: true }, () => {
       wx.nextTick(() => {
         this.setData({ scrollTarget: key });
         this._turnJumpTimer = setTimeout(() => {
           this._convPinned = false;
+          this._suppressPins = false;
+          this._suppressScrollUntil = 0;
           this.setData({ scrollAnim: false });
         }, 400);
       });
@@ -2880,6 +3497,8 @@ Page({
   resetConversationScroll() {
     if (this._turnJumpTimer) clearTimeout(this._turnJumpTimer);
     this._turnJumpTimer = null;
+    this._suppressPins = false;
+    this._suppressScrollUntil = 0;
     this._convPinned = true;
     this._lastTouchAt = 0;
     this._userScrolledUp = false;
@@ -2897,7 +3516,7 @@ Page({
   },
 
   refreshBottomAnchor() {
-    if (this._bottomAnchorPending || this._unloaded || this.data.tab !== 'conversation') return;
+    if (this._suppressPins === true || this._bottomAnchorPending || this._unloaded || this.data.tab !== 'conversation') return;
     // 空对话的空态（鲸鱼 + 说明）本身要垂直居中，贴底滚动会把整块内容顶高；
     // 有消息后再贴底，所以空态下直接跳过这次贴底。
     if (!this.data.rows.length && this.data.historyLoaded && !this.data.running) return;
@@ -2958,25 +3577,31 @@ Page({
       this._thumbQueued = new Set();
       this._thumbFailed = null;
       this._thumbQueue = [];
+      this._thumbPrefetchBudget = 80;
     }
     const queue = this._thumbQueue || (this._thumbQueue = []);
     const queued = this._thumbQueued || (this._thumbQueued = new Set());
     const failed = this._thumbFailed || (this._thumbFailed = new Map());
     const now = Date.now();
-    (this.data.rows || []).forEach((row) => {
+    const enqueueRow = (row, budgeted) => {
       if (!row || row.pending || !row.images || !row.images.length) return;
       row.images.forEach((image) => {
         if (!image || !image.attachmentId) return;
         const id = String(image.attachmentId);
         if (queued.has(id) || attachmentCache.localPath(image, { api: wx })) return;
+        if (budgeted && (this._thumbPrefetchBudget || 0) <= 0) return;
         const failure = failed.get(id);
         if (failure && now < failure.at) return;
         // 本机刚发送的图片已有临时文件：复制进缓存即可，不必再向网关要一遍字节。
         if (!image.tempPath && image.localUrl) return;
         queued.add(id);
+        if (budgeted) this._thumbPrefetchBudget = (this._thumbPrefetchBudget || 0) - 1;
         queue.push({ attachmentId: id, mediaType: image.mediaType, name: image.name, tempPath: image.tempPath || '' });
       });
-    });
+    };
+    (this.data.rows || []).forEach((row) => enqueueRow(row, false));
+    // 预先缓存已加载历史里的图片（可见行之外），让上滑旧消息时图片直接出现。
+    (store.sessionState.rows || []).forEach((row) => enqueueRow(row, true));
     this.pumpAttachmentThumbs();
   },
 
@@ -3242,12 +3867,46 @@ Page({
   onDraftInput(e) {
     this.prioritizeInteraction();
     this._draftRevision = (this._draftRevision || 0) + 1;
-    this._composerCursor = e.detail.cursor;
-    const value = e.detail.value;
+    const raw = String(e.detail.value == null ? '' : e.detail.value);
+    const cursor = Number.isInteger(e.detail.cursor) ? e.detail.cursor : raw.length;
+    // 指令 token 由蓝色 chip 承载，textarea 只编辑参数；这里再拼回完整草稿。
+    const token = this.data.commandToken;
+    const current = this.data.draft || '';
+    // 重新输入“/”视为换指令：清掉旧 token，让新的斜杠命令接管输入框。
+    const keepsToken = !!token && raw.charAt(0) !== '/' && (current === token || current.indexOf(token + ' ') === 0);
+    const value = keepsToken ? token + ' ' + raw : raw;
+    this._composerCursor = keepsToken ? token.length + 1 + cursor : cursor;
     this._dismissedCommandDraft = null;
     if (this.data.attachSheetOpen) this.closeAttachMenu();
     this.setData({ draft: value, canSend: !!value.trim() || this.data.images.length > 0 });
+    // 预览开着时要跟着输入刷新；关着就不做无用功。
+    if (this.data.composerPreview) this.refreshComposerPreview();
     this.syncCommandMenu(value, store.sessionState);
+  },
+
+  /** 移除输入框里的指令 token，把参数留在草稿里（chip 上的 ×）。 */
+  clearCommandToken() {
+    const arg = this.data.draftArg || '';
+    this._commandInputId = null;
+    this._draftRevision = (this._draftRevision || 0) + 1;
+    this.setData({ draft: arg, canSend: !!arg.trim() || this.data.images.length > 0, composerFocus: true });
+    this.syncCommandMenu(arg, store.sessionState);
+  },
+
+  /** 输入框 Markdown 预览：把当前草稿按发送后的同一条管线解析成块。 */
+  refreshComposerPreview() {
+    const text = String(this.data.draft || '');
+    this.setData({ composerPreviewBlocks: text.trim() ? safeParse(text) : [] });
+  },
+
+  /** 编辑 ⇄ 预览。进入预览时收起键盘，避免原生输入法盖住渲染结果。 */
+  toggleComposerPreview() {
+    const next = !this.data.composerPreview;
+    if (next && !String(this.data.draft || '').trim()) return;
+    if (next) this.refreshComposerPreview();
+    this.setData({ composerPreview: next, composerFocused: false, kbHeight: 0 });
+    if (next && this.data.commandMenu) this.setData({ commandMenu: null });
+    this.updateDockInset();
   },
 
   onComposerLineChange(e) {
@@ -3284,11 +3943,15 @@ Page({
     }
     const ui = active && active.ui || {};
     const hint = ui.displayHint || ui.hint || (active && active.input && active.input.hint) || '';
+    const slash = composerMenu.presentation(text, commands);
     this._activeCommand = active;
     const patch = dataPatch(this.data, {
       commandMenu: menu,
       canAttach: composerMenu.acceptsAttachments(active),
-      composerPlaceholder: hint || uiText(this.data.voiceEnabled ? '输入内容或按住说话' : '输入内容')
+      composerPlaceholder: hint || uiText(this.data.voiceEnabled ? '输入内容或按住说话' : '输入内容'),
+      commandToken: slash ? slash.token : '',
+      commandTokenLabel: slash ? composerMenu.commandLabel(slash.command, uiText) : '',
+      draftArg: slash ? slash.argument : text
     });
     if (this.data.tab !== 'conversation') patch.commandMenu = null;
     if (Object.keys(patch).length) {
@@ -3560,8 +4223,18 @@ Page({
       for (const file of res.tempFiles || []) {
         if (!current()) { finish(); return; }
         if (Number(file.size) > 8 * 1024 * 1024) { skipped = true; continue; }
-        const tempPath = file.tempFilePath || file.path;
+        let tempPath = file.tempFilePath || file.path;
         if (!tempPath) { skipped = true; continue; }
+        // 原图好几 MB 时先压缩再 base64 上传，发送明显更快（仅 JPEG，避免 PNG/动图失真）。
+        if (Number(file.size) > 400 * 1024 && typeof wx.compressImage === 'function') {
+          tempPath = await new Promise((resolve) => {
+            wx.compressImage({
+              src: tempPath, quality: 72, compressedWidth: 1280,
+              success: (res) => resolve((res && res.tempFilePath) || tempPath),
+              fail: () => resolve(tempPath)
+            });
+          });
+        }
         let info = null;
         try {
           info = await new Promise((resolve, reject) => wx.getImageInfo({ src: tempPath, success: resolve, fail: reject }));
@@ -3913,6 +4586,7 @@ Page({
   },
 
 
+
   // ---------- 上下文统计：流动连接（移植 dsh-context Agent Flow） ----------
   // 原生 view 曲线兼容 WXML；分段位置只在节点几何变化时重算。
   stopContextFlow() {
@@ -3963,11 +4637,12 @@ Page({
       const clampY = (value) => Math.max(0, Math.min(height, value));
 
       // 竖向布局：上排两节点 → 中间会话 → 下排两节点
+      // 竖排（手机恒走窄态）：上排两节点 0.5 处汇入会话节点 1/3、2/3；下行由 1/3、2/3 分叉。
       const paths = [
-        { from: '#ctxNodeInputs', to: '#ctxNodeSession', fromSide: 'bottom', fromAt: 0.72, toSide: 'top', toAt: 0.25, color: '#22C55E' },
-        { from: '#ctxNodeEvents', to: '#ctxNodeSession', fromSide: 'bottom', fromAt: 0.28, toSide: 'top', toAt: 0.75, color: '#A855F7' },
-        { from: '#ctxNodeSession', to: '#ctxNodeTools', fromSide: 'bottom', fromAt: 0.25, toSide: 'top', toAt: 0.72, color: '#14B8A6' },
-        { from: '#ctxNodeSession', to: '#ctxNodeNet', fromSide: 'bottom', fromAt: 0.75, toSide: 'top', toAt: 0.28, color: '#EC4899' }
+        { from: '#ctxNodeInputs', to: '#ctxNodeSession', fromSide: 'bottom', fromAt: 0.5, toSide: 'top', toAt: 1 / 3, color: '#00C950' },
+        { from: '#ctxNodeEvents', to: '#ctxNodeSession', fromSide: 'bottom', fromAt: 0.5, toSide: 'top', toAt: 2 / 3, color: '#AD46FF' },
+        { from: '#ctxNodeTools', to: '#ctxNodeSession', fromSide: 'top', fromAt: 0.5, toSide: 'bottom', toAt: 1 / 3, color: '#00BBA7' },
+        { from: '#ctxNodeNet', to: '#ctxNodeSession', fromSide: 'top', fromAt: 0.5, toSide: 'bottom', toAt: 2 / 3, color: '#F6339A' }
       ].map((link) => {
         const a = nodes[link.from];
         const b = nodes[link.to];
@@ -3990,7 +4665,9 @@ Page({
           };
         };
         const segments = [];
-        const steps = 16;
+        const pathKey = link.from + '>' + link.to;
+        // Dense short pieces approximate one continuous Bezier ribbon; 16 long capsules read as a spring.
+        const steps = 40;
         for (let i = 0; i < steps; i += 1) {
           const p0 = pointAt(i / steps);
           const p1 = pointAt((i + 1) / steps);
@@ -4004,14 +4681,20 @@ Page({
           segments.push({
             key: link.from + '>' + link.to + ':g:' + i,
             kind: 'glow',
-            style: `left:${left}px;top:${top - 7}px;width:${length + 1}px;${common}`
+            pathKey: pathKey,
+            step: i,
+            style: `left:${left}px;top:${top - 7}px;width:${length + 0.5}px;${common}`
           });
-          if (i % 3 === 1) {
+          if (i % 4 === 1) {
             const dashStart = pointAt((i + 0.25) / steps);
+            // dash：1.5px 细线 + 2/9 的流动虚线（对齐 dsh-context .lc-flow-dash）。
             segments.push({
               key: link.from + '>' + link.to + ':d:' + i,
               kind: 'dash',
-              style: `left:${dashStart.x}px;top:${dashStart.y - 1}px;width:${Math.max(2, length * 0.5)}px;animation-delay:-${(i * 70) % 900}ms;${common}`
+              pathKey: pathKey,
+              step: i,
+              style: `left:${dashStart.x}px;top:${dashStart.y - 1}px;width:${Math.max(2, length * 0.9)}px;transform:rotate(${angle}deg);transform-origin:0 50%;`
+                + `background-image:repeating-linear-gradient(90deg,${link.color} 0 2px,transparent 2px 9px);animation-delay:${i * 28}ms;`
             });
           }
         }

@@ -2,6 +2,9 @@ const { t } = require('./ui-preferences');
 const { relativePath } = require('./file-deliverables');
 const SHA256 = require('./file-sha256');
 const MAX_BYTES = 50 * 1024 * 1024;
+// 网关侧 DEFAULT_FILE_DOWNLOAD_MAX_TRANSFERS = 4：允许少量并发传输。
+// 对话里的图片要一张张跟着出现，串行下载会让后面的图干等前面整份传完。
+const MAX_CONCURRENT_DOWNLOADS = 4;
 function fsCall(fs, method, options) {
   return new Promise((resolve,reject)=>fs[method](Object.assign({},options,{success:resolve,fail:reject})));
 }
@@ -9,11 +12,16 @@ function removeFile(path, api = wx) {
   if (path) return fsCall(api.getFileSystemManager(), 'unlink', { filePath:path }).catch(()=>{});
   return Promise.resolve();
 }
+function beginDownload(client, job) {
+  const active = client._activeFileDownloads || (client._activeFileDownloads = new Set());
+  if (active.size >= MAX_CONCURRENT_DOWNLOADS) throw Error(t('文件正在下载，请稍候'));
+  active.add(job);
+  return active;
+}
 async function downloadFile(client, file, options = {}) {
   const api=options.api || wx, job=options.job || {}, generation=client.connectGeneration;
   const path=relativePath(file.path, options.cwd);
-  if(client._activeFileDownload) throw Error(t('文件正在下载，请稍候'));
-  client._activeFileDownload=job;
+  const activeDownloads=beginDownload(client, job);
   let transferId, temporary, finalPath, completed=false;
   const check=()=>{
     if(job.cancelled || client.connectGeneration!==generation || (options.isCurrent && !options.isCurrent())) {
@@ -53,7 +61,7 @@ async function downloadFile(client, file, options = {}) {
       if(transferId && client.connectGeneration===generation) client.cancelFileDownload(transferId).catch(()=>{});
       await removeFile(temporary,api);await removeFile(finalPath,api);
     }
-    if(client._activeFileDownload===job) client._activeFileDownload=null;
+    activeDownloads.delete(job);
   }
 }
-module.exports={downloadFile,removeFile,fsCall,MAX_BYTES};
+module.exports={downloadFile,removeFile,fsCall,MAX_BYTES,MAX_CONCURRENT_DOWNLOADS};

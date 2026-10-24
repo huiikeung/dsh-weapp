@@ -8,6 +8,7 @@
     <image wx:if="{{frameB}}" class="ocean-frame ocean-buffer {{frontSlot === 'b' ? 'ocean-buffer-front' : ''}}" src="{{frameB}}" data-slot="b" data-frame-id="{{frameBId}}" bindload="onFrameLoad" binderror="onFrameError" mode="scaleToFill" aria-hidden="true" />
   </block>
   <image wx:elif="{{frameImage}}" class="ocean-frame" src="{{frameImage}}" mode="scaleToFill" aria-hidden="true" />
+  <view class="ocean-grain"></view>
   <view class="ocean-depth"></view>
   <view class="ocean-settle"></view>
 </view>

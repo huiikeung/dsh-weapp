@@ -15,8 +15,8 @@ assert.match(wxml, /wx:if="\{\{dshAccount\.balanceText\}\}" class="dsh-balance-a
   'Render the formatted recharge amount directly instead of iterating a nested array');
 assert.match(sessionSettingsWxml, /wx:if="\{\{dshAccountVisible\}\}" class="dsh-account-section"/,
   'Hide the session-settings account area while the gateway is disconnected');
-assert.match(wxml, /dsh-account-link-button dsh-account-primary[^>]*bindtap="explainDshAccountSignIn"/,
-  'Signed-out settings expose a sign-in explanation entry');
+assert.match(wxml, /dsh-account-link-button dsh-account-primary[^>]*catchtap="explainDshAccountSignIn"/,
+  'Signed-out settings expose a sign-in explanation entry that does not bubble into the balance toggle');
 assert.match(sessionSettingsWxml, /wx:if="\{\{dshAccount\.balanceText\}\}" class="dsh-balance-amount"/,
   'Keep the session settings balance display in sync');
 
@@ -63,13 +63,16 @@ function createPage(apiOptions) {
       if (name === '../../utils/proc-icon-style') return require('../miniprogram/utils/proc-icon-style');
       if (name === '../../utils/access-api') return api;
       if (name === './public-access-state') return require('../miniprogram/pages/settings/public-access-state');
-      if (name === '../../utils/node-presentation') return require('../miniprogram/utils/node-presentation');
-      if (name === '../../utils/version-info') return require('../miniprogram/utils/version-info');
-      if (name === '../../utils/account-view') return require('../miniprogram/utils/account-view');
+      if (name === './utils/node-presentation') return require('../miniprogram/pages/settings/utils/node-presentation');
+      if (name === './utils/version-info') return require('../miniprogram/pages/settings/utils/version-info');
+      if (name === './utils/account-view') return require('../miniprogram/pages/settings/utils/account-view');
+      if (name === './utils/storage-usage') return require('../miniprogram/pages/settings/utils/storage-usage');
+      if (name === '../../utils/host-info') return require('../miniprogram/utils/host-info');
       if (name === '../../utils/labels') return { presetModeName: (v) => v, permissionName: (v) => v };
       if (name === '../../utils/notify-pref') return { enabled: () => false };
       if (name === '../../utils/voice-preference') return require('../miniprogram/utils/voice-preference');
       if (name === '../../utils/home-animation-pref') return { enabled: () => true, setEnabled: value => value === true };
+      if (name === '../../utils/context-prefs') return require('../miniprogram/utils/context-prefs');
       if (name === '../../utils/context-panels-pref') return {
         read: () => ({ context: true, fleet: true }),
         set: (panel, value) => ({ context: true, fleet: true, [panel]: value === true })
@@ -79,6 +82,7 @@ function createPage(apiOptions) {
       if (name === '../../utils/cost-view') return require('../miniprogram/utils/cost-view');
       if (name === '../../utils/theme') return { applyTo() {}, getMode: () => 'auto' };
       if (name === '../../utils/build') return { BUILD_TIME: 'test-build', BUILD_VERSION: '0.9.27' };
+      if (name === '../../utils/connection-status') return require('../miniprogram/utils/connection-status');
       throw new Error('Unexpected dependency: ' + name);
     },
     wx, Date,
@@ -179,7 +183,7 @@ const { page, store, wx, calls } = createPage();
 }
 const sync = () => page.syncFromStore({ app: store.state });
 page.onLoad({});
-assert.equal(page.data.buildLabel, require('../miniprogram/utils/version-info').clientVersion(wx).buildLabel);
+assert.equal(page.data.buildLabel, require('../miniprogram/pages/settings/utils/version-info').clientVersion(wx).buildLabel);
 page.openPrivacyPolicy();
 assert.equal(page.data.privacyOpen, true);
 page.closePrivacyPolicy();
@@ -511,44 +515,32 @@ const flushCostRequests = async (costRequests, frame = { config: { display: { si
   await new Promise(resolve => setImmediate(resolve));
 };
 
-test('sidebar quota-card entry and visibility switch read and write the gateway config', async () => {
-  const { page, store, calls, costRequests } = createPage();
-  store.state = { connection: 'connected', activeID: 'host-1', gatewayId: 'gw-1', endpoint: 'ws://gw', profiles: [], gatewayCapabilities: ['cost-meter-v1'] };
-  page.onLoad({});
-  await flushCostRequests(costRequests);
-  assert.equal(page.data.showCostCard, false);
-
-  page.openCostMeter();
-  assert.deepEqual(calls.filter(item => Array.isArray(item) && item[0] === 'navigate').pop(),
-    ['navigate', '/pages/cost-meter/cost-meter'], 'the quota entry opens the dedicated page');
-
-  page.toggleCostCard({ detail: { value: true } });
-  const update = costRequests.find(item => item.action === 'update');
-  assert.ok(update, 'the switch persists through the gateway');
-  assert.equal(JSON.stringify(update.payload.patch), JSON.stringify({ display: { sidebarVisible: true } }));
-  await flushCostRequests(costRequests, { kind: 'cost-meter' });
-  assert.equal(page.data.showCostCard, true);
+test('the settings page no longer duplicates the quota card switch', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  assert.ok(!wxml.includes("ui['显示额度卡片']"), '设置页不再放重复的开关（已移入额度卡片页）');
+  assert.ok(wxml.includes('openCostMeter'), '设置页仍保留额度卡片入口');
 });
 
-test('sidebar quota card switch is off by default and persists when enabled', async () => {
-  const { page, store, costRequests } = createPage();
-  store.state = { connection: 'connected', activeID: 'host-1', profiles: [], gatewayCapabilities: ['cost-meter-v1'] };
-  page.onLoad({});
-  await flushCostRequests(costRequests);
-  assert.equal(page.data.showCostCard, false, 'the quota card stays hidden until the user opts in');
-  page.toggleCostCard({ detail: { value: true } });
-  await flushCostRequests(costRequests, { kind: 'cost-meter' });
-  assert.equal(page.data.showCostCard, true);
-});
+test('settings account lookup rejects the gateway marker and prefers dshVersion', async () => {
+  const requestClients = [];
+  const { page, store } = createPage({
+    requestAccount(client) {
+      requestClients.push(client);
+      return Promise.resolve({ state: { status: 'credential-stored' }, balance: { status: 'ready', value: [] } });
+    }
+  });
+  // 真实网关 host 帧：version 是占位标记，真版本在 dshVersion。
+  store.state = { connection: 'connected', activeID: 'host-1', host: { version: 'remote-gateway', dshVersion: '0.1.7-rc.2' } };
+  page.refreshDshAccount();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(requestClients.length, 1, 'marker alone must not be sent as the host version');
+  assert.equal(requestClients[0].version, '0.1.7-rc.2');
 
-
-test('quota-card switch stays disabled until the computer settings are read', async () => {
-  const { page, store, costRequests } = createPage();
-  store.state = { connection: 'connected', activeID: 'host-1', profiles: [], gatewayCapabilities: ['cost-meter-v1'] };
-  page.onLoad({});
-  assert.equal(page.data.costCardReady, false);
-  assert.equal(page.data.showCostCard, false);
-  await flushCostRequests(costRequests, { config: { display: { sidebarVisible: true } } });
-  assert.equal(page.data.costCardReady, true);
-  assert.equal(page.data.showCostCard, true);
+  // 老网关只发 version（真版本）时同样可用。
+  store.state = { connection: 'connected', activeID: 'host-1', host: { version: '0.10.0' } };
+  page.refreshDshAccount();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(requestClients.at(-1).version, '0.10.0');
 });

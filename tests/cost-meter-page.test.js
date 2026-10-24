@@ -173,6 +173,66 @@ test('custom balances are added and edited as a full validated list', async () =
   await tick();
 });
 
+test('adding a custom balance starts from a blank form; saibo is an explicit preset', async () => {
+  const f = await ready(fixture());
+  f.page.addCustom();
+  const update = f.requests.find(item => item.action === 'update');
+  const entry = update.payload.patch.customBalances[0];
+  // 默认新增是空表单：不预填任何厂商配置
+  assert.equal(entry.label, '');
+  assert.equal(entry.labelEn, '');
+  assert.equal(entry.enabled, false);
+  assert.equal(entry.request.url, '');
+  update.resolve(frame());
+  await tick();
+
+  // 赛博只通过专属按钮添加，并带齐全部配置
+  f.page.addCustomPreset({ currentTarget: { dataset: { kind: 'saibo' } } });
+  const presetUpdate = f.requests.filter(item => item.action === 'update').pop();
+  const preset = presetUpdate.payload.patch.customBalances.at(-1);
+  assert.equal(preset.label, '赛博');
+  assert.equal(preset.labelEn, 'saibo');
+  assert.equal(preset.unit, 'USD');
+  assert.equal(preset.enabled, true);
+  assert.equal(preset.request.url, 'https://saibo.xytnb.xyz/v1/usage');
+  assert.equal(preset.request.headers.Authorization, 'Bearer {{SAIBO_API_KEY}}');
+  assert.equal(preset.extract.remaining, 'balance');
+  assert.equal(preset.extract.maxBudget, 'info.max_budget');
+  assert.equal(preset.extract.spend, 'info.spend');
+  assert.deepEqual(Array.from(preset.allowedHosts), ['saibo.xytnb.xyz']);
+});
+
+test('custom field typing never rewrites the displayed value so paste keeps working', async () => {
+  const f = await ready(fixture());
+  f.page.addCustom();
+  const update = f.requests.find(item => item.action === 'update');
+  const entry = update.payload.patch.customBalances[0];
+  const added = frame();
+  added.config.customBalances = [entry];
+  update.resolve(added);
+  await tick();
+  const index = f.page.data.customCells.length - 1;
+  assert.equal(f.page.data.customCells.length, 1);
+  f.page.openCustomSheet({ currentTarget: { dataset: { index } } });
+  const shown = f.page.data.sheetCustom.label;
+  f.page.onCustomFieldInput({ currentTarget: { dataset: { index, field: 'label' } }, detail: { value: '赛博余额' } });
+  assert.equal(f.page.data.customCells[index].label, '赛博余额', 'cells 立即保存输入值');
+  assert.equal(f.page.data.sheetCustom.label, shown, '输入中不回写显示值（否则真机粘贴/光标失效）');
+  f.page.onCustomFieldBlur({ currentTarget: { dataset: { index } } });
+  assert.equal(f.page.data.sheetCustom.label, '赛博余额', '失焦后同步显示值');
+  // 请求头 textarea：同样只在失焦后回写
+  const headersBefore = f.page.data.sheetCustom.headersText;
+  f.page.onCustomFieldInput({ currentTarget: { dataset: { index, field: 'headersText' } }, detail: { value: 'Authorization: Bearer x' } });
+  assert.equal(f.page.data.sheetCustom.headersText, headersBefore);
+  f.page.onCustomFieldBlur({ currentTarget: { dataset: { index } } });
+  assert.equal(f.page.data.sheetCustom.headersText, 'Authorization: Bearer x');
+  // 密钥输入不回写显示值
+  f.page.onCustomKeyInput({ currentTarget: { dataset: { index } }, detail: { value: 'sk-live' } });
+  assert.equal(f.page.data.customKeyDrafts[index], 'sk-live');
+  f.page.onCustomKeyBlur({ currentTarget: { dataset: { index } } });
+  assert.equal(f.page.data.sheetCustom.keyDraft, 'sk-live');
+});
+
 test('peak windows and budget edits patch the gateway settings', async () => {
   const f = await ready(fixture());
   f.page.onBudgetAmountInput({ detail: { value: '200' } });
@@ -181,4 +241,36 @@ test('peak windows and budget edits patch the gateway settings', async () => {
   assert.equal(budget.payload.patch.budget.amount, 200);
   budget.resolve(frame());
   await tick();
+});
+
+
+test('the quota card page owns the sidebar visibility switch and hides everything below it', async () => {
+  const hidden = frame();
+  hidden.config.display.sidebarVisible = false;
+  const f = fixture();
+  f.page.onLoad();
+  f.requests[0].resolve(hidden);
+  await tick();
+  assert.equal(f.page.data.displayForm.sidebarVisible, false, 'sidebar card stays hidden until the user opts in');
+  f.page.toggleSidebarVisible({ detail: { value: true } });
+  const update = f.requests.find(item => item.action === 'update');
+  assert.ok(update, 'the switch persists through the gateway');
+  assert.equal(JSON.stringify(update.payload.patch), JSON.stringify({ display: { sidebarVisible: true } }));
+  assert.equal(f.page.data.displayForm.sidebarVisible, true);
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/cost-meter/cost-meter.wxml'), 'utf8');
+  assert.ok(wxml.includes('bindchange="toggleSidebarVisible"'), '开关在额度卡片页内');
+  assert.ok(/<block wx:if="\{\{displayForm\.sidebarVisible\}\}">/.test(wxml), '关闭时隐藏下方所有分区');
+  assert.ok(wxml.includes("ui['显示']"), '官方余额/Go/预算/峰谷归到「显示」');
+  assert.ok(wxml.includes("ui['额度']"), 'Coding Plan/网关/自定义归到「额度」');
+});
+
+test('opening the page with ?component= focuses that module in the display sheet', async () => {
+  const f = fixture();
+  f.page.onLoad({ component: 'plan:minimax' });
+  f.requests[0].resolve(frame());
+  await tick();
+  assert.equal(f.page.data.sheet, 'display');
+  assert.equal(f.page.data.previewComponent, 'plan:minimax');
+  assert.equal(f.page.data.componentPickerOpen, false);
+  assert.equal(f.page.data.previewComponentLabel, 'minimax');
 });

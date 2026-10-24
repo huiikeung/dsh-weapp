@@ -1,0 +1,58 @@
+<!doctype html><html><head><meta charset="utf-8"><style>
+body{margin:0;background:#eef1f6;display:flex;gap:24px;padding:24px;font-family:-apple-system,"PingFang SC",sans-serif}
+.stage{width:420px;border-radius:16px;padding:18px;box-sizing:border-box}
+.light{background:#fff;--text:#101318;--text-3:#7D8592;--fill:#f0f2f5;--border:rgba(16,24,39,.1);--surface:#fff}
+.dark{background:#14181f;--text:#F1F4FA;--text-3:#9AA3B2;--fill:rgba(255,255,255,.06);--border:rgba(255,255,255,.1);--surface:#1A1E26}
+.stage .dsh-account-chevron{width:16px;height:16px}
+/* DSH desktop AccountSection: 8px section inset, 16px card gap, 20px radius. */
+.dsh-account-section { display: flex; flex-direction: column; gap: 16px; padding: 8px 0 0; color: var(--text); font-size: 13px; line-height: 22px; }
+.dsh-account-card,
+.dsh-balance-card { box-sizing: border-box; border: 0.5px solid var(--border); border-radius: 10px; background: var(--surface); padding: 12px 16px; }
+/* 箭头用绝对定位贴右缘：微信里 <image> 是原生组件，flex 布局不可靠。 */
+.dsh-account-card { position: relative; display: flex; align-items: center; gap: 16px; }
+.dsh-account-card.has-chevron { padding-right: 38px; }
+.dsh-account-chevron { position: absolute; right: 16px; top: 50%; width: 16px; height: 16px; transform: translateY(-50%); transition: transform 0.16s ease; }
+.dsh-account-chevron.open { transform: translateY(-50%) rotate(90deg); }
+.dsh-account-identity { display: flex; flex: 1; align-items: center; gap: 10px; min-width: 0; min-height: 44px; }
+.dsh-account-avatar { width: 32px; height: 32px; flex: none; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; color: var(--text-3); background: var(--fill); font-size: 10.5px; font-weight: 600; }
+.dsh-account-avatar-image { width: 100%; height: 100%; }
+.dsh-account-avatar-user { width: 16px; height: 16px; display: block; }
+.dsh-account-avatar-placeholder { line-height: 1; }
+.dsh-account-identity-copy { min-width: 0; display: flex; flex-direction: column; }
+.dsh-account-name { color: var(--text); font-size: 14px; font-weight: 500; line-height: 22px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-account-status, .dsh-account-muted, .dsh-account-secondary { color: var(--text-3); }
+.dsh-account-status { display: block; font-size: 13px; line-height: 18px; }
+.dsh-account-info { flex: none; color: var(--text); font-size: 13px; line-height: 22px; white-space: nowrap; }
+.dsh-balance-card { display: flex; flex-direction: column; gap: 8px; }
+.dsh-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 40px; padding: 6px 0; box-sizing: border-box; }
+.dsh-balance-row > text:first-child { color: var(--text); }
+.dsh-balance-amount { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0; color: var(--text); font-size: 18px; font-weight: 510; line-height: 28px; }
+.dsh-balance-amount text + text::before { content: ' + '; white-space: pre; }
+.dsh-balance-bonus { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.dsh-account-divider { border-top: 0.5px solid var(--divider); }
+.dsh-account-unavailable { color: var(--text-3); text-decoration: underline; text-underline-offset: 3px; }
+.dsh-account-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; }
+.dsh-account-link-button { min-width: 58px; height: 36px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 0 14px; border: 0.5px solid var(--border-strong); border-radius: 6px; color: var(--text); font-size: 14px; line-height: 22px; white-space: nowrap; }
+.dsh-account-primary { color: #fff; background: var(--ocean); border-color: transparent; font-weight: 500; }
+</style></head><body>
+<div class="stage light"><div class="dsh-account-card tappable has-chevron">
+  <div class="dsh-account-identity">
+    <div class="dsh-account-avatar"><img class="dsh-account-avatar-image" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><circle cx='16' cy='16' r='14' fill='%23c7d2e8'/></svg>"></div>
+    <div class="dsh-account-identity-copy">
+      <span class="dsh-account-name">HUI.</span>
+      <span class="dsh-account-status">130******61</span>
+    </div>
+  </div>
+  <img class="dsh-account-chevron" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'><path d='M6 3l5 5-5 5' stroke='%23888' stroke-width='1.6' stroke-linecap='round'/></svg>">
+</div></div>
+<div class="stage dark"><div class="dsh-account-card tappable has-chevron">
+  <div class="dsh-account-identity">
+    <div class="dsh-account-avatar"><img class="dsh-account-avatar-image" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><circle cx='16' cy='16' r='14' fill='%23c7d2e8'/></svg>"></div>
+    <div class="dsh-account-identity-copy">
+      <span class="dsh-account-name">HUI.</span>
+      <span class="dsh-account-status">130******61</span>
+    </div>
+  </div>
+  <img class="dsh-account-chevron" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none'><path d='M6 3l5 5-5 5' stroke='%23888' stroke-width='1.6' stroke-linecap='round'/></svg>">
+</div></div>
+</body></html>

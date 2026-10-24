@@ -139,9 +139,11 @@ test('editing inside the plan sheet writes through to planCells', () => {
   const index = f.page.data.planCells.findIndex(c => c.id === 'siliconflow');
   f.page.openPlanSheet({ currentTarget: { dataset: { index } } });
 
-  // 弹窗里的 API Key 输入：draft 按厂商 id 存（与 savePlanKey 一致），并同步弹窗显示
+  // 弹窗里的 API Key 输入：draft 按厂商 id 存（与 savePlanKey 一致）。
+  // 输入中不回写显示值（真机粘贴/光标保护），失焦后才同步。
   f.page.onPlanKeyInput({ currentTarget: { dataset: { index } }, detail: { value: 'sk-test' } });
   assert.equal(f.page.data.planKeyDrafts.siliconflow, 'sk-test');
+  f.page.onPlanKeyBlur();
   assert.equal(f.page.data.sheetPlan.keyDraft, 'sk-test');
 
   // 特有字段：siliconflow 无 extra fields，用第一个有 fields 的厂商验证路径
@@ -149,6 +151,8 @@ test('editing inside the plan sheet writes through to planCells', () => {
   if (withFields >= 0) {
     f.page.onPlanFieldInput({ currentTarget: { dataset: { index: withFields, field: 0 } }, detail: { value: 'v' } });
     assert.equal(f.page.data.planCells[withFields].fields[0].value, 'v');
+    f.page.onPlanFieldBlur({ currentTarget: { dataset: { index: withFields } } });
+    assert.equal(f.page.data.sheetPlan.fields[0].value, 'v');
   }
 });
 
@@ -158,11 +162,14 @@ test('editing inside the gateway sheet writes through to gatewayCells', () => {
   f.page.openGatewaySheet({ currentTarget: { dataset: { index: 0 } } });
   f.page.onGatewayFieldInput({ currentTarget: { dataset: { index: 0, field: 'label' } }, detail: { value: '我的网关' } });
   assert.equal(f.page.data.gatewayCells[0].label, '我的网关');
+  assert.notEqual(f.page.data.sheetGateway.label, '我的网关', '输入中不回写显示值');
+  f.page.onGatewayFieldBlur({ currentTarget: { dataset: { index: 0 } } });
   assert.equal(f.page.data.sheetGateway.label, '我的网关');
 
   // Management Key draft 按来源 id 存（与 saveGatewayKey 一致）
   f.page.onGatewayKeyInput({ currentTarget: { dataset: { index: 0 } }, detail: { value: 'mk' } });
   assert.equal(f.page.data.gatewayKeyDrafts['gw-1'], 'mk');
+  f.page.onGatewayKeyBlur();
   assert.equal(f.page.data.sheetGateway.keyDraft, 'mk');
 });
 
@@ -172,10 +179,14 @@ test('editing inside the custom sheet writes through to customCells', () => {
   f.page.openCustomSheet({ currentTarget: { dataset: { index: 0 } } });
   f.page.onCustomFieldInput({ currentTarget: { dataset: { index: 0, field: 'label' } }, detail: { value: '新名字' } });
   assert.equal(f.page.data.customCells[0].label, '新名字');
+  assert.notEqual(f.page.data.sheetCustom.label, '新名字', '输入中不回写显示值（粘贴保护）');
+  f.page.onCustomFieldBlur({ currentTarget: { dataset: { index: 0 } } });
   assert.equal(f.page.data.sheetCustom.label, '新名字');
 
   f.page.onCustomKeyInput({ currentTarget: { dataset: { index: 0 } }, detail: { value: 'sec' } });
   assert.equal(f.page.data.customKeyDrafts[0], 'sec');
+  assert.notEqual(f.page.data.sheetCustom.keyDraft, 'sec');
+  f.page.onCustomKeyBlur({ currentTarget: { dataset: { index: 0 } } });
   assert.equal(f.page.data.sheetCustom.keyDraft, 'sec');
 });
 
@@ -206,4 +217,27 @@ test('the compact list keeps only summaries; configuration lives in the sheet', 
   assert.ok(!wxml.includes('togglePlanExpand'), 'plan 不应再内联展开');
   assert.ok(!wxml.includes('toggleCustomExpand'), 'custom 不应再内联展开');
   assert.ok(!wxml.includes('toggleGatewayExpand'), 'gateway 不应再内联展开');
+});
+
+test('every quota sheet has a drag handle, 90% height and a scrollable body', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/cost-meter/cost-meter.wxml'), 'utf8');
+  const wxss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/cost-meter/cost-meter.wxss'), 'utf8');
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/cost-meter/cost-meter.js'), 'utf8');
+  const sheetKinds = ['display', 'balance', 'go', 'budget', 'peak', 'plan', 'gateway', 'custom'];
+  for (const kind of sheetKinds) assert.ok(wxml.includes(`sheet === '${kind}'`), '缺少 ' + kind + ' 弹窗');
+  assert.equal((wxml.match(/class="cost-sheet-grabber"/g) || []).length, sheetKinds.length, '每个弹窗都要有拖动条');
+  assert.equal((wxml.match(/class="cost-sheet-body"/g) || []).length, sheetKinds.length, '每个弹窗都要有可滚动内容区');
+  assert.match(wxml, /catchtouchstart="onSheetGrabStart"/);
+  assert.match(wxml, /catchtouchmove="onSheetGrabMove"/);
+  assert.match(wxml, /catchtouchend="onSheetGrabEnd"/);
+  assert.match(wxss, /\.cost-sheet \{[^}]*height: 90vh/);
+  assert.match(wxss, /\.cost-sheet-body \{[^}]*height: 0/);
+  assert.match(js, /onSheetGrabStart\(e\)/);
+  assert.match(js, /onSheetGrabEnd\(\)/);
+  assert.match(js, /sheetDragY/);
+});
+
+test('consecutive provider cards keep a visible gap', () => {
+  const wxss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/cost-meter/cost-meter.wxss'), 'utf8');
+  assert.match(wxss, /\.cost-card \+ \.cost-card \{\s*margin-top:/, '相邻卡片之间必须有间距');
 });

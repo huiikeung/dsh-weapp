@@ -42,6 +42,11 @@ const MESSAGE_CATS = ['user', 'inject', 'skill', 'assistant', 'tool']
 const MAX_SURFACE = 4000
 const MAX_ARCHIVE_NODES = 400
 const MAX_HEADER_EPOCHS = 100
+// Browser tool rows: compact schema metadata rides only the newest header epoch.
+const MAX_TOOL_META = 20
+const TOOL_DESC_MAX = 120
+const TOOL_PARAM_MAX = 8
+const TOOL_PARAM_DESC_MAX = 60
 const MAX_FILE_OPS = 400
 const MAX_REQUESTS = 200
 const MAX_EVENTS = 120
@@ -50,6 +55,11 @@ const MAX_CALL_NAMES = 2000
 const MAX_SPANS = 600
 const MAX_STEP_SPANS = 2000
 const MAX_LAST_ANSWER = 240
+const MAX_PREVIEW_TEXT = 160
+// Command ledger (Context tab's Command Panel): native shell runs, bounded.
+const MAX_COMMANDS = 30
+const SHELL_TOOLS = new Set(['bash', 'pwsh', 'shell', 'exec', 'execcommand', 'terminal', 'writestdin'])
+const INDEX_DETAIL_NODES = 40
 const MAX_TEAM_ROWS = 20
 
 // Timeline span kinds on the wire (docs §8.1): the client colors the strip by
@@ -92,7 +102,7 @@ const passthroughSchema = Object.freeze({
   }),
 })
 
-export const CONTEXT_REQUEST_TYPES = new Set(['context-dashboard', 'context-fleet', 'context-content'])
+export const CONTEXT_REQUEST_TYPES = new Set(['context-dashboard', 'context-fleet', 'context-content', 'context-insights', 'context-comms'])
 
 // ---------------------------------------------------------------------------
 // Token pricing (DSH token-meter fixed-density heuristic)
@@ -162,6 +172,75 @@ function canonicalHeader(header) {
       : {}),
     ...(Array.isArray(header.tools) && header.tools.length > 0 ? { tools: header.tools } : {}),
   }
+}
+
+const FIRST_PARTY_SOURCES = Object.freeze({
+  read: '@deepseek-ai/dsh-tool-fs', write: '@deepseek-ai/dsh-tool-fs', edit: '@deepseek-ai/dsh-tool-fs',
+  read_image: '@deepseek-ai/dsh-tool-fs', glob: '@deepseek-ai/dsh-tool-fs-search', grep: '@deepseek-ai/dsh-tool-fs-search',
+  str_replace_editor: '@deepseek-ai/dsh-tool-str-replace-editor', bash: '@deepseek-ai/dsh-tool-bash',
+  pwsh: '@deepseek-ai/dsh-tool-pwsh', web_search: '@deepseek-ai/dsh-tool-web', web_fetch: '@deepseek-ai/dsh-tool-web',
+  job_output: '@deepseek-ai/dsh-tool-jobs', job_list: '@deepseek-ai/dsh-tool-jobs', job_kill: '@deepseek-ai/dsh-tool-jobs',
+  ask_user_question: '@deepseek-ai/dsh-tool-ask-user', plan: '@deepseek-ai/dsh-plan-mode', exit_plan_mode: '@deepseek-ai/dsh-plan-mode',
+  skill: '@deepseek-ai/dsh-tool-skill', todo_write: '@deepseek-ai/dsh-tool-todo', subagent: '@deepseek-ai/dsh-tool-subagent',
+  subagent_fork: '@deepseek-ai/dsh-tool-subagent', send_message: '@deepseek-ai/dsh-tool-subagent-control',
+  interrupt_agent: '@deepseek-ai/dsh-tool-subagent-control', list_agents: '@deepseek-ai/dsh-tool-subagent-control',
+  ralph: '@deepseek-ai/dsh-tool-ralph', workflow: '@deepseek-ai/dsh-tool-workflow', run_code: '@deepseek-ai/dsh-tools',
+  schedule_create: '@deepseek-ai/dsh-schedule', schedule_list: '@deepseek-ai/dsh-schedule', schedule_delete: '@deepseek-ai/dsh-schedule',
+  create_goal: '@deepseek-ai/dsh-tool-goal', get_goal: '@deepseek-ai/dsh-tool-goal', update_goal: '@deepseek-ai/dsh-tool-goal',
+  lsp: '@deepseek-ai/dsh-tool-lsp',
+})
+
+/** Tool → registering plugin, mirroring dsh-context host/toolSources.ts (producer field, mcp grammar, pinned map). */
+function toolSourceOf(name, producer) {
+  if (typeof producer === 'string' && producer !== '') return producer.slice(0, 120)
+  if (name.startsWith('mcp__')) {
+    const cut = name.lastIndexOf('__')
+    if (cut > 5) return 'mcp:' + name.slice(5, cut)
+  }
+  return FIRST_PARTY_SOURCES[name]
+}
+
+/** Compact JSON-schema type text (dsh-context browserSchema.ts). */
+function schemaTypeText(schema) {
+  if (schema === null || typeof schema !== 'object') return 'unknown'
+  if (Array.isArray(schema.anyOf)) {
+    return schema.anyOf.map(schemaTypeText).filter((text, index, list) => text !== 'unknown' && list.indexOf(text) === index).join(' | ') || 'unknown'
+  }
+  const type = typeof schema.type === 'string' ? schema.type : ''
+  if (Array.isArray(schema.enum)) return (type !== '' ? type : '') + ' (enum)'
+  if (type === 'array') return 'array<' + schemaTypeText(schema.items) + '>'
+  if (type === 'object' || (type === '' && schema.properties && typeof schema.properties === 'object')) {
+    return 'object{' + (schema.properties && typeof schema.properties === 'object' ? Object.keys(schema.properties).length : 0) + '}'
+  }
+  return type !== '' ? type : 'unknown'
+}
+
+/** One tool's browser metadata: description, parameter table rows, source chip and a token estimate. */
+function compactToolMeta(tool) {
+  const item = tool !== null && typeof tool === 'object' ? tool : {}
+  const name = typeof item.name === 'string' ? item.name.slice(0, 120) : '?'
+  const schema = item.inputSchema !== null && typeof item.inputSchema === 'object' ? item.inputSchema
+    : item.parameters !== null && typeof item.parameters === 'object' ? item.parameters : null
+  const params = []
+  if (schema && schema.properties !== null && typeof schema.properties === 'object') {
+    const required = Array.isArray(schema.required) ? schema.required : []
+    for (const key of Object.keys(schema.properties).slice(0, TOOL_PARAM_MAX)) {
+      const prop = schema.properties[key] !== null && typeof schema.properties[key] === 'object' ? schema.properties[key] : {}
+      params.push({
+        name: key.slice(0, 80),
+        type: schemaTypeText(prop).slice(0, 60),
+        required: required.includes(key),
+        ...(typeof prop.description === 'string' && prop.description !== '' ? { description: prop.description.replace(/\s+/g, ' ').trim().slice(0, TOOL_PARAM_DESC_MAX) } : {}),
+      })
+    }
+  }
+  const meta = { name }
+  if (typeof item.description === 'string' && item.description !== '') meta.description = item.description.replace(/\s+/g, ' ').trim().slice(0, TOOL_DESC_MAX)
+  if (params.length > 0) meta.params = params
+  const source = toolSourceOf(name, item.plugin)
+  if (source !== undefined) meta.source = source
+  meta.tokens = Math.ceil(JSON.stringify(item).length / 4) + 4
+  return meta
 }
 
 function estimateToolsTokens(header) {
@@ -441,6 +520,8 @@ export function createState() {
     timing: emptyTiming(),
     surfaceCounts: emptySurfaceCounts(),
     toolNames: {},
+    commands: [],
+    commandStats: { runs: 0, failed: 0, ms: 0, bg: 0 },
     wallMs: 0,
     callNames: {},
     requests: [],
@@ -463,13 +544,20 @@ function cloneState(state) {
     toolsTokens: state.toolsTokens,
     toolDefs: safeInt(state.toolDefs),
     ...(state.model !== undefined ? { model: state.model } : {}),
+    ...(state.lastModel !== undefined ? { lastModel: state.lastModel } : {}),
     ...(state.provider !== undefined ? { provider: state.provider } : {}),
+    ...(Number.isFinite(state.maxOutputTokens) ? { maxOutputTokens: state.maxOutputTokens } : {}),
     ...(state.contextWindow !== undefined ? { contextWindow: state.contextWindow } : {}),
     counts: { ...state.counts },
     activity: { ...emptyActivity(), ...(state.activity !== null && typeof state.activity === 'object' ? state.activity : {}) },
     timing: { ...emptyTiming(), ...(state.timing !== null && typeof state.timing === 'object' ? state.timing : {}) },
     surfaceCounts: { ...emptySurfaceCounts(), ...(state.surfaceCounts !== null && typeof state.surfaceCounts === 'object' ? state.surfaceCounts : {}) },
     toolNames: { ...state.toolNames },
+    ...(Number.isFinite(state.pendingCommandSeq) ? { pendingCommandSeq: state.pendingCommandSeq } : {}),
+    commands: Array.isArray(state.commands) ? [...state.commands] : [],
+    commandStats: state.commandStats !== null && typeof state.commandStats === 'object'
+      ? { runs: safeInt(state.commandStats.runs), failed: safeInt(state.commandStats.failed), ms: safeInt(state.commandStats.ms), bg: safeInt(state.commandStats.bg) }
+      : { runs: 0, failed: 0, ms: 0, bg: 0 },
     wallMs: state.wallMs,
     callNames: { ...state.callNames },
     requests: [...state.requests],
@@ -557,6 +645,72 @@ function recomputeSystemTokens(state) {
   state.systemTokens = 0
 }
 
+/** Parse a shell tool call's arguments into the Command Panel's display fields. */
+function shellCommandOf(name, rawArguments) {
+  if (!SHELL_TOOLS.has(String(name).toLowerCase())) return null
+  let args = rawArguments
+  if (typeof args === 'string') {
+    try { args = JSON.parse(args) } catch (_) { args = { command: rawArguments } }
+  }
+  if (args === null || typeof args !== 'object') return null
+  const command = typeof args.command === 'string' ? args.command
+    : typeof args.script === 'string' ? args.script
+      : typeof args.cmd === 'string' ? args.cmd
+        : typeof args.input === 'string' ? args.input : ''
+  if (command.trim() === '') return null
+  const entry = { command: command.slice(0, 180), ...(command.length > 180 ? { truncated: true } : {}) }
+  const description = typeof args.description === 'string' ? args.description
+    : typeof args.intent === 'string' ? args.intent : ''
+  if (description !== '') entry.description = description.slice(0, 80)
+  if (args.run_in_background === true) entry.background = true
+  return entry
+}
+
+/** Text blocks of a tool result, joined for marker sniffing. */
+function resultTextOf(message) {
+  const content = message !== null && typeof message === 'object' && Array.isArray(message.content) ? message.content : []
+  const parts = []
+  for (const block of content) if (block !== null && typeof block === 'object' && typeof block.text === 'string') parts.push(block.text)
+  return parts.join('\n')
+}
+
+/** Settle one shell run into the bounded command ledger (Command Panel card). */
+function recordCommand(state, pending, message, endTime, seq) {
+  if (pending === null || typeof pending !== 'object' || pending.shell === null || typeof pending.shell !== 'object') return
+  const shell = pending.shell
+  const text = resultTextOf(message)
+  const exitMatch = /\[exit code: (-?\d+)\]/i.exec(text)
+  const signalMatch = /\[killed by signal: ([^\]]+)\]/i.exec(text)
+  const timedOut = /\[timed out/i.test(text) || /\btimed? ?out\b/i.test(text.slice(-120))
+  const isError = message !== null && typeof message === 'object' && message.isError === true
+  const exit = exitMatch !== null ? Number(exitMatch[1]) : null
+  const failed = isError || (exit !== null && exit !== 0) || signalMatch !== null || timedOut
+  const durationMs = Math.max(0, Number(endTime) - Number(pending.start || endTime))
+  const record = {
+    seq: Number.isFinite(seq) ? seq : (Number.isFinite(state.pendingCommandSeq) ? state.pendingCommandSeq : 0),
+    time: endTime,
+    name: typeof pending.name === 'string' ? pending.name : 'shell',
+    command: shell.command,
+    durationMs,
+    status: signalMatch !== null ? 'killed' : timedOut ? 'failed' : failed ? 'failed' : 'ok',
+    ...(shell.description !== undefined ? { description: shell.description } : {}),
+    ...(exit !== null ? { exit } : {}),
+    ...(signalMatch !== null ? { signal: signalMatch[1].slice(0, 40) } : {}),
+    ...(timedOut ? { timedOut: true } : {}),
+    ...(text.length > 0 ? { outChars: text.length } : {}),
+    ...(/stderr/i.test(text) ? { stderr: true } : {}),
+    ...(/\[truncated/i.test(text) ? { truncated: true } : {}),
+    background: shell.background === true,
+  }
+  state.commands.push(record)
+  if (state.commands.length > MAX_COMMANDS) state.commands.splice(0, state.commands.length - MAX_COMMANDS)
+  const stats = state.commandStats
+  stats.runs += 1
+  if (record.status !== 'ok') stats.failed += 1
+  stats.ms += durationMs
+  if (record.background) stats.bg += 1
+}
+
 function applySurface(state, event, cat, message) {
   const node = { seq: event.seq, cat, tokens: estimateMessage(message) }
   const eventTime = timeOf(event)
@@ -566,18 +720,30 @@ function applySurface(state, event, cat, message) {
     if (typeof source.form === 'string' && source.form !== '') node.form = source.form
     if (typeof source.name === 'string' && source.name !== '') node.name = source.name.slice(0, 160)
   }
+  // Row previews + assistant block kinds keep the browser card readable without a
+  // second round-trip; both are bounded so the 4k-node surface stays inside the wire budget.
+  const blocks = Array.isArray(message && message.content) ? message.content : []
+  const kinds = { think: 0, tools: 0, answer: 0 }
+  for (const block of blocks) {
+    if (block === null || typeof block !== 'object') continue
+    if (block.type === 'reasoning') kinds.think += 1
+    else if (block.type === 'tool-call') kinds.tools += 1
+    else if (block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '') kinds.answer += 1
+  }
+  if (cat === 'assistant' && kinds.think + kinds.tools + kinds.answer > 0) node.kinds = kinds
+  const answer = firstText(blocks)
   if (cat === 'assistant') {
-    const answer = firstText(Array.isArray(message && message.content) ? message.content : [])
     if (answer !== '') node.text = answer.replace(/\s+/g, ' ').trim().slice(0, MAX_LAST_ANSWER)
     else {
-      const calls = Array.isArray(message && message.content)
-        ? message.content.filter(block => block && typeof block === 'object' && block.type === 'tool-call')
-          .map(block => typeof block.name === 'string' ? block.name.slice(0, 100) : '')
-          .filter(Boolean).slice(0, 3)
-        : []
+      const calls = blocks.filter(block => block && typeof block === 'object' && block.type === 'tool-call')
+        .map(block => typeof block.name === 'string' ? block.name.slice(0, 100) : '')
+        .filter(Boolean).slice(0, 3)
       if (calls.length > 0) node.calls = calls
     }
-  } else if (cat === 'tool') {
+  } else if (answer !== '' && (cat === 'user' || cat === 'inject' || cat === 'skill' || cat === 'tool')) {
+    node.text = answer.replace(/\s+/g, ' ').trim().slice(0, MAX_PREVIEW_TEXT)
+  }
+  if (cat === 'tool') {
     const callId = source && typeof source.callId === 'string' ? source.callId : ''
     const call = callId !== '' ? state.callNames[callId] : null
     if (call && typeof call.name === 'string') node.tool = call.name.slice(0, 100)
@@ -752,15 +918,36 @@ export function applyContextEvent(state, event) {
         next.toolsTokens = estimateToolsTokens(header)
         next.toolDefs = header !== undefined && Array.isArray(header.tools) ? header.tools.length : 0
         if (header !== undefined) {
-          const tools = Array.isArray(header.tools) ? header.tools.slice(0, 100).map(tool => {
+          const schemas = Array.isArray(header.tools) ? header.tools.slice(0, 100) : []
+          const tools = schemas.map(tool => {
             const item = tool !== null && typeof tool === 'object' ? tool : {}
             return { name: typeof item.name === 'string' ? item.name.slice(0, 120) : '?' }
-          }) : []
-          next.headerEpochs.push({ seq: event.seq, time: timeOf(event), tools })
+          })
+          // The newest epoch carries the compact tool metadata the browser expands;
+          // older epochs keep names only so the wire stays bounded.
+          const meta = schemas.slice(0, MAX_TOOL_META).map(compactToolMeta)
+          next.headerEpochs = next.headerEpochs.map(epoch => (epoch !== null && typeof epoch === 'object' ? { seq: epoch.seq, time: epoch.time, tools: epoch.tools } : epoch))
+          next.headerEpochs.push({ seq: event.seq, time: timeOf(event), tools, meta })
         }
         const config = header && header.config !== null && typeof header.config === 'object' ? header.config : undefined
+        const previousModel = typeof state.model === 'string' ? state.model : ''
         if (config && typeof config.model === 'string') next.model = config.model
         if (config && typeof config.provider === 'string') next.provider = config.provider
+        // The routed output cap auto-compaction reserves out of the window (last wins; a cap-less header clears it).
+        const maxOutputTokens = config ? config.maxTokens : undefined
+        if (typeof maxOutputTokens === 'number' && Number.isFinite(maxOutputTokens) && maxOutputTokens > 0) {
+          next.maxOutputTokens = Math.floor(maxOutputTokens)
+        } else {
+          delete next.maxOutputTokens
+        }
+        // No dedicated model-switch event: a change/resume header whose model differs from the previous one.
+        const reason = data && typeof data.reason === 'string' ? data.reason : ''
+        const routedModel = typeof next.model === 'string' ? next.model : ''
+        if ((reason === 'change' || reason === 'resume') && previousModel !== '' && routedModel !== '' && previousModel !== routedModel) {
+          next.events.push({ seq: event.seq, time: timeOf(event), kind: 'model', from: previousModel, to: routedModel })
+          trimState(next)
+        }
+        if (routedModel !== '') next.lastModel = routedModel
         return next
       }
       case 'request/context': {
@@ -873,6 +1060,9 @@ export function applyContextEvent(state, event) {
           if (input !== null || cacheRead !== null || cacheWrite !== null || output !== null) {
             record.prompt = (input ?? 0) + (cacheRead ?? 0) + (cacheWrite ?? 0)
             if (output !== null) record.output = output
+            // Pin detail prints the cache-hit share next to the actuals.
+            if (cacheRead !== null) record.cacheRead = cacheRead
+            if (input !== null) record.uncachedInput = input
           }
         }
         next.requests.push(record)
@@ -953,7 +1143,8 @@ export function applyContextEvent(state, event) {
         if (callId === '' || name === '') return state
         const next = cloneState(state)
         const file = fileCallMeta(name, data && data.arguments)
-        next.callNames[callId] = { name, start: timeOf(event), ...(file !== null ? { file } : {}) }
+        const shell = shellCommandOf(name, data && data.arguments)
+        next.callNames[callId] = { name, start: timeOf(event), ...(file !== null ? { file } : {}), ...(shell !== null ? { shell } : {}) }
         trimState(next)
         return next
       }
@@ -966,9 +1157,12 @@ export function applyContextEvent(state, event) {
         if (!isSurfaceEvent(event)) {
           if (pending === undefined) return state
           const ops = fileOpsOf(event, message, pending)
-          if (ops.length === 0) return state
+          const shellPending = pending.shell !== null && typeof pending.shell === 'object'
+          if (ops.length === 0 && !shellPending) return state
           const next = cloneState(state)
-          next.fileOps.push(...ops)
+          next.pendingCommandSeq = (Number.isFinite(next.pendingCommandSeq) ? next.pendingCommandSeq : 0) + 1
+          if (shellPending) recordCommand(next, pending, message, eventTime, event.seq)
+          if (ops.length > 0) next.fileOps.push(...ops)
           if (callId !== '') delete next.callNames[callId]
           trimState(next)
           return next
@@ -976,6 +1170,8 @@ export function applyContextEvent(state, event) {
         const next = cloneState(state)
         const node = applySurface(next, event, 'tool', message)
         if (pending !== undefined) {
+          next.pendingCommandSeq = (Number.isFinite(next.pendingCommandSeq) ? next.pendingCommandSeq : 0) + 1
+          recordCommand(next, pending, message, eventTime, event.seq)
           next.fileOps.push(...fileOpsOf(event, message, pending))
           next.counts.toolCalls += 1
           next.toolNames[pending.name] = (next.toolNames[pending.name] || 0) + 1
@@ -1071,6 +1267,14 @@ export function applyContextEvent(state, event) {
         delete next.approvals[id]
         return next
       }
+      case 'plan/mode': {
+        // Plan mode adds a guidance section to every request, so it earns an event.
+        if (data === undefined || typeof data.active !== 'boolean') return state
+        const next = cloneState(state)
+        next.events.push({ seq: event.seq, time: timeOf(event), kind: 'mode', name: data.active ? 'plan.on' : 'plan.off' })
+        trimState(next)
+        return next
+      }
       case 'compaction/summary':
       case 'compaction/prune': {
         const next = cloneState(state)
@@ -1095,6 +1299,16 @@ export function applyContextEvent(state, event) {
     // no error boundary: drop a malformed event whole instead of stalling.
     return state
   }
+}
+
+/** Browser index node: previews/kinds only for the newest slice; older rows fetch content on demand. */
+function slimIndexNode(node, keepDetail) {
+  if (node === null || typeof node !== 'object') return node
+  if (keepDetail) return { ...node }
+  const copy = { ...node }
+  delete copy.text
+  delete copy.kinds
+  return copy
 }
 
 function timeOf(event) {
@@ -1136,6 +1350,7 @@ export function contextView(state) {
     ...(state.model !== undefined ? { model: state.model } : {}),
     ...(state.provider !== undefined ? { provider: state.provider } : {}),
     ...(state.contextWindow !== undefined ? { contextWindow: state.contextWindow } : {}),
+    ...(Number.isFinite(state.maxOutputTokens) ? { maxOutputTokens: state.maxOutputTokens } : {}),
     current,
     counts: {
       humanInputs: state.counts.humanInputs,
@@ -1154,7 +1369,7 @@ export function contextView(state) {
       searches: safeInt(activity.searches),
       images: safeInt(activity.images),
     },
-    tools: { total: state.counts.toolCalls, names: sortedToolNames(state) },
+    tools: { total: state.counts.toolCalls, count: safeInt(state.toolDefs), names: sortedToolNames(state) },
     timing: {
       wallMs,
       ttftMs,
@@ -1174,13 +1389,16 @@ export function contextView(state) {
     // v2 timeline: newest MAX_SPANS segments, each [kind, start, end].
     spans: (Array.isArray(state.spans) ? state.spans : []).map(span => [span[0], span[1], span[2]]),
     // Slim browser index; full message/header bodies are fetched only when a row is opened.
-    surface: (Array.isArray(state.surface) ? state.surface : []).map(node => ({ ...node })),
-    archive: (Array.isArray(state.archive) ? state.archive : []).map(node => ({ ...node })),
+    // Row previews / block kinds ride only the newest slice, so the wire stays inside budget.
+    surface: (Array.isArray(state.surface) ? state.surface : []).map((node, index, nodes) => slimIndexNode(node, index >= nodes.length - INDEX_DETAIL_NODES)),
+    archive: (Array.isArray(state.archive) ? state.archive : []).map((node, index, nodes) => slimIndexNode(node, index >= nodes.length - INDEX_DETAIL_NODES)),
     headerEpochs: (Array.isArray(state.headerEpochs) ? state.headerEpochs : []).map(epoch => ({
       ...epoch,
       tools: Array.isArray(epoch.tools) ? epoch.tools.map(tool => ({ ...tool })) : [],
     })),
     fileOps: (Array.isArray(state.fileOps) ? state.fileOps : []).map(op => ({ ...op })),
+    commands: (Array.isArray(state.commands) ? state.commands : []).map(command => ({ ...command })),
+    commandStats: { ...(state.commandStats || { runs: 0, failed: 0, ms: 0, bg: 0 }) },
     ...(Number.isFinite(state.archiveFloor) ? { archiveFloor: state.archiveFloor } : {}),
     ...(Number.isFinite(state.fileOpsFloor) ? { fileOpsFloor: state.fileOpsFloor } : {}),
     ...(typeof state.lastAnswer === 'string' && state.lastAnswer !== '' ? { lastAnswer: state.lastAnswer } : {}),
@@ -1213,6 +1431,8 @@ export const contextProjectionDefinition = {
 let hostSessions = null
 let hostProjections = null
 let hostAgents = null
+let hostSkills = null
+let hostAgentPresets = null
 
 /**
  * Capture the host services the fleet query needs. Registration is optional and
@@ -1239,6 +1459,20 @@ export function registerContextServices(ctx) {
       if (!sub || !sub.agents) return
       hostAgents = sub.agents
       sub.effect(() => () => { hostAgents = null })
+    })
+  } catch (_) { /* optional service */ }
+  try {
+    ctx.inject(['skills'], (sub) => {
+      if (!sub || !sub.skills) return
+      hostSkills = sub.skills
+      sub.effect(() => () => { hostSkills = null })
+    })
+  } catch (_) { /* optional service */ }
+  try {
+    ctx.inject(['agentPresets'], (sub) => {
+      if (!sub || !sub.agentPresets) return
+      hostAgentPresets = sub.agentPresets
+      sub.effect(() => () => { hostAgentPresets = null })
     })
   } catch (_) { /* optional service */ }
   return true
@@ -1482,6 +1716,605 @@ export function buildFleetValue(currentSessionId, records, snapshotOf, runningOf
     agents,
     ...(team !== null ? { team } : {}),
     counts: { agents: agents.length, running, subagents },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Cross-agent comms: on-demand scan of the family's session logs for relay /
+// mailbox / settled messages (dsh-context host/fleet.ts + commsPanel.tsx).
+// ---------------------------------------------------------------------------
+
+export const COMMS_SCAN_MAX_SESSIONS = 12
+export const COMMS_MAX_MESSAGES = 200
+const COMMS_TEXT_MAX = 240
+const MAILBOX_PREFIX = /^Team message \S+ from [^:]{1,64}:\s*/
+const RELAY_PREFIX = /^(?:Agent \S+ sent a message: |Team message from [^:\n]{1,64}:\s*)/
+
+function commsTextOfContent(content) {
+  const blocks = Array.isArray(content) ? content : []
+  const parts = []
+  for (const block of blocks) {
+    if (block === null || typeof block !== 'object') continue
+    if (typeof block.text === 'string' && block.text !== '') parts.push(block.text)
+  }
+  return parts.join('\n')
+}
+
+/** One comms row from a `user/message` event (returns null for ordinary prompts/injections). */
+export function commsMessageOf(event, toSessionId) {
+  if (event === null || typeof event !== 'object' || event.type !== 'user/message') return null
+  const data = event.data !== null && typeof event.data === 'object' ? event.data : {}
+  const source = data.source !== null && typeof data.source === 'object' ? data.source : null
+  if (source === null) return null
+  const kind = source.kind
+  let row = null
+  if (kind === 'agent-message' || kind === 'team-message') {
+    let text = commsTextOfContent(data.content)
+    text = text.replace(kind === 'team-message' ? MAILBOX_PREFIX : RELAY_PREFIX, '')
+    if (text.trim() === '') return null
+    row = {
+      seq: Number.isFinite(event.seq) ? event.seq : 0,
+      time: Number.isFinite(event.time) ? event.time : 0,
+      kind: kind === 'agent-message' ? 'relay' : 'mailbox',
+      text: text.length > COMMS_TEXT_MAX ? text.slice(0, COMMS_TEXT_MAX) + '…' : text,
+      to: toSessionId,
+    }
+    if (typeof source.senderSessionId === 'string' && source.senderSessionId !== '') row.from = source.senderSessionId
+    else if (typeof source.senderId === 'string' && source.senderId !== '') row.from = source.senderId
+    if (typeof source.senderName === 'string' && source.senderName !== '') row.fromName = source.senderName
+    return row
+  }
+  if (kind === 'subagent-settled') {
+    const summary = typeof source.summary === 'string' && source.summary.trim() !== ''
+      ? source.summary : commsTextOfContent(data.content)
+    if (summary.trim() === '') return null
+    row = {
+      seq: Number.isFinite(event.seq) ? event.seq : 0,
+      time: Number.isFinite(event.time) ? event.time : 0,
+      kind: 'settled',
+      text: summary.length > COMMS_TEXT_MAX ? summary.slice(0, COMMS_TEXT_MAX) + '…' : summary,
+      to: toSessionId,
+    }
+    if (typeof source.senderSessionId === 'string' && source.senderSessionId !== '') row.from = source.senderSessionId
+    if (typeof source.senderName === 'string' && source.senderName !== '') row.fromName = source.senderName
+    return row
+  }
+  return null
+}
+
+/**
+ * Pure comms aggregate. `sessions` = [{ id, title, events }] with raw durable events.
+ * Returns newest-first rows, merged across sessions, capped at COMMS_MAX_MESSAGES.
+ */
+export function buildCommsValue(sessions) {
+  const titles = Object.create(null)
+  const messages = []
+  let scanned = 0
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    if (session === null || typeof session !== 'object') continue
+    const id = typeof session.id === 'string' ? session.id : ''
+    if (id === '') continue
+    scanned += 1
+    if (typeof session.title === 'string' && session.title !== '') titles[id] = session.title.slice(0, 120)
+    for (const event of Array.isArray(session.events) ? session.events : []) {
+      const row = commsMessageOf(event, id)
+      if (row !== null) messages.push(row)
+    }
+  }
+  messages.sort((left, right) => (right.time - left.time) || (right.seq - left.seq))
+  const total = messages.length
+  const capped = messages.slice(0, COMMS_MAX_MESSAGES).map((row) => {
+    const result = { ...row }
+    if (result.fromName === undefined && result.from !== undefined && titles[result.from] !== undefined) result.fromName = titles[result.from]
+    if (titles[result.to] !== undefined) result.toName = titles[result.to]
+    return result
+  })
+  return {
+    v: 1,
+    messages: capped,
+    scanned,
+    total,
+    truncated: total > capped.length,
+  }
+}
+
+/** Serve one `context-comms` request: scan the requested family sessions' recent logs. */
+export async function handleContextComms(api, msg) {
+  const requestType = msg && msg.type
+  const requested = msg && Array.isArray(msg.sessionIds) ? msg.sessionIds.filter((id) => typeof id === 'string' && id !== '') : []
+  const sessionIds = Array.from(new Set(requested)).slice(0, COMMS_SCAN_MAX_SESSIONS)
+  if (sessionIds.length === 0) {
+    return { kind: 'error', code: 'bad-request', requestType, message: 'context-comms requires sessionIds' }
+  }
+  if (!api || !api.sessions || typeof api.sessions.history !== 'function') {
+    return unavailable(requestType, sessionIds[0], 'Session history is unavailable on this host')
+  }
+  const sessions = []
+  for (const sessionId of sessionIds) {
+    try {
+      const history = await api.sessions.history({ sessionId, maxMessages: 400 })
+      if (history === null || typeof history !== 'object' || history.kind === 'error') continue
+      const entries = Array.isArray(history.events) ? history.events : []
+      const events = entries.map((entry) => (entry !== null && typeof entry === 'object' && entry.event !== null && typeof entry.event === 'object' ? entry.event : entry))
+      sessions.push({ id: sessionId, title: typeof history.title === 'string' ? history.title : '', events })
+    } catch (_) {
+      // One unreadable log must not abort the scan of the others.
+    }
+  }
+  try {
+    return { kind: 'context-comms', sessionId: sessionIds[0], value: buildCommsValue(sessions) }
+  } catch (_) {
+    return unavailable(requestType, sessionIds[0], 'Unable to scan cross-agent messages')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Context Insights: bounded cross-session activity and session summaries.
+// ---------------------------------------------------------------------------
+
+export const INSIGHTS_MAX_SESSIONS = 120
+export const INSIGHTS_DAYS = 56
+const INSIGHTS_PRICE_URL = 'https://models.dev/api.json'
+const INSIGHTS_PRICE_TTL_MS = 6 * 60 * 60 * 1000
+let insightsPriceCache = { expiresAt: 0, value: null }
+
+function insightsNumber(value) {
+  const n = typeof value === 'number' ? value : Number(value)
+  return Number.isFinite(n) && n > 0 ? n : 0
+}
+
+function insightsDayKey(time) {
+  if (!Number.isFinite(time) || time <= 0) return ''
+  const date = new Date(time)
+  if (!Number.isFinite(date.getTime())) return ''
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return date.getFullYear() + '-' + month + '-' + day
+}
+
+function insightsCostUsageAdd(target, source) {
+  if (source === null || typeof source !== 'object' || Array.isArray(source)) return
+  for (const provider of Object.keys(source)) {
+    const models = source[provider]
+    if (models === null || typeof models !== 'object' || Array.isArray(models)) continue
+    const targetModels = target[provider] || (target[provider] = Object.create(null))
+    for (const model of Object.keys(models)) {
+      const periods = models[model]
+      if (periods === null || typeof periods !== 'object' || Array.isArray(periods)) continue
+      const targetPeriods = targetModels[model] || (targetModels[model] = Object.create(null))
+      for (const period of ['peak', 'off']) {
+        const bucket = periods[period]
+        if (bucket === null || typeof bucket !== 'object') continue
+        const sum = targetPeriods[period] || (targetPeriods[period] = { uncached: 0, cacheRead: 0, cacheWrite: 0, output: 0 })
+        sum.uncached += insightsNumber(bucket.uncached)
+        sum.cacheRead += insightsNumber(bucket.cacheRead)
+        sum.cacheWrite += insightsNumber(bucket.cacheWrite)
+        sum.output += insightsNumber(bucket.output)
+      }
+    }
+  }
+}
+
+async function insightsPricesOf() {
+  const now = Date.now()
+  if (insightsPriceCache.expiresAt > now) return insightsPriceCache.value
+  try {
+    if (typeof fetch !== 'function') return null
+    const controller = typeof AbortController === 'function' ? new AbortController() : null
+    const timer = controller ? setTimeout(() => controller.abort(), 5000) : null
+    let response
+    let body
+    try {
+      response = await fetch(INSIGHTS_PRICE_URL, controller ? { signal: controller.signal } : undefined)
+      if (!response || !response.ok) throw new Error('price book unavailable')
+      body = await response.json()
+    } finally {
+      if (timer !== null) clearTimeout(timer)
+    }
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new Error('invalid price book')
+    insightsPriceCache = { expiresAt: now + INSIGHTS_PRICE_TTL_MS, value: body }
+    return body
+  } catch (_) {
+    // Retry sooner after an outage, while keeping the page useful without prices.
+    insightsPriceCache = { expiresAt: now + 60_000, value: null }
+    return null
+  }
+}
+
+function insightsRateOf(book, provider, model) {
+  const number = value => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null
+  const leaf = String(model || '').slice(String(model || '').lastIndexOf('/') + 1).toLowerCase()
+  const providerKey = String(provider || '').toLowerCase()
+  if (book === null || typeof book !== 'object' || !leaf) return null
+  const providerIds = Object.keys(book)
+  const preferred = providerIds.find(id => id.toLowerCase() === providerKey)
+    || (providerKey.includes('deepseek') ? providerIds.find(id => id.toLowerCase() === 'deepseek') : null)
+  const candidates = []
+  for (const id of providerIds) {
+    const models = book[id] && book[id].models
+    if (models === null || typeof models !== 'object') continue
+    for (const key of Object.keys(models)) {
+      const candidate = models[key]
+      const cost = candidate && candidate.cost
+      const candidateId = key.toLowerCase()
+      if (candidateId !== leaf && !candidateId.endsWith('-' + leaf)) continue
+      if (cost === null || typeof cost !== 'object') continue
+      const input = number(cost.input)
+      const output = number(cost.output)
+      if (input === null || output === null) continue
+      const rate = { input, output, cacheRead: number(cost.cache_read) ?? input, cacheWrite: number(cost.cache_write) ?? input }
+      candidates.push({ id, key, rate, preferred: id === preferred })
+    }
+  }
+  const exact = candidates.filter(item => item.key.toLowerCase() === leaf)
+  const pool = exact.length ? exact : candidates
+  const named = pool.filter(item => item.preferred)
+  const selected = named.length ? named : pool.length === 1 ? pool : []
+  if (selected.length !== 1) return null
+  return selected[0].rate
+}
+
+function insightsEstimateCost(usage, book) {
+  if (book === null || usage === null || typeof usage !== 'object') return null
+  let total = 0
+  let priced = false
+  for (const provider of Object.keys(usage)) {
+    const models = usage[provider]
+    if (models === null || typeof models !== 'object') continue
+    const deepseek = provider.toLowerCase().includes('deepseek')
+    for (const model of Object.keys(models)) {
+      const rate = insightsRateOf(book, provider, model)
+      if (rate === null) continue
+      const periods = models[model]
+      if (periods === null || typeof periods !== 'object') continue
+      for (const period of ['peak', 'off']) {
+        const bucket = periods[period]
+        if (bucket === null || typeof bucket !== 'object') continue
+        const cost = (insightsNumber(bucket.uncached) * rate.input
+          + insightsNumber(bucket.cacheRead) * rate.cacheRead
+          + insightsNumber(bucket.cacheWrite) * rate.cacheWrite
+          + insightsNumber(bucket.output) * rate.output) / 1_000_000
+        total += deepseek && period === 'peak' ? cost * 2 : cost
+        priced = true
+      }
+    }
+  }
+  return priced ? total : null
+}
+
+async function insightsSkillCatalogOf(sessionId, sessions, projections) {
+  if (!hostSkills || typeof hostSkills.list !== 'function') return []
+  const session = sessions.find(item => item && (item.id === sessionId || item.header && item.header.id === sessionId))
+  const header = session && session.header && typeof session.header === 'object' ? session.header : {}
+  let cwd = typeof header.cwd === 'string' ? header.cwd : undefined
+  let preset
+  try {
+    const snapshot = session ? projections.snapshot(session) : null
+    const values = snapshot && snapshot.values && typeof snapshot.values === 'object' ? snapshot.values : {}
+    const context = values.mobileContext && typeof values.mobileContext === 'object' ? values.mobileContext : {}
+    const presetValue = values.agentPreset
+    if (typeof presetValue === 'string' && presetValue) preset = presetValue
+    if (typeof context.cwd === 'string' && context.cwd) cwd = context.cwd
+  } catch (_) { /* no catalog scope */ }
+  let lease
+  let scope
+  try {
+    let registry = hostSkills
+    let liveAgent
+    try {
+      liveAgent = hostAgents && typeof hostAgents.get === 'function' ? hostAgents.get(sessionId) : null
+    } catch (_) { liveAgent = null }
+    if (liveAgent && hostAgentPresets && typeof hostAgentPresets.serviceFor === 'function') {
+      const scoped = hostAgentPresets.serviceFor(liveAgent, 'skills')
+      if (scoped && typeof scoped.list === 'function') {
+        registry = scoped
+        scope = liveAgent
+      }
+    }
+    if (scope === undefined && hostAgentPresets && typeof hostAgentPresets.acquireScope === 'function') {
+      lease = await hostAgentPresets.acquireScope(preset)
+      scope = lease && lease.key
+    }
+    const listed = await registry.list({ ...(cwd ? { cwd } : {}), ...(scope !== undefined ? { scope } : {}) })
+    return (Array.isArray(listed) ? listed : []).slice(0, 200).flatMap(item => {
+      if (!item || typeof item !== 'object' || typeof item.name !== 'string' || !item.name) return []
+      return [{
+        name: item.name.slice(0, 120),
+        description: typeof item.description === 'string' ? item.description.slice(0, 500) : '',
+        ...(typeof item.path === 'string' && item.path ? { path: item.path.slice(0, 500) } : {}),
+        ...(typeof item.source === 'string' && item.source ? { source: item.source.slice(0, 80) } : {}),
+      }]
+    })
+  } catch (_) {
+    return []
+  } finally {
+    try {
+      const dispose = lease && (lease[Symbol.asyncDispose] || lease[Symbol.dispose])
+      if (typeof dispose === 'function') await dispose.call(lease)
+    } catch (_) { /* best-effort lease cleanup */ }
+  }
+}
+
+/**
+ * Pure aggregate for the Insights page. `records` are per-session projections
+ * ({ id, title, model, provider, usage, stats, counts, pressure, current, timing, requests }).
+ */
+export function buildInsightsValue(records, now, options) {
+  const opts = options || {}
+  const maxDays = Number.isFinite(Number(opts.days)) ? Math.max(1, Math.floor(Number(opts.days))) : INSIGHTS_DAYS
+  const nowMs = Number.isFinite(Number(now)) ? Number(now) : Date.now()
+  const list = Array.isArray(records) ? records.slice(0, INSIGHTS_MAX_SESSIONS) : []
+  const sessions = []
+  const skillDays = Object.create(null)
+  const priceBook = opts.priceBook && typeof opts.priceBook === 'object' ? opts.priceBook : null
+  const totals = { sessions: 0, billedTokens: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, turns: 0, steps: 0, toolCalls: 0, activeMs: 0 }
+  for (const record of list) {
+    if (record === null || typeof record !== 'object') continue
+    const id = typeof record.id === 'string' ? record.id : ''
+    if (id === '') continue
+    const usage = record.usage !== null && typeof record.usage === 'object' ? record.usage : {}
+    const stats = record.stats !== null && typeof record.stats === 'object' ? record.stats : {}
+    const counts = record.counts !== null && typeof record.counts === 'object' ? record.counts : {}
+    const pressure = record.pressure !== null && typeof record.pressure === 'object' ? record.pressure : {}
+    const current = record.current !== null && typeof record.current === 'object' ? record.current : {}
+    const timing = record.timing !== null && typeof record.timing === 'object' ? record.timing : {}
+    const activity = record.activity !== null && typeof record.activity === 'object' ? record.activity : {}
+    const activityByDay = activity.days !== null && typeof activity.days === 'object' ? activity.days : {}
+    const input = insightsNumber(usage.uncachedInputTokens) + insightsNumber(usage.cacheReadTokens) + insightsNumber(usage.cacheWriteTokens)
+    const output = insightsNumber(usage.outputTokens)
+    const billed = input + output
+    const activeMs = insightsNumber(stats.llmMs) + insightsNumber(stats.toolMs)
+    const requests = Array.isArray(record.requests) ? record.requests : []
+    let lastActive = insightsNumber(record.lastActive) || insightsNumber(record.createdAt)
+    const sessionDays = Object.create(null)
+    const sessionSkillLoads = Object.create(null)
+    const sessionCostUsage = Object.create(null)
+    for (const request of requests) {
+      if (request === null || typeof request !== 'object') continue
+      const time = insightsNumber(request.time)
+      if (time > lastActive) lastActive = time
+      const day = insightsDayKey(time)
+      if (day === '') continue
+      const tokens = insightsNumber(request.total)
+      const daily = sessionDays[day] || (sessionDays[day] = { tokens: 0, requests: 0 })
+      daily.tokens += tokens
+      daily.requests += 1
+      daily.inputTokens = (daily.inputTokens || 0) + insightsNumber(request.prompt)
+      daily.outputTokens = (daily.outputTokens || 0) + insightsNumber(request.output)
+      daily.cacheReadTokens = (daily.cacheReadTokens || 0) + insightsNumber(request.cacheRead)
+    }
+    const activityKeys = Object.keys(activityByDay).sort()
+    for (const day of activityKeys) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue
+      const entry = activityByDay[day] !== null && typeof activityByDay[day] === 'object' ? activityByDay[day] : {}
+      const costUsage = entry.cost !== null && typeof entry.cost === 'object' ? entry.cost : null
+      insightsCostUsageAdd(sessionCostUsage, costUsage)
+      const isRecentDay = activityKeys.indexOf(day) >= Math.max(0, activityKeys.length - maxDays)
+      let daily
+      if (isRecentDay) {
+        daily = sessionDays[day] || (sessionDays[day] = {})
+        daily.tokens = insightsNumber(entry.tokens)
+        daily.requests = insightsNumber(entry.requests)
+        daily.turns = insightsNumber(entry.turns)
+        daily.toolCalls = insightsNumber(entry.toolCalls)
+        daily.toolsMs = insightsNumber(entry.toolsMs)
+        daily.wallMs = insightsNumber(entry.wallMs)
+        if (costUsage !== null) {
+          daily.costUsd = insightsEstimateCost(costUsage, priceBook)
+          let inputTokens = 0
+          let cacheReadTokens = 0
+          let cacheWriteTokens = 0
+          let outputTokens = 0
+          for (const provider of Object.keys(costUsage)) {
+            const models = costUsage[provider]
+            if (models === null || typeof models !== 'object') continue
+            for (const model of Object.keys(models)) {
+              const periods = models[model]
+              if (periods === null || typeof periods !== 'object') continue
+              for (const period of ['peak', 'off']) {
+                const bucket = periods[period]
+                if (bucket === null || typeof bucket !== 'object') continue
+                inputTokens += insightsNumber(bucket.uncached)
+                cacheReadTokens += insightsNumber(bucket.cacheRead)
+                cacheWriteTokens += insightsNumber(bucket.cacheWrite)
+                outputTokens += insightsNumber(bucket.output)
+              }
+            }
+          }
+          daily.inputTokens = inputTokens + cacheReadTokens + cacheWriteTokens
+          daily.cacheReadTokens = cacheReadTokens
+          daily.cacheWriteTokens = cacheWriteTokens
+          daily.outputTokens = outputTokens
+        }
+      }
+      const skills = entry.skills !== null && typeof entry.skills === 'object' ? entry.skills : {}
+      const names = Object.keys(skills).filter((name) => name !== '').sort((a, b) => insightsNumber(skills[b] && skills[b].n) - insightsNumber(skills[a] && skills[a].n)).slice(0, 20)
+      for (const name of names) {
+        const skill = skills[name] !== null && typeof skills[name] === 'object' ? skills[name] : {}
+        sessionSkillLoads[name] = (sessionSkillLoads[name] || 0) + insightsNumber(skill.n)
+        if (daily) {
+          const dailySkills = daily.skills || (daily.skills = Object.create(null))
+          dailySkills[name] = { loads: insightsNumber(skill.n), last: insightsNumber(skill.last) }
+        }
+        const byName = skillDays[day] || (skillDays[day] = Object.create(null))
+        const total = byName[name] || (byName[name] = { loads: 0, sessions: 0, last: 0 })
+        total.loads += insightsNumber(skill.n)
+        total.sessions += 1
+        total.last = Math.max(total.last, insightsNumber(skill.last))
+      }
+    }
+    const composition = {
+      system: insightsNumber(current.system),
+      tools: insightsNumber(current.tools),
+      user: insightsNumber(current.user),
+      inject: insightsNumber(current.inject),
+      skill: insightsNumber(current.skill),
+      assistant: insightsNumber(current.assistant),
+      tool: insightsNumber(current.tool),
+      output: output,
+    }
+    sessions.push({
+      id,
+      title: typeof record.title === 'string' && record.title !== '' ? record.title.slice(0, 120) : id,
+      model: typeof record.model === 'string' ? record.model.slice(0, 80) : '',
+      provider: typeof record.provider === 'string' ? record.provider.slice(0, 80) : '',
+      lastActive,
+      createdAt: insightsNumber(record.createdAt),
+      billedTokens: billed,
+      inputTokens: input,
+      outputTokens: output,
+      cacheReadTokens: insightsNumber(usage.cacheReadTokens),
+      cacheWriteTokens: insightsNumber(usage.cacheWriteTokens),
+      turns: insightsNumber(stats.turns),
+      steps: insightsNumber(stats.steps),
+      toolCalls: insightsNumber(counts.toolCalls),
+      activeMs,
+      toolMs: insightsNumber(stats.toolMs),
+      llmMs: insightsNumber(stats.llmMs),
+      timing: {
+        wallMs: insightsNumber(timing.wallMs),
+        ttftMs: insightsNumber(timing.ttftMs),
+        reasoningMs: insightsNumber(timing.reasoningMs),
+        textMs: insightsNumber(timing.textMs),
+        toolArgMs: insightsNumber(timing.toolArgMs),
+        toolsMs: insightsNumber(timing.toolsMs),
+        otherMs: insightsNumber(timing.otherMs),
+        speedTokens: insightsNumber(timing.speedTokens),
+        speedMs: insightsNumber(timing.speedMs),
+      },
+      contextWindow: insightsNumber(pressure.contextWindow),
+      pressureTokens: insightsNumber(pressure.pressureTokens),
+      cwd: typeof record.cwd === 'string' ? record.cwd.slice(0, 500) : '',
+      lastAnswer: typeof record.lastAnswer === 'string' ? record.lastAnswer.slice(0, 160) : '',
+      costUsd: insightsEstimateCost(sessionCostUsage, priceBook),
+      skillNames: Object.keys(sessionSkillLoads).sort((a, b) => sessionSkillLoads[b] - sessionSkillLoads[a]).slice(0, 20),
+      days: sessionDays,
+      composition,
+    })
+    totals.sessions += 1
+    totals.billedTokens += billed
+    totals.inputTokens += input
+    totals.outputTokens += output
+    totals.cacheReadTokens += insightsNumber(usage.cacheReadTokens)
+    totals.turns += insightsNumber(stats.turns)
+    totals.steps += insightsNumber(stats.steps)
+    totals.toolCalls += insightsNumber(counts.toolCalls)
+    totals.activeMs += activeMs
+  }
+  sessions.sort((left, right) => (right.lastActive - left.lastActive) || String(right.id).localeCompare(String(left.id)))
+  const dailyTokens = Object.create(null)
+  for (const session of sessions) {
+    for (const [day, entry] of Object.entries(session.days)) dailyTokens[day] = (dailyTokens[day] || 0) + insightsNumber(entry.tokens)
+  }
+  // Daily buckets for the last N local days (7-day chart + 8-week heatmap share them).
+  const days = []
+  const start = new Date(nowMs)
+  start.setHours(0, 0, 0, 0)
+  for (let offset = maxDays - 1; offset >= 0; offset -= 1) {
+    const date = new Date(start)
+    date.setDate(date.getDate() - offset)
+    const key = insightsDayKey(date.getTime())
+    days.push({ day: key, tokens: dailyTokens[key] || 0 })
+  }
+  const composition = { system: 0, tools: 0, user: 0, inject: 0, skill: 0, assistant: 0, tool: 0, output: 0 }
+  for (const session of sessions) {
+    for (const key of Object.keys(composition)) composition[key] += session.composition[key]
+  }
+  return {
+    v: 1,
+    asOf: nowMs,
+    sessions,
+    days,
+    skillDays: Object.keys(skillDays).sort().slice(-maxDays).map((day) => ({
+      day,
+      skills: Object.keys(skillDays[day]).sort((a, b) => skillDays[day][b].loads - skillDays[day][a].loads).slice(0, 24).map((name) => ({ name, lastDay: day, ...skillDays[day][name] }))
+    })),
+    sessionsTruncated: opts.sessionsTruncated === true,
+    totals,
+    composition,
+    cacheHit: totals.inputTokens > 0 ? totals.cacheReadTokens / totals.inputTokens : null,
+  }
+}
+
+/**
+ * Serve one `context-insights` request: aggregate the host's recent sessions into
+ * the Insights page wire value. Bounded to INSIGHTS_MAX_SESSIONS snapshots.
+ */
+export async function handleContextInsights(msg) {
+  const requestType = msg && msg.type
+  const sessionId = msg && typeof msg.sessionId === 'string' && msg.sessionId.trim() !== '' ? msg.sessionId.trim() : null
+  if (sessionId === null) {
+    return { kind: 'error', code: 'bad-request', requestType, message: 'context-insights requires a sessionId' }
+  }
+  if (hostSessions === null || hostProjections === null || typeof hostSessions.list !== 'function'
+    || typeof hostProjections.snapshot !== 'function') {
+    return unavailable(requestType, sessionId, 'Session services are unavailable on this host')
+  }
+  try {
+    const listedSessions = hostSessions.list()
+    const sessions = Array.isArray(listedSessions) ? listedSessions : []
+    const records = []
+    let sessionsTruncated = false
+    for (let sessionIndex = 0; sessionIndex < sessions.length; sessionIndex += 1) {
+      const session = sessions[sessionIndex]
+      if (session === null || typeof session !== 'object') continue
+      const header = session.header !== null && typeof session.header === 'object' ? session.header : {}
+      const id = typeof session.id === 'string' && session.id !== '' ? session.id : (typeof header.id === 'string' ? header.id : '')
+      if (id === '') continue
+      let values = null
+      try {
+        const snapshot = hostProjections.snapshot(session)
+        values = snapshot !== null && typeof snapshot === 'object' && snapshot.values !== null && typeof snapshot.values === 'object'
+          ? snapshot.values : null
+      } catch (_) {
+        values = null
+      }
+      if (values === null) continue
+      const usage = values.tokenUsage !== null && typeof values.tokenUsage === 'object' ? values.tokenUsage : {}
+      const stats = values.sessionStats !== null && typeof values.sessionStats === 'object' ? values.sessionStats : {}
+      const pressure = values.contextPressure !== null && typeof values.contextPressure === 'object' ? values.contextPressure : {}
+      const context = values.mobileContext !== null && typeof values.mobileContext === 'object' ? values.mobileContext : {}
+      const title = values.sessionTitle !== null && typeof values.sessionTitle === 'object'
+        ? (typeof values.sessionTitle.title === 'string' ? values.sessionTitle.title : '')
+        : (typeof session.title === 'string' ? session.title : '')
+      let running = false
+      try {
+        const agent = hostAgents && typeof hostAgents.get === 'function' ? hostAgents.get(id) : null
+        running = !!agent && agent.status === 'running'
+      } catch (_) { /* status is optional */ }
+      records.push({
+        id,
+        title,
+        cwd: typeof header.cwd === 'string' ? header.cwd : '',
+        running,
+        model: typeof context.model === 'string' ? context.model : (typeof header.model === 'string' ? header.model : ''),
+        provider: typeof context.provider === 'string' ? context.provider : '',
+        createdAt: insightsNumber(header.createdAt),
+        usage,
+        stats,
+        counts: context.counts !== null && typeof context.counts === 'object' ? context.counts : {},
+        pressure,
+        current: context.current !== null && typeof context.current === 'object' ? context.current : {},
+        timing: context.timing !== null && typeof context.timing === 'object' ? context.timing : {},
+        requests: Array.isArray(context.requests) ? context.requests : [],
+        activity: values.contextActivity !== null && typeof values.contextActivity === 'object' ? values.contextActivity : {},
+        lastActive: insightsNumber(session.updatedAt) || insightsNumber(header.updatedAt),
+        lastAnswer: typeof context.lastAnswer === 'string' ? context.lastAnswer : '',
+      })
+      if (records.length >= INSIGHTS_MAX_SESSIONS) {
+        sessionsTruncated = sessionIndex < sessions.length - 1
+        break
+      }
+    }
+    const [priceBook, skillCatalog] = await Promise.all([
+      insightsPricesOf(),
+      insightsSkillCatalogOf(sessionId, sessions, hostProjections),
+    ])
+    const value = buildInsightsValue(records, Date.now(), { sessionsTruncated, priceBook })
+    value.skillCatalog = skillCatalog
+    return { kind: 'context-insights', sessionId, value }
+  } catch (_) {
+    return unavailable(requestType, sessionId, 'Unable to aggregate session insights')
   }
 }
 

@@ -72,8 +72,10 @@ const FIXTURE_EXPECTED = {
   // v2 drops the request record cap to 200 to keep the bigger per-record wire
   // (items/prompt/output) inside the frame budget (docs §8.1).
   requests: 200,
-  events: 38,
-  contextEvents: { inject: 23, compaction: 2, prune: 13 },
+  // 39 = 38 inject/compaction/prune + 1 model switch (dsh-context fold.ts records
+  // change/resume headers whose model differs from the routed one).
+  events: 39,
+  contextEvents: { inject: 23, compaction: 2, prune: 13, model: 1, mode: 0 },
 }
 
 // The documented session snapshot (docs/context-dashboard.md §3 / task spec),
@@ -278,8 +280,23 @@ function independentCounts(events) {
   const toolNames = {}
   const eventSeqs = []
   const assistantSeqs = []
+  // dsh-context fold.ts also records model switches (change/resume header with a
+  // different model) and plan-mode toggles in the context-event log.
+  let routedModel = ''
   for (const event of events) {
-    if (event.type === 'assistant/message') {
+    if (event.type === 'request/header') {
+      const data = event.data || {}
+      const header = data.header || {}
+      const config = header.config || {}
+      const nextModel = typeof config.model === 'string' ? config.model : ''
+      const reason = typeof data.reason === 'string' ? data.reason : ''
+      if ((reason === 'change' || reason === 'resume') && routedModel !== '' && nextModel !== '' && nextModel !== routedModel) {
+        eventSeqs.push(event.seq)
+      }
+      if (nextModel !== '') routedModel = nextModel
+    } else if (event.type === 'plan/mode') {
+      if (event.data && typeof event.data.active === 'boolean') eventSeqs.push(event.seq)
+    } else if (event.type === 'assistant/message') {
       assistantSeqs.push(event.seq)
       const message = event.data && event.data.message
       const hasText = message && Array.isArray(message.content)
@@ -614,6 +631,152 @@ test('fixture request records are capped, ordered, sparse and self-consistent', 
   }
 })
 
+test('routing headers record model switches and output caps, plan mode becomes an event', async () => {
+  const bridge = await loadBridge()
+  const seed = [
+    { type: 'request/header', seq: 1, time: 1000, data: { reason: 'new', header: { config: { model: 'model-a', provider: 'p' } } } },
+    { type: 'request/header', seq: 2, time: 2000, data: { reason: 'change', header: { config: { model: 'model-b', provider: 'p', maxTokens: 32000 } } } },
+    { type: 'plan/mode', seq: 3, time: 3000, data: { active: true } },
+    { type: 'plan/mode', seq: 4, time: 4000, data: { active: false } },
+  ]
+  const { view } = foldBridge(bridge, seed)
+  assert.equal(view.maxOutputTokens, 32000, 'the routed output cap rides the wire for the reserve hatch')
+  assert.deepEqual(view.events.filter(event => event.kind === 'model').map(event => [event.from, event.to]), [['model-a', 'model-b']])
+  assert.deepEqual(view.events.filter(event => event.kind === 'mode').map(event => event.name), ['plan.on', 'plan.off'])
+  assert.equal(view.lastModel, undefined, 'internal fold state stays out of the wire view')
+  // A cap-less or unchanged header never invents events or keeps a stale cap.
+  const cleared = foldBridge(bridge, [
+    { type: 'request/header', seq: 1, time: 1000, data: { reason: 'new', header: { config: { model: 'm', maxTokens: 64000 } } } },
+    { type: 'request/header', seq: 2, time: 2000, data: { reason: 'resume', header: { config: { model: 'm' } } } },
+  ]).view
+  assert.equal(cleared.events.length, 0)
+  assert.equal(cleared.maxOutputTokens, undefined)
+})
+
+test('newest header epoch carries compact tool metadata for the browser', async () => {
+  const bridge = await loadBridge()
+  const headerOf = (tools) => ({ config: { model: 'm', provider: 'p' }, tools })
+  const seed = [
+    { type: 'request/header', seq: 1, time: 1000, data: { reason: 'new', header: headerOf([
+      { name: 'bash', description: 'Run a shell command', inputSchema: { type: 'object', properties: { command: { type: 'string', description: 'Shell command' } }, required: ['command'] } }
+    ]) } },
+    { type: 'request/header', seq: 2, time: 2000, data: { reason: 'change', header: headerOf([
+      { name: 'read', description: 'Read a file', inputSchema: { type: 'object', properties: { file_path: { type: 'string' }, limit: { type: 'integer' } }, required: ['file_path'] } },
+      { name: 'web_search', description: 'Search', inputSchema: { type: 'object', properties: { query: { anyOf: [{ type: 'string' }, { type: 'number' }] } } } },
+      { name: 'mcp__github__search', description: 'MCP search' },
+    ]) } },
+  ]
+  const { view } = foldBridge(bridge, seed)
+  assert.equal(view.headerEpochs.length, 2)
+  // 旧纪元只留名字，避免 wire 膨胀。
+  assert.equal(view.headerEpochs[0].meta, undefined)
+  const meta = view.headerEpochs[1].meta
+  const byName = Object.fromEntries(meta.map(tool => [tool.name, tool]))
+  assert.equal(byName.read.source, '@deepseek-ai/dsh-tool-fs');
+  assert.equal(byName.read.description, 'Read a file');
+  assert.deepEqual(byName.read.params.map(param => [param.name, param.type, param.required]), [['file_path', 'string', true], ['limit', 'integer', false]]);
+  assert.equal(byName.web_search.params[0].type, 'string | number', 'anyOf unions render as a pipe');
+  assert.equal(byName['mcp__github__search'].source, 'mcp:github');
+  assert.ok(byName.read.tokens > 0);
+  // 没有 schema 时仍保留名字与 token 估算，浏览器按「仅估算」降级。
+  assert.equal(byName['mcp__github__search'].params, undefined);
+})
+
+test('shell tool calls settle into the bounded command ledger', async () => {
+  const bridge = await loadBridge()
+  const seed = [
+    { type: 'tool/call', seq: 10, time: 1000, data: { callId: 'c1', name: 'bash', arguments: JSON.stringify({ command: 'make test', description: 'Run the suite', run_in_background: true }) } },
+    { type: 'tool/result', seq: 11, time: 6000, data: { message: { role: 'toolResult', source: { callId: 'c1' }, content: [{ type: 'text', text: 'ok\n[exit code: 0]' }] } } },
+    { type: 'tool/call', seq: 12, time: 7000, data: { callId: 'c2', name: 'read', arguments: JSON.stringify({ file_path: 'a.txt' }) } },
+    { type: 'tool/result', seq: 13, time: 7100, data: { message: { role: 'toolResult', source: { callId: 'c2' }, content: [{ type: 'text', text: 'file body' }] } } },
+    { type: 'tool/call', seq: 14, time: 8000, data: { callId: 'c3', name: 'bash', arguments: JSON.stringify({ command: 'sleep 10' }) } },
+    { type: 'tool/result', seq: 15, time: 9500, data: { message: { role: 'toolResult', isError: true, source: { callId: 'c3' }, content: [{ type: 'text', text: 'boom\n[exit code: 2]\nstderr: nope' }] } } },
+  ]
+  const { view } = foldBridge(bridge, seed)
+  assert.equal(view.commands.length, 2, 'file tools stay out of the command ledger')
+  assert.deepEqual(view.commands.map(command => command.command), ['make test', 'sleep 10'])
+  assert.equal(view.commands[0].seq, 11)
+  assert.equal(view.commands[0].durationMs, 5000)
+  assert.equal(view.commands[0].status, 'ok')
+  assert.equal(view.commands[0].background, true)
+  assert.equal(view.commands[0].description, 'Run the suite')
+  assert.equal(view.commands[1].status, 'failed')
+  assert.equal(view.commands[1].exit, 2)
+  assert.equal(view.commands[1].stderr, true)
+  assert.deepEqual(view.commandStats, { runs: 2, failed: 1, ms: 6500, bg: 1 })
+  assert.doesNotThrow(() => JSON.stringify(view))
+})
+
+test('comms scan lifts relay/mailbox/settled messages from session logs', async () => {
+  const bridge = await loadBridge()
+  const user = (seq, source, text) => ({ seq, time: 1000 + seq, type: 'user/message', data: { source, content: [{ type: 'text', text }] } })
+  const sessions = [
+    { id: 'a', title: 'Agent A', events: [
+      user(1, { kind: 'agent-message', senderSessionId: 'b', senderName: 'B' }, 'Agent b sent a message: 请检查'),
+      user(2, { kind: 'user' }, '普通提问'),
+    ] },
+    { id: 'b', title: 'Agent B', events: [
+      user(3, { kind: 'team-message', senderId: 'a', senderName: 'A' }, 'Team message t1 from A: 收到'),
+      user(4, { kind: 'subagent-settled', senderSessionId: 'c', summary: '完成了任务，等待新指令' }, ''),
+    ] },
+  ]
+  const value = bridge.buildCommsValue(sessions)
+  assert.deepEqual(value.messages.map(message => message.kind), ['settled', 'mailbox', 'relay'], 'newest first')
+  assert.equal(value.messages[0].text, '完成了任务，等待新指令')
+  assert.equal(value.messages[1].text, '收到', 'the mailbox transport preamble is stripped')
+  assert.equal(value.messages[2].text, '请检查', 'the relay sender framing is stripped')
+  assert.equal(value.messages[2].from, 'b')
+  assert.equal(value.messages[2].toName, 'Agent A', 'peer titles ride along for the route line')
+  assert.equal(value.messages[1].from, 'a')
+  assert.equal(value.scanned, 2)
+  assert.equal(value.total, 3)
+  assert.equal(value.truncated, false)
+  // 普通提问与注入不会进入通讯面板。
+  assert.equal(value.messages.some(message => message.text === '普通提问'), false)
+})
+
+test('insights aggregate sessions, daily buckets, cache hit and composition (no cost)', async () => {
+  const bridge = await loadBridge()
+  const day = (offset) => {
+    const date = new Date(2026, 9, 23 - offset, 10, 0, 0)
+    return date.getTime()
+  }
+  const records = [
+    {
+      id: 's1', title: '会话一', model: 'm1', provider: 'p', createdAt: day(10),
+      usage: { uncachedInputTokens: 100, cacheReadTokens: 900, cacheWriteTokens: 0, outputTokens: 50 },
+      stats: { turns: 3, steps: 7, llmMs: 5000, toolMs: 1000 },
+      counts: { toolCalls: 4 },
+      pressure: { contextWindow: 1000, pressureTokens: 400 },
+      current: { system: 100, tools: 200, user: 50, total: 350 },
+      requests: [{ time: day(1), total: 300 }, { time: day(0), total: 200 }],
+    },
+    {
+      id: 's2', title: '会话二', model: 'm2', provider: 'p', createdAt: day(40),
+      usage: { uncachedInputTokens: 0, cacheReadTokens: 500, cacheWriteTokens: 0, outputTokens: 0 },
+      stats: { turns: 0, steps: 0, llmMs: 0, toolMs: 0 }, counts: {}, pressure: {}, current: {},
+      requests: [{ time: day(45), total: 100 }],
+    },
+  ]
+  const now = day(0)
+  const value = bridge.buildInsightsValue(records, now)
+  assert.equal(value.sessions.length, 2)
+  assert.deepEqual(value.sessions.map(session => session.id), ['s1', 's2'], 'newest activity first')
+  assert.equal(value.totals.billedTokens, 1550);
+  assert.equal(value.totals.sessions, 2)
+  assert.equal(value.totals.turns, 3)
+  assert.equal(value.totals.toolCalls, 4)
+  assert.equal(value.cacheHit, 1400 / 1500)
+  assert.equal(value.days.length, 56)
+  assert.equal(value.days[value.days.length - 1].day, '2026-10-23')
+  assert.equal(value.days[value.days.length - 1].tokens, 200)
+  assert.equal(value.composition.system, 100)
+  assert.equal(value.composition.tools, 200)
+  assert.equal(value.sessions[0].lastActive > 0, true)
+  assert.equal('cost' in value.totals, false, 'the mini program has no price book; cost stays out of the wire')
+  assert.doesNotThrow(() => JSON.stringify(value))
+})
+
 test('fixture context events track injections, compactions and prunes', async () => {
   const bridge = await loadBridge()
   const { fixture } = readFixture()
@@ -624,7 +787,7 @@ test('fixture context events track injections, compactions and prunes', async ()
   assert.equal(view.events.length, FIXTURE_EXPECTED.events)
   assert.equal(view.truncated.events, false)
   assert.deepEqual(view.events.map(event => event.seq), manual.eventSeqs.slice(-120))
-  const kinds = { inject: 0, compaction: 0, prune: 0 }
+  const kinds = { inject: 0, compaction: 0, prune: 0, model: 0, mode: 0 }
   for (const event of view.events) {
     assert.ok(event.kind in kinds, `unexpected event kind ${event.kind}`)
     kinds[event.kind] += 1
@@ -959,14 +1122,16 @@ test('real session log reconciles with the official projections and manual talli
   assert.equal(view.events.length, REAL_EXPECTED.events)
   assert.equal(view.truncated.events, true)
   assert.deepEqual(view.events.map(event => event.seq), manual.eventSeqs.slice(-REAL_EXPECTED.events))
-  const kinds = { inject: 0, compaction: 0, prune: 0 }
+  const kinds = { inject: 0, compaction: 0, prune: 0, model: 0, mode: 0 }
   for (const event of view.events) { assert.ok(event.kind in kinds); kinds[event.kind] += 1 }
   // Only the most recent 120 context events survive the cap; full tallies are
   // asserted through `counts` above.
   assert.ok(kinds.compaction > 0 && kinds.prune > 0 && kinds.inject > 0)
   assert.ok(kinds.compaction <= REAL_EXPECTED.counts.compactions)
   assert.ok(kinds.prune <= REAL_EXPECTED.counts.prunes)
-  assert.equal(kinds.inject + kinds.compaction + kinds.prune, REAL_EXPECTED.events)
+  // The 120-event window now also carries model/mode rows (dsh-context fold.ts).
+  assert.equal(kinds.inject + kinds.compaction + kinds.prune + kinds.model + kinds.mode, REAL_EXPECTED.events)
+  assert.ok(kinds.model > 0, 'model switches are context events too')
 
   // --- response frame budget ---
   const frame = {
@@ -1096,4 +1261,30 @@ test('handleContextQuery accepts the adapter snapshot shape without a kind', asy
     { type: 'context-dashboard', sessionId: 'session-x' })
   assert.equal(missing.kind, 'error')
   assert.equal(missing.code, 'context-unavailable')
+})
+
+// ---------------------------------------------------------------------------
+// Insights/comms capability + dispatch (live 0.8.25 regression): the page gates
+// on `context-insights-v1`, so the installer must advertise it and insert the
+// dispatch case; the bridge set must accept both request types.
+// ---------------------------------------------------------------------------
+test('installer advertises insights/comms capabilities and routes both request types', (t) => {
+  const bridge = require('../scripts/lib/context-bridge.mjs')
+  assert.ok(bridge.CONTEXT_REQUEST_TYPES.has('context-insights'), 'bridge accepts context-insights')
+  assert.ok(bridge.CONTEXT_REQUEST_TYPES.has('context-comms'), 'bridge accepts context-comms')
+  const { transform } = require('../scripts/install-context-bridge.cjs')
+  const indexFile = (gateway) => path.join(gateway, 'lib', 'index.mjs')
+  const gateways = [
+    path.join(os.homedir(), '.dsh/profiles/desktop/local-plugins/dsh-plugin-mobile-gateway'),
+    weappGateway,
+  ].filter(gateway => fs.existsSync(indexFile(gateway)))
+  if (gateways.length === 0) return t.skip('no installed gateway package on this machine')
+  for (const gateway of gateways) {
+    const patched = transform(fs.readFileSync(indexFile(gateway), 'utf8'))
+    for (const capability of ["'context-dashboard-v1'", "'context-fleet-v1'", "'context-content-v1'", "'context-insights-v1'", "'context-comms-v1'"]) {
+      assert.ok(patched.includes(capability), `${path.basename(gateway)}: advertises ${capability}`)
+    }
+    assert.ok(patched.includes("msg.type === 'context-insights'"), `${path.basename(gateway)}: dispatch insights`)
+    assert.ok(patched.includes("msg.type === 'context-comms'"), `${path.basename(gateway)}: dispatch comms`)
+  }
 })

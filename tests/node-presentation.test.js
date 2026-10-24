@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { nodePresentation } = require('../miniprogram/utils/node-presentation');
+const { nodePresentation } = require('../miniprogram/pages/settings/utils/node-presentation');
 
 test('public node views contain identifiers but no public address, port or credential', () => {
   for (const relay of [false, true]) {

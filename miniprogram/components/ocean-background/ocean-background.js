@@ -64,6 +64,14 @@ Component({
       if (this._raf != null && this._canvas) this._canvas.cancelAnimationFrame(this._raf);
       this._raf = null;
     },
+    /** Commit a buffered frame even if bindload never fires (iOS data-URL images). */
+    commitFrame(pending) {
+      if (this._disposed || this._pendingFrame !== pending || pending.committing) return;
+      pending.committing = true;
+      this.setData({ frontSlot: pending.slot, ready: true, failed: false }, () => {
+        if (this._pendingFrame === pending) this._pendingFrame = null;
+      });
+    },
     draw(time) {
       // iOS 不改写正在显示的图片；解码和换层未完成时也不继续发送帧。
       if (this.data.buffered && this._pendingFrame) return;
@@ -73,25 +81,37 @@ Component({
       if (!image || image === 'data:,') { this.onCanvasError(); return; }
       const slot = this.data.frontSlot === 'a' ? 'b' : 'a';
       const id = this._frameSerial = (this._frameSerial || 0) + 1;
-      this._pendingFrame = { slot, id };
+      const pending = { slot, id };
+      this._pendingFrame = pending;
       this.setData(slot === 'a' ? { frameA: image, frameAId: id } : { frameB: image, frameBId: id });
+      // Some iOS WebViews decode data-URL images without firing bindload; without
+      // this watchdog the first frame never becomes visible and the page stays on
+      // the static fallback (no fluid wave, no grain).
+      // Mini-program runtimes provide timers; unit-test sandboxes may not, so
+      // keep the watchdog optional instead of requiring a global.
+      if (typeof setTimeout === 'function') {
+        if (this._frameWatchdog != null && typeof clearTimeout === 'function') clearTimeout(this._frameWatchdog);
+        this._frameWatchdog = setTimeout(() => {
+          this._frameWatchdog = null;
+          this.commitFrame(pending);
+        }, 600);
+      }
     },
     onFrameLoad(e) {
+      if (this._frameWatchdog != null && typeof clearTimeout === 'function') { clearTimeout(this._frameWatchdog); this._frameWatchdog = null; }
       const pending = this._pendingFrame;
       const data = e.currentTarget.dataset;
       if (this._disposed || !pending || pending.committing || data.slot !== pending.slot || Number(data.frameId) !== pending.id) return;
-      pending.committing = true;
-      this.setData({ frontSlot: pending.slot, ready: true, failed: false }, () => {
-        // 必须等视图层提交换层后，才能覆盖原来的前台图片。
-        if (this._pendingFrame === pending) this._pendingFrame = null;
-      });
+      this.commitFrame(pending);
     },
     onFrameError(e) {
+      if (this._frameWatchdog != null && typeof clearTimeout === 'function') { clearTimeout(this._frameWatchdog); this._frameWatchdog = null; }
       const pending = this._pendingFrame;
       const data = e.currentTarget.dataset;
       if (!this._disposed && pending && data.slot === pending.slot && Number(data.frameId) === pending.id) this.onCanvasError();
     },
     release() {
+      if (this._frameWatchdog != null && typeof clearTimeout === 'function') { clearTimeout(this._frameWatchdog); this._frameWatchdog = null; }
       this._pendingFrame = null;
       if (this._renderer) this._renderer.dispose();
       this._renderer = null;

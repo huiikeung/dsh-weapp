@@ -16,8 +16,8 @@ function files(dir, extension) {
   return fs.readdirSync(path.join(root, dir), { recursive: true }).filter(name => name.endsWith(extension)).map(name => path.join(root, dir, name));
 }
 test('all pages and shared components translate authored template copy', () => {
-  assert.equal(require('./helpers/routes.cjs')(JSON.parse(fs.readFileSync(path.join(root, 'app.json'), 'utf8'))).length, 17);
-  for (const file of files('pages', '.wxml').concat(files('components', '.wxml'))) {
+  assert.equal(require('./helpers/routes.cjs')(JSON.parse(fs.readFileSync(path.join(root, 'app.json'), 'utf8'))).length, 18);
+  for (const file of files('pages', '.wxml').concat(files('components', '.wxml'), files('templates', '.wxml'))) {
     const text = fs.readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, '');
     for (const match of text.matchAll(/ui\['([^']*)'\]/g)) {
       assert.ok(Object.prototype.hasOwnProperty.call(dictionary, match[1]), file + ': missing ' + match[1]);

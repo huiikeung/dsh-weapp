@@ -6,7 +6,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const endpoint = 'wss://dsh.ahwe.top/relay/c/fixture-node';
 const relay = { nodeId: 'fixture-node', authMode: 'gateway', agentPubKey: 'fixture-key' };
-function fixture(lease) {
+function fixture(lease, cached) {
   const sockets = [], leases = [], timers = new Map();
   let onboardingPrompts = 0;
   let timerId = 0;
@@ -24,7 +24,7 @@ function fixture(lease) {
   };
   const access = { isManagedRelay: value => value === endpoint, publicLease(nodeId, deviceId) {
     leases.push({ nodeId, deviceId }); return lease();
-  } };
+  }, cachedLease(nodeId) { return cached ? cached(nodeId) : null; } };
   const publicAccessPrompt = { promptFirstAuthorizedUse(proceed) { onboardingPrompts++; proceed(); } };
   class Session { constructor() { this.hello = new Uint8Array([1]); } }
   const context = { module: { exports: {} }, wx, Date, Uint8Array, ArrayBuffer,
@@ -64,7 +64,7 @@ test('public entitlement error codes survive the gateway status callback', async
   const statuses = [];
   f.client.cb.onState = (...args) => statuses.push(args);
   await f.client.connect(endpoint, { relay });
-  assert.deepEqual(statuses.at(-1), ['failed', 'Public access has expired', 'PUBLIC_ACCESS_EXPIRED']);
+  assert.deepEqual(statuses.at(-1), ['failed', 'Public access has expired', 'PUBLIC_ACCESS_EXPIRED', false]);
   assert.equal(f.onboardingPrompts(), 0, 'expired users never see the first-authorized-use prompt');
 });
 test('switching to LAN cancels in-flight subscription response and ignores stale socket events', async () => {
@@ -98,4 +98,30 @@ test('reconnect gets a fresh lease but reuses only encrypted device token, not o
   assert.equal(f.sockets[1].options.header.Authorization, undefined);
   assert.equal(f.sockets[1].options.protocols.some(p => p.startsWith('dsh-pair.')), false);
   f.client.disconnect(); assert.equal(f.timers.size, 0);
+});
+test('a still-valid cached lease opens the relay socket without any account-server round trip', async () => {
+  const token = 'c'.repeat(43);
+  const f = fixture(() => { throw new Error('must not ask the account server'); },
+    nodeId => (nodeId === 'fixture-node' ? { token, expiresAt: Date.now() + 60000 } : null));
+  f.client.connect(endpoint, { relay });
+  // 同步直达 socket：不再等 wx.login + 两次 HTTPS
+  assert.equal(f.sockets.length, 1);
+  assert.equal(f.sockets[0].options.url, endpoint);
+  assert.equal(f.sockets[0].options.protocols.includes('dsh-public.' + token), true);
+  assert.equal(f.leases.length, 0, 'no lease request is made');
+  assert.equal(f.onboardingPrompts(), 0, 'a cached grant already answered the first-use prompt');
+  f.client.disconnect(); assert.equal(f.timers.size, 0);
+});
+test('a missing or foreign cached lease still falls back to the account server', async () => {
+  const missing = fixture(() => Promise.resolve({ token: 'f'.repeat(43), expiresAt: Date.now() + 60000 }), () => null);
+  await missing.client.connect(endpoint, { relay });
+  assert.equal(missing.leases.length, 1);
+  assert.equal(missing.sockets[0].options.protocols.includes('dsh-public.' + 'f'.repeat(43)), true);
+
+  const foreign = fixture(() => Promise.resolve({ token: 'g'.repeat(43), expiresAt: Date.now() + 60000 }),
+    nodeId => (nodeId === 'other-node' ? { token: 'x'.repeat(43), expiresAt: Date.now() + 60000 } : null));
+  await foreign.client.connect(endpoint, { relay });
+  assert.equal(foreign.leases.length, 1, 'a lease for another node must not be reused');
+  assert.equal(foreign.sockets[0].options.protocols.includes('dsh-public.' + 'g'.repeat(43)), true);
+  foreign.client.disconnect();
 });

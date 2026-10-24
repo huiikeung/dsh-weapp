@@ -110,3 +110,19 @@ test('relay connector offline close retains an actionable failed state', t => {
   assert.match(f.states.at(-1).message, /连接器已离线/);
   assert.equal(f.client.reconnectTimer, null);
 });
+
+test('public history requests keep a small default and accept bounded larger-page retries', t => {
+  const f = fixture(t);
+  f.client.relayMeta = { nodeId: 'fixture-node' };
+  const payloads = [];
+  f.client.send = payload => { payloads.push(payload); return true; };
+
+  f.client.requestHistory('session', 30, 1);
+  f.client.requestHistory('session', 30, 1, 512 * 1024);
+  f.client.requestHistory('session', 30, 1, 8 * 1024 * 1024);
+  f.client.requestHistory('session');
+
+  assert.deepEqual(payloads.map(payload => payload.maxBytes), [256 * 1024, 512 * 1024, 2 * 1024 * 1024, 128 * 1024]);
+  assert.equal(payloads[0].maxMessages, 40);
+  assert.equal(payloads[3].maxMessages, 12, 'public session entry prioritizes a smaller, faster latest-history tail');
+});

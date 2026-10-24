@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { clientVersion, gatewayVersionInfo } = require('../miniprogram/utils/version-info');
-const { BUILD_VERSION } = require('../miniprogram/utils/build');
+const { clientVersion, gatewayVersionInfo } = require('../miniprogram/pages/settings/utils/version-info');
+const { BUILD_VERSION } = require('../miniprogram/pages/settings/utils/build');
 test('client identifies official/trial/local builds without conflating host version', () => {
   assert.equal(clientVersion({getAccountInfoSync:()=>({miniProgram:{version:'1.2.3',envVersion:'release'}})}).appVersion, '1.2.3（正式版）');
   assert.equal(clientVersion({getAccountInfoSync:()=>({miniProgram:{version:'',envVersion:'trial'}})}).appVersion, BUILD_VERSION + '（体验版）');

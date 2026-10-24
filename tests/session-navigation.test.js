@@ -37,7 +37,8 @@ test('large outline selection patches nearby blur effects and auto-loads at the 
   page.applyTurnIndex(0, false); patches.length = 0; page.applyTurnIndex(1000);
   assert.ok(Object.keys(patches[0]).length <= 50);
   assert.ok(!('turnNavWidths' in patches[0]));
-  assert.match(page.data.turnNavRowStyles[1000], /blur\(0\.0px\)/);
+  assert.ok(!page.data.turnNavRowStyles[1000].includes('blur'), '不再使用高开销的逐行模糊滤镜');
+  assert.match(page.data.turnNavRowStyles[1000], /opacity:1\.00/);
   page._turnListRect = { top: 100, height: 300, rowHeight: 38, spacer: 131 };
   page.data.turnNavOpen = true;
   page.data.hasMoreHistory = true;
@@ -110,8 +111,9 @@ test('turn wheel keeps the centered row highlighted while scrolling and only jum
   assert.equal(page.data.turnNavActiveIndex, 0);
   page.onTurnListScroll({ detail: { scrollTop: 38 } });
   assert.equal(page.data.turnNavActiveIndex, 1);
-  assert.match(page.data.turnNavRowStyles[1], /blur\(0\.0px\)/);
-  assert.match(page.data.turnNavRowStyles[0], /blur\(0\.7px\)/);
+  assert.ok(!page.data.turnNavRowStyles[1].includes('blur'));
+  assert.ok(!page.data.turnNavRowStyles[0].includes('blur'));
+  assert.match(page.data.turnNavRowStyles[1], /opacity:1\.00/);
   assert.equal(calls.filter(call => call[0] === 'tick').length, 1);
   page.onTurnScrubEnd();
   assert.equal(page.data.turnNavOpen, true, 'scrolling does not close the wheel selector');

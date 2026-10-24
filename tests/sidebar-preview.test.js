@@ -173,3 +173,26 @@ test('expanding a custom entry only flips its own expanded flag', () => {
   assert.equal(f.page.data.customCells[0].expanded, false, '再点一次应收起');
   assert.equal(f.page.data.expandedCustom, -1);
 });
+
+test('inspector exposes pickable components and keeps label/display in sync', () => {
+  const f = fixture();
+  f.page.applyFrame(frame());
+  assert.ok(f.page.data.previewComponentOptions.length > 6, '检查器组件列表必须支持超过 6 项（原生 actionSheet 上限）');
+  assert.ok(f.page.data.previewComponentLabel, '组件行必须显示当前组件名称');
+  assert.equal(typeof f.page.data.previewComponentEnabled, 'boolean');
+  f.page.choosePreviewComponent({ currentTarget: { dataset: { id: 'plan:siliconflow' } } });
+  assert.equal(f.page.data.previewComponent, 'plan:siliconflow');
+  assert.equal(f.page.data.componentPickerOpen, false);
+  assert.equal(f.page.data.previewComponentLabel, 'siliconflow');
+  f.page.onSidebarPartTap({ currentTarget: { dataset: { key: 'budget' } } });
+  assert.equal(f.page.data.previewComponent, 'budget');
+  assert.equal(f.page.data.previewComponentLabel, '预算');
+});
+
+test('the display-settings entry is a single row, not two duplicated rows', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/cost-meter/cost-meter.wxml'), 'utf8');
+  assert.ok(wxml.includes('左侧栏样式'), '入口行显示当前侧栏样式');
+  assert.ok(!wxml.includes("ui['侧栏预览']"), '不应再有重复的侧栏预览入口行');
+  const entries = wxml.split('bindtap="openDisplaySheet"').length - 1;
+  assert.equal(entries, 1, '显示设置入口只保留一个');
+});

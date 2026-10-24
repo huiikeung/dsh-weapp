@@ -58,3 +58,21 @@ test('permission options use desktop Chinese labels while preserving ids, custom
   assert.deepEqual(english.slice(0, 4).map(row => row.label), ['Read Only', 'Workspace Write', 'Full access', 'Auto review']);
   assert.match(english[3].detail, /^Run without a sandbox/);
 });
+
+test('slash-command presentation splits token from argument and labels input commands', () => {
+  const commands = [
+    { name: 'goal', source: 'host', ui: { kind: 'input' } },
+    { name: 'plan', source: 'host', ui: { kind: 'input', insertText: '/plan ' } },
+    { name: 'compact', source: 'host', ui: { kind: 'immediate' } },
+    { name: 'review-pr', source: 'skill', ui: { kind: 'input', insertText: '/review-pr ' } }
+  ];
+  assert.deepEqual(menu.presentation('/goal ', commands), { command: commands[0], token: '/goal', argument: '' });
+  assert.equal(menu.presentation('/goal 写报告', commands).argument, '写报告');
+  assert.equal(menu.presentation('/goal写', commands), null, 'token must end at whitespace');
+  assert.equal(menu.presentation('/compact', commands), null, 'immediate commands carry no token');
+  assert.equal(menu.presentation('/review-pr 检查', commands).token, '/review-pr');
+  assert.equal(menu.presentation('hello', commands), null);
+  const t = key => ({ 目标: 'Goal', 计划: 'Plan' })[key] || key;
+  assert.equal(menu.commandLabel(commands[0], t), '/Goal', 'localized label keeps the slash');
+  assert.equal(menu.commandLabel(commands[3], t), '/review-pr', 'skills keep their own name');
+});

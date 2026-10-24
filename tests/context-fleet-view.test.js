@@ -161,6 +161,10 @@ test('agent cards preserve hierarchy order and indent by depth', () => {
   assert.equal(cards[1].isCurrent, true);
   assert.equal(cards[2].isRoot, false);
   assert.equal(cards[2].isCurrent, false);
+  assert.equal(cards[0].hasBranch, false);
+  assert.equal(cards[1].hasBranch, true);
+  assert.match(cards[1].branchStyle, /left:12rpx/);
+  assert.match(cards[1].branchLineStyle, /bottom:0/);
   assert.equal(cards[0].title, '主会话');
   assert.equal(cards[1].title, '审阅子会话');
 });

@@ -1,6 +1,20 @@
 const { t: uiText } = require('./ui-preferences');
 // DSH SUMMARY_KEYS: shell description first, then actual command.
+// 每次 emit（每条实时事件、流式每 120ms）都会重投影整段会话的工具行；已完成工具的
+// (name, argumentsText, cwd) 不再变化，缓存后长会话每拍省下十几毫秒，过程帧不被饿死。
+const CACHE_LIMIT = 4000;
+const cache = new Map();
 function toolPresentation(name, input, sessionCwd) {
+  const text = typeof input === 'string' ? input : '';
+  const key = (name || '') + '\u0000' + (sessionCwd || '') + '\u0000' + text;
+  const hit = cache.get(key);
+  if (hit !== undefined) return hit;
+  const value = derive(name, input, sessionCwd);
+  if (cache.size >= CACHE_LIMIT) cache.delete(cache.keys().next().value);
+  cache.set(key, value);
+  return value;
+}
+function derive(name, input, sessionCwd) {
   const n = String(name || '').toLowerCase().split(/[./]/).pop().replace(/[^a-z0-9]/g, '');
   const raw = typeof input === 'string' ? input : '';
   let args = input && typeof input === 'object' && !Array.isArray(input) ? input : null;

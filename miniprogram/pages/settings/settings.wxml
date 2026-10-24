@@ -12,7 +12,7 @@
 
   <!-- DSH 客户端账号区：结构与桌面端 AccountSection 对齐。 -->
   <view wx:if="{{dshAccountVisible}}" class="dsh-account-section" aria-label="{{ui['账号与余额']}}">
-    <view class="dsh-account-card">
+    <view class="dsh-account-card {{dshAccount.signedIn ? 'tappable has-chevron' : ''}}" bindtap="toggleDshBalance" hover-class="press-dim" role="button" aria-expanded="{{dshBalanceExpanded}}" aria-label="{{ui['账号与余额']}}">
       <view class="dsh-account-identity">
         <view class="dsh-account-avatar">
           <image wx:if="{{dshAccount.avatarUrl}}" class="dsh-account-avatar-image" src="{{dshAccount.avatarUrl}}" mode="aspectFill"/>
@@ -23,9 +23,10 @@
           <text class="dsh-account-status">{{dshAccountBusy ? ui['加载中…'] : dshAccount.status}}</text>
         </view>
       </view>
-      <view wx:if="{{!dshAccount.signedIn && !dshAccountBusy}}" class="dsh-account-link-button dsh-account-primary" bindtap="explainDshAccountSignIn" hover-class="press-dim" role="button" aria-label="{{ui['登录']}}">{{ui['登录']}}</view>
+      <image wx:if="{{dshAccount.signedIn}}" class="dsh-account-chevron {{dshBalanceExpanded ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+      <view wx:if="{{!dshAccount.signedIn && !dshAccountBusy}}" class="dsh-account-link-button dsh-account-primary" catchtap="explainDshAccountSignIn" hover-class="press-dim" role="button" aria-label="{{ui['登录']}}">{{ui['登录']}}</view>
     </view>
-    <view class="dsh-balance-card">
+    <view wx:if="{{dshBalanceExpanded && dshAccount.signedIn}}" class="dsh-balance-card">
       <view class="dsh-balance-row">
         <text>{{ui['充值余额']}}</text>
         <view wx:if="{{dshAccount.balanceText}}" class="dsh-balance-amount"><text>{{dshAccount.balanceText}}</text></view>
@@ -44,70 +45,45 @@
     </view>
   </view>
 
-  <!-- 两个独立入口，具体操作只放在各自面板内。 -->
-  <view class="group-title">{{ui['公网访问']}}</view>
+  <view class="group-title">{{ui['连接']}}</view>
   <view class="card">
-    <view class="card-row management-entry" bindtap="openPublicAccess" hover-class="management-entry-active" role="button" aria-label="{{ui['公网访问']}}">
-      <view class="management-entry-copy">
-        <text class="card-row-label">{{publicExpiryLabel || ui['公网访问']}}</text>
-        <text class="management-entry-desc">{{ui['兑换公网有效期 · 不影响局域网']}}</text>
-      </view>
-      <view class="card-row-value management-entry-value">
-        <text>{{ui[publicStatusLabel] !== undefined ? ui[publicStatusLabel] : publicStatusLabel}}</text>
-        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
-      </view>
-    </view>
-  </view>
 
-  <view class="group-title">{{ui['节点管理']}}</view>
-  <view class="card">
-    <view class="card-row management-entry" bindtap="openNodeManagement" hover-class="management-entry-active" role="button" aria-label="{{ui['节点管理']}}">
-      <view class="management-entry-copy">
-        <text class="card-row-label">{{activeNodeName || ui['节点管理']}}</text>
-        <text class="management-entry-desc">{{onlineNodeCount}} {{ui['个在线 · 扫码或输入配对信息']}}</text>
-      </view>
-      <view class="card-row-value management-entry-value">
-        <text>{{nodeCount}} {{ui['个']}}</text>
-        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
-      </view>
-    </view>
-  </view>
-
-  <block wx:if="{{isWechatAdmin}}">
-  <view class="group-title">{{ui['微信身份']}}</view>
-  <view class="card">
-    <view class="card-row management-entry">
-      <view class="management-entry-copy">
-        <text class="card-row-label">{{ui['当前身份']}}</text>
-        <text class="management-entry-desc">{{ui[accountHint] !== undefined ? ui[accountHint] : accountHint}}</text>
-      </view>
-      <view class="card-row-value management-entry-value">
-        <text>{{ui[accountLabel] !== undefined ? ui[accountLabel] : accountLabel}}</text>
-      </view>
-    </view>
-  </view>
-  </block>
-  <block wx:if="{{isWechatAdmin}}">
-    <view class="group-title">{{ui['管理员']}}</view>
-    <view class="card">
-      <view class="card-row management-entry" bindtap="openCodeManagement" hover-class="management-entry-active" role="button">
-        <view class="management-entry-copy">
-          <text class="card-row-label">{{ui['兑换码管理']}}</text>
-          <text class="management-entry-desc">{{ui['生成、复制分发与删除']}}</text>
+        <view class="card-row management-entry" bindtap="openPublicAccess" hover-class="management-entry-active" role="button" aria-label="{{ui['公网访问']}}">
+          <view class="management-entry-copy">
+            <view class="card-row-label">{{ui['公网访问']}}</view>
+            <text class="management-entry-desc">{{publicExpiryLabel ? publicExpiryLabel + ' · ' : ''}}{{ui['兑换公网有效期 · 不影响局域网']}}</text>
+          </view>
+          <view class="card-row-value management-entry-value">
+            <text>{{ui[publicStatusLabel] !== undefined ? ui[publicStatusLabel] : publicStatusLabel}}</text>
+            <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+          </view>
         </view>
-        <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+
+
+        <view class="card-row management-entry" bindtap="openNodeManagement" hover-class="management-entry-active" role="button" aria-label="{{ui['节点管理']}}">
+          <view class="management-entry-copy">
+            <view class="card-row-label">{{ui['节点管理']}}</view>
+            <text class="management-entry-desc">{{activeNodeName ? activeNodeName + ' · ' : ''}}{{onlineNodeCount}} {{ui['个在线 · 扫码或输入配对信息']}}</text>
+          </view>
+          <view class="card-row-value management-entry-value">
+            <text>{{nodeCount}} {{ui['个']}}</text>
+            <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+        </view>
+
+    <block wx:if="{{isWechatAdmin}}">
+      <view class="card-row management-entry" bindtap="openAdminSheet" hover-class="management-entry-active" role="button" aria-label="{{ui['管理员']}}">
+        <view class="management-entry-copy">
+          <text class="card-row-label">{{ui['管理员']}}</text>
+          <text class="management-entry-desc">{{ui['兑换码管理']}} · {{ui['发布公告']}} · {{ui['分享活动']}}</text>
+        </view>
+        <view class="card-row-value management-entry-value">
+          <text>{{ui[accountLabel] !== undefined ? ui[accountLabel] : accountLabel}}</text>
+          <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+        </view>
       </view>
-      <view class="card-row management-entry" bindtap="openAnnouncementManagement" hover-class="management-entry-active" role="button">
-        <view class="management-entry-copy"><text class="card-row-label">{{ui['发布公告']}}</text><text class="management-entry-desc">{{ui['发布、编辑与删除 · 与后台同步']}}</text></view>
-        <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
-      </view>
-      <view class="card-row management-entry">
-        <view class="management-entry-copy"><text class="card-row-label">{{ui['分享活动']}}</text><text class="management-entry-desc">{{shareSaving ? ui['正在保存…'] : (contentLoaded ? ui['关闭后隐藏分享入口，已获时长不变'] : (contentError || ui['正在同步设置…']))}}</text></view>
-        <switch checked="{{referralEnabled}}" disabled="{{shareSaving || !contentLoaded || accountBusy}}" color="#2E6BE6" bindchange="toggleReferralSharing" aria-label="{{ui['分享活动开关']}}"/>
-      </view>
-      <view wx:if="{{contentError}}" class="card-row" bindtap="refreshAppContent" hover-class="management-entry-active" role="button"><text class="card-row-label">{{ui['重试同步分享设置']}}</text></view>
-    </view>
-  </block>
+    </block>
+  </view>
 
   <view class="group-title">{{ui['对话']}}</view>
   <view wx:if="{{workStepMenu}}" class="work-step-menu-mask" catchtap="closeWorkStepMenu"></view>
@@ -195,91 +171,281 @@
     </view>
   </view>
 
-  <!-- 外观模式（对齐 dsh-mobile v1.6.0 InterfaceStyleSettingsRow） -->
-  <view class="group-title">{{ui['外观']}}</view>
-  <view class="card">
-    <view class="card-row" bindtap="pickAppearance">
-      <text class="card-row-label">{{ui['界面']}}</text>
-      <view class="card-row-value">
-        <text>{{ui[appearanceLabel] !== undefined ? ui[appearanceLabel] : appearanceLabel}}</text>
-        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+  <!-- 字体与字号弹窗 -->
+  <view wx:if="{{fontSheet}}" class="pair-sheet-mask" catchtap="closeFontSheet" catchtouchmove="noop">
+    <view class="pair-sheet resizable" style="height: 90vh;" catchtap="noop" role="dialog" aria-label="{{ui['字号大小']}}">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <view>
+          <text class="pair-sheet-title">{{ui['字号大小']}}</text>
+          <text class="pair-sheet-subtitle">{{ui['仅影响会话内容的字号']}}</text>
+        </view>
+        <view class="pair-sheet-close tap" bindtap="closeFontSheet" role="button"><view class="sheet-close-x"></view></view>
       </view>
-    </view>
-    <view class="card-row" bindtap="openStatusStyles" role="button" aria-label="{{ui['选择对话状态条样式']}}">
-      <text class="card-row-label">{{ui['对话状态条']}}</text>
-      <view class="card-row-value"><text>{{ui[statusAppearanceLabel] !== undefined ? ui[statusAppearanceLabel] : statusAppearanceLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
-    </view>
-    <view class="card-row" bindtap="openProcIcons" role="button" aria-label="{{ui['选择执行图标动效']}}">
-      <text class="card-row-label">{{ui['执行图标']}}</text>
-      <view class="card-row-value"><text>{{ui[procIconLabel] !== undefined ? ui[procIconLabel] : procIconLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+      <scroll-view scroll-y enhanced class="management-scroll">
+        <view class="card general-preferences">
+        <view class="card-row preference-font-row">
+              <view class="preference-description" bindtap="toggleFontSettings" role="button"><text class="card-row-label">{{ui['字号大小']}}</text><text class="preference-hint">{{ui['仅影响会话内容的字号']}}</text></view>
+              <view class="font-number-control"><input class="font-number" type="number" value="{{fontSizes.text}}" data-role="text" bindblur="commitFontSize" bindconfirm="commitFontSize" maxlength="2"/><text class="font-unit">px</text></view>
+              <view class="font-expand" bindtap="toggleFontSettings" role="button" aria-label="{{fontSettingsExpanded ? ui['收起字体设置'] : ui['更多字体设置']}}"><view class="preference-chevron {{fontSettingsExpanded ? 'expanded' : ''}}" aria-hidden="true"><view class="preference-chevron-line"/></view></view>
+            </view>
+        <block wx:if="{{fontSettingsExpanded}}">
+              <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['正文字体']}}</text><text class="preference-hint">{{ui['用于界面与会话正文。多个字体用逗号分隔，留空使用默认字体']}}</text></view><input class="font-family-input" value="{{fontFamilies.text}}" placeholder="{{ui['默认']}}" placeholder-class="font-family-placeholder" data-role="text" bindblur="commitFontFamily" bindconfirm="commitFontFamily" maxlength="500"/></view>
+              <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['代码字体']}}</text><text class="preference-hint">{{ui['用于代码块、行内代码与工具输出。多个字体用逗号分隔，留空使用默认字体']}}</text></view><input class="font-family-input" value="{{fontFamilies.code}}" placeholder="{{ui['默认']}}" placeholder-class="font-family-placeholder" data-role="code" bindblur="commitFontFamily" bindconfirm="commitFontFamily" maxlength="500"/></view>
+              <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['代码字号']}}</text><text class="preference-hint">{{ui['用于代码块、行内代码与工具输出']}}</text></view><view class="font-number-control"><input class="font-number" type="number" value="{{fontSizes.code}}" data-role="code" bindblur="commitFontSize" bindconfirm="commitFontSize" maxlength="2"/><text class="font-unit">px</text></view></view>
+              <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['终端字体']}}</text><text class="preference-hint">{{ui['用于侧栏终端。多个字体用逗号分隔，留空使用默认字体']}}</text></view><input class="font-family-input" value="{{fontFamilies.terminal}}" placeholder="{{ui['默认']}}" placeholder-class="font-family-placeholder" data-role="terminal" bindblur="commitFontFamily" bindconfirm="commitFontFamily" maxlength="500"/></view>
+              <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['终端字号']}}</text><text class="preference-hint">{{ui['用于侧栏终端']}}</text></view><view class="font-number-control"><input class="font-number" type="number" value="{{fontSizes.terminal}}" data-role="terminal" bindblur="commitFontSize" bindconfirm="commitFontSize" maxlength="2"/><text class="font-unit">px</text></view></view>
+              <view class="font-preview-panel"><text class="preference-hint">{{ui['字体预览']}}</text><text class="font-preview-text">{{ui['正文字体']}} · DeepSeek Harness</text><text class="font-preview-code">const answer = 42;</text><text class="font-preview-terminal">$ dsh --version</text><text class="preference-hint">{{ui['实际可用字体取决于设备；找不到的字体将使用后备字体。']}}</text><text class="preference-hint">{{ui['当前小程序暂无侧栏终端；终端偏好已保存，下方预览可查看效果。']}}</text></view>
+            </block>
+        </view>
+      </scroll-view>
     </view>
   </view>
+  <!-- 存储空间弹窗（dsh-mobile StorageSpaceView） -->
+  <view wx:if="{{storageSheet}}" class="pair-sheet-mask" catchtap="closeStorageSheet" catchtouchmove="noop">
+    <view class="pair-sheet resizable" style="height: 90vh;" catchtap="noop" role="dialog" aria-label="{{ui['存储空间']}}">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <view class="storage-head-row">
+          <view wx:if="{{storageDetailInfo}}" class="storage-back tap" bindtap="backToStorageList" hover-class="press-dim" role="button" aria-label="{{ui['返回']}}">{{ui['返回']}}</view>
+          <text class="pair-sheet-title">{{storageDetailInfo ? ui[storageDetailInfo.title] : ui['存储空间']}}</text>
+        </view>
+        <view class="pair-sheet-close tap" bindtap="closeStorageSheet" role="button"><view class="sheet-close-x"></view></view>
+      </view>
+      <scroll-view scroll-y enhanced class="management-scroll">
+        <block wx:if="{{storageLoading || !storageUsage}}">
+          <view class="storage-state"><text>{{ui['正在统计…']}}</text></view>
+        </block>
+        <block wx:elif="{{storageDetailInfo}}">
+          <view class="card storage-detail-card">
+            <view class="storage-detail-head">
+              <view class="storage-icon storage-icon-lg" style="background:linear-gradient(180deg, {{storageDetailInfo.color}}, {{storageDetailInfo.color}}C4);"><image class="storage-icon-img" src="{{storageDetailInfo.icon}}" mode="aspectFit"/></view>
+              <view class="storage-row-copy"><text class="storage-detail-title">{{ui[storageDetailInfo.title]}}</text><text class="storage-row-detail">{{ui[storageDetailInfo.detail]}}</text></view>
+              <text class="storage-detail-size">{{storageDetailInfo.bytesText}}</text>
+            </view>
+          </view>
+          <view class="card">
+            <view class="card-row storage-clear {{storageBusy ? 'is-disabled' : ''}}" bindtap="clearStorageCategory" hover-class="management-entry-active" role="button" aria-label="{{ui['清理本机缓存']}}">
+              <text class="storage-clear-text">{{storageBusy ? ui['清理中…'] : ui['清理本机缓存']}}</text>
+            </view>
+          </view>
+        </block>
+        <block wx:else>
+          <view class="card storage-hero">
+            <view class="storage-donut" style="{{storageUsage.gradient ? 'background:conic-gradient(' + storageUsage.gradient + ');' : ''}}">
+              <view class="storage-donut-hole">
+                <text class="storage-donut-total">{{storageUsage.totalText}}</text>
+                <text class="storage-donut-label">{{ui['本机缓存']}}</text>
+              </view>
+            </view>
+            <view wx:if="{{storageUsage.storageText}}" class="storage-quota">
+              <view class="storage-quota-copy">
+                <text>{{ui['微信键值存储']}}</text>
+                <text class="storage-quota-hint">{{ui['不含图片与文件']}}</text>
+              </view>
+              <text class="storage-quota-value">{{storageUsage.storageText}}</text>
+            </view>
+          </view>
 
-  <view class="group-title">{{ui['侧栏']}}</view>
+          <view class="card storage-list">
+            <view class="storage-row" wx:for="{{storageUsage.categories}}" wx:key="key" bindtap="openStorageDetail" data-key="{{item.key}}" hover-class="management-entry-active" role="button" aria-label="{{ui[item.title]}}">
+              <view class="storage-icon" style="background:linear-gradient(180deg, {{item.color}}, {{item.color}}C4);"><image class="storage-icon-img" src="{{item.icon}}" mode="aspectFit"/></view>
+              <view class="storage-row-copy"><text class="storage-row-title">{{ui[item.title]}}</text><text class="storage-row-detail">{{ui[item.detail]}}</text></view>
+              <view class="storage-row-right">
+                <text class="storage-row-size">{{item.bytesText}}</text>
+                <text wx:if="{{item.pctText}}" class="storage-row-pct">{{item.pctText}}</text>
+              </view>
+              <image class="chevron-img storage-row-chevron" src="/assets/icons/chev-right-gray.png"/>
+            </view>
+          </view>
+        </block>
+      </scroll-view>
+    </view>
+  </view>
+  <!-- 管理员弹窗 -->
+  <view wx:if="{{adminSheet}}" class="pair-sheet-mask" catchtap="closeAdminSheet" catchtouchmove="noop">
+    <view class="pair-sheet resizable" style="height: 90vh;" catchtap="noop" role="dialog" aria-label="{{ui['管理员']}}">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <view>
+          <text class="pair-sheet-title">{{ui['管理员']}}</text>
+          <text class="pair-sheet-subtitle">{{ui['兑换码管理']}} · {{ui['发布公告']}} · {{ui['分享活动']}}</text>
+        </view>
+        <view class="pair-sheet-close tap" bindtap="closeAdminSheet" role="button"><view class="sheet-close-x"></view></view>
+      </view>
+      <scroll-view scroll-y enhanced class="management-scroll">
+        <block wx:if="{{isWechatAdmin}}">
+          <view class="group-title">{{ui['微信身份']}}</view>
+          <view class="card">
+
+                <view class="card-row management-entry">
+                  <view class="management-entry-copy">
+                    <text class="card-row-label">{{ui['当前身份']}}</text>
+                    <text class="management-entry-desc">{{ui[accountHint] !== undefined ? ui[accountHint] : accountHint}}</text>
+                  </view>
+                  <view class="card-row-value management-entry-value">
+                    <text>{{ui[accountLabel] !== undefined ? ui[accountLabel] : accountLabel}}</text>
+                  </view>
+                </view>
+
+          </view>
+          <view class="group-title">{{ui['管理员']}}</view>
+          <view class="card">
+
+                  <view class="card-row management-entry" bindtap="openCodeManagement" hover-class="management-entry-active" role="button">
+                    <view class="management-entry-copy">
+                      <text class="card-row-label">{{ui['兑换码管理']}}</text>
+                      <text class="management-entry-desc">{{ui['生成、复制分发与删除']}}</text>
+                    </view>
+                    <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+                  </view>
+                  <view class="card-row management-entry" bindtap="openAnnouncementManagement" hover-class="management-entry-active" role="button">
+                    <view class="management-entry-copy"><text class="card-row-label">{{ui['发布公告']}}</text><text class="management-entry-desc">{{ui['发布、编辑与删除 · 与后台同步']}}</text></view>
+                    <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+                  </view>
+                  <view class="card-row management-entry">
+                    <view class="management-entry-copy"><text class="card-row-label">{{ui['分享活动']}}</text><text class="management-entry-desc">{{shareSaving ? ui['正在保存…'] : (contentLoaded ? ui['关闭后隐藏分享入口，已获时长不变'] : (contentError || ui['正在同步设置…']))}}</text></view>
+                    <switch checked="{{referralEnabled}}" disabled="{{shareSaving || !contentLoaded || accountBusy}}" color="#2E6BE6" bindchange="toggleReferralSharing" aria-label="{{ui['分享活动开关']}}"/>
+                  </view>
+                  <view wx:if="{{contentError}}" class="card-row" bindtap="refreshAppContent" hover-class="management-entry-active" role="button"><text class="card-row-label">{{ui['重试同步分享设置']}}</text></view>
+
+          </view>
+        </block>
+      </scroll-view>
+    </view>
+  </view>
+  <!-- 上下文面板设置弹窗 -->
+  <view wx:if="{{contextSheet}}" class="pair-sheet-mask" catchtap="closeContextSheet" catchtouchmove="noop">
+    <view class="pair-sheet resizable" style="height: 90vh;" catchtap="noop" role="dialog" aria-label="{{ui['上下文面板']}}">
+      <view class="sheet-grabber"></view>
+      <view class="pair-sheet-head">
+        <view>
+          <text class="pair-sheet-title">{{ui['上下文面板']}}</text>
+          <text class="pair-sheet-subtitle">{{ui['趋势粒度']}} · {{ui['对比基线']}} · {{ui['文件活动排序']}}</text>
+        </view>
+        <view class="pair-sheet-close tap" bindtap="closeContextSheet" role="button"><view class="sheet-close-x"></view></view>
+      </view>
+      <scroll-view scroll-y enhanced class="management-scroll">
+        <view class="card general-preferences">
+
+                <view class="card-row">
+                  <view class="exp-copy"><text class="card-row-label">{{ui['趋势粒度']}}</text><text class="exp-desc">{{ui['上下文趋势按步骤或按轮次聚合，新开的会话生效']}}</text></view>
+                  <view class="ctx-seg">
+                    <view class="ctx-seg-btn {{contextTrendGroupBy === 'step' ? 'on' : ''}}" bindtap="setContextTrendGroup" data-group="step" hover-class="ctx-seg-pressed" role="button">{{ui['按步骤']}}</view>
+                    <view class="ctx-seg-btn {{contextTrendGroupBy === 'turn' ? 'on' : ''}}" bindtap="setContextTrendGroup" data-group="turn" hover-class="ctx-seg-pressed" role="button">{{ui['按轮次']}}</view>
+                  </view>
+                </view>
+                <view class="card-row">
+                  <view class="exp-copy"><text class="card-row-label">{{ui['趋势模式']}}</text><text class="exp-desc">{{ui['全量展示累计组成，增量展示每次请求的增减']}}</text></view>
+                  <view class="ctx-seg">
+                    <view class="ctx-seg-btn {{contextTrendDisplayMode === 'total' ? 'on' : ''}}" bindtap="setContextTrendMode" data-mode="total" hover-class="ctx-seg-pressed" role="button">{{ui['全量']}}</view>
+                    <view class="ctx-seg-btn {{contextTrendDisplayMode === 'delta' ? 'on' : ''}}" bindtap="setContextTrendMode" data-mode="delta" hover-class="ctx-seg-pressed" role="button">{{ui['增量']}}</view>
+                  </view>
+                </view>
+                <view class="card-row">
+                  <view class="exp-copy"><text class="card-row-label">{{ui['对比基线']}}</text><text class="exp-desc">{{ui['上下文浏览器里各分类与哪一条记录比较']}}</text></view>
+                  <view class="ctx-seg">
+                    <view class="ctx-seg-btn {{contextBrowserBase === 'step' ? 'on' : ''}}" bindtap="setContextBrowserBase" data-base="step" hover-class="ctx-seg-pressed" role="button">{{ui['比前步']}}</view>
+                    <view class="ctx-seg-btn {{contextBrowserBase === 'turn' ? 'on' : ''}}" bindtap="setContextBrowserBase" data-base="turn" hover-class="ctx-seg-pressed" role="button">{{ui['比前轮']}}</view>
+                  </view>
+                </view>
+                <view class="card-row">
+                  <view class="exp-copy"><text class="card-row-label">{{ui['显示耗时曲线']}}</text><text class="exp-desc">{{ui['在上下文趋势上叠加每步耗时曲线']}}</text></view>
+                  <switch checked="{{contextTrendShowDuration}}" color="#2E6BE6" bindchange="toggleContextTrendDuration" aria-label="{{ui['显示耗时曲线']}}"/>
+                </view>
+                <view class="card-row card-row-stack">
+                  <view class="exp-copy"><text class="card-row-label">{{ui['文件活动排序']}}</text><text class="exp-desc">{{ui['上下文面板里文件列表的默认排序']}}</text></view>
+                  <view class="ctx-seg ctx-seg-scroll ctx-seg-wide">
+                    <view class="ctx-seg-btn {{contextFileSort === 'count' ? 'on' : ''}}" bindtap="setContextFileSort" data-sort="count" hover-class="ctx-seg-pressed" role="button">{{ui['按次数']}}</view>
+                    <view class="ctx-seg-btn {{contextFileSort === 'lines' ? 'on' : ''}}" bindtap="setContextFileSort" data-sort="lines" hover-class="ctx-seg-pressed" role="button">{{ui['按行数']}}</view>
+                    <view class="ctx-seg-btn {{contextFileSort === 'latest' ? 'on' : ''}}" bindtap="setContextFileSort" data-sort="latest" hover-class="ctx-seg-pressed" role="button">{{ui['按最新']}}</view>
+                    <view class="ctx-seg-btn {{contextFileSort === 'path' ? 'on' : ''}}" bindtap="setContextFileSort" data-sort="path" hover-class="ctx-seg-pressed" role="button">{{ui['按路径']}}</view>
+                    <view class="ctx-seg-btn {{contextFileSort === 'name' ? 'on' : ''}}" bindtap="setContextFileSort" data-sort="name" hover-class="ctx-seg-pressed" role="button">{{ui['按文件名']}}</view>
+                  </view>
+                </view>
+                <view class="card-row">
+                  <view class="exp-copy"><text class="card-row-label">{{ui['System Prompt 前后缀']}}</text><text class="exp-desc">{{ui['由电脑端 DSH 的 dsh-context 插件设置管理，小程序暂只读']}}</text></view>
+                </view>
+
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+  <view class="group-title">{{ui['外观']}}</view>
   <view class="card">
-    <view class="card-row management-entry" bindtap="openCostMeter" hover-class="management-entry-active" role="button" aria-label="{{ui['额度卡片']}}">
-      <view class="management-entry-copy">
-        <text class="card-row-label">{{ui['额度卡片']}}</text>
-        <text class="management-entry-desc">{{ui['调整卡片内容、密度与密钥']}}</text>
-      </view>
-      <view class="card-row-value management-entry-value">
-        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
-      </view>
-    </view>
+
+        <view class="card-row" bindtap="pickAppearance">
+          <text class="card-row-label">{{ui['界面']}}</text>
+          <view class="card-row-value">
+            <text>{{ui[appearanceLabel] !== undefined ? ui[appearanceLabel] : appearanceLabel}}</text>
+            <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+        </view>
+        <view class="card-row" bindtap="openStatusStyles" role="button" aria-label="{{ui['选择对话状态条样式']}}">
+          <text class="card-row-label">{{ui['对话状态条']}}</text>
+          <view class="card-row-value"><text>{{ui[statusAppearanceLabel] !== undefined ? ui[statusAppearanceLabel] : statusAppearanceLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+        </view>
+        <view class="card-row" bindtap="openProcIcons" role="button" aria-label="{{ui['选择执行图标动效']}}">
+          <text class="card-row-label">{{ui['执行图标']}}</text>
+          <view class="card-row-value"><text>{{ui[procIconLabel] !== undefined ? ui[procIconLabel] : procIconLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+        </view>
+
+
+        <view class="card-row management-entry" bindtap="openCostMeter" hover-class="management-entry-active" role="button" aria-label="{{ui['额度卡片']}}">
+          <view class="management-entry-copy">
+            <text class="card-row-label">{{ui['额度卡片']}}</text>
+            <text class="management-entry-desc">{{ui['调整卡片内容、密度与密钥']}}</text>
+          </view>
+          <view class="card-row-value management-entry-value">
+            <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+        </view>
+
     <view class="card-row">
-      <view class="exp-copy"><text class="card-row-label">{{ui['显示额度卡片']}}</text><text class="exp-desc">{{costCardReady ? ui['在左侧栏显示余额与额度卡片'] : (connected ? ui['正在读取电脑端额度设置…'] : ui['未连接电脑端网关'])}}</text></view>
-      <switch checked="{{showCostCard}}" disabled="{{!costCardReady}}" color="#2E6BE6" bindchange="toggleCostCard" aria-label="{{ui['显示额度卡片']}}"/>
-    </view>
+          <view class="exp-copy"><text class="card-row-label">{{ui['首页动画']}}</text><text class="exp-desc">{{ui['控制首页动态海洋背景，关闭后保留静态画面']}}</text></view>
+          <switch checked="{{homeAnimationEnabled}}" color="#2E6BE6" bindchange="toggleHomeAnimation" aria-label="{{ui['首页动画']}}"/>
+        </view>
   </view>
 
   <view class="group-title">{{ui['通用设置']}}</view>
   <view class="card general-preferences">
-    <view class="card-row">
-      <view class="exp-copy"><text class="card-row-label">{{ui['首页动画']}}</text><text class="exp-desc">{{ui['控制首页动态海洋背景，关闭后保留静态画面']}}</text></view>
-      <switch checked="{{homeAnimationEnabled}}" color="#2E6BE6" bindchange="toggleHomeAnimation" aria-label="{{ui['首页动画']}}"/>
-    </view>
-    <view class="card-row" bindtap="openHapticsPicker" role="button" aria-label="{{ui['震动反馈']}}">
-      <text class="card-row-label">{{ui['震动反馈']}}</text>
-      <view class="card-row-value">
-        <text>{{hapticsLevel === 'off' ? ui['关闭'] : (hapticsLevel === 'light' ? ui['轻'] : (hapticsLevel === 'medium' ? ui['中'] : ui['重']))}}</text>
-        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
-      </view>
-    </view>
     <view class="card-row preference-language-row">
-      <text class="card-row-label">{{ui['语言']}}</text>
-      <view class="preference-select" bindtap="pickLanguage" role="button"><text>{{ui[languageLabel] !== undefined ? ui[languageLabel] : languageLabel}}</text><view class="preference-chevron {{preferenceMenu === 'language' ? 'expanded' : ''}}" aria-hidden="true"><view class="preference-chevron-line"/></view></view>
-      <view wx:if="{{preferenceMenu === 'language'}}" class="preference-menu">
-        <view wx:for="{{languageOptions}}" wx:key="id" class="preference-option" bindtap="chooseLanguage" data-id="{{item.id}}" role="button"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="preference-check">{{language === item.id ? '✓' : ''}}</text></view>
-      </view>
+          <text class="card-row-label">{{ui['语言']}}</text>
+          <view class="preference-select" bindtap="pickLanguage" role="button"><text>{{ui[languageLabel] !== undefined ? ui[languageLabel] : languageLabel}}</text><view class="preference-chevron {{preferenceMenu === 'language' ? 'expanded' : ''}}" aria-hidden="true"><view class="preference-chevron-line"/></view></view>
+          <view wx:if="{{preferenceMenu === 'language'}}" class="preference-menu">
+            <view wx:for="{{languageOptions}}" wx:key="id" class="preference-option" bindtap="chooseLanguage" data-id="{{item.id}}" role="button"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="preference-check">{{language === item.id ? '✓' : ''}}</text></view>
+          </view>
+        </view>
+    <view class="card-row" bindtap="openHapticsPicker" role="button" aria-label="{{ui['震动反馈']}}">
+          <text class="card-row-label">{{ui['震动反馈']}}</text>
+          <view class="card-row-value">
+            <text>{{hapticsLevel === 'off' ? ui['关闭'] : (hapticsLevel === 'light' ? ui['轻'] : (hapticsLevel === 'medium' ? ui['中'] : ui['重']))}}</text>
+            <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+        </view>
+    <view class="card-row" bindtap="openFontSheet" role="button" aria-label="{{ui['字号大小']}}">
+      <view class="preference-description"><text class="card-row-label">{{ui['字号大小']}}</text><text class="preference-hint">{{ui['仅影响会话内容的字号']}}</text></view>
+      <view class="card-row-value"><text>{{fontSizes.text}} px</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
     </view>
-    <view class="card-row preference-font-row">
-      <view class="preference-description" bindtap="toggleFontSettings" role="button"><text class="card-row-label">{{ui['字号大小']}}</text><text class="preference-hint">{{ui['仅影响会话内容的字号']}}</text></view>
-      <view class="font-number-control"><input class="font-number" type="number" value="{{fontSizes.text}}" data-role="text" bindblur="commitFontSize" bindconfirm="commitFontSize" maxlength="2"/><text class="font-unit">px</text></view>
-      <view class="font-expand" bindtap="toggleFontSettings" role="button" aria-label="{{fontSettingsExpanded ? ui['收起字体设置'] : ui['更多字体设置']}}"><view class="preference-chevron {{fontSettingsExpanded ? 'expanded' : ''}}" aria-hidden="true"><view class="preference-chevron-line"/></view></view>
-    </view>
-    <block wx:if="{{fontSettingsExpanded}}">
-      <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['正文字体']}}</text><text class="preference-hint">{{ui['用于界面与会话正文。多个字体用逗号分隔，留空使用默认字体']}}</text></view><input class="font-family-input" value="{{fontFamilies.text}}" placeholder="{{ui['默认']}}" placeholder-class="font-family-placeholder" data-role="text" bindblur="commitFontFamily" bindconfirm="commitFontFamily" maxlength="500"/></view>
-      <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['代码字体']}}</text><text class="preference-hint">{{ui['用于代码块、行内代码与工具输出。多个字体用逗号分隔，留空使用默认字体']}}</text></view><input class="font-family-input" value="{{fontFamilies.code}}" placeholder="{{ui['默认']}}" placeholder-class="font-family-placeholder" data-role="code" bindblur="commitFontFamily" bindconfirm="commitFontFamily" maxlength="500"/></view>
-      <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['代码字号']}}</text><text class="preference-hint">{{ui['用于代码块、行内代码与工具输出']}}</text></view><view class="font-number-control"><input class="font-number" type="number" value="{{fontSizes.code}}" data-role="code" bindblur="commitFontSize" bindconfirm="commitFontSize" maxlength="2"/><text class="font-unit">px</text></view></view>
-      <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['终端字体']}}</text><text class="preference-hint">{{ui['用于侧栏终端。多个字体用逗号分隔，留空使用默认字体']}}</text></view><input class="font-family-input" value="{{fontFamilies.terminal}}" placeholder="{{ui['默认']}}" placeholder-class="font-family-placeholder" data-role="terminal" bindblur="commitFontFamily" bindconfirm="commitFontFamily" maxlength="500"/></view>
-      <view class="card-row font-detail-row"><view class="preference-description"><text class="card-row-label">{{ui['终端字号']}}</text><text class="preference-hint">{{ui['用于侧栏终端']}}</text></view><view class="font-number-control"><input class="font-number" type="number" value="{{fontSizes.terminal}}" data-role="terminal" bindblur="commitFontSize" bindconfirm="commitFontSize" maxlength="2"/><text class="font-unit">px</text></view></view>
-      <view class="font-preview-panel"><text class="preference-hint">{{ui['字体预览']}}</text><text class="font-preview-text">{{ui['正文字体']}} · DeepSeek Harness</text><text class="font-preview-code">const answer = 42;</text><text class="font-preview-terminal">$ dsh --version</text><text class="preference-hint">{{ui['实际可用字体取决于设备；找不到的字体将使用后备字体。']}}</text><text class="preference-hint">{{ui['当前小程序暂无侧栏终端；终端偏好已保存，下方预览可查看效果。']}}</text></view>
-    </block>
-
   </view>
 
   <view class="group-title">{{ui['会话面板']}}</view>
   <view class="card general-preferences">
-    <view class="card-row">
-      <view class="exp-copy"><text class="card-row-label">{{ui['显示上下文']}}</text><text class="exp-desc">{{ui['在会话顶部显示上下文标签页']}}</text></view>
-      <switch checked="{{showContextPanel}}" color="#2E6BE6" bindchange="toggleContextPanel" aria-label="{{ui['显示上下文']}}"/>
-    </view>
-    <view class="card-row">
-      <view class="exp-copy"><text class="card-row-label">{{ui['显示编队']}}</text><text class="exp-desc">{{ui['在会话顶部显示编队标签页']}}</text></view>
-      <switch checked="{{showFleetPanel}}" color="#2E6BE6" bindchange="toggleFleetPanel" aria-label="{{ui['显示编队']}}"/>
+
+        <view class="card-row">
+          <view class="exp-copy"><text class="card-row-label">{{ui['显示上下文']}}</text><text class="exp-desc">{{ui['在会话顶部显示上下文标签页']}}</text></view>
+          <switch checked="{{showContextPanel}}" color="#2E6BE6" bindchange="toggleContextPanel" aria-label="{{ui['显示上下文']}}"/>
+        </view>
+        <view class="card-row">
+          <view class="exp-copy"><text class="card-row-label">{{ui['显示编队']}}</text><text class="exp-desc">{{ui['在会话顶部显示编队标签页']}}</text></view>
+          <switch checked="{{showFleetPanel}}" color="#2E6BE6" bindchange="toggleFleetPanel" aria-label="{{ui['显示编队']}}"/>
+        </view>
+
+    <view class="card-row" bindtap="openContextSheet" role="button" aria-label="{{ui['上下文面板']}}">
+      <view class="preference-description"><text class="card-row-label">{{ui['上下文面板']}}</text><text class="preference-hint">{{ui['趋势粒度']}} · {{ui['对比基线']}} · {{ui['文件活动排序']}}</text></view>
+      <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
     </view>
   </view>
-
 
   <view class="group-title">{{ui['实验性功能']}}</view>
   <view class="card">
@@ -342,6 +508,13 @@
 
   <view class="group-title">{{ui['关于']}}</view>
   <view class="card">
+    <view class="card-row" bindtap="openStorageSheet" hover-class="management-entry-active" role="button" aria-label="{{ui['存储空间']}}">
+      <text class="card-row-label">{{ui['存储空间']}}</text>
+      <view class="card-row-value">
+        <text wx:if="{{storageUsage}}">{{storageUsage.totalText}}</text>
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+      </view>
+    </view>
     <view class="card-row management-entry" bindtap="openAnnouncements" hover-class="management-entry-active" role="button">
       <text class="card-row-label">{{ui['开发者公告']}}</text>
       <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
@@ -728,13 +901,13 @@
 </view>
 
 <view wx:if="{{statusStyleSheetOpen}}" class="status-style-mask {{themeClass}}" catchtap="closeStatusStyles" catchtouchmove="noop">
-  <view class="status-style-sheet resizable" style="height: {{sheetExpanded.statusStyle ? 90 : 72}}vh;" catchtap="noop">
+  <view class="status-style-sheet resizable" style="height: {{sheetExpanded.statusStyle ? 90 : 90}}vh;" catchtap="noop">
     <view class="sheet-grabber-zone" data-sheet="statusStyle" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
     <view class="status-style-head"><view><view class="status-style-title">{{ui['对话状态条']}}</view><view class="status-style-hint">{{ui['只改变外观，保留原有文案和计时']}}</view></view></view>
     <scroll-view class="status-style-list" scroll-y enhanced show-scrollbar="{{false}}">
       <view wx:for="{{statusStyleChoices}}" wx:key="id" class="status-style-option {{statusAppearance === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="chooseStatusStyle" role="button" aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}} {{statusAppearance === item.id ? ui['已选择'] : ''}}">
         <view class="status-style-option-head"><text class="status-style-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="status-style-check">{{statusAppearance === item.id ? ui['已选择'] : ''}}</text></view>
-        <view class="status-style-preview status-look-{{item.id}}"><view class="status-tail status-tail-{{item.id}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" style="{{theme === 'dark' ? item.darkTailAnimationStyle : item.lightTailAnimationStyle}}"><image class="status-tail-image" mode="aspectFit" src="/assets/icons/dsh-running-whale.png" style="filter:{{theme === 'dark' ? item.darkTailFilter : item.lightTailFilter}}"/></view><view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? item.darkStyle : item.lightStyle}}">{{ui['正在思考，用时 12 秒…']}}</text></view></view>
+        <view class="status-style-preview status-look-{{item.id}}"><view class="status-tail"><canvas type="2d" id="statusPreviewCanvas-{{item.id}}" class="status-tail-canvas" style="width:28rpx;height:28rpx;"></canvas></view><view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? item.darkStyle : item.lightStyle}}">{{ui['正在思考，用时 12 秒…']}}</text></view></view>
         <view class="status-style-description">{{item.detail}}</view>
       </view>
     </scroll-view>
@@ -743,7 +916,7 @@
 </view>
 
 <view wx:if="{{procIconSheetOpen}}" class="status-style-mask {{themeClass}}" catchtap="closeProcIcons" catchtouchmove="noop">
-  <view class="status-style-sheet resizable" style="height: {{sheetExpanded.procIcon ? 90 : 72}}vh;" catchtap="noop">
+  <view class="status-style-sheet resizable" style="height: {{sheetExpanded.procIcon ? 90 : 90}}vh;" catchtap="noop">
     <view class="sheet-grabber-zone" data-sheet="procIcon" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
     <view class="status-style-head"><view><view class="status-style-title">{{ui['执行图标']}}</view><view class="status-style-hint">{{ui['只改变执行中标题前的方形动效，标题与步骤保持不变']}}</view></view></view>
     <scroll-view class="status-style-list" scroll-y enhanced show-scrollbar="{{false}}">

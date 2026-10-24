@@ -102,6 +102,22 @@ function runningStepTitle(items) {
   return uiText('正在思考');
 }
 
+// DSH 失败文案口径（dsh-client-ui-chat failureMessage/turnError）：仅几个可稳定
+// 路由的编码替换成人话，其余一律展示服务端原文。
+const FAILURE_COPY = {
+  ACCOUNT_SIGNED_OUT: '任务已因退出 DeepSeek 登录而停止。',
+  ACCOUNT_SIGN_IN_REQUIRED: '请先登录 DeepSeek，并确认请求地址支持账号认证。',
+  QUOTA: '当前请求的额度已用尽',
+  ACCOUNT_QUOTA: '当前请求的额度已用尽',
+  AUTH: 'API 密钥无效'
+};
+function turnFailureCopy(failure) {
+  if (!failure) return { title: '', message: '', code: '' };
+  const code = failure.code || '';
+  const title = code === 'ACCOUNT_SIGNED_OUT' ? uiText('任务已停止') : uiText('本轮运行失败');
+  return { title: title, message: uiText(FAILURE_COPY[code]) || failure.message || '', code: code };
+}
+
 function buildProcessGroup(items, meta) {
   const first = items[0];
   const facts = processFacts(items);
@@ -152,6 +168,8 @@ function buildProcessGroup(items, meta) {
   if (facts.contexts.length) details.push(facts.contexts.length + uiText(' 项上下文'));
   if (completed && meta.durationMs >= 1000) details.push(uiText('用时 ') + durationLabel(meta.durationMs));
   const lastTool = facts.tools[facts.tools.length - 1];
+  // 失败时透出 DSH 原文/编码，视图层渲染红色错误卡
+  const failure = meta.failed && meta.failure ? turnFailureCopy(meta.failure) : null;
   return {
     kind: 'processGroup', key, title, summary: details.join(' · '),
     activityDetail: lastTool ? toolPresentation(lastTool.name, lastTool.argumentsText).detail : '',
@@ -160,6 +178,9 @@ function buildProcessGroup(items, meta) {
     command: facts.command, commandDetail: facts.command ? facts.command.text || '' : '',
     children, expandable: !!(children.length || facts.command), running, completed,
     failed: meta.failed, stopped: meta.stopped,
+    failureTitle: failure ? failure.title : '',
+    failureMessage: failure ? failure.message : '',
+    failureCode: failure ? failure.code : '',
     sourceKeys: items.map(item => item.key).filter(Boolean)
   };
 }
@@ -184,7 +205,9 @@ function buildEntries(rows, options) {
     const marked = turnRows.some(row => row.key === opts.completedEntryKey);
     const completed = !running && !stopped && !failed && (!!ended || (hasAnswer && !pending) || (marked && hasAnswer && !pending) || turnRows.some(row => row.phase === 'command/completed' || row.phase === 'compaction/summarized'));
     const meta = { running, stopped, failed, completed, closed: !!ended,
-      durationMs: ended && ended.durationMs || (marked ? Number(opts.lastDurationMs || 0) : 0) };
+      durationMs: ended && ended.durationMs || (marked ? Number(opts.lastDurationMs || 0) : 0),
+      // 失败原因：DSH 的 {message,code,status}，供错误卡按桌面端口径展示
+      failure: (ended && ended.turnFailure) || null };
     turnRows.forEach(row => outcomes.set(row, meta));
     turnRows = [];
   }

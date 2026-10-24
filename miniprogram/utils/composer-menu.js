@@ -52,6 +52,25 @@ function inputDraft(command, draft) {
   const body = text.startsWith('/') ? text.replace(/^\/\S*\s*/, '') : text;
   return (command.ui.insertText || '/' + command.name + ' ').trimEnd() + ' ' + body;
 }
+/** Slash-command presentation for the composer: blue token + gray argument hint
+ *  (mirrors dsh-mobile slashCommandComposerPresentation). Only input-kind
+ *  commands carry a token with a hint; plain commands execute immediately. */
+function presentation(draft, commands) {
+  const text = String(draft || '');
+  if (text.charAt(0) !== '/') return null;
+  for (const command of commands || []) {
+    if (!command || !command.ui || command.ui.kind !== 'input') continue;
+    const token = String(command.ui.insertText || ('/' + command.name)).replace(/\s+$/, '');
+    if (text === token || text.indexOf(token + ' ') === 0) {
+      return { command, token, argument: text === token ? '' : text.slice(token.length + 1) };
+    }
+  }
+  return null;
+}
+function commandLabel(command, t) {
+  const face = command && command.source !== 'skill' ? FACES[command.name] : null;
+  return face ? '/' + t(face[0]) : '/' + (command && command.name || '');
+}
 function optionTitle(name, t) {
   return FACES[name] ? t(FACES[name][0]) : '/' + name;
 }
@@ -84,4 +103,4 @@ function fileReference(path) {
 function imageType(name) {
   return ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' })[String(name || '').split(/[?#]/)[0].split('.').pop().toLowerCase()] || '';
 }
-module.exports = { commands, acceptsAttachments, catalog, inputDraft, optionTitle, optionRows, modelFace, fileReference, imageType };
+module.exports = { commands, acceptsAttachments, catalog, inputDraft, presentation, commandLabel, optionTitle, optionRows, modelFace, fileReference, imageType };

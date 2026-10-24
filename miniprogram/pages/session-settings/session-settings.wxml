@@ -9,7 +9,7 @@
   <view class="session-nav-placeholder" style="height:{{navPadTop + navHeight}}px;" aria-hidden="true"></view>
   <!-- DSH 客户端账号区：结构与桌面端 AccountSection / 设置页一致。 -->
   <view wx:if="{{dshAccountVisible}}" class="dsh-account-section" aria-label="{{ui['账号与余额']}}">
-    <view class="dsh-account-card">
+    <view class="dsh-account-card {{dshAccount.signedIn ? 'tappable has-chevron' : ''}}" bindtap="toggleDshBalance" hover-class="press-dim" role="button" aria-expanded="{{dshBalanceExpanded}}" aria-label="{{ui['账号与余额']}}">
       <view class="dsh-account-identity">
         <view class="dsh-account-avatar">
           <image wx:if="{{dshAccount.avatarUrl}}" class="dsh-account-avatar-image" src="{{dshAccount.avatarUrl}}" mode="aspectFill"/>
@@ -19,9 +19,10 @@
           <text class="dsh-account-name">{{dshAccount.name}}</text>
           <text class="dsh-account-status">{{dshAccountBusy ? ui['加载中…'] : dshAccount.status}}</text>
         </view>
+        <image wx:if="{{dshAccount.signedIn}}" class="dsh-account-chevron {{dshBalanceExpanded ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
       </view>
     </view>
-    <view class="dsh-balance-card">
+    <view wx:if="{{dshBalanceExpanded && dshAccount.signedIn}}" class="dsh-balance-card">
       <view class="dsh-balance-row">
         <text>{{ui['充值余额']}}</text>
         <view wx:if="{{dshAccount.balanceText}}" class="dsh-balance-amount"><text>{{dshAccount.balanceText}}</text></view>

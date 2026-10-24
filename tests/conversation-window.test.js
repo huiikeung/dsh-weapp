@@ -31,6 +31,16 @@ test('prepending history preserves the visible anchor and offset while incoming 
   assert.equal(live.conversationScrollTop, undefined);
   assert.equal(page._lastScrollTop, 5125);
 });
+test('history prepends anchor the viewport with scroll-into-view instead of guessed scrollTop', () => {
+  const page = { ...viewport, data: {}, _renderSessionId: 's', _convPinned: false, _lastScrollTop: 5025 };
+  const initial = rows(100); page.conversationWindowPatch(initial);
+  const patch = page.conversationWindowPatch([{ key: 'older', kind: 'user', text: 'old' }, ...initial], { anchor: true });
+  assert.equal(patch.scrollTarget, 'u50');
+  assert.equal(patch.scrollAnim, false);
+  assert.equal(patch.conversationScrollTop, undefined);
+  assert.equal(page._lastScrollTop, 5125);
+});
+
 test('cache windows migrate old full caches to eighty events and preserve a paging cursor', () => {
   const events = Array.from({ length: 300 }, (_, i) => ({ type: 'user/message', seq: i + 1, data: { text: 'Question ' + i } }));
   const cache = recentWindow({ events, rows: [], historyFormatVersion: 1, hasMore: false }, protocol, 's');

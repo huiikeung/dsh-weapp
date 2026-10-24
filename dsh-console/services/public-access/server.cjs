@@ -346,7 +346,9 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
         if (nodeId) requireGrant();
         if (!nodeId) {
           if (record.revokedAt || record.expiresAt <= now() || record.used >= record.uses) throw fail(400, 'CODE_UNAVAILABLE', '兑换码已停用、已过期或次数已用完');
-          const expiresAt = Math.max(Number(state.access[accountId]?.expiresAt) || 0, now()) + record.days * DAY;
+          const currentTime = now();
+          const previousExpiry = Number(state.access[accountId]?.expiresAt) || 0;
+          const expiresAt = (previousExpiry > currentTime ? previousExpiry : currentTime) + record.days * DAY;
           if (!Number.isSafeInteger(expiresAt)) throw fail(400, 'INVALID_EXPIRY', '累计有效期过长');
           // One durable transaction: no partial use debit or duplicate extension.
           commit(next => {

@@ -24,7 +24,7 @@ void main(){
  float ra=length(warped-vec2(aspect*0.58,0.16)),rb=length(warped-vec2(aspect*-0.20,0.13));
  float a=exp(-pow((ra-(0.35+0.025*sin(t*1.5)))/0.042,2.0));
  float b=exp(-pow((rb-(0.83+0.020*cos(t*1.15)))/0.065,2.0));
- color=mix(color,vec3(0.933,0.847,0.667),clamp(a*0.78+b*0.62,0.0,1.0)*(0.48+0.24*swirl)*0.55);
+ color=mix(color,vec3(0.933,0.847,0.667),clamp(a*0.78+b*0.62,0.0,1.0)*(0.48+0.24*swirl)*0.90);
  float glow=1.0-smoothstep(0.18,0.90,length((uv-vec2(0.58,0.32))*vec2(0.82,1)));
  color+=deep*glow*0.22;
  float vignette=1.0-smoothstep(0.23,0.95,length((uv-0.5)*vec2(0.86,1)));

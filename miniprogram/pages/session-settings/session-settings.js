@@ -2,16 +2,16 @@ const { t: uiText } = require('../../utils/ui-preferences');
 const store = require('../../utils/store');
 const labels = require('../../utils/labels');
 const theme = require('../../utils/theme');
-const { nodePresentation } = require('../../utils/node-presentation');
-const { hostDisplay } = require('../../utils/host-info');
-const { clientVersion } = require('../../utils/version-info');
-const accountView = require('../../utils/account-view');
+const { nodePresentation } = require('./utils/node-presentation');
+const { hostDisplay, normalizeHostInfo } = require('../../utils/host-info');
+const { clientVersion } = require('./utils/version-info');
+const accountView = require('./utils/account-view');
 const preferences = require('../../utils/ui-preferences');
-const CONNECTION_LABELS = { disconnected: uiText('未连接'), connecting: uiText('连接中'), connected: uiText('已连接'), failed: uiText('连接失败') };
+const { connectionView } = require('../../utils/connection-status');
 
 Page({
   manualShareMenu: true,
-  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true, dshAccount: accountView.normalize({}), dshAccountBusy: false, dshAccountVisible: false },
+  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true, dshAccount: accountView.normalize({}), dshAccountBusy: false, dshAccountVisible: false, dshBalanceExpanded: false },
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onLoad() {
     this._alive = true;
@@ -53,8 +53,8 @@ Page({
 
   refreshDshAccount() {
     if (store.state.connection !== 'connected' || !store.client || typeof store.client.requestAccount !== 'function') return;
-    // The account API validates the DSH Host version, not the mini-program package version.
-    const version = store.state.host && store.state.host.version;
+    // 账号 API 校验 DSH 主机版本；取规范化后的真版本（dshVersion 优先）。
+    const version = normalizeHostInfo(store.state.host).version;
     if (!version) return;
     const owner = store.state.activeID;
     if (this.data.dshAccountBusy && this._dshAccountRequestedVersion === version && this._dshAccountRequestOwner === owner) return;
@@ -75,13 +75,19 @@ Page({
       const unsupported = code === 'account-unavailable' || code === 'unknown-command'
         || /unknown message type/i.test(String((error && error.message) || ''));
       if (unsupported) {
-        this.setData({ dshAccountVisible: false, dshAccount: accountView.normalize({}) });
+        this.setData({ dshAccountVisible: false, dshAccount: accountView.normalize({}), dshBalanceExpanded: false });
         return;
       }
       this.setData({ dshAccount: accountView.normalize({ error: (error && error.message) || uiText('账号信息读取失败') }), dshAccountVisible: true });
     }).finally(() => {
       if (generation === this._dshAccountGeneration) this.setData({ dshAccountBusy: false });
     });
+  },
+
+  /** 展开/收起余额卡。未登录时点击不显示任何余额。 */
+  toggleDshBalance() {
+    if (!this.data.dshAccount || this.data.dshAccount.signedIn !== true) return;
+    this.setData({ dshBalanceExpanded: !this.data.dshBalanceExpanded });
   },
 
   openDshAccountLink(e) {
@@ -107,7 +113,7 @@ Page({
       host: app.host || {},
       hostInfo: hostDisplay(app)
     });
-    const hostVersion = app.host && app.host.version;
+    const hostVersion = normalizeHostInfo(app.host).version;
     if (hostVersion && hostVersion !== this._dshAccountHostVersion) {
       this._dshAccountHostVersion = hostVersion;
       this.refreshDshAccount();
@@ -463,7 +469,7 @@ Page({
       ? Object.keys(frames).map((k) => k + '×' + frames[k]).slice(0, 12).join('  ')
       : uiText('（暂无）');
     return [
-      { label: uiText('连接状态'), value: CONNECTION_LABELS[app.connection] || uiText('未知') },
+      { label: uiText('连接状态'), value: connectionView(app).label },
       { label: detail && detail.isPublic ? uiText('公网标识') : uiText('地址'), value: detail && detail.isPublic ? detail.identifier : app.endpoint || uiText('未配置'), mono: true },
       { label: uiText('网关'), value: detail ? detail.name : '—' },
       { label: uiText('帧统计'), value: frameText, mono: true }

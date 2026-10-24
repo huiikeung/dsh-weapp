@@ -7,7 +7,8 @@ const { t: uiText } = require('./ui-preferences');
 
 const APP_NAME = 'DeepSeek Harness';
 const HOME_PATH = '/pages/home/home';
-const SHARE_IMAGE = '/assets/brand/app-icon-share-500x400.png';
+// 分享封面：5:4 / 500×400，内容居中（朋友圈 1:1 裁切不丢内容），保留颗粒噪点的 JPEG，约 23 KB。
+const SHARE_IMAGE = '/assets/brand/app-icon-share-500x400.jpg';
 
 // 每个页面的分享文案（key 为页面路径）
 const SHARE_TITLES = {

@@ -1,0 +1,179 @@
+<view class="page insights-page {{themeClass}}" style="{{pageStyle}}">
+  <view class="ins-toolbar">
+    <view class="ins-ranges">
+      <view wx:for="{{panel.ranges}}" wx:key="key" class="ins-range {{item.active ? 'on' : ''}}" bindtap="setRange" data-range="{{item.key}}" hover-class="ins-pressed" role="button" aria-pressed="{{item.active}}">{{item.label}}</view>
+    </view>
+    <text wx:if="{{panel.truncated}}" class="ins-truncated">{{ui['仅显示最近 120 个会话']}}</text>
+  </view>
+  <view class="ins-custom-range">
+    <text class="ins-custom-label">{{ui['自定义日期']}}</text>
+    <picker mode="date" value="{{customFrom}}" end="{{customTo || ''}}" bindchange="setCustomFrom">
+      <view class="ins-date-picker">{{customFrom || ui['开始日期']}}</view>
+    </picker>
+    <text class="ins-date-separator">—</text>
+    <picker mode="date" value="{{customTo}}" start="{{customFrom || ''}}" bindchange="setCustomTo">
+      <view class="ins-date-picker">{{customTo || ui['结束日期']}}</view>
+    </picker>
+    <view wx:if="{{panel.customRangeActive}}" class="ins-clear-range" bindtap="clearCustomRange">{{ui['清除']}}</view>
+  </view>
+
+  <view wx:if="{{status === 'loading'}}" class="ins-state">
+    <view class="ins-spinner"></view>
+    <text class="ins-state-text">{{ui['正在加载上下文汇总…']}}</text>
+  </view>
+  <view wx:elif="{{status === 'unsupported' || status === 'error'}}" class="ins-state">
+    <text class="ins-state-text">{{errorText}}</text>
+    <view wx:if="{{status === 'error'}}" class="ins-retry" bindtap="retry" hover-class="ins-pressed" role="button">{{ui['重试']}}</view>
+  </view>
+  <block wx:else>
+    <view class="ins-kpi">
+      <view wx:for="{{panel.kpi}}" wx:key="key" class="ins-kpi-card">
+        <text class="ins-kpi-value">{{item.valueText}}</text>
+        <text class="ins-kpi-label">{{item.label}}</text>
+      </view>
+    </view>
+
+    <view class="ins-detail-grid">
+      <view class="ins-card ins-detail-card">
+        <view class="ins-card-head"><text class="ins-card-title">{{ui['Token 明细']}}</text></view>
+        <view wx:for="{{panel.tokenStats}}" wx:key="key" class="ins-detail-row"><text>{{item.label}}</text><text>{{item.valueText}}</text></view>
+      </view>
+      <view class="ins-card ins-detail-card">
+        <view class="ins-card-head"><text class="ins-card-title">{{ui['耗时统计']}}</text><text wx:if="{{panel.speedText}}" class="ins-card-sub">{{panel.speedText}}</text></view>
+        <view class="ins-timing-ring-row">
+          <view class="ins-timing-ring" style="{{panel.timingRing.style}}"><view class="ins-timing-hole"><text>{{panel.timingRing.totalText}}</text></view></view>
+          <view class="ins-timing-legend">
+            <view wx:for="{{panel.timingRing.rows}}" wx:key="key" class="ins-timing-legend-row {{item.dim ? 'dim' : ''}}">
+              <view class="ins-timing-dot time-{{item.key}}"></view><text>{{item.label}}</text><text>{{item.pctText}}</text>
+            </view>
+          </view>
+        </view>
+        <view wx:for="{{panel.timingStats}}" wx:key="key" class="ins-detail-row"><text>{{item.label}}</text><text>{{item.valueText}}</text></view>
+      </view>
+    </view>
+
+    <view class="ins-card">
+      <view class="ins-card-head"><text class="ins-card-title">{{ui['近 7 天用量']}}</text><text class="ins-card-sub">{{panel.weeklyCostText}}</text></view>
+      <view class="ins-bar-chart">
+        <view wx:for="{{panel.weekly}}" wx:key="key" class="ins-bar-col">
+          <view class="ins-bar-track">
+            <view class="ins-bar" style="height:{{item.height}}%;"></view>
+            <view class="ins-cost-bar" style="height:{{item.costHeight}}%;"></view>
+          </view>
+          <text class="ins-bar-value">{{item.tokensText || '—'}}</text>
+          <text class="ins-bar-cost">{{item.costText}}</text>
+          <text class="ins-bar-label">{{item.label}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="ins-card">
+      <view class="ins-card-head">
+        <text class="ins-card-title">{{ui['活跃热力图']}}</text>
+        <view class="ins-controls">
+          <view wx:for="{{panel.metrics}}" wx:key="key" class="ins-mini-chip {{item.active ? 'on' : ''}}" bindtap="setMetric" data-metric="{{item.key}}">{{item.label}}</view>
+        </view>
+      </view>
+      <view class="ins-heatmap">
+        <view wx:for="{{panel.heatmap.weeks}}" wx:for-item="week" wx:key="key" class="ins-heat-week">
+          <view wx:for="{{week.cells}}" wx:for-item="cell" wx:key="key"
+            class="ins-heat-cell ins-heat-lv{{cell.level}} {{cell.selected ? 'selected' : ''}} {{cell.future ? 'future' : ''}}"
+            data-day="{{cell.day}}" data-available="{{cell.available}}" bindtap="selectDay" hover-class="ins-pressed"
+            aria-label="{{cell.day}}" aria-pressed="{{cell.selected}}"></view>
+        </view>
+      </view>
+      <view class="ins-heat-foot"><text class="ins-heat-note">{{ui['峰值']}} {{panel.heatmap.maxText}}</text><text class="ins-heat-note">{{ui['近 8 周']}}</text></view>
+    </view>
+
+    <view class="ins-card">
+      <view class="ins-card-head"><text class="ins-card-title">{{ui['Token 用量组成']}}</text><text class="ins-card-sub">{{panel.ring.totalText}} tok</text></view>
+      <view class="ins-ring-row">
+        <view class="ins-ring" style="{{panel.ring.style}}">
+          <view class="ins-ring-hole"><text class="ins-ring-value">{{panel.ring.totalText}}</text><text class="ins-ring-unit">tok</text></view>
+        </view>
+        <view class="ins-legend">
+          <view wx:for="{{panel.ring.rows}}" wx:key="key" class="ins-legend-row {{item.dim ? 'dim' : ''}}">
+            <view class="ctx-dot ctx-c-{{item.key}}"></view>
+            <text class="ins-legend-name">{{item.label}}</text>
+            <text class="ins-legend-pct">{{item.pctText}}</text>
+            <text class="ins-legend-value">{{item.valueText}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+
+    <view class="ins-card">
+      <view class="ins-card-head"><text class="ins-card-title">{{ui['技能加载']}}</text><text class="ins-card-sub">{{panel.skillCount}}</text></view>
+      <view class="ins-list-tools ins-skill-tools">
+        <input class="ins-search" type="text" value="{{skillQuery}}" placeholder="{{ui['搜索技能']}}" placeholder-class="ins-placeholder" bindinput="onSkillSearch" />
+        <view class="ins-sort-row">
+          <view class="ins-mini-chip {{skillSort === 'loads' ? 'on' : ''}}" data-sort="loads" bindtap="setSkillSort">{{ui['按加载量']}}</view>
+          <view class="ins-mini-chip {{skillSort === 'recent' ? 'on' : ''}}" data-sort="recent" bindtap="setSkillSort">{{ui['最近加载']}}</view>
+        </view>
+      </view>
+      <view wx:if="{{!panel.skillStats.length}}" class="ins-empty">{{ui['该范围没有技能加载记录']}}</view>
+      <view wx:for="{{panel.skillStats}}" wx:key="name" class="ins-skill-row {{item.selected ? 'selected' : ''}}" bindtap="selectSkill" data-skill="{{item.name}}" hover-class="ins-pressed">
+        <view class="ins-skill-head"><text class="ins-skill-name">{{item.name}}</text><text class="ins-skill-count">{{item.loadText}}</text><view class="ins-skill-info" catchtap="toggleSkillDetails" data-skill="{{item.name}}">{{expandedSkill === item.name ? '−' : 'i'}}</view></view>
+        <view class="ins-skill-track"><view class="ins-skill-bar" style="width:{{item.width}}%;"></view></view>
+        <text class="ins-skill-meta">{{ui['加载次数']}} {{item.loadText}} · {{ui['会话日']}} {{item.sessionDaysText}} · {{item.lastText}}</text>
+        <view wx:if="{{expandedSkill === item.name}}" class="ins-skill-details" catchtap="noop">
+          <text wx:if="{{item.info && item.info.description}}">{{item.info.description}}</text>
+          <text wx:if="{{item.info && item.info.source}}" class="ins-skill-origin">{{ui['来源']}} · {{item.info.source}}</text>
+          <view wx:if="{{item.info && item.info.path}}" class="ins-skill-path" catchtap="copySkillPath" data-path="{{item.info.path}}">{{item.info.path}} · {{ui['复制']}}</view>
+          <text wx:if="{{!item.info}}" class="ins-skill-origin">{{ui['宿主未提供技能目录元数据']}}</text>
+        </view>
+      </view>
+    </view>
+
+    <view class="ins-card">
+      <view class="ins-card-head ins-list-head">
+        <text class="ins-card-title">{{ui['会话']}}</text><text class="ins-card-sub">{{panel.visibleCount}}</text>
+      </view>
+      <view class="ins-list-tools">
+        <input class="ins-search" type="text" value="{{query}}" placeholder="{{ui['搜索会话名称、模型或内容']}}" placeholder-class="ins-placeholder" bindinput="onSearchInput" confirm-type="search" />
+        <view class="ins-sort-row">
+          <view wx:for="{{panel.sortOptions}}" wx:key="key" class="ins-mini-chip {{item.active ? 'on' : ''}}" bindtap="setSort" data-sort="{{item.key}}">{{item.label}}</view>
+        </view>
+        <view class="ins-sort-row ins-coverage-row">
+          <view wx:for="{{panel.coverageOptions}}" wx:key="key" class="ins-mini-chip {{item.active ? 'on' : ''}}" bindtap="setCoverage" data-coverage="{{item.key}}">{{item.label}}</view>
+        </view>
+        <view wx:if="{{panel.selectedDay}}" class="ins-day-filter" bindtap="clearDay" hover-class="ins-pressed">{{panel.selectedDayText}} ×</view>
+        <view wx:if="{{panel.selectedSkill}}" class="ins-day-filter" bindtap="clearSkill" hover-class="ins-pressed">{{panel.selectedSkillText}} ×</view>
+      </view>
+      <view wx:if="{{panel.groupOptions.length}}" class="ins-group-row">
+        <view class="ins-mini-chip {{!panel.group ? 'on' : ''}}" data-group="" bindtap="setGroup">{{ui['全部']}} {{panel.allGroupCount}}</view>
+        <view wx:for="{{panel.groupOptions}}" wx:key="key" class="ins-mini-chip {{item.active ? 'on' : ''}}" data-group="{{item.key}}" bindtap="setGroup">{{item.label}} {{item.count}}</view>
+      </view>
+      <view wx:if="{{!panel.visibleCount}}" class="ins-empty">{{ui['没有匹配的会话']}}</view>
+      <view wx:for="{{panel.cards}}" wx:key="key" class="ins-session {{item.archived ? 'is-archived' : ''}}" bindtap="openSession" data-id="{{item.id}}" data-archived="{{item.archived}}" hover-class="ins-pressed" role="button" aria-disabled="{{item.archived}}">
+        <view class="ins-session-head">
+          <view wx:if="{{item.running}}" class="ins-running-dot"></view>
+          <text class="ins-session-title">{{item.title}}</text>
+          <text wx:if="{{item.current}}" class="ins-session-badge">{{ui['当前']}}</text>
+          <text wx:if="{{item.archived}}" class="ins-session-badge archived">{{ui['已归档']}}</text>
+          <text class="ins-session-pct" style="color:{{item.pctColor}};">{{item.pctText}}</text>
+        </view>
+        <view class="ins-session-meta"><text>{{item.metaText}}</text><text>{{item.updatedText}}{{item.createdText}}</text></view>
+        <view wx:if="{{item.group || item.project}}" class="ins-session-project"><text wx:if="{{item.group}}">{{item.group}}</text><text wx:if="{{item.group && item.project}}"> / </text><text wx:if="{{item.project}}">{{item.project}}</text></view>
+        <view class="ins-session-context">
+          <view class="ins-session-donut" style="{{item.ringStyle}}"><view class="ins-session-hole"><text>{{item.ringTotalText}}</text></view></view>
+          <view class="ins-session-context-copy"><text>{{ui['当前上下文']}} {{item.contextText}}</text><text>{{ui['轮次']}} {{item.turnsText}} · {{ui['步骤']}} {{item.stepsText}} · {{ui['工具调用']}} {{item.toolText}}</text></view>
+        </view>
+        <view wx:if="{{item.parts.length}}" class="ins-session-bar"><view wx:for="{{item.parts}}" wx:for-item="part" wx:key="key" class="ins-session-seg ctx-c-{{part.key}}" style="width:{{part.width}}%;"/></view>
+        <view class="ins-session-foot">
+          <text class="ins-session-stat">{{item.billedText}} tok</text>
+          <text class="ins-session-stat">{{ui['输入']}} {{item.inputText}} / {{ui['输出']}} {{item.outputText}}</text>
+          <text class="ins-session-stat">{{item.activeText}}</text>
+          <text class="ins-session-stat ins-session-cost">{{item.costText}}</text>
+        </view>
+        <text wx:if="{{item.lastAnswer}}" class="ins-session-preview">{{item.lastAnswer}}</text>
+      </view>
+      <view wx:if="{{panel.pageCount > 1}}" class="ins-pager">
+        <view class="ins-page-btn {{panel.canPrev ? '' : 'disabled'}}" data-delta="-1" bindtap="changePage">{{ui['上一页']}}</view>
+        <text>{{panel.page + 1}} / {{panel.pageCount}}</text>
+        <view class="ins-page-btn {{panel.canNext ? '' : 'disabled'}}" data-delta="1" bindtap="changePage">{{ui['下一页']}}</view>
+      </view>
+    </view>
+    <view class="ins-foot-space"></view>
+  </block>
+</view>

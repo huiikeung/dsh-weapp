@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 function fixture() {
   const file = path.resolve(__dirname, '../miniprogram/utils/store.js');
-  const module = { exports: {} }, timers = new Map(), storage = new Map(), requests = [];
+  const module = { exports: {} }, timers = new Map(), storage = new Map(), requests = [], calls = [], metricRequests = [];
   let serial = 0;
   class Client {
     constructor(callbacks) {
@@ -17,6 +17,9 @@ function fixture() {
       } });
     }
     requestHistory(...args) { requests.push(args); return true; }
+    requestSessions(...args) { calls.push(['requestSessions', ...args]); return true; }
+    requestSessionStats(...args) { metricRequests.push(['stats', ...args]); return true; }
+    requestContextUsage(...args) { metricRequests.push(['context', ...args]); return true; }
   }
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), {
     module, Date, console, wx: { getStorageSync: key => storage.get(key),
@@ -27,7 +30,7 @@ function fixture() {
   });
   const store = module.exports;
   store.state.connection = 'connected'; store.sessionState.sessionId = 's';
-  return { store, requests, storage,
+  return { store, requests, calls, storage, metricRequests,
     frame: value => store.client.callbacks.onFrame({ sessionId: store.sessionState.sessionId, ...value }),
     flush(delay = 200) { for (const [id, timer] of [...timers]) if (timer.delay === delay) { timers.delete(id); timer.fn(); } } };
 }
@@ -66,6 +69,33 @@ test('idle history does not prefetch and timeout allows manual retry', () => {
   f.store.loadOlderHistory(); assert.equal(f.requests.length, 2);
 });
 
+test('sending while a cached session is displayed keeps the whole conversation', () => {
+  // 200 条历史 -> 落盘缓存只留最近 80 条（m121..m200）
+  const many = Array.from({ length: 200 }, (_, i) => user(i + 1, 'm' + (i + 1)));
+  const f = fixture(); f.frame(history(many, 1)); f.flush(1000);
+  f.store.openSession('other', 'Other'); f.store.openSession('s', 'Original');
+  assert.equal(f.store.sessionState.rows.length, 80);
+  assert.equal(f.store.sessionState.rows[0].text, 'm121');
+
+  // 发送：乐观回显必须追加在缓存后面，而不是把整段缓存顶掉
+  f.store.appendLocalUserRow('我刚发的这一条', [], []);
+  assert.equal(f.store.sessionState.rows.length, 81);
+  assert.equal(f.store.sessionState.rows[0].text, 'm121');
+  assert.equal(f.store.sessionState.rows.at(-1).text, '我刚发的这一条');
+
+  // 权威历史到达：真实事件就地收养乐观回显，不产生双气泡
+  f.frame(history(many.slice(180).concat([user(201, '我刚发的这一条')]), 181));
+  const texts = Array.from(f.store.sessionState.rows, row => row.text);
+  assert.equal(texts.filter(text => text === '我刚发的这一条').length, 1);
+  assert.equal(texts.at(-1), '我刚发的这一条');
+  assert.ok(texts.includes('m200'));
+
+  // 退出再进入：缓存里仍有这条
+  f.flush(1000);
+  f.store.openSession('other', 'Other'); f.store.openSession('s', 'Original');
+  assert.ok(Array.from(f.store.sessionState.rows, row => row.text).includes('我刚发的这一条'));
+});
+
 test('reopening restores cached conversation and builds trajectory only on activation', () => {
   const f = fixture(); f.frame(history([user(10, 'old'), user(30, 'latest')], 0, false));
   assert.equal(f.store.sessionState.trajectory.length, 0);
@@ -82,6 +112,185 @@ test('reopening restores cached conversation and builds trajectory only on activ
   assert.deepEqual(Array.from(f.store.sessionState.rows, row => row.text), ['reset']);
 });
 
+test('cached history renders instantly and still falls back to a fresh tail request', () => {
+  const f = fixture();
+  f.frame(history([user(30, 'latest')], 30)); f.flush(1000);
+  f.store.openSession('other', 'Other');
+  f.store.openSession('s', 'Original');
+  // 缓存命中：本地内容立即可见，不等网关
+  assert.equal(f.store.sessionState.historyState, 'loaded:cached');
+  assert.equal(f.store.sessionState.cacheDisplay, true);
+
+  // 快照优先架构下，权威尾部由订阅推送的 session-snapshot 提供；
+  // 快照 1.2s 内没到才回落到 history——缓存行不能把这次兜底压掉。
+  const beforeFallback = f.requests.length;
+  f.flush(1200);
+  assert.ok(f.requests.length > beforeFallback, 'cached rows must not suppress the history fallback');
+  assert.ok(f.requests.slice(beforeFallback).some(args => args[0] === 's' && args.length === 1));
+});
+
+test('a reconnect refreshes an already-loaded tail and does not trust the old connection state', () => {
+  const f = fixture();
+  f.frame(history([user(30, 'old tail')], 30));
+  f.store.state.connection = 'disconnected';
+  const beforeReconnect = f.requests.length;
+
+  f.store.client.callbacks.onState('connected');
+  assert.equal(f.store.sessionState.historyState, 'requested');
+  assert.equal(f.store.sessionState.cacheDisplay, true);
+  f.flush(4000);
+
+  assert.ok(f.requests.length > beforeReconnect, 'a missing reconnect reply must be retried');
+  assert.ok(f.requests.slice(beforeReconnect).some(args => args[0] === 's'));
+});
+
+test('cached composer stats and per-turn usage restore with the conversation', () => {
+  const f = fixture();
+  const events = [
+    { seq: 1, type: 'turn/start', data: { turn: 1 } },
+    { seq: 2, type: 'step/start', data: { turn: 1, step: 1 } },
+    { seq: 3, type: 'assistant/message', data: {
+      turn: 1, step: 1,
+      message: { content: [{ type: 'text', text: 'done' }] },
+      usage: { inputTokens: 100, outputTokens: 25, cacheReadTokens: 50, cacheWriteTokens: 0, totalTokens: 175 }
+    } },
+    { seq: 4, type: 'step/end', data: { turn: 1, step: 1 } },
+    { seq: 5, type: 'turn/end', data: { turn: 1 } }
+  ];
+  f.frame(history(events, 0, false));
+  f.frame({ kind: 'session-stats', sessionStats: { turns: 1, steps: 1 },
+    tokenUsage: { totals: { inputTokens: 125, outputTokens: 25 }, uncachedInputTokens: 100, cacheReadTokens: 25 },
+    contextPressure: { pressureTokens: 40, contextWindow: 100 } });
+  f.flush(1000);
+
+  f.store.openSession('other', 'Other');
+  f.store.openSession('s', 'Original');
+  assert.equal(f.store.sessionState.stats.stats.turns, 1);
+  assert.equal(f.store.sessionState.stats.pressure.contextWindow, 100);
+  assert.equal(f.store.sessionState.turnUsage[1].totalTokens, 175);
+});
+
+test('session projections hydrate composer metrics directly from the history snapshot', () => {
+  const f = fixture();
+  f.frame({ ...history([user(30, 'latest')], 30, false), projections: {
+    asOfSeq: 30,
+    values: {
+      sessionStats: { turns: 2, steps: 11 },
+      tokenUsage: { uncachedInputTokens: 1000, cacheReadTokens: 500, cacheWriteTokens: 20, outputTokens: 80 },
+      contextPressure: { projectedTokens: 60, pressureTokens: 50, contextWindow: 100 }
+    }
+  } });
+
+  assert.equal(f.store.sessionState.stats.stats.turns, 2);
+  assert.equal(f.store.sessionState.stats.stats.steps, 11);
+  assert.equal(f.store.sessionState.stats.tokenUsage.cacheReadTokens, 500);
+  assert.equal(f.store.sessionState.stats.pressure.projectedTokens, 60);
+  f.flush(700);
+  assert.deepEqual(f.metricRequests, [], 'complete DSH projections avoid a redundant full-log stats scan');
+});
+
+test('session snapshots also hydrate the DSH metrics before the async stats RPC', () => {
+  const f = fixture();
+  f.frame({ kind: 'session-snapshot', replace: true, events: [user(40, 'latest')], projections: {
+    asOfSeq: 40,
+    values: {
+      sessionStats: { turns: 4, steps: 13 },
+      tokenUsage: { uncachedInputTokens: 50, cacheReadTokens: 20, cacheWriteTokens: 0, outputTokens: 10 },
+      contextPressure: { projectedTokens: 80, contextWindow: 100 }
+    }
+  } });
+
+  assert.equal(f.store.sessionState.stats.stats.turns, 4);
+  assert.equal(f.store.sessionState.stats.tokenUsage.outputTokens, 10);
+  assert.equal(f.store.sessionState.stats.pressure.projectedTokens, 80);
+  f.flush(700);
+  assert.deepEqual(f.metricRequests, []);
+});
+
+test('partial metric frames merge without clearing the other DSH projections', () => {
+  const f = fixture();
+  f.frame({ kind: 'context-usage',
+    tokenUsage: { uncachedInputTokens: 100, cacheReadTokens: 25, cacheWriteTokens: 5, outputTokens: 20 },
+    contextPressure: { projectedTokens: 40, pressureTokens: 35, contextWindow: 100 } });
+  f.frame({ kind: 'session-stats', sessionStats: { turns: 3, steps: 9 } });
+
+  assert.equal(f.store.sessionState.stats.stats.turns, 3);
+  assert.equal(f.store.sessionState.stats.stats.steps, 9);
+  assert.equal(f.store.sessionState.stats.tokenUsage.uncachedInputTokens, 100);
+  assert.equal(f.store.sessionState.stats.tokenUsage.cacheWriteTokens, 5);
+  assert.equal(f.store.sessionState.stats.pressure.projectedTokens, 40);
+});
+
+test('older history projections cannot roll composer metrics back', () => {
+  const f = fixture();
+  f.frame({ kind: 'history', projections: { asOfSeq: 70, values: {
+    sessionStats: { turns: 7, steps: 21 }
+  } } });
+  f.frame({ kind: 'history', projections: { asOfSeq: 60, values: {
+    sessionStats: { turns: 6, steps: 18 }
+  } } });
+
+  assert.equal(f.store.sessionState.stats.stats.turns, 7);
+  assert.equal(f.store.sessionState.stats.stats.steps, 21);
+  assert.equal(f.store.sessionState.stats.asOfSeq, 70);
+});
+
+test('partial session stats do not stop retries before token and context metrics arrive', () => {
+  const f = fixture();
+  f.frame(history([user(10, 'cached conversation')], 0, false));
+  f.flush(700);
+  assert.equal(f.metricRequests.length, 2, 'bootstrap requests both metric sources');
+
+  f.frame({ kind: 'session-stats', sessionStats: { turns: 1, steps: 1 } });
+  f.flush(2500);
+  assert.equal(f.metricRequests.length, 4, 'a basic stats frame must not cancel retries for missing token/context data');
+
+  f.frame({ kind: 'session-stats', sessionStats: { turns: 1, steps: 1 },
+    tokenUsage: { totals: { inputTokens: 100, outputTokens: 20 } },
+    contextPressure: { pressureTokens: 50, contextWindow: 100 } });
+  f.flush(5000);
+  assert.equal(f.metricRequests.length, 4, 'complete metric data cancels the next retry');
+});
+
+test('opening a session waits for the snapshot and only falls back to history when it is late', () => {
+  const f = fixture();
+  f.store.openSession('s', 'Current');
+  // 订阅成功：等 session-snapshot，不立即补 history（快照与 history 都会让宿主
+  // 重读整段会话日志，长会话读一次要好几秒）
+  assert.deepEqual(f.requests, []);
+  assert.deepEqual(f.calls, [['requestSessions']]);
+  // 快照到达：撤销回落
+  f.frame({ kind: 'session-snapshot', sessionId: 's', replace: true, events: [user(30, 'latest')],
+    projections: { asOfSeq: 30, values: {} }, historyFormatVersion: 1 });
+  f.flush(1200);
+  assert.deepEqual(f.requests, [], 'a delivered snapshot must cancel the history fallback');
+  assert.equal(f.store.sessionState.historyState, 'loaded:1ev');
+  assert.equal(f.store.sessionState.rows.length, 1);
+});
+
+test('a missing snapshot falls back to a history request', () => {
+  const f = fixture();
+  f.store.openSession('s', 'Current');
+  assert.deepEqual(f.requests, []);
+  f.flush(1200);
+  assert.deepEqual(f.requests, [['s']], 'no snapshot within the window must re-issue history');
+});
+
+test('live turn events update the home summary and beat a stale sessions response', () => {
+  const f = fixture();
+  f.store.state.sessions = [{ sessionId: 's', running: false, updatedAt: 1 }];
+  f.frame({ kind: 'event', events: [{ seq: 1, type: 'turn/start', data: { turn: 1 } }] });
+  assert.equal(f.store.sessionState.running, true);
+  assert.equal(f.store.state.sessions[0].running, true);
+
+  f.frame({ kind: 'sessions', items: [{ sessionId: 's', running: false }] });
+  assert.equal(f.store.state.sessions[0].running, true, 'a response produced before the stream signal must not roll back the status');
+
+  f.frame({ kind: 'event', events: [{ seq: 2, type: 'turn/end', data: { turn: 1 } }] });
+  assert.equal(f.store.sessionState.running, false);
+  assert.equal(f.store.state.sessions[0].running, false);
+});
+
 test('large histories retain complete in-memory cache despite disk capacity limit', () => {
   const f = fixture(); f.frame(history([user(10, 'x'.repeat(650000))], 0, false));
   f.store.openSession('other', 'Other'); f.store.openSession('s', 'Original');
@@ -92,8 +301,8 @@ test('large histories retain complete in-memory cache despite disk capacity limi
 
 test('failed pages wait for manual retry and retain realtime records while paging', () => {
   const f = fixture(); f.frame(history([user(30, 'latest')], 30)); f.store.loadOlderHistory();
-  f.flush(8000); f.flush(1000); assert.equal(f.requests.length, 1);
-  f.flush(8000); f.flush(2000); assert.equal(f.requests.length, 1);
+  f.flush(1000); assert.equal(f.requests.length, 1);
+  f.flush(2000); assert.equal(f.requests.length, 1);
   f.flush(8000); f.flush(2000); f.flush();
   assert.equal(f.requests.length, 1); assert.ok(f.store.sessionState.historyError);
   f.store.loadOlderHistory(); assert.equal(f.requests.length, 2);
@@ -101,6 +310,40 @@ test('failed pages wait for manual retry and retain realtime records while pagin
   f.frame(history([user(10, 'oldest')], 0, false));
   assert.deepEqual(Array.from(f.store.sessionState.rows, row => row.text), ['oldest', 'latest', 'live']);
   assert.equal(f.store.sessionState.historyError, '');
+});
+
+test('a tail refresh cannot cancel an older-page request or overwrite its cursor', () => {
+  const f = fixture();
+  f.frame(history([user(100, 'latest')], 100)); f.flush();
+  f.store.loadOlderHistory();
+  assert.equal(f.store.sessionState.historyPaging, true);
+
+  // A concurrent tail refresh is not the response to beforeSeq=100.
+  f.frame(history([user(120, 'newer tail')], 120));
+  assert.equal(f.store.sessionState.historyPaging, true);
+  assert.equal(f.store.sessionState.nextBeforeSeq, 100);
+
+  f.frame(history([user(90, 'older')], 90));
+  assert.equal(f.store.sessionState.historyPaging, false);
+  assert.equal(f.store.sessionState.nextBeforeSeq, 90);
+  assert.deepEqual(Array.from(f.store.sessionState.rows, row => row.text), ['older', 'latest', 'newer tail']);
+});
+
+test('empty public history pages retry at a larger bounded frame size instead of spinning', () => {
+  const f = fixture();
+  f.store.client.relayMeta = { nodeId: 'public-node' };
+  f.frame(history([user(100, 'latest')], 100));
+  f.store.loadOlderHistory();
+  assert.equal(f.requests.length, 1);
+
+  for (const expected of [512 * 1024, 1024 * 1024, 2 * 1024 * 1024]) {
+    f.frame(history([], 100, true));
+    assert.equal(f.store.sessionState.historyPaging, true);
+    assert.equal(f.requests.at(-1)[3], expected);
+  }
+  f.frame(history([], 100, true));
+  assert.equal(f.store.sessionState.historyPaging, false);
+  assert.ok(f.store.sessionState.historyError, 'exhausted pages expose a retry state');
 });
 
 test('history pages coalesce disk writes but memory and visible records update immediately', () => {

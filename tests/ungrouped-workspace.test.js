@@ -40,7 +40,7 @@ function fixture(memory = new Map()) {
     }
   });
   const store = module.exports;
-  Object.assign(store.state, { activeID: 'host-a', profiles, workspaces, sessions, archivedSessionIds: ['archived'], currentWorkspaceId: 'a' });
+  Object.assign(store.state, { activeID: 'host-a', profiles, workspaces, sessions, archivedSessionIds: ['archived'], currentWorkspaceId: 'a', connection: 'connected', everConnected: true });
   let definition;
   vm.runInNewContext(fs.readFileSync(path.join(root, 'pages/home/home.js'), 'utf8'), {
     Page: d => { definition = d; }, wx,

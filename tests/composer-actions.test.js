@@ -491,3 +491,27 @@ test('menu uses compact rows, trailing checks, right-aligned details and pointer
     '.model-entry-value{flex:1;min-width:0;display:flex;align-items:center;justify-content:flex-end;'
   ]) assert.ok(css.includes(rule), rule);
 });
+
+test('input commands render a blue token chip and keep the hint as placeholder', () => {
+  const { page } = fixture();
+  page.selectCommand(event({ id: 'command:goal', name: 'goal' }));
+  assert.equal(page.data.draft, '/goal ');
+  assert.equal(page.data.commandToken, '/goal');
+  assert.equal(page.data.commandTokenLabel, '/目标');
+  assert.equal(page.data.draftArg, '', 'textarea only edits the argument');
+
+  page.onDraftInput({ detail: { value: '写一份报告', cursor: 5 } });
+  assert.equal(page.data.draft, '/goal 写一份报告');
+  assert.equal(page.data.draftArg, '写一份报告');
+
+  page.clearCommandToken();
+  assert.equal(page.data.draft, '写一份报告');
+  assert.equal(page.data.commandToken, '');
+  assert.equal(page.data.draftArg, '写一份报告');
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  assert.match(wxml, /class="composer-input-row"/);
+  assert.match(wxml, /catchtap="clearCommandToken"/);
+  assert.match(wxml, /value="\{\{commandToken && draft \? draftArg : draft\}\}"/);
+  const wxss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
+  assert.match(wxss, /\.composer-slash-token \{[^}]*color:var\(--ocean\)/);
+});

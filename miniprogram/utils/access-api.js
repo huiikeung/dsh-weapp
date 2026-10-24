@@ -104,7 +104,15 @@ function isManagedRelay(endpoint) {
 }
 /** 最近一次公网授权成功的凭据（本地判断有效期，冷启动时避免重复弹窗）。 */
 function saveGrant(nodeId, lease) {
-  try { wx.setStorageSync(GRANT_KEY, JSON.stringify({ nodeId, expiresAt: Number(lease.expiresAt) || 0, at: Date.now() })); } catch (e) {}
+  try {
+    // token 也必须落盘：租赁仍在有效期时下次连接可直接复用，不必再向账号服务取号。
+    wx.setStorageSync(GRANT_KEY, JSON.stringify({
+      nodeId: String(nodeId || ''),
+      expiresAt: Number(lease.expiresAt) || 0,
+      token: typeof lease.token === 'string' ? lease.token : '',
+      at: Date.now()
+    }));
+  } catch (e) {}
 }
 function lastGrant() {
   try {
@@ -114,9 +122,18 @@ function lastGrant() {
   } catch (e) {}
   return null;
 }
+/** 仍在有效期内的公网租赁凭据；命中即可跳过账号服务，直接开 socket。 */
+function cachedLease(nodeId) {
+  const grant = lastGrant();
+  if (!grant || !grant.token || grant.nodeId !== String(nodeId || '')) return null;
+  if (!(Number(grant.expiresAt) > Date.now())) return null;
+  return { token: grant.token, expiresAt: Number(grant.expiresAt) };
+}
 
 function publicLease(nodeId, deviceId) {
-  return ensureAccount({ freshLogin: true }).then(current => {
+  // 复用本机会话，失效才重新登录：连接中继是常规动作，不该每次强制 wx.login +
+  // /session。身份仍由服务端 /me 与 /lease 裁决（管理员页面仍强制重新登录）。
+  return ensureAccount().then(current => {
     if (!hasPublicAccess(current)) {
       const expiresAt = Number(current && current.publicAccessExpiresAt) || 0;
       const expired = expiresAt > 0 && expiresAt <= Date.now();
@@ -146,4 +163,4 @@ function claimAdminBinding(code) { return request('/admin-binding/claim', { code
 function pairings() { return request('/admin/pairings'); }
 function createPairing(nodeId, days) { return request('/admin/pairings', { nodeId, days }, false, 30000); }
 function revokePairing(id) { return request('/admin/pairings/' + encodeURIComponent(id) + '/revoke', {}); }
-module.exports = { configured, lastGrant, saveGrant, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, hasPublicAccess, isManagedRelay, publicLease, issueCompletionNotificationTicket, claimAdminBinding, pairings, createPairing, revokePairing, clear };
+module.exports = { configured, lastGrant, cachedLease, saveGrant, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, hasPublicAccess, isManagedRelay, publicLease, issueCompletionNotificationTicket, claimAdminBinding, pairings, createPairing, revokePairing, clear };

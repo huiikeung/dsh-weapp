@@ -49,9 +49,11 @@ class GatewayClient {
 
   // ---------- 状态 ----------
 
-  setState(state, message, errorCode) {
+  setState(state, message, errorCode, deliberate) {
     this.state = state;
-    if (this.cb.onState) this.cb.onState(state, message || null, errorCode || null);
+    // deliberate：用户主动断开（切换主机/移除节点/设置里断开），
+    // 与「曾连上又掉线」区分开，首页据此把断链显示为红色。
+    if (this.cb.onState) this.cb.onState(state, message || null, errorCode || null, deliberate === true);
   }
 
   // ---------- 设备标识 ----------
@@ -96,12 +98,19 @@ class GatewayClient {
     // their existing behavior and never depend on the account server.
     this.disconnect({ keepWant: false });
     const generation = this.connectGeneration;
-    this.setState('connecting', uiText('正在验证公网有效期…'));
     const opts = options || {};
     if (!opts.relay || !opts.relay.nodeId) {
       this.setState('failed', uiText('请扫描 DSH 插件生成的公网配对二维码'));
       return;
     }
+    // 已有仍在有效期内的公网租赁：直接开 socket。否则每次冷启动/重连都要先
+    // wx.login + 两次 HTTPS 才轮到 connectSocket，体感就是"连接 DSH 很慢"。
+    const cached = typeof accessApi.cachedLease === 'function' ? accessApi.cachedLease(opts.relay.nodeId) : null;
+    if (cached) {
+      this.connectTransport(endpoint, opts, cached);
+      return;
+    }
+    this.setState('connecting', uiText('正在验证公网有效期…'));
     return accessApi.publicLease(opts.relay.nodeId, this.deviceId).then(lease => {
       if (generation !== this.connectGeneration) return;
       publicAccessPrompt.promptFirstAuthorizedUse(() => {
@@ -308,7 +317,7 @@ class GatewayClient {
     }
     this.failAllPending(message);
     if (wasDeliberate) {
-      this.setState('disconnected');
+      this.setState('disconnected', null, null, true);
       return;
     }
     // 配对码是一次性凭据，失败后不能拿旧码静默重试。
@@ -378,7 +387,7 @@ class GatewayClient {
     this.relayMeta = null;
     this.relayAccessToken = null;
     this.failAllPending(uiText('连接已断开'));
-    this.setState('disconnected');
+    this.setState('disconnected', null, null, true);
   }
 
   failAllPending(message) {
@@ -838,7 +847,7 @@ class GatewayClient {
 
   // ---------- 语义化请求 ----------
 
-  ping() { return this.request({ type: 'ping' }, { matchType: 'ping' }); }
+  ping(timeout) { return this.request({ type: 'ping' }, { matchType: 'ping', timeout: timeout || REQUEST_TIMEOUT }); }
 
   requestQueue(sessionId) {
     return this.request({ type: 'session-queue', sessionId: sessionId });
@@ -907,7 +916,9 @@ class GatewayClient {
     );
   }
   requestWorkspaces() { return this.request({ type: 'workspaces' }); }
-  requestSessions() { return this.request({ type: 'sessions' }); }
+  // view=summary：网关只回标题等列表字段，不回每会话的完整 projections
+  // （那占整帧 ~92%，中继线路上首页要等 2.7MB 才能出列表）。
+  requestSessions() { return this.request({ type: 'sessions', view: 'summary' }); }
   requestHost() { return this.request({ type: 'host' }); }
   requestAccount(client) {
     const requestId = util.uuid();
@@ -981,6 +992,16 @@ class GatewayClient {
     return this.request({ type: 'context-fleet', sessionId: sessionId });
   }
 
+  /** 跨会话上下文汇总（Context Insights 页）：宿主 context-insights 请求。 */
+  requestContextInsights(sessionId) {
+    return this.request({ type: 'context-insights', sessionId: sessionId });
+  }
+
+  /** 跨 Agent 通讯扫描（编队通讯面板）：宿主 context-comms 请求。 */
+  requestContextComms(sessionIds) {
+    return this.request({ type: 'context-comms', sessionIds: Array.isArray(sessionIds) ? sessionIds : [] });
+  }
+
   /** 会话工作区文件列表：网关解析会话所属工作区根目录，path 为相对路径（缺省 = 根）。 */
   requestFileList(sessionId, path) {
     const payload = { type: 'file-list', requestId: util.uuid(), sessionId: sessionId };
@@ -1023,14 +1044,24 @@ class GatewayClient {
     return this.request({ type: 'context-usage', sessionId: sessionId });
   }
 
-  requestHistory(sessionId, beforeSeq, historyFormatVersion) {
+  requestHistory(sessionId, beforeSeq, historyFormatVersion, maxBytesOverride) {
     // 对齐 dsh-mobile v1.7.5 的会话视图分页：限制消息数和字节数，
     // 避免旧会话一次读取过大而在 Host 查询阶段超时。
+    // 局域网/直连首屏用 2 MiB / 60 条；本地缓存已先渲染，权威内容再无缝补齐。
+    // 旧页直连用 2 MiB / 40 条；公网中继的首屏和分页在下方单独限额。
+    const tail = beforeSeq === undefined || beforeSeq === null;
+    // 公网中继下整包要经 E2EE 加密后单帧转发；移动端解密大帧会阻塞首屏。
+    // 首屏进一步压到 12 条 / 128KB，先呈现最新记录；向上翻页仍保留 256KB。
+    const relay = !!this.relayMeta;
+    const defaultMaxBytes = relay ? (tail ? 128 * 1024 : 256 * 1024) : 2 * 1024 * 1024;
+    const requestedMaxBytes = Number(maxBytesOverride);
     const payload = {
       type: 'history',
       sessionId: sessionId,
-      maxMessages: 60,
-      maxBytes: 4 * 1024 * 1024,
+      maxMessages: tail ? (relay ? 12 : 60) : 40,
+      maxBytes: Number.isSafeInteger(requestedMaxBytes)
+        ? Math.min(2 * 1024 * 1024, Math.max(defaultMaxBytes, requestedMaxBytes))
+        : defaultMaxBytes,
       view: 'conversation'
     };
     if (beforeSeq !== undefined && beforeSeq !== null && beforeSeq >= 0 && historyFormatVersion) {
@@ -1080,7 +1111,11 @@ class GatewayClient {
   subscribe(sessionId) {
     this.activeSessionId = sessionId || null;
     if (sessionId) {
-      return this.send({ type: 'subscribe', sessionId: sessionId, assistantStream: true });
+      // 中继线路上订阅快照默认 1 MiB，整包加密后单帧转发，手机要等好几秒。
+      // 声明一个小预算：先拿到最新一小段立即可见，旧记录由上滑分页补。
+      const snapshotMaxBytes = this.relayMeta ? 128 * 1024 : undefined;
+      return this.send({ type: 'subscribe', sessionId: sessionId, assistantStream: true,
+        ...(snapshotMaxBytes ? { snapshotMaxBytes } : {}) });
     }
     return this.send({ type: 'unsubscribe' });
   }

@@ -7,6 +7,7 @@ const vm = require('node:vm');
 function fixture(options = {}) {
   const file = path.resolve(__dirname, '../miniprogram/pages/home/home.js');
   const requests = [];
+  const calls = [];
   const store = {
     state: {
       profiles: [], sessions: [], workspaces: [], connection: 'disconnected',
@@ -18,8 +19,8 @@ function fixture(options = {}) {
       requestCostMeter(action) {
         return new Promise((resolve, reject) => requests.push({ action, resolve, reject }));
       },
-      requestWorkspaces() {},
-      requestSessions() {},
+      requestWorkspaces() { calls.push(['requestWorkspaces']); },
+      requestSessions() { calls.push(['requestSessions']); },
     },
     subscribe(fn) { this.subscriber = fn; return () => {}; },
     stopHostProbes() {},
@@ -30,11 +31,14 @@ function fixture(options = {}) {
     setNavigationBarColor() {},
     getStorageSync() {},
     setStorageSync() {},
+    navigateTo(options) { calls.push(['navigateTo', options && options.url]); },
   };
   let definition;
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), {
     Page: value => { definition = value; },
     wx,
+    setTimeout,
+    clearTimeout,
     getApp: () => ({}),
     require: name => name.endsWith('/store') ? store
       : name.endsWith('/theme') ? { resolveTheme: () => 'light' }
@@ -47,7 +51,7 @@ function fixture(options = {}) {
     hapticLight() {},
   };
   page.onLoad();
-  return { page, store, requests, emit() { store.subscriber({ app: store.state, session: store.sessionState }); } };
+  return { page, store, requests, calls, emit() { store.subscriber({ app: store.state, session: store.sessionState }); } };
 }
 
 function frame(overrides = {}) {
@@ -100,6 +104,7 @@ test('server-side sidebar visibility hides the card without rendering stale data
   f.requests[0].resolve(hidden);
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(f.page.data.costSidebar, null);
+  assert.equal(!!f.page._sessionStatusPollTimer, false, 'hidden pages do not start session status polling');
 });
 
 test('the four layout styles are carried into the drawer model', async () => {
@@ -152,7 +157,7 @@ test('opening the drawer triggers a summary request when connected', () => {
 });
 
 
-test('returning from settings invalidates the cached quota card so the switch is honoured', async () => {
+test('returning from settings reuses a fresh quota card without blocking navigation', async () => {
   const f = fixture();
   f.store.state.connection = 'connected';
   f.emit();
@@ -160,12 +165,20 @@ test('returning from settings invalidates the cached quota card so the switch is
   await new Promise(resolve => setImmediate(resolve));
   assert.ok(f.page.data.costSidebar);
   f.page.onShow();
-  assert.equal(f.requests.length, 2, 'the home page re-reads the gateway after settings');
-  const hiddenFrame = frame();
-  hiddenFrame.dashboard.display = { ...hiddenFrame.dashboard.display, sidebarVisible: false };
-  f.requests[1].resolve(hiddenFrame);
+  assert.equal(f.requests.length, 1, 'fresh cached quota data avoids a second gateway round trip');
+  assert.ok(f.page.data.costSidebar, 'the card remains visible while the page is shown again');
+  f.page.onHide();
+});
+
+test('home refreshes running statuses immediately and polls without overlap while visible', async () => {
+  const f = fixture();
+  f.store.state.connection = 'connected';
+  f.page.onShow();
+  assert.equal(f.calls.filter(call => call[0] === 'requestSessions').length, 1, 'entering home immediately refreshes session statuses');
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal(f.page.data.costSidebar, null);
+  assert.ok(f.page._sessionStatusPollTimer, 'a follow-up poll is scheduled after the request settles');
+  f.page.onHide();
+  assert.equal(f.page._sessionStatusPollTimer, null, 'polling stops when home is hidden');
 });
 
 test('losing the connection immediately hides a stale sidebar card', async () => {
@@ -179,4 +192,19 @@ test('losing the connection immediately hides a stale sidebar card', async () =>
   f.emit();
   assert.equal(f.page.data.costSidebar, null);
   assert.equal(f.page.data.costDashboard, null);
+});
+
+
+test('tapping a module in the sidebar opens the quota page focused on that module', () => {
+  const f = fixture();
+  f.store.state.connection = 'connected';
+  f.emit();
+  f.requests[0].resolve(frame());
+  return new Promise(resolve => setImmediate(resolve)).then(() => {
+    assert.ok(f.page.data.costSidebar);
+    f.page.onSidebarPartTap({ currentTarget: { dataset: { key: 'plan:minimax' } } });
+    assert.deepEqual(f.calls.pop(), ['navigateTo', '/pages/cost-meter/cost-meter?component=plan%3Aminimax']);
+    f.page.openCostDetail();
+    assert.deepEqual(f.calls.pop(), ['navigateTo', '/pages/cost-meter/cost-meter']);
+  });
 });

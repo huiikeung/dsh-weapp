@@ -1,7 +1,7 @@
 const { ConversationWindow } = require('../../utils/conversation-window');
 const { dataPatch } = require('../../utils/session-render');
 module.exports = {
-  conversationWindowPatch(rows) {
+  conversationWindowPatch(rows, options) {
     if (!this._conversationWindow || this._windowSession !== this._renderSessionId) {
       this._conversationWindow = new ConversationWindow(); this._windowSession = this._renderSessionId;
     }
@@ -16,6 +16,15 @@ module.exports = {
     const index = anchor ? rows.findIndex(row => row.key === anchor.key) : -1;
     if (index >= 0) top = Math.max(0, window.offsets[index] + offset);
     const patch = window.select(top, this._convClientHeight || 700);
+    if (options && options.anchor && anchor) {
+      // 历史页插入时改用 scroll-into-view 钉住原来视口顶部的消息：原生滚动
+      // 定位不会先按错误的估算高度跳一下，再被测量结果二次修正。
+      patch.scrollTarget = anchor.key;
+      patch.scrollAnim = false;
+      this._lastScrollTop = top;
+      this._scrollAnchorAt = Date.now();
+      return patch;
+    }
     if (Math.abs(top - (this._lastScrollTop || 0)) > 1) { patch.conversationScrollTop = top; this._lastScrollTop = top; }
     return patch;
   },
@@ -51,7 +60,8 @@ module.exports = {
       if (!changed) return;
       window.update(window.rows);
       const patch = dataPatch(this.data, window.patch());
-      if (this._convPinned === false && window.offsets[index] !== oldOffset) {
+      const anchoring = this._scrollAnchorAt && Date.now() - this._scrollAnchorAt < 800;
+      if (!anchoring && this._convPinned === false && window.offsets[index] !== oldOffset) {
         patch.conversationScrollTop = Math.max(0, (this._lastScrollTop || 0) + window.offsets[index] - oldOffset);
         this._lastScrollTop = patch.conversationScrollTop;
       }

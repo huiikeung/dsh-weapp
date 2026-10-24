@@ -18,6 +18,10 @@ function inlineHtml(text) {
   });
   out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   out = out.replace(/(^|[\s(（])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>');
+  // 行内图片：富文本里不直接嵌图，先转成可点的链接文字，避免留下孤立的 "!"。
+  out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function (_m, alt, src) {
+    return '<a href="' + src + '" class="md-inline-image">' + (alt || '图片') + '</a>';
+  });
   out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (_m, label, href) {
     return '<a href="' + href + '">' + label + '</a>';
   });
@@ -34,6 +38,7 @@ function inlineHtml(text) {
  * { type: 'table', header: [html], rows: [[html]] }
  * { type: 'hr' }
  * { type: 'para', html }
+ * { type: 'image', src, alt }
  */
 const TABLE_SEPARATOR = /^\s*\|?(\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$/;
 
@@ -148,6 +153,18 @@ function parse(markdown) {
         i += 1;
       }
       blocks.push({ type: 'table', header: header, rows: rows });
+      continue;
+    }
+
+    // 图片：整行只有图片时，解析成 image 块（由页面下载/渲染）
+    if (/^\s*(?:!\[[^\]]*\]\([^)\s]+\)\s*)+$/.test(line)) {
+      flushAll();
+      const imageRe = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+      let imageMatch;
+      while ((imageMatch = imageRe.exec(line))) {
+        blocks.push({ type: 'image', alt: imageMatch[1] || '', src: imageMatch[2] });
+      }
+      i += 1;
       continue;
     }
 

@@ -1,12 +1,1 @@
-<svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <path d="M13.3027 17.1077H9.03125V12.8372H13.3027V17.1077ZM17.5742 12.8372C17.574 15.1958 15.6623 17.1075 13.3037 17.1077V8.56567H17.5742V12.8372Z" fill="url(#a)" />
-  <path d="M18.5229 12.8372V8.56567H22.7944V12.8372H27.0659V17.1077H22.7944C20.4357 17.1077 18.5232 15.1959 18.5229 12.8372Z" fill="#F2AF63" />
-  <path d="M17.5742 26.6072H13.3037V18.0642C15.6625 18.0644 17.5742 19.9769 17.5742 22.3357V26.6072ZM13.3027 22.3357H9.03125V18.0642H13.3027V22.3357Z" fill="#7CB7FF" />
-  <path d="M22.7944 26.6072H18.5229V22.3357C18.5229 19.9768 20.4355 18.0642 22.7944 18.0642H27.0659V22.3357H22.7944V26.6072Z" fill="#45D9E7" />
-  <defs>
-    <linearGradient id="a" x1="16.1247" y1="6.6613" x2="9.03125" y2="19.2206" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7CB7FF" />
-      <stop offset="1" stop-color="#145AF3" />
-    </linearGradient>
-  </defs>
-</svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" fill="none" viewBox="0 0 36 36"><path fill="url(#a)" d="M13.303 17.108H9.03v-4.27h4.272zm4.271-4.27a4.27 4.27 0 0 1-4.27 4.27V8.566h4.27z"/><path fill="#F2AF63" d="M18.523 12.837V8.566h4.271v4.271h4.272v4.27h-4.272a4.27 4.27 0 0 1-4.271-4.27"/><path fill="#7CB7FF" d="M17.574 26.607h-4.27v-8.543a4.27 4.27 0 0 1 4.27 4.272zm-4.271-4.271H9.03v-4.272h4.272z"/><path fill="#45D9E7" d="M22.794 26.607h-4.271v-4.271a4.27 4.27 0 0 1 4.271-4.272h4.272v4.272h-4.272z"/><defs><linearGradient id="a" x1="16.125" x2="9.031" y1="6.661" y2="19.221" gradientUnits="userSpaceOnUse"><stop stop-color="#7CB7FF"/><stop offset="1" stop-color="#145AF3"/></linearGradient></defs></svg>

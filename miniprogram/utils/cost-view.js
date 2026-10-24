@@ -254,10 +254,15 @@ const DISPLAY_OPTIONS = [
   { id: 'off', label: '关闭' },
 ];
 const PLAN_WINDOW_LABELS = {
-  five: '5 小时', '5h': '5 小时', fiveHour: '5 小时', five_hour: '5 小时',
-  weekly: '本周', '7d': '本周', week: '本周', sevenDay: '本周', seven_day: '本周',
-  monthly: '本月', month: '本月', '30d': '本月',
+  // 与参考插件 codingPlanWindowLabel 保持一致：短标签 5h / 周 / 7d / 月 / 日。
+  five: '5h', '5h': '5h', fiveHour: '5h', five_hour: '5h',
+  rolling: '5h',
+  weekly: '周', week: '周', sevenDay: '周', seven_day: '周', weeklywindow: '周',
+  '7d': '7d', seven: '7d',
+  monthly: '月', month: '月', '30d': '月',
+  daily: '日', day: '日',
   balance: '余额', credits: 'Credits', cycleReset: '周期重置',
+  plan: '套餐积分', compensation: '补偿积分',
 };
 
 function quotaSymbolOf(dashboard) {
@@ -283,6 +288,13 @@ function quotaAmountText(value, unit, decimals, symbol) {
   return (n < 0 ? '-' : '') + prefix + integer + (parts[1] ? '.' + parts[1] : '');
 }
 
+/** 侧栏卡片金额：按配置小数位格式化后去掉多余的 0（参考插件 ¥68 / ¥57 / ¥4.608 的观感）。 */
+function quotaCompactAmountText(value, unit, decimals, symbol) {
+  const text = quotaAmountText(value, unit, decimals, symbol);
+  if (unit === 'CREDITS') return text;
+  return text.indexOf('.') < 0 ? text : text.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
+}
+
 function quotaPercentText(value) {
   const n = cleanNumber(value);
   if (n === null) return '—';
@@ -300,7 +312,8 @@ function quotaResetText(iso) {
   if (!Number.isFinite(ms)) return '';
   const date = new Date(ms);
   const pad = n => (n < 10 ? '0' + n : String(n));
-  return pad(date.getMonth() + 1) + '/' + pad(date.getDate()) + ' ' + pad(date.getHours()) + ':' + pad(date.getMinutes());
+  return date.getFullYear() + '/' + pad(date.getMonth() + 1) + '/' + pad(date.getDate()) + ' '
+    + pad(date.getHours()) + ':' + pad(date.getMinutes()) + ':' + pad(date.getSeconds());
 }
 
 /** Normalize one provider window map into renderable progress rows. */
@@ -338,21 +351,145 @@ function quotaWindowRows(windows, options = {}) {
   return rows;
 }
 
+const BEIJING_OFFSET_MS = 8 * 60 * 60 * 1000;
+const WEEKDAY_LABELS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+function beijingParts(ms) {
+  const d = new Date(ms + BEIJING_OFFSET_MS);
+  return {
+    y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, da: d.getUTCDate(),
+    h: d.getUTCHours(), mi: d.getUTCMinutes(), wd: d.getUTCDay(),
+  };
+}
+function pad2(n) { return n < 10 ? '0' + n : String(n); }
+function beijingDayKey(ms) { const p = beijingParts(ms); return p.y + '-' + pad2(p.mo) + '-' + pad2(p.da); }
+function beijingTimeText(ms) { const p = beijingParts(ms); return pad2(p.h) + ':' + pad2(p.mi); }
+function beijingDayStart(ms) { const p = beijingParts(ms); return Date.UTC(p.y, p.mo - 1, p.da, 0, 0, 0) - BEIJING_OFFSET_MS; }
+function peakStatusAt(ms, windows, holidays) {
+  const parts = beijingParts(ms);
+  const holiday = Array.isArray(holidays) && holidays.indexOf(beijingDayKey(ms)) >= 0;
+  const weekend = parts.wd === 0 || parts.wd === 6;
+  if (holiday || weekend) return { inPeak: false, weekend, holiday };
+  const hour = new Date(ms).getUTCHours();
+  for (const w of Array.isArray(windows) ? windows : []) {
+    const start = Number(w && w.start);
+    const end = Number(w && w.end);
+    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+    const hit = start < end ? (hour >= start && hour < end) : (hour >= start || hour < end);
+    if (hit) return { inPeak: true, weekend: false, holiday: false };
+  }
+  return { inPeak: false, weekend: false, holiday: false };
+}
+function peakPhaseInfo(now, windows, holidays, effectiveAtMs) {
+  if (!Array.isArray(windows) || windows.length === 0 || !Number.isFinite(now)) return null;
+  if (Number.isFinite(effectiveAtMs) && now < effectiveAtMs) return null;
+  const status = peakStatusAt(now, windows, holidays);
+  const utcBase = Math.floor(now / 86400000) * 86400000;
+  const beijingBase = beijingDayStart(now);
+  const candidates = new Set();
+  for (let d = -8; d <= 8; d += 1) {
+    candidates.add(utcBase + d * 86400000);
+    candidates.add(beijingBase + d * 86400000);
+    for (const w of windows) {
+      const start = Number(w && w.start);
+      const end = Number(w && w.end);
+      if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
+      candidates.add(utcBase + d * 86400000 + start * 3600000);
+      candidates.add(utcBase + (end <= start ? d + 1 : d) * 86400000 + end * 3600000);
+    }
+  }
+  const transitions = [];
+  for (const at of [...candidates].sort((a, b) => a - b)) {
+    const before = peakStatusAt(at - 1, windows, holidays);
+    const after = peakStatusAt(at, windows, holidays);
+    if (before.inPeak === after.inPeak) continue;
+    transitions.push({ at, inPeak: after.inPeak });
+  }
+  let prev = null;
+  let next = null;
+  for (const t of transitions) {
+    if (t.at <= now) { if (!prev || t.at > prev.at) prev = t; }
+    else if (!next || t.at < next.at) next = t;
+  }
+  if (!prev || !next) return null;
+  let prevAtMs = prev.at;
+  if (status.weekend) {
+    const p = beijingParts(now);
+    const saturday = p.wd === 0 ? p.da - 1 : p.da - (p.wd === 6 ? 0 : 0);
+    prevAtMs = Math.max(prevAtMs, Date.UTC(p.y, p.mo - 1, saturday, 0, 0, 0) - BEIJING_OFFSET_MS);
+  } else if (status.holiday) {
+    prevAtMs = Math.max(prevAtMs, beijingDayStart(now));
+  }
+  return {
+    inPeak: status.inPeak, weekend: status.weekend, holiday: status.holiday,
+    prevAtMs, nextAtMs: next.at, nextIntoPeak: next.inPeak,
+  };
+}
+function peakLabelAt(at, now, holiday) {
+  if (beijingDayKey(at) === beijingDayKey(now)) return beijingTimeText(at);
+  const p = beijingParts(at);
+  const far = Math.abs(at - now) >= 7 * 86400000;
+  const dayText = holiday || far ? (p.mo + '/' + p.da) : WEEKDAY_LABELS[p.wd];
+  return dayText + ' ' + beijingTimeText(at);
+}
+/** 峰谷视图：参考插件 peakProgressData + PeakProgress 各 variant 的文案。 */
+function buildPeakView(peakRaw, display, now) {
+  if (!peakRaw) return null;
+  const effectiveAt = Date.parse(peakRaw.effectiveAt || '');
+  const info = peakPhaseInfo(now, peakRaw.windows, peakRaw.holidays, Number.isFinite(effectiveAt) ? effectiveAt : undefined);
+  if (!info) return null;
+  const progress = Math.max(0, Math.min(100, (now - info.prevAtMs) / Math.max(1, info.nextAtMs - info.prevAtMs) * 100));
+  const minutes = Math.max(1, Math.ceil((info.nextAtMs - now) / 60000));
+  const days = Math.floor(minutes / 1440);
+  const hours = Math.floor((minutes % 1440) / 60);
+  const mins = minutes % 60;
+  const duration = days > 0
+    ? days + '天' + (hours ? hours + '小时' : '') + (mins ? mins + '分' : '')
+    : hours > 0 ? hours + '小时' + (mins ? mins + '分' : '') : mins + '分';
+  // 侧栏摘要行要一行放下：时长单位用 d/h/m，比中文时/分更紧凑。
+  const shortDuration = (days ? days + 'd' : '') + (hours ? hours + 'h' : '') + (mins ? mins + 'm' : '');
+  const timeDisplay = display.peakTimeDisplay || 'both';
+  const startText = peakLabelAt(info.prevAtMs, now, info.holiday);
+  const switchTime = peakLabelAt(info.nextAtMs, now, info.holiday);
+  const nextLabel = info.nextIntoPeak ? '峰时' : '平价';
+  const change = switchTime + ' 转' + nextLabel;
+  return {
+    label: info.holiday ? '节假日 · 全天谷价' : info.weekend ? '周末 · 全天谷价' : info.inPeak ? '峰时' : '平价',
+    shortLabel: info.holiday ? '假日' : info.weekend ? '周末' : info.inPeak ? '峰时' : '平价',
+    phaseClass: info.holiday ? 'holiday' : info.weekend ? 'weekend' : info.inPeak ? 'peak' : 'off',
+    remainingText: '剩余 ' + duration,
+    shortDurationText: shortDuration,
+    switchText: change,
+    startText: startText + ' 开始',
+    compactText: timeDisplay === 'countdown' ? shortDuration : timeDisplay === 'switch' ? switchTime + ' → ' + nextLabel : switchTime + ' · ' + shortDuration,
+    progressText: progress.toFixed(1) + '%',
+    progress,
+    timeDisplay,
+  };
+}
 /** Build the shared quota view model (settings page + sidebar card). */
-function normalizeQuotaDashboard(dashboard, summary) {
+function normalizeQuotaDashboard(dashboard, summary, options = {}) {
+  const now = Number.isFinite(Number(options.now)) ? Number(options.now) : Date.now();
   if (!dashboard || typeof dashboard !== 'object') return null;
   const decimals = Number.isInteger(dashboard.decimals) ? dashboard.decimals : 2;
   const symbol = quotaSymbolOf(dashboard);
   const currency = dashboard.currency || 'CNY';
   const display = dashboard.display && typeof dashboard.display === 'object' ? dashboard.display : {};
   const budgetRaw = summary && summary.budget ? summary.budget : null;
+  const budgetPeriod = (budgetRaw && budgetRaw.period) || 'month';
   const budget = budgetRaw && budgetRaw.enabled === true ? {
     enabled: true,
-    amountText: quotaAmountText(budgetRaw.amount, currency, decimals, symbol),
-    usedText: quotaAmountText(budgetRaw.used, currency, decimals, symbol),
+    label: '预算' + (budgetPeriod === 'day' ? '(今日)' : budgetPeriod === 'all' ? '(累计)' : budgetPeriod === 'custom' ? '(自定义)' : '(本月)'),
+    amountText: quotaCompactAmountText(budgetRaw.amount, currency, decimals, symbol),
+    usedText: quotaCompactAmountText(budgetRaw.used, currency, decimals, symbol),
     percentText: quotaPercentText(budgetRaw.percent),
     barWidth: quotaBarWidth(budgetRaw.percent),
-    period: budgetRaw.period || 'month',
+    period: budgetPeriod,
+  } : null;
+  const todayRaw = summary && summary.today && typeof summary.today === 'object' ? summary.today : null;
+  const today = todayRaw ? {
+    amountText: quotaCompactAmountText(Number(todayRaw.amount) || 0, currency, decimals, symbol),
+    tokensText: formatTokens(Number(todayRaw.tokens) || 0) + ' tokens',
+    calls: Number(todayRaw.calls) || 0,
   } : null;
   const balanceRaw = dashboard.balance && typeof dashboard.balance === 'object' ? dashboard.balance : null;
   const balance = balanceRaw ? {
@@ -362,11 +499,24 @@ function normalizeQuotaDashboard(dashboard, summary) {
     keyConfigured: balanceRaw.keyConfigured === true,
     status: balanceRaw.status || 'off',
     message: balanceRaw.message || '',
-    amountText: balanceRaw.status === 'ok' ? quotaAmountText(balanceRaw.totalBalance, balanceRaw.currency || currency, decimals, symbol) : '—',
+    amountText: balanceRaw.status === 'ok' ? quotaCompactAmountText(balanceRaw.totalBalance, balanceRaw.currency || currency, decimals, symbol) : '—',
     grantedText: quotaAmountText(balanceRaw.granted || 0, balanceRaw.currency || currency, decimals, symbol),
     toppedUpText: quotaAmountText(balanceRaw.toppedUp || 0, balanceRaw.currency || currency, decimals, symbol),
+    showProgressBar: balanceRaw.showProgressBar === true,
+    barDirection: balanceRaw.barDirection === 'used' ? 'used' : 'remaining',
+    granted: Number(balanceRaw.granted) || 0,
+    toppedUp: Number(balanceRaw.toppedUp) || 0,
     title: balanceRaw.currency && balanceRaw.currency !== currency ? balanceRaw.currency + ' ' + '余额' : '余额',
   } : null;
+
+  if (balance && balance.showProgressBar && balance.status === 'ok') {
+    const total = balance.granted + balance.toppedUp;
+    const grantedShare = total > 0 ? Math.max(0, Math.min(100, balance.granted / total * 100)) : 0;
+    balance.segments = [
+      { key: 'granted', width: grantedShare.toFixed(1) + '%' },
+      { key: 'toppedUp', width: (100 - grantedShare).toFixed(1) + '%' },
+    ];
+  }
 
   const goRaw = dashboard.goQuota && typeof dashboard.goQuota === 'object' ? dashboard.goQuota : null;
   const go = goRaw ? {
@@ -390,6 +540,10 @@ function normalizeQuotaDashboard(dashboard, summary) {
       barWidth: '0%',
       resetsText: '',
     }];
+  }
+  if (go) {
+    go.mainRow = go.rows[0] || null;
+    go.metaText = go.rows.slice(1).map(row => row.label + ' ' + row.percentText).join(' · ');
   }
 
   const plans = (Array.isArray(dashboard.plans) ? dashboard.plans : []).map(plan => {
@@ -443,23 +597,31 @@ function normalizeQuotaDashboard(dashboard, summary) {
     enabled: entry.enabled === true,
     status: entry.status || 'pending',
     message: entry.message || '',
-    amountText: entry.status === 'ok' ? quotaAmountText(entry.remaining, entry.unit, entry.unit === 'CREDITS' ? 0 : decimals, symbol) : '—',
-    maxText: entry.maxBudget !== null && entry.maxBudget !== undefined ? quotaAmountText(entry.maxBudget, entry.unit, decimals, symbol) : '',
+    amountText: entry.status === 'ok' ? quotaCompactAmountText(entry.remaining, entry.unit, entry.unit === 'CREDITS' ? 0 : decimals, symbol) : '—',
+    maxText: entry.maxBudget !== null && entry.maxBudget !== undefined ? quotaCompactAmountText(entry.maxBudget, entry.unit, decimals, symbol) : '',
     percentText: quotaPercentText(entry.percent),
     barWidth: quotaBarWidth(entry.percent),
     percent: entry.percent,
   }));
 
   const peakRaw = dashboard.peak && typeof dashboard.peak === 'object' ? dashboard.peak : null;
-  const peak = peakRaw ? {
+  const peakComputed = peakRaw ? buildPeakView(peakRaw, display, now) : null;
+  const peak = peakRaw ? Object.assign({
     enabled: peakRaw.enabled !== false,
     display: peakRaw.display || 'both',
     style: display.peakStyle || 'progress',
-    label: peakRaw.label || '',
+  }, peakComputed || {
+    label: peakRaw.label || '峰谷',
+    shortLabel: '平价',
+    phaseClass: 'off',
     remainingText: peakRaw.remainingText || '',
+    shortDurationText: '',
+    startText: '',
+    compactText: peakRaw.remainingText || '',
     progressText: peakRaw.progressText || '0%',
     switchText: peakRaw.switchText || '',
-  } : null;
+    timeDisplay: display.peakTimeDisplay || 'both',
+  }) : null;
 
   return {
     currency,
@@ -474,6 +636,7 @@ function normalizeQuotaDashboard(dashboard, summary) {
     custom,
     peak,
     budget,
+    today,
   };
 }
 
@@ -481,8 +644,15 @@ function normalizeQuotaDashboard(dashboard, summary) {
 function quotaSidebarModel(view, style) {
   if (!view) return null;
   const visible = value => value && value.display !== 'settings' && value.display !== 'off';
+  const todayMetric = (view.display && view.display.sidebarTodayMetric) || 'both';
+  const todayInline = view.display && view.display.sidebarTodayBalanceInline === true;
+  const today = view.today && todayMetric !== 'off' && !todayInline ? Object.assign({}, view.today, {
+    showCost: todayMetric !== 'tokens',
+    showTokens: todayMetric !== 'amount',
+  }) : null;
   const model = {
     style: SIDEBAR_STYLES.some(item => item.id === style) ? style : 'standard',
+    today,
     balance: visible(view.balance) ? view.balance : null,
     go: visible(view.go) && view.go.enabled ? view.go : null,
     plans: (view.plans || []).filter(plan => plan.enabled && visible(plan)),
@@ -491,12 +661,12 @@ function quotaSidebarModel(view, style) {
     budget: view.budget || null,
     peak: visible(view.peak) && view.peak.enabled ? view.peak : null,
   };
-  model.empty = !model.balance && !model.go && !model.plans.length && !model.gateway.length && !model.custom.length && !model.budget && !model.peak;
+  model.empty = !model.today && !model.balance && !model.go && !model.plans.length && !model.gateway.length && !model.custom.length && !model.budget && !model.peak;
   return model;
 }
 
 /** 侧栏卡片默认渲染顺序（与 quotaSidebarModel 的字段一一对应）。 */
-const SIDEBAR_DEFAULT_ORDER = ['balance', 'budget', 'go', 'plans', 'gateway', 'custom', 'peak'];
+const SIDEBAR_DEFAULT_ORDER = ['today', 'balance', 'peak', 'plans', 'go', 'budget', 'gateway', 'custom'];
 
 /**
  * 把侧栏模型按 sidebarOrder 摊平成一个有序 sections 数组。
@@ -508,15 +678,21 @@ const SIDEBAR_DEFAULT_ORDER = ['balance', 'budget', 'go', 'plans', 'gateway', 'c
 function quotaSidebarSections(model, order) {
   if (!model) return [];
   const buckets = {
-    balance: model.balance ? [{ kind: 'balance', key: 'balance', label: (model.balance.title || '余额') }] : [],
-    budget: model.budget && model.budget.enabled ? [{ kind: 'budget', key: 'budget', label: '预算' }] : [],
-    go: model.go ? [{ kind: 'go', key: 'go', label: 'OpenCode Go' }] : [],
-    plans: (model.plans || []).map(plan => ({ kind: 'plan', key: 'plan:' + plan.id, label: plan.label || plan.id })),
-    gateway: (model.gateway || []).map(source => ({ kind: 'gateway', key: 'gateway:' + source.id, label: source.label || source.id })),
-    custom: (model.custom || []).map(entry => ({ kind: 'custom', key: 'custom:' + entry.index, label: entry.label || '自定义余额' })),
-    peak: model.peak ? [{ kind: 'peak', key: 'peak', label: '峰谷' }] : [],
-    // today / models / codex 在小程序侧无独立载体，保留键位以便排序配置不丢失
-    today: [], models: [], codex: [],
+    // card=true 的组件在标准/紧凑/合并卡片里保持圆角卡片（与插件 .cm-bbox 一致）；
+    // 今日、余额行、峰谷属于 .cm-foot / 峰谷条，始终无卡片底色。
+    today: model.today ? [{ kind: 'today', key: 'today', label: '今日', today: model.today }] : [],
+    balance: model.balance ? [{
+      kind: 'balance', key: 'balance', label: (model.balance.title || '余额'), balance: model.balance,
+      card: model.balance.showProgressBar === true,
+    }] : [],
+    budget: model.budget && model.budget.enabled ? [{ kind: 'budget', key: 'budget', label: '预算', budget: model.budget, card: true }] : [],
+    go: model.go ? [{ kind: 'go', key: 'go', label: 'OpenCode Go', go: model.go, card: true }] : [],
+    plans: (model.plans || []).map(plan => ({ kind: 'plan', key: 'plan:' + plan.id, label: plan.label || plan.id, plan, card: true })),
+    gateway: (model.gateway || []).map(source => ({ kind: 'gateway', key: 'gateway:' + source.id, label: source.label || source.id, source, card: true })),
+    custom: (model.custom || []).map(entry => ({ kind: 'custom', key: 'custom:' + entry.index, label: entry.label || '自定义余额', custom: entry, card: true })),
+    peak: model.peak ? [{ kind: 'peak', key: 'peak', label: '峰谷', peak: model.peak }] : [],
+    // models / codex 在小程序侧无独立载体，保留键位以便排序配置不丢失
+    models: [], codex: [],
   };
 
   const sections = [];
@@ -558,6 +734,6 @@ module.exports = {
   UNITS, formatCurrency, formatTokens, formatPercent, formatRelativeTime,
   normalize, normalizeDashboard, validatePatch, dashboardOwner,
   SIDEBAR_STYLES, DISPLAY_OPTIONS, PLAN_WINDOW_LABELS, SIDEBAR_DEFAULT_ORDER,
-  quotaAmountText, quotaPercentText, quotaBarWidth, quotaResetText, quotaWindowRows,
+  quotaAmountText, quotaCompactAmountText, quotaPercentText, quotaBarWidth, quotaResetText, quotaWindowRows,
   normalizeQuotaDashboard, quotaSidebarModel, quotaSidebarSections
 };

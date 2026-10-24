@@ -10,13 +10,9 @@ const homeAnimationPreference = require('../../utils/home-animation-pref');
 const initialHomeAnimationEnabled = homeAnimationPreference.enabled();
 const costView = require('../../utils/cost-view');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
+const { connectionView } = require('../../utils/connection-status');
 
-const CONNECTION_LABELS = {
-  disconnected: uiText('未连接'),
-  connecting: uiText('连接中'),
-  connected: uiText('已连接'),
-  failed: uiText('连接失败')
-};
+const HOME_SESSION_REFRESH_MS = 1800;
 
 Page({
   data: {
@@ -44,6 +40,7 @@ Page({
     searchQuery: '',
     connectionLabel: uiText('未连接'),
     connectionClass: 'disconnected',
+    connectionHintIsError: false,
     hostLabel: uiText('选择主机'),
     hostKindIcon: 'desktop-white.png',
     hostOnline: false,
@@ -174,6 +171,8 @@ Page({
 
   onHide() {
     this._homeHidden = true;
+    this._homeVisible = false;
+    this.stopSessionStatusPolling();
     this.stopHostProbeTimer();
     store.stopHostProbes();
     this._workspacePickerRequest = null;
@@ -185,10 +184,14 @@ Page({
 
   onShow() {
     this._homeHidden = false;
+    this._homeVisible = true;
     this._openingSettings = false;
-    // 从设置页返回时额度开关可能已变化：作废短缓存，重新读取侧栏额度。
-    this._costMeterCache = null;
-    this._costMeterAttempt = null;
+    // 从设置页返回时额度开关可能已变化：仅当成本显示配置的签名变了才失效，
+    // 否则保留 30s 短缓存（无谓清掉会让每次返回首页都重新等网关扫描）。
+    if (this._costMeterSig && this._costMeterSig !== this.costSettingsSignature()) {
+      this._costMeterCache = null;
+      this._costMeterAttempt = null;
+    }
     const creator = store.state.pendingPluginCreator || store.state.pendingAgentPresetCreator;
     if (creator) {
       store.state.pendingPluginCreator = null;
@@ -210,7 +213,7 @@ Page({
     // 从配对页跳回时刷新一次列表
     if (store.state.connection === 'connected') {
       store.client.requestWorkspaces();
-      store.client.requestSessions();
+      this.refreshHomeSessionStatus();
       this.loadCostMeterSummary();
     }
     this.syncFromStore({ app: store.state, session: store.sessionState });
@@ -218,7 +221,9 @@ Page({
 
   onUnload() {
     this._homeHidden = true;
+    this._homeVisible = false;
     this._workspacePickerRequest = null;
+    this.stopSessionStatusPolling();
     this.stopHostProbeTimer();
     store.stopHostProbes();
     if (this.unsubscribe) this.unsubscribe();
@@ -229,10 +234,12 @@ Page({
     if (this._homeHidden) return;
     const app = snapshot.app;
     const conn = app.connection;
+    this.syncSessionStatusPolling(conn === 'connected');
     if (this._costMeterConn !== conn) {
       this._costMeterConn = conn;
       this._costMeterCache = null;
       this._costMeterAttempt = null;
+      this._costBridgeRetry = null;
       if (conn !== 'connected' && (this.data.costDashboard || this.data.costSidebar || this.data.costCardError)) {
         this.setData({ costDashboard: null, costSidebar: null, costSections: [], costCardError: '' });
       }
@@ -315,15 +322,18 @@ Page({
       ungrouped: false
     };
 
+    const connection = connectionView(app);
+    const connectionHint = !!app.connectionMessage && conn !== 'connected';
     this.setHomePatch({
       currentWorkspace: currentWorkspace,
       currentWorkspaceId: currentWorkspace.workspaceId,
       displaySessions: displaySessions,
-      connectionLabel: hostCompatibilityError ? uiText('服务异常') : (uiText(CONNECTION_LABELS[conn] || conn)),
-      connectionClass: hostCompatibilityError ? 'failed' : conn,
+      connectionLabel: hostCompatibilityError ? uiText('服务异常') : connection.label,
+      connectionClass: hostCompatibilityError ? 'failed' : connection.key,
+      connectionHintIsError: !hostCompatibilityError && connectionHint && conn !== 'connecting',
       homeDataHint: hostCompatibilityError
         ? uiText('NAS 端 Mobile Gateway 与 DSH 版本不兼容，请升级服务端后重试')
-        : (usingCachedHome ? uiText('正在显示上次成功加载的数据') : ''),
+        : (connectionHint ? app.connectionMessage : (usingCachedHome ? uiText('正在显示上次成功加载的数据') : '')),
       emptySessionsText: query
         ? uiText('没有找到匹配的会话。')
         : (hostCompatibilityError
@@ -370,11 +380,15 @@ Page({
     profiles.forEach((p) => {
       if (!active || p.id !== active.id) rows.push(p);
     });
-    const isOnline = conn === 'connected';
+    // 主机点按真实连接状态着色：已连接绿、连接故障橙、断链红，其余熄灭。
+    const connection = connectionView(app);
+    const isOnline = connection.connected;
+    const hostDotClass = isOnline ? 'on' : (connection.key === 'failed' || connection.key === 'dropped' ? connection.key : '');
     this.setHomePatch({
       hostLabel: active ? hostsLib.displayName(active) : uiText('选择主机'),
       hostKindIcon: hostsLib.kindIconFile(active ? active.deviceKind : 'desktopcomputer'),
       hostOnline: active ? (onlineIDs.indexOf(active.id) >= 0 || isOnline) : false,
+      hostDotClass: hostDotClass,
       hostRows: rows.map((p) => ({
         id: p.id,
         displayName: hostsLib.displayName(p),
@@ -439,6 +453,58 @@ Page({
     if (this.hostSheetTimer) {
       clearInterval(this.hostSheetTimer);
       this.hostSheetTimer = null;
+    }
+  },
+
+  syncSessionStatusPolling(connected) {
+    if (!this._homeVisible || !connected) {
+      this.stopSessionStatusPolling();
+      return;
+    }
+    this.scheduleSessionStatusPoll();
+  },
+
+  scheduleSessionStatusPoll() {
+    if (!this._homeVisible || store.state.connection !== 'connected' || this._sessionStatusPollTimer) return;
+    this._sessionStatusPollTimer = setTimeout(() => {
+      this._sessionStatusPollTimer = null;
+      if (!this._homeVisible || store.state.connection !== 'connected') return;
+      if (this._sessionStatusRequest) {
+        this.scheduleSessionStatusPoll();
+        return;
+      }
+      this.refreshHomeSessionStatus();
+    }, HOME_SESSION_REFRESH_MS);
+  },
+
+  refreshHomeSessionStatus() {
+    if (!this._homeVisible || store.state.connection !== 'connected') return;
+    if (this._sessionStatusRequest) return;
+    const client = store.client;
+    const generation = client.connectGeneration;
+    let request;
+    try {
+      request = client.requestSessions();
+    } catch (error) {
+      this.scheduleSessionStatusPoll();
+      return;
+    }
+    const token = { request, client, generation };
+    this._sessionStatusRequest = token;
+    this.scheduleSessionStatusPoll();
+    Promise.resolve(request).then(() => {}, () => {}).then(() => {
+      if (this._sessionStatusRequest !== token) return;
+      this._sessionStatusRequest = null;
+      if (client === store.client && generation === client.connectGeneration) {
+        this.scheduleSessionStatusPoll();
+      }
+    });
+  },
+
+  stopSessionStatusPolling() {
+    if (this._sessionStatusPollTimer) {
+      clearTimeout(this._sessionStatusPollTimer);
+      this._sessionStatusPollTimer = null;
     }
   },
 
@@ -983,12 +1049,27 @@ Page({
     wx.navigateTo({ url: '/pages/schedule/schedule' });
   },
 
-  openCostDetail() {
+  openCostDetail(component) {
     this.resetDrawerInstant();
-    wx.navigateTo({ url: '/pages/cost-meter/cost-meter' });
+    const key = typeof component === 'string' ? component : '';
+    wx.navigateTo({ url: '/pages/cost-meter/cost-meter' + (key ? '?component=' + encodeURIComponent(key) : '') });
+  },
+
+  /** 点击左侧栏额度卡里的某个模块：打开额度页并定位到该模块的单独设置。 */
+  onSidebarPartTap(e) {
+    const key = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.key;
+    this.openCostDetail(key || '');
   },
 
   onCostCardTap() { this.loadCostMeterSummary(true); },
+
+  /** 侧栏额度卡：未连接时点一下直接重连。 */
+  retryGatewayConnection() {
+    this._costBridgeRetry = null;
+    this._costMeterAttempt = null;
+    if (store.state.connection !== 'connected') store.reconnectWithSaved();
+    this.loadCostMeterSummary(true);
+  },
 
   /** 刷新额度卡片；连接建立后和打开抽屉时都会触发。 */
   loadCostMeterSummary(force) {
@@ -1026,6 +1107,14 @@ Page({
       this.applyQuotaFrame(cached.dashboard, cached.summary);
       return;
     }
+    // 内存缓存没命中：先用落盘的上次快照顶上，后台再拉新的（网关扫描要好几秒）。
+    if (!force) {
+      const disk = this.readCostMeterCache(owner);
+      if (disk) {
+        this._costMeterCache = { owner: owner, at: now - 20000, dashboard: disk.dashboard, summary: disk.summary };
+        this.applyQuotaFrame(disk.dashboard, disk.summary);
+      }
+    }
     const attempted = this._costMeterAttempt;
     if (!force && attempted && attempted.owner === owner && now - attempted.at < 5000) return;
     if (this._costMeterInFlight && this._costMeterInFlight.owner === owner) return;
@@ -1038,23 +1127,34 @@ Page({
       if (this._homeHidden || this._costMeterInFlight !== request || request.generation !== (this._costMeterGeneration || 0) ||
           store.state.connection !== 'connected' || owner !== costOwnerKey()) return;
       this._costMeterCache = { owner, at: Date.now(), dashboard: frame && frame.dashboard, summary: frame && frame.summary };
+      this.writeCostMeterCache(owner, frame && frame.dashboard, frame && frame.summary);
+      // 排序键同时从 dashboard.settings 与 config 两处取，兼容未下发到 dashboard 的旧网关。
+      this._sidebarOrder = (frame && frame.config && Array.isArray(frame.config.sidebarOrder))
+        ? frame.config.sidebarOrder
+        : (frame && frame.dashboard && frame.dashboard.settings && Array.isArray(frame.dashboard.settings.sidebarOrder)
+          ? frame.dashboard.settings.sidebarOrder : null);
       this.applyQuotaFrame(frame && frame.dashboard, frame && frame.summary);
     }).catch((error) => {
       if (this._homeHidden || this._costMeterInFlight !== request || request.generation !== (this._costMeterGeneration || 0) ||
           store.state.connection !== 'connected' || owner !== costOwnerKey()) return;
-      // 旧网关没有 cost-meter 服务：不显示抽屉条目，不打扰用户。
-      this.setData({
-        costDashboard: null,
-        costSidebar: null,
-        costSections: [],
-        costCardError: error.code === 'cost-meter-unavailable' ? uiText('费用服务暂不可用，请重启 DSH 后重试') : uiText('额度数据暂不可用'),
-      });
+      // 已有卡片就保留（可能是瞬时失败），只有完全没数据时才显示提示。
+      if (this.data.costSidebar) return;
+      // DSH 刚重启时网关插件可能还在注册费用桥：自动补一次，避免卡片一直停在不可用。
+      if (error && error.code === 'cost-meter-unavailable' && this._costBridgeRetry !== owner) {
+        this._costBridgeRetry = owner;
+        setTimeout(() => {
+          if (this._homeHidden || owner !== costOwnerKey() || store.state.connection !== 'connected') return;
+          this._costMeterAttempt = null;
+          this.loadCostMeterSummary(true);
+        }, 1500);
+        return;
+      }
+      this.setData({ costCardError: error.code === 'cost-meter-unavailable' ? uiText('费用服务暂不可用，请重启 DSH 后重试') : uiText('额度数据暂不可用') });
     }).finally(() => {
       if (this._costMeterInFlight === request) this._costMeterInFlight = null;
     });
   },
 
-  /** 把网关返回的额度 dashboard 转成侧栏可渲染的视图模型。 */
   /** 按排序键取侧栏模型中的对应项，供 WXML 的 sections 渲染使用。 */
   planOf(key) {
     const id = String(key || '').slice(5);
@@ -1069,6 +1169,54 @@ Page({
     return (this.data.costSidebar && this.data.costSidebar.custom || [])[index] || {};
   },
 
+  /** 额度卡磁盘缓存：下次打开立即可见，后台再刷新。 */
+  readCostMeterCache(owner) {
+    try {
+      const raw = wx.getStorageSync('dsh_cost_cache.' + String(owner || 'default'));
+      if (!raw) return null;
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      if (parsed && parsed.dashboard) return { dashboard: parsed.dashboard, summary: parsed.summary || null };
+    } catch (e) { /* 缓存损坏则忽略 */ }
+    return null;
+  },
+
+  /** 成本显示配置签名：用于判断返回首页时是否需要作废额度短缓存。 */
+  costSettingsSignature() {
+    const view = this.data.costDashboard;
+    const settings = view && view.settings ? view.settings : null;
+    const display = settings && settings.display ? settings.display : null;
+    if (!display) return '';
+    return [display.sidebarVisible, display.sidebarStyle, display.sidebarTodayMetric,
+      display.peakStyle, display.peakTimeDisplay, display.sidebarTodayBalanceInline,
+      settings && settings.sidebarOrder ? JSON.stringify(settings.sidebarOrder) : ''].join('|');
+  },
+
+  /** 落盘前脱敏：凭据引用、请求头与 source 密钥都不进入普通页面缓存。 */
+  sanitizeCostDashboard(dashboard) {
+    if (!dashboard || typeof dashboard !== 'object') return dashboard;
+    const clone = JSON.parse(JSON.stringify(dashboard));
+    const settings = clone.settings;
+    if (settings && typeof settings === 'object') {
+      // 自定义余额/网关配额的请求头可能含 {{TOKEN}} 模板，网关未来版本可能内联真实值。
+      (settings.customBalances || []).forEach((entry) => { if (entry && entry.request) entry.request = { url: entry.request.url, method: entry.request.method }; });
+      const sources = settings.gatewayQuotas && settings.gatewayQuotas.sources;
+      (sources || []).forEach((entry) => { if (entry && entry.request) entry.request = { url: entry.request.url, method: entry.request.method }; });
+      ['balance', 'goQuota'].forEach((key) => {
+        if (settings[key]) { delete settings[key].accessKeyId; delete settings[key].secretAccessKey; delete settings[key].apiKey; delete settings[key].token; }
+      });
+    }
+    return clone;
+  },
+
+  writeCostMeterCache(owner, dashboard, summary) {
+    try {
+      if (!dashboard) return;
+      wx.setStorageSync('dsh_cost_cache.' + String(owner || 'default'), JSON.stringify({
+        dashboard: this.sanitizeCostDashboard(dashboard), summary: summary || null, savedAt: Date.now()
+      }));
+    } catch (e) { /* 存储失败不阻断 */ }
+  },
+
   applyQuotaFrame(dashboard, summary) {
     const view = costView.normalizeQuotaDashboard(dashboard, summary);
     if (!view) {
@@ -1079,9 +1227,12 @@ Page({
     const sidebar = visible ? costView.quotaSidebarModel(view, view.display.sidebarStyle) : null;
     const nextSidebar = sidebar && !sidebar.empty ? sidebar : null;
     // 按网关下发的 sidebarOrder 摊平成分区序列，侧栏按这个顺序渲染。
-    const sections = nextSidebar
-      ? costView.quotaSidebarSections(nextSidebar, dashboard && dashboard.settings && dashboard.settings.sidebarOrder)
-      : [];
+    const order = Array.isArray(this._sidebarOrder)
+      ? this._sidebarOrder
+      : (dashboard && dashboard.settings && dashboard.settings.sidebarOrder);
+    const sections = nextSidebar ? costView.quotaSidebarSections(nextSidebar, order) : [];
+    this._costBridgeRetry = null;
+    this._costMeterSig = this.costSettingsSignature();
     if (JSON.stringify(this.data.costDashboard) !== JSON.stringify(view)
       || JSON.stringify(this.data.costSidebar) !== JSON.stringify(nextSidebar)
       || JSON.stringify(this.data.costSections) !== JSON.stringify(sections)) {

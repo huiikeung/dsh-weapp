@@ -1,6 +1,6 @@
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
-const accountView = require('../miniprogram/utils/account-view');
+const accountView = require('../miniprogram/pages/settings/utils/account-view');
 
 test('account protocol balance totals render as a concrete recharge amount', () => {
   const view = accountView.normalize({

@@ -2,12 +2,7 @@
   "pages": [
     "pages/home/home",
     "pages/session/session",
-    "pages/session-settings/session-settings",
-    "pages/announcements/announcements",
     "pages/share-activity/share-activity",
-    "pages/add-node/add-node",
-    "pages/files/files",
-    "pages/workspace-picker/workspace-picker",
     "pages/privacy/privacy"
   ],
   "window": {
@@ -80,6 +75,73 @@
       "pages": [
         "redeem-admin"
       ]
+    },
+    {
+      "root": "pages/session-settings",
+      "name": "session-settings",
+      "pages": [
+        "session-settings"
+      ]
+    },
+    {
+      "root": "pages/add-node",
+      "name": "add-node",
+      "pages": [
+        "add-node"
+      ]
+    },
+    {
+      "root": "pages/workspace-picker",
+      "name": "workspace-picker",
+      "pages": [
+        "workspace-picker"
+      ]
+    },
+    {
+      "root": "pages/insights",
+      "name": "insights",
+      "pages": [
+        "insights"
+      ]
+    },
+    {
+      "root": "pages/files",
+      "name": "files",
+      "pages": [
+        "files"
+      ]
+    },
+    {
+      "root": "pages/announcements",
+      "name": "announcements",
+      "pages": [
+        "announcements"
+      ]
     }
-  ]
+  ],
+  "preloadRule": {
+    "pages/session/session": {
+      "network": "all",
+      "packages": [
+        "pages/session-settings",
+        "pages/insights",
+        "pages/files"
+      ]
+    },
+    "pages/home/home": {
+      "network": "all",
+      "packages": [
+        "pages/session-settings",
+        "pages/add-node"
+      ]
+    },
+    "pages/settings/settings": {
+      "network": "all",
+      "packages": [
+        "pages/add-node",
+        "pages/workspace-picker",
+        "pages/announcements"
+      ]
+    }
+  }
 }

@@ -91,16 +91,22 @@ test('execution icon choice persists, defaults to cells, invalid values fall bac
 test('all status styles animate the DSH whale through the same selected text palette', () => {
   const template=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
   assert.match(template,/\{\{runPhrase\}\}\{\{ui\['，用时'\]\}\} \{\{runElapsedText\}\}…/);
+  // 图标必须用原生 image + CSS filter 动画（合成器驱动）：canvas 逐帧绘制
+  // 会在 scroll-view 滚动时滞后于文字，这是 v0.9.x 已验证过的回归红线。
   assert.match(template,/<view class="status-tail status-tail-\{\{statusAppearance\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}" style="\{\{theme === 'dark' \? statusDarkTailAnimationStyle : statusLightTailAnimationStyle\}\}"><image class="status-tail-image" mode="aspectFit" src="\/assets\/icons\/dsh-running-whale\.png" style="filter:\{\{theme === 'dark' \? statusDarkTailFilter : statusLightTailFilter\}\}"\/>/);
+  assert.doesNotMatch(template,/statusTailCanvas/);
   const css=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-appearance.wxss'),'utf8');
   assert.match(css,/\.status-tail\s*\{[^}]*width:36rpx[^}]*height:36rpx/);
   assert.match(css,/\.status-tail-image\s*\{[^}]*width:28rpx[^}]*height:28rpx/);
   const preview=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/settings/settings.wxml'),'utf8');
-  assert.match(preview,/class="status-tail status-tail-\{\{item\.id\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}" style="\{\{theme === 'dark' \? item\.darkTailAnimationStyle : item\.lightTailAnimationStyle\}\}"/);
-  assert.match(css,/@keyframes statusTailNeonHue[\s\S]*?hue-rotate\(82deg\)/);
-  assert.match(css,/@keyframes statusTailClassicHue[\s\S]*?hue-rotate\(360deg\)/);
-  assert.match(css,/@keyframes statusTailTerminalLight[\s\S]*?brightness\(83%\)/);
-  assert.match(css,/@keyframes statusTailTerminalDark[\s\S]*?brightness\(130%\)/);
+  assert.match(preview,/class="status-style-preview status-look-\{\{item\.id\}\}"><view class="status-tail"><canvas type="2d" id="statusPreviewCanvas-\{\{item\.id\}\}" class="status-tail-canvas" style="width:28rpx;height:28rpx;"><\/canvas><\/view>/);
+  assert.match(css,/@keyframes statusTailNeonLight[\s\S]*?hue-rotate\(142deg\)/);
+  assert.match(css,/@keyframes statusTailClassicLight[\s\S]*?hue-rotate\(360deg\)/);
+  assert.match(css,/@keyframes statusTailTerminalLight[\s\S]*?brightness\(80%\)/);
+  assert.match(css,/@keyframes statusTailTerminalDark[\s\S]*?brightness\(115%\)/);
+  // 默认「简约」风格也必须随文字变色（此前是静态色）。
+  assert.match(css,/\.status-tail-original\.status-tail-light\{animation-name:statusTailOriginalLight\}/);
+  assert.match(css,/\.status-tail-original\.status-tail-dark\{animation-name:statusTailOriginalDark\}/);
   for(const choice of appearance.choices()) {
     assert.equal(choice.lightTailAnimationStyle.match(/animation-duration:[^;]+/)[0],choice.lightStyle.match(/animation-duration:[^;]+/)[0],choice.id);
     assert.equal(choice.darkTailAnimationStyle.match(/animation-duration:[^;]+/)[0],choice.darkStyle.match(/animation-duration:[^;]+/)[0],choice.id);
@@ -112,18 +118,13 @@ test('all status styles animate the DSH whale through the same selected text pal
   assert.equal(simple.dark[0],'rgb(125.15,153.8,222.5)');
   assert.match(simple.lightTailFilter,/invert\(0\.634\).*hue-rotate\(185\.7deg\)/);
   assert.match(simple.darkTailFilter,/invert\(0\.431\).*hue-rotate\(184\.5deg\)/);
-  // This is the 28x28, 60-frame APNG used by the DSH desktop client.
-  const whale=fs.readFileSync(path.join(__dirname,'../miniprogram/assets/icons/dsh-running-whale.png'));
-  assert.equal(whale.subarray(1,4).toString(),'PNG');
+  // 图标改画布绘制后，只取一帧做取色遮罩：60 帧 APNG 的动画永远不会被渲染，
+  // 因此资源换成 28x28 灰度+透明静态 PNG（21.6KB → 0.5KB）。
+  const whale=fs.readFileSync(path.join(__dirname,"../miniprogram/assets/icons/dsh-running-whale.png"));
+  assert.equal(whale.subarray(1,4).toString(),"PNG");
   assert.equal(whale.readUInt32BE(16),28);assert.equal(whale.readUInt32BE(20),28);
-  let chunkOffset=8,animationFrames=0,animationDuration=0;
-  while(chunkOffset<whale.length){
-    const size=whale.readUInt32BE(chunkOffset),type=whale.toString('ascii',chunkOffset+4,chunkOffset+8);
-    if(type==='acTL') animationFrames=whale.readUInt32BE(chunkOffset+8);
-    if(type==='fcTL') animationDuration+=whale.readUInt16BE(chunkOffset+28)/(whale.readUInt16BE(chunkOffset+30)||100)*1000;
-    chunkOffset+=size+12;
-  }
-  assert.equal(animationFrames,60);assert.equal(animationDuration,3000);
+  assert.equal(whale.readUInt8(24),8,"8-bit");assert.equal(whale.readUInt8(25),4,"gray + alpha mask");
+  assert.ok(whale.length < 2048,"静态遮罩必须极小");
   for(const choice of appearance.choices()) assert.notEqual(choice.lightTailFilter,choice.darkTailFilter,choice.id);
   const glyph=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/proc-icon.wxml'),'utf8');
   const procCss=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/proc-icon.wxss'),'utf8');
@@ -140,4 +141,38 @@ test('statistics and tool summaries stay in their label rows', () => {
   assert.ok(header.indexOf('process-summary') < header.indexOf('event-spacer'));
   const tool=wxml.slice(wxml.indexOf('<view class="tool-line-1"'),wxml.indexOf('<image class="event-chevron',wxml.indexOf('<view class="tool-line-1"')));
   assert.ok(tool.indexOf('tool-note') < tool.indexOf('</view>'));
+});
+test('a failed turn surfaces the DSH failure verbatim for the error card', () => {
+  const failure = { type: 'api_error', code: '1311', message: '[1311][当前订阅套餐暂未开放 GLM-5.3-FlashX权限]' };
+  const raw = events('error');
+  raw[raw.length - 1] = { seq: 6, time: 1005, type: 'turn/end', data: { turn: 1, reason: { kind: 'error', error: failure } } };
+  const group = buildEntries(protocol.buildRows(raw, 's'))[1];
+  assert.equal(group.failed, true);
+  assert.equal(group.failureTitle, '本轮运行失败');
+  assert.equal(group.failureMessage, '[1311][当前订阅套餐暂未开放 GLM-5.3-FlashX权限]');
+  assert.equal(group.failureCode, '1311');
+});
+test('routable failure codes use the DSH wording and unmapped codes keep the raw message', () => {
+  const row = code => [{ kind: 'assistant', key: 'a-' + code, turn: 1, turnClosed: true,
+    turnEndReason: 'error', turnFailure: { message: 'raw provider text', code: code }, text: 'x', tools: [] }];
+  const auth = buildEntries(row('AUTH'))[0];
+  assert.equal(auth.failureMessage, 'API 密钥无效');
+  assert.equal(auth.failureTitle, '本轮运行失败');
+  const signedOut = buildEntries(row('ACCOUNT_SIGNED_OUT'))[0];
+  assert.equal(signedOut.failureMessage, '任务已因退出 DeepSeek 登录而停止。');
+  assert.equal(signedOut.failureTitle, '任务已停止');
+  const quota = buildEntries(row('ACCOUNT_QUOTA'))[0];
+  assert.equal(quota.failureMessage, '当前请求的额度已用尽');
+  const other = buildEntries(row('429'))[0];
+  assert.equal(other.failureMessage, 'raw provider text', 'unmapped codes keep the server message');
+  assert.equal(other.failureCode, '429');
+});
+test('aborted and completed turns never render the error card', () => {
+  const aborted = buildEntries(protocol.buildRows(events('aborted'), 's'))[1];
+  assert.equal(aborted.failed, false);
+  assert.equal(aborted.stopped, true);
+  assert.equal(aborted.failureMessage, '');
+  const done = buildEntries(protocol.buildRows(events('completed'), 's'))[1];
+  assert.equal(done.failed, false);
+  assert.equal(done.failureMessage, '');
 });

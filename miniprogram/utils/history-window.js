@@ -10,8 +10,17 @@ function recentWindow(cached, protocol, sessionId) {
     rows = agg.rows;
   } else rows = (cached.rows || []).slice(-EVENT_LIMIT);
   const truncated = source.length > events.length || (!source.length && (cached.rows || []).length > rows.length);
+  const visibleTurns = new Set();
+  rows.forEach(row => {
+    if (row && row.turn !== undefined && row.turn !== null) visibleTurns.add(String(row.turn));
+  });
+  const turnUsage = {};
+  const cachedTurnUsage = cached.turnUsage || {};
+  Object.keys(cachedTurnUsage).forEach(key => {
+    if (visibleTurns.has(String(key))) turnUsage[key] = cachedTurnUsage[key];
+  });
   return { rows, events, savedAt: cached.savedAt, historyFormatVersion: cached.historyFormatVersion || null,
-    hasMore: truncated || cached.hasMore === true,
+    hasMore: truncated || cached.hasMore === true, stats: cached.stats || null, turnUsage,
     nextBeforeSeq: truncated && events.length ? events[0].seq : cached.nextBeforeSeq };
 }
 module.exports = { recentWindow, EVENT_LIMIT };
