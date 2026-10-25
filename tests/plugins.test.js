@@ -206,7 +206,9 @@ test('store routes installation broadcasts without corrupting catalog errors', a
 
 test('page binds every handler and displays desktop sections, More and install actions', () => {
   const root = path.join(__dirname, '..', 'miniprogram'); let definition;
-  const fakeStore = { state: { activeID: 'a', connection: 'connected', pluginCatalog: buildCatalog({ managementAvailable: true, bundles: [], officialItems: [] }) }, subscribe: () => () => {}, refreshPlugins() {} };
+  const fakeStore = { state: { activeID: 'a', connection: 'connected', pluginCatalog: buildCatalog({ managementAvailable: true, bundles: [
+    { name: 'third-party', installed: true, meta: { icon: 'https://example.test/plugin.svg' } }
+  ], officialItems: [] }) }, subscribe: () => () => {}, refreshPlugins() {} };
   const load = file => {
     const module = { exports: {} };
     vm.runInNewContext(fs.readFileSync(path.join(root, file), 'utf8'), { module, Page: d => { definition = d; }, Set,
@@ -217,11 +219,56 @@ test('page binds every handler and displays desktop sections, More and install a
   load('pages/plugins/plugins.js');
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)), setData(p) { Object.assign(this.data, p); } };
   page.onLoad(); assert.equal(page.data.canAdd, true);
+  const installed = page.data.catalog.installedBundles[0];
+  assert.equal(installed.icon, 'https://example.test/plugin.svg', 'installed rows use the icon URL supplied by DSH');
+  assert.equal(installed.artwork, '/assets/plugin-artwork/desktop/plugin-default.svg');
   page.openMore(); assert.equal(page.data.showingMore, true); page.goBack(); assert.equal(page.data.showingMore, false);
   fakeStore.state.connection = 'disconnected'; page.syncFromStore(); assert.equal(page.data.canAdd, false);
   const wxml = fs.readFileSync(path.join(root, 'pages/plugins/plugins.wxml'), 'utf8');
+  assert.match(wxml, /wx:if="\{\{item\.icon && !item\.iconBroken\}\}"[^>]*src="\{\{item\.icon\}\}"/);
   for (const match of wxml.matchAll(/(?:bindtap|bindchange|bindinput|binderror|bindrefresherrefresh|catchtouchmove)="([^"]+)"/g)) assert.equal(typeof page[match[1]], 'function', match[1]);
   for (const text of ['内置插件配置', '实验性插件', '已安装插件', '确认安装', '核对安装状态', 'cancelInstall', 'catalog.moreBundles']) assert.ok(wxml.includes(text), text);
+  page.onUnload();
+});
+
+test('SVG plugin icons preserve their viewBox sizing like built-in artwork', () => {
+  const root = path.join(__dirname, '..', 'miniprogram'); let definition;
+  const fakeStore = { state: { activeID: 'a', connection: 'connected', pluginCatalog: buildCatalog({
+    managementAvailable: true,
+    bundles: [{ name: 'tiny-svg', installed: true, meta: { icon: 'data:image/svg+xml;base64,PHN2Zy8+' } }],
+    officialItems: []
+  }) }, subscribe: () => () => {}, refreshPlugins() {} };
+  const bounds = new Uint8ClampedArray(108 * 108 * 4);
+  for (let y = 50; y < 54; y += 1) {
+    for (let x = 40; x < 44; x += 1) bounds[(y * 108 + x) * 4 + 3] = 255;
+  }
+  const drawCalls = [];
+  const context = { clearRect() {}, drawImage(...args) { drawCalls.push(args); }, getImageData() { return { data: bounds }; } };
+  const image = { width: 36, height: 18 };
+  Object.defineProperty(image, 'src', { set() {} });
+  const wx = {
+    getWindowInfo: () => ({ statusBarHeight: 44 }),
+    createOffscreenCanvas: () => ({
+      createImage: () => image,
+      getContext: () => context,
+      toDataURL: () => 'data:image/png;base64,converted'
+    })
+  };
+  const load = file => {
+    const module = { exports: {} };
+    vm.runInNewContext(fs.readFileSync(path.join(root, file), 'utf8'), { module, Page: d => { definition = d; }, Set, wx,
+      require: name => name.endsWith('/store') ? fakeStore : name.endsWith('/theme') ? { applyTo() {} } : (name === './install-actions' || name === './market-actions') ? load('pages/plugins/' + name.slice(2) + '.js') : require(path.resolve(root, path.dirname(file), name)) });
+    return module.exports;
+  };
+  load('pages/plugins/plugins.js');
+  const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)), setData(patch) { Object.assign(this.data, patch); } };
+  page.onLoad();
+  image.onload();
+  const fittedDraw = drawCalls.find(args => args.length === 5);
+  assert.ok(fittedDraw, 'the whole SVG viewBox is drawn with aspect-fit sizing');
+  assert.deepEqual(Array.from(fittedDraw.slice(1)), [0, 27, 108, 54]);
+  assert.equal(drawCalls.some(args => args.length === 9), false, 'transparent artwork is not cropped and magnified');
+  assert.equal(page.data.catalog.installedBundles[0].icon, 'data:image/png;base64,converted');
   page.onUnload();
 });
 

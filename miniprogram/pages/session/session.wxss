@@ -5056,8 +5056,6 @@ to{transform:translateX(340%)}
    文字原地替换；渲染层在文档流里决定高度，透明输入层 absolute 覆盖接收键入。 */
 .composer-input-row.live { position: relative; display: block; }
 .composer-input-row.live.previewing { min-height: 76rpx; max-height: 60vh; }
-/* 渲染层：绝对定位 + 不透明背景盖住输入框。textarea 属性全程不变，
-   微信不会重置原生组件，粘贴/输入内容不会再被旧值清空。 */
 .composer-live .composer-veil { display: none; }
 .composer-live .composer-veil.on {
   display: block; position: absolute; left: 0; right: 0; top: 0; bottom: 0; z-index: 6;

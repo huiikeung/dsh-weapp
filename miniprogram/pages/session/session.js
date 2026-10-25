@@ -36,6 +36,45 @@ const { dataPatch, createMarkdownCache } = require('../../utils/session-render')
 
 const { toolPresentation } = require('../../utils/tool-presentation');
 const CONTEXT_TREND_OVERVIEW_AUTO_STEPS = 200;
+const MUTABLE_ROW_KINDS = new Set(['assistant', 'changes', 'files', 'status']);
+
+// Store protocol rows are reused across emits; only a few row kinds are mutated
+// in place. Snapshot their shallow render-facing fields without serializing large
+// message bodies into temporary signature strings on every stream flush.
+function captureRowValue(value, depth = 0) {
+  if (Array.isArray(value)) {
+    return { type: 'array', values: value.map(item => captureRowValue(item, depth + 1)) };
+  }
+  if (value && typeof value === 'object') {
+    if (depth > 2) return { type: 'ref', value };
+    const keys = Object.keys(value);
+    return { type: 'object', keys, values: keys.map(key => captureRowValue(value[key], depth + 1)) };
+  }
+  return { type: 'value', value };
+}
+
+function sameRowValueSnapshot(left, right) {
+  if (!left || !right || left.type !== right.type) return false;
+  if (left.type === 'value' || left.type === 'ref') return left.value === right.value;
+  if (left.type === 'array') {
+    return left.values.length === right.values.length
+      && left.values.every((value, index) => sameRowValueSnapshot(value, right.values[index]));
+  }
+  return left.keys.length === right.keys.length
+    && left.keys.every((key, index) => key === right.keys[index]
+      && sameRowValueSnapshot(left.values[index], right.values[index]));
+}
+
+function captureMutableRow(row) {
+  const keys = Object.keys(row);
+  return { keys, values: keys.map(key => captureRowValue(row[key])) };
+}
+
+function sameMutableRow(left, right) {
+  return !!left && left.keys.length === right.keys.length
+    && left.keys.every((key, index) => key === right.keys[index]
+      && sameRowValueSnapshot(left.values[index], right.values[index]));
+}
 
 function formatSessionCacheHitPercent(cacheReadTokens, billedInputTokens) {
   if (!(billedInputTokens > 0) || cacheReadTokens == null) return null;
@@ -183,6 +222,9 @@ Page({
     // 与发送后的用户消息共用 mdBlocks，保证"看到的就是发出去的"。
     composerPreview: false,
     composerPreviewHint: false,
+    // 首帧把 textarea 高度直接定成一行（原生组件默认 150px，auto-height 在真机上
+    // 要等测量才收回来，日志里它一直停在 150px），量到内容后由 auto-height 接管。
+    composerInputHeightPx: 38,
     composerCursor: -1,
     composerPreviewBlocks: [],
     canAttach: true,
@@ -293,7 +335,10 @@ Page({
           ? wx.getMenuButtonBoundingClientRect() : null;
       } catch (e2) { rect = null; }
       this.viewportRpx = winW * 2;
+      // 76rpx 的一行高度换算成 px：首帧直接用它，避免原生 textarea 的 150px 默认值露出来。
+      const oneLinePx = Math.max(24, Math.round(76 * winW / 750));
       this.setData({
+        composerInputHeightPx: oneLinePx,
         navPadTop: rect && rect.top ? rect.top : sbH + 7,
         navHeight: rect && rect.height ? rect.height : 32,
         navMoreRight: rect && rect.left ? Math.max(Math.round(winW - rect.left) + 8, 96) : 100
@@ -311,9 +356,15 @@ Page({
   onReady() {
     // 首帧渲染完成后立即测量 dock，避免默认留白遮挡底部内容
     this.updateDockInset();
-    this.measureFleetStage();
     this.refreshBottomAnchor();
     this.startScrollPolling();
+    // 编队舞台只在切到编队/上下文时才看得见：首帧不做这次 selector 查询，挪到空闲时再量。
+    if (this._fleetMeasureTimer) clearTimeout(this._fleetMeasureTimer);
+    this._fleetMeasureTimer = setTimeout(() => {
+      this._fleetMeasureTimer = null;
+      if (this._unloaded) return;
+      this.measureFleetStage();
+    }, 400);
   },
 
   onHide() {
@@ -354,11 +405,14 @@ Page({
     }
     this.resetConversationScroll();
     this.startScrollPolling();
-    if (store.sessionState && store.sessionState.sessionId) this.syncFromStore({ app: store.state, session: store.sessionState });
+    // 首次进入时 onLoad 刚同步过同一份快照：再同步一次等于把整份 rows 重新投影 + 跨桥一次，
+    // 冷启动最贵的重复工作就在这里。返回本页（间隔久了）才补同步，避免漏帧。
+    if (store.sessionState && store.sessionState.sessionId && Date.now() - (this._lastSyncAt || 0) > 400) {
+      this.syncFromStore({ app: store.state, session: store.sessionState });
+    }
     if (this.data.turnNavOpen && this._turnWarmup) this.pumpTurnNavigatorWarmup();
     this.refreshBottomAnchor();
-    this.setData(statusAppearance.view(statusAppearance.read()));
-    this.setData(procIconStyle.view(procIconStyle.read()));
+    this.setData(Object.assign(statusAppearance.view(statusAppearance.read()), procIconStyle.view(procIconStyle.read())));
     // 返回前台/切回页面：dock 高度可能变化（键盘、队列、审批卡）
     this.updateDockInset();
   },
@@ -381,6 +435,8 @@ Page({
     this._unloaded = true;
     if (this._historyFormatTimer) clearTimeout(this._historyFormatTimer);
     this._historyFormatTimer = null; this._pendingHistoryFormat = null;
+    if (this._fleetMeasureTimer) clearTimeout(this._fleetMeasureTimer);
+    this._fleetMeasureTimer = null;
     if (this._thumbTimer) clearTimeout(this._thumbTimer);
     this._thumbTimer = null; this._thumbQueue = null; this._thumbQueued = null; this._thumbFailed = null;
     if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
@@ -436,7 +492,10 @@ Page({
     if (this._unloaded || this._voiceHidden) return;
     this._pendingStoreSnapshot = snapshot;
     if (this._storeSyncTimer) return;
-    const delay = Math.max(32, (this._interactionUntil || 0) - Date.now());
+    // 大会话（上千行）每次投影 + 分组 + 差分的成本远高于 32ms：帧率换平滑没有意义，
+    // 行数多时把合并窗口放大到 96ms，流式输出仍然连贯，但主线程不再被 sync 占满。
+    const busyFloor = (this.data.rows && this.data.rows.length > 120) ? 96 : 32;
+    const delay = Math.max(busyFloor, (this._interactionUntil || 0) - Date.now());
     this._storeSyncTimer = setTimeout(() => {
       this._storeSyncTimer = null;
       const latest = this._pendingStoreSnapshot;
@@ -460,6 +519,8 @@ Page({
   },
 
   syncFromStore(snapshot) {
+    // onShow 用它判断"刚同步过同一份快照"，避免冷启动时把整份 rows 投影两遍。
+    this._lastSyncAt = Date.now();
     try {
       this.syncFromStoreInner(snapshot);
     } catch (e) {
@@ -477,6 +538,46 @@ Page({
         this.setData({ rows: fallbackRows, running: s.running === true });
       } catch (e2) { /* 放弃 */ }
     }
+  },
+
+  /**
+   * 大会话（几千行）每一帧都对全部行重新做回合分组太贵：真正在变的只有最后一个回合。
+   * 这里按"最后一个回合起点"把行切成前缀 + 尾巴：前缀的行签名没变就复用上次的分组结果，
+   * 只对尾巴重新分组。前缀条目对象复用后，差分层也会跳过它们，跨桥数据量随之下降。
+   */
+  buildEntriesCached(semanticRows, opts) {
+    const cache = this._entriesCache;
+    if (cache && cache.totalRows && semanticRows.length < cache.totalRows) this._entriesCache = null;
+    let boundary = -1;
+    for (let i = semanticRows.length - 1; i > 0; i -= 1) {
+      const row = semanticRows[i];
+      const previous = semanticRows[i - 1];
+      if (row.kind === 'user' || (row.turn !== undefined && previous.turn !== undefined && row.turn !== previous.turn)) {
+        boundary = i;
+        break;
+      }
+    }
+    if (boundary <= 0) {
+      const entries = conversationWorkflow.buildEntries(semanticRows, opts);
+      this._entriesCache = { totalRows: semanticRows.length, key: '', entries: [] };
+      return entries;
+    }
+    const prefixRows = semanticRows.slice(0, boundary);
+    const tailRows = semanticRows.slice(boundary);
+    const lastPrefixRow = prefixRows[prefixRows.length - 1];
+    const prefixKey = prefixRows.length + '|' + lastPrefixRow.key + '|'
+      + String(opts.completedEntryKey || '') + '|' + String(opts.lastDurationMs || 0);
+    let prefixEntries = null;
+    const samePrefix = cache && Array.isArray(cache.rows) && cache.rows.length === prefixRows.length
+      && cache.rows.every((row, index) => row === prefixRows[index]);
+    if (samePrefix && cache.key === prefixKey && Array.isArray(cache.entries)) prefixEntries = cache.entries;
+    if (!prefixEntries) {
+      // 前缀里最后一个回合早已结束：running 传 false，和后缀独立分组的结果一致。
+      prefixEntries = conversationWorkflow.buildEntries(prefixRows, Object.assign({}, opts, { running: false }));
+    }
+    const tailEntries = conversationWorkflow.buildEntries(tailRows, opts);
+    this._entriesCache = { totalRows: semanticRows.length, key: prefixKey, rows: prefixRows, entries: prefixEntries };
+    return prefixEntries.concat(tailEntries);
   },
 
   syncFromStoreInner(snapshot) {
@@ -561,6 +662,9 @@ Page({
         this.setData({ fileSheet: null, filePreview: null, fileExpanded: {} });
       }
       this._markdownCache = createMarkdownCache(safeParse);
+      // 换会话：上一会话的行装饰缓存与回合分组缓存全部作废。
+      this._projectedRows = null;
+      this._entriesCache = null;
       if (this._historyFormatTimer) clearTimeout(this._historyFormatTimer);
       this._historyFormatTimer = null;
       this._pendingHistoryFormat = new Map();
@@ -598,15 +702,45 @@ Page({
     const semanticRows = [];
     // 图片预取不参与渲染：历史行到达时先排队下载，滚到可见位置通常已就绪。
     this.prefetchImageMarkdown(s.rows || []);
+    // 行投影缓存：静态协议行按对象身份复用；少数会被协议原地修改的行用浅快照验证，
+    // 避免每次流式帧都把长文本、工具参数和结果拼成巨型签名字符串。
+    const projected = this._projectedRows || (this._projectedRows = new Map());
+    if (projected.size > 4000) projected.clear();
+    const projectionScope = String(s.cwd || '') + '@' + String(this.viewportRpx || 750);
+    const nextProjected = new Map();
     const listedSession = (app.sessions || []).find(item => item.id === s.sessionId || item.sessionId === s.sessionId);
     (s.rows || []).forEach((row, rowIndex) => {
+      const cachedRow = projected.get(row.key);
+      const mutable = MUTABLE_ROW_KINDS.has(row.kind);
+      const canCheckByIdentity = cachedRow && cachedRow.sourceRow === row && !mutable;
+      const rowSnapshot = canCheckByIdentity ? null : captureMutableRow(row);
+      const unchanged = cachedRow && cachedRow.scope === projectionScope
+        && (canCheckByIdentity || sameMutableRow(cachedRow.sourceSnapshot, rowSnapshot));
+      if (unchanged) {
+        semanticRows.push(cachedRow.row);
+        nextProjected.set(row.key, cachedRow.sourceRow === row ? cachedRow : Object.assign({}, cachedRow, {
+          sourceRow: row,
+          sourceSnapshot: rowSnapshot
+        }));
+        return;
+      }
+      // 同一个协议对象若未变化，下一帧直接复用投影，不重算装饰和 Markdown。
+      const emit = (out) => {
+        semanticRows.push(out);
+        nextProjected.set(row.key, {
+          scope: projectionScope,
+          sourceRow: row,
+          sourceSnapshot: rowSnapshot || cachedRow && cachedRow.sourceSnapshot,
+          row: out
+        });
+      };
       if (row.kind === 'changes') {
         const changes = this.decorateChanges(row);
-        if (changes) semanticRows.push(changes);
+        if (changes) emit(changes);
         return;
       }
       if (row.kind === 'files') {
-        semanticRows.push(Object.assign({}, row, { files: row.files.map(fileDeliverables.describe) }));
+        emit(Object.assign({}, row, { files: row.files.map(fileDeliverables.describe) }));
         return;
       }
       if (row.kind === 'assistant') {
@@ -628,7 +762,7 @@ Page({
             statusText: tool.isError ? uiText('失败') : (tool.status === 'done' ? '' : tool.phase === 'preparing' ? uiText('正在准备…') : uiText('运行中'))
           });
         });
-        semanticRows.push(Object.assign({}, row, {
+        emit(Object.assign({}, row, {
           blocks: blocks || [],
           images: this.decorateRowImages(row.images),
           copyText: row.text || '',
@@ -684,9 +818,10 @@ Page({
         }
         copy.singleStyle = 'width:' + copy.singleWidth + 'rpx;height:' + copy.singleHeight + 'rpx;';
       }
-      semanticRows.push(copy);
+      emit(copy);
     });
-    const rows = conversationWorkflow.buildEntries(semanticRows, {
+    this._projectedRows = nextProjected;
+    const rows = this.buildEntriesCached(semanticRows, {
       running: processRunning,
       completedEntryKey: this._processRunningDone || '',
       lastDurationMs: (this._lastRunSeconds || 0) * 1000
@@ -876,6 +1011,15 @@ Page({
 
     // 复制按钮规则（对齐 iOS ConversationView）：用户消息恒显；
     // 助手消息仅当其后不再紧跟 assistant 会话行时显示（本轮末条）
+    // 增量分组会复用上一帧的条目对象：先清掉上一帧「下沉」到卡片上的页脚字段，
+    // 否则本轮末尾新增文件/变更卡后，页脚会残留在中间那张卡上（出现两条用量/复制行）。
+    rows.forEach((row) => {
+      row.copyText = '';
+      row.copyKey = '';
+      row.turnMetaText = '';
+      row.turnMetaKey = '';
+      row.turnTimeText = '';
+    });
     const convIdx = [];
     rows.forEach((r, i) => { if (r.kind === 'user' || r.kind === 'assistant') convIdx.push(i); });
     convIdx.forEach((idx, k) => {
@@ -2820,7 +2964,9 @@ Page({
   /** 键盘高度：手动把输入条抬到键盘上方（adjust-position 关闭，避免整页顶起） */
   onKeyboardHeight(e) {
     const h = this.data.tab === 'conversation' ? ((e.detail && e.detail.height) || 0) : 0;
-    if (h !== this.data.kbHeight) this.setData({ kbHeight: h }, () => this.syncLayoutStyles());
+    // 高度与布局一次 setData 写完：键盘弹起/收起会连发多次事件，分开写等于把整页布局
+    // 重算两遍（这正是大会话里"开关输入法要卡半天"的主要来源之一）。
+    if (h !== this.data.kbHeight) this.setData(Object.assign({ kbHeight: h }, this.layoutPatch({ kbHeight: h })));
   },
 
   onComposerFocus() {
@@ -2830,9 +2976,8 @@ Page({
   },
 
   onKeyboardHide() {
-    this.setData({ kbHeight: 0, composerFocused: false, composerFocus: false, voiceTyping: false });
-    if (this.data.kbHeight) this.setData({ kbHeight: 0 });
-    this.syncLayoutStyles();
+    // 三个 setData 合成一个，避免 blur 时连续三次布局/渲染。
+    this.setData(Object.assign({ kbHeight: 0, composerFocused: false, composerFocus: false, voiceTyping: false }, this.layoutPatch({ kbHeight: 0 })));
   },
 
 
@@ -3610,6 +3755,9 @@ Page({
   // Recheck the measured viewport when native scroll events omit its height.
   pollScrollPosition() {
     if (this._unloaded || this._voiceHidden || this.data.turnNavOpen || this.data.tab !== 'conversation' || this.data.moreSheetOpen || this.data.collaborationOpen) return;
+    // 没有回合在跑时内容高度不会变，滚动位置交给 bindscroll 驱动即可：
+    // 之前空闲时也每 350ms 发三连 selector 查询，进页面/阅读时白白吃掉大量桥接与布局时间。
+    if (!this.data.running) return;
     if (this._scrollPollPending) return;
     this._scrollPollPending = true;
     const query = wx.createSelectorQuery().in(this);
@@ -5213,7 +5361,11 @@ Page({
     this.setData({ effortSheetOpen: false });
   },
 
-  onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
+  onUiLocaleChange() {
+    // 投影里含 uiText 生成的文案（如「失败」「运行中」），换语言后旧缓存必须整份丢掉。
+    this._projectedRows = null;
+    this.syncFromStore({ app: store.state, session: store.sessionState });
+  },
   onUiPreferencesChange() {
     this._traceLocale = null;
     this._traceCache = null;

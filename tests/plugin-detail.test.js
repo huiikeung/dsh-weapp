@@ -28,12 +28,17 @@ test('detail header has one back link and no decorative right circle', () => {
 test('original desktop icon is shared by list and detail; component fallback matches desktop', () => {
   assert.equal(artworkFor(name), '/assets/plugin-artwork/desktop/dsh-experimental-session-titles-bundle.svg');
   assert.ok(fs.readFileSync(path.join(root,artworkFor(name).slice(1)),'utf8').includes('session-title-bubble'));
-  assert.equal(artworkFor('',true), '/assets/icons/dsh-team.svg');
+  assert.equal(artworkFor('',true), '/assets/plugin-artwork/desktop/plugin-default.svg');
   for (const icon of [artworkFor(name), artworkFor('',true), pluginListArtwork.artworkFor(name), pluginListArtwork.artworkFor('',true)]) {
     assert.ok(fs.existsSync(path.join(root, icon.slice(1))), 'missing artwork: ' + icon);
   }
-  assert.equal(pluginListArtwork.artworkFor('shell'), '/assets/icons/dsh-bash.svg');
-  assert.equal(pluginListArtwork.artworkFor('unlisted-plugin'), '/assets/icons/dsh-plugin.svg');
+  // 内置四项与未知插件都改用 DSH 客户端同款彩色图标（列表与详情共用同一套映射）
+  assert.equal(pluginListArtwork.artworkFor('shell'), '/assets/plugin-artwork/desktop/dsh-experimental-terminal-bundle.svg');
+  assert.equal(pluginListArtwork.artworkFor('subagent'), '/assets/plugin-artwork/desktop/dsh-subagent-codex.svg');
+  assert.equal(pluginListArtwork.artworkFor('web-search'), '/assets/plugin-artwork/desktop/dsh-experimental-session-search.svg');
+  assert.equal(pluginListArtwork.artworkFor('agent-loop'), '/assets/plugin-artwork/desktop/dsh-experimental-ralph-bundle.svg');
+  assert.equal(pluginListArtwork.artworkFor('unlisted-plugin'), '/assets/plugin-artwork/desktop/plugin-default.svg');
+  assert.equal(artworkFor('unlisted-plugin'), pluginListArtwork.artworkFor('unlisted-plugin'));
   assert.equal(imageSource('./icon.svg'), null); assert.equal(imageSource('javascript:alert(1)'), null);
   assert.equal(imageSource('https://example.com/icon.svg'), 'https://example.com/icon.svg');
 });

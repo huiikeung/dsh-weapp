@@ -4,14 +4,27 @@ Component({
     active: { type: Boolean, value: true, observer: 'syncPlayback' },
     reducedMotion: { type: Boolean, value: false, observer: 'syncPlayback' }
   },
-  data: { ready: false, failed: false, frameImage: '', buffered: false, frameA: '', frameB: '', frontSlot: '', frameAId: 0, frameBId: 0 },
+  data: { ready: false, failed: false, frameImage: '', buffered: false, staticMode: false, frameA: '', frameB: '', frontSlot: '', frameAId: 0, frameBId: 0 },
   lifetimes: {
     ready() {
       this._visible = true; this._disposed = false; this._elapsed = 0;
-      this.initialize();
+      // 各平台一视同仁（安卓/鸿蒙/开发者工具都播动画，实测华为性能足够）：
+      // 静态海洋只作为「首页动画」关闭时的兜底，此时连 WebGL 上下文都不用建。
+      if (this.data.reducedMotion) {
+        this._staticMode = true;
+        this.setData({ staticMode: true });
+        return;
+      }
+      // 首页首屏优先：WebGL 上下文创建、着色器编译、首帧编码都挪到首屏渲染之后，
+      // 先把静态兜底显示出来。没有 setTimeout 的环境（测试沙箱/兼容）保持同步。
+      if (typeof setTimeout === 'function') {
+        this._initTimer = setTimeout(() => { this._initTimer = null; if (!this._disposed) this.initialize(); }, 150);
+      } else this.initialize();
     },
     detached() {
-      this._disposed = true; this.pause(); this.release();
+      this._disposed = true;
+      if (this._initTimer != null && typeof clearTimeout === 'function') { clearTimeout(this._initTimer); this._initTimer = null; }
+      this.pause(); this.release();
     }
   },
   pageLifetimes: {
@@ -28,23 +41,37 @@ Component({
         try {
           let info = {};
           try { info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync(); } catch (e) { /* Canvas has measured dimensions. */ }
-          let device = {};
-          try { device = wx.getDeviceInfo ? wx.getDeviceInfo() : wx.getSystemInfoSync(); } catch (e) { /* Keep the existing renderer on unknown platforms. */ }
-          this.setData({ buffered: String(device.platform || '').toLowerCase() === 'ios' });
+          const platform = getPlatform();
+          this.setData({ buffered: platform === 'ios' });
           // Native canvas compositing can cover ordinary WXML on some runtimes.
           // Render entirely offscreen and present an ordinary image below content.
           this._pixelRatio = Math.min(info.pixelRatio || 1, 480 / field.width, 900 / field.height);
           this._canvas = wx.createOffscreenCanvas({ type: 'webgl', width: field.width, height: field.height });
           this._renderer = createOceanRenderer(this._canvas, field.width, field.height, this._pixelRatio);
-          this.draw(this._elapsed || 0);
-          this.setData({ ...(!this.data.buffered ? { ready: true } : {}), failed: false });
-          this.syncPlayback();
+          // 首帧要 toDataURL（GPU 回读 + JPEG 编码），手机上要几十毫秒；首页一进来就做，
+          // 正好卡在列表/顶栏首屏渲染上。推迟到首屏之后 180ms 再出第一帧，先显示静态兜底。
+          // 没有 setTimeout 的运行环境（单元测试沙箱）保持同步，行为不变。
+          const start = () => {
+            if (this._disposed) return;
+            this.draw(this._elapsed || 0);
+            this.setData({ ...(!this.data.buffered ? { ready: true } : {}), failed: false });
+            this.syncPlayback();
+          };
+          if (typeof setTimeout === 'function') setTimeout(start, 120); else start();
         } catch (e) { this.onCanvasError(); }
       });
     },
     syncPlayback() {
       this.pause();
+      if (this._staticMode && !this.data.reducedMotion && this._visible && this.data.active && !this._disposed) {
+        // 「首页动画」被重新打开：退出静态模式并按需创建渲染器。
+        this._staticMode = false;
+        this.setData({ staticMode: false });
+        this.initialize();
+        return;
+      }
       if (!this._renderer || this._disposed || !this._visible || !this.data.active) return;
+      // 关掉「首页动画」：画一帧静态图就停，不进入动画循环。
       if (this.data.reducedMotion) { this.draw(0); return; }
       this._lastTick = Date.now(); this._lastPaint = 0;
       this._raf = this._canvas.requestAnimationFrame(() => this.tick());
@@ -53,7 +80,9 @@ Component({
       this._raf = null;
       if (!this._renderer || this._disposed || !this._visible || !this.data.active || this.data.reducedMotion) return;
       const now = Date.now();
-      if (now - this._lastPaint >= 1000 / 15 - 1) {
+      // 8fps（安卓/鸿蒙 6fps）：海浪是氛围动画，降帧几乎看不出差别；每帧都要
+      // toDataURL + setData 一张全屏 JPEG，降帧能明显减少主线程/桥接占用（也避免拖慢页面跳转）。
+      if (now - this._lastPaint >= 1000 / 8 - 1) {
         this._elapsed += Math.min(0.1, Math.max(0, (now - this._lastTick) / 1000));
         this._lastTick = now; this._lastPaint = now;
         try { this.draw(this._elapsed); } catch (e) { this.onCanvasError(); return; }
@@ -76,7 +105,10 @@ Component({
       // iOS 不改写正在显示的图片；解码和换层未完成时也不继续发送帧。
       if (this.data.buffered && this._pendingFrame) return;
       this._renderer.draw(time);
-      const image = this._canvas.toDataURL('image/jpeg', 0.82);
+      let image = this._canvas.toDataURL('image/jpeg', 0.68);
+      // 个别 WebView 带质量参数时会返回 data:,（空图）→ 会被判成失败退化成静态兜底，
+      // 这里再兜一次默认参数。
+      if (!image || image === 'data:,') image = this._canvas.toDataURL('image/jpeg');
       if (!this.data.buffered) { this.setData({ frameImage: image }); return; }
       if (!image || image === 'data:,') { this.onCanvasError(); return; }
       const slot = this.data.frontSlot === 'a' ? 'b' : 'a';
@@ -135,3 +167,14 @@ Component({
     }
   }
 });
+
+function getPlatform() {
+  try {
+    const device = typeof wx.getDeviceInfo === 'function' ? wx.getDeviceInfo() : null;
+    if (device && device.platform) return String(device.platform).toLowerCase();
+  } catch (e) { /* Fall through to the older system-info API. */ }
+  try {
+    const system = wx.getSystemInfoSync ? wx.getSystemInfoSync() : null;
+    return String(system && system.platform || '').toLowerCase();
+  } catch (e) { return ''; }
+}

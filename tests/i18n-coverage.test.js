@@ -38,6 +38,15 @@ test('English resolves every dictionary entry and preserves unknown content', ()
     assert.ok(Buffer.byteLength(JSON.stringify(preferences.snapshot())) < 1024 * 1024);
   } finally { delete global.wx; }
 });
+test('page UI dictionaries omit redundant reverse aliases from the initial data bridge', () => {
+  setup('zh');
+  try {
+    const ui = preferences.snapshot().ui;
+    assert.equal(Object.keys(ui).length, Object.keys(dictionary).length);
+    assert.equal(Buffer.byteLength(JSON.stringify(ui)) < 180 * 1024, true,
+      'initial page data contains source keys only, not a second reverse-lookup table');
+  } finally { delete global.wx; }
+});
 test('locale changes refresh native titles without rewriting user content', () => {
   setup('zh'); let definition; const titles = [];
   global.wx.setNavigationBarTitle = options => titles.push(options.title); global.Page = options => { definition = options; };

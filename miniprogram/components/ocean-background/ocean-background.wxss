@@ -3,6 +3,18 @@
 .ocean-frame, .ocean-fallback, .ocean-grain, .ocean-depth, .ocean-settle { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .ocean-fallback { background: linear-gradient(180deg, #193860, #0d2449 55%, #030b18); }
 .ocean-fallback-hidden { visibility: hidden; }
+/* 兜底层隐藏后仍在做 22s 的径向渐变漂移，等于一直占着 GPU：一并停掉。 */
+.ocean-fallback-hidden .ocean-fallback-light,
+.ocean-fallback-hidden .ocean-fallback-whale { animation: none; }
+/* Android, Harmony and DevTools use the static fallback to avoid a full-screen
+   WebGL readback + base64 setData loop. Keep the artwork, but no perpetual effects. */
+.ocean-static .ocean-fallback-light,
+.ocean-static .ocean-fallback-whale,
+.ocean-static .ocean-grain,
+.ocean-static .ocean-settle { animation: none; }
+.ocean-static .ocean-fallback-light { transform: none; opacity: 0.8; }
+.ocean-static .ocean-grain { display: none; }
+.ocean-static .ocean-settle { opacity: 0.1; }
 .ocean-buffer { opacity: 0; }
 .ocean-buffer-front { opacity: 1; }
 .ocean-fallback-light { position: absolute; inset: -15%; background: radial-gradient(ellipse at 57% 17%, transparent 30%, rgba(238, 216, 170, 0.24) 33%, transparent 39%); animation: ocean-fallback-drift 22s ease-in-out infinite alternate; }

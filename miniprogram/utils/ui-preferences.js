@@ -53,7 +53,6 @@ function snapshot() {
   if (!uiByLocale[activeLocale]) {
     const ui = {};
     Object.keys(dictionary).forEach(key => { ui[key] = activeLocale === 'en' ? dictionary[key] : key; });
-    Object.keys(reverse).forEach(key => { if (!Object.prototype.hasOwnProperty.call(ui, key)) ui[key] = activeLocale === 'en' ? key : reverse[key]; });
     uiByLocale[activeLocale] = ui;
   }
   const ui = uiByLocale[activeLocale];
@@ -101,9 +100,24 @@ function setFontSize(v, role = 'text') { const spec = FONTS[role]; if (!spec || 
 function setFontFamily(role, value) { if (!FAMILY_KEYS[role]) throw Error('Invalid font role'); wx.setStorageSync(FAMILY_KEYS[role], normalizeFontFamily(value)); notify(); }
 function initialCopy(value, activeLocale) {
   if (typeof value === 'string') return translate(value, null, activeLocale);
-  if (Array.isArray(value)) return value.map(item => initialCopy(item, activeLocale));
+  if (Array.isArray(value)) {
+    let changed = false;
+    const result = value.map((item, index) => {
+      const translated = initialCopy(item, activeLocale);
+      if (translated !== item) changed = true;
+      return translated;
+    });
+    return changed ? result : value;
+  }
   if (!value || typeof value !== 'object') return value;
-  const result = {}; Object.keys(value).forEach(key => { result[key] = initialCopy(value[key], activeLocale); }); return result;
+  let changed = false;
+  const result = {};
+  Object.keys(value).forEach(key => {
+    const translated = initialCopy(value[key], activeLocale);
+    if (translated !== value[key]) changed = true;
+    result[key] = translated;
+  });
+  return changed ? result : value;
 }
 function install() {
   nativeCopy();
@@ -114,7 +128,15 @@ function install() {
     const registeredPreferences = snapshot();
     options.data = { ...registeredPreferences, ...options.data };
     options.onLoad = function () {
-      this.setData(initialCopy(initialData, locale()));
+      // 页面初始 data 在 options.data 里已经带了首帧需要的值：这里只有"翻译确实改动了某些键"
+      // 才回写一次。以前无条件整份 setData(initialCopy(...))，等于每个页面加载都多跨一次桥
+      // （中文界面里几乎永远是空补丁，纯属白花时间）。
+      const translated = initialCopy(initialData, locale());
+      const translatePatch = {};
+      Object.keys(translated).forEach((key) => {
+        if (translated[key] !== initialData[key]) translatePatch[key] = translated[key];
+      });
+      if (Object.keys(translatePatch).length) this.setData(translatePatch);
       this._uiSnapshot = registeredPreferences;
       this._refreshUiPreferences = () => {
         const next = snapshot(), changed = this._uiLocale !== next.uiLocale;
@@ -132,7 +154,8 @@ function install() {
         if (changed && this._uiLoaded && typeof this.onUiLocaleChange === 'function') this.onUiLocaleChange();
       };
       listeners.add(this._refreshUiPreferences); this._refreshUiPreferences();
-      const result = load && load.apply(this, arguments); this._uiLoaded = true; return result;
+      const result = load && load.apply(this, arguments); this._uiLoaded = true;
+      return result;
     };
     options.onShow = function () { if (this._refreshUiPreferences) this._refreshUiPreferences(); if (show) return show.apply(this, arguments); };
     options.onUnload = function () { listeners.delete(this._refreshUiPreferences); if (unload) return unload.apply(this, arguments); };

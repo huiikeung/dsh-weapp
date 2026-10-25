@@ -120,19 +120,21 @@
     }
   ],
   "preloadRule": {
+    "pages/home/home": {
+      "network": "all",
+      "packages": [
+        "pages/settings",
+        "pages/session-settings",
+        "pages/plugins"
+      ]
+    },
     "pages/session/session": {
       "network": "all",
       "packages": [
         "pages/session-settings",
         "pages/insights",
-        "pages/files"
-      ]
-    },
-    "pages/home/home": {
-      "network": "all",
-      "packages": [
-        "pages/session-settings",
-        "pages/add-node"
+        "pages/files",
+        "pages/workspace-picker"
       ]
     },
     "pages/settings/settings": {
@@ -140,7 +142,12 @@
       "packages": [
         "pages/add-node",
         "pages/workspace-picker",
-        "pages/announcements"
+        "pages/announcements",
+        "pages/cost-meter",
+        "pages/schedule",
+        "pages/plugin-detail",
+        "pages/pairing-admin",
+        "pages/redeem-admin"
       ]
     }
   }

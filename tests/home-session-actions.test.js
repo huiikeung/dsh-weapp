@@ -25,7 +25,7 @@ function fixture(sessions, options) {
       renameSession(id, title) { calls.push(['rename', id, title]); },
       requestSessions() { calls.push(['refresh']); }
     },
-    openSession() {},
+    openSession(...args) { calls.push(['open', ...args]); },
     updateSearch() {}
   };
   const wx = {
@@ -47,7 +47,7 @@ function fixture(sessions, options) {
       boundingClientRect(cb) { cb(opts.rect === undefined ? { left: 40, top: 300, width: 295, height: 60 } : opts.rect); return this; },
       exec() { return this; }
     }),
-    navigateTo() {},
+    navigateTo(options) { calls.push(['navigate', options.url]); },
     navigateBack() {},
     stopPullDownRefresh() {},
     setNavigationBarTitle() {},
@@ -101,6 +101,16 @@ test('long press opens the anchored session menu instead of a native action shee
   assert.equal(page.data.sessionMenuOpen, false);
   assert.equal(modals.length, 1);
   assert.equal(modals[0].title, preferences.t('重命名会话'));
+});
+
+test('opening a conversation pauses the home renderer and initializes the store only once', () => {
+  const { page, calls } = fixture(sessions);
+  page.openSession({ currentTarget: { dataset: { id: 's1', title: '会话一', preset: 'standard' } } });
+  assert.equal(page.data.oceanActive, false);
+  assert.deepEqual(calls, [
+    ['open', 's1', '会话一', 'standard'],
+    ['navigate', '/pages/session/session?id=s1']
+  ]);
 });
 
 test('the menu falls back to the long-press point when the row rect is unavailable', () => {

@@ -818,6 +818,8 @@ Page({
       wx.showToast({ title: uiText('会话 ID 不可用'), icon: 'none' });
       return;
     }
+    // 先停掉全屏海洋帧生成，避免它与会话首屏抢主线程和 setData 桥接。
+    this.setData({ oceanActive: false });
     store.openSession(id, title, preset);
     wx.navigateTo({ url: '/pages/session/session?id=' + encodeURIComponent(id) });
   },

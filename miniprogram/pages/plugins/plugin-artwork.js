@@ -1,12 +1,8 @@
 const desktop = require('./assets/plugin-artwork/desktop/manifest');
-const builtins = {
-  shell: '/assets/icons/dsh-bash.svg',
-  'agent-loop': '/assets/icons/dsh-agent.svg',
-  subagent: '/assets/icons/dsh-team.svg',
-  'web-search': '/assets/icons/dsh-search.svg'
-};
+// 缺图标的插件用 DSH 客户端同款默认彩色图标（蓝点方块），与试验性插件同一套视觉。
+const PLUGIN_DEFAULT = '/assets/plugin-artwork/desktop/plugin-default.svg';
 function artworkFor(name, row = false) {
-  return desktop[name] || builtins[name] || (row ? builtins.subagent : '/assets/icons/dsh-plugin.svg');
+  return desktop[name] || PLUGIN_DEFAULT;
 }
 function imageSource(value) {
   if (typeof value !== 'string') return null;

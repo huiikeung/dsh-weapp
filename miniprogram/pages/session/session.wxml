@@ -1597,6 +1597,7 @@
       </view>
       <textarea
       class="composer-input"
+      style="height:{{composerInputHeightPx}}px"
       placeholder="{{ui[composerPlaceholder] !== undefined ? ui[composerPlaceholder] : composerPlaceholder}}"
       placeholder-class="composer-placeholder"
       placeholder-style="{{theme === 'dark' ? 'color:rgba(241,244,250,0.36)' : 'color:rgba(16,19,24,0.28)'}}"

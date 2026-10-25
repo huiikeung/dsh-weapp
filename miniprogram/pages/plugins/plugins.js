@@ -12,13 +12,62 @@ const marketActions = require('./market-actions');
 
 const { artworkFor, imageSource } = require('./plugin-artwork');
 
+
+
+// 图标由 DSH 同步下发（meta.icon，SVG data URL）。微信 <image> 不渲染 SVG data URL，
+// 用离屏 canvas 转成 PNG data URL 后即可正常显示；转换失败则回退本地 artwork。
+const iconPngCache = Object.create(null);
+const iconPngBusy = Object.create(null);
+let iconPngReady = () => {};
+
+function iconPngFrom(name, dataUrl) {
+  const cached = iconPngCache[name];
+  if (cached) return cached;
+  if (iconPngBusy[name] || typeof wx === 'undefined' || typeof wx.createOffscreenCanvas !== 'function') return null;
+  iconPngBusy[name] = true;
+  try {
+    const canvas = wx.createOffscreenCanvas({ type: '2d', width: 108, height: 108 });
+    const img = canvas.createImage();
+    img.onload = () => {
+      try {
+        const ctx = canvas.getContext('2d');
+        const SIZE = 108;
+        const imageWidth = Number(img.width || img.naturalWidth) || SIZE;
+        const imageHeight = Number(img.height || img.naturalHeight) || SIZE;
+        const fitScale = Math.min(SIZE / imageWidth, SIZE / imageHeight);
+        const renderWidth = imageWidth * fitScale;
+        const renderHeight = imageHeight * fitScale;
+        const renderX = (SIZE - renderWidth) / 2;
+        const renderY = (SIZE - renderHeight) / 2;
+        ctx.clearRect(0, 0, SIZE, SIZE);
+        // Preserve the icon's viewBox whitespace. Cropping transparent edges
+        // made metadata icons appear larger than the built-in artwork beside them.
+        ctx.drawImage(img, renderX, renderY, renderWidth, renderHeight);
+        iconPngCache[name] = canvas.toDataURL('image/png');
+      } catch (_) { /* 保留回退 */ }
+      delete iconPngBusy[name];
+      iconPngReady();
+    };
+    img.onerror = () => { delete iconPngBusy[name]; iconPngReady(); };
+    img.src = dataUrl;
+  } catch (_) { delete iconPngBusy[name]; }
+  return null;
+}
+
+/** 同步图标优先：SVG data URL 转 PNG 后交给 <image>，其余（http(s)/本地）原样使用。 */
+function syncedIcon(name, value) {
+  const src = imageSource(value);
+  if (!src) return null;
+  return src.indexOf('data:') === 0 ? iconPngFrom(name, src) : src;
+}
+
 function bundleToView(b, app) {
   const canManage = !!(app.pluginCatalog && app.pluginCatalog.managementAvailable);
   return {
     name: b.name,
     title: b.title,
     description: b.description,
-    icon: imageSource(b.icon),
+    icon: syncedIcon(b.name, b.icon || (app.pluginCatalog && app.pluginCatalog.defaultPluginIcon)),
     artwork: artworkFor(b.name),
     initial: (b.title || b.name || '?').charAt(0),
     enabled: b.enabled,
@@ -73,6 +122,8 @@ Page(Object.assign({}, installActions, marketActions, {
       this.setData({ statusBarH: info.statusBarHeight || 44 });
     } catch (e) { /* 默认 44 */ }
     this.unsubscribe = store.subscribe(() => this.syncFromStore());
+    // 同步图标转 PNG 是异步的，完成后重绘换上真图标
+    iconPngReady = () => { if (this.alive) this.syncFromStore(); };
     this.syncFromStore();
   },
 
@@ -125,13 +176,17 @@ Page(Object.assign({}, installActions, marketActions, {
         canManage: catalog.managementAvailable === true,
         featuredBundles: (catalog.featuredBundles || catalog.officialBundles).map(mapBundle),
         moreBundles: (catalog.moreBundles || catalog.officialBundles).map(mapBundle),
-        officialItems: catalog.officialItems.map((o) => ({
-          id: o.id,
-          title: o.title,
-          description: o.description,
-          artwork: artworkFor(o.id),
-          initial: (o.title || o.id).charAt(0)
-        })),
+        officialItems: catalog.officialItems.map((o) => {
+          return {
+            id: o.id,
+            title: o.title,
+            description: o.description,
+            // 网关按 DSH 客户端注册表下发图标；旧版网关没有时才回退本地 artwork
+            icon: syncedIcon(o.id, o.icon) || artworkFor(o.id),
+            artwork: artworkFor(o.id),
+            initial: (o.title || o.id).charAt(0)
+          };
+        }),
         installedBundles: catalog.installedBundles.map(mapBundle)
       } : null,
       loading: app.pluginsLoading === true,

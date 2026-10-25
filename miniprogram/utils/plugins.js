@@ -134,6 +134,8 @@ function parseOfficialItem(raw) {
   return {
     raw: raw,
     id: raw.id,
+    // 图标由网关按 DSH 客户端注册表下发
+    icon: typeof raw.icon === 'string' ? raw.icon : null,
     namespaces: Array.isArray(raw.namespaces) ? raw.namespaces.filter(function (n) { return typeof n === 'string'; }) : [],
     title: titles[raw.id] || raw.id,
     description: descriptions[raw.id] || ''
@@ -171,6 +173,8 @@ function buildCatalog(frame) {
     source: frame,
     managementAvailable: frame.managementAvailable === true,
     settingsWritable: frame.settingsWritable === true,
+    // 网关下发的默认插件图标（DSH 客户端同款），插件自身无图标时使用
+    defaultPluginIcon: typeof frame.defaultPluginIcon === 'string' ? frame.defaultPluginIcon : null,
     bundles: bundles,
     plugins: (frame.plugins || []).map(parseEntry).filter(Boolean),
     officialItems: (frame.officialItems || []).map(parseOfficialItem).filter(Boolean)

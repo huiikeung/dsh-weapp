@@ -48,15 +48,43 @@ test('decode failure retains the last complete image and stops animation', () =>
   const initial = bufferedFixture(); initial.error('a', initial.component.data.frameAId);
   assert.equal(initial.component.data.ready, false, 'fallback remains visible on first-image failure');
 });
-test('non-iOS retains the existing rendering path and detached buffers ignore callbacks', () => {
-  for (const platform of ['android', 'ohos', 'devtools']) {
-    const f = bufferedFixture(platform);
-    assert.equal(f.component.data.buffered, false); assert.equal(f.component.data.ready, true);
-    const first = f.component.data.frameImage; f.component.draw(1);
-    assert.notEqual(f.component.data.frameImage, first); assert.equal(f.component.data.frameA, '');
+test('every platform animates; only the preference turns the ocean static', () => {
+  // 安卓/鸿蒙/开发工具不再按平台静态化（实测华为性能足够，用户要求与 iPhone 一致）。
+  for (const platform of ['android', 'ohos', 'devtools', 'windows']) {
+    let canvasCreations = 0, definition;
+    vm.runInNewContext(read('components/ocean-background/ocean-background.js'), {
+      Component: value => { definition = value; }, wx: {
+        getDeviceInfo: () => ({ platform }),
+        createOffscreenCanvas: () => { canvasCreations++; return { toDataURL: () => 'data:image/jpeg;base64,x', requestAnimationFrame: () => 1, cancelAnimationFrame() {} }; }
+      }, require: () => ({ createOceanRenderer: () => ({ draw() {}, dispose() {}, resize() {} }) })
+    }, );
+    const component = { ...definition.methods, data: { ...definition.data, active: true, reducedMotion: false },
+      setData(patch) { Object.assign(this.data, patch); },
+      createSelectorQuery() { return { select() { return this; }, boundingClientRect() { return this; }, exec(fn) { fn([{ width: 390, height: 844 }]); } }; } };
+    definition.lifetimes.ready.call(component);
+    assert.equal(canvasCreations, 1, platform + ': the renderer is created like on iOS');
+    assert.equal(component.data.staticMode, false, platform + ': not forced static');
   }
-  const f = bufferedFixture(); f.definition.lifetimes.detached.call(f.component);
-  f.load('a', f.component.data.frameAId); assert.equal(f.component.data.frontSlot, '');
+  // 关掉「首页动画」（reducedMotion）时才走静态兜底，且不建 WebGL。
+  let definition, canvasCreations = 0;
+  vm.runInNewContext(read('components/ocean-background/ocean-background.js'), {
+    Component: value => { definition = value; },
+    wx: { getDeviceInfo: () => ({ platform: 'android' }),
+      createOffscreenCanvas: () => { canvasCreations++; return {}; } },
+    require: () => ({ createOceanRenderer: () => ({ draw() {}, dispose() {}, resize() {} }) })
+  });
+  const off = { ...definition.methods, data: { ...definition.data, active: true, reducedMotion: true }, setData(patch) { Object.assign(this.data, patch); } };
+  definition.lifetimes.ready.call(off);
+  assert.equal(off.data.staticMode, true, 'animation disabled -> static fallback');
+  assert.equal(canvasCreations, 0);
+});
+
+
+test('detached components ignore late frames and stop animation', () => {
+  const f = bufferedFixture('windows');
+  f.definition.lifetimes.detached.call(f.component);
+  f.load('a', f.component.data.frameAId);
+  assert.equal(f.component.data.frontSlot, '');
   assert.equal(f.frames.size, 0);
 });
 test('particle mask preserves separate tail wave and native phone composition', () => {
@@ -98,4 +126,64 @@ test('home uses offscreen rendering and ordinary images without native canvas co
   assert.match(read('components/ocean-background/ocean-background.wxss'), /ocean-settle 24s/);
   assert.match(read('pages/home/home.wxml'), /id="home-ocean"/);
   assert.doesNotMatch(read('pages/home/home.js'), /stopWhaleAnimation|startWhaleAnimation/);
+});
+
+test('the first ocean frame is scheduled after the home page has painted', () => {
+  let definition; const timers = new Map(); let timerId = 0; let renders = 0; const frames = new Map(), serial = { n: 0 };
+  const canvas = { toDataURL: () => 'data:image/jpeg;base64,pending-' + renders,
+    requestAnimationFrame(fn) { frames.set(++serial.n, fn); return serial.n; }, cancelAnimationFrame(id) { frames.delete(id); } };
+  vm.runInNewContext(read('components/ocean-background/ocean-background.js'), {
+    Component: value => { definition = value; }, Date,
+    setTimeout: (fn, delay) => { timers.set(++timerId, { fn, delay }); return timerId; },
+    clearTimeout: id => timers.delete(id),
+    wx: { getWindowInfo: () => ({ pixelRatio: 3 }), getDeviceInfo: () => ({ platform: 'windows' }), createOffscreenCanvas: () => canvas },
+    require: () => ({ createOceanRenderer: () => ({ draw() { renders++; }, dispose() {}, resize() {} }) })
+  });
+  const component = { ...definition.methods, data: { ...definition.data, active: true, reducedMotion: false },
+    setData(patch) { Object.assign(this.data, patch); },
+    createSelectorQuery() { return { select() { return this; }, boundingClientRect() { return this; }, exec(fn) { fn([{ width: 390, height: 844 }]); } }; } };
+  definition.lifetimes.ready.call(component);
+  assert.equal(renders, 0, 'no WebGL context or frame on the entry frame');
+  assert.equal(component.data.frameImage, '', 'the static fallback is shown first');
+  assert.equal(component.data.ready, false);
+
+  // 150ms 后再初始化，再等 120ms 出首帧。
+  const init = timers.get(1); timers.delete(1);
+  assert.equal(init.delay, 150);
+  init.fn();
+  assert.equal(renders, 0, 'still nothing drawn synchronously during init');
+  const firstFrame = [...timers.entries()].find(([, timer]) => timer.delay === 120);
+  assert.ok(firstFrame, 'the first frame is deferred by another 120ms');
+  timers.delete(firstFrame[0]);
+  firstFrame[1].fn();
+  assert.equal(renders, 1);
+  assert.ok(component.data.frameImage, 'the frame lands after the page has painted');
+
+  // 卸载要清掉还没触发的初始化定时器，避免已销毁组件继续建 canvas。
+  const pending = { ...definition.methods, data: { ...definition.data, active: true }, setData() {},
+    createSelectorQuery() { return { select() { return this; }, boundingClientRect() { return this; }, exec() {} }; } };
+  definition.lifetimes.ready.call(pending);
+  assert.equal(timers.size > 0, true);
+  definition.lifetimes.detached.call(pending);
+  assert.equal([...timers.values()].some(timer => timer.delay === 150), false, 'the init timer is cleared on detach');
+});
+
+test('re-enabling the animation leaves static mode and creates the renderer', () => {
+  let definition, canvasCreations = 0;
+  vm.runInNewContext(read('components/ocean-background/ocean-background.js'), {
+    Component: value => { definition = value; },
+    wx: { getDeviceInfo: () => ({ platform: 'android' }),
+      createOffscreenCanvas: () => { canvasCreations++; return { toDataURL: () => 'data:image/jpeg;base64,x', requestAnimationFrame: () => 1, cancelAnimationFrame() {} }; } },
+    require: () => ({ createOceanRenderer: () => ({ draw() {}, dispose() {}, resize() {} }) })
+  });
+  const component = { ...definition.methods, data: { ...definition.data, active: true, reducedMotion: true },
+    setData(patch) { Object.assign(this.data, patch); },
+    createSelectorQuery() { return { select() { return this; }, boundingClientRect() { return this; }, exec(fn) { fn([{ width: 390, height: 844 }]); } }; } };
+  definition.lifetimes.ready.call(component);
+  assert.equal(component.data.staticMode, true);
+  assert.equal(canvasCreations, 0);
+  component.data.reducedMotion = false;
+  component.syncPlayback();
+  assert.equal(component.data.staticMode, false, 'static mode is dropped');
+  assert.equal(canvasCreations, 1, 'the renderer is created on demand');
 });

@@ -90,7 +90,8 @@ test('edited card rows show actual names and native page projection excludes hid
   assert.ok(xml.includes('class="changed-file-name">{{file.name}}</text>'));
   assert.ok(xml.includes('class="changed-file-icon"'));
   assert.ok(!xml.includes('item.summaryNote'));
-  assert.ok(js.includes('if (changes) semanticRows.push(changes)'));
+  // 投影结果统一走 emit() 登记进行缓存（大会话复用），不再直接 push 到 semanticRows。
+  assert.ok(js.includes('if (changes) emit(changes)'), 'changed-file rows are projected through the row cache');
 });
 
 const compiler=require('./helpers/wechat-wcc.cjs');

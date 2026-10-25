@@ -1,4 +1,4 @@
-<view class="ocean-background {{active ? '' : 'ocean-paused'}} {{reducedMotion ? 'ocean-still' : ''}}" aria-hidden="true">
+<view class="ocean-background {{active ? '' : 'ocean-paused'}} {{reducedMotion ? 'ocean-still' : ''}} {{staticMode ? 'ocean-static' : ''}}" aria-hidden="true">
   <view class="ocean-fallback {{ready ? 'ocean-fallback-hidden' : ''}}">
     <view class="ocean-fallback-light"></view>
     <image class="ocean-fallback-whale" src="/assets/icons/bg-whale.png" mode="aspectFit" />
