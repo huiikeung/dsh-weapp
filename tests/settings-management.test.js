@@ -89,7 +89,7 @@ function createPage(apiOptions) {
         read: () => ({ context: true, fleet: true }),
         set: (panel, value) => ({ context: true, fleet: true, [panel]: value === true })
       };
-      if (name === '../../utils/account-card-pref') return {
+      if (name === './utils/account-card-pref') return {
         KEY: 'dsh_account_card_visible', DEFAULT: false,
         read: () => false, set: value => value === true
       };

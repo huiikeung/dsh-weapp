@@ -7,7 +7,7 @@ const { hostDisplay, normalizeHostInfo } = require('../../utils/host-info');
 const { clientVersion } = require('./utils/version-info');
 const accountView = require('./utils/account-view');
 const preferences = require('../../utils/ui-preferences');
-const accountCardPreference = require('../../utils/account-card-pref');
+const accountCardPreference = require('./utils/account-card-pref');
 const { connectionView } = require('../../utils/connection-status');
 
 Page({

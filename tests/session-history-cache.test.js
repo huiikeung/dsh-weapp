@@ -4,9 +4,9 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 
-function fixture() {
+function fixture(savedStorage) {
   const file = path.resolve(__dirname, '../miniprogram/utils/store.js');
-  const module = { exports: {} }, timers = new Map(), storage = new Map(), requests = [], calls = [], metricRequests = [], subscriptions = [];
+  const module = { exports: {} }, timers = new Map(), storage = savedStorage || new Map(), requests = [], calls = [], metricRequests = [], subscriptions = [];
   let serial = 0;
   class Client {
     constructor(callbacks) {
@@ -37,6 +37,23 @@ function fixture() {
 }
 const user = (seq, text) => ({ seq, type: 'user/message', data: { text, source: 'user' } });
 const history = (events, cursor, hasMore = true) => ({ kind: 'history', events, nextBeforeSeq: cursor, hasMore, historyFormatVersion: 1 });
+
+test('complete compact outline persists beyond bounded message tails and remains host-scoped', () => {
+  const f = fixture(); f.store.state.activeID = 'host-a';
+  const items = Array.from({ length: 1200 }, (_, i) => ({ key: 'u' + i, seq: i, label: 'Question ' + i }));
+  f.store.saveTurnOutline('s', items); f.flush(500);
+  const restarted = fixture(f.storage); restarted.store.state.activeID = 'host-a';
+  assert.equal(restarted.store.getTurnOutline('s').length, 1200);
+  const copy = restarted.store.getTurnOutline('s'); copy[0].label = 'mutated';
+  assert.equal(restarted.store.getTurnOutline('s')[0].label, 'Question 0');
+  restarted.store.state.activeID = 'host-b';
+  assert.equal(restarted.store.getTurnOutline('s').length, 0);
+  restarted.store.state.activeID = 'host-a';
+  assert.equal(restarted.store.getTurnOutline('other').length, 0);
+  restarted.store.clearLocalCaches();
+  assert.equal(restarted.store.getTurnOutline('s').length, 0);
+  assert.ok(![...f.storage.keys()].some(key => key.startsWith('dsh_turn_outline.')));
+});
 
 test('history loads one page per user request and never drains remaining pages automatically', () => {
   const f = fixture();

@@ -12,7 +12,25 @@ const settingsJs = read('pages/settings/settings.js');
 const sessionSettingsWxml = read('pages/session-settings/session-settings.wxml');
 const sessionSettingsJs = read('pages/session-settings/session-settings.js');
 
-const pref = require('../miniprogram/utils/account-card-pref');
+const pref = require('../miniprogram/pages/settings/utils/account-card-pref');
+
+test('account preference stays inside its consuming subpackages with shared storage semantics', () => {
+  assert.equal(fs.existsSync(path.join(root, 'utils/account-card-pref.js')), false);
+  const other = require('../miniprogram/pages/session-settings/utils/account-card-pref');
+  assert.equal(read('pages/settings/utils/account-card-pref.js'), read('pages/session-settings/utils/account-card-pref.js'),
+    'subpackage copies must remain identical');
+  for (const file of ['settings', 'session-settings']) {
+    assert.ok(read('pages/' + file + '/' + file + '.js').includes("require('./utils/account-card-pref')"));
+  }
+  const previousWx = global.wx;
+  const values = new Map();
+  global.wx = { getStorageSync: key => values.get(key), setStorageSync: (key, value) => values.set(key, value) };
+  try {
+    assert.equal(other.read(), false);
+    pref.set(true); assert.equal(other.read(), true);
+    other.set(false); assert.equal(pref.read(), false);
+  } finally { if (previousWx === undefined) delete global.wx; else global.wx = previousWx; }
+});
 
 function withStorage(initial) {
   const storage = { ...initial };

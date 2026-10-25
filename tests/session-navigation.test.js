@@ -258,6 +258,20 @@ test('persisted full outline survives page recreation, merges new nodes and isol
   assert.equal(next.page.turnNavigatorPatch([]).turnNavItems.length, 0);
 });
 
+test('unchanged nodes do not rewrite the persistent outline on each opening', () => {
+  const { page, store } = fixture(); let writes = 0;
+  store.saveTurnOutline = () => { writes++; };
+  const rows = [{ kind: 'user', key: 'u1', seq: 1, text: 'Question' }];
+  store.sessionState.rows = rows;
+  page.setData(page.turnNavigatorPatch(rows));
+  page.openTurnNavigator(); page.closeTurnNavigator(); page.openTurnNavigator();
+  assert.equal(writes, 1);
+  rows.push({ kind: 'user', key: 'u2', seq: 2, text: 'New question' });
+  page.setData(page.turnNavigatorPatch(rows));
+  assert.equal(writes, 2);
+  assert.equal(page.data.turnNavItems.length, 2);
+});
+
 test('cached outline target waits for its message page before jumping', () => {
   const { page, store, calls } = fixture();
   page._conversationRows = [{ key: 'new' }];
@@ -267,6 +281,22 @@ test('cached outline target waits for its message page before jumping', () => {
   assert.equal(page._pendingTurnJump, 'old');
   assert.equal(page.data.turnNavOpen, true, 'do not silently jump to an unmounted anchor');
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
+});
+
+test('background history arrival completes the selected cached-node jump', () => {
+  const { page, store, calls } = fixture();
+  store.sessionState = { sessionId: 's1', running: false, rows: [{ kind: 'user', key: 'new', seq: 20, text: 'New' }],
+    historyState: 'loaded', hasMoreHistory: true, nextBeforeSeq: 20 };
+  page.syncFromStore({ app: store.state, session: store.sessionState });
+  page.data.turnNavOpen = true;
+  page.jumpToTurn(event('key', 'old'));
+  page.revealConversationRow = key => calls.push(['reveal', key]);
+  store.sessionState.rows.unshift({ kind: 'user', key: 'old', seq: 1, text: 'Old' });
+  store.sessionState.hasMoreHistory = false; store.sessionState.nextBeforeSeq = 1;
+  page.syncFromStore({ app: store.state, session: store.sessionState });
+  assert.equal(page._pendingTurnJump, null);
+  assert.equal(page.data.turnNavOpen, false);
+  assert.ok(calls.some(call => call[0] === 'reveal' && call[1] === 'old'));
 });
 
 test('outline has no right-hand slider or native scrollbar', () => {
