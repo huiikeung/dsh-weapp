@@ -643,3 +643,19 @@ test('一键清空在服务端限流处停下并说明，已删的不会回滚',
   assert.equal(page.data.codeUsedCount, 5, '没删掉的 5 个仍在服务端列表里');
   assert.equal(page.data.codeBusy, false);
 });
+
+test('节点卡片的状态点相对整张卡片垂直居中', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const wxss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  const row = wxml.slice(wxml.indexOf('class="node-row'), wxml.indexOf('class="node-pair-actions"'));
+  const dotAt = row.indexOf('status-dot node-dot');
+  const mainAt = row.indexOf('class="node-main"');
+  const nameLineAt = row.indexOf('class="node-name-line"');
+  assert.ok(dotAt > 0, 'node rows keep a status dot');
+  assert.ok(mainAt > dotAt, '状态点在 node-main 之前，作为 .node-row 的直接子节点');
+  assert.ok(nameLineAt > mainAt, '名称行仍在 node-main 内部');
+  // 卡片是两行（名称 + ID），行本身 align-items:center 才能让点相对整张卡片居中。
+  assert.match(wxss, /\.node-row\s*\{[^}]*align-items:\s*center/);
+  assert.match(wxss, /\.node-row > \.node-dot\s*\{[^}]*margin-right:\s*0/, '横向间距交给行的 gap，不叠加文字行的 margin');
+  assert.ok(!/\.node-name-line \.status-dot/.test(wxss), '不再依赖名称行内的定位');
+});

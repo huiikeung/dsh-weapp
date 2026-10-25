@@ -129,6 +129,13 @@ function cachedLease(nodeId) {
   if (!(Number(grant.expiresAt) > Date.now())) return null;
   return { token: grant.token, expiresAt: Number(grant.expiresAt) };
 }
+/**
+ * 丢弃本机缓存的公网租赁。租赁只在服务端内存里保存：服务端一重启，旧 token 立刻失效，
+ * 但本地凭据会一直复用到一个小时后。中继明确拒绝授权时必须先清掉它再重新取号。
+ */
+function forgetGrant() {
+  try { wx.removeStorageSync(GRANT_KEY); } catch (e) {}
+}
 
 function publicLease(nodeId, deviceId) {
   // 复用本机会话，失效才重新登录：连接中继是常规动作，不该每次强制 wx.login +
@@ -163,4 +170,4 @@ function claimAdminBinding(code) { return request('/admin-binding/claim', { code
 function pairings() { return request('/admin/pairings'); }
 function createPairing(nodeId, days) { return request('/admin/pairings', { nodeId, days }, false, 30000); }
 function revokePairing(id) { return request('/admin/pairings/' + encodeURIComponent(id) + '/revoke', {}); }
-module.exports = { configured, lastGrant, cachedLease, saveGrant, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, hasPublicAccess, isManagedRelay, publicLease, issueCompletionNotificationTicket, claimAdminBinding, pairings, createPairing, revokePairing, clear };
+module.exports = { configured, lastGrant, cachedLease, saveGrant, forgetGrant, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, hasPublicAccess, isManagedRelay, publicLease, issueCompletionNotificationTicket, claimAdminBinding, pairings, createPairing, revokePairing, clear };

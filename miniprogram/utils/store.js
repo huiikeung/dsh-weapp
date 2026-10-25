@@ -2762,6 +2762,7 @@ function createStore() {
       blank: source.blank === true,
       cwd: source.cwd || source.workingDirectory || source.working_directory || null,
       agentPreset: source.agentPreset || source.agent_preset || null,
+      displayTitle: source.displayTitle || source.display_title || source.label || null,
       hasConversation: hasConversation,
       title: title,
       // 子代理（subagent/child）会话与工作区归属：用于快捷切换时过滤

@@ -1,4 +1,5 @@
 // DSH desktop command menu order; only expose commands advertised by the Host.
+const util = require('./util');
 const ADD = ['goal', 'plan', 'feedback'];
 const COMMANDS = ['compact', 'permission', 'model', 'export'];
 const FACES = {
@@ -124,7 +125,13 @@ function fileReferencePrefix(path, preserveQuote) {
   const quoted = preserveQuote || /\s/.test(value);
   return quoted ? '@"' + value : '@' + value;
 }
+function sessionReference(sessionId, label) {
+  const id = String(sessionId || '');
+  if (!id) return '';
+  const safeLabel = String(label || id).replace(/[\\\]]/g, '\\$&');
+  return '@[' + safeLabel + '](dsh-session:' + util.encodeBase64URL(JSON.stringify(id)) + ')';
+}
 function imageType(name) {
   return ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' })[String(name || '').split(/[?#]/)[0].split('.').pop().toLowerCase()] || '';
 }
-module.exports = { commands, acceptsAttachments, catalog, inputDraft, presentation, commandLabel, optionTitle, optionRows, modelFace, fileReference, referenceAtCursor, fileReferencePrefix, imageType };
+module.exports = { commands, acceptsAttachments, catalog, inputDraft, presentation, commandLabel, optionTitle, optionRows, modelFace, fileReference, referenceAtCursor, fileReferencePrefix, sessionReference, imageType };

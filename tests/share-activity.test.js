@@ -38,8 +38,8 @@ test('Moments explains review and only uploads after consent; picker return pres
 });
 test('settings hides ordinary identity, removes admin pairing entry, keeps node scanning and sharing',()=>{
   const html=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/settings/settings.wxml'),'utf8').replace(/\{\{ui\['([^']+)'\]\}\}/g, (_, key) => key);
-  const at=html.indexOf('<view class="group-title">微信身份</view>');
-  assert.ok(html.slice(at-48,at).includes('wx:if="{{isWechatAdmin}}"'));
+  assert.ok(html.includes('<block wx:if="{{isWechatAdmin}}">'), 'administrator-only settings stay behind verified identity');
+  assert.ok(html.includes('<view class="group-title">管理员</view>'), 'admin tools remain grouped inside the guarded panel');
   assert.ok(!html.includes('bindtap="openPairingManagement"'));
   assert.ok(html.includes('bindtap="addNode"'));
   assert.ok(html.includes('open-type="share" data-referral="true"'));

@@ -9,6 +9,11 @@ const { createEngagement } = require('./engagement.cjs');
 const { createAnnouncements } = require('./announcements.cjs');
 const { DEFAULT_TEMPLATE_ID, createWechatNotificationSender } = require('./notifications.cjs');
 const DAY = 86400000;
+// 兑换码可选档位：签发时代入 days/uses，兑换时按 days 累加到公网到期时间。
+// 1 天=体验/补偿，90=季度，730=2 年，1095=3 年，3650=长期（近似永久，避开真·永久的判定分支）。
+// 客户端（小程序设置页/兑换码管理）的档位顺序必须与这两个数组一致。
+const CODE_DAYS = [1, 3, 7, 30, 60, 90, 180, 365, 730, 1095, 3650];
+const CODE_USES = [1, 5, 20, 50, 100];
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const nodeIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function fail(status, code, message) { return Object.assign(new Error(message), { status, code }); }
@@ -35,7 +40,40 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
     for (const item of Object.values(state.notificationTickets)) if (item.status === 'sending') item.status = 'issued';
     if (state.version === 1) state.version = 2;
   } catch (e) { if (e.code !== 'ENOENT') throw new Error('Cannot read authorization state; refusing to reset it'); }
-  const sessions = new Map(), leases = new Map(), limits = new Map(), inFlight = new Set(), notificationSends = new Map();
+  const sessions = new Map(), limits = new Map(), inFlight = new Set(), notificationSends = new Map();
+  // 公网租赁持久化：以前只存在内存里，进程一重启所有 lease 立刻失效，而小程序会把旧
+  // token 缓存到过期（最长 1 天），表现为「服务端升级后部分手机公网连不上、没缓存的
+  // 手机又能连」。单独存一个文件，读写失败只记日志，绝不影响连接本身。
+  const leaseFile = path.join(path.dirname(stateFile), 'leases.json');
+  const leases = new Map();
+  try {
+    const savedLeases = JSON.parse(fs.readFileSync(leaseFile, 'utf8')) || {};
+    for (const [key, item] of Object.entries(savedLeases)) {
+      if (!/^[a-f0-9]{64}$/.test(key) || !item || typeof item.openid !== 'string' || typeof item.nodeId !== 'string' ||
+        typeof item.deviceId !== 'string' || !Number.isSafeInteger(item.expiresAt) || item.expiresAt <= now()) continue;
+      leases.set(key, { openid: item.openid, nodeId: item.nodeId, deviceId: item.deviceId, expiresAt: item.expiresAt });
+    }
+  } catch (e) {
+    // 租赁是短期凭据：文件损坏时从空开始，不能因此拒绝启动（用户的公网时长在 state.json 里）。
+    if (e.code !== 'ENOENT') console.warn('[access] ignoring unreadable public lease file:', e.message);
+  }
+  function persistLeases() {
+    try {
+      for (const [key, item] of leases) if (item.expiresAt <= now()) leases.delete(key);
+      const payload = {};
+      for (const [key, item] of leases) payload[key] = item;
+      fs.mkdirSync(path.dirname(leaseFile), { recursive: true, mode: 0o700 });
+      const temp = leaseFile + '.' + crypto.randomUUID() + '.tmp';
+      try {
+        fs.writeFileSync(temp, JSON.stringify(payload), { mode: 0o600, flag: 'wx' });
+        const fd = fs.openSync(temp, 'r+'); try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+        fs.renameSync(temp, leaseFile);
+      } finally { try { fs.unlinkSync(temp); } catch (e) { if (e.code !== 'ENOENT') throw e; } }
+    } catch (e) {
+      // 持久化只是保险，写不进去也要让这次连接正常工作。
+      console.warn('[access] cannot persist public leases:', e.message);
+    }
+  }
   function commit(change) {
     const next = JSON.parse(JSON.stringify(state));
     const result = change(next);
@@ -113,7 +151,7 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
   const engagement = createEngagement({ getState: () => state, commit, now, limit });
   const announcements = createAnnouncements({ getState: () => state, commit, now });
   const consoleApp = createConsole({ options: consoleOptions, getState: () => state, commit, body, respond, now, limit, engagement,
-    envAdmins: [...admins], invalidateSessions: () => { sessions.clear(); leases.clear(); }, hasPendingGrants: () => Object.values(state.redemptions).some(r => r.status === 'pending') });
+    envAdmins: [...admins], invalidateSessions: () => { sessions.clear(); leases.clear(); persistLeases(); }, hasPendingGrants: () => Object.values(state.redemptions).some(r => r.status === 'pending') });
   const deliverNotification = sendNotification || createWechatNotificationSender({
     getWechatConfig: async () => consoleApp?.wechat(), templateId: notificationTemplateId, now,
   });
@@ -253,6 +291,7 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
         const token = crypto.randomBytes(32).toString('base64url');
         const expiresAt = Math.min(now() + DAY, current.publicAccessExpiresAt || Infinity);
         leases.set(hash(token), { openid: user.openid, nodeId: input.nodeId, deviceId: input.deviceId, expiresAt });
+        persistLeases();
         respond(res, 201, { token, expiresAt }); return;
       }
       if (req.method === 'POST' && route === '/admin-binding/claim' && consoleApp) {
@@ -296,7 +335,8 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
         // nodeId is optional for account-wide public access codes. Supplying it
         // keeps the older relay-grant contract working unchanged.
         const nodeId = input.nodeId ? validNode(input.nodeId) : null;
-        if (!(nodeId ? [3, 7, 30, 90, 180, 365] : [3, 7, 30, 180, 365]).includes(input.days) || ![1, 5, 20].includes(input.uses)) throw fail(400, 'INVALID_CODE_OPTIONS', '访问时长或次数无效');
+        // 节点码与账号码共用一份档位表（历史节点码多一档 90 天，现已并入）。
+        if (!CODE_DAYS.includes(input.days) || !CODE_USES.includes(input.uses)) throw fail(400, 'INVALID_CODE_OPTIONS', '访问时长或次数无效');
         if (nodeId) requireGrant();
         const value = crypto.randomBytes(12).toString('hex').toUpperCase();
         const code = value.match(/.{1,6}/g).join('-');

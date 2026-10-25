@@ -1553,12 +1553,12 @@
   </view>
   <scroll-view class="file-mention-scroll" scroll-y enhanced show-scrollbar="{{false}}">
     <view wx:if="{{fileMentionLoading && !fileMentionEntries.length}}" class="file-mention-state">{{ui['正在读取工作区文件…']}}</view>
-    <view wx:elif="{{fileMentionError}}" class="file-mention-state file-mention-error">
+    <view wx:if="{{fileMentionError}}" class="file-mention-state file-mention-error">
       <text>{{ui[fileMentionError] !== undefined ? ui[fileMentionError] : fileMentionError}}</text>
       <view class="file-mention-retry" bindtap="retryFileMention" role="button">{{ui['重试']}}</view>
     </view>
-    <view wx:elif="{{!fileMentionEntries.length && fileMentionQuery}}" class="file-mention-state">{{ui['没有匹配的文件或文件夹']}}</view>
-    <view wx:elif="{{!fileMentionEntries.length}}" class="file-mention-state">{{ui['此目录为空']}}</view>
+    <view wx:if="{{!fileMentionLoading && !fileMentionError && !fileMentionEntries.length && !fileMentionSessionGroups.length && fileMentionQuery}}" class="file-mention-state">{{ui['没有匹配的文件或文件夹']}}</view>
+    <view wx:if="{{!fileMentionLoading && !fileMentionError && !fileMentionEntries.length && !fileMentionSessionGroups.length && !fileMentionQuery}}" class="file-mention-state">{{ui['此目录为空']}}</view>
     <view wx:for="{{fileMentionEntries}}" wx:key="key" class="file-mention-row" bindtap="selectFileMention" data-index="{{index}}" role="button">
       <image class="file-mention-icon" src="/assets/icons/{{item.iconFile}}" mode="aspectFit"/>
       <text class="file-mention-name">{{item.name}}{{item.kind === 'dir' ? '/' : ''}}</text>
@@ -1566,6 +1566,15 @@
         <image class="file-mention-chevron" src="/assets/icons/chev-right-gray.png" mode="aspectFit"/>
       </view>
     </view>
+    <block wx:for="{{fileMentionSessionGroups}}" wx:key="key" wx:for-item="group">
+      <view class="file-mention-group-title">{{group.label}}</view>
+      <view wx:for="{{group.items}}" wx:key="key" wx:for-item="session" class="file-mention-row file-mention-session-row" bindtap="selectSessionMention" data-id="{{session.id}}" data-title="{{session.title}}" role="button">
+        <image class="file-mention-icon" src="/assets/icons/menu-chat-session.svg" mode="aspectFit"/>
+        <text class="file-mention-name">{{session.title}}</text>
+        <text wx:if="{{session.detail}}" class="file-mention-session-detail">{{session.detail}}</text>
+      </view>
+    </block>
+    <view class="file-mention-bottom-space" aria-hidden="true"></view>
   </scroll-view>
 </view>
 

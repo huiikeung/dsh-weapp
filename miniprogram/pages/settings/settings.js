@@ -23,6 +23,15 @@ const accountView = require('./utils/account-view');
 const { identityBadge } = require('./utils/identity-badge');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
 
+// 兑换码档位：天数与文案一一对应，顺序必须与服务端 CODE_DAYS/CODE_USES 一致
+// （dsh-console/services/public-access/server.cjs）。文案只是展示用的字典键。
+const CODE_DURATION_DAYS = [1, 3, 7, 30, 60, 90, 180, 365, 730, 1095, 3650];
+const CODE_DURATION_KEYS = ['1 天', '3 天', '7 天', '30 天', '60 天', '90 天', '半年', '1 年', '2 年', '3 年', '长期'];
+const CODE_USES = [1, 5, 20, 50, 100];
+const CODE_USE_KEYS = ['1 次', '5 次', '20 次', '50 次', '100 次'];
+const codeDurationLabels = () => CODE_DURATION_KEYS.map(uiText);
+const codeUseLabels = () => CODE_USE_KEYS.map(uiText);
+
 Page({
   manualShareMenu: true,
   data: {
@@ -168,9 +177,9 @@ Page({
     codeItems: [],
     // 「最近生成」右上角的一键清空：只统计卡片状态正是「已用完」的兑换码。
     codeUsedCount: 0,
-    codeDurations: ['3 天', '7 天', '30 天', '半年', '1 年'],
-    codeDurationIndex: 2,
-    codeCounts: ['1 次', '5 次', '20 次'],
+    codeDurations: codeDurationLabels(), codeDurationPickerOpen: false, codeCountPickerOpen: false,
+    codeDurationIndex: 3,
+    codeCounts: codeUseLabels(),
     codeCountIndex: 0,
     codeGenerated: '',
     codeGeneratedMeta: '',
@@ -1269,7 +1278,11 @@ Page({
 
   readLanguageLabel() { return preferences.snapshot().languageLabel; },
   readFontLabel() { return preferences.snapshot().fontSizeLabel; },
-  onUiLocaleChange() { this.syncFromStore({ app: store.state }); },
+  onUiLocaleChange() {
+    // 兑换码档位文案是本地拼的（不走 ui[] 映射），切语言时要跟着重建。
+    this.setData({ codeDurations: codeDurationLabels(), codeCounts: codeUseLabels() });
+    this.syncFromStore({ app: store.state });
+  },
   onUiPreferencesChange(next) {
     // The global Page wrapper already sent changed preferences. Never resend its dictionary.
     const { ui, ...localPreferences } = next || preferences.snapshot();
@@ -1415,16 +1428,29 @@ Page({
     if (!this.data.codeBusy) this.setData({ codeDurationIndex: Number(e.detail.value) });
   },
 
+  openCodeDurationPicker() { if (!this.data.codeBusy) this.setData({ codeDurationPickerOpen: true }); },
+  closeCodeDurationPicker() { this.setData({ codeDurationPickerOpen: false }); },
+  codeChooseDuration(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    if (!Number.isInteger(index) || index < 0) return;
+    this.setData({ codeDurationIndex: index, codeDurationPickerOpen: false });
+  },
+
   codePickCount(e) {
     if (!this.data.codeBusy) this.setData({ codeCountIndex: Number(e.detail.value) });
+  },
+  openCodeCountPicker() { if (!this.data.codeBusy) this.setData({ codeCountPickerOpen: true }); },
+  closeCodeCountPicker() { this.setData({ codeCountPickerOpen: false }); },
+  codeChooseCount(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    if (!Number.isInteger(index) || index < 0) return;
+    this.setData({ codeCountIndex: index, codeCountPickerOpen: false });
   },
 
   codeGenerate() {
     if (this.data.codeBusy || !this.data.codeIsAdmin) return;
-    const DAYS = [3, 7, 30, 180, 365];
-    const USES = [1, 5, 20];
-    const days = DAYS[this.data.codeDurationIndex];
-    const uses = USES[this.data.codeCountIndex];
+    const days = CODE_DURATION_DAYS[this.data.codeDurationIndex];
+    const uses = CODE_USES[this.data.codeCountIndex];
     if (!days || !uses) return;
     const generation = this._codeGen;
     this.setData({ codeBusy: true, codeError: '', codeGenerated: '', codeGeneratedMeta: '', codeGeneratedId: '' });

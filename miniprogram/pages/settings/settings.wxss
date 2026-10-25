@@ -705,8 +705,11 @@
   min-width: 0;
 }
 
-.node-name-line .status-dot {
+/* 状态点是 .node-row 的直接子节点：行的 align-items:center 让它相对两行卡片（名称 + ID）
+   垂直居中；行自带 gap:16rpx，去掉 app.wxss 里给文字行准备的 margin-right。 */
+.node-row > .node-dot {
   flex-shrink: 0;
+  margin-right: 0;
 }
 
 .node-name {
@@ -1758,3 +1761,15 @@
 .storage-clear-text { flex:1; text-align:center; color:#FA5150; font-size:29rpx; padding:22rpx 0; }
 .storage-clear.is-disabled { opacity:.5; }
 .storage-row-chevron { flex-shrink:0; }
+
+/* 兑换码「访问时长」居中弹窗 */
+.code-modal-mask { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 48rpx; background: rgba(0, 0, 0, .45); }
+.code-modal { width: 100%; max-width: 600rpx; max-height: 70vh; box-sizing: border-box; display: flex; flex-direction: column; padding: 28rpx 28rpx 20rpx; border-radius: 24rpx; background: var(--surface); border: 1rpx solid var(--border); box-shadow: 0 24rpx 64rpx rgba(0, 0, 0, .28); }
+.code-modal-head { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 16rpx; padding-bottom: 16rpx; }
+.code-modal-title { color: var(--text); font-size: 30rpx; font-weight: 620; }
+.code-modal-close { width: 52rpx; height: 52rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--fill); color: var(--text-2); font-size: 24rpx; }
+.code-modal-body { flex: 1; min-height: 0; max-height: 52vh; }
+.code-option { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; min-height: 96rpx; padding: 0 22rpx; border-radius: 16rpx; color: var(--text); font-size: 28rpx; }
+.code-option + .code-option { margin-top: 8rpx; }
+.code-option.on { background: var(--fill); color: var(--ocean); font-weight: 600; }
+.code-option-check { color: var(--ocean); font-size: 26rpx; }

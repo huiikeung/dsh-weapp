@@ -22,9 +22,11 @@ function fixture(lease, cached) {
       sockets.push(socket); return socket;
     }
   };
+  let forgotten = 0;
   const access = { isManagedRelay: value => value === endpoint, publicLease(nodeId, deviceId) {
     leases.push({ nodeId, deviceId }); return lease();
-  }, cachedLease(nodeId) { return cached ? cached(nodeId) : null; } };
+  }, cachedLease(nodeId) { return forgotten ? null : (cached ? cached(nodeId) : null); },
+  forgetGrant() { forgotten += 1; } };
   const publicAccessPrompt = { promptFirstAuthorizedUse(proceed) { onboardingPrompts++; proceed(); } };
   class Session { constructor() { this.hello = new Uint8Array([1]); } }
   const context = { module: { exports: {} }, wx, Date, Uint8Array, ArrayBuffer,
@@ -40,7 +42,7 @@ function fixture(lease, cached) {
   vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../miniprogram/utils/gateway.js'), 'utf8'), context);
   const client = new context.module.exports.GatewayClient();
   client.reportDeviceInfo = () => {};
-  return { client, sockets, leases, timers, onboardingPrompts: () => onboardingPrompts };
+  return { client, sockets, leases, timers, onboardingPrompts: () => onboardingPrompts, forgotten: () => forgotten };
 }
 test('LAN, direct WSS and self-hosted relay never depend on public subscription', () => {
   const f = fixture(() => { throw new Error('subscription unavailable'); });
@@ -124,4 +126,51 @@ test('a missing or foreign cached lease still falls back to the account server',
   assert.equal(foreign.leases.length, 1, 'a lease for another node must not be reused');
   assert.equal(foreign.sockets[0].options.protocols.includes('dsh-public.' + 'g'.repeat(43)), true);
   foreign.client.disconnect();
+});
+test('a relay rejection of the cached lease drops it and re-leases instead of retrying a dead token', async () => {
+  const stale = 's'.repeat(43), fresh = 'n'.repeat(43);
+  const f = fixture(
+    () => Promise.resolve({ token: fresh, expiresAt: Date.now() + 60000 }),
+    nodeId => (nodeId === 'fixture-node' ? { token: stale, expiresAt: Date.now() + 60000 } : null)
+  );
+  // 命中本地缓存的旧租赁：直接开 socket，不请求账号服务（正常快路径）。
+  f.client.connect(endpoint, { relay });
+  assert.equal(f.sockets.length, 1);
+  assert.equal(f.sockets[0].options.protocols.includes('dsh-public.' + stale), true);
+  assert.equal(f.leases.length, 0);
+
+  // 服务端重启后内存里的租赁全部失效：中继以 4003 public-access-* 关闭连接。
+  f.sockets[0].events.close({ code: 4003, reason: 'public-access-unavailable' });
+  assert.equal(f.forgotten(), 1, 'the stale cached lease is discarded');
+  assert.equal(f.client.state, 'connecting');
+
+  const pending = [...f.timers.values()]; f.timers.clear();
+  assert.equal(pending.length, 1, 'one immediate retry is scheduled');
+  pending[0].fn();
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(f.leases.length, 1, 'the retry asks the account server for a fresh lease');
+  assert.equal(f.sockets.length, 2);
+  assert.equal(f.sockets[1].options.protocols.includes('dsh-public.' + fresh), true);
+  assert.equal(f.sockets[1].options.protocols.includes('dsh-public.' + stale), false);
+});
+
+test('the lease refresh retries only once, then surfaces the real reason', async () => {
+  const stale = 's'.repeat(43);
+  const expired = Object.assign(new Error('公网访问有效期已到期，请在设置→公网访问兑换续期；局域网连接不受影响。'), { code: 'PUBLIC_ACCESS_EXPIRED' });
+  const f = fixture(() => Promise.reject(expired),
+    nodeId => (nodeId === 'fixture-node' ? { token: stale, expiresAt: Date.now() + 60000 } : null));
+  f.client.connect(endpoint, { relay });
+  const statuses = [];
+  f.client.cb.onState = (...args) => statuses.push(args);
+  f.sockets[0].events.close({ code: 4003, reason: 'public-access-expired' });
+  const pending = [...f.timers.values()]; f.timers.clear();
+  pending.forEach(timer => timer.fn());
+  await new Promise(resolve => setImmediate(resolve));
+  await new Promise(resolve => setImmediate(resolve));
+  // 拿不到新租赁就停下，把真实原因交给用户，不能无限重连。
+  assert.equal(f.client.state, 'failed');
+  assert.equal(statuses.at(-1)[0], 'failed');
+  assert.equal(statuses.at(-1)[1], expired.message);
+  assert.equal(f.forgotten(), 1, 'the stale lease was dropped once, not repeatedly');
 });

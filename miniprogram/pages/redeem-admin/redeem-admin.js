@@ -1,18 +1,21 @@
 const { t: uiText } = require('../../utils/ui-preferences');
 const api = require('../../utils/access-api');
 const theme = require('../../utils/theme');
-const DAYS = [3, 7, 30, 180, 365];
-const USES = [1, 5, 20];
+// 兑换码档位：与设置页、服务端 CODE_DAYS/CODE_USES 保持一致。
+const DAYS = [1, 3, 7, 30, 60, 90, 180, 365, 730, 1095, 3650];
+const USES = [1, 5, 20, 50, 100];
+const DURATION_KEYS = ['1 天', '3 天', '7 天', '30 天', '60 天', '90 天', '半年', '1 年', '2 年', '3 年', '长期'];
+const USE_KEYS = ['1 次', '5 次', '20 次', '50 次', '100 次'];
 function date(value) { const d = new Date(value); return [d.getFullYear(), d.getMonth() + 1, d.getDate()].join('/'); }
 Page({
   data: {
     loading: true, verified: false, isAdmin: false, grantReady: false,
     busy: false, actionId: '', error: '', nodes: [], nodeIndex: 0,
-    durations: [uiText('3 天'), uiText('7 天'), uiText('30 天'), uiText('半年'), uiText('1 年')], durationIndex: 2,
-    counts: [uiText('1 次'), uiText('5 次'), uiText('20 次')], countIndex: 0,
+    durations: DURATION_KEYS.map(uiText), durationIndex: 3, durationPickerOpen: false, countPickerOpen: false,
+    counts: USE_KEYS.map(uiText), countIndex: 0,
     generatedCode: '', generatedMeta: '', generatedId: '', items: [], usedCodeCount: 0
   },
-  onUiPreferencesChange() { this.setData({ durations: ['3 天', '7 天', '30 天', '半年', '1 年'].map(uiText), counts: ['1 次', '5 次', '20 次'].map(uiText) }); },
+  onUiPreferencesChange() { this.setData({ durations: DURATION_KEYS.map(uiText), counts: USE_KEYS.map(uiText) }); },
   onLoad() { theme.applyTo(this); },
   onShow() { return this.refresh(); },
   onHide() { this._generation = (this._generation || 0) + 1; this.setData({ isAdmin: false, busy: false, actionId: '', generatedCode: '', generatedId: '', items: [], usedCodeCount: 0 }); },
@@ -56,8 +59,22 @@ Page({
   },
   applyItems(items) { this.setData(this.itemsPatch(items)); },
   pickNode(e) { if (!this.data.busy) this.setData({ nodeIndex: Number(e.detail.value) }); },
+  openDurationPicker() { if (!this.data.busy) this.setData({ durationPickerOpen: true }); },
+  closeDurationPicker() { this.setData({ durationPickerOpen: false }); },
+  chooseDuration(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    if (!Number.isInteger(index) || index < 0) return;
+    this.setData({ durationIndex: index, durationPickerOpen: false });
+  },
   pickDuration(e) { if (!this.data.busy) this.setData({ durationIndex: Number(e.detail.value) }); },
   pickCount(e) { if (!this.data.busy) this.setData({ countIndex: Number(e.detail.value) }); },
+  openCountPicker() { if (!this.data.busy) this.setData({ countPickerOpen: true }); },
+  closeCountPicker() { this.setData({ countPickerOpen: false }); },
+  chooseCount(e) {
+    const index = Number(e.currentTarget.dataset.index);
+    if (!Number.isInteger(index) || index < 0) return;
+    this.setData({ countIndex: index, countPickerOpen: false });
+  },
   async generate() {
     if (!this.data.isAdmin || this.data.busy || !this.data.grantReady) return;
     const days = DAYS[this.data.durationIndex], uses = USES[this.data.countIndex];

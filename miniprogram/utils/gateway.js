@@ -113,6 +113,8 @@ class GatewayClient {
     this.setState('connecting', uiText('正在验证公网有效期…'));
     return accessApi.publicLease(opts.relay.nodeId, this.deviceId).then(lease => {
       if (generation !== this.connectGeneration) return;
+      // 拿到新租赁即恢复"可自动刷新"的额度，供下一次服务端重启后重试。
+      this._leaseRefreshTried = false;
       publicAccessPrompt.promptFirstAuthorizedUse(() => {
         if (generation !== this.connectGeneration) return;
         this.connectTransport(endpoint, opts, lease);
@@ -266,8 +268,8 @@ class GatewayClient {
       if (self.socketTask !== transportTask) return;
       if (self.state === 'connected' || self.state === 'connecting') {
         if (res && Number(res.code) === 4003) {
-          if (res.reason === 'public-lease-expired') { self.handleTransportFailure(uiText('正在刷新公网授权')); }
-          else if (/^public-access-/.test(res.reason || '')) self.handleAuthorizationFailure(uiText('公网服务未开通、已到期或验证失败，请在设置→公网访问检查或兑换；局域网不受影响'));
+          if (res.reason === 'public-lease-expired') { self.refreshManagedLease(uiText('正在刷新公网授权')); }
+          else if (/^public-access-/.test(res.reason || '')) self.refreshManagedLease(uiText('公网服务未开通、已到期或验证失败，请在设置→公网访问检查或兑换；局域网不受影响'));
           else self.handleAuthorizationFailure(uiText('设备配对已失效，请重新扫描 DSH 二维码'));
         } else if (res && Number(res.code) === 4001) {
           // 中继报告电脑端连接器不在线：停止自动重试，直接把原因显示出来
@@ -348,6 +350,40 @@ class GatewayClient {
     }
     this.failAllPending(message);
     this.setState('failed', message);
+  }
+
+  /**
+   * 中继判定公网授权不通过（4003 public-access-* / public-lease-expired）：
+   * 服务端的租赁只存在内存里，服务端一重启旧 token 就作废，而本机凭据会一直缓存到过期，
+   * 于是同一个死 token 反复重连永远失败（换手机/清缓存后才正常）。
+   * 这里丢掉缓存、用新租赁重试一次；第二次仍失败才把原因显示给用户，避免死循环。
+   */
+  refreshManagedLease(message) {
+    clearTimeout(this.publicLeaseTimer);
+    this.clearConnectionTimeout();
+    const socket = this.socketTask;
+    this.socketTask = null;
+    if (socket) {
+      try { socket.close({}); } catch (e) { /* 忽略 */ }
+    }
+    this.failAllPending(message);
+    const managed = typeof accessApi.isManagedRelay === 'function' && accessApi.isManagedRelay(this.endpoint);
+    if (!managed || this._leaseRefreshTried) {
+      this.wantsConnection = false;
+      this.setState('failed', message);
+      return;
+    }
+    this._leaseRefreshTried = true;
+    if (typeof accessApi.forgetGrant === 'function') accessApi.forgetGrant();
+    // disconnect 会 +1 generation 并清掉重连计时器，随后的 connect() 走"无缓存"分支重新取号。
+    this.disconnect({ keepWant: false });
+    this.wantsConnection = true;
+    this.setState('connecting', uiText('正在刷新公网授权'));
+    const self = this;
+    setTimeout(function () {
+      if (!self.wantsConnection || !self.endpoint) return;
+      self.connect(self.endpoint, self.lastConnectOpts || { token: self.lastToken || null });
+    }, 0);
   }
 
   scheduleReconnect() {
@@ -543,6 +579,8 @@ class GatewayClient {
     }
 
     if (frame.kind === 'relay-authorized') {
+      // 授权通过：本次租赁是好的，下次遇到 4003 仍允许自动刷新一次。
+      this._leaseRefreshTried = false;
       this.relayAccessToken = frame.accessToken || null;
       if (this.lastConnectOpts && this.lastConnectOpts.relay) {
         this.lastConnectOpts.relay.accessToken = this.relayAccessToken;

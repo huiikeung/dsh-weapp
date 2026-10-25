@@ -11,12 +11,8 @@
     <view class="group-title">{{ui['生成兑换码']}}</view>
     <view class="card">
       <view class="card-row"><text class="card-row-label">{{ui['适用范围']}}</text><text class="admin-value">{{ui['全部公网节点']}}</text></view>
-      <picker range="{{durations}}" value="{{durationIndex}}" bindchange="pickDuration" disabled="{{busy}}">
-        <view class="card-row"><text class="card-row-label">{{ui['访问时长']}}</text><text class="admin-value">{{durations[durationIndex]}} ›</text></view>
-      </picker>
-      <picker range="{{counts}}" value="{{countIndex}}" bindchange="pickCount" disabled="{{busy}}">
-        <view class="card-row"><text class="card-row-label">{{ui['可兑换次数']}}</text><text class="admin-value">{{counts[countIndex]}} ›</text></view>
-      </picker>
+      <view class="card-row" bindtap="openDurationPicker" role="button" aria-label="{{ui['访问时长']}}"><text class="card-row-label">{{ui['访问时长']}}</text><text class="admin-value">{{durations[durationIndex]}} ›</text></view>
+      <view class="card-row" bindtap="openCountPicker" role="button" aria-label="{{ui['可兑换次数']}}"><text class="card-row-label">{{ui['可兑换次数']}}</text><text class="admin-value">{{counts[countIndex]}} ›</text></view>
       <view class="card-row"><text class="card-row-label">{{ui['兑换期限']}}</text><text class="admin-value">{{ui['生成后 30 天内']}}</text></view>
     </view>
     <view class="group-hint">{{ui['兑换码只控制公网访问权限，不影响局域网连接。用户兑换后，可扫描自己 DSH 插件生成的公网二维码连接自己的设备。']}}</view>
@@ -45,4 +41,36 @@
       <text wx:if="{{!item.canCopy}}" class="code-meta">{{ui['旧版仅存哈希，无法恢复原码；可删除后重新生成。']}}</text>
     </view>
   </block>
+
+  <!-- 访问时长：居中弹窗（不用系统底部选择器） -->
+  <view wx:if="{{durationPickerOpen}}" class="admin-modal-mask" bindtap="closeDurationPicker" catchtouchmove="noop">
+    <view class="admin-modal" catchtap="noop" role="dialog" aria-label="{{ui['访问时长']}}">
+      <view class="admin-modal-head">
+        <text class="admin-modal-title">{{ui['访问时长']}}</text>
+        <view class="admin-modal-close" bindtap="closeDurationPicker" role="button" aria-label="{{ui['关闭']}}">✕</view>
+      </view>
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="admin-modal-body">
+        <view wx:for="{{durations}}" wx:key="index" class="admin-option {{durationIndex === index ? 'on' : ''}}" data-index="{{index}}" bindtap="chooseDuration" role="button">
+          <text class="admin-option-label">{{item}}</text>
+          <text wx:if="{{durationIndex === index}}" class="admin-option-check">✓</text>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- 可兑换次数：居中弹窗 -->
+  <view wx:if="{{countPickerOpen}}" class="admin-modal-mask" bindtap="closeCountPicker" catchtouchmove="noop">
+    <view class="admin-modal" catchtap="noop" role="dialog" aria-label="{{ui['可兑换次数']}}">
+      <view class="admin-modal-head">
+        <text class="admin-modal-title">{{ui['可兑换次数']}}</text>
+        <view class="admin-modal-close" bindtap="closeCountPicker" role="button" aria-label="{{ui['关闭']}}">✕</view>
+      </view>
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="admin-modal-body">
+        <view wx:for="{{counts}}" wx:key="index" class="admin-option {{countIndex === index ? 'on' : ''}}" data-index="{{index}}" bindtap="chooseCount" role="button">
+          <text class="admin-option-label">{{item}}</text>
+          <text wx:if="{{countIndex === index}}" class="admin-option-check">✓</text>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
 </view>

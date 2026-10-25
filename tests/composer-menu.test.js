@@ -34,6 +34,7 @@ test('input commands preserve content, file references quote spaces and images k
   assert.equal(menu.inputDraft(item('plan', 'input'), '/go some work'), '/plan some work');
   assert.equal(menu.fileReference('src/a b.js'), '@"src/a b.js"');
   assert.equal(menu.fileReference('src/a\nb.js'), '');
+  assert.equal(menu.sessionReference('session-中文', '标题]测试\\'), '@[标题\\]测试\\\\](dsh-session:' + require('../miniprogram/utils/util').encodeBase64URL(JSON.stringify('session-中文')) + ')');
   assert.equal(menu.imageType('photo.PNG'), 'image/png');
   assert.equal(menu.imageType('report.pdf'), '');
 });

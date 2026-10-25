@@ -164,7 +164,9 @@ test('public codes work without managed nodes/adapters and renew account expiry 
 test('public code concurrency, revoked codes and invalid options cannot overgrant', async t => {
   const f = await fixture(t, { managedNodeIds: [], grantAccess: null });
   const admin = await f.login('admin'), user = await f.login('user'), second = await f.login('second');
-  assert.equal((await f.request('/admin/codes', admin.token, { days: 90, uses: 1 })).status, 400);
+  // 90 天现在是合法档位（季度），用真正不在白名单里的天数验证拒绝逻辑。
+  assert.equal((await f.request('/admin/codes', admin.token, { days: 14, uses: 1 })).status, 400);
+  assert.equal((await f.request('/admin/codes', admin.token, { days: 14, uses: 1 })).code, 'INVALID_CODE_OPTIONS');
   const code = await f.request('/admin/codes', admin.token, { days: 7, uses: 1 });
   const claims = await Promise.all([user, second].map(u => f.request('/redemptions', u.token, { code: code.code })));
   assert.equal(claims.filter(r => r.status === 200).length, 1);

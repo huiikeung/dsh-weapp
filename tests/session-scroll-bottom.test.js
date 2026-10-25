@@ -38,3 +38,15 @@ test('the bottom breathing room rides inside the scroll content', () => {
   const ctxSpacer = wxml.indexOf('class="ctx-bottom-space"');
   assert.ok(ctxScroll > 0 && ctxSpacer > ctxScroll, 'the context spacer sits inside its scroll-view');
 });
+
+test('the final @ mention candidate can scroll clear of the fixed composer', () => {
+  const scrollStart = wxml.indexOf('class="file-mention-scroll"');
+  const scrollEnd = wxml.indexOf('</scroll-view>', scrollStart);
+  const spacer = wxml.indexOf('class="file-mention-bottom-space"');
+  assert.ok(scrollStart > 0 && spacer > scrollStart && spacer < scrollEnd,
+    'the mention spacer must be inside the candidate scroll-view after all entries');
+  const spacerStyle = rule('.file-mention-bottom-space');
+  assert.match(spacerStyle, /height:\s*180rpx/, 'the in-flow spacer lets the final row clear the composer');
+  assert.match(rule('.file-mention-scroll'), /padding:\s*6rpx 10rpx 0;/,
+    'bottom clearance must be scrollable content, not scroll-view padding');
+});

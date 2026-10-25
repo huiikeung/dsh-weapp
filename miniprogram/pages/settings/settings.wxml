@@ -678,9 +678,11 @@
               <view wx:if="{{nodeEditMode}}" class="node-select" catchtap="toggleNodeSelect" data-id="{{item.id}}">
                 <image class="node-select-ic" src="/assets/icons/{{item.selected ? 'circle-filled-white.png' : 'circle-white.png'}}"/>
               </view>
+              <!-- 状态点直接放在行里：行是 align-items:center，所以它相对整张卡片垂直居中，
+                   而不是贴着「名称」那一行（卡片有两行：名称 + 节点 ID）。 -->
+              <view class="status-dot node-dot {{item.online ? 'connected' : 'disconnected'}}"></view>
               <view class="node-main">
                 <view class="node-name-line">
-                  <view class="status-dot {{item.online ? 'connected' : 'disconnected'}}"></view>
                   <text class="node-name">{{item.name}}</text>
                   <text wx:if="{{item.active}}" class="node-current">{{ui['当前']}}</text>
                 </view>
@@ -865,12 +867,8 @@
         <scroll-view class="code-scroll" scroll-y enhanced show-scrollbar="{{false}}">
           <view class="code-form">
             <view class="card-row"><text class="card-row-label">{{ui['适用范围']}}</text><text class="code-value">{{ui['全部公网节点']}}</text></view>
-            <picker range="{{codeDurations}}" value="{{codeDurationIndex}}" bindchange="codePickDuration" disabled="{{codeBusy}}">
-              <view class="card-row"><text class="card-row-label">{{ui['访问时长']}}</text><text class="code-value">{{codeDurations[codeDurationIndex]}} ›</text></view>
-            </picker>
-            <picker range="{{codeCounts}}" value="{{codeCountIndex}}" bindchange="codePickCount" disabled="{{codeBusy}}">
-              <view class="card-row"><text class="card-row-label">{{ui['可兑换次数']}}</text><text class="code-value">{{codeCounts[codeCountIndex]}} ›</text></view>
-            </picker>
+            <view class="card-row" bindtap="openCodeDurationPicker" role="button" aria-label="{{ui['访问时长']}}"><text class="card-row-label">{{ui['访问时长']}}</text><text class="code-value">{{codeDurations[codeDurationIndex]}} ›</text></view>
+            <view class="card-row" bindtap="openCodeCountPicker" role="button" aria-label="{{ui['可兑换次数']}}"><text class="card-row-label">{{ui['可兑换次数']}}</text><text class="code-value">{{codeCounts[codeCountIndex]}} ›</text></view>
           </view>
 
           <button class="code-primary" bindtap="codeGenerate" disabled="{{codeBusy}}">{{codeBusy ? ui['生成中…'] : ui['生成兑换码']}}</button>
@@ -969,3 +967,35 @@
   </view>
 </view>
 <public-access-dialog visible="{{publicAccessDialogOpen}}" dialog="{{publicAccessDialog}}" theme="{{theme}}" bindconfirm="onPublicAccessDialogConfirm" />
+
+<!-- 兑换码「访问时长」：居中弹窗（不用系统滚轮） -->
+<view wx:if="{{codeDurationPickerOpen}}" class="code-modal-mask {{themeClass}}" catchtap="closeCodeDurationPicker" catchtouchmove="noop">
+  <view class="code-modal" catchtap="noop" role="dialog" aria-label="{{ui['访问时长']}}">
+    <view class="code-modal-head">
+      <text class="code-modal-title">{{ui['访问时长']}}</text>
+      <view class="code-modal-close" bindtap="closeCodeDurationPicker" role="button" aria-label="{{ui['关闭']}}">✕</view>
+    </view>
+    <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="code-modal-body">
+      <view wx:for="{{codeDurations}}" wx:key="index" class="code-option {{codeDurationIndex === index ? 'on' : ''}}" data-index="{{index}}" bindtap="codeChooseDuration" role="button">
+        <text class="code-option-label">{{item}}</text>
+        <text wx:if="{{codeDurationIndex === index}}" class="code-option-check">✓</text>
+      </view>
+    </scroll-view>
+  </view>
+</view>
+
+<!-- 兑换码「可兑换次数」：居中弹窗 -->
+<view wx:if="{{codeCountPickerOpen}}" class="code-modal-mask {{themeClass}}" catchtap="closeCodeCountPicker" catchtouchmove="noop">
+  <view class="code-modal" catchtap="noop" role="dialog" aria-label="{{ui['可兑换次数']}}">
+    <view class="code-modal-head">
+      <text class="code-modal-title">{{ui['可兑换次数']}}</text>
+      <view class="code-modal-close" bindtap="closeCodeCountPicker" role="button" aria-label="{{ui['关闭']}}">✕</view>
+    </view>
+    <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="code-modal-body">
+      <view wx:for="{{codeCounts}}" wx:key="index" class="code-option {{codeCountIndex === index ? 'on' : ''}}" data-index="{{index}}" bindtap="codeChooseCount" role="button">
+        <text class="code-option-label">{{item}}</text>
+        <text wx:if="{{codeCountIndex === index}}" class="code-option-check">✓</text>
+      </view>
+    </scroll-view>
+  </view>
+</view>
