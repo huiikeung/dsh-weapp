@@ -207,8 +207,11 @@ test('store routes installation broadcasts without corrupting catalog errors', a
 test('page binds every handler and displays desktop sections, More and install actions', () => {
   const root = path.join(__dirname, '..', 'miniprogram'); let definition;
   const fakeStore = { state: { activeID: 'a', connection: 'connected', pluginCatalog: buildCatalog({ managementAvailable: true, bundles: [
-    { name: 'third-party', installed: true, meta: { icon: 'https://example.test/plugin.svg' } }
-  ], officialItems: [] }) }, subscribe: () => () => {}, refreshPlugins() {} };
+    { name: 'third-party', installed: true, meta: { icon: 'https://example.test/plugin.svg' } },
+    { name: 'dsh-context', installed: true },
+    { name: 'dsh-cost-meter', installed: true },
+    { name: 'raster', installed: true, meta: { icon: 'data:image/png;base64,test' } }
+  ], defaultPluginIcon: '<svg width="70" height="66"/>', officialItems: [] }) }, subscribe: () => () => {}, refreshPlugins() {} };
   const load = file => {
     const module = { exports: {} };
     vm.runInNewContext(fs.readFileSync(path.join(root, file), 'utf8'), { module, Page: d => { definition = d; }, Set,
@@ -219,9 +222,15 @@ test('page binds every handler and displays desktop sections, More and install a
   load('pages/plugins/plugins.js');
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)), setData(p) { Object.assign(this.data, p); } };
   page.onLoad(); assert.equal(page.data.canAdd, true);
-  const installed = page.data.catalog.installedBundles[0];
+  const installed = page.data.catalog.installedBundles.find(item => item.name === 'third-party');
   assert.equal(installed.icon, 'https://example.test/plugin.svg', 'installed rows use the icon URL supplied by DSH');
   assert.equal(installed.artwork, '/assets/plugin-artwork/desktop/plugin-default.svg');
+  for (const name of ['dsh-context', 'dsh-cost-meter']) {
+    const item = page.data.catalog.installedBundles.find(item => item.name === name);
+    assert.equal(item.icon, null, 'do not use a reconstructed gateway default');
+    assert.equal(item.artwork, '/assets/plugin-artwork/desktop/plugin-default.svg', 'match DSH when the package has no manifest icon');
+  }
+  assert.equal(page.data.catalog.installedBundles.find(item => item.name === 'raster').icon, 'data:image/png;base64,test');
   page.openMore(); assert.equal(page.data.showingMore, true); page.goBack(); assert.equal(page.data.showingMore, false);
   fakeStore.state.connection = 'disconnected'; page.syncFromStore(); assert.equal(page.data.canAdd, false);
   const wxml = fs.readFileSync(path.join(root, 'pages/plugins/plugins.wxml'), 'utf8');
@@ -238,14 +247,11 @@ test('SVG plugin icons preserve their viewBox sizing like built-in artwork', () 
     bundles: [{ name: 'tiny-svg', installed: true, meta: { icon: 'data:image/svg+xml;base64,PHN2Zy8+' } }],
     officialItems: []
   }) }, subscribe: () => () => {}, refreshPlugins() {} };
-  const bounds = new Uint8ClampedArray(108 * 108 * 4);
-  for (let y = 50; y < 54; y += 1) {
-    for (let x = 40; x < 44; x += 1) bounds[(y * 108 + x) * 4 + 3] = 255;
-  }
   const drawCalls = [];
-  const context = { clearRect() {}, drawImage(...args) { drawCalls.push(args); }, getImageData() { return { data: bounds }; } };
+  const context = { clearRect() {}, drawImage(...args) { drawCalls.push(args); } };
   const image = { width: 36, height: 18 };
-  Object.defineProperty(image, 'src', { set() {} });
+  const sources = [];
+  Object.defineProperty(image, 'src', { set(value) { sources.push(value); } });
   const wx = {
     getWindowInfo: () => ({ statusBarHeight: 44 }),
     createOffscreenCanvas: () => ({
@@ -269,7 +275,28 @@ test('SVG plugin icons preserve their viewBox sizing like built-in artwork', () 
   assert.deepEqual(Array.from(fittedDraw.slice(1)), [0, 27, 108, 54]);
   assert.equal(drawCalls.some(args => args.length === 9), false, 'transparent artwork is not cropped and magnified');
   assert.equal(page.data.catalog.installedBundles[0].icon, 'data:image/png;base64,converted');
+  const updatedSvg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 36 36"></svg>';
+  fakeStore.state.pluginCatalog = buildCatalog({ managementAvailable: true, bundles: [
+    { name: 'tiny-svg', installed: true, meta: { icon: updatedSvg } }
+  ], officialItems: [] });
+  page.syncFromStore();
+  assert.equal(sources.length, 2, 'a changed manifest icon must not reuse the old PNG');
+  assert.equal(sources[1], 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(updatedSvg));
+  image.onerror();
+  page.syncFromStore();
+  assert.equal(sources.length, 2, 'failed SVGs must not start an infinite decode/update loop');
   page.onUnload();
+});
+
+test('plugin list uses one centered desktop artwork size and the original default SVG', () => {
+  const root = path.join(__dirname, '..', 'miniprogram');
+  const css = fs.readFileSync(path.join(root, 'pages/plugins/plugins.wxss'), 'utf8');
+  assert.match(css, /\.plugin-icon-img, \.plugin-icon-art \{[^}]*width: 69rpx; height: 69rpx;/);
+  assert.match(css, /\.plugin-icon \{[^}]*align-items: center; justify-content: center;/);
+  const svg = fs.readFileSync(path.join(root, 'assets/plugin-artwork/desktop/plugin-default.svg'), 'utf8');
+  assert.match(svg, /viewBox="0 0 36 36"/);
+  assert.match(svg, /M24\.6294 8\.63696/);
+  assert.match(svg, /#54ECE7/);
 });
 
 test('plugin deep links open Discover or start creator once when shown', () => {

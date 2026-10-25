@@ -477,6 +477,13 @@ Page({
           patch['rows[' + index + '].blocks'] = blocks;
           const source = (this._conversationRows || []).find(item => item.key === key);
           if (source) source.blocks = blocks;
+          // 投影缓存里的同一行也要写回：复用缓存的投影时如果不带 blocks，
+          // 已经显示出来的正文会在下一帧整段消失（真机上表现为"某一轮对话没了"）。
+          const cachedProjection = this._projectedRows && this._projectedRows.get(key);
+          if (cachedProjection && cachedProjection.row
+            && (cachedProjection.row.kind === 'assistant' || cachedProjection.row.kind === 'user')) {
+            cachedProjection.row.blocks = blocks;
+          }
         }
         if (++count >= 4 || Date.now() - started >= 8) break;
       }
@@ -717,10 +724,19 @@ Page({
       const unchanged = cachedRow && cachedRow.scope === projectionScope
         && (canCheckByIdentity || sameMutableRow(cachedRow.sourceSnapshot, rowSnapshot));
       if (unchanged) {
-        semanticRows.push(cachedRow.row);
-        nextProjected.set(row.key, cachedRow.sourceRow === row ? cachedRow : Object.assign({}, cachedRow, {
+        let reused = cachedRow.row;
+        // 兜底：历史懒格式化可能晚于投影产生，缓存的 blocks 还是空的；
+        // Markdown 缓存里已经解析过就直接补上，避免正文空白。
+        if ((row.kind === 'assistant' || row.kind === 'user') && !((reused.blocks || []).length)) {
+          const formatted = this._markdownCache.peek(row.key, row.text || '');
+          if (formatted && formatted.length) reused = Object.assign({}, reused, { blocks: this.prepareImageBlocks(formatted) });
+        }
+        semanticRows.push(reused);
+        if (reused === cachedRow.row && cachedRow.sourceRow === row) nextProjected.set(row.key, cachedRow);
+        else nextProjected.set(row.key, Object.assign({}, cachedRow, {
           sourceRow: row,
-          sourceSnapshot: rowSnapshot
+          sourceSnapshot: rowSnapshot,
+          row: reused
         }));
         return;
       }
@@ -1077,9 +1093,16 @@ Page({
     };
     rows.forEach((row) => {
       if (!row.copyText) return;
-      const usage = row.turnUsage || (row.copyKey && (rows.find((item) => item.key === row.copyKey) || {}).turnUsage) || null;
+      const source = row.copyKey ? rows.find((item) => item.key === row.copyKey) : null;
+      const usage = row.turnUsage || (source && source.turnUsage) || null;
+      // 旧缓存/历史会话里 s.turnUsage 可能没有这一轮（deriveAll 只在回合边界重算，
+      // 落盘缓存也可能早于该字段）：用行上的 usageTokens 兜底算，否则整轮页脚用量会空掉。
+      const tokens = usage ? Number(usage.totalTokens) || 0
+        : Number(row.usageTokens != null ? row.usageTokens : (source && source.usageTokens)) || 0;
       row.turnUsage = usage || null;
-      row.turnMetaText = usage ? (uiText('用量') + ' ' + turnUsageUtil.compact(usage.totalTokens) + ' tok') : '';
+      row.turnMetaText = tokens
+        ? (uiText('用量') + ' ' + turnUsageUtil.compact(tokens) + ' tok')
+        : (row.turnMetaText || '');
       row.turnTimeText = clockLabel(row.finishedAtMs) || compactDuration(row.durationMs);
       row.turnMetaKey = row.copyKey || row.key;
     });

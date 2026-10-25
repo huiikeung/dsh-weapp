@@ -47,7 +47,7 @@ function fixture(sessions, options) {
       boundingClientRect(cb) { cb(opts.rect === undefined ? { left: 40, top: 300, width: 295, height: 60 } : opts.rect); return this; },
       exec() { return this; }
     }),
-    navigateTo(options) { calls.push(['navigate', options.url]); },
+    navigateTo(options) { calls.push(['navigate', options.url]); if (opts.navigateFail) options.fail(); },
     navigateBack() {},
     stopPullDownRefresh() {},
     setNavigationBarTitle() {},
@@ -105,12 +105,48 @@ test('long press opens the anchored session menu instead of a native action shee
 
 test('opening a conversation pauses the home renderer and initializes the store only once', () => {
   const { page, calls } = fixture(sessions);
+  let paused = false;
+  page.selectComponent = () => ({ pause() { paused = true; } });
   page.openSession({ currentTarget: { dataset: { id: 's1', title: '会话一', preset: 'standard' } } });
   assert.equal(page.data.oceanActive, false);
+  assert.equal(paused, true);
+  assert.equal(page._homeHidden, true, 'store emissions cannot rebuild the home list during navigation');
+  page.openSession({ currentTarget: { dataset: { id: 's2' } } });
   assert.deepEqual(calls, [
     ['open', 's1', '会话一', 'standard'],
     ['navigate', '/pages/session/session?id=s1']
   ]);
+});
+
+test('failed session navigation restores the home and allows retry', () => {
+  const { page, calls } = fixture(sessions, { navigateFail: true });
+  let syncs = 0; page.syncFromStore = () => { syncs++; };
+  const event = { currentTarget: { dataset: { id: 's1' } } };
+  page.openSession(event);
+  assert.equal(page._homeHidden, false);
+  assert.equal(page._openingSession, false);
+  assert.equal(page.data.oceanActive, true);
+  assert.equal(syncs, 1);
+  page.openSession(event);
+  assert.equal(calls.filter(call => call[0] === 'navigate').length, 2);
+});
+
+test('home formats only the newest twelve sessions without reordering the store', () => {
+  let titlesRead = 0;
+  const source = Array.from({ length: 2000 }, (_, i) => ({
+    sessionId: 's' + i, updatedAt: i + 1,
+    get title() { titlesRead++; return 'Session ' + i; }
+  }));
+  const { page, store } = fixture(source);
+  page.syncSessionStatusPolling = () => {};
+  page.loadCostMeterSummary = () => {};
+  page.syncHostUI = () => {};
+  page.syncFromStore({ app: store.state });
+  assert.equal(page.data.displaySessions.length, 12);
+  assert.equal(page.data.displaySessions[0].sessionId, 's1999');
+  assert.equal(page.data.displaySessions[11].sessionId, 's1988');
+  assert.equal(titlesRead, 12, 'offscreen rows do not incur title/time formatting');
+  assert.equal(store.state.sessions[0].sessionId, 's0');
 });
 
 test('the menu falls back to the long-press point when the row rect is unavailable', () => {

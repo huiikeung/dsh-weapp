@@ -21,10 +21,11 @@ const iconPngBusy = Object.create(null);
 let iconPngReady = () => {};
 
 function iconPngFrom(name, dataUrl) {
-  const cached = iconPngCache[name];
-  if (cached) return cached;
-  if (iconPngBusy[name] || typeof wx === 'undefined' || typeof wx.createOffscreenCanvas !== 'function') return null;
-  iconPngBusy[name] = true;
+  // A plugin can change artwork (or hosts) without changing its package name.
+  const key = dataUrl;
+  if (Object.prototype.hasOwnProperty.call(iconPngCache, key)) return iconPngCache[key];
+  if (iconPngBusy[key] || typeof wx === 'undefined' || typeof wx.createOffscreenCanvas !== 'function') return null;
+  iconPngBusy[key] = true;
   try {
     const canvas = wx.createOffscreenCanvas({ type: '2d', width: 108, height: 108 });
     const img = canvas.createImage();
@@ -43,14 +44,14 @@ function iconPngFrom(name, dataUrl) {
         // Preserve the icon's viewBox whitespace. Cropping transparent edges
         // made metadata icons appear larger than the built-in artwork beside them.
         ctx.drawImage(img, renderX, renderY, renderWidth, renderHeight);
-        iconPngCache[name] = canvas.toDataURL('image/png');
-      } catch (_) { /* 保留回退 */ }
-      delete iconPngBusy[name];
+        iconPngCache[key] = canvas.toDataURL('image/png');
+      } catch (_) { iconPngCache[key] = null; }
+      delete iconPngBusy[key];
       iconPngReady();
     };
-    img.onerror = () => { delete iconPngBusy[name]; iconPngReady(); };
+    img.onerror = () => { iconPngCache[key] = null; delete iconPngBusy[key]; iconPngReady(); };
     img.src = dataUrl;
-  } catch (_) { delete iconPngBusy[name]; }
+  } catch (_) { iconPngCache[key] = null; delete iconPngBusy[key]; }
   return null;
 }
 
@@ -58,7 +59,7 @@ function iconPngFrom(name, dataUrl) {
 function syncedIcon(name, value) {
   const src = imageSource(value);
   if (!src) return null;
-  return src.indexOf('data:') === 0 ? iconPngFrom(name, src) : src;
+  return /^data:image\/svg\+xml;/i.test(src) ? iconPngFrom(name, src) : src;
 }
 
 function bundleToView(b, app) {
@@ -67,8 +68,10 @@ function bundleToView(b, app) {
     name: b.name,
     title: b.title,
     description: b.description,
-    icon: syncedIcon(b.name, b.icon || (app.pluginCatalog && app.pluginCatalog.defaultPluginIcon)),
-    artwork: artworkFor(b.name),
+    // Match DSH PackageArtwork: manifest icon first, original default otherwise.
+    // Older gateways send a reconstructed, oversized default; do not use it.
+    icon: syncedIcon(b.name, b.icon),
+    artwork: artworkFor(b.icon ? b.name : ''),
     initial: (b.title || b.name || '?').charAt(0),
     enabled: b.enabled,
     experimental: b.experimental,

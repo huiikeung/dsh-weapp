@@ -38,7 +38,7 @@ function fixture() {
       target[parts.at(-1)] = value;
     }
   }, startScrollPolling() {}, stopScrollPolling() {}, refreshBottomAnchor() {} };
-  return { page, store };
+  return { page, store, timers };
 }
 
 const snapshot = (rows) => ({ app: { sessions: [], archivedSessionIds: [] }, session: { sessionId: 's1', running: true, rows, cwd: '/repo' } });
@@ -182,4 +182,91 @@ test('the reply footer only stays on the last card when the turn grows', () => {
   assert.ok(!entry('a1').copyText);
   const footerRows = page.data.rows.filter((row) => row.copyText).map((row) => row.key);
   assert.deepEqual(footerRows, ['f2'], 'exactly one footer per turn');
+});
+
+test('lazily formatted history keeps its blocks after the next sync', () => {
+  const { page, timers } = fixture();
+  const rows = [];
+  for (let n = 1; n <= 40; n += 1) {
+    rows.push({ kind: 'user', key: 'u' + n, text: '问题 ' + n, turn: n });
+    rows.push({ kind: 'assistant', key: 'a' + n, text: '回答 ' + n + ' 的正文', turn: n, streaming: false });
+  }
+  const snap = (list) => ({ app: { sessions: [], archivedSessionIds: [] },
+    session: { sessionId: 's1', running: false, rows: list, cwd: '/repo' } });
+
+  page.syncFromStore(snap(rows));
+  // 找一个"在窗口里但超出末尾 12 行"的助手行：它第一次投影时 blocks 为空，走懒格式化。
+  const pendingKey = [...page._pendingHistoryFormat.keys()]
+    .find(key => (page.data.rows || []).some(row => row.key === key && row.kind === 'assistant'));
+  assert.ok(pendingKey, 'a windowed assistant row waits for lazy formatting');
+
+  // 跑一遍真实的定时器（scheduleHistoryFormatting 会解析 Markdown 并把 blocks 写回）。
+  page.scheduleHistoryFormatting();
+  let guard = 0;
+  while (timers.size && guard++ < 50) {
+    const [id, job] = timers.entries().next().value;
+    timers.delete(id);
+    job.fn();
+  }
+  const formatted = page._conversationRows.find(row => row.key === pendingKey);
+  assert.ok(formatted && (formatted.blocks || []).length, 'the row is now formatted');
+  // 关键：写回必须同时落到投影缓存，否则下一次复用缓存投影时 blocks 又变空。
+  const cachedProjection = page._projectedRows.get(pendingKey);
+  assert.ok(cachedProjection && (cachedProjection.row.blocks || []).length,
+    'the formatted blocks are written back into the projection cache');
+
+  // 下一帧行内容完全没变：复用缓存投影时正文必须还在（否则真机上整轮回复会消失）。
+  page.syncFromStore(snap(rows));
+  const after = page._conversationRows.find(row => row.key === pendingKey);
+  assert.ok(after && (after.blocks || []).length, 'the cached projection keeps the formatted blocks');
+});
+
+test('a formatted row survives eviction from the page window', () => {
+  const { page } = fixture();
+  const rows = [];
+  for (let n = 1; n <= 30; n += 1) {
+    rows.push({ kind: 'user', key: 'u' + n, text: '问题 ' + n, turn: n });
+    rows.push({ kind: 'assistant', key: 'a' + n, text: '正文 ' + n, turn: n, streaming: false });
+  }
+  const snap = (list) => ({ app: { sessions: [], archivedSessionIds: [] },
+    session: { sessionId: 's1', running: false, rows: list, cwd: '/repo' } });
+  page.syncFromStore(snap(rows));
+  // Markdown 缓存里有解析结果、但投影缓存还是空 blocks 时，复用路径要能自愈。
+  page._markdownCache.parse('a2', '正文 2');
+  page._pendingHistoryFormat.clear();
+  page.syncFromStore(snap(rows));
+  const cached = page._projectedRows.get('a2');
+  assert.ok((cached.row.blocks || []).length > 0, 'blocks are rehydrated from the markdown cache on reuse');
+});
+
+test('the turn footer keeps its usage when the store has no turnUsage map entry', () => {
+  const { page } = fixture();
+  const rows = [
+    { kind: 'user', key: 'u1', text: '问题', turn: 1 },
+    { kind: 'assistant', key: 'a1', text: '回答正文', turn: 1, usageTokens: 176082 }
+  ];
+  // 历史缓存里 s.turnUsage 可能没有这一轮：页脚用量必须用行上的 usageTokens 兜底。
+  page.syncFromStore({ app: { sessions: [], archivedSessionIds: [] },
+    session: { sessionId: 's1', running: false, rows, cwd: '/repo', turnUsage: {} } });
+  const entry = page.data.rows.find(row => row.key === 'a1');
+  assert.ok(entry && entry.copyText, 'the assistant carries the turn footer');
+  assert.match(entry.turnMetaText, /176/, 'usage is rendered from usageTokens: ' + entry.turnMetaText);
+});
+
+test('the turn footer usage survives a second sync with the same rows', () => {
+  const { page } = fixture();
+  const rows = [
+    { kind: 'user', key: 'u1', text: '问题', turn: 1 },
+    { kind: 'assistant', key: 'a1', text: '回答正文', turn: 1, usageTokens: 4200 },
+    { kind: 'files', key: 'f1', turn: 1, files: [{ key: 'f1-file', name: 'a.png', path: 'a.png' }] }
+  ];
+  const snap = { app: { sessions: [], archivedSessionIds: [] },
+    session: { sessionId: 's1', running: false, rows, cwd: '/repo', turnUsage: {} } };
+  page.syncFromStore(snap);
+  const card = () => page.data.rows.find(row => row.key === 'f1');
+  assert.ok(card() && card().copyText, 'the footer sinks onto the last card');
+  assert.match(card().turnMetaText, /4\.2K|4200/, 'the card shows the turn usage');
+  // 再同步一次：页脚要先清空再重算，重算不能丢掉用量。
+  page.syncFromStore(snap);
+  assert.match(card().turnMetaText, /4\.2K|4200/, 'usage is still there after the reset + recompute');
 });

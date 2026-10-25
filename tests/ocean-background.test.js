@@ -109,7 +109,7 @@ test('ocean playback cancels on hide, resumes without jump and releases on detac
   const component = { ...definition.methods, data: { active: true, reducedMotion: false }, _visible: true, _elapsed: 0,
     _canvas: { toDataURL(){return 'data:image/jpeg;base64,test';}, requestAnimationFrame(fn) { frames.set(++id, fn); return id; }, cancelAnimationFrame(id) { frames.delete(id); } },
     _renderer: { draw(t) { draws.push(t); }, dispose() { draws.push('disposed'); } },
-    _context: {drawImage(){}}, _gpuCanvas: {}, setData(v) { Object.assign(this.data,v); } };
+    _context: {drawImage(){}}, _gpuCanvas: {}, setData(v, callback) { Object.assign(this.data,v); if (callback) callback(); } };
   const tick = ms => { now += ms; const fn = frames.values().next().value; frames.clear(); if(fn)fn(); };
   component.syncPlayback(); assert.equal(frames.size, 1); tick(34); assert.equal(draws.length, 1);
   definition.pageLifetimes.hide.call(component); assert.equal(frames.size, 0);
@@ -186,4 +186,71 @@ test('re-enabling the animation leaves static mode and creates the renderer', ()
   component.syncPlayback();
   assert.equal(component.data.staticMode, false, 'static mode is dropped');
   assert.equal(canvasCreations, 1, 'the renderer is created on demand');
+});
+
+test('non-iOS waits for the previous image transfer before drawing and encoding again', () => {
+  for (const platform of ['android', 'ohos', 'devtools']) {
+    const f = bufferedFixture(platform);
+    assert.equal(f.renders(), 1);
+    f.component.draw(1); f.component.draw(2);
+    assert.equal(f.renders(), 1, platform + ': no overlapping frame transfer');
+    f.commits.shift()();
+    f.component.draw(3);
+    assert.equal(f.renders(), 2, platform + ': resumes after bridge completion');
+    f.definition.lifetimes.detached.call(f.component);
+    f.commits.shift()();
+    f.component.draw(4);
+    assert.equal(f.renders(), 2, 'late callbacks cannot restart a detached renderer');
+  }
+});
+
+function deferredFixture() {
+  let definition, serial = 0, loads = 0, renders = 0;
+  const timers = new Map(), frames = new Map();
+  vm.runInNewContext(read('components/ocean-background/ocean-background.js'), {
+    Component: value => { definition = value; }, Date,
+    setTimeout(fn, delay) { timers.set(++serial, { fn, delay }); return serial; },
+    clearTimeout(id) { timers.delete(id); },
+    wx: { getDeviceInfo: () => ({ platform: 'ohos' }), getWindowInfo: () => ({ pixelRatio: 2 }),
+      createOffscreenCanvas: () => ({ toDataURL: () => 'data:image/jpeg;base64,x',
+        requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },
+        cancelAnimationFrame(id) { frames.delete(id); } }) },
+    require() { loads++; return { createOceanRenderer: () => ({ draw() { renders++; }, dispose() {} }) }; }
+  });
+  const c = { ...definition.methods, data: { ...definition.data, active: true, reducedMotion: false },
+    setData(patch, cb) { Object.assign(this.data, patch); if (cb) cb(); },
+    createSelectorQuery() { return { select() { return this; }, boundingClientRect() { return this; },
+      exec(fn) { fn([{ width: 390, height: 844 }]); } }; } };
+  return { c, definition, timers, frames, loads: () => loads, renders: () => renders,
+    run(delay) { const [id, timer] = [...timers].find(([, value]) => value.delay === delay); timers.delete(id); timer.fn(); return timer.fn; } };
+}
+
+test('hide cancels initialization and show resumes deferred renderer loading', () => {
+  const f = deferredFixture();
+  f.definition.lifetimes.ready.call(f.c);
+  assert.equal(f.loads(), 0, 'particle data and shaders are not required on the entry frame');
+  f.definition.pageLifetimes.hide.call(f.c);
+  assert.equal(f.timers.size, 0);
+  f.definition.pageLifetimes.show.call(f.c);
+  f.run(150);
+  assert.equal(f.loads(), 1);
+  const staleStart = [...f.timers.values()][0].fn;
+  f.definition.pageLifetimes.hide.call(f.c);
+  assert.equal(f.timers.size, 0);
+  staleStart();
+  assert.equal(f.renders(), 0, 'a hidden page cannot encode the delayed first frame');
+  f.definition.pageLifetimes.show.call(f.c);
+  const tick = f.frames.values().next().value; f.frames.clear(); tick();
+  assert.equal(f.renders(), 1, 'returning to the page resumes animation');
+  assert.equal(f.c.data.ready, true, 'the resumed first frame replaces the fallback');
+});
+
+test('deferred first-frame failures fall back instead of escaping the timer', () => {
+  const f = deferredFixture();
+  f.definition.lifetimes.ready.call(f.c); f.run(150);
+  f.c._canvas.toDataURL = () => { throw new Error('encoding failed'); };
+  assert.doesNotThrow(() => f.run(120));
+  assert.equal(f.c.data.failed, true);
+  assert.equal(f.c._renderer, null);
+  assert.equal(f.frames.size, 0);
 });

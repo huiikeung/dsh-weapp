@@ -41,8 +41,9 @@
 .plugin-line { display: flex; align-items: center; gap: 22rpx; flex: 1; min-width: 0; border-radius: 18rpx; }
 .plugin-line-hover { background: var(--pg-soft); }
 .builtin-row { gap: 22rpx; }
-.plugin-icon { width: 92rpx; height: 92rpx; flex-shrink: 0; box-sizing: border-box; border: 1rpx solid var(--pg-border); border-radius: 24rpx; overflow: hidden; }
-.plugin-icon-img, .plugin-icon-art { width: 100%; height: 100%; box-sizing: border-box; padding: 10rpx; }
+.plugin-icon { width: 92rpx; height: 92rpx; flex-shrink: 0; box-sizing: border-box; border: 1rpx solid var(--pg-border); border-radius: 24rpx; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+/* Same artwork box for built-in, experimental and installed plugins. */
+.plugin-icon-img, .plugin-icon-art { display: block; width: 69rpx; height: 69rpx; flex-shrink: 0; }
 .plugin-line-body { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 9rpx; }
 .plugin-line-title-row { display: flex; align-items: center; gap: 10rpx; min-width: 0; }
 .plugin-line-title { font-size: 27rpx; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

@@ -6,8 +6,7 @@
 /* 兜底层隐藏后仍在做 22s 的径向渐变漂移，等于一直占着 GPU：一并停掉。 */
 .ocean-fallback-hidden .ocean-fallback-light,
 .ocean-fallback-hidden .ocean-fallback-whale { animation: none; }
-/* Android, Harmony and DevTools use the static fallback to avoid a full-screen
-   WebGL readback + base64 setData loop. Keep the artwork, but no perpetual effects. */
+/* The animation preference keeps the artwork static without perpetual effects. */
 .ocean-static .ocean-fallback-light,
 .ocean-static .ocean-fallback-whale,
 .ocean-static .ocean-grain,

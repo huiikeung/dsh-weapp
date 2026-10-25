@@ -218,6 +218,7 @@ Page({
     this._homeHidden = false;
     this._homeVisible = true;
     this._openingSettings = false;
+    this._openingSession = false;
     this.closeSwipe();
     if (this.data.sessionMenuOpen) this.closeSessionMenu();
     // 从设置页返回时额度开关可能已变化：仅当成本显示配置的签名变了才失效，
@@ -321,6 +322,8 @@ Page({
 
     const displaySessions = scopedSource
       .filter((s) => !s.blank)
+      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+      .slice(0, 12)
       .map((s) => ({
         sessionId: s.sessionId,
         updatedAt: s.updatedAt || 0,
@@ -339,9 +342,7 @@ Page({
         displayTitle: s.title || util.sessionIdLabel(s.sessionId),
         idLabel: String(s.sessionId || '').slice(0, 16),
         timeLabel: util.formatRelativeTime(s.updatedAt)
-      }))
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-      .slice(0, 12);
+      }));
 
     const usingCachedHome = !!(
       (app.lastSessionsFrame && app.lastSessionsFrame.cached) ||
@@ -808,6 +809,7 @@ Page({
   },
 
   openSession(e) {
+    if (this._openingSession) return;
     // 左滑展开时，先点一行收回操作
     if (this.data.swipeId) {
       this.closeSwipe();
@@ -819,9 +821,17 @@ Page({
       return;
     }
     // 先停掉全屏海洋帧生成，避免它与会话首屏抢主线程和 setData 桥接。
+    this._openingSession = true;
+    this._homeHidden = true;
+    const ocean = this.selectComponent && this.selectComponent('#home-ocean');
+    if (ocean) ocean.pause();
     this.setData({ oceanActive: false });
     store.openSession(id, title, preset);
-    wx.navigateTo({ url: '/pages/session/session?id=' + encodeURIComponent(id) });
+    wx.navigateTo({ url: '/pages/session/session?id=' + encodeURIComponent(id), fail: () => {
+      this._openingSession = false; this._homeHidden = false;
+      this.setData({ oceanActive: true });
+      this.syncFromStore({ app: store.state, session: store.sessionState });
+    } });
   },
 
   /** 长按会话行：该行隐藏，菜单原地弹出。 */
