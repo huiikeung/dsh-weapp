@@ -117,6 +117,7 @@ test('first paint renders a bounded tail and formats history only when it enters
 });
 test('completion does not reparse or resend historical Markdown', () => {
   const f = fixture(); f.sync(); f.reset();
+  assert.equal(f.page.data.rows.find(row => row.key === 'current').copyText, '');
   const beforeBytes = Buffer.byteLength(JSON.stringify(f.page.data.rows));
   f.store.sessionState.running = false; f.store.sessionState.rows.at(-1).streaming = false; f.sync();
   const report = f.report();
@@ -124,11 +125,46 @@ test('completion does not reparse or resend historical Markdown', () => {
   assert.ok(report.bytes < beforeBytes / 20, JSON.stringify({ report, beforeBytes }));
   assert.ok(f.patches.every(patch => !Object.hasOwn(patch, 'rows')));
   assert.equal(f.page.data.running, false); assert.equal(f.page.data.rows.at(-1).text, '测试完成');
+  assert.equal(f.page.data.rows.find(row => row.key === 'current').copyText, '测试完成');
   assert.ok(f.page.data.rows.some(row => row.kind === 'processGroup' && row.completed));
   f.reset();
   for (let i = 0; i < 8; i++) { f.store.sessionState.stats = { stats: { turns: 151, steps: i + 1 } }; f.sync(); }
   assert.equal(f.report().parses, 0); assert.equal(f.report().scrolls, 0);
   assert.ok(f.patches.every(p => !Object.keys(p).some(k => k === 'rows' || k.startsWith('rows['))));
+});
+test('fleet link redraw mounts the fallback canvas instead of leaving a stale image over it', () => {
+  const f = fixture();
+  const page = f.page;
+  page.data.tab = 'fleet';
+  page.data.fleetLinksSrc = '/tmp/previous-links.png';
+  page.data.fleetPanel = { graph: { width: 343, height: 420, links: [
+    { p: [10, 20, 12, 30, 40, 50, 42, 60], color: '#123456', live: false }
+  ] } };
+  const calls = [];
+  const ctx = {
+    clearRect: (...args) => calls.push(['clearRect', ...args]),
+    beginPath: () => calls.push(['beginPath']),
+    moveTo: (...args) => calls.push(['moveTo', ...args]),
+    bezierCurveTo: (...args) => calls.push(['bezierCurveTo', ...args]),
+    setLineDash: (...args) => calls.push(['setLineDash', ...args]),
+    stroke: () => calls.push(['stroke'])
+  };
+  const canvas = { width: 0, height: 0, getContext: () => ctx };
+  page.createSelectorQuery = () => ({
+    select(selector) {
+      assert.equal(selector, '#fleetLinks');
+      assert.equal(page.data.fleetLinksSrc, '', 'old image is cleared before querying the fallback canvas');
+      return { fields: () => ({ exec(callback) { callback([{ node: canvas }]); } }) };
+    }
+  });
+
+  page.drawFleetLinks();
+
+  assert.equal(canvas.width, 686);
+  assert.equal(canvas.height, 840);
+  assert.deepEqual(calls.find(call => call[0] === 'clearRect'), ['clearRect', 0, 0, 686, 840]);
+  assert.deepEqual(calls.find(call => call[0] === 'moveTo'), ['moveTo', 20, 40]);
+  assert.deepEqual(calls.find(call => call[0] === 'bezierCurveTo'), ['bezierCurveTo', 24, 60, 80, 100, 84, 120]);
 });
 test('final text, in-place tool updates, history prepend and session switch still render', () => {
   const f = fixture(); f.sync(); f.reset();
@@ -212,6 +248,22 @@ test('delayed history stays pinned on entry but manual upward scrolling still st
   f.reset(); f.store.sessionState.rows[0].text += '更新'; f.sync();
   assert.equal(f.page._convPinned, false);
   assert.equal(f.report().scrolls, 0);
+});
+test('downward swipe disables live auto-follow before streamed content grows', () => {
+  const f = fixture(); f.sync(); f.reset();
+  f.page._convPinned = true;
+  f.page._lastScrollTop = 1200;
+  f.page.onPanelTouchStart({ touches: [{ clientX: 180, clientY: 120 }] });
+  f.page.onPanelTouchMove({ touches: [{ clientX: 184, clientY: 142 }] });
+  assert.equal(f.page._convPinned, false, 'older-history scroll intent immediately opts out of following');
+  f.page.applyScrollPosition({ scrollTop: 1200, scrollHeight: 1600, clientHeight: 400 });
+  assert.equal(f.page._convPinned, false, 'near-bottom tolerance does not re-enable following without scrolling back down');
+  f.store.sessionState.rows.at(-1).text += ' newer streamed text';
+  f.sync();
+  assert.equal(f.report().scrolls, 0, 'live output updates do not jump back to the active response');
+
+  f.page.applyScrollPosition({ scrollTop: 1210, scrollHeight: 1600, clientHeight: 400 });
+  assert.equal(f.page._convPinned, true, 'scrolling back to the newest edge resumes following');
 });
 test('files arriving after completion publish immediately and respect history reading', () => {
   for (const pinned of [true, false]) {

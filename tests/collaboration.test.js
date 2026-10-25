@@ -64,6 +64,18 @@ test('inspector shares pending history, never subscribes, and cannot overwrite t
   client.handleFrame(JSON.stringify({kind:'history',sessionId:'child',events:[]}));await next;
   assert.equal(forwarded.at(-1).sessionId,'child','navigating into a child must not lose its history');
 });
+test('subagent inspector requests carry the durable parent address on the wire',async()=>{
+  const sent=[];const client=new GatewayClient({onFrame(){}});
+  client.send=f=>{sent.push(f);return true;};
+  client.inspectSession('child',{parentSessionId:'parent',mode:'continuable'});
+  assert.deepEqual(sent,[{type:'history',sessionId:'child',maxMessages:20,maxBytes:256*1024,view:'conversation',
+    parentSessionId:'parent',mode:'continuable'}],'subagent history must name its parent or the host rejects it');
+  sent.length=0;
+  client.inspectSession('plain');
+  assert.equal(sent[0].parentSessionId,undefined,'plain sessions stay on the bare session address');
+  assert.equal(sent[0].mode,undefined);
+  client.cancelInspector('child');client.cancelInspector('plain');
+});
 test('inspector timeout quarantines late responses until they arrive or disconnect',async()=>{
   const filename=path.resolve(__dirname,'../miniprogram/utils/gateway.js'), module={exports:{}},timers=[];
   vm.runInNewContext(fs.readFileSync(filename,'utf8'),{module,console,Uint8Array,ArrayBuffer,Date,
@@ -89,6 +101,33 @@ test('collaboration preview preserves parent draft, ignores dismissed results, a
   store.client.inspectSession=async()=>({sessionId:'child',events:[{seq:1,type:'assistant/message',data:{text:'Child result'}}]});
   await page.openCollaborationItem(event('id','child'));
   assert.equal(page.data.collaborationPreview.rows[0].text,'Child result');assert.equal(store.sessionState.sessionId,'s1');
+});
+test('subagent previews name their parent session, nested children keep the previewed session, members stay bare',async()=>{
+  const {page,store}=fixture();store.state={connection:'connected',sessions:[]};
+  store.sessionState.collaboration=collaboration.create('s1');
+  collaboration.baseline(store.sessionState.collaboration,projection(5,{
+    subagentCatalog:[{id:'child',mode:'continuable',label:'Research'}],
+    agentTeam:{members:[{id:'mate',name:'Mate',role:'teammate',phase:'active'}],tasks:[]}}));
+  page.openCollaboration();page.selectCollaborationTab(event('id','children'));
+  const seen=[];
+  const stub=extra=>async(id,parent)=>{seen.push([id,parent]);return {sessionId:id,events:[],hasMore:false,...extra};};
+  // 顶层子智能体：父会话 = 当前会话（缺它网关以 session/agent-busy 拒绝）
+  store.client.inspectSession=stub();
+  await page.openCollaborationItem(event('id','child'));
+  assert.equal(JSON.stringify(seen),JSON.stringify([['child',{parentSessionId:'s1',mode:'continuable'}]]));
+  assert.equal(page.data.collaborationPreview.loading,false);
+  // 重新进入 child 并带出它的子列表：嵌套子智能体的父会话 = 被预览会话
+  store.client.inspectSession=stub({projections:projection(9,{subagentCatalog:[{id:'grandchild',mode:'one-shot',label:'Deep'}]})});
+  await page.openCollaborationItem(event('id','child'));
+  assert.deepEqual(page.data.collaborationPreview.children.map(c=>c.id),['grandchild']);
+  store.client.inspectSession=stub();
+  await page.openCollaborationItem(event('id','grandchild'));
+  assert.equal(JSON.stringify(seen.at(-1)),JSON.stringify(['grandchild',{parentSessionId:'child',mode:'one-shot'}]));
+  // 团队成员是普通会话，不带父地址
+  page.selectCollaborationTab(event('id','members'));
+  store.client.inspectSession=stub();
+  await page.openCollaborationItem(event('id','mate'));
+  assert.equal(JSON.stringify(seen.at(-1)),JSON.stringify(['mate',null]));
 });
 test('stale refresh cannot unlock or mutate a newly opened collaboration panel',async()=>{
   const {page,store}=fixture();store.state={connection:'connected',sessions:[]};
@@ -120,7 +159,7 @@ test('collaboration icon tabs retain real counts, selection, and both theme asse
   const heading=template.slice(template.indexOf('<view class="collab-heading">'),template.indexOf('class="collab-tabs"'));
   assert.match(heading,/bindtap="refreshCollaboration"/);assert.match(heading,/bindtap="closeCollaboration"/);
   assert.match(heading,/aria-disabled="{{collaborationBusy}}"/);
-  assert.match(heading,/collab-close{{theme/);assert.match(heading,/sheet-refresh/);
+  assert.match(heading,/collab-close{{theme/);assert.match(heading,/collab-breathe-dot/);
   assert.doesNotMatch(heading,/sheet-close-x/,'collaboration close must not inherit the shared completion/checkmark styles');
   for(const suffix of ['', '-dark']){
     const svg=fs.readFileSync(path.resolve(__dirname,'../miniprogram/assets/icons/collab-close'+suffix+'.svg'),'utf8');
@@ -172,9 +211,13 @@ test('native collaboration sheet renders all four tabs in light and dark modes',
     const tree=JSON.stringify(render(data,{},{}));
     assert.ok(tree.includes(label),theme+'/'+tab+'/'+label);
     assert.ok(tree.includes('collab-scroll'));assert.ok(tree.includes('collab-close'));
-    for(const icon of ['dsh-team','dsh-agent','dsh-checklist','dsh-process-tool','sheet-refresh','collab-close']){
+    for(const icon of ['dsh-team','dsh-agent','dsh-checklist','dsh-process-tool','collab-close']){
       assert.ok(tree.includes('/assets/icons/'+icon+(theme==='dark'?'-dark':'')+'.svg'),theme+'/'+icon);
     }
+    // 右上角是呼吸灯（点按仍触发刷新），不再是刷新图标
+    assert.ok(tree.includes('collab-breathe-dot'),theme+'/breathe');
+    assert.ok(tree.includes('refreshCollaboration'),theme+'/refresh binding');
+    assert.doesNotMatch(tree,/sheet-refresh/,theme+'/no refresh icon');
     assert.ok(tree.includes('collab-tab-indicator'));
     assert.ok(tree.includes('collabGrabStart'));
     assert.ok(tree.includes('collabGrabMove'));

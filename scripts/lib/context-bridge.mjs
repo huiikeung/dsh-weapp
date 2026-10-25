@@ -1431,6 +1431,7 @@ export const contextProjectionDefinition = {
 let hostSessions = null
 let hostProjections = null
 let hostAgents = null
+let hostSessionQuery = null
 let hostSkills = null
 let hostAgentPresets = null
 
@@ -1452,6 +1453,15 @@ export function registerContextServices(ctx) {
         hostSessions = null
         hostProjections = null
       })
+    })
+  } catch (_) { /* optional service */ }
+  try {
+    // DSH's own Fleet client backfills cold Agent heads through sessionQuery.
+    // Use the same source when a subagent is no longer attached to sessions.list().
+    ctx.inject(['sessionQuery'], (sub) => {
+      if (!sub || !sub.sessionQuery) return
+      hostSessionQuery = sub.sessionQuery
+      sub.effect(() => () => { hostSessionQuery = null })
     })
   } catch (_) { /* optional service */ }
   try {
@@ -1479,6 +1489,7 @@ export function registerContextServices(ctx) {
 }
 
 const MAX_FLEET_AGENTS = 40
+const TEAM_TASK_DESCRIPTION_MAX = 400 // 任务卡正文预览上限
 
 function fleetNumber(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0
@@ -1515,6 +1526,12 @@ function teamOf(agentTeam) {
       id: task.id,
       subject: typeof task.subject === 'string' ? task.subject : '',
       status: typeof task.status === 'string' ? task.status : 'pending',
+    }
+    // The host projection carries `description` (the task instructions); the
+    // mini program renders it under the subject. Bounded because this rides the
+    // fleet frame alongside members and links.
+    if (typeof task.description === 'string' && task.description !== '') {
+      entry.description = task.description.slice(0, TEAM_TASK_DESCRIPTION_MAX)
     }
     if (typeof task.ownerName === 'string' && task.ownerName !== '') entry.ownerName = task.ownerName
     if (typeof task.ownerId === 'string' && task.ownerId !== '') entry.ownerId = task.ownerId
@@ -1644,7 +1661,14 @@ export function buildFleetValue(currentSessionId, records, snapshotOf, runningOf
     const usage = v.tokenUsage !== null && typeof v.tokenUsage === 'object' ? v.tokenUsage : null
     const stats = v.sessionStats !== null && typeof v.sessionStats === 'object' ? v.sessionStats : null
     const context = v.mobileContext !== null && typeof v.mobileContext === 'object' ? v.mobileContext : null
-    const compositionSource = context !== null && context.current !== null && typeof context.current === 'object' ? context.current : null
+    const timeline = v.contextTimeline !== null && typeof v.contextTimeline === 'object' ? v.contextTimeline : null
+    const contextCurrent = context !== null && context.current !== null && typeof context.current === 'object'
+      ? context.current : null
+    const timelineCurrent = timeline !== null && timeline.current !== null && typeof timeline.current === 'object'
+      ? timeline.current : null
+    // DSH's client reads the native contextTimeline/contextPressure projections per Agent.
+    // mobileContext remains a fallback for older gateway-compatible hosts.
+    const compositionSource = timelineCurrent || contextCurrent
     const composition = {
       system: fleetNumber(compositionSource && compositionSource.system),
       tools: fleetNumber(compositionSource && compositionSource.tools),
@@ -1673,28 +1697,102 @@ export function buildFleetValue(currentSessionId, records, snapshotOf, runningOf
       composition,
     }
     if (typeof record.parentSessionId === 'string' && record.parentSessionId !== '') entry.parentSessionId = record.parentSessionId
+    if (record.origin === 'subagent') entry.origin = 'subagent'
     if (subagent !== null && (subagent.mode === 'one-shot' || subagent.mode === 'continuable')) entry.mode = subagent.mode
     if (subagent !== null && typeof subagent.label === 'string' && subagent.label !== '') entry.label = subagent.label
     if (context !== null && typeof context.model === 'string') entry.model = context.model
     if (context !== null && typeof context.provider === 'string') entry.provider = context.provider
-    if (pressure !== null && typeof pressure.contextWindow === 'number' && pressure.contextWindow > 0) entry.contextWindow = pressure.contextWindow
-    if (pressure !== null && typeof pressure.pressureTokens === 'number' && pressure.pressureTokens >= 0) entry.pressureTokens = pressure.pressureTokens
+    const contextWindow = pressure !== null && typeof pressure.contextWindow === 'number' && pressure.contextWindow > 0
+      ? pressure.contextWindow
+      : timeline !== null && typeof timeline.contextWindow === 'number' && timeline.contextWindow > 0
+        ? timeline.contextWindow
+        : context !== null && typeof context.contextWindow === 'number' && context.contextWindow > 0 ? context.contextWindow : 0
+    if (contextWindow > 0) entry.contextWindow = contextWindow
+    let pressureTokens = pressure !== null && typeof pressure.projectedTokens === 'number' && pressure.projectedTokens >= 0
+      ? pressure.projectedTokens
+      : pressure !== null && typeof pressure.pressureTokens === 'number' && pressure.pressureTokens >= 0
+        ? pressure.pressureTokens
+        : null
+    if (pressureTokens === null && timeline !== null && timelineCurrent !== null) {
+      // Match dsh-context headlineOf: sampled/projected pressure, then the latest prompt
+      // adjusted by the fold's current delta, finally the current context estimate.
+      const last = timeline.last !== null && typeof timeline.last === 'object' ? timeline.last : null
+      const requests = Array.isArray(timeline.requests) ? timeline.requests : []
+      const latest = requests.length > 0 && requests[requests.length - 1] !== null
+        && typeof requests[requests.length - 1] === 'object' ? requests[requests.length - 1] : null
+      const anchor = last || latest
+      const prompt = anchor !== null && typeof anchor.prompt === 'number' && Number.isFinite(anchor.prompt)
+        ? anchor.prompt : null
+      const anchorTotal = anchor !== null && typeof anchor.total === 'number' && Number.isFinite(anchor.total)
+        ? anchor.total : null
+      const currentTotal = typeof timelineCurrent.total === 'number' && Number.isFinite(timelineCurrent.total)
+        ? timelineCurrent.total : 0
+      pressureTokens = prompt !== null && anchorTotal !== null
+        ? Math.max(0, prompt + currentTotal - anchorTotal) : currentTotal
+    }
+    if (pressureTokens === null && contextCurrent !== null && typeof contextCurrent.total === 'number' && contextCurrent.total >= 0) {
+      pressureTokens = contextCurrent.total
+    }
+    if (pressureTokens !== null) entry.pressureTokens = pressureTokens
+    if (timelineCurrent !== null && typeof timelineCurrent.total === 'number' && timelineCurrent.total >= 0) {
+      entry.contextTokens = timelineCurrent.total
+    } else if (contextCurrent !== null && typeof contextCurrent.total === 'number' && contextCurrent.total >= 0) {
+      entry.contextTokens = contextCurrent.total
+    }
+    let billedTokens = 0
+    let hasBilledTokens = false
     if (usage !== null) {
       const total = fleetNumber(usage.uncachedInputTokens) + fleetNumber(usage.cacheReadTokens)
         + fleetNumber(usage.cacheWriteTokens) + fleetNumber(usage.outputTokens)
-      if (total > 0) entry.tokensTotal = total
+      billedTokens = total
+      hasBilledTokens = true
+    } else if (timeline !== null && timeline.cost !== null && typeof timeline.cost === 'object') {
+      // dsh-context falls back from tokenUsage to its own cumulative cost ledger.
+      for (const provider of Object.keys(timeline.cost)) {
+        const models = timeline.cost[provider]
+        if (models === null || typeof models !== 'object') continue
+        for (const model of Object.keys(models)) {
+          const periods = models[model]
+          if (periods === null || typeof periods !== 'object') continue
+          for (const period of ['peak', 'off']) {
+            const bucket = periods[period]
+            if (bucket === null || typeof bucket !== 'object') continue
+            billedTokens += fleetNumber(bucket.uncached) + fleetNumber(bucket.cacheRead)
+              + fleetNumber(bucket.cacheWrite) + fleetNumber(bucket.output)
+            hasBilledTokens = true
+          }
+        }
+      }
     }
+    if (hasBilledTokens && billedTokens > 0) entry.tokensTotal = billedTokens
     if (stats !== null && Number.isFinite(stats.turns)) entry.turns = stats.turns
-    if (stats !== null && Number.isFinite(stats.steps)) entry.steps = stats.steps
+    if (timeline !== null) {
+      const counts = timeline.counts !== null && typeof timeline.counts === 'object' ? timeline.counts : null
+      if (counts !== null && Number.isFinite(counts.steps)) entry.steps = counts.steps
+      else if (Array.isArray(timeline.requests)) entry.steps = timeline.requests.length
+    }
+    if (entry.steps === undefined && stats !== null && Number.isFinite(stats.steps)) entry.steps = stats.steps
     const timing = v.subagentTiming !== null && typeof v.subagentTiming === 'object' ? v.subagentTiming : null
     if (timing !== null) {
       const active = timing.active !== null && typeof timing.active === 'object' ? timing.active : null
       const activeMs = fleetNumber(timing.settledMs)
         + (active !== null ? Math.max(0, fleetNumber(active.through) - fleetNumber(active.since)) : 0)
       if (activeMs > 0) entry.activeMs = activeMs
-    } else if (context !== null && context.timing !== null && typeof context.timing === 'object') {
+    }
+    if (!(entry.activeMs > 0) && timeline !== null && timeline.timing !== null && typeof timeline.timing === 'object') {
+      const wallMs = fleetNumber(timeline.timing.wallMs)
+      if (wallMs > 0) entry.activeMs = wallMs
+    }
+    if (!(entry.activeMs > 0) && context !== null && context.timing !== null && typeof context.timing === 'object') {
       const wallMs = fleetNumber(context.timing.wallMs)
       if (wallMs > 0) entry.activeMs = wallMs
+    }
+    const isSubagent = record.origin === 'subagent' || subagent !== null
+    const completedTurn = timing !== null && timing.lastTurnCompleted === true
+    // Mirror dsh-context agentTurnCompletedOf / AgentForest.completed; never
+    // infer completion merely because a session is currently not running.
+    if (!isAgentRunning && (completedTurn || (!isSubagent && fleetNumber(entry.steps) > 0))) {
+      entry.completed = true
     }
     // v2 fleet card fields (docs §8.2): the newest answer preview and the team
     // member phase; the current session defaults to `active` when the roster
@@ -1730,6 +1828,18 @@ const COMMS_TEXT_MAX = 240
 const MAILBOX_PREFIX = /^Team message \S+ from [^:]{1,64}:\s*/
 const RELAY_PREFIX = /^(?:Agent \S+ sent a message: |Team message from [^:\n]{1,64}:\s*)/
 
+function commsToolArguments(event) {
+  if (event === null || typeof event !== 'object' || event.type !== 'tool/call') return null
+  const data = event.data !== null && typeof event.data === 'object' ? event.data : {}
+  if (data.name !== 'send_message' || typeof data.arguments !== 'string') return null
+  try {
+    const args = JSON.parse(data.arguments)
+    return args !== null && typeof args === 'object' && !Array.isArray(args) ? args : null
+  } catch (_) {
+    return null
+  }
+}
+
 function commsTextOfContent(content) {
   const blocks = Array.isArray(content) ? content : []
   const parts = []
@@ -1741,8 +1851,41 @@ function commsTextOfContent(content) {
 }
 
 /** One comms row from a `user/message` event (returns null for ordinary prompts/injections). */
-export function commsMessageOf(event, toSessionId) {
-  if (event === null || typeof event !== 'object' || event.type !== 'user/message') return null
+export function commsMessageOf(event, sessionId, familySessionIds, successfulToolCalls, options) {
+  if (event === null || typeof event !== 'object') return null
+  if (event.type === 'tool/call') {
+    const args = commsToolArguments(event)
+    if (args === null || typeof args.message !== 'string' || args.message.trim() === '') return null
+    // DSH rc.3 names the recipient `target` (an agent name); older shapes used
+    // `agent_id` (a session id). Accept both and resolve a name through the
+    // roster the client forwards with the scan request.
+    const explicitId = typeof args.agent_id === 'string' && args.agent_id !== '' ? args.agent_id
+      : typeof args.agentId === 'string' && args.agentId !== '' ? args.agentId : ''
+    const targetName = typeof args.target === 'string' && args.target.trim() !== '' ? args.target.trim() : ''
+    const targetRaw = explicitId !== '' ? explicitId : targetName
+    if (targetRaw === '') return null
+    const resolveTarget = options && typeof options.resolveTarget === 'function' ? options.resolveTarget : null
+    const targetId = explicitId !== '' ? explicitId
+      : (resolveTarget !== null ? (resolveTarget(targetName) || targetName) : targetName)
+    // Without a resolvable roster the target stays a display name; a family
+    // membership check would then hide every relay row (the rc.3 regression).
+    if (explicitId !== '' && familySessionIds instanceof Set && familySessionIds.size > 0
+      && !familySessionIds.has(explicitId)) return null
+    const data = event.data !== null && typeof event.data === 'object' ? event.data : {}
+    const callId = typeof data.callId === 'string' ? data.callId : ''
+    if (callId === '' || !(successfulToolCalls instanceof Set) || !successfulToolCalls.has(`${sessionId}:${callId}`)) return null
+    const text = args.message.trim()
+    return {
+      seq: Number.isFinite(event.seq) ? event.seq : 0,
+      time: Number.isFinite(event.time) ? event.time : 0,
+      kind: 'relay',
+      text: text.length > COMMS_TEXT_MAX ? text.slice(0, COMMS_TEXT_MAX) + '…' : text,
+      from: sessionId,
+      to: targetId,
+      ...(explicitId === '' && targetName !== '' ? { toName: targetName } : {}),
+    }
+  }
+  if (event.type !== 'user/message') return null
   const data = event.data !== null && typeof event.data === 'object' ? event.data : {}
   const source = data.source !== null && typeof data.source === 'object' ? data.source : null
   if (source === null) return null
@@ -1757,7 +1900,7 @@ export function commsMessageOf(event, toSessionId) {
       time: Number.isFinite(event.time) ? event.time : 0,
       kind: kind === 'agent-message' ? 'relay' : 'mailbox',
       text: text.length > COMMS_TEXT_MAX ? text.slice(0, COMMS_TEXT_MAX) + '…' : text,
-      to: toSessionId,
+      to: sessionId,
     }
     if (typeof source.senderSessionId === 'string' && source.senderSessionId !== '') row.from = source.senderSessionId
     else if (typeof source.senderId === 'string' && source.senderId !== '') row.from = source.senderId
@@ -1773,7 +1916,7 @@ export function commsMessageOf(event, toSessionId) {
       time: Number.isFinite(event.time) ? event.time : 0,
       kind: 'settled',
       text: summary.length > COMMS_TEXT_MAX ? summary.slice(0, COMMS_TEXT_MAX) + '…' : summary,
-      to: toSessionId,
+      to: sessionId,
     }
     if (typeof source.senderSessionId === 'string' && source.senderSessionId !== '') row.from = source.senderSessionId
     if (typeof source.senderName === 'string' && source.senderName !== '') row.fromName = source.senderName
@@ -1783,13 +1926,35 @@ export function commsMessageOf(event, toSessionId) {
 }
 
 /**
- * Pure comms aggregate. `sessions` = [{ id, title, events }] with raw durable events.
+ * Pure comms aggregate. Sessions include raw events plus DSH mode/projection metadata.
  * Returns newest-first rows, merged across sessions, capped at COMMS_MAX_MESSAGES.
  */
-export function buildCommsValue(sessions) {
+export function buildCommsValue(sessions, options) {
   const titles = Object.create(null)
+  const familySessionIds = new Set()
+  const successfulToolCalls = new Set()
   const messages = []
   let scanned = 0
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    if (session === null || typeof session !== 'object') continue
+    const id = typeof session.id === 'string' ? session.id : ''
+    if (id === '') continue
+    familySessionIds.add(id)
+  }
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    if (session === null || typeof session !== 'object' || typeof session.id !== 'string' || session.id === '') continue
+    for (const event of Array.isArray(session.events) ? session.events : []) {
+      if (event === null || typeof event !== 'object' || event.type !== 'tool/result') continue
+      const data = event.data !== null && typeof event.data === 'object' ? event.data : {}
+      const result = data.message !== null && typeof data.message === 'object' ? data.message : {}
+      const source = result.source !== null && typeof result.source === 'object' ? result.source : {}
+      const callId = typeof source.callId === 'string' ? source.callId
+        : typeof data.callId === 'string' ? data.callId : ''
+      if (callId !== '' && data.error === undefined && result.isError !== true) {
+        successfulToolCalls.add(`${session.id}:${callId}`)
+      }
+    }
+  }
   for (const session of Array.isArray(sessions) ? sessions : []) {
     if (session === null || typeof session !== 'object') continue
     const id = typeof session.id === 'string' ? session.id : ''
@@ -1797,16 +1962,78 @@ export function buildCommsValue(sessions) {
     scanned += 1
     if (typeof session.title === 'string' && session.title !== '') titles[id] = session.title.slice(0, 120)
     for (const event of Array.isArray(session.events) ? session.events : []) {
-      const row = commsMessageOf(event, id)
+      const row = commsMessageOf(event, id, familySessionIds, successfulToolCalls, options)
       if (row !== null) messages.push(row)
     }
   }
+
+  for (const session of Array.isArray(sessions) ? sessions : []) {
+    if (session === null || typeof session !== 'object' || typeof session.id !== 'string' || session.id === '') continue
+    const id = session.id
+    // In current DSH Session logs, send_message is durable as a tool/call on
+    // the sender; a completed continuable child reports its settled state via
+    // the subagentTiming projection rather than a user/message event.
+    const parentSessionId = typeof session.parentSessionId === 'string' ? session.parentSessionId : ''
+    const projections = session.projections !== null && typeof session.projections === 'object' ? session.projections : {}
+    const values = projections.values !== null && typeof projections.values === 'object' ? projections.values : {}
+    const timing = values.subagentTiming !== null && typeof values.subagentTiming === 'object' ? values.subagentTiming : null
+    const active = timing !== null && timing.active !== null && typeof timing.active === 'object' ? timing.active : null
+    if (parentSessionId !== '' && familySessionIds.has(parentSessionId)
+      && timing !== null && timing.lastTurnCompleted === true && active === null) {
+      const completed = (Array.isArray(session.events) ? session.events : []).filter((event) =>
+        event !== null && typeof event === 'object' && event.type === 'turn/end'
+        && event.data !== null && typeof event.data === 'object'
+        && event.data.reason !== null && typeof event.data.reason === 'object'
+        && event.data.reason.kind === 'completed').at(-1)
+      if (completed !== undefined) {
+        const mode = session.mode === 'one-shot' || session.mode === 'continuable' ? session.mode : 'continuable'
+        const completionText = mode === 'one-shot'
+          ? `Background subagent ${id} finished. It cannot receive follow-up messages.`
+          : `Background subagent ${id} finished and will do no further work unless you send it more.`
+        const hasRecordedSettled = messages.some((message) => message.kind === 'settled'
+          && message.from === id && message.to === parentSessionId)
+        if (!hasRecordedSettled) {
+          messages.push({
+            seq: Number.isFinite(completed.seq) ? completed.seq : 0,
+            time: Number.isFinite(completed.time) ? completed.time : 0,
+            kind: 'settled',
+            text: completionText,
+            from: id,
+            to: parentSessionId,
+          })
+        }
+      }
+    }
+  }
+  // The same relay appears twice: as the sender's durable `send_message`
+  // tool/call and as the recipient's agent-message injection. Collapse exact
+  // route+text duplicates observed within five minutes.
+  const unique = []
+  const seenRelay = new Map()
+  const resolveTarget = options && typeof options.resolveTarget === 'function' ? options.resolveTarget : null
+  const routeOf = (message) => {
+    // The sender's tool/call stores the teammate name; the recipient's
+    // injection stores the session id. Resolve both to one route before dedupe.
+    if (resolveTarget !== null && typeof message.toName === 'string' && message.toName !== '') {
+      return resolveTarget(message.toName) || String(message.to || '')
+    }
+    return String(message.to || '')
+  }
+  for (const message of messages.sort((left, right) => (left.time - right.time) || (left.seq - right.seq))) {
+    const key = `${message.kind}|${message.from || ''}|${routeOf(message)}|${String(message.text || '').replace(/\s+/g, ' ').trim()}`
+    const previous = seenRelay.get(key)
+    if (previous !== undefined && Math.abs(message.time - previous) < 60_000) continue
+    seenRelay.set(key, message.time)
+    unique.push(message)
+  }
+  messages.length = 0
+  messages.push(...unique)
   messages.sort((left, right) => (right.time - left.time) || (right.seq - left.seq))
   const total = messages.length
   const capped = messages.slice(0, COMMS_MAX_MESSAGES).map((row) => {
     const result = { ...row }
     if (result.fromName === undefined && result.from !== undefined && titles[result.from] !== undefined) result.fromName = titles[result.from]
-    if (titles[result.to] !== undefined) result.toName = titles[result.to]
+    if (result.toName === undefined && titles[result.to] !== undefined) result.toName = titles[result.to]
     return result
   })
   return {
@@ -1829,20 +2056,56 @@ export async function handleContextComms(api, msg) {
   if (!api || !api.sessions || typeof api.sessions.history !== 'function') {
     return unavailable(requestType, sessionIds[0], 'Session history is unavailable on this host')
   }
+  const addressById = new Map()
+  for (const ref of Array.isArray(msg.sessions) ? msg.sessions : []) {
+    if (ref === null || typeof ref !== 'object' || typeof ref.id !== 'string' || ref.id === '') continue
+    if (typeof ref.parentSessionId !== 'string' || ref.parentSessionId === '') continue
+    const mode = ref.mode === 'one-shot' || ref.mode === 'continuable' || ref.mode === 'unknown'
+      ? ref.mode : 'unknown'
+    addressById.set(ref.id, { parentSessionId: ref.parentSessionId, mode })
+  }
+  // rc.3 sends `send_message` with the teammate name; the roster (id/name) lets
+  // the scan resolve it to a session id so the route shows the real Agent.
+  const memberIdByName = new Map()
+  for (const member of Array.isArray(msg.members) ? msg.members : []) {
+    if (member === null || typeof member !== 'object') continue
+    const id = typeof member.id === 'string' ? member.id : ''
+    const name = typeof member.name === 'string' ? member.name.trim() : ''
+    if (id === '' || name === '' || memberIdByName.has(name)) continue
+    memberIdByName.set(name, id)
+  }
+  const resolveTarget = memberIdByName.size > 0
+    ? (name) => memberIdByName.get(String(name).trim()) || ''
+    : null
   const sessions = []
   for (const sessionId of sessionIds) {
     try {
-      const history = await api.sessions.history({ sessionId, maxMessages: 400 })
+      const address = addressById.get(sessionId)
+      const history = await api.sessions.history({
+        sessionId,
+        maxMessages: 400,
+        ...(address ? { parentSessionId: address.parentSessionId, mode: address.mode } : {}),
+      })
       if (history === null || typeof history !== 'object' || history.kind === 'error') continue
       const entries = Array.isArray(history.events) ? history.events : []
       const events = entries.map((entry) => (entry !== null && typeof entry === 'object' && entry.event !== null && typeof entry.event === 'object' ? entry.event : entry))
-      sessions.push({ id: sessionId, title: typeof history.title === 'string' ? history.title : '', events })
+      sessions.push({
+        id: sessionId,
+        title: typeof history.title === 'string' ? history.title : '',
+        events,
+        ...(address ? { parentSessionId: address.parentSessionId, mode: address.mode } : {}),
+        ...(history.projections && typeof history.projections === 'object' ? { projections: history.projections } : {}),
+      })
     } catch (_) {
       // One unreadable log must not abort the scan of the others.
     }
   }
   try {
-    return { kind: 'context-comms', sessionId: sessionIds[0], value: buildCommsValue(sessions) }
+    return {
+      kind: 'context-comms',
+      sessionId: sessionIds[0],
+      value: buildCommsValue(sessions, resolveTarget === null ? undefined : { resolveTarget }),
+    }
   } catch (_) {
     return unavailable(requestType, sessionIds[0], 'Unable to scan cross-agent messages')
   }
@@ -1982,9 +2245,208 @@ function insightsEstimateCost(usage, book) {
   return priced ? total : null
 }
 
+/** Estimated USD cost of one provider usage bucket at the models.dev rate. */
+function insightsUsageCost(book, provider, model, usage) {
+  if (!insightsRecord(usage)) return null
+  const rate = insightsRateOf(book, provider, model)
+  if (rate === null) return null
+  const uncached = insightsNumber(usage.uncachedInputTokens)
+  const cacheRead = insightsNumber(usage.cacheReadTokens)
+  const cacheWrite = insightsNumber(usage.cacheWriteTokens)
+  const output = insightsNumber(usage.outputTokens)
+  if (uncached + cacheRead + cacheWrite + output <= 0) return null
+  return (uncached * rate.input + cacheRead * rate.cacheRead + cacheWrite * rate.cacheWrite + output * rate.output) / 1_000_000
+}
+
+/**
+ * Estimated USD cost of one request ledger row: prompt carries the billed input
+ * (uncached + cache read + cache write), so the cache-write remainder is derived.
+ */
+function insightsRequestCost(book, provider, model, request) {
+  if (!insightsRecord(request)) return null
+  const rate = insightsRateOf(book, provider, model)
+  if (rate === null) return null
+  const prompt = insightsNumber(request.prompt)
+  const cacheRead = insightsNumber(request.cacheRead)
+  const uncached = insightsNumber(request.uncachedInput)
+  const output = insightsNumber(request.output)
+  const cacheWrite = Math.max(0, prompt - cacheRead - uncached)
+  if (prompt + output <= 0) return null
+  return (uncached * rate.input + cacheRead * rate.cacheRead + cacheWrite * rate.cacheWrite + output * rate.output) / 1_000_000
+}
+
+function insightsRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function insightsTitleOf(session, header, values) {
+  const titleProjection = values && values.title
+  const nestedTitle = titleProjection && typeof titleProjection === 'object' ? titleProjection.title : ''
+  const sessionTitle = values && values.sessionTitle && typeof values.sessionTitle === 'object'
+    ? values.sessionTitle.title : ''
+  const subagent = values && values.subagent && typeof values.subagent === 'object' ? values.subagent : {}
+  const candidates = [
+    session && session.displayTitle,
+    sessionTitle,
+    typeof titleProjection === 'string' ? titleProjection : nestedTitle,
+    session && session.title,
+    header && header.title,
+    subagent.label,
+  ]
+  for (const candidate of candidates) {
+    if (typeof candidate === 'string' && candidate.trim() !== '') return candidate.trim().slice(0, 120)
+  }
+  return ''
+}
+
+function insightsNeedsObservation(values, session, header) {
+  const timeline = values.contextTimeline
+  const nativeHead = insightsRecord(timeline) && insightsRecord(timeline.current)
+    && Object.keys(timeline.current).length > 0 && insightsRecord(timeline.timing)
+  const mobile = insightsRecord(values.mobileContext) ? values.mobileContext : null
+  const legacyHead = mobile !== null && insightsRecord(mobile.current)
+    && Object.keys(mobile.current).length > 0 && insightsRecord(mobile.timing)
+    && Object.keys(mobile.timing).length > 0
+  const hasUsage = insightsRecord(values.tokenUsage) && Object.keys(values.tokenUsage).length > 0
+  const hasTitle = insightsTitleOf(session, header, values) !== ''
+  // A mobileContext-only host (older DSH) already carries the head; observing
+  // every session again would refold up to 120 logs on each page refresh. The
+  // native head still needs the activity projection and a real title backfilled.
+  if (legacyHead && hasUsage && hasTitle) return false
+  if (nativeHead && insightsRecord(values.contextActivity) && hasUsage && hasTitle) return false
+  return true
+}
+
+/** The activity ledger a session's projections carry (native head first, the mobile fold as fallback). */
+function insightsActivityOf(values) {
+  if (!insightsRecord(values)) return null
+  if (insightsRecord(values.contextActivity)) return values.contextActivity
+  return insightsRecord(values.mobileContext) && insightsRecord(values.mobileContext.activity)
+    ? values.mobileContext.activity : null
+}
+
+/** Sum one session's provider token buckets into an accumulating family usage. */
+function insightsUsageAdd(target, usage) {
+  if (!insightsRecord(usage)) return
+  target.uncachedInputTokens += insightsNumber(usage.uncachedInputTokens)
+  target.cacheReadTokens += insightsNumber(usage.cacheReadTokens)
+  target.cacheWriteTokens += insightsNumber(usage.cacheWriteTokens)
+  target.outputTokens += insightsNumber(usage.outputTokens)
+}
+
+/** Name-by-name skill tally merge: loads sum, the newest load wins (dsh-context mergeSkillTallies). */
+function insightsMergeSkillTallies(target, skills) {
+  if (!insightsRecord(skills)) return
+  for (const name of Object.keys(skills)) {
+    if (name === '' || !insightsRecord(skills[name])) continue
+    const tally = skills[name]
+    const prev = target[name]
+    const n = insightsNumber(tally.n)
+    const last = insightsNumber(tally.last)
+    target[name] = prev === undefined ? { n, last } : { n: prev.n + n, last: Math.max(prev.last, last) }
+  }
+}
+
+/**
+ * Fold one activity object's day entries into an accumulating day map
+ * (dsh-context mergeActivity): counters and timing totals sum, absent stays
+ * absent on both sides, cost ledgers merge provider/model/period-wise, and skill
+ * tallies merge by name.
+ */
+function insightsMergeActivityDays(target, activity) {
+  if (!insightsRecord(activity) || !insightsRecord(activity.days)) return
+  const days = activity.days
+  for (const day of Object.keys(days)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) continue
+    const entry = insightsRecord(days[day]) ? days[day] : null
+    if (entry === null) continue
+    const merged = target[day] === undefined ? { tokens: 0, requests: 0 } : target[day]
+    merged.tokens += insightsNumber(entry.tokens)
+    merged.requests += insightsNumber(entry.requests)
+    for (const field of ['turns', 'toolCalls', 'toolsMs', 'wallMs']) {
+      if (merged[field] === undefined && entry[field] === undefined) continue
+      merged[field] = insightsNumber(merged[field]) + insightsNumber(entry[field])
+    }
+    if (insightsRecord(entry.cost)) {
+      if (!insightsRecord(merged.cost)) merged.cost = Object.create(null)
+      insightsCostUsageAdd(merged.cost, entry.cost)
+    }
+    if (insightsRecord(entry.skills)) {
+      if (!insightsRecord(merged.skills)) merged.skills = Object.create(null)
+      insightsMergeSkillTallies(merged.skills, entry.skills)
+    }
+    target[day] = merged
+  }
+}
+
+/**
+ * Fold a mobileContext event list's skill loads into the day ledger. The fold
+ * records a skill tool's harness injection as `{kind:'inject', sub:'skill',
+ * name}`; that event survives the 120-event window, so a host without the
+ * native contextActivity projection can still populate the skills card.
+ */
+function insightsMergeSkillEvents(target, context) {
+  if (!insightsRecord(context) || !Array.isArray(context.events)) return
+  for (const event of context.events) {
+    if (!insightsRecord(event) || event.kind !== 'inject' || event.sub !== 'skill') continue
+    const name = typeof event.name === 'string' ? event.name.trim() : ''
+    if (name === '') continue
+    const day = insightsDayKey(insightsNumber(event.time))
+    if (day === '') continue
+    const entry = target[day] || (target[day] = { tokens: 0, requests: 0 })
+    const skills = insightsRecord(entry.skills) ? entry.skills : (entry.skills = Object.create(null))
+    const tally = insightsRecord(skills[name]) ? skills[name] : (skills[name] = { n: 0, last: 0 })
+    tally.n += 1
+    tally.last = Math.max(insightsNumber(tally.last), insightsNumber(event.time))
+  }
+}
+
+function insightsHasSkillTallies(activity) {
+  if (!insightsRecord(activity) || !insightsRecord(activity.days)) return false
+  return Object.values(activity.days).some(day => insightsRecord(day)
+    && insightsRecord(day.skills) && Object.keys(day.skills).length > 0)
+}
+
+function insightsStringOf() {
+  for (let index = 0; index < arguments.length; index += 1) {
+    const value = arguments[index]
+    if (typeof value === 'string' && value.trim() !== '') return value.trim()
+  }
+  return ''
+}
+
+/**
+ * Host session rows changed shape across DSH generations: some carry the edge
+ * in `header`, current DSH puts it on the row, and a third variant nests it in
+ * `metadata`. Resolve all three so the family tree and the list agree.
+ */
+function insightsIdentityOf(session, header) {
+  const meta = insightsRecord(session.metadata) ? session.metadata : {}
+  const id = insightsStringOf(session.id, session.sessionId, header.id, header.sessionId,
+    meta.id, meta.sessionId)
+  const parentSessionId = insightsStringOf(
+    session.parentSessionId, session.parentSession, session.parent,
+    header.parentSessionId, header.parentSession, header.parent,
+    meta.parentSessionId, meta.parentSession, meta.parent,
+  )
+  const originValue = session.origin !== undefined ? session.origin
+    : (header.origin !== undefined ? header.origin : meta.origin)
+  const originText = typeof originValue === 'string'
+    ? originValue
+    : (insightsRecord(originValue) ? insightsStringOf(originValue.kind, originValue.type) : '')
+  const isSubagent = originText === 'subagent' || originText === 'sub-agent'
+    || session.isSubagent === true || header.isSubagent === true
+    || (parentSessionId !== '' && originText === '')
+  return { id, parentSessionId, isSubagent, createdAt: insightsNumber(header.createdAt) || insightsNumber(session.createdAt) || insightsNumber(session.updatedAt) }
+}
+
 async function insightsSkillCatalogOf(sessionId, sessions, projections) {
   if (!hostSkills || typeof hostSkills.list !== 'function') return []
-  const session = sessions.find(item => item && (item.id === sessionId || item.header && item.header.id === sessionId))
+  const session = sessions.find((item) => {
+    if (item === null || typeof item !== 'object') return false
+    const header = item.header !== null && typeof item.header === 'object' ? item.header : {}
+    return insightsIdentityOf(item, header).id === sessionId
+  })
   const header = session && session.header && typeof session.header === 'object' ? session.header : {}
   let cwd = typeof header.cwd === 'string' ? header.cwd : undefined
   let preset
@@ -2082,6 +2544,10 @@ export function buildInsightsValue(records, now, options) {
       daily.inputTokens = (daily.inputTokens || 0) + insightsNumber(request.prompt)
       daily.outputTokens = (daily.outputTokens || 0) + insightsNumber(request.output)
       daily.cacheReadTokens = (daily.cacheReadTokens || 0) + insightsNumber(request.cacheRead)
+      // Hosts without the billing ledger still expose request rows: price them
+      // from the models.dev book so the 7-day cost bars are not empty.
+      const requestCost = insightsRequestCost(priceBook, record.provider, record.model, request)
+      if (requestCost !== null) daily.costUsd = (daily.costUsd || 0) + requestCost
     }
     const activityKeys = Object.keys(activityByDay).sort()
     for (const day of activityKeys) {
@@ -2093,14 +2559,16 @@ export function buildInsightsValue(records, now, options) {
       let daily
       if (isRecentDay) {
         daily = sessionDays[day] || (sessionDays[day] = {})
-        daily.tokens = insightsNumber(entry.tokens)
-        daily.requests = insightsNumber(entry.requests)
-        daily.turns = insightsNumber(entry.turns)
-        daily.toolCalls = insightsNumber(entry.toolCalls)
-        daily.toolsMs = insightsNumber(entry.toolsMs)
-        daily.wallMs = insightsNumber(entry.wallMs)
+        // A day may carry only skill events (tokens/requests/counters absent);
+        // never let that wipe the request ledger's figures for the same day.
+        if (insightsNumber(entry.tokens) > 0 || daily.tokens === undefined) daily.tokens = insightsNumber(entry.tokens)
+        if (insightsNumber(entry.requests) > 0 || daily.requests === undefined) daily.requests = insightsNumber(entry.requests)
+        for (const field of ['turns', 'toolCalls', 'toolsMs', 'wallMs']) {
+          if (entry[field] !== undefined) daily[field] = insightsNumber(entry[field])
+        }
         if (costUsage !== null) {
-          daily.costUsd = insightsEstimateCost(costUsage, priceBook)
+          const ledgerCost = insightsEstimateCost(costUsage, priceBook)
+          if (ledgerCost !== null) daily.costUsd = ledgerCost
           let inputTokens = 0
           let cacheReadTokens = 0
           let cacheWriteTokens = 0
@@ -2153,6 +2621,12 @@ export function buildInsightsValue(records, now, options) {
       tool: insightsNumber(current.tool),
       output: output,
     }
+    const lifetimeCost = record.cost !== null && typeof record.cost === 'object' && !Array.isArray(record.cost)
+      && Object.keys(record.cost).length > 0 ? record.cost : sessionCostUsage
+    // Card cost: the billing ledger first, then the provider usage at the book's
+    // rate (a host without cost projections still gets an estimate, or a dash).
+    let costUsd = insightsEstimateCost(lifetimeCost, priceBook)
+    if (costUsd === null) costUsd = insightsUsageCost(priceBook, record.provider, record.model, usage)
     sessions.push({
       id,
       title: typeof record.title === 'string' && record.title !== '' ? record.title.slice(0, 120) : id,
@@ -2179,14 +2653,21 @@ export function buildInsightsValue(records, now, options) {
         toolArgMs: insightsNumber(timing.toolArgMs),
         toolsMs: insightsNumber(timing.toolsMs),
         otherMs: insightsNumber(timing.otherMs),
+        waitCount: insightsNumber(timing.waitCount),
+        reasoningCount: insightsNumber(timing.reasoningCount),
+        textCount: insightsNumber(timing.textCount),
+        toolArgCount: insightsNumber(timing.toolArgCount),
+        toolCount: insightsNumber(timing.toolCount),
         speedTokens: insightsNumber(timing.speedTokens),
         speedMs: insightsNumber(timing.speedMs),
       },
       contextWindow: insightsNumber(pressure.contextWindow),
       pressureTokens: insightsNumber(pressure.pressureTokens),
+      ...(typeof record.contextTokens === 'number' && Number.isFinite(record.contextTokens) && record.contextTokens >= 0
+        ? { contextTokens: record.contextTokens } : {}),
       cwd: typeof record.cwd === 'string' ? record.cwd.slice(0, 500) : '',
-      lastAnswer: typeof record.lastAnswer === 'string' ? record.lastAnswer.slice(0, 160) : '',
-      costUsd: insightsEstimateCost(sessionCostUsage, priceBook),
+      lastUser: typeof record.lastUser === 'string' ? record.lastUser.slice(0, 200) : '',
+      costUsd,
       skillNames: Object.keys(sessionSkillLoads).sort((a, b) => sessionSkillLoads[b] - sessionSkillLoads[a]).slice(0, 20),
       days: sessionDays,
       composition,
@@ -2253,30 +2734,177 @@ export async function handleContextInsights(msg) {
   try {
     const listedSessions = hostSessions.list()
     const sessions = Array.isArray(listedSessions) ? listedSessions : []
-    const records = []
-    let sessionsTruncated = false
-    for (let sessionIndex = 0; sessionIndex < sessions.length; sessionIndex += 1) {
-      const session = sessions[sessionIndex]
+    // Family edges are subagent-origin rows only: a fork seed carries a parent
+    // but its origin is `fork`, so it roots its own family (rowsOfSnapshot
+    // familyParentOf). Session-row shapes differ across DSH generations; the
+    // identity helper reads header / top-level / metadata alike.
+    const catalog = new Map()
+    for (const session of sessions) {
       if (session === null || typeof session !== 'object') continue
       const header = session.header !== null && typeof session.header === 'object' ? session.header : {}
-      const id = typeof session.id === 'string' && session.id !== '' ? session.id : (typeof header.id === 'string' ? header.id : '')
-      if (id === '') continue
+      const identity = insightsIdentityOf(session, header)
+      if (identity.id === '' || catalog.has(identity.id)) continue
+      catalog.set(identity.id, {
+        id: identity.id,
+        session,
+        header,
+        createdAt: identity.createdAt,
+        origin: identity.isSubagent ? 'subagent' : '',
+        parentSessionId: identity.parentSessionId,
+      })
+    }
+    const childrenOf = new Map()
+    for (const entry of catalog.values()) {
+      if (entry.origin !== 'subagent' || entry.parentSessionId === '') continue
+      const children = childrenOf.get(entry.parentSessionId)
+      if (children === undefined) childrenOf.set(entry.parentSessionId, [entry.id])
+      else children.push(entry.id)
+    }
+    const listed = []
+    const listedIds = new Set()
+    for (const entry of catalog.values()) {
+      if (entry.origin !== 'subagent') {
+        listed.push(entry)
+        listedIds.add(entry.id)
+      }
+    }
+    const valuesById = new Map()
+    const valuesOf = async (id) => {
+      if (valuesById.has(id)) return valuesById.get(id)
+      const entry = catalog.get(id)
+      if (entry === undefined) return null
       let values = null
       try {
-        const snapshot = hostProjections.snapshot(session)
+        const snapshot = hostProjections.snapshot(entry.session)
         values = snapshot !== null && typeof snapshot === 'object' && snapshot.values !== null && typeof snapshot.values === 'object'
           ? snapshot.values : null
       } catch (_) {
         values = null
       }
+      // A listed session can lack a warm projection snapshot. Keep its row and
+      // ask the same cold-observation surface the DSH client uses for its heads.
+      if (values === null) values = {}
+      // Some gateway session-list snapshots predate the native DSH heads or omit cold projections. Read the same
+      // projection surface the DSH client observes before degrading token, timing, activity, or skill cards.
+      // Only listed rows pay for a cold observation; a subagent's head and
+      // ledger are read from its warm snapshot when the host has it.
+      if (listedIds.has(id) && insightsNeedsObservation(values, entry.session, entry.header)
+        && hostSessionQuery && typeof hostSessionQuery.observeSession === 'function') {
+        let observation = null
+        try {
+          observation = await hostSessionQuery.observeSession(id)
+          const observed = observation && observation.projections && typeof observation.projections === 'object'
+            ? observation.projections.values : null
+          if (insightsRecord(observed)) values = { ...values, ...observed }
+        } catch (_) { /* keep the warm snapshot when no cold projection head is available */ }
+        finally {
+          const dispose = observation && observation[Symbol.dispose]
+          if (typeof dispose === 'function') {
+            try { dispose.call(observation) } catch (_) { /* observation cleanup is best effort */ }
+          }
+        }
+      }
+      valuesById.set(id, values)
+      return values
+    }
+    const records = []
+    let sessionsTruncated = false
+    for (let index = 0; index < listed.length; index += 1) {
+      if (records.length >= INSIGHTS_MAX_SESSIONS) {
+        sessionsTruncated = true
+        break
+      }
+      const entry = listed[index]
+      const id = entry.id
+      const session = entry.session
+      const header = entry.header
+      const values = await valuesOf(id)
       if (values === null) continue
       const usage = values.tokenUsage !== null && typeof values.tokenUsage === 'object' ? values.tokenUsage : {}
       const stats = values.sessionStats !== null && typeof values.sessionStats === 'object' ? values.sessionStats : {}
       const pressure = values.contextPressure !== null && typeof values.contextPressure === 'object' ? values.contextPressure : {}
       const context = values.mobileContext !== null && typeof values.mobileContext === 'object' ? values.mobileContext : {}
-      const title = values.sessionTitle !== null && typeof values.sessionTitle === 'object'
-        ? (typeof values.sessionTitle.title === 'string' ? values.sessionTitle.title : '')
-        : (typeof session.title === 'string' ? session.title : '')
+      const timeline = values.contextTimeline !== null && typeof values.contextTimeline === 'object' ? values.contextTimeline : {}
+      const activity = values.contextActivity !== null && typeof values.contextActivity === 'object' ? values.contextActivity : context.activity || {}
+      const timelineCounts = timeline.counts !== null && typeof timeline.counts === 'object' ? timeline.counts : {}
+      const timelineTiming = timeline.timing !== null && typeof timeline.timing === 'object' ? timeline.timing : null
+      const contextTiming = context.timing !== null && typeof context.timing === 'object' ? context.timing : {}
+      const timing = timelineTiming ? {
+        wallMs: insightsNumber(timelineTiming.wallMs),
+        ttftMs: insightsNumber(timelineTiming.ttftMs),
+        reasoningMs: insightsNumber(timelineTiming.reasoningMs),
+        textMs: insightsNumber(timelineTiming.textMs !== undefined
+          ? timelineTiming.textMs
+          : (timelineTiming.reasoningMs === undefined && timelineTiming.toolArgMs === undefined ? timelineTiming.genMs : 0)),
+        toolArgMs: insightsNumber(timelineTiming.toolArgMs),
+        toolsMs: insightsNumber(timelineTiming.toolsMs),
+        generationMs: insightsNumber(timelineTiming.genMs),
+        otherMs: Math.max(0, insightsNumber(timelineTiming.wallMs) - insightsNumber(timelineTiming.ttftMs)
+          - insightsNumber(timelineTiming.genMs) - insightsNumber(timelineTiming.toolsMs)),
+        waitCount: insightsNumber(timelineTiming.calls),
+        reasoningCount: insightsNumber(timelineTiming.reasoningBlocks),
+        textCount: insightsNumber(timelineTiming.textBlocks),
+        toolArgCount: insightsNumber(timelineTiming.toolArgBlocks),
+        toolCount: insightsNumber(timelineTiming.toolCalls),
+        speedTokens: insightsNumber(timelineTiming.speedTokens),
+        speedMs: insightsNumber(timelineTiming.speedMs),
+      } : contextTiming
+      const nativeCurrent = timeline.current !== null && typeof timeline.current === 'object' ? timeline.current : null
+      const mobileCurrent = context.current !== null && typeof context.current === 'object' ? context.current : {}
+      const current = nativeCurrent || mobileCurrent
+      const nativeCost = timeline.cost !== null && typeof timeline.cost === 'object' ? timeline.cost : undefined
+      const stepCount = Number.isFinite(timelineCounts.steps) ? timelineCounts.steps : insightsNumber(stats.steps)
+      const turnCount = Number.isFinite(timelineCounts.turns) ? timelineCounts.turns : insightsNumber(stats.turns)
+      const toolCount = Number.isFinite(timeline.toolCalls) ? timeline.toolCalls
+        : Number.isFinite(context.counts && context.counts.toolCalls) ? context.counts.toolCalls : 0
+      const wallMs = insightsNumber(timing.wallMs) || insightsNumber(stats.llmMs) + insightsNumber(stats.toolMs)
+      const toolsMs = insightsNumber(timing.toolsMs) || insightsNumber(stats.toolMs)
+      const sessionStats = {
+        ...stats,
+        turns: turnCount,
+        steps: stepCount,
+        llmMs: insightsNumber(stats.llmMs) || Math.max(0, wallMs - toolsMs),
+        toolMs: insightsNumber(stats.toolMs) || toolsMs,
+      }
+      const title = insightsTitleOf(session, header, values)
+      // The listed row carries its whole subagent subtree's usage and activity
+      // ledger (rowsOfSnapshot family merge); the row's own stats, timing,
+      // current context, pressure and lastActive stay the session's own.
+      const familyUsage = {
+        uncachedInputTokens: insightsNumber(usage.uncachedInputTokens),
+        cacheReadTokens: insightsNumber(usage.cacheReadTokens),
+        cacheWriteTokens: insightsNumber(usage.cacheWriteTokens),
+        outputTokens: insightsNumber(usage.outputTokens),
+      }
+      const familyDays = Object.create(null)
+      insightsMergeActivityDays(familyDays, activity)
+      // mobileContext-only hosts have no contextActivity projection: recover the
+      // skill card's inputs from the fold's inject events, and price the day from
+      // the request ledger below when no billing ledger exists.
+      // When both projections exist they record the same invocation, so use the
+      // native ledger for that session rather than counting its bounded events twice.
+      if (!insightsHasSkillTallies(activity)) insightsMergeSkillEvents(familyDays, context)
+      const familyCost = Object.create(null)
+      if (insightsRecord(nativeCost)) insightsCostUsageAdd(familyCost, nativeCost)
+      const familyQueue = [id]
+      const familySeen = new Set(familyQueue)
+      for (let cursor = 0; cursor < familyQueue.length; cursor += 1) {
+        for (const childId of childrenOf.get(familyQueue[cursor]) || []) {
+          if (familySeen.has(childId)) continue
+          familySeen.add(childId)
+          familyQueue.push(childId)
+          const childValues = await valuesOf(childId)
+          if (childValues === null) continue
+          insightsUsageAdd(familyUsage, childValues.tokenUsage)
+          const childActivity = insightsActivityOf(childValues)
+          insightsMergeActivityDays(familyDays, childActivity)
+          if (!insightsHasSkillTallies(childActivity)) insightsMergeSkillEvents(familyDays, childValues.mobileContext)
+          const childTimeline = insightsRecord(childValues.contextTimeline) ? childValues.contextTimeline : null
+          if (childTimeline !== null && insightsRecord(childTimeline.cost)) {
+            insightsCostUsageAdd(familyCost, childTimeline.cost)
+          }
+        }
+      }
       let running = false
       try {
         const agent = hostAgents && typeof hostAgents.get === 'function' ? hostAgents.get(id) : null
@@ -2289,22 +2917,25 @@ export async function handleContextInsights(msg) {
         running,
         model: typeof context.model === 'string' ? context.model : (typeof header.model === 'string' ? header.model : ''),
         provider: typeof context.provider === 'string' ? context.provider : '',
-        createdAt: insightsNumber(header.createdAt),
-        usage,
+        createdAt: entry.createdAt || insightsNumber(header.createdAt) || insightsNumber(session.createdAt) || insightsNumber(session.updatedAt),
+        usage: familyUsage,
         stats,
-        counts: context.counts !== null && typeof context.counts === 'object' ? context.counts : {},
-        pressure,
-        current: context.current !== null && typeof context.current === 'object' ? context.current : {},
-        timing: context.timing !== null && typeof context.timing === 'object' ? context.timing : {},
-        requests: Array.isArray(context.requests) ? context.requests : [],
-        activity: values.contextActivity !== null && typeof values.contextActivity === 'object' ? values.contextActivity : {},
-        lastActive: insightsNumber(session.updatedAt) || insightsNumber(header.updatedAt),
-        lastAnswer: typeof context.lastAnswer === 'string' ? context.lastAnswer : '',
+        counts: { ...(context.counts !== null && typeof context.counts === 'object' ? context.counts : {}), toolCalls: toolCount },
+        pressure: {
+          ...pressure,
+          contextWindow: insightsNumber(pressure.contextWindow) || insightsNumber(timeline.contextWindow) || insightsNumber(context.contextWindow),
+        },
+        current,
+        contextTokens: Number.isFinite(current.total) ? current.total : undefined,
+        ...(Object.keys(familyCost).length > 0 ? { cost: familyCost } : {}),
+        stats: sessionStats,
+        timing,
+        requests: Array.isArray(timeline.requests) && timeline.requests.length
+          ? timeline.requests : Array.isArray(context.requests) ? context.requests : [],
+        activity: { days: familyDays },
+        lastActive: insightsNumber(session.updatedAt) || insightsNumber(header.updatedAt) || insightsNumber(context.lastActive),
+        lastUser: typeof timeline.lastUser === 'string' ? timeline.lastUser : '',
       })
-      if (records.length >= INSIGHTS_MAX_SESSIONS) {
-        sessionsTruncated = sessionIndex < sessions.length - 1
-        break
-      }
     }
     const [priceBook, skillCatalog] = await Promise.all([
       insightsPricesOf(),
@@ -2340,27 +2971,139 @@ export async function handleContextFleet(msg) {
     const list = Array.isArray(sessions) ? sessions : []
     const byId = new Map()
     const records = []
+    const valuesById = new Map()
     for (const session of list) {
       if (session === null || typeof session !== 'object') continue
       const header = session.header !== null && typeof session.header === 'object' ? session.header : {}
-      const id = typeof session.id === 'string' && session.id !== '' ? session.id : (typeof header.id === 'string' ? header.id : '')
-      if (id === '' || byId.has(id)) continue
-      byId.set(id, session)
+      const identity = insightsIdentityOf(session, header)
+      if (identity.id === '' || byId.has(identity.id)) continue
+      byId.set(identity.id, session)
+      const title = typeof session.title === 'string' && session.title !== ''
+        ? session.title : (typeof header.title === 'string' ? header.title : '')
       records.push({
-        id,
-        parentSessionId: typeof header.parentSession === 'string' ? header.parentSession : '',
-        origin: header.origin === 'subagent' ? 'subagent' : '',
-        createdAt: fleetNumber(header.createdAt),
+        id: identity.id,
+        parentSessionId: identity.parentSessionId,
+        origin: identity.isSubagent ? 'subagent' : '',
+        createdAt: identity.createdAt,
+        ...(title !== '' ? { title } : {}),
       })
     }
-    const value = buildFleetValue(sessionId, records, (id) => {
-      const session = byId.get(id)
-      if (session === undefined) return null
-      const snapshot = hostProjections.snapshot(session)
-      return snapshot !== null && typeof snapshot === 'object' && snapshot.values !== null && typeof snapshot.values === 'object'
-        ? snapshot.values
-        : null
-    }, (id) => {
+
+    const valuesOf = (id) => {
+      if (valuesById.has(id)) return valuesById.get(id)
+      const session = byId.get(id) || (hostSessions && typeof hostSessions.get === 'function' ? hostSessions.get(id) : null)
+      let values = null
+      if (session !== null && session !== undefined) {
+        try {
+          const snapshot = hostProjections.snapshot(session)
+          if (snapshot !== null && typeof snapshot === 'object' && snapshot.values !== null && typeof snapshot.values === 'object') {
+            values = snapshot.values
+          }
+        } catch (_) { /* cold query below */ }
+      }
+      if (values === null) values = {}
+      byId.set(id, session || byId.get(id))
+      valuesById.set(id, values)
+      return values
+    }
+
+    const recordById = new Map(records.map((record) => [record.id, record]))
+    const ensureRecord = async (id, parentId, catalogEntry) => {
+      if (recordById.has(id)) return recordById.get(id)
+      let session = null
+      try {
+        if (hostSessions && typeof hostSessions.get === 'function') session = hostSessions.get(id) || null
+      } catch (_) { /* use catalog identity and cold observation */ }
+      let header = session && session.header && typeof session.header === 'object' ? session.header : null
+      if (header === null && hostSessionQuery && typeof hostSessionQuery.observeSession === 'function') {
+        let observation = null
+        try {
+          observation = await hostSessionQuery.observeSession(id)
+          header = observation && observation.header && typeof observation.header === 'object' ? observation.header : null
+          const projections = observation && observation.projections && typeof observation.projections === 'object'
+            ? observation.projections : null
+          if (projections && projections.values && typeof projections.values === 'object') {
+            valuesById.set(id, projections.values)
+          }
+        } catch (_) { /* keep the durable catalog identity */ }
+        finally {
+          const dispose = observation && observation[Symbol.dispose]
+          if (typeof dispose === 'function') {
+            try { dispose.call(observation) } catch (_) { /* observation cleanup is best effort */ }
+          }
+        }
+      }
+      const record = {
+        id,
+        parentSessionId: header && typeof header.parentSession === 'string' ? header.parentSession : parentId,
+        origin: header ? (header.origin === 'subagent' ? 'subagent' : '') : (catalogEntry ? 'subagent' : ''),
+        createdAt: fleetNumber(header && header.createdAt) || fleetNumber(catalogEntry && catalogEntry.createdAt),
+        ...(typeof (catalogEntry && catalogEntry.label) === 'string' && catalogEntry.label !== ''
+          ? { title: catalogEntry.label } : {}),
+      }
+      recordById.set(id, record)
+      records.push(record)
+      if (session) byId.set(id, session)
+      return record
+    }
+
+    // The native DSH client refreshes subagent catalogs before rendering its
+    // forest. Mirror that discovery so persisted/cold descendants are present
+    // even when they are absent from the currently attached session list.
+    let currentRecord = recordById.get(sessionId)
+    if (!currentRecord) currentRecord = await ensureRecord(sessionId, '', null)
+    let ancestor = currentRecord
+    const ancestorsSeen = new Set()
+    while (ancestor && ancestor.parentSessionId && ancestor.origin === 'subagent'
+      && !ancestorsSeen.has(ancestor.parentSessionId) && records.length < MAX_FLEET_AGENTS * 4) {
+      ancestorsSeen.add(ancestor.parentSessionId)
+      ancestor = recordById.get(ancestor.parentSessionId)
+      if (!ancestor) ancestor = await ensureRecord([...ancestorsSeen].at(-1), '', null)
+    }
+    const rootId = ancestor ? ancestor.id : sessionId
+    const queue = [rootId]
+    const catalogSeen = new Set()
+    while (queue.length && catalogSeen.size < MAX_FLEET_AGENTS) {
+      const parentId = queue.shift()
+      if (!parentId || catalogSeen.has(parentId)) continue
+      catalogSeen.add(parentId)
+      let values = valuesOf(parentId)
+      const hasDshHead = values.contextTimeline || values.contextPressure || values.tokenUsage || values.mobileContext
+      if ((!Array.isArray(values.subagentCatalog) || !hasDshHead) && hostSessionQuery
+        && typeof hostSessionQuery.observeSession === 'function') {
+        let observation = null
+        try {
+          observation = await hostSessionQuery.observeSession(parentId)
+          const projections = observation && observation.projections && typeof observation.projections === 'object'
+            ? observation.projections : null
+          if (projections && projections.values && typeof projections.values === 'object') {
+            values = projections.values
+            valuesById.set(parentId, values)
+            const observedHeader = observation.header
+            const existing = recordById.get(parentId)
+            if (existing && observedHeader && typeof observedHeader === 'object') {
+              existing.parentSessionId = typeof observedHeader.parentSession === 'string' ? observedHeader.parentSession : existing.parentSessionId
+              existing.origin = observedHeader.origin === 'subagent' ? 'subagent' : existing.origin
+              existing.createdAt = fleetNumber(observedHeader.createdAt) || existing.createdAt
+            }
+          }
+        } catch (_) { /* catalogs are optional on older hosts */ }
+        finally {
+          const dispose = observation && observation[Symbol.dispose]
+          if (typeof dispose === 'function') {
+            try { dispose.call(observation) } catch (_) { /* observation cleanup is best effort */ }
+          }
+        }
+      }
+      const catalog = Array.isArray(values.subagentCatalog) ? values.subagentCatalog : []
+      for (const child of catalog) {
+        if (!child || typeof child !== 'object' || typeof child.id !== 'string' || child.id === '') continue
+        await ensureRecord(child.id, parentId, child)
+        queue.push(child.id)
+      }
+    }
+
+    const value = buildFleetValue(sessionId, records, (id) => valuesOf(id), (id) => {
       try {
         return !!(hostAgents && typeof hostAgents.get === 'function' && hostAgents.get(id) && hostAgents.get(id).status === 'running')
       } catch (_) {

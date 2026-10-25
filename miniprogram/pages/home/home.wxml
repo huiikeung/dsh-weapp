@@ -61,7 +61,7 @@
     <!-- 深海背景随内容一起位移（对齐 iOS DeepOceanBackground 在 workspaceContent 内） -->
     <view class="deep-bg home-deep-bg"><ocean-background id="home-ocean" active="{{oceanActive}}" reduced-motion="{{oceanReducedMotion}}" /></view>
 
-    <scroll-view class="home-scroll" scroll-y="{{!workspacePickerOpen}}" show-scrollbar="{{false}}">
+    <scroll-view class="home-scroll" scroll-y="{{!workspacePickerOpen && !sessionMenuOpen && !swiping}}" show-scrollbar="{{false}}">
     <view class="home" style="padding-top: {{topbarTop}}px;">
 
       <!-- 顶部品牌行：随页面一起滚动（不再固定） -->
@@ -178,21 +178,37 @@
       <view class="session-list">
         <block wx:for="{{displaySessions}}" wx:key="sessionId">
           <view
-            class="session-row glass-press"
-            bindtap="openSession"
+            class="session-swipe {{swipeId === item.sessionId ? 'open' : ''}}"
+            bindtouchstart="onSessionTouchStart"
+            bindtouchmove="onSessionTouchMove"
+            bindtouchend="onSessionTouchEnd"
+            bindtouchcancel="onSessionTouchCancel"
             data-id="{{item.sessionId}}"
-            data-title="{{item.displayTitle}}"
-            data-preset="{{item.agentPreset}}"
-            bindlongpress="sessionActions"
             data-index="{{index}}"
           >
-            <image wx:if="{{item.searchIcon}}" class="search-result-ic" src="/assets/icons/{{item.searchIcon}}"/>
-            <view class="session-dot {{item.running ? 'running' : (item.hasUnread ? 'unread' : '')}}"></view>
-            <view class="session-body">
-              <view class="session-title">{{item.displayTitle}}</view>
-              <view class="session-sub text-mono">{{ui[item.idLabel] !== undefined ? ui[item.idLabel] : item.idLabel}}</view>
+            <view class="session-actions {{swipeId === item.sessionId ? 'show' : ''}}" aria-hidden="true">
+              <view class="session-action rename" catchtap="sessionSwipeAction" data-action="rename" data-index="{{index}}" role="button" aria-label="{{ui['重命名']}}">{{ui['重命名']}}</view>
+              <view class="session-action archive" catchtap="sessionSwipeAction" data-action="archive" data-index="{{index}}" role="button" aria-label="{{ui['归档会话']}}">{{ui['归档会话']}}</view>
             </view>
-            <view class="session-time {{item.running ? 'running' : ''}}">{{item.running ? ui['运行中'] : item.timeLabel}}</view>
+            <view
+              id="session-row-{{index}}"
+              class="session-row glass-press {{sessionMenuOpen && sessionMenuId === item.sessionId ? 'session-row-hidden' : ''}}"
+              style="transform: translateX({{swipeId === item.sessionId ? -swipeOffset : 0}}px);"
+              bindtap="openSession"
+              data-id="{{item.sessionId}}"
+              data-title="{{item.displayTitle}}"
+              data-preset="{{item.agentPreset}}"
+              bindlongpress="sessionActions"
+              data-index="{{index}}"
+            >
+              <image wx:if="{{item.searchIcon}}" class="search-result-ic" src="/assets/icons/{{item.searchIcon}}"/>
+              <view class="session-dot {{item.running ? 'running' : (item.hasUnread ? 'unread' : (item.recentlyCompleted ? 'done' : ''))}}"></view>
+              <view class="session-body">
+                <view class="session-title">{{item.displayTitle}}</view>
+                <view class="session-sub text-mono">{{ui[item.idLabel] !== undefined ? ui[item.idLabel] : item.idLabel}}</view>
+              </view>
+              <view class="session-time {{item.running ? 'running' : ''}}">{{item.running ? ui['运行中'] : item.timeLabel}}</view>
+            </view>
           </view>
         </block>
         <view wx:if="{{!displaySessions.length}}" class="empty">{{ui[emptySessionsText] !== undefined ? ui[emptySessionsText] : emptySessionsText}}</view>
@@ -314,6 +330,23 @@
     </view>
     </view>
     </scroll-view>
+  </view>
+
+  <!-- 会话操作：长按后在当前会话位置弹出选择菜单（与工作区选择同一锚点弹层） -->
+  <view wx:if="{{sessionMenuOpen}}" class="ws-pop-mask" catchtap="closeSessionMenu" catchtouchmove="noop"></view>
+  <view
+    wx:if="{{sessionMenuOpen}}"
+    class="ws-pop session-menu"
+    style="left: {{popLeft}}px; top: {{popTop}}px; width: {{popWidth}}px; height: {{popHeight}}px; transform-origin: 50% {{popOriginY}}px;"
+    catchtap="noop"
+    role="dialog"
+    aria-label="{{sessionMenuTitle}}"
+  >
+    <view class="ws-pop-content">
+      <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="sessionMenuAction" data-action="rename" role="button" aria-label="{{ui['重命名']}}"><image class="ws-pop-ic" src="/assets/icons/dsh-edit.svg" mode="aspectFit"/><text class="ws-pop-label">{{ui['重命名']}}</text></view>
+      <view class="ws-pop-divider"></view>
+      <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="sessionMenuAction" data-action="archive" role="button" aria-label="{{ui['归档会话']}}"><image class="ws-pop-ic" src="/assets/icons/session-archive.svg" mode="aspectFit"/><text class="ws-pop-label">{{ui['归档会话']}}</text></view>
+    </view>
   </view>
 
   <!-- 目录浏览器弹层（对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet） -->

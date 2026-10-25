@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 
 const {
   buildFleetValue,
+  handleContextFleet,
+  registerContextServices,
   CONTEXT_REQUEST_TYPES,
 } = require('../scripts/lib/context-bridge.mjs');
 
@@ -49,6 +51,8 @@ test('fleet value walks the family in root-first DFS order with depths and count
   assert.equal(value.agents[1].isCurrent, false);
   assert.equal(value.agents[0].title, '主会话');
   assert.equal(value.agents[1].label, '研究员');
+  assert.equal(value.agents[1].origin, 'subagent');
+  assert.equal(value.agents[1].parentSessionId, 'root');
   assert.equal(value.agents[1].mode, 'continuable');
   assert.equal(value.agents[2].mode, 'one-shot');
   assert.equal(value.agents[0].running, false);
@@ -122,6 +126,98 @@ test('fleet value reads subagent timing as active time when present', () => {
     : { mobileContext: { timing: { wallMs: 12345 } } });
   assert.equal(value.agents[1].activeMs, 8000);
   assert.equal(value.agents[0].activeMs, 12345);
+});
+
+test('fleet value fills graph usage, steps and duration from the per-session context projections', () => {
+  const records = [record('root', '', '', 1), record('child', 'root', 'subagent', 2)];
+  const value = buildFleetValue('child', records, id => id === 'child' ? {
+    mobileContext: {
+      contextWindow: 1000,
+      current: { system: 100, tools: 20, user: 10, inject: 0, skill: 0, assistant: 60, tool: 10, total: 200 },
+      timing: { wallMs: 45000 },
+    },
+    contextTimeline: { counts: { steps: 7 }, requests: [] },
+  } : null);
+  const child = value.agents[1];
+  assert.equal(child.contextWindow, 1000);
+  assert.equal(child.pressureTokens, 200);
+  assert.equal(child.contextTokens, 200);
+  assert.equal(child.tokensTotal, undefined, 'context occupancy is not mislabeled as billed tokens');
+  assert.equal(child.steps, 7);
+  assert.equal(child.activeMs, 45000);
+});
+
+test('native DSH projections populate each Agent card and keep context tokens separate from billed tokens', () => {
+  const records = [record('root', '', '', 1), record('child', 'root', 'subagent', 2)];
+  const value = buildFleetValue('child', records, id => id === 'child' ? {
+    subagent: { mode: 'one-shot', label: 'Review child' },
+    contextTimeline: {
+      contextWindow: 10000,
+      current: { system: 100, tools: 200, user: 50, inject: 0, skill: 0, assistant: 100, tool: 50, total: 500 },
+      last: { prompt: 700, total: 450 },
+      counts: { steps: 4 },
+      timing: { wallMs: 18000 },
+      cost: { deepseek: { 'deepseek-v3': { peak: { uncached: 1000, cacheRead: 2000, cacheWrite: 300, output: 500 } } } },
+    },
+  } : null);
+  const child = value.agents[1];
+  assert.equal(child.contextWindow, 10000);
+  assert.equal(child.pressureTokens, 750, 'uses DSH headline anchor + current delta');
+  assert.equal(child.contextTokens, 500);
+  assert.equal(child.tokensTotal, 3800, 'billed total follows DSH cost ledger');
+  assert.equal(child.steps, 4);
+  assert.equal(child.activeMs, 18000);
+  assert.deepEqual(child.composition, { system: 100, tools: 200, user: 50, inject: 0, skill: 0, assistant: 100, tool: 50, total: 500 });
+  assert.equal(child.completed, undefined, 'a stopped subagent without DSH completion evidence is not marked complete');
+});
+
+test('context-fleet discovers catalogued cold subagents and observes their DSH projections', async () => {
+  const projectionsById = {
+    root: {
+      contextTimeline: { contextWindow: 100000, current: { total: 1200 }, counts: { steps: 2 }, timing: { wallMs: 9000 } },
+      subagentCatalog: [{ id: 'cold-child', createdAt: 2, mode: 'one-shot', label: 'Cold child' }],
+    },
+    'cold-child': {
+      subagent: { mode: 'one-shot', label: 'Cold child' },
+      contextTimeline: { contextWindow: 8000, current: { system: 100, tools: 200, user: 100, inject: 0, skill: 0, assistant: 50, tool: 50, total: 500 }, counts: { steps: 6 }, timing: { wallMs: 60000 } },
+      tokenUsage: { uncachedInputTokens: 1000, cacheReadTokens: 2000, cacheWriteTokens: 300, outputTokens: 500 },
+    },
+  };
+  const sessionsService = {
+    list: () => [{ id: 'root', header: { id: 'root', createdAt: 1 } }],
+    get: () => undefined,
+  };
+  const projectionsService = { snapshot: () => ({ values: {} }) };
+  const queryService = {
+    async observeSession(id) {
+      return {
+        header: id === 'root'
+          ? { id: 'root', createdAt: 1 }
+          : { id, parentSession: 'root', origin: 'subagent', createdAt: 2 },
+        projections: { values: projectionsById[id] || {} },
+        [Symbol.dispose]() {},
+      };
+    },
+  };
+  registerContextServices({
+    inject(names, callback) {
+      const services = names[0] === 'sessions' ? { sessions: sessionsService, sessionProjections: projectionsService }
+        : names[0] === 'sessionQuery' ? { sessionQuery: queryService }
+          : names[0] === 'agents' ? { agents: { get: () => undefined } } : {};
+      callback(Object.assign(services, { effect() {} }));
+    },
+  });
+
+  const frame = await handleContextFleet({ type: 'context-fleet', sessionId: 'root' });
+  assert.equal(frame.kind, 'context-fleet');
+  assert.deepEqual(frame.value.agents.map(agent => agent.sessionId), ['root', 'cold-child']);
+  const child = frame.value.agents[1];
+  assert.equal(child.title, 'Cold child');
+  assert.equal(child.pressureTokens, 500);
+  assert.equal(child.contextWindow, 8000);
+  assert.equal(child.tokensTotal, 3800);
+  assert.equal(child.steps, 6);
+  assert.equal(child.activeMs, 60000);
 });
 
 test('context request types include dashboard, fleet, content, insights and comms', () => {

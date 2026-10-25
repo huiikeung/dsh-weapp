@@ -41,13 +41,13 @@ test('history prepends anchor the viewport with scroll-into-view instead of gues
   assert.equal(page._lastScrollTop, 5125);
 });
 
-test('cache windows migrate old full caches to eighty events and preserve a paging cursor', () => {
-  const events = Array.from({ length: 300 }, (_, i) => ({ type: 'user/message', seq: i + 1, data: { text: 'Question ' + i } }));
+test('cache windows restore multiple local pages and preserve a paging cursor when bounded', () => {
+  const events = Array.from({ length: 3000 }, (_, i) => ({ type: 'user/message', seq: i + 1, data: { text: 'Question ' + i } }));
   const cache = recentWindow({ events, rows: [], historyFormatVersion: 1, hasMore: false }, protocol, 's');
-  assert.equal(cache.events.length, 80); assert.equal(cache.rows.length, 80);
-  assert.equal(cache.events[0].seq, 221); assert.equal(cache.nextBeforeSeq, 221);
+  assert.equal(cache.events.length, 2000); assert.equal(cache.rows.length, 2000);
+  assert.equal(cache.events[0].seq, 1001); assert.equal(cache.nextBeforeSeq, 1001);
   assert.equal(cache.hasMore, true); assert.equal(cache.historyFormatVersion, 1);
-  assert.equal(cache.rows.at(-1).text, 'Question 299');
-  const legacy = recentWindow({ rows: rows(200) }, protocol, 's');
-  assert.equal(legacy.rows.length, 80); assert.equal(legacy.hasMore, true);
+  assert.equal(cache.rows.at(-1).text, 'Question 2999');
+  const legacy = recentWindow({ rows: rows(2500) }, protocol, 's');
+  assert.equal(legacy.rows.length, 2000); assert.equal(legacy.hasMore, true);
 });

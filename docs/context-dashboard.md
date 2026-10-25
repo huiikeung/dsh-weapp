@@ -242,6 +242,7 @@ session projection + 查询帧提供；小程序端只渲染，不重算事件�
 
 - 顺序：root 起 DFS 先序，同层按 `createdAt` 升序；`isCurrent` 标记当前会话。
 - `mode`：`one-shot` / `continuable` / `null`（root 或未记录）。
+- `parentSessionId`：非根会话的直接父会话；`origin: "subagent"` 仅标记真实子 Agent 边，供通讯扫描按直接父地址读取历史（fork 不作为子 Agent）。
 - 不可用时与 `context-dashboard` 相同：`context-unavailable` / `unknown-command`。
 - 所有字段纯 JSON、无 `undefined`；单个会话快照失败时该 Agent 保留基础字段
   （sessionId/title/parent/depth），其余字段省略。
@@ -375,6 +376,9 @@ read/write/search 类型、路径、工具名、耗时点、失败标记以及 w
 这是桌面 File Activity 的移动端紧凑视图；桌面端的丰富文件类型徽标、按工具/日期过滤、
 定位到浏览器步骤和直接打开工作区资源尚未全部移植。
 
-当前与 dsh-context 仍有明确差距：移动端尚未移植 Context Insights 跨会话活动页、File Activity
-工具/日期筛选与定位跳转、DNA/Adaptive/Overview 趋势交互，以及 Fleet 的通信扫描、详情检查器和完整筛选/排序。
-这些不属于 v3 的正文查询改动，不能据此宣称已实现与桌面插件的全部功能一致。
+Context Insights 跨会话活动页已在 `pages/insights` 落地（KPI、7 日用量/费用、8 周热力图、
+Token/耗时环、技能、工作区分组与会话卡片；页头插件设置与余额胶囊；子 Agent 家族归并），
+详见 `docs/context-parity.md` §12 与 `README.md` 功能对照。当前与 dsh-context 仍有的明显差距：
+File Activity 工具/日期筛选与定位跳转、DNA/Adaptive/Overview 趋势交互，以及 Fleet 的详情检查器
+（插件 Fleet tab 本身不渲染 inspector）与个别筛选/排序项；洞察页的插件更新胶囊因移动端没有
+npm registry 数据源而不渲染。这些差异不能据此宣称已实现与桌面插件的全部功能一致。

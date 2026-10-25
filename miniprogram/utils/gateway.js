@@ -998,8 +998,17 @@ class GatewayClient {
   }
 
   /** 跨 Agent 通讯扫描（编队通讯面板）：宿主 context-comms 请求。 */
-  requestContextComms(sessionIds) {
-    return this.request({ type: 'context-comms', sessionIds: Array.isArray(sessionIds) ? sessionIds : [] });
+  requestContextComms(sessionIds, sessions, members) {
+    // 子 Agent 会话需要 durable parent address + mode 才能读到日志；rc.3 的
+    // send_message 用成员名做收件人，名册（id/name）供宿主解析回会话 id。
+    const payload = { type: 'context-comms', sessionIds: Array.isArray(sessionIds) ? sessionIds : [] };
+    if (Array.isArray(sessions) && sessions.length) payload.sessions = sessions;
+    if (Array.isArray(members) && members.length) {
+      payload.members = members.slice(0, 40).filter(member => member && typeof member.id === 'string'
+        && typeof member.name === 'string' && member.id && member.name)
+        .map(member => ({ id: member.id, name: member.name }));
+    }
+    return this.request(payload);
   }
 
   /** 会话工作区文件列表：网关解析会话所属工作区根目录，path 为相对路径（缺省 = 根）。 */
@@ -1071,7 +1080,13 @@ class GatewayClient {
     return this.send(payload);
   }
 
-  inspectSession(sessionId) {
+  /**
+   * 预览任意会话的记录。子智能体（subagent）会话必须带持久父地址，
+   * 否则网关以 session/agent-busy 拒绝且错误帧无 sessionId，只能等超时。
+   * @param sessionId 目标会话（子智能体时为子会话 id）
+   * @param parent 可选 { parentSessionId, mode }，来自 subagentCatalog
+   */
+  inspectSession(sessionId, parent) {
     const key = 'inspector:' + sessionId;
     if (this.pendingRequests[key]) return this.pendingRequests[key].promise;
     const promise = new Promise((resolve,reject) => {
@@ -1084,7 +1099,11 @@ class GatewayClient {
         const error = new Error(uiText('记录请求超时，请重新连接后重试')); error.code = 'INSPECTOR_TIMEOUT'; reject(error);
       }, REQUEST_TIMEOUT);
       this.pendingRequests[key] = pending;
-      if (!this.send({type:'history',sessionId,maxMessages:20,maxBytes:256*1024,view:'conversation'})) {
+      const parentSessionId = parent && typeof parent.parentSessionId === 'string' ? parent.parentSessionId.trim() : '';
+      const mode = parent && typeof parent.mode === 'string' ? parent.mode.trim() : '';
+      if (!this.send({type:'history',sessionId,maxMessages:20,maxBytes:256*1024,view:'conversation',
+        ...(parentSessionId ? {parentSessionId} : {}),
+        ...(parentSessionId && ['one-shot','continuable','unknown'].includes(mode) ? {mode} : {})})) {
         delete this.pendingRequests[key]; clearTimeout(pending.timer); reject(new Error(uiText('请先连接网关')));
       }
     });
@@ -1108,13 +1127,14 @@ class GatewayClient {
     return this.request({ type: 'attachment', sessionId: sessionId, attachmentId: attachmentId });
   }
 
-  subscribe(sessionId) {
+  subscribe(sessionId, afterSeq) {
     this.activeSessionId = sessionId || null;
     if (sessionId) {
       // 中继线路上订阅快照默认 1 MiB，整包加密后单帧转发，手机要等好几秒。
       // 声明一个小预算：先拿到最新一小段立即可见，旧记录由上滑分页补。
       const snapshotMaxBytes = this.relayMeta ? 128 * 1024 : undefined;
       return this.send({ type: 'subscribe', sessionId: sessionId, assistantStream: true,
+        ...(Number.isSafeInteger(afterSeq) && afterSeq >= 0 ? { afterSeq: afterSeq } : {}),
         ...(snapshotMaxBytes ? { snapshotMaxBytes } : {}) });
     }
     return this.send({ type: 'unsubscribe' });

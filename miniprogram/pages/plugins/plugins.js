@@ -59,12 +59,14 @@ Page(Object.assign({}, installActions, marketActions, {
   onUiLocaleChange() { this.syncFromStore(); if (this.data.pluginTab === 'discover' && this.data.connected) this.loadMarketSources(); },
   onLoad(options) {
     this.pendingOfficialInstall = options && options.install || '';
+    this.pendingPluginAction = options && options.action === 'create' ? 'create' : '';
     this.alive = true;
     this.owner = this.currentOwner();
     this.registryRead = 0;
     this.marketRead = 0; this.marketListingRead = 0; this.sourceWrite = 0;
     this.brokenIcons = new Set();
     this.setData({ spec: store.state.pluginInstall && store.state.pluginInstall.spec || '' });
+    if (options && options.tab === 'discover') this.setData({ pluginTab: 'discover' });
     theme.applyTo(this);
     try {
       const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
@@ -77,6 +79,10 @@ Page(Object.assign({}, installActions, marketActions, {
   onShow() {
     // 对齐 iOS .task { store.refreshPlugins() }
     store.refreshPlugins();
+    if (this.pendingPluginAction === 'create') {
+      this.pendingPluginAction = '';
+      this.createPluginSession();
+    }
     if (this.pendingOfficialInstall && store.state.pluginCatalog) {
       const name = this.pendingOfficialInstall;
       this.pendingOfficialInstall = '';

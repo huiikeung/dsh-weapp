@@ -243,6 +243,74 @@ test('workspace references quote spaces and ignore closed-directory responses', 
   pending.resolve({ entries: [{ name: 'late', path: 'late', kind: 'file' }] }); await new Promise(resolve => setImmediate(resolve));
   assert.equal(page.data.filesEntries.length, 0);
 });
+test('@ opens inline workspace candidates, filters by typed path, and drills into directories', async () => {
+  const { page, store, calls } = fixture();
+  const listings = {
+    root: [
+      { name: 'src', path: 'src', kind: 'directory' },
+      { name: 'README.md', path: 'README.md', kind: 'file' }
+    ],
+    src: [{ name: 'a file.js', path: 'src/a file.js', kind: 'file' }]
+  };
+  store.client.requestFileList = async (id, directory) => {
+    calls.push(['file-list', id, directory || 'root']);
+    return { path: directory || '.', entries: listings[directory || 'root'] || [] };
+  };
+  page.onDraftInput({ detail: { value: 'Review @', cursor: 8 } });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.data.fileMentionOpen, true);
+  assert.deepEqual(Array.from(page.data.fileMentionEntries, row => row.name), ['src', 'README.md']);
+  assert.ok(calls.some(call => call[0] === 'file-list' && call[2] === 'root'));
+
+  page.drillFileMention(event({ index: 0 }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.data.draft, 'Review @src/');
+  assert.deepEqual(Array.from(page.data.fileMentionEntries, row => row.name), ['a file.js']);
+  page.selectFileMention(event({ index: 0 }));
+  assert.equal(page.data.draft, 'Review @"src/a file.js"');
+  assert.equal(page.data.composerCursor, page.data.draft.length);
+  assert.equal(page.data.fileMentionOpen, false);
+  assert.equal(page.data.images.length, 0, 'file references are inserted into the prompt, not staged as attachments');
+});
+test('@ candidate results follow the latest path and closed menus ignore late responses', async () => {
+  const { page, store } = fixture();
+  const root = deferred(), nested = deferred(), closed = deferred();
+  const requests = [];
+  store.client.requestFileList = (id, directory) => {
+    requests.push(directory || '.');
+    return requests.length === 1 ? root.promise : requests.length === 2 ? nested.promise : closed.promise;
+  };
+
+  page.onDraftInput({ detail: { value: '@', cursor: 1 } });
+  page.onDraftInput({ detail: { value: '@src/', cursor: 5 } });
+  assert.deepEqual(requests, ['.', 'src']);
+  nested.resolve({ entries: [{ name: 'index.js', path: 'src/index.js', kind: 'file' }] });
+  await new Promise(resolve => setImmediate(resolve));
+  root.resolve({ entries: [{ name: 'README.md', path: 'README.md', kind: 'file' }] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.data.fileMentionPathLabel, 'src');
+  assert.deepEqual(Array.from(page.data.fileMentionEntries, row => row.name), ['index.js']);
+
+  page.onDraftInput({ detail: { value: '@other', cursor: 6 } });
+  page.closeFileMention();
+  closed.resolve({ entries: [{ name: 'late.js', path: 'late.js', kind: 'file' }] });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(page.data.fileMentionOpen, false);
+  assert.deepEqual(Array.from(page.data.fileMentionEntries), []);
+});
+test('@ workspace picker is mounted above the composer and binds selection and directory navigation', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  const dockStart = wxml.indexOf('class="dock-stack');
+  const picker = wxml.indexOf('class="file-mention-menu"');
+  const pickerOpen = wxml.lastIndexOf('<view wx:if="{{fileMentionOpen}}"', picker);
+  const composer = wxml.indexOf('class="composer-surface');
+  assert.ok(dockStart >= 0 && picker > dockStart && composer > picker, 'picker must render within the conversation dock before the composer');
+  assert.ok(pickerOpen >= dockStart && pickerOpen < picker);
+  assert.match(wxml.slice(pickerOpen, composer), /wx:if="\{\{fileMentionOpen\}\}"/);
+  assert.match(wxml.slice(pickerOpen, composer), /bindtap="selectFileMention"/);
+  assert.match(wxml.slice(pickerOpen, composer), /catchtap="drillFileMention"/);
+  assert.match(wxml.slice(composer), /cursor="\{\{composerCursor\}\}"[\s\S]*bindinput="onDraftInput"/);
+});
 test('image picker detects MIME, previews originals, enforces size and never uploads PDFs as images', async () => {
   const { page, pickers, calls } = fixture(); page.chooseImage();
   await pickers[0].success({ tempFiles: [{ tempFilePath: '/tmp/photo', size: 42 }, { tempFilePath: '/tmp/huge', size: 9 * 1024 * 1024 }] });
@@ -451,6 +519,24 @@ test('native WXML renders the plus menu, choices and blocked-attachment plus in 
       assert.ok(title.children[1].children.includes(kind === 'run' ? '会话统计' : 'Token 用量'));
       assert.equal(title.children.some(node => node.attr && node.attr.class === 'stats-pop-total'), kind === 'token');
     }
+    for (const theme of ['light', 'dark']) {
+      const { page } = fixture();
+      Object.assign(page.data, preferences.snapshot(), { theme, fileMentionOpen: true, fileMentionPathLabel: 'src', fileMentionEntries: [
+        { name: 'components', path: 'src/components', kind: 'dir', iconFile: 'folder-ink.png', key: 'src/components:0' },
+        { name: 'view.js', path: 'src/view.js', kind: 'file', iconFile: 'doc-ocean.png', key: 'src/view.js:1' }
+      ] });
+      const rendered = render(page.data, {}, {}), nodes = [];
+      function walk(node) { if (!node || typeof node !== 'object') return; if (node.attr) nodes.push(node); (node.children || []).forEach(walk); }
+      walk(rendered);
+      const hasClass = (node, name) => String(node.attr.class || '').split(/\s+/).includes(name);
+      const rows = nodes.filter(node => hasClass(node, 'file-mention-row'));
+      assert.equal(rows.length, 2);
+      assert.ok(rows.every(row => row.attr.bindtap === 'selectFileMention'));
+      const drill = nodes.find(node => hasClass(node, 'file-mention-drill'));
+      assert.ok(drill);
+      assert.equal(drill.attr.catchtap, 'drillFileMention');
+      assert.ok(nodes.some(node => hasClass(node, 'file-mention-title') && node.children.includes('文件与文件夹')));
+    }
   } finally { if (fs.existsSync(output)) fs.unlinkSync(output); }
 });
 test('statistics title icons use full-contrast colors without changing footer icons', () => {
@@ -509,9 +595,13 @@ test('input commands render a blue token chip and keep the hint as placeholder',
   assert.equal(page.data.commandToken, '');
   assert.equal(page.data.draftArg, '写一份报告');
   const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
-  assert.match(wxml, /class="composer-input-row"/);
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
+  assert.match(wxml, /class="composer-input-row composer-live/);
   assert.match(wxml, /catchtap="clearCommandToken"/);
-  assert.match(wxml, /value="\{\{commandToken && draft \? draftArg : draft\}\}"/);
+    // textarea 改绑 composerValue：用户打字/删除零数据桥回写（否则连删卡顿）；
+  // 程序化改写（清空/恢复/插指令）统一走 setComposerValue。
+  assert.match(wxml, /value="\{\{composerValue\}\}"/);
+  assert.match(js, /setComposerValue\(/);
   const wxss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
-  assert.match(wxss, /\.composer-slash-token \{[^}]*color:var\(--ocean\)/);
+  assert.match(wxss, /\.composer-slash-token \{[^}]*color:\s*var\(--ocean\)/);
 });

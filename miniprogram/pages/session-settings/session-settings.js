@@ -7,15 +7,18 @@ const { hostDisplay, normalizeHostInfo } = require('../../utils/host-info');
 const { clientVersion } = require('./utils/version-info');
 const accountView = require('./utils/account-view');
 const preferences = require('../../utils/ui-preferences');
+const accountCardPreference = require('../../utils/account-card-pref');
 const { connectionView } = require('../../utils/connection-status');
 
 Page({
   manualShareMenu: true,
-  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true, dshAccount: accountView.normalize({}), dshAccountBusy: false, dshAccountVisible: false, dshBalanceExpanded: false },
+  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true, dshAccount: accountView.normalize({}), dshAccountBusy: false, dshAccountVisible: false, dshBalanceExpanded: false, showAccountCard: false },
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onLoad() {
     this._alive = true;
     theme.applyTo(this);
+    // 账号卡片是否显示由设置页的开关决定；每次进入本页都重新读一次偏好。
+    this.setData({ showAccountCard: accountCardPreference.read() });
     this.updateNavigationLayout();
     this.setData(clientVersion(wx));
     this.unsubscribe = store.subscribe(snapshot => this.syncFromStore(snapshot));
@@ -492,9 +495,11 @@ Page({
     let removed = 0, failed = 0;
     try {
       const keys = wx.getStorageInfoSync().keys || [];
-      keys.filter(key => key.indexOf('dsh_session_cache') === 0 || key.indexOf('dsh_home_cache') === 0).forEach(key => {
+      keys.filter(key => key.indexOf('dsh_session_cache') === 0 || key.indexOf('dsh_home_cache') === 0
+        || key.indexOf('dsh_context_cache') === 0).forEach(key => {
         try { wx.removeStorageSync(key); removed += 1; } catch (e) { failed += 1; }
       });
+      if (store.clearLocalCaches) store.clearLocalCaches();
     } catch (e) {
       this.setData({ cacheClearing: false, cacheError: uiText('无法读取缓存，请稍后重试。') });
       return;

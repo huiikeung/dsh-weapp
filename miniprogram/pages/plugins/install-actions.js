@@ -9,7 +9,11 @@ module.exports = {
   toggleAddMenu() { if (this.data.canAdd) this.setData({ addMenuOpen: !this.data.addMenuOpen }); },
   closeAddMenu() { this.setData({ addMenuOpen: false }); },
   async createPluginSession() {
-    if (this.data.creatingPlugin || !this.data.connected) return;
+    if (this.data.creatingPlugin) return;
+    if (!this.data.connected) {
+      wx.showToast({ title: uiText('连接主机后才能创建插件'), icon: 'none' });
+      return;
+    }
     this.closeAddMenu();
     const owner = this.currentOwner();
     this.setData({ creatingPlugin: true });

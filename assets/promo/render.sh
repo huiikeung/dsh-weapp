@@ -34,3 +34,6 @@ if [ ! -s "$RAW" ]; then echo "render failed" >&2; exit 1; fi
 sips -z 800 1000 "$RAW" --out "${OUT}-1000x800.png" >/dev/null
 sips -z 400 500  "${RAW}" --out "${OUT}-500x400.png"  >/dev/null
 sips -g pixelWidth -g pixelHeight "${OUT}-1000x800.png" "${OUT}-500x400.png" | tail -6
+
+# 2 倍原图只是中间产物，保留会让目录多出 3 MB 文件。
+rm -f "$RAW"

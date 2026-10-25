@@ -37,6 +37,13 @@ test('input commands preserve content, file references quote spaces and images k
   assert.equal(menu.imageType('photo.PNG'), 'image/png');
   assert.equal(menu.imageType('report.pdf'), '');
 });
+test('@ references are tracked at the cursor and preserve quoted paths while drilling', () => {
+  assert.deepEqual(menu.referenceAtCursor('Read @src/fi.js now', 12), { start: 5, end: 15, query: 'src/fi', quoted: false });
+  assert.deepEqual(menu.referenceAtCursor('Read @"src/my file.js"', 16), { start: 5, end: 22, query: 'src/my fi', quoted: true });
+  assert.deepEqual(menu.referenceAtCursor('mail@host', 9), null);
+  assert.deepEqual(menu.referenceAtCursor('Read @src/file ', 15), null);
+  assert.equal(menu.fileReferencePrefix('src/my folder/', true), '@"src/my folder/');
+});
 test('permission options use desktop Chinese labels while preserving ids, custom names and model names', () => {
   const options = [
     { id: 'read-only', label: 'Read Only' }, { id: 'workspace-write', label: 'Workspace Write' },

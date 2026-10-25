@@ -18,6 +18,17 @@ const root = path.resolve(__dirname, '../miniprogram');
 const compiler = process.env.WECHAT_WCC
   || 'D:/Program Files (x86)/Tencent/微信web开发者工具/resources/app.asar.unpacked/node_modules/wcc-exec/wcc.exe';
 
+test('overview face overlays the duration curve on the stacked ribbon and keeps the turn strip below', () => {
+  const wxml = fs.readFileSync(path.join(root, 'pages/session/session.wxml'), 'utf8');
+  const wxss = fs.readFileSync(path.join(root, 'pages/session/session.wxss'), 'utf8');
+  assert.match(wxml, /ctx-trend-surface-overview[\s\S]*ctx-trend-columns[\s\S]*ctx-trend-duration-fit[\s\S]*ctx-trend-turns-fit/);
+  assert.match(wxml, /ribbon\.durationRuns/);
+  assert.match(wxml, /ribbon\.durationAreas/);
+  assert.match(wxss, /\.ctx-trend-duration-fit\s*\{[^}]*width:\s*100%/);
+  assert.match(wxss, /\.ctx-trend-duration-fit \.ctx-trend-duration-area\s*\{[^}]*fill:\s*rgba\(148,163,184,\.72\)/);
+  assert.match(wxss, /\.ctx-trend-duration-fit \.ctx-trend-duration-halo\s*\{[^}]*stroke:\s*var\(--surface\)/);
+});
+
 function sampleBrowserValue(overrides) {
   const requests = [];
   // Six requests: enough for the 5th-column step flag to render in the template.
@@ -78,7 +89,14 @@ function pageFixture() {
   const calls = [];
   const setDataPatches = [];
   const panelPrefs = { value: { context: true, fleet: true }, read() { return { ...this.value }; } };
-  const wx = { hideKeyboard() {}, nextTick: fn => fn() };
+  const wx = {
+    hideKeyboard() {}, nextTick: fn => fn(),
+    // switchTab → updateDockInset 会量 dock 高度；测试里返回空矩形即可。
+    createSelectorQuery() {
+      const chain = { in: () => chain, select: () => chain, boundingClientRect: () => chain, fields: () => chain, exec: (cb) => cb([{ width: 0, height: 0, top: 0, left: 0 }]) };
+      return chain;
+    },
+  };
   const store = {
     state: { sessions: [], archivedSessionIds: [], connection: 'connected' },
     sessionState: {
@@ -260,6 +278,100 @@ test('DNA selection stays active and opens a detailed browser feed for the selec
   page.contextTrendDna();
   assert.equal(page.data.contextPanel.trend.dna, false);
   assert.equal(page.data.contextPanel.browser.dna, false, 'the browser toggle shares the chart DNA state');
+});
+
+test('context modal swaps its browser to the DNA flat list instead of inert category rows', () => {
+  // 弹窗（右上角第一个按钮）里的浏览器卡片曾只有分类行：DNA 按钮点了只变高亮，
+  // 内容毫无变化。这里锁住「DNA 开→平铺列表 / 关→分类行」的双分支结构。
+  const template = fs.readFileSync(path.resolve(root, 'pages/session/session.wxml'), 'utf8');
+  const modal = template.slice(template.indexOf('ctx-modal-body'));
+  assert.match(modal, /<block wx:if="\{\{contextPanel\.browser\.dna\}\}">[\s\S]*?ctx-br-flat-row[\s\S]*?<\/block>/, 'modal must render the DNA flat list');
+  assert.match(modal, /<view wx:else class="ctx-modal-cats">/, 'category rows stay the non-DNA branch');
+  assert.match(modal, /contextPanel\.browser\.dnaRows/, 'modal reads the DNA rows');
+  assert.match(modal, /catchtap="toggleContextDnaNode" data-seq="\{\{item\.seq\}\}"/, 'modal DNA rows expand inline like the tab');
+});
+
+test('native render: context modal DNA toggle swaps flat list and category rows', { skip: !fs.existsSync(compiler) }, () => {  const output = path.join(os.tmpdir(), 'dsh-modal-dna-' + process.pid + '.js');
+  execFileSync(compiler, ['-o', output, 'pages/session/session.wxml'], { cwd: root });
+  const context = vm.createContext({ window: {}, console });
+  vm.runInContext(fs.readFileSync(output, 'utf8'), context);
+  const render = context.$gwx('pages/session/session.wxml');
+  const panel = contextView.buildPanel(
+    { loading: false, value: sampleBrowserValue() },
+    { t: (s) => s, connected: true, hasSession: true, trendDna: true }
+  );
+  const base = { ...preferences.snapshot(), tab: 'conversation', contextMounted: false, showContextPanel: false,
+    contextModalOpen: true, theme: 'light', themeClass: '', contextPanel: panel, contextNodeDetail: null,
+    ui: preferences.snapshot().ui || {} };
+  const dnaTree = JSON.stringify(render({ ...base }, {}, {}));
+  assert.ok(dnaTree.includes('ctx-br-flat-row'), 'modal renders DNA rows when the mode is on');
+  assert.ok(!dnaTree.includes('ctx-modal-cats'), 'modal hides the category rows in DNA mode');
+  const offPanel = contextView.buildPanel(
+    { loading: false, value: sampleBrowserValue() },
+    { t: (s) => s, connected: true, hasSession: true, trendDna: false }
+  );
+  const offTree = JSON.stringify(render({ ...base, contextPanel: offPanel }, {}, {}));
+  assert.ok(offTree.includes('ctx-modal-cats'), 'modal renders category rows when DNA is off');
+  assert.ok(!offTree.includes('ctx-br-flat-row'), 'no DNA rows without the mode');
+  fs.rmSync(output, { force: true });
+});
+
+test('chat turn footer opens the context modal with a safe loading fallback', () => {
+  const { page, store, calls } = pageFixture();
+  // 对话 Tab 不派生上下文面板，切走时还会清空：直接开会崩/闪错误面板
+  page.data.contextPanel = null;
+  calls.length = 0;
+  page.openContextModalFromChat();
+  assert.equal(page.data.contextModalOpen, true);
+  assert.ok(page.data.contextPanel, 'a fallback panel is set before opening');
+  assert.equal(page.data.contextPanel.status, 'loading', 'fallback renders the loading state');
+  assert.ok(calls.some(entry => entry[0] === 'refreshDashboard'), 'a forced refresh is requested');
+
+  // 面板就绪：直接开，不闪加载态，同样触发刷新
+  page.setData(page.contextPanelPatch());
+  assert.equal(page.data.contextPanel.status, 'ready');
+  calls.length = 0;
+  page.openContextModalFromChat();
+  assert.equal(page.data.contextModalOpen, true);
+  assert.equal(page.data.contextPanel.status, 'ready', 'a ready panel is reused as-is');
+  assert.ok(calls.some(entry => entry[0] === 'refreshDashboard'));
+
+  // 未连接：弹窗给断开态面板而不是空白
+  page.data.contextPanel = null;
+  store.state.connection = 'disconnected';
+  page.openContextModalFromChat();
+  assert.equal(page.data.contextPanel.status, 'disconnected');
+  store.state.connection = 'connected';
+});
+
+test('chat turn footer jumps to the context tab and pins the reply request', () => {
+  const { page, store, calls } = pageFixture();
+  // 对齐 dsh-context 的 reply-row jump：助手消息 seq 与请求 seq 一一对应，
+  // 点击后落到上下文 Tab 并把该请求钉在浏览器里（isCurrent=false）。
+  page.data.showContextPanel = true;
+  page.data.tab = 'conversation';
+  page.contextJumpFromChat({ currentTarget: { dataset: { seq: 40 } } });
+  assert.equal(page.data.tab, 'context', 'the context tab is activated');
+  assert.equal(page.data.contextBrowserSeq, 40);
+  assert.equal(page.data.contextBrowserIsCurrent, false, 'the request is pinned, not the live one');
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 40, 'the trend bar follows the same request');
+
+  // 已在上下文 Tab：不重复切Tab，只更新钉选
+  calls.length = 0;
+  page.contextJumpFromChat({ currentTarget: { dataset: { seq: 50 } } });
+  assert.equal(page.data.contextBrowserSeq, 50);
+  assert.equal(calls.filter(entry => entry[0] === 'contextActive').length, 0, 'no redundant tab activation');
+
+  // 拿不到 seq（旧数据/流式中）或上下文 Tab 被偏好关闭：退化为弹窗
+  page.data.tab = 'conversation';
+  page.data.contextModalOpen = false;
+  page.contextJumpFromChat({ currentTarget: { dataset: {} } });
+  assert.equal(page.data.contextModalOpen, true, 'missing seq falls back to the modal');
+  page.data.contextModalOpen = false;
+  page.data.showContextPanel = false;
+  page.contextJumpFromChat({ currentTarget: { dataset: { seq: 40 } } });
+  assert.equal(page.data.contextModalOpen, true, 'a hidden context tab falls back to the modal');
+  assert.equal(page.data.tab, 'conversation', 'the fallback never force-switches the tab');
 });
 
 test('overview toggle atomically renders the overview ribbon and clears the DNA browser', () => {
@@ -487,6 +599,90 @@ test('adaptive, duration, overview, turn selection and context browser stay in s
   assert.equal(page.data.contextBrowserSeq, page.data.contextPanel.trend.selectedSeq);
 });
 
+test('fleet header is pinned above its scroll area, matching the context header', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
+  // 两个面板都是 flex 列：工具栏在 scroll-view 之外，所以标题固定、只有内容滚动。
+  const lineOf = (needle) => xml.slice(0, xml.indexOf(needle)).split('\n').length;
+  const ctxPanel = lineOf('class="context-panel');
+  const ctxToolbar = lineOf('class="context-toolbar"');
+  const ctxScroll = lineOf('class="context-scroll"');
+  const fltPanel = lineOf('class="fleet-panel');
+  const fltToolbar = lineOf('class="fleet-toolbar"');
+  const fltScroll = lineOf('class="fleet-scroll"');
+  assert.ok(ctxPanel < ctxToolbar && ctxToolbar < ctxScroll, 'context toolbar sits between panel and scroll');
+  assert.ok(fltPanel < fltToolbar && fltToolbar < fltScroll, 'fleet toolbar sits between panel and scroll');
+  assert.ok(fltToolbar < fltScroll, 'the fleet header is outside the scrolling content');
+
+  const rule = (sel) => {
+    const m = css.match(new RegExp(sel.replace(/\./g, '\\.') + '\\s*\\{([^}]*)\\}'));
+    return m ? m[1].replace(/\s+/g, ' ').trim() : null;
+  };
+  assert.equal(rule('.fleet-toolbar'), rule('.context-toolbar'), 'both headers share one box model');
+  assert.equal(rule('.fleet-toolbar-title'), rule('.context-toolbar-title'), 'both titles share one type scale');
+  assert.equal(rule('.fleet-panel'), rule('.context-panel'), 'both panels are the same flex column');
+  assert.equal(rule('.fleet-scroll'), rule('.context-scroll'), 'both scroll regions are the same box');
+  assert.ok(!/\.cf-fleet-section \.fleet-toolbar/.test(css), 'no merged-layout padding compensation is left');
+});
+
+test('context and fleet are independent panels, each mounted only on its own tab', () => {
+  const { page, store, calls } = pageFixture();
+  store.state = { connection: 'connected', sessions: [] };
+  store.sessionState.contextDashboard = { loading: false, error: null, code: '', unsupported: false, asOfSeq: 3, value: sampleBrowserValue() };
+  store.sessionState.contextFleet = { loading: false, error: null, code: '', unsupported: false, asOfSeq: 4, value: { rootSessionId: 'session-1', currentSessionId: 'session-1', counts: {}, agents: [], team: { members: [], tasks: [] } } };
+  page.data.tab = 'conversation';
+
+  page.switchTab({ currentTarget: { dataset: { tab: 'fleet' } } });
+  assert.equal(page.data.tab, 'fleet');
+  assert.equal(page.data.fleetMounted, true, 'the fleet tab mounts the fleet panel');
+  assert.equal(page.data.contextMounted, false, 'the fleet tab does not mount the context panel');
+  assert.ok(page.data.fleetPanel, 'fleet data is derived on the fleet tab');
+  assert.equal(page.data.contextPanel, null, 'no context payload leaks onto the fleet tab');
+
+  page.switchTab({ currentTarget: { dataset: { tab: 'context' } } });
+  assert.equal(page.data.contextMounted, true, 'the context tab mounts the context panel');
+  assert.equal(page.data.fleetMounted, false, 'the context tab does not mount the fleet panel');
+  assert.ok(page.data.contextPanel, 'context data is derived on the context tab');
+  assert.equal(page.data.fleetPanel, null, 'no fleet payload leaks onto the context tab');
+
+  page.switchTab({ currentTarget: { dataset: { tab: 'conversation' } } });
+  assert.equal(page.data.contextPanel, null, 'leaving releases both big objects');
+  assert.equal(page.data.fleetPanel, null);
+  assert.equal(page.data.contextMounted, false);
+  assert.equal(page.data.fleetMounted, false);
+});
+
+test('footer copy and jump buttons share one geometry across every row kind', () => {
+  const styles = fs.readFileSync(path.resolve(root, 'pages/session/session.wxss'), 'utf8');
+  // 文件/变更卡片行的复制钮历史上带 align-self:flex-start + margin-top + padding-bottom，
+  // 与光杆跳转钮几何不同，导致「有的记录对齐、有的不齐」——页脚内统一撤销。
+  assert.match(styles, /\.turn-footer \.copy-btn\s*\{[^}]*margin-top:\s*0;[^}]*padding-bottom:\s*0;[^}]*align-self:\s*auto/,
+    'footer buttons drop the per-row-kind optical hacks');
+  const template = fs.readFileSync(path.resolve(root, 'pages/session/session.wxml'), 'utf8');
+  // 三个页脚（助手行 / 变更卡 / 文件卡）里的跳转钮都与复制钮同为 copy-btn 家族
+  const footers = template.split('class="turn-footer-left"').slice(1);
+  assert.equal(footers.length, 3, 'three turn footers exist');
+  for (const footer of footers) {
+    assert.match(footer, /bindtap="copyAssistantText"[\s\S]{0,400}?bindtap="contextJumpFromChat"/, 'copy and jump sit side by side');
+  }
+});
+
+test('turn usage pill keeps its capsule background on the shared footer center line', () => {
+  const styles = fs.readFileSync(path.resolve(root, 'pages/session/session.wxss'), 'utf8');
+  assert.match(styles, /\.turn-meta\s*\{[^}]*background:\s*var\(--fill\)/, 'the usage pill keeps its capsule fill');
+  // border-box + 显式高度：总高确定，不会再被 padding 撑成 68rpx 把整行抬高
+  assert.match(styles, /\.turn-meta\s*\{[^}]*box-sizing:\s*border-box/, 'the pill height includes its padding');
+  assert.match(styles, /\.turn-meta\s*\{[^}]*height:\s*44rpx/, 'the pill is a compact capsule');
+  assert.doesNotMatch(styles, /\.turn-meta\s*\{[^}]*padding:\s*[1-9]/, 'no vertical padding to inflate the capsule');
+  assert.match(styles, /\.turn-meta-ic\s*\{[^}]*width:\s*28rpx[^}]*height:\s*28rpx/, 'the usage icon is one notch smaller than the row icons');
+  assert.match(styles, /\.turn-meta-text\s*\{[^}]*line-height:\s*32rpx/, 'the pill text rides the icon center');
+  assert.match(styles, /\.turn-time\s*\{[^}]*line-height:\s*32rpx/, 'the time text rides the same center');
+  const template = fs.readFileSync(path.resolve(root, 'pages/session/session.wxml'), 'utf8');
+  assert.match(template, /class="turn-meta"[^>]*catchtap="openTurnUsage"/, 'the pill stays tappable for the usage sheet');
+});
+
 test('disabled session panels disappear and an active hidden panel falls back to conversation', () => {
   const { page, calls, panelPrefs } = pageFixture();
   page.data.tab = 'context';
@@ -554,6 +750,18 @@ test('native session template renders v2 context/fleet panels without throwing',
     fleetPanel: fleetPanel
   };
   const readyTree = JSON.stringify(render({ ...base }, {}, {}));
+  // 上下文与编队合并成一个滚动：两个 Tab 渲染同一个面板，编队是其中一节
+  const fleetTabTree = JSON.stringify(render({ ...base, tab: 'fleet' }, {}, {}));
+  for (const [name, tree] of [['context', readyTree], ['fleet', fleetTabTree]]) {
+    assert.ok(tree.includes('ctx-browser'), name + ' tab keeps the context browser');
+    assert.ok(tree.includes('fleetSection'), name + ' tab renders the fleet section in the same scroll');
+    assert.ok(tree.includes('fleet-node'), name + ' tab renders agent graph nodes');
+    assert.ok(tree.includes('fleet-members'), name + ' tab renders the member board');
+    assert.ok(!tree.includes('fleet-refresh'), name + ' tab hides the manual refresh button');
+    assert.ok(tree.includes('ctxTop'), name + ' tab exposes the top anchor');
+  }
+  const conversationTree = JSON.stringify(render({ ...base, tab: 'conversation', contextMounted: false, fleetMounted: false }, {}, {}));
+  assert.ok(!conversationTree.includes('fleetSection'), 'the merged panel stays unmounted on the conversation tab');
   assert.ok(readyTree.includes('ctx-browser'), 'browser card renders');
   assert.ok(readyTree.includes('ctx-flow-segment'), 'statistics flow uses renderable native view segments');
   assert.ok(readyTree.includes('ctx-trend-controls'), 'trend grouping and display controls render');
@@ -567,10 +775,10 @@ test('native session template renders v2 context/fleet panels without throwing',
   assert.ok(template.indexOf('<!-- 上下文趋势 -->') < template.indexOf("ui['上下文浏览器']"), 'context browser follows the trend chart');
   assert.ok(template.includes("ui['DNA 模式']") && template.includes("ui['自适应']") && template.includes("ui['耗时']"), 'plugin trend modes are exposed');
   assert.doesNotMatch(template, /class="ctx-trend-marker(?:\s|")/, 'trend has no scissors overlay');
-  assert.ok(readyTree.includes('ctx-timeline'), 'timing timeline renders');
+  assert.ok(readyTree.includes('ctx-tstrip'), 'timing timeline renders');
   assert.ok(readyTree.includes('ctx-donut'), 'donuts render');
-  assert.ok(readyTree.includes('fleet-answer'), 'fleet latest answer renders');
-  assert.ok(readyTree.includes('fleet-task'), 'fleet task card renders');
+  assert.ok(readyTree.includes('fleet-node'), 'fleet agent graph nodes render');
+  assert.ok(readyTree.includes('fleet-members'), 'fleet member board renders');
 
   const loading = contextView.buildPanel({ loading: true, value: null }, { connected: true, hasSession: true });
   const loadingFleet = contextView.buildFleetPanel({ loading: true, value: null }, { connected: true, hasSession: true });

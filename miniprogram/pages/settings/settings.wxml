@@ -10,8 +10,10 @@
   </view>
   <view class="nav-placeholder" style="height:{{navPadTop + navHeight}}px;" aria-hidden="true"></view>
 
-  <!-- DSH 客户端账号区：结构与桌面端 AccountSection 对齐。 -->
-  <view wx:if="{{dshAccountVisible}}" class="dsh-account-section" aria-label="{{ui['账号与余额']}}">
+  <!-- DSH 客户端账号区：结构与桌面端 AccountSection 对齐。
+       是否显示由「通用设置 → 显示账号卡片」的开关决定（默认隐藏），
+       会话设置页顶部的账号区跟随同一个开关。 -->
+  <view wx:if="{{showAccountCard && dshAccountVisible}}" class="dsh-account-section" aria-label="{{ui['账号与余额']}}">
     <view class="dsh-account-card {{dshAccount.signedIn ? 'tappable has-chevron' : ''}}" bindtap="toggleDshBalance" hover-class="press-dim" role="button" aria-expanded="{{dshBalanceExpanded}}" aria-label="{{ui['账号与余额']}}">
       <view class="dsh-account-identity">
         <view class="dsh-account-avatar">
@@ -51,10 +53,9 @@
         <view class="card-row management-entry" bindtap="openPublicAccess" hover-class="management-entry-active" role="button" aria-label="{{ui['公网访问']}}">
           <view class="management-entry-copy">
             <view class="card-row-label">{{ui['公网访问']}}</view>
-            <text class="management-entry-desc">{{publicExpiryLabel ? publicExpiryLabel + ' · ' : ''}}{{ui['兑换公网有效期 · 不影响局域网']}}</text>
           </view>
           <view class="card-row-value management-entry-value">
-            <text>{{ui[publicStatusLabel] !== undefined ? ui[publicStatusLabel] : publicStatusLabel}}</text>
+            <text>{{ui[publicValueLabel] !== undefined ? ui[publicValueLabel] : publicValueLabel}}</text>
             <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
           </view>
         </view>
@@ -63,7 +64,6 @@
         <view class="card-row management-entry" bindtap="openNodeManagement" hover-class="management-entry-active" role="button" aria-label="{{ui['节点管理']}}">
           <view class="management-entry-copy">
             <view class="card-row-label">{{ui['节点管理']}}</view>
-            <text class="management-entry-desc">{{activeNodeName ? activeNodeName + ' · ' : ''}}{{onlineNodeCount}} {{ui['个在线 · 扫码或输入配对信息']}}</text>
           </view>
           <view class="card-row-value management-entry-value">
             <text>{{nodeCount}} {{ui['个']}}</text>
@@ -71,15 +71,22 @@
           </view>
         </view>
 
-    <block wx:if="{{isWechatAdmin}}">
-      <view class="card-row management-entry" bindtap="openAdminSheet" hover-class="management-entry-active" role="button" aria-label="{{ui['管理员']}}">
+    <block wx:if="{{accountIdentityReady}}">
+      <view wx:if="{{isWechatAdmin}}" class="card-row management-entry" bindtap="openAdminSheet" hover-class="management-entry-active" role="button" aria-label="{{ui['节点权限']}}">
         <view class="management-entry-copy">
-          <text class="card-row-label">{{ui['管理员']}}</text>
-          <text class="management-entry-desc">{{ui['兑换码管理']}} · {{ui['发布公告']}} · {{ui['分享活动']}}</text>
+          <text class="card-row-label">{{ui['节点权限']}}</text>
         </view>
-        <view class="card-row-value management-entry-value">
-          <text>{{ui[accountLabel] !== undefined ? ui[accountLabel] : accountLabel}}</text>
+        <view class="card-row-value management-entry-value identity-entry-value">
+          <view class="identity-badge is-admin">{{identityBadgeLabel}}</view>
           <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+        </view>
+      </view>
+      <view wx:else class="card-row management-entry identity-entry">
+        <view class="management-entry-copy">
+          <text class="card-row-label">{{ui['节点权限']}}</text>
+        </view>
+        <view class="card-row-value management-entry-value identity-entry-value">
+          <view class="identity-badge">{{identityBadgeLabel}}</view>
         </view>
       </view>
     </block>
@@ -182,7 +189,7 @@
         </view>
         <view class="pair-sheet-close tap" bindtap="closeFontSheet" role="button"><view class="sheet-close-x"></view></view>
       </view>
-      <scroll-view scroll-y enhanced class="management-scroll">
+      <view class="management-scroll">
         <view class="card general-preferences">
         <view class="card-row preference-font-row">
               <view class="preference-description" bindtap="toggleFontSettings" role="button"><text class="card-row-label">{{ui['字号大小']}}</text><text class="preference-hint">{{ui['仅影响会话内容的字号']}}</text></view>
@@ -198,7 +205,7 @@
               <view class="font-preview-panel"><text class="preference-hint">{{ui['字体预览']}}</text><text class="font-preview-text">{{ui['正文字体']}} · DeepSeek Harness</text><text class="font-preview-code">const answer = 42;</text><text class="font-preview-terminal">$ dsh --version</text><text class="preference-hint">{{ui['实际可用字体取决于设备；找不到的字体将使用后备字体。']}}</text><text class="preference-hint">{{ui['当前小程序暂无侧栏终端；终端偏好已保存，下方预览可查看效果。']}}</text></view>
             </block>
         </view>
-      </scroll-view>
+      </view>
     </view>
   </view>
   <!-- 存储空间弹窗（dsh-mobile StorageSpaceView） -->
@@ -212,7 +219,7 @@
         </view>
         <view class="pair-sheet-close tap" bindtap="closeStorageSheet" role="button"><view class="sheet-close-x"></view></view>
       </view>
-      <scroll-view scroll-y enhanced class="management-scroll">
+      <view class="management-scroll">
         <block wx:if="{{storageLoading || !storageUsage}}">
           <view class="storage-state"><text>{{ui['正在统计…']}}</text></view>
         </block>
@@ -259,36 +266,22 @@
             </view>
           </view>
         </block>
-      </scroll-view>
+      </view>
     </view>
   </view>
   <!-- 管理员弹窗 -->
   <view wx:if="{{adminSheet}}" class="pair-sheet-mask" catchtap="closeAdminSheet" catchtouchmove="noop">
-    <view class="pair-sheet resizable" style="height: 90vh;" catchtap="noop" role="dialog" aria-label="{{ui['管理员']}}">
+    <view class="pair-sheet resizable" style="height: 90vh;" catchtap="noop" role="dialog" aria-label="{{ui['节点权限']}}">
       <view class="sheet-grabber"></view>
       <view class="pair-sheet-head">
         <view>
-          <text class="pair-sheet-title">{{ui['管理员']}}</text>
+          <text class="pair-sheet-title">{{ui['节点权限']}}</text>
           <text class="pair-sheet-subtitle">{{ui['兑换码管理']}} · {{ui['发布公告']}} · {{ui['分享活动']}}</text>
         </view>
         <view class="pair-sheet-close tap" bindtap="closeAdminSheet" role="button"><view class="sheet-close-x"></view></view>
       </view>
-      <scroll-view scroll-y enhanced class="management-scroll">
+      <view class="management-scroll">
         <block wx:if="{{isWechatAdmin}}">
-          <view class="group-title">{{ui['微信身份']}}</view>
-          <view class="card">
-
-                <view class="card-row management-entry">
-                  <view class="management-entry-copy">
-                    <text class="card-row-label">{{ui['当前身份']}}</text>
-                    <text class="management-entry-desc">{{ui[accountHint] !== undefined ? ui[accountHint] : accountHint}}</text>
-                  </view>
-                  <view class="card-row-value management-entry-value">
-                    <text>{{ui[accountLabel] !== undefined ? ui[accountLabel] : accountLabel}}</text>
-                  </view>
-                </view>
-
-          </view>
           <view class="group-title">{{ui['管理员']}}</view>
           <view class="card">
 
@@ -311,7 +304,7 @@
 
           </view>
         </block>
-      </scroll-view>
+      </view>
     </view>
   </view>
   <!-- 上下文面板设置弹窗 -->
@@ -325,7 +318,7 @@
         </view>
         <view class="pair-sheet-close tap" bindtap="closeContextSheet" role="button"><view class="sheet-close-x"></view></view>
       </view>
-      <scroll-view scroll-y enhanced class="management-scroll">
+      <view class="management-scroll">
         <view class="card general-preferences">
 
                 <view class="card-row">
@@ -368,7 +361,7 @@
                 </view>
 
         </view>
-      </scroll-view>
+      </view>
     </view>
   </view>
   <view class="group-title">{{ui['外观']}}</view>
@@ -394,7 +387,6 @@
         <view class="card-row management-entry" bindtap="openCostMeter" hover-class="management-entry-active" role="button" aria-label="{{ui['额度卡片']}}">
           <view class="management-entry-copy">
             <text class="card-row-label">{{ui['额度卡片']}}</text>
-            <text class="management-entry-desc">{{ui['调整卡片内容、密度与密钥']}}</text>
           </view>
           <view class="card-row-value management-entry-value">
             <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
@@ -427,22 +419,26 @@
       <view class="preference-description"><text class="card-row-label">{{ui['字号大小']}}</text><text class="preference-hint">{{ui['仅影响会话内容的字号']}}</text></view>
       <view class="card-row-value"><text>{{fontSizes.text}} px</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
     </view>
+    <view class="card-row">
+      <view class="exp-copy"><text class="card-row-label">{{ui['显示账号卡片']}}</text><text class="exp-desc">{{ui['在设置页和会话设置顶部显示账号与余额卡片']}}</text></view>
+      <switch checked="{{showAccountCard}}" color="#2E6BE6" bindchange="toggleAccountCard" aria-label="{{ui['显示账号卡片']}}"/>
+    </view>
   </view>
 
   <view class="group-title">{{ui['会话面板']}}</view>
   <view class="card general-preferences">
 
         <view class="card-row">
-          <view class="exp-copy"><text class="card-row-label">{{ui['显示上下文']}}</text><text class="exp-desc">{{ui['在会话顶部显示上下文标签页']}}</text></view>
+          <view class="exp-copy"><text class="card-row-label">{{ui['显示上下文']}}</text></view>
           <switch checked="{{showContextPanel}}" color="#2E6BE6" bindchange="toggleContextPanel" aria-label="{{ui['显示上下文']}}"/>
         </view>
         <view class="card-row">
-          <view class="exp-copy"><text class="card-row-label">{{ui['显示编队']}}</text><text class="exp-desc">{{ui['在会话顶部显示编队标签页']}}</text></view>
+          <view class="exp-copy"><text class="card-row-label">{{ui['显示编队']}}</text></view>
           <switch checked="{{showFleetPanel}}" color="#2E6BE6" bindchange="toggleFleetPanel" aria-label="{{ui['显示编队']}}"/>
         </view>
 
     <view class="card-row" bindtap="openContextSheet" role="button" aria-label="{{ui['上下文面板']}}">
-      <view class="preference-description"><text class="card-row-label">{{ui['上下文面板']}}</text><text class="preference-hint">{{ui['趋势粒度']}} · {{ui['对比基线']}} · {{ui['文件活动排序']}}</text></view>
+      <view class="preference-description"><text class="card-row-label">{{ui['上下文面板']}}</text></view>
       <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
     </view>
   </view>
@@ -463,45 +459,85 @@
       </view>
       <switch checked="{{clawbotStatus ? clawbotStatus.enabled : false}}" disabled="{{clawbotBusy}}" color="#2E6BE6" bindchange="toggleClawbot"/>
     </view>
-    <view wx:if="{{clawbotPanelOpen}}" class="clawbot-panel">
-      <view class="clawbot-panel-head">
-        <view class="clawbot-state {{clawbotStatus && clawbotStatus.enabled ? 'is-on' : ''}}">{{clawbotStateLabel || ui['尚未读取状态']}}</view>
-        <view class="clawbot-panel-actions">
-          <view class="clawbot-text-action" bindtap="refreshClawbotStatus">{{ui['刷新']}}</view>
-          <view class="clawbot-text-action" bindtap="closeClawbotPanel">{{ui['收起']}}</view>
-        </view>
-      </view>
-      <text wx:if="{{clawbotError}}" class="clawbot-error">{{clawbotError}}</text>
-      <text wx:if="{{clawbotLoading}}" class="clawbot-muted">{{ui['正在读取 ClawBot 状态…']}}</text>
-      <block wx:if="{{clawbotStatus}}">
-        <view class="clawbot-info-row"><text>{{ui['接入会话']}}</text><text class="clawbot-info-value">{{clawbotStatus.target ? clawbotStatus.target.title : ui['尚未选择']}}</text></view>
-        <view class="clawbot-info-row" wx:if="{{clawbotStatus.message}}"><text>{{ui['状态说明']}}</text><text class="clawbot-info-value">{{clawbotStatus.message}}</text></view>
-        <view class="clawbot-info-row" wx:if="{{clawbotStatus.pending || clawbotStatus.uncertain}}"><text>{{ui['待处理 / 不确定消息']}}</text><text class="clawbot-info-value">{{clawbotStatus.pending || 0}} / {{clawbotStatus.uncertain || 0}}</text></view>
-        <view class="clawbot-action-row">
-          <view class="clawbot-action {{clawbotBusy || clawbotStatus.enabled ? 'is-disabled' : ''}}" bindtap="startClawbotLogin">{{clawbotStatus.paired ? ui['重新绑定微信'] : ui['绑定微信']}}</view>
-          <view class="clawbot-action {{clawbotBusy ? 'is-disabled' : ''}}" bindtap="openClawbotSessions">{{ui['选择接入会话']}}</view>
-          <view wx:if="{{clawbotStatus.paired}}" class="clawbot-action is-danger {{clawbotBusy || clawbotStatus.enabled ? 'is-disabled' : ''}}" bindtap="disconnectClawbot">{{ui['移除绑定']}}</view>
-        </view>
-        <view wx:if="{{clawbotStatus.pairing}}" class="clawbot-pairing">
-          <image wx:if="{{clawbotQrPath}}" class="clawbot-qr" src="{{clawbotQrPath}}" mode="aspectFit" show-menu-by-longpress="true"/>
-          <text wx:else class="clawbot-muted">{{ui['二维码暂不可显示，请更新微信基础库或在电脑端扫码']}}</text>
-          <text class="clawbot-pairing-hint">{{clawbotStatus.pairing.status === 'scaned' || clawbotStatus.pairing.status === 'scaned_but_redirect' ? ui['已扫码，请在微信中确认'] : ui['请用微信扫一扫扫描二维码并确认']}}</text>
-          <view wx:if="{{clawbotStatus.pairing.status === 'need_verifycode'}}" class="clawbot-verify-row">
-            <input class="clawbot-verify-input" value="{{clawbotVerifyCode}}" placeholder="{{ui['输入微信确认码']}}" bindinput="onClawbotVerifyCode" maxlength="128"/>
-            <view class="clawbot-action" bindtap="submitClawbotVerifyCode">{{ui['提交确认码']}}</view>
+    <view wx:if="{{clawbotPanelOpen}}" class="pair-sheet-mask" catchtap="closeClawbotPanel" catchtouchmove="noop">
+      <view class="pair-sheet resizable clawbot-sheet" style="height: {{sheetExpanded.clawbot ? 90 : 78}}vh;" catchtap="noop" role="dialog" aria-label="{{ui['微信 ClawBot 私聊接线']}}">
+        <view class="sheet-grabber-zone" data-sheet="clawbot" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
+        <view class="pair-sheet-head">
+          <view>
+            <text class="pair-sheet-title">{{ui['微信 ClawBot 私聊接线']}}</text>
+            <text class="pair-sheet-subtitle">{{ui['将微信私聊接入指定 DSH 会话']}}</text>
           </view>
-          <view class="clawbot-text-action clawbot-cancel-login" bindtap="cancelClawbotLogin">{{ui['取消绑定流程']}}</view>
+          <view class="pair-sheet-close tap" bindtap="closeClawbotPanel" role="button"><view class="sheet-close-x"></view></view>
         </view>
-        <view wx:if="{{clawbotSessionsOpen}}" class="clawbot-session-list">
-          <text class="clawbot-list-title">{{ui['选择一个普通 DSH 会话作为接入目标']}}</text>
-          <view wx:for="{{clawbotSessions}}" wx:key="id" class="clawbot-session-option {{clawbotStatus.target && clawbotStatus.target.id === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="chooseClawbotSession">
+        <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="clawbot-sheet-body">
+          <view class="clawbot-hero {{clawbotStatus && clawbotStatus.enabled ? 'is-on' : ''}}">
+            <view class="clawbot-hero-dot"></view>
+            <view class="clawbot-hero-copy">
+              <text class="clawbot-hero-title">{{clawbotStateLabel || ui['尚未读取状态']}}</text>
+              <text class="clawbot-hero-sub">{{clawbotStatus && clawbotStatus.paired ? (clawbotStatus.target ? clawbotStatus.target.title : ui['尚未选择接入会话']) : ui['尚未绑定微信']}}</text>
+            </view>
+            <view class="clawbot-refresh tap" bindtap="refreshClawbotStatus" role="button" aria-label="{{ui['刷新']}}">{{ui['刷新']}}</view>
+          </view>
+          <text wx:if="{{clawbotError}}" class="clawbot-error">{{clawbotError}}</text>
+          <text wx:if="{{clawbotLoading}}" class="clawbot-muted">{{ui['正在读取 ClawBot 状态…']}}</text>
+          <block wx:if="{{clawbotStatus}}">
+            <view class="clawbot-tile-row">
+              <view class="clawbot-tile clawbot-tile-tap {{clawbotBusy ? 'is-disabled' : ''}}" bindtap="openClawbotSessions" role="button" aria-label="{{ui['选择接入会话']}}">
+                <text class="clawbot-tile-label">{{ui['接入会话']}}</text>
+                <view class="clawbot-tile-main">
+                  <text class="clawbot-tile-value">{{clawbotStatus.target ? clawbotStatus.target.title : ui['尚未选择']}}</text>
+                  <text class="clawbot-tile-chevron">›</text>
+                </view>
+              </view>
+              <view wx:if="{{clawbotStatus.pending || clawbotStatus.uncertain}}" class="clawbot-tile">
+                <text class="clawbot-tile-label">{{ui['待处理 / 不确定消息']}}</text>
+                <text class="clawbot-tile-value">{{clawbotStatus.pending || 0}} / {{clawbotStatus.uncertain || 0}}</text>
+              </view>
+            </view>
+            <text wx:if="{{clawbotStatus.message}}" class="clawbot-muted clawbot-message">{{clawbotStatus.message}}</text>
+            <view class="clawbot-ops">
+              <view class="clawbot-op {{clawbotBusy || clawbotStatus.enabled ? 'is-disabled' : ''}}" bindtap="startClawbotLogin" role="button">
+                <text class="clawbot-op-title">{{clawbotStatus.paired ? ui['重新绑定微信'] : ui['绑定微信']}}</text>
+              </view>
+              <view class="clawbot-op {{clawbotBusy ? 'is-disabled' : ''}}" bindtap="openClawbotSessions" role="button">
+                <text class="clawbot-op-title">{{ui['选择接入会话']}}</text>
+              </view>
+              <view wx:if="{{clawbotStatus.paired}}" class="clawbot-op is-danger {{clawbotBusy || clawbotStatus.enabled ? 'is-disabled' : ''}}" bindtap="disconnectClawbot" role="button">
+                <text class="clawbot-op-title">{{ui['移除绑定']}}</text>
+              </view>
+            </view>
+            <view wx:if="{{clawbotStatus.pairing}}" class="clawbot-pairing">
+              <image wx:if="{{clawbotQrPath}}" class="clawbot-qr" src="{{clawbotQrPath}}" mode="aspectFit" show-menu-by-longpress="true"/>
+              <text wx:else class="clawbot-muted">{{ui['二维码暂不可显示，请更新微信基础库或在电脑端扫码']}}</text>
+              <text class="clawbot-pairing-hint">{{clawbotStatus.pairing.status === 'scaned' || clawbotStatus.pairing.status === 'scaned_but_redirect' ? ui['已扫码，请在微信中确认'] : ui['请用微信扫一扫扫描二维码并确认']}}</text>
+              <view wx:if="{{clawbotStatus.pairing.status === 'need_verifycode'}}" class="clawbot-verify-row">
+                <input class="clawbot-verify-input" value="{{clawbotVerifyCode}}" placeholder="{{ui['输入微信确认码']}}" bindinput="onClawbotVerifyCode" maxlength="128"/>
+                <view class="clawbot-action" bindtap="submitClawbotVerifyCode">{{ui['提交确认码']}}</view>
+              </view>
+              <view class="clawbot-text-action clawbot-cancel-login" bindtap="cancelClawbotLogin">{{ui['取消绑定流程']}}</view>
+            </view>
+            <view class="clawbot-footnote">{{ui['启用后，微信私聊会提交到所选会话；这不会创建新的 Agent 预设或绕过电脑端权限。']}}</view>
+          </block>
+        </scroll-view>
+      </view>
+    </view>
+
+    <!-- 选择接入会话：居中弹窗 -->
+    <view wx:if="{{clawbotSessionsOpen}}" class="clawbot-modal-mask {{themeClass}}" catchtap="closeClawbotSessions" catchtouchmove="noop">
+      <view class="clawbot-modal" catchtap="noop" role="dialog" aria-label="{{ui['选择接入会话']}}">
+        <view class="clawbot-modal-head">
+          <text class="clawbot-modal-title">{{ui['选择接入会话']}}</text>
+          <view class="clawbot-modal-close tap" bindtap="closeClawbotSessions" role="button" aria-label="{{ui['关闭']}}">×</view>
+        </view>
+        <text class="clawbot-modal-sub">{{ui['选择一个普通 DSH 会话作为接入目标']}}</text>
+        <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="clawbot-modal-body">
+          <view wx:for="{{clawbotSessions}}" wx:key="id" class="clawbot-session-option {{clawbotStatus.target && clawbotStatus.target.id === item.id ? 'selected' : ''}}" data-id="{{item.id}}" bindtap="chooseClawbotSession" role="button">
             <view class="clawbot-session-copy"><text class="clawbot-session-title">{{item.title}}</text><text wx:if="{{item.workspaceTitle}}" class="clawbot-muted">{{item.workspaceTitle}}</text></view>
             <text class="clawbot-session-check">{{clawbotStatus.target && clawbotStatus.target.id === item.id ? '✓' : ''}}</text>
           </view>
-          <text wx:if="{{!clawbotSessions.length}}" class="clawbot-muted">{{ui['没有可用会话，请先在电脑端新建普通会话']}}</text>
-        </view>
-        <view class="clawbot-footnote">{{ui['启用后，微信私聊会提交到所选会话；这不会创建新的 Agent 预设或绕过电脑端权限。']}}</view>
-      </block>
+          <view wx:if="{{!clawbotSessions.length}}" class="clawbot-modal-empty">{{ui['没有可用会话，请先在电脑端新建普通会话']}}</view>
+        </scroll-view>
+      </view>
     </view>
   </view>
   <view class="group-hint">{{ui['实验性功能默认关闭，可能随基础库版本变化不稳定，仅供试用。']}}</view>
@@ -557,7 +593,7 @@
         </view>
         <view class="pair-sheet-close tap" bindtap="closeManagementPanel" role="button"><view class="sheet-close-x"></view></view>
       </view>
-      <scroll-view scroll-y enhanced class="management-scroll">
+      <view class="management-scroll">
         <block wx:if="{{managementPanel === 'public'}}">
           <view class="card public-card">
             <view class="public-head">
@@ -685,7 +721,7 @@
           </view>
           <view class="group-hint">{{nodeDetail.isPublic ? ui['通过公网标识识别节点，不展示公网地址。'] : ui['局域网连接保留原地址与端口；不会消耗公网有效期。']}}</view>
         </block>
-      </scroll-view>
+      </view>
     </view>
   </view>
 
@@ -851,7 +887,10 @@
 
           <view class="code-list-head">
             <text class="code-list-title">{{ui['最近生成']}}</text>
-            <text class="code-refresh" bindtap="loadCodes">{{ui['刷新']}}</text>
+            <view class="code-list-actions">
+              <text wx:if="{{codeUsedCount}}" class="code-clear" bindtap="codeClearUsed" role="button" aria-label="{{ui['清空已用完的兑换码']}}">{{ui['清空已用完']}} {{codeUsedCount}}</text>
+              <text class="code-refresh" bindtap="loadCodes" role="button">{{ui['刷新']}}</text>
+            </view>
           </view>
           <view wx:if="{{!codeItems.length}}" class="code-message">{{ui['还没有生成兑换码']}}</view>
           <view wx:for="{{codeItems}}" wx:key="id" class="code-item">

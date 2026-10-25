@@ -563,6 +563,29 @@ test('deriveTrend overview squashes the session into one stretched ribbon', () =
   assert.equal(plain.ribbon.columns.length, 0);
 });
 
+test('overview ribbon carries a sampled duration curve and leaves gaps for unknown timings', () => {
+  const trend = contextView.deriveTrend({
+    requests: [
+      { seq: 1, turn: 1, step: 1, system: 100, total: 100, activeMs: 100 },
+      { seq: 2, turn: 1, step: 2, system: 120, total: 120, activeMs: 500 },
+      { seq: 3, turn: 2, step: 1, system: 130, total: 130 },
+      { seq: 4, turn: 2, step: 2, system: 140, total: 140, activeMs: 1000 }
+    ]
+  }, key => key, { groupBy: 'step', overview: true });
+  assert.equal(trend.ribbon.durationRuns.length, 1);
+  const points = trend.ribbon.durationRuns[0].split(' ');
+  assert.equal(points.length, 2, 'known neighboring durations stay in one line run');
+  assert.deepEqual(points.map(point => point.split(',').map(Number)), [[0.5, 201.6], [1.5, 112]]);
+  assert.deepEqual(trend.ribbon.durationAreas, ['0.5,201.6 1.5,112 1.5,224 0.5,224'],
+    'the gray duration profile fills down to the chart baseline');
+  assert.deepEqual(trend.ribbon.durationDots, ['3.5,0'], 'a known duration after a gap renders as an isolated dot');
+  const withoutCurve = contextView.deriveTrend({ requests: trend.bars.map(bar => ({ seq: bar.seq, total: 1 })) }, key => key,
+    { overview: true, showDuration: false });
+  assert.deepEqual(withoutCurve.ribbon.durationRuns, []);
+  assert.deepEqual(withoutCurve.ribbon.durationDots, []);
+  assert.deepEqual(withoutCurve.ribbon.durationAreas, []);
+});
+
 test('deriveTrend dims other turns when one turn is focused', () => {
   const trend = contextView.deriveTrend({
     requests: [
@@ -935,12 +958,17 @@ test('v2 statistics expose the five input/output chips and the tool/event groups
   assert.ok(legacy.activity.chips.every(chip => chip.text === '—'));
 });
 
-test('v2 Agent network derives current-agent tokens and subagent count from the fleet snapshot', () => {
+test('v2 Agent network derives counts from the fleet members instead of stale wire totals', () => {
   const tokens = contextView.deriveTokens(sampleV2Value(), key => key);
-  const fleet = { currentSessionId: 'session-child', counts: { agents: 3, running: 1, subagents: 2 },
-    agents: [{ sessionId: 'session-root', tokensTotal: 10 }, { sessionId: 'session-child', tokensTotal: 2500 }] };
+  const fleet = { currentSessionId: 'session-child', counts: { agents: 1, running: 0, subagents: 0 },
+    agents: [
+      { sessionId: 'session-root', tokensTotal: 10 },
+      { sessionId: 'session-child', tokensTotal: 2500 },
+      { sessionId: 'session-grandchild', tokensTotal: 100 }
+    ] };
   const network = contextView.deriveNetwork(sampleV2Value(), tokens, fleet, key => key);
   assert.equal(network.hasData, true);
+  assert.equal(network.agentsText, '3');
   assert.equal(network.agentTokensText, '2.5k');
   assert.equal(network.subagentsText, '2');
   // 旧网关没有编队快照 → 整块隐藏，避免显示假的 ×0。

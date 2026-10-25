@@ -13,7 +13,7 @@ const read = (file) => fs.readFileSync(path.join(root, file), 'utf8');
 
 const SESSION_FILES = ['pages/session/session.wxml'];
 const PAGE_SCRIPTS = {
-  'pages/session/session.wxml': ['pages/session/session.js', 'pages/session/changes-actions.js', 'pages/session/file-actions.js', 'pages/session/voice-actions.js', 'pages/session/viewport-actions.js', 'pages/session/image-blocks.js'],
+  'pages/session/session.wxml': ['pages/session/session.js', 'pages/session/changes-actions.js', 'pages/session/file-actions.js', 'pages/session/file-mention-actions.js', 'pages/session/voice-actions.js', 'pages/session/viewport-actions.js', 'pages/session/image-blocks.js'],
   'pages/insights/insights.wxml': ['pages/insights/insights.js'],
   'pages/settings/settings.wxml': ['pages/settings/settings.js']
 };

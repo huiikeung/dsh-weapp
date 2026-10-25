@@ -100,7 +100,31 @@ function fileReference(path) {
   if (!value || /[\u0000-\u001f\u007f-\u009f"]/.test(value)) return '';
   return /\s/.test(value) ? '@"' + value + '"' : '@' + value;
 }
+function referenceAtCursor(text, cursor) {
+  const value = String(text || '');
+  const point = Math.max(0, Math.min(value.length, Number.isInteger(cursor) ? cursor : value.length));
+  if (point === 0) return null;
+  const at = value.lastIndexOf('@', Math.max(0, point - 1));
+  if (at < 0 || (at > 0 && !/\s/.test(value.charAt(at - 1)))) return null;
+  const beforeCursor = value.slice(at + 1, point);
+  if (beforeCursor.startsWith('"')) {
+    const close = value.indexOf('"', at + 2);
+    if (close >= 0 && point > close) return null;
+    const end = close >= 0 ? close + 1 : value.indexOf('\n', point) >= 0 ? value.indexOf('\n', point) : value.length;
+    return { start: at, end, query: beforeCursor.slice(1), quoted: true };
+  }
+  if (/\s|"/.test(beforeCursor)) return null;
+  let end = point;
+  while (end < value.length && !/\s/.test(value.charAt(end))) end += 1;
+  return { start: at, end, query: beforeCursor, quoted: false };
+}
+function fileReferencePrefix(path, preserveQuote) {
+  const value = String(path || '').replace(/\\/g, '/');
+  if (!value || /[\u0000-\u001f\u007f-\u009f"]/.test(value)) return '';
+  const quoted = preserveQuote || /\s/.test(value);
+  return quoted ? '@"' + value : '@' + value;
+}
 function imageType(name) {
   return ({ jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp' })[String(name || '').split(/[?#]/)[0].split('.').pop().toLowerCase()] || '';
 }
-module.exports = { commands, acceptsAttachments, catalog, inputDraft, presentation, commandLabel, optionTitle, optionRows, modelFace, fileReference, imageType };
+module.exports = { commands, acceptsAttachments, catalog, inputDraft, presentation, commandLabel, optionTitle, optionRows, modelFace, fileReference, referenceAtCursor, fileReferencePrefix, imageType };

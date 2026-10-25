@@ -14,7 +14,11 @@ button::after { border: 0; }
 .code-meta { display: block; word-break: break-all; }
 .admin-list-head, .code-heading, .code-footer { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; }
 .admin-list-head { margin-top: 30rpx; }
+.admin-list-head .group-title { flex: 1; min-width: 0; }
+/* 右上角两个入口：清空已用完（危险色，只有存在已用完的码时才出现）+ 刷新 */
+.admin-list-actions { flex: none; display: flex; align-items: center; gap: 8rpx; }
 .admin-link { color: var(--ocean); font-size: 25rpx; padding: 12rpx 0 12rpx 24rpx; }
+.admin-link-danger { color: #E5484D; }
 .code-title { font-size: 28rpx; font-weight: 600; color: var(--text); }
 .code-status { font-size: 22rpx; color: var(--text-2); flex-shrink: 0; }
 .code-heading { margin-bottom: 12rpx; }

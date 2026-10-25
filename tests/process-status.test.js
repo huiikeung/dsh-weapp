@@ -73,18 +73,28 @@ test('style choice persists, invalid values fall back and storage failures surfa
     wx.setStorageSync=()=>{throw Error('storage full');};assert.throws(()=>appearance.save('neon'));
   } finally { delete global.wx; }
 });
-test('execution icon choice persists, defaults to cells, invalid values fall back and storage failures surface', () => {
+test('execution icon choice persists, defaults to the spinning ring, invalid values fall back and storage failures surface', () => {
   let stored; global.wx = { getStorageSync:()=>stored, setStorageSync:(key,value)=>{ assert.equal(key,procIcon.KEY);assert.equal(key,'procIconStyle');stored=value; } };
   try {
-    assert.equal(procIcon.read(),'cells');
-    assert.equal(procIcon.OPTIONS[0].id,'cells');
+    assert.equal(procIcon.read(),'spin-ring');
+    assert.equal(procIcon.OPTIONS[0].id,'spin-ring', 'the default style is listed first');
+    assert.match(procIcon.OPTIONS[0].detail,/默认/,'the default is labelled as such');
     assert.equal('file' in procIcon.OPTIONS.find(item=>item.id==='cells'),false);
-    assert.deepEqual(procIcon.view('cells'),{procIconStyle:'cells',procIconLabel:'格子'});
+    assert.deepEqual(procIcon.view('spin-ring'),{procIconStyle:'spin-ring',procIconLabel:'旋转圆环'});
     for (const item of procIcon.OPTIONS) {
       procIcon.save(item.id);assert.equal(procIcon.read(),item.id);
       const view=procIcon.view(item.id);assert.equal(view.procIconStyle,item.id);assert.equal(view.procIconLabel,item.label);assert.equal('procIconFile' in view,false);
     }
-    stored='invalid';assert.equal(procIcon.read(),'cells');
+    stored='invalid';assert.equal(procIcon.read(),'spin-ring');
+    // 多元素图标必须是横向 flex 容器：漏了 display:flex 会让子元素竖排（typing-dots 就这样竖过）。
+    const iconCss=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/proc-icon.wxss'),'utf8');
+    // styleId -> 承载子元素的根类
+    const flexRoots={ 'pulse-ring':'proc-pulse', 'breathe-bars':'proc-breathe', 'typing-dots':'proc-typing', 'spin-ring':'proc-spin-ring' };
+    for (const [id, root] of Object.entries(flexRoots)) {
+      const inline=new RegExp('\\.'+root+'\\s*\\{[^}]*display:\\s*flex');
+      const grouped=new RegExp('\\.'+root+'\\s*,[^{]*\\{[^}]*display:\\s*flex');
+      assert.ok(inline.test(iconCss)||grouped.test(iconCss), id+' ('+root+') must lay its children out horizontally');
+    }
     wx.setStorageSync=()=>{throw Error('storage full');};assert.throws(()=>procIcon.save('terra'));
   } finally { delete global.wx; }
 });

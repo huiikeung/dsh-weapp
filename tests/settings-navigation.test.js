@@ -17,10 +17,13 @@ test('sidebar application settings and home session settings have separate entri
   assert.doesNotMatch(home, /ic-pair-auth.png/);
   assert.doesNotMatch(home, /g-head|g-ring|g-tooth/);
   assert.match(read('pages/home/home.js'), /openSessionSettings\(\)[\s\S]*?pages\/session-settings\/session-settings/);
-  for (const label of ['公网访问', '节点管理', '微信身份', '管理员', '外观', '实验性功能', '关于']) {
+  for (const label of ['公网访问', '节点管理', '管理员', '外观', '实验性功能', '关于']) {
     assert.ok(settings.includes('>' + label + '</view>'), label);
     assert.ok(!sessions.includes('>' + label + '</view>'), label);
   }
+  // read() 会把 {{ui['…']}} 剥成裸文案，所以这里按裸文案断言（和上面的 label 循环一致）。
+  assert.ok(settings.includes('>节点权限</'), 'application settings owns the node-permission entry');
+  assert.ok(!sessions.includes('>节点权限</'), 'session settings must not repeat it');
   const panelSettings = settings.slice(settings.indexOf('会话面板'));
   assert.match(panelSettings, /checked="\{\{showContextPanel\}\}"[\s\S]*?bindchange="toggleContextPanel"[\s\S]*?checked="\{\{showFleetPanel\}\}"[\s\S]*?bindchange="toggleFleetPanel"/);
   assert.match(read('pages/settings/settings.js'), /toggleContextPanel\(e\)[\s\S]*?contextPanelsPreference\.set\('context'/);
@@ -66,6 +69,7 @@ test('session settings retain model and permission APIs, file navigation and pri
     if(name.endsWith('/host-info'))return require('../miniprogram/utils/host-info');
     if(name.endsWith('/version-info'))return require('../miniprogram/pages/settings/utils/version-info');
     if(name.endsWith('/account-view'))return require('../miniprogram/pages/settings/utils/account-view');
+    if(name.endsWith('/account-card-pref'))return {KEY:'dsh_account_card_visible',DEFAULT:false,read:()=>false,set:v=>v===true};
     if(name.endsWith('/build'))return {BUILD_TIME:'fixture',BUILD_VERSION:'0.9.27'};
     throw Error('Unexpected dependency '+name);
   }});
@@ -135,12 +139,12 @@ test('session settings retain model and permission APIs, file navigation and pri
   subscriber({app:{...state,connection:'disconnected'}}); assert.equal(page.data.diagnostics[0].value,'未连接');
   page.closeUtilitySheet(); assert.equal(page.data.utilitySheet,'');
   const removed = [];
-  wx.getStorageInfoSync = () => ({keys:['dsh_session_cache.fixture','dsh_home_cache.fixture','gateway.profiles.v1','dsh_creds.fixture','public-access.session.v1']});
+  wx.getStorageInfoSync = () => ({keys:['dsh_session_cache.fixture','dsh_home_cache.fixture','dsh_context_cache.fixture','gateway.profiles.v1','dsh_creds.fixture','public-access.session.v1']});
   wx.removeStorageSync = key => removed.push(key);
   page.clearLocalCache(); assert.equal(removed.length,0,'Opening confirmation must not delete anything');
   page.closeUtilitySheet(); page.confirmClearCache(); assert.equal(removed.length,0,'Cancelled sheet cannot delete');
   page.clearLocalCache(); page.confirmClearCache();
-  assert.deepEqual(removed,['dsh_session_cache.fixture','dsh_home_cache.fixture']); assert.equal(page.data.utilitySheet,'');
+  assert.deepEqual(removed,['dsh_session_cache.fixture','dsh_home_cache.fixture','dsh_context_cache.fixture']); assert.equal(page.data.utilitySheet,'');
   wx.getStorageInfoSync = () => {throw Error('unavailable');};
   page.clearLocalCache(); page.confirmClearCache(); assert.equal(page.data.utilitySheet,'cache'); assert.match(page.data.cacheError,/无法读取/);
   wx.getStorageInfoSync = () => ({keys:['dsh_session_cache.fixture']}); wx.removeStorageSync = () => {throw Error('locked');};
@@ -235,6 +239,17 @@ test('utility panels are bottom sheets with theme colors and concise feature lab
   assert.match(css,/\.utility-mask[^}]*align-items: flex-end/);
   assert.match(css,/\.utility-sheet[^}]*env\(safe-area-inset-bottom\)[^}]*background: var\(--surface\)/);
   assert.match(css,/\.theme-dark.*utility-confirm/);
+});
+
+test('settings sheets scroll as one page at a fixed 90% height', () => {
+  const html = read('pages/settings/settings.wxml');
+  const css = read('pages/settings/settings.wxss');
+  // 用户要的形态：弹窗固定 90% 高，整个弹窗一起滑——不再有内层滚动区。
+  assert.equal((html.match(/style="height: 90vh;"/g) || []).length, 4, 'four sheets pin the 90% height');
+  assert.equal((html.match(/<scroll-view[^>]*class="management-scroll"/g) || []).length, 0, 'no inner scroll region inside the sheet');
+  assert.equal((html.match(/class="management-scroll"/g) || []).length >= 5, true, 'content blocks stay in flow');
+  assert.match(css, /\.pair-sheet\s*\{[^}]*overflow-y:\s*auto/, 'the sheet itself is the scroll container');
+  assert.doesNotMatch(css, /\.management-scroll\s*\{[^}]*max-height/, 'the inner block no longer caps the height');
 });
 
 test('default preset and model sheets retain the bottom modal and use dsh-mobile style cards', () => {

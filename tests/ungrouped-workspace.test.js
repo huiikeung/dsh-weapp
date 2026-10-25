@@ -92,7 +92,7 @@ test('selection survives workspace refresh, cache and restart but switching work
   page.selectUngrouped();
   store.client.callbacks.onFrame({ kind: 'workspaces', items: workspaces, archivedSessionIds: ['archived'] });
   assert.equal(store.state.currentWorkspaceId, null);
-  const saved = JSON.parse(memory.get('dsh_home_cache.host-a'));
+  const saved = JSON.parse(memory.get('dsh_home_cache.host-a')).value;
   assert.equal(saved.isUngroupedWorkspaceSelected, true);
   assert.equal(saved.currentWorkspaceId, null);
   const restarted = fixture(memory); restarted.store.init();
@@ -102,7 +102,7 @@ test('selection survives workspace refresh, cache and restart but switching work
   assert.equal(store.state.isUngroupedWorkspaceSelected, false);
   assert.equal(page.data.currentWorkspace.title, '工作区 B');
   assert.deepEqual(Array.from(page.data.displaySessions, s => s.sessionId), ['grouped-b']);
-  assert.equal(JSON.parse(memory.get('dsh_home_cache.host-a')).isUngroupedWorkspaceSelected, false);
+  assert.equal(JSON.parse(memory.get('dsh_home_cache.host-a')).value.isUngroupedWorkspaceSelected, false);
 });
 
 test('legacy/default selections still select the first workspace and another host resets ungrouped', () => {

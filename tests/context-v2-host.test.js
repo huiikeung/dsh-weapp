@@ -782,7 +782,7 @@ test('v2 fleet carries the root agentTeam roster (truncated), phases and last an
   assert.equal(value.team.members.length, 2)
   assert.deepEqual(value.team.members[1], { id: 'a', name: '阿青', role: 'teammate', phase: 'provisioning' })
   assert.equal(value.team.tasks.length, 20)
-  assert.deepEqual(value.team.tasks[0], { id: 'task-1', subject: '任务 1', status: 'in_progress', ownerName: '阿青', ownerId: 'a' })
+  assert.deepEqual(value.team.tasks[0], { id: 'task-1', subject: '任务 1', status: 'in_progress', description: 'x', ownerName: '阿青', ownerId: 'a' }, 'the task board gets the host description preview')
   assert.equal(value.team.failure, '')
   assert.deepEqual(value.agents.map(agent => [agent.sessionId, agent.phase]), [['root', 'active'], ['a', 'provisioning'], ['b', undefined], ['c', undefined]])
   assert.equal(value.agents[0].lastAnswer, '根回答')

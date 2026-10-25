@@ -31,6 +31,33 @@ function fixture() {
   return { page, store, calls, ticks, timers, patches };
 }
 const event = (key, value) => ({ currentTarget: { dataset: { [key]: value } } });
+test('in-progress task icon follows the theme (ink on light, white on dark)', () => {
+  const { page, store } = fixture();
+  const rows = () => (page.data.tasks || []).map((t) => ({ status: t.status, icon: t.icon }));
+  const drive = (theme) => {
+    store.state = { connection: 'connected', sessions: [] };
+    store.sessionState = Object.assign(store.sessionState, {
+      sessionId: 's1', running: false,
+      tasks: [
+        { content: '正在做的任务', status: 'in_progress' },
+        { content: '还没开始的任务', status: 'pending' },
+        { content: '做完的任务', status: 'completed' },
+      ],
+    });
+    page.data.theme = theme;
+    page.syncFromStore({ app: store.state, session: store.sessionState });
+    return rows();
+  };
+  const light = drive('light');
+  assert.deepEqual(light.map((r) => r.icon), ['pinwheel-ink.png', 'dotted-gray.png', 'check-green.png']);
+  const dark = drive('dark');
+  assert.deepEqual(dark.map((r) => r.icon), ['pinwheel-white.png', 'dotted-gray.png', 'check-green.png']);
+  // 两个变体资源都要存在（纯黑图标在深色背景下不可见）
+  for (const icon of ['pinwheel-ink.png', 'pinwheel-white.png']) {
+    assert.ok(fs.existsSync(path.resolve(__dirname, '../miniprogram/assets/icons', icon)), icon);
+  }
+});
+
 test('large outline selection patches nearby blur effects and auto-loads at the older edge', () => {
   const { page, patches, calls, store } = fixture();
   page.setData(page.turnNavigatorPatch(Array.from({ length: 2000 }, (_, i) => ({ kind: 'user', key: 'u' + i, text: 'Q' + i }))));
@@ -43,11 +70,14 @@ test('large outline selection patches nearby blur effects and auto-loads at the 
   page.data.turnNavOpen = true;
   page.data.hasMoreHistory = true;
   store.sessionState.nextBeforeSeq = 400;
+  page._turnScrollTop = 650;
   page.onTurnListScroll({ detail: { scrollTop: 700, scrollHeight: 1000, clientHeight: 300 } });
   assert.equal(page.data.turnNavActiveIndex, 18, 'the row nearest the viewport center becomes active');
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
   page.onTurnListScroll({ detail: { scrollTop: 700, scrollHeight: 1000, clientHeight: 300 } });
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1, 'scroll events do not duplicate an in-flight page request');
+  page.onTurnListScroll({ detail: { scrollTop: 650, scrollHeight: 1000, clientHeight: 300 } });
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1, 'scrolling back toward newer turns does not reload history');
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const outlineStart = xml.indexOf('class="turn-overlay');
   const outline = xml.slice(outlineStart, xml.indexOf('<!-- 更多菜单', outlineStart));
@@ -79,16 +109,18 @@ test('horizontal gestures switch cached panels with feedback while vertical/canc
   assert.equal(page.data.tab, 'conversation');
 });
 test('navigator caches every turn and updates an open list while older history arrives', () => {
-  const { page, calls } = fixture();
+  const { page, calls, store } = fixture();
   const rows = Array.from({ length: 80 }, (_, index) => [
     { kind: 'user', key: 'u' + index, text: 'Question ' + index },
     { kind: 'assistant', key: 'a' + index, text: 'Answer ' + index }
   ]).flat();
+  store.sessionState.rows = rows;
   page.setData(page.turnNavigatorPatch(rows));
   page.openTurnNavigator();
   assert.equal(page.data.turnNavActiveIndex, 0, 'default selection is ready before measurement');
   assert.equal(page.data.turnNavWidths[0], 112);
   assert.equal(page.data.turnNavItems.length, 80);
+  assert.ok(page.data.turnNavVisibleItems.length < page.data.turnNavItems.length, 'the outline renders only a viewport window');
   assert.equal(page.data.turnNavItems[0].key, 'u79');
   page.applyTurnIndex(20, false);
   const selected = page.data.turnNavItems[20].key;
@@ -102,9 +134,96 @@ test('navigator caches every turn and updates an open list while older history a
   page.applyTurnIndex(2); assert.equal(calls.filter(call => call[0] === 'tick').length, 1);
   page.onTurnScrubCancel(); page.onTurnScrubEnd(); assert.equal(page.data.turnNavOpen, true);
 });
+test('turn outline keeps cached nodes across openings and only adds newly observed turns', () => {
+  const { page, store } = fixture();
+  const original = Array.from({ length: 4 }, (_, index) => [
+    { kind: 'user', key: 'u' + index, text: 'Question ' + index },
+    { kind: 'assistant', key: 'a' + index, text: 'Answer ' + index }
+  ]).flat();
+  store.sessionState.rows = original;
+  page.setData(page.turnNavigatorPatch(original));
+  page.closeTurnNavigator();
+
+  const newest = [
+    { kind: 'user', key: 'u4', text: 'Question 4' },
+    { kind: 'assistant', key: 'a4', text: 'Answer 4' }
+  ];
+  // Simulate a bounded source window: old cached turns are no longer in the snapshot.
+  store.sessionState.rows = [original.at(-2), original.at(-1), ...newest];
+  page.setData(page.turnNavigatorPatch(store.sessionState.rows));
+  page.closeTurnNavigator();
+  page.openTurnNavigator();
+
+  assert.equal(page.data.turnNavItems.length, 5);
+  assert.deepEqual(Array.from(page.data.turnNavItems, item => item.key), ['u4', 'u3', 'u2', 'u1', 'u0']);
+  assert.equal(new Set(page.data.turnNavItems.map(item => item.key)).size, 5, 'reopening never duplicates cached nodes');
+});
+test('opening the outline automatically pages through all history without a page, turn, or byte cap', () => {
+  const { page, calls, store, timers } = fixture();
+  store.sessionState.running = false;
+  store.sessionState.hasMoreHistory = true;
+  store.sessionState.nextBeforeSeq = 100;
+  page.data.turnNavOpen = true;
+  page.data.turnNavItems = Array.from({ length: 40 }, (_, i) => ({ key: 'u' + i }));
+  page.startTurnNavigatorWarmup();
+  assert.equal(page.data.turnNavWarming, true);
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
+
+  // More than the old 8-page / 500-turn / 4-MB limits must still be filled
+  // automatically, one cursor-advancing page at a time.
+  for (let pageNumber = 1; pageNumber <= 12; pageNumber += 1) {
+    store.sessionState.nextBeforeSeq = 100 - pageNumber * 10;
+    store.sessionState.hasMoreHistory = pageNumber < 12;
+    store.sessionState.historyLastPageBytes = 400 * 1024;
+    page.data.turnNavItems = Array.from({ length: 40 + pageNumber * 50 }, (_, i) => ({ key: 'u' + i }));
+    page.pumpTurnNavigatorWarmup();
+    if (pageNumber < 12) {
+      const timer = [...timers.entries()].find(([, value]) => value.delay === 180);
+      assert.ok(timer, 'next page is scheduled after the previous page completes');
+      timers.delete(timer[0]); timer[1].fn();
+    }
+  }
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 12);
+  assert.equal(page.data.turnNavItems.length, 640);
+  assert.equal(page.data.turnNavWarming, false, 'warm-up ends only after the gateway reports no older history');
+  assert.match(page.data.turnNavWarmText, /完整历史/);
+  assert.equal(page._turnWarmup, null);
+});
+test('opening before the first history snapshot waits, then starts warming once pagination metadata arrives', () => {
+  const { page, calls, store } = fixture();
+  store.sessionState.running = false;
+  store.sessionState.hasMoreHistory = false;
+  page.data.turnNavOpen = true;
+  page.startTurnNavigatorWarmup();
+  assert.equal(page._turnWarmupStarted, false);
+  store.sessionState.hasMoreHistory = true;
+  store.sessionState.nextBeforeSeq = 70;
+  page.startTurnNavigatorWarmup();
+  assert.equal(page._turnWarmupStarted, true);
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
+});
+test('outline warm-up continues at a low rate during generation and is cancelled when the panel closes', () => {
+  const { page, calls, store, timers } = fixture();
+  store.sessionState.hasMoreHistory = true;
+  store.sessionState.nextBeforeSeq = 90;
+  page.data.turnNavOpen = true;
+  page.startTurnNavigatorWarmup();
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
+  assert.ok([...timers.values()].some(timer => timer.delay === 900), 'active-turn history reads are throttled');
+  store.sessionState.nextBeforeSeq = 80;
+  page.pumpTurnNavigatorWarmup();
+  assert.equal(page.data.turnNavWarming, true, 'history backfill stays active while the live event stream continues');
+  assert.equal(page._turnWarmup.waiting, false);
+  assert.ok([...timers.values()].some(timer => timer.delay === 900));
+  page.closeTurnNavigator();
+  assert.equal(page.data.turnNavWarming, false);
+  assert.equal(page._turnWarmup, null);
+});
 test('turn wheel keeps the centered row highlighted while scrolling and only jumps when tapped', () => {
-  const { page, calls } = fixture();
-  page.setData(page.turnNavigatorPatch(Array.from({ length: 50 }, (_, i) => ({ kind: 'user', key: 'u' + i, text: 'Question ' + i }))));
+  const { page, calls, store } = fixture();
+  const rows = Array.from({ length: 50 }, (_, i) => ({ kind: 'user', key: 'u' + i, text: 'Question ' + i }));
+  store.sessionState.rows = rows;
+  page.setData(page.turnNavigatorPatch(rows));
   page.openTurnNavigator();
   page._turnListRect = { top: 100, height: 400, rowHeight: 38, spacer: 181 };
   page.onTurnScrubStart({ touches: [{ clientY: 120 }] });
@@ -125,7 +244,8 @@ test('turn wheel keeps the centered row highlighted while scrolling and only jum
   const list = xml.slice(xml.indexOf('id="turn-scrub-list"'), xml.indexOf('<view class="turn-scrub-inner">'));
   assert.ok(list.includes('bindscroll="onTurnListScroll"'));
   assert.ok(list.includes('76vh'), 'the list keeps a stable viewport so its center does not shift');
-  assert.ok(xml.includes('turnNavSpacerPx'), 'top and bottom spacers let the first and last turns sit in the center');
+  assert.ok(xml.includes('turnNavTopPadPx') && xml.includes('turnNavBottomPadPx'), 'virtual spacers preserve the full scroll range and centered endpoints');
+  assert.ok(xml.includes('wx:for="{{turnNavVisibleItems}}"'), 'long outlines do not mount every row at once');
   assert.ok(xml.includes('catchtap="jumpToTurn"'));
 });
 test('trajectory tab clears keyboard/popovers but preserves draft and never measures hidden dock', () => {
@@ -162,6 +282,16 @@ test('more menu expands rename, stats and files inside the same sheet and dispat
   assert.ok(!calls.some(call => call[0] === 'navigateTo'), '不应再跳转文件页面');
   page.backToMoreMenu(); assert.equal(page.data.morePane, 'menu');
   // 取消回合：确认弹窗
+  page.moreActions(); page.selectMoreAction(event('action', 'browsePlugins'));
+  assert.equal(page.data.moreSheetOpen, false);
+  assert.equal(calls.at(-1)[0], 'navigateTo');
+  assert.equal(calls.at(-1)[1].url, '/pages/plugins/plugins?tab=discover');
+  page.moreActions(); page.selectMoreAction(event('action', 'createPlugin'));
+  assert.equal(calls.at(-1)[1].url, '/pages/plugins/plugins?action=create');
+  const menuXml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  assert.match(menuXml, /data-action="browsePlugins"[^>]*>[\s\S]*?浏览更多插件/);
+  assert.match(menuXml, /data-action="createPlugin"[^>]*>[\s\S]*?创建你的插件/);
+  assert.ok(menuXml.includes("theme === 'dark' ? 'pinwheel-white.png' : 'pinwheel-ink.png'"), 'browse plugins reuses the sidebar plugin icon in both themes');
   page.moreActions(); store.sessionState.running = false; page.selectMoreAction(event('action', 'cancel'));
   assert.equal(page.data.moreSheetOpen, true); assert.ok(!calls.some(call => call[0] === 'cancel'));
   store.sessionState.running = true; page.selectMoreAction(event('action', 'cancel'));
@@ -225,14 +355,40 @@ test('quick switch opens as a full-screen overlay like the turn navigator', () =
   // 三横线按钮改为「对话节点定位」，会话快捷切换移入更多菜单并以蒙版呈现
   assert.ok(xml.includes('bindtap="openTurnNavigator"'));
   assert.ok(xml.includes('data-action="switchSessions"'));
-  assert.match(xml, /wx:if="\{\{rows\.length\}\}" class="session-switch-trigger/, 'the turn navigator is hidden until the conversation has messages');
+  // 三横线按钮固定在右上角导航栏（和更多菜单同一排），只出现一次。
+  assert.equal((xml.match(/session-switch-trigger/g) || []).length, 1, 'the trigger lives in exactly one place');
+  assert.match(xml, /wx:if="\{\{rows\.length\}\}" class="session-switch-trigger/,
+    'the turn navigator is hidden until the conversation has messages');
+  // 顺序：nav-actions 开标签 → 更多菜单 → 三横线按钮（都在同一个导航容器里）
+  const iNav = xml.indexOf('class="nav-actions"');
+  const iMore = xml.indexOf('class="nav-more', iNav);
+  const iSwitch = xml.indexOf('class="session-switch-trigger', iNav);
+  assert.ok(iNav > 0 && iMore > iNav && iSwitch > iMore,
+    'the trigger sits in the top-right nav, after the more menu');
+  assert.ok(!/copyAssistantText[^\n]*session-switch-trigger/.test(xml),
+    'the trigger is no longer in the reply footer');
   assert.ok(xml.includes('class="session-switch-overlay'));
   assert.ok(!xml.includes('session-switch-handle-zone'), 'overlay no longer uses a bottom-sheet handle');
   assert.ok(xml.includes('bindtap="switchSessionFromSwitcher"'));
   assert.match(css, /\.session-switch-overlay\s*\{[^}]*position: fixed;[^}]*inset: 0;/, 'overlay covers the viewport');
   assert.match(css, /\.session-switch-overlay\s*\{[^}]*background: rgba\(8, 10, 16/, 'overlay dims the page like the turn navigator');
   assert.match(css, /\.session-switch-panel\s*\{[^}]*max-height: 90vh;/, 'panel still caps at 90vh');
-  assert.match(css, /\.session-switch-lines\s*\{\s*gap: 12rpx;/, 'hamburger bars have wider vertical spacing');
+  // 图标是原来的 CSS 三横线（三个 view），按钮 64rpx 圆钮。
+  assert.match(xml, /class="session-switch-lines" aria-hidden="true"><view\/><view\/><view\/><\/view>/,
+    'the glyph is three view bars again');
+  assert.match(css, /\.session-switch-trigger\s*\{[^}]*width: 64rpx;[^}]*height: 64rpx;/, 'trigger is the original 64rpx round button');
+  // 字形保持原样：100% / 78% / 90%，右对齐
+  assert.match(css, /\.session-switch-lines view:nth-child\(2\)\s*\{\s*width: 78%;/, 'middle bar stays at the original 78%');
+  assert.match(css, /\.session-switch-lines view:nth-child\(3\)\s*\{\s*width: 90%;/, 'bottom bar stays at the original 90%');
+  assert.match(css, /\.session-switch-lines\s*\{[^}]*align-items: flex-end;/, 'bars stay right-aligned as before');
+  // 线加粗到 4rpx、间距收到 6rpx（字形不变）
+  assert.match(css, /\.session-switch-lines view\s*\{[^}]*height: 3rpx;/, 'bars are the requested 3rpx thick');
+  assert.match(css, /\.session-switch-lines\s*\{[^}]*width: 30rpx;/, 'bars are shortened to a 30rpx glyph');
+  assert.match(css, /\.session-switch-lines\s*\{[^}]*gap: 8rpx;/, 'bar gap is 8rpx: tighter than the old 12rpx, looser than 6rpx');
+  // 同一选择器只允许出现一次（避免旧值被后一条规则悄悄覆盖）
+  assert.equal((css.match(/^\.session-switch-lines\s*\{/gm) || []).length, 1, 'one consolidated .session-switch-lines block');
+  assert.equal((css.match(/^\.session-switch-lines view\s*\{/gm) || []).length, 1, 'one consolidated bar rule');
+  assert.ok(!fs.existsSync(path.join(__dirname, '../miniprogram/assets/icons/turn-nav.svg')), 'the throwaway SVG asset is gone');
 });
 
 test('quick switch overlay keeps search, list and in-place switching', () => {
@@ -380,15 +536,22 @@ test('stream snapshots coalesce and yield during taps without losing the newest 
 });
 
 test('typing prioritizes input and measures dock only when actual textarea height changes', () => {
-  const { page } = fixture(); let measured = 0;
+  const { page, timers } = fixture(); let measured = 0;
   page.updateDockInset = () => { measured++; };
   for (const value of ['测', '测试', '测试输入']) page.onDraftInput({ detail: { value, cursor: value.length } });
   assert.equal(measured, 0); assert.equal(page.data.draft, '测试输入');
   assert.equal(page.data.canSend, true); assert.ok(page._interactionUntil > Date.now());
   page.onComposerLineChange({ detail: { height: 32 } });
   page.onComposerLineChange({ detail: { height: 32 } });
+  // 测量经 120ms 防抖合并：重复同高不重测，且只有一次挂起任务。
+  const runDebounced = () => [...timers.entries()].filter(([, entry]) => entry.delay === 120)
+    .forEach(([id, entry]) => { timers.delete(id); entry.fn(); });
+  assert.ok(timers.size >= 1, 'linechange measures through a 120ms debounce');
+  runDebounced();
   assert.equal(measured, 1);
-  page.onComposerLineChange({ detail: { height: 64 } }); assert.equal(measured, 2);
+  page.onComposerLineChange({ detail: { height: 64 } });
+  runDebounced();
+  assert.equal(measured, 2);
 });
 
 test('hidden conversations discard scheduled projection without losing source updates', () => {

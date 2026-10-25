@@ -298,7 +298,50 @@ function deriveActivity(value, t) {
 }
 
 /** Agent 网络：当前 Agent token + 子 Agent 数（来自 context-fleet；缺失隐藏）。 */
-function deriveNetwork(value, tokens, fleet, t) { t = identity(t); if (isObject(fleet) !== true) return { hasData: false, agentTokensText: '', subTokensText: '', subagentsText: '', subagents: 0, rows: [] }; var agents = Array.isArray(fleet.agents) ? fleet.agents.filter(isObject) : null; var counts = isObject(fleet.counts) ? fleet.counts : {}; var currentSessionId = text(fleet.currentSessionId); var current = null; if (agents) { for (var i = 0; i < agents.length; i += 1) { if (agents[i].isCurrent === true || (currentSessionId && text(agents[i].sessionId) === currentSessionId)) { current = agents[i]; break; } } } var tokensTotal = current && finiteNumber(current.tokensTotal) ? num(current.tokensTotal) : (tokens && tokens.available ? num(tokens.total) : null); var subTokens = null; if (agents) { agents.forEach(function (agent) { if (agent === current || !finiteNumber(agent.tokensTotal)) return; subTokens = (subTokens === null ? 0 : subTokens) + num(agent.tokensTotal); }); } var subagents = finiteNumber(counts.subagents) ? num(counts.subagents) : (agents ? Math.max(0, agents.length - 1) : 0); var subagentsText = formatCompact(subagents); return { hasData: !!(finiteNumber(counts.agents) || (agents && agents.length)), agentsText: finiteNumber(counts.agents) ? formatCompact(counts.agents) : (agents ? formatCompact(agents.length) : '0'), agentTokensText: tokensTotal === null ? '—' : formatCompact(tokensTotal), subTokensText: subTokens === null ? '—' : formatCompact(subTokens), subagents: subagents, subagentsText: subagentsText, subagentLabel: t('子 Agent'), rows: [ { key: 'current', label: t('当前 Agent'), tokensText: tokensTotal === null ? '—' : formatCompact(tokensTotal) }, { key: 'subagents', label: t('子 Agent') + ' × ' + subagentsText, tokensText: subTokens === null ? '—' : formatCompact(subTokens) } ] }; }
+function deriveNetwork(value, tokens, fleet, t) {
+  t = identity(t);
+  if (isObject(fleet) !== true) return { hasData: false, agentTokensText: '', subTokensText: '', subagentsText: '', subagents: 0, rows: [] };
+  var agents = Array.isArray(fleet.agents) ? fleet.agents.filter(isObject) : null;
+  var counts = isObject(fleet.counts) ? fleet.counts : {};
+  var currentSessionId = text(fleet.currentSessionId);
+  var current = null;
+  if (agents) {
+    for (var i = 0; i < agents.length; i += 1) {
+      if (agents[i].isCurrent === true || (currentSessionId && text(agents[i].sessionId) === currentSessionId)) {
+        current = agents[i];
+        break;
+      }
+    }
+  }
+  var tokensTotal = current && finiteNumber(current.tokensTotal) ? num(current.tokensTotal) : (tokens && tokens.available ? num(tokens.total) : null);
+  var subTokens = null;
+  if (agents) {
+    agents.forEach(function (agent) {
+      if (agent === current || !finiteNumber(agent.tokensTotal)) return;
+      subTokens = (subTokens === null ? 0 : subTokens) + num(agent.tokensTotal);
+    });
+  }
+  // DSH derives counts from its Agent forest, not the potentially stale wire summary.
+  var hasAgentList = agents !== null;
+  var agentsCount = hasAgentList ? agents.length : (finiteNumber(counts.agents) ? num(counts.agents) : 0);
+  var subagentsCount = hasAgentList
+    ? agents.filter(function (agent) { return agent !== current; }).length
+    : (finiteNumber(counts.subagents) ? num(counts.subagents) : 0);
+  var subagentsText = formatCompact(subagentsCount);
+  return {
+    hasData: hasAgentList ? agents.length > 0 : finiteNumber(counts.agents),
+    agentsText: formatCompact(agentsCount),
+    agentTokensText: tokensTotal === null ? '—' : formatCompact(tokensTotal),
+    subTokensText: subTokens === null ? '—' : formatCompact(subTokens),
+    subagents: subagentsCount,
+    subagentsText: subagentsText,
+    subagentLabel: t('子 Agent'),
+    rows: [
+      { key: 'current', label: t('当前 Agent'), tokensText: tokensTotal === null ? '—' : formatCompact(tokensTotal) },
+      { key: 'subagents', label: t('子 Agent') + ' × ' + subagentsText, tokensText: subTokens === null ? '—' : formatCompact(subTokens) }
+    ]
+  };
+}
 
 function deriveStats(value, tokens, t, fleet) {
   t = identity(t);
@@ -961,12 +1004,15 @@ function deriveTrend(value, t, options) {
     { key: 'bot', top: 125, text: '0' }
   ];
   // Overview ribbon geometry: x in record units (stretched edge to edge), y in px.
+  var ribbonDuration = overviewOn && durationOn ? ribbonDurationOf(rows, maxActiveMs, MAX_OVERVIEW_COLUMNS) : { runs: [], dots: [], areas: [] };
   var ribbon = {
     count: rows.length,
     width: rows.length,
     height: TREND_CHART_H,
     columns: overviewOn ? ribbonColumnsOf(rows, maxTotal, MAX_OVERVIEW_COLUMNS) : [],
-    durationDots: [],
+    durationRuns: ribbonDuration.runs,
+    durationDots: ribbonDuration.dots,
+    durationAreas: ribbonDuration.areas,
     // Quartile and full-span flags, as percentages of the stretched width.
     flags: overviewOn ? [
       { key: 'q1', left: (rows.length * 0.25 / Math.max(1, rows.length)) * 100, text: formatCompact(Math.round(rows.length / 4)) },
@@ -1118,6 +1164,42 @@ function ribbonColumnsOf(rows, maxTotal, maxColumns) {
     columns.push({ key: 'col-' + c, segments: segments });
   }
   return columns;
+}
+
+/** Sample the duration curve to the same bounded columns as the overview ribbon. */
+function ribbonDurationOf(rows, maxActiveMs, maxColumns) {
+  var count = Math.min(rows.length, maxColumns);
+  if (!count) return { runs: [], dots: [], areas: [] };
+  var size = rows.length / count;
+  var scale = TREND_CHART_H / Math.max(1, maxActiveMs);
+  var runs = [];
+  var dots = [];
+  var areas = [];
+  var run = [];
+  var flush = function () {
+    if (run.length >= 2) {
+      runs.push(run.join(' '));
+      var firstX = run[0].split(',')[0];
+      var lastX = run[run.length - 1].split(',')[0];
+      areas.push(run.join(' ') + ' ' + lastX + ',' + TREND_CHART_H + ' ' + firstX + ',' + TREND_CHART_H);
+    }
+    else if (run.length === 1) dots.push(run[0]);
+    run = [];
+  };
+  for (var c = 0; c < count; c += 1) {
+    var start = Math.floor(c * size);
+    var end = Math.min(rows.length, Math.max(start + 1, Math.floor((c + 1) * size)));
+    var activeMs = undefined;
+    for (var i = start; i < end; i += 1) {
+      var value = rows[i].request.activeMs;
+      if (value !== undefined && (activeMs === undefined || value > activeMs)) activeMs = value;
+    }
+    if (activeMs === undefined) { flush(); continue; }
+    var y = Math.max(0, Math.min(TREND_CHART_H, TREND_CHART_H - activeMs * scale));
+    run.push(((start + end) / 2) + ',' + Math.round(y * 100) / 100);
+  }
+  flush();
+  return { runs: runs, dots: dots, areas: areas };
 }
 
 function eventLabelOf(event) {
@@ -2051,7 +2133,9 @@ function fleetAgentCard(raw, rootSessionId, currentSessionId, t, membersById) {
   var isCurrent = source.isCurrent === true || (!!currentSessionId && sessionId === currentSessionId);
   var running = source.running === true;
   var label = text(source.label);
-  var title = text(source.title) || label || sessionId;
+  // DSH's subagent identity label is the task name; the session title may be a
+  // generic conversation title and must not mask it.
+  var title = (source.origin === 'subagent' && label ? label : '') || text(source.title) || label || sessionId;
   var mode = text(source.mode);
   var modeText = FLEET_MODE_LABELS[mode] ? t(FLEET_MODE_LABELS[mode]) : '';
 
@@ -2110,11 +2194,15 @@ function fleetAgentCard(raw, rootSessionId, currentSessionId, t, membersById) {
     sessionId: sessionId,
     title: title,
     label: label,
+    parentSessionId: text(source.parentSessionId),
+    origin: source.origin === 'subagent' ? 'subagent' : '',
+    mode: mode === 'one-shot' || mode === 'continuable' ? mode : '',
     depth: depth,
     indentStyle: 'margin-left:' + (indentDepth * FLEET_INDENT_RPX) + 'rpx;',
     isCurrent: isCurrent,
     isRoot: isRoot,
     running: running,
+    completed: source.completed === true,
     stateText: running ? t('运行中') : (phaseLabel || t('空闲')),
     modeText: modeText,
     role: role,
@@ -2137,18 +2225,18 @@ function fleetAgentCard(raw, rootSessionId, currentSessionId, t, membersById) {
   };
 }
 
-function deriveFleetOverview(value, rawAgents, cards) {
-  var counts = isObject(value.counts) ? value.counts : {};
-  var agentsCount = finiteNumber(counts.agents) ? num(counts.agents) : cards.length;
+function deriveFleetOverview(rawAgents, cards) {
+  // Match dsh-context FleetSummary: the rendered family nodes are authoritative.
+  var agentsCount = cards.length;
   var runningFallback = 0;
   cards.forEach(function (card) { if (card.running) runningFallback += 1; });
-  var runningCount = finiteNumber(counts.running) ? num(counts.running) : runningFallback;
-  var rootCount = 0;
-  cards.forEach(function (card) { if (card.isRoot) rootCount += 1; });
-  var subagentsCount = finiteNumber(counts.subagents) ? num(counts.subagents) : Math.max(0, cards.length - rootCount);
+  var runningCount = runningFallback;
+  var subagentsCount = 0;
+  cards.forEach(function (card) { if (!card.isCurrent) subagentsCount += 1; });
   var totalTokens = 0;
   rawAgents.forEach(function (agent) {
-    if (isObject(agent) && finiteNumber(agent.tokensTotal)) totalTokens += num(agent.tokensTotal);
+    // DSH FleetSummary sums each node's context headline, not billed tokens.
+    if (isObject(agent) && finiteNumber(agent.pressureTokens)) totalTokens += num(agent.pressureTokens);
   });
   return {
     agents: agentsCount,
@@ -2189,6 +2277,21 @@ function fleetFamilyColor(family) {
   return fleetHex(Math.round(family * 137.508) % 360, 58, 52);
 }
 
+var FLEET_STATE_PHASES = { done: 'done', completed: 'done', failed: 'failed', cancelled: 'failed', canceled: 'failed', blocked: 'failed' };
+/* 运行中 → 转圈；已完成/失败看 phase；没跑过的才算空闲。
+   主 Agent 的 phase 恒为 active（表示"当前会话"而非"正在运行"），
+   所以只要有用量或步数就认定它跑过 → 显示绿点。 */
+function fleetStateKindOf(running, phaseKey, hasUsage) {
+  if (running) return 'running';
+  if (FLEET_STATE_PHASES[phaseKey]) return FLEET_STATE_PHASES[phaseKey];
+  return hasUsage === true ? 'done' : 'idle';
+}
+function fleetHasUsage(raw) {
+  if (!isObject(raw)) return false;
+  return num(raw.tokensTotal) > 0 || num(raw.steps) > 0 || num(raw.turns) > 0
+    || text(raw.lastAnswer) !== '' || text(raw.phase) === 'done' || text(raw.phase) === 'completed';
+}
+
 function buildFleetTree(agents) {
   var roots = [];
   var stack = [];
@@ -2225,8 +2328,11 @@ function buildFleetTree(agents) {
       leafCounter += 1;
       return node.slot;
     }
+    // 每个子节点都要递归占位：只放第一个会让其余子树全部落在 slot 0，
+    // 卡片重叠、连线长度为零（表现为「有节点没连线」）。
     var first = place(node.children[0]);
-    var last = node.children[node.children.length - 1].slot;
+    var last = first;
+    for (var i = 1; i < node.children.length; i += 1) last = place(node.children[i]);
     node.slot = (first + last) / 2;
     return node.slot;
   }
@@ -2246,70 +2352,73 @@ function layoutFleetGraph(agents, stageWidth, options) {
   if (!tree.nodes.length) return result;
   var perLevel = Math.max(1, Math.floor((width - 8) / FLEET_SLOT_MIN));
   var slot = Math.min(FLEET_SLOT_MAX, Math.floor((width - 8) / Math.max(1, Math.min(tree.leafCount, perLevel))));
-  var natural = tree.leafCount <= perLevel;
   var positioned = [];
   var maxDepth = 0;
   tree.nodes.forEach(function (node) { maxDepth = Math.max(maxDepth, node.depth); });
-  if (natural) {
-    var naturalSlot = tree.leafCount > 1
-      ? Math.min(FLEET_SLOT_MAX, (width - 8) / tree.leafCount)
-      : Math.min(FLEET_SLOT_MAX * 1.4, width - 16);
-    tree.nodes.forEach(function (node) {
-      node.x = naturalSlot * (node.slot + 0.5);
-      node.y = FLEET_PAD_Y + node.depth * FLEET_LEVEL_H;
-      node.w = Math.max(FLEET_MIN_CARD_W, naturalSlot - FLEET_CARD_GUTTER);
-      positioned.push(node);
-    });
-    result.height = FLEET_PAD_Y + maxDepth * FLEET_LEVEL_H + FLEET_CARD_H + 24;
-  } else {
-    // 折带：每个一级子树一带；带按行排，行内居中，所有坐标都落在舞台宽度内。
-    result.banded = true;
-    var bands = tree.roots.length === 1 && tree.roots[0].children.length > 1
-      ? tree.roots[0].children.map(function (child) { return [child]; })
-      : tree.roots.map(function (root) { return [root]; });
-    // 单根多层时按一级子树分带；子树的深层节点随带一起走。
-    var cursorX = 0;
-    var bandTop = FLEET_PAD_Y;
-    var maxBandBottom = FLEET_PAD_Y;
-    bands.forEach(function (bandRoots) {
-      var bandNodes = [];
-      function collect(node) { bandNodes.push(node); node.children.forEach(collect); }
-      bandRoots.forEach(collect);
-      var leaves = bandNodes.filter(function (node) { return !node.children.length; });
-      var leafCount = Math.max(1, leaves.length);
-      var bandSlot = Math.min(FLEET_SLOT_MAX, Math.floor((width - 8) / Math.max(1, Math.min(leafCount, perLevel))));
-      var bandLeaves = Math.min(leafCount, perLevel);
-      var bandWidth = bandLeaves * bandSlot;
-      if (cursorX > 0 && cursorX + bandWidth > width) {
-        cursorX = 0;
-        bandTop = maxBandBottom + FLEET_BAND_GAP;
-      }
-      var inset = (width - bandWidth) / 2;
-      var localSlot = 0;
-      bandNodes.forEach(function (node) {
-        if (!node.children.length) { node.local = localSlot; localSlot += 1; }
-      });
-      bandNodes.forEach(function (node) {
-        var slotIndex = node.children.length
-          ? (node.children[0].local + node.children[node.children.length - 1].local) / 2
-          : node.local;
-        node.x = inset + bandSlot * (slotIndex + 0.5);
-        node.y = bandTop + node.depth * FLEET_LEVEL_H;
-        node.w = Math.max(FLEET_MIN_CARD_W, bandSlot - FLEET_CARD_GUTTER);
-        positioned.push(node);
-        maxBandBottom = Math.max(maxBandBottom, node.y + FLEET_CARD_H);
-      });
-      cursorX += bandWidth;
-      maxBandBottom = Math.max(maxBandBottom, bandTop + maxDepth * FLEET_LEVEL_H + FLEET_CARD_H);
-    });
-    result.height = maxBandBottom + 24;
+  // 统一布局：叶子按 perLevel 折行，父节点居中于首末子节点正上方。
+  // 之前分成「自然/折带」两套，折带分支会漏掉根节点、且同层子节点坐标相同
+  // （卡片重叠、连线长度为 0，看起来就是「有节点没连线」）。
+  var slotW = Math.min(FLEET_SLOT_MAX, (width - 8) / Math.max(1, Math.min(tree.leafCount, perLevel)));
+  var inset = Math.max(4, (width - slotW * Math.min(tree.leafCount, perLevel)) / 2);
+  var leafIndex = 0;
+  var maxRow = 0;
+  tree.nodes.forEach(function (node) {
+    if (node.children.length) return;
+    node.row = Math.floor(leafIndex / perLevel);
+    node.leafCol = leafIndex % perLevel;
+    node.rowCount = Math.min(perLevel, tree.leafCount - node.row * perLevel);
+    leafIndex += 1;
+    maxRow = Math.max(maxRow, node.row);
+  });
+  function layoutX(node) {
+    if (!node.children.length) {
+      var rowInset = ((perLevel - node.rowCount) * slotW) / 2;
+      node.x = inset + rowInset + slotW * (node.leafCol + 0.5);
+      return node.x;
+    }
+    // 用子节点的最小/最大 x 取中：折行后首末子节点可能不同列，
+    // 只取首末会把父节点带偏到一侧。
+    var min = Infinity;
+    var max = -Infinity;
+    for (var i = 0; i < node.children.length; i += 1) {
+      var cx = layoutX(node.children[i]);
+      if (cx < min) min = cx;
+      if (cx > max) max = cx;
+    }
+    node.x = (min + max) / 2;
+    return node.x;
   }
+  tree.nodes.forEach(function (node) { if (node.depth === 0) layoutX(node); });
+  // 根节点独占一行：横向铺满舞台，不必和子节点同宽（一行只有一个卡片）。
+  var rootCount = tree.roots.length;
+  tree.nodes.forEach(function (node) {
+    node.y = FLEET_PAD_Y + (node.children.length ? node.depth : node.depth + (node.row || 0)) * FLEET_LEVEL_H;
+    node.w = Math.max(FLEET_MIN_CARD_W, slotW - FLEET_CARD_GUTTER);
+    if (rootCount === 1 && node.depth === 0) {
+      // 独占一行但不必铺满（约 72% 宽居中）。
+      node.w = Math.round(Math.min(width - 16, width * 0.72));
+      node.x = width / 2;
+    }
+    positioned.push(node);
+  });
+  result.height = FLEET_PAD_Y + (maxDepth + maxRow) * FLEET_LEVEL_H + FLEET_CARD_H + 24;
+  result.leafCount = tree.leafCount;
   var currentId = text(opts.currentSessionId);
   var selectedId = text(opts.selectedId);
   var nodes = positioned.map(function (node) {
     var raw = node.raw;
     var card = opts.cardOf ? opts.cardOf(node.id) : null;
     var running = raw.running === true;
+    var occupancyPct = card && card.occupancy.hasData ? card.occupancy.width : null;
+    var barSegments = card && card.composition.hasData
+      ? card.composition.segments.map(function (segment) {
+        return { key: segment.key, width: segment.width * (occupancyPct === null ? 1 : occupancyPct / 100) };
+      }).filter(function (segment) { return segment.width > 0; })
+      : [];
+    // A pressure snapshot can arrive before the category breakdown. Still render a truthful filled portion.
+    if (!barSegments.length && occupancyPct !== null && occupancyPct > 0) {
+      barSegments.push({ key: 'assistant', width: occupancyPct });
+    }
     result.links.push.apply(result.links, node.children.map(function (child) {
       var x1 = node.x, y1 = node.y + FLEET_CARD_H;
       var x2 = child.x, y2 = child.y;
@@ -2319,6 +2428,8 @@ function layoutFleetGraph(agents, stageWidth, options) {
         from: node.id,
         to: child.id,
         d: 'M ' + x1.toFixed(1) + ' ' + y1 + ' C ' + x1.toFixed(1) + ' ' + (y1 + k).toFixed(1) + ', ' + x2.toFixed(1) + ' ' + (y2 - k).toFixed(1) + ', ' + x2.toFixed(1) + ' ' + y2,
+        // 画布绘制用的三次贝塞尔控制点（WXML 的 <svg> 在小程序里不渲染，连线改画布）
+        p: [x1, y1, x1, y1 + k, x2, y2 - k, x2, y2],
         color: fleetFamilyColor(child.family),
         live: child.raw.running === true
       };
@@ -2335,16 +2446,33 @@ function layoutFleetGraph(agents, stageWidth, options) {
       duty: card && card.roleText ? card.roleText : '',
       isCurrent: node.id === currentId || raw.isCurrent === true,
       running: running,
+      stateKind: fleetStateKindOf(running, card ? card.phase : '', fleetHasUsage(raw)),
+      parentSessionId: text(raw.parentSessionId),
+      mode: text(raw.mode),
       selected: selectedId !== '' && node.id === selectedId,
       badgeText: node.id === currentId ? t('当前') : '',
       tokensText: card ? card.tokensText : (finiteNumber(raw.tokensTotal) ? formatCompact(raw.tokensTotal) : '—'),
-      metaText: card ? (card.activeText + ' · ' + (finiteNumber(raw.steps) ? formatCompact(raw.steps) + ' ' + t('步') : '—')) : '',
-      pctText: card && card.occupancy.hasData ? card.occupancy.pctText : '',
+      // 左下角固定展示「运行时长 · 步数」：卡片缺失或没算出时长时回落到原始 timing，
+      // 否则整行会塌成空白（设计稿这里一直有内容）。
+      metaText: (function () {
+        var active = card ? card.activeText : '';
+        if (!active || active === '—') {
+          var timing = isObject(raw.subagentTiming) ? raw.subagentTiming : null;
+          var wall = timing !== null && finiteNumber(timing.settledMs) ? Number(timing.settledMs) : 0;
+          if (!wall && isObject(raw.contextTimeline) && isObject(raw.contextTimeline.timing)
+            && finiteNumber(raw.contextTimeline.timing.wallMs)) {
+            wall = Number(raw.contextTimeline.timing.wallMs);
+          }
+          active = wall > 0 ? formatDuration(wall) : '—';
+        }
+        // 步数是计数，设计稿里就是「1500 步」而不是「1.5k 步」。
+        var steps = finiteNumber(raw.steps) ? String(Math.round(Number(raw.steps))) + ' ' + t('步') : '—';
+        return active + ' · ' + steps;
+      })(),
+      pctText: card && card.occupancy.hasData ? card.occupancy.pctText : '—',
       pctColor: card && card.occupancy.hasData
         ? (card.occupancy.width >= 90 ? '#FB2C36' : card.occupancy.width >= 70 ? '#FE9A00' : '#00C950') : 'var(--border)',
-      segments: card && card.composition.hasData ? card.composition.segments.map(function (segment) {
-        return { key: segment.key, width: segment.width };
-      }) : []
+      segments: barSegments
     };
   });
   result.nodes = nodes;
@@ -2447,16 +2575,30 @@ function deriveCommands(value, t, options) {
 // ---------- 通讯面板（dsh-context commsPanel.tsx / commsRow.tsx） ----------// ---------- 通讯面板（dsh-context commsPanel.tsx / commsRow.tsx） ----------
 var COMMS_KIND_LABELS = { relay: '私信', mailbox: '邮箱', settled: '回报' };
 
+function settledCommsText(message, t) {
+  var value = text(message && message.text);
+  if (value.endsWith('finished and will do no further work unless you send it more.')) {
+    return t('完成了任务，等待新指令');
+  }
+  if (value.endsWith('finished. It cannot receive follow-up messages.')) {
+    return t('已完成（一次性，无法追问）');
+  }
+  return value;
+}
+
 /** comms 视图模型：type 徽标 + from → to + 摘录；参与方用于筛选 chips。 */
 function deriveFleetComms(cards, value, options) {
   var opts = options || {};
   var t = identity(opts.t);
   var filter = text(opts.filter);
+  var stale = opts.stale === true;
   var cardById = {};
   (Array.isArray(cards) ? cards : []).forEach(function (card) {
     if (card && card.sessionId) cardById[card.sessionId] = card;
   });
+  var memberNames = isObject(opts.memberNames) ? opts.memberNames : {};
   var labelOf = function (id, fallback) {
+    if (memberNames[id]) return memberNames[id];
     var card = cardById[id];
     return (card && card.title) || fallback || id;
   };
@@ -2476,15 +2618,19 @@ function deriveFleetComms(cards, value, options) {
     return text(message.from) === filter || text(message.to) === filter;
   }).map(function (message, index) {
     var kind = text(message.kind) || 'relay';
+    var fromId = text(message.from);
+    var toId = text(message.to);
     return {
       key: 'comms-' + num(message.seq) + '-' + index,
       kind: kind,
       kindText: t(COMMS_KIND_LABELS[kind] || '私信'),
       kindClass: COMMS_KIND_LABELS[kind] ? kind : 'relay',
       timeText: finiteNumber(message.time) && num(message.time) > 0 ? formatTime(num(message.time)) : '—',
-      fromLabel: labelOf(text(message.from), text(message.fromName)),
-      toLabel: labelOf(text(message.to), text(message.toName)),
-      text: text(message.text)
+      fromId: fromId,
+      fromLabel: fromId ? labelOf(fromId, text(message.fromName)) : text(message.fromName),
+      toId: toId,
+      toLabel: labelOf(toId, text(message.toName)),
+      text: kind === 'settled' ? settledCommsText(message, t) : text(message.text)
     };
   });
   var filters = [{ key: '', label: t('全部 Agent'), active: filter === '' }].concat(participants.map(function (participant) {
@@ -2500,8 +2646,16 @@ function deriveFleetComms(cards, value, options) {
     scannedText: isObject(value) ? t('已扫描 {n} 个会话', { n: formatCompact(num(value.scanned)) }) : '',
     truncated: isObject(value) && value.truncated === true,
     truncatedText: t('仅展示摘录（已达路由上限）'),
+    // 有会话日志读不出来（例如旧格式/损坏）时明确告知，而不是让卡片看起来只是"没有消息"。
+    partial: isObject(value) && (Array.isArray(cards) ? cards.length : 0) > num(value.scanned),
+    partialText: t('部分会话日志无法读取，记录可能不完整'),
+    stale: stale,
+    staleText: t('有新动态'),
     emptyText: t('没有发现跨 Agent 消息'),
     noMatchText: t('该 Agent 没有通讯记录'),
+    // 只有一个 Agent 时没有可扫描的跨 Agent 通讯：卡片保留，给出说明而不是扫描按钮。
+    solo: (Array.isArray(cards) ? cards.length : 0) <= 1,
+    soloText: t('当前只有 1 个 Agent —— 委派出子 Agent 后，跨 Agent 消息会在这里按时间列出'),
     scanText: t('扫描 {n} 个会话的通讯', { n: formatCompact(Array.isArray(cards) ? cards.length : 0) }),
     rescanText: t('重新扫描'),
     scanningText: t('扫描中…'),
@@ -2562,9 +2716,11 @@ function deriveFleetMembers(cards, rawAgents, team, options) {
     var tokens = raw && finiteNumber(raw.tokensTotal) ? num(raw.tokensTotal) : null;
     var steps = raw && finiteNumber(raw.steps) ? num(raw.steps) : null;
     var metaParts = [];
-    if (tokens !== null) metaParts.push(formatCompact(tokens) + ' tok');
+    if (tokens !== null) metaParts.push(formatCompact(tokens));
     if (card && card.activeText && card.activeText !== '—') metaParts.push(card.activeText);
     if (steps !== null) metaParts.push(formatCompact(steps) + ' ' + t('步'));
+    var answerText = raw ? text(raw.lastAnswer).replace(/\s+/g, ' ').trim() : '';
+    if (answerText.length > 180) answerText = answerText.slice(0, 179) + '…';
     var activeTasks = tasks.filter(function (task) {
       if (!isObject(task)) return false;
       var taskOwner = text(task.ownerName) || text(task.ownerId);
@@ -2581,9 +2737,14 @@ function deriveFleetMembers(cards, rawAgents, team, options) {
       roleText: member ? t(member.role === 'lead' ? '主导' : '成员') : t('Agent'),
       isCurrent: card ? card.isCurrent === true : false,
       running: running,
+      // DSH's member-board dot marks live/provisioning/error only; finished or inactive
+      // roster members use the same quiet idle dot instead of inheriting graph completion.
+      stateKind: running || phaseKey === 'provisioning' ? 'running' : phaseKey === 'failed' ? 'failed' : 'idle',
       statusKey: statusKey,
       statusText: running ? t('运行中') : phaseKey === 'done' || phaseKey === 'completed' ? t('已完成') : phaseKey === 'failed' ? t('失败') : phaseKey === 'waiting' || phaseKey === 'pending' ? t('准备中') : t('未运行'),
       model: raw ? text(raw.model) : '',
+      answerLabel: t('最新回报'),
+      answerText: answerText,
       error: member && text(member.error) ? text(member.error) : '',
       selected: selectedId !== '' && id === selectedId,
       tasksCount: activeTasks,
@@ -2622,15 +2783,26 @@ function deriveFleetMembers(cards, rawAgents, team, options) {
     { key: 'duration', label: t('最近活跃') },
     { key: 'steps', label: t('步数') }
   ].map(function (chip) { return { key: chip.key, label: chip.label, active: chip.key === sort }; });
+  var teamRows = filtered.filter(function (row) { return row.kind !== 'agent'; });
+  var agentRows = filtered.filter(function (row) { return row.kind === 'agent'; });
+  var groups = [];
+  if (teamRows.length) groups.push({ key: 'team', title: t('团队成员'), countText: formatCompact(teamRows.length), rows: teamRows });
+  if (agentRows.length) groups.push({ key: 'agents', title: t('其他 Agent'), countText: formatCompact(agentRows.length), rows: agentRows });
+  var sortIndex = 0;
+  for (var sortIndexOf = 0; sortIndexOf < sortChips.length; sortIndexOf++) {
+    if (sortChips[sortIndexOf].key === sort) { sortIndex = sortIndexOf; break; }
+  }
   return {
     rows: filtered,
+    groups: groups,
     total: rows.length,
     countText: t('{n} 个 Agent', { n: formatCompact(rows.length) }),
     query: opts.query || '',
     status: status,
     sort: sort,
     statusChips: statusChips,
-    sortChips: sortChips,
+    sortOptions: sortChips,
+    sortLabel: sortChips[sortIndex].label,
     empty: rows.length === 0,
     noMatches: filtered.length === 0 && rows.length > 0,
     soloHint: rows.length <= 1 ? t('还没有可列出的成员 — 通过 subagent 工具委派任务后，它们会在这里列出') : '',
@@ -2647,6 +2819,80 @@ function deriveFleetMembers(cards, rawAgents, team, options) {
  * @param {object} [options] { t, connected, hasSession }
  * @returns {object} { status: loading|disconnected|empty|unsupported|error|ready, overview, agents }
  */
+
+/* 用会话列表补全编队家族：部分 DSH 版本的 context-fleet 投影拿不到子 Agent
+   血缘，但会话列表帧带着 parentSessionId/origin。补齐缺失成员，已有成员不动。 */
+function augmentFleetWithSessions(value, sessions, sessionId) {
+  if (!isObject(value) || !Array.isArray(sessions) || !sessions.length) return value;
+  var byId = {}, parentOf = {};
+  sessions.forEach(function (s) {
+    if (!isObject(s)) return;
+    var id = text(s.sessionId) || text(s.id);
+    if (id === '') return;
+    byId[id] = s;
+    parentOf[id] = text(s.parentSessionId) || text(s.parentSession);
+  });
+  var current = text(sessionId) || text(value.currentSessionId);
+  if (current === '' || !byId[current]) return value;
+  var root = current, guard = 0;
+  while (text(byId[root].origin) === 'subagent' && parentOf[root] && byId[parentOf[root]] && guard++ < 64) root = parentOf[root];
+  var family = {}, changed = true, rounds = 0;
+  family[root] = 0;
+  while (changed && rounds++ < 64) {
+    changed = false;
+    for (var id in byId) {
+      if (!Object.prototype.hasOwnProperty.call(byId, id)) continue;
+      var parent = parentOf[id];
+      if (!parent || !Object.prototype.hasOwnProperty.call(family, parent)) continue;
+      if (Object.prototype.hasOwnProperty.call(family, id)) continue;
+      var origin = text(byId[id].origin);
+      if (origin !== 'subagent') continue;   // Match DSH familyParentOf: only subagent-origin edges form a family.
+      family[id] = family[parent] + 1;
+      changed = true;
+    }
+  }
+  var agents = Array.isArray(value.agents) ? value.agents.slice() : [], known = {}, added = false;
+  agents.forEach(function (a) { if (isObject(a) && text(a.sessionId)) known[text(a.sessionId)] = true; });
+  Object.keys(family).forEach(function (id) {
+    if (known[id]) return;
+    var s = byId[id];
+    var isRunning = s.running === true;
+    agents.push({
+      sessionId: id,
+      title: text(s.title) || text(s.projections && s.projections.values && s.projections.values.title) || id,
+      depth: family[id],
+      isCurrent: id === current,
+      isRoot: id === root,
+      running: isRunning,
+      phase: text(s.phase),
+      composition: isObject(s.composition) ? s.composition : null,
+      pressureTokens: finiteNumber(s.pressureTokens) ? num(s.pressureTokens) : undefined,
+      contextWindow: finiteNumber(s.contextWindow) ? num(s.contextWindow) : undefined,
+      tokensTotal: finiteNumber(s.tokensTotal) ? num(s.tokensTotal) : undefined,
+      steps: finiteNumber(s.steps) ? num(s.steps) : undefined,
+      activeMs: finiteNumber(s.activeMs) ? num(s.activeMs) : undefined,
+      completed: s.completed === true
+    });
+    known[id] = true;
+    added = true;
+  });
+  if (!added) return value;
+  var running = 0, subagents = 0;
+  agents.forEach(function (a) {
+    if (!isObject(a)) return;
+    if (a.running === true) running += 1;
+    if (text(a.origin) === 'subagent' || Number(a.depth) > 0) subagents += 1;
+  });
+  return {
+    agents: agents,
+    counts: { agents: agents.length, running: running, subagents: subagents },
+    rootSessionId: text(value.rootSessionId) || root,
+    currentSessionId: current,
+    team: isObject(value.team) ? value.team : null,
+    asOfSeq: value.asOfSeq
+  };
+}
+
 function buildFleetPanel(fleet, options) {
   var opts = options || {};
   var t = identity(opts.t);
@@ -2666,6 +2912,10 @@ function buildFleetPanel(fleet, options) {
     return failed;
   }
   var value = isObject(fleet.value) ? fleet.value : null;
+  // 网关投影拿不到子 Agent 血缘时，用会话列表补齐（不影响已有成员的用量字段）。
+  if (value !== null && Array.isArray(opts.familySessions) && opts.familySessions.length) {
+    value = augmentFleetWithSessions(value, opts.familySessions, opts.sessionId);
+  }
   var hasAgentList = !!value && Array.isArray(value.agents);
   var hasFamilyShape = !!value && (hasAgentList || isObject(value.counts) || value.rootSessionId != null);
   if (!hasFamilyShape) {
@@ -2687,10 +2937,15 @@ function buildFleetPanel(fleet, options) {
         if (memberId) membersById[memberId] = member;
       });
     }
+    var familyById = {};
+    buildFleetTree(rawAgents).nodes.forEach(function (node) { familyById[node.id] = node.family; });
     var cards = [];
     rawAgents.forEach(function (raw) {
       var card = fleetAgentCard(raw, rootSessionId, currentSessionId, t, membersById);
-      if (card) cards.push(card);
+      if (card) {
+        card.family = finiteNumber(familyById[card.sessionId]) ? familyById[card.sessionId] : -1;
+        cards.push(card);
+      }
     });
     cards.forEach(function (card, index) {
       var depth = Math.min(card.depth, FLEET_MAX_INDENT_DEPTH);
@@ -2716,29 +2971,31 @@ function buildFleetPanel(fleet, options) {
       cardOf: function (id) { return cardById[id] || null; },
       t: t
     });
-    var overview = deriveFleetOverview(value, rawAgents, cards);
-    var teamInfo = deriveFleetTeam(team, t);
-    var doneCount = cards.filter(function (card) {
-      var rawPhase = text(card.phase);
-      return !card.running && (rawPhase === 'done' || rawPhase === 'completed');
-    }).length;
-    var hasTeam = teamInfo.hasTeam && teamInfo.tasks.length > 0;
-    var progressTotal = hasTeam ? teamInfo.tasks.length : overview.subagents;
+    var overview = deriveFleetOverview(rawAgents, cards);
+    var agentById = {};
+    rawAgents.forEach(function (agent) { if (agent && text(agent.sessionId)) agentById[text(agent.sessionId)] = agent; });
+    var teamInfo = deriveFleetTeam(team, cards, t, agentById, { query: opts.taskQuery, status: opts.taskStatus });
+    var doneCount = cards.filter(function (card) { return card.completed === true; }).length;
+    var hasTeam = teamInfo.teamTaskCount > 0;
+    var progressTotal = hasTeam ? teamInfo.teamTaskCount : overview.subagents;
     var progressDone = hasTeam
-      ? teamInfo.tasks.filter(function (task) { return task.statusClass === 'done'; }).length
+      ? teamInfo.teamTasks.filter(function (task) { return task.statusClass === 'done'; }).length
       : doneCount;
+    var progressFraction = progressTotal > 0 ? Math.min(1, progressDone / progressTotal) : 0;
+    var summaryChips = [
+      { key: 'agents', text: t('{n} 个 Agent', { n: overview.agentsText }) },
+      { key: 'running', text: t('{n} 个运行中', { n: overview.runningText }), on: overview.running > 0 }
+    ];
+    if (overview.subagents > 0) summaryChips.push({ key: 'done', text: t('{n} 已完成', { n: formatCompact(doneCount) }) });
+    if (overview.tokensTotal > 0) summaryChips.push({ key: 'context', text: t('上下文合计 {n}', { n: overview.tokensText }) });
     var summary = {
-      chips: [
-        { key: 'agents', text: t('{n} 个 Agent', { n: overview.agentsText }) },
-        { key: 'running', text: t('{n} 个运行中', { n: overview.runningText }), on: overview.running > 0 },
-        { key: 'done', text: t('{n} 已完成', { n: formatCompact(doneCount) }), hidden: overview.subagents <= 0 }
-      ].concat(overview.tokensTotal > 0
-        ? [{ key: 'context', text: t('上下文合计 {n}', { n: overview.tokensText }) }] : []),
+      chips: summaryChips,
       progress: progressTotal > 0 ? {
         label: hasTeam ? t('任务进度') : t('子智能体进度'),
         done: progressDone,
         total: progressTotal,
-        width: Math.round((progressDone / progressTotal) * 100),
+        width: Math.round(progressFraction * 100),
+        complete: progressTotal > 0 && progressDone >= progressTotal,
         text: progressDone + '/' + progressTotal
       } : null
     };
@@ -2752,8 +3009,29 @@ function buildFleetPanel(fleet, options) {
       { key: 'agents', text: t('{n} 个 Agent', { n: overview.agentsText }) },
       { key: 'running', text: t('{n} 个运行中', { n: overview.runningText }), on: overview.running > 0 },
       { key: 'context', text: t('上下文合计 {n}', { n: overview.tokensText }), hidden: overview.tokensTotal <= 0 },
-      { key: 'team', text: hasTeam ? t('团队 · {m} 成员 · {n} 任务', { m: formatCompact((team && Array.isArray(team.members) ? team.members.length : 0)), n: teamInfo.tasks.length }) : '', hidden: !hasTeam, brand: true }
+      { key: 'team', text: hasTeam ? t('团队 · {m} 成员 · {n} 任务', { m: formatCompact((team && Array.isArray(team.members) ? team.members.length : 0)), n: teamInfo.teamTaskCount }) : '', hidden: !hasTeam, brand: true }
     ];
+    // 通讯扫描的名册：rc.3 send_message 用成员名，宿主据此解析会话 id；
+    // 没有 team roster 时用家族标题兜底，至少让路由显示可读名称。
+    var commsMembers = [];
+    var memberNameById = {};
+    var seenCommsMember = {};
+    if (team && Array.isArray(team.members)) {
+      team.members.forEach(function (member) {
+        if (!isObject(member)) return;
+        var memberId = text(member.id);
+        var memberName = text(member.name);
+        if (memberId === '' || memberName === '' || seenCommsMember[memberId]) return;
+        seenCommsMember[memberId] = true;
+        memberNameById[memberId] = memberName;
+        commsMembers.push({ id: memberId, name: memberName });
+      });
+    }
+    cards.forEach(function (card) {
+      if (!card || seenCommsMember[card.sessionId]) return;
+      seenCommsMember[card.sessionId] = true;
+      commsMembers.push({ id: card.sessionId, name: card.title });
+    });
     return {
       status: 'ready',
       loading: fleet.loading === true,
@@ -2766,8 +3044,9 @@ function buildFleetPanel(fleet, options) {
       summary: summary,
       graph: graph,
       legend: legend,
+      commsMembers: commsMembers,
       members: deriveFleetMembers(cards, rawAgents, team, { t: t, query: opts.memberQuery, status: opts.memberStatus, sort: opts.memberSort, selectedId: opts.selectedId }),
-      comms: deriveFleetComms(cards, opts.commsValue, { t: t, filter: opts.commsFilter }),
+      comms: deriveFleetComms(cards, opts.commsValue, { t: t, filter: opts.commsFilter, stale: opts.commsStale, memberNames: memberNameById }),
       agentChips: agentChips.filter(function (chip) { return chip.hidden !== true; }),
       soloHint: cards.length <= 1 ? t('还没有子 Agent —— 当 Agent 通过 subagent 工具委派任务时，协作网络会在这里展开') : '',
       agents: cards,
@@ -2783,10 +3062,60 @@ function buildFleetPanel(fleet, options) {
   }
 }
 
-/** 编队任务列表：team.tasks（subject/status/ownerName）；空态提示。 */
-function deriveFleetTeam(team, t) { if (!team) { return { hasTeam: false, tasks: [], tasksEmpty: true, tasksEmptyText: t('暂无任务，可以通过对话创建'), taskCountText: '', failure: '' }; } var tasks = (Array.isArray(team.tasks) ? team.tasks : []) .filter(function (task) { return isObject(task); }) .slice(0, MAX_TEAM_TASKS) .map(function (task, index) { var status = taskStatusOf(task.status, t); var owner = text(task.ownerName); return { key: 'task-' + index + '-' + (text(task.id) || index), subject: text(task.subject) || text(task.title) || t('任务'), statusText: status.statusText, statusClass: status.statusClass, ownerText: owner, hasOwner: owner !== '' }; }); return { hasTeam: true, tasks: tasks, tasksEmpty: tasks.length === 0, tasksEmptyText: t('暂无任务，可以通过对话创建'), taskCountText: tasks.length > 0 ? formatCompact(tasks.length) : '', failure: text(team.failure), label: t('任务') }; }
+/* Agent Teams tasks and unrostered family sessions share DSH's task-board filters. */
+function filterFleetTasks(tasks, t, query, status) {
+  var q = text(query).toLowerCase(), st = text(status);
+  if (st === 'all') st = '';
+  var keys = ['all', 'in_progress', 'pending', 'done'];
+  var labels = { all: '全部', in_progress: '进行中', pending: '待处理', done: '已完成' };
+  var filterKey = function (task) { return task.statusClass === 'active' ? 'in_progress' : task.statusClass === 'done' ? 'done' : 'pending'; };
+  var chips = keys.map(function (key) {
+    return { key: key, label: t(labels[key]), count: key === 'all' ? tasks.length : tasks.filter(function (task) { return filterKey(task) === key; }).length, active: st === (key === 'all' ? '' : key) };
+  });
+  return { chips: chips, visible: tasks.filter(function (task) {
+    return (st === '' || filterKey(task) === st) && (!q || (task.subject + ' ' + task.bodyText + ' ' + text(task.ownerText)).toLowerCase().indexOf(q) >= 0);
+  }) };
+}
+
+function deriveFleetTeam(team, cards, t, agentById, options) {
+  var opts2 = isObject(options) ? options : {}, byId = isObject(agentById) ? agentById : {};
+  var roster = {}, query = text(opts2.query).toLowerCase(), status = text(opts2.status);
+  if (team && Array.isArray(team.members)) team.members.forEach(function (member) {
+    if (isObject(member)) roster[text(member.id) || text(member.sessionId)] = true;
+  });
+  var teamTasks = (team && Array.isArray(team.tasks) ? team.tasks : []).filter(isObject).slice(0, MAX_TEAM_TASKS).map(function (task, index) {
+    var state = taskStatusOf(task.status, t), ownerId = text(task.ownerId), agent = byId[ownerId];
+    return {
+      key: 'task-' + (text(task.id) || index), kind: 'team',
+      subject: text(task.subject) || text(task.title) || t('任务'),
+      bodyText: text(task.body) || text(task.prompt) || text(task.description),
+      statusText: state.statusText, statusClass: state.statusClass, ownerText: text(task.ownerName),
+      metaText: agent ? [agent.tokensText, agent.metaText].filter(Boolean).join(' · ') : '',
+      hue: fleetFamilyColor(index),
+      stateKind: state.statusClass === 'active' ? 'running' : state.statusClass === 'done' ? 'done' : state.statusClass === 'failed' ? 'failed' : 'idle'
+    };
+  });
+  var agentTasks = (Array.isArray(cards) ? cards : []).filter(function (card) { return card && !card.isCurrent && !roster[card.sessionId]; }).map(function (card) {
+    var raw = byId[card.sessionId] || {}, state = taskStatusOf(card.running ? 'in_progress' : card.completed ? 'completed' : 'pending', t);
+    return {
+      key: 'agent-' + card.sessionId, kind: 'agent', subject: card.title,
+      bodyText: text(raw.initialPrompt) || text(raw.prompt) || text(card.lastAnswer),
+      statusText: state.statusText, statusClass: state.statusClass, ownerText: '', modelText: text(raw.model),
+      metaText: [card.tokensText !== '—' && card.tokensText, card.activeText !== '—' && card.activeText, card.stepsText !== '—' && card.stepsText + ' ' + t('步')].filter(Boolean).join(' · '),
+      hue: fleetFamilyColor(card.family), stateKind: card.running ? 'running' : card.completed ? 'done' : 'idle'
+    };
+  });
+  var tasks = teamTasks.concat(agentTasks), filtered = filterFleetTasks(tasks, t, query, status);
+  return {
+    hasTeam: !!team, tasks: filtered.visible, teamTasks: teamTasks, teamTaskCount: teamTasks.length,
+    statusChips: filtered.chips, query: text(opts2.query), tasksEmpty: !filtered.visible.length,
+    tasksEmptyText: query || (status && status !== 'all') ? t('没有匹配的任务') : t('暂无任务，可以通过对话创建'),
+    taskCountText: tasks.length ? formatCompact(tasks.length) : '', failure: team ? text(team.failure) : '', label: t('任务')
+  };
+}
 
 module.exports = {
+  augmentFleetWithSessions: augmentFleetWithSessions,
   CATEGORY_KEYS: CATEGORY_KEYS,
   CATEGORY_LABELS: CATEGORY_LABELS,
   // 趋势几何常量：测试用它核对与 dsh-context trendWindow/trendChart 的一致性。

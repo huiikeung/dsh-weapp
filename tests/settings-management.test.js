@@ -8,15 +8,26 @@ const pagePath = path.join(__dirname, '../miniprogram/pages/settings/settings.js
 const wxml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8').replace(/\{\{ui\['([^']+)'\]\}\}/g, '$1');
 const sessionSettingsWxml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session-settings/session-settings.wxml'), 'utf8');
 const wxss = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+const adminSheetWxml = wxml.slice(wxml.indexOf('<!-- 管理员弹窗 -->'), wxml.indexOf('<!-- 上下文面板设置弹窗 -->'));
 
-assert.match(wxml, /<view wx:if="\{\{dshAccountVisible\}\}" class="dsh-account-section"/,
-  'Show the account area only while a gateway is connected');
+assert.match(wxml, /<view wx:if="\{\{showAccountCard && dshAccountVisible\}\}" class="dsh-account-section"/,
+  'Show the account area only while a gateway is connected and the account card switch is on');
 assert.match(wxml, /wx:if="\{\{dshAccount\.balanceText\}\}" class="dsh-balance-amount"/,
   'Render the formatted recharge amount directly instead of iterating a nested array');
-assert.match(sessionSettingsWxml, /wx:if="\{\{dshAccountVisible\}\}" class="dsh-account-section"/,
-  'Hide the session-settings account area while the gateway is disconnected');
+assert.match(sessionSettingsWxml, /wx:if="\{\{dshAccountVisible && showAccountCard\}\}" class="dsh-account-section"/,
+  'Hide the session-settings account area while the gateway is disconnected or the account card switch is off');
 assert.match(wxml, /dsh-account-link-button dsh-account-primary[^>]*catchtap="explainDshAccountSignIn"/,
   'Signed-out settings expose a sign-in explanation entry that does not bubble into the balance toggle');
+// 连接分组：公网访问 / 节点管理 / 节点权限 只保留标题，不再挂副标题；
+// 公网访问右侧改为有效期时间（无有效期时才回落状态文案）。
+const connectionCard = wxml.slice(wxml.indexOf('公网访问'), wxml.indexOf('</view>\n  <view class="group-title">对话') > 0 ? wxml.indexOf('</view>\n  <view class="group-title">对话') : wxml.indexOf('对话'));
+assert.ok(!/management-entry-desc/.test(connectionCard),
+  'Connect rows carry no secondary description any more');
+assert.match(connectionCard, /ui\[publicValueLabel\] !== undefined \? ui\[publicValueLabel\] : publicValueLabel/,
+  'The public-access row shows the expiry time on the right');
+assert.match(adminSheetWxml, /role="dialog" aria-label="节点权限"[\s\S]*?<text class="pair-sheet-title">节点权限<\/text>/,
+  'The administrator sheet is titled Node access');
+assert.doesNotMatch(adminSheetWxml, /微信身份/, 'The administrator sheet does not repeat the WeChat identity module');
 assert.match(sessionSettingsWxml, /wx:if="\{\{dshAccount\.balanceText\}\}" class="dsh-balance-amount"/,
   'Keep the session settings balance display in sync');
 
@@ -66,6 +77,7 @@ function createPage(apiOptions) {
       if (name === './utils/node-presentation') return require('../miniprogram/pages/settings/utils/node-presentation');
       if (name === './utils/version-info') return require('../miniprogram/pages/settings/utils/version-info');
       if (name === './utils/account-view') return require('../miniprogram/pages/settings/utils/account-view');
+      if (name === './utils/identity-badge') return require('../miniprogram/pages/settings/utils/identity-badge');
       if (name === './utils/storage-usage') return require('../miniprogram/pages/settings/utils/storage-usage');
       if (name === '../../utils/host-info') return require('../miniprogram/utils/host-info');
       if (name === '../../utils/labels') return { presetModeName: (v) => v, permissionName: (v) => v };
@@ -76,6 +88,10 @@ function createPage(apiOptions) {
       if (name === '../../utils/context-panels-pref') return {
         read: () => ({ context: true, fleet: true }),
         set: (panel, value) => ({ context: true, fleet: true, [panel]: value === true })
+      };
+      if (name === '../../utils/account-card-pref') return {
+        KEY: 'dsh_account_card_visible', DEFAULT: false,
+        read: () => false, set: value => value === true
       };
       if (name === '../../utils/haptics') return require('../miniprogram/utils/haptics');
       if (name === '../../utils/public-access-prompt') return require('../miniprogram/utils/public-access-prompt');
@@ -220,6 +236,8 @@ assert.equal(page.data.publicOn, true);
 assert.equal(page.data.shareEnabled, true);
 assert.equal(page.data.publicId, 'public-id');
 assert.equal(page.data.publicExpiryLabel, '未设置到期时间');
+assert.equal(page.data.publicValueLabel, '未设置到期时间',
+  'The right-hand value follows the expiry label whenever the service is active');
 assert.equal(page.data.isWechatAdmin, false, 'Relay owner is not a WeChat administrator');
 page.data.sharePayload = 'old-share';
 store.state.profiles = [];
@@ -232,10 +250,13 @@ sync();
 assert.equal(page.data.publicOn, true);
 assert.equal(page.data.shareEnabled, false);
 assert.match(page.data.publicExpiryLabel, /^\d{4}\/\d{2}\/\d{2} /);
+assert.equal(page.data.publicValueLabel, page.data.publicExpiryLabel,
+  'An active guest plan shows the expiry timestamp on the right');
 store.state.profiles[0].relayExpiresAt = Date.now() - 1000;
 sync();
 assert.equal(page.data.publicOn, false);
 assert.equal(page.data.publicStatusLabel, '已到期');
+assert.equal(page.data.publicValueLabel, '已到期', 'An expired plan falls back to the status text');
 store.state.profiles[0].relayAccessToken = null;
 sync();
 assert.equal(page.data.publicStatusLabel, '已到期');
@@ -377,7 +398,7 @@ async function testAutomaticIdentity() {
   assert.equal(page.data.adminAdvancedOpen, false, 'Leaving settings collapses advanced tools');
   api.ensureAccount = async () => ({ isAdmin: false });
   await show();
-  assert.equal(page.data.accountLabel, '普通用户');
+  assert.equal(page.data.accountLabel, '未授权');
   calls.length = 0;
   page.openCodeManagement();
   page.toggleAdminAdvanced();
@@ -543,4 +564,82 @@ test('settings account lookup rejects the gateway marker and prefers dshVersion'
   await Promise.resolve();
   await Promise.resolve();
   assert.equal(requestClients.at(-1).version, '0.10.0');
+});
+
+test('兑换码弹窗可以一键清空已用完的码，停用/过期的保留', async () => {
+  const now = Date.now();
+  let items = [
+    { id: 'used', days: 7, uses: 1, used: 1, expiresAt: now + 86400000 },
+    { id: 'open', days: 7, uses: 5, used: 2, expiresAt: now + 86400000 },
+    { id: 'expired', days: 3, uses: 1, used: 1, expiresAt: now - 1000 },
+    { id: 'revoked', days: 3, uses: 1, used: 1, expiresAt: now + 86400000, revokedAt: now - 500 }
+  ];
+  const deleted = [];
+  const { page, wx } = createPage({
+    ensureAccount: async () => ({ isAdmin: true }),
+    codes: async () => items.map(item => ({ ...item })),
+    deleteCode: async (id) => { deleted.push(id); items = items.filter(item => item.id !== id); }
+  });
+  const settle = async () => { for (let i = 0; i < 3; i++) await new Promise(resolve => setImmediate(resolve)); };
+  page.openCodeManagement();
+  await settle();
+  assert.equal(page.data.codeIsAdmin, true);
+  assert.equal(page.data.codeUsedCount, 1, '只有状态是「已用完」的码被计数');
+  const byId = Object.fromEntries(page.data.codeItems.map(item => [item.id, item]));
+  assert.equal(byId.used.usedUp, true);
+  assert.equal(byId.open.usedUp, false);
+  assert.equal(byId.expired.usedUp, false, '过期但没用完的码保留审计线索');
+  assert.equal(byId.revoked.usedUp, false, '停用的码不参与清空');
+
+  page.codeClearUsed();
+  assert.deepEqual(deleted, [], '确认之前不删除');
+  await wx.modal.success({ confirm: false });
+  assert.deepEqual(deleted, [], '取消后什么都不删');
+  page.codeClearUsed();
+  await wx.modal.success({ confirm: true });
+  await settle();
+  assert.deepEqual(deleted, ['used'], '只删已用完的那一个');
+  assert.equal(page.data.codeUsedCount, 0);
+  assert.equal(page.data.codeItems.length, 3);
+});
+
+test('「最近生成」右上的清空按钮排在刷新左边，且只在有已用完的码时出现', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const head = wxml.slice(wxml.indexOf('code-list-head'), wxml.indexOf('class="code-item"'));
+  const clearAt = head.indexOf('bindtap="codeClearUsed"');
+  const refreshAt = head.indexOf('bindtap="loadCodes"');
+  assert.ok(clearAt > 0 && refreshAt > clearAt, '清空在刷新左边');
+  assert.match(head, /wx:if="\{\{codeUsedCount\}\}"/, '没有可清空的码时不显示按钮');
+  assert.match(head, /class="code-clear"/);
+  assert.match(fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8'),
+    /\.code-clear\s*\{[^}]*color:\s*#E5484D/, '危险色');
+});
+
+test('一键清空在服务端限流处停下并说明，已删的不会回滚', async () => {
+  const now = Date.now();
+  let items = Array.from({ length: 35 }, (_, index) => ({ id: 'c' + index, days: 7, uses: 1, used: 1, expiresAt: now + 86400000 }));
+  const deleted = [];
+  let codesCalls = 0;
+  const { page, wx, calls } = createPage({
+    ensureAccount: async () => ({ isAdmin: true }),
+    codes: async () => { codesCalls += 1; return items.map(item => ({ ...item })); },
+    deleteCode: async (id) => {
+      // 服务端 /admin/codes/:id/delete 每个管理员每分钟只允许 30 次。
+      if (deleted.length >= 30) { const err = new Error('操作过于频繁，请稍后重试'); err.code = 'RATE_LIMITED'; throw err; }
+      deleted.push(id); items = items.filter(item => item.id !== id);
+    }
+  });
+  const settle = async () => { for (let i = 0; i < 5; i++) await new Promise(resolve => setImmediate(resolve)); };
+  page.openCodeManagement();
+  await settle();
+  assert.equal(page.data.codeUsedCount, 35);
+  page.codeClearUsed();
+  await wx.modal.success({ confirm: true });
+  await settle();
+  assert.equal(deleted.length, 30, '被限流后立即停下，不再空转');
+  const toast = calls.filter(call => Array.isArray(call) && call[0] === 'toast').at(-1);
+  assert.equal(toast[1], '已清空 30 个，其余受频率限制稍后再试');
+  assert.ok(codesCalls >= 2, '仍然重新拉取服务端列表');
+  assert.equal(page.data.codeUsedCount, 5, '没删掉的 5 个仍在服务端列表里');
+  assert.equal(page.data.codeBusy, false);
 });

@@ -3,7 +3,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../miniprogram');
 const LIMIT = 2 * 1024 * 1024;
 const MAIN_LIMIT = Math.floor(1.5 * 1024 * 1024);
-const BUDGET = Math.floor(1.87 * 1024 * 1024);   // 编译后主包 ~1.44 MB；源码预算随界面词典增长放宽（1.80→1.81→1.82→1.83→1.85→1.87）
+const BUDGET = Math.floor(1.93 * 1024 * 1024);   // 编译后主包 ~1.44 MB；源码预算随界面词典增长放宽（1.80→…→1.91→1.92→1.93：编队成员板/任务板重构 + 洞察页改版 + 会话筛选标签 + 上下文抽屉拖动条）
 // 微信开发者工具「代码质量」要求图片+音频资源总量不超过 200 KB，这里按 200 KiB 守住；
 // 当前约 194 KiB（分享封面按 5:4 保留颗粒，另把 SVG/PNG 做了无损压缩）。
 const MEDIA_BUDGET = 200 * 1024;

@@ -1,10 +1,12 @@
 // Cache a recent event window, not an ever-growing conversation snapshot.
-const EVENT_LIMIT = 80;
+// Keep several pages locally so reopening and scrolling do not immediately
+// depend on the gateway; the shared cache applies the serialized byte ceiling.
+const EVENT_LIMIT = 2000;
 function recentWindow(cached, protocol, sessionId) {
   const source = Array.isArray(cached.events) ? cached.events : [];
   const events = source.slice(-EVENT_LIMIT);
   let rows;
-  if (events.length && source.length > EVENT_LIMIT) {
+  if (events.length && (source.length > EVENT_LIMIT || !(cached.rows || []).length)) {
     const agg = protocol.newAggregator();
     events.forEach(event => protocol.applyEvent(agg, protocol.normalizeRawEvent(event, sessionId)));
     rows = agg.rows;

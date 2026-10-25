@@ -7,8 +7,9 @@
     <text class="session-nav-title" style="top:{{navPadTop}}px;height:{{navHeight}}px;">{{ui['会话设置']}}</text>
   </view>
   <view class="session-nav-placeholder" style="height:{{navPadTop + navHeight}}px;" aria-hidden="true"></view>
-  <!-- DSH 客户端账号区：结构与桌面端 AccountSection / 设置页一致。 -->
-  <view wx:if="{{dshAccountVisible}}" class="dsh-account-section" aria-label="{{ui['账号与余额']}}">
+  <!-- DSH 客户端账号区：结构与桌面端 AccountSection / 设置页一致。
+       是否显示由设置页「通用设置 → 显示账号卡片」的开关决定（默认关闭）。 -->
+  <view wx:if="{{dshAccountVisible && showAccountCard}}" class="dsh-account-section" aria-label="{{ui['账号与余额']}}">
     <view class="dsh-account-card {{dshAccount.signedIn ? 'tappable has-chevron' : ''}}" bindtap="toggleDshBalance" hover-class="press-dim" role="button" aria-expanded="{{dshBalanceExpanded}}" aria-label="{{ui['账号与余额']}}">
       <view class="dsh-account-identity">
         <view class="dsh-account-avatar">

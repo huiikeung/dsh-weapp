@@ -37,7 +37,8 @@ function collect() {
     }
   }
   for (const key of storageKeys()) {
-    if (key.indexOf('dsh_session_cache.') === 0 || key.indexOf('dsh_home_cache.') === 0) {
+    if (key.indexOf('dsh_session_cache.') === 0 || key.indexOf('dsh_home_cache.') === 0
+      || key.indexOf('dsh_context_cache.') === 0 || key.indexOf('dsh_history_page.') === 0) {
       try { usage.chats += String(wx.getStorageSync(key)).length; } catch (e) { /* 忽略单项 */ }
     }
   }
@@ -83,7 +84,8 @@ function clearCategory(key) {
   });
   if (key === 'chats') {
     for (const storageKey of storageKeys()) {
-      if (storageKey.indexOf('dsh_session_cache.') !== 0 && storageKey.indexOf('dsh_home_cache.') !== 0) continue;
+      if (storageKey.indexOf('dsh_session_cache.') !== 0 && storageKey.indexOf('dsh_home_cache.') !== 0
+        && storageKey.indexOf('dsh_context_cache.') !== 0 && storageKey.indexOf('dsh_history_page.') !== 0) continue;
       const w = api();
       try { freed += String(w.getStorageSync(storageKey)).length; } catch (e) { /* 忽略 */ }
       try { w.removeStorageSync(storageKey); } catch (e) { /* 忽略 */ }

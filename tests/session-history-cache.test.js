@@ -6,7 +6,7 @@ const vm = require('node:vm');
 
 function fixture() {
   const file = path.resolve(__dirname, '../miniprogram/utils/store.js');
-  const module = { exports: {} }, timers = new Map(), storage = new Map(), requests = [], calls = [], metricRequests = [];
+  const module = { exports: {} }, timers = new Map(), storage = new Map(), requests = [], calls = [], metricRequests = [], subscriptions = [];
   let serial = 0;
   class Client {
     constructor(callbacks) {
@@ -17,6 +17,7 @@ function fixture() {
       } });
     }
     requestHistory(...args) { requests.push(args); return true; }
+    subscribe(...args) { subscriptions.push(args); return true; }
     requestSessions(...args) { calls.push(['requestSessions', ...args]); return true; }
     requestSessionStats(...args) { metricRequests.push(['stats', ...args]); return true; }
     requestContextUsage(...args) { metricRequests.push(['context', ...args]); return true; }
@@ -30,7 +31,7 @@ function fixture() {
   });
   const store = module.exports;
   store.state.connection = 'connected'; store.sessionState.sessionId = 's';
-  return { store, requests, calls, storage, metricRequests,
+  return { store, requests, calls, storage, metricRequests, subscriptions,
     frame: value => store.client.callbacks.onFrame({ sessionId: store.sessionState.sessionId, ...value }),
     flush(delay = 200) { for (const [id, timer] of [...timers]) if (timer.delay === delay) { timers.delete(id); timer.fn(); } } };
 }
@@ -56,6 +57,27 @@ test('history loads one page per user request and never drains remaining pages a
   f.flush(); assert.equal(f.requests.length, 2);
 });
 
+test('previously visited history pages load from the host-scoped local page cache, including offline', () => {
+  const f = fixture();
+  f.frame(history([user(50, 'latest')], 50));
+  f.store.loadOlderHistory();
+  assert.deepEqual(f.requests, [['s', 50, 1]]);
+  f.frame(history([user(30, 'older page')], 30));
+  assert.ok(f.store.sessionState.historyLastPageBytes > 0, 'the active page records its bounded warm-up byte cost');
+  f.flush(500);
+  const networkRequests = f.requests.length;
+
+  // Re-entering the already visited turn range should use its immutable cached
+  // page, even if the gateway is currently unavailable.
+  f.store.sessionState.nextBeforeSeq = 50;
+  f.store.state.connection = 'disconnected';
+  f.store.loadOlderHistory();
+  assert.equal(f.requests.length, networkRequests);
+  assert.equal(f.store.sessionState.historyPaging, false);
+  assert.equal(f.store.sessionState.nextBeforeSeq, 30);
+  assert.deepEqual(Array.from(f.store.sessionState.rows, row => row.text), ['older page', 'latest']);
+});
+
 test('idle history does not prefetch and timeout allows manual retry', () => {
   for (const mode of ['session', 'connection', 'offline']) {
     const f = fixture(); f.frame(history([user(30, 'latest')], 30));
@@ -70,17 +92,17 @@ test('idle history does not prefetch and timeout allows manual retry', () => {
 });
 
 test('sending while a cached session is displayed keeps the whole conversation', () => {
-  // 200 条历史 -> 落盘缓存只留最近 80 条（m121..m200）
+  // A bounded local window keeps several history pages available after a switch.
   const many = Array.from({ length: 200 }, (_, i) => user(i + 1, 'm' + (i + 1)));
   const f = fixture(); f.frame(history(many, 1)); f.flush(1000);
   f.store.openSession('other', 'Other'); f.store.openSession('s', 'Original');
-  assert.equal(f.store.sessionState.rows.length, 80);
-  assert.equal(f.store.sessionState.rows[0].text, 'm121');
+  assert.equal(f.store.sessionState.rows.length, 200);
+  assert.equal(f.store.sessionState.rows[0].text, 'm1');
 
   // 发送：乐观回显必须追加在缓存后面，而不是把整段缓存顶掉
   f.store.appendLocalUserRow('我刚发的这一条', [], []);
-  assert.equal(f.store.sessionState.rows.length, 81);
-  assert.equal(f.store.sessionState.rows[0].text, 'm121');
+  assert.equal(f.store.sessionState.rows.length, 201);
+  assert.equal(f.store.sessionState.rows[0].text, 'm1');
   assert.equal(f.store.sessionState.rows.at(-1).text, '我刚发的这一条');
 
   // 权威历史到达：真实事件就地收养乐观回显，不产生双气泡
@@ -129,6 +151,147 @@ test('cached history renders instantly and still falls back to a fresh tail requ
   assert.ok(f.requests.slice(beforeFallback).some(args => args[0] === 's' && args.length === 1));
 });
 
+test('cached sequence is sent on subscribe and replay events survive the opening snapshot', () => {
+  const f = fixture();
+  f.frame(history([user(10, 'old'), user(20, 'cached tail')], 10, true)); f.flush();
+  f.store.openSession('other', 'Other');
+  f.store.openSession('s', 'Original');
+  assert.deepEqual(f.subscriptions.at(-1), ['s', 20]);
+
+  // The gateway's complete replay arrives before its calibrating snapshot.
+  f.frame({ kind: 'event', resumed: true, events: [user(21, 'replayed gap')] }); f.flush();
+  f.frame({ kind: 'session-snapshot', replace: true, recovery: 'replayed', resumeFromSeq: 20,
+    resumeToSeq: 22, cursor: 22, events: [user(22, 'snapshot tail')], hasMore: true });
+  assert.deepEqual(Array.from(f.store.sessionState.rows, row => row.text),
+    ['old', 'cached tail', 'replayed gap', 'snapshot tail']);
+});
+
+test('a lightweight resume calibration keeps replayed history and avoids replacing the local tail', () => {
+  const f = fixture();
+  f.frame(history([user(10, 'cached tail')], 10));
+  f.frame({ kind: 'event', seq: 11, time: 11,
+    event: { type: 'user/message', text: 'replayed after reconnect' }, resumed: true });
+  f.frame({ kind: 'session-snapshot', sessionId: 's', replace: false, events: [], cursor: 11,
+    hasMore: true, historyFormatVersion: 1, recovery: 'replayed',
+    assistantStream: { revision: 0 } });
+  assert.deepEqual(Array.from(f.store.sessionState.rows, row => row.text),
+    ['cached tail', 'replayed after reconnect']);
+  assert.equal(f.store.sessionState.historyState, 'loaded:cached');
+});
+
+test('an incomplete gateway replay keeps its snapshot visible and requests tail reconciliation', () => {
+  const f = fixture();
+  f.frame(history([user(10, 'cached')], 10, true));
+  f.store.openSession('other', 'Other');
+  f.store.openSession('s', 'Original');
+  const before = f.requests.length;
+  f.frame({ kind: 'session-snapshot', replace: true, recovery: 'snapshot', resumeFromSeq: 10,
+    resumeToSeq: 25, cursor: 25, events: [user(25, 'fresh tail')], hasMore: true });
+  assert.ok(f.requests.length > before);
+  assert.equal(f.store.sessionState.rows.at(-1).text, 'fresh tail');
+});
+
+test('an empty opening snapshot with a positive cursor falls back even without hasMore', () => {
+  const f = fixture();
+  f.store.openSession('s', 'Long conversation');
+  const before = f.requests.length;
+  f.frame({ kind: 'session-snapshot', replace: true, cursor: 7482, hasMore: false, events: [] });
+  assert.ok(f.requests.length > before, 'an empty bounded snapshot must not strand an older session on the empty state');
+  assert.deepEqual(f.requests.at(-1), ['s']);
+});
+
+test('an empty versioned snapshot pages the host tail instead of reporting an empty conversation', () => {
+  const f = fixture();
+  f.store.openSession('s', 'Long conversation');
+  f.frame({ kind: 'session-snapshot', replace: true, cursor: 7482, hasMore: false,
+    historyFormatVersion: 4, events: [] });
+  assert.deepEqual(f.requests.at(-1), ['s', 7483, 4]);
+  assert.equal(f.store.sessionState.historyPaging, true);
+  assert.equal(f.store.sessionState.hasMoreHistory, true);
+  assert.notEqual(f.store.sessionState.historyState, 'loaded:0ev');
+});
+
+test('an empty snapshot at sequence zero does not trigger a redundant history request', () => {
+  const f = fixture();
+  f.store.openSession('s', 'Actually empty conversation');
+  const before = f.requests.length;
+  f.frame({ kind: 'session-snapshot', replace: true, cursor: 0, hasMore: false, events: [] });
+  assert.equal(f.requests.length, before);
+});
+
+test('an empty history tail with a non-zero cursor gets one bounded fallback request', () => {
+  const f = fixture();
+  f.store.openSession('s', 'Long conversation');
+  const before = f.requests.length;
+  f.frame({ kind: 'history', cursor: 7482, hasMore: false, events: [] });
+  assert.deepEqual(f.requests.slice(before), [['s']]);
+  f.frame({ kind: 'history', cursor: 7482, hasMore: false, events: [] });
+  assert.deepEqual(f.requests.slice(before), [['s']], 'a repeated empty reply must not create a request loop');
+});
+
+test('an empty versioned history tail requests the latest page once and exposes a failed empty page', () => {
+  const f = fixture();
+  f.store.openSession('s', 'Long conversation');
+  f.frame({ kind: 'history', cursor: 7482, hasMore: false, historyFormatVersion: 4, events: [] });
+  assert.deepEqual(f.requests, [['s', 7483, 4]]);
+  assert.equal(f.store.sessionState.historyPaging, true);
+
+  f.frame({ kind: 'history', beforeSeq: 7483, cursor: 7482, hasMore: false,
+    historyFormatVersion: 4, events: [] });
+  assert.equal(f.store.sessionState.historyPaging, false);
+  assert.ok(f.store.sessionState.historyError, 'a non-empty host cursor with no returned page is not a valid empty chat');
+  f.frame({ kind: 'history', cursor: 7482, hasMore: false, historyFormatVersion: 4, events: [] });
+  assert.equal(f.requests.length, 1, 'the repeated empty tail must not trigger a request loop');
+});
+
+test('a delayed older snapshot cannot replace newer local conversation content', () => {
+  const f = fixture();
+  f.frame(history([user(10, 'latest local message')], 10, false));
+  f.frame({ kind: 'session-snapshot', replace: true, cursor: 9, historyFormatVersion: 4,
+    events: [user(9, 'stale gateway message')] });
+  assert.deepEqual(Array.from(f.store.sessionState.rows, row => row.text), ['latest local message']);
+  assert.equal(f.store.sessionState.historyState, 'loaded:cached');
+  assert.deepEqual(f.requests.at(-1), ['s']);
+});
+
+test('a delayed older tail cannot move the visible latest message or pagination cursor backward', () => {
+  const f = fixture();
+  f.frame(history([user(10, 'latest local message')], 10, false));
+  f.frame({ kind: 'history', events: [user(9, 'delayed stale tail')], cursor: 9,
+    nextBeforeSeq: 3, hasMore: true, historyFormatVersion: 1 });
+  assert.deepEqual(Array.from(f.store.sessionState.rows, row => row.text),
+    ['delayed stale tail', 'latest local message']);
+  assert.equal(f.store.sessionState.nextBeforeSeq, 10);
+  assert.equal(f.store.sessionState.historyState, 'loaded:cached');
+});
+
+test('conversation cache entries are isolated by active gateway', () => {
+  const f = fixture();
+  f.store.state.activeID = 'gateway-a';
+  f.frame(history([user(10, 'private history')], 10, false));
+  f.store.openSession('other', 'Other');
+  f.store.openSession('s', 'Original');
+  assert.equal(f.store.sessionState.rows[0].text, 'private history');
+
+  f.store.state.activeID = 'gateway-b';
+  f.store.openSession('s', 'Same ID on another gateway');
+  assert.equal(f.store.sessionState.rows.length, 0);
+  assert.equal(f.store.sessionState.cacheDisplay, false);
+});
+
+test('an unscoped legacy conversation cache migrates only for its sole known gateway', () => {
+  const f = fixture();
+  f.store.state.activeID = 'gateway-a';
+  f.store.state.profiles = [{ id: 'gateway-a' }];
+  f.storage.set('dsh_session_cache.s', JSON.stringify({
+    events: [user(7, 'legacy record')], rows: [], hasMore: false,
+    nextBeforeSeq: 0, historyFormatVersion: 1
+  }));
+  f.store.openSession('s', 'Legacy');
+  assert.equal(f.store.sessionState.rows[0].text, 'legacy record');
+  assert.equal(f.store.sessionState.cacheDisplay, true);
+});
+
 test('a reconnect refreshes an already-loaded tail and does not trust the old connection state', () => {
   const f = fixture();
   f.frame(history([user(30, 'old tail')], 30));
@@ -138,7 +301,7 @@ test('a reconnect refreshes an already-loaded tail and does not trust the old co
   f.store.client.callbacks.onState('connected');
   assert.equal(f.store.sessionState.historyState, 'requested');
   assert.equal(f.store.sessionState.cacheDisplay, true);
-  f.flush(4000);
+  f.flush(1200);
 
   assert.ok(f.requests.length > beforeReconnect, 'a missing reconnect reply must be retried');
   assert.ok(f.requests.slice(beforeReconnect).some(args => args[0] === 's'));
@@ -354,7 +517,10 @@ test('history pages coalesce disk writes but memory and visible records update i
   assert.equal(f.store.sessionState.rows.length, 3);
   assert.equal(f.storage.has('dsh_session_cache.s'), false);
   f.flush(1000);
-  assert.equal(JSON.parse(f.storage.get('dsh_session_cache.s')).rows.length, 3);
+  const persisted = JSON.parse(f.storage.get('dsh_session_cache.s'));
+  assert.equal(persisted.cacheVersion, 2);
+  assert.equal(persisted.value.events.length, 3);
+  assert.equal(persisted.value.rows, undefined, 'persisted event data avoids duplicate row text');
 });
 
 test('invalid cursors report an error instead of endlessly pretending to load', () => {
@@ -363,13 +529,14 @@ test('invalid cursors report an error instead of endlessly pretending to load', 
   assert.equal(f.store.sessionState.historyPaging, false);
 });
 
-test('large cached sessions reopen only the recent window and can still request earlier records', () => {
+test('large cached sessions restore thousands of local messages before requesting uncached history', () => {
   const f = fixture();
-  f.frame(history(Array.from({ length: 300 }, (_, i) => user(i + 1, 'Question ' + i)), 0, false));
+  f.frame(history(Array.from({ length: 3000 }, (_, i) => user(i + 1, 'Question ' + i)), 0, false));
   f.store.openSession('other', 'Other'); f.store.openSession('s', 'Original');
-  assert.equal(f.store.sessionState.rows.length, 80);
-  assert.equal(f.store.sessionState.rows[0].seq, 221);
+  assert.equal(f.store.sessionState.rows.length, 2000);
+  assert.equal(f.store.sessionState.rows[0].seq, 1001);
+  assert.equal(f.store.sessionState.rows.at(-1).seq, 3000);
   assert.equal(f.store.sessionState.hasMoreHistory, true);
   assert.equal(f.store.sessionState.trajectory.length, 0);
-  f.store.loadOlderHistory(); assert.deepEqual(f.requests.at(-1), ['s', 221, 1]);
+  f.store.loadOlderHistory(); assert.deepEqual(f.requests.at(-1), ['s', 1001, 1]);
 });

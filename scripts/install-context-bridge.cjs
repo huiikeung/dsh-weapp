@@ -94,10 +94,16 @@ function transform(source) {
   // 3. Register the projection once the plugin context (and its optional
   //    sessionProjections service) is available. Old hosts skip registration,
   //    and the query then answers context-unavailable.
+  // 网关重构后适配器创建行可能带 connection 等参数：用正则兜底，避免漏配。
   const apiAnchors = [
     '    const api = createDshHostAdapter(ctx.typertGateway, peer)',
     '    const api = createDshHostAdapter(ctx.typertGateway)',
+    '    const api = createDshHostAdapter(ctx.typertGateway, ctx.connection)',
   ];
+  if (!apiAnchors.some(anchor => has(source, anchor))) {
+    const match = source.match(/^ {4}const api = createDshHostAdapter\(ctx\.typertGateway[^\n]*\)$/m);
+    if (match) apiAnchors.push(match[0]);
+  }
   const apiAnchor = apiAnchors.find(anchor => has(source, anchor));
   if (!apiAnchor) throw Error('Unsupported gateway source: host adapter creation not found');
   if (!source.includes('registerContextServices(ctx)')) {

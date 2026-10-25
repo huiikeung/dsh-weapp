@@ -163,7 +163,7 @@
             <view class="message-attachment-copy"><text class="message-attachment-name">{{att.name || att.path || '文件附件'}}</text><text wx:if="{{att.path && att.name !== att.path}}" class="message-attachment-path">{{att.path}}</text></view>
           </view>
         </view>
-        <view wx:if="{{item.copyText}}" class="turn-footer-wrap"><view class="turn-footer"><view class="turn-footer-left"><view class="copy-btn" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view><view wx:if="{{item.turnMetaText}}" class="turn-meta" catchtap="openTurnUsage" data-key="{{item.turnMetaKey || item.key}}" role="button" aria-label="{{item.turnMetaText}}"><image class="turn-meta-ic" src="/assets/icons/{{theme === 'dark' ? 'token-usage-dark.svg' : 'token-usage.svg'}}" mode="aspectFit"/><text class="turn-meta-text">{{item.turnMetaText}}</text></view></view><text wx:if="{{item.turnTimeText}}" class="turn-time">{{item.turnTimeText}}</text></view></view>
+        <view wx:if="{{item.copyText}}" class="copy-btn row-user-copy" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}" hover-class="press-dim" role="button" aria-label="{{ui['复制']}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view>
       </view>
 
       <!-- dsh-mobile ConversationProcessGroup：稳定组头 + 分层 disclosure 节点 -->
@@ -296,9 +296,7 @@
             <view class="message-attachment-copy"><text class="message-attachment-name">{{att.name || att.path || '文件附件'}}</text><text wx:if="{{att.path && att.name !== att.path}}" class="message-attachment-path">{{att.path}}</text></view>
           </view>
         </view>
-        <view wx:if="{{item.copyText}}" class="copy-btn" bindtap="copyAssistantText" data-key="{{item.key}}" data-text="{{item.copyText}}">
-          <image class="copy-ic" src="{{copiedKey === item.key ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/>
-        </view>
+        <view wx:if="{{item.copyText}}" class="turn-footer-wrap"><view class="turn-footer"><view class="turn-footer-left"><view class="copy-btn" bindtap="copyAssistantText" data-key="{{item.key}}" data-text="{{item.copyText}}"><image class="copy-ic" src="{{copiedKey === item.key ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view><view class="copy-btn" bindtap="contextJumpFromChat" data-seq="{{item.seq}}" hover-class="press-dim" role="button" aria-label="{{ui['跳转到上下文']}}"><image class="copy-ic" src="/assets/icons/{{theme === 'dark' ? 'context-jump-dark.svg' : 'context-jump.svg'}}" mode="aspectFit"/></view><view wx:if="{{item.turnMetaText}}" class="turn-meta" catchtap="openTurnUsage" data-key="{{item.turnMetaKey || item.key}}" role="button" aria-label="{{item.turnMetaText}}"><image class="turn-meta-ic" src="/assets/icons/{{theme === 'dark' ? 'token-usage-dark.svg' : 'token-usage.svg'}}" mode="aspectFit"/><text class="turn-meta-text">{{item.turnMetaText}}</text></view></view><text wx:if="{{item.turnTimeText}}" class="turn-time">{{item.turnTimeText}}</text></view></view>
       </view>
 
       <view wx:elif="{{item.kind === 'changes'}}" class="file-card-wrap" id="{{item.key}}">
@@ -321,7 +319,7 @@
         </view>
         <view wx:if="{{item.files.length > 4}}" class="delivered-file-toggle" bindtap="toggleChangedFiles" data-key="{{item.key}}">{{fileExpanded[item.key] ? ui['收起'] : ui['显示全部文件'] + ' (' + item.files.length + ')'}}</view>
       </view>
-        <view wx:if="{{item.copyText}}" class="turn-footer-wrap"><view class="turn-footer"><view class="turn-footer-left"><view class="copy-btn file-copy-btn" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view><view wx:if="{{item.turnMetaText}}" class="turn-meta" catchtap="openTurnUsage" data-key="{{item.turnMetaKey || item.copyKey || item.key}}" role="button" aria-label="{{item.turnMetaText}}"><image class="turn-meta-ic" src="/assets/icons/{{theme === 'dark' ? 'token-usage-dark.svg' : 'token-usage.svg'}}" mode="aspectFit"/><text class="turn-meta-text">{{item.turnMetaText}}</text></view></view><text wx:if="{{item.turnTimeText}}" class="turn-time">{{item.turnTimeText}}</text></view></view>
+        <view wx:if="{{item.copyText}}" class="turn-footer-wrap"><view class="turn-footer"><view class="turn-footer-left"><view class="copy-btn file-copy-btn" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view><view class="copy-btn" bindtap="contextJumpFromChat" data-seq="{{item.seq}}" hover-class="press-dim" role="button" aria-label="{{ui['跳转到上下文']}}"><image class="copy-ic" src="/assets/icons/{{theme === 'dark' ? 'context-jump-dark.svg' : 'context-jump.svg'}}" mode="aspectFit"/></view><view wx:if="{{item.turnMetaText}}" class="turn-meta" catchtap="openTurnUsage" data-key="{{item.turnMetaKey || item.copyKey || item.key}}" role="button" aria-label="{{item.turnMetaText}}"><image class="turn-meta-ic" src="/assets/icons/{{theme === 'dark' ? 'token-usage-dark.svg' : 'token-usage.svg'}}" mode="aspectFit"/><text class="turn-meta-text">{{item.turnMetaText}}</text></view></view><text wx:if="{{item.turnTimeText}}" class="turn-time">{{item.turnTimeText}}</text></view></view>
       </view>
 
       <view wx:elif="{{item.kind === 'files'}}" class="file-card-wrap" id="{{item.key}}">
@@ -338,7 +336,7 @@
         </block>
         <view wx:if="{{item.files.length > 4}}" class="delivered-file-toggle" bindtap="toggleFileCards" data-key="{{item.key}}">{{fileExpanded[item.key] ? ui['收起'] : ui['显示全部文件'] + ' (' + item.files.length + ')'}}</view>
       </view>
-        <view wx:if="{{item.copyText}}" class="turn-footer-wrap"><view class="turn-footer"><view class="turn-footer-left"><view class="copy-btn file-copy-btn" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view><view wx:if="{{item.turnMetaText}}" class="turn-meta" catchtap="openTurnUsage" data-key="{{item.turnMetaKey || item.copyKey || item.key}}" role="button" aria-label="{{item.turnMetaText}}"><image class="turn-meta-ic" src="/assets/icons/{{theme === 'dark' ? 'token-usage-dark.svg' : 'token-usage.svg'}}" mode="aspectFit"/><text class="turn-meta-text">{{item.turnMetaText}}</text></view></view><text wx:if="{{item.turnTimeText}}" class="turn-time">{{item.turnTimeText}}</text></view></view>
+        <view wx:if="{{item.copyText}}" class="turn-footer-wrap"><view class="turn-footer"><view class="turn-footer-left"><view class="copy-btn file-copy-btn" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view><view class="copy-btn" bindtap="contextJumpFromChat" data-seq="{{item.seq}}" hover-class="press-dim" role="button" aria-label="{{ui['跳转到上下文']}}"><image class="copy-ic" src="/assets/icons/{{theme === 'dark' ? 'context-jump-dark.svg' : 'context-jump.svg'}}" mode="aspectFit"/></view><view wx:if="{{item.turnMetaText}}" class="turn-meta" catchtap="openTurnUsage" data-key="{{item.turnMetaKey || item.copyKey || item.key}}" role="button" aria-label="{{item.turnMetaText}}"><image class="turn-meta-ic" src="/assets/icons/{{theme === 'dark' ? 'token-usage-dark.svg' : 'token-usage.svg'}}" mode="aspectFit"/><text class="turn-meta-text">{{item.turnMetaText}}</text></view></view><text wx:if="{{item.turnTimeText}}" class="turn-time">{{item.turnTimeText}}</text></view></view>
       </view>
 
       <!-- 其它事件行（iOS .system：图标 + caption 标题 + caption 文本 + 6% 底色圆角卡） -->
@@ -405,13 +403,11 @@
       <text wx:if="{{contextPanel.meta.model}}" class="context-toolbar-title">{{contextPanel.meta.model}}</text>
       <text wx:if="{{contextPanel.meta.contextWindowText}}" class="context-toolbar-meta">{{contextPanel.meta.contextWindowText}}</text>
       <view class="context-toolbar-spacer"></view>
-      <view class="context-modal-open" bindtap="openContextModal" hover-class="press-dim" role="button" aria-label="{{ui['打开上下文弹窗']}}"><image class="context-toolbar-ic context-toolbar-ic-lg" src="/assets/icons/{{theme === 'dark' ? 'popup-white.svg' : 'popup-ink.svg'}}" mode="aspectFit"/></view>
-      <view class="context-modal-open" bindtap="openContextInsights" hover-class="press-dim" role="button" aria-label="{{ui['上下文洞察']}}"><image class="context-toolbar-ic" src="/assets/icons/{{theme === 'dark' ? 'insight-white.svg' : 'insight-ink.svg'}}" mode="aspectFit"/></view>
-      <view class="context-refresh {{contextPanel.loading ? 'busy' : ''}}" bindtap="refreshContextDashboard" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新上下文']}}">
-        <image class="context-refresh-ic" src="/assets/icons/{{theme === 'dark' ? 'refresh-round-white.svg' : 'refresh-round-ink.svg'}}" mode="aspectFit"/>
-      </view>
+      <view wx:if="{{contextPanel && contextPanel.status !== 'loading'}}" class="context-modal-open" bindtap="openContextModal" hover-class="press-dim" role="button" aria-label="{{ui['打开上下文弹窗']}}"><image class="context-toolbar-ic" src="/assets/icons/{{theme === 'dark' ? 'dsh-context-dark.svg' : 'dsh-context.svg'}}" mode="aspectFit"/></view>
+      <view wx:if="{{contextPanel && contextPanel.status !== 'loading'}}" class="context-modal-open" bindtap="openContextInsights" hover-class="press-dim" role="button" aria-label="{{ui['上下文洞察']}}"><image class="context-toolbar-ic" src="/assets/icons/{{theme === 'dark' ? 'insight-white.svg' : 'insight-ink.svg'}}" mode="aspectFit"/></view>
     </view>
     <scroll-view class="context-scroll" scroll-y enhanced show-scrollbar="{{false}}" bindscroll="contextPanelScroll" scroll-into-view="{{contextScrollTarget}}" scroll-with-animation>
+      <view id="ctxTop" class="ctx-top-anchor" aria-hidden="true"/>
       <view wx:if="{{!contextPanel || contextPanel.status === 'loading'}}" class="context-state">
         <view class="state-spinner"></view>
         <text class="context-state-text">{{ui['正在加载上下文…']}}</text>
@@ -603,6 +599,13 @@
                       <view wx:for="{{item.segments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-column-seg ctx-c-{{seg.key}}" style="height:{{seg.px}}rpx;"></view>
                     </view>
                   </view>
+                  <svg wx:if="{{contextPanel.trend.hasDuration}}" class="ctx-trend-duration ctx-trend-duration-fit" width="100%" height="224" viewBox="0 0 {{contextPanel.trend.ribbon.width}} 224" preserveAspectRatio="none" aria-hidden="true">
+                    <polygon wx:for="{{contextPanel.trend.ribbon.durationAreas}}" wx:for-item="area" wx:key="index" class="ctx-trend-duration-area" points="{{area}}" />
+                    <polyline wx:for="{{contextPanel.trend.ribbon.durationRuns}}" wx:for-item="run" wx:key="index" class="ctx-trend-duration-halo" points="{{run}}" />
+                    <polyline wx:for="{{contextPanel.trend.ribbon.durationRuns}}" wx:for-item="run" wx:key="index" points="{{run}}" />
+                    <circle wx:for="{{contextPanel.trend.ribbon.durationDots}}" wx:for-item="dot" wx:key="index" class="ctx-trend-duration-halo" cx="{{dot.split(',')[0]}}" cy="{{dot.split(',')[1]}}" r="3" />
+                    <circle wx:for="{{contextPanel.trend.ribbon.durationDots}}" wx:for-item="dot" wx:key="index" cx="{{dot.split(',')[0]}}" cy="{{dot.split(',')[1]}}" r="1.5" />
+                  </svg>
                   <!-- 四分位/全程旗标 -->
                   <block wx:for="{{contextPanel.trend.ribbon.flags}}" wx:key="key">
                     <view class="ctx-trend-flagpole ctx-fit-flagpole" style="left:{{item.left}}%;">
@@ -935,18 +938,16 @@
       </block>
     </scroll-view>
   </view>
-
-  <!-- ================= 编队：当前 Agent 的家族网络 ================= -->
+  <!-- 编队面板：与上下文面板并列，各自独立滚动（编队 Tab 只显示编队内容） -->
   <view wx:if="{{fleetMounted && showFleetPanel}}" hidden="{{tab !== 'fleet'}}" class="fleet-panel {{tab !== 'fleet' ? 'session-panel-hidden' : ''}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
     <view class="fleet-toolbar">
       <text class="fleet-toolbar-title">{{ui['编队总览']}}</text>
       <text wx:if="{{fleetPanel.status === 'ready'}}" class="fleet-toolbar-meta">{{ui['Agent 数量']}} {{fleetPanel.overview.agentsText}} · {{ui['运行中']}} {{fleetPanel.overview.runningText}}</text>
       <view class="fleet-toolbar-spacer"></view>
-      <view class="fleet-refresh {{fleetPanel.loading ? 'busy' : ''}}" bindtap="refreshContextFleet" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新编队']}}">
-        <image class="fleet-refresh-ic" src="/assets/icons/{{theme === 'dark' ? 'refresh-round-white.svg' : 'refresh-round-ink.svg'}}" mode="aspectFit"/>
-      </view>
     </view>
     <scroll-view class="fleet-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+      <!-- 编队内容：工具栏固定在滚动区上方，只有这里滚动 -->
+      <view id="fleetSection" class="cf-fleet-section" bindtap="closeFleetMemberSort">
       <view wx:if="{{!fleetPanel || fleetPanel.status === 'loading'}}" class="fleet-state">
         <view class="state-spinner"></view>
         <text class="fleet-state-text">{{ui['正在加载编队…']}}</text>
@@ -965,21 +966,21 @@
         <view class="fleet-retry" bindtap="refreshContextFleet" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['重试']}}">{{ui['重试']}}</view>
       </view>
       <block wx:else>
-        <!-- 编队汇总条（dsh-context fleetSummary） -->
         <view class="ctx-card fleet-summary">
           <view class="fleet-summary-chips">
             <view wx:for="{{fleetPanel.summary.chips}}" wx:key="key" class="fleet-chip {{item.on ? 'on' : ''}}">{{item.text}}</view>
           </view>
           <view wx:if="{{fleetPanel.summary.progress}}" class="fleet-progress">
             <text class="fleet-progress-label">{{fleetPanel.summary.progress.label}}</text>
-            <view class="fleet-progress-track"><view class="fleet-progress-fill" style="width:{{fleetPanel.summary.progress.width}}%;"/></view>
+            <view class="fleet-progress-track"><view class="fleet-progress-fill {{fleetPanel.summary.progress.complete ? 'done' : ''}}" style="width:{{fleetPanel.summary.progress.width}}%;"/></view>
             <text class="fleet-progress-text">{{fleetPanel.summary.progress.text}}</text>
           </view>
         </view>
+        <view class="fleet-workspace">
         <!-- Agent 网络（dsh-context agentGraph：tidy-tree 布局 + 三次贝塞尔连线） -->
-        <view class="ctx-card fleet-graph-card">
+        <view id="fleetGraphCard" class="ctx-card fleet-graph-card">
           <view class="ctx-card-head">
-            <text class="ctx-card-title">{{ui['Agent 网络']}}</text>
+            <image class="fleet-title-ic" src="/assets/icons/fleet-network{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit"/><text class="ctx-card-title">{{ui['Agent 网络']}}</text>
             <text class="ctx-card-sub fleet-graph-sub">{{ui['当前 Agent 与子 Agent 的实时上下文 · 点击节点查看']}}</text>
           </view>
           <view class="fleet-chips">
@@ -998,13 +999,11 @@
           <block wx:else>
           <scroll-view class="fleet-stage {{fleetAllOpen ? 'all' : ''}}" scroll-y enhanced show-scrollbar="{{false}}">
             <view class="fleet-canvas" style="width:{{fleetPanel.graph.width}}px;height:{{fleetPanel.graph.height}}px;">
-              <svg class="fleet-links" width="{{fleetPanel.graph.width}}" height="{{fleetPanel.graph.height}}" viewBox="0 0 {{fleetPanel.graph.width}} {{fleetPanel.graph.height}}">
-                <path wx:for="{{fleetPanel.graph.links}}" wx:key="key" d="{{item.d}}" fill="none" stroke="{{item.color}}" stroke-width="1.5" stroke-linecap="round" stroke-opacity="{{item.live ? 0.85 : 0.45}}"/>
-                <path wx:for="{{fleetPanel.graph.links}}" wx:key="key" wx:if="{{item.live}}" d="{{item.d}}" fill="none" stroke="{{item.color}}" stroke-width="2" stroke-linecap="round" stroke-dasharray="2 7"/>
-              </svg>
+              <image wx:if="{{fleetLinksSrc}}" class="fleet-links-image" src="{{fleetLinksSrc}}" style="width:{{fleetPanel.graph.width}}px;height:{{fleetPanel.graph.height}}px;" mode="scaleToFill"/>
+              <canvas wx:else type="2d" id="fleetLinks" class="fleet-links-canvas" style="width:{{fleetPanel.graph.width}}px;height:{{fleetPanel.graph.height}}px;"></canvas>
               <view wx:for="{{fleetPanel.graph.nodes}}" wx:key="key" class="fleet-node {{item.isCurrent ? 'self' : ''}} {{item.selected ? 'selected' : ''}} {{item.running ? 'running' : ''}}" style="left:{{item.x}}px;top:{{item.y}}px;width:{{item.w}}px;height:{{item.h}}px;" bindtap="fleetSelectAgent" data-id="{{item.id}}" hover-class="fleet-node-pressed" role="button" aria-label="{{item.title}}">
                 <view class="fleet-node-head">
-                  <view class="fleet-state-dot {{item.running ? 'on' : ''}}"></view>
+                  <view class="fleet-node-state {{item.stateKind}}"></view>
                   <text class="fleet-node-title">{{item.title}}</text>
                   <text wx:if="{{item.badgeText}}" class="fleet-node-badge">{{item.badgeText}}</text>
                 </view>
@@ -1023,10 +1022,11 @@
           <view wx:if="{{fleetPanel.soloHint}}" class="ctx-br-note">{{fleetPanel.soloHint}}</view>
           </block>
         </view>
+        <view class="fleet-board-column">
         <!-- 编队成员板（memberBoard：roster + Agent 合并，色相顶边） -->
         <view class="ctx-card fleet-members">
           <view class="ctx-card-head">
-            <text class="ctx-card-title">{{ui['编队成员']}}</text>
+            <image class="fleet-title-ic" src="/assets/icons/icon-users{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit"/><text class="ctx-card-title">{{ui['编队成员']}}</text>
             <text class="ctx-card-sub">{{fleetPanel.members.countText}}</text>
             <text wx:if="{{fleetPanel.members.failure}}" class="fleet-member-warn">{{ui['持久记录无效']}}</text>
           </view>
@@ -1035,46 +1035,96 @@
             <view class="ctx-gran">
               <view wx:for="{{fleetPanel.members.statusChips}}" wx:key="key" class="ctx-gran-btn {{item.active ? 'on' : ''}}" bindtap="setFleetMemberStatus" data-status="{{item.key}}" hover-class="press-dim" role="button">{{item.label}}<text class="fleet-member-chip-n">{{item.countText}}</text></view>
             </view>
-            <view class="ctx-gran">
-              <view wx:for="{{fleetPanel.members.sortChips}}" wx:key="key" class="ctx-gran-btn {{item.active ? 'on' : ''}}" bindtap="setFleetMemberSort" data-sort="{{item.key}}" hover-class="press-dim" role="button">{{item.label}}</view>
+            <view class="fleet-member-sort {{fleetMemberSortOpen ? 'open' : ''}}" catchtap="openFleetMemberSort" hover-class="press-dim" role="button" aria-haspopup="listbox" aria-expanded="{{fleetMemberSortOpen}}">
+              <view class="fleet-member-sort-inner"><text>{{fleetPanel.members.sortLabel}}</text><text class="fleet-member-sort-arrow">⌄</text></view>
+              <view wx:if="{{fleetMemberSortOpen}}" class="fleet-sort-menu" catchtap="noop" role="listbox" aria-label="{{ui['排序方式']}}">
+                <view wx:for="{{fleetPanel.members.sortOptions}}" wx:key="key" class="fleet-sort-option {{item.active ? 'selected' : ''}}" catchtap="setFleetMemberSort" data-sort="{{item.key}}" hover-class="press-dim" role="option" aria-selected="{{item.active}}">
+                  <text>{{item.label}}</text><text wx:if="{{item.active}}" class="fleet-sort-option-check">✓</text>
+                </view>
+              </view>
             </view>
           </view>
           <view wx:if="{{fleetPanel.members.soloHint}}" class="ctx-br-note">{{fleetPanel.members.soloHint}}</view>
           <view wx:elif="{{fleetPanel.members.noMatches}}" class="ctx-empty">{{ui['没有匹配的 Agent']}}</view>
-          <view wx:if="{{fleetPanel.members.rows.length}}" class="fleet-member-list">
-            <view wx:for="{{fleetPanel.members.rows}}" wx:key="key" class="fleet-member {{item.selected ? 'selected' : ''}}" style="border-top-color:{{item.hue}};" bindtap="fleetSelectAgent" data-id="{{item.id}}" hover-class="fleet-node-pressed" role="button" aria-label="{{item.title}}">
-              <view class="fleet-member-head">
-                <view class="fleet-member-icon" style="background:{{item.hue}}22;border-color:{{item.hue}}88;color:{{item.hue}};">◆</view>
-                <text class="fleet-member-name">{{item.title}}</text>
-                <text wx:if="{{item.isCurrent}}" class="fleet-node-badge">{{ui['当前']}}</text>
-                <text class="fleet-member-role">{{item.roleText}}</text>
-                <view class="fleet-state-dot {{item.running ? 'on' : ''}}"></view>
-              </view>
-              <view class="fleet-member-status"><text>{{item.statusText}}</text><text wx:if="{{item.model}}" class="fleet-member-model">{{item.model}}</text></view>
-              <text wx:if="{{item.error}}" class="fleet-member-error">{{item.error}}</text>
-              <text wx:if="{{item.metaText}}" class="fleet-member-meta">{{item.metaText}}</text>
-              <view class="fleet-member-foot">
-                <text class="fleet-member-tasks {{item.tasksCount > 0 ? 'on' : ''}}">{{item.tasksText}}</text>
-                <view class="fleet-node-open" catchtap="fleetOpenMember" data-id="{{item.id}}" role="button" aria-label="{{ui['打开会话']}}">→</view>
+          <view wx:if="{{fleetPanel.members.groups.length}}" class="fleet-member-groups">
+            <view wx:for="{{fleetPanel.members.groups}}" wx:for-item="group" wx:key="key" class="fleet-member-group">
+              <view class="fleet-member-group-head"><text>{{group.title}}</text><text class="fleet-member-group-count">{{group.countText}}</text></view>
+              <view class="fleet-member-list">
+                <view wx:for="{{group.rows}}" wx:for-item="member" wx:key="key" class="fleet-member {{member.selected ? 'selected' : ''}}" style="border-top-color:{{member.kind === 'lead' ? 'var(--ink)' : member.hue}};" bindtap="fleetSelectAgent" data-id="{{member.id}}" hover-class="fleet-node-pressed" role="button" aria-label="{{member.title}}">
+                  <view class="fleet-member-head">
+                    <view class="fleet-member-icon" style="background:{{member.hue}}22;border-color:{{member.hue}}88;">
+                      <image wx:if="{{member.kind === 'lead'}}" class="fleet-member-ic" src="/assets/icons/icon-users{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit"/>
+                      <image wx:else class="fleet-member-ic" src="/assets/icons/icon-user{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit"/>
+                    </view>
+                    <text class="fleet-member-name">{{member.title}}</text>
+                    <text wx:if="{{member.isCurrent}}" class="fleet-node-badge">{{ui['当前']}}</text>
+                    <text class="fleet-member-role">{{member.roleText}}</text>
+                    <view class="fleet-member-dot {{member.stateKind}}"></view>
+                  </view>
+                  <view class="fleet-member-status"><text>{{member.statusText}}</text><text wx:if="{{member.model}}" class="fleet-member-model">{{member.model}}</text></view>
+                  <text wx:if="{{member.error}}" class="fleet-member-error">{{member.error}}</text>
+                  <view wx:if="{{member.answerText}}" class="fleet-member-answer"><text class="fleet-member-answer-label">{{member.answerLabel}}</text><text class="fleet-member-answer-text">{{member.answerText}}</text></view>
+                  <text wx:if="{{member.metaText}}" class="fleet-member-meta">{{member.metaText}}</text>
+                  <view class="fleet-member-foot">
+                    <text class="fleet-member-tasks {{member.tasksCount > 0 ? 'on' : ''}}">{{member.tasksText}}</text>
+                    <view class="fleet-node-open" catchtap="fleetOpenMember" data-id="{{member.id}}" role="button" aria-label="{{ui['打开会话']}}">→</view>
+                  </view>
+                </view>
               </view>
             </view>
           </view>
         </view>
-        <!-- 通讯面板（commsPanel：按需扫描家族会话日志） -->
-        <view wx:if="{{fleetPanel.agents.length > 1}}" class="ctx-card fleet-comms">
+        <!-- 任务板（taskBoard：成员任务与子 Agent 委派） -->
+        <view class="fleet-card fleet-task-card">
           <view class="ctx-card-head">
-            <text class="ctx-card-title">{{ui['通讯记录']}}</text>
+            <image class="fleet-title-ic" src="/assets/icons/dsh-checklist{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit"/><text class="ctx-card-title">{{ui['任务']}}</text>
+            <text class="ctx-card-sub">{{ui['团队任务与子 Agent 委派']}}</text>
+            <text wx:if="{{fleetPanel.team.taskCountText}}" class="ctx-card-sub">{{fleetPanel.team.taskCountText}}</text>
+          </view>
+          <input class="ctx-br-search fleet-task-search" value="{{fleetTaskQuery}}" placeholder="{{ui['搜索任务…']}}" confirm-type="search" maxlength="60" bindinput="setFleetTaskQuery"/>
+          <view class="ctx-gran fleet-task-gran">
+            <view wx:for="{{fleetPanel.team.statusChips}}" wx:key="key" class="ctx-gran-btn {{item.active ? 'on' : ''}}" bindtap="setFleetTaskStatus" data-status="{{item.key}}" hover-class="press-dim" role="button">{{item.label}}<text class="fleet-member-chip-n">{{item.count}}</text></view>
+          </view>
+          <view class="fleet-task-list">
+            <view wx:if="{{fleetPanel.team.tasksEmpty}}" class="fleet-task-empty">{{fleetPanel.team.tasksEmptyText}}</view>
+            <view wx:for="{{fleetPanel.team.tasks}}" wx:key="key" class="fleet-task-row">
+              <view wx:if="{{item.kind === 'agent'}}" class="fleet-task-icon" style="background:{{item.hue}}22;border-color:{{item.hue}}88;">
+                <image class="fleet-member-ic" src="/assets/icons/icon-user{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit"/>
+              </view>
+              <view class="fleet-task-dot {{item.stateKind}}"></view>
+              <view class="fleet-task-main">
+                <view class="fleet-task-line">
+                  <text class="fleet-task-subject">{{item.subject}}</text>
+                  <text class="fleet-task-status ctx-task-{{item.statusClass}}">{{item.statusText}}</text>
+                </view>
+                <text wx:if="{{item.bodyText}}" class="fleet-task-body">{{item.bodyText}}</text>
+                <view class="fleet-task-foot">
+                  <text wx:if="{{item.ownerText}}" class="fleet-task-owner">{{item.ownerText}}</text>
+                  <text wx:if="{{item.modelText}}" class="fleet-task-owner">{{item.modelText}}</text>
+                  <text wx:if="{{item.metaText}}" class="fleet-task-meta">{{item.metaText}}</text>
+                </view>
+              </view>
+            </view>
+          </view>
+        </view>
+        </view>
+        </view>
+        <view class="ctx-card fleet-comms">
+          <view class="ctx-card-head">
+            <image class="fleet-title-ic" src="/assets/icons/fleet-comms{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit"/><text class="ctx-card-title">{{ui['通讯记录']}}</text>
             <text class="ctx-card-sub">{{ui['跨 Agent 消息 · 按需扫描各会话日志']}}</text>
           </view>
-          <view class="fleet-comms-toolbar">
-            <view wx:if="{{fleetCommsState === 'idle' || fleetCommsState === 'error'}}" class="fleet-comms-btn" bindtap="scanFleetComms" hover-class="press-dim" role="button">{{fleetPanel.comms.scanText}}</view>
+          <view wx:if="{{fleetPanel.comms.solo}}" class="ctx-br-note fleet-comms-solo">{{fleetPanel.comms.soloText}}</view>
+          <view wx:if="{{!fleetPanel.comms.solo}}" class="fleet-comms-toolbar">
+            <view wx:if="{{fleetCommsState === 'idle' || fleetCommsState === 'error'}}" class="fleet-comms-btn" bindtap="scanFleetComms" hover-class="press-dim" role="button">{{fleetCommsState === 'error' ? fleetPanel.comms.errorText : fleetPanel.comms.scanText}}</view>
             <view wx:elif="{{fleetCommsState === 'scanning'}}" class="fleet-comms-chip">{{fleetPanel.comms.scanningText}}</view>
             <block wx:else>
               <view class="fleet-comms-chip">{{fleetPanel.comms.totalText}}</view>
+              <view wx:if="{{fleetPanel.comms.stale}}" class="fleet-comms-chip stale">{{fleetPanel.comms.staleText}}</view>
               <view class="fleet-comms-btn" bindtap="scanFleetComms" hover-class="press-dim" role="button">{{fleetPanel.comms.rescanText}}</view>
             </block>
           </view>
-          <view wx:if="{{fleetCommsState === 'ready'}}" class="fleet-comms-filters">
+          <view wx:if="{{fleetCommsState === 'ready' && !fleetPanel.comms.solo}}" class="fleet-comms-filters">
             <view wx:for="{{fleetPanel.comms.filters}}" wx:key="key" class="fleet-chip {{item.active ? 'on' : ''}}" bindtap="setFleetCommsFilter" data-id="{{item.key}}" hover-class="press-dim" role="button">{{item.label}}</view>
           </view>
           <view wx:if="{{fleetCommsState === 'ready' && fleetPanel.comms.hasData}}" class="fleet-comms-lane">
@@ -1083,34 +1133,34 @@
               <view class="fleet-comms-line">
                 <text class="fleet-comms-time">{{item.timeText}}</text>
                 <text class="fleet-comms-kind">{{item.kindText}}</text>
-                <text class="fleet-comms-route">{{item.fromLabel}} → {{item.toLabel}}</text>
+                <view class="fleet-comms-route">
+                  <text wx:if="{{item.fromLabel && item.fromId}}" class="fleet-comms-party" data-id="{{item.fromId}}" bindtap="setFleetCommsFilter">{{item.fromLabel}}</text>
+                  <text wx:elif="{{item.fromLabel}}" class="fleet-comms-party">{{item.fromLabel}}</text>
+                  <view class="fleet-comms-arrow" aria-hidden="true"><view class="fleet-comms-arrow-shaft"></view></view>
+                  <text wx:if="{{item.toLabel && item.toId}}" class="fleet-comms-party" data-id="{{item.toId}}" bindtap="setFleetCommsFilter">{{item.toLabel}}</text>
+                  <text wx:elif="{{item.toLabel}}" class="fleet-comms-party">{{item.toLabel}}</text>
+                </view>
               </view>
               <text class="fleet-comms-text">{{item.text}}</text>
             </view>
+            <text wx:if="{{fleetPanel.comms.partial}}" class="ctx-br-note">{{fleetPanel.comms.partialText}}</text>
             <text wx:if="{{fleetPanel.comms.truncated}}" class="ctx-br-note">{{fleetPanel.comms.truncatedText}}</text>
-          </view>
-        </view>
-        <view class="fleet-card fleet-task-card">
-          <view class="ctx-card-head">
-            <text class="ctx-card-title">{{ui['任务']}}</text>
-            <text wx:if="{{fleetPanel.team.taskCountText}}" class="ctx-card-sub">{{fleetPanel.team.taskCountText}}</text>
-          </view>
-          <view wx:if="{{fleetPanel.team.tasksEmpty}}" class="fleet-task-empty">{{fleetPanel.team.tasksEmptyText}}</view>
-          <view wx:for="{{fleetPanel.team.tasks}}" wx:key="key" class="fleet-task-row">
-            <text class="fleet-task-status ctx-task-{{item.statusClass}}">{{item.statusText}}</text>
-            <text class="fleet-task-subject">{{item.subject}}</text>
-            <text wx:if="{{item.hasOwner}}" class="fleet-task-owner">{{item.ownerText}}</text>
           </view>
         </view>
         <view class="ctx-bottom-space"></view>
       </block>
+
+      </view>
     </scroll-view>
   </view>
 
 
   <!-- /context 等价弹窗（dsh-context contextModal：Current Composition + Context Browser） -->
   <view wx:if="{{contextModalOpen}}" class="ctx-modal-mask" bindtap="closeContextModal" catchtouchmove="noop">
-    <view class="ctx-modal" catchtap="noop">
+    <view class="ctx-modal" style="{{ctxModalDragStyle}}" catchtap="noop">
+      <view class="ctx-modal-grab" bindtouchstart="onContextModalGrabStart" catchtouchmove="onContextModalGrabMove" bindtouchend="onContextModalGrabEnd" bindtouchcancel="onContextModalGrabEnd" aria-hidden="true">
+        <view class="ctx-modal-grab-bar"></view>
+      </view>
       <view class="ctx-modal-head">
         <text class="ctx-modal-title">{{ui['上下文']}}</text>
         <view class="ctx-modal-close" bindtap="closeContextModal" hover-class="press-dim" role="button" aria-label="{{ui['关闭']}}">×</view>
@@ -1173,7 +1223,25 @@
             <view class="ctx-br-bar">
               <view wx:for="{{contextPanel.browser.composition}}" wx:key="key" class="ctx-br-bar-seg ctx-c-{{item.key}}" style="width:{{item.width}}%;"/>
             </view>
-            <view class="ctx-modal-cats">
+            <block wx:if="{{contextPanel.browser.dna}}">
+              <view class="ctx-br-flat-head">
+                <text class="ctx-br-flat-title">{{contextPanel.browser.dnaCountText}}</text>
+                <text class="ctx-br-note-inline">{{ui['按模型阅读顺序（最新在上）']}}</text>
+              </view>
+              <view wx:for="{{contextPanel.browser.dnaRows}}" wx:key="key" class="ctx-br-flat-row {{contextNodeDetail && contextNodeDetail.seq === item.seq ? 'on' : ''}}" catchtap="toggleContextDnaNode" data-seq="{{item.seq}}">
+                <view class="ctx-br-flat-line">
+                  <text class="ctx-br-pos">{{item.posText}}</text>
+                  <text class="ctx-br-cat-chip ctx-c-{{item.category}}">{{item.categoryText}}</text>
+                  <text class="ctx-br-flat-label">{{item.label}}</text>
+                  <text wx:if="{{item.stamp}}" class="ctx-br-stamp">{{item.stamp}}</text>
+                  <text class="ctx-br-tok">{{item.tokenText}}</text>
+                </view>
+                <view wx:if="{{item.metaText}}" class="ctx-br-flat-meta">{{item.metaText}}</view>
+                <text wx:if="{{contextNodeDetail && contextNodeDetail.seq === item.seq}}" class="ctx-br-content" user-select>{{contextNodeDetail.text}}</text>
+              </view>
+              <text wx:if="{{!contextPanel.browser.dnaRows.length}}" class="ctx-empty">{{ui['暂无请求记录']}}</text>
+            </block>
+            <view wx:else class="ctx-modal-cats">
               <view wx:for="{{contextPanel.browser.rows}}" wx:key="key" class="ctx-br-cat-row {{item.disabled ? 'empty' : ''}}" bindtap="contextModalCategoryTap" data-key="{{item.key}}" hover-class="press-dim" role="button">
                 <text class="ctx-br-chevron">▸</text>
                 <view class="ctx-br-swatch {{item.swatch}}"/>
@@ -1474,19 +1542,47 @@
 <view wx:if="{{commandPaletteError || commandError}}" class="command-error"><text>{{commandPaletteError || commandError}}</text><view class="command-retry" bindtap="refreshComposerCommands" role="button">{{ui['重试']}}</view></view>
 </view>
 
+<!-- 输入 @ 时直接在输入卡上方展开工作区候选；目录主体可引用，右侧箭头用于继续浏览。 -->
+<view wx:if="{{fileMentionOpen}}" class="file-mention-menu" catchtap="noop" role="dialog" aria-label="{{ui['工作区文件']}}">
+  <view class="file-mention-head">
+    <view class="file-mention-heading">
+      <text class="file-mention-title">{{ui['文件与文件夹']}}</text>
+      <text class="file-mention-path">{{fileMentionPathLabel}}</text>
+    </view>
+    <view class="file-mention-close" bindtap="closeFileMention" role="button" aria-label="{{ui['关闭']}}"><view class="sheet-close-x"></view></view>
+  </view>
+  <scroll-view class="file-mention-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+    <view wx:if="{{fileMentionLoading && !fileMentionEntries.length}}" class="file-mention-state">{{ui['正在读取工作区文件…']}}</view>
+    <view wx:elif="{{fileMentionError}}" class="file-mention-state file-mention-error">
+      <text>{{ui[fileMentionError] !== undefined ? ui[fileMentionError] : fileMentionError}}</text>
+      <view class="file-mention-retry" bindtap="retryFileMention" role="button">{{ui['重试']}}</view>
+    </view>
+    <view wx:elif="{{!fileMentionEntries.length && fileMentionQuery}}" class="file-mention-state">{{ui['没有匹配的文件或文件夹']}}</view>
+    <view wx:elif="{{!fileMentionEntries.length}}" class="file-mention-state">{{ui['此目录为空']}}</view>
+    <view wx:for="{{fileMentionEntries}}" wx:key="key" class="file-mention-row" bindtap="selectFileMention" data-index="{{index}}" role="button">
+      <image class="file-mention-icon" src="/assets/icons/{{item.iconFile}}" mode="aspectFit"/>
+      <text class="file-mention-name">{{item.name}}{{item.kind === 'dir' ? '/' : ''}}</text>
+      <view wx:if="{{item.kind === 'dir'}}" class="file-mention-drill" catchtap="drillFileMention" data-index="{{index}}" role="button" aria-label="{{ui['进入目录'] || '进入目录'}}">
+        <image class="file-mention-chevron" src="/assets/icons/chev-right-gray.png" mode="aspectFit"/>
+      </view>
+    </view>
+  </scroll-view>
+</view>
+
       <!-- 输入卡 -->
       <view class="composer-surface {{voiceOverlayVisible ? 'voice-holding' : ''}}">
       <view class="composer-backdrop" aria-hidden="true"></view>
       <view class="composer">
       <view class="voice-input-wrap">
-      <block wx:if="{{composerPreview && composerPreviewBlocks.length}}">
-        <!-- Markdown 预览：和发送后的渲染完全一致（共用 mdBlocks 模板） -->
-        <scroll-view class="composer-input composer-preview" scroll-y enhanced show-scrollbar="{{false}}">
-          <template is="mdBlocks" data="{{blocks: composerPreviewBlocks, rowKey: ''}}"/>
-        </scroll-view>
-      </block>
-      <view wx:else class="composer-input-row">
-      <view wx:if="{{commandToken && draft}}" class="composer-slash-chip" catchtap="clearCommandToken" hover-class="press-dim" role="button" aria-label="{{ui['移除指令']}}">
+      <view class="composer-input-row composer-live {{composerPreview ? 'previewing' : ''}}">
+      <!-- 渲染层：不透明覆盖在输入框之上（不改 textarea 任何属性，避免原生组件被重置） -->
+      <scroll-view hidden="{{!(composerPreview && composerPreviewBlocks.length)}}" class="composer-veil {{composerPreview && composerPreviewBlocks.length ? 'on' : ''}}" scroll-y enhanced show-scrollbar="{{false}}" bindtap="exitComposerPreviewEdit">
+        <view class="composer-veil-inner">
+          <template is="mdBlocks" data="{{blocks: composerPreviewBlocks, rowKey: 'live'}}"/>
+        </view>
+      </scroll-view>
+      <!-- 常驻 + hidden：wx:if 会让 textarea 重排、把刚粘贴的内容冲掉 -->
+      <view hidden="{{!(commandToken && draft)}}" class="composer-slash-chip {{commandToken && draft ? 'on' : ''}}" catchtap="clearCommandToken" hover-class="press-dim" role="button" aria-label="{{ui['移除指令']}}">
         <text class="composer-slash-token">{{commandTokenLabel}}</text>
         <text class="composer-slash-x">×</text>
       </view>
@@ -1494,8 +1590,9 @@
       class="composer-input"
       placeholder="{{ui[composerPlaceholder] !== undefined ? ui[composerPlaceholder] : composerPlaceholder}}"
       placeholder-class="composer-placeholder"
-      placeholder-style="{{theme === 'dark' ? 'color:rgba(241,244,250,0.36);font-size:28rpx;' : 'color:rgba(16,19,24,0.28);font-size:28rpx;'}}"
-      value="{{commandToken && draft ? draftArg : draft}}"
+      placeholder-style="{{theme === 'dark' ? 'color:rgba(241,244,250,0.36)' : 'color:rgba(16,19,24,0.28)'}}"
+      value="{{composerValue}}"
+      cursor="{{composerCursor}}"
       bindinput="onDraftInput"
       bindlinechange="onComposerLineChange"
       bindfocus="onComposerFocus"
@@ -1503,12 +1600,12 @@
       confirm-type="send"
       focus="{{composerFocus}}"
       disabled="{{voiceOverlayVisible}}"
+      auto-height="{{true}}"
       adjust-position="{{false}}"
       bindkeyboardheightchange="onKeyboardHeight"
       bindblur="onKeyboardHide"
       show-confirm-bar="{{false}}"
       cursor-spacing="20"
-      auto-height
       maxlength="-1"
     />
       </view>
@@ -1517,6 +1614,7 @@
       </view>
       <view wx:if="{{voicePhase === 'transcribing' || voicePhase === 'stopping'}}" class="voice-progress"><text>{{ui['正在转文字…']}}</text><view class="voice-inline-action" bindtap="cancelVoice" role="button">{{ui['取消']}}</view></view>
       <view wx:if="{{voicePendingText}}" class="voice-transcript"><text class="voice-transcript-hint">{{ui['草稿已修改，识别文字待插入']}}</text><text class="voice-transcript-text" selectable>{{voicePendingText}}</text><view class="voice-transcript-actions"><view class="voice-inline-action" bindtap="discardPendingVoiceText" role="button">{{ui['丢弃识别文字']}}</view><view class="voice-inline-action" bindtap="insertPendingVoiceText" role="button">{{ui['插入文字']}}</view></view></view>
+
     <view wx:if="{{images.length}}" class="composer-images">
       <block wx:for="{{images}}" wx:key="id">
         <view wx:if="{{item.isFile}}" class="pending-file">
@@ -1532,7 +1630,6 @@
     </view>
     <view class="composer-bar">
       <view class="chip icon composer-plus {{attachSheetOpen ? 'active' : ''}}" bindtap="attachMenu" role="button" aria-label="{{ui['添加与指令']}}" aria-expanded="{{attachSheetOpen}}"><image class="attach-ic" src="/assets/icons/plus-gray.png"/></view>
-       <view wx:if="{{draft}}" class="chip composer-preview-toggle {{composerPreview ? 'active' : ''}}" bindtap="toggleComposerPreview" hover-class="model-trigger-pressed" hover-start-time="0" hover-stay-time="100" role="button" aria-label="{{composerPreview ? ui['编辑'] : ui['预览']}}" aria-expanded="{{composerPreview}}"><text class="chip-label">{{composerPreview ? ui['编辑'] : ui['预览']}}</text></view>
        <view class="chip permission-chip" bindtap="pickPermission" role="button" aria-label="{{ui['权限']}}" aria-expanded="{{permissionSheet.length > 0}}">
         <image class="chip-ic" src="/assets/icons/{{permissionIcon}}" mode="aspectFit"/>
         <text class="chip-label">{{ui[permissionLabel] !== undefined ? ui[permissionLabel] : permissionLabel}}</text>
@@ -1655,7 +1752,9 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
       <view class="delivered-action" bindtap="copyPresentedPath">{{ui['复制文件路径']}}</view>
     </view>
   </view>
-  <view wx:if="{{filePreview}}" class="sheet-mask" catchtap="closeFilePreview" catchtouchmove="noop">
+  <!-- 这个遮罩不能 catchtouchmove：它是弹层的祖先，会把长按选词后拖拽选择手柄的
+     touchmove 冒泡截断，原生「全选 / 拖动选区」就失效了。滚动交给内部 scroll-view。 -->
+  <view wx:if="{{filePreview}}" class="sheet-mask" catchtap="closeFilePreview">
     <view class="sheet delivered-preview" catchtap="noop">
       <view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{filePreview.name}}</text><view class="close-x-wrap" bindtap="closeFilePreview"><view class="sheet-close-x"></view></view></view>
       <text wx:if="{{filePreview.selection}}" class="delivered-preview-note">{{ui['长按文字可选择，或点下方复制']}}</text>
@@ -1709,8 +1808,8 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           />
           <text class="collab-mode-text">{{ui[presetLabel] !== undefined ? ui[presetLabel] : presetLabel}}</text>
         </view>
-        <view class="collab-action collab-refresh {{collaborationBusy ? 'busy' : ''}}" bindtap="refreshCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新协作状态']}}" aria-disabled="{{collaborationBusy}}">
-          <view class="collab-action-disc"><image class="collab-action-icon" src="/assets/icons/sheet-refresh{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/></view>
+        <view class="collab-action collab-refresh {{collaborationBusy ? 'busy' : ''}} {{connected ? 'online' : 'offline'}}" bindtap="refreshCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新协作状态']}}" aria-disabled="{{collaborationBusy}}">
+          <view class="collab-action-disc"><view class="collab-breathe" aria-hidden="true"><view class="collab-breathe-halo"/><view class="collab-breathe-dot"/></view></view>
         </view>
         <view class="collab-action collab-close" bindtap="closeCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['关闭']}}">
           <view class="collab-action-disc"><image class="collab-action-icon" src="/assets/icons/collab-close{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/></view>
@@ -1766,7 +1865,9 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
   <view hidden="{{!turnNavOpen}}" class="turn-overlay {{!turnNavOpen ? 'session-panel-hidden' : ''}}" catchtap="closeTurnNavigator" catchtouchmove="noop">
     <view class="turn-overlay-inner" catchtap="closeTurnNavigator" role="dialog" aria-label="{{ui['对话']}}">
       <view class="turn-scrub-body" id="turn-scrub-body">
-        <view wx:if="{{historyLoading}}" class="turn-history-status">{{historyProgressText}} · {{turnNavItems.length}}</view>
+        <view wx:if="{{turnNavWarming}}" class="turn-history-status">{{turnNavWarmText}} · {{turnNavItems.length}}</view>
+        <view wx:elif="{{historyLoading}}" class="turn-history-status">{{historyProgressText}} · {{turnNavItems.length}}</view>
+        <view wx:elif="{{turnNavWarmText}}" class="turn-history-status">{{turnNavWarmText}} · {{turnNavItems.length}}</view>
         <view wx:elif="{{hasMoreHistory && histError}}" class="turn-history-status turn-history-error" catchtap="retryTurnNavigatorHistory">{{histError}} · {{ui['重试']}}</view>
         <scroll-view
           scroll-y
@@ -1782,12 +1883,12 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           bindtouchcancel="onTurnScrubCancel"
         >
           <view class="turn-scrub-inner">
-            <view class="turn-scrub-spacer" style="height: {{turnNavSpacerPx}}px;"></view>
+            <view class="turn-scrub-spacer" style="height: {{turnNavTopPadPx}}px;"></view>
             <view
-              wx:for="{{turnNavItems}}"
+              wx:for="{{turnNavVisibleItems}}"
               wx:key="key"
-              class="turn-scrub-row {{turnNavActiveIndex === index ? 'active' : ''}}"
-              style="{{turnNavRowStyles[index] || ''}}"
+              class="turn-scrub-row {{turnNavActiveIndex === item.index ? 'active' : ''}}"
+              style="{{turnNavRowStyles[item.index] || ''}}"
               data-key="{{item.key}}"
               catchtap="jumpToTurn"
               role="button"
@@ -1796,11 +1897,11 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
                 <text class="turn-scrub-row-title">{{item.label}}</text>
               </view>
               <view class="turn-scrub-rail-cell">
-                <view class="turn-scrub-row-line" style="width: {{turnNavWidths[index] || 30}}rpx;"></view>
-                <view wx:if="{{turnNavActiveIndex === index}}" class="turn-scrub-dot"></view>
+              <view class="turn-scrub-row-line" style="width: {{turnNavWidths[item.index] || 30}}rpx;"></view>
+              <view wx:if="{{turnNavActiveIndex === item.index}}" class="turn-scrub-dot"></view>
               </view>
             </view>
-            <view class="turn-scrub-spacer" style="height: {{turnNavSpacerPx}}px;"></view>
+            <view class="turn-scrub-spacer" style="height: {{turnNavBottomPadPx}}px;"></view>
           </view>
         </scroll-view>
         <view wx:if="{{!turnNavItems.length}}" class="turn-nav-empty">{{ui['暂无可显示的消息']}}</view>
@@ -1837,6 +1938,14 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           </view>
           <view class="session-menu-row" bindtap="selectMoreAction" data-action="switchSessions" hover-class="session-menu-pressed" role="button">
             <image class="session-menu-icon" src="/assets/icons/list-gray.png" mode="aspectFit"/><text class="session-menu-label">{{ui['会话快捷切换']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+        </view>
+        <view class="session-menu-group">
+          <view class="session-menu-row" bindtap="selectMoreAction" data-action="browsePlugins" hover-class="session-menu-pressed" role="button">
+            <image class="session-menu-icon" src="/assets/icons/{{theme === 'dark' ? 'pinwheel-white.png' : 'pinwheel-ink.png'}}" mode="aspectFit"/><text class="session-menu-label">{{ui['浏览更多插件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+          <view class="session-menu-row" bindtap="selectMoreAction" data-action="createPlugin" hover-class="session-menu-pressed" role="button">
+            <image class="session-menu-icon" src="/assets/icons/{{theme === 'dark' ? 'plus-white.png' : 'plus-gray.png'}}" mode="aspectFit"/><text class="session-menu-label">{{ui['创建你的插件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
           </view>
         </view>
         <view class="session-menu-group">

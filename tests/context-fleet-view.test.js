@@ -2,6 +2,8 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const contextView = require('../miniprogram/utils/context-view');
 
@@ -64,6 +66,44 @@ function assertNoUndefined(value, path) {
 
 // ---------- 状态机 ----------
 
+test('fleet members module renders flat: transparent card and chip groups', () => {
+  const styles = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
+  // 编队成员模块透明化（作用域限定，不影响共享的 .ctx-card / .ctx-gran）
+  // 编队模块每张卡片都去背景：members / summary / graph / comms / 任务板(.fleet-card)
+  for (const selector of ['.ctx-card.fleet-members,', '.ctx-card.fleet-summary,', '.ctx-card.fleet-graph-card,', '.ctx-card.fleet-comms,', '.fleet-card {']) {
+    assert.ok(styles.includes(selector), 'the transparent group covers ' + selector);
+  }
+  assert.match(styles, /\.ctx-card\.fleet-members,[\s\S]{0,200}?\.fleet-card\s*\{[^}]*background:\s*transparent/, 'one grouped rule makes every fleet card transparent');
+  // 只去背景：边框/投影沿用共享规则，不另行移除
+  assert.doesNotMatch(styles, /\.fleet-card\s*\{[^}]*border:\s*0/, 'the fleet cards keep their border');
+  assert.doesNotMatch(styles, /\.fleet-card\s*\{[^}]*box-shadow:\s*none/, 'the fleet cards keep their shadow');
+  assert.match(styles, /\.fleet-member-toolbar \.ctx-gran\s*\{[^}]*background:\s*transparent/, 'the member filter chips drop their group fill');
+  // 任务模块同样去灰：行/空态/chip 组透明（行保留边框）
+  assert.match(styles, /\.fleet-task-row\s*\{[^}]*background:\s*transparent/, 'the task rows drop their fill');
+  assert.match(styles, /\.fleet-task-row\s*\{[^}]*border:\s*1rpx solid var\(--divider\)/, 'the task rows keep their border');
+  assert.match(styles, /\.fleet-task-empty\s*\{[^}]*background:\s*transparent/, 'the task empty state drops its fill');
+  assert.match(styles, /\.fleet-task-card \.fleet-task-gran\s*\{[^}]*background:\s*transparent/, 'the task filter chips drop their group fill');
+  assert.match(styles, /\.fleet-task-status\{[^}]*background:\s*transparent/, 'the base task badge drops its gray fill');
+  // 成员行与 Agent 网络 stage 也不能有填充：后者会把透明卡片透成灰色
+  assert.doesNotMatch(styles, /\.fleet-member\s*\{[^}]*background:\s*var\(--fill\)/, 'the member rows drop their fill');
+  // 成员行保留完整边框（透明内容 + 描边），与网络卡片一致
+  assert.match(styles, /\.fleet-member\s*\{[^}]*border:\s*1rpx solid var\(--border\)/, 'the member rows keep a full border');
+  assert.match(styles, /\.fleet-member\s*\{[^}]*background:\s*transparent/, 'the member rows stay transparent inside');
+  assert.match(styles, /\.fleet-node\{[^}]*background:\s*transparent[^}]*border:\s*1rpx solid var\(--border\)/, 'the network cards stay border-only with transparent content');
+  // 只要边框：基础态无投影（否则透明卡片在白页面上仍像填充卡）；选中态外环保留
+  // 注意区分：transition 列表里的 "box-shadow .2s" 不是阴影声明，要求冒号
+  assert.doesNotMatch(styles, /\.fleet-node\s*\{[^}]*box-shadow\s*:/, 'the resting network card casts no shadow');
+  assert.match(styles, /\.fleet-node\.selected\s*\{[^}]*box-shadow/, 'the selected network card keeps its ring');
+  assert.match(styles, /\.fleet-stage\s*\{[^}]*background:\s*transparent/, 'the graph stage drops its gradient so cards read transparent');
+  assert.doesNotMatch(styles, /linear-gradient\(180deg,\s*var\(--surface\),\s*var\(--fill\)\)/, 'no gradient bleeding through the graph cards');
+  assert.doesNotMatch(styles, /\.fleet-member-toolbar \.ctx-gran\s*\{[^}]*border:\s*0/, 'the chip group keeps its border');
+  // 共享规则不被误伤：浏览器/趋势的 chip 组仍保有底色
+  assert.match(styles, /\.ctx-gran\s*\{[^}]*background:\s*var\(--fill\)/, 'the shared chip group keeps its fill elsewhere');
+  const template = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  assert.match(template, /class="ctx-card fleet-members"/, 'the members card carries the scoping class');
+  assert.match(template, /class="fleet-member-toolbar"/, 'the member toolbar carries the scoping class');
+});
+
 test('buildFleetPanel reports disconnected / no-session / loading before any snapshot', () => {
   assert.equal(contextView.buildFleetPanel(null, { connected: false }).status, 'disconnected');
   assert.equal(
@@ -122,8 +162,8 @@ test('buildFleetPanel shows an empty state when the family has no agents', () =>
 
 // ---------- 总览 ----------
 
-test('overview uses host counts and sums the family token usage', () => {
-  const panel = build(sampleFleet());
+test('overview derives counts and context-token totals from the DSH headline, not billed usage', () => {
+  const panel = build(sampleFleet({ counts: { agents: 1, running: 0, subagents: 0 } }));
   assert.equal(panel.status, 'ready');
   assert.equal(panel.asOfSeq, 42);
   assert.equal(panel.overview.agents, 3);
@@ -132,8 +172,10 @@ test('overview uses host counts and sums the family token usage', () => {
   assert.equal(panel.overview.runningText, '1');
   assert.equal(panel.overview.subagents, 2);
   assert.equal(panel.overview.subagentsText, '2');
-  assert.equal(panel.overview.tokensTotal, 10461 + 2500 + 0);
-  assert.equal(panel.overview.tokensText, '13.0k');
+  assert.equal(panel.overview.tokensTotal, 1500 + 250 + 9);
+  assert.equal(panel.overview.tokensText, '1.8k');
+  assert.equal(panel.summary.chips[0].text, '3 个 Agent');
+  assert.equal(panel.summary.chips[1].text, '1 个运行中');
   assertNoUndefined(panel);
 });
 
@@ -167,6 +209,23 @@ test('agent cards preserve hierarchy order and indent by depth', () => {
   assert.match(cards[1].branchLineStyle, /bottom:0/);
   assert.equal(cards[0].title, '主会话');
   assert.equal(cards[1].title, '审阅子会话');
+});
+
+test('agent cards preserve subagent history addresses for communication scans', () => {
+  const panel = build({
+    rootSessionId: 'root', currentSessionId: 'root',
+    agents: [
+      { sessionId: 'root', depth: 0, isRoot: true },
+      { sessionId: 'child', depth: 1, parentSessionId: 'root', origin: 'subagent', mode: 'continuable' },
+      { sessionId: 'grandchild', depth: 2, parentSessionId: 'child', origin: 'subagent', mode: 'one-shot' }
+    ]
+  });
+  assert.deepEqual(panel.agents.slice(1).map(function (card) {
+    return [card.sessionId, card.origin, card.parentSessionId, card.mode];
+  }), [
+    ['child', 'subagent', 'root', 'continuable'],
+    ['grandchild', 'subagent', 'child', 'one-shot']
+  ]);
 });
 
 test('agent cards cap indentation but keep the reported depth', () => {
@@ -288,6 +347,19 @@ test('buildFleetPanel localises authored labels through the injected t()', () =>
     t: translate, connected: true, hasSession: true
   });
   assert.equal(unsupported.stateText, 'E:需升级网关以显示编队');
+});
+
+test('fleet comms localises the completed continuable and one-shot child reports', () => {
+  const translate = key => 'E:' + key;
+  const panel = build(sampleFleet(), null, {
+    t: translate,
+    commsValue: { scanned: 3, total: 2, messages: [
+      { seq: 3, time: 3000, kind: 'settled', from: 'session-child', to: 'session-root', text: 'Background subagent child finished and will do no further work unless you send it more.' },
+      { seq: 2, time: 2000, kind: 'settled', from: 'session-grandchild', to: 'session-child', text: 'Background subagent child finished. It cannot receive follow-up messages.' },
+    ] }
+  });
+  assert.equal(panel.comms.rows[0].text, 'E:完成了任务，等待新指令');
+  assert.equal(panel.comms.rows[1].text, 'E:已完成（一次性，无法追问）');
 });
 
 // ---------- store 帧处理（context-fleet） ----------
@@ -458,6 +530,41 @@ function pageFixture() {
   return { page, calls, store };
 }
 
+test('member sort expands under its control and closes after selecting an option', () => {
+  const { page } = pageFixture();
+  page.fleetPanelPatch = () => ({ fleetPanel: {} });
+  page.openFleetMemberSort();
+  assert.equal(page.data.fleetMemberSortOpen, true);
+  page.openFleetMemberSort();
+  assert.equal(page.data.fleetMemberSortOpen, false, 'tapping the control toggles the menu closed');
+  page.openFleetMemberSort();
+  page.setFleetMemberSort({ currentTarget: { dataset: { sort: 'steps' } } });
+  assert.equal(page.data.fleetMemberSort, 'steps');
+  assert.equal(page.data.fleetMemberSortOpen, false);
+});
+
+test('entering the fleet tab starts the on-demand comms scan after its panel is rendered', () => {
+  const { page, calls } = pageFixture();
+  page.data.tab = 'context';
+  page.data.showFleetPanel = true;
+  page.fleetPanelPatch = () => ({ fleetPanel: { agents: [{ sessionId: 'root' }, { sessionId: 'child' }] } });
+  page.measureFleetStage = () => {};
+  page.maybeAutoScanFleetComms = () => calls.push(['autoScanComms']);
+  page.prioritizeInteraction = () => {};
+  page.cancelVoice = () => {};
+  page.closeAttachMenu = () => {};
+  const setData = page.setData;
+  page.setData = function (patch, callback) {
+    setData.call(this, patch);
+    if (typeof callback === 'function') callback();
+  };
+
+  page.switchTab({ currentTarget: { dataset: { tab: 'fleet' } } });
+
+  assert.equal(page.data.tab, 'fleet');
+  assert.ok(calls.some(call => call[0] === 'autoScanComms'), 'scan is kicked off after setData mounts the fleet panel');
+});
+
 test('horizontal gestures walk conversation ⇄ trajectory ⇄ context ⇄ fleet', () => {
   const { page, calls } = pageFixture();
   page.updateDockInset = function () {};
@@ -542,6 +649,8 @@ test('v2 fleet matches team members to agents and shows role / phase / latest an
   assert.equal(child.phaseClass, 'idle');
   assert.equal(panel.agents[2].hasAnswer, false);
   assert.equal(panel.agents[2].phaseText, '');
+  assert.equal(panel.members.rows.find(row => row.id === 'session-root').stateKind, 'idle',
+    'inactive leads keep DSH’s neutral dot even when the session has recent activity');
   assertNoUndefined(panel);
 });
 
@@ -554,26 +663,43 @@ test('v2 fleet truncates the latest answer and ignores hostile team payloads', (
   assert.equal(panel.agents[0].lastAnswer.length, 241, 'the client caps the answer at 240 chars plus an ellipsis');
   assert.equal(panel.agents[0].phaseText, 'weird', 'unknown phases pass through as data');
   assert.equal(panel.team.hasTeam, true);
-  assert.deepEqual(panel.team.tasks, []);
-  assert.equal(panel.team.tasksEmpty, true);
+  assert.equal(panel.team.tasks.length, 1, 'unrostered family agents appear even if the persisted task array is malformed');
+  assert.equal(panel.team.tasks[0].kind, 'agent');
 });
 
 test('v2 fleet task rows carry subject, status badge and owner with an empty state', () => {
   const panel = build(sampleTeamFleet());
   assert.equal(panel.team.hasTeam, true);
-  assert.equal(panel.team.tasks.length, 3);
-  assert.deepEqual(panel.team.tasks.map(task => task.subject), ['实现组件', '审查实现', '补充测试']);
-  assert.deepEqual(panel.team.tasks.map(task => task.statusText), ['进行中', '已完成', '待处理']);
-  assert.deepEqual(panel.team.tasks.map(task => task.statusClass), ['active', 'done', 'pending']);
+  assert.equal(panel.team.tasks.length, 4);
+  assert.deepEqual(panel.team.tasks.slice(0, 3).map(task => task.subject), ['实现组件', '审查实现', '补充测试']);
+  assert.deepEqual(panel.team.tasks.slice(0, 3).map(task => task.statusText), ['进行中', '已完成', '待处理']);
+  assert.deepEqual(panel.team.tasks.slice(0, 3).map(task => task.statusClass), ['active', 'done', 'pending']);
+  assert.deepEqual(panel.team.tasks.slice(0, 3).map(task => task.kind), ['team', 'team', 'team']);
+  assert.equal(panel.team.tasks[3].kind, 'agent', 'unrostered family sessions are listed as delegated work');
+  assert.equal(panel.team.tasks[3].subject, '孙会话');
   assert.equal(panel.team.tasks[0].ownerText, '阿青');
-  assert.equal(panel.team.tasks[2].hasOwner, false);
-  assert.equal(panel.team.taskCountText, '3');
-  // 没有 team 投影：显示空任务态。
+  assert.equal(panel.team.tasks[2].ownerText, '');
+  assert.equal(panel.team.teamTaskCount, 3, 'only persisted tasks drive the team progress summary');
+  assert.equal(panel.team.taskCountText, '4', 'the task-board count also includes delegated agents');
+  // Match DSH's filters: real tasks and delegated agents share the same status buckets.
+  const active = build(sampleTeamFleet(), null, { taskStatus: 'in_progress' });
+  assert.deepEqual(active.team.tasks.map(task => task.subject), ['实现组件']);
+  assert.equal(active.team.statusChips[1].count, 1);
+  const all = build(sampleTeamFleet(), null, { taskStatus: 'all' });
+  assert.equal(all.team.tasks.length, 4, 'the all filter remains inclusive');
+  // Family sessions populate the board even if no Agent Teams projection is present.
   const noTeam = build(sampleFleet({ team: undefined }));
-  assert.equal(noTeam.team.hasTeam, false);
-  assert.equal(noTeam.team.tasksEmpty, true);
-  assert.ok(noTeam.team.tasksEmptyText.length > 0);
-  assert.equal(build(sampleTeamFleet({ team: { tasks: [] } })).team.tasksEmpty, true);
+  assert.equal(noTeam.team.tasksEmpty, false);
+  assert.equal(noTeam.team.tasks.length, 2);
+  assert.equal(noTeam.team.tasks.every(task => task.kind === 'agent'), true);
+  const emptyTeam = build(sampleTeamFleet({ team: { tasks: [] } }));
+  assert.equal(emptyTeam.team.tasksEmpty, false, 'a family delegation still appears when the shared team task list is empty');
+  assert.equal(emptyTeam.team.tasks.length, 2);
+  const solo = build(sampleFleet({ rootSessionId: 'only', currentSessionId: 'only', agents: [{ sessionId: 'only', title: '当前会话', isCurrent: true }] }));
+  assert.equal(solo.team.tasksEmpty, true);
+  assert.ok(solo.team.tasksEmptyText.length > 0);
+  assert.equal(build(sampleTeamFleet({ team: { tasks: [], members: [] } })).team.tasks.length, 2,
+    'without a roster, both non-current family sessions are delegated rows');
 });
 
 test('v2 fleet shows the delegation hint only for a single agent', () => {

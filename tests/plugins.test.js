@@ -225,6 +225,29 @@ test('page binds every handler and displays desktop sections, More and install a
   page.onUnload();
 });
 
+test('plugin deep links open Discover or start creator once when shown', () => {
+  const root = path.join(__dirname, '..', 'miniprogram'); let definition;
+  const fakeStore = { state: { activeID: 'a', connection: 'connected', pluginCatalog: buildCatalog({ managementAvailable: true, bundles: [], officialItems: [] }) }, subscribe: () => () => {}, refreshPlugins() {} };
+  const file = path.join(root, 'pages/plugins/plugins.js'), module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(file, 'utf8'), { module, Page: d => { definition = d; }, Set,
+    require: name => name.endsWith('/store') ? fakeStore : name.endsWith('/theme') ? { applyTo() {} } : (name === './install-actions' || name === './market-actions') ? require(path.join(root, 'pages/plugins', name.slice(2) + '.js')) : require(path.resolve(root, 'pages/plugins', name)),
+    wx: { getWindowInfo: () => ({ statusBarHeight: 44 }) } });
+  const makePage = () => ({ ...definition, data: JSON.parse(JSON.stringify(definition.data)), setData(p) { Object.assign(this.data, p); } });
+  const discover = makePage(); let marketLoads = 0;
+  discover.loadMarketSources = () => { marketLoads++; };
+  discover.onLoad({ tab: 'discover' });
+  assert.equal(discover.data.pluginTab, 'discover');
+  assert.equal(marketLoads, 1, 'opening Discover from the session menu starts loading its marketplace');
+  discover.onUnload();
+
+  const creator = makePage(); let creates = 0;
+  creator.createPluginSession = () => { creates++; };
+  creator.onLoad({ action: 'create' });
+  creator.onShow(); creator.onShow();
+  assert.equal(creates, 1, 'the create action is consumed once even if the page is shown again');
+  creator.onUnload();
+});
+
 test('Codex and Claude Code use Host version targets instead of plain enable', async () => {
   for (const suffix of ['codex', 'claude-code']) {
     const f = fixture(), name = '@deepseek-ai/dsh-subagent-' + suffix;

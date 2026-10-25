@@ -1,6 +1,17 @@
 // Pure view-model helpers for the cross-session Context Insights page.
 const CATEGORY_KEYS = ['system', 'tools', 'user', 'inject', 'skill', 'assistant', 'tool', 'output'];
+const SESSION_RING_KEYS = CATEGORY_KEYS.filter((key) => key !== 'output');
+const SESSION_RING_COLORS = {
+  system: 'var(--ins-session-c-blue)',
+  tools: 'var(--ins-session-c-orange)',
+  user: 'var(--ins-session-c-green)',
+  inject: 'var(--ins-session-c-light-blue)',
+  skill: 'var(--ins-session-c-amber)',
+  assistant: 'var(--ins-session-c-blue)',
+  tool: 'var(--ins-session-c-deep-green)'
+};
 const CATEGORY_LABELS = { system: '系统提示词', tools: '工具定义', user: '用户消息', inject: '注入内容', skill: '技能注入', assistant: '助手消息', tool: '工具结果', output: '输出' };
+const SKILL_COLORS = ['#2B7FFF', '#00C950', '#AD46FF', '#FF6900', '#00BBA7', '#F6339A', '#615FFF', '#FE9A00'];
 const RANGES = ['today', 7, 30, 0]; // 0 = all
 const PAGE_SIZE = 12;
 
@@ -28,6 +39,16 @@ function duration(ms) {
   return Math.floor(minutes / 60) + 'h' + (minutes % 60) + 'm';
 }
 
+function relativeAge(ms, now, t) {
+  if (num(ms) <= 0) return '—';
+  const age = Math.max(0, num(now) - num(ms));
+  if (age < 60000) return t('刚刚');
+  if (age < 3600000) return t('{n} 分钟前', { n: Math.floor(age / 60000) });
+  if (age < 86400000) return t('{n} 小时前', { n: Math.floor(age / 3600000) });
+  if (age < 30 * 86400000) return t('{n} 天前', { n: Math.floor(age / 86400000) });
+  return dayKeyOf(ms);
+}
+
 function percent(part, total) {
   const p = num(part);
   const t = num(total);
@@ -40,6 +61,51 @@ function percent(part, total) {
 
 function text(value) { return typeof value === 'string' ? value : ''; }
 function isObject(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+
+function skillColor(name) {
+  let hash = 5381;
+  for (let index = 0; index < name.length; index += 1) hash = ((hash << 5) + hash + name.charCodeAt(index)) >>> 0;
+  return SKILL_COLORS[hash % SKILL_COLORS.length];
+}
+
+// Known discovery sources localize (dsh-context overviewSkills.ts); other values display raw.
+function skillSourceLabel(source, t) {
+  const value = text(source);
+  if (value === 'project-dsh' || value === 'project-agents' || value === 'project') return t('项目');
+  if (value === 'user-dsh' || value === 'user-agents' || value === 'user') return t('用户');
+  if (value === 'bundled') return t('内置');
+  return value;
+}
+
+// dsh-context's donut dims every other slice while a legend row is hovered; the
+// touch equivalent keeps those states on a tapped row. `focusStyle` overlays a
+// colored rim on the conic-gradient ring because box-shadow follows its radius.
+const TIMING_COLOR_VARS = {
+  ttft: 'var(--ins-time-ttft)',
+  reasoning: 'var(--ins-time-reasoning)',
+  text: 'var(--ins-time-text)',
+  'tool-args': 'var(--ins-time-tool-args)',
+  tools: 'var(--ins-time-tools)',
+  other: 'var(--ins-time-other)'
+};
+
+function withRingFocus(ring, focusKey, kind) {
+  const source = isObject(ring) ? ring : {};
+  const key = text(focusKey);
+  const mark = (row) => ({
+    ...row,
+    focused: key !== '' && text(row && row.key) === key,
+    focusDim: key !== '' && text(row && row.key) !== key
+  });
+  const next = { ...source, rows: (Array.isArray(source.rows) ? source.rows : []).map(mark) };
+  if (Array.isArray(source.visibleRows)) next.visibleRows = source.visibleRows.map(mark);
+  const color = kind === 'timing'
+    ? TIMING_COLOR_VARS[key]
+    : (key !== '' ? 'var(--ctx-c-' + key + ')' : '');
+  const style = text(source.style);
+  if (key !== '' && color && style) next.focusStyle = style + ';box-shadow:inset 0 0 0 4rpx ' + color;
+  return next;
+}
 
 function dayKeyOf(ms) {
   const date = new Date(num(ms));
@@ -92,9 +158,10 @@ function dailyChart(days) {
     return {
       key: 'day-' + index,
       day: text(item && item.day),
-      label: Number.isFinite(date.getTime()) ? String(date.getDate()) : '',
+      label: text(item && item.day).slice(5) || (Number.isFinite(date.getTime()) ? String(date.getDate()) : ''),
       tokensText: tokens > 0 ? compact(tokens) : '',
       costText: costText(item && item.costUsd, item && item.currency),
+      ariaLabel: text(item && item.day) + ' · ' + compact(tokens) + ' token · ' + costText(item && item.costUsd, item && item.currency),
       height: max > 0 && tokens > 0 ? Math.max(4, Math.round((tokens / max) * 100)) : 0,
       costHeight: maxCost > 0 && item && item.costUsd !== null && item.costUsd !== undefined
         ? Math.max(4, Math.round((Number(item.costUsd) / maxCost) * 100)) : 0
@@ -102,26 +169,31 @@ function dailyChart(days) {
   });
 }
 
-function heatmap(days, metric, now, selectedDay) {
+function heatmap(days, metric, now, selectedDay, locale) {
   const source = new Map((Array.isArray(days) ? days : []).map((item) => [text(item && item.day), item]));
   const today = localMidnight(now);
   const todayDate = new Date(today);
-  const sundayOffset = todayDate.getDay();
-  const firstOffset = 55 + sundayOffset;
+  const lastSunday = new Date(today);
+  lastSunday.setDate(lastSunday.getDate() - todayDate.getDay());
+  const firstSunday = new Date(lastSunday);
+  firstSunday.setDate(firstSunday.getDate() - 49);
   const cells = [];
   for (let index = 0; index < 56; index += 1) {
-    const date = new Date(today);
-    date.setDate(date.getDate() - firstOffset + index);
+    const date = new Date(firstSunday);
+    date.setDate(date.getDate() + index);
     const time = localMidnight(date.getTime());
     const key = dayKeyOf(time);
     const entry = source.get(key) || {};
+    const sessions = num(entry.sessions);
+    const tokens = num(entry.tokens);
     cells.push({
       key: 'heat-' + index,
       day: key,
-      tokens: num(entry.tokens),
-      sessions: num(entry.sessions),
-      available: num(entry.tokens) > 0 || num(entry.sessions) > 0,
-      value: metric === 'sessions' ? num(entry.sessions) : num(entry.tokens),
+      tokens,
+      sessions,
+      available: tokens > 0 || sessions > 0,
+      ariaLabel: key + ' · ' + sessions + ' 个活跃会话 · ' + compact(tokens) + ' token',
+      value: metric === 'sessions' ? sessions : tokens,
       selected: key === selectedDay,
       future: time > today
     });
@@ -132,13 +204,37 @@ function heatmap(days, metric, now, selectedDay) {
     cell.level = cell.future || cell.value <= 0 ? 0 : ratio > 0.75 ? 4 : ratio > 0.5 ? 3 : ratio > 0.25 ? 2 : 1;
   });
   return {
-    weeks: Array.from({ length: 8 }, (_, week) => ({
-      key: 'week-' + week,
-      cells: cells.slice(week * 7, week * 7 + 7)
-    })),
+    weeks: Array.from({ length: 8 }, (_, week) => {
+      const weekCells = cells.slice(week * 7, week * 7 + 7);
+      const first = weekCells[0] && weekCells[0].day;
+      const last = weekCells[6] && weekCells[6].day;
+      const opensMonth = week === 0 || (first && last && first.slice(0, 7) !== last.slice(0, 7))
+        || (first && first.slice(-2) === '01');
+      const month = last ? Number(last.slice(5, 7)) : 0;
+      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      return {
+        key: 'week-' + week,
+        monthLabel: opensMonth && month > 0 ? (locale === 'en' ? monthNames[month - 1] : month + '月') : '',
+        cells: weekCells
+      };
+    }),
+    weekdayLabels: locale === 'en' ? ['', 'M', '', 'W', '', 'F', ''] : ['', '一', '', '三', '', '五', ''],
     maxText: max > 0 ? compact(max) : '—',
-    selectedDay: selectedDay || ''
+    selectedDay: selectedDay || '',
+    hasActivity: cells.some((cell) => !cell.future && cell.available)
   };
+}
+
+function weeklyTicks(days, currency) {
+  const maxTokens = (Array.isArray(days) ? days : []).reduce((max, day) => Math.max(max, num(day && day.tokens)), 0);
+  const maxCost = (Array.isArray(days) ? days : []).reduce((max, day) => Math.max(max, num(day && day.costUsd)), 0);
+  const cost = (value) => maxCost <= 0 ? '—'
+    : (currency === 'cny' ? '¥' : '$') + (value >= 1 ? value.toFixed(2) : value.toPrecision(2));
+  return [100, 75, 50, 25, 0].map((share) => ({
+    key: 'tick-' + share,
+    tokens: compact(maxTokens * share / 100),
+    cost: share === 0 && maxCost > 0 ? '0' : cost(maxCost * share / 100)
+  }));
 }
 
 function compositionRing(composition, t) {
@@ -154,56 +250,95 @@ function compositionRing(composition, t) {
       stops.push('var(--ctx-c-' + key + ') ' + start.toFixed(2) + '% ' + end.toFixed(2) + '%');
       acc += value;
     }
-    return { key, label: t(CATEGORY_LABELS[key] || key), valueText: compact(value), pctText: percent(value, total), dim: value <= 0 };
+    const valueText = (key === 'output' ? '' : '≈') + compact(value);
+    return {
+      key,
+      label: t(CATEGORY_LABELS[key] || key),
+      valueText,
+      subText: key === 'output' ? valueText + ' · ' + t('含思考') : valueText,
+      pctText: percent(value, total),
+      dim: value <= 0
+    };
   });
-  return { available: stops.length > 0, style: stops.length ? 'background:conic-gradient(' + stops.join(',') + ');' : '', rows, totalText: compact(total) };
+  return { available: stops.length > 0, style: stops.length ? 'background:conic-gradient(' + stops.join(',') + ');' : '', rows, visibleRows: total > 0 ? rows.filter((row) => !row.dim) : [], totalText: compact(total) };
 }
 
 function currentRing(session) {
   const composition = isObject(session.composition) ? session.composition : {};
-  const total = CATEGORY_KEYS.reduce((sum, key) => sum + num(composition[key]), 0);
+  // This card depicts current context only; lifetime generated output belongs in usage stats, not this ring.
+  const total = SESSION_RING_KEYS.reduce((sum, key) => sum + num(composition[key]), 0);
   let acc = 0;
   const stops = [];
-  CATEGORY_KEYS.forEach((key) => {
+  SESSION_RING_KEYS.forEach((key) => {
     const value = num(composition[key]);
     if (value > 0 && total > 0) {
       const start = (acc / total) * 100;
       acc += value;
-      stops.push('var(--ctx-c-' + key + ') ' + start.toFixed(2) + '% ' + ((acc / total) * 100).toFixed(2) + '%');
+      stops.push(SESSION_RING_COLORS[key] + ' ' + start.toFixed(2) + '% ' + ((acc / total) * 100).toFixed(2) + '%');
     }
   });
   return { total, style: stops.length ? 'background:conic-gradient(' + stops.join(',') + ');' : '' };
 }
 
 function timingRing(timing, t) {
-  const modelMs = num(timing.ttftMs) + num(timing.generationMs);
+  const ttftMs = num(timing.ttftMs);
+  const reasoningMs = num(timing.reasoningMs);
+  const textMs = num(timing.textMs);
+  const toolArgMs = num(timing.toolArgMs);
   const toolsMs = num(timing.toolsMs);
   const total = num(timing.wallMs);
-  const otherMs = Math.max(num(timing.timingOtherMs), total - modelMs - toolsMs);
-  const parts = [
-    { key: 'model', label: t('模型生成'), value: modelMs, color: 'var(--ins-time-model)' },
-    { key: 'tools', label: t('工具'), value: toolsMs, color: 'var(--ins-time-tools)' },
-    { key: 'other', label: t('其他'), value: otherMs, color: 'var(--ins-time-other)' }
+  const otherMs = Math.max(num(timing.timingOtherMs), total - ttftMs - reasoningMs - textMs - toolArgMs - toolsMs);
+  const measuredParts = [
+    { key: 'ttft', label: t('模型等待'), value: ttftMs, count: num(timing.waitCount), color: 'var(--ins-time-ttft)' },
+    { key: 'reasoning', label: t('模型思考'), value: reasoningMs, count: num(timing.reasoningCount), color: 'var(--ins-time-reasoning)' },
+    { key: 'text', label: t('模型回复'), value: textMs, count: num(timing.textCount), color: 'var(--ins-time-text)' },
+    { key: 'tool-args', label: t('工具参数'), value: toolArgMs, count: num(timing.toolArgCount), color: 'var(--ins-time-tool-args)' },
+    { key: 'tools', label: t('工具执行'), value: toolsMs, count: num(timing.toolCount), color: 'var(--ins-time-tools)' }
   ];
+  // A gateway that only reports a session wall time has no timing breakdown;
+  // render the honest empty note instead of a fabricated "其他开销 100%".
+  const measuredTotalMs = measuredParts.reduce((sum, part) => sum + part.value, 0);
+  if (measuredTotalMs <= 0) {
+    return { totalText: duration(total), style: '', rows: [] };
+  }
+  let remaining = total;
+  const parts = measuredParts.map((part) => {
+    const ringValue = Math.min(part.value, remaining);
+    remaining = Math.max(0, remaining - ringValue);
+    return { ...part, ringValue };
+  });
+  parts.push({ key: 'other', label: t('其他开销'), value: otherMs, ringValue: remaining, count: 0, color: 'var(--ins-time-other)' });
   let offset = 0;
   const stops = [];
   parts.forEach((part) => {
-    if (part.value <= 0 || total <= 0) return;
+    if (part.ringValue <= 0 || total <= 0) return;
     const start = offset / total * 100;
-    offset += part.value;
+    offset += part.ringValue;
     stops.push(part.color + ' ' + start.toFixed(2) + '% ' + (offset / total * 100).toFixed(2) + '%');
+  });
+  const rows = parts.map((part) => {
+    const countText = part.count > 0 ? compact(part.count) + ' ' + t('次') : '';
+    const valueText = duration(part.value);
+    return {
+      ...part,
+      valueText,
+      countText,
+      subText: valueText + (countText ? ' · ' + countText : ''),
+      pctText: percent(part.ringValue, total),
+      dim: part.value <= 0
+    };
   });
   return {
     totalText: duration(total),
     style: stops.length ? 'background:conic-gradient(' + stops.join(',') + ');' : '',
-    rows: parts.map((part) => ({ ...part, valueText: duration(part.value), pctText: percent(part.value, total), dim: part.value <= 0 }))
+    rows: total > 0 ? rows.filter((row) => !row.dim || row.key === 'other') : []
   };
 }
 
 function sortSessions(sessions, sort) {
   const copy = sessions.slice();
   if (sort === 'tokens') copy.sort((a, b) => num(b.billedTokens) - num(a.billedTokens) || num(b.lastActive) - num(a.lastActive));
-  else if (sort === 'context') copy.sort((a, b) => num(b.pressureTokens) - num(a.pressureTokens) || num(b.lastActive) - num(a.lastActive));
+  else if (sort === 'context') copy.sort((a, b) => num(b.contextTokens !== undefined ? b.contextTokens : b.pressureTokens) - num(a.contextTokens !== undefined ? a.contextTokens : a.pressureTokens) || num(b.lastActive) - num(a.lastActive));
   else copy.sort((a, b) => num(b.lastActive) - num(a.lastActive));
   return copy;
 }
@@ -269,7 +404,7 @@ function deriveInsights(value, rangeDays, t, now, options) {
       if (!isObject(day) || (num(day.tokens) <= 0 && num(day.requests) <= 0)) return false;
     }
     if (!query) return true;
-    return [session.title, session.id, session.model, session.provider, session.cwd, session.lastAnswer].some((item) => text(item).toLowerCase().includes(query));
+    return [session.title, session.id, session.model, session.provider, session.cwd, session.lastUser].some((item) => text(item).toLowerCase().includes(query));
   });
   const groupCounts = Object.create(null);
   let ungroupedCount = 0;
@@ -291,6 +426,7 @@ function deriveInsights(value, rangeDays, t, now, options) {
   const visible = sortSessions(listScoped, sort);
   const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const page = Math.max(0, Math.min(Math.floor(num(opts.page)), pageCount - 1));
+  const knownTitles = isObject(opts.sessionTitles) ? opts.sessionTitles : {};
   const cards = visible.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE).map((session, index) => {
     const window = num(session.contextWindow);
     const pressure = num(session.pressureTokens);
@@ -300,52 +436,65 @@ function deriveInsights(value, rangeDays, t, now, options) {
       width: num(session.composition && session.composition[key]) > 0 && pressure > 0
         ? Math.min(100, (num(session.composition[key]) / pressure) * 100) : 0
     })).filter((part) => part.width > 0);
-    const percentUsed = window > 0 ? pressure / window : 0;
-    const ageMs = Math.max(0, today - num(session.lastActive));
+    const contextTokens = typeof session.contextTokens === 'number' && Number.isFinite(session.contextTokens)
+      ? Math.max(0, session.contextTokens) : pressure;
+    const percentUsed = window > 0 ? contextTokens / window : 0;
     const archived = workspace.archived.has(text(session.id)) || session.archived === true;
     const group = workspace.groups[text(session.id)] || '';
+    const project = projectName(session.cwd);
+    // A workspace named after its own project shows the name once (overviewCard).
+    const groupLabel = group !== '' && group !== project ? group : '';
     const activityDays = Object.keys(isObject(session.days) ? session.days : {}).sort();
     const createdDay = num(session.createdAt) > 0 ? dayKeyOf(session.createdAt) : activityDays[0] || '';
     return {
       key: 'session-' + page + '-' + index + '-' + text(session.id),
       id: text(session.id),
-      title: text(session.title) || text(session.id),
+      // Legacy wires leave the title blank; the cached session list still
+      // knows the task name, so the cards never fall back to a bare id.
+      title: text(session.title) || text(knownTitles[text(session.id)]) || text(session.id),
       model: text(session.model),
       provider: text(session.provider),
       cwd: text(session.cwd),
-      group,
-      project: projectName(session.cwd),
+      group: groupLabel,
+      project,
       archived,
       running: session.running === true,
       current: session.current === true || text(opts.currentSessionId) === text(session.id),
       createdDay,
-      createdText: createdDay ? ' · ' + createdDay : '',
+      createdText: createdDay,
       billedText: compact(session.billedTokens),
       inputText: compact(session.inputTokens),
       outputText: compact(session.outputTokens),
       cacheWriteText: compact(session.cacheWriteTokens),
       turnsText: compact(session.turns),
       stepsText: compact(session.steps),
+      turnsStepsText: t('{n} 轮 {s} 步', { n: compact(session.turns), s: compact(session.steps) }),
       toolText: compact(session.toolCalls),
       activeText: duration(session.activeMs),
       parts,
       ringStyle: ring.style,
       ringTotalText: compact(ring.total),
-      pctText: window > 0 ? percent(pressure, window) : '—',
+      contextCenterText: compact(contextTokens),
+      hasContextData: window > 0 || contextTokens > 0 || num(session.billedTokens) > 0,
+      pctText: window > 0 ? percent(contextTokens, window) : '—',
       pctColor: percentUsed >= 0.9 ? '#FB2C36' : percentUsed >= 0.7 ? '#FE9A00' : '#00C950',
       contextText: window > 0 ? compact(pressure) + ' / ' + compact(window) : '',
+      workspaceText: [group, projectName(session.cwd)].filter(Boolean).filter((name, partIndex, names) => names.indexOf(name) === partIndex).join(' / '),
       metaText: [text(session.model), text(session.provider)].filter(Boolean).join(' · '),
-      lastAnswer: text(session.lastAnswer),
+      lastMessage: text(session.lastUser),
       costText: costText(session.costUsd, opts.currency),
-      updatedText: ageMs < 60000 ? t('刚刚') : duration(ageMs) + ' ' + t('前')
+      updatedText: relativeAge(num(session.lastActive) || num(session.createdAt), today, t)
     };
   });
   const tokenFloor = customRange ? customRange.from : range === 0 ? null : dayKeyOf(rangeStart(range, today));
   const tokenCeiling = customRange ? customRange.to : dayKeyOf(today);
   const hasScopedTokenDays = tokenFloor !== null && inRange.some((session) => Object.keys(isObject(session.days) ? session.days : {})
-    .some((key) => key >= tokenFloor && key <= tokenCeiling));
+    .some((key) => key >= tokenFloor && key <= tokenCeiling
+      && (num(session.days[key].tokens) > 0 || num(session.days[key].requests) > 0
+        || num(session.days[key].inputTokens) > 0 || num(session.days[key].outputTokens) > 0)));
   const hasScopedActivityDays = tokenFloor !== null && inRange.some((session) => Object.keys(isObject(session.days) ? session.days : {})
-    .some((key) => key >= tokenFloor && key <= tokenCeiling && (session.days[key].turns !== undefined || session.days[key].toolCalls !== undefined || session.days[key].wallMs !== undefined)));
+    .some((key) => key >= tokenFloor && key <= tokenCeiling
+      && (num(session.days[key].turns) > 0 || num(session.days[key].toolCalls) > 0 || num(session.days[key].wallMs) > 0)));
   const hasScopedCostDays = tokenFloor !== null && inRange.some((session) => Object.keys(isObject(session.days) ? session.days : {})
     .some((key) => key >= tokenFloor && key <= tokenCeiling && session.days[key].costUsd !== undefined));
   const totals = inRange.reduce((sum, session) => {
@@ -364,7 +513,11 @@ function deriveInsights(value, rangeDays, t, now, options) {
       Object.keys(days).forEach((key) => {
         if (key < tokenFloor || key > tokenCeiling) return;
         const daily = days[key];
-        sum.billedTokens += num(daily.tokens);
+        // Provider-billed days carry input (uncached + cache read/write) and output;
+        // the request-total estimate is only a fallback for ledgers without them.
+        const dailyBilled = (daily.inputTokens !== undefined || daily.outputTokens !== undefined)
+          ? num(daily.inputTokens) + num(daily.outputTokens) : num(daily.tokens);
+        sum.billedTokens += dailyBilled;
         sum.inputTokens += num(daily.inputTokens);
         sum.cacheReadTokens += num(daily.cacheReadTokens);
         sum.cacheWriteTokens += num(daily.cacheWriteTokens);
@@ -372,6 +525,25 @@ function deriveInsights(value, rangeDays, t, now, options) {
         billedInput += num(daily.inputTokens);
         billedOutput += num(daily.outputTokens);
       });
+    }
+    const timing = isObject(session.timing) ? session.timing : {};
+    const timingWallMs = num(timing.wallMs) || num(session.activeMs);
+    if (timingWallMs > 0) {
+      sum.timingWallMs += timingWallMs;
+      sum.ttftMs += num(timing.ttftMs);
+      sum.reasoningMs += num(timing.reasoningMs);
+      sum.textMs += num(timing.textMs);
+      sum.toolArgMs += num(timing.toolArgMs);
+      sum.timingToolsMs += num(timing.toolsMs) || num(session.toolMs);
+      sum.timingOtherMs += num(timing.otherMs);
+      sum.generationMs += num(timing.generationMs) || num(timing.reasoningMs) + num(timing.textMs) + num(timing.toolArgMs);
+      sum.waitCount += num(timing.waitCount);
+      sum.reasoningCount += num(timing.reasoningCount);
+      sum.textCount += num(timing.textCount);
+      sum.toolArgCount += num(timing.toolArgCount);
+      sum.toolCount += num(timing.toolCount);
+      sum.speedTokens += num(timing.speedTokens);
+      sum.speedMs += num(timing.speedMs);
     }
     if (tokenFloor !== null && hasScopedActivityDays) {
       Object.keys(isObject(session.days) ? session.days : {}).forEach((key) => {
@@ -383,31 +555,15 @@ function deriveInsights(value, rangeDays, t, now, options) {
         sum.toolsMs += num(daily.toolsMs);
         sum.wallMs += num(daily.wallMs);
       });
-      const dayValues = Object.keys(isObject(session.days) ? session.days : {}).filter((key) => key >= tokenFloor && key <= tokenCeiling);
-      dayValues.forEach((key) => {
-        const daily = session.days[key];
-        const wall = num(daily.wallMs);
-        const tools = num(daily.toolsMs);
-        sum.generationMs += Math.max(0, wall - tools);
-      });
     } else {
       sum.turns += num(session.turns);
       sum.steps += num(session.steps);
       sum.toolCalls += num(session.toolCalls);
       sum.activeMs += num(session.activeMs);
-      const timing = isObject(session.timing) ? session.timing : {};
       const sessionToolsMs = num(timing.toolsMs) || num(session.toolMs);
       const sessionWallMs = num(timing.wallMs) || num(session.activeMs);
       sum.toolsMs += sessionToolsMs;
       sum.wallMs += sessionWallMs;
-      sum.ttftMs += num(timing.ttftMs);
-      sum.reasoningMs += num(timing.reasoningMs);
-      sum.textMs += num(timing.textMs);
-      sum.toolArgMs += num(timing.toolArgMs);
-      sum.generationMs += num(timing.reasoningMs) + num(timing.textMs) + num(timing.toolArgMs);
-      sum.timingOtherMs += num(timing.otherMs);
-      sum.speedTokens += num(timing.speedTokens);
-      sum.speedMs += num(timing.speedMs);
     }
     let cost = session.costUsd;
     if (tokenFloor !== null && hasScopedCostDays) {
@@ -437,14 +593,18 @@ function deriveInsights(value, rangeDays, t, now, options) {
     if (rawTotal > 0) sum.composition[largestKey] += billedInput - assigned;
     sum.composition.output += billedOutput;
     return sum;
-  }, { billedTokens: 0, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0, turns: 0, steps: 0, toolCalls: 0, activeMs: 0, toolsMs: 0, wallMs: 0, generationMs: 0, ttftMs: 0, reasoningMs: 0, textMs: 0, toolArgMs: 0, timingOtherMs: 0, speedTokens: 0, speedMs: 0, costUsd: 0, costSessions: 0, composition: emptyComposition() });
+  }, { billedTokens: 0, inputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 0, turns: 0, steps: 0, toolCalls: 0, activeMs: 0, toolsMs: 0, timingToolsMs: 0, wallMs: 0, timingWallMs: 0, generationMs: 0, ttftMs: 0, reasoningMs: 0, textMs: 0, toolArgMs: 0, timingOtherMs: 0, waitCount: 0, reasoningCount: 0, textCount: 0, toolArgCount: 0, toolCount: 0, speedTokens: 0, speedMs: 0, costUsd: 0, costSessions: 0, composition: emptyComposition() });
   const cacheHit = totals.inputTokens > 0 ? totals.cacheReadTokens / totals.inputTokens * 100 : null;
   const cacheSessions = inRange.filter((session) => {
     if (tokenFloor === null) return num(session.inputTokens) > 0;
     return Object.keys(isObject(session.days) ? session.days : {}).some((key) => key >= tokenFloor && key <= tokenCeiling
       && num(session.days[key].inputTokens) > 0);
   }).length;
+  // The 7-day chart and the 8-week heatmap always read a fixed local-day window
+  // ending today (dsh-context overviewUsage/heatmap), independent of the picked
+  // range; session day buckets win, the wire's daily ledger is the fallback.
   const allDays = (Array.isArray(source.days) ? source.days : []).filter(isObject);
+  const wireDays = new Map(allDays.map((day) => [text(day.day), day]));
   const daySessionCount = Object.create(null);
   const dayTokens = Object.create(null);
   const dayCost = Object.create(null);
@@ -458,23 +618,45 @@ function deriveInsights(value, rangeDays, t, now, options) {
       }
     });
   });
-  const enrichedDays = allDays.map((day) => ({ ...day,
-    tokens: Object.keys(dayTokens).length ? dayTokens[text(day.day)] || 0 : num(day.tokens),
-    sessions: daySessionCount[text(day.day)] || 0,
-    costUsd: dayCost[text(day.day)] === undefined ? null : dayCost[text(day.day)],
-    currency: opts.currency
-  }));
+  const dayKeyWindow = [];
+  const windowAnchor = new Date(localMidnight(today));
+  for (let offset = 55; offset >= 0; offset -= 1) {
+    const date = new Date(windowAnchor.getTime());
+    date.setDate(date.getDate() - offset);
+    dayKeyWindow.push(dayKeyOf(date.getTime()));
+  }
+  const enrichedDays = dayKeyWindow.map((key) => {
+    const wire = wireDays.get(key) || {};
+    const dailyCost = dayCost[key] === undefined ? wire.costUsd : dayCost[key];
+    return {
+      day: key,
+      tokens: Object.prototype.hasOwnProperty.call(dayTokens, key) ? dayTokens[key] : num(wire.tokens),
+      sessions: daySessionCount[key] || 0,
+      costUsd: dailyCost === null || dailyCost === undefined || !Number.isFinite(Number(dailyCost)) ? null : Number(dailyCost),
+      currency: opts.currency
+    };
+  });
   const weekly = dailyChart(enrichedDays.slice(-7));
+  const weeklyTicksList = weeklyTicks(enrichedDays.slice(-7), opts.currency);
+  const weeklyEmpty = !weekly.some((day) => num(day.height) > 0 || num(day.costHeight) > 0);
   const weeklyCostDays = enrichedDays.slice(-7).filter((day) => day.costUsd !== null && day.costUsd !== undefined);
   const weeklyCostText = weeklyCostDays.length
     ? costText(weeklyCostDays.reduce((sum, day) => sum + Number(day.costUsd), 0), opts.currency)
     : t('暂无可计价数据');
   const timingSummary = {
-    wallMs: totals.wallMs,
-    toolsMs: totals.toolsMs,
+    wallMs: totals.timingWallMs,
+    toolsMs: totals.timingToolsMs,
     generationMs: totals.generationMs,
     ttftMs: totals.ttftMs,
-    timingOtherMs: totals.timingOtherMs
+    reasoningMs: totals.reasoningMs,
+    textMs: totals.textMs > 0 ? totals.textMs : Math.max(0, totals.generationMs - totals.reasoningMs - totals.toolArgMs),
+    toolArgMs: totals.toolArgMs,
+    timingOtherMs: totals.timingOtherMs,
+    waitCount: totals.waitCount,
+    reasoningCount: totals.reasoningCount,
+    textCount: totals.textCount || totals.steps,
+    toolArgCount: totals.toolArgCount,
+    toolCount: totals.toolCount
   };
   const speedText = totals.speedMs > 0
     ? (totals.speedTokens / (totals.speedMs / 1000) >= 10
@@ -524,17 +706,21 @@ function deriveInsights(value, rangeDays, t, now, options) {
   });
   const skillSort = opts.skillSort === 'recent' ? 'recent' : 'loads';
   const skillQuery = text(opts.skillQuery).trim().toLowerCase();
-  const allSkillStats = Object.keys(skillsByName).map((name) => ({ ...skillsByName[name], info: catalog[name] || null }))
+  const allSkillStats = Object.keys(skillsByName).map((name) => {
+    const info = catalog[name] || null;
+    return { ...skillsByName[name], color: skillColor(name), info, infoSourceLabel: info ? skillSourceLabel(info.source, t) : '' };
+  })
     .sort((a, b) => skillSort === 'recent' ? b.lastTime - a.lastTime || b.last.localeCompare(a.last) || b.loads - a.loads : b.loads - a.loads || a.name.localeCompare(b.name));
-  const skillStats = allSkillStats.filter((skill) => !skillQuery || skill.name.toLowerCase().includes(skillQuery)).slice(0, 20);
-  const maxSkillLoads = skillStats.reduce((max, skill) => Math.max(max, skill.loads), 0);
+  const visibleSkillStats = allSkillStats.filter((skill) => !skillQuery || skill.name.toLowerCase().includes(skillQuery));
+  const maxSkillLoads = allSkillStats.reduce((max, skill) => Math.max(max, skill.loads), 0);
+  const skillLoads = visibleSkillStats.reduce((sum, skill) => sum + skill.loads, 0);
+  const skillStats = visibleSkillStats.slice(0, 20);
   skillStats.forEach((skill) => {
     skill.width = maxSkillLoads > 0 ? Math.max(4, Math.round(skill.loads / maxSkillLoads * 100)) : 0;
     skill.loadText = compact(skill.loads);
     skill.sessionDaysText = compact(skill.sessionDays);
     if (skill.lastTime > 0) {
-      const date = new Date(skill.lastTime);
-      skill.lastText = skill.last + ' ' + String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
+      skill.lastText = relativeAge(skill.lastTime, today, t);
     } else skill.lastText = skill.last;
   });
   const ranges = RANGES.map((days) => ({
@@ -543,6 +729,12 @@ function deriveInsights(value, rangeDays, t, now, options) {
     active: customRange === null && days === range
   }));
   const coverageOptions = ['all', 'active', 'archived'].map((key) => ({ key, label: t(key === 'all' ? '全部会话' : key === 'active' ? '活跃会话' : '已归档'), active: coverage === key }));
+  // 覆盖范围改成下拉框（对齐桌面端右上角的「全部会话（显示已归档）」），
+  // 所以除了选项列表还要给出当前下标和当前文案。
+  const coverageIndex = Math.max(0, coverageOptions.findIndex((item) => item.active));
+  const coverageLabel = coverage === 'archived'
+    ? t('全部会话（显示已归档）')
+    : (coverageOptions[coverageIndex] || coverageOptions[0]).label;
   const sessionsLabel = coverage === 'archived' ? t('已归档会话') : coverage === 'active' ? t('活跃会话') : t('全部会话');
   const sessionsSub = coverage === 'all'
     ? t('含归档 {n} 个', { n: inRange.filter((session) => workspace.archived.has(text(session.id)) || session.archived === true).length })
@@ -563,15 +755,18 @@ function deriveInsights(value, rangeDays, t, now, options) {
       { key: 'context', label: t('上下文占用'), active: sort === 'context' }
     ],
     selectedDay,
-    selectedDayText: selectedDay ? t('日期：{day}', { day: selectedDay }) : '',
+    selectedDayText: selectedDay ? t('{day} 当日活跃', { day: selectedDay }) : '',
     selectedSkill,
     selectedSkillText: selectedSkill ? t('技能：{name}', { name: selectedSkill }) : '',
     coverage,
     coverageOptions,
+    coverageIndex,
+    coverageLabel,
     group: text(opts.group),
     groupOptions: groupOptions.map((item) => ({ ...item, active: item.key === opts.group })),
     allGroupCount: dayScoped.length,
     skillSort,
+    skillSortVisible: allSkillStats.length > 1,
     metric: opts.metric === 'sessions' ? 'sessions' : 'tokens',
     metrics: [
       { key: 'tokens', label: t('Token'), active: opts.metric !== 'sessions' },
@@ -605,12 +800,20 @@ function deriveInsights(value, rangeDays, t, now, options) {
     timingRing: timingRing(timingSummary, t),
     speedText,
     weekly,
+    weeklyTicks: weeklyTicksList,
+    weeklyEmpty,
     weeklyCostText,
     weeklyMaxText: weekly.reduce((best, item) => (item.height === 100 ? item.tokensText : best), '—'),
-    heatmap: heatmap(enrichedDays, opts.metric, today, selectedDay),
+    heatmap: heatmap(enrichedDays, opts.metric, today, selectedDay, opts.locale),
     ring,
     skillStats,
-    skillCount: skillStats.length,
+    skillCount: visibleSkillStats.length,
+    skillTotalCount: allSkillStats.length,
+    skillHasMatches: visibleSkillStats.length > 0,
+    skillMoreCount: Math.max(0, visibleSkillStats.length - skillStats.length),
+    skillMoreText: t('还有 {n} 个技能', { n: Math.max(0, visibleSkillStats.length - skillStats.length) }),
+    skillLoadsText: compact(skillLoads),
+    skillSummaryText: t('{skills} 个技能 · {loads} 次加载', { skills: compact(visibleSkillStats.length), loads: compact(skillLoads) }),
     cards,
     visibleCount: visible.length,
     page,
@@ -622,4 +825,4 @@ function deriveInsights(value, rangeDays, t, now, options) {
   };
 }
 
-module.exports = { deriveInsights, compact, percent, duration, RANGES, PAGE_SIZE };
+module.exports = { deriveInsights, withRingFocus, compact, percent, duration, RANGES, PAGE_SIZE };

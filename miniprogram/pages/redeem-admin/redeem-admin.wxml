@@ -28,7 +28,13 @@
       <button class="admin-secondary" bindtap="copyCode">{{ui['复制并分发']}}</button>
       <button class="admin-secondary" bindtap="deleteItem" data-id="{{generatedId}}" disabled="{{!!actionId}}">{{ui['删除兑换码']}}</button>
     </view>
-    <view class="admin-list-head"><text class="group-title">{{ui['最近生成']}}</text><text class="admin-link" bindtap="refresh">{{ui['刷新']}}</text></view>
+    <view class="admin-list-head">
+      <text class="group-title">{{ui['最近生成']}}</text>
+      <view class="admin-list-actions">
+        <text wx:if="{{usedCodeCount && !loading}}" class="admin-link admin-link-danger" bindtap="clearUsedCodes" role="button" aria-label="{{ui['清空已用完的兑换码']}}">{{ui['清空已用完']}} {{usedCodeCount}}</text>
+        <text class="admin-link" bindtap="refresh" role="button">{{ui['刷新']}}</text>
+      </view>
+    </view>
     <view wx:if="{{!items.length}}" class="admin-message">{{ui['还没有生成兑换码']}}</view>
     <view wx:for="{{items}}" wx:key="id" class="card code-item">
       <view class="code-heading"><text class="code-title">{{item.title}}</text><text class="code-status">{{ui[item.statusLabel] !== undefined ? ui[item.statusLabel] : item.statusLabel}}</text></view>

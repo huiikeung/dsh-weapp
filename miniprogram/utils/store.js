@@ -6,6 +6,7 @@ const { t: uiText } = require('./ui-preferences');
 const { GatewayClient } = require('./gateway');
 const protocol = require('./protocol');
 const { recentWindow } = require('./history-window');
+const { createLocalCache, utf8ByteLength } = require('./local-cache');
 const collaboration = require('./collaboration');
 const pairing = require('./pairing');
 const hosts = require('./hosts');
@@ -116,6 +117,7 @@ function createStore() {
     historyFormatVersion: null,
     hasMoreHistory: false,
     historyPaging: false,
+    historyLastPageBytes: 0,
     nextBeforeSeq: null,
     title: '',
     agentPreset: null,
@@ -297,18 +299,30 @@ function createStore() {
     }, 12000);
   }
 
-  // 内存与磁盘只恢复最近窗口；旧记录由用户按需分页。
-  const sessionMemoryCache = new Map();
+  // Shared bounded L1/L2 history cache. Host scope is part of every key;
+  // credentials never enter this cache.
+  const sessionCache = createLocalCache({ prefix: 'dsh_session_cache', version: 2,
+    maxEntries: 20, maxBytes: 600000, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
+  // Already-visited immutable history pages let the turn navigator move through
+  // older turns locally instead of re-reading the same page from the gateway.
+  const historyPageCache = createLocalCache({ prefix: 'dsh_history_page', version: 1,
+    maxEntries: 16, maxBytes: 420000, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
+  let sessionCacheScope = null;
   // 上下文/编队面板：会话内即时复用上次结果，避免二次进入重新等待网关回放
-  const contextPanelMemory = new Map();
-
-  const CONTEXT_PANEL_CACHE_LIMIT = 20;
   // 缓存键带数据版本：面板投影的 schema 变化后，旧形状的缓存不应再被渲染。
   const CONTEXT_PANEL_CACHE_VERSION = 1;
-  const contextPanelWrites = new Map();
+  const contextPanelCache = createLocalCache({ prefix: 'dsh_context_cache', version: 1,
+    maxEntries: 20, maxBytes: 400000, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
+  const homeCache = createLocalCache({ prefix: 'dsh_home_cache', version: 1,
+    maxEntries: 20, maxBytes: 400000, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
+
+  function activeCacheScope() {
+    return String(state.activeID || state.endpoint || '');
+  }
 
   function contextPanelCacheKey(sessionId) {
-    return String(sessionId || '') + '@v' + CONTEXT_PANEL_CACHE_VERSION;
+    const scope = activeCacheScope();
+    return (scope ? encodeURIComponent(scope) + ':' : '') + String(sessionId || '') + '@v' + CONTEXT_PANEL_CACHE_VERSION;
   }
 
   function rememberContextPanels(sessionId) {
@@ -317,54 +331,13 @@ function createStore() {
     const fleet = sessionState.contextFleet;
     if (!dashboard || dashboard.loading) return;
     const entry = { dashboard, fleet, savedAt: Date.now() };
-    contextPanelMemory.set(contextPanelCacheKey(sessionId), entry);
-    if (contextPanelMemory.size > CONTEXT_PANEL_CACHE_LIMIT) {
-      contextPanelMemory.delete(contextPanelMemory.keys().next().value);
-    }
     // 磁盘写入去抖：运行中 2.5s 刷新一次，避免每帧同步写全量快照。
-    const key = contextPanelCacheKey(sessionId);
-    if (contextPanelWrites.has(key)) clearTimeout(contextPanelWrites.get(key));
-    contextPanelWrites.set(key, setTimeout(function () {
-      contextPanelWrites.delete(key);
-      persistContextPanels(sessionId, key, entry);
-    }, 1500));
-  }
-
-  function persistContextPanels(sessionId, key, entry) {
-    try {
-      const payload = JSON.stringify(entry);
-      if (payload.length > 400000) return;   // 超限不写
-      wx.setStorageSync('dsh_context_cache.' + key, payload);
-      let idx = wx.getStorageSync('dsh_context_cache.index') || [];
-      if (typeof idx === 'string') { try { idx = JSON.parse(idx); } catch (e) { idx = []; } }
-      if (!Array.isArray(idx)) idx = [];
-      idx = idx.filter(function (id) { return id !== key; });
-      idx.unshift(key);
-      while (idx.length > CONTEXT_PANEL_CACHE_LIMIT) {
-        wx.removeStorageSync('dsh_context_cache.' + idx.pop());
-      }
-      wx.setStorageSync('dsh_context_cache.index', JSON.stringify(idx));
-    } catch (e) { /* 存储失败不阻断 */ }
+    contextPanelCache.set(contextPanelCacheKey(sessionId), entry, { delayMs: 1500 });
   }
 
   function restoreContextPanels(sessionId) {
-    const key = contextPanelCacheKey(sessionId);
-    const cached = contextPanelMemory.get(key);
-    if (cached) return { dashboard: cached.dashboard, fleet: cached.fleet };
-    try {
-      const raw = wx.getStorageSync('dsh_context_cache.' + key);
-      if (!raw) return { dashboard: null, fleet: null };
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (parsed && parsed.dashboard) {
-        const entry = { dashboard: parsed.dashboard, fleet: parsed.fleet || null, savedAt: parsed.savedAt || 0 };
-        contextPanelMemory.set(key, entry);
-        if (contextPanelMemory.size > CONTEXT_PANEL_CACHE_LIMIT) {
-          contextPanelMemory.delete(contextPanelMemory.keys().next().value);
-        }
-        return { dashboard: entry.dashboard, fleet: entry.fleet };
-      }
-    } catch (e) { /* 缓存损坏则忽略 */ }
-    return { dashboard: null, fleet: null };
+    const cached = contextPanelCache.get(contextPanelCacheKey(sessionId), value => value && value.dashboard ? value : null);
+    return cached ? { dashboard: cached.dashboard, fleet: cached.fleet || null } : { dashboard: null, fleet: null };
   }
 
   let sessionBootstrapTimer = null;
@@ -471,8 +444,32 @@ function createStore() {
       scheduleSessionStatsBootstrap(sessionId, 3000);
     }, delay == null ? 250 : delay);
   }
-  const sessionCacheWrites = new Map();
-  const sessionCacheKey = id => String(state.activeID || state.endpoint || '') + ':' + id;
+  const sessionCacheKey = id => {
+    const scope = id === sessionState.sessionId && sessionCacheScope !== null
+      ? sessionCacheScope : activeCacheScope();
+    return scope ? scope + '::' + id : id;
+  };
+  function historyPageKey(sessionId, beforeSeq, formatVersion) {
+    return sessionCacheKey(sessionId) + '::' + String(formatVersion || '') + '::' + String(beforeSeq);
+  }
+  function serializeSessionCache(value) {
+    if (!value.events || !value.events.length) return value;
+    const stored = Object.assign({}, value);
+    let low = 0, high = value.events.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (utf8ByteLength(JSON.stringify(value.events.slice(middle))) <= 520000) high = middle;
+      else low = middle + 1;
+    }
+    stored.events = value.events.slice(low);
+    if (stored.events.length < value.events.length) {
+      stored.hasMore = true;
+      stored.nextBeforeSeq = stored.events.length ? stored.events[0].seq : value.nextBeforeSeq;
+    }
+    delete stored.rows;
+    return stored;
+  }
+
   function saveSessionCache(sessionId, rows) {
     try {
       if (!sessionId || !rows || !rows.length) return;
@@ -480,57 +477,44 @@ function createStore() {
         turnUsage: sessionState.turnUsage, savedAt: Date.now(),
         hasMore: sessionState.hasMoreHistory, nextBeforeSeq: sessionState.nextBeforeSeq,
         historyFormatVersion: sessionState.historyFormatVersion }, protocol, sessionId);
-      const key = sessionCacheKey(sessionId);
-      sessionMemoryCache.delete(key);
-      sessionMemoryCache.set(key, cached);
-      while (sessionMemoryCache.size > 20) sessionMemoryCache.delete(sessionMemoryCache.keys().next().value);
-      // 连续历史页只更新内存；短暂空闲后再序列化、写盘，避免每页同步写全量记录。
-      if (sessionCacheWrites.has(key)) clearTimeout(sessionCacheWrites.get(key));
-      sessionCacheWrites.set(key, setTimeout(() => {
-        sessionCacheWrites.delete(key);
-        persistSessionCache(sessionId, cached);
-      }, 1000));
-    } catch (e) { /* 存储失败不阻断 */ }
-  }
-
-  function persistSessionCache(sessionId, cached) {
-    try {
-      const payload = JSON.stringify(cached);
-      if (payload.length > 600000) return;   // 超限不写，避免撑爆 storage
-      wx.setStorageSync('dsh_session_cache.' + sessionId, payload);
-      let idx = wx.getStorageSync('dsh_session_cache.index') || [];
-      if (typeof idx === 'string') { try { idx = JSON.parse(idx); } catch (e) { idx = []; } }
-      if (!Array.isArray(idx)) idx = [];
-      idx = idx.filter(function (id) { return id !== sessionId; });
-      idx.unshift(sessionId);
-      while (idx.length > 20) {
-        wx.removeStorageSync('dsh_session_cache.' + idx.pop());
-      }
-      wx.setStorageSync('dsh_session_cache.index', JSON.stringify(idx));
+      sessionCache.set(sessionCacheKey(sessionId), cached, {
+        delayMs: 1000,
+        // Rows are a projection of durable events. Avoid storing their duplicated
+        // text while retaining row-only legacy/optimistic caches when no events exist.
+        serialize: serializeSessionCache
+      });
     } catch (e) { /* 存储失败不阻断 */ }
   }
 
   function loadSessionCache(sessionId) {
-    const cached = sessionMemoryCache.get(sessionCacheKey(sessionId));
+    const key = sessionCacheKey(sessionId);
+    const normalize = cached => {
+      if (!cached || (!Array.isArray(cached.events) && !Array.isArray(cached.rows))) return null;
+      const restored = recentWindow(cached, protocol, sessionId);
+      return restored.rows.length ? restored : null;
+    };
+    const cached = sessionCache.get(key, normalize);
     if (cached) return cached;
+
+    // The pre-scoped cache format cannot identify its host. Migrate it only when
+    // there is exactly one matching profile; otherwise isolation wins over reuse.
+    const scope = sessionId === sessionState.sessionId && sessionCacheScope !== null
+      ? sessionCacheScope : activeCacheScope();
+    const profiles = state.profiles || [];
+    if (!scope || profiles.length !== 1 || profiles[0].id !== scope || typeof wx === 'undefined') return null;
     try {
       const raw = wx.getStorageSync('dsh_session_cache.' + sessionId);
-      if (!raw) return null;
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (parsed && Array.isArray(parsed.rows) && parsed.rows.length) return recentWindow(parsed, protocol, sessionId);
-    } catch (e) { /* 缓存损坏则忽略 */ }
-    return null;
+      const legacy = normalize(typeof raw === 'string' ? JSON.parse(raw) : raw);
+      if (!legacy) return null;
+      sessionCache.set(key, legacy, { delayMs: 1000, serialize: serializeSessionCache });
+      return legacy;
+    } catch (_error) { return null; }
   }
 
   /** 首页缓存：按主机档案命名空间存取（对齐 iOS KMP 本地存储） */
   function loadHomeCache(activeID) {
-    try {
-      const raw = wx.getStorageSync('dsh_home_cache.' + activeID);
-      if (!raw) return null;
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      if (parsed && Array.isArray(parsed.sessions) && Array.isArray(parsed.workspaces)) return parsed;
-    } catch (e) { /* 缓存损坏则忽略 */ }
-    return null;
+    return homeCache.get(activeID, cached => cached && Array.isArray(cached.sessions) && Array.isArray(cached.workspaces)
+      ? cached : null);
   }
 
   function profilesShareGateway(left, right) {
@@ -591,14 +575,14 @@ function createStore() {
       const currentWorkspaceId = state.isUngroupedWorkspaceSelected ? null : (state.currentWorkspaceId ||
         (previous && previous.currentWorkspaceId) ||
         (workspaces[0] && workspaces[0].workspaceId) || null);
-      wx.setStorageSync('dsh_home_cache.' + state.activeID, JSON.stringify({
+      homeCache.set(state.activeID, {
         sessions: sessions,
         workspaces: workspaces,
         archivedSessionIds: archivedSessionIds,
         currentWorkspaceId: currentWorkspaceId,
         isUngroupedWorkspaceSelected: state.isUngroupedWorkspaceSelected,
         savedAt: Date.now()
-      }));
+      }, { immediate: true });
     } catch (e) { /* 存储失败不阻断 */ }
   }
 
@@ -613,11 +597,14 @@ function createStore() {
       sessionState.cacheDisplay = (sessionState.rows || []).length > 0;
       sessionState.historyState = 'requested';
       sessionState.historyError = '';
-      client.subscribe(activeSessionId);
-      // Put the expensive conversation request on the wire before auxiliary RPCs.
-      // On a public relay, several projections compete with history on one host.
-      client.requestHistory(activeSessionId);
-      scheduleHistoryRetry(activeSessionId);
+      const subscribed = client.subscribe(activeSessionId, sessionResumeCursor());
+      if (subscribed && state.connection === 'connected') {
+        snapshotPendingFor = activeSessionId;
+        scheduleHistoryFallback(activeSessionId);
+      } else {
+        client.requestHistory(activeSessionId);
+        scheduleHistoryRetry(activeSessionId);
+      }
       scheduleSessionBootstrap(activeSessionId);
     }
     const generation = client.connectGeneration;
@@ -651,7 +638,7 @@ function createStore() {
     const cached = cacheResult.cache;
     let restored = false;
     if (requestType === 'sessions' && !(state.sessions || []).length && (cached.sessions || []).length) {
-      state.sessions = cached.sessions;
+      state.sessions = attachCompletedAt(cached.sessions);
       state.lastSessionsFrame = {
         count: state.sessions.length,
         keys: uiText('本地缓存'),
@@ -701,6 +688,22 @@ function createStore() {
   // 这里记录「哪个会话还在等快照」，快照一到就撤销；超时则回落到 history。
   let snapshotPendingFor = null;
   let historyFallbackTimer = null;
+  let emptyHistoryFallbackKey = null;
+  function requestEmptyHistoryFallbackOnce(sessionId, cursor) {
+    const key = client.connectGeneration + '::' + String(sessionId || '') + '::' + String(cursor);
+    if (!sessionId || emptyHistoryFallbackKey === key) return false;
+    emptyHistoryFallbackKey = key;
+    // An empty bounded tail with a positive host cursor is not an empty chat.
+    // Read the newest history page directly; another tail request can return
+    // the same empty snapshot forever on gateways whose follow stream is thin.
+    if (Number.isSafeInteger(cursor) && cursor >= 0 && cursor < Number.MAX_SAFE_INTEGER &&
+        sessionState.historyFormatVersion) {
+      sessionState.hasMoreHistory = true;
+      sessionState.nextBeforeSeq = cursor + 1;
+      if (requestOlderHistory()) return true;
+    }
+    return client.requestHistory(sessionId);
+  }
   function clearHistoryFallback() {
     if (historyFallbackTimer) { clearTimeout(historyFallbackTimer); historyFallbackTimer = null; }
     snapshotPendingFor = null;
@@ -851,7 +854,9 @@ function createStore() {
           : (Array.isArray(frame.sessions) ? frame.sessions
             : (frame.data && Array.isArray(frame.data.items) ? frame.data.items : []));
         if (sessionItems.length || !state.sessions.length) {
-          state.sessions = sessionItems.map(mapSessionSummary);
+          const nextSessions = sessionItems.map(mapSessionSummary);
+          rememberCompleted(state.sessions, nextSessions);
+          state.sessions = attachCompletedAt(nextSessions);
         }
         // 自愈 A：有会话但始终没有工作区数据 → 补拉工作区
         if (!state.workspaces.length && state.sessions.length
@@ -1472,9 +1477,11 @@ function createStore() {
         return;
       }
       case 'history': {
-        if (sessionState.collaboration.sessionId !== sessionState.sessionId) sessionState.collaboration = collaboration.create(sessionState.sessionId);
-        collaboration.baseline(sessionState.collaboration, frame.projections);
-        hydrateSessionMetricsFromFrame(frame);
+        if (!frame.cachedLocal) {
+          if (sessionState.collaboration.sessionId !== sessionState.sessionId) sessionState.collaboration = collaboration.create(sessionState.sessionId);
+          collaboration.baseline(sessionState.collaboration, frame.projections);
+          hydrateSessionMetricsFromFrame(frame);
+        }
         const events = frame.events || [];
         const pendingPage = olderHistoryPending && olderHistoryPending.id === sessionState.sessionId &&
           olderHistoryPending.generation === client.connectGeneration ? olderHistoryPending : null;
@@ -1482,29 +1489,51 @@ function createStore() {
           return Number.isSafeInteger(event && event.seq) ? Math.min(min, event.seq) : min;
         }, Infinity);
         const noProgressPage = !!(pendingPage && events.length === 0 &&
-          (frame.beforeSeqPlaceholder || frame.nextBeforeSeq === pendingPage.cursor));
+          (frame.beforeSeqPlaceholder || frame.beforeSeq === pendingPage.cursor ||
+            frame.nextBeforeSeq === pendingPage.cursor));
         const isOlderPage = !!(pendingPage && (frame.beforeSeqPlaceholder || minSeq < pendingPage.cursor ||
+          frame.beforeSeq === pendingPage.cursor ||
           Number.isSafeInteger(frame.nextBeforeSeq) && frame.nextBeforeSeq < pendingPage.cursor || noProgressPage));
         // Tail refreshes can finish while an older-page request is still in flight.
         // Their generic `history` frame must not clear the older-page spinner or move
         // its cursor forward; only the response matching the requested cursor does.
         const isCompetingTail = !!(pendingPage && !isOlderPage && !frame.resetRequired);
+        const localLatestSeq = sessionResumeCursor();
+        const staleHistoryTail = !pendingPage && !isCompetingTail && !frame.resetRequired &&
+          Number.isSafeInteger(frame.cursor) && localLatestSeq !== undefined && frame.cursor < localLatestSeq;
+        const emptyNonZeroTail = !pendingPage && !isCompetingTail && events.length === 0
+          && Number.isSafeInteger(frame.cursor) && frame.cursor >= 0
+          && (frame.cursor > 0 || frame.hasMore === true)
+          && (localLatestSeq === undefined || frame.cursor > localLatestSeq);
+        if (pendingPage && isOlderPage) sessionState.historyLastPageBytes = utf8ByteLength(JSON.stringify(events));
+        if (pendingPage && isOlderPage && !frame.cachedLocal && minSeq !== Infinity) {
+          historyPageCache.set(historyPageKey(sessionState.sessionId, pendingPage.cursor,
+            frame.historyFormatVersion || sessionState.historyFormatVersion), {
+            sessionId: sessionState.sessionId,
+            beforeSeq: pendingPage.cursor,
+            events,
+            hasMore: frame.hasMore === true,
+            nextBeforeSeq: frame.nextBeforeSeq,
+            historyFormatVersion: frame.historyFormatVersion || sessionState.historyFormatVersion
+          }, { delayMs: 500 });
+        }
         sessionState.historyError = '';
-        sessionState.cacheDisplay = false;   // 权威历史到达，退出缓存展示态
+        sessionState.cacheDisplay = (staleHistoryTail || events.length === 0) && sessionState.rows.length > 0;
         if (historyRetryTimer) { clearTimeout(historyRetryTimer); historyRetryTimer = null; }
-        sessionState.historyState = 'loaded:' + ((frame.events || []).length) + 'ev'
-          + (sessionState.ingestErrors ? '+' + sessionState.ingestErrors + 'bad' : '');
+        sessionState.historyState = (staleHistoryTail || events.length === 0) && sessionState.rows.length
+          ? 'loaded:cached'
+          : 'loaded:' + events.length + 'ev' + (sessionState.ingestErrors ? '+' + sessionState.ingestErrors + 'bad' : '');
         if (frame.resetRequired) {
           sessionState.rowsAgg = protocol.newAggregator();
           setRawBuffer([]);
         }
         const prepend = !!frame.beforeSeqPlaceholder || rawBuffer.length > 0 || sessionState.rows.length > 0;
         ingestEvents(events, prepend);
-        if (!isCompetingTail) {
+        if (!isCompetingTail && !staleHistoryTail) {
           sessionState.hasMoreHistory = frame.hasMore === true;
           sessionState.nextBeforeSeq = frame.nextBeforeSeq;
         }
-        if (frame.historyFormatVersion) sessionState.historyFormatVersion = frame.historyFormatVersion;
+        if (frame.historyFormatVersion && !staleHistoryTail) sessionState.historyFormatVersion = frame.historyFormatVersion;
         saveSessionCache(sessionState.sessionId, sessionState.rows);
         if (!isOlderPage) {
           scheduleSessionDetailsBootstrap(sessionState.sessionId, 150, true);
@@ -1519,17 +1548,37 @@ function createStore() {
             return;
           }
           sessionState.historyError = uiText('记录同步暂时中断，请重试');
+        } else if (noProgressPage) {
+          // We only request a page when the host reported a non-empty cursor;
+          // an empty terminal page therefore signals a host/index inconsistency.
+          sessionState.historyError = uiText('记录同步暂时中断，请重试');
         }
+        if (emptyNonZeroTail) requestEmptyHistoryFallbackOnce(sessionState.sessionId, frame.cursor);
         if (pendingPage && (isOlderPage || frame.resetRequired)) finishHistoryPage();
-        else if (!pendingPage) finishHistoryPage();
+        else if (!pendingPage && !olderHistoryPending) finishHistoryPage();
         emit();
         return;
       }
       case 'session-snapshot': {
+        const snapshotCursor = Number.isSafeInteger(frame.cursor) ? frame.cursor : null;
+        const localLatestSeq = sessionResumeCursor();
+        const staleSnapshot = !frame.resetRequired && frame.replace === true && snapshotCursor !== null &&
+          localLatestSeq !== undefined && snapshotCursor < localLatestSeq;
+        if (staleSnapshot) {
+          // A delayed reconnect snapshot must not roll a newer local/live tail
+          // backward or replace its projections and pagination cursor.
+          if (snapshotPendingFor === sessionState.sessionId) clearHistoryFallback();
+          if (historyRetryTimer) { clearTimeout(historyRetryTimer); historyRetryTimer = null; }
+          sessionState.cacheDisplay = sessionState.rows.length > 0;
+          sessionState.historyState = sessionState.cacheDisplay ? 'loaded:cached' : 'requested';
+          client.requestHistory(sessionState.sessionId);
+          emit();
+          return;
+        }
         if (sessionState.collaboration.sessionId !== sessionState.sessionId) sessionState.collaboration = collaboration.create(sessionState.sessionId);
         collaboration.baseline(sessionState.collaboration, frame.projections);
         hydrateSessionMetricsFromFrame(frame);
-        sessionState.cacheDisplay = false;
+        sessionState.cacheDisplay = !(frame.events || []).length && sessionState.rows.length > 0;
         // 快照就是权威内容：撤销「等快照」状态，超时回落的 history 不再需要。
         if (snapshotPendingFor && snapshotPendingFor === sessionState.sessionId) clearHistoryFallback();
         if (historyRetryTimer) { clearTimeout(historyRetryTimer); historyRetryTimer = null; }
@@ -1537,6 +1586,9 @@ function createStore() {
         sessionState.historyFormatVersion = frame.historyFormatVersion || sessionState.historyFormatVersion;
         if (frame.cursor !== undefined) sessionState.nextBeforeSeq = frame.cursor;
         const snapEvents = frame.events || [];
+        const emptyOpeningPage = snapEvents.length === 0 && Number.isSafeInteger(frame.cursor) && frame.cursor >= 0
+          && (frame.hasMore === true || frame.cursor > 0)
+          && (localLatestSeq === undefined || frame.cursor > localLatestSeq);
         if (frame.replace) {
           if (frame.assistantStream || snapEvents.length || !sessionState.rows.length) {
             // replace 仅替换快照覆盖的尾部；保留已经分页补齐的更早记录。
@@ -1569,14 +1621,24 @@ function createStore() {
         installAssistantBaseline(frame);
         // 快照本身就是权威历史帧：无论有没有 assistantStream，都要把
         // historyState 推到 loaded，否则页面会一直显示「正在同步」转圈。
-        sessionState.historyState = 'loaded:' + snapEvents.length + 'ev'
-          + (sessionState.ingestErrors ? '+' + sessionState.ingestErrors + 'bad' : '');
+        sessionState.historyState = snapEvents.length === 0 && sessionState.rows.length
+          ? 'loaded:cached'
+          : 'loaded:' + snapEvents.length + 'ev' + (sessionState.ingestErrors ? '+' + sessionState.ingestErrors + 'bad' : '');
         if (frame.assistantStream) {
           sessionState.hasMoreHistory = frame.hasMore === true;
           sessionState.nextBeforeSeq = frame.nextBeforeSeq;
         }
         if (frame.hasMore !== undefined) sessionState.hasMoreHistory = frame.hasMore === true;
         saveSessionCache(sessionState.sessionId, sessionState.rows);
+        const incompleteReplay = frame.recovery === 'snapshot' && Number.isSafeInteger(frame.resumeFromSeq) &&
+          Number.isSafeInteger(frame.resumeToSeq) && frame.resumeToSeq > frame.resumeFromSeq;
+        if (emptyOpeningPage) requestEmptyHistoryFallbackOnce(sessionState.sessionId, frame.cursor);
+        else if (incompleteReplay) {
+          // The gateway could not prove a complete replay interval (e.g. its
+          // bounded ring expired), or returned an empty bounded opening page for
+          // a non-empty session; keep any snapshot visible and reconcile the tail.
+          client.requestHistory(sessionState.sessionId);
+        }
         // 快照落地后同样加速补一次统计（与 history 路径一致），
         // 否则要等 openSession 里那个 3s 的兜底定时器。
         scheduleSessionDetailsBootstrap(sessionState.sessionId, 150, true);
@@ -2299,6 +2361,14 @@ function createStore() {
   // 同一事件有两种序列化形状（live 帧扁平 text vs history 页 content blocks），按原始
   // JSON 判重会误判为"已修订"，每次补拉历史尾部都全量重放整段会话。
   let rawFingerprints = new Map();  // seq -> 归一化指纹
+  function sessionResumeCursor() {
+    let latest = -1;
+    for (let i = 0; i < rawBuffer.length; i += 1) {
+      const seq = rawBuffer[i] && rawBuffer[i].seq;
+      if (Number.isSafeInteger(seq) && seq > latest) latest = seq;
+    }
+    return latest >= 0 ? latest : undefined;
+  }
   function fingerprintOf(raw) {
     try {
       // 只取语义事件体：外层 time/dateMs 时钟不同，内层 raw 是原始透传，都会因形状误判。
@@ -2469,21 +2539,40 @@ function createStore() {
 
   function requestOlderHistory() {
     const id = sessionState.sessionId, cursor = sessionState.nextBeforeSeq;
-    if (!id || !sessionState.hasMoreHistory || olderHistoryPending || state.connection !== 'connected') return;
+    if (!id || !sessionState.hasMoreHistory || olderHistoryPending) return false;
     if (!Number.isSafeInteger(cursor) || cursor < 0 || !sessionState.historyFormatVersion) {
       sessionState.historyError = uiText('网关未提供有效历史游标，请更新网关后重试');
-      emit(); return;
+      emit(); return false;
     }
+    const cachedPage = historyPageCache.get(historyPageKey(id, cursor, sessionState.historyFormatVersion), value =>
+      value && value.sessionId === id && value.beforeSeq === cursor &&
+        value.historyFormatVersion === sessionState.historyFormatVersion && Array.isArray(value.events)
+        ? value : null);
+    if (cachedPage) {
+      olderHistoryPending = { id, cursor, generation: client.connectGeneration, cached: true };
+      sessionState.historyError = '';
+      sessionState.historyPaging = true;
+      if (!sessionState.rows.length) sessionState.historyState = 'requested';
+      handleSessionFrame({ kind: 'history', sessionId: id, events: cachedPage.events,
+        hasMore: cachedPage.hasMore, nextBeforeSeq: cachedPage.nextBeforeSeq,
+        historyFormatVersion: cachedPage.historyFormatVersion, beforeSeqPlaceholder: true,
+        cachedLocal: true });
+      return true;
+    }
+    if (state.connection !== 'connected') return false;
     sessionState.historyError = '';
     const pending = { id, cursor, generation: client.connectGeneration,
       maxBytes: client.relayMeta ? 256 * 1024 : 2 * 1024 * 1024 };
+    sessionState.historyLastPageBytes = 0;
     olderHistoryPending = pending;
     sessionState.historyPaging = true;
+    if (!sessionState.rows.length) sessionState.historyState = 'requested';
     const sent = client.requestHistory(id, cursor, sessionState.historyFormatVersion);
-    if (sent === false) { failOlderHistory(pending); return; }
+    if (sent === false) { failOlderHistory(pending); return false; }
     // 8s 兜底：旧页超时要尽快露出"重试"，让用户能手动再拉一次。
     armOlderHistoryTimeout(pending);
     emit();
+    return true;
   }
 
   let dataWatchdogTimer = null;
@@ -2585,6 +2674,70 @@ function createStore() {
   function syncContextPolling() { if (contextPollingWanted()) scheduleContextPoll(); else stopContextPoll(); }
   function syncFleetPolling() { if (fleetPollingWanted()) scheduleFleetPoll(); else stopFleetPoll(); }
 
+  // 「刚完成」标记：会话从运行中变成结束时记下完成时刻，首页绿点只在 24h 内显示，
+  // 超过就回到默认灰点。落本地存储，重进小程序仍生效；过期项顺手清掉。
+  const COMPLETED_KEY = 'dsh_session_completed';
+  const COMPLETED_TTL_MS = 24 * 60 * 60 * 1000;
+  let completedAtMap = null;
+  function loadCompletedAt() {
+    if (completedAtMap) return completedAtMap;
+    completedAtMap = {};
+    try {
+      const raw = wx.getStorageSync(COMPLETED_KEY);
+      if (raw && typeof raw === 'object') {
+        const now = Date.now();
+        Object.keys(raw).forEach((id) => {
+          const at = Number(raw[id]) || 0;
+          if (at > 0 && now - at <= COMPLETED_TTL_MS) completedAtMap[id] = at;
+        });
+      }
+    } catch (_) { completedAtMap = {}; }
+    return completedAtMap;
+  }
+  /** 点进会话就算看过了：清掉「刚完成」标记，首页绿点立刻回落成默认灰点。 */
+  function clearCompleted(sessionId) {
+    const id = String(sessionId || '');
+    if (!id) return;
+    const map = loadCompletedAt();
+    if (!map[id]) {
+      // 内存里可能还挂着，一并清掉（比如从缓存恢复但未落盘）
+      const row = (state.sessions || []).find((item) => item && item.sessionId === id);
+      if (row && row.completedAt) row.completedAt = 0;
+      return;
+    }
+    delete map[id];
+    try { wx.setStorageSync(COMPLETED_KEY, map); } catch (_) { /* 存储失败不影响进入会话 */ }
+    const row = (state.sessions || []).find((item) => item && item.sessionId === id);
+    if (row) { row.completedAt = 0; row.viewedAt = Date.now(); }
+  }
+
+  function attachCompletedAt(list) {
+    const map = loadCompletedAt();
+    (list || []).forEach((item) => {
+      if (item && item.sessionId && map[item.sessionId]) item.completedAt = map[item.sessionId];
+    });
+    return list;
+  }
+  function rememberCompleted(prevList, nextList) {
+    const map = loadCompletedAt();
+    const prevById = Object.create(null);
+    (prevList || []).forEach((item) => { if (item && item.sessionId) prevById[item.sessionId] = item; });
+    let changed = false;
+    (nextList || []).forEach((item) => {
+      if (!item || !item.sessionId) return;
+      const prev = prevById[item.sessionId];
+      if (prev && prev.running === true && item.running !== true) {
+        map[item.sessionId] = Date.now();
+        changed = true;
+      }
+    });
+    if (!changed) return map;
+    const now = Date.now();
+    Object.keys(map).forEach((id) => { if (now - map[id] > COMPLETED_TTL_MS) delete map[id]; });
+    try { wx.setStorageSync(COMPLETED_KEY, map); } catch (_) { /* 存储失败不影响列表 */ }
+    return map;
+  }
+
   function mapSessionSummary(item) {
     const source = item || {};
     const projections = source.projections || {};
@@ -2601,6 +2754,11 @@ function createStore() {
       running: source.running === true || source.status === 'running',
       runningKnown: typeof source.running === 'boolean' || typeof source.status === 'string',
       hasUnread: source.hasUnread === true || source.has_unread === true,
+      completedAt: 0,
+      // 网关侧记录的「最近被订阅/读取」时刻：电脑端点进会话也会更新它。
+      lastOpenedAt: typeof source.lastOpenedAt === 'number' && isFinite(source.lastOpenedAt) ? source.lastOpenedAt : 0,
+      // 本机打开过的时间戳（openSession 时写入，立即置灰，不用等下一帧列表）。
+      viewedAt: 0,
       blank: source.blank === true,
       cwd: source.cwd || source.workingDirectory || source.working_directory || null,
       agentPreset: source.agentPreset || source.agent_preset || null,
@@ -3425,6 +3583,8 @@ function createStore() {
 
     /** 打开会话：重置会话投影并订阅。 */
     openSession: function (sessionId, title, agentPreset) {
+      // 看过就清「刚完成」标记：首页绿点立刻变灰，不用等 24h。
+      clearCompleted(sessionId);
       saveSessionCache(sessionState.sessionId, sessionState.rows);
       clearSessionDetailsBootstrap();
       clearSessionStatsBootstrap();
@@ -3434,11 +3594,10 @@ function createStore() {
       if (sessionBootstrapTimer) { clearTimeout(sessionBootstrapTimer); sessionBootstrapTimer = null; }
       // 切会话：停掉旧会话的自动刷新，避免旧请求/旧 timer 污染新面板。
       stopContextPolling();
-      const subOk = client.subscribe(sessionId);
       // 订阅成功就等快照；失败/未连接才立即走 history。
       clearHistoryFallback();
-      if (subOk && state.connection === 'connected') snapshotPendingFor = sessionId;
       sessionState.sessionId = sessionId;
+      sessionCacheScope = activeCacheScope();
       sessionState.lastEventAt = 0;
       sessionState.collaboration = collaboration.create(sessionId);
       sessionState.cacheDisplay = false;
@@ -3501,9 +3660,12 @@ function createStore() {
         sessionState.historyState = 'loaded:cached';
         sessionState.cacheDisplay = true;
       } else {
-        sessionState.historyState = subOk ? 'requested' : 'sub-failed';
+        sessionState.historyState = 'requested';
         sessionState.cacheDisplay = false;
       }
+      const subOk = client.subscribe(sessionId, sessionResumeCursor());
+      if (subOk && state.connection === 'connected') snapshotPendingFor = sessionId;
+      else sessionState.historyState = sessionState.cacheDisplay ? 'loaded:cached' : 'sub-failed';
       emit();
       // 订阅成功后网关会推一份 session-snapshot（内容与 history 等价，且已经
       // 放到 1 MiB）。两者都会让宿主重读整段会话日志——日志是「每次追加一个
@@ -3659,7 +3821,14 @@ function createStore() {
     },
 
     loadOlderHistory: function () {
-      requestOlderHistory();
+      return requestOlderHistory();
+    },
+
+    clearLocalCaches: function () {
+      sessionCache.clear();
+      historyPageCache.clear();
+      contextPanelCache.clear();
+      homeCache.clear();
     },
 
     setTrajectoryActive: function (active) {

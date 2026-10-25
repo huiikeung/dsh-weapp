@@ -20,6 +20,7 @@ const contextPreferences = require('../../utils/context-prefs');
 const voiceActions = require('./voice-actions');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
 const fileActions = require('./file-actions');
+const fileMentionActions = require('./file-mention-actions');
 const imageBlocks = require('./image-blocks');
 const changesActions = require('./changes-actions');
 const viewportActions = require('./viewport-actions');
@@ -55,6 +56,7 @@ Page({
   ...viewportActions,
   ...voiceActions,
   ...fileActions,
+  ...fileMentionActions({ store, composerMenu, uiText }),
   ...imageBlocks,
   ...changesActions,
   data: {
@@ -67,6 +69,7 @@ Page({
     collaborationOpen: false, collaborationExpanded: false, collaborationTab: 'members', collaborationRows: [], collaborationTabs: [],
     collaborationCount: 0, collaborationActive: 0, collaborationNote: '', collaborationPreview: null, collaborationBusy: false,
     fileExpanded: {}, fileSheet: null, filePreview: null, changesDiff: null, fileBusyKey: '', fileSharingKey: '', fileProgress: 0,
+    fileMentionOpen: false, fileMentionEntries: [], fileMentionLoading: false, fileMentionError: '', fileMentionPathLabel: '', fileMentionQuery: '',
     tab: 'conversation', // conversation | trajectory | context | fleet
     showContextPanel: contextPanelsPreference.read().context,
     showFleetPanel: contextPanelsPreference.read().fleet,
@@ -82,6 +85,7 @@ Page({
     contextCommandFilter: 'all',
     contextCommandExpanded: '',
     contextModalOpen: false,
+    ctxModalDragStyle: '',
     contextBrowserQuery: '',
     contextBrowserKind: '',
     contextBrowserTool: '',
@@ -114,7 +118,11 @@ Page({
     fleetMemberQuery: '',
     fleetMemberStatus: 'all',
     fleetMemberSort: 'derived',
+    fleetMemberSortOpen: false,
     fleetCommsState: 'idle',
+    fleetLinksSrc: '',
+    fleetTaskQuery: '',
+    fleetTaskStatus: '',
     fleetCommsFilter: '',
     fleetPanel: contextView.buildFleetPanel(null, { t: uiText, connected: false, hasSession: false }),
     conversationTopSpace: 0, conversationBottomSpace: 0, conversationScrollTop: 0,
@@ -149,8 +157,13 @@ Page({
     turnNavScrollTop: 0,
     turnNavWidths: [],
     turnNavRowStyles: [],
-    turnNavSpacerPx: 0,
+    turnNavVisibleItems: [],
+    turnNavTopPadPx: 0,
+    turnNavBottomPadPx: 0,
+    turnNavWindowStart: 0,
     turnNavCardTop: 0,
+    turnNavWarming: false,
+    turnNavWarmText: '',
     hasMoreHistory: false,
     // 旧历史分页在途标志。must be mirrored into page data: maybePrefetchOlderHistory
     // 用它避免请求叠加，此前只读不写，导致"已在分页"判断永远为假。
@@ -169,6 +182,8 @@ Page({
     // 输入框 Markdown 预览：composerPreview 开时用 composerPreviewBlocks 渲染，
     // 与发送后的用户消息共用 mdBlocks，保证"看到的就是发出去的"。
     composerPreview: false,
+    composerPreviewHint: false,
+    composerCursor: -1,
     composerPreviewBlocks: [],
     canAttach: true,
     attachSheetOpen: false,
@@ -314,6 +329,8 @@ Page({
     this._historyFormatTimer = null;
     if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
     this._storeSyncTimer = null; this._pendingStoreSnapshot = null;
+    if (this._turnWarmTimer) clearTimeout(this._turnWarmTimer);
+    this._turnWarmTimer = null;
     this.stopScrollPolling();
     // 记录本次隐藏的原因：原生选择器/预览浮层会把小程序切到后台，
     // 此时 onShow 不是「页面切换」，不能重置滚动、也不能强制整页重投影。
@@ -332,11 +349,13 @@ Page({
       this.setData(statusAppearance.view(statusAppearance.read()));
       this.setData(procIconStyle.view(procIconStyle.read()));
       this.updateDockInset();
+      if (this.data.turnNavOpen && this._turnWarmup) this.pumpTurnNavigatorWarmup();
       return;
     }
     this.resetConversationScroll();
     this.startScrollPolling();
     if (store.sessionState && store.sessionState.sessionId) this.syncFromStore({ app: store.state, session: store.sessionState });
+    if (this.data.turnNavOpen && this._turnWarmup) this.pumpTurnNavigatorWarmup();
     this.refreshBottomAnchor();
     this.setData(statusAppearance.view(statusAppearance.read()));
     this.setData(procIconStyle.view(procIconStyle.read()));
@@ -348,6 +367,7 @@ Page({
 
   onUnload() {
     this.stopContextFlow();
+    this.clearContextModalDrag();
     if (store.setTrajectoryActive) store.setTrajectoryActive(false);
     if (store.setContextActive) store.setContextActive(false);
     if (store.setFleetActive) store.setFleetActive(false);
@@ -365,6 +385,7 @@ Page({
     this._thumbTimer = null; this._thumbQueue = null; this._thumbQueued = null; this._thumbFailed = null;
     if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
     this._storeSyncTimer = null;
+    this.stopTurnNavigatorWarmup(false);
     this._pendingStoreSnapshot = null;
     if (this._traceHighlightTimer) clearTimeout(this._traceHighlightTimer);
     this._markdownCache = null;
@@ -475,7 +496,13 @@ Page({
     if (!s || (!s.sessionId && s.historyState !== 'creating' && s.historyState !== 'error:create')) return;
     const sessionChanged = this._renderSessionId !== s.sessionId;
     if (sessionChanged) {
+      this.closeFileMention();
       this.resetConversationScroll();
+      this._fleetCommsGeneration = (this._fleetCommsGeneration || 0) + 1;
+      this._fleetComms = null;
+      this._fleetCommsAsOfSeq = null;
+      this._fleetAutoScanInFlight = false;
+      this._fleetAutoScanFor = '';
       // 切会话：浏览器游标/折叠状态属于上一个会话，清空并从「当前」重新开始。
       this._contextPanelCache = null;
       this._fleetPanelCache = null;
@@ -495,6 +522,8 @@ Page({
         contextBrowserTool: '',
         contextEventFilter: null,
         contextFileFilter: 'all',
+        fleetCommsState: 'idle',
+        fleetCommsFilter: '',
         contextFileSort: contextPreferences.read().fileSort,
         contextFileQuery: '',
         contextFileExpandedPath: '',
@@ -518,6 +547,7 @@ Page({
         const savedDraft = this._sessionDrafts[s.sessionId] || { draft: '', images: [] };
         this.setData({
           draft: savedDraft.draft,
+          composerValue: savedDraft.draft || '',
           images: savedDraft.images,
           canSend: !!String(savedDraft.draft || '').trim() || savedDraft.images.length > 0,
           composerFocused: false,
@@ -758,7 +788,9 @@ Page({
       content: task.content || '',
       status: task.status || 'pending',
       icon: task.status === 'completed' ? 'check-green.png'
-        : (task.status === 'in_progress' ? 'pinwheel-ink.png' : 'dotted-gray.png')
+        : (task.status === 'in_progress'
+          ? (this.data.theme === 'dark' ? 'pinwheel-white.png' : 'pinwheel-ink.png')
+          : 'dotted-gray.png')
     })) : null;
     const taskCounts = (tasks || []).reduce((acc, task) => {
       if (task.status === 'completed') acc.completed += 1;
@@ -850,7 +882,8 @@ Page({
       const row = rows[idx];
       if (row.kind !== 'assistant') return;
       const nextConv = k + 1 < convIdx.length ? rows[convIdx[k + 1]].kind : null;
-      let copyText = nextConv === 'assistant' ? '' : (row.text || '');
+      const isActiveAssistant = processRunning && k === convIdx.length - 1;
+      let copyText = nextConv === 'assistant' || isActiveAssistant ? '' : (row.text || '');
       // 若本轮末尾紧跟文件/变更卡片，把复制按钮下沉到最后一张卡片下面
       if (copyText) {
         const end = k + 1 < convIdx.length ? convIdx[k + 1] : rows.length;
@@ -861,6 +894,7 @@ Page({
         if (lastFileIdx >= 0) {
           rows[lastFileIdx].copyText = copyText;
           rows[lastFileIdx].copyKey = row.key;
+          rows[lastFileIdx].seq = row.seq;
           rows[lastFileIdx].usageTokens = row.usageTokens;
           rows[lastFileIdx].usageDetail = row.usageDetail;
           rows[lastFileIdx].durationMs = row.durationMs;
@@ -921,6 +955,7 @@ Page({
       ...(contextVisible ? this.contextPanelPatch(s, app, trendAutoOverviewPatch) : {}),
       ...(contextVisible ? (trendAutoOverviewPatch || {}) : {}),
       ...(activeTab === 'fleet' ? this.fleetPanelPatch(s, app) : {}),
+      // 编队数据变化后重画连线（setData 完成再画，拿得到刚渲染的节点）。
       navTitle: s.title || fallbackTitle,
       presetLabel: labels.presetModeName(s.agentPreset || 'standard'),
       sessionPresetVisible: presetVisible,
@@ -928,7 +963,7 @@ Page({
       running: s.running === true,
       lastRowKind: rows.length ? rows[rows.length - 1].kind : '',
       ...this.conversationWindowPatch(rows, historyMerged && activeTab === 'conversation' && this._convPinned === false ? { anchor: true } : null),
-      ...this.turnNavigatorPatch(rows),
+      ...(this.data.turnNavOpen ? this.turnNavigatorPatch(rows) : {}),
       folds: processFolds,
       ...tracePatch,
       hasMoreHistory: s.hasMoreHistory,
@@ -981,6 +1016,10 @@ Page({
       this.scheduleHistoryFormatting();
       this.measureConversationWindow();
       if (this.data.tab === 'context') this.scheduleContextFlow();
+      if (this.data.tab === 'fleet' && viewPatch.fleetPanel) {
+        this.scheduleFleetLinksDraw();
+        this.maybeAutoScanFleetComms();
+      }
       // 运行刚开始：重置文字渐变相位；鲸尾图标为纯 CSS 动画，随节点挂载自动同相起跑。
       if (!wasRunning && this.data.running) this.setData({ statusFlowDelay: 0 });
     });
@@ -1011,7 +1050,10 @@ Page({
         historyProgressText: historyProgressText
       });
     }
-    if (this.data.turnNavOpen) this.autoLoadTurnNavigatorHistory(null, true);
+    if (this.data.turnNavOpen) {
+      if (this._turnWarmup) this.pumpTurnNavigatorWarmup();
+      else if (!this._turnWarmupStarted) this.startTurnNavigatorWarmup();
+    }
     const cs = app.connection || 'disconnected';
     // 连接展示状态与首页/设置共用：断链红、故障橙、已连接绿，未连接灰。
     const connection = connectionView(app);
@@ -1219,8 +1261,9 @@ Page({
           name: ref.name
         })));
         const images = this.data.images.concat(restored).slice(0, 20);
-        this.setData({
-          draft: this.data.draft ? this.data.draft + '\n\n' + text : text,
+        const nextDraft = this.data.draft ? this.data.draft + '\n\n' + text : text;
+        this.setComposerValue(nextDraft, {
+          draft: nextDraft,
           images: images,
           canSend: true
         });
@@ -1237,9 +1280,8 @@ Page({
       if (item.editable === false) return;
       // 编辑：取回草稿（对齐 iOS：draft 空则直用，否则换行拼接）并从队列移除
       const text = item.rawText || item.preview;
-      this.setData({
-        draft: this.data.draft ? this.data.draft + '\n\n' + text : text
-      });
+      const nextDraft = this.data.draft ? this.data.draft + '\n\n' + text : text;
+      this.setComposerValue(nextDraft, { draft: nextDraft });
       this.syncCommandMenu(this.data.draft, store.sessionState);
     }
     this.setData({ queueBusyId: id + ':' + action });
@@ -1453,11 +1495,14 @@ Page({
     haptics.vibrate();
     this.cancelVoice();
     this.closeAttachMenu(false);
+    this.closeFileMention();
     if (store.setTrajectoryActive) store.setTrajectoryActive(tab === 'trajectory');
     if (store.setContextActive) store.setContextActive(tab === 'context');
     if (store.setFleetActive) store.setFleetActive(tab === 'fleet');
     let tracePatch = {};
     if (tab === 'trajectory') { this._traceRows = store.sessionState.trajectory || []; tracePatch = dataPatch(this.data, this.trajectoryPatch()); }
+    // 上下文与编队合并成一个滚动（对齐客户端侧栏 Context 面板）：两个 Tab 共享
+    // 上下文与编队是两个独立面板：各自派生、各自清理，互不干扰。
     let contextPatch = {};
     if (tab === 'context') contextPatch = this.contextPanelPatch();
     let fleetPatch = {};
@@ -1472,11 +1517,23 @@ Page({
     this._collaborationRequest = null; this._collaborationRefresh = null;
     // 只挂载当前 Tab 的面板：离开后销毁对应节点树，避免隐藏面板保留大量
     // 节点/绑定拖慢对话页（数据仍在 store 缓存，切回时按需重建）。
+    if (tab === 'fleet') {
+      this.measureFleetStage();
+      // 首次切入时节点还没渲染，上面的实测会退回兜底值：渲染完成后再量一次。
+      setTimeout(() => {
+        if (this.data.tab !== 'fleet') return;
+        this.measureFleetStage();
+        this.scheduleFleetLinksDraw();
+      }, 60);
+    }
     this.setData({ tab, trajectoryMounted: tab === 'trajectory', contextMounted: tab === 'context', fleetMounted: tab === 'fleet', ...clearPatch, ...tracePatch, ...contextPatch, ...fleetPatch, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
       statsPopOpen: false, showContextSheet: false, commandMenu: null,
       attachSheetOpen: false, modelSheetOpen: false, effortSheetOpen: false,
-      permissionSheet: [], modeSheet: [], ...this.layoutPatch({ kbHeight: 0 }) });
+      permissionSheet: [], modeSheet: [], ...this.layoutPatch({ kbHeight: 0 }) }, () => {
+      if (tab === 'fleet') this.maybeAutoScanFleetComms();
+    });
     if (hadKeyboard && typeof wx.hideKeyboard === 'function') wx.hideKeyboard();
+    // 上下文面板独有的「流连线」只在上下文 Tab 运行；编队是独立面板。
     if (tab === 'context') this.scheduleContextFlow();
     else this.stopContextFlow();
     if (tab === 'conversation') {
@@ -1587,7 +1644,7 @@ Page({
       && cache.trendDna === trendDna && cache.trendOverview === trendOverview
       && cache.trendAdaptive === trendAdaptive && cache.trendShowDuration === trendShowDuration
       && cache.trendVisibleRangeKey === trendVisibleRangeKey) {
-      return { contextPanel: cache.panel };
+      return { contextPanel: this.modalPanel(cache.panel) };
     }
     const panel = contextView.buildPanel(dashboard, {
       t: uiText, connected: connected, hasSession: !!sessionId,
@@ -1604,6 +1661,7 @@ Page({
       fileFilter: fileFilter, fileSort: fileSort, fileQuery: fileQuery, fileExpandedPath: fileExpandedPath
     });
     this._contextPanelCache = {
+      panel,
       dashboard, locale, connected, sessionId,
       fleetValue, running, contextPressure, currentHighlight, commandFilter, commandExpandedId, browserSeq, browserIsCurrent, expandedKey,
       browserBase, browserQuery, browserKind, browserTool,
@@ -1611,7 +1669,23 @@ Page({
       trendSeq, trendGroupBy, trendDisplayMode, trendActiveTurn, trendDna, trendOverview,
       trendAdaptive, trendShowDuration, trendVisibleRangeKey, panel
     };
-    return { contextPanel: panel };
+    return { contextPanel: this.modalPanel(panel) };
+  },
+
+  /**
+   * 弹窗只渲染「当前上下文」+「上下文浏览器」两张卡。当弹窗是唯一使用者
+   * （上下文分段没挂载）时，trend 动辄几百 KB 也会被整份塞进 setData——
+   * 每次点按钮都卡一下，触摸事件被丢，弹窗就像点不动、滚不动。
+   * 缓存里始终留完整面板，切到上下文分段时立刻可用。
+   */
+  modalPanel(panel) {
+    if (!panel || this.data.contextMounted === true || this.data.contextModalOpen !== true) return panel;
+    // 只摘掉趋势图那两段（长会话占几百 KB，弹窗根本不渲染），
+    // status/current/browser 等其余字段原样保留。
+    const trimmed = Object.assign({}, panel);
+    delete trimmed.trend;
+    delete trimmed.trendDetail;
+    return trimmed;
   },
 
   /**
@@ -1722,7 +1796,11 @@ Page({
     const patch = statePatch || {};
     const overrides = Object.assign({}, patch);
     this._contextPanelCache = null;
-    const nextPanel = this.contextPanelPatch(undefined, undefined, overrides).contextPanel;
+    this.contextPanelPatch(undefined, undefined, overrides);
+    // 趋势↔浏览器联动要读 trend.selectedSeq，而弹窗裁剪后 setData 里没有 trend；
+    // 完整面板始终留在缓存里，从这里取。
+    const full = this._contextPanelCache && this._contextPanelCache.panel;
+    const nextPanel = full || this.contextPanelPatch().contextPanel;
     const selected = nextPanel && nextPanel.trend ? nextPanel.trend.selectedSeq : null;
     const seq = selected !== null && selected !== undefined && Number.isFinite(Number(selected))
       ? Number(selected) : null;
@@ -2086,12 +2164,112 @@ Page({
   openContextModal() {
     if (!this.data.contextPanel || this.data.contextPanel.status === 'loading') return;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setData({ contextModalOpen: true, showJump: false });
+    this.setData({ contextModalOpen: true, showJump: false, ctxModalDragStyle: '' });
+  },
+
+  /**
+   * 对话回合页脚入口（对齐 dsh-context 的 reply-row jump / contextJump.tsx，
+   * 并内嵌 Agent 网络，对齐客户端侧栏 Context 面板的整合形态）：
+   * 打开「上下文 + 编队」整合视图，把这条助手消息的请求 pin 在浏览器里。
+   * 拿不到 seq 或上下文 Tab 被偏好关闭时退化为打开弹窗。
+   * 真实数据里助手消息 seq 与请求 seq 一一对应（保留窗口内 200/200 精确命中）。
+   */
+  contextJumpFromChat(e) {
+    const raw = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.seq : null;
+    const seq = Number(raw);
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    if (this.data.showContextPanel === false || !Number.isSafeInteger(seq) || seq < 0) {
+      this.openContextModalFromChat();
+      return;
+    }
+    if (this.data.tab !== 'context' && this.data.tab !== 'fleet') {
+      this.switchTab({ currentTarget: { dataset: { tab: 'context' } } });
+    }
+    // 合并面板里的编队一节需要数据：从没拉过就补拉一次。
+    if (store.refreshContextFleet && !(store.sessionState.contextFleet && store.sessionState.contextFleet.value)) {
+      store.refreshContextFleet(true);
+    }
+    this.setContextBrowser(seq, this.data.contextBrowserExpanded);
+    // 对话 Tab 上面板可能是旧的：强制拉一次，数据到位后选择自愈到目标请求。
+    if (store.refreshContextDashboard) store.refreshContextDashboard(true);
+    this.jumpContextTo('ctxBrowserCard');
+  },
+
+  /**
+   * 打开同一个上下文弹窗。对话 Tab 不派生上下文面板、切走时还会清空，
+   * 所以这里先补一个可安全渲染的面板再强制拉取，避免空/错误面板闪帧。
+   */
+  openContextModalFromChat() {
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    const dashboard = store.sessionState && store.sessionState.contextDashboard;
+    const reusable = this.data.contextPanel && this.data.contextPanel.status === 'ready'
+      && dashboard && dashboard.value;
+    if (reusable) {
+      this.setData({ contextModalOpen: true, showJump: false });
+    } else {
+      this._contextPanelCache = null;
+      const fallback = contextView.buildPanel(null, {
+        t: uiText,
+        connected: !!(store.state && store.state.connection === 'connected'),
+        hasSession: !!(store.sessionState && store.sessionState.sessionId)
+      });
+      this.setData({ contextModalOpen: true, showJump: false, contextPanel: fallback });
+    }
+    if (store.refreshContextDashboard) store.refreshContextDashboard(true);
   },
 
   closeContextModal() {
+    this.clearContextModalDrag();
     if (!this.data.contextModalOpen) return;
-    this.setData({ contextModalOpen: false });
+    this.setData({ contextModalOpen: false, ctxModalDragStyle: '' });
+  },
+
+  clearContextModalDrag() {
+    if (this._ctxModalCloseTimer) clearTimeout(this._ctxModalCloseTimer);
+    this._ctxModalCloseTimer = null;
+    this._ctxModalDrag = null;
+    this._ctxModalDragOffset = 0;
+  },
+
+  // 抽屉顶端的拖动条：只接管 44rpx 抓取区的手势（正文仍归 scroll-view）；
+  // 向下跟手，松手超过 96px 滑出关闭，否则回弹。
+  onContextModalGrabStart(e) {
+    const touch = e.touches && e.touches[0];
+    if (!touch) return;
+    if (this._ctxModalCloseTimer) { clearTimeout(this._ctxModalCloseTimer); this._ctxModalCloseTimer = null; }
+    this._ctxModalDrag = { startY: touch.clientY, offset: 0 };
+  },
+
+  onContextModalGrabMove(e) {
+    const drag = this._ctxModalDrag, touch = e.touches && e.touches[0];
+    if (!drag || !touch) return;
+    // 只吃向下：弹窗已是 90vh，往上没有可展开的空间。
+    const offset = Math.max(0, Math.round(touch.clientY - drag.startY));
+    drag.offset = offset;
+    // 每帧 setData 太贵：4px 以内的抖动丢掉（回弹到 0 时必须放行）。
+    if (offset !== 0 && Math.abs(offset - (this._ctxModalDragOffset || 0)) < 4) return;
+    this._ctxModalDragOffset = offset;
+    this.setData({ ctxModalDragStyle: offset > 0 ? 'transform:translateY(' + offset + 'px);transition:none;' : '' });
+  },
+
+  onContextModalGrabEnd() {
+    const drag = this._ctxModalDrag;
+    this._ctxModalDrag = null;
+    if (!drag) return;
+    const offset = drag.offset || 0;
+    this._ctxModalDragOffset = 0;
+    if (offset >= 96) {
+      // 先顺着手势滑出去再卸载节点，避免整块“啪”地消失。
+      this.setData({ ctxModalDragStyle: 'transform:translateY(110%);transition:transform .18s ease;' });
+      if (this._ctxModalCloseTimer) clearTimeout(this._ctxModalCloseTimer);
+      this._ctxModalCloseTimer = setTimeout(() => {
+        this._ctxModalCloseTimer = null;
+        this.setData({ ctxModalDragStyle: '' });
+        this.closeContextModal();
+      }, 180);
+      return;
+    }
+    this.setData({ ctxModalDragStyle: '' });
   },
 
   /** 弹窗里的类别行：关闭弹窗、回到页面浏览器卡片并展开该类别（避免两处重复渲染大列表）。 */
@@ -2242,22 +2420,132 @@ Page({
     const memberSort = this.data.fleetMemberSort || 'derived';
     const commsFilter = this.data.fleetCommsFilter || '';
     const commsValue = this._fleetComms || null;
+    const commsStale = !!(commsValue && this._fleetCommsAsOfSeq !== (fleet && fleet.asOfSeq));
     const cache = this._fleetPanelCache;
     if (cache && cache.fleet === fleet && cache.locale === locale
       && cache.connected === connected && cache.sessionId === sessionId
       && cache.running === running && cache.stageWidth === stageWidth && cache.selectedId === selectedId
       && cache.memberQuery === memberQuery && cache.memberStatus === memberStatus && cache.memberSort === memberSort
-      && cache.commsFilter === commsFilter && cache.commsValue === commsValue) {
+      && cache.taskQuery === this.data.fleetTaskQuery && cache.taskStatus === this.data.fleetTaskStatus
+      && cache.commsFilter === commsFilter && cache.commsValue === commsValue && cache.commsStale === commsStale) {
       return { fleetPanel: cache.panel };
     }
     const panel = contextView.buildFleetPanel(fleet, {
       t: uiText, connected: connected, hasSession: !!sessionId, running: running,
       stageWidth: stageWidth, selectedId: selectedId,
       memberQuery: memberQuery, memberStatus: memberStatus, memberSort: memberSort,
-      commsValue: commsValue, commsFilter: commsFilter
+      commsValue: commsValue, commsFilter: commsFilter, commsStale: commsStale,
+      taskQuery: this.data.fleetTaskQuery, taskStatus: this.data.fleetTaskStatus,
+      // 网关投影缺血缘时，用会话列表在客户端补齐家族成员。
+      familySessions: (a && a.sessions) || [], sessionId: sessionId
     });
-    this._fleetPanelCache = { fleet, locale, connected, sessionId, running, stageWidth, selectedId, memberQuery, memberStatus, memberSort, commsFilter, commsValue, panel };
+    this._fleetPanelCache = { fleet, locale, connected, sessionId, running, stageWidth, selectedId, memberQuery, memberStatus, memberSort, commsFilter, commsValue, commsStale, taskQuery: this.data.fleetTaskQuery, taskStatus: this.data.fleetTaskStatus, panel };
     return { fleetPanel: panel };
+  },
+
+  /* 连线：优先离屏画布导出图片（<image> 会随内容滚动）；导出不可用时
+     直接画在页面内的 canvas 元素上，保证一定有连线。 */
+  fleetLinksPaint(ctx, ratio, width, height) {
+    const graph = this.data.fleetPanel && this.data.fleetPanel.graph;
+    const links = (graph && graph.links) || [];
+    // Draw directly in backing-store pixels. Scaling the same page canvas on
+    // every refresh compounds its transform and eventually pushes links offscreen.
+    ctx.clearRect(0, 0, width * ratio, height * ratio);
+    ctx.lineCap = 'round';
+    links.forEach((link) => {
+      const p = link && link.p;
+      if (!p || p.length < 8) return;
+      ctx.beginPath();
+      ctx.moveTo(p[0] * ratio, p[1] * ratio);
+      ctx.bezierCurveTo(p[2] * ratio, p[3] * ratio, p[4] * ratio, p[5] * ratio, p[6] * ratio, p[7] * ratio);
+      ctx.strokeStyle = link.color || '#8a93a3';
+      ctx.lineWidth = (link.live ? 2 : 1.5) * ratio;
+      ctx.globalAlpha = link.live ? 0.85 : 0.45;
+      ctx.setLineDash(link.live ? [2 * ratio, 7 * ratio] : []);
+      ctx.stroke();
+    });
+    ctx.globalAlpha = 1;
+  },
+
+  drawFleetLinks() {
+    const panel = this.data.fleetPanel;
+    const graph = panel && panel.graph;
+    const token = this._fleetLinksToken = (this._fleetLinksToken || 0) + 1;
+    if (!graph || !graph.links || !graph.links.length) {
+      if (this.data.fleetLinksSrc) this.setData({ fleetLinksSrc: '' });
+      return;
+    }
+    let ratio = 2;
+    try {
+      const info = wx.getWindowInfo();
+      if (info && info.pixelRatio > 0) ratio = info.pixelRatio;
+    } catch (_) { /* 默认 2x */ }
+    const width = Math.max(1, Math.round(graph.width));
+    const height = Math.max(1, Math.round(graph.height));
+    const previous = this.data.fleetLinksSrc;
+    const render = () => {
+      if (!this.data || this._fleetLinksToken !== token) return;
+      const offscreen = typeof wx.createOffscreenCanvas === 'function' && typeof wx.canvasToTempFilePath === 'function';
+      if (offscreen) {
+        let canvas = null;
+        try { canvas = wx.createOffscreenCanvas({ type: '2d', width: width * ratio, height: height * ratio }); }
+        catch (_) { canvas = null; }
+        const ctx = canvas && canvas.getContext('2d');
+        if (ctx) {
+          this.fleetLinksPaint(ctx, ratio, width, height);
+          wx.canvasToTempFilePath({
+            canvas: canvas,
+            x: 0, y: 0, width: width * ratio, height: height * ratio,
+            destWidth: width * ratio, destHeight: height * ratio,
+            success: (res) => {
+              if (!this.data || this._fleetLinksToken !== token || !res.tempFilePath) return;
+              this.setData({ fleetLinksSrc: res.tempFilePath });
+              if (previous && previous !== res.tempFilePath) {
+                try { wx.getFileSystemManager().unlink({ filePath: previous, fail: () => {} }); } catch (_) { /* 忽略 */ }
+              }
+            },
+            fail: () => { if (this.data && this._fleetLinksToken === token) this.drawFleetLinksOnCanvas(ratio, width, height, token); }
+          });
+          return;
+        }
+      }
+      this.drawFleetLinksOnCanvas(ratio, width, height, token);
+    };
+    // The image branch hides the fallback canvas. Unmount it before drawing so
+    // export failures always have a real canvas element to fall back to.
+    if (previous) this.setData({ fleetLinksSrc: '' }, () => {
+      try { wx.getFileSystemManager().unlink({ filePath: previous, fail: () => {} }); } catch (_) { /* 忽略 */ }
+      render();
+    });
+    else render();
+  },
+
+  /* 导出图片不可用：直接画到页面里的 canvas 元素。 */
+  drawFleetLinksOnCanvas(ratio, width, height, token) {
+    if (typeof this.createSelectorQuery !== 'function') return;
+    const query = this.createSelectorQuery();
+    query.select('#fleetLinks').fields({ node: true, size: true }).exec((res) => {
+      if (token !== undefined && (!this.data || this._fleetLinksToken !== token)) return;
+      const canvas = res && res[0] && res[0].node;
+      if (!canvas) return;
+      if (canvas.width !== width * ratio || canvas.height !== height * ratio) {
+        canvas.width = width * ratio;
+        canvas.height = height * ratio;
+      }
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      this.fleetLinksPaint(ctx, ratio, width, height);
+    });
+  },
+
+  /* 面板变化后重画连线（下一 tick 取节点）。 */
+  scheduleFleetLinksDraw() {
+    if (this._fleetLinksTimer) clearTimeout(this._fleetLinksTimer);
+    this._fleetLinksTimer = setTimeout(() => {
+      this._fleetLinksTimer = null;
+      if (this.data.tab !== 'fleet') return;
+      this.drawFleetLinks();
+    }, 40);
   },
 
   /** 手动刷新编队面板（卡片区右上角）。 */
@@ -2306,28 +2594,75 @@ Page({
     if (this.data.fleetCommsState === 'scanning') return;
     const panel = this.data.fleetPanel;
     const cards = panel && Array.isArray(panel.agents) ? panel.agents : [];
-    const sessionIds = cards.map(card => card.sessionId).filter(Boolean).slice(0, 12);
+    const parentAtDepth = [];
+    const refs = cards.filter(card => card && card.sessionId).slice(0, 12).map(card => {
+      const depth = Math.max(0, Number(card.depth) || 0);
+      const inferredParent = depth > 0 ? parentAtDepth[depth - 1] || '' : '';
+      parentAtDepth[depth] = card.sessionId;
+      parentAtDepth.length = depth + 1;
+      const isSubagent = card.origin === 'subagent';
+      const parentSessionId = isSubagent ? (card.parentSessionId || inferredParent) : '';
+      return {
+        id: card.sessionId,
+        ...(parentSessionId ? {
+          parentSessionId,
+          mode: card.mode === 'one-shot' || card.mode === 'continuable' ? card.mode : 'unknown',
+        } : {}),
+      };
+    });
+    const sessionIds = refs.map(ref => ref.id);
     if (!sessionIds.length) return;
+    const commsMembers = panel && Array.isArray(panel.commsMembers) ? panel.commsMembers : [];
+    const requestSessionId = (store.sessionState && store.sessionState.sessionId) || this._renderSessionId || '';
+    const requestAsOfSeq = panel && panel.asOfSeq;
+    const requestGeneration = (this._fleetCommsGeneration || 0) + 1;
+    this._fleetCommsGeneration = requestGeneration;
     const client = store.client;
     if (!client || typeof client.requestContextComms !== 'function') {
+      this._fleetAutoScanInFlight = false;
       wx.showToast({ title: uiText('需升级网关以显示通讯记录'), icon: 'none' });
       return;
     }
     haptics.tick ? haptics.tick() : haptics.vibrate();
     this.setData({ fleetCommsState: 'scanning' });
-    client.requestContextComms(sessionIds).then((frame) => {
-      if (!this.data || this.data.fleetCommsState !== 'scanning') return;
+    client.requestContextComms(sessionIds, refs, commsMembers).then((frame) => {
+      if (!this.data || this.data.fleetCommsState !== 'scanning'
+        || this._fleetCommsGeneration !== requestGeneration
+        || !store.sessionState || store.sessionState.sessionId !== requestSessionId) return;
       const value = frame && frame.value && typeof frame.value === 'object' ? frame.value : null;
       if (!value) throw new Error('bad frame');
       this._fleetComms = value;
+      this._fleetCommsAsOfSeq = requestAsOfSeq;
       this._fleetPanelCache = null;
+      this._fleetAutoScanInFlight = false;
       this.setData({ fleetCommsState: 'ready', fleetCommsFilter: '' });
       this.setData(this.fleetPanelPatch());
     }).catch(() => {
-      if (!this.data) return;
+      if (!this.data || this._fleetCommsGeneration !== requestGeneration
+        || !store.sessionState || store.sessionState.sessionId !== requestSessionId) return;
+      this._fleetAutoScanInFlight = false;
       this.setData({ fleetCommsState: 'error' });
       wx.showToast({ title: uiText('扫描失败，请重试'), icon: 'none' });
     });
+  },
+
+  /* 多 Agent 时自动扫描通讯记录。 */
+  maybeAutoScanFleetComms() {
+    const state = this.data.fleetCommsState;
+    // 失败后允许冷却重试：一次失败（如网关刚重启）不该让卡片永久空着。
+    if (state === 'error') {
+      if (Date.now() - (this._fleetCommsRetryAt || 0) < 10000) return;
+      this._fleetCommsRetryAt = Date.now();
+      this.setData({ fleetCommsState: 'idle' });
+    } else if (state !== 'idle') return;
+    const panel = this.data.fleetPanel;
+    const agents = panel && Array.isArray(panel.agents) ? panel.agents : [];
+    if (agents.length < 2 || panel.comms && panel.comms.solo) return;
+    const scanKey = ((store.sessionState && store.sessionState.sessionId) || '') + ':' + String(panel.asOfSeq);
+    if (this._fleetAutoScanFor === scanKey && this._fleetAutoScanInFlight) return;
+    this._fleetAutoScanFor = scanKey;
+    this._fleetAutoScanInFlight = true;
+    this.scanFleetComms();
   },
 
   setFleetCommsFilter(e) {
@@ -2356,13 +2691,47 @@ Page({
     this.setData(this.fleetPanelPatch());
   },
 
-  setFleetMemberSort(e) {
-    const sort = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sort : '';
-    if (['derived', 'context', 'duration', 'steps'].indexOf(sort) < 0 || sort === this.data.fleetMemberSort) return;
-    haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setData({ fleetMemberSort: sort });
+  setFleetTaskQuery(e) {
+    const value = (e && e.detail && e.detail.value) || '';
+    if (value === this.data.fleetTaskQuery) return;
+    this.setData({ fleetTaskQuery: value });
     this._fleetPanelCache = null;
     this.setData(this.fleetPanelPatch());
+  },
+
+  setFleetTaskStatus(e) {
+    const id = (e && e.currentTarget && e.currentTarget.dataset) ? e.currentTarget.dataset.status : '';
+    if (id === this.data.fleetTaskStatus) return;
+    this.setData({ fleetTaskStatus: id });
+    this._fleetPanelCache = null;
+    this.setData(this.fleetPanelPatch());
+  },
+
+  setFleetMemberSort(e) {
+    const datasetSort = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.sort : '';
+    const sort = datasetSort;
+    if (['derived', 'context', 'duration', 'steps'].indexOf(sort) < 0) return;
+    if (sort === this.data.fleetMemberSort) {
+      this.setData({ fleetMemberSortOpen: false });
+      return;
+    }
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ fleetMemberSort: sort, fleetMemberSortOpen: false });
+    this._fleetPanelCache = null;
+    this.setData(this.fleetPanelPatch());
+  },
+
+  openFleetMemberSort() {
+    if (this.data.fleetMemberSortOpen) {
+      this.setData({ fleetMemberSortOpen: false });
+      return;
+    }
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({ fleetMemberSortOpen: true });
+  },
+
+  closeFleetMemberSort() {
+    if (this.data.fleetMemberSortOpen) this.setData({ fleetMemberSortOpen: false });
   },
 
   fleetOpenMember(e) {
@@ -2372,16 +2741,37 @@ Page({
   },
 
   /** 舞台宽度（px）：卡片左右 padding 各 8px；用于网络图 tidy-tree 布局。 */
+  /**
+   * 量取编队舞台的真实可用宽度。
+   * 之前按 windowWidth - 32 估算，漏算了面板内边距（28rpx×2）+ 卡片内边距（16rpx×2）
+   * + 舞台边框，宽度多出约 17px，最右侧节点的箭头/角标就被裁掉了。
+   */
   measureFleetStage() {
-    let width = 343;
+    let fallback = 343;
+    let pxPerRpx = 0.5;
     try {
       const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
-      if (info && Number.isFinite(info.windowWidth)) width = Math.max(240, Math.round(info.windowWidth - 32));
-    } catch (_) { /* 保持默认宽度 */ }
-    if (width !== this.data.fleetStageWidth) {
-      this.setData({ fleetStageWidth: width });
+      if (info && Number.isFinite(info.windowWidth)) {
+        pxPerRpx = info.windowWidth / 750;
+        // 兜底：面板 28rpx×2 + 卡片 16rpx×2 + 边框，左右共约 90rpx
+        fallback = Math.max(240, Math.round(info.windowWidth - 90 * pxPerRpx));
+      }
+    } catch (_) { /* 保持兜底宽度 */ }
+    const apply = (width) => {
+      const next = Math.max(240, Math.round(width));
+      if (Math.abs(next - (this.data.fleetStageWidth || 0)) < 2) return;
+      this.setData({ fleetStageWidth: next });
       this._fleetPanelCache = null;
-    }
+    };
+    if (typeof wx.createSelectorQuery !== 'function') { apply(fallback); return; }
+    const query = wx.createSelectorQuery().in(this);
+    query.select('#fleetGraphCard').boundingClientRect();
+    query.exec((res) => {
+      const rect = res && res[0];
+      if (!rect || !(rect.width > 0)) { apply(fallback); return; }
+      // 卡片左右内边距 16rpx、舞台边框 1rpx×2 都要扣掉
+      apply(rect.width - (16 * 2 + 2) * pxPerRpx);
+    });
   },
 
   onPanelTouchStart(e) {
@@ -2397,6 +2787,12 @@ Page({
     const dx = e.touches[0].clientX - gesture.x, dy = e.touches[0].clientY - gesture.y;
     if (!gesture.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 12) {
       gesture.axis = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'horizontal' : 'vertical';
+    }
+    // A downward finger drag means the reader is moving toward older messages.
+    // Stop live auto-follow immediately; streamed row growth can otherwise pull the viewport back down.
+    if (gesture.tab === 'conversation' && gesture.axis === 'vertical' && dy > 12) {
+      this._followPausedByUser = true;
+      this._convPinned = false;
     }
   },
 
@@ -2757,6 +3153,15 @@ Page({
     const action = e.currentTarget.dataset.action;
     const s = store.sessionState;
     if (action === 'cancel' && !s.running) return;
+    if (action === 'browsePlugins' || action === 'createPlugin') {
+      this.closeMoreActions();
+      wx.navigateTo({
+        url: action === 'browsePlugins'
+          ? '/pages/plugins/plugins?tab=discover'
+          : '/pages/plugins/plugins?action=create'
+      });
+      return;
+    }
     // 统计 / 重命名 / 工作区文件 / 会话快捷切换都在当前「更多」弹层内展开
     if (action === 'switchSessions') { this.closeMoreActions(); this.openSessionSwitcher(); return; }
     if (action === 'stats') { this.openStatsPane(); return; }
@@ -3117,7 +3522,7 @@ Page({
   loadOlder() {
     // 加载更早历史会让 scrollTop 骤降，抑制这次位移的手势判定
     this._suppressScrollUntil = Date.now() + 600;
-    store.loadOlderHistory();
+    return store.loadOlderHistory();
   },
 
   onConvTouch() {
@@ -3127,20 +3532,23 @@ Page({
 
   onConvScroll(e) {
     const d = (e && e.detail) || {};
+    const previousTop = this._lastScrollTop;
+    const scrollTop = Number(d.scrollTop) || 0;
     this.applyScrollPosition({
-      scrollTop: Number(d.scrollTop) || 0,
+      scrollTop: scrollTop,
       scrollHeight: Number(d.scrollHeight) || 0,
       clientHeight: Number(d.clientHeight) || 0,
       deltaY: Number(d.deltaY) || 0
     });
-    this.updateConversationWindow(Number(d.scrollTop) || 0);
-    this.maybePrefetchOlderHistory(Number(d.scrollTop) || 0);
+    this.updateConversationWindow(scrollTop);
+    this.maybePrefetchOlderHistory(scrollTop, previousTop !== undefined && scrollTop < previousTop - 2);
   },
 
   /** 接近顶部时提前拉下一页历史，避免用户滑到顶后才开始慢加载。 */
-  maybePrefetchOlderHistory(scrollTop) {
+  maybePrefetchOlderHistory(scrollTop, movingTowardOlder) {
     if (this.data.tab !== 'conversation' || this.data.turnNavOpen) return;
     if (this.data.historyPaging || !this.data.hasMoreHistory || this.data.histError) return;
+    if (!movingTowardOlder) return;
     if (this._suppressPins === true || Date.now() < (this._suppressScrollUntil || 0)) return;
     if (scrollTop <= 0 || scrollTop > 4000) return;
     const now = Date.now();
@@ -3172,13 +3580,20 @@ Page({
     const pinned = distance <= HIDE_WITHIN;
     const atVisualBottom = distance <= ARROW_HIDE_WITHIN;
 
+    const previousTop = this._lastScrollTop;
+    const movedUp = previousTop !== undefined && scrollTop < previousTop - 2;
+    const movedDown = previousTop !== undefined && scrollTop > previousTop + 2;
+
     if (Date.now() < (this._suppressScrollUntil || 0)) {
       this._lastScrollTop = scrollTop;
-      if (pinned && this._suppressPins !== true) this._convPinned = true;
+      if (this._followPausedByUser) this._convPinned = false;
+      else if (pinned && this._suppressPins !== true) this._convPinned = true;
       return;
     }
 
-    const movedUp = this._lastScrollTop !== undefined && scrollTop < this._lastScrollTop - 2;
+    // Stay paused even while the reader is within the near-bottom tolerance; resume only
+    // after an intentional scroll toward the newest content reaches the bottom again.
+    if (this._followPausedByUser && pinned && movedDown) this._followPausedByUser = false;
     if (this._convPinned === true && !pinned && !movedUp) {
       this._lastScrollTop = scrollTop;
       if (Date.now() - (this._lastTouchAt || 0) >= 1000) this.refreshBottomAnchor();
@@ -3189,7 +3604,7 @@ Page({
       ? false
       : distance > (this.data.showJump ? ARROW_HIDE_WITHIN : ARROW_SHOW_AFTER);
     if (showJump !== this.data.showJump) this.setData({ showJump: showJump });
-    this._convPinned = pinned;
+    this._convPinned = this._followPausedByUser ? false : pinned;
   },
 
   // Recheck the measured viewport when native scroll events omit its height.
@@ -3236,6 +3651,38 @@ Page({
     return `opacity:${opacity.toFixed(2)};transform:scale(${scale.toFixed(3)});`;
   },
 
+  turnNavigatorWindowPatch(items, scrollTop) {
+    let windowWidth = 375;
+    let windowHeight = 800;
+    try {
+      const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+      windowWidth = Number(info && info.windowWidth) || windowWidth;
+      windowHeight = Number(info && info.windowHeight) || windowHeight;
+    } catch (_) { /* Keep a safe viewport estimate. */ }
+    const rect = this._turnListRect || {};
+    const rowHeight = rect.rowHeight || 76 * windowWidth / 750;
+    const clientHeight = rect.height || windowHeight * 0.76;
+    const centerSpacer = rect.spacer == null ? Math.max(0, (clientHeight - rowHeight) / 2) : rect.spacer;
+    const buffer = 12;
+    const visibleCount = Math.max(48, Math.ceil(clientHeight / rowHeight) + buffer * 2);
+    const start = Math.max(0, Math.min(items.length, Math.floor((Number(scrollTop) || 0) / rowHeight) - buffer));
+    const end = Math.min(items.length, start + visibleCount);
+    return {
+      turnNavVisibleItems: items.slice(start, end).map((item, offset) => Object.assign({}, item, { index: start + offset })),
+      turnNavWindowStart: start,
+      turnNavTopPadPx: start * rowHeight + centerSpacer,
+      turnNavBottomPadPx: Math.max(0, items.length - end) * rowHeight + centerSpacer
+    };
+  },
+
+  syncTurnNavigatorWindow(scrollTop, force) {
+    const items = this.data.turnNavItems || [];
+    const patch = this.turnNavigatorWindowPatch(items, scrollTop);
+    if (!force && patch.turnNavWindowStart === this._turnWindowStart) return;
+    this._turnWindowStart = patch.turnNavWindowStart;
+    this.setData(patch);
+  },
+
   turnNavigatorPatch(rows) {
     // 对齐 DSH 客户端右侧对话大纲：标题＝用户发送内容，正文＝该轮助手的回答
     const snippet = (value, max) => {
@@ -3250,6 +3697,7 @@ Page({
       if (row.kind === 'user') {
         current = {
           key: row.key,
+          seq: row.seq,
           sent: String(row.text || row.copyText || '').trim(),
           reply: '',
           processTitle: ''
@@ -3266,13 +3714,14 @@ Page({
       }
     });
     let userIndex = 0;
-    const items = turns.map((turn) => {
+    const candidates = turns.map((turn) => {
       userIndex += 1;
       const title = snippet(turn.sent, 120);
       const replyPreview = turn.reply || turn.processTitle || '';
       return {
         key: turn.key,
         kind: 'user',
+        seq: turn.seq,
         index: userIndex,
         // 列表只显示发送内容作为标题
         label: title || uiText('轮次') + ' ' + userIndex,
@@ -3282,10 +3731,51 @@ Page({
         full: snippet(replyPreview || turn.sent, 800)
       };
     }).reverse();
+    // Keep the outline for this session independently of the conversation's
+    // rendered window. History pages add older turns; new messages add at the top.
+    const sessionId = String(this._renderSessionId || (store.sessionState && store.sessionState.sessionId) || '');
+    if (this._turnNavCacheSessionId !== sessionId) {
+      this._turnNavCacheSessionId = sessionId;
+      this._turnNavItemsCache = [];
+    }
+    const items = this._turnNavItemsCache || (this._turnNavItemsCache = []);
+    const cachedByKey = new Map(items.map((item) => [item.key, item]));
+    if (!items.length) {
+      items.push(...candidates);
+    } else {
+      let pending = [];
+      const insertBefore = (anchor) => {
+        if (!pending.length) return;
+        items.splice(items.indexOf(anchor), 0, ...pending);
+        pending.forEach((item) => cachedByKey.set(item.key, item));
+        pending = [];
+      };
+      candidates.forEach((candidate) => {
+        const existing = cachedByKey.get(candidate.key);
+        if (existing) {
+          Object.assign(existing, candidate);
+          insertBefore(existing);
+        } else {
+          pending.push(candidate);
+        }
+      });
+      if (pending.length) {
+        // When a bounded source window has no shared keys, sequence numbers still
+        // preserve chronology; otherwise append the unseen older page in order.
+        const allSequenced = items.concat(pending).every((item) => item.seq !== undefined
+          && item.seq !== null && item.seq !== '' && Number.isFinite(Number(item.seq)));
+        items.push(...pending);
+        if (allSequenced) items.sort((a, b) => Number(b.seq) - Number(a.seq));
+        pending.forEach((item) => cachedByKey.set(item.key, item));
+      }
+    }
+    items.forEach((item, index) => { item.index = items.length - index; });
     const selected = (this.data.turnNavItems || [])[this.data.turnNavActiveIndex];
     const selectedIndex = selected ? items.findIndex(item => item.key === selected.key) : -1;
     const active = selectedIndex >= 0 ? selectedIndex : (this.data.turnNavOpen && items.length ? 0 : -1);
-    return { turnNavItems: items, turnNavActiveIndex: active,
+    const windowPatch = this.turnNavigatorWindowPatch(items, this._turnScrollTop || 0);
+    this._turnWindowStart = windowPatch.turnNavWindowStart;
+    return { turnNavItems: items, turnNavActiveIndex: active, ...windowPatch,
       turnNavWidths: items.map((_, index) => active < 0 ? 30 : Math.max(30, 112 - Math.abs(index - active) * 16)),
       turnNavRowStyles: items.map((_, index) => this.turnNavRowStyle(index, active)) };
   },
@@ -3299,19 +3789,114 @@ Page({
     this._turnOlderRequestKey = '';
     this._turnNavigatorTouched = false;
     this._turnAutoFillDone = false;
-    const active = this.data.turnNavItems.length ? 0 : -1;
+    this._turnWarmupStarted = false;
+    this._turnWindowStart = null;
+    const navPatch = this.turnNavigatorPatch((store.sessionState && store.sessionState.rows) || this._conversationRows || []);
+    const items = navPatch.turnNavItems || [];
+    const active = items.length ? 0 : -1;
     this.setData({
+      ...navPatch,
       turnNavOpen: true,
       turnNavScrollTop: 0,
       turnNavActiveIndex: active,
-      turnNavWidths: this.data.turnNavItems.map((_, index) => Math.max(30, 112 - index * 16)),
-      turnNavRowStyles: this.data.turnNavItems.map((_, index) => this.turnNavRowStyle(index, active)),
-      turnNavPreview: null
+      turnNavWidths: items.map((_, index) => Math.max(30, 112 - index * 16)),
+      turnNavRowStyles: items.map((_, index) => this.turnNavRowStyle(index, active)),
+      turnNavPreview: null,
+      turnNavWarming: false,
+      turnNavWarmText: ''
     }, () => wx.nextTick(() => {
       if (!this.data.turnNavOpen || this._unloaded) return;
       this.measureTurnRail();
-      this.autoLoadTurnNavigatorHistory(null, true);
+      this.startTurnNavigatorWarmup();
     }));
+  },
+
+  startTurnNavigatorWarmup() {
+    const session = store.sessionState || {};
+    if (!this.data.turnNavOpen || !session.sessionId || !session.hasMoreHistory) {
+      // 分页元数据未到（或面板已关）：等待。标志位保持布尔语义（false=未开始），
+      // 直接调用（未经 openTurnNavigator 初始化）也不能留下 undefined。
+      this._turnWarmupStarted = false;
+      return;
+    }
+    this.stopTurnNavigatorWarmup(false);
+    this._turnWarmupStarted = true;
+    this._turnWarmup = {
+      sessionId: session.sessionId,
+      waiting: false,
+      requestCursor: null,
+      requestedAt: 0
+    };
+    this.setData({ turnNavWarming: true, turnNavWarmText: uiText('正在准备较早记录…') });
+    this.pumpTurnNavigatorWarmup();
+  },
+
+  scheduleTurnNavigatorWarmup(delay) {
+    if (this._turnWarmTimer) clearTimeout(this._turnWarmTimer);
+    this._turnWarmTimer = setTimeout(() => {
+      this._turnWarmTimer = null;
+      this.pumpTurnNavigatorWarmup();
+    }, delay == null ? 180 : delay);
+  },
+
+  pumpTurnNavigatorWarmup() {
+    const warmup = this._turnWarmup;
+    if (!warmup || !this.data.turnNavOpen || this._unloaded || this._voiceHidden) return;
+    const session = store.sessionState || {};
+    if (session.sessionId !== warmup.sessionId) {
+      this.stopTurnNavigatorWarmup(false);
+      return;
+    }
+
+    if (warmup.waiting) {
+      if (session.historyPaging) return;
+      const cursorAdvanced = session.nextBeforeSeq !== warmup.requestCursor;
+      if (cursorAdvanced || session.hasMoreHistory === false) {
+        warmup.waiting = false;
+        if (session.hasMoreHistory === false) {
+          this.finishTurnNavigatorWarmup(uiText('已显示完整历史'));
+          return;
+        }
+        this.scheduleTurnNavigatorWarmup(session.running === true ? 900 : 180);
+        return;
+      }
+      if (session.historyError || Date.now() - warmup.requestedAt > 9000) {
+        this.finishTurnNavigatorWarmup('');
+        return;
+      }
+      this.scheduleTurnNavigatorWarmup(400);
+      return;
+    }
+
+    if (session.hasMoreHistory !== true) {
+      this.finishTurnNavigatorWarmup(uiText('已显示完整历史'));
+      return;
+    }
+    warmup.waiting = true;
+    warmup.requestCursor = session.nextBeforeSeq;
+    warmup.requestedAt = Date.now();
+    if (this.loadOlder() === false) {
+      this.finishTurnNavigatorWarmup('');
+      return;
+    }
+    // Continue paging during a live turn, but keep history reads low priority
+    // so the real-time event stream remains responsive.
+    this.scheduleTurnNavigatorWarmup(session.running === true ? 900 : 400);
+  },
+
+  finishTurnNavigatorWarmup(text) {
+    if (this._turnWarmTimer) clearTimeout(this._turnWarmTimer);
+    this._turnWarmTimer = null;
+    this._turnWarmup = null;
+    this.setData({ turnNavWarming: false, turnNavWarmText: text || '' });
+  },
+
+  stopTurnNavigatorWarmup(updateView) {
+    if (this._turnWarmTimer) clearTimeout(this._turnWarmTimer);
+    this._turnWarmTimer = null;
+    this._turnWarmup = null;
+    this._turnWarmupStarted = false;
+    if (updateView !== false && this.data) this.setData({ turnNavWarming: false, turnNavWarmText: '' });
   },
 
   measureTurnRail() {
@@ -3331,7 +3916,7 @@ Page({
         rowHeight,
         spacer
       };
-      if (Math.abs((Number(this.data.turnNavSpacerPx) || 0) - spacer) > 1) this.setData({ turnNavSpacerPx: spacer });
+      this.syncTurnNavigatorWindow(this._turnScrollTop || 0, true);
     }).exec();
     if (this._convPinned !== false || this.data.tab !== 'conversation') return;
     // 找当前对话正在看的位置：视口内第一条用户消息，默认高亮它
@@ -3361,10 +3946,13 @@ Page({
   onTurnListScroll(e) {
     const detail = (e && e.detail) || {};
     const top = Number(detail.scrollTop) || 0;
+    const previousTop = this._turnScrollTop;
     this._turnScrollTop = top;
+    this.syncTurnNavigatorWindow(top, false);
     const rect = this._turnListRect;
     if (rect && rect.rowHeight > 0) this.applyTurnIndex(Math.round(top / rect.rowHeight));
-    this.autoLoadTurnNavigatorHistory(detail, false);
+    // The rail is newest-first, so only movement toward its older end can page.
+    if (previousTop !== undefined && top > previousTop + 2) this.autoLoadTurnNavigatorHistory(detail, false);
   },
 
   applyTurnIndex(index, feedback = true) {
@@ -3403,6 +3991,7 @@ Page({
   },
 
   autoLoadTurnNavigatorHistory(detail, fillViewport, force) {
+    if (this._turnWarmup && !(store.sessionState && store.sessionState.running === true)) return;
     const items = this.data.turnNavItems || [];
     if (!this.data.turnNavOpen || !this.data.hasMoreHistory || this.data.historyLoading) return;
     if (this.data.histError && !force) return;
@@ -3424,8 +4013,8 @@ Page({
     if (detail) {
       if (!nearOlderEdge) return;
     } else {
-      // store 更新也会调用本方法；这里最多补一页让大纲有内容，绝不能
-      // 在每次 emit 时继续向更早历史翻页（会连续请求整段历史，真机发热卡死）。
+      // Programmatic fills are a one-page fallback. Full automatic pagination
+      // is coordinated by the paced warm-up above.
       if (!fillViewport || this._turnAutoFillDone) return;
       this._turnAutoFillDone = true;
     }
@@ -3439,13 +4028,15 @@ Page({
 
   retryTurnNavigatorHistory() {
     this._turnOlderRequestKey = '';
+    this._turnWarmupStarted = false;
     this.setData({ histError: '' });
-    this.autoLoadTurnNavigatorHistory(null, true, true);
+    this.startTurnNavigatorWarmup();
   },
 
   closeTurnNavigator() {
     this._turnListScrolling = false;
     this._turnScrubbing = false;
+    this.stopTurnNavigatorWarmup(true);
     this.setData({ turnNavOpen: false, turnNavPreview: null });
   },
 
@@ -3499,6 +4090,7 @@ Page({
     this._turnJumpTimer = null;
     this._suppressPins = false;
     this._suppressScrollUntil = 0;
+    this._followPausedByUser = false;
     this._convPinned = true;
     this._lastTouchAt = 0;
     this._userScrolledUp = false;
@@ -3878,10 +4470,25 @@ Page({
     this._composerCursor = keepsToken ? token.length + 1 + cursor : cursor;
     this._dismissedCommandDraft = null;
     if (this.data.attachSheetOpen) this.closeAttachMenu();
-    this.setData({ draft: value, canSend: !!value.trim() || this.data.images.length > 0 });
-    // 预览开着时要跟着输入刷新；关着就不做无用功。
+    // 草稿里有 Markdown 语法时点亮「预览」按钮，提示可以切换渲染视图。
+    const hasMarkdown = /(^|\n)\s*(#{1,6} |[-*+] |\d+\. )|\*\*[^*]+\*\*|```|^\s*> /m.test(value);
+    // 边输入边渲染：语法一完成就切渲染（键盘不收、焦点不丢，继续打字继续刷新）。
+    // 用户点「编辑」改原文后加锁：保持原文，直到语法消失再出现才重新渲染。
+    const patch = { draft: value, composerCursor: this._composerCursor, canSend: !!value.trim() || this.data.images.length > 0, composerPreviewHint: hasMarkdown };
+    if (!hasMarkdown) {
+      this._composerLivePin = null;
+      if (this.data.composerPreview) patch.composerPreview = false;
+    } else if (this._composerLivePin !== false && !this.data.composerPreview) {
+      this._composerPreviewAuto = true;
+      // 关键：textarea 的 class 会随 composerPreview 切换，微信在属性变化时
+      // 用绑定的 composerValue 重新初始化原生组件。不同步最新值 → 粘贴内容被清空（闪一下就没）。
+      patch.composerPreview = true;
+    }
+    this.setData(patch);
+    // 预览态下也要跟着输入刷新渲染块（同步渲染层高度，表面不跳动）。
     if (this.data.composerPreview) this.refreshComposerPreview();
     this.syncCommandMenu(value, store.sessionState);
+    this.trackFileMention(value, this._composerCursor);
   },
 
   /** 移除输入框里的指令 token，把参数留在草稿里（chip 上的 ×）。 */
@@ -3889,8 +4496,26 @@ Page({
     const arg = this.data.draftArg || '';
     this._commandInputId = null;
     this._draftRevision = (this._draftRevision || 0) + 1;
-    this.setData({ draft: arg, canSend: !!arg.trim() || this.data.images.length > 0, composerFocus: true });
+    this.setComposerValue(arg, { draft: arg, canSend: !!arg.trim() || this.data.images.length > 0, composerFocus: true });
     this.syncCommandMenu(arg, store.sessionState);
+  },
+
+  /**
+   * 程序化改写输入框内容（发送清空 / 切会话恢复 / 插入指令与文本）。
+   * 用户打字删除不经过这里：textarea 原生维护自己的内容，避免数据桥回写卡顿。
+   */
+  setComposerValue(text, extra) {
+    const patch = Object.assign({ composerValue: String(text == null ? '' : text) }, extra || {});
+    this.setData(patch);
+  },
+
+  /** 点渲染结果回到编辑：上锁保持原文（光标可见），直到语法消失再出现才重新渲染。 */
+  exitComposerPreviewEdit() {
+    this._composerPreviewAuto = false;
+    this._composerLivePin = false;
+    this._composerAutoRev = this._draftRevision;
+    if (this._composerAutoPreviewTimer) { clearTimeout(this._composerAutoPreviewTimer); this._composerAutoPreviewTimer = null; }
+    this.setData({ composerPreview: false, composerFocus: true });
   },
 
   /** 输入框 Markdown 预览：把当前草稿按发送后的同一条管线解析成块。 */
@@ -3899,12 +4524,18 @@ Page({
     this.setData({ composerPreviewBlocks: text.trim() ? safeParse(text) : [] });
   },
 
+
+  /** 输入框 Markdown 预览：把当前草稿按发送后的同一条管线解析成块。 */
+
   /** 编辑 ⇄ 预览。进入预览时收起键盘，避免原生输入法盖住渲染结果。 */
   toggleComposerPreview() {
     const next = !this.data.composerPreview;
     if (next && !String(this.data.draft || '').trim()) return;
     if (next) this.refreshComposerPreview();
-    this.setData({ composerPreview: next, composerFocused: false, kbHeight: 0 });
+    this._composerPreviewAuto = false;
+    // 手动切回编辑：加锁保持原文，直到语法消失重现。
+    if (!next) this._composerLivePin = false;
+    this.setData({ composerPreview: next, composerFocused: false, kbHeight: 0, composerPreviewHint: false });
     if (next && this.data.commandMenu) this.setData({ commandMenu: null });
     this.updateDockInset();
   },
@@ -3915,7 +4546,12 @@ Page({
     const height = e.detail && e.detail.height;
     if (!Number.isFinite(height) || height === this._composerHeight) return;
     this._composerHeight = height;
-    this.updateDockInset();
+    // 连删/快打时 linechange 密集触发：防抖 120ms，避免底部留白来回重算造成抖动。
+    if (this._composerLineTimer) clearTimeout(this._composerLineTimer);
+    this._composerLineTimer = setTimeout(() => {
+      this._composerLineTimer = null;
+      this.updateDockInset();
+    }, 120);
   },
 
   syncCommandMenu(value, session) {
@@ -3986,7 +4622,7 @@ Page({
       this.closeAttachMenu();
       this._commandInputId = command.id;
       this._draftRevision = (this._draftRevision || 0) + 1;
-      this.setData({ draft: insertText, canSend: !!insertText.trim(), composerFocus: true });
+      this.setComposerValue(insertText, { draft: insertText, canSend: !!insertText.trim(), composerFocus: true });
       this.syncCommandMenu(insertText, store.sessionState);
       return;
     }
@@ -3995,7 +4631,7 @@ Page({
     this.closeAttachMenu();
     const line = ui.submitText || ('/' + command.name);
     return this.submitCommand(command, line, [], true).then(result => {
-      if (result !== false && typed && this.data.draft === draft && !this._unloaded) this.setData({ draft: '', canSend: this.data.images.length > 0 });
+      if (result !== false && typed && this.data.draft === draft && !this._unloaded) this.setComposerValue('', { draft: '', canSend: this.data.images.length > 0, composerPreviewHint: false, composerPreview: false });
     });
   },
 
@@ -4009,7 +4645,7 @@ Page({
     return store.client.selectCommandOption(store.sessionState.sessionId, command, optionId).then(() => {
       if (!this._unloaded && this._commandOptionRequest === request && this.composerContextKey() === context) {
         const typed = this._commandOptionTypedDraft;
-        if (typed && this.data.draft === typed) this.setData({ draft: '', canSend: this.data.images.length > 0 });
+        if (typed && this.data.draft === typed) this.setComposerValue('', { draft: '', canSend: this.data.images.length > 0, composerPreviewHint: false, composerPreview: false });
         this.closeAttachMenu();
       }
     }).catch(err => {
@@ -4035,7 +4671,7 @@ Page({
           // 运行中发送：消息进本机队列等待用户点“发送”箭头，
           // 不再走网关 queue 模式（会被宿主在回合结束时自动发出）。
           self.enqueueSubmission(line, encodedImages || [], [], [], ticket);
-          if (!preserveDraft) self.setData({ draft: '', images: [], canSend: false, commandMenu: null });
+          if (!preserveDraft) self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
           self.jumpToBottom();
           return true;
         }
@@ -4044,7 +4680,7 @@ Page({
           store.appendLocalUserRow(line, []);
           self.jumpToBottom();
         }
-        if (sent !== false && !preserveDraft) self.setData({ draft: '', images: [], canSend: false, commandMenu: null });
+        if (sent !== false && !preserveDraft) self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
         return sent;
       });
     }
@@ -4317,7 +4953,7 @@ Page({
         // 运行中发送：只进本机队列，等用户点队列行的发送箭头再真正发出。
         // 之前走网关 queue 模式，宿主会在回合结束时把消息自动发出，绕过了队列的发送按钮。
         this.enqueueSubmission(text, encoded, uploadImages, workspaceRefs, ticket);
-        self.setData({ draft: '', images: [], canSend: false });
+        self.setComposerValue('', { draft: '', images: [], canSend: false });
         this.closeAttachMenu();
         this.jumpToBottom();
         return;
@@ -4344,7 +4980,7 @@ Page({
       } else {
         wx.showToast({ title: uiText('发送失败，草稿已保留'), icon: 'none' }); return;
       }
-      self.setData({ draft: '', images: [], canSend: false });
+      self.setComposerValue('', { draft: '', images: [], canSend: false });
       this.closeAttachMenu();
       this.jumpToBottom();
     }).catch((err) => {
@@ -4380,8 +5016,8 @@ Page({
         // Keep keyboard height separate so its first frame can reposition immediately.
         const kbHeight = Number(this.data.kbHeight) || 0;
         const overlap = Math.max(0, (info.windowHeight || rect.bottom) - rect.top - kbHeight);
-        const inset = Math.ceil(overlap * 750 / Math.max(info.windowWidth || 375, 1) + 12);
-        if (Math.abs(inset - this.data.convBottomInset) > 2) {
+        const inset = Math.round(overlap * 750 / Math.max(info.windowWidth || 375, 1) + 12);
+        if (Math.abs(inset - this.data.convBottomInset) > 6) {
           this.setData({ convBottomInset: inset, ...this.layoutPatch({ convBottomInset: inset }) }, () => {
             if (this._convPinned) this.refreshBottomAnchor();
           });
@@ -4902,6 +5538,11 @@ Page({
     if (!row.canOpen || id===store.sessionState.sessionId) return;
     const client=store.client, generation=client.connectGeneration, sessionId=store.sessionState.sessionId, request={};
     this._collaborationRequest=request;
+    // 行的来源集合必须在清空 preview 前捕获：预览内「下级子智能体」的行
+    // 归属于被预览会话，顶层列表的行归属于当前会话。
+    const previousPreview = this.data.collaborationPreview || {};
+    const fromPreviewChildren = (previousPreview.children || []).some(item=>item.id===id);
+    const previewSessionId = previousPreview.id || '';
     const current=()=>!this._unloaded && !this._voiceHidden && this.data.collaborationOpen && this._collaborationRequest===request &&
       client===store.client && generation===client.connectGeneration && sessionId===store.sessionState.sessionId;
     this.setData({collaborationPreview:{id,title:row.title,loading:true,rows:[],children:[]}});
@@ -4914,7 +5555,14 @@ Page({
     try {
       if (!store.state || store.state.connection !== 'connected') throw Error('offline');
       if (typeof client.cancelInspector === 'function') client.cancelInspector(id);
-      const frame=await Promise.race([client.inspectSession(id), timeout]); if(!current())return;
+      // 子智能体会话必须带持久父地址：父会话是它在 subagentCatalog 里的归属会话
+      // （顶层列表=当前会话；预览内「下级子智能体」=被预览会话），否则网关以
+      // session/agent-busy 拒绝且错误帧无 sessionId，只能等 8s 超时。
+      const childMode = ['one-shot','continuable','unknown'].includes(row.mode) ? row.mode : '';
+      const parent = childMode
+        ? { parentSessionId: fromPreviewChildren ? previewSessionId : sessionId, mode: childMode }
+        : null;
+      const frame=await Promise.race([client.inspectSession(id, parent), timeout]); if(!current())return;
       if(frame.sessionId!==id || !Array.isArray(frame.events))throw Error('invalid history');
       const state=collaboration.create(id);collaboration.baseline(state,frame.projections);collaboration.ingest(state,frame.events);
       const childView=collaboration.view(state,store.state.sessions,{sessionId:id},true);

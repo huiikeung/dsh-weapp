@@ -26,10 +26,10 @@
 | 7 | Context Events | spec-browser §3 | ✅ 已完成 | 5 chips 多选语义、行图标与 5 色、T/S 位置、注入/压缩增量配色、640rpx 通道 |
 | 8 | File Activity | spec-browser §4 | ✅ 已完成 | 5 计数 chips、路径搜索、5 种排序（次数/行数/最新/路径/文件名）、语言+emoji 字形、读写搜徽标、+/−、op 日志（工具胶囊/读行/增减/错误点/步骤戳）与跳浏览器 |
 | 9 | Fleet 编队 | spec-fleet §1 | ✅ 主体完成（成员板/通讯待做） | 汇总 chips + 进度条、Agent 网络图（116px 卡 / 180px 层高 / tidy-tree + 折带 / 三次贝塞尔连线 / 黄金角色相 / 当前与选中态 / 组成条 / 压力色）、任务卡沿用 |
-| 13 | 成员板 / 通讯面板 | spec-fleet §5、§7 | ✅ 已完成 | 成员板：roster+Agent 合并、色相顶边、搜索/状态/排序、任务计数、失败串、→ 打开；通讯面板：宿主 context-comms 按需扫描 relay/mailbox/settled，客户端扫描/重扫、参与方筛选、类型徽标与摘录 |
+| 13 | 成员板 / 通讯面板 | spec-fleet §5、§7 | ✅ 已完成（适配 DSH rc.3） | 成员板：roster+Agent 合并、色相顶边、搜索/状态/排序、任务计数、失败串、→ 打开；搜索框/排序框/任务计数胶囊/任务搜索框透明底；通讯面板：宿主 context-comms 按需扫描 relay/mailbox/settled，rc.3 `send_message.target` 成员名由客户端名册解析为会话 id，发送/接收双日志按路由+文本去重，参与方筛选与路由显示成员名 |
 | 10 | /context 弹窗 | spec-fleet §2 | ✅ 已完成 | 工具栏入口 + 居中 82vh/100vw-64rpx 弹窗、Current Composition + Browser 概览、遮罩/× 关闭、类别行跳回页面浏览器 |
 | 11 | 上下文设置卡 | spec-fleet §3 | ✅ 已完成（System Prompt 前后缀 host 侧只读说明） | 设置页「上下文面板」分组：趋势粒度/模式、耗时曲线、对比基线、文件活动排序；本机 context-prefs；会话读取默认值 |
-| 12 | Context Insights 页 | spec-fleet §12 | ✅ 主体对齐 | KPI 六项、日用量/费用、8 周热力图、Token 明细、上下文组成、技能搜索/按加载量或最近排序/目录说明与路径、工作区分组、活跃/归档覆盖、会话卡片、搜索/排序/分页、日期/技能联动筛选；价格由网关拉取 models.dev 价本缓存并按 `contextActivity` 逐日模型/峰谷用量估算；wire 保持最近 120 会话和 56 天每日明细 |
+| 12 | Context Insights 页 | spec-fleet §12 | ✅ 已完成（适配 DSH rc.3 host） | 页头：原生导航栏标题 + 「插件设置」直达设置页上下文面板 + DeepSeek 余额胶囊（网关 `account` 帧，未登录/旧网关静默隐藏）；KPI 六项、日用量/费用（空态）、8 周热力图（按日期筛选/少多图例）、Token 环 + 8 段图例、耗时环 + 6 段图例（两环图例点按聚焦/淡出，再点取消）、技能卡（搜索/排序/目录来源 chip/路径复制/空态）、工作区分组面包屑、活跃/归档覆盖、会话卡片（运行点/当前/归档/占用环/团队用量与费用/最后消息/无上下文空态）、搜索/排序/分页、日期/技能联动筛选；价格由网关拉取 models.dev 价本缓存并按 `contextActivity` 逐日模型/峰谷用量估算；wire 保持最近 120 会话和 56 天每日明细 |
 | 14 | 命令执行卡 | spec-fleet §10（可落地部分） | ✅ 已完成 | 网关命令账本（tool/call↔result 配对、参数、耗时、退出码/信号/超时、输出字符、stderr、后台，≤30 条）；客户端 KPI、全部/失败/慢/后台 chips、命令行、展开详情（命令/facts）、复制、跳浏览器 |
 
 ## 宿主侧（网关桥）缺口
@@ -46,7 +46,7 @@
 | 附件块（图片尺寸/存储大小/image token） | 部分（attachment 帧拉图） | Browser 附件卡 |
 | 工具 description / inputSchema / 来源插件 | ✅ 已补（最新纪元 20 个工具的精简 meta；旧纪元仅名字） | Browser 工具行、参数表、来源 chip |
 | 节点预览与 assistant 块计数 | ✅ 已补（最近 120 节点，避免撑爆 wire） | Browser 行预览、kind chips |
-| 跨会话聚合（Insights） | ✅ 已补 `context-insights`；最多 120 会话，56 天逐会话日桶；读取 `contextActivity` 的计费模型/峰谷桶及技能加载；按需拉取技能目录元数据 | Context Insights 页；工作区与归档由小程序已有 workspace/archived 状态联动 |
+| 跨会话聚合（Insights） | ✅ 已补 `context-insights`；最多 120 会话，56 天逐会话日桶；**兼容 DSH 0.2.1-rc.3**：会话头可为 header / 顶层 / metadata 三代形状；head 优先读原生 `contextTimeline/contextActivity`，旧宿主机回退网关 `mobileContext` 的 `current/timing/requests/events`；技能从 `inject{sub:'skill'}` 事件按日归集；缺少计费账本时按请求账本 + models.dev 价本估算日费用与会话费用；标题取原生 `title` 投影；子 Agent 家族按 `parentSession`/`origin=subagent` 归并到最近的非子 Agent 会话（子会话不单列，其 token/费用/日账本/技能计入父会话） | Context Insights 页；工作区与归档由小程序已有 workspace/archived 状态联动 |
 
 ## 约束与风险
 
@@ -72,21 +72,24 @@
 | 真机/微信开发者工具验证 | 本机 DevTools CLI 初始化被沙箱拒绝（`EPERM: ~/Library`），无法在此环境起 GUI/预览；已用单元/契约测试 + 包预算脚本代替，真机验收清单见 README/下方。 |
 | 洞察页历史范围 | 网关 wire 为控制体积保留最多 120 个会话与最近 56 天逐日明细；更早的会话生命周期费用仍按最多 400 日的宿主活动账本累计。旧网关无活动投影时按可用请求账本回退。 |
 | 洞察页费用（¥/$） | 价本从 models.dev 按需拉取并缓存 6 小时；网络不可用或模型无映射时该项显示 `—`，不会用 0 冒充免费。 |
+| 洞察页旧网关数据 | DSH 0.2.1-rc.3 不提供 `contextTimeline/contextActivity/costMeter` 投影，网关端已回退到 `mobileContext`（含 timing/current/requests/events）并从事件与请求账本重建技能/费用；若仍在运行旧桥，耗时卡显示空态、技能/费用为空，需重新运行 `install-context-bridge.cjs` 并重启 DSH。 |
+| 洞察页标题 / 更新胶囊 | 标题由微信原生导航栏（`navigationBarTitleText: 上下文洞察`）承担，正文不再重复；插件的「新版本 ↑ vX」胶囊依赖 npm registry 最新版本，移动端没有对应网关数据源且小程序不能直接开外链，故不渲染（微信侧版本更新走平台机制）。其余页头按钮（插件设置、余额胶囊）已移植。 |
+| 洞察页自定义日期 | 桌面插件的日历弹层改为原生 `picker mode="date"` 起止两段（spec 允许的移动端替代），区间语义与桌面一致。 |
 | Context Stats/Trend 费用 | 仍未接入洞察页价本，沿用现有缺失数据显示 `—` 的降级策略。 |
 | 浏览器附件卡 / 矩形树图 | 需要结构化 content 与逐块元数据；当前 content 为扁平文本，按规格降级（不渲染附件卡，树图不做）。 |
 | 命令执行卡（spec-fleet §10） | 已实现原生 shell（bash/pwsh/shell/exec/execCommand/terminal）的 call↔result 配对与详情；PTC/嵌套工具调用、后台任务交接（job 事件）、慢/后台统计的极端分支未覆盖。 |
 | AgentInspector 详情条（§8） | 插件 Fleet tab 明确不渲染（`inspector={false}`），小程序同样不渲染。 |
 
-## 最终验证（第 13 轮）
+## 最终验证（第 14 轮）
 
-- `node --test tests/*.test.js`：**872 项、861 通过、11 跳过、0 失败**。
-- `node scripts/check-miniprogram-package.cjs`：主包 **1891 KiB**，洞察分包 **66.9 KiB**；包检查通过。
-- 与插件对照的模块：统计四卡、事件、浏览器（主体 + 工具参数 + 文件活动 + DNA）、趋势（brief/✂/pin）、编队（汇总/网络/成员/通讯/任务）、/context 弹窗、设置卡、洞察页（统计/用量与费用/筛选/目录详情/会话卡片）、命令执行卡。
+- `node --test tests/*.test.js`：**984 项、972 通过、12 跳过（缺少原生 GUI 能力）、0 失败**。
+- `node scripts/check-miniprogram-package.cjs`：主包 **1958 KiB**，洞察分包 **103.4 KiB**；包检查通过。
+- 与插件对照的模块：统计四卡、事件、浏览器（主体 + 工具参数 + 文件活动 + DNA）、趋势（brief/✂/pin）、编队（汇总/网络/成员/通讯/任务）、/context 弹窗、设置卡、洞察页（页头设置/余额、KPI、7 日用量与费用、8 周热力图、Token/耗时环与图例聚焦、技能、分组/覆盖/搜索/排序/分页、会话卡片与空态、子 Agent 家族归并）、命令执行卡。
 - **真机核对清单**（需在微信开发者工具/真机执行，本环境无法启动 GUI）：
   1. 上下文：统计段排布、✂ 事件钉柱、brief 三行、pin 详情（实际/输出/缓存/末步/增量）。
   2. 浏览器：类别行双 delta、助手 kind chips、工具参数表、点类别/行展开与复制。
   3. 文件活动：字形、读写搜徽标、op 日志展开与跳浏览器。
   4. 趋势：步骤/轮次、全量/增量、DNA、总览带、耗时曲线。
   5. 编队：汇总→网络图（折带不横向溢出）→成员板→通讯扫描→任务。
-  6. 工具栏 `⤢` 弹窗与 `▦` 洞察页；在洞察页核对价格加载后费用、工作区/归档筛选与技能目录详情；设置页「上下文面板」偏好对新会话生效。
+  6. 工具栏 `⤢` 弹窗与 `▦` 洞察页；在洞察页核对页头「插件设置」直达上下文面板、DeepSeek 余额胶囊（登录后显示，未登录隐藏）、KPI 六项、7 日柱图与空态、Token/耗时环点图例聚焦、热力图日期筛选与少/多图例、技能卡搜索/排序/详情/路径复制、工作区面包屑与活跃/归档覆盖、会话卡片占用环与团队用量、无上下文卡空态、分页；价格加载后费用、技能目录详情；设置页「上下文面板」偏好对新会话生效。
   7. 命令执行卡：跑一条 bash 后应出现 KPI/行/展开详情，复制与「定位」正常。

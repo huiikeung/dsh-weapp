@@ -49,13 +49,19 @@ test('a session opened offline refreshes its history and composer state after re
 
   store.client.state = 'connected';
   store.client.callbacks.onState('connected');
-  const historyIndex = calls.findIndex(call => call.method === 'requestHistory' && call.state === 'connected');
-  assert.ok(historyIndex >= 0, 'session history is sent immediately after reconnect');
+  const subscribeIndex = calls.findIndex(call => call.method === 'subscribe' && call.state === 'connected');
+  assert.ok(subscribeIndex >= 0, 'session resume subscription is sent immediately after reconnect');
+  assert.ok(!calls.some(call => call.method === 'requestHistory' && call.state === 'connected'),
+    'a successful live subscription avoids a competing full history read');
   assert.ok(!calls.some(call => call.method === 'requestWorkspaces' && call.state === 'connected'), 'home RPCs wait behind active session loading');
   assert.ok(!calls.some(call => call.method === 'requestCommands' && call.state === 'connected'), 'auxiliary session RPCs wait for the history request to start');
 
   for (const [id, timer] of [...timers]) {
     if (timer.delay === 250) { timers.delete(id); timer.fn(); }
+  }
+
+  for (const [id, timer] of [...timers]) {
+    if (timer.delay === 1200) { timers.delete(id); timer.fn(); }
   }
 
   for (const method of ['requestHistory', 'requestQueue']) {
@@ -87,5 +93,5 @@ test('a session opened offline refreshes its history and composer state after re
     if (timer.delay === 400) { timers.delete(id); timer.fn(); }
   }
   const workspaceIndex = calls.findIndex(call => call.method === 'requestWorkspaces' && call.state === 'connected');
-  assert.ok(historyIndex < workspaceIndex, 'session history is sent before home bootstrap RPCs');
+  assert.ok(subscribeIndex < workspaceIndex, 'the session stream is restored before home bootstrap RPCs');
 });

@@ -40,6 +40,9 @@
 .cost-group-label + .cost-row { min-height: 96rpx; }
 .cost-card { overflow: hidden; border: 1rpx solid var(--border-strong); border-radius: 24rpx; background: var(--surface); box-shadow: 0 1rpx 4rpx rgba(16, 19, 24, .04); }
 .cost-card + .cost-card { margin-top: 14rpx; }
+/* 弹窗内不再靠 scroll-view 的 padding 留白（会右溢出），卡片自己留左右边距。 */
+/* 卡片边框离屏幕两边太近，加大外边距（行内文字由各自 padding 控制，不受影响）。 */
+.cost-sheet-body .cost-card { margin-left: 40rpx; margin-right: 40rpx; }
 .cost-row { display: flex; min-height: 112rpx; align-items: center; justify-content: space-between; gap: 24rpx; padding: 20rpx 28rpx; box-sizing: border-box; }
 .cost-row-copy { display: flex; min-width: 0; flex: 1; flex-direction: column; gap: 6rpx; }
 .cost-row-label { overflow: hidden; color: var(--text); font-size: 30rpx; font-weight: 500; line-height: 1.3; text-overflow: ellipsis; white-space: nowrap; }
@@ -47,15 +50,15 @@
 .cost-row-value { display: flex; flex: none; align-items: center; color: var(--text-2); font-size: 26rpx; line-height: 1.3; }
 .cost-row switch { flex: none; flex-shrink: 0; }
 .cost-chevron { margin-left: 12rpx; color: var(--text-3); font-size: 34rpx; line-height: 1; }
-.cost-divider { height: 1rpx; margin-left: 28rpx; background: var(--divider); }
+.cost-divider { height: 1rpx; margin: 0 28rpx; background: var(--divider); }
 .cost-budget-settings { padding: 0 28rpx 24rpx; }
 .cost-go-key-settings,.cost-balance-key-settings { padding: 0 28rpx 24rpx; }
 .cost-key-state { display: flex; align-items: center; justify-content: space-between; min-height: 56rpx; gap: 16rpx; }
 .cost-key-clear { color: #c34f4f; font-size: 23rpx; }
 /* 与 .cost-row 的水平内边距对齐，避免 input 顶到卡片左沿形成左下角空白块 */
 .cost-key-input-row { display: flex; align-items: center; gap: 12rpx; margin: 6rpx 0 12rpx; padding: 0 28rpx; }
-.cost-key-row { display: flex; align-items: center; gap: 12rpx; padding: 0 28rpx 8rpx; }
-.cost-key-row .cost-field-input { flex: 1 1 auto; width: auto; min-width: 0; }
+.cost-key-row { display: flex; align-items: center; gap: 12rpx; padding: 8rpx 28rpx; box-sizing: border-box; }
+.cost-key-row .cost-field-input { flex: 1 1 auto; width: 100%; min-width: 0; }
 .cost-key-row .cost-save-button { flex: none; height: 88rpx; min-width: 128rpx; border-radius: 16rpx; font-size: 26rpx; }
 .cost-field-divided { border-top: 1rpx solid var(--divider); }
 .cost-field-hint { color: var(--text-3); font-size: 21rpx; line-height: 1.4; }
@@ -117,7 +120,7 @@
 .cost-row-buttons .cost-mini-btn { flex: 1; min-height: 88rpx; padding: 0 28rpx; border-radius: 16rpx; font-size: 27rpx; }
 .cost-row-buttons .cost-mini-btn.danger { border-width: 2rpx; font-weight: 600; }
 /* 自定义余额弹窗：分区标题 + 大号输入字段（标签在上、输入框满宽） */
-.cost-sheet-section { display: flex; align-items: baseline; gap: 12rpx; margin: 26rpx 28rpx 12rpx; color: var(--text-2); font-size: 25rpx; font-weight: 600; }
+.cost-sheet-section { display: flex; align-items: baseline; gap: 12rpx; margin: 26rpx 0 12rpx; padding: 0 28rpx; box-sizing: border-box; color: var(--text-2); font-size: 25rpx; font-weight: 600; }
 .cost-section-note { color: var(--text-3); font-size: 21rpx; font-weight: 400; }
 .cost-field { display: flex; flex-direction: column; gap: 12rpx; padding: 20rpx 28rpx; }
 .cost-field-label { display: flex; align-items: baseline; gap: 10rpx; color: var(--text-2); font-size: 24rpx; font-weight: 500; }
@@ -127,7 +130,8 @@
 .cost-field-input.short { width: 220rpx; }
 .cost-field-inline { flex-direction: row; align-items: center; justify-content: space-between; gap: 20rpx; }
 .cost-field-textarea { height: 240rpx; padding: 20rpx 24rpx; font-size: 26rpx; line-height: 1.55; }
-.cost-key-actions { display: flex; justify-content: flex-end; gap: 14rpx; }
+.cost-key-actions { display: flex; gap: 14rpx; padding: 0 28rpx 8rpx; box-sizing: border-box; width: 100%; }
+.cost-key-actions .cost-key-btn { flex: 1 1 0; min-width: 0; }
 /* 已配置密钥：只显示「编辑凭据」按钮，不回显输入框（与桌面插件一致） */
 .cost-credential-btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 88rpx; border: 1rpx solid var(--border); border-radius: 16rpx; background: var(--fill); color: var(--text); font-size: 27rpx; }
 .cost-credential-btn:active { opacity: .72; }
@@ -184,8 +188,19 @@
 @keyframes cost-sheet-in { from { transform: translateY(6%); opacity: .6; } to { transform: translateY(0); opacity: 1; } }
 .cost-sheet-head { display: flex; flex: none; align-items: center; justify-content: space-between; padding: 10rpx 32rpx 18rpx; border-bottom: 1rpx solid var(--divider); }
 .cost-sheet-title { color: var(--text); font-size: 32rpx; font-weight: 620; }
+.cost-sheet-icon-btn { display: flex; align-items: center; justify-content: center; width: 52rpx; height: 52rpx; margin-left: auto; margin-right: 12rpx; border-radius: 50%; background: var(--fill); }
+.cost-sheet-icon { width: 30rpx; height: 30rpx; opacity: .8; }
 .cost-sheet-close { display: flex; align-items: center; justify-content: center; width: 52rpx; height: 52rpx; border-radius: 50%; background: var(--fill); color: var(--text-2); font-size: 26rpx; }
-.cost-sheet-body { flex: 1; min-height: 0; height: 0; padding-bottom: 20rpx; }
+/* 左右 32rpx 与 .cost-sheet-head 的内边距对齐；原来只有 padding-bottom，卡片边框直接贴着屏幕两边。 */
+/* scroll-view 的 padding 不会从子元素宽度里扣掉：子元素拿到整宽再被左内边距右推，
+   右侧就溢出被裁。左右留白改由各行自身的 padding 提供。 */
+/* 顶部留 16rpx：否则自定义页第一张卡片会贴住标题下的分隔线。 */
+.cost-sheet-body { flex: 1; min-height: 0; height: 0; padding: 16rpx 0 20rpx; }
+/* 其余弹窗把滚动区本身做成带边框的卡片，和「自定义余额」的卡片观感统一。 */
+/* 用显式宽度 + auto 居中代替左右 margin：微信的 scroll-view 在 flex 列里
+   margin 不被计入宽度，会撑出右侧被裁。 */
+/* 卡片高度跟随内容（不 flex 撑满弹窗），超出时才滚动。 */
+.cost-sheet-body.carded { flex: 0 1 auto; height: auto; min-height: 0; max-height: calc(90vh - 220rpx); width: calc(100% - 80rpx); margin: 10rpx auto 20rpx; padding: 0 0 6rpx; border: 1rpx solid var(--border-strong); border-radius: 24rpx; background: var(--surface); box-sizing: border-box; }
 .cost-sheet-foot { display: flex; flex: none; gap: 16rpx; padding: 16rpx 32rpx calc(24rpx + env(safe-area-inset-bottom)); border-top: 1rpx solid var(--divider); }
 .cost-sheet-btn { display: flex; flex: 1; align-items: center; justify-content: center; min-height: 84rpx; border: 1rpx solid var(--border); border-radius: 16rpx; background: var(--surface); color: var(--text); font-size: 27rpx; }
 .cost-sheet-btn.primary { border: 0; background: var(--ocean); color: #FFFFFF; font-weight: 600; }

@@ -171,7 +171,7 @@
         <text class="cost-sheet-title">{{ui['显示设置']}}</text>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
       </view>
-      <scroll-view scroll-y class="cost-sheet-body">
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row" bindtap="pickCurrency" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['货币单位']}}</text><text class="cost-row-hint">{{ui['显示金额使用的币种']}}</text></view>
           <view class="cost-row-value">{{displayForm.currency}}<text class="cost-chevron">›</text></view>
@@ -308,9 +308,6 @@
           </view>
         </view>
       </scroll-view>
-      <view class="cost-sheet-foot">
-        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
-      </view>
     </view>
   </view>
 
@@ -324,7 +321,7 @@
         <text class="cost-sheet-title">{{ui['官方账户余额']}}</text>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
       </view>
-      <scroll-view scroll-y class="cost-sheet-body">
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用官方余额']}}</text><text class="cost-row-hint">{{ui['优先读取 DSH 登录账号余额']}}</text></view>
           <switch color="#16856D" checked="{{balanceForm.enabled}}" bindchange="toggleBalance"/>
@@ -352,13 +349,12 @@
         <view wx:if="{{view.balance.message}}" class="cost-inline-error">{{view.balance.message}}</view>
         <view class="cost-key-row">
           <input class="cost-field-input" type="text" value="{{balanceKeyDraft}}" bindinput="saveBalanceKeyDraft" bindblur="onBalanceKeyBlur" placeholder="{{ui['可选：DeepSeek 开放平台 API Key']}}" maxlength="4096"/>
+        </view>
+        <view class="cost-key-actions">
           <button class="cost-save-button" bindtap="saveBalanceKey">{{ui['保存']}}</button>
           <button class="cost-save-button ghost" bindtap="clearBalanceKey">{{ui['清除']}}</button>
         </view>
       </scroll-view>
-      <view class="cost-sheet-foot">
-        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
-      </view>
     </view>
   </view>
 
@@ -372,7 +368,7 @@
         <text class="cost-sheet-title">{{ui['OpenCode Go 订阅额度']}}</text>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
       </view>
-      <scroll-view scroll-y class="cost-sheet-body">
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用 OpenCode Go']}}</text><text class="cost-row-hint">{{ui['滚动 5 小时 / 本周 / 本月']}}</text></view>
           <switch color="#16856D" checked="{{goForm.enabled}}" bindchange="toggleGo"/>
@@ -412,13 +408,12 @@
         <view wx:if="{{view.go.message}}" class="cost-inline-error">{{view.go.message}}</view>
         <view class="cost-key-row">
           <input class="cost-field-input" type="text" value="{{goKeyDraft}}" bindinput="saveGoKeyDraft" bindblur="onGoKeyBlur" placeholder="{{ui['OpenCode Go API Key']}}" maxlength="4096"/>
+        </view>
+        <view class="cost-key-actions">
           <button class="cost-save-button" bindtap="saveGoKey">{{ui['保存']}}</button>
           <button class="cost-save-button ghost" bindtap="clearGoKey">{{ui['清除']}}</button>
         </view>
       </scroll-view>
-      <view class="cost-sheet-foot">
-        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
-      </view>
     </view>
   </view>
 
@@ -432,7 +427,7 @@
         <text class="cost-sheet-title">{{ui['预算']}}</text>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
       </view>
-      <scroll-view scroll-y class="cost-sheet-body">
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用预算']}}</text><text class="cost-row-hint">{{ui['按选定周期统计估算费用']}}</text></view>
           <switch color="#16856D" checked="{{budgetForm.enabled}}" bindchange="toggleBudget"/>
@@ -477,9 +472,6 @@
           </view>
         </block>
       </scroll-view>
-      <view class="cost-sheet-foot">
-        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
-      </view>
     </view>
   </view>
 
@@ -493,7 +485,7 @@
         <text class="cost-sheet-title">{{ui['峰谷时段']}}</text>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
       </view>
-      <scroll-view scroll-y class="cost-sheet-body">
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用峰谷显示']}}</text><text class="cost-row-hint">{{ui['显示当前电价时段与下次切换']}}</text></view>
           <switch color="#16856D" checked="{{peakForm.enabled}}" bindchange="togglePeak"/>
@@ -540,9 +532,6 @@
           </view>
         </block>
       </scroll-view>
-      <view class="cost-sheet-foot">
-        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
-      </view>
     </view>
   </view>
 
@@ -552,11 +541,14 @@
       <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
         <view class="cost-sheet-grabbar"></view>
       </view>
-      <view class="cost-sheet-head">
+<view class="cost-sheet-head">
         <text class="cost-sheet-title">{{sheetPlan.label}}</text>
+        <view class="cost-sheet-icon-btn" bindtap="refreshPlan" data-index="{{sheetPlan.index}}" role="button" aria-label="{{ui['刷新']}}">
+          <image class="cost-sheet-icon" src="/assets/icons/{{theme === 'dark' ? 'refresh-round-white.svg' : 'refresh-round-ink.svg'}}" mode="aspectFit"/>
+        </view>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
       </view>
-      <scroll-view scroll-y class="cost-sheet-body">
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用']}}</text><text class="cost-row-hint">{{sheetPlan.status === 'ok' ? ui['正常'] : sheetPlan.message || ui['待刷新']}}</text></view>
           <switch color="#16856D" checked="{{sheetPlan.enabled}}" data-index="{{sheetPlan.index}}" bindchange="togglePlan"/>
@@ -609,10 +601,6 @@
         <text wx:if="{{sheetPlan.noKey}}" class="cost-row-hint">{{ui['该厂商使用本地估算或本机登录态，无需填写凭据。']}}</text>
         <text wx:if="{{sheetPlan.message}}" class="cost-inline-error">{{sheetPlan.message}}</text>
       </scroll-view>
-      <view class="cost-sheet-foot">
-        <view class="cost-sheet-btn" bindtap="refreshPlan" data-index="{{sheetPlan.index}}" role="button">{{ui['刷新']}}</view>
-        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
-      </view>
     </view>
   </view>
 
@@ -622,11 +610,14 @@
       <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
         <view class="cost-sheet-grabbar"></view>
       </view>
-      <view class="cost-sheet-head">
+<view class="cost-sheet-head">
         <text class="cost-sheet-title">{{sheetGateway.label || sheetGateway.id}}</text>
+        <view class="cost-sheet-icon-btn" bindtap="refreshGateway" data-index="{{sheetGateway.index}}" role="button" aria-label="{{ui['刷新']}}">
+          <image class="cost-sheet-icon" src="/assets/icons/{{theme === 'dark' ? 'refresh-round-white.svg' : 'refresh-round-ink.svg'}}" mode="aspectFit"/>
+        </view>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
       </view>
-      <scroll-view scroll-y class="cost-sheet-body">
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用']}}</text><text class="cost-row-hint">{{sheetGateway.status === 'ok' ? ui['正常'] : sheetGateway.message || ui['待刷新']}}</text></view>
           <switch color="#16856D" checked="{{sheetGateway.enabled}}" data-index="{{sheetGateway.index}}" bindchange="toggleGateway"/>
@@ -690,10 +681,6 @@
           <view class="cost-mini-btn danger" bindtap="removeGateway" data-index="{{sheetGateway.index}}">{{ui['删除']}}</view>
         </view>
       </scroll-view>
-      <view class="cost-sheet-foot">
-        <view class="cost-sheet-btn" bindtap="refreshGateway" data-index="{{sheetGateway.index}}" role="button">{{ui['刷新']}}</view>
-        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
-      </view>
     </view>
   </view>
 
@@ -703,11 +690,14 @@
       <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
         <view class="cost-sheet-grabbar"></view>
       </view>
-      <view class="cost-sheet-head">
+<view class="cost-sheet-head">
         <text class="cost-sheet-title">{{sheetCustom.label || ui['自定义余额']}}</text>
+        <view class="cost-sheet-icon-btn" bindtap="refreshCustom" data-index="{{sheetCustom.index}}" role="button" aria-label="{{ui['刷新']}}">
+          <image class="cost-sheet-icon" src="/assets/icons/{{theme === 'dark' ? 'refresh-round-white.svg' : 'refresh-round-ink.svg'}}" mode="aspectFit"/>
+        </view>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
       </view>
-      <scroll-view scroll-y class="cost-sheet-body">
+      <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body">
         <!-- ============ 开关 ============ -->
         <view class="cost-card">
           <view class="cost-row">
@@ -809,14 +799,17 @@
           <view class="cost-field">
             <text class="cost-field-label">{{ui['密钥值']}}<text class="cost-field-optional">{{sheetCustom.keyVarLabel}}</text></text>
             <block wx:if="{{sheetCustom.keyConfigured && !keyEditing}}">
-              <view class="cost-credential-btn" bindtap="editCustomKey" role="button">{{ui['编辑凭据']}}</view>
+              <view class="cost-key-actions">
+                <button class="cost-key-btn" bindtap="editCustomKey" data-index="{{sheetCustom.index}}">{{ui['编辑凭据']}}</button>
+                <button class="cost-key-btn ghost" bindtap="clearCustomKey" data-index="{{sheetCustom.index}}">{{ui['清除']}}</button>
+              </view>
               <text class="cost-field-hint">{{ui['已配置：密钥只写入电脑端 DSH 凭据库，不回显']}}</text>
             </block>
             <block wx:else>
               <input class="cost-field-input" type="text" value="{{sheetCustom.keyDraft}}" data-index="{{sheetCustom.index}}" bindinput="onCustomKeyInput" bindblur="onCustomKeyBlur" placeholder="{{ui['输入密钥']}}" maxlength="4096"/>
               <view class="cost-key-actions">
                 <button class="cost-key-btn" bindtap="saveCustomKey" data-index="{{sheetCustom.index}}">{{ui['保存']}}</button>
-                <button wx:if="{{sheetCustom.keyConfigured}}" class="cost-key-btn ghost" bindtap="clearCustomKey" data-index="{{sheetCustom.index}}">{{ui['清除']}}</button>
+                <button class="cost-key-btn ghost" bindtap="cancelCustomKeyEdit" data-index="{{sheetCustom.index}}">{{ui['取消']}}</button>
               </view>
             </block>
           </view>
@@ -827,10 +820,6 @@
           <view class="cost-mini-btn danger" bindtap="removeCustom" data-index="{{sheetCustom.index}}">{{ui['删除']}}</view>
         </view>
       </scroll-view>
-      <view class="cost-sheet-foot">
-        <view class="cost-sheet-btn" bindtap="refreshCustom" data-index="{{sheetCustom.index}}" role="button">{{ui['刷新']}}</view>
-        <view class="cost-sheet-btn primary" bindtap="closeSheet" role="button">{{ui['完成']}}</view>
-      </view>
     </view>
   </view>
 </view>

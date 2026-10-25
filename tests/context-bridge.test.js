@@ -735,6 +735,87 @@ test('comms scan lifts relay/mailbox/settled messages from session logs', async 
   assert.equal(value.messages.some(message => message.text === '普通提问'), false)
 })
 
+test('comms scan reads DSH send_message tool calls and the completed child turn', async () => {
+  const bridge = await loadBridge()
+  const childEvents = [
+    { seq: 10, time: 10000, type: 'tool/call', data: {
+      callId: 'send-ok', name: 'send_message',
+      arguments: JSON.stringify({ agent_id: 'root', message: '布局规格已提取' })
+    } },
+    { seq: 11, time: 10001, type: 'tool/result', data: {
+      message: { role: 'toolResult', source: { callId: 'send-ok' }, content: [{ type: 'text', text: 'accepted' }] }
+    } },
+    { seq: 12, time: 11000, type: 'tool/call', data: {
+      callId: 'send-failed', name: 'send_message',
+      arguments: JSON.stringify({ agent_id: 'root', message: '未送达' })
+    } },
+    { seq: 13, time: 11001, type: 'tool/result', data: {
+      message: { role: 'toolResult', isError: true, source: { callId: 'send-failed' }, content: [] }
+    } },
+    { seq: 14, time: 12000, type: 'turn/end', data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  const value = bridge.buildCommsValue([
+    { id: 'root', title: '小修改', events: [] },
+    {
+      id: 'child', title: '提取布局规格', parentSessionId: 'root', mode: 'continuable',
+      projections: { values: { subagentTiming: { lastTurnCompleted: true } } },
+      events: childEvents
+    },
+    {
+      id: 'outside', title: '其他会话', events: [{ seq: 1, time: 13000, type: 'tool/call', data: {
+        callId: 'outside-call', name: 'send_message',
+        arguments: JSON.stringify({ agent_id: 'unscanned', message: '不应纳入当前家族' })
+      } }, { seq: 2, time: 13001, type: 'tool/result', data: {
+        message: { source: { callId: 'outside-call' }, content: [] }
+      } }]
+    }
+  ])
+
+  assert.deepEqual(value.messages.map(message => [message.kind, message.from, message.to, message.text]), [
+    ['settled', 'child', 'root', 'Background subagent child finished and will do no further work unless you send it more.'],
+    ['relay', 'child', 'root', '布局规格已提取'],
+  ])
+  assert.equal(value.total, 2)
+  assert.equal(value.scanned, 3)
+})
+
+test('context-comms reads each subagent log with its direct parent address', async () => {
+  const bridge = await loadBridge()
+  const requests = []
+  const frame = await bridge.handleContextComms({ sessions: { history: async request => {
+    requests.push(request)
+    const sender = request.sessionId === 'child' ? 'root' : 'child'
+    return {
+      title: request.sessionId,
+      events: [{ event: {
+        seq: 4, time: 4000, type: 'user/message',
+        data: {
+          source: { kind: 'agent-message', senderSessionId: sender },
+          content: [{ type: 'text', text: `Agent ${sender} sent a message: useful update` }]
+        }
+      } }]
+    }
+  } } }, {
+    type: 'context-comms',
+    sessionIds: ['root', 'child', 'grandchild'],
+    sessions: [
+      { id: 'root' },
+      { id: 'child', parentSessionId: 'root', mode: 'continuable' },
+      { id: 'grandchild', parentSessionId: 'child', mode: 'one-shot' }
+    ]
+  })
+
+  assert.deepEqual(requests, [
+    { sessionId: 'root', maxMessages: 400 },
+    { sessionId: 'child', maxMessages: 400, parentSessionId: 'root', mode: 'continuable' },
+    { sessionId: 'grandchild', maxMessages: 400, parentSessionId: 'child', mode: 'one-shot' }
+  ])
+  assert.equal(frame.kind, 'context-comms')
+  assert.equal(frame.value.scanned, 3)
+  assert.equal(frame.value.messages.length, 3)
+  assert.ok(frame.value.messages.every(message => message.text === 'useful update'))
+})
+
 test('insights aggregate sessions, daily buckets, cache hit and composition (no cost)', async () => {
   const bridge = await loadBridge()
   const day = (offset) => {

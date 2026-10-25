@@ -25,6 +25,12 @@
     <view class="proc-ripple-ring r1"></view><view class="proc-ripple-ring r2"></view>
     <view class="proc-ripple-ring r3"></view>
   </view>
+  <view wx:elif="{{styleId === 'pulse-ring'}}" class="proc-pulse"><view class="proc-pulse-ring"></view></view>
+  <view wx:elif="{{styleId === 'breathe-bars'}}" class="proc-breathe"><view class="proc-breathe-bar b1"></view><view class="proc-breathe-bar b2"></view><view class="proc-breathe-bar b3"></view></view>
+  <view wx:elif="{{styleId === 'spin-square'}}" class="proc-spin-square-rot"><view class="proc-spin-square-box"></view><view class="proc-spin-square-dot"></view></view>
+  <view wx:elif="{{styleId === 'typing-dots'}}" class="proc-typing"><view class="proc-typing-dot d1"></view><view class="proc-typing-dot d2"></view><view class="proc-typing-dot d3"></view></view>
+  <view wx:elif="{{styleId === 'scan-line'}}" class="proc-scan"><view class="proc-scan-frame"></view><view class="proc-scan-line"></view></view>
+  <view wx:elif="{{styleId === 'spin-ring'}}" class="proc-spin-ring"></view>
   <view wx:else class="proc-wave">
     <view class="proc-wave-bar b1"></view><view class="proc-wave-bar b2"></view>
     <view class="proc-wave-bar b3"></view><view class="proc-wave-bar b4"></view>

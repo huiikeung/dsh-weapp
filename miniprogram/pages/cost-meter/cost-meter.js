@@ -1693,6 +1693,8 @@ Page({
     this.setData({ keyEditing: false });
     this.commitSourceKey('custom:' + index, draft);
   },
+  /** 取消编辑：只退出编辑态，不动已保存的密钥。 */
+  cancelCustomKeyEdit() { this.setData({ keyEditing: false }); },
   clearCustomKey(e) {
     const index = Number(e.currentTarget.dataset.index);
     this.setData({ keyEditing: false });

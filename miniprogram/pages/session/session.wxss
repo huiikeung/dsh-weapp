@@ -127,11 +127,20 @@
 .collab-action { width:88rpx;height:88rpx;min-width:44px;min-height:44px;display:flex;align-items:center;justify-content:center;flex-shrink:0; }
 .collab-action-disc { width:60rpx;height:60rpx;display:flex;align-items:center;justify-content:center;border-radius:50%;background:var(--fill); }
 .collab-action-icon { width:34rpx;height:34rpx;display:block; }
-.collab-refresh.busy { opacity:.45; }
-.collab-refresh.busy .collab-action-icon { animation:collab-refresh-turn 1s linear infinite; }
-.collab-tabs { margin:0 28rpx;flex-shrink:0;border-bottom:1rpx solid var(--divider); white-space:nowrap; overflow:hidden; }
-/* 默认一屏正好显示 4 个标签，两端对齐；更多标签横向滑动查看 */
-.collab-tabs-track { display:flex; gap:0; align-items:stretch; width:max-content; padding-right:0; box-sizing:border-box; }
+/* 呼吸灯：替代右上角刷新图标，点按仍触发刷新；连线时常绿、断开置灰、刷新中加速 */
+.collab-breathe { position:relative;width:60rpx;height:60rpx;display:flex;align-items:center;justify-content:center; }
+.collab-breathe-dot { width:16rpx;height:16rpx;border-radius:50%;background:var(--success);animation:collab-breathe-dot 2.4s ease-in-out infinite; }
+.collab-breathe-halo { position:absolute;width:16rpx;height:16rpx;border-radius:50%;background:var(--success);opacity:0;animation:collab-breathe-halo 2.4s ease-out infinite; }
+.collab-refresh.offline .collab-breathe-dot,.collab-refresh.offline .collab-breathe-halo { background:var(--text-4); }
+.collab-refresh.busy { opacity:.55; }
+.collab-refresh.busy .collab-breathe-dot,.collab-refresh.busy .collab-breathe-halo { animation-duration:.9s; }
+@keyframes collab-breathe-dot { 0%,100%{transform:scale(.78);opacity:.72} 50%{transform:scale(1);opacity:1} }
+@keyframes collab-breathe-halo { 0%{transform:scale(.7);opacity:.45} 70%,100%{transform:scale(2);opacity:0} }
+.collab-tabs { margin:0;flex-shrink:0;border-bottom:1rpx solid var(--divider); white-space:nowrap; overflow:hidden; }
+/* 默认一屏正好显示 4 个标签，两端对齐；更多标签横向滑动查看。
+   两端 28rpx 缩进放在可滚动轨道上（而不是 scroll-view 的 margin）：
+   左滑到底时右侧由轨道 padding 保证同样的 28rpx，四个标签两端距离始终一致。 */
+.collab-tabs-track { display:flex; gap:0; align-items:stretch; width:max-content; padding:0 28rpx; box-sizing:border-box; }
 .collab-tab { position:relative;display:flex;flex:0 0 calc((750rpx - 56rpx) / 4);min-width:0;min-height:44px;box-sizing:border-box;padding:12rpx 4rpx 20rpx;align-items:center;justify-content:center;flex-direction:column;gap:10rpx;font-size:24rpx;line-height:1.4;color:var(--text-2); }
 .collab-tab.active { color:var(--ink);font-weight:600; }
 .collab-tab-summary { display:flex;align-items:center;justify-content:center;gap:10rpx;max-width:100%;height:34rpx; }
@@ -143,8 +152,7 @@
 .collab-tab-label { max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
 .collab-tab-indicator { position:absolute;bottom:-1rpx;left:50%;width:32rpx;height:4rpx;border-radius:4rpx;background:var(--ink);transform:translateX(-50%);opacity:0;transition:opacity 150ms ease; }
 .collab-tab.active .collab-tab-indicator { opacity:1; }
-@keyframes collab-refresh-turn { to { transform:rotate(360deg); } }
-@media (prefers-reduced-motion:reduce) { .collab-refresh.busy .collab-action-icon { animation:none; }.collab-tab-indicator { transition:none; } }
+@media (prefers-reduced-motion:reduce) { .collab-breathe-dot,.collab-breathe-halo { animation:none; }.collab-breathe-halo{opacity:0}.collab-tab-indicator { transition:none; } }
 .collab-scroll { flex:1;height:0;min-height:0; }
 .collab-list,.collab-preview { padding:28rpx 28rpx 48rpx; }
 .collab-note { font-size:23rpx;line-height:1.6;color:var(--text-2);margin:12rpx 4rpx 28rpx;overflow-wrap:anywhere; }
@@ -252,6 +260,25 @@
 .goal-spinner { width: 30rpx; height: 30rpx; border: 4rpx solid rgba(46,107,230,.18); border-top-color: #2E6BE6; border-radius: 50%; }
 .command-menu-mask{position:fixed;inset:0;z-index:30;background:transparent}
 .command-menu{z-index:31;border-radius:12px;border-color:var(--border);padding:4px;box-sizing:border-box;overflow:hidden;max-height:52vh;display:flex;flex-direction:column}
+.file-mention-menu{position:relative;z-index:32;margin:0 12rpx 14rpx;border:1rpx solid var(--border-strong);border-radius:24rpx;background:var(--surface);box-shadow:0 12rpx 36rpx rgba(7,24,43,.18);overflow:hidden;max-height:54vh;display:flex;flex-direction:column}
+.file-mention-head{min-height:76rpx;padding:16rpx 20rpx 12rpx 26rpx;display:flex;align-items:center;justify-content:space-between;gap:16rpx;border-bottom:1rpx solid var(--divider);flex-shrink:0}
+.file-mention-heading{min-width:0;display:flex;flex-direction:column;gap:3rpx}
+.file-mention-title{font-size:25rpx;font-weight:550;line-height:1.35;color:var(--text-2)}
+.file-mention-path{min-width:0;font-size:21rpx;line-height:1.3;color:var(--text-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-mention-close{width:52rpx;height:52rpx;display:flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:14rpx}
+.file-mention-close:active{background:var(--fill-2)}
+.file-mention-close .sheet-close-x{width:38rpx;height:38rpx}
+.file-mention-scroll{min-height:0;max-height:calc(54vh - 78rpx);padding:6rpx 10rpx 12rpx;box-sizing:border-box}
+.file-mention-row{min-height:78rpx;padding:8rpx 14rpx;display:flex;align-items:center;gap:18rpx;border-radius:14rpx;box-sizing:border-box}
+.file-mention-row:active{background:var(--fill-2)}
+.file-mention-icon{width:36rpx;height:36rpx;flex:0 0 36rpx;opacity:.88}
+.file-mention-name{flex:1;min-width:0;font-size:28rpx;line-height:1.4;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.file-mention-drill{width:60rpx;height:60rpx;display:flex;align-items:center;justify-content:center;flex-shrink:0;border-radius:14rpx}
+.file-mention-drill:active{background:var(--fill)}
+.file-mention-chevron{width:28rpx;height:28rpx;opacity:.85}
+.file-mention-state{min-height:112rpx;padding:24rpx;display:flex;align-items:center;justify-content:center;gap:18rpx;box-sizing:border-box;text-align:center;font-size:25rpx;color:var(--text-2)}
+.file-mention-error{color:var(--danger,#d94343)}
+.file-mention-retry{padding:12rpx 18rpx;border:1rpx solid var(--border);border-radius:999rpx;color:var(--text);font-size:23rpx}
 .command-menu-toolbar{display:flex;align-items:center;gap:4px;padding:0;flex-shrink:0}
 .command-search{flex:1;min-width:0;height:30px;padding:0;color:var(--text);background:transparent;font-size:12px}
 .command-search-placeholder{color:var(--text-3)}
@@ -356,6 +383,11 @@ to{transform:translateX(340%)}
   align-items: flex-end;
   padding: 24rpx 0 24rpx 68rpx;   /* leading 34pt / vertical 12pt */
 }
+/* 发送的消息下面只留一个复制按钮，靠右（父级 align-items:flex-end 已右对齐，
+   这里只是去掉 .copy-btn 默认的居中占位，保证贴右下角）。 */
+.row-user-copy {
+  align-self: flex-end;
+}
 /* iOS userBubbleFill锛歰cean 11%锛堟祬锛?24%锛堟繁锛夛紱鎻忚竟 8%/34%锛涘崐寰?15pt */
 .row-user-bubble {
   max-width: 100%;
@@ -412,9 +444,11 @@ to{transform:translateX(340%)}
 }
 .conversation-window-row { display: flow-root; }
 .assistant-plain-text { display: block; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.75; }
+/* 原来这里还有 padding-bottom: 16rpx —— 它把 52rpx 的按钮内容区压到 36rpx，
+   图标被顶高 8rpx；而同一行的用量胶囊是正常居中的，于是图标整体比胶囊高 8rpx。
+   去掉后两侧中心都落在 26rpx，同一条水平线。 */
 .row-assistant .copy-btn {
   margin-top: 0;
-  padding-bottom: 16rpx;          /* 8pt */
 }
 .row-streaming-title {
   display: flex;
@@ -878,6 +912,9 @@ to{transform:translateX(340%)}
   transition: bottom 0.25s cubic-bezier(0.32, 0.72, 0, 1);
   padding-bottom: 1px;
 }
+/* 微信里 CSS 的 display 会盖过 hidden 属性：不补这条，切到上下文/编队 Tab 时
+   输入栈仍然 fixed 在底部（z-index 60），把面板底部内容整块盖住。 */
+.dock-stack[hidden] { display: none !important; }
 .composer {
   position: relative;
   z-index: 1;                    /* 杈撳叆鍗″彔鍘嬫帓闃熸墭鐩樹笅娌匡紙iOS zIndex(1) + spacing -24锛?*/
@@ -898,20 +935,28 @@ to{transform:translateX(340%)}
 .voice-transcript-actions { display:flex; justify-content:flex-end; gap:20rpx; }
 .composer-input-row { display:flex; align-items:flex-start; gap:8rpx; width:100%; }
 .composer-input-row .composer-input { flex:1 1 auto; width:auto; min-width:0; }
-.composer-slash-chip { display:flex; align-items:center; gap:4rpx; flex-shrink:0; margin-top:12rpx; padding:2rpx 12rpx; border-radius:12rpx; background:rgba(46,107,230,.12); }
-.composer-slash-token { color:var(--ocean); font-size:30rpx; line-height:1.35; }
-.composer-slash-x { padding:0 4rpx; color:var(--ocean); font-size:22rpx; line-height:1.35; opacity:.66; }
+/* 芯片只保留纯文字 + 主色，不加背景；字号与输入框一致（30rpx）。
+   芯片与输入框同为 30rpx/42rpx 行盒，文字中心都在 21rpx，
+   不需要任何垂直偏移（3/6rpx 实测都偏低）。 */
+/* 灰色占位文字在 textarea 里的渲染位置比实际输入行高 ~4rpx（组件内部差异），
+   芯片和它并排显示，所以上提 4rpx 对齐占位文字。 */
+/* 行高回原生默认后，芯片与输入文字靠 flex 居中同排，不再依赖行盒数值匹配。 */
+.composer-slash-chip { display: none; align-items: center; gap: 2rpx; flex-shrink: 0; align-self: center; margin-right: 4rpx; }
+.composer-slash-chip.on { display: flex; }
+.composer-slash-token { color: var(--ocean); font-size: 28rpx; }
+.composer-slash-x { padding: 0 2rpx; color: var(--ocean); font-size: 18rpx; opacity: .66; }
+/* 输入文字 28rpx / 字重 350；行盒固定 42rpx，芯片与占位文字的对齐不受字号影响。 */
+/* auto-height + 自定义行高时微信算出的高度少一行：补底部内边距圈住最后一行。 */
 .composer-input {
   width: 100%;
   min-height: 76rpx;
   max-height: 320rpx;
-  font-size: 30rpx;
-  line-height: 1.4;
+  font-size: 28rpx;
+  font-weight: 350;
   color: var(--text);
   box-sizing: border-box;
 }
 .composer-placeholder {
-  font-size: 28rpx;
   color: rgba(16, 19, 24, 0.28) !important;
 }
 .theme-dark .composer-placeholder {
@@ -921,14 +966,14 @@ to{transform:translateX(340%)}
 .composer-preview{display:block;width:100%;max-height:320rpx;white-space:normal;word-break:break-word}
 .composer-preview .md-block{margin:0}
 .composer-preview .md-block + .md-block{margin-top:12rpx}
-.composer-preview .md-para,.composer-preview .md-quote,.composer-preview .md-li-text{font-size:30rpx;color:var(--text);line-height:1.5}
+.composer-preview .md-para,.composer-preview .md-quote,.composer-preview .md-li-text{font-size:28rpx;color:var(--text);line-height:1.5}
 .composer-preview .md-heading{color:var(--text);font-weight:600}
 .composer-preview .md-h1{font-size:34rpx}
 .composer-preview .md-h2{font-size:32rpx}
-.composer-preview .md-h3,.composer-preview .md-h4,.composer-preview .md-h5,.composer-preview .md-h6{font-size:30rpx}
+.composer-preview .md-h3,.composer-preview .md-h4,.composer-preview .md-h5,.composer-preview .md-h6{font-size:28rpx}
+.composer-preview-tip { margin-top: 8rpx; padding-top: 10rpx; border-top: 1rpx dashed var(--divider); font-size: 20rpx; color: var(--text-3); text-align: center; }
 .composer-preview .code-block{background:rgba(142,142,147,.1)}
 .theme-dark .composer-preview .code-block{background:rgba(142,142,147,.18)}
-.composer-preview-toggle .chip-label{font-size:22rpx}
 .composer-images {
   display: flex;
   flex-wrap: wrap;
@@ -1700,14 +1745,16 @@ to{transform:translateX(340%)}
 .delivered-sheet-head > text { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
 .delivered-sheet-head > view { flex-shrink:0; display:flex; align-items:center; justify-content: flex-end; min-width:72rpx; min-height:64rpx; padding:12rpx; }
 .delivered-action { padding:26rpx 12rpx; color:var(--text); font-size:29rpx; border-top:1rpx solid var(--divider); }
-.delivered-preview { display:flex; flex-direction:column; height:82vh; overflow:hidden; }
+/* overflow:hidden 会连带裁掉 iOS 的原生选区浮层，正文选中时看不到高亮；
+   内容本身已由内部 scroll-view 裁剪，这里不需要再裁一层。 */
+.delivered-preview { display:flex; flex-direction:column; height:82vh; }
 .delivered-selection-actions { display:flex; gap:16rpx; flex-shrink:0; }
 .delivered-selection-actions .delivered-action { flex:1; }
 .delivered-action-secondary { color:var(--text-2); }
 .delivered-preview > .delivered-action { flex-shrink:0; min-height:88rpx; box-sizing:border-box; }
 .delivered-action[aria-disabled="true"] { color:var(--text-2); }
 .delivered-preview-scroll { flex:1; min-height:0; height:0; }
-.delivered-preview-text { display:block; padding:20rpx 4rpx; white-space:pre-wrap; overflow-wrap:anywhere; font-family:var(--dsh-font-family-code,monospace); font-size:25rpx; line-height:1.65; color:var(--text); }
+.delivered-preview-text { user-select:text; -webkit-user-select:text; display:block; padding:20rpx 4rpx; white-space:pre-wrap; overflow-wrap:anywhere; font-family:var(--dsh-font-family-code,monospace); font-size:25rpx; line-height:1.65; color:var(--text); }
 .delivered-preview-note { color:var(--text-2); font-size:23rpx; padding-bottom:16rpx; }
 .row-status {
   display: flex;
@@ -3424,12 +3471,14 @@ to{transform:translateX(340%)}
   border-radius: 50%;
   color: var(--text-2);
 }
+/* 三横线：保持原有字形（100% / 78% / 90%，右对齐）。
+   总宽 34→30rpx（三条等比收短），线粗 3rpx，间距 12→8rpx（1:2.7，不再散）。 */
 .session-switch-lines {
-  width: 34rpx;
+  width: 30rpx;
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 7rpx;
+  gap: 8rpx;
 }
 .session-switch-lines view {
   width: 100%;
@@ -3439,9 +3488,6 @@ to{transform:translateX(340%)}
 }
 .session-switch-lines view:nth-child(2) { width: 78%; }
 .session-switch-lines view:nth-child(3) { width: 90%; }
-/* session-switch-lines: wider vertical spacing on phones */
-.session-switch-lines { gap: 12rpx; }
-.session-switch-lines view { height: 3rpx; }
 /* 浼氳瘽蹇嵎鍒囨崲锛氫笌瀵硅瘽鑺傜偣涓€鑷寸殑鍏ㄥ睆钂欑増锛屽唴瀹规牱寮忎繚鎸佸師鏍?*/
 .session-switch-overlay {
   position: fixed;
@@ -3556,21 +3602,16 @@ to{transform:translateX(340%)}
   width: 48rpx;
   height: 48rpx;
   box-sizing: border-box;
-  border: 1rpx solid var(--border-strong);
+  border: 0;
   border-radius: 50%;
-  background: var(--surface);
-  box-shadow: 0 2rpx 8rpx rgba(7, 24, 43, .08);
+  background: transparent;
+  box-shadow: none;
 }
 .session .segmented-row .nav-actions .nav-more .nav-ic {
   position: relative;
   z-index: 1;
-  width: 24rpx;
-  height: 24rpx;
-}
-.theme-dark .session .segmented-row .nav-actions .nav-more::before {
-  border-color: rgba(255, 255, 255, .14);
-  background: rgba(255, 255, 255, .08);
-  box-shadow: none;
+  width: 28rpx;
+  height: 28rpx;
 }
 .session-switch-trigger {
   width: 64rpx;
@@ -3586,7 +3627,7 @@ to{transform:translateX(340%)}
   .session .segmented-row .nav-actions { right: 28rpx; gap: 8rpx; }
   .session .segmented-row .nav-actions .nav-more { width: 48px; height: 48px; min-width: 48px; max-width: 48px; flex: 0 0 48px; }
   .session .segmented-row .nav-actions .nav-more::before { width: 36px; height: 36px; }
-  .session .segmented-row .nav-actions .nav-more .nav-ic { width: 18px; height: 18px; }
+  .session .segmented-row .nav-actions .nav-more .nav-ic { width: 20px; height: 20px; }
   .session-switch-trigger {
     width: 44px;
     height: 48px;
@@ -3595,7 +3636,7 @@ to{transform:translateX(340%)}
     background: transparent !important;
     box-shadow: none !important;
   }
-  .session-switch-lines { width: 20px; gap: 7px; }
+  .session-switch-lines { width: 18px; gap: 5px; }
   .session-switch-lines view { height: 2px; }
   .session-switch-mask { align-items: flex-start; background: rgba(0, 0, 0, 0); }
   .session-switch-panel {
@@ -3965,29 +4006,41 @@ to{transform:translateX(340%)}
 }
 /* ---------- 涓婁笅鏂囬潰鏉匡紙绉绘 dsh-context Context tab锛?---------- */
 .context-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+/* 上下文与编队合并成一个滚动（对齐客户端侧栏 Context 面板）：编队一节接在上下文卡片后 */
+/* 编队是独立面板：工具栏与上下文工具栏同样固定在滚动区上方，尺寸/内边距完全一致。 */
+.cf-fleet-section { margin-top: 0; }
 .context-toolbar { flex-shrink: 0; display: flex; align-items: center; gap: 12rpx; padding: 22rpx 40rpx 4rpx; }
 .context-toolbar-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
 .context-toolbar-meta { max-width: 260rpx; font-size: 22rpx; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .context-toolbar-spacer { flex: 1; }
-.context-refresh { width: 64rpx; height: 64rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; flex-shrink: 0; }
-.context-refresh-ic { width: 38rpx; height: 38rpx; opacity: .82; }
 .context-modal-open { width: 64rpx; height: 64rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; color: var(--text-3); }
 .context-toolbar-ic { width: 38rpx; height: 38rpx; opacity: .86; }
-.context-toolbar-ic-lg { width: 48rpx; height: 48rpx; opacity: .9; }
 /* /context 等价弹窗（contextModal.css） */
-.ctx-modal-mask { position: fixed; inset: 0; z-index: 300; display: flex; align-items: center; justify-content: center; padding: 32rpx; background: rgba(0, 0, 0, .45); }
-.ctx-modal { width: calc(100vw - 64rpx); max-height: 82vh; box-sizing: border-box; display: flex; flex-direction: column; padding: 32rpx 36rpx 36rpx; border-radius: 24rpx; background: var(--surface); border: 1rpx solid var(--border); box-shadow: 0 24rpx 64rpx rgba(0, 0, 0, .28); }
+.ctx-modal-mask { position: fixed; inset: 0; z-index: 300; display: flex; align-items: flex-end; justify-content: center; padding: 0; background: rgba(0, 0, 0, .45); }
+/* height 必须显式给出：只写 max-height 时 flex 列的高度由内容决定，子级
+   `flex:1; height:0` 解析不出高度，scroll-view 会按内容撑开再被裁掉、滚不动
+   （collab-sheet 一直带 height，所以它没这个问题）。 */
+.ctx-modal { width: 100vw; height: 90vh; max-height: 90vh; box-sizing: border-box; display: flex; flex-direction: column; padding: 0 36rpx calc(36rpx + env(safe-area-inset-bottom)); border-radius: 24rpx 24rpx 0 0; background: var(--surface); border: 1rpx solid var(--border); box-shadow: 0 24rpx 64rpx rgba(0, 0, 0, .28); transition: transform .18s ease; will-change: transform; }
+/* 底部抽屉的拖动条：44rpx 抓取区里居中一条 72×8 的小横杠；
+   手指按在上面才能拖（弹窗正文的滚动仍归 scroll-view，两者不抢手势）。 */
+.ctx-modal-grab { flex: none; height: 44rpx; display: flex; align-items: center; justify-content: center; }
+.ctx-modal-grab-bar { width: 72rpx; height: 8rpx; border-radius: 999rpx; background: var(--border-strong); }
 .ctx-modal-head { flex: none; display: flex; align-items: baseline; gap: 16rpx; margin-bottom: 24rpx; }
 .ctx-modal-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
 .ctx-modal-close { margin-left: auto; width: 56rpx; height: 56rpx; line-height: 50rpx; text-align: center; border-radius: 12rpx; font-size: 40rpx; color: var(--text-2); }
-.ctx-modal-body { flex: 1; min-height: 0; }
+/* height:0 不能省：微信里 scroll-view 在 flex 列中缺了它会按内容高度展开，
+   超过 .ctx-modal 的 max-height 后被直接裁掉且无法滚动（与 collab/context-scroll 同一写法）。 */
+.ctx-modal-body { flex: 1; height: 0; min-height: 0; }
 .ctx-modal-card { margin-bottom: 20rpx; }
 .ctx-modal-cats { display: flex; flex-direction: column; }
 .ctx-modal-cats .ctx-br-cat-row { border-top: 1rpx solid var(--divider); }
 .ctx-modal-cats .ctx-br-cat-row:first-child { border-top: 0; }
-.context-refresh.busy .context-refresh-ic { animation: ctx-spin 1s linear infinite; }
-@keyframes ctx-spin { to { transform: rotate(360deg); } }
-.context-scroll { flex: 1; height: 0; box-sizing: border-box; padding: 8rpx 32rpx calc(40rpx + env(safe-area-inset-bottom)); }
+/* scroll-view 的 padding-bottom 在微信里不算「可滚动内容」，是视口外的一条死区：
+   写成 calc(40rpx + env(safe-area-inset-bottom)) 时，面板底部会留一条 98rpx 的纯页面底色黑边，
+   内容还会提前被裁掉（上下文/编队页底部那层“黑色遮罩”就是它）。
+   底部留白改由滚动内容末尾的 .ctx-bottom-space 提供，它跟着内容一起滚。 */
+.context-scroll { flex: 1; height: 0; box-sizing: border-box; padding: 8rpx 32rpx 0; }
+.ctx-top-anchor { height: 0; }
 .context-state { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 100rpx 24rpx 40rpx; text-align: center; }
 .context-state-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
 .context-state-text { font-size: 26rpx; line-height: 1.7; color: var(--text-3); overflow-wrap: anywhere; }
@@ -4056,8 +4109,13 @@ to{transform:translateX(340%)}
 .ctx-trend-deltaarm.down { flex-direction: column; border-radius: 0 0 4rpx 4rpx; }
 .ctx-trend-deltaseg { width: 100%; }
 .ctx-trend-duration { position: absolute; top: 36rpx; left: 4rpx; z-index: 1; height: 224rpx; overflow: hidden; pointer-events: none; }
+.ctx-trend-duration-fit { left: 0; z-index: 1; display: block; width: 100%; }
+.ctx-trend-duration-fit .ctx-trend-duration-area { fill: rgba(148,163,184,.72); stroke: rgba(71,85,105,.92); stroke-width: 2; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+.theme-dark .ctx-trend-duration-fit .ctx-trend-duration-area { fill: rgba(148,163,184,.56); stroke: rgba(226,232,240,.76); }
 .ctx-trend-duration polyline { fill: none; stroke: var(--text-4); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
+.ctx-trend-duration-fit .ctx-trend-duration-halo { stroke: var(--surface); stroke-width: 6; opacity: .9; }
 .ctx-trend-duration circle { fill: var(--text-4); stroke: var(--surface); stroke-width: 4; }
+.ctx-trend-duration-fit circle.ctx-trend-duration-halo { fill: var(--surface); stroke: none; }
 /* 轮次条：与柱网同一栅格，中性斑马纹（永不用分类色） */
 .ctx-trend-turnscroll { width: 100%; white-space: nowrap; }
 .ctx-trend-turns { display: flex; gap: 4rpx; margin-top: 8rpx; }
@@ -4095,7 +4153,9 @@ to{transform:translateX(340%)}
 .ctx-e-inject { color: #22C55E; background: rgba(34,197,94,.15); }
 .ctx-e-compaction { color: #EC1313; background: rgba(236,19,19,.15); }
 .ctx-e-prune { color: #8E51FF; background: rgba(142,81,255,.15); }
-.ctx-bottom-space { height: 24rpx; }
+/* 滚动内容末尾的留白：把原来写在 scroll-view 上的 40rpx + 安全区挪到这里，
+   这样最后一张卡片能滚到 Home 指示条上方，底部也不再露出页面底色。 */
+.ctx-bottom-space { height: calc(24rpx + env(safe-area-inset-bottom)); }
 /* 缁勬垚鑹叉澘锛堜笌 dsh-context CATS 璇箟涓€鑷达紱娣辫壊涓婚涓嬪悓涓€缁勮壊浠嶅彲杈級 */
 .ctx-c-system { background: #615FFF; }
 .ctx-c-tools { background: #FE9A00; }
@@ -4127,10 +4187,7 @@ to{transform:translateX(340%)}
 .fleet-toolbar-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
 .fleet-toolbar-meta { max-width: 320rpx; font-size: 22rpx; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fleet-toolbar-spacer { flex: 1; }
-.fleet-refresh { width: 64rpx; height: 64rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; flex-shrink: 0; }
-.fleet-refresh-ic { width: 38rpx; height: 38rpx; opacity: .82; }
-.fleet-refresh.busy .fleet-refresh-ic { animation: ctx-spin 1s linear infinite; }
-.fleet-scroll { flex: 1; height: 0; box-sizing: border-box; padding: 8rpx 32rpx calc(40rpx + env(safe-area-inset-bottom)); }
+.fleet-scroll { flex: 1; height: 0; box-sizing: border-box; padding: 8rpx 32rpx 0; }
 .fleet-state { display: flex; flex-direction: column; align-items: center; gap: 16rpx; padding: 100rpx 24rpx 40rpx; text-align: center; }
 .fleet-state-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
 .fleet-state-text { font-size: 26rpx; line-height: 1.7; color: var(--text-3); overflow-wrap: anywhere; }
@@ -4350,16 +4407,19 @@ to{transform:translateX(340%)}
 /* ---- 编队汇总 / Agent 网络（fleet.css / agentGraph.css） ---- */
 .fleet-summary{display:flex;flex-wrap:wrap;align-items:center;gap:12rpx 16rpx;}
 .fleet-summary-chips{display:flex;flex-wrap:wrap;gap:8rpx;flex:1;min-width:0;}
-.fleet-chip{padding:4rpx 16rpx;border-radius:999rpx;background:var(--fill);border:1rpx solid var(--divider);font-size:22rpx;color:var(--text-2);font-variant-numeric:tabular-nums;}
+.fleet-chip{padding:4rpx 16rpx;border-radius:999rpx;background: transparent;border:1rpx solid var(--divider);font-size:22rpx;color:var(--text-2);font-variant-numeric:tabular-nums;}
 .fleet-chip.on{color:var(--success);border-color:rgba(46,184,92,.4);}
 .fleet-chip.brand{color:var(--ocean);border-color:rgba(46,107,230,.4);}
-.fleet-chip-toggle{color:var(--ocean);background:rgba(46,107,230,.08);border-color:rgba(46,107,230,.4);}
+.fleet-chip-toggle{color:var(--ocean);background: transparent;border-color:rgba(46,107,230,.4);}
 .fleet-progress{flex-basis:100%;display:flex;align-items:center;gap:12rpx;font-size:22rpx;color:var(--text-2);}
 .fleet-progress-label{flex:none;}
 .fleet-progress-track{flex:none;width:280rpx;height:12rpx;border-radius:8rpx;background:rgba(16,19,24,.16);overflow:hidden;}
-.fleet-progress-fill{height:100%;background:var(--ink);border-radius:8rpx;}
+.fleet-progress-fill{height:100%;background:var(--ink);border-radius:8rpx;transition:width .45s ease,background-color .45s ease;}
+.fleet-progress-fill.done{background:var(--success);}
 .fleet-progress-text{font-variant-numeric:tabular-nums;}
 .fleet-graph-card{}
+/* 标题行是 baseline 对齐：图标改用 center 自对齐，避免和文字基线错位 */
+.fleet-title-ic { width: 30rpx; height: 30rpx; flex: none; align-self: center; opacity: .8; margin-right: 10rpx; }
 .fleet-graph-sub{font-size:20rpx;}
 .fleet-legend-label{flex:none;}
 .fleet-chips{display:flex;flex-wrap:wrap;gap:8rpx;margin-bottom:10rpx;}
@@ -4371,30 +4431,32 @@ to{transform:translateX(340%)}
 .fleet-stage{max-height:1120rpx;}
 .fleet-stage.all{max-height:none;}
 .fleet-canvas{position:relative;margin:0 auto;}
-.fleet-links{position:absolute;left:0;top:0;pointer-events:none;}
-.fleet-node{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;padding:14rpx 18rpx;border-radius:20rpx;background:var(--fill);border:1rpx solid var(--border);overflow:hidden;transition:border-color .2s ease,box-shadow .2s ease,opacity .2s ease,transform .2s ease;}
+.fleet-links-image{position:absolute;left:0;top:0;pointer-events:none;z-index:0;}
+.fleet-links-canvas{position:absolute;left:0;top:0;pointer-events:none;z-index:0;}
+.fleet-node{position:relative;z-index:1;}
+.fleet-node{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;padding:14rpx 18rpx;border-radius:20rpx;background: transparent;border:1rpx solid var(--border);overflow:hidden;transition:border-color .2s ease,box-shadow .2s ease,opacity .2s ease,transform .2s ease;}
 .fleet-node-pressed{opacity:.75;}
 .fleet-node.self{border-color:rgba(16,19,24,.55);}
 .fleet-node.selected{border-color:var(--ocean);box-shadow:0 0 0 2rpx rgba(46,107,230,.35),0 4rpx 20rpx rgba(16,19,24,.18);transform:translateY(-2rpx);}
 .fleet-node-head{display:flex;align-items:flex-start;gap:8rpx;}
-.fleet-state-dot{width:22rpx;height:22rpx;border-radius:50%;flex:none;margin-top:2rpx;}
-.fleet-state-dot.on{background:var(--success);animation:fleet-pulse 1.4s ease-in-out infinite;}
+/* 与设计稿等比：卡片 140px 高时圆点 9px -> 18rpx（原 20rpx 偏大）。 */
+@keyframes fleet-spin{to{transform:rotate(1turn);}}
 .fleet-node-title{flex:1;min-width:0;font-size:23rpx;font-weight:650;line-height:1.3;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;overflow-wrap:break-word;}
-.fleet-node-badge{flex:none;padding:2rpx 12rpx;border-radius:999rpx;background:var(--surface);border:1rpx solid var(--divider);font-size:20rpx;color:var(--text-2);}
+.fleet-node-badge{flex:none;padding:2rpx 12rpx;border-radius:999rpx;background: transparent;border:1rpx solid var(--divider);font-size:20rpx;color:var(--text-2);}
 .fleet-node-metric{margin-top:10rpx;font-size:26rpx;color:var(--text);font-variant-numeric:tabular-nums;}
 .fleet-node-bar{display:flex;height:14rpx;margin-top:16rpx;border-radius:8rpx;overflow:hidden;background:rgba(16,19,24,.16);}
 .fleet-node-seg{height:100%;min-width:1rpx;}
 .fleet-node-foot{margin-top:auto;padding-top:12rpx;display:flex;align-items:center;gap:8rpx;font-size:20rpx;line-height:1.3;color:var(--text-2);}
 .fleet-node-meta{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .fleet-node-pct{flex:none;font-weight:600;font-variant-numeric:tabular-nums;}
-.fleet-node-open{flex:none;width:40rpx;height:40rpx;line-height:40rpx;text-align:center;border-radius:50%;background:var(--surface);border:1rpx solid var(--divider);color:var(--ocean);font-size:24rpx;}
+.fleet-node-open{flex:none;width:40rpx;height:40rpx;line-height:40rpx;text-align:center;border-radius:50%;background: transparent;border:1rpx solid var(--divider);color:var(--ocean);font-size:24rpx;}
 .fleet-hint{display:flex;align-items:flex-start;gap:12rpx;margin-top:18rpx;padding:20rpx 22rpx;border-radius:20rpx;background:var(--fill);border:1rpx dashed var(--border-strong);}
 .fleet-hint-dot{width:12rpx;height:12rpx;margin-top:10rpx;border-radius:50%;flex-shrink:0;background:var(--text-4);}
 .fleet-hint-text{flex:1;min-width:0;font-size:22rpx;line-height:1.6;color:var(--text-3);}
 .fleet-task-card{margin-top:18rpx;padding-top:20rpx;}
 .fleet-task-row{display:flex;align-items:center;gap:12rpx;padding:9rpx 0;border-bottom:1rpx solid var(--divider);}
 .fleet-task-row:last-child{border-bottom:0;}
-.fleet-task-status{flex-shrink:0;padding:2rpx 10rpx;border-radius:8rpx;font-size:19rpx;font-weight:600;color:var(--text-2);background:var(--fill);}
+.fleet-task-status{flex-shrink:0;padding:2rpx 10rpx;border-radius:8rpx;font-size:19rpx;font-weight:600;color:var(--text-2);background:transparent;}
 .fleet-task-status.ctx-task-active{color:#2E6BE6;background:rgba(46,107,230,.12);}
 .fleet-task-status.ctx-task-done{color:#22A06B;background:rgba(34,160,107,.12);}
 .fleet-task-status.ctx-task-failed{color:#FF7178;background:rgba(255,113,120,.14);}
@@ -4469,6 +4531,15 @@ to{transform:translateX(340%)}
   align-self: flex-start;
   margin: 6rpx 0 0 8rpx;
 }
+/* 每轮底部（含文件/变更卡片行）：复制与上下文跳转按钮必须几何一致。
+   file-copy-btn 的 align-self:flex-start / margin-top / padding-bottom 是卡片时代的
+   微调，在页脚里会让两个按钮在不同行类型中错位（有的记录对齐、有的不齐）——
+   这里统一撤销，只保留 margin-left 的间距。 */
+.turn-footer .copy-btn {
+  margin-top: 0;
+  padding-bottom: 0;
+  align-self: auto;
+}
 /* ---------- 每轮底部：复制按钮 + 用量/时间 ---------- */
 .turn-footer-wrap {
   display: block;
@@ -4491,7 +4562,12 @@ to{transform:translateX(340%)}
   display: flex;
   align-items: center;
   gap: 8rpx;
-  padding: 8rpx 14rpx;
+  /* border-box + 显式高度：总高 44rpx（此前 height:52rpx 是 content-box，
+     加上 padding 后实际 68rpx，把整行撑高、图标按钮被衬得偏低）。
+     内容 32rpx 图标居中，上下各 6rpx——紧凑但仍有呼吸感。 */
+  box-sizing: border-box;
+  height: 44rpx;
+  padding: 0 14rpx;
   border-radius: 999rpx;
   background: var(--fill);
   flex-shrink: 0;
@@ -4499,19 +4575,21 @@ to{transform:translateX(340%)}
 /* 时间：单独显示在右侧 */
 .turn-time {
   font-size: 23rpx;
+  line-height: 32rpx;
   color: var(--text-3);
   white-space: nowrap;
   margin-left: 0;
   font-variant-numeric: tabular-nums;
 }
 .turn-meta-ic {
-  width: 26rpx;
-  height: 26rpx;
+  width: 28rpx;
+  height: 28rpx;
   opacity: 0.7;
   flex-shrink: 0;
 }
 .turn-meta-text {
   font-size: 23rpx;
+  line-height: 32rpx;
   color: var(--text-2);
   white-space: nowrap;
 }
@@ -4711,15 +4789,27 @@ to{transform:translateX(340%)}
   .ctx-flow-node { padding: 14rpx 14rpx; }
 }
 /* ---- 编队成员板（memberBoard / fleet.css） ---- */
-.fleet-members {}
+/* 编队模块：卡片与筛选 chip 组只把背景改成透明（边框/投影/圆角保留），融入合并面板。
+   作用域限定编队——.ctx-card / .ctx-gran / .fleet-card 是浏览器、趋势、文件筛选共用的。 */
+.ctx-card.fleet-members,
+.ctx-card.fleet-summary,
+.ctx-card.fleet-graph-card,
+.ctx-card.fleet-comms,
+.fleet-card { background: transparent; }
+.fleet-member-toolbar .ctx-gran { background: transparent; }
+.fleet-task-card .fleet-task-gran { background: transparent; }
 .fleet-member-warn { font-size: 20rpx; padding: 2rpx 10rpx; border-radius: 8rpx; color: #E5484D; background: rgba(229,72,77,.12); }
 .fleet-member-toolbar { display: flex; flex-direction: column; gap: 10rpx; margin-bottom: 12rpx; }
 .fleet-member-chip-n { margin-left: 6rpx; opacity: .65; font-variant-numeric: tabular-nums; }
 .fleet-member-list { display: flex; flex-direction: column; gap: 10rpx; }
-.fleet-member { padding: 14rpx 18rpx; border-radius: 18rpx; background: var(--fill); border: 1rpx solid var(--border); border-top: 4rpx solid var(--border); display: flex; flex-direction: column; gap: 6rpx; }
+.fleet-member { padding: 14rpx 4rpx; border-radius: 0; background: transparent; border: 0; border-top: 4rpx solid var(--border); display: flex; flex-direction: column; gap: 6rpx; }
 .fleet-member.selected { box-shadow: 0 0 0 2rpx rgba(46,107,230,.35); transform: translateY(-1rpx); }
 .fleet-member-head { display: flex; align-items: center; gap: 10rpx; min-width: 0; }
-.fleet-member-icon { flex: none; width: 40rpx; height: 40rpx; display: flex; align-items: center; justify-content: center; border-radius: 12rpx; border: 1rpx solid transparent; font-size: 22rpx; }
+.fleet-member-icon, .fleet-task-icon { display: flex; align-items: center; justify-content: center; border-radius: 11rpx; border: 1rpx solid transparent; }
+.fleet-member-icon { position: relative; flex: none; width: 36rpx; height: 36rpx; font-size: 20rpx; }
+/* memberBoard / 任务卡共用的头像图标。这个 class 之前没有任何尺寸规则，
+   微信 <image> 默认 320x240，会把 36rpx 的方框撑爆。按设计稿取方框的 ~55%。 */
+.fleet-member-ic { width: 20rpx; height: 20rpx; flex: none; }
 .fleet-member-name { flex: 1; min-width: 0; font-size: 24rpx; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fleet-member-role { flex: none; padding: 2rpx 10rpx; border-radius: 8rpx; background: var(--surface); border: 1rpx solid var(--divider); font-size: 19rpx; color: var(--text-2); }
 .fleet-member-status { display: flex; align-items: baseline; gap: 10rpx; font-size: 21rpx; color: var(--text-2); }
@@ -4730,9 +4820,11 @@ to{transform:translateX(340%)}
 .fleet-member-tasks { flex: 1; font-size: 19rpx; color: var(--text-4); }
 .fleet-member-tasks.on { color: var(--ocean); }
 /* ---- 通讯面板（commsPanel / commsRow） ---- */
+.fleet-comms-solo { margin-top: 4rpx; }
 .fleet-comms-toolbar { display: flex; align-items: center; gap: 12rpx; margin-bottom: 10rpx; }
 .fleet-comms-btn { padding: 2rpx 16rpx; border-radius: 999rpx; background: var(--surface); border: 1rpx solid var(--border); color: var(--ocean); font-size: 21rpx; }
 .fleet-comms-chip { padding: 2rpx 16rpx; border-radius: 999rpx; background: var(--fill); font-size: 21rpx; color: var(--text-2); }
+.fleet-comms-chip.stale { background: rgba(245,158,11,.12); color: var(--amber); }
 .fleet-comms-filters { display: flex; flex-wrap: wrap; gap: 8rpx; margin-bottom: 10rpx; }
 .fleet-comms-lane { max-height: 960rpx; overflow-y: auto; }
 .fleet-comms-row { position: relative; padding: 10rpx 4rpx 10rpx 20rpx; border-bottom: 1rpx dashed var(--divider); }
@@ -4743,7 +4835,11 @@ to{transform:translateX(340%)}
 .fleet-comms-line { display: flex; align-items: baseline; gap: 10rpx; font-size: 21rpx; }
 .fleet-comms-time { flex: none; color: var(--text-4); font-variant-numeric: tabular-nums; }
 .fleet-comms-kind { flex: none; padding: 0 8rpx; border-radius: 6rpx; background: var(--fill-2); font-size: 18rpx; color: var(--text-2); }
-.fleet-comms-route { flex: 1; min-width: 0; color: var(--ocean); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fleet-comms-route { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8rpx; overflow: hidden; color: var(--ocean); font-weight: 600; }
+.fleet-comms-party { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fleet-comms-arrow { position: relative; flex: none; width: 28rpx; height: 20rpx; }
+.fleet-comms-arrow-shaft { position: absolute; left: 1rpx; top: 9rpx; width: 19rpx; border-top: 2rpx solid var(--text-4); }
+.fleet-comms-arrow::after { content: ''; position: absolute; top: 4rpx; right: 1rpx; width: 0; height: 0; border-top: 6rpx solid transparent; border-bottom: 6rpx solid transparent; border-left: 7rpx solid var(--text-4); }
 .fleet-comms-text { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; margin-top: 4rpx; font-size: 21rpx; line-height: 1.5; color: var(--text-2); white-space: pre-wrap; overflow-wrap: anywhere; }
 /* ---- 命令执行卡（commandPanel / commandPanel.css） ---- */
 .ctx-cmd-kpi { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8rpx; margin-bottom: 10rpx; }
@@ -4766,3 +4862,221 @@ to{transform:translateX(340%)}
 .ctx-cmd-code { display: block; max-height: 320rpx; overflow: auto; padding: 12rpx 14rpx; border-radius: 10rpx; background: var(--fill-2); font-family: Menlo, Consolas, monospace; font-size: 20rpx; line-height: 1.5; color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .ctx-cmd-facts { display: block; margin-top: 8rpx; font-size: 19rpx; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .ctx-cmd-actions { display: flex; gap: 12rpx; margin-top: 10rpx; }
+
+/* Fleet cockpit polish: clearer hierarchy while preserving the mobile stack. */
+.fleet-toolbar { padding: 16rpx 32rpx 8rpx; }
+.fleet-toolbar-title { font-size: 32rpx; letter-spacing: .2rpx; }
+.fleet-toolbar-meta { max-width: 360rpx; padding: 4rpx 12rpx; border: 1rpx solid var(--divider); border-radius: 999rpx; background: var(--fill); font-size: 20rpx; }
+.fleet-scroll { padding: 12rpx 28rpx 0; }
+.cf-fleet-section { display: flex; flex-direction: column; gap: 18rpx; padding-bottom: 8rpx; }
+.cf-fleet-section > .ctx-card,
+.cf-fleet-section > .fleet-card { margin-top: 0; }
+.cf-fleet-section > .ctx-card { padding: 22rpx; border-radius: 24rpx; }
+.fleet-summary { align-items: stretch; gap: 16rpx; background: linear-gradient(135deg, rgba(46,107,230,.08), var(--surface) 72%); }
+.fleet-summary-chips { gap: 10rpx; }
+.fleet-summary .fleet-chi { padding: 8rpx 14rpx; background: transparent; border-color: var(--divider); font-size: 21rpx; }mmary .fleet-chip:first-child { color: var(--text); font-weight: 650; }
+.fleet-summary .fleet-chip.on { background: rgba(46,184,92,.08); }
+.fleet-progress { flex-basis: 100%; min-width: 0; gap: 12rpx; padding: 12rpx 14rpx; border-radius: 14rpx; background: var(--fill); }
+.fleet-progress-label { color: var(--text); font-weight: 600; }
+.fleet-progress-track { flex: 1; min-width: 72rpx; width: auto; }
+.fleet-graph-card .ctx-card-head { align-items: flex-start; gap: 8rpx 12rpx; margin-bottom: 18rpx; }
+.fleet-graph-card .ctx-card-sub { flex: 0 0 100%; margin-left: 0; font-size: 21rpx; line-height: 1.45; white-space: normal; }
+.fleet-chips { gap: 8rpx; margin-bottom: 14rpx; }
+.fleet-chips .fleet-chip { padding: 6rpx 12rpx; font-size: 20rpx; }
+.fleet-legend { gap: 10rpx 22rpx; margin-bottom: 16rpx; padding: 12rpx 14rpx; border-radius: 14rpx; background: transparent; font-size: 20rpx; }
+.fleet-legend-swatch,
+.fleet-legend-free { width: 18rpx; height: 18rpx; }
+.fleet-legend-live { width: 26rpx; }
+.fleet-stage { box-sizing: border-box; border: 1rpx solid var(--divider); border-radius: 18rpx; background: transparent; }
+/* 网络卡片：只要边框——透明内容、无投影（投影会让透明卡片在白页面上像填充卡）；
+   选中态的蓝色外环保留作状态反馈。 */
+.fleet-node { border-radius: 18rpx; background: transparent; }
+.fleet-node.self { border: 2rpx solid var(--ink); }
+.fleet-node.running:not(.self) { border-color: rgba(46,184,92,.62); }
+.fleet-node.selected { border-color: var(--ocean); box-shadow: 0 0 0 3rpx rgba(46,107,230,.22), 0 8rpx 22rpx rgba(7,24,43,.14); }
+.fleet-node-open { width: 44rpx; height: 44rpx; line-height: 42rpx; background: transparent; border-color: var(--border); font-weight: 600; }
+.fleet-members .ctx-card-head,
+.fleet-comms .ctx-card-head { align-items: center; gap: 10rpx 14rpx; margin-bottom: 16rpx; }
+.fleet-members .ctx-card-title,
+.fleet-comms .ctx-card-title { font-size: 28rpx; }
+.fleet-members .ctx-card-sub { margin-left: auto; padding: 4rpx 12rpx; border: 1rpx solid var(--divider); border-radius: 999rpx; background: var(--fill); font-size: 20rpx; }
+.fleet-comms .ctx-card-sub { flex-basis: 100%; margin-left: 0; white-space: normal; line-height: 1.4; }
+.fleet-member-toolbar { gap: 10rpx; margin-bottom: 16rpx; }
+.fleet-member-toolbar .ctx-br-search { width: 100%; min-width: 0; height: 72rpx; flex: none; border-radius: 14rpx; background: transparent; }
+.fleet-member-toolbar .ctx-gran { width: 100%; box-sizing: border-box; justify-content: space-between; padding: 4rpx; border-radius: 14rpx; }
+.fleet-member-toolbar .ctx-gran-btn { flex: 1; min-width: 0; padding: 10rpx 4rpx; text-align: center; white-space: nowrap; font-size: 20rpx; }
+.fleet-member-groups { display: flex; flex-direction: column; gap: 24rpx; }
+.fleet-member-group { min-width: 0; }
+.fleet-member-group-head { display: flex; align-items: baseline; gap: 14rpx; margin-bottom: 12rpx; padding: 0 2rpx 10rpx; border-bottom: 1rpx dashed var(--divider); color: var(--text-2); font-size: 22rpx; font-weight: 650; }
+.fleet-member-group-count { color: var(--text-4); font-size: 20rpx; font-variant-numeric: tabular-nums; }
+.fleet-member-list { display: flex; flex-direction: column; gap: 12rpx; }
+.fleet-member-sort { position: relative; z-index: 1; width: 100%; flex: none; min-width: 180rpx; box-sizing: border-box; border: 1rpx solid var(--border); border-radius: 14rpx; background: transparent; }
+.fleet-member-sort.open { z-index: 20; }
+.fleet-member-sort-inner { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; min-height: 68rpx; padding: 0 20rpx; color: var(--text-2); font-size: 21rpx; }
+.fleet-member-sort-arrow { color: var(--text-3); font-size: 30rpx; line-height: 1; }
+.fleet-sort-menu { position: absolute; top: calc(100% + 8rpx); right: 0; z-index: 21; width: 100%; min-width: 240rpx; box-sizing: border-box; overflow: hidden; border: 1rpx solid var(--border); border-radius: 16rpx; background: var(--surface); box-shadow: 0 14rpx 36rpx rgba(0, 0, 0, .18); }
+.fleet-sort-option { min-height: 72rpx; box-sizing: border-box; display: flex; align-items: center; gap: 16rpx; padding: 0 18rpx; border-top: 1rpx solid var(--divider); color: var(--text-2); font-size: 23rpx; }
+.fleet-sort-option:first-child { border-top: 0; }
+.fleet-sort-option.selected { border-radius: 14rpx; background: rgba(46, 107, 230, .08); color: var(--ocean); font-weight: 600; }
+.fleet-sort-option-check { margin-left: auto; font-size: 28rpx; font-weight: 700; }
+/* 成员行：透明内容 + 完整边框（与网络卡片一致）；顶部 4rpx 保留各成员色相（wxml 内联 border-top-color） */
+.fleet-member { gap: 8rpx; padding: 18rpx 18rpx 16rpx; border-radius: 18rpx; background: transparent; border: 1rpx solid var(--border); border-top-width: 4rpx; transition: box-shadow .18s ease, border-color .18s ease, transform .18s ease; }
+.fleet-member.selected { box-shadow: 0 0 0 3rpx rgba(46,107,230,.24), 0 6rpx 18rpx rgba(7,24,43,.08); transform: translateY(-1rpx); }
+.fleet-member-head { gap: 10rpx; }
+.fleet-member-icon { width: 44rpx; height: 44rpx; border-radius: 14rpx; }
+.fleet-member-ic { width: 24rpx; height: 24rpx; }
+.fleet-member-name { font-size: 25rpx; }
+.fleet-member-role { padding: 4rpx 12rpx; border-radius: 999rpx; }
+.fleet-member-status { gap: 12rpx; font-size: 22rpx; }
+.fleet-member-model { min-width: 0; flex: 1; text-align: right; }
+.fleet-member-meta { font-size: 20rpx; }
+.fleet-member-answer { display: flex; align-items: baseline; gap: 8rpx; min-width: 0; color: var(--text-3); font-size: 20rpx; line-height: 1.35; }
+.fleet-member-answer-label { flex: none; color: var(--text-4); }
+.fleet-member-answer-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-style: italic; }
+.fleet-member-foot { min-height: 52rpx; margin-top: 2rpx; padding-top: 8rpx; border-top: 1rpx solid var(--divider); }
+.fleet-member-tasks { display: inline-flex; align-items: center; min-height: 44rpx; padding: 0 12rpx; border-radius: 999rpx; background: transparent; }
+.fleet-member-tasks.on { background: rgba(46,107,230,.08); }
+.fleet-comms-toolbar { flex-wrap: wrap; gap: 10rpx; margin-bottom: 14rpx; }
+.fleet-comms-btn,
+.fleet-comms-chip { min-height: 48rpx; box-sizing: border-box; display: inline-flex; align-items: center; padding: 4rpx 16rpx; border-radius: 999rpx; }
+.fleet-comms-btn { font-weight: 600; }
+.fleet-comms-lane { max-height: 800rpx; padding: 0 4rpx; }
+.fleet-comms-row { padding: 14rpx 8rpx 14rpx 22rpx; }
+.fleet-comms-line { flex-wrap: wrap; gap: 6rpx 10rpx; }
+.fleet-comms-route { flex-basis: 100%; }
+.fleet-comms-text { margin-top: 8rpx; font-size: 22rpx; }
+.fleet-task-card { padding: 22rpx; border-radius: 24rpx; }
+.fleet-task-card .ctx-card-head { align-items: center; margin-bottom: 12rpx; }
+.fleet-task-search{width:100%;background:transparent;}
+.fleet-task-gran{margin:14rpx 0 16rpx;}
+.fleet-task-icon { position: relative; flex: none; width: 36rpx; height: 36rpx; margin-top: 2rpx; }
+.fleet-task-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
+.fleet-task-line { display: flex; align-items: baseline; gap: 10rpx; min-width: 0; }
+.fleet-task-line .fleet-task-subject { flex: 1; min-width: 0; }
+.fleet-task-line .fleet-task-status { flex: none; }
+.fleet-task-body { font-size: 23rpx; line-height: 1.5; color: var(--text-3); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.fleet-task-foot { display: flex; align-items: center; gap: 14rpx; min-width: 0; }
+.fleet-task-meta { font-size: 22rpx; color: var(--text-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fleet-task-row { display: flex; align-items: flex-start; gap: 10rpx; padding: 12rpx 10rpx; border: 1rpx solid var(--divider); border-radius: 14rpx; background: transparent; }
+.fleet-task-row + .fleet-task-row { margin-top: 8rpx; }
+.fleet-task-status { padding: 2rpx 10rpx; border-radius: 999rpx; font-size: 19rpx; }
+.fleet-task-subject { white-space: normal; line-height: 1.4; overflow-wrap: anywhere; }
+.fleet-task-owner { max-width: 140rpx; padding-left: 8rpx; }
+.fleet-task-empty { padding: 24rpx 12rpx; border-radius: 14rpx; background: transparent; }
+@media (min-width: 620px) {
+  .fleet-member-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fleet-member-toolbar { flex-direction: row; flex-wrap: wrap; align-items: center; }
+  .fleet-member-toolbar .ctx-br-search { width: auto; flex: 1 1 100%; }
+  .fleet-member-toolbar .ctx-gran { width: auto; flex: 1 1 0; }
+}
+@media (max-width: 350px) {
+  .fleet-scroll { padding-left: 20rpx; padding-right: 20rpx; }
+  .fleet-summary .fleet-chip { padding-right: 10rpx; padding-left: 10rpx; font-size: 19rpx; }
+  .fleet-member-toolbar .ctx-gran-btn { font-size: 18rpx; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fleet-state-dot.on { animation: none; }
+  .fleet-member { transition: none; }
+}
+/* Wide Fleet panes mirror DSH's cockpit: network left, member/task boards right, comms below at full width. */
+@media (min-width: 860px) {
+  .fleet-summary { align-items: center; }
+  .fleet-progress { flex-basis: auto; min-width: 320rpx; margin-left: auto; }
+  .fleet-workspace { display: grid; grid-template-columns: minmax(0, 1.08fr) minmax(0, .92fr); align-items: stretch; gap: 18rpx; }
+  .fleet-graph-card { display: flex; flex-direction: column; min-width: 0; }
+  .fleet-stage { flex: 1 1 auto; height: 0; min-height: 320rpx; max-height: none; }
+  .fleet-stage.all { height: auto; }
+  .fleet-board-column { display: flex; flex-direction: column; gap: 18rpx; min-width: 0; }
+  .fleet-board-column > .ctx-card,
+  .fleet-board-column > .fleet-card { margin-top: 0; }
+  .fleet-member-toolbar { display: grid; grid-template-columns: minmax(160rpx, 1fr) minmax(300rpx, auto) auto; align-items: center; }
+  .fleet-member-toolbar .ctx-br-search { width: 100%; min-width: 0; }
+  .fleet-member-toolbar .ctx-gran { width: auto; min-width: 0; }
+  .fleet-member-toolbar .fleet-member-sort { width: auto; min-width: 240rpx; }
+  .fleet-task-card { display: grid; grid-template-columns: minmax(160rpx, 1fr) auto; align-items: center; max-height: 1120rpx; overflow: hidden; }
+  .fleet-task-card .ctx-card-head,
+  .fleet-task-list { grid-column: 1 / -1; }
+  .fleet-task-search { width: 100%; min-width: 0; box-sizing: border-box; }
+  .fleet-task-gran { margin: 0 0 0 12rpx; }
+  .fleet-task-list { min-height: 0; overflow-y: auto; }
+  .fleet-comms { display: flex; flex-direction: column; max-height: 960rpx; overflow: hidden; }
+  .fleet-comms-lane { flex: 1 1 auto; min-height: 0; max-height: none; overflow-y: auto; }
+}
+.fleet-node-state,
+.fleet-member-dot,
+.fleet-task-dot { position: relative; display: inline-block; flex: none; width: 18rpx; height: 18rpx; box-sizing: border-box; border-radius: 50%; background: transparent; }
+.fleet-node-state { margin-top: 5rpx; }
+.fleet-member-dot { margin-left: 2rpx; }
+.fleet-node-state::after,
+.fleet-member-dot::after,
+.fleet-task-dot::after { content: ''; position: absolute; inset: 20%; border-radius: 50%; background: var(--text-4); }
+.fleet-node-state.done::after,
+.fleet-member-dot.done::after,
+.fleet-task-dot.done::after { background: var(--success); }
+.fleet-node-state.idle::after,
+.fleet-member-dot.idle::after,
+.fleet-task-dot.idle::after { background: var(--text-4); }
+.fleet-node-state.failed::after,
+.fleet-member-dot.failed::after,
+.fleet-task-dot.failed::after { background: #c44848; }
+.fleet-member-dot.warning::after,
+.fleet-task-dot.warning::after { background: #e07a1f; }
+.fleet-node-state.running,
+.fleet-member-dot.running,
+.fleet-task-dot.running { border: 0; background: transparent; animation: none; }
+.fleet-node-state.running::before,
+.fleet-member-dot.running::before,
+.fleet-task-dot.running::before { content: ''; position: absolute; inset: 0; border: 1rpx solid var(--text-3); border-radius: 50%; opacity: .25; }
+.fleet-node-state.running::after,
+.fleet-member-dot.running::after,
+.fleet-task-dot.running::after { inset: 0; border: 1rpx solid transparent; border-top-color: var(--text-3); border-radius: 50%; background: transparent; animation: fleet-spin 1.5s linear infinite; }
+.fleet-member-dot.done,
+.fleet-task-dot.done { background: transparent; }
+.fleet-task-icon { width: 44rpx; height: 44rpx; margin-top: 0; }
+.fleet-task-row { align-items: flex-start; }
+.fleet-task-main { min-width: 0; }
+.fleet-task-line { align-items: flex-start; }
+.fleet-task-subject { font-size: 24rpx; font-weight: 600; }
+.fleet-task-foot { margin-top: 2rpx; }
+.fleet-comms-lane { max-height: 960rpx; }
+.fleet-comms-route { flex: 1; min-width: 120rpx; flex-basis: auto; }
+.fleet-comms-text { margin-top: 4rpx; }
+/* Keep the Agent Network panel outline; remove the nested stage frame so the graph shares that panel. */
+.ctx-card.fleet-graph-card { background: transparent; border: 1rpx solid var(--border); box-shadow: none; }
+.fleet-graph-card .fleet-stage { border: 0; border-radius: 0; background: transparent; }
+
+/* 边输入边渲染：检测到 Markdown 后输入文字变透明，渲染层垫在原位实时刷新。
+   键盘不收起、焦点不丢，继续打字仍然进输入框，渲染跟着变。 */
+
+/* 同面渲染：渲染层与输入层字体度量完全一致（28rpx / 42rpx 行盒 / 相同内边距），
+   文字原地替换；渲染层在文档流里决定高度，透明输入层 absolute 覆盖接收键入。 */
+.composer-input-row.live { position: relative; display: block; }
+.composer-input-row.live.previewing { min-height: 76rpx; max-height: 60vh; }
+/* 渲染层：绝对定位 + 不透明背景盖住输入框。textarea 属性全程不变，
+   微信不会重置原生组件，粘贴/输入内容不会再被旧值清空。 */
+.composer-live .composer-veil { display: none; }
+.composer-live .composer-veil.on {
+  display: block; position: absolute; left: 0; right: 0; top: 0; bottom: 0; z-index: 6;
+  background: var(--surface); overflow-y: auto;
+  font-size: 28rpx; line-height: 1.4; color: var(--text);
+  padding: 2rpx 4rpx; box-sizing: border-box;
+}
+.composer-veil-inner { font-size: 28rpx; line-height: 1.4; color: var(--text); overflow-wrap: anywhere; }
+.composer-veil-end { height: 10rpx; }
+
+/* 实时渲染时的笔形回编按钮：挂在输入区右上角，点一下回原文编辑。 */
+/* 笔形按钮放在渲染区内部右上角：放在行外会被滚动内容盖住（用户反馈"看不到"）。 */
+.composer-live-edit { position: absolute; right: 10rpx; top: 8rpx; z-index: 3; width: 48rpx; height: 48rpx; display: flex; align-items: center; justify-content: center; border-radius: 12rpx; background: var(--surface); border: 1rpx solid var(--divider); box-shadow: 0 2rpx 8rpx rgba(7, 24, 43, .12); }
+.composer-live-edit-ic { width: 26rpx; height: 26rpx; opacity: .85; }
+
+/* 同面渲染：渲染结果字号与输入框正文完全一致（28rpx / 1.4）。 */
+.composer-veil-inner, .composer-veil-inner rich-text { font-size: 28rpx; line-height: 1.4; }
+.composer-veil-inner .md-block { margin: 0; }
+.composer-veil-inner .md-list { margin: 0; }
+.composer-veil-inner .md-li { font-size: 28rpx; line-height: 1.4; }
+.composer-veil-inner .md-para,
+.composer-veil-inner .md-li-text,
+.composer-veil-inner .md-h1, .composer-veil-inner .md-h2,
+.composer-veil-inner .md-h3, .composer-veil-inner .md-h4,
+.composer-veil-inner .md-h5, .composer-veil-inner .md-h6,
+.composer-veil-inner .md-heading { font-size: 28rpx; line-height: 1.4; margin: 0; }

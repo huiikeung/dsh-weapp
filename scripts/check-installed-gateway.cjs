@@ -104,8 +104,42 @@ async function check({ gateway, management, publicEndpoint = false }) {
     report.runningSessions = items.filter(item => item.running === true).length;
     const chosen = items.find(item => item.title === '测试') || items[0];
     if (chosen) {
-      const history = await query('history', { sessionId: chosen.sessionId || chosen.id, maxMessages: 4 });
-      report.history = { events: history.events?.length ?? 0, format: history.historyFormatVersion };
+      const sessionId = chosen.sessionId || chosen.id;
+      const history = await query('history', { sessionId, maxMessages: 4, view: 'conversation' });
+      const recent = Array.isArray(history.events) ? history.events : [];
+      const recentSeqs = recent.map(event => event.seq).filter(Number.isSafeInteger);
+      assert.ok(recent.length > 0, 'The selected non-empty session must return recent history');
+      assert.ok(recentSeqs.length > 0, 'The history tail must include sequence numbers');
+      assert.deepEqual(recentSeqs, [...recentSeqs].sort((a, b) => a - b),
+        'The history tail must be ordered from oldest to newest');
+      assert.equal(history.historyFormatVersion, 4, 'History cursors require Session V4');
+
+      // Re-read the tail and request a page immediately before it. This exercises
+      // the exact versioned cursor path used by upward scrolling without logging
+      // session titles or message bodies.
+      const refreshed = await query('history', { sessionId, maxMessages: 4, view: 'conversation' });
+      const refreshedSeqs = (refreshed.events || []).map(event => event.seq).filter(Number.isSafeInteger);
+      assert.ok(refreshedSeqs.length > 0, 'A refreshed tail must still contain recent events');
+      assert.ok(Math.max(...refreshedSeqs) >= Math.max(...recentSeqs),
+        'A refreshed history tail must not move behind the first tail');
+      const beforeSeq = recentSeqs[0];
+      const older = await query('history', { sessionId, beforeSeq, historyFormatVersion: 4,
+        maxMessages: 4, maxBytes: 256 * 1024, view: 'conversation' });
+      assert.equal(older.beforeSeq, beforeSeq, 'Even an empty history page must echo its cursor');
+      const olderSeqs = (older.events || []).map(event => event.seq).filter(Number.isSafeInteger);
+      assert.ok(olderSeqs.every(seq => seq < beforeSeq), 'A history page must contain only events before its cursor');
+      const latestSeq = Math.max(...recentSeqs);
+      const snapshotReply = wait(frame => frame.kind === 'session-snapshot' && frame.sessionId === sessionId);
+      assert.ok(client.subscribe(sessionId, latestSeq), 'The client must send a cursor-based session subscription');
+      const snapshot = await snapshotReply;
+      assert.equal(snapshot.resumeFromSeq, latestSeq, 'The gateway must acknowledge the requested resume cursor');
+      assert.ok(Number.isSafeInteger(snapshot.resumeToSeq) && snapshot.resumeToSeq >= latestSeq,
+        'The gateway must calibrate resumption against a current host cursor');
+      assert.ok(['replayed', 'snapshot', 'invalid'].includes(snapshot.recovery),
+        'The gateway must identify whether resume used replay or snapshot recovery');
+      report.resume = { recovery: snapshot.recovery, fromSeq: snapshot.resumeFromSeq, toSeq: snapshot.resumeToSeq };
+      report.history = { events: recent.length, latestSeq,
+        olderPageEvents: olderSeqs.length, cursorEchoed: true, format: history.historyFormatVersion };
     }
     const host = await query('host');
     report.hostVersion = host.version || host.dshVersion;

@@ -65,13 +65,14 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 
 | iOS | 小程序 | 说明 |
 | --- | --- | --- |
-| WorkspaceView 工作区首页 | `pages/home` | 工作区选择器、新建会话、最近会话、搜索、连接状态 |
+| WorkspaceView 工作区首页 | `pages/home` | 工作区选择器、新建会话、最近会话（长按弹出重命名/归档菜单、左滑滑出这两个操作）、搜索、连接状态 |
 | GatewayQRScanner / ManualPairing | `pages/pairing` | 扫码（wx.scanCode）+ 手动输入，Base64URL 载荷解析、过期校验 |
 | GatewaySwitcher / DirectoryBrowser | `pages/workspace-picker` + `pages/files` | 工作区切换、远端目录浏览、新建目录、目录创建会话 |
 | ConversationView 对话 | `pages/session`（对话分段） | Markdown/代码块、思考过程与工具调用折叠行、图片附件、流式生成 |
 | TrajectoryView 轨迹 | `pages/session`（轨迹分段） | Turn 分组、USER/ASSISTANT/TOOL 徽标、#seq、时长概览、事件详情抽屉 |
 | dsh-context 上下文 | `pages/session`（上下文分段） | 与「对话」「轨迹」同排；输入输出/当前会话/工具调用/Agent 网络/上下文事件、当前上下文占用、Token 环形、耗时六段+输出速度+时间轴、上下文浏览器（估算 vs 实际、对比上一步）、趋势与最近事件；运行中每 2.5s 自动刷新；数据来自宿主 `mobileContext` 投影（需网关桥接，见下文） |
 | dsh-context 编队 | `pages/session`（编队分段） | 当前 Agent 的家族网络：汇总 chips、成员卡片（role/phase、运行状态、最新回答、占用与组成条、token/轮次/步数/活跃时长）、团队任务与空态；点击卡片跳到该 Agent 的「上下文」；运行中自动刷新；数据来自宿主 `context-fleet` 请求（需网关桥接） |
+| dsh-context 上下文洞察 | `pages/insights`（会话工具栏 `▦`） | 跨会话总览：页头插件设置（直达设置页上下文面板）与 DeepSeek 余额胶囊、KPI 六项、近 7 天 Token/费用柱图、Token 环与耗时环（点图例聚焦）、8 周活跃热力图（点日期筛选）、技能加载（搜索/排序/来源与路径）、工作区分组与活跃/归档覆盖、会话卡片（占用环/团队用量与费用/最后消息）；子 Agent 家族用量与日账本归并到父会话；数据来自宿主 `context-insights`（需网关桥接） |
 | HumanQuestionView | `pages/session` 提问卡片 | 单选/多选/自定义文本、提交/取消 |
 | ApprovalRequestView | `pages/session` 审批卡片 | 允许一次 / 拒绝 |
 | Composer 输入面板 | 同页 | 权限、模型、思考等级芯片、图片附件、发送、停止回合 |
@@ -138,6 +139,12 @@ node scripts/install-context-bridge.cjs "$(readlink -f ~/.dsh/profiles/desktop/n
 
 安装后正常重启 DSH 并让小程序重新连接；不需要重新配对或迁移数据。未安装桥
 或网关版本过旧时，面板显示「需升级网关」的提示，不影响其他功能。
+
+DSH 0.2.1-rc.3 起不再提供 `contextTimeline` / `contextActivity` / `costMeter`
+投影：桥会回退到网关自己折叠的 `mobileContext`（当前组成、耗时六段、请求账本、
+技能注入事件），并从请求账本 + models.dev 价本估算 7 日费用与会话「总预估费用」。
+因此升级本仓库后需要**重新运行上面的安装命令并重启 DSH**，否则「上下文洞察」
+页的耗时/技能/费用仍会停留在旧数据形状（小程序端会显示空态而不是假数据）。
 
 ## 目录结构
 

@@ -13,6 +13,28 @@ const publicAccessPrompt = require('../../utils/public-access-prompt');
 const { connectionView } = require('../../utils/connection-status');
 
 const HOME_SESSION_REFRESH_MS = 1800;
+const SESSION_SWIPE_ACTION_RPX = 300; // 两个 150rpx 操作钮
+
+/** 会话操作菜单：锚定被长按的那一行（与工作区选择一致）。 */
+function sessionMenuLayout(rect, windowInfo, navigationBottom) {
+  const info = windowInfo || {};
+  const windowWidth = info.windowWidth || 375;
+  const windowHeight = info.windowHeight || 667;
+  const scale = windowWidth / 750;
+  const edge = 8;
+  const width = Math.min(240, Math.max(200, windowWidth * 0.6), windowWidth - edge * 2);
+  const height = 84 * scale * 2 + 32 * scale;
+  const safeTop = Math.max(edge, (navigationBottom || info.statusBarHeight || 44) + 8);
+  const safeBottom = Math.min(windowHeight, (info.safeArea && info.safeArea.bottom) || windowHeight) - edge;
+  const centerX = rect ? rect.left + rect.width / 2 : windowWidth / 2;
+  const centerY = rect ? rect.top + rect.height / 2 : safeTop + height / 2;
+  const left = Math.max(edge, Math.min(centerX - width / 2, windowWidth - edge - width));
+  const top = Math.max(safeTop, Math.min(centerY - height / 2, safeBottom - height));
+  return {
+    popLeft: left, popTop: top, popWidth: width, popHeight: height,
+    popOriginY: Math.max(0, Math.min(height, centerY - top))
+  };
+}
 
 Page({
   data: {
@@ -85,7 +107,14 @@ Page({
     costSections: [],
     costCardError: '',
     publicAccessDialog: null,
-    publicAccessDialogOpen: false
+    publicAccessDialogOpen: false,
+    // 会话操作：长按锚点弹窗 + 左滑手势
+    sessionMenuOpen: false,
+    sessionMenuId: '',
+    sessionMenuTitle: '',
+    swipeId: '',
+    swipeOffset: 0,
+    swiping: false
   },
 
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
@@ -95,6 +124,7 @@ Page({
       const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
       this.drawerW = Math.min(Math.round((info.windowWidth || 375) * 0.76), 360);
       this.statusBarH = info.statusBarHeight || 44;
+      this._windowWidth = info.windowWidth || 375;
       // 系统外观：抽屉打开时据此切换状态栏字色（浅色模式抽屉为白底）
       try {
         const sys = typeof wx.getAppBaseInfo === 'function' ? wx.getAppBaseInfo() : wx.getSystemInfoSync();
@@ -116,6 +146,8 @@ Page({
     } catch (e2) { rect = null; }
     const capTop = rect && rect.top ? rect.top : this.statusBarH + 4;
     const capH = rect && rect.height ? rect.height : 32;
+    // 左滑操作区宽度换算成 px，供手势阈值使用
+    this._swipeActionPx = SESSION_SWIPE_ACTION_RPX * ((this._windowWidth || 375) / 750);
     this.topbarTop = Math.max(capTop - 6, 0);
     this.topbarH = capH + 12;
     // 抽屉字标（48rpx = 24px 高）与首页品牌行/胶囊垂直居中对齐
@@ -186,6 +218,8 @@ Page({
     this._homeHidden = false;
     this._homeVisible = true;
     this._openingSettings = false;
+    this.closeSwipe();
+    if (this.data.sessionMenuOpen) this.closeSessionMenu();
     // 从设置页返回时额度开关可能已变化：仅当成本显示配置的签名变了才失效，
     // 否则保留 30s 短缓存（无谓清掉会让每次返回首页都重新等网关扫描）。
     if (this._costMeterSig && this._costMeterSig !== this.costSettingsSignature()) {
@@ -292,6 +326,15 @@ Page({
         updatedAt: s.updatedAt || 0,
         running: s.running,
         hasUnread: s.hasUnread,
+        // 完成后 24h 内显示绿点；一旦完成之后被看过（本机 openSession 或电脑端
+        // 经网关订阅/读取，见 store.lastOpenedAt）就立刻置灰。
+        recentlyCompleted: (function () {
+          if (s.running) return false;
+          var done = Number(s.completedAt) || 0;
+          if (!done || Date.now() - done >= 24 * 60 * 60 * 1000) return false;
+          var seen = Math.max(Number(s.lastOpenedAt) || 0, Number(s.viewedAt) || 0);
+          return seen < done;
+        })(),
         agentPreset: s.agentPreset,
         displayTitle: s.title || util.sessionIdLabel(s.sessionId),
         idLabel: String(s.sessionId || '').slice(0, 16),
@@ -598,6 +641,7 @@ Page({
 
   onSearchInput(e) {
     const value = e.detail.value;
+    this.closeSwipe();
     this.setData({ searchQuery: value });
     store.updateSearch(value.trim());
   },
@@ -764,6 +808,11 @@ Page({
   },
 
   openSession(e) {
+    // 左滑展开时，先点一行收回操作
+    if (this.data.swipeId) {
+      this.closeSwipe();
+      return;
+    }
     const { id, title, preset } = e.currentTarget.dataset;
     if (!id) {
       wx.showToast({ title: uiText('会话 ID 不可用'), icon: 'none' });
@@ -773,27 +822,66 @@ Page({
     wx.navigateTo({ url: '/pages/session/session?id=' + encodeURIComponent(id) });
   },
 
+  /** 长按会话行：该行隐藏，菜单原地弹出。 */
   sessionActions(e) {
     const index = e.currentTarget.dataset.index;
     const item = this.data.displaySessions[index];
     if (!item) return;
-    const self = this;
-    wx.showActionSheet({
-      itemList: [uiText('重命名'), uiText('归档会话')],
-      success(res) {
-        if (res.tapIndex === 0) {
-          self.renameSession(item);
-        } else if (res.tapIndex === 1) {
-          wx.showModal({
-            title: uiText('归档会话'),
-            content: uiText('归档后会话将从列表隐藏，可在 WebUI 中恢复。'),
-            success(r) {
-              if (r.confirm) {
-                store.client.archiveSession(item.sessionId);
-                setTimeout(() => store.client.requestSessions(), 500);
-              }
-            }
-          });
+    this.closeSwipe();
+    const request = {};
+    this._sessionMenuRequest = request;
+    let windowInfo = {};
+    try {
+      windowInfo = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+    } catch (err) { /* Use phone-safe defaults when window metrics are unavailable. */ }
+    // 选择器失败时用长按触点当锚点，不回落到屏幕中间。
+    const touch = e.touches && e.touches[0] ? e.touches[0] : null;
+    const touchRect = touch ? {
+      left: touch.clientX - 140, top: touch.clientY - 24, width: 280, height: 48
+    } : null;
+    const show = (rect) => {
+      if (this._sessionMenuRequest !== request) return;
+      this._sessionMenuRequest = null;
+      const anchor = rect || touchRect;
+      const layout = sessionMenuLayout(anchor, windowInfo, this.topbarTop + this.topbarH);
+      this.setData(Object.assign({
+        sessionMenuOpen: true,
+        sessionMenuId: item.sessionId,
+        sessionMenuTitle: item.displayTitle || item.sessionId,
+        pairMenuVisible: false
+      }, layout));
+    };
+    try {
+      wx.createSelectorQuery().in(this).select('#session-row-' + index).boundingClientRect(show).exec();
+    } catch (err) {
+      show(null);
+    }
+  },
+
+  closeSessionMenu() {
+    this._sessionMenuRequest = null;
+    this.setData({ sessionMenuOpen: false });
+  },
+
+  sessionMenuAction(e) {
+    const action = (e.currentTarget.dataset || {}).action;
+    const id = this.data.sessionMenuId;
+    const item = (this.data.displaySessions || []).find((session) => session && session.sessionId === id) || null;
+    this.setData({ sessionMenuOpen: false });
+    if (!item) return;
+    if (action === 'rename') this.renameSession(item);
+    else this.archiveSession(item);
+  },
+
+  archiveSession(item) {
+    if (!item) return;
+    wx.showModal({
+      title: uiText('归档会话'),
+      content: uiText('归档后会话将从列表隐藏，可在 WebUI 中恢复。'),
+      success(r) {
+        if (r.confirm) {
+          store.client.archiveSession(item.sessionId);
+          setTimeout(() => store.client.requestSessions(), 500);
         }
       }
     });
@@ -811,6 +899,80 @@ Page({
         }
       }
     });
+  },
+
+  // ---------- 会话行左滑手势 ----------
+
+  closeSwipe() {
+    if (!this.data.swipeId && !this.data.swipeOffset) return;
+    this.setData({ swipeId: '', swipeOffset: 0 });
+  },
+
+  onSessionTouchStart(e) {
+    const touch = e.touches && e.touches[0];
+    const dataset = e.currentTarget.dataset || {};
+    if (!touch || !dataset.id) return;
+    this._rowGesture = null;
+    this._swipe = {
+      id: dataset.id,
+      index: Number(dataset.index) || 0,
+      x: touch.clientX,
+      y: touch.clientY,
+      dx: 0,
+      horizontal: false,
+      decided: false,
+      // 手势开始时操作按钮是否已展开：决定这次手势要不要让位给抽屉
+      openAtStart: !!this.data.swipeId
+    };
+  },
+
+  onSessionTouchMove(e) {
+    const swipe = this._swipe;
+    const touch = e.touches && e.touches[0];
+    if (!swipe || !touch) return;
+    const dx = touch.clientX - swipe.x;
+    const dy = touch.clientY - swipe.y;
+    if (!swipe.decided) {
+      if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+      swipe.decided = true;
+      swipe.horizontal = Math.abs(dx) > Math.abs(dy);
+      if (swipe.horizontal) this.setData({ swiping: true });
+    }
+    if (!swipe.horizontal) return;
+    swipe.dx = dx;
+    const max = this._swipeActionPx || 200;
+    const offset = Math.max(0, Math.min(max, -dx));
+    if (offset > 6) this.setData({ swipeId: swipe.id, swipeOffset: offset });
+    else if (this.data.swipeId) this.setData({ swipeId: '', swipeOffset: 0 });
+  },
+
+  onSessionTouchEnd() {
+    const swipe = this._swipe;
+    this._swipe = null;
+    const max = this._swipeActionPx || 200;
+    const open = !!swipe && swipe.horizontal && swipe.dx <= -max * 0.3;
+    if (swipe) this._rowGesture = { openAtStart: swipe.openAtStart === true, openAtEnd: open };
+    this.setData({
+      swiping: false,
+      swipeId: open ? swipe.id : '',
+      swipeOffset: open ? max : 0
+    });
+  },
+
+  // 手势被系统取消（来电、手势识别抢占）时清状态并收回操作，避免滚动锁死
+  onSessionTouchCancel() {
+    this._swipe = null;
+    this._rowGesture = null;
+    this.setData({ swiping: false, swipeId: '', swipeOffset: 0 });
+  },
+
+  sessionSwipeAction(e) {
+    const dataset = e.currentTarget.dataset || {};
+    const item = this.data.displaySessions[dataset.index];
+    this.closeSwipe();
+    if (!item) return;
+    if (dataset.action === 'rename') this.renameSession(item);
+    else this.archiveSession(item);
   },
 
   togglePairMenu() {
@@ -989,6 +1151,11 @@ Page({
   onContentTouchEnd(e) {
     const start = this.contentGesture;
     this.contentGesture = null;
+    // 行内手势（按钮已展开时开始，或手势结束时展开）优先：这次右滑只归操作按钮，
+    // 不再顺手把左侧栏打开。
+    const rowGesture = this._rowGesture;
+    this._rowGesture = null;
+    if (rowGesture && (rowGesture.openAtStart || rowGesture.openAtEnd)) return;
     if (!start || this.data.drawerOpen) return;
     const t = e.changedTouches && e.changedTouches[0];
     if (!t) return;

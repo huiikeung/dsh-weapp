@@ -41,18 +41,19 @@ function fixture() {
 const modulePath = path.join(__dirname, '..', 'miniprogram', 'pages', 'settings', 'utils', 'storage-usage.js');
 
 test('collect aggregates the four local cache categories and the storage quota', () => {
-  setup(fixture(), { 'dsh_session_cache.s1': '0123456789', 'dsh_home_cache.home': '01234', 'dsh_other.pref': 'ignored' });
+  setup(fixture(), { 'dsh_session_cache.s1': '0123456789', 'dsh_home_cache.home': '01234',
+    'dsh_context_cache.context': '12345678', 'dsh_history_page.page': '1234', 'dsh_other.pref': 'ignored' });
   delete require.cache[require.resolve(modulePath)];
   const storageUsage = require(modulePath);
   const usage = storageUsage.collect();
   const byKey = {};
   for (const cat of usage.categories) byKey[cat.key] = cat;
-  assert.equal(byKey.chats.bytes, 15, 'session + home cache strings');
+  assert.equal(byKey.chats.bytes, 27, 'session, home, context and paged history cache strings');
   assert.equal(byKey.images.bytes, 100);
   assert.equal(byKey.files.bytes, 240, 'dsh-file-* without .part');
   assert.equal(byKey.temporary.bytes, 80, '.part + clawbot leftovers');
-  assert.equal(usage.totalBytes, 435);
-  assert.equal(usage.totalText, '435 B');
+  assert.equal(usage.totalBytes, 447);
+  assert.equal(usage.totalText, '447 B');
   assert.ok(usage.gradient.includes('#3D7AC7'), 'chats segment in conic gradient');
   assert.equal(usage.storageText, '2 KB / 10 MB');
   assert.equal(storageUsage.formatBytes(0), '0 KB');
@@ -64,13 +65,17 @@ test('clearCategory removes only the picked category and reports freed bytes', a
   const files = fixture();
   const env = setup(files, {
     'dsh_session_cache.s1': '0123456789',
+    'dsh_context_cache.context': '12345678',
+    'dsh_history_page.page': '1234',
     'dsh_other.pref': 'kept'
   });
   delete require.cache[require.resolve(modulePath)];
   const storageUsage = require(modulePath);
   const freed = await storageUsage.clearCategory('chats');
-  assert.equal(freed, 10);
+  assert.equal(freed, 22);
   assert.ok(env.removed.includes('storage:dsh_session_cache.s1'));
+  assert.ok(env.removed.includes('storage:dsh_context_cache.context'));
+  assert.ok(env.removed.includes('storage:dsh_history_page.page'));
   assert.equal(env.storage['dsh_other.pref'], 'kept', 'unrelated keys survive');
 
   const freedFiles = await storageUsage.clearCategory('files');

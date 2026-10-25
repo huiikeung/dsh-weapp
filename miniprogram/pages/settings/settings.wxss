@@ -83,59 +83,76 @@
 
 .clawbot-experimental-row { gap: 12rpx; }
 .clawbot-experimental-row .exp-copy { min-width: 0; }
-.clawbot-panel {
-  margin: 0 24rpx 24rpx;
-  padding: 22rpx;
-  border-radius: 22rpx;
-  background: var(--fill);
-  border: 1rpx solid var(--border);
-}
-.clawbot-panel-head,
-.clawbot-panel-actions,
-.clawbot-action-row,
-.clawbot-info-row,
-.clawbot-verify-row,
-.clawbot-session-option {
-  display: flex;
-  align-items: center;
-}
-.clawbot-panel-head { justify-content: space-between; gap: 18rpx; }
-.clawbot-panel-actions { gap: 24rpx; flex: none; }
-.clawbot-state { font-size: 27rpx; font-weight: 600; color: var(--text); }
-.clawbot-state.is-on { color: #198754; }
-.clawbot-text-action { color: var(--ocean); font-size: 24rpx; line-height: 1.4; }
+/* ---------- 微信 ClawBot 私聊接线（底部弹层 + 居中会话选择） ---------- */
+/* .pair-sheet 本身不是 flex 容器：这里显式做成列布局，
+   否则子级 flex:1;height:0 会解析成 0 高度把内容吞掉。 */
+.clawbot-sheet { display: flex; flex-direction: column; }
+.clawbot-sheet > .sheet-grabber-zone,
+.clawbot-sheet > .pair-sheet-head { flex: none; }
+/* 横向留白由 .pair-sheet 的 padding 提供，这里不要再加，避免双重内缩 */
+.clawbot-sheet-body { flex: 1; height: 0; min-height: 0; box-sizing: border-box; }
+
+.clawbot-hero { display: flex; align-items: center; gap: 18rpx; margin-top: 8rpx; padding: 22rpx 24rpx; border-radius: 20rpx; border: 1rpx solid var(--border); background: var(--fill); }
+.clawbot-hero.is-on { border-color: rgba(25, 135, 84, .28); background: rgba(25, 135, 84, .08); }
+.clawbot-hero-dot { width: 16rpx; height: 16rpx; flex: none; border-radius: 50%; background: var(--text-3); }
+.clawbot-hero.is-on .clawbot-hero-dot { background: #198754; box-shadow: 0 0 0 6rpx rgba(25, 135, 84, .16); }
+.clawbot-hero-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4rpx; }
+.clawbot-hero-title { font-size: 28rpx; font-weight: 600; color: var(--text); }
+.clawbot-hero.is-on .clawbot-hero-title { color: #198754; }
+.clawbot-hero-sub { font-size: 23rpx; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clawbot-refresh { flex: none; padding: 8rpx 18rpx; border-radius: 999rpx; border: 1rpx solid var(--border); color: var(--text-2); font-size: 23rpx; line-height: 1.4; }
+.clawbot-refresh.tap:active { opacity: .7; }
+
+.clawbot-tile-row { display: flex; gap: 16rpx; margin-top: 20rpx; }
+.clawbot-tile { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; padding: 18rpx 20rpx; border-radius: 18rpx; background: var(--surface); border: 1rpx solid var(--border); }
+.clawbot-tile-label { font-size: 22rpx; color: var(--text-3); }
+.clawbot-tile-main { display: flex; align-items: center; gap: 10rpx; min-width: 0; }
+.clawbot-tile-value { flex: 1; min-width: 0; font-size: 26rpx; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.clawbot-tile-chevron { flex: none; font-size: 30rpx; line-height: 1; color: var(--text-3); }
+.clawbot-tile-tap:active { opacity: .7; }
+
+.clawbot-message { display: block; margin-top: 16rpx; }
 .clawbot-error,
 .clawbot-muted,
 .clawbot-footnote { display: block; color: var(--text-3); font-size: 23rpx; line-height: 1.55; }
-.clawbot-error { margin-top: 14rpx; color: #c44848; overflow-wrap: anywhere; }
-.clawbot-info-row { align-items: flex-start; justify-content: space-between; gap: 20rpx; margin-top: 16rpx; color: var(--text-2); font-size: 24rpx; }
-.clawbot-info-value { flex: 1; min-width: 0; text-align: right; color: var(--text); overflow-wrap: anywhere; }
-.clawbot-action-row { flex-wrap: wrap; gap: 12rpx; margin-top: 20rpx; }
-.clawbot-action {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 62rpx;
-  padding: 0 20rpx;
-  border-radius: 999rpx;
-  background: var(--surface);
-  border: 1rpx solid var(--border);
-  color: var(--text);
-  font-size: 23rpx;
-  box-sizing: border-box;
-}
-.clawbot-action.is-danger { color: #c44848; }
-.clawbot-action.is-disabled { opacity: 0.45; }
-.clawbot-pairing { display: flex; flex-direction: column; align-items: center; gap: 12rpx; margin-top: 22rpx; padding: 18rpx; border-radius: 18rpx; background: var(--surface); }
-.clawbot-qr { width: 340rpx; height: 340rpx; border-radius: 10rpx; background: #fff; }
-.clawbot-pairing-hint { color: var(--text); font-size: 24rpx; text-align: center; }
-.clawbot-verify-row { width: 100%; gap: 12rpx; margin-top: 4rpx; }
-.clawbot-verify-input { flex: 1; min-width: 0; height: 68rpx; padding: 0 16rpx; border: 1rpx solid var(--border); border-radius: 12rpx; background: var(--fill); color: var(--text); font-size: 25rpx; }
-.clawbot-cancel-login { padding: 8rpx 12rpx; }
-.clawbot-session-list { margin-top: 20rpx; padding-top: 18rpx; border-top: 1rpx solid var(--border); }
-.clawbot-list-title { display: block; margin-bottom: 10rpx; color: var(--text-2); font-size: 23rpx; }
-.clawbot-session-option { min-height: 76rpx; justify-content: space-between; gap: 14rpx; padding: 12rpx 6rpx; border-top: 1rpx solid var(--border); }
-.clawbot-session-option.selected .clawbot-session-title,
+.clawbot-error { margin-top: 16rpx; padding: 14rpx 18rpx; border-radius: 14rpx; background: rgba(196, 72, 72, .1); color: #c44848; overflow-wrap: anywhere; }
+.clawbot-footnote { margin-top: 24rpx; }
+
+.clawbot-ops { display: flex; flex-wrap: wrap; gap: 14rpx; margin-top: 22rpx; }
+.clawbot-op { flex: 1 1 30%; min-width: 180rpx; min-height: 88rpx; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 0 18rpx; border-radius: 16rpx; border: 1rpx solid var(--border-strong); background: var(--surface); }
+.clawbot-op:active { opacity: .72; }
+.clawbot-op-title { font-size: 25rpx; font-weight: 500; color: var(--text); text-align: center; }
+.clawbot-op.is-danger { border-color: rgba(196, 72, 72, .34); }
+.clawbot-op.is-danger .clawbot-op-title { color: #c44848; }
+.clawbot-op.is-disabled { opacity: .45; }
+
+.clawbot-pairing { display: flex; flex-direction: column; align-items: center; gap: 12rpx; margin-top: 22rpx; padding: 22rpx; border-radius: 18rpx; background: var(--surface); border: 1rpx solid var(--border); }
+
+/* 居中会话选择弹窗 */
+.clawbot-modal-mask { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 40rpx; background: rgba(0, 0, 0, .45); }
+.clawbot-modal { width: 100%; max-width: 620rpx; box-sizing: border-box; display: flex; flex-direction: column; padding: 30rpx 30rpx 24rpx; border-radius: 24rpx; background: var(--surface); border: 1rpx solid var(--border); box-shadow: 0 24rpx 72rpx rgba(0, 0, 0, .3); animation: clawbot-modal-in .18s ease-out; }
+@keyframes clawbot-modal-in { from { opacity: 0; transform: translateY(16rpx) scale(.97); } to { opacity: 1; transform: none; } }
+.clawbot-modal-head { flex: none; display: flex; align-items: center; gap: 16rpx; }
+.clawbot-modal-title { flex: 1; min-width: 0; font-size: 30rpx; font-weight: 600; color: var(--text); }
+.clawbot-modal-close { flex: none; width: 52rpx; height: 52rpx; line-height: 48rpx; text-align: center; border-radius: 14rpx; font-size: 38rpx; color: var(--text-2); background: var(--fill); }
+.clawbot-modal-sub { flex: none; margin-top: 8rpx; font-size: 23rpx; color: var(--text-3); }
+/* 用 max-height 而非 flex:1（与 .management-scroll 同一写法）：内容少时弹窗自动收缩。 */
+.clawbot-modal-body { max-height: 52vh; margin-top: 18rpx; }
+.clawbot-modal-empty { padding: 60rpx 20rpx; text-align: center; font-size: 24rpx; color: var(--text-3); }
+
+/* 二维码 / 确认码 / 会话行 */
+.clawbot-qr { width: 320rpx; height: 320rpx; border-radius: 16rpx; background: #fff; }
+.clawbot-pairing-hint { font-size: 23rpx; color: var(--text-3); text-align: center; }
+.clawbot-verify-row { display: flex; align-items: center; gap: 12rpx; margin-top: 8rpx; width: 100%; }
+.clawbot-verify-input { flex: 1; min-width: 0; height: 76rpx; padding: 0 20rpx; box-sizing: border-box; border-radius: 14rpx; border: 1rpx solid var(--border-strong); background: var(--fill); color: var(--text); font-size: 25rpx; }
+.clawbot-action { flex: none; min-height: 76rpx; display: flex; align-items: center; justify-content: center; padding: 0 24rpx; border-radius: 14rpx; border: 1rpx solid var(--border-strong); background: var(--surface); color: var(--text); font-size: 24rpx; }
+.clawbot-text-action { color: var(--ocean); font-size: 24rpx; line-height: 1.4; }
+.clawbot-cancel-login { margin-top: 10rpx; text-align: center; }
+
+.clawbot-session-option { display: flex; align-items: center; gap: 16rpx; padding: 22rpx 20rpx; border-radius: 16rpx; border: 1rpx solid var(--border); background: var(--surface); margin-bottom: 12rpx; }
+.clawbot-session-option.selected { border-color: var(--ocean); background: var(--fill); }
+.clawbot-session-option:active { opacity: .72; }
+
 .clawbot-session-check { color: var(--ocean); }
 .clawbot-session-copy { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 3rpx; }
 .clawbot-session-title { color: var(--text); font-size: 24rpx; overflow-wrap: anywhere; }
@@ -170,6 +187,28 @@
 .management-entry-value .chevron-img {
   flex: none;
 }
+
+.identity-entry-value { gap: 12rpx; }
+.identity-entry-value .chevron-img { margin-left: 0; }
+.identity-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38rpx;
+  box-sizing: border-box;
+  padding: 2rpx 12rpx;
+  border: 1rpx solid var(--border-strong);
+  border-radius: 999rpx;
+  background: var(--fill);
+  color: var(--text-2);
+  font-size: 21rpx;
+  font-weight: 500;
+  line-height: 1.4;
+}
+.identity-badge.is-admin { border-color: rgba(46, 107, 230, .26); background: rgba(46, 107, 230, .08); color: var(--ocean); }
+.theme-dark .identity-badge.is-admin { border-color: rgba(105, 157, 255, .32); background: rgba(105, 157, 255, .12); }
+.identity-entry { min-height: 92rpx; }
+.identity-entry .management-entry-copy { align-self: center; }
 
 .management-entry-active {
   background: var(--fill);
@@ -232,9 +271,9 @@
 .gateway-action::after { border: 0; }
 .gateway-action[disabled] { background: transparent; opacity: .45; }
 
+/* 弹窗自身是唯一滚动容器（整个弹窗一起滑），内层不再限高造出「框里滚动」 */
 .management-scroll {
   min-height: 0;
-  max-height: 65vh;
 }
 
 .public-detail-row {
@@ -821,6 +860,9 @@
   border-radius: 32rpx 32rpx 0 0;
   background: var(--surface);
   color: var(--text);
+  /* 整个弹窗作为一个滚动容器：不再有内层滚动区 */
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .pair-sheet-head {
@@ -1191,6 +1233,18 @@
   font-size: 27rpx;
   font-weight: 600;
   color: var(--text-2);
+}
+
+/* 「最近生成」右上角：一键清空已用完（危险色，仅在有可清空的码时出现）+ 刷新 */
+.code-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 24rpx;
+}
+
+.code-clear {
+  font-size: 25rpx;
+  color: #E5484D;
 }
 
 .code-refresh {

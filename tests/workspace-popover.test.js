@@ -94,7 +94,8 @@ test('menu preserves card space, blocks background scroll, and supports long lis
   const html = read('pages/home/home.wxml');
   const css = read('pages/home/home.wxss');
   assert.ok(html.includes("workspacePickerOpen ? 'workspace-card-menu-open'"));
-  assert.ok(html.includes('scroll-y="{{!workspacePickerOpen}}"'));
+  assert.ok(html.includes('scroll-y="{{!workspacePickerOpen && !sessionMenuOpen && !swiping}}"'),
+    'workspace picker, session menu and swipe gestures all lock the background scroll');
   assert.ok(html.includes('ws-pop-mask" catchtap="closeWorkspacePicker" catchtouchmove="noop"'));
   assert.ok(html.includes('scroll-view class="ws-pop-scroll" scroll-y'));
   assert.ok(css.includes('.workspace-card-menu-open {') && css.includes('visibility: hidden;'));

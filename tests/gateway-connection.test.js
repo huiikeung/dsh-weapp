@@ -111,6 +111,18 @@ test('relay connector offline close retains an actionable failed state', t => {
   assert.equal(f.client.reconnectTimer, null);
 });
 
+test('session subscription carries a validated durable resume cursor', t => {
+  const f = fixture(t);
+  const sent = [];
+  f.client.state = 'connected';
+  f.client.socketTask = { send(frame) { sent.push(JSON.parse(frame.data)); } };
+
+  assert.equal(f.client.subscribe('session-1', 91), true);
+  assert.equal(sent[0].afterSeq, 91);
+  assert.equal(f.client.subscribe('session-1', -1), true);
+  assert.equal(Object.hasOwn(sent[1], 'afterSeq'), false);
+});
+
 test('public history requests keep a small default and accept bounded larger-page retries', t => {
   const f = fixture(t);
   f.client.relayMeta = { nodeId: 'fixture-node' };

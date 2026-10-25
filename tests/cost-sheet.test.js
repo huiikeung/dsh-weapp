@@ -226,7 +226,8 @@ test('every quota sheet has a drag handle, 90% height and a scrollable body', ()
   const sheetKinds = ['display', 'balance', 'go', 'budget', 'peak', 'plan', 'gateway', 'custom'];
   for (const kind of sheetKinds) assert.ok(wxml.includes(`sheet === '${kind}'`), '缺少 ' + kind + ' 弹窗');
   assert.equal((wxml.match(/class="cost-sheet-grabber"/g) || []).length, sheetKinds.length, '每个弹窗都要有拖动条');
-  assert.equal((wxml.match(/class="cost-sheet-body"/g) || []).length, sheetKinds.length, '每个弹窗都要有可滚动内容区');
+  // 非 custom 弹窗的滚动区带 carded 类（卡片化边框），断言两种写法合计。
+  assert.equal((wxml.match(/class="cost-sheet-body( carded)?"/g) || []).length, sheetKinds.length, '每个弹窗都要有可滚动内容区');
   assert.match(wxml, /catchtouchstart="onSheetGrabStart"/);
   assert.match(wxml, /catchtouchmove="onSheetGrabMove"/);
   assert.match(wxml, /catchtouchend="onSheetGrabEnd"/);

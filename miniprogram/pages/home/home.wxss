@@ -626,10 +626,70 @@
   background: rgba(255, 255, 255, 0.10);
 }
 
-.session-row:last-child::after {
+.session-swipe:last-child .session-row::after {
   display: none;
 }
 
+/* 会话行左滑手势 */
+.session-swipe {
+  position: relative;
+  overflow: hidden;
+  border-radius: 16rpx;
+}
+
+.session-swipe .session-row {
+  position: relative;
+  z-index: 1;
+  transition: transform 0.18s ease;
+  will-change: transform;
+}
+
+/* 菜单弹出时该行隐藏：弹窗原地占位 */
+.session-row-hidden,
+.session-row-hidden::after {
+  visibility: hidden;
+}
+
+/* 滑动中的行需不透明底色，否则按钮会透出来 */
+.session-swipe.open .session-row {
+  background: var(--navy);
+}
+
+.session-actions {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: stretch;
+  /* 仅被滑动的那一行显示操作层（会话行为透明底） */
+  visibility: hidden;
+}
+
+.session-actions.show {
+  visibility: visible;
+}
+
+.session-action {
+  width: 150rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #FFFFFF;
+  font-size: 26rpx;
+  line-height: 1.2;
+}
+
+.session-action.rename {
+  background: rgba(46, 107, 230, 0.92);
+}
+
+.session-action.archive {
+  background: rgba(214, 69, 69, 0.92);
+}
+
+
+/* 状态灯四态：默认灰点 / 完成 24h 内绿点 / 运行中旋转圆环 / 未读蓝点 */
 .session-dot {
   width: 14rpx;
   height: 14rpx;
@@ -639,13 +699,31 @@
   flex-shrink: 0;
 }
 
-.session-dot.running {
+.session-dot.done {
   background: var(--success);
-  box-shadow: 0 0 10rpx rgba(46, 184, 92, 0.65);
+}
+
+.session-dot.running {
+  width: 16rpx;
+  height: 16rpx;
+  box-sizing: border-box;
+  background: transparent;
+  box-shadow: none;
+  border: 2rpx solid rgba(255, 255, 255, 0.2);
+  border-top-color: rgba(255, 255, 255, 0.82);
+  animation: sessionDotSpin 0.9s linear infinite;
 }
 
 .session-dot.unread {
   background: var(--ocean);
+}
+
+@keyframes sessionDotSpin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .session-dot.running { animation-duration: 2s; }
 }
 
 .session-body {

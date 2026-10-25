@@ -9,6 +9,7 @@ const notifyPref = require('../../utils/notify-pref');
 const voicePreference = require('../../utils/voice-preference');
 const homeAnimationPreference = require('../../utils/home-animation-pref');
 const contextPanelsPreference = require('../../utils/context-panels-pref');
+const accountCardPreference = require('../../utils/account-card-pref');
 const contextPreferences = require('../../utils/context-prefs');
 const theme = require('../../utils/theme');
 const accessApi = require('../../utils/access-api');
@@ -19,6 +20,7 @@ const { normalizeHostInfo } = require('../../utils/host-info');
 const storageUsage = require('./utils/storage-usage');
 const { clientVersion, gatewayVersionInfo } = require('./utils/version-info');
 const accountView = require('./utils/account-view');
+const { identityBadge } = require('./utils/identity-badge');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
 
 Page({
@@ -72,6 +74,8 @@ Page({
     pairingConnecting: false,
     publicOn: false,
     publicStatusLabel: uiText('未开通'),
+    // 连接卡片右侧显示的值：已开通时是有效期时间，其余状态沿用状态文案。
+    publicValueLabel: uiText('未开通'),
     publicId: '',
     publicExpiryLabel: '',
     publicTitle: uiText('尚未建立公网身份'),
@@ -106,12 +110,16 @@ Page({
     contextFileSort: contextPreferences.read().fileSort,
     voiceEnabled: true,
     accountBusy: false,
+    accountIdentityReady: false,
     isWechatAdmin: false,
     accountLabel: uiText('识别中…'),
+    identityBadgeLabel: uiText('待识别'),
     accountHint: uiText('自动识别当前微信身份，无需手动切换'),
     dshAccount: accountView.normalize({}),
     dshAccountBusy: false,
     dshAccountVisible: false,
+    // 账号卡片默认收起（隐私）：开关在「通用设置」里，控制设置页与会话设置页的显示。
+    showAccountCard: accountCardPreference.read(),
     // 余额卡默认收起：点上面的身份卡才展开，且仅已登录时有效。
     dshBalanceExpanded: false,
     publicAccessDialog: null,
@@ -158,6 +166,8 @@ Page({
     codeIsAdmin: false,
     codeBusy: false,
     codeItems: [],
+    // 「最近生成」右上角的一键清空：只统计卡片状态正是「已用完」的兑换码。
+    codeUsedCount: 0,
     codeDurations: ['3 天', '7 天', '30 天', '半年', '1 年'],
     codeDurationIndex: 2,
     codeCounts: ['1 次', '5 次', '20 次'],
@@ -197,6 +207,8 @@ Page({
     this.refreshDshAccount();
     // 从公网授权弹窗「继续」跳入时，直接展开公网访问面板。
     if (options && options.panel === 'public') this.openPublicAccess();
+    // 洞察页「插件设置」直达上下文面板。
+    if (options && options.panel === 'context') this.openContextSheet();
     if (options && options.pair) {
       const result = store.pairWithPayload(options.pair);
       if (result.ok) {
@@ -525,6 +537,7 @@ Page({
       homeAnimationEnabled: homeAnimationPreference.enabled(),
       showContextPanel: contextPanelPrefs.context,
       showFleetPanel: contextPanelPrefs.fleet,
+      showAccountCard: accountCardPreference.read(),
       ...this.contextPreferenceData(),
       ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
@@ -590,7 +603,7 @@ Page({
       ? { ...clawbotStatus, pairing: { ...clawbotStatus.pairing, qrDataUrl: '' } } : clawbotStatus;
     this.setData({ clawbotPanelOpen: false, clawbotSessionsOpen: false, clawbotQrPath: '', clawbotStatus: safeClawbotStatus });
     this._publicAccount = null;
-    this.setData({ accountBusy: false, redeemBusy: false, isWechatAdmin: false, adminAdvancedOpen: false, accountLabel: uiText('识别中…'), referralSheetOpen: false, referralBusy: false, accountDeviceId: '', adminSheet: false, contextSheet: false, fontSheet: false });
+    this.setData({ accountBusy: false, accountIdentityReady: false, redeemBusy: false, isWechatAdmin: false, adminAdvancedOpen: false, accountLabel: uiText('识别中…'), identityBadgeLabel: uiText('待识别'), referralSheetOpen: false, referralBusy: false, accountDeviceId: '', adminSheet: false, contextSheet: false, fontSheet: false });
     this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1;
     this.setData({ dshAccountBusy: false });
   },
@@ -701,7 +714,7 @@ Page({
     const status = this.data.clawbotStatus;
     const safeStatus = status && status.pairing
       ? { ...status, pairing: { ...status.pairing, qrDataUrl: '' } } : status;
-    this.setData({ clawbotPanelOpen: false, clawbotSessionsOpen: false, clawbotQrPath: '', clawbotStatus: safeStatus });
+    this.setData({ clawbotPanelOpen: false, clawbotSessionsOpen: false, clawbotQrPath: '', clawbotStatus: safeStatus, 'sheetExpanded.clawbot': false });
   },
 
   scheduleClawbotPolling() {
@@ -854,9 +867,7 @@ Page({
       const value = await this.callClawbot(action, fields);
       if (generation !== this._clawbotGeneration) return value;
       if (value && value.supported === true) this.applyClawbotStatus(value, generation);
-      if (value && Array.isArray(value.sessions)) {
-        this.setData({ clawbotSessions: value.sessions, clawbotSessionsOpen: true });
-      }
+      if (value && Array.isArray(value.sessions)) this.setData({ clawbotSessions: value.sessions });
       return value;
     } catch (error) {
       if (generation === this._clawbotGeneration) this.setData({
@@ -878,9 +889,13 @@ Page({
   },
 
   async openClawbotSessions() {
+    // 先弹出居中弹窗（带加载态），避免点完等一拍没反应。
+    this.setData({ clawbotSessionsOpen: true, clawbotSessions: this.data.clawbotSessions || [] });
     const value = await this.runClawbotAction('sessions');
-    if (value && Array.isArray(value.sessions)) this.setData({ clawbotSessionsOpen: true });
+    if (value && Array.isArray(value.sessions)) this.setData({ clawbotSessions: value.sessions });
   },
+
+  closeClawbotSessions() { this.setData({ clawbotSessionsOpen: false }); },
 
   async chooseClawbotSession(event) {
     const status = this.data.clawbotStatus || {};
@@ -968,6 +983,13 @@ Page({
       this.setData({ showFleetPanel: contextPanelsPreference.read().fleet });
       wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
     }
+  },
+
+  /** 账号卡片显示开关：同时决定设置页和会话设置页顶部的账号区是否渲染。 */
+  toggleAccountCard(e) {
+    const next = accountCardPreference.set(!!(e && e.detail && e.detail.value));
+    // 关掉时顺手收起余额卡，下次打开不会自己弹开。
+    this.setData({ showAccountCard: next, dshBalanceExpanded: next && this.data.dshBalanceExpanded });
   },
 
   /** 上下文偏好面板的数据快照（趋势粒度/模式/耗时曲线、基线、文件排序）。 */
@@ -1136,6 +1158,11 @@ Page({
       publicPatch.shareEnabled = active && shareEnabled;
       publicPatch.shareReason = active ? publicState.shareReason : uiText('请先兑换开通公网服务。分享设备邀请不会赠送公网有效期。');
     }
+    // 连接卡片右侧：已开通（有效）时直接显示有效期时间，管理员显示「管理员权限」；
+    // 未开通/已到期/待验证没有任何有效期可展示，仍显示状态文案。
+    publicPatch.publicValueLabel = publicPatch.publicOn && publicPatch.publicExpiryLabel
+      ? publicPatch.publicExpiryLabel
+      : publicPatch.publicStatusLabel;
     this.applySettingsPatch({
       endpoint: app.endpoint || '',
       connectionLabel: connectionView(app).label,
@@ -1285,11 +1312,11 @@ Page({
     if (this.data.accountBusy) return;
     const generation = this._accountGeneration = (this._accountGeneration || 0) + 1;
     if (!accessApi.configured()) {
-      this.setData({ accountBusy: false, isWechatAdmin: false, accountLabel: uiText('待识别'),
+      this.setData({ accountBusy: false, accountIdentityReady: true, isWechatAdmin: false, accountLabel: uiText('待识别'), identityBadgeLabel: uiText('待识别'),
         accountHint: uiText('身份服务待配置，管理员入口暂未启用') });
       return Promise.resolve();
     }
-    this.setData({ accountBusy: true, isWechatAdmin: false, accountDeviceId: '', accountLabel: uiText('识别中…'),
+    this.setData({ accountBusy: true, accountIdentityReady: false, isWechatAdmin: false, accountDeviceId: '', accountLabel: uiText('识别中…'), identityBadgeLabel: uiText('待识别'),
       accountHint: uiText('自动匹配服务端绑定的管理员微信身份') });
     this._publicAccount = null;
     this.syncFromStore({ app: store.state });
@@ -1297,16 +1324,17 @@ Page({
       if (generation !== this._accountGeneration) return;
       if (!account || typeof account.isAdmin !== 'boolean') throw new Error(uiText('身份服务响应无效'));
       const admin = account && account.isAdmin === true;
+      const badge = identityBadge(account, uiText);
       this._publicAccount = account;
       this.syncFromStore({ app: store.state });
-      this.setData({ isWechatAdmin: admin, accountDeviceId: account.deviceId || '', accountLabel: admin ? uiText('管理员') : uiText('普通用户'),
+      this.setData({ accountIdentityReady: true, isWechatAdmin: admin, accountDeviceId: account.deviceId || '', accountLabel: badge, identityBadgeLabel: badge,
         accountHint: admin ? uiText('已匹配服务端绑定的管理员微信身份') : uiText('已自动识别当前微信账号'),
         accountIdHint: account.deviceId ? '' : uiText('后台尚未支持设备 ID，请升级后台') });
     }).catch((error) => {
       if (generation !== this._accountGeneration) return;
       this._publicAccount = null;
       this.syncFromStore({ app: store.state });
-      this.setData({ isWechatAdmin: false, accountLabel: uiText('待识别'),
+      this.setData({ accountIdentityReady: true, isWechatAdmin: false, accountLabel: uiText('待识别'), identityBadgeLabel: uiText('待识别'),
         accountHint: error.message || uiText('暂时无法确认身份，重新进入页面将自动重试') });
     }).finally(() => { if (generation === this._accountGeneration) this.setData({ accountBusy: false }); });
   },
@@ -1322,6 +1350,7 @@ Page({
       codeError: '',
       codeIsAdmin: false,
       codeItems: [],
+      codeUsedCount: 0,
       codeGenerated: '',
       codeGeneratedMeta: '',
       codeGeneratedId: '',
@@ -1348,7 +1377,7 @@ Page({
         }
         return accessApi.codes().then((items) => {
           if (generation !== this._codeGen) return;
-          this.setData({ codeLoading: false, codeIsAdmin: true, codeItems: this.formatCodes(items) });
+          this.setData(Object.assign({ codeLoading: false, codeIsAdmin: true }, this.codeItemsPatch(items)));
         });
       })
       .catch((err) => {
@@ -1369,9 +1398,17 @@ Page({
         usageLabel: uiText('已用 ') + item.used + ' / ' + item.uses + uiText(' 次'),
         expiryLabel: expiry,
         statusLabel: statusLabel,
-        canRevoke: !item.revokedAt && item.expiresAt > Date.now() && item.used < item.uses
+        canRevoke: !item.revokedAt && item.expiresAt > Date.now() && item.used < item.uses,
+        // 状态正好是「已用完」：没停用、没过期、次数兑换完。一键清空只删这一类。
+        usedUp: !item.revokedAt && item.expiresAt > Date.now() && item.used >= item.uses
       });
     });
+  },
+
+  /** 列表与「已用完」计数一起写，避免按钮与列表脱节。 */
+  codeItemsPatch(items) {
+    const codeItems = this.formatCodes(items);
+    return { codeItems: codeItems, codeUsedCount: codeItems.filter(item => item.usedUp).length };
   },
 
   codePickDuration(e) {
@@ -1441,6 +1478,65 @@ Page({
     accessApi.deleteCode(id)
       .then(() => { this.setData({ codeBusy: false, codeGenerated: '', codeGeneratedId: '' }); this.loadCodes(); })
       .catch((err) => this.setData({ codeBusy: false, codeError: err.message || uiText('删除失败') }));
+  },
+
+  /**
+   * 一键清空「已用完」的兑换码：次数兑换完的码再无用处。
+   * 已停用/已过期的不动（保留对账与审计），已兑换的公网时长也不受影响。
+   * 删除接口只支持单个且服务端限流 30 次/分钟，所以串行删并在被限流时停下，
+   * 已删成功的不会回滚；权限失效则立即中止。
+   */
+  codeClearUsed() {
+    if (this.data.codeBusy || !this.data.codeIsAdmin) return;
+    const used = this.data.codeItems.filter(item => item.usedUp);
+    if (!used.length) return;
+    const generation = this._codeGen;
+    wx.showModal({
+      title: uiText('清空已用完的兑换码'),
+      content: uiText('将删除 {n} 个已用完的兑换码，已兑换的公网时长不受影响。', { n: used.length }),
+      confirmText: uiText('清空'),
+      success: (res) => {
+        if (!res.confirm || generation !== this._codeGen) return;
+        this.setData({ codeBusy: true, codeError: '' });
+        const deletedIds = [];
+        let failed = 0;
+        let limited = false;
+        let fatal = null;
+        const step = (index) => {
+          if (index >= used.length || limited || fatal) return Promise.resolve();
+          return accessApi.deleteCode(used[index].id).then(() => {
+            deletedIds.push(used[index].id);
+            return step(index + 1);
+          }, (err) => {
+            if (err && (err.code === 'FORBIDDEN' || err.code === 'UNAUTHORIZED')) { fatal = err; return undefined; }
+            if (err && err.code === 'RATE_LIMITED') { limited = true; return undefined; }
+            failed += 1;
+            return step(index + 1);
+          });
+        };
+        step(0).then(() => {
+          if (generation !== this._codeGen) return;
+          const generatedCleared = deletedIds.indexOf(this.data.codeGeneratedId) >= 0;
+          this.setData({
+            codeBusy: false,
+            codeGenerated: generatedCleared ? '' : this.data.codeGenerated,
+            codeGeneratedId: generatedCleared ? '' : this.data.codeGeneratedId,
+            codeError: fatal ? (fatal.message || uiText('清空失败')) : (failed ? uiText('{n} 个兑换码删除失败，请重试', { n: failed }) : '')
+          });
+          if (fatal) this.setData({ codeIsAdmin: false, codeUsedCount: 0 });
+          if (deletedIds.length) {
+            wx.showToast({
+              title: limited
+                ? uiText('已清空 {n} 个，其余受频率限制稍后再试', { n: deletedIds.length })
+                : uiText('已清空 {n} 个兑换码', { n: deletedIds.length }),
+              icon: 'none'
+            });
+          }
+          // 无论成功多少都重新拉一次服务端列表，界面不会停在旧状态。
+          this.loadCodes();
+        });
+      }
+    });
   },
 
   openAnnouncements() {
@@ -1630,7 +1726,7 @@ Page({
     } catch (error) {
       if (generation !== this._contentGeneration || accountGeneration !== this._accountGeneration) return;
       this.applySharing(this.data.referralEnabled);
-      if (['FORBIDDEN', 'UNAUTHORIZED', 'LOGIN_REQUIRED'].includes(error.code)) this.setData({ isWechatAdmin: false });
+      if (['FORBIDDEN', 'UNAUTHORIZED', 'LOGIN_REQUIRED'].includes(error.code)) this.setData({ isWechatAdmin: false, identityBadgeLabel: uiText('待识别'), accountLabel: uiText('待识别') });
       wx.showModal({ title: uiText('设置未保存'), content: error.message || uiText('请稍后重试'), showCancel: false });
     } finally { if (generation === this._contentGeneration && accountGeneration === this._accountGeneration) this.setData({ shareSaving: false }); }
   },
