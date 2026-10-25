@@ -308,6 +308,9 @@ function createStore() {
   const historyPageCache = createLocalCache({ prefix: 'dsh_history_page', version: 1,
     maxEntries: 16, maxBytes: 420000, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
   let sessionCacheScope = null;
+  // Keep the compact, complete outline separate from the bounded message tail.
+  const turnOutlineCache = createLocalCache({ prefix: 'dsh_turn_outline', version: 1,
+    maxEntries: 20, maxBytes: 4 * 1024 * 1024, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
   // 上下文/编队面板：会话内即时复用上次结果，避免二次进入重新等待网关回放
   // 缓存键带数据版本：面板投影的 schema 变化后，旧形状的缓存不应再被渲染。
   const CONTEXT_PANEL_CACHE_VERSION = 1;
@@ -3825,9 +3828,21 @@ function createStore() {
       return requestOlderHistory();
     },
 
+    getTurnOutline: function (sessionId) {
+      const cached = turnOutlineCache.get(sessionCacheKey(sessionId), value =>
+        value && Array.isArray(value.items) ? value : null);
+      return cached ? cached.items.map(item => Object.assign({}, item)) : [];
+    },
+
+    saveTurnOutline: function (sessionId, items) {
+      if (!sessionId || !Array.isArray(items) || !items.length) return;
+      turnOutlineCache.set(sessionCacheKey(sessionId), { items: items.map(item => Object.assign({}, item)) }, { delayMs: 500 });
+    },
+
     clearLocalCaches: function () {
       sessionCache.clear();
       historyPageCache.clear();
+      turnOutlineCache.clear();
       contextPanelCache.clear();
       homeCache.clear();
     },

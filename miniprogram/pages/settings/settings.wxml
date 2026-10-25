@@ -97,7 +97,7 @@
   <view class="card work-step-settings">
     <view class="card-row">
       <view class="work-step-copy"><text class="card-row-label">{{ui['语音输入']}}</text><text class="work-step-hint">{{ui['按住说话，由已连接的 DSH 语音插件转写']}}</text></view>
-      <switch checked="{{voiceEnabled}}" color="#2E6BE6" bindchange="toggleVoice" aria-label="{{ui['语音输入']}}"/>
+      <dsh-switch checked="{{voiceEnabled}}" aria-label="{{ui['语音输入']}}" bindchange="toggleVoice"/>
     </view>
     <view wx:if="{{voiceEnabled}}" class="card-row" bindtap="openVoiceSettings" role="button">
       <text class="card-row-label">{{ui['语音插件设置']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
@@ -298,7 +298,7 @@
                   </view>
                   <view class="card-row management-entry">
                     <view class="management-entry-copy"><text class="card-row-label">{{ui['分享活动']}}</text><text class="management-entry-desc">{{shareSaving ? ui['正在保存…'] : (contentLoaded ? ui['关闭后隐藏分享入口，已获时长不变'] : (contentError || ui['正在同步设置…']))}}</text></view>
-                    <switch checked="{{referralEnabled}}" disabled="{{shareSaving || !contentLoaded || accountBusy}}" color="#2E6BE6" bindchange="toggleReferralSharing" aria-label="{{ui['分享活动开关']}}"/>
+                    <dsh-switch checked="{{referralEnabled}}" disabled="{{shareSaving || !contentLoaded || accountBusy}}" aria-label="{{ui['分享活动开关']}}" bindchange="toggleReferralSharing"/>
                   </view>
                   <view wx:if="{{contentError}}" class="card-row" bindtap="refreshAppContent" hover-class="management-entry-active" role="button"><text class="card-row-label">{{ui['重试同步分享设置']}}</text></view>
 
@@ -344,7 +344,7 @@
                 </view>
                 <view class="card-row">
                   <view class="exp-copy"><text class="card-row-label">{{ui['显示耗时曲线']}}</text><text class="exp-desc">{{ui['在上下文趋势上叠加每步耗时曲线']}}</text></view>
-                  <switch checked="{{contextTrendShowDuration}}" color="#2E6BE6" bindchange="toggleContextTrendDuration" aria-label="{{ui['显示耗时曲线']}}"/>
+                  <dsh-switch checked="{{contextTrendShowDuration}}" aria-label="{{ui['显示耗时曲线']}}" bindchange="toggleContextTrendDuration"/>
                 </view>
                 <view class="card-row card-row-stack">
                   <view class="exp-copy"><text class="card-row-label">{{ui['文件活动排序']}}</text><text class="exp-desc">{{ui['上下文面板里文件列表的默认排序']}}</text></view>
@@ -395,7 +395,7 @@
 
     <view class="card-row">
           <view class="exp-copy"><text class="card-row-label">{{ui['首页动画']}}</text><text class="exp-desc">{{ui['控制首页动态海洋背景，关闭后保留静态画面']}}</text></view>
-          <switch checked="{{homeAnimationEnabled}}" color="#2E6BE6" bindchange="toggleHomeAnimation" aria-label="{{ui['首页动画']}}"/>
+          <dsh-switch checked="{{homeAnimationEnabled}}" aria-label="{{ui['首页动画']}}" bindchange="toggleHomeAnimation"/>
         </view>
   </view>
 
@@ -421,7 +421,7 @@
     </view>
     <view class="card-row">
       <view class="exp-copy"><text class="card-row-label">{{ui['显示账号卡片']}}</text><text class="exp-desc">{{ui['在设置页和会话设置顶部显示账号与余额卡片']}}</text></view>
-      <switch checked="{{showAccountCard}}" color="#2E6BE6" bindchange="toggleAccountCard" aria-label="{{ui['显示账号卡片']}}"/>
+      <dsh-switch checked="{{showAccountCard}}" aria-label="{{ui['显示账号卡片']}}" bindchange="toggleAccountCard"/>
     </view>
   </view>
 
@@ -430,11 +430,11 @@
 
         <view class="card-row">
           <view class="exp-copy"><text class="card-row-label">{{ui['显示上下文']}}</text></view>
-          <switch checked="{{showContextPanel}}" color="#2E6BE6" bindchange="toggleContextPanel" aria-label="{{ui['显示上下文']}}"/>
+          <dsh-switch checked="{{showContextPanel}}" aria-label="{{ui['显示上下文']}}" bindchange="toggleContextPanel"/>
         </view>
         <view class="card-row">
           <view class="exp-copy"><text class="card-row-label">{{ui['显示编队']}}</text></view>
-          <switch checked="{{showFleetPanel}}" color="#2E6BE6" bindchange="toggleFleetPanel" aria-label="{{ui['显示编队']}}"/>
+          <dsh-switch checked="{{showFleetPanel}}" aria-label="{{ui['显示编队']}}" bindchange="toggleFleetPanel"/>
         </view>
 
     <view class="card-row" bindtap="openContextSheet" role="button" aria-label="{{ui['上下文面板']}}">
@@ -450,14 +450,14 @@
         <text class="card-row-label">{{ui['订阅通知']}}</text>
         <text class="exp-desc">{{ui['发送任务后申请订阅消息授权，回合完成时通过服务通知提醒']}}</text>
       </view>
-      <switch checked="{{notifyEnabled}}" color="#2E6BE6" bindchange="toggleNotify"/>
+      <dsh-switch checked="{{notifyEnabled}}" bindchange="toggleNotify"/>
     </view>
     <view class="card-row clawbot-experimental-row">
       <view class="exp-copy" bindtap="openClawbotPanel" role="button">
         <text class="card-row-label">{{ui['微信 ClawBot 私聊接线']}}</text>
         <text class="exp-desc">{{ui['将微信私聊接入指定 DSH 会话；微信凭据保存在电脑端']}}</text>
       </view>
-      <switch checked="{{clawbotStatus ? clawbotStatus.enabled : false}}" disabled="{{clawbotBusy}}" color="#2E6BE6" bindchange="toggleClawbot"/>
+      <dsh-switch checked="{{clawbotStatus ? clawbotStatus.enabled : false}}" disabled="{{clawbotBusy}}" bindchange="toggleClawbot"/>
     </view>
     <view wx:if="{{clawbotPanelOpen}}" class="pair-sheet-mask" catchtap="closeClawbotPanel" catchtouchmove="noop">
       <view class="pair-sheet resizable clawbot-sheet" style="height: {{sheetExpanded.clawbot ? 90 : 78}}vh;" catchtap="noop" role="dialog" aria-label="{{ui['微信 ClawBot 私聊接线']}}">

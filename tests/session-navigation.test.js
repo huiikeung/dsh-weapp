@@ -118,7 +118,7 @@ test('navigator caches every turn and updates an open list while older history a
   page.setData(page.turnNavigatorPatch(rows));
   page.openTurnNavigator();
   assert.equal(page.data.turnNavActiveIndex, 0, 'default selection is ready before measurement');
-  assert.equal(page.data.turnNavWidths[0], 112);
+  assert.equal(page.data.turnNavWidths, undefined, 'the removed slider has no width state');
   assert.equal(page.data.turnNavItems.length, 80);
   assert.ok(page.data.turnNavVisibleItems.length < page.data.turnNavItems.length, 'the outline renders only a viewport window');
   assert.equal(page.data.turnNavItems[0].key, 'u79');
@@ -202,7 +202,7 @@ test('opening before the first history snapshot waits, then starts warming once 
   assert.equal(page._turnWarmupStarted, true);
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
 });
-test('outline warm-up continues at a low rate during generation and is cancelled when the panel closes', () => {
+test('outline warm-up continues at a low rate even when the panel closes', () => {
   const { page, calls, store, timers } = fixture();
   store.sessionState.hasMoreHistory = true;
   store.sessionState.nextBeforeSeq = 90;
@@ -216,8 +216,66 @@ test('outline warm-up continues at a low rate during generation and is cancelled
   assert.equal(page._turnWarmup.waiting, false);
   assert.ok([...timers.values()].some(timer => timer.delay === 900));
   page.closeTurnNavigator();
-  assert.equal(page.data.turnNavWarming, false);
+  assert.equal(page.data.turnNavOpen, false);
+  assert.equal(page.data.turnNavWarming, true);
+  assert.ok(page._turnWarmup);
+  page.pumpTurnNavigatorWarmup();
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 2);
+  store.sessionState.hasMoreHistory = false;
+  page.pumpTurnNavigatorWarmup();
   assert.equal(page._turnWarmup, null);
+});
+
+test('entering a session fills the outline before its first opening', () => {
+  const { page, store, calls } = fixture();
+  store.sessionState = { sessionId: 's1', running: false, rows: [{ kind: 'user', key: 'u1', seq: 50, text: 'Latest' }],
+    historyState: 'loaded', hasMoreHistory: true, nextBeforeSeq: 50 };
+  page.syncFromStore({ app: store.state, session: store.sessionState });
+  assert.equal(page.data.turnNavOpen, false);
+  assert.equal(page.data.turnNavItems[0].key, 'u1');
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
+});
+
+test('persisted full outline survives page recreation, merges new nodes and isolates hosts', () => {
+  const cache = new Map();
+  const setup = () => {
+    const f = fixture(); f.store.state.activeID = 'host-a';
+    f.store.getTurnOutline = id => JSON.parse(cache.get(f.store.state.activeID + id) || '[]');
+    f.store.saveTurnOutline = (id, items) => cache.set(f.store.state.activeID + id, JSON.stringify(items));
+    return f;
+  };
+  const first = setup();
+  first.page.turnNavigatorPatch(Array.from({ length: 600 }, (_, i) => ({ kind: 'user', key: 'u' + i, seq: i, text: 'Q' + i })));
+  const next = setup();
+  next.store.sessionState.rows = [{ kind: 'user', key: 'u600', seq: 600, text: 'New' }];
+  next.page.openTurnNavigator();
+  assert.equal(next.page.data.turnNavItems.length, 601);
+  assert.equal(next.page.data.turnNavItems[0].key, 'u600');
+  assert.equal(next.page.data.turnNavItems.at(-1).key, 'u0');
+  next.page.closeTurnNavigator(); next.page.openTurnNavigator();
+  assert.equal(next.page.data.turnNavItems.length, 601);
+  next.store.state.activeID = 'host-b';
+  assert.equal(next.page.turnNavigatorPatch([]).turnNavItems.length, 0);
+});
+
+test('cached outline target waits for its message page before jumping', () => {
+  const { page, store, calls } = fixture();
+  page._conversationRows = [{ key: 'new' }];
+  store.sessionState.hasMoreHistory = true; store.sessionState.nextBeforeSeq = 20;
+  page.data.turnNavOpen = true;
+  page.jumpToTurn(event('key', 'old'));
+  assert.equal(page._pendingTurnJump, 'old');
+  assert.equal(page.data.turnNavOpen, true, 'do not silently jump to an unmounted anchor');
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
+});
+
+test('outline has no right-hand slider or native scrollbar', () => {
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  assert.ok(!xml.includes('turn-scrub-rail-cell'));
+  assert.ok(!xml.includes('turn-scrub-row-line'));
+  assert.ok(!xml.includes('turn-scrub-dot'));
+  const start = xml.indexOf('class="turn-scrub-list"');
+  assert.match(xml.slice(start - 100, start), /show-scrollbar="\{\{false\}\}"/);
 });
 test('turn wheel keeps the centered row highlighted while scrolling and only jumps when tapped', () => {
   const { page, calls, store } = fixture();
@@ -386,8 +444,13 @@ test('quick switch opens as a full-screen overlay like the turn navigator', () =
   assert.match(css, /\.session-switch-lines\s*\{[^}]*width: 30rpx;/, 'bars are shortened to a 30rpx glyph');
   assert.match(css, /\.session-switch-lines\s*\{[^}]*gap: 8rpx;/, 'bar gap is 8rpx: tighter than the old 12rpx, looser than 6rpx');
   // 同一选择器只允许出现一次（避免旧值被后一条规则悄悄覆盖）
-  assert.equal((css.match(/^\.session-switch-lines\s*\{/gm) || []).length, 1, 'one consolidated .session-switch-lines block');
-  assert.equal((css.match(/^\.session-switch-lines view\s*\{/gm) || []).length, 1, 'one consolidated bar rule');
+  const topLevel = []; let depth = 0, start = 0;
+  for (let i = 0; i < css.length; i++) {
+    if (css[i] === '{') { if (depth === 0) topLevel.push(css.slice(start, i).trim()); depth++; }
+    if (css[i] === '}' && --depth === 0) start = i + 1;
+  }
+  assert.equal(topLevel.filter(selector => selector === '.session-switch-lines').length, 1, 'one base glyph rule, excluding responsive overrides');
+  assert.equal(topLevel.filter(selector => selector === '.session-switch-lines view').length, 1, 'one base bar rule');
   assert.ok(!fs.existsSync(path.join(__dirname, '../miniprogram/assets/icons/turn-nav.svg')), 'the throwaway SVG asset is gone');
 });
 

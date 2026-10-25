@@ -33,7 +33,7 @@
             <text class="cost-row-label">{{ui['显示额度卡片']}}</text>
             <text class="cost-row-hint">{{ui['在左侧栏显示余额与额度卡片']}}</text>
           </view>
-          <switch color="#16856D" checked="{{displayForm.sidebarVisible}}" bindchange="toggleSidebarVisible"/>
+          <dsh-switch checked="{{displayForm.sidebarVisible}}" bindchange="toggleSidebarVisible"/>
         </view>
       </view>
     </view>
@@ -51,7 +51,7 @@
               <text class="cost-row-label">{{ui['官方账户余额']}}</text>
               <text class="cost-row-hint">{{view.balance.status === 'ok' ? view.balance.amountText + ' · ' + ui['正常'] : (view.balance.message || ui['待刷新'])}}</text>
             </view>
-            <switch color="#16856D" checked="{{balanceForm.enabled}}" bindchange="toggleBalance"/>
+            <dsh-switch checked="{{balanceForm.enabled}}" bindchange="toggleBalance"/>
           </view>
           <view class="cost-divider"></view>
         </block>
@@ -61,7 +61,7 @@
               <text class="cost-row-label">OpenCode Go</text>
               <text class="cost-row-hint">{{goForm.enabled ? (view.go && view.go.rows.length ? view.go.rows[0].percentText : ui['待刷新']) : ui['未启用']}}</text>
             </view>
-            <switch color="#16856D" checked="{{goForm.enabled}}" bindchange="toggleGo"/>
+            <dsh-switch checked="{{goForm.enabled}}" bindchange="toggleGo"/>
           </view>
           <view class="cost-divider"></view>
         </block>
@@ -71,7 +71,7 @@
               <text class="cost-row-label">{{ui['预算']}}</text>
               <text class="cost-row-hint">{{budgetForm.enabled ? (budgetForm.amountText + ' · ' + budgetForm.percentText) : ui['未启用']}}</text>
             </view>
-            <switch color="#16856D" checked="{{budgetForm.enabled}}" bindchange="toggleBudget"/>
+            <dsh-switch checked="{{budgetForm.enabled}}" bindchange="toggleBudget"/>
           </view>
           <view class="cost-divider"></view>
         </block>
@@ -81,7 +81,7 @@
               <text class="cost-row-label">{{ui['峰谷时段']}}</text>
               <text class="cost-row-hint">{{peakForm.enabled ? (view.peak && view.peak.enabled ? (view.peak.label + ' · ' + view.peak.remainingText) : ui['待刷新']) : ui['未启用']}}</text>
             </view>
-            <switch color="#16856D" checked="{{peakForm.enabled}}" bindchange="togglePeak"/>
+            <dsh-switch checked="{{peakForm.enabled}}" bindchange="togglePeak"/>
           </view>
         </block>
       </view>
@@ -102,7 +102,7 @@
                 <text class="cost-row-label">{{item.label}}</text>
                 <text class="cost-row-hint {{item.status === 'error' ? 'is-error' : ''}}">{{item.status === 'ok' ? (item.rows.length ? item.rows[0].percentText : ui['正常']) : item.status === 'unconfigured' ? ui['未配置凭据'] : item.status === 'off' ? ui['未启用或无订阅'] : item.message || ui['待刷新']}}</text>
               </view>
-              <switch color="#16856D" checked="{{item.enabled}}" data-index="{{index}}" bindchange="togglePlan"/>
+              <dsh-switch checked="{{item.enabled}}" data-index="{{index}}" bindchange="togglePlan"/>
             </view>
             <view class="cost-divider"></view>
           </block>
@@ -117,7 +117,7 @@
                 <text class="cost-row-label">{{item.label || item.id}}</text>
                 <text class="cost-row-hint {{item.status === 'error' ? 'is-error' : ''}}">{{item.status === 'ok' ? (item.accounts.length ? item.accounts.length + ' ' + ui['个账号'] : ui['正常']) : item.status === 'partial' ? ui['部分可用'] : item.message || ui['待刷新']}}</text>
               </view>
-              <switch color="#16856D" checked="{{item.enabled}}" data-index="{{index}}" bindchange="toggleGateway"/>
+              <dsh-switch checked="{{item.enabled}}" data-index="{{index}}" bindchange="toggleGateway"/>
             </view>
             <view class="cost-divider"></view>
           </block>
@@ -132,7 +132,7 @@
                 <text class="cost-row-label">{{item.label || ui['自定义余额']}}</text>
                 <text class="cost-row-hint {{item.status === 'error' ? 'is-error' : ''}}">{{item.status === 'ok' ? item.amountText : item.message || ui['待刷新']}}</text>
               </view>
-              <switch color="#16856D" checked="{{item.enabled}}" data-index="{{index}}" bindchange="toggleCustom"/>
+              <dsh-switch checked="{{item.enabled}}" data-index="{{index}}" bindchange="toggleCustom"/>
             </view>
             <view wx:if="{{index < customCells.length - 1}}" class="cost-divider"></view>
           </block>
@@ -194,7 +194,7 @@
         <view class="cost-divider"></view>
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['在左侧栏显示额度卡片']}}</text><text class="cost-row-hint">{{ui['关闭后侧栏不显示额度卡片']}}</text></view>
-          <switch color="#16856D" checked="{{displayForm.sidebarVisible}}" bindchange="toggleSidebarVisible"/>
+          <dsh-switch checked="{{displayForm.sidebarVisible}}" bindchange="toggleSidebarVisible"/>
         </view>
         <view class="cost-divider"></view>
         <view class="cost-row" bindtap="pickTodayMetric" role="button">
@@ -209,7 +209,7 @@
         <view class="cost-divider"></view>
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['今日与余额同行']}}</text><text class="cost-row-hint">{{ui['侧栏今日行与余额行并排显示']}}</text></view>
-          <switch color="#16856D" checked="{{displayForm.sidebarTodayBalanceInline}}" bindchange="toggleTodayInline"/>
+          <dsh-switch checked="{{displayForm.sidebarTodayBalanceInline}}" bindchange="toggleTodayInline"/>
         </view>
         <view class="cost-divider"></view>
         <view class="cost-row" bindtap="pickBalanceBarDirection" role="button">
@@ -264,23 +264,23 @@
           </view>
           <view class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示此组件']}}</text></view>
-            <switch color="#16856D" checked="{{previewComponentEnabled}}" bindchange="togglePreviewComponent"/>
+            <dsh-switch checked="{{previewComponentEnabled}}" bindchange="togglePreviewComponent"/>
           </view>
           <view wx:if="{{previewComponent === 'budget'}}" class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['预算图框详细信息']}}</text></view>
-            <switch color="#16856D" checked="{{budgetForm.detail}}" bindchange="toggleBudgetDetail"/>
+            <dsh-switch checked="{{budgetForm.detail}}" bindchange="toggleBudgetDetail"/>
           </view>
           <view wx:if="{{previewComponent === 'budget'}}" class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['今日消费与余额同行']}}</text></view>
-            <switch color="#16856D" checked="{{displayForm.sidebarTodayBalanceInline}}" bindchange="toggleTodayInline"/>
+            <dsh-switch checked="{{displayForm.sidebarTodayBalanceInline}}" bindchange="toggleTodayInline"/>
           </view>
           <view wx:if="{{previewComponent === 'balance'}}" class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示进度条']}}</text></view>
-            <switch color="#16856D" checked="{{balanceForm.showProgressBar}}" bindchange="toggleBalanceProgress"/>
+            <dsh-switch checked="{{balanceForm.showProgressBar}}" bindchange="toggleBalanceProgress"/>
           </view>
           <view wx:if="{{previewComponent === 'go'}}" class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示详情']}}</text></view>
-            <switch color="#16856D" checked="{{goForm.detail}}" bindchange="toggleGoDetail"/>
+            <dsh-switch checked="{{goForm.detail}}" bindchange="toggleGoDetail"/>
           </view>
           <view class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
@@ -324,7 +324,7 @@
       <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用官方余额']}}</text><text class="cost-row-hint">{{ui['优先读取 DSH 登录账号余额']}}</text></view>
-          <switch color="#16856D" checked="{{balanceForm.enabled}}" bindchange="toggleBalance"/>
+          <dsh-switch checked="{{balanceForm.enabled}}" bindchange="toggleBalance"/>
         </view>
         <view class="cost-divider"></view>
         <view class="cost-row" bindtap="pickBalanceDisplay" role="button">
@@ -339,7 +339,7 @@
         <view class="cost-divider"></view>
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示进度条']}}</text><text class="cost-row-hint">{{ui['侧栏余额卡片显示三段进度条']}}</text></view>
-          <switch color="#16856D" checked="{{balanceForm.showProgressBar}}" bindchange="toggleBalanceProgress"/>
+          <dsh-switch checked="{{balanceForm.showProgressBar}}" bindchange="toggleBalanceProgress"/>
         </view>
         <view class="cost-divider"></view>
         <view class="cost-balance-summary">
@@ -371,7 +371,7 @@
       <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用 OpenCode Go']}}</text><text class="cost-row-hint">{{ui['滚动 5 小时 / 本周 / 本月']}}</text></view>
-          <switch color="#16856D" checked="{{goForm.enabled}}" bindchange="toggleGo"/>
+          <dsh-switch checked="{{goForm.enabled}}" bindchange="toggleGo"/>
         </view>
         <view class="cost-divider"></view>
         <view class="cost-row" bindtap="pickGoDisplay" role="button">
@@ -396,7 +396,7 @@
         <view class="cost-divider"></view>
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示详情']}}</text><text class="cost-row-hint">{{ui['显示三档窗口的重置时间']}}</text></view>
-          <switch color="#16856D" checked="{{goForm.detail}}" bindchange="toggleGoDetail"/>
+          <dsh-switch checked="{{goForm.detail}}" bindchange="toggleGoDetail"/>
         </view>
         <block wx:if="{{view.go}}">
           <view wx:for="{{view.go.rows}}" wx:key="key" class="cost-quota-row">
@@ -430,7 +430,7 @@
       <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用预算']}}</text><text class="cost-row-hint">{{ui['按选定周期统计估算费用']}}</text></view>
-          <switch color="#16856D" checked="{{budgetForm.enabled}}" bindchange="toggleBudget"/>
+          <dsh-switch checked="{{budgetForm.enabled}}" bindchange="toggleBudget"/>
         </view>
         <view class="cost-divider"></view>
         <view class="cost-row">
@@ -457,7 +457,7 @@
         <view class="cost-divider"></view>
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['预算明细']}}</text><text class="cost-row-hint">{{ui['侧栏预算卡显示今日/本月占用']}}</text></view>
-          <switch color="#16856D" checked="{{budgetForm.detail}}" bindchange="toggleBudgetDetail"/>
+          <dsh-switch checked="{{budgetForm.detail}}" bindchange="toggleBudgetDetail"/>
         </view>
         <view class="cost-divider"></view>
         <view class="cost-row" bindtap="pickBudgetDisplay" role="button">
@@ -488,7 +488,7 @@
       <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用峰谷显示']}}</text><text class="cost-row-hint">{{ui['显示当前电价时段与下次切换']}}</text></view>
-          <switch color="#16856D" checked="{{peakForm.enabled}}" bindchange="togglePeak"/>
+          <dsh-switch checked="{{peakForm.enabled}}" bindchange="togglePeak"/>
         </view>
         <view class="cost-divider"></view>
         <view class="cost-row" bindtap="pickPeakDisplay" role="button">
@@ -512,7 +512,7 @@
         <view class="cost-divider"></view>
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['切换前弹窗提醒']}}</text><text class="cost-row-hint">{{ui['峰/谷切换前弹出提醒']}}</text></view>
-          <switch color="#16856D" checked="{{peakForm.peakAlertEnabled}}" bindchange="togglePeakAlert"/>
+          <dsh-switch checked="{{peakForm.peakAlertEnabled}}" bindchange="togglePeakAlert"/>
         </view>
         <block wx:if="{{peakForm.peakAlertEnabled}}">
           <view class="cost-divider"></view>
@@ -551,7 +551,7 @@
       <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用']}}</text><text class="cost-row-hint">{{sheetPlan.status === 'ok' ? ui['正常'] : sheetPlan.message || ui['待刷新']}}</text></view>
-          <switch color="#16856D" checked="{{sheetPlan.enabled}}" data-index="{{sheetPlan.index}}" bindchange="togglePlan"/>
+          <dsh-switch checked="{{sheetPlan.enabled}}" data-index="{{sheetPlan.index}}" bindchange="togglePlan"/>
         </view>
         <view class="cost-divider"></view>
         <view class="cost-row" bindtap="pickPlanDisplay" data-index="{{sheetPlan.index}}" role="button">
@@ -620,7 +620,7 @@
       <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用']}}</text><text class="cost-row-hint">{{sheetGateway.status === 'ok' ? ui['正常'] : sheetGateway.message || ui['待刷新']}}</text></view>
-          <switch color="#16856D" checked="{{sheetGateway.enabled}}" data-index="{{sheetGateway.index}}" bindchange="toggleGateway"/>
+          <dsh-switch checked="{{sheetGateway.enabled}}" data-index="{{sheetGateway.index}}" bindchange="toggleGateway"/>
         </view>
         <view class="cost-divider"></view>
         <view class="cost-field">
@@ -655,7 +655,7 @@
         <view class="cost-divider"></view>
         <view class="cost-row">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['允许非回环 HTTP']}}</text></view>
-          <switch color="#16856D" checked="{{sheetGateway.allowInsecureHttp}}" data-index="{{sheetGateway.index}}" bindchange="onGatewayInsecure"/>
+          <dsh-switch checked="{{sheetGateway.allowInsecureHttp}}" data-index="{{sheetGateway.index}}" bindchange="onGatewayInsecure"/>
         </view>
         <view class="cost-field">
           <text class="cost-field-label">{{ui['允许的主机']}}<text class="cost-field-optional">{{ui['逗号分隔']}}</text></text>
@@ -702,7 +702,7 @@
         <view class="cost-card">
           <view class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用']}}</text><text class="cost-row-hint">{{sheetCustom.status === 'ok' ? sheetCustom.amountText : sheetCustom.message || ui['待刷新']}}</text></view>
-            <switch color="#16856D" checked="{{sheetCustom.enabled}}" data-index="{{sheetCustom.index}}" bindchange="toggleCustom"/>
+            <dsh-switch checked="{{sheetCustom.enabled}}" data-index="{{sheetCustom.index}}" bindchange="toggleCustom"/>
           </view>
           <view class="cost-divider"></view>
           <view class="cost-row" bindtap="pickCustomAdapter" data-index="{{sheetCustom.index}}" role="button">
@@ -783,12 +783,12 @@
         <view class="cost-card">
           <view class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['按显示币种折算']}}</text></view>
-            <switch color="#16856D" checked="{{sheetCustom.convertToDisplayCurrency}}" data-index="{{sheetCustom.index}}" bindchange="onCustomConvert"/>
+            <dsh-switch checked="{{sheetCustom.convertToDisplayCurrency}}" data-index="{{sheetCustom.index}}" bindchange="onCustomConvert"/>
           </view>
           <view class="cost-divider"></view>
           <view class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['允许非回环 HTTP']}}</text></view>
-            <switch color="#16856D" checked="{{sheetCustom.allowInsecureHttp}}" data-index="{{sheetCustom.index}}" bindchange="onCustomInsecure"/>
+            <dsh-switch checked="{{sheetCustom.allowInsecureHttp}}" data-index="{{sheetCustom.index}}" bindchange="onCustomInsecure"/>
           </view>
           <view class="cost-divider"></view>
           <view class="cost-field">

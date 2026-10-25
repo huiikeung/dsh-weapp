@@ -1,6 +1,8 @@
 {
   "navigationStyle": "custom",
   "backgroundColor": "@bgColor",
-  "usingComponents": {},
+  "usingComponents": {
+    "dsh-switch": "/components/dsh-switch/dsh-switch"
+  },
   "disableScroll": true
 }

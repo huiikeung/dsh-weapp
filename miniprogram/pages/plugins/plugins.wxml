@@ -11,7 +11,7 @@
       </view>
     </view>
     <view wx:if="{{pendingName === item.name}}" class="plugins-spinner small"></view>
-    <switch class="plugin-switch" checked="{{item.enabled}}" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}" disabled="{{item.toggleDisabled}}" bindchange="onBundleToggle" data-name="{{item.name}}" data-enabled="{{item.enabled}}" aria-label="{{ui['启用']}}{{item.title}}"/>
+    <dsh-switch checked="{{item.enabled}}" disabled="{{item.toggleDisabled}}" aria-label="{{ui['启用']}}{{item.title}}" data-name="{{item.name}}" data-enabled="{{item.enabled}}" bindchange="onBundleToggle" scale="0.72"/>
   </view>
 </template>
 <view class="page plugins {{themeClass}}" style="{{contentFontStyle}}padding-top: {{statusBarH}}px;">
@@ -102,7 +102,7 @@
         </block>
         <view wx:if="{{install && install.phase !== 'checking'}}" class="plugin-install-summary"><text class="plugin-install-name" selectable>{{install.name}}</text><text wx:if="{{install.version}}">{{ui['版本']}} {{install.version}}</text><text class="plugin-install-source" selectable>{{install.spec}}</text></view>
         <view class="plugin-safety">{{ui['请确认插件来源可信。插件将在所连接的 DSH 主机以你的权限运行，可能读取、修改或泄露数据。安装操作不会在手机上执行。']}}</view>
-        <view wx:if="{{install && install.phase === 'ready'}}" class="plugin-enable-row"><text>{{ui['安装后立即启用']}}</text><switch checked="{{enableAfterInstall}}" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}" bindchange="onEnableChange"/></view>
+        <view wx:if="{{install && install.phase === 'ready'}}" class="plugin-enable-row"><text>{{ui['安装后立即启用']}}</text><dsh-switch checked="{{enableAfterInstall}}" bindchange="onEnableChange" scale="0.72"/></view>
         <view wx:if="{{install}}" class="plugin-install-status {{install.phase === 'failed' ? 'is-error' : ''}}"><view wx:if="{{installBusy}}" class="plugins-spinner small"></view><text>{{ui[install.message] !== undefined ? ui[install.message] : install.message}}</text></view>
         <text wx:if="{{actionError}}" class="plugin-inline-error">{{ui[actionError] !== undefined ? ui[actionError] : actionError}}</text>
         <block wx:if="{{install && install.logs}}"><button class="plugin-text-button" bindtap="toggleLogs">{{logsOpen ? ui['收起安装详情'] : ui['查看安装详情']}}</button><view wx:if="{{logsOpen}}" class="plugin-install-log"><text selectable>{{install.logs}}</text></view></block>

@@ -15,12 +15,7 @@
           <image wx:if="{{bundle.icon && !bundle.iconBroken}}" class="pdetail-icon-img" src="{{bundle.icon}}" mode="aspectFit" data-src="{{bundle.icon}}" binderror="onIconError"/>
           <image wx:else class="pdetail-icon-img" src="{{bundle.artwork}}" mode="aspectFit"/>
         </view>
-        <switch
-          checked="{{bundle.enabled}}"
-          class="pdetail-switch" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}"
-          disabled="{{bundle.toggleDisabled}}"
-          bindchange="onBundleToggle"
-        />
+        <dsh-switch checked="{{bundle.enabled}}" disabled="{{bundle.toggleDisabled}}" bindchange="onBundleToggle" scale="0.68"/>
       </view>
 
       <view class="pdetail-title-row">
@@ -54,15 +49,7 @@
           </view>
         </view>
 <view class="pdetail-entry-status"><view class="pdetail-dot {{item.dotClass}}"></view><text class="pdetail-entry-status-text">{{ui[item.statusText] !== undefined ? ui[item.statusText] : item.statusText}}</text></view>
-        <switch
-          wx:if="{{item.entryID}}"
-          checked="{{item.enabled}}"
-          class="pdetail-switch" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}"
-          disabled="{{item.toggleDisabled}}"
-          bindchange="onEntryToggle"
-          data-entry="{{item.entryID}}"
-          data-enabled="{{item.enabled}}"
-        />
+        <dsh-switch wx:if="{{item.entryID}}" checked="{{item.enabled}}" disabled="{{item.toggleDisabled}}" data-enabled="{{item.enabled}}" data-entry="{{item.entryID}}" bindchange="onEntryToggle" scale="0.68"/>
 
       </view>
       <view wx:if="{{!bundle.entries.length}}" class="pdetail-desc">{{ui['这个插件包不包含任何组件。']}}</view>

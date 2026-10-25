@@ -6,6 +6,7 @@ const preferences = require('../../utils/ui-preferences');
 const trajectoryView = require('../../utils/trajectory-presentation');
 const contextView = require('../../utils/context-view');
 const turnUsageUtil = require('../../utils/turn-usage');
+const { applyTurnFooters } = require('../../utils/turn-footer');
 const workSteps = require('../../utils/work-step-presentation');
 const statusAppearance = require('../../utils/status-appearance');
 const procIconStyle = require('../../utils/proc-icon-style');
@@ -36,7 +37,7 @@ const { dataPatch, createMarkdownCache } = require('../../utils/session-render')
 
 const { toolPresentation } = require('../../utils/tool-presentation');
 const CONTEXT_TREND_OVERVIEW_AUTO_STEPS = 200;
-const MUTABLE_ROW_KINDS = new Set(['assistant', 'changes', 'files', 'status']);
+const MUTABLE_ROW_KINDS = new Set(['user', 'assistant', 'changes', 'files', 'status']);
 
 // Store protocol rows are reused across emits; only a few row kinds are mutated
 // in place. Snapshot their shallow render-facing fields without serializing large
@@ -194,7 +195,6 @@ Page({
     turnNavPreview: null,
     turnNavActiveIndex: -1,
     turnNavScrollTop: 0,
-    turnNavWidths: [],
     turnNavRowStyles: [],
     turnNavVisibleItems: [],
     turnNavTopPadPx: 0,
@@ -400,7 +400,7 @@ Page({
       this.setData(statusAppearance.view(statusAppearance.read()));
       this.setData(procIconStyle.view(procIconStyle.read()));
       this.updateDockInset();
-      if (this.data.turnNavOpen && this._turnWarmup) this.pumpTurnNavigatorWarmup();
+      if (this._turnWarmup) this.pumpTurnNavigatorWarmup();
       return;
     }
     this.resetConversationScroll();
@@ -410,7 +410,7 @@ Page({
     if (store.sessionState && store.sessionState.sessionId && Date.now() - (this._lastSyncAt || 0) > 400) {
       this.syncFromStore({ app: store.state, session: store.sessionState });
     }
-    if (this.data.turnNavOpen && this._turnWarmup) this.pumpTurnNavigatorWarmup();
+    if (this._turnWarmup) this.pumpTurnNavigatorWarmup();
     this.refreshBottomAnchor();
     this.setData(Object.assign(statusAppearance.view(statusAppearance.read()), procIconStyle.view(procIconStyle.read())));
     // 返回前台/切回页面：dock 高度可能变化（键盘、队列、审批卡）
@@ -482,7 +482,7 @@ Page({
           const cachedProjection = this._projectedRows && this._projectedRows.get(key);
           if (cachedProjection && cachedProjection.row
             && (cachedProjection.row.kind === 'assistant' || cachedProjection.row.kind === 'user')) {
-            cachedProjection.row.blocks = blocks;
+            cachedProjection.row = Object.assign({}, cachedProjection.row, { blocks });
           }
         }
         if (++count >= 4 || Date.now() - started >= 8) break;
@@ -787,7 +787,7 @@ Page({
         return;
       }
       // 空内容行不渲染（映射未覆盖的事件形态不产生"圆点"空气泡）
-      if (row.kind === 'user' && !(row.text || '').trim() && !(row.images || []).length) return;
+      if (row.kind === 'user' && !(row.text || '').trim() && !(row.images || []).length && !(row.attachments || []).length) return;
       if (row.kind === 'context' && !(row.text || '').trim()) return;
       const copy = Object.assign({}, row);
       if (row.kind === 'context') {
@@ -841,7 +841,7 @@ Page({
       running: processRunning,
       completedEntryKey: this._processRunningDone || '',
       lastDurationMs: (this._lastRunSeconds || 0) * 1000
-    });
+    }).map(entry => Object.assign({}, entry));
     rows.forEach((entry) => {
       if (entry.kind === 'assistant') entry.copyText = entry.showCopy ? entry.text || '' : '';
       if (entry.kind === 'user') entry.copyText = entry.showCopy ? entry.text || '' : '';
@@ -1025,87 +1025,7 @@ Page({
     this._workPolicyKey = policyKey;
     this._processRunning = processRunning;
 
-    // 复制按钮规则（对齐 iOS ConversationView）：用户消息恒显；
-    // 助手消息仅当其后不再紧跟 assistant 会话行时显示（本轮末条）
-    // 增量分组会复用上一帧的条目对象：先清掉上一帧「下沉」到卡片上的页脚字段，
-    // 否则本轮末尾新增文件/变更卡后，页脚会残留在中间那张卡上（出现两条用量/复制行）。
-    rows.forEach((row) => {
-      row.copyText = '';
-      row.copyKey = '';
-      row.turnMetaText = '';
-      row.turnMetaKey = '';
-      row.turnTimeText = '';
-    });
-    const convIdx = [];
-    rows.forEach((r, i) => { if (r.kind === 'user' || r.kind === 'assistant') convIdx.push(i); });
-    convIdx.forEach((idx, k) => {
-      const row = rows[idx];
-      if (row.kind !== 'assistant') return;
-      const nextConv = k + 1 < convIdx.length ? rows[convIdx[k + 1]].kind : null;
-      const isActiveAssistant = processRunning && k === convIdx.length - 1;
-      let copyText = nextConv === 'assistant' || isActiveAssistant ? '' : (row.text || '');
-      // 若本轮末尾紧跟文件/变更卡片，把复制按钮下沉到最后一张卡片下面
-      if (copyText) {
-        const end = k + 1 < convIdx.length ? convIdx[k + 1] : rows.length;
-        let lastFileIdx = -1;
-        for (let i = idx + 1; i < end; i += 1) {
-          if (rows[i] && (rows[i].kind === 'files' || rows[i].kind === 'changes')) lastFileIdx = i;
-        }
-        if (lastFileIdx >= 0) {
-          rows[lastFileIdx].copyText = copyText;
-          rows[lastFileIdx].copyKey = row.key;
-          rows[lastFileIdx].seq = row.seq;
-          rows[lastFileIdx].usageTokens = row.usageTokens;
-          rows[lastFileIdx].usageDetail = row.usageDetail;
-          rows[lastFileIdx].durationMs = row.durationMs;
-          rows[lastFileIdx].finishedAtMs = row.finishedAtMs;
-          copyText = '';
-        }
-      }
-      row.copyText = copyText;
-    });
-
-    // 每轮底部信息：本轮 token 用量 + 耗时（与复制按钮同一行，靠右）
-    const compactTokens = (value) => {
-      const n = Number(value) || 0;
-      if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
-      if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
-      return String(n);
-    };
-    const compactDuration = (ms) => {
-      const n = Number(ms) || 0;
-      if (n >= 60000) return Math.floor(n / 60000) + 'm ' + Math.round((n % 60000) / 1000) + 's';
-      if (n >= 1000) return Math.round(n / 1000) + 's';
-      return n > 0 ? Math.round(n) + 'ms' : '';
-    };
-    // 每轮精确用量：直接使用 DSH deriveTurnTokenUsage 的折叠结果
-    const turnUsageMap = (s && s.turnUsage) || {};
-    rows.forEach((row) => {
-      if (row.turn === undefined || row.turn === null) return;
-      const usage = turnUsageMap[row.turn];
-      if (usage) row.turnUsage = usage;
-    });
-    const clockLabel = (ms) => {
-      const value = Number(ms) || 0;
-      if (!value) return '';
-      const date = new Date(value);
-      return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
-    };
-    rows.forEach((row) => {
-      if (!row.copyText) return;
-      const source = row.copyKey ? rows.find((item) => item.key === row.copyKey) : null;
-      const usage = row.turnUsage || (source && source.turnUsage) || null;
-      // 旧缓存/历史会话里 s.turnUsage 可能没有这一轮（deriveAll 只在回合边界重算，
-      // 落盘缓存也可能早于该字段）：用行上的 usageTokens 兜底算，否则整轮页脚用量会空掉。
-      const tokens = usage ? Number(usage.totalTokens) || 0
-        : Number(row.usageTokens != null ? row.usageTokens : (source && source.usageTokens)) || 0;
-      row.turnUsage = usage || null;
-      row.turnMetaText = tokens
-        ? (uiText('用量') + ' ' + turnUsageUtil.compact(tokens) + ' tok')
-        : (row.turnMetaText || '');
-      row.turnTimeText = clockLabel(row.finishedAtMs) || compactDuration(row.durationMs);
-      row.turnMetaKey = row.copyKey || row.key;
-    });
+    applyTurnFooters(rows, s.rows || [], s.turnUsage || {}, processRunning);
 
     // 顶部标题：实时标题优先；其次回查会话列表（直连打开/列表迟到时）；
     // 都没有则显示「会话」（新会话等 Host 生成标题后经 title 帧实时更新）
@@ -1130,7 +1050,7 @@ Page({
       running: s.running === true,
       lastRowKind: rows.length ? rows[rows.length - 1].kind : '',
       ...this.conversationWindowPatch(rows, historyMerged && activeTab === 'conversation' && this._convPinned === false ? { anchor: true } : null),
-      ...(this.data.turnNavOpen ? this.turnNavigatorPatch(rows) : {}),
+      ...this.turnNavigatorPatch(s.rows || rows),
       folds: processFolds,
       ...tracePatch,
       hasMoreHistory: s.hasMoreHistory,
@@ -1217,9 +1137,15 @@ Page({
         historyProgressText: historyProgressText
       });
     }
-    if (this.data.turnNavOpen) {
+    if (!this._voiceHidden && !this._unloaded) {
+      if (this._turnWarmup && this._turnWarmup.sessionId !== s.sessionId) this.stopTurnNavigatorWarmup(false);
       if (this._turnWarmup) this.pumpTurnNavigatorWarmup();
-      else if (!this._turnWarmupStarted) this.startTurnNavigatorWarmup();
+      else if (!this._turnWarmupStarted && s.hasMoreHistory && !s.cacheDisplay) this.startTurnNavigatorWarmup();
+    }
+    if (this._pendingTurnJump && (this._conversationRows || []).some(row => row.key === this._pendingTurnJump)) {
+      const key = this._pendingTurnJump;
+      this._pendingTurnJump = null;
+      this.jumpToTurn({ currentTarget: { dataset: { key } } });
     }
     const cs = app.connection || 'disconnected';
     // 连接展示状态与首页/设置共用：断链红、故障橙、已连接绿，未连接灰。
@@ -3904,26 +3830,34 @@ Page({
     }).reverse();
     // Keep the outline for this session independently of the conversation's
     // rendered window. History pages add older turns; new messages add at the top.
-    const sessionId = String(this._renderSessionId || (store.sessionState && store.sessionState.sessionId) || '');
-    if (this._turnNavCacheSessionId !== sessionId) {
-      this._turnNavCacheSessionId = sessionId;
-      this._turnNavItemsCache = [];
+    const sessionId = String((store.sessionState && store.sessionState.sessionId) || this._renderSessionId || '');
+    const scope = String(store.state && (store.state.activeID || store.state.endpoint) || '');
+    const cacheKey = JSON.stringify([scope, sessionId]);
+    if (this._turnNavCacheSessionId !== cacheKey) {
+      this.stopTurnNavigatorWarmup(false);
+      this._pendingTurnJump = null;
+      this._turnNavCacheSessionId = cacheKey;
+      this._turnNavItemsCache = store.getTurnOutline ? store.getTurnOutline(sessionId) : [];
     }
     const items = this._turnNavItemsCache || (this._turnNavItemsCache = []);
+    let changed = false;
     const cachedByKey = new Map(items.map((item) => [item.key, item]));
     if (!items.length) {
       items.push(...candidates);
+      changed = candidates.length > 0;
     } else {
       let pending = [];
       const insertBefore = (anchor) => {
         if (!pending.length) return;
         items.splice(items.indexOf(anchor), 0, ...pending);
+        changed = true;
         pending.forEach((item) => cachedByKey.set(item.key, item));
         pending = [];
       };
       candidates.forEach((candidate) => {
         const existing = cachedByKey.get(candidate.key);
         if (existing) {
+          if (['label', 'preview', 'full', 'seq'].some(key => existing[key] !== candidate[key])) changed = true;
           Object.assign(existing, candidate);
           insertBefore(existing);
         } else {
@@ -3936,18 +3870,19 @@ Page({
         const allSequenced = items.concat(pending).every((item) => item.seq !== undefined
           && item.seq !== null && item.seq !== '' && Number.isFinite(Number(item.seq)));
         items.push(...pending);
+        changed = true;
         if (allSequenced) items.sort((a, b) => Number(b.seq) - Number(a.seq));
         pending.forEach((item) => cachedByKey.set(item.key, item));
       }
     }
-    items.forEach((item, index) => { item.index = items.length - index; });
+    items.forEach((item, index) => { item.index = items.length - index; item.detail = uiText('轮次') + ' ' + item.index; });
+    if (changed && store.saveTurnOutline) store.saveTurnOutline(sessionId, items);
     const selected = (this.data.turnNavItems || [])[this.data.turnNavActiveIndex];
     const selectedIndex = selected ? items.findIndex(item => item.key === selected.key) : -1;
     const active = selectedIndex >= 0 ? selectedIndex : (this.data.turnNavOpen && items.length ? 0 : -1);
     const windowPatch = this.turnNavigatorWindowPatch(items, this._turnScrollTop || 0);
     this._turnWindowStart = windowPatch.turnNavWindowStart;
-    return { turnNavItems: items, turnNavActiveIndex: active, ...windowPatch,
-      turnNavWidths: items.map((_, index) => active < 0 ? 30 : Math.max(30, 112 - Math.abs(index - active) * 16)),
+    return { turnNavItems: items.map(item => Object.assign({}, item)), turnNavActiveIndex: active, ...windowPatch,
       turnNavRowStyles: items.map((_, index) => this.turnNavRowStyle(index, active)) };
   },
 
@@ -3960,7 +3895,6 @@ Page({
     this._turnOlderRequestKey = '';
     this._turnNavigatorTouched = false;
     this._turnAutoFillDone = false;
-    this._turnWarmupStarted = false;
     this._turnWindowStart = null;
     const navPatch = this.turnNavigatorPatch((store.sessionState && store.sessionState.rows) || this._conversationRows || []);
     const items = navPatch.turnNavItems || [];
@@ -3970,7 +3904,6 @@ Page({
       turnNavOpen: true,
       turnNavScrollTop: 0,
       turnNavActiveIndex: active,
-      turnNavWidths: items.map((_, index) => Math.max(30, 112 - index * 16)),
       turnNavRowStyles: items.map((_, index) => this.turnNavRowStyle(index, active)),
       turnNavPreview: null,
       turnNavWarming: false,
@@ -3984,9 +3917,9 @@ Page({
 
   startTurnNavigatorWarmup() {
     const session = store.sessionState || {};
-    if (!this.data.turnNavOpen || !session.sessionId || !session.hasMoreHistory) {
-      // 分页元数据未到（或面板已关）：等待。标志位保持布尔语义（false=未开始），
-      // 直接调用（未经 openTurnNavigator 初始化）也不能留下 undefined。
+    if (this._turnWarmup && this._turnWarmup.sessionId === session.sessionId) return;
+    if (this._unloaded || this._voiceHidden || !session.sessionId || !session.hasMoreHistory || session.cacheDisplay) {
+      // Wait for authoritative pagination metadata; cached tails are not complete.
       this._turnWarmupStarted = false;
       return;
     }
@@ -4012,7 +3945,7 @@ Page({
 
   pumpTurnNavigatorWarmup() {
     const warmup = this._turnWarmup;
-    if (!warmup || !this.data.turnNavOpen || this._unloaded || this._voiceHidden) return;
+    if (!warmup || this._unloaded || this._voiceHidden) return;
     const session = store.sessionState || {};
     if (session.sessionId !== warmup.sessionId) {
       this.stopTurnNavigatorWarmup(false);
@@ -4020,7 +3953,7 @@ Page({
     }
 
     if (warmup.waiting) {
-      if (session.historyPaging) return;
+      if (session.historyPaging) { this.scheduleTurnNavigatorWarmup(400); return; }
       const cursorAdvanced = session.nextBeforeSeq !== warmup.requestCursor;
       if (cursorAdvanced || session.hasMoreHistory === false) {
         warmup.waiting = false;
@@ -4133,19 +4066,13 @@ Page({
     if (index === this.data.turnNavActiveIndex) return;
     const patch = { turnNavActiveIndex: index };
     const styled = new Set();
-    const railed = new Set();
     for (const center of [this.data.turnNavActiveIndex, index]) {
       if (center < 0) continue;
       for (let i = Math.max(0, center - 6); i <= Math.min(items.length - 1, center + 6); i++) styled.add(i);
-      for (let i = Math.max(0, center - 4); i <= Math.min(items.length - 1, center + 4); i++) railed.add(i);
     }
     styled.forEach(i => {
       const style = this.turnNavRowStyle(i, index);
       if (this.data.turnNavRowStyles[i] !== style) patch['turnNavRowStyles[' + i + ']'] = style;
-    });
-    railed.forEach(i => {
-      const width = Math.max(30, 112 - Math.abs(i - index) * 16);
-      if (this.data.turnNavWidths[i] !== width) patch['turnNavWidths[' + i + ']'] = width;
     });
     if (feedback) haptics.tick();
     this.setData(patch);
@@ -4207,7 +4134,7 @@ Page({
   closeTurnNavigator() {
     this._turnListScrolling = false;
     this._turnScrubbing = false;
-    this.stopTurnNavigatorWarmup(true);
+    this._pendingTurnJump = null;
     this.setData({ turnNavOpen: false, turnNavPreview: null });
   },
 
@@ -4235,6 +4162,14 @@ Page({
   jumpToTurn(e) {
     const key = e.currentTarget.dataset.key;
     if (!key) return;
+    // A persisted outline can arrive before its message page. Keep the target
+    // selected and jump only once the background history fill makes it real.
+    if (this._conversationRows && !this._conversationRows.some(row => row.key === key)) {
+      this._pendingTurnJump = key;
+      this._turnWarmupStarted = false;
+      this.startTurnNavigatorWarmup();
+      return;
+    }
     haptics.vibrate();
     if (this.data.tab !== 'conversation') this.switchTab({ currentTarget: { dataset: { tab: 'conversation' } } });
     this._convPinned = false;

@@ -7,7 +7,7 @@
       <text wx:if="{{!connected}}" class="config-hint">{{ui['网关已断开，插件状态待重新连接确认']}}</text>
       <text wx:if="{{!config.writable && config.kind !== 'voice'}}" class="config-hint">{{ui['本部署的设置为只读。']}}</text>
       <block wx:if="{{config.kind === 'web-search'}}">
-        <view class="config-toggle"><text class="config-label">{{config.labels.useSearchApi}}</text><switch checked="{{config.useSearchApi}}" disabled="{{config.disabled || !config.switchAvailable}}" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}" bindchange="onSearchApiChange"/></view>
+        <view class="config-toggle"><text class="config-label">{{config.labels.useSearchApi}}</text><dsh-switch checked="{{config.useSearchApi}}" disabled="{{config.disabled || !config.switchAvailable}}" bindchange="onSearchApiChange"/></view>
         <text class="config-hint">{{config.labels.useSearchApiHint}}</text>
         <text class="config-link" bindtap="openSearchGuide">{{config.labels.searchGuide}}</text>
         <view class="config-field"><text class="config-label">{{config.labels.apiKey}}</text>
@@ -32,7 +32,7 @@
       </view>
       <block wx:if="{{config.kind === 'subagent'}}">
         <text class="config-heading">{{config.labels.subagentModelSelectionTitle}}</text>
-        <view class="config-toggle"><text class="config-label">{{config.labels.subagentModelSelectionToggle}}</text><switch checked="{{config.modelEnabled}}" disabled="{{config.disabled || !config.modelAvailable}}" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}" bindchange="onModelSelectionChange"/></view>
+        <view class="config-toggle"><text class="config-label">{{config.labels.subagentModelSelectionToggle}}</text><dsh-switch checked="{{config.modelEnabled}}" disabled="{{config.disabled || !config.modelAvailable}}" bindchange="onModelSelectionChange"/></view>
         <text class="config-hint">{{config.modelEnabled ? config.labels.subagentModelSelectionChoose : config.labels.subagentModelSelectionOff}}</text>
         <text wx:if="{{!config.modelAvailable}}" class="config-hint">{{ui['该插件当前未加载，暂时无法配置。']}}</text>
         <block wx:elif="{{config.modelEnabled}}">
@@ -41,7 +41,7 @@
           <text wx:if="{{configModelsStatus === 'partial'}}" class="config-hint">{{config.labels.subagentModelSelectionPartial}}</text>
           <view wx:if="{{configModelsStatus === 'error'}}"><text class="config-hint">{{config.labels.subagentModelSelectionLoadFailed}}</text><button class="config-button" bindtap="loadConfigModels">{{ui['重试']}}</button></view>
           <text wx:if="{{configModelsStatus === 'ready' && !config.models.length}}" class="config-hint">{{config.labels.subagentModelSelectionEmpty}}</text>
-          <view wx:for="{{config.models}}" wx:key="key" class="config-model" data-index="{{index}}" bindtap="onConfigModelToggle"><checkbox checked="{{item.selected}}" disabled="{{config.disabled || (!item.available && !item.selected)}}" color="{{theme === 'dark' ? '#6E91FF' : '#111216'}}"/><view><text class="config-label">{{item.name}}</text><text class="config-hint">{{item.label}}{{!item.available ? ' · ' + config.labels.subagentModelSelectionUnavailable : ''}}</text></view></view>
+          <view wx:for="{{config.models}}" wx:key="key" class="config-model" data-index="{{index}}" bindtap="onConfigModelToggle"><checkbox checked="{{item.selected}}" disabled="{{config.disabled || (!item.available && !item.selected)}}" color="{{theme === 'dark' ? '#FFFFFF' : '#000000'}}"/><view><text class="config-label">{{item.name}}</text><text class="config-hint">{{item.label}}{{!item.available ? ' · ' + config.labels.subagentModelSelectionUnavailable : ''}}</text></view></view>
         </block>
       </block>
       <block wx:if="{{config.kind === 'voice'}}"><include src="voice-settings.wxml"/></block>

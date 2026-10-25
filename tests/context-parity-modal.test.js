@@ -24,7 +24,7 @@ test('modal is a 90vh bottom sheet with a scrollable body', () => {
   assert.match(wxml, /class="ctx-modal-mask" bindtap="closeContextModal"/);
   assert.match(wxml, /class="ctx-modal-close" bindtap="closeContextModal"/);
   // 对话回合页脚：复制钮之后接上下文跳转入口（对齐 dsh-context reply-row jump 的 JumpIcon）
-  assert.equal((wxml.match(/bindtap="contextJumpFromChat"/g) || []).length, 3,
+  assert.equal((wxml.match(/bindtap="contextJumpFromChat"/g) || []).length, 1,
     'every assistant turn footer carries a context jump action');
   for (const icon of ['context-jump.svg', 'context-jump-dark.svg']) {
     const file = path.join(root, 'assets/icons', icon);

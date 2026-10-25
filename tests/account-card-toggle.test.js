@@ -56,9 +56,9 @@ test('the settings page hides the account area by default and keeps the switch i
   const general = settingsWxml.slice(generalAt, nextGroupAt);
   assert.match(general, /<view class="exp-copy"><text class="card-row-label">\{\{ui\['显示账号卡片'\]\}\}<\/text><text class="exp-desc">/,
     'the label leads the row');
-  assert.match(general, /<switch checked="\{\{showAccountCard\}\}" color="#2E6BE6" bindchange="toggleAccountCard"/,
-    'the switch closes the row');
-  assert.ok(general.indexOf('card-row-label') < general.indexOf('<switch checked="{{showAccountCard}}"'),
+  assert.match(general, /<dsh-switch checked="\{\{showAccountCard\}\}"[^>]*bindchange="toggleAccountCard"/,
+    'the custom switch remains bound to the account preference');
+  assert.ok(general.indexOf('card-row-label') < general.indexOf('<dsh-switch checked="{{showAccountCard}}"'),
     'text on the left, switch on the right');
   // 顶部账号区不再有开关，否则关掉后页面顶部会留一个孤立控件。
   const top = settingsWxml.slice(settingsWxml.indexOf('dsh-account-section'), settingsWxml.indexOf("ui['连接']"));

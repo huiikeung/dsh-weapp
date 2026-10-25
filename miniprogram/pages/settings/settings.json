@@ -1,6 +1,7 @@
 {
   "backgroundColor": "@bgColor",
   "usingComponents": {
+    "dsh-switch": "/components/dsh-switch/dsh-switch",
     "privacy-sheet": "/components/privacy-sheet/privacy-sheet",
     "public-access-dialog": "/components/public-access-dialog/public-access-dialog"
   },

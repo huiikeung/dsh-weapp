@@ -32,7 +32,7 @@ test('live status title sits below details while completed headers stay above th
 });
 
 test('all step disclosures share touch feedback with no trailing arrows', () => {
-  const process = xml.slice(xml.indexOf('<!-- dsh-mobile ConversationProcessGroup'), xml.indexOf('<!-- 助手消息'));
+  const process = xml.slice(xml.indexOf('class="process-block'), xml.indexOf('class="row-assistant"'));
   assert.doesNotMatch(process, /class="event-chevron|class="process-chevron/);
   assert.match(process, /item.completed \? 'completed-chevron' : ''/);
   assert.match(process, /wx:if="\{\{tool.phase !== 'preparing'\}\}" class="command-icon-slot \{\{folds\[tool.key\]/);

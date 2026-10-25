@@ -243,7 +243,7 @@ function buildEntries(rows, options) {
         const processCopy = Object.assign({}, row, { kind: 'reasoning', text: row.reasoning || '' });
         processItems.push(processCopy);
       }
-      if (compactText(row.text) || (row.images || []).length) {
+      if (compactText(row.text) || (row.images || []).length || (row.attachments || []).length) {
         flushProcess();
         entries.push(Object.assign({}, row, { kind: 'assistant' }));
       }

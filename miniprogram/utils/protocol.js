@@ -19,6 +19,7 @@ function textBlocks(value) {
   // content 可能是纯字符串（用户消息回显常见形态）、块数组、或 {content: 块数组}
   if (typeof value === 'string') return value;
   if (value && typeof value.content === 'string') return value.content;
+  if (value && typeof value.text === 'string') return value.text;
   const blocks = asBlocks(value);
   return blocks
     .filter((b) => b && b.type === 'text')

@@ -157,8 +157,6 @@
 
 .pdetail-entry-status-text { font-size:22rpx;color:var(--pd-text2);white-space:nowrap; }
 
-.pdetail-switch,
-.pdetail-entry switch { flex-shrink:0;zoom:.68; }
 
 .pdetail-entry-chev {
   width: 60rpx;

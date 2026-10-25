@@ -27,6 +27,7 @@ function fixture() {
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), { Page: value => { definition = value; }, wx, console,
     setTimeout: (fn, delay) => { timers.set(++timerId, { fn, delay }); return timerId; },
     clearTimeout: id => timers.delete(id),
+    setInterval: () => ++timerId, clearInterval() {},
     require: name => name.endsWith('/store') ? store : name.endsWith('/haptics')
       ? { vibrate() {}, tick() {} }
       : require(path.resolve(path.dirname(file), name)) });
@@ -42,6 +43,65 @@ function fixture() {
 }
 
 const snapshot = (rows) => ({ app: { sessions: [], archivedSessionIds: [] }, session: { sessionId: 's1', running: true, rows, cwd: '/repo' } });
+
+test('attachment-only messages and in-place user edits remain visible', () => {
+  const { page } = fixture();
+  const user = { kind: 'user', key: 'u1', text: '', attachments: [{ kind: 'file', name: 'notes.txt' }] };
+  page.syncFromStore(snapshot([user]));
+  assert.equal(page.data.rows[0].attachments[0].name, 'notes.txt');
+  user.text = 'Read the attached file';
+  page.syncFromStore(snapshot([user]));
+  assert.equal(page.data.rows[0].text, user.text);
+  assert.equal(page.data.rows[0].copyText, user.text);
+});
+
+test('closed turns show their own footer while the next turn is still running', () => {
+  const { page } = fixture();
+  const rows = [
+    { kind: 'user', key: 'u1', text: 'first' },
+    { kind: 'assistant', key: 'a1', text: 'done', turn: 1, turnClosed: true },
+    { kind: 'user', key: 'u2', text: 'second' },
+    { kind: 'assistant', key: 'a2', text: 'working', turn: 2, streaming: true }
+  ];
+  const snap = snapshot(rows); snap.session.turnUsage = { 1: { totalTokens: 0, outputTokens: 0, uncachedInputTokens: 0 } };
+  page.syncFromStore(snap);
+  assert.match(page.data.rows.find(row => row.key === 'a1').turnMetaText, /0 tok/);
+  assert.equal(page.data.rows.find(row => row.key === 'a2').footerVisible, false);
+  const old = page.data.rows.find(row => row.key === 'a1');
+  snap.session.turnUsage = { 1: { totalTokens: 800, outputTokens: 100, uncachedInputTokens: 700 } };
+  page.syncFromStore(snap);
+  assert.match(page.data.rows.find(row => row.key === 'a1').turnMetaText, /800 tok/);
+  assert.match(old.turnMetaText, /0 tok/, 'published entries are not mutated behind dataPatch');
+});
+
+test('tool-only completed turns show usage without requiring copyable text', () => {
+  const { page } = fixture();
+  const rows = [{ kind: 'user', key: 'u1', text: 'run' },
+    { kind: 'assistant', key: 'a1', text: '', reasoning: 'done', turn: 1, turnClosed: true }];
+  const snap = snapshot(rows); snap.session.running = false; snap.session.turnUsage = { 1: { totalTokens: 1500 } };
+  page.syncFromStore(snap);
+  const footer = page.data.rows.find(row => row.footerVisible);
+  assert.ok(footer); assert.equal(footer.copyText, '');
+  assert.match(footer.turnMetaText, /1.5K/);
+});
+
+test('adjacent turns without a loaded user boundary retain separate footers', () => {
+  const { page } = fixture();
+  const snap = snapshot([{ kind: 'assistant', key: 'a1', text: 'one', turn: 1 },
+    { kind: 'assistant', key: 'a2', text: 'two', turn: 2 }]);
+  snap.session.running = false; snap.session.turnUsage = { 1: { totalTokens: 10 }, 2: { totalTokens: 20 } };
+  page.syncFromStore(snap);
+  assert.equal(page.data.rows.filter(row => row.footerVisible).length, 2);
+});
+
+test('nested user message text survives gateway normalization', () => {
+  const protocol = require('../miniprogram/utils/protocol');
+  for (const key of ['message', 'item']) {
+    const agg = protocol.newAggregator();
+    protocol.applyEvent(agg, protocol.normalizeRawEvent({ seq: 1, type: 'user/message', data: { [key]: { text: 'hello' } } }, 's1'));
+    assert.equal(agg.rows[0].text, 'hello');
+  }
+});
 const assistantRow = (text, toolStatus) => ({
   kind: 'assistant', key: 'a1', text, streaming: true, turn: 1, phase: 'assistant/message',
   tools: [{ key: 't1', name: 'bash', argumentsText: 'ls', status: toolStatus, phase: 'preparing' }]
@@ -176,11 +236,11 @@ test('the reply footer only stays on the last card when the turn grows', () => {
   assert.ok(!entry('a1').copyText, 'the assistant body does not keep a second copy button');
 
   // 新一轮又追加了一张卡片：页脚必须整体挪到最后一张卡，旧的不能再留在前一张卡上。
-  sync(base.concat([filesRow('f1', 1), filesRow('f2', 2)]));
+  sync(base.concat([filesRow('f1', 1), filesRow('f2', 1)]));
   assert.ok(!entry('f1').copyText, 'the earlier card no longer shows a stale footer');
   assert.ok(entry('f2') && entry('f2').copyText, 'the footer moved to the very last card');
   assert.ok(!entry('a1').copyText);
-  const footerRows = page.data.rows.filter((row) => row.copyText).map((row) => row.key);
+  const footerRows = page.data.rows.filter((row) => row.kind !== 'user' && row.copyText).map((row) => row.key);
   assert.deepEqual(footerRows, ['f2'], 'exactly one footer per turn');
 });
 

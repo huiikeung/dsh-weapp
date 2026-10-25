@@ -27,9 +27,9 @@ test('plus, permission, and model controls render without waiting for a gateway 
 
 test('all three composer statistics buttons render with placeholders before stats arrive', () => {
   const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
-  const start = wxml.indexOf('<!-- DSH composer footer');
-  const end = wxml.indexOf('</view>\n      </view>', wxml.indexOf('class="composer-metrics"', start));
-  const footer = wxml.slice(start, end);
+  const start = wxml.indexOf('class="composer-metrics"');
+  assert.ok(start >= 0, 'composer metrics container exists');
+  const footer = wxml.slice(start);
   for (const [name, handler] of [
     ['composer-metric run', 'showStats'],
     ['composer-metric token', 'showTokenStats'],

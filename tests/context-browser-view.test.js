@@ -663,7 +663,7 @@ test('footer copy and jump buttons share one geometry across every row kind', ()
   const template = fs.readFileSync(path.resolve(root, 'pages/session/session.wxml'), 'utf8');
   // 三个页脚（助手行 / 变更卡 / 文件卡）里的跳转钮都与复制钮同为 copy-btn 家族
   const footers = template.split('class="turn-footer-left"').slice(1);
-  assert.equal(footers.length, 3, 'three turn footers exist');
+  assert.equal(footers.length, 1, 'all row kinds share the same footer');
   for (const footer of footers) {
     assert.match(footer, /bindtap="copyAssistantText"[\s\S]{0,400}?bindtap="contextJumpFromChat"/, 'copy and jump sit side by side');
   }
