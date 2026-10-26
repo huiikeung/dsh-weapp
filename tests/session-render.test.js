@@ -377,4 +377,3 @@ test('identical history is not replayed and hidden trajectory builds only when d
   assert.equal(trajectories, 1);
   store.setTrajectoryActive(true); assert.equal(trajectories, 2);
 });
-
