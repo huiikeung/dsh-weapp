@@ -28,9 +28,13 @@ function dataPatch(previous, next) {
   return patch;
 }
 
-function createMarkdownCache(parse) {
-  const entries = new Map();
+function createMarkdownCache(parse, seed) {
+  const entries = new Map(seed || []);
   return {
+    textSnapshot() {
+      return new Map([...entries].filter(([, value]) =>
+        !value.blocks.some(block => block.type === 'image')));
+    },
     peek(key, text) {
       const cached = entries.get(key);
       return cached && cached.text === text ? cached.blocks : null;

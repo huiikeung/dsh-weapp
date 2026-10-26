@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { ConversationWindow } = require('../miniprogram/utils/conversation-window');
+const { ConversationWindow } = require('../miniprogram/pages/session/utils/conversation-window');
 const { recentWindow } = require('../miniprogram/utils/history-window');
 const protocol = require('../miniprogram/utils/protocol');
 const viewport = require('../miniprogram/pages/session/viewport-actions');

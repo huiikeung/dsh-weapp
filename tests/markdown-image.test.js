@@ -67,7 +67,7 @@ test('image state preparation is idempotent for resolved blocks', () => {
 });
 
 test('relative workspace image is downloaded once and patched into the row', async () => {
-  const fileDownloadPath = require.resolve('../miniprogram/utils/file-download');
+  const fileDownloadPath = require.resolve('../miniprogram/pages/session/utils/file-download');
   const mixinPath = require.resolve('../miniprogram/pages/session/image-blocks');
   const fileDownload = require(fileDownloadPath);
   const store = require('../miniprogram/utils/store');
@@ -106,7 +106,7 @@ test('relative workspace image is downloaded once and patched into the row', asy
 });
 
 test('history prefetch downloads images early and reuses the persisted index', async () => {
-  const fileDownloadPath = require.resolve('../miniprogram/utils/file-download');
+  const fileDownloadPath = require.resolve('../miniprogram/pages/session/utils/file-download');
   const mixinPath = require.resolve('../miniprogram/pages/session/image-blocks');
   const fileDownload = require(fileDownloadPath);
   const store = require('../miniprogram/utils/store');

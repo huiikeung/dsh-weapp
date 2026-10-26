@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const contextView = require('../miniprogram/utils/context-view');
+const contextView = require('../miniprogram/pages/session/utils/context-view');
 
 /** 文档第 7.2 节的示例 value（当前 Agent + 父链 + 子 Agent）。 */
 function sampleFleet(overrides) {

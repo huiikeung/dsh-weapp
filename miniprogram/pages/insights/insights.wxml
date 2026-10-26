@@ -131,7 +131,9 @@
             <text class="ins-card-title">{{ui['活跃热力图']}}</text>
             <view class="ins-controls">
               <text class="ins-heat-sub">{{ui['按日期筛选']}}</text>
-              <view wx:for="{{panel.metrics}}" wx:key="key" class="ins-mini-chip {{item.active ? 'on' : ''}}" bindtap="setMetric" data-metric="{{item.key}}" hover-class="ins-pressed" role="button" aria-pressed="{{item.active}}">{{item.label}}</view>
+              <view class="ins-seg">
+                <view wx:for="{{panel.metrics}}" wx:key="key" class="ins-mini-chip {{item.active ? 'on' : ''}}" bindtap="setMetric" data-metric="{{item.key}}" hover-class="ins-pressed" role="button" aria-pressed="{{item.active}}">{{item.label}}</view>
+              </view>
             </view>
           </view>
           <view wx:if="{{panel.heatmap.hasActivity}}">

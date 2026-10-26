@@ -11,7 +11,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..', 'miniprogram');
 const wxss = fs.readFileSync(path.join(root, 'pages/session/session.wxss'), 'utf8');
 const wxml = fs.readFileSync(path.join(root, 'pages/session/session.wxml'), 'utf8');
-const bridge = require(path.join(root, 'utils/context-view'));
+const bridge = require(path.join(root, 'pages/session/utils/context-view'));
 const session = fs.readFileSync(path.join(root, 'pages/session/session.js'), 'utf8');
 
 const t = (key, values) => (values

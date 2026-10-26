@@ -4,13 +4,16 @@ const root=path.resolve(__dirname,'../miniprogram');
 const app=JSON.parse(fs.readFileSync(path.join(root,'app.json'),'utf8'));
 const routes=require('./helpers/routes.cjs')(app);
 test('WeChat root contains only runtime files and all packages stay inside source budget',()=>{
-  const checker=require('../scripts/check-miniprogram-package.cjs');const report=checker.check();assert.ok(report.groups[0].bytes<checker.BUDGET);assert.ok(report.groups[0].mediaBytes<checker.MEDIA_BUDGET);assert.ok(report.packagedMediaBytes<checker.MEDIA_BUDGET);
+  const checker=require('../scripts/check-miniprogram-package.cjs');const report=checker.check();assert.ok(report.groups[0].bytes<checker.MAIN_SOURCE_BUDGET);assert.ok(report.groups[0].mediaBytes<checker.MEDIA_BUDGET);assert.ok(report.packagedMediaBytes<checker.MEDIA_BUDGET);
   assert.equal(routes.length,18);assert.equal(new Set(routes).size,18);
+  assert.ok(app.subPackages.some(pkg=>pkg.root==='pages/session'&&pkg.pages.includes('session')),'the large conversation page stays in its own on-demand package');
+  assert.ok(app.preloadRule['pages/home/home'].packages.includes('pages/session'),'the conversation package preloads from home to keep navigation responsive');
   for(const route of routes)for(const ext of ['js','json','wxml','wxss'])assert.ok(fs.existsSync(path.join(root,route+'.'+ext)),route+'.'+ext);
   assert.equal(fs.existsSync(path.join(root,'../app.js')),false);
   for(const file of ['plugin-artwork.js','plugin-presentation.js','plugin-settings.js','plugin-settings-copy.js'])assert.equal(fs.existsSync(path.join(root,'utils',file)),false);
   assert.equal(fs.existsSync(path.join(root,'utils/schedule-editor.js')),false);
   assert.ok(fs.existsSync(path.join(root,'pages/plugin-detail/plugin-settings-copy.js')));
+  assert.ok(report.groups.find(group=>group.name==='session').bytes<checker.BUDGET);
 });
 test('running whale status artwork stays a tiny gray+alpha mask',()=>{
   // 鲸尾图标改画布绘制后只取一帧做取色遮罩，60 帧动画不会再被渲染；
@@ -44,7 +47,7 @@ test('offline direct entry remains visible with explicit disconnected state',()=
 const compiler=process.env.WECHAT_WCC || 'D:/Program Files (x86)/Tencent/微信web开发者工具/resources/app.asar.unpacked/node_modules/wcc-exec/wcc.exe';
 test('every page WXML compiles: an unbalanced <block>/<view> breaks the whole build',{skip:!fs.existsSync(compiler)},()=>{
   // wcc 只报第一个错误就退出，所以逐个编译，让失败的页面名直接出现在信息里。
-  const pages=app.pages.map(route=>route+'.wxml');
+  const pages=routes.map(route=>route+'.wxml');
   const failures=[];
   for(const page of pages){
     try{execFileSync(compiler,['-o',path.join(os.tmpdir(),'dsh-wxml-check.js'),page],{cwd:root,stdio:'pipe'});}

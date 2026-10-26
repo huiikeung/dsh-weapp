@@ -4,7 +4,7 @@
 // - 下载结果写入持久索引，重新进入会话/翻回历史时直接复用，不再重复下载；
 // - 历史行到达时就低优先级预取，等滚动到可见位置通常已经就绪。
 const store = require('../../utils/store');
-const { downloadFile, MAX_CONCURRENT_DOWNLOADS } = require('../../utils/file-download');
+const { downloadFile, MAX_CONCURRENT_DOWNLOADS } = require('./utils/file-download');
 
 const REMOTE = /^(?:https?:\/\/|data:image\/)/i;
 const IMAGE_MARK = /!\[[^\]]*\]\(([^)\s]+)\)/g;

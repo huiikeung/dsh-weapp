@@ -6,13 +6,16 @@ const vm = require('node:vm');
 const os = require('node:os');
 const { execFileSync } = require('node:child_process');
 const preferences = require('../miniprogram/utils/ui-preferences');
-const menu = require('../miniprogram/utils/composer-menu');
+const menu = require('../miniprogram/pages/session/utils/composer-menu');
 const command = (name, kind = 'immediate', extras = {}) => ({ id: 'command:' + name, name, description: name, source: 'host', ui: { kind, submitRequest: 'command-execute' }, ...extras });
 const event = data => ({ currentTarget: { dataset: data } });
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
 function fixture(items = [command('goal', 'input'), command('compact'), command('model', 'select'), command('permission', 'select')]) {
   const file = path.resolve(__dirname, '../miniprogram/pages/session/session.js');
   let definition; const calls = [], pickers = [], reads = [];
+  // file-actions 等 mixin 是经外层 require 载入的，跑在宿主 realm；把 wx 桩同时挂到
+  // globalThis，弹窗主操作里的原生调用（previewImage / openDocument）才能被观测到。
+  globalThis.wx = undefined;
   const groups = [{ id: 'commands', items }];
   const store = { state: { connection: 'connected', activeID: 'host1', currentWorkspaceId: 'w1' }, sessionState: { sessionId: 's1', commandGroups: groups, commandOptions: [], running: false },
     appendLocalUserRow: (...args) => calls.push(['echo', ...args]), selectModel: async (...args) => { calls.push(['model', ...args]); }, client: { connectGeneration: 1,
@@ -30,6 +33,7 @@ function fixture(items = [command('goal', 'input'), command('compact'), command(
     chooseMedia: options => pickers.push(options), chooseMessageFile: options => pickers.push(options),
     getImageInfo: options => options.success({ type: 'png' }), previewImage: options => calls.push(['preview', options]),
     getFileSystemManager: () => ({ readFile: options => reads.push(options) }) };
+  globalThis.wx = wx;
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), { Page: value => { definition = value; }, wx, console, setTimeout, clearTimeout,
     require: name => name.endsWith('/store') ? store : require(path.resolve(path.dirname(file), name)) });
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)), setData(patch) {
@@ -72,7 +76,37 @@ test('every attachment source sits on the plus first level and opens directly, w
   pickers[2].fail({ errMsg: 'chooseMessageFile:fail cancel' });
 });
 
-test('chat file picker stages document chips until the gateway supports file uploads', async () => {
+test('large images are compressed before the 8MB gate instead of being rejected by picker metadata', async () => {
+  const { page, pickers, wx } = fixture();
+  let compressions = 0;
+  wx.compressImage = options => {
+    compressions++;
+    options.success({ tempFilePath: '/tmp/compressed.jpg' });
+  };
+  wx.getFileInfo = options => options.success({ size: options.filePath === '/tmp/original.jpg' ? 10 * 1024 * 1024 : 7 * 1024 * 1024 });
+  await page.attachMenu();
+  page.selectCommand(event({ id: 'local:image', name: 'image', action: 'image' }));
+  await pickers[0].success({ tempFiles: [{ path: '/tmp/original.jpg', name: 'original.jpg' }] });
+  assert.ok(compressions >= 1);
+  assert.equal(page.data.images.length, 1);
+  assert.equal(page.data.images[0].tempPath, '/tmp/compressed.jpg');
+  assert.equal(page.data.images[0].size, 7 * 1024 * 1024);
+});
+
+test('images still over 8MB after compression attempts are rejected with a size hint', async () => {
+  const { page, pickers, wx, calls } = fixture();
+  let compressions = 0;
+  wx.compressImage = options => { compressions++; options.fail({ errMsg: 'compressImage:fail' }); };
+  wx.getFileInfo = options => options.success({ size: 10 * 1024 * 1024 });
+  await page.attachMenu();
+  page.selectCommand(event({ id: 'local:image', name: 'image', action: 'image' }));
+  await pickers[0].success({ tempFiles: [{ path: '/tmp/huge.jpg', name: 'huge.jpg', size: 10 * 1024 * 1024 }] });
+  assert.equal(compressions, 3, 'large images get all available compression attempts');
+  assert.equal(page.data.images.length, 0);
+  assert.ok(calls.some(call => call[0] === 'toast' && /8MB/.test(call[1])));
+});
+
+test('unsupported gateways keep picked documents and explain the required upgrade', async () => {
   const { page, pickers, calls } = fixture(); await page.attachMenu();
   page.selectCommand(event({ id: 'local:chat-file', name: 'chatFile', action: 'chatFile' }));
   assert.equal(pickers.length, 1); assert.equal(pickers[0].type, 'file');
@@ -85,7 +119,7 @@ test('chat file picker stages document chips until the gateway supports file upl
   assert.equal(page.data.images[1].name, 'deck.pptx');
   assert.equal(page.data.attachmentPicking, false);
   page.send();
-  assert.ok(calls.some(call => call[0] === 'toast' && /工作区文件或目录/.test(call[1])));
+  assert.ok(calls.some(call => call[0] === 'toast' && /升级并重启网关/.test(call[1])));
   assert.ok(!calls.some(call => call[0] === 'send'));
 });
 test('model shortcut retains provider grouping, selection identity, default effort and draft', () => {
@@ -155,6 +189,16 @@ test('plus stays useful for commands which refuse attachments and slash uses sam
   page.closeAttachMenu(); page.onDraftInput({ detail: { value: '/compact', cursor: 8 } });
   assert.equal(page.data.commandMenu.groups[0].items[0].name, 'compact');
   page.closeAttachMenu(); page.syncCommandMenu('/compact', { commandGroups: [{ items: [command('compact')] }] }); assert.equal(page.data.commandMenu, null);
+});
+test('plus hides Skills but the slash popup keeps the Skills group', async () => {
+  const skill = command('review-pr', 'input', { source: 'skill', ui: { kind: 'input', insertText: '/review-pr ' } });
+  const { page, store } = fixture([command('compact'), skill]);
+  await page.attachMenu();
+  assert.ok(!page.data.commandMenu.groups.some(group => group.id === 'skills'));
+  page.closeAttachMenu();
+  page.syncCommandMenu('/', store.sessionState);
+  const skills = page.data.commandMenu.groups.find(group => group.id === 'skills');
+  assert.ok(skills); assert.equal(skills.items[0].name, 'review-pr');
 });
 test('input commands keep the existing task, immediate commands never send the draft', async () => {
   const { page, calls } = fixture(); page.data.draft = 'task to keep';
@@ -268,7 +312,9 @@ test('@ opens inline workspace candidates, filters by typed path, and drills int
   assert.deepEqual(Array.from(page.data.fileMentionEntries, row => row.name), ['a file.js']);
   page.selectFileMention(event({ index: 0 }));
   assert.equal(page.data.draft, 'Review @"src/a file.js"');
-  assert.equal(page.data.composerCursor, page.data.draft.length);
+  // 光标是显示值坐标：引用位置是零宽占位符，光标停在占位符之后。
+  assert.equal(page.data.composerCursor, page.data.composerValue.length);
+  assert.equal(page.data.composerValue, 'Review ' + require('../miniprogram/pages/session/utils/composer-menu').REF_PLACEHOLDER);
   assert.equal(page.data.fileMentionOpen, false);
   assert.equal(page.data.images.length, 0, 'file references are inserted into the prompt, not staged as attachments');
 });
@@ -315,7 +361,13 @@ test('image picker detects MIME, previews originals, enforces size and never upl
   const { page, pickers, calls } = fixture(); page.chooseImage();
   await pickers[0].success({ tempFiles: [{ tempFilePath: '/tmp/photo', size: 42 }, { tempFilePath: '/tmp/huge', size: 9 * 1024 * 1024 }] });
   assert.equal(page.data.images.length, 1); assert.equal(page.data.images[0].mediaType, 'image/png');
-  page.previewPendingImage(event({ index: 0 })); assert.ok(calls.some(x => x[0] === 'preview'));
+  page.previewPendingImage(event({ index: 0 }));
+  assert.ok(page.data.filePreview, 'a pending image opens the unified preview sheet');
+  assert.equal(page.data.filePreview.previewKind, 'image');
+  assert.equal(page.data.filePreview.localPath, '/tmp/photo');
+  assert.equal(page.data.filePreview.primary, '查看原图');
+  assert.ok(!calls.some(x => x[0] === 'preview'), 'the native viewer waits for the primary action');
+  page.filePreviewPrimary(); assert.ok(calls.some(x => x[0] === 'preview'));
   page.chooseFile(); assert.equal(pickers[1].type, 'image'); pickers[1].fail({ errMsg: 'choose:fail cancel' }); assert.equal(page.data.attachmentPicking, false);
   page.data.images = [{ isFile: true, mediaType: 'application/pdf' }]; page.send(); assert.ok(!calls.some(x => x[0] === 'send'));
 });
@@ -604,4 +656,125 @@ test('input commands render a blue token chip and keep the hint as placeholder',
   assert.match(js, /setComposerValue\(/);
   const wxss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
   assert.match(wxss, /\.composer-slash-token \{[^}]*color:\s*var\(--ocean\)/);
+});
+
+test('typing around a reference chip keeps the raw draft and the placeholder display aligned', () => {
+  const { page } = fixture();
+  const menu = require('../miniprogram/pages/session/utils/composer-menu');
+  const ref = menu.sessionReference('s1', '另一个会话');
+  page.setComposerValue(ref + ' 看看这段', { canSend: true });
+  assert.equal(page.data.draft, ref + ' 看看这段');
+  assert.equal(page.data.composerValue, menu.REF_PLACEHOLDER + ' 看看这段');
+  assert.deepEqual(page.data.composerRefs.map(r => [r.kind, r.label]), [['session', '另一个会话']]);
+
+  // 在 chip 后面继续打字：chips 不动，草稿原样拼接
+  page.onDraftInput({ detail: { value: menu.REF_PLACEHOLDER + ' 看看这段代码', cursor: 99 } });
+  assert.equal(page.data.draft, ref + ' 看看这段代码');
+  assert.equal(page.data.composerRefs.length, 1);
+
+  // 删掉零宽占位符 = 移除整个引用 chip（输入内容以镜像为准，不回写 data）
+  const display = page.composerDisplay();
+  page.onDraftInput({ detail: { value: display.slice(1), cursor: 0 } });
+  assert.equal(page.data.draft, ' 看看这段代码');
+  assert.deepEqual(page.data.composerRefs, []);
+  assert.equal(page.composerDisplay(), ' 看看这段代码');
+});
+
+test('removeComposerRef drops the placeholder and rebuilds the draft without the reference', () => {
+  const { page } = fixture();
+  const menu = require('../miniprogram/pages/session/utils/composer-menu');
+  const draft = 'A ' + menu.sessionReference('s1', 'one') + ' B ' + menu.fileReference('licenses/') + ' C';
+  page.setComposerValue(draft, { canSend: true });
+  assert.equal(page.data.composerRefs.length, 2);
+
+  page.removeComposerRef(event({ index: 0 }));
+  assert.deepEqual(page.data.composerRefs.map(r => r.label), ['licenses/']);
+  assert.equal(page.data.draft, 'A  B ' + menu.fileReference('licenses/') + ' C');
+  assert.equal(page.data.composerValue, 'A  B ' + menu.REF_PLACEHOLDER + ' C');
+  assert.equal(page.data.canSend, true);
+
+  page.removeComposerRef(event({ index: 0 }));
+  assert.deepEqual(page.data.composerRefs, []);
+  assert.equal(page.data.draft, 'A  B  C');
+  assert.equal(page.data.canSend, true, 'remaining text keeps send enabled');
+  page.setComposerValue('', { canSend: false });
+  page.removeComposerRef(event({ index: 0 }));
+  assert.equal(page.data.draft, '', 'removing from an empty composer is a no-op');
+});
+
+test('the composer renders a reference chip row above the textarea with typed icons and removal', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  const start = wxml.indexOf('class="composer-slash-chip');
+  const row = wxml.slice(start, wxml.indexOf('<textarea'));
+  assert.match(row, /<view hidden="\{\{!composerRefs.length\}\}" class="composer-refs/);
+  assert.match(row, /wx:for="\{\{composerRefs\}\}" wx:key="key"/);
+  assert.match(row, /src="\/assets\/icons\/\{\{item.icon\}\}"/);
+  assert.match(row, /catchtap="removeComposerRef"/);
+  assert.ok(wxml.indexOf('class="composer-refs') < wxml.indexOf('<textarea'), 'chips render before the textarea');
+  const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8').replace(/\s+/g, '');
+  assert.ok(css.includes('.composer-refs{display:none;flex-wrap:wrap;'));
+  assert.ok(css.includes('.composer-refs[hidden]{display:none!important;}'));
+  assert.ok(css.includes('.composer-ref-label{min-width:0;max-width:520rpx;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:28rpx;line-height:1.4;color:#5483E8;}'));
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
+  assert.match(js, /composerRefs: \[\],/);
+});
+
+test('selecting one input command renders the token once: the textarea keeps only the argument', () => {
+  const { page } = fixture([command('goal', 'input'), command('plan', 'input'), command('compact'), command('model', 'select'), command('permission', 'select')]);
+  const menu = require('../miniprogram/pages/session/utils/composer-menu');
+  page.selectCommand(event({ id: 'command:goal', name: 'goal' }));
+  // chip 承载 token，textarea 只留参数（空参数时连占位文案都是指令提示）
+  assert.equal(page.data.draft, '/goal ');
+  assert.equal(page.data.commandToken, '/goal');
+  assert.equal(page.data.composerValue, '', 'the textarea must not repeat the token');
+  assert.equal(page.composerDisplay(), '');
+  assert.equal(page.data.composerRefs.length, 0);
+
+  // 继续打参数：草稿拼回 token，显示值仍然只有参数（打字不回写 data，以镜像为准）
+  page.onDraftInput({ detail: { value: '写一份报告', cursor: 5 } });
+  assert.equal(page.data.draft, '/goal 写一份报告');
+  assert.equal(page.composerDisplay(), '写一份报告');
+
+  // 连选第二个指令：旧 token 被替换，不会残留两份
+  page.selectCommand(event({ id: 'command:plan', name: 'plan' }));
+  assert.equal(page.data.draft, '/plan 写一份报告');
+  assert.equal(page.data.commandToken, '/plan');
+  assert.equal(page.composerDisplay(), '写一份报告');
+
+  // × 移除指令：参数留在草稿里，chip 消失
+  page.clearCommandToken();
+  assert.equal(page.data.draft, '写一份报告');
+  assert.equal(page.data.commandToken, '');
+  assert.equal(page.composerDisplay(), '写一份报告');
+});
+
+test('command token survives reference insertion, voice input and chip removal', async () => {
+  const { page, store } = fixture();
+  const menu = require('../miniprogram/pages/session/utils/composer-menu');
+  page.selectCommand(event({ id: 'command:goal', name: 'goal' }));
+  assert.equal(page.data.composerValue, '');
+
+  // 指令激活时插入引用：草稿 = token + 参数，显示值里引用是占位符
+  store.client.requestFileList = async () => ({ path: '.', entries: [{ name: 'readme.md', path: 'readme.md', kind: 'file' }] });
+  page.trackFileMention('@', 1);
+  await Promise.resolve();
+  await Promise.resolve();
+  page.selectFileMention(event({ index: 0 }));
+  assert.equal(page.data.draft, '/goal @readme.md');
+  assert.equal(page.composerDisplay(), menu.REF_PLACEHOLDER);
+  assert.deepEqual(page.data.composerRefs.map(ref => ref.label), ['readme.md']);
+
+  // 语音识别文字插入：token 不丢（光标在 chip 之后，文字落在 chip 后面）
+  page.insertVoiceText('识别文字');
+  assert.equal(page.data.draft, '/goal ' + menu.fileReference('readme.md') + '识别文字');
+  assert.equal(page.composerDisplay(), menu.REF_PLACEHOLDER + '识别文字');
+  // 真实应用里 voice mixin 与页面共用一个 store：重新同步后指令 chip 仍在
+  page.syncCommandMenu(page.data.draft, store.sessionState);
+  assert.equal(page.data.commandToken, '/goal');
+
+  // 移除引用 chip：token 与其余文本原样保留
+  page.removeComposerRef(event({ index: 0 }));
+  assert.equal(page.data.draft, '/goal 识别文字');
+  assert.equal(page.composerDisplay(), '识别文字');
+  assert.equal(page.data.commandToken, '/goal');
 });

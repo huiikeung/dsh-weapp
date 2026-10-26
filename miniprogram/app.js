@@ -9,10 +9,17 @@ require('./utils/ui-preferences').install();
 require('./utils/share').install();
 
 const store = require('./utils/store');
+const attachmentCache = require('./utils/attachment-cache');
 
 App({
+  resetAttachmentCacheIndex() {
+    attachmentCache._reset();
+  },
   onLaunch() {
     store.init();
+    if (typeof wx.onMemoryWarning === 'function') wx.onMemoryWarning(() => {
+      require('./utils/session-view-cache').clear();
+    });
   },
   onShow() {
     store.appDidBecomeActive();

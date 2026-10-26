@@ -1,6 +1,6 @@
 const store = require('../../utils/store');
 const { t } = require('../../utils/ui-preferences');
-const { describe } = require('../../utils/file-deliverables');
+const { describe } = require('./utils/file-deliverables');
 const { validSummary, validDiff } = require('../../utils/workspace-changes');
 
 module.exports = {

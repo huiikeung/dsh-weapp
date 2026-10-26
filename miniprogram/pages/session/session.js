@@ -4,20 +4,20 @@ const scheduleUtil = require('../../utils/schedule');
 const haptics = require('../../utils/haptics');
 const preferences = require('../../utils/ui-preferences');
 const trajectoryView = require('../../utils/trajectory-presentation');
-const contextView = require('../../utils/context-view');
+const contextView = require('./utils/context-view');
 const turnUsageUtil = require('../../utils/turn-usage');
-const { applyTurnFooters } = require('../../utils/turn-footer');
-const workSteps = require('../../utils/work-step-presentation');
-const statusAppearance = require('../../utils/status-appearance');
-const procIconStyle = require('../../utils/proc-icon-style');
+const { applyTurnFooters } = require('./utils/turn-footer');
+const workSteps = require('./utils/work-step-presentation');
+const statusAppearance = require('./utils/status-appearance');
+const procIconStyle = require('./utils/proc-icon-style');
 const store = require('../../utils/store');
 const markdown = require('../../utils/markdown');
 const labels = require('../../utils/labels');
 const util = require('../../utils/util');
-const notifySubscription = require('../../utils/notify-subscription');
-const voicePreference = require('../../utils/voice-preference');
-const contextPanelsPreference = require('../../utils/context-panels-pref');
-const contextPreferences = require('../../utils/context-prefs');
+const notifySubscription = require('./utils/notify-subscription');
+const voicePreference = require('./utils/voice-preference');
+const contextPanelsPreference = require('./utils/context-panels-pref');
+const contextPreferences = require('./utils/context-prefs');
 const voiceActions = require('./voice-actions');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
 const fileActions = require('./file-actions');
@@ -27,21 +27,20 @@ const changesActions = require('./changes-actions');
 const viewportActions = require('./viewport-actions');
 const collaboration = require('../../utils/collaboration');
 const protocol = require('../../utils/protocol');
-const fileDeliverables = require('../../utils/file-deliverables');
+const fileDeliverables = require('./utils/file-deliverables');
 const theme = require('../../utils/theme');
-const conversationWorkflow = require('../../utils/conversation-workflow');
-const composerMenu = require('../../utils/composer-menu');
-const sessionSwitcher = require('../../utils/session-switcher');
+const conversationWorkflow = require('./utils/conversation-workflow');
+const composerMenu = require('./utils/composer-menu');
+const sessionSwitcher = require('./utils/session-switcher');
 const attachmentCache = require('../../utils/attachment-cache');
-const { dataPatch, createMarkdownCache } = require('../../utils/session-render');
+const { dataPatch, createMarkdownCache } = require('./utils/session-render');
+const sessionViewCache = require('../../utils/session-view-cache');
 
-const { toolPresentation } = require('../../utils/tool-presentation');
+const { toolPresentation } = require('./utils/tool-presentation');
 const CONTEXT_TREND_OVERVIEW_AUTO_STEPS = 200;
 const MUTABLE_ROW_KINDS = new Set(['user', 'assistant', 'changes', 'files', 'status']);
 
 // Store protocol rows are reused across emits; only a few row kinds are mutated
-// in place. Snapshot their shallow render-facing fields without serializing large
-// message bodies into temporary signature strings on every stream flush.
 function captureRowValue(value, depth = 0) {
   if (Array.isArray(value)) {
     return { type: 'array', values: value.map(item => captureRowValue(item, depth + 1)) };
@@ -108,7 +107,7 @@ Page({
     contextFlowLinks: [], contextFlowW: 0, contextFlowH: 0,
     collaborationOpen: false, collaborationExpanded: false, collaborationTab: 'members', collaborationRows: [], collaborationTabs: [],
     collaborationCount: 0, collaborationActive: 0, collaborationNote: '', collaborationPreview: null, collaborationBusy: false,
-    fileExpanded: {}, fileSheet: null, filePreview: null, changesDiff: null, fileBusyKey: '', fileSharingKey: '', fileProgress: 0,
+    fileExpanded: {}, filePreview: null, changesDiff: null, fileBusyKey: '', fileSharingKey: '', fileProgress: 0,
     fileMentionOpen: false, fileMentionEntries: [], fileMentionSessionGroups: [], fileMentionLoading: false, fileMentionError: '', fileMentionPathLabel: '', fileMentionQuery: '',
     tab: 'conversation', // conversation | trajectory | context | fleet
     showContextPanel: contextPanelsPreference.read().context,
@@ -205,7 +204,6 @@ Page({
     turnNavWarmText: '',
     hasMoreHistory: false,
     // 旧历史分页在途标志。must be mirrored into page data: maybePrefetchOlderHistory
-    // 用它避免请求叠加，此前只读不写，导致"已在分页"判断永远为假。
     historyPaging: false,
 
     question: null,
@@ -214,16 +212,17 @@ Page({
     approvalBusy: false,
 
     draft: '',
+    // 输入框引用 chip：composerValue 是 textarea 显示值（引用位置为零宽占位符），
+    // composerRefs 是按序排列的引用 chips（会话 / 文件夹 / 文件），draft 存原始文本。
+    composerRefs: [],
     images: [],
     canSend: false,
     composerFocused: false,
     commandToken: '', commandTokenLabel: '', draftArg: '',
     // 输入框 Markdown 预览：composerPreview 开时用 composerPreviewBlocks 渲染，
-    // 与发送后的用户消息共用 mdBlocks，保证"看到的就是发出去的"。
     composerPreview: false,
     composerPreviewHint: false,
     // 首帧把 textarea 高度直接定成一行（原生组件默认 150px，auto-height 在真机上
-    // 要等测量才收回来，日志里它一直停在 150px），量到内容后由 auto-height 接管。
     composerInputHeightPx: 38,
     composerCursor: -1,
     composerPreviewBlocks: [],
@@ -320,8 +319,11 @@ Page({
     this._sessionDrafts = {};
     this.sessionId = options.id || store.sessionState.sessionId;
     this._pendingQueue = [];
-    if (options.id && store.sessionState.sessionId !== options.id) {
-      store.openSession(options.id, '', null);
+    this._pendingInitialSessionOpen = !!(options.id && (options.reopen === '1' || store.sessionState.sessionId !== options.id));
+    if (this._pendingInitialSessionOpen) {
+      // Paint the page shell before cache restore / row projection can occupy the logic thread.
+      this.setData({ rows: [], historyState: 'requested', historyLoading: true,
+        historyLoaded: false, historyProgressText: uiText('正在从 Mobile Gateway 同步会话内容…') });
     }
     this.folds = {};
     // 自定义导航：会话标题顶到状态栏下方；右侧避让胶囊按钮
@@ -350,12 +352,24 @@ Page({
     this.unsubscribe = store.subscribe((snapshot) => {
       this.scheduleStoreSync(snapshot);
     });
-    this.syncFromStore({ app: store.state, session: store.sessionState });
+    if (this._pendingInitialSessionOpen) {
+      const sessionId = options.id;
+      this._initialSessionOpenTimer = setTimeout(() => {
+        this._initialSessionOpenTimer = null;
+        if (this._unloaded || this.sessionId !== sessionId) return;
+        this._pendingInitialSessionOpen = false;
+        this._preferImmediateStoreSync = true;
+        store.openSession(sessionId, options.title || '', options.preset || null);
+      }, 16);
+    } else {
+      this.syncFromStore({ app: store.state, session: store.sessionState });
+    }
   },
 
   onReady() {
     // 首帧渲染完成后立即测量 dock，避免默认留白遮挡底部内容
     this.updateDockInset();
+    this.measureConversationViewport();
     this.refreshBottomAnchor();
     this.startScrollPolling();
     // 编队舞台只在切到编队/上下文时才看得见：首帧不做这次 selector 查询，挪到空闲时再量。
@@ -384,7 +398,6 @@ Page({
     this._turnWarmTimer = null;
     this.stopScrollPolling();
     // 记录本次隐藏的原因：原生选择器/预览浮层会把小程序切到后台，
-    // 此时 onShow 不是「页面切换」，不能重置滚动、也不能强制整页重投影。
     this._hiddenByNativeOverlay = !!(store.nativeOverlayActive && store.nativeOverlayActive());
   },
 
@@ -392,21 +405,23 @@ Page({
     this.syncContextPanelPreferences();
     this._voiceHidden = false; this.syncVoicePreference();
     // 从原生浮层（chooseMedia / chooseMessageFile / previewImage）返回：
-    // 页面并未真正切换，强制 syncFromStore 与 resetConversationScroll 会让
-    // 会话区闪一下并把滚动位置拽走。数据更新交给 subscribe 流推进即可。
     if (this._hiddenByNativeOverlay) {
       this._hiddenByNativeOverlay = false;
       this.startScrollPolling();
       this.setData(statusAppearance.view(statusAppearance.read()));
       this.setData(procIconStyle.view(procIconStyle.read()));
       this.updateDockInset();
+      this.measureConversationViewport();
       if (this._turnWarmup) this.pumpTurnNavigatorWarmup();
+      return;
+    }
+    if (this._pendingInitialSessionOpen) {
+      this.setData(Object.assign(statusAppearance.view(statusAppearance.read()), procIconStyle.view(procIconStyle.read())));
       return;
     }
     this.resetConversationScroll();
     this.startScrollPolling();
     // 首次进入时 onLoad 刚同步过同一份快照：再同步一次等于把整份 rows 重新投影 + 跨桥一次，
-    // 冷启动最贵的重复工作就在这里。返回本页（间隔久了）才补同步，避免漏帧。
     if (store.sessionState && store.sessionState.sessionId && Date.now() - (this._lastSyncAt || 0) > 400) {
       this.syncFromStore({ app: store.state, session: store.sessionState });
     }
@@ -415,11 +430,20 @@ Page({
     this.setData(Object.assign(statusAppearance.view(statusAppearance.read()), procIconStyle.view(procIconStyle.read())));
     // 返回前台/切回页面：dock 高度可能变化（键盘、队列、审批卡）
     this.updateDockInset();
+    this.measureConversationViewport();
+  },
+
+  onResize() {
+    if (this.data.tab === 'conversation') {
+      this.updateDockInset();
+      this.measureConversationViewport();
+    }
   },
 
   onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
 
   onUnload() {
+    this.retainSessionView();
     this.stopContextFlow();
     this.clearContextModalDrag();
     if (store.setTrajectoryActive) store.setTrajectoryActive(false);
@@ -437,6 +461,10 @@ Page({
     this._historyFormatTimer = null; this._pendingHistoryFormat = null;
     if (this._fleetMeasureTimer) clearTimeout(this._fleetMeasureTimer);
     this._fleetMeasureTimer = null;
+    if (this._initialSessionOpenTimer) clearTimeout(this._initialSessionOpenTimer);
+    this._initialSessionOpenTimer = null;
+    if (this._windowMeasureTimer) clearTimeout(this._windowMeasureTimer);
+    this._windowMeasureTimer = null;
     if (this._thumbTimer) clearTimeout(this._thumbTimer);
     this._thumbTimer = null; this._thumbQueue = null; this._thumbQueued = null; this._thumbFailed = null;
     if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
@@ -456,6 +484,21 @@ Page({
   },
 
   // ---------- 状态同步 ----------
+
+  retainSessionView() {
+    if (!this._viewCacheKey || !this._markdownCache) return;
+    const projected = new Map();
+    (this._projectedRows || new Map()).forEach((value, key) => {
+      const row = value.row;
+      // Local image paths/download state can expire while another page is open.
+      if (row.kind === 'files' || row.kind === 'changes' || (row.images || []).length
+        || (row.attachments || []).length || (row.blocks || []).some(block => block.type === 'image')) return;
+      projected.set(key, value);
+    });
+    sessionViewCache.put(this._viewCacheKey, { markdown: this._markdownCache.textSnapshot(), projected,
+      entries: projected.size === (this._projectedRows || new Map()).size ? this._entriesCache : null
+    }, this._viewCacheGeneration);
+  },
 
   scheduleHistoryFormatting() {
     if (this._historyFormatTimer || this._voiceHidden || this._unloaded || !this._pendingHistoryFormat || !this._pendingHistoryFormat.size) return;
@@ -478,7 +521,6 @@ Page({
           const source = (this._conversationRows || []).find(item => item.key === key);
           if (source) source.blocks = blocks;
           // 投影缓存里的同一行也要写回：复用缓存的投影时如果不带 blocks，
-          // 已经显示出来的正文会在下一帧整段消失（真机上表现为"某一轮对话没了"）。
           const cachedProjection = this._projectedRows && this._projectedRows.get(key);
           if (cachedProjection && cachedProjection.row
             && (cachedProjection.row.kind === 'assistant' || cachedProjection.row.kind === 'user')) {
@@ -497,23 +539,33 @@ Page({
 
   scheduleStoreSync(snapshot) {
     if (this._unloaded || this._voiceHidden) return;
+    if (this._pendingInitialSessionOpen) return;
     this._pendingStoreSnapshot = snapshot;
     if (this._storeSyncTimer) return;
     // 大会话（上千行）每次投影 + 分组 + 差分的成本远高于 32ms：帧率换平滑没有意义，
-    // 行数多时把合并窗口放大到 96ms，流式输出仍然连贯，但主线程不再被 sync 占满。
     const busyFloor = (this.data.rows && this.data.rows.length > 120) ? 96 : 32;
-    const delay = Math.max(busyFloor, (this._interactionUntil || 0) - Date.now());
-    this._storeSyncTimer = setTimeout(() => {
+    const delay = this._preferImmediateStoreSync
+      ? 0 : Math.max(busyFloor, (this._interactionUntil || 0) - Date.now());
+    this._preferImmediateStoreSync = false;
+    const flush = () => {
       this._storeSyncTimer = null;
+      if (this._unloaded || this._voiceHidden) { this._pendingStoreSnapshot = null; return; }
       const latest = this._pendingStoreSnapshot;
       if (this._turnScrubbing && latest && !this._unloaded && !this._voiceHidden) {
         this._interactionUntil = Date.now() + 100;
         this.scheduleStoreSync(latest);
         return;
       }
+      const scrolling = this.data.tab === 'conversation' && this._convPinned === false;
+      const scrollQuietFor = Date.now() - (this._lastConvScrollAt || 0);
+      if (latest && scrolling && scrollQuietFor < 160) {
+        this._storeSyncTimer = setTimeout(flush, Math.max(16, 160 - scrollQuietFor));
+        return;
+      }
       this._pendingStoreSnapshot = null;
       if (!this._unloaded && !this._voiceHidden && latest) this.syncFromStore(latest);
-    }, delay);
+    };
+    this._storeSyncTimer = setTimeout(flush, delay);
   },
 
   prioritizeInteraction(duration = 160) {
@@ -602,7 +654,13 @@ Page({
     const s = snapshot.session;
     const app = snapshot.app;
     if (!s || (!s.sessionId && s.historyState !== 'creating' && s.historyState !== 'error:create')) return;
-    const sessionChanged = this._renderSessionId !== s.sessionId;
+    const viewCacheKey = JSON.stringify([app.activeID || app.endpoint || '', s.sessionId, s.cwd || '',
+      this.viewportRpx || 750, this.data.theme || '', this.data.uiLocale || '',
+      this.data.contentFontStyle || '', s.historyFormatVersion || '']);
+    const viewChanged = this._viewCacheKey !== viewCacheKey || this._viewCacheGeneration !== sessionViewCache.generation();
+    if (viewChanged) this.retainSessionView();
+    const sessionChanged = this._renderSessionId !== s.sessionId
+      || this._renderHost !== String(app.activeID || app.endpoint || '');
     if (sessionChanged) {
       this.closeFileMention();
       this.resetConversationScroll();
@@ -645,7 +703,7 @@ Page({
       });
     }
     const trendAutoOverviewPatch = this.contextTrendAutoOverviewPatch(s);
-    if (!this._markdownCache || this._renderSessionId !== s.sessionId) {
+    if (!this._markdownCache || viewChanged) {
       if (this._renderSessionId && this._renderSessionId !== s.sessionId) {
         this._sessionDrafts = this._sessionDrafts || {};
         this._sessionDrafts[this._renderSessionId] = {
@@ -653,9 +711,8 @@ Page({
           images: Array.isArray(this.data.images) ? this.data.images.slice() : []
         };
         const savedDraft = this._sessionDrafts[s.sessionId] || { draft: '', images: [] };
-        this.setData({
-          draft: savedDraft.draft,
-          composerValue: savedDraft.draft || '',
+        // 恢复草稿时把原始引用文本还原成 chip 行 + 零宽占位符显示值。
+        this.setComposerValue(savedDraft.draft || '', {
           images: savedDraft.images,
           canSend: !!String(savedDraft.draft || '').trim() || savedDraft.images.length > 0,
           composerFocused: false,
@@ -666,25 +723,30 @@ Page({
         this.setData({ collaborationOpen:false, collaborationPreview:null, collaborationRows:[], collaborationBusy:false });
         this.disposePresentedFiles();
         this.closeChangesDiff();
-        this.setData({ fileSheet: null, filePreview: null, fileExpanded: {} });
+        this.setData({ filePreview: null, fileExpanded: {} });
       }
-      this._markdownCache = createMarkdownCache(safeParse);
-      // 换会话：上一会话的行装饰缓存与回合分组缓存全部作废。
-      this._projectedRows = null;
-      this._entriesCache = null;
+      const retained = sessionViewCache.take(viewCacheKey);
+      this._markdownCache = createMarkdownCache(safeParse, retained && retained.markdown);
+      this._projectedRows = retained ? retained.projected : null;
+      this._entriesCache = retained ? retained.entries : null;
+      this._viewCacheKey = viewCacheKey;
+      this._viewCacheGeneration = sessionViewCache.generation();
+      this._renderHost = String(app.activeID || app.endpoint || '');
+      this._conversationWindow = null;
       if (this._historyFormatTimer) clearTimeout(this._historyFormatTimer);
       this._historyFormatTimer = null;
       this._pendingHistoryFormat = new Map();
       this._renderSessionId = s.sessionId;
-      this._processRunningDone = '';
-      this._lastRunSeconds = 0;
-      this._processRunning = false;
+      if (sessionChanged) {
+        this._processRunningDone = '';
+        this._lastRunSeconds = 0;
+        this._processRunning = false;
+      }
     }
     // 用户消息现在也走 Markdown 缓存，必须一起 retain，否则每次 emit 都被清空重解析。
     this._markdownCache.retain((s.rows || []).filter(row => row.kind === 'assistant' || row.kind === 'user').map(row => row.key));
 
     // dsh-mobile 同款两段投影：protocol 只产生语义行，conversation-workflow
-    // 再组合成 message / processGroup 展示节点。页面不再直接解释事件协议。
     const previewOf = (text) => {
       const t = String(text || '').replace(/\s+/g, ' ').trim();
       return t.length > 40 ? t.slice(0, 40) + '…' : t;
@@ -710,7 +772,6 @@ Page({
     // 图片预取不参与渲染：历史行到达时先排队下载，滚到可见位置通常已就绪。
     this.prefetchImageMarkdown(s.rows || []);
     // 行投影缓存：静态协议行按对象身份复用；少数会被协议原地修改的行用浅快照验证，
-    // 避免每次流式帧都把长文本、工具参数和结果拼成巨型签名字符串。
     const projected = this._projectedRows || (this._projectedRows = new Map());
     if (projected.size > 4000) projected.clear();
     const projectionScope = String(s.cwd || '') + '@' + String(this.viewportRpx || 750);
@@ -726,10 +787,10 @@ Page({
       if (unchanged) {
         let reused = cachedRow.row;
         // 兜底：历史懒格式化可能晚于投影产生，缓存的 blocks 还是空的；
-        // Markdown 缓存里已经解析过就直接补上，避免正文空白。
         if ((row.kind === 'assistant' || row.kind === 'user') && !((reused.blocks || []).length)) {
           const formatted = this._markdownCache.peek(row.key, row.text || '');
           if (formatted && formatted.length) reused = Object.assign({}, reused, { blocks: this.prepareImageBlocks(formatted) });
+          else this._pendingHistoryFormat.set(row.key, row.text || '');
         }
         semanticRows.push(reused);
         if (reused === cachedRow.row && cachedRow.sourceRow === row) nextProjected.set(row.key, cachedRow);
@@ -797,7 +858,6 @@ Page({
       if (row.kind === 'user') {
         copy.images = this.decorateRowImages(row.images);
         // 用户消息也按 Markdown 渲染，但沿用助手消息的懒解析策略：只有接近尾部
-        // 的行才立即 parse，更早的进 _pendingHistoryFormat，滚进窗口再格式化。
         const text = row.text || '';
         let blocks = this._markdownCache.peek(row.key, text);
         if (!blocks && rowIndex >= s.rows.length - 12) blocks = this._markdownCache.parse(row.key, text);
@@ -1028,13 +1088,11 @@ Page({
     applyTurnFooters(rows, s.rows || [], s.turnUsage || {}, processRunning);
 
     // 顶部标题：实时标题优先；其次回查会话列表（直连打开/列表迟到时）；
-    // 都没有则显示「会话」（新会话等 Host 生成标题后经 title 帧实时更新）
     const listed = (app.sessions || []).find((x) => x.sessionId === s.sessionId) || null;
     const fallbackTitle = (listed && (listed.title || listed.snippet)) || (s.historyState === 'creating' ? uiText('新会话') : uiText('会话'));
 
     const historyMerged = !!(s && s.historyMergeId && s.historyMergeId !== (this._historyMergeId || 0));
     // 上下文/编队面板只在对应 Tab（或弹窗）可见时才派生视图模型。
-    // 否则每次流式 emit 都会重算整棵上下文浏览器与编队卡片，导致页面卡顿。
     const activeTab = this.data.tab;
     const contextVisible = activeTab === 'context' || this.data.contextModalOpen === true;
     const viewPatch = dataPatch(this.data, Object.assign({
@@ -1122,9 +1180,6 @@ Page({
     const hs = String(s.historyState || 'idle');
     if (hs !== this.data.historyState) this.setData({ historyState: hs });
     // 没有任何可显示的行时必须给占位（加载中 / 空态）。原来这里用
-    // `!this.data.running` 把运行中的会话排除掉，结果打开一个正在执行的会话时
-    // （无本地缓存 + 历史还没回来）四个占位分支全部落空：对话区一片空白，
-    // 只剩底部鲸尾运行条，用户以为内容没有同步过来。
     const hasRows = rows.length > 0;
     const historyLoading = s.historyPaging === true || (hs === 'requested' && !hasRows);
     const historyLoaded = hs.indexOf('loaded') === 0 || hs === 'idle' || hs.indexOf('error') === 0;
@@ -1163,9 +1218,6 @@ Page({
     }
 
     // 更早历史页到达后，若用户仍在顶部附近，继续预取下一页，保证继续上滑时已就绪。
-    // 必须挂在 historyMerged 上：原来每个 emit 都跑一遍，配合失效的在途判断，
-    // 只要用户停在顶部附近就会每 350ms 补拉一页，每页又全量重放整段会话，
-    // 主线程被占满 → 横幅一直转"正在同步"、新插入的旧内容始终画不出来。
     if (historyMerged && this.data.tab === 'conversation' && !this.data.historyPaging && this._convPinned === false) {
       const top = Number(this._lastScrollTop) || 0;
       if (top > 0 && top < 4000) this.maybePrefetchOlderHistory(top);
@@ -1390,7 +1442,6 @@ Page({
   /** 队列 dock 数据源 = 网关队列 + 本地待发队列（尚未真正发出的消息）。 */
   syncQueueDock() {
     // DSH 的队列项是 UserMessage：正文在 content[] block 中，而不是顶层字符串。
-    // Gateway 不同版本还可能包在 message/source/payload 下，统一在这里解包。
     const qContentOf = (it) => {
       const candidates = [it && it.content, it && it.message && it.message.content,
         it && it.source && it.source.content, it && it.payload && it.payload.content];
@@ -1449,8 +1500,6 @@ Page({
       };
     });
     // DSH 会在 Host 回执前展示本地 pending submission，避免快速连续发送时数量短暂少算。
-    // local: true 的项是本机暂存（尚未发给网关），始终展示在最后。
-    // 本地待发项按会话隔离：切到别的会话后不显示、也不会被误发。
     const currentSessionId = store.sessionState.sessionId;
     const localItems = (this._pendingQueue || []).filter((item) => item.local && item.sessionId === currentSessionId).map((item) => ({
       id: item.id,
@@ -1535,6 +1584,9 @@ Page({
 
   /** 点发送箭头：把本地排队项真正发给网关（运行中仍是插话，回合结束后是普通发送）。 */
   releasePendingSubmission(pending) {
+    if (pending && (pending.stagedImages || []).some(file => file.isFile && !file.isWorkspaceRef)) {
+      return this.sendExternalFiles(pending.rawText, pending.stagedImages, pending);
+    }
     const s = store.sessionState;
     if (!pending || !s.sessionId) return;
     // 排队项属于入队时的会话；已经切走就不能再发到当前会话。
@@ -1595,7 +1647,6 @@ Page({
     let tracePatch = {};
     if (tab === 'trajectory') { this._traceRows = store.sessionState.trajectory || []; tracePatch = dataPatch(this.data, this.trajectoryPatch()); }
     // 上下文与编队合并成一个滚动（对齐客户端侧栏 Context 面板）：两个 Tab 共享
-    // 上下文与编队是两个独立面板：各自派生、各自清理，互不干扰。
     let contextPatch = {};
     if (tab === 'context') contextPatch = this.contextPanelPatch();
     let fleetPatch = {};
@@ -1609,7 +1660,6 @@ Page({
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
     this._collaborationRequest = null; this._collaborationRefresh = null;
     // 只挂载当前 Tab 的面板：离开后销毁对应节点树，避免隐藏面板保留大量
-    // 节点/绑定拖慢对话页（数据仍在 store 缓存，切回时按需重建）。
     if (tab === 'fleet') {
       this.measureFleetStage();
       // 首次切入时节点还没渲染，上面的实测会退回兜底值：渲染完成后再量一次。
@@ -1624,6 +1674,7 @@ Page({
       attachSheetOpen: false, modelSheetOpen: false, effortSheetOpen: false,
       permissionSheet: [], modeSheet: [], ...this.layoutPatch({ kbHeight: 0 }) }, () => {
       if (tab === 'fleet') this.maybeAutoScanFleetComms();
+      if (tab === 'conversation') this.measureConversationViewport();
     });
     if (hadKeyboard && typeof wx.hideKeyboard === 'function') wx.hideKeyboard();
     // 上下文面板独有的「流连线」只在上下文 Tab 运行；编队是独立面板。
@@ -2882,7 +2933,6 @@ Page({
       gesture.axis = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'horizontal' : 'vertical';
     }
     // A downward finger drag means the reader is moving toward older messages.
-    // Stop live auto-follow immediately; streamed row growth can otherwise pull the viewport back down.
     if (gesture.tab === 'conversation' && gesture.axis === 'vertical' && dy > 12) {
       this._followPausedByUser = true;
       this._convPinned = false;
@@ -2893,6 +2943,10 @@ Page({
     const gesture = this._panelGesture;
     this._panelGesture = null;
     const touch = e.changedTouches && e.changedTouches[0];
+    if (gesture && gesture.tab === 'conversation' && this._bottomAnchorDeferred) {
+      this._bottomAnchorDeferred = false;
+      if (this._convPinned !== false && !this._followPausedByUser) this.refreshBottomAnchor();
+    }
     if (!gesture || !touch || gesture.axis === 'vertical' || gesture.tab !== this.data.tab) return;
     const dx = touch.clientX - gesture.x, dy = touch.clientY - gesture.y;
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
@@ -2908,14 +2962,13 @@ Page({
     this.switchTab({ currentTarget: { dataset: { tab: order[nextIndex] } } });
   },
 
-  onPanelTouchCancel() { this._panelGesture = null; },
+  onPanelTouchCancel() { this._panelGesture = null; this._bottomAnchorDeferred = false; },
 
   /** 键盘高度：手动把输入条抬到键盘上方（adjust-position 关闭，避免整页顶起） */
   onKeyboardHeight(e) {
     const h = this.data.tab === 'conversation' ? ((e.detail && e.detail.height) || 0) : 0;
     // 高度与布局一次 setData 写完：键盘弹起/收起会连发多次事件，分开写等于把整页布局
-    // 重算两遍（这正是大会话里"开关输入法要卡半天"的主要来源之一）。
-    if (h !== this.data.kbHeight) this.setData(Object.assign({ kbHeight: h }, this.layoutPatch({ kbHeight: h })));
+    if (h !== this.data.kbHeight) this.setData(Object.assign({ kbHeight: h }, this.layoutPatch({ kbHeight: h })), () => this.measureConversationViewport());
   },
 
   onComposerFocus() {
@@ -2926,7 +2979,7 @@ Page({
 
   onKeyboardHide() {
     // 三个 setData 合成一个，避免 blur 时连续三次布局/渲染。
-    this.setData(Object.assign({ kbHeight: 0, composerFocused: false, composerFocus: false, voiceTyping: false }, this.layoutPatch({ kbHeight: 0 })));
+    this.setData(Object.assign({ kbHeight: 0, composerFocused: false, composerFocus: false, voiceTyping: false }, this.layoutPatch({ kbHeight: 0 })), () => this.measureConversationViewport());
   },
 
 
@@ -2960,18 +3013,19 @@ Page({
   },
 
   copyTextSelection() {
-    const text = this.data.filePreview && this.data.filePreview.selection ? this.data.filePreview.text : '';
+    const sheet = this.data.filePreview;
+    const text = sheet && (sheet.selection || sheet.previewKind === 'text') ? sheet.text : '';
     if (!text) return;
     wx.setClipboardData({ data: text, success: () => {
       wx.showToast({ title: uiText('已复制'), icon: 'success' });
-      this.setData({ filePreview: null });
+      if (sheet.selection) this.setData({ filePreview: null });
     } });
   },
 
   findPresetName(catalog, presetId) {
     const presets = (catalog && catalog.presets) || [];
     const found = presets.find((p) => p.id === presetId);
-    return (found && found.name) || labels.presetModeName(presetId);
+    return labels.presetDisplayName(found && found.name, presetId);
   },
 
   // 对齐 dsh-mobile v1.6.0：会话模式胶囊，点击弹出预设列表
@@ -2984,7 +3038,7 @@ Page({
     this.setData({
       modeSheet: presets.slice(0, 8).map((p) => ({
         id: p.id,
-        name: (p.name && p.name.trim()) || labels.presetModeName(p.id),
+        name: labels.presetDisplayName(p.name, p.id),
         desc: labels.presetModeDesc(p.id),
         current: p.id === current
       }))
@@ -3626,6 +3680,7 @@ Page({
 
   onConvScroll(e) {
     const d = (e && e.detail) || {};
+    this._lastConvScrollAt = Date.now();
     const previousTop = this._lastScrollTop;
     const scrollTop = Number(d.scrollTop) || 0;
     this.applyScrollPosition({
@@ -3636,6 +3691,41 @@ Page({
     });
     this.updateConversationWindow(scrollTop);
     this.maybePrefetchOlderHistory(scrollTop, previousTop !== undefined && scrollTop < previousTop - 2);
+  },
+
+  // Scroll events can omit clientHeight; measure it even while idle so the
+  // jump-button state does not depend on a running-turn polling timer.
+  measureConversationViewport() {
+    if (this._unloaded || this.data.tab !== 'conversation'
+      || typeof wx === 'undefined' || typeof wx.createSelectorQuery !== 'function') return;
+    if (this._convViewportMeasurePending) {
+      this._convViewportMeasureAgain = true;
+      return;
+    }
+    this._convViewportMeasurePending = true;
+    const query = wx.createSelectorQuery().in(this);
+    query.select('.conversation').boundingClientRect();
+    const offsetQuery = query.select('.conversation');
+    const hasOffset = !!(offsetQuery && typeof offsetQuery.scrollOffset === 'function');
+    if (hasOffset) offsetQuery.scrollOffset();
+    query.select('.conversation-inner').boundingClientRect();
+    query.exec((res) => {
+      this._convViewportMeasurePending = false;
+      const measureAgain = this._convViewportMeasureAgain;
+      this._convViewportMeasureAgain = false;
+      if (this._unloaded || this.data.tab !== 'conversation') return;
+      const view = res && res[0];
+      const offset = hasOffset && res ? res[1] : null;
+      const inner = res && res[hasOffset ? 2 : 1];
+      if (view && Number(view.height) > 0 && inner) {
+        this.applyScrollPosition({
+          scrollTop: Number(offset && offset.scrollTop) || Number(this._lastScrollTop) || 0,
+          scrollHeight: Math.max(Number(offset && offset.scrollHeight) || 0, Number(inner.height) || 0),
+          clientHeight: Number(view.height) || 0
+        });
+      }
+      if (measureAgain) wx.nextTick(() => this.measureConversationViewport());
+    });
   },
 
   /** 接近顶部时提前拉下一页历史，避免用户滑到顶后才开始慢加载。 */
@@ -3696,7 +3786,7 @@ Page({
     this._lastScrollTop = scrollTop;
     const showJump = atVisualBottom
       ? false
-      : distance > (this.data.showJump ? ARROW_HIDE_WITHIN : ARROW_SHOW_AFTER);
+      : this._followPausedByUser || distance > (this.data.showJump ? ARROW_HIDE_WITHIN : ARROW_SHOW_AFTER);
     if (showJump !== this.data.showJump) this.setData({ showJump: showJump });
     this._convPinned = this._followPausedByUser ? false : pinned;
   },
@@ -3705,7 +3795,6 @@ Page({
   pollScrollPosition() {
     if (this._unloaded || this._voiceHidden || this.data.turnNavOpen || this.data.tab !== 'conversation' || this.data.moreSheetOpen || this.data.collaborationOpen) return;
     // 没有回合在跑时内容高度不会变，滚动位置交给 bindscroll 驱动即可：
-    // 之前空闲时也每 350ms 发三连 selector 查询，进页面/阅读时白白吃掉大量桥接与布局时间。
     if (!this.data.running) return;
     if (this._scrollPollPending) return;
     this._scrollPollPending = true;
@@ -4215,8 +4304,12 @@ Page({
 
   refreshBottomAnchor() {
     if (this._suppressPins === true || this._bottomAnchorPending || this._unloaded || this.data.tab !== 'conversation') return;
+    if (this._convPinned === false || this._followPausedByUser) return;
+    if (this._panelGesture && this._panelGesture.tab === 'conversation') {
+      this._bottomAnchorDeferred = true;
+      return;
+    }
     // 空对话的空态（鲸鱼 + 说明）本身要垂直居中，贴底滚动会把整块内容顶高；
-    // 有消息后再贴底，所以空态下直接跳过这次贴底。
     if (!this.data.rows.length && this.data.historyLoaded && !this.data.running) return;
     this._bottomAnchorPending = true;
     this._suppressScrollUntil = Date.now() + 400;
@@ -4375,18 +4468,21 @@ Page({
     const row = this.data.rows.find((r) => (r.images || []).some((img) => img.attachmentId === id));
     const image = (row && row.images.find((img) => img.attachmentId === id)) || { attachmentId: id };
     const cached = image.localUrl || attachmentCache.localPath(image, { api: wx });
-    if (cached) {
-      this.applyAttachmentPaths({ [id]: cached });
-      wx.previewImage({ urls: [cached] });
+    // 先开弹窗占位（有缓存就直接显示图片），再在弹窗里补下载，进度可见。
+    const sheet = this.openFileSheet(Object.assign({}, image, {
+      key: id, attachmentId: id, sessionId: store.sessionState.sessionId,
+      name: image.name || '图片', mediaType: image.mediaType, size: image.bytes, localPath: cached
+    }), { origin: 'message' });
+    if (cached || !sheet) {
+      if (cached) this.applyAttachmentPaths({ [id]: cached });
       return;
     }
-    const sessionId = store.sessionState.sessionId;
-    attachmentCache.fetchImage(store.client, sessionId, image, { api: wx }).then((path) => {
+    attachmentCache.fetchImage(store.client, sheet.sessionId, image, { api: wx }).then((path) => {
       if (this._unloaded) return;
       this.applyAttachmentPaths({ [id]: path });
-      wx.previewImage({ urls: [path] });
+      this.patchFileSheet(sheet.key, { localPath: path, primary: uiText('查看原图'), canShare: this.canShareFiles() });
     }).catch((err) => {
-      wx.showToast({ title: (err && err.message) || uiText('附件加载失败'), icon: 'none' });
+      this.patchFileSheet(sheet.key, { error: (err && err.message) || uiText('附件加载失败') });
     });
   },
 
@@ -4407,15 +4503,15 @@ Page({
       this.previewAttachment({ currentTarget: { dataset: { id: att.attachmentId } } });
       return;
     }
-    if (att.path && typeof this.presentFile === 'function') {
-      return this.presentFile({
+    if (att.path && typeof this.openFileSheet === 'function') {
+      return this.openFileSheet({
         sessionId: store.sessionState.sessionId,
         path: att.path,
         name: att.name || att.path,
         mediaType: att.mediaType,
         size: att.bytes,
         key: `message-attachment:${row.key || rowIndex}:${attachmentIndex}`
-      }, 'preview');
+      }, { origin: 'message' });
     }
     wx.showToast({ title: att.name || att.path || '文件附件', icon: 'none' });
   },
@@ -4572,29 +4668,37 @@ Page({
     const current = this.data.draft || '';
     // 重新输入“/”视为换指令：清掉旧 token，让新的斜杠命令接管输入框。
     const keepsToken = !!token && raw.charAt(0) !== '/' && (current === token || current.indexOf(token + ' ') === 0);
-    const value = keepsToken ? token + ' ' + raw : raw;
+    // 引用 chip：textarea 里引用位置是零宽占位符。按编辑前后差分对齐 chips，
+    // 再把占位符还原成原始引用文本拼回草稿。
+    const prevRefs = this.data.composerRefs || [];
+    const edited = composerMenu.applyDisplayEdit(this.composerDisplay(), raw, prevRefs);
+    this._composerDisplay = edited.display;
+    const body = composerMenu.displayToDraft(edited.display, edited.refs);
+    const value = keepsToken ? token + ' ' + body : body;
     this._composerCursor = keepsToken ? token.length + 1 + cursor : cursor;
     this._dismissedCommandDraft = null;
     if (this.data.attachSheetOpen) this.closeAttachMenu();
     // 草稿里有 Markdown 语法时点亮「预览」按钮，提示可以切换渲染视图。
     const hasMarkdown = /(^|\n)\s*(#{1,6} |[-*+] |\d+\. )|\*\*[^*]+\*\*|```|^\s*> /m.test(value);
     // 边输入边渲染：语法一完成就切渲染（键盘不收、焦点不丢，继续打字继续刷新）。
-    // 用户点「编辑」改原文后加锁：保持原文，直到语法消失再出现才重新渲染。
     const patch = { draft: value, composerCursor: this._composerCursor, canSend: !!value.trim() || this.data.images.length > 0, composerPreviewHint: hasMarkdown };
+    // 显示值与原生 textarea 不一致时才回写（清掉误入编辑区间的零宽字符）；
+    // chips 只在增删引用时才换数组，避免每次按键都重渲染 chip 行。
+    if (edited.display !== raw) patch.composerValue = edited.display;
+    if (edited.refs !== prevRefs) patch.composerRefs = edited.refs;
     if (!hasMarkdown) {
       this._composerLivePin = null;
       if (this.data.composerPreview) patch.composerPreview = false;
     } else if (this._composerLivePin !== false && !this.data.composerPreview) {
       this._composerPreviewAuto = true;
       // 关键：textarea 的 class 会随 composerPreview 切换，微信在属性变化时
-      // 用绑定的 composerValue 重新初始化原生组件。不同步最新值 → 粘贴内容被清空（闪一下就没）。
       patch.composerPreview = true;
     }
     this.setData(patch);
     // 预览态下也要跟着输入刷新渲染块（同步渲染层高度，表面不跳动）。
     if (this.data.composerPreview) this.refreshComposerPreview();
     this.syncCommandMenu(value, store.sessionState);
-    this.trackFileMention(value, this._composerCursor);
+    this.trackFileMention(edited.display, this._composerCursor);
   },
 
   /** 移除输入框里的指令 token，把参数留在草稿里（chip 上的 ×）。 */
@@ -4606,13 +4710,65 @@ Page({
     this.syncCommandMenu(arg, store.sessionState);
   },
 
+  /** 移除一个引用 chip：删掉显示值里对应的零宽占位符，草稿里的原始引用一并消失。 */
+  removeComposerRef(e) {
+    const index = Number(e && e.currentTarget && e.currentTarget.dataset.index);
+    const refs = (this.data.composerRefs || []).slice();
+    const display = this.composerDisplay();
+    const parts = display.split(composerMenu.REF_PLACEHOLDER);
+    if (!Number.isInteger(index) || index < 0 || index >= refs.length || parts.length <= index + 1) return;
+    refs.splice(index, 1);
+    const merged = parts[index] + parts[index + 1];
+    const nextDisplay = parts.slice(0, index).concat([merged], parts.slice(index + 2)).join(composerMenu.REF_PLACEHOLDER);
+    // 光标落到被删除的 chip 原位（前缀长度 + 前面占位符的个数）。
+    const cursor = parts[index].length + index;
+    this._draftRevision = (this._draftRevision || 0) + 1;
+    this._composerCursor = cursor;
+    this.setComposerDisplay(nextDisplay, refs, { composerCursor: cursor, canSend: !!composerMenu.displayToDraft(nextDisplay, refs).trim() || this.data.images.length > 0 }, this.composerSlash());
+  },
+
   /**
    * 程序化改写输入框内容（发送清空 / 切会话恢复 / 插入指令与文本）。
    * 用户打字删除不经过这里：textarea 原生维护自己的内容，避免数据桥回写卡顿。
+   * 传入的是原始草稿文本：指令 token 由 chip 承载（textarea 只留参数），
+   * 引用 token 还原成 chip 行 + 零宽占位符显示值——否则选一个命令会同时
+   * 出现 chip 和原文两份。
    */
   setComposerValue(text, extra) {
-    const patch = Object.assign({ composerValue: String(text == null ? '' : text) }, extra || {});
+    const raw = String(text == null ? '' : text);
+    const { display, refs } = composerMenu.referencesToDisplay(raw);
+    const slash = this.composerSlash(raw);
+    const view = slash ? (display === slash.token ? '' : display.slice(slash.token.length + 1)) : display;
+    this.setComposerDisplay(view, composerMenu.referenceChips(refs), extra, slash);
+  },
+
+  /** 当前（或指定）草稿对应的指令 token：仅 input 类指令，且草稿确实以它开头。 */
+  composerSlash(raw) {
+    const text = String(raw == null ? this.data.draft || '' : raw);
+    const groups = store.sessionState && store.sessionState.commandGroups;
+    return composerMenu.presentation(text, composerMenu.commands(Array.isArray(groups) ? groups : []));
+  },
+
+  /**
+   * 直接写显示值与引用 chips（钻取目录时的半开引用 token 必须保持字面文本）。
+   * 显示值不含指令 token：重建草稿时由 slash 拼回去，语音插入 / 钻取目录
+   * 都不会把 token 弄丢。
+   */
+  setComposerDisplay(display, refs, extra, slash) {
+    const view = String(display == null ? '' : display);
+    const chips = Array.isArray(refs) ? refs : [];
+    const body = composerMenu.displayToDraft(view, chips);
+    this._composerDisplay = view;
+    const patch = Object.assign({ composerValue: view, composerRefs: chips, draft: slash ? slash.token + ' ' + body : body }, extra || {});
     this.setData(patch);
+  },
+
+  /**
+   * textarea 的当前显示值。用户打字不往 data.composerValue 回写（避免和原生
+   * 输入打架），所以用这个镜像读取；程序化改写时两者由 setComposerDisplay 同步。
+   */
+  composerDisplay() {
+    return this._composerDisplay == null ? String(this.data.composerValue || '') : this._composerDisplay;
   },
 
   /** 点渲染结果回到编辑：上锁保持原文（光标可见），直到语法消失再出现才重新渲染。 */
@@ -4678,9 +4834,12 @@ Page({
         options: composerMenu.optionRows(this._commandOptionName, this._commandOptions, { t: uiText, query: this.data.commandMenuQuery })
       };
     } else if (lookup || this.data.attachSheetOpen) {
-      const cursor = Number.isInteger(this._composerCursor) ? Math.max(0, Math.min(text.length, this._composerCursor)) : text.length;
+      // _composerCursor 是显示值坐标（引用位置为零宽占位符），判断“光标前有没有
+      // 正文”要按显示值算：引用 chip 不算用户输入的正文。
+      const display = this.composerDisplay();
+      const cursor = Number.isInteger(this._composerCursor) ? Math.max(0, Math.min(display.length, this._composerCursor)) : display.length;
       const filtered = composerMenu.catalog(groups, { t: uiText, dark: this.data.theme === 'dark', query: this.data.commandMenuQuery || (this.data.attachSheetOpen ? '' : query),
-        leading: lookup || !text.slice(0, cursor).trim(), canAttach: composerMenu.acceptsAttachments(active) });
+        leading: lookup || !display.slice(0, cursor).trim(), canAttach: composerMenu.acceptsAttachments(active), includeSkills: !this.data.attachSheetOpen });
       menu = { type: 'catalog', title: '', groups: filtered, options: [] };
     }
     const ui = active && active.ui || {};
@@ -4690,7 +4849,7 @@ Page({
     const patch = dataPatch(this.data, {
       commandMenu: menu,
       canAttach: composerMenu.acceptsAttachments(active),
-      composerPlaceholder: hint || uiText(this.data.voiceEnabled ? '输入内容或按住说话' : '输入内容'),
+      composerPlaceholder: hint || uiText('输入内容, /调用指令, @ 文件或对话, 或按住说话'),
       commandToken: slash ? slash.token : '',
       commandTokenLabel: slash ? composerMenu.commandLabel(slash.command, uiText) : '',
       draftArg: slash ? slash.argument : text
@@ -4709,6 +4868,7 @@ Page({
     if (action === 'chatImage') { this.chooseFile(); return; }
     if (action === 'workspace') { this.chooseWorkspaceReference(); return; }
     if (action === 'chatFile') { this.chooseChatFile(); return; }
+    if (action === 'externalFile') { this.chooseExternalFile(); return; }
     const name = e.currentTarget.dataset.name;
     const id = e.currentTarget.dataset.id;
     const command = composerMenu.commands(store.sessionState.commandGroups).find(item => id ? item.id === id : item.name === name);
@@ -4775,7 +4935,6 @@ Page({
         if (self._unloaded) return false;
         if (store.sessionState.running) {
           // 运行中发送：消息进本机队列等待用户点“发送”箭头，
-          // 不再走网关 queue 模式（会被宿主在回合结束时自动发出）。
           self.enqueueSubmission(line, encodedImages || [], [], [], ticket);
           if (!preserveDraft) self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
           self.jumpToBottom();
@@ -4796,7 +4955,7 @@ Page({
       this.setData({ commandLoading: true });
       return store.client.executeCommand(store.sessionState.sessionId, line, encodedImages).then(() => {
         if (this._unloaded || this.composerContextKey() !== context) return false;
-        if (!preserveDraft && (this._draftRevision || 0) === revision) this.setData({ draft: '', images: [], canSend: false, commandMenu: null });
+        if (!preserveDraft && (this._draftRevision || 0) === revision) this.setComposerValue('', { images: [], canSend: false, commandMenu: null });
         this.setData({ commandLoading: false });
         this.jumpToBottom();
         return true;
@@ -4896,8 +5055,16 @@ Page({
     return this.pickComposerFiles();
   },
 
-  // Chat files are staged as file chips. The gateway still only accepts image
-  // attachments, so sending them stays guarded in send() until the host supports files.
+  chooseExternalFile() {
+    if (!this.data.canAttach || this.data.attachmentPicking || this.data.sendingAttachments) return;
+    const context = this.composerContextKey();
+    this.closeAttachMenu();
+    wx.showModal({ title: uiText('外部文件'),
+      content: uiText('请先将手机或其他应用中的文件发送到微信聊天或文件传输助手，再从这里选择上传。无需放入远端工作区。'),
+      confirmText: uiText('选择文件'),
+      success: result => { if (result.confirm && !this._unloaded && this.composerContextKey() === context) this.pickComposerFiles(); } });
+  },
+
   pickComposerFiles() {
     if (!this.data.canAttach || this.data.attachmentPicking || this.data.sendingAttachments) return;
     const remaining = 20 - this.data.images.length;
@@ -4921,16 +5088,19 @@ Page({
     const options = { count: Math.min(9, remaining), type: 'file', success: res => {
       if (!current()) { finish(); return; }
       const kept = [];
+      let skipped = false;
       for (const file of res.tempFiles || []) {
+        if (Number(file.size) > 50 * 1024 * 1024) { skipped = true; continue; }
         const tempPath = file.path || file.tempFilePath;
         if (!tempPath) continue;
         kept.push({ id: util.uuid(), isFile: true, tempPath, name: file.name || 'file', size: Number(file.size) || 0 });
       }
-      if (!kept.length) { finish(); wx.showToast({ title: uiText('未能读取所选文件'), icon: 'none' }); return; }
+      if (!kept.length) { finish(); wx.showToast({ title: uiText(skipped ? '外部文件不能超过 50 MB' : '未能读取所选文件'), icon: 'none' }); return; }
       if (!current()) { finish(); return; }
       const images = this.data.images.concat(kept).slice(0, 20);
-      this._attachmentRequest = null;
       this.setData({ images, canSend: !!this.data.draft.trim() || images.length > 0, attachmentPicking: false });
+      finish();
+      if (skipped) wx.showToast({ title: uiText('外部文件不能超过 50 MB'), icon: 'none' });
     }, fail: err => {
       if (current() && !/cancel/i.test(err && err.errMsg || '')) wx.showToast({ title: uiText('选择文件失败，请重试'), icon: 'none' });
       finish();
@@ -4964,19 +5134,35 @@ Page({
       const kept = [];
       for (const file of res.tempFiles || []) {
         if (!current()) { finish(); return; }
-        if (Number(file.size) > 8 * 1024 * 1024) { skipped = true; continue; }
         let tempPath = file.tempFilePath || file.path;
         if (!tempPath) { skipped = true; continue; }
-        // 原图好几 MB 时先压缩再 base64 上传，发送明显更快（仅 JPEG，避免 PNG/动图失真）。
-        if (Number(file.size) > 400 * 1024 && typeof wx.compressImage === 'function') {
-          tempPath = await new Promise((resolve) => {
-            wx.compressImage({
-              src: tempPath, quality: 72, compressedWidth: 1280,
-              success: (res) => resolve((res && res.tempFilePath) || tempPath),
-              fail: () => resolve(tempPath)
-            });
-          });
+        // 先尝试压缩大图，再检查压缩后的实际文件大小；避免原图超过 8MB 时过早拒绝。
+        let originalSize = Number(file.size) || 0;
+        const getSize = async path => {
+          if (typeof wx.getFileInfo !== 'function') return 0;
+          try {
+            const info = await new Promise((resolve, reject) => wx.getFileInfo({ filePath: path, success: resolve, fail: reject }));
+            return Number(info.size) || 0;
+          } catch (_) { return 0; }
+        };
+        if (!originalSize) originalSize = await getSize(tempPath);
+        if (originalSize > 400 * 1024 && typeof wx.compressImage === 'function') {
+          const attempts = originalSize > 8 * 1024 * 1024
+            ? [{ quality: 65, width: 1600 }, { quality: 50, width: 1280 }, { quality: 35, width: 1024 }]
+            : [{ quality: 72, width: 1440 }, { quality: 55, width: 1280 }];
+          for (const attempt of attempts) {
+            if (!current()) { finish(); return; }
+            const compressed = await new Promise(resolve => wx.compressImage({
+              src: tempPath, quality: attempt.quality, compressedWidth: attempt.width,
+              success: value => resolve(value && value.tempFilePath || ''), fail: () => resolve('')
+            }));
+            if (compressed) tempPath = compressed;
+            const compressedSize = await getSize(tempPath);
+            if (compressedSize > 0 && compressedSize <= 8 * 1024 * 1024) break;
+          }
         }
+        const finalSize = await getSize(tempPath) || originalSize;
+        if (finalSize > 8 * 1024 * 1024) { skipped = true; continue; }
         let info = null;
         try {
           info = await new Promise((resolve, reject) => wx.getImageInfo({ src: tempPath, success: resolve, fail: reject }));
@@ -4990,7 +5176,7 @@ Page({
           if (match) mediaType = composerMenu.imageType('image.' + match[1]);
         }
         if (!mediaType) { skipped = true; continue; }
-        kept.push({ id: util.uuid(), tempPath, mediaType, name: file.name || 'image', size: Number(file.size) || 0 });
+        kept.push({ id: util.uuid(), tempPath, mediaType, name: file.name || 'image', size: finalSize });
       }
       if (!current()) { finish(); return; }
       if (!this.data.canAttach) { finish(); return; }
@@ -5010,7 +5196,12 @@ Page({
 
   previewPendingImage(e) {
     const image = this.data.images[Number(e.currentTarget.dataset.index)];
-    if (image && !image.isFile) wx.previewImage({ current: image.tempPath, urls: this.data.images.filter(item => !item.isFile).map(item => item.tempPath) });
+    if (image && !image.isFile) this.openFileSheet(image, { origin: 'composer' });
+  },
+
+  previewPendingFile(e) {
+    const file = this.data.images[Number(e.currentTarget.dataset.index)];
+    if (file && file.isFile) this.openFileSheet(file, { origin: 'composer' });
   },
 
   removeImage(e) {
@@ -5032,7 +5223,7 @@ Page({
     const workspaceRefs = images.filter(image => image.isWorkspaceRef && image.path).map(image => ({ kind: image.workspaceKind, path: image.path, name: image.name }));
     const uploadImages = images.filter(image => !image.isFile);
     if (images.some(image => image.isFile && !image.isWorkspaceRef)) {
-      wx.showToast({ title: uiText('请选择工作区文件或目录发送'), icon: 'none' }); return;
+      return this.sendExternalFiles(text, images);
     }
     if (images.length && !composerMenu.acceptsAttachments(this._activeCommand)) {
       wx.showToast({ title: uiText('此指令不接受附件，请先移除附件'), icon: 'none' }); return;
@@ -5057,7 +5248,6 @@ Page({
       }
       if (s.running) {
         // 运行中发送：只进本机队列，等用户点队列行的发送箭头再真正发出。
-        // 之前走网关 queue 模式，宿主会在回合结束时把消息自动发出，绕过了队列的发送按钮。
         this.enqueueSubmission(text, encoded, uploadImages, workspaceRefs, ticket);
         self.setComposerValue('', { draft: '', images: [], canSend: false });
         this.closeAttachMenu();
@@ -5075,7 +5265,6 @@ Page({
       );
       if (sent !== false) {
         // 乐观回显：消息立即可见（对齐桌面端），网关回显到达时自动合并。
-        // 图片带上临时路径，发送后先显示本地图片，不必等附件回填。
         store.appendLocalUserRow(text, uploadImages.map((image) => ({
           attachmentId: image.id,
           name: image.name,
@@ -5093,6 +5282,52 @@ Page({
       if (this._unloaded || this.composerContextKey() !== context) return;
       wx.showToast({ title: err.message || uiText('附件处理失败'), icon: 'none' });
     }).finally(() => { if (!this._unloaded) this.setData({ sendingAttachments: false }); });
+  },
+
+  async sendExternalFiles(text, staged, pending) {
+    if (this.data.sendingAttachments) return;
+    const client = store.client, s = store.sessionState;
+    const fail = message => wx.showToast({ title: uiText(message), icon: 'none' });
+    if (store.state.connection !== 'connected' || !s.sessionId) return fail('请先连接网关并打开会话');
+    if (!(store.state.gatewayCapabilities || []).includes('file-upload-v1')) return fail('当前网关不支持外部文件，请升级并重启网关');
+    if (!pending && this._activeCommand) return fail('斜杠命令不支持文件，请使用普通消息发送');
+    if (pending && pending.sessionId !== s.sessionId) return fail('会话已切换，消息仍保留在队列');
+    const context = this.composerContextKey(), sessionId = s.sessionId, generation = client.connectGeneration;
+    const revision = this._draftRevision || 0;
+    const current = () => !this._unloaded && store.client === client && this.composerContextKey() === context
+      && client.connectGeneration === generation && (pending ? this.pendingSubmission(pending.id) === pending : (this._draftRevision || 0) === revision);
+    const refs = pending ? pending.workspaceRefs || [] : staged.filter(file => file.isWorkspaceRef).map(file => ({ kind: file.workspaceKind, path: file.path, name: file.name }));
+    this.setData({ sendingAttachments: true });
+    try {
+      const ticket = pending ? pending.ticket : await notifySubscription.requestCompletionTicket();
+      if (!current()) return;
+      if (s.running && !pending) {
+        this.enqueueSubmission(text, [], staged.filter(file => !file.isWorkspaceRef), refs, ticket);
+        this.setComposerValue('', { draft: '', images: [], canSend: false });
+        this.closeAttachMenu(); return;
+      }
+      const { uploadFile } = require('./utils/file-upload');
+      const receipts = [];
+      for (const file of staged.filter(file => file.isFile && !file.isWorkspaceRef)) {
+        if (!current()) return;
+        const uploaded = await uploadFile(client, file, { api: wx, sessionId, isCurrent: current });
+        receipts.push({ receiptId: uploaded.receiptId });
+      }
+      const images = await Promise.all(staged.filter(file => !file.isFile).map(readImageBase64));
+      if (!current()) return;
+      // A socket write is not acceptance; preserve the draft until the host ACK.
+      await client.requestUpload('message', { sessionId, text, images, files: receipts, attachments: refs,
+        clientTimeZone: client.timeZone(), ...(s.running ? { mode: 'steer' } : {}),
+        ...(ticket ? { notificationTicket: ticket } : {}) });
+      if (!current()) return;
+      if (pending) this.dropPendingSubmission(pending.id);
+      else this.setComposerValue('', { draft: '', images: [], canSend: false });
+      this.closeAttachMenu(); this.jumpToBottom();
+    } catch (error) {
+      if (current()) fail(error.message || error.errMsg || '文件上传失败，草稿已保留');
+    } finally {
+      if (!this._unloaded) this.setData({ sendingAttachments: false });
+    }
   },
 
   updateDockInset(attempt) {
@@ -5126,6 +5361,7 @@ Page({
         if (Math.abs(inset - this.data.convBottomInset) > 6) {
           this.setData({ convBottomInset: inset, ...this.layoutPatch({ convBottomInset: inset }) }, () => {
             if (this._convPinned) this.refreshBottomAnchor();
+            this.measureConversationViewport();
           });
         }
         // 布局稳定后再校准一次：历史/队列渲染会改变 dock 高度
@@ -5383,7 +5619,6 @@ Page({
       const clampY = (value) => Math.max(0, Math.min(height, value));
 
       // 竖向布局：上排两节点 → 中间会话 → 下排两节点
-      // 竖排（手机恒走窄态）：上排两节点 0.5 处汇入会话节点 1/3、2/3；下行由 1/3、2/3 分叉。
       const paths = [
         { from: '#ctxNodeInputs', to: '#ctxNodeSession', fromSide: 'bottom', fromAt: 0.5, toSide: 'top', toAt: 1 / 3, color: '#00C950' },
         { from: '#ctxNodeEvents', to: '#ctxNodeSession', fromSide: 'bottom', fromAt: 0.5, toSide: 'top', toAt: 2 / 3, color: '#AD46FF' },
@@ -5666,8 +5901,6 @@ Page({
       if (!store.state || store.state.connection !== 'connected') throw Error('offline');
       if (typeof client.cancelInspector === 'function') client.cancelInspector(id);
       // 子智能体会话必须带持久父地址：父会话是它在 subagentCatalog 里的归属会话
-      // （顶层列表=当前会话；预览内「下级子智能体」=被预览会话），否则网关以
-      // session/agent-busy 拒绝且错误帧无 sessionId，只能等 8s 超时。
       const childMode = ['one-shot','continuable','unknown'].includes(row.mode) ? row.mode : '';
       const parent = childMode
         ? { parentSessionId: fromPreviewChildren ? previewSessionId : sessionId, mode: childMode }

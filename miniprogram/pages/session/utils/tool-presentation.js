@@ -1,4 +1,4 @@
-const { t: uiText } = require('./ui-preferences');
+const { t: uiText } = require('../../../utils/ui-preferences');
 // DSH SUMMARY_KEYS: shell description first, then actual command.
 // 每次 emit（每条实时事件、流式每 120ms）都会重投影整段会话的工具行；已完成工具的
 // (name, argumentsText, cwd) 不再变化，缓存后长会话每拍省下十几毫秒，过程帧不被饿死。

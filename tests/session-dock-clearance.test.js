@@ -11,7 +11,7 @@ test('presented and edited file cards retain a 20rpx gap in either order', () =>
 });
 function pageFixture(rects) {
   let definition, scrolled = 0; const ticks = [];
-  const query = { select() { return this; }, boundingClientRect() { return this; }, exec(fn) { fn(rects); } };
+  const query = { select() { return this; }, boundingClientRect() { return this; }, scrollOffset() { return this; }, exec(fn) { fn(rects); } };
   const store = { state: {}, sessionState: {} };
   vm.runInNewContext(fs.readFileSync(path.join(root, 'session.js'), 'utf8'), {
     Page: value => definition = value, setTimeout() {}, wx: { nextTick: fn => ticks.push(fn),
@@ -56,6 +56,20 @@ test('jump arrow follows real content end, not former transparent dock area', ()
   const css = fs.readFileSync(path.join(root, 'session.wxss'),'utf8');
   assert.match(css,/\.jump-wrap\s*\{[^}]*position: absolute;[^}]*bottom: calc\(100% \+ 16rpx\)/);
 });
+test('one-tap bottom control appears as soon as the reader manually leaves latest messages', () => {
+  const { page } = pageFixture([]);
+  page.data.rows = [{ key: 'message-1' }];
+  page.onPanelTouchStart({ touches: [{ clientX: 100, clientY: 100 }] });
+  page.onPanelTouchMove({ touches: [{ clientX: 100, clientY: 120 }] });
+  page.applyScrollPosition({ scrollTop: 900, scrollHeight: 1400, clientHeight: 400 });
+  assert.equal(page.data.showJump, true);
+
+  const xml = fs.readFileSync(path.join(root, 'session.wxml'), 'utf8');
+  assert.match(xml, /wx:if="\{\{showJump && rows\.length\}\}" class="jump-wrap"/);
+  assert.match(xml, /class="jump-bottom" bindtap="jumpToBottom"/);
+  page.jumpToBottom();
+  assert.equal(page.data.showJump, false, 'the same control clears when the conversation returns to bottom');
+});
 test('empty and status states fill the viewport instead of scrolling', () => {
   const css = fs.readFileSync(path.join(root, 'session.wxss'), 'utf8');
   const xml = fs.readFileSync(path.join(root, 'session.wxml'), 'utf8');
@@ -89,4 +103,20 @@ test('scroll events without viewport height use the last measured viewport', () 
   assert.equal(page._convPinned, false);
   const xml = fs.readFileSync(path.join(root, 'session.wxml'), 'utf8');
   assert.match(xml, /scroll-into-view="\{\{scrollTarget\}\}"\s+scroll-with-animation="\{\{scrollAnim\}\}"/);
+});
+test('idle conversation measures viewport height so scroll events without clientHeight can show the arrow', () => {
+  const f = pageFixture([
+    { height: 400 },
+    { scrollTop: 1000, scrollHeight: 1400 },
+    { height: 1400 }
+  ]);
+  const page = f.page;
+  page.data.rows = [{ key: 'message-1' }];
+  page.measureConversationViewport();
+  assert.equal(page._convClientHeight, 400);
+
+  page.onPanelTouchStart({ touches: [{ clientX: 100, clientY: 100 }] });
+  page.onPanelTouchMove({ touches: [{ clientX: 100, clientY: 120 }] });
+  page.onConvScroll({ detail: { scrollTop: 900, scrollHeight: 1400 } });
+  assert.equal(page.data.showJump, true);
 });

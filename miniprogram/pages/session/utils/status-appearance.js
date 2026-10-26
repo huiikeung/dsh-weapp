@@ -1,4 +1,4 @@
-const { t: uiText } = require('./ui-preferences');
+const { t: uiText } = require('../../../utils/ui-preferences');
 // Color presets adapted from 01Virex/dsh-status-rotator (MIT).
 // This module never changes phrases, elapsed time, or gateway settings.
 const KEY = 'statusAppearance';

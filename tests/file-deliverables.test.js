@@ -5,10 +5,10 @@ const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
 const {buildRows,normalizeRawEvent,newAggregator,applyEvent}=require('../miniprogram/utils/protocol');
-const {buildEntries}=require('../miniprogram/utils/conversation-workflow');
-const {describe,relativePath}=require('../miniprogram/utils/file-deliverables');
-const {downloadFile,MAX_BYTES}=require('../miniprogram/utils/file-download');
-const SHA256=require('../miniprogram/utils/file-sha256');
+const {buildEntries}=require('../miniprogram/pages/session/utils/conversation-workflow');
+const {describe,relativePath}=require('../miniprogram/pages/session/utils/file-deliverables');
+const {downloadFile,MAX_BYTES}=require('../miniprogram/pages/session/utils/file-download');
+const SHA256=require('../miniprogram/pages/session/utils/file-sha256');
 const event=(seq,type,data)=>({seq,type,data});
 const file={sessionId:'session',path:'out/test.md',name:'test.md',key:'file'};
 
@@ -111,7 +111,7 @@ test('cancel, session switch and reconnect cannot finish or open a stale downloa
 });
 
 test('bounded transfer pool allows the gateway concurrency and rejects beyond it',async()=>{
-  const f=transferFixture();const {MAX_CONCURRENT_DOWNLOADS}=require('../miniprogram/utils/file-download');
+  const f=transferFixture();const {MAX_CONCURRENT_DOWNLOADS}=require('../miniprogram/pages/session/utils/file-download');
   const pending=[];const open=f.client.openFileDownload;
   f.client.openFileDownload=(...args)=>new Promise(resolve=>{pending.push(()=>resolve(open(...args)));});
   const perJob=()=>Object.assign({},f.options,{job:{}});
@@ -156,19 +156,33 @@ test('running whale follows content before the bottom anchor, never floats over 
 
 test('file action UI uses safe plain-text HTML and declines stale session cards',async()=>{
   const filename=path.resolve(__dirname,'../miniprogram/pages/session/file-actions.js');
-  let module={exports:{}},reads=0;const calls=[];
+  let module={exports:{}};const calls=[];const reads=[];
   const store={sessionState:{sessionId:'session'},state:{sessions:[]},client:{connectGeneration:1}};
-  const api={getFileSystemManager(){return {};},showModal:o=>calls.push(o),openDocument:o=>calls.push(['doc',o]),previewImage:o=>calls.push(['image',o]),shareFileMessage:o=>calls.push(['share',o])};
+  const api={getFileSystemManager(){return {readFile:o=>{reads.push(o);o.success({data:'<script>evil()</script>'});}};},
+    showModal:o=>calls.push(o),openDocument:o=>calls.push(['doc',o]),previewImage:o=>calls.push(['image',o]),shareFileMessage:o=>calls.push(['share',o])};
   vm.runInNewContext(fs.readFileSync(filename,'utf8'),{module,wx:api,require(name){
     if(name.endsWith('/store'))return store;
-    if(name.endsWith('/file-download'))return {downloadFile:async(c,f)=>({...f,localPath:'/tmp/file',size:15}),removeFile:async()=>{},fsCall:async()=>{reads++;return {data:'<script>evil()</script>'};}};
+    if(name.endsWith('/file-download'))return {downloadFile:async(c,f)=>({...f,localPath:'/tmp/file',size:15}),removeFile:async()=>{}};
     return require(path.resolve(path.dirname(filename),name));
   }});
   const page={...module.exports,data:{rows:[{files:[file]}]},setData(p){Object.assign(this.data,p);}};
   await page.presentFile({...file,path:'index.html'},'preview');
-  assert.equal(reads,1);assert.equal(page.data.filePreview.text,'<script>evil()</script>');assert.equal(page.data.filePreview.sourceCode,true);assert.equal(calls.length,0);
-  await page.presentFile({...file,path:'image.png'},'preview');assert.equal(calls.at(-1)[0],'image');
-  await page.presentFile({...file,path:'doc.pdf'},'preview');assert.equal(calls.at(-1)[0],'doc');
+  assert.equal(page.data.filePreview.text,'<script>evil()</script>');
+  assert.equal(page.data.filePreview.sourceCode,true,'html is rendered as inert text, never executed');
+  assert.equal(calls.length,0,'no native viewer is opened behind the sheet');
+  assert.ok(reads.length>=1,'the body is read from the downloaded local file');
+  await page.presentFile({...file,path:'image.png'},'preview');
+  assert.equal(page.data.filePreview.previewKind,'image');
+  assert.equal(page.data.filePreview.localPath,'/tmp/file');
+  assert.equal(page.data.filePreview.primary,'查看原图');
+  assert.equal(calls.length,0,'images render inside the sheet');
+  page.filePreviewPrimary();assert.equal(calls.at(-1)[0],'image','the primary action opens the full-screen viewer');
+  await page.presentFile({...file,path:'doc.pdf'},'preview');
+  assert.equal(page.data.filePreview.previewKind,'document');
+  assert.equal(page.data.filePreview.primary,'用微信打开');
+  assert.equal(calls.length,1,'documents wait for the user to ask');
+  page.filePreviewPrimary();assert.equal(calls.at(-1)[0],'doc');
+  assert.equal(calls.at(-1)[1].fileType,'pdf');
   await page.presentFile(file,'share');assert.equal(calls.at(-1)[0],'share');
   store.sessionState.sessionId='different';assert.equal(page.findPresentedFile({currentTarget:{dataset:{key:'file'}}}),null);
   const count=calls.length;await page.presentFile(file,'preview');assert.equal(calls.length,count);
@@ -186,7 +200,7 @@ function shareFixture() {
       removeFile:async p=>removed.push(p),fsCall:async()=>({data:'完整文件'})};
     return require(path.resolve(path.dirname(filename),name));
   }});
-  const page={...module.exports,data:{rows:[],filePreview:null,fileSheet:null},setData(p){Object.assign(this.data,p);}};
+  const page={...module.exports,data:{rows:[],filePreview:null},setData(p){Object.assign(this.data,p);}};
   return {page,store,api,calls,removed,downloads:()=>downloads};
 }
 
@@ -221,11 +235,12 @@ test('reopening the same file forwards the current preview and keeps local downl
 });
 
 test('file menu forwarding retains a direct retry after a user-gesture rejection',async()=>{
-  const f=shareFixture();f.page.data.fileSheet=describe(file);
+  const f=shareFixture();f.page.data.filePreview=describe(file);
   await f.page.shareSelectedFile();
   const share=f.calls.find(c=>c[0]==='share')[1];
   share.fail({errMsg:'shareFileMessage:fail can only be invoked by user TAP gesture'});share.complete();
-  assert.ok(f.page.data.fileSheet);assert.equal(f.calls.at(-1)[0],'toast');
+  assert.ok(f.page.data.filePreview,'the sheet stays open so the retry has a target');
+  assert.equal(f.calls.at(-1)[0],'toast');
   f.page.shareSelectedFile();assert.equal(f.calls.at(-1)[0],'share');assert.equal(f.downloads(),1);
 });
 

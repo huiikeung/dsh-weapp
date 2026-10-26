@@ -13,6 +13,35 @@ assert.equal(parsed.payload.gatewayId, payload.nodeId);
 const invite = parse(raw({ ...payload, inviteToken: 'b'.repeat(43) }));
 assert.equal(invite.payload.authMode, 'invite');
 assert.equal(invite.payload.pairingCode, null);
+const dualCloudflare = parse(raw({
+  version: 2,
+  publicUrl: 'ws://192.168.1.20:3081/ws/mobile',
+  endpoints: ['ws://192.168.1.20:3081/ws/mobile'],
+  pairingCode: 'c'.repeat(43),
+  expiresAt: Date.now() + 60000,
+  gatewayId: '87654321-4321-4321-8321-210987654321',
+  gatewayName: '家里电脑',
+  miniProgramRoute: { mode: 'direct', publicUrl: 'wss://gateway.example.com/ws/mobile', endpoints: ['wss://gateway.example.com/ws/mobile'] }
+}));
+assert.equal(dualCloudflare.ok, true);
+assert.equal(dualCloudflare.payload.mode, 'mini-program-direct');
+assert.equal(dualCloudflare.payload.publicUrl, 'wss://gateway.example.com/ws/mobile');
+assert.equal(dualCloudflare.payload.endpoints[0], 'wss://gateway.example.com/ws/mobile');
+const dualRelay = parse(raw({
+  version: 2,
+  publicUrl: 'ws://192.168.1.20:3081/ws/mobile',
+  pairingCode: 'd'.repeat(43),
+  expiresAt: Date.now() + 60000,
+  gatewayName: '家里电脑',
+  miniProgramRoute: { mode: 'relay', relay: payload.relay, nodeId: payload.nodeId, agentPubKey: payload.agentPubKey }
+}));
+assert.equal(dualRelay.ok, true);
+assert.equal(dualRelay.payload.mode, 'relay');
+assert.equal(dualRelay.payload.pairingCode, 'd'.repeat(43));
+assert.equal(parse(raw({
+  version: 2, publicUrl: 'ws://192.168.1.20/ws/mobile', pairingCode: 'e'.repeat(43), expiresAt: Date.now() + 60000,
+  miniProgramRoute: { mode: 'unknown' }
+})).error, PairingError.INVALID_RELAY);
 // 可选字段：主机平台 / 设备类型；缺失或非法时按 null 忽略，不影响配对。
 const withDevice = parse(raw({ ...payload, hostPlatform: 'linux', deviceKind: 'server.rack' }));
 assert.equal(withDevice.payload.hostPlatform, 'linux');
@@ -38,6 +67,7 @@ const client = new GatewayClient();
 client.reportDeviceInfo = () => {};
 client.connect(parsed.payload.publicUrl, { pairingCode: payload.pairingCode, relay: parsed.payload });
 assert.deepEqual(socketOptions.protocols, ['dsh-mobile-v1']);
+assert.equal(socketOptions.header['X-DSH-Client-Type'], 'wechat-miniprogram');
 assert.equal(socketOptions.header.Authorization, undefined);
 assert.equal(socketOptions.header['X-DSH-Device-Name'], undefined, 'Device name is not exposed to the relay');
 let auth;

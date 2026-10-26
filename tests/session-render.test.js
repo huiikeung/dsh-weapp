@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { dataPatch, createMarkdownCache } = require('../miniprogram/utils/session-render');
+const { dataPatch, createMarkdownCache } = require('../miniprogram/pages/session/utils/session-render');
 const clone = value => JSON.parse(JSON.stringify(value));
 function apply(data, patch) {
   Object.entries(patch).forEach(([key, value]) => {
@@ -284,6 +284,22 @@ test('bottom anchor reset commits before targeting and a new touch cancels the p
   commits.shift()();assert.equal(f.ticks.length,1);f.ticks.shift()();assert.equal(f.page.data.scrollTarget,'conv-bottom');
   f.page.refreshBottomAnchor();commits.shift()();f.page.onConvTouch();f.ticks.shift()();
   assert.equal(f.page.data.scrollTarget,'');assert.equal(f.page._bottomAnchorPending,false);
+});
+test('bottom anchors cannot override a reader-owned scroll gesture', () => {
+  const f = fixture();
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  f.page._convPinned = false;
+  f.page.refreshBottomAnchor();
+  assert.equal(f.ticks.length, 0, 'reading older messages is never auto-pinned');
+
+  f.page._convPinned = true;
+  f.page._panelGesture = { tab: 'conversation', axis: 'vertical', x: 20, y: 80 };
+  f.page.refreshBottomAnchor();
+  assert.equal(f.ticks.length, 0, 'a pending layout correction waits until the finger lifts');
+  assert.equal(f.page._bottomAnchorDeferred, true);
+
+  f.page.onPanelTouchEnd({ changedTouches: [{ clientX: 20, clientY: 80 }] });
+  assert.equal(f.ticks.length, 1, 'a still-pinned conversation can apply the deferred anchor after touch end');
 });
 test('empty conversation keeps its centered state instead of jumping to the bottom anchor', () => {
   const f = fixture();

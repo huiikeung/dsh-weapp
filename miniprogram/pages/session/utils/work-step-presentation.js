@@ -1,4 +1,4 @@
-const { t: uiText } = require('./ui-preferences');
+const { t: uiText } = require('../../../utils/ui-preferences');
 // DSH Chat presentation-policy: four detail modes and independent collapse timing.
 const KEY = 'workStepPresentation';
 const MODES = [{id:'compact',label:uiText('简洁')},{id:'standard',label:uiText('标准')},{id:'detailed',label:uiText('详细')},{id:'verbose',label:uiText('完全展开')}];

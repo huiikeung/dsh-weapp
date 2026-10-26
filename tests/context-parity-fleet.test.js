@@ -17,7 +17,7 @@ function expandIncludes(file) {
     expandIncludes(path.resolve(path.dirname(file), includePath)));
 }
 const wxml = expandIncludes(path.join(root, 'pages/session/session.wxml'));
-const view = require(path.join(root, 'utils/context-view'));
+const view = require(path.join(root, 'pages/session/utils/context-view'));
 
 const t = (key, values) => (values
   ? Object.keys(values).reduce((text, name) => text.split('{' + name + '}').join(String(values[name])), key)

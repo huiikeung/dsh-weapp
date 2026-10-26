@@ -11,6 +11,7 @@ const initialHomeAnimationEnabled = homeAnimationPreference.enabled();
 const costView = require('../../utils/cost-view');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
 const { connectionView } = require('../../utils/connection-status');
+const { createSessionWarmup } = require('../../utils/session-warmup');
 
 const HOME_SESSION_REFRESH_MS = 1800;
 const SESSION_SWIPE_ACTION_RPX = 300; // 两个 150rpx 操作钮
@@ -202,6 +203,7 @@ Page({
   onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
 
   onHide() {
+    if (this._sessionWarmup) this._sessionWarmup.stop();
     this._homeHidden = true;
     this._homeVisible = false;
     this.stopSessionStatusPolling();
@@ -255,6 +257,7 @@ Page({
   },
 
   onUnload() {
+    if (this._sessionWarmup) this._sessionWarmup.stop();
     this._homeHidden = true;
     this._homeVisible = false;
     this._workspacePickerRequest = null;
@@ -344,6 +347,14 @@ Page({
         timeLabel: util.formatRelativeTime(s.updatedAt)
       }));
 
+    if (store.warmSessionCache) {
+      if (!this._sessionWarmup) this._sessionWarmup = createSessionWarmup({
+        load: (id, current) => store.warmSessionCache(id, current)
+      });
+      const s = snapshot.session || {};
+      this._sessionWarmup.update(app.activeID || app.endpoint || '', displaySessions,
+        !s.running && !s.historyPaging && s.historyState !== 'requested');
+    }
     const usingCachedHome = !!(
       (app.lastSessionsFrame && app.lastSessionsFrame.cached) ||
       (app.lastWorkspacesFrame && app.lastWorkspacesFrame.cached)
@@ -636,8 +647,22 @@ Page({
     const selected = this.data.hostSelection || [];
     this.setData({ hostDeleteOpen: false });
     if (!selected.length) return;
-    store.removeHosts(selected);
-    this.setData({ hostSelection: [], hostEditMode: false });
+    if (typeof wx.showLoading === 'function') wx.showLoading({ title: uiText('正在移除设备'), mask: true });
+    const removal = typeof store.forgetHosts === 'function'
+      ? store.forgetHosts(selected)
+      : Promise.resolve().then(() => { store.removeHosts(selected); return { removed: selected.length, failed: 0 }; });
+    Promise.resolve(removal).then((result) => {
+      if (typeof wx.hideLoading === 'function') wx.hideLoading();
+      this.setData({ hostSelection: [], hostEditMode: false });
+      if (result && result.failed) {
+        wx.showToast({ title: uiText('主机离线或网关需更新，记录未同步'), icon: 'none', duration: 3000 });
+      } else {
+        wx.showToast({ title: uiText('已删除'), icon: 'success' });
+      }
+    }).catch((error) => {
+      if (typeof wx.hideLoading === 'function') wx.hideLoading();
+      wx.showToast({ title: error && error.message || uiText('移除设备失败'), icon: 'none' });
+    });
   },
 
   onSearchInput(e) {
@@ -804,7 +829,7 @@ Page({
     // 乐观创建：先进入会话页，后台创建结果由会话页呈现
     const workspaceId = this.data.currentWorkspace.workspaceId || store.state.currentWorkspaceId;
     const creation = store.createAndOpenSession(workspaceId);
-    wx.navigateTo({ url: '/pages/session/session' });
+    wx.navigateTo({ url: '/pages/session/session', animationDuration: 160 });
     creation.catch(() => {}); // 失败状态已写入 store，由会话页显示重试入口
   },
 
@@ -815,19 +840,23 @@ Page({
       this.closeSwipe();
       return;
     }
-    const { id, title, preset } = e.currentTarget.dataset;
+    const { id, preset } = e.currentTarget.dataset;
     if (!id) {
       wx.showToast({ title: uiText('会话 ID 不可用'), icon: 'none' });
       return;
     }
     // 先停掉全屏海洋帧生成，避免它与会话首屏抢主线程和 setData 桥接。
     this._openingSession = true;
+    if (this._sessionWarmup) this._sessionWarmup.stop();
     this._homeHidden = true;
     const ocean = this.selectComponent && this.selectComponent('#home-ocean');
     if (ocean) ocean.pause();
     this.setData({ oceanActive: false });
-    store.openSession(id, title, preset);
-    wx.navigateTo({ url: '/pages/session/session?id=' + encodeURIComponent(id), fail: () => {
+    const query = ['id=' + encodeURIComponent(id), 'reopen=1'];
+    if (preset) query.push('preset=' + encodeURIComponent(preset));
+    // Navigate first: the session page paints its loading shell before opening
+    // the store/cache, which may synchronously restore a large conversation.
+    wx.navigateTo({ url: '/pages/session/session?' + query.join('&'), animationDuration: 160, fail: () => {
       this._openingSession = false; this._homeHidden = false;
       this.setData({ oceanActive: true });
       this.syncFromStore({ app: store.state, session: store.sessionState });

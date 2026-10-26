@@ -1,8 +1,12 @@
 const store = require('../../utils/store');
 const { t } = require('../../utils/ui-preferences');
-const { describe } = require('../../utils/file-deliverables');
-const { downloadFile, removeFile, fsCall } = require('../../utils/file-download');
-const TEXT_LIMIT = 128 * 1024;
+const { describe } = require('./utils/file-deliverables');
+const filePreview = require('./utils/file-preview');
+const { downloadFile, removeFile } = require('./utils/file-download');
+
+// 这个 mixin 既被页面加载，也被 Node 测试直接 require；后者没有全局 wx，
+// 所以一律走守卫访问，别用 `typeof wx.x`（引用未声明变量仍会抛）。
+function wxApi() { return typeof wx !== 'undefined' ? wx : null; }
 
 module.exports = {
   findPresentedFile(e) {
@@ -19,35 +23,86 @@ module.exports = {
     this.setData({ fileExpanded: Object.assign({}, this.data.fileExpanded, { [key]: !this.data.fileExpanded[key] }) });
   },
 
-  showFileActions(e) {
-    const file = this.findPresentedFile(e);
-    if (file) this.setData({ fileSheet: file });
+  canShareFiles() { const api = wxApi(); return !!api && typeof api.shareFileMessage === 'function'; },
+
+  /** 统一入口：待发送文件 / 已发送消息附件 / 交付文件都打开同一个底部弹窗。 */
+  openFileSheet(source, options = {}) {
+    if (this._unloaded || !source) return null;
+    const file = filePreview.openSheet(source, options);
+    const api = wxApi();
+    const sheet = Object.assign({}, file, { canShare: !!file.localPath && !!api && typeof api.shareFileMessage === 'function' });
+    this.setData({ filePreview: sheet, fileSharingKey: '' });
+    // 本地文件（输入框临时文件、已缓存附件）直接可看；网关文件按需拉取，
+    // 文档类不预下载——正文交给微信查看器，等用户点「用微信打开」再传。
+    if (file.localPath && file.previewKind === 'text') this.loadFileSheetText(sheet, api);
+    else if (!file.localPath && file.sessionId && file.path && file.previewKind !== 'document' && file.previewKind !== 'file') this.presentFile(file, 'preview');
+    return sheet;
   },
-  closeFileActions() { this.setData({ fileSheet: null }); },
-  closeFilePreview() { this.setData({ filePreview: null }); },
-  copyPresentedPath() {
-    if (this.data.fileSheet) wx.setClipboardData({ data: this.data.fileSheet.path });
-    this.closeFileActions();
+
+  patchFileSheet(key, patch) {
+    if (this._unloaded || !this.data.filePreview || this.data.filePreview.key !== key) return;
+    this.setData({ filePreview: Object.assign({}, this.data.filePreview, patch) });
   },
+
+  loadFileSheetText(sheet, api) {
+    if (!sheet || !sheet.localPath) return;
+    filePreview.readLocalText(api || wxApi(), sheet.localPath, sheet.size)
+      .then(result => this.patchFileSheet(sheet.key, result))
+      .catch(() => this.patchFileSheet(sheet.key, { error: t('文件暂时无法预览') }));
+  },
+
   openPresentedFile(e) {
     const file = this.findPresentedFile(e);
-    if (file) return this.presentFile(file, 'preview');
+    if (file) return this.openFileSheet(file, { origin: 'delivered' });
   },
-  previewSelectedFile() {
-    const file = this.data.fileSheet; this.closeFileActions();
-    if (file) return this.presentFile(file, 'preview');
+  closeFilePreview() { this.setData({ filePreview: null }); },
+  copyPresentedPath() {
+    const sheet = this.data.filePreview;
+    if (sheet && sheet.path) wx.setClipboardData({ data: sheet.path });
+    this.setData({ filePreview: null });
   },
+
+  /** 弹窗主操作：按类型分别内嵌渲染、复制、调起微信查看器或转发。 */
+  filePreviewPrimary() {
+    const sheet = this.data.filePreview;
+    if (!sheet || this.data.fileBusyKey) return;
+    if (sheet.selection) return this.copyTextSelection();
+    if (sheet.previewKind === 'text') return sheet.localPath ? this.copyTextSelection() : this.presentFile(sheet, 'preview');
+    if (sheet.previewKind === 'image') {
+      if (!sheet.localPath) return this.presentFile(sheet, 'open');
+      const api = wxApi();
+      if (api && typeof api.previewImage === 'function') api.previewImage({ current: sheet.localPath, urls: [sheet.localPath] });
+      return;
+    }
+    if (sheet.previewKind === 'document') {
+      if (!sheet.localPath) return this.presentFile(sheet, 'open');
+      return this.openNativeDocument(sheet);
+    }
+    return this.shareSelectedFile();
+  },
+
+  openNativeDocument(sheet) {
+    const api = wxApi();
+    if (!api || typeof api.openDocument !== 'function') return;
+    const fail = error => {
+      if (/cancel/i.test((error && (error.errMsg || error.message)) || '')) return;
+      api.showModal({ title: t('文件暂时无法预览'),
+        content: t('可以通过文件菜单转发文件，再使用支持此格式的应用打开。'), showCancel: false });
+    };
+    api.openDocument({ filePath: sheet.localPath, fileType: filePreview.openDocumentType(sheet.extension), showMenu: true, fail });
+  },
+
   shareSelectedFile() {
-    const file = this.data.fileSheet || this.data.filePreview;
+    const file = this.data.filePreview;
     if (!file) return;
-    // Use the verified preview download in the tap handler: no second network trip
-    // and no lost user gesture when opening WeChat's recipient picker.
     const local = this.cachedPresentedFile(file);
     if (local) return this.shareLocalFile(file, local);
+    // 输入框里的临时文件本机就在，直接转发，不必走网关下载。
+    if (file.localPath && !file.sessionId) return this.shareLocalFile(file, { localPath: file.localPath });
     return this.presentFile(file, 'share');
   },
   cachedPresentedFile(file) {
-    if (this._unloaded || file.sessionId !== store.sessionState.sessionId) return null;
+    if (this._unloaded || (file.sessionId && file.sessionId !== store.sessionState.sessionId)) return null;
     const files = this._localPresentedFiles || [];
     for (let index = files.length - 1; index >= 0; index--) {
       const local = files[index];
@@ -58,15 +113,16 @@ module.exports = {
     return null;
   },
   shareLocalFile(file, local) {
-    if (this._fileShare || this._unloaded || file.sessionId !== store.sessionState.sessionId) return;
+    if (this._fileShare || this._unloaded) return;
+    if (file.sessionId && file.sessionId !== store.sessionState.sessionId) return;
     if (typeof wx.shareFileMessage !== 'function') {
       wx.showModal({ title: t('文件转发失败'), content: t('当前微信版本不支持转发文件，请升级微信'), showCancel: false });
       return;
     }
     const request = { local }; this._fileShare = request;
     this.setData({ fileSharingKey: file.key });
-    const current = () => !this._unloaded && file.sessionId === store.sessionState.sessionId &&
-      local.client === store.client && local.generation === (store.client && store.client.connectGeneration);
+    const current = () => !this._unloaded && (!local.client ||
+      (local.client === store.client && local.generation === (store.client && store.client.connectGeneration)));
     const finish = () => {
       if (this._fileShare === request) {
         this._fileShare = null;
@@ -80,7 +136,6 @@ module.exports = {
       if (/cancel/i.test(message)) return;
       if (/gesture|user.*tap/i.test(message)) {
         // Keep the cached file and the button; the next tap invokes sharing directly.
-        if (!this.data.filePreview) this.setData({ fileSheet: file });
         wx.showToast({ title: t('文件已准备好，请再次点击转发'), icon: 'none' });
         return;
       }
@@ -93,7 +148,7 @@ module.exports = {
     };
     try {
       wx.shareFileMessage({ filePath: local.localPath, fileName: file.name,
-        success: () => { if (current()) this.closeFileActions(); }, fail, complete: finish });
+        success: () => { if (current()) this.closeFilePreview(); }, fail, complete: finish });
     } catch (error) { fail(error); finish(); }
   },
 
@@ -123,6 +178,7 @@ module.exports = {
       client === store.client && generation === client.connectGeneration && sessionId === store.sessionState.sessionId;
     const job = {}; this._fileJob = job;
     this.setData({ fileBusyKey: file.key, fileProgress: 0 });
+    this.patchFileSheet(file.key, { error: '' });
     try {
       const listed = (store.state.sessions || []).find(item => item.sessionId === sessionId || item.id === sessionId);
       const local = await downloadFile(client, file, { job, cwd: store.sessionState.cwd || (listed && listed.cwd),
@@ -141,30 +197,23 @@ module.exports = {
         if (index < 0) break;
         void removeFile(this._localPresentedFiles.splice(index, 1)[0].localPath);
       }
-      const fail = error => {
-        if (current() && !/cancel/i.test(error && error.errMsg || '')) wx.showModal({ title: t('文件暂时无法预览'),
-          content: t('可以通过文件菜单转发文件，再使用支持此格式的应用打开。'), showCancel: false });
-      };
-      if (action === 'share' || file.previewKind === 'file') {
-        if (!this.data.filePreview) this.setData({ fileSheet: file });
-        this.shareLocalFile(file, local);
-      } else if (file.previewKind === 'image') {
-        wx.previewImage({ current: local.localPath, urls: [local.localPath], fail });
-      } else if (file.previewKind === 'document') {
-        wx.openDocument({ filePath: local.localPath, fileType: file.extension, showMenu: true, fail });
-      } else {
-        const result = local.size ? await fsCall(wx.getFileSystemManager(), 'readFile', { filePath: local.localPath,
-          encoding: 'utf8', position: 0, length: Math.min(local.size, TEXT_LIMIT) }) : { data: '' };
-        // Text only: never execute HTML/SVG/JS delivered by an agent.
-        if (current() && !job.cancelled) this.setData({ filePreview: Object.assign({}, file, { text: result.data, localPath: local.localPath,
-          truncated: local.size > TEXT_LIMIT, sourceCode: /^(html?|svg|js)$/.test(file.extension) }) });
+      const revealed = filePreview.reveal(file, local);
+      revealed.canShare = this.canShareFiles();
+      this.setData({ filePreview: revealed });
+      if (action === 'share' || revealed.previewKind === 'file') return this.shareLocalFile(file, local);
+      if (action === 'open') {
+        if (revealed.previewKind === 'document') return this.openNativeDocument(revealed);
+        if (revealed.previewKind === 'image') return wx.previewImage({ current: local.localPath, urls: [local.localPath] });
       }
+      if (revealed.previewKind === 'text') return this.loadFileSheetText(revealed);
     } catch (error) {
       if (current() && !job.cancelled && !error.cancelled) {
         const messages = { 'file-not-found': '文件已移动或删除，请让 DSH 重新生成',
           'file-not-allowed': '文件不在当前会话工作目录内', 'file-download-disabled': '当前网关未开启文件下载',
           'file-workspace-unavailable': '无法确定会话工作目录，请刷新会话后重试' };
-        wx.showModal({ title: t('文件打开失败'), content: t(messages[error.code]) || error.message || t('文件下载失败，请重试'), showCancel: false });
+        const note = t(messages[error.code]) || error.message || t('文件下载失败，请重试');
+        if (this.data.filePreview && this.data.filePreview.key === file.key) this.setData({ filePreview: Object.assign({}, this.data.filePreview, { error: note }) });
+        else wx.showModal({ title: t('文件打开失败'), content: note, showCancel: false });
       }
     } finally {
       if (this._fileJob === job) {

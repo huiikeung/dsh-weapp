@@ -1,5 +1,5 @@
-const { t: uiText } = require('./ui-preferences');
-const accessApi = require('./access-api');
+const { t: uiText } = require('../../../utils/ui-preferences');
+const accessApi = require('../../../utils/access-api');
 const notifyPref = require('./notify-pref');
 const { TEMPLATE_ID } = require('./notify-config');
 

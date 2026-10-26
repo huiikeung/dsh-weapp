@@ -1,18 +1,22 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const menu = require('../miniprogram/utils/composer-menu');
+const fs = require('node:fs');
+const path = require('node:path');
+const menu = require('../miniprogram/pages/session/utils/composer-menu');
 const item = (name, kind = 'immediate', source = 'host') => ({ id: source + ':' + name, name, source, description: name, ui: { kind, submitRequest: 'command-execute' } });
 const groups = [{ id: 'commands', items: [item('export'), item('goal', 'input'), item('model', 'select'), item('compact'), item('plan', 'input'), item('feedback', 'input'), item('permission', 'select')] }, { id: 'skills', items: [item('goal', 'input', 'skill')] }];
 test('plus follows desktop Add and Commands order without inventing host actions', () => {
   const result = menu.catalog(groups, { t: x => x });
-  assert.deepEqual(result[0].items.map(x => x.name), ['image', 'chatImage', 'workspace', 'chatFile', 'goal', 'plan', 'feedback']);
-  assert.deepEqual(result[1].items.map(x => x.name), ['compact', 'permission', 'model', 'export']);
+  assert.deepEqual(result[0].items.map(x => x.name), ['image', 'chatImage', 'workspace', 'chatFile', 'externalFile', 'goal', 'plan']);
+  assert.deepEqual(result[1].items.map(x => x.name), ['compact', 'permission', 'model']);
   assert.equal(result[2].items[0].label, '/goal');
+  assert.ok(!result.flatMap(group => group.items).some(x => ['feedback', 'export'].includes(x.name)));
   const empty = menu.catalog([], { t: x => x })[0].items;
-  assert.deepEqual(empty.map(x => x.name), ['image', 'chatImage', 'workspace', 'chatFile']);
-  assert.deepEqual(empty.map(x => x.action), ['image', 'chatImage', 'workspace', 'chatFile']);
-  assert.deepEqual(empty.map(x => x.icon), ['menu-image.svg', 'menu-chat-image.svg', 'menu-folder.svg', 'menu-chat-file.svg']);
-  assert.deepEqual(empty.map(x => x.label), ['添加图片', '聊天中的图片', '工作区文件', '聊天中的文件']);
+  assert.deepEqual(empty.map(x => x.name), ['image', 'chatImage', 'workspace', 'chatFile', 'externalFile']);
+  assert.deepEqual(empty.map(x => x.action), ['image', 'chatImage', 'workspace', 'chatFile', 'externalFile']);
+  assert.deepEqual(empty.map(x => x.icon), ['menu-image.svg', 'menu-chat-image.svg', 'menu-folder.svg', 'menu-chat-file.svg', 'menu-external-file.svg']);
+  assert.ok(fs.existsSync(path.join(__dirname, '../miniprogram/assets/icons', empty[4].icon)));
+  assert.deepEqual(empty.map(x => x.label), ['添加图片', '聊天中的图片', '工作区文件', '聊天中的文件', '外部文件']);
 });
 test('model display uses catalog names and limits the desktop 1017 badge to official Flash', () => {
   const catalog = { groups: [{ id: 'deepseek-official', models: [{ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' }] }, { id: 'custom', models: [{ id: 'deepseek-flash', name: 'DeepSeek-V4.1-Flash' }] }] };
@@ -24,10 +28,28 @@ test('model display uses catalog names and limits the desktop 1017 badge to offi
 test('menu searches localized names and respects inline and attachment availability', () => {
   assert.equal(menu.catalog(groups, { t: x => x, query: '压缩' })[0].items[0].name, 'compact');
   const rows = menu.catalog(groups, { t: x => x, leading: false, canAttach: false }).flatMap(x => x.items);
-  assert.ok(!rows.some(x => ['goal', 'plan', 'feedback', 'image', 'chatImage', 'workspace', 'chatFile'].includes(x.name)));
+  assert.ok(!rows.some(x => ['goal', 'plan', 'feedback', 'export', 'image', 'chatImage', 'workspace', 'chatFile', 'externalFile'].includes(x.name)));
   assert.deepEqual(menu.catalog(groups, { t: x => x, query: '相册' })[0].items.map(x => x.name), ['image', 'chatImage']);
   assert.equal(menu.acceptsAttachments(item('goal', 'input')), false);
   assert.equal(menu.acceptsAttachments({ input: { attachments: true } }), true);
+});
+test('plus menu can omit Skills while the slash catalog keeps them', () => {
+  const plus = menu.catalog(groups, { t: x => x, includeSkills: false });
+  const slash = menu.catalog(groups, { t: x => x, includeSkills: true });
+  assert.deepEqual(plus.map(group => group.id), ['add', 'commands']);
+  assert.equal(slash.find(group => group.id === 'skills').items[0].name, 'goal');
+});
+test('command rows use the progress-ring, shield and database-with-gear icons in both themes', () => {
+  const light = menu.catalog(groups, { t: x => x }).find(group => group.id === 'commands').items;
+  const dark = menu.catalog(groups, { t: x => x, dark: true }).find(group => group.id === 'commands').items;
+  assert.deepEqual(light.map(row => row.icon), ['command-compact-progress.svg', 'command-permission.svg', 'command-model.svg']);
+  assert.deepEqual(dark.map(row => row.icon), ['command-compact-progress-dark.svg', 'command-permission-dark.svg', 'command-model-dark.svg']);
+  for (const row of light.concat(dark)) assert.ok(fs.existsSync(path.join(__dirname, '../miniprogram/assets/icons', row.icon)), row.icon);
+  for (const name of ['command-compact-progress', 'command-permission', 'command-model', 'command-export']) {
+    for (const suffix of ['', '-dark']) assert.ok(fs.existsSync(path.join(__dirname, '../miniprogram/assets/icons', name + suffix + '.svg')), name + suffix);
+  }
+  assert.deepEqual(menu.catalog(groups, { t: x => x, query: '下载日志' }), []);
+  assert.deepEqual(menu.catalog(groups, { t: x => x, query: '反馈' }), []);
 });
 test('input commands preserve content, file references quote spaces and images keep their MIME type', () => {
   assert.equal(menu.inputDraft(item('goal', 'input'), 'keep my draft'), '/goal keep my draft');

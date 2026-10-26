@@ -12,7 +12,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..', 'miniprogram');
 const wxss = fs.readFileSync(path.join(root, 'pages/session/session.wxss'), 'utf8');
 const wxml = fs.readFileSync(path.join(root, 'pages/session/session.wxml'), 'utf8');
-const view = require(path.join(root, 'utils/context-view'));
+const view = require(path.join(root, 'pages/session/utils/context-view'));
 
 test('palette matches dsh-context v0.74.0 (Tailwind v4 hex, not v3)', () => {
   // categories.ts 七类 + output；timingStrip 六段。

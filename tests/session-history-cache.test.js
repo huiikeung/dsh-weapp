@@ -24,6 +24,7 @@ function fixture(savedStorage) {
   }
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), {
     module, Date, console, wx: { getStorageSync: key => storage.get(key),
+      getStorage: options => options.success({ data: storage.get(options.key) }),
       setStorageSync: (key, value) => storage.set(key, value), removeStorageSync: key => storage.delete(key) },
     setTimeout(fn, delay) { timers.set(++serial, { fn, delay }); return serial; },
     clearTimeout: id => timers.delete(id), setInterval() { return 0; }, clearInterval() {},
@@ -37,6 +38,20 @@ function fixture(savedStorage) {
 }
 const user = (seq, text) => ({ seq, type: 'user/message', data: { text, source: 'user' } });
 const history = (events, cursor, hasMore = true) => ({ kind: 'history', events, nextBeforeSeq: cursor, hasMore, historyFormatVersion: 1 });
+
+test('idle disk warming does not select or subscribe and restores the correct host cache', async () => {
+  const saved = fixture(); saved.store.state.activeID = 'host-a';
+  saved.frame(history([user(10, 'cached on host A')], 10)); saved.flush(1000);
+  const f = fixture(saved.storage); f.store.state.activeID = 'host-a';
+  f.store.sessionState.sessionId = 'other';
+  assert.equal(await f.store.warmSessionCache('s', () => true), true);
+  assert.equal(f.store.sessionState.sessionId, 'other');
+  assert.equal(f.requests.length, 0); assert.equal(f.subscriptions.length, 0);
+  f.store.openSession('s', 'Cached');
+  assert.equal(f.store.sessionState.rows[0].text, 'cached on host A');
+  f.store.state.activeID = 'host-b'; f.store.openSession('other', 'Other host');
+  assert.equal(await f.store.warmSessionCache('s', () => true), false);
+});
 
 test('complete compact outline persists beyond bounded message tails and remains host-scoped', () => {
   const f = fixture(); f.store.state.activeID = 'host-a';

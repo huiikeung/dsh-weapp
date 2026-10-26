@@ -1,7 +1,6 @@
 {
   "pages": [
     "pages/home/home",
-    "pages/session/session",
     "pages/share-activity/share-activity",
     "pages/privacy/privacy"
   ],
@@ -20,6 +19,13 @@
   "lazyCodeLoading": "requiredComponents",
   "sitemapLocation": "sitemap.json",
   "subPackages": [
+    {
+      "root": "pages/session",
+      "name": "session",
+      "pages": [
+        "session"
+      ]
+    },
     {
       "root": "pages/settings",
       "name": "settings",
@@ -123,6 +129,7 @@
     "pages/home/home": {
       "network": "all",
       "packages": [
+        "pages/session",
         "pages/settings",
         "pages/session-settings",
         "pages/plugins"

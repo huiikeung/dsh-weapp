@@ -45,6 +45,8 @@ class GatewayClient {
     this.relayMeta = null;    // { nodeId, agentPubKey }
     this.relayAccessToken = null;
     this.relayTextFrames = 0; // 诊断：连接器经文本通道发来的帧计数
+    this.deviceForgetPending = null;
+    this.pairingFallbacks = [];
   }
 
   // ---------- 状态 ----------
@@ -144,6 +146,9 @@ class GatewayClient {
     }
     this.endpoint = endpoint;
     this.pairingCode = opts.pairingCode || null;
+    this.pairingFallbacks = this.pairingCode && Array.isArray(opts.endpointCandidates)
+      ? opts.endpointCandidates.filter(candidate => candidate && candidate !== endpoint).slice(0, 15)
+      : [];
     this.relayMeta = opts.relay || null;
     this.relayAccessToken = (opts.relay && opts.relay.accessToken) || null;
     // 重连必须复用完整连接参数（relay 档案丢了 relay 元信息就永远连不回）
@@ -159,7 +164,8 @@ class GatewayClient {
 
     const header = {
       'X-DSH-Channel': CHANNEL,
-      'X-DSH-Device-ID': this.deviceId
+      'X-DSH-Device-ID': this.deviceId,
+      'X-DSH-Client-Type': 'wechat-miniprogram'
     };
     if (!opts.relay) {
       // 网关要求 UTF-8 标准 Base64；不能直接把中文或 Base64URL 放进头部。
@@ -318,12 +324,23 @@ class GatewayClient {
       try { socket.close({}); } catch (e) { /* 忽略 */ }
     }
     this.failAllPending(message);
+    this.settleDeviceForget(new Error(message));
     if (wasDeliberate) {
       this.setState('disconnected', null, null, true);
       return;
     }
     // 配对码是一次性凭据，失败后不能拿旧码静默重试。
     if (this.pairingCode) {
+      const nextEndpoint = this.pairingFallbacks.shift();
+      if (nextEndpoint) {
+        const pairingCode = this.pairingCode;
+        const endpointCandidates = this.pairingFallbacks.slice();
+        this.pairingCode = null;
+        this.wantsConnection = false;
+        this.setState('connecting', uiText('当前线路不可达，正在尝试其他配对地址…'));
+        setTimeout(() => this.connect(nextEndpoint, { pairingCode, endpointCandidates }), 0);
+        return;
+      }
       this.pairingCode = null;
       this.wantsConnection = false;
       this.setState('failed', message + uiText('，配对码已失效，请重新扫码'));
@@ -349,6 +366,7 @@ class GatewayClient {
       try { socket.close({}); } catch (e) { /* 忽略 */ }
     }
     this.failAllPending(message);
+    this.settleDeviceForget(new Error(message));
     this.setState('failed', message);
   }
 
@@ -419,10 +437,12 @@ class GatewayClient {
       try { socket.close({ code: 1000, reason: 'normal' }); } catch (e) { /* 忽略 */ }
     }
     this.pairingCode = null;
+    this.pairingFallbacks = [];
     this.relaySession = null;
     this.relayMeta = null;
     this.relayAccessToken = null;
     this.failAllPending(uiText('连接已断开'));
+    this.settleDeviceForget(new Error(uiText('连接已断开')));
     this.setState('disconnected', null, null, true);
   }
 
@@ -544,6 +564,31 @@ class GatewayClient {
     }
   }
 
+  forgetDevice(timeoutMs) {
+    if (this.state !== 'connected') return Promise.reject(new Error(uiText('网关尚未连接')));
+    if (this.deviceForgetPending) return Promise.reject(new Error(uiText('设备移除请求正在处理中')));
+    const requestId = util.uuid();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.deviceForgetPending = null;
+        reject(new Error(uiText('主机未确认移除设备')));
+      }, Number.isFinite(timeoutMs) ? timeoutMs : 5000);
+      this.deviceForgetPending = { requestId, resolve, reject, timer };
+      if (!this.send({ type: 'device-forget', requestId })) {
+        this.settleDeviceForget(new Error(uiText('设备移除请求发送失败')));
+      }
+    });
+  }
+
+  settleDeviceForget(error, frame) {
+    const pending = this.deviceForgetPending;
+    if (!pending) return;
+    this.deviceForgetPending = null;
+    clearTimeout(pending.timer);
+    if (error) pending.reject(error);
+    else pending.resolve(frame);
+  }
+
   handleFrame(data) {
     let frame;
     try {
@@ -564,9 +609,21 @@ class GatewayClient {
       this.lastToken = frame.token || null;
       if (this.lastToken) {
         this.pairingCode = null;
+        this.pairingFallbacks = [];
         this.lastConnectOpts.token = this.lastToken;
       }
       if (this.cb.onPaired) this.cb.onPaired(frame);
+    }
+
+    if (frame.kind === 'device-forgotten' && this.deviceForgetPending &&
+        frame.requestId === this.deviceForgetPending.requestId) {
+      this.settleDeviceForget(null, frame);
+      return;
+    }
+    if (frame.kind === 'error' && frame.requestType === 'device-forget' && this.deviceForgetPending &&
+        (!frame.requestId || frame.requestId === this.deviceForgetPending.requestId)) {
+      this.settleDeviceForget(new Error(frame.message || uiText('设备移除失败')));
+      return;
     }
 
     if (frame.kind === 'relay-auth-error') {
@@ -712,6 +769,16 @@ class GatewayClient {
   }
 
   resolveCorrelated(frame) {
+    const uploadKey = frame.requestId && 'upload:' + frame.requestId;
+    const upload = uploadKey && this.pendingRequests[uploadKey];
+    if (upload) {
+      if (frame.kind !== 'error' && frame.kind !== upload.expectedKind) return;
+      delete this.pendingRequests[uploadKey]; clearTimeout(upload.timer);
+      if (frame.kind === 'error') upload.reject(new Error(frame.message || frame.code || uiText('文件上传失败，草稿已保留')));
+      else if (frame.sessionId !== upload.sessionId) upload.reject(new Error(uiText('文件上传响应无效')));
+      else upload.resolve(frame);
+      return;
+    }
     // Download errors have requestType but no requestId/transferId on older gateways.
     // Keep one request per file-operation lane and validate success ownership.
     const fileTypes = { 'file-download-opened': 'file-download-open', 'file-download-chunk': 'file-download-read', 'file-download-cancelled': 'file-download-cancel' };
@@ -1077,6 +1144,18 @@ class GatewayClient {
 
   openFileDownload(sessionId, path) {
     return this.requestFileTransfer({ type: 'file-download-open', requestId: util.uuid(), sessionId, path }, 'file-download-opened');
+  }
+
+  requestUpload(action, payload) {
+    const kinds = { open: 'file-upload-opened', chunk: 'file-upload-chunk-accepted', finish: 'file-upload-completed', cancel: 'file-upload-cancelled', message: 'sent' };
+    if (!kinds[action]) return Promise.reject(new Error('Invalid upload action'));
+    const object = Object.assign({}, payload, { type: action === 'message' ? 'message' : 'file-upload-' + action, requestId: util.uuid() });
+    const key = 'upload:' + object.requestId;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { delete this.pendingRequests[key]; reject(new Error(uiText('上传或发送超时，请核对会话后重试'))); }, action === 'finish' || action === 'message' ? 60000 : 30000);
+      this.pendingRequests[key] = { resolve, reject, timer, expectedKind: kinds[action], sessionId: object.sessionId };
+      if (!this.send(object)) { delete this.pendingRequests[key]; clearTimeout(timer); reject(new Error(uiText('请先连接网关后重试'))); }
+    });
   }
 
   readFileDownload(transferId, offset) {

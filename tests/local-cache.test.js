@@ -55,3 +55,35 @@ test('persistent limits count UTF-8 bytes rather than JavaScript characters', ()
   f.cache.set('oversized', { text: '中'.repeat(600) }); f.flush();
   assert.equal(f.storage.has(f.cache.storageKey('oversized')), false);
 });
+
+test('memory hits do no synchronous disk IO and coalesced touches preserve LRU', () => {
+  let reads = 0, writes = 0; const disk = new Map();
+  const f = fixture({ storage: { getStorageSync: key => { reads++; return disk.get(key); },
+    setStorageSync: (key, value) => { writes++; disk.set(key, value); }, removeStorageSync: key => disk.delete(key) } });
+  f.cache.set('a', { n: 1 }); f.flush(); reads = 0; writes = 0;
+  for (let i = 0; i < 20; i++) assert.equal(f.cache.get('a').n, 1);
+  assert.equal(reads, 0); assert.equal(writes, 0);
+  f.flush(); assert.equal(writes, 1);
+  f.cache.get('a'); f.cache.clear(); f.flush();
+  assert.equal(disk.size, 0, 'clear cancels pending index writes');
+});
+
+test('async warming deduplicates and cannot overwrite foreground writes or resurrect cleared data', async () => {
+  const pending = [];
+  const f = fixture({ storage: { getStorage: options => pending.push(options) } });
+  const warm = f.cache.warm('a');
+  assert.equal(f.cache.warm('a'), warm);
+  pending.shift().success({ data: JSON.stringify({ cacheVersion: 3, value: { n: 1 } }) });
+  assert.equal(await warm, true); assert.equal(f.cache.get('a').n, 1);
+  for (const invalidate of [() => f.cache.set('b', { n: 9 }), () => f.cache.remove('b'), () => f.cache.clear()]) {
+    f.cache.clear(); const read = f.cache.warm('b'); invalidate();
+    pending.shift().success({ data: JSON.stringify({ cacheVersion: 3, value: { n: 2 } }) });
+    assert.equal(await read, false);
+    assert.notEqual(f.cache.memory.get('b')?.n, 2);
+  }
+  const canceled = f.cache.warm('c', x => x, () => false);
+  pending.shift().success({ data: '{"n":3}' });
+  assert.equal(await canceled, false);
+  const broken = f.cache.warm('bad'); pending.shift().success({ data: '{broken' });
+  assert.equal(await broken, false);
+});

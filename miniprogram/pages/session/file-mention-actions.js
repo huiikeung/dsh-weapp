@@ -32,6 +32,8 @@ function mentionSessionCandidates(sessions, options) {
 
 module.exports = ({ store, composerMenu, uiText }) => ({
   trackFileMention(text, cursor) {
+    // 传入的就是 textarea 当前显示值：顺手刷新镜像，插入 / 钻取都按它定位。
+    this._composerDisplay = String(text == null ? '' : text);
     const mention = composerMenu.referenceAtCursor(text, cursor);
     if (!mention || this.data.tab !== 'conversation') {
       if (this.data.fileMentionOpen || this._activeFileMention) this.closeFileMention();
@@ -135,9 +137,19 @@ module.exports = ({ store, composerMenu, uiText }) => ({
   insertFileMention(reference) {
     const active = this._activeFileMention;
     if (!active || !reference) return;
-    const text = String(this.data.draft || '');
-    const next = text.slice(0, active.start) + reference + text.slice(active.end);
-    const cursor = active.start + reference.length;
+    // 选中的引用是完整 token：显示值里换成一个零宽占位符，chip 行渲染图标 + 标题，
+    // 草稿仍保存原始引用文本（active.start/end 都是显示值坐标）。
+    const parsed = composerMenu.parseReferences(reference);
+    if (!parsed.refs.length) return;
+    const display = this.composerDisplay();
+    const refs = (this.data.composerRefs || []).slice();
+    const before = display.slice(0, active.start).split(composerMenu.REF_PLACEHOLDER).length - 1;
+    const nextDisplay = display.slice(0, active.start) + composerMenu.REF_PLACEHOLDER + display.slice(active.end);
+    const nextRefs = refs.slice(0, before).concat(composerMenu.referenceChips(parsed.refs), refs.slice(before));
+    // 指令 token 不在显示值里：拼回原始草稿时补上，setComposerValue 再替 chip 剥掉。
+    const slash = this.composerSlash();
+    const next = (slash ? slash.token + ' ' : '') + composerMenu.displayToDraft(nextDisplay, nextRefs);
+    const cursor = active.start + 1;
     this.closeFileMention();
     this._draftRevision = (this._draftRevision || 0) + 1;
     this._composerCursor = cursor;
@@ -154,14 +166,15 @@ module.exports = ({ store, composerMenu, uiText }) => ({
     const prefix = composerMenu.fileReferencePrefix(path, active.quoted);
     if (!prefix) return;
     const quoted = prefix.startsWith('@"');
+    // 半开引用 token 还没选完文件：保持字面文本留在显示值里，@ 菜单继续跟着它。
     const reference = prefix + (quoted ? '"' : '');
-    const text = String(this.data.draft || '');
-    const next = text.slice(0, active.start) + reference + text.slice(active.end);
+    const display = this.composerDisplay();
+    const nextDisplay = display.slice(0, active.start) + reference + display.slice(active.end);
     const cursor = active.start + reference.length - (quoted ? 1 : 0);
     this._draftRevision = (this._draftRevision || 0) + 1;
     this._composerCursor = cursor;
-    this.setComposerValue(next, { draft: next, composerCursor: cursor, composerFocus: true });
-    this.trackFileMention(next, cursor);
+    this.setComposerDisplay(nextDisplay, this.data.composerRefs || [], { composerCursor: cursor, composerFocus: true }, this.composerSlash());
+    this.trackFileMention(nextDisplay, cursor);
   },
 
   retryFileMention() {

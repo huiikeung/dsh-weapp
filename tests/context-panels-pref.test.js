@@ -2,7 +2,7 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const preference = require('../miniprogram/utils/context-panels-pref');
+const preference = require('../miniprogram/pages/session/utils/context-panels-pref');
 
 test('context and fleet visibility are independently persisted and default on', () => {
   const storage = {};

@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const contextView = require('../miniprogram/utils/context-view');
+const contextView = require('../miniprogram/pages/session/utils/context-view');
 
 /** 文档第 3 节的示例 value（mobileContext wire view + breakdown/usage/stats）。 */
 function sampleValue(overrides) {

@@ -20,6 +20,7 @@ test('direct pairing and token reconnect send UTF-8 standard Base64 device name'
     assert.equal(encoded.length % 4, 0);
     assert.equal(Buffer.from(encoded, 'base64').toString('utf8'), '华为 手机 📱');
     assert.equal(header['X-DSH-Device-ID'], 'fixture-device-123');
+    assert.equal(header['X-DSH-Client-Type'], 'wechat-miniprogram');
   }
 });
 test('device label handles legacy API, duplicated brands and unavailable device APIs', t => {

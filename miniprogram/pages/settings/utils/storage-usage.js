@@ -100,7 +100,7 @@ function clearCategory(key) {
   return paths.reduce((chain, path) => chain.then(() => unlink(path)), Promise.resolve()).then(() => {
     if (key === 'images') {
       // 附件模块的内存索引指向已删除的文件，重置后按需重建。
-      try { require('../../../utils/attachment-cache')._reset(); } catch (e) { /* 忽略 */ }
+      try { getApp().resetAttachmentCacheIndex(); } catch (e) { /* 忽略 */ }
     }
     return freed;
   });

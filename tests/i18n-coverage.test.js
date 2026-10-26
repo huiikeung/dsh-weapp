@@ -94,7 +94,7 @@ test('page load resolves locale once per tree and unchanged show sends no dictio
   } finally { delete global.Page; delete global.wx; }
 });
 test('plugin metadata, schedules and cached setting choices follow locale', () => {
-  setup('zh'); const plugins = require('../miniprogram/utils/plugins'), work = require('../miniprogram/utils/work-step-presentation'), style = require('../miniprogram/utils/status-appearance'), schedule = require('../miniprogram/utils/schedule');
+  setup('zh'); const plugins = require('../miniprogram/utils/plugins'), work = require('../miniprogram/pages/session/utils/work-step-presentation'), style = require('../miniprogram/pages/session/utils/status-appearance'), schedule = require('../miniprogram/utils/schedule');
   try {
     preferences.setLanguage('en'); assert.equal(plugins.localizedText({ zh: '中文名称', en: 'English name' }), 'English name'); assert.equal(plugins.localizedText('第三方单语言名称'), '第三方单语言名称');
     assert.equal(work.view().workStepModeLabel, 'Detailed'); assert.equal(han.test(style.choices().map(x => x.label + x.detail).join('')), false);

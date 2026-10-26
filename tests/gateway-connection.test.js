@@ -54,6 +54,23 @@ test('failed one-time pairing cleans up and does not retry an unusable code', t 
   assert.equal(f.states.at(-1).state, 'failed', 'late socket events are ignored');
 });
 
+test('one-time pairing falls back through the QR candidate endpoints', async t => {
+  const f = fixture(t);
+  f.client.connect('wss://public.example.test/ws/mobile', {
+    pairingCode: 'one-time-code',
+    endpointCandidates: ['ws://192.168.1.20:3081/ws/mobile'],
+  });
+  f.sockets[0].options.fail({ errMsg: 'request:fail (public network unavailable)' });
+  assert.equal(f.client.state, 'connecting');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.sockets.length, 2);
+  assert.equal(f.sockets[1].options.url, 'ws://192.168.1.20:3081/ws/mobile');
+  assert.ok(f.sockets[1].options.protocols.includes('dsh-pair.one-time-code'));
+  f.sockets[1].options.fail({ errMsg: 'request:fail (LAN unavailable)' });
+  assert.equal(f.client.state, 'failed');
+  assert.equal(f.client.wantsConnection, false);
+});
+
 test('synchronous connectSocket failure is handled after the task is assigned', t => {
   const f = fixture(t, { failSynchronously: true });
 
@@ -121,6 +138,19 @@ test('session subscription carries a validated durable resume cursor', t => {
   assert.equal(sent[0].afterSeq, 91);
   assert.equal(f.client.subscribe('session-1', -1), true);
   assert.equal(Object.hasOwn(sent[1], 'afterSeq'), false);
+});
+
+test('device removal resolves only after the server confirms the authenticated socket', async t => {
+  const f = fixture(t);
+  const sent = [];
+  f.client.state = 'connected';
+  f.client.send = payload => { sent.push(payload); return true; };
+  const pending = f.client.forgetDevice(1000);
+  assert.equal(sent[0].type, 'device-forget');
+  assert.equal(typeof sent[0].requestId, 'string');
+  f.client.handleFrame(JSON.stringify({ kind: 'device-forgotten', requestId: 'not-this-request' }));
+  f.client.handleFrame(JSON.stringify({ kind: 'device-forgotten', requestId: sent[0].requestId }));
+  assert.equal((await pending).requestId, sent[0].requestId);
 });
 
 test('public history requests keep a small default and accept bounded larger-page retries', t => {

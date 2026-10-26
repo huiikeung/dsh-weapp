@@ -19,7 +19,7 @@ test('identity badge shows neutral authorization state and verified admin status
 test('non-admin node permission is a passive badge while admins retain the management entry', () => {
   const markup = read('settings.wxml');
   const styles = read('settings.wxss');
-  assert.match(markup, /ui\['节点权限'\]/);
+  assert.match(markup, /ui\['公网权限'\]/);
   assert.doesNotMatch(markup, /ui\['节点身份'\]/);
   assert.match(markup, /wx:if="\{\{accountIdentityReady\}\}"[\s\S]*?wx:if="\{\{isWechatAdmin\}\}"[^>]*bindtap="openAdminSheet"/);
   assert.match(markup, /wx:else class="card-row management-entry identity-entry"(?![^>]*bindtap)[\s\S]*?class="identity-badge"/);

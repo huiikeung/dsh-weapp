@@ -21,19 +21,19 @@ test('completion prompt issues a backend ticket only when WeChat accepts the one
   t.after(() => { delete global.wx; });
   const config = require('../miniprogram/utils/access-config');
   storage.set('public-access.session.v1', JSON.stringify({ token: 's'.repeat(43), expiresAt: Date.now() + 3600000, baseUrl: config.baseUrl }));
-  const notifyPref = require('../miniprogram/utils/notify-pref');
-  const subscription = require('../miniprogram/utils/notify-subscription');
+  const notifyPref = require('../miniprogram/pages/session/utils/notify-pref');
+  const subscription = require('../miniprogram/pages/session/utils/notify-subscription');
   notifyPref.setEnabled(false);
   assert.equal(await subscription.requestCompletionTicket(), '');
   assert.equal(calls.length, 0);
 
   notifyPref.setEnabled(true);
   assert.equal(await subscription.requestCompletionTicket(), 't'.repeat(43));
-  assert.deepEqual(calls[0].templateIds, [require('../miniprogram/utils/notify-config').TEMPLATE_ID]);
+  assert.deepEqual(calls[0].templateIds, [require('../miniprogram/pages/session/utils/notify-config').TEMPLATE_ID]);
   assert.match(calls[2].url, /\/notifications\/tickets$/);
   assert.equal(calls[2].authorization, 'Bearer ' + 's'.repeat(43));
   // 模板 ID 随票据申请一起提交，服务端不再单独配置。
-  assert.equal(calls[2].data.templateId, require('../miniprogram/utils/notify-config').TEMPLATE_ID);
+  assert.equal(calls[2].data.templateId, require('../miniprogram/pages/session/utils/notify-config').TEMPLATE_ID);
 });
 
 test('completion prompt never issues a ticket after decline', async t => {
@@ -45,9 +45,9 @@ test('completion prompt never issues a ticket after decline', async t => {
     request() { backendRequests++; }
   };
   t.after(() => { delete global.wx; });
-  delete require.cache[require.resolve('../miniprogram/utils/notify-pref')];
-  delete require.cache[require.resolve('../miniprogram/utils/notify-subscription')];
-  const subscription = require('../miniprogram/utils/notify-subscription');
+  delete require.cache[require.resolve('../miniprogram/pages/session/utils/notify-pref')];
+  delete require.cache[require.resolve('../miniprogram/pages/session/utils/notify-subscription')];
+  const subscription = require('../miniprogram/pages/session/utils/notify-subscription');
   assert.equal(await subscription.requestCompletionTicket(), '');
   assert.equal(backendRequests, 0);
 });

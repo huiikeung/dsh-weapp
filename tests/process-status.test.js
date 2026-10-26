@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const protocol = require('../miniprogram/utils/protocol');
-const { buildEntries } = require('../miniprogram/utils/conversation-workflow');
-const appearance = require('../miniprogram/utils/status-appearance');
-const procIcon = require('../miniprogram/utils/proc-icon-style');
+const { buildEntries } = require('../miniprogram/pages/session/utils/conversation-workflow');
+const appearance = require('../miniprogram/pages/session/utils/status-appearance');
+const procIcon = require('../miniprogram/pages/session/utils/proc-icon-style');
 function events(reason) { return [
   { seq: 1, time: 1000, type: 'user/message', data: { content: '检查文件' } },
   { seq: 2, time: 1001, type: 'turn/start', data: { turn: 1 } },

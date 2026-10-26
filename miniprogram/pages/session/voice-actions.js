@@ -1,7 +1,8 @@
 const preferences = require('../../utils/ui-preferences');
-const voicePreference = require('../../utils/voice-preference');
-const { VoiceInput } = require('../../utils/voice-input');
+const voicePreference = require('./utils/voice-preference');
+const { VoiceInput } = require('./utils/voice-input');
 const store = require('../../utils/store');
+const composerMenu = require('./utils/composer-menu');
 const t = preferences.t;
 const HOLD_DELAY_MS = 350;
 const TAP_MOVE_LIMIT = 12;
@@ -105,12 +106,17 @@ module.exports = {
     }
   },
   insertVoiceText(text) {
-    const draft = this.data.draft || '';
-    const cursor = Math.max(0, Math.min(draft.length, Number.isInteger(this._composerCursor) ? this._composerCursor : draft.length));
-    const next = draft.slice(0, cursor) + text + draft.slice(cursor);
+    // 识别文字插入到显示值里（引用位置是零宽占位符），再还原成草稿；
+    // 指令 token 不在显示值里，拼回草稿时补上。
+    const display = this.composerDisplay();
+    const cursor = Math.max(0, Math.min(display.length, Number.isInteger(this._composerCursor) ? this._composerCursor : display.length));
+    const nextDisplay = display.slice(0, cursor) + text + display.slice(cursor);
+    const refs = this.data.composerRefs || [];
+    const slash = this.composerSlash();
+    const next = (slash ? slash.token + ' ' : '') + composerMenu.displayToDraft(nextDisplay, refs);
     this._draftRevision = (this._draftRevision || 0) + 1;
     this._composerCursor = cursor + text.length;
-    this.setData({ draft:next, canSend:!!next.trim() || this.data.images.length > 0, voicePendingText:'' });
+    this.setComposerDisplay(nextDisplay, refs, { canSend:!!next.trim() || this.data.images.length > 0, voicePendingText:'' }, slash);
     this.syncCommandMenu(next, store.sessionState); this.updateDockInset();
   },
   insertPendingVoiceText() { if (this.data.voicePendingText) this.insertVoiceText(this.data.voicePendingText); },

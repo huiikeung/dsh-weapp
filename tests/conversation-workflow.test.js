@@ -1,5 +1,5 @@
 const assert = require('node:assert/strict');
-const { buildEntries } = require('../miniprogram/utils/conversation-workflow');
+const { buildEntries } = require('../miniprogram/pages/session/utils/conversation-workflow');
 
 const entries = buildEntries([
   { kind: 'user', key: 'u-1', text: '检查并修复问题' },

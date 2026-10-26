@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const preferences = require('../miniprogram/utils/ui-preferences');
-const contextPanelsPreference = require('../miniprogram/utils/context-panels-pref');
+const contextPanelsPreference = require('../miniprogram/pages/session/utils/context-panels-pref');
 const trajectory = require('../miniprogram/utils/trajectory-presentation');
 const protocol = require('../miniprogram/utils/protocol');
 function setup() {

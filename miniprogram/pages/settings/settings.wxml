@@ -72,9 +72,9 @@
         </view>
 
     <block wx:if="{{accountIdentityReady}}">
-      <view wx:if="{{isWechatAdmin}}" class="card-row management-entry" bindtap="openAdminSheet" hover-class="management-entry-active" role="button" aria-label="{{ui['节点权限']}}">
+      <view wx:if="{{isWechatAdmin}}" class="card-row management-entry" bindtap="openAdminSheet" hover-class="management-entry-active" role="button" aria-label="{{ui['公网权限']}}">
         <view class="management-entry-copy">
-          <text class="card-row-label">{{ui['节点权限']}}</text>
+          <text class="card-row-label">{{ui['公网权限']}}</text>
         </view>
         <view class="card-row-value management-entry-value identity-entry-value">
           <view class="identity-badge is-admin">{{identityBadgeLabel}}</view>
@@ -83,7 +83,7 @@
       </view>
       <view wx:else class="card-row management-entry identity-entry">
         <view class="management-entry-copy">
-          <text class="card-row-label">{{ui['节点权限']}}</text>
+          <text class="card-row-label">{{ui['公网权限']}}</text>
         </view>
         <view class="card-row-value management-entry-value identity-entry-value">
           <view class="identity-badge">{{identityBadgeLabel}}</view>
@@ -271,11 +271,11 @@
   </view>
   <!-- 管理员弹窗 -->
   <view wx:if="{{adminSheet}}" class="pair-sheet-mask" catchtap="closeAdminSheet" catchtouchmove="noop">
-    <view class="pair-sheet resizable" style="height: 90vh;" catchtap="noop" role="dialog" aria-label="{{ui['节点权限']}}">
+    <view class="pair-sheet resizable" style="height: 90vh;" catchtap="noop" role="dialog" aria-label="{{ui['公网权限']}}">
       <view class="sheet-grabber"></view>
       <view class="pair-sheet-head">
         <view>
-          <text class="pair-sheet-title">{{ui['节点权限']}}</text>
+          <text class="pair-sheet-title">{{ui['公网权限']}}</text>
           <text class="pair-sheet-subtitle">{{ui['兑换码管理']}} · {{ui['发布公告']}} · {{ui['分享活动']}}</text>
         </view>
         <view class="pair-sheet-close tap" bindtap="closeAdminSheet" role="button"><view class="sheet-close-x"></view></view>

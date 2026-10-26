@@ -152,7 +152,7 @@ Page({
     const current = this.data.presetId || defaults.agentPresetDefault || 'standard';
     this.openPickerSheet('preset', uiText('Agent 预设'), list.slice(0, 8).map((p) => ({
       id: p.id,
-      label: p.name || labels.presetModeName(p.id),
+      label: labels.presetDisplayName(p.name, p.id),
       description: p.description || labels.presetModeBlurb(p.id),
       broken: p.broken === true || (typeof p.broken === 'string' && !!p.broken),
       brokenReason: p.brokenReason || (typeof p.broken === 'string' ? p.broken : ''),
@@ -512,7 +512,7 @@ Page({
 
 function findPresetName(presets, id) {
   const found = (presets || []).find((p) => p.id === id);
-  return found ? (found.name || labels.presetModeName(id)) : null;
+  return found ? labels.presetDisplayName(found.name, id) : null;
 }
 
 function flattenModels(catalog) {

@@ -1,16 +1,16 @@
 const { t: uiText } = require('../../utils/ui-preferences');
 const haptics = require('../../utils/haptics');
 const preferences = require('../../utils/ui-preferences');
-const workSteps = require('../../utils/work-step-presentation');
-const statusAppearance = require('../../utils/status-appearance');
-const procIconStyle = require('../../utils/proc-icon-style');
+const workSteps = require('./utils/work-step-presentation');
+const statusAppearance = require('./utils/status-appearance');
+const procIconStyle = require('./utils/proc-icon-style');
 const store = require('../../utils/store');
-const notifyPref = require('../../utils/notify-pref');
-const voicePreference = require('../../utils/voice-preference');
+const notifyPref = require('./utils/notify-pref');
+const voicePreference = require('./utils/voice-preference');
 const homeAnimationPreference = require('../../utils/home-animation-pref');
-const contextPanelsPreference = require('../../utils/context-panels-pref');
+const contextPanelsPreference = require('./utils/context-panels-pref');
 const accountCardPreference = require('./utils/account-card-pref');
-const contextPreferences = require('../../utils/context-prefs');
+const contextPreferences = require('./utils/context-prefs');
 const theme = require('../../utils/theme');
 const accessApi = require('../../utils/access-api');
 const { getPublicAccessState } = require('./public-access-state');
@@ -1251,12 +1251,26 @@ Page({
     const id = detail.id;
     wx.showModal({
       title: uiText('忘记此设备'),
-      content: uiText('将删除「') + detail.name + uiText('」在本机保存的配对凭据，需要重新扫码配对。'),
+      content: uiText('将从本机移除「{name}」；若主机当前可连接，也会同步删除网关中的设备记录。', { name: detail.name }),
       confirmColor: '#E5484D',
       success: (res) => {
         if (res.confirm) {
-          store.removeHosts([id]);
-          this.syncFromStore({ app: store.state });
+          if (typeof store.forgetHosts !== 'function') {
+            store.removeHosts([id]);
+            this.syncFromStore({ app: store.state });
+            return;
+          }
+          if (typeof wx.showLoading === 'function') wx.showLoading({ title: uiText('正在移除设备'), mask: true });
+          const removal = store.forgetHosts([id]);
+          Promise.resolve(removal).then((result) => {
+            if (typeof wx.hideLoading === 'function') wx.hideLoading();
+            this.syncFromStore({ app: store.state });
+            wx.showToast({ title: result && result.failed
+              ? uiText('主机离线或网关需更新，记录未同步') : uiText('已删除'), icon: result && result.failed ? 'none' : 'success' });
+          }).catch((error) => {
+            if (typeof wx.hideLoading === 'function') wx.hideLoading();
+            wx.showToast({ title: error && error.message || uiText('移除设备失败'), icon: 'none' });
+          });
         }
       }
     });
@@ -1900,10 +1914,25 @@ Page({
       confirmColor: '#E5533C',
       success: (res) => {
         if (!res.confirm) return;
-        store.removeHosts(ids);
-        this.setData({ nodeSelection: [], nodeEditMode: false });
-        this.syncFromStore({ app: store.state, session: store.sessionState });
-        wx.showToast({ title: uiText('已删除'), icon: 'success' });
+        if (typeof store.forgetHosts !== 'function') {
+          store.removeHosts(ids);
+          this.setData({ nodeSelection: [], nodeEditMode: false });
+          this.syncFromStore({ app: store.state, session: store.sessionState });
+          wx.showToast({ title: uiText('已删除'), icon: 'success' });
+          return;
+        }
+        if (typeof wx.showLoading === 'function') wx.showLoading({ title: uiText('正在移除设备'), mask: true });
+        const removal = store.forgetHosts(ids);
+        Promise.resolve(removal).then((result) => {
+          if (typeof wx.hideLoading === 'function') wx.hideLoading();
+          this.setData({ nodeSelection: [], nodeEditMode: false });
+          this.syncFromStore({ app: store.state, session: store.sessionState });
+          wx.showToast({ title: result && result.failed
+            ? uiText('主机离线或网关需更新，记录未同步') : uiText('已删除'), icon: result && result.failed ? 'none' : 'success' });
+        }).catch((error) => {
+          if (typeof wx.hideLoading === 'function') wx.hideLoading();
+          wx.showToast({ title: error && error.message || uiText('移除设备失败'), icon: 'none' });
+        });
       }
     });
   },

@@ -138,9 +138,9 @@
 <view wx:elif="{{item.text}}" class="row-user-text" bindlongpress="openTextSelection" data-key="{{item.key}}">{{item.text}}</view>
 </view>
 <view wx:if="{{item.attachments && item.attachments.length}}" class="message-attachments">
-<view wx:for="{{item.attachments}}" wx:for-item="att" wx:for-index="attachmentIndex" wx:key="index" wx:if="{{att.kind !== 'image'}}" class="message-attachment" bindtap="openMessageAttachment" data-row-index="{{rowIndex}}" data-attachment-index="{{attachmentIndex}}">
-<image class="message-attachment-icon" src="{{att.kind === 'directory' ? '/assets/icons/ic-dir-folder-ink.png' : '/assets/icons/paperclip-gray.png'}}" mode="aspectFit"/>
-<view class="message-attachment-copy"><text class="message-attachment-name">{{att.name || att.path || '文件附件'}}</text><text wx:if="{{att.path && att.name !== att.path}}" class="message-attachment-path">{{att.path}}</text></view>
+<view wx:for="{{item.attachments}}" wx:for-item="att" wx:for-index="attachmentIndex" wx:key="index" wx:if="{{att.kind !== 'image'}}" class="message-attachment" bindtap="openMessageAttachment" data-row-index="{{rowIndex}}" data-attachment-index="{{attachmentIndex}}" hover-class="press-dim" role="button" aria-label="{{ui['预览']}} {{att.name || att.path || ui['附件']}}">
+<image class="message-attachment-icon" src="{{att.kind === 'directory' ? '/assets/icons/ic-dir-folder-ink.png' : '/assets/icons/deliverable-document.svg'}}" mode="aspectFit"/>
+<text class="message-attachment-name">{{att.name || att.path || ui['附件']}}</text>
 </view>
 </view>
 <view wx:if="{{item.copyText}}" class="copy-btn row-user-copy" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}" hover-class="press-dim" role="button" aria-label="{{ui['复制']}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view>
@@ -266,9 +266,9 @@
           />
 </view>
 <view wx:if="{{item.attachments && item.attachments.length}}" class="message-attachments assistant-attachments">
-<view wx:for="{{item.attachments}}" wx:for-item="att" wx:for-index="attachmentIndex" wx:key="index" wx:if="{{att.kind !== 'image'}}" class="message-attachment" bindtap="openMessageAttachment" data-row-index="{{rowIndex}}" data-attachment-index="{{attachmentIndex}}">
-<image class="message-attachment-icon" src="{{att.kind === 'directory' ? '/assets/icons/ic-dir-folder-ink.png' : '/assets/icons/paperclip-gray.png'}}" mode="aspectFit"/>
-<view class="message-attachment-copy"><text class="message-attachment-name">{{att.name || att.path || '文件附件'}}</text><text wx:if="{{att.path && att.name !== att.path}}" class="message-attachment-path">{{att.path}}</text></view>
+<view wx:for="{{item.attachments}}" wx:for-item="att" wx:for-index="attachmentIndex" wx:key="index" wx:if="{{att.kind !== 'image'}}" class="message-attachment" bindtap="openMessageAttachment" data-row-index="{{rowIndex}}" data-attachment-index="{{attachmentIndex}}" hover-class="press-dim" role="button" aria-label="{{ui['预览']}} {{att.name || att.path || ui['附件']}}">
+<image class="message-attachment-icon" src="{{att.kind === 'directory' ? '/assets/icons/ic-dir-folder-ink.png' : '/assets/icons/deliverable-document.svg'}}" mode="aspectFit"/>
+<text class="message-attachment-name">{{att.name || att.path || ui['附件']}}</text>
 </view>
 </view>
 </view>
@@ -301,7 +301,6 @@
 <view class="delivered-file-copy"><text class="delivered-file-name">{{file.name}}</text><text class="delivered-file-description">{{fileBusyKey === file.key ? ui['正在下载文件'] + ' ' + fileProgress + '%' : file.subtitle}}</text></view>
 <view class="delivered-file-controls">
 <view class="delivered-file-open" catchtap="openPresentedFile" data-key="{{file.key}}" role="button" aria-label="{{ui['预览']}}"><image src="/assets/icons/deliverable-open.svg"/></view>
-<view class="delivered-file-more" catchtap="showFileActions" data-key="{{file.key}}" role="button" aria-label="{{ui['更多']}}"><view class="delivered-chevron"/></view>
 </view>
 </view>
 </block>
@@ -1493,6 +1492,13 @@
 <text class="composer-slash-token">{{commandTokenLabel}}</text>
 <text class="composer-slash-x">×</text>
 </view>
+<view hidden="{{!composerRefs.length}}" class="composer-refs {{composerRefs.length ? 'on' : ''}}">
+<view wx:for="{{composerRefs}}" wx:key="key" class="composer-ref-chip">
+<image class="composer-ref-icon" src="/assets/icons/{{item.icon}}" mode="aspectFit"/>
+<text class="composer-ref-label">{{item.label}}</text>
+<view class="composer-ref-remove" catchtap="removeComposerRef" data-index="{{index}}" hover-class="press-dim" role="button" aria-label="{{ui['移除引用']}}"><text class="composer-ref-x">×</text></view>
+</view>
+</view>
 <textarea
       class="composer-input"
       style="height:{{composerInputHeightPx}}px"
@@ -1523,7 +1529,7 @@
 <view wx:if="{{voicePendingText}}" class="voice-transcript"><text class="voice-transcript-hint">{{ui['草稿已修改，识别文字待插入']}}</text><text class="voice-transcript-text" selectable>{{voicePendingText}}</text><view class="voice-transcript-actions"><view class="voice-inline-action" bindtap="discardPendingVoiceText" role="button">{{ui['丢弃识别文字']}}</view><view class="voice-inline-action" bindtap="insertPendingVoiceText" role="button">{{ui['插入文字']}}</view></view></view>
 <view wx:if="{{images.length}}" class="composer-images">
 <block wx:for="{{images}}" wx:key="id">
-<view wx:if="{{item.isFile}}" class="pending-file">
+<view wx:if="{{item.isFile}}" class="pending-file" catchtap="previewPendingFile" data-index="{{index}}" role="button" aria-label="{{ui['预览']}} {{item.name}}">
 <image class="pending-file-ic" src="/assets/icons/paperclip-gray.png"/>
 <text class="pending-file-name">{{item.name}}</text>
 <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
@@ -1639,27 +1645,37 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
 <view class="model-check-slot" aria-hidden="true"><view wx:if="{{e.current}}" class="model-check"></view></view>
 </view>
 </view>
-<view wx:if="{{fileSheet}}" class="sheet-mask" catchtap="closeFileActions" catchtouchmove="noop">
-<view class="sheet delivered-actions" catchtap="noop">
-<view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{fileSheet.name}}</text><view class="close-x-wrap" bindtap="closeFileActions"><view class="sheet-close-x"></view></view></view>
-<view class="delivered-action" bindtap="previewSelectedFile">{{ui['预览文件']}}</view>
-<view wx:if="{{filePreview.selection}}" class="delivered-action" bindtap="copyTextSelection">{{ui['复制']}}</view><view wx:else class="delivered-action" bindtap="shareSelectedFile" role="button" aria-disabled="{{!!fileBusyKey || !!fileSharingKey}}">{{fileBusyKey === fileSheet.key ? ui['正在下载文件'] + ' ' + fileProgress + '%' : fileSharingKey ? ui['正在打开微信转发…'] : ui['转发到微信']}}</view>
-<view class="delivered-action" bindtap="copyPresentedPath">{{ui['复制文件路径']}}</view>
-</view>
-</view>
 <view wx:if="{{filePreview}}" class="sheet-mask" catchtap="closeFilePreview">
 <view class="sheet delivered-preview" catchtap="noop">
-<view class="sheet-handle"/><view class="delivered-sheet-head"><text>{{filePreview.name}}</text><view class="close-x-wrap" bindtap="closeFilePreview"><view class="sheet-close-x"></view></view></view>
+<view class="sheet-handle"/><view class="delivered-sheet-head"><image wx:if="{{filePreview.icon}}" class="delivered-preview-icon" src="{{filePreview.icon}}" mode="aspectFit"/><text class="delivered-preview-name">{{filePreview.name}}</text><view class="close-x-wrap" bindtap="closeFilePreview"><view class="sheet-close-x"></view></view></view>
+<text wx:if="{{filePreview.typeLabel}}" class="delivered-preview-meta">{{filePreview.typeLabel}}{{filePreview.sizeLabel ? ' · ' + filePreview.sizeLabel : ''}}</text>
+<block wx:if="{{fileBusyKey && fileBusyKey === filePreview.key}}">
+<view class="delivered-progress"><view class="delivered-progress-bar" style="width:{{fileProgress}}%"></view></view>
+<text class="delivered-preview-note">{{ui['正在下载文件']}} {{fileProgress}}%</text>
+</block>
+<block wx:elif="{{filePreview.error}}"><text class="delivered-preview-note">{{filePreview.error}}</text></block>
+<block wx:elif="{{filePreview.previewKind === 'image' && filePreview.localPath}}">
+<scroll-view scroll-y class="delivered-preview-scroll"><image class="delivered-preview-image" src="{{filePreview.localPath}}" mode="aspectFit"/></scroll-view>
+</block>
+<block wx:elif="{{filePreview.previewKind === 'document' || filePreview.previewKind === 'file'}}">
+<view class="delivered-preview-doc"><image class="delivered-preview-doc-icon" src="{{filePreview.icon}}" mode="aspectFit"/><text class="delivered-preview-note">{{ui['正文由微信查看器打开']}}</text></view>
+</block>
+<block wx:else>
 <text wx:if="{{filePreview.selection}}" class="delivered-preview-note">{{ui['长按文字可选择，或点下方复制']}}</text>
 <text wx:if="{{filePreview.sourceCode}}" class="delivered-preview-note">{{ui['安全源码预览，不执行脚本']}}</text>
 <text wx:if="{{filePreview.truncated}}" class="delivered-preview-note">{{ui['仅预览前 128 KB，完整内容请转发文件查看']}}</text>
 <scroll-view scroll-y class="delivered-preview-scroll"><text selectable class="delivered-preview-text" style="{{filePreview.selection ? 'font-family:inherit;' : ''}}">{{filePreview.text || ui['空文件']}}</text></scroll-view>
+</block>
 <block wx:if="{{filePreview.selection}}">
 <view class="delivered-selection-actions">
 <view class="delivered-action" bindtap="copyTextSelection" role="button">{{ui['复制']}}</view>
 </view>
 </block>
-<view wx:else class="delivered-action" bindtap="shareSelectedFile" role="button" aria-disabled="{{!!fileBusyKey || !!fileSharingKey}}">{{fileBusyKey === filePreview.key ? ui['正在下载文件'] + ' ' + fileProgress + '%' : fileSharingKey ? ui['正在打开微信转发…'] : ui['转发到微信']}}</view>
+<block wx:else>
+<view class="delivered-action" bindtap="filePreviewPrimary" role="button" aria-disabled="{{!!fileBusyKey}}">{{filePreview.primary || ui['复制']}}</view>
+<view wx:if="{{filePreview.canShare}}" class="delivered-action" bindtap="shareSelectedFile" role="button" aria-disabled="{{!!fileBusyKey || !!fileSharingKey}}">{{fileSharingKey ? ui['正在打开微信转发…'] : ui['转发到微信']}}</view>
+<view wx:if="{{filePreview.canCopyPath}}" class="delivered-action delivered-action-secondary" bindtap="copyPresentedPath">{{ui['复制文件路径']}}</view>
+</block>
 </view>
 </view>
 <view wx:if="{{changesDiff}}" class="sheet-mask" catchtap="closeChangesDiff" catchtouchmove="noop">
@@ -1785,6 +1801,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
 <view class="turn-scrub-row-copy">
 <text class="turn-scrub-row-title">{{item.label}}</text>
 </view>
+<view class="turn-scrub-tick-slot" aria-hidden="true"><view class="turn-scrub-tick"/></view>
 </view>
 <view class="turn-scrub-spacer" style="height: {{turnNavBottomPadPx}}px;"></view>
 </view>
@@ -1824,7 +1841,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
 </view>
 <view class="session-menu-group">
 <view class="session-menu-row" bindtap="selectMoreAction" data-action="browsePlugins" hover-class="session-menu-pressed" role="button">
-<image class="session-menu-icon" src="/assets/icons/{{theme === 'dark' ? 'pinwheel-white.png' : 'pinwheel-ink.png'}}" mode="aspectFit"/><text class="session-menu-label">{{ui['浏览更多插件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
+<image class="session-menu-icon" src="/assets/icons/{{theme === 'dark' ? 'pinwheel-white.png' : 'pinwheel-gray.png'}}" mode="aspectFit"/><text class="session-menu-label">{{ui['浏览更多插件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
 </view>
 <view class="session-menu-row" bindtap="selectMoreAction" data-action="createPlugin" hover-class="session-menu-pressed" role="button">
 <image class="session-menu-icon" src="/assets/icons/{{theme === 'dark' ? 'plus-white.png' : 'plus-gray.png'}}" mode="aspectFit"/><text class="session-menu-label">{{ui['创建你的插件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>

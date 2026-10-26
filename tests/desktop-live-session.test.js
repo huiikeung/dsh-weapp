@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { buildEntries } = require('../miniprogram/utils/conversation-workflow');
+const { buildEntries } = require('../miniprogram/pages/session/utils/conversation-workflow');
 function fixture() {
   const filename = path.resolve(__dirname, '../miniprogram/utils/store.js');
   const module = { exports: {} }, timers = [];

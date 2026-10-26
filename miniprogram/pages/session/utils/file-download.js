@@ -1,4 +1,4 @@
-const { t } = require('./ui-preferences');
+const { t } = require('../../../utils/ui-preferences');
 const { relativePath } = require('./file-deliverables');
 const SHA256 = require('./file-sha256');
 const MAX_BYTES = 50 * 1024 * 1024;

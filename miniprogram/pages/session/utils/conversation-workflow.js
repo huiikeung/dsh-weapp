@@ -1,5 +1,5 @@
-const { t: uiText } = require('./ui-preferences');
-const { toolIconFile } = require('./protocol');
+const { t: uiText } = require('../../../utils/ui-preferences');
+const { toolIconFile } = require('../../../utils/protocol');
 const { toolPresentation } = require('./tool-presentation');
 
 /**

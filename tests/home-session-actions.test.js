@@ -47,7 +47,7 @@ function fixture(sessions, options) {
       boundingClientRect(cb) { cb(opts.rect === undefined ? { left: 40, top: 300, width: 295, height: 60 } : opts.rect); return this; },
       exec() { return this; }
     }),
-    navigateTo(options) { calls.push(['navigate', options.url]); if (opts.navigateFail) options.fail(); },
+    navigateTo(options) { calls.push(['navigate', options]); if (opts.navigateFail) options.fail(); },
     navigateBack() {},
     stopPullDownRefresh() {},
     setNavigationBarTitle() {},
@@ -103,7 +103,7 @@ test('long press opens the anchored session menu instead of a native action shee
   assert.equal(modals[0].title, preferences.t('重命名会话'));
 });
 
-test('opening a conversation pauses the home renderer and initializes the store only once', () => {
+test('opening a conversation pauses the home renderer and navigates before store hydration', () => {
   const { page, calls } = fixture(sessions);
   let paused = false;
   page.selectComponent = () => ({ pause() { paused = true; } });
@@ -112,10 +112,13 @@ test('opening a conversation pauses the home renderer and initializes the store 
   assert.equal(paused, true);
   assert.equal(page._homeHidden, true, 'store emissions cannot rebuild the home list during navigation');
   page.openSession({ currentTarget: { dataset: { id: 's2' } } });
-  assert.deepEqual(calls, [
-    ['open', 's1', '会话一', 'standard'],
-    ['navigate', '/pages/session/session?id=s1']
-  ]);
+  assert.equal(calls[0][0], 'navigate');
+  assert.equal(calls[0][1].url, '/pages/session/session?id=s1&reopen=1&preset=standard');
+  assert.equal(calls[0][1].animationDuration, 160, 'the session page enters with a shorter native transition');
+  const source = fs.readFileSync(pageFile, 'utf8');
+  const openBody = source.slice(source.indexOf('  openSession(e) {'), source.indexOf('  /** 长按会话行', source.indexOf('  openSession(e) {')));
+  assert.ok(!openBody.includes('store.openSession('), 'the home tap cannot synchronously hydrate the selected conversation');
+  assert.ok(!openBody.includes('title='), 'Chinese titles stay in the store/session list instead of the navigation URL');
 });
 
 test('failed session navigation restores the home and allows retry', () => {
@@ -126,6 +129,7 @@ test('failed session navigation restores the home and allows retry', () => {
   assert.equal(page._homeHidden, false);
   assert.equal(page._openingSession, false);
   assert.equal(page.data.oceanActive, true);
+  assert.equal(calls.some(call => call[0] === 'open'), false, 'failed navigation does not switch the active store session');
   assert.equal(syncs, 1);
   page.openSession(event);
   assert.equal(calls.filter(call => call[0] === 'navigate').length, 2);

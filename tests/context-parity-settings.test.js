@@ -9,7 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..', 'miniprogram');
-const prefsPath = path.join(root, 'utils/context-prefs.js');
+const prefsPath = path.join(root, 'pages/settings/utils/context-prefs.js');
 const settingsWxml = fs.readFileSync(path.join(root, 'pages/settings/settings.wxml'), 'utf8');
 const settingsJs = fs.readFileSync(path.join(root, 'pages/settings/settings.js'), 'utf8');
 const sessionJs = fs.readFileSync(path.join(root, 'pages/session/session.js'), 'utf8');

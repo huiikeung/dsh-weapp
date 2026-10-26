@@ -52,6 +52,7 @@ function attachmentBlocks(value) {
       return [{
         kind: 'file',
         ...(b.receiptId ? { receiptId: b.receiptId } : {}),
+        ...(ref.path ? { path: ref.path } : {}),
         ...(ref.attachmentId ? { attachmentId: ref.attachmentId } : {}),
         ...(ref.name ? { name: ref.name } : {}),
         ...(ref.bytes ? { bytes: ref.bytes } : {}),
@@ -63,6 +64,31 @@ function attachmentBlocks(value) {
     }
     return [];
   });
+}
+
+// 网关把工作区引用写成正文里的 `[工作区文件: path]` / `[工作区目录: path]` 标记行
+// （见 GatewayMessageHandler 的 attachmentText）。这里按同一规则把它抽成附件，
+// 并从正文里剥掉：否则「刚发送」是干净正文 + 附件 chip，「后期从历史回来」会多出
+// 一行标记，两边显示不一致；抽成附件后 chip 一直带 path，重新进页面也能预览。
+const WORKSPACE_REF_LINE = /^\[工作区(文件|目录):\s*([^\]\n]+)\](?:\r?\n|$)/gm;
+function workspaceRefsOfText(text) {
+  if (typeof text !== 'string' || text.indexOf('[工作区') < 0) return { text, refs: [] };
+  const refs = [];
+  const stripped = text.replace(WORKSPACE_REF_LINE, (line, kind, value) => {
+    const path = String(value || '').trim();
+    if (!path) return line;
+    refs.push({ kind: kind === '目录' ? 'directory' : 'file', path, name: path.split('/').pop() || path });
+    return '';
+  });
+  if (!refs.length) return { text, refs };
+  return { text: stripped.replace(/\n{3,}/g, '\n\n').replace(/^\n+|\n+$/g, ''), refs };
+}
+
+function withWorkspaceRefs(attachments, refs) {
+  if (!refs.length) return attachments;
+  const known = new Set((attachments || []).filter((item) => item && item.path).map((item) => item.path));
+  const extra = refs.filter((item) => !known.has(item.path));
+  return extra.length ? (attachments || []).concat(extra) : attachments;
 }
 
 /** 回显合并：网关回显只带 attachmentId，保留本地刚发送时的临时图片路径，
@@ -114,7 +140,7 @@ function normalizeRawEvent(raw, sessionId) {
       if (typeof data.source === 'string') source = data.source;
       else if (data.source && typeof data.source.kind === 'string') source = data.source.kind;
       let text = textBlocks(data.content);
-      const attachments = attachmentBlocks(data.content).concat(Array.isArray(data.attachments) ? data.attachments : []);
+      let attachments = attachmentBlocks(data.content).concat(Array.isArray(data.attachments) ? data.attachments : []);
       // 兜底：文本可能挂在 text / message / item.text / parts 等字段（不同连接器版本不一）
       if (!text && typeof data.text === 'string') text = data.text;
       if (!text && data.message) text = textBlocks(data.message);
@@ -124,9 +150,13 @@ function normalizeRawEvent(raw, sessionId) {
           .map((pt) => (typeof pt === 'string' ? pt : (pt && pt.text) || ''))
           .join('');
       }
+      // 工作区引用：网关既写进 attachments（带 path），也在正文里留标记行。两边都收，
+      // 标记行从正文剥掉，保证发送时与历史回退后的显示一致。
+      const refs = workspaceRefsOfText(text);
+      attachments = withWorkspaceRefs(attachments, refs.refs);
       event = {
         type: type,
-        text: text,
+        text: refs.text,
         source: source,
         images: imageBlocks(data.content).length ? imageBlocks(data.content) : (Array.isArray(data.images) ? data.images : []),
         attachments
@@ -747,5 +777,6 @@ module.exports = {
   buildTrajectory,
   applyEvent,
   newAggregator,
+  workspaceRefsOfText,
   TITLES
 };

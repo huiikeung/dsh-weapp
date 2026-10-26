@@ -1,5 +1,5 @@
-const { ConversationWindow } = require('../../utils/conversation-window');
-const { dataPatch } = require('../../utils/session-render');
+const { ConversationWindow } = require('./utils/conversation-window');
+const { dataPatch } = require('./utils/session-render');
 module.exports = {
   conversationWindowPatch(rows, options) {
     if (!this._conversationWindow || this._windowSession !== this._renderSessionId) {
@@ -47,11 +47,34 @@ module.exports = {
   measureConversationWindow() {
     if (this._windowMeasurePending || this._unloaded || this._voiceHidden || this.data.tab !== 'conversation' || typeof wx === 'undefined' || typeof wx.createSelectorQuery !== 'function') return;
     const window = this._conversationWindow; if (!window) return;
+    const gesture = this._panelGesture;
+    const touchingConversation = gesture && gesture.tab === 'conversation';
+    const scrollQuietFor = Date.now() - (this._lastConvScrollAt || 0);
+    const settlingScroll = this._convPinned === false && this._lastConvScrollAt && scrollQuietFor < 160;
+    if (touchingConversation || settlingScroll) {
+      if (!this._windowMeasureTimer) {
+        const wait = touchingConversation ? 120 : Math.max(16, 160 - scrollQuietFor);
+        this._windowMeasureTimer = setTimeout(() => {
+          this._windowMeasureTimer = null;
+          this.measureConversationWindow();
+        }, wait);
+      }
+      return;
+    }
     const keys = this.data.rows.map(row => row.key);
     this._windowMeasurePending = true;
     wx.createSelectorQuery().in(this).selectAll('.conversation-window-row').boundingClientRect(rects => {
       this._windowMeasurePending = false;
       if (this._unloaded || this._voiceHidden || window !== this._conversationWindow || keys.join('|') !== this.data.rows.map(row => row.key).join('|')) return;
+      // The selector query can finish after a swipe has started. Do not apply a
+      // stale height correction to the native scroll position mid-gesture.
+      const currentGesture = this._panelGesture;
+      const currentScrollQuietFor = Date.now() - (this._lastConvScrollAt || 0);
+      if ((currentGesture && currentGesture.tab === 'conversation')
+        || (this._convPinned === false && this._lastConvScrollAt && currentScrollQuietFor < 160)) {
+        this.measureConversationWindow();
+        return;
+      }
       const index = window.indexAt(this._lastScrollTop || 0), oldOffset = window.offsets[index];
       let changed = false;
       (rects || []).forEach((rect, i) => {

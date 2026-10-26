@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { buildRows, newAggregator, applyEvent, normalizeRawEvent } = require('../miniprogram/utils/protocol');
-const { buildEntries } = require('../miniprogram/utils/conversation-workflow');
+const { buildEntries } = require('../miniprogram/pages/session/utils/conversation-workflow');
 const { mutationPath, validSummary, validDiff } = require('../miniprogram/utils/workspace-changes');
 const { transform } = require('../scripts/install-workspace-changes-bridge.cjs');
 const event = (seq, type, data, surfaceOp) => ({ seq, type, data, ...(surfaceOp ? { surfaceOp } : {}) });
@@ -103,16 +103,37 @@ test('native file cards and forwarding controls render correctly in light and da
   const context = vm.createContext({ window: {}, console }); vm.runInContext(fs.readFileSync(output, 'utf8'), context);
   const render = context.$gwx('pages/session/session.wxml');
   const { page, ready } = changesFixture(); ready();
+  const textSheet = { key: 'preview', name: '完整报告.html', text: '<html>安全源码</html>',
+    icon: '/assets/icons/deliverable-code.svg', typeLabel: '代码', sizeLabel: '1.2 KB',
+    previewKind: 'text', sourceCode: true, primary: '复制', canShare: true, canCopyPath: false };
   for (const theme of ['light', 'dark']) {
     const data = { ...require('../miniprogram/utils/ui-preferences').snapshot(), ...page.data, tab: 'conversation', theme,
-      themeClass: 'theme-' + theme, filePreview: { key: 'preview', name: '完整报告.html', text: '<html>安全源码</html>' } };
+      themeClass: 'theme-' + theme, filePreview: textSheet };
     let tree = JSON.stringify(render(data, {}, {}));
     for (const text of ['a.wxss', 'b.wxml', '已编辑 2 个文件', '转发到微信', 'shareSelectedFile', 'changed-file-icon']) assert.ok(tree.includes(text), text);
+    // 源码只作为纯文本展示，绝不执行。
+    assert.ok(tree.includes('安全源码预览，不执行脚本'));
+    assert.ok(tree.includes('filePreviewPrimary'));
     assert.ok(!tree.includes('expired.txt')); assert.ok(!tree.includes('该轮变更快照已失效'));
     tree = JSON.stringify(render({ ...data, fileBusyKey: 'preview', fileProgress: 42 }, {}, {}));
     assert.ok(tree.includes('正在下载文件 42%'));
     tree = JSON.stringify(render({ ...data, fileSharingKey: 'preview' }, {}, {}));
     assert.ok(tree.includes('正在打开微信转发…'));
+
+    // 文档类只做入口：弹窗显示类型与「用微信打开」，不假装能渲染正文。
+    const docSheet = { ...textSheet, name: '报告.pdf', previewKind: 'document', kind: 'pdf', typeLabel: 'PDF',
+      icon: '/assets/icons/deliverable-pdf.svg', primary: '用微信打开', sourceCode: false, text: '' };
+    tree = JSON.stringify(render({ ...data, filePreview: docSheet }, {}, {}));
+    assert.ok(tree.includes('正文由微信查看器打开'), 'documents explain that WeChat opens the body');
+    assert.ok(tree.includes('用微信打开'));
+    assert.ok(!tree.includes('delivered-preview-text'), 'no fake body is rendered for a PDF');
+
+    // 图片在弹窗里内联渲染。
+    const imageSheet = { ...textSheet, name: '截图.png', previewKind: 'image', kind: 'image', typeLabel: '图片',
+      icon: '/assets/icons/deliverable-image.svg', localPath: '/tmp/shot.png', primary: '查看原图' };
+    tree = JSON.stringify(render({ ...data, filePreview: imageSheet }, {}, {}));
+    assert.ok(tree.includes('delivered-preview-image'));
+    assert.ok(tree.includes('查看原图'));
   }
 });
 

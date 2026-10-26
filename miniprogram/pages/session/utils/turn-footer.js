@@ -1,5 +1,5 @@
-const { t } = require('./ui-preferences');
-const { compact } = require('./turn-usage');
+const { t } = require('../../../utils/ui-preferences');
+const { compact } = require('../../../utils/turn-usage');
 
 // Keep footer decoration out of cached entries and independent of copyable text.
 function applyTurnFooters(rows, source, usageByTurn, running) {

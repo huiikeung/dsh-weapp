@@ -1,7 +1,8 @@
 const { t: uiText } = require('./ui-preferences');
-// 配对载荷解析：兼容两种格式。
+// 配对载荷解析：兼容两种格式，并识别 v2 多客户端二维码中的小程序专用路由。
 // v2（直连，与 iOS PairingPayloadParser 对齐）：WebUI 生成的二维码是 Base64URL(JSON)：
 //   { version, publicUrl, pairingCode, expiresAt, gatewayId?, gatewayName?, endpoints? }
+//   新版还可附带 miniProgramRoute；DSH App 忽略该字段，小程序按本机路由选择器连接。
 // v3（公网中继 + E2EE，由 relay/agent-connector.js 生成）：
 //   { version:3, mode:'relay', relay, nodeId, agentPubKey, inviteToken, expiresAt }
 //   公网模式只连接 relay + '/c/' + nodeId，不回落到局域网地址。
@@ -48,7 +49,33 @@ function parse(rawValue, nowMs) {
 
   if (!payload || payload.version !== 2) return failure(PairingError.UNSUPPORTED_VERSION);
 
-  const endpoint = String(payload.publicUrl || '');
+  const now = nowMs || Date.now();
+  if (Object.prototype.hasOwnProperty.call(payload, 'miniProgramRoute')) {
+    const route = payload.miniProgramRoute;
+    if (!route || typeof route !== 'object' || Array.isArray(route)) {
+      return failure(PairingError.INVALID_RELAY);
+    }
+    if (route.mode === 'relay') {
+      return parseRelayPayload({
+        ...route,
+        version: 3,
+        pairingCode: payload.pairingCode,
+        expiresAt: payload.expiresAt,
+        gatewayName: route.gatewayName || payload.gatewayName,
+        gatewayId: payload.gatewayId
+      }, now);
+    }
+    if (route.mode === 'direct') return parseDirectPayload(payload, route, now);
+    return failure(PairingError.INVALID_RELAY);
+  }
+
+  return parseDirectPayload(payload, null, now);
+}
+
+function parseDirectPayload(payload, route, now) {
+  const selected = route || payload;
+
+  const endpoint = String(selected.publicUrl || '');
   const scheme = endpoint.split('://')[0].toLowerCase();
   const rest = endpoint.split('://')[1] || '';
   if ((scheme !== 'ws' && scheme !== 'wss') || !rest.split('/')[0]) {
@@ -60,7 +87,6 @@ function parse(rawValue, nowMs) {
     return failure(PairingError.INVALID_CODE);
   }
 
-  const now = nowMs || Date.now();
   const expiresAt = Number(payload.expiresAt || 0);
   if (!(expiresAt > now)) return failure(PairingError.EXPIRED);
 
@@ -73,7 +99,8 @@ function parse(rawValue, nowMs) {
       expiresAt: expiresAt,
       gatewayId: payload.gatewayId || null,
       gatewayName: payload.gatewayName || null,
-      endpoints: Array.isArray(payload.endpoints) ? payload.endpoints : [],
+      endpoints: Array.isArray(selected.endpoints) ? selected.endpoints : [endpoint],
+      ...(route ? { mode: 'mini-program-direct' } : {}),
       ...deviceFields(payload)
     }
   };

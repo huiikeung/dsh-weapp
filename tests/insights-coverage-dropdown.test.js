@@ -80,10 +80,10 @@ test('the two list chip rows follow the desktop reference', () => {
     return found[1];
   };
 
-  // 排序行：一个分段控件，外层描边浅底，选中段才是实心
+  // 排序行：一个分段控件，外层只描边不填色，选中段才是实心
   const sortRow = rule('.ins-list-tools .ins-sort-row');
   assert.match(sortRow, /border:\s*1rpx solid var\(--border\)/, 'the sort row is one bordered container');
-  assert.match(sortRow, /background:\s*var\(--fill\)/, 'the sort row has a subtle container fill');
+  assert.match(sortRow, /background:\s*transparent/, 'the sort row keeps only a border, no fill');
   assert.match(sortRow, /border-radius:\s*12rpx/, 'the sort row is one rounded container');
   const sortChip = rule('.ins-list-tools .ins-sort-row .ins-mini-chip');
   assert.match(sortChip, /background:\s*transparent/, 'inactive segments are transparent');
@@ -93,6 +93,15 @@ test('the two list chip rows follow the desktop reference', () => {
   assert.match(sortOn, /color:\s*var\(--text\)/, 'the active segment uses ink text');
   assert.ok(!/--ins-blue/.test(sortOn), 'the active segment is no longer blue');
 
+  // 会话模块的输入框同样透明底、保留描边
+  const search = rule('.ins-session-card .ins-search');
+  assert.match(search, /background:\s*transparent/, 'the session search box drops its fill');
+  assert.match(rule('.ins-search'), /border:\s*1rpx solid var\(--border\)/, 'the session search box keeps a border');
+  // 前面的日期/技能筛选 chip 也走透明底 + 描边
+  const dayFilter = rule('.ins-day-filter');
+  assert.match(dayFilter, /background:\s*transparent/, 'the leading filter chips drop their fill');
+  assert.match(dayFilter, /border:\s*1rpx solid var\(--border\)/, 'the leading filter chips keep a border');
+
   // 分组行：描边胶囊，只有选中项填充
   const groupChip = rule('.ins-group-row .ins-mini-chip');
   assert.match(groupChip, /border:\s*1rpx solid var\(--border\)/, 'group pills are outlined');
@@ -101,4 +110,36 @@ test('the two list chip rows follow the desktop reference', () => {
   const groupOn = rule('.ins-group-row .ins-mini-chip.on');
   assert.match(groupOn, /background:\s*var\(--text\)/, 'the active group pill is solid');
   assert.match(groupOn, /color:\s*var\(--surface\)/, 'the active group pill inverts its text');
+});
+
+test('the heatmap metric toggle is the same black segmented control as the skill sorter', () => {
+  const fs = require('node:fs'), path = require('node:path');
+  const root = path.resolve(__dirname, '../miniprogram');
+  const wxss = fs.readFileSync(path.join(root, 'pages/insights/insights.wxss'), 'utf8');
+  const wxml = fs.readFileSync(path.join(root, 'pages/insights/insights.wxml'), 'utf8');
+  // 标记：chip 收进独立的 .ins-seg 容器，「按日期筛选」文案留在容器外
+  const controls = wxml.slice(wxml.indexOf('class="ins-controls"'), wxml.indexOf('class="ins-heatmap-wrap"'));
+  assert.match(controls, /<text class="ins-heat-sub">[^<]*<\/text>\s*<view class="ins-seg">/,
+    'the metric chips live in their own segment container');
+  const rule = (selector) => {
+    const found = wxss.match(new RegExp(selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\s*\\{([^}]*)\\}'));
+    assert.ok(found, selector + ' must exist');
+    return found[1];
+  };
+  // 分段控件：外层描边容器，选中段用正文色（黑）填充 —— 和技能加载同款
+  const seg = rule('.ins-heat-card .ins-seg');
+  assert.match(seg, /border:\s*1rpx solid var\(--border\)/, 'the heatmap toggle is one bordered container');
+  assert.match(seg, /border-radius:\s*12rpx/, 'the heatmap toggle is one rounded container');
+  const chip = rule('.ins-heat-card .ins-seg .ins-mini-chip');
+  assert.match(chip, /background:\s*transparent/, 'inactive heatmap segments are transparent');
+  assert.match(chip, /border-radius:\s*9rpx/, 'inactive heatmap segments are squared, not pills');
+  const on = rule('.ins-heat-card .ins-seg .ins-mini-chip.on');
+  assert.match(on, /background:\s*var\(--text\)/, 'the active heatmap segment is ink-filled');
+  assert.match(on, /color:\s*var\(--surface\)/, 'the active heatmap segment inverts its text');
+  assert.ok(!/--ins-blue/.test(on), 'the active heatmap segment is no longer blue');
+  // 与技能加载的分段控件保持同一组数值
+  const skillRow = rule('.ins-skills-card .ins-sort-row');
+  assert.equal(seg.match(/gap:\s*(\S+)/)[1], skillRow.match(/gap:\s*(\S+)/)[1], 'same segment gap');
+  assert.equal(chip.match(/min-height:\s*(\S+)/)[1], rule('.ins-skills-card .ins-mini-chip').match(/min-height:\s*(\S+)/)[1],
+    'same segment height');
 });

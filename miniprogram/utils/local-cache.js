@@ -26,6 +26,9 @@ function createLocalCache(options) {
   const cancel = opts.clearTimeout || clearTimeout;
   const memory = new Map();
   const writes = new Map();
+  const touches = new Set();
+  const warming = new Map();
+  let touchTimer = null;
 
   function storageKey(key) {
     return prefix + '.' + encodeURIComponent(String(key));
@@ -46,14 +49,62 @@ function createLocalCache(options) {
     } catch (_error) { return []; }
   }
 
-  function touchDisk(key) {
-    if (!storage) return;
+  function flushTouches() {
+    touchTimer = null;
+    if (!storage || !touches.size) return;
     try {
-      const fullKey = storageKey(key);
-      const index = readIndex().filter(item => item !== fullKey);
-      index.unshift(fullKey);
+      const previous = readIndex();
+      // Reads of memory-only entries must not create phantom disk entries.
+      const recent = [...touches].reverse().filter(key => previous.includes(key));
+      const index = recent.concat(previous.filter(key => !touches.has(key)));
       storage.setStorageSync(prefix + '.index', JSON.stringify(index));
     } catch (_error) { /* cache bookkeeping must not block rendering */ }
+    touches.clear();
+  }
+
+  function touchDisk(key) {
+    if (!storage) return;
+    const fullKey = storageKey(key);
+    touches.delete(fullKey); touches.add(fullKey);
+    if (touchTimer === null) touchTimer = schedule(flushTouches, 500);
+  }
+
+  function decode(raw, normalize) {
+    if (!raw) return null;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed || (parsed.cacheVersion != null && parsed.cacheVersion !== version)) return null;
+    const value = parsed.cacheVersion == null ? parsed : parsed.value;
+    return normalize ? normalize(value) : value;
+  }
+
+  // Disk-only warm-up: no network, subscription or visible session mutation.
+  function warm(key, normalize, isCurrent) {
+    key = String(key);
+    if (memory.has(key)) return Promise.resolve(true);
+    if (!storage || typeof storage.getStorage !== 'function') return Promise.resolve(false);
+    if (warming.has(key)) return warming.get(key).promise;
+    const ticket = {};
+    ticket.promise = new Promise(resolve => { ticket.resolve = resolve; });
+    warming.set(key, ticket);
+    const finish = raw => {
+      let loaded = false;
+      try {
+        if (warming.get(key) === ticket && (!isCurrent || isCurrent())) {
+          const value = decode(raw, normalize);
+          if (value != null) { remember(key, value); loaded = true; }
+        }
+      } catch (_error) { /* malformed cache is a miss */ }
+      if (warming.get(key) === ticket) warming.delete(key);
+      ticket.resolve(loaded);
+    };
+    try { storage.getStorage({ key: storageKey(key), success: result => finish(result.data), fail: () => finish(null) }); }
+    catch (_error) { finish(null); }
+    return ticket.promise;
+  }
+
+  function cancelWarm(key) {
+    const ticket = warming.get(key);
+    if (ticket) { warming.delete(key); ticket.resolve(false); }
   }
 
   function get(key, normalize) {
@@ -64,15 +115,11 @@ function createLocalCache(options) {
       touchDisk(key);
       return value;
     }
+    cancelWarm(key);
     if (!storage) return null;
     try {
       const raw = storage.getStorageSync(storageKey(key));
-      if (!raw) return null;
-      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
-      // Raw objects are accepted for one-time migration from the previous cache format.
-      if (!parsed || (parsed.cacheVersion != null && parsed.cacheVersion !== version)) return null;
-      const value = parsed.cacheVersion == null ? parsed : parsed.value;
-      const result = normalize ? normalize(value) : value;
+      const result = decode(raw, normalize);
       if (result == null) return null;
       remember(key, result);
       touchDisk(key);
@@ -87,6 +134,8 @@ function createLocalCache(options) {
       const storedValue = serialize ? serialize(value) : value;
       const payload = JSON.stringify({ cacheVersion: version, savedAt: Date.now(), value: storedValue });
       if (utf8ByteLength(payload) > maxBytes) return;
+      if (touchTimer !== null) { cancel(touchTimer); touchTimer = null; }
+      flushTouches();
       const fullKey = storageKey(key);
       storage.setStorageSync(fullKey, payload);
       const index = readIndex().filter(item => item !== fullKey);
@@ -101,6 +150,7 @@ function createLocalCache(options) {
 
   function set(key, value, options) {
     key = String(key);
+    cancelWarm(key);
     const opts = options || {};
     remember(key, value);
     if (!storage) return;
@@ -118,6 +168,8 @@ function createLocalCache(options) {
 
   function remove(key) {
     key = String(key);
+    cancelWarm(key);
+    touches.delete(storageKey(key));
     memory.delete(key);
     if (writes.has(key)) cancel(writes.get(key));
     writes.delete(key);
@@ -130,6 +182,9 @@ function createLocalCache(options) {
   }
 
   function clear() {
+    [...warming.keys()].forEach(cancelWarm);
+    if (touchTimer !== null) cancel(touchTimer);
+    touchTimer = null; touches.clear();
     writes.forEach(timer => cancel(timer));
     writes.clear();
     memory.clear();
@@ -145,7 +200,7 @@ function createLocalCache(options) {
     } catch (_error) { /* best effort */ }
   }
 
-  return { get, set, remove, clear, storageKey, memory };
+  return { get, warm, set, remove, clear, storageKey, memory };
 }
 
 module.exports = { createLocalCache, utf8ByteLength };

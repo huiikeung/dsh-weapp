@@ -1,4 +1,4 @@
-const { t: uiText } = require('./ui-preferences');
+const { t: uiText } = require('../../../utils/ui-preferences');
 // Execution icon styles for the running process head.
 // terra/morph reference TerraWork thinking-orbs (MIT); see docs/licenses/thinking-orbs.txt.
 // This module never changes process titles, steps, timing, or gateway settings.

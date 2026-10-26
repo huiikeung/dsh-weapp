@@ -1,7 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict');
-const policy=require('../miniprogram/utils/work-step-presentation');
+const policy=require('../miniprogram/pages/session/utils/work-step-presentation');
 const protocol=require('../miniprogram/utils/protocol');
-const {buildEntries}=require('../miniprogram/utils/conversation-workflow');
+const {buildEntries}=require('../miniprogram/pages/session/utils/conversation-workflow');
 const group=(extra)=>({kind:'processGroup',key:'g',running:true,completed:false,children:[],...extra});
 test('four desktop modes have distinct live disclosure and detail policies',()=>{
  for(const mode of ['compact','standard','detailed','verbose']){

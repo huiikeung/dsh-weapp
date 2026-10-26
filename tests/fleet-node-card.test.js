@@ -5,7 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function loadView() {
-  const file = path.resolve(__dirname, '../miniprogram/utils/context-view.js');
+  const file = path.resolve(__dirname, '../miniprogram/pages/session/utils/context-view.js');
   const mod = { exports: {} };
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), {
     module: mod, exports: mod.exports, console, Date, Object, Array, String, Number,

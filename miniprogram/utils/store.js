@@ -1,12 +1,11 @@
 const { t: uiText } = require('./ui-preferences');
 // 全局状态仓库：持有 Gateway 连接、工作区/会话列表、当前会话投影与待处理
-// 人类交互请求（question / approval）。页面通过 subscribe(listener) 订阅，
-// 在 onShow/onHide 时注册/注销，与 iOS AppStore 的职责对齐。
 
 const { GatewayClient } = require('./gateway');
 const protocol = require('./protocol');
 const { recentWindow } = require('./history-window');
 const { createLocalCache, utf8ByteLength } = require('./local-cache');
+const sessionViewCache = require('./session-view-cache');
 const collaboration = require('./collaboration');
 const pairing = require('./pairing');
 const hosts = require('./hosts');
@@ -33,12 +32,10 @@ const PENDING_KIND = {
 function createStore() {
   const listeners = [];
   // 上下文面板是否处于可见分段（页面切入「上下文」时置 true）：
-  // 只在可见时随回合结束刷新，避免每次事件都传一份 context-dashboard。
   let contextActive = false;
   // 编队面板同理：独立可见性，避免每次事件都传整份家族快照。
   let fleetActive = false;
   // v2 动态刷新：上下文/编队面板可见且会话运行中时每 2.5s 拉一次快照。
-  // 上一帧未返回时跳过下一拍（不叠加请求）；切走/停止/切会话立即清 timer。
   const CONTEXT_POLL_MS = 2500;
   const CONTEXT_REQUEST_TIMEOUT_MS = 8000;
   let contextPollTimer = null;
@@ -187,7 +184,6 @@ function createStore() {
         state.workspaceRetries = 0;
         state.sessionsRetries = 0;
         // 切换主机/重连会先清空业务状态；网络请求返回前先恢复该主机
-        // 最近一次成功快照，避免远端旧网关报错时首页整页白屏。
         restoreHomeCacheAfterCoreFailure('workspaces');
         restoreHomeCacheAfterCoreFailure('sessions');
         bootstrap();
@@ -197,8 +193,13 @@ function createStore() {
         syncFleetPolling();
         startDataWatchdog();
       } else if (status === 'failed') {
+        if (pendingPairing) {
+          pendingPairing = false;
+          pendingProfile = null;
+          emit();
+          return;
+        }
         // 候选地址循环轮换（中继 ↔ 直连互为备份，3s 节流防紧密循环）：
-        // 此前沿单一方向死磕会导致自动连接永远回不到可达的那条路。
         if (status === 'failed' && endpointCandidates.length > 1) {
           endpointIdx = (endpointIdx + 1) % endpointCandidates.length;
           const profile = getProfile(state.activeID);
@@ -242,6 +243,7 @@ function createStore() {
       emit();
     },
     onPaired: function (frame) {
+      pendingPairing = false;
       state.paired = true;
       acceptIdentity(frame);
     },
@@ -312,7 +314,6 @@ function createStore() {
   const turnOutlineCache = createLocalCache({ prefix: 'dsh_turn_outline', version: 1,
     maxEntries: 20, maxBytes: 4 * 1024 * 1024, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
   // 上下文/编队面板：会话内即时复用上次结果，避免二次进入重新等待网关回放
-  // 缓存键带数据版本：面板投影的 schema 变化后，旧形状的缓存不应再被渲染。
   const CONTEXT_PANEL_CACHE_VERSION = 1;
   const contextPanelCache = createLocalCache({ prefix: 'dsh_context_cache', version: 1,
     maxEntries: 20, maxBytes: 400000, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
@@ -489,13 +490,15 @@ function createStore() {
     } catch (e) { /* 存储失败不阻断 */ }
   }
 
-  function loadSessionCache(sessionId) {
-    const key = sessionCacheKey(sessionId);
-    const normalize = cached => {
+  function normalizeSessionCache(sessionId, cached) {
       if (!cached || (!Array.isArray(cached.events) && !Array.isArray(cached.rows))) return null;
       const restored = recentWindow(cached, protocol, sessionId);
       return restored.rows.length ? restored : null;
-    };
+  }
+
+  function loadSessionCache(sessionId) {
+    const key = sessionCacheKey(sessionId);
+    const normalize = cached => normalizeSessionCache(sessionId, cached);
     const cached = sessionCache.get(key, normalize);
     if (cached) return cached;
 
@@ -595,8 +598,6 @@ function createStore() {
     const activeSessionId = sessionState.sessionId;
     if (activeSessionId) {
       // Rows survive reconnects, but this new connection still needs an authoritative
-      // tail refresh. Mark them as the local display copy so retries are not blocked
-      // by the previous connection's `loaded:*` state.
       sessionState.cacheDisplay = (sessionState.rows || []).length > 0;
       sessionState.historyState = 'requested';
       sessionState.historyError = '';
@@ -627,9 +628,6 @@ function createStore() {
     if (activeSessionId) {
       scheduleCoreBootstrap(requestCoreState, 400);
       // 重连后网关不保留订阅与推送状态：需要重拉会话内容。
-      // 但不要清空 rows/rowsAgg —— 原始事件缓冲 rawBuffer 仍然完整，
-      // 新 history 帧到达后会经 rebuildWithMore 合并去重后原地重建。
-      // 清空只会让页面在两次帧之间闪出空态/骨架屏（用户看到的「页面重新加载」）。
     } else requestCoreState();
   }
 
@@ -688,7 +686,6 @@ function createStore() {
   }
 
   // 快照优先：openSession 依赖订阅后的 session-snapshot，不再立即补 history。
-  // 这里记录「哪个会话还在等快照」，快照一到就撤销；超时则回落到 history。
   let snapshotPendingFor = null;
   let historyFallbackTimer = null;
   let emptyHistoryFallbackKey = null;
@@ -697,8 +694,6 @@ function createStore() {
     if (!sessionId || emptyHistoryFallbackKey === key) return false;
     emptyHistoryFallbackKey = key;
     // An empty bounded tail with a positive host cursor is not an empty chat.
-    // Read the newest history page directly; another tail request can return
-    // the same empty snapshot forever on gateways whose follow stream is thin.
     if (Number.isSafeInteger(cursor) && cursor >= 0 && cursor < Number.MAX_SAFE_INTEGER &&
         sessionState.historyFormatVersion) {
       sessionState.hasMoreHistory = true;
@@ -780,12 +775,12 @@ function createStore() {
     // File transfer replies belong to the file viewer, not conversation projection.
     if (String(frame.kind || '').indexOf('file-download-') === 0 ||
       frame.kind === 'error' && String(frame.requestType || '').indexOf('file-download-') === 0) return;
+    if (String(frame.kind || '').indexOf('file-upload-') === 0 ||
+      frame.kind === 'error' && String(frame.requestType || '').indexOf('file-upload-') === 0) return;
     // Speech RPCs belong to their requester, never to conversation/history errors.
     if (String(frame.kind || '').indexOf('speech-') === 0 ||
       frame.kind === 'error' && String(frame.requestType || '').indexOf('speech-') === 0) return;
     // 通用错误帧不属于普通会话事件，且通常不携带 sessionId。
-    // 必须在主路由中显式交给错误处理器，否则 workspaces/sessions/history
-    // 等请求即使收到服务端 error，首页仍会错误地显示“已连接 + 空列表”。
     if (frame && frame.kind === 'error') {
       handleSessionFrame(frame);
       return;
@@ -901,8 +896,6 @@ function createStore() {
             if (mine) {
               runProbeMisses = 0;
               // A sessions response may have been produced before a live turn
-              // event but arrive later through the public relay. Prefer the
-              // just-observed stream state until the stream has gone quiet.
               const streamFresh = Date.now() - (sessionState.lastEventAt || 0) < RUN_IDLE_THRESHOLD_MS;
               if (streamFresh) {
                 mine.running = sessionState.running;
@@ -970,7 +963,6 @@ function createStore() {
     }
 
     // 会话域：已打开会话时，匹配 sessionId 或省略 sessionId 的会话域帧都按当前会话处理
-    // （0.8.x 主机对 history/session-snapshot/session-stats 等响应帧缺省 sessionId，iOS 同样按上下文接受）
     const SESSION_SCOPED = {
       'history': 1,
       'session-snapshot': 1,
@@ -1019,8 +1011,6 @@ function createStore() {
 
 
   // ---------- 会话统计补拉 ----------
-  // 公网中继下首帧可能丢失/变慢，输入框下方三个指标依赖它。
-  // 有界补拉：2.5s 起逐次翻倍最多 4 次，收到帧或切会话即停。
   let statsRetryTimer = null;
   let statsRetrySession = null;
   let statsRetryAttempt = 0;
@@ -1086,11 +1076,6 @@ function createStore() {
   }
 
   // ---------- 运行态兜底 ----------
-  //
-  // 运行状态的主信号是事件流里的 turn/start、turn/end。移动端可能在回合中途
-  // 才订阅（拿不到 turn/start），也可能漏掉 turn/end，于是桌面端已经结束、
-  // 小程序却一直显示"处理中"。这里在长时间没有新事件时向主机核实 sessions
-  // 列表里的权威 running 标志，避免永久卡住。
   let runProbeTimer = null;
   let runProbeMisses = 0;
   let lastIdleHistoryAt = 0;
@@ -1157,9 +1142,6 @@ function createStore() {
       const idle = Date.now() - (sessionState.lastEventAt || 0);
       if (idle < RUN_IDLE_THRESHOLD_MS) return;
       // 安静太久：拉一次会话列表校准 running，并补拉会话尾部，
-      // 防止个别实时帧丢失后对话过程/回复长时间不更新。
-      // sessions 是轻量投影可以每拍都拉；history 要读整段会话日志，必须限流，
-      // 否则长任务里每 4 秒就把 Host 拖去重读一次会话。
       safeRequest(client.requestSessions());
       if (Date.now() - lastIdleHistoryAt < RUN_IDLE_HISTORY_GAP_MS) return;
       if (sessionState.historyState !== 'requested' && !olderHistoryPending) {
@@ -1170,7 +1152,6 @@ function createStore() {
   }
 
   // 助手消息结算后：若该条消息不含工具调用、也没有未完成工具，
-  // 说明本回合已经产出最终答复；短暂宽限后结束运行态（若期间无新事件）。
   let settleClearTimer = null;
   function scheduleSettleClear() {
     if (settleClearTimer) clearTimeout(settleClearTimer);
@@ -1436,8 +1417,6 @@ function createStore() {
         ingestEvents([raw]);
         noteSessionActivity();
         // assistant/message 是 durable settlement，不等于 turn 关闭；
-        // 但若该条消息没有工具调用、也没有未完成工具，说明已是最终答复，
-        // 短暂宽限后结束运行态（turn/end 或新事件会打断这个判定）。
         noteAssistantSettlement(messageData);
         emit();
         return;
@@ -1498,8 +1477,6 @@ function createStore() {
           frame.beforeSeq === pendingPage.cursor ||
           Number.isSafeInteger(frame.nextBeforeSeq) && frame.nextBeforeSeq < pendingPage.cursor || noProgressPage));
         // Tail refreshes can finish while an older-page request is still in flight.
-        // Their generic `history` frame must not clear the older-page spinner or move
-        // its cursor forward; only the response matching the requested cursor does.
         const isCompetingTail = !!(pendingPage && !isOlderPage && !frame.resetRequired);
         const localLatestSeq = sessionResumeCursor();
         const staleHistoryTail = !pendingPage && !isCompetingTail && !frame.resetRequired &&
@@ -1623,7 +1600,6 @@ function createStore() {
         }
         installAssistantBaseline(frame);
         // 快照本身就是权威历史帧：无论有没有 assistantStream，都要把
-        // historyState 推到 loaded，否则页面会一直显示「正在同步」转圈。
         sessionState.historyState = snapEvents.length === 0 && sessionState.rows.length
           ? 'loaded:cached'
           : 'loaded:' + snapEvents.length + 'ev' + (sessionState.ingestErrors ? '+' + sessionState.ingestErrors + 'bad' : '');
@@ -1638,8 +1614,6 @@ function createStore() {
         if (emptyOpeningPage) requestEmptyHistoryFallbackOnce(sessionState.sessionId, frame.cursor);
         else if (incompleteReplay) {
           // The gateway could not prove a complete replay interval (e.g. its
-          // bounded ring expired), or returned an empty bounded opening page for
-          // a non-empty session; keep any snapshot visible and reconcile the tail.
           client.requestHistory(sessionState.sessionId);
         }
         // 快照落地后同样加速补一次统计（与 history 路径一致），
@@ -2158,8 +2132,6 @@ function createStore() {
       return true;
     }
     // 插件相关错误帧：requestType 或 requestId 任一匹配即可
-    // （网关 catch-all 错误保证回显 requestId；旧版网关的 unknown-type 错误两者皆无，
-    //   用 message 前缀兜底，避免页面干等 12 秒超时）。
     const isPluginError = frame.kind === 'error' && (
       frame.requestType === 'plugin-catalog' ||
       frame.requestType === 'plugin-bundle-set-enabled' ||
@@ -2298,7 +2270,6 @@ function createStore() {
     const sorted = rawEvents.slice().sort(function (a, b) { return a.seq - b.seq; });
     if (prepend && sessionState.rowsAgg.rows.length && rawBuffer.length) {
       // 归一化指纹判重：live 帧与 history 页形状不同，按原始 JSON 比会把已收到的事件
-      // 误判为"已修订"，每次补拉历史尾部都全量重放整段会话。
       const changed = sorted.filter(function (event) {
         const known = rawFingerprints.get(event.seq);
         return known === undefined || known !== fingerprintOf(event);
@@ -2362,7 +2333,6 @@ function createStore() {
   let rawBuffer = [];
   let rawSeqs = new Set();          // seq 索引：追加去重 O(1)，避免整表 some() 扫描
   // 同一事件有两种序列化形状（live 帧扁平 text vs history 页 content blocks），按原始
-  // JSON 判重会误判为"已修订"，每次补拉历史尾部都全量重放整段会话。
   let rawFingerprints = new Map();  // seq -> 归一化指纹
   function sessionResumeCursor() {
     let latest = -1;
@@ -2482,8 +2452,6 @@ function createStore() {
   let olderHistoryTimeout = null;
   let olderHistoryPending = null;
   // 桌面端发消息时队列帧先到、user/message 事件可能稍晚，这里补拉一次 history 尾部。
-  // 但实时流本身就在推同一个会话：刚收到过事件就说明流是通的，补拉只是重复劳动
-  // （还会和本机发送触发的队列帧叠加）。
   let queueTailRefreshTimer = null;
   let queueTailRefreshAt = 0;
   const QUEUE_TAIL_REFRESH_GAP_MS = 1500;
@@ -2587,7 +2555,6 @@ function createStore() {
         safeRequest(client.requestSessionStats(sessionState.sessionId));
         safeRequest(client.requestContextUsage(sessionState.sessionId));
         // 上下文/编队面板只在可见时随回合结束刷新（turn/end 后 800ms 已收敛为非运行态），
-        // 避免流式期间反复传整份 request/event 历史或家族快照。
         if (contextActive && !sessionState.running) refreshContextDashboard();
         if (fleetActive && !sessionState.running) refreshContextFleet();
       }
@@ -2678,7 +2645,6 @@ function createStore() {
   function syncFleetPolling() { if (fleetPollingWanted()) scheduleFleetPoll(); else stopFleetPoll(); }
 
   // 「刚完成」标记：会话从运行中变成结束时记下完成时刻，首页绿点只在 24h 内显示，
-  // 超过就回到默认灰点。落本地存储，重进小程序仍生效；过期项顺手清掉。
   const COMPLETED_KEY = 'dsh_session_completed';
   const COMPLETED_TTL_MS = 24 * 60 * 60 * 1000;
   let completedAtMap = null;
@@ -2818,6 +2784,7 @@ function createStore() {
   // ---------- 主机档案（MultiGatewayStore 对齐） ----------
 
   let pendingProfile = null; // 配对进行中的临时档案（paired/hello 提交入库）
+  let pendingPairing = false;
 
   function hostLabelFromEndpoint(endpoint) {
     const m = /^(?:ws|wss):\/\/([^/:?#]+)/i.exec(String(endpoint || ''));
@@ -2893,6 +2860,7 @@ function createStore() {
       hosts.setActiveID(profile.id);
     }
     pendingProfile = null;
+    pendingPairing = false;
     emit();
   }
 
@@ -2904,6 +2872,8 @@ function createStore() {
     if (!normalized || !normalized.length) {
       return { ok: false, error: hosts.ErrorText.address };
     }
+    endpointCandidates = normalized.slice();
+    endpointIdx = 0;
     const gid = payload && payload.gatewayId ? String(payload.gatewayId).toLowerCase() : null;
     let profile = null;
     for (let i = 0; i < state.profiles.length; i += 1) {
@@ -2916,7 +2886,6 @@ function createStore() {
     const hostPart = hostLabelFromEndpoint(normalized[0]);
     const gatewayName = (payload && payload.gatewayName) || hostPart || uiText('新主机');
     // 设备类型：显式 deviceKind > 配对载荷 hostPlatform > 主机名特征 > 默认电脑。
-    // payload / platform 属于网关明确给的信息，按 payload 来源保存，连接后不再推翻。
     const device = hosts.deriveDeviceKind({
       deviceKind: payload && payload.deviceKind,
       platform: payload && payload.hostPlatform,
@@ -2934,7 +2903,6 @@ function createStore() {
       });
     }
     // 重新扫码代表用户重新确认了这台主机：自动识别的类型可以刷新；
-    // 「编辑主机」里手动选过的类型（user）保持不变，明确来源优先于旧推断。
     if (profile.deviceKindSource !== 'user'
       && (explicitKind || profile.deviceKindSource !== 'payload')) {
       profile.deviceKind = device.kind;
@@ -2954,7 +2922,6 @@ function createStore() {
       profile.relayAccessToken = null;
       profile.relayExpiresAt = payload.authMode === 'gateway' ? payload.accessExpiresAt || null : null;
       // 中继链路没有 paired/hello 提交帧（E2EE 握手是二进制协议）：
-      // 配对即入库并设为激活，否则档案只在内存里，重启后主机消失。
       profile.lastConnectedAt = Date.now();
       upsertProfile(profile);
       state.activeID = profile.id;
@@ -2970,6 +2937,7 @@ function createStore() {
     state.endpoint = normalized[0];
     state.gatewayName = hosts.displayName(profile);
     state.gatewayId = profile.gatewayId;
+    pendingPairing = true;
     if (payload && payload.mode === 'relay') {
       client.connect(normalized[0], {
         pairingCode: code,
@@ -2982,7 +2950,7 @@ function createStore() {
         }
       });
     } else {
-      client.connect(normalized[0], { pairingCode: code });
+      client.connect(normalized[0], { pairingCode: code, endpointCandidates: normalized.slice(1) });
     }
     return { ok: true };
   }
@@ -3146,8 +3114,6 @@ function createStore() {
   }
 
   // ---------- 原生浮层期间的连接抑制 ----------
-  // chooseMedia / chooseMessageFile / previewImage 等原生浮层会触发 app.onHide→onShow，
-  // 浮层期间挂起前台健康检查；关闭后用短 ping 验证现有连接，避免重握手和整页重投影。
 
   let nativeOverlayDepth = 0;
   let appActive = false;
@@ -3155,7 +3121,6 @@ function createStore() {
   let healthTimer = null;
   const FOREGROUND_PING_TIMEOUT_MS = 2500;
   // 连接静默自检：socket 掉线时 onClose 不一定及时（弱网/息屏），
-  // 前台期间周期性 ping 一次，失败即按断链处理 → 指示灯变红并重连。
   const HEALTH_PING_INTERVAL_MS = 45000;
 
   function syncHealthCheck() {
@@ -3178,8 +3143,6 @@ function createStore() {
     if (!state.activeID || state.connection === 'connecting') return;
     if (state.connection === 'connected') {
       // onLaunch is commonly followed immediately by onShow, and native pickers
-      // also generate an onShow when they close. Check the existing socket rather
-      // than replacing a healthy one and replaying the whole session bootstrap.
       if (foregroundPing || typeof client.ping !== 'function') return;
       const check = { client, generation: client.connectGeneration };
       foregroundPing = check;
@@ -3245,6 +3208,91 @@ function createStore() {
     }
     state.onlineIDs = state.onlineIDs.filter(function (id) { return ids.indexOf(id) < 0; });
     emit();
+  }
+
+  function forgetHostRemotely(profile) {
+    if (profile.id === state.activeID && state.connection === 'connected' &&
+        client.state === 'connected' && typeof client.forgetDevice === 'function') {
+      return client.forgetDevice(4500).then(function () { return true; }).catch(function () { return false; });
+    }
+
+    const credential = hosts.loadCredential(profile.id);
+    const authMode = profile.relayAuthMode || 'invite';
+    if (profile.relay && authMode !== 'gateway' && !profile.relayAccessToken) return Promise.resolve(false);
+    if (!profile.relay && (!credential || !credential.token)) return Promise.resolve(false);
+    const endpoints = hosts.connectionEndpoints(profile).slice(0, 3);
+    if (credential && credential.endpoint && endpoints.indexOf(credential.endpoint) < 0 && endpoints.length < 3) {
+      endpoints.push(credential.endpoint);
+    }
+    if (!endpoints.length) return Promise.resolve(false);
+
+    return new Promise(function (resolve) {
+      let index = 0;
+      let done = false;
+      let activeClient = null;
+      let attemptTimer = null;
+      let attemptNumber = 0;
+
+      function finish(revoked) {
+        if (done) return;
+        done = true;
+        if (attemptTimer) clearTimeout(attemptTimer);
+        if (activeClient) activeClient.disconnect();
+        resolve(revoked);
+      }
+
+      function retry(expectedAttempt) {
+        if (done || expectedAttempt !== undefined && expectedAttempt !== attemptNumber) return;
+        if (attemptTimer) { clearTimeout(attemptTimer); attemptTimer = null; }
+        if (activeClient) activeClient.disconnect();
+        activeClient = null;
+        tryNext();
+      }
+
+      function tryNext() {
+        if (done || index >= endpoints.length) return finish(false);
+        const endpoint = endpoints[index++];
+        const currentAttempt = ++attemptNumber;
+        let forgetRequested = false;
+        const temporary = new GatewayClient({
+          onState: function (status) {
+            if (done || currentAttempt !== attemptNumber) return;
+            if (status === 'connected' && !forgetRequested) {
+              forgetRequested = true;
+              temporary.forgetDevice(4500).then(function () { finish(true); }, function () { retry(currentAttempt); });
+            } else if (status === 'failed') retry(currentAttempt);
+          }
+        });
+        activeClient = temporary;
+        const options = { token: credential && credential.token, probe: true };
+        if (profile.relay) {
+          options.token = authMode === 'gateway' && credential ? credential.token : null;
+          options.relay = {
+            authMode,
+            nodeId: profile.gatewayId,
+            agentPubKey: profile.relayAgentPubKey,
+            accessToken: profile.relayAccessToken || null,
+            expiresAt: profile.relayExpiresAt || null,
+            role: profile.relayRole || 'guest'
+          };
+        }
+        attemptTimer = setTimeout(function () { retry(currentAttempt); }, 8000);
+        temporary.connect(endpoint, options);
+      }
+
+      tryNext();
+    });
+  }
+
+  function forgetHosts(ids) {
+    const targetIds = Array.isArray(ids) ? Array.from(new Set(ids)) : [];
+    const selected = state.profiles.filter(function (profile) { return targetIds.indexOf(profile.id) >= 0; });
+    if (!selected.length) return Promise.resolve({ removed: 0, revoked: 0, failed: 0 });
+    return Promise.all(selected.map(forgetHostRemotely)).then(function (results) {
+      removeHosts(targetIds);
+      const revoked = results.filter(Boolean).length;
+      return { removed: selected.length, revoked: revoked, failed: selected.length - revoked };
+    });
   }
 
   // ---------- 在线探测（iOS refreshPresence 对齐） ----------
@@ -3363,7 +3411,6 @@ function createStore() {
         const known = state.profiles.filter(function (p) { return p.id === activeID; });
         state.activeID = known.length ? activeID : (state.profiles[0] ? state.profiles[0].id : null);
         // 本地缓存立即可呈现（对齐 iOS「Cached content is immediately presentable」）：
-        // 冷启动不等连接，先把上次的会话/工作区渲染出来，帧到达后无缝替换
         if (state.activeID) {
           const cacheResult = loadCompatibleHomeCache(state.activeID);
           if (cacheResult) {
@@ -3453,12 +3500,8 @@ function createStore() {
       const result = pairing.parse(raw, Date.now());
       if (!result.ok) return result;
       const payload = result.payload;
-      // v3 中继端点每次换节点/重新配对都会变化，且 E2EE 的 agentPubKey
-      // 在 AgentHello 阶段已做密码学验签，端点白名单对它只会阻碍重配对；
-      // 因此白名单仅对 v2 直连地址生效。
-      if (payload.mode !== 'relay' && !isTrustedEndpoint(payload.publicUrl)) {
-        return { ok: false, error: uiText('地址未经此主机确认，请重新扫码添加地址。') };
-      }
+      // A user-supplied one-time pairing payload explicitly confirms its endpoint;
+      // manual address entry remains restricted to endpoints trusted earlier.
       return beginPairing(payload.publicUrl, payload.pairingCode, payload);
     },
 
@@ -3537,7 +3580,8 @@ function createStore() {
     },
 
     forgetDevice: function () {
-      if (state.activeID) removeHosts([state.activeID]);
+      if (state.activeID) return forgetHosts([state.activeID]);
+      return Promise.resolve({ removed: 0, revoked: 0, failed: 0 });
     },
 
     /** 切换激活主机：断开当前连接并以目标档案凭据重连（iOS select 对齐）。 */
@@ -3553,6 +3597,11 @@ function createStore() {
     /** 移除主机档案及连接凭证（不删除网关上的会话/工作区）。 */
     removeHosts: function (ids) {
       removeHosts(ids);
+    },
+
+    /** 首先用已配对凭据在对应网关吊销当前设备，再删除本机档案。 */
+    forgetHosts: function (ids) {
+      return forgetHosts(ids);
     },
 
     /** 探测全部主机在线状态（更新 state.onlineIDs）。 */
@@ -3643,7 +3692,6 @@ function createStore() {
       sessionState.runStartMs = null;
       sessionState.runCues = [];
       // 运行态以主机为准：先用已知会话列表播种，再主动补拉一次，
-      // 避免打开一个正在运行的会话时被误判为空闲（或反过来）。
       {
         const listed = state.sessions.find(function (x) { return x.sessionId === sessionId; });
         setRunning(listed ? listed.running === true : false);
@@ -3672,9 +3720,6 @@ function createStore() {
       else sessionState.historyState = sessionState.cacheDisplay ? 'loaded:cached' : 'sub-failed';
       emit();
       // 订阅成功后网关会推一份 session-snapshot（内容与 history 等价，且已经
-      // 放到 1 MiB）。两者都会让宿主重读整段会话日志——日志是「每次追加一个
-      // 独立 zstd 帧」，没有尾部索引，长会话读一次要好几秒。所以这里不再立即
-      // 补一发 history：等快照落地，只有快照没来才回落到 history。
       if (snapshotPendingFor === sessionId) {
         // 有缓存时保持 loaded:cached（本地内容已可看），不要降级成 requested
         if (!sessionState.cacheDisplay) {
@@ -3698,9 +3743,6 @@ function createStore() {
         }
       }
       // Session summaries are the authoritative fallback when the subscription
-      // joins after a turn boundary. 但这一帧在旧网关上仍是全量 projections
-      // （实测 2.9MB）：每开一个会话都重拉一次，中继线路上会和会话快照抢带宽。
-      // 列表 10 秒内刚拉过就跳过，首页连接时已经会拉一次。
       const sessionsFresh = state.lastSessionsFrame && state.lastSessionsFrame.at
         && Date.now() - Number(state.lastSessionsFrame.at) < 10000;
       if (state.connection === 'connected' && !sessionsFresh) {
@@ -3718,8 +3760,6 @@ function createStore() {
     /** 乐观回显：发送后立即本地插入用户行（对齐桌面端即时可见），回显到达时合并 */
     appendLocalUserRow: function (text, images, attachments) {
       // 必须先提升缓存行：openSession 恢复缓存时只填了 sessionState.rows，
-      // rowsAgg 还是空聚合器。直接 push 会用一行乐观回显顶掉整段缓存对话，
-      // 用户看到的就是"发一条消息、整个会话被清空重载"。
       promoteCachedRows();
       if (!sessionState.rowsAgg) sessionState.rowsAgg = protocol.newAggregator();
       sessionState.rowsAgg.rows.push({
@@ -3834,12 +3874,20 @@ function createStore() {
       return cached ? cached.items.map(item => Object.assign({}, item)) : [];
     },
 
+    warmSessionCache: function (sessionId, isCurrent) {
+      const scope = activeCacheScope();
+      if (!scope || !sessionId || sessionId === sessionState.sessionId) return Promise.resolve(false);
+      return sessionCache.warm(scope + '::' + sessionId, cached => normalizeSessionCache(sessionId, cached),
+        () => activeCacheScope() === scope && (!isCurrent || isCurrent()));
+    },
+
     saveTurnOutline: function (sessionId, items) {
       if (!sessionId || !Array.isArray(items) || !items.length) return;
       turnOutlineCache.set(sessionCacheKey(sessionId), { items: items.map(item => Object.assign({}, item)) }, { delayMs: 500 });
     },
 
     clearLocalCaches: function () {
+      sessionViewCache.clear();
       sessionCache.clear();
       historyPageCache.clear();
       turnOutlineCache.clear();

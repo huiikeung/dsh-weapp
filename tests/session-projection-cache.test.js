@@ -8,6 +8,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 function fixture() {
+  require('../miniprogram/utils/session-view-cache').clear();
   const file = path.resolve(__dirname, '../miniprogram/pages/session/session.js');
   let definition; let timerId = 0;
   const timers = new Map();
@@ -43,6 +44,43 @@ function fixture() {
 }
 
 const snapshot = (rows) => ({ app: { sessions: [], archivedSessionIds: [] }, session: { sessionId: 's1', running: true, rows, cwd: '/repo' } });
+
+test('conversation row-height corrections wait for a scroll to settle', () => {
+  const { page } = fixture();
+  const previousWx = global.wx;
+  const previousSetTimeout = global.setTimeout;
+  let timerId = 0;
+  const timers = new Map();
+  let rectCallback;
+  global.setTimeout = (fn, delay) => { timers.set(++timerId, { fn, delay }); return timerId; };
+  global.wx = { createSelectorQuery: () => ({ in() { return this; }, selectAll() { return this; },
+    boundingClientRect(fn) { rectCallback = fn; return this; }, exec() { return this; } }) };
+  try {
+  const row = { key: 'u1', kind: 'user', text: 'message' };
+  page.data.rows = [row];
+  page.conversationWindowPatch([row]);
+  page._convPinned = false;
+  page._lastConvScrollAt = Date.now() - 200;
+  page.measureConversationWindow();
+
+  assert.equal(page._windowMeasurePending, true, 'the first geometry query is allowed after scroll settles');
+  page._panelGesture = { tab: 'conversation' };
+  rectCallback([{ height: 120 }]);
+  assert.equal(page._windowMeasurePending, false, 'an in-flight measurement is discarded during a new touch');
+  const [scheduledId, timer] = [...timers.entries()][0];
+  assert.ok(timer, 'a replacement measurement is deferred instead of changing spacers mid-swipe');
+  timers.delete(scheduledId);
+  page._panelGesture = null;
+  page._lastConvScrollAt = Date.now() - 200;
+  timer.fn();
+  assert.equal(page._windowMeasureTimer, null);
+  assert.equal(page._windowMeasurePending, true, 'the pending geometry pass starts after scrolling ends');
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+    global.setTimeout = previousSetTimeout;
+  }
+});
 
 test('attachment-only messages and in-place user edits remain visible', () => {
   const { page } = fixture();
@@ -148,18 +186,81 @@ test('in-place protocol mutations are detected even when tool text keeps the sam
   assert.equal(page._projectedRows.get('a1').row.tools[0].resultText, 'ok', 'tool result edits are also detected');
 });
 
-test('switching sessions drops the projection cache', () => {
+test('switching sessions isolates active projections and reuses them on return', () => {
   const { page } = fixture();
-  page.syncFromStore(snapshot([{ kind: 'user', key: 'u1', text: '你好', turn: 1 }]));
+  const first = snapshot([{ kind: 'user', key: 'u1', text: '你好', turn: 1 }]);
+  page.syncFromStore(first);
+  const projection = page._projectedRows.get('u1').row;
   assert.ok(page._projectedRows.size > 0);
   page.syncFromStore({ app: { sessions: [], archivedSessionIds: [] },
     session: { sessionId: 's2', running: false, rows: [{ kind: 'user', key: 'u2', text: '换个会话', turn: 1 }], cwd: '/repo' } });
   assert.equal(typeof page._projectedRows.has, 'function', 'cache is a Map (created inside the page realm)');
   assert.ok(!page._projectedRows.has('u1'), '上一会话的行不会跨会话复用');
   assert.ok(page._projectedRows.has('u2'), '新会话重新投影');
+  page.syncFromStore(first);
+  assert.equal(page._projectedRows.get('u1').row, projection);
+  assert.equal(page.data.rows[0].text, '你好');
 });
 
-const { buildEntries } = require('../miniprogram/utils/conversation-workflow');
+test('retained views invalidate edits, host, theme, width and manual cache clearing', () => {
+  const { page } = fixture();
+  const first = snapshot([{ kind: 'user', key: 'u1', text: 'old', turn: 1 }]);
+  first.app.activeID = 'a';
+  page.syncFromStore(first);
+  let row = page._projectedRows.get('u1').row;
+  page.syncFromStore({ ...first, session: { ...first.session, sessionId: 's2' } });
+  first.session.rows[0].text = 'new';
+  page.syncFromStore(first);
+  assert.notEqual(page._projectedRows.get('u1').row, row);
+  assert.equal(page.data.rows[0].text, 'new');
+  for (const change of [() => { first.app.activeID = 'b'; }, () => { page.data.theme = 'dark'; },
+    () => { page.viewportRpx = 900; }, () => { page.data.uiLocale = 'en'; },
+    () => { page.data.contentFontStyle = '--dsh-content-font-size:18px'; },
+    () => { require('../miniprogram/utils/session-view-cache').clear(); }]) {
+    row = page._projectedRows.get('u1').row;
+    change(); page.syncFromStore(first);
+    assert.notEqual(page._projectedRows.get('u1').row, row);
+    assert.equal(page.data.rows[0].text, 'new');
+  }
+});
+
+test('image projections are not retained and cached rows cannot resurrect removed messages', () => {
+  const { page } = fixture();
+  const first = snapshot([{ kind: 'user', key: 'u1', text: 'photo', images: [{ url: 'https://example.com/a.png' }] },
+    { kind: 'user', key: 'gone', text: 'removed' }]);
+  page.syncFromStore(first);
+  const imageRow = page._projectedRows.get('u1').row;
+  page.syncFromStore({ ...first, session: { ...first.session, sessionId: 's2', rows: [] } });
+  first.session.rows.pop();
+  page.syncFromStore(first);
+  assert.notEqual(page._projectedRows.get('u1').row, imageRow);
+  assert.equal(page._projectedRows.has('gone'), false);
+});
+
+test('a new page can restore a retained text projection without retaining the old page', () => {
+  const { page } = fixture();
+  const first = snapshot([{ kind: 'user', key: 'u1', text: '**hello**' }]);
+  page.syncFromStore(first);
+  const row = page._projectedRows.get('u1').row;
+  page.retainSessionView();
+  const next = { ...page, data: JSON.parse(JSON.stringify(page.data)), _viewCacheKey: null,
+    _renderSessionId: null, _markdownCache: null, _projectedRows: null, _entriesCache: null };
+  next.syncFromStore(first);
+  assert.equal(next._projectedRows.get('u1').row, row);
+  assert.equal(next.data.rows[0].text, '**hello**');
+});
+
+test('unformatted older rows remain schedulable after switching away and back', () => {
+  const { page } = fixture();
+  const first = snapshot(Array.from({ length: 40 }, (_, i) => ({ kind: 'user', key: 'u' + i, text: 'message ' + i })));
+  page.syncFromStore(first);
+  assert.ok(page._pendingHistoryFormat.has('u0'));
+  page.syncFromStore({ ...first, session: { ...first.session, sessionId: 's2', rows: [] } });
+  page.syncFromStore(first);
+  assert.ok(page._pendingHistoryFormat.has('u0'), 'reused empty blocks must still be lazily formatted');
+});
+
+const { buildEntries } = require('../miniprogram/pages/session/utils/conversation-workflow');
 
 test('cached entry grouping matches a full rebuild, including while the tail streams', () => {
   const { page } = fixture();

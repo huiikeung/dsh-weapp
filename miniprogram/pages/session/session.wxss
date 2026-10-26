@@ -658,12 +658,12 @@ display: flex;
 flex-wrap: wrap;
 margin-top: 16rpx;
 }
-.message-attachments { display:flex; flex-direction:column; gap:12rpx; margin-top:12rpx; max-width:620rpx; }
-.message-attachment { display:flex; align-items:center; gap:16rpx; min-height:76rpx; padding:14rpx 18rpx; border-radius:14rpx; background:rgba(127,143,160,.10); }
-.message-attachment-icon { width:38rpx; height:38rpx; flex:none; }
-.message-attachment-copy { min-width:0; display:flex; flex-direction:column; gap:4rpx; }
-.message-attachment-name { max-width:500rpx; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:26rpx; }
-.message-attachment-path { max-width:500rpx; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:rgba(100,110,120,.72); font-size:22rpx; }
+.message-attachments { display:flex; flex-direction:column; align-items:flex-end; gap:16rpx; margin-top:12rpx; max-width:100%; }
+.message-attachments.assistant-attachments { align-items:flex-start; }
+.message-attachment { display:flex; align-items:center; gap:14rpx; max-width:600rpx; min-height:72rpx; padding:12rpx 30rpx; border-radius:999rpx; background:rgba(16,19,24,.08); }
+.theme-dark .message-attachment { background:rgba(255,255,255,.12); }
+.message-attachment-icon { width:34rpx; height:34rpx; flex:none; }
+.message-attachment-name { max-width:440rpx; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:26rpx; color:var(--text); }
 .assistant-attachments { margin-left:0; }
 .attach-grid.single .attach-img {
 width: 640rpx;
@@ -901,6 +901,18 @@ box-shadow: var(--float-shadow);
 .composer-slash-chip.on { display: flex; }
 .composer-slash-token { color: var(--ocean); font-size: 28rpx; }
 .composer-slash-x { padding: 0 2rpx; color: var(--ocean); font-size: 18rpx; opacity: .66; }
+.composer-refs { display: none; flex-wrap: wrap; align-items: center; gap: 2rpx 22rpx; margin: 2rpx 0 8rpx; }
+.composer-refs.on { display: flex; }
+.composer-refs[hidden] { display: none !important; }
+.composer-ref-chip { display: flex; align-items: center; gap: 8rpx; min-width: 0; max-width: 100%; padding: 4rpx 4rpx 4rpx 2rpx; border-radius: 12rpx; }
+.composer-ref-icon { width: 30rpx; height: 30rpx; flex: 0 0 30rpx; }
+.theme-dark .composer-ref-icon { filter: brightness(1.5); }
+.composer-ref-label { min-width: 0; max-width: 520rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 28rpx; line-height: 1.4; color: #5483E8; }
+.theme-dark .composer-ref-label { color: #8FB4F2; }
+.composer-ref-remove { width: 40rpx; height: 40rpx; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 50%; }
+.composer-ref-remove:active { background: var(--fill-2); }
+.composer-ref-x { font-size: 24rpx; line-height: 1; color: #5483E8; opacity: .6; }
+.theme-dark .composer-ref-x { color: #8FB4F2; }
 .composer-input {
 width: 100%;
 min-height: 76rpx;
@@ -1660,11 +1672,10 @@ animation: runSpin 0.9s linear infinite;
 .delivered-file-name { color:var(--text); font-size:28rpx; font-weight:500; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .delivered-file-description { color:var(--text-2); font-size:23rpx; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .delivered-file-controls { display:flex; align-items:center; flex-shrink:0; border:1rpx solid var(--border-strong); border-radius:14rpx; }
-.delivered-file-open,.delivered-file-more { display:flex; align-items:center; justify-content:center; width:60rpx; height:72rpx; }
+.divered-placeholder { display:none; }
+.delivered-file-open { display:flex; align-items:center; justify-content:center; width:60rpx; height:72rpx; }
 .delivered-file-open image { width:29rpx; height:29rpx; opacity:.8; }
 .theme-dark .delivered-file-open image { filter:brightness(0) invert(.8); }
-.delivered-file-more { width:46rpx; border-left:1rpx solid var(--divider); }
-.delivered-chevron { width:10rpx; height:10rpx; border-right:2rpx solid var(--text-2); border-bottom:2rpx solid var(--text-2); transform:translateY(-3rpx) rotate(45deg); }
 .delivered-file-toggle { text-align:center; color:var(--text-2); font-size:24rpx; padding:16rpx; }
 .delivered-sheet-head { display:flex; align-items:center; gap:24rpx; margin:16rpx 0 24rpx; color:var(--text); font-size:30rpx; }
 .delivered-sheet-head > text { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-weight:600; }
@@ -1679,6 +1690,13 @@ animation: runSpin 0.9s linear infinite;
 .delivered-preview-scroll { flex:1; min-height:0; height:0; }
 .delivered-preview-text { user-select:text; -webkit-user-select:text; display:block; padding:20rpx 4rpx; white-space:pre-wrap; overflow-wrap:anywhere; font-family:var(--dsh-font-family-code,monospace); font-size:25rpx; line-height:1.65; color:var(--text); }
 .delivered-preview-note { color:var(--text-2); font-size:23rpx; padding-bottom:16rpx; }
+.delivered-preview-icon { width:56rpx; height:56rpx; flex:none; }
+.delivered-preview-meta { color:var(--text-2); font-size:23rpx; margin:-16rpx 0 20rpx; }
+.delivered-progress { height:8rpx; border-radius:999rpx; background:var(--divider); overflow:hidden; margin-bottom:20rpx; }
+.delivered-progress-bar { display:block; height:100%; background:var(--text); }
+.delivered-preview-image { width:100%; }
+.delivered-preview-doc { flex:1; min-height:0; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:28rpx; }
+.delivered-preview-doc-icon { width:168rpx; height:168rpx; }
 .row-status {
 display: flex;
 align-items: baseline;
@@ -3638,6 +3656,31 @@ transition: color 0.14s ease;
 .turn-scrub-row.active .turn-scrub-row-title {
 color: #FFFFFF;
 font-weight: 600;
+}
+.turn-scrub-tick-slot {
+flex: none;
+width: 40rpx;
+display: flex;
+align-items: center;
+justify-content: flex-end;
+pointer-events: none;
+}
+.turn-scrub-tick {
+width: 32rpx;
+height: 2rpx;
+min-height: 1px;
+border-radius: 999rpx;
+background: rgba(241, 244, 250, 0.42);
+transform: scaleX(0.5);
+transform-origin: right center;
+transition: transform 0.14s ease, background-color 0.14s ease;
+}
+.turn-scrub-row.active .turn-scrub-tick {
+transform: scaleX(1);
+background: #FFFFFF;
+}
+@media (prefers-reduced-motion: reduce) {
+.turn-scrub-tick { transition: none; }
 }
 .turn-nav-empty {
 position: absolute;

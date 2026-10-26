@@ -147,6 +147,12 @@
 .ins-controls, .ins-sort-row { display: flex; gap: 5rpx; flex-wrap: wrap; }
 .ins-controls { margin-left: auto; align-items: center; }
 .ins-heat-sub { color: var(--text-3); font-size: 18rpx; white-space: nowrap; }
+/* 活跃热力图右上角切换：和技能加载同款分段控件 —— 外层描边容器，选中段用正文色（黑）填充 */
+.ins-heat-card .ins-seg { display: flex; gap: 2rpx; padding: 3rpx; flex-wrap: nowrap;
+  border: 1rpx solid var(--border); border-radius: 12rpx; background: var(--fill); }
+.ins-heat-card .ins-seg .ins-mini-chip { min-height: 42rpx; padding: 0 13rpx; border-radius: 9rpx;
+  background: transparent; color: var(--text-3); font-size: 19rpx; }
+.ins-heat-card .ins-seg .ins-mini-chip.on { background: var(--text); color: var(--surface); }
 .ins-mini-chip { min-height: 48rpx; padding: 0 13rpx; display: inline-flex; align-items: center; justify-content: center; border-radius: 999rpx; background: var(--fill); color: var(--text-2); font-size: 19rpx; line-height: 1.2; white-space: nowrap; }
 .ins-mini-chip.on { background: var(--ins-blue); color: #fff; }
 .ins-heatmap-wrap { display: flex; justify-content: center; gap: 8rpx; padding: 4rpx 0 2rpx; }
@@ -177,6 +183,8 @@
 .ins-skills-card .ins-mini-chip { min-height: 42rpx; padding: 0 13rpx; border-radius: 9rpx; background: transparent; }
 .ins-skills-card .ins-mini-chip.on { background: var(--text); color: var(--surface); }
 .ins-search { width: 100%; min-width: 0; height: 64rpx; padding: 0 16rpx; box-sizing: border-box; border-radius: 12rpx; border: 1rpx solid var(--border); background: var(--fill); color: var(--text); font-size: 21rpx; }
+/* 会话模块的控件一律「透明底 + 描边」：输入框、下拉框、排序分段容器、日期/技能筛选 chip */
+.ins-session-card .ins-search { background: transparent; }
 .ins-skill-search { flex: 1 1 260rpx; height: 54rpx; background: var(--surface); }
 .ins-placeholder { color: var(--text-4); }
 .ins-skill-unit { border-radius: 12rpx; }
@@ -206,7 +214,8 @@
 .ins-session-card { min-width: 0; }
 .ins-list-head { margin-bottom: 8rpx; }
 .ins-list-count { flex: none; padding: 2rpx 10rpx; border-radius: 999rpx; background: var(--fill); color: var(--text-2); font-size: 19rpx; font-variant-numeric: tabular-nums; }
-.ins-day-filter { max-width: 100%; overflow: hidden; padding: 5rpx 11rpx; border-radius: 999rpx; background: rgba(46,107,230,.10); color: var(--ins-blue); font-size: 18rpx; text-overflow: ellipsis; white-space: nowrap; }
+.ins-day-filter { max-width: 100%; overflow: hidden; padding: 5rpx 11rpx; border-radius: 999rpx;
+  border: 1rpx solid var(--border); background: transparent; color: var(--ins-blue); font-size: 18rpx; text-overflow: ellipsis; white-space: nowrap; }
 .ins-list-tools { display: flex; flex-direction: column; gap: 12rpx; padding-bottom: 10rpx; }
 .ins-tools-top { display: flex; align-items: center; gap: 10rpx; }
 .ins-tools-top .ins-search { flex: 1; min-width: 0; }
@@ -242,13 +251,13 @@
 .ins-coverage-row, .ins-group-row { display: flex; flex-wrap: wrap; }
 .ins-coverage-row { gap: 6rpx; }
 .ins-group-row { gap: 8rpx; padding: 0 0 10rpx; }
-/* 会话列表两行标签（对齐桌面端）：排序行是一个分段控件 —— 外层描边浅底容器，
+/* 会话列表两行标签（对齐桌面端）：排序行是一个分段控件 —— 外层只描边不填色，
    选中段用 surface 纯色填充；分组行是描边胶囊 —— 只有选中项填充，其余留空。 */
 .ins-list-tools .ins-sort-row {
   align-self: flex-start; max-width: 100%;
   gap: 2rpx; padding: 3rpx; flex-wrap: wrap;
   border: 1rpx solid var(--border); border-radius: 12rpx;
-  background: var(--fill);
+  background: transparent;
 }
 .ins-list-tools .ins-sort-row .ins-mini-chip {
   min-height: 44rpx; padding: 0 16rpx; border-radius: 9rpx;

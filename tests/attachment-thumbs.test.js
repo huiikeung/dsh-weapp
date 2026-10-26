@@ -58,6 +58,9 @@ function fixture(options = {}) {
     showModal: () => {},
     createSelectorQuery: undefined
   };
+  // file-actions 是被 session.js 通过外层 require 载入的，跑在宿主 realm；
+  // 把同一个 wx 桩也挂到 global，弹窗主操作里的原生调用才能被观测到。
+  globalThis.wx = wx;
   const store = {
     state: { connection: 'connected', sessions: [] },
     sessionState: { sessionId: 's1', rows: [], running: false },
@@ -165,14 +168,20 @@ test('previewAttachment reuses the cached file and fills the row', async () => {
   f.page.previewAttachment({ currentTarget: { dataset: { id: 'sha-3' } } });
   await tick();
   const expected = CACHE_DIR + '/sha-3.png';
-  assert.equal(f.previews.length, 1);
-  assert.equal(f.previews[0].urls.length, 1);
-  assert.equal(f.previews[0].urls[0], expected);
+  // 图片现在在底部弹窗里内联渲染，不再一上来就抢微信全屏查看器。
+  assert.equal(f.previews.length, 0);
+  assert.equal(f.page.data.filePreview.localPath, expected);
+  assert.equal(f.page.data.filePreview.previewKind, 'image', 'mediaType alone still identifies the image');
+  assert.equal(f.page.data.filePreview.primary, '查看原图');
   assert.equal(f.page.data.rows[0].images[0].localUrl, expected);
 
+  f.page.filePreviewPrimary();
+  assert.equal(f.previews.length, 1, 'the primary action opens the full-screen viewer');
+  assert.equal(f.previews[0].urls[0], expected);
+
   f.page.previewAttachment({ currentTarget: { dataset: { id: 'sha-3' } } });
-  assert.equal(f.requests.length, 1, 'a second tap previews the local file without the gateway');
-  assert.equal(f.previews[1].urls[0], expected);
+  assert.equal(f.requests.length, 1, 'a second tap reuses the local file without the gateway');
+  assert.equal(f.previews.length, 1, 'the sheet is already showing the image');
 });
 
 test('a conversation synced from history auto-loads image thumbs without a tap', async () => {

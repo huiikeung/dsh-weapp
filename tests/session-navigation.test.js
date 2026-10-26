@@ -7,17 +7,24 @@ function fixture() {
   const file = path.resolve(__dirname, '../miniprogram/pages/session/session.js');
   let definition; const calls = [], ticks = [], timers = new Map(), patches = [];
   let timerId = 0;
-  const store = { state: { sessions: [], archivedSessionIds: [] }, sessionState: { sessionId: 's1', running: true }, openSession: (...args) => calls.push(['open', ...args]), loadOlderHistory: () => calls.push(['loadOlderHistory']), client: {
+  const store = { state: { sessions: [], archivedSessionIds: [] }, sessionState: { sessionId: 's1', running: true },
+    subscribe: () => () => {}, openSession: (...args) => calls.push(['open', ...args]),
+    loadOlderHistory: () => calls.push(['loadOlderHistory']), client: {
     renameSession: (...args) => calls.push(['rename', ...args]), archiveSession: (...args) => calls.push(['archive', ...args]), cancelSession: (...args) => calls.push(['cancel', ...args])
   } };
   const wx = { hideKeyboard: () => calls.push(['hideKeyboard']), nextTick: fn => ticks.push(fn),
+    getWindowInfo: () => ({ windowWidth: 375, statusBarHeight: 44 }),
+    getMenuButtonBoundingClientRect: () => ({ top: 60, height: 32, left: 300 }),
     showModal: options => calls.push(['modal', options]), navigateTo: options => calls.push(['navigateTo', options]), navigateBack: () => calls.push(['back']) };
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), { Page: value => { definition = value; }, wx, console,
     setTimeout: (fn, delay) => { timers.set(++timerId, { fn, delay }); return timerId; },
     clearTimeout: id => timers.delete(id),
     require: name => name.endsWith('/store') ? store : name.endsWith('/haptics')
       ? { vibrate: () => calls.push(['haptic']), tick: () => calls.push(['tick']) }
-      : require(path.resolve(path.dirname(file), name)) });
+      : name.endsWith('/theme') ? { applyTo() {} }
+        : name.endsWith('/status-appearance') ? { read: () => ({}), view: () => ({}) }
+          : name.endsWith('/proc-icon-style') ? { read: () => ({}), view: () => ({}) }
+            : require(path.resolve(path.dirname(file), name)) });
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)), setData(patch) {
     patches.push(patch);
     for (const [key, value] of Object.entries(patch)) {
@@ -56,6 +63,41 @@ test('in-progress task icon follows the theme (ink on light, white on dark)', ()
   for (const icon of ['pinwheel-ink.png', 'pinwheel-white.png']) {
     assert.ok(fs.existsSync(path.resolve(__dirname, '../miniprogram/assets/icons', icon)), icon);
   }
+});
+
+test('opening a different session paints a loading shell before restoring its cache', () => {
+  const { page, store, calls, timers } = fixture();
+  let syncs = 0;
+  page.syncLayoutStyles = () => {};
+  page.syncFromStore = () => { syncs += 1; };
+  page.onLoad({ id: 's2', title: 'Target', preset: 'cordis' });
+
+  assert.equal(page.data.historyLoading, true);
+  assert.equal(page.data.historyLoaded, false);
+  assert.equal(page._pendingInitialSessionOpen, true);
+  assert.equal(syncs, 0, 'the previous conversation is not projected during navigation');
+  assert.equal(calls.some(call => call[0] === 'open'), false, 'cache restore is deferred');
+  assert.equal(store.sessionState.sessionId, 's1', 'the old store session remains active during the transition');
+  assert.equal([...timers.values()].some(timer => timer.delay === 16), true, 'initialization begins after one shell frame');
+
+  const [timerId, timer] = [...timers.entries()].find(([, item]) => item.delay === 16);
+  timers.delete(timerId);
+  timer.fn();
+  assert.deepEqual(calls.find(call => call[0] === 'open'), ['open', 's2', 'Target', 'cordis']);
+  assert.equal(page._pendingInitialSessionOpen, false);
+  assert.equal(page._preferImmediateStoreSync, true, 'the first selected-session snapshot can paint without another debounce window');
+  page.scheduleStoreSync({ session: { sessionId: 's2', rows: [] } });
+  assert.equal([...timers.values()].some(item => item.delay === 0), true, 'cached rows start projecting during the page transition');
+  assert.equal(page._preferImmediateStoreSync, false);
+
+  const sameSession = fixture();
+  sameSession.page.syncLayoutStyles = () => {};
+  sameSession.page.syncFromStore = () => {};
+  sameSession.page.onLoad({ id: 's1', reopen: '1' });
+  assert.equal(sameSession.page._pendingInitialSessionOpen, true, 'home reopens retain their refresh semantics even for the active id');
+  const reopenTimer = [...sameSession.timers.values()].find(timer => timer.delay === 16);
+  reopenTimer.fn();
+  assert.deepEqual(sameSession.calls.find(call => call[0] === 'open'), ['open', 's1', '', null]);
 });
 
 test('large outline selection patches nearby blur effects and auto-loads at the older edge', () => {
@@ -379,7 +421,9 @@ test('more menu expands rename, stats and files inside the same sheet and dispat
   const menuXml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   assert.match(menuXml, /data-action="browsePlugins"[^>]*>[\s\S]*?浏览更多插件/);
   assert.match(menuXml, /data-action="createPlugin"[^>]*>[\s\S]*?创建你的插件/);
-  assert.ok(menuXml.includes("theme === 'dark' ? 'pinwheel-white.png' : 'pinwheel-ink.png'"), 'browse plugins reuses the sidebar plugin icon in both themes');
+  // 更多菜单里的插件行用灰色变体：和其他行的 -gray 图标一致（ink 近黑会明显更深）
+  assert.ok(menuXml.includes("theme === 'dark' ? 'pinwheel-white.png' : 'pinwheel-gray.png'"), 'browse plugins uses the gray pinwheel on light theme');
+  assert.ok(fs.existsSync(path.resolve(__dirname, '../miniprogram/assets/icons/pinwheel-gray.png')), 'pinwheel-gray.png');
   page.moreActions(); store.sessionState.running = false; page.selectMoreAction(event('action', 'cancel'));
   assert.equal(page.data.moreSheetOpen, true); assert.ok(!calls.some(call => call[0] === 'cancel'));
   store.sessionState.running = true; page.selectMoreAction(event('action', 'cancel'));
@@ -626,6 +670,26 @@ test('stream snapshots coalesce and yield during taps without losing the newest 
   const stale = [...timers.values()][0];
   page.onUnload(); assert.equal(timers.size, 0);
   stale.fn(); assert.equal(rendered.length, 1);
+});
+
+test('stream projections wait for an active history scroll to settle', () => {
+  const { page, timers } = fixture(); const rendered = [];
+  page.data.tab = 'conversation';
+  page._convPinned = false;
+  page._lastConvScrollAt = Date.now();
+  page.syncFromStore = snapshot => rendered.push(snapshot);
+  page.scheduleStoreSync({ session: { title: 'during scroll' } });
+
+  let [timerId, timer] = [...timers.entries()][0];
+  timers.delete(timerId); timer.fn();
+  assert.equal(rendered.length, 0, 'row projection does not rewrite visible WXML during the swipe');
+  assert.ok(timers.size, 'the newest snapshot remains queued while scrolling');
+
+  page._lastConvScrollAt = Date.now() - 200;
+  [timerId, timer] = [...timers.entries()][0];
+  timers.delete(timerId); timer.fn();
+  assert.equal(rendered.length, 1);
+  assert.equal(rendered[0].session.title, 'during scroll');
 });
 
 test('typing prioritizes input and measures dock only when actual textarea height changes', () => {

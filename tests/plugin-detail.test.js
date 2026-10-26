@@ -70,7 +70,7 @@ test('voice detail cold entry refreshes catalog without requiring the plugin lis
   store.state.pluginsLoading = false;
   store.state.pluginCatalog = { bundles: [] }; page.onShow();
   assert.deepEqual(calls, ['catalog']);
-  const route = require('../miniprogram/utils/voice-preference').SETTINGS_URL;
+  const route = require('../miniprogram/pages/session/utils/voice-preference').SETTINGS_URL;
   const bundle = decodeURIComponent(route.split('bundle=')[1]);
   assert.equal(require('../miniprogram/pages/plugin-detail/plugin-settings').kindFor(null, bundle), 'voice');
 });

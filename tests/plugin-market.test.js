@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const path = require('node:path');
 const { installSummary } = require('../miniprogram/pages/plugins/plugin-presentation');
+const pluginListArtwork = require('../miniprogram/pages/plugins/plugin-artwork');
 const { GatewayClient } = require('../miniprogram/utils/gateway');
 const bridge = require('../scripts/install-plugin-market-bridge.cjs');
 function fixture() {
@@ -117,6 +118,12 @@ test('market cards use source icon and version metadata with per-icon fallback',
   calls[0].resolve({ result: { title: 'Market', entries: [{ name: 'pkg', title: 'Title', author: 'Author', icon: 'https://a.test/icon.png', versions: [{ version: '1.2.3', publishTimestamp: 1792368000, compatibility: { compatible: false } }] }], nextOffset: null } });
   await pending; assert.equal(page.data.marketEntries[0].version, '1.2.3'); assert.match(page.data.marketEntries[0].meta, /1.2.3 · Author/); assert.equal(page.data.marketEntries[0].installable, false);
   page.onMarketIconError({ currentTarget: { dataset: { name: 'pkg' } } }); assert.equal(page.data.marketEntries[0].iconBroken, true);
+});
+test('Discover missing icons use the same default artwork as installed plugin rows', () => {
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/plugins/plugins.wxml'), 'utf8');
+  const fallback = pluginListArtwork.artworkFor('', true);
+  assert.equal(fallback, '/assets/plugin-artwork/desktop/plugin-default.svg');
+  assert.ok(xml.includes('class="market-entry-art" src="' + fallback + '"'));
 });
 
 test('index categories render and filter search plus pagination on Host', async () => {

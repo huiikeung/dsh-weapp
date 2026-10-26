@@ -10,7 +10,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '..', 'miniprogram');
 const wxss = fs.readFileSync(path.join(root, 'pages/session/session.wxss'), 'utf8');
 const wxml = fs.readFileSync(path.join(root, 'pages/session/session.wxml'), 'utf8');
-const view = require(path.join(root, 'utils/context-view'));
+const view = require(path.join(root, 'pages/session/utils/context-view'));
 
 const t = (key, values) => (values
   ? Object.keys(values).reduce((text, name) => text.split('{' + name + '}').join(String(values[name])), key)

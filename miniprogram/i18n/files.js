@@ -1,4 +1,20 @@
 module.exports = {
+  "外部文件": "External files",
+  "导入手机文件并上传到会话": "Import a file and upload it to this conversation",
+  "请先将手机或其他应用中的文件发送到微信聊天或文件传输助手，再从这里选择上传。无需放入远端工作区。": "Send the file to a WeChat chat or File Transfer first, then select it here. No remote workspace file is needed.",
+  "选择文件": "Choose file",
+  "外部文件不能超过 50 MB": "External files must not exceed 50 MB",
+  "连接或会话已变化，请重新发送": "Connection or conversation changed. Send again.",
+  "文件读取失败，请重新选择": "Could not read the file. Select it again.",
+  "文件名无效": "Invalid file name",
+  "文件上传响应无效": "Invalid file upload response",
+  "文件上传校验失败，请重试": "File upload verification failed. Retry.",
+  "文件上传失败，草稿已保留": "File upload failed. Your draft is preserved.",
+  "上传或发送超时，请核对会话后重试": "Upload or send timed out. Check the conversation before retrying.",
+  "请先连接网关并打开会话": "Connect to a gateway and open a conversation first",
+  "当前网关不支持外部文件，请升级并重启网关": "This gateway does not support external files. Update and restart it.",
+  "斜杠命令不支持文件，请使用普通消息发送": "Slash commands do not support files. Send a regular message.",
+  "会话已切换，消息仍保留在队列": "Conversation changed. The message remains queued.",
   "已编辑文件": "Edited files",
   "已编辑 {name}": "Edited {name}",
   "已编辑 {count} 个文件": "Edited {count} files",
@@ -41,5 +57,8 @@ module.exports = {
   "复制文件路径": "Copy file path",
   "安全源码预览，不执行脚本": "Safe source preview; scripts are not executed",
   "仅预览前 128 KB，完整内容请转发文件查看": "Showing the first 128 KB. Forward the file to read its full contents.",
-  "空文件": "Empty file"
+  "空文件": "Empty file",
+  "用微信打开": "Open in WeChat",
+  "查看原图": "View image",
+  "正文由微信查看器打开": "WeChat's document viewer opens the contents"
 };

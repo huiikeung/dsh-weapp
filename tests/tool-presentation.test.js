@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const { toolPresentation } = require('../miniprogram/utils/tool-presentation');
+const { toolPresentation } = require('../miniprogram/pages/session/utils/tool-presentation');
 test('shell summary matches DSH description priority; full command remains intact', () => {
  const command = '$ws="C:\\Users\\demo"\nforeach($f in @("a")){ Write-Output $f }';
  const p = toolPresentation('pwsh', JSON.stringify({description:'Clean temp files and confirm final uninstalled state',command,workdir:'C:\\Users\\demo\\default-workspace'}));
@@ -59,7 +59,7 @@ test('command glyph changes to persistent arrow only while the step is expanded'
    assert.ok(css.includes(selector+' .command-chevron { opacity:.65; }'));
  }
  assert.ok(!css.includes('.tool-head-hover .command-tool-icon'), 'touch feedback must not override expanded state');
- const { buildEntries }=require('../miniprogram/utils/conversation-workflow');
+ const { buildEntries }=require('../miniprogram/pages/session/utils/conversation-workflow');
  const group=buildEntries([{kind:'assistant',key:'a',turnClosed:true,turnEndReason:'completed',tools:[{callId:'c',name:'bash',status:'done',argumentsText:'{"command":"echo ok"}'}]}])[0];
  assert.equal(group.completed,true);
  const tool=group.children[0].tools[0];

@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const statusAppearance = require('../miniprogram/utils/status-appearance');
+const statusAppearance = require('../miniprogram/pages/session/utils/status-appearance');
 
 // 打开「对话状态条」弹层时，canvas 是 setData 之后立刻查询的，往往还没渲染出来。
 // 拿不到节点必须短退避重试，否则鲸尾图标要等 10s 后的重置拍才补上，看着就是"不显示"。
@@ -53,7 +53,7 @@ function fixture() {
     clearInterval(id) { const index = intervals.findIndex(item => item.id === id); if (index >= 0) intervals.splice(index, 1); },
     require: name => {
       if (name.endsWith('/status-appearance')) return statusAppearance;
-      if (name.endsWith('/proc-icon-style')) return require('../miniprogram/utils/proc-icon-style');
+      if (name.endsWith('/proc-icon-style')) return require('../miniprogram/pages/session/utils/proc-icon-style');
       if (name.endsWith('/theme')) return require('../miniprogram/utils/theme');
       if (name.endsWith('/haptics')) return require('../miniprogram/utils/haptics');
       return require(path.join(path.dirname(file), name));

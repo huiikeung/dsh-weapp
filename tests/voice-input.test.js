@@ -1,6 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { VoiceInput, catalogLimits, pcmToWav, frameLevel } = require('../miniprogram/utils/voice-input');
+const { VoiceInput, catalogLimits, pcmToWav, frameLevel } = require('../miniprogram/pages/session/utils/voice-input');
 const { GatewayClient } = require('../miniprogram/utils/gateway');
 const catalog = () => ({ available:true, selection:{ providerId:'local', language:'zh' }, maxAudioBytes:4194304, maxDurationSeconds:120, providers:[{ id:'local', languages:['auto','zh'], preparation:{ phase:'ready' } }] });
 const tick = () => new Promise(resolve => setImmediate(resolve));
@@ -29,12 +29,13 @@ function fixture(options = {}) {
   return { voice, calls, states, texts, errors, handlers, levels, client, wx, stop, permission:() => permission, response:() => response, context:value => { context = value; } };
 }
 test('setting defaults on, persists explicit choice and switches placeholder', () => {
-  const pref = require('../miniprogram/utils/voice-preference'), storage = {};
+  const pref = require('../miniprogram/pages/session/utils/voice-preference'), storage = {};
   global.wx = { getStorageSync:k => storage[k], setStorageSync:(k,v) => { storage[k]=v; } };
   try {
     assert.equal(pref.enabled(), true);
-    assert.equal(pref.view().composerPlaceholder, '输入内容或按住说话');
+    assert.equal(pref.view().composerPlaceholder, '输入内容, /调用指令, @ 文件或对话, 或按住说话');
     pref.save(false); assert.equal(pref.enabled(), false);
+    assert.equal(pref.view().composerPlaceholder, '输入内容, /调用指令, @ 文件或对话, 或按住说话');
     pref.save(true); assert.equal(pref.enabled(), true);
   } finally { delete global.wx; }
 });

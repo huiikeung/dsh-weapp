@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { GatewayClient } = require('../miniprogram/utils/gateway');
-const view = require('../miniprogram/utils/context-view');
+const view = require('../miniprogram/pages/session/utils/context-view');
 
 const t = (value) => value;
 

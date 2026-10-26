@@ -22,8 +22,8 @@ test('sidebar application settings and home session settings have separate entri
     assert.ok(!sessions.includes('>' + label + '</view>'), label);
   }
   // read() 会把 {{ui['…']}} 剥成裸文案，所以这里按裸文案断言（和上面的 label 循环一致）。
-  assert.ok(settings.includes('>节点权限</'), 'application settings owns the node-permission entry');
-  assert.ok(!sessions.includes('>节点权限</'), 'session settings must not repeat it');
+  assert.ok(settings.includes('>公网权限</'), 'application settings owns the public-permission entry');
+  assert.ok(!sessions.includes('>公网权限</'), 'session settings must not repeat it');
   const panelSettings = settings.slice(settings.indexOf('会话面板'));
   assert.match(panelSettings, /checked="\{\{showContextPanel\}\}"[\s\S]*?bindchange="toggleContextPanel"[\s\S]*?checked="\{\{showFleetPanel\}\}"[\s\S]*?bindchange="toggleFleetPanel"/);
   assert.match(read('pages/settings/settings.js'), /toggleContextPanel\(e\)[\s\S]*?contextPanelsPreference\.set\('context'/);
@@ -63,7 +63,7 @@ test('session settings retain model and permission APIs, file navigation and pri
     if(name.endsWith('/ui-preferences'))return require('../miniprogram/utils/ui-preferences');
     if(name.endsWith('/store'))return store;
     if(name.endsWith('/theme'))return {applyTo(){}};
-    if(name.endsWith('/labels'))return {presetModeName:v=>v,presetModeBlurb:v=>'描述 '+v,reasoningEffortName:v=>({off:'Off',low:'Low',high:'High'}[v]||v),permissionName:v=>v,permissionIconFile:v=>require('../miniprogram/utils/labels').permissionIconFile(v)};
+    if(name.endsWith('/labels'))return {presetModeName:v=>v,presetDisplayName:(name,id)=>name||id,presetModeBlurb:v=>'描述 '+v,reasoningEffortName:v=>({off:'Off',low:'Low',high:'High'}[v]||v),permissionName:v=>v,permissionIconFile:v=>require('../miniprogram/utils/labels').permissionIconFile(v)};
     if(name.endsWith('/node-presentation'))return require('../miniprogram/pages/settings/utils/node-presentation');
     if(name.endsWith('/connection-status'))return require('../miniprogram/utils/connection-status');
     if(name.endsWith('/host-info'))return require('../miniprogram/utils/host-info');

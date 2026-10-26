@@ -2,9 +2,9 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const protocol = require('../miniprogram/utils/protocol');
-const { buildEntries } = require('../miniprogram/utils/conversation-workflow');
-const { toolPresentation } = require('../miniprogram/utils/tool-presentation');
-const appearance = require('../miniprogram/utils/status-appearance');
+const { buildEntries } = require('../miniprogram/pages/session/utils/conversation-workflow');
+const { toolPresentation } = require('../miniprogram/pages/session/utils/tool-presentation');
+const appearance = require('../miniprogram/pages/session/utils/status-appearance');
 function fixture() {
   const agg = protocol.newAggregator(); let seq = 0;
   return { agg, push(type, data) { protocol.applyEvent(agg, protocol.normalizeRawEvent({ type, seq: ++seq, data }, 'session')); } };

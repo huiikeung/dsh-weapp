@@ -18,15 +18,15 @@ assert.match(sessionSettingsWxml, /wx:if="\{\{dshAccountVisible && showAccountCa
   'Hide the session-settings account area while the gateway is disconnected or the account card switch is off');
 assert.match(wxml, /dsh-account-link-button dsh-account-primary[^>]*catchtap="explainDshAccountSignIn"/,
   'Signed-out settings expose a sign-in explanation entry that does not bubble into the balance toggle');
-// 连接分组：公网访问 / 节点管理 / 节点权限 只保留标题，不再挂副标题；
+// 连接分组：公网访问 / 节点管理 / 公网权限 只保留标题，不再挂副标题；
 // 公网访问右侧改为有效期时间（无有效期时才回落状态文案）。
 const connectionCard = wxml.slice(wxml.indexOf('公网访问'), wxml.indexOf('</view>\n  <view class="group-title">对话') > 0 ? wxml.indexOf('</view>\n  <view class="group-title">对话') : wxml.indexOf('对话'));
 assert.ok(!/management-entry-desc/.test(connectionCard),
   'Connect rows carry no secondary description any more');
 assert.match(connectionCard, /ui\[publicValueLabel\] !== undefined \? ui\[publicValueLabel\] : publicValueLabel/,
   'The public-access row shows the expiry time on the right');
-assert.match(adminSheetWxml, /role="dialog" aria-label="节点权限"[\s\S]*?<text class="pair-sheet-title">节点权限<\/text>/,
-  'The administrator sheet is titled Node access');
+assert.match(adminSheetWxml, /role="dialog" aria-label="公网权限"[\s\S]*?<text class="pair-sheet-title">公网权限<\/text>/,
+  'The administrator sheet is titled Public permissions');
 assert.doesNotMatch(adminSheetWxml, /微信身份/, 'The administrator sheet does not repeat the WeChat identity module');
 assert.match(sessionSettingsWxml, /wx:if="\{\{dshAccount\.balanceText\}\}" class="dsh-balance-amount"/,
   'Keep the session settings balance display in sync');
@@ -69,9 +69,9 @@ function createPage(apiOptions) {
     require(name) {
       if (name === '../../utils/store') return store;
       if (name === '../../utils/ui-preferences') return require('../miniprogram/utils/ui-preferences');
-      if (name === '../../utils/work-step-presentation') return require('../miniprogram/utils/work-step-presentation');
-      if (name === '../../utils/status-appearance') return require('../miniprogram/utils/status-appearance');
-      if (name === '../../utils/proc-icon-style') return require('../miniprogram/utils/proc-icon-style');
+      if (name === './utils/work-step-presentation') return require('../miniprogram/pages/settings/utils/work-step-presentation');
+      if (name === './utils/status-appearance') return require('../miniprogram/pages/settings/utils/status-appearance');
+      if (name === './utils/proc-icon-style') return require('../miniprogram/pages/settings/utils/proc-icon-style');
       if (name === '../../utils/access-api') return api;
       if (name === './public-access-state') return require('../miniprogram/pages/settings/public-access-state');
       if (name === './utils/node-presentation') return require('../miniprogram/pages/settings/utils/node-presentation');
@@ -80,12 +80,12 @@ function createPage(apiOptions) {
       if (name === './utils/identity-badge') return require('../miniprogram/pages/settings/utils/identity-badge');
       if (name === './utils/storage-usage') return require('../miniprogram/pages/settings/utils/storage-usage');
       if (name === '../../utils/host-info') return require('../miniprogram/utils/host-info');
-      if (name === '../../utils/labels') return { presetModeName: (v) => v, permissionName: (v) => v };
-      if (name === '../../utils/notify-pref') return { enabled: () => false };
-      if (name === '../../utils/voice-preference') return require('../miniprogram/utils/voice-preference');
+      if (name === '../../utils/labels') return { presetModeName: (v) => v, presetDisplayName: (name, id) => name || id, permissionName: (v) => v };
+      if (name === './utils/notify-pref') return { enabled: () => false };
+      if (name === './utils/voice-preference') return require('../miniprogram/pages/settings/utils/voice-preference');
       if (name === '../../utils/home-animation-pref') return { enabled: () => true, setEnabled: value => value === true };
-      if (name === '../../utils/context-prefs') return require('../miniprogram/utils/context-prefs');
-      if (name === '../../utils/context-panels-pref') return {
+      if (name === './utils/context-prefs') return require('../miniprogram/pages/settings/utils/context-prefs');
+      if (name === './utils/context-panels-pref') return {
         read: () => ({ context: true, fleet: true }),
         set: (panel, value) => ({ context: true, fleet: true, [panel]: value === true })
       };
@@ -434,7 +434,7 @@ async function testDeferredRefresh() {
   page.onHide(); paint(); await pending;
   assert.deepEqual(calls, [], 'Leaving before first paint cancels network work');
   page.openVoiceSettings();
-  assert.equal(calls.at(-1)[1], require('../miniprogram/utils/voice-preference').SETTINGS_URL);
+  assert.equal(calls.at(-1)[1], require('../miniprogram/pages/session/utils/voice-preference').SETTINGS_URL);
   assert.ok(decodeURIComponent(calls.at(-1)[1]).includes('dsh-experimental-voice-input-bundle'));
 }
 

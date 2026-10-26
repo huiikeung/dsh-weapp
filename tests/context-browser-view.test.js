@@ -12,7 +12,7 @@ const os = require('node:os');
 const vm = require('node:vm');
 const { execFileSync } = require('node:child_process');
 
-const contextView = require('../miniprogram/utils/context-view');
+const contextView = require('../miniprogram/pages/session/utils/context-view');
 const preferences = require('../miniprogram/utils/ui-preferences');
 const root = path.resolve(__dirname, '../miniprogram');
 const compiler = process.env.WECHAT_WCC
