@@ -2914,7 +2914,16 @@ function createStore() {
     // 配对过的档案才有这些信息；局域网配对的档案带不了中继候选，硬连只会认证失败。
     const relayReady = !!(profile && profile.relay && profile.relayAgentPubKey
       && table.relay && profile.gatewayId === table.relay.nodeId);
-    if (!relayReady) return ordered.filter(candidate => candidate.kind !== 'relay');
+    const usable = relayReady ? ordered : ordered.filter(candidate => candidate.kind !== 'relay');
+    // 网络过滤 + 中继不可用可能把候选一起清空（局域网配对的档案在外网正是如此）。
+    // 那时宁可拨一个注定失败的局域网地址，也不能一个都不拨：endpointCandidates 为空时
+    // socket 一断就没有可轮换的候选，重连直接永久放弃。
+    if (!usable.length && ordered.length) {
+      const unfiltered = orderedCandidates(table, preferred !== undefined ? preferred : (profile && profile.preferredEndpoint),
+        { network: '', promoteLan: false });
+      return relayReady ? unfiltered : unfiltered.filter(candidate => candidate.kind !== 'relay');
+    }
+    if (!relayReady) return usable;
     if (!ordered.some(candidate => candidate.kind === 'relay')) {
       ordered.push({ endpoint: table.relay.endpoint, kind: 'relay', relay: table.relay });
     }
@@ -3558,18 +3567,22 @@ function createStore() {
           if (scopedDefaults) state.defaults = scopedDefaults;
           connectActiveProfile();
         }
-        // 网络变化（WiFi/蜂窝切换、飞行模式关闭）：按新网络重新选路并重连。
-        // 网络族真的变过就地重连——不等旧线路自己断，也不必等局域网候选超时；
-        // 同族内变化（4G→5G、换个 WiFi）不打扰已有连接。
+        // 网络变化（WiFi/蜂窝切换、飞行模式关闭）：刷新网络类型，让下次选路按新网络分流。
+        // 只有「当前线路在新网络下确实已经不可用」时才就地重连——局域网线路在蜂窝下
+        // 一定不通，socket 迟早会断，早换早好。其余情况绝不主动拆连接：微信偶尔会报一次
+        // 瞬时的 4g/unknown，把一条好连接拆掉才是真故障；下次自然重连会按新网络选路，
+        // 该跳过局域网还是会跳过。
         if (wx.onNetworkStatusChange) {
           wx.onNetworkStatusChange(function (res) {
             const info = res || {};
             if (info.networkType) cachedNetworkType = info.networkType;
             const family = routeTable.networkFamily(cachedNetworkType);
-            const switched = !!family && !!lastNetworkFamily && family !== lastNetworkFamily;
             if (family) lastNetworkFamily = family;
             if (!info.isConnected || !state.activeID) return;
-            if (switched || state.connection !== 'connected') reconnectPreferred();
+            const current = endpointCandidateMeta[endpointIdx] || {};
+            const routeDead = current.kind === 'lan' && family === 'cellular';
+            if (state.connection === 'connected' && !routeDead) return;
+            if (routeDead || state.connection !== 'connected') reconnectPreferred();
           });
         }
         // 首屏也要知道网络类型，否则第一次选路拿不到它。

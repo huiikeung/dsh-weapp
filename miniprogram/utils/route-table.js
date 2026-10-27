@@ -129,51 +129,57 @@ function orderCandidates(routeTable, options) {
   const table = routeTable && typeof routeTable === 'object'
     ? routeTable : { lan: [], public: [], relay: null }
   const client = opts.client === 'native' ? 'native' : 'wechat'
-  const ordered = []
-  const seen = {}
   const network = networkFamily(opts.network)
+  // 蜂窝下局域网一条都不可达，整族不列。但这只是优化——省一次注定失败的超时，
+  // 不是硬约束：过滤后一条都不剩时必须回落，否则手机上将无可拨候选，socket 一断
+  // 就永久放弃重连（局域网配对的档案没有中继凭据，正是这种情况）。
+  const dropLan = network === 'cellular'
 
-  function push(endpoint, kind, relay) {
-    if (!endpoint || seen[endpoint]) return
-    seen[endpoint] = true
-    ordered.push(relay ? { endpoint: endpoint, kind: kind, relay: relay } : { endpoint: endpoint, kind: kind })
-  }
-
-  function kindOf(endpoint) {
-    // 中继地址（wss://host/c/nodeId）按 URL 特征会被看成公网直连；先用路由表
-    // 里的中继条目比对，保证已配对中继档案的首选不会被降级成直连候选。
-    if (table.relay && table.relay.endpoint === endpoint) return 'relay'
-    return classifyEndpoint(endpoint)
-  }
-
-  const preferredKind = opts.preferred ? kindOf(opts.preferred) : null
-  // 首选的两种让位：
-  //  a) 蜂窝网络下局域网地址一定不可达——别拿一个 8s 超时去试；
-  //  b) 刚在 WiFi↔蜂窝 之间切过（promoteLan）——按新网络重新选族，局域网插队。
-  const skipPreferred = !!opts.preferred && (
-    (network === 'cellular' && preferredKind === 'lan') ||
-    (opts.promoteLan === true && preferredKind !== 'lan')
-  )
-  if (opts.preferred && !skipPreferred) {
-    push(opts.preferred, preferredKind, preferredKind === 'relay' ? table.relay : null)
-  }
-
-  let families = allowedFamilies(client)
-  if (opts.promoteLan === true && families.indexOf('lan') >= 0) {
-    families = ['lan'].concat(families.filter((family) => family !== 'lan'))
-  }
-  for (let i = 0; i < families.length; i += 1) {
-    const family = families[i]
-    // 蜂窝整族跳过局域网：没有一条候选能通，列出来只会拖延切换。
-    if (network === 'cellular' && family === 'lan') continue
-    if (family === 'relay') {
-      if (table.relay) push(table.relay.endpoint, 'relay', table.relay)
-      continue
+  function build(skipLan) {
+    const ordered = []
+    const seen = {}
+    const push = (endpoint, kind, relay) => {
+      if (!endpoint || seen[endpoint]) return
+      seen[endpoint] = true
+      ordered.push(relay ? { endpoint: endpoint, kind: kind, relay: relay } : { endpoint: endpoint, kind: kind })
     }
-    const list = Array.isArray(table[family]) ? table[family] : []
-    for (let j = 0; j < list.length; j += 1) push(list[j], family)
+    const kindOf = (endpoint) => {
+      // 中继地址（wss://host/c/nodeId）按 URL 特征会被看成公网直连；先用路由表
+      // 里的中继条目比对，保证已配对中继档案的首选不会被降级成直连候选。
+      if (table.relay && table.relay.endpoint === endpoint) return 'relay'
+      return classifyEndpoint(endpoint)
+    }
+    const preferredKind = opts.preferred ? kindOf(opts.preferred) : null
+    // 首选的两种让位：
+    //  a) 蜂窝网络下局域网地址一定不可达——别拿一个 8s 超时去试；
+    //  b) 刚在 WiFi↔蜂窝 之间切过（promoteLan）——按新网络重新选族，局域网插队。
+    const skipPreferred = !!opts.preferred && (
+      (skipLan && preferredKind === 'lan') ||
+      (opts.promoteLan === true && preferredKind !== 'lan')
+    )
+    if (opts.preferred && !skipPreferred) {
+      push(opts.preferred, preferredKind, preferredKind === 'relay' ? table.relay : null)
+    }
+    let families = allowedFamilies(client)
+    if (opts.promoteLan === true && families.indexOf('lan') >= 0) {
+      families = ['lan'].concat(families.filter((family) => family !== 'lan'))
+    }
+    for (let i = 0; i < families.length; i += 1) {
+      const family = families[i]
+      if (skipLan && family === 'lan') continue
+      if (family === 'relay') {
+        if (table.relay) push(table.relay.endpoint, 'relay', table.relay)
+        continue
+      }
+      const list = Array.isArray(table[family]) ? table[family] : []
+      for (let j = 0; j < list.length; j += 1) push(list[j], family)
+    }
+    return ordered
   }
-  return ordered
+
+  const filtered = build(dropLan)
+  if (dropLan && !filtered.length) return build(false)
+  return filtered
 }
 
 /** 候选是否只剩局域网（用于给出「二维码只含局域网地址」的明确提示）。 */

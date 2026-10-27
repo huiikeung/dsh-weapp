@@ -304,7 +304,15 @@ class GatewayClient {
                   : uiText('设备配对已失效，请重新扫描 DSH 二维码')));
           } else if (res.reason === 'public-lease-expired') { self.refreshManagedLease(uiText('正在刷新公网授权')); }
           else if (/^public-access-/.test(res.reason || '')) self.refreshManagedLease(uiText('公网服务未开通、已到期或验证失败，请在设置→公网访问检查或兑换；局域网不受影响'));
-          else self.handleAuthorizationFailure(uiText('设备配对已失效，请重新扫描 DSH 二维码'));
+          else {
+            // 已保存凭据的重连被中继拒掉，但 reason 不在上面两种之列。中继的租赁只存在
+            // 服务端内存里，重启/续期边界上它会用各种 reason 关连接；这里一律按租赁问题
+            // 走刷新重试。refreshManagedLease 内部会判断是不是托管中继、并且只重试一次，
+            // 所以自建中继/直连的行为不变（仍然终止并显示原因），不会死循环。
+            self.refreshManagedLease(/^public-access-/.test(res.reason || '')
+              ? uiText('公网服务未开通、已到期或验证失败，请在设置→公网访问检查或兑换；局域网不受影响')
+              : uiText('正在刷新公网授权'));
+          }
         } else if (res && Number(res.code) === 4001) {
           // 中继报告电脑端连接器不在线：重连时终止并显示原因；配对时继续候选链。
           self.noteAuthorizationFailure(uiText('电脑端的公网连接器已离线，请在 DSH 中重新开启「微信连接」后重试'));

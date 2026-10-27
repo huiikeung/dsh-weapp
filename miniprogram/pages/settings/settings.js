@@ -37,6 +37,8 @@ Page({
   data: {
     navPadTop: 50,
     workStepMenu: '',
+    workStepMenuTop: '120px',
+    workStepMenuRight: '20px',
     workStepModes: workSteps.MODES,
     workStepTimings: workSteps.TIMINGS,
     ...workSteps.view(),
@@ -270,12 +272,29 @@ Page({
 
   toggleWorkStepMenu(e) {
     const field = e.currentTarget.dataset.field;
-    this.setData({ workStepMenu: this.data.workStepMenu === field ? '' : field });
+    const next = this.data.workStepMenu === field ? '' : field;
+    if (!next) { this.setData({ workStepMenu: '' }); return; }
+    // 下拉挂在 fixed 遮罩内部（子元素必然画在遮罩背景之上，避免部分 WebView 里
+    // fixed 遮罩无视 z-index 盖住绝对定位的下拉，导致点了选项没反应），
+    // 因此要用视口坐标：先量当前行位置再开菜单，避免闪一下。
+    let viewportWidth = 375;
+    try { viewportWidth = wx.getSystemInfoSync().windowWidth || viewportWidth; } catch (_) {}
+    // 量不到位置就用默认值兜底：不能因为取位置失败就让菜单打不开。
+    const open = (top, right) => this.setData({ workStepMenu: field, workStepMenuTop: top, workStepMenuRight: right });
+    try {
+      wx.createSelectorQuery().in(this).select('.work-step-' + field + '-row').boundingClientRect((rect) => {
+        open(rect && Number.isFinite(rect.bottom) ? Math.round(rect.bottom + 8) + 'px' : '120px',
+          rect && Number.isFinite(rect.right) ? Math.max(0, Math.round(viewportWidth - rect.right)) + 'px' : '20px');
+      }).exec();
+    } catch (_) { open('120px', '20px'); }
   },
   closeWorkStepMenu() { this.setData({ workStepMenu: '' }); },
   chooseWorkStep(e) {
     const { field, id } = e.currentTarget.dataset;
     if (!['mode','timing'].includes(field)) return;
+    // 先校验再落盘：未知 id 直接 save 会被 normalize 成默认值，用户原来的选择被悄悄抹掉。
+    const allowed = (field === 'mode' ? workSteps.MODES : workSteps.TIMINGS).some(item => item.id === id);
+    if (!allowed) return;
     try {
       const value = workSteps.save({ ...workSteps.read(), [field]: id });
       this.setData({ ...workSteps.view(value), workStepMenu: '' });
