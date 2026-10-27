@@ -22,12 +22,14 @@ App({
     });
   },
   onShow() {
+    this.globalData.foregroundEpoch = (this.globalData.foregroundEpoch || 0) + 1;
     store.appDidBecomeActive();
   },
   onHide() {
     store.appDidEnterBackground();
   },
   globalData: {
+    foregroundEpoch: 0,
     // Design tokens 与 iOS Theme.swift / Design/design-spec.md 对齐。
     colors: {
       navy: '#07182B',

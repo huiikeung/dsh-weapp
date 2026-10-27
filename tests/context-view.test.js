@@ -576,14 +576,14 @@ test('overview ribbon carries a sampled duration curve and leaves gaps for unkno
   const points = trend.ribbon.durationRuns[0].split(' ');
   assert.equal(points.length, 2, 'known neighboring durations stay in one line run');
   assert.deepEqual(points.map(point => point.split(',').map(Number)), [[0.5, 201.6], [1.5, 112]]);
-  assert.deepEqual(trend.ribbon.durationAreas, ['0.5,201.6 1.5,112 1.5,224 0.5,224'],
-    'the gray duration profile fills down to the chart baseline');
+  assert.equal(Object.hasOwn(trend.ribbon, 'durationAreas'), false,
+    'the desktop-style duration profile is a line rather than a filled area');
   assert.deepEqual(trend.ribbon.durationDots, ['3.5,0'], 'a known duration after a gap renders as an isolated dot');
   const withoutCurve = contextView.deriveTrend({ requests: trend.bars.map(bar => ({ seq: bar.seq, total: 1 })) }, key => key,
     { overview: true, showDuration: false });
   assert.deepEqual(withoutCurve.ribbon.durationRuns, []);
   assert.deepEqual(withoutCurve.ribbon.durationDots, []);
-  assert.deepEqual(withoutCurve.ribbon.durationAreas, []);
+  assert.equal(Object.hasOwn(withoutCurve.ribbon, 'durationAreas'), false);
 });
 
 test('deriveTrend dims other turns when one turn is focused', () => {

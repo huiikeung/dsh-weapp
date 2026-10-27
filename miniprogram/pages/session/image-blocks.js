@@ -242,15 +242,20 @@ module.exports = {
     const rows = this.data.rows || [];
     const next = {};
     rows.forEach((row, rowIndex) => {
-      const blocks = row && row.blocks;
-      if (!Array.isArray(blocks)) return;
-      blocks.forEach((block, blockIndex) => {
-        if (!block || block.type !== 'image' || block.src !== src || block.imageState !== 'pending') return;
-        Object.keys(patch).forEach((key) => {
-          next['rows[' + rowIndex + '].blocks[' + blockIndex + '].' + key] = patch[key];
+      const apply = (blocks, path) => {
+        if (!Array.isArray(blocks)) return;
+        blocks.forEach((block, blockIndex) => {
+          if (!block || block.type !== 'image' || block.src !== src || block.imageState !== 'pending') return;
+          Object.keys(patch).forEach((key) => {
+            next[path + '[' + blockIndex + '].' + key] = patch[key];
+          });
+          block.imageState = patch.imageState;
+          if (patch.localPath) block.localPath = patch.localPath;
         });
-        block.imageState = patch.imageState;
-        if (patch.localPath) block.localPath = patch.localPath;
+      };
+      apply(row && row.blocks, 'rows[' + rowIndex + '].blocks');
+      (row && row.children || []).forEach((child, childIndex) => {
+        apply(child && child.blocks, 'rows[' + rowIndex + '].children[' + childIndex + '].blocks');
       });
     });
     if (Object.keys(next).length) this.setData(next);
@@ -260,8 +265,13 @@ module.exports = {
     const dataset = (e && e.currentTarget && e.currentTarget.dataset) || {};
     const src = dataset.src;
     if (!src || typeof wx === 'undefined' || typeof wx.previewImage !== 'function') return;
-    const row = (this.data.rows || []).find((item) => item.key === dataset.key);
-    const urls = ((row && row.blocks) || [])
+    let blocks = [];
+    for (const row of this.data.rows || []) {
+      if (row && row.key === dataset.key) { blocks = row.blocks || []; break; }
+      const child = row && (row.children || []).find(item => item && item.key === dataset.key);
+      if (child) { blocks = child.blocks || []; break; }
+    }
+    const urls = blocks
       .filter((block) => block && block.type === 'image' && block.imageState === 'local' && block.localPath)
       .map((block) => block.localPath);
     if (urls.indexOf(src) < 0) urls.unshift(src);

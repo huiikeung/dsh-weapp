@@ -33,9 +33,9 @@ test('setting defaults on, persists explicit choice and switches placeholder', (
   global.wx = { getStorageSync:k => storage[k], setStorageSync:(k,v) => { storage[k]=v; } };
   try {
     assert.equal(pref.enabled(), true);
-    assert.equal(pref.view().composerPlaceholder, '输入内容, /调用指令, @ 文件或对话, 或按住说话');
+    assert.equal(pref.view().composerPlaceholder, '输入内容, / 调用指令, @ 文件或对话, 或按住说话');
     pref.save(false); assert.equal(pref.enabled(), false);
-    assert.equal(pref.view().composerPlaceholder, '输入内容, /调用指令, @ 文件或对话, 或按住说话');
+    assert.equal(pref.view().composerPlaceholder, '输入内容, / 调用指令, @ 文件或对话, 或按住说话');
     pref.save(true); assert.equal(pref.enabled(), true);
   } finally { delete global.wx; }
 });

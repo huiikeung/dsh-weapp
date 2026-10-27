@@ -18,15 +18,16 @@ const root = path.resolve(__dirname, '../miniprogram');
 const compiler = process.env.WECHAT_WCC
   || 'D:/Program Files (x86)/Tencent/微信web开发者工具/resources/app.asar.unpacked/node_modules/wcc-exec/wcc.exe';
 
-test('overview face overlays the duration curve on the stacked ribbon and keeps the turn strip below', () => {
+test('overview face overlays the desktop-style duration curve and keeps the turn strip below', () => {
   const wxml = fs.readFileSync(path.join(root, 'pages/session/session.wxml'), 'utf8');
   const wxss = fs.readFileSync(path.join(root, 'pages/session/session.wxss'), 'utf8');
   assert.match(wxml, /ctx-trend-surface-overview[\s\S]*ctx-trend-columns[\s\S]*ctx-trend-duration-fit[\s\S]*ctx-trend-turns-fit/);
   assert.match(wxml, /ribbon\.durationRuns/);
-  assert.match(wxml, /ribbon\.durationAreas/);
+  assert.match(wxml, /ctx-trend-duration-halo/);
+  assert.doesNotMatch(wxml, /durationAreas|ctx-trend-duration-area/);
   assert.match(wxss, /\.ctx-trend-duration-fit\s*\{[^}]*width:\s*100%/);
-  assert.match(wxss, /\.ctx-trend-duration-fit \.ctx-trend-duration-area\s*\{[^}]*fill:\s*rgba\(148,163,184,\.72\)/);
-  assert.match(wxss, /\.ctx-trend-duration-fit \.ctx-trend-duration-halo\s*\{[^}]*stroke:\s*var\(--surface\)/);
+  assert.match(wxss, /\.ctx-trend-duration polyline\s*\{[^}]*stroke-width:\s*2\.5/);
+  assert.match(wxss, /\.ctx-trend-duration \.ctx-trend-duration-halo\s*\{[^}]*stroke:\s*var\(--surface\)/);
 });
 
 function sampleBrowserValue(overrides) {
@@ -248,6 +249,86 @@ test('browser cursor handlers walk requests and reset to the current composition
   assert.equal(page.data.contextBrowserIsCurrent, true);
   assert.equal(page.data.contextPanel.browser.isCurrent, true);
   assert.equal(page.data.contextPanel.browser.canNext, false);
+});
+
+test('touch scrubbing previews live detail and browser state, then restores the pin without re-querying', () => {
+  const { page, store, wx, setDataPatches } = pageFixture();
+  store.sessionState.contextDashboard.value.requests.forEach((request, index) => { request.activeMs = 1000 * (index + 1); });
+  page.data.tab = 'context';
+  page.setData(page.contextPanelPatch());
+  page.contextTrendSelect({ currentTarget: { dataset: { seq: '20' } } });
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 20);
+  assert.equal(page.data.contextPanel.browser.selectedSeq, 20);
+
+  let queries = 0;
+  let selector = '';
+  wx.getWindowInfo = () => ({ windowWidth: 375 });
+  wx.createSelectorQuery = () => {
+    const query = {
+      in() { return this; },
+      select(value) { selector = value; return this; },
+      boundingClientRect() { return this; },
+      exec(callback) { queries += 1; callback([{ left: 100, width: 180 }]); }
+    };
+    return query;
+  };
+  setDataPatches.length = 0;
+
+  // Bar centers are 9px + 16px per column at a 375px viewport; index 2 is seq 30.
+  page.contextTrendTouchStart({ touches: [{ clientX: 141 }] });
+  assert.equal(selector, '.ctx-trend-scroll');
+  assert.equal(page.data.contextTrendHoverSeq, 30);
+  assert.equal(page.data.contextPanel.trend.hoverSeq, 30);
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 20, 'scrub preview never becomes a pin');
+  assert.equal(page.data.contextPanel.trendDetail.seq, 30);
+  assert.equal(page.data.contextPanel.trendDetail.durationText, '3.0s');
+  assert.equal(page.data.contextPanel.browser.selectedSeq, 30);
+
+  page.contextTrendTouchMove({ touches: [{ clientX: 157 }] });
+  assert.equal(page.data.contextTrendHoverSeq, 40);
+  assert.equal(page.data.contextPanel.browser.selectedSeq, 40);
+  assert.equal(queries, 1, 'the measured chart rect is reused throughout the gesture');
+  assert.ok(setDataPatches.every(patch => !Object.hasOwn(patch, 'contextPanel')),
+    'scrubbing patches only changing nested readouts, not the large trend model');
+
+  page.contextTrendTouchEnd();
+  assert.equal(page.data.contextTrendHoverSeq, null);
+  assert.equal(page.data.contextPanel.trend.hoverSeq, null);
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 20);
+  assert.equal(page.data.contextPanel.trendDetail.seq, 20);
+  assert.equal(page.data.contextPanel.browser.selectedSeq, 20);
+});
+
+test('overview scrub moves a temporary cursor while preserving the selected bar', () => {
+  const { page, store, wx } = pageFixture();
+  page.data.tab = 'context';
+  page.setData(page.contextPanelPatch());
+  page.contextTrendSelect({ currentTarget: { dataset: { seq: '20' } } });
+  page.contextTrendOverview();
+  assert.equal(page.data.contextPanel.trend.overview, true);
+
+  let selector = '';
+  wx.createSelectorQuery = () => {
+    const query = {
+      in() { return this; },
+      select(value) { selector = value; return this; },
+      boundingClientRect() { return this; },
+      exec(callback) { callback([{ left: 100, width: 200 }]); }
+    };
+    return query;
+  };
+  page.contextTrendTouchStart({ touches: [{ clientX: 184 }] });
+  assert.equal(selector, '.ctx-trend-chart-fit');
+  assert.equal(page.data.contextTrendHoverSeq, 30);
+  assert.equal(page.data.contextPanel.trend.hoverLeft, (2.5 / 6) * 100);
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 20);
+  assert.equal(page.data.contextPanel.browser.selectedSeq, 30);
+
+  page.contextTrendTouchEnd();
+  assert.equal(page.data.contextPanel.trend.hoverLeft, -1);
+  assert.equal(page.data.contextPanel.trend.selectedSeq, 20);
+  assert.equal(page.data.contextPanel.browser.selectedSeq, 20);
+  assert.equal(store.sessionState.contextDashboard.value.requests.length, 6);
 });
 
 test('DNA selection stays active and opens a detailed browser feed for the selected request', () => {
@@ -597,6 +678,59 @@ test('adaptive, duration, overview, turn selection and context browser stay in s
   page.contextTrendPickTurn({ currentTarget: { dataset: { turn: '2' } } });
   assert.equal(page.data.contextPanel.trendDetail.turnText, '第 2 轮');
   assert.equal(page.data.contextBrowserSeq, page.data.contextPanel.trend.selectedSeq);
+});
+
+test('trend controls toggle back and forth, and event chips support both single and multi-selection', () => {
+  const { page } = pageFixture();
+  page.data.tab = 'context';
+  page.setData(page.contextPanelPatch());
+
+  page.contextTrendGroup({ currentTarget: { dataset: { group: 'turn' } } });
+  assert.equal(page.data.contextPanel.trend.groupBy, 'turn');
+  page.contextTrendGroup({ currentTarget: { dataset: { group: 'step' } } });
+  assert.equal(page.data.contextPanel.trend.groupBy, 'step');
+
+  page.contextTrendMode({ currentTarget: { dataset: { mode: 'delta' } } });
+  assert.equal(page.data.contextPanel.trend.displayMode, 'delta');
+  page.contextTrendMode({ currentTarget: { dataset: { mode: 'total' } } });
+  assert.equal(page.data.contextPanel.trend.displayMode, 'total');
+
+  page.contextTrendAdaptive();
+  assert.equal(page.data.contextPanel.trend.adaptive, true);
+  page.contextTrendAdaptive();
+  assert.equal(page.data.contextPanel.trend.adaptive, false);
+  page.contextTrendDuration();
+  assert.equal(page.data.contextPanel.trend.showDuration, false);
+  page.contextTrendDuration();
+  assert.equal(page.data.contextPanel.trend.showDuration, true);
+  page.contextTrendOverview();
+  assert.equal(page.data.contextPanel.trend.overview, true);
+  page.contextTrendOverview();
+  assert.equal(page.data.contextPanel.trend.overview, false);
+  page.contextTrendDna();
+  assert.equal(page.data.contextPanel.trend.dna, true);
+  page.contextTrendDna();
+  assert.equal(page.data.contextPanel.trend.dna, false);
+  page.contextTrendPickTurn({ currentTarget: { dataset: { turn: '2' } } });
+  assert.equal(page.data.contextTrendActiveTurn, 2);
+  page.contextTrendPickTurn({ currentTarget: { dataset: { turn: '2' } } });
+  assert.equal(page.data.contextTrendActiveTurn, null);
+
+  const selectEvent = filter => page.setContextEventFilter({ currentTarget: { dataset: { filter } } });
+  selectEvent('prune');
+  assert.equal(page.data.contextPanel.events.selected.join(','), 'prune', 'first tap isolates one event kind');
+  selectEvent('inject');
+  assert.equal(page.data.contextPanel.events.selected.join(','), 'inject,prune', 'next tap adds a second kind');
+  selectEvent('prune');
+  assert.equal(page.data.contextPanel.events.selected.join(','), 'inject', 'selected kinds can be removed');
+  selectEvent('inject');
+  assert.equal(page.data.contextPanel.events.selected.length, 5, 'removing the last kind restores select-all');
+  for (const kind of ['compaction', 'prune', 'model', 'mode']) {
+    selectEvent(kind);
+    assert.equal(page.data.contextPanel.events.selected.join(','), kind, 'every event chip can isolate itself');
+    selectEvent(kind);
+    assert.equal(page.data.contextPanel.events.selected.length, 5, 'tapping the only selected chip restores all');
+  }
 });
 
 test('fleet header is pinned above its scroll area, matching the context header', () => {

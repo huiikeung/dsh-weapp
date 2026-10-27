@@ -1004,7 +1004,7 @@ function deriveTrend(value, t, options) {
     { key: 'bot', top: 125, text: '0' }
   ];
   // Overview ribbon geometry: x in record units (stretched edge to edge), y in px.
-  var ribbonDuration = overviewOn && durationOn ? ribbonDurationOf(rows, maxActiveMs, MAX_OVERVIEW_COLUMNS) : { runs: [], dots: [], areas: [] };
+  var ribbonDuration = overviewOn && durationOn ? ribbonDurationOf(rows, maxActiveMs, MAX_OVERVIEW_COLUMNS) : { runs: [], dots: [] };
   var ribbon = {
     count: rows.length,
     width: rows.length,
@@ -1012,7 +1012,6 @@ function deriveTrend(value, t, options) {
     columns: overviewOn ? ribbonColumnsOf(rows, maxTotal, MAX_OVERVIEW_COLUMNS) : [],
     durationRuns: ribbonDuration.runs,
     durationDots: ribbonDuration.dots,
-    durationAreas: ribbonDuration.areas,
     // Quartile and full-span flags, as percentages of the stretched width.
     flags: overviewOn ? [
       { key: 'q1', left: (rows.length * 0.25 / Math.max(1, rows.length)) * 100, text: formatCompact(Math.round(rows.length / 4)) },
@@ -1024,6 +1023,7 @@ function deriveTrend(value, t, options) {
     cursorLeft: selectedIndex >= 0 && rows.length
       ? ((selectedIndex + 0.5) / rows.length) * 100
       : -1,
+    hoverLeft: -1,
     cursorSeq: selectedIndex >= 0 ? rows[selectedIndex].request.seq : null
   };
   var trackWidth = rows.length ? (rows.length * TREND_BAR_PITCH - TREND_BAR_GAP) : 0;
@@ -1040,6 +1040,7 @@ function deriveTrend(value, t, options) {
     groupBy: groupBy,
     displayMode: displayMode,
     selectedSeq: selectedSeq,
+    hoverSeq: null,
     maxTotalText: formatCompact(maxTotal === 1 && rows.length === 0 ? 0 : maxTotal),
     maxTotal: maxTotal,
     maxActiveMs: maxActiveMs,
@@ -1169,20 +1170,14 @@ function ribbonColumnsOf(rows, maxTotal, maxColumns) {
 /** Sample the duration curve to the same bounded columns as the overview ribbon. */
 function ribbonDurationOf(rows, maxActiveMs, maxColumns) {
   var count = Math.min(rows.length, maxColumns);
-  if (!count) return { runs: [], dots: [], areas: [] };
+  if (!count) return { runs: [], dots: [] };
   var size = rows.length / count;
   var scale = TREND_CHART_H / Math.max(1, maxActiveMs);
   var runs = [];
   var dots = [];
-  var areas = [];
   var run = [];
   var flush = function () {
-    if (run.length >= 2) {
-      runs.push(run.join(' '));
-      var firstX = run[0].split(',')[0];
-      var lastX = run[run.length - 1].split(',')[0];
-      areas.push(run.join(' ') + ' ' + lastX + ',' + TREND_CHART_H + ' ' + firstX + ',' + TREND_CHART_H);
-    }
+    if (run.length >= 2) runs.push(run.join(' '));
     else if (run.length === 1) dots.push(run[0]);
     run = [];
   };
@@ -1199,7 +1194,7 @@ function ribbonDurationOf(rows, maxActiveMs, maxColumns) {
     run.push(((start + end) / 2) + ',' + Math.round(y * 100) / 100);
   }
   flush();
-  return { runs: runs, dots: dots, areas: areas };
+  return { runs: runs, dots: dots };
 }
 
 function eventLabelOf(event) {
@@ -1336,6 +1331,9 @@ function deriveTrendSelection(value, seq, t, options) {
     timeText: formatTime(request.time),
     requestLabel: t('请求 #{n}', { n: formatCompact(request.seq) }),
     estimatedText: estimated > 0 ? '≈' + formatCompact(estimated) : '—',
+    activeMs: request.activeMs === undefined ? null : request.activeMs,
+    durationText: request.activeMs === undefined ? '' : formatDuration(request.activeMs),
+    durationLabel: t('耗时'),
     actualPromptText: request.prompt === null ? '—' : formatCompact(request.prompt),
     outputText: request.output === null ? '—' : formatCompact(request.output),
     cacheText: cacheText,
@@ -2073,7 +2071,8 @@ function buildPanel(dashboard, options) {
         dna: trend.dna,
         base: opts.browserBase,
         query: opts.browserQuery,
-        kind: opts.browserKind
+        kind: opts.browserKind,
+        toolName: opts.browserTool
       }),
       trend: trend,
       trendDetail: deriveTrendSelection(value, trend.selectedSeq, t, { delta: trend.displayMode === 'delta' }),

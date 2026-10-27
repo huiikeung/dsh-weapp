@@ -111,18 +111,50 @@ function mergeLocalImages(previous, next) {
   });
 }
 
+function toolResultBlocks(message) {
+  const blocks = [];
+  function visit(value) {
+    if (typeof value === 'string') { if (value) blocks.push({ type: 'text', text: value }); return; }
+    if (Array.isArray(value)) { value.forEach(visit); return; }
+    if (!value || typeof value !== 'object') return;
+    if (value.type === 'tool-result') { visit(value.content); return; }
+    if (value.type === 'text' || value.type === 'image' || value.type === 'file'
+      || value.type === 'directory' || value.type === 'folder') { blocks.push(value); return; }
+    if (value.content !== undefined) visit(value.content);
+  }
+  visit(message && message.content);
+  return blocks;
+}
+
 function toolResultText(message) {
-  const outer = (message && message.content) || [];
-  const parts = [];
-  outer.forEach((item) => {
-    if (item && item.type === 'text') { parts.push(item.text || ''); return; }
-    const content = item && item.content;
-    if (typeof content === 'string') { parts.push(content); return; }
-    (Array.isArray(content) ? content : []).forEach((inner) => {
-      if (inner && inner.type === 'text') parts.push(inner.text || '');
-    });
+  return toolResultBlocks(message).filter(block => block.type === 'text').map(block => block.text || '').join('');
+}
+
+function assistantProcessEvents(blocks, text, reasoning, calls) {
+  const source = Array.isArray(blocks) ? blocks : [];
+  const events = [];
+  source.forEach(block => {
+    if (!block || typeof block !== 'object') return;
+    if (block.type === 'reasoning' && block.text) events.push({ kind: 'think', text: block.text });
+    else if (block.type === 'text' && block.text) events.push({ kind: 'text', text: block.text });
+    else if (block.type === 'tool-call' && block.id) events.push({ kind: 'tool', callId: block.id });
+    else if (block.type === 'image') {
+      const image = imageBlocks([block])[0];
+      const attachment = attachmentBlocks([block])[0];
+      if (image || attachment) events.push({ kind: 'image', image, attachment });
+    } else if (['file', 'directory', 'folder'].includes(block.type)) {
+      const attachment = attachmentBlocks([block])[0];
+      if (attachment) events.push({ kind: 'attachment', attachment });
+    }
   });
-  return parts.join('');
+  if (reasoning && !events.some(event => event.kind === 'think')) events.unshift({ kind: 'think', text: reasoning });
+  if (text && !events.some(event => event.kind === 'text')) events.push({ kind: 'text', text });
+  (Array.isArray(calls) ? calls : []).forEach(call => {
+    if (call && call.id && !events.some(event => event.kind === 'tool' && event.callId === call.id)) {
+      events.push({ kind: 'tool', callId: call.id });
+    }
+  });
+  return events;
 }
 
 /** RawSessionEvent → 归一化事件，规则与 GatewayModels.RawSessionEvent 一致。 */
@@ -204,6 +236,7 @@ function normalizeRawEvent(raw, sessionId) {
         text: text,
         reasoning: reasoning,
         toolCalls: calls.length ? calls : (Array.isArray(data.toolCalls) ? data.toolCalls : []),
+        processEvents: assistantProcessEvents(blocks, text, reasoning, calls.length ? calls : data.toolCalls),
         images: imageBlocks(data.message).length ? imageBlocks(data.message) : (Array.isArray(data.images) ? data.images : []),
         attachments: attachmentBlocks(data.message).concat(Array.isArray(data.attachments) ? data.attachments : []),
         usage: data.usage || (data.message && data.message.usage) || null,
@@ -238,6 +271,8 @@ function normalizeRawEvent(raw, sessionId) {
       const commandId = data.commandId || (data.raw && data.raw.commandId) || null;
       event = {
         type: 'status',
+        turn: turn,
+        step: step,
         commandId: commandId,
         name: data.name || (data.raw && data.raw.name) || 'command',
         phase: type,
@@ -258,11 +293,15 @@ function normalizeRawEvent(raw, sessionId) {
       break;
     }
     case 'tool/result': {
+      const resultBlocks = toolResultBlocks(data.message);
+      const resultImages = imageBlocks({ content: resultBlocks });
+      const resultAttachments = attachmentBlocks({ content: resultBlocks });
       const content = (data.message && data.message.content) || [];
       const isError = (data.error !== undefined && data.error !== null && data.error !== false) ||
         data.isError === true ||
         (data.message && data.message.isError === true) ||
-        content.some((b) => b && b.type === 'tool-result' && b.isError === true);
+        content.some((b) => b && b.type === 'tool-result' && b.isError === true)
+        || resultBlocks.some((b) => b && b.isError === true);
       event = {
         type: type,
         turn: turn,
@@ -270,18 +309,26 @@ function normalizeRawEvent(raw, sessionId) {
         callId: data.callId || (data.message && (data.message.toolCallId || data.message.source && data.message.source.callId)),
         isError: isError,
         appendOrigin: raw.surfaceOp === undefined || raw.surfaceOp === 'append',
-        preview: typeof data.preview === 'string' ? data.preview : toolResultText(data.message)
+        preview: typeof data.preview === 'string' ? data.preview : toolResultText(data.message),
+        images: resultImages,
+        attachments: resultAttachments
       };
       break;
     }
     case 'tool/code-dispatch-start':
-    case 'tool/code-dispatch': {
+    case 'tool/code-dispatch':
+    case 'tool/ptc-dispatch-start':
+    case 'tool/ptc-dispatch': {
+      const dispatchContent = data.content || [];
       event = {
         type: type,
         name: data.name,
         arguments: data.arguments,
         isError: data.isError === true,
-        preview: type === 'tool/code-dispatch' ? textBlocks({ content: data.content }) : null,
+        error: data.error,
+        preview: type === 'tool/code-dispatch' || type === 'tool/ptc-dispatch' ? textBlocks({ content: dispatchContent }) : null,
+        images: type === 'tool/code-dispatch' || type === 'tool/ptc-dispatch' ? imageBlocks({ content: dispatchContent }) : [],
+        attachments: type === 'tool/code-dispatch' || type === 'tool/ptc-dispatch' ? attachmentBlocks({ content: dispatchContent }) : [],
         rootCallId: data.rootCallId,
         parentCallId: data.parentCallId,
         subCallId: data.subCallId
@@ -623,6 +670,22 @@ function applyEvent(agg, normalized) {
         else assistant.reasoning = event.reasoning;
         if (!assistant.reasoning) assistant.reasoning = event.reasoning;
       }
+      if (Array.isArray(event.processEvents) && event.processEvents.length) {
+        const incoming = event.processEvents.map(item => Object.assign({}, item));
+        const hasIncomingThink = incoming.some(item => item.kind === 'think');
+        const hasIncomingTool = incoming.some(item => item.kind === 'tool');
+        if (!hasIncomingThink) {
+          const previousThoughts = assistant.events.filter(item => item.kind === 'think');
+          if (previousThoughts.length) incoming.unshift(...previousThoughts);
+        }
+        const incomingCalls = new Set(incoming.filter(item => item.kind === 'tool').map(item => item.callId || ''));
+        assistant.events.filter(item => item.kind === 'tool' && !incomingCalls.has(item.callId || '')).forEach(item => incoming.push(item));
+        if (!hasIncomingTool && !incoming.some(item => item.kind === 'tool')) {
+          // A text-only settlement may follow streamed tool call deltas.
+          assistant.events.filter(item => item.kind === 'tool').forEach(item => incoming.push(item));
+        }
+        assistant.events = incoming;
+      }
       (event.toolCalls || []).forEach((call) => {
         const tool = toolRowForCall(agg, assistant, call.id, call.name);
         if (!tool.phase) tool.phase = 'preparing';
@@ -636,13 +699,15 @@ function applyEvent(agg, normalized) {
       return true;
     }
     case 'status': {
-      const key = 'cmd-' + (event.commandId || seq);
+      const key = 'cmd-' + (event.turn === undefined ? 'x' : event.turn) + '-' + (event.commandId || seq);
       let status = agg.statusRows ? agg.statusRows[key] : null;
       if (!status) {
         if (!agg.statusRows) agg.statusRows = {};
         status = agg.statusRows[key] = {
           kind: 'status',
           key: key,
+          turn: event.turn,
+          step: event.step,
           title: event.name || 'command',
           text: uiText('正在执行…'),
           phase: event.phase,
@@ -686,6 +751,8 @@ function applyEvent(agg, normalized) {
       tool.iconFile = toolIconFile(tool.name);
       tool.title = tool.isError ? TITLES.toolFailed : TITLES.toolDone;
       tool.resultText = event.preview || '';
+      tool.resultImages = event.images || [];
+      tool.resultAttachments = event.attachments || [];
       journalTool(assistant, event.callId || null);
       if (!tool.isError && event.appendOrigin && tool.mutationPath && Number.isSafeInteger(event.turn) && event.turn > 0) {
         let row = agg.rows.find(item => item.kind === 'changes' && item.turn === event.turn && item.sessionId === sessionId);
@@ -694,6 +761,34 @@ function applyEvent(agg, normalized) {
           path: tool.mutationPath, key: 'changed-' + seq, sessionId, seq
         });
       }
+      return true;
+    }
+    case 'tool/code-dispatch-start':
+    case 'tool/code-dispatch':
+    case 'tool/ptc-dispatch-start':
+    case 'tool/ptc-dispatch': {
+      if (!event.rootCallId || !event.parentCallId || !event.subCallId || !event.name) return false;
+      const root = agg.byCallId[event.rootCallId];
+      const owner = root && agg.rows.find(row => row.kind === 'assistant' && row.turn === event.turn && row.tools.includes(root));
+      const assistant = owner || ensureAssistant(agg, sessionId, seq, event.turn);
+      const tool = toolRowForCall(agg, assistant, event.subCallId, event.name);
+      const start = event.type === 'tool/code-dispatch-start' || event.type === 'tool/ptc-dispatch-start';
+      const parent = agg.byCallId[event.parentCallId];
+      tool.rootCallId = event.rootCallId;
+      tool.parentCallId = event.parentCallId;
+      tool.depth = parent ? (parent.depth || 0) + 1 : 1;
+      tool.indentStyle = 'margin-left:' + (tool.depth * 28) + 'rpx;';
+      tool.phase = start ? 'start' : 'result';
+      tool.status = start ? 'running' : 'done';
+      tool.argumentsText = jsonDisplayText(event.arguments, true) || tool.argumentsText;
+      tool.isError = !start && (event.isError === true || !!event.error);
+      if (!start) {
+        tool.title = tool.isError ? TITLES.toolFailed : TITLES.toolDone;
+        tool.resultText = event.preview || '';
+        tool.resultImages = event.images || [];
+        tool.resultAttachments = event.attachments || [];
+      }
+      journalTool(assistant, event.subCallId);
       return true;
     }
     case 'turn/start':

@@ -21,12 +21,13 @@ test('missing step metadata is not replaced with an invented number', () => {
  const node=buildEntries([{kind:'assistant',key:'a',reasoning:'Brief thought'}])[0].children[0];
  assert.equal(node.stepLabel,'');assert.equal(node.readingLong,false);assert.equal(node.readingHeight,88);
 });
-test('reasoning is a scrollable card with independent full-reading control', () => {
+test('reasoning defaults to the bounded reading card rather than unbounded full-content mode', () => {
  const wxml=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
  const card=wxml.slice(wxml.indexOf('class="reasoning-card '),wxml.indexOf('wx:elif="{{node.kind === \'context\'}}"'));
  assert.match(card,/reasoning-card-head/);assert.match(card,/node.stepLabel/);
- assert.match(card,/scroll-y="\{\{!folds\[node.key\]\}\}"/);assert.match(card,/selectable>\{\{node.text\}\}/);
- assert.match(card,/展开阅读/);assert.match(card,/收起阅读/);assert.match(card,/data-key="\{\{node.key\}\}"/);
+ assert.match(card,/reading-preview/);assert.match(card,/scroll-y="\{\{true\}\}"/);assert.match(card,/height:\{\{node\.readingHeight\}\}rpx/);assert.match(card,/selectable>\{\{node.text\}\}/);
+ assert.match(card,/完整内容/);assert.match(card,/收起阅读/);assert.doesNotMatch(card,/展开阅读|reading-expanded/);assert.match(card,/data-key="\{\{node.key\}\}"/);
+ assert.doesNotMatch(card,/reasoning-preview-row/);
  assert.doesNotMatch(card,/event-glyph|event-rule/);
 });
 test('completed process hides its leading icon without hiding running icons', () => {

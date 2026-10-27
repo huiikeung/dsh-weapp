@@ -6,7 +6,7 @@ module.exports = {
   '语音输入': 'Voice input', '语音插件设置': 'Voice plugin settings',
   '按住说话，由已连接的 DSH 语音插件转写': 'Hold to talk; transcribed by your connected DSH voice plugin',
   '输入内容': 'Type a message',
-  '输入内容, /调用指令, @ 文件或对话, 或按住说话': 'Type a message, / for commands, @ for files or conversations, or hold to speak',
+  '输入内容, / 调用指令, @ 文件或对话, 或按住说话': 'Type a message, / for commands, @ for files or conversations, or hold to speak',
   '轻点输入，按住说话，上滑取消': 'Tap to type, hold to talk, slide up to cancel',
   '正在转文字…': 'Transcribing…', '草稿已修改，识别文字待插入': 'Draft changed. Transcript ready to insert',
   '松手取消': 'Release to cancel', '正在获取麦克风权限': 'Requesting microphone access',

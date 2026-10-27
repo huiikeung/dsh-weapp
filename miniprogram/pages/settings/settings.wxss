@@ -1062,6 +1062,7 @@
 
 .work-step-settings { overflow:visible; }
 .work-step-row { position:relative;gap:16rpx;min-height:128rpx; }
+.work-step-row-open { z-index:82; }
 .work-step-copy { display:flex;flex-direction:column;gap:10rpx;flex:1;min-width:0; }
 .work-step-hint { font-size:22rpx;color:var(--text-3); }
 .work-step-select { display:flex;align-items:center;gap:12rpx;padding:14rpx 18rpx;border-radius:16rpx;background:var(--fill);white-space:nowrap;flex-shrink:0; }
