@@ -14,12 +14,14 @@ function events(reason) { return [
   { seq: 5, time: 1004, type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: '检查完毕' }] } } },
   { seq: 6, time: 1005, type: 'turn/end', data: { turn: 1, reason: { kind: reason } } }
 ]; }
+function processGroup(entries) { return entries.find(entry => entry.kind === 'processGroup'); }
+function turnProcess(entries) { return entries.find(entry => entry.kind === 'turnProcess'); }
 for (const [reason,title] of [['completed','已完成'],['aborted','已停止'],['interrupted','已停止'],['error','执行失败'],['max-tokens','执行失败']]) {
   test('history and live turn outcome: ' + reason, () => {
     const raw = events(reason);
     const historical = buildEntries(protocol.buildRows(raw, 's'));
-    assert.equal(historical[1].title, title);
-    assert.equal(historical[1].completed, title === '已完成');
+    assert.equal(turnProcess(historical).title, title);
+    assert.equal(processGroup(historical).completed, title === '已完成');
     const agg = protocol.newAggregator();
     raw.forEach(e => protocol.applyEvent(agg, protocol.normalizeRawEvent(e, 's')));
     assert.deepEqual(buildEntries(agg.rows), historical);
@@ -29,26 +31,28 @@ for (const [reason,title] of [['completed','已完成'],['aborted','已停止'],
 test('a new user turn cannot reactivate an older completed process', () => {
   const rows = protocol.buildRows(events('completed'), 's');
   rows.push({kind:'user',key:'u-new',text:'继续'});
-  const group = buildEntries(rows,{running:true}).find(e=>e.kind==='processGroup');
+  const entries = buildEntries(rows,{running:true});
+  const group = processGroup(entries);
   assert.equal(group.running,false);
-  assert.equal(group.title,'已完成');
+  assert.equal(turnProcess(entries).title,'已完成');
 });
 test('disconnect without a final answer is not success', () => {
   const rows = [{kind:'assistant',key:'a',reasoning:'准备读取',tools:[{callId:'c',name:'read_file',status:'running'}]}];
-  const group = buildEntries(rows,{running:false,completedEntryKey:'a'})[0];
+  const group = processGroup(buildEntries(rows,{running:false,completedEntryKey:'a'}));
   assert.equal(group.completed,false);
   assert.equal(group.children[1].tools[0].waiting,true);
 });
 test('an interrupted pending tool no longer says waiting', () => {
   const rows = protocol.buildRows(events('aborted').filter(e=>![4,5].includes(e.seq)), 's');
-  const group = buildEntries(rows)[1];
-  assert.equal(group.title,'已停止');
+  const entries = buildEntries(rows);
+  const group = processGroup(entries);
+  assert.equal(turnProcess(entries).title,'已停止');
   assert.equal(group.children[1].tools[0].waiting,false);
   assert.equal(group.children[1].tools[0].statusText,'已中断');
 });
 test('plain completed answers have a completion header', () => {
   const rows = protocol.buildRows(events('completed').filter(e=>![3,4].includes(e.seq)), 's');
-  assert.equal(buildEntries(rows)[1].title,'已完成');
+  assert.equal(turnProcess(buildEntries(rows)).title,'已完成');
 });
 test('command settlement on first observed event is retained', () => {
   const rows = protocol.buildRows([{seq:1,type:'command/completed',data:{commandId:'c',name:'bash'}}], 's');
@@ -147,7 +151,7 @@ test('all status styles animate the DSH whale through the same selected text pal
 
 test('statistics and tool summaries stay in their label rows', () => {
   const wxml=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
-  const header=wxml.slice(wxml.indexOf('<view class="process-head"'),wxml.indexOf('class="process-body">'));
+  const header=wxml.slice(wxml.indexOf('<view class="process-head"'),wxml.indexOf('class="process-body '));
   assert.ok(header.indexOf('process-summary') < header.indexOf('event-spacer'));
   const tool=wxml.slice(wxml.indexOf('<view class="tool-line-1"'),wxml.indexOf('<image class="event-chevron',wxml.indexOf('<view class="tool-line-1"')));
   assert.ok(tool.indexOf('tool-note') < tool.indexOf('</view>'));
@@ -156,7 +160,7 @@ test('a failed turn surfaces the DSH failure verbatim for the error card', () =>
   const failure = { type: 'api_error', code: '1311', message: '[1311][当前订阅套餐暂未开放 GLM-5.3-FlashX权限]' };
   const raw = events('error');
   raw[raw.length - 1] = { seq: 6, time: 1005, type: 'turn/end', data: { turn: 1, reason: { kind: 'error', error: failure } } };
-  const group = buildEntries(protocol.buildRows(raw, 's'))[1];
+  const group = processGroup(buildEntries(protocol.buildRows(raw, 's')));
   assert.equal(group.failed, true);
   assert.equal(group.failureTitle, '本轮运行失败');
   assert.equal(group.failureMessage, '[1311][当前订阅套餐暂未开放 GLM-5.3-FlashX权限]');
@@ -165,24 +169,24 @@ test('a failed turn surfaces the DSH failure verbatim for the error card', () =>
 test('routable failure codes use the DSH wording and unmapped codes keep the raw message', () => {
   const row = code => [{ kind: 'assistant', key: 'a-' + code, turn: 1, turnClosed: true,
     turnEndReason: 'error', turnFailure: { message: 'raw provider text', code: code }, text: 'x', tools: [] }];
-  const auth = buildEntries(row('AUTH'))[0];
+  const auth = processGroup(buildEntries(row('AUTH')));
   assert.equal(auth.failureMessage, 'API 密钥无效');
   assert.equal(auth.failureTitle, '本轮运行失败');
-  const signedOut = buildEntries(row('ACCOUNT_SIGNED_OUT'))[0];
+  const signedOut = processGroup(buildEntries(row('ACCOUNT_SIGNED_OUT')));
   assert.equal(signedOut.failureMessage, '任务已因退出 DeepSeek 登录而停止。');
   assert.equal(signedOut.failureTitle, '任务已停止');
-  const quota = buildEntries(row('ACCOUNT_QUOTA'))[0];
+  const quota = processGroup(buildEntries(row('ACCOUNT_QUOTA')));
   assert.equal(quota.failureMessage, '当前请求的额度已用尽');
-  const other = buildEntries(row('429'))[0];
+  const other = processGroup(buildEntries(row('429')));
   assert.equal(other.failureMessage, 'raw provider text', 'unmapped codes keep the server message');
   assert.equal(other.failureCode, '429');
 });
 test('aborted and completed turns never render the error card', () => {
-  const aborted = buildEntries(protocol.buildRows(events('aborted'), 's'))[1];
+  const aborted = processGroup(buildEntries(protocol.buildRows(events('aborted'), 's')));
   assert.equal(aborted.failed, false);
   assert.equal(aborted.stopped, true);
   assert.equal(aborted.failureMessage, '');
-  const done = buildEntries(protocol.buildRows(events('completed'), 's'))[1];
+  const done = processGroup(buildEntries(protocol.buildRows(events('completed'), 's')));
   assert.equal(done.failed, false);
   assert.equal(done.failureMessage, '');
 });

@@ -60,7 +60,7 @@ test('command glyph changes to persistent arrow only while the step is expanded'
  }
  assert.ok(!css.includes('.tool-head-hover .command-tool-icon'), 'touch feedback must not override expanded state');
  const { buildEntries }=require('../miniprogram/pages/session/utils/conversation-workflow');
- const group=buildEntries([{kind:'assistant',key:'a',turnClosed:true,turnEndReason:'completed',tools:[{callId:'c',name:'bash',status:'done',argumentsText:'{"command":"echo ok"}'}]}])[0];
+ const group=buildEntries([{kind:'assistant',key:'a',turnClosed:true,turnEndReason:'completed',tools:[{callId:'c',name:'bash',status:'done',argumentsText:'{"command":"echo ok"}'}]}]).find(row=>row.kind==='processGroup');
  assert.equal(group.completed,true);
  const tool=group.children[0].tools[0];
  assert.equal(tool.iconFile,'dsh-bash.svg');

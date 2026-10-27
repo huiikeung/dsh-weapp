@@ -108,7 +108,7 @@ test('nested PTC calls remain in the process sequence with their outputs',()=>{
   assert.deepEqual(calls[2].branchTracks,[{key:'1',style:'left:-42rpx;'},{key:'2',style:'left:-14rpx;'}]);
   assert.equal(calls[1].resultImages[0].attachmentId,'nested-image');
   assert.equal(calls[2].resultText,'匹配行');
-  assert.equal(group.summary,'');
+  assert.equal(group.summary,'3 次工具调用');
   const wxml=fs.readFileSync(require.resolve('../miniprogram/pages/session/session.wxml'),'utf8');
   assert.match(wxml,/class="tool-node \{\{tool\.isCommand \? 'command-node' : ''\}\}" style="\{\{tool\.indentStyle\}\}"/);
   assert.match(wxml,/class="tool-branch-track" style="\{\{track\.style\}\}"/);

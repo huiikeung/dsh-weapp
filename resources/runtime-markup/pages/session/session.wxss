@@ -1347,6 +1347,13 @@ to{transform:translateX(340%)}
 .process-body {
   padding: 0;
 }
+.process-step-anchor {
+height: 1rpx;
+}
+.process-body-capped {
+max-height: min(400px, 50vh);
+overscroll-behavior-y: auto;
+}
 .process-command-detail {
   margin: 10rpx 0 14rpx 4rpx;
   padding: 22rpx 28rpx;

@@ -4512,10 +4512,16 @@ Page({
   toggleFold(e) {
     const key = e.currentTarget.dataset.key;
     if (!key) return;
+    const row = (this.data.rows || []).find(item => item.key === key);
+    if (row && row.kind === 'turnProcess' && !row.foldable) return;
     this.prioritizeInteraction();
     const patch = {};
     const next = !this.data.folds[key];
     patch['folds.' + key] = next;
+    if (row && row.kind === 'processGroup') {
+      patch['rows[' + this.data.rows.indexOf(row) + '].processBodyCapped'] = next
+        ? row.processBodyCapWhenExpanded : row.processBodyCapWhenCollapsed;
+    }
     // 回合级 disclosure 的折叠会增删它管辖的过程组与叙述行：当时就重算可见行，
     // 不能等下一次同步——流式停顿时就点不开了。
     if ((this._allConversationRows || []).some(row => row.kind === 'turnProcess' && row.key === key)) {

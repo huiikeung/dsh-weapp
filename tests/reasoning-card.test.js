@@ -17,6 +17,14 @@ test('streaming card key stays stable while content grows', () => {
  push(2,'\n\nMore detail');const next=buildEntries(agg.rows,{running:true})[0].children[0];
  assert.equal(next.key,first.key);assert.equal(next.stepLabel,'步骤 3');assert.equal(next.text,'Start\n\nMore detail');
 });
+test('process groups retain the whole-turn running state separately from current activity', () => {
+ const live=buildEntries([{kind:'assistant',key:'a',turn:1,reasoning:'Thinking',streaming:true}],{running:true});
+ const liveGroup=live.find(row=>row.kind==='processGroup');
+ assert.equal(liveGroup.turnRunning,true);
+ const done=buildEntries([{kind:'assistant',key:'a',turn:1,reasoning:'Thinking',turnClosed:true,turnEndReason:'completed'}]);
+ const doneGroup=done.find(row=>row.kind==='processGroup');
+ assert.equal(doneGroup.turnRunning,false);
+});
 test('missing step metadata is not replaced with an invented number', () => {
  const node=buildEntries([{kind:'assistant',key:'a',reasoning:'Brief thought'}])[0].children[0];
  assert.equal(node.stepLabel,'');assert.equal(node.readingLong,false);assert.equal(node.readingHeight,88);
@@ -39,9 +47,9 @@ test('completed process hides its leading icon without hiding running icons', ()
  assert.doesNotMatch(wxml,/procIconFile|\.gif/);
  // 收起时显示工具图标（含已完成的组），展开后才由 .disclosed 换成箭头
  assert.match(wxml,/<image wx:if="\{\{!item.running\}\}" class="process-command-icon command-tool-icon"/);
- assert.match(wxml,/<image class="command-chevron \{\{folds\[item.key\] \? 'open' : ''\}\}"/);
+ assert.match(wxml,/<image wx:if="\{\{item.foldable\}\}" class="command-chevron \{\{folds\[item.key\] \? 'open' : ''\}\}"/);
  assert.doesNotMatch(wxml,/completed-chevron/);
- const done=buildEntries([{kind:'assistant',key:'a',reasoning:'Done',turnClosed:true,turnEndReason:'completed'}])[0];
+ const done=buildEntries([{kind:'assistant',key:'a',reasoning:'Done',turnClosed:true,turnEndReason:'completed'}]).find(row=>row.kind==='processGroup');
  const running=buildEntries([{kind:'assistant',key:'a',reasoning:'Thinking'}],{running:true})[0];
  assert.equal(done.completed,true);assert.equal(running.completed,false);
 });

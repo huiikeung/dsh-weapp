@@ -3,53 +3,70 @@ const policy=require('../miniprogram/pages/session/utils/work-step-presentation'
 const protocol=require('../miniprogram/utils/protocol');
 const {buildEntries}=require('../miniprogram/pages/session/utils/conversation-workflow');
 const group=(extra)=>({kind:'processGroup',key:'g',running:true,completed:false,children:[],...extra});
-test('four desktop modes have distinct live disclosure and detail policies',()=>{
+test('four desktop modes expose the same distinct live/header/detail policy',()=>{
  for(const mode of ['compact','standard','detailed','verbose']){
   const rows=[group({activityDetail:'Inspect repository'})],folds=policy.apply(rows,{mode}, {}, [],true);
-  // 桌面端 liveProcess：回合进行中过程组始终展开（standard/detailed/verbose）；
-  // compact 仍保持收起，是四档里唯一运行中不展开的。
-  assert.equal(folds.g,['standard','detailed','verbose'].includes(mode));
+  // DSH keeps the process body mounted; folds controls capped-scroll state, not visibility.
+  assert.equal(folds.g,false);
+  assert.equal(rows[0].processBodyCapped,mode==='compact'||mode==='standard');
   assert.equal(rows[0].liveDetail,['standard','detailed'].includes(mode)?'Inspect repository':'');
-  assert.equal(rows[0].compactReasoning,mode==='compact');
-  assert.equal(rows[0].detailFlat,mode==='verbose');
  }
 });
 test('standard mode adapts to running and finished turns like the desktop client',()=>{
- // 运行中：过程组展开，步骤随执行可见；标题带实时详情
+ // 运行中：步骤始终挂载在可滚动组体内；标题带实时详情
  const live=[group({activityDetail:'Inspect repository'})];
  const liveFolds=policy.apply(live,{mode:'standard',timing:'completion'},{},[],true);
- assert.equal(liveFolds.g,true,'a running turn keeps its process group open');
+ assert.equal(liveFolds.g,false,'the process disclosure starts in its default state');
+ assert.equal(live[0].processBodyCapped,true,'standard mode uses the DSH capped-scroll body');
  assert.equal(live[0].liveDetail,'Inspect repository');
- // 运行结束（回答结束后收起）：同一 group 从 running 过渡到 completed 时收起成一行
+ // 回答结束后保持同样的 capped-scroll body；只有 live title/detail clears.
  const done=[group({running:false,completed:true})];
  const doneFolds=policy.apply(done,{mode:'standard',timing:'completion'},liveFolds,live,false);
- assert.equal(doneFolds.g,false,'a finished turn folds back to one line');
+ assert.equal(doneFolds.g,false);
+ assert.equal(done[0].processBodyCapped,true);
  assert.equal(done[0].liveDetail,'','the live detail clears once finished');
- // 运行结束（下次有新消息时）：完成后再看一会儿，直到用户发下一条才收起
+ // next-input timing allows an uncapped process body until the user explicitly caps it.
  const pending=[group({running:false,completed:true})];
- assert.equal(policy.apply(pending,{mode:'standard',timing:'next-input'},liveFolds,live,false).g,true);
+ const pendingFolds=policy.apply(pending,{mode:'standard',timing:'next-input'},liveFolds,live,false);
+ assert.equal(pendingFolds.g,false);
+ assert.equal(pending[0].processBodyCapped,false);
+ const manuallyCappedRows=[group({running:false,completed:true})];
+ const manuallyCapped=policy.apply(manuallyCappedRows,{mode:'standard',timing:'next-input'},{g:true},pending,false);
+ assert.equal(manuallyCapped.g,true);
+ assert.equal(manuallyCappedRows[0].processBodyCapped,true);
  const next=[group({running:false,completed:true}),{kind:'user',key:'u'}];
  assert.equal(policy.apply(next,{mode:'standard',timing:'next-input'},liveFolds,pending,false).g,false);
- // 失败/停止：与桌面端 turnProcessAlwaysOpen 一致，标准模式下也展开
- assert.equal(policy.apply([group({running:false,failed:true})],{mode:'standard'},{},[],true).g,true);
- assert.equal(policy.apply([group({running:false,stopped:true})],{mode:'standard'},{},[],true).g,true);
- // 手动收起优先：运行中用户手动折起来，后续 tick 不再自动展开
+ // Failure/stopped remain visible without forcing a local scroll-cap state.
+ const failed=[group({running:false,failed:true})];
+ assert.equal(policy.apply(failed,{mode:'standard'},{},[],true).g,false);
+ assert.equal(failed[0].processBodyCapped,true);
+ const stopped=[group({running:false,stopped:true})];
+ assert.equal(policy.apply(stopped,{mode:'standard'},{},[],true).g,false);
+ assert.equal(stopped[0].processBodyCapped,true);
+ // Manual disclosure state survives ticks and controls the local body cap.
  assert.equal(policy.apply(live,{mode:'standard',timing:'completion'},{g:false},live,false).g,false);
 });
 test('completion collapse and next-input collapse are independent',()=>{
  const running=[group()],done=[group({running:false,completed:true})];
- assert.equal(policy.apply(done,{mode:'detailed',timing:'completion'},{g:true},running,false).g,false);
+ const completionFolds=policy.apply(done,{mode:'detailed',timing:'completion'},{g:true},running,false);
+ assert.equal(completionFolds.g,true,'group disclosure state is independent from turn folding');
+ assert.equal(done[0].processBodyCapped,true,'completed detailed history is grouped and capped at completion');
  const pending=[group({running:false,completed:true})];
- assert.equal(policy.apply(pending,{mode:'detailed',timing:'next-input'},{g:true},running,false).g,true);
+ const pendingFolds=policy.apply(pending,{mode:'detailed',timing:'next-input'},{g:false},running,false);
+ assert.equal(pendingFolds.g,false);
+ assert.equal(pending[0].processBodyCapped,false,'latest deferred detailed group remains uncapped');
  const next=[group({running:false,completed:true}),{kind:'user',key:'u'}];
- assert.equal(policy.apply(next,{mode:'detailed',timing:'next-input'},{g:true},pending,false).g,false);
- assert.equal(policy.apply(next,{mode:'verbose',timing:'completion'},{g:true},running,false).g,true);
+ policy.apply(next,{mode:'detailed',timing:'next-input'},{g:false},pending,false);
+ assert.equal(next[0].processBodyCapped,false,'next-input mode keeps bodies uncapped until opened');
+ const verbose=[group()];
+ assert.equal(policy.apply(verbose,{mode:'verbose',timing:'completion'},{},running,true).g,false);
+ assert.equal(verbose[0].processBodyCapped,false,'verbose mode never caps process bodies');
 });
 test('detailed mode restores grouped live steps and honors the turn collapse timing',()=>{
  const running=[group()];
  const liveFolds=policy.apply(running,{mode:'detailed',timing:'completion'},{},[],true);
- assert.equal(liveFolds.g,true,'the running process group stays expanded');
- assert.equal(running[0].detailFlat,false,'detailed mode keeps its process-group header');
+ assert.equal(liveFolds.g,false,'the process group body is visible by default');
+ assert.equal(running[0].processBodyCapped,false,'detailed live groups are uncapped');
 
  const turn=()=>({kind:'turnProcess',key:'turn-g'});
  const latest=[turn()];
@@ -60,14 +77,30 @@ test('detailed mode restores grouped live steps and honors the turn collapse tim
   'collapse when the next user message arrives');
  assert.equal(policy.apply([turn()],{mode:'detailed',timing:'completion'},{},[],true)['turn-g'],false,
   'completion timing still collapses immediately');
- assert.equal(policy.apply([turn()],{mode:'compact',timing:'next-input'},{},[],true)['turn-g'],false,
-  'other modes retain their existing turn disclosure policy');
+ for(const mode of ['compact','standard','detailed']){
+  assert.equal(policy.apply([turn()],{mode,timing:'next-input'},{},[],true)['turn-g'],true,
+   mode+' defers the latest completed turn until next input');
+ }
+ assert.equal(policy.apply([turn()],{mode:'compact',timing:'completion'},{},[],true)['turn-g'],false,
+  'completion timing folds all non-verbose modes immediately');
+ const failure=[{kind:'turnProcess',key:'failure',alwaysOpen:true}];
+ assert.equal(policy.apply(failure,{mode:'compact',timing:'completion'},{},[],true).failure,true,
+  'DSH error/interrupt turns remain expanded regardless of the selected mode');
+ const verbose=[{kind:'turnProcess',key:'verbose-turn',expandable:true}];
+ const verboseOpen=policy.apply(verbose,{mode:'verbose',timing:'completion'},{},[],true);
+ assert.equal(verboseOpen['verbose-turn'],true);
+ assert.equal(verbose[0].foldable,false,'verbose turns are not user-collapsible');
+ assert.equal(policy.apply([{kind:'turnProcess',key:'verbose-turn',expandable:true}],
+  {mode:'verbose',timing:'completion'},{'verbose-turn':false},verbose,false)['verbose-turn'],true,
+  'manual state cannot collapse turns while foldCompletedTurns is disabled');
 });
 test('manual disclosure survives ticks and reopening a completed turn',()=>{
  assert.equal(policy.apply([group()],{mode:'detailed'},{g:false},[group()],false).g,false);
  const done=()=>group({running:false,completed:true});
  assert.equal(policy.apply([done()],{mode:'detailed'},{g:true},[done()],false).g,true);
- assert.equal(policy.apply([group({running:false,failed:true})],{mode:'compact'},{},[],false).g,true);
+ const fail=[group({running:false,failed:true})];
+ assert.equal(policy.apply(fail,{mode:'compact'},{},[],false).g,false);
+ assert.equal(fail[0].processBodyCapped,true);
 });
 test('initial tool name delta and later name repair update live activity',()=>{
  const agg=protocol.newAggregator();
@@ -90,14 +123,21 @@ test('active work sits below narration and obeys completion collapse settings',(
  const live=buildEntries(rows,{running:true});
  assert.deepEqual(live.map(r=>r.kind),['user','assistant','processGroup']);
  const folds=policy.apply(live,{mode:'detailed',timing:'completion'},{},[],true);
- assert.equal(folds[live.at(-1).key],true);
+ assert.equal(folds[live.at(-1).key],false,'process detail is visible in its mounted body');
  rows[1].streaming=false;rows[1].turnClosed=true;rows[1].turnEndReason='completed';
  const done=buildEntries(rows);
- assert.deepEqual(done.map(r=>r.kind),['user','processGroup','assistant']);
- assert.equal(done[1].key,live.at(-1).key);
- assert.equal(policy.apply(done,{mode:'detailed',timing:'completion'},folds,live,false)[done[1].key],false);
- assert.equal(policy.apply(done,{mode:'detailed',timing:'next-input'},folds,live,false)[done[1].key],true);
- assert.equal(policy.apply(done,{mode:'verbose',timing:'completion'},folds,live,false)[done[1].key],true);
+ assert.deepEqual(done.map(r=>r.kind),['user','turnProcess','processGroup','assistant']);
+ const groupEntry=done.find(r=>r.kind==='processGroup');
+ const turnEntry=done.find(r=>r.kind==='turnProcess');
+ assert.equal(groupEntry.key,live.at(-1).key);
+ const completionFolds=policy.apply(done,{mode:'detailed',timing:'completion'},folds,live,false);
+ assert.equal(completionFolds[turnEntry.key],false,'the outer turn follows completion timing');
+ assert.equal(completionFolds[groupEntry.key],false,'the process group keeps its independent disclosure state');
+ const nextInputFolds=policy.apply(done,{mode:'detailed',timing:'next-input'},folds,live,false);
+ assert.equal(nextInputFolds[turnEntry.key],true,'the latest turn stays open until another input');
+ assert.equal(groupEntry.processBodyCapped,false,'the latest group remains uncapped in next-input mode');
+ const verboseFolds=policy.apply(done,{mode:'verbose',timing:'completion'},folds,live,false);
+ assert.equal(verboseFolds[turnEntry.key],true,'verbose never collapses a completed turn');
 });
 test('settings persistence validates modes and leaves failed writes visible to caller',()=>{
  let stored;global.wx={getStorageSync:()=>stored,setStorageSync:(key,v)=>{assert.equal(key,policy.KEY);stored=v;}};
@@ -121,7 +161,7 @@ test('a finished turn gets one 已完成 disclosure above its rounds', () => {
   const liveGroups = entries.filter(e => e.kind === 'processGroup');
   assert.equal(liveGroups.length, 2);
   assert.equal(folds[liveGroups[0].key], false);
-  assert.equal(folds[liveGroups[1].key], true);
+  assert.equal(folds[liveGroups[1].key], false);
   // 对话结束：过程内容上方出现一个「已完成」disclosure，默认自动折叠
   const done = clone(base).map(r => Object.assign({}, r, { streaming: false }));
   done[4].turnClosed = true; done[4].turnEndReason = 'completed'; done[4].durationMs = 12500;
@@ -148,7 +188,35 @@ test('a finished turn gets one 已完成 disclosure above its rounds', () => {
   const failed = clone(base).map(r => Object.assign({}, r, { streaming: false }));
   failed[4].turnClosed = true; failed[4].turnEndReason = 'error';
   entries = buildEntries(failed, {});
-  assert.deepEqual(entries.filter(e => e.kind === 'turnProcess').map(e => e.title), ['执行失败']);
+  const failedTurn = entries.find(e => e.kind === 'turnProcess');
+  assert.equal(failedTurn.title, '执行失败');
+  assert.equal(failedTurn.alwaysOpen, true);
+
+  const maxTokens = clone(base).map(r => Object.assign({}, r, { streaming: false }));
+  maxTokens[4].turnClosed = true; maxTokens[4].turnEndReason = 'max-tokens';
+  const limitedTurn = buildEntries(maxTokens, {}).find(e => e.kind === 'turnProcess');
+  assert.equal(limitedTurn.alwaysOpen, false,'max-token completion is not in DSH turnProcessAlwaysOpen');
+});
+
+test('a finished single-group turn gets the same outer disclosure as the desktop client', () => {
+  const rows = [
+    { kind: 'user', key: 'u', text: '任务' },
+    { kind: 'assistant', key: 'work', turn: 1, tools: [
+      { key: 'tool-1', callId: 'tool-1', name: 'read', status: 'done', argumentsText: '{}' }
+    ] },
+    { kind: 'assistant', key: 'answer', turn: 1, text: '完成', turnClosed: true, turnEndReason: 'completed' }
+  ];
+  const entries = buildEntries(rows);
+  const turn = entries.find(entry => entry.kind === 'turnProcess');
+  const groupEntry = entries.find(entry => entry.kind === 'processGroup');
+  assert.ok(turn, 'the outer turn disclosure is present even with one process group');
+  assert.equal(groupEntry.turnProcessKey, turn.key);
+  assert.deepEqual(entries.map(entry => entry.kind), ['user', 'turnProcess', 'processGroup', 'assistant']);
+
+  const folds = policy.apply(entries, { mode: 'standard', timing: 'completion' }, {}, [], true);
+  assert.equal(folds[turn.key], false, 'completion timing hides the settled process group');
+  assert.deepEqual(entries.filter(entry => !entry.turnProcessKey || folds[entry.turnProcessKey]).map(entry => entry.kind),
+    ['user', 'turnProcess', 'assistant']);
 });
 
 test('running turns name each settled round by its own content', () => {
@@ -219,11 +287,26 @@ test('settings page persists both work-step choices through the real tap chain',
     assert.deepEqual(memory.get('workStepPresentation'), { mode: 'compact', timing: 'completion' },
       'the choice is written to storage');
 
-    // 再选「工作步骤收起时机」
+    for (const [id, label] of [['standard', '标准'], ['detailed', '详细'], ['verbose', '完全展开'], ['compact', '简洁']]) {
+      page.toggleWorkStepMenu({ currentTarget: { dataset: { field: 'mode' } } });
+      page.chooseWorkStep({ currentTarget: { dataset: { field: 'mode', id } } });
+      assert.equal(page.data.workStepMode, id);
+      assert.equal(page.data.workStepModeLabel, label);
+      assert.deepEqual(memory.get('workStepPresentation'), { mode: id, timing: 'completion' }, id + ' mode persists');
+    }
+
+    // Both timing choices round-trip through the same tap path.
     page.toggleWorkStepMenu({ currentTarget: { dataset: { field: 'timing' } } });
     page.chooseWorkStep({ currentTarget: { dataset: { field: 'timing', id: 'next-input' } } });
     assert.equal(page.data.workStepTiming, 'next-input');
     assert.deepEqual(memory.get('workStepPresentation'), { mode: 'compact', timing: 'next-input' });
+    page.toggleWorkStepMenu({ currentTarget: { dataset: { field: 'timing' } } });
+    page.chooseWorkStep({ currentTarget: { dataset: { field: 'timing', id: 'completion' } } });
+    assert.equal(page.data.workStepTiming, 'completion');
+    assert.deepEqual(memory.get('workStepPresentation'), { mode: 'compact', timing: 'completion' });
+    page.toggleWorkStepMenu({ currentTarget: { dataset: { field: 'timing' } } });
+    page.chooseWorkStep({ currentTarget: { dataset: { field: 'timing', id: 'next-input' } } });
+    assert.equal(page.data.workStepTiming, 'next-input');
 
     // 会话页读同一把 KEY：设置必须对渲染生效
     assert.deepEqual(policy.read(), { mode: 'compact', timing: 'next-input' });
@@ -247,19 +330,20 @@ test('the four presentation modes each lay the process out differently', () => {
   ];
   const done = live.map(r => Object.assign({}, r, { streaming: false }));
   done[4].turnClosed = true; done[4].turnEndReason = 'completed'; done[4].durationMs = 12500;
-  // 执行中：compact 全折叠；standard/detailed 保留分组头；verbose 平铺无组头
-  for (const [mode, flat] of [['compact', false], ['standard', false], ['detailed', false], ['verbose', true]]) {
+  // DSH keeps group headers in every mode; its policy controls body caps instead.
+  for (const mode of ['compact', 'standard', 'detailed', 'verbose']) {
     const entries = buildEntries(live.map(r => Object.assign({}, r)), { running: true });
     policy.apply(entries, { mode, timing: 'completion' }, {}, [], true);
     const groups = entries.filter(e => e.kind === 'processGroup');
-    assert.deepEqual(groups.map(g => g.detailFlat), [flat, flat], mode + ' flat while running');
+    assert.deepEqual(groups.map(g => g.processBodyCapped), mode === 'compact' || mode === 'standard'
+      ? [true, true] : [false, false], mode + ' follows its body grouping policy');
   }
   const compactFolds = policy.apply(buildEntries(live.map(r => Object.assign({}, r)), { running: true }), { mode: 'compact', timing: 'completion' }, {}, [], true);
   const standardFolds = policy.apply(buildEntries(live.map(r => Object.assign({}, r)), { running: true }), { mode: 'standard', timing: 'completion' }, {}, [], true);
   const compactEntries = buildEntries(live.map(r => Object.assign({}, r)), { running: true });
   const standardEntries = buildEntries(live.map(r => Object.assign({}, r)), { running: true });
-  assert.deepEqual(compactEntries.filter(e => e.kind === 'processGroup').map(g => compactFolds[g.key]), [false, false], 'compact 运行中也全折叠');
-  assert.deepEqual(standardEntries.filter(e => e.kind === 'processGroup').map(g => standardFolds[g.key]), [false, true], 'standard 活动组展开');
+  assert.deepEqual(compactEntries.filter(e => e.kind === 'processGroup').map(g => compactFolds[g.key]), [false, false], 'compact local disclosure starts closed');
+  assert.deepEqual(standardEntries.filter(e => e.kind === 'processGroup').map(g => standardFolds[g.key]), [false, false], 'standard local disclosure starts closed');
   // 已结束：compact/standard/detailed 自动折叠回合行；verbose 永不折叠且永远平铺
   for (const [mode, turnOpen] of [['compact', false], ['standard', false], ['detailed', false], ['verbose', true]]) {
     const entries = buildEntries(done.map(r => Object.assign({}, r)), {});
@@ -267,6 +351,60 @@ test('the four presentation modes each lay the process out differently', () => {
     const turn = entries.find(e => e.kind === 'turnProcess');
     assert.equal(folds[turn.key], turnOpen, mode + ' 回合行默认状态');
     const groups = entries.filter(e => e.kind === 'processGroup');
-    assert.deepEqual(groups.map(g => g.detailFlat), [mode === 'verbose', mode === 'verbose'], mode + ' 结束后是否平铺');
+    assert.deepEqual(groups.map(g => g.processBodyCapped), mode === 'verbose' ? [false, false] : [true, true],
+      mode + ' applies the completed-history cap');
+  }
+});
+
+test('collapse timing applies to every mode and compact hides settled reasoning preview', () => {
+  for (const mode of ['compact', 'standard', 'detailed', 'verbose']) {
+    const rows = [{kind:'turnProcess',key:'turn'}];
+    const completion = policy.apply(rows, {mode,timing:'completion'}, {}, [], true);
+    assert.equal(completion.turn, mode === 'verbose', mode + ' completion behavior');
+    const deferredRows = [{kind:'turnProcess',key:'turn'}];
+    const deferred = policy.apply(deferredRows, {mode,timing:'next-input'}, {}, [], true);
+    assert.equal(deferred.turn, true, mode + ' keeps latest turn open with next-input timing');
+    const withNextInput = [{kind:'turnProcess',key:'turn'},{kind:'user',key:'later'}];
+    assert.equal(policy.apply(withNextInput, {mode,timing:'next-input'}, deferred, deferredRows, false).turn,
+      mode === 'verbose', mode + ' folds on next input when foldCompletedTurns is enabled');
+  }
+
+  const presetRows = [group({running:false,completed:true})];
+  const presetFolds = policy.apply(presetRows,{mode:'standard',timing:'completion',agentPreset:'ptc'},{},[],true);
+  const standardRows = [group({running:false,completed:true})];
+  const standardFolds = policy.apply(standardRows,{mode:'standard',timing:'completion',agentPreset:'standard'},{},[],true);
+  assert.deepEqual(presetFolds,standardFolds,'Agent preset does not select the transcript presentation mode');
+  assert.equal(presetRows[0].processBodyCapped,standardRows[0].processBodyCapped);
+
+  const reasoning = text => ({kind:'processGroup',key:'r',running:false,completed:true,children:[
+    {kind:'reasoning',key:'reasoning',preview:text,running:false}
+  ]});
+  for (const mode of ['compact', 'standard', 'detailed', 'verbose']) {
+    const rows = [reasoning('Reasoning preview')];
+    policy.apply(rows,{mode,timing:'completion'},{},[],true);
+    assert.equal(rows[0].children[0].showPreview, mode !== 'compact', mode + ' settled reasoning preview policy');
+  }
+});
+
+test('reasoning stays expanded for the full live turn and collapses when it settles', () => {
+  for (const mode of ['compact', 'standard', 'detailed', 'verbose']) {
+    const live = [group({running:false,turnRunning:true, children:[
+      {kind:'reasoning',key:'thought',preview:'Live thought',running:false}
+    ]})];
+    const liveFolds = policy.apply(live, {mode,timing:'completion'}, {}, [], true);
+    assert.equal(liveFolds.thought, true, mode + ' keeps thought expanded while its turn is active');
+
+    const done = [group({running:false,turnRunning:false,completed:true,children:[
+      {kind:'reasoning',key:'thought',preview:'Settled thought',running:false}
+    ]})];
+    const doneFolds = policy.apply(done, {mode,timing:'completion'}, liveFolds, live, false);
+    assert.equal(doneFolds.thought, false, mode + ' collapses thought when its turn ends');
+
+    const manuallyExpanded = Object.assign({}, doneFolds, {thought:true});
+    const rerendered = [group({running:false,turnRunning:false,completed:true,children:[
+      {kind:'reasoning',key:'thought',preview:'Settled thought',running:false}
+    ]})];
+    assert.equal(policy.apply(rerendered, {mode,timing:'completion'}, manuallyExpanded, done, false).thought,
+      true, mode + ' preserves a user reopening settled thought');
   }
 });

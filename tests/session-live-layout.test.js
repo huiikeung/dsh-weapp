@@ -28,7 +28,9 @@ test('live status title sits below details while completed headers stay above th
     const entries=buildEntries([{kind:'user',key:'u',text:'任务'},row],{running:true});
     assert.equal(entries.at(-1).running,true);
     assert.ok(['正在整理上下文','正在推理'].includes(entries.at(-1).title));
-    assert.equal(policy.apply(entries,{mode:'detailed'}, {}, [], true)[entries.at(-1).key],true);
+    const folds=policy.apply(entries,{mode:'detailed'}, {}, [], true);
+    assert.equal(folds[entries.at(-1).key],false,'process body is visible without opening a disclosure');
+    assert.equal(entries.at(-1).processBodyCapped,false,'live detailed body is not height-capped');
   }
 });
 
@@ -53,6 +55,48 @@ test('all step disclosures share touch feedback with no trailing arrows', () => 
     assert.match(head, /hover-stay-time="200"/);
     assert.match(head, /bindtap=/);
   });
+});
+
+test('process-group bodies stay mounted and only use a bounded scroll viewport when policy caps them', () => {
+  const process = xml.slice(xml.indexOf('class="process-block {{item.running'), xml.indexOf('class="row-assistant"'));
+  assert.match(process, /<scroll-view class="process-body \{\{item\.processBodyCapped/);
+  assert.doesNotMatch(process, /wx:if="\{\{folds\[item\.key\]\}\}" class="process-body/);
+  assert.match(css, /\.process-body-capped\s*\{[^}]*max-height:\s*min\(400px,\s*50vh\)/);
+  assert.match(process, /node\.showPreview/);
+});
+
+test('a live process body follows the newest step anchor instead of leaving it below the scroll viewport', () => {
+  const tools = [
+    {callId:'call-1',key:'tool-1',name:'read_file',status:'running'},
+  ];
+  const build = reasoning => buildEntries([
+    {kind:'assistant',key:'assistant-1',turn:1,reasoning,tools}
+  ], {running:true}).find(row => row.kind === 'processGroup');
+  const first = build('Thinking');
+  assert.equal(first.processScrollTarget, first.children.at(-1).key);
+
+  const sameStep = build('Thinking with more detail');
+  assert.equal(sameStep.processScrollTarget, first.processScrollTarget,
+    'text updates in the same step do not repeatedly move the scroll position');
+
+  tools.push({callId:'call-2',key:'tool-2',name:'search',status:'running'});
+  const nextStep = build('Thinking with more detail');
+  assert.equal(nextStep.processScrollTarget, nextStep.children.at(-1).key);
+  assert.notEqual(nextStep.processScrollTarget, first.processScrollTarget,
+    'a new step advances the target to its anchor');
+
+  const process = xml.slice(xml.indexOf('class="process-block {{item.running'), xml.indexOf('class="row-assistant"'));
+  assert.match(process, /scroll-into-view="\{\{item\.running \? item\.processScrollTarget : ''\}\}"/);
+  assert.match(process, /class="process-body[^>]*show-scrollbar="\{\{false\}\}"/,
+    'the process body remains scrollable without drawing a scrollbar');
+  assert.match(process, /<view id="\{\{node\.key\}\}" class="process-step-anchor"/);
+  assert.match(css, /\.process-step-anchor\s*\{[^}]*height:\s*1rpx/);
+});
+
+test('turn-process disclosure is disabled in verbose and always-open outcomes', () => {
+  const process = xml.slice(xml.indexOf("item.kind === 'turnProcess'"), xml.indexOf("item.kind === 'processGroup'"));
+  assert.match(process, /bindtap="\{\{item\.foldable \? 'toggleFold' : ''\}\}"/);
+  assert.match(process, /wx:if="\{\{item\.foldable\}\}" class="command-chevron/);
 });
 
 const compiler = process.env.WECHAT_WCC || 'D:/Program Files (x86)/Tencent/微信web开发者工具/resources/app.asar.unpacked/node_modules/wcc-exec/wcc.exe';
@@ -82,6 +126,6 @@ test('native session template puts live work before whale and keeps completed ar
   // 收工后组头显示默认工具图标（箭头只在展开时由 .disclosed 交出），过程已折叠
   assert.ok(completed.includes('command-tool-icon'));
   assert.ok(!completed.includes('completed-chevron'));
-  assert.ok(!completed.includes('process-body'));
+  assert.ok(completed.includes('process-body'));
   assert.ok(!completed.includes('progress-strip'));
 });

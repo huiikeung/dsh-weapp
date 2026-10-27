@@ -24,27 +24,31 @@ function applyTurnFooters(rows, source, usageByTurn, running) {
     if (running && index === groups.length - 1 && !closed) return;
     const entries = item.entries.filter(row => row.kind !== 'user');
     if (!entries.length) return;
-    const target = entries[entries.length - 1];
     const answers = entries.filter(row => row.kind === 'assistant' && row.text);
     const answer = answers[answers.length - 1];
+    const processTurn = entries.find(row => row.kind === 'turnProcess'
+      && entries.some(entry => entry.turnProcessKey === row.key));
+    const target = entries[entries.length - 1];
+    const footerTarget = answer ? target : processTurn || target;
     const exact = usageByTurn && usageByTurn[item.turn];
     const samples = item.source.filter(row => row.kind === 'assistant' && Number.isFinite(row.usageTokens) && row.usageTokens >= 0);
     const total = exact && Number.isFinite(exact.totalTokens) ? exact.totalTokens
       : samples.length ? samples.reduce((sum, row) => sum + row.usageTokens, 0) : null;
     const ended = item.source.find(row => row.finishedAtMs || row.durationMs);
     if (answer) { target.copyText = answer.text; target.copyKey = answer.key; target.seq = answer.seq; }
-    target.turnUsage = exact || null;
-    target.turnMetaKey = target.key;
-    if (total !== null) target.turnMetaText = t('用量') + ' ' + compact(total) + ' tok';
+    else if (footerTarget.seq === undefined && item.source.length) footerTarget.seq = item.source[item.source.length - 1].seq;
+    footerTarget.turnUsage = exact || null;
+    footerTarget.turnMetaKey = footerTarget.key;
+    if (total !== null) footerTarget.turnMetaText = t('用量') + ' ' + compact(total) + ' tok';
     if (ended) {
       const ms = Number(ended.durationMs) || 0;
       const date = new Date(ended.finishedAtMs || 0);
-      target.turnTimeText = ended.finishedAtMs
+      footerTarget.turnTimeText = ended.finishedAtMs
         ? String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0')
         : ms >= 60000 ? Math.floor(ms / 60000) + 'm ' + Math.round(ms % 60000 / 1000) + 's'
           : ms >= 1000 ? Math.round(ms / 1000) + 's' : ms > 0 ? Math.round(ms) + 'ms' : '';
     }
-    target.footerVisible = !!(target.copyText || target.turnMetaText || target.turnTimeText);
+    footerTarget.footerVisible = !!(footerTarget.copyText || footerTarget.turnMetaText || footerTarget.turnTimeText);
   });
   return rows;
 }

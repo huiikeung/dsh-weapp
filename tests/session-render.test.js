@@ -181,7 +181,9 @@ test('completion does not reparse or resend historical Markdown', () => {
   assert.ok(f.patches.every(patch => !Object.hasOwn(patch, 'rows')));
   assert.equal(f.page.data.running, false); assert.equal(f.page.data.rows.at(-1).text, '测试完成');
   assert.equal(f.page.data.rows.find(row => row.key === 'current').copyText, '测试完成');
-  assert.ok(f.page.data.rows.some(row => row.kind === 'processGroup' && row.completed));
+  assert.ok(f.page.data.rows.some(row => row.kind === 'turnProcess'), 'the settled turn disclosure stays visible');
+  assert.ok(f.page._allConversationRows.some(row => row.kind === 'processGroup' && row.completed),
+    'the completed process group remains available behind the collapsed turn');
   f.reset();
   for (let i = 0; i < 8; i++) { f.store.sessionState.stats = { stats: { turns: 151, steps: i + 1 } }; f.sync(); }
   assert.equal(f.report().parses, 0); assert.equal(f.report().scrolls, 0);

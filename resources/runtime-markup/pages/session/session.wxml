@@ -170,9 +170,9 @@
            出现）：前面只有一个箭头，展开时下方各轮过程组与中间叙述照原顺序显示，
            收起时整轮折成这一行 -->
       <view wx:elif="{{item.kind === 'turnProcess'}}" class="process-block" id="{{item.key}}">
-        <view class="process-head" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
+<view class="process-head" hover-class="{{item.foldable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="{{item.foldable ? 'toggleFold' : ''}}" data-key="{{item.key}}">
           <view class="command-icon-slot turn-process-slot" aria-hidden="true">
-            <image class="command-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+<image wx:if="{{item.foldable}}" class="command-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
           </view>
           <text class="process-title">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</text>
           <text wx:if="{{item.summary}}" class="process-summary">{{ui[item.summary] !== undefined ? ui[item.summary] : item.summary}}</text>
@@ -180,10 +180,10 @@
         </view>
       </view>
 
-      <!-- dsh-mobile ConversationProcessGroup：稳定组头 + 分层 disclosure 节点。
-           detailFlat（详细档进行中 / verbose）时组头不显示，子过程直接平铺展开 -->
+      <!-- DSH process groups keep their header in every mode; mode/timing controls
+           whether the body is capped and scrollable, not whether it is mounted. -->
       <view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}}" id="{{item.key}}">
-        <view wx:if="{{!item.detailFlat}}" class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
+<view class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
           <view class="command-icon-slot {{folds[item.key] ? 'disclosed' : ''}}" aria-hidden="true">
             <view wx:if="{{item.running && !item.completed}}" class="proc-loader proc-look-{{procIconStyle}}">
               <template is="procIconGlyph" data="{{styleId: procIconStyle}}" />
@@ -204,10 +204,11 @@
           <view class="turn-error-message">{{item.failureMessage}}</view>
           <view wx:if="{{item.failureCode}}" class="turn-error-code"><text class="turn-error-code-label">{{ui['错误码']}}</text><text class="turn-error-code-value" selectable>{{item.failureCode}}</text></view>
         </view>
-        <view wx:if="{{folds[item.key]}}" class="process-body">
+<scroll-view class="process-body {{item.processBodyCapped ? 'process-body-capped' : ''}}" scroll-y="{{item.processBodyCapped}}" scroll-into-view="{{item.running ? item.processScrollTarget : ''}}" enhanced show-scrollbar="{{false}}">
           <view wx:if="{{item.commandDetail}}" class="process-command-detail">{{item.commandDetail}}</view>
           <block wx:for="{{item.children}}" wx:for-item="node" wx:key="key">
-            <view wx:if="{{node.kind === 'reasoning' && ((item.compactReasoning && !folds[node.key]) || (!item.compactReasoning && folds[node.key]))}}" class="disclosure-head reasoning-collapsed" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{node.key}}"><view class="command-icon-slot" aria-hidden="true"><image class="event-glyph command-tool-icon" src="/assets/icons/{{theme === 'dark' ? node.darkIconFile : node.iconFile}}"/><image class="command-chevron" src="/assets/icons/chev-right-gray.png"/></view><text class="event-title">{{ui['思考']}}</text><text wx:if="{{node.preview}}" class="event-preview">{{node.preview}}</text></view>
+<view id="{{node.key}}" class="process-step-anchor" aria-hidden="true"/>
+<view wx:if="{{node.kind === 'reasoning' && !folds[node.key]}}" class="disclosure-head reasoning-collapsed" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{node.key}}"><view class="command-icon-slot" aria-hidden="true"><image class="event-glyph command-tool-icon" src="/assets/icons/{{theme === 'dark' ? node.darkIconFile : node.iconFile}}"/><image class="command-chevron" src="/assets/icons/chev-right-gray.png"/></view><text class="event-title">{{ui['思考']}}</text><text wx:if="{{node.showPreview}}" class="event-preview">{{node.preview}}</text></view>
             <view wx:elif="{{node.kind === 'reasoning'}}" class="reasoning-card reading-preview">
               <view class="reasoning-card-head"><text class="reasoning-card-title">{{ui['思考']}}</text><text wx:if="{{node.stepLabel}}" class="reasoning-step">{{ui[node.stepLabel] !== undefined ? ui[node.stepLabel] : node.stepLabel}}</text></view>
               <view class="reasoning-reading-area">
@@ -293,7 +294,7 @@
               </view>
             </view>
           </block>
-        </view>
+        </scroll-view>
       </view>
 
       <!-- 助手消息（iOS .assistant：全宽 Markdown + 复制钮） -->

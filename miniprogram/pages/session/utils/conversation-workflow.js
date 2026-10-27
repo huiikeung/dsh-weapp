@@ -184,9 +184,9 @@ function turnFailureCopy(failure) {
 }
 
 // 对话结束（或失败/停止）后，桌面端（TurnProcessNodeView）会在回合的过程内容上方
-// 放一个「已完成」disclosure，且只在回合关闭后出现。这里给多过程组的回合插这一行：
-// 展开时各轮过程组与中间叙述照原顺序显示，收起时整轮过程折成这一行；最终答复留在
-// 外面，始终可见。单组回合不插——那一组自己就是回合行。运行中的回合不插。
+// 放一个「已完成」disclosure，且只在回合关闭后出现。单组、多组回合都需要此行：
+// 展开时过程组与中间叙述照原顺序显示，收起时整轮过程折成这一行；最终答复留在
+// 外面，始终可见。运行中的回合不插。
 // 回合是否真的结束了：运行中上面会把「已收工但不是活动组」的组标成 running=false，
 // 所以不能只看 running——要以回合级状态（completed / failed / stopped）为准。
 function turnSettled(entry) {
@@ -208,7 +208,7 @@ function insertTurnDisclosures(list) {
       break;
     }
     const groups = run.filter(item => item.kind === 'processGroup');
-    if (groups.length > 1) {
+    if (groups.length > 0) {
       const key = 'turn-' + entry.key;
       const duration = groups.map(g => (g.summary || '').split(' · ').find(part => part.indexOf(uiText('用时 ')) === 0)).find(Boolean) || '';
       out.push({
@@ -218,7 +218,9 @@ function insertTurnDisclosures(list) {
         summary: duration,
         iconFile: entry.iconFile,
         darkIconFile: entry.darkIconFile,
-        expandable: true
+        expandable: groups.some(group => group.expandable === true),
+        alwaysOpen: groups.some(group => group.turnAlwaysOpen === true),
+        sourceKeys: Array.from(new Set(groups.flatMap(group => group.sourceKeys || [])))
       });
       run.forEach((item) => {
         item.turnProcessKey = key;
@@ -426,12 +428,14 @@ function buildProcessGroup(items, meta) {
     iconFile: lastTool ? toolIconFile(lastTool.name) : facts.command ? 'dsh-bash.svg' : 'dsh-think.svg',
     darkIconFile: (lastTool ? toolIconFile(lastTool.name) : facts.command ? 'dsh-bash.svg' : 'dsh-think.svg').replace('.svg', '-dark.svg'),
     command: facts.command, commandDetail: facts.command ? facts.command.text || '' : '',
-    children, expandable: !!(children.length || facts.command), running, completed,
+    children, processScrollTarget: children.length ? children[children.length - 1].key : '',
+    expandable: !!(children.length || facts.command), running, turnRunning: meta.running === true, completed,
     durationMs: Number(meta.durationMs) || 0,
     failed: meta.failed, stopped: meta.stopped,
     failureTitle: failure ? failure.title : '',
     failureMessage: failure ? failure.message : '',
     failureCode: failure ? failure.code : '',
+    turnAlwaysOpen: meta.alwaysOpen === true,
     sourceKeys: items.map(item => item.key).filter(Boolean)
   };
 }
@@ -469,6 +473,7 @@ function buildEntries(rows, options) {
     const reason = ended && ended.turnEndReason || '';
     const stopped = /^(aborted|interrupted|cancelled|canceled)$/.test(reason) || turnRows.some(row => row.interrupted);
     const failed = /^(error|failed|max-tokens)$/.test(reason);
+    const alwaysOpen = /^(aborted|interrupted|cancelled|canceled|error)$/.test(reason) || turnRows.some(row => row.interrupted);
     const running = opts.running === true && isLast && !ended && !stopped && !failed;
     let finalAnswer = null;
     const hasTurnProcessActivity = turnRows.some(hasProcessActivity);
@@ -493,7 +498,7 @@ function buildEntries(rows, options) {
     // authoritative turn boundary (or the session lifecycle completion marker)
     // can finish the whole process group.
     const completed = !running && !stopped && !failed && (!!ended || (marked && !pending));
-    const meta = { running, stopped, failed, completed, closed: !!ended,
+    const meta = { running, stopped, failed, completed, closed: !!ended, alwaysOpen,
       durationMs: ended && ended.durationMs || (marked ? Number(opts.lastDurationMs || 0) : 0),
       // 失败原因：DSH 的 {message,code,status}，供错误卡按桌面端口径展示
       failure: (ended && ended.turnFailure) || null };
@@ -644,7 +649,7 @@ function buildEntries(rows, options) {
     }
   }
 
-  // 对话结束：多过程组的回合在过程内容上方插一个「已完成」disclosure 行，收起时
+  // 对话结束：回合在过程内容上方插一个「已完成」disclosure 行，收起时
   // 整轮过程折成这一行。运行中的回合不插，各组照常各自显示。
   entries = insertTurnDisclosures(entries);
 
