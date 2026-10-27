@@ -25,13 +25,20 @@ module.exports = {
       this._scrollAnchorAt = Date.now();
       return patch;
     }
-    if (Math.abs(top - (this._lastScrollTop || 0)) > 1) { patch.conversationScrollTop = top; this._lastScrollTop = top; }
+    if (Math.abs(top - (this._lastScrollTop || 0)) > 1) {
+      patch.conversationScrollTop = top;
+      this._lastScrollTop = top;
+      this._programmaticScrollAt = Date.now();
+      this._programmaticScrollTop = top;
+    }
     return patch;
   },
   updateConversationWindow(top) {
     const window = this._conversationWindow;
     if (!window) return;
-    const patch = dataPatch(this.data, window.select(top, this._convClientHeight || 700));
+    const height = this._convClientHeight || 700;
+    if (!window.shouldShiftForScroll(top, height)) return;
+    const patch = dataPatch(this.data, window.select(top, height));
     if (Object.keys(patch).length) this.setData(patch, () => {
       this.scheduleHistoryFormatting(); this.measureConversationWindow();
       // 滚动带出的新图也需要回填本地缓存路径，否则进入窗口后是空白图。
@@ -102,6 +109,8 @@ module.exports = {
       if (!anchoring && this._convPinned === false && anchorIndex >= 0 && window.offsets[anchorIndex] !== oldAnchorOffset) {
         patch.conversationScrollTop = Math.max(0, (this._lastScrollTop || 0) + window.offsets[anchorIndex] - oldAnchorOffset);
         this._lastScrollTop = patch.conversationScrollTop;
+        this._programmaticScrollAt = Date.now();
+        this._programmaticScrollTop = patch.conversationScrollTop;
       }
       if (Object.keys(patch).length) this.setData(patch);
       if (this._convPinned !== false) this.refreshBottomAnchor();

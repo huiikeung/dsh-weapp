@@ -3847,6 +3847,9 @@ Page({
 
   onConvTouch() {
     this._suppressScrollUntil = 0;
+    this._scrollAnchorAt = 0;
+    this._programmaticScrollAt = 0;
+    this._programmaticScrollTop = undefined;
     this._lastTouchAt = Date.now();
   },
 
@@ -3860,24 +3863,41 @@ Page({
     this._lastNativeScrollTop = scrollTop;
     const recentTouch = now - (this._lastTouchAt || 0) < 1500;
     const movingTowardOlder = previousTop !== undefined && scrollTop < previousTop - 2;
+    const movingTowardNewer = previousTop !== undefined && scrollTop > previousTop + 2;
+    const settlingAnchor = this._scrollAnchorAt && now - this._scrollAnchorAt < 800;
+    const correctionPending = this._programmaticScrollTop !== undefined
+      && this._programmaticScrollAt && now - this._programmaticScrollAt < 200;
+    const settlingCorrection = correctionPending && Math.abs(scrollTop - this._programmaticScrollTop) <= 2;
+    if (correctionPending && (settlingCorrection || movingTowardOlder || movingTowardNewer)) {
+      this._programmaticScrollTop = undefined;
+    }
+    const programmaticScroll = this._suppressPins === true
+      || now < (this._suppressScrollUntil || 0) || settlingAnchor || settlingCorrection;
+    const upwardReaderIntent = movingTowardOlder && this._suppressPins !== true
+      && !settlingCorrection && !(settlingAnchor && this._convPinned === false);
     // Native scroll events are the reliable signal when scroll-view does not
-    // deliver touchmove (or a nested view consumes it). Do not let the bottom
-    // tolerance keep auto-follow armed during even a small upward reader drag.
-    if (recentTouch && movingTowardOlder && this._suppressPins !== true) {
+    // deliver touchmove (or a nested view consumes it). Treat upward movement
+    // itself as reader intent: requiring a touch event lets the near-bottom
+    // tolerance re-arm the live tail and snap the list back down.
+    if (upwardReaderIntent) {
       this._followPausedByUser = true;
       this._userScrollDirection = 'towardTop';
       this._convPinned = false;
+      this._suppressScrollUntil = 0;
       if (this.data.scrollTarget) this.setData({ scrollTarget: '' });
+    }
+    if (!programmaticScroll && movingTowardNewer && this._followPausedByUser) {
+      this._userScrollDirection = 'towardBottom';
     }
     this.applyScrollPosition({
       scrollTop: scrollTop,
       scrollHeight: Number(d.scrollHeight) || 0,
       clientHeight: Number(d.clientHeight) || 0,
       deltaY: Number(d.deltaY) || 0,
-      userScroll: recentTouch
+      userScroll: !programmaticScroll && (recentTouch || movingTowardOlder || movingTowardNewer)
     });
     this.updateConversationWindow(scrollTop);
-    this.maybePrefetchOlderHistory(scrollTop, previousTop !== undefined && scrollTop < previousTop - 2);
+    this.maybePrefetchOlderHistory(scrollTop, !programmaticScroll && movingTowardOlder);
   },
 
   // Scroll events can omit clientHeight; measure it even while idle so the
@@ -4476,6 +4496,9 @@ Page({
     this._userScrollDirection = '';
     this._convPinned = true;
     this._lastTouchAt = 0;
+    this._scrollAnchorAt = 0;
+    this._programmaticScrollAt = 0;
+    this._programmaticScrollTop = undefined;
     this._userScrolledUp = false;
     this._lastScrollTop = undefined;
     this._lastNativeScrollTop = undefined;

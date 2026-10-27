@@ -21,6 +21,29 @@ test('variable height prefix offsets select the correct row including a very lon
   assert.equal(window.indexAt(5399), 4); assert.equal(window.indexAt(5400), 5);
   assert.equal(window.select(4000, 700).rows.some(row => row.key === 'u4'), true);
 });
+test('the rendered conversation window stays stable until the viewport nears an edge', () => {
+  const window = new ConversationWindow(); window.update(rows(100)); window.select(500, 400);
+  assert.equal(window.shouldShiftForScroll(650, 400), false,
+    'small finger movements do not replace keyed rows while scrolling');
+  assert.equal(window.shouldShiftForScroll(900, 400), true,
+    'the window advances before the viewport reaches its final buffered rows');
+  assert.equal(window.shouldShiftForScroll(0, 400), true,
+    'a fast fling beyond the current window is handled immediately');
+});
+test('scroll handling does not publish a new virtual slice for each crossed row', () => {
+  let patches = 0;
+  const page = { ...viewport, data: {}, _renderSessionId: 's', _convPinned: false,
+    _lastScrollTop: 500, _convClientHeight: 400,
+    setData(patch, callback) { patches++; Object.assign(this.data, patch); if (callback) callback(); },
+    scheduleHistoryFormatting() {}, measureConversationWindow() {}, scheduleAttachmentThumbs() {} };
+  const initial = page.conversationWindowPatch(rows(100));
+  page.data = initial;
+
+  page.updateConversationWindow(650);
+  assert.equal(patches, 0, 'the viewport remains inside the existing overscan window');
+  page.updateConversationWindow(900);
+  assert.equal(patches, 1, 'the virtual slice advances near its edge');
+});
 test('prepending history preserves the visible anchor and offset while incoming tail does not move it', () => {
   const page = { ...viewport, data: {}, _renderSessionId: 's', _convPinned: false, _lastScrollTop: 5025 };
   const initial = rows(100); page.conversationWindowPatch(initial);

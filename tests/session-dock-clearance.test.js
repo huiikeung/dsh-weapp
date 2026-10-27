@@ -20,7 +20,8 @@ function pageFixture(rects) {
   });
   const page = { ...definition, data: JSON.parse(JSON.stringify(definition.data)), _convPinned: true,
     setData(patch, callback) { Object.assign(this.data, patch); if (callback) callback(); }, refreshBottomAnchor() { scrolled++; } };
-  return { page, flush() { while(ticks.length) ticks.shift()(); }, scrolled: () => scrolled };
+  return { page, flush() { while(ticks.length) ticks.shift()(); }, scrolled: () => scrolled,
+    refreshBottomAnchor: definition.refreshBottomAnchor };
 }
 test('whale stays in conversation flow with the viewport above the composer', () => {
   const xml = fs.readFileSync(path.join(root, 'session.wxml'), 'utf8');
@@ -94,6 +95,46 @@ test('vertical gestures pause live follow in either direction until the reader r
   page.onConvScroll({ detail: { scrollTop: 1000, scrollHeight: 1400, clientHeight: 400 } });
   assert.equal(page._followPausedByUser, false, 'following resumes only when the reader moves back to the bottom');
   assert.equal(page._convPinned, true);
+});
+test('native upward movement pauses live follow even when touch events are swallowed', () => {
+  const f = pageFixture([]), page = f.page;
+  page._convPinned = true;
+  page._followPausedByUser = false;
+  page._lastNativeScrollTop = 1000;
+  page._lastScrollTop = 1000;
+  page._suppressScrollUntil = Date.now() + 500;
+  page.data.scrollTarget = 'conv-bottom';
+  page.updateConversationWindow = () => {};
+  page.maybePrefetchOlderHistory = () => {};
+
+  // Some WeChat scroll-view implementations emit native scroll without
+  // bubbling touchstart/touchmove from the scroll surface.
+  page.onConvScroll({ detail: { scrollTop: 970, scrollHeight: 1400, clientHeight: 400 } });
+
+  assert.equal(page._followPausedByUser, true);
+  assert.equal(page._convPinned, false, 'a small upward move beats the near-bottom threshold');
+  assert.equal(page.data.scrollTarget, '', 'native reader movement cancels a pending tail anchor');
+  page.refreshBottomAnchor = f.refreshBottomAnchor;
+  page.refreshBottomAnchor();
+  f.flush();
+  assert.equal(page.data.scrollTarget, '', 'stream updates cannot reclaim the viewport after a touch event was lost');
+});
+test('programmatic scroll corrections do not masquerade as reader intent', () => {
+  const { page } = pageFixture([]);
+  page._convPinned = true;
+  page._lastNativeScrollTop = 1000;
+  page._lastScrollTop = 1000;
+  page._programmaticScrollAt = Date.now();
+  page._programmaticScrollTop = 900;
+  page.updateConversationWindow = () => {};
+  page.maybePrefetchOlderHistory = () => {};
+
+  page.onConvScroll({ detail: { scrollTop: 900, scrollHeight: 1400, clientHeight: 400 } });
+
+  assert.equal(page._followPausedByUser, undefined);
+  assert.equal(page._convPinned, false, 'the programmatic offset is measured 100px above the bottom');
+  page.onConvScroll({ detail: { scrollTop: 880, scrollHeight: 1400, clientHeight: 400 } });
+  assert.equal(page._followPausedByUser, true, 'a following user gesture is still detected immediately');
 });
 test('empty and status states fill the viewport instead of scrolling', () => {
   const css = fs.readFileSync(path.join(root, 'session.wxss'), 'utf8');

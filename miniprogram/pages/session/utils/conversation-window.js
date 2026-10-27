@@ -20,6 +20,14 @@ class ConversationWindow {
     this.end = Math.min(this.end, this.start + 40);
     return this.patch();
   }
+  shouldShiftForScroll(top, height) {
+    if (!this.rows.length || this.start >= this.end) return true;
+    const firstVisible = this.indexAt(top);
+    const lastVisible = this.indexAt(top + height);
+    // Keep a stable DOM window through most of a swipe. Replacing keyed rows
+    // on every crossed row makes the native scroll-view repeatedly re-layout.
+    return firstVisible < this.start + 4 || lastVisible >= this.end - 6;
+  }
   patch() {
     return { rows: this.rows.slice(this.start, this.end),
       conversationTopSpace: this.offsets[this.start] || 0,
