@@ -175,6 +175,22 @@ test('refresh icon ignores repeated taps while busy and close clears its state',
   page.closeCollaboration();assert.equal(page.data.collaborationOpen,false);assert.equal(page.data.collaborationBusy,false);
   resolve();await new Promise(setImmediate);assert.equal(page.data.collaborationOpen,false);
 });
+test('collaboration breathing light breathes green only while the conversation runs',()=>{
+  const template=fs.readFileSync(path.resolve(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
+  const heading=template.slice(template.indexOf('<view class="collab-heading">'),template.indexOf('class="collab-tabs"'));
+  assert.match(heading,/\{\{running \? 'is-running' : 'is-idle'\}\}/,'the breathing light follows the live running state, not just the connection');
+  const css=fs.readFileSync(path.resolve(__dirname,'../miniprogram/pages/session/session.wxss'),'utf8');
+  assert.match(css,/\.collab-breathe-dot \{[^}]*background:var\(--success\)[^}]*animation:collab-breathe-dot/,'a running turn keeps the green breathing dot');
+  assert.match(css,/\.collab-refresh\.is-idle \.collab-breathe-dot[^}]*background:var\(--text-4\)/,'an idle conversation grays the dot');
+  assert.match(css,/\.collab-refresh\.is-idle \.collab-breathe-dot[^}]*animation:none/,'an idle conversation stops the breathing');
+  assert.match(css,/\.collab-refresh\.is-idle \.collab-breathe-halo[^}]*opacity:0/,'an idle conversation hides the halo');
+  assert.match(css,/\.collab-refresh\.busy\.is-running \.collab-breathe-dot[^}]*animation-duration:\.9s/,'refresh only speeds the light up while running');
+  const {page,store}=fixture();store.state={connection:'connected',sessions:[]};
+  page.syncFromStore({app:store.state,session:Object.assign({},store.sessionState,{running:true})});
+  assert.equal(page.data.running,true,'the running flag reaches the view');
+  page.syncFromStore({app:store.state,session:Object.assign({},store.sessionState,{running:false})});
+  assert.equal(page.data.running,false,'an idle turn clears the running flag');
+});
 test('collaboration handle toggles height without changing selected content or requesting data',()=>{
   const {page,store}=fixture();store.state={connection:'connected',sessions:[]};
   page.toggleCollaborationExpanded();assert.equal(page.data.collaborationExpanded,false);
@@ -226,4 +242,15 @@ test('native collaboration sheet renders all four tabs in light and dark modes',
     assert.ok(tree.includes(expanded?'收起协作面板':'展开协作面板至九成屏幕'));
     }
   }
+  // 呼吸灯跟随对话运行状态：运作中 is-running，空闲 is-idle（点按仍触发刷新）
+  const snapshot=require('../miniprogram/utils/ui-preferences').snapshot();
+  page.data.running=true;
+  const liveTree=JSON.stringify(render({...page.data,...snapshot,theme:'light',themeClass:'theme-light'},{},{}));
+  assert.match(liveTree,/collab-refresh[^"]*is-running/,'a running conversation keeps the green breathing light');
+  assert.doesNotMatch(liveTree,/collab-refresh[^"]*is-idle/);
+  page.data.running=false;
+  const idleTree=JSON.stringify(render({...page.data,...snapshot,theme:'light',themeClass:'theme-light'},{},{}));
+  assert.match(idleTree,/collab-refresh[^"]*is-idle/,'an idle conversation grays the breathing light');
+  assert.doesNotMatch(idleTree,/collab-refresh[^"]*is-running/);
+  assert.ok(idleTree.includes('refreshCollaboration'),'tapping the idle light still refreshes');
 });

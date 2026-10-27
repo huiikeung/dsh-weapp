@@ -122,6 +122,30 @@ test('signed-out account area explains the desktop sign-in flow', () => {
   assert.equal(wx.modal.cancelText, '知道了');
 });
 
+test('work-step selections persist and their open row stays above the dismiss mask', () => {
+  const { page, wx, storage } = createPage();
+  const previousWx = global.wx;
+  global.wx = wx;
+  try {
+    page.chooseWorkStep({ currentTarget: { dataset: { field: 'mode', id: 'compact' } } });
+    assert.deepEqual(storage.get('workStepPresentation'), { mode: 'compact', timing: 'completion' });
+    assert.equal(page.data.workStepMode, 'compact');
+
+    page.chooseWorkStep({ currentTarget: { dataset: { field: 'timing', id: 'next-input' } } });
+    assert.deepEqual(storage.get('workStepPresentation'), { mode: 'compact', timing: 'next-input' });
+    assert.equal(page.data.workStepTiming, 'next-input');
+    assert.equal(page.data.workStepMenu, '');
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+
+  assert.match(wxml, /workStepMenu === 'mode' \? 'work-step-row-open'/);
+  assert.match(wxml, /workStepMenu === 'timing' \? 'work-step-row-open'/);
+  assert.match(wxss, /\.work-step-menu-mask\s*\{[^}]*z-index:\s*80/);
+  assert.match(wxss, /\.work-step-row-open\s*\{[^}]*z-index:\s*82/);
+});
+
 test('settings account area shows login and balance while connected and hides when disconnected', async () => {
   const { page, store } = createPage({
     requestAccount: async () => ({ state: { status: 'signed-out' } })

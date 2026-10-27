@@ -32,6 +32,22 @@ function isProcessRow(row) {
   return !!row && ['context', 'reasoning', 'tool', 'toolResult', 'status'].indexOf(row.kind) >= 0;
 }
 
+function hasVisibleAssistantContent(row) {
+  return !!row && row.kind === 'assistant'
+    && (compactText(row.text) || (row.images || []).length || (row.attachments || []).length);
+}
+
+function hasAssistantToolCall(row) {
+  return !!row && row.kind === 'assistant'
+    && (normalizeTools(row).length > 0 || (row.events || []).some(event => event && event.kind === 'tool'));
+}
+
+function hasProcessActivity(row) {
+  return isProcessRow(row) || !!(row && row.kind === 'assistant'
+    && (compactText(row.reasoning) || hasAssistantToolCall(row)
+      || (row.events || []).some(event => event && event.kind === 'think')));
+}
+
 function normalizeTools(row) {
   if (!row) return [];
   // DSH publishes preparing calls only after their tool name is available.
@@ -74,6 +90,55 @@ function processFacts(items) {
   return { command: command, contexts: contexts, reasoning: reasoning, tools: tools };
 }
 
+function processCategory(name) {
+  const tool = String(name || '');
+  if (tool === 'read') return 'read';
+  if (tool === 'read_image') return 'readImage';
+  if (tool === 'grep' || tool === 'glob' || tool.endsWith('_inspect')) return 'search';
+  if (tool === 'write') return 'write';
+  if (tool === 'edit' || tool === 'apply_patch') return 'edit';
+  if (['bash', 'pwsh', 'exec_command', 'write_stdin'].includes(tool) || tool.startsWith('terminal_')) return 'commands';
+  if (tool === 'run_code') return 'code';
+  if (tool === 'web_search') return 'webSearch';
+  if (tool === 'web_fetch') return 'webFetch';
+  if (tool === 'subagent' || tool.startsWith('subagent_')) return 'subagents';
+  if (['todo_write', 'create_goal', 'update_goal', 'get_goal'].includes(tool)) return 'plan';
+  if (tool === 'ask_user_question' || tool === 'request_user_input') return 'questions';
+  return 'tools';
+}
+
+function completedWorkSummary(facts) {
+  const labels = {
+    thinking: uiText('已完成分析'), read: uiText('已读取文件'), readImage: uiText('已读取图片'),
+    write: uiText('已写入文件'), search: uiText('已搜索代码'), edit: uiText('修改了文件'),
+    commands: uiText('执行了命令'), code: uiText('运行了代码'), webSearch: uiText('已搜索网页'),
+    webFetch: uiText('已访问网页'), subagents: uiText('已协调子智能体'), plan: uiText('更新了计划'),
+    questions: uiText('向用户提出了问题'), tools: uiText('已调用工具')
+  };
+  const counts = new Map();
+  function add(name) {
+    if (!name) return;
+    const category = processCategory(name);
+    const current = counts.get(category);
+    if (current) current.count += 1;
+    else counts.set(category, { count: 1, index: counts.size });
+  }
+  facts.tools.forEach(tool => add(tool.name));
+  if (!facts.tools.length && facts.command) add(facts.command.title || facts.command.name);
+  const ranked = Array.from(counts.entries()).sort((a, b) => b[1].count - a[1].count || a[1].index - b[1].index);
+  const shown = ranked.length ? ranked.slice(0, 3).map(([kind]) => labels[kind]) : [labels.thinking];
+  const english = uiText('已完成分析') !== '已完成分析';
+  const sharedPrefix = english ? '' : '已';
+  const lowercaseContinuation = label => label.charAt(0).toLowerCase() + label.slice(1);
+  if (shown.length === 2) {
+    let second = shown[1];
+    if (sharedPrefix && shown[0].startsWith(sharedPrefix) && second.startsWith(sharedPrefix)) second = second.slice(sharedPrefix.length);
+    return shown[0] + (english ? ' and ' : '并') + lowercaseContinuation(second);
+  }
+  const summary = [shown[0], ...shown.slice(1).map(lowercaseContinuation)].join(english ? ', ' : '，');
+  return ranked.length > 3 ? summary + (english ? ', etc.' : '等') : summary;
+}
+
 function runningStepTitle(items) {
   for (let i = items.length - 1; i >= 0; i -= 1) {
     const item = items[i];
@@ -97,7 +162,7 @@ function runningStepTitle(items) {
     }
     if (tools.length || item.kind === 'toolResult') return uiText('正在整理工具结果');
     if (item.kind === 'context') return uiText('正在整理上下文');
-    if (item.kind === 'reasoning') return uiText('正在推理');
+    if (item.kind === 'reasoning' || item.kind === 'assistantProcess' && (compactText(item.reasoning) || (item.events || []).some(event => event.kind === 'think'))) return uiText('正在推理');
   }
   return uiText('正在思考');
 }
@@ -124,48 +189,119 @@ function buildProcessGroup(items, meta) {
   const key = (first.kind === 'status' ? 'message-' : 'process-') + first.key;
   const children = [];
   const seenTools = new Set();
-  items.forEach((item, index) => {
-    const text = item.kind === 'context' ? item.text : item.reasoning || (item.kind === 'reasoning' ? item.text : '');
-    if (text) children.push({
-      kind: item.kind === 'context' ? 'context' : 'reasoning',
-      key: key + '/' + (item.kind === 'context' ? 'context/' : 'reasoning/') + (item.key || index),
-      title: item.kind === 'context' ? item.title || uiText('上下文') : uiText('思考'),
-      preview: preview(text), text: text,
+  const toolsById = new Map(facts.tools.map((tool, index) => [tool.callId || tool.key || ('tool-' + index), tool]));
+  function pushReasoning(item, text, id) {
+    if (!text) return;
+    children.push({
+      kind: 'reasoning', key: key + '/reasoning/' + id, sourceKey: item.key,
+      title: uiText('思考'), preview: preview(text), text,
+      running: item.reasoningStreaming === true && item.streaming !== false,
       stepLabel: item.step !== undefined && item.step !== null ? uiText('步骤 ') + item.step : '',
       readingLong: text.length > 220 || text.split('\n').length > 6,
       readingHeight: Math.min(360, Math.max(88, text.split('\n').reduce((lines, line) => lines + Math.max(1, Math.ceil(line.length / 36)), 0) * 44)),
-      iconFile: item.kind === 'context' ? 'dsh-context.svg' : 'dsh-think.svg',
-      darkIconFile: item.kind === 'context' ? 'dsh-context-dark.svg' : 'dsh-think-dark.svg'
+      iconFile: 'dsh-think.svg', darkIconFile: 'dsh-think-dark.svg'
     });
-    const tools = normalizeTools(item).filter(tool => {
-      const id = tool.callId || tool.key || tool;
-      if (seenTools.has(id)) return false;
-      seenTools.add(id); return true;
-    }).map((tool, i) => {
-      const latest = facts.tools.find(t => t.callId === (tool.callId || tool.key)) || tool;
-      const waiting = latest.status !== 'done' && latest.status !== 'error' && !latest.isError;
-      const activity = toolPresentation(latest.name, latest.argumentsText);
-      return Object.assign({}, latest, {
-        actLabel: activity.label,
-        actDetail: activity.detail,
-        key: key + '/tools/' + (latest.callId || latest.key || index + '-' + i),
-        iconFile: toolIconFile(latest.name),
-        darkIconFile: toolIconFile(latest.name).replace('.svg', '-dark.svg'),
-        waiting: waiting && !meta.closed && !meta.stopped && !meta.failed,
-        statusText: latest.isError || latest.status === 'error' ? uiText('失败')
-          : waiting ? (meta.stopped ? uiText('已中断') : meta.closed || meta.failed ? uiText('未返回结果') : latest.phase === 'preparing' ? uiText('正在准备…') : uiText('运行中')) : '',
-        resultLabel: latest.isError ? uiText('错误') : uiText('结果')
+  }
+  function pushTool(item, index, callId) {
+    const id = callId || item.callId || item.key || ('tool-' + index);
+    if (seenTools.has(id)) return;
+    seenTools.add(id);
+    const latest = toolsById.get(id) || item;
+    const waiting = latest.status !== 'done' && latest.status !== 'error' && !latest.isError;
+    const activity = toolPresentation(latest.name, latest.argumentsText);
+    const tool = Object.assign({}, latest, {
+      actLabel: activity.label,
+      actDetail: activity.detail,
+      isCommand: activity.isCommand,
+      commandText: activity.commandText,
+      commandLines: activity.commandLines,
+      cwdLabel: activity.cwdLabel,
+      key: key + '/tools/' + id,
+      sourceKey: latest.key || '',
+      iconFile: toolIconFile(latest.name),
+      darkIconFile: toolIconFile(latest.name).replace('.svg', '-dark.svg'),
+      waiting: waiting && !meta.closed && !meta.stopped && !meta.failed,
+      statusText: latest.isError || latest.status === 'error' ? uiText('失败')
+        : waiting ? (meta.stopped ? uiText('已中断') : meta.closed || meta.failed ? uiText('未返回结果') : latest.phase === 'preparing' ? uiText('正在准备…') : uiText('运行中')) : '',
+      resultLabel: latest.isError ? uiText('错误') : uiText('结果')
+    });
+    children.push({ kind: 'toolBundle', key: tool.key + '/bundle', tools: [tool] });
+  }
+  items.forEach((item, index) => {
+    if (item.kind === 'context') {
+      if (item.text) children.push({
+        kind: 'context', key: key + '/context/' + (item.key || index), sourceKey: item.key,
+        title: item.title || uiText('上下文'), preview: preview(item.text), text: item.text,
+        iconFile: 'dsh-context.svg', darkIconFile: 'dsh-context-dark.svg'
       });
+      return;
+    }
+    if (item.kind === 'reasoning') { pushReasoning(item, item.text || item.reasoning, item.key || index); return; }
+    if (item.kind === 'status') {
+      const text = item.phase === 'command/completed' ? uiText('命令已完成') : item.text || '';
+      children.push({ kind: 'status', key: key + '/status/' + (item.key || index), title: item.title || uiText('命令'), text, phase: item.phase || '' });
+      return;
+    }
+    if (item.kind !== 'assistantProcess') {
+      normalizeTools(item).forEach((tool, toolIndex) => pushTool(tool, index + '-' + toolIndex, tool.callId || tool.key));
+      return;
+    }
+
+    const tools = normalizeTools(item);
+    const events = Array.isArray(item.events) ? item.events : [];
+    const seenImages = new Set();
+    const seenAttachments = new Set();
+    function pushNarration(text, media, id) {
+      const content = typeof text === 'string' ? text : '';
+      const images = media && Array.isArray(media.images) ? media.images : id === undefined ? item.images || [] : [];
+      const attachments = media && Array.isArray(media.attachments) ? media.attachments : id === undefined ? item.attachments || [] : [];
+      if (!content && !images.length && !attachments.length) return;
+      images.forEach(image => { if (image && image.attachmentId) seenImages.add(image.attachmentId); });
+      attachments.forEach(att => { if (att) seenAttachments.add(att.attachmentId || att.path || att.name || att); });
+      const sourceKey = item.key || '';
+      const formatKey = sourceKey && id !== undefined ? sourceKey + '/process/' + id : sourceKey;
+      const blocks = content === (item.text || '') ? item.blocks || [] : [];
+      children.push({
+        kind: 'narration', key: key + '/narration/' + (sourceKey || index) + (id === undefined ? '' : '-' + id),
+        sourceKey: sourceKey, formatKey: formatKey,
+        text: content, blocks, images, attachments,
+        preview: preview(content), stepLabel: item.step !== undefined && item.step !== null ? uiText('步骤 ') + item.step : ''
+      });
+    }
+    if (!events.length) pushNarration(item.text, null, undefined);
+    events.forEach((event, eventIndex) => {
+      if (event.kind === 'think') pushReasoning(item, event.text, (item.key || index) + '-' + eventIndex);
+      else if (event.kind === 'tool') {
+        const tool = toolsById.get(event.callId);
+        // Anonymous preparing deltas are deliberately hidden until the host
+        // supplies a tool name; don't synthesize an empty tool card from events.
+        if (tool) pushTool(tool, index + '-' + eventIndex, event.callId);
+      }
+      else if (event.kind === 'text') pushNarration(event.text || '', null, eventIndex);
+      else if (event.kind === 'image') pushNarration('', {
+        images: event.image ? [event.image] : [],
+        attachments: event.attachment ? [event.attachment] : []
+      }, eventIndex);
+      else if (event.kind === 'attachment') pushNarration('', { images: [], attachments: event.attachment ? [event.attachment] : [] }, eventIndex);
     });
-    if (tools.length) children.push({ kind: 'toolBundle', key: key + '/tools/' + (item.key || index), tools: tools });
+    if (item.reasoning && !events.some(event => event.kind === 'think')) pushReasoning(item, item.reasoning, item.key || index);
+    if (events.length) {
+      const remainingImages = (item.images || []).filter(image => !seenImages.has(image && image.attachmentId));
+      const remainingAttachments = (item.attachments || []).filter(att => !seenAttachments.has(att && (att.attachmentId || att.path || att.name || att)));
+      if (remainingImages.length || remainingAttachments.length) pushNarration('', { images: remainingImages, attachments: remainingAttachments }, 'remaining');
+      if (!events.some(event => ['text', 'image', 'attachment'].includes(event.kind)) && item.text) pushNarration(item.text, { images: [], attachments: [] });
+    }
+    tools.forEach((tool, toolIndex) => pushTool(tool, index + '-' + toolIndex, tool.callId || tool.key));
   });
+  applyToolBranchTracks(children);
   const running = meta.running;
   const completed = !running && !meta.failed && !meta.stopped && meta.completed;
   const title = running ? runningStepTitle(items) : meta.failed ? uiText('执行失败') : meta.stopped ? uiText('已停止')
     : completed ? uiText('已完成') : facts.tools.some(t => t.isError || t.status === 'error') ? uiText('工具执行失败') : uiText('执行过程');
   const details = [];
-  if (facts.tools.length) details.push(facts.tools.length + uiText(' 次工具调用'));
-  if (facts.contexts.length) details.push(facts.contexts.length + uiText(' 项上下文'));
+  if (meta.failed || meta.stopped) details.push(completedWorkSummary(facts));
+  else if (!completed && facts.tools.length) details.push(facts.tools.length + uiText(' 次工具调用'));
+  if (facts.contexts.length && !completed && !meta.failed && !meta.stopped) details.push(facts.contexts.length + uiText(' 项上下文'));
   if (completed && meta.durationMs >= 1000) details.push(uiText('用时 ') + durationLabel(meta.durationMs));
   const lastTool = facts.tools[facts.tools.length - 1];
   // 失败时透出 DSH 原文/编码，视图层渲染红色错误卡
@@ -177,12 +313,30 @@ function buildProcessGroup(items, meta) {
     darkIconFile: (lastTool ? toolIconFile(lastTool.name) : facts.command ? 'dsh-bash.svg' : 'dsh-think.svg').replace('.svg', '-dark.svg'),
     command: facts.command, commandDetail: facts.command ? facts.command.text || '' : '',
     children, expandable: !!(children.length || facts.command), running, completed,
+    durationMs: Number(meta.durationMs) || 0,
     failed: meta.failed, stopped: meta.stopped,
     failureTitle: failure ? failure.title : '',
     failureMessage: failure ? failure.message : '',
     failureCode: failure ? failure.code : '',
     sourceKeys: items.map(item => item.key).filter(Boolean)
   };
+}
+
+function applyToolBranchTracks(children) {
+  (children || []).forEach(child => {
+    if (child.kind !== 'toolBundle') return;
+    (child.tools || []).forEach(tool => {
+      const depth = Math.max(0, Math.floor(Number(tool.depth) || 0));
+      const visibleDepth = Math.min(depth, 8);
+      tool.depth = depth;
+      tool.indentStyle = visibleDepth ? 'margin-left:' + (visibleDepth * 28) + 'rpx;' : '';
+      tool.branchTracks = Array.from({ length: visibleDepth }, (_, index) => {
+        const level = index + 1;
+        const left = (level - visibleDepth) * 28 - 14;
+        return { key: String(level), style: 'left:' + left + 'rpx;' };
+      });
+    });
+  });
 }
 
 function buildEntries(rows, options) {
@@ -192,23 +346,45 @@ function buildEntries(rows, options) {
   let processItems = [];
 
   const outcomes = new Map();
+  const finalAnswers = new Set();
+  const processNarrations = new Set();
   let turnRows = [];
   function finishTurn(isLast) {
     if (!turnRows.length) return;
     const ended = turnRows.find(row => row.turnClosed);
     const reason = ended && ended.turnEndReason || '';
     const stopped = /^(aborted|interrupted|cancelled|canceled)$/.test(reason) || turnRows.some(row => row.interrupted);
-    const failed = /^(error|failed|max-tokens)$/.test(reason) || turnRows.some(row => row.phase === 'command/failed');
+    const failed = /^(error|failed|max-tokens)$/.test(reason);
     const running = opts.running === true && isLast && !ended && !stopped && !failed;
-    const hasAnswer = turnRows.some(row => row.kind === 'assistant' && !row.streaming && (compactText(row.text) || (row.images || []).length));
+    let finalAnswer = null;
+    const hasTurnProcessActivity = turnRows.some(hasProcessActivity);
+    let laterProcessActivity = false;
+    for (let i = turnRows.length - 1; i >= 0; i -= 1) {
+      const row = turnRows[i];
+      const processActivity = hasProcessActivity(row);
+      if (hasVisibleAssistantContent(row) && !hasAssistantToolCall(row) && !laterProcessActivity) {
+        finalAnswer = row;
+        break;
+      }
+      if (processActivity) laterProcessActivity = true;
+    }
+    if (hasTurnProcessActivity) {
+      turnRows.forEach(row => {
+        if (row.kind === 'assistant' && hasVisibleAssistantContent(row) && row !== finalAnswer) processNarrations.add(row);
+      });
+    }
     const pending = turnRows.some(row => normalizeTools(row).some(t => t.status !== 'done' && t.status !== 'error'));
     const marked = turnRows.some(row => row.key === opts.completedEntryKey);
-    const completed = !running && !stopped && !failed && (!!ended || (hasAnswer && !pending) || (marked && hasAnswer && !pending) || turnRows.some(row => row.phase === 'command/completed' || row.phase === 'compaction/summarized'));
+    // A settled assistant message may be an intermediate model step. Only the
+    // authoritative turn boundary (or the session lifecycle completion marker)
+    // can finish the whole process group.
+    const completed = !running && !stopped && !failed && (!!ended || (marked && !pending));
     const meta = { running, stopped, failed, completed, closed: !!ended,
       durationMs: ended && ended.durationMs || (marked ? Number(opts.lastDurationMs || 0) : 0),
       // 失败原因：DSH 的 {message,code,status}，供错误卡按桌面端口径展示
       failure: (ended && ended.turnFailure) || null };
     turnRows.forEach(row => outcomes.set(row, meta));
+    if (finalAnswer) finalAnswers.add(finalAnswer);
     turnRows = [];
   }
   let currentTurn;
@@ -224,35 +400,60 @@ function buildEntries(rows, options) {
   finishTurn(true);
   let processMeta = {};
   const groupsByOutcome = new Set();
+  let deferredAnswers = [];
   function flushProcess() {
     if (!processItems.length) return;
     entries.push(buildProcessGroup(processItems, processMeta));
     groupsByOutcome.add(processMeta);
     processItems = [];
   }
+  function flushOutcome() {
+    flushProcess();
+    deferredAnswers.forEach(answer => entries.push(answer));
+    deferredAnswers = [];
+  }
 
   list.forEach((row) => {
     if (!row) return;
     const meta = outcomes.get(row) || {};
-    if (processItems.length && processMeta !== meta) flushProcess();
+    if (processMeta !== meta) flushOutcome();
     processMeta = meta;
-    // Assistant tool-call steps are process content, not turn boundaries.
-    // Keep them together until a real assistant answer or user message arrives.
+    if (row.kind === 'user') {
+      flushOutcome();
+      entries.push(row);
+      return;
+    }
     if (row.kind === 'assistant') {
-      if (compactText(row.reasoning) || normalizeTools(row).length || (row.turnClosed && !groupsByOutcome.has(meta) && !processItems.length)) {
-        const processCopy = Object.assign({}, row, { kind: 'reasoning', text: row.reasoning || '' });
+      const isFinalAnswer = finalAnswers.has(row);
+      const hasProcessContent = compactText(row.reasoning) || normalizeTools(row).length
+        || (row.events || []).some(event => event && (event.kind === 'think' || event.kind === 'tool'))
+        || processNarrations.has(row)
+        // DSH groups prior assistant-step output into the Turn process even if
+        // a provider emits plain text between tool cycles. Without turn metadata
+        // retain the conservative evidence-based fallback for legacy history.
+        || (!isFinalAnswer && row.turn !== undefined && row.turn !== null && hasVisibleAssistantContent(row));
+      if (hasProcessContent || (row.turnClosed && !groupsByOutcome.has(meta) && !processItems.length)) {
+        const processCopy = Object.assign({}, row, { kind: 'assistantProcess' });
+        if (isFinalAnswer) {
+          processCopy.text = '';
+          processCopy.blocks = [];
+          processCopy.images = [];
+          processCopy.attachments = [];
+          processCopy.events = (row.events || []).filter(event => event && !['text', 'image', 'attachment'].includes(event.kind));
+        }
         processItems.push(processCopy);
       }
-      if (compactText(row.text) || (row.images || []).length || (row.attachments || []).length) {
-        flushProcess();
+      if (isFinalAnswer) {
+        deferredAnswers.push(Object.assign({}, row, { kind: 'assistant' }));
+      } else if (!hasProcessContent && !row.turnClosed && hasVisibleAssistantContent(row)) {
+        // Old history may omit Turn/Step identity. Keep ambiguous prose visible
+        // as a normal reply rather than guessing that it belongs to a process.
+        flushOutcome();
         entries.push(Object.assign({}, row, { kind: 'assistant' }));
       }
       return;
     }
-    // A status command starts a new process group; following context/reasoning
-    // and tool items belong beneath that stable command header.
     if (row.kind === 'status') {
-      flushProcess(false);
       processItems.push(row);
       return;
     }
@@ -260,10 +461,30 @@ function buildEntries(rows, options) {
       processItems.push(row);
       return;
     }
-    flushProcess(false);
+    flushOutcome();
     entries.push(row);
   });
-  flushProcess();
+  flushOutcome();
+
+  // Older histories may end a turn with a separate, reasoning-only completion
+  // record. Keep that thought in the preceding completion instead of showing
+  // a second completion header for the same work.
+  for (let i = 1; i < entries.length; i += 1) {
+    const previous = entries[i - 1];
+    const current = entries[i];
+    if (previous.kind !== 'processGroup' || !previous.completed
+      || current.kind !== 'processGroup' || !current.completed
+      || current.children.length !== 1 || current.children[0].kind !== 'reasoning') continue;
+
+    previous.children.push(current.children[0]);
+    previous.sourceKeys = Array.from(new Set((previous.sourceKeys || []).concat(current.sourceKeys || [])));
+    previous.durationMs = Math.max(Number(previous.durationMs) || 0, Number(current.durationMs) || 0);
+    previous.summary = previous.durationMs >= 1000
+      ? uiText('用时 ') + durationLabel(previous.durationMs)
+      : '';
+    entries.splice(i, 1);
+    i -= 1;
+  }
 
   // Only the latest process block in a live turn owns its current activity.
   let activeSeen = false;
@@ -282,7 +503,7 @@ function buildEntries(rows, options) {
   }
 
   // DSH places declared files beneath the turn's closing reply.
-  entries.filter(entry => entry.kind === 'files' || entry.kind === 'changes').forEach(files => {
+  entries.filter(entry => entry.kind === 'files' || entry.kind === 'changes').reverse().forEach(files => {
     const index = entries.indexOf(files);
     let closing = index;
     for (let i = index + 1; i < entries.length; i += 1) {

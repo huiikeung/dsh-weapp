@@ -50,10 +50,52 @@ test('plain completed answers have a completion header', () => {
   const rows = protocol.buildRows(events('completed').filter(e=>![3,4].includes(e.seq)), 's');
   assert.equal(buildEntries(rows)[1].title,'已完成');
 });
-test('command settlement on first observed event is retained', () => {
+test('command settlement does not complete a turn without a turn end', () => {
   const rows = protocol.buildRows([{seq:1,type:'command/completed',data:{commandId:'c',name:'bash'}}], 's');
   assert.equal(rows[0].text,'已完成');
-  assert.equal(buildEntries(rows)[0].title,'已完成');
+  const group = buildEntries(rows)[0];
+  assert.equal(group.completed,false);
+  assert.notEqual(group.title,'已完成');
+  assert.equal(group.children[0].text,'命令已完成');
+});
+test('completed process summary shows only elapsed time in Chinese and English', () => {
+  const tools = [
+    {callId:'r1',name:'read',status:'done'}, {callId:'r2',name:'read',status:'done'},
+    {callId:'e1',name:'edit',status:'done'}, {callId:'b1',name:'bash',status:'done'},
+    {callId:'w1',name:'web_search',status:'done'}
+  ];
+  const rows = [{kind:'assistant',key:'a-summary',turn:9,turnClosed:true,turnEndReason:'completed',durationMs:621000,text:'完成',tools}];
+  const group = buildEntries(rows)[0];
+  assert.equal(group.summary,'用时 10 分钟 21 秒');
+  const repeatedPrefix = buildEntries([{...rows[0],tools:[
+    {callId:'r',name:'read',status:'done'}, {callId:'w',name:'write',status:'done'},
+    {callId:'g',name:'grep',status:'done'}, {callId:'f',name:'web_fetch',status:'done'}
+  ]}])[0];
+  assert.equal(repeatedPrefix.summary,'用时 10 分钟 21 秒');
+
+  const previousWx = global.wx;
+  global.wx = {getStorageSync:key => key === 'appLanguage' ? 'en' : undefined};
+  try {
+    assert.equal(buildEntries(rows)[0].summary,'Duration 10 min 21 s');
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+});
+test('a completed reasoning-only process group merges into the preceding completion', () => {
+  const entries = buildEntries([
+    {kind:'assistant',key:'a-first',turn:1,turnClosed:true,turnEndReason:'completed',durationMs:621000,
+      tools:[{callId:'read-1',name:'read_file',status:'done'}]},
+    {kind:'assistant',key:'a-final-thought',turn:2,turnClosed:true,turnEndReason:'completed',durationMs:621000,
+      reasoning:'Done. I will now write the final summary.'}
+  ]);
+
+  assert.equal(entries.length,1);
+  assert.equal(entries[0].kind,'processGroup');
+  assert.equal(entries[0].title,'已完成');
+  assert.equal(entries[0].summary,'用时 10 分钟 21 秒');
+  assert.deepEqual(entries[0].children.map(child=>child.kind),['toolBundle','reasoning']);
+  assert.deepEqual(entries[0].sourceKeys,['a-first','a-final-thought']);
 });
 test('desktop tool categories have paired light and dark assets', () => {
   const names = ['read_file','grep','web_search','bash','apply_patch','run_code','spawn_agent','list_agents','update_plan','ask_user','schedule_add','create_goal','cordis_install','job_list','workflow','custom_tool'];
@@ -147,7 +189,9 @@ test('all status styles animate the DSH whale through the same selected text pal
 
 test('statistics and tool summaries stay in their label rows', () => {
   const wxml=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
-  const header=wxml.slice(wxml.indexOf('<view class="process-head"'),wxml.indexOf('<view class="process-hairline"'));
+  const headerStart=wxml.indexOf('class="process-head"');
+  const headerEnd=wxml.indexOf('class="process-hairline"',headerStart);
+  const header=wxml.slice(headerStart,headerEnd);
   assert.ok(header.indexOf('process-summary') < header.indexOf('event-spacer'));
   const tool=wxml.slice(wxml.indexOf('<view class="tool-line-1"'),wxml.indexOf('<image class="event-chevron',wxml.indexOf('<view class="tool-line-1"')));
   assert.ok(tool.indexOf('tool-note') < tool.indexOf('</view>'));

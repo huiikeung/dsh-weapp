@@ -15,7 +15,8 @@ const entries = buildEntries([
 ]);
 
 assert.deepEqual(entries.map((entry) => entry.kind), ['user', 'processGroup', 'assistant']);
-assert.equal(entries[1].title, '已完成');
+assert.equal(entries[1].title, '执行过程');
+assert.equal(entries[1].completed, false, 'without turn-end evidence, settled steps cannot complete the whole turn');
 assert.match(entries[1].summary, /2 次工具调用/);
 assert.deepEqual(entries[1].children.map(c => c.kind), ['reasoning','toolBundle','reasoning','toolBundle']);
 assert.equal(entries[1].children.filter((child) => child.kind === 'toolBundle').flatMap(child => child.tools).length, 2);

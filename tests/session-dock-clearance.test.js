@@ -70,6 +70,31 @@ test('one-tap bottom control appears as soon as the reader manually leaves lates
   page.jumpToBottom();
   assert.equal(page.data.showJump, false, 'the same control clears when the conversation returns to bottom');
 });
+test('vertical gestures pause live follow in either direction until the reader reaches the bottom', () => {
+  const { page } = pageFixture([]);
+  page.data.scrollTarget = 'conv-bottom';
+  page._lastScrollTop = 1000;
+  page.onPanelTouchStart({ touches: [{ clientX: 100, clientY: 100 }] });
+  page.onPanelTouchMove({ touches: [{ clientX: 100, clientY: 60 }] });
+  assert.equal(page._followPausedByUser, true);
+  assert.equal(page._convPinned, false);
+  assert.equal(page.data.scrollTarget, '', 'manual vertical movement cancels a persistent bottom anchor');
+
+  page.onPanelTouchEnd({ changedTouches: [{ clientX: 100, clientY: 60 }] });
+  page.applyScrollPosition({ scrollTop: 1000, scrollHeight: 1400, clientHeight: 400 });
+  assert.equal(page._followPausedByUser, true, 'a live update at the old bottom does not resume follow');
+  assert.equal(page._convPinned, false);
+
+  page._lastScrollTop = 800;
+  page.applyScrollPosition({ scrollTop: 1000, scrollHeight: 1400, clientHeight: 400 });
+  assert.equal(page._followPausedByUser, true, 'polling a growing viewport cannot impersonate a reader scroll');
+  page.updateConversationWindow = () => {};
+  page.maybePrefetchOlderHistory = () => {};
+  page._lastScrollTop = 800;
+  page.onConvScroll({ detail: { scrollTop: 1000, scrollHeight: 1400, clientHeight: 400 } });
+  assert.equal(page._followPausedByUser, false, 'following resumes only when the reader moves back to the bottom');
+  assert.equal(page._convPinned, true);
+});
 test('empty and status states fill the viewport instead of scrolling', () => {
   const css = fs.readFileSync(path.join(root, 'session.wxss'), 'utf8');
   const xml = fs.readFileSync(path.join(root, 'session.wxml'), 'utf8');

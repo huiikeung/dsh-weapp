@@ -41,6 +41,7 @@ test('markdown cache checks actual text and prunes removed messages', () => {
 function fixture(source) {
   let definition, parses = 0, scrolls = 0, measurements = 0;
   const patches = [], ticks = [], timers = new Map(); let timerId = 0;
+  const app = { globalData: { foregroundEpoch: 1 } };
   const store = { state: { connection: 'connected', sessions: [] }, sessionState: {
     sessionId: 'performance-test', rows: [], trajectory: [], running: true,
     runStartMs: Date.now() - 3000, historyState: 'loaded:300ev', stats: null
@@ -53,6 +54,7 @@ function fixture(source) {
   const filename = path.join(__dirname, '../miniprogram/pages/session/session.js');
   vm.runInNewContext(source || fs.readFileSync(filename, 'utf8'), {
     Page: value => { definition = value; }, Date, console,
+    getApp: () => app,
     setTimeout(fn) { timers.set(++timerId, fn); return timerId; }, clearTimeout(id) { timers.delete(id); },
     wx: { nextTick: fn => ticks.push(fn) },
     require(name) {
@@ -66,7 +68,7 @@ function fixture(source) {
     syncRunningStrip() {}, updateDockInset() { measurements++; }, refreshBottomAnchor() { scrolls++; } };
   const sync = () => page.syncFromStoreInner({ app: store.state, session: store.sessionState });
   const reset = () => { patches.length = 0; parses = 0; scrolls = 0; measurements = 0; };
-  return { page, store, definition, ticks, timers, sync, reset, patches, report: () => ({ parses, scrolls, measurements, bytes: Buffer.byteLength(JSON.stringify(patches)) }) };
+  return { page, store, app, definition, ticks, timers, sync, reset, patches, report: () => ({ parses, scrolls, measurements, bytes: Buffer.byteLength(JSON.stringify(patches)) }) };
 }
 test('composer metrics use DSH whole-session projections and prefer projected context occupancy', () => {
   const f = fixture();
@@ -115,6 +117,31 @@ test('first paint renders a bounded tail and formats history only when it enters
   assert.ok(f.page.data.rows.find(row => row.key === 'a0').blocks.length);
   assert.ok(f.patches.every(patch => Object.keys(patch).every(key => /^rows\[\d+\]\.blocks$/.test(key))));
 });
+test('nested process narration markdown drains in bounded batches without standalone rows', () => {
+  const f = fixture();
+  f.sync();
+  f.timers.clear(); f.page._historyFormatTimer = null; f.patches.length = 0;
+  const children = Array.from({ length: 7 }, (_, index) => ({
+    kind: 'narration', key: 'n' + index, sourceKey: 'process-source-' + index,
+    text: 'Process step ' + index, blocks: []
+  }));
+  f.page.data.rows = [{ kind: 'processGroup', key: 'process-group', children }];
+  f.page._pendingHistoryFormat = new Map(children.map(child => [child.sourceKey, child.text]));
+  f.page._voiceHidden = false;
+  f.page._unloaded = false;
+  f.page.measureConversationWindow = () => {};
+  f.page.refreshBottomAnchor = () => {};
+  f.page.scheduleHistoryFormatting();
+  let batches = 0;
+  while (f.timers.size && batches++ < 5) {
+    const [id, fn] = f.timers.entries().next().value; f.timers.delete(id); fn();
+  }
+  assert.equal(f.page._pendingHistoryFormat.size, 0);
+  assert.ok(f.page.data.rows[0].children.every(child => child.blocks.length > 0));
+  const nestedPatches = f.patches.flatMap(patch => Object.keys(patch)).filter(key => key.includes('.children[') && key.endsWith('.blocks'));
+  assert.equal(nestedPatches.length, 7);
+  assert.ok(batches >= 2, 'all process children are formatted in small batches');
+});
 test('completion does not reparse or resend historical Markdown', () => {
   const f = fixture(); f.sync(); f.reset();
   assert.equal(f.page.data.rows.find(row => row.key === 'current').copyText, '');
@@ -122,7 +149,11 @@ test('completion does not reparse or resend historical Markdown', () => {
   f.store.sessionState.running = false; f.store.sessionState.rows.at(-1).streaming = false; f.sync();
   const report = f.report();
   assert.equal(report.parses, 0); assert.equal(report.scrolls, 1); assert.equal(report.measurements, 1); // Docked whale disappears at completion.
-  assert.ok(report.bytes < beforeBytes / 20, JSON.stringify({ report, beforeBytes }));
+  const replacedRows = f.patches.flatMap(patch => Object.entries(patch))
+    .filter(([key]) => /^rows\[\d+\]$/.test(key)).map(([, row]) => row);
+  assert.ok(report.bytes < 10000, JSON.stringify({ report, beforeBytes }));
+  assert.ok(replacedRows.every(row => row.key === 'current' || (row.sourceKeys || []).includes('current')),
+    'completion replaces only the active response/process rows, never historical Markdown');
   assert.ok(f.patches.every(patch => !Object.hasOwn(patch, 'rows')));
   assert.equal(f.page.data.running, false); assert.equal(f.page.data.rows.at(-1).text, '测试完成');
   assert.equal(f.page.data.rows.find(row => row.key === 'current').copyText, '测试完成');
@@ -224,6 +255,26 @@ test('reentering a loaded conversation scrolls to the latest message even withou
   assert.equal(f.page.data.showJump, false);
   assert.equal(f.page.data.scrollAnim, false);
 });
+test('returning from WeChat background preserves the conversation viewport', () => {
+  const f = fixture(); f.sync(); f.reset();
+  f.page.syncVoicePreference = () => {};
+  f.page.startScrollPolling = () => {};
+  f.page._lastSyncAt = Date.now();
+  f.page._lastForegroundEpoch = f.app.globalData.foregroundEpoch;
+  f.page._convPinned = false;
+  f.page._lastScrollTop = 260;
+  f.page.data.showJump = true;
+  let resets = 0;
+  f.page.resetConversationScroll = () => { resets++; };
+
+  f.app.globalData.foregroundEpoch++;
+  f.page.onShow();
+
+  assert.equal(resets, 0, 'an app foreground transition is not a page re-entry');
+  assert.equal(f.page._convPinned, false);
+  assert.equal(f.page._lastScrollTop, 260);
+  assert.equal(f.page.data.showJump, true);
+});
 test('switching conversations resets history reading even when rendered rows are identical', () => {
   const f = fixture(); f.sync(); f.reset();
   f.page._convPinned = false; f.page._lastTouchAt = Date.now();
@@ -262,7 +313,9 @@ test('downward swipe disables live auto-follow before streamed content grows', (
   f.sync();
   assert.equal(f.report().scrolls, 0, 'live output updates do not jump back to the active response');
 
-  f.page.applyScrollPosition({ scrollTop: 1210, scrollHeight: 1600, clientHeight: 400 });
+  f.page.onPanelTouchStart({ touches: [{ clientX: 180, clientY: 142 }] });
+  f.page.onPanelTouchMove({ touches: [{ clientX: 180, clientY: 120 }] });
+  f.page.applyScrollPosition({ scrollTop: 1210, scrollHeight: 1600, clientHeight: 400, userScroll: true });
   assert.equal(f.page._convPinned, true, 'scrolling back to the newest edge resumes following');
 });
 test('files arriving after completion publish immediately and respect history reading', () => {

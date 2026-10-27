@@ -145,42 +145,61 @@
 </view>
 <view wx:if="{{item.copyText}}" class="copy-btn row-user-copy" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}" hover-class="press-dim" role="button" aria-label="{{ui['复制']}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view>
 </view>
-<view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}}" id="{{item.key}}">
-<view class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
-<view class="command-icon-slot {{folds[item.key] ? 'disclosed' : ''}}" aria-hidden="true">
+<view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}} process-mode-{{item.mode}} {{item.headerHidden ? 'process-header-hidden' : ''}} {{item.mode === 'verbose' ? 'process-verbose' : ''}}" id="{{item.key}}">
+<view wx:if="{{!item.headerHidden}}" class="process-head" hover-class="{{item.running && item.runningChevron ? 'process-running-head-hover' : (item.expandable && !item.forceOpen ? 'tool-head-hover' : 'none')}}" hover-start-time="0" hover-stay-time="120" bindtap="{{item.expandable && !item.forceOpen ? 'toggleFold' : ''}}" data-key="{{item.key}}" aria-expanded="{{folds[item.key] || item.forceOpen}}">
+<view class="command-icon-slot {{folds[item.key] && !(item.running && item.runningChevron) ? 'disclosed' : ''}}" aria-hidden="true">
 <view wx:if="{{item.running && !item.completed}}" class="proc-loader proc-look-{{procIconStyle}}">
 <template is="procIconGlyph" data="{{styleId: procIconStyle}}" />
 </view>
-<image wx:elif="{{!item.completed}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
-<image wx:if="{{(item.completed || item.expandable) && !item.running}}" class="command-chevron {{item.completed ? 'completed-chevron' : ''}} {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+<image wx:if="{{item.running && item.expandable && item.runningChevron}}" class="command-chevron process-running-chevron" src="/assets/icons/chev-right-gray.png" aria-hidden="true"/>
+<image wx:elif="{{!item.running && !item.completed}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
+<image wx:if="{{(item.completed || item.expandable) && !item.running}}" class="command-chevron {{item.completed ? 'completed-chevron' : ''}} {{item.mode === 'verbose' ? 'process-verbose-chevron' : ''}} {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
 </view>
 <text class="process-title {{item.failed ? 'failed' : ''}}">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</text>
 <text wx:if="{{item.liveDetail}}" class="process-live-detail">· {{item.liveDetail}}</text>
-<text wx:elif="{{item.summary}}" class="process-summary">{{ui[item.summary] !== undefined ? ui[item.summary] : item.summary}}</text>
+<text wx:elif="{{item.showProcessSummary && item.summary}}" class="process-summary">{{ui[item.summary] !== undefined ? ui[item.summary] : item.summary}}</text>
 <view class="event-spacer"></view>
 </view>
-<view class="process-hairline"></view>
+<view wx:if="{{!item.headerHidden}}" class="process-hairline"></view>
 <view wx:if="{{item.failed && item.failureMessage}}" class="turn-error-card" role="alert">
 <view class="turn-error-head"><view class="turn-error-bang">!</view><text class="turn-error-title">{{item.failureTitle || ui['本轮运行失败']}}</text></view>
 <view class="turn-error-message">{{item.failureMessage}}</view>
 <view wx:if="{{item.failureCode}}" class="turn-error-code"><text class="turn-error-code-label">{{ui['错误码']}}</text><text class="turn-error-code-value" selectable>{{item.failureCode}}</text></view>
 </view>
-<view wx:if="{{folds[item.key]}}" class="process-body">
-<view wx:if="{{item.commandDetail}}" class="process-command-detail">{{item.commandDetail}}</view>
+<view wx:if="{{folds[item.key] || item.forceOpen}}" class="process-body">
+<view wx:if="{{item.showCommandDetail && item.commandDetail}}" class="process-command-detail">{{item.commandDetail}}</view>
 <block wx:for="{{item.children}}" wx:for-item="node" wx:key="key">
-<view wx:if="{{node.kind === 'reasoning' && item.compactReasoning && !folds[node.key]}}" class="disclosure-head" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{node.key}}"><view class="command-icon-slot" aria-hidden="true"><image class="event-glyph command-tool-icon" src="/assets/icons/{{theme === 'dark' ? node.darkIconFile : node.iconFile}}"/><image class="command-chevron" src="/assets/icons/chev-right-gray.png"/></view><text class="event-title">{{ui['思考']}}</text></view>
-<view wx:elif="{{node.kind === 'reasoning'}}" class="reasoning-card {{folds[node.key] ? 'reading-expanded' : ''}}">
+<block wx:if="{{node.visible !== false}}">
+<view wx:if="{{node.kind === 'narration'}}" class="process-narration">
+<view wx:if="{{node.blocks && node.blocks.length}}"><template is="mdBlocks" data="{{blocks: node.blocks, rowKey: node.key}}"/></view>
+<text wx:elif="{{node.text}}" class="process-narration-text" selectable>{{node.text}}</text>
+<view wx:if="{{node.images && node.images.length}}" class="attach-grid">
+<image wx:for="{{node.images}}" wx:for-item="img" wx:key="attachmentId" class="attach-img" src="{{img.localUrl || img.thumbUrl || ''}}" mode="aspectFill" bindtap="previewAttachment" data-id="{{img.attachmentId}}"/>
+</view>
+<view wx:if="{{node.attachments && node.attachments.length}}" class="message-attachments assistant-attachments">
+<view wx:for="{{node.attachments}}" wx:for-item="att" wx:for-index="attachmentIndex" wx:key="index" wx:if="{{att.kind !== 'image'}}" class="message-attachment" bindtap="openProcessAttachment" data-source-key="{{node.sourceKey}}" data-attachment-index="{{attachmentIndex}}" hover-class="press-dim" role="button" aria-label="{{ui['预览']}} {{att.name || att.path || ui['附件']}}">
+<image class="message-attachment-icon" src="{{att.kind === 'directory' ? '/assets/icons/ic-dir-folder-ink.png' : '/assets/icons/deliverable-document.svg'}}" mode="aspectFit"/><text class="message-attachment-name">{{att.name || att.path || ui['附件']}}</text>
+</view>
+</view>
+</view>
+<view wx:elif="{{node.kind === 'status'}}" class="process-status"><text class="process-status-name">{{ui[node.title] !== undefined ? ui[node.title] : node.title}}</text><text class="tool-separator">·</text><text class="process-status-text">{{ui[node.text] !== undefined ? ui[node.text] : node.text}}</text></view>
+<view wx:if="{{node.kind === 'reasoning' && !folds[node.key]}}" class="disclosure-head reasoning-collapsed" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{node.key}}">
+<view class="command-icon-slot" aria-hidden="true"><image class="event-glyph command-tool-icon" src="/assets/icons/{{theme === 'dark' ? node.darkIconFile : node.iconFile}}" mode="aspectFit"/><image class="command-chevron" src="/assets/icons/chev-right-gray.png"/></view>
+<text class="event-title">{{ui['思考']}}</text><text wx:if="{{node.previewVisible && node.preview}}" class="event-preview reasoning-collapsed-preview">{{node.preview}}</text>
+</view>
+<view wx:elif="{{node.kind === 'reasoning'}}" class="reasoning-card reading-preview">
 <view class="reasoning-card-head"><text class="reasoning-card-title">{{ui['思考']}}</text><text wx:if="{{node.stepLabel}}" class="reasoning-step">{{ui[node.stepLabel] !== undefined ? ui[node.stepLabel] : node.stepLabel}}</text></view>
 <view class="reasoning-reading-area">
-<scroll-view class="reasoning-scroll" scroll-y="{{!folds[node.key]}}" enhanced show-scrollbar="{{true}}" style="{{folds[node.key] ? '' : 'height:' + node.readingHeight + 'rpx;'}}">
-<text class="reasoning-reading-text" selectable>{{node.text}}</text>
+<scroll-view class="reasoning-scroll" scroll-y="{{true}}" enhanced show-scrollbar="{{true}}" style="height:{{node.readingHeight}}rpx;">
+<block wx:if="{{node.blocks && node.blocks.length}}"><template is="mdBlocks" data="{{blocks: node.blocks, rowKey: node.sourceKey}}"/></block>
+<text wx:else class="reasoning-reading-text" selectable>{{node.text}}</text>
 </scroll-view>
-<view wx:if="{{!folds[node.key] && node.readingLong}}" class="reasoning-reading-fade"></view>
+<view wx:if="{{node.readingLong}}" class="reasoning-reading-fade"></view>
 </view>
 <view class="reasoning-card-footer">
-<text class="reasoning-reading-hint">{{folds[node.key] ? ui['完整内容'] : (node.readingLong ? ui['可滚动阅读'] : ui['思考内容'])}}</text>
-<view class="reasoning-reading-toggle" bindtap="toggleFold" data-key="{{node.key}}" role="button" aria-label="{{folds[node.key] ? ui['收起阅读'] : ui['展开阅读']}}">
-<text>{{folds[node.key] ? ui['收起阅读'] : ui['展开阅读']}}</text><image class="reasoning-reading-chevron {{folds[node.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+<text class="reasoning-reading-hint">{{ui['完整内容']}}</text>
+<view class="reasoning-reading-toggle" bindtap="toggleFold" data-key="{{node.key}}" role="button" aria-label="{{ui['收起阅读']}}">
+<text>{{ui['收起阅读']}}</text><image class="reasoning-reading-chevron open" src="/assets/icons/chev-right-gray.png"/>
 </view>
 </view>
 </view>
@@ -197,10 +216,11 @@
 <view class="event-body-text">{{node.text}}</view>
 </view>
 </view>
-<view wx:else class="disclosure tool-bundle">
+<view wx:elif="{{node.kind === 'toolBundle'}}" class="disclosure tool-bundle">
 <view class="tool-bundle-body">
 <block wx:for="{{node.tools}}" wx:for-item="tool" wx:key="key">
-<view class="tool-node {{tool.isCommand ? 'command-node' : ''}}">
+<view class="tool-node {{tool.isCommand ? 'command-node' : ''}}" style="{{tool.indentStyle}}">
+<view wx:for="{{tool.branchTracks}}" wx:for-item="track" wx:key="key" class="tool-branch-track" style="{{track.style}}" aria-hidden="true"/>
 <view class="disclosure-head tool" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="{{tool.phase === 'preparing' ? '' : 'toggleFold'}}" data-key="{{tool.key}}">
 <view wx:if="{{tool.phase !== 'preparing'}}" class="command-icon-slot {{folds[tool.key] ? 'disclosed' : ''}}" aria-hidden="true">
 <image class="event-glyph tool-glyph-small command-tool-icon" src="/assets/icons/{{theme === 'dark' ? tool.darkIconFile : tool.iconFile}}" mode="aspectFit"/>
@@ -241,11 +261,21 @@
 <view class="tool-detail-label {{tool.isError ? 'err' : ''}}">{{ui[tool.resultLabel] !== undefined ? ui[tool.resultLabel] : tool.resultLabel}}</view>
 <view class="tool-detail-output">{{tool.resultText}}</view>
 </view>
+<view wx:if="{{tool.resultImages && tool.resultImages.length}}" class="tool-detail-section">
+<view class="tool-detail-label">{{ui['图片']}}</view>
+<view class="attach-grid"><image wx:for="{{tool.resultImages}}" wx:for-item="img" wx:key="attachmentId" class="attach-img" src="{{img.localUrl || img.thumbUrl || ''}}" mode="aspectFill" bindtap="previewAttachment" data-id="{{img.attachmentId}}"/></view>
+</view>
+<view wx:if="{{tool.resultAttachments && tool.resultAttachments.length}}" class="tool-detail-section message-attachments assistant-attachments">
+<view wx:for="{{tool.resultAttachments}}" wx:for-item="att" wx:for-index="attachmentIndex" wx:key="index" wx:if="{{att.kind !== 'image'}}" class="message-attachment" bindtap="openProcessAttachment" data-source-key="{{tool.sourceKey}}" data-attachment-index="{{attachmentIndex}}" hover-class="press-dim" role="button" aria-label="{{ui['预览']}} {{att.name || att.path || ui['附件']}}">
+<image class="message-attachment-icon" src="{{att.kind === 'directory' ? '/assets/icons/ic-dir-folder-ink.png' : '/assets/icons/deliverable-document.svg'}}" mode="aspectFit"/><text class="message-attachment-name">{{att.name || att.path || ui['附件']}}</text>
+</view>
+</view>
 </view>
 </view>
 </block>
 </view>
 </view>
+</block>
 </block>
 </view>
 </view>
@@ -544,7 +574,7 @@
 <text wx:for="{{contextPanel.trend.axis}}" wx:key="key" class="ctx-trend-axis-tick" style="top:{{item.top}}rpx;">{{item.text}}</text>
 </view>
 <view class="ctx-trend-main">
-<view class="ctx-trend-fit" catchtouchstart="contextTrendFitTouch" catchtouchmove="contextTrendFitTouch" catchtouchend="contextTrendFitPick">
+<view class="ctx-trend-fit" bindtouchstart="contextTrendTouchStart" bindtouchmove="contextTrendTouchMove" bindtouchend="contextTrendTouchEnd" bindtouchcancel="contextTrendTouchEnd">
 <view class="ctx-trend-chart ctx-trend-chart-fit">
 <view wx:for="{{contextPanel.trend.grid}}" wx:key="key" class="ctx-trend-grid ctx-trend-grid-{{item.key}}" style="top:{{item.top}}rpx;" />
 <view class="ctx-trend-columns">
@@ -553,17 +583,17 @@
 </view>
 </view>
 <svg wx:if="{{contextPanel.trend.hasDuration}}" class="ctx-trend-duration ctx-trend-duration-fit" width="100%" height="224" viewBox="0 0 {{contextPanel.trend.ribbon.width}} 224" preserveAspectRatio="none" aria-hidden="true">
-<polygon wx:for="{{contextPanel.trend.ribbon.durationAreas}}" wx:for-item="area" wx:key="index" class="ctx-trend-duration-area" points="{{area}}" />
 <polyline wx:for="{{contextPanel.trend.ribbon.durationRuns}}" wx:for-item="run" wx:key="index" class="ctx-trend-duration-halo" points="{{run}}" />
 <polyline wx:for="{{contextPanel.trend.ribbon.durationRuns}}" wx:for-item="run" wx:key="index" points="{{run}}" />
-<circle wx:for="{{contextPanel.trend.ribbon.durationDots}}" wx:for-item="dot" wx:key="index" class="ctx-trend-duration-halo" cx="{{dot.split(',')[0]}}" cy="{{dot.split(',')[1]}}" r="3" />
-<circle wx:for="{{contextPanel.trend.ribbon.durationDots}}" wx:for-item="dot" wx:key="index" cx="{{dot.split(',')[0]}}" cy="{{dot.split(',')[1]}}" r="1.5" />
+<circle wx:for="{{contextPanel.trend.ribbon.durationDots}}" wx:for-item="dot" wx:key="index" class="ctx-trend-duration-halo" cx="{{dot.split(',')[0]}}" cy="{{dot.split(',')[1]}}" r="4" />
+<circle wx:for="{{contextPanel.trend.ribbon.durationDots}}" wx:for-item="dot" wx:key="index" cx="{{dot.split(',')[0]}}" cy="{{dot.split(',')[1]}}" r="2.4" />
 </svg>
 <block wx:for="{{contextPanel.trend.ribbon.flags}}" wx:key="key">
 <view class="ctx-trend-flagpole ctx-fit-flagpole" style="left:{{item.left}}%;">
 <text class="ctx-trend-flaglabel">{{item.text}}</text>
 </view>
 </block>
+<view wx:if="{{contextPanel.trend.hoverLeft >= 0}}" class="ctx-fit-cursor ctx-fit-hover" style="left:{{contextPanel.trend.hoverLeft}}%;" />
 <view wx:if="{{contextPanel.trend.ribbon.cursorLeft >= 0}}" class="ctx-fit-cursor" style="left:{{contextPanel.trend.ribbon.cursorLeft}}%;" />
 </view>
 </view>
@@ -582,7 +612,7 @@
 <text wx:for="{{contextPanel.trend.axis}}" wx:key="key" class="ctx-trend-axis-tick" style="top:{{item.top}}rpx;">{{item.text}}</text>
 </view>
 <view class="ctx-trend-main">
-<scroll-view class="ctx-trend-scroll" scroll-x enhanced show-scrollbar="{{false}}" catchtouchstart="noop" bindscroll="contextTrendScroll" scroll-into-view="{{contextPanel.trendAnchor}}">
+<scroll-view class="ctx-trend-scroll" scroll-x enhanced show-scrollbar="{{false}}" bindtouchstart="contextTrendTouchStart" bindtouchmove="contextTrendTouchMove" bindtouchend="contextTrendTouchEnd" bindtouchcancel="contextTrendTouchEnd" bindscroll="contextTrendScroll" scroll-into-view="{{contextPanel.trendAnchor}}">
 <view class="ctx-trend-chart" style="width:{{contextPanel.trend.chartWidth}}rpx;">
 <view wx:for="{{contextPanel.trend.grid}}" wx:key="key" class="ctx-trend-grid ctx-trend-grid-{{item.key}}" style="top:{{item.top}}rpx;" />
 <block wx:for="{{contextPanel.trend.bars}}" wx:key="key">
@@ -590,7 +620,7 @@
 <text class="ctx-trend-flaglabel">{{item.flag}}</text>
 </view>
 </block>
-<view wx:for="{{contextPanel.trend.bars}}" wx:key="key" class="ctx-trend-col {{item.selected ? 'selected' : ''}} {{item.dimmed ? 'dimmed' : ''}}" data-seq="{{item.seq}}" bindtap="contextTrendSelect" bindlongpress="contextTrendSelect" hover-class="ctx-trend-pressed" role="button" aria-label="{{item.seqText}}">
+<view wx:for="{{contextPanel.trend.bars}}" wx:key="key" class="ctx-trend-col {{item.selected ? 'selected' : ''}} {{item.seq === contextPanel.trend.hoverSeq ? 'hovered' : ''}} {{item.dimmed ? 'dimmed' : ''}}" data-seq="{{item.seq}}" bindtap="contextTrendSelect" bindlongpress="contextTrendSelect" hover-class="ctx-trend-pressed" role="button" aria-label="{{item.seqText}}">
 <text wx:if="{{item.marker}}" class="ctx-trend-bar-marker">✂</text>
 <view class="ctx-trend-barwrap">
 <block wx:if="{{contextPanel.trend.dna && item.dna !== null}}">
@@ -611,9 +641,11 @@
 </view>
 </view>
 </view>
-<svg wx:if="{{contextPanel.trend.hasDuration}}" class="ctx-trend-duration" style="width:{{contextPanel.trend.durationWidth}}rpx;height:224rpx;" width="{{contextPanel.trend.durationWidth}}" height="224" viewBox="0 0 {{contextPanel.trend.durationWidth}} 224" preserveAspectRatio="none">
+<svg wx:if="{{contextPanel.trend.hasDuration}}" class="ctx-trend-duration" style="width:{{contextPanel.trend.durationWidth}}rpx;height:224rpx;" width="{{contextPanel.trend.durationWidth}}" height="224" viewBox="0 0 {{contextPanel.trend.durationWidth}} 224" preserveAspectRatio="none" aria-hidden="true">
+<polyline wx:for="{{contextPanel.trend.durationRuns}}" wx:key="key" class="ctx-trend-duration-halo" points="{{item}}" />
 <polyline wx:for="{{contextPanel.trend.durationRuns}}" wx:key="key" points="{{item}}" />
-<circle wx:for="{{contextPanel.trend.durationDots}}" wx:key="key" cx="{{item.split(',')[0]}}" cy="{{item.split(',')[1]}}" r="2" />
+<circle wx:for="{{contextPanel.trend.durationDots}}" wx:key="key" class="ctx-trend-duration-halo" cx="{{item.split(',')[0]}}" cy="{{item.split(',')[1]}}" r="4" />
+<circle wx:for="{{contextPanel.trend.durationDots}}" wx:key="key" cx="{{item.split(',')[0]}}" cy="{{item.split(',')[1]}}" r="2.4" />
 </svg>
 </view>
 </scroll-view>
@@ -641,6 +673,7 @@
 <text wx:if="{{contextPanel.trendDetail.actualPromptText !== '—'}}" class="ctx-trend-metric">{{contextPanel.trendDetail.promptLabel}} {{contextPanel.trendDetail.actualPromptText}}</text>
 <text wx:if="{{contextPanel.trendDetail.outputText !== '—'}}" class="ctx-trend-metric">{{contextPanel.trendDetail.outputLabel}} {{contextPanel.trendDetail.outputText}}</text>
 <text wx:if="{{contextPanel.trendDetail.cacheText}}" class="ctx-trend-metric">{{contextPanel.trendDetail.cacheLabel}} {{contextPanel.trendDetail.cacheText}}</text>
+<text wx:if="{{contextPanel.trend.showDuration && contextPanel.trendDetail.durationText}}" class="ctx-trend-metric ctx-trend-metric-duration">{{contextPanel.trendDetail.durationLabel}} {{contextPanel.trendDetail.durationText}}</text>
 <text wx:if="{{contextPanel.trendDetail.deltaText !== '—'}}" class="ctx-trend-metric ctx-trend-metric-delta ctx-trend-delta-{{contextPanel.trendDetail.deltaClass}}">Δ {{contextPanel.trendDetail.deltaClass === 'flat' ? '' : ''}}{{contextPanel.trendDetail.deltaText}}</text>
 </view>
 <view class="ctx-brief">
@@ -1715,7 +1748,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           />
 <text class="collab-mode-text">{{ui[presetLabel] !== undefined ? ui[presetLabel] : presetLabel}}</text>
 </view>
-<view class="collab-action collab-refresh {{collaborationBusy ? 'busy' : ''}} {{connected ? 'online' : 'offline'}}" bindtap="refreshCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新协作状态']}}" aria-disabled="{{collaborationBusy}}">
+<view class="collab-action collab-refresh {{collaborationBusy ? 'busy' : ''}} {{connected ? 'online' : 'offline'}} {{running ? 'is-running' : 'is-idle'}}" bindtap="refreshCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新协作状态']}}" aria-disabled="{{collaborationBusy}}">
 <view class="collab-action-disc"><view class="collab-breathe" aria-hidden="true"><view class="collab-breathe-halo"/><view class="collab-breathe-dot"/></view></view>
 </view>
 <view class="collab-action collab-close" bindtap="closeCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['关闭']}}">

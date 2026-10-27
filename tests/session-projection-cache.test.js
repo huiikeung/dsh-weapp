@@ -340,6 +340,7 @@ test('the reply footer only stays on the last card when the turn grows', () => {
   sync(base.concat([filesRow('f1', 1), filesRow('f2', 1)]));
   assert.ok(!entry('f1').copyText, 'the earlier card no longer shows a stale footer');
   assert.ok(entry('f2') && entry('f2').copyText, 'the footer moved to the very last card');
+  assert.deepEqual(page.data.rows.filter(row => row.kind === 'files').map(row => row.key), ['f1', 'f2'], 'file cards keep their event order below the answer');
   assert.ok(!entry('a1').copyText);
   const footerRows = page.data.rows.filter((row) => row.kind !== 'user' && row.copyText).map((row) => row.key);
   assert.deepEqual(footerRows, ['f2'], 'exactly one footer per turn');

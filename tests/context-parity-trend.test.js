@@ -51,6 +51,26 @@ test('trend bars pin compaction/prune markers with the event time', () => {
   assert.match(wxml, /class="ctx-trend-bar-marker">✂/);
 });
 
+test('duration curve keeps true gaps, uses a haloed gray line, and previews the hovered request time', () => {
+  const value = fixture();
+  value.requests.forEach((request, index) => { request.activeMs = [800, 1600, undefined][index]; });
+  const chart = view.deriveTrend(value, t, { showDuration: true });
+  assert.equal(chart.hasDuration, true);
+  assert.equal(chart.durationRuns.length, 1);
+  assert.equal(chart.durationDots.length, 0);
+  const overview = view.deriveTrend(value, t, { overview: true, showDuration: true });
+  assert.equal(overview.ribbon.durationRuns.length, 1);
+  assert.equal(overview.ribbon.durationDots.length, 0);
+  assert.equal(Object.hasOwn(overview.ribbon, 'durationAreas'), false, 'duration remains a line, like the desktop chart');
+
+  const detail = view.deriveTrendSelection(value, 20, t, { showDuration: true });
+  assert.equal(detail.activeMs, 1600);
+  assert.equal(detail.durationText, '1.6s');
+  assert.equal(detail.durationLabel, '耗时');
+  assert.match(wxss, /\.ctx-trend-duration \.ctx-trend-duration-halo\s*\{[^}]*stroke-width:\s*6/);
+  assert.match(wxml, /contextPanel\.trendDetail\.durationText/);
+});
+
 test('pin detail shows tags, actuals, cache share and delta', () => {
   const detail = view.deriveTrendSelection(fixture(), 20, t, { delta: false });
   assert.deepEqual(detail.tags.map(tag => tag.key), ['last'], 'step 2 closes turn 1');

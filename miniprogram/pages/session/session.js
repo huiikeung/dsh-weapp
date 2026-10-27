@@ -138,6 +138,7 @@ Page({
     contextNodeLoadingSeq: null,
     // 与 dsh-context 一样默认按步骤；长历史达到阈值时自动进入总览带。
     contextTrendSeq: null,
+    contextTrendHoverSeq: null,
     contextTrendGroupBy: contextPreferences.read().trendGroupBy,
     contextTrendDisplayMode: contextPreferences.read().trendDisplayMode,
     contextTrendAdaptive: false,
@@ -402,6 +403,10 @@ Page({
   },
 
   onShow() {
+    const foregroundEpoch = this.currentAppForegroundEpoch();
+    const resumedFromBackground = this._lastForegroundEpoch != null
+      && foregroundEpoch !== this._lastForegroundEpoch;
+    this._lastForegroundEpoch = foregroundEpoch;
     this.syncContextPanelPreferences();
     this._voiceHidden = false; this.syncVoicePreference();
     // 从原生浮层（chooseMedia / chooseMessageFile / previewImage）返回：
@@ -419,7 +424,9 @@ Page({
       this.setData(Object.assign(statusAppearance.view(statusAppearance.read()), procIconStyle.view(procIconStyle.read())));
       return;
     }
-    this.resetConversationScroll();
+    // App onShow also runs when WeChat returns from the background. Keep the
+    // existing viewport in that case; only a page-level return resets to latest.
+    if (!resumedFromBackground) this.resetConversationScroll();
     this.startScrollPolling();
     // 首次进入时 onLoad 刚同步过同一份快照：再同步一次等于把整份 rows 重新投影 + 跨桥一次，
     if (store.sessionState && store.sessionState.sessionId && Date.now() - (this._lastSyncAt || 0) > 400) {
@@ -438,6 +445,13 @@ Page({
       this.updateDockInset();
       this.measureConversationViewport();
     }
+  },
+
+  currentAppForegroundEpoch() {
+    try {
+      const app = typeof getApp === 'function' ? getApp() : null;
+      return Number(app && app.globalData && app.globalData.foregroundEpoch) || 0;
+    } catch (_) { return 0; }
   },
 
   onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
@@ -508,12 +522,20 @@ Page({
       if (this._voiceHidden || this._unloaded || sessionId !== this._renderSessionId) return;
       if (this._turnScrubbing || Date.now() < (this._interactionUntil || 0)) { this.scheduleHistoryFormatting(); return; }
       const indices = new Map((this.data.rows || []).map((row, index) => [row.key, index]));
+      const processChildren = new Map();
+      (this.data.rows || []).forEach((row, rowIndex) => {
+        if (row.kind !== 'processGroup') return;
+        (row.children || []).forEach((child, childIndex) => {
+          const formatKey = child.formatKey || child.sourceKey;
+          if (formatKey && child.kind === 'narration') processChildren.set(formatKey, { rowIndex, childIndex, child });
+        });
+      });
       const patch = {}, started = Date.now();
       let count = 0;
       for (const [key, text] of this._pendingHistoryFormat) {
-        if (!indices.has(key)) continue;
+        if (!indices.has(key) && !processChildren.has(key)) continue;
         this._pendingHistoryFormat.delete(key);
-        const index = indices.get(key), row = this.data.rows[index];
+        const index = indices.get(key), row = index === undefined ? null : this.data.rows[index];
         // 助手与用户消息都走 Markdown：进入窗口后补解析并写回 blocks。
         if (row && (row.kind === 'assistant' || row.kind === 'user') && row.text === text) {
           const blocks = this.prepareImageBlocks(this._markdownCache.parse(key, text));
@@ -526,6 +548,16 @@ Page({
             && (cachedProjection.row.kind === 'assistant' || cachedProjection.row.kind === 'user')) {
             cachedProjection.row = Object.assign({}, cachedProjection.row, { blocks });
           }
+        } else {
+          const nested = processChildren.get(key);
+          if (nested && nested.child.text === text) {
+            const blocks = this.prepareImageBlocks(this._markdownCache.parse(key, text));
+            patch['rows[' + nested.rowIndex + '].children[' + nested.childIndex + '].blocks'] = blocks;
+            nested.child.blocks = blocks;
+          const cachedProjection = this._projectedRows && this._projectedRows.get(nested.child.sourceKey);
+          if (cachedProjection && cachedProjection.row && cachedProjection.row.kind === 'assistant'
+            && nested.child.text === cachedProjection.row.text) cachedProjection.row = Object.assign({}, cachedProjection.row, { blocks });
+          }
         }
         if (++count >= 4 || Date.now() - started >= 8) break;
       }
@@ -533,7 +565,7 @@ Page({
         this.measureConversationWindow();
         if (!this._unloaded && !this._voiceHidden && sessionId === this._renderSessionId && this._convPinned !== false) this.refreshBottomAnchor();
       });
-      if ([...this._pendingHistoryFormat.keys()].some(key => indices.has(key))) this.scheduleHistoryFormatting();
+      if ([...this._pendingHistoryFormat.keys()].some(key => indices.has(key) || processChildren.has(key))) this.scheduleHistoryFormatting();
     }, 32);
   },
 
@@ -674,6 +706,7 @@ Page({
       this._fleetPanelCache = null;
       this._contextContentCache = Object.create(null);
       this._contextContentPending = Object.create(null);
+      this._ctxTrendTouch = null;
       this.setData({
         contextBrowserSeq: null,
         contextBrowserIsCurrent: false,
@@ -696,6 +729,7 @@ Page({
         contextNodeDetail: null,
         contextNodeLoadingSeq: null,
         contextTrendSeq: null,
+        contextTrendHoverSeq: null,
         contextTrendGroupBy: contextPreferences.read().trendGroupBy,
         contextTrendDisplayMode: contextPreferences.read().trendDisplayMode,
         contextTrendAdaptive: false,
@@ -744,7 +778,13 @@ Page({
       }
     }
     // 用户消息现在也走 Markdown 缓存，必须一起 retain，否则每次 emit 都被清空重解析。
-    this._markdownCache.retain((s.rows || []).filter(row => row.kind === 'assistant' || row.kind === 'user').map(row => row.key));
+    this._markdownCache.retain((s.rows || []).filter(row => row.kind === 'assistant' || row.kind === 'user').flatMap(row => {
+      const keys = [row.key];
+      if (row.kind === 'assistant' && row.key) (row.events || []).forEach((event, index) => {
+        if (event && event.kind === 'text') keys.push(row.key + '/process/' + index);
+      });
+      return keys;
+    }));
 
     // dsh-mobile 同款两段投影：protocol 只产生语义行，conversation-workflow
     const previewOf = (text) => {
@@ -836,6 +876,7 @@ Page({
             commandLines: activity.commandLines,
             cwdLabel: activity.cwdLabel,
             actDetail: activity.detail,
+            resultImages: this.decorateRowImages(tool.resultImages),
             statusText: tool.isError ? uiText('失败') : (tool.status === 'done' ? '' : tool.phase === 'preparing' ? uiText('正在准备…') : uiText('运行中'))
           });
         });
@@ -902,6 +943,21 @@ Page({
       completedEntryKey: this._processRunningDone || '',
       lastDurationMs: (this._lastRunSeconds || 0) * 1000
     }).map(entry => Object.assign({}, entry));
+    rows.forEach(entry => {
+      if (entry.kind !== 'processGroup') return;
+      (entry.children || []).forEach(child => {
+        if (child.kind === 'narration') {
+          child.images = this.decorateRowImages(child.images);
+          const formatKey = child.formatKey || child.sourceKey;
+          const blocks = child.blocks && child.blocks.length
+            ? child.blocks : formatKey && this._markdownCache.peek(formatKey, child.text || '');
+          if (blocks && blocks.length) child.blocks = this.prepareImageBlocks(blocks);
+          else if (formatKey && child.text) this._pendingHistoryFormat.set(formatKey, child.text);
+        } else if (child.kind === 'toolBundle') {
+          (child.tools || []).forEach(tool => { tool.resultImages = this.decorateRowImages(tool.resultImages); });
+        }
+      });
+    });
     rows.forEach((entry) => {
       if (entry.kind === 'assistant') entry.copyText = entry.showCopy ? entry.text || '' : '';
       if (entry.kind === 'user') entry.copyText = entry.showCopy ? entry.text || '' : '';
@@ -2165,6 +2221,7 @@ Page({
   /** 轮次条与柱区共享横向滚动：把柱区的偏移同步给轮次条。 */
   contextTrendScroll(e) {
     const left = e && e.detail ? e.detail.scrollLeft : 0;
+    this._ctxTrendScrollLeftPx = Math.max(0, Number(left) || 0);
     if (this.data.contextTrendTurnLeft !== left) this.setData({ contextTrendTurnLeft: left });
     if (!this.data.contextTrendAdaptive) return;
     this._contextTrendMeasureLeft = left;
@@ -2267,33 +2324,128 @@ Page({
     });
   },
 
-  /**
-   * 总览带上的触摸：记录横向比例，touchend 时换算成记录序号并选中，
-   * 让整段压扁后仍能逐条定位（dsh-context 的 hover-to-scrub / click-to-pin）。
-   */
-  contextTrendFitTouch(e) {
-    const x = e && e.touches && e.touches[0] ? e.touches[0].x : null;
-    if (x === null) return;
+  /** Read screen coordinates from both standard TouchEvent fields and Mini Program's legacy x field. */
+  contextTrendTouchX(e) {
+    const touch = e && ((e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]));
+    if (!touch) return null;
+    const x = touch.clientX !== undefined ? touch.clientX
+      : touch.pageX !== undefined ? touch.pageX : touch.x;
+    return x !== null && x !== undefined && Number.isFinite(Number(x)) ? Number(x) : null;
+  },
+
+  /** Capture geometry once per gesture; touchmove then stays off selector-query/layout work. */
+  contextTrendTouchStart(e) {
     const trend = this.data.contextPanel && this.data.contextPanel.trend;
-    if (!trend || !trend.ribbon || !trend.ribbon.count) return;
+    const x = this.contextTrendTouchX(e);
+    if (!trend || !Array.isArray(trend.bars) || !trend.bars.length || x === null
+      || typeof wx.createSelectorQuery !== 'function') return;
+    const gesture = { mode: trend.overview ? 'overview' : 'bars', x, rect: null, seq: null };
+    this._ctxTrendTouch = gesture;
+    const selector = gesture.mode === 'overview' ? '.ctx-trend-chart-fit' : '.ctx-trend-scroll';
     const query = wx.createSelectorQuery().in(this);
-    query.select('.ctx-trend-chart-fit').boundingClientRect();
+    query.select(selector).boundingClientRect();
     query.exec((res) => {
+      if (this._ctxTrendTouch !== gesture) return;
       const rect = res && res[0];
       if (!rect || !(rect.width > 0)) return;
-      const ratio = Math.max(0, Math.min(1, (x - rect.left) / rect.width));
-      const index = Math.min(trend.ribbon.count - 1, Math.floor(ratio * trend.ribbon.count));
-      const seq = trend.bars[index] && trend.bars[index].seq;
-      if (seq === undefined) return;
-      if (this._ctxFitSeq === seq) return;
-      this._ctxFitSeq = seq;
-      this.setContextBrowser(seq);
+      gesture.rect = rect;
+      this.contextTrendTouchPreview(gesture);
     });
   },
 
-  /** 总览带上抬手：清掉滑动去抖记录，下次触摸重新定位。 */
-  contextTrendFitPick() {
-    this._ctxFitSeq = null;
+  /** Scrub the nearest bar/ribbon record without turning the transient hover into a pin. */
+  contextTrendTouchMove(e) {
+    const gesture = this._ctxTrendTouch;
+    const x = this.contextTrendTouchX(e);
+    if (!gesture || x === null) return;
+    gesture.x = x;
+    if (gesture.rect) this.contextTrendTouchPreview(gesture);
+  },
+
+  contextTrendTouchPreview(gesture) {
+    const trend = this.data.contextPanel && this.data.contextPanel.trend;
+    if (!trend || !Array.isArray(trend.bars) || !trend.bars.length || !gesture.rect) return;
+    let index;
+    let hoverLeft = -1;
+    if (gesture.mode === 'overview') {
+      const ratio = Math.max(0, Math.min(1, (gesture.x - gesture.rect.left) / gesture.rect.width));
+      index = Math.min(trend.bars.length - 1, Math.floor(ratio * trend.bars.length));
+      hoverLeft = ((index + 0.5) / trend.bars.length) * 100;
+    } else {
+      let windowWidth = 375;
+      try {
+        const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+        if (info && Number(info.windowWidth) > 0) windowWidth = Number(info.windowWidth);
+      } catch (_) {}
+      const pxToRpx = 750 / windowWidth;
+      const xRpx = (gesture.x - gesture.rect.left + (this._ctxTrendScrollLeftPx || 0)) * pxToRpx;
+      const centerOffset = contextView.TREND_BAR_GAP + contextView.TREND_BAR_W / 2;
+      index = Math.round((xRpx - centerOffset) / contextView.TREND_BAR_PITCH);
+      index = Math.max(0, Math.min(trend.bars.length - 1, index));
+    }
+    const seq = trend.bars[index] && trend.bars[index].seq;
+    if (!Number.isFinite(Number(seq))) return;
+    if (gesture.seq === Number(seq)) return;
+    gesture.seq = Number(seq);
+    this.previewContextTrendRecord(Number(seq), hoverLeft);
+  },
+
+  /** Update only the changing detail/browser branches, not the full trend's large WXML payload. */
+  previewContextTrendRecord(seq, hoverLeft) {
+    const trend = this.data.contextPanel && this.data.contextPanel.trend;
+    const dashboard = store.sessionState && store.sessionState.contextDashboard;
+    const value = dashboard && dashboard.value;
+    if (!trend || !value || this.data.contextTrendHoverSeq === seq) return;
+    const detail = contextView.deriveTrendSelection(value, seq, uiText, { delta: trend.displayMode === 'delta' });
+    const browser = contextView.deriveBrowser(value, uiText, {
+      seq, current: false,
+      expanded: this.data.contextBrowserExpanded,
+      dna: trend.dna,
+      base: this.data.contextBrowserBase,
+      query: this.data.contextBrowserQuery,
+      kind: this.data.contextBrowserKind,
+      toolName: this.data.contextBrowserTool
+    });
+    this.setData({
+      contextTrendHoverSeq: seq,
+      'contextPanel.trend.hoverSeq': seq,
+      'contextPanel.trend.hoverLeft': hoverLeft,
+      'contextPanel.trendDetail': detail,
+      'contextPanel.browser': browser
+    });
+  },
+
+  /** Restore persistent pin/picker state after the finger leaves the chart. */
+  contextTrendTouchEnd() {
+    this._ctxTrendTouch = null;
+    if (this.data.contextTrendHoverSeq == null) return;
+    const trend = this.data.contextPanel && this.data.contextPanel.trend;
+    const dashboard = store.sessionState && store.sessionState.contextDashboard;
+    const value = dashboard && dashboard.value;
+    if (!trend || !value) {
+      this.setData({ contextTrendHoverSeq: null });
+      return;
+    }
+    const pinnedSeq = trend.selectedSeq;
+    const detail = contextView.deriveTrendSelection(value, pinnedSeq, uiText, { delta: trend.displayMode === 'delta' });
+    const browserSeq = this.data.contextBrowserIsCurrent === true ? null
+      : (this.data.contextBrowserSeq == null ? trend.selectedSeq : Number(this.data.contextBrowserSeq));
+    const browser = contextView.deriveBrowser(value, uiText, {
+      seq: browserSeq, current: this.data.contextBrowserIsCurrent === true,
+      expanded: this.data.contextBrowserExpanded,
+      dna: trend.dna,
+      base: this.data.contextBrowserBase,
+      query: this.data.contextBrowserQuery,
+      kind: this.data.contextBrowserKind,
+      toolName: this.data.contextBrowserTool
+    });
+    this.setData({
+      contextTrendHoverSeq: null,
+      'contextPanel.trend.hoverSeq': null,
+      'contextPanel.trend.hoverLeft': -1,
+      'contextPanel.trendDetail': detail,
+      'contextPanel.browser': browser
+    });
   },
 
   /** 打开跨会话 Context Insights 页（插件里是侧栏一级面板）。 */
@@ -2921,6 +3073,7 @@ Page({
   onPanelTouchStart(e) {
     if (this.data.tab === 'conversation') this.onConvTouch();
     const touch = e.touches && e.touches.length === 1 && e.touches[0];
+    this._userScrollDirection = '';
     this._panelGesture = touch ? { x: touch.clientX, y: touch.clientY, axis: '', tab: this.data.tab } : null;
   },
 
@@ -2932,10 +3085,15 @@ Page({
     if (!gesture.axis && Math.max(Math.abs(dx), Math.abs(dy)) > 12) {
       gesture.axis = Math.abs(dx) > Math.abs(dy) * 1.5 ? 'horizontal' : 'vertical';
     }
-    // A downward finger drag means the reader is moving toward older messages.
-    if (gesture.tab === 'conversation' && gesture.axis === 'vertical' && dy > 12) {
+    if (gesture.tab === 'conversation' && gesture.axis === 'vertical') {
+      // Keep following paused for the whole vertical gesture, whichever way it travels.
+      this._lastTouchAt = Date.now();
       this._followPausedByUser = true;
       this._convPinned = false;
+      this._userScrollDirection = dy < 0 ? 'towardBottom' : 'towardTop';
+      // scroll-into-view stays selected after it fires; clear it when the reader
+      // takes over so a live update cannot keep snapping the viewport to the tail.
+      if (this.data.scrollTarget) this.setData({ scrollTarget: '' });
     }
   },
 
@@ -3687,7 +3845,8 @@ Page({
       scrollTop: scrollTop,
       scrollHeight: Number(d.scrollHeight) || 0,
       clientHeight: Number(d.clientHeight) || 0,
-      deltaY: Number(d.deltaY) || 0
+      deltaY: Number(d.deltaY) || 0,
+      userScroll: Date.now() - (this._lastTouchAt || 0) < 1500
     });
     this.updateConversationWindow(scrollTop);
     this.maybePrefetchOlderHistory(scrollTop, previousTop !== undefined && scrollTop < previousTop - 2);
@@ -3766,7 +3925,6 @@ Page({
 
     const previousTop = this._lastScrollTop;
     const movedUp = previousTop !== undefined && scrollTop < previousTop - 2;
-    const movedDown = previousTop !== undefined && scrollTop > previousTop + 2;
 
     if (Date.now() < (this._suppressScrollUntil || 0)) {
       this._lastScrollTop = scrollTop;
@@ -3777,7 +3935,8 @@ Page({
 
     // Stay paused even while the reader is within the near-bottom tolerance; resume only
     // after an intentional scroll toward the newest content reaches the bottom again.
-    if (this._followPausedByUser && pinned && movedDown) this._followPausedByUser = false;
+    if (this._followPausedByUser && pos.userScroll === true && pinned
+      && this._userScrollDirection === 'towardBottom') this._followPausedByUser = false;
     if (this._convPinned === true && !pinned && !movedUp) {
       this._lastScrollTop = scrollTop;
       if (Date.now() - (this._lastTouchAt || 0) >= 1000) this.refreshBottomAnchor();
@@ -4286,6 +4445,7 @@ Page({
     this._suppressPins = false;
     this._suppressScrollUntil = 0;
     this._followPausedByUser = false;
+    this._userScrollDirection = '';
     this._convPinned = true;
     this._lastTouchAt = 0;
     this._userScrolledUp = false;
@@ -4375,8 +4535,9 @@ Page({
     const failed = this._thumbFailed || (this._thumbFailed = new Map());
     const now = Date.now();
     const enqueueRow = (row, budgeted) => {
-      if (!row || row.pending || !row.images || !row.images.length) return;
-      row.images.forEach((image) => {
+      if (!row || row.pending) return;
+      const images = (row.images || []).concat((row.tools || []).flatMap(tool => tool && tool.resultImages || []));
+      images.forEach((image) => {
         if (!image || !image.attachmentId) return;
         const id = String(image.attachmentId);
         if (queued.has(id) || attachmentCache.localPath(image, { api: wx })) return;
@@ -4431,24 +4592,46 @@ Page({
   applyAttachmentPaths(paths) {
     const ids = Object.keys(paths || {});
     if (!ids.length) return;
-    const patchRow = (row) => {
-      if (!row || !Array.isArray(row.images) || !row.images.length) return row;
+    const patchImages = images => {
+      if (!Array.isArray(images) || !images.length) return images;
       let changed = false;
-      const images = row.images.map((image) => {
+      const next = images.map((image) => {
         const path = image && paths[image.attachmentId];
         if (!path || image.localUrl === path) return image;
         changed = true;
         return Object.assign({}, image, { localUrl: path });
       });
-      if (!changed) return row;
-      const next = Object.assign({}, row, { images });
+      return changed ? next : images;
+    };
+    const patchRow = (row) => {
+      if (!row) return row;
+      let changed = false;
+      const next = Object.assign({}, row);
+      const images = patchImages(row.images);
+      if (images !== row.images) { next.images = images; changed = true; }
       if (Array.isArray(row.stackImages)) {
-        next.stackImages = row.stackImages.map((image) => {
-          const path = image && paths[image.attachmentId];
-          return path && image.localUrl !== path ? Object.assign({}, image, { localUrl: path }) : image;
-        });
+        const stackImages = patchImages(row.stackImages);
+        if (stackImages !== row.stackImages) { next.stackImages = stackImages; changed = true; }
       }
-      return next;
+      if (Array.isArray(row.children)) {
+        const children = row.children.map(child => {
+          let childChanged = false;
+          const childNext = Object.assign({}, child);
+          const childImages = patchImages(child.images);
+          if (childImages !== child.images) { childNext.images = childImages; childChanged = true; }
+          if (Array.isArray(child.tools)) {
+            childNext.tools = child.tools.map(tool => {
+              const resultImages = patchImages(tool.resultImages);
+              if (resultImages === tool.resultImages) return tool;
+              return Object.assign({}, tool, { resultImages });
+            });
+            if (childNext.tools.some((tool, index) => tool !== child.tools[index])) childChanged = true;
+          }
+          return childChanged ? childNext : child;
+        });
+        if (children.some((child, index) => child !== row.children[index])) { next.children = children; changed = true; }
+      }
+      return changed ? next : row;
     };
     // 窗口缓存复用同一批行对象，就地更新，下一次窗口切片才不会退回空白。
     if (Array.isArray(this._conversationRows)) {
@@ -4465,8 +4648,18 @@ Page({
 
   previewAttachment(e) {
     const id = e.currentTarget.dataset.id;
-    const row = this.data.rows.find((r) => (r.images || []).some((img) => img.attachmentId === id));
-    const image = (row && row.images.find((img) => img.attachmentId === id)) || { attachmentId: id };
+    let image = null;
+    const find = images => (images || []).find(item => item && item.attachmentId === id);
+    for (const row of this.data.rows || []) {
+      image = find(row.images);
+      if (!image) for (const child of row.children || []) {
+        image = find(child.images);
+        if (!image) for (const tool of child.tools || []) image = find(tool.resultImages);
+        if (image) break;
+      }
+      if (image) break;
+    }
+    image = image || { attachmentId: id };
     const cached = image.localUrl || attachmentCache.localPath(image, { api: wx });
     // 先开弹窗占位（有缓存就直接显示图片），再在弹窗里补下载，进度可见。
     const sheet = this.openFileSheet(Object.assign({}, image, {
@@ -4495,6 +4688,26 @@ Page({
       ? row.attachments[attachmentIndex]
       : null;
     if (!att) return;
+    return this.openMessageAttachmentItem(att, row.key || rowIndex, attachmentIndex);
+  },
+
+  openProcessAttachment(e) {
+    const dataset = e && e.currentTarget && e.currentTarget.dataset || {};
+    const sourceKey = dataset.sourceKey;
+    const attachmentIndex = Number(dataset.attachmentIndex);
+    const sourceRows = store.sessionState && store.sessionState.rows || [];
+    let row = sourceRows.find(item => item && item.key === sourceKey);
+    let attachments = row && row.attachments;
+    if (!attachments) {
+      row = sourceRows.find(item => (item.tools || []).some(tool => tool && tool.key === sourceKey));
+      const tool = row && (row.tools || []).find(item => item && item.key === sourceKey);
+      attachments = tool && tool.resultAttachments;
+    }
+    const att = Array.isArray(attachments) && Number.isInteger(attachmentIndex) ? attachments[attachmentIndex] : null;
+    if (att) return this.openMessageAttachmentItem(att, sourceKey, attachmentIndex);
+  },
+
+  openMessageAttachmentItem(att, rowKey, attachmentIndex) {
     if (att.kind === 'directory') {
       wx.showToast({ title: att.path || '工作区目录', icon: 'none' });
       return;
@@ -4510,7 +4723,7 @@ Page({
         name: att.name || att.path,
         mediaType: att.mediaType,
         size: att.bytes,
-        key: `message-attachment:${row.key || rowIndex}:${attachmentIndex}`
+        key: `message-attachment:${rowKey || 'process'}:${attachmentIndex}`
       }, { origin: 'message' });
     }
     wx.showToast({ title: att.name || att.path || '文件附件', icon: 'none' });
@@ -4849,7 +5062,7 @@ Page({
     const patch = dataPatch(this.data, {
       commandMenu: menu,
       canAttach: composerMenu.acceptsAttachments(active),
-      composerPlaceholder: hint || uiText('输入内容, /调用指令, @ 文件或对话, 或按住说话'),
+      composerPlaceholder: hint || uiText('输入内容, / 调用指令, @ 文件或对话, 或按住说话'),
       commandToken: slash ? slash.token : '',
       commandTokenLabel: slash ? composerMenu.commandLabel(slash.command, uiText) : '',
       draftArg: slash ? slash.argument : text
