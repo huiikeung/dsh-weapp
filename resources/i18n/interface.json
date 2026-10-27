@@ -2285,5 +2285,7 @@
   "设备移除请求发送失败": "Could not send the device removal request",
   "设备移除失败": "Device removal failed",
   "当前线路不可达，正在尝试其他配对地址…": "Route unavailable; trying another pairing address…",
-  "将从本机移除「{name}」；若主机当前可连接，也会同步删除网关中的设备记录。": "Remove “{name}” from this device. If the gateway is reachable, its device record will also be removed."
+  "将从本机移除「{name}」；若主机当前可连接，也会同步删除网关中的设备记录。": "Remove “{name}” from this device. If the gateway is reachable, its device record will also be removed.",
+"。这张二维码只包含局域网地址，手机在外网时连不上：请在 DSH 插件里配置公网地址或中继，再重新生成二维码": "This QR code only contains LAN addresses, so the phone cannot connect from outside that network: configure a public address or relay in the DSH plugin, then generate a new QR code.",
+"微信小程序不能直接连接公网地址：它的域名不在小程序网络合法域名里。请扫描 DSH 插件的二维码（自动走中继或局域网），或在 App 里直连该地址。": "The WeChat mini program cannot connect to a public address directly: its domain is not in the mini program socket domain list. Scan the DSH plugin QR code instead (it routes through the relay or the LAN automatically), or connect to that address from the App."
 }

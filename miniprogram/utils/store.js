@@ -16,6 +16,8 @@ const { createInstaller } = require('./plugin-install');
 const util = require('./util');
 const accessApi = require('./access-api');
 const { normalizeHostInfo } = require('./host-info');
+const routeTable = require('./route-table');
+const runtime = require('./runtime');
 
 const STORAGE_KEYS = {
   endpoint: 'dsh_endpoint', // 仅用于旧版单主机凭据迁移
@@ -172,13 +174,35 @@ function createStore() {
         resetHistoryPaging();
         // 记住这次真正连通的地址，下次优先使用；轮换游标对齐当前线路
         endpointCandidates = endpointCandidates.length ? endpointCandidates : [state.endpoint];
+        // 候选被兜底成单条时按地址特征补线路族，保证轮换/中继升级判断有据可依。
+        if (endpointCandidateMeta.length !== endpointCandidates.length) {
+          endpointCandidateMeta = endpointCandidates.map(candidate => ({
+            endpoint: candidate,
+            kind: routeTable.classifyEndpoint(candidate) || 'lan'
+          }));
+        }
         endpointIdx = Math.max(0, endpointCandidates.indexOf(state.endpoint));
         if (rotationTimer) { clearTimeout(rotationTimer); rotationTimer = null; }
         if (state.activeID) {
           const profile = getProfile(state.activeID);
-          if (profile && profile.preferredEndpoint !== state.endpoint && endpointCandidates.indexOf(state.endpoint) >= 0) {
-            profile.preferredEndpoint = state.endpoint;
-            hosts.saveProfiles(state.profiles);
+          if (profile) {
+            let profileChanged = false;
+            if (profile.preferredEndpoint !== state.endpoint && endpointCandidates.indexOf(state.endpoint) >= 0) {
+              profile.preferredEndpoint = state.endpoint;
+              profileChanged = true;
+            }
+            // 经中继连上（v2 直连二维码的中继候选）：把档案升级成中继档案，
+            // 否则下次重连不会带 E2EE 元信息，又掉回直连候选。gatewayId 换成
+            // 中继 nodeId（与 v3 载荷一致）：重连的中继参数和 E2EE 验签都用它。
+            if (client.routeKind === 'relay' && !profile.relay && client.relayMeta && client.relayMeta.agentPubKey) {
+              profile.relay = true;
+              profile.relayAgentPubKey = client.relayMeta.agentPubKey;
+              profile.relayAuthMode = client.relayMeta.authMode || 'invite';
+              profile.relayRole = profile.relayRole || 'guest';
+              if (client.relayMeta.nodeId) profile.gatewayId = client.relayMeta.nodeId;
+              profileChanged = true;
+            }
+            if (profileChanged) hosts.saveProfiles(state.profiles);
           }
         }
         state.workspaceRetries = 0;
@@ -204,32 +228,20 @@ function createStore() {
           endpointIdx = (endpointIdx + 1) % endpointCandidates.length;
           const profile = getProfile(state.activeID);
           const next = endpointCandidates[endpointIdx];
+          const nextMeta = endpointCandidateMeta[endpointIdx] || { endpoint: next, kind: 'lan' };
           if (profile && next) {
             state.endpoint = next;
             state.connectionMessage = uiText('切换线路重连中…');
             state.connectionErrorCode = null;
-            let connectOpts = null;
-            if (profile.relay && profile.relayAgentPubKey) {
-              const relayCred = hosts.loadCredential(profile.id);
-              connectOpts = { token: profile.relayAuthMode === 'gateway' && relayCred ? relayCred.token : null, relay: {
-                authMode: profile.relayAuthMode || 'invite',
-                nodeId: profile.gatewayId,
-                agentPubKey: profile.relayAgentPubKey,
-                accessToken: profile.relayAccessToken || null,
-                role: profile.relayRole || 'guest',
-                expiresAt: profile.relayExpiresAt || null
-              } };
-            } else {
-              const cred = hosts.loadCredential(profile.id);
-              if (cred && cred.token) connectOpts = { token: cred.token };
-            }
+            // 连接参数按候选线路族构建：中继候选带 E2EE 元信息，直连候选用网关 token。
+            const connectOpts = connectOptionsFor(profile, nextMeta, hosts.loadCredential(profile.id));
             if (connectOpts) {
               if (connectOpts.relay) client.lastToken = null;
               if (rotationTimer) clearTimeout(rotationTimer);
               rotationTimer = setTimeout(function () {
                 rotationTimer = null;
                 if (client.wantsConnection && state.endpoint === next) {
-                  client.connect(next, connectOpts);
+                  client.connect(next, Object.assign({}, connectOpts, { routeKind: nextMeta.kind }));
                 }
               }, 3000);
             }
@@ -2864,6 +2876,58 @@ function createStore() {
     emit();
   }
 
+  // ---------- 全网络自动选路 ----------
+  // 候选顺序（route-table.allowedFamilies）：
+  //   微信小程序：首选 → 托管中继（小程序的公网）→ 局域网；不碰运营者自己的公网直连
+  //               地址（Cloudflare/反代基本不在 socket 合法域名里，硬连只会失败）。
+  //   多端 App：首选 → 公网直连 → 局域网；没有微信登录，不碰托管中继。
+  // v3/中继二维码的中继是首选且唯一。
+
+  /** 按当前运行时能力排序候选。 */
+  function orderedCandidates(table, preferred) {
+    return routeTable.orderCandidates(table, {
+      client: runtime.clientKind(),
+      preferred: preferred || null
+    });
+  }
+
+  /** 档案的候选列表：优先持久化路由表；旧档案（无 routeTable）从 endpoints 推导。 */
+  function profileCandidates(profile, preferred) {
+    const table = (profile && profile.routeTable) || routeTable.parseRouteTable({
+      endpoints: hosts.connectionEndpoints(profile)
+    });
+    const ordered = orderedCandidates(table, preferred !== undefined ? preferred : (profile && profile.preferredEndpoint));
+    // 中继候选的重连参数来自档案（nodeId = gatewayId、E2EE 公钥）。只有真正按中继
+    // 配对过的档案才有这些信息；局域网配对的档案带不了中继候选，硬连只会认证失败。
+    const relayReady = !!(profile && profile.relay && profile.relayAgentPubKey
+      && table.relay && profile.gatewayId === table.relay.nodeId);
+    if (!relayReady) return ordered.filter(candidate => candidate.kind !== 'relay');
+    if (!ordered.some(candidate => candidate.kind === 'relay')) {
+      ordered.push({ endpoint: table.relay.endpoint, kind: 'relay', relay: table.relay });
+    }
+    return ordered;
+  }
+
+  /** 单个候选的连接参数：中继候选带 E2EE 元信息，直连候选用网关 Bearer token。 */
+  function connectOptionsFor(profile, candidate, cred) {
+    if (!candidate) return null;
+    if (candidate.kind === 'relay') {
+      if (!profile.relayAgentPubKey) return null;
+      return {
+        token: profile.relayAuthMode === 'gateway' && cred ? cred.token : null,
+        relay: {
+          authMode: profile.relayAuthMode || 'invite',
+          nodeId: profile.gatewayId,
+          agentPubKey: profile.relayAgentPubKey,
+          accessToken: profile.relayAccessToken || null,
+          role: profile.relayRole || 'guest',
+          expiresAt: profile.relayExpiresAt || null
+        }
+      };
+    }
+    return cred && cred.token ? { token: cred.token } : null;
+  }
+
   /** 建立配对连接：复用同身份档案，否则新建（iOS pair 对齐）。 */
   function beginPairing(endpoint, code, payload) {
     const normalized = payload
@@ -2872,7 +2936,18 @@ function createStore() {
     if (!normalized || !normalized.length) {
       return { ok: false, error: hosts.ErrorText.address };
     }
-    endpointCandidates = normalized.slice();
+    // 路由表：优先载荷里的显式 routes；旧载荷按地址特征从 publicUrl/endpoints 推导。
+    const table = (payload && payload.routeTable)
+      || routeTable.parseRouteTable({ publicUrl: normalized[0], endpoints: normalized });
+    // v2 直连载荷按客户端能力排序（小程序中继优先、App 公网优先）；v3 中继载荷只连中继。
+    const candidates = payload && payload.mode === 'relay'
+      ? [{ endpoint: normalized[0], kind: 'relay' }]
+      : orderedCandidates(table, null);
+    if (!candidates.length) {
+      return { ok: false, error: hosts.ErrorText.address };
+    }
+    endpointCandidates = candidates.map(candidate => candidate.endpoint);
+    endpointCandidateMeta = candidates.slice();
     endpointIdx = 0;
     const gid = payload && payload.gatewayId ? String(payload.gatewayId).toLowerCase() : null;
     let profile = null;
@@ -2911,6 +2986,8 @@ function createStore() {
     // 重新扫码代表用户明确认可本次地址集合；publicUrl 优先（iOS pair 对齐）。
     profile.endpoints = normalized;
     profile.preferredEndpoint = normalized[0];
+    // 持久化整张路由表：重连时按当前网络重新选路，不需要重新扫码。
+    profile.routeTable = table;
     if (payload && String(payload.gatewayName || '').trim()) profile.gatewayName = payload.gatewayName;
     // v3 relay 支持邀请鉴权及插件配对码；后者保存手机独立的网关凭据。
     if (payload && payload.mode === 'relay') {
@@ -2930,11 +3007,14 @@ function createStore() {
       pendingProfile = null;
       emit();
     } else {
+      // v2 直连载荷一律先按直连档案配对：中继是否成为档案的认证模型，由真正
+      // 连通的线路决定（connected 时按 client.routeKind 升级）。提前按首选候选
+      // 打标记会在中继失败、局域网胜出时留下错误的中继元信息。
       profile.relay = false;
       profile.relayAgentPubKey = null;
       pendingProfile = profile;
     }
-    state.endpoint = normalized[0];
+    state.endpoint = endpointCandidates[0];
     state.gatewayName = hosts.displayName(profile);
     state.gatewayId = profile.gatewayId;
     pendingPairing = true;
@@ -2947,10 +3027,26 @@ function createStore() {
           agentPubKey: payload.agentPubKey,
           inviteToken: payload.inviteToken,
           role: payload.role
-        }
+        },
+        candidateKinds: ['relay'],
+        routeKind: 'relay'
       });
     } else {
-      client.connect(normalized[0], { pairingCode: code, endpointCandidates: normalized.slice(1) });
+      const primary = endpointCandidateMeta[0];
+      client.connect(primary.endpoint, {
+        pairingCode: code,
+        endpointCandidates: endpointCandidates.slice(1),
+        // 回退候选的中继元信息（与 endpointCandidates 对齐）：中继保底候选
+        // 需要 E2EE 元信息才能连上，直连候选为 null。
+        relayCandidates: endpointCandidateMeta.slice(1).map(candidate => candidate.relay || null),
+        candidateKinds: endpointCandidateMeta.map(candidate => candidate.kind),
+        routeKind: primary.kind,
+        ...(primary.relay ? { relay: {
+          authMode: primary.relay.authMode,
+          nodeId: primary.relay.nodeId,
+          agentPubKey: primary.relay.agentPubKey
+        } } : {})
+      });
     }
     return { ok: true };
   }
@@ -2981,12 +3077,14 @@ function createStore() {
 
   /** 连接激活档案（凭据按档案 ID 读取）。 */
   let endpointCandidates = [];
+  let endpointCandidateMeta = []; // 与 endpointCandidates 对齐：{ endpoint, kind, relay? }
   let endpointIdx = 0;
   let rotationTimer = null;
 
   /** 重置候选顺序并连接首选线路（网络恢复/回前台时用，避免死守不可达候选） */
   function reconnectPreferred() {
     endpointCandidates = [];
+    endpointCandidateMeta = [];
     endpointIdx = 0;
     if (rotationTimer) { clearTimeout(rotationTimer); rotationTimer = null; }
     return connectActiveProfile();
@@ -2996,9 +3094,11 @@ function createStore() {
     const profile = getProfile(state.activeID);
     if (!profile) return false;
     const cred = hosts.loadCredential(profile.id);
-    const endpoints = hosts.connectionEndpoints(profile);
-    const endpoint = endpoints[0] || (cred && cred.endpoint) || null;
-    endpointCandidates = endpoints;
+    // 按当前网络重新选路：上次连通的线路优先，其次公网/局域网/中继保底。
+    const candidates = profileCandidates(profile);
+    const endpoint = (candidates[0] && candidates[0].endpoint) || (cred && cred.endpoint) || null;
+    endpointCandidates = candidates.map(candidate => candidate.endpoint);
+    endpointCandidateMeta = candidates.slice();
     endpointIdx = 0;
     if (!endpoint) {
       state.connection = 'disconnected';
@@ -3010,35 +3110,34 @@ function createStore() {
     state.gatewayName = hosts.displayName(profile);
     state.gatewayId = profile.gatewayId;
     // 配对码模式的长期凭据由手机保存，经 E2EE 交给主机，不发给中继。
-    if (profile.relay && profile.relayAgentPubKey) {
+    // 连接参数按首选候选的线路族构建（中继/直连自动区分）。
+    const primaryMeta = endpointCandidateMeta[0] || { endpoint: endpoint, kind: 'lan' };
+    const connectOpts = connectOptionsFor(profile, primaryMeta, cred);
+    if (primaryMeta.kind === 'relay') {
       if (profile.relayAuthMode === 'gateway' && (!cred || !cred.token)) {
         state.connection = 'disconnected';
         state.connectionMessage = uiText('缺少配对凭据，请重新扫描 DSH 的二维码');
         emit();
         return false;
       }
-      client.lastToken = null;
-      client.connect(endpoint, {
-        token: profile.relayAuthMode === 'gateway' && cred ? cred.token : null,
-        relay: {
-          authMode: profile.relayAuthMode || 'invite',
-          nodeId: profile.gatewayId,
-          agentPubKey: profile.relayAgentPubKey,
-          accessToken: profile.relayAccessToken || null,
-          role: profile.relayRole || 'guest',
-          expiresAt: profile.relayExpiresAt || null
-        }
-      });
-      return true;
-    }
-    if (!cred || !cred.token) {
+    } else if (!cred || !cred.token) {
       state.connection = 'disconnected';
       state.connectionMessage = uiText('缺少连接凭据，请重新扫码配对');
       emit();
       return false;
     }
-    client.lastToken = cred.token;
-    client.connect(endpoint, { token: cred.token });
+    if (!connectOpts) {
+      state.connection = 'disconnected';
+      state.connectionMessage = uiText('缺少连接凭据，请重新扫码配对');
+      emit();
+      return false;
+    }
+    client.lastToken = connectOpts.relay ? null : cred.token;
+    client.connect(primaryMeta.endpoint, Object.assign({}, connectOpts, {
+      candidateKinds: endpointCandidateMeta.map(candidate => candidate.kind),
+      relayCandidates: endpointCandidateMeta.slice(1).map(candidate => candidate.relay || null),
+      routeKind: primaryMeta.kind
+    }));
     return true;
   }
 
@@ -3571,6 +3670,12 @@ function createStore() {
       // 手动输入只用于 v2 直连（v3 走扫码载荷），保留白名单校验。
       if (!isTrustedEndpoint(normalized)) {
         return { ok: false, error: uiText('地址未经此主机确认，请重新扫码添加地址。') };
+      }
+      // 微信小程序的 socket 必须命中合法域名：运营者自己的公网直连地址（Cloudflare/
+      // 反代）基本不在列表里，硬连只会拿到「域名不合法」。直接说明原因，并指出
+      // 小程序可用的两条路（扫码走中继/局域网，或改用 App 直连）。
+      if (routeTable.classifyEndpoint(normalized) === 'public' && runtime.clientKind() === 'wechat') {
+        return { ok: false, error: uiText('微信小程序不能直接连接公网地址：它的域名不在小程序网络合法域名里。请扫描 DSH 插件的二维码（自动走中继或局域网），或在 App 里直连该地址。') };
       }
       return beginPairing(normalized, code, null);
     },

@@ -11,6 +11,7 @@ const util = require('./util');
 const { ClientSession } = require('./relay-e2ee');
 const accessApi = require('./access-api');
 const publicAccessPrompt = require('./public-access-prompt');
+const routeTable = require('./route-table');
 
 /** Uint8Array → 独立 ArrayBuffer（wx.send 要 ArrayBuffer）。 */
 function toArrayBuffer(u8) {
@@ -22,6 +23,10 @@ const RECONNECT_BASE_DELAY = 1000;
 const RECONNECT_MAX_DELAY = 30000;
 const REQUEST_TIMEOUT = 30000;
 const SESSION_CREATE_TIMEOUT = 30000;
+// 配对期每个候选地址的最长等待：候选可能包含不可达的内网地址（手输/旧二维码），
+// 操作系统默认 TCP 超时可达 30s+，逐候选等待会让「换一条线路」拖到一分钟以上。
+// 达到该时长即视为本候选不可达，按候选顺序继续尝试（中继候选含 E2EE 握手，仍用 REQUEST_TIMEOUT）。
+const PAIRING_CONNECT_TIMEOUT = 8000;
 
 class GatewayClient {
   constructor(callbacks) {
@@ -47,6 +52,11 @@ class GatewayClient {
     this.relayTextFrames = 0; // 诊断：连接器经文本通道发来的帧计数
     this.deviceForgetPending = null;
     this.pairingFallbacks = [];
+    this.pairingFallbackKinds = null; // 与 pairingFallbacks 对齐的线路族（回退时带上）
+    this.routeKind = null;           // 当前候选的线路族：lan | public | relay
+    this.candidateKinds = null;      // 本次尝试的候选线路族（首选 + 剩余回退）
+    this.pairingAllKinds = null;      // 本次配对的全部候选线路族（回退链上保持不变）
+    this.socketOpened = false;       // TCP/TLS 是否已建立（区分「连不上」与「握手慢」）
   }
 
   // ---------- 状态 ----------
@@ -123,7 +133,17 @@ class GatewayClient {
       });
     }).catch(error => {
       if (generation !== this.connectGeneration) return;
-      this.setState('failed', error.message || uiText('公网授权验证失败；局域网不受影响'), error.code || null);
+      const message = error.message || uiText('公网授权验证失败；局域网不受影响');
+      if (opts.pairingCode) {
+        // 配对期拿不到公网租赁（未兑换/已到期/服务不可用）不是终止性错误：
+        // 中继排在小程序候选链里，失败后要继续试局域网，否则没兑换的用户
+        // 即使在同一局域网也连不上。
+        this.wantsConnection = true;
+        this.initPairingChain(endpoint, opts);
+        this.handleTransportFailure(message, { pairingCodeConsumed: false });
+        return;
+      }
+      this.setState('failed', message, error.code || null);
     });
   }
 
@@ -145,10 +165,7 @@ class GatewayClient {
       this.reconnectTimer = null;
     }
     this.endpoint = endpoint;
-    this.pairingCode = opts.pairingCode || null;
-    this.pairingFallbacks = this.pairingCode && Array.isArray(opts.endpointCandidates)
-      ? opts.endpointCandidates.filter(candidate => candidate && candidate !== endpoint).slice(0, 15)
-      : [];
+    this.initPairingChain(endpoint, opts);
     this.relayMeta = opts.relay || null;
     this.relayAccessToken = (opts.relay && opts.relay.accessToken) || null;
     // 重连必须复用完整连接参数（relay 档案丢了 relay 元信息就永远连不回）
@@ -241,6 +258,9 @@ class GatewayClient {
       transportTask.onOpen(function () {
       if (self.socketTask !== transportTask) return;
       self.reconnectAttempts = 0;
+      self.socketOpened = true;
+      // 传输已建立：握手/鉴权阶段换回长超时（中继还要等连接器回拨网关）。
+      self.startConnectionTimeout(REQUEST_TIMEOUT);
       if (serviceLease) {
         self.publicLeaseTimer = setTimeout(() => {
           if (self.wantsConnection) self.connect(self.endpoint, self.lastConnectOpts);
@@ -289,7 +309,9 @@ class GatewayClient {
       }
       });
 
-      this.startConnectionTimeout();
+      // 配对中的直连候选（lan/public）用短超时：不可达地址不拖慢「换下一条线路」。
+      // 中继候选与已保存凭据的重连保持长超时。
+      this.startConnectionTimeout(this.pairingCode && !opts.relay ? PAIRING_CONNECT_TIMEOUT : REQUEST_TIMEOUT);
     } catch (e) {
       if (this.socketTask === transportTask) {
         this.handleTransportFailure((e && e.message) || uiText('无法建立 WebSocket 连接'));
@@ -297,15 +319,46 @@ class GatewayClient {
     }
   }
 
-  startConnectionTimeout() {
+  /**
+   * 初始化配对候选链：一次性配对码、回退候选（含中继元信息与线路族）。
+   * connectTransport 与托管中继取租赁失败的路径共用——后者也要能继续回退，
+   * 否则「没兑换公网」会把局域网候选一起堵死。
+   */
+  initPairingChain(endpoint, opts) {
+    this.pairingCode = opts.pairingCode || null;
+    this.pairingFallbacks = this.pairingCode && Array.isArray(opts.endpointCandidates)
+      ? opts.endpointCandidates.filter(candidate => candidate && candidate !== endpoint).slice(0, 15)
+      : [];
+    // 回退候选的中继元信息（与 pairingFallbacks 对齐）：中继候选的认证模型与直连
+    // 不同，回退时必须把 relay 元信息一起带下去，否则中继候选连不上。
+    this.pairingFallbackRelays = this.pairingCode && Array.isArray(opts.relayCandidates)
+      ? opts.relayCandidates.slice(0, 15)
+      : null;
+    // 候选线路族：首选来自 routeKind，回退候选按 endpointCandidates 顺序对齐。
+    this.routeKind = opts.routeKind || null;
+    this.candidateKinds = opts.routeKind && Array.isArray(opts.candidateKinds) && opts.candidateKinds.length
+      ? opts.candidateKinds.slice()
+      : null;
+    // 全部候选的线路族：判定「二维码是否只含局域网」要用完整集合，回退链变短后
+    // 不能丢掉这个信息，所以由首次尝试贯穿整条回退链。
+    this.pairingAllKinds = opts.allCandidateKinds || this.candidateKinds;
+    this.pairingFallbackKinds = this.candidateKinds && this.candidateKinds.length === this.pairingFallbacks.length + 1
+      ? this.candidateKinds.slice(1)
+      : null;
+    this.socketOpened = false;
+  }
+
+  startConnectionTimeout(duration) {
     const self = this;
     this.clearConnectionTimeout();
     this.timeoutTimer = setTimeout(function () {
-      if (self.state === 'connecting') {
+      // 已建立传输后的慢属于握手/鉴权，由长超时兜底；未建立才是本候选不可达。
+      if (self.state === 'connecting' && !self.socketOpened) {
         self.handleTransportFailure(uiText('连接超时'));
       }
-    }, REQUEST_TIMEOUT);
+    }, duration || REQUEST_TIMEOUT);
   }
+
 
   clearConnectionTimeout() {
     if (this.timeoutTimer) {
@@ -314,7 +367,8 @@ class GatewayClient {
     }
   }
 
-  handleTransportFailure(message) {
+  handleTransportFailure(message, options) {
+    const keepPairingCode = !(options && options.pairingCodeConsumed === false);
     clearTimeout(this.publicLeaseTimer);
     this.clearConnectionTimeout();
     const wasDeliberate = !this.wantsConnection;
@@ -332,18 +386,33 @@ class GatewayClient {
     // 配对码是一次性凭据，失败后不能拿旧码静默重试。
     if (this.pairingCode) {
       const nextEndpoint = this.pairingFallbacks.shift();
+      const nextKind = this.pairingFallbackKinds ? this.pairingFallbackKinds.shift() : null;
+      const nextRelay = this.pairingFallbackRelays ? this.pairingFallbackRelays.shift() : null;
       if (nextEndpoint) {
         const pairingCode = this.pairingCode;
         const endpointCandidates = this.pairingFallbacks.slice();
+        const candidateKinds = (nextKind ? [nextKind] : []).concat(this.pairingFallbackKinds || []);
+        // 剩余候选的中继元信息要继续往下传：否则再下一次回退就丢了 E2EE 元信息。
+        const relayCandidates = this.pairingFallbackRelays ? this.pairingFallbackRelays.slice() : null;
         this.pairingCode = null;
         this.wantsConnection = false;
         this.setState('connecting', uiText('当前线路不可达，正在尝试其他配对地址…'));
-        setTimeout(() => this.connect(nextEndpoint, { pairingCode, endpointCandidates }), 0);
+        setTimeout(() => this.connect(nextEndpoint, { pairingCode, endpointCandidates, relayCandidates, routeKind: nextKind, candidateKinds, allCandidateKinds: this.pairingAllKinds, relay: nextRelay || undefined }), 0);
         return;
       }
       this.pairingCode = null;
       this.wantsConnection = false;
-      this.setState('failed', message + uiText('，配对码已失效，请重新扫码'));
+      // 只有局域网候选时，「重新扫码」解决不了问题：要点明二维码里没有公网地址。
+      const kinds = this.pairingAllKinds && this.pairingAllKinds.length
+        ? this.pairingAllKinds
+        : (this.candidateKinds && this.candidateKinds.length
+            ? this.candidateKinds
+            : (this.routeKind ? [this.routeKind] : []));
+      const lanOnly = routeTable.onlyLocalAreaNetwork(kinds.map(kind => ({ kind })));
+      // 取公网租赁失败等原因下配对码还有效：别误导用户「码失效了，重新扫码」。
+      this.setState('failed', message
+        + (keepPairingCode ? uiText('，配对码已失效，请重新扫码') : '')
+        + (lanOnly ? uiText('。这张二维码只包含局域网地址，手机在外网时连不上：请在 DSH 插件里配置公网地址或中继，再重新生成二维码') : ''));
       return;
     }
     if (this.relayMeta && !this.relayAccessToken &&
@@ -438,6 +507,7 @@ class GatewayClient {
     }
     this.pairingCode = null;
     this.pairingFallbacks = [];
+    this.pairingAllKinds = null;
     this.relaySession = null;
     this.relayMeta = null;
     this.relayAccessToken = null;

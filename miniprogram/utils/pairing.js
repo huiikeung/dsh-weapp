@@ -7,7 +7,8 @@ const { t: uiText } = require('./ui-preferences');
 //   { version:3, mode:'relay', relay, nodeId, agentPubKey, inviteToken, expiresAt }
 //   公网模式只连接 relay + '/c/' + nodeId，不回落到局域网地址。
 
-const { decodeBase64URL } = require('./util');
+const { decodeBase64URL } = require('./util')
+const routeTable = require('./route-table');
 
 // 主机平台/设备类型是可选的附加字段：新版中继连接器会带 hostPlatform，
 // 网关插件后续也可以直接带 deviceKind；老载荷没有这些字段也能正常配对。
@@ -100,6 +101,11 @@ function parseDirectPayload(payload, route, now) {
       gatewayId: payload.gatewayId || null,
       gatewayName: payload.gatewayName || null,
       endpoints: Array.isArray(selected.endpoints) ? selected.endpoints : [endpoint],
+      routeTable: routeTable.parseRouteTable({
+        routes: payload.routes,
+        publicUrl: endpoint,
+        endpoints: Array.isArray(selected.endpoints) ? selected.endpoints : [endpoint]
+      }),
       ...(route ? { mode: 'mini-program-direct' } : {}),
       ...deviceFields(payload)
     }
@@ -145,6 +151,8 @@ function parseRelayPayload(payload, now) {
       accessDays: [3, 7, 30, 180, 365].includes(payload.accessDays) ? payload.accessDays : null,
       gatewayName: payload.gatewayName || null,
       endpoints: [endpoint],
+      // v3 中继载荷只有公网一条线路：小程序与 App 都只连中继地址。
+      routeTable: { lan: [], public: [], relay: routeTable.normalizeRelay(payload) },
       ...deviceFields(payload)
     }
   };
