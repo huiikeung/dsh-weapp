@@ -170,12 +170,12 @@
            出现）：前面只有一个箭头，展开时下方各轮过程组与中间叙述照原顺序显示，
            收起时整轮折成这一行 -->
       <view wx:elif="{{item.kind === 'turnProcess'}}" class="process-block" id="{{item.key}}">
-<view class="process-head" hover-class="{{item.foldable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="{{item.foldable ? 'toggleFold' : ''}}" data-key="{{item.key}}">
+<view class="process-head" hover-class="{{item.foldable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
           <view class="command-icon-slot turn-process-slot" aria-hidden="true">
 <image wx:if="{{item.foldable}}" class="command-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
           </view>
           <text class="process-title">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</text>
-          <text wx:if="{{item.summary}}" class="process-summary">{{ui[item.summary] !== undefined ? ui[item.summary] : item.summary}}</text>
+          <text wx:if="{{item.summary || item.expandedSummary}}" class="process-summary">{{folds[item.key] && item.expandedSummary ? item.expandedSummary : (ui[item.summary] !== undefined ? ui[item.summary] : item.summary)}}</text>
           <view class="event-spacer"></view>
         </view>
       </view>
@@ -183,7 +183,7 @@
       <!-- DSH process groups keep their header in every mode; mode/timing controls
            whether the body is capped and scrollable, not whether it is mounted. -->
       <view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}}" id="{{item.key}}">
-<view class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
+<view wx:if="{{!item.turnGroupHeadingHidden}}" class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
           <view class="command-icon-slot {{folds[item.key] ? 'disclosed' : ''}}" aria-hidden="true">
             <view wx:if="{{item.running && !item.completed}}" class="proc-loader proc-look-{{procIconStyle}}">
               <template is="procIconGlyph" data="{{styleId: procIconStyle}}" />
@@ -212,9 +212,9 @@
             <view wx:elif="{{node.kind === 'reasoning'}}" class="reasoning-card reading-preview">
               <view class="reasoning-card-head"><text class="reasoning-card-title">{{ui['思考']}}</text><text wx:if="{{node.stepLabel}}" class="reasoning-step">{{ui[node.stepLabel] !== undefined ? ui[node.stepLabel] : node.stepLabel}}</text></view>
               <view class="reasoning-reading-area">
-                <scroll-view class="reasoning-scroll" scroll-y="{{true}}" enhanced show-scrollbar="{{true}}" style="height:{{node.readingHeight}}rpx;">
+<scroll-view class="reasoning-scroll" scroll-y="{{true}}" enhanced show-scrollbar="{{true}}" style="height:{{node.readingHeight}}rpx;">
                   <text class="reasoning-reading-text" selectable>{{node.text}}</text>
-                </scroll-view>
+</scroll-view>
                 <view wx:if="{{node.readingLong}}" class="reasoning-reading-fade"></view>
               </view>
               <view class="reasoning-card-footer">
@@ -274,7 +274,7 @@
                         <view class="command-code-lines"><view wx:for="{{tool.commandLines}}" wx:for-item="line" wx:key="index" class="command-code-line"><text class="command-prompt">$</text><text class="command-source" selectable>{{line.text}}</text></view></view>
                       </scroll-view>
                       <view wx:else class="command-placeholder">{{tool.waiting ? ui['正在接收命令…'] : ui['未记录命令内容']}}</view>
-                      <scroll-view wx:if="{{tool.resultText}}" class="command-output {{tool.isError ? 'failed' : ''}}" scroll-x scroll-y enhanced>
+<scroll-view wx:if="{{tool.resultText}}" class="command-output {{tool.isError ? 'failed' : ''}}" scroll-x scroll-y enhanced>
                         <text class="command-output-text" selectable>{{tool.resultText}}</text>
                       </scroll-view>
                       <view wx:elif="{{!tool.waiting}}" class="command-placeholder command-empty-output">{{tool.statusText || ui['无输出']}}</view>

@@ -9,6 +9,7 @@ const { buildEntries } = require('../miniprogram/pages/session/utils/conversatio
 const policy = require('../miniprogram/pages/session/utils/work-step-presentation');
 const root = path.resolve(__dirname, '../miniprogram');
 const xml = fs.readFileSync(path.join(root, 'pages/session/session.wxml'), 'utf8');
+const runtimeXml = fs.readFileSync(path.resolve(__dirname, '../resources/runtime-markup/pages/session/session.wxml'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'pages/session/session.wxss'), 'utf8');
 
 test('live status title sits below details while completed headers stay above them', () => {
@@ -95,8 +96,18 @@ test('a live process body follows the newest step anchor instead of leaving it b
 
 test('turn-process disclosure is disabled in verbose and always-open outcomes', () => {
   const process = xml.slice(xml.indexOf("item.kind === 'turnProcess'"), xml.indexOf("item.kind === 'processGroup'"));
-  assert.match(process, /bindtap="\{\{item\.foldable \? 'toggleFold' : ''\}\}"/);
+  assert.match(process, /bindtap="toggleFold"/);
   assert.match(process, /wx:if="\{\{item\.foldable\}\}" class="command-chevron/);
+  const runtimeTurn = runtimeXml.slice(runtimeXml.indexOf("item.kind === 'turnProcess'"), runtimeXml.indexOf("item.kind === 'processGroup'"));
+  assert.match(runtimeTurn, /bindtap="toggleFold"/, 'source runtime markup uses a static handler too');
+});
+
+test('completed turn summaries switch from duration to tool count and hide duplicate group headers', () => {
+  const turn = xml.slice(xml.indexOf("item.kind === 'turnProcess'"), xml.indexOf("item.kind === 'processGroup'"));
+  assert.match(turn, /item\.summary \|\| item\.expandedSummary/);
+  assert.match(turn, /folds\[item\.key\] && item\.expandedSummary \? item\.expandedSummary/);
+  const group = xml.slice(xml.indexOf("item.kind === 'processGroup'"), xml.indexOf('class="turn-error-card"'));
+  assert.match(group, /wx:if="\{\{!item\.turnGroupHeadingHidden\}\}" class="process-head"/);
 });
 
 const compiler = process.env.WECHAT_WCC || 'D:/Program Files (x86)/Tencent/微信web开发者工具/resources/app.asar.unpacked/node_modules/wcc-exec/wcc.exe';

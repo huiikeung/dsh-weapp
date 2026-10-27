@@ -104,7 +104,12 @@ module.exports = {
       (rects || []).forEach((rect, i) => {
         if (rect.height > 0 && Math.abs((window.heights.get(keys[i]) || 0) - rect.height) > 1) { window.heights.set(keys[i], rect.height); changed = true; }
       });
-      if (!changed) return;
+      if (!changed) {
+        if (this._initialConversationAnchorApplied && this.data.scrollTarget === 'conv-bottom') {
+          this._initialConversationAnchorApplied = false;
+        }
+        return;
+      }
       window.update(window.rows);
       const patch = dataPatch(this.data, window.patch());
       const anchoring = this._scrollAnchorAt && Date.now() - this._scrollAnchorAt < 800;
@@ -121,7 +126,13 @@ module.exports = {
         this._programmaticScrollTop = patch.conversationScrollTop;
       }
       if (Object.keys(patch).length) this.setData(patch);
-      if (this._convPinned !== false) this.refreshBottomAnchor();
+      if (this._convPinned !== false) {
+        if (this._initialConversationAnchorApplied && this.data.scrollTarget === 'conv-bottom') {
+          this._initialConversationAnchorApplied = false;
+        } else {
+          this.refreshBottomAnchor();
+        }
+      }
     });
   }
 };

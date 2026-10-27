@@ -124,11 +124,19 @@ test('session mode header uses the DSH roster name and refreshes every opened or
   assert.equal(f.presetRequests(), 3, 'foreground resume can refresh even when the socket stayed connected');
 });
 test('first paint renders a bounded tail and formats history only when it enters the window', () => {
-  const f = fixture(); f.sync();
+  const f = fixture();
+  let bottomAnchors = 0;
+  f.page.refreshBottomAnchor = () => { bottomAnchors++; };
+  f.sync();
   assert.ok(f.report().parses <= 12);
   assert.ok(f.page.data.rows.length <= 40);
   assert.ok(!f.page.data.rows.some(row => row.key === 'a0'));
   assert.ok(f.page.data.rows.find(row => row.key === 'current').blocks.length);
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom', 'first tail rows and bottom target enter the view together');
+  assert.ok(f.patches.some(patch => patch.scrollTarget === 'conv-bottom'
+    && (patch.rows || Object.keys(patch).some(key => key.startsWith('rows[')))),
+  'the initial anchor is part of the first conversation-row render');
+  assert.equal(bottomAnchors, 0, 'initial projection does not schedule a second post-paint jump');
   f.reset();
   f.page._convPinned = false; f.page.updateConversationWindow(0); f.patches.length = 0;
   let batches = 0;
@@ -281,6 +289,21 @@ test('reentering a loaded conversation scrolls to the latest message even withou
   assert.equal(f.page.data.showJump, false);
   assert.equal(f.page.data.scrollAnim, false);
 });
+test('the first page show preserves the anchor supplied with its first conversation render', () => {
+  const f = fixture(); f.sync();
+  let jumps = 0, anchors = 0;
+  f.page._initialPageShowPending = true;
+  f.page.jumpToBottom = () => { jumps++; };
+  f.page.refreshBottomAnchor = () => { anchors++; };
+  f.page.syncVoicePreference = () => {};
+  f.page.startScrollPolling = () => {};
+  f.page.updateDockInset = () => {};
+  f.page.measureConversationViewport = () => {};
+  f.page.onShow();
+  assert.equal(jumps, 0, 'onShow must not clear and replay the first-render bottom target');
+  assert.equal(anchors, 0, 'the first show must not schedule a second post-paint correction');
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom');
+});
 test('reentering a conversation remounts the latest virtual window before anchoring', () => {
   const f = fixture(); f.sync();
   f.page._convPinned = false;
@@ -327,7 +350,8 @@ test('switching conversations resets history reading even when rendered rows are
   f.sync();
   assert.equal(f.page._convPinned, true);
   assert.equal(f.page._lastTouchAt, 0);
-  assert.equal(f.report().scrolls, 1);
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom', 'the new session is mounted at its tail on the first render');
+  assert.equal(f.report().scrolls, 0, 'session switches do not schedule a second post-render jump');
 });
 test('delayed history stays pinned on entry but manual upward scrolling still stops following', () => {
   const f = fixture();

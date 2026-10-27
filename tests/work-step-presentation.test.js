@@ -171,6 +171,7 @@ test('a finished turn gets one 已完成 disclosure above its rounds', () => {
   assert.ok(turn, 'the turn disclosure appears once the turn closes');
   assert.equal(turn.title, '已完成');
   assert.equal(turn.summary, '用时 13 秒', '回合用时只挂回合行');
+  assert.equal(turn.expandedSummary, '4 次工具调用', 'expanded turn header summarizes calls across its groups');
   assert.equal(folds[turn.key], false, '对话结束自动折叠');
   // 折叠时整轮过程折成回合行那一行，只留下最终答复
   assert.deepEqual(entries.filter(e => !e.turnProcessKey || folds[e.turnProcessKey]).map(e => e.kind),
@@ -180,7 +181,10 @@ test('a finished turn gets one 已完成 disclosure above its rounds', () => {
   assert.deepEqual(entries.filter(e => e.turnProcessKey === turn.key).map(e => e.kind === 'processGroup' ? e.title : e.text),
     ['执行了命令并已读取文件', '中间叙述', '修改了文件并运行了代码']);
   assert.deepEqual(entries.filter(e => e.turnProcessKey === turn.key && e.kind === 'processGroup').map(e => e.summary),
-    ['2 次工具调用', '2 次工具调用']);
+    ['', '']);
+  assert.ok(entries.filter(e => e.turnProcessKey === turn.key && e.kind === 'processGroup')
+    .every(e => e.turnGroupHeadingHidden && e.processBodyCapped),
+  'successful turn expansion removes duplicate headings while retaining process-container scrolling');
   // 最终答复留在 disclosure 外面，始终可见
   assert.deepEqual(entries.map(e => e.kind), ['user', 'turnProcess', 'processGroup', 'assistant', 'processGroup', 'assistant']);
   assert.equal(entries[entries.length - 1].turnProcessKey, undefined);
@@ -330,7 +334,7 @@ test('the four presentation modes each lay the process out differently', () => {
   ];
   const done = live.map(r => Object.assign({}, r, { streaming: false }));
   done[4].turnClosed = true; done[4].turnEndReason = 'completed'; done[4].durationMs = 12500;
-  // DSH keeps group headers in every mode; its policy controls body caps instead.
+  // Group content always flows with the page; modes still control titles and reasoning previews.
   for (const mode of ['compact', 'standard', 'detailed', 'verbose']) {
     const entries = buildEntries(live.map(r => Object.assign({}, r)), { running: true });
     policy.apply(entries, { mode, timing: 'completion' }, {}, [], true);
@@ -352,7 +356,7 @@ test('the four presentation modes each lay the process out differently', () => {
     assert.equal(folds[turn.key], turnOpen, mode + ' 回合行默认状态');
     const groups = entries.filter(e => e.kind === 'processGroup');
     assert.deepEqual(groups.map(g => g.processBodyCapped), mode === 'verbose' ? [false, false] : [true, true],
-      mode + ' applies the completed-history cap');
+      mode + ' preserves its process-container scrolling after duplicate headings are hidden');
   }
 });
 

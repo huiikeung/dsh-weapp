@@ -99,7 +99,8 @@ test('nested PTC calls remain in the process sequence with their outputs',()=>{
   push('assistant/message',{turn:4,message:{content:[{type:'text',text:'已完成分析。'}]}});
   push('turn/end',{turn:4,reason:'completed'});
 
-  const group=buildEntries(agg.rows).find(row=>row.kind==='processGroup');
+  const entries=buildEntries(agg.rows);
+  const group=entries.find(row=>row.kind==='processGroup');
   const calls=group.children.flatMap(child=>child.tools||[]);
   assert.deepEqual(calls.map(tool=>tool.name),['run_code','read','grep']);
   assert.equal(calls[1].depth,1);
@@ -108,7 +109,9 @@ test('nested PTC calls remain in the process sequence with their outputs',()=>{
   assert.deepEqual(calls[2].branchTracks,[{key:'1',style:'left:-42rpx;'},{key:'2',style:'left:-14rpx;'}]);
   assert.equal(calls[1].resultImages[0].attachmentId,'nested-image');
   assert.equal(calls[2].resultText,'匹配行');
-  assert.equal(group.summary,'3 次工具调用');
+  const turn=entries.find(row=>row.kind==='turnProcess');
+  assert.equal(group.summary,'');
+  assert.equal(turn.expandedSummary,'3 次工具调用');
   const wxml=fs.readFileSync(require.resolve('../miniprogram/pages/session/session.wxml'),'utf8');
   assert.match(wxml,/class="tool-node \{\{tool\.isCommand \? 'command-node' : ''\}\}" style="\{\{tool\.indentStyle\}\}"/);
   assert.match(wxml,/class="tool-branch-track" style="\{\{track\.style\}\}"/);

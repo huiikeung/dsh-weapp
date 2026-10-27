@@ -211,11 +211,14 @@ function insertTurnDisclosures(list) {
     if (groups.length > 0) {
       const key = 'turn-' + entry.key;
       const duration = groups.map(g => (g.summary || '').split(' · ').find(part => part.indexOf(uiText('用时 ')) === 0)).find(Boolean) || '';
+      const toolCount = groups.reduce((count, group) => count + groupTools(group).length, 0);
+      const completed = groups[groups.length - 1].completed === true;
       out.push({
         kind: 'turnProcess',
         key,
         title: groups[groups.length - 1].title,   // 回合级标题：已完成 / 执行失败 / 已停止
         summary: duration,
+        expandedSummary: completed && toolCount ? toolCount + uiText(' 次工具调用') : '',
         iconFile: entry.iconFile,
         darkIconFile: entry.darkIconFile,
         expandable: groups.some(group => group.expandable === true),
@@ -224,13 +227,16 @@ function insertTurnDisclosures(list) {
       });
       run.forEach((item) => {
         item.turnProcessKey = key;
-        // 里面各组按自己的子内容命名（运行了代码 / 已完成分析……），不再重复回合行的
-        // 「已完成」；回合用时也只挂回合行，各组不重复显示。
+        item.turnGroupHeadingHidden = completed;
+        // Nested groups keep activity labels for non-success outcomes. Successful
+        // turns hide the duplicate headers and move their tool count to the turn row.
         if (item.kind === 'processGroup') {
           item.title = processActivityTitle(groupTools(item));
           const summaryParts = (item.summary || '').split(' · ').filter(part => part && part.indexOf(uiText('用时 ')) !== 0);
-          const toolCount = groupTools(item).length;
-          if (!summaryParts.length && toolCount) summaryParts.push(toolCount + uiText(' 次工具调用'));
+          const groupToolCount = groupTools(item).length;
+          if (!completed && !summaryParts.length && groupToolCount) {
+            summaryParts.push(groupToolCount + uiText(' 次工具调用'));
+          }
           item.summary = summaryParts.join(' · ');
         }
       });

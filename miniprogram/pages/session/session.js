@@ -315,6 +315,9 @@ Page({
 
   onLoad(options) {
     theme.applyTo(this);
+    this._initialConversationAnchorPending = true;
+    this._initialConversationAnchorApplied = false;
+    this._initialPageShowPending = true;
     this.setData(statusAppearance.view(statusAppearance.read()));
     this.setData(procIconStyle.view(procIconStyle.read()));
     this._sessionDrafts = {};
@@ -373,7 +376,9 @@ Page({
     // 首帧渲染完成后立即测量 dock，避免默认留白遮挡底部内容
     this.updateDockInset();
     this.measureConversationViewport();
-    this.refreshBottomAnchor();
+    if (!this._initialConversationAnchorPending && !this._initialConversationAnchorApplied) {
+      this.refreshBottomAnchor();
+    }
     this.startScrollPolling();
     // 编队舞台只在切到编队/上下文时才看得见：首帧不做这次 selector 查询，挪到空闲时再量。
     if (this._fleetMeasureTimer) clearTimeout(this._fleetMeasureTimer);
@@ -405,6 +410,8 @@ Page({
   },
 
   onShow() {
+    const firstPageShow = this._initialPageShowPending === true;
+    this._initialPageShowPending = false;
     const foregroundEpoch = this.currentAppForegroundEpoch();
     const resumedFromBackground = this._lastForegroundEpoch != null
       && foregroundEpoch !== this._lastForegroundEpoch;
@@ -432,14 +439,14 @@ Page({
     // Re-entry can happen while the virtual list is still mounted on an older
     // window. Recompute that window before anchoring; otherwise conv-bottom may
     // point past a large spacer while the latest message is not in the DOM.
-    if (!resumedFromBackground) this.jumpToBottom();
+    if (!resumedFromBackground && !firstPageShow) this.jumpToBottom();
     this.startScrollPolling();
     // 首次进入时 onLoad 刚同步过同一份快照：再同步一次等于把整份 rows 重新投影 + 跨桥一次，
     if (store.sessionState && store.sessionState.sessionId && Date.now() - (this._lastSyncAt || 0) > 400) {
       this.syncFromStore({ app: store.state, session: store.sessionState });
     }
     if (this._turnWarmup) this.pumpTurnNavigatorWarmup();
-    this.refreshBottomAnchor();
+    if (!firstPageShow) this.refreshBottomAnchor();
     this.setData(Object.assign(statusAppearance.view(statusAppearance.read()), procIconStyle.view(procIconStyle.read())));
     // 返回前台/切回页面：dock 高度可能变化（键盘、队列、审批卡）
     this.updateDockInset();
@@ -567,7 +574,10 @@ Page({
       }
       if (Object.keys(patch).length) this.setData(patch, () => {
         this.measureConversationWindow();
-        if (!this._unloaded && !this._voiceHidden && sessionId === this._renderSessionId && this._convPinned !== false) this.refreshBottomAnchor();
+        const initialAnchorActive = this._initialConversationAnchorPending
+          || this._initialConversationAnchorApplied && this.data.scrollTarget === 'conv-bottom';
+        if (!initialAnchorActive && !this._unloaded && !this._voiceHidden
+          && sessionId === this._renderSessionId && this._convPinned !== false) this.refreshBottomAnchor();
       });
       if ([...this._pendingHistoryFormat.keys()].some(key => indices.has(key) || processChildren.has(key))) this.scheduleHistoryFormatting();
     }, 32);
@@ -697,6 +707,8 @@ Page({
     const sessionChanged = this._renderSessionId !== s.sessionId
       || this._renderHost !== String(app.activeID || app.endpoint || '');
     if (sessionChanged) {
+      this._initialConversationAnchorPending = true;
+      this._initialConversationAnchorApplied = false;
       this.closeFileMention();
       this.resetConversationScroll();
       this._fleetCommsGeneration = (this._fleetCommsGeneration || 0) + 1;
@@ -1154,6 +1166,18 @@ Page({
     // 上下文/编队面板只在对应 Tab（或弹窗）可见时才派生视图模型。
     const activeTab = this.data.tab;
     const contextVisible = activeTab === 'context' || this.data.contextModalOpen === true;
+    const conversationPatch = this.conversationWindowPatch(visibleRows,
+      historyMerged && activeTab === 'conversation' && this._convPinned === false ? { anchor: true } : null);
+    const initialConversationAnchor = this._initialConversationAnchorPending
+      && activeTab === 'conversation' && visibleRows.length > 0 && this._convPinned !== false;
+    if (initialConversationAnchor) {
+      // Mount the tail and its anchor in one render. A second scroll-into-view
+      // pass after the page first paints makes the conversation visibly jump.
+      conversationPatch.scrollTarget = 'conv-bottom';
+      conversationPatch.scrollAnim = false;
+      this._initialConversationAnchorPending = false;
+      this._initialConversationAnchorApplied = true;
+    }
     const viewPatch = dataPatch(this.data, Object.assign({
       ...this.collaborationPatch(s, app),
       ...(contextVisible ? this.contextPanelPatch(s, app, trendAutoOverviewPatch) : {}),
@@ -1166,7 +1190,7 @@ Page({
       sessionPresetName: presetName || uiText('选择模式'),
       running: s.running === true,
       lastRowKind: rows.length ? rows[rows.length - 1].kind : '',
-      ...this.conversationWindowPatch(visibleRows, historyMerged && activeTab === 'conversation' && this._convPinned === false ? { anchor: true } : null),
+      ...conversationPatch,
       ...this.turnNavigatorPatch(s.rows || rows),
       folds: processFolds,
       ...tracePatch,
@@ -1284,7 +1308,8 @@ Page({
 
     // 新内容到达时贴底；但用户正在触摸列表时不要抢滚动
     const touchingRecently = Date.now() - (this._lastTouchAt || 0) < 1000;
-    if ((sessionChanged || rowsChanged || justFinished) && this.data.tab === 'conversation' && this._convPinned !== false && !touchingRecently) {
+    if (!initialConversationAnchor && (sessionChanged || rowsChanged || justFinished)
+      && this.data.tab === 'conversation' && this._convPinned !== false && !touchingRecently) {
       this.refreshBottomAnchor();
     }
   },
@@ -5643,7 +5668,9 @@ Page({
         const inset = Math.round(overlap * 750 / Math.max(info.windowWidth || 375, 1) + 12);
         if (Math.abs(inset - this.data.convBottomInset) > 6) {
           this.setData({ convBottomInset: inset, ...this.layoutPatch({ convBottomInset: inset }) }, () => {
-            if (this._convPinned) this.refreshBottomAnchor();
+            const initialAnchorActive = this._initialConversationAnchorPending
+              || this._initialConversationAnchorApplied && this.data.scrollTarget === 'conv-bottom';
+            if (this._convPinned && !initialAnchorActive) this.refreshBottomAnchor();
             this.measureConversationViewport();
           });
         }
