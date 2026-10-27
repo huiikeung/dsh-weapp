@@ -145,21 +145,30 @@
 </view>
 <view wx:if="{{item.copyText}}" class="copy-btn row-user-copy" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}" hover-class="press-dim" role="button" aria-label="{{ui['复制']}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view>
 </view>
+<view wx:elif="{{item.kind === 'turnProcess'}}" class="process-block" id="{{item.key}}">
+<view class="process-head" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
+<view class="command-icon-slot turn-process-slot" aria-hidden="true">
+<image class="command-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+</view>
+<text class="process-title">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</text>
+<text wx:if="{{item.summary}}" class="process-summary">{{ui[item.summary] !== undefined ? ui[item.summary] : item.summary}}</text>
+<view class="event-spacer"></view>
+</view>
+</view>
 <view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}}" id="{{item.key}}">
-<view class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
+<view wx:if="{{!item.detailFlat}}" class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
 <view class="command-icon-slot {{folds[item.key] ? 'disclosed' : ''}}" aria-hidden="true">
 <view wx:if="{{item.running && !item.completed}}" class="proc-loader proc-look-{{procIconStyle}}">
 <template is="procIconGlyph" data="{{styleId: procIconStyle}}" />
 </view>
-<image wx:elif="{{!item.completed}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
-<image wx:if="{{(item.completed || item.expandable) && !item.running}}" class="command-chevron {{item.completed ? 'completed-chevron' : ''}} {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+<image wx:if="{{!item.running}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
+<image wx:if="{{!item.running}}" class="command-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
 </view>
 <text class="process-title {{item.failed ? 'failed' : ''}}">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</text>
 <text wx:if="{{item.liveDetail}}" class="process-live-detail">· {{item.liveDetail}}</text>
 <text wx:elif="{{item.summary}}" class="process-summary">{{ui[item.summary] !== undefined ? ui[item.summary] : item.summary}}</text>
 <view class="event-spacer"></view>
 </view>
-<view class="process-hairline"></view>
 <view wx:if="{{item.failed && item.failureMessage}}" class="turn-error-card" role="alert">
 <view class="turn-error-head"><view class="turn-error-bang">!</view><text class="turn-error-title">{{item.failureTitle || ui['本轮运行失败']}}</text></view>
 <view class="turn-error-message">{{item.failureMessage}}</view>

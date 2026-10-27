@@ -53,8 +53,8 @@ test('conversation row-height corrections wait for a scroll to settle', () => {
   const timers = new Map();
   let rectCallback;
   global.setTimeout = (fn, delay) => { timers.set(++timerId, { fn, delay }); return timerId; };
-  global.wx = { createSelectorQuery: () => ({ in() { return this; }, selectAll() { return this; },
-    boundingClientRect(fn) { rectCallback = fn; return this; }, exec() { return this; } }) };
+  global.wx = { createSelectorQuery: () => ({ in() { return this; }, select() { return this; }, selectAll() { return this; },
+    boundingClientRect() { return this; }, exec(fn) { rectCallback = fn; return this; } }) };
   try {
   const row = { key: 'u1', kind: 'user', text: 'message' };
   page.data.rows = [row];
@@ -65,7 +65,7 @@ test('conversation row-height corrections wait for a scroll to settle', () => {
 
   assert.equal(page._windowMeasurePending, true, 'the first geometry query is allowed after scroll settles');
   page._panelGesture = { tab: 'conversation' };
-  rectCallback([{ height: 120 }]);
+  rectCallback([{ top: 0, bottom: 700 }, [{ top: 0, bottom: 120, height: 120 }]]);
   assert.equal(page._windowMeasurePending, false, 'an in-flight measurement is discarded during a new touch');
   const [scheduledId, timer] = [...timers.entries()][0];
   assert.ok(timer, 'a replacement measurement is deferred instead of changing spacers mid-swipe');

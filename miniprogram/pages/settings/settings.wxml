@@ -93,7 +93,14 @@
   </view>
 
   <view class="group-title">{{ui['对话']}}</view>
-  <view wx:if="{{workStepMenu}}" class="work-step-menu-mask" catchtap="closeWorkStepMenu"></view>
+  <!-- 工作步骤下拉挂在遮罩内部：fixed 遮罩在部分 WebView 会无视 z-index 盖住绝对
+       定位的下拉（点了选项没反应），放进遮罩子层就必然画在它之上。位置由
+       toggleWorkStepMenu 量行高后以视口坐标给出。 -->
+  <view wx:if="{{workStepMenu}}" class="work-step-menu-mask" catchtap="closeWorkStepMenu" catchtouchmove="noop">
+    <view class="work-step-menu" style="top:{{workStepMenuTop}};right:{{workStepMenuRight}}">
+      <view wx:for="{{workStepMenu === 'mode' ? workStepModes : workStepTimings}}" wx:key="id" class="work-step-option" bindtap="chooseWorkStep" data-field="{{workStepMenu}}" data-id="{{item.id}}" role="button"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="work-step-selected">{{(workStepMenu === 'mode' ? workStepMode : workStepTiming) === item.id ? '✓' : ''}}</text></view>
+    </view>
+  </view>
   <view class="card work-step-settings">
     <view class="card-row">
       <view class="work-step-copy"><text class="card-row-label">{{ui['语音输入']}}</text><text class="work-step-hint">{{ui['按住说话，由已连接的 DSH 语音插件转写']}}</text></view>
@@ -102,19 +109,13 @@
     <view wx:if="{{voiceEnabled}}" class="card-row" bindtap="openVoiceSettings" role="button">
       <text class="card-row-label">{{ui['语音插件设置']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
     </view>
-    <view class="card-row work-step-row">
+    <view class="card-row work-step-row work-step-mode-row">
       <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤展示']}}</text><text class="work-step-hint">{{ui['选择希望看到多少工具调用细节']}}</text></view>
       <view class="work-step-select" bindtap="toggleWorkStepMenu" data-field="mode" role="button" aria-label="{{ui['工作步骤展示：']}}{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}"><text>{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}</text><image class="work-step-select-chevron" src="/assets/icons/chev-right-gray.png"/></view>
-      <view wx:if="{{workStepMenu === 'mode'}}" class="work-step-menu">
-        <view wx:for="{{workStepModes}}" wx:key="id" class="work-step-option" bindtap="chooseWorkStep" data-field="mode" data-id="{{item.id}}" role="button"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="work-step-selected">{{workStepMode === item.id ? '✓' : ''}}</text></view>
-      </view>
     </view>
-    <view class="card-row work-step-row">
+    <view class="card-row work-step-row work-step-timing-row">
       <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤收起时机']}}</text><text class="work-step-hint">{{ui['选择何时自动收起工作步骤']}}</text></view>
       <view class="work-step-select" bindtap="toggleWorkStepMenu" data-field="timing" role="button" aria-label="{{ui['工作步骤收起时机：']}}{{ui[workStepTimingLabel] !== undefined ? ui[workStepTimingLabel] : workStepTimingLabel}}"><text>{{ui[workStepTimingLabel] !== undefined ? ui[workStepTimingLabel] : workStepTimingLabel}}</text><image class="work-step-select-chevron" src="/assets/icons/chev-right-gray.png"/></view>
-      <view wx:if="{{workStepMenu === 'timing'}}" class="work-step-menu timing-menu">
-        <view wx:for="{{workStepTimings}}" wx:key="id" class="work-step-option" bindtap="chooseWorkStep" data-field="timing" data-id="{{item.id}}" role="button"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><text class="work-step-selected">{{workStepTiming === item.id ? '✓' : ''}}</text></view>
-      </view>
     </view>
   </view>
   <view class="group-hint">{{ui['完全展开时不自动收起；设置保存在当前小程序。']}}</view>

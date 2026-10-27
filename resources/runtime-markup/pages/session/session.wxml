@@ -166,22 +166,38 @@
         <view wx:if="{{item.copyText}}" class="copy-btn row-user-copy" bindtap="copyAssistantText" data-key="{{item.copyKey || item.key}}" data-text="{{item.copyText}}" hover-class="press-dim" role="button" aria-label="{{ui['复制']}}"><image class="copy-ic" src="{{copiedKey === (item.copyKey || item.key) ? '/assets/icons/check-ocean.png' : '/assets/icons/copy-gray.png'}}"/></view>
       </view>
 
-      <!-- dsh-mobile ConversationProcessGroup：稳定组头 + 分层 disclosure 节点 -->
+      <!-- 回合级「已完成」disclosure（对齐桌面端 TurnProcessNodeView，只在回合关闭后
+           出现）：前面只有一个箭头，展开时下方各轮过程组与中间叙述照原顺序显示，
+           收起时整轮折成这一行 -->
+      <view wx:elif="{{item.kind === 'turnProcess'}}" class="process-block" id="{{item.key}}">
+        <view class="process-head" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
+          <view class="command-icon-slot turn-process-slot" aria-hidden="true">
+            <image class="command-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+          <text class="process-title">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</text>
+          <text wx:if="{{item.summary}}" class="process-summary">{{ui[item.summary] !== undefined ? ui[item.summary] : item.summary}}</text>
+          <view class="event-spacer"></view>
+        </view>
+      </view>
+
+      <!-- dsh-mobile ConversationProcessGroup：稳定组头 + 分层 disclosure 节点。
+           detailFlat（详细档进行中 / verbose）时组头不显示，子过程直接平铺展开 -->
       <view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}}" id="{{item.key}}">
-        <view class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
+        <view wx:if="{{!item.detailFlat}}" class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
           <view class="command-icon-slot {{folds[item.key] ? 'disclosed' : ''}}" aria-hidden="true">
             <view wx:if="{{item.running && !item.completed}}" class="proc-loader proc-look-{{procIconStyle}}">
               <template is="procIconGlyph" data="{{styleId: procIconStyle}}" />
             </view>
-            <image wx:elif="{{!item.completed}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
-            <image wx:if="{{(item.completed || item.expandable) && !item.running}}" class="command-chevron {{item.completed ? 'completed-chevron' : ''}} {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+            <!-- 收起时显示工具图标；展开后由 .disclosed 换成箭头（CSS 控制显隐）。
+                 运行中的组头只有 loader，不挂箭头（流式路径上少一个节点）。 -->
+            <image wx:if="{{!item.running}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
+            <image wx:if="{{!item.running}}" class="command-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
           </view>
           <text class="process-title {{item.failed ? 'failed' : ''}}">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</text>
           <text wx:if="{{item.liveDetail}}" class="process-live-detail">· {{item.liveDetail}}</text>
           <text wx:elif="{{item.summary}}" class="process-summary">{{ui[item.summary] !== undefined ? ui[item.summary] : item.summary}}</text>
           <view class="event-spacer"></view>
         </view>
-        <view class="process-hairline"></view>
         <!-- 本轮运行失败：对齐桌面端 message.turnError。放在折叠区外，收起过程分组后仍然可见 -->
         <view wx:if="{{item.failed && item.failureMessage}}" class="turn-error-card" role="alert">
           <view class="turn-error-head"><view class="turn-error-bang">!</view><text class="turn-error-title">{{item.failureTitle || ui['本轮运行失败']}}</text></view>

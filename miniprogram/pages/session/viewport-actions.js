@@ -63,7 +63,10 @@ module.exports = {
     }
     const keys = this.data.rows.map(row => row.key);
     this._windowMeasurePending = true;
-    wx.createSelectorQuery().in(this).selectAll('.conversation-window-row').boundingClientRect(rects => {
+    const query = wx.createSelectorQuery().in(this);
+    query.select('.conversation').boundingClientRect();
+    query.selectAll('.conversation-window-row').boundingClientRect();
+    query.exec((res) => {
       this._windowMeasurePending = false;
       if (this._unloaded || this._voiceHidden || window !== this._conversationWindow || keys.join('|') !== this.data.rows.map(row => row.key).join('|')) return;
       // The selector query can finish after a swipe has started. Do not apply a
@@ -75,7 +78,17 @@ module.exports = {
         this.measureConversationWindow();
         return;
       }
-      const index = window.indexAt(this._lastScrollTop || 0), oldOffset = window.offsets[index];
+      const viewport = res && res[0];
+      const rects = (res && res[1]) || [];
+      const viewportTop = viewport && Number(viewport.top);
+      const viewportBottom = viewport && Number(viewport.bottom);
+      const visibleRow = Number.isFinite(viewportTop) && Number.isFinite(viewportBottom)
+        ? rects.findIndex(rect => rect && rect.height > 0 && rect.bottom > viewportTop + 1 && rect.top < viewportBottom - 1)
+        : -1;
+      const anchorIndex = visibleRow >= 0 && keys[visibleRow]
+        ? window.rows.findIndex(row => row.key === keys[visibleRow])
+        : -1;
+      const oldAnchorOffset = anchorIndex >= 0 ? window.offsets[anchorIndex] : 0;
       let changed = false;
       (rects || []).forEach((rect, i) => {
         if (rect.height > 0 && Math.abs((window.heights.get(keys[i]) || 0) - rect.height) > 1) { window.heights.set(keys[i], rect.height); changed = true; }
@@ -84,12 +97,14 @@ module.exports = {
       window.update(window.rows);
       const patch = dataPatch(this.data, window.patch());
       const anchoring = this._scrollAnchorAt && Date.now() - this._scrollAnchorAt < 800;
-      if (!anchoring && this._convPinned === false && window.offsets[index] !== oldOffset) {
-        patch.conversationScrollTop = Math.max(0, (this._lastScrollTop || 0) + window.offsets[index] - oldOffset);
+      // Anchor to the first actually visible row, not the row guessed from cumulative estimates.
+      // Large variable-height messages can make that guessed index drift and jump on release.
+      if (!anchoring && this._convPinned === false && anchorIndex >= 0 && window.offsets[anchorIndex] !== oldAnchorOffset) {
+        patch.conversationScrollTop = Math.max(0, (this._lastScrollTop || 0) + window.offsets[anchorIndex] - oldAnchorOffset);
         this._lastScrollTop = patch.conversationScrollTop;
       }
       if (Object.keys(patch).length) this.setData(patch);
       if (this._convPinned !== false) this.refreshBottomAnchor();
-    }).exec();
+    });
   }
 };

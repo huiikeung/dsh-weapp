@@ -1067,7 +1067,9 @@
 .work-step-select { display:flex;align-items:center;gap:12rpx;padding:14rpx 18rpx;border-radius:16rpx;background:var(--fill);white-space:nowrap;flex-shrink:0; }
 .work-step-select-chevron { width:22rpx;height:22rpx;transform:rotate(90deg); }
 .work-step-menu-mask { position:fixed;inset:0;z-index:80;background:transparent; }
-.work-step-menu { position:absolute;right:0;top:100rpx;z-index:81;min-width:240rpx;padding:8rpx;background:var(--surface);border:1rpx solid var(--border);border-radius:24rpx;box-shadow:0 10rpx 40rpx rgba(0,0,0,.12); }
+/* 下拉在 fixed 遮罩内部，用视口坐标定位（top/right 由 JS 量行高后写入），
+   不再依赖与遮罩的 z-index 高低关系。 */
+.work-step-menu { position:absolute;min-width:240rpx;padding:8rpx;background:var(--surface);border:1rpx solid var(--border);border-radius:24rpx;box-shadow:0 10rpx 40rpx rgba(0,0,0,.12); }
 .work-step-option { display:flex;align-items:center;justify-content:space-between;gap:28rpx;min-height:76rpx;padding:8rpx 20rpx;font-size:26rpx; }
 .work-step-selected { color:var(--text-2); }
 .timing-menu { min-width:320rpx; }

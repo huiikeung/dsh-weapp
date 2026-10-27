@@ -118,6 +118,116 @@ function turnFailureCopy(failure) {
   return { title: title, message: uiText(FAILURE_COPY[code]) || failure.message || '', code: code };
 }
 
+// 对话结束（或失败/停止）后，桌面端（TurnProcessNodeView）会在回合的过程内容上方
+// 放一个「已完成」disclosure，且只在回合关闭后出现。这里给多过程组的回合插这一行：
+// 展开时各轮过程组与中间叙述照原顺序显示，收起时整轮过程折成这一行；最终答复留在
+// 外面，始终可见。单组回合不插——那一组自己就是回合行。运行中的回合不插。
+// 回合是否真的结束了：运行中上面会把「已收工但不是活动组」的组标成 running=false，
+// 所以不能只看 running——要以回合级状态（completed / failed / stopped）为准。
+function turnSettled(entry) {
+  return !entry.running && (entry.completed === true || entry.failed === true || entry.stopped === true);
+}
+function insertTurnDisclosures(list) {
+  const out = [];
+  let i = 0;
+  while (i < list.length) {
+    const entry = list[i];
+    if (entry.kind !== 'processGroup' || !turnSettled(entry)) { out.push(entry); i += 1; continue; }
+    // 收集同一回合的连续过程组与夹在中间的叙述；最终答复（后面不再有组）留在外面
+    const run = [entry];
+    let j = i + 1;
+    while (j < list.length) {
+      const next = list[j];
+      if (next.kind === 'processGroup' && turnSettled(next)) { run.push(next); j += 1; continue; }
+      if (next.kind === 'assistant' && j + 1 < list.length && list[j + 1].kind === 'processGroup' && turnSettled(list[j + 1])) { run.push(next); j += 1; continue; }
+      break;
+    }
+    const groups = run.filter(item => item.kind === 'processGroup');
+    if (groups.length > 1) {
+      const key = 'turn-' + entry.key;
+      const duration = groups.map(g => (g.summary || '').split(' · ').find(part => part.indexOf(uiText('用时 ')) === 0)).find(Boolean) || '';
+      out.push({
+        kind: 'turnProcess',
+        key,
+        title: groups[groups.length - 1].title,   // 回合级标题：已完成 / 执行失败 / 已停止
+        summary: duration,
+        iconFile: entry.iconFile,
+        darkIconFile: entry.darkIconFile,
+        expandable: true
+      });
+      run.forEach((item) => {
+        item.turnProcessKey = key;
+        // 里面各组按自己的子内容命名（运行了代码 / 已完成分析……），不再重复回合行的
+        // 「已完成」；回合用时也只挂回合行，各组不重复显示。
+        if (item.kind === 'processGroup') {
+          item.title = processActivityTitle(groupTools(item));
+          item.summary = (item.summary || '').split(' · ').filter(part => part.indexOf(uiText('用时 ')) !== 0).join(' · ');
+        }
+      });
+    }
+    run.forEach(item => out.push(item));
+    i = j;
+  }
+  return out;
+}
+
+// 过程组按子内容命名（对齐桌面端 message.stepProcess.done.* / processTitle）：跑过
+// 代码就是「运行了代码」，只思考过就是「已完成分析」，多种活动拼接（两种用「并」合并
+// 并去重共享前缀「已」，三种以上逗号相接、超过三种加「等」）。
+const ACTIVITY_LABELS = {
+  thinking: '已完成分析', read: '已读取文件', readImage: '已读取图片', write: '已写入文件',
+  search: '已搜索代码', edit: '修改了文件', commands: '执行了命令', code: '运行了代码',
+  webSearch: '已搜索网页', webFetch: '已访问网页', subagents: '已协调子智能体',
+  plan: '更新了计划', questions: '向用户提出了问题', tools: '已调用工具'
+};
+function toolActivityKind(name) {
+  const raw = String(name || '').toLowerCase().split(/[./]/).pop();
+  const n = raw.replace(/[^a-z0-9]/g, '');
+  if (['write', 'writefile'].includes(n)) return 'write';
+  if (['edit', 'editfile', 'applypatch', 'strreplaceeditor'].includes(n)) return 'edit';
+  if (['readimage', 'viewimage'].includes(n)) return 'readImage';
+  if (['read', 'readfile'].includes(n)) return 'read';
+  if (['glob', 'grep', 'search', 'find', 'lsp'].includes(n) || raw.startsWith('session_')) return 'search';
+  if (['webfetch', 'fetch'].includes(n)) return 'webFetch';
+  if (['websearch', 'browse'].includes(n)) return 'webSearch';
+  if (['bash', 'pwsh', 'shell', 'exec', 'execcommand', 'writestdin', 'terminal'].includes(n)) return 'commands';
+  if (['runcode', 'code', 'python'].includes(n) || raw.startsWith('terminal_')) return 'code';
+  if (['spawnteammate', 'listagents', 'sendmessage', 'interruptagent', 'waitagent', 'spawnagent', 'subagent', 'followuptask'].includes(n)) return 'subagents';
+  if (['plan', 'updateplan'].includes(n)) return 'plan';
+  if (['askuser', 'requestuserinput'].includes(n)) return 'questions';
+  return 'tools';
+}
+/** 工具清单 → [{kind,count}]（按首次出现顺序，供标题拼接用）。 */
+function activityCounts(tools) {
+  const counts = [];
+  (tools || []).forEach((tool) => {
+    const kind = toolActivityKind(tool && tool.name);
+    const found = counts.find((item) => item.kind === kind);
+    if (found) found.count += 1;
+    else counts.push({ kind, count: 1 });
+  });
+  return counts;
+}
+/** 过程组的工具清单（供按内容命名用）。 */
+function groupTools(entry) {
+  return (entry.children || []).reduce((list, child) => list.concat(child.kind === 'toolBundle' ? child.tools : []), []);
+}
+function processActivityTitle(tools) {
+  const counts = activityCounts(tools);
+  if (!counts.length) return uiText(ACTIVITY_LABELS.thinking);
+  const labels = counts.slice(0, 3).map((item) => uiText(ACTIVITY_LABELS[item.kind] || ACTIVITY_LABELS.tools));
+  const first = labels[0];
+  const second = labels[1];
+  if (second === undefined) return first;
+  if (labels.length === 2) {
+    const prefix = uiText('已');
+    const trimmed = prefix !== '' && first.startsWith(prefix) && second.startsWith(prefix) ? second.slice(prefix.length) : second;
+    return uiText('{first}并{second}', { first, second: trimmed });
+  }
+  const title = [first].concat(labels.slice(1)).join(uiText('，'));
+  return counts.length > 3 ? uiText('{title}等', { title }) : title;
+}
+
 function buildProcessGroup(items, meta) {
   const first = items[0];
   const facts = processFacts(items);
@@ -188,7 +298,7 @@ function buildProcessGroup(items, meta) {
 function buildEntries(rows, options) {
   const list = Array.isArray(rows) ? rows : [];
   const opts = options || {};
-  const entries = [];
+  let entries = [];  // 回合结束后可能被 mergeSettledGroups 收拢成一个
   let processItems = [];
 
   const outcomes = new Map();
@@ -271,7 +381,9 @@ function buildEntries(rows, options) {
     const entry = entries[i];
     if (entry.kind === 'user') break;
     if (entry.kind !== 'processGroup' || !entry.running) continue;
-    if (activeSeen) { entry.running = false; entry.title = uiText('工作步骤'); }
+    // 已收工的轮次按自己的子内容命名（运行了代码 / 修改了文件并运行了代码……），
+    // 不再出现光秃秃的「工作步骤」；只有最后一个活动组保留实时标题。
+    if (activeSeen) { entry.running = false; entry.title = processActivityTitle(groupTools(entry)); }
     else {
       activeSeen = true;
       const tail = list[list.length - 1];
@@ -280,6 +392,10 @@ function buildEntries(rows, options) {
       }
     }
   }
+
+  // 对话结束：多过程组的回合在过程内容上方插一个「已完成」disclosure 行，收起时
+  // 整轮过程折成这一行。运行中的回合不插，各组照常各自显示。
+  entries = insertTurnDisclosures(entries);
 
   // DSH places declared files beneath the turn's closing reply.
   entries.filter(entry => entry.kind === 'files' || entry.kind === 'changes').forEach(files => {

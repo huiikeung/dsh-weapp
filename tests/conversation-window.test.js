@@ -41,6 +41,44 @@ test('history prepends anchor the viewport with scroll-into-view instead of gues
   assert.equal(page._lastScrollTop, 5125);
 });
 
+test('measured height corrections preserve the first DOM-visible row, not the estimated index', () => {
+  const page = { ...viewport, data: {}, _renderSessionId: 's', _convPinned: false, _lastScrollTop: 500, _convClientHeight: 700 };
+  const allRows = rows(30);
+  const initial = page.conversationWindowPatch(allRows);
+  page.data = { tab: 'conversation', rows: initial.rows, conversationTopSpace: initial.conversationTopSpace,
+    conversationBottomSpace: initial.conversationBottomSpace };
+  const viewportRect = { top: 100, bottom: 800 };
+  // Estimates put row 5 at scrollTop 500, but the actual visible anchor is row 7.
+  const rects = page.data.rows.map((row, index) => {
+    const top = 100 + (index - 7) * 70;
+    return { top, bottom: top + 70, height: 70 };
+  });
+  let applied;
+  page.setData = patch => { applied = patch; Object.assign(page.data, patch); };
+  const previousWx = global.wx;
+  global.wx = {
+    createSelectorQuery() {
+      const query = {
+        in() { return this; },
+        select() { return { boundingClientRect: () => query }; },
+        selectAll() { return { boundingClientRect: () => query }; },
+        exec(callback) { callback([viewportRect, rects]); }
+      };
+      return query;
+    }
+  };
+  try {
+    page.measureConversationWindow();
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+
+  assert.equal(applied.conversationScrollTop, 290,
+    'seven preceding rows each shrink by 30px, so the visible row stays at the same screen position');
+  assert.equal(page._lastScrollTop, 290);
+});
+
 test('cache windows restore multiple local pages and preserve a paging cursor when bounded', () => {
   const events = Array.from({ length: 3000 }, (_, i) => ({ type: 'user/message', seq: i + 1, data: { text: 'Question ' + i } }));
   const cache = recentWindow({ events, rows: [], historyFormatVersion: 1, hasMore: false }, protocol, 's');

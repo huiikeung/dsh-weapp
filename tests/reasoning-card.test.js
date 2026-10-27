@@ -36,8 +36,10 @@ test('completed process hides its leading icon without hiding running icons', ()
  const glyph=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/proc-icon.wxml'),'utf8');
  for(const style of ['cells','terra','morph','grid','orbit','ripple','wave'])assert.ok(glyph.includes(`styleId === '${style}'`)||style==='wave');
  assert.doesNotMatch(wxml,/procIconFile|\.gif/);
- assert.match(wxml,/<image wx:elif="\{\{!item.completed\}\}" class="process-command-icon command-tool-icon"/);
- assert.match(wxml,/item.completed \? 'completed-chevron' : ''/);
+ // 收起时显示工具图标（含已完成的组），展开后才由 .disclosed 换成箭头
+ assert.match(wxml,/<image wx:if="\{\{!item.running\}\}" class="process-command-icon command-tool-icon"/);
+ assert.match(wxml,/<image class="command-chevron \{\{folds\[item.key\] \? 'open' : ''\}\}"/);
+ assert.doesNotMatch(wxml,/completed-chevron/);
  const done=buildEntries([{kind:'assistant',key:'a',reasoning:'Done',turnClosed:true,turnEndReason:'completed'}])[0];
  const running=buildEntries([{kind:'assistant',key:'a',reasoning:'Thinking'}],{running:true})[0];
  assert.equal(done.completed,true);assert.equal(running.completed,false);

@@ -147,7 +147,7 @@ test('all status styles animate the DSH whale through the same selected text pal
 
 test('statistics and tool summaries stay in their label rows', () => {
   const wxml=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
-  const header=wxml.slice(wxml.indexOf('<view class="process-head"'),wxml.indexOf('<view class="process-hairline"'));
+  const header=wxml.slice(wxml.indexOf('<view class="process-head"'),wxml.indexOf('class="process-body">'));
   assert.ok(header.indexOf('process-summary') < header.indexOf('event-spacer'));
   const tool=wxml.slice(wxml.indexOf('<view class="tool-line-1"'),wxml.indexOf('<image class="event-chevron',wxml.indexOf('<view class="tool-line-1"')));
   assert.ok(tool.indexOf('tool-note') < tool.indexOf('</view>'));

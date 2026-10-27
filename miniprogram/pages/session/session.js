@@ -600,8 +600,8 @@ Page({
   },
 
   /**
-   * 大会话（几千行）每一帧都对全部行重新做回合分组太贵：真正在变的只有最后一个回合。
-   * 这里按"最后一个回合起点"把行切成前缀 + 尾巴：前缀的行签名没变就复用上次的分组结果，
+   * 大会话（几千行）每一帧都对全部行重新做请求分组太贵：真正在变的只有最后一个请求。
+   * 这里按"最后一个用户请求起点"把行切成前缀 + 尾巴：前缀的行签名没变就复用上次的分组结果，
    * 只对尾巴重新分组。前缀条目对象复用后，差分层也会跳过它们，跨桥数据量随之下降。
    */
   buildEntriesCached(semanticRows, opts) {
@@ -610,8 +610,7 @@ Page({
     let boundary = -1;
     for (let i = semanticRows.length - 1; i > 0; i -= 1) {
       const row = semanticRows[i];
-      const previous = semanticRows[i - 1];
-      if (row.kind === 'user' || (row.turn !== undefined && previous.turn !== undefined && row.turn !== previous.turn)) {
+      if (row.kind === 'user') {
         boundary = i;
         break;
       }
@@ -631,7 +630,7 @@ Page({
       && cache.rows.every((row, index) => row === prefixRows[index]);
     if (samePrefix && cache.key === prefixKey && Array.isArray(cache.entries)) prefixEntries = cache.entries;
     if (!prefixEntries) {
-      // 前缀里最后一个回合早已结束：running 传 false，和后缀独立分组的结果一致。
+      // 前缀里最后一个请求早已结束：running 传 false，和后缀独立分组的结果一致。
       prefixEntries = conversationWorkflow.buildEntries(prefixRows, Object.assign({}, opts, { running: false }));
     }
     const tailEntries = conversationWorkflow.buildEntries(tailRows, opts);
@@ -1087,6 +1086,13 @@ Page({
 
     applyTurnFooters(rows, s.rows || [], s.turnUsage || {}, processRunning);
 
+    // 回合级「已完成」disclosure 收起时，它管辖的过程组与中间叙述要从行列表里滤掉：
+    // 对话窗口按行索引推算偏移，只靠 wx:if 隐藏会让占位高度算错、滚动位置跳。
+    // 全量行另存一份，toggleFold 翻 folds 时靠它重算可见行（否则点了要等下一次
+    // 同步才补上，空闲时就干脆点不开）。
+    this._allConversationRows = rows;
+    const visibleRows = rows.filter(row => !row.turnProcessKey || processFolds[row.turnProcessKey]);
+
     // 顶部标题：实时标题优先；其次回查会话列表（直连打开/列表迟到时）；
     const listed = (app.sessions || []).find((x) => x.sessionId === s.sessionId) || null;
     const fallbackTitle = (listed && (listed.title || listed.snippet)) || (s.historyState === 'creating' ? uiText('新会话') : uiText('会话'));
@@ -1107,7 +1113,7 @@ Page({
       sessionPresetName: presetName || uiText('选择模式'),
       running: s.running === true,
       lastRowKind: rows.length ? rows[rows.length - 1].kind : '',
-      ...this.conversationWindowPatch(rows, historyMerged && activeTab === 'conversation' && this._convPinned === false ? { anchor: true } : null),
+      ...this.conversationWindowPatch(visibleRows, historyMerged && activeTab === 'conversation' && this._convPinned === false ? { anchor: true } : null),
       ...this.turnNavigatorPatch(s.rows || rows),
       folds: processFolds,
       ...tracePatch,
@@ -4325,7 +4331,16 @@ Page({
     if (!key) return;
     this.prioritizeInteraction();
     const patch = {};
-    patch['folds.' + key] = !this.data.folds[key];
+    const next = !this.data.folds[key];
+    patch['folds.' + key] = next;
+    // 回合级 disclosure 的折叠会增删它管辖的过程组与叙述行：当时就重算可见行，
+    // 不能等下一次同步——流式停顿时就点不开了。
+    if ((this._allConversationRows || []).some(row => row.kind === 'turnProcess' && row.key === key)) {
+      const folds = Object.assign({}, this.data.folds);
+      folds[key] = next;
+      const visible = (this._allConversationRows || []).filter(row => !row.turnProcessKey || folds[row.turnProcessKey]);
+      Object.assign(patch, this.conversationWindowPatch(visible));
+    }
     this.setData(patch, () => this.measureConversationWindow());
   },
 

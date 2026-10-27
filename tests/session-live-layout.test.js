@@ -12,9 +12,10 @@ const xml = fs.readFileSync(path.join(root, 'pages/session/session.wxml'), 'utf8
 const css = fs.readFileSync(path.join(root, 'pages/session/session.wxss'), 'utf8');
 
 test('live status title sits below details while completed headers stay above them', () => {
-  assert.match(css, /\.process-block\.running\s*>\s*\.process-hairline\s*\{[^}]*display:\s*none;/);
+  // 组头下方的分隔横线已去掉：运行中组体在上、实时状态标题在下，中间不再有分割线。
+  assert.doesNotMatch(css, /\.process-hairline/);
   assert.match(css, /\.process-block\.running\s*\{[^}]*display:\s*flex;[^}]*flex-direction:\s*column;/);
-  for (const [name, order] of [['process-body',0], ['process-hairline',1], ['process-head',2]]) {
+  for (const [name, order] of [['process-body',0], ['process-head',1]]) {
     const rule = css.match(new RegExp('\\.process-block\\.running\\s*>\\s*\\.' + name + '\\s*\\{([^}]+)\\}'));
     assert.ok(rule, name);
     assert.match(rule[1], new RegExp('order:\\s*' + order + ';'));
@@ -34,10 +35,18 @@ test('live status title sits below details while completed headers stay above th
 test('all step disclosures share touch feedback with no trailing arrows', () => {
   const process = xml.slice(xml.indexOf('class="process-block'), xml.indexOf('class="row-assistant"'));
   assert.doesNotMatch(process, /class="event-chevron|class="process-chevron/);
-  assert.match(process, /item.completed \? 'completed-chevron' : ''/);
+  // 收起时显示工具图标，展开后才由 .disclosed 换成箭头（不再用 completed-chevron 顶替图标）
+  assert.match(process, /wx:if="\{\{!item.running\}\}" class="process-command-icon command-tool-icon"/);
+  assert.doesNotMatch(process, /completed-chevron/);
+  assert.doesNotMatch(css, /completed-chevron/);
+  // 回合级「已完成」行前面只有箭头，常驻可见
+  assert.match(process, /turn-process-slot/);
+  assert.match(css, /\.turn-process-slot \.command-chevron\s*\{\s*opacity:\s*\.65/);
   assert.match(process, /wx:if="\{\{tool.phase !== 'preparing'\}\}" class="command-icon-slot \{\{folds\[tool.key\]/);
+  // 4 个过程组/disclosure 头 + 1 个回合级「已完成」disclosure 头
   const heads = [...process.matchAll(/<view[^>]*class="(?:process-head|disclosure-head[^"]*)"[^>]*>/g)];
-  assert.equal(heads.length, 4);
+  assert.equal(heads.length, 5);
+  assert.match(xml, /item.kind === 'turnProcess'/, '回合级已完成 disclosure 行');
   heads.forEach(([head]) => {
     assert.match(head, /hover-class="[^"]*tool-head-hover/);
     assert.match(head, /hover-start-time="0"/);
@@ -70,7 +79,9 @@ test('native session template puts live work before whale and keeps completed ar
   const done = buildEntries(semantic);
   data.rows=done;data.running=false;data.folds=policy.apply(done,{mode:'detailed',timing:'completion'},folds,rows,false);
   const completed=JSON.stringify(render(data,{},{}));
-  assert.ok(completed.includes('completed-chevron'));
+  // 收工后组头显示默认工具图标（箭头只在展开时由 .disclosed 交出），过程已折叠
+  assert.ok(completed.includes('command-tool-icon'));
+  assert.ok(!completed.includes('completed-chevron'));
   assert.ok(!completed.includes('process-body'));
   assert.ok(!completed.includes('progress-strip'));
 });
