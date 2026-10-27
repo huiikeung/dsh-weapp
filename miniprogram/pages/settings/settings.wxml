@@ -109,11 +109,11 @@
     <view wx:if="{{voiceEnabled}}" class="card-row" bindtap="openVoiceSettings" role="button">
       <text class="card-row-label">{{ui['语音插件设置']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
     </view>
-    <view class="card-row work-step-row work-step-mode-row">
+    <view class="card-row work-step-row work-step-mode-row {{workStepMenu === 'mode' ? 'work-step-row-open' : ''}}">
       <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤展示']}}</text><text class="work-step-hint">{{ui['选择希望看到多少工具调用细节']}}</text></view>
       <view class="work-step-select" bindtap="toggleWorkStepMenu" data-field="mode" role="button" aria-label="{{ui['工作步骤展示：']}}{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}"><text>{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}</text><image class="work-step-select-chevron" src="/assets/icons/chev-right-gray.png"/></view>
     </view>
-    <view class="card-row work-step-row work-step-timing-row">
+    <view class="card-row work-step-row work-step-timing-row {{workStepMenu === 'timing' ? 'work-step-row-open' : ''}}">
       <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤收起时机']}}</text><text class="work-step-hint">{{ui['选择何时自动收起工作步骤']}}</text></view>
       <view class="work-step-select" bindtap="toggleWorkStepMenu" data-field="timing" role="button" aria-label="{{ui['工作步骤收起时机：']}}{{ui[workStepTimingLabel] !== undefined ? ui[workStepTimingLabel] : workStepTimingLabel}}"><text>{{ui[workStepTimingLabel] !== undefined ? ui[workStepTimingLabel] : workStepTimingLabel}}</text><image class="work-step-select-chevron" src="/assets/icons/chev-right-gray.png"/></view>
     </view>

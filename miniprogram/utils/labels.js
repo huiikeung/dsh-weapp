@@ -35,6 +35,20 @@ function presetDisplayName(name, id) {
   return presetModeName(id);
 }
 
+/** Match DSH's read-only session-header label: localized built-ins, host names for custom presets. */
+function presetHeaderName(catalog, id) {
+  const presetId = String(id || '');
+  if (!presetId) return presetModeName('standard');
+  const presets = (catalog && Array.isArray(catalog.presets)) ? catalog.presets : [];
+  const preset = presets.find(item => item && item.id === presetId);
+  if (!preset) return ['standard', 'code', 'ptc', 'minimal', 'cordis'].includes(presetId)
+    ? presetModeName(presetId) : presetId;
+  if (preset.name === undefined && ['standard', 'ptc', 'minimal', 'cordis'].includes(presetId)) {
+    return presetModeName(presetId);
+  }
+  return preset.name == null ? presetId : String(preset.name);
+}
+
 function presetModeBlurb(id) {
   switch (id) {
     case 'standard': return uiText('功能完整的编码 Agent，支持文件编辑、Shell、检索、Skills、计划与工作流。');
@@ -90,4 +104,4 @@ function reasoningEffortDisplayName(level) {
   return localized ? uiText(localized) : reasoningEffortName(level);
 }
 
-module.exports = { presetModeName, presetModeDesc, presetModeBlurb, presetDisplayName, permissionName, permissionIconFile, reasoningEffortName, reasoningEffortDisplayName };
+module.exports = { presetModeName, presetModeDesc, presetModeBlurb, presetDisplayName, presetHeaderName, permissionName, permissionIconFile, reasoningEffortName, reasoningEffortDisplayName };

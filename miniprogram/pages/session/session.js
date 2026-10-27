@@ -424,6 +424,7 @@ Page({
       this.setData(Object.assign(statusAppearance.view(statusAppearance.read()), procIconStyle.view(procIconStyle.read())));
       return;
     }
+    if (resumedFromBackground) this.refreshSessionPreset(true);
     // App onShow also runs when WeChat returns from the background. Keep the
     // existing viewport in that case; only a page-level return resets to latest.
     if (!resumedFromBackground) this.resetConversationScroll();
@@ -1088,14 +1089,7 @@ Page({
       && (s.sessionId || creatingLocal) && !s.running && !rows.length);
     const presetId = s.agentPreset || 'standard';
     const presetName = this.findPresetName(presetsCatalog, presetId);
-    if (s.sessionId && presetVisible && !this._presetRequestedFor) {
-      this._presetRequestedFor = s.sessionId;
-      store.client.requestSessionAgentPreset(s.sessionId).catch(() => {});
-    }
-    if (this._presetRequestedFor && this._presetRequestedFor !== s.sessionId) {
-      this._presetRequestedFor = s.sessionId;
-      if (s.sessionId) store.client.requestSessionAgentPreset(s.sessionId).catch(() => {});
-    }
+    this.refreshSessionPreset(false);
 
     // 上下文用量弹窗数据（对齐 iOS ContextUsagePopover：占比 + 分项明细）
     const compactTok = (v) => {
@@ -1164,7 +1158,7 @@ Page({
       ...(activeTab === 'fleet' ? this.fleetPanelPatch(s, app) : {}),
       // 编队数据变化后重画连线（setData 完成再画，拿得到刚渲染的节点）。
       navTitle: s.title || fallbackTitle,
-      presetLabel: labels.presetModeName(s.agentPreset || 'standard'),
+      presetLabel: labels.presetHeaderName(presetsCatalog, presetId),
       sessionPresetVisible: presetVisible,
       sessionPresetName: presetName || uiText('选择模式'),
       running: s.running === true,
@@ -3192,6 +3186,20 @@ Page({
     return labels.presetDisplayName(found && found.name, presetId);
   },
 
+  refreshSessionPreset(force) {
+    const sessionId = store.sessionState && store.sessionState.sessionId;
+    const client = store.client;
+    if (!sessionId || !store.state || store.state.connection !== 'connected'
+      || !client || typeof client.requestSessionAgentPreset !== 'function') return;
+    const requestKey = sessionId + '/' + (client.connectGeneration || 0);
+    if (!force && this._presetRequestedFor === requestKey) return;
+    this._presetRequestedFor = requestKey;
+    try {
+      const request = client.requestSessionAgentPreset(sessionId);
+      if (request && typeof request.catch === 'function') request.catch(() => {});
+    } catch (_) { /* the roster/projection still provides a display fallback */ }
+  },
+
   // 对齐 dsh-mobile v1.6.0：会话模式胶囊，点击弹出预设列表
   pickSessionPreset() {
     const catalog = store.state.agentPresets;
@@ -3844,15 +3852,29 @@ Page({
 
   onConvScroll(e) {
     const d = (e && e.detail) || {};
-    this._lastConvScrollAt = Date.now();
-    const previousTop = this._lastScrollTop;
+    const now = Date.now();
+    this._lastConvScrollAt = now;
     const scrollTop = Number(d.scrollTop) || 0;
+    const previousTop = this._lastNativeScrollTop !== undefined
+      ? this._lastNativeScrollTop : this._lastScrollTop;
+    this._lastNativeScrollTop = scrollTop;
+    const recentTouch = now - (this._lastTouchAt || 0) < 1500;
+    const movingTowardOlder = previousTop !== undefined && scrollTop < previousTop - 2;
+    // Native scroll events are the reliable signal when scroll-view does not
+    // deliver touchmove (or a nested view consumes it). Do not let the bottom
+    // tolerance keep auto-follow armed during even a small upward reader drag.
+    if (recentTouch && movingTowardOlder && this._suppressPins !== true) {
+      this._followPausedByUser = true;
+      this._userScrollDirection = 'towardTop';
+      this._convPinned = false;
+      if (this.data.scrollTarget) this.setData({ scrollTarget: '' });
+    }
     this.applyScrollPosition({
       scrollTop: scrollTop,
       scrollHeight: Number(d.scrollHeight) || 0,
       clientHeight: Number(d.clientHeight) || 0,
       deltaY: Number(d.deltaY) || 0,
-      userScroll: Date.now() - (this._lastTouchAt || 0) < 1500
+      userScroll: recentTouch
     });
     this.updateConversationWindow(scrollTop);
     this.maybePrefetchOlderHistory(scrollTop, previousTop !== undefined && scrollTop < previousTop - 2);
@@ -4456,6 +4478,7 @@ Page({
     this._lastTouchAt = 0;
     this._userScrolledUp = false;
     this._lastScrollTop = undefined;
+    this._lastNativeScrollTop = undefined;
     this.setData({ showJump: false, scrollAnim: false, scrollTarget: '' });
   },
 

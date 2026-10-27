@@ -148,6 +148,8 @@ function createStore() {
     permissionOptions: null,
     selection: null,
     runStartMs: null,       // 运行指示条起始时间（最近一条用户消息时间）
+    agentPresetAsOfSeq: null,
+    agentPresetAuthoritative: false,
     runCues: []             // 运行活动线索（供运行指示条短语轮换）
   };
 
@@ -156,6 +158,12 @@ function createStore() {
       state.connection = status;
       state.connectionMessage = message;
       state.connectionErrorCode = errorCode || null;
+      // Candidate fallback changes GatewayClient.endpoint before notifying us.
+      // Keep the store endpoint in sync so pairing credentials and the preferred
+      // route are saved against the route that actually completed the handshake.
+      if ((status === 'connecting' || status === 'connected') && client.endpoint) {
+        state.endpoint = client.endpoint;
+      }
       // 断链展示：只有用户主动断开才清掉「曾连上」标记，意外掉线保留 → 红色。
       if (status === 'connected') state.everConnected = true;
       else if (deliberate === true) state.everConnected = false;
@@ -868,6 +876,12 @@ function createStore() {
           rememberCompleted(state.sessions, nextSessions);
           state.sessions = attachCompletedAt(nextSessions);
         }
+        if (sessionState.sessionId) {
+          const activeSession = state.sessions.find(item => item.sessionId === sessionState.sessionId);
+          if (activeSession && activeSession.agentPreset != null) {
+            setSessionAgentPreset(activeSession.agentPreset, activeSession.agentPresetAsOfSeq, false);
+          }
+        }
         // 自愈 A：有会话但始终没有工作区数据 → 补拉工作区
         if (!state.workspaces.length && state.sessions.length
           && Date.now() - (state.lastWorkspaceRetryAt || 0) > 10000
@@ -1265,6 +1279,28 @@ function createStore() {
     return merged;
   }
 
+  function setSessionAgentPreset(agentPreset, asOfSeq, authoritative) {
+    if (typeof agentPreset !== 'string') return false;
+    if (!authoritative && sessionState.agentPresetAuthoritative) return false;
+    const seq = Number.isSafeInteger(asOfSeq) ? asOfSeq
+      : (asOfSeq != null && Number.isSafeInteger(Number(asOfSeq)) ? Number(asOfSeq) : null);
+    const previousSeq = sessionState.agentPresetAsOfSeq;
+    if (seq != null && previousSeq != null && seq < previousSeq) return false;
+    sessionState.agentPreset = agentPreset;
+    if (seq != null) sessionState.agentPresetAsOfSeq = seq;
+    if (authoritative) sessionState.agentPresetAuthoritative = true;
+    return true;
+  }
+
+  function mergeSessionPresetProjection(frame) {
+    const source = frame || {};
+    const projections = source.projections || {};
+    const values = projections.values || projections;
+    if (!values || typeof values.agentPreset !== 'string') return false;
+    const asOfSeq = projections.asOfSeq != null ? projections.asOfSeq : source.asOfSeq;
+    return setSessionAgentPreset(values.agentPreset, asOfSeq, false);
+  }
+
   function mergeSessionMetricFrames(frame) {
     const source = frame || {};
     const projections = source.projections || {};
@@ -1410,10 +1446,10 @@ function createStore() {
     switch (frame.kind) {
       case 'session-agent-preset':
       case 'session-agent-preset-updated':
+      case 'select-agent-preset':
         // 会话级 Agent 预设当前值；锁定状态单向生效
         if (frame.agentPreset !== undefined && frame.agentPreset !== null) {
-          sessionState.agentPreset = frame.agentPreset;
-          emit();
+          if (setSessionAgentPreset(frame.agentPreset, frame.asOfSeq, true)) emit();
         }
         return;
       case 'assistant-message':
@@ -1497,6 +1533,7 @@ function createStore() {
           && Number.isSafeInteger(frame.cursor) && frame.cursor >= 0
           && (frame.cursor > 0 || frame.hasMore === true)
           && (localLatestSeq === undefined || frame.cursor > localLatestSeq);
+        if (!staleHistoryTail && !isOlderPage && !frame.cachedLocal) mergeSessionPresetProjection(frame);
         if (pendingPage && isOlderPage) sessionState.historyLastPageBytes = utf8ByteLength(JSON.stringify(events));
         if (pendingPage && isOlderPage && !frame.cachedLocal && minSeq !== Infinity) {
           historyPageCache.set(historyPageKey(sessionState.sessionId, pendingPage.cursor,
@@ -1567,6 +1604,7 @@ function createStore() {
           emit();
           return;
         }
+        mergeSessionPresetProjection(frame);
         if (sessionState.collaboration.sessionId !== sessionState.sessionId) sessionState.collaboration = collaboration.create(sessionState.sessionId);
         collaboration.baseline(sessionState.collaboration, frame.projections);
         hydrateSessionMetricsFromFrame(frame);
@@ -2742,7 +2780,11 @@ function createStore() {
       viewedAt: 0,
       blank: source.blank === true,
       cwd: source.cwd || source.workingDirectory || source.working_directory || null,
-      agentPreset: source.agentPreset || source.agent_preset || null,
+      agentPreset: typeof values.agentPreset === 'string' ? values.agentPreset
+        : (typeof source.agentPreset === 'string' ? source.agentPreset
+          : (typeof source.agent_preset === 'string' ? source.agent_preset : null)),
+      agentPresetAsOfSeq: projections.asOfSeq != null && Number.isSafeInteger(Number(projections.asOfSeq))
+        ? Number(projections.asOfSeq) : null,
       displayTitle: source.displayTitle || source.display_title || source.label || null,
       hasConversation: hasConversation,
       title: title,
@@ -2905,17 +2947,41 @@ function createStore() {
   }
 
   /** 档案的候选列表：优先持久化路由表；旧档案（无 routeTable）从 endpoints 推导。 */
-  function profileCandidates(profile, preferred) {
-    const table = (profile && profile.routeTable) || routeTable.parseRouteTable({
+  function profileCandidates(profile, preferred, credential) {
+    const savedTable = profile && profile.routeTable;
+    const table = savedTable ? {
+      lan: Array.isArray(savedTable.lan) ? savedTable.lan : [],
+      public: Array.isArray(savedTable.public) ? savedTable.public : [],
+      relay: savedTable.relay || null
+    } : routeTable.parseRouteTable({
       endpoints: hosts.connectionEndpoints(profile)
     });
+    // Older relay profiles stored only the endpoint and E2EE identity. Rebuild
+    // their relay route instead of classifying /c/<nodeId> as a public direct URL.
+    if (!table.relay && profile && profile.relay && profile.gatewayId && profile.relayAgentPubKey) {
+      const relayPath = '/c/' + profile.gatewayId;
+      const endpoint = hosts.connectionEndpoints(profile).find(value => value.endsWith(relayPath));
+      if (endpoint) {
+        table.relay = routeTable.normalizeRelay({
+          relay: endpoint.slice(0, -relayPath.length),
+          nodeId: profile.gatewayId,
+          agentPubKey: profile.relayAgentPubKey,
+          authMode: profile.relayAuthMode || 'invite',
+          accessExpiresAt: profile.relayExpiresAt
+        });
+      }
+    }
     const ordered = orderedCandidates(table, preferred !== undefined ? preferred : (profile && profile.preferredEndpoint), networkOptions(profile));
-    // 中继候选的重连参数来自档案（nodeId = gatewayId、E2EE 公钥）。只有真正按中继
-    // 配对过的档案才有这些信息；局域网配对的档案带不了中继候选，硬连只会认证失败。
-    const relayReady = !!(profile && profile.relay && profile.relayAgentPubKey
+    // A v2 QR also gives a gateway-auth relay route. Once paired over LAN, the
+    // saved device token can authenticate through that same E2EE relay; the
+    // route's node id need not equal the gateway's own id.
+    const pairedRelayReady = !!(profile && credential && credential.token && table.relay
+      && table.relay.authMode === 'gateway');
+    const profileRelayReady = !!(profile && profile.relay && profile.relayAgentPubKey
       && table.relay && profile.gatewayId === table.relay.nodeId);
+    const relayReady = pairedRelayReady || profileRelayReady;
     const usable = relayReady ? ordered : ordered.filter(candidate => candidate.kind !== 'relay');
-    // 网络过滤 + 中继不可用可能把候选一起清空（局域网配对的档案在外网正是如此）。
+    // 网络过滤 + 缺少可用中继授权可能把候选一起清空。
     // 那时宁可拨一个注定失败的局域网地址，也不能一个都不拨：endpointCandidates 为空时
     // socket 一断就没有可轮换的候选，重连直接永久放弃。
     if (!usable.length && ordered.length) {
@@ -2934,16 +3000,25 @@ function createStore() {
   function connectOptionsFor(profile, candidate, cred) {
     if (!candidate) return null;
     if (candidate.kind === 'relay') {
-      if (!profile.relayAgentPubKey) return null;
+      const relay = candidate.relay || (profile.relay ? {
+        authMode: profile.relayAuthMode || 'invite',
+        nodeId: profile.gatewayId,
+        agentPubKey: profile.relayAgentPubKey,
+        accessExpiresAt: profile.relayExpiresAt
+      } : null);
+      if (!relay || !relay.agentPubKey || !relay.nodeId) return null;
+      const authMode = profile.relay
+        ? (profile.relayAuthMode || relay.authMode || 'invite')
+        : (relay.authMode || 'invite');
       return {
-        token: profile.relayAuthMode === 'gateway' && cred ? cred.token : null,
+        token: authMode === 'gateway' && cred ? cred.token : null,
         relay: {
-          authMode: profile.relayAuthMode || 'invite',
-          nodeId: profile.gatewayId,
-          agentPubKey: profile.relayAgentPubKey,
+          authMode: authMode,
+          nodeId: relay.nodeId,
+          agentPubKey: relay.agentPubKey,
           accessToken: profile.relayAccessToken || null,
           role: profile.relayRole || 'guest',
-          expiresAt: profile.relayExpiresAt || null
+          expiresAt: profile.relayExpiresAt || relay.accessExpiresAt || null
         }
       };
     }
@@ -3122,7 +3197,7 @@ function createStore() {
     if (!profile) return false;
     const cred = hosts.loadCredential(profile.id);
     // 按当前网络重新选路：上次连通的线路优先，其次公网/局域网/中继保底。
-    const candidates = profileCandidates(profile);
+    const candidates = profileCandidates(profile, undefined, cred);
     const endpoint = (candidates[0] && candidates[0].endpoint) || (cred && cred.endpoint) || null;
     endpointCandidates = candidates.map(candidate => candidate.endpoint);
     endpointCandidateMeta = candidates.slice();
@@ -3141,7 +3216,8 @@ function createStore() {
     const primaryMeta = endpointCandidateMeta[0] || { endpoint: endpoint, kind: 'lan' };
     const connectOpts = connectOptionsFor(profile, primaryMeta, cred);
     if (primaryMeta.kind === 'relay') {
-      if (profile.relayAuthMode === 'gateway' && (!cred || !cred.token)) {
+      const relayAuthMode = (primaryMeta.relay && primaryMeta.relay.authMode) || profile.relayAuthMode;
+      if (relayAuthMode === 'gateway' && (!cred || !cred.token)) {
         state.connection = 'disconnected';
         state.connectionMessage = uiText('缺少配对凭据，请重新扫描 DSH 的二维码');
         emit();
@@ -3216,6 +3292,8 @@ function createStore() {
     stopContextPolling();
     sessionState.title = '';
     sessionState.agentPreset = null;
+    sessionState.agentPresetAsOfSeq = null;
+    sessionState.agentPresetAuthoritative = false;
     sessionState.pendingQuestion = null;
     sessionState.pendingApproval = null;
     sessionState.questionStatus = 'idle';
@@ -3593,6 +3671,16 @@ function createStore() {
                 cachedNetworkType = (res && res.networkType) || '';
                 const family = routeTable.networkFamily(cachedNetworkType);
                 if (family) lastNetworkFamily = family;
+                // The first socket may already be dialing a saved LAN endpoint:
+                // getNetworkType is async, so a cold start on cellular can only
+                // discover that route is dead after connectActiveProfile ran.
+                const current = endpointCandidateMeta[endpointIdx] || {};
+                if (state.activeID && family === 'cellular' && current.kind === 'lan') {
+                  const profile = getProfile(state.activeID);
+                  const credential = profile && hosts.loadCredential(profile.id);
+                  const preferred = profile && profileCandidates(profile, undefined, credential)[0];
+                  if (preferred && preferred.endpoint !== current.endpoint) reconnectPreferred();
+                }
               },
               fail: function () {}
             });
@@ -3814,7 +3902,11 @@ function createStore() {
       sessionState.trajectory = [];
       trajectoryDirty = true;
       sessionState.title = title || '';
-      sessionState.agentPreset = agentPreset || null;
+      const listedSession = state.sessions.find(item => item.sessionId === sessionId);
+      sessionState.agentPreset = listedSession && typeof listedSession.agentPreset === 'string'
+        ? listedSession.agentPreset : (typeof agentPreset === 'string' ? agentPreset : null);
+      sessionState.agentPresetAsOfSeq = listedSession ? listedSession.agentPresetAsOfSeq : null;
+      sessionState.agentPresetAuthoritative = false;
       sessionState.historyError = '';
       sessionState.hasMoreHistory = false;
       sessionState.nextBeforeSeq = null;

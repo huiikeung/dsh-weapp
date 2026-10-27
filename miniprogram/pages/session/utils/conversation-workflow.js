@@ -226,7 +226,10 @@ function insertTurnDisclosures(list) {
         // 「已完成」；回合用时也只挂回合行，各组不重复显示。
         if (item.kind === 'processGroup') {
           item.title = processActivityTitle(groupTools(item));
-          item.summary = (item.summary || '').split(' · ').filter(part => part.indexOf(uiText('用时 ')) !== 0).join(' · ');
+          const summaryParts = (item.summary || '').split(' · ').filter(part => part && part.indexOf(uiText('用时 ')) !== 0);
+          const toolCount = groupTools(item).length;
+          if (!summaryParts.length && toolCount) summaryParts.push(toolCount + uiText(' 次工具调用'));
+          item.summary = summaryParts.join(' · ');
         }
       });
     }
@@ -407,7 +410,8 @@ function buildProcessGroup(items, meta) {
   const running = meta.running;
   const completed = !running && !meta.failed && !meta.stopped && meta.completed;
   const title = running ? runningStepTitle(items) : meta.failed ? uiText('执行失败') : meta.stopped ? uiText('已停止')
-    : completed ? uiText('已完成') : facts.tools.some(t => t.isError || t.status === 'error') ? uiText('工具执行失败') : uiText('执行过程');
+    : completed || facts.command && facts.command.phase === 'command/completed' ? uiText('已完成')
+      : facts.tools.some(t => t.isError || t.status === 'error') ? uiText('工具执行失败') : uiText('执行过程');
   const details = [];
   if (meta.failed || meta.stopped) details.push(completedWorkSummary(facts));
   else if (!completed && facts.tools.length) details.push(facts.tools.length + uiText(' 次工具调用'));
@@ -535,6 +539,32 @@ function buildEntries(rows, options) {
     }
     if (row.kind === 'assistant') {
       const isFinalAnswer = finalAnswers.has(row);
+      if (meta.running && !isFinalAnswer && processNarrations.has(row) && hasVisibleAssistantContent(row)
+        && normalizeTools(row).length > 0 && !(row.events || []).length) {
+        flushOutcome();
+        const narrativeEvents = (row.events || []).filter(event => event
+          && ['text', 'image', 'attachment'].includes(event.kind));
+        entries.push(Object.assign({}, row, {
+          kind: 'assistant', reasoning: '', tools: [], events: narrativeEvents,
+          processNarration: true
+        }));
+        const processCopy = Object.assign({}, row, {
+          kind: 'assistantProcess', text: '', blocks: [], images: [], attachments: [],
+          events: (row.events || []).filter(event => event
+            && !['text', 'image', 'attachment'].includes(event.kind))
+        });
+        processItems.push(processCopy);
+        return;
+      }
+      const isIntermediateNarration = !isFinalAnswer && processNarrations.has(row)
+        && hasVisibleAssistantContent(row) && !hasAssistantToolCall(row)
+        && !compactText(row.reasoning)
+        && !(row.events || []).some(event => event && event.kind === 'think');
+      if (isIntermediateNarration) {
+        flushOutcome();
+        entries.push(Object.assign({}, row, { kind: 'assistant' }));
+        return;
+      }
       const hasProcessContent = compactText(row.reasoning) || normalizeTools(row).length
         || (row.events || []).some(event => event && (event.kind === 'think' || event.kind === 'tool'))
         || processNarrations.has(row)

@@ -40,9 +40,13 @@ test('markdown cache checks actual text and prunes removed messages', () => {
 });
 function fixture(source) {
   let definition, parses = 0, scrolls = 0, measurements = 0;
+  let presetRequests = 0;
   const patches = [], ticks = [], timers = new Map(); let timerId = 0;
   const app = { globalData: { foregroundEpoch: 1 } };
-  const store = { state: { connection: 'connected', sessions: [] }, sessionState: {
+  const store = { state: { connection: 'connected', sessions: [], agentPresets: null }, client: {
+    connectGeneration: 1,
+    requestSessionAgentPreset() { presetRequests += 1; return Promise.resolve({}); }
+  }, sessionState: {
     sessionId: 'performance-test', rows: [], trajectory: [], running: true,
     runStartMs: Date.now() - 3000, historyState: 'loaded:300ev', stats: null
   }, beginNativeOverlay: () => {}, endNativeOverlay: () => {}, nativeOverlayActive: () => false };
@@ -68,7 +72,9 @@ function fixture(source) {
     syncRunningStrip() {}, updateDockInset() { measurements++; }, refreshBottomAnchor() { scrolls++; } };
   const sync = () => page.syncFromStoreInner({ app: store.state, session: store.sessionState });
   const reset = () => { patches.length = 0; parses = 0; scrolls = 0; measurements = 0; };
-  return { page, store, app, definition, ticks, timers, sync, reset, patches, report: () => ({ parses, scrolls, measurements, bytes: Buffer.byteLength(JSON.stringify(patches)) }) };
+  return { page, store, app, definition, ticks, timers, sync, reset, patches,
+    presetRequests: () => presetRequests,
+    report: () => ({ parses, scrolls, measurements, bytes: Buffer.byteLength(JSON.stringify(patches)) }) };
 }
 test('composer metrics use DSH whole-session projections and prefer projected context occupancy', () => {
   const f = fixture();
@@ -98,6 +104,24 @@ test('missing DSH projections stay unknown instead of using partial local histor
   assert.equal(f.page.data.composerRunMetric, '— 轮 — 步');
   assert.equal(f.page.data.composerTokenMetric, '— tok');
   assert.equal(f.page.data.composerContextMetric, '—%');
+});
+test('session mode header uses the DSH roster name and refreshes every opened or resumed session', () => {
+  const f = fixture();
+  f.store.state.agentPresets = { presets: [
+    { id: 'custom-review', name: '代码审查模式' }
+  ] };
+  f.store.sessionState.agentPreset = 'custom-review';
+  f.sync();
+  assert.equal(f.page.data.presetLabel, '代码审查模式');
+  assert.equal(f.presetRequests(), 1, 'mode is queried for an existing conversation, not only an empty draft');
+
+  f.sync();
+  assert.equal(f.presetRequests(), 1, 'regular store updates do not repeat the same query');
+  f.store.client.connectGeneration += 1;
+  f.sync();
+  assert.equal(f.presetRequests(), 2, 'a reconnect refreshes the session mode');
+  f.page.refreshSessionPreset(true);
+  assert.equal(f.presetRequests(), 3, 'foreground resume can refresh even when the socket stayed connected');
 });
 test('first paint renders a bounded tail and formats history only when it enters the window', () => {
   const f = fixture(); f.sync();
@@ -317,6 +341,28 @@ test('downward swipe disables live auto-follow before streamed content grows', (
   f.page.onPanelTouchMove({ touches: [{ clientX: 180, clientY: 120 }] });
   f.page.applyScrollPosition({ scrollTop: 1210, scrollHeight: 1600, clientHeight: 400, userScroll: true });
   assert.equal(f.page._convPinned, true, 'scrolling back to the newest edge resumes following');
+});
+test('native upward scroll pauses follow inside the near-bottom tolerance', () => {
+  const f = fixture(); f.sync(); f.reset();
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  f.page._convPinned = true;
+  f.page._lastScrollTop = 1000;
+  f.page.data.scrollTarget = 'conv-bottom';
+
+  // Some scroll-view/nested-view gestures deliver scroll without a useful touchmove.
+  f.page.onPanelTouchStart({ touches: [{ clientX: 180, clientY: 120 }] });
+  f.page.onConvScroll({ detail: { scrollTop: 970, scrollHeight: 1400, clientHeight: 400 } });
+
+  assert.equal(f.page._followPausedByUser, true);
+  assert.equal(f.page._convPinned, false, 'a 30px move away from latest is reader intent, despite the 56px threshold');
+  assert.equal(f.page.data.scrollTarget, '', 'native upward movement cancels a persistent tail anchor');
+
+  // The reader may keep browsing after the finger event; later stream completion
+  // must not interpret the old near-bottom position as permission to snap back.
+  f.page._lastTouchAt = Date.now() - 1100;
+  f.store.sessionState.rows.at(-1).text += ' more streamed text';
+  f.sync();
+  assert.equal(f.report().scrolls, 0);
 });
 test('files arriving after completion publish immediately and respect history reading', () => {
   for (const pinned of [true, false]) {

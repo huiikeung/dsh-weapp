@@ -52,6 +52,8 @@ test('gateway marks deliberate disconnects so a dropped link stays red', () => {
     onState: (status, message, code, deliberate) => seen.push({ status, deliberate }),
     onFrame: () => {}
   });
+  client.disconnect({ deliberate: false });
+  assert.deepEqual(seen.at(-1), { status: 'disconnected', deliberate: false });
   client.disconnect();
   assert.deepEqual(seen.at(-1), { status: 'disconnected', deliberate: true });
   client.setState('failed', 'boom', null, false);

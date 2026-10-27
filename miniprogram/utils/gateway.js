@@ -63,6 +63,7 @@ class GatewayClient {
 
   setState(state, message, errorCode, deliberate) {
     this.state = state;
+    if (state === 'connected') this.reconnectAttempts = 0;
     // deliberate：用户主动断开（切换主机/移除节点/设置里断开），
     // 与「曾连上又掉线」区分开，首页据此把断链显示为红色。
     if (this.cb.onState) this.cb.onState(state, message || null, errorCode || null, deliberate === true);
@@ -108,13 +109,21 @@ class GatewayClient {
     if (!accessApi.isManagedRelay(endpoint)) return this.connectTransport(endpoint, options);
     // Only our hosted relay is metered. LAN/direct/self-hosted connections keep
     // their existing behavior and never depend on the account server.
-    this.disconnect({ keepWant: false });
+    this.disconnect({ keepWant: false, deliberate: false });
     const generation = this.connectGeneration;
     const opts = options || {};
     if (!opts.relay || !opts.relay.nodeId) {
       this.setState('failed', uiText('请扫描 DSH 插件生成的公网配对二维码'));
       return;
     }
+    this.endpoint = endpoint;
+    this.lastConnectOpts = {
+      token: opts.token || null,
+      relay: Object.assign({}, opts.relay, {
+        inviteToken: opts.relay.inviteToken || null,
+        accessToken: opts.relay.accessToken || null
+      })
+    };
     // 已有仍在有效期内的公网租赁：直接开 socket。否则每次冷启动/重连都要先
     // wx.login + 两次 HTTPS 才轮到 connectSocket，体感就是"连接 DSH 很慢"。
     const cached = typeof accessApi.cachedLease === 'function' ? accessApi.cachedLease(opts.relay.nodeId) : null;
@@ -143,13 +152,16 @@ class GatewayClient {
         this.handleTransportFailure(message, { pairingCodeConsumed: false });
         return;
       }
+      const retryable = error && (error.code === 'NETWORK_ERROR' || error.code === 'SERVICE_ERROR');
+      this.wantsConnection = !!retryable;
       this.setState('failed', message, error.code || null);
+      if (retryable) this.scheduleReconnect();
     });
   }
 
   connectTransport(endpoint, options, serviceLease) {
     const opts = options || {};
-    this.disconnect({ keepWant: false });
+    this.disconnect({ keepWant: false, deliberate: false });
     this.probeOnly = !!opts.probe;
     if (!/^wss?:\/\//.test(endpoint || '')) {
       this.setState('failed', uiText('二维码中的 publicUrl 不是有效的 ws:// 或 wss:// 地址'));
@@ -257,7 +269,6 @@ class GatewayClient {
     try {
       transportTask.onOpen(function () {
       if (self.socketTask !== transportTask) return;
-      self.reconnectAttempts = 0;
       self.socketOpened = true;
       // 传输已建立：握手/鉴权阶段换回长超时（中继还要等连接器回拨网关）。
       self.startConnectionTimeout(REQUEST_TIMEOUT);
@@ -314,8 +325,12 @@ class GatewayClient {
               : uiText('正在刷新公网授权'));
           }
         } else if (res && Number(res.code) === 4001) {
-          // 中继报告电脑端连接器不在线：重连时终止并显示原因；配对时继续候选链。
-          self.noteAuthorizationFailure(uiText('电脑端的公网连接器已离线，请在 DSH 中重新开启「微信连接」后重试'));
+          // The desktop connector may be starting or temporarily offline. Keep the
+          // actionable status visible, but retry saved credentials with backoff.
+          self.noteAuthorizationFailure(
+            uiText('电脑端的公网连接器已离线，请在 DSH 中重新开启「微信连接」后重试'),
+            { retryable: true }
+          );
         } else if (res && Number(res.code) === 4004) {
           self.noteAuthorizationFailure(uiText('DSH 电脑端连接器未支持安全公网配对，请升级插件连接器'));
         } else {
@@ -450,12 +465,35 @@ class GatewayClient {
    * 配对期内二维码里还有局域网候选，不能终止——继续候选链；
    * 已保存凭据的重连保持原语义：直接把原因显示出来，不悄悄换线。
    */
-  noteAuthorizationFailure(message) {
+  noteAuthorizationFailure(message, options) {
     if (this.pairingCode) {
       this.handleTransportFailure(message, { pairingCodeConsumed: false });
       return;
     }
+    if (options && options.retryable) {
+      this.handleRetryableAuthorizationFailure(message);
+      return;
+    }
     this.handleAuthorizationFailure(message);
+  }
+
+  handleRetryableAuthorizationFailure(message) {
+    clearTimeout(this.publicLeaseTimer);
+    this.publicLeaseTimer = null;
+    this.clearConnectionTimeout();
+    const socket = this.socketTask;
+    this.socketTask = null;
+    if (socket) {
+      try { socket.close({}); } catch (e) { /* 忽略 */ }
+    }
+    this.failAllPending(message);
+    this.settleDeviceForget(new Error(message));
+    if (!this.wantsConnection) {
+      this.setState('disconnected', null, null, true);
+      return;
+    }
+    this.setState('failed', message);
+    this.scheduleReconnect();
   }
 
   handleAuthorizationFailure(message) {
@@ -496,7 +534,7 @@ class GatewayClient {
     this._leaseRefreshTried = true;
     if (typeof accessApi.forgetGrant === 'function') accessApi.forgetGrant();
     // disconnect 会 +1 generation 并清掉重连计时器，随后的 connect() 走"无缓存"分支重新取号。
-    this.disconnect({ keepWant: false });
+    this.disconnect({ keepWant: false, deliberate: false });
     this.wantsConnection = true;
     this.setState('connecting', uiText('正在刷新公网授权'));
     const self = this;
@@ -527,6 +565,7 @@ class GatewayClient {
     clearTimeout(this.publicLeaseTimer);
     this.publicLeaseTimer = null;
     const keepWant = options && options.keepWant;
+    const deliberate = !(options && options.deliberate === false);
     this.wantsConnection = !!keepWant;
     this.clearConnectionTimeout();
     if (this.reconnectTimer) {
@@ -551,7 +590,7 @@ class GatewayClient {
     this.relayAccessToken = null;
     this.failAllPending(uiText('连接已断开'));
     this.settleDeviceForget(new Error(uiText('连接已断开')));
-    this.setState('disconnected', null, null, true);
+    this.setState('disconnected', null, null, deliberate);
   }
 
   failAllPending(message) {

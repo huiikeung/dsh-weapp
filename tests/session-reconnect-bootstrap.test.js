@@ -47,6 +47,21 @@ test('a session opened offline refreshes its history and composer state after re
   assert.ok(calls.some(call => call.method === 'requestHistory' && call.state === 'disconnected'));
   assert.ok(!calls.some(call => call.method === 'requestCommands' && call.state === 'disconnected'));
 
+  store.client.callbacks.onFrame({ kind: 'sessions', items: [{
+    sessionId: 'session-offline', projections: { asOfSeq: 10, values: { agentPreset: 'custom-review' } }
+  }] });
+  assert.equal(store.state.sessions[0].agentPreset, 'custom-review');
+  assert.equal(store.sessionState.agentPreset, 'custom-review', 'the current session inherits DSH projectionValues');
+  store.client.callbacks.onFrame({ kind: 'history', sessionId: 'session-offline', events: [],
+    projections: { asOfSeq: 20, values: { agentPreset: 'custom-review-v2' } } });
+  assert.equal(store.sessionState.agentPreset, 'custom-review-v2', 'a newer history projection updates the mode');
+  store.client.callbacks.onFrame({ kind: 'session-agent-preset', sessionId: 'session-offline', agentPreset: 'minimal' });
+  store.client.callbacks.onFrame({ kind: 'history', sessionId: 'session-offline', events: [],
+    projections: { asOfSeq: 30, values: { agentPreset: 'older-query-snapshot' } } });
+  assert.equal(store.sessionState.agentPreset, 'minimal', 'the authoritative mode query wins over a racing projection');
+  store.client.callbacks.onFrame({ kind: 'select-agent-preset', sessionId: 'session-offline', agentPreset: 'standard' });
+  assert.equal(store.sessionState.agentPreset, 'standard', 'a successful mode-selection response updates the header immediately');
+
   store.client.state = 'connected';
   store.client.callbacks.onState('connected');
   const subscribeIndex = calls.findIndex(call => call.method === 'subscribe' && call.state === 'connected');

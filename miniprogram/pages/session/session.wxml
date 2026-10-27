@@ -177,21 +177,27 @@
 <view wx:if="{{folds[item.key]}}" class="process-body">
 <view wx:if="{{item.commandDetail}}" class="process-command-detail">{{item.commandDetail}}</view>
 <block wx:for="{{item.children}}" wx:for-item="node" wx:key="key">
-<view wx:if="{{node.kind === 'reasoning' && item.compactReasoning && !folds[node.key]}}" class="disclosure-head" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{node.key}}"><view class="command-icon-slot" aria-hidden="true"><image class="event-glyph command-tool-icon" src="/assets/icons/{{theme === 'dark' ? node.darkIconFile : node.iconFile}}"/><image class="command-chevron" src="/assets/icons/chev-right-gray.png"/></view><text class="event-title">{{ui['思考']}}</text></view>
-<view wx:elif="{{node.kind === 'reasoning'}}" class="reasoning-card {{folds[node.key] ? 'reading-expanded' : ''}}">
+<view wx:if="{{node.kind === 'reasoning' && ((item.compactReasoning && !folds[node.key]) || (!item.compactReasoning && folds[node.key]))}}" class="disclosure-head reasoning-collapsed" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{node.key}}"><view class="command-icon-slot" aria-hidden="true"><image class="event-glyph command-tool-icon" src="/assets/icons/{{theme === 'dark' ? node.darkIconFile : node.iconFile}}"/><image class="command-chevron" src="/assets/icons/chev-right-gray.png"/></view><text class="event-title">{{ui['思考']}}</text><text wx:if="{{node.preview}}" class="event-preview">{{node.preview}}</text></view>
+<view wx:elif="{{node.kind === 'reasoning'}}" class="reasoning-card reading-preview">
 <view class="reasoning-card-head"><text class="reasoning-card-title">{{ui['思考']}}</text><text wx:if="{{node.stepLabel}}" class="reasoning-step">{{ui[node.stepLabel] !== undefined ? ui[node.stepLabel] : node.stepLabel}}</text></view>
 <view class="reasoning-reading-area">
-<scroll-view class="reasoning-scroll" scroll-y="{{!folds[node.key]}}" enhanced show-scrollbar="{{true}}" style="{{folds[node.key] ? '' : 'height:' + node.readingHeight + 'rpx;'}}">
+<scroll-view class="reasoning-scroll" scroll-y="{{true}}" enhanced show-scrollbar="{{true}}" style="height:{{node.readingHeight}}rpx;">
 <text class="reasoning-reading-text" selectable>{{node.text}}</text>
 </scroll-view>
-<view wx:if="{{!folds[node.key] && node.readingLong}}" class="reasoning-reading-fade"></view>
+<view wx:if="{{node.readingLong}}" class="reasoning-reading-fade"></view>
 </view>
 <view class="reasoning-card-footer">
-<text class="reasoning-reading-hint">{{folds[node.key] ? ui['完整内容'] : (node.readingLong ? ui['可滚动阅读'] : ui['思考内容'])}}</text>
-<view class="reasoning-reading-toggle" bindtap="toggleFold" data-key="{{node.key}}" role="button" aria-label="{{folds[node.key] ? ui['收起阅读'] : ui['展开阅读']}}">
-<text>{{folds[node.key] ? ui['收起阅读'] : ui['展开阅读']}}</text><image class="reasoning-reading-chevron {{folds[node.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
+<text class="reasoning-reading-hint">{{ui['完整内容']}}</text>
+<view class="reasoning-reading-toggle" bindtap="toggleFold" data-key="{{node.key}}" role="button" aria-label="{{ui['收起阅读']}}">
+<text>{{ui['收起阅读']}}</text><image class="reasoning-reading-chevron" src="/assets/icons/chev-right-gray.png"/>
 </view>
 </view>
+</view>
+<view wx:elif="{{node.kind === 'narration'}}" class="process-narration">
+<block wx:if="{{node.blocks && node.blocks.length}}"><template is="mdBlocks" data="{{blocks: node.blocks, rowKey: node.formatKey || node.sourceKey || node.key}}"/></block>
+<text wx:elif="{{node.text}}" class="process-narration-text" selectable>{{node.text}}</text>
+<view wx:if="{{node.images && node.images.length}}" class="attach-grid"><image wx:for="{{node.images}}" wx:for-item="img" wx:key="attachmentId" class="attach-img" src="{{img.localUrl || img.thumbUrl || ''}}" mode="aspectFill" bindtap="previewAttachment" data-id="{{img.attachmentId}}"/></view>
+<view wx:if="{{node.attachments && node.attachments.length}}" class="message-attachments assistant-attachments"><view wx:for="{{node.attachments}}" wx:for-item="att" wx:for-index="attachmentIndex" wx:key="index" class="message-attachment" bindtap="openProcessAttachment" data-source-key="{{node.sourceKey}}" data-attachment-index="{{attachmentIndex}}" hover-class="press-dim" role="button" aria-label="{{ui['预览']}} {{att.name || att.path || ui['附件']}}"><image class="message-attachment-icon" src="{{att.kind === 'directory' ? '/assets/icons/ic-dir-folder-ink.png' : '/assets/icons/deliverable-code.svg'}}" mode="aspectFit"/><text class="message-attachment-name">{{att.name || att.path || ui['附件']}}</text></view></view>
 </view>
 <view wx:elif="{{node.kind === 'context'}}" class="disclosure">
 <view class="disclosure-head" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{node.key}}">
@@ -209,7 +215,8 @@
 <view wx:else class="disclosure tool-bundle">
 <view class="tool-bundle-body">
 <block wx:for="{{node.tools}}" wx:for-item="tool" wx:key="key">
-<view class="tool-node {{tool.isCommand ? 'command-node' : ''}}">
+<view class="tool-node {{tool.isCommand ? 'command-node' : ''}}" style="{{tool.indentStyle}}">
+<view wx:for="{{tool.branchTracks}}" wx:for-item="track" wx:key="key" class="tool-branch-track" style="{{track.style}}" aria-hidden="true"/>
 <view class="disclosure-head tool" hover-class="tool-head-hover" hover-start-time="0" hover-stay-time="200" bindtap="{{tool.phase === 'preparing' ? '' : 'toggleFold'}}" data-key="{{tool.key}}">
 <view wx:if="{{tool.phase !== 'preparing'}}" class="command-icon-slot {{folds[tool.key] ? 'disclosed' : ''}}" aria-hidden="true">
 <image class="event-glyph tool-glyph-small command-tool-icon" src="/assets/icons/{{theme === 'dark' ? tool.darkIconFile : tool.iconFile}}" mode="aspectFit"/>
@@ -553,7 +560,7 @@
 <text wx:for="{{contextPanel.trend.axis}}" wx:key="key" class="ctx-trend-axis-tick" style="top:{{item.top}}rpx;">{{item.text}}</text>
 </view>
 <view class="ctx-trend-main">
-<view class="ctx-trend-fit" catchtouchstart="contextTrendFitTouch" catchtouchmove="contextTrendFitTouch" catchtouchend="contextTrendFitPick">
+<view class="ctx-trend-fit" bindtouchstart="contextTrendTouchStart" bindtouchmove="contextTrendTouchMove" bindtouchend="contextTrendTouchEnd" bindtouchcancel="contextTrendTouchEnd">
 <view class="ctx-trend-chart ctx-trend-chart-fit">
 <view wx:for="{{contextPanel.trend.grid}}" wx:key="key" class="ctx-trend-grid ctx-trend-grid-{{item.key}}" style="top:{{item.top}}rpx;" />
 <view class="ctx-trend-columns">
@@ -562,7 +569,6 @@
 </view>
 </view>
 <svg wx:if="{{contextPanel.trend.hasDuration}}" class="ctx-trend-duration ctx-trend-duration-fit" width="100%" height="224" viewBox="0 0 {{contextPanel.trend.ribbon.width}} 224" preserveAspectRatio="none" aria-hidden="true">
-<polygon wx:for="{{contextPanel.trend.ribbon.durationAreas}}" wx:for-item="area" wx:key="index" class="ctx-trend-duration-area" points="{{area}}" />
 <polyline wx:for="{{contextPanel.trend.ribbon.durationRuns}}" wx:for-item="run" wx:key="index" class="ctx-trend-duration-halo" points="{{run}}" />
 <polyline wx:for="{{contextPanel.trend.ribbon.durationRuns}}" wx:for-item="run" wx:key="index" points="{{run}}" />
 <circle wx:for="{{contextPanel.trend.ribbon.durationDots}}" wx:for-item="dot" wx:key="index" class="ctx-trend-duration-halo" cx="{{dot.split(',')[0]}}" cy="{{dot.split(',')[1]}}" r="3" />
@@ -591,7 +597,7 @@
 <text wx:for="{{contextPanel.trend.axis}}" wx:key="key" class="ctx-trend-axis-tick" style="top:{{item.top}}rpx;">{{item.text}}</text>
 </view>
 <view class="ctx-trend-main">
-<scroll-view class="ctx-trend-scroll" scroll-x enhanced show-scrollbar="{{false}}" catchtouchstart="noop" bindscroll="contextTrendScroll" scroll-into-view="{{contextPanel.trendAnchor}}">
+<scroll-view class="ctx-trend-scroll" scroll-x enhanced show-scrollbar="{{false}}" bindtouchstart="contextTrendTouchStart" bindtouchmove="contextTrendTouchMove" bindtouchend="contextTrendTouchEnd" bindtouchcancel="contextTrendTouchEnd" bindscroll="contextTrendScroll" scroll-into-view="{{contextPanel.trendAnchor}}">
 <view class="ctx-trend-chart" style="width:{{contextPanel.trend.chartWidth}}rpx;">
 <view wx:for="{{contextPanel.trend.grid}}" wx:key="key" class="ctx-trend-grid ctx-trend-grid-{{item.key}}" style="top:{{item.top}}rpx;" />
 <block wx:for="{{contextPanel.trend.bars}}" wx:key="key">
@@ -621,8 +627,10 @@
 </view>
 </view>
 <svg wx:if="{{contextPanel.trend.hasDuration}}" class="ctx-trend-duration" style="width:{{contextPanel.trend.durationWidth}}rpx;height:224rpx;" width="{{contextPanel.trend.durationWidth}}" height="224" viewBox="0 0 {{contextPanel.trend.durationWidth}} 224" preserveAspectRatio="none">
+<polyline wx:for="{{contextPanel.trend.durationRuns}}" wx:key="key" class="ctx-trend-duration-halo" points="{{item}}" />
 <polyline wx:for="{{contextPanel.trend.durationRuns}}" wx:key="key" points="{{item}}" />
-<circle wx:for="{{contextPanel.trend.durationDots}}" wx:key="key" cx="{{item.split(',')[0]}}" cy="{{item.split(',')[1]}}" r="2" />
+<circle wx:for="{{contextPanel.trend.durationDots}}" wx:key="key" class="ctx-trend-duration-halo" cx="{{item.split(',')[0]}}" cy="{{item.split(',')[1]}}" r="3" />
+<circle wx:for="{{contextPanel.trend.durationDots}}" wx:key="key" cx="{{item.split(',')[0]}}" cy="{{item.split(',')[1]}}" r="1.5" />
 </svg>
 </view>
 </scroll-view>
@@ -650,6 +658,7 @@
 <text wx:if="{{contextPanel.trendDetail.actualPromptText !== '—'}}" class="ctx-trend-metric">{{contextPanel.trendDetail.promptLabel}} {{contextPanel.trendDetail.actualPromptText}}</text>
 <text wx:if="{{contextPanel.trendDetail.outputText !== '—'}}" class="ctx-trend-metric">{{contextPanel.trendDetail.outputLabel}} {{contextPanel.trendDetail.outputText}}</text>
 <text wx:if="{{contextPanel.trendDetail.cacheText}}" class="ctx-trend-metric">{{contextPanel.trendDetail.cacheLabel}} {{contextPanel.trendDetail.cacheText}}</text>
+<text wx:if="{{contextPanel.trendDetail.durationText}}" class="ctx-trend-metric">{{contextPanel.trendDetail.durationLabel}} {{contextPanel.trendDetail.durationText}}</text>
 <text wx:if="{{contextPanel.trendDetail.deltaText !== '—'}}" class="ctx-trend-metric ctx-trend-metric-delta ctx-trend-delta-{{contextPanel.trendDetail.deltaClass}}">Δ {{contextPanel.trendDetail.deltaClass === 'flat' ? '' : ''}}{{contextPanel.trendDetail.deltaText}}</text>
 </view>
 <view class="ctx-brief">
@@ -1722,9 +1731,9 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
             mode="aspectFit"
             aria-hidden="true"
           />
-<text class="collab-mode-text">{{ui[presetLabel] !== undefined ? ui[presetLabel] : presetLabel}}</text>
+<text class="collab-mode-text">{{presetLabel}}</text>
 </view>
-<view class="collab-action collab-refresh {{collaborationBusy ? 'busy' : ''}} {{connected ? 'online' : 'offline'}}" bindtap="refreshCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新协作状态']}}" aria-disabled="{{collaborationBusy}}">
+<view class="collab-action collab-refresh {{collaborationBusy ? 'busy' : ''}} {{connected ? 'online' : 'offline'}} {{running ? 'is-running' : 'is-idle'}}" bindtap="refreshCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['刷新协作状态']}}" aria-disabled="{{collaborationBusy}}">
 <view class="collab-action-disc"><view class="collab-breathe" aria-hidden="true"><view class="collab-breathe-halo"/><view class="collab-breathe-dot"/></view></view>
 </view>
 <view class="collab-action collab-close" bindtap="closeCollaboration" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['关闭']}}">

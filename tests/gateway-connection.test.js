@@ -3,6 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { GatewayClient } = require('../miniprogram/utils/gateway');
+const accessApi = require('../miniprogram/utils/access-api');
 
 function fixture(t, options) {
   const sockets = [];
@@ -112,20 +113,58 @@ test('a stale failure from a replaced socket cannot break the new connection', t
   assert.equal(f.client.reconnectTimer, null);
 });
 
-test('relay connector offline close retains an actionable failed state', t => {
+test('relay connector offline close keeps an actionable state and retries saved credentials', t => {
   const f = fixture(t);
+  const relayNodeId = '12345678-1234-4234-8234-123456789012';
+  f.client.reconnectAttempts = 2;
   f.client.connectTransport('wss://relay.example.test/c/fixture-node', {
     token: 'saved-device-token',
-    relay: { authMode: 'invite', nodeId: 'fixture-node', agentPubKey: 'fixture-key' }
+    relay: {
+      authMode: 'gateway',
+      nodeId: relayNodeId,
+      agentPubKey: Buffer.alloc(32, 3).toString('base64')
+    }
   });
   const attempt = f.sockets[0];
 
+  attempt.socket.events.open();
+  assert.equal(f.client.reconnectAttempts, 2,
+    'opening the relay transport does not reset backoff before gateway authentication succeeds');
   attempt.socket.events.close({ code: 4001, reason: 'connector-offline' });
 
   assert.equal(f.client.state, 'failed');
-  assert.equal(f.client.wantsConnection, false);
+  assert.equal(f.client.wantsConnection, true);
   assert.match(f.states.at(-1).message, /连接器已离线/);
-  assert.equal(f.client.reconnectTimer, null);
+  assert.ok(f.client.reconnectTimer, 'a temporarily offline desktop connector is retried with backoff');
+  assert.equal(f.client.reconnectAttempts, 3, 'retry backoff continues across failed relay handshakes');
+});
+
+test('transient lease-service network errors retain relay credentials and retry', async t => {
+  const originals = {
+    isManagedRelay: accessApi.isManagedRelay,
+    cachedLease: accessApi.cachedLease,
+    publicLease: accessApi.publicLease
+  };
+  t.after(() => Object.assign(accessApi, originals));
+  accessApi.isManagedRelay = () => true;
+  accessApi.cachedLease = () => null;
+  accessApi.publicLease = () => Promise.reject(Object.assign(new Error('temporary lease network failure'), {
+    code: 'NETWORK_ERROR'
+  }));
+
+  const f = fixture(t);
+  f.client.connect('wss://relay.example.test/c/fixture-node', {
+    token: 'saved-device-token',
+    relay: { authMode: 'gateway', nodeId: 'fixture-node', agentPubKey: 'fixture-key' }
+  });
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(f.client.state, 'failed');
+  assert.equal(f.client.wantsConnection, true);
+  assert.ok(f.client.reconnectTimer, 'temporary account-service failures use bounded backoff');
+  assert.equal(f.client.endpoint, 'wss://relay.example.test/c/fixture-node');
+  assert.equal(f.client.lastConnectOpts.token, 'saved-device-token');
+  assert.equal(f.client.lastConnectOpts.relay.nodeId, 'fixture-node');
 });
 
 test('session subscription carries a validated durable resume cursor', t => {

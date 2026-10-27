@@ -401,7 +401,11 @@ function storeSandbox(t, options) {
   const instances = [];
   class Client {
     constructor(cb) { this.cb = cb; instances.push(this); }
-    connect(endpoint, connectOptions) { this.endpoint = endpoint; this.options = connectOptions; }
+    connect(endpoint, connectOptions) {
+      this.endpoint = endpoint;
+      this.options = connectOptions;
+      (this.connectCalls || (this.connectCalls = [])).push({ endpoint, options: connectOptions });
+    }
     disconnect() {}
   }
   const moduleObject = { exports: {} };
@@ -471,8 +475,9 @@ test('the multi-platform App pairs through the public address first', t => {
   assert.equal(client.options.relay, undefined);
 });
 
-test('a LAN-paired profile reconnects over LAN without a relay candidate it cannot authenticate', t => {
-  const sandbox = storeSandbox(t);
+test('a LAN-paired profile can authenticate through its advertised gateway relay on cellular', t => {
+  const sandbox = networkSandbox(t, { network: 'wifi' });
+  sandbox.store.init();
   const result = sandbox.store.pairWithPayload(raw({
     version: 2,
     publicUrl: 'ws://192.168.1.20:3081/ws/mobile',
@@ -483,17 +488,26 @@ test('a LAN-paired profile reconnects over LAN without a relay candidate it cann
     routes: { lan: ['ws://192.168.1.20:3081/ws/mobile'], public: [], relay: relayEntry }
   }));
   assert.equal(result.ok, true);
-  // 小程序首选是中继，但沙箱里取不到租赁：按候选链回退到局域网并提交档案。
+  // Simulate the initial relay candidate failing over to a LAN pairing.
   const pairing = sandbox.instances[0];
+  pairing.endpoint = 'ws://192.168.1.20:3081/ws/mobile';
+  pairing.routeKind = 'lan';
+  pairing.cb.onState('connecting');
   commitPairing(sandbox, pairing, '87654321-4321-4321-8321-210987654321');
   const profile = sandbox.store.state.profiles[0];
   assert.equal(profile.relay, false, 'a LAN pairing keeps the profile direct');
+  assert.equal(profile.preferredEndpoint, 'ws://192.168.1.20:3081/ws/mobile');
+
+  // The gateway token issued by LAN pairing is also the device credential sent
+  // inside the authenticated E2EE relay, so cellular startup should use it.
+  sandbox.wx.getNetworkType = query => query.success({ networkType: '4g' });
   sandbox.store.init();
   const reconnect = sandbox.instances[sandbox.instances.length - 1];
-  assert.equal(reconnect.endpoint, 'ws://192.168.1.20:3081/ws/mobile');
-  assert.equal(reconnect.options.routeKind, 'lan');
-  assert.equal(reconnect.options.relay, undefined,
-    'a profile without relay credentials must not be handed a relay candidate');
+  assert.equal(reconnect.endpoint, 'wss://dsh.ahwe.top/relay/c/' + relayNodeId);
+  assert.equal(reconnect.options.routeKind, 'relay');
+  assert.deepEqual(reconnect.options.candidateKinds, ['relay']);
+  assert.equal(reconnect.options.relay.authMode, 'gateway');
+  assert.equal(reconnect.options.relay.nodeId, relayNodeId);
   assert.equal(reconnect.options.token, 'b'.repeat(43));
 });
 
@@ -512,6 +526,33 @@ test('a relay-paired profile reconnects through the relay with its own node iden
   assert.equal(reconnect.options.routeKind, 'relay');
   assert.equal(reconnect.options.relay.nodeId, relayNodeId,
     'runtime detection must not strip the relay from an already paired relay profile');
+  assert.equal(reconnect.options.token, 'b'.repeat(43));
+});
+
+test('legacy relay profiles without a route table rebuild their E2EE relay candidate', t => {
+  const sandbox = storeSandbox(t);
+  const profileId = '12345678-1234-4234-8234-123456789012';
+  const endpoint = relayEntry.relay + '/c/' + relayNodeId;
+  sandbox.memory.set('gateway.profiles.v1', JSON.stringify([{
+    id: profileId,
+    gatewayId: relayNodeId,
+    gatewayName: 'DSH',
+    endpoints: [endpoint],
+    preferredEndpoint: endpoint,
+    relay: true,
+    relayAgentPubKey: relayEntry.agentPubKey,
+    relayAuthMode: 'gateway'
+  }]));
+  sandbox.memory.set('gateway.activeID', profileId);
+  sandbox.memory.set('dsh_creds.' + profileId, JSON.stringify({ endpoint, token: 'b'.repeat(43) }));
+
+  sandbox.store.init();
+
+  const reconnect = sandbox.instances[0];
+  assert.equal(reconnect.endpoint, endpoint);
+  assert.equal(reconnect.options.routeKind, 'relay');
+  assert.deepEqual(reconnect.options.candidateKinds, ['relay']);
+  assert.equal(reconnect.options.relay.nodeId, relayNodeId);
   assert.equal(reconnect.options.token, 'b'.repeat(43));
 });
 
@@ -648,27 +689,66 @@ test('a same-family network change does not disturb a working connection', t => 
   assert.equal(sandbox.instances.length, before, 'no reconnect is forced inside the same family');
 });
 
-test('a LAN-paired profile on cellular still keeps a candidate instead of giving up', t => {
+test('a LAN-paired profile switches to its gateway-auth relay when the network turns cellular', t => {
   const sandbox = networkSandbox(t, { network: 'wifi' });
   sandbox.store.init();
   const paired = sandbox.store.pairWithPayload(raw(fullRoutesPayload('a'.repeat(43))));
   assert.equal(paired.ok, true);
-  // 局域网配对：没有中继凭据，重连时中继候选本来就会被过滤掉。
+  // The one-time pairing fell back to LAN, but its saved device token remains
+  // valid for the gateway-auth relay advertised by the same QR code.
   commitPairing(sandbox, sandbox.instances[0], '87654321-4321-4321-8321-210987654321');
   const profile = sandbox.store.state.profiles[0];
   assert.equal(profile.relay, false, 'the fixture is a LAN-paired profile');
   profile.preferredEndpoint = 'ws://192.168.1.20:3081/ws/mobile';
   profile.preferredNetwork = 'wifi';
 
-  // 手机离开局域网：局域网线路在蜂窝下确定不可用，就地重连。此时蜂窝下局域网候选被
-  // 整族删掉、中继候选又因没有凭据被过滤——曾经这里会把候选清空，socket 一断就没有
-  // 可轮换的候选，重连永久放弃（真机表现：连上一下就断，再也不回）。
+  // Leaving WiFi should immediately route through the relay rather than dial
+  // the now-unreachable saved LAN endpoint.
   sandbox.fireNetworkChange({ isConnected: true, networkType: '4g' });
   const cellularClient = sandbox.instances[sandbox.instances.length - 1];
-  assert.ok(cellularClient.options.candidateKinds.length > 0,
-    'a doomed LAN address is still better than no candidate at all');
-  assert.deepEqual(cellularClient.options.candidateKinds, ['lan']);
-  assert.equal(cellularClient.endpoint, 'ws://192.168.1.20:3081/ws/mobile');
+  assert.deepEqual(cellularClient.options.candidateKinds, ['relay']);
+  assert.equal(cellularClient.endpoint, 'wss://dsh.ahwe.top/relay/c/' + relayNodeId);
+  assert.equal(cellularClient.options.relay.authMode, 'gateway');
+  assert.equal(cellularClient.options.token, 'b'.repeat(43));
+});
+
+test('cold start on cellular corrects the initial LAN route as soon as network type resolves', t => {
+  const sandbox = networkSandbox(t, { network: '4g' });
+  let resolveNetworkType;
+  sandbox.wx.getNetworkType = query => { resolveNetworkType = query.success; };
+  const profileId = '12345678-1234-4234-8234-123456789012';
+  const profile = {
+    id: profileId,
+    gatewayId: relayNodeId,
+    gatewayName: 'DSH',
+    endpoints: ['ws://192.168.1.20:3081/ws/mobile'],
+    preferredEndpoint: 'ws://192.168.1.20:3081/ws/mobile',
+    routeTable: {
+      lan: ['ws://192.168.1.20:3081/ws/mobile'],
+      public: [],
+      relay: routeTable.normalizeRelay(relayEntry)
+    },
+    relay: true,
+    relayAgentPubKey: relayEntry.agentPubKey,
+    relayAuthMode: 'gateway'
+  };
+  sandbox.memory.set('gateway.profiles.v1', JSON.stringify([profile]));
+  sandbox.memory.set('gateway.activeID', profileId);
+  sandbox.memory.set('dsh_creds.' + profileId, JSON.stringify({
+    endpoint: profile.preferredEndpoint,
+    token: 'b'.repeat(43)
+  }));
+
+  sandbox.store.init();
+
+  const client = sandbox.instances[0];
+  assert.equal(client.connectCalls[0].endpoint, profile.preferredEndpoint,
+    'the stored route is used before the asynchronous network query resolves');
+  resolveNetworkType({ networkType: '4g' });
+  const corrected = client.connectCalls[1];
+  assert.equal(corrected.endpoint, 'wss://dsh.ahwe.top/relay/c/' + relayNodeId,
+    'the resolved cellular network immediately replaces an unreachable saved LAN route');
+  assert.deepEqual(corrected.options.candidateKinds, ['relay']);
 });
 
 test('a working connection is never torn down by a transient network report', t => {
