@@ -1,5 +1,10 @@
 # 更新记录
 
+## v0.9.50 — 2026-10-27
+
+- 修复 v0.9.47 引入的部署升级脚本在 macOS 上必然失败：为兼容 Windows 盘符冒号给 `tar` 加的 `--force-local` 在 BSD tar（macOS 自带）里不存在，`tar: Option --force-local is not supported` 会让备份步骤中止、整个升级按 trap 回滚——而 v0.9.47 的说明写的是「该选项无副作用」，只在 Linux 上成立。改成 cd 进暂存目录后用相对归档名：路径里不可能出现冒号，GNU tar 不会再把冒号前半段当成远端主机去调 rsh，BSD tar 也不需要任何额外选项，一条命令同时覆盖 Windows 与 macOS。已用带冒号的目录实测两种行为，升级脚本的 mock Docker 测试恢复通过。
+- 全量 Node 测试：1180 项通过、0 失败、13 项因缺少原生渲染能力跳过；主包源码预算检查通过。
+
 ## v0.9.49 — 2026-10-27
 
 - 过程展示按桌面端四档彻底分开（presentation-policy 的 stepGrouping）：compact/standard=collapsed 永远分组（组头带总结标题）；detailed=history，回合进行中组头不显示、子过程直接平铺展开，结束后才分组；verbose=none 永远平铺，且 foldCompletedTurns=false——回合行默认展开、不自动折叠。平铺时组头不显示，也因此不参与自动折叠（折了就什么都看不见）。

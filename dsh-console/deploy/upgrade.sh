@@ -38,11 +38,12 @@ for volume in dsh-public-console-data dsh-public-relay-data dsh-public-caddy-dat
     sh -c 'tar -czf "/backup/$1.tar.gz" -C /data .' sh "$volume"
 done
 cp -- .env "$STAGE/env"
-# --force-local：暂存路径含冒号时（Windows 上形如 C:\Users\...）GNU tar 会把冒号
-# 前半段当成远端主机去调 rsh，报 "Cannot connect to C: resolve failed"。这里明确
-# 声明归档文件是本地的；Linux 上路径不含冒号，该选项无副作用。
-tar --force-local -czf "$STAGE/backup.tar.gz" -C "$STAGE" env \
-  dsh-public-console-data.tar.gz dsh-public-relay-data.tar.gz dsh-public-caddy-data.tar.gz dsh-public-caddy-config.tar.gz
+# 暂存路径含冒号时（Windows 上形如 C:Users...）GNU tar 会把冒号前半段当成远端
+# 主机去调 rsh，报 "Cannot connect to C: resolve failed"。cd 进暂存目录再用相对
+# 归档名：路径里不可能出现冒号，GNU tar 与 BSD tar（macOS）都不会歧义。不能用
+# --force-local——BSD tar 没有这个选项，macOS 上会直接报错中断升级。
+( cd "$STAGE" && tar -czf backup.tar.gz env \
+  dsh-public-console-data.tar.gz dsh-public-relay-data.tar.gz dsh-public-caddy-data.tar.gz dsh-public-caddy-config.tar.gz )
 echo '启动新服务并等待健康检查…'
 docker compose up -d --wait --wait-timeout 120
 STOPPED=0
