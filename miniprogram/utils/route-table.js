@@ -113,6 +113,17 @@ function allowedFamilies(client) {
  * options: { client?: 'wechat'|'native', preferred?: string }
  * 返回 [{ endpoint, kind, relay? }]。
  */
+/**
+ * 网络类型 → 线路族。wifi 下局域网「可能」可达（也可能不是同一个网），
+ * cellular 下局域网地址一定不可达。'' 表示未知/无网，由调用方决定。
+ */
+function networkFamily(networkType) {
+  const type = String(networkType || '').toLowerCase()
+  if (type === 'wifi') return 'wifi'
+  if (/^(?:2g|3g|4g|5g|cellular)$/.test(type)) return 'cellular'
+  return ''
+}
+
 function orderCandidates(routeTable, options) {
   const opts = options || {}
   const table = routeTable && typeof routeTable === 'object'
@@ -120,6 +131,7 @@ function orderCandidates(routeTable, options) {
   const client = opts.client === 'native' ? 'native' : 'wechat'
   const ordered = []
   const seen = {}
+  const network = networkFamily(opts.network)
 
   function push(endpoint, kind, relay) {
     if (!endpoint || seen[endpoint]) return
@@ -127,19 +139,33 @@ function orderCandidates(routeTable, options) {
     ordered.push(relay ? { endpoint: endpoint, kind: kind, relay: relay } : { endpoint: endpoint, kind: kind })
   }
 
-  if (opts.preferred) {
+  function kindOf(endpoint) {
     // 中继地址（wss://host/c/nodeId）按 URL 特征会被看成公网直连；先用路由表
     // 里的中继条目比对，保证已配对中继档案的首选不会被降级成直连候选。
-    if (table.relay && table.relay.endpoint === opts.preferred) {
-      push(opts.preferred, 'relay', table.relay)
-    } else {
-      const kind = classifyEndpoint(opts.preferred)
-      if (kind) push(opts.preferred, kind)
-    }
+    if (table.relay && table.relay.endpoint === endpoint) return 'relay'
+    return classifyEndpoint(endpoint)
   }
-  const families = allowedFamilies(client)
+
+  const preferredKind = opts.preferred ? kindOf(opts.preferred) : null
+  // 首选的两种让位：
+  //  a) 蜂窝网络下局域网地址一定不可达——别拿一个 8s 超时去试；
+  //  b) 刚在 WiFi↔蜂窝 之间切过（promoteLan）——按新网络重新选族，局域网插队。
+  const skipPreferred = !!opts.preferred && (
+    (network === 'cellular' && preferredKind === 'lan') ||
+    (opts.promoteLan === true && preferredKind !== 'lan')
+  )
+  if (opts.preferred && !skipPreferred) {
+    push(opts.preferred, preferredKind, preferredKind === 'relay' ? table.relay : null)
+  }
+
+  let families = allowedFamilies(client)
+  if (opts.promoteLan === true && families.indexOf('lan') >= 0) {
+    families = ['lan'].concat(families.filter((family) => family !== 'lan'))
+  }
   for (let i = 0; i < families.length; i += 1) {
     const family = families[i]
+    // 蜂窝整族跳过局域网：没有一条候选能通，列出来只会拖延切换。
+    if (network === 'cellular' && family === 'lan') continue
     if (family === 'relay') {
       if (table.relay) push(table.relay.endpoint, 'relay', table.relay)
       continue
@@ -162,6 +188,7 @@ module.exports = {
   normalizeRelay: normalizeRelay,
   parseRouteTable: parseRouteTable,
   allowedFamilies: allowedFamilies,
+  networkFamily: networkFamily,
   orderCandidates: orderCandidates,
   onlyLocalAreaNetwork: onlyLocalAreaNetwork
 }

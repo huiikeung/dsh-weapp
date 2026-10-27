@@ -38,7 +38,10 @@ for volume in dsh-public-console-data dsh-public-relay-data dsh-public-caddy-dat
     sh -c 'tar -czf "/backup/$1.tar.gz" -C /data .' sh "$volume"
 done
 cp -- .env "$STAGE/env"
-tar -czf "$STAGE/backup.tar.gz" -C "$STAGE" env \
+# --force-local：暂存路径含冒号时（Windows 上形如 C:\Users\...）GNU tar 会把冒号
+# 前半段当成远端主机去调 rsh，报 "Cannot connect to C: resolve failed"。这里明确
+# 声明归档文件是本地的；Linux 上路径不含冒号，该选项无副作用。
+tar --force-local -czf "$STAGE/backup.tar.gz" -C "$STAGE" env \
   dsh-public-console-data.tar.gz dsh-public-relay-data.tar.gz dsh-public-caddy-data.tar.gz dsh-public-caddy-config.tar.gz
 echo '启动新服务并等待健康检查…'
 docker compose up -d --wait --wait-timeout 120

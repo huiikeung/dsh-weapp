@@ -408,7 +408,7 @@ function storeSandbox(t, options) {
     require(name) { return name === './gateway' ? { GatewayClient: Client } : require(path.resolve(path.dirname(file), name)); }
   }, { filename: file });
   t.after(() => { delete global.wx; });
-  return { store: moduleObject.exports, instances, memory };
+  return { store: moduleObject.exports, instances, memory, wx };
 }
 
 const fullRoutesPayload = (pairingCode) => ({
@@ -524,4 +524,122 @@ test('manual pairing refuses a public address in the mini program with a precise
   const attempted = native.store.pairManual('wss://nas.example.com/ws/mobile', 'a'.repeat(43));
   assert.equal(attempted.ok, false);
   assert.match(attempted.error, /地址未经此主机确认/);
+});
+
+// ---------- 无缝热切换：按当前网络类型选路 ----------
+
+test('networkFamily maps WeChat network types onto route families', () => {
+  assert.equal(routeTable.networkFamily('wifi'), 'wifi');
+  assert.equal(routeTable.networkFamily('2g'), 'cellular');
+  assert.equal(routeTable.networkFamily('4g'), 'cellular');
+  assert.equal(routeTable.networkFamily('5g'), 'cellular');
+  assert.equal(routeTable.networkFamily('unknown'), '', 'unknown must not filter anything');
+  assert.equal(routeTable.networkFamily('none'), '');
+  assert.equal(routeTable.networkFamily(''), '');
+  assert.equal(routeTable.networkFamily(undefined), '');
+});
+
+test('a cellular network drops every LAN candidate instead of burning an 8s timeout', () => {
+  const table = routeTable.parseRouteTable({
+    routes: { lan: ['ws://192.168.1.20:3081/ws/mobile'], public: ['wss://nas.example.com/ws/mobile'], relay: relayEntry }
+  });
+  const cellular = routeTable.orderCandidates(table, {
+    client: 'wechat', network: '4g', preferred: 'ws://192.168.1.20:3081/ws/mobile'
+  });
+  assert.deepEqual(cellular.map(c => c.kind), ['relay'],
+    'the LAN preferred endpoint is unreachable on cellular and is not tried at all');
+  assert.deepEqual(routeTable.orderCandidates(table, { client: 'native', network: '5g' }).map(c => c.kind), ['public']);
+  // WiFi / 未知：不过滤，保持原顺序。
+  assert.deepEqual(routeTable.orderCandidates(table, { client: 'wechat', network: 'wifi' }).map(c => c.kind), ['relay', 'lan']);
+  assert.deepEqual(routeTable.orderCandidates(table, { client: 'wechat' }).map(c => c.kind), ['relay', 'lan']);
+});
+
+test('promoteLan only reorders the families, it never invents a candidate', () => {
+  const table = routeTable.parseRouteTable({
+    routes: { lan: ['ws://192.168.1.20:3081/ws/mobile'], public: ['wss://nas.example.com/ws/mobile'], relay: relayEntry }
+  });
+  const promoted = routeTable.orderCandidates(table, {
+    client: 'wechat', network: 'wifi', promoteLan: true, preferred: 'wss://dsh.ahwe.top/relay/c/' + relayNodeId
+  });
+  assert.deepEqual(promoted.map(c => c.kind), ['lan', 'relay'],
+    'coming back onto WiFi puts the LAN ahead of the endpoint that worked on cellular');
+  assert.equal(promoted[1].relay.nodeId, relayNodeId, 'the relay keeps its metadata');
+  // 没有局域网候选时 promoteLan 什么也不做。
+  const lanless = routeTable.parseRouteTable({ routes: { public: ['wss://nas.example.com/ws/mobile'], relay: relayEntry } });
+  assert.deepEqual(routeTable.orderCandidates(lanless, { client: 'wechat', promoteLan: true }).map(c => c.kind), ['relay']);
+});
+
+// store 集成：网络类型真实参与选路，且网络族变化会触发一次重连。
+function networkSandbox(t, options) {
+  const opts = options || {};
+  const sandbox = storeSandbox(t, opts);
+  let changeHandler = null;
+  sandbox.wx.getNetworkType = (query) => query.success({ networkType: opts.network || 'wifi' });
+  sandbox.wx.onNetworkStatusChange = (handler) => { changeHandler = handler; };
+  sandbox.fireNetworkChange = (payload) => { if (changeHandler) changeHandler(payload); };
+  return sandbox;
+}
+
+// 把当前档案置成「中继档案」：只有它同时拥有中继凭据和网关 nodeId，重连时中继
+// 才是合法候选（store 的 relayReady 判断）。v2 直连二维码连通中继后就是这么升级的。
+function markRelayPaired(sandbox, network) {
+  const profile = sandbox.store.state.profiles[0];
+  profile.relay = true;
+  profile.relayAgentPubKey = relayEntry.agentPubKey;
+  profile.relayAuthMode = 'gateway';
+  profile.gatewayId = relayNodeId;
+  profile.preferredEndpoint = 'wss://dsh.ahwe.top/relay/c/' + relayNodeId;
+  profile.preferredNetwork = network;
+  return profile;
+}
+
+test('a cellular network switches the mini program off LAN without trying it first', t => {
+  const sandbox = networkSandbox(t, { network: 'wifi' });
+  sandbox.store.init();
+  const paired = sandbox.store.pairWithPayload(raw(fullRoutesPayload('a'.repeat(43))));
+  assert.equal(paired.ok, true);
+  assert.deepEqual(sandbox.instances[0].options.candidateKinds, ['relay', 'lan'],
+    'scanning on WiFi still offers the LAN candidate');
+  commitPairing(sandbox, sandbox.instances[0], relayNodeId);
+  // 模拟「曾经经中继连通过」：v2 直连二维码连通中继后，store 会把档案升级成中继档案
+  // （routeKind === 'relay' 那个分支），这里直接把结果落到档案上。
+  markRelayPaired(sandbox, 'wifi');
+
+  // 手机离开局域网：网络族变了，就地重连，且不再去试局域网。
+  sandbox.fireNetworkChange({ isConnected: true, networkType: '4g' });
+  const cellularClient = sandbox.instances[sandbox.instances.length - 1];
+  assert.equal(cellularClient.endpoint, 'wss://dsh.ahwe.top/relay/c/' + relayNodeId,
+    'the relay is used immediately; no LAN attempt is made');
+  assert.deepEqual(cellularClient.options.candidateKinds, ['relay']);
+});
+
+test('coming back onto WiFi promotes the LAN ahead of the relay', t => {
+  const sandbox = networkSandbox(t, { network: '4g' });
+  sandbox.store.init();
+  const paired = sandbox.store.pairWithPayload(raw(fullRoutesPayload('a'.repeat(43))));
+  assert.equal(paired.ok, true);
+  commitPairing(sandbox, sandbox.instances[0], relayNodeId);
+  markRelayPaired(sandbox, 'cellular');
+  const cellularClient = sandbox.instances[sandbox.instances.length - 1];
+  assert.equal(cellularClient.endpoint, 'wss://dsh.ahwe.top/relay/c/' + relayNodeId,
+    'on cellular the relay stays the endpoint');
+  assert.deepEqual(cellularClient.options.candidateKinds, ['relay'],
+    'the LAN candidate is not offered at all on cellular');
+
+  sandbox.fireNetworkChange({ isConnected: true, networkType: 'wifi' });
+  const wifiClient = sandbox.instances[sandbox.instances.length - 1];
+  assert.equal(wifiClient.endpoint, 'ws://192.168.1.20:3081/ws/mobile', 'back home the LAN is tried first');
+  assert.deepEqual(wifiClient.options.candidateKinds, ['lan', 'relay']);
+});
+
+test('a same-family network change does not disturb a working connection', t => {
+  const sandbox = networkSandbox(t, { network: 'wifi' });
+  sandbox.store.init();
+  const paired = sandbox.store.pairWithPayload(raw(fullRoutesPayload('a'.repeat(43))));
+  assert.equal(paired.ok, true);
+  commitPairing(sandbox, sandbox.instances[0], '87654321-4321-4321-8321-210987654321');
+  const before = sandbox.instances.length;
+  // 4G→5G、换个 WiFi：同族变化，已有连接不被打扰。
+  sandbox.fireNetworkChange({ isConnected: true, networkType: '5g' });
+  assert.equal(sandbox.instances.length, before, 'no reconnect is forced inside the same family');
 });

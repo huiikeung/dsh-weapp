@@ -2866,6 +2866,9 @@ function createStore() {
     }
     profile.lastConnectedAt = Date.now();
     if (state.endpoint) profile.preferredEndpoint = state.endpoint;
+    // 记住连通时的网络族：下次网络族变了才让局域网插队/整族跳过，同族内不折腾。
+    const connectedFamily = routeTable.networkFamily(cachedNetworkType);
+    if (connectedFamily) profile.preferredNetwork = connectedFamily;
     upsertProfile(profile);
     if (isPending || state.activeID !== profile.id) {
       state.activeID = profile.id;
@@ -2883,12 +2886,22 @@ function createStore() {
   //   多端 App：首选 → 公网直连 → 局域网；没有微信登录，不碰托管中继。
   // v3/中继二维码的中继是首选且唯一。
 
-  /** 按当前运行时能力排序候选。 */
-  function orderedCandidates(table, preferred) {
-    return routeTable.orderCandidates(table, {
+  /** 按当前运行时能力排序候选。network 传入当前网络类型（蜂窝下整族跳过局域网）。 */
+  function orderedCandidates(table, preferred, options) {
+    return routeTable.orderCandidates(table, Object.assign({
       client: runtime.clientKind(),
       preferred: preferred || null
-    });
+    }, options || {}));
+  }
+
+  /** 当前网络下的选路附加参数：蜂窝整族跳过局域网；网络族真的变过才让局域网插队。 */
+  function networkOptions(profile) {
+    const network = routeTable.networkFamily(cachedNetworkType);
+    const lastNetwork = routeTable.networkFamily(profile && profile.preferredNetwork);
+    return {
+      network: cachedNetworkType,
+      promoteLan: network === 'wifi' && !!lastNetwork && lastNetwork !== 'wifi'
+    };
   }
 
   /** 档案的候选列表：优先持久化路由表；旧档案（无 routeTable）从 endpoints 推导。 */
@@ -2896,7 +2909,7 @@ function createStore() {
     const table = (profile && profile.routeTable) || routeTable.parseRouteTable({
       endpoints: hosts.connectionEndpoints(profile)
     });
-    const ordered = orderedCandidates(table, preferred !== undefined ? preferred : (profile && profile.preferredEndpoint));
+    const ordered = orderedCandidates(table, preferred !== undefined ? preferred : (profile && profile.preferredEndpoint), networkOptions(profile));
     // 中继候选的重连参数来自档案（nodeId = gatewayId、E2EE 公钥）。只有真正按中继
     // 配对过的档案才有这些信息；局域网配对的档案带不了中继候选，硬连只会认证失败。
     const relayReady = !!(profile && profile.relay && profile.relayAgentPubKey
@@ -2940,9 +2953,10 @@ function createStore() {
     const table = (payload && payload.routeTable)
       || routeTable.parseRouteTable({ publicUrl: normalized[0], endpoints: normalized });
     // v2 直连载荷按客户端能力排序（小程序中继优先、App 公网优先）；v3 中继载荷只连中继。
+    // 蜂窝网络下局域网一条都不可达，直接不列——别让手机在外网时先撞一个 8s 超时。
     const candidates = payload && payload.mode === 'relay'
       ? [{ endpoint: normalized[0], kind: 'relay' }]
-      : orderedCandidates(table, null);
+      : orderedCandidates(table, null, networkOptions(null));
     if (!candidates.length) {
       return { ok: false, error: hosts.ErrorText.address };
     }
@@ -3080,6 +3094,10 @@ function createStore() {
   let endpointCandidateMeta = []; // 与 endpointCandidates 对齐：{ endpoint, kind, relay? }
   let endpointIdx = 0;
   let rotationTimer = null;
+  // 当前网络类型（wifi/2g/3g/4g/5g/unknown/none）。选路要同步读它，而
+  // wx.getNetworkType 是异步的，所以在初始化、连接成功和网络变化时各刷新一次。
+  let cachedNetworkType = '';
+  let lastNetworkFamily = '';
 
   /** 重置候选顺序并连接首选线路（网络恢复/回前台时用，避免死守不可达候选） */
   function reconnectPreferred() {
@@ -3540,13 +3558,32 @@ function createStore() {
           if (scopedDefaults) state.defaults = scopedDefaults;
           connectActiveProfile();
         }
-        // 网络恢复（WiFi/蜂窝切换、飞行模式关闭）：立即回首选线路重连
+        // 网络变化（WiFi/蜂窝切换、飞行模式关闭）：按新网络重新选路并重连。
+        // 网络族真的变过就地重连——不等旧线路自己断，也不必等局域网候选超时；
+        // 同族内变化（4G→5G、换个 WiFi）不打扰已有连接。
         if (wx.onNetworkStatusChange) {
           wx.onNetworkStatusChange(function (res) {
-            if (res.isConnected && state.connection !== 'connected' && state.activeID) {
-              reconnectPreferred();
-            }
+            const info = res || {};
+            if (info.networkType) cachedNetworkType = info.networkType;
+            const family = routeTable.networkFamily(cachedNetworkType);
+            const switched = !!family && !!lastNetworkFamily && family !== lastNetworkFamily;
+            if (family) lastNetworkFamily = family;
+            if (!info.isConnected || !state.activeID) return;
+            if (switched || state.connection !== 'connected') reconnectPreferred();
           });
+        }
+        // 首屏也要知道网络类型，否则第一次选路拿不到它。
+        if (typeof wx.getNetworkType === 'function') {
+          try {
+            wx.getNetworkType({
+              success: function (res) {
+                cachedNetworkType = (res && res.networkType) || '';
+                const family = routeTable.networkFamily(cachedNetworkType);
+                if (family) lastNetworkFamily = family;
+              },
+              fail: function () {}
+            });
+          } catch (e) { /* 老版本微信没有这个 API，选路退化为不过滤 */ }
         }
       } catch (e) {
         // 初始化失败不能静默吞掉，否则 UI 只会表现为“选择主机/空列表”，
