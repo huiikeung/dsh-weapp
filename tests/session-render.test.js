@@ -281,6 +281,25 @@ test('reentering a loaded conversation scrolls to the latest message even withou
   assert.equal(f.page.data.showJump, false);
   assert.equal(f.page.data.scrollAnim, false);
 });
+test('reentering a conversation remounts the latest virtual window before anchoring', () => {
+  const f = fixture(); f.sync();
+  f.page._convPinned = false;
+  f.page._lastScrollTop = 9000;
+  apply(f.page.data, f.page.conversationWindowPatch(f.page._conversationRows));
+  assert.ok(!f.page.data.rows.some(row => row.key === 'current'), 'the previous viewport is mounted on an older slice');
+
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  f.page.syncVoicePreference = () => {};
+  f.page.startScrollPolling = () => {};
+  f.page.updateDockInset = () => {};
+  f.page.measureConversationViewport = () => {};
+  f.page._lastSyncAt = Date.now(); // onShow intentionally skips a duplicate store projection
+  f.page.onShow();
+  while (f.ticks.length) f.ticks.shift()();
+
+  assert.ok(f.page.data.rows.some(row => row.key === 'current'), 'latest row is in the mounted window before the bottom anchor fires');
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom');
+});
 test('returning from WeChat background preserves the conversation viewport', () => {
   const f = fixture(); f.sync(); f.reset();
   f.page.syncVoicePreference = () => {};

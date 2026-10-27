@@ -102,6 +102,41 @@ test('measured height corrections preserve the first DOM-visible row, not the es
   assert.equal(page._lastScrollTop, 290);
 });
 
+test('first-load height corrections use native scrollTop when cached scroll state is stale', () => {
+  const page = { ...viewport, data: {}, _renderSessionId: 's', _convPinned: false, _lastScrollTop: 500, _convClientHeight: 700 };
+  const initial = page.conversationWindowPatch(rows(30));
+  page.data = { tab: 'conversation', rows: initial.rows, conversationTopSpace: initial.conversationTopSpace,
+    conversationBottomSpace: initial.conversationBottomSpace };
+  const rects = page.data.rows.map((row, index) => {
+    const top = 100 + (index - 7) * 70;
+    return { top, bottom: top + 70, height: 70 };
+  });
+  let applied;
+  page.setData = patch => { applied = patch; Object.assign(page.data, patch); };
+  const previousWx = global.wx;
+  global.wx = {
+    createSelectorQuery() {
+      const query = {
+        in() { return this; },
+        select() { return { boundingClientRect: () => query, scrollOffset: () => query }; },
+        selectAll() { return { boundingClientRect: () => query }; },
+        exec(callback) { callback([{ top: 100, bottom: 800 }, { scrollTop: 520 }, rects]); }
+      };
+      return query;
+    }
+  };
+  try {
+    page.measureConversationWindow();
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+
+  assert.equal(applied.conversationScrollTop, 310,
+    'the correction is applied to the current native offset, not an earlier cached offset');
+  assert.equal(page._lastScrollTop, 310);
+});
+
 test('cache windows restore multiple local pages and preserve a paging cursor when bounded', () => {
   const events = Array.from({ length: 3000 }, (_, i) => ({ type: 'user/message', seq: i + 1, data: { text: 'Question ' + i } }));
   const cache = recentWindow({ events, rows: [], historyFormatVersion: 1, hasMore: false }, protocol, 's');

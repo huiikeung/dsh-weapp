@@ -355,13 +355,15 @@ Page({
     });
     if (this._pendingInitialSessionOpen) {
       const sessionId = options.id;
-      this._initialSessionOpenTimer = setTimeout(() => {
-        this._initialSessionOpenTimer = null;
+      // Start cache/history hydration as soon as the loading shell has reached
+      // the view layer. A fixed timer can leave an avoidable blank beat during
+      // the page transition, especially when the first frame is delayed.
+      wx.nextTick(() => {
         if (this._unloaded || this.sessionId !== sessionId) return;
         this._pendingInitialSessionOpen = false;
         this._preferImmediateStoreSync = true;
         store.openSession(sessionId, options.title || '', options.preset || null);
-      }, 16);
+      });
     } else {
       this.syncFromStore({ app: store.state, session: store.sessionState });
     }
@@ -427,7 +429,10 @@ Page({
     if (resumedFromBackground) this.refreshSessionPreset(true);
     // App onShow also runs when WeChat returns from the background. Keep the
     // existing viewport in that case; only a page-level return resets to latest.
-    if (!resumedFromBackground) this.resetConversationScroll();
+    // Re-entry can happen while the virtual list is still mounted on an older
+    // window. Recompute that window before anchoring; otherwise conv-bottom may
+    // point past a large spacer while the latest message is not in the DOM.
+    if (!resumedFromBackground) this.jumpToBottom();
     this.startScrollPolling();
     // 首次进入时 onLoad 刚同步过同一份快照：再同步一次等于把整份 rows 重新投影 + 跨桥一次，
     if (store.sessionState && store.sessionState.sessionId && Date.now() - (this._lastSyncAt || 0) > 400) {
@@ -476,8 +481,6 @@ Page({
     this._historyFormatTimer = null; this._pendingHistoryFormat = null;
     if (this._fleetMeasureTimer) clearTimeout(this._fleetMeasureTimer);
     this._fleetMeasureTimer = null;
-    if (this._initialSessionOpenTimer) clearTimeout(this._initialSessionOpenTimer);
-    this._initialSessionOpenTimer = null;
     if (this._windowMeasureTimer) clearTimeout(this._windowMeasureTimer);
     this._windowMeasureTimer = null;
     if (this._thumbTimer) clearTimeout(this._thumbTimer);

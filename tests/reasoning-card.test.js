@@ -17,6 +17,31 @@ test('streaming card key stays stable while content grows', () => {
  push(2,'\n\nMore detail');const next=buildEntries(agg.rows,{running:true})[0].children[0];
  assert.equal(next.key,first.key);assert.equal(next.stepLabel,'步骤 3');assert.equal(next.text,'Start\n\nMore detail');
 });
+test('thinking tags in assistant text become a reasoning card instead of leaking into the answer', () => {
+ const raw={seq:1,type:'assistant/message',data:{turn:1,step:1,message:{content:[
+  {type:'text',text:'<thinking>Inspect the source and trace the renderer.</thinking>Here is the result.'}
+ ]}}};
+ const normalized=protocol.normalizeRawEvent(raw,'s').event;
+ assert.equal(normalized.text,'Here is the result.');
+ assert.equal(normalized.reasoning,'Inspect the source and trace the renderer.');
+ assert.deepEqual(normalized.processEvents.map(item=>item.kind),['think','text']);
+ const row=protocol.buildRows([raw],'s')[0];
+ assert.equal(row.text,'Here is the result.');
+ const group=buildEntries([row],{running:true}).find(item=>item.kind==='processGroup');
+ assert.equal(group.children.find(item=>item.kind==='reasoning').text,'Inspect the source and trace the renderer.');
+ assert.doesNotMatch(row.text,/<\/?thinking>/i);
+});
+test('streaming thinking tags are recognized across chunk boundaries', () => {
+ const agg=protocol.newAggregator();
+ const push=(seq,text)=>protocol.applyEvent(agg,{seq,sessionId:'s',event:{type:'assistant/chunk',turn:1,step:1,chunkType:'text-delta',text}});
+ push(1,'<think');
+ assert.equal(agg.rows[0].text,'');
+ push(2,'ing>Inspect the page renderer. </thinking>The response is ready.');
+ assert.equal(agg.rows[0].reasoning,'Inspect the page renderer. ');
+ assert.equal(agg.rows[0].text,'The response is ready.');
+ assert.equal(agg.rows[0].events[0].text,'Inspect the page renderer. ');
+ assert.doesNotMatch(agg.rows[0].text,/<\/?thinking>/i);
+});
 test('process groups retain the whole-turn running state separately from current activity', () => {
  const live=buildEntries([{kind:'assistant',key:'a',turn:1,reasoning:'Thinking',streaming:true}],{running:true});
  const liveGroup=live.find(row=>row.kind==='processGroup');

@@ -66,7 +66,7 @@ test('in-progress task icon follows the theme (ink on light, white on dark)', ()
 });
 
 test('opening a different session paints a loading shell before restoring its cache', () => {
-  const { page, store, calls, timers } = fixture();
+  const { page, store, calls, ticks, timers } = fixture();
   let syncs = 0;
   page.syncLayoutStyles = () => {};
   page.syncFromStore = () => { syncs += 1; };
@@ -78,11 +78,9 @@ test('opening a different session paints a loading shell before restoring its ca
   assert.equal(syncs, 0, 'the previous conversation is not projected during navigation');
   assert.equal(calls.some(call => call[0] === 'open'), false, 'cache restore is deferred');
   assert.equal(store.sessionState.sessionId, 's1', 'the old store session remains active during the transition');
-  assert.equal([...timers.values()].some(timer => timer.delay === 16), true, 'initialization begins after one shell frame');
+  assert.equal(ticks.length, 1, 'initialization begins as soon as the loading shell reaches the view layer');
 
-  const [timerId, timer] = [...timers.entries()].find(([, item]) => item.delay === 16);
-  timers.delete(timerId);
-  timer.fn();
+  ticks.shift()();
   assert.deepEqual(calls.find(call => call[0] === 'open'), ['open', 's2', 'Target', 'cordis']);
   assert.equal(page._pendingInitialSessionOpen, false);
   assert.equal(page._preferImmediateStoreSync, true, 'the first selected-session snapshot can paint without another debounce window');
@@ -95,8 +93,7 @@ test('opening a different session paints a loading shell before restoring its ca
   sameSession.page.syncFromStore = () => {};
   sameSession.page.onLoad({ id: 's1', reopen: '1' });
   assert.equal(sameSession.page._pendingInitialSessionOpen, true, 'home reopens retain their refresh semantics even for the active id');
-  const reopenTimer = [...sameSession.timers.values()].find(timer => timer.delay === 16);
-  reopenTimer.fn();
+  sameSession.ticks.shift()();
   assert.deepEqual(sameSession.calls.find(call => call[0] === 'open'), ['open', 's1', '', null]);
 });
 

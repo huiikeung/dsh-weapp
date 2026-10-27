@@ -72,6 +72,9 @@ module.exports = {
     this._windowMeasurePending = true;
     const query = wx.createSelectorQuery().in(this);
     query.select('.conversation').boundingClientRect();
+    const offsetQuery = query.select('.conversation');
+    const hasScrollOffset = !!(offsetQuery && typeof offsetQuery.scrollOffset === 'function');
+    if (hasScrollOffset) offsetQuery.scrollOffset();
     query.selectAll('.conversation-window-row').boundingClientRect();
     query.exec((res) => {
       this._windowMeasurePending = false;
@@ -86,7 +89,8 @@ module.exports = {
         return;
       }
       const viewport = res && res[0];
-      const rects = (res && res[1]) || [];
+      const nativeOffset = hasScrollOffset && res ? res[1] : null;
+      const rects = (res && res[hasScrollOffset ? 2 : 1]) || [];
       const viewportTop = viewport && Number(viewport.top);
       const viewportBottom = viewport && Number(viewport.bottom);
       const visibleRow = Number.isFinite(viewportTop) && Number.isFinite(viewportBottom)
@@ -107,7 +111,11 @@ module.exports = {
       // Anchor to the first actually visible row, not the row guessed from cumulative estimates.
       // Large variable-height messages can make that guessed index drift and jump on release.
       if (!anchoring && this._convPinned === false && anchorIndex >= 0 && window.offsets[anchorIndex] !== oldAnchorOffset) {
-        patch.conversationScrollTop = Math.max(0, (this._lastScrollTop || 0) + window.offsets[anchorIndex] - oldAnchorOffset);
+        // Reopen and first-render paths can leave the cached offset behind the native view.
+        // Base the correction on the measured scroll position to avoid a one-time snap.
+        const currentTop = nativeOffset && Number.isFinite(Number(nativeOffset.scrollTop))
+          ? Number(nativeOffset.scrollTop) : (this._lastScrollTop || 0);
+        patch.conversationScrollTop = Math.max(0, currentTop + window.offsets[anchorIndex] - oldAnchorOffset);
         this._lastScrollTop = patch.conversationScrollTop;
         this._programmaticScrollAt = Date.now();
         this._programmaticScrollTop = patch.conversationScrollTop;

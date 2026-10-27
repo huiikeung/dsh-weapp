@@ -130,13 +130,101 @@ function toolResultText(message) {
   return toolResultBlocks(message).filter(block => block.type === 'text').map(block => block.text || '').join('');
 }
 
-function assistantProcessEvents(blocks, text, reasoning, calls) {
+function splitThinkingMarkup(value, initialKind) {
+  const text = String(value || '');
+  const segments = [];
+  let kind = initialKind === 'think' ? 'think' : 'text';
+  const push = (content) => {
+    if (!content) return;
+    const last = segments[segments.length - 1];
+    if (last && last.kind === kind) last.text += content;
+    else segments.push({ kind, text: content });
+  };
+  const lower = text.toLowerCase();
+  const openTag = '<thinking>';
+  const closeTag = '</thinking>';
+  let cursor = 0;
+  while (cursor < text.length) {
+    const openAt = lower.indexOf(openTag, cursor);
+    const closeAt = lower.indexOf(closeTag, cursor);
+    const nextAt = openAt < 0 ? closeAt : closeAt < 0 ? openAt : Math.min(openAt, closeAt);
+    if (nextAt < 0) {
+      push(text.slice(cursor));
+      break;
+    }
+    push(text.slice(cursor, nextAt));
+    const isClose = nextAt === closeAt;
+    kind = isClose ? 'text' : 'think';
+    cursor = nextAt + (isClose ? closeTag.length : openTag.length);
+  }
+  return segments;
+}
+
+function consumeThinkingMarkup(state, value, defaultKind) {
+  const pending = state.pending || '';
+  const pendingKind = state.pendingKind || defaultKind;
+  const input = String(value || '');
+  const text = pending + input;
+  const boundary = pending.length;
+  const lower = text.toLowerCase();
+  const segments = [];
+  let cursor = 0;
+  state.pending = '';
+
+  const push = (content, kind) => {
+    if (!content) return;
+    const last = segments[segments.length - 1];
+    if (last && last.kind === kind) last.text += content;
+    else segments.push({ kind, text: content });
+  };
+  const pushRange = (start, end) => {
+    if (start >= end) return;
+    const splitAt = Math.max(start, Math.min(end, boundary));
+    const oldKind = state.thinking ? 'think' : pendingKind;
+    const newKind = state.thinking ? 'think' : defaultKind;
+    if (start < splitAt) push(text.slice(start, splitAt), oldKind);
+    if (splitAt < end) push(text.slice(splitAt, end), newKind);
+  };
+  const partialTagStart = (start) => {
+    for (let i = text.length - 1; i >= start; i -= 1) {
+      const suffix = lower.slice(i);
+      if ('<thinking>'.startsWith(suffix) || '</thinking>'.startsWith(suffix)) return i;
+    }
+    return -1;
+  };
+
+  while (cursor < text.length) {
+    const openAt = lower.indexOf('<thinking>', cursor);
+    const closeAt = lower.indexOf('</thinking>', cursor);
+    const nextAt = openAt < 0 ? closeAt : closeAt < 0 ? openAt : Math.min(openAt, closeAt);
+    if (nextAt < 0) {
+      const partialAt = partialTagStart(cursor);
+      const end = partialAt < 0 ? text.length : partialAt;
+      pushRange(cursor, end);
+      if (partialAt >= 0) {
+        state.pending = text.slice(partialAt);
+        state.pendingKind = state.thinking ? 'think'
+          : (partialAt < boundary ? pendingKind : defaultKind);
+      }
+      break;
+    }
+    pushRange(cursor, nextAt);
+    state.thinking = nextAt === openAt;
+    cursor = nextAt + (nextAt === openAt ? '<thinking>'.length : '</thinking>'.length);
+  }
+  return segments;
+}
+
+function assistantProcessEvents(blocks, calls) {
   const source = Array.isArray(blocks) ? blocks : [];
   const events = [];
   source.forEach(block => {
     if (!block || typeof block !== 'object') return;
-    if (block.type === 'reasoning' && block.text) events.push({ kind: 'think', text: block.text });
-    else if (block.type === 'text' && block.text) events.push({ kind: 'text', text: block.text });
+    if (block.type === 'reasoning' && block.text) {
+      splitThinkingMarkup(block.text, 'think').forEach(item => events.push(item));
+    } else if (block.type === 'text' && block.text) {
+      splitThinkingMarkup(block.text, 'text').forEach(item => events.push(item));
+    }
     else if (block.type === 'tool-call' && block.id) events.push({ kind: 'tool', callId: block.id });
     else if (block.type === 'image') {
       const image = imageBlocks([block])[0];
@@ -147,8 +235,6 @@ function assistantProcessEvents(blocks, text, reasoning, calls) {
       if (attachment) events.push({ kind: 'attachment', attachment });
     }
   });
-  if (reasoning && !events.some(event => event.kind === 'think')) events.unshift({ kind: 'think', text: reasoning });
-  if (text && !events.some(event => event.kind === 'text')) events.push({ kind: 'text', text });
   (Array.isArray(calls) ? calls : []).forEach(call => {
     if (call && call.id && !events.some(event => event.kind === 'tool' && event.callId === call.id)) {
       events.push({ kind: 'tool', callId: call.id });
@@ -221,11 +307,24 @@ function normalizeRawEvent(raw, sessionId) {
     }
     case 'assistant/message': {
       const msgContent = data.message && data.message.content;
-      const blocks = Array.isArray(msgContent)
+      const messageBlocks = Array.isArray(msgContent)
         ? msgContent
         : (typeof msgContent === 'string' ? [{ type: 'text', text: msgContent }] : []);
-      const text = blocks.filter((b) => b.type === 'text').map((b) => b.text || '').join('') || (typeof data.text === 'string' ? data.text : '');
-      const reasoning = blocks.filter((b) => b.type === 'reasoning').map((b) => b.text || '').join('') || (typeof data.reasoning === 'string' ? data.reasoning : '');
+      const blocks = messageBlocks.slice();
+      if (!blocks.some(block => block && block.type === 'text' && block.text) && typeof data.text === 'string') {
+        blocks.push({ type: 'text', text: data.text });
+      }
+      if (!blocks.some(block => block && block.type === 'reasoning' && block.text) && typeof data.reasoning === 'string') {
+        blocks.unshift({ type: 'reasoning', text: data.reasoning });
+      }
+      const segments = [];
+      blocks.forEach(block => {
+        if (!block || (block.type !== 'text' && block.type !== 'reasoning')) return;
+        const initialKind = block.type === 'reasoning' ? 'think' : 'text';
+        splitThinkingMarkup(block.text, initialKind).forEach(segment => segments.push(segment));
+      });
+      const text = segments.filter(segment => segment.kind === 'text').map(segment => segment.text).join('');
+      const reasoning = segments.filter(segment => segment.kind === 'think').map(segment => segment.text).join('');
       const calls = blocks
         .filter((b) => b.type === 'tool-call' && b.id && b.name)
         .map((b) => ({ id: b.id, name: b.name, arguments: b.arguments }));
@@ -236,7 +335,7 @@ function normalizeRawEvent(raw, sessionId) {
         text: text,
         reasoning: reasoning,
         toolCalls: calls.length ? calls : (Array.isArray(data.toolCalls) ? data.toolCalls : []),
-        processEvents: assistantProcessEvents(blocks, text, reasoning, calls.length ? calls : data.toolCalls),
+        processEvents: assistantProcessEvents(blocks, calls.length ? calls : data.toolCalls),
         images: imageBlocks(data.message).length ? imageBlocks(data.message) : (Array.isArray(data.images) ? data.images : []),
         attachments: attachmentBlocks(data.message).concat(Array.isArray(data.attachments) ? data.attachments : []),
         usage: data.usage || (data.message && data.message.usage) || null,
@@ -473,7 +572,7 @@ function addTurnUsage(row, usage, step, turn) {
 }
 
 function newAggregator() {
-  return { rows: [], byCallId: {}, currentAssistant: null, lastTurn: null, turnStarts: {} };
+  return { rows: [], byCallId: {}, currentAssistant: null, lastTurn: null, turnStarts: {}, thinkingMarkupState: null };
 }
 
 function pushRow(agg, row) {
@@ -504,6 +603,7 @@ function ensureAssistant(agg, sessionId, seq, turn, startNewAfterSettlement) {
       sessionId: sessionId,
       markdown: null
     };
+    agg.thinkingMarkupState = { thinking: false, pending: '', pendingKind: 'text' };
     pushRow(agg, agg.currentAssistant);
   }
   return agg.currentAssistant;
@@ -620,18 +720,23 @@ function applyEvent(agg, normalized) {
       if (event.step !== undefined && event.step !== null) assistant.step = event.step;
       const ct = String(event.chunkType || 'text');
       if (event.text) {
-        // 思考流（reasoning/thinking 类块）：进过程组日志；正文流进回答文本
-        if (ct.indexOf('reason') === 0 || ct.indexOf('think') === 0) {
-          assistant.reasoning += event.text;
-          assistant.reasoningStreaming = true;
-          assistant.title = assistant.title || TITLES.streamingReasoning;
-          journalThink(assistant, event.text);
-        } else {
-          assistant.text += event.text;
-          assistant.reasoningStreaming = false;
-          assistant.streaming = true;
-          assistant.title = TITLES.streaming;
-        }
+        // Some gateways encode the reasoning phase inside ordinary text chunks.
+        // Split those tags incrementally so neither the delimiters nor thought leak into the answer.
+        const defaultKind = ct.indexOf('reason') === 0 || ct.indexOf('think') === 0 ? 'think' : 'text';
+        const state = agg.thinkingMarkupState || (agg.thinkingMarkupState = { thinking: false, pending: '', pendingKind: defaultKind });
+        consumeThinkingMarkup(state, event.text, defaultKind).forEach(segment => {
+          if (segment.kind === 'think') {
+            assistant.reasoning += segment.text;
+            assistant.reasoningStreaming = true;
+            assistant.title = assistant.title || TITLES.streamingReasoning;
+            journalThink(assistant, segment.text);
+          } else {
+            assistant.text += segment.text;
+            assistant.reasoningStreaming = false;
+            assistant.streaming = true;
+            assistant.title = TITLES.streaming;
+          }
+        });
       }
       addTurnUsage(assistant, event.usage, event.step, event.turn);
       if (event.tool) {
@@ -647,6 +752,12 @@ function applyEvent(agg, normalized) {
       return true;
     }
     case 'assistant/message': {
+      // The settled message contains the complete normalized text; discard only
+      // an unfinished possible tag prefix left at a chunk boundary.
+      if (agg.thinkingMarkupState) {
+        agg.thinkingMarkupState.pending = '';
+        agg.thinkingMarkupState.thinking = false;
+      }
       let assistant = agg.currentAssistant;
       const hasFreshContent = !!(event.text || event.reasoning);
       const completedPreviousStep = assistant && assistant.settled &&
