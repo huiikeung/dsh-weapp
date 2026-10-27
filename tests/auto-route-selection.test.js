@@ -299,6 +299,58 @@ test('a relay-only QR reports the lease reason without blaming the pairing code'
   assert.doesNotMatch(f.states.at(-1).message, /only contains LAN addresses/);
 });
 
+test('a relay rejection during pairing falls back to the LAN candidate', async t => {
+  const f = socketFixture(t);
+  // 自建中继（非托管）：connect() 直接走 E2EE，不经过租赁。
+  f.client.connect('wss://relay.example.com/c/' + relayNodeId, {
+    pairingCode: 'one-time-code',
+    relay: { authMode: 'gateway', nodeId: relayNodeId, agentPubKey: relayEntry.agentPubKey },
+    endpointCandidates: ['ws://192.168.1.20:3081/ws/mobile'],
+    relayCandidates: [null],
+    candidateKinds: ['relay', 'lan'],
+    routeKind: 'relay'
+  });
+  // 中继报告电脑端连接器不在线（4001）：插件 direct 模式下连接器没跑就会这样。
+  f.sockets[0].socket.events.close({ code: 4001, reason: 'gateway-offline' });
+  await flush();
+  assert.equal(f.sockets.length, 2, 'the LAN candidate is attempted after the relay rejection');
+  assert.equal(f.sockets[1].options.url, 'ws://192.168.1.20:3081/ws/mobile');
+  assert.equal(f.client.routeKind, 'lan');
+  assert.ok(f.sockets[1].options.protocols.includes('dsh-pair.one-time-code'),
+    'the pairing code survives a relay-side rejection');
+});
+
+test('a relay rejection during reconnect stays terminal with its reason', async t => {
+  const f = socketFixture(t);
+  f.client.connect('wss://relay.example.com/c/' + relayNodeId, {
+    token: 'b'.repeat(43),
+    relay: { authMode: 'gateway', nodeId: relayNodeId, agentPubKey: relayEntry.agentPubKey }
+  });
+  f.sockets[0].socket.events.close({ code: 4001, reason: 'gateway-offline' });
+  assert.equal(f.client.state, 'failed');
+  assert.match(f.states.at(-1).message, /public connector on the computer is offline/i,
+    'saved-credential reconnects keep reporting the reason instead of silently switching lines');
+  assert.equal(f.sockets.length, 1, 'no other line is attempted for a reconnect');
+});
+
+test('a gateway-auth rejection inside E2EE during pairing falls back to LAN', async t => {
+  const f = socketFixture(t);
+  f.client.connect('wss://relay.example.com/c/' + relayNodeId, {
+    pairingCode: 'one-time-code',
+    relay: { authMode: 'gateway', nodeId: relayNodeId, agentPubKey: relayEntry.agentPubKey },
+    endpointCandidates: ['ws://192.168.1.20:3081/ws/mobile'],
+    relayCandidates: [null],
+    candidateKinds: ['relay', 'lan'],
+    routeKind: 'relay'
+  });
+  // 连接器回拨网关被拒（DSH 未确认设备认证）：密封帧里的 relay-auth-error。
+  f.client.relaySession = { ready: true };
+  f.client.handleFrame(JSON.stringify({ kind: 'relay-auth-error', message: 'DSH 未确认设备认证' }));
+  await flush();
+  assert.equal(f.sockets.length, 2, 'the LAN candidate is attempted after the E2EE rejection');
+  assert.equal(f.sockets[1].options.url, 'ws://192.168.1.20:3081/ws/mobile');
+});
+
 test('a LAN-only QR explains that the public route is missing', async t => {
   const f = socketFixture(t);
   f.client.connect('ws://192.168.1.20:3081/ws/mobile', {

@@ -294,15 +294,22 @@ class GatewayClient {
       if (self.socketTask !== transportTask) return;
       if (self.state === 'connected' || self.state === 'connecting') {
         if (res && Number(res.code) === 4003) {
-          if (res.reason === 'public-lease-expired') { self.refreshManagedLease(uiText('正在刷新公网授权')); }
+          if (self.pairingCode) {
+            // 配对期：刚取到的租赁就被拒（多为服务端重启 token 作废）或公网授权不通过。
+            // 二维码里还有局域网候选，继续候选链，不终止。
+            self.noteAuthorizationFailure(res.reason === 'public-lease-expired'
+              ? uiText('公网授权已失效，正在尝试其他线路')
+              : (/^public-access-/.test(res.reason || '')
+                  ? uiText('公网服务未开通、已到期或验证失败，请在设置→公网访问检查或兑换；局域网不受影响')
+                  : uiText('设备配对已失效，请重新扫描 DSH 二维码')));
+          } else if (res.reason === 'public-lease-expired') { self.refreshManagedLease(uiText('正在刷新公网授权')); }
           else if (/^public-access-/.test(res.reason || '')) self.refreshManagedLease(uiText('公网服务未开通、已到期或验证失败，请在设置→公网访问检查或兑换；局域网不受影响'));
           else self.handleAuthorizationFailure(uiText('设备配对已失效，请重新扫描 DSH 二维码'));
         } else if (res && Number(res.code) === 4001) {
-          // 中继报告电脑端连接器不在线：停止自动重试，直接把原因显示出来
-          self.handleAuthorizationFailure(uiText('电脑端的公网连接器已离线，请在 DSH 中重新开启「微信连接」后重试'));
-          return;
+          // 中继报告电脑端连接器不在线：重连时终止并显示原因；配对时继续候选链。
+          self.noteAuthorizationFailure(uiText('电脑端的公网连接器已离线，请在 DSH 中重新开启「微信连接」后重试'));
         } else if (res && Number(res.code) === 4004) {
-          self.handleAuthorizationFailure(uiText('DSH 电脑端连接器未支持安全公网配对，请升级插件连接器'));
+          self.noteAuthorizationFailure(uiText('DSH 电脑端连接器未支持安全公网配对，请升级插件连接器'));
         } else {
           self.handleTransportFailure(uiText('连接已关闭'));
         }
@@ -323,28 +330,34 @@ class GatewayClient {
    * 初始化配对候选链：一次性配对码、回退候选（含中继元信息与线路族）。
    * connectTransport 与托管中继取租赁失败的路径共用——后者也要能继续回退，
    * 否则「没兑换公网」会把局域网候选一起堵死。
+   *
+   * 调用约定（store 两侧都按此传参）：candidateKinds 含首选（首项即 routeKind），
+   * endpointCandidates / relayCandidates 是回退候选、不含首选，二者同序对齐；
+   * 候选列表已由选路层去重。任一侧缺失或长度不符时，对应候选的线路族/中继元信息
+   * 记为 null——不影响连接本身，只影响提示与回退参数。
    */
   initPairingChain(endpoint, opts) {
     this.pairingCode = opts.pairingCode || null;
-    this.pairingFallbacks = this.pairingCode && Array.isArray(opts.endpointCandidates)
-      ? opts.endpointCandidates.filter(candidate => candidate && candidate !== endpoint).slice(0, 15)
-      : [];
-    // 回退候选的中继元信息（与 pairingFallbacks 对齐）：中继候选的认证模型与直连
-    // 不同，回退时必须把 relay 元信息一起带下去，否则中继候选连不上。
-    this.pairingFallbackRelays = this.pairingCode && Array.isArray(opts.relayCandidates)
-      ? opts.relayCandidates.slice(0, 15)
-      : null;
-    // 候选线路族：首选来自 routeKind，回退候选按 endpointCandidates 顺序对齐。
     this.routeKind = opts.routeKind || null;
     this.candidateKinds = opts.routeKind && Array.isArray(opts.candidateKinds) && opts.candidateKinds.length
       ? opts.candidateKinds.slice()
       : null;
+    this.pairingFallbacks = this.pairingCode && Array.isArray(opts.endpointCandidates)
+      ? opts.endpointCandidates.filter(candidate => candidate && candidate !== endpoint).slice(0, 15)
+      : [];
+    // 回退候选的中继元信息：中继候选的认证模型与直连不同，回退时必须把 relay
+    // 元信息一起带下去，否则中继候选连不上。
+    const fallbackKinds = Array.isArray(opts.candidateKinds) ? opts.candidateKinds.slice(1) : [];
+    const fallbackRelays = Array.isArray(opts.relayCandidates) ? opts.relayCandidates : [];
+    this.pairingFallbackKinds = this.pairingFallbacks.map((item, index) => (
+      fallbackKinds.length === this.pairingFallbacks.length ? fallbackKinds[index] : null
+    ));
+    this.pairingFallbackRelays = this.pairingFallbacks.map((item, index) => (
+      fallbackRelays.length === this.pairingFallbacks.length ? fallbackRelays[index] : null
+    ));
     // 全部候选的线路族：判定「二维码是否只含局域网」要用完整集合，回退链变短后
     // 不能丢掉这个信息，所以由首次尝试贯穿整条回退链。
     this.pairingAllKinds = opts.allCandidateKinds || this.candidateKinds;
-    this.pairingFallbackKinds = this.candidateKinds && this.candidateKinds.length === this.pairingFallbacks.length + 1
-      ? this.candidateKinds.slice(1)
-      : null;
     this.socketOpened = false;
   }
 
@@ -358,7 +371,6 @@ class GatewayClient {
       }
     }, duration || REQUEST_TIMEOUT);
   }
-
 
   clearConnectionTimeout() {
     if (this.timeoutTimer) {
@@ -423,6 +435,19 @@ class GatewayClient {
     }
     this.setState('failed', message);
     this.scheduleReconnect();
+  }
+
+  /**
+   * 授权类失败（中继拒绝、连接器离线、版本过旧、E2EE 验签不通过）：
+   * 配对期内二维码里还有局域网候选，不能终止——继续候选链；
+   * 已保存凭据的重连保持原语义：直接把原因显示出来，不悄悄换线。
+   */
+  noteAuthorizationFailure(message) {
+    if (this.pairingCode) {
+      this.handleTransportFailure(message, { pairingCodeConsumed: false });
+      return;
+    }
+    this.handleAuthorizationFailure(message);
   }
 
   handleAuthorizationFailure(message) {
@@ -507,7 +532,12 @@ class GatewayClient {
     }
     this.pairingCode = null;
     this.pairingFallbacks = [];
+    this.pairingFallbackKinds = [];
+    this.pairingFallbackRelays = [];
     this.pairingAllKinds = null;
+    this.candidateKinds = null;
+    this.routeKind = null;
+    this.socketOpened = false;
     this.relaySession = null;
     this.relayMeta = null;
     this.relayAccessToken = null;
@@ -697,7 +727,7 @@ class GatewayClient {
     }
 
     if (frame.kind === 'relay-auth-error') {
-      this.handleAuthorizationFailure(frame.message || uiText('配对码或设备凭据无效，请重新扫码'));
+      this.noteAuthorizationFailure(frame.message || uiText('配对码或设备凭据无效，请重新扫码'));
       return;
     }
     if (frame.kind === 'hello' && this.relayMeta && this.relayMeta.authMode === 'gateway' && this.state === 'connecting') {
