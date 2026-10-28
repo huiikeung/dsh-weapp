@@ -4659,6 +4659,10 @@ Page({
   refreshBottomAnchor() {
     if (this._suppressPins === true || this._bottomAnchorPending || this._unloaded || this.data.tab !== 'conversation') return;
     if (this._convPinned === false || this._followPausedByUser) return;
+    // 用户正在点/摸列表时不要贴底：内容刚变化（回合收工、过程组展开）时这一下滚动会把
+    // 行从手指底下抽走，WebView 直接吞掉这次 tap——表现就是「第一下完全没反应」，
+    // 要连着点好几下才展开。等手指离开 800ms 后再贴底。
+    if (Date.now() - (this._lastTouchAt || 0) < 800) return;
     if (this._panelGesture && this._panelGesture.tab === 'conversation') {
       this._bottomAnchorDeferred = true;
       return;
