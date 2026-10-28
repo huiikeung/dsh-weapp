@@ -221,6 +221,70 @@ test('a running process body follows its tail and pauses when the reader scrolls
   assert.equal(follow(), '', 'a settled group stops following');
 });
 
+test('the newest live process group keeps follow ownership while paused', () => {
+  const f = fixture();
+  const older = { kind: 'processGroup', key: 'older', running: true, processBodyVisible: true, processBodyCapped: true };
+  const latest = { kind: 'processGroup', key: 'latest', running: true, processBodyVisible: true, processBodyCapped: true };
+  f.page._processFollowPaused = { latest: true };
+
+  assert.equal(f.page.processFollowCandidate([older, latest], [older, latest]), latest,
+    'a paused newest group does not make an older running group the follow target');
+  assert.equal(f.page.processFollowCandidate([older, latest], [older]), null,
+    'a hidden latest group cannot fall back to following stale content');
+  assert.equal(f.page.latestRunningProcessGroup([older, latest]), latest);
+});
+
+test('process follow rejects stale render callbacks and measures a missing scroll viewport height', () => {
+  const f = fixture();
+  f.store.sessionState.rows = [
+    { kind: 'user', key: 'u', text: '任务' },
+    { kind: 'assistant', key: 'a', turn: 1, reasoning: '想一下',
+      tools: [{ callId: 'c', key: 't', name: 'read', status: 'running', argumentsText: '{}' }] }
+  ];
+  const flush = () => { while (f.ticks.length) f.ticks.shift()(); };
+  f.sync();
+  const live = f.page.data.rows.find(row => row.kind === 'processGroup');
+  assert.ok(live);
+  f.sync();
+  flush();
+  assert.equal(f.page.data.processFollowTarget, live.key + '/tail',
+    'an identical store sync does not invalidate the pending post-render follow');
+
+  // A later sync supersedes a tail target that was queued for the previous render.
+  f.page.refreshProcessFollow(live.key);
+  f.page._processFollowVersion += 1;
+  f.page._processFollowKey = 'newer-group';
+  flush();
+  assert.equal(f.page.data.processFollowTarget, '', 'a stale callback cannot restore the previous tail');
+
+  f.page._processFollowKey = live.key;
+  f.page._processFollowVersion += 1;
+  f.page.setData({ processFollowTarget: live.key + '/tail' });
+  let rectCallback;
+  f.page.createSelectorQuery = () => {
+    const query = {
+      select(selector) { assert.equal(selector, '#process-body-' + live.key); return query; },
+      boundingClientRect(callback) { rectCallback = callback; return query; },
+      exec() { return query; }
+    };
+    return query;
+  };
+
+  f.page.onProcessBodyTouchStart({ currentTarget: { dataset: { key: live.key } }, touches: [{ clientY: 200 }] });
+  f.page.onProcessBodyTouchMove({ currentTarget: { dataset: { key: live.key } }, touches: [{ clientY: 170 }] });
+  f.page.onProcessBodyScroll({ currentTarget: { dataset: { key: live.key } }, detail: { scrollTop: 0, scrollHeight: 900 } });
+  f.page.onProcessBodyTouchEnd();
+  assert.equal(typeof rectCallback, 'function', 'the missing scroll-view height is measured from its rendered node');
+  rectCallback({ height: 300 });
+  assert.equal(f.page._processFollowPaused[live.key], true, 'scrolling away pauses follow once height is known');
+  assert.equal(f.page.data.processFollowTarget, '', 'manual scrolling clears the active tail anchor immediately');
+
+  f.page.onProcessBodyScroll({ currentTarget: { dataset: { key: live.key } }, detail: { scrollTop: 600, scrollHeight: 900 } });
+  flush();
+  assert.equal(f.page._processFollowPaused[live.key], undefined, 'reaching the bottom resumes follow without a height event field');
+  assert.equal(f.page.data.processFollowTarget, live.key + '/tail');
+});
+
 test('compact mode keeps a single live status line and folds the process text away', () => {
   const previousWx = global.wx;
   global.wx = { getStorageSync: (key) => key === 'workStepPresentation' ? { mode: 'compact', timing: 'completion' } : '' };

@@ -175,7 +175,7 @@
 <view class="turn-error-message">{{item.failureMessage}}</view>
 <view wx:if="{{item.failureCode}}" class="turn-error-code"><text class="turn-error-code-label">{{ui['错误码']}}</text><text class="turn-error-code-value" selectable>{{item.failureCode}}</text></view>
 </view>
-<scroll-view wx:if="{{item.processBodyVisible}}" class="process-body {{item.processBodyCapped ? 'process-body-capped' : ''}}" scroll-y="{{item.processBodyCapped}}" scroll-into-view="{{item.running ? processFollowTarget : ''}}" enhanced show-scrollbar="{{false}}" scroll-anchoring="{{true}}" bindtouchstart="onProcessBodyTouchStart" bindtouchmove="onProcessBodyTouchMove" bindtouchend="onProcessBodyTouchEnd" bindtouchcancel="onProcessBodyTouchCancel" bindscroll="onProcessBodyScroll" data-key="{{item.key}}">
+<scroll-view wx:if="{{item.processBodyVisible}}" id="process-body-{{item.key}}" class="process-body {{item.processBodyCapped ? 'process-body-capped' : ''}}" scroll-y="{{item.processBodyCapped}}" scroll-into-view="{{item.running ? processFollowTarget : ''}}" enhanced show-scrollbar="{{false}}" scroll-anchoring="{{true}}" bindtouchstart="onProcessBodyTouchStart" bindtouchmove="onProcessBodyTouchMove" bindtouchend="onProcessBodyTouchEnd" bindtouchcancel="onProcessBodyTouchCancel" bindscroll="onProcessBodyScroll" data-key="{{item.key}}">
 <view wx:if="{{item.commandDetail}}" class="process-command-detail">{{item.commandDetail}}</view>
 <block wx:for="{{item.children}}" wx:for-item="node" wx:key="key">
 <view id="{{node.key}}" class="process-step-anchor" aria-hidden="true"/>

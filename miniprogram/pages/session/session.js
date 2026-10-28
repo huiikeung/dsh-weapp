@@ -780,6 +780,15 @@ Page({
       this._initialConversationAnchorRecoveryEpoch = (this._initialConversationAnchorRecoveryEpoch || 0) + 1;
       this.closeFileMention();
       this.resetConversationScroll();
+      this._processFollowPaused = Object.create(null);
+      this._processFollowKey = '';
+      this._processFollowVersion = (this._processFollowVersion || 0) + 1;
+      this._processFollowRequest = (this._processFollowRequest || 0) + 1;
+      this._processBodyHeights = Object.create(null);
+      this._processBodyMeasurePending = Object.create(null);
+      this._processBodyScrollMetrics = Object.create(null);
+      this._processBodyGesture = null;
+      this._processBodyManualKey = '';
       this._fleetCommsGeneration = (this._fleetCommsGeneration || 0) + 1;
       this._fleetComms = null;
       this._fleetCommsAsOfSeq = null;
@@ -1221,19 +1230,6 @@ Page({
 
     applyTurnFooters(rows, s.rows || [], s.turnUsage || {}, processRunning);
 
-    // 运行中的过程组：组体限高成滚动容器后自动跟随尾部（对齐桌面端 useScrollFollow）。
-    // 两个相邻锚点交替充当 scroll-into-view 目标——值每次都变，滚动才会重新触发；
-    // 用户翻上去看旧内容时 onProcessBodyScroll 记下暂停，滚回底部自动恢复。
-    // 放在 workSteps.apply 之后（要读 processBodyCapped），并且只写页面级字段：
-    // 写进行里会让每次同步都变成「行变化」，无谓地触发贴底与跨桥数据。
-    // 跟随目标由 refreshProcessFollow 在渲染后的下一个 tick 重设：组体刚挂载时
-    // scroll-into-view 会在布局前触发，直接写值经常滚不动（ conv-bottom 同样靠两段式）。
-    const followPaused = this._processFollowPaused || {};
-    const followGroup = rows.find(entry => entry.kind === 'processGroup' && entry.running
-      && entry.processBodyCapped && !followPaused[entry.key]);
-    const processFollowKey = followGroup ? followGroup.key : '';
-    let processFollowTarget = '';
-
     // 回合级「已完成」disclosure 收起时，它管辖的过程组与中间叙述要从行列表里滤掉：
     // 对话窗口按行索引推算偏移，只靠 wx:if 隐藏会让占位高度算错、滚动位置跳。
     // 全量行另存一份，toggleFold 翻 folds 时靠它重算可见行（否则点了要等下一次
@@ -1248,6 +1244,14 @@ Page({
       if (compactLive && row.processNarration === true) return false;
       return true;
     });
+
+    // 只有最新的活动组拥有实时跟随权。即便旧数据意外留下多个 running 组，
+    // 最新组被手动暂停或当前不可见时也不能退回去追逐更早的过程。
+    const followGroup = this.processFollowCandidate(rows, visibleRows);
+    const processFollowKey = followGroup ? followGroup.key : '';
+    const previousProcessFollowKey = this._processFollowKey || '';
+    this._processFollowKey = processFollowKey;
+    let processFollowTarget = '';
 
     // 顶部标题：实时标题优先；其次回查会话列表（直连打开/列表迟到时）；
     const listed = (app.sessions || []).find((x) => x.sessionId === s.sessionId) || null;
@@ -1330,6 +1334,9 @@ Page({
     }, qReset || {}));
     if (s && s.historyMergeId) this._historyMergeId = s.historyMergeId;
     const rowsChanged = Object.keys(viewPatch).some(key => key === 'rows' || key.indexOf('rows[') === 0);
+    if (previousProcessFollowKey !== processFollowKey || rowsChanged) {
+      this._processFollowVersion = (this._processFollowVersion || 0) + 1;
+    }
     const dockChanged = ['running', 'question', 'approval', 'tasks', 'goal', 'composerMetricsVisible', 'sessionPresetVisible']
       .some(field => Object.keys(viewPatch).some(key => key === field || key.indexOf(field + '.') === 0 || key.indexOf(field + '[') === 0));
     const wasRunning = this.data.running;
@@ -4769,16 +4776,86 @@ Page({
   },
 
   /** 过程组滚动容器贴到底部最新：先清空再在下一个 tick 重设，滚动才会重新触发。 */
+  processFollowCandidate(rows, visibleRows) {
+    const latest = this.latestRunningProcessGroup(rows);
+    if (!latest || !Array.isArray(visibleRows) || !visibleRows.includes(latest)
+      || !latest.processBodyVisible || !latest.processBodyCapped) return null;
+    return latest;
+  },
+
+  latestRunningProcessGroup(rows) {
+    const list = Array.isArray(rows) ? rows : [];
+    for (let i = list.length - 1; i >= 0; i -= 1) {
+      if (list[i] && list[i].kind === 'processGroup' && list[i].running) return list[i];
+    }
+    return null;
+  },
+
   refreshProcessFollow(key) {
-    if (!key || this._unloaded || this._voiceHidden) return;
+    if (!key || key !== this._processFollowKey || this._unloaded || this._voiceHidden) return;
     if ((this._processFollowPaused || {})[key]) return;
     // 测试/异常环境下没有 wx.nextTick：退化为同步执行，行为不变只是少了布局等待
     const tick = typeof wx.nextTick === 'function' ? wx.nextTick : (fn) => fn();
+    const version = this._processFollowVersion;
+    const request = this._processFollowRequest = (this._processFollowRequest || 0) + 1;
     this.setData({ processFollowTarget: '' }, () => tick(() => {
-      if (this._unloaded || this._voiceHidden || !this.data.running) return;
+      if (this._unloaded || this._voiceHidden || !this.data.running
+        || version !== this._processFollowVersion || request !== this._processFollowRequest
+        || key !== this._processFollowKey) return;
       if ((this._processFollowPaused || {})[key]) return;
+      const latest = this.latestRunningProcessGroup(this.data.rows);
+      if (!latest || latest.key !== key || !latest.processBodyVisible || !latest.processBodyCapped) return;
       this.setData({ processFollowTarget: key + '/tail' });
     }));
+  },
+
+  measureProcessBodyHeight(key) {
+    const heights = this._processBodyHeights || (this._processBodyHeights = {});
+    if (heights[key] > 0) return;
+    const pending = this._processBodyMeasurePending || (this._processBodyMeasurePending = {});
+    if (pending[key]) return;
+    pending[key] = true;
+    const finish = height => {
+      pending[key] = false;
+      if (this._unloaded || !(Number(height) > 0)) return;
+      heights[key] = Number(height);
+      const metrics = this._processBodyScrollMetrics && this._processBodyScrollMetrics[key];
+      if (metrics) this.updateProcessBodyFollow(key, metrics);
+    };
+    if (typeof this.createSelectorQuery === 'function') {
+      try {
+        const query = this.createSelectorQuery();
+        query.select('#process-body-' + key).boundingClientRect(rect => finish(rect && rect.height));
+        query.exec();
+        return;
+      } catch (_) { pending[key] = false; }
+    }
+    // Older runtimes may not expose page-scoped selector queries. Match the
+    // capped body's CSS bound (min(400px, 50vh)) rather than guessing zero.
+    let windowHeight = 0;
+    try {
+      const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+      windowHeight = Number(info && info.windowHeight) || 0;
+    } catch (_) {}
+    finish(windowHeight > 0 ? Math.min(400, windowHeight / 2) : 400);
+  },
+
+  updateProcessBodyFollow(key, metrics) {
+    const top = Number(metrics && metrics.scrollTop);
+    const scrollHeight = Number(metrics && metrics.scrollHeight);
+    const height = Number(metrics && metrics.height) || Number((this._processBodyHeights || {})[key]);
+    if (!Number.isFinite(top) || !Number.isFinite(scrollHeight) || !(height > 0)) return;
+    const atBottom = scrollHeight - top - height <= 12;
+    const paused = this._processFollowPaused || (this._processFollowPaused = {});
+    if (atBottom === !paused[key]) return;
+    if (atBottom) {
+      delete paused[key];
+      this.refreshProcessFollow(key);
+    } else {
+      paused[key] = true;
+      this._processFollowRequest = (this._processFollowRequest || 0) + 1;
+      this.setData({ processFollowTarget: '' });
+    }
   },
 
   onProcessBodyTouchStart(e) {
@@ -4859,11 +4936,18 @@ Page({
       || this._processBodyManualKey === key && (this._processBodyManualUntil || 0) >= Date.now();
     if (!manualScroll) return;
     const detail = e.detail || {};
-    const atBottom = Number(detail.scrollHeight) - Number(detail.scrollTop) - Number(detail.height) <= 12;
-    const paused = this._processFollowPaused || (this._processFollowPaused = {});
-    if (atBottom === !paused[key]) return;
-    if (atBottom) delete paused[key];
-    else paused[key] = true;
+    const metrics = {
+      scrollTop: detail.scrollTop,
+      scrollHeight: detail.scrollHeight,
+      height: detail.height
+    };
+    const latestMetrics = this._processBodyScrollMetrics || (this._processBodyScrollMetrics = {});
+    latestMetrics[key] = metrics;
+    if (!(Number(metrics.height) > 0) && !(Number((this._processBodyHeights || {})[key]) > 0)) {
+      this.measureProcessBodyHeight(key);
+      return;
+    }
+    this.updateProcessBodyFollow(key, metrics);
   },
 
   copyCode(e) {

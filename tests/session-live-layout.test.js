@@ -61,7 +61,7 @@ test('all step disclosures share touch feedback with no trailing arrows', () => 
 
 test('process-group bodies collapse to their heading and mount only when the policy opens them', () => {
   const process = xml.slice(xml.indexOf('class="process-block {{item.running'), xml.indexOf('class="row-assistant"'));
-  assert.match(process, /<scroll-view wx:if="\{\{item\.processBodyVisible\}\}" class="process-body \{\{item\.processBodyCapped/);
+  assert.match(process, /<scroll-view wx:if="\{\{item\.processBodyVisible\}\}" id="process-body-\{\{item\.key\}\}" class="process-body \{\{item\.processBodyCapped/);
   assert.doesNotMatch(process, /wx:if="\{\{folds\[item\.key\]\}\}" class="process-body/);
   assert.match(css, /\.process-body-capped\s*\{[^}]*max-height:\s*min\(400px,\s*50vh\)/);
   assert.match(process, /node\.showPreview/);
