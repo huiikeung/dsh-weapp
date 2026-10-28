@@ -166,6 +166,18 @@ test('reopening restores cached conversation and builds trajectory only on activ
   assert.deepEqual(Array.from(f.store.sessionState.rows, row => row.text), ['reset']);
 });
 
+test('active trajectory rebuilds coalesce a burst of stream events', () => {
+  const f = fixture();
+  f.frame(history([user(1, 'first')], 1, false));
+  f.store.setTrajectoryActive(true);
+  assert.equal(f.store.sessionState.trajectory.length, 1);
+  f.frame({ kind: 'event', events: [user(2, 'second')] });
+  f.frame({ kind: 'event', events: [user(3, 'third')] });
+  assert.equal(f.store.sessionState.trajectory.length, 1, 'the projection waits for the short coalescing window');
+  f.flush(32);
+  assert.equal(f.store.sessionState.trajectory.length, 3, 'one refresh includes the latest stream batch');
+});
+
 test('cached history renders instantly and still falls back to a fresh tail request', () => {
   const f = fixture();
   f.frame(history([user(30, 'latest')], 30)); f.flush(1000);

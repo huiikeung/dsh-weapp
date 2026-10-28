@@ -67,6 +67,7 @@ test('in-progress task icon follows the theme (ink on light, white on dark)', ()
 
 test('opening a different session paints a loading shell before restoring its cache', () => {
   const { page, store, calls, ticks, timers } = fixture();
+  assert.equal(page.data.historyLoading, true, 'the first page frame is a loading state, not a blank panel');
   let syncs = 0;
   page.syncLayoutStyles = () => {};
   page.syncFromStore = () => { syncs += 1; };
@@ -108,6 +109,7 @@ test('large outline selection patches nearby blur effects and auto-loads at the 
   page._turnListRect = { top: 100, height: 300, rowHeight: 38, spacer: 131 };
   page.data.turnNavOpen = true;
   page.data.hasMoreHistory = true;
+  page.data.historyLoading = false;
   store.sessionState.nextBeforeSeq = 400;
   page._turnScrollTop = 650;
   page.onTurnListScroll({ detail: { scrollTop: 700, scrollHeight: 1000, clientHeight: 300 } });
@@ -565,6 +567,118 @@ test('more sheet omits the session subtitle and hosts rename/stats/files panes i
   assert.ok(xml.includes('class="session-menu-close" bindtap="closeMoreActions" role="button"><view class="sheet-close-x">'));
   // 工作区文件底部弹窗保留给输入区「引用工作区文件」入口
   assert.ok(xml.includes('wx:if="{{filesSheetOpen}}"'));
+});
+
+test('trajectory summary metrics switch focus modes and timeline selection follows its lane', () => {
+  const { page, ticks } = fixture();
+  const rows = [
+    { kind: 'event', key: 'user-1', badge: 'USER', turn: 1, durationMs: 100 },
+    { kind: 'event', key: 'model-1', badge: 'ASSISTANT', turn: 1, durationMs: 300 },
+    { kind: 'event', key: 'tool-1', badge: 'TOOL', turn: 1, durationMs: 100 },
+    { kind: 'event', key: 'user-2', badge: 'USER', turn: 2, durationMs: 100 },
+    { kind: 'event', key: 'model-2', badge: 'ASSISTANT', turn: 2, durationMs: 300 },
+    { kind: 'event', key: 'tool-2', badge: 'SUBTOOL', turn: 2, durationMs: 100 }
+  ];
+  page._traceList = rows;
+  page._traceByKey = new Map(rows.map(row => [row.key, row]));
+  page._traceIndexByKey = new Map(rows.map((row, index) => [row.key, index]));
+  page._traceOffsets = [0, 80, 160, 240, 320, 400, 480];
+  page._traceTotalRpx = 480;
+  page.data.trajectory = rows;
+  page.data.traceOverview = require('../miniprogram/utils/trajectory-presentation').overview(rows);
+  const target = page.data.traceOverview.lanes.find(lane => lane.id === 'tools').segments.find(segment => segment.key === 'tool-2');
+  page.selectTraceAtPercent(target.centerPct, 'tools');
+  assert.equal(page.data.traceFocusKey, 'tool-2');
+  assert.equal(page.data.traceFocusMode, 'duration');
+  assert.equal(page.data.traceFocusTouched, true);
+  assert.equal(page.data.traceCursorPercent, target.centerPct, 'the cursor remains at the release position');
+  assert.deepEqual(Array.from(page.data.traceOverview.lanes.map(lane => lane.id)), ['input', 'model', 'tools'], 'selecting a call keeps every lane visible');
+  assert.ok(page.data.traceOverview.lanes.find(lane => lane.id === 'tools').segments.find(segment => segment.key === 'tool-2').selected);
+  page.jumpToTrace(event('key', 'user-2'));
+  assert.equal(page.data.traceFocusMode, 'duration', 'selecting a process does not switch the timeline metric mode');
+  assert.equal(page.data.traceFocusTurn, null);
+
+  while (ticks.length) ticks.shift()();
+  assert.equal(page.data.traceScrollTarget, 'trace-user-2', 'the latest timeline selection wins the pending scroll target');
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  assert.match(xml, /traceFocusMode === 'duration' \? 'active' : ''[^>]*bindtap="selectTraceMetric" data-mode="duration"/);
+  assert.match(xml, /traceFocusMode === 'turns' \? 'active' : ''[^>]*bindtap="selectTraceMetric" data-mode="turns"/);
+  assert.match(xml, /traceFocusMode === 'calls' \? 'active' : ''[^>]*bindtap="selectTraceMetric" data-mode="calls"/);
+  assert.ok(xml.includes('data-lane=\"{{lane.id}}\"'), 'timeline taps retain their selected lane');
+  assert.match(xml, /traceMetricTargetKey === item\.key \? 'metric-target' : ''/);
+  assert.ok(!xml.includes('wx:else class="trace-dot-hit"'), 'only request-boundary rows receive a request dot');
+  const css = fs.readFileSync(path.join(__dirname, '../miniprogram/styles/trajectory.wxss'), 'utf8');
+  assert.ok(!xml.includes('class="trace-rail"'), 'there is no separate left-side rail');
+  assert.ok(!css.includes('.trace-rail'), 'the left-side rail has no styling');
+  assert.match(css, /\.trace-overview-head-label\.active, \.trace-overview-stat\.active\s*\{[^}]*background:\s*var\(--trace-tint-select\);/,
+    'the selected metric gets a subtle background');
+  assert.ok(!xml.includes('trace-spine-line') && !css.includes('.trace-spine-line'), 'the left-side vertical spine is absent');
+  assert.match(css, /\.trace-native-row::after\s*\{[^}]*bottom:\s*0;[^}]*height:\s*1rpx;/,
+    'each event row ends with a fine horizontal separator');
+  assert.match(css, /\.trace-dot-hit\s*\{[^}]*top:\s*0;[^}]*bottom:\s*0;/,
+    'request dots are centered on the event-row separator');
+  assert.match(css, /\.trace-node-dot\.request\s*\{[^}]*transform:\s*translateY\(50%\);/,
+    'request dot centers sit directly on each event-row separator');
+  assert.match(css, /\.trace-turn-line\s*\{[^}]*top:\s*0;/, 'each round begins below its separator');
+  assert.match(css, /\.trace-turn-label\s*\{[^}]*margin-top:\s*8rpx;/, 'the round label sits below its separator');
+  assert.match(xml, /<view wx:if="\{\{item\.request\}\}" class="trace-dot-hit" catchtap="openTraceRequest"/,
+    'request dots remain individually clickable');
+  assert.ok(xml.includes('catchtouchmove="onTraceTimelineTouchMove"'), 'timeline dragging moves the vertical cursor');
+  assert.ok(xml.includes('class="trace-overview-cursor"'), 'the timeline renders a cursor');
+  assert.ok(xml.includes('dsh-checklist-dark.svg') && xml.includes('dsh-process-tool-dark.svg'), 'round and call metrics have theme-aware icons');
+  assert.ok(!xml.includes('class="trace-overview-duration'), 'the call metric has no trailing duration value');
+
+  page.selectTraceMetric({ currentTarget: { dataset: { mode: 'turns' } } });
+  assert.equal(page.data.traceFocusMode, 'turns');
+  assert.equal(page.data.traceFocusTurn, 2, 'round mode focuses the latest round unless a round is already selected');
+  assert.deepEqual(Array.from(page.data.traceOverview.lanes.flatMap(lane => lane.segments.map(segment => segment.key))), ['user-2', 'model-2', 'tool-2']);
+  assert.equal(page.data.traceFocusTouched, false);
+  const roundTarget = page.data.traceOverview.lanes.find(lane => lane.id === 'model').segments[0];
+  page.selectTraceAtPercent(roundTarget.centerPct, 'model');
+  assert.equal(page.data.traceFocusMode, 'turns', 'scrubbing the round timeline keeps round mode active');
+  assert.equal(page.data.traceFocusTurn, 2);
+  page.selectTraceMetric({ currentTarget: { dataset: { mode: 'turns' } } });
+  assert.equal(page.data.traceFocusTurn, 1, 'tapping the active round metric advances to the next round');
+  page.selectTraceMetric({ currentTarget: { dataset: { mode: 'calls' } } });
+  assert.equal(page.data.traceFocusMode, 'calls');
+  assert.deepEqual(Array.from(page.data.traceOverview.lanes.map(lane => lane.id)), ['tools']);
+  assert.deepEqual(Array.from(page.data.traceOverview.lanes[0].segments.map(segment => segment.key)), ['tool-2']);
+  const callTarget = page.data.traceOverview.lanes[0].segments[0];
+  page.selectTraceAtPercent(callTarget.centerPct, 'tools');
+  assert.equal(page.data.traceFocusMode, 'calls', 'scrubbing the calls timeline keeps calls mode active');
+  page.selectTraceMetric({ currentTarget: { dataset: { mode: 'calls' } } });
+  assert.deepEqual(Array.from(page.data.traceOverview.lanes[0].segments.map(segment => segment.key)), ['tool-1'],
+    'tapping the active calls metric advances to the next tool call');
+  page.selectTraceMetric({ currentTarget: { dataset: { mode: 'duration' } } });
+  assert.deepEqual(Array.from(page.data.traceOverview.lanes.map(lane => lane.id)), ['input', 'model', 'tools']);
+});
+
+test('timeline taps select the nearest process and large trace jumps mount the target window first', () => {
+  const { page, ticks, timers } = fixture();
+  const rows = Array.from({ length: 130 }, (_, index) => ({
+    kind: 'event', key: 'event-' + index, badge: index % 3 === 0 ? 'USER' : index % 3 === 1 ? 'ASSISTANT' : 'TOOL',
+    turn: Math.floor(index / 3) + 1, durationMs: 100, seq: index + 1
+  }));
+  page._traceList = rows;
+  page._traceByKey = new Map(rows.map(row => [row.key, row]));
+  page._traceIndexByKey = new Map(rows.map((row, index) => [row.key, index]));
+  page._traceOffsets = [0]; rows.forEach((row, index) => { page._traceOffsets[index + 1] = page._traceOffsets[index] + (row.kind === 'turn' ? 60 : 80); });
+  page._traceTotalRpx = page._traceOffsets[rows.length];
+  page._traceWindowStart = 0;
+  page.data.trajectory = rows.slice(0, 80);
+  page.data.traceOverview = require('../miniprogram/utils/trajectory-presentation').overview(rows);
+
+  const target = page.data.traceOverview.lanes.flatMap(lane => lane.segments).find(segment => segment.key === 'event-100');
+  page.selectTraceAtPercent(target.centerPct);
+  assert.equal(page.data.traceFocusKey, 'event-100');
+  assert.equal(page.data.traceFocusTouched, true);
+  assert.ok(page.data.traceOverview.lanes.flatMap(lane => lane.segments).some(segment => segment.dimmed));
+  assert.ok(page.data.trajectory.some(row => row.key === 'event-100'), 'off-window process is rendered before scrolling');
+  assert.equal(page.data.traceSpacerTopRpx, 50 * 80, 'the tail window clamps to the final eighty rows');
+  while (ticks.length) ticks.shift()();
+  assert.equal(page.data.traceScrollTarget, 'trace-event-100');
+  if (page._traceHighlightTimer) { clearTimeout(page._traceHighlightTimer); page._traceHighlightTimer = null; }
+  timers.clear();
 });
 
 test('detail cache parses only once for repeated clicks and no Markdown for raw tab', () => {

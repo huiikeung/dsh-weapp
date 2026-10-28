@@ -722,48 +722,6 @@ to{transform:translateX(340%)}
 .conv-bottom {
   height: 20rpx;
 }
-.lane-segment.input { background: #4AAE78; }
-.lane-segment.model { background: #8466B3; }
-.lane-segment.tools { background: #E58C2F; }
-.trace-turn {
-  display: flex;
-  align-items: center;
-  margin: 28rpx 0 10rpx;
-}
-.trace-turn text {
-  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
-  font-size: 26rpx;
-  color: var(--text-3);
-  flex-shrink: 0;
-  margin-right: 18rpx;
-}
-.trace-turn-line {
-  flex: 1;
-  height: 1rpx;
-  background: var(--border-strong);
-}
-.trace-row {
-  display: flex;
-  align-items: center;
-  padding: 20rpx 0;
-  border-bottom: 1rpx solid var(--divider);
-}
-.trace-badge.user {
-  color: var(--ocean);
-  background: rgba(46, 107, 230, 0.14);
-}
-.trace-badge.assistant {
-  color: var(--purple);
-  background: rgba(122, 84, 199, 0.14);
-}
-.trace-badge.tool {
-  color: var(--orange);
-  background: rgba(240, 125, 20, 0.14);
-}
-.trace-badge.event {
-  color: var(--text-2);
-  background: var(--fill-2);
-}
 .empty {
   text-align: center;
   color: var(--text-4);
@@ -1156,17 +1114,6 @@ to{transform:translateX(340%)}
   margin-right: 10rpx;
   flex-shrink: 0;
 }
-.trace-dot {
-  width: 14rpx;
-  height: 14rpx;
-  border-radius: 50%;
-  margin-right: 14rpx;
-  flex-shrink: 0;
-}
-.trace-dot.dot-user { background: var(--ocean); }
-.trace-dot.dot-assistant { background: var(--purple); }
-.trace-dot.dot-tool { background: var(--orange); }
-.trace-dot.dot-event { background: var(--gray); }
 .q-ic {
   width: 34rpx;
   height: 34rpx;
@@ -1278,10 +1225,6 @@ to{transform:translateX(340%)}
   width: 28rpx;
   height: 28rpx;
   margin-right: 10rpx;
-}
-.trace-badge.event {
-  background: rgba(142, 142, 147, 0.14);
-  color: var(--gray);
 }
 /* ---------- 娣辫壊琛ュ厖瑕嗙洊锛坱heme-dark锛岄殢澶栬妯″紡鍒囨崲锛?---------- */
 .theme-dark .nav-more {
@@ -1686,9 +1629,6 @@ overscroll-behavior-y: auto;
 .tool-status.err {
   color: #E5533C;
   font-weight: 600;
-}
-.trace-status.err {
-  color: #E5533C;
 }
 .tool-args {
   font-size: 22rpx;

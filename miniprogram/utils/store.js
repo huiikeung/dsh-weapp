@@ -2424,11 +2424,19 @@ function createStore() {
   }
   let trajectoryActive = false;
   let trajectoryDirty = true;
+  let trajectoryRefreshTimer = null;
+  const TRAJECTORY_REFRESH_DELAY_MS = 32;
   function invalidateTrajectory() {
     trajectoryDirty = true;
-    if (trajectoryActive) refreshTrajectory();
+    if (!trajectoryActive || trajectoryRefreshTimer) return;
+    trajectoryRefreshTimer = setTimeout(function () {
+      trajectoryRefreshTimer = null;
+      if (trajectoryActive) refreshTrajectory();
+    }, TRAJECTORY_REFRESH_DELAY_MS);
   }
   function refreshTrajectory() {
+    if (trajectoryRefreshTimer) clearTimeout(trajectoryRefreshTimer);
+    trajectoryRefreshTimer = null;
     if (!trajectoryDirty) return;
     sessionState.trajectory = protocol.buildTrajectory(rawBuffer, sessionState.sessionId);
     trajectoryDirty = false;
@@ -4148,6 +4156,7 @@ function createStore() {
     setTrajectoryActive: function (active) {
       trajectoryActive = active === true;
       if (trajectoryActive) refreshTrajectory();
+      else if (trajectoryRefreshTimer) { clearTimeout(trajectoryRefreshTimer); trajectoryRefreshTimer = null; }
     },
 
     /** 上下文分段可见性：切入「上下文」时立即拉一次；离开后停止自动刷新。 */

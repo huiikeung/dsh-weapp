@@ -1,61 +1,123 @@
-/* DSH TrajectoryView: fixed overview, 42pt rows and typed detail sheets. */
-.trajectory-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.trajectory-panel .trajectory { height: 0; flex: 1; padding: 12rpx 36rpx calc(24rpx + env(safe-area-inset-bottom)); }
-.trace-overview { flex-shrink: 0; padding: 22rpx 40rpx 20rpx; background: var(--fill); border-bottom: 1rpx solid var(--divider); }
-.trace-overview-head { display: flex; align-items: center; gap: 18rpx; font-size: 24rpx; color: var(--text); margin-bottom: 18rpx; white-space: nowrap; }
-.trace-overview-head-label { display: flex; align-items: center; gap: 10rpx; flex-shrink: 0; }
-.trace-overview-clock { width: 36rpx; height: 36rpx; flex: 0 0 36rpx; display: block; }
-.trace-overview-duration { margin-left: auto; font-variant-numeric: tabular-nums; }
-.trace-overview-lane { display: flex; align-items: center; height: 38rpx; gap: 16rpx; }
-.trace-overview-label { width: 68rpx; flex-shrink: 0; color: var(--text-3); font-size: 22rpx; }
-.trace-overview-track { position: relative; flex: 1; height: 1rpx; background: var(--divider); }
-.trace-overview-bar { position: absolute; top: -7rpx; height: 14rpx; min-width: 3rpx; border-radius: 2rpx; max-width: 100%; }
-.trace-overview-bar::after { content: ''; position: absolute; inset: -10rpx -2rpx; }
-.trace-overview-bar.user, .trace-node-dot.user { background: var(--ocean); }
-.trace-overview-bar.assistant, .trace-node-dot.assistant { background: var(--purple); }
-.trace-overview-bar.assistant { height: 18rpx; top: -9rpx; }
-.trace-overview-bar.context, .trace-node-dot.context { background: #40a66f; }
-.trace-overview-bar.tool, .trace-overview-bar.subtool, .trace-node-dot.tool, .trace-node-dot.subtool { background: var(--orange); }
-.trace-overview-axis { display: flex; justify-content: space-between; color: var(--text-3); font-size: 22rpx; margin-top: 12rpx; font-variant-numeric: tabular-nums; }
-.trajectory-panel .trace-turn { height: 36rpx; margin: 0; padding: 0 16rpx; }
-.trajectory-panel .trace-turn text { font-size: 22rpx; margin-right: 16rpx; }
-.trace-native-row { display: flex; height: 84rpx; padding: 0 16rpx; gap: 18rpx; border-radius: 20rpx; box-sizing: border-box; }
-.trace-native-row.highlighted { background: rgba(46,107,230,.12); }
-.trace-row-pressed { background: var(--fill); }
-.trace-spine { width: 20rpx; flex-shrink: 0; display: flex; align-items: center; flex-direction: column; }
-.trace-dot-hit { width: 30rpx; height: 40rpx; display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
-.trace-node-dot { width: 14rpx; height: 14rpx; border-radius: 50%; }
-.trace-node-dot.request { width: 20rpx; height: 20rpx; background: var(--text-3); }
-.trace-spine-line { width: 2rpx; flex: 1; background: var(--border-strong); }
-.trace-native-content { display: flex; align-items: center; flex: 1; min-width: 0; gap: 16rpx; height: 40rpx; }
-.trace-native-badge { flex-shrink: 0; font-size: 22rpx; font-weight: 600; border: 1rpx solid; padding: 4rpx 10rpx; border-radius: 12rpx; line-height: 26rpx; }
-.trace-native-badge.user { color: var(--ocean); background: rgba(46,107,230,.10); border-color: rgba(46,107,230,.14); }
-.trace-native-badge.assistant { color: var(--purple); background: rgba(122,84,199,.10); border-color: rgba(122,84,199,.14); }
-.trace-native-badge.tool, .trace-native-badge.subtool { color: var(--orange); background: rgba(240,125,20,.10); border-color: rgba(240,125,20,.14); }
-.trace-native-badge.context { color: #40a66f; background: rgba(64,166,111,.10); border-color: rgba(64,166,111,.14); }
-.trace-native-name { color: var(--text); font-size: 28rpx; font-weight: 500; max-width: 35%; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* DSH TrajectoryView — request dots sit on row separators, with a compact event ledger. */
+
+.trajectory-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  --trace-row-bg: var(--bg);
+  --trace-tint-user: rgba(46, 107, 230, 0.10);
+  --trace-tint-assistant: rgba(122, 84, 199, 0.10);
+  --trace-tint-tool: rgba(240, 125, 20, 0.10);
+  --trace-tint-subtool: rgba(240, 125, 20, 0.07);
+  --trace-tint-context: rgba(64, 166, 111, 0.10);
+  --trace-tint-select: rgba(46, 107, 230, 0.10);
+}
+.trajectory-panel .trajectory { height: 0; flex: 1; padding: 0 36rpx calc(24rpx + env(safe-area-inset-bottom)); }
+
+/* ---------- 时间概览（对齐客户端 TrajectoryTimeline：底色绘图区 + 悬浮条） ---------- */
+.trace-overview { flex-shrink: 0; padding: 20rpx 36rpx 16rpx; background: var(--fill); border-bottom: 1rpx solid var(--divider); }
+.trace-overview-head { display: flex; align-items: center; gap: 16rpx; font-size: 22rpx; color: var(--text-3); margin-bottom: 12rpx; white-space: nowrap; }
+.trace-overview-head-label { display: flex; align-items: center; gap: 8rpx; flex-shrink: 0; color: var(--text-2); }
+.trace-overview-clock, .trace-overview-metric-icon { width: 28rpx; height: 28rpx; flex: 0 0 28rpx; display: block; }
+.trace-overview-head text { font-variant-numeric: tabular-nums; }
+.trace-overview-stat { display: flex; align-items: center; gap: 6rpx; flex-shrink: 0; color: var(--text-3); }
+.trace-overview-head-label, .trace-overview-stat { min-height: 40rpx; box-sizing: border-box; padding: 5rpx 9rpx; border-radius: 10rpx; transition: background-color 140ms ease; }
+.trace-overview-head-label.active, .trace-overview-stat.active { background: var(--trace-tint-select); }
+.trace-overview-metric-pressed { background: var(--fill-2); }
+.trace-overview-lane { display: flex; align-items: center; height: 40rpx; gap: 14rpx; }
+.trace-overview-label { width: 56rpx; flex-shrink: 0; color: var(--text-3); font-size: 20rpx; text-align: right; }
+.trace-overview-track { position: relative; flex: 1; height: 40rpx; touch-action: none; }
+.trace-overview-track::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1rpx; background: var(--divider); }
+.trace-overview-bar { position: absolute; z-index: 1; top: 12rpx; height: 16rpx; min-width: 6rpx; border-radius: 4rpx; background: var(--text-3); transition: left 180ms ease, width 180ms ease, opacity 160ms ease; }
+.trace-overview-bar::after { content: ''; position: absolute; inset: -12rpx -8rpx; }
+.trace-overview-bar.dimmed { opacity: .16; filter: grayscale(1); }
+.trace-overview-cursor { position: absolute; z-index: 3; top: 0; bottom: 0; width: 3rpx; margin-left: -1rpx; border-radius: 3rpx; background: var(--ocean); box-shadow: 0 0 8rpx rgba(46, 107, 230, .55); pointer-events: none; }
+.trace-overview-bar.user { background: var(--ocean); }
+.trace-overview-bar.assistant { background: linear-gradient(90deg, rgba(122, 84, 199, 0.45), var(--purple)); }
+.trace-overview-bar.context { background: #40a66f; }
+.trace-overview-bar.tool, .trace-overview-bar.subtool { background: var(--orange); }
+.trace-overview-bar.error { background: #e5484d; }
+.trace-overview-bar.selected { z-index: 2; box-shadow: 0 0 0 4rpx var(--surface), 0 0 0 8rpx var(--ocean); }
+.trace-overview-axis { display: flex; justify-content: space-between; color: var(--text-4); font-size: 20rpx; margin-top: 10rpx; font-variant-numeric: tabular-nums; }
+
+/* ---------- 轮次分隔（轮次标题位于浅色细线下方） ---------- */
+.trajectory-panel .trace-turn { position: relative; height: 60rpx; flex: 0 0 60rpx; display: flex; align-items: flex-start; margin: 0; padding: 0; box-sizing: border-box; }
+.trace-turn-line { position: absolute; left: 0; right: 0; top: 0; height: 1rpx; background: var(--divider); }
+.trace-turn-label { position: relative; margin-top: 8rpx; font-size: 20rpx; line-height: 1; color: var(--text-3); border-radius: 8rpx; padding: 6rpx 0; font-variant-numeric: tabular-nums; }
+
+/* ---------- 记录行（每行浅细分隔线，请求圆点落在线上） ---------- */
+.trace-native-row { position: relative; display: flex; align-items: stretch; height: 80rpx; min-height: 80rpx; flex: 0 0 80rpx; padding: 0 10rpx 0 0; border-radius: 12rpx; box-sizing: border-box; transition: background-color 120ms ease, opacity 160ms ease; }
+.trace-native-row::after { content: ''; position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; height: 1rpx; background: var(--divider); pointer-events: none; }
+.trace-native-row.highlighted, .trace-native-row.selected { background: var(--trace-tint-select); --trace-row-bg: var(--trace-tint-select); }
+.trace-native-row.trace-focus-muted, .trace-turn.trace-focus-muted { opacity: .3; filter: grayscale(.9); }
+.trace-row-pressed { background: var(--fill-2); }
+.trace-request-gutter { position: relative; z-index: 2; display: block; width: 48rpx; flex: 0 0 48rpx; }
+.trace-dot-hit { position: absolute; left: 0; top: 0; bottom: 0; z-index: 2; width: 48rpx; display: flex; justify-content: center; align-items: flex-end; }
+.trace-node-dot.request { width: 18rpx; height: 18rpx; transform: translateY(50%); border-radius: 50%; box-sizing: border-box; border: 4rpx solid var(--trace-row-bg); background: var(--text-3); }
+.trace-node-dot.request.active { background: rgba(46, 107, 230, 0.28); border-color: var(--ocean); }
+.trace-node-dot.request.error { background: rgba(229, 72, 77, 0.28); border-color: #e5484d; }
+.trace-native-row.metric-target { background: var(--trace-tint-select); --trace-row-bg: var(--trace-tint-select); }
+.trace-native-content { display: flex; align-items: center; flex: 1; min-width: 0; gap: 14rpx; }
+.trace-native-badge { flex-shrink: 0; font-size: 20rpx; font-weight: 650; letter-spacing: 1rpx; padding: 5rpx 12rpx; border-radius: 8rpx; line-height: 24rpx; color: var(--text-2); background: var(--fill-2); }
+.trace-native-badge.user { color: var(--ocean); background: var(--trace-tint-user); }
+.trace-native-badge.assistant { color: var(--purple); background: var(--trace-tint-assistant); }
+.trace-native-badge.tool { color: var(--orange); background: var(--trace-tint-tool); }
+.trace-native-badge.subtool { color: rgba(240, 125, 20, 0.75); background: var(--trace-tint-subtool); }
+.trace-native-badge.context { color: #40a66f; background: var(--trace-tint-context); }
+.trace-native-badge.request { color: var(--ocean); background: var(--trace-tint-user); }
+.trace-native-name { color: var(--text); font-size: 26rpx; font-weight: 500; max-width: 35%; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .trace-native-preview { flex: 1; min-width: 0; color: var(--text-3); font-size: 24rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.trace-native-seq { color: var(--text-3); font-size: 22rpx; flex-shrink: 0; font-family: Menlo, Consolas, monospace; }
-.trace-native-chevron { color: var(--text-4); font-size: 30rpx; flex-shrink: 0; }
+.trace-native-seq { color: var(--text-4); font-size: 20rpx; flex-shrink: 0; font-family: Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.trace-native-chevron { color: var(--text-4); font-size: 28rpx; flex-shrink: 0; }
+.trace-window-spacer { display: block; width: 100%; flex: 0 0 auto; pointer-events: none; }
+
+/* ---------- 深色主题：提高淡色底对比 ---------- */
+.theme-dark .trajectory-panel {
+  --trace-tint-user: rgba(46, 107, 230, 0.20);
+  --trace-tint-assistant: rgba(122, 84, 199, 0.20);
+  --trace-tint-tool: rgba(240, 125, 20, 0.18);
+  --trace-tint-subtool: rgba(240, 125, 20, 0.12);
+  --trace-tint-context: rgba(64, 166, 111, 0.18);
+  --trace-tint-select: rgba(46, 107, 230, 0.16);
+}
+
+/* ---------- 检查器（对齐客户端详情面板：头部类型点 + 内嵌下划线页签） ---------- */
 .sheet-mask.trace-inspector-mask { z-index: 1000; align-items: flex-end; }
 .trace-inspector { width: 100%; max-height: 88vh; height: 76vh; display: flex; flex-direction: column; background: var(--surface); color: var(--text); border-radius: 28rpx 28rpx 0 0; overflow: hidden; padding-bottom: env(safe-area-inset-bottom); box-sizing: border-box; }
 .trace-inspector-handle { height: 8rpx; width: 72rpx; background: var(--border-strong); border-radius: 99rpx; margin: 12rpx auto 8rpx; flex-shrink: 0; }
-.trace-inspector-head { position: relative; min-height: 80rpx; display: flex; align-items: center; justify-content: center; padding: 0 120rpx; flex-shrink: 0; }
+.trace-inspector-head { position: relative; min-height: 80rpx; display: flex; align-items: center; justify-content: center; gap: 10rpx; padding: 0 120rpx; flex-shrink: 0; }
+.trace-inspector-dot { width: 10rpx; height: 10rpx; border-radius: 50%; flex-shrink: 0; background: var(--text-3); }
+.trace-inspector-dot.user, .trace-inspector-dot.request { background: var(--ocean); }
+.trace-inspector-dot.assistant { background: var(--purple); }
+.trace-inspector-dot.tool { background: var(--orange); }
+.trace-inspector-dot.subtool { background: rgba(240, 125, 20, 0.55); }
+.trace-inspector-dot.context { background: #40a66f; }
 .trace-inspector-title { font-size: 32rpx; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .trace-inspector-close { position: absolute; right: 36rpx; color: var(--ocean); font-size: 30rpx; padding: 16rpx 0; }
 .trace-detail-tab-strip { display: flex; flex-shrink: 0; padding: 8rpx 24rpx 0; border-bottom: 1rpx solid var(--divider); }
-.trace-detail-tab { flex: 1; text-align: center; font-size: 28rpx; color: var(--text-3); padding: 14rpx 0 16rpx; border-bottom: 4rpx solid transparent; }
-.trace-detail-tab.active { color: var(--ocean); font-weight: 600; border-bottom-color: var(--ocean); }
+.trace-detail-tab { position: relative; flex: 1; text-align: center; font-size: 26rpx; color: var(--text-3); padding: 14rpx 0 16rpx; }
+.trace-detail-tab.active { color: var(--ocean); font-weight: 600; }
+.trace-detail-tab.active::after { content: ''; position: absolute; left: 50%; bottom: 0; width: 48rpx; height: 4rpx; margin-left: -24rpx; border-radius: 2rpx; background: var(--ocean); }
 .trace-inspector-body { height: 0; min-height: 0; flex: 1; }
-.trace-inspector-page { padding: 40rpx 44rpx 80rpx; }
-.trace-detail-field { display: flex; align-items: baseline; gap: 24rpx; margin-bottom: 22rpx; font-size: 28rpx; line-height: 1.5; }
-.trace-detail-field-label { width: 270rpx; max-width: 45%; flex-shrink: 0; color: var(--text-3); }
+.trace-inspector-page { padding: 32rpx 40rpx 80rpx; }
+.trace-detail-field { display: flex; align-items: baseline; gap: 20rpx; margin-bottom: 18rpx; font-size: 26rpx; line-height: 1.5; }
+.trace-detail-field-label { width: 200rpx; max-width: 45%; flex-shrink: 0; color: var(--text-3); }
 .trace-detail-field-value { flex: 1; min-width: 0; overflow-wrap: anywhere; }
-.trace-detail-section { padding: 28rpx 0; border-top: 1rpx solid var(--divider); }
-.trace-section-title { font-size: 30rpx; color: var(--text-3); font-weight: 600; margin-bottom: 20rpx; }
+.trace-detail-section { padding: 24rpx 0; border-top: 1rpx solid var(--divider); }
+.trace-section-title { font-size: 26rpx; color: var(--text-3); font-weight: 600; margin-bottom: 16rpx; }
 .trace-thinking-toggle { display: flex; justify-content: space-between; }
-.trace-section-code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; font-family: Menlo, Consolas, monospace; font-size: 26rpx; line-height: 1.65; }
+.trace-section-code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; font-family: Menlo, Consolas, monospace; font-size: 25rpx; line-height: 1.65; }
 .trace-inspector-footer { display: flex; justify-content: space-between; gap: 16rpx; font-size: 24rpx; color: var(--text-3); padding: 22rpx 36rpx; border-top: 1rpx solid var(--divider); flex-shrink: 0; }
 .trace-inspector-footer view { color: var(--ocean); }
-.theme-dark .trace-native-badge { background: rgba(128,128,128,.16); border-color: currentColor; }
-@media (max-width: 360px) { .trace-native-content { gap: 8rpx; } .trace-native-badge { font-size: 20rpx; padding-left: 6rpx; padding-right: 6rpx; } .trace-overview-head { gap: 12rpx; } }
+
+/* ---------- 窄屏 ---------- */
+@media (max-width: 360px) {
+  .trace-native-content { gap: 8rpx; }
+  .trace-native-badge { font-size: 18rpx; padding-left: 8rpx; padding-right: 8rpx; letter-spacing: 0; }
+  .trace-native-name { max-width: 30%; }
+  .trace-overview-head { gap: 10rpx; }
+  .trace-overview-label { width: 48rpx; }
+  .trace-detail-field-label { width: 170rpx; }
+}

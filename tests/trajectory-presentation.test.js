@@ -68,6 +68,52 @@ test('overview packs active duration, excludes idle gaps and includes subtools',
   assert.deepEqual(view.overview(project(shifted)), overview);
   assert.equal(view.overview([]).durationLabel, '0.00 秒');
 });
+test('overview switches between the whole duration, one turn, and calls-only lanes', () => {
+  const rows = [
+    { kind: 'event', key: 'u1', badge: 'USER', turn: 1, durationMs: 100 },
+    { kind: 'event', key: 'm1', badge: 'ASSISTANT', turn: 1, durationMs: 400 },
+    { kind: 'event', key: 'c1', badge: 'TOOL', turn: 1, durationMs: 200 },
+    { kind: 'event', key: 'u2', badge: 'USER', turn: 2, durationMs: 100 },
+    { kind: 'event', key: 'm2', badge: 'ASSISTANT', turn: 2, durationMs: 300 },
+    { kind: 'event', key: 'c2', badge: 'SUBTOOL', turn: 2, durationMs: 100 }
+  ];
+  const turn = view.overview(rows, { mode: 'turns', turn: 2, key: 'm2' });
+  assert.equal(turn.durationLabel, '0.50 秒');
+  assert.equal(turn.turns, 2); assert.equal(turn.calls, 2);
+  assert.deepEqual(turn.lanes.map(lane => lane.id), ['input', 'model', 'tools']);
+  assert.ok(turn.lanes.find(lane => lane.id === 'model').segments[0].selected);
+  const calls = view.overview(rows, { mode: 'calls' });
+  assert.equal(calls.durationLabel, '0.30 秒');
+  assert.deepEqual(calls.lanes.map(lane => lane.id), ['tools']);
+  assert.ok(calls.lanes[0].segments.every(segment => !segment.selected));
+  const selectedCall = view.overview(rows, { mode: 'calls', key: 'c2' });
+  assert.equal(selectedCall.durationLabel, '0.10 秒');
+  assert.deepEqual(selectedCall.lanes[0].segments.map(segment => segment.key), ['c2']);
+  assert.ok(selectedCall.lanes[0].segments[0].selected);
+});
+test('overview exposes event centers for cursor snapping and dims other processes after selection', () => {
+  const rows = [
+    { kind: 'event', key: 'first', badge: 'USER', durationMs: 100 },
+    { kind: 'event', key: 'second', badge: 'ASSISTANT', durationMs: 900 }
+  ];
+  const overview = view.overview(rows, { mode: 'duration', key: 'first', touched: true });
+  const segments = overview.lanes.flatMap(lane => lane.segments);
+  assert.ok(Math.abs(segments[0].centerPct - 5) < 0.01);
+  assert.ok(Math.abs(segments[1].centerPct - 55) < 0.01);
+  assert.equal(segments[0].selected, true);
+  assert.equal(segments[0].dimmed, false);
+  assert.equal(segments[1].dimmed, true);
+});
+test('large timelines cap rendered marks but cursor snapping still resolves the exact lane event', () => {
+  const rows = Array.from({ length: 1200 }, (_, index) => ({
+    kind: 'event', key: 'event-' + index, badge: index % 3 === 0 ? 'USER' : index % 3 === 1 ? 'ASSISTANT' : 'TOOL', durationMs: 10
+  }));
+  const overview = view.overview(rows);
+  assert.ok(overview.lanes.every(lane => lane.segments.length <= 80));
+  const target = view.nearestOverviewEvent(rows, { mode: 'duration' }, 'tools', 83.2);
+  assert.ok(target && target.badge === 'TOOL');
+  assert.equal(target.key, 'event-998');
+});
 test('missing timestamps, result-only history and interrupted tools remain honest', () => {
   const rows = project([event(1, 'tool/result', { callId: 'old', result: 'replayed', error: 'failed' }, null),
     event(2, 'tool/call', { callId: 'pending', name: 'read' }), event(3, 'turn/end', { reason: 'interrupted' })]);

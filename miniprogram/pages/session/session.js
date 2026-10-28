@@ -38,6 +38,8 @@ const sessionViewCache = require('../../utils/session-view-cache');
 
 const { toolPresentation } = require('./utils/tool-presentation');
 const CONTEXT_TREND_OVERVIEW_AUTO_STEPS = 200;
+const TRACE_WINDOW_ROWS = 80;
+const TRACE_WINDOW_OVERSCAN = 18;
 const MUTABLE_ROW_KINDS = new Set(['user', 'assistant', 'changes', 'files', 'status']);
 
 // 实时指标卡的半宽估算（px）：卡片 max-width 480rpx，375pt 机上约 240px。钳制时
@@ -195,8 +197,10 @@ Page({
     presetLabel: '',
     running: false,
     rows: [],
-    trajectory: [],
-    traceOverview: trajectoryView.overview([]), traceScrollTarget: '', traceHighlightedKey: '', traceThinkingExpanded: false,
+    trajectory: [], traceSpacerTopRpx: 0, traceSpacerBottomRpx: 0, traceTotalCount: 0,
+    traceOverview: trajectoryView.overview([]), traceFocusMode: 'duration', traceFocusTurn: null, traceFocusKey: '', traceFocusTouched: false,
+    traceCursorVisible: false, traceCursorPercent: 0,
+    traceScrollTarget: '', traceHighlightedKey: '', traceMetricTargetKey: '', traceThinkingExpanded: false,
     traceDetailTab: 'summary', traceDetailTabs: [], traceDetailSection: null,
     folds: {},
     scrollTarget: '',
@@ -252,9 +256,9 @@ Page({
     copiedKey: '',
     showJump: false,
     histError: '',
-    historyLoading: false,
+    historyLoading: true,
     historyLoaded: false,
-    historyProgressText: '',
+    historyProgressText: uiText('正在从 Mobile Gateway 同步会话内容…'),
     historyState: 'idle',
     connState: 'disconnected',
     connected: false,
@@ -469,6 +473,8 @@ Page({
     if (this.data.tab === 'conversation') {
       this.updateDockInset();
       this.measureConversationViewport();
+    } else if (this.data.tab === 'trajectory') {
+      this._traceTrackRect = null;
     }
   },
 
@@ -502,6 +508,9 @@ Page({
     this._fleetMeasureTimer = null;
     if (this._windowMeasureTimer) clearTimeout(this._windowMeasureTimer);
     this._windowMeasureTimer = null;
+    if (this._windowShiftTimer) clearTimeout(this._windowShiftTimer);
+    this._windowShiftTimer = null;
+    this._pendingWindowScrollTop = null;
     if (this._thumbTimer) clearTimeout(this._thumbTimer);
     this._thumbTimer = null; this._thumbQueue = null; this._thumbQueued = null; this._thumbFailed = null;
     if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
@@ -509,6 +518,11 @@ Page({
     this.stopTurnNavigatorWarmup(false);
     this._pendingStoreSnapshot = null;
     if (this._traceHighlightTimer) clearTimeout(this._traceHighlightTimer);
+    if (this._traceCursorTimer) clearTimeout(this._traceCursorTimer);
+    if (this._bottomAnchorTimer) clearTimeout(this._bottomAnchorTimer);
+    this._bottomAnchorTimer = null;
+    this._traceTimelineGesture = null;
+    this._traceTrackCallbacks = [];
     this._markdownCache = null;
     this._traceRows = null;
     this._traceByKey = null;
@@ -719,6 +733,8 @@ Page({
     const sessionChanged = this._renderSessionId !== s.sessionId
       || this._renderHost !== String(app.activeID || app.endpoint || '');
     if (sessionChanged) {
+      if (this._bottomAnchorTimer) clearTimeout(this._bottomAnchorTimer);
+      this._bottomAnchorTimer = null;
       this._initialConversationAnchorPending = true;
       this._initialConversationAnchorApplied = false;
       this.closeFileMention();
@@ -1778,7 +1794,6 @@ Page({
     const clearPatch = {};
     if (tab !== 'context') { clearPatch.contextPanel = null; clearPatch.contextModalOpen = false; clearPatch.contextFlowLinks = []; }
     if (tab !== 'fleet') clearPatch.fleetPanel = null;
-    if (tab !== 'trajectory') clearPatch.traceRows = [];
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
     this._collaborationRequest = null; this._collaborationRefresh = null;
@@ -3247,6 +3262,8 @@ Page({
       this._bottomAnchorDeferred = false;
       if (this._convPinned !== false && !this._followPausedByUser) this.refreshBottomAnchor();
     }
+    if (gesture && gesture.tab === 'conversation' && !gesture.axis
+      && this._convPinned !== false && !this._followPausedByUser) this.refreshBottomAnchor();
     if (!gesture || !touch || gesture.axis === 'vertical' || gesture.tab !== this.data.tab) return;
     const dx = touch.clientX - gesture.x, dy = touch.clientY - gesture.y;
     if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
@@ -3988,6 +4005,9 @@ Page({
   },
 
   onConvTouch() {
+    if (this._bottomAnchorTimer) clearTimeout(this._bottomAnchorTimer);
+    this._bottomAnchorTimer = null;
+    this._bottomAnchorTouchAt = null;
     this._suppressScrollUntil = 0;
     this._scrollAnchorAt = 0;
     this._programmaticScrollAt = 0;
@@ -4656,13 +4676,31 @@ Page({
     this.refreshBottomAnchor();
   },
 
+  deferBottomAnchorUntilTouchSettles() {
+    if (this._unloaded || this.data.tab !== 'conversation' || this._convPinned === false || this._followPausedByUser) return;
+    const touchAt = this._lastTouchAt || 0;
+    if (this._bottomAnchorTimer && this._bottomAnchorTouchAt === touchAt) return;
+    if (this._bottomAnchorTimer) clearTimeout(this._bottomAnchorTimer);
+    this._bottomAnchorTouchAt = touchAt;
+    const wait = Math.max(16, 820 - (Date.now() - touchAt));
+    this._bottomAnchorTimer = setTimeout(() => {
+      this._bottomAnchorTimer = null;
+      this._bottomAnchorTouchAt = null;
+      if (touchAt !== (this._lastTouchAt || 0)) return;
+      this.refreshBottomAnchor();
+    }, wait);
+  },
+
   refreshBottomAnchor() {
     if (this._suppressPins === true || this._bottomAnchorPending || this._unloaded || this.data.tab !== 'conversation') return;
     if (this._convPinned === false || this._followPausedByUser) return;
     // 用户正在点/摸列表时不要贴底：内容刚变化（回合收工、过程组展开）时这一下滚动会把
     // 行从手指底下抽走，WebView 直接吞掉这次 tap——表现就是「第一下完全没反应」，
     // 要连着点好几下才展开。等手指离开 800ms 后再贴底。
-    if (Date.now() - (this._lastTouchAt || 0) < 800) return;
+    if (Date.now() - (this._lastTouchAt || 0) < 800) {
+      this.deferBottomAnchorUntilTouchSettles();
+      return;
+    }
     if (this._panelGesture && this._panelGesture.tab === 'conversation') {
       this._bottomAnchorDeferred = true;
       return;
@@ -4689,6 +4727,29 @@ Page({
       if ((this._processFollowPaused || {})[key]) return;
       this.setData({ processFollowTarget: key + '/tail' });
     }));
+  },
+
+  onProcessBodyTouchStart(e) {
+    const touch = e.touches && e.touches[0];
+    const key = e.currentTarget.dataset.key;
+    if (!key || !touch) return;
+    this._processBodyGesture = { key, startY: touch.clientY, moved: false };
+  },
+  onProcessBodyTouchMove(e) {
+    const gesture = this._processBodyGesture;
+    const touch = e.touches && e.touches[0];
+    if (!gesture || !touch || gesture.key !== e.currentTarget.dataset.key) return;
+    if (Math.abs(touch.clientY - gesture.startY) > 4) gesture.moved = true;
+  },
+  onProcessBodyTouchEnd() {
+    const gesture = this._processBodyGesture;
+    this._processBodyGesture = null;
+    if (!gesture || !gesture.moved) return;
+    this._processBodyManualKey = gesture.key;
+    this._processBodyManualUntil = Date.now() + 800;
+  },
+  onProcessBodyTouchCancel() {
+    this.onProcessBodyTouchEnd();
   },
 
   toggleFold(e) {
@@ -4731,6 +4792,10 @@ Page({
   onProcessBodyScroll(e) {
     const key = e.currentTarget.dataset.key;
     if (!key) return;
+    const gesture = this._processBodyGesture;
+    const manualScroll = gesture && gesture.key === key && gesture.moved
+      || this._processBodyManualKey === key && (this._processBodyManualUntil || 0) >= Date.now();
+    if (!manualScroll) return;
     const detail = e.detail || {};
     const atBottom = Number(detail.scrollHeight) - Number(detail.scrollTop) - Number(detail.height) <= 12;
     const paused = this._processFollowPaused || (this._processFollowPaused = {});
@@ -6403,6 +6468,12 @@ Page({
   trajectoryPatch() {
     const source = this._traceRows || store.sessionState.trajectory || [];
     const locale = preferences.locale();
+    let navigationReset = {};
+    if (this._traceNavigationSessionId !== this._renderSessionId) {
+      this._traceNavigationSessionId = this._renderSessionId;
+      navigationReset = { traceFocusMode: 'duration', traceFocusTurn: null, traceFocusKey: '', traceFocusTouched: false,
+        traceCursorVisible: false, traceCursorPercent: 0, traceScrollTarget: '', traceHighlightedKey: '', traceMetricTargetKey: '' };
+    }
     if (this._traceSource !== source || this._traceLocale !== locale || this._traceRenderSessionId !== this._renderSessionId) {
       this._traceSource = source;
       this._traceLocale = locale;
@@ -6410,14 +6481,66 @@ Page({
       this._traceByKey = new Map();
       source.forEach(row => { this._traceByKey.set(row.key, row); if (row.request) this._traceByKey.set(row.request.key, row.request); });
       this._traceList = source.map(trajectoryView.listRow);
-      this._traceOverview = trajectoryView.overview(this._traceList);
+      this._traceOffsets = new Array(this._traceList.length + 1);
+      this._traceIndexByKey = new Map();
+      this._traceOffsets[0] = 0;
+      this._traceList.forEach((row, index) => {
+        this._traceOffsets[index + 1] = this._traceOffsets[index] + (row.kind === 'turn' ? 60 : 80);
+        if (row.kind === 'event') this._traceIndexByKey.set(row.key, index);
+      });
+      this._traceTotalRpx = this._traceOffsets[this._traceList.length] || 0;
+      this._traceWindowStart = 0;
     }
-    return { trajectory: this._traceList, traceOverview: this._traceOverview, ...this.traceSelectionPatch(source) };
+    const focus = {
+      mode: navigationReset.traceFocusMode || this.data.traceFocusMode || 'duration',
+      turn: Object.prototype.hasOwnProperty.call(navigationReset, 'traceFocusTurn') ? navigationReset.traceFocusTurn : this.data.traceFocusTurn,
+      key: Object.prototype.hasOwnProperty.call(navigationReset, 'traceFocusKey') ? navigationReset.traceFocusKey : this.data.traceFocusKey,
+      touched: navigationReset.traceFocusKey === '' ? false : this.data.traceFocusTouched
+    };
+    const focusSignature = [focus.mode, focus.turn, focus.key, focus.touched === true].join('|');
+    if (this._traceOverviewSource !== this._traceList || this._traceOverviewFocus !== focusSignature) {
+      this._traceOverviewSource = this._traceList;
+      this._traceOverviewFocus = focusSignature;
+      this._traceOverview = trajectoryView.overview(this._traceList, focus);
+    }
+    const windowPatch = this.traceWindowPatch(this._traceWindowStart || 0);
+    return { ...windowPatch, traceOverview: this._traceOverview, ...navigationReset, ...this.traceSelectionPatch(source) };
+  },
+
+  traceWindowPatch(start) {
+    const rows = this._traceList || this.data.trajectory || [];
+    const maxStart = Math.max(0, rows.length - TRACE_WINDOW_ROWS);
+    const windowStart = Math.max(0, Math.min(maxStart, Math.floor(start || 0)));
+    const windowEnd = Math.min(rows.length, windowStart + TRACE_WINDOW_ROWS);
+    this._traceWindowStart = windowStart;
+    return {
+      trajectory: rows.slice(windowStart, windowEnd),
+      traceSpacerTopRpx: this._traceOffsets ? this._traceOffsets[windowStart] : 0,
+      traceSpacerBottomRpx: this._traceOffsets ? Math.max(0, this._traceTotalRpx - this._traceOffsets[windowEnd]) : 0,
+      traceTotalCount: rows.length
+    };
+  },
+
+  onTraceListScroll(e) {
+    if (!this._traceOffsets || !this._traceList || this._traceList.length <= TRACE_WINDOW_ROWS) return;
+    let width = 375;
+    try { width = wx.getSystemInfoSync().windowWidth || width; } catch (_) { /* use a typical mobile viewport */ }
+    const scrollTopRpx = Math.max(0, Number(e.detail && e.detail.scrollTop) || 0) * 750 / width;
+    let low = 0, high = this._traceList.length;
+    while (low < high) {
+      const mid = (low + high) >> 1;
+      if (this._traceOffsets[mid] <= scrollTopRpx) low = mid + 1;
+      else high = mid;
+    }
+    const rowIndex = Math.max(0, low - 1);
+    const nextStart = Math.max(0, Math.min(this._traceList.length - TRACE_WINDOW_ROWS, rowIndex - TRACE_WINDOW_OVERSCAN));
+    if (Math.abs(nextStart - (this._traceWindowStart || 0)) < 12) return;
+    this.setData(this.traceWindowPatch(nextStart));
   },
 
   traceItem(key) {
     if (this._traceByKey) return this._traceByKey.get(key);
-    for (const row of this.data.trajectory || []) {
+    for (const row of this._traceList || this.data.trajectory || []) {
       if (row.key === key) return row;
       if (row.request && row.request.key === key) return row.request;
     }
@@ -6442,7 +6565,7 @@ Page({
     const tabs = trajectoryView.tabs(row);
     const active = tabs.find(tab => tab.id === selected) || tabs[0];
     if (!cache.sections[active.id]) cache.sections[active.id] = trajectoryView.sections(row, active.id)[0];
-    return { traceDetail: { key: row.key, label: row.label, badge: row.badge, displayBadge: row.displayBadge, seqLabel: String(row.seqLabel || row.seq || '') },
+    return { traceDetail: { key: row.key, label: row.label, badge: row.badge, badgeClass: String(row.badge || '').toLowerCase(), displayBadge: row.displayBadge, seqLabel: String(row.seqLabel || row.seq || '') },
       traceDetailTabs: tabs, traceDetailTab: active.id, traceDetailSection: cache.sections[active.id] };
   },
 
@@ -6453,27 +6576,179 @@ Page({
     if (!item || (this._traceSessionId && this._traceSessionId !== this._renderSessionId)) return { traceDetail: null, traceDetailTabs: [], traceDetailSection: null };
     return this.traceDetailPatch(item, this.data.traceDetailTab);
   },
+  selectTraceMetric(e) {
+    const mode = e.currentTarget.dataset.mode;
+    if (!['duration', 'turns', 'calls'].includes(mode)) return;
+    const rows = this._traceList || this.data.trajectory || [];
+    const focused = rows.find(row => row.kind === 'event' && row.key === this.data.traceFocusKey);
+    let turn = null;
+    let key = '';
+    if (mode === 'turns') {
+      const turns = Array.from(new Set(rows.filter(row => row.kind === 'event' && row.turn != null).map(row => row.turn)));
+      const currentIndex = turns.indexOf(this.data.traceFocusTurn);
+      if (this.data.traceFocusMode === 'turns' && currentIndex >= 0) turn = turns[(currentIndex + 1) % turns.length];
+      else if (focused && focused.turn != null) turn = focused.turn;
+      else turn = turns.length ? turns[turns.length - 1] : null;
+    } else if (mode === 'calls') {
+      const calls = rows.filter(row => row.kind === 'event' && ['TOOL', 'SUBTOOL'].includes(row.badge));
+      const currentIndex = calls.findIndex(row => row.key === this.data.traceFocusKey);
+      if (this.data.traceFocusMode === 'calls' && currentIndex >= 0) key = calls[(currentIndex + 1) % calls.length].key;
+      else if (focused && ['TOOL', 'SUBTOOL'].includes(focused.badge)) key = focused.key;
+      else if (calls.length) key = calls[calls.length - 1].key;
+    }
+    const focus = { mode, turn, key, touched: false };
+    const overview = trajectoryView.overview(rows, focus);
+    this._traceOverviewSource = this._traceList;
+    this._traceOverviewFocus = [mode, turn, key, false].join('|');
+    this._traceOverview = overview;
+    const selected = overview.lanes.reduce((found, lane) => found || lane.segments.find(segment => segment.key === key), null);
+    this.setData({ traceFocusMode: mode, traceFocusTurn: turn, traceFocusKey: key, traceFocusTouched: false,
+      traceCursorVisible: !!selected, traceCursorPercent: selected ? selected.centerPct : this.data.traceCursorPercent,
+      traceOverview: overview });
+  },
   openTraceDetail(e) {
     const item = this.traceItem(e.currentTarget.dataset.key);
     if (!item || item.kind !== 'event') return;
     this._traceSessionId = this._renderSessionId;
-    this.setData({ ...this.traceDetailPatch(item, 'summary'), traceThinkingExpanded: false });
+    this.setData({ ...this.traceDetailPatch(item, 'summary'), traceThinkingExpanded: false, traceMetricTargetKey: '' });
   },
   openTraceRequest(e) {
     const row = this.traceItem(e.currentTarget.dataset.key);
     if (!row || !row.request) return;
     this._traceSessionId = this._renderSessionId;
-    this.setData({ ...this.traceDetailPatch(row.request, 'summary'), traceThinkingExpanded: false });
+    this.setData({ ...this.traceDetailPatch(row.request, 'summary'), traceThinkingExpanded: false, traceMetricTargetKey: '' });
+  },
+  applyTraceFocus(focus, cursorPercent) {
+    const overview = trajectoryView.overview(this._traceList || this.data.trajectory || [], { ...focus, touched: true });
+    const selected = overview.lanes.reduce((found, lane) => found || lane.segments.find(segment => segment.key === focus.key), null);
+    const cursor = Number.isFinite(cursorPercent) ? Math.max(0, Math.min(100, cursorPercent)) : selected && selected.centerPct;
+    this._traceOverviewSource = this._traceList;
+    this._traceOverviewFocus = [focus.mode, focus.turn, focus.key, true].join('|');
+    this._traceOverview = overview;
+    this.setData({ traceFocusMode: focus.mode, traceFocusTurn: focus.turn, traceFocusKey: focus.key,
+      traceFocusTouched: true, traceCursorVisible: !!selected,
+      traceCursorPercent: selected ? cursor : this.data.traceCursorPercent,
+      traceOverview: overview });
   },
   jumpToTrace(e) {
     const key = e.currentTarget.dataset.key;
-    if (!this.data.trajectory.some(row => row.key === key)) return;
-    this.setData({ traceScrollTarget: '', traceHighlightedKey: key });
+    const row = (this._traceList || this.data.trajectory || []).find(item => item.key === key && item.kind === 'event');
+    if (!row) return;
+    const mode = this.data.traceFocusMode || 'duration';
+    this.applyTraceFocus({ mode, turn: mode === 'turns' ? row.turn : this.data.traceFocusTurn, key });
+    this.jumpToTraceKey(key, true);
+  },
+  jumpToTraceKey(key, keepTarget) {
+    const rows = this._traceList || this.data.trajectory || [];
+    const indexed = this._traceIndexByKey && this._traceIndexByKey.get(key);
+    const index = indexed == null ? rows.findIndex(row => row.key === key) : indexed;
+    if (index == null || index < 0) return;
+    const windowStart = this._traceWindowStart || 0;
+    const nextStart = index < windowStart || index >= windowStart + TRACE_WINDOW_ROWS
+      ? Math.max(0, Math.min(rows.length - TRACE_WINDOW_ROWS, index - 20)) : windowStart;
+    this.setData({ ...this.traceWindowPatch(nextStart), traceScrollTarget: '', traceHighlightedKey: key, traceMetricTargetKey: keepTarget ? key : '' });
     if (this._traceHighlightTimer) clearTimeout(this._traceHighlightTimer);
     wx.nextTick(() => { if (!this._unloaded) this.setData({ traceScrollTarget: 'trace-' + key }); });
     this._traceHighlightTimer = setTimeout(() => {
       if (!this._unloaded && this.data.traceHighlightedKey === key) this.setData({ traceHighlightedKey: '' });
     }, 1200);
+  },
+
+  traceTimelineX(e) {
+    const point = (e.changedTouches && e.changedTouches[0]) || (e.touches && e.touches[0]);
+    if (point && Number.isFinite(point.clientX)) return { x: point.clientX, local: false };
+    if (e.detail && Number.isFinite(e.detail.clientX)) return { x: e.detail.clientX, local: false };
+    if (e.detail && Number.isFinite(e.detail.x)) return { x: e.detail.x, local: true };
+    return null;
+  },
+  measureTraceTrack(callback) {
+    if (this._traceTrackRect) { callback(this._traceTrackRect); return; }
+    if (typeof wx.createSelectorQuery !== 'function') return;
+    this._traceTrackCallbacks = this._traceTrackCallbacks || [];
+    this._traceTrackCallbacks.push(callback);
+    if (this._traceTrackQueryPending) return;
+    this._traceTrackQueryPending = true;
+    let query = wx.createSelectorQuery();
+    if (query.in) query = query.in(this);
+    query.select('.trace-overview-track').boundingClientRect(rect => {
+      this._traceTrackQueryPending = false;
+      if (this._unloaded) { this._traceTrackCallbacks = []; return; }
+      if (rect && rect.width) {
+        this._traceTrackRect = rect;
+        (this._traceTrackCallbacks || []).splice(0).forEach(done => done(rect));
+      } else this._traceTrackCallbacks = [];
+    }).exec();
+  },
+  traceTimelinePercent(e, callback) {
+    const point = this.traceTimelineX(e);
+    if (!point) return;
+    this.measureTraceTrack(rect => {
+      const x = point.local ? rect.left + point.x : point.x;
+      callback(Math.max(0, Math.min(100, (x - rect.left) / rect.width * 100)));
+    });
+  },
+  traceTimelineCursor(percent) {
+    this._traceCursorPending = percent;
+    if (this._traceCursorTimer) return;
+    this._traceCursorTimer = setTimeout(() => {
+      this._traceCursorTimer = null;
+      if (this._unloaded || this._traceCursorPending == null) return;
+      this.setData({ traceCursorVisible: true, traceCursorPercent: this._traceCursorPending });
+      this._traceCursorPending = null;
+    }, 32);
+  },
+  onTraceTimelineTouchStart(e) {
+    const point = this.traceTimelineX(e);
+    this._traceTimelineGesture = { startX: point && point.x, moved: false, percent: null, lane: e.currentTarget.dataset.lane };
+    this.traceTimelinePercent(e, percent => {
+      if (!this._traceTimelineGesture) return;
+      this._traceTimelineGesture.percent = percent;
+      this.setData({ traceCursorVisible: true, traceCursorPercent: percent });
+    });
+  },
+  onTraceTimelineTouchMove(e) {
+    const gesture = this._traceTimelineGesture;
+    if (!gesture) return;
+    const point = this.traceTimelineX(e);
+    if (point && gesture.startX != null && Math.abs(point.x - gesture.startX) > 5) gesture.moved = true;
+    this.traceTimelinePercent(e, percent => {
+      if (this._traceTimelineGesture !== gesture) return;
+      gesture.percent = percent;
+      this.traceTimelineCursor(percent);
+    });
+  },
+  onTraceTimelineTouchEnd(e) {
+    const gesture = this._traceTimelineGesture;
+    this._traceTimelineGesture = null;
+    if (!gesture) return;
+    this._traceTimelineSuppressTap = true;
+    setTimeout(() => { this._traceTimelineSuppressTap = false; }, 100);
+    const finish = percent => {
+      if (this._traceCursorTimer) clearTimeout(this._traceCursorTimer);
+      this._traceCursorTimer = null;
+      this._traceCursorPending = null;
+      this.selectTraceAtPercent(percent, gesture.lane);
+    };
+    this.traceTimelinePercent(e, finish);
+    if (!this.traceTimelineX(e) && Number.isFinite(gesture.percent)) finish(gesture.percent);
+  },
+  onTraceTimelineTouchCancel() {
+    this._traceTimelineGesture = null;
+    if (this._traceCursorTimer) clearTimeout(this._traceCursorTimer);
+    this._traceCursorTimer = null;
+    this._traceCursorPending = null;
+  },
+  onTraceTimelineTap(e) {
+    if (this._traceTimelineSuppressTap) { this._traceTimelineSuppressTap = false; return; }
+    this.traceTimelinePercent(e, percent => this.selectTraceAtPercent(percent, e.currentTarget.dataset.lane));
+  },
+  selectTraceAtPercent(percent, laneId) {
+    const row = trajectoryView.nearestOverviewEvent(this._traceList || this.data.trajectory || [],
+      { mode: this.data.traceFocusMode || 'duration', turn: this.data.traceFocusTurn, key: this.data.traceFocusKey }, laneId, percent);
+    if (!row) return;
+    const focus = { mode: this.data.traceFocusMode || 'duration', turn: this.data.traceFocusTurn, key: row.key };
+    this.applyTraceFocus(focus, percent);
+    this.jumpToTraceKey(row.key, true);
   },
   toggleTraceThinking() { this.setData({ traceThinkingExpanded: !this.data.traceThinkingExpanded }); },
   selectTraceDetailTab(e) {

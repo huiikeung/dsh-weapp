@@ -195,9 +195,16 @@ test('a running process body follows its tail and pauses when the reader scrolls
   f.store.sessionState.rows[1].reasoning += '继续想';
   f.sync(); flush();
   assert.equal(follow(), live.key + '/tail', 'new content keeps the body on the latest');
-  // 用户翻上去看旧内容：暂停跟随；滚回底部后遇到新内容：恢复
+  // Programmatic layout events do not count as the user's interruption.
   f.page.onProcessBodyScroll({ currentTarget: { dataset: { key: live.key } },
     detail: { scrollTop: 0, height: 300, scrollHeight: 900 } });
+  assert.equal(follow(), live.key + '/tail');
+  // 用户翻上去看旧内容：暂停跟随；滚回底部后遇到新内容：恢复
+  f.page.onProcessBodyTouchStart({ currentTarget: { dataset: { key: live.key } }, touches: [{ clientY: 200 }] });
+  f.page.onProcessBodyTouchMove({ currentTarget: { dataset: { key: live.key } }, touches: [{ clientY: 170 }] });
+  f.page.onProcessBodyScroll({ currentTarget: { dataset: { key: live.key } },
+    detail: { scrollTop: 0, height: 300, scrollHeight: 900 } });
+  f.page.onProcessBodyTouchEnd();
   f.store.sessionState.rows[1].reasoning += '更多内容';
   f.sync(); flush();
   assert.equal(follow(), '', 'scrolling away from the bottom pauses the follow');
@@ -507,6 +514,36 @@ test('bottom anchor reset commits before targeting and a new touch cancels the p
   commits.shift()();assert.equal(f.ticks.length,1);f.ticks.shift()();assert.equal(f.page.data.scrollTarget,'conv-bottom');
   f.page.refreshBottomAnchor();commits.shift()();f.page.onConvTouch();f.ticks.shift()();
   assert.equal(f.page.data.scrollTarget,'');assert.equal(f.page._bottomAnchorPending,false);
+});
+
+test('a pinned conversation catches up after a tap, but a manual swipe cancels the deferred anchor', () => {
+  const f = fixture();
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    f.page.onConvTouch();
+    f.page.refreshBottomAnchor();
+    assert.equal(f.ticks.length, 0, 'updates do not pull content from under the finger');
+    assert.ok(f.page._bottomAnchorTimer, 'the latest anchor is deferred rather than dropped');
+    now += 900;
+    f.page._bottomAnchorTimer && f.timers.get(f.page._bottomAnchorTimer)();
+    while (f.ticks.length) f.ticks.shift()();
+    assert.equal(f.page.data.scrollTarget, 'conv-bottom', 'the settled tap returns to the latest content');
+
+    f.page.data.scrollTarget = '';
+    f.page.onConvTouch();
+    f.page.refreshBottomAnchor();
+    f.page.onPanelTouchStart({ touches: [{ clientX: 100, clientY: 100 }] });
+    f.page.onPanelTouchMove({ touches: [{ clientX: 100, clientY: 130 }] });
+    now += 900;
+    f.page._bottomAnchorTimer && f.timers.get(f.page._bottomAnchorTimer)();
+    while (f.ticks.length) f.ticks.shift()();
+    assert.equal(f.page.data.scrollTarget, '', 'manual browsing remains in control');
+  } finally {
+    Date.now = realNow;
+  }
 });
 test('bottom anchors cannot override a reader-owned scroll gesture', () => {
   const f = fixture();

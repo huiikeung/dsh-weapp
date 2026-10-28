@@ -146,18 +146,71 @@ function build(source, sessionId, normalize) {
   });
   return result;
 }
-function overview(rows) {
-  const events = rows.filter(r => r.kind === 'event');
+const OVERVIEW_SEGMENT_LIMIT = 80;
+function activeEvents(rows, mode, focus) {
+  const allEvents = rows.filter(r => r.kind === 'event');
+  if (mode === 'turns' && focus.turn != null) return allEvents.filter(row => row.turn === focus.turn);
+  if (mode === 'calls') {
+    const calls = allEvents.filter(row => ['TOOL', 'SUBTOOL'].includes(row.badge));
+    return focus.key ? calls.filter(row => row.key === focus.key) : calls;
+  }
+  return allEvents;
+}
+function laneFor(row) {
+  return row.badge === 'USER' ? 'input' : ['TOOL', 'SUBTOOL'].includes(row.badge) ? 'tools' : 'model';
+}
+function sampledSegments(segments, selectedKey) {
+  const limit = OVERVIEW_SEGMENT_LIMIT;
+  if (segments.length <= limit) return segments;
+  const selectedIndex = segments.findIndex(segment => segment.key === selectedKey);
+  const indexes = new Set();
+  for (let i = 0; i < limit; i += 1) indexes.add(Math.round(i * (segments.length - 1) / (limit - 1)));
+  if (selectedIndex >= 0 && !indexes.has(selectedIndex)) {
+    let closest = -1, gap = Infinity;
+    indexes.forEach(index => { const next = Math.abs(index - selectedIndex); if (next < gap) { closest = index; gap = next; } });
+    indexes.delete(closest); indexes.add(selectedIndex);
+  }
+  return Array.from(indexes).sort((a, b) => a - b).map(index => segments[index]);
+}
+function overview(rows, focus = {}) {
+  const allEvents = rows.filter(r => r.kind === 'event');
+  const mode = ['duration', 'turns', 'calls'].includes(focus.mode) ? focus.mode : 'duration';
+  const events = activeEvents(rows, mode, focus);
   const duration = events.reduce((sum, r) => sum + Math.max(0, r.durationMs || 0), 0);
   const minimum = Math.max(1, duration / 500), total = events.reduce((sum, r) => sum + Math.max(minimum, r.durationMs || 0), 0) || 1;
   const lanes = [{ id: 'input', label: t('输入'), segments: [] }, { id: 'model', label: t('模型'), segments: [] }, { id: 'tools', label: t('工具'), segments: [] }];
   let cursor = 0;
   events.forEach(row => {
-    const weight = Math.max(minimum, row.durationMs || 0), lane = row.badge === 'USER' ? lanes[0] : ['TOOL', 'SUBTOOL'].includes(row.badge) ? lanes[2] : lanes[1];
-    lane.segments.push({ key: row.key, badgeClass: row.badgeClass, style: 'left:' + (cursor / total * 100).toFixed(3) + '%;width:' + (weight / total * 100).toFixed(3) + '%;' });
+    const weight = Math.max(minimum, row.durationMs || 0), lane = lanes.find(item => item.id === laneFor(row));
+    lane.segments.push({ key: row.key, badgeClass: row.badgeClass, error: row.isError === true,
+      selected: row.key === focus.key, dimmed: focus.touched === true && !!focus.key && row.key !== focus.key,
+      startPct: cursor / total * 100, endPct: (cursor + weight) / total * 100,
+      centerPct: (cursor + weight / 2) / total * 100,
+      style: 'left:' + (cursor / total * 100).toFixed(3) + '%;width:' + (weight / total * 100).toFixed(3) + '%;' });
     cursor += weight;
   });
-  return { durationLabel: seconds(duration), turns: new Set(events.filter(r => r.turn != null).map(r => r.turn)).size, calls: events.filter(r => ['TOOL', 'SUBTOOL'].includes(r.badge)).length, lanes };
+  return { durationLabel: seconds(duration), turns: new Set(allEvents.filter(r => r.turn != null).map(r => r.turn)).size,
+    calls: allEvents.filter(r => ['TOOL', 'SUBTOOL'].includes(r.badge)).length, focusMode: mode,
+    lanes: lanes.filter(lane => lane.segments.length).map(lane => ({ ...lane, segments: sampledSegments(lane.segments, focus.key) })) };
+}
+function nearestOverviewEvent(rows, focus, laneId, percent) {
+  const mode = ['duration', 'turns', 'calls'].includes(focus.mode) ? focus.mode : 'duration';
+  const events = activeEvents(rows, mode, focus);
+  if (!events.length) return null;
+  const duration = events.reduce((sum, row) => sum + Math.max(0, row.durationMs || 0), 0);
+  const minimum = Math.max(1, duration / 500);
+  const total = events.reduce((sum, row) => sum + Math.max(minimum, row.durationMs || 0), 0) || 1;
+  const hasLaneEvents = !!laneId && events.some(row => laneFor(row) === laneId);
+  let cursor = 0, nearest = null, nearestDistance = Infinity;
+  events.forEach(row => {
+    const weight = Math.max(minimum, row.durationMs || 0), start = cursor / total * 100, end = (cursor + weight) / total * 100;
+    if (!hasLaneEvents || laneFor(row) === laneId) {
+      const distance = percent < start ? start - percent : percent > end ? percent - end : 0;
+      if (distance < nearestDistance) { nearest = row; nearestDistance = distance; }
+    }
+    cursor += weight;
+  });
+  return nearest;
 }
 function sections(row, selectedId) {
   const tabs = [], field = (label, value) => ({ label: copy(label), value: value == null ? '—' : String(value) });
@@ -222,11 +275,13 @@ function tabs(row) {
 function listRow(row) {
   const item = localize(row);
   const out = {};
-  for (const key of ['kind', 'key', 'turn', 'label', 'badge', 'displayBadge', 'badgeClass', 'preview', 'seqLabel', 'requestNumber', 'durationMs']) {
+  for (const key of ['kind', 'key', 'turn', 'label', 'badge', 'displayBadge', 'badgeClass', 'preview', 'seqLabel', 'requestNumber', 'durationMs', 'isError', 'interrupted']) {
     if (item[key] !== undefined) out[key] = item[key];
   }
   out.badgeClass = String(item.badge || '').toLowerCase();
   out.seqLabel = typeof item.seq === 'number' ? String(item.seq).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '';
+  // Ledger rows mirror the client: error rails and running dots are derived once here.
+  out.running = item.kind === 'event' && !item.completed && !item.stopped && !item.isError && !item.interrupted;
   if (item.request) out.request = { key: item.request.key };
   return out;
 }
@@ -251,4 +306,4 @@ function localize(row) {
   if (row.request) value.request = localize(row.request);
   return value;
 }
-module.exports = { build, sections, tabs, listRow, filter, timestamp, overview, localize };
+module.exports = { build, sections, tabs, listRow, filter, timestamp, overview, nearestOverviewEvent, localize };

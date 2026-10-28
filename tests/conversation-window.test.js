@@ -44,6 +44,39 @@ test('scroll handling does not publish a new virtual slice for each crossed row'
   page.updateConversationWindow(900);
   assert.equal(patches, 1, 'the virtual slice advances near its edge');
 });
+test('fast swipes coalesce nearby virtual-window replacements to the latest scroll position', () => {
+  const realNow = Date.now;
+  const realSetTimeout = global.setTimeout;
+  const realClearTimeout = global.clearTimeout;
+  let now = 1000, serial = 0;
+  const timers = new Map();
+  let patches = 0;
+  const page = { ...viewport, data: {}, _renderSessionId: 's', _convPinned: false,
+    _lastScrollTop: 500, _convClientHeight: 400,
+    setData(patch, callback) { patches++; Object.assign(this.data, patch); if (callback) callback(); },
+    scheduleHistoryFormatting() {}, measureConversationWindow() {}, scheduleAttachmentThumbs() {} };
+  const initial = page.conversationWindowPatch(rows(100));
+  page.data = initial;
+  page._lastWindowShiftAt = now;
+  Date.now = () => now;
+  global.setTimeout = (fn, delay) => { timers.set(++serial, { fn, delay }); return serial; };
+  global.clearTimeout = id => timers.delete(id);
+  try {
+    page.updateConversationWindow(900);
+    page.updateConversationWindow(1500);
+    assert.equal(patches, 0, 'the current DOM slice stays stable during the same short swipe burst');
+    assert.equal(timers.size, 1);
+    assert.equal([...timers.values()][0].delay, 32);
+    now += 40;
+    [...timers.values()][0].fn();
+    assert.equal(patches, 1);
+    assert.ok(page.data.rows.some(row => row.key === 'u15'), 'the newest position wins when the window advances');
+  } finally {
+    Date.now = realNow;
+    global.setTimeout = realSetTimeout;
+    global.clearTimeout = realClearTimeout;
+  }
+});
 test('prepending history preserves the visible anchor and offset while incoming tail does not move it', () => {
   const page = { ...viewport, data: {}, _renderSessionId: 's', _convPinned: false, _lastScrollTop: 5025 };
   const initial = rows(100); page.conversationWindowPatch(initial);

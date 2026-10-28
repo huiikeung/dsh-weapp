@@ -76,6 +76,7 @@
     style="{{conversationStyle}}"
     scroll-y
     enhanced
+    scroll-anchoring="{{true}}"
     show-scrollbar="{{false}}"
     scroll-into-view="{{scrollTarget}}"
     scroll-with-animation="{{scrollAnim}}"
@@ -204,7 +205,7 @@
           <view class="turn-error-message">{{item.failureMessage}}</view>
           <view wx:if="{{item.failureCode}}" class="turn-error-code"><text class="turn-error-code-label">{{ui['错误码']}}</text><text class="turn-error-code-value" selectable>{{item.failureCode}}</text></view>
         </view>
-<scroll-view wx:if="{{item.processBodyVisible}}" class="process-body {{item.processBodyCapped ? 'process-body-capped' : ''}}" scroll-y="{{item.processBodyCapped}}" scroll-into-view="{{item.running ? processFollowTarget : ''}}" enhanced show-scrollbar="{{false}}" bindscroll="onProcessBodyScroll" data-key="{{item.key}}">
+<scroll-view wx:if="{{item.processBodyVisible}}" class="process-body {{item.processBodyCapped ? 'process-body-capped' : ''}}" scroll-y="{{item.processBodyCapped}}" scroll-into-view="{{item.running ? processFollowTarget : ''}}" enhanced show-scrollbar="{{false}}" scroll-anchoring="{{true}}" bindtouchstart="onProcessBodyTouchStart" bindtouchmove="onProcessBodyTouchMove" bindtouchend="onProcessBodyTouchEnd" bindtouchcancel="onProcessBodyTouchCancel" bindscroll="onProcessBodyScroll" data-key="{{item.key}}">
           <view wx:if="{{item.commandDetail}}" class="process-command-detail">{{item.commandDetail}}</view>
           <block wx:for="{{item.children}}" wx:for-item="node" wx:key="key">
 <view id="{{node.key}}" class="process-step-anchor" aria-hidden="true"/>
@@ -388,24 +389,30 @@
   <!-- ================= 轨迹：DSH 原生时间轴 ================= -->
   <view wx:if="{{trajectoryMounted}}" hidden="{{tab !== 'trajectory'}}" class="trajectory-panel {{tab !== 'trajectory' ? 'session-panel-hidden' : ''}}" style="{{trajectoryStyle}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
     <view class="trace-overview">
-      <view class="trace-overview-head"><view class="trace-overview-head-label"><image class="trace-overview-clock" src="/assets/icons/{{theme === 'dark' ? 'dsh-clock-dark.svg' : 'dsh-clock.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{ui['时长']}}</text></view><text>{{traceOverview.turns}} {{ui['轮次']}}</text><text>{{traceOverview.calls}} {{ui['调用']}}</text><text class="trace-overview-duration">{{ui[traceOverview.durationLabel] !== undefined ? ui[traceOverview.durationLabel] : traceOverview.durationLabel}}</text></view>
+      <view class="trace-overview-head">
+        <view class="trace-overview-head-label {{traceFocusMode === 'duration' ? 'active' : ''}}" bindtap="selectTraceMetric" data-mode="duration" hover-class="trace-overview-metric-pressed" role="button" aria-label="{{ui['时长']}}"><image class="trace-overview-clock" src="/assets/icons/{{theme === 'dark' ? 'dsh-clock-dark.svg' : 'dsh-clock.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{ui['时长']}}</text></view>
+        <view class="trace-overview-stat {{traceFocusMode === 'turns' ? 'active' : ''}}" bindtap="selectTraceMetric" data-mode="turns" hover-class="trace-overview-metric-pressed" role="button" aria-label="{{ui['轮次']}}"><image class="trace-overview-metric-icon" src="/assets/icons/{{theme === 'dark' ? 'dsh-checklist-dark.svg' : 'dsh-checklist.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{traceOverview.turns}}</text><text>{{ui['轮次']}}</text></view>
+        <view class="trace-overview-stat {{traceFocusMode === 'calls' ? 'active' : ''}}" bindtap="selectTraceMetric" data-mode="calls" hover-class="trace-overview-metric-pressed" role="button" aria-label="{{ui['调用']}}"><image class="trace-overview-metric-icon" src="/assets/icons/{{theme === 'dark' ? 'dsh-process-tool-dark.svg' : 'dsh-process-tool.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{traceOverview.calls}}</text><text>{{ui['调用']}}</text></view>
+      </view>
       <view wx:for="{{traceOverview.lanes}}" wx:for-item="lane" wx:key="id" class="trace-overview-lane">
         <text class="trace-overview-label">{{ui[lane.label] !== undefined ? ui[lane.label] : lane.label}}</text>
-        <view class="trace-overview-track"><view wx:for="{{lane.segments}}" wx:for-item="segment" wx:key="key" class="trace-overview-bar {{segment.badgeClass}}" style="{{segment.style}}" bindtap="jumpToTrace" data-key="{{segment.key}}" role="button" aria-label="{{ui['定位轨迹记录']}}"/></view>
+        <view class="trace-overview-track" data-lane="{{lane.id}}" catchtouchstart="onTraceTimelineTouchStart" catchtouchmove="onTraceTimelineTouchMove" catchtouchend="onTraceTimelineTouchEnd" catchtouchcancel="onTraceTimelineTouchCancel" catchtap="onTraceTimelineTap">
+          <view wx:for="{{lane.segments}}" wx:for-item="segment" wx:key="key" class="trace-overview-bar {{segment.badgeClass}} {{segment.error ? 'error' : ''}} {{segment.selected ? 'selected' : ''}} {{segment.dimmed ? 'dimmed' : ''}}" style="{{segment.style}}" aria-hidden="true"/>
+          <view wx:if="{{traceCursorVisible}}" class="trace-overview-cursor" style="left:{{traceCursorPercent}}%;" aria-hidden="true"/>
+        </view>
       </view>
       <view class="trace-overview-axis"><text>0 {{ui['秒']}}</text><text>{{ui[traceOverview.durationLabel] !== undefined ? ui[traceOverview.durationLabel] : traceOverview.durationLabel}}</text></view>
     </view>
-    <scroll-view class="trajectory" scroll-y enhanced show-scrollbar="{{false}}" scroll-into-view="{{traceScrollTarget}}" scroll-with-animation bindscrolltoupper="loadOlder" upper-threshold="80">
+    <scroll-view class="trajectory" scroll-y enhanced show-scrollbar="{{false}}" scroll-into-view="{{traceScrollTarget}}" scroll-with-animation bindscroll="onTraceListScroll" bindscrolltoupper="loadOlder" upper-threshold="80">
       <view wx:if="{{historyLoading}}" class="hist-banner"><view class="banner-spinner"/><text class="banner-text">{{historyProgressText}}</text></view>
       <view wx:elif="{{hasMoreHistory}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
       <view class="trace-list">
+        <view class="trace-window-spacer" style="height:{{traceSpacerTopRpx}}rpx;" aria-hidden="true"/>
         <block wx:for="{{trajectory}}" wx:key="key">
-          <view wx:if="{{item.kind === 'turn'}}" class="trace-turn"><text>{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text><view class="trace-turn-line"/></view>
-          <view wx:else id="trace-{{item.key}}" class="trace-native-row {{traceHighlightedKey === item.key ? 'highlighted' : ''}}" bindtap="openTraceDetail" data-key="{{item.key}}" hover-class="trace-row-pressed" hover-start-time="0" hover-stay-time="100" role="button" aria-label="{{ui['打开']}} {{item.displayBadge}} #{{ui[item.seqLabel] !== undefined ? ui[item.seqLabel] : item.seqLabel}}">
-            <view class="trace-spine">
-              <view wx:if="{{item.request}}" class="trace-dot-hit" catchtap="openTraceRequest" data-key="{{item.key}}" role="button" aria-label="{{ui['打开请求']}} #{{item.requestNumber}}"><view class="trace-node-dot request"/></view>
-              <view wx:else class="trace-dot-hit"><view class="trace-node-dot {{item.badgeClass}}"/></view>
-              <view class="trace-spine-line"/>
+          <view wx:if="{{item.kind === 'turn'}}" class="trace-turn {{traceFocusTouched ? 'trace-focus-muted' : ''}}"><view class="trace-turn-line" aria-hidden="true"/><text class="trace-turn-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text></view>
+          <view wx:else id="trace-{{item.key}}" class="trace-native-row {{item.isError ? 'error' : ''}} {{item.running ? 'running' : ''}} {{traceHighlightedKey === item.key ? 'highlighted' : ''}} {{traceMetricTargetKey === item.key ? 'metric-target' : ''}} {{traceFocusTouched && traceFocusKey !== item.key ? 'trace-focus-muted' : ''}} {{traceDetail && traceDetail.key === item.key ? 'selected' : ''}} {{traceDetail && item.request && traceDetail.key === item.request.key ? 'selected' : ''}}" bindtap="openTraceDetail" data-key="{{item.key}}" hover-class="trace-row-pressed" hover-start-time="0" hover-stay-time="100" role="button" aria-label="{{ui['打开']}} {{item.displayBadge}} #{{ui[item.seqLabel] !== undefined ? ui[item.seqLabel] : item.seqLabel}}">
+            <view class="trace-request-gutter">
+              <view wx:if="{{item.request}}" class="trace-dot-hit" catchtap="openTraceRequest" data-key="{{item.key}}" role="button" aria-label="{{ui['打开请求']}} #{{item.requestNumber}}"><view class="trace-node-dot request {{traceDetail && traceDetail.key === item.request.key ? 'active' : ''}} {{item.isError ? 'error' : ''}}"/></view>
             </view>
             <view class="trace-native-content">
               <text class="trace-native-badge {{item.badgeClass}}">{{item.displayBadge}}</text>
@@ -415,6 +422,7 @@
             </view>
           </view>
         </block>
+        <view class="trace-window-spacer" style="height:{{traceSpacerBottomRpx}}rpx;" aria-hidden="true"/>
         <view wx:if="{{!trajectory.length && !historyLoading}}" class="empty">{{histError || ui['暂无轨迹事件']}}</view>
       </view>
     </scroll-view>
@@ -2190,7 +2198,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
   <view wx:if="{{traceDetail}}" class="sheet-mask trace-inspector-mask" catchtap="closeTraceDetail" catchtouchmove="noop">
     <view class="trace-inspector" catchtap="noop">
       <view class="trace-inspector-handle"/>
-      <view class="trace-inspector-head"><text class="trace-inspector-title">{{ui[traceDetail.label] !== undefined ? ui[traceDetail.label] : traceDetail.label}}</text><text class="trace-inspector-close" bindtap="closeTraceDetail" role="button">{{ui['完成']}}</text></view>
+      <view class="trace-inspector-head"><view class="trace-inspector-dot {{traceDetail.badgeClass}}" aria-hidden="true"/><text class="trace-inspector-title">{{ui[traceDetail.label] !== undefined ? ui[traceDetail.label] : traceDetail.label}}</text><text class="trace-inspector-close" bindtap="closeTraceDetail" role="button">{{ui['完成']}}</text></view>
       <view class="trace-detail-tab-strip"><view wx:for="{{traceDetailTabs}}" wx:key="id" class="trace-detail-tab {{traceDetailTab === item.id ? 'active' : ''}}" bindtap="selectTraceDetailTab" data-id="{{item.id}}" role="button">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</view></view>
       <scroll-view class="trace-inspector-body" scroll-y enhanced show-scrollbar="{{false}}">
         <view class="trace-inspector-page">

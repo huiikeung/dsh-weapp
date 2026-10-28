@@ -1,8 +1,13 @@
 const { ConversationWindow } = require('./utils/conversation-window');
 const { dataPatch } = require('./utils/session-render');
+const WINDOW_SHIFT_INTERVAL = 32;
 module.exports = {
   conversationWindowPatch(rows, options) {
     if (!this._conversationWindow || this._windowSession !== this._renderSessionId) {
+      if (this._windowShiftTimer) clearTimeout(this._windowShiftTimer);
+      this._windowShiftTimer = null;
+      this._pendingWindowScrollTop = null;
+      this._lastWindowShiftAt = null;
       this._conversationWindow = new ConversationWindow(); this._windowSession = this._renderSessionId;
     }
     const window = this._conversationWindow;
@@ -36,9 +41,28 @@ module.exports = {
   updateConversationWindow(top) {
     const window = this._conversationWindow;
     if (!window) return;
+    this._pendingWindowScrollTop = Math.max(0, Number(top) || 0);
     const height = this._convClientHeight || 700;
-    if (!window.shouldShiftForScroll(top, height)) return;
-    const patch = dataPatch(this.data, window.select(top, height));
+    if (!window.shouldShiftForScroll(this._pendingWindowScrollTop, height)) return;
+    const now = Date.now();
+    if (this._lastWindowShiftAt != null && now - this._lastWindowShiftAt < WINDOW_SHIFT_INTERVAL) {
+      if (!this._windowShiftTimer) {
+        const expectedWindow = window;
+        this._windowShiftTimer = setTimeout(() => {
+          this._windowShiftTimer = null;
+          const latestTop = this._pendingWindowScrollTop;
+          this._pendingWindowScrollTop = null;
+          if (!this._unloaded && this._conversationWindow === expectedWindow && latestTop != null) {
+            this.updateConversationWindow(latestTop);
+          }
+        }, WINDOW_SHIFT_INTERVAL - (now - this._lastWindowShiftAt));
+      }
+      return;
+    }
+    this._lastWindowShiftAt = now;
+    const scrollTop = this._pendingWindowScrollTop;
+    this._pendingWindowScrollTop = null;
+    const patch = dataPatch(this.data, window.select(scrollTop, height));
     if (Object.keys(patch).length) this.setData(patch, () => {
       this.scheduleHistoryFormatting(); this.measureConversationWindow();
       // 滚动带出的新图也需要回填本地缓存路径，否则进入窗口后是空白图。
