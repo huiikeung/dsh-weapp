@@ -31,7 +31,8 @@ test('live status title sits below details while completed headers stay above th
     assert.ok(['正在整理上下文','正在推理'].includes(entries.at(-1).title));
     const folds=policy.apply(entries,{mode:'detailed'}, {}, [], true);
     assert.equal(folds[entries.at(-1).key],false,'process body is visible without opening a disclosure');
-    assert.equal(entries.at(-1).processBodyCapped,false,'live detailed body is not height-capped');
+    assert.equal(entries.at(-1).processBodyVisible,true,'detailed mode shows the process during the conversation');
+    assert.equal(entries.at(-1).processBodyCapped,true,'the live detailed process rides in the capped scroll container');
   }
 });
 
@@ -58,9 +59,9 @@ test('all step disclosures share touch feedback with no trailing arrows', () => 
   });
 });
 
-test('process-group bodies stay mounted and only use a bounded scroll viewport when policy caps them', () => {
+test('process-group bodies collapse to their heading and mount only when the policy opens them', () => {
   const process = xml.slice(xml.indexOf('class="process-block {{item.running'), xml.indexOf('class="row-assistant"'));
-  assert.match(process, /<scroll-view class="process-body \{\{item\.processBodyCapped/);
+  assert.match(process, /<scroll-view wx:if="\{\{item\.processBodyVisible\}\}" class="process-body \{\{item\.processBodyCapped/);
   assert.doesNotMatch(process, /wx:if="\{\{folds\[item\.key\]\}\}" class="process-body/);
   assert.match(css, /\.process-body-capped\s*\{[^}]*max-height:\s*min\(400px,\s*50vh\)/);
   assert.match(process, /node\.showPreview/);
@@ -87,11 +88,31 @@ test('a live process body follows the newest step anchor instead of leaving it b
     'a new step advances the target to its anchor');
 
   const process = xml.slice(xml.indexOf('class="process-block {{item.running'), xml.indexOf('class="row-assistant"'));
-  assert.match(process, /scroll-into-view="\{\{item\.running \? item\.processScrollTarget : ''\}\}"/);
+  assert.match(process, /scroll-into-view="\{\{item\.running \? processFollowTarget : ''\}\}"/, 'a running body follows the maintained target');
+  assert.match(process, /bindscroll="onProcessBodyScroll"/, 'user scrolling inside the body can pause the follow');
+  assert.match(process, /id="\{\{item\.key\}\}\/tail"[^>]*class="process-step-anchor"/, 'the tail anchor the follow scrolls to');
   assert.match(process, /class="process-body[^>]*show-scrollbar="\{\{false\}\}"/,
     'the process body remains scrollable without drawing a scrollbar');
   assert.match(process, /<view id="\{\{node\.key\}\}" class="process-step-anchor"/);
   assert.match(css, /\.process-step-anchor\s*\{[^}]*height:\s*1rpx/);
+});
+
+test('independent narration rows keep a tight rhythm under the collapsed group heading', () => {
+  for (const [name, markup] of [['source', xml], ['runtime', runtimeXml]]) {
+    assert.match(markup, /class="row-assistant \{\{item\.processNarration \? 'narration-row' : ''\}\}"/,
+      name + ' tags process narration rows');
+  }
+  for (const base of ['../miniprogram/pages/session/session.wxss', '../resources/runtime-markup/pages/session/session.wxss']) {
+    const sheet = fs.readFileSync(path.resolve(__dirname, base), 'utf8');
+    const narration = sheet.match(/\.row-assistant\.narration-row \{[^}]*\}/);
+    assert.ok(narration, base);
+    assert.match(narration[0], /padding:\s*10rpx 0;/);
+    // 块 margin 归零后，组标题↔过程文字两个方向都是 12rpx；块与块之间保留 10rpx 段距
+    assert.match(sheet, /\.row-assistant\.narration-row \.md-block \{[^}]*margin:\s*0;/);
+    assert.match(sheet, /\.row-assistant\.narration-row \.md-block \+ \.md-block \{[^}]*margin-top:\s*10rpx;/);
+    // 比普通消息行（20rpx）紧，标题与过程文字之间不再是整条消息的间距
+    assert.ok(/padding:\s*20rpx 0;/.test(sheet));
+  }
 });
 
 test('turn-process disclosure is disabled in verbose and always-open outcomes', () => {
@@ -102,12 +123,13 @@ test('turn-process disclosure is disabled in verbose and always-open outcomes', 
   assert.match(runtimeTurn, /bindtap="toggleFold"/, 'source runtime markup uses a static handler too');
 });
 
-test('completed turn summaries switch from duration to tool count and hide duplicate group headers', () => {
+test('completed turn summaries switch from duration to tool count and keep one heading per group', () => {
   const turn = xml.slice(xml.indexOf("item.kind === 'turnProcess'"), xml.indexOf("item.kind === 'processGroup'"));
   assert.match(turn, /item\.summary \|\| item\.expandedSummary/);
   assert.match(turn, /folds\[item\.key\] && item\.expandedSummary \? item\.expandedSummary/);
   const group = xml.slice(xml.indexOf("item.kind === 'processGroup'"), xml.indexOf('class="turn-error-card"'));
-  assert.match(group, /wx:if="\{\{!item\.turnGroupHeadingHidden\}\}" class="process-head"/);
+  assert.match(group, /<view class="process-head"/);
+  assert.doesNotMatch(group, /turnGroupHeadingHidden/);
 });
 
 const compiler = process.env.WECHAT_WCC || 'D:/Program Files (x86)/Tencent/微信web开发者工具/resources/app.asar.unpacked/node_modules/wcc-exec/wcc.exe';
@@ -127,6 +149,10 @@ test('native session template puts live work before whale and keeps completed ar
   const tree = JSON.stringify(render(data, {}, {}));
   assert.ok(tree.indexOf('执行说明') < tree.indexOf('process-block'));
   assert.ok(tree.indexOf('process-block') < tree.indexOf('progress-strip'));
+  // 详细模式对话过程中组体照常展开（过程可见），组头只有 loader
+  assert.ok(tree.includes('proc-loader'));
+  assert.ok(tree.includes('process-body'), 'detailed live groups keep the process visible');
+  assert.ok(tree.includes('process-body-capped'), 'and it rides in the bounded scroll container');
   assert.ok(tree.includes('command-tool-icon'));
   assert.ok(tree.includes('hoverStayTime'));
   assert.ok(!tree.includes('event-chevron'));
@@ -137,6 +163,7 @@ test('native session template puts live work before whale and keeps completed ar
   // 收工后组头显示默认工具图标（箭头只在展开时由 .disclosed 交出），过程已折叠
   assert.ok(completed.includes('command-tool-icon'));
   assert.ok(!completed.includes('completed-chevron'));
-  assert.ok(completed.includes('process-body'));
+  assert.ok(!completed.includes('process-body'), 'completed groups collapse to a single heading');
+  assert.ok(completed.includes('process-head'));
   assert.ok(!completed.includes('progress-strip'));
 });

@@ -189,6 +189,7 @@ Page({
     traceDetailTab: 'summary', traceDetailTabs: [], traceDetailSection: null,
     folds: {},
     scrollTarget: '',
+    processFollowTarget: '',
     scrollAnim: false,
     turnNavOpen: false,
     turnNavItems: [],
@@ -1151,6 +1152,19 @@ Page({
 
     applyTurnFooters(rows, s.rows || [], s.turnUsage || {}, processRunning);
 
+    // 运行中的过程组：组体限高成滚动容器后自动跟随尾部（对齐桌面端 useScrollFollow）。
+    // 两个相邻锚点交替充当 scroll-into-view 目标——值每次都变，滚动才会重新触发；
+    // 用户翻上去看旧内容时 onProcessBodyScroll 记下暂停，滚回底部自动恢复。
+    // 放在 workSteps.apply 之后（要读 processBodyCapped），并且只写页面级字段：
+    // 写进行里会让每次同步都变成「行变化」，无谓地触发贴底与跨桥数据。
+    // 跟随目标由 refreshProcessFollow 在渲染后的下一个 tick 重设：组体刚挂载时
+    // scroll-into-view 会在布局前触发，直接写值经常滚不动（ conv-bottom 同样靠两段式）。
+    const followPaused = this._processFollowPaused || {};
+    const followGroup = rows.find(entry => entry.kind === 'processGroup' && entry.running
+      && entry.processBodyCapped && !followPaused[entry.key]);
+    const processFollowKey = followGroup ? followGroup.key : '';
+    let processFollowTarget = '';
+
     // 回合级「已完成」disclosure 收起时，它管辖的过程组与中间叙述要从行列表里滤掉：
     // 对话窗口按行索引推算偏移，只靠 wx:if 隐藏会让占位高度算错、滚动位置跳。
     // 全量行另存一份，toggleFold 翻 folds 时靠它重算可见行（否则点了要等下一次
@@ -1189,6 +1203,7 @@ Page({
       sessionPresetVisible: presetVisible,
       sessionPresetName: presetName || uiText('选择模式'),
       running: s.running === true,
+      processFollowTarget,
       lastRowKind: rows.length ? rows[rows.length - 1].kind : '',
       ...conversationPatch,
       ...this.turnNavigatorPatch(s.rows || rows),
@@ -1250,6 +1265,8 @@ Page({
       }
       // 运行刚开始：重置文字渐变相位；鲸尾图标为纯 CSS 动画，随节点挂载自动同相起跑。
       if (!wasRunning && this.data.running) this.setData({ statusFlowDelay: 0 });
+      // 过程组滚动容器贴到最新：等窗口挂载、布局完成后再设目标
+      if (processFollowKey) this.refreshProcessFollow(processFollowKey);
     });
     else this.scheduleHistoryFormatting();
     // 会话行只有 attachmentId，图片需要异步回填本地缓存路径才会显示。
@@ -4560,6 +4577,19 @@ Page({
     }));
   },
 
+  /** 过程组滚动容器贴到底部最新：先清空再在下一个 tick 重设，滚动才会重新触发。 */
+  refreshProcessFollow(key) {
+    if (!key || this._unloaded || this._voiceHidden) return;
+    if ((this._processFollowPaused || {})[key]) return;
+    // 测试/异常环境下没有 wx.nextTick：退化为同步执行，行为不变只是少了布局等待
+    const tick = typeof wx.nextTick === 'function' ? wx.nextTick : (fn) => fn();
+    this.setData({ processFollowTarget: '' }, () => tick(() => {
+      if (this._unloaded || this._voiceHidden || !this.data.running) return;
+      if ((this._processFollowPaused || {})[key]) return;
+      this.setData({ processFollowTarget: key + '/tail' });
+    }));
+  },
+
   toggleFold(e) {
     const key = e.currentTarget.dataset.key;
     if (!key) return;
@@ -4570,8 +4600,15 @@ Page({
     const next = !this.data.folds[key];
     patch['folds.' + key] = next;
     if (row && row.kind === 'processGroup') {
-      patch['rows[' + this.data.rows.indexOf(row) + '].processBodyCapped'] = next
+      const rowPath = 'rows[' + this.data.rows.indexOf(row) + ']';
+      patch[rowPath + '.processBodyCapped'] = next
         ? row.processBodyCapWhenExpanded : row.processBodyCapWhenCollapsed;
+      // 组体跟着折叠状态整块挂载/卸载：点组头当场展开，不等下一次同步。
+      // 不分组的模式（详细模式对话过程中、完全展开）组体始终可见，点组头不改变挂载状态。
+      patch[rowPath + '.processBodyVisible'] = !row.processGrouped || next;
+      // 展开运行中的组：直接跳到最新一步（桌面端 initialize(closed ? top : bottom)）；
+      // 收起或展开已收工的组留在顶部。
+      if (next && row.running) patch.processFollowTarget = row.key + '/tail';
     }
     // 回合级 disclosure 的折叠会增删它管辖的过程组与叙述行：当时就重算可见行，
     // 不能等下一次同步——流式停顿时就点不开了。

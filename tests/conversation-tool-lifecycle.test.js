@@ -82,9 +82,13 @@ test('assistant process blocks keep text/tool order and tool results retain imag
   assert.equal(agg.rows.find(row=>row.kind==='status').turn,3);
   assert.equal(buildEntries(agg.rows,{running:true}).find(row=>row.kind==='processGroup').completed,false);
   push('assistant/message',{turn:3,message:{content:[{type:'text',text:'截图已检查。'}]}});
-  const group=buildEntries(agg.rows,{running:true}).find(row=>row.kind==='processGroup');
-  assert.deepEqual(group.children.map(child=>child.kind),['narration','toolBundle','narration','status']);
-  assert.equal(group.children[2].images[0].attachmentId,'assistant-image');
+  // 过程文字独立成行：叙述按原顺序插在过程组之间，组里只剩思考/工具/状态
+  const entries=buildEntries(agg.rows,{running:true});
+  const narrations=entries.filter(row=>row.kind==='assistant');
+  assert.deepEqual(narrations.map(row=>row.text),['先检查截图','截图已检查。']);
+  assert.equal(narrations[0].images[0].attachmentId,'assistant-image');
+  assert.deepEqual(entries.filter(row=>row.kind==='processGroup')
+    .map(group=>group.children.map(child=>child.kind)),[['toolBundle'],['status']]);
 });
 test('nested PTC calls remain in the process sequence with their outputs',()=>{
   const {agg,push}=fixture();
@@ -110,7 +114,7 @@ test('nested PTC calls remain in the process sequence with their outputs',()=>{
   assert.equal(calls[1].resultImages[0].attachmentId,'nested-image');
   assert.equal(calls[2].resultText,'匹配行');
   const turn=entries.find(row=>row.kind==='turnProcess');
-  assert.equal(group.summary,'');
+  assert.equal(group.summary,'3 次工具调用','组标题后保留本组工具次数');
   assert.equal(turn.expandedSummary,'3 次工具调用');
   const wxml=fs.readFileSync(require.resolve('../miniprogram/pages/session/session.wxml'),'utf8');
   assert.match(wxml,/class="tool-node \{\{tool\.isCommand \? 'command-node' : ''\}\}" style="\{\{tool\.indentStyle\}\}"/);

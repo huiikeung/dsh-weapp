@@ -198,12 +198,15 @@ function insertTurnDisclosures(list) {
   while (i < list.length) {
     const entry = list[i];
     if (entry.kind !== 'processGroup' || !turnSettled(entry)) { out.push(entry); i += 1; continue; }
-    // 收集同一回合的连续过程组与夹在中间的叙述；最终答复（后面不再有组）留在外面
+    // 收集同一回合的连续过程组与夹在中间的叙述（含 split 后独立成行的过程文字）；
+    // 最终答复（后面不再有组）留在外面
     const run = [entry];
     let j = i + 1;
     while (j < list.length) {
       const next = list[j];
       if (next.kind === 'processGroup' && turnSettled(next)) { run.push(next); j += 1; continue; }
+      // 过程文字独立成行后紧跟在自己的过程组后面，一律收进回合 disclosure
+      if (next.kind === 'assistant' && next.processNarration === true) { run.push(next); j += 1; continue; }
       if (next.kind === 'assistant' && j + 1 < list.length && list[j + 1].kind === 'processGroup' && turnSettled(list[j + 1])) { run.push(next); j += 1; continue; }
       break;
     }
@@ -227,14 +230,14 @@ function insertTurnDisclosures(list) {
       });
       run.forEach((item) => {
         item.turnProcessKey = key;
-        item.turnGroupHeadingHidden = completed;
-        // Nested groups keep activity labels for non-success outcomes. Successful
-        // turns hide the duplicate headers and move their tool count to the turn row.
+        // 每个过程组折叠后仍保留自己的标题行（按子内容命名 + 本组工具次数），
+        // 展开回合时逐组点开；回合行只额外汇总用时与全部工具次数。
         if (item.kind === 'processGroup') {
           item.title = processActivityTitle(groupTools(item));
           const summaryParts = (item.summary || '').split(' · ').filter(part => part && part.indexOf(uiText('用时 ')) !== 0);
           const groupToolCount = groupTools(item).length;
-          if (!completed && !summaryParts.length && groupToolCount) {
+          // 成功的回合也保留组内工具次数：组头现在是可见的一行，不能只靠回合行汇总
+          if (!summaryParts.length && groupToolCount) {
             summaryParts.push(groupToolCount + uiText(' 次工具调用'));
           }
           item.summary = summaryParts.join(' · ');
@@ -550,32 +553,12 @@ function buildEntries(rows, options) {
     }
     if (row.kind === 'assistant') {
       const isFinalAnswer = finalAnswers.has(row);
-      if (meta.running && !isFinalAnswer && processNarrations.has(row) && hasVisibleAssistantContent(row)
-        && normalizeTools(row).length > 0 && !(row.events || []).length) {
-        flushOutcome();
-        const narrativeEvents = (row.events || []).filter(event => event
-          && ['text', 'image', 'attachment'].includes(event.kind));
-        entries.push(Object.assign({}, row, {
-          kind: 'assistant', reasoning: '', tools: [], events: narrativeEvents,
-          processNarration: true
-        }));
-        const processCopy = Object.assign({}, row, {
-          kind: 'assistantProcess', text: '', blocks: [], images: [], attachments: [],
-          events: (row.events || []).filter(event => event
-            && !['text', 'image', 'attachment'].includes(event.kind))
-        });
-        processItems.push(processCopy);
-        return;
-      }
-      const isIntermediateNarration = !isFinalAnswer && processNarrations.has(row)
-        && hasVisibleAssistantContent(row) && !hasAssistantToolCall(row)
-        && !compactText(row.reasoning)
-        && !(row.events || []).some(event => event && event.kind === 'think');
-      if (isIntermediateNarration) {
-        flushOutcome();
-        entries.push(Object.assign({}, row, { kind: 'assistant' }));
-        return;
-      }
+      // 过程文字独立成行（对齐桌面端 reply 节点自成一行的分组）：助手的叙述内容
+      // （文本/图片/附件）按原顺序插到过程组之外，过程组只保留思考与工具——组折叠时
+      // 折成一个标题，叙述文字仍是独立的消息行。最终答复留在回合末尾，不受影响。
+      const narrativeEvents = (row.events || []).filter(event => event
+        && ['text', 'image', 'attachment'].includes(event.kind));
+      const hasNarration = !isFinalAnswer && hasVisibleAssistantContent(row);
       const hasProcessContent = compactText(row.reasoning) || normalizeTools(row).length
         || (row.events || []).some(event => event && (event.kind === 'think' || event.kind === 'tool'))
         || processNarrations.has(row)
@@ -583,7 +566,28 @@ function buildEntries(rows, options) {
         // a provider emits plain text between tool cycles. Without turn metadata
         // retain the conservative evidence-based fallback for legacy history.
         || (!isFinalAnswer && row.turn !== undefined && row.turn !== null && hasVisibleAssistantContent(row));
-      if (hasProcessContent || (row.turnClosed && !groupsByOutcome.has(meta) && !processItems.length)) {
+      const joinsProcess = hasProcessContent
+        || (row.turnClosed && !groupsByOutcome.has(meta) && !processItems.length);
+      if (hasNarration && joinsProcess) {
+        const processCopy = Object.assign({}, row, {
+          kind: 'assistantProcess', text: '', blocks: [], images: [], attachments: [],
+          events: (row.events || []).filter(event => event
+            && !['text', 'image', 'attachment'].includes(event.kind))
+        });
+        // 纯叙述行不另占一个空过程组
+        const keepsProcess = compactText(processCopy.reasoning) || normalizeTools(processCopy).length
+          || processCopy.events.length;
+        if (keepsProcess) processItems.push(processCopy);
+        // 连同行内剩下的过程内容一起落成一个组，叙述行紧跟在组后（保持原顺序），
+        // 回合级 disclosure 也因此能把叙述收进同一轮
+        flushProcess();
+        entries.push(Object.assign({}, row, {
+          kind: 'assistant', reasoning: '', tools: [], events: narrativeEvents,
+          processNarration: true
+        }));
+        return;
+      }
+      if (joinsProcess) {
         const processCopy = Object.assign({}, row, { kind: 'assistantProcess' });
         if (isFinalAnswer) {
           processCopy.text = '';

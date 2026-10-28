@@ -9,7 +9,7 @@ test('conversation long-press opens the selectable text sheet', () => {
   const wxml = read('pages/session/session.wxml');
   // User bubble and assistant markdown body both expose the long-press entry.
   assert.match(wxml, /class="row-user-text" bindlongpress="openTextSelection"/);
-  assert.match(wxml, /class="row-assistant"[^>]*bindlongpress="openTextSelection"/);
+  assert.match(wxml, /class="row-assistant[^>]*bindlongpress="openTextSelection"/);
   // The sheet reuses the delivered-preview container with the copy-only action.
   assert.match(wxml, /filePreview\.selection/);
   assert.match(wxml, /delivered-preview-text/);

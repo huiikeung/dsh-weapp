@@ -156,7 +156,7 @@
 </view>
 </view>
 <view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}}" id="{{item.key}}">
-<view wx:if="{{!item.turnGroupHeadingHidden}}" class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
+<view class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
 <view class="command-icon-slot {{folds[item.key] ? 'disclosed' : ''}}" aria-hidden="true">
 <view wx:if="{{item.running && !item.completed}}" class="proc-loader proc-look-{{procIconStyle}}">
 <template is="procIconGlyph" data="{{styleId: procIconStyle}}" />
@@ -174,7 +174,7 @@
 <view class="turn-error-message">{{item.failureMessage}}</view>
 <view wx:if="{{item.failureCode}}" class="turn-error-code"><text class="turn-error-code-label">{{ui['错误码']}}</text><text class="turn-error-code-value" selectable>{{item.failureCode}}</text></view>
 </view>
-<scroll-view class="process-body {{item.processBodyCapped ? 'process-body-capped' : ''}}" scroll-y="{{item.processBodyCapped}}" scroll-into-view="{{item.running ? item.processScrollTarget : ''}}" enhanced show-scrollbar="{{false}}">
+<scroll-view wx:if="{{item.processBodyVisible}}" class="process-body {{item.processBodyCapped ? 'process-body-capped' : ''}}" scroll-y="{{item.processBodyCapped}}" scroll-into-view="{{item.running ? processFollowTarget : ''}}" enhanced show-scrollbar="{{false}}" bindscroll="onProcessBodyScroll" data-key="{{item.key}}">
 <view wx:if="{{item.commandDetail}}" class="process-command-detail">{{item.commandDetail}}</view>
 <block wx:for="{{item.children}}" wx:for-item="node" wx:key="key">
 <view id="{{node.key}}" class="process-step-anchor" aria-hidden="true"/>
@@ -264,9 +264,10 @@
 </view>
 </view>
 </block>
+<view id="{{item.key}}/tail" class="process-step-anchor" aria-hidden="true"/>
 </scroll-view>
 </view>
-<view wx:elif="{{item.kind === 'assistant'}}" class="row-assistant" id="{{item.key}}" bindlongpress="openTextSelection" data-key="{{item.key}}">
+<view wx:elif="{{item.kind === 'assistant'}}" class="row-assistant {{item.processNarration ? 'narration-row' : ''}}" id="{{item.key}}" bindlongpress="openTextSelection" data-key="{{item.key}}">
 <view wx:if="{{item.title}}" class="row-streaming-title">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</view>
 <block wx:if="{{item.blocks.length}}">
 <template is="mdBlocks" data="{{blocks: item.blocks, rowKey: item.key}}"/>

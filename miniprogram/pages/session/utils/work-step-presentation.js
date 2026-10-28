@@ -93,9 +93,23 @@ function apply(entries, value, manual, previous, reset) {
       || modePolicy.stepGrouping === 'history' && turnClosed && !deferCollapse;
     const expanded = !!folds[entry.key];
     entry.processBodyCapWhenCollapsed = grouped && prefs.timing !== 'next-input';
-    entry.processBodyCapWhenExpanded = grouped;
-    entry.processBodyCapped = expanded ? entry.processBodyCapWhenExpanded : entry.processBodyCapWhenCollapsed;
+    // 组体一可见就限高（max-height min(400px,50vh) 的滚动容器）：分组模式点开组体时、
+    // 详细模式对话过程中（组体自动可见）都要限高——长过程不会把页面撑爆，组内自行
+    // 滚动并跟着最新步骤锚点；「完全展开」永不设上限。
+    const capWhenOpen = grouped
+      || modePolicy.stepGrouping === 'history' && (processRunning || expanded);
+    entry.processBodyCapWhenExpanded = capWhenOpen;
+    // 限高跟着可见性走：组体一可见（分组模式点开 / 详细模式对话过程中自动可见）就装进
+    // 定高滚动容器；收起时组体不挂载，限高值无所谓，沿用原有口径。
+    entry.processBodyCapped = (!grouped || expanded) ? capWhenOpen : entry.processBodyCapWhenCollapsed;
     entry.liveDetail = modePolicy.liveProcessDetail && entry.running ? entry.activityDetail || '' : '';
+    // 每个过程组折叠成一个标题：组体在 grouped 且未展开时整块收起，点组头才展开
+    // （对齐桌面端 ChatGroupSeat 的 grouped && !open）。compact/standard 永远 grouped；
+    // detailed 是 history 分组——对话过程中（回合未收工）不分组、过程照常展开，回合
+    // 结束后才折叠成标题；verbose（stepGrouping=none）永远展开。
+    // 过程文字已独立成行，收起组体不会连带藏掉叙述。
+    entry.processGrouped = grouped;
+    entry.processBodyVisible = !grouped || expanded;
 
     (entry.children || []).forEach(child => {
       if (child.kind !== 'reasoning') return;

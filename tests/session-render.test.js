@@ -174,6 +174,46 @@ test('nested process narration markdown drains in bounded batches without standa
   assert.equal(nestedPatches.length, 7);
   assert.ok(batches >= 2, 'all process children are formatted in small batches');
 });
+test('a running process body follows its tail and pauses when the reader scrolls away', () => {
+  const f = fixture();
+  f.store.sessionState.rows = [
+    { kind: 'user', key: 'u', text: '任务' },
+    { kind: 'assistant', key: 'a', turn: 1, text: '先说明', reasoning: '想一下',
+      tools: [{ callId: 'c', key: 't', name: 'read', status: 'running', argumentsText: '{}' }] }
+  ];
+  // 目标在渲染后的下一个 tick 才设：组体刚挂载时 scroll-into-view 会在布局前触发
+  const flush = () => { while (f.ticks.length) f.ticks.shift()(); };
+  f.sync(); flush();
+  const group = () => f.page.data.rows.find(row => row.kind === 'processGroup');
+  const follow = () => f.page.data.processFollowTarget;
+  const live = group();
+  assert.ok(live, 'the live turn projects a process group');
+  assert.equal(live.processBodyVisible, true, 'detailed keeps the live process open');
+  assert.equal(live.processBodyCapped, true, 'inside the bounded scroll container');
+  assert.equal(follow(), live.key + '/tail', 'entering a running session focuses the latest');
+  // 新内容到达：继续贴底
+  f.store.sessionState.rows[1].reasoning += '继续想';
+  f.sync(); flush();
+  assert.equal(follow(), live.key + '/tail', 'new content keeps the body on the latest');
+  // 用户翻上去看旧内容：暂停跟随；滚回底部后遇到新内容：恢复
+  f.page.onProcessBodyScroll({ currentTarget: { dataset: { key: live.key } },
+    detail: { scrollTop: 0, height: 300, scrollHeight: 900 } });
+  f.store.sessionState.rows[1].reasoning += '更多内容';
+  f.sync(); flush();
+  assert.equal(follow(), '', 'scrolling away from the bottom pauses the follow');
+  f.page.onProcessBodyScroll({ currentTarget: { dataset: { key: live.key } },
+    detail: { scrollTop: 600, height: 300, scrollHeight: 900 } });
+  f.store.sessionState.rows[1].reasoning += '恢复后的内容';
+  f.sync(); flush();
+  assert.equal(follow(), live.key + '/tail', 'returning to the bottom resumes the follow');
+  // 收工后不再跟随
+  f.store.sessionState.rows[1].tools[0].status = 'done';
+  f.store.sessionState.rows.push({ kind: 'assistant', key: 'a2', turn: 1, text: '完成', turnClosed: true, turnEndReason: 'completed' });
+  f.store.sessionState.running = false;
+  f.sync(); flush();
+  assert.equal(follow(), '', 'a settled group stops following');
+});
+
 test('completion does not reparse or resend historical Markdown', () => {
   const f = fixture(); f.sync(); f.reset();
   assert.equal(f.page.data.rows.find(row => row.key === 'current').copyText, '');

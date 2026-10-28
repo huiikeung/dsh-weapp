@@ -2740,6 +2740,18 @@ overscroll-behavior-y: auto;
 .row-assistant {
   padding: 20rpx 0;
 }
+/* 过程文字独立成行后紧贴组标题：两个方向同一节奏——组标题与过程文字、
+   过程文字与下一行组标题都是 组头 padding 6 + 本行 padding 10 + 块 margin 归零
+   = 16rpx（8pt）。块与块之间仍保留 10rpx 段距。 */
+.row-assistant.narration-row {
+  padding: 10rpx 0;
+}
+.row-assistant.narration-row .md-block {
+  margin: 0;
+}
+.row-assistant.narration-row .md-block + .md-block {
+  margin-top: 10rpx;
+}
 .row-status {
   padding: 12rpx 0;
 }

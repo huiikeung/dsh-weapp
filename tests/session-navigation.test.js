@@ -630,6 +630,36 @@ test('fold arrow follows persistent expansion until a second tap', () => {
   assert.deepEqual(Object.keys(patches[0]), ['folds.' + key]);
 });
 
+test('detailed mode shows the live process while standard mode collapses each group to a heading', () => {
+  const { buildEntries } = require('../miniprogram/pages/session/utils/conversation-workflow');
+  const policy = require('../miniprogram/pages/session/utils/work-step-presentation');
+  const source = () => ([
+    { kind: 'user', key: 'u', text: '任务' },
+    { kind: 'assistant', key: 'a', turn: 1, text: '先说明', reasoning: '想一下',
+      tools: [{ callId: 'c', key: 't', name: 'read', status: 'done', argumentsText: '{}' }] }
+  ]);
+  // 详细模式：对话过程中不分组，过程照常展开
+  const detailed = buildEntries(source(), { running: true });
+  policy.apply(detailed, { mode: 'detailed', timing: 'completion' }, {}, [], true);
+  const liveGroup = detailed.find(row => row.kind === 'processGroup');
+  const narration = detailed.find(row => row.kind === 'assistant' && row.processNarration);
+  assert.ok(liveGroup && narration, 'narration becomes an independent row beside the group');
+  assert.equal(liveGroup.processBodyVisible, true, 'detailed shows the process during the conversation');
+  assert.equal(liveGroup.processBodyCapped, true, 'and the live process rides in the capped scroll container');
+  // 标准模式：每组折叠成一个标题，点组头当场展开
+  const standard = buildEntries(source(), { running: true });
+  const folds = policy.apply(standard, { mode: 'standard', timing: 'completion' }, {}, [], true);
+  const group = standard.find(row => row.kind === 'processGroup');
+  assert.equal(group.processBodyVisible, false, 'standard collapses the group to its heading');
+  const { page } = fixture();
+  page.data.rows = standard;
+  page.data.folds = folds;
+  page.toggleFold(event('key', group.key));
+  assert.equal(page.data.folds[group.key], true);
+  assert.equal(page.data.rows[standard.indexOf(group)].processBodyVisible, true, 'the body mounts on the tap itself');
+  assert.equal(page.data.rows[standard.indexOf(group)].processBodyCapped, true, 'standard keeps the capped scroll body');
+});
+
 test('repeat tab switches and menu opening send no history and preserve scroll position', () => {
   const { page, store, patches, calls, ticks } = fixture();
   store.sessionState.trajectory = [{ key: 'ev1', kind: 'event', badge: 'USER', label: 'User', seq: 1, text: 'hello' }];

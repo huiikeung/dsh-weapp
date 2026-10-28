@@ -6,9 +6,11 @@ const group=(extra)=>({kind:'processGroup',key:'g',running:true,completed:false,
 test('four desktop modes expose the same distinct live/header/detail policy',()=>{
  for(const mode of ['compact','standard','detailed','verbose']){
   const rows=[group({activityDetail:'Inspect repository'})],folds=policy.apply(rows,{mode}, {}, [],true);
-  // DSH keeps the process body mounted; folds controls capped-scroll state, not visibility.
+  // compact/standard 永远分组（折叠成标题）；detailed 对话过程中不分组、过程照常展开；
+  // verbose 永远展开
   assert.equal(folds.g,false);
-  assert.equal(rows[0].processBodyCapped,mode==='compact'||mode==='standard');
+  assert.equal(rows[0].processBodyVisible,mode==='detailed'||mode==='verbose');
+  assert.equal(rows[0].processBodyCapped,mode!=='verbose');
   assert.equal(rows[0].liveDetail,['standard','detailed'].includes(mode)?'Inspect repository':'');
  }
 });
@@ -66,7 +68,12 @@ test('detailed mode restores grouped live steps and honors the turn collapse tim
  const running=[group()];
  const liveFolds=policy.apply(running,{mode:'detailed',timing:'completion'},{},[],true);
  assert.equal(liveFolds.g,false,'the process group body is visible by default');
- assert.equal(running[0].processBodyCapped,false,'detailed live groups are uncapped');
+ assert.equal(running[0].processBodyVisible,true,'detailed shows the process while the turn runs');
+ assert.equal(running[0].processBodyCapped,true,'detailed live process rides in the capped scroll container');
+ // 回合一收工就折叠回标题（history 分组），点组头才再展开
+ const done=[group({running:false,completed:true})];
+ policy.apply(done,{mode:'detailed',timing:'completion'},{},[],true);
+ assert.equal(done[0].processBodyVisible,false,'detailed collapses to a heading once the turn closes');
 
  const turn=()=>({kind:'turnProcess',key:'turn-g'});
  const latest=[turn()];
@@ -181,10 +188,11 @@ test('a finished turn gets one 已完成 disclosure above its rounds', () => {
   assert.deepEqual(entries.filter(e => e.turnProcessKey === turn.key).map(e => e.kind === 'processGroup' ? e.title : e.text),
     ['执行了命令并已读取文件', '中间叙述', '修改了文件并运行了代码']);
   assert.deepEqual(entries.filter(e => e.turnProcessKey === turn.key && e.kind === 'processGroup').map(e => e.summary),
-    ['', '']);
+    ['2 次工具调用', '2 次工具调用'], '完成的回合每组标题后仍带本组工具次数');
+  // 展开回合后每个过程组仍是一个标题行，组体继续收着，点组头才展开
   assert.ok(entries.filter(e => e.turnProcessKey === turn.key && e.kind === 'processGroup')
-    .every(e => e.turnGroupHeadingHidden && e.processBodyCapped),
-  'successful turn expansion removes duplicate headings while retaining process-container scrolling');
+    .every(e => !e.turnGroupHeadingHidden && e.processBodyVisible === false && e.processBodyCapped),
+  'successful turn expansion keeps one collapsed heading per process group');
   // 最终答复留在 disclosure 外面，始终可见
   assert.deepEqual(entries.map(e => e.kind), ['user', 'turnProcess', 'processGroup', 'assistant', 'processGroup', 'assistant']);
   assert.equal(entries[entries.length - 1].turnProcessKey, undefined);
@@ -339,8 +347,10 @@ test('the four presentation modes each lay the process out differently', () => {
     const entries = buildEntries(live.map(r => Object.assign({}, r)), { running: true });
     policy.apply(entries, { mode, timing: 'completion' }, {}, [], true);
     const groups = entries.filter(e => e.kind === 'processGroup');
-    assert.deepEqual(groups.map(g => g.processBodyCapped), mode === 'compact' || mode === 'standard'
-      ? [true, true] : [false, false], mode + ' follows its body grouping policy');
+    assert.deepEqual(groups.map(g => g.processBodyCapped), mode === 'verbose' ? [false, false] : [true, true],
+      mode + ' keeps a visible body inside the capped scroll container');
+    assert.deepEqual(groups.map(g => g.processBodyVisible), mode === 'compact' || mode === 'standard'
+      ? [false, false] : [true, true], mode + ' shows the live process only when its grouping keeps the body open');
   }
   const compactFolds = policy.apply(buildEntries(live.map(r => Object.assign({}, r)), { running: true }), { mode: 'compact', timing: 'completion' }, {}, [], true);
   const standardFolds = policy.apply(buildEntries(live.map(r => Object.assign({}, r)), { running: true }), { mode: 'standard', timing: 'completion' }, {}, [], true);

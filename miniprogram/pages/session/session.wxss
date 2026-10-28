@@ -2640,6 +2640,15 @@ line-height: 1.42;
 .row-assistant {
 padding: 20rpx 0;
 }
+.row-assistant.narration-row {
+padding: 10rpx 0;
+}
+.row-assistant.narration-row .md-block {
+margin: 0;
+}
+.row-assistant.narration-row .md-block + .md-block {
+margin-top: 10rpx;
+}
 .row-status {
 padding: 12rpx 0;
 }
