@@ -175,10 +175,24 @@ font-weight: 600;
 .theme-dark .collab-status.running { color:#73C7A0; }
 @media (max-width:350px) { .segmented-row { padding-left:24rpx;padding-right:24rpx;gap:12rpx; }.collab-trigger { gap:6rpx; }.collab-tab { font-size:22rpx; } }
 .conversation::-webkit-scrollbar,
-.trajectory::-webkit-scrollbar {
-width: 0;
-height: 0;
+.trajectory::-webkit-scrollbar,
+.session-menu-scroll::-webkit-scrollbar,
+.session-menu-stats::-webkit-scrollbar,
+.more-files-scroll::-webkit-scrollbar,
+.session-switch-list::-webkit-scrollbar,
+.turn-scrub-list::-webkit-scrollbar {
 display: none;
+width: 0 !important;
+height: 0 !important;
+-webkit-appearance: none;
+background: transparent;
+color: transparent;
+}
+.session-menu-scroll,
+.session-menu-stats,
+.more-files-scroll {
+scrollbar-width: none;
+-ms-overflow-style: none;
 }
 .conversation,
 .trajectory {
@@ -3436,7 +3450,6 @@ flex: 0 0 auto;
 .theme-light .session-switch-search-icon { filter: brightness(0); }
 .session-switch-search-input { flex: 1; min-width: 0; color: var(--text); font-size: 26rpx; }
 .session-switch-list { min-height: 0; padding-top: 0; }
-.session-switch-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .session-switch-row {
 min-height: 96rpx;
 padding: 12rpx 14rpx;
@@ -3592,7 +3605,6 @@ height: 76vh;
 max-height: 90vh;
 scrollbar-width: none;
 }
-.turn-scrub-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .turn-scrub-inner {
 min-height: 100%;
 display: flex;

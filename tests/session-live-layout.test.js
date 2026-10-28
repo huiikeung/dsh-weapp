@@ -88,7 +88,10 @@ test('a live process body follows the newest step anchor instead of leaving it b
     'a new step advances the target to its anchor');
 
   const process = xml.slice(xml.indexOf('class="process-block {{item.running'), xml.indexOf('class="row-assistant"'));
-  assert.match(process, /scroll-into-view="\{\{item\.running \? processFollowTarget : ''\}\}"/, 'a running body follows the maintained target');
+  assert.match(process, /scroll-top="\{\{item\.processBodyScrollTop \|\| 0\}\}"/, 'a running body follows measured scroll geometry');
+  assert.match(process, /scroll-anchoring="\{\{false\}\}"/, 'manual scrollTop corrections do not double with native anchoring');
+  assert.match(runtimeXml, /class="process-body[^\"]*"[^>]*scroll-top="\{\{item\.processBodyScrollTop \|\| 0\}\}"[^>]*scroll-anchoring="\{\{false\}\}"/,
+    'the packaged runtime template uses the same measured inner-scroll behavior');
   assert.match(process, /bindscroll="onProcessBodyScroll"/, 'user scrolling inside the body can pause the follow');
   assert.match(process, /bindtouchmove="onProcessBodyTouchMove"/, 'only a manual gesture pauses live following');
   assert.match(process, /id="\{\{item\.key\}\}\/tail"[^>]*class="process-step-anchor"/, 'the tail anchor the follow scrolls to');
@@ -96,8 +99,10 @@ test('a live process body follows the newest step anchor instead of leaving it b
     'the process body remains scrollable without drawing a scrollbar');
   assert.match(process, /<view id="\{\{node\.key\}\}" class="process-step-anchor"/);
   assert.match(css, /\.process-step-anchor\s*\{[^}]*height:\s*1rpx/);
-  assert.match(xml, /class="conversation[^\"]*"[\s\S]*?scroll-anchoring="\{\{true\}\}"/,
-    'native scroll anchoring prevents content growth from shifting the active viewport');
+  assert.match(xml, /class="conversation[^\"]*"[\s\S]*?scroll-anchoring="\{\{false\}\}"/,
+    'the conversation uses explicit visible-row compensation instead of native double anchoring');
+  assert.match(runtimeXml, /class="conversation[^\"]*"[\s\S]*?scroll-anchoring="\{\{false\}\}"/,
+    'the packaged runtime also disables native anchoring to avoid double scroll corrections');
 });
 
 test('independent narration rows keep a tight rhythm under the collapsed group heading', () => {

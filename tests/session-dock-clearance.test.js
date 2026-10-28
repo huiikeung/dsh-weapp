@@ -119,6 +119,33 @@ test('native upward movement pauses live follow even when touch events are swall
   f.flush();
   assert.equal(page.data.scrollTarget, '', 'stream updates cannot reclaim the viewport after a touch event was lost');
 });
+test('entry anchoring survives the native clamp that follows scroll-into-view', () => {
+  // 回归：进入会话时 scroll-into-view 先落到估算底部，随后真实布局把 scrollTop 向上
+  // 钳制一点。这次向上移动曾被判定成「读者意图」，跟随当场停掉，页面停在半途——
+  // 正是「进入页面定位不到最底部」。
+  const { page } = pageFixture([]);
+  page._convPinned = true;
+  page._followPausedByUser = false;
+  page._initialConversationAnchorApplied = true;
+  page._scrollAnchorAt = Date.now();
+  page._lastNativeScrollTop = 1200;
+  page._lastScrollTop = 1200;
+  page.data.scrollTarget = 'conv-bottom';
+  page.updateConversationWindow = () => {};
+  page.maybePrefetchOlderHistory = () => {};
+
+  page.onConvScroll({ detail: { scrollTop: 1120, scrollHeight: 1400, clientHeight: 400 } });
+
+  assert.equal(page._followPausedByUser, false, 'the entry clamp is not reader intent');
+  assert.equal(page._convPinned, true, 'the conversation stays pinned to the tail while anchoring');
+  assert.equal(page.data.scrollTarget, 'conv-bottom', 'the pending tail anchor survives the clamp');
+
+  // 真有手指在滑时不受豁免保护。
+  page.onConvTouch();
+  page.onConvScroll({ detail: { scrollTop: 1040, scrollHeight: 1400, clientHeight: 400 } });
+  assert.equal(page._followPausedByUser, true, 'a real finger scroll still pauses the follow');
+  assert.equal(page._convPinned, false);
+});
 test('programmatic scroll corrections do not masquerade as reader intent', () => {
   const { page } = pageFixture([]);
   page._convPinned = true;

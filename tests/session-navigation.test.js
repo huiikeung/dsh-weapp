@@ -99,7 +99,7 @@ test('opening a different session paints a loading shell before restoring its ca
 });
 
 test('large outline selection patches nearby blur effects and auto-loads at the older edge', () => {
-  const { page, patches, calls, store } = fixture();
+  const { page, patches, calls, store, timers } = fixture();
   page.setData(page.turnNavigatorPatch(Array.from({ length: 2000 }, (_, i) => ({ kind: 'user', key: 'u' + i, text: 'Q' + i }))));
   page.applyTurnIndex(0, false); patches.length = 0; page.applyTurnIndex(1000);
   assert.ok(Object.keys(patches[0]).length <= 50);
@@ -114,6 +114,10 @@ test('large outline selection patches nearby blur effects and auto-loads at the 
   page._turnScrollTop = 650;
   page.onTurnListScroll({ detail: { scrollTop: 700, scrollHeight: 1000, clientHeight: 300 } });
   assert.equal(page.data.turnNavActiveIndex, 18, 'the row nearest the viewport center becomes active');
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 0, 'history loading waits for scrolling to settle');
+  const pending = Array.from(timers.values());
+  timers.clear();
+  pending.forEach(timer => timer.fn());
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
   page.onTurnListScroll({ detail: { scrollTop: 700, scrollHeight: 1000, clientHeight: 300 } });
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1, 'scroll events do not duplicate an in-flight page request');

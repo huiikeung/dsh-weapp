@@ -44,7 +44,6 @@ const TRACE_WINDOW_OVERSCAN = 18;
 const TRACE_TURN_HEIGHT_RPX = 0;
 const TRACE_EVENT_ROW_HEIGHT_RPX = 80;
 const MUTABLE_ROW_KINDS = new Set(['user', 'assistant', 'changes', 'files', 'status']);
-
 // 实时指标卡的半宽估算（px）：卡片 max-width 480rpx，375pt 机上约 240px。钳制时
 // 用它把卡片中心留在可视区内，首/末根柱子也不会被图表裁掉。
 const CONTEXT_TREND_TIP_HALF_PX = 110;
@@ -518,7 +517,10 @@ Page({
       this._convPinned = true;
       this._followPausedByUser = false;
       this._userScrollDirection = '';
+      this._scrollAnchorAt = Date.now();
       this.refreshBottomAnchor();
+      // 首屏锚点常常赶在原生布局完成前生效：自检一次，没落底就补锚。
+      this.verifyConversationBottom();
     });
   },
 
@@ -645,7 +647,7 @@ Page({
       if (Object.keys(patch).length) this.setData(patch, () => {
         this.measureConversationWindow();
         const initialAnchorActive = this._initialConversationAnchorPending
-          || this._initialConversationAnchorApplied && this.data.scrollTarget === 'conv-bottom';
+          || this._initialConversationAnchorApplied;
         if (!initialAnchorActive && !this._unloaded && !this._voiceHidden
           && sessionId === this._renderSessionId && this._convPinned !== false) this.refreshBottomAnchor();
       });
@@ -776,6 +778,7 @@ Page({
     if (viewChanged) this.retainSessionView();
     const sessionChanged = this._renderSessionId !== s.sessionId
       || this._renderHost !== String(app.activeID || app.endpoint || '');
+    const prioritizeInitialPaint = sessionChanged || this._initialConversationAnchorPending === true;
     if (sessionChanged) {
       if (this._bottomAnchorTimer) clearTimeout(this._bottomAnchorTimer);
       this._bottomAnchorTimer = null;
@@ -790,6 +793,7 @@ Page({
       this._processFollowKey = '';
       this._processFollowVersion = (this._processFollowVersion || 0) + 1;
       this._processFollowRequest = (this._processFollowRequest || 0) + 1;
+      this._processBodyFollowTops = Object.create(null);
       this._processBodyHeights = Object.create(null);
       this._processBodyMeasurePending = Object.create(null);
       this._processBodyScrollMetrics = Object.create(null);
@@ -965,7 +969,9 @@ Page({
         // Keep the live answer as plain text, then parse Markdown once it settles.
         const streaming = row.streaming === true;
         let blocks = streaming ? null : this._markdownCache.peek(row.key, text);
-        if (!blocks && !streaming && rowIndex >= s.rows.length - 12) blocks = this._markdownCache.parse(row.key, text);
+        if (!blocks && !streaming && !prioritizeInitialPaint && rowIndex >= s.rows.length - 12) {
+          blocks = this._markdownCache.parse(row.key, text);
+        }
         if (blocks) blocks = this.prepareImageBlocks(blocks);
         if (streaming) this._pendingHistoryFormat.delete(row.key);
         else if (!blocks) this._pendingHistoryFormat.set(row.key, text);
@@ -1004,7 +1010,9 @@ Page({
         // 用户消息也按 Markdown 渲染，但沿用助手消息的懒解析策略：只有接近尾部
         const text = row.text || '';
         let blocks = this._markdownCache.peek(row.key, text);
-        if (!blocks && rowIndex >= s.rows.length - 12) blocks = this._markdownCache.parse(row.key, text);
+        if (!blocks && !prioritizeInitialPaint && rowIndex >= s.rows.length - 12) {
+          blocks = this._markdownCache.parse(row.key, text);
+        }
         if (blocks) blocks = this.prepareImageBlocks(blocks);
         if (blocks) this._pendingHistoryFormat.delete(row.key);
         else this._pendingHistoryFormat.set(row.key, text);
@@ -1046,8 +1054,12 @@ Page({
       completedEntryKey: this._processRunningDone || '',
       lastDurationMs: (this._lastRunSeconds || 0) * 1000
     }).map(entry => Object.assign({}, entry));
+    const processBodyFollowTops = this._processBodyFollowTops || (this._processBodyFollowTops = Object.create(null));
     rows.forEach(entry => {
       if (entry.kind !== 'processGroup') return;
+      if (Number.isFinite(processBodyFollowTops[entry.key])) {
+        entry.processBodyScrollTop = processBodyFollowTops[entry.key];
+      }
       (entry.children || []).forEach(child => {
         if (child.kind === 'narration') {
           child.images = this.decorateRowImages(child.images);
@@ -1268,9 +1280,7 @@ Page({
     const processFollowContentChanged = previousProcessFollowSignature !== processFollowSignature;
     let processFollowTarget = '';
     if (followGroup && !processFollowChanged && !(this._processFollowPaused || {})[processFollowKey]) {
-      processFollowTarget = processFollowContentChanged && this.data.running
-        ? this.nextProcessFollowTarget(processFollowKey)
-        : (this.data.processFollowTarget || '');
+      processFollowTarget = this.data.processFollowTarget || '';
     }
 
     // 顶部标题：实时标题优先；其次回查会话列表（直连打开/列表迟到时）；
@@ -1287,6 +1297,12 @@ Page({
     const conversationTailChanged = previousTailKey !== nextTailKey;
     const conversationPatch = this.conversationWindowPatch(visibleRows,
       historyMerged && activeTab === 'conversation' && this._convPinned === false ? { anchor: true } : null);
+    // 流式输出时最后一行 key 不变、只有内容变高：也要继续贴底，否则进入会话后
+    // 内容一长视图就停在半途（表现为「定位不到最底部」）。注意必须在窗口更新之后取高度。
+    const previousContentHeight = this._convContentHeight || 0;
+    const nextContentHeight = (this._conversationWindow && this._conversationWindow.offsets[visibleRows.length]) || 0;
+    const conversationHeightChanged = previousContentHeight > 0 && Math.abs(nextContentHeight - previousContentHeight) > 2;
+    this._convContentHeight = nextContentHeight;
     const initialConversationAnchor = this._initialConversationAnchorPending
       && activeTab === 'conversation' && visibleRows.length > 0 && this._convPinned !== false;
     if (initialConversationAnchor) {
@@ -1381,10 +1397,17 @@ Page({
       }
       // 运行刚开始：重置文字渐变相位；鲸尾图标为纯 CSS 动画，随节点挂载自动同相起跑。
       if (!wasRunning && this.data.running) this.setData({ statusFlowDelay: 0 });
-      // 过程组滚动容器贴到最新：等窗口挂载、布局完成后再设目标
-      if (processFollowKey && processFollowChanged) this.refreshProcessFollow(processFollowKey);
+      // 过程组用实测 scrollTop 跟随尾部，避免每个流式片段切换锚点造成闪跳。
+      if (processFollowKey && (processFollowChanged || processFollowContentChanged)) {
+        this.refreshProcessFollow(processFollowKey);
+      }
     });
-    else this.scheduleHistoryFormatting();
+    else {
+      this.scheduleHistoryFormatting();
+      if (processFollowKey && (processFollowChanged || processFollowContentChanged)) {
+        this.refreshProcessFollow(processFollowKey);
+      }
+    }
     // 会话行只有 attachmentId，图片需要异步回填本地缓存路径才会显示。
     this.scheduleAttachmentThumbs();
     this.loadChangesSummaries();
@@ -1441,7 +1464,9 @@ Page({
 
     // 新内容到达时贴底；但用户正在触摸列表时不要抢滚动
     const touchingRecently = Date.now() - (this._lastTouchAt || 0) < 1000;
-    if (!initialConversationAnchor && (sessionChanged || conversationTailChanged || justFinished)
+    const initialTailFollowActive = this._initialConversationAnchorPending
+      || this._initialConversationAnchorApplied;
+    if (!initialTailFollowActive && (sessionChanged || conversationTailChanged || conversationHeightChanged || justFinished)
       && this.data.tab === 'conversation' && this._convPinned !== false && !touchingRecently) {
       this.refreshBottomAnchor();
     }
@@ -3328,6 +3353,7 @@ Page({
       this._lastTouchAt = Date.now();
       this._followPausedByUser = true;
       this._convPinned = false;
+      this._initialConversationAnchorApplied = false;
       this._userScrollDirection = dy < 0 ? 'towardBottom' : 'towardTop';
       // scroll-into-view stays selected after it fires; clear it when the reader
       // takes over so a live update cannot keep snapping the viewport to the tail.
@@ -4115,19 +4141,30 @@ Page({
       ? this._lastNativeScrollTop : this._lastScrollTop;
     this._lastNativeScrollTop = scrollTop;
     const recentTouch = now - (this._lastTouchAt || 0) < 1500;
+    // Initial scroll-into-view can emit intermediate offsets while the virtual
+    // tail window is still mounting. Treating that transient top as reader
+    // intent unpins the conversation and can shift the window away from its tail.
+    // 贴底锚点（进入会话 / 流式增长后重新贴底）同样会带来一次向上钳制，一并豁免；
+    // 真有手指在滑时 recentTouch 为真，不受影响。
+    const anchorSettling = (this._initialConversationAnchorApplied === true
+      || (this._scrollAnchorAt && now - this._scrollAnchorAt < 800)) && !recentTouch;
+    if (anchorSettling) return;
     const movingTowardOlder = previousTop !== undefined && scrollTop < previousTop - 2;
     const movingTowardNewer = previousTop !== undefined && scrollTop > previousTop + 2;
     const settlingAnchor = this._scrollAnchorAt && now - this._scrollAnchorAt < 800;
     const correctionPending = this._programmaticScrollTop !== undefined
       && this._programmaticScrollAt && now - this._programmaticScrollAt < 200;
     const settlingCorrection = correctionPending && Math.abs(scrollTop - this._programmaticScrollTop) <= 2;
-    if (correctionPending && (settlingCorrection || movingTowardOlder || movingTowardNewer)) {
+    if (correctionPending && settlingCorrection) {
       this._programmaticScrollTop = undefined;
     }
     const programmaticScroll = this._suppressPins === true
       || now < (this._suppressScrollUntil || 0) || settlingAnchor || settlingCorrection;
+    // 首次布局/贴底期间 scroll-view 可能上报一次向上钳制：忽略这类无触摸的
+    // 初始锚点事件，但普通 suppress window 不能吞掉真实上滑（触摸事件也可能丢失）。
     const upwardReaderIntent = movingTowardOlder && this._suppressPins !== true
-      && !settlingCorrection && !(settlingAnchor && this._convPinned === false);
+      && !correctionPending && !anchorSettling
+      && !(settlingAnchor && this._convPinned === false);
     // Native scroll events are the reliable signal when scroll-view does not
     // deliver touchmove (or a nested view consumes it). Treat upward movement
     // itself as reader intent: requiring a touch event lets the near-bottom
@@ -4136,6 +4173,7 @@ Page({
       this._followPausedByUser = true;
       this._userScrollDirection = 'towardTop';
       this._convPinned = false;
+      this._initialConversationAnchorApplied = false;
       this._suppressScrollUntil = 0;
       if (this.data.scrollTarget) this.setData({ scrollTarget: '' });
     }
@@ -4208,6 +4246,13 @@ Page({
     const clientHeight = Math.max(0, Number(pos.clientHeight) || this._convClientHeight || 0);
     if (!clientHeight) return;
     this._convClientHeight = clientHeight;
+    // Selector measurements may observe the pre-anchor position during first
+    // layout. Keep the entry follow state until the measured window is stable.
+    if (this._initialConversationAnchorApplied === true && pos.userScroll !== true
+      && Date.now() - (this._lastTouchAt || 0) >= 1500) {
+      this._lastScrollTop = scrollTop;
+      return;
+    }
     const HIDE_WITHIN = 56;
 
     const maxScroll = Math.max(0, scrollHeight - clientHeight);
@@ -4240,7 +4285,8 @@ Page({
       && this._userScrollDirection === 'towardBottom') this._followPausedByUser = false;
     if (this._convPinned === true && !pinned && !movedUp) {
       this._lastScrollTop = scrollTop;
-      if (Date.now() - (this._lastTouchAt || 0) >= 1000) this.refreshBottomAnchor();
+      // 手指驱动的滚动不要被贴底抢回去；只修正程序化/内容变化造成的偏移。
+      if (pos.userScroll !== true && Date.now() - (this._lastTouchAt || 0) >= 1000) this.refreshBottomAnchor();
       return;
     }
     this._lastScrollTop = scrollTop;
@@ -4605,7 +4651,19 @@ Page({
     const rect = this._turnListRect;
     if (rect && rect.rowHeight > 0) this.applyTurnIndex(Math.round(top / rect.rowHeight));
     // The rail is newest-first, so only movement toward its older end can page.
-    if (previousTop !== undefined && top > previousTop + 2) this.autoLoadTurnNavigatorHistory(detail, false);
+    if (previousTop !== undefined && top > previousTop + 2) this.scheduleTurnNavigatorHistory(detail);
+  },
+
+  /** 滚动中先不追加历史（加载 + 滚动叠加会卡），停手后再补一页。 */
+  scheduleTurnNavigatorHistory(detail) {
+    this._turnHistoryDetail = detail || {};
+    if (typeof setTimeout !== 'function') { this.autoLoadTurnNavigatorHistory(this._turnHistoryDetail, false); return; }
+    if (this._turnHistoryTimer != null) clearTimeout(this._turnHistoryTimer);
+    this._turnHistoryTimer = setTimeout(() => {
+      this._turnHistoryTimer = null;
+      if (this._unloaded || !this.data.turnNavOpen) return;
+      this.autoLoadTurnNavigatorHistory(this._turnHistoryDetail, false);
+    }, 180);
   },
 
   applyTurnIndex(index, feedback = true) {
@@ -4684,6 +4742,7 @@ Page({
     this._turnListScrolling = false;
     this._turnScrubbing = false;
     this._pendingTurnJump = null;
+    if (this._turnHistoryTimer != null && typeof clearTimeout === 'function') { clearTimeout(this._turnHistoryTimer); this._turnHistoryTimer = null; }
     this.setData({ turnNavOpen: false, turnNavPreview: null });
   },
 
@@ -4746,18 +4805,21 @@ Page({
     this._bottomAnchorTouchAt = null;
     this._bottomAnchorPending = false;
     this._bottomAnchorDeferred = false;
+    this._bottomAnchorAt = 0;
     if (this._turnJumpTimer) clearTimeout(this._turnJumpTimer);
     this._turnJumpTimer = null;
     this._suppressPins = false;
     this._suppressScrollUntil = 0;
     this._followPausedByUser = false;
     this._userScrollDirection = '';
+    this._initialConversationAnchorApplied = false;
     this._convPinned = true;
     this._lastTouchAt = 0;
     this._scrollAnchorAt = 0;
     this._programmaticScrollAt = 0;
     this._programmaticScrollTop = undefined;
     this._userScrolledUp = false;
+    this._convContentHeight = 0;
     this._lastScrollTop = undefined;
     this._lastNativeScrollTop = undefined;
     this.setData({ showJump: false, scrollAnim: false, scrollTarget: '' });
@@ -4788,7 +4850,7 @@ Page({
   },
 
   refreshBottomAnchor() {
-    if (this._suppressPins === true || this._bottomAnchorPending || this._unloaded || this.data.tab !== 'conversation') return;
+    if (this._suppressPins === true || this._unloaded || this.data.tab !== 'conversation') return;
     if (this._convPinned === false || this._followPausedByUser) return;
     // 用户正在点/摸列表时不要贴底：内容刚变化（回合收工、过程组展开）时这一下滚动会把
     // 行从手指底下抽走，WebView 直接吞掉这次 tap——表现就是「第一下完全没反应」，
@@ -4803,16 +4865,126 @@ Page({
     }
     // 空对话的空态（鲸鱼 + 说明）本身要垂直居中，贴底滚动会把整块内容顶高；
     if (!this.data.rows.length && this.data.historyLoaded && !this.data.running) return;
+    if (this._bottomAnchorPending) return;
     this._bottomAnchorPending = true;
-    this._suppressScrollUntil = Date.now() + 400;
+    // 贴底是一次「程序化滚动窗口」：这期间的向上微调（内容重排导致的钳制）不能
+    // 被当成读者意图而停止跟随。
+    this._scrollAnchorAt = Date.now();
     const touch = this._lastTouchAt;
-    this.setData({ scrollTarget: '' }, () => wx.nextTick(() => {
+    const sessionId = this._renderSessionId;
+    const initialAnchorActive = this._initialConversationAnchorApplied === true;
+    const canFollow = () => !this._unloaded && !this._voiceHidden
+      && this.data.tab === 'conversation' && sessionId === this._renderSessionId
+      && touch === this._lastTouchAt && this._convPinned !== false && !this._followPausedByUser;
+    const finish = () => {
       this._bottomAnchorPending = false;
-      if (!this._unloaded && !this._voiceHidden && this.data.tab === 'conversation' && touch === this._lastTouchAt && this._convPinned !== false) this.setData({ scrollTarget: 'conv-bottom' });
-    }));
+    };
+    const tick = typeof wx !== 'undefined' && typeof wx.nextTick === 'function'
+      ? wx.nextTick : fn => fn();
+    const settleInitialAnchor = () => {
+      if (initialAnchorActive && !this._unloaded && sessionId === this._renderSessionId) {
+        this.measureConversationWindow();
+      }
+    };
+    const retargetFallback = () => {
+      this._suppressScrollUntil = Date.now() + 300;
+      this.setData({ scrollTarget: '' }, () => tick(() => {
+        finish();
+        if (canFollow()) {
+          if (initialAnchorActive) this.setData({ scrollTarget: 'conv-bottom' }, settleInitialAnchor);
+          else this.setData({ scrollTarget: 'conv-bottom' });
+        }
+      }));
+    };
+    if (typeof wx === 'undefined' || typeof wx.createSelectorQuery !== 'function') {
+      retargetFallback();
+      return;
+    }
+    tick(() => {
+      if (!canFollow()) { finish(); return; }
+      try {
+        const query = wx.createSelectorQuery().in(this);
+        query.select('.conversation').boundingClientRect();
+        query.select('.conversation').scrollOffset();
+        query.exec(res => {
+          if (!canFollow()) { finish(); return; }
+          const viewport = res && res[0];
+          const offset = res && res[1];
+          const height = Number(viewport && viewport.height);
+          const scrollHeight = Number(offset && offset.scrollHeight);
+          if (height > 0 && Number.isFinite(scrollHeight)) {
+            const bottom = Math.max(0, scrollHeight - height);
+            const nativeTop = Number(offset && offset.scrollTop);
+            const scrollTopNeedsUpdate = Math.abs((Number(this.data.conversationScrollTop) || 0) - bottom) > 1;
+            const nativePositionMissed = !Number.isFinite(nativeTop) || Math.abs(nativeTop - bottom) > 1;
+            const retryTarget = !scrollTopNeedsUpdate && nativePositionMissed;
+            const patch = { scrollAnim: false };
+            if (scrollTopNeedsUpdate) patch.conversationScrollTop = bottom;
+            if (retryTarget) patch.scrollTarget = this.data.scrollTarget === 'conv-bottom' ? '' : 'conv-bottom';
+            else if (this.data.scrollTarget) patch.scrollTarget = '';
+            this._suppressScrollUntil = Date.now() + 300;
+            this._programmaticScrollAt = Date.now();
+            this._programmaticScrollTop = bottom;
+            this._lastScrollTop = bottom;
+            if (!initialAnchorActive) this._initialConversationAnchorApplied = false;
+            this._initialConversationAnchorRecoveryPending = false;
+            const patchChanged = Object.keys(patch).some(key => this.data[key] !== patch[key]);
+            if (retryTarget && this.data.scrollTarget === 'conv-bottom') {
+              this.setData(patch, () => tick(() => {
+                if (canFollow()) this.setData({ scrollTarget: 'conv-bottom' }, () => {
+                  finish();
+                  settleInitialAnchor();
+                });
+                else finish();
+              }));
+            } else {
+              if (patchChanged) this.setData(patch, () => {
+                finish();
+                settleInitialAnchor();
+              });
+              else {
+                finish();
+                settleInitialAnchor();
+              }
+            }
+            return;
+          }
+          // Older runtimes may omit scrollHeight; use the original target as a fallback.
+          retargetFallback();
+        });
+      } catch (_) { retargetFallback(); }
+    });
   },
 
-  /** 过程组滚动容器贴到底部最新：先清空再在下一个 tick 重设，滚动才会重新触发。 */
+  /** 落底自检：贴底后确认原生滚动真的到了底部，没到就再补一次锚点（最多 6 次）。 */
+  verifyConversationBottom(attempt = 0) {
+    if (this._unloaded || this._voiceHidden || this.data.tab !== 'conversation') return;
+    if (this._convPinned === false || this._followPausedByUser) return;
+    if (typeof wx === 'undefined' || typeof wx.createSelectorQuery !== 'function') return;
+    if (this._bottomVerifyTimer) { clearTimeout(this._bottomVerifyTimer); this._bottomVerifyTimer = null; }
+    const query = wx.createSelectorQuery().in(this);
+    query.select('.conversation').boundingClientRect();
+    query.select('.conversation').scrollOffset();
+    query.exec(res => {
+      if (this._unloaded || this._convPinned === false || this._followPausedByUser) return;
+      const viewport = res && res[0];
+      const offset = res && res[1];
+      const height = Number(viewport && viewport.height) || 0;
+      const scrollHeight = Number(offset && offset.scrollHeight) || 0;
+      const top = Number(offset && offset.scrollTop) || 0;
+      if (height <= 0 || scrollHeight <= 0) return;
+      if (top + height >= scrollHeight - 2) return;
+      if (attempt >= 5) return;
+      this._bottomVerifyTimer = setTimeout(() => {
+        this._bottomVerifyTimer = null;
+        if (this._unloaded || this._convPinned === false || this._followPausedByUser) return;
+        this.refreshBottomAnchor();
+        this.verifyConversationBottom(attempt + 1);
+      }, 80);
+    });
+  },
+
+  /** Only the newest visible running process group is allowed to follow its live tail. */
   processFollowCandidate(rows, visibleRows) {
     const latest = this.latestRunningProcessGroup(rows);
     if (!latest || !Array.isArray(visibleRows) || !visibleRows.includes(latest)
@@ -4841,6 +5013,7 @@ Page({
     }).join(';');
   },
 
+  /** Two sentinels are retained only for runtimes that cannot measure scroll-view offsets. */
   nextProcessFollowTarget(key) {
     const current = this.data.processFollowTarget || '';
     return key + (current === key + '/tail' ? '/tail-alt' : '/tail');
@@ -4850,7 +5023,7 @@ Page({
     if (!key || key !== this._processFollowKey || this._unloaded || this._voiceHidden) return;
     if ((this._processFollowPaused || {})[key]) return;
     // 测试/异常环境下没有 wx.nextTick：退化为同步执行，行为不变只是少了布局等待
-    const tick = typeof wx.nextTick === 'function' ? wx.nextTick : (fn) => fn();
+    const tick = typeof wx !== 'undefined' && typeof wx.nextTick === 'function' ? wx.nextTick : (fn) => fn();
     const version = this._processFollowVersion;
     const request = this._processFollowRequest = (this._processFollowRequest || 0) + 1;
     tick(() => {
@@ -4860,6 +5033,37 @@ Page({
       if ((this._processFollowPaused || {})[key]) return;
       const latest = this.latestRunningProcessGroup(this.data.rows);
       if (!latest || latest.key !== key || !latest.processBodyVisible || !latest.processBodyCapped) return;
+      if (typeof wx !== 'undefined' && typeof wx.createSelectorQuery === 'function') {
+        try {
+          const query = wx.createSelectorQuery().in(this);
+          const body = query.select('#process-body-' + key);
+          body.boundingClientRect();
+          body.scrollOffset();
+          query.exec(res => {
+            if (this._unloaded || this._voiceHidden || !this.data.running
+              || version !== this._processFollowVersion || request !== this._processFollowRequest
+              || key !== this._processFollowKey || (this._processFollowPaused || {})[key]) return;
+            const rect = res && res[0];
+            const offset = res && res[1];
+            const height = Number(rect && rect.height);
+            const scrollHeight = Number(offset && offset.scrollHeight);
+            const current = this.latestRunningProcessGroup(this.data.rows);
+            if (!current || current.key !== key || !current.processBodyVisible
+              || !current.processBodyCapped || !(height > 0) || !Number.isFinite(scrollHeight)) return;
+            const top = Math.max(0, scrollHeight - height);
+            const tops = this._processBodyFollowTops || (this._processBodyFollowTops = Object.create(null));
+            tops[key] = top;
+            const index = this.data.rows.findIndex(row => row && row.key === key);
+            const patch = {};
+            if (index >= 0 && Number(this.data.rows[index].processBodyScrollTop) !== top) {
+              patch['rows[' + index + '].processBodyScrollTop'] = top;
+            }
+            if (this.data.processFollowTarget) patch.processFollowTarget = '';
+            if (Object.keys(patch).length) this.setData(patch);
+          });
+          return;
+        } catch (_) { /* older runtimes use the sentinel fallback */ }
+      }
       this.setData({ processFollowTarget: this.nextProcessFollowTarget(key) });
     });
   },
@@ -4954,24 +5158,30 @@ Page({
     patch['folds.' + key] = next;
     if (row && row.kind === 'processGroup') {
       const rowPath = 'rows[' + this.data.rows.indexOf(row) + ']';
+      const source = (this._allConversationRows || []).find(item => item.kind === 'processGroup' && item.key === key) || row;
       patch[rowPath + '.processBodyCapped'] = next
-        ? row.processBodyCapWhenExpanded : row.processBodyCapWhenCollapsed;
+        ? source.processBodyCapWhenExpanded : source.processBodyCapWhenCollapsed;
       // 组体跟着折叠状态整块挂载/卸载：点组头当场展开，不等下一次同步。
       // 详细模式对话过程中组体是自动展开的（processAutoOpen），点组头不改变挂载；
       // 完全展开默认展开，点组头可收起。
-      patch[rowPath + '.processBodyVisible'] = next || row.processAutoOpen === true;
+      patch[rowPath + '.processBodyVisible'] = next || source.processAutoOpen === true;
+      source.processBodyCapped = patch[rowPath + '.processBodyCapped'];
+      source.processBodyVisible = patch[rowPath + '.processBodyVisible'];
       // 展开运行中的组：直接跳到最新一步（桌面端 initialize(closed ? top : bottom)）；
       // 收起或展开已收工的组留在顶部。
-      if (next && row.running) patch.processFollowTarget = row.key + '/tail';
     }
     // 回合级 disclosure 的折叠会增删它管辖的过程组与叙述行：当时就重算可见行，
     // 不能等下一次同步——流式停顿时就点不开了。
-    if ((this._allConversationRows || []).some(row => row.kind === 'turnProcess' && row.key === key)) {
+    // _allConversationRows 可能还没建立（首帧直接来自缓存行，或某次同步被异常兜底），
+    // 这时回落到最近一次投影/渲染行，保证点「已完成」当场生效而不是没反应。
+    const allRows = ((this._allConversationRows || []).some(item => item.key === key) && this._allConversationRows)
+      || this._conversationRows || this.data.rows || [];
+    if (allRows.some(item => item.kind === 'turnProcess' && item.key === key)) {
       const folds = Object.assign({}, this.data.folds);
       folds[key] = next;
-      const visible = (this._allConversationRows || []).filter(row => {
-        if (row.turnProcessKey && !folds[row.turnProcessKey]) return false;
-        if (this._compactLiveNarration && row.processNarration === true) return false;
+      const visible = allRows.filter(item => {
+        if (item.turnProcessKey && !folds[item.turnProcessKey]) return false;
+        if (this._compactLiveNarration && item.processNarration === true) return false;
         return true;
       });
       // 详细模式：展开回合时里面各组默认跟着展开（对齐桌面端 history 分组：收工后点开
@@ -4981,13 +5191,31 @@ Page({
           if (row.kind !== 'processGroup' || folds[row.key]) return;
           folds[row.key] = true;
           row.processBodyVisible = true;
+          row.processBodyCapped = row.processBodyCapWhenExpanded === true;
           patch['folds.' + row.key] = true;
         });
       }
-      Object.assign(patch, this.conversationWindowPatch(visible,
-        row && row.kind === 'turnProcess' ? { focusKey: key } : null));
+      // 只有被点的行不在视口里才需要滚动定位。视口内原地展开即可：
+      // scroll-into-view 按估算高度会先落到错误位置，再被实测校正推走，看起来就是
+      // 「点了没反应/延迟一大截 + 页面跳一下」。
+      let needsFocus = false;
+      if (row && row.kind === 'turnProcess') {
+        const w = this._conversationWindow;
+        const idx = visible.findIndex(item => item.key === key);
+        const top = Number(this._lastNativeScrollTop) || 0;
+        const height = Number(this._convClientHeight) || 0;
+        const offset = w && idx >= 0 ? (w.offsets[idx] || 0) : 0;
+        needsFocus = !(height > 0) || offset < top - 40 || offset > top + height + 40;
+      }
+      Object.assign(patch, this.conversationWindowPatch(visible, needsFocus ? { focusKey: key } : null));
     }
-    this.setData(patch, () => this.measureConversationWindow());
+    this.setData(patch, () => {
+      if (row && row.kind === 'turnProcess' && next && this._workStepMode === 'detailed') {
+        this.scheduleHistoryFormatting();
+      }
+      this.measureConversationWindow();
+      if (next && row && row.kind === 'processGroup' && row.running) this.refreshProcessFollow(row.key);
+    });
   },
 
   /** 过程组滚动容器：用户翻离底部就暂停自动跟随，滚回底部自动恢复。 */
@@ -5004,6 +5232,10 @@ Page({
       scrollHeight: detail.scrollHeight,
       height: detail.height
     };
+    if (manualScroll && Number.isFinite(Number(metrics.scrollTop))) {
+      const tops = this._processBodyFollowTops || (this._processBodyFollowTops = Object.create(null));
+      tops[key] = Math.max(0, Number(metrics.scrollTop));
+    }
     const latestMetrics = this._processBodyScrollMetrics || (this._processBodyScrollMetrics = {});
     latestMetrics[key] = metrics;
     if (!(Number(metrics.height) > 0) && !(Number((this._processBodyHeights || {})[key]) > 0)) {
@@ -6133,15 +6365,12 @@ Page({
         const inset = Math.round(overlap * 750 / Math.max(info.windowWidth || 375, 1) + 12);
         if (Math.abs(inset - this.data.convBottomInset) > 6) {
           this.setData({ convBottomInset: inset, ...this.layoutPatch({ convBottomInset: inset }) }, () => {
-            const initialAnchorActive = this._initialConversationAnchorPending
-              || this._initialConversationAnchorApplied && this.data.scrollTarget === 'conv-bottom';
-            if (this._convPinned && (!initialAnchorActive
-              || this._initialConversationAnchorApplied && this.data.scrollTarget === 'conv-bottom')) {
-              // The first tail target can land before the dock shortens the viewport.
-              // Reapply it once against the measured layout so entry ends at the true bottom.
+            if (this._convPinned && !this._initialConversationAnchorPending) {
+              // Dock changes shorten the scroll viewport; recalculate its exact bottom after layout.
               this.refreshBottomAnchor();
             }
             this.measureConversationViewport();
+            this.measureConversationWindow();
           });
         }
         // 布局稳定后再校准一次：历史/队列渲染会改变 dock 高度

@@ -186,10 +186,25 @@
 /* 闅愯棌婊氬姩鏉★細瀵硅瘽 / 杞ㄨ抗鍙繚鐣欐墜鍔挎粴鍔紝涓嶆樉绀烘粦鍧?
    锛坰croll-view 鐨?show-scrollbar 鍦ㄩ儴鍒嗗钩鍙颁笉鐢熸晥锛岃繖閲屽啀鍏滀竴灞傦級 */
 .conversation::-webkit-scrollbar,
-.trajectory::-webkit-scrollbar {
-  width: 0;
-  height: 0;
+.trajectory::-webkit-scrollbar,
+.session-menu-scroll::-webkit-scrollbar,
+.session-menu-stats::-webkit-scrollbar,
+.more-files-scroll::-webkit-scrollbar,
+.session-switch-list::-webkit-scrollbar,
+.turn-scrub-list::-webkit-scrollbar {
   display: none;
+  width: 0 !important;
+  height: 0 !important;
+  -webkit-appearance: none;
+  background: transparent;
+  color: transparent;
+}
+
+.session-menu-scroll,
+.session-menu-stats,
+.more-files-scroll {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 .conversation,
 .trajectory {
@@ -3577,7 +3592,6 @@ overscroll-behavior-y: auto;
 .theme-light .session-switch-search-icon { filter: brightness(0); }
 .session-switch-search-input { flex: 1; min-width: 0; color: var(--text); font-size: 26rpx; }
 .session-switch-list { min-height: 0; padding-top: 0; }
-.session-switch-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .session-switch-row {
   min-height: 96rpx;
   padding: 12rpx 14rpx;
@@ -3734,7 +3748,6 @@ overscroll-behavior-y: auto;
   max-height: 90vh;
   scrollbar-width: none;
 }
-.turn-scrub-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .turn-scrub-inner {
   min-height: 100%;
   display: flex;

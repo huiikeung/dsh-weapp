@@ -129,7 +129,7 @@ test('first paint renders a bounded tail without reparsing the live answer', () 
   let bottomAnchors = 0;
   f.page.refreshBottomAnchor = () => { bottomAnchors++; };
   f.sync();
-  assert.ok(f.report().parses <= 12);
+  assert.equal(f.report().parses, 0, 'the initial paint leaves Markdown parsing to the post-paint queue');
   assert.ok(f.page.data.rows.length <= 40);
   assert.ok(!f.page.data.rows.some(row => row.key === 'a0'));
   assert.equal(f.page.data.rows.find(row => row.key === 'current').blocks.length, 0,
@@ -151,6 +151,26 @@ test('first paint renders a bounded tail without reparsing the live answer', () 
   assert.ok(f.page._pendingHistoryFormat.size > 0, 'offscreen messages stay unformatted');
   assert.ok(f.page.data.rows.find(row => row.key === 'a0').blocks.length);
   assert.ok(f.patches.every(patch => Object.keys(patch).every(key => /^rows\[\d+\]\.blocks$/.test(key))));
+});
+test('tail changes are coalesced into the initial bottom landing until layout settles', () => {
+  const f = fixture(); f.sync();
+  f.page._initialConversationAnchorApplied = true;
+  f.page.data.scrollTarget = 'conv-bottom';
+  f.store.sessionState.running = false;
+  f.store.sessionState.rows.at(-1).streaming = false;
+  f.sync(); f.reset();
+  const fileRow = key => ({ kind: 'files', key, turn: 1, sessionId: 'performance-test',
+    files: [{ key: key + '-item', path: 'output/' + key + '.pdf', description: 'Output', seq: 900, index: 0 }] });
+  f.store.sessionState.rows.push(fileRow('hydrated-tail'));
+  f.sync();
+  assert.equal(f.report().scrolls, 0,
+    'history hydration does not restart the first bottom scroll while the initial target is settling');
+
+  f.page._initialConversationAnchorApplied = false;
+  f.store.sessionState.rows.push(fileRow('live-tail'));
+  f.sync();
+  assert.equal(f.report().scrolls, 1,
+    'normal bottom following resumes after initial layout has settled');
 });
 test('nested process narration markdown drains in bounded batches without standalone rows', () => {
   const f = fixture();
@@ -405,7 +425,14 @@ test('expanding a settled turn in detailed mode opens its process groups', () =>
   f.page.toggleFold({ currentTarget: { dataset: { key: turn.key } } });
   const groups = f.page.data.rows.filter(row => row.kind === 'processGroup');
   assert.ok(groups.length > 0, 'the turn expands into its process groups');
-  assert.ok(groups.every(group => group.processBodyVisible), 'detailed opens every group together with the turn');
+  assert.ok(groups.every(group => group.processBodyVisible), 'every process body appears in the tap render');
+  groups.forEach(group => {
+    const source = f.page._allConversationRows.find(row => row.kind === 'processGroup' && row.key === group.key);
+    assert.equal(group.children.length, source.children.length, 'each expanded group includes its complete process');
+    assert.equal(group.processBodyCapped, group.processBodyCapWhenExpanded,
+      'each body uses the expanded-mode scroll policy immediately');
+  });
+  assert.equal(f.page._turnExpansionTimer, undefined, 'expanded details do not wait for a hydration timer');
   // 组头仍可单独收起，且跨同步保持
   f.page.toggleFold({ currentTarget: { dataset: { key: groups[0].key } } });
   assert.equal(f.page.data.rows.find(row => row.key === groups[0].key).processBodyVisible, false);
@@ -415,8 +442,44 @@ test('expanding a settled turn in detailed mode opens its process groups', () =>
   assert.ok(after.slice(1).every(group => group.processBodyVisible), 'the rest stay open');
 });
 
+test('detailed turn expansion renders every tool and its full output in the tap patch', () => {
+  const f = fixture();
+  const tools = Array.from({ length: 48 }, (_, index) => ({
+    callId: 'call-' + index,
+    key: 'tool-' + index,
+    name: 'read',
+    status: 'done',
+    argumentsText: '{"path":"file-' + index + '"}',
+    resultText: 'result-' + index + ' ' + 'detail '.repeat(350)
+  }));
+  f.store.sessionState.rows = [
+    { kind: 'user', key: 'u', text: '检查文件' },
+    { kind: 'assistant', key: 'work', turn: 1, text: '已检查', tools, settled: true },
+    { kind: 'assistant', key: 'answer', turn: 1, text: '完成', turnClosed: true, turnEndReason: 'completed' }
+  ];
+  f.store.sessionState.running = false;
+  f.sync();
+  const turn = f.page.data.rows.find(row => row.kind === 'turnProcess');
+  f.page.toggleFold({ currentTarget: { dataset: { key: turn.key } } });
+
+  const group = f.page.data.rows.find(row => row.kind === 'processGroup');
+  const source = f.page._allConversationRows.find(row => row.kind === 'processGroup');
+  assert.equal(group.processBodyVisible, true, 'the process body appears in the tap render');
+  assert.equal(group.children.length, source.children.length, 'the first patch contains every process step');
+  assert.equal(source.children.filter(child => child.kind === 'toolBundle')
+    .reduce((count, child) => count + child.tools.length, 0), tools.length,
+  'the full process remains in page memory');
+  const renderedTools = group.children.filter(child => child.kind === 'toolBundle')
+    .flatMap(child => child.tools);
+  assert.equal(renderedTools.length, tools.length, 'every tool is present before the tap handler returns');
+  assert.equal(renderedTools[0].resultText, tools[0].resultText, 'tool output is not progressively truncated');
+  assert.equal(f.page._turnExpansionTimer, undefined, 'large expanded content does not wait on a timer');
+  assert.ok(Buffer.byteLength(JSON.stringify(f.patches.at(-1))) > 100000,
+    'the tap patch carries the complete large process rather than a delayed partial body');
+});
+
 test('completion does not reparse or resend historical Markdown', () => {
-  const f = fixture(); f.sync(); f.reset();
+  const f = fixture(); f.sync(); f.page._initialConversationAnchorApplied = false; f.reset();
   assert.equal(f.page.data.rows.find(row => row.key === 'current').copyText, '');
   const beforeBytes = Buffer.byteLength(JSON.stringify(f.page.data.rows));
   f.store.sessionState.running = false; f.store.sessionState.rows.at(-1).streaming = false; f.sync();
@@ -510,6 +573,101 @@ test('bottom scrolling coalesces callbacks and never updates an unloaded page', 
   const f = fixture(); f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
   f.page.refreshBottomAnchor(); f.page.refreshBottomAnchor(); assert.equal(f.ticks.length, 1);
   f.page._unloaded = true; f.ticks.shift()(); assert.equal(f.patches.length, 1);
+});
+test('bottom follow uses one measured scrollTop instead of repeatedly clearing the tail target', () => {
+  const f = fixture();
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  f.page.data.rows = [{ key: 'latest', kind: 'assistant', text: 'live' }];
+  f.page.data.scrollTarget = 'conv-bottom';
+  f.page.data.conversationScrollTop = 0;
+  f.page._convPinned = true;
+  f.page._renderSessionId = 'performance-test';
+  f.wx.createSelectorQuery = () => {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect: () => query, scrollOffset: () => query }; },
+      exec(callback) { callback([{ height: 400 }, { scrollHeight: 1400, scrollTop: 1000 }]); }
+    };
+    return query;
+  };
+
+  f.page.refreshBottomAnchor();
+  f.ticks.shift()();
+  assert.equal(f.page.data.scrollTarget, '', 'the one-shot tail target is released after measuring the viewport');
+  assert.equal(f.page.data.conversationScrollTop, 1000, 'the native view is placed directly at its measured bottom');
+  assert.equal(f.page._initialConversationAnchorApplied, false, 'the first-layout guard releases after exact geometry is known');
+  const patchesAfterLanding = f.patches.length;
+
+  f.page.refreshBottomAnchor();
+  f.ticks.shift()();
+  assert.equal(f.patches.length, patchesAfterLanding,
+    'an unchanged bottom position does not clear and replay scroll-into-view');
+});
+test('bottom follow retries a missed initial target when the bound scrollTop is already stale-equal', () => {
+  const f = fixture();
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  f.page.data.rows = [{ key: 'latest', kind: 'assistant', text: 'live' }];
+  f.page.data.scrollTarget = '';
+  f.page.data.conversationScrollTop = 1000;
+  f.page._convPinned = true;
+  f.page._renderSessionId = 'performance-test';
+  f.wx.createSelectorQuery = () => {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect: () => query, scrollOffset: () => query }; },
+      exec(callback) { callback([{ height: 400 }, { scrollHeight: 1400, scrollTop: 0 }]); }
+    };
+    return query;
+  };
+
+  f.page.refreshBottomAnchor();
+  f.ticks.shift()();
+  assert.equal(f.page.data.conversationScrollTop, 1000, 'the bound numeric value happens to match the expected bottom');
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom',
+    'the missed native position is recovered by changing the one-shot target instead of trusting stale bound data');
+});
+test('live process follow updates its measured inner scrollTop without alternating anchor ids', () => {
+  const f = fixture();
+  f.store.sessionState.rows = [
+    { kind: 'user', key: 'u', text: '任务' },
+    { kind: 'assistant', key: 'a', turn: 1, reasoning: '先想一下',
+      tools: [{ callId: 'c', key: 't', name: 'read', status: 'running', argumentsText: '{}' }] }
+  ];
+  let bodyHeight = 300;
+  let bodyScrollHeight = 700;
+  f.wx.createSelectorQuery = () => {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect: () => query, scrollOffset: () => query }; },
+      exec(callback) { callback([{ height: bodyHeight }, { scrollHeight: bodyScrollHeight, scrollTop: 0 }]); }
+    };
+    return query;
+  };
+  const flush = () => { while (f.ticks.length) f.ticks.shift()(); };
+  f.sync(); flush();
+  const group = () => f.page.data.rows.find(row => row.kind === 'processGroup');
+  const live = group();
+  assert.ok(live);
+  assert.equal(live.processBodyScrollTop, 400);
+  assert.equal(f.page.data.processFollowTarget, '', 'measured scrolling leaves no competing scroll-into-view target');
+
+  bodyScrollHeight = 940;
+  f.store.sessionState.rows[1].reasoning += '，继续生成';
+  f.sync(); flush();
+  assert.equal(group().processBodyScrollTop, 640, 'new streamed content moves directly to the exact inner bottom');
+  assert.equal(f.page.data.processFollowTarget, '', 'stream updates do not alternate tail sentinel ids');
+
+  f.page.onProcessBodyTouchStart({ currentTarget: { dataset: { key: live.key } }, touches: [{ clientY: 200 }] });
+  f.page.onProcessBodyTouchMove({ currentTarget: { dataset: { key: live.key } }, touches: [{ clientY: 170 }] });
+  f.page.onProcessBodyScroll({ currentTarget: { dataset: { key: live.key } },
+    detail: { scrollTop: 220, scrollHeight: 940, height: 300 } });
+  f.page.onProcessBodyTouchEnd();
+  bodyScrollHeight = 1100;
+  f.store.sessionState.rows[1].reasoning += '，用户在看上面的过程';
+  f.sync(); flush();
+  assert.equal(group().processBodyScrollTop, 220,
+    'a manual inner scroll stores its live offset so streamed rerenders do not snap back to the tail');
+  assert.equal(f.page._processFollowPaused[live.key], true);
 });
 module.exports = { fixture };
 test('reentering a loaded conversation scrolls to the latest message even without new rows', () => {
@@ -708,10 +866,13 @@ test('delayed history stays pinned on entry but manual upward scrolling still st
 test('downward swipe disables live auto-follow before streamed content grows', () => {
   const f = fixture(); f.sync(); f.reset();
   f.page._convPinned = true;
+  f.page._initialConversationAnchorApplied = true;
   f.page._lastScrollTop = 1200;
   f.page.onPanelTouchStart({ touches: [{ clientX: 180, clientY: 120 }] });
   f.page.onPanelTouchMove({ touches: [{ clientX: 184, clientY: 142 }] });
   assert.equal(f.page._convPinned, false, 'older-history scroll intent immediately opts out of following');
+  assert.equal(f.page._initialConversationAnchorApplied, false,
+    'reader movement releases the initial-layout anchor guard');
   f.page.applyScrollPosition({ scrollTop: 1200, scrollHeight: 1600, clientHeight: 400 });
   assert.equal(f.page._convPinned, false, 'near-bottom tolerance does not re-enable following without scrolling back down');
   f.store.sessionState.rows.at(-1).text += ' newer streamed text';
@@ -745,9 +906,72 @@ test('native upward scroll pauses follow inside the near-bottom tolerance', () =
   f.sync();
   assert.equal(f.report().scrolls, 0);
 });
+test('programmatic height corrections are not misread as an upward reader gesture', () => {
+  const f = fixture();
+  f.page._convPinned = true;
+  f.page._lastNativeScrollTop = 1000;
+  f.page._lastScrollTop = 1000;
+  f.page._suppressScrollUntil = Date.now() + 300;
+  f.page._programmaticScrollAt = Date.now();
+  f.page._programmaticScrollTop = 800;
+
+  f.page.onConvScroll({ detail: { scrollTop: 900, scrollHeight: 1300, clientHeight: 400 } });
+
+  assert.notEqual(f.page._followPausedByUser, true,
+    'an intermediate scroll event inside a programmatic correction cannot take ownership from live follow');
+  assert.equal(f.page._convPinned, true);
+});
+test('initial tail-anchor corrections do not cancel entry following', () => {
+  const f = fixture();
+  f.page._convPinned = true;
+  f.page._initialConversationAnchorApplied = true;
+  f.page._lastNativeScrollTop = 1000;
+  f.page._lastScrollTop = 1000;
+  f.page._suppressScrollUntil = Date.now() + 300;
+  f.page.data.scrollTarget = 'conv-bottom';
+
+  f.page.onConvScroll({ detail: { scrollTop: 970, scrollHeight: 1300, clientHeight: 400 } });
+
+  assert.notEqual(f.page._followPausedByUser, true,
+    'a native upward clamp during the initial layout is not treated as a manual swipe');
+  assert.equal(f.page._convPinned, true);
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom');
+});
+test('transient pre-anchor scroll measurements cannot unpin or virtualize away the tail', () => {
+  const f = fixture();
+  f.page.onConvScroll = f.definition.onConvScroll;
+  f.page.applyScrollPosition = f.definition.applyScrollPosition;
+  f.page._convPinned = true;
+  f.page._initialConversationAnchorApplied = true;
+  f.page._lastNativeScrollTop = 1200;
+  f.page._lastScrollTop = 1200;
+  let windowShifts = 0;
+  f.page.updateConversationWindow = () => { windowShifts++; };
+
+  // A mount-time bindscroll can briefly report the old top before the native
+  // scroll-into-view reaches the rendered tail. It is layout, not user intent.
+  f.page.onConvScroll({ detail: { scrollTop: 180, scrollHeight: 3600, clientHeight: 400 } });
+  assert.equal(f.page._convPinned, true);
+  assert.notEqual(f.page._followPausedByUser, true);
+  assert.equal(windowShifts, 0, 'the tail window remains mounted during initial positioning');
+
+  // Selector-based viewport polling sees the same transient offset; it must not
+  // independently flip the follow state while the anchor is active.
+  f.page.applyScrollPosition({ scrollTop: 180, scrollHeight: 3600, clientHeight: 400 });
+  assert.equal(f.page._convPinned, true);
+
+  // A real upward gesture still takes over even if it starts during first layout.
+  f.page.onConvTouch();
+  f.page.onConvScroll({ detail: { scrollTop: 140, scrollHeight: 3600, clientHeight: 400 } });
+  assert.equal(f.page._convPinned, false);
+  assert.equal(f.page._followPausedByUser, true);
+  assert.equal(f.page._initialConversationAnchorApplied, false);
+  assert.equal(windowShifts, 1);
+});
 test('files arriving after completion publish immediately and respect history reading', () => {
   for (const pinned of [true, false]) {
-    const f=fixture();f.sync();f.store.sessionState.running=false;f.sync();f.reset();f.page._convPinned=pinned;
+    const f=fixture();f.sync();f.store.sessionState.running=false;f.sync();f.reset();
+    f.page._initialConversationAnchorApplied=false;f.page._convPinned=pinned;
     f.store.sessionState.rows.push({kind:'files',key:'delivered',turn:1,sessionId:'performance-test',files:[{key:'file-1',path:'output/report.pdf',description:'Completed report',seq:900,index:0}]});
     f.sync();
     const card=f.page._conversationRows.find(row=>row.kind==='files');
