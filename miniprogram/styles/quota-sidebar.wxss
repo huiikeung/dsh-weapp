@@ -83,16 +83,29 @@ width:16rpx;
 height:16rpx;
 margin-right:10rpx;
 border-radius:6rpx;
-background:var(--ocean);
+background:var(--qs-peak, var(--ocean));
 vertical-align:middle;
 }
 .qs-budget-used{display:none;
+}
+/* 峰谷相位配色对齐 dsh-cost-meter：峰时橙、谷时/平价品牌蓝、周末与节假日绿。 */
+.qs-peak.qs-phase-peak{--qs-peak:#FF9800;
+}
+.qs-peak.qs-phase-off{--qs-peak:var(--ocean);
+}
+.qs-peak.qs-phase-weekend,.qs-peak.qs-phase-holiday{--qs-peak:#34A853;
+}
+.qs-peak .qs-bar-fill{background:var(--qs-peak, var(--ocean));
+}
+.qs-peak.qs-phase-peak .qs-bar{background:rgba(255,152,0,.14);
+}
+.qs-peak.qs-phase-weekend .qs-bar,.qs-peak.qs-phase-holiday .qs-bar{background:rgba(52,168,83,.14);
 }
 .qs-peak-label{display:flex;
 flex:1;
 min-width:0;
 align-items:center;
-color:var(--ocean);
+color:var(--qs-peak, var(--ocean));
 font-size:24rpx;
 font-weight:400;
 }

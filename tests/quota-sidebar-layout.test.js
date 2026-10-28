@@ -111,6 +111,14 @@ test('peak row is computed from windows in Beijing time (weekday and weekend)', 
   assert.equal(peakHour.peak.label, '峰时');
   assert.equal(peakHour.peak.switchText, '12:00 转平价');
   assert.equal(peakHour.peak.startText, '09:00 开始');
+  assert.equal(peak.phaseClass, 'off');
+  assert.equal(weekend.peak.phaseClass, 'weekend');
+  assert.equal(peakHour.peak.phaseClass, 'peak');
+  const holiday = costView.normalizeQuotaDashboard(Object.assign({}, base, {
+    peak: { enabled: true, display: 'both', effectiveAt: '', windows: [{ start: 1, end: 4 }], holidays: ['2026-10-23'] },
+  }), summary(), { now: Date.parse('2026-10-23T02:30:00Z') });
+  assert.equal(holiday.peak.label, '节假日 · 全天谷价');
+  assert.equal(holiday.peak.phaseClass, 'holiday');
 });
 
 test('peakTimeDisplay switches the compact/secondary lines', () => {
@@ -144,4 +152,24 @@ test('peak phase label matches the row-label font size', () => {
   assert.match(peak[1], /font-size:24rpx/, '峰谷标签字号必须与余额/今日等标签一致（24rpx）');
   assert.ok(!/font-weight:\s*(6|7|8|9)00/.test(peak[1]), '峰谷标签不应比其他标签更粗');
   assert.ok(!/\.qs-compact \.qs-label/.test(css), '紧凑模式不应再缩小主标签字号');
+  assert.match(peak[1], /color:var\(--qs-peak, var\(--ocean\)\)/, '峰谷标签颜色跟随相位色');
+});
+
+test('peak row colors follow the dsh-cost-meter phase palette', () => {
+  const css = read('styles/quota-sidebar.wxss');
+  const template = read('templates/quota-sidebar.wxml');
+  assert.ok(template.includes("'qs-phase-' + sec.peak.phaseClass"), '模板必须把相位类挂到峰谷分区');
+  const peakVar = /\.qs-peak\.qs-phase-peak\{([^}]*)\}/.exec(css);
+  assert.ok(peakVar, '缺少峰时相位色');
+  assert.match(peakVar[1], /--qs-peak:#FF9800/, '峰时用橙，对齐参考插件 #ff9800');
+  const offVar = /\.qs-peak\.qs-phase-off\{([^}]*)\}/.exec(css);
+  assert.ok(offVar, '缺少谷时/平价相位色');
+  assert.match(offVar[1], /--qs-peak:var\(--ocean\)/, '谷时/平价保持品牌蓝');
+  const valleyVar = /\.qs-peak\.qs-phase-weekend,\.qs-peak\.qs-phase-holiday\{([^}]*)\}/.exec(css);
+  assert.ok(valleyVar, '缺少周末/节假日相位色');
+  assert.match(valleyVar[1], /--qs-peak:#34A853/, '周末与节假日全天谷价用绿');
+  const fill = /\.qs-peak \.qs-bar-fill\{([^}]*)\}/.exec(css);
+  assert.ok(fill, '峰谷进度条缺少相位色规则');
+  assert.match(fill[1], /background:var\(--qs-peak/, '峰谷进度条填充跟随相位色');
+  assert.match(css, /\.qs-dot\{[^}]*background:var\(--qs-peak/, '峰谷圆点跟随相位色');
 });
