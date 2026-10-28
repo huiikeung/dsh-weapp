@@ -2970,11 +2970,22 @@ flex: 0 0 46rpx;
 .composer-bar .chip.icon .attach-ic { width: 24rpx; height: 24rpx; }
 .composer-bar .chip-ic { width: 34rpx; height: 34rpx; margin-right: 8rpx; }
 .composer-bar .permission-chip {
-flex: 0 0 auto;
+position: relative;
+flex: 0 1 auto;
 min-width: 0;
 max-width: 38%;
 overflow: hidden;
 white-space: nowrap;
+}
+.composer-bar .permission-chip .chip-label-probe {
+position: absolute;
+left: 0;
+top: 0;
+visibility: hidden;
+white-space: nowrap;
+font-size: 22rpx;
+font-weight: 500;
+pointer-events: none;
 }
 .composer-bar .permission-chip .chip-ic {
 width: 30rpx;
@@ -2984,14 +2995,24 @@ margin-right: 8rpx;
 }
 .composer-bar .permission-chip .chip-label {
 display: block;
-flex: 1 1 auto;
+flex: 0 1 auto;
 min-width: 0;
 overflow: hidden;
-text-overflow: ellipsis;
 white-space: nowrap;
 font-size: 22rpx;
 color: var(--text-2);
 }
+.permission-chip-chevron {
+flex: 0 0 5px;
+width: 5px;
+height: 5px;
+margin: 0 3px 0 6px;
+border-right: 1px solid var(--text-4);
+border-bottom: 1px solid var(--text-4);
+transform: translateY(-1px) rotate(45deg);
+transition: transform 0.12s;
+}
+.permission-chip-chevron.open { transform: translateY(1px) rotate(225deg); }
 .composer-bar .chip.model-chip{flex:0 1 auto;max-width:min(360px,60%);min-width:0;height:28px;padding:0 4px 0 8px;gap:4px;border-radius:6px;box-sizing:border-box;overflow:hidden;font-size:13px;font-weight:400;line-height:20px;cursor:pointer}
 .chip-model-name{display:block;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .model-trigger-effort{flex:none;color:var(--text-4);white-space:nowrap}

@@ -86,7 +86,6 @@
         <view class="host-bar glass-press" bindtap="openHostSwitcher">
           <image class="host-kind" src="/assets/icons/{{hostKindIcon}}"/>
           <view class="host-name">{{hostLabel}}</view>
-          <text wx:if="{{hostLinkLabel}}" class="host-link-badge {{hostLinkClass}}">{{hostLinkLabel}}</text>
           <view class="host-dot {{hostDotClass}}"></view>
           <image class="host-chev" src="/assets/icons/chev-down-white.png"/>
         </view>

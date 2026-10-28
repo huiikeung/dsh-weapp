@@ -564,7 +564,8 @@ test('history pages coalesce disk writes but memory and visible records update i
   const persisted = JSON.parse(f.storage.get('dsh_session_cache.s'));
   assert.equal(persisted.cacheVersion, 2);
   assert.equal(persisted.value.events.length, 3);
-  assert.equal(persisted.value.rows, undefined, 'persisted event data avoids duplicate row text');
+  assert.deepEqual(persisted.value.rows.map(row => row.text), ['oldest', 'middle', 'latest'],
+    'a bounded row tail makes the session paint without replaying its event log');
 });
 
 test('invalid cursors report an error instead of endlessly pretending to load', () => {
@@ -576,6 +577,13 @@ test('invalid cursors report an error instead of endlessly pretending to load', 
 test('large cached sessions restore thousands of local messages before requesting uncached history', () => {
   const f = fixture();
   f.frame(history(Array.from({ length: 3000 }, (_, i) => user(i + 1, 'Question ' + i)), 0, false));
+  f.flush(1000);
+  const restarted = fixture(f.storage);
+  restarted.store.state.connection = 'connected';
+  restarted.store.openSession('s', 'Original');
+  assert.equal(restarted.store.sessionState.rows.at(-1).text, 'Question 2999');
+  assert.ok(restarted.store.sessionState.rows.length > 0, 'the persisted render tail is available immediately');
+
   f.store.openSession('other', 'Other'); f.store.openSession('s', 'Original');
   assert.equal(f.store.sessionState.rows.length, 2000);
   assert.equal(f.store.sessionState.rows[0].seq, 1001);

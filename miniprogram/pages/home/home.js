@@ -90,8 +90,6 @@ Page({
     hostLabel: uiText('选择主机'),
     hostKindIcon: 'desktop-white.png',
     hostOnline: false,
-    hostLinkLabel: '',
-    hostLinkClass: '',
     hostRows: [],
     hostSheetOpen: false,
     hostDeleteOpen: false,
@@ -371,10 +369,6 @@ Page({
       this._sessionWarmup.update(app.activeID || app.endpoint || '', displaySessions,
         !s.running && !s.historyPaging && s.historyState !== 'requested');
     }
-    const usingCachedHome = !!(
-      (app.lastSessionsFrame && app.lastSessionsFrame.cached) ||
-      (app.lastWorkspacesFrame && app.lastWorkspacesFrame.cached)
-    );
     const hostCompatibilityError = !!app.coreCompatibilityError;
     const currentWorkspace = isUngrouped ? {
       title: uiText('未分组'),
@@ -404,7 +398,7 @@ Page({
       connectionHintIsError: !hostCompatibilityError && connectionHint && conn !== 'connecting',
       homeDataHint: hostCompatibilityError
         ? uiText('NAS 端 Mobile Gateway 与 DSH 版本不兼容，请升级服务端后重试')
-        : (connectionHint ? app.connectionMessage : (usingCachedHome ? uiText('正在显示上次成功加载的数据') : '')),
+        : (connectionHint ? app.connectionMessage : ''),
       emptySessionsText: query
         ? uiText('没有找到匹配的会话。')
         : (hostCompatibilityError
@@ -462,8 +456,6 @@ Page({
       hostLabel: active ? hostsLib.displayName(active) : uiText('选择主机'),
       hostKindIcon: hostsLib.kindIconFile(active ? active.deviceKind : 'desktopcomputer'),
       hostOnline: active ? (onlineIDs.indexOf(active.id) >= 0 || isOnline) : false,
-      hostLinkLabel: activeLink.label,
-      hostLinkClass: activeLink.className,
       hostDotClass: hostDotClass,
       hostRows: rows.map((p) => {
         const online = onlineIDs.indexOf(p.id) >= 0 || (p.id === app.activeID && isOnline);

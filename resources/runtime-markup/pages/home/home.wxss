@@ -556,7 +556,7 @@
 
 /* 「最近会话」比全局 section-title 再小一档 */
 .recent-header .section-title {
-  font-size: 30rpx;
+  font-size: 28rpx;
 }
 
 .conn-label {
@@ -584,7 +584,7 @@
   height: 72rpx;      /* 比原来矮一档 */
   padding: 0 24rpx;
   border-radius: 26rpx;
-  margin-bottom: 36rpx;
+  margin-bottom: 28rpx;   /* 与第一条会话再靠近一点 */
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.012));
   border: 1rpx solid transparent;                            /* 边框用亚像素内阴影画，视觉更细 */
   backdrop-filter: blur(3rpx);
@@ -597,6 +597,7 @@
   height: 40rpx;
   margin-right: 16rpx;
   flex-shrink: 0;
+  opacity: 0.52;        /* 白色图标压暗，避免比占位文字还亮 */
 }
 
 .search-result-ic {

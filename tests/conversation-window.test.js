@@ -21,6 +21,17 @@ test('variable height prefix offsets select the correct row including a very lon
   assert.equal(window.indexAt(5399), 4); assert.equal(window.indexAt(5400), 5);
   assert.equal(window.select(4000, 700).rows.some(row => row.key === 'u4'), true);
 });
+test('long replies and image messages do not collapse virtual offsets to small fixed estimates', () => {
+  const window = new ConversationWindow();
+  window.update([
+    { key: 'long', kind: 'assistant', text: 'x'.repeat(10000) },
+    { key: 'image', kind: 'user', images: [{}], singleHeight: 640 },
+    { key: 'group', kind: 'processGroup', processBodyVisible: true, processBodyCapped: true }
+  ]);
+  assert.ok(window.offsets[1] > 8000, 'long answers stay proportional beyond the old 1400px clamp');
+  assert.ok(window.offsets[2] - window.offsets[1] > 300, 'a single image reserves its rendered height');
+  assert.ok(window.offsets[3] - window.offsets[2] > 400, 'an open capped process reserves the scroll body');
+});
 test('the rendered conversation window stays stable until the viewport nears an edge', () => {
   const window = new ConversationWindow(); window.update(rows(100)); window.select(500, 400);
   assert.equal(window.shouldShiftForScroll(650, 400), false,
@@ -182,10 +193,15 @@ test('first-load height corrections use native scrollTop when cached scroll stat
   assert.equal(page._lastScrollTop, 310);
 });
 
-test('measured height changes do not correct scrollTop just after a manual swipe', () => {
+test('measured height changes wait for touch and momentum to settle before correcting scrollTop', () => {
+  const realNow = Date.now;
+  const realSetTimeout = global.setTimeout;
+  const realClearTimeout = global.clearTimeout;
+  let now = 2000, timerId = 0;
+  const timers = new Map();
   const page = { ...viewport, data: {}, _renderSessionId: 's', _convPinned: false,
-    _lastScrollTop: 500, _convClientHeight: 700, _lastTouchAt: Date.now() - 200,
-    _lastConvScrollAt: Date.now() - 170 };
+    _lastScrollTop: 500, _convClientHeight: 700, _lastTouchAt: now - 200,
+    _lastConvScrollAt: now - 170 };
   const initial = page.conversationWindowPatch(rows(30));
   page.data = { tab: 'conversation', rows: initial.rows, conversationTopSpace: initial.conversationTopSpace,
     conversationBottomSpace: initial.conversationBottomSpace };
@@ -196,28 +212,43 @@ test('measured height changes do not correct scrollTop just after a manual swipe
   let applied;
   page.setData = patch => { applied = patch; Object.assign(page.data, patch); };
   const previousWx = global.wx;
+  Date.now = () => now;
+  global.setTimeout = (fn, delay) => { timers.set(++timerId, { fn, delay }); return timerId; };
+  global.clearTimeout = id => timers.delete(id);
   global.wx = {
     createSelectorQuery() {
       const query = {
         in() { return this; },
-        select() { return { boundingClientRect: () => query }; },
+        select() { return { boundingClientRect: () => query, scrollOffset: () => query }; },
         selectAll() { return { boundingClientRect: () => query }; },
-        exec(callback) { callback([{ top: 100, bottom: 800 }, rects]); }
+        exec(callback) { callback([{ top: 100, bottom: 800 }, { scrollTop: 500 }, rects]); }
       };
       return query;
     }
   };
   try {
     page.measureConversationWindow();
+    assert.equal(page._conversationWindow.heights.get(page.data.rows[7].key), undefined,
+      'the measurement callback does not mutate virtual geometry during touch settling');
+    assert.equal(applied, undefined, 'no spacer or scrollTop patch is sent during the settling window');
+    assert.equal(timers.size, 1);
+    assert.equal([...timers.values()][0].delay, 600);
+
+    now += 600;
+    const deferred = [...timers.values()][0];
+    timers.clear();
+    deferred.fn();
+    assert.equal(page._conversationWindow.heights.get(page.data.rows[7].key), 70,
+      'cached measured heights update after touch and momentum settle');
+    assert.equal(applied.conversationScrollTop, 290,
+      'the measured visible-row anchor keeps the viewport stationary when offsets change');
   } finally {
+    Date.now = realNow;
+    global.setTimeout = realSetTimeout;
+    global.clearTimeout = realClearTimeout;
     if (previousWx === undefined) delete global.wx;
     else global.wx = previousWx;
   }
-
-  assert.equal(page._conversationWindow.heights.get(page.data.rows[7].key), 70,
-    'the measured height cache still refreshes after the swipe');
-  assert.equal(applied && applied.conversationScrollTop, undefined,
-    'height measurement must not issue a second scroll after the finger lifts');
 });
 
 test('cache windows restore multiple local pages and preserve a paging cursor when bounded', () => {
@@ -229,4 +260,21 @@ test('cache windows restore multiple local pages and preserve a paging cursor wh
   assert.equal(cache.rows.at(-1).text, 'Question 2999');
   const legacy = recentWindow({ rows: rows(2500) }, protocol, 's');
   assert.equal(legacy.rows.length, 2000); assert.equal(legacy.hasMore, true);
+});
+
+test('cached rows restore without replaying a large event window on session entry', () => {
+  let replays = 0;
+  const countingProtocol = Object.assign({}, protocol, {
+    applyEvent(...args) { replays++; return protocol.applyEvent(...args); }
+  });
+  const events = Array.from({ length: 3000 }, (_, i) => ({
+    type: 'user/message', seq: i + 1, data: { text: 'Question ' + i }
+  }));
+  const cachedRows = Array.from({ length: 2000 }, (_, i) => ({
+    kind: 'user', key: 'u' + (i + 1000), seq: i + 1001, text: 'Question ' + (i + 1000)
+  }));
+  const restored = recentWindow({ events: events.slice(-2000), rows: cachedRows, hasMore: true },
+    countingProtocol, 's');
+  assert.equal(replays, 0, 'a ready-to-render row snapshot avoids synchronous protocol replay');
+  assert.equal(restored.rows.at(-1).text, 'Question 2999');
 });

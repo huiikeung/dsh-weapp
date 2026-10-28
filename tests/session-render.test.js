@@ -42,6 +42,7 @@ function fixture(source) {
   let definition, parses = 0, scrolls = 0, measurements = 0;
   let presetRequests = 0;
   const patches = [], ticks = [], timers = new Map(); let timerId = 0;
+  const runtimeWx = { nextTick: fn => ticks.push(fn) };
   const app = { globalData: { foregroundEpoch: 1 } };
   const store = { state: { connection: 'connected', sessions: [], agentPresets: null }, client: {
     connectGeneration: 1,
@@ -60,7 +61,7 @@ function fixture(source) {
     Page: value => { definition = value; }, Date, console,
     getApp: () => app,
     setTimeout(fn) { timers.set(++timerId, fn); return timerId; }, clearTimeout(id) { timers.delete(id); },
-    wx: { nextTick: fn => ticks.push(fn) },
+    wx: runtimeWx,
     require(name) {
       if (name.endsWith('/store')) return store;
       if (name.endsWith('/markdown')) return { parse(text) { parses++; return require('../miniprogram/utils/markdown').parse(text); } };
@@ -72,7 +73,7 @@ function fixture(source) {
     syncRunningStrip() {}, updateDockInset() { measurements++; }, refreshBottomAnchor() { scrolls++; } };
   const sync = () => page.syncFromStoreInner({ app: store.state, session: store.sessionState });
   const reset = () => { patches.length = 0; parses = 0; scrolls = 0; measurements = 0; };
-  return { page, store, app, definition, ticks, timers, sync, reset, patches,
+  return { page, store, app, definition, wx: runtimeWx, ticks, timers, sync, reset, patches,
     presetRequests: () => presetRequests,
     report: () => ({ parses, scrolls, measurements, bytes: Buffer.byteLength(JSON.stringify(patches)) }) };
 }
@@ -123,7 +124,7 @@ test('session mode header uses the DSH roster name and refreshes every opened or
   f.page.refreshSessionPreset(true);
   assert.equal(f.presetRequests(), 3, 'foreground resume can refresh even when the socket stayed connected');
 });
-test('first paint renders a bounded tail and formats history only when it enters the window', () => {
+test('first paint renders a bounded tail without reparsing the live answer', () => {
   const f = fixture();
   let bottomAnchors = 0;
   f.page.refreshBottomAnchor = () => { bottomAnchors++; };
@@ -131,7 +132,9 @@ test('first paint renders a bounded tail and formats history only when it enters
   assert.ok(f.report().parses <= 12);
   assert.ok(f.page.data.rows.length <= 40);
   assert.ok(!f.page.data.rows.some(row => row.key === 'a0'));
-  assert.ok(f.page.data.rows.find(row => row.key === 'current').blocks.length);
+  assert.equal(f.page.data.rows.find(row => row.key === 'current').blocks.length, 0,
+    'streaming Markdown stays as plain text to avoid rebuilding rich-text nodes per chunk');
+  assert.equal(f.page.data.rows.find(row => row.key === 'current').text, '测试完成');
   assert.equal(f.page.data.scrollTarget, 'conv-bottom', 'first tail rows and bottom target enter the view together');
   assert.ok(f.patches.some(patch => patch.scrollTarget === 'conv-bottom'
     && (patch.rows || Object.keys(patch).some(key => key.startsWith('rows[')))),
@@ -192,13 +195,16 @@ test('a running process body follows its tail and pauses when the reader scrolls
   assert.equal(live.processBodyCapped, true, 'inside the bounded scroll container');
   assert.equal(follow(), live.key + '/tail', 'entering a running session focuses the latest');
   // 新内容到达：继续贴底
+  const initialTarget = follow();
   f.store.sessionState.rows[1].reasoning += '继续想';
   f.sync(); flush();
-  assert.equal(follow(), live.key + '/tail', 'new content keeps the body on the latest');
+  assert.notEqual(follow(), initialTarget, 'content growth switches to the alternate tail anchor');
+  assert.ok(follow() === live.key + '/tail' || follow() === live.key + '/tail-alt',
+    'the live process remains anchored to the latest content');
   // Programmatic layout events do not count as the user's interruption.
   f.page.onProcessBodyScroll({ currentTarget: { dataset: { key: live.key } },
     detail: { scrollTop: 0, height: 300, scrollHeight: 900 } });
-  assert.equal(follow(), live.key + '/tail');
+  assert.equal(follow(), initialTarget === live.key + '/tail' ? live.key + '/tail-alt' : live.key + '/tail');
   // 用户翻上去看旧内容：暂停跟随；滚回底部后遇到新内容：恢复
   f.page.onProcessBodyTouchStart({ currentTarget: { dataset: { key: live.key } }, touches: [{ clientY: 200 }] });
   f.page.onProcessBodyTouchMove({ currentTarget: { dataset: { key: live.key } }, touches: [{ clientY: 170 }] });
@@ -212,7 +218,8 @@ test('a running process body follows its tail and pauses when the reader scrolls
     detail: { scrollTop: 600, height: 300, scrollHeight: 900 } });
   f.store.sessionState.rows[1].reasoning += '恢复后的内容';
   f.sync(); flush();
-  assert.equal(follow(), live.key + '/tail', 'returning to the bottom resumes the follow');
+  assert.ok(follow() === live.key + '/tail' || follow() === live.key + '/tail-alt',
+    'returning to the bottom resumes the follow without clearing between anchors');
   // 收工后不再跟随
   f.store.sessionState.rows[1].tools[0].status = 'done';
   f.store.sessionState.rows.push({ kind: 'assistant', key: 'a2', turn: 1, text: '完成', turnClosed: true, turnEndReason: 'completed' });
@@ -251,11 +258,12 @@ test('process follow rejects stale render callbacks and measures a missing scrol
     'an identical store sync does not invalidate the pending post-render follow');
 
   // A later sync supersedes a tail target that was queued for the previous render.
+  const currentTarget = f.page.data.processFollowTarget;
   f.page.refreshProcessFollow(live.key);
   f.page._processFollowVersion += 1;
   f.page._processFollowKey = 'newer-group';
   flush();
-  assert.equal(f.page.data.processFollowTarget, '', 'a stale callback cannot restore the previous tail');
+  assert.equal(f.page.data.processFollowTarget, currentTarget, 'a stale callback cannot replace the current anchor');
 
   f.page._processFollowKey = live.key;
   f.page._processFollowVersion += 1;
@@ -355,8 +363,33 @@ test('tapping a settled turn cancels the deferred tail jump and keeps the disclo
   assert.equal(f.page._bottomAnchorTimer, null);
   assert.equal(f.page._followPausedByUser, true);
   assert.equal(f.page._convPinned, false);
-  assert.equal(f.page.data.scrollTarget, '', 'the obsolete tail target is cleared with the expansion');
+  assert.equal(f.page.data.scrollTarget, turn.key, 'the disclosure itself stays anchored during the expansion');
   assert.ok(f.page.data.rows.some(row => row.kind === 'processGroup'), 'the newly visible process remains mounted');
+});
+
+test('expanding a completed turn survives a stale scrollTop before the first native scroll event', () => {
+  const f = fixture();
+  f.store.sessionState.rows = Array.from({ length: 160 }, (_, index) => ({
+    kind: 'user', key: 'history-' + index, text: 'Earlier message ' + index
+  })).concat([
+    { kind: 'user', key: 'latest-user', text: '任务' },
+    { kind: 'assistant', key: 'latest-work', turn: 1, reasoning: '检查', text: '处理完成。',
+      tools: [{ callId: 'latest-tool', key: 'latest-tool', name: 'read', status: 'done' }], settled: true },
+    { kind: 'assistant', key: 'latest-answer', turn: 1, text: '完成', turnClosed: true, turnEndReason: 'completed' }
+  ]);
+  f.store.sessionState.running = false;
+  f.sync();
+  const turn = f.page.data.rows.find(row => row.kind === 'turnProcess');
+  assert.ok(turn, 'the latest completed turn is mounted in the first tail window');
+
+  // scroll-into-view may reach the tail before bindscroll publishes a fresh offset.
+  f.page._lastScrollTop = 0;
+  f.page._lastNativeScrollTop = undefined;
+  f.page.toggleFold({ currentTarget: { dataset: { key: turn.key } } });
+
+  assert.ok(f.page.data.rows.some(row => row.key === turn.key), 'the tapped disclosure remains in the virtual slice');
+  assert.ok(f.page.data.rows.some(row => row.kind === 'processGroup'), 'its newly revealed process is mounted');
+  assert.equal(f.page.data.scrollTarget, turn.key, 'the viewport is focused on the tapped row, not the stale top offset');
 });
 
 test('expanding a settled turn in detailed mode opens its process groups', () => {
@@ -388,7 +421,8 @@ test('completion does not reparse or resend historical Markdown', () => {
   const beforeBytes = Buffer.byteLength(JSON.stringify(f.page.data.rows));
   f.store.sessionState.running = false; f.store.sessionState.rows.at(-1).streaming = false; f.sync();
   const report = f.report();
-  assert.equal(report.parses, 0); assert.equal(report.scrolls, 1); assert.equal(report.measurements, 1); // Docked whale disappears at completion.
+  assert.equal(report.parses, 1, 'the live answer is parsed once when streaming settles');
+  assert.equal(report.scrolls, 1); assert.equal(report.measurements, 1); // Docked whale disappears at completion.
   const replacedRows = f.patches.flatMap(patch => Object.entries(patch))
     .filter(([key]) => /^rows\[\d+\]$/.test(key)).map(([, row]) => row);
   assert.ok(report.bytes < 10000, JSON.stringify({ report, beforeBytes }));
@@ -441,7 +475,8 @@ test('fleet link redraw mounts the fallback canvas instead of leaving a stale im
 });
 test('final text, in-place tool updates, history prepend and session switch still render', () => {
   const f = fixture(); f.sync(); f.reset();
-  f.store.sessionState.rows.at(-1).text = '**新的最终答复**'; f.sync();
+  f.store.sessionState.rows.at(-1).text = '**新的最终答复**';
+  f.store.sessionState.rows.at(-1).streaming = false; f.sync();
   assert.equal(f.report().parses, 1);
   assert.ok(f.page.data.rows.find(row=>row.key==='current').blocks[0].html.includes('<strong>新的最终答复</strong>'));
   f.store.sessionState.rows.at(-1).tools = [{ callId: 'tool', name: 'read', status: 'running' }]; f.sync();
@@ -511,6 +546,41 @@ test('the first page show preserves the anchor supplied with its first conversat
   assert.equal(jumps, 0, 'onShow must not clear and replay the first-render bottom target');
   assert.equal(anchors, 0, 'the first show must not schedule a second post-paint correction');
   assert.equal(f.page.data.scrollTarget, 'conv-bottom');
+});
+test('the first tail anchor is reapplied after the measured dock shortens the viewport', () => {
+  const f = fixture();
+  f.page.updateDockInset = f.definition.updateDockInset;
+  f.page.data.tab = 'conversation';
+  f.page.data.convBottomInset = 0;
+  f.page.data.kbHeight = 0;
+  f.page.data.scrollTarget = 'conv-bottom';
+  f.page._convPinned = true;
+  f.page._initialConversationAnchorPending = false;
+  f.page._initialConversationAnchorApplied = true;
+  let anchors = 0;
+  f.page.refreshBottomAnchor = () => { anchors++; };
+  const previousGetWindowInfo = f.wx.getWindowInfo;
+  const previousCreateSelectorQuery = f.wx.createSelectorQuery;
+  f.wx.getWindowInfo = () => ({ windowHeight: 800, windowWidth: 375 });
+  f.wx.createSelectorQuery = () => {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect: () => query }; },
+      exec(callback) { callback([{ top: 700, height: 100 }]); }
+    };
+    return query;
+  };
+  try {
+    f.page.updateDockInset();
+    f.ticks.shift()();
+    assert.ok(f.page.data.convBottomInset > 0, 'the dock measurement commits the shorter viewport');
+    assert.equal(anchors, 1, 'the pending initial target is re-applied against the final viewport');
+  } finally {
+    if (previousGetWindowInfo === undefined) delete f.wx.getWindowInfo;
+    else f.wx.getWindowInfo = previousGetWindowInfo;
+    if (previousCreateSelectorQuery === undefined) delete f.wx.createSelectorQuery;
+    else f.wx.createSelectorQuery = previousCreateSelectorQuery;
+  }
 });
 test('initial tail anchor recovers after layout if the first scroll-into-view was missed', () => {
   const f = fixture(); f.sync();

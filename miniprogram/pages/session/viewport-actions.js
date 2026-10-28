@@ -16,13 +16,27 @@ module.exports = {
       this._conversationWindow = new ConversationWindow(); this._windowSession = this._renderSessionId;
     }
     const window = this._conversationWindow;
-    const anchor = window.rows[window.indexAt(this._lastScrollTop || 0)];
-    const offset = (this._lastScrollTop || 0) - window.offsets[window.indexAt(this._lastScrollTop || 0)];
+    const nativeTop = Number(this._lastNativeScrollTop);
+    let top = Number.isFinite(nativeTop) ? Math.max(0, nativeTop) : Math.max(0, Number(this._lastScrollTop) || 0);
+    const anchorIndex = window.indexAt(top);
+    const anchor = window.rows[anchorIndex];
+    const offset = top - window.offsets[anchorIndex];
     this._conversationRows = rows; window.update(rows);
-    let top = this._lastScrollTop || 0;
     if (this._convPinned !== false) {
       return window.select(Math.max(0, window.offsets[rows.length] - 700), 700, Math.max(0, rows.length - 12));
     }
+
+    if (options && options.focusKey) {
+      const focusIndex = rows.findIndex(row => row.key === options.focusKey);
+      if (focusIndex >= 0) {
+        const patch = window.select(window.offsets[focusIndex], this._convClientHeight || 700, focusIndex);
+        patch.scrollTarget = options.focusKey;
+        patch.scrollAnim = false;
+        this._scrollAnchorAt = Date.now();
+        return patch;
+      }
+    }
+
     const index = anchor ? rows.findIndex(row => row.key === anchor.key) : -1;
     if (index >= 0) top = Math.max(0, window.offsets[index] + offset);
     const patch = window.select(top, this._convClientHeight || 700);
@@ -86,10 +100,14 @@ module.exports = {
     const gesture = this._panelGesture;
     const touchingConversation = gesture && gesture.tab === 'conversation';
     const scrollQuietFor = Date.now() - (this._lastConvScrollAt || 0);
+    const touchAge = Date.now() - (Number(this._lastTouchAt) || 0);
     const settlingScroll = this._convPinned === false && this._lastConvScrollAt && scrollQuietFor < 160;
-    if (touchingConversation || settlingScroll) {
+    const settlingTouch = this._convPinned === false && hasRecentConversationTouch(this);
+    if (touchingConversation || settlingScroll || settlingTouch) {
       if (!this._windowMeasureTimer) {
-        const wait = touchingConversation ? 120 : Math.max(16, 160 - scrollQuietFor);
+        const wait = Math.max(touchingConversation ? 120 : 16,
+          settlingScroll ? 160 - scrollQuietFor : 0,
+          settlingTouch ? MANUAL_SCROLL_SETTLE_MS - touchAge : 0);
         this._windowMeasureTimer = setTimeout(() => {
           this._windowMeasureTimer = null;
           this.measureConversationWindow();
@@ -113,7 +131,8 @@ module.exports = {
       const currentGesture = this._panelGesture;
       const currentScrollQuietFor = Date.now() - (this._lastConvScrollAt || 0);
       if ((currentGesture && currentGesture.tab === 'conversation')
-        || (this._convPinned === false && this._lastConvScrollAt && currentScrollQuietFor < 160)) {
+        || (this._convPinned === false && this._lastConvScrollAt && currentScrollQuietFor < 160)
+        || (this._convPinned === false && hasRecentConversationTouch(this))) {
         this.measureConversationWindow();
         return;
       }

@@ -6,7 +6,7 @@ function recentWindow(cached, protocol, sessionId) {
   const source = Array.isArray(cached.events) ? cached.events : [];
   const events = source.slice(-EVENT_LIMIT);
   let rows;
-  if (events.length && (source.length > EVENT_LIMIT || !(cached.rows || []).length)) {
+  if (events.length && !(cached.rows || []).length) {
     const agg = protocol.newAggregator();
     events.forEach(event => protocol.applyEvent(agg, protocol.normalizeRawEvent(event, sessionId)));
     rows = agg.rows;

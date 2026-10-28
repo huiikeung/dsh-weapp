@@ -252,6 +252,7 @@ Page({
     attachmentPicking: false, sendingAttachments: false, fileReferenceMode: false,
     permissionLabel: uiText('工作区写入'),
     permissionIcon: 'shield-write-gray.png',
+    permissionChipIconOnly: false,
     modelLabel: 'DeepSeek',
     effortLabel: 'High',
     contextPct: -1,
@@ -400,6 +401,7 @@ Page({
     // 首帧渲染完成后立即测量 dock，避免默认留白遮挡底部内容
     this.updateDockInset();
     this.measureConversationViewport();
+    this.schedulePermissionChipFit();
     this.scheduleInitialConversationAnchorRecovery();
     if (!this._initialConversationAnchorPending && !this._initialConversationAnchorApplied) {
       this.refreshBottomAnchor();
@@ -482,6 +484,7 @@ Page({
     if (this.data.tab === 'conversation') {
       this.updateDockInset();
       this.measureConversationViewport();
+      this.schedulePermissionChipFit();
     } else if (this.data.tab === 'trajectory') {
       this._traceTrackRect = null;
     }
@@ -958,10 +961,14 @@ Page({
       }
       if (row.kind === 'assistant') {
         const text = row.text || '';
-        let blocks = this._markdownCache.peek(row.key, text);
-        if (!blocks && rowIndex >= s.rows.length - 12) blocks = this._markdownCache.parse(row.key, text);
+        // Rebuilding rich-text nodes for every streamed token causes visible flashes.
+        // Keep the live answer as plain text, then parse Markdown once it settles.
+        const streaming = row.streaming === true;
+        let blocks = streaming ? null : this._markdownCache.peek(row.key, text);
+        if (!blocks && !streaming && rowIndex >= s.rows.length - 12) blocks = this._markdownCache.parse(row.key, text);
         if (blocks) blocks = this.prepareImageBlocks(blocks);
-        if (!blocks) this._pendingHistoryFormat.set(row.key, text);
+        if (streaming) this._pendingHistoryFormat.delete(row.key);
+        else if (!blocks) this._pendingHistoryFormat.set(row.key, text);
         else this._pendingHistoryFormat.delete(row.key);
         const tools = (row.tools || []).map((tool) => {
           const activity = toolPresentation(tool.name, tool.argumentsText, s.cwd || (listedSession && listedSession.cwd));
@@ -1253,8 +1260,18 @@ Page({
     const followGroup = this.processFollowCandidate(rows, visibleRows);
     const processFollowKey = followGroup ? followGroup.key : '';
     const previousProcessFollowKey = this._processFollowKey || '';
+    const previousProcessFollowSignature = this._processFollowSignature || '';
     this._processFollowKey = processFollowKey;
+    const processFollowSignature = followGroup ? this.processFollowSignature(followGroup) : '';
+    this._processFollowSignature = processFollowSignature;
+    const processFollowChanged = previousProcessFollowKey !== processFollowKey;
+    const processFollowContentChanged = previousProcessFollowSignature !== processFollowSignature;
     let processFollowTarget = '';
+    if (followGroup && !processFollowChanged && !(this._processFollowPaused || {})[processFollowKey]) {
+      processFollowTarget = processFollowContentChanged && this.data.running
+        ? this.nextProcessFollowTarget(processFollowKey)
+        : (this.data.processFollowTarget || '');
+    }
 
     // 顶部标题：实时标题优先；其次回查会话列表（直连打开/列表迟到时）；
     const listed = (app.sessions || []).find((x) => x.sessionId === s.sessionId) || null;
@@ -1264,6 +1281,10 @@ Page({
     // 上下文/编队面板只在对应 Tab（或弹窗）可见时才派生视图模型。
     const activeTab = this.data.tab;
     const contextVisible = activeTab === 'context' || this.data.contextModalOpen === true;
+    const previousTailKey = this.data.rows && this.data.rows.length
+      ? this.data.rows[this.data.rows.length - 1].key : '';
+    const nextTailKey = visibleRows.length ? visibleRows[visibleRows.length - 1].key : '';
+    const conversationTailChanged = previousTailKey !== nextTailKey;
     const conversationPatch = this.conversationWindowPatch(visibleRows,
       historyMerged && activeTab === 'conversation' && this._convPinned === false ? { anchor: true } : null);
     const initialConversationAnchor = this._initialConversationAnchorPending
@@ -1337,13 +1358,16 @@ Page({
     }, qReset || {}));
     if (s && s.historyMergeId) this._historyMergeId = s.historyMergeId;
     const rowsChanged = Object.keys(viewPatch).some(key => key === 'rows' || key.indexOf('rows[') === 0);
-    if (previousProcessFollowKey !== processFollowKey || rowsChanged) {
+    if (processFollowChanged || processFollowContentChanged) {
       this._processFollowVersion = (this._processFollowVersion || 0) + 1;
     }
     const dockChanged = ['running', 'question', 'approval', 'tasks', 'goal', 'composerMetricsVisible', 'sessionPresetVisible']
       .some(field => Object.keys(viewPatch).some(key => key === field || key.indexOf(field + '.') === 0 || key.indexOf(field + '[') === 0));
+    const composerLabelsChanged = ['permissionLabel', 'permissionIcon', 'modelLabel', 'modelBadge', 'effortLabel']
+      .some(field => Object.keys(viewPatch).some(key => key === field || key.indexOf(field + '.') === 0));
     const wasRunning = this.data.running;
     if (Object.keys(viewPatch).length) this.setData(viewPatch, () => {
+      if (composerLabelsChanged) this.schedulePermissionChipFit();
       this.scheduleHistoryFormatting();
       this.measureConversationWindow();
       this.scheduleInitialConversationAnchorRecovery();
@@ -1358,7 +1382,7 @@ Page({
       // 运行刚开始：重置文字渐变相位；鲸尾图标为纯 CSS 动画，随节点挂载自动同相起跑。
       if (!wasRunning && this.data.running) this.setData({ statusFlowDelay: 0 });
       // 过程组滚动容器贴到最新：等窗口挂载、布局完成后再设目标
-      if (processFollowKey) this.refreshProcessFollow(processFollowKey);
+      if (processFollowKey && processFollowChanged) this.refreshProcessFollow(processFollowKey);
     });
     else this.scheduleHistoryFormatting();
     // 会话行只有 attachmentId，图片需要异步回填本地缓存路径才会显示。
@@ -1417,7 +1441,7 @@ Page({
 
     // 新内容到达时贴底；但用户正在触摸列表时不要抢滚动
     const touchingRecently = Date.now() - (this._lastTouchAt || 0) < 1000;
-    if (!initialConversationAnchor && (sessionChanged || rowsChanged || justFinished)
+    if (!initialConversationAnchor && (sessionChanged || conversationTailChanged || justFinished)
       && this.data.tab === 'conversation' && this._convPinned !== false && !touchingRecently) {
       this.refreshBottomAnchor();
     }
@@ -4804,6 +4828,24 @@ Page({
     return null;
   },
 
+  processFollowSignature(group) {
+    const children = Array.isArray(group && group.children) ? group.children : [];
+    return children.map(child => {
+      const text = String(child && (child.text || child.preview) || '');
+      const tools = child && child.kind === 'toolBundle' ? (child.tools || []).map(tool => [
+        tool.key || tool.callId || '', tool.status || '', String(tool.argumentsText || '').length,
+        String(tool.resultText || '').length,
+        String(tool.argumentsText || '').slice(-48), String(tool.resultText || '').slice(-48)
+      ].join(':')).join('|') : '';
+      return [child && child.key || '', child && child.kind || '', text.length, text.slice(-64), tools].join(':');
+    }).join(';');
+  },
+
+  nextProcessFollowTarget(key) {
+    const current = this.data.processFollowTarget || '';
+    return key + (current === key + '/tail' ? '/tail-alt' : '/tail');
+  },
+
   refreshProcessFollow(key) {
     if (!key || key !== this._processFollowKey || this._unloaded || this._voiceHidden) return;
     if ((this._processFollowPaused || {})[key]) return;
@@ -4811,15 +4853,15 @@ Page({
     const tick = typeof wx.nextTick === 'function' ? wx.nextTick : (fn) => fn();
     const version = this._processFollowVersion;
     const request = this._processFollowRequest = (this._processFollowRequest || 0) + 1;
-    this.setData({ processFollowTarget: '' }, () => tick(() => {
+    tick(() => {
       if (this._unloaded || this._voiceHidden || !this.data.running
         || version !== this._processFollowVersion || request !== this._processFollowRequest
         || key !== this._processFollowKey) return;
       if ((this._processFollowPaused || {})[key]) return;
       const latest = this.latestRunningProcessGroup(this.data.rows);
       if (!latest || latest.key !== key || !latest.processBodyVisible || !latest.processBodyCapped) return;
-      this.setData({ processFollowTarget: key + '/tail' });
-    }));
+      this.setData({ processFollowTarget: this.nextProcessFollowTarget(key) });
+    });
   },
 
   measureProcessBodyHeight(key) {
@@ -4942,7 +4984,8 @@ Page({
           patch['folds.' + row.key] = true;
         });
       }
-      Object.assign(patch, this.conversationWindowPatch(visible));
+      Object.assign(patch, this.conversationWindowPatch(visible,
+        row && row.kind === 'turnProcess' ? { focusKey: key } : null));
     }
     this.setData(patch, () => this.measureConversationWindow());
   },
@@ -6024,6 +6067,42 @@ Page({
     }
   },
 
+  /** 权限行加了箭头后：中文放不下时隐藏，只留图标 + 箭头。用隐形量尺测真实宽度。 */
+  schedulePermissionChipFit() {
+    if (this._permissionFitTimer || this._unloaded) return;
+    if (typeof setTimeout !== 'function' || typeof wx === 'undefined' || !wx.createSelectorQuery) return;
+    this._permissionFitTimer = setTimeout(() => {
+      this._permissionFitTimer = null;
+      this.fitPermissionChip();
+    }, 80);
+  },
+
+  fitPermissionChip() {
+    if (this._unloaded || typeof wx === 'undefined' || !wx.createSelectorQuery) return;
+    const query = wx.createSelectorQuery().in(this);
+    query.select('.composer-bar').boundingClientRect();
+    query.select('.permission-chip').boundingClientRect();
+    query.select('.permission-chip .chip-label-probe').boundingClientRect();
+    query.select('.permission-chip .chip-label').boundingClientRect();
+    query.select('.composer-spacer').boundingClientRect();
+    query.exec((results) => {
+      if (this._unloaded) return;
+      const bar = results && results[0];
+      const probe = results && results[2];
+      const label = results && results[3];
+      const spacer = results && results[4];
+      if (!bar || !probe || !probe.width) return;
+      const iconOnly = this.data.permissionChipIconOnly === true;
+      let next = iconOnly;
+      if (iconOnly) {
+        if (spacer && spacer.width >= probe.width + 6) next = false;
+      } else if (!label || label.width + 0.5 < probe.width) {
+        next = true;
+      }
+      if (next !== iconOnly) this.setData({ permissionChipIconOnly: next });
+    });
+  },
+
   updateDockInset(attempt) {
     if (this._unloaded || this.data.tab !== 'conversation') { this._dockMeasurePending = false; return; }
     const tries = typeof attempt === 'number' ? attempt : 0;
@@ -6056,7 +6135,12 @@ Page({
           this.setData({ convBottomInset: inset, ...this.layoutPatch({ convBottomInset: inset }) }, () => {
             const initialAnchorActive = this._initialConversationAnchorPending
               || this._initialConversationAnchorApplied && this.data.scrollTarget === 'conv-bottom';
-            if (this._convPinned && !initialAnchorActive) this.refreshBottomAnchor();
+            if (this._convPinned && (!initialAnchorActive
+              || this._initialConversationAnchorApplied && this.data.scrollTarget === 'conv-bottom')) {
+              // The first tail target can land before the dock shortens the viewport.
+              // Reapply it once against the measured layout so entry ends at the true bottom.
+              this.refreshBottomAnchor();
+            }
             this.measureConversationViewport();
           });
         }

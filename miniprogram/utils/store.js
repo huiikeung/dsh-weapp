@@ -480,12 +480,28 @@ function createStore() {
     return sessionCacheKey(sessionId) + '::' + String(formatVersion || '') + '::' + String(beforeSeq);
   }
   function serializeSessionCache(value) {
-    if (!value.events || !value.events.length) return value;
     const stored = Object.assign({}, value);
+    const rows = Array.isArray(value.rows) ? value.rows : [];
+    const cachedRows = [];
+    let rowsBytes = 2;
+    for (let i = rows.length - 1; i >= 0; i -= 1) {
+      const encoded = JSON.stringify(rows[i]);
+      if (!encoded) continue;
+      const bytes = utf8ByteLength(encoded) + (cachedRows.length ? 1 : 0);
+      // Retain a useful recent render window without duplicating an unbounded transcript.
+      if (cachedRows.length && rowsBytes + bytes > 160000) break;
+      if (!cachedRows.length && bytes > 420000) break;
+      cachedRows.push(rows[i]);
+      rowsBytes += bytes;
+    }
+    stored.rows = cachedRows.reverse();
+    if (!value.events || !value.events.length) return stored;
+
     let low = 0, high = value.events.length;
     while (low < high) {
       const middle = Math.floor((low + high) / 2);
-      if (utf8ByteLength(JSON.stringify(value.events.slice(middle))) <= 520000) high = middle;
+      const candidate = Object.assign({}, stored, { events: value.events.slice(middle) });
+      if (utf8ByteLength(JSON.stringify(candidate)) <= 520000) high = middle;
       else low = middle + 1;
     }
     stored.events = value.events.slice(low);
@@ -493,7 +509,6 @@ function createStore() {
       stored.hasMore = true;
       stored.nextBeforeSeq = stored.events.length ? stored.events[0].seq : value.nextBeforeSeq;
     }
-    delete stored.rows;
     return stored;
   }
 
@@ -506,8 +521,8 @@ function createStore() {
         historyFormatVersion: sessionState.historyFormatVersion }, protocol, sessionId);
       sessionCache.set(sessionCacheKey(sessionId), cached, {
         delayMs: 1000,
-        // Rows are a projection of durable events. Avoid storing their duplicated
-        // text while retaining row-only legacy/optimistic caches when no events exist.
+        // Persist a bounded row tail with the event suffix so reopening does not
+        // replay the entire event window before the first conversation paint.
         serialize: serializeSessionCache
       });
     } catch (e) { /* 存储失败不阻断 */ }

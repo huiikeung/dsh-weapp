@@ -265,7 +265,9 @@
 </view>
 </view>
 </block>
+<!-- Alternate stable tail sentinels let streaming content follow without an empty-target flash. -->
 <view id="{{item.key}}/tail" class="process-step-anchor" aria-hidden="true"/>
+<view id="{{item.key}}/tail-alt" class="process-step-anchor" aria-hidden="true"/>
 </scroll-view>
 </view>
 <view wx:elif="{{item.kind === 'assistant'}}" class="row-assistant {{item.processNarration ? 'narration-row' : ''}}" id="{{item.key}}" bindlongpress="openTextSelection" data-key="{{item.key}}">
@@ -1592,7 +1594,9 @@
 <view class="chip icon composer-plus {{attachSheetOpen ? 'active' : ''}}" bindtap="attachMenu" role="button" aria-label="{{ui['添加与指令']}}" aria-expanded="{{attachSheetOpen}}"><image class="attach-ic" src="/assets/icons/plus-gray.png"/></view>
 <view class="chip permission-chip" bindtap="pickPermission" role="button" aria-label="{{ui['权限']}}" aria-expanded="{{permissionSheet.length > 0}}">
 <image class="chip-ic" src="/assets/icons/{{permissionIcon}}" mode="aspectFit"/>
-<text class="chip-label">{{ui[permissionLabel] !== undefined ? ui[permissionLabel] : permissionLabel}}</text>
+<text wx:if="{{!permissionChipIconOnly}}" class="chip-label">{{ui[permissionLabel] !== undefined ? ui[permissionLabel] : permissionLabel}}</text>
+<text class="chip-label-probe" aria-hidden="true">{{ui[permissionLabel] !== undefined ? ui[permissionLabel] : permissionLabel}}</text>
+<view class="permission-chip-chevron {{permissionSheet.length ? 'open' : ''}}"></view>
 </view>
 <view class="composer-spacer"></view>
 <view class="chip model-chip" bindtap="pickModel" hover-class="model-trigger-pressed" hover-start-time="0" hover-stay-time="100" role="button" aria-label="{{ui['模型']}} {{modelLabel}} {{effortLabel}}" aria-expanded="{{modelSheetOpen || effortSheetOpen}}"><text class="chip-model-name">{{modelLabel}}</text><text wx:if="{{modelBadge}}" class="model-release-badge">{{modelBadge}}</text><text class="model-trigger-effort">{{effortLabel}}</text><view class="model-trigger-chevron {{modelSheetOpen || effortSheetOpen ? 'open' : ''}}"></view></view>

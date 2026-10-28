@@ -3086,11 +3086,24 @@ overscroll-behavior-y: auto;
 .composer-bar .chip-ic { width: 34rpx; height: 34rpx; margin-right: 8rpx; }
 /* 鏉冮檺鎺т欢锛氬浘鏍囧浐瀹氾紝鏂囧瓧浣跨敤鍓╀綑瀹藉害锛岃繃闀挎椂鐪佺暐 */
 .composer-bar .permission-chip {
-  flex: 0 0 auto;
+  position: relative;
+  flex: 0 1 auto;
   min-width: 0;
   max-width: 38%;
   overflow: hidden;
   white-space: nowrap;
+}
+
+/* 隐形量尺：按真实字体测出中文自然宽度，决定显示中文还是只留图标 + 箭头。 */
+.composer-bar .permission-chip .chip-label-probe {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  white-space: nowrap;
+  font-size: 22rpx;
+  font-weight: 500;
+  pointer-events: none;
 }
 .composer-bar .permission-chip .chip-ic {
   width: 30rpx;
@@ -3100,14 +3113,26 @@ overscroll-behavior-y: auto;
 }
 .composer-bar .permission-chip .chip-label {
   display: block;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 22rpx;
   color: var(--text-2);
 }
+
+/* 权限行的下拉箭头和模型一致；空间不足时整段中文隐藏，只留图标 + 箭头。 */
+.permission-chip-chevron {
+  flex: 0 0 5px;
+  width: 5px;
+  height: 5px;
+  margin: 0 3px 0 6px; /* 文字与箭头之间留一个近似英文空格的间距 */
+  border-right: 1px solid var(--text-4);
+  border-bottom: 1px solid var(--text-4);
+  transform: translateY(-1px) rotate(45deg);
+  transition: transform 0.12s;
+}
+.permission-chip-chevron.open { transform: translateY(1px) rotate(225deg); }
 /* One model trigger: plain effort text, shared pointer/touch feedback. */
 .composer-bar .chip.model-chip{flex:0 1 auto;max-width:min(360px,60%);min-width:0;height:28px;padding:0 4px 0 8px;gap:4px;border-radius:6px;box-sizing:border-box;overflow:hidden;font-size:13px;font-weight:400;line-height:20px;cursor:pointer}
 .chip-model-name{display:block;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

@@ -4,7 +4,7 @@ class ConversationWindow {
   update(rows) {
     this.rows = rows; this.offsets = [0];
     for (const row of rows) {
-      const estimate = row.kind === 'assistant' ? Math.max(100, Math.min(1400, String(row.text || '').length / 28 * 24)) : 100;
+      const estimate = estimateRowHeight(row);
       this.offsets.push(this.offsets[this.offsets.length - 1] + (this.heights.get(row.key) || estimate));
     }
   }
@@ -34,4 +34,49 @@ class ConversationWindow {
       conversationBottomSpace: this.offsets[this.rows.length] - (this.offsets[this.end] || 0) };
   }
 }
+
+function estimateTextHeight(text, charsPerLine, lineHeight) {
+  const value = String(text || '');
+  if (!value) return 0;
+  return estimateLengthHeight(value.length, charsPerLine, lineHeight);
+}
+
+function estimateLengthHeight(length, charsPerLine, lineHeight) {
+  if (!(length > 0)) return 0;
+  return Math.max(lineHeight, Math.ceil(length / charsPerLine) * lineHeight);
+}
+
+function estimateRowHeight(row) {
+  if (row.kind === 'assistant') {
+    const textHeight = estimateTextHeight(row.text, 28, 24);
+    const imageCount = (row.images || []).length;
+    const imageHeight = imageCount ? Math.ceil(imageCount / 2) * 280 : 0;
+    const attachmentHeight = (row.attachments || []).length * 48;
+    // Keep long replies proportional; the old 1400px cap badly undercounted
+    // tall answers and moved every virtual row after them by thousands of px.
+    return Math.max(100, 48 + textHeight + imageHeight + attachmentHeight);
+  }
+
+  if (row.kind === 'user') {
+    const imageCount = (row.images || []).length;
+    if (!imageCount) return 100;
+    const imageHeight = imageCount === 1
+      ? Math.max(0, Number(row.singleHeight) || 640) * 0.5
+      : Math.max(0, Number(row.stackHeight) || 328) * 0.5;
+    return Math.max(100, 24 + imageHeight + estimateTextHeight(row.text, 22, 24)
+      + (row.text ? 20 : 0));
+  }
+
+  if (row.kind === 'processGroup' && row.processBodyVisible) {
+    if (row.processBodyCapped) return 460;
+    const bodyText = (row.children || []).reduce((length, child) => length
+      + String(child.text || child.preview || '').length
+      + (child.tools || []).reduce((sum, tool) => sum
+        + String(tool.argumentsText || '').length + String(tool.resultText || '').length, 0), 0);
+    return Math.max(100, 56 + estimateLengthHeight(bodyText, 28, 24));
+  }
+
+  return 100;
+}
+
 module.exports = { ConversationWindow };

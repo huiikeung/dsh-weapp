@@ -97,6 +97,9 @@ test('first paint is already the full static composition: plate, device-resoluti
   assert.match(css, /\.ocean-whale \{[^}]*width: 115vw; height: 115vw/);
   assert.match(css, /\.ocean-whale \{[^}]*mix-blend-mode: screen/);
   assert.match(css, /\.ocean-whale \{[^}]*opacity: 0\.56/);
+  // iOS 上 screen 混合叠在 8fps 流体帧上会反复重算混合并闪烁鲸鱼区域，改用普通叠加。
+  assert.match(css, /\.ocean-ios \.ocean-whale \{[^}]*mix-blend-mode: normal/, 'iOS drops the screen blend over animated frames');
+  assert.match(read('components/ocean-background/ocean-background.wxml'), /ios \? 'ocean-ios'/, 'template toggles the iOS blend fix');
   // 尾巴重新摆动 + 逐点闪烁的近似：两张图在同一 115vw 方框内拼接，尾巴绕接缝 skewY。
   assert.match(css, /\.ocean-whale-tail \{[^}]*transform-origin: 0 50%/);
   assert.match(css, /\.ocean-whale-tail \{[^}]*animation: ocean-whale-tail-wave 2\.86s/);
@@ -145,6 +148,7 @@ test('iOS keeps the previous decoded frame visible and never rewrites it', () =>
   const h = harness({ platform: 'ios' }).boot();
   h.runTimer(60);
   assert.equal(h.component.data.buffered, true);
+  assert.equal(h.component.data.ios, true, 'iOS opts out of the screen blend over animated frames');
   assert.equal(h.component.data.ready, false, 'the wrapper stays hidden until the first decode commits');
   assert.ok(h.component.data.frameA);
   h.component.draw(1);

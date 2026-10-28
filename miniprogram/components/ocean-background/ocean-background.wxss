@@ -17,6 +17,9 @@
 /* 鲸鱼粒子：SVG 矢量点阵（60x60 采样；点径 0.46~0.71 单位，约 1.7~2.7pt 圆点），115vw 构图与 iOS 一致。
    腰身与尾巴拆成两张图（接缝落在两列粒子之间），尾巴绕接缝 skewY 上下摆动，两层错相位呼吸模仿原生逐点闪烁。 */
 .ocean-whale { position: absolute; left: 55%; top: 34%; width: 115vw; height: 115vw; transform: translate(-50%, -50%); z-index: 4; pointer-events: none; opacity: 0.56; mix-blend-mode: screen; will-change: transform; animation: ocean-whale-drift 13s linear infinite; }
+/* iOS：鲸鱼的 screen 混合叠在 8fps 流体帧上，WebKit 会反复重算混合导致鲸鱼/光点区域闪烁；
+   改成普通 alpha 叠加（深色底上亮度几乎一致），不再反复重算混合。 */
+.ocean-ios .ocean-whale { mix-blend-mode: normal; }
 .ocean-whale-body { position: absolute; left: 0; top: 0; width: 55%; height: 100%; display: block; animation: ocean-whale-shimmer 2.1s ease-in-out infinite alternate; }
 .ocean-whale-tail { position: absolute; left: 55%; top: 0; width: 45%; height: 100%; display: block; transform-origin: 0 50%; will-change: transform; animation: ocean-whale-tail-wave 2.86s ease-in-out infinite alternate, ocean-whale-shimmer 2.1s ease-in-out infinite alternate; animation-delay: 0s, -1.05s; }
 /* 底部压暗（iOS clear → navy12% → black58%） */

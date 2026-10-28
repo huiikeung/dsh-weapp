@@ -18,7 +18,7 @@ Component({
     active: { type: Boolean, value: true, observer: 'syncPlayback' },
     reducedMotion: { type: Boolean, value: false, observer: 'syncPlayback' }
   },
-  data: { ready: false, failed: false, frameImage: '', buffered: false, staticMode: false, frameA: '', frameB: '', frontSlot: '', frameAId: 0, frameBId: 0 },
+  data: { ready: false, failed: false, frameImage: '', buffered: false, ios: false, staticMode: false, frameA: '', frameB: '', frontSlot: '', frameAId: 0, frameBId: 0 },
   lifetimes: {
     ready() {
       this._visible = true; this._disposed = false; this._elapsed = 0;
@@ -65,7 +65,7 @@ Component({
         if (!field || !field.width || !field.height) { this.onCanvasError(); return; }
         try {
           this._platform = getPlatform();
-          this.setData({ buffered: this._platform === 'ios' });
+          this.setData({ buffered: this._platform === 'ios', ios: this._platform === 'ios' });
           // 帧里只剩平滑渐变：按像素预算压低分辨率，编码耗时和 setData 体积都降一个量级。
           this._pixelRatio = fluidPixelRatio(field.width, field.height);
           this._canvas = wx.createOffscreenCanvas({ type: 'webgl', width: field.width, height: field.height });
