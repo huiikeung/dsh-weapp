@@ -4069,6 +4069,16 @@ Page({
     this._lastTouchAt = Date.now();
   },
 
+  pauseConversationFollowForReader() {
+    if (this._bottomAnchorTimer) clearTimeout(this._bottomAnchorTimer);
+    this._bottomAnchorTimer = null;
+    this._bottomAnchorTouchAt = null;
+    this._bottomAnchorDeferred = false;
+    this._lastTouchAt = Date.now();
+    this._followPausedByUser = true;
+    this._convPinned = false;
+  },
+
   onConvScroll(e) {
     const d = (e && e.detail) || {};
     const now = Date.now();
@@ -4889,6 +4899,13 @@ Page({
     this.prioritizeInteraction();
     const patch = {};
     const next = !this.data.folds[key];
+    // Tapping a completed-turn disclosure is an explicit reading action. Stop
+    // any delayed tail anchor before rebuilding the virtual window, otherwise
+    // the tap can expand successfully and then scroll the row out of view.
+    if (row && row.kind === 'turnProcess') {
+      this.pauseConversationFollowForReader();
+      patch.scrollTarget = '';
+    }
     patch['folds.' + key] = next;
     if (row && row.kind === 'processGroup') {
       const rowPath = 'rows[' + this.data.rows.indexOf(row) + ']';

@@ -324,6 +324,41 @@ test('compact mode keeps a single live status line and folds the process text aw
   }
 });
 
+test('tapping a settled turn cancels the deferred tail jump and keeps the disclosure in view', () => {
+  const f = fixture();
+  f.store.sessionState.rows = [
+    { kind: 'user', key: 'u', text: '任务' },
+    { kind: 'assistant', key: 'a1', turn: 1, reasoning: '想一下', text: '先检查。',
+      tools: [{ callId: 'c1', key: 't1', name: 'read', status: 'done', argumentsText: '{}' }], settled: true },
+    { kind: 'assistant', key: 'a2', turn: 1, text: '完成', turnClosed: true, turnEndReason: 'completed' }
+  ];
+  f.sync();
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  const turn = f.page.data.rows.find(row => row.kind === 'turnProcess');
+  f.page.onPanelTouchStart({ touches: [{ clientX: 80, clientY: 240 }] });
+  f.page.onPanelTouchEnd({ changedTouches: [{ clientX: 80, clientY: 240 }] });
+  const pendingAnchor = f.page._bottomAnchorTimer;
+  assert.ok(pendingAnchor, 'a tap initially schedules the normal delayed tail correction');
+  const staleAnchor = f.timers.get(pendingAnchor);
+
+  let pinDuringWindowUpdate;
+  const originalWindowPatch = f.page.conversationWindowPatch;
+  f.page.conversationWindowPatch = function (rows, options) {
+    pinDuringWindowUpdate = this._convPinned;
+    return originalWindowPatch.call(this, rows, options);
+  };
+  f.page.toggleFold({ currentTarget: { dataset: { key: turn.key } } });
+  staleAnchor(); // Even an already-queued callback must not reclaim the viewport.
+
+  assert.equal(f.page.data.folds[turn.key], true, 'the first tap expands the completed turn');
+  assert.equal(pinDuringWindowUpdate, false, 'the virtual window is rebuilt in reader-owned mode');
+  assert.equal(f.page._bottomAnchorTimer, null);
+  assert.equal(f.page._followPausedByUser, true);
+  assert.equal(f.page._convPinned, false);
+  assert.equal(f.page.data.scrollTarget, '', 'the obsolete tail target is cleared with the expansion');
+  assert.ok(f.page.data.rows.some(row => row.kind === 'processGroup'), 'the newly visible process remains mounted');
+});
+
 test('expanding a settled turn in detailed mode opens its process groups', () => {
   const f = fixture();
   f.store.sessionState.rows = [
