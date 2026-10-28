@@ -131,13 +131,15 @@ function apply(entries, value, manual, previous, reset) {
     // 结束后才折叠成标题；verbose（stepGrouping=none）永远展开。
     // 过程文字已独立成行，收起组体不会连带藏掉叙述。
     entry.processGrouped = grouped;
-    // 不分组且非 verbose（详细模式对话过程中）时组体自动展开；verbose 与分组档一样
-    // 跟着折叠状态走——默认收起，点组头展开（展开后不设限高，即「完全展开」）。
+    // verbose（stepGrouping=none，永不分组）：没有组标题，过程直接平铺，组体常开——
+    // 回合收工也不折（foldCompletedTurns=false，回合行本就默认展开）。其余档维持
+    // grouped && !open；详细模式对话过程中不分组，组体自动展开。
     entry.processAutoOpen = !grouped && !verbose;
-    entry.processBodyVisible = expanded || entry.processAutoOpen;
+    entry.processBodyVisible = verbose || expanded || entry.processAutoOpen;
     // 简洁模式运行中：只留活动组那一行「正在xxxx」，已收工组的标题也收起来；
     // 过程默认不显示，点活动组标题才展开。回合收工后（turnRunning=false）标题回来。
-    entry.headingHidden = prefs.mode === 'compact' && processRunning && entry.running !== true;
+    // verbose 永不分组，也就没有组标题——过程直接平铺。
+    entry.headingHidden = verbose || (prefs.mode === 'compact' && processRunning && entry.running !== true);
     // 简洁模式：组标题显示完全——计数后缀去掉后标题本身就是全部信息，长标题换行
     // 而不是省略号（否则「已读取文件，已搜索代码，修改了文件…」看不全）。
     entry.titleWrap = prefs.mode === 'compact';
