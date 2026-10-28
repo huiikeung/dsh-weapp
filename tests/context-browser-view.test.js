@@ -600,6 +600,47 @@ test('browser picker jumps to the chosen request and the fold rows toggle', () =
   assert.equal(page.data.contextPanel.browser.rows[1].expanded, false);
 });
 
+test('custom request dropdown opens at the selected option and closes after selection or dismissal', () => {
+  const { page } = pageFixture();
+  page.data.tab = 'context';
+  page.setData(page.contextPanelPatch());
+  const selectedIndex = page.data.contextPanel.browser.selectedIndex;
+
+  page.contextBrowserPickerToggle();
+  assert.equal(page.data.contextBrowserPickerOpen, true);
+  assert.equal(page.data.contextBrowserPickerTarget, 'ctxBrowserOption' + selectedIndex);
+
+  page.contextBrowserPick({ currentTarget: { dataset: { index: '0' } } });
+  assert.equal(page.data.contextBrowserSeq, 10);
+  assert.equal(page.data.contextBrowserPickerOpen, false);
+  assert.equal(page.data.contextBrowserPickerTarget, '');
+
+  page.contextBrowserPickerToggle();
+  assert.equal(page.data.contextBrowserPickerOpen, true);
+  page.closeContextBrowserPicker();
+  assert.equal(page.data.contextBrowserPickerOpen, false);
+
+  page.setData({ contextModalOpen: true });
+  page.contextBrowserPickerToggle();
+  assert.equal(page.data.contextBrowserPickerTarget, 'ctxModalBrowserOption' + page.data.contextPanel.browser.selectedIndex);
+  page.closeContextModal();
+  assert.equal(page.data.contextBrowserPickerOpen, false);
+});
+
+test('browser request selector is a custom downward list with outlined controls and compact tool definitions', () => {
+  const template = fs.readFileSync(path.resolve(root, 'pages/session/session.wxml'), 'utf8');
+  const styles = fs.readFileSync(path.resolve(root, 'pages/session/session.wxss'), 'utf8');
+  assert.doesNotMatch(template, /<picker[^>]*ctx-browser-picker/);
+  assert.match(template, /class="ctx-browser-options"[^>]*scroll-into-view="\{\{contextBrowserPickerTarget\}\}"/);
+  assert.match(template, /class="ctx-browser-option[^>]*data-index="\{\{index\}\}"/);
+  assert.match(template, /ctx-browser-step-arrow left/);
+  assert.match(template, /ctx-browser-step-arrow right/);
+  assert.match(styles, /\.ctx-browser-picker\s*\{[^}]*position:\s*relative/);
+  assert.match(styles, /\.ctx-browser-options\s*\{[^}]*top:\s*calc\(100% \+ 8rpx\)[^}]*background:\s*var\(--surface\)/);
+  assert.match(styles, /\.ctx-br-tool\s*\{[^}]*margin:\s*4rpx 0 0[^}]*padding:\s*8rpx 12rpx/);
+  assert.match(styles, /\.ctx-br-param\s*\{[^}]*padding:\s*5rpx 4rpx/);
+});
+
 test('browser handlers survive a panel without browser data (loading/error states)', () => {
   const { page, calls } = pageFixture();
   page.data.contextPanel = contextView.buildPanel(null, { connected: true, hasSession: true });

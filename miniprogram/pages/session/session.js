@@ -134,6 +134,8 @@ Page({
     contextBrowserSeq: null,
     contextBrowserIsCurrent: false,
     contextBrowserExpanded: [],
+    contextBrowserPickerOpen: false,
+    contextBrowserPickerTarget: '',
     contextBrowserBase: contextPreferences.read().base,
     contextCurrentHighlight: '',
     contextCommandFilter: 'all',
@@ -814,6 +816,8 @@ Page({
         contextBrowserSeq: null,
         contextBrowserIsCurrent: false,
         contextBrowserExpanded: [],
+        contextBrowserPickerOpen: false,
+        contextBrowserPickerTarget: '',
         contextBrowserBase: contextPreferences.read().base,
         contextCurrentHighlight: '',
         contextCommandFilter: 'all',
@@ -1895,7 +1899,13 @@ Page({
     if (tab === 'fleet') fleetPatch = this.fleetPanelPatch();
     // 离开对应 Tab 时清掉大对象，减少 page data 体积与内存占用（切回时按需重建）。
     const clearPatch = {};
-    if (tab !== 'context') { clearPatch.contextPanel = null; clearPatch.contextModalOpen = false; clearPatch.contextFlowLinks = []; }
+    if (tab !== 'context') {
+      clearPatch.contextPanel = null;
+      clearPatch.contextModalOpen = false;
+      clearPatch.contextBrowserPickerOpen = false;
+      clearPatch.contextBrowserPickerTarget = '';
+      clearPatch.contextFlowLinks = [];
+    }
     if (tab !== 'fleet') clearPatch.fleetPanel = null;
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
@@ -2180,7 +2190,12 @@ Page({
 
   setContextBrowser(seq, expanded, isCurrent) {
     const next = seq == null ? null : Number(seq);
-    const patch = { contextBrowserSeq: next, contextBrowserIsCurrent: isCurrent === true };
+    const patch = {
+      contextBrowserSeq: next,
+      contextBrowserIsCurrent: isCurrent === true,
+      contextBrowserPickerOpen: false,
+      contextBrowserPickerTarget: ''
+    };
     // 只有真的变了才动趋势图，避免自己触发的那次回写形成往返。
     if ((this.data.contextTrendSeq == null ? null : Number(this.data.contextTrendSeq)) !== next) {
       patch.contextTrendSeq = next;
@@ -2356,10 +2371,30 @@ Page({
     this.setContextBrowser(seq, undefined, seq == null);
   },
 
-  /** 请求下拉选择。 */
+  contextBrowserPickerToggle() {
+    const browser = (this.data.contextPanel && this.data.contextPanel.browser) || null;
+    if (!browser || !Array.isArray(browser.options) || !browser.options.length) return;
+    const open = !this.data.contextBrowserPickerOpen;
+    haptics.tick ? haptics.tick() : haptics.vibrate();
+    this.setData({
+      contextBrowserPickerOpen: open,
+      contextBrowserPickerTarget: open
+        ? (this.data.contextModalOpen ? 'ctxModalBrowserOption' : 'ctxBrowserOption') + browser.selectedIndex
+        : ''
+    });
+  },
+
+  closeContextBrowserPicker() {
+    if (this.data.contextBrowserPickerOpen) {
+      this.setData({ contextBrowserPickerOpen: false, contextBrowserPickerTarget: '' });
+    }
+  },
+
+  /** Select a request from the custom browser dropdown. */
   contextBrowserPick(e) {
     const browser = (this.data.contextPanel && this.data.contextPanel.browser) || null;
-    const index = Number(e && e.detail ? e.detail.value : NaN);
+    const dataset = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset : {};
+    const index = Number(dataset.index !== undefined ? dataset.index : (e && e.detail ? e.detail.value : NaN));
     if (!browser || !browser.options || !Number.isFinite(index) || index < 0 || index >= browser.options.length) return;
     const option = browser.options[index];
     if (!option || option.seq === undefined) return;
@@ -2723,7 +2758,7 @@ Page({
   openContextModal() {
     if (!this.data.contextPanel || this.data.contextPanel.status === 'loading') return;
     haptics.tick ? haptics.tick() : haptics.vibrate();
-    this.setData({ contextModalOpen: true, showJump: false, ctxModalDragStyle: '' });
+    this.setData({ contextModalOpen: true, contextBrowserPickerOpen: false, contextBrowserPickerTarget: '', showJump: false, ctxModalDragStyle: '' });
   },
 
   /**
@@ -2764,7 +2799,7 @@ Page({
     const reusable = this.data.contextPanel && this.data.contextPanel.status === 'ready'
       && dashboard && dashboard.value;
     if (reusable) {
-      this.setData({ contextModalOpen: true, showJump: false });
+      this.setData({ contextModalOpen: true, contextBrowserPickerOpen: false, contextBrowserPickerTarget: '', showJump: false });
     } else {
       this._contextPanelCache = null;
       const fallback = contextView.buildPanel(null, {
@@ -2772,7 +2807,7 @@ Page({
         connected: !!(store.state && store.state.connection === 'connected'),
         hasSession: !!(store.sessionState && store.sessionState.sessionId)
       });
-      this.setData({ contextModalOpen: true, showJump: false, contextPanel: fallback });
+      this.setData({ contextModalOpen: true, contextBrowserPickerOpen: false, contextBrowserPickerTarget: '', showJump: false, contextPanel: fallback });
     }
     if (store.refreshContextDashboard) store.refreshContextDashboard(true);
   },
@@ -2780,7 +2815,7 @@ Page({
   closeContextModal() {
     this.clearContextModalDrag();
     if (!this.data.contextModalOpen) return;
-    this.setData({ contextModalOpen: false, ctxModalDragStyle: '' });
+    this.setData({ contextModalOpen: false, contextBrowserPickerOpen: false, contextBrowserPickerTarget: '', ctxModalDragStyle: '' });
   },
 
   clearContextModalDrag() {

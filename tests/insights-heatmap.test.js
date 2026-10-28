@@ -46,3 +46,9 @@ test('month text cannot widen a heatmap week column', () => {
   assert.match(wxss, /\.ins-heat-week\s*\{[^}]*width:\s*38rpx[^}]*grid-template-columns:\s*38rpx/,
     'wide week columns keep the same fixed grid track');
 });
+
+test('heatmap metric switch keeps its outlined segmented frame on a transparent background', () => {
+  const wxss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/insights/insights.wxss'), 'utf8');
+  assert.match(wxss, /\.ins-heat-card \.ins-seg\s*\{[^}]*border:\s*1rpx solid var\(--border\)[^}]*border-radius:\s*12rpx[^}]*background:\s*transparent/);
+  assert.match(wxss, /\.ins-heat-card \.ins-seg \.ins-mini-chip\.on\s*\{[^}]*background:\s*var\(--text\)/);
+});

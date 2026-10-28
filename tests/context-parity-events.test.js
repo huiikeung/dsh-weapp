@@ -43,10 +43,10 @@ test('five fixed chips in plugin order, only inject/compact/prune carry whole-se
   assert.deepEqual(events.filters.map(filter => filter.label), ['注入', '压缩', '剪枝', '模型', '模式']);
   assert.ok(events.filters.every(filter => filter.active), 'all five are selected by default');
   assert.equal(events.allSelected, true);
-  // chips UI: gran-style container + kind tint only when selected.
-  assert.match(wxss, /\.ctx-event-chips\s*\{[^}]*background:\s*var\(--fill\)/);
-  assert.match(wxss, /\.ctx-event-chip\.active\.ctx-kind-inject\s*\{[^}]*rgba\(34,\s*197,\s*94,\s*\.15\)/);
-  assert.match(wxss, /\.ctx-event-chip\.active\.ctx-kind-prune\s*\{[^}]*rgba\(142,\s*81,\s*255,\s*\.15\)/);
+  // Chips stay transparent; the selected kind is shown by its outline and text tint.
+  assert.match(wxss, /\.ctx-event-chip\s*\{[^}]*border:\s*1rpx solid var\(--border\)[^}]*background:\s*transparent/);
+  assert.match(wxss, /\.ctx-event-chip\.active\.ctx-kind-inject\s*\{[^}]*border-color:\s*rgba\(34,\s*197,\s*94,\s*\.55\)/);
+  assert.match(wxss, /\.ctx-event-chip\.active\.ctx-kind-prune\s*\{[^}]*border-color:\s*rgba\(142,\s*81,\s*255,\s*\.55\)/);
   assert.match(wxml, /ctx-event-chip \{\{item\.active \? 'active ctx-kind-' \+ item\.key : ''\}\}/);
 });
 

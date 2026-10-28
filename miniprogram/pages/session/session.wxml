@@ -394,7 +394,7 @@
 <view wx:if="{{contextPanel && contextPanel.status !== 'loading'}}" class="context-modal-open" bindtap="openContextModal" hover-class="press-dim" role="button" aria-label="{{ui['打开上下文弹窗']}}"><image class="context-toolbar-ic" src="/assets/icons/{{theme === 'dark' ? 'dsh-context-dark.svg' : 'dsh-context.svg'}}" mode="aspectFit"/></view>
 <view wx:if="{{contextPanel && contextPanel.status !== 'loading'}}" class="context-modal-open" bindtap="openContextInsights" hover-class="press-dim" role="button" aria-label="{{ui['上下文洞察']}}"><image class="context-toolbar-ic" src="/assets/icons/{{theme === 'dark' ? 'insight-white.svg' : 'insight-ink.svg'}}" mode="aspectFit"/></view>
 </view>
-<scroll-view class="context-scroll" scroll-y enhanced show-scrollbar="{{false}}" bindscroll="contextPanelScroll" scroll-into-view="{{contextScrollTarget}}" scroll-with-animation>
+<scroll-view class="context-scroll" scroll-y enhanced show-scrollbar="{{false}}" catchtap="closeContextBrowserPicker" bindscroll="contextPanelScroll" scroll-into-view="{{contextScrollTarget}}" scroll-with-animation>
 <view id="ctxTop" class="ctx-top-anchor" aria-hidden="true"/>
 <view wx:if="{{!contextPanel || contextPanel.status === 'loading'}}" class="context-state">
 <view class="state-spinner"></view>
@@ -735,11 +735,14 @@
 <view wx:if="{{contextPanel.browser.empty}}" class="ctx-empty">{{ui['暂无请求记录']}}</view>
 <block wx:else>
 <view class="ctx-br-nav">
-<view class="ctx-browser-step {{contextPanel.browser.canPrev ? '' : 'disabled'}}" bindtap="contextBrowserStep" data-step="-1" hover-class="press-dim" role="button">‹ {{ui['上一步']}}</view>
-<picker class="ctx-browser-picker" range="{{contextPanel.browser.options}}" range-key="label" value="{{contextPanel.browser.selectedIndex}}" bindchange="contextBrowserPick">
-<view class="ctx-browser-picker-value">{{contextPanel.browser.selectedLabel}}<text class="ctx-browser-caret">▾</text></view>
-</picker>
-<view class="ctx-browser-step {{contextPanel.browser.canNext ? '' : 'disabled'}}" bindtap="contextBrowserStep" data-step="1" hover-class="press-dim" role="button">{{ui['下一步']}} ›</view>
+<view class="ctx-browser-step {{contextPanel.browser.canPrev ? '' : 'disabled'}}" bindtap="contextBrowserStep" data-step="-1" hover-class="press-dim" role="button"><view class="ctx-browser-step-arrow left" aria-hidden="true"/><text>{{ui['上一步']}}</text></view>
+<view class="ctx-browser-picker {{contextBrowserPickerOpen && !contextModalOpen ? 'open' : ''}}">
+<view class="ctx-browser-picker-value" catchtap="contextBrowserPickerToggle" hover-class="press-dim" role="button" aria-haspopup="listbox" aria-expanded="{{contextBrowserPickerOpen && !contextModalOpen}}"><text class="ctx-browser-picker-label">{{contextPanel.browser.selectedLabel}}</text><view class="ctx-browser-caret {{contextBrowserPickerOpen && !contextModalOpen ? 'open' : ''}}" aria-hidden="true"/></view>
+<scroll-view wx:if="{{contextBrowserPickerOpen && !contextModalOpen}}" class="ctx-browser-options" scroll-y enhanced show-scrollbar="{{false}}" scroll-into-view="{{contextBrowserPickerTarget}}" catchtap="noop" role="listbox" aria-label="{{ui['上下文浏览器']}}">
+<view wx:for="{{contextPanel.browser.options}}" wx:for-index="index" wx:key="key" id="ctxBrowserOption{{index}}" class="ctx-browser-option {{index === contextPanel.browser.selectedIndex ? 'selected' : ''}}" catchtap="contextBrowserPick" data-index="{{index}}" hover-class="press-dim" role="option" aria-selected="{{index === contextPanel.browser.selectedIndex}}"><text class="ctx-browser-option-label">{{item.label}}</text><text wx:if="{{index === contextPanel.browser.selectedIndex}}" class="ctx-browser-option-check" aria-hidden="true">✓</text></view>
+</scroll-view>
+</view>
+<view class="ctx-browser-step {{contextPanel.browser.canNext ? '' : 'disabled'}}" bindtap="contextBrowserStep" data-step="1" hover-class="press-dim" role="button"><text>{{ui['下一步']}}</text><view class="ctx-browser-step-arrow right" aria-hidden="true"/></view>
 </view>
 <view class="ctx-br-meta">
 <text><text class="ctx-br-meta-strong">{{contextPanel.browser.selectedSeq === null ? ui['当前 · 下一次请求'] : contextPanel.browser.selectedLabel}}</text><text wx:if="{{contextPanel.browser.timeText}}" class="ctx-br-meta-time"> {{contextPanel.browser.timeText}}</text></text>
@@ -788,7 +791,7 @@
 </view>
 </view>
 <view wx:if="{{!item.nodes.length}}" class="ctx-br-note">{{ui['没有匹配当前过滤条件的行']}}</view>
-<view wx:for="{{item.nodes}}" wx:for-item="node" wx:key="key" class="ctx-br-elem {{node.expanded ? 'on' : ''}} {{contextNodeDetail && contextNodeDetail.seq === node.seq ? 'on' : ''}}" catchtap="contextBrowserNodeTap" data-cat="{{node.cat}}" data-seq="{{node.seq}}" data-name="{{node.chips[0]}}" hover-class="press-dim" role="button">
+<view wx:for="{{item.nodes}}" wx:for-item="node" wx:key="key" class="ctx-br-elem {{node.expanded ? 'on' : ''}} {{contextNodeDetail && contextNodeDetail.seq === node.seq ? 'on' : ''}} {{node.cat === 'tools' ? 'ctx-br-tool-row' : ''}}" catchtap="contextBrowserNodeTap" data-cat="{{node.cat}}" data-seq="{{node.seq}}" data-name="{{node.chips[0]}}" hover-class="press-dim" role="button">
 <view class="ctx-br-elem-row">
 <view wx:if="{{node.error}}" class="ctx-br-errdot"/>
 <view wx:for="{{node.chips}}" wx:for-item="chip" wx:key="*this" class="ctx-br-tag">{{chip}}</view>
@@ -1145,7 +1148,7 @@
 <text class="ctx-modal-title">{{ui['上下文']}}</text>
 <view class="ctx-modal-close" bindtap="closeContextModal" hover-class="press-dim" role="button" aria-label="{{ui['关闭']}}">×</view>
 </view>
-<scroll-view class="ctx-modal-body" scroll-y enhanced show-scrollbar="{{false}}">
+<scroll-view class="ctx-modal-body" scroll-y enhanced show-scrollbar="{{false}}" catchtap="closeContextBrowserPicker">
 <view class="ctx-modal-card">
 <view class="ctx-card-head">
 <text class="ctx-card-title">{{ui['当前上下文']}}</text>
@@ -1189,11 +1192,14 @@
 <view wx:if="{{contextPanel.browser.empty}}" class="ctx-empty">{{ui['暂无请求记录']}}</view>
 <block wx:else>
 <view class="ctx-br-nav">
-<view class="ctx-browser-step {{contextPanel.browser.canPrev ? '' : 'disabled'}}" bindtap="contextBrowserStep" data-step="-1" hover-class="press-dim" role="button">‹ {{ui['上一步']}}</view>
-<picker class="ctx-browser-picker" range="{{contextPanel.browser.options}}" range-key="label" value="{{contextPanel.browser.selectedIndex}}" bindchange="contextBrowserPick">
-<view class="ctx-browser-picker-value">{{contextPanel.browser.selectedLabel}}<text class="ctx-browser-caret">▾</text></view>
-</picker>
-<view class="ctx-browser-step {{contextPanel.browser.canNext ? '' : 'disabled'}}" bindtap="contextBrowserStep" data-step="1" hover-class="press-dim" role="button">{{ui['下一步']}} ›</view>
+<view class="ctx-browser-step {{contextPanel.browser.canPrev ? '' : 'disabled'}}" bindtap="contextBrowserStep" data-step="-1" hover-class="press-dim" role="button"><view class="ctx-browser-step-arrow left" aria-hidden="true"/><text>{{ui['上一步']}}</text></view>
+<view class="ctx-browser-picker {{contextBrowserPickerOpen && contextModalOpen ? 'open' : ''}}">
+<view class="ctx-browser-picker-value" catchtap="contextBrowserPickerToggle" hover-class="press-dim" role="button" aria-haspopup="listbox" aria-expanded="{{contextBrowserPickerOpen && contextModalOpen}}"><text class="ctx-browser-picker-label">{{contextPanel.browser.selectedLabel}}</text><view class="ctx-browser-caret {{contextBrowserPickerOpen && contextModalOpen ? 'open' : ''}}" aria-hidden="true"/></view>
+<scroll-view wx:if="{{contextBrowserPickerOpen && contextModalOpen}}" class="ctx-browser-options" scroll-y enhanced show-scrollbar="{{false}}" scroll-into-view="{{contextBrowserPickerTarget}}" catchtap="noop" role="listbox" aria-label="{{ui['上下文浏览器']}}">
+<view wx:for="{{contextPanel.browser.options}}" wx:for-index="index" wx:key="key" id="ctxModalBrowserOption{{index}}" class="ctx-browser-option {{index === contextPanel.browser.selectedIndex ? 'selected' : ''}}" catchtap="contextBrowserPick" data-index="{{index}}" hover-class="press-dim" role="option" aria-selected="{{index === contextPanel.browser.selectedIndex}}"><text class="ctx-browser-option-label">{{item.label}}</text><text wx:if="{{index === contextPanel.browser.selectedIndex}}" class="ctx-browser-option-check" aria-hidden="true">✓</text></view>
+</scroll-view>
+</view>
+<view class="ctx-browser-step {{contextPanel.browser.canNext ? '' : 'disabled'}}" bindtap="contextBrowserStep" data-step="1" hover-class="press-dim" role="button"><text>{{ui['下一步']}}</text><view class="ctx-browser-step-arrow right" aria-hidden="true"/></view>
 </view>
 <view class="ctx-br-meta">
 <text class="ctx-br-meta-strong">{{contextPanel.browser.selectedSeq === null ? ui['当前 · 下一次请求'] : contextPanel.browser.selectedLabel}}</text>

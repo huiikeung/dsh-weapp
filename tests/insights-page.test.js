@@ -155,6 +155,18 @@ test('insights header settings button opens the context panel group', () => {
   assert.deepEqual(wxCalls.navigate, ['/pages/settings/settings?panel=context']);
 });
 
+test('insights page header and date range controls use transparent outlined buttons', () => {
+  const wxss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/insights/insights.wxss'), 'utf8');
+  assert.match(wxss, /\.ins-balance\s*\{[^}]*background:\s*transparent[^}]*border:\s*1rpx solid var\(--border\)/);
+  assert.match(wxss, /\.ins-head-btn\s*\{[^}]*background:\s*transparent[^}]*border:\s*1rpx solid var\(--border\)/);
+  assert.match(wxss, /\.ins-ranges\s*\{[^}]*gap:\s*6rpx[^}]*overflow-x:\s*auto/);
+  assert.match(wxss, /\.ins-range\s*\{[^}]*border:\s*1rpx solid var\(--border\)[^}]*background:\s*transparent/);
+  assert.match(wxss, /\.ins-range\.on\s*\{[^}]*border-color:\s*var\(--border-strong\)[^}]*background:\s*transparent/);
+  assert.match(wxss, /\.ins-custom-range\.is-active\s*\{[^}]*border-color:\s*var\(--border-strong\)[^}]*background:\s*transparent/);
+  assert.match(wxss, /\.ins-date-picker\s*\{[^}]*border:\s*1rpx solid var\(--border\)[^}]*background:\s*transparent/);
+  assert.match(wxss, /\.ins-clear-range\s*\{[^}]*border:\s*1rpx solid var\(--border\)[^}]*background:\s*transparent/);
+});
+
 test('ring legend taps focus one slice and tap again releases it', () => {
   const { page } = fixture({});
   page.toggleRingFocus({ currentTarget: { dataset: { key: 'tools' } } });
