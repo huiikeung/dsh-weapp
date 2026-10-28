@@ -620,7 +620,12 @@ test('trajectory summary metrics switch focus modes and timeline selection follo
   assert.match(css, /\.trace-node-dot\.request\s*\{[^}]*transform:\s*translateY\(50%\);/,
     'request dot centers sit directly on each event-row separator');
   assert.match(css, /\.trace-turn-line\s*\{[^}]*top:\s*0;/, 'each round begins below its separator');
-  assert.match(css, /\.trace-turn-label\s*\{[^}]*margin-top:\s*8rpx;/, 'the round label sits below its separator');
+  assert.match(css, /\.trace-turn-label\s*\{[^}]*margin-top:\s*6rpx;[^}]*margin-left:\s*-10rpx;/,
+    'the round label sits below its separator and leans left of the content edge');
+  assert.match(css, /\.trace-turn-line\s*\{[^}]*background:\s*var\(--trace-line\);/,
+    'the round separator uses the faintest ledger line');
+  assert.ok(!css.includes('.trace-overview { flex-shrink: 0; padding: 20rpx 36rpx 16rpx; background: var(--fill); border-bottom'),
+    'the overview no longer draws a second separator where the round line already sits');
   assert.match(xml, /<view wx:if="\{\{item\.request\}\}" class="trace-dot-hit" catchtap="openTraceRequest"/,
     'request dots remain individually clickable');
   assert.ok(xml.includes('catchtouchmove="onTraceTimelineTouchMove"'), 'timeline dragging moves the vertical cursor');

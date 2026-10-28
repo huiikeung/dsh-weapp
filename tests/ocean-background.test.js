@@ -22,7 +22,7 @@ function bufferedFixture(platform = 'ios') {
     load(slot, id) { component.onFrameLoad({ currentTarget: { dataset: { slot, frameId: id } } }); },
     error(slot, id) { component.onFrameError({ currentTarget: { dataset: { slot, frameId: id } } }); } };
 }
-test('iOS keeps fallback until decoding and never rewrites the visible frame', () => {
+test('iOS waits for decoding and never rewrites the visible frame', () => {
   const f = bufferedFixture(), c = f.component;
   assert.equal(c.data.buffered, true); assert.equal(c.data.ready, false);
   assert.equal(c.data.frontSlot, ''); assert.ok(c.data.frameA);
@@ -46,7 +46,7 @@ test('decode failure retains the last complete image and stops animation', () =>
   assert.equal(c.data.failed, true); assert.equal(c._renderer, null); assert.equal(f.frames.size, 0);
   f.load('b', c.data.frameBId); assert.equal(c.data.frontSlot, 'a');
   const initial = bufferedFixture(); initial.error('a', initial.component.data.frameAId);
-  assert.equal(initial.component.data.ready, false, 'fallback remains visible on first-image failure');
+  assert.equal(initial.component.data.ready, false, 'the first frame stays unready after an image failure');
 });
 test('every platform animates; only the preference turns the ocean static', () => {
   // 安卓/鸿蒙/开发工具不再按平台静态化（实测华为性能足够，用户要求与 iPhone 一致）。
@@ -65,7 +65,7 @@ test('every platform animates; only the preference turns the ocean static', () =
     assert.equal(canvasCreations, 1, platform + ': the renderer is created like on iOS');
     assert.equal(component.data.staticMode, false, platform + ': not forced static');
   }
-  // 关掉「首页动画」（reducedMotion）时才走静态兜底，且不建 WebGL。
+  // 关掉「首页动画」（reducedMotion）时不建 WebGL。
   let definition, canvasCreations = 0;
   vm.runInNewContext(read('components/ocean-background/ocean-background.js'), {
     Component: value => { definition = value; },
@@ -75,7 +75,7 @@ test('every platform animates; only the preference turns the ocean static', () =
   });
   const off = { ...definition.methods, data: { ...definition.data, active: true, reducedMotion: true }, setData(patch) { Object.assign(this.data, patch); } };
   definition.lifetimes.ready.call(off);
-  assert.equal(off.data.staticMode, true, 'animation disabled -> static fallback');
+  assert.equal(off.data.staticMode, true, 'animation disabled -> static mode');
   assert.equal(canvasCreations, 0);
 });
 
@@ -119,8 +119,11 @@ test('ocean playback cancels on hide, resumes without jump and releases on detac
   definition.lifetimes.detached.call(component); assert.equal(draws.at(-1), 'disposed'); assert.equal(component._renderer, null);
 });
 test('home uses offscreen rendering and ordinary images without native canvas covering content', () => {
-  assert.doesNotMatch(read('components/ocean-background/ocean-background.wxml'), /<canvas/);
-  assert.match(read('components/ocean-background/ocean-background.wxml'), /src="{{frameImage}}"/);
+  const template = read('components/ocean-background/ocean-background.wxml');
+  assert.doesNotMatch(template, /<canvas|ocean-fallback/);
+  assert.match(template, /src="{{frameImage}}"/);
+  assert.match(read('components/ocean-background/ocean-background.wxss'), /\.ocean-background \{[^}]*background: linear-gradient\(180deg, #1D3A6B 0%, #17315B 38%, #0D2044 68%, #07182b 100%\)/);
+  assert.match(read('pages/home/home.wxss'), /\.home-deep-bg \{[^}]*background: linear-gradient\(180deg, #1D3A6B 0%, #17315B 38%, #0D2044 68%, #07182b 100%\)/);
   assert.match(read('components/ocean-background/ocean-background.js'), /createOffscreenCanvas/);
   assert.match(read('components/ocean-background/ocean-background.wxss'), /prefers-reduced-motion/);
   assert.match(read('components/ocean-background/ocean-background.wxss'), /ocean-settle 24s/);
@@ -128,44 +131,35 @@ test('home uses offscreen rendering and ordinary images without native canvas co
   assert.doesNotMatch(read('pages/home/home.js'), /stopWhaleAnimation|startWhaleAnimation/);
 });
 
-test('the first ocean frame is scheduled after the home page has painted', () => {
-  let definition; const timers = new Map(); let timerId = 0; let renders = 0; const frames = new Map(), serial = { n: 0 };
+test('home controls get a render turn before ocean WebGL initialization', () => {
+  let definition, startRendering; let renders = 0; const frames = new Map(), serial = { n: 0 };
   const canvas = { toDataURL: () => 'data:image/jpeg;base64,pending-' + renders,
     requestAnimationFrame(fn) { frames.set(++serial.n, fn); return serial.n; }, cancelAnimationFrame(id) { frames.delete(id); } };
   vm.runInNewContext(read('components/ocean-background/ocean-background.js'), {
     Component: value => { definition = value; }, Date,
-    setTimeout: (fn, delay) => { timers.set(++timerId, { fn, delay }); return timerId; },
-    clearTimeout: id => timers.delete(id),
-    wx: { getWindowInfo: () => ({ pixelRatio: 3 }), getDeviceInfo: () => ({ platform: 'windows' }), createOffscreenCanvas: () => canvas },
+    wx: { nextTick(fn) { startRendering = fn; }, getWindowInfo: () => ({ pixelRatio: 3 }), getDeviceInfo: () => ({ platform: 'windows' }), createOffscreenCanvas: () => canvas },
     require: () => ({ createOceanRenderer: () => ({ draw() { renders++; }, dispose() {}, resize() {} }) })
   });
   const component = { ...definition.methods, data: { ...definition.data, active: true, reducedMotion: false },
     setData(patch) { Object.assign(this.data, patch); },
     createSelectorQuery() { return { select() { return this; }, boundingClientRect() { return this; }, exec(fn) { fn([{ width: 390, height: 844 }]); } }; } };
   definition.lifetimes.ready.call(component);
-  assert.equal(renders, 0, 'no WebGL context or frame on the entry frame');
-  assert.equal(component.data.frameImage, '', 'the static fallback is shown first');
-  assert.equal(component.data.ready, false);
-
-  // 150ms 后再初始化，再等 120ms 出首帧。
-  const init = timers.get(1); timers.delete(1);
-  assert.equal(init.delay, 150);
-  init.fn();
-  assert.equal(renders, 0, 'still nothing drawn synchronously during init');
-  const firstFrame = [...timers.entries()].find(([, timer]) => timer.delay === 120);
-  assert.ok(firstFrame, 'the first frame is deferred by another 120ms');
-  timers.delete(firstFrame[0]);
-  firstFrame[1].fn();
+  assert.equal(renders, 0, 'shader compilation does not block the initial home render');
+  assert.equal(component.data.frameImage, '');
+  startRendering();
   assert.equal(renders, 1);
-  assert.ok(component.data.frameImage, 'the frame lands after the page has painted');
+  assert.ok(component.data.frameImage, 'the first frame is drawn on the next view tick');
+  assert.equal(component.data.ready, true);
 
-  // 卸载要清掉还没触发的初始化定时器，避免已销毁组件继续建 canvas。
+  // A pending layout query is invalidated when the component detaches.
   const pending = { ...definition.methods, data: { ...definition.data, active: true }, setData() {},
     createSelectorQuery() { return { select() { return this; }, boundingClientRect() { return this; }, exec() {} }; } };
   definition.lifetimes.ready.call(pending);
-  assert.equal(timers.size > 0, true);
+  assert.equal(pending._initRequest, undefined, 'pending initialization has not started before nextTick');
+  startRendering();
+  assert.ok(pending._initRequest);
   definition.lifetimes.detached.call(pending);
-  assert.equal([...timers.values()].some(timer => timer.delay === 150), false, 'the init timer is cleared on detach');
+  assert.equal(pending._initRequest, null);
 });
 
 test('re-enabling the animation leaves static mode and creates the renderer', () => {
@@ -207,49 +201,45 @@ test('non-iOS waits for the previous image transfer before drawing and encoding 
 function deferredFixture() {
   let definition, serial = 0, loads = 0, renders = 0;
   const timers = new Map(), frames = new Map();
+  const canvas = { toDataURL: () => 'data:image/jpeg;base64,x',
+    requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },
+    cancelAnimationFrame(id) { frames.delete(id); } };
   vm.runInNewContext(read('components/ocean-background/ocean-background.js'), {
     Component: value => { definition = value; }, Date,
     setTimeout(fn, delay) { timers.set(++serial, { fn, delay }); return serial; },
     clearTimeout(id) { timers.delete(id); },
     wx: { getDeviceInfo: () => ({ platform: 'ohos' }), getWindowInfo: () => ({ pixelRatio: 2 }),
-      createOffscreenCanvas: () => ({ toDataURL: () => 'data:image/jpeg;base64,x',
-        requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },
-        cancelAnimationFrame(id) { frames.delete(id); } }) },
+      createOffscreenCanvas: () => canvas },
     require() { loads++; return { createOceanRenderer: () => ({ draw() { renders++; }, dispose() {} }) }; }
   });
   const c = { ...definition.methods, data: { ...definition.data, active: true, reducedMotion: false },
     setData(patch, cb) { Object.assign(this.data, patch); if (cb) cb(); },
     createSelectorQuery() { return { select() { return this; }, boundingClientRect() { return this; },
       exec(fn) { fn([{ width: 390, height: 844 }]); } }; } };
-  return { c, definition, timers, frames, loads: () => loads, renders: () => renders,
+  return { c, definition, timers, frames, canvas, loads: () => loads, renders: () => renders,
     run(delay) { const [id, timer] = [...timers].find(([, value]) => value.delay === delay); timers.delete(id); timer.fn(); return timer.fn; } };
 }
 
-test('hide cancels initialization and show resumes deferred renderer loading', () => {
+test('hiding stops playback and showing resumes the renderer', () => {
   const f = deferredFixture();
   f.definition.lifetimes.ready.call(f.c);
-  assert.equal(f.loads(), 0, 'particle data and shaders are not required on the entry frame');
+  assert.equal(f.loads(), 1, 'renderer initialization starts immediately');
+  assert.equal(f.renders(), 1, 'the first frame is drawn before ready returns');
   f.definition.pageLifetimes.hide.call(f.c);
-  assert.equal(f.timers.size, 0);
+  assert.equal(f.frames.size, 0);
   f.definition.pageLifetimes.show.call(f.c);
-  f.run(150);
-  assert.equal(f.loads(), 1);
-  const staleStart = [...f.timers.values()][0].fn;
   f.definition.pageLifetimes.hide.call(f.c);
-  assert.equal(f.timers.size, 0);
-  staleStart();
-  assert.equal(f.renders(), 0, 'a hidden page cannot encode the delayed first frame');
+  assert.equal(f.frames.size, 0, 'a hidden page stops its animation loop');
   f.definition.pageLifetimes.show.call(f.c);
   const tick = f.frames.values().next().value; f.frames.clear(); tick();
-  assert.equal(f.renders(), 1, 'returning to the page resumes animation');
-  assert.equal(f.c.data.ready, true, 'the resumed first frame replaces the fallback');
+  assert.equal(f.renders(), 2, 'returning to the page resumes animation');
+  assert.equal(f.c.data.ready, true, 'the resumed first frame becomes visible');
 });
 
-test('deferred first-frame failures fall back instead of escaping the timer', () => {
+test('deferred first-frame failures are caught and stop animation', () => {
   const f = deferredFixture();
-  f.definition.lifetimes.ready.call(f.c); f.run(150);
-  f.c._canvas.toDataURL = () => { throw new Error('encoding failed'); };
-  assert.doesNotThrow(() => f.run(120));
+  f.canvas.toDataURL = () => { throw new Error('encoding failed'); };
+  assert.doesNotThrow(() => f.definition.lifetimes.ready.call(f.c));
   assert.equal(f.c.data.failed, true);
   assert.equal(f.c._renderer, null);
   assert.equal(f.frames.size, 0);

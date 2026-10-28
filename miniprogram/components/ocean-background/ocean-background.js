@@ -14,13 +14,12 @@ Component({
         this.setData({ staticMode: true });
         return;
       }
-      // 首页首屏优先：WebGL 上下文创建、着色器编译、首帧编码都挪到首屏渲染之后，
-      // 先把静态兜底显示出来。没有 setTimeout 的环境（测试沙箱/兼容）保持同步。
-      this.scheduleInitialize();
+      // Let the home controls paint with the shared base gradient before compiling WebGL.
+      if (typeof wx.nextTick === 'function') wx.nextTick(() => this.initialize());
+      else this.initialize();
     },
     detached() {
       this._disposed = true;
-      if (this._initTimer != null && typeof clearTimeout === 'function') { clearTimeout(this._initTimer); this._initTimer = null; }
       this.pause(); this.release();
     }
   },
@@ -30,12 +29,6 @@ Component({
     resize() { this.resizeCanvas(); }
   },
   methods: {
-    scheduleInitialize() {
-      if (this._disposed || !this._visible || !this.data.active || this.data.reducedMotion || this._renderer || this._initRequest || this._initTimer != null) return;
-      if (typeof setTimeout === 'function') {
-        this._initTimer = setTimeout(() => { this._initTimer = null; this.initialize(); }, 150);
-      } else this.initialize();
-    },
     initialize() {
       if (this._disposed || !this._visible || !this.data.active || this.data.reducedMotion || this._renderer || this._initRequest) return;
       const request = this._initRequest = {};
@@ -55,11 +48,8 @@ Component({
           this._canvas = wx.createOffscreenCanvas({ type: 'webgl', width: field.width, height: field.height });
           const { createOceanRenderer } = require('../../utils/ocean-renderer');
           this._renderer = createOceanRenderer(this._canvas, field.width, field.height, this._pixelRatio);
-          // 首帧要 toDataURL（GPU 回读 + JPEG 编码），手机上要几十毫秒；首页一进来就做，
-          // 推迟 120ms 再出第一帧，先显示静态兜底。
-          // 没有 setTimeout 的运行环境（单元测试沙箱）保持同步，行为不变。
+          // Draw the first frame as soon as the renderer is ready.
           const start = () => {
-            this._startTimer = null;
             if (this._disposed || !this._visible || !this.data.active || !this._renderer) return;
             try {
               this.draw(this._elapsed || 0);
@@ -68,7 +58,7 @@ Component({
               this.syncPlayback();
             } catch (e) { this.onCanvasError(); }
           };
-          if (typeof setTimeout === 'function') this._startTimer = setTimeout(start, 120); else start();
+          start();
         } catch (e) { this.onCanvasError(); }
       });
     },
@@ -79,10 +69,10 @@ Component({
         // 「首页动画」被重新打开：退出静态模式并按需创建渲染器。
         this._staticMode = false;
         this.setData({ staticMode: false });
-        this.scheduleInitialize();
+        this.initialize();
         return;
       }
-      if (!this._renderer) { if (!this.data.failed) this.scheduleInitialize(); return; }
+      if (!this._renderer) { if (!this.data.failed) this.initialize(); return; }
       // 关掉「首页动画」：画一帧静态图就停，不进入动画循环。
       if (this.data.reducedMotion) { this.draw(0); return; }
       this._lastTick = Date.now(); this._lastPaint = 0;
@@ -101,10 +91,6 @@ Component({
       if (this._renderer) this._raf = this._canvas.requestAnimationFrame(() => this.tick());
     },
     pause() {
-      for (const key of ['_initTimer', '_startTimer']) {
-        if (this[key] != null && typeof clearTimeout === 'function') clearTimeout(this[key]);
-        this[key] = null;
-      }
       this._initRequest = null;
       if (this._raf != null && this._canvas) this._canvas.cancelAnimationFrame(this._raf);
       this._raf = null;

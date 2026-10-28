@@ -7,6 +7,7 @@
   flex-direction: column;
   overflow: hidden;
   --trace-row-bg: var(--bg);
+  --trace-line: rgba(16, 19, 24, 0.06);
   --trace-tint-user: rgba(46, 107, 230, 0.10);
   --trace-tint-assistant: rgba(122, 84, 199, 0.10);
   --trace-tint-tool: rgba(240, 125, 20, 0.10);
@@ -17,7 +18,7 @@
 .trajectory-panel .trajectory { height: 0; flex: 1; padding: 0 36rpx calc(24rpx + env(safe-area-inset-bottom)); }
 
 /* ---------- 时间概览（对齐客户端 TrajectoryTimeline：底色绘图区 + 悬浮条） ---------- */
-.trace-overview { flex-shrink: 0; padding: 20rpx 36rpx 16rpx; background: var(--fill); border-bottom: 1rpx solid var(--divider); }
+.trace-overview { flex-shrink: 0; padding: 20rpx 36rpx 16rpx; background: var(--fill); }
 .trace-overview-head { display: flex; align-items: center; gap: 16rpx; font-size: 22rpx; color: var(--text-3); margin-bottom: 12rpx; white-space: nowrap; }
 .trace-overview-head-label { display: flex; align-items: center; gap: 8rpx; flex-shrink: 0; color: var(--text-2); }
 .trace-overview-clock, .trace-overview-metric-icon { width: 28rpx; height: 28rpx; flex: 0 0 28rpx; display: block; }
@@ -42,10 +43,10 @@
 .trace-overview-bar.selected { z-index: 2; box-shadow: 0 0 0 4rpx var(--surface), 0 0 0 8rpx var(--ocean); }
 .trace-overview-axis { display: flex; justify-content: space-between; color: var(--text-4); font-size: 20rpx; margin-top: 10rpx; font-variant-numeric: tabular-nums; }
 
-/* ---------- 轮次分隔（轮次标题位于浅色细线下方） ---------- */
-.trajectory-panel .trace-turn { position: relative; height: 60rpx; flex: 0 0 60rpx; display: flex; align-items: flex-start; margin: 0; padding: 0; box-sizing: border-box; }
-.trace-turn-line { position: absolute; left: 0; right: 0; top: 0; height: 1rpx; background: var(--divider); }
-.trace-turn-label { position: relative; margin-top: 8rpx; font-size: 20rpx; line-height: 1; color: var(--text-3); border-radius: 8rpx; padding: 6rpx 0; font-variant-numeric: tabular-nums; }
+/* ---------- 轮次分隔（标签位于细线下方并向左探出；细线比行分隔线更细更淡） ---------- */
+.trajectory-panel .trace-turn { position: relative; height: 48rpx; flex: 0 0 48rpx; display: flex; align-items: flex-start; margin: 0; padding: 0; box-sizing: border-box; }
+.trace-turn-line { position: absolute; left: 0; right: 0; top: 0; height: 1rpx; background: var(--trace-line); }
+.trace-turn-label { position: relative; margin-top: 6rpx; margin-left: -10rpx; font-size: 20rpx; line-height: 1; white-space: nowrap; color: var(--text-3); font-variant-numeric: tabular-nums; }
 
 /* ---------- 记录行（每行浅细分隔线，请求圆点落在线上） ---------- */
 .trace-native-row { position: relative; display: flex; align-items: stretch; height: 80rpx; min-height: 80rpx; flex: 0 0 80rpx; padding: 0 10rpx 0 0; border-radius: 12rpx; box-sizing: border-box; transition: background-color 120ms ease, opacity 160ms ease; }
@@ -75,6 +76,7 @@
 
 /* ---------- 深色主题：提高淡色底对比 ---------- */
 .theme-dark .trajectory-panel {
+  --trace-line: rgba(255, 255, 255, 0.07);
   --trace-tint-user: rgba(46, 107, 230, 0.20);
   --trace-tint-assistant: rgba(122, 84, 199, 0.20);
   --trace-tint-tool: rgba(240, 125, 20, 0.18);

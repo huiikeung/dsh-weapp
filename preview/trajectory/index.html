@@ -5,24 +5,10 @@
 <title>轨迹页预览 · dsh 客户端 ledger 对齐</title>
 <style>
   body { margin: 0; padding: 24px; background: #E5E5EA; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
-  .row { display: flex; gap: 32px; align-items: flex-start; }
   h1 { font-size: 15px; color: #3a3f4a; margin: 0 0 14px; font-weight: 600; }
+  .row { display: flex; gap: 32px; align-items: flex-start; }
   .caption { text-align: center; font: 11px/1.4 -apple-system; color: #6b7280; padding: 10px 0 0; }
-
-  :root {
-    --bg: #FFFFFF; --surface: #FFFFFF; --fill: rgba(16,19,24,.05); --fill-2: rgba(16,19,24,.07);
-    --border: rgba(16,19,24,.10); --border-strong: rgba(16,19,24,.16); --divider: rgba(16,19,24,.08);
-    --text: #10131A; --text-2: rgba(16,19,24,.62); --text-3: rgba(16,19,24,.55); --text-4: rgba(16,19,24,.45);
-    --ocean: #2E6BE6; --purple: #7A54C7; --orange: #F07D14;
-  }
-  .theme-dark {
-    --bg: #000000; --surface: #1C1C1E; --fill: rgba(255,255,255,.06); --fill-2: rgba(255,255,255,.10);
-    --border: rgba(255,255,255,.10); --border-strong: rgba(255,255,255,.16); --divider: rgba(255,255,255,.08);
-    --text: #F1F4FA; --text-2: rgba(241,244,250,.62); --text-3: rgba(241,244,250,.55); --text-4: rgba(241,244,250,.45);
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif; background: #E5E5EA; }
-  .phone { width: 375px; margin: 12px auto; background: var(--bg); color: var(--text); border-radius: 28px; overflow: hidden; box-shadow: 0 12px 40px rgba(7,24,43,.18); }
+  .phone { width: 375px; background: var(--bg); color: var(--text); border-radius: 28px; overflow: hidden; box-shadow: 0 12px 40px rgba(7,24,43,.18); }
   .navbar { display: flex; align-items: center; padding: 4px 12px; }
   .nav-back { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: rgba(255,255,255,.9); border: 1px solid rgba(0,0,0,.08); font-size: 15px; color: #101318; }
   .nav-title { flex: 1; text-align: center; font-size: 14px; font-weight: 600; }
@@ -30,341 +16,370 @@
   .segmented { display: flex; flex: 1; border-radius: 14px; padding: 1.5px; background: var(--fill-2); }
   .segment { flex: 1; text-align: center; padding: 5px 0; border-radius: 12.5px; font-size: 12px; color: var(--text-2); }
   .segment.active { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 .5px 2px rgba(0,0,0,.12); }
+:root {
+  --bg: #FFFFFF; --surface: #FFFFFF; --fill: rgba(16,19,24,.05); --fill-2: rgba(16,19,24,.07);
+  --border: rgba(16,19,24,.10); --border-strong: rgba(16,19,24,.16); --divider: rgba(16,19,24,.08);
+  --text: #10131A; --text-2: rgba(16,19,24,.62); --text-3: rgba(16,19,24,.55); --text-4: rgba(16,19,24,.45);
+  --ocean: #2E6BE6; --purple: #7A54C7; --orange: #F07D14;
+}
+.theme-dark {
+  --bg: #000000; --surface: #1C1C1E; --fill: rgba(255,255,255,.06); --fill-2: rgba(255,255,255,.10);
+  --border: rgba(255,255,255,.10); --border-strong: rgba(255,255,255,.16); --divider: rgba(255,255,255,.08);
+  --text: #F1F4FA; --text-2: rgba(241,244,250,.62); --text-3: rgba(241,244,250,.55); --text-4: rgba(241,244,250,.45);
+}
 
-  /* ===== trajectory.wxss (rpx/2 → px) ===== */
-  .trajectory-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden;
-    --trace-row-bg: var(--bg);
-    --trace-tint-user: rgba(46,107,230,.10); --trace-tint-assistant: rgba(122,84,199,.10);
-    --trace-tint-tool: rgba(240,125,20,.10); --trace-tint-subtool: rgba(240,125,20,.07);
-    --trace-tint-context: rgba(64,166,111,.10); --trace-tint-select: rgba(46,107,230,.10); }
-  .trajectory { height: 420px; overflow-y: auto; padding: 0 18px 12px; }
-  .trace-overview { flex-shrink: 0; padding: 10px 18px 8px; background: var(--fill); border-bottom: 1px solid var(--divider); }
-  .trace-overview-head { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-3); margin-bottom: 6px; white-space: nowrap; }
-  .trace-overview-head-label { display: flex; align-items: center; gap: 4px; flex-shrink: 0; color: var(--text-2); }
-  .trace-overview-clock { width: 14px; height: 14px; flex: 0 0 14px; display: block; }
-  .trace-overview-head text { font-variant-numeric: tabular-nums; }
-  .trace-overview-stat { display: flex; align-items: center; gap: 3px; flex-shrink: 0; color: var(--text-3); cursor: pointer; }
-  .trace-overview-duration { display: flex; align-items: center; margin-left: auto; font-weight: 600; color: var(--text); cursor: pointer; }
-  .trace-metric-hit { min-height: 22px; padding: 0 2px; margin: -4px -2px; border-radius: 4px; cursor: pointer; }
-  .trace-metric-pressed { opacity: .58; }
-  .trace-overview-lane { display: flex; align-items: center; height: 20px; gap: 7px; }
-  .trace-overview-label { width: 28px; flex-shrink: 0; color: var(--text-3); font-size: 10px; text-align: right; }
-  .trace-overview-track { position: relative; flex: 1; height: 20px; }
-  .trace-overview-bar { position: absolute; top: 6px; height: 8px; min-width: 3px; border-radius: 2px; background: var(--text-3); cursor: pointer; }
-  .trace-overview-bar::after { content: ''; position: absolute; inset: -6px -4px; }
-  .trace-overview-bar.user { background: var(--ocean); }
-  .trace-overview-bar.assistant { background: linear-gradient(90deg, rgba(122,84,199,.45), var(--purple)); }
-  .trace-overview-bar.context { background: #40a66f; }
-  .trace-overview-bar.tool, .trace-overview-bar.subtool { background: var(--orange); }
-  .trace-overview-bar.error { background: #e5484d; }
-  .trace-overview-bar.selected { z-index: 2; box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ocean); }
-  .trace-overview-axis { display: flex; justify-content: space-between; color: var(--text-4); font-size: 10px; margin-top: 5px; font-variant-numeric: tabular-nums; }
-  .trace-native-row { cursor: pointer; border-radius: 6px; transition: background-color 120ms ease; }
-  .trace-native-row:hover { background: var(--trace-tint-select); }
 
-  .trace-turn { position: relative; height: 30px; display: flex; align-items: center; margin: 0; padding: 0; }
-  .trace-turn-line { position: absolute; left: 0; right: 0; top: 50%; height: 1px; margin-top: -.5px; background: var(--divider); }
-  .trace-turn-label { position: relative; font-size: 10px; line-height: 1; color: var(--text-3); background: var(--bg); border-radius: 4px; padding: 3px 7px; font-variant-numeric: tabular-nums; }
+.trajectory-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  --trace-row-bg: var(--bg);
+  --trace-line: rgba(16, 19, 24, 0.06);
+  --trace-tint-user: rgba(46, 107, 230, 0.10);
+  --trace-tint-assistant: rgba(122, 84, 199, 0.10);
+  --trace-tint-tool: rgba(240, 125, 20, 0.10);
+  --trace-tint-subtool: rgba(240, 125, 20, 0.07);
+  --trace-tint-context: rgba(64, 166, 111, 0.10);
+  --trace-tint-select: rgba(46, 107, 230, 0.10);
+}
+.trajectory-panel .trajectory { height: 0; flex: 1; padding: 0 18px calc(12px + 0px); }
 
-  .trace-native-row { position: relative; display: flex; align-items: stretch; min-height: 40px; padding: 0 2px 0 0; }
-  .trace-native-row.highlighted, .trace-native-row.selected { background: var(--trace-tint-select); --trace-row-bg: var(--trace-tint-select); }
-  .trace-spine { position: relative; width: 24px; flex-shrink: 0; display: flex; align-items: stretch; flex-direction: column; }
-  .trace-dot-hit { position: relative; z-index: 1; width: 24px; height: 100%; min-height: 40px; display: flex; justify-content: center; align-items: center; flex-shrink: 0; }
-  .trace-node-dot.request { box-sizing: border-box; width: 9px; height: 9px; border-radius: 50%; border: 2px solid var(--trace-row-bg); background: var(--text-3); }
-  .trace-node-dot.request.active { background: rgba(46,107,230,.28); border-color: var(--ocean); }
-  .trace-node-dot.request.error { background: rgba(229,72,77,.28); border-color: #e5484d; }
-  .trace-spine-line { position: absolute; left: 50%; top: 0; bottom: 0; width: 1px; transform: translateX(-50%); background: var(--divider); }
-  .trace-native-content { display: flex; align-items: center; flex: 1; min-width: 0; gap: 7px; }
-  .trace-native-badge { flex-shrink: 0; font-size: 10px; font-weight: 650; letter-spacing: .5px; padding: 2.5px 6px; border-radius: 4px; line-height: 12px; color: var(--text-2); background: var(--fill-2); }
-  .trace-native-badge.user { color: var(--ocean); background: var(--trace-tint-user); }
-  .trace-native-badge.assistant { color: var(--purple); background: var(--trace-tint-assistant); }
-  .trace-native-badge.tool { color: var(--orange); background: var(--trace-tint-tool); }
-  .trace-native-badge.subtool { color: rgba(240,125,20,.75); background: var(--trace-tint-subtool); }
-  .trace-native-badge.context { color: #40a66f; background: var(--trace-tint-context); }
-  .trace-native-badge.request { color: var(--ocean); background: var(--trace-tint-user); }
-  .trace-native-name { color: var(--text); font-size: 13px; font-weight: 500; max-width: 35%; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .trace-native-preview { flex: 1; min-width: 0; color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .trace-native-seq { color: var(--text-4); font-size: 10px; flex-shrink: 0; font-family: Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
-  .trace-native-chevron { color: var(--text-4); font-size: 14px; flex-shrink: 0; }
-  .theme-dark .trajectory-panel {
-    --trace-tint-user: rgba(46,107,230,.20); --trace-tint-assistant: rgba(122,84,199,.20);
-    --trace-tint-tool: rgba(240,125,20,.18); --trace-tint-subtool: rgba(240,125,20,.12);
-    --trace-tint-context: rgba(64,166,111,.18); --trace-tint-select: rgba(46,107,230,.16); }
-  .caption { text-align: center; font: 11px/1.4 -apple-system; color: #6b7280; padding: 10px 0 14px; }
+
+.trace-overview { flex-shrink: 0; padding: 10px 18px 8px; background: var(--fill); }
+.trace-overview-head { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-3); margin-bottom: 6px; white-space: nowrap; }
+.trace-overview-head-label { display: flex; align-items: center; gap: 4px; flex-shrink: 0; color: var(--text-2); }
+.trace-overview-clock, .trace-overview-metric-icon { width: 14px; height: 14px; flex: 0 0 14px; display: block; }
+.trace-overview-head text { font-variant-numeric: tabular-nums; }
+.trace-overview-stat { display: flex; align-items: center; gap: 3px; flex-shrink: 0; color: var(--text-3); }
+.trace-overview-head-label, .trace-overview-stat { min-height: 20px; box-sizing: border-box; padding: 2.5px 4.5px; border-radius: 5px; transition: background-color 140ms ease; }
+.trace-overview-head-label.active, .trace-overview-stat.active { background: var(--trace-tint-select); }
+.trace-overview-metric-pressed { background: var(--fill-2); }
+.trace-overview-lane { display: flex; align-items: center; height: 20px; gap: 7px; }
+.trace-overview-label { width: 28px; flex-shrink: 0; color: var(--text-3); font-size: 10px; text-align: right; }
+.trace-overview-track { position: relative; flex: 1; height: 20px; touch-action: none; }
+.trace-overview-track::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 0.5px; background: var(--divider); }
+.trace-overview-bar { position: absolute; z-index: 1; top: 6px; height: 8px; min-width: 3px; border-radius: 2px; background: var(--text-3); transition: left 180ms ease, width 180ms ease, opacity 160ms ease; }
+.trace-overview-bar::after { content: ''; position: absolute; inset: -6px -4px; }
+.trace-overview-bar.dimmed { opacity: .16; filter: grayscale(1); }
+.trace-overview-cursor { position: absolute; z-index: 3; top: 0; bottom: 0; width: 1.5px; margin-left: -0.5px; border-radius: 1.5px; background: var(--ocean); box-shadow: 0 0 4px rgba(46, 107, 230, .55); pointer-events: none; }
+.trace-overview-bar.user { background: var(--ocean); }
+.trace-overview-bar.assistant { background: linear-gradient(90deg, rgba(122, 84, 199, 0.45), var(--purple)); }
+.trace-overview-bar.context { background: #40a66f; }
+.trace-overview-bar.tool, .trace-overview-bar.subtool { background: var(--orange); }
+.trace-overview-bar.error { background: #e5484d; }
+.trace-overview-bar.selected { z-index: 2; box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ocean); }
+.trace-overview-axis { display: flex; justify-content: space-between; color: var(--text-4); font-size: 10px; margin-top: 5px; font-variant-numeric: tabular-nums; }
+
+
+.trajectory-panel .trace-turn { position: relative; height: 24px; flex: 0 0 24px; display: flex; align-items: flex-start; margin: 0; padding: 0; box-sizing: border-box; }
+.trace-turn-line { position: absolute; left: 0; right: 0; top: 0; height: 0.5px; background: var(--trace-line); }
+.trace-turn-label { position: relative; margin-top: 3px; margin-left: -5px; font-size: 10px; line-height: 1; white-space: nowrap; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+
+.trace-native-row { position: relative; display: flex; align-items: stretch; height: 40px; min-height: 40px; flex: 0 0 40px; padding: 0 5px 0 0; border-radius: 6px; box-sizing: border-box; transition: background-color 120ms ease, opacity 160ms ease; }
+.trace-native-row::after { content: ''; position: absolute; z-index: 1; left: 0; right: 0; bottom: 0; height: 0.5px; background: var(--divider); pointer-events: none; }
+.trace-native-row.highlighted, .trace-native-row.selected { background: var(--trace-tint-select); --trace-row-bg: var(--trace-tint-select); }
+.trace-native-row.trace-focus-muted, .trace-turn.trace-focus-muted { opacity: .3; filter: grayscale(.9); }
+.trace-row-pressed { background: var(--fill-2); }
+.trace-request-gutter { position: relative; z-index: 2; display: block; width: 24px; flex: 0 0 24px; }
+.trace-dot-hit { position: absolute; left: 0; top: 0; bottom: 0; z-index: 2; width: 24px; display: flex; justify-content: center; align-items: flex-end; }
+.trace-node-dot.request { width: 9px; height: 9px; transform: translateY(50%); border-radius: 50%; box-sizing: border-box; border: 2px solid var(--trace-row-bg); background: var(--text-3); }
+.trace-node-dot.request.active { background: rgba(46, 107, 230, 0.28); border-color: var(--ocean); }
+.trace-node-dot.request.error { background: rgba(229, 72, 77, 0.28); border-color: #e5484d; }
+.trace-native-row.metric-target { background: var(--trace-tint-select); --trace-row-bg: var(--trace-tint-select); }
+.trace-native-content { display: flex; align-items: center; flex: 1; min-width: 0; gap: 7px; }
+.trace-native-badge { flex-shrink: 0; font-size: 10px; font-weight: 650; letter-spacing: 0.5px; padding: 2.5px 6px; border-radius: 4px; line-height: 12px; color: var(--text-2); background: var(--fill-2); }
+.trace-native-badge.user { color: var(--ocean); background: var(--trace-tint-user); }
+.trace-native-badge.assistant { color: var(--purple); background: var(--trace-tint-assistant); }
+.trace-native-badge.tool { color: var(--orange); background: var(--trace-tint-tool); }
+.trace-native-badge.subtool { color: rgba(240, 125, 20, 0.75); background: var(--trace-tint-subtool); }
+.trace-native-badge.context { color: #40a66f; background: var(--trace-tint-context); }
+.trace-native-badge.request { color: var(--ocean); background: var(--trace-tint-user); }
+.trace-native-name { color: var(--text); font-size: 13px; font-weight: 500; max-width: 35%; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trace-native-preview { flex: 1; min-width: 0; color: var(--text-3); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trace-native-seq { color: var(--text-4); font-size: 10px; flex-shrink: 0; font-family: Menlo, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.trace-native-chevron { color: var(--text-4); font-size: 14px; flex-shrink: 0; }
+.trace-window-spacer { display: block; width: 100%; flex: 0 0 auto; pointer-events: none; }
+
+
+.theme-dark .trajectory-panel {
+  --trace-line: rgba(255, 255, 255, 0.07);
+  --trace-tint-user: rgba(46, 107, 230, 0.20);
+  --trace-tint-assistant: rgba(122, 84, 199, 0.20);
+  --trace-tint-tool: rgba(240, 125, 20, 0.18);
+  --trace-tint-subtool: rgba(240, 125, 20, 0.12);
+  --trace-tint-context: rgba(64, 166, 111, 0.18);
+  --trace-tint-select: rgba(46, 107, 230, 0.16);
+}
+
+
+.sheet-mask.trace-inspector-mask { z-index: 1000; align-items: flex-end; }
+.trace-inspector { width: 100%; max-height: 88vh; height: 76vh; display: flex; flex-direction: column; background: var(--surface); color: var(--text); border-radius: 14px 14px 0 0; overflow: hidden; padding-bottom: 0px; box-sizing: border-box; }
+.trace-inspector-handle { height: 4px; width: 36px; background: var(--border-strong); border-radius: 49.5px; margin: 6px auto 4px; flex-shrink: 0; }
+.trace-inspector-head { position: relative; min-height: 40px; display: flex; align-items: center; justify-content: center; gap: 5px; padding: 0 60px; flex-shrink: 0; }
+.trace-inspector-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; background: var(--text-3); }
+.trace-inspector-dot.user, .trace-inspector-dot.request { background: var(--ocean); }
+.trace-inspector-dot.assistant { background: var(--purple); }
+.trace-inspector-dot.tool { background: var(--orange); }
+.trace-inspector-dot.subtool { background: rgba(240, 125, 20, 0.55); }
+.trace-inspector-dot.context { background: #40a66f; }
+.trace-inspector-title { font-size: 16px; font-weight: 600; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.trace-inspector-close { position: absolute; right: 18px; color: var(--ocean); font-size: 15px; padding: 8px 0; }
+.trace-detail-tab-strip { display: flex; flex-shrink: 0; padding: 4px 12px 0; border-bottom: 0.5px solid var(--divider); }
+.trace-detail-tab { position: relative; flex: 1; text-align: center; font-size: 13px; color: var(--text-3); padding: 7px 0 8px; }
+.trace-detail-tab.active { color: var(--ocean); font-weight: 600; }
+.trace-detail-tab.active::after { content: ''; position: absolute; left: 50%; bottom: 0; width: 24px; height: 2px; margin-left: -12px; border-radius: 1px; background: var(--ocean); }
+.trace-inspector-body { height: 0; min-height: 0; flex: 1; }
+.trace-inspector-page { padding: 16px 20px 40px; }
+.trace-detail-field { display: flex; align-items: baseline; gap: 10px; margin-bottom: 9px; font-size: 13px; line-height: 1.5; }
+.trace-detail-field-label { width: 100px; max-width: 45%; flex-shrink: 0; color: var(--text-3); }
+.trace-detail-field-value { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.trace-detail-section { padding: 12px 0; border-top: 0.5px solid var(--divider); }
+.trace-section-title { font-size: 13px; color: var(--text-3); font-weight: 600; margin-bottom: 8px; }
+.trace-thinking-toggle { display: flex; justify-content: space-between; }
+.trace-section-code { display: block; white-space: pre-wrap; overflow-wrap: anywhere; font-family: Menlo, Consolas, monospace; font-size: 12.5px; line-height: 1.65; }
+.trace-inspector-footer { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-3); padding: 11px 18px; border-top: 0.5px solid var(--divider); flex-shrink: 0; }
+.trace-inspector-footer view { color: var(--ocean); }
+
+
+@media (max-width: 360px) {
+  .trace-native-content { gap: 4px; }
+  .trace-native-badge { font-size: 9px; padding-left: 4px; padding-right: 4px; letter-spacing: 0; }
+  .trace-native-name { max-width: 30%; }
+  .trace-overview-head { gap: 5px; }
+  .trace-overview-label { width: 24px; }
+  .trace-detail-field-label { width: 85px; }
+}
 
 </style>
 </head>
 <body>
-<h1>轨迹页 · 对齐 dsh 客户端 TrajectoryTable / TrajectoryTimeline（请求圆点 · 中心脊柱线 · 类型 pill · 网络面板式概览）</h1>
+<h1>轨迹页 · 对齐 dsh 客户端 TrajectoryTable / TrajectoryTimeline（轮次标签在细线下方并向左探出 · 请求圆点落行分隔线 · 类型 pill · 网络面板式概览）</h1>
 <div class="row">
-  <div>
-    <div class="phone">
-  <div class="navbar"><div class="nav-back">‹</div><div class="nav-title">修复轨迹排版</div><div style="width:32px"></div></div>
+  <div class="col col-light"><div class="phone ">
+  <div class="navbar"><div class="nav-back">&#8249;</div><div class="nav-title">修复轨迹排版</div><div style="width:32px"></div></div>
   <div class="segmented-row"><div class="segmented"><div class="segment">对话</div><div class="segment active">轨迹</div><div class="segment">上下文</div></div></div>
   <div class="trajectory-panel">
     <div class="trace-overview">
       <div class="trace-overview-head">
-        <div class="trace-overview-head-label trace-metric-hit" role="button"><svg class="trace-overview-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>时长</span></div>
-        <div class="trace-overview-stat trace-metric-hit" role="button"><span>3</span><span>轮次</span></div>
-        <div class="trace-overview-stat trace-metric-hit" role="button"><span>18</span><span>调用</span></div>
-        <div class="trace-overview-duration trace-metric-hit" role="button">42.86 秒</div>
+        <div class="trace-overview-head-label active"><svg class="trace-overview-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><text>时长</text></div>
+        <div class="trace-overview-stat"><svg class="trace-overview-metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg><text>3</text><text>轮次</text></div>
+        <div class="trace-overview-stat"><svg class="trace-overview-metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 1 0 3 6.7L21 19l-2 2-6.3-6.3"/></svg><text>18</text><text>调用</text></div>
       </div>
       <div class="trace-overview-lane"><text class="trace-overview-label">输入</text>
         <div class="trace-overview-track">
-          <view class="trace-overview-bar user" style="left:0%;width:6%"></view>
+          <div class="trace-overview-bar user" style="left:0%;width:6%"></div>
           <div class="trace-overview-bar user" style="left:34%;width:5%"></div>
           <div class="trace-overview-bar user" style="left:71%;width:6%"></div>
         </div>
       </div>
       <div class="trace-overview-lane"><text class="trace-overview-label">模型</text>
         <div class="trace-overview-track">
-          <div class="trace-overview-bar assistant selected" style="left:6%;width:26%"></div>
+          <div class="trace-overview-bar assistant" style="left:6%;width:26%"></div>
           <div class="trace-overview-bar assistant" style="left:40%;width:29%"></div>
           <div class="trace-overview-bar assistant error" style="left:78%;width:9%"></div>
-          <div class="trace-overview-bar context" style="left:88%;width:5%"></div>
+          <div class="trace-overview-cursor" style="left:52%"></div>
         </div>
       </div>
       <div class="trace-overview-lane"><text class="trace-overview-label">工具</text>
         <div class="trace-overview-track">
           <div class="trace-overview-bar tool" style="left:8%;width:9%"></div>
           <div class="trace-overview-bar tool" style="left:19%;width:12%"></div>
-          <div class="trace-overview-bar subtool" style="left:23%;width:4%"></div>
+          <div class="trace-overview-bar subtool dimmed" style="left:23%;width:4%"></div>
           <div class="trace-overview-bar tool" style="left:43%;width:14%"></div>
           <div class="trace-overview-bar tool error" style="left:59%;width:6%"></div>
           <div class="trace-overview-bar subtool" style="left:66%;width:3%"></div>
+          <div class="trace-overview-bar context" style="left:88%;width:5%"></div>
         </div>
       </div>
       <div class="trace-overview-axis"><text>0 秒</text><text>42.86 秒</text></div>
     </div>
     <div class="trajectory">
-      <div class="trace-turn"><div class="trace-turn-line"></div><text class="trace-turn-label">第 1 轮</text></div>
+      <div class="trace-turn"><text class="trace-turn-label">第 1 轮</text><div class="trace-turn-line"></div></div>
 
       <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
+        <div class="trace-request-gutter"></div>
         <div class="trace-native-content">
           <text class="trace-native-badge user">用户</text>
-          <text class="trace-native-preview">参考 dsh 客户端修一下轨迹页，重点是点和排版</text>
-          <text class="trace-native-seq">#1,024</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-preview">参考 dsh 客户端修一下轨迹页，重点是…</text>
+          <text class="trace-native-seq">#1,024</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
       <div class="trace-native-row selected">
-        <div class="trace-spine"><div class="trace-spine-line"></div><div class="trace-dot-hit"><div class="trace-node-dot request active"></div></div></div>
+        <div class="trace-request-gutter"><div class="trace-dot-hit"><div class="trace-node-dot request active"></div></div></div>
         <div class="trace-native-content">
           <text class="trace-native-badge assistant">助手</text>
-          <text class="trace-native-preview">我先对照客户端的 TrajectoryTable 改记录行…</text>
-          <text class="trace-native-seq">#1,025</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-preview">我先对照客户端的 TrajectoryTable 改…</text>
+          <text class="trace-native-seq">#1,025</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
       <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
+        <div class="trace-request-gutter"></div>
         <div class="trace-native-content">
           <text class="trace-native-badge tool">工具</text>
           <text class="trace-native-name">read</text>
-          <text class="trace-native-preview">{path: "styles/trajectory.wxss"} → 61 lines</text>
-          <text class="trace-native-seq">#1,026</text><text class="trace-native-chevron">›</text>
-        </div>
-      </div>
-
-      <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
-        <div class="trace-native-content">
-          <text class="trace-native-badge subtool">子工具</text>
-          <text class="trace-native-name">stat</text>
-          <text class="trace-native-preview">{path: "styles/"} → directory</text>
-          <text class="trace-native-seq">#1,027</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-preview">{path: "styles/"} → 3 files</text>
+          <text class="trace-native-seq">#1,026</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
       <div class="trace-native-row error">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
+        <div class="trace-request-gutter"><div class="trace-dot-hit"><div class="trace-node-dot request error"></div></div></div>
         <div class="trace-native-content">
           <text class="trace-native-badge tool">工具</text>
           <text class="trace-native-name">bash</text>
           <text class="trace-native-preview">wcc -o out.js → exit code 1</text>
-          <text class="trace-native-seq">#1,028</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-seq">#1,027</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
-      <div class="trace-native-row running">
-        <div class="trace-spine"><div class="trace-spine-line"></div><div class="trace-dot-hit"><div class="trace-node-dot request"></div></div></div>
-        <div class="trace-native-content">
-          <text class="trace-native-badge assistant">助手</text>
-          <text class="trace-native-preview">正在重写 trajectory.wxss…</text>
-          <text class="trace-native-seq">#1,029</text><text class="trace-native-chevron">›</text>
-        </div>
-      </div>
-
-      <div class="trace-turn"><div class="trace-turn-line"></div><text class="trace-turn-label">第 2 轮</text></div>
+      <div class="trace-turn"><text class="trace-turn-label">第 2 轮</text><div class="trace-turn-line"></div></div>
 
       <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
+        <div class="trace-request-gutter"></div>
         <div class="trace-native-content">
           <text class="trace-native-badge user">用户</text>
           <text class="trace-native-preview">深色模式也检查一下</text>
-          <text class="trace-native-seq">#2,048</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-seq">#2,048</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
       <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div><div class="trace-dot-hit"><div class="trace-node-dot request"></div></div></div>
+        <div class="trace-request-gutter"><div class="trace-dot-hit"><div class="trace-node-dot request"></div></div></div>
         <div class="trace-native-content">
           <text class="trace-native-badge assistant">助手</text>
           <text class="trace-native-preview">深色下提高了淡色底与导轨对比…</text>
-          <text class="trace-native-seq">#2,049</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-seq">#2,049</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
       <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
+        <div class="trace-request-gutter"></div>
         <div class="trace-native-content">
           <text class="trace-native-badge context">上下文</text>
           <text class="trace-native-name">tool-addition</text>
           <text class="trace-native-preview">新增 read、bash 两个工具</text>
-          <text class="trace-native-seq">#2,050</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-seq">#2,050</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
     </div>
   </div>
-</div>
-
-    <div class="caption">浅色</div>
-  </div>
-  <div>
-    <div class="phone theme-dark">
-  <div class="navbar"><div class="nav-back">‹</div><div class="nav-title">修复轨迹排版</div><div style="width:32px"></div></div>
+</div><div class="caption">浅色</div></div>
+  <div class="col col-dark"><div class="phone theme-dark">
+  <div class="navbar"><div class="nav-back">&#8249;</div><div class="nav-title">修复轨迹排版</div><div style="width:32px"></div></div>
   <div class="segmented-row"><div class="segmented"><div class="segment">对话</div><div class="segment active">轨迹</div><div class="segment">上下文</div></div></div>
   <div class="trajectory-panel">
     <div class="trace-overview">
       <div class="trace-overview-head">
-        <div class="trace-overview-head-label trace-metric-hit" role="button"><svg class="trace-overview-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>时长</span></div>
-        <div class="trace-overview-stat trace-metric-hit" role="button"><span>3</span><span>轮次</span></div>
-        <div class="trace-overview-stat trace-metric-hit" role="button"><span>18</span><span>调用</span></div>
-        <div class="trace-overview-duration trace-metric-hit" role="button">42.86 秒</div>
+        <div class="trace-overview-head-label active"><svg class="trace-overview-clock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><text>时长</text></div>
+        <div class="trace-overview-stat"><svg class="trace-overview-metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg><text>3</text><text>轮次</text></div>
+        <div class="trace-overview-stat"><svg class="trace-overview-metric-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a4 4 0 1 0 3 6.7L21 19l-2 2-6.3-6.3"/></svg><text>18</text><text>调用</text></div>
       </div>
       <div class="trace-overview-lane"><text class="trace-overview-label">输入</text>
         <div class="trace-overview-track">
-          <view class="trace-overview-bar user" style="left:0%;width:6%"></view>
+          <div class="trace-overview-bar user" style="left:0%;width:6%"></div>
           <div class="trace-overview-bar user" style="left:34%;width:5%"></div>
           <div class="trace-overview-bar user" style="left:71%;width:6%"></div>
         </div>
       </div>
       <div class="trace-overview-lane"><text class="trace-overview-label">模型</text>
         <div class="trace-overview-track">
-          <div class="trace-overview-bar assistant selected" style="left:6%;width:26%"></div>
+          <div class="trace-overview-bar assistant" style="left:6%;width:26%"></div>
           <div class="trace-overview-bar assistant" style="left:40%;width:29%"></div>
           <div class="trace-overview-bar assistant error" style="left:78%;width:9%"></div>
-          <div class="trace-overview-bar context" style="left:88%;width:5%"></div>
+          <div class="trace-overview-cursor" style="left:52%"></div>
         </div>
       </div>
       <div class="trace-overview-lane"><text class="trace-overview-label">工具</text>
         <div class="trace-overview-track">
           <div class="trace-overview-bar tool" style="left:8%;width:9%"></div>
           <div class="trace-overview-bar tool" style="left:19%;width:12%"></div>
-          <div class="trace-overview-bar subtool" style="left:23%;width:4%"></div>
+          <div class="trace-overview-bar subtool dimmed" style="left:23%;width:4%"></div>
           <div class="trace-overview-bar tool" style="left:43%;width:14%"></div>
           <div class="trace-overview-bar tool error" style="left:59%;width:6%"></div>
           <div class="trace-overview-bar subtool" style="left:66%;width:3%"></div>
+          <div class="trace-overview-bar context" style="left:88%;width:5%"></div>
         </div>
       </div>
       <div class="trace-overview-axis"><text>0 秒</text><text>42.86 秒</text></div>
     </div>
     <div class="trajectory">
-      <div class="trace-turn"><div class="trace-turn-line"></div><text class="trace-turn-label">第 1 轮</text></div>
+      <div class="trace-turn"><text class="trace-turn-label">第 1 轮</text><div class="trace-turn-line"></div></div>
 
       <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
+        <div class="trace-request-gutter"></div>
         <div class="trace-native-content">
           <text class="trace-native-badge user">用户</text>
-          <text class="trace-native-preview">参考 dsh 客户端修一下轨迹页，重点是点和排版</text>
-          <text class="trace-native-seq">#1,024</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-preview">参考 dsh 客户端修一下轨迹页，重点是…</text>
+          <text class="trace-native-seq">#1,024</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
       <div class="trace-native-row selected">
-        <div class="trace-spine"><div class="trace-spine-line"></div><div class="trace-dot-hit"><div class="trace-node-dot request active"></div></div></div>
+        <div class="trace-request-gutter"><div class="trace-dot-hit"><div class="trace-node-dot request active"></div></div></div>
         <div class="trace-native-content">
           <text class="trace-native-badge assistant">助手</text>
-          <text class="trace-native-preview">我先对照客户端的 TrajectoryTable 改记录行…</text>
-          <text class="trace-native-seq">#1,025</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-preview">我先对照客户端的 TrajectoryTable 改…</text>
+          <text class="trace-native-seq">#1,025</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
       <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
+        <div class="trace-request-gutter"></div>
         <div class="trace-native-content">
           <text class="trace-native-badge tool">工具</text>
           <text class="trace-native-name">read</text>
-          <text class="trace-native-preview">{path: "styles/trajectory.wxss"} → 61 lines</text>
-          <text class="trace-native-seq">#1,026</text><text class="trace-native-chevron">›</text>
-        </div>
-      </div>
-
-      <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
-        <div class="trace-native-content">
-          <text class="trace-native-badge subtool">子工具</text>
-          <text class="trace-native-name">stat</text>
-          <text class="trace-native-preview">{path: "styles/"} → directory</text>
-          <text class="trace-native-seq">#1,027</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-preview">{path: "styles/"} → 3 files</text>
+          <text class="trace-native-seq">#1,026</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
       <div class="trace-native-row error">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
+        <div class="trace-request-gutter"><div class="trace-dot-hit"><div class="trace-node-dot request error"></div></div></div>
         <div class="trace-native-content">
           <text class="trace-native-badge tool">工具</text>
           <text class="trace-native-name">bash</text>
           <text class="trace-native-preview">wcc -o out.js → exit code 1</text>
-          <text class="trace-native-seq">#1,028</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-seq">#1,027</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
-      <div class="trace-native-row running">
-        <div class="trace-spine"><div class="trace-spine-line"></div><div class="trace-dot-hit"><div class="trace-node-dot request"></div></div></div>
-        <div class="trace-native-content">
-          <text class="trace-native-badge assistant">助手</text>
-          <text class="trace-native-preview">正在重写 trajectory.wxss…</text>
-          <text class="trace-native-seq">#1,029</text><text class="trace-native-chevron">›</text>
-        </div>
-      </div>
-
-      <div class="trace-turn"><div class="trace-turn-line"></div><text class="trace-turn-label">第 2 轮</text></div>
+      <div class="trace-turn"><text class="trace-turn-label">第 2 轮</text><div class="trace-turn-line"></div></div>
 
       <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
+        <div class="trace-request-gutter"></div>
         <div class="trace-native-content">
           <text class="trace-native-badge user">用户</text>
           <text class="trace-native-preview">深色模式也检查一下</text>
-          <text class="trace-native-seq">#2,048</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-seq">#2,048</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
       <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div><div class="trace-dot-hit"><div class="trace-node-dot request"></div></div></div>
+        <div class="trace-request-gutter"><div class="trace-dot-hit"><div class="trace-node-dot request"></div></div></div>
         <div class="trace-native-content">
           <text class="trace-native-badge assistant">助手</text>
           <text class="trace-native-preview">深色下提高了淡色底与导轨对比…</text>
-          <text class="trace-native-seq">#2,049</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-seq">#2,049</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
 
       <div class="trace-native-row">
-        <div class="trace-spine"><div class="trace-spine-line"></div></div>
+        <div class="trace-request-gutter"></div>
         <div class="trace-native-content">
           <text class="trace-native-badge context">上下文</text>
           <text class="trace-native-name">tool-addition</text>
           <text class="trace-native-preview">新增 read、bash 两个工具</text>
-          <text class="trace-native-seq">#2,050</text><text class="trace-native-chevron">›</text>
+          <text class="trace-native-seq">#2,050</text><text class="trace-native-chevron">&#8250;</text>
         </div>
       </div>
     </div>
   </div>
-</div>
-
-    <div class="caption">深色</div>
-  </div>
+</div><div class="caption">深色</div></div>
 </div>
 </body>
 </html>
