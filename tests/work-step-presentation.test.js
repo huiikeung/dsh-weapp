@@ -146,6 +146,43 @@ test('active work sits below narration and obeys completion collapse settings',(
  const verboseFolds=policy.apply(done,{mode:'verbose',timing:'completion'},folds,live,false);
  assert.equal(verboseFolds[turnEntry.key],true,'verbose never collapses a completed turn');
 });
+test('compact strips count suffixes from group headings while standard keeps them',()=>{
+ for(const [mode,expected] of [['compact',''],['standard','2 次工具调用 · 1 项上下文']]){
+  const rows=[group({summary:'2 次工具调用 · 1 项上下文'})];
+  policy.apply(rows,{mode},{},[],true);
+  assert.equal(rows[0].summary,expected,mode+' heading summary');
+ }
+ // 失败回合的工作汇总文案不是计数，保留
+ const failed=[group({running:false,failed:true,summary:'已读取文件，修改了文件'})];
+ policy.apply(failed,{mode:'compact'},{},[],true);
+ assert.equal(failed[0].summary,'已读取文件，修改了文件');
+});
+
+test('compact keeps one live status line and folds settled group headings while running',()=>{
+ const running=[group({turnRunning:true}),group({key:'g2',turnRunning:true,running:false,completed:false})];
+ policy.apply(running,{mode:'compact'},{},[],true);
+ assert.equal(running[0].headingHidden,false,'the active group keeps its line');
+ assert.equal(running[1].headingHidden,true,'settled group headings fold away during the run');
+ // 标准/详细不收标题
+ for(const mode of ['standard','detailed']){
+  const rows=[group({turnRunning:true}),group({key:'g2',turnRunning:true,running:false})];
+  policy.apply(rows,{mode},{},[],true);
+  assert.ok(rows.every(row=>!row.headingHidden),mode+' keeps every heading');
+ }
+ // 回合收工后标题回来
+ const done=[group({running:false,turnRunning:false,completed:true})];
+ policy.apply(done,{mode:'compact'},{},[],true);
+ assert.equal(done[0].headingHidden,false,'settled turns show their headings again');
+});
+
+test('compact group headings show in full instead of ellipsis',()=>{
+ for(const mode of ['compact','standard','detailed','verbose']){
+  const rows=[group({title:'已读取文件，已搜索代码，修改了文件，执行了命令等'})];
+  policy.apply(rows,{mode},{},[],true);
+  assert.equal(rows[0].titleWrap,mode==='compact',mode+' titleWrap');
+ }
+});
+
 test('settings persistence validates modes and leaves failed writes visible to caller',()=>{
  let stored;global.wx={getStorageSync:()=>stored,setStorageSync:(key,v)=>{assert.equal(key,policy.KEY);stored=v;}};
  try{assert.deepEqual(policy.read(),{mode:'detailed',timing:'completion'});policy.save({mode:'verbose',timing:'next-input'});assert.equal(policy.read().mode,'verbose');assert.equal(policy.view(policy.read()).workStepTimingLabel,'下次有新消息时');wx.setStorageSync=()=>{throw Error('full')};assert.throws(()=>policy.save({mode:'compact'}));}finally{delete global.wx;}

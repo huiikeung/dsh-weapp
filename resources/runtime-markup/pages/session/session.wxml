@@ -183,7 +183,7 @@
       <!-- 每个过程组折叠成一个标题：组体默认整块收起（processBodyVisible），点组头才
            展开；「完全展开」模式永远展开。过程文字已独立成行，收起组体不藏叙述。 -->
       <view wx:elif="{{item.kind === 'processGroup'}}" class="process-block {{item.running ? 'running' : ''}}" id="{{item.key}}">
-<view class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
+<view wx:if="{{!item.headingHidden}}" class="process-head" hover-class="{{item.expandable ? 'tool-head-hover' : 'none'}}" hover-start-time="0" hover-stay-time="200" bindtap="toggleFold" data-key="{{item.key}}">
           <view class="command-icon-slot {{folds[item.key] ? 'disclosed' : ''}}" aria-hidden="true">
             <view wx:if="{{item.running && !item.completed}}" class="proc-loader proc-look-{{procIconStyle}}">
               <template is="procIconGlyph" data="{{styleId: procIconStyle}}" />
@@ -193,7 +193,7 @@
             <image wx:if="{{!item.running}}" class="process-command-icon command-tool-icon" src="/assets/icons/{{theme === 'dark' ? item.darkIconFile : item.iconFile}}" mode="aspectFit"/>
             <image wx:if="{{!item.running}}" class="command-chevron {{folds[item.key] ? 'open' : ''}}" src="/assets/icons/chev-right-gray.png"/>
           </view>
-          <text class="process-title {{item.failed ? 'failed' : ''}}">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</text>
+          <text class="process-title {{item.failed ? 'failed' : ''}} {{item.titleWrap ? 'title-wrap' : ''}}">{{ui[item.title] !== undefined ? ui[item.title] : item.title}}</text>
           <text wx:if="{{item.liveDetail}}" class="process-live-detail">· {{item.liveDetail}}</text>
           <text wx:elif="{{item.summary}}" class="process-summary">{{ui[item.summary] !== undefined ? ui[item.summary] : item.summary}}</text>
           <view class="event-spacer"></view>

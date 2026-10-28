@@ -1181,7 +1181,15 @@ Page({
     // 全量行另存一份，toggleFold 翻 folds 时靠它重算可见行（否则点了要等下一次
     // 同步才补上，空闲时就干脆点不开）。
     this._allConversationRows = rows;
-    const visibleRows = rows.filter(row => !row.turnProcessKey || processFolds[row.turnProcessKey]);
+    // 简洁模式运行中：只留活动组那一行「正在xxxx」——独立成行的过程文字也一起收起来，
+    // 回合收工后随「已完成」disclosure 回来（默认折叠，点开才见）。
+    const compactLive = workPrefs.mode === 'compact' && processRunning;
+    this._compactLiveNarration = compactLive;
+    const visibleRows = rows.filter(row => {
+      if (row.turnProcessKey && !processFolds[row.turnProcessKey]) return false;
+      if (compactLive && row.processNarration === true) return false;
+      return true;
+    });
 
     // 顶部标题：实时标题优先；其次回查会话列表（直连打开/列表迟到时）；
     const listed = (app.sessions || []).find((x) => x.sessionId === s.sessionId) || null;
@@ -4704,7 +4712,11 @@ Page({
     if ((this._allConversationRows || []).some(row => row.kind === 'turnProcess' && row.key === key)) {
       const folds = Object.assign({}, this.data.folds);
       folds[key] = next;
-      const visible = (this._allConversationRows || []).filter(row => !row.turnProcessKey || folds[row.turnProcessKey]);
+      const visible = (this._allConversationRows || []).filter(row => {
+        if (row.turnProcessKey && !folds[row.turnProcessKey]) return false;
+        if (this._compactLiveNarration && row.processNarration === true) return false;
+        return true;
+      });
       Object.assign(patch, this.conversationWindowPatch(visible));
     }
     this.setData(patch, () => this.measureConversationWindow());

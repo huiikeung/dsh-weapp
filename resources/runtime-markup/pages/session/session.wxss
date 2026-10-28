@@ -1323,6 +1323,15 @@ to{transform:translateX(340%)}
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 简洁模式：组标题显示完全，长标题换行而不是省略号 */
+.process-title.title-wrap {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  overflow-wrap: anywhere;
+  flex: 1 1 auto;
+  max-width: none;
+}
 .process-command-icon {
   width: 28rpx;
   height: 28rpx;

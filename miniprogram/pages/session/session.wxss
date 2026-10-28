@@ -1258,6 +1258,14 @@ overflow: hidden;
 text-overflow: ellipsis;
 white-space: nowrap;
 }
+.process-title.title-wrap {
+white-space: normal;
+overflow: visible;
+text-overflow: clip;
+overflow-wrap: anywhere;
+flex: 1 1 auto;
+max-width: none;
+}
 .process-command-icon {
 width: 28rpx;
 height: 28rpx;

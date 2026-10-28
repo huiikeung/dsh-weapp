@@ -214,6 +214,45 @@ test('a running process body follows its tail and pauses when the reader scrolls
   assert.equal(follow(), '', 'a settled group stops following');
 });
 
+test('compact mode keeps a single live status line and folds the process text away', () => {
+  const previousWx = global.wx;
+  global.wx = { getStorageSync: (key) => key === 'workStepPresentation' ? { mode: 'compact', timing: 'completion' } : '' };
+  try {
+    const f = fixture();
+    f.store.sessionState.rows = [
+      { kind: 'user', key: 'u', text: '任务' },
+      { kind: 'assistant', key: 'a1', turn: 1, reasoning: '想一下', text: '先检查文件。',
+        tools: [{ callId: 'c1', key: 't1', name: 'read', status: 'done', argumentsText: '{}' }], settled: true },
+      { kind: 'assistant', key: 'a2', turn: 1, text: '正在修改。',
+        tools: [{ callId: 'c2', key: 't2', name: 'edit', status: 'running', argumentsText: '{}' }] }
+    ];
+    f.sync();
+    const groups = f.page.data.rows.filter(row => row.kind === 'processGroup');
+    const narrations = f.page.data.rows.filter(row => row.kind === 'assistant');
+    assert.equal(groups.length, 2, 'both groups are still projected');
+    assert.equal(groups[0].headingHidden, true, 'the settled group heading folds away');
+    assert.equal(groups[1].headingHidden, false, 'only the active group keeps its line');
+    assert.ok(/^正在/.test(groups[1].title), groups[1].title);
+    assert.equal(groups[1].summary, '', 'compact headings carry no tool count');
+    assert.equal(groups[1].processBodyVisible, false, 'the process stays folded until tapped');
+    assert.deepEqual(narrations.map(row => row.text), [],
+      '过程文字全部收起，运行中只留一行状态');
+    // 收工后叙述与各组标题回来（在默认折叠的「已完成」disclosure 里）
+    f.store.sessionState.rows[1].tools[0].status = 'done';
+    f.store.sessionState.rows[2].tools[0].status = 'done';
+    f.store.sessionState.rows.push({ kind: 'assistant', key: 'a3', turn: 1, text: '完成', turnClosed: true, turnEndReason: 'completed' });
+    f.store.sessionState.running = false;
+    f.sync();
+    assert.equal(f.page._compactLiveNarration, false);
+    assert.ok(f.page.data.rows.some(row => row.kind === 'assistant' && row.text === '完成'));
+    const settled = f.page._allConversationRows.filter(row => row.kind === 'processGroup');
+    assert.ok(settled.every(row => row.headingHidden === false), 'settled group headings come back');
+    assert.ok(settled.every(row => !/次工具调用/.test(row.summary || '')), 'and still carry no tool count');
+  } finally {
+    global.wx = previousWx;
+  }
+});
+
 test('completion does not reparse or resend historical Markdown', () => {
   const f = fixture(); f.sync(); f.reset();
   assert.equal(f.page.data.rows.find(row => row.key === 'current').copyText, '');

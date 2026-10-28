@@ -115,6 +115,19 @@ test('independent narration rows keep a tight rhythm under the collapsed group h
   }
 });
 
+test('compact group headings wrap instead of truncating with an ellipsis', () => {
+  for (const [name, markup] of [['source', xml], ['runtime', runtimeXml]]) {
+    assert.match(markup, /class="process-title \{\{item\.failed \? 'failed' : ''\}\} \{\{item\.titleWrap \? 'title-wrap' : ''\}\}"/,
+      name + ' tags wrappable titles');
+  }
+  for (const base of ['../miniprogram/pages/session/session.wxss', '../resources/runtime-markup/pages/session/session.wxss']) {
+    const sheet = fs.readFileSync(path.resolve(__dirname, base), 'utf8');
+    assert.match(sheet, /\.process-title\.title-wrap\s*\{[^}]*white-space:\s*normal/, base + ' wraps the title');
+    assert.match(sheet, /\.process-title\.title-wrap\s*\{[^}]*max-width:\s*none/, base + ' takes the full row width');
+    assert.doesNotMatch(sheet, /\.process-title\.title-wrap\s*\{[^}]*text-overflow:\s*ellipsis/);
+  }
+});
+
 test('turn-process disclosure is disabled in verbose and always-open outcomes', () => {
   const process = xml.slice(xml.indexOf("item.kind === 'turnProcess'"), xml.indexOf("item.kind === 'processGroup'"));
   assert.match(process, /bindtap="toggleFold"/);
@@ -128,7 +141,7 @@ test('completed turn summaries switch from duration to tool count and keep one h
   assert.match(turn, /item\.summary \|\| item\.expandedSummary/);
   assert.match(turn, /folds\[item\.key\] && item\.expandedSummary \? item\.expandedSummary/);
   const group = xml.slice(xml.indexOf("item.kind === 'processGroup'"), xml.indexOf('class="turn-error-card"'));
-  assert.match(group, /<view class="process-head"/);
+  assert.match(group, /<view wx:if="\{\{!item\.headingHidden\}\}" class="process-head"/);
   assert.doesNotMatch(group, /turnGroupHeadingHidden/);
 });
 

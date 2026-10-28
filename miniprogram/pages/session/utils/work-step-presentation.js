@@ -47,6 +47,14 @@ function view(value) {
   };
 }
 
+/** 「N 次工具调用 / N 项上下文」这类纯计数后缀（简洁档组标题不挂）。 */
+function isCountPart(part, suffix) {
+  if (!suffix || part.length <= suffix.length) return false;
+  if (part.slice(part.length - suffix.length) !== suffix) return false;
+  const head = part.slice(0, part.length - suffix.length).trim();
+  return head.length > 0 && /^[0-9]+$/.test(head);
+}
+
 function apply(entries, value, manual, previous, reset) {
   const prefs = normalize(value);
   const modePolicy = MODE_POLICY[prefs.mode];
@@ -103,6 +111,15 @@ function apply(entries, value, manual, previous, reset) {
     // 定高滚动容器；收起时组体不挂载，限高值无所谓，沿用原有口径。
     entry.processBodyCapped = (!grouped || expanded) ? capWhenOpen : entry.processBodyCapWhenCollapsed;
     entry.liveDetail = modePolicy.liveProcessDetail && entry.running ? entry.activityDetail || '' : '';
+    // 简洁模式：组标题不带「N 次工具调用 / N 项上下文」这类计数后缀——标题本身已经
+    // 按子内容命名（已读取文件，已搜索代码），再挂计数在简洁档里只剩噪音。
+    // 标准档同样恒分组，但计数对它是有信息量的，保留。
+    if (prefs.mode === 'compact') {
+      const counts = [uiText(' 次工具调用'), uiText(' 项上下文')];
+      entry.summary = (entry.summary || '').split(' · ')
+        .filter(part => part.trim() && !counts.some(suffix => isCountPart(part.trim(), suffix)))
+        .join(' · ');
+    }
     // 每个过程组折叠成一个标题：组体在 grouped 且未展开时整块收起，点组头才展开
     // （对齐桌面端 ChatGroupSeat 的 grouped && !open）。compact/standard 永远 grouped；
     // detailed 是 history 分组——对话过程中（回合未收工）不分组、过程照常展开，回合
@@ -110,6 +127,12 @@ function apply(entries, value, manual, previous, reset) {
     // 过程文字已独立成行，收起组体不会连带藏掉叙述。
     entry.processGrouped = grouped;
     entry.processBodyVisible = !grouped || expanded;
+    // 简洁模式运行中：只留活动组那一行「正在xxxx」，已收工组的标题也收起来；
+    // 过程默认不显示，点活动组标题才展开。回合收工后（turnRunning=false）标题回来。
+    entry.headingHidden = prefs.mode === 'compact' && processRunning && entry.running !== true;
+    // 简洁模式：组标题显示完全——计数后缀去掉后标题本身就是全部信息，长标题换行
+    // 而不是省略号（否则「已读取文件，已搜索代码，修改了文件…」看不全）。
+    entry.titleWrap = prefs.mode === 'compact';
 
     (entry.children || []).forEach(child => {
       if (child.kind !== 'reasoning') return;
