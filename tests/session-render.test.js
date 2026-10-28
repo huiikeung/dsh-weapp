@@ -390,6 +390,64 @@ test('the first page show preserves the anchor supplied with its first conversat
   assert.equal(anchors, 0, 'the first show must not schedule a second post-paint correction');
   assert.equal(f.page.data.scrollTarget, 'conv-bottom');
 });
+test('initial tail anchor recovers after layout if the first scroll-into-view was missed', () => {
+  const f = fixture(); f.sync();
+  while (f.ticks.length) f.ticks.shift()();
+  f.page.data.scrollTarget = '';
+  f.page._convPinned = false; // An early scroll measurement can mistake the initial top for reader intent.
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  f.page.updateDockInset = () => {};
+  f.page.measureConversationViewport = () => {};
+  f.page.startScrollPolling = () => {};
+
+  f.page.onReady();
+  assert.equal(f.ticks.length, 1, 'recovery waits until the page has completed its first render');
+  f.ticks.shift()();
+  assert.equal(f.page._convPinned, true, 'an un-touched initial viewport is restored to follow mode');
+  assert.equal(f.ticks.length, 1, 'the target is reapplied after clearing the stale initial anchor');
+  f.ticks.shift()();
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom');
+});
+test('initial tail recovery never overrides a manual scroll before the retry', () => {
+  const f = fixture(); f.sync();
+  while (f.ticks.length) f.ticks.shift()();
+  f.page.data.scrollTarget = '';
+  f.page._convPinned = false;
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  f.page.updateDockInset = () => {};
+  f.page.measureConversationViewport = () => {};
+  f.page.startScrollPolling = () => {};
+
+  f.page.onReady();
+  f.page.onConvTouch();
+  f.ticks.shift()();
+  assert.equal(f.page.data.scrollTarget, '', 'a touch cancels recovery and keeps the reader-owned position');
+  assert.equal(f.page._convPinned, false);
+  assert.equal(f.ticks.length, 0);
+});
+test('history arriving after page ready still gets an initial bottom-anchor recovery', () => {
+  const f = fixture();
+  f.store.sessionState.rows = [];
+  f.store.sessionState.running = false;
+  f.store.sessionState.historyState = 'loading';
+  f.sync();
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  f.page.updateDockInset = () => {};
+  f.page.measureConversationViewport = () => {};
+  f.page.startScrollPolling = () => {};
+  f.page.onReady();
+
+  f.store.sessionState.rows = [{ kind: 'assistant', key: 'latest', text: '最新回复' }];
+  f.store.sessionState.historyState = 'loaded:1ev';
+  f.sync();
+  f.page.data.scrollTarget = '';
+  f.page._convPinned = false;
+  assert.equal(f.ticks.length, 1, 'late rows schedule a post-render recovery once they mount');
+  f.ticks.shift()();
+  assert.equal(f.page._convPinned, true);
+  f.ticks.shift()();
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom');
+});
 test('reentering a conversation remounts the latest virtual window before anchoring', () => {
   const f = fixture(); f.sync();
   f.page._convPinned = false;

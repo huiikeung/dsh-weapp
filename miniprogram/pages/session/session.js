@@ -333,6 +333,10 @@ Page({
     theme.applyTo(this);
     this._initialConversationAnchorPending = true;
     this._initialConversationAnchorApplied = false;
+    this._initialConversationAnchorRecoveryPending = false;
+    this._initialConversationAnchorRecoveryScheduled = false;
+    this._initialConversationAnchorRecoveryEpoch = 0;
+    this._conversationReady = false;
     this._initialPageShowPending = true;
     this.setData(statusAppearance.view(statusAppearance.read()));
     this.setData(procIconStyle.view(procIconStyle.read()));
@@ -389,9 +393,11 @@ Page({
   },
 
   onReady() {
+    this._conversationReady = true;
     // 首帧渲染完成后立即测量 dock，避免默认留白遮挡底部内容
     this.updateDockInset();
     this.measureConversationViewport();
+    this.scheduleInitialConversationAnchorRecovery();
     if (!this._initialConversationAnchorPending && !this._initialConversationAnchorApplied) {
       this.refreshBottomAnchor();
     }
@@ -476,6 +482,38 @@ Page({
     } else if (this.data.tab === 'trajectory') {
       this._traceTrackRect = null;
     }
+  },
+
+  // 首次 scroll-into-view 可能早于 scroll-view/虚拟列表布局完成。页面 ready 后
+  // 再补一次同目标；只有未发生手动触摸时才恢复跟随，避免抢走用户的阅读位置。
+  scheduleInitialConversationAnchorRecovery() {
+    if (!this._conversationReady || !this._initialConversationAnchorRecoveryPending
+      || this._initialConversationAnchorRecoveryScheduled || !this.data.rows.length
+      || this.data.tab !== 'conversation') return;
+    this._initialConversationAnchorRecoveryScheduled = true;
+    const epoch = this._initialConversationAnchorRecoveryEpoch;
+    const sessionId = this._renderSessionId;
+    const touchAt = Number(this._lastTouchAt) || 0;
+    const tick = typeof wx !== 'undefined' && typeof wx.nextTick === 'function'
+      ? wx.nextTick : (fn) => fn();
+    tick(() => {
+      if (epoch !== this._initialConversationAnchorRecoveryEpoch) return;
+      this._initialConversationAnchorRecoveryScheduled = false;
+      if (!this._initialConversationAnchorRecoveryPending) return;
+      if (this._unloaded || sessionId !== this._renderSessionId || !this.data.rows.length) {
+        this._initialConversationAnchorRecoveryPending = false;
+        return;
+      }
+      if (this.data.tab !== 'conversation') return;
+      this._initialConversationAnchorRecoveryPending = false;
+      if (touchAt !== 0
+        || (Number(this._lastTouchAt) || 0) !== touchAt
+        || this._panelGesture && this._panelGesture.tab === 'conversation') return;
+      this._convPinned = true;
+      this._followPausedByUser = false;
+      this._userScrollDirection = '';
+      this.refreshBottomAnchor();
+    });
   },
 
   currentAppForegroundEpoch() {
@@ -737,6 +775,9 @@ Page({
       this._bottomAnchorTimer = null;
       this._initialConversationAnchorPending = true;
       this._initialConversationAnchorApplied = false;
+      this._initialConversationAnchorRecoveryPending = false;
+      this._initialConversationAnchorRecoveryScheduled = false;
+      this._initialConversationAnchorRecoveryEpoch = (this._initialConversationAnchorRecoveryEpoch || 0) + 1;
       this.closeFileMention();
       this.resetConversationScroll();
       this._fleetCommsGeneration = (this._fleetCommsGeneration || 0) + 1;
@@ -1220,12 +1261,13 @@ Page({
     const initialConversationAnchor = this._initialConversationAnchorPending
       && activeTab === 'conversation' && visibleRows.length > 0 && this._convPinned !== false;
     if (initialConversationAnchor) {
-      // Mount the tail and its anchor in one render. A second scroll-into-view
-      // pass after the page first paints makes the conversation visibly jump.
+      // Mount the tail and its anchor in one render; onReady retries only to
+      // cover runtimes that apply scroll-into-view before the list is laid out.
       conversationPatch.scrollTarget = 'conv-bottom';
       conversationPatch.scrollAnim = false;
       this._initialConversationAnchorPending = false;
       this._initialConversationAnchorApplied = true;
+      this._initialConversationAnchorRecoveryPending = true;
     }
     const viewPatch = dataPatch(this.data, Object.assign({
       ...this.collaborationPatch(s, app),
@@ -1293,6 +1335,7 @@ Page({
     if (Object.keys(viewPatch).length) this.setData(viewPatch, () => {
       this.scheduleHistoryFormatting();
       this.measureConversationWindow();
+      this.scheduleInitialConversationAnchorRecovery();
       if (this.data.tab === 'context') {
         this.scheduleContextFlow();
         this.scheduleContextTrendPane();
@@ -1812,7 +1855,10 @@ Page({
       attachSheetOpen: false, modelSheetOpen: false, effortSheetOpen: false,
       permissionSheet: [], modeSheet: [], ...this.layoutPatch({ kbHeight: 0 }) }, () => {
       if (tab === 'fleet') this.maybeAutoScanFleetComms();
-      if (tab === 'conversation') this.measureConversationViewport();
+      if (tab === 'conversation') {
+        this.measureConversationViewport();
+        this.scheduleInitialConversationAnchorRecovery();
+      }
     });
     if (hadKeyboard && typeof wx.hideKeyboard === 'function') wx.hideKeyboard();
     // 上下文面板独有的「流连线」只在上下文 Tab 运行；编队是独立面板。
@@ -4650,6 +4696,11 @@ Page({
 
   // 每次进入/切换会话都重新跟随最新消息，不继承上次阅读历史的位置。
   resetConversationScroll() {
+    if (this._bottomAnchorTimer) clearTimeout(this._bottomAnchorTimer);
+    this._bottomAnchorTimer = null;
+    this._bottomAnchorTouchAt = null;
+    this._bottomAnchorPending = false;
+    this._bottomAnchorDeferred = false;
     if (this._turnJumpTimer) clearTimeout(this._turnJumpTimer);
     this._turnJumpTimer = null;
     this._suppressPins = false;
