@@ -1,0 +1,49 @@
+{
+  "generatedAt": "2026-10-28T12:41:07.464Z",
+  "browser": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Unspecified Version)",
+  "benchmark": null,
+  "pipeline": null,
+  "artifacts": {
+    "seam": {
+      "posterVsFluid0": {
+        "mean": 0.98,
+        "p95": 2,
+        "max": 4.67,
+        "pctOver4": 0,
+        "pctOver8": 0
+      },
+      "posterVsFluid200ms": {
+        "mean": 1.04,
+        "p95": 2,
+        "max": 5.67,
+        "pctOver4": 0,
+        "pctOver8": 0
+      },
+      "fluid0VsFluid200ms": {
+        "mean": 0.64,
+        "p95": 2,
+        "max": 5.33,
+        "pctOver4": 0,
+        "pctOver8": 0
+      }
+    },
+    "blockiness": {
+      "ratio": 0.6971985328030074,
+      "quality": 0.72,
+      "buffer": [
+        272,
+        588
+      ],
+      "dataUrlBytes": 4540,
+      "boundaryGradient": 0.00246,
+      "interiorGradient": 0.0013,
+      "blockinessRatio": 1.891
+    }
+  },
+  "config": {
+    "ratio": 0.6971985328030074,
+    "quality": 0.72,
+    "crossfadeMs": 520,
+    "whalePath": "miniprogram/assets/ocean/whale-body.svg"
+  }
+}

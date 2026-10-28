@@ -1,6 +1,10 @@
-// Phone fluid/particle port of dsh-mobile @ 70b60b7 (MIT).
+// Phone fluid field port of dsh-mobile @ 70b60b7 (MIT).
 // Copyright (c) 2026 Chaofan Li. See THIRD_PARTY_NOTICES.md.
-const particles = require('./ocean-particles');
+//
+// 只渲染流体场 / 光带 / 辉光 / 暗角：技术网格与鲸鱼粒子已改由 CSS + SVG 图层在
+// 设备像素分辨率上绘制（见 components/ocean-background）。因此这一帧全是平滑渐变，
+// 可以用 0.7x CSS 像素的低分辨率渲染再放大显示，JPEG 体积与编码耗时都大幅下降，
+// 放大后也看不出颗粒或锯齿。
 const VERTEX = 'attribute vec2 aPosition; void main(){ gl_Position=vec4(aPosition,0.0,1.0); }';
 const FRAGMENT = `
 precision highp float;
@@ -30,42 +34,8 @@ void main(){
  float vignette=1.0-smoothstep(0.23,0.95,length((uv-0.5)*vec2(0.86,1)));
  color*=0.38+0.72*vignette;
  color+=(hash(uv*uSize+floor(uTime*12.0))-0.5)*0.010;
- // Native 42pt grid and sparse intersections, faded below the whale.
- vec2 pixel=uv*uSize,cell=mod(pixel+21.0,42.0)-21.0;
- float fade=uv.y<0.56?mix(0.8,1.0,uv.y/0.56):1.0-smoothstep(0.56,1.0,uv.y);
- float line=1.0-smoothstep(0.10,0.65,min(abs(cell.x),abs(cell.y)));
- color=mix(color,vec3(1),line*0.043*fade);
- vec2 index=floor(pixel/42.0+0.5);
- float square=(1.0-step(1.1,max(abs(cell.x),abs(cell.y))))*(1.0-step(0.5,mod(index.y*11.0+index.x*7.0,13.0)));
- color=mix(color,vec3(1),square*0.085*fade);
  gl_FragColor=vec4(max(color,0.0),1);
 }`;
-const WHALE_VERTEX = `
-precision highp float;
-attribute vec4 aParticle;
-attribute vec2 aLight;
-uniform vec2 uSize;
-uniform float uTime;
-uniform float uRatio;
-varying vec3 vColor;
-varying float vAlpha;
-void main(){
- float x=aParticle.x,y=aParticle.y,l=aParticle.z,edge=aParticle.w,phase=aLight.x,light=aLight.y;
- float square=max(uSize.x*1.15,uSize.y*0.48),tail=smoothstep(0.54,0.94,x),drift=0.35+0.65*edge;
- vec2 point=uSize*vec2(0.55,0.34)+(vec2(x,y)-0.5)*square;
- point.x+=sin(uTime*0.50+phase*0.53)*2.8*drift;
- point.y+=cos(uTime*0.42+phase*0.71)*2.6*drift+sin(uTime*1.10-x*7.0)*7.0*tail;
- gl_Position=vec4(point.x/uSize.x*2.0-1.0,1.0-point.y/uSize.y*2.0,0,1);
- gl_PointSize=max(1.45,square/220.0)*(0.72+l*0.58)*uRatio;
- vColor=vec3(0.73+0.15*light,0.79+0.12*light,0.92+0.08*light);
- vAlpha=(0.10+l*0.38)*(0.90+0.10*sin(uTime*1.5+x*15.0+y*9.0))*0.56;
-}`;
-const WHALE_FRAGMENT = `
-precision mediump float;
-varying vec3 vColor;
-varying float vAlpha;
-void main(){vec2 q=abs(gl_PointCoord-0.5)-vec2(0.32);float distance=length(max(q,0.0))-0.18;float mask=1.0-smoothstep(-0.06,0.04,distance);gl_FragColor=vec4(vColor*vAlpha*mask,1);}
-`;
 function createOceanRenderer(canvas, width, height, pixelRatio) {
   const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: false });
   if (!gl) throw new Error('WebGL unavailable');
@@ -83,17 +53,14 @@ function createOceanRenderer(canvas, width, height, pixelRatio) {
   }
   function buffer(data) { const b = gl.createBuffer(); buffers.push(b); gl.bindBuffer(gl.ARRAY_BUFFER, b); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(data), gl.STATIC_DRAW); return b; }
   try {
-    const fluid = program(VERTEX, FRAGMENT), whale = program(WHALE_VERTEX, WHALE_FRAGMENT);
+    const fluid = program(VERTEX, FRAGMENT);
     const quad = buffer([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]);
-    const dots = buffer([].concat(...particles));
     const position = gl.getAttribLocation(fluid, 'aPosition');
-    const dotPosition = gl.getAttribLocation(whale, 'aParticle'), dotLight = gl.getAttribLocation(whale, 'aLight');
-    const uniforms = p => ({ size: gl.getUniformLocation(p, 'uSize'), time: gl.getUniformLocation(p, 'uTime'), ratio: gl.getUniformLocation(p, 'uRatio'), bufferSize: gl.getUniformLocation(p, 'uBufferSize') });
-    const fu = uniforms(fluid), wu = uniforms(whale);
+    const uniforms = { size: gl.getUniformLocation(fluid, 'uSize'), time: gl.getUniformLocation(fluid, 'uTime'), bufferSize: gl.getUniformLocation(fluid, 'uBufferSize') };
     let ratio;
     function resize(w, h, dpr) {
       width = Math.max(1, w); height = Math.max(1, h);
-      ratio = Math.max(0.5, Math.min(dpr || 1, 1.5, 1200 / height));
+      ratio = Math.max(0.4, Math.min(dpr || 1, 1.5, 1200 / height));
       canvas.width = Math.round(width * ratio); canvas.height = Math.round(height * ratio);
       gl.viewport(0, 0, canvas.width, canvas.height);
     }
@@ -103,18 +70,10 @@ function createOceanRenderer(canvas, width, height, pixelRatio) {
       draw(time) {
         gl.disable(gl.BLEND); gl.useProgram(fluid); gl.bindBuffer(gl.ARRAY_BUFFER, quad);
         gl.enableVertexAttribArray(position); gl.vertexAttribPointer(position, 2, gl.FLOAT, false, 0, 0);
-        if (dotLight !== position) gl.disableVertexAttribArray(dotLight);
-        if (dotPosition !== position) gl.disableVertexAttribArray(dotPosition);
-        gl.uniform2f(fu.size, width, height); gl.uniform2f(fu.bufferSize, canvas.width, canvas.height); gl.uniform1f(fu.time, time);
+        gl.uniform2f(uniforms.size, width, height); gl.uniform2f(uniforms.bufferSize, canvas.width, canvas.height); gl.uniform1f(uniforms.time, time);
         gl.drawArrays(gl.TRIANGLES, 0, 6);
-        gl.useProgram(whale); gl.bindBuffer(gl.ARRAY_BUFFER, dots);
-        gl.enableVertexAttribArray(dotPosition); gl.vertexAttribPointer(dotPosition, 4, gl.FLOAT, false, 24, 0);
-        gl.enableVertexAttribArray(dotLight); gl.vertexAttribPointer(dotLight, 2, gl.FLOAT, false, 24, 16);
-        gl.uniform2f(wu.size, width, height); gl.uniform1f(wu.time, time); gl.uniform1f(wu.ratio, ratio);
-        gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_COLOR);
-        gl.drawArrays(gl.POINTS, 0, particles.length); gl.disable(gl.BLEND);
       }
     };
   } catch (error) { dispose(); throw error; }
 }
-module.exports = { createOceanRenderer, VERTEX, FRAGMENT, WHALE_VERTEX, WHALE_FRAGMENT };
+module.exports = { createOceanRenderer, VERTEX, FRAGMENT };

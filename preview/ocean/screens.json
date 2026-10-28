@@ -1,0 +1,107 @@
+{
+  "generatedAt": "2026-10-28T12:41:07.465Z",
+  "url": "http://127.0.0.1:55327/index.html",
+  "dpr": 3,
+  "browser": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Unspecified Version)",
+  "viewport": {
+    "width": 390,
+    "height": 844
+  },
+  "before": {
+    "ratio": 1.066350710900474,
+    "quality": 0.68,
+    "time": 8,
+    "ratioExpression": "Math.min(info.pixelRatio || 1, 480 / field.width, 900 / field.height)"
+  },
+  "after": {
+    "ratio": 0.6971985328030074,
+    "quality": 0.72,
+    "crossfadeMs": 520,
+    "whalePath": "miniprogram/assets/ocean/whale-body.svg"
+  },
+  "screens": [
+    {
+      "stage": "before",
+      "file": "before.png",
+      "box": {
+        "x": 28,
+        "y": 100.3125,
+        "width": 390,
+        "height": 844
+      },
+      "bytes": 1574867
+    },
+    {
+      "stage": "fallback",
+      "file": "fallback.png",
+      "box": {
+        "x": 28,
+        "y": 1011.8125,
+        "width": 390,
+        "height": 844
+      },
+      "bytes": 838791
+    },
+    {
+      "stage": "native",
+      "file": "native.png",
+      "box": {
+        "x": 856,
+        "y": -830.6875,
+        "width": 390,
+        "height": 844
+      },
+      "bytes": 1863989
+    },
+    {
+      "stage": "after",
+      "file": "after.png",
+      "box": {
+        "x": 442,
+        "y": 0.3125,
+        "width": 390,
+        "height": 844
+      },
+      "bytes": 1318915
+    },
+    {
+      "stage": "after-base",
+      "file": "after-base.png",
+      "box": {
+        "x": 442,
+        "y": 911.8125,
+        "width": 390,
+        "height": 844
+      },
+      "bytes": 1405133
+    },
+    {
+      "stage": "after-crossfade",
+      "file": "after-crossfade.png",
+      "box": {
+        "x": 856,
+        "y": 155.8125,
+        "width": 390,
+        "height": 844
+      },
+      "bytes": 1431273
+    }
+  ],
+  "crops": [
+    {
+      "stage": "before",
+      "file": "crops/whale-before.png",
+      "bytes": 349377
+    },
+    {
+      "stage": "after",
+      "file": "crops/whale-after.png",
+      "bytes": 177316
+    },
+    {
+      "stage": "native",
+      "file": "crops/whale-native.png",
+      "bytes": 262037
+    }
+  ]
+}

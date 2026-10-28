@@ -159,7 +159,7 @@ ${wxss}
 </style>
 </head>
 <body>
-<h1>轨迹页 · 对齐 dsh 客户端 TrajectoryTable / TrajectoryTimeline（轮次标签在细线下方并向左探出 · 请求圆点落行分隔线 · 类型 pill · 网络面板式概览）</h1>
+<h1>轨迹页 · 对齐 dsh 客户端 TrajectoryTable / TrajectoryTimeline（轮次标签贴着首条记录，不额外占高 · 请求圆点落行分隔线 · 类型 pill · 网络面板式概览）</h1>
 <div class="row">
   <div class="col col-light">${phone(false)}<div class="caption">浅色</div></div>
   <div class="col col-dark">${phone(true)}<div class="caption">深色</div></div>

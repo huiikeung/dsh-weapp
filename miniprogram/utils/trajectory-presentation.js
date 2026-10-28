@@ -147,17 +147,28 @@ function build(source, sessionId, normalize) {
   return result;
 }
 const OVERVIEW_SEGMENT_LIMIT = 80;
-function activeEvents(rows, mode, focus) {
-  const allEvents = rows.filter(r => r.kind === 'event');
-  if (mode === 'turns' && focus.turn != null) return allEvents.filter(row => row.turn === focus.turn);
-  if (mode === 'calls') {
-    const calls = allEvents.filter(row => ['TOOL', 'SUBTOOL'].includes(row.badge));
-    return focus.key ? calls.filter(row => row.key === focus.key) : calls;
-  }
-  return allEvents;
-}
 function laneFor(row) {
   return row.badge === 'USER' ? 'input' : ['TOOL', 'SUBTOOL'].includes(row.badge) ? 'tools' : 'model';
+}
+function timelineDomain(events) {
+  const duration = events.reduce((sum, row) => sum + Math.max(0, row.durationMs || 0), 0);
+  const minimum = Math.max(1, duration / 500);
+  let cursor = 0;
+  const spans = events.map(row => {
+    const weight = Math.max(minimum, row.durationMs || 0);
+    const span = { row, start: cursor, end: cursor + weight, weight };
+    cursor += weight;
+    return span;
+  });
+  return { duration, total: cursor || 1, spans };
+}
+function matchesMetricFocus(row, mode, focus) {
+  if (mode === 'turns' && focus.turn != null) return row.turn === focus.turn;
+  if (mode === 'calls') {
+    if (focus.key) return row.key === focus.key;
+    return ['TOOL', 'SUBTOOL'].includes(row.badge);
+  }
+  return true;
 }
 function sampledSegments(segments, selectedKey) {
   const limit = OVERVIEW_SEGMENT_LIMIT;
@@ -175,40 +186,33 @@ function sampledSegments(segments, selectedKey) {
 function overview(rows, focus = {}) {
   const allEvents = rows.filter(r => r.kind === 'event');
   const mode = ['duration', 'turns', 'calls'].includes(focus.mode) ? focus.mode : 'duration';
-  const events = activeEvents(rows, mode, focus);
-  const duration = events.reduce((sum, r) => sum + Math.max(0, r.durationMs || 0), 0);
-  const minimum = Math.max(1, duration / 500), total = events.reduce((sum, r) => sum + Math.max(minimum, r.durationMs || 0), 0) || 1;
+  const domain = timelineDomain(allEvents);
   const lanes = [{ id: 'input', label: t('输入'), segments: [] }, { id: 'model', label: t('模型'), segments: [] }, { id: 'tools', label: t('工具'), segments: [] }];
-  let cursor = 0;
-  events.forEach(row => {
-    const weight = Math.max(minimum, row.durationMs || 0), lane = lanes.find(item => item.id === laneFor(row));
+  domain.spans.forEach(({ row, start, end, weight }) => {
+    const lane = lanes.find(item => item.id === laneFor(row));
+    const focused = matchesMetricFocus(row, mode, focus);
+    const dimmed = focus.touched === true && !!focus.key ? row.key !== focus.key : !focused;
     lane.segments.push({ key: row.key, badgeClass: row.badgeClass, error: row.isError === true,
-      selected: row.key === focus.key, dimmed: focus.touched === true && !!focus.key && row.key !== focus.key,
-      startPct: cursor / total * 100, endPct: (cursor + weight) / total * 100,
-      centerPct: (cursor + weight / 2) / total * 100,
-      style: 'left:' + (cursor / total * 100).toFixed(3) + '%;width:' + (weight / total * 100).toFixed(3) + '%;' });
-    cursor += weight;
+      selected: row.key === focus.key, dimmed,
+      startPct: start / domain.total * 100, endPct: end / domain.total * 100,
+      centerPct: (start + weight / 2) / domain.total * 100,
+      style: 'left:' + (start / domain.total * 100).toFixed(3) + '%;width:' + (weight / domain.total * 100).toFixed(3) + '%;' });
   });
-  return { durationLabel: seconds(duration), turns: new Set(allEvents.filter(r => r.turn != null).map(r => r.turn)).size,
+  return { durationLabel: seconds(domain.duration), turns: new Set(allEvents.filter(r => r.turn != null).map(r => r.turn)).size,
     calls: allEvents.filter(r => ['TOOL', 'SUBTOOL'].includes(r.badge)).length, focusMode: mode,
-    lanes: lanes.filter(lane => lane.segments.length).map(lane => ({ ...lane, segments: sampledSegments(lane.segments, focus.key) })) };
+    lanes: lanes.map(lane => ({ ...lane, segments: sampledSegments(lane.segments, focus.key) })) };
 }
 function nearestOverviewEvent(rows, focus, laneId, percent) {
-  const mode = ['duration', 'turns', 'calls'].includes(focus.mode) ? focus.mode : 'duration';
-  const events = activeEvents(rows, mode, focus);
+  const events = rows.filter(row => row.kind === 'event');
   if (!events.length) return null;
-  const duration = events.reduce((sum, row) => sum + Math.max(0, row.durationMs || 0), 0);
-  const minimum = Math.max(1, duration / 500);
-  const total = events.reduce((sum, row) => sum + Math.max(minimum, row.durationMs || 0), 0) || 1;
-  const hasLaneEvents = !!laneId && events.some(row => laneFor(row) === laneId);
-  let cursor = 0, nearest = null, nearestDistance = Infinity;
-  events.forEach(row => {
-    const weight = Math.max(minimum, row.durationMs || 0), start = cursor / total * 100, end = (cursor + weight) / total * 100;
-    if (!hasLaneEvents || laneFor(row) === laneId) {
+  const domain = timelineDomain(events);
+  let nearest = null, nearestDistance = Infinity;
+  domain.spans.forEach(({ row, start: rawStart, end: rawEnd }) => {
+    const start = rawStart / domain.total * 100, end = rawEnd / domain.total * 100;
+    if (!laneId || laneFor(row) === laneId) {
       const distance = percent < start ? start - percent : percent > end ? percent - end : 0;
       if (distance < nearestDistance) { nearest = row; nearestDistance = distance; }
     }
-    cursor += weight;
   });
   return nearest;
 }

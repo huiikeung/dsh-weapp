@@ -68,7 +68,7 @@ test('overview packs active duration, excludes idle gaps and includes subtools',
   assert.deepEqual(view.overview(project(shifted)), overview);
   assert.equal(view.overview([]).durationLabel, '0.00 秒');
 });
-test('overview switches between the whole duration, one turn, and calls-only lanes', () => {
+test('overview keeps a stable three-lane scale while focusing duration, a turn, or a call', () => {
   const rows = [
     { kind: 'event', key: 'u1', badge: 'USER', turn: 1, durationMs: 100 },
     { kind: 'event', key: 'm1', badge: 'ASSISTANT', turn: 1, durationMs: 400 },
@@ -77,19 +77,29 @@ test('overview switches between the whole duration, one turn, and calls-only lan
     { kind: 'event', key: 'm2', badge: 'ASSISTANT', turn: 2, durationMs: 300 },
     { kind: 'event', key: 'c2', badge: 'SUBTOOL', turn: 2, durationMs: 100 }
   ];
+  const duration = view.overview(rows);
   const turn = view.overview(rows, { mode: 'turns', turn: 2, key: 'm2' });
-  assert.equal(turn.durationLabel, '0.50 秒');
+  assert.equal(turn.durationLabel, duration.durationLabel, 'focus mode does not rescale the time axis');
   assert.equal(turn.turns, 2); assert.equal(turn.calls, 2);
   assert.deepEqual(turn.lanes.map(lane => lane.id), ['input', 'model', 'tools']);
-  assert.ok(turn.lanes.find(lane => lane.id === 'model').segments[0].selected);
+  assert.ok(turn.lanes.find(lane => lane.id === 'model').segments.find(segment => segment.key === 'm2').selected);
+  assert.ok(turn.lanes.find(lane => lane.id === 'input').segments.find(segment => segment.key === 'u1').dimmed);
+  assert.equal(turn.lanes.find(lane => lane.id === 'model').segments.find(segment => segment.key === 'm2').style,
+    duration.lanes.find(lane => lane.id === 'model').segments.find(segment => segment.key === 'm2').style,
+    'the same event keeps its position and width in every focus mode');
   const calls = view.overview(rows, { mode: 'calls' });
-  assert.equal(calls.durationLabel, '0.30 秒');
-  assert.deepEqual(calls.lanes.map(lane => lane.id), ['tools']);
-  assert.ok(calls.lanes[0].segments.every(segment => !segment.selected));
+  assert.equal(calls.durationLabel, duration.durationLabel);
+  assert.deepEqual(calls.lanes.map(lane => lane.id), ['input', 'model', 'tools']);
+  assert.equal(calls.lanes.find(lane => lane.id === 'input').segments.length, 2);
+  assert.ok(calls.lanes.find(lane => lane.id === 'input').segments[0].dimmed);
+  assert.ok(calls.lanes.find(lane => lane.id === 'tools').segments.every(segment => !segment.selected));
   const selectedCall = view.overview(rows, { mode: 'calls', key: 'c2' });
-  assert.equal(selectedCall.durationLabel, '0.10 秒');
-  assert.deepEqual(selectedCall.lanes[0].segments.map(segment => segment.key), ['c2']);
-  assert.ok(selectedCall.lanes[0].segments[0].selected);
+  assert.equal(selectedCall.durationLabel, duration.durationLabel);
+  assert.deepEqual(selectedCall.lanes.map(lane => lane.id), ['input', 'model', 'tools']);
+  const chosen = selectedCall.lanes.find(lane => lane.id === 'tools').segments.find(segment => segment.key === 'c2');
+  assert.ok(chosen.selected);
+  assert.ok(!chosen.dimmed);
+  assert.equal(chosen.style, duration.lanes.find(lane => lane.id === 'tools').segments.find(segment => segment.key === 'c2').style);
 });
 test('overview exposes event centers for cursor snapping and dims other processes after selection', () => {
   const rows = [

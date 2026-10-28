@@ -40,6 +40,9 @@ const { toolPresentation } = require('./utils/tool-presentation');
 const CONTEXT_TREND_OVERVIEW_AUTO_STEPS = 200;
 const TRACE_WINDOW_ROWS = 80;
 const TRACE_WINDOW_OVERSCAN = 18;
+// Keep virtual-list geometry in lockstep with trajectory.wxss.
+const TRACE_TURN_HEIGHT_RPX = 0;
+const TRACE_EVENT_ROW_HEIGHT_RPX = 80;
 const MUTABLE_ROW_KINDS = new Set(['user', 'assistant', 'changes', 'files', 'status']);
 
 // 实时指标卡的半宽估算（px）：卡片 max-width 480rpx，375pt 机上约 240px。钳制时
@@ -6648,7 +6651,7 @@ Page({
       this._traceIndexByKey = new Map();
       this._traceOffsets[0] = 0;
       this._traceList.forEach((row, index) => {
-        this._traceOffsets[index + 1] = this._traceOffsets[index] + (row.kind === 'turn' ? 60 : 80);
+        this._traceOffsets[index + 1] = this._traceOffsets[index] + (row.kind === 'turn' ? TRACE_TURN_HEIGHT_RPX : TRACE_EVENT_ROW_HEIGHT_RPX);
         if (row.kind === 'event') this._traceIndexByKey.set(row.key, index);
       });
       this._traceTotalRpx = this._traceOffsets[this._traceList.length] || 0;

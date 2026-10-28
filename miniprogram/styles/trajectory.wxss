@@ -7,7 +7,7 @@
   flex-direction: column;
   overflow: hidden;
   --trace-row-bg: var(--bg);
-  --trace-line: rgba(16, 19, 24, 0.06);
+  --trace-line: rgba(16, 19, 24, 0.04);
   --trace-tint-user: rgba(46, 107, 230, 0.10);
   --trace-tint-assistant: rgba(122, 84, 199, 0.10);
   --trace-tint-tool: rgba(240, 125, 20, 0.10);
@@ -43,10 +43,10 @@
 .trace-overview-bar.selected { z-index: 2; box-shadow: 0 0 0 4rpx var(--surface), 0 0 0 8rpx var(--ocean); }
 .trace-overview-axis { display: flex; justify-content: space-between; color: var(--text-4); font-size: 20rpx; margin-top: 10rpx; font-variant-numeric: tabular-nums; }
 
-/* ---------- 轮次分隔（标签位于细线下方并向左探出；细线比行分隔线更细更淡） ---------- */
-.trajectory-panel .trace-turn { position: relative; height: 48rpx; flex: 0 0 48rpx; display: flex; align-items: flex-start; margin: 0; padding: 0; box-sizing: border-box; }
+/* ---------- 轮次分隔（标签叠在首条记录上，不额外占一行） ---------- */
+.trajectory-panel .trace-turn { position: relative; height: 0; flex: 0 0 0; margin: 0; padding: 0; box-sizing: border-box; }
 .trace-turn-line { position: absolute; left: 0; right: 0; top: 0; height: 1rpx; background: var(--trace-line); }
-.trace-turn-label { position: relative; margin-top: 6rpx; margin-left: -10rpx; font-size: 20rpx; line-height: 1; white-space: nowrap; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.trace-turn-label { position: absolute; z-index: 2; top: 1rpx; left: 0; margin: 0; font-size: 18rpx; line-height: 1; white-space: nowrap; color: var(--text-3); font-variant-numeric: tabular-nums; }
 
 /* ---------- 记录行（每行浅细分隔线，请求圆点落在线上） ---------- */
 .trace-native-row { position: relative; display: flex; align-items: stretch; height: 80rpx; min-height: 80rpx; flex: 0 0 80rpx; padding: 0 10rpx 0 0; border-radius: 12rpx; box-sizing: border-box; transition: background-color 120ms ease, opacity 160ms ease; }
@@ -54,8 +54,8 @@
 .trace-native-row.highlighted, .trace-native-row.selected { background: var(--trace-tint-select); --trace-row-bg: var(--trace-tint-select); }
 .trace-native-row.trace-focus-muted, .trace-turn.trace-focus-muted { opacity: .3; filter: grayscale(.9); }
 .trace-row-pressed { background: var(--fill-2); }
-.trace-request-gutter { position: relative; z-index: 2; display: block; width: 48rpx; flex: 0 0 48rpx; }
-.trace-dot-hit { position: absolute; left: 0; top: 0; bottom: 0; z-index: 2; width: 48rpx; display: flex; justify-content: center; align-items: flex-end; }
+.trace-request-gutter { position: relative; z-index: 2; display: block; width: 56rpx; flex: 0 0 56rpx; }
+.trace-dot-hit { position: absolute; left: 0; top: 0; bottom: 0; z-index: 2; width: 56rpx; display: flex; justify-content: center; align-items: flex-end; }
 .trace-node-dot.request { width: 18rpx; height: 18rpx; transform: translateY(50%); border-radius: 50%; box-sizing: border-box; border: 4rpx solid var(--trace-row-bg); background: var(--text-3); }
 .trace-node-dot.request.active { background: rgba(46, 107, 230, 0.28); border-color: var(--ocean); }
 .trace-node-dot.request.error { background: rgba(229, 72, 77, 0.28); border-color: #e5484d; }
@@ -76,7 +76,7 @@
 
 /* ---------- 深色主题：提高淡色底对比 ---------- */
 .theme-dark .trajectory-panel {
-  --trace-line: rgba(255, 255, 255, 0.07);
+  --trace-line: rgba(255, 255, 255, 0.05);
   --trace-tint-user: rgba(46, 107, 230, 0.20);
   --trace-tint-assistant: rgba(122, 84, 199, 0.20);
   --trace-tint-tool: rgba(240, 125, 20, 0.18);

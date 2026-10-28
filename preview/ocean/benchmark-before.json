@@ -1,0 +1,453 @@
+{
+  "generatedAt": "2026-10-28T12:25:31.549Z",
+  "browser": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Unspecified Version)",
+  "benchmark": {
+    "glRenderer": "ANGLE (Apple, ANGLE Metal Renderer: Apple M4, Unspecified Version)",
+    "frames": 30,
+    "width": 390,
+    "height": 844,
+    "dpr": 3,
+    "rows": [
+      {
+        "ratio": 0.4,
+        "effectiveRatio": 0.5,
+        "clamped": true,
+        "buffer": [
+          195,
+          422
+        ],
+        "quality": 0.62,
+        "avgDrawMs": 0.013,
+        "avgEncodeMs": 2.603,
+        "avgTotalMs": 2.617,
+        "p95TotalMs": 4.6,
+        "dataUrlBytes": 5546
+      },
+      {
+        "ratio": 0.4,
+        "effectiveRatio": 0.5,
+        "clamped": true,
+        "buffer": [
+          195,
+          422
+        ],
+        "quality": 0.7,
+        "avgDrawMs": 0.013,
+        "avgEncodeMs": 3.073,
+        "avgTotalMs": 3.087,
+        "p95TotalMs": 5.6,
+        "dataUrlBytes": 6604
+      },
+      {
+        "ratio": 0.4,
+        "effectiveRatio": 0.5,
+        "clamped": true,
+        "buffer": [
+          195,
+          422
+        ],
+        "quality": 0.72,
+        "avgDrawMs": 0.017,
+        "avgEncodeMs": 2.56,
+        "avgTotalMs": 2.577,
+        "p95TotalMs": 4.9,
+        "dataUrlBytes": 6888
+      },
+      {
+        "ratio": 0.4,
+        "effectiveRatio": 0.5,
+        "clamped": true,
+        "buffer": [
+          195,
+          422
+        ],
+        "quality": 0.78,
+        "avgDrawMs": 0.01,
+        "avgEncodeMs": 2.407,
+        "avgTotalMs": 2.417,
+        "p95TotalMs": 4.3,
+        "dataUrlBytes": 8163
+      },
+      {
+        "ratio": 0.5,
+        "effectiveRatio": 0.5,
+        "clamped": false,
+        "buffer": [
+          195,
+          422
+        ],
+        "quality": 0.62,
+        "avgDrawMs": 0.01,
+        "avgEncodeMs": 2.717,
+        "avgTotalMs": 2.727,
+        "p95TotalMs": 5.6,
+        "dataUrlBytes": 5546
+      },
+      {
+        "ratio": 0.5,
+        "effectiveRatio": 0.5,
+        "clamped": false,
+        "buffer": [
+          195,
+          422
+        ],
+        "quality": 0.7,
+        "avgDrawMs": 0.01,
+        "avgEncodeMs": 2.55,
+        "avgTotalMs": 2.56,
+        "p95TotalMs": 4.8,
+        "dataUrlBytes": 6604
+      },
+      {
+        "ratio": 0.5,
+        "effectiveRatio": 0.5,
+        "clamped": false,
+        "buffer": [
+          195,
+          422
+        ],
+        "quality": 0.72,
+        "avgDrawMs": 0.013,
+        "avgEncodeMs": 2.487,
+        "avgTotalMs": 2.5,
+        "p95TotalMs": 4.5,
+        "dataUrlBytes": 6888
+      },
+      {
+        "ratio": 0.5,
+        "effectiveRatio": 0.5,
+        "clamped": false,
+        "buffer": [
+          195,
+          422
+        ],
+        "quality": 0.78,
+        "avgDrawMs": 0.01,
+        "avgEncodeMs": 2.447,
+        "avgTotalMs": 2.457,
+        "p95TotalMs": 4.6,
+        "dataUrlBytes": 8163
+      },
+      {
+        "ratio": 0.62,
+        "effectiveRatio": 0.621,
+        "clamped": true,
+        "buffer": [
+          242,
+          523
+        ],
+        "quality": 0.62,
+        "avgDrawMs": 0.01,
+        "avgEncodeMs": 2.927,
+        "avgTotalMs": 2.937,
+        "p95TotalMs": 5,
+        "dataUrlBytes": 8290
+      },
+      {
+        "ratio": 0.62,
+        "effectiveRatio": 0.621,
+        "clamped": true,
+        "buffer": [
+          242,
+          523
+        ],
+        "quality": 0.7,
+        "avgDrawMs": 0.017,
+        "avgEncodeMs": 3.303,
+        "avgTotalMs": 3.32,
+        "p95TotalMs": 6.5,
+        "dataUrlBytes": 9954
+      },
+      {
+        "ratio": 0.62,
+        "effectiveRatio": 0.621,
+        "clamped": true,
+        "buffer": [
+          242,
+          523
+        ],
+        "quality": 0.72,
+        "avgDrawMs": 0.01,
+        "avgEncodeMs": 3.11,
+        "avgTotalMs": 3.12,
+        "p95TotalMs": 6.6,
+        "dataUrlBytes": 10363
+      },
+      {
+        "ratio": 0.62,
+        "effectiveRatio": 0.621,
+        "clamped": true,
+        "buffer": [
+          242,
+          523
+        ],
+        "quality": 0.78,
+        "avgDrawMs": 0.007,
+        "avgEncodeMs": 2.947,
+        "avgTotalMs": 2.953,
+        "p95TotalMs": 5.4,
+        "dataUrlBytes": 12323
+      },
+      {
+        "ratio": 0.7,
+        "effectiveRatio": 0.7,
+        "clamped": false,
+        "buffer": [
+          273,
+          591
+        ],
+        "quality": 0.62,
+        "avgDrawMs": 0.007,
+        "avgEncodeMs": 2.807,
+        "avgTotalMs": 2.813,
+        "p95TotalMs": 4.4,
+        "dataUrlBytes": 10139
+      },
+      {
+        "ratio": 0.7,
+        "effectiveRatio": 0.7,
+        "clamped": false,
+        "buffer": [
+          273,
+          591
+        ],
+        "quality": 0.7,
+        "avgDrawMs": 0.017,
+        "avgEncodeMs": 3.303,
+        "avgTotalMs": 3.32,
+        "p95TotalMs": 6.3,
+        "dataUrlBytes": 12072
+      },
+      {
+        "ratio": 0.7,
+        "effectiveRatio": 0.7,
+        "clamped": false,
+        "buffer": [
+          273,
+          591
+        ],
+        "quality": 0.72,
+        "avgDrawMs": 0.017,
+        "avgEncodeMs": 3.6,
+        "avgTotalMs": 3.617,
+        "p95TotalMs": 6.6,
+        "dataUrlBytes": 12572
+      },
+      {
+        "ratio": 0.7,
+        "effectiveRatio": 0.7,
+        "clamped": false,
+        "buffer": [
+          273,
+          591
+        ],
+        "quality": 0.78,
+        "avgDrawMs": 0.02,
+        "avgEncodeMs": 4.317,
+        "avgTotalMs": 4.337,
+        "p95TotalMs": 6.3,
+        "dataUrlBytes": 14995
+      },
+      {
+        "ratio": 0.72,
+        "effectiveRatio": 0.721,
+        "clamped": true,
+        "buffer": [
+          281,
+          608
+        ],
+        "quality": 0.62,
+        "avgDrawMs": 0.02,
+        "avgEncodeMs": 4.183,
+        "avgTotalMs": 4.203,
+        "p95TotalMs": 5.4,
+        "dataUrlBytes": 10552
+      },
+      {
+        "ratio": 0.72,
+        "effectiveRatio": 0.721,
+        "clamped": true,
+        "buffer": [
+          281,
+          608
+        ],
+        "quality": 0.7,
+        "avgDrawMs": 0.023,
+        "avgEncodeMs": 4.013,
+        "avgTotalMs": 4.037,
+        "p95TotalMs": 5.1,
+        "dataUrlBytes": 12508
+      },
+      {
+        "ratio": 0.72,
+        "effectiveRatio": 0.721,
+        "clamped": true,
+        "buffer": [
+          281,
+          608
+        ],
+        "quality": 0.72,
+        "avgDrawMs": 0.01,
+        "avgEncodeMs": 3.407,
+        "avgTotalMs": 3.417,
+        "p95TotalMs": 6,
+        "dataUrlBytes": 13040
+      },
+      {
+        "ratio": 0.72,
+        "effectiveRatio": 0.721,
+        "clamped": true,
+        "buffer": [
+          281,
+          608
+        ],
+        "quality": 0.78,
+        "avgDrawMs": 0.017,
+        "avgEncodeMs": 3.603,
+        "avgTotalMs": 3.62,
+        "p95TotalMs": 7.6,
+        "dataUrlBytes": 15375
+      },
+      {
+        "ratio": 0.75,
+        "effectiveRatio": 0.751,
+        "clamped": true,
+        "buffer": [
+          293,
+          633
+        ],
+        "quality": 0.62,
+        "avgDrawMs": 0.01,
+        "avgEncodeMs": 3.413,
+        "avgTotalMs": 3.423,
+        "p95TotalMs": 6.1,
+        "dataUrlBytes": 11411
+      },
+      {
+        "ratio": 0.75,
+        "effectiveRatio": 0.751,
+        "clamped": true,
+        "buffer": [
+          293,
+          633
+        ],
+        "quality": 0.7,
+        "avgDrawMs": 0.017,
+        "avgEncodeMs": 3.27,
+        "avgTotalMs": 3.287,
+        "p95TotalMs": 5.8,
+        "dataUrlBytes": 13440
+      },
+      {
+        "ratio": 0.75,
+        "effectiveRatio": 0.751,
+        "clamped": true,
+        "buffer": [
+          293,
+          633
+        ],
+        "quality": 0.72,
+        "avgDrawMs": 0.023,
+        "avgEncodeMs": 3.667,
+        "avgTotalMs": 3.69,
+        "p95TotalMs": 6.5,
+        "dataUrlBytes": 13933
+      },
+      {
+        "ratio": 0.75,
+        "effectiveRatio": 0.751,
+        "clamped": true,
+        "buffer": [
+          293,
+          633
+        ],
+        "quality": 0.78,
+        "avgDrawMs": 0.017,
+        "avgEncodeMs": 4.133,
+        "avgTotalMs": 4.15,
+        "p95TotalMs": 7.1,
+        "dataUrlBytes": 16440
+      },
+      {
+        "ratio": 1,
+        "effectiveRatio": 1,
+        "clamped": false,
+        "buffer": [
+          390,
+          844
+        ],
+        "quality": 0.62,
+        "avgDrawMs": 0.003,
+        "avgEncodeMs": 4.61,
+        "avgTotalMs": 4.613,
+        "p95TotalMs": 7.1,
+        "dataUrlBytes": 17317
+      },
+      {
+        "ratio": 1,
+        "effectiveRatio": 1,
+        "clamped": false,
+        "buffer": [
+          390,
+          844
+        ],
+        "quality": 0.7,
+        "avgDrawMs": 0.023,
+        "avgEncodeMs": 5.26,
+        "avgTotalMs": 5.283,
+        "p95TotalMs": 8.2,
+        "dataUrlBytes": 20242
+      },
+      {
+        "ratio": 1,
+        "effectiveRatio": 1,
+        "clamped": false,
+        "buffer": [
+          390,
+          844
+        ],
+        "quality": 0.72,
+        "avgDrawMs": 0.013,
+        "avgEncodeMs": 4.947,
+        "avgTotalMs": 4.96,
+        "p95TotalMs": 8.4,
+        "dataUrlBytes": 20987
+      },
+      {
+        "ratio": 1,
+        "effectiveRatio": 1,
+        "clamped": false,
+        "buffer": [
+          390,
+          844
+        ],
+        "quality": 0.78,
+        "avgDrawMs": 0.01,
+        "avgEncodeMs": 4.69,
+        "avgTotalMs": 4.7,
+        "p95TotalMs": 7.4,
+        "dataUrlBytes": 25028
+      }
+    ]
+  },
+  "pipeline": {
+    "which": "before",
+    "ratio": 1.066350710900474,
+    "quality": 0.68,
+    "buffer": [
+      416,
+      900
+    ],
+    "dataUrlBytes": 23053,
+    "avgDrawMs": 0.01,
+    "avgEncodeMs": 6.36,
+    "avgDecodeMs": 1.41,
+    "avgTotalMs": 7.78
+  },
+  "config": {
+    "ratio": 1.066350710900474,
+    "quality": 0.68,
+    "time": 8,
+    "ratioExpression": "Math.min(info.pixelRatio || 1, 480 / field.width, 900 / field.height)"
+  }
+}

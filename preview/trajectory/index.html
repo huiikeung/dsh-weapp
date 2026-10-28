@@ -36,7 +36,7 @@
   flex-direction: column;
   overflow: hidden;
   --trace-row-bg: var(--bg);
-  --trace-line: rgba(16, 19, 24, 0.06);
+  --trace-line: rgba(16, 19, 24, 0.04);
   --trace-tint-user: rgba(46, 107, 230, 0.10);
   --trace-tint-assistant: rgba(122, 84, 199, 0.10);
   --trace-tint-tool: rgba(240, 125, 20, 0.10);
@@ -73,9 +73,9 @@
 .trace-overview-axis { display: flex; justify-content: space-between; color: var(--text-4); font-size: 10px; margin-top: 5px; font-variant-numeric: tabular-nums; }
 
 
-.trajectory-panel .trace-turn { position: relative; height: 24px; flex: 0 0 24px; display: flex; align-items: flex-start; margin: 0; padding: 0; box-sizing: border-box; }
+.trajectory-panel .trace-turn { position: relative; height: 0; flex: 0 0 0; margin: 0; padding: 0; box-sizing: border-box; }
 .trace-turn-line { position: absolute; left: 0; right: 0; top: 0; height: 0.5px; background: var(--trace-line); }
-.trace-turn-label { position: relative; margin-top: 3px; margin-left: -5px; font-size: 10px; line-height: 1; white-space: nowrap; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.trace-turn-label { position: absolute; z-index: 2; top: 0.5px; left: 0; margin: 0; font-size: 9px; line-height: 1; white-space: nowrap; color: var(--text-3); font-variant-numeric: tabular-nums; }
 
 
 .trace-native-row { position: relative; display: flex; align-items: stretch; height: 40px; min-height: 40px; flex: 0 0 40px; padding: 0 5px 0 0; border-radius: 6px; box-sizing: border-box; transition: background-color 120ms ease, opacity 160ms ease; }
@@ -83,8 +83,8 @@
 .trace-native-row.highlighted, .trace-native-row.selected { background: var(--trace-tint-select); --trace-row-bg: var(--trace-tint-select); }
 .trace-native-row.trace-focus-muted, .trace-turn.trace-focus-muted { opacity: .3; filter: grayscale(.9); }
 .trace-row-pressed { background: var(--fill-2); }
-.trace-request-gutter { position: relative; z-index: 2; display: block; width: 24px; flex: 0 0 24px; }
-.trace-dot-hit { position: absolute; left: 0; top: 0; bottom: 0; z-index: 2; width: 24px; display: flex; justify-content: center; align-items: flex-end; }
+.trace-request-gutter { position: relative; z-index: 2; display: block; width: 28px; flex: 0 0 28px; }
+.trace-dot-hit { position: absolute; left: 0; top: 0; bottom: 0; z-index: 2; width: 28px; display: flex; justify-content: center; align-items: flex-end; }
 .trace-node-dot.request { width: 9px; height: 9px; transform: translateY(50%); border-radius: 50%; box-sizing: border-box; border: 2px solid var(--trace-row-bg); background: var(--text-3); }
 .trace-node-dot.request.active { background: rgba(46, 107, 230, 0.28); border-color: var(--ocean); }
 .trace-node-dot.request.error { background: rgba(229, 72, 77, 0.28); border-color: #e5484d; }
@@ -105,7 +105,7 @@
 
 
 .theme-dark .trajectory-panel {
-  --trace-line: rgba(255, 255, 255, 0.07);
+  --trace-line: rgba(255, 255, 255, 0.05);
   --trace-tint-user: rgba(46, 107, 230, 0.20);
   --trace-tint-assistant: rgba(122, 84, 199, 0.20);
   --trace-tint-tool: rgba(240, 125, 20, 0.18);
@@ -156,7 +156,7 @@
 </style>
 </head>
 <body>
-<h1>轨迹页 · 对齐 dsh 客户端 TrajectoryTable / TrajectoryTimeline（轮次标签在细线下方并向左探出 · 请求圆点落行分隔线 · 类型 pill · 网络面板式概览）</h1>
+<h1>轨迹页 · 对齐 dsh 客户端 TrajectoryTable / TrajectoryTimeline（轮次标签贴着首条记录，不额外占高 · 请求圆点落行分隔线 · 类型 pill · 网络面板式概览）</h1>
 <div class="row">
   <div class="col col-light"><div class="phone ">
   <div class="navbar"><div class="nav-back">&#8249;</div><div class="nav-title">修复轨迹排版</div><div style="width:32px"></div></div>

@@ -620,8 +620,14 @@ test('trajectory summary metrics switch focus modes and timeline selection follo
   assert.match(css, /\.trace-node-dot\.request\s*\{[^}]*transform:\s*translateY\(50%\);/,
     'request dot centers sit directly on each event-row separator');
   assert.match(css, /\.trace-turn-line\s*\{[^}]*top:\s*0;/, 'each round begins below its separator');
-  assert.match(css, /\.trace-turn-label\s*\{[^}]*margin-top:\s*6rpx;[^}]*margin-left:\s*-10rpx;/,
-    'the round label sits below its separator and leans left of the content edge');
+  assert.match(css, /\.trajectory-panel \.trace-turn\s*\{[^}]*height:\s*0;[^}]*flex:\s*0\s+0\s+0;/,
+    'round separators overlay the first event instead of reserving a blank row');
+  assert.match(css, /\.trace-turn-label\s*\{[^}]*position:\s*absolute;[^}]*top:\s*1rpx;[^}]*left:\s*0;[^}]*font-size:\s*18rpx;/,
+    'the full round label anchors to the separator start and overlays the first event');
+  assert.match(css, /\.trace-request-gutter\s*\{[^}]*width:\s*56rpx;[^}]*flex:\s*0\s+0\s+56rpx;/,
+    'event content sits slightly farther right while request dots remain centered in their gutter');
+  assert.match(css, /\.trace-dot-hit\s*\{[^}]*width:\s*56rpx;/,
+    'request hit targets stay aligned with the shifted gutter');
   assert.match(css, /\.trace-turn-line\s*\{[^}]*background:\s*var\(--trace-line\);/,
     'the round separator uses the faintest ledger line');
   assert.ok(!css.includes('.trace-overview { flex-shrink: 0; padding: 20rpx 36rpx 16rpx; background: var(--fill); border-bottom'),
@@ -636,7 +642,7 @@ test('trajectory summary metrics switch focus modes and timeline selection follo
   page.selectTraceMetric({ currentTarget: { dataset: { mode: 'turns' } } });
   assert.equal(page.data.traceFocusMode, 'turns');
   assert.equal(page.data.traceFocusTurn, 2, 'round mode focuses the latest round unless a round is already selected');
-  assert.deepEqual(Array.from(page.data.traceOverview.lanes.flatMap(lane => lane.segments.map(segment => segment.key))), ['user-2', 'model-2', 'tool-2']);
+  assert.deepEqual(Array.from(page.data.traceOverview.lanes.flatMap(lane => lane.segments.filter(segment => !segment.dimmed).map(segment => segment.key))), ['user-2', 'model-2', 'tool-2']);
   assert.equal(page.data.traceFocusTouched, false);
   const roundTarget = page.data.traceOverview.lanes.find(lane => lane.id === 'model').segments[0];
   page.selectTraceAtPercent(roundTarget.centerPct, 'model');
@@ -646,16 +652,28 @@ test('trajectory summary metrics switch focus modes and timeline selection follo
   assert.equal(page.data.traceFocusTurn, 1, 'tapping the active round metric advances to the next round');
   page.selectTraceMetric({ currentTarget: { dataset: { mode: 'calls' } } });
   assert.equal(page.data.traceFocusMode, 'calls');
-  assert.deepEqual(Array.from(page.data.traceOverview.lanes.map(lane => lane.id)), ['tools']);
-  assert.deepEqual(Array.from(page.data.traceOverview.lanes[0].segments.map(segment => segment.key)), ['tool-2']);
-  const callTarget = page.data.traceOverview.lanes[0].segments[0];
+  assert.deepEqual(Array.from(page.data.traceOverview.lanes.map(lane => lane.id)), ['input', 'model', 'tools']);
+  assert.deepEqual(Array.from(page.data.traceOverview.lanes.find(lane => lane.id === 'tools').segments.filter(segment => !segment.dimmed).map(segment => segment.key)), ['tool-2']);
+  const callTarget = page.data.traceOverview.lanes.find(lane => lane.id === 'tools').segments.find(segment => segment.key === 'tool-2');
   page.selectTraceAtPercent(callTarget.centerPct, 'tools');
   assert.equal(page.data.traceFocusMode, 'calls', 'scrubbing the calls timeline keeps calls mode active');
   page.selectTraceMetric({ currentTarget: { dataset: { mode: 'calls' } } });
-  assert.deepEqual(Array.from(page.data.traceOverview.lanes[0].segments.map(segment => segment.key)), ['tool-1'],
-    'tapping the active calls metric advances to the next tool call');
+  assert.deepEqual(Array.from(page.data.traceOverview.lanes.find(lane => lane.id === 'tools').segments.filter(segment => !segment.dimmed).map(segment => segment.key)), ['tool-1'],
+    'tapping the active calls metric advances the highlight to the next tool call without rescaling the overview');
   page.selectTraceMetric({ currentTarget: { dataset: { mode: 'duration' } } });
   assert.deepEqual(Array.from(page.data.traceOverview.lanes.map(lane => lane.id)), ['input', 'model', 'tools']);
+});
+
+test('trajectory virtual offsets match the compact rendered turn separator', () => {
+  const { page } = fixture();
+  page._renderSessionId = 's1';
+  page._traceRows = [
+    { kind: 'turn', key: 'turn-1', turn: 1, label: '第 1 轮' },
+    { kind: 'event', key: 'user-1', badge: 'USER', turn: 1, seq: 1 }
+  ];
+  page.trajectoryPatch();
+  assert.deepEqual(Array.from(page._traceOffsets), [0, 0, 80],
+    'turn labels do not add virtual-list height beyond their first event row');
 });
 
 test('timeline taps select the nearest process and large trace jumps mount the target window first', () => {
@@ -667,7 +685,7 @@ test('timeline taps select the nearest process and large trace jumps mount the t
   page._traceList = rows;
   page._traceByKey = new Map(rows.map(row => [row.key, row]));
   page._traceIndexByKey = new Map(rows.map((row, index) => [row.key, index]));
-  page._traceOffsets = [0]; rows.forEach((row, index) => { page._traceOffsets[index + 1] = page._traceOffsets[index] + (row.kind === 'turn' ? 60 : 80); });
+  page._traceOffsets = [0]; rows.forEach((row, index) => { page._traceOffsets[index + 1] = page._traceOffsets[index] + (row.kind === 'turn' ? 0 : 80); });
   page._traceTotalRpx = page._traceOffsets[rows.length];
   page._traceWindowStart = 0;
   page.data.trajectory = rows.slice(0, 80);

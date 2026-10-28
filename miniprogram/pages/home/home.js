@@ -12,9 +12,32 @@ const costView = require('../../utils/cost-view');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
 const { connectionView } = require('../../utils/connection-status');
 const { createSessionWarmup } = require('../../utils/session-warmup');
+const { classifyEndpoint } = require('../../utils/route-table');
 
 const HOME_SESSION_REFRESH_MS = 1800;
 const SESSION_SWIPE_ACTION_RPX = 300; // 两个 150rpx 操作钮
+
+/** 主机线路族：已连接的那台取真实线路（lan/public/relay），其余按档案地址推断（局域网优先）。 */
+function hostLinkKind(profile, app) {
+  if (!profile) return '';
+  if (app && profile.id === app.activeID && app.connection === 'connected' && store.client && store.client.routeKind) {
+    return store.client.routeKind;
+  }
+  const kinds = [];
+  (profile.endpoints || []).forEach((endpoint) => {
+    const kind = classifyEndpoint(endpoint);
+    if (kind && kinds.indexOf(kind) < 0) kinds.push(kind);
+  });
+  if (kinds.indexOf('lan') >= 0) return 'lan';
+  if (kinds.indexOf('public') >= 0) return 'public';
+  return '';
+}
+
+function hostLinkView(kind) {
+  if (kind === 'lan') return { label: uiText('局域网'), className: 'is-lan', dotClass: 'link-lan' };
+  if (kind === 'public' || kind === 'relay') return { label: uiText('公网'), className: 'is-public', dotClass: 'link-public' };
+  return { label: '', className: '', dotClass: '' };
+}
 
 /** 会话操作菜单：锚定被长按的那一行（与工作区选择一致）。 */
 function sessionMenuLayout(rect, windowInfo, navigationBottom) {
@@ -67,6 +90,8 @@ Page({
     hostLabel: uiText('选择主机'),
     hostKindIcon: 'desktop-white.png',
     hostOnline: false,
+    hostLinkLabel: '',
+    hostLinkClass: '',
     hostRows: [],
     hostSheetOpen: false,
     hostDeleteOpen: false,
@@ -81,6 +106,7 @@ Page({
     editingGatewayName: '',
     editAlias: '',
     editKind: 'desktopcomputer',
+    kindMenuOpen: false,
     hostEditKb: 0,
     workspacePickerOpen: false,
     sheetTheme: 'dark',
@@ -164,17 +190,6 @@ Page({
       homePadTop: this.topbarTop + this.topbarH + 14,
       drawerTopPad: this.drawerTopPad
     });
-    // 让背景网格的横线正好穿过品牌行中心（对齐参考图构图）
-    try {
-      const centerPx = this.topbarTop + this.topbarH / 2;
-      const winW = (typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo().windowWidth : 375) || 375;
-      const centerRpx = centerPx * 750 / winW;
-      const grid = 84;                     // .deep-grid 的网格间距
-      // 网格横线自顶部每 84rpx 一条；正向下移 (center % 84) 正好让一条线穿过中心
-      const offset = (centerRpx % grid + grid) % grid;
-      this.setData({ gridOffsetY: Math.round(offset * 100) / 100 });
-    } catch (e) { /* 布局异常时保持默认 */ }
-
     this.unsubscribe = store.subscribe((snapshot) => {
       this.syncFromStore(snapshot);
     });
@@ -436,24 +451,36 @@ Page({
     profiles.forEach((p) => {
       if (!active || p.id !== active.id) rows.push(p);
     });
-    // 主机点按真实连接状态着色：已连接绿、连接故障橙、断链红，其余熄灭。
+    // 主机点按真实连接状态着色：已连接按线路族（局域网绿 / 公网蓝）、连接故障橙、断链红，其余熄灭。
     const connection = connectionView(app);
     const isOnline = connection.connected;
-    const hostDotClass = isOnline ? 'on' : (connection.key === 'failed' || connection.key === 'dropped' ? connection.key : '');
+    const activeLink = hostLinkView(hostLinkKind(active, app));
+    const hostDotClass = isOnline
+      ? (activeLink.dotClass || 'on')
+      : (connection.key === 'failed' || connection.key === 'dropped' ? connection.key : '');
     this.setHomePatch({
       hostLabel: active ? hostsLib.displayName(active) : uiText('选择主机'),
       hostKindIcon: hostsLib.kindIconFile(active ? active.deviceKind : 'desktopcomputer'),
       hostOnline: active ? (onlineIDs.indexOf(active.id) >= 0 || isOnline) : false,
+      hostLinkLabel: activeLink.label,
+      hostLinkClass: activeLink.className,
       hostDotClass: hostDotClass,
-      hostRows: rows.map((p) => ({
-        id: p.id,
-        displayName: hostsLib.displayName(p),
-        kindIcon: hostsLib.kindIconFile(p.deviceKind),
-        online: onlineIDs.indexOf(p.id) >= 0 || (p.id === app.activeID && isOnline),
-        subLabel: (p.id === app.activeID || isOnline) ? uiText('当前主机 · 已连接') : uiText('点击连接'),
-        isActive: p.id === app.activeID,
-        selected: selected.indexOf(p.id) >= 0
-      }))
+      hostRows: rows.map((p) => {
+        const online = onlineIDs.indexOf(p.id) >= 0 || (p.id === app.activeID && isOnline);
+        const link = hostLinkView(hostLinkKind(p, app));
+        return {
+          id: p.id,
+          displayName: hostsLib.displayName(p),
+          kindIcon: hostsLib.kindIconFile(p.deviceKind),
+          online: online,
+          linkLabel: link.label,
+          linkClass: link.className,
+          dotClass: online ? (link.dotClass || 'on') : '',
+          subLabel: (p.id === app.activeID || isOnline) ? uiText('当前主机 · 已连接') : uiText('点击连接'),
+          isActive: p.id === app.activeID,
+          selected: selected.indexOf(p.id) >= 0
+        };
+      })
     });
   },
 
@@ -601,7 +628,8 @@ Page({
       editingHostId: id,
       editingGatewayName: profile.gatewayName || uiText('未命名主机'),
       editAlias: profile.alias || '',
-      editKind: profile.deviceKind
+      editKind: profile.deviceKind,
+      kindMenuOpen: false
     });
   },
 
@@ -615,12 +643,20 @@ Page({
     if (height !== this.data.hostEditKb) this.setData({ hostEditKb: height });
   },
 
+  toggleKindMenu() {
+    this.setData({ kindMenuOpen: !this.data.kindMenuOpen });
+  },
+
+  closeKindMenu() {
+    if (this.data.kindMenuOpen) this.setData({ kindMenuOpen: false });
+  },
+
   setHostKind(e) {
-    this.setData({ editKind: e.currentTarget.dataset.kind });
+    this.setData({ editKind: e.currentTarget.dataset.kind, kindMenuOpen: false });
   },
 
   cancelHostEdit() {
-    this.setData({ hostEditOpen: false, hostEditKb: 0 });
+    this.setData({ hostEditOpen: false, hostEditKb: 0, kindMenuOpen: false });
   },
 
   saveHostEdit() {

@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>首页深海背景 · BEFORE / AFTER / 原生参考（390×844 CSS @3x）</title>
+<!--
+  Chrome preview for the home page ocean background.
+
+    node scripts/build-ocean-preview.cjs   # regenerate component-*.css, ocean-module-*.js, config.js
+    node preview/ocean/shoot.cjs           # screenshots + benchmark tables
+
+  The stylesheets and shader modules are generated from the real mini program
+  sources (component-before.css from the frozen pre-split-layer snapshot,
+  component-after.css from the live component) so this page cannot drift.
+-->
+<style>
+  html, body { margin: 0; }
+  body { background: #E7EAEF; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; color: #101318; }
+  .sheet { padding: 20px 28px 34px; }
+  h1 { font-size: 15px; font-weight: 600; margin: 0 0 6px; }
+  .note { font-size: 11px; line-height: 1.55; color: #5b6472; margin: 0 0 18px; max-width: 1280px; }
+  .note code { font-size: 10.5px; background: rgba(7, 24, 43, .06); padding: 0 3px; border-radius: 3px; }
+  .rows { display: flex; flex-direction: column; gap: 26px; }
+  .row { display: flex; gap: 24px; align-items: flex-start; }
+  figure { margin: 0; }
+  .phone { position: relative; width: 390px; height: 844px; overflow: hidden; border-radius: 26px; background: #07182b; box-shadow: 0 12px 40px rgba(7, 24, 43, .20); }
+  figcaption { width: 390px; padding-top: 8px; text-align: center; font-size: 11px; line-height: 1.5; color: #5b6472; }
+  figcaption .meta { display: block; color: #8b94a3; font-size: 10px; margin-top: 2px; }
+  .native-ref { width: 100%; height: 100%; display: block; object-fit: fill; }
+  /* mini program <image mode="scaleToFill"> defaults */
+  .ocean-background img { object-fit: fill; display: block; width: 100%; height: 100%; }
+  .ocean-background img.ocean-fallback-whale { object-fit: contain; }
+  /* deterministic stills: freeze animations, timings are set inline by page.js */
+  .preview-freeze, .preview-freeze * { animation: none !important; transition: none !important; }
+</style>
+<link rel="stylesheet" href="component-before.css">
+<link rel="stylesheet" href="component-after.css">
+</head>
+<body>
+<div class="sheet">
+  <h1>首页深海背景 · 390×844 CSS @3x（Chrome 预览，仅用于观感/性能对比）</h1>
+  <p class="note">
+    <strong>BEFORE</strong>：现状整帧 WebGL（1.066× 缓冲，含网格+鲸鱼）→ <code>toDataURL('image/jpeg', 0.68)</code> → 拉伸铺满，叠加 grain/depth/settle。
+    <strong>AFTER</strong>：静态海报底 + 设备像素网格（CSS 42pt 线 + 546pt SVG 交点瓦片）+ 高清鲸鱼 SVG 点阵 + 0.7× 流体帧 520ms 淡入。
+    <strong>NATIVE</strong>：dsh-mobile 设计稿 harness-background-simulator-v2.png 裁到同布局（含原生 UI 文字，仅作观感基准）。
+    动画冻在固定相位（grain 25%、settle 8s）以便逐像素比较；流畅度/首帧延迟以 device-probe 的微信实测为准。
+  </p>
+  <div class="rows">
+    <div class="row" id="main-row">
+      <figure data-stage="before">
+        <div class="phone" data-phone="before"></div>
+        <figcaption>BEFORE · 现状（低分辨率整帧 → JPEG → 全屏拉伸）<span class="meta" data-meta="before"></span></figcaption>
+      </figure>
+      <figure data-stage="after">
+        <div class="phone" data-phone="after"></div>
+        <figcaption>AFTER · 分层渲染（静态网格/鲸鱼高清 + 低分辨率流体帧）<span class="meta" data-meta="after"></span></figcaption>
+      </figure>
+      <figure data-stage="native">
+        <div class="phone"><img class="native-ref" src="native-reference.jpg" alt="dsh-mobile native reference"></div>
+        <figcaption>NATIVE · iOS 参考（1206×2622 @3x 裁切）<span class="meta">dsh-mobile Design/harness-background-simulator-v2.png</span></figcaption>
+      </figure>
+    </div>
+    <div class="row" id="secondary-row">
+      <figure data-stage="fallback">
+        <div class="phone" data-phone="fallback"></div>
+        <figcaption>BEFORE · 首屏（WebGL 启动前只能看 CSS 兜底）<span class="meta" data-meta="fallback"></span></figcaption>
+      </figure>
+      <figure data-stage="after-base">
+        <div class="phone" data-phone="after-base"></div>
+        <figcaption>AFTER · 首屏（静态层立即高清，流体帧未淡入）<span class="meta" data-meta="after-base"></span></figcaption>
+      </figure>
+      <figure data-stage="after-crossfade">
+        <div class="phone" data-phone="after-crossfade"></div>
+        <figcaption>AFTER · 淡入中（首帧 t≈0.2s 与海报各 50%，检查接缝）<span class="meta" data-meta="after-crossfade"></span></figcaption>
+      </figure>
+    </div>
+  </div>
+</div>
+<script src="ocean-module-before.js"></script>
+<script src="ocean-module-after.js"></script>
+<script src="config.js"></script>
+<script src="page.js"></script>
+</body>
+</html>
