@@ -7,9 +7,9 @@ test('four desktop modes expose the same distinct live/header/detail policy',()=
  for(const mode of ['compact','standard','detailed','verbose']){
   const rows=[group({activityDetail:'Inspect repository'})],folds=policy.apply(rows,{mode}, {}, [],true);
   // compact/standard 永远分组（折叠成标题）；detailed 对话过程中不分组、过程照常展开；
-  // verbose 永远展开
+  // verbose 默认同样收起，区别在展开后不设限高（完全展开）
   assert.equal(folds.g,false);
-  assert.equal(rows[0].processBodyVisible,mode==='detailed'||mode==='verbose');
+  assert.equal(rows[0].processBodyVisible,mode==='detailed','只有详细模式对话过程中自动展开');
   assert.equal(rows[0].processBodyCapped,mode!=='verbose');
   assert.equal(rows[0].liveDetail,['standard','detailed'].includes(mode)?'Inspect repository':'');
  }
@@ -61,7 +61,7 @@ test('completion collapse and next-input collapse are independent',()=>{
  policy.apply(next,{mode:'detailed',timing:'next-input'},{g:false},pending,false);
  assert.equal(next[0].processBodyCapped,false,'next-input mode keeps bodies uncapped until opened');
  const verbose=[group()];
- assert.equal(policy.apply(verbose,{mode:'verbose',timing:'completion'},{},running,true).g,false);
+ assert.equal(policy.apply(verbose,{mode:'verbose',timing:'completion'},{},running,true).g,false,'verbose starts folded like the others');
  assert.equal(verbose[0].processBodyCapped,false,'verbose mode never caps process bodies');
 });
 test('detailed mode restores grouped live steps and honors the turn collapse timing',()=>{
@@ -386,8 +386,8 @@ test('the four presentation modes each lay the process out differently', () => {
     const groups = entries.filter(e => e.kind === 'processGroup');
     assert.deepEqual(groups.map(g => g.processBodyCapped), mode === 'verbose' ? [false, false] : [true, true],
       mode + ' keeps a visible body inside the capped scroll container');
-    assert.deepEqual(groups.map(g => g.processBodyVisible), mode === 'compact' || mode === 'standard'
-      ? [false, false] : [true, true], mode + ' shows the live process only when its grouping keeps the body open');
+    assert.deepEqual(groups.map(g => g.processBodyVisible), mode === 'detailed' ? [true, true] : [false, false],
+      mode + ' shows the live process only when its grouping keeps the body open');
   }
   const compactFolds = policy.apply(buildEntries(live.map(r => Object.assign({}, r)), { running: true }), { mode: 'compact', timing: 'completion' }, {}, [], true);
   const standardFolds = policy.apply(buildEntries(live.map(r => Object.assign({}, r)), { running: true }), { mode: 'standard', timing: 'completion' }, {}, [], true);
@@ -435,6 +435,33 @@ test('collapse timing applies to every mode and compact hides settled reasoning 
     policy.apply(rows,{mode,timing:'completion'},{},[],true);
     assert.equal(rows[0].children[0].showPreview, mode !== 'compact', mode + ' settled reasoning preview policy');
   }
+});
+
+test('verbose expands on click like the others, only uncapped', () => {
+  const tool = (name) => ({ callId: name, key: name, name, status: 'done', argumentsText: '{}' });
+  const rows = [group({running:false,turnRunning:false,completed:true,children:[
+    {kind:'context',key:'ctx',title:'工作区',text:'项目文件'},
+    {kind:'reasoning',key:'thought',preview:'Settled thought',running:false},
+    {kind:'toolBundle',key:'bundle',tools:[tool('read'),tool('bash')]}
+  ]})];
+  const entry = rows[0];
+  let folds = policy.apply(rows, {mode:'verbose',timing:'completion'}, {}, [], true);
+  assert.equal(folds.g, false, 'verbose starts folded, not expanded by default');
+  assert.equal(entry.processBodyVisible, false);
+  // 点组头 → 展开，且不设限高（完全展开：整段过程一次铺开）
+  folds = policy.apply(rows, {mode:'verbose',timing:'completion'}, Object.assign({}, folds, {g:true}), rows, false);
+  assert.equal(entry.processBodyVisible, true, 'tapping the heading expands the body');
+  assert.equal(entry.processBodyCapped, false, 'and the opened body is never capped');
+  // 思考 / 上下文 / 工具细节同样是点开，不是默认摊开
+  folds = policy.apply(rows, {mode:'verbose',timing:'completion'}, Object.assign({}, folds, {thought:true,ctx:true,read:true,bash:true}), rows, false);
+  assert.equal(folds.thought, true, 'the thought expands on click');
+  assert.equal(folds.ctx, true, 'the context detail expands on click');
+  assert.equal(folds.read, true, 'each tool detail expands on click');
+  // 再点组头收起，手动展开的内部细节状态保留
+  folds = policy.apply(rows, {mode:'verbose',timing:'completion'}, Object.assign({}, folds, {g:false}), rows, false);
+  assert.equal(entry.processBodyVisible, false, 'tapping the heading again collapses the body');
+  folds = policy.apply(rows, {mode:'verbose',timing:'completion'}, folds, rows, false);
+  assert.equal(folds.thought, true, 'the reopened thought stays open across syncs');
 });
 
 test('reasoning stays expanded for the full live turn and collapses when it settles', () => {

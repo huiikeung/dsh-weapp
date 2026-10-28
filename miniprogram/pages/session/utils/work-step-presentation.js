@@ -99,6 +99,11 @@ function apply(entries, value, manual, previous, reset) {
     const turnClosed = entry.completed === true || entry.failed === true || entry.stopped === true;
     const grouped = modePolicy.stepGrouping === 'collapsed'
       || modePolicy.stepGrouping === 'history' && turnClosed && !deferCollapse;
+    // verbose（stepGrouping=none，完全展开）：默认和其他档一样收起，点组头才展开；
+    // 区别在展开后——组体不设限高、不自动跟随，整段过程一次铺开。
+    const verbose = modePolicy.stepGrouping === 'none';
+    const hasGroupFold = Object.prototype.hasOwnProperty.call(folds, entry.key);
+    if (reset || !hasGroupFold) folds[entry.key] = false;
     const expanded = !!folds[entry.key];
     entry.processBodyCapWhenCollapsed = grouped && prefs.timing !== 'next-input';
     // 组体一可见就限高（max-height min(400px,50vh) 的滚动容器）：分组模式点开组体时、
@@ -126,7 +131,10 @@ function apply(entries, value, manual, previous, reset) {
     // 结束后才折叠成标题；verbose（stepGrouping=none）永远展开。
     // 过程文字已独立成行，收起组体不会连带藏掉叙述。
     entry.processGrouped = grouped;
-    entry.processBodyVisible = !grouped || expanded;
+    // 不分组且非 verbose（详细模式对话过程中）时组体自动展开；verbose 与分组档一样
+    // 跟着折叠状态走——默认收起，点组头展开（展开后不设限高，即「完全展开」）。
+    entry.processAutoOpen = !grouped && !verbose;
+    entry.processBodyVisible = expanded || entry.processAutoOpen;
     // 简洁模式运行中：只留活动组那一行「正在xxxx」，已收工组的标题也收起来；
     // 过程默认不显示，点活动组标题才展开。回合收工后（turnRunning=false）标题回来。
     entry.headingHidden = prefs.mode === 'compact' && processRunning && entry.running !== true;
@@ -135,15 +143,14 @@ function apply(entries, value, manual, previous, reset) {
     entry.titleWrap = prefs.mode === 'compact';
 
     (entry.children || []).forEach(child => {
-      if (child.kind !== 'reasoning') return;
-      child.showPreview = !!child.preview && (child.running === true || modePolicy.settledReasoningPreview);
-      const hasReasoningFold = Object.prototype.hasOwnProperty.call(folds, child.key);
-      if (processRunning) folds[child.key] = true;
-      else if (reset || wasRunning || !hasReasoningFold) folds[child.key] = false;
+      if (child.kind === 'reasoning') {
+        child.showPreview = !!child.preview && (child.running === true || modePolicy.settledReasoningPreview);
+        const hasReasoningFold = Object.prototype.hasOwnProperty.call(folds, child.key);
+        if (processRunning) folds[child.key] = true;
+        else if (reset || wasRunning || !hasReasoningFold) folds[child.key] = false;
+        return;
+      }
     });
-
-    const hasFold = Object.prototype.hasOwnProperty.call(folds, entry.key);
-    if (reset || !hasFold) folds[entry.key] = false;
   });
 
   return folds;

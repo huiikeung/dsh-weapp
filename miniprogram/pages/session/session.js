@@ -4701,8 +4701,9 @@ Page({
       patch[rowPath + '.processBodyCapped'] = next
         ? row.processBodyCapWhenExpanded : row.processBodyCapWhenCollapsed;
       // 组体跟着折叠状态整块挂载/卸载：点组头当场展开，不等下一次同步。
-      // 不分组的模式（详细模式对话过程中、完全展开）组体始终可见，点组头不改变挂载状态。
-      patch[rowPath + '.processBodyVisible'] = !row.processGrouped || next;
+      // 详细模式对话过程中组体是自动展开的（processAutoOpen），点组头不改变挂载；
+      // 完全展开默认展开，点组头可收起。
+      patch[rowPath + '.processBodyVisible'] = next || row.processAutoOpen === true;
       // 展开运行中的组：直接跳到最新一步（桌面端 initialize(closed ? top : bottom)）；
       // 收起或展开已收工的组留在顶部。
       if (next && row.running) patch.processFollowTarget = row.key + '/tail';
