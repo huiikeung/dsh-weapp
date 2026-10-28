@@ -1,6 +1,11 @@
 const { ConversationWindow } = require('./utils/conversation-window');
 const { dataPatch } = require('./utils/session-render');
 const WINDOW_SHIFT_INTERVAL = 32;
+const MANUAL_SCROLL_SETTLE_MS = 800;
+function hasRecentConversationTouch(page) {
+  const touchedAt = Number(page._lastTouchAt) || 0;
+  return touchedAt > 0 && Date.now() - touchedAt < MANUAL_SCROLL_SETTLE_MS;
+}
 module.exports = {
   conversationWindowPatch(rows, options) {
     if (!this._conversationWindow || this._windowSession !== this._renderSessionId) {
@@ -30,7 +35,7 @@ module.exports = {
       this._scrollAnchorAt = Date.now();
       return patch;
     }
-    if (Math.abs(top - (this._lastScrollTop || 0)) > 1) {
+    if (!hasRecentConversationTouch(this) && Math.abs(top - (this._lastScrollTop || 0)) > 1) {
       patch.conversationScrollTop = top;
       this._lastScrollTop = top;
       this._programmaticScrollAt = Date.now();
@@ -139,7 +144,11 @@ module.exports = {
       const anchoring = this._scrollAnchorAt && Date.now() - this._scrollAnchorAt < 800;
       // Anchor to the first actually visible row, not the row guessed from cumulative estimates.
       // Large variable-height messages can make that guessed index drift and jump on release.
-      if (!anchoring && this._convPinned === false && anchorIndex >= 0 && window.offsets[anchorIndex] !== oldAnchorOffset) {
+      // During and just after a finger scroll, scroll-view's native anchoring owns
+      // the viewport. An estimated-height correction here can override its settled
+      // position and make the list jump as soon as the finger lifts.
+      if (!anchoring && !hasRecentConversationTouch(this) && this._convPinned === false
+        && anchorIndex >= 0 && window.offsets[anchorIndex] !== oldAnchorOffset) {
         // Reopen and first-render paths can leave the cached offset behind the native view.
         // Base the correction on the measured scroll position to avoid a one-time snap.
         const currentTop = nativeOffset && Number.isFinite(Number(nativeOffset.scrollTop))

@@ -87,6 +87,18 @@ test('prepending history preserves the visible anchor and offset while incoming 
   assert.equal(live.conversationScrollTop, undefined);
   assert.equal(page._lastScrollTop, 5125);
 });
+test('content re-estimation does not write scrollTop over a recent manual swipe', () => {
+  const page = { ...viewport, data: {}, _renderSessionId: 's', _convPinned: false,
+    _lastScrollTop: 5025, _lastTouchAt: Date.now() - 200 };
+  const allRows = rows(100);
+  page.data = page.conversationWindowPatch(allRows);
+  page._conversationWindow.heights.set('u30', 200);
+
+  const patch = page.conversationWindowPatch(allRows);
+  assert.equal(patch.conversationScrollTop, undefined,
+    'native scroll anchoring keeps the reader position during touch settling');
+  assert.equal(page._lastScrollTop, 5025, 'the stale estimated correction is not recorded as the native position');
+});
 test('history prepends anchor the viewport with scroll-into-view instead of guessed scrollTop', () => {
   const page = { ...viewport, data: {}, _renderSessionId: 's', _convPinned: false, _lastScrollTop: 5025 };
   const initial = rows(100); page.conversationWindowPatch(initial);
@@ -168,6 +180,44 @@ test('first-load height corrections use native scrollTop when cached scroll stat
   assert.equal(applied.conversationScrollTop, 310,
     'the correction is applied to the current native offset, not an earlier cached offset');
   assert.equal(page._lastScrollTop, 310);
+});
+
+test('measured height changes do not correct scrollTop just after a manual swipe', () => {
+  const page = { ...viewport, data: {}, _renderSessionId: 's', _convPinned: false,
+    _lastScrollTop: 500, _convClientHeight: 700, _lastTouchAt: Date.now() - 200,
+    _lastConvScrollAt: Date.now() - 170 };
+  const initial = page.conversationWindowPatch(rows(30));
+  page.data = { tab: 'conversation', rows: initial.rows, conversationTopSpace: initial.conversationTopSpace,
+    conversationBottomSpace: initial.conversationBottomSpace };
+  const rects = page.data.rows.map((row, index) => {
+    const top = 100 + (index - 7) * 70;
+    return { top, bottom: top + 70, height: 70 };
+  });
+  let applied;
+  page.setData = patch => { applied = patch; Object.assign(page.data, patch); };
+  const previousWx = global.wx;
+  global.wx = {
+    createSelectorQuery() {
+      const query = {
+        in() { return this; },
+        select() { return { boundingClientRect: () => query }; },
+        selectAll() { return { boundingClientRect: () => query }; },
+        exec(callback) { callback([{ top: 100, bottom: 800 }, rects]); }
+      };
+      return query;
+    }
+  };
+  try {
+    page.measureConversationWindow();
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+
+  assert.equal(page._conversationWindow.heights.get(page.data.rows[7].key), 70,
+    'the measured height cache still refreshes after the swipe');
+  assert.equal(applied && applied.conversationScrollTop, undefined,
+    'height measurement must not issue a second scroll after the finger lifts');
 });
 
 test('cache windows restore multiple local pages and preserve a paging cursor when bounded', () => {
