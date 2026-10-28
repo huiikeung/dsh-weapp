@@ -1216,6 +1216,7 @@ Page({
     const policyKey = s.sessionId + '/' + workPrefs.mode + '/' + workPrefs.timing;
     const processFolds = workSteps.apply(rows, workPrefs, this.data.folds, this._conversationRows || this.data.rows, this._workPolicyKey !== policyKey);
     this._workPolicyKey = policyKey;
+    this._workStepMode = workPrefs.mode;
     this._processRunning = processRunning;
 
     applyTurnFooters(rows, s.rows || [], s.turnUsage || {}, processRunning);
@@ -4834,6 +4835,16 @@ Page({
         if (this._compactLiveNarration && row.processNarration === true) return false;
         return true;
       });
+      // 详细模式：展开回合时里面各组默认跟着展开（对齐桌面端 history 分组：收工后点开
+      // 「已完成」直接看过程）。标准/简洁仍旧只展开到组标题，各组自己点开。
+      if (next && this._workStepMode === 'detailed') {
+        visible.forEach(row => {
+          if (row.kind !== 'processGroup' || folds[row.key]) return;
+          folds[row.key] = true;
+          row.processBodyVisible = true;
+          patch['folds.' + row.key] = true;
+        });
+      }
       Object.assign(patch, this.conversationWindowPatch(visible));
     }
     this.setData(patch, () => this.measureConversationWindow());

@@ -103,7 +103,11 @@ function apply(entries, value, manual, previous, reset) {
     // 区别在展开后——组体不设限高、不自动跟随，整段过程一次铺开。
     const verbose = modePolicy.stepGrouping === 'none';
     const hasGroupFold = Object.prototype.hasOwnProperty.call(folds, entry.key);
-    if (reset || !hasGroupFold) folds[entry.key] = false;
+    // 详细模式（history 分组）：回合 disclosure 展开时，里面各组默认跟着展开——桌面端
+    // 收工后点开「已完成」就是直接看过程，不用再逐个点组头。其余档仍旧默认收起。
+    const turnOpen = entry.turnProcessKey ? folds[entry.turnProcessKey] === true : false;
+    const openInExpandedTurn = modePolicy.stepGrouping === 'history' && turnOpen;
+    if (reset || !hasGroupFold) folds[entry.key] = openInExpandedTurn;
     const expanded = !!folds[entry.key];
     entry.processBodyCapWhenCollapsed = grouped && prefs.timing !== 'next-input';
     // 组体一可见就限高（max-height min(400px,50vh) 的滚动容器）：分组模式点开组体时、

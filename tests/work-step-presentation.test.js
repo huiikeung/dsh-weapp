@@ -184,6 +184,25 @@ test('compact group headings show in full instead of ellipsis',()=>{
  }
 });
 
+test('detailed opens the groups of an expanded turn; the other tiers keep them folded',()=>{
+ const build=()=>([
+  {kind:'turnProcess',key:'turn-g',expandable:true},
+  group({key:'g',turnProcessKey:'turn-g',running:false,completed:true,children:[
+   {kind:'reasoning',key:'thought',preview:'Settled thought',running:false}
+  ]})
+ ]);
+ for(const mode of ['compact','standard','detailed','verbose']){
+  const folds=policy.apply(build(),{mode},{'turn-g':true},[],false);
+  assert.equal(folds.g,mode==='detailed',mode+' group fold while the turn is expanded');
+ }
+ // 回合本身收起时，各组仍旧收起（详细模式也不预展开）
+ const folded=policy.apply(build(),{mode:'detailed'},{'turn-g':false},[],false);
+ assert.equal(folded.g,false,'a collapsed turn keeps its groups folded');
+ // 展开回合后用户手动收起的组，同步后保持收起
+ const manual=policy.apply(build(),{mode:'detailed'},{'turn-g':true,g:false},[],false);
+ assert.equal(manual.g,false,'a manually folded group stays folded');
+});
+
 test('settings persistence validates modes and leaves failed writes visible to caller',()=>{
  let stored;global.wx={getStorageSync:()=>stored,setStorageSync:(key,v)=>{assert.equal(key,policy.KEY);stored=v;}};
  try{assert.deepEqual(policy.read(),{mode:'detailed',timing:'completion'});policy.save({mode:'verbose',timing:'next-input'});assert.equal(policy.read().mode,'verbose');assert.equal(policy.view(policy.read()).workStepTimingLabel,'下次有新消息时');wx.setStorageSync=()=>{throw Error('full')};assert.throws(()=>policy.save({mode:'compact'}));}finally{delete global.wx;}

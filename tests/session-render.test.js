@@ -260,6 +260,29 @@ test('compact mode keeps a single live status line and folds the process text aw
   }
 });
 
+test('expanding a settled turn in detailed mode opens its process groups', () => {
+  const f = fixture();
+  f.store.sessionState.rows = [
+    { kind: 'user', key: 'u', text: '任务' },
+    { kind: 'assistant', key: 'a1', turn: 1, reasoning: '想一下', text: '先检查。',
+      tools: [{ callId: 'c1', key: 't1', name: 'read', status: 'done', argumentsText: '{}' }], settled: true },
+    { kind: 'assistant', key: 'a2', turn: 1, text: '完成', turnClosed: true, turnEndReason: 'completed', durationMs: 9000 }
+  ];
+  f.sync();
+  const turn = f.page.data.rows.find(row => row.kind === 'turnProcess');
+  f.page.toggleFold({ currentTarget: { dataset: { key: turn.key } } });
+  const groups = f.page.data.rows.filter(row => row.kind === 'processGroup');
+  assert.ok(groups.length > 0, 'the turn expands into its process groups');
+  assert.ok(groups.every(group => group.processBodyVisible), 'detailed opens every group together with the turn');
+  // 组头仍可单独收起，且跨同步保持
+  f.page.toggleFold({ currentTarget: { dataset: { key: groups[0].key } } });
+  assert.equal(f.page.data.rows.find(row => row.key === groups[0].key).processBodyVisible, false);
+  f.sync();
+  const after = f.page.data.rows.filter(row => row.kind === 'processGroup');
+  assert.equal(after[0].processBodyVisible, false, 'the manually folded group stays folded');
+  assert.ok(after.slice(1).every(group => group.processBodyVisible), 'the rest stay open');
+});
+
 test('completion does not reparse or resend historical Markdown', () => {
   const f = fixture(); f.sync(); f.reset();
   assert.equal(f.page.data.rows.find(row => row.key === 'current').copyText, '');
