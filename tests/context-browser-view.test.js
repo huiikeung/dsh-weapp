@@ -21,13 +21,43 @@ const compiler = process.env.WECHAT_WCC
 test('overview face overlays the desktop-style duration curve and keeps the turn strip below', () => {
   const wxml = fs.readFileSync(path.join(root, 'pages/session/session.wxml'), 'utf8');
   const wxss = fs.readFileSync(path.join(root, 'pages/session/session.wxss'), 'utf8');
-  assert.match(wxml, /ctx-trend-surface-overview[\s\S]*ctx-trend-columns[\s\S]*ctx-trend-duration-fit[\s\S]*ctx-trend-turns-fit/);
-  assert.match(wxml, /ribbon\.durationRuns/);
-  assert.match(wxml, /ctx-trend-duration-halo/);
+  assert.match(wxml, /ctx-trend-surface-overview[\s\S]*ctx-trend-columns[\s\S]*ctx-dur[\s\S]*ctx-trend-turns-fit/);
+  assert.match(wxml, /ribbon\.durationSegments/);
+  assert.match(wxml, /ribbon\.durationDots/);
+  // 折线不再用内联 SVG：小程序对它支持不稳定，改用原生旋转细段（同 ctx-flow）。
+  assert.doesNotMatch(wxml, /<svg/);
   assert.doesNotMatch(wxml, /durationAreas|ctx-trend-duration-area/);
-  assert.match(wxss, /\.ctx-trend-duration-fit\s*\{[^}]*width:\s*100%/);
-  assert.match(wxss, /\.ctx-trend-duration polyline\s*\{[^}]*stroke-width:\s*2\.5/);
-  assert.match(wxss, /\.ctx-trend-duration \.ctx-trend-duration-halo\s*\{[^}]*stroke:\s*var\(--surface\)/);
+  assert.match(wxss, /\.ctx-dur-seg\s*\{[^}]*position:\s*absolute/);
+  assert.match(wxss, /\.ctx-dur-core\s*\{[^}]*background:\s*var\(--text-4\)/);
+  assert.match(wxss, /\.ctx-dur-halo\s*\{[^}]*background:\s*var\(--surface\)/);
+  assert.match(wxss, /\.ctx-dur\s*\{[^}]*pointer-events:\s*none/);
+});
+
+test('live scrub probe renders a brand vertical line and a clamped metric card', () => {
+  const wxml = fs.readFileSync(path.join(root, 'pages/session/session.wxml'), 'utf8');
+  const wxss = fs.readFileSync(path.join(root, 'pages/session/session.wxss'), 'utf8');
+  // Bars face: the line rides the hovered bar in rpx; overview face: a percentage
+  // of the stretched ribbon. Both live inside the chart so they scroll with it.
+  assert.match(wxml, /ctx-trend-hoverline[^>]*style="left:\{\{contextPanel\.trend\.hoverX\}\}rpx;/);
+  assert.match(wxml, /ctx-trend-hoverline[^>]*style="left:\{\{contextPanel\.trend\.hoverLeft\}\}%;/);
+  // The hovered bar gets the brand outline (declared before .selected so a tap keeps its frame).
+  assert.match(wxml, /ctx-trend-col[^>]*item\.seq === contextPanel\.trend\.hoverSeq \? 'hovered'/);
+  assert.match(wxss, /\.ctx-trend-col\.hovered\s*\{[^}]*box-shadow:[^;]*var\(--ocean\)/);
+  assert.ok(wxss.indexOf('.ctx-trend-col.hovered') < wxss.indexOf('.ctx-trend-col.selected'),
+    'selected must win the equal-specificity tie after a tap');
+  // The card sits outside the scroller, anchored by the clamped tipLeft.
+  assert.match(wxml, /ctx-trend-tip" style="left:\{\{contextPanel\.trend\.tipLeft\}\}px;/);
+  assert.match(wxml, /ctx-trend-tip-head/);
+  assert.match(wxml, /ctx-trend-tip-metric/);
+  assert.match(wxss, /\.ctx-trend-tip\s*\{[^}]*transform:\s*translateX\(-50%\)/);
+  assert.match(wxss, /\.ctx-trend-tip\s*\{[^}]*pointer-events:\s*none/);
+  assert.match(wxss, /\.ctx-trend-main\s*\{[^}]*position:\s*relative/);
+  // Chart gestures belong to the chart: a horizontal scrub must not bubble into
+  // the panel-level segment swipe.
+  assert.match(wxml, /ctx-trend-scroll[^>]*catchtouchstart="contextTrendTouchStart"/);
+  assert.match(wxml, /ctx-trend-fit" catchtouchstart="contextTrendTouchStart"/);
+  assert.doesNotMatch(wxml, /ctx-trend-scroll[^>]*bindtouchstart=/);
+  assert.doesNotMatch(wxml, /ctx-trend-fit" bindtouchstart=/);
 });
 
 function sampleBrowserValue(overrides) {
@@ -283,6 +313,11 @@ test('touch scrubbing previews live detail and browser state, then restores the 
   assert.equal(page.data.contextPanel.trendDetail.seq, 30);
   assert.equal(page.data.contextPanel.trendDetail.durationText, '3.0s');
   assert.equal(page.data.contextPanel.browser.selectedSeq, 30);
+  // The live probe: the vertical line rides the hovered bar (rpx, scrolls with the
+  // content) and the metric card is clamped inside the 180px-wide measured pane.
+  assert.equal(page.data.contextPanel.trend.hoverX, 2 * 32 + 18);
+  assert.equal(page.data.contextPanel.trend.hoverLeft, -1, 'bars mode positions the line in rpx, not %');
+  assert.equal(page.data.contextPanel.trend.tipLeft, 90, 'the card centre clamps to half the pane width');
 
   page.contextTrendTouchMove({ touches: [{ clientX: 157 }] });
   assert.equal(page.data.contextTrendHoverSeq, 40);
@@ -294,9 +329,75 @@ test('touch scrubbing previews live detail and browser state, then restores the 
   page.contextTrendTouchEnd();
   assert.equal(page.data.contextTrendHoverSeq, null);
   assert.equal(page.data.contextPanel.trend.hoverSeq, null);
+  assert.equal(page.data.contextPanel.trend.hoverLeft, -1);
+  assert.equal(page.data.contextPanel.trend.hoverX, -1);
+  assert.equal(page.data.contextPanel.trend.tipLeft, -1);
   assert.equal(page.data.contextPanel.trend.selectedSeq, 20);
   assert.equal(page.data.contextPanel.trendDetail.seq, 20);
   assert.equal(page.data.contextPanel.browser.selectedSeq, 20);
+});
+
+test('the overview curve follows the measured pane width and realigns on resize', () => {
+  const { page, store, wx } = pageFixture();
+  store.sessionState.contextDashboard.value.requests.forEach((request, index) => { request.activeMs = 800 * (index + 1); });
+  page.data.tab = 'context';
+  page.setData(page.contextPanelPatch());
+  page.contextTrendSelect({ currentTarget: { dataset: { seq: '20' } } });
+  page.contextTrendOverview();
+  assert.equal(page.data.contextPanel.trend.overview, true);
+  // 第一次重建：没量过可视宽，曲线用 375pt 解析值兜底。
+  assert.equal(page.data.contextPanel.trend.paneWidth, contextView.OVERVIEW_PANE_FALLBACK_RPX);
+
+  let selector = '';
+  wx.getWindowInfo = () => ({ windowWidth: 375 });
+  wx.createSelectorQuery = () => {
+    const query = {
+      in() { return this; },
+      select(value) { selector = value; return this; },
+      boundingClientRect() { return this; },
+      exec(callback) { callback([{ left: 0, width: 143 }]); }   // 143px × 2 = 286rpx
+    };
+    return query;
+  };
+  page.measureContextTrendPane();
+  assert.equal(selector, '.ctx-trend-chart-fit');
+  assert.equal(page.data.contextPanel.trend.paneWidth, 286, 'the measured width replaces the fallback');
+  const core = page.data.contextPanel.trend.ribbon.durationSegments.find(item => !item.halo);
+  assert.ok(core, 'the overview curve still renders after the realign rebuild');
+
+  // 同一宽度再量一次不重建（没有多余的 setData 往返）。
+  const paneBefore = page.data.contextPanel.trend.paneWidth;
+  page.measureContextTrendPane();
+  assert.equal(page.data.contextPanel.trend.paneWidth, paneBefore);
+});
+
+test('a mid-gesture panel rebuild keeps the live probe instead of dropping the line', () => {
+  const { page, wx } = pageFixture();
+  page.data.tab = 'context';
+  page.setData(page.contextPanelPatch());
+  wx.getWindowInfo = () => ({ windowWidth: 375 });
+  wx.createSelectorQuery = () => {
+    const query = {
+      in() { return this; },
+      select() { return this; },
+      boundingClientRect() { return this; },
+      exec(callback) { callback([{ left: 100, width: 180 }]); }
+    };
+    return query;
+  };
+  page.contextTrendTouchStart({ touches: [{ clientX: 141 }] });
+  assert.equal(page.data.contextPanel.trend.hoverSeq, 30);
+  // A running session rebuilds the panel every 2.5s; the finger is still down.
+  page.setData(page.contextPanelPatch());
+  const trend = page.data.contextPanel.trend;
+  assert.equal(trend.hoverSeq, 30, 'the rebuild re-injects the hovered record');
+  assert.equal(trend.hoverX, 2 * 32 + 18);
+  assert.equal(trend.tipLeft, 90);
+  // And a fresh gesture without a hover starts clean.
+  page.contextTrendTouchEnd();
+  page.setData(page.contextPanelPatch());
+  assert.equal(page.data.contextPanel.trend.hoverX, -1);
+  assert.equal(page.data.contextPanel.trend.tipLeft, -1);
 });
 
 test('overview scrub moves a temporary cursor while preserving the selected bar', () => {
@@ -323,9 +424,14 @@ test('overview scrub moves a temporary cursor while preserving the selected bar'
   assert.equal(page.data.contextPanel.trend.hoverLeft, (2.5 / 6) * 100);
   assert.equal(page.data.contextPanel.trend.selectedSeq, 20);
   assert.equal(page.data.contextPanel.browser.selectedSeq, 30);
+  // Overview: the line is a percentage of the stretched ribbon; the card anchors
+  // 10px into the 200px pane (half-width 110px clamps to the pane half, 100px).
+  assert.equal(page.data.contextPanel.trend.tipLeft, 100);
+  assert.equal(page.data.contextPanel.trend.hoverX, -1, 'overview mode positions the line in %, not rpx');
 
   page.contextTrendTouchEnd();
   assert.equal(page.data.contextPanel.trend.hoverLeft, -1);
+  assert.equal(page.data.contextPanel.trend.tipLeft, -1);
   assert.equal(page.data.contextPanel.trend.selectedSeq, 20);
   assert.equal(page.data.contextPanel.browser.selectedSeq, 20);
   assert.equal(store.sessionState.contextDashboard.value.requests.length, 6);

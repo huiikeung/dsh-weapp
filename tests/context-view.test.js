@@ -399,6 +399,26 @@ test('deriveTrend switches step/turn grouping and shows positive and negative ch
   assert.equal(turns.selectedSeq, 3);
 });
 
+// 把一根旋转细段的 inline style 解回两端点（rpx，相对图表 padding box）。
+function decodeSegment(style) {
+  const left = Number(style.match(/left:([\d.-]+)rpx/)[1]);
+  const top = Number(style.match(/top:([\d.-]+)rpx/)[1]);
+  const width = Number(style.match(/width:([\d.-]+)rpx/)[1]);
+  const height = Number(style.match(/height:([\d.-]+)rpx/)[1]);
+  const angle = Number(style.match(/rotate\(([\d.-]+)deg\)/)[1]);
+  const rad = angle * Math.PI / 180;
+  const cy = top + height / 2;
+  return { x0: left, y0: cy, x1: left + width * Math.cos(rad), y1: cy + width * Math.sin(rad) };
+}
+
+// 期望的折线点（绝对 rpx）：x 落在柱心，y = 36 + 224 - activeMs/max*224。
+function expectPoint(index, activeMs, maxActiveMs) {
+  return {
+    x: index * contextView.TREND_BAR_PITCH + contextView.TREND_BAR_GAP + contextView.TREND_BAR_W / 2,
+    y: contextView.TREND_TOP_PAD + contextView.TREND_CHART_H - activeMs / maxActiveMs * contextView.TREND_CHART_H
+  };
+}
+
 test('deriveTrend sums activeMs across a turn and feeds the duration curve', () => {
   const value = {
     requests: [
@@ -411,23 +431,30 @@ test('deriveTrend sums activeMs across a turn and feeds the duration curve', () 
   const turns = contextView.deriveTrend(value, key => key, { groupBy: 'turn' });
   assert.equal(turns.hasDuration, true);
   assert.equal(turns.maxActiveMs, 1000);
-  assert.equal(turns.durationRuns.length, 1);
-  let points = turns.durationRuns[0].split(' ');
-  assert.equal(points.length, 2, 'turn grouping draws one point per turn');
-  // x sits on each column's centre: i * pitch + barW / 2.
-  assert.equal(Number(points[0].split(',')[0]), contextView.TREND_BAR_W / 2);
-  assert.equal(Number(points[1].split(',')[0]), contextView.TREND_BAR_PITCH + contextView.TREND_BAR_W / 2);
-  // The largest activeMs (turn 1's 1000ms sum) reaches the plot floor.
-  assert.equal(Number(points[0].split(',')[1]), 0);
-  // Turn 2's 200ms rides 4/5 of the way down the 224rpx plot.
-  assert.equal(Number(points[1].split(',')[1]), Math.round((contextView.TREND_CHART_H - 200 / 1000 * contextView.TREND_CHART_H) * 100) / 100);
+  // 折线是原生旋转细段：每相邻两点一根 halo + 一根 core（内联 SVG 不稳定）。
+  assert.equal(turns.durationSegments.length, 2, 'turn grouping draws one halo + one core segment');
+  assert.equal(turns.durationSegments[0].halo, true);
+  assert.equal(turns.durationSegments[1].halo, undefined);
+  const seg = decodeSegment(turns.durationSegments[1].style);
+  const first = expectPoint(0, 1000, 1000);
+  const second = expectPoint(1, 200, 1000);
+  assert.ok(Math.abs(seg.x0 - first.x) < 0.2 && Math.abs(seg.y0 - first.y) < 0.2,
+    `segment starts on the first column centre (${seg.x0},${seg.y0})`);
+  assert.ok(Math.abs(seg.x1 - second.x) < 0.2 && Math.abs(seg.y1 - second.y) < 0.2,
+    `segment ends on the second column centre (${seg.x1},${seg.y1})`);
+  // The largest activeMs (turn 1's 1000ms sum) peaks at the plot ceiling;
+  // shorter durations ride lower (a normal chart's taller-is-up mapping).
+  assert.equal(Math.round(seg.y0), contextView.TREND_TOP_PAD);
+  assert.ok(seg.y1 > seg.y0, 'the 200ms turn rides below the peak');
 
   // Step granularity keeps every request's own activeMs.
   const steps = contextView.deriveTrend(value, key => key, { groupBy: 'step' });
   assert.equal(steps.maxActiveMs, 600);
-  points = steps.durationRuns[0].split(' ');
-  assert.equal(points.length, 3);
-  assert.equal(Number(points[1].split(',')[1]), 0, 'the 600ms step is the tallest');
+  assert.equal(steps.durationSegments.length, 4, 'three steps draw two halo + two core segments');
+  const stepSegs = steps.durationSegments.filter(s => !s.halo).map(s => decodeSegment(s.style));
+  const mid = expectPoint(1, 600, 600);
+  assert.ok(Math.abs(stepSegs[0].y1 - mid.y) < 0.2 && Math.abs(stepSegs[1].y0 - mid.y) < 0.2,
+    'the 600ms step is the tallest and both segments meet on it');
 });
 
 test('deriveTrend omits the duration curve when no request carries activeMs', () => {
@@ -438,13 +465,13 @@ test('deriveTrend omits the duration curve when no request carries activeMs', ()
     ]
   }, key => key);
   assert.equal(trend.hasDuration, false);
-  assert.equal(trend.durationRuns.length, 0);
+  assert.equal(trend.durationSegments.length, 0);
   assert.equal(trend.durationDots.length, 0);
 });
 
 test('deriveTrend keeps the duration curve inside the plot on hostile input', () => {
   // A record whose activeMs exceeds the fold's own maximum, plus a negative one:
-  // both must clamp into [0, CHART_H] so the polyline never paints outside the module.
+  // both must clamp into [0, CHART_H] so no segment paints outside the module.
   const trend = contextView.deriveTrend({
     requests: [
       { seq: 1, turn: 1, step: 1, system: 100, tools: 0, total: 100, activeMs: 100 },
@@ -452,15 +479,18 @@ test('deriveTrend keeps the duration curve inside the plot on hostile input', ()
       { seq: 3, turn: 2, step: 1, system: 130, tools: 0, total: 130, activeMs: -50 }
     ]
   }, key => key, { groupBy: 'step' });
-  const points = trend.durationRuns[0].split(' ').map((point) => point.split(',').map(Number));
-  assert.equal(points.length, 3);
-  points.forEach(([, y]) => {
-    assert.ok(y >= 0, 'y never goes above the plot');
-    assert.ok(y <= contextView.TREND_CHART_H, 'y never drops below the baseline');
+  assert.equal(trend.durationSegments.length, 4);
+  const endpoints = trend.durationSegments.map(s => decodeSegment(s.style))
+    .flatMap(seg => [{ x: seg.x0, y: seg.y0 }, { x: seg.x1, y: seg.y1 }]);
+  endpoints.forEach((point) => {
+    // 角度按 0.01° 取整，长段解回端点会有 ~0.05rpx 漂移，容差放到 0.5rpx。
+    assert.ok(point.y >= contextView.TREND_TOP_PAD - 0.5, 'the curve never rides above the plot');
+    assert.ok(point.y <= contextView.TREND_CHART_BOX + 0.5, 'the curve never drops below the baseline');
   });
-  // The tallest record sits exactly on the floor; the negative one clamps to the ceiling.
-  assert.equal(points[1][1], 0);
-  assert.equal(points[2][1], contextView.TREND_CHART_H);
+  // The tallest record peaks at the ceiling; the negative one clamps to the baseline.
+  const cores = trend.durationSegments.filter(s => !s.halo).map(s => decodeSegment(s.style));
+  assert.equal(Math.round(cores[0].y1), contextView.TREND_TOP_PAD);
+  assert.equal(Math.round(cores[1].y1), contextView.TREND_CHART_BOX);
 });
 
 test('deriveTrend reports a chart width that covers the bars plus side padding', () => {
@@ -564,6 +594,7 @@ test('deriveTrend overview squashes the session into one stretched ribbon', () =
 });
 
 test('overview ribbon carries a sampled duration curve and leaves gaps for unknown timings', () => {
+  const paneWidth = 572;   // 375pt 机的解析值：测量前的兜底
   const trend = contextView.deriveTrend({
     requests: [
       { seq: 1, turn: 1, step: 1, system: 100, total: 100, activeMs: 100 },
@@ -571,19 +602,41 @@ test('overview ribbon carries a sampled duration curve and leaves gaps for unkno
       { seq: 3, turn: 2, step: 1, system: 130, total: 130 },
       { seq: 4, turn: 2, step: 2, system: 140, total: 140, activeMs: 1000 }
     ]
-  }, key => key, { groupBy: 'step', overview: true });
-  assert.equal(trend.ribbon.durationRuns.length, 1);
-  const points = trend.ribbon.durationRuns[0].split(' ');
-  assert.equal(points.length, 2, 'known neighboring durations stay in one line run');
-  assert.deepEqual(points.map(point => point.split(',').map(Number)), [[0.5, 201.6], [1.5, 112]]);
-  assert.equal(Object.hasOwn(trend.ribbon, 'durationAreas'), false,
-    'the desktop-style duration profile is a line rather than a filled area');
-  assert.deepEqual(trend.ribbon.durationDots, ['3.5,0'], 'a known duration after a gap renders as an isolated dot');
+  }, key => key, { groupBy: 'step', overview: true, paneWidth });
+  // 总览折线同样是原生细段：第 1→2 条一段；第 4 条因前一条缺 activeMs 断线成圆点。
+  assert.equal(trend.ribbon.durationSegments.length, 2);
+  const seg = decodeSegment(trend.ribbon.durationSegments[1].style);
+  // x 由记录序号中心按可视宽换算：0.5/4 与 1.5/4（列心，和堆叠列对齐）。
+  const firstX = Math.round(paneWidth * 0.5 / 4 * 10) / 10;
+  const secondX = Math.round(paneWidth * 1.5 / 4 * 10) / 10;
+  assert.ok(Math.abs(seg.x0 - firstX) < 0.2 && Math.abs(seg.x1 - secondX) < 0.2);
+  // y 与柱模式同一缩放：maxActiveMs 1000 的 500ms 落在半高。
+  assert.equal(Math.round(seg.y1), contextView.TREND_TOP_PAD + contextView.TREND_CHART_H / 2);
+  assert.equal(trend.ribbon.durationDots.length, 2, 'a known duration after a gap renders as an isolated dot');
+  const dotLeft = Number(trend.ribbon.durationDots[1].style.match(/left:([\d.]+)rpx/)[1]);
+  assert.ok(Math.abs(dotLeft - (paneWidth * 3.5 / 4 - contextView.DURATION_DOT_CORE / 2)) < 0.2);
   const withoutCurve = contextView.deriveTrend({ requests: trend.bars.map(bar => ({ seq: bar.seq, total: 1 })) }, key => key,
-    { overview: true, showDuration: false });
-  assert.deepEqual(withoutCurve.ribbon.durationRuns, []);
+    { overview: true, showDuration: false, paneWidth });
+  assert.deepEqual(withoutCurve.ribbon.durationSegments, []);
   assert.deepEqual(withoutCurve.ribbon.durationDots, []);
-  assert.equal(Object.hasOwn(withoutCurve.ribbon, 'durationAreas'), false);
+});
+
+test('overview curve geometry follows the measured pane width', () => {
+  const value = {
+    requests: [
+      { seq: 1, turn: 1, step: 1, system: 100, total: 100, activeMs: 100 },
+      { seq: 2, turn: 1, step: 2, system: 120, total: 120, activeMs: 900 }
+    ]
+  };
+  const coreOf = (trend) => decodeSegment(trend.ribbon.durationSegments.find(s => !s.halo).style);
+  const narrow = coreOf(contextView.deriveTrend(value, key => key, { overview: true, paneWidth: 400 }));
+  const wide = coreOf(contextView.deriveTrend(value, key => key, { overview: true, paneWidth: 800 }));
+  assert.equal(Math.round(narrow.x1 - narrow.x0), 200);   // 相邻两点相距半个可视宽
+  assert.equal(Math.round(wide.x1 - wide.x0), 400);
+  // 没量到时退回 375pt 解析值，曲线仍然可画（页面量到后重建即对齐）。
+  const fallback = contextView.deriveTrend(value, key => key, { overview: true });
+  assert.equal(fallback.paneWidth, contextView.OVERVIEW_PANE_FALLBACK_RPX);
+  assert.equal(Math.round(coreOf(fallback).x1 - coreOf(fallback).x0), contextView.OVERVIEW_PANE_FALLBACK_RPX / 2);
 });
 
 test('deriveTrend dims other turns when one turn is focused', () => {

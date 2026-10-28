@@ -579,6 +579,9 @@ function cloneState(state) {
       }
       : {}),
     ...(Array.isArray(state.stepSpans) ? { stepSpans: state.stepSpans.map(span => [span[0], span[1], span[2]]) } : {}),
+    // The open step's request anchor: `assistant/message` sets it, `step/end`
+    // consumes and clears it. Absent unless a step is mid-flight.
+    ...(Number.isFinite(state.stepRequestSeq) ? { stepRequestSeq: state.stepRequestSeq } : {}),
     ...(state.approvals !== undefined ? { approvals: { ...state.approvals } } : {}),
   }
 }
@@ -1066,6 +1069,10 @@ export function applyContextEvent(state, event) {
           }
         }
         next.requests.push(record)
+        // The open step's duration-curve anchor (docs §8.1): `step/end` stamps
+        // the step's active time onto the record this step committed. Set on
+        // every assistant message, so a multi-request step prices its last one.
+        if (state.stepStart !== undefined) next.stepRequestSeq = event.seq
         // v2 last answer: the newest assistant text, whitespace-collapsed and
         // bounded; tool-only steps leave the previous preview in place.
         if (answerText !== '') {
@@ -1215,6 +1222,7 @@ export function applyContextEvent(state, event) {
         next.stepStart = { time: timeOf(event), waits: [] }
         // A superseded step's span buffer belongs to the old window.
         delete next.stepSpans
+        delete next.stepRequestSeq
         return next
       }
       case 'step/end': {
@@ -1223,7 +1231,20 @@ export function applyContextEvent(state, event) {
         const start = state.stepStart
         const endTime = timeOf(event)
         const duration = Math.max(0, endTime - start.time)
-        next.wallMs = state.wallMs + Math.max(0, duration - clampWaitMs(start, endTime))
+        const activeMs = Math.max(0, duration - clampWaitMs(start, endTime))
+        next.wallMs = state.wallMs + activeMs
+        // Duration overlay source (docs §8.1): the step window minus the clamped
+        // union of the step's user waits (approvals + ask_user_question), priced
+        // onto the request record this step committed. A trimmed/refolded row is
+        // skipped by the seq check instead of mis-stamping a newer record.
+        if (Number.isFinite(state.stepRequestSeq)) {
+          const lastIndex = next.requests.length - 1
+          const last = lastIndex >= 0 ? next.requests[lastIndex] : null
+          if (last !== null && last.seq === state.stepRequestSeq) {
+            next.requests[lastIndex] = { ...last, activeMs }
+          }
+        }
+        delete next.stepRequestSeq
         // Tile the step's span buffer across [step start, step end]: first-wins
         // de-overlap so parallel tool runs paint their union once, and every hole
         // is filled with the `other` residue so the strip stays gapless.
@@ -1415,7 +1436,9 @@ export function contextView(state) {
 export const contextProjectionDefinition = {
   key: 'mobileContext',
   // v4 adds bounded file-operation records; older cache rows refold to populate File Activity.
-  stateVersion: 4,
+  // v5 stamps each request record with its step's activeMs (the trend chart's
+  // duration curve); older cache rows refold to populate it.
+  stateVersion: 5,
   stateSchema: passthroughSchema,
   init: () => createState(),
   apply: (state, event) => applyContextEvent(state, event),

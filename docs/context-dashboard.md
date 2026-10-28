@@ -59,6 +59,11 @@ session projection + 查询帧提供；小程序端只渲染，不重算事件�
   - `requests`：每个 `assistant/message` 在把该回复加入 surface **之前**记录一条
     `{seq,time,turn,step,system,tools,user,inject,skill,assistant,tool,total}`；
     只保留最近 300 条（v2 起为 200 条），超出置 `truncated.requests=true`。
+    `assistant/message` 同时把该步的请求序号记成 `stepRequestSeq`，`step/end`
+    把本步活跃时长（`step/end`−`step/start`，减去审批与 `ask_user_question`
+    等待的钳制并集）盖回该记录成为 `activeMs`——趋势图耗时折线的数据源
+    （与 dsh-context fold.ts 的 `step/end` 同规则）。记录被裁剪或步未闭合时
+    不盖章（序号对不上就跳过），绝不误盖到更新的记录。
   - `events`：`inject/compaction/prune`（注入来自 user/developer 非普通用户消息、
     技能加载；压缩/剪枝来自 `compaction/summary` / `compaction/prune`），保留最近 120 条。
   - `wallMs`：`step/start`→`step/end` 累计，减去审批等待（`approval/asked`→`approval/decided`）
@@ -140,6 +145,18 @@ session projection + 查询帧提供；小程序端只渲染，不重算事件�
 - 趋势图：`requests` 升序，每根柱按 7 类组成堆叠（system/tools/user/inject/skill/assistant/tool），
   柱高 = `total`；`events` 中 compaction/prune 在对应 seq 处标 `✂`。
   `requests.length > 120` 时按 turn 聚合（取该轮最后一条），避免柱子过密。
+- 耗时折线：`requests[].activeMs` 画成一条折线骑在柱区上（y 按 `maxActiveMs`
+  缩放，右侧配 5 档时长轴），孤立单点用圆点；轮次聚焦时随柱子一起淡出。无
+  `activeMs` 数据时不画曲线也不画右轴（客户端 `hasDuration` 门控）。
+  **渲染方式**：小程序对内联 `<svg>` 支持不稳定（会话页 ctx-flow 的连接带同为
+  此改用原生线段），折线由旋转细条拼成——每相邻两点一根 halo（卡面色，垫对比）
+  加一根 core（灰，曲线本身），圆头（border-radius=半高）代替 round linecap；
+  柱模式 x 落在柱心（与实时探针竖线同坐标），总览模式 x 由记录序号中心按实测
+  可视宽换算（量不到时退回 375pt 解析值，页面量到后重建对齐）。
+- 实时探针（触摸）：手指在柱区/总览带上滑动时，命中的柱子描边高亮，一条
+  品牌色竖线钉在该柱上，线顶浮动一张指标卡（轮次·步号、估算合计、耗时、Δ），
+  卡片锚点按可视宽钳制，首/末柱也不会伸出图表；抬手后恢复选中态的详情。
+  点击柱子=钉住（选中），图表上的手势不再冒泡成面板级左右滑切换分段。
 
 ## 5. 界面要求（v1）
 
@@ -297,6 +314,8 @@ v1 只覆盖了核心统计；v2 补齐 dsh-context Context tab 与 Fleet tab �
 - `lastAnswer`：最近一条有文本的 assistant 消息，压缩空白后截断 240 字。
 - `requests[].items`：该请求发出时 surface 各类节点数（system 恒 1，tools=header.tools.length）；
   `prompt/output` 为 provider 实报（input+cacheRead+cacheWrite / output）。
+- `requests[].activeMs`：该请求所在步骤的活跃时长（见 §2 的 `stepRequestSeq`
+  规则），耗时折线与右侧时长轴的数据源；步骤未闭合时缺省。
 - 兼容：所有字段 additive-optional，缺省时客户端回退到 v1 展示。
 
 ### 8.2 `context-fleet` wire 增量

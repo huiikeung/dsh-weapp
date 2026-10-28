@@ -35,6 +35,17 @@ var TREND_BAR_PITCH = TREND_BAR_W + TREND_BAR_GAP;
 var TREND_CHART_H = 224;
 var MAX_TREND_DNA_BANDS = 24;      // per-bar DNA slices (payload bound: setData caps at ~1MB)
 var MAX_OVERVIEW_COLUMNS = 140;   // overview ribbon samples (CSS columns, no inline SVG in WXML)
+// 耗时折线：微信小程序对内联 SVG 支持不稳定（会话页 ctx-flow 的连接带同为此改用
+// 原生 view 线段），曲线因此每段拼一根旋转细条，halo 层垫在下层提对比。
+// 几何与 dsh-context 的 DurationCurve 逐值对齐：core 2.5rpx = 1.25px × 2，
+// halo 6rpx = 3px × 2；圆头（border-radius 半高）代替 stroke-linecap: round。
+var DURATION_CORE_W = 2.5;
+var DURATION_HALO_W = 6;
+var DURATION_DOT_W = 6;           // 孤立单点：halo 直径（dsh-context r=2 → 直径 4px × 2 取 6）
+var DURATION_DOT_CORE = 3;        // 孤立单点：core 直径（r=1.2 → 2.4px × 2 取 3）
+// 总览带把整段会话拉伸到可视宽：折线 x 需要真实可视宽度（rpx）。测量不到时用
+// 375pt 机的解析值兜底（屏 750 − 滚动区 32×2 − 卡片 16×2+1×2 − 轴 80）。
+var OVERVIEW_PANE_FALLBACK_RPX = 572;
 var MAX_BROWSER_DNA_ROWS = 40;
 var TREND_TOP_PAD = 36;
 var TREND_CHART_BOX = TREND_CHART_H + TREND_TOP_PAD;
@@ -961,25 +972,12 @@ function deriveTrend(value, t, options) {
     ];
   // Duration curve geometry: one polyline over the bar area, y scaled to maxActiveMs.
   // Every y is clamped into the plot: a stale maxActiveMs or a hostile record must
-  // not push the curve outside the module.
-  var durationRuns = [];
-  var durationDots = [];
-  if (durationOn) (function () {
-    var scale = TREND_CHART_H / maxActiveMs;
-    var clampY = function (value) { return Math.max(0, Math.min(TREND_CHART_H, value)); };
-    var run = [];
-    var flush = function () {
-      if (run.length >= 2) durationRuns.push(run.join(' '));
-      else if (run.length === 1) durationDots.push(run[0]);
-      run = [];
-    };
-    for (var i = 0; i < rows.length; i += 1) {
-      var m = rows[i].request.activeMs;
-      if (m === undefined) { flush(); continue; }
-      run.push((i * TREND_BAR_PITCH + TREND_BAR_W / 2) + ',' + Math.round(clampY(TREND_CHART_H - m * scale) * 100) / 100);
-    }
-    flush();
-  }());
+  // not push the curve outside the module. x 落在柱心（与实时探针竖线同一坐标）。
+  var durationLine = durationOn
+    ? durationLineOf(rows.map(function (row, index) {
+      return { x: index * TREND_BAR_PITCH + TREND_BAR_W / 2 + TREND_BAR_GAP, ms: row.request.activeMs };
+    }), maxActiveMs, 'd')
+    : { segments: [], dots: [] };
   var turnStrip = groups.map(function (grp, gi) {
     return {
       key: 'turn-' + gi,
@@ -1004,13 +1002,22 @@ function deriveTrend(value, t, options) {
     { key: 'bot', top: 125, text: '0' }
   ];
   // Overview ribbon geometry: x in record units (stretched edge to edge), y in px.
-  var ribbonDuration = overviewOn && durationOn ? ribbonDurationOf(rows, maxActiveMs, MAX_OVERVIEW_COLUMNS) : { runs: [], dots: [] };
+  // 总览把整段会话拉伸到可视宽：折线 x 由记录序号中心按可视宽（rpx）换算，
+  // 页面量不到时退回 375pt 机的解析值，量到后重建即与列心对齐。
+  var paneWidth = Number.isFinite(opts.paneWidth) && opts.paneWidth > 0
+    ? opts.paneWidth : OVERVIEW_PANE_FALLBACK_RPX;
+  var ribbonPoints = overviewOn && durationOn
+    ? ribbonDurationPointsOf(rows, MAX_OVERVIEW_COLUMNS).map(function (point) {
+      return { x: point.x / Math.max(1, rows.length) * paneWidth, ms: point.ms };
+    })
+    : [];
+  var ribbonDuration = durationLineOf(ribbonPoints, maxActiveMs, 'r');
   var ribbon = {
     count: rows.length,
     width: rows.length,
     height: TREND_CHART_H,
     columns: overviewOn ? ribbonColumnsOf(rows, maxTotal, MAX_OVERVIEW_COLUMNS) : [],
-    durationRuns: ribbonDuration.runs,
+    durationSegments: ribbonDuration.segments,
     durationDots: ribbonDuration.dots,
     // Quartile and full-span flags, as percentages of the stretched width.
     flags: overviewOn ? [
@@ -1040,7 +1047,14 @@ function deriveTrend(value, t, options) {
     groupBy: groupBy,
     displayMode: displayMode,
     selectedSeq: selectedSeq,
-    hoverSeq: null,
+    // 实时拖动探针：页面触摸时回写这几个字段（-1/null = 无探针），面板重建时
+    // 由 opts 原样带回，运行中 2.5s 自动刷新不会把竖线和指标卡闪掉。
+    // hoverSeq 命中的柱子高亮；hoverX（rpx，柱模式）与 hoverLeft（%，总览模式）
+    // 是竖线位置；tipLeft（px）是浮动指标卡在可视区内的钳制位置。
+    hoverSeq: opts.hoverSeq == null ? null : opts.hoverSeq,
+    hoverX: Number.isFinite(opts.hoverX) ? opts.hoverX : -1,
+    hoverLeft: Number.isFinite(opts.hoverLeft) ? opts.hoverLeft : -1,
+    tipLeft: Number.isFinite(opts.tipLeft) ? opts.tipLeft : -1,
     maxTotalText: formatCompact(maxTotal === 1 && rows.length === 0 ? 0 : maxTotal),
     maxTotal: maxTotal,
     maxActiveMs: maxActiveMs,
@@ -1063,9 +1077,10 @@ function deriveTrend(value, t, options) {
     labelFont: labelFont,
     durationAxis: durationAxis,
     hasDurationAxis: hasDurationData,
-    durationRuns: durationRuns,
-    durationDots: durationDots,
-    durationWidth: trackWidth,
+    // 折线的原生线段（halo + core 两层）与孤立点；不再用内联 SVG。
+    durationSegments: durationLine.segments,
+    durationDots: durationLine.dots,
+    paneWidth: paneWidth,
     dna: dnaOn,
     adaptive: adaptiveOn,
     showDuration: durationOn,
@@ -1167,20 +1182,14 @@ function ribbonColumnsOf(rows, maxTotal, maxColumns) {
   return columns;
 }
 
-/** Sample the duration curve to the same bounded columns as the overview ribbon. */
-function ribbonDurationOf(rows, maxActiveMs, maxColumns) {
+/** Sample the duration curve to the same bounded columns as the overview ribbon.
+ *  x 用记录序号中心（与 ribbonColumnsOf 的列心对齐），ms 取桶内最大值；
+ *  y 与线段几何由 durationLineOf 统一算。 */
+function ribbonDurationPointsOf(rows, maxColumns) {
   var count = Math.min(rows.length, maxColumns);
-  if (!count) return { runs: [], dots: [] };
+  if (!count) return [];
   var size = rows.length / count;
-  var scale = TREND_CHART_H / Math.max(1, maxActiveMs);
-  var runs = [];
-  var dots = [];
-  var run = [];
-  var flush = function () {
-    if (run.length >= 2) runs.push(run.join(' '));
-    else if (run.length === 1) dots.push(run[0]);
-    run = [];
-  };
+  var points = [];
   for (var c = 0; c < count; c += 1) {
     var start = Math.floor(c * size);
     var end = Math.min(rows.length, Math.max(start + 1, Math.floor((c + 1) * size)));
@@ -1189,12 +1198,78 @@ function ribbonDurationOf(rows, maxActiveMs, maxColumns) {
       var value = rows[i].request.activeMs;
       if (value !== undefined && (activeMs === undefined || value > activeMs)) activeMs = value;
     }
-    if (activeMs === undefined) { flush(); continue; }
-    var y = Math.max(0, Math.min(TREND_CHART_H, TREND_CHART_H - activeMs * scale));
-    run.push(((start + end) / 2) + ',' + Math.round(y * 100) / 100);
+    points.push({ x: (start + end) / 2, ms: activeMs });
+  }
+  return points;
+}
+
+function round1(value) { return Math.round(value * 10) / 10; }
+
+/** 折线某点的绘图区 y（rpx，相对绘图区顶）；钳在区内，过期/异常 scale 不会画出模块。 */
+function durationYOf(ms, scale) {
+  var y = TREND_CHART_H - ms * scale;
+  return Math.max(0, Math.min(TREND_CHART_H, y));
+}
+
+/** 一段旋转细条的 inline style：原点在段首（transform-origin: 0 50%），圆头收口。 */
+function durationSegmentStyle(x, y, length, angle, height) {
+  return 'left:' + round1(x) + 'rpx;'
+    + 'top:' + round1(TREND_TOP_PAD + y - height / 2) + 'rpx;'
+    + 'width:' + round1(length) + 'rpx;'
+    + 'height:' + height + 'rpx;'
+    + 'transform:rotate(' + Math.round(angle * 100) / 100 + 'deg);'
+    + 'transform-origin:0 50%;';
+}
+
+/**
+ * 耗时折线的原生线段几何：points 里 ms 缺失即断线；连续段每相邻两点拼一根
+ * halo + 一根 core 细条，孤立单点画圆点（dsh-context：单点 polyline 不可见）。
+ * x 由调用方给出（柱模式是柱心 rpx；总览是记录序号中心，由调用方换算成 rpx）。
+ */
+function durationLineOf(points, maxActiveMs, prefix) {
+  var result = { segments: [], dots: [] };
+  if (!Array.isArray(points) || points.length === 0) return result;
+  var scale = TREND_CHART_H / Math.max(1, maxActiveMs);
+  var run = [];
+  var flush = function () {
+    var i;
+    for (i = 1; i < run.length; i += 1) {
+      var a = run[i - 1];
+      var b = run[i];
+      var ya = durationYOf(a.ms, scale);
+      var yb = durationYOf(b.ms, scale);
+      var dx = b.x - a.x;
+      var dy = yb - ya;
+      var length = Math.sqrt(dx * dx + dy * dy);
+      if (!(length > 0)) continue;
+      var angle = Math.atan2(dy, dx) * 180 / Math.PI;
+      result.segments.push({ key: prefix + 'h' + i, halo: true, style: durationSegmentStyle(a.x, ya, length, angle, DURATION_HALO_W) });
+      result.segments.push({ key: prefix + 'c' + i, style: durationSegmentStyle(a.x, ya, length, angle, DURATION_CORE_W) });
+    }
+    if (run.length === 1) {
+      var only = run[0];
+      var y = durationYOf(only.ms, scale);
+      result.dots.push({
+        key: prefix + 'dh', halo: true,
+        style: 'left:' + round1(only.x - DURATION_DOT_W / 2) + 'rpx;top:' + round1(TREND_TOP_PAD + y - DURATION_DOT_W / 2)
+          + 'rpx;width:' + DURATION_DOT_W + 'rpx;height:' + DURATION_DOT_W + 'rpx;'
+      });
+      result.dots.push({
+        key: prefix + 'dc',
+        style: 'left:' + round1(only.x - DURATION_DOT_CORE / 2) + 'rpx;top:' + round1(TREND_TOP_PAD + y - DURATION_DOT_CORE / 2)
+          + 'rpx;width:' + DURATION_DOT_CORE + 'rpx;height:' + DURATION_DOT_CORE + 'rpx;'
+      });
+    }
+    run = [];
+  };
+  for (var i = 0; i < points.length; i += 1) {
+    var point = points[i];
+    var ms = point && point.ms;
+    if (ms === undefined || ms === null || !Number.isFinite(Number(ms))) { flush(); continue; }
+    run.push({ x: Number(point.x), ms: Number(ms) });
   }
   flush();
-  return { runs: runs, dots: dots };
+  return result;
 }
 
 function eventLabelOf(event) {
@@ -2044,7 +2119,12 @@ function buildPanel(dashboard, options) {
       overview: opts.trendOverview === true,
       adaptive: opts.trendAdaptive === true,
       showDuration: opts.trendShowDuration !== false,
-      visibleRange: opts.trendVisibleRange
+      visibleRange: opts.trendVisibleRange,
+      paneWidth: opts.trendPaneWidth,
+      hoverSeq: opts.trendHoverSeq,
+      hoverX: opts.trendHoverX,
+      hoverLeft: opts.trendHoverLeft,
+      tipLeft: opts.trendTipLeft
     });
     var panel = {
       status: 'ready',
@@ -3123,6 +3203,12 @@ module.exports = {
   TREND_BAR_PITCH: TREND_BAR_PITCH,
   TREND_CHART_H: TREND_CHART_H,
   TREND_TOP_PAD: TREND_TOP_PAD,
+  TREND_CHART_BOX: TREND_CHART_BOX,
+  DURATION_CORE_W: DURATION_CORE_W,
+  DURATION_HALO_W: DURATION_HALO_W,
+  DURATION_DOT_W: DURATION_DOT_W,
+  DURATION_DOT_CORE: DURATION_DOT_CORE,
+  OVERVIEW_PANE_FALLBACK_RPX: OVERVIEW_PANE_FALLBACK_RPX,
   TREND_STEP_FLAG_EVERY: TREND_STEP_FLAG_EVERY,
   TREND_RISE_CAP: TREND_RISE_CAP,
   TREND_WINDOW_MIN: TREND_WINDOW_MIN,

@@ -334,7 +334,10 @@ function createStore() {
   const turnOutlineCache = createLocalCache({ prefix: 'dsh_turn_outline', version: 1,
     maxEntries: 20, maxBytes: 4 * 1024 * 1024, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
   // 上下文/编队面板：会话内即时复用上次结果，避免二次进入重新等待网关回放
-  const CONTEXT_PANEL_CACHE_VERSION = 1;
+  // v2: mobileContext stateVersion 5 stamps per-request activeMs (the trend
+  // chart's duration curve); v1 entries predate the field and would render a
+  // curve-less chart until the next refresh.
+  const CONTEXT_PANEL_CACHE_VERSION = 2;
   const contextPanelCache = createLocalCache({ prefix: 'dsh_context_cache', version: 1,
     maxEntries: 20, maxBytes: 400000, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
   const homeCache = createLocalCache({ prefix: 'dsh_home_cache', version: 1,

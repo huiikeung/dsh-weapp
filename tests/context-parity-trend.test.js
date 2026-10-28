@@ -56,10 +56,11 @@ test('duration curve keeps true gaps, uses a haloed gray line, and previews the 
   value.requests.forEach((request, index) => { request.activeMs = [800, 1600, undefined][index]; });
   const chart = view.deriveTrend(value, t, { showDuration: true });
   assert.equal(chart.hasDuration, true);
-  assert.equal(chart.durationRuns.length, 1);
+  // 原生细段：一根 halo + 一根 core；缺 activeMs 的第三条只是让曲线到此为止。
+  assert.equal(chart.durationSegments.length, 2);
   assert.equal(chart.durationDots.length, 0);
   const overview = view.deriveTrend(value, t, { overview: true, showDuration: true });
-  assert.equal(overview.ribbon.durationRuns.length, 1);
+  assert.equal(overview.ribbon.durationSegments.length, 2);
   assert.equal(overview.ribbon.durationDots.length, 0);
   assert.equal(Object.hasOwn(overview.ribbon, 'durationAreas'), false, 'duration remains a line, like the desktop chart');
 
@@ -67,7 +68,9 @@ test('duration curve keeps true gaps, uses a haloed gray line, and previews the 
   assert.equal(detail.activeMs, 1600);
   assert.equal(detail.durationText, '1.6s');
   assert.equal(detail.durationLabel, '耗时');
-  assert.match(wxss, /\.ctx-trend-duration \.ctx-trend-duration-halo\s*\{[^}]*stroke-width:\s*6/);
+  // halo 层是卡面色、core 层是灰：两条都是原生 view 的 background（不再 stroke）。
+  assert.match(wxss, /\.ctx-dur-halo\s*\{[^}]*background:\s*var\(--surface\)/);
+  assert.match(wxss, /\.ctx-dur-core\s*\{[^}]*background:\s*var\(--text-4\)/);
   assert.match(wxml, /contextPanel\.trendDetail\.durationText/);
 });
 

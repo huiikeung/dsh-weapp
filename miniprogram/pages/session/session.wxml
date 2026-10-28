@@ -562,7 +562,7 @@
 <text wx:for="{{contextPanel.trend.axis}}" wx:key="key" class="ctx-trend-axis-tick" style="top:{{item.top}}rpx;">{{item.text}}</text>
 </view>
 <view class="ctx-trend-main">
-<view class="ctx-trend-fit" bindtouchstart="contextTrendTouchStart" bindtouchmove="contextTrendTouchMove" bindtouchend="contextTrendTouchEnd" bindtouchcancel="contextTrendTouchEnd">
+<view class="ctx-trend-fit" catchtouchstart="contextTrendTouchStart" catchtouchmove="contextTrendTouchMove" catchtouchend="contextTrendTouchEnd" catchtouchcancel="contextTrendTouchEnd">
 <view class="ctx-trend-chart ctx-trend-chart-fit">
 <view wx:for="{{contextPanel.trend.grid}}" wx:key="key" class="ctx-trend-grid ctx-trend-grid-{{item.key}}" style="top:{{item.top}}rpx;" />
 <view class="ctx-trend-columns">
@@ -570,18 +570,28 @@
 <view wx:for="{{item.segments}}" wx:for-item="seg" wx:key="key" class="ctx-trend-column-seg ctx-c-{{seg.key}}" style="height:{{seg.px}}rpx;"></view>
 </view>
 </view>
-<svg wx:if="{{contextPanel.trend.hasDuration}}" class="ctx-trend-duration ctx-trend-duration-fit" width="100%" height="224" viewBox="0 0 {{contextPanel.trend.ribbon.width}} 224" preserveAspectRatio="none" aria-hidden="true">
-<polyline wx:for="{{contextPanel.trend.ribbon.durationRuns}}" wx:for-item="run" wx:key="index" class="ctx-trend-duration-halo" points="{{run}}" />
-<polyline wx:for="{{contextPanel.trend.ribbon.durationRuns}}" wx:for-item="run" wx:key="index" points="{{run}}" />
-<circle wx:for="{{contextPanel.trend.ribbon.durationDots}}" wx:for-item="dot" wx:key="index" class="ctx-trend-duration-halo" cx="{{dot.split(',')[0]}}" cy="{{dot.split(',')[1]}}" r="3" />
-<circle wx:for="{{contextPanel.trend.ribbon.durationDots}}" wx:for-item="dot" wx:key="index" cx="{{dot.split(',')[0]}}" cy="{{dot.split(',')[1]}}" r="1.5" />
-</svg>
+<view wx:if="{{contextPanel.trend.hasDuration}}" class="ctx-dur{{contextPanel.trendActiveTurn !== null && contextPanel.trendActiveTurn !== undefined ? ' ctx-dur-dim' : ''}}">
+<view wx:for="{{contextPanel.trend.ribbon.durationSegments}}" wx:key="key" class="ctx-dur-seg {{item.halo ? 'ctx-dur-halo' : 'ctx-dur-core'}}" style="{{item.style}}" />
+<view wx:for="{{contextPanel.trend.ribbon.durationDots}}" wx:key="key" class="ctx-dur-dot {{item.halo ? 'ctx-dur-halo' : 'ctx-dur-core'}}" style="{{item.style}}" />
+</view>
 <block wx:for="{{contextPanel.trend.ribbon.flags}}" wx:key="key">
 <view class="ctx-trend-flagpole ctx-fit-flagpole" style="left:{{item.left}}%;">
 <text class="ctx-trend-flaglabel">{{item.text}}</text>
 </view>
 </block>
 <view wx:if="{{contextPanel.trend.ribbon.cursorLeft >= 0}}" class="ctx-fit-cursor" style="left:{{contextPanel.trend.ribbon.cursorLeft}}%;" />
+<view wx:if="{{contextPanel.trend.hoverLeft >= 0}}" class="ctx-trend-hoverline" style="left:{{contextPanel.trend.hoverLeft}}%;" />
+</view>
+</view>
+<view wx:if="{{contextPanel.trend.tipLeft >= 0 && contextPanel.trendDetail.hasData}}" class="ctx-trend-tip" style="left:{{contextPanel.trend.tipLeft}}px;">
+<block wx:if="{{contextPanel.trendDetail.turnText || contextPanel.trendDetail.stepText}}">
+<text class="ctx-trend-tip-head">{{contextPanel.trendDetail.turnText}}{{contextPanel.trendDetail.stepText ? ' · ' + contextPanel.trendDetail.stepText : ''}}</text>
+</block>
+<text wx:else class="ctx-trend-tip-head">{{contextPanel.trendDetail.requestLabel}}</text>
+<view class="ctx-trend-tip-metrics">
+<text class="ctx-trend-tip-metric">{{contextPanel.trendDetail.estimatedText}}</text>
+<text wx:if="{{contextPanel.trendDetail.durationText}}" class="ctx-trend-tip-metric">{{contextPanel.trendDetail.durationLabel}} {{contextPanel.trendDetail.durationText}}</text>
+<text wx:if="{{contextPanel.trendDetail.deltaText !== '—'}}" class="ctx-trend-tip-metric ctx-trend-delta-{{contextPanel.trendDetail.deltaClass}}">Δ {{contextPanel.trendDetail.deltaText}}</text>
 </view>
 </view>
 <view class="ctx-trend-turns ctx-trend-turns-fit{{contextPanel.trendActiveTurn !== null && contextPanel.trendActiveTurn !== undefined ? ' ctx-trend-turns-dim' : ''}}">
@@ -599,7 +609,7 @@
 <text wx:for="{{contextPanel.trend.axis}}" wx:key="key" class="ctx-trend-axis-tick" style="top:{{item.top}}rpx;">{{item.text}}</text>
 </view>
 <view class="ctx-trend-main">
-<scroll-view class="ctx-trend-scroll" scroll-x enhanced show-scrollbar="{{false}}" bindtouchstart="contextTrendTouchStart" bindtouchmove="contextTrendTouchMove" bindtouchend="contextTrendTouchEnd" bindtouchcancel="contextTrendTouchEnd" bindscroll="contextTrendScroll" scroll-into-view="{{contextPanel.trendAnchor}}">
+<scroll-view class="ctx-trend-scroll" scroll-x enhanced show-scrollbar="{{false}}" catchtouchstart="contextTrendTouchStart" catchtouchmove="contextTrendTouchMove" catchtouchend="contextTrendTouchEnd" catchtouchcancel="contextTrendTouchEnd" bindscroll="contextTrendScroll" scroll-into-view="{{contextPanel.trendAnchor}}">
 <view class="ctx-trend-chart" style="width:{{contextPanel.trend.chartWidth}}rpx;">
 <view wx:for="{{contextPanel.trend.grid}}" wx:key="key" class="ctx-trend-grid ctx-trend-grid-{{item.key}}" style="top:{{item.top}}rpx;" />
 <block wx:for="{{contextPanel.trend.bars}}" wx:key="key">
@@ -607,7 +617,7 @@
 <text class="ctx-trend-flaglabel">{{item.flag}}</text>
 </view>
 </block>
-<view wx:for="{{contextPanel.trend.bars}}" wx:key="key" class="ctx-trend-col {{item.selected ? 'selected' : ''}} {{item.dimmed ? 'dimmed' : ''}}" data-seq="{{item.seq}}" bindtap="contextTrendSelect" bindlongpress="contextTrendSelect" hover-class="ctx-trend-pressed" role="button" aria-label="{{item.seqText}}">
+<view wx:for="{{contextPanel.trend.bars}}" wx:key="key" class="ctx-trend-col {{item.selected ? 'selected' : ''}} {{item.dimmed ? 'dimmed' : ''}} {{item.seq === contextPanel.trend.hoverSeq ? 'hovered' : ''}}" data-seq="{{item.seq}}" bindtap="contextTrendSelect" bindlongpress="contextTrendSelect" hover-class="ctx-trend-pressed" role="button" aria-label="{{item.seqText}}">
 <text wx:if="{{item.marker}}" class="ctx-trend-bar-marker">✂</text>
 <view class="ctx-trend-barwrap">
 <block wx:if="{{contextPanel.trend.dna && item.dna !== null}}">
@@ -628,14 +638,24 @@
 </view>
 </view>
 </view>
-<svg wx:if="{{contextPanel.trend.hasDuration}}" class="ctx-trend-duration" style="width:{{contextPanel.trend.durationWidth}}rpx;height:224rpx;" width="{{contextPanel.trend.durationWidth}}" height="224" viewBox="0 0 {{contextPanel.trend.durationWidth}} 224" preserveAspectRatio="none">
-<polyline wx:for="{{contextPanel.trend.durationRuns}}" wx:key="key" class="ctx-trend-duration-halo" points="{{item}}" />
-<polyline wx:for="{{contextPanel.trend.durationRuns}}" wx:key="key" points="{{item}}" />
-<circle wx:for="{{contextPanel.trend.durationDots}}" wx:key="key" class="ctx-trend-duration-halo" cx="{{item.split(',')[0]}}" cy="{{item.split(',')[1]}}" r="3" />
-<circle wx:for="{{contextPanel.trend.durationDots}}" wx:key="key" cx="{{item.split(',')[0]}}" cy="{{item.split(',')[1]}}" r="1.5" />
-</svg>
+<view wx:if="{{contextPanel.trend.hasDuration}}" class="ctx-dur{{contextPanel.trendActiveTurn !== null && contextPanel.trendActiveTurn !== undefined ? ' ctx-dur-dim' : ''}}">
+<view wx:for="{{contextPanel.trend.durationSegments}}" wx:key="key" class="ctx-dur-seg {{item.halo ? 'ctx-dur-halo' : 'ctx-dur-core'}}" style="{{item.style}}" />
+<view wx:for="{{contextPanel.trend.durationDots}}" wx:key="key" class="ctx-dur-dot {{item.halo ? 'ctx-dur-halo' : 'ctx-dur-core'}}" style="{{item.style}}" />
+</view>
+<view wx:if="{{contextPanel.trend.hoverX >= 0}}" class="ctx-trend-hoverline" style="left:{{contextPanel.trend.hoverX}}rpx;" />
 </view>
 </scroll-view>
+<view wx:if="{{contextPanel.trend.tipLeft >= 0 && contextPanel.trendDetail.hasData}}" class="ctx-trend-tip" style="left:{{contextPanel.trend.tipLeft}}px;">
+<block wx:if="{{contextPanel.trendDetail.turnText || contextPanel.trendDetail.stepText}}">
+<text class="ctx-trend-tip-head">{{contextPanel.trendDetail.turnText}}{{contextPanel.trendDetail.stepText ? ' · ' + contextPanel.trendDetail.stepText : ''}}</text>
+</block>
+<text wx:else class="ctx-trend-tip-head">{{contextPanel.trendDetail.requestLabel}}</text>
+<view class="ctx-trend-tip-metrics">
+<text class="ctx-trend-tip-metric">{{contextPanel.trendDetail.estimatedText}}</text>
+<text wx:if="{{contextPanel.trendDetail.durationText}}" class="ctx-trend-tip-metric">{{contextPanel.trendDetail.durationLabel}} {{contextPanel.trendDetail.durationText}}</text>
+<text wx:if="{{contextPanel.trendDetail.deltaText !== '—'}}" class="ctx-trend-tip-metric ctx-trend-delta-{{contextPanel.trendDetail.deltaClass}}">Δ {{contextPanel.trendDetail.deltaText}}</text>
+</view>
+</view>
 <scroll-view class="ctx-trend-turnscroll" scroll-x enhanced show-scrollbar="{{false}}" scroll-left="{{contextPanel.trendTurnLeft}}">
 <view class="ctx-trend-turns" style="width:{{contextPanel.trend.turnStripWidth}}rpx;{{contextPanel.trend.labelFont ? 'font-size:' + contextPanel.trend.labelFont + ';' : ''}}">
 <view wx:for="{{contextPanel.trend.turnStrip}}" wx:key="key" class="ctx-trend-turn {{item.on ? 'on' : ''}} {{item.dimmed ? 'dimmed' : ''}} zebra-{{item.zebra}}" style="width:{{item.width}}rpx;" data-turn="{{item.turn}}" bindtap="contextTrendPickTurn" hover-class="press-dim">

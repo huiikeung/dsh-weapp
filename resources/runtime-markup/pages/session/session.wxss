@@ -4129,11 +4129,19 @@ overscroll-behavior-y: auto;
 .ctx-trend-column-seg { width: 100%; }
 .ctx-fit-flagpole { left: auto !important; }
 .ctx-fit-cursor { position: absolute; top: 36rpx; bottom: 0; width: 0; border-left: 2rpx solid var(--text); z-index: 2; pointer-events: none; transition: left .2s cubic-bezier(.2,.7,.2,1); }
+/* 实时探针竖线：品牌色，与「选中光标」的 --text 区分；dsh-context 的 hover 线同为品牌色 */
+.ctx-trend-hoverline { position: absolute; top: 36rpx; bottom: 0; width: 0; border-left: 2rpx solid var(--ocean); z-index: 3; pointer-events: none; }
 .ctx-trend-turns-fit { width: 100%; gap: 0; }
 .ctx-trend-turns-fit .ctx-trend-turn { border-radius: 0; min-width: 0; overflow: hidden; }
 .ctx-trend-turns-dim .ctx-trend-turn { opacity: .35; }
 .ctx-trend-turns-dim .ctx-trend-turn.on { opacity: 1; }
-.ctx-trend-main { flex: 1; min-width: 0; }
+/* 指标卡的定位父级：卡片在滚动区外，锚在可视区内（dsh-context 的 .lc-chart-tip 同理） */
+.ctx-trend-main { position: relative; flex: 1; min-width: 0; }
+/* 实时指标卡：跟随竖线顶端，translateX(-50%) 以线为中心；max-width 收住长文本 */
+.ctx-trend-tip { position: absolute; top: 2rpx; z-index: 6; transform: translateX(-50%); display: flex; flex-direction: column; gap: 2rpx; max-width: 480rpx; box-sizing: border-box; padding: 6rpx 12rpx; border: 1rpx solid var(--border-strong); border-radius: 10rpx; background: var(--surface); box-shadow: var(--float-shadow); pointer-events: none; white-space: nowrap; }
+.ctx-trend-tip-head { font-size: 20rpx; font-weight: 600; color: var(--text); }
+.ctx-trend-tip-metrics { display: flex; align-items: baseline; gap: 10rpx; }
+.ctx-trend-tip-metric { font-size: 20rpx; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .ctx-trend-scroll { width: 100%; white-space: nowrap; }
 .ctx-trend-chart { position: relative; display: flex; align-items: flex-end; gap: 4rpx; height: 260rpx; padding: 36rpx 4rpx 0; box-sizing: border-box; overflow: hidden; }
 .ctx-trend-grid { position: absolute; left: 0; right: 0; height: 1rpx; border-top: 1rpx dashed var(--border-strong); pointer-events: none; }
@@ -4143,6 +4151,9 @@ overscroll-behavior-y: auto;
 .ctx-trend-flaglabel { position: absolute; top: 0; right: 0; box-sizing: border-box; padding: 2rpx 6rpx; border: 1rpx solid var(--border-strong); border-radius: 6rpx; background: var(--surface); font-size: 18rpx; line-height: 1; font-weight: 600; color: var(--text-4); white-space: nowrap; }
 .ctx-trend-col { position: relative; width: 28rpx; flex: none; height: 100%; display: flex; align-items: flex-end; border-radius: 4rpx; transition: opacity .2s ease, background-color .2s ease; }
 .ctx-trend-col.dimmed { opacity: .35; }
+/* 扫读悬停：品牌色描边，与选中的 --text-3 区分。selected 必须声明在后（同等特异性），
+   否则指针停在刚点过的柱子上时悬停描边会盖掉选中态（dsh-context 同款顺序）。 */
+.ctx-trend-col.hovered { box-shadow: 0 0 0 2rpx var(--ocean); }
 .ctx-trend-col.selected { background: var(--fill-2); box-shadow: 0 0 0 2rpx var(--text-3); }
 .ctx-trend-barwrap { position: relative; width: 100%; height: 224rpx; display: flex; align-items: flex-end; }
 .ctx-trend-bar { width: 100%; display: flex; flex-direction: column-reverse; overflow: hidden; }
@@ -4155,12 +4166,18 @@ overscroll-behavior-y: auto;
 .ctx-trend-deltaarm.up { flex-direction: column-reverse; border-radius: 4rpx 4rpx 0 0; }
 .ctx-trend-deltaarm.down { flex-direction: column; border-radius: 0 0 4rpx 4rpx; }
 .ctx-trend-deltaseg { width: 100%; }
-.ctx-trend-duration { position: absolute; top: 36rpx; left: 4rpx; z-index: 1; height: 224rpx; overflow: hidden; pointer-events: none; }
-.ctx-trend-duration-fit { left: 0; z-index: 1; display: block; width: 100%; }
-.ctx-trend-duration polyline { fill: none; stroke: var(--text-4); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.ctx-trend-duration .ctx-trend-duration-halo { stroke: var(--surface); stroke-width: 6; opacity: .9; }
-.ctx-trend-duration circle { fill: var(--text-4); stroke: var(--surface); stroke-width: 4; }
-.ctx-trend-duration circle.ctx-trend-duration-halo { fill: var(--surface); stroke: none; }
+/* 耗时折线：原生 view 旋转细段拼接。微信小程序对内联 SVG 支持不稳定（会话页
+   ctx-flow 的连接带同为此改用原生线段），halo 层用卡面色垫出对比，core 是曲线；
+   圆头（半径=半高）代替 stroke-linecap: round，接缝处自然收口。
+   .ctx-dur 是绝对定位的透明承载层：不占 flex 位、不吃触摸事件，
+   子段的 left/top 相对它的 padding box，与柱心/网格同一坐标系。 */
+.ctx-dur { position: absolute; left: 0; right: 0; top: 0; bottom: 0; z-index: 1; pointer-events: none; }
+.ctx-dur-seg { position: absolute; pointer-events: none; }
+.ctx-dur-dot { position: absolute; border-radius: 50%; pointer-events: none; }
+.ctx-dur-halo { background: var(--surface); opacity: .9; border-radius: 3rpx; }
+.ctx-dur-core { background: var(--text-4); border-radius: 1.25rpx; }
+/* 轮次聚焦时曲线随柱子一起淡出（dsh-context 的 .lc-chart-dim .lc-duration） */
+.ctx-dur-dim .ctx-dur-halo, .ctx-dur-dim .ctx-dur-core { opacity: .35; }
 /* 轮次条：与柱网同一栅格，中性斑马纹（永不用分类色） */
 .ctx-trend-turnscroll { width: 100%; white-space: nowrap; }
 .ctx-trend-turns { display: flex; gap: 4rpx; margin-top: 8rpx; }

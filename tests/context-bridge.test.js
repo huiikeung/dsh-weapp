@@ -60,7 +60,9 @@ const GATEWAY_DIRS = [
 
 const SURFACE_TYPES = new Set(['system/message', 'developer/message', 'user/message', 'assistant/message', 'tool/result'])
 const MESSAGE_CATS = ['user', 'inject', 'skill', 'assistant', 'tool']
-const WIRE_LIMIT_BYTES = 200 * 1024
+// v5 adds per-request `activeMs` (~17 bytes × 200 records ≈ 3.3KB) for the
+// duration curve, so the synthetic worst case moved from ~200KB to ~204KB.
+const WIRE_LIMIT_BYTES = 208 * 1024
 // 真实会话样例（tests/fixtures/context-session.json，1.7MB）折叠后线路帧更大
 const REAL_SESSION_WIRE_LIMIT_BYTES = 640 * 1024
 
@@ -628,7 +630,13 @@ test('fixture request records are capped, ordered, sparse and self-consistent', 
     const categories = MESSAGE_CATS.reduce((sum, cat) => sum + (record[cat] || 0), 0)
     assert.equal(record.total, record.system + record.tools + categories)
     assert.ok(record.total > 0)
+    // v5 duration curve: every closed step prices its active time onto its
+    // record; the fixture log closes every step it opens.
+    assert.equal(typeof record.activeMs, 'number', `request ${record.seq} is missing activeMs`)
+    assert.ok(record.activeMs >= 0, `request ${record.seq} has a negative activeMs`)
   }
+  // The curve's scale comes from the real steps, not from a constant.
+  assert.ok(view.requests.some(record => record.activeMs > 0))
 })
 
 test('routing headers record model switches and output caps, plan mode becomes an event', async () => {
@@ -1018,13 +1026,90 @@ test('a paired skill tool result moves from tool to skill and counts as a skill 
   assert.equal(view.events[0].name, 'pdf-tools')
 })
 
+test('each request record carries its step activeMs, with user waits subtracted', async () => {
+  const bridge = await loadBridge()
+  const assistant = (seq, time, text = 'done') => ({
+    type: 'assistant/message', seq, time,
+    data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text }] } },
+    surfaceOp: 'append',
+  })
+  // Step 1: 1000 → 5000 with a 2000ms approval wait in the middle → 2000ms active.
+  // Step 2: no wait at all → its full 3000ms window.
+  // Step 3: a tool-only step (no request record) must not stamp anything, and
+  // step 4's ask_user_question wait is subtracted from its own window.
+  const events = [
+    { type: 'step/start', seq: 1, time: 1000 },
+    { type: 'request/header', seq: 2, time: 1001, data: { reason: 'new', header: { config: { model: 'm', maxTokens: 1024 } } } },
+    assistant(3, 1500, 'a'.repeat(40)),
+    { type: 'approval/asked', seq: 4, time: 2000, data: { id: 'ap-1' } },
+    { type: 'approval/decided', seq: 5, time: 4000, data: { id: 'ap-1' } },
+    { type: 'step/end', seq: 6, time: 5000 },
+    { type: 'step/start', seq: 7, time: 6000 },
+    assistant(8, 6500, 'b'.repeat(40)),
+    { type: 'step/end', seq: 9, time: 9000 },
+    { type: 'step/start', seq: 10, time: 10000 },
+    {
+      type: 'tool/result', seq: 11, time: 10500,
+      data: {
+        turn: 1, step: 3,
+        message: { role: 'tool', source: { kind: 'tool', callId: 'c1' }, toolCallId: 'c1', content: [{ type: 'text', text: 'ok' }] },
+      },
+      surfaceOp: 'append',
+    },
+    { type: 'step/end', seq: 12, time: 11000 },
+    { type: 'step/start', seq: 13, time: 12000 },
+    { type: 'tool/call', seq: 14, time: 12100, data: { turn: 1, step: 4, callId: 'c2', name: 'ask_user_question', arguments: '{}' } },
+    assistant(15, 12200, 'c'.repeat(40)),
+    {
+      type: 'tool/result', seq: 16, time: 14000,
+      data: {
+        turn: 1, step: 4,
+        message: { role: 'tool', source: { kind: 'tool', callId: 'c2' }, toolCallId: 'c2', content: [{ type: 'text', text: 'answer' }] },
+      },
+      surfaceOp: 'append',
+    },
+    { type: 'step/end', seq: 17, time: 15000 },
+  ]
+  const { view } = foldBridge(bridge, events)
+  const bySeq = new Map(view.requests.map(record => [record.seq, record]))
+  assert.deepEqual([...bySeq.keys()], [3, 8, 15])
+  assert.equal(bySeq.get(3).activeMs, 2000, 'the approval wait leaves the step active time')
+  assert.equal(bySeq.get(8).activeMs, 3000)
+  assert.equal(bySeq.get(15).activeMs, 1100, 'the ask_user_question window is a wait too')
+  // wallMs keeps the session-level accounting: 2000 + 3000 + 1000 + 1100
+  // (the tool-only step still books its own window).
+  assert.equal(view.timing.wallMs, 7100)
+  assert.ok(view.requests.every(record => Number.isFinite(record.activeMs) && record.activeMs >= 0))
+})
+
+test('an unpaired step end or a trimmed request row never mis-stamps activeMs', async () => {
+  const bridge = await loadBridge()
+  const assistant = (seq, time) => ({
+    type: 'assistant/message', seq, time,
+    data: { turn: 1, step: 1, message: { role: 'assistant', content: [{ type: 'text', text: 'x'.repeat(40) }] } },
+    surfaceOp: 'append',
+  })
+  // step/end without an open step is a no-op; an assistant message outside any
+  // step keeps no anchor, so a later step/end cannot reach back and stamp it.
+  const orphan = foldBridge(bridge, [
+    { type: 'step/end', seq: 1, time: 1000 },
+    assistant(2, 1100),
+    { type: 'step/start', seq: 3, time: 2000 },
+    { type: 'step/end', seq: 4, time: 3000 },
+  ])
+  assert.equal(orphan.view.requests.length, 1)
+  assert.equal(orphan.view.requests[0].activeMs, undefined)
+  assert.equal(orphan.view.timing.wallMs, 1000)
+})
+
 test('projection definition and fold helpers expose one coherent projection', async () => {
   const bridge = await loadBridge()
   const { fixture } = readFixture()
   const definition = bridge.contextProjectionDefinition
   assert.equal(definition.key, 'mobileContext')
-  // v4 adds bounded browser and file-activity state; older rows must refold.
-  assert.equal(definition.stateVersion, 4)
+  // v4 adds bounded browser and file-activity state; v5 stamps per-request
+  // activeMs for the duration curve. Older rows must refold.
+  assert.equal(definition.stateVersion, 5)
   assert.equal(typeof definition.init, 'function')
   assert.equal(typeof definition.apply, 'function')
   assert.equal(typeof definition.wire.view, 'function')

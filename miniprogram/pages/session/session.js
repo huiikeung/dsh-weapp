@@ -40,6 +40,17 @@ const { toolPresentation } = require('./utils/tool-presentation');
 const CONTEXT_TREND_OVERVIEW_AUTO_STEPS = 200;
 const MUTABLE_ROW_KINDS = new Set(['user', 'assistant', 'changes', 'files', 'status']);
 
+// 实时指标卡的半宽估算（px）：卡片 max-width 480rpx，375pt 机上约 240px。钳制时
+// 用它把卡片中心留在可视区内，首/末根柱子也不会被图表裁掉。
+const CONTEXT_TREND_TIP_HALF_PX = 110;
+
+/** 把指标卡中心钳制在 [half, width - half]，窄屏时退化为贴边居中。 */
+function clampTrendTip(center, width) {
+  if (!Number.isFinite(center) || !Number.isFinite(width) || width <= 0) return -1;
+  const half = Math.min(CONTEXT_TREND_TIP_HALF_PX, width / 2);
+  return Math.round(Math.max(half, Math.min(width - half, center)));
+}
+
 // Store protocol rows are reused across emits; only a few row kinds are mutated
 function captureRowValue(value, depth = 0) {
   if (Array.isArray(value)) {
@@ -1258,7 +1269,10 @@ Page({
     if (Object.keys(viewPatch).length) this.setData(viewPatch, () => {
       this.scheduleHistoryFormatting();
       this.measureConversationWindow();
-      if (this.data.tab === 'context') this.scheduleContextFlow();
+      if (this.data.tab === 'context') {
+        this.scheduleContextFlow();
+        this.scheduleContextTrendPane();
+      }
       if (this.data.tab === 'fleet' && viewPatch.fleetPanel) {
         this.scheduleFleetLinksDraw();
         this.maybeAutoScanFleetComms();
@@ -1779,8 +1793,10 @@ Page({
     });
     if (hadKeyboard && typeof wx.hideKeyboard === 'function') wx.hideKeyboard();
     // 上下文面板独有的「流连线」只在上下文 Tab 运行；编队是独立面板。
-    if (tab === 'context') this.scheduleContextFlow();
-    else this.stopContextFlow();
+    if (tab === 'context') {
+      this.scheduleContextFlow();
+      this.scheduleContextTrendPane();
+    } else this.stopContextFlow();
     if (tab === 'conversation') {
       this.updateDockInset();
       this.startScrollPolling();
@@ -1866,6 +1882,16 @@ Page({
     const trendVisibleRange = overrides.contextTrendVisibleRange !== undefined
       ? overrides.contextTrendVisibleRange : (this.data.contextTrendVisibleRange || null);
     const trendVisibleRangeKey = trendVisibleRange ? trendVisibleRange.from + ':' + trendVisibleRange.to : '';
+    // 实时探针（拖动中的竖线/指标卡）：运行中每 2.5s 重建面板，探针坐标必须原样
+    // 带回，否则手指还按在屏幕上，竖线先被刷新闪掉了。
+    const trendHoverSeq = this.data.contextTrendHoverSeq == null ? null : Number(this.data.contextTrendHoverSeq);
+    const currentTrend = this.data.contextPanel && this.data.contextPanel.trend;
+    const trendHoverX = currentTrend && Number.isFinite(currentTrend.hoverX) ? currentTrend.hoverX : -1;
+    const trendHoverLeft = currentTrend && Number.isFinite(currentTrend.hoverLeft) ? currentTrend.hoverLeft : -1;
+    const trendTipLeft = currentTrend && Number.isFinite(currentTrend.tipLeft) ? currentTrend.tipLeft : -1;
+    // 总览折线的可视宽：量到过就用实测值，否则模型自行退回 375pt 解析值。
+    const trendPaneWidth = Number.isFinite(this._ctxTrendPaneWidthRpx) && this._ctxTrendPaneWidthRpx > 0
+      ? this._ctxTrendPaneWidthRpx : null;
     const fileFilter = this.data.contextFileFilter || 'all';
     const fileSort = this.data.contextFileSort || 'count';
     const fileQuery = this.data.contextFileQuery || '';
@@ -1888,7 +1914,10 @@ Page({
       && cache.trendActiveTurn === trendActiveTurn
       && cache.trendDna === trendDna && cache.trendOverview === trendOverview
       && cache.trendAdaptive === trendAdaptive && cache.trendShowDuration === trendShowDuration
-      && cache.trendVisibleRangeKey === trendVisibleRangeKey) {
+      && cache.trendVisibleRangeKey === trendVisibleRangeKey
+      && cache.trendHoverSeq === trendHoverSeq && cache.trendHoverX === trendHoverX
+      && cache.trendHoverLeft === trendHoverLeft && cache.trendTipLeft === trendTipLeft
+      && cache.trendPaneWidth === trendPaneWidth) {
       return { contextPanel: this.modalPanel(cache.panel) };
     }
     const panel = contextView.buildPanel(dashboard, {
@@ -1902,6 +1931,9 @@ Page({
       trendActiveTurn: trendActiveTurn, trendDna: trendDna, trendOverview: trendOverview,
       trendAdaptive: trendAdaptive, trendShowDuration: trendShowDuration,
       trendVisibleRange: trendVisibleRange,
+      trendPaneWidth: trendPaneWidth,
+      trendHoverSeq: trendHoverSeq, trendHoverX: trendHoverX,
+      trendHoverLeft: trendHoverLeft, trendTipLeft: trendTipLeft,
       eventFilter: eventFilter,
       fileFilter: fileFilter, fileSort: fileSort, fileQuery: fileQuery, fileExpandedPath: fileExpandedPath
     });
@@ -1912,7 +1944,8 @@ Page({
       browserBase, browserQuery, browserKind, browserTool,
       eventFilter, fileFilter, fileSort, fileQuery, fileExpandedPath,
       trendSeq, trendGroupBy, trendDisplayMode, trendActiveTurn, trendDna, trendOverview,
-      trendAdaptive, trendShowDuration, trendVisibleRangeKey, panel
+      trendAdaptive, trendShowDuration, trendVisibleRangeKey, trendPaneWidth,
+      trendHoverSeq, trendHoverX, trendHoverLeft, trendTipLeft, panel
     };
     return { contextPanel: this.modalPanel(panel) };
   },
@@ -2062,6 +2095,44 @@ Page({
     this._contextPanelCache = null;
     const panelPatch = this.contextPanelPatch(undefined, undefined, overrides);
     this.setData(Object.assign({}, linkedPatch, panelPatch));
+  },
+
+  /** 去抖触发一次总览可视宽测量（面板重建/切 Tab/运行中刷新都走这里）。 */
+  scheduleContextTrendPane() {
+    if (this._ctxTrendPaneTimer) return;
+    this._ctxTrendPaneTimer = setTimeout(() => {
+      this._ctxTrendPaneTimer = null;
+      this.measureContextTrendPane();
+    }, 60);
+  },
+
+  /**
+   * 总览带的真实可视宽（rpx）：折线的原生线段要在拉伸后的列心上定位，角度与
+   * 段长都得按真实宽度算。测量不到时模型退回 375pt 解析值；量到后若与上次不同
+   * 就重建面板（换机型/旋转屏幕时曲线才重新对齐）。
+   */
+  measureContextTrendPane() {
+    if (this._unloaded || this.data.tab !== 'context' || !this.data.showContextPanel) return;
+    const trend = this.data.contextPanel && this.data.contextPanel.trend;
+    if (!trend || trend.overview !== true) return;
+    if (!wx || typeof wx.createSelectorQuery !== 'function') return;
+    const query = wx.createSelectorQuery().in(this);
+    query.select('.ctx-trend-chart-fit').boundingClientRect();
+    query.exec((res) => {
+      if (this._unloaded) return;
+      const rect = res && res[0];
+      if (!rect || !(rect.width > 0)) return;
+      let windowWidth = 375;
+      try {
+        const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+        if (info && Number(info.windowWidth) > 0) windowWidth = Number(info.windowWidth);
+      } catch (_) {}
+      const rpx = Math.round(rect.width * 750 / windowWidth);
+      if (!(rpx > 0) || rpx === this._ctxTrendPaneWidthRpx) return;
+      this._ctxTrendPaneWidthRpx = rpx;
+      this._contextPanelCache = null;
+      this.setData(this.contextPanelPatch());
+    });
   },
 
   /** Adaptive scales follow the visible horizontal window, like the desktop chart. */
@@ -2411,11 +2482,17 @@ Page({
     const trend = this.data.contextPanel && this.data.contextPanel.trend;
     if (!trend || !Array.isArray(trend.bars) || !trend.bars.length || !gesture.rect) return;
     let index;
+    // 竖线位置：总览用百分比（带子拉伸到整宽），柱模式用 rpx（随内容一起滚动）。
     let hoverLeft = -1;
+    let hoverX = -1;
+    // 浮动指标卡锚点：px，相对 .ctx-trend-main 左缘，按可视宽钳制，第一根/最后一根
+    // 柱子的卡片也不会伸出图表（对齐 dsh-context trendChart 的 syncTip 钳制）。
+    let tipLeft = -1;
     if (gesture.mode === 'overview') {
       const ratio = Math.max(0, Math.min(1, (gesture.x - gesture.rect.left) / gesture.rect.width));
       index = Math.min(trend.bars.length - 1, Math.floor(ratio * trend.bars.length));
       hoverLeft = ((index + 0.5) / trend.bars.length) * 100;
+      tipLeft = clampTrendTip(ratio * gesture.rect.width, gesture.rect.width);
     } else {
       let windowWidth = 375;
       try {
@@ -2423,20 +2500,23 @@ Page({
         if (info && Number(info.windowWidth) > 0) windowWidth = Number(info.windowWidth);
       } catch (_) {}
       const pxToRpx = 750 / windowWidth;
-      const xRpx = (gesture.x - gesture.rect.left + (this._ctxTrendScrollLeftPx || 0)) * pxToRpx;
+      const scrollLeftPx = this._ctxTrendScrollLeftPx || 0;
+      const xRpx = (gesture.x - gesture.rect.left + scrollLeftPx) * pxToRpx;
       const centerOffset = contextView.TREND_BAR_GAP + contextView.TREND_BAR_W / 2;
       index = Math.round((xRpx - centerOffset) / contextView.TREND_BAR_PITCH);
       index = Math.max(0, Math.min(trend.bars.length - 1, index));
+      hoverX = index * contextView.TREND_BAR_PITCH + centerOffset;
+      tipLeft = clampTrendTip(hoverX / pxToRpx - scrollLeftPx, gesture.rect.width);
     }
     const seq = trend.bars[index] && trend.bars[index].seq;
     if (!Number.isFinite(Number(seq))) return;
     if (gesture.seq === Number(seq)) return;
     gesture.seq = Number(seq);
-    this.previewContextTrendRecord(Number(seq), hoverLeft);
+    this.previewContextTrendRecord(Number(seq), hoverLeft, hoverX, tipLeft);
   },
 
   /** Update only the changing detail/browser branches, not the full trend's large WXML payload. */
-  previewContextTrendRecord(seq, hoverLeft) {
+  previewContextTrendRecord(seq, hoverLeft, hoverX, tipLeft) {
     const trend = this.data.contextPanel && this.data.contextPanel.trend;
     const dashboard = store.sessionState && store.sessionState.contextDashboard;
     const value = dashboard && dashboard.value;
@@ -2455,6 +2535,8 @@ Page({
       contextTrendHoverSeq: seq,
       'contextPanel.trend.hoverSeq': seq,
       'contextPanel.trend.hoverLeft': hoverLeft,
+      'contextPanel.trend.hoverX': hoverX,
+      'contextPanel.trend.tipLeft': tipLeft,
       'contextPanel.trendDetail': detail,
       'contextPanel.browser': browser
     });
@@ -2468,7 +2550,12 @@ Page({
     const dashboard = store.sessionState && store.sessionState.contextDashboard;
     const value = dashboard && dashboard.value;
     if (!trend || !value) {
-      this.setData({ contextTrendHoverSeq: null });
+      this.setData({
+        contextTrendHoverSeq: null,
+        'contextPanel.trend.hoverLeft': -1,
+        'contextPanel.trend.hoverX': -1,
+        'contextPanel.trend.tipLeft': -1
+      });
       return;
     }
     const pinnedSeq = trend.selectedSeq;
@@ -2488,6 +2575,8 @@ Page({
       contextTrendHoverSeq: null,
       'contextPanel.trend.hoverSeq': null,
       'contextPanel.trend.hoverLeft': -1,
+      'contextPanel.trend.hoverX': -1,
+      'contextPanel.trend.tipLeft': -1,
       'contextPanel.trendDetail': detail,
       'contextPanel.browser': browser
     });
@@ -4619,6 +4708,18 @@ Page({
       Object.assign(patch, this.conversationWindowPatch(visible));
     }
     this.setData(patch, () => this.measureConversationWindow());
+  },
+
+  /** 过程组滚动容器：用户翻离底部就暂停自动跟随，滚回底部自动恢复。 */
+  onProcessBodyScroll(e) {
+    const key = e.currentTarget.dataset.key;
+    if (!key) return;
+    const detail = e.detail || {};
+    const atBottom = Number(detail.scrollHeight) - Number(detail.scrollTop) - Number(detail.height) <= 12;
+    const paused = this._processFollowPaused || (this._processFollowPaused = {});
+    if (atBottom === !paused[key]) return;
+    if (atBottom) delete paused[key];
+    else paused[key] = true;
   },
 
   copyCode(e) {

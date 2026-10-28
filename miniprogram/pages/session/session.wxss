@@ -3956,11 +3956,16 @@ padding-bottom: 0 !important;
 .ctx-trend-column-seg { width: 100%; }
 .ctx-fit-flagpole { left: auto !important; }
 .ctx-fit-cursor { position: absolute; top: 36rpx; bottom: 0; width: 0; border-left: 2rpx solid var(--text); z-index: 2; pointer-events: none; transition: left .2s cubic-bezier(.2,.7,.2,1); }
+.ctx-trend-hoverline { position: absolute; top: 36rpx; bottom: 0; width: 0; border-left: 2rpx solid var(--ocean); z-index: 3; pointer-events: none; }
 .ctx-trend-turns-fit { width: 100%; gap: 0; }
 .ctx-trend-turns-fit .ctx-trend-turn { border-radius: 0; min-width: 0; overflow: hidden; }
 .ctx-trend-turns-dim .ctx-trend-turn { opacity: .35; }
 .ctx-trend-turns-dim .ctx-trend-turn.on { opacity: 1; }
-.ctx-trend-main { flex: 1; min-width: 0; }
+.ctx-trend-main { position: relative; flex: 1; min-width: 0; }
+.ctx-trend-tip { position: absolute; top: 2rpx; z-index: 6; transform: translateX(-50%); display: flex; flex-direction: column; gap: 2rpx; max-width: 480rpx; box-sizing: border-box; padding: 6rpx 12rpx; border: 1rpx solid var(--border-strong); border-radius: 10rpx; background: var(--surface); box-shadow: var(--float-shadow); pointer-events: none; white-space: nowrap; }
+.ctx-trend-tip-head { font-size: 20rpx; font-weight: 600; color: var(--text); }
+.ctx-trend-tip-metrics { display: flex; align-items: baseline; gap: 10rpx; }
+.ctx-trend-tip-metric { font-size: 20rpx; color: var(--text-3); font-variant-numeric: tabular-nums; }
 .ctx-trend-scroll { width: 100%; white-space: nowrap; }
 .ctx-trend-chart { position: relative; display: flex; align-items: flex-end; gap: 4rpx; height: 260rpx; padding: 36rpx 4rpx 0; box-sizing: border-box; overflow: hidden; }
 .ctx-trend-grid { position: absolute; left: 0; right: 0; height: 1rpx; border-top: 1rpx dashed var(--border-strong); pointer-events: none; }
@@ -3969,6 +3974,7 @@ padding-bottom: 0 !important;
 .ctx-trend-flaglabel { position: absolute; top: 0; right: 0; box-sizing: border-box; padding: 2rpx 6rpx; border: 1rpx solid var(--border-strong); border-radius: 6rpx; background: var(--surface); font-size: 18rpx; line-height: 1; font-weight: 600; color: var(--text-4); white-space: nowrap; }
 .ctx-trend-col { position: relative; width: 28rpx; flex: none; height: 100%; display: flex; align-items: flex-end; border-radius: 4rpx; transition: opacity .2s ease, background-color .2s ease; }
 .ctx-trend-col.dimmed { opacity: .35; }
+.ctx-trend-col.hovered { box-shadow: 0 0 0 2rpx var(--ocean); }
 .ctx-trend-col.selected { background: var(--fill-2); box-shadow: 0 0 0 2rpx var(--text-3); }
 .ctx-trend-barwrap { position: relative; width: 100%; height: 224rpx; display: flex; align-items: flex-end; }
 .ctx-trend-bar { width: 100%; display: flex; flex-direction: column-reverse; overflow: hidden; }
@@ -3981,12 +3987,12 @@ padding-bottom: 0 !important;
 .ctx-trend-deltaarm.up { flex-direction: column-reverse; border-radius: 4rpx 4rpx 0 0; }
 .ctx-trend-deltaarm.down { flex-direction: column; border-radius: 0 0 4rpx 4rpx; }
 .ctx-trend-deltaseg { width: 100%; }
-.ctx-trend-duration { position: absolute; top: 36rpx; left: 4rpx; z-index: 1; height: 224rpx; overflow: hidden; pointer-events: none; }
-.ctx-trend-duration-fit { left: 0; z-index: 1; display: block; width: 100%; }
-.ctx-trend-duration polyline { fill: none; stroke: var(--text-4); stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; vector-effect: non-scaling-stroke; }
-.ctx-trend-duration .ctx-trend-duration-halo { stroke: var(--surface); stroke-width: 6; opacity: .9; }
-.ctx-trend-duration circle { fill: var(--text-4); stroke: var(--surface); stroke-width: 4; }
-.ctx-trend-duration circle.ctx-trend-duration-halo { fill: var(--surface); stroke: none; }
+.ctx-dur { position: absolute; left: 0; right: 0; top: 0; bottom: 0; z-index: 1; pointer-events: none; }
+.ctx-dur-seg { position: absolute; pointer-events: none; }
+.ctx-dur-dot { position: absolute; border-radius: 50%; pointer-events: none; }
+.ctx-dur-halo { background: var(--surface); opacity: .9; border-radius: 3rpx; }
+.ctx-dur-core { background: var(--text-4); border-radius: 1.25rpx; }
+.ctx-dur-dim .ctx-dur-halo, .ctx-dur-dim .ctx-dur-core { opacity: .35; }
 .ctx-trend-turnscroll { width: 100%; white-space: nowrap; }
 .ctx-trend-turns { display: flex; gap: 4rpx; margin-top: 8rpx; }
 .ctx-trend-turn { flex: none; box-sizing: border-box; height: 28rpx; line-height: 28rpx; text-align: center; font-size: 20rpx; font-weight: 600; color: var(--text-4); border-radius: 6rpx; white-space: nowrap; transition: filter .2s ease, opacity .2s ease; }
