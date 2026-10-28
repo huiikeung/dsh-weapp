@@ -10,28 +10,38 @@
   position: relative;
   height: 100vh;
   overflow: hidden;
-  /* 内容右移后露出的底层：与深海内容同色，交界处不出现白边 */
-  background: var(--navy);
+  /* Full-screen drawer surface beneath the moving home panel. */
+  background: #FFFFFF;
+}
+
+.home-root.theme-dark {
+  background: #000000;
 }
 
 .home-content-wrap {
   position: relative;
+  z-index: 53;
   height: 100vh;
   background: var(--navy);
-  transition: border-radius 0.38s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
 .home-content-wrap.shifted {
-  border-radius: 96rpx;
   overflow: hidden;
+  /* 悬浮层：主内容浮在侧栏之上（对齐 iOS workspaceContent 的两层阴影：
+     9pt/26pt 模糊、-2pt/-4pt 左偏移，progress 满开时取满值）。 */
   box-shadow: -4rpx 0 18rpx rgba(0, 0, 0, 0.12), -8rpx 0 52rpx rgba(0, 0, 0, 0.30);
+}
+
+/* 深色底保持纯黑：只用一道中性亮边勾出悬浮页面，不抬底色、不加色光。 */
+.theme-dark .home-content-wrap.shifted {
+  border-left: 2rpx solid rgba(255, 255, 255, 0.18);
+  box-shadow: -4rpx 0 18rpx rgba(0, 0, 0, 0.45), -8rpx 0 52rpx rgba(0, 0, 0, 0.65);
 }
 
 /* 深海背景随内容位移：fixed → absolute（相对位移容器） */
 .home-deep-bg {
   position: absolute;
   z-index: 0;
-  background: linear-gradient(180deg, #1D3A6B 0%, #17315B 38%, #0D2044 68%, #07182b 100%);
 }
 
 .home-scroll {
@@ -44,6 +54,10 @@
   transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+.home-content-wrap.drawer-anim {
+  transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1), border-radius 0.38s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
 .drawer {
   position: fixed;
   left: 0;
@@ -52,10 +66,6 @@
   z-index: 52;
   background: #FFFFFF;
   transform: translateX(-100%);
-}
-
-.drawer-visible {
-  box-shadow: 8rpx 0 40rpx rgba(0, 0, 0, 0.18);
 }
 
 .drawer-body {
@@ -151,13 +161,15 @@
 }
 
 .drawer-mask {
-  position: fixed;
+  /* 压在 home-content-wrap（z-index: 53）内部：只压暗主内容本身。
+     若留在根层会盖到页面根背景，在内容圆角处压出 16% 灰边，露出「断层」。 */
+  position: absolute;
   left: 0;
   top: 0;
   right: 0;
   bottom: 0;
-  z-index: 50;
-  background: rgba(0, 0, 0, 0.16);
+  z-index: 30;
+  background: #000000;
 }
 
 .brand-dim {
@@ -1753,7 +1765,7 @@
 
 /* 夜间模式抽屉：跟随 sheetTheme 的 drawer-dark 类（手动深色 / 系统深色都生效） */
 .drawer.drawer-dark {
-  background: #242426;
+  background: #000000;
 }
 
 .drawer-dark .drawer-item-text {

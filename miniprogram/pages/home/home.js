@@ -101,6 +101,7 @@ Page({
     drawerW: 280,
     drawerX: -280,
     contentX: 0,
+    contentCornerRadius: 0,
     maskOpacity: 0,
     contentShifted: false,
     costDashboard: null,
@@ -1138,16 +1139,22 @@ Page({
 
   applyDrawer(progress) {
     const w = this.drawerW;
+    const p = Math.max(0, Math.min(1, Number(progress) || 0));
+    // 压暗对齐 iOS：progress 过 45% 后才渐入，smoothstep 缓动，峰值 0.16。
+    // 遮罩在内容层内，随页面一起浮在侧栏之上；侧栏本身保持原亮度。
+    const dimProgress = Math.max(0, Math.min(1, (p - 0.45) / 0.55));
+    const maskOpacity = 0.16 * dimProgress * dimProgress * (3 - 2 * dimProgress);
     this.setData({
-      drawerOpen: progress > 0.5,
-      drawerX: -w + w * progress,
-      contentX: w * progress,
-      maskOpacity: 0.16 * progress,
-      contentShifted: progress > 0.02
+      drawerOpen: p > 0.5,
+      drawerX: -w + w * p,
+      contentX: w * p,
+      contentCornerRadius: 48 * p,
+      maskOpacity,
+      contentShifted: p > 0.02
     });
     // 状态栏字色跟随抽屉底色：浅色模式抽屉为白底 → 黑字；其余白字（navy/深色底）。
     // 拖拽按帧触发，只在开/合状态切换时调用一次。
-    const open = progress > 0.5;
+    const open = p > 0.5;
     if (this.statusBarFront !== open && typeof wx.setNavigationBarColor === 'function') {
       this.statusBarFront = open;
       const darkChrome = this.systemTheme === 'dark' || open;

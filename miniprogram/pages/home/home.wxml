@@ -54,7 +54,7 @@
   <!-- 主内容：抽屉打开时右移 + 圆角 + 阴影（对齐 iOS workspaceContent） -->
   <view
     class="home-content-wrap {{contentShifted ? 'shifted' : ''}} {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}}"
-    style="transform: {{contentX ? 'translateX(' + contentX + 'px)' : 'none'}};"
+    style="transform: {{contentX ? 'translateX(' + contentX + 'px)' : 'none'}}; border-radius: {{contentCornerRadius}}px 0 0 {{contentCornerRadius}}px;"
     bindtouchstart="onContentTouchStart"
     bindtouchend="onContentTouchEnd"
   >
@@ -215,16 +215,17 @@
       </view>
     </view>
     </scroll-view>
-  </view>
 
-  <!-- 抽屉遮罩：压暗主内容，点击关闭（对齐 iOS dim + tap-to-close） -->
-  <view
-    wx:if="{{drawerOpen || drawerDragging}}"
-    class="drawer-mask {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}}"
-    style="opacity: {{maskOpacity}};"
-    catchtap="closeDrawer"
-    catchtouchmove="noop"
-  ></view>
+    <!-- 抽屉遮罩：压在内容层内部压暗主内容，点击关闭（对齐 iOS dim + tap-to-close）。
+         必须留在 home-content-wrap 内：放到根层会盖到页面根背景上，在内容圆角处压出灰边/断层。 -->
+    <view
+      wx:if="{{drawerOpen || drawerDragging}}"
+      class="drawer-mask {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}}"
+      style="opacity: {{maskOpacity}};"
+      catchtap="closeDrawer"
+      catchtouchmove="noop"
+    ></view>
+  </view>
 
   <!-- 删除主机确认弹窗 -->
   <view wx:if="{{hostDeleteOpen}}" class="host-confirm-mask" catchtap="cancelDeleteHosts" catchtouchmove="noop">
