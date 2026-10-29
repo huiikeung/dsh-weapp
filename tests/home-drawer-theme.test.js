@@ -37,20 +37,12 @@ test('the shifted home panel floats above the DSH backplate with leading corners
       'light home status bar matches the white drawer');
     assert.doesNotMatch(css, /\.drawer-visible\s*\{[^}]*box-shadow:/,
       `${name} does not add a second shadow line at the drawer edge`);
-    assert.match(css, /\.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*inset 4rpx 0 18rpx rgba\(0, 0, 0, 0\.06\), inset 8rpx 0 52rpx rgba\(0, 0, 0, 0\.04\)/,
-      `${name} keeps the light shadow inside the page instead of tinting the sidebar corners`);
-    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*border-left:\s*0\s*;/,
-      `${name} does not paint a rim light onto the dark sidebar corners`);
-    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*inset 2rpx 0 0 rgba\(255, 255, 255, 0\.12\), inset 4rpx 0 18rpx rgba\(0, 0, 0, 0\.30\), inset 8rpx 0 52rpx rgba\(0, 0, 0, 0\.40\)/,
-      `${name} keeps the dark rim and shadow inside the page`);
-    const rootLight = (css.match(/\.home-root\s*\{[^}]*background:\s*(#[0-9a-f]{6})/i) || [])[1];
-    const drawerLight = (css.match(/\.drawer\s*\{[^}]*background:\s*(#[0-9a-f]{6})/i) || [])[1];
-    assert.equal(rootLight && rootLight.toLowerCase(), drawerLight && drawerLight.toLowerCase(),
-      `${name} exposes the same light color at the corners as the drawer`);
-    const rootDark = (css.match(/\.home-root\.theme-dark\s*\{\s*background:\s*(#[0-9a-f]{6})/i) || [])[1];
-    const drawerDark = (css.match(/\.drawer\.drawer-dark\s*\{\s*background:\s*(#[0-9a-f]{6})/i) || [])[1];
-    assert.equal(rootDark && rootDark.toLowerCase(), drawerDark && drawerDark.toLowerCase(),
-      `${name} exposes the same dark color at the corners as the drawer`);
+    assert.match(css, /\.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*-4rpx 0 18rpx rgba\(0, 0, 0, 0\.12\), -8rpx 0 52rpx rgba\(0, 0, 0, 0\.30\)/,
+      `${name} floats the home panel above the drawer with the two-layer DSH shadow`);
+    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*border-left:\s*2rpx solid rgba\(255, 255, 255, 0\.18\)/,
+      `${name} outlines the floating page with a neutral rim light on pure black`);
+    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*-4rpx 0 18rpx rgba\(0, 0, 0, 0\.45\), -8rpx 0 52rpx rgba\(0, 0, 0, 0\.65\)/,
+      `${name} deepens the shadow on the near-black dark backplate`);
   }
   assert.match(page, /contentCornerRadius:\s*48\s*\*\s*p/,
     'the 48px DSH corner radius follows drawer progress');
