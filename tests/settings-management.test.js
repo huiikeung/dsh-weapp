@@ -82,6 +82,7 @@ function createPage(apiOptions) {
       if (name === './utils/storage-usage') return require('../miniprogram/pages/settings/utils/storage-usage');
       if (name === '../../utils/host-info') return require('../miniprogram/utils/host-info');
       if (name === '../../utils/choice-menu') return require('../miniprogram/utils/choice-menu');
+      if (name === '../../utils/session-glass-pref') return { KEY: 'sessionGlassEnabled', DEFAULT: true, read: () => true, set: value => value === true };
       if (name === '../../utils/settings-glass-style-pref') return { KEY: 'settingsGlassStyle', DEFAULTS: { alpha: 10, blur: 8, edge: 38, radius: 32, brightness: 100 }, LIMITS: { alpha: [4, 40], blur: [2, 24], edge: [10, 70], radius: [20, 40], brightness: [40, 160] }, read: () => ({ alpha: 10, blur: 8, edge: 38, radius: 32 }), set: patch => patch, view: () => ({ glassSurfaceStyle: 'background: linear-gradient(165deg, rgba(255, 255, 255, 0.040), rgba(255, 255, 255, 0.016)); border: 1px solid rgba(255, 255, 255, 0.38); border-radius: 16.64px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 6.24px 24.96px rgba(3, 14, 30, 0.26); backdrop-filter: blur(4.16px); -webkit-backdrop-filter: blur(4.16px);', glassAlpha: 10, glassBlur: 8, glassEdge: 38, glassRadius: 32, glassAlphaTop: '0.040', glassAlphaBottom: '0.016', glassAlphaTopPct: 4, glassAlphaBottomPct: 1.6, glassBrightness: 100, glassEdgeAlpha: '0.38', glassBlurSheet: '4.16px', glassBlurCard: '1.56px', glassRadiusSheet: '16.64px', glassRadiusCard: '18.72px' }) };
       if (name === '../../utils/labels') return { presetModeName: (v) => v, presetDisplayName: (name, id) => name || id, permissionName: (v) => v };
       if (name === './utils/notify-pref') return { enabled: () => false };
@@ -1179,4 +1180,40 @@ test('样式设置弹窗包在主题容器里，深色下文字才继承正确�
   const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
   assert.match(css, /\.theme-dark \.native-skin \.glass-style-title,[\s\S]{0,240}?#F1F4FA/);
   assert.match(css, /\.theme-light \.native-skin \.glass-style-title,[\s\S]{0,240}?#10131A/);
+});
+
+test('对话页面玻璃：设置页独立开关控制，页面头部/输入区/协作弹窗变玻璃', () => {
+  const root = path.resolve(__dirname, '..');
+  const pref = fs.readFileSync(path.join(root, 'miniprogram/utils/session-glass-pref.js'), 'utf8');
+  const wxml = fs.readFileSync(path.join(root, 'miniprogram/pages/session/session.wxml'), 'utf8');
+  const wxss = fs.readFileSync(path.join(root, 'miniprogram/pages/session/session.wxss'), 'utf8');
+  const settingsWxml = fs.readFileSync(path.join(root, 'miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const settingsJs = fs.readFileSync(path.join(root, 'miniprogram/pages/settings/settings.js'), 'utf8');
+  // 偏好：默认开启、可持久化
+  let stored;
+  const context = { module: { exports: {} }, wx: { getStorageSync: () => stored, setStorageSync: (_k, v) => { stored = v; } } };
+  vm.runInNewContext(pref, context);
+  const preference = context.module.exports;
+  assert.equal(preference.DEFAULT, true);
+  assert.equal(preference.read(), true);
+  assert.equal(preference.set(false), false);
+  assert.equal(preference.read(), false);
+  // 对话页根节点按开关挂 session-glass，并注入玻璃变量
+  assert.ok(wxml.includes("class=\"page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}\""), 'session root toggles the glass class');
+  assert.ok(wxml.includes('--glass-alpha-top: {{glassAlphaTop}}'), 'session root injects glass alpha');
+  assert.ok(wxml.includes('style="{{contentFontStyle}}; --glass-alpha-top'), 'session root keeps content font style and adds glass vars');
+  // 玻璃材质覆盖到头部、输入区、协作弹窗、文件提及菜单
+  for (const selector of ['.session-glass .session-header', '.session-glass .composer', '.session-glass .sheet.collab-sheet', '.session-glass .file-mention-menu']) {
+    const at = wxss.indexOf(selector);
+    assert.ok(at >= 0, selector + ' glass rule');
+    const slice = wxss.slice(at, at + 420);
+    assert.ok(slice.includes('var(--glass-alpha-top'), selector + ' gradient');
+    assert.ok(slice.includes('var(--glass-edge-alpha'), selector + ' hairline');
+    assert.ok(slice.includes('blur(var(--glass-blur-'), selector + ' blur');
+  }
+  // 设置页独立开关：一行 switch + 处理器
+  assert.ok(settingsWxml.includes('checked="{{sessionGlassEnabled}}"') && settingsWxml.includes('bindchange="toggleSessionGlass"'), 'settings switch exists');
+  assert.ok(settingsWxml.includes("ui['对话页面玻璃']"), 'switch label present');
+  assert.match(settingsJs, /toggleSessionGlass\(e\)[\s\S]{0,240}?sessionGlassPreference\.set/);
+  assert.match(settingsJs, /onShow\(\)[\s\S]{0,1200}?sessionGlassEnabled: sessionGlassPreference\.read\(\)/);
 });

@@ -36,7 +36,7 @@
   </view>
 </template>
 
-<view class="page session {{themeClass}}" style="{{contentFontStyle}}">
+<view class="page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-card: {{glassBlurCard}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
   <!-- 顶部区域：导航 + 切换栏，背景遮罩截止到切换下划线 -->
   <view class="session-header">
   <!-- 顶部导航：标题居中，右侧连接状态、模式与菜单 -->

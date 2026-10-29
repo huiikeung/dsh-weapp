@@ -18,6 +18,8 @@ const notifySubscription = require('./utils/notify-subscription');
 const voicePreference = require('./utils/voice-preference');
 const contextPanelsPreference = require('./utils/context-panels-pref');
 const contextPreferences = require('./utils/context-prefs');
+const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
+const sessionGlassPreference = require('../../utils/session-glass-pref');
 const voiceActions = require('./voice-actions');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
 const fileActions = require('./file-actions');
@@ -116,6 +118,8 @@ Page({
   ...imageBlocks,
   ...changesActions,
   data: {
+    sessionGlassEnabled: sessionGlassPreference.read(),
+    ...settingsGlassStylePreference.view(),
     statusFlowDelay: 0,
     publicAccessDialog: null,
     publicAccessDialogOpen: false,
@@ -452,6 +456,7 @@ Page({
   },
 
   onShow() {
+    this.setData(Object.assign({ sessionGlassEnabled: sessionGlassPreference.read() }, settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 })));
     const firstPageShow = this._initialPageShowPending === true;
     this._initialPageShowPending = false;
     const foregroundEpoch = this.currentAppForegroundEpoch();

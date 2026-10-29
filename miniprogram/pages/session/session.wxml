@@ -33,7 +33,7 @@
 </view>
 </view>
 </template>
-<view class="page session {{themeClass}}" style="{{contentFontStyle}}">
+<view class="page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-card: {{glassBlurCard}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
 <view class="session-header">
 <view class="navbar" style="{{navbarStyle}}">
 <view class="nav-back tap" hover-class="press-dim" bindtap="goBack">

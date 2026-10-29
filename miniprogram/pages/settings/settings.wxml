@@ -415,6 +415,10 @@
           <view class="exp-copy"><text class="card-row-label">{{ui['玻璃UI样式']}}</text></view>
           <dsh-switch checked="{{settingsGlassEnabled}}" aria-label="{{ui['玻璃UI样式']}}" bindchange="toggleSettingsGlass"/>
         </view>
+        <view class="card-row glass-style-row session-glass-row">
+          <view class="exp-copy"><text class="card-row-label">{{ui['对话页面玻璃']}}</text></view>
+          <dsh-switch checked="{{sessionGlassEnabled}}" aria-label="{{ui['对话页面玻璃']}}" bindchange="toggleSessionGlass"/>
+        </view>
         <view wx:if="{{settingsGlassEnabled}}" class="card-row" id="glass-style-entry" bindtap="openGlassStyleSheet" role="button" aria-label="{{ui['玻璃样式设置']}}">
           <text class="card-row-label">{{ui['玻璃样式设置']}}</text>
           <view class="card-row-value"><text>{{glassAlpha}}% · {{glassBlur}}rpx</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>

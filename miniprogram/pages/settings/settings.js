@@ -14,6 +14,7 @@ const accountCardPreference = require('./utils/account-card-pref');
 const settingsGlassPreference = require('../../utils/settings-glass-pref');
 const settingsGlassSheetPreference = require('../../utils/settings-glass-sheet-pref');
 const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
+const sessionGlassPreference = require('../../utils/session-glass-pref');
 
 const contextPreferences = require('./utils/context-prefs');
 const theme = require('../../utils/theme');
@@ -145,9 +146,11 @@ Page({
     showAccountCard: accountCardPreference.read(),
     settingsGlassEnabled: settingsGlassPreference.read(),
     settingsGlassSheetEnabled: settingsGlassSheetPreference.read(),
+    sessionGlassEnabled: sessionGlassPreference.read(),
     choiceSheet: settingsGlassSheetPreference.read(),
     quotaSidebarVisible: false,
     glassStyleOpen: false,
+    sessionGlassEnabled: sessionGlassPreference.read(),
     nativeStyleOpen: false,
     nativeBgPresets: [
       { id: 'default', label: '默认', value: 50 },
@@ -635,6 +638,7 @@ Page({
       showAccountCard: accountCardPreference.read(),
     settingsGlassEnabled: settingsGlassPreference.read(),
     settingsGlassSheetEnabled: settingsGlassSheetPreference.read(),
+    sessionGlassEnabled: sessionGlassPreference.read(),
     choiceSheet: settingsGlassSheetPreference.read(),
     ...settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }),
       ...this.contextPreferenceData(),
@@ -1172,6 +1176,16 @@ Page({
     try { this.setData(settingsGlassStylePreference.view(settingsGlassStylePreference.set({ [field]: Number(value) }))); }
     catch (_) {
       this.setData(settingsGlassStylePreference.view());
+      wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
+    }
+  },
+
+  /** 对话页面玻璃：设置页里的独立开关，不影响其它页面的玻璃 UI。 */
+  toggleSessionGlass(e) {
+    const enabled = !!(e && e.detail && e.detail.value);
+    try { this.setData({ sessionGlassEnabled: sessionGlassPreference.set(enabled) }); }
+    catch (_) {
+      this.setData({ sessionGlassEnabled: sessionGlassPreference.read() });
       wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
     }
   },
