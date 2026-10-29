@@ -21,8 +21,8 @@ test('the shifted home panel floats above the DSH backplate with leading corners
       `${name} does not clip or round the drawer itself`);
     assert.match(css, /\.home-root\s*\{[^}]*background:\s*#FFFFFF;/,
       `${name} provides a full-screen light drawer surface under the home panel`);
-    assert.match(css, /\.home-root\.theme-dark\s*\{\s*background:\s*#000000;/,
-      `${name} keeps the dark surface under the page corners pure black`);
+    assert.match(css, /\.home-root\.theme-dark\s*\{\s*background:\s*#141518;/,
+      `${name} matches the dark plugin background outside the rounded corners`);
     assert.doesNotMatch(css, /\.drawer-visible\s*\{[^}]*box-shadow:/,
       `${name} does not add a second shadow line at the drawer edge`);
     assert.match(css, /\.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*-4rpx 0 18rpx rgba\(0, 0, 0, 0\.12\), -8rpx 0 52rpx rgba\(0, 0, 0, 0\.30\)/,
@@ -56,7 +56,7 @@ test('drawer dim lives inside the moving content layer, not on the root surface'
   }
 
   // Mask must be the last child of home-content-wrap: rendered inside it so the root
-  // surface around the rounded page corners stays pure white/black instead of dimmed.
+  // surface around the rounded page corners keeps the matching theme color instead of dimming.
   const wrapStart = template.indexOf('class="home-content-wrap');
   const maskStart = template.indexOf('class="drawer-mask');
   const scrollEnd = template.indexOf('</scroll-view>', wrapStart);

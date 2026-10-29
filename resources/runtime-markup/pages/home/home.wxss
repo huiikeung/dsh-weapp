@@ -15,7 +15,7 @@
 }
 
 .home-root.theme-dark {
-  background: #000000;
+  background: #141518;
 }
 
 .home-content-wrap {
