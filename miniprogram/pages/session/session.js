@@ -3385,7 +3385,8 @@ Page({
     }
     if (gesture.tab === 'conversation' && gesture.axis === 'vertical') {
       // Keep following paused for the whole vertical gesture, whichever way it travels.
-      this._lastTouchAt = Date.now();
+      this._lastConversationGestureAt = this._lastTouchAt = Date.now();
+      this._initialConversationAnchorPending = false;
       this._followPausedByUser = true;
       this._convPinned = false;
       this._initialConversationAnchorApplied = false;
@@ -3399,6 +3400,9 @@ Page({
   onPanelTouchEnd(e) {
     const gesture = this._panelGesture;
     this._panelGesture = null;
+    if (gesture && gesture.tab === 'conversation' && gesture.axis === 'vertical') {
+      this._lastConversationGestureAt = Date.now();
+    }
     const touch = e.changedTouches && e.changedTouches[0];
     if (gesture && gesture.tab === 'conversation' && this._bottomAnchorDeferred) {
       this._bottomAnchorDeferred = false;
@@ -4154,6 +4158,7 @@ Page({
     this._scrollAnchorAt = 0;
     this._programmaticScrollAt = 0;
     this._programmaticScrollTop = undefined;
+    this._lastConversationGestureAt = 0;
     this._lastTouchAt = Date.now();
   },
 
@@ -4181,7 +4186,8 @@ Page({
     // intent unpins the conversation and can shift the window away from its tail.
     // 贴底锚点（进入会话 / 流式增长后重新贴底）同样会带来一次向上钳制，一并豁免；
     // 真有手指在滑时 recentTouch 为真，不受影响。
-    const anchorSettling = (this._initialConversationAnchorApplied === true
+    const anchorSettling = (this._initialConversationAnchorPending === true
+      || this._initialConversationAnchorApplied === true
       || (this._scrollAnchorAt && now - this._scrollAnchorAt < 800)) && !recentTouch;
     if (anchorSettling) return;
     const movingTowardOlder = previousTop !== undefined && scrollTop < previousTop - 2;
@@ -4208,12 +4214,17 @@ Page({
       this._followPausedByUser = true;
       this._userScrollDirection = 'towardTop';
       this._convPinned = false;
+      this._initialConversationAnchorPending = false;
       this._initialConversationAnchorApplied = false;
       this._suppressScrollUntil = 0;
       if (this.data.scrollTarget) this.setData({ scrollTarget: '' });
     }
     if (!programmaticScroll && movingTowardNewer && this._followPausedByUser) {
       this._userScrollDirection = 'towardBottom';
+    }
+    if (!programmaticScroll && (movingTowardOlder || movingTowardNewer)) {
+      this._lastConversationGestureAt = now;
+      this._initialConversationAnchorPending = false;
     }
     this.applyScrollPosition({
       scrollTop: scrollTop,
@@ -4283,7 +4294,8 @@ Page({
     this._convClientHeight = clientHeight;
     // Selector measurements may observe the pre-anchor position during first
     // layout. Keep the entry follow state until the measured window is stable.
-    if (this._initialConversationAnchorApplied === true && pos.userScroll !== true
+    if ((this._initialConversationAnchorPending === true || this._initialConversationAnchorApplied === true)
+      && pos.userScroll !== true
       && Date.now() - (this._lastTouchAt || 0) >= 1500) {
       this._lastScrollTop = scrollTop;
       return;
@@ -4853,6 +4865,7 @@ Page({
     this._scrollAnchorAt = 0;
     this._programmaticScrollAt = 0;
     this._programmaticScrollTop = undefined;
+    this._lastConversationGestureAt = 0;
     this._userScrolledUp = false;
     this._convContentHeight = 0;
     this._lastScrollTop = undefined;

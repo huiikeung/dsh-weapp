@@ -96,6 +96,21 @@ test('vertical gestures pause live follow in either direction until the reader r
   assert.equal(page._followPausedByUser, false, 'following resumes only when the reader moves back to the bottom');
   assert.equal(page._convPinned, true);
 });
+test('vertical conversation gestures keep viewport ownership through momentum settling', () => {
+  const { page } = pageFixture([]);
+  page.data.tab = 'conversation';
+  page.onPanelTouchStart({ touches: [{ clientX: 100, clientY: 200 }] });
+  page.onPanelTouchMove({ touches: [{ clientX: 100, clientY: 160 }] });
+  const movedAt = page._lastConversationGestureAt;
+  assert.ok(movedAt > 0, 'vertical movement starts the settle window');
+
+  page.onPanelTouchEnd({ changedTouches: [{ clientX: 100, clientY: 160 }] });
+  assert.ok(page._lastConversationGestureAt >= movedAt, 'touch release keeps the guard active for momentum');
+
+  page.onConvTouch();
+  assert.equal(page._lastConversationGestureAt, 0,
+    'a new tap clears the old gesture guard so disclosure measurements stay immediate');
+});
 test('native upward movement pauses live follow even when touch events are swallowed', () => {
   const f = pageFixture([]), page = f.page;
   page._convPinned = true;
@@ -118,6 +133,22 @@ test('native upward movement pauses live follow even when touch events are swall
   page.refreshBottomAnchor();
   f.flush();
   assert.equal(page.data.scrollTarget, '', 'stream updates cannot reclaim the viewport after a touch event was lost');
+});
+test('native momentum updates the manual gesture settling timestamp', () => {
+  const { page } = pageFixture([]);
+  page._convPinned = false;
+  page._lastNativeScrollTop = 1000;
+  page._lastScrollTop = 1000;
+  page.updateConversationWindow = () => {};
+  page.maybePrefetchOlderHistory = () => {};
+
+  page.onConvScroll({ detail: { scrollTop: 970, scrollHeight: 1400, clientHeight: 400 } });
+  assert.ok(page._lastConversationGestureAt > 0,
+    'a native reader movement starts protection even without touch events');
+  const firstMoveAt = page._lastConversationGestureAt;
+  page.onConvScroll({ detail: { scrollTop: 940, scrollHeight: 1400, clientHeight: 400 } });
+  assert.ok(page._lastConversationGestureAt >= firstMoveAt,
+    'continued inertia keeps the protection window fresh');
 });
 test('entry anchoring survives the native clamp that follows scroll-into-view', () => {
   // 回归：进入会话时 scroll-into-view 先落到估算底部，随后真实布局把 scrollTop 向上

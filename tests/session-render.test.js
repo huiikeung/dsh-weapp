@@ -798,6 +798,26 @@ test('history arriving after page ready still gets an initial bottom-anchor reco
   f.ticks.shift()();
   assert.equal(f.page.data.scrollTarget, 'conv-bottom');
 });
+test('running-session entry ignores a transient top scroll before history mounts the tail', () => {
+  const f = fixture();
+  f.sync();
+  f.page._initialConversationAnchorPending = true;
+  f.page._initialConversationAnchorApplied = false;
+  f.page._convPinned = true;
+  f.page._followPausedByUser = false;
+  f.page._lastNativeScrollTop = 1200;
+  f.page.updateConversationWindow = () => { throw new Error('transient entry scroll must not move the virtual window'); };
+
+  f.page.onConvScroll({ detail: { scrollTop: 0, scrollHeight: 3600, clientHeight: 400 } });
+  assert.equal(f.page._convPinned, true, 'the pre-render top is not interpreted as reader intent');
+  assert.notEqual(f.page._followPausedByUser, true);
+
+  f.page._initialConversationAnchorPending = true;
+  f.sync();
+  assert.equal(f.page.data.running, true);
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom', 'the running conversation still receives its first tail anchor');
+  assert.ok(f.page.data.rows.some(row => row.key === 'current'), 'the latest active row is mounted with the anchor');
+});
 test('reentering a conversation remounts the latest virtual window before anchoring', () => {
   const f = fixture(); f.sync();
   f.page._convPinned = false;
@@ -855,7 +875,9 @@ test('delayed history stays pinned on entry but manual upward scrolling still st
   assert.equal(f.page._convPinned, true);
   f.store.sessionState.rows = [{ kind: 'assistant', key: 'latest', text: '最新回复' }];
   f.store.sessionState.historyState = 'loaded:1ev'; f.sync();
-  assert.ok(f.report().scrolls > 0);
+  assert.equal(f.report().scrolls, 0, 'late history mounts with the pending first tail anchor instead of a second jump');
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom');
+  assert.ok(f.page.data.rows.some(row => row.key === 'latest'));
   f.page.applyScrollPosition({ scrollTop: 1200, scrollHeight: 1600, clientHeight: 400 });
   f.page.onConvTouch();
   f.page.applyScrollPosition({ scrollTop: 800, scrollHeight: 1600, clientHeight: 400 });

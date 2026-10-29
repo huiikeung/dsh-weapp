@@ -128,6 +128,135 @@ test('fast swipes coalesce nearby virtual-window replacements to the latest scro
   }
 });
 
+test('fast fling measures the mounted slice and preserves the visible anchor', () => {
+  const list = rows(200);
+  const page = pageWith(list, { _lastScrollTop: 1200, _lastNativeScrollTop: 1200, _convClientHeight: 300 }, 60);
+  const initial = page._conversationWindow.select(1200, 300);
+  page.data = { tab: 'conversation', rows: initial.rows,
+    conversationTopSpace: initial.conversationTopSpace, conversationBottomSpace: initial.conversationBottomSpace };
+  let completeMeasure;
+  let applied;
+  page.setData = (patch, callback) => {
+    applied = patch;
+    Object.assign(page.data, patch);
+    if (callback) callback();
+  };
+
+  const previousWx = global.wx;
+  global.wx = { createSelectorQuery() {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect() { return query; }, scrollOffset() { return query; } }; },
+      selectAll() { return { boundingClientRect() { return query; } }; },
+      exec(callback) { completeMeasure = callback; }
+    };
+    return query;
+  } };
+  try {
+    page._lastNativeScrollTop = 1260;
+    page.updateConversationWindow(1260);
+    assert.equal(page._windowShiftMeasurePending, true, 'the old mounted rows are measured before replacement');
+
+    // Momentum advances while the selector query is in flight. The pending
+    // slice must follow this position, not the earlier threshold-crossing event.
+    page._lastNativeScrollTop = 1400;
+    page.updateConversationWindow(1400);
+    const viewportTop = 100;
+    const measuredTop = 1260;
+    const rowHeight = 62.5;
+    const windowStart = page._conversationWindow.start;
+    const topSpace = page.data.conversationTopSpace;
+    const rects = page.data.rows.map(row => {
+      const index = Number(row.key.slice(1));
+      const top = viewportTop + topSpace + (index - windowStart) * rowHeight - measuredTop;
+      return { top, bottom: top + rowHeight, height: rowHeight };
+    });
+    const visibleRow = rects.findIndex(rect => rect.bottom > viewportTop + 1 && rect.top < 400 - 1);
+    const anchorIndex = Number(page.data.rows[visibleRow].key.slice(1));
+    const anchorRelativeTop = rects[visibleRow].top - viewportTop;
+    completeMeasure([{ top: 100, bottom: 400 }, { scrollTop: 1260 }, rects]);
+
+    const expectedTop = page._conversationWindow.offsets[anchorIndex] - anchorRelativeTop + (1400 - 1260);
+    const effectiveTop = applied.conversationScrollTop === undefined ? 1400 : applied.conversationScrollTop;
+    assert.equal(effectiveTop, expectedTop,
+      'the anchor compensation includes momentum and measured spacer geometry');
+    assert.ok(page.data.rows.some(row => row.key === 'u23'), 'the row under the latest fling position remains mounted');
+    assert.equal(page._lastNativeScrollTop, applied.conversationScrollTop === undefined ? 1400 : expectedTop,
+      'the native position remains at the latest fling position unless geometry needs correction');
+    assert.equal(page._conversationWindow.heights.get('u23'), rowHeight,
+      'real row heights are cached before the virtual slice changes');
+    assert.equal(page._conversationWindow.offsets[anchorIndex] - expectedTop, anchorRelativeTop - 140,
+      'the same visible row stays at the screen position reached by the native fling');
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+});
+
+test('a pending measure cannot restore the old scroll position during an active gesture', () => {
+  const list = rows(200);
+  const page = pageWith(list, { _lastScrollTop: 1200, _lastNativeScrollTop: 1200, _convClientHeight: 300 }, 60);
+  const initial = page._conversationWindow.select(1200, 300);
+  page.data = { tab: 'conversation', rows: initial.rows,
+    conversationTopSpace: initial.conversationTopSpace, conversationBottomSpace: initial.conversationBottomSpace };
+  let completeMeasure;
+  let applied;
+  page.setData = (patch, callback) => {
+    applied = patch;
+    Object.assign(page.data, patch);
+    if (callback) callback();
+  };
+
+  const previousWx = global.wx;
+  global.wx = { createSelectorQuery() {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect() { return query; }, scrollOffset() { return query; } }; },
+      selectAll() { return { boundingClientRect() { return query; } }; },
+      exec(callback) { completeMeasure = callback; }
+    };
+    return query;
+  } };
+  try {
+    page._lastTouchAt = Date.now();
+    page._panelGesture = { tab: 'conversation', axis: 'vertical' };
+    page._lastConvScrollAt = page._lastTouchAt;
+    page.updateConversationWindow(1260);
+
+    // Native momentum has moved, but the next bindscroll callback has not run.
+    page._lastNativeScrollTop = 1400;
+    const viewportTop = 100;
+    const measuredTop = 1260;
+    const rowHeight = 62.5;
+    const windowStart = page._conversationWindow.start;
+    const topSpace = page.data.conversationTopSpace;
+    const rects = page.data.rows.map(row => {
+      const index = Number(row.key.slice(1));
+      const top = viewportTop + topSpace + (index - windowStart) * rowHeight - measuredTop;
+      return { top, bottom: top + rowHeight, height: rowHeight };
+    });
+    const visibleRow = rects.findIndex(rect => rect.bottom > viewportTop + 1 && rect.top < 400 - 1);
+    const anchorIndex = Number(page.data.rows[visibleRow].key.slice(1));
+    const anchorRelativeTop = rects[visibleRow].top - viewportTop;
+    completeMeasure([{ top: 100, bottom: 400 }, { scrollTop: measuredTop }, rects]);
+
+    const expectedTop = page._conversationWindow.offsets[anchorIndex] - anchorRelativeTop + (1400 - measuredTop);
+    const effectiveTop = applied.conversationScrollTop === undefined ? 1400 : applied.conversationScrollTop;
+    assert.equal(effectiveTop, expectedTop,
+      'geometry correction preserves the current visible row without returning to the query snapshot');
+    assert.ok(page.data.rows.some(row => row.key === 'u23'),
+      'the rendered window follows the latest native position even before its scroll event arrives');
+    assert.equal(page._lastNativeScrollTop, applied.conversationScrollTop === undefined ? 1400 : expectedTop);
+    assert.equal(page._conversationWindow.heights.get('u23'), rowHeight,
+      'real row heights are cached instead of estimated heights');
+    assert.equal(page._conversationWindow.offsets[anchorIndex] - effectiveTop, anchorRelativeTop - (1400 - measuredTop),
+      'the visible row follows native momentum during the active gesture');
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+});
+
 test('prepending history preserves the visible anchor and offset while incoming tail does not move it', () => {
   const list = rows(100);
   const page = pageWith(list, { _lastScrollTop: 5025 }, 100);
@@ -149,6 +278,21 @@ test('content re-estimation does not write scrollTop over a recent manual swipe'
   assert.equal(patch.conversationScrollTop, undefined,
     'estimated-height correction leaves the reader position alone during touch settling');
   assert.equal(page._lastScrollTop, 5025, 'the stale estimated correction is not recorded as the native position');
+});
+
+test('content re-estimation does not jump during momentum after the finger lifts', () => {
+  const list = rows(100);
+  const page = pageWith(list, {
+    _lastScrollTop: 5025,
+    _lastTouchAt: Date.now() - 1000,
+    _lastConversationGestureAt: Date.now() - 100
+  }, 100);
+  page._conversationWindow.heights.set('u30', 200);
+
+  const patch = page.conversationWindowPatch(list);
+  assert.equal(patch.conversationScrollTop, undefined,
+    'virtual offsets cannot restore the pre-fling position while native momentum is active');
+  assert.equal(page._lastScrollTop, 5025);
 });
 
 test('a fully rendered conversation never rewrites scrollTop from estimated offsets', () => {

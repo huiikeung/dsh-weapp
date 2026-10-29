@@ -10,6 +10,8 @@ function hasRecentConversationTouch(page) {
 // 必须立刻测量：否则点「已完成」后的高度校正要等 800ms 才发生，看上去就是
 // 「点了没反应/延迟很大」，而且校正落地时还会把视图推走一格。
 function settlingAfterTouch(page) {
+  const gestureAt = Number(page._lastConversationGestureAt) || 0;
+  if (gestureAt > 0 && Date.now() - gestureAt < MANUAL_SCROLL_SETTLE_MS) return true;
   const touchedAt = Number(page._lastTouchAt) || 0;
   if (!touchedAt) return false;
   return (page._lastConvScrollAt || 0) >= touchedAt && Date.now() - touchedAt < MANUAL_SCROLL_SETTLE_MS;
@@ -36,6 +38,8 @@ module.exports = {
       this._windowShiftTimer = null;
       this._pendingWindowScrollTop = null;
       this._lastWindowShiftAt = null;
+      this._windowShiftMeasurePending = false;
+      this._windowShiftRenderPending = false;
       this._conversationWindow = new ConversationWindow(); this._windowSession = this._renderSessionId;
     }
     const window = this._conversationWindow;
@@ -74,7 +78,8 @@ module.exports = {
       this._scrollAnchorAt = Date.now();
       return patch;
     }
-    if (!window.full && !hasRecentConversationTouch(this) && Math.abs(top - (this._lastScrollTop || 0)) > 1) {
+    if (!window.full && !hasRecentConversationTouch(this) && !settlingAfterTouch(this)
+      && Math.abs(top - (this._lastScrollTop || 0)) > 1) {
       patch.conversationScrollTop = top;
       this._lastScrollTop = top;
       this._programmaticScrollAt = Date.now();
@@ -86,7 +91,9 @@ module.exports = {
     const window = this._conversationWindow;
     if (!window) return;
     this._pendingWindowScrollTop = Math.max(0, Number(top) || 0);
+    this._windowShiftScrollVersion = (this._windowShiftScrollVersion || 0) + 1;
     const height = this._convClientHeight || 700;
+    if (this._windowShiftMeasurePending || this._windowShiftRenderPending) return;
     if (!window.shouldShiftForScroll(this._pendingWindowScrollTop, height)) return;
     const now = Date.now();
     if (this._lastWindowShiftAt != null && now - this._lastWindowShiftAt < WINDOW_SHIFT_INTERVAL) {
@@ -103,15 +110,95 @@ module.exports = {
       }
       return;
     }
-    this._lastWindowShiftAt = now;
-    const scrollTop = this._pendingWindowScrollTop;
-    this._pendingWindowScrollTop = null;
-    const patch = dataPatch(this.data, window.select(scrollTop, height));
-    if (Object.keys(patch).length) this.setData(patch, () => {
-      this.scheduleHistoryFormatting(); this.measureConversationWindow();
-      // 滚动带出的新图也需要回填本地缓存路径，否则进入窗口后是空白图。
-      if (typeof this.scheduleAttachmentThumbs === 'function') this.scheduleAttachmentThumbs();
-    });
+    const sourceRows = window.rows;
+    const renderedRows = this.data.rows || [];
+    const renderedKeys = renderedRows.map(row => row.key);
+    const requestScrollVersion = this._windowShiftScrollVersion;
+    const shift = (rects, measuredTop, viewport) => {
+      this._windowShiftMeasurePending = false;
+      if (this._unloaded || this._conversationWindow !== window || window.rows !== sourceRows
+        || renderedKeys.join('|') !== (this.data.rows || []).map(row => row.key).join('|')) {
+        const latestTop = this._pendingWindowScrollTop;
+        if (latestTop != null) this.updateConversationWindow(latestTop);
+        return;
+      }
+
+      const scrollAdvancedDuringMeasure = this._windowShiftScrollVersion !== requestScrollVersion;
+      const scrollQuietFor = Date.now() - (this._lastConvScrollAt || 0);
+      const readerOwnsScroll = (this._panelGesture && this._panelGesture.tab === 'conversation')
+        || settlingAfterTouch(this)
+        || (this._convPinned === false && this._lastConvScrollAt && scrollQuietFor < 160);
+      (rects || []).forEach((rect, index) => {
+        const key = renderedKeys[index];
+        if (key && rect && rect.height > 0) window.heights.set(key, rect.height);
+      });
+      const latestTop = scrollAdvancedDuringMeasure
+        ? this._pendingWindowScrollTop
+        : (readerOwnsScroll && Number.isFinite(Number(this._lastNativeScrollTop))
+          ? this._lastNativeScrollTop : measuredTop);
+      const scrollTop = Number.isFinite(Number(latestTop))
+        ? Math.max(0, Number(latestTop))
+        : Math.max(0, Number(this._lastNativeScrollTop) || Number(this._pendingWindowScrollTop) || 0);
+      this._pendingWindowScrollTop = null;
+      const viewportTop = Number(viewport && viewport.top);
+      const viewportBottom = Number(viewport && viewport.bottom);
+      const visibleRow = Number.isFinite(viewportTop) && Number.isFinite(viewportBottom)
+        ? (rects || []).findIndex(rect => rect && rect.height > 0
+          && rect.bottom > viewportTop + 1 && rect.top < viewportBottom - 1)
+        : -1;
+      const anchorIndex = visibleRow >= 0 && renderedKeys[visibleRow]
+        ? window.rows.findIndex(row => row.key === renderedKeys[visibleRow]) : -1;
+      const anchorScreenTop = visibleRow >= 0 ? Number(rects[visibleRow].top) - viewportTop : null;
+      window.update(sourceRows);
+      const measuredScrollTop = Number(measuredTop);
+      const correctedTop = Math.max(0, anchorIndex >= 0 && Number.isFinite(anchorScreenTop)
+        ? window.offsets[anchorIndex] - anchorScreenTop
+          + (Number.isFinite(measuredScrollTop) ? scrollTop - measuredScrollTop : 0)
+        : scrollTop);
+
+      // Preserve the measured row's screen position as the virtual spacers change.
+      const patch = dataPatch(this.data, window.select(correctedTop, height));
+      if (Math.abs(correctedTop - scrollTop) > 1) {
+        patch.conversationScrollTop = correctedTop;
+        this._lastScrollTop = correctedTop;
+        this._lastNativeScrollTop = correctedTop;
+        this._programmaticScrollAt = Date.now();
+        this._programmaticScrollTop = correctedTop;
+      }
+      this._lastWindowShiftAt = Date.now();
+      if (Object.keys(patch).length) {
+        this._windowShiftRenderPending = true;
+        this.setData(patch, () => {
+          this._windowShiftRenderPending = false;
+          this.scheduleHistoryFormatting(); this.measureConversationWindow();
+          // 滚动带出的新图也需要回填本地缓存路径，否则进入窗口后是空白图。
+          if (typeof this.scheduleAttachmentThumbs === 'function') this.scheduleAttachmentThumbs();
+          const latestTop = this._pendingWindowScrollTop;
+          if (latestTop != null) this.updateConversationWindow(latestTop);
+        });
+      } else {
+        const latestTop = this._pendingWindowScrollTop;
+        if (latestTop != null) this.updateConversationWindow(latestTop);
+      }
+    };
+
+    if (typeof wx !== 'undefined' && typeof wx.createSelectorQuery === 'function') {
+      try {
+        this._windowShiftMeasurePending = true;
+        const query = wx.createSelectorQuery().in(this);
+        query.select('.conversation').boundingClientRect();
+        const offsetQuery = query.select('.conversation');
+        const hasScrollOffset = !!(offsetQuery && typeof offsetQuery.scrollOffset === 'function');
+        if (hasScrollOffset) offsetQuery.scrollOffset();
+        query.selectAll('.conversation-window-row').boundingClientRect();
+        query.exec(res => shift(res && res[hasScrollOffset ? 2 : 1],
+          hasScrollOffset && res && res[1] ? res[1].scrollTop : undefined, res && res[0]));
+        return;
+      } catch (_) {
+        this._windowShiftMeasurePending = false;
+      }
+    }
+    shift(null, undefined, null);
   },
   revealConversationRow(key) {
     const window = this._conversationWindow; if (!window) return;
