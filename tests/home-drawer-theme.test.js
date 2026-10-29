@@ -9,8 +9,8 @@ const template = fs.readFileSync('miniprogram/pages/home/home.wxml', 'utf8');
 
 test('the shifted home panel floats above the DSH backplate with leading corners', () => {
   for (const [name, css] of [['source', source], ['runtime', runtime]]) {
-    assert.match(css, /\.drawer\.drawer-dark\s*\{\s*background:\s*#000000\s*;/,
-      `${name} keeps the dark drawer pure black`);
+    assert.match(css, /\.drawer\.drawer-dark\s*\{\s*background:\s*#141518\s*;/,
+      `${name} matches the dark plugin page background`);
     assert.match(css, /\.home-content-wrap\s*\{[^}]*z-index:\s*53\s*;/,
       `${name} page stays above the drawer, including when the drawer is closed`);
     assert.match(css, /\.home-content-wrap\.drawer-anim\s*\{[^}]*border-radius\s+0\.38s/,

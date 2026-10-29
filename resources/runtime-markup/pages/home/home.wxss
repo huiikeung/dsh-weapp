@@ -1897,7 +1897,7 @@
 
 /* 夜间模式抽屉：跟随 sheetTheme 的 drawer-dark 类（手动深色 / 系统深色都生效） */
 .drawer.drawer-dark {
-  background: #000000;
+  background: #141518;
 }
 
 .drawer-dark .drawer-item-text {

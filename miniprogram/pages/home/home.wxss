@@ -1580,7 +1580,7 @@ animation: whaleSwimCycle 16s ease-in-out infinite;
 color: rgba(255, 255, 255, 0.58);
 }
 .drawer.drawer-dark {
-background: #000000;
+background: #141518;
 }
 .drawer-dark .drawer-item-text {
 color: #F1F4FA;
