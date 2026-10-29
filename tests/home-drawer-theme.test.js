@@ -37,12 +37,12 @@ test('the shifted home panel floats above the DSH backplate with leading corners
       'light home status bar matches the white drawer');
     assert.doesNotMatch(css, /\.drawer-visible\s*\{[^}]*box-shadow:/,
       `${name} does not add a second shadow line at the drawer edge`);
-    assert.match(css, /\.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*none\s*;/,
-      `${name} keeps the sidebar corners free of the outer shadow`);
-    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*border-left:\s*2rpx solid rgba\(255, 255, 255, 0\.18\)/,
-      `${name} keeps the dark rim light on the page edge`);
-    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*none\s*;/,
-      `${name} keeps the dark rim from tinting the exposed sidebar corners`);
+    assert.match(css, /\.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*inset 4rpx 0 18rpx rgba\(0, 0, 0, 0\.06\), inset 8rpx 0 52rpx rgba\(0, 0, 0, 0\.04\)/,
+      `${name} keeps the light shadow inside the page instead of tinting the sidebar corners`);
+    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*border-left:\s*0\s*;/,
+      `${name} does not paint a rim light onto the dark sidebar corners`);
+    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*inset 2rpx 0 0 rgba\(255, 255, 255, 0\.12\), inset 4rpx 0 18rpx rgba\(0, 0, 0, 0\.30\), inset 8rpx 0 52rpx rgba\(0, 0, 0, 0\.40\)/,
+      `${name} keeps the dark rim and shadow inside the page`);
     const rootLight = (css.match(/\.home-root\s*\{[^}]*background:\s*(#[0-9a-f]{6})/i) || [])[1];
     const drawerLight = (css.match(/\.drawer\s*\{[^}]*background:\s*(#[0-9a-f]{6})/i) || [])[1];
     assert.equal(rootLight && rootLight.toLowerCase(), drawerLight && drawerLight.toLowerCase(),
