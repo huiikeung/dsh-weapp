@@ -37,12 +37,20 @@ test('the shifted home panel floats above the DSH backplate with leading corners
       'light home status bar matches the white drawer');
     assert.doesNotMatch(css, /\.drawer-visible\s*\{[^}]*box-shadow:/,
       `${name} does not add a second shadow line at the drawer edge`);
-    assert.match(css, /\.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*-4rpx 0 18rpx rgba\(0, 0, 0, 0\.12\), -8rpx 0 52rpx rgba\(0, 0, 0, 0\.30\)/,
-      `${name} floats the home panel above the drawer with the two-layer DSH shadow`);
+    assert.match(css, /\.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*none\s*;/,
+      `${name} keeps the sidebar corners free of the outer shadow`);
     assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*border-left:\s*2rpx solid rgba\(255, 255, 255, 0\.18\)/,
-      `${name} outlines the floating page with a neutral rim light on pure black`);
-    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*-4rpx 0 18rpx rgba\(0, 0, 0, 0\.45\), -8rpx 0 52rpx rgba\(0, 0, 0, 0\.65\)/,
-      `${name} deepens the shadow on the near-black dark backplate`);
+      `${name} keeps the dark rim light on the page edge`);
+    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*none\s*;/,
+      `${name} keeps the dark rim from tinting the exposed sidebar corners`);
+    const rootLight = (css.match(/\.home-root\s*\{[^}]*background:\s*(#[0-9a-f]{6})/i) || [])[1];
+    const drawerLight = (css.match(/\.drawer\s*\{[^}]*background:\s*(#[0-9a-f]{6})/i) || [])[1];
+    assert.equal(rootLight && rootLight.toLowerCase(), drawerLight && drawerLight.toLowerCase(),
+      `${name} exposes the same light color at the corners as the drawer`);
+    const rootDark = (css.match(/\.home-root\.theme-dark\s*\{\s*background:\s*(#[0-9a-f]{6})/i) || [])[1];
+    const drawerDark = (css.match(/\.drawer\.drawer-dark\s*\{\s*background:\s*(#[0-9a-f]{6})/i) || [])[1];
+    assert.equal(rootDark && rootDark.toLowerCase(), drawerDark && drawerDark.toLowerCase(),
+      `${name} exposes the same dark color at the corners as the drawer`);
   }
   assert.match(page, /contentCornerRadius:\s*48\s*\*\s*p/,
     'the 48px DSH corner radius follows drawer progress');

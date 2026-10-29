@@ -1,5 +1,4 @@
 @import "../../styles/quota-sidebar.wxss";
-/* 原生页面窗口底色：抽屉打开时圆角外露的上/下区域与抽屉保持一致。 */
 page {
 background: #FFFFFF;
 }
@@ -28,11 +27,11 @@ background: var(--navy);
 }
 .home-content-wrap.shifted {
 overflow: hidden;
-box-shadow: -4rpx 0 18rpx rgba(0, 0, 0, 0.12), -8rpx 0 52rpx rgba(0, 0, 0, 0.30);
+box-shadow: none;
 }
 .theme-dark .home-content-wrap.shifted {
 border-left: 2rpx solid rgba(255, 255, 255, 0.18);
-box-shadow: -4rpx 0 18rpx rgba(0, 0, 0, 0.45), -8rpx 0 52rpx rgba(0, 0, 0, 0.65);
+box-shadow: none;
 }
 .home-deep-bg {
 position: absolute;

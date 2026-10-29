@@ -38,15 +38,16 @@ page {
 
 .home-content-wrap.shifted {
   overflow: hidden;
-  /* 悬浮层：主内容浮在侧栏之上（对齐 iOS workspaceContent 的两层阴影：
-     9pt/26pt 模糊、-2pt/-4pt 左偏移，progress 满开时取满值）。 */
-  box-shadow: -4rpx 0 18rpx rgba(0, 0, 0, 0.12), -8rpx 0 52rpx rgba(0, 0, 0, 0.30);
+  /* 不向外投影：圆角外露的是侧栏背板（.home-root），外投影会压暗它，
+     导致左上/左下与侧栏出现第二种颜色。 */
+  box-shadow: none;
 }
 
-/* 深色底保持纯黑：只用一道中性亮边勾出悬浮页面，不抬底色、不加色光。 */
+/* 深色底保持侧栏原色：亮边留在主页自己的边缘（border 会被圆角裁切，
+     不会画到侧栏上），不再使用会外溢的投影。 */
 .theme-dark .home-content-wrap.shifted {
   border-left: 2rpx solid rgba(255, 255, 255, 0.18);
-  box-shadow: -4rpx 0 18rpx rgba(0, 0, 0, 0.45), -8rpx 0 52rpx rgba(0, 0, 0, 0.65);
+  box-shadow: none;
 }
 
 /* 深海背景随内容位移：fixed → absolute（相对位移容器） */
