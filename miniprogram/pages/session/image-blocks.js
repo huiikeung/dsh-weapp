@@ -271,11 +271,17 @@ module.exports = {
       const child = row && (row.children || []).find(item => item && item.key === dataset.key);
       if (child) { blocks = child.blocks || []; break; }
     }
-    const urls = blocks
-      .filter((block) => block && block.type === 'image' && block.imageState === 'local' && block.localPath)
-      .map((block) => block.localPath);
-    if (urls.indexOf(src) < 0) urls.unshift(src);
-    wx.previewImage({ current: src, urls });
+    // 同一消息里的图片都进预览列表（已下载的用本地路径，其余用原始 src），支持左右滑动。
+    const urls = [];
+    blocks.forEach((block) => {
+      if (!block || block.type !== 'image') return;
+      const url = (block.imageState === 'local' && block.localPath) || block.src || '';
+      if (url && urls.indexOf(url) < 0) urls.push(url);
+    });
+    const current = (blocks.find((block) => block && block.type === 'image'
+      && (block.localPath === src || block.src === src)) || {}).localPath || src;
+    if (urls.indexOf(current) < 0) urls.unshift(current);
+    wx.previewImage({ current, urls });
   },
 
   /** 只清内存状态；已下载的文件保留在持久索引里，下次直接命中。 */

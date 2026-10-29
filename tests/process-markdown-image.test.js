@@ -36,3 +36,23 @@ test('process narration aligns with the left edge of its parent work-step group'
     assert.doesNotMatch(css, /\.process-narration \{[^}]*margin:[^;}]*44rpx/);
   }
 });
+
+test('markdown preview includes every image in the message, downloaded or not', () => {
+  const blocks = [
+    { type: 'image', src: 'a.png', imageState: 'local', localPath: '/tmp/a.png' },
+    { type: 'image', src: 'https://host/b.png', imageState: 'remote' },
+    { type: 'image', src: 'c.png', imageState: 'pending' }
+  ];
+  const page = Object.assign({}, imageBlocks, {
+    data: { rows: [{ kind: 'assistant', key: 'row-1', blocks }] }
+  });
+  let preview;
+  global.wx = { previewImage(value) { preview = value; } };
+  try {
+    page.previewMarkdownImage({ currentTarget: { dataset: { key: 'row-1', src: '/tmp/a.png' } } });
+    assert.deepEqual(preview.urls, ['/tmp/a.png', 'https://host/b.png', 'c.png']);
+    assert.equal(preview.current, '/tmp/a.png');
+  } finally {
+    delete global.wx;
+  }
+});

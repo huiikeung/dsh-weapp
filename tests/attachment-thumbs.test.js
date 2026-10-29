@@ -162,26 +162,23 @@ test('failed thumbnails back off, and a reconnect reset retries them', async () 
   assert.equal(f.requests.length, 2, 'a reconnect clears the backoff');
 });
 
-test('previewAttachment reuses the cached file and fills the row', async () => {
+test('tapping a single image downloads it and opens the native viewer without the file sheet', async () => {
   const f = fixture();
   f.page.data.rows = [{ key: 'u-1', kind: 'user', images: [{ attachmentId: 'sha-3', mediaType: 'image/png' }] }];
   f.page.previewAttachment({ currentTarget: { dataset: { id: 'sha-3' } } });
   await tick();
   const expected = CACHE_DIR + '/sha-3.png';
-  // 图片现在在底部弹窗里内联渲染，不再一上来就抢微信全屏查看器。
-  assert.equal(f.previews.length, 0);
-  assert.equal(f.page.data.filePreview.localPath, expected);
-  assert.equal(f.page.data.filePreview.previewKind, 'image', 'mediaType alone still identifies the image');
-  assert.equal(f.page.data.filePreview.primary, '查看原图');
+  // 图片不再打开底部文件弹窗，下载完直接用微信原生查看器。
+  assert.equal(f.page.data.filePreview, null);
   assert.equal(f.page.data.rows[0].images[0].localUrl, expected);
-
-  f.page.filePreviewPrimary();
-  assert.equal(f.previews.length, 1, 'the primary action opens the full-screen viewer');
-  assert.equal(f.previews[0].urls[0], expected);
+  assert.equal(f.previews.length, 1);
+  assert.equal(f.previews[0].current, expected);
+  assert.equal(JSON.stringify(f.previews[0].urls), JSON.stringify([expected]));
 
   f.page.previewAttachment({ currentTarget: { dataset: { id: 'sha-3' } } });
   assert.equal(f.requests.length, 1, 'a second tap reuses the local file without the gateway');
-  assert.equal(f.previews.length, 1, 'the sheet is already showing the image');
+  assert.equal(f.previews.length, 2, 'the cached image opens the viewer immediately');
+  assert.equal(f.previews[1].current, expected);
 });
 
 test('a conversation synced from history auto-loads image thumbs without a tap', async () => {
@@ -229,4 +226,19 @@ test('gateway echo keeps the locally sent image visible instead of blanking it',
   assert.equal(row.images[0].attachmentId, 'sha-2');
   assert.equal(row.images[0].localUrl, 'wxfile://tmp/2.jpg');
   assert.equal(row.images[0].tempPath, 'wxfile://tmp/2.jpg');
+});
+
+test('tapping one of many message images previews the whole set so swiping works', () => {
+  const f = fixture();
+  const images = [
+    { attachmentId: 'a1', mediaType: 'image/png', url: 'https://host/a1.png', thumbUrl: 'https://host/a1-thumb.png' },
+    { attachmentId: 'a2', mediaType: 'image/png', url: 'https://host/a2.png', thumbUrl: 'https://host/a2-thumb.png' },
+    { attachmentId: 'a3', mediaType: 'image/png', url: 'https://host/a3.png', thumbUrl: 'https://host/a3-thumb.png' }
+  ];
+  f.page.data.rows = [{ key: 'u-1', kind: 'user', images }];
+  f.page.previewAttachment({ currentTarget: { dataset: { id: 'a2' } } });
+  assert.equal(f.previews.length, 1);
+  assert.equal(JSON.stringify(f.previews[0].urls), JSON.stringify(['https://host/a1.png', 'https://host/a2.png', 'https://host/a3.png']));
+  assert.equal(f.previews[0].current, 'https://host/a2.png');
+  assert.equal(f.page.data.filePreview, null, 'multiple images go straight to the native viewer');
 });

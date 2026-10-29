@@ -5448,33 +5448,52 @@ Page({
   previewAttachment(e) {
     const id = e.currentTarget.dataset.id;
     let image = null;
-    const find = images => (images || []).find(item => item && item.attachmentId === id);
+    let siblings = [];
+    const find = (list) => {
+      const hit = (list || []).find(item => item && item.attachmentId === id);
+      if (hit) { image = hit; siblings = list || []; }
+      return !!hit;
+    };
     for (const row of this.data.rows || []) {
-      image = find(row.images);
-      if (!image) for (const child of row.children || []) {
-        image = find(child.images);
-        if (!image) for (const tool of child.tools || []) image = find(tool.resultImages);
-        if (image) break;
+      if (find(row.images)) break;
+      let found = false;
+      for (const child of row.children || []) {
+        if (find(child.images)) { found = true; break; }
+        const resultImages = (child.tools || []).reduce((all, tool) => all.concat((tool && tool.resultImages) || []), []);
+        if (find(resultImages)) { found = true; break; }
       }
-      if (image) break;
+      if (found) break;
     }
     image = image || { attachmentId: id };
+    // 原图预览：优先本地缓存/原图地址，不用缩略图凑数。
+    const urlOf = (item) => item && (item.localUrl || item.url || item.previewUrl || item.tempPath) || '';
+    // 同一条消息里的图片全部带上，微信原生预览即可左右滑动切换。
+    const urls = [];
+    (siblings.length ? siblings : [image]).forEach((item) => {
+      const url = urlOf(item);
+      if (url && urls.indexOf(url) < 0) urls.push(url);
+    });
+    // 图片始终走微信原生查看器（底部弹窗只留给文件预览）：多张可左右滑动。
     const cached = image.localUrl || attachmentCache.localPath(image, { api: wx });
-    // 先开弹窗占位（有缓存就直接显示图片），再在弹窗里补下载，进度可见。
-    const sheet = this.openFileSheet(Object.assign({}, image, {
-      key: id, attachmentId: id, sessionId: store.sessionState.sessionId,
-      name: image.name || '图片', mediaType: image.mediaType, size: image.bytes, localPath: cached
-    }), { origin: 'message' });
-    if (cached || !sheet) {
-      if (cached) this.applyAttachmentPaths({ [id]: cached });
-      return;
+    const currentUrl = cached || urlOf(image) || '';
+    const openViewer = (current, urlsList) => {
+      const list = urlsList && urlsList.length ? urlsList.slice() : [];
+      if (current && list.indexOf(current) < 0) list.unshift(current);
+      if (!current || !list.length || typeof wx.previewImage !== 'function') return false;
+      wx.previewImage({ current, urls: list });
+      return true;
+    };
+    if (currentUrl) {
+      this.applyAttachmentPaths({ [id]: cached || image.localUrl || '' });
+      if (openViewer(currentUrl, urls)) return;
     }
-    attachmentCache.fetchImage(store.client, sheet.sessionId, image, { api: wx }).then((path) => {
+    // 既没有缓存也没有可预览地址：先下载，再打开原生查看器（不弹底部文件弹窗）。
+    attachmentCache.fetchImage(store.client, store.sessionState.sessionId, image, { api: wx }).then((path) => {
       if (this._unloaded) return;
       this.applyAttachmentPaths({ [id]: path });
-      this.patchFileSheet(sheet.key, { localPath: path, primary: uiText('查看原图'), canShare: this.canShareFiles() });
+      openViewer(path, urls);
     }).catch((err) => {
-      this.patchFileSheet(sheet.key, { error: (err && err.message) || uiText('附件加载失败') });
+      wx.showToast({ title: (err && err.message) || uiText('附件加载失败'), icon: 'none' });
     });
   },
 
