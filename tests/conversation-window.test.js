@@ -161,7 +161,9 @@ test('fast fling measures the mounted slice and preserves the visible anchor', (
     // slice must follow this position, not the earlier threshold-crossing event.
     page._lastNativeScrollTop = 1400;
     page.updateConversationWindow(1400);
-    const viewportTop = 100;
+    // 视口 rect 从 0 开始：真实布局的内容 padding 不进入这套合成几何，
+    // padding 感知补偿在这里必须退化为 0，老期望值保持成立。
+    const viewportTop = 0;
     const measuredTop = 1260;
     const rowHeight = 62.5;
     const windowStart = page._conversationWindow.start;
@@ -171,10 +173,10 @@ test('fast fling measures the mounted slice and preserves the visible anchor', (
       const top = viewportTop + topSpace + (index - windowStart) * rowHeight - measuredTop;
       return { top, bottom: top + rowHeight, height: rowHeight };
     });
-    const visibleRow = rects.findIndex(rect => rect.bottom > viewportTop + 1 && rect.top < 400 - 1);
+    const visibleRow = rects.findIndex(rect => rect.bottom > viewportTop + 1 && rect.top < 300 - 1);
     const anchorIndex = Number(page.data.rows[visibleRow].key.slice(1));
     const anchorRelativeTop = rects[visibleRow].top - viewportTop;
-    completeMeasure([{ top: 100, bottom: 400 }, { scrollTop: 1260 }, rects]);
+    completeMeasure([{ top: 0, bottom: 300 }, { scrollTop: 1260 }, rects]);
 
     const expectedTop = page._conversationWindow.offsets[anchorIndex] - anchorRelativeTop + (1400 - 1260);
     const effectiveTop = applied.conversationScrollTop === undefined ? 1400 : applied.conversationScrollTop;
@@ -225,7 +227,7 @@ test('a pending measure cannot restore the old scroll position during an active 
 
     // Native momentum has moved, but the next bindscroll callback has not run.
     page._lastNativeScrollTop = 1400;
-    const viewportTop = 100;
+    const viewportTop = 0;
     const measuredTop = 1260;
     const rowHeight = 62.5;
     const windowStart = page._conversationWindow.start;
@@ -235,10 +237,10 @@ test('a pending measure cannot restore the old scroll position during an active 
       const top = viewportTop + topSpace + (index - windowStart) * rowHeight - measuredTop;
       return { top, bottom: top + rowHeight, height: rowHeight };
     });
-    const visibleRow = rects.findIndex(rect => rect.bottom > viewportTop + 1 && rect.top < 400 - 1);
+    const visibleRow = rects.findIndex(rect => rect.bottom > viewportTop + 1 && rect.top < 300 - 1);
     const anchorIndex = Number(page.data.rows[visibleRow].key.slice(1));
     const anchorRelativeTop = rects[visibleRow].top - viewportTop;
-    completeMeasure([{ top: 100, bottom: 400 }, { scrollTop: measuredTop }, rects]);
+    completeMeasure([{ top: 0, bottom: 300 }, { scrollTop: measuredTop }, rects]);
 
     const expectedTop = page._conversationWindow.offsets[anchorIndex] - anchorRelativeTop + (1400 - measuredTop);
     const effectiveTop = applied.conversationScrollTop === undefined ? 1400 : applied.conversationScrollTop;

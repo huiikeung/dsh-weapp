@@ -1,6 +1,9 @@
 const { ConversationWindow } = require('./utils/conversation-window');
 const { dataPatch } = require('./utils/session-render');
 const WINDOW_SHIFT_INTERVAL = 32;
+const WINDOW_SHIFT_SETTLE_MS = 120;
+// 惯性滚动中可接受的补偿误差：≤8px 的位移肉眼不可见，不值得为它打断原生 momentum。
+const SWIPE_CORRECTION_MAX_PX = 8;
 const MANUAL_SCROLL_SETTLE_MS = 800;
 function hasRecentConversationTouch(page) {
   const touchedAt = Number(page._lastTouchAt) || 0;
@@ -40,6 +43,7 @@ module.exports = {
       this._lastWindowShiftAt = null;
       this._windowShiftMeasurePending = false;
       this._windowShiftRenderPending = false;
+      if (this._windowShiftSettleTimer) { clearTimeout(this._windowShiftSettleTimer); this._windowShiftSettleTimer = null; }
       this._conversationWindow = new ConversationWindow(); this._windowSession = this._renderSessionId;
     }
     const window = this._conversationWindow;
@@ -93,6 +97,7 @@ module.exports = {
     this._pendingWindowScrollTop = Math.max(0, Number(top) || 0);
     this._windowShiftScrollVersion = (this._windowShiftScrollVersion || 0) + 1;
     const height = this._convClientHeight || 700;
+    if (this._windowShiftSettleTimer) return;
     if (this._windowShiftMeasurePending || this._windowShiftRenderPending) return;
     if (!window.shouldShiftForScroll(this._pendingWindowScrollTop, height)) return;
     const now = Date.now();
@@ -128,6 +133,9 @@ module.exports = {
       const readerOwnsScroll = (this._panelGesture && this._panelGesture.tab === 'conversation')
         || settlingAfterTouch(this)
         || (this._convPinned === false && this._lastConvScrollAt && scrollQuietFor < 160);
+      // 补偿可能被否决（见下方 postponing），先留好还原现场。
+      const previousHeights = new Map();
+      renderedKeys.forEach(key => { if (key) previousHeights.set(key, window.heights.get(key)); });
       (rects || []).forEach((rect, index) => {
         const key = renderedKeys[index];
         if (key && rect && rect.height > 0) window.heights.set(key, rect.height);
@@ -151,14 +159,55 @@ module.exports = {
       const anchorScreenTop = visibleRow >= 0 ? Number(rects[visibleRow].top) - viewportTop : null;
       window.update(sourceRows);
       const measuredScrollTop = Number(measuredTop);
+      // 真实布局里行从内容 padding（.conversation 的 16rpx 顶 padding）之后开始，
+      // 而 offsets 是纯内容坐标：直接用 rect.top 反解 scrollTop 会恒定多算一个
+      // padding-top（约 8px），每次窗口平移都被向「更早消息」方向多踢一截。
+      // 用首渲染行的实测位置把 padding 还原出来。
+      let contentInset = 0;
+      if (Number.isFinite(measuredScrollTop) && rects && rects[0] && renderedKeys[0]
+        && Number.isFinite(viewportTop)) {
+        contentInset = Number(rects[0].top) - viewportTop
+          - Number(this.data.conversationTopSpace || 0) + measuredScrollTop;
+        if (!Number.isFinite(contentInset) || contentInset < 0 || contentInset > 200) contentInset = 0;
+      }
       const correctedTop = Math.max(0, anchorIndex >= 0 && Number.isFinite(anchorScreenTop)
-        ? window.offsets[anchorIndex] - anchorScreenTop
+        ? contentInset + window.offsets[anchorIndex] - anchorScreenTop
           + (Number.isFinite(measuredScrollTop) ? scrollTop - measuredScrollTop : 0)
         : scrollTop);
 
+      // 手指/惯性还握着视口时，凡是需要明显改写 scrollTop 的窗口平移都先押后：
+      // 惯性进行中写 scroll-top 会截断原生滑动，表现为「松手后页面又多滑一截，
+      // 停不到手指停的位置」。只有视口马上要滑出已挂载窗口（会露白）才立即换行。
+      const drift = correctedTop - scrollTop;
+      if (readerOwnsScroll && Math.abs(drift) > SWIPE_CORRECTION_MAX_PX) {
+        const total = window.offsets[sourceRows.length] || 0;
+        const urgent = window.indexAt(Math.min(scrollTop, total)) <= window.start + 1
+          || (window.end < sourceRows.length
+            && window.indexAt(Math.min(scrollTop + height, total)) >= window.end - 1);
+        if (!urgent) {
+          previousHeights.forEach((value, key) => {
+            if (value === undefined) window.heights.delete(key); else window.heights.set(key, value);
+          });
+          window.update(sourceRows);
+          this._pendingWindowScrollTop = scrollTop;
+          this._lastWindowShiftAt = Date.now();
+          if (!this._windowShiftSettleTimer) {
+            this._windowShiftSettleTimer = setTimeout(() => {
+              this._windowShiftSettleTimer = null;
+              const latestTop = this._pendingWindowScrollTop;
+              this._pendingWindowScrollTop = null;
+              if (!this._unloaded && this._conversationWindow === window && latestTop != null) {
+                this.updateConversationWindow(latestTop);
+              }
+            }, WINDOW_SHIFT_SETTLE_MS);
+          }
+          return;
+        }
+      }
       // Preserve the measured row's screen position as the virtual spacers change.
       const patch = dataPatch(this.data, window.select(correctedTop, height));
-      if (Math.abs(correctedTop - scrollTop) > 1) {
+      if (Math.abs(drift) > 1
+        && !(readerOwnsScroll && Math.abs(drift) <= SWIPE_CORRECTION_MAX_PX)) {
         patch.conversationScrollTop = correctedTop;
         this._lastScrollTop = correctedTop;
         this._lastNativeScrollTop = correctedTop;
