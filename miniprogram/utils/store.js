@@ -115,6 +115,7 @@ function createStore() {
     running: false,
     historyFormatVersion: null,
     hasMoreHistory: false,
+    hasMoreHistoryKnown: false,
     historyPaging: false,
     historyLastPageBytes: 0,
     nextBeforeSeq: null,
@@ -507,6 +508,7 @@ function createStore() {
     stored.events = value.events.slice(low);
     if (stored.events.length < value.events.length) {
       stored.hasMore = true;
+      stored.hasMoreKnown = true;
       stored.nextBeforeSeq = stored.events.length ? stored.events[0].seq : value.nextBeforeSeq;
     }
     return stored;
@@ -517,7 +519,8 @@ function createStore() {
       if (!sessionId || !rows || !rows.length) return;
       const cached = recentWindow({ rows, events: rawBuffer, stats: sessionState.stats,
         turnUsage: sessionState.turnUsage, savedAt: Date.now(),
-        hasMore: sessionState.hasMoreHistory, nextBeforeSeq: sessionState.nextBeforeSeq,
+        hasMore: sessionState.hasMoreHistory, hasMoreKnown: sessionState.hasMoreHistoryKnown,
+        nextBeforeSeq: sessionState.nextBeforeSeq,
         historyFormatVersion: sessionState.historyFormatVersion }, protocol, sessionId);
       sessionCache.set(sessionCacheKey(sessionId), cached, {
         delayMs: 1000,
@@ -735,6 +738,7 @@ function createStore() {
     if (Number.isSafeInteger(cursor) && cursor >= 0 && cursor < Number.MAX_SAFE_INTEGER &&
         sessionState.historyFormatVersion) {
       sessionState.hasMoreHistory = true;
+      sessionState.hasMoreHistoryKnown = true;
       sessionState.nextBeforeSeq = cursor + 1;
       if (requestOlderHistory()) return true;
     }
@@ -1560,6 +1564,7 @@ function createStore() {
             beforeSeq: pendingPage.cursor,
             events,
             hasMore: frame.hasMore === true,
+            hasMoreKnown: typeof frame.hasMore === 'boolean',
             nextBeforeSeq: frame.nextBeforeSeq,
             historyFormatVersion: frame.historyFormatVersion || sessionState.historyFormatVersion
           }, { delayMs: 500 });
@@ -1577,7 +1582,10 @@ function createStore() {
         const prepend = !!frame.beforeSeqPlaceholder || rawBuffer.length > 0 || sessionState.rows.length > 0;
         ingestEvents(events, prepend);
         if (!isCompetingTail && !staleHistoryTail) {
-          sessionState.hasMoreHistory = frame.hasMore === true;
+          if (typeof frame.hasMore === 'boolean') {
+            sessionState.hasMoreHistory = frame.hasMore;
+            sessionState.hasMoreHistoryKnown = true;
+          }
           sessionState.nextBeforeSeq = frame.nextBeforeSeq;
         }
         if (frame.historyFormatVersion && !staleHistoryTail) sessionState.historyFormatVersion = frame.historyFormatVersion;
@@ -1672,10 +1680,16 @@ function createStore() {
           ? 'loaded:cached'
           : 'loaded:' + snapEvents.length + 'ev' + (sessionState.ingestErrors ? '+' + sessionState.ingestErrors + 'bad' : '');
         if (frame.assistantStream) {
-          sessionState.hasMoreHistory = frame.hasMore === true;
-          sessionState.nextBeforeSeq = frame.nextBeforeSeq;
+          if (typeof frame.hasMore === 'boolean') {
+            sessionState.hasMoreHistory = frame.hasMore;
+            sessionState.hasMoreHistoryKnown = true;
+          }
+          if (frame.nextBeforeSeq !== undefined) sessionState.nextBeforeSeq = frame.nextBeforeSeq;
         }
-        if (frame.hasMore !== undefined) sessionState.hasMoreHistory = frame.hasMore === true;
+        if (typeof frame.hasMore === 'boolean') {
+          sessionState.hasMoreHistory = frame.hasMore;
+          sessionState.hasMoreHistoryKnown = true;
+        }
         saveSessionCache(sessionState.sessionId, sessionState.rows);
         const incompleteReplay = frame.recovery === 'snapshot' && Number.isSafeInteger(frame.resumeFromSeq) &&
           Number.isSafeInteger(frame.resumeToSeq) && frame.resumeToSeq > frame.resumeFromSeq;
@@ -2601,7 +2615,9 @@ function createStore() {
       sessionState.historyPaging = true;
       if (!sessionState.rows.length) sessionState.historyState = 'requested';
       handleSessionFrame({ kind: 'history', sessionId: id, events: cachedPage.events,
-        hasMore: cachedPage.hasMore, nextBeforeSeq: cachedPage.nextBeforeSeq,
+        hasMore: cachedPage.hasMoreKnown === true || cachedPage.hasMore === true
+          ? cachedPage.hasMore === true : undefined,
+        nextBeforeSeq: cachedPage.nextBeforeSeq,
         historyFormatVersion: cachedPage.historyFormatVersion, beforeSeqPlaceholder: true,
         cachedLocal: true });
       return true;
@@ -3935,6 +3951,7 @@ function createStore() {
       sessionState.agentPresetAuthoritative = false;
       sessionState.historyError = '';
       sessionState.hasMoreHistory = false;
+      sessionState.hasMoreHistoryKnown = false;
       sessionState.nextBeforeSeq = null;
       sessionState.pendingQuestion = null;
       sessionState.pendingApproval = null;
@@ -3977,6 +3994,7 @@ function createStore() {
         sessionState.trajectory = [];
         trajectoryDirty = true;
         sessionState.hasMoreHistory = cached.hasMore === true;
+        sessionState.hasMoreHistoryKnown = cached.hasMoreKnown === true;
         sessionState.nextBeforeSeq = cached.nextBeforeSeq;
         sessionState.historyFormatVersion = cached.historyFormatVersion;
         setRawBuffer(Array.isArray(cached.events) ? cached.events.slice() : []);

@@ -16,6 +16,26 @@ function settlingAfterTouch(page) {
   if (!touchedAt) return false;
   return (page._lastConvScrollAt || 0) >= touchedAt && Date.now() - touchedAt < MANUAL_SCROLL_SETTLE_MS;
 }
+function conversationSettleDelay(page, now) {
+  const gestureAt = Number(page._lastConversationGestureAt) || 0;
+  const touchedAt = Number(page._lastTouchAt) || 0;
+  const lastScrollAt = Number(page._lastConvScrollAt) || 0;
+  let lastActivityAt = gestureAt > 0 && now - gestureAt < MANUAL_SCROLL_SETTLE_MS ? gestureAt : 0;
+  if (touchedAt > 0 && lastScrollAt >= touchedAt && now - touchedAt < MANUAL_SCROLL_SETTLE_MS) {
+    lastActivityAt = Math.max(lastActivityAt, touchedAt);
+  }
+  return lastActivityAt ? Math.max(0, MANUAL_SCROLL_SETTLE_MS - (now - lastActivityAt)) : 0;
+}
+function conversationAnchorIndex(page, window, top, origin) {
+  const estimatedIndex = window.indexAt(top - origin);
+  const saved = page._lastMeasuredConversationAnchor;
+  if (!saved || !saved.key) return estimatedIndex;
+  const savedIndex = window.rows.findIndex(row => row.key === saved.key);
+  const savedTop = Number(saved.screenTop) - (top - Number(saved.scrollTop));
+  const viewportHeight = Number(page._convClientHeight) || 700;
+  return savedIndex >= 0 && Number.isFinite(savedTop)
+    && savedTop > -viewportHeight && savedTop < viewportHeight ? savedIndex : estimatedIndex;
+}
 function hasVisiblePendingHistoryFormatting(page) {
   const pending = page._pendingHistoryFormat;
   if (!pending || !pending.size) return false;
@@ -40,16 +60,19 @@ module.exports = {
       this._lastWindowShiftAt = null;
       this._windowShiftMeasurePending = false;
       this._windowShiftRenderPending = false;
+      this._lastMeasuredConversationAnchor = null;
       this._conversationWindow = new ConversationWindow(); this._windowSession = this._renderSessionId;
     }
     const window = this._conversationWindow;
     const nativeTop = Number(this._lastNativeScrollTop);
     let top = Number.isFinite(nativeTop) ? Math.max(0, nativeTop) : Math.max(0, Number(this._lastScrollTop) || 0);
-    const anchorIndex = window.indexAt(top);
+    const oldOrigin = Number(window.origin) || 0;
+    const anchorIndex = conversationAnchorIndex(this, window, top, oldOrigin);
     const anchor = window.rows[anchorIndex];
-    const offset = top - window.offsets[anchorIndex];
+    const oldAnchorOffset = window.offsets[anchorIndex] || 0;
     this._conversationRows = rows; window.update(rows);
     if (this._convPinned !== false) {
+      window.origin = 0;
       return window.select(Math.max(0, window.offsets[rows.length] - 700), 700, Math.max(0, rows.length - 12));
     }
 
@@ -65,25 +88,30 @@ module.exports = {
     }
 
     const index = anchor ? rows.findIndex(row => row.key === anchor.key) : -1;
-    // 整段渲染时文档高度就是真实渲染高度：估算偏移推不出滚动位置，直接用原生 scrollTop，
-    // 否则每次估算/实测的差都会被写成一次滚动，列表跟着抖。
-    if (index >= 0 && !window.full) top = Math.max(0, window.offsets[index] + offset);
-    const patch = window.select(top, this._convClientHeight || 700);
+    const desiredOrigin = index >= 0
+      ? oldOrigin + oldAnchorOffset - (window.offsets[index] || 0)
+      : oldOrigin;
+    window.origin = desiredOrigin;
+    const keepVirtual = !window.full && (hasRecentConversationTouch(this) || settlingAfterTouch(this));
+    const patch = window.select(top, this._convClientHeight || 700, undefined, keepVirtual);
+    const originClamp = window.origin - desiredOrigin;
     if (options && options.anchor && anchor) {
-      // 历史页插入时改用 scroll-into-view 钉住原来视口顶部的消息：原生滚动
-      // 定位不会先按错误的估算高度跳一下，再被测量结果二次修正。
-      patch.scrollTarget = anchor.key;
+      // Keep the same keyed row in virtual coordinates. scroll-into-view aligns
+      // it to the viewport edge and cancels the reader's in-flight swipe.
+      patch.scrollTarget = '';
       patch.scrollAnim = false;
       this._lastScrollTop = top;
-      this._scrollAnchorAt = Date.now();
       return patch;
     }
-    if (!window.full && !hasRecentConversationTouch(this) && !settlingAfterTouch(this)
-      && Math.abs(top - (this._lastScrollTop || 0)) > 1) {
-      patch.conversationScrollTop = top;
-      this._lastScrollTop = top;
+    // Keep the native scroll position fixed as row heights change. The virtual
+    // spacers absorb the offset delta; only a clamped/full-render transition
+    // needs a native correction, and never while a finger or momentum owns it.
+    if (Math.abs(originClamp) > 1 && !hasRecentConversationTouch(this) && !settlingAfterTouch(this)) {
+      patch.conversationScrollTop = Math.max(0, top + originClamp);
+      this._lastScrollTop = patch.conversationScrollTop;
+      this._lastNativeScrollTop = patch.conversationScrollTop;
       this._programmaticScrollAt = Date.now();
-      this._programmaticScrollTop = top;
+      this._programmaticScrollTop = patch.conversationScrollTop;
     }
     return patch;
   },
@@ -128,18 +156,7 @@ module.exports = {
       const readerOwnsScroll = (this._panelGesture && this._panelGesture.tab === 'conversation')
         || settlingAfterTouch(this)
         || (this._convPinned === false && this._lastConvScrollAt && scrollQuietFor < 160);
-      (rects || []).forEach((rect, index) => {
-        const key = renderedKeys[index];
-        if (key && rect && rect.height > 0) window.heights.set(key, rect.height);
-      });
-      const latestTop = scrollAdvancedDuringMeasure
-        ? this._pendingWindowScrollTop
-        : (readerOwnsScroll && Number.isFinite(Number(this._lastNativeScrollTop))
-          ? this._lastNativeScrollTop : measuredTop);
-      const scrollTop = Number.isFinite(Number(latestTop))
-        ? Math.max(0, Number(latestTop))
-        : Math.max(0, Number(this._lastNativeScrollTop) || Number(this._pendingWindowScrollTop) || 0);
-      this._pendingWindowScrollTop = null;
+      const previousOrigin = Number(window.origin) || 0;
       const viewportTop = Number(viewport && viewport.top);
       const viewportBottom = Number(viewport && viewport.bottom);
       const visibleRow = Number.isFinite(viewportTop) && Number.isFinite(viewportBottom)
@@ -147,36 +164,75 @@ module.exports = {
           && rect.bottom > viewportTop + 1 && rect.top < viewportBottom - 1)
         : -1;
       const anchorIndex = visibleRow >= 0 && renderedKeys[visibleRow]
-        ? window.rows.findIndex(row => row.key === renderedKeys[visibleRow]) : -1;
-      const anchorScreenTop = visibleRow >= 0 ? Number(rects[visibleRow].top) - viewportTop : null;
-      window.update(sourceRows);
-      const measuredScrollTop = Number(measuredTop);
-      // 真实布局里行从内容 padding（.conversation 的 16rpx 顶 padding）之后开始，
-      // 而 offsets 是纯内容坐标：直接用 rect.top 反解 scrollTop 会恒定多算一个
-      // padding-top（约 8px），每次窗口平移都被向「更早消息」方向多踢一截。
-      // 用首渲染行的实测位置把 padding 还原出来。
-      let contentInset = 0;
-      if (Number.isFinite(measuredScrollTop) && rects && rects[0] && renderedKeys[0]
-        && Number.isFinite(viewportTop)) {
-        contentInset = Number(rects[0].top) - viewportTop
-          - Number(this.data.conversationTopSpace || 0) + measuredScrollTop;
-        if (!Number.isFinite(contentInset) || contentInset < 0 || contentInset > 200) contentInset = 0;
+        ? sourceRows.findIndex(row => row.key === renderedKeys[visibleRow]) : -1;
+      const oldAnchorOffset = anchorIndex >= 0 ? window.offsets[anchorIndex] : 0;
+      const previousHeights = new Map();
+      renderedKeys.forEach(key => { if (key) previousHeights.set(key, window.heights.get(key)); });
+      (rects || []).forEach((rect, index) => {
+        const key = renderedKeys[index];
+        if (key && rect && rect.height > 0) window.heights.set(key, rect.height);
+      });
+      const latestTop = scrollAdvancedDuringMeasure
+        ? this._pendingWindowScrollTop
+        : (Number.isFinite(Number(measuredTop)) ? measuredTop : this._lastNativeScrollTop);
+      const scrollTop = Number.isFinite(Number(latestTop))
+        ? Math.max(0, Number(latestTop))
+        : Math.max(0, Number(this._lastNativeScrollTop) || Number(this._pendingWindowScrollTop) || 0);
+      this._lastScrollTop = scrollTop;
+      this._lastNativeScrollTop = scrollTop;
+      this._pendingWindowScrollTop = null;
+      if (anchorIndex >= 0 && Number.isFinite(viewportTop)) {
+        const queryTop = measuredTop != null && Number.isFinite(Number(measuredTop)) ? Number(measuredTop) : scrollTop;
+        this._lastMeasuredConversationAnchor = {
+          key: sourceRows[anchorIndex].key,
+          screenTop: Number(rects[visibleRow].top) - viewportTop + queryTop - scrollTop,
+          scrollTop
+        };
       }
-      const correctedTop = Math.max(0, anchorIndex >= 0 && Number.isFinite(anchorScreenTop)
-        ? contentInset + window.offsets[anchorIndex] - anchorScreenTop
-          + (Number.isFinite(measuredScrollTop) ? scrollTop - measuredScrollTop : 0)
-        : scrollTop);
+      const restoreMeasuredHeights = () => {
+        previousHeights.forEach((value, key) => {
+          if (value === undefined) window.heights.delete(key); else window.heights.set(key, value);
+        });
+        window.update(sourceRows);
+        window.origin = previousOrigin;
+      };
+      window.update(sourceRows);
+      let desiredOrigin = previousOrigin;
+      let windowPatch;
+      let originClamp = 0;
+      if (anchorIndex >= 0) {
+        // Keep the visible stable key at its pre-measure logical offset. Its
+        // current rect already includes the reflow and cannot represent the
+        // position before that reflow happened.
+        desiredOrigin = previousOrigin + oldAnchorOffset - window.offsets[anchorIndex];
+        window.origin = desiredOrigin;
+        windowPatch = window.select(scrollTop, height);
+        originClamp = window.origin - desiredOrigin;
+      } else {
+        // A fast fling can move the viewport past every mounted row before this
+        // query returns. Without a visible key+pixel anchor, measured height
+        // deltas have no safe reference and must not rewrite the scroll geometry.
+        restoreMeasuredHeights();
+        windowPatch = window.select(scrollTop, height);
+      }
 
-      // Preserve the measured row's screen position as the virtual spacers change.
-      // padding 感知的补偿让修正量在几何自洽时恒等于 0：只有真实位移（比如
-      // 缓存高度与当前 DOM 不一致）才会落到这个写上；惯性滚动中它不再被无谓触发。
-      const patch = dataPatch(this.data, window.select(correctedTop, height));
-      if (Math.abs(correctedTop - scrollTop) > 1) {
-        patch.conversationScrollTop = correctedTop;
-        this._lastScrollTop = correctedTop;
-        this._lastNativeScrollTop = correctedTop;
+      // If a boundary leaves no room for the spacer to absorb the correction,
+      // keep momentum untouched and let the post-swipe measurement reconcile it.
+      if (readerOwnsScroll && Math.abs(originClamp) > 1) {
+        restoreMeasuredHeights();
+        windowPatch = window.select(scrollTop, height);
+        originClamp = 0;
+      }
+
+      // Rebase the virtual content origin instead of writing scrollTop during
+      // a swipe. The user-controlled native position remains the source of truth.
+      const patch = dataPatch(this.data, windowPatch);
+      if (!readerOwnsScroll && Math.abs(originClamp) > 1) {
+        patch.conversationScrollTop = Math.max(0, scrollTop + originClamp);
+        this._lastScrollTop = patch.conversationScrollTop;
+        this._lastNativeScrollTop = patch.conversationScrollTop;
         this._programmaticScrollAt = Date.now();
-        this._programmaticScrollTop = correctedTop;
+        this._programmaticScrollTop = patch.conversationScrollTop;
       }
       this._lastWindowShiftAt = Date.now();
       if (Object.keys(patch).length) {
@@ -225,14 +281,13 @@ module.exports = {
     const gesture = this._panelGesture;
     const touchingConversation = gesture && gesture.tab === 'conversation';
     const scrollQuietFor = Date.now() - (this._lastConvScrollAt || 0);
-    const touchAge = Date.now() - (Number(this._lastTouchAt) || 0);
-    const settlingScroll = this._convPinned === false && this._lastConvScrollAt && scrollQuietFor < 160;
-    const settlingTouch = this._convPinned === false && settlingAfterTouch(this);
+    const settlingScroll = this._lastConvScrollAt && scrollQuietFor < 160;
+    const settlingTouch = settlingAfterTouch(this);
     if (touchingConversation || settlingScroll || settlingTouch) {
       if (!this._windowMeasureTimer) {
         const wait = Math.max(touchingConversation ? 120 : 16,
           settlingScroll ? 160 - scrollQuietFor : 0,
-          settlingTouch ? MANUAL_SCROLL_SETTLE_MS - touchAge : 0);
+          settlingTouch ? conversationSettleDelay(this, Date.now()) : 0);
         this._windowMeasureTimer = setTimeout(() => {
           this._windowMeasureTimer = null;
           this.measureConversationWindow();
@@ -256,14 +311,40 @@ module.exports = {
       const currentGesture = this._panelGesture;
       const currentScrollQuietFor = Date.now() - (this._lastConvScrollAt || 0);
       if ((currentGesture && currentGesture.tab === 'conversation')
-        || (this._convPinned === false && this._lastConvScrollAt && currentScrollQuietFor < 160)
-        || (this._convPinned === false && settlingAfterTouch(this))) {
+        || (this._lastConvScrollAt && currentScrollQuietFor < 160)
+        || settlingAfterTouch(this)) {
         this.measureConversationWindow();
         return;
       }
       const viewport = res && res[0];
       const nativeOffset = hasScrollOffset && res ? res[1] : null;
       const rects = (res && res[hasScrollOffset ? 2 : 1]) || [];
+      const nativeTop = nativeOffset && nativeOffset.scrollTop != null
+        ? Number(nativeOffset.scrollTop) : NaN;
+      const cachedNativeTop = Number(this._lastNativeScrollTop);
+      const cachedTop = Number(this._lastScrollTop);
+      const currentTop = Number.isFinite(nativeTop) ? Math.max(0, nativeTop)
+        : Number.isFinite(cachedNativeTop) ? Math.max(0, cachedNativeTop)
+          : Math.max(0, Number.isFinite(cachedTop) ? cachedTop : 0);
+      const initialAnchorActive = this._initialConversationAnchorApplied === true;
+      const fastEntryAnchorActive = this._fastLiveSessionEntry === true && initialAnchorActive;
+      const virtualOrigin = Number(window.origin) || 0;
+      const canonicalTop = currentTop - virtualOrigin;
+      if (Math.abs(virtualOrigin) > 1 && canonicalTop >= 0 && !fastEntryAnchorActive) {
+        // Translate a temporary virtual origin into native scroll coordinates
+        // only after the gesture settles. Updating both together keeps pixels
+        // stationary while restoring access to the full prepended history.
+        window.origin = 0;
+        const patch = dataPatch(this.data, window.select(canonicalTop, this._convClientHeight || 700));
+        patch.conversationScrollTop = canonicalTop;
+        patch.scrollAnim = false;
+        this._lastScrollTop = canonicalTop;
+        this._lastNativeScrollTop = canonicalTop;
+        this._programmaticScrollAt = Date.now();
+        this._programmaticScrollTop = canonicalTop;
+        this.setData(patch, () => this.measureConversationWindow());
+        return;
+      }
       const viewportTop = viewport && Number(viewport.top);
       const viewportBottom = viewport && Number(viewport.bottom);
       const visibleRow = Number.isFinite(viewportTop) && Number.isFinite(viewportBottom)
@@ -272,44 +353,80 @@ module.exports = {
       const anchorIndex = visibleRow >= 0 && keys[visibleRow]
         ? window.rows.findIndex(row => row.key === keys[visibleRow])
         : -1;
+      if (anchorIndex >= 0 && Number.isFinite(viewportTop)) {
+        this._lastMeasuredConversationAnchor = {
+          key: keys[visibleRow],
+          screenTop: Number(rects[visibleRow].top) - viewportTop,
+          scrollTop: currentTop
+        };
+      }
+      if (anchorIndex < 0) {
+        // Never apply geometry from an offscreen slice: it cannot anchor the
+        // reader. First move the window to the actual native viewport, then
+        // measure the newly visible rows on the next render pass.
+        const currentTop = nativeOffset && Number.isFinite(Number(nativeOffset.scrollTop))
+          ? Number(nativeOffset.scrollTop) : Number(this._lastNativeScrollTop || this._lastScrollTop) || 0;
+        this.updateConversationWindow(currentTop);
+        return;
+      }
       const oldAnchorOffset = anchorIndex >= 0 ? window.offsets[anchorIndex] : 0;
+      const oldOrigin = Number(window.origin) || 0;
+      const previousHeights = new Map();
       let changed = false;
       (rects || []).forEach((rect, i) => {
-        if (rect.height > 0 && Math.abs((window.heights.get(keys[i]) || 0) - rect.height) > 1) { window.heights.set(keys[i], rect.height); changed = true; }
+        if (!rect || !(rect.height > 0)) return;
+        previousHeights.set(keys[i], window.heights.get(keys[i]));
+        if (Math.abs((window.heights.get(keys[i]) || 0) - rect.height) > 1) {
+          window.heights.set(keys[i], rect.height);
+          changed = true;
+        }
       });
-      const initialAnchorActive = this._initialConversationAnchorApplied === true;
       if (!changed) {
         if (initialAnchorActive && !this._initialConversationAnchorRecoveryPending
           && !this._dockMeasurePending && !hasVisiblePendingHistoryFormatting(this)) {
           this._initialConversationAnchorApplied = false;
+          if (fastEntryAnchorActive) this._fastLiveSessionEntry = false;
           // History formatting and dock measurement can finish after the first
           // scroll-into-view. Reconcile once against the final content height so
           // entry cannot remain parked above the newest message.
-          if (this._convPinned !== false) this.refreshBottomAnchor();
+          if (!fastEntryAnchorActive && this._convPinned !== false) this.refreshBottomAnchor();
         }
         return;
       }
       window.update(window.rows);
       const patch = dataPatch(this.data, window.patch());
-      const anchoring = this._scrollAnchorAt && Date.now() - this._scrollAnchorAt < 800;
+      this._lastScrollTop = currentTop;
+      this._lastNativeScrollTop = currentTop;
       // Anchor to the first actually visible row, not the row guessed from cumulative estimates.
       // Large variable-height messages can make that guessed index drift and jump on release.
-      // During and just after a finger scroll, the native gesture/momentum owns the
-      // viewport. An estimated-height correction here can override its settled
-      // position and make the list jump as soon as the finger lifts.
-      // 整段渲染时占位永远是 0，渲染高度就是文档高度：估算→实测的差不是真实位移，
-      // 不能再按它修正滚动，否则一测量就跳一大格。
-      // 单击（触摸后没有滚动）要当场校正，否则点「已完成」的高度变化要等 800ms 才落地。
-      if (!anchoring && !settlingAfterTouch(this) && this._convPinned === false && !window.full
-        && anchorIndex >= 0 && window.offsets[anchorIndex] !== oldAnchorOffset) {
-        // Reopen and first-render paths can leave the cached offset behind the native view.
-        // Base the correction on the measured scroll position to avoid a one-time snap.
-        const currentTop = nativeOffset && Number.isFinite(Number(nativeOffset.scrollTop))
-          ? Number(nativeOffset.scrollTop) : (this._lastScrollTop || 0);
-        patch.conversationScrollTop = Math.max(0, currentTop + window.offsets[anchorIndex] - oldAnchorOffset);
-        this._lastScrollTop = patch.conversationScrollTop;
-        this._programmaticScrollAt = Date.now();
-        this._programmaticScrollTop = patch.conversationScrollTop;
+      // Rebase by the old/new logical offset delta. The post-layout rect already
+      // includes the height change, so using it as the old anchor preserves the
+      // jump instead of undoing it.
+      if (!window.full && anchorIndex >= 0 && Number.isFinite(Number(rects[visibleRow].top))) {
+        const desiredOrigin = oldOrigin + oldAnchorOffset - window.offsets[anchorIndex];
+        window.origin = desiredOrigin;
+        const clampedPatch = dataPatch(this.data, window.patch());
+        const originClamp = window.origin - desiredOrigin;
+        Object.assign(patch, clampedPatch);
+        if (Math.abs(originClamp) > 1) {
+          const readerOwnsScroll = (this._panelGesture && this._panelGesture.tab === 'conversation')
+            || settlingAfterTouch(this)
+            || (this._lastConvScrollAt && Date.now() - this._lastConvScrollAt < 160);
+          if (readerOwnsScroll) {
+            previousHeights.forEach((value, key) => {
+              if (value === undefined) window.heights.delete(key); else window.heights.set(key, value);
+            });
+            window.update(window.rows);
+            window.origin = oldOrigin;
+            Object.assign(patch, dataPatch(this.data, window.patch()));
+          } else if (!fastEntryAnchorActive) {
+            patch.conversationScrollTop = Math.max(0, currentTop + originClamp);
+            this._lastScrollTop = patch.conversationScrollTop;
+            this._lastNativeScrollTop = patch.conversationScrollTop;
+            this._programmaticScrollAt = Date.now();
+            this._programmaticScrollTop = patch.conversationScrollTop;
+          }
+        }
       }
       if (Object.keys(patch).length) this.setData(patch, () => {
         if (initialAnchorActive && this._initialConversationAnchorApplied) this.measureConversationWindow();

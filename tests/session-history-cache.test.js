@@ -89,6 +89,19 @@ test('history loads one page per user request and never drains remaining pages a
   f.flush(); assert.equal(f.requests.length, 2);
 });
 
+test('the oldest-history boundary is known only when the gateway supplies hasMore metadata', () => {
+  const f = fixture();
+  f.frame({ kind: 'history', events: [user(10, 'latest')], nextBeforeSeq: 10, historyFormatVersion: 1 });
+  assert.equal(f.store.sessionState.hasMoreHistory, false, 'the existing paging default remains unchanged');
+  assert.equal(f.store.sessionState.hasMoreHistoryKnown, false,
+    'a missing hasMore field must not be treated as proof that this is the oldest turn');
+
+  f.frame({ kind: 'history', events: [], nextBeforeSeq: 10, hasMore: false, historyFormatVersion: 1 });
+  assert.equal(f.store.sessionState.hasMoreHistory, false);
+  assert.equal(f.store.sessionState.hasMoreHistoryKnown, true,
+    'an explicit gateway hasMore=false confirms the earliest boundary');
+});
+
 test('previously visited history pages load from the host-scoped local page cache, including offline', () => {
   const f = fixture();
   f.frame(history([user(50, 'latest')], 50));
@@ -108,6 +121,39 @@ test('previously visited history pages load from the host-scoped local page cach
   assert.equal(f.store.sessionState.historyPaging, false);
   assert.equal(f.store.sessionState.nextBeforeSeq, 30);
   assert.deepEqual(Array.from(f.store.sessionState.rows, row => row.text), ['older page', 'latest']);
+});
+
+test('a cached page without hasMore metadata cannot confirm the oldest-history boundary', () => {
+  const f = fixture();
+  f.frame(history([user(50, 'latest')], 50));
+  f.store.loadOlderHistory();
+  f.frame({ kind: 'history', events: [user(30, 'older page')], nextBeforeSeq: 30,
+    historyFormatVersion: 1 });
+  f.flush(500);
+
+  const pageKey = [...f.storage.keys()].find(key => key.startsWith('dsh_history_page.') &&
+    key !== 'dsh_history_page.index');
+  assert.ok(pageKey, 'the visited older page is persisted');
+  const payload = JSON.parse(f.storage.get(pageKey));
+  assert.equal(payload.value.hasMore, false);
+  assert.equal(payload.value.hasMoreKnown, false,
+    'a missing gateway field is stored as unknown rather than a confirmed false');
+
+  // Existing installs may still have pages written before hasMoreKnown existed.
+  delete payload.value.hasMoreKnown;
+  f.storage.set(pageKey, JSON.stringify(payload));
+  const replay = fixture(f.storage);
+  replay.store.sessionState.hasMoreHistory = true;
+  replay.store.sessionState.hasMoreHistoryKnown = false;
+  replay.store.sessionState.nextBeforeSeq = 50;
+  replay.store.sessionState.historyFormatVersion = 1;
+  replay.store.state.connection = 'disconnected';
+  replay.store.loadOlderHistory();
+
+  assert.equal(replay.store.sessionState.nextBeforeSeq, 30, 'the cached events still advance the cursor');
+  assert.equal(replay.store.sessionState.hasMoreHistory, true);
+  assert.equal(replay.store.sessionState.hasMoreHistoryKnown, false,
+    'an old cached default false is not replayed as authoritative boundary metadata');
 });
 
 test('idle history does not prefetch and timeout allows manual retry', () => {

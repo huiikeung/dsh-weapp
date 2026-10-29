@@ -9,10 +9,12 @@ const accountView = require('./utils/account-view');
 const preferences = require('../../utils/ui-preferences');
 const accountCardPreference = require('./utils/account-card-pref');
 const { connectionView } = require('../../utils/connection-status');
+const { pickerPopoverLayout } = require('./utils/picker-popover');
 
 Page({
   manualShareMenu: true,
-  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', utilitySheet: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true, dshAccount: accountView.normalize({}), dshAccountBusy: false, dshAccountVisible: false, dshBalanceExpanded: false, showAccountCard: false },
+  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, filesListH: 348, presetId: 'standard',
+    pickerPopLeft: 16, pickerPopTop: 140, pickerPopWidth: 240, pickerPopMaxH: 360, pickerPopOrigin: '50% 0', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true, dshAccount: accountView.normalize({}), dshAccountBusy: false, dshAccountVisible: false, dshBalanceExpanded: false, showAccountCard: false },
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onLoad() {
     this._alive = true;
@@ -45,9 +47,10 @@ Page({
     const windowHeight = Number.isFinite(info.windowHeight) && info.windowHeight > 0 ? info.windowHeight : 667;
     const capBottom = navPadTop + navHeight;
     const sheetMaxH = Math.max(240, Math.round(windowHeight - capBottom - 16));
-    const pickerListH = Math.max(160, sheetMaxH - 132);   // 抓手+标题+底部安全区
-    const pickerCreatorListH = Math.max(120, pickerListH - 88);
-    this.setData({ navPadTop, navHeight, sheetMaxH, pickerListH, pickerCreatorListH });
+    const filesListH = Math.max(160, sheetMaxH - 132);   // 抓手+标题+底部安全区
+    // 选择弹层按「行锚点」定位，需要窗口尺寸与安全区。
+    this._windowInfo = info;
+    this.setData({ navPadTop, navHeight, sheetMaxH, filesListH });
   },
   onResize() { this.updateNavigationLayout(); },
   goBack() {
@@ -100,7 +103,7 @@ Page({
     else wx.setClipboardData({ data: url });
   },
   onUnload() { this._alive = false; this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1; if (this.unsubscribe) this.unsubscribe(); },
-  onHide() { this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1; this.setData({ utilitySheet: '', cacheError: '', dshAccountBusy: false }); },
+  onHide() { this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1; this._pickerPopRequest = null; this.setData({ picker: '', cacheError: '', dshAccountBusy: false }); },
   syncFromStore(snapshot) {
     const app = snapshot.app;
     const defaults = app.defaults || {};
@@ -133,7 +136,7 @@ Page({
         this.refreshDshAccount();
       }
     }
-    if (this.data.utilitySheet === 'diagnostics') this.setData({ diagnostics: this.diagnosticRows(app) });
+    if (this.data.picker === 'diagnostics') this.setData({ diagnostics: this.diagnosticRows(app) });
   },
 
   pickAgentPreset() {
@@ -150,14 +153,48 @@ Page({
     // 当前预设来自部署级 defaults（与页面顶部标签同源）
     const defaults = (store.state && store.state.defaults) || {};
     const current = this.data.presetId || defaults.agentPresetDefault || 'standard';
-    this.openPickerSheet('preset', uiText('Agent 预设'), list.slice(0, 8).map((p) => ({
+    this.openPickerPopover('preset', uiText('Agent 预设'), list.slice(0, 8).map((p) => ({
       id: p.id,
       label: labels.presetDisplayName(p.name, p.id),
       description: p.description || labels.presetModeBlurb(p.id),
       broken: p.broken === true || (typeof p.broken === 'string' && !!p.broken),
       brokenReason: p.brokenReason || (typeof p.broken === 'string' ? p.broken : ''),
       checked: p.id === current
-    })), uiText('预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。'));
+    })), uiText('预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。'), '#agent-preset-row');
+  },
+
+  /**
+   * 选择弹层统一改成首页工作区选择同款的锚点玻璃弹窗：先量触发那一行，
+   * 再按行位置在下方（空间不足时上方）展开，尺寸与安全区由 pickerPopoverLayout 统一计算。
+   * kind: preset / model / permission；effort 是模型弹层里的二级列表，沿用模型行的位置。
+   */
+  openPickerPopover(kind, title, options, intro, anchorSelector, extra) {
+    if (this.data.picker || this._pickerPopRequest) return;
+    const request = {};
+    this._pickerPopRequest = request;
+    const list = options || [];
+    const windowInfo = this._windowInfo || {};
+    const navigationBottom = (this.data.navPadTop || 0) + (this.data.navHeight || 0);
+    const reveal = (rect) => {
+      if (this._pickerPopRequest !== request || !this._alive) return;
+      this._pickerPopRequest = null;
+      const layout = pickerPopoverLayout(rect, windowInfo, navigationBottom);
+      this.setData({
+        picker: kind,
+        pickerTitle: title,
+        pickerIntro: intro || '',
+        pickerOptions: list,
+        presetCreatorAvailable: kind === 'preset' && list.some(option => option.id === 'cordis'),
+        ...(extra || {}),
+        ...layout
+      });
+    };
+    if (typeof wx.createSelectorQuery !== 'function') { reveal(null); return; }
+    try {
+      wx.createSelectorQuery().in(this).select(anchorSelector).boundingClientRect(rect => reveal(rect || null)).exec();
+    } catch (e) {
+      reveal(null);
+    }
   },
 
   async createCustomAgentPreset() {
@@ -252,7 +289,11 @@ Page({
         });
       });
     });
-    this.openPickerSheet('model', uiText('默认模型'), options, uiText('为之后新建的会话设置默认模型与思考等级。这会更新部署级设置，同步影响 WebUI，运行中的会话保持启动时的配置。'));
+    // 当前模型在弹层里带一句所选思考等级（替代原先行内的「当前使用」徽标）。
+    const checked = options.find((option) => !option.header && option.checked);
+    const chosenEffort = checked && (checked.efforts || []).find((effort) => effort.checked);
+    if (chosenEffort) checked.effortSuffix = chosenEffort.label;
+    this.openPickerPopover('model', uiText('默认模型'), options, uiText('为之后新建的会话设置默认模型与思考等级。这会更新部署级设置，同步影响 WebUI，运行中的会话保持启动时的配置。'), '#default-model-row');
   },
 
   pickDefaultPermission() {
@@ -267,7 +308,7 @@ Page({
       icon: labels.permissionIconFile(option.id),
       checked: option.id === current
     }));
-    this.openPickerSheet('permission', uiText('权限'), options, uiText('权限预设用于控制新会话可以执行的操作。'));
+    this.openPickerPopover('permission', uiText('权限'), options, uiText('权限预设用于控制新会话可以执行的操作。'), '#default-permission-row');
   },
 
   /** 保存默认模型；若该模型支持思考强度，先让用户选择强度。 */
@@ -299,11 +340,11 @@ Page({
     });
   },
 
-  // ---------- 通用选择弹窗（与设置页弹窗样式一致） ----------
+  // ---------- 选择弹层 ----------
 
-  openPickerSheet(kind, title, options, intro) {
-    this.setData({ picker: kind, pickerTitle: title, pickerIntro: intro || '', pickerOptions: options || [],
-      presetCreatorAvailable: kind === 'preset' && (options || []).some(option => option.id === 'cordis') });
+  /** 关闭选择弹层（点空白处）。 */
+  closePickerPopover() {
+    if (this.data.picker) this.closePickerSheet();
   },
 
 
@@ -340,17 +381,8 @@ Page({
   },
 
   closePickerSheet() {
-    this.setData({ picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false });
-  },
-
-  chooseModelEffort(e) {
-    const optionIndex = Number(e.currentTarget.dataset.optionIndex);
-    const effortIndex = Number(e.currentTarget.dataset.effortIndex);
-    const option = (this.data.pickerOptions || [])[optionIndex];
-    const effort = option && (option.efforts || [])[effortIndex];
-    if (!option || !effort) return;
-    this.closePickerSheet();
-    this.applyModelSelection(option.provider, option.model, option.efforts || [], effort.id);
+    this._pickerPopRequest = null;
+    this.setData({ picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, cacheError: '' });
   },
 
   choosePicker(e) {
@@ -462,7 +494,9 @@ Page({
   },
 
   showDiagnostics() {
-    this.setData({ utilitySheet: 'diagnostics', diagnostics: this.diagnosticRows(store.state || {}), cacheError: '' });
+    if (this.data.picker || this._pickerPopRequest) return;
+    const diagnostics = this.diagnosticRows(store.state || {});
+    this.openPickerPopover('diagnostics', uiText('诊断信息'), [], '', '#diagnostics-row', { diagnostics });
   },
 
   diagnosticRows(app) {
@@ -480,17 +514,15 @@ Page({
   },
 
   clearLocalCache() {
-    this.setData({ utilitySheet: 'cache', cacheError: '' });
-  },
-
-  closeUtilitySheet() {
-    if (!this.data.cacheClearing) this.setData({ utilitySheet: '', cacheError: '' });
+    if (this.data.picker || this._pickerPopRequest) return;
+    this.setData({ cacheError: '' });
+    this.openPickerPopover('cache', uiText('清理缓存'), [], '', '#clear-cache-row');
   },
 
   noop() {},
 
   confirmClearCache() {
-    if (this.data.utilitySheet !== 'cache' || this.data.cacheClearing) return;
+    if (this.data.picker !== 'cache' || this.data.cacheClearing) return;
     this.setData({ cacheClearing: true, cacheError: '' });
     let removed = 0, failed = 0;
     try {
@@ -504,7 +536,7 @@ Page({
       this.setData({ cacheClearing: false, cacheError: uiText('无法读取缓存，请稍后重试。') });
       return;
     }
-    this.setData({ cacheClearing: false, ...(failed ? { cacheError: uiText('已清理 ') + removed + uiText(' 项，剩余 ') + failed + uiText(' 项未清理，请重试。') } : { utilitySheet: '' }) });
+    this.setData({ cacheClearing: false, ...(failed ? { cacheError: uiText('已清理 ') + removed + uiText(' 项，剩余 ') + failed + uiText(' 项未清理，请重试。') } : { picker: '', cacheError: '' }) });
     if (!failed) wx.showToast({ title: removed ? uiText('已清理 ') + removed + uiText(' 项') : uiText('没有可清理的缓存'), icon: 'none' });
     if (removed && store.refreshHosts) store.refreshHosts();
   }

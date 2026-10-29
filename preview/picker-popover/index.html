@@ -1,0 +1,37 @@
+<!doctype html>
+<!-- 模板：由 shoot.cjs 填入真实 WXSS 抽取的弹层样式与弹层 DOM 后再交给无头浏览器截图。
+     不要直接打开本文件预览；运行 node preview/picker-popover/shoot.cjs 生成 PNG。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>会话设置选择弹层 · 预览</title>
+<style>
+  /* 仅用于预览的页面模仿：卡片/标题按 app.wxss 的取值折算成 px（375pt 视口，1rpx = 0.5px）。 */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: #e9edf3; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; padding: 28px; }
+  .stage { position: relative; width: 390px; height: 844px; border-radius: 40px; overflow: hidden; box-shadow: 0 18px 60px rgba(7, 24, 43, .22); }
+  .stage.theme-dark { background: #000; color: #F1F4FA; }
+  .stage.theme-light { background: #fff; color: #10131A; }
+  .page { position: absolute; inset: 0; padding: 0 20px; overflow: hidden; }
+  .nav { height: 79px; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; }
+  .group-title { margin: 20px 8px 9px; font-size: 15px; font-weight: 500; opacity: .55; }
+  .card { border-radius: 14px; overflow: hidden; border: .5px solid rgba(16,19,24,.10); }
+  .theme-dark .card { background: #1C1C1E; border-color: rgba(255,255,255,.10); }
+  .theme-light .card { background: #fff; }
+  .card-row { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 15px 16px; font-size: 15.5px; }
+  .card-row + .card-row { border-top: .5px solid rgba(16,19,24,.08); }
+  .theme-dark .card-row + .card-row { border-top-color: rgba(255,255,255,.08); }
+  .row-value { display: flex; align-items: center; gap: 6px; font-size: 15px; opacity: .55; }
+  .chevron { width: 13px; height: 13px; opacity: .55; }
+  .hint { margin: 9px 12px 0; font-size: 12.5px; line-height: 1.55; opacity: .5; }
+  .text-mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  /*__PICKER_POP_CSS__*/
+  /* 预览专用：弹层相对 390×844 舞台定位（真机是视口坐标，这里舞台就是视口）。 */
+  .stage .picker-pop, .stage .picker-pop-mask { position: absolute !important; }
+</style>
+</head>
+<body>
+__STAGES__
+</body>
+</html>

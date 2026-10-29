@@ -56,7 +56,19 @@ test('session settings retain model and permission APIs, file navigation and pri
   const store = { state, subscribe(fn) { subscriber = fn; return () => calls.push(['unsubscribe']); },
     client: { requestHost() {calls.push(['host']);}, requestAccount: async client => { accountRequests.push(client); return { state: { status: 'credential-stored' }, balance: { status: 'ready', value: [{ currency: 'CNY', balance: '12.34' }] } }; }, requestAgentPresets: async () => { calls.push(['agent-presets']); return {authorable:false,presets:[{id:'cordis'}]}; }, setDefault: async (...args) => calls.push(args), saveDefaultModel: async (...args) => calls.push(args),
       requestFileList: async () => ({ entries: [{ name: 'README.md', path: 'README.md', kind: 'file', bytes: 10 }] }) } };
-  const wx = { showActionSheet(o) { wx.sheet = o; }, showModal() { throw Error('Must use bottom sheet'); }, showToast() {}, navigateTo(o) {calls.push(['navigate',o.url]);} };
+  const presetRowRect = { left: 40, top: 200, width: 300, height: 44, right: 340, bottom: 244 };
+  const wx = { showActionSheet(o) { wx.sheet = o; }, showModal() { throw Error('Must use bottom sheet'); }, showToast() {}, navigateTo(o) {calls.push(['navigate',o.url]);},
+    // Agent 预设弹窗先量锚点行：回调同步触发，等价于真机 selectorQuery 的首帧回包。
+    createSelectorQuery() {
+      let callback = null;
+      const query = {
+        in() { return query; },
+        select() { return query; },
+        boundingClientRect(cb) { callback = cb; return query; },
+        exec() { if (callback) callback(presetRowRect); }
+      };
+      return query;
+    } };
   vm.runInNewContext(read('pages/session-settings/session-settings.js'), {Page: d=>{definition=d;},wx,
     getCurrentPages: () => [{route:'pages/home/home'},{route:'pages/session-settings/session-settings'}],
     require: name=>{
@@ -70,6 +82,7 @@ test('session settings retain model and permission APIs, file navigation and pri
     if(name.endsWith('/version-info'))return require('../miniprogram/pages/settings/utils/version-info');
     if(name.endsWith('/account-view'))return require('../miniprogram/pages/settings/utils/account-view');
     if(name.endsWith('/account-card-pref'))return {KEY:'dsh_account_card_visible',DEFAULT:false,read:()=>false,set:v=>v===true};
+    if(name.endsWith('/picker-popover'))return require('../miniprogram/pages/session-settings/utils/picker-popover');
     if(name.endsWith('/build'))return {BUILD_TIME:'fixture',BUILD_VERSION:'0.9.27'};
     throw Error('Unexpected dependency '+name);
   }});
@@ -89,11 +102,18 @@ test('session settings retain model and permission APIs, file navigation and pri
   page.pickAgentPreset(); assert.equal(page.data.picker,'preset'); assert.equal(page.data.presetCreatorAvailable,true);
   assert.equal(page.data.pickerIntro,'预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。');
   assert.equal(page.data.pickerOptions.find(o=>o.id==='code').description,'用于编码工作');
+  // 锚点弹窗：贴着「Agent 预设」行下方展开，宽度按首页工作区弹窗的规则钳制。
+  assert.equal(page.data.pickerPopOrigin,'50% 0');
+  assert.ok(page.data.pickerPopTop >= presetRowRect.bottom, 'the popover opens below its anchor row');
+  assert.ok(page.data.pickerPopWidth >= 224 && page.data.pickerPopWidth <= 280);
+  assert.ok(page.data.pickerPopMaxH > 0);
   assert.match(read('pages/session-settings/session-settings.wxml'), /picker === 'preset'[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
   const presetIndex = page.data.pickerOptions.findIndex(o => o.id === 'code');
   page.choosePicker({ currentTarget: { dataset: { index: presetIndex } } });
   assert.deepEqual(calls.filter(c => c[0] === 'agent-preset').at(-1),['agent-preset','code']);
   page.pickDefaultPermission(); assert.equal(page.data.picker,'permission');
+  assert.equal(page.data.pickerPopOrigin,'50% 0', 'permission uses the same anchored glass popover');
+  assert.ok(page.data.pickerPopTop >= presetRowRect.bottom);
   assert.deepEqual(Array.from(page.data.pickerOptions, o=>o.label),['仅可查看','工作区内修改','完全权限','自动审查']);
   assert.deepEqual(Array.from(page.data.pickerOptions, o=>o.icon),['shield-check-gray.png','shield-write-gray.png','shield-excla-gray.png','shield-auto-gray.svg']);
   assert.equal(page.data.pickerOptions.find(o=>o.id==='auto').badge,'EXP');
@@ -102,6 +122,7 @@ test('session settings retain model and permission APIs, file navigation and pri
   page.choosePicker({ currentTarget: { dataset: { index: permissionIndex } } });
   assert.deepEqual(calls.filter(c => c[0] === 'permission').at(-1),['permission','workspace-write']);
   page.pickDefaultModel(); assert.equal(page.data.picker,'model');
+  assert.equal(page.data.pickerPopOrigin,'50% 0', 'model uses the same anchored glass popover');
   assert.equal(page.data.pickerIntro,'为之后新建的会话设置默认模型与思考等级。这会更新部署级设置，同步影响 WebUI，运行中的会话保持启动时的配置。');
   assert.equal(page.data.pickerOptions.find(o=>o.model==='thinking').efforts.length,3);
   const modelIndex = page.data.pickerOptions.findIndex(o => !o.header && o.model === 'next');
@@ -113,9 +134,14 @@ test('session settings retain model and permission APIs, file navigation and pri
   page.pickDefaultModel();
   const thinkingIndex = page.data.pickerOptions.findIndex(o => !o.header && o.model === 'thinking');
   assert.equal(page.data.pickerOptions[thinkingIndex].checked,true);
+  assert.equal(page.data.pickerOptions[thinkingIndex].effortSuffix,'High', 'the current model row shows the chosen effort');
   assert.equal(page.data.pickerOptions[thinkingIndex].efforts[2].checked,true);
   assert.deepEqual(Array.from(page.data.pickerOptions[thinkingIndex].efforts, effort => effort.label),['Off','Low','High']);
-  page.chooseModelEffort({ currentTarget: { dataset: { optionIndex: thinkingIndex, effortIndex: 2 } } });
+  // 点模型行进入同一弹层里的「思考等级」二级列表，再点等级保存。
+  page.choosePicker({ currentTarget: { dataset: { index: thinkingIndex } } });
+  assert.equal(page.data.picker,'effort');
+  assert.deepEqual(Array.from(page.data.pickerOptions, o=>o.label),['Off','Low','High']);
+  page.choosePicker({ currentTarget: { dataset: { index: 2 } } });
   assert.deepEqual(calls.at(-1),['fixture','thinking','high']);
   assert.equal(page.data.modelLabel,'思考模型 · High');
   page.pickAgentPreset();
@@ -125,31 +151,31 @@ test('session settings retain model and permission APIs, file navigation and pri
   assert.equal(state.pendingAgentPresetCreator.owner, 'node');
   assert.equal(state.pendingAgentPresetCreator.workspaceId, 'workspace-1');
   assert.ok(calls.some(call => call[0] === 'creator-back' && call[1] === 1));
-  assert.equal(page.data.picker, '', 'the preset sheet closes before returning to Home');
+  assert.equal(page.data.picker, '', 'the picker popover closes before returning to Home');
   assert.equal(page.data.creatingPreset, false);
   // 工作区文件改为弹窗浏览，不再跳转页面
   page.openFiles(); assert.equal(page.data.filesSheet,true);
   assert.equal(calls.filter(c => c[0] === 'navigate').length,0);
-  page.showDiagnostics(); assert.equal(page.data.utilitySheet,'diagnostics'); assert.equal(page.data.diagnostics[1].label,'公网标识'); assert.equal(page.data.diagnostics[1].value,'public-id'); assert.doesNotMatch(JSON.stringify(page.data.diagnostics),/hidden.example/);
+  page.showDiagnostics(); assert.equal(page.data.picker,'diagnostics'); assert.equal(page.data.pickerPopOrigin,'50% 0'); assert.equal(page.data.diagnostics[1].label,'公网标识'); assert.equal(page.data.diagnostics[1].value,'public-id'); assert.doesNotMatch(JSON.stringify(page.data.diagnostics),/hidden.example/);
   subscriber({app:{...state,defaultModel:{model:'changed'}}}); assert.equal(page.data.modelLabel,'changed');
   assert.equal(page.data.hostInfo.model, 'changed');
   assert.equal(page.data.hostInfo.version, '1.0');
   subscriber({app:{...state,host:{version:'remote-gateway',dshVersion:'0.1.7-rc.2',defaultProvider:'fixture',defaultModel:'next'},defaultModel:null}});
   assert.equal(page.data.hostInfo.version,'0.1.7-rc.2'); assert.equal(page.data.hostInfo.provider,'测试'); assert.equal(page.data.hostInfo.model,'模型');
   subscriber({app:{...state,connection:'disconnected'}}); assert.equal(page.data.diagnostics[0].value,'未连接');
-  page.closeUtilitySheet(); assert.equal(page.data.utilitySheet,'');
+  page.closePickerSheet(); assert.equal(page.data.picker,'');
   const removed = [];
   wx.getStorageInfoSync = () => ({keys:['dsh_session_cache.fixture','dsh_home_cache.fixture','dsh_context_cache.fixture','gateway.profiles.v1','dsh_creds.fixture','public-access.session.v1']});
   wx.removeStorageSync = key => removed.push(key);
-  page.clearLocalCache(); assert.equal(removed.length,0,'Opening confirmation must not delete anything');
-  page.closeUtilitySheet(); page.confirmClearCache(); assert.equal(removed.length,0,'Cancelled sheet cannot delete');
+  page.clearLocalCache(); assert.equal(page.data.picker,'cache'); assert.equal(page.data.pickerPopOrigin,'50% 0'); assert.equal(removed.length,0,'Opening confirmation must not delete anything');
+  page.closePickerSheet(); page.confirmClearCache(); assert.equal(removed.length,0,'Cancelled popover cannot delete');
   page.clearLocalCache(); page.confirmClearCache();
-  assert.deepEqual(removed,['dsh_session_cache.fixture','dsh_home_cache.fixture','dsh_context_cache.fixture']); assert.equal(page.data.utilitySheet,'');
+  assert.deepEqual(removed,['dsh_session_cache.fixture','dsh_home_cache.fixture','dsh_context_cache.fixture']); assert.equal(page.data.picker,'');
   wx.getStorageInfoSync = () => {throw Error('unavailable');};
-  page.clearLocalCache(); page.confirmClearCache(); assert.equal(page.data.utilitySheet,'cache'); assert.match(page.data.cacheError,/无法读取/);
+  page.clearLocalCache(); page.confirmClearCache(); assert.equal(page.data.picker,'cache'); assert.match(page.data.cacheError,/无法读取/);
   wx.getStorageInfoSync = () => ({keys:['dsh_session_cache.fixture']}); wx.removeStorageSync = () => {throw Error('locked');};
   page.confirmClearCache(); assert.match(page.data.cacheError,/未清理/); assert.equal(page.data.cacheClearing,false);
-  page.onHide(); assert.equal(page.data.utilitySheet,'');
+  page.onHide(); assert.equal(page.data.picker,'');
   for(const match of read('pages/session-settings/session-settings.wxml').matchAll(/bindtap="([^"]+)"/g))assert.equal(typeof page[match[1]],'function',match[1]);
   for(const match of read('pages/session-settings/session-settings.wxml').matchAll(/catchtap="([^"]+)"/g))assert.equal(typeof page[match[1]],'function',match[1]);
   page.onUnload(); assert.deepEqual(calls.at(-1),['unsubscribe']);
@@ -230,15 +256,23 @@ test('execution icon row follows the status style row and mirrors its resizable 
   assert.match(css, /@import "\.\.\/\.\.\/styles\/proc-icon\.wxss"/);
 });
 
-test('utility panels are bottom sheets with theme colors and concise feature labels', () => {
-  const html=read('pages/session-settings/session-settings.wxml');
-  const css=read('pages/session-settings/session-settings.wxss');
-  assert.doesNotMatch(html,/row-desc|查看并启停|管理已创建|连接状态、帧/);
-  assert.match(html,/utility-mask.*catchtap="closeUtilitySheet"/);
-  assert.match(html,/bindtap="confirmClearCache"/);
-  assert.match(css,/\.utility-mask[^}]*align-items: flex-end/);
-  assert.match(css,/\.utility-sheet[^}]*env\(safe-area-inset-bottom\)[^}]*background: var\(--surface\)/);
-  assert.match(css,/\.theme-dark.*utility-confirm/);
+test('diagnostics and cache use the same anchored glass popover as the other rows', () => {
+  const html = read('pages/session-settings/session-settings.wxml');
+  const css = read('pages/session-settings/session-settings.wxss');
+  const js = read('pages/session-settings/session-settings.js');
+  assert.doesNotMatch(html, /utility-mask|utility-sheet|diagnostic-row|cache-description|closeUtilitySheet/);
+  assert.doesNotMatch(js, /utilitySheet|closeUtilitySheet/);
+  for (const [id, handler] of [['diagnostics-row', 'showDiagnostics'], ['clear-cache-row', 'clearLocalCache']]) {
+    assert.match(html, new RegExp('id="' + id + '"[^>]*bindtap="' + handler + '"'));
+  }
+  assert.match(html, /picker === 'diagnostics'[\s\S]*?picker-pop-kv[\s\S]*?picker-pop-kv-value/);
+  assert.match(html, /picker === 'cache'[\s\S]*?picker-pop-cache-copy[\s\S]*?picker-pop-action-row[\s\S]*?picker-pop-danger/);
+  assert.match(html, /bindtap="confirmClearCache"/);
+  assert.match(html, /trash-gray\.png[\s\S]*?picker-pop-action-label/);
+  assert.ok(js.includes("'#diagnostics-row'") && js.includes("'#clear-cache-row'"));
+  assert.match(css, /\.picker-pop-kv-value[\s\S]*?text-align: right/);
+  assert.match(css, /\.picker-pop-action-row[\s\S]*?min-height: 88rpx/);
+  assert.match(css, /\.theme-light \.picker-pop-action-ic/);
 });
 
 test('settings sheets scroll as one page at a fixed 90% height', () => {
@@ -252,24 +286,33 @@ test('settings sheets scroll as one page at a fixed 90% height', () => {
   assert.doesNotMatch(css, /\.management-scroll\s*\{[^}]*max-height/, 'the inner block no longer caps the height');
 });
 
-test('default preset and model sheets retain the bottom modal and use dsh-mobile style cards', () => {
+test('all three session-setting pickers use the home workspace anchored glass popover', () => {
   const html = read('pages/session-settings/session-settings.wxml');
   const css = read('pages/session-settings/session-settings.wxss');
-  assert.match(html, /class="pair-sheet-mask"[\s\S]*?class="pair-sheet resizable/);
-  assert.match(html, /class="preset-option-card[\s\S]*?preset-card-description/);
-  assert.match(html, /class="picker-current-badge"/);
-  assert.match(html, /class="picker-provider-title"/);
-  assert.match(html, /class="model-option-card[\s\S]*?class="model-effort-chip/);
-  assert.match(html, />\{\{effort\.label\}\}<\/view>/);
-  assert.match(html, /picker === 'permission'[\s\S]*?permission-card-icon/);
-  assert.match(html, /permission-card-icon" src="\/assets\/icons\/\{\{item.icon\}\}"/);
-  assert.match(html, /model-option-main" data-index="\{\{optionIndex\}\}"/);
-  assert.match(css, /\.preset-option-card\.selected/);
-  assert.match(css, /\.preset-option-card\.selected,[\s\S]*?border:\s*1rpx solid var\(--text\)/);
-  assert.match(css, /\.picker-option-list\.permission-picker-list/);
-  assert.match(css, /\.preset-card-name,[\s\S]*?font-weight:\s*600/);
-  assert.match(css, /\.model-effort-chip\.selected/);
-  assert.match(css, /\.picker-option-list\.model-picker-list/);
+  const js = read('pages/session-settings/session-settings.js');
+  // 三个入口都各量自己那一行，弹层改用首页工作区选择同款的锚点玻璃菜单。
+  for (const [id, handler] of [['agent-preset-row', 'pickAgentPreset'], ['default-model-row', 'pickDefaultModel'], ['default-permission-row', 'pickDefaultPermission']]) {
+    assert.match(html, new RegExp('id="' + id + '"[^>]*bindtap="' + handler + '"'));
+  }
+  assert.match(js, /select\(anchorSelector\)/);
+  for (const anchor of ['#agent-preset-row', '#default-model-row', '#default-permission-row']) {
+    assert.ok(js.includes("'" + anchor + "'"), anchor);
+  }
+  assert.equal((html.match(/class="picker-pop-mask"/g) || []).length, 1);
+  assert.equal((html.match(/class="pair-sheet-mask"/g) || []).length, 1, 'only the files sheet keeps the bottom modal');
+  assert.match(html, /picker === 'preset'[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
+  assert.match(html, /picker === 'model'[\s\S]*?picker-pop-group[\s\S]*?picker-pop-suffix/);
+  assert.match(html, /picker === 'effort'[\s\S]*?picker-pop-effort/);
+  assert.match(html, /picker === 'permission'[\s\S]*?picker-pop-shield[\s\S]*?picker-pop-check/);
+  assert.doesNotMatch(html, /picker-option-list|preset-option-card|model-option-card|permission-card-head|picker-current-badge/);
+  // 玻璃参数与首页工作区选择弹窗一致：白色 0.10 → 0.04 渐变、发丝亮边、blur 8rpx、64rpx 圆角。
+  assert.match(css, /\.picker-pop \{[\s\S]*?border-radius: 64rpx[\s\S]*?linear-gradient\(165deg, rgba\(255, 255, 255, 0\.10\), rgba\(255, 255, 255, 0\.04\)\)[\s\S]*?backdrop-filter: blur\(8rpx\)/);
+  assert.match(css, /@keyframes picker-pop-appear/);
+  assert.match(css, /\.theme-light \.picker-pop \{/);
+  assert.match(css, /\.picker-pop-model,[\s\S]*?min-height: 44px/);
+  assert.match(css, /\.picker-pop-shield[\s\S]*?filter: brightness\(0\) invert\(1\)/);
+  assert.match(css, /\.picker-pop-badge/);
+  assert.doesNotMatch(css, /\.picker-option-list|\.model-option-card|\.permission-card-head|\.picker-current-badge/);
 });
 
 // 两个设置页顶部的账号区：余额卡必须点上面的身份卡才展开，且仅已登录有效。

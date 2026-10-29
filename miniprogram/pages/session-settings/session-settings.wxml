@@ -43,15 +43,15 @@
   </view>
   <view class="group-title">{{ui['新会话默认配置']}}</view>
   <view class="card">
-    <view class="card-row" bindtap="pickAgentPreset" role="button"><text class="card-row-label">{{ui['Agent 预设']}}</text><view class="card-row-value"><text>{{ui[presetLabel] !== undefined ? ui[presetLabel] : presetLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
-    <view class="card-row" bindtap="pickDefaultModel" role="button"><text class="card-row-label">{{ui['默认模型']}}</text><view class="card-row-value"><text>{{modelLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
-    <view class="card-row" bindtap="pickDefaultPermission" role="button"><text class="card-row-label">{{ui['权限']}}</text><view class="card-row-value"><text>{{ui[permissionLabel] !== undefined ? ui[permissionLabel] : permissionLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+    <view id="agent-preset-row" class="card-row" bindtap="pickAgentPreset" role="button"><text class="card-row-label">{{ui['Agent 预设']}}</text><view class="card-row-value"><text>{{ui[presetLabel] !== undefined ? ui[presetLabel] : presetLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+    <view id="default-model-row" class="card-row" bindtap="pickDefaultModel" role="button"><text class="card-row-label">{{ui['默认模型']}}</text><view class="card-row-value"><text>{{modelLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+    <view id="default-permission-row" class="card-row" bindtap="pickDefaultPermission" role="button"><text class="card-row-label">{{ui['权限']}}</text><view class="card-row-value"><text>{{ui[permissionLabel] !== undefined ? ui[permissionLabel] : permissionLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
   </view>
   <view class="group-hint">{{ui['与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。']}}</view>
   <view class="group-title">{{ui['功能']}}</view>
   <view class="card">
-    <view class="card-row" bindtap="showDiagnostics" role="button"><text class="card-row-label">{{ui['诊断信息']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
-    <view class="card-row" bindtap="clearLocalCache" role="button"><text class="card-row-label">{{ui['清理缓存']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+    <view id="diagnostics-row" class="card-row" bindtap="showDiagnostics" role="button"><text class="card-row-label">{{ui['诊断信息']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
+    <view id="clear-cache-row" class="card-row" bindtap="clearLocalCache" role="button"><text class="card-row-label">{{ui['清理缓存']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
   </view>
   <view class="group-title">{{ui['主机信息']}}</view>
   <view class="card">
@@ -60,108 +60,131 @@
     <view class="card-row"><text class="card-row-label">{{ui['已连接会话']}}</text><text class="card-row-value host-value">{{host.attachedSessions !== undefined ? host.attachedSessions : '—'}}</text></view>
     <view class="card-row"><text class="card-row-label">{{ui['工作目录']}}</text><text class="card-row-value host-value text-mono" selectable>{{host.cwd || '—'}}</text></view>
   </view>
-  <!-- 选择弹窗：与设置页同款底部弹窗（抓手 + 标题 + 关闭 + 勾选行） -->
-  <view wx:if="{{picker}}" class="pair-sheet-mask" catchtap="closePickerSheet" catchtouchmove="noop">
-    <view class="pair-sheet resizable {{sheetExpanded.picker ? 'expanded' : ''}}" style="{{sheetExpanded.picker ? 'height: 90vh;' : ''}}max-height: {{sheetMaxH}}px;" catchtap="noop" role="dialog" aria-label="{{pickerTitle}}">
-      <view class="sheet-grabber-zone" data-sheet="picker" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
-      <view class="pair-sheet-head">
-        <text class="pair-sheet-title">{{pickerTitle}}</text>
-        <view class="pair-sheet-close tap" bindtap="closePickerSheet" role="button"><view class="sheet-close-x"></view></view>
-      </view>
-      <scroll-view class="picker-option-list {{picker === 'preset' ? 'preset-picker-list' : picker === 'model' ? 'model-picker-list' : picker === 'permission' ? 'permission-picker-list' : ''}}" style="max-height: {{picker === 'preset' && presetCreatorAvailable ? pickerCreatorListH : pickerListH}}px;" scroll-y enhanced show-scrollbar="{{false}}" enable-flex>
-        <view wx:if="{{pickerIntro}}" class="picker-intro">{{ui[pickerIntro] !== undefined ? ui[pickerIntro] : pickerIntro}}</view>
+  <!-- 选择弹层：Agent 预设 / 默认模型 / 思考等级 / 权限统一用锚点玻璃菜单，
+       与首页工作区选择弹窗同款；高度随内容，超出后在弹层内滚动。 -->
+  <view wx:if="{{picker}}" class="picker-pop-mask" catchtap="closePickerPopover" catchtouchmove="noop"></view>
+  <view
+    wx:if="{{picker}}"
+    class="picker-pop"
+    style="left: {{pickerPopLeft}}px; top: {{pickerPopTop}}px; width: {{pickerPopWidth}}px; max-height: {{pickerPopMaxH}}px; transform-origin: {{pickerPopOrigin}};"
+    catchtap="noop"
+    role="dialog"
+    aria-label="{{pickerTitle}}"
+  >
+    <scroll-view class="picker-pop-scroll" style="max-height: {{pickerPopMaxH}}px;" scroll-y enhanced show-scrollbar="{{false}}">
+      <view class="picker-pop-content">
         <block wx:if="{{picker === 'preset'}}">
           <view
             wx:for="{{pickerOptions}}"
             wx:key="id"
-            class="preset-option-card {{item.checked ? 'selected' : ''}} {{item.broken ? 'broken' : ''}}"
+            class="picker-pop-row picker-pop-preset {{item.checked ? 'checked' : ''}} {{item.broken ? 'broken' : ''}}"
             data-index="{{index}}"
             bindtap="choosePicker"
-            hover-class="picker-card-hover"
+            hover-class="picker-pop-row-pressed"
             role="button"
+            aria-disabled="{{item.broken}}"
+            aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}}"
           >
-            <view class="preset-card-head">
-              <text class="preset-card-name">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
-              <text class="preset-card-id">{{item.id}}</text>
-              <text wx:if="{{item.checked}}" class="picker-current-badge">{{ui['当前使用']}}</text>
+            <image class="picker-pop-ic" src="/assets/icons/{{item.checked ? 'check-fill-white.png' : 'circle-white.png'}}" mode="aspectFit"/>
+            <view class="picker-pop-body">
+              <text class="picker-pop-name">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+              <text class="picker-pop-desc">{{ui[item.description] !== undefined ? ui[item.description] : item.description}}</text>
+              <text wx:if="{{item.broken}}" class="picker-pop-warn">⚠ {{ui[item.brokenReason] !== undefined ? ui[item.brokenReason] : item.brokenReason || ui['该预设存在配置错误，暂时不能设为默认值']}}</text>
             </view>
-            <text class="preset-card-description">{{ui[item.description] !== undefined ? ui[item.description] : item.description}}</text>
-            <text wx:if="{{item.broken}}" class="preset-card-warning">⚠ {{ui[item.brokenReason] !== undefined ? ui[item.brokenReason] : item.brokenReason || ui['该预设存在配置错误，暂时不能设为默认值']}}</text>
           </view>
-        </block>
-        <block wx:elif="{{picker === 'model'}}">
-          <block wx:for="{{pickerOptions}}" wx:for-index="optionIndex" wx:key="key">
-            <view wx:if="{{item.header}}" class="picker-provider-title">{{ui[item.header] !== undefined ? ui[item.header] : item.header}}</view>
-            <view wx:else class="model-option-card {{item.checked ? 'selected' : ''}}">
-              <view class="model-option-main" data-index="{{optionIndex}}" bindtap="choosePicker" hover-class="model-option-main-hover" role="button">
-                <text class="model-option-name">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
-                <text wx:if="{{item.checked}}" class="picker-current-badge">{{ui['当前使用']}}</text>
-              </view>
-              <view wx:if="{{item.efforts && item.efforts.length}}" class="model-effort-section">
-                <text class="model-effort-label">{{ui['思考等级']}}</text>
-                <view class="model-effort-options">
-                  <view
-                    wx:for="{{item.efforts}}"
-                    wx:for-item="effort"
-                    wx:for-index="effortIndex"
-                    wx:key="id"
-                    class="model-effort-chip {{effort.checked ? 'selected' : ''}}"
-                    data-option-index="{{optionIndex}}"
-                    data-effort-index="{{effortIndex}}"
-                    catchtap="chooseModelEffort"
-                    hover-class="model-effort-chip-hover"
-                    role="button"
-                  >{{effort.label}}</view>
-                </view>
+          <block wx:if="{{presetCreatorAvailable}}">
+            <view class="picker-pop-divider"></view>
+            <view class="picker-pop-row {{creatingPreset ? 'busy' : ''}}" bindtap="createCustomAgentPreset" hover-class="picker-pop-row-pressed" role="button" aria-disabled="{{creatingPreset}}">
+              <image class="picker-pop-ic" src="/assets/icons/plus-white.png" mode="aspectFit"/>
+              <view class="picker-pop-body">
+                <text class="picker-pop-name">{{creatingPreset ? ui['正在打开…'] : ui['添加自定义 Agent 预设']}}</text>
+                <text class="picker-pop-desc">{{ui['新建创造模式会话，让 Agent 创建或维护预设']}}</text>
               </view>
             </view>
           </block>
+        </block>
+        <block wx:elif="{{picker === 'model'}}">
+          <block wx:for="{{pickerOptions}}" wx:for-index="optionIndex" wx:key="key">
+            <view wx:if="{{item.header}}" class="picker-pop-group">{{ui[item.header] !== undefined ? ui[item.header] : item.header}}</view>
+            <view
+              wx:else
+              class="picker-pop-row picker-pop-model {{item.checked ? 'checked' : ''}}"
+              data-index="{{optionIndex}}"
+              bindtap="choosePicker"
+              hover-class="picker-pop-row-pressed"
+              role="button"
+              aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}}"
+            >
+              <image class="picker-pop-ic" src="/assets/icons/{{item.checked ? 'check-fill-white.png' : 'circle-white.png'}}" mode="aspectFit"/>
+              <view class="picker-pop-model-line">
+                <text class="picker-pop-name">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+                <text wx:if="{{item.effortSuffix}}" class="picker-pop-suffix">· {{item.effortSuffix}}</text>
+              </view>
+            </view>
+          </block>
+        </block>
+        <block wx:elif="{{picker === 'effort'}}">
+          <view
+            wx:for="{{pickerOptions}}"
+            wx:key="id"
+            class="picker-pop-row picker-pop-effort {{item.checked ? 'checked' : ''}}"
+            data-index="{{index}}"
+            bindtap="choosePicker"
+            hover-class="picker-pop-row-pressed"
+            role="button"
+            aria-label="{{item.label}}"
+          >
+            <image class="picker-pop-ic" src="/assets/icons/{{item.checked ? 'check-fill-white.png' : 'circle-white.png'}}" mode="aspectFit"/>
+            <text class="picker-pop-name">{{item.label}}</text>
+          </view>
         </block>
         <block wx:elif="{{picker === 'permission'}}">
           <view
             wx:for="{{pickerOptions}}"
             wx:key="id"
-            class="preset-option-card permission-option-card {{item.checked ? 'selected' : ''}}"
+            class="picker-pop-row picker-pop-permission {{item.checked ? 'checked' : ''}}"
             data-index="{{index}}"
             bindtap="choosePicker"
-            hover-class="picker-card-hover"
+            hover-class="picker-pop-row-pressed"
             role="button"
+            aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}}"
           >
-            <view class="permission-card-head">
-              <image class="permission-card-icon" src="/assets/icons/{{item.icon}}" mode="aspectFit"/>
-              <text class="preset-card-name">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
-              <text class="preset-card-id">{{item.id}}</text>
-              <text wx:if="{{item.badge}}" class="permission-experimental-badge">{{item.badge}}</text>
-              <text wx:if="{{item.checked}}" class="picker-current-badge">{{ui['当前使用']}}</text>
+            <image class="picker-pop-ic picker-pop-shield" src="/assets/icons/{{item.icon}}" mode="aspectFit"/>
+            <view class="picker-pop-body">
+              <view class="picker-pop-permission-line">
+                <text class="picker-pop-name">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+                <text wx:if="{{item.badge}}" class="picker-pop-badge">{{item.badge}}</text>
+                <image wx:if="{{item.checked}}" class="picker-pop-check" src="/assets/icons/check-fill-white.png" mode="aspectFit"/>
+              </view>
+              <text class="picker-pop-desc">{{ui[item.description] !== undefined ? ui[item.description] : item.description}}</text>
             </view>
-            <text class="preset-card-description">{{ui[item.description] !== undefined ? ui[item.description] : item.description}}</text>
           </view>
         </block>
-        <block wx:else>
-          <block wx:for="{{pickerOptions}}" wx:key="key">
-            <view wx:if="{{item.header}}" class="picker-group">{{item.header}}</view>
-            <view
-              wx:else
-              class="picker-option {{item.checked ? 'checked' : ''}}"
-              data-index="{{index}}"
-              bindtap="choosePicker"
-              role="button"
-            >
-              <text class="picker-option-label">{{picker === 'effort' ? item.label : ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
-              <text wx:if="{{item.checked}}" class="picker-option-check">✓</text>
-            </view>
-          </block>
+        <block wx:elif="{{picker === 'diagnostics'}}">
+          <view wx:for="{{diagnostics}}" wx:key="label" class="picker-pop-row picker-pop-kv">
+            <text class="picker-pop-kv-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+            <text class="picker-pop-kv-value {{item.mono ? 'text-mono' : ''}}" selectable>{{item.value}}</text>
+          </view>
         </block>
-      </scroll-view>
-      <view wx:if="{{picker === 'preset' && presetCreatorAvailable}}" class="preset-create-entry {{creatingPreset ? 'busy' : ''}}" bindtap="createCustomAgentPreset" hover-class="preset-create-pressed" role="button" aria-disabled="{{creatingPreset}}">
-        <view class="preset-create-plus">+</view>
-        <view class="preset-create-copy">
-          <text class="preset-create-title">{{creatingPreset ? ui['正在打开…'] : ui['添加自定义 Agent 预设']}}</text>
-          <text class="preset-create-description">{{ui['新建创造模式会话，让 Agent 创建或维护预设']}}</text>
-        </view>
-        <image class="preset-create-chevron" src="/assets/icons/chev-right-gray.png" mode="aspectFit"/>
+        <block wx:elif="{{picker === 'cache'}}">
+          <view class="picker-pop-cache-copy">
+            <text class="picker-pop-cache-desc">{{ui['仅清理本机的会话列表与正文缓存，下次打开时重新加载。']}}</text>
+            <text class="picker-pop-cache-note">{{ui['不会删除聊天记录、配对信息或公网有效期。']}}</text>
+            <text wx:if="{{cacheError}}" class="picker-pop-error">{{ui[cacheError] !== undefined ? ui[cacheError] : cacheError}}</text>
+          </view>
+          <view class="picker-pop-divider"></view>
+          <view class="picker-pop-row picker-pop-action-row {{cacheClearing ? 'busy' : ''}}" bindtap="confirmClearCache" hover-class="picker-pop-row-pressed" role="button" aria-disabled="{{cacheClearing}}">
+            <image class="picker-pop-ic picker-pop-action-ic" src="/assets/icons/trash-gray.png" mode="aspectFit"/>
+            <text class="picker-pop-action-label picker-pop-danger">{{cacheClearing ? ui['清理中…'] : ui['确认清理']}}</text>
+          </view>
+          <view class="picker-pop-row picker-pop-action-row" bindtap="closePickerSheet" hover-class="picker-pop-row-pressed" role="button">
+            <image class="picker-pop-ic picker-pop-action-ic" src="/assets/icons/collab-close.svg" mode="aspectFit"/>
+            <text class="picker-pop-action-label">{{ui['取消']}}</text>
+          </view>
+        </block>
+        <view wx:if="{{pickerIntro}}" class="picker-pop-hint">{{ui[pickerIntro] !== undefined ? ui[pickerIntro] : pickerIntro}}</view>
       </view>
-    </view>
+    </scroll-view>
   </view>
 
   <!-- 工作区文件弹窗：与选择弹窗同款底部弹窗 -->
@@ -176,7 +199,7 @@
         <view wx:if="{{!filesIsRoot}}" class="files-up tap" bindtap="filesGoUp">{{ui['‹ 上一级']}}</view>
         <view wx:else class="files-up disabled"></view>
       </view>
-      <scroll-view class="picker-option-list files-list" style="max-height: {{pickerListH}}px;" scroll-y enhanced show-scrollbar="{{false}}" enable-flex>
+      <scroll-view class="files-list" style="max-height: {{filesListH}}px;" scroll-y enhanced show-scrollbar="{{false}}" enable-flex>
         <view wx:if="{{filesLoading && !filesEntries.length}}" class="files-center">{{ui['正在读取工作区文件…']}}</view>
         <view wx:elif="{{filesError}}" class="files-center">{{ui[filesError] !== undefined ? ui[filesError] : filesError}}</view>
         <view wx:elif="{{!filesEntries.length}}" class="files-center">{{ui['此目录为空']}}</view>
@@ -199,34 +222,6 @@
         </block>
       </scroll-view>
       <view class="files-path-footer">{{filesPathLabel}}</view>
-    </view>
-  </view>
-
-  <view wx:if="{{utilitySheet}}" class="utility-mask" catchtap="closeUtilitySheet" catchtouchmove="noop">
-    <view class="utility-sheet resizable {{sheetExpanded.utility ? 'expanded' : ''}}" style="{{sheetExpanded.utility ? 'height: 90vh;' : ''}}max-height: 92vh;" catchtap="noop" role="dialog" aria-label="{{utilitySheet === 'diagnostics' ? ui['诊断信息'] : ui['清理缓存']}}">
-      <view class="sheet-grabber-zone" data-sheet="utility" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
-      <view class="utility-header">
-        <text class="utility-title">{{utilitySheet === 'diagnostics' ? ui['诊断信息'] : ui['清理缓存']}}</text>
-        <button wx:if="{{utilitySheet === 'diagnostics'}}" class="utility-close" bindtap="closeUtilitySheet" disabled="{{cacheClearing}}" aria-label="{{ui['关闭弹窗']}}"><view class="sheet-close-x"></view></button>
-      </view>
-      <scroll-view scroll-y enhanced class="utility-scroll">
-        <view wx:if="{{utilitySheet === 'diagnostics'}}" class="diagnostic-list">
-          <view wx:for="{{diagnostics}}" wx:key="label" class="diagnostic-row">
-            <text class="diagnostic-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
-            <text class="diagnostic-value {{item.mono ? 'text-mono' : ''}}" selectable>{{item.value}}</text>
-          </view>
-        </view>
-        <view wx:else class="cache-description">
-          <text>{{ui['仅清理本机的会话列表与正文缓存，下次打开时重新加载。']}}</text>
-          <text class="cache-note">{{ui['不会删除聊天记录、配对信息或公网有效期。']}}</text>
-          <text wx:if="{{cacheError}}" class="cache-error">{{ui[cacheError] !== undefined ? ui[cacheError] : cacheError}}</text>
-        </view>
-      </scroll-view>
-      <view wx:if="{{utilitySheet === 'cache'}}" class="utility-actions">
-        <button class="utility-button utility-cancel" bindtap="closeUtilitySheet" disabled="{{cacheClearing}}">{{ui['取消']}}</button>
-        <button class="utility-button utility-confirm" bindtap="confirmClearCache" disabled="{{cacheClearing}}">{{cacheClearing ? ui['清理中…'] : ui['确认清理']}}</button>
-      </view>
-      <button wx:else class="utility-button utility-done" bindtap="closeUtilitySheet">{{ui['知道了']}}</button>
     </view>
   </view>
 </view>

@@ -1968,8 +1968,10 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
       <view class="turn-scrub-body" id="turn-scrub-body">
         <view wx:if="{{turnNavWarming}}" class="turn-history-status">{{turnNavWarmText}} · {{turnNavItems.length}}</view>
         <view wx:elif="{{historyLoading}}" class="turn-history-status">{{historyProgressText}} · {{turnNavItems.length}}</view>
-        <view wx:elif="{{turnNavWarmText}}" class="turn-history-status">{{turnNavWarmText}} · {{turnNavItems.length}}</view>
         <view wx:elif="{{hasMoreHistory && histError}}" class="turn-history-status turn-history-error" catchtap="retryTurnNavigatorHistory">{{histError}} · {{ui['重试']}}</view>
+        <view wx:elif="{{turnNavHistoryComplete && turnNavItems.length}}" class="turn-history-status turn-history-complete">{{turnNavHistoryText}} · {{turnNavItems.length}}</view>
+        <view wx:elif="{{turnNavHistoryPending && turnNavItems.length}}" class="turn-history-status">{{turnNavHistoryText}} · {{turnNavItems.length}}</view>
+        <view wx:elif="{{turnNavWarmText}}" class="turn-history-status">{{turnNavWarmText}} · {{turnNavItems.length}}</view>
         <scroll-view
           scroll-y
           enhanced

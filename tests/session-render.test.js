@@ -603,6 +603,34 @@ test('bottom follow uses one measured scrollTop instead of repeatedly clearing t
   assert.equal(f.patches.length, patchesAfterLanding,
     'an unchanged bottom position does not clear and replay scroll-into-view');
 });
+test('live-session entry retries a missed tail anchor without compensating scrollTop', () => {
+  const f = fixture();
+  f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;
+  f.page.measureConversationWindow = () => {};
+  f.page.data.rows = [{ key: 'latest', kind: 'assistant', text: 'live' }];
+  f.page.data.scrollTarget = 'conv-bottom';
+  f.page.data.conversationScrollTop = 1000;
+  f.page._convPinned = true;
+  f.page._initialConversationAnchorApplied = true;
+  f.page._fastLiveSessionEntry = true;
+  f.page._renderSessionId = 'performance-test';
+  f.wx.createSelectorQuery = () => {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect: () => query, scrollOffset: () => query }; },
+      exec(callback) { callback([{ height: 400 }, { scrollHeight: 1400, scrollTop: 0 }]); }
+    };
+    return query;
+  };
+
+  f.page.refreshBottomAnchor();
+  f.ticks.shift()();
+  assert.equal(f.ticks.length, 1, 'the fallback waits one render tick before reapplying the anchor');
+  f.ticks.shift()();
+  assert.equal(f.page.data.conversationScrollTop, 1000, 'the bound position is not rewritten as a correction');
+  assert.equal(f.page.data.scrollTarget, 'conv-bottom', 'a missed first landing retries the native tail anchor');
+  assert.ok(f.patches.every(patch => patch.conversationScrollTop === undefined));
+});
 test('bottom follow retries a missed initial target when the bound scrollTop is already stale-equal', () => {
   const f = fixture();
   f.page.refreshBottomAnchor = f.definition.refreshBottomAnchor;

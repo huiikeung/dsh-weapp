@@ -62,6 +62,26 @@ test('long conversations still virtualize and keep the DOM window stable', () =>
     'a fast fling beyond the current window is handled immediately');
 });
 
+test('virtual origin rebases scroll coordinates without changing the native position', () => {
+  const window = new ConversationWindow();
+  pinHeights(window, rows(200), 60);
+  window.update(rows(200));
+  window.origin = 120;
+  const patch = window.select(1320, 300);
+  assert.ok(patch.rows.some(row => row.key === 'u20'), 'selection maps through the rebased origin');
+  assert.equal(patch.conversationTopSpace + patch.conversationBottomSpace
+    + (window.offsets[window.end] - window.offsets[window.start]), window.offsets[200],
+  'rebasing redistributes spacer space without changing total content height');
+  const baseline = new ConversationWindow();
+  pinHeights(baseline, rows(200), 60);
+  baseline.update(rows(200));
+  const baselinePatch = baseline.select(1200, 300);
+  assert.deepEqual(patch.rows.map(row => row.key), baselinePatch.rows.map(row => row.key),
+    'rebased selection matches the equivalent unshifted logical offset');
+  assert.equal(window.shouldShiftForScroll(1320, 300), baseline.shouldShiftForScroll(1200, 300),
+    'window-edge checks use the same logical position after rebasing');
+});
+
 test('variable height prefix offsets select the correct row including a very long reply', () => {
   const window = new ConversationWindow();
   pinHeights(window, rows(10), 100);
@@ -175,20 +195,101 @@ test('fast fling measures the mounted slice and preserves the visible anchor', (
     });
     const visibleRow = rects.findIndex(rect => rect.bottom > viewportTop + 1 && rect.top < 300 - 1);
     const anchorIndex = Number(page.data.rows[visibleRow].key.slice(1));
-    const anchorRelativeTop = rects[visibleRow].top - viewportTop;
+    const oldStart = page._conversationWindow.start;
+    const oldAnchorOffset = page._conversationWindow.offsets[anchorIndex];
+    const oldStartOffset = page._conversationWindow.offsets[oldStart];
+    const oldTopSpace = page.data.conversationTopSpace;
+    const expectedAnchorTop = oldTopSpace + oldAnchorOffset - oldStartOffset - 1400;
     completeMeasure([{ top: 0, bottom: 300 }, { scrollTop: 1260 }, rects]);
 
-    const expectedTop = page._conversationWindow.offsets[anchorIndex] - anchorRelativeTop + (1400 - 1260);
-    const effectiveTop = applied.conversationScrollTop === undefined ? 1400 : applied.conversationScrollTop;
-    assert.equal(effectiveTop, expectedTop,
-      'the anchor compensation includes momentum and measured spacer geometry');
+    assert.equal(applied && applied.conversationScrollTop, undefined,
+      'a fast swipe never feeds a corrective scrollTop back into the native scroller');
     assert.ok(page.data.rows.some(row => row.key === 'u23'), 'the row under the latest fling position remains mounted');
-    assert.equal(page._lastNativeScrollTop, applied.conversationScrollTop === undefined ? 1400 : expectedTop,
-      'the native position remains at the latest fling position unless geometry needs correction');
+    assert.equal(page._lastNativeScrollTop, 1400, 'native momentum remains the source of truth');
     assert.equal(page._conversationWindow.heights.get('u23'), rowHeight,
       'real row heights are cached before the virtual slice changes');
-    assert.equal(page._conversationWindow.offsets[anchorIndex] - expectedTop, anchorRelativeTop - 140,
-      'the same visible row stays at the screen position reached by the native fling');
+    const start = page._conversationWindow.start;
+    const rebasedTop = page.data.conversationTopSpace
+      + page._conversationWindow.offsets[anchorIndex] - page._conversationWindow.offsets[start] - 1400;
+    assert.equal(rebasedTop, expectedAnchorTop,
+      'spacer rebasing restores the pre-measure anchor coordinate at the latest native offset');
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+});
+
+test('fast fling past the mounted slice discards height changes that have no visible anchor', () => {
+  const list = rows(120);
+  const page = pageWith(list, { _lastScrollTop: 500, _lastNativeScrollTop: 500, _convClientHeight: 300 }, 100);
+  const initial = page._conversationWindow.select(500, 300);
+  page.data = { tab: 'conversation', rows: initial.rows,
+    conversationTopSpace: initial.conversationTopSpace, conversationBottomSpace: initial.conversationBottomSpace };
+  page._lastTouchAt = Date.now();
+  page._panelGesture = { tab: 'conversation', axis: 'vertical' };
+  page._lastConversationGestureAt = page._lastTouchAt;
+
+  let completeMeasure;
+  let applied;
+  page.setData = patch => { applied = patch; Object.assign(page.data, patch); };
+  const previousWx = global.wx;
+  global.wx = { createSelectorQuery() {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect() { return query; }, scrollOffset() { return query; } }; },
+      selectAll() { return { boundingClientRect() { return query; } }; },
+      exec(callback) { completeMeasure = callback; }
+    };
+    return query;
+  } };
+
+  try {
+    page._lastNativeScrollTop = 900;
+    page.updateConversationWindow(900);
+    page._lastNativeScrollTop = 1500;
+    page.updateConversationWindow(1500);
+    const rects = page.data.rows.map((row, index) => {
+      const top = -10000 + index * 70;
+      return { top, bottom: top + 70, height: 70 };
+    });
+    completeMeasure([{ top: 0, bottom: 300 }, { scrollTop: 900 }, rects]);
+
+    assert.equal(page._conversationWindow.heights.get('u0'), 100,
+      'offscreen measurements are rolled back because no visible row can anchor them');
+    assert.equal(page._lastNativeScrollTop, 1500, 'the latest native fling position remains authoritative');
+    assert.equal(applied.conversationScrollTop, undefined, 'the scroller is not corrected without a visible anchor');
+    assert.ok(page.data.rows.some(row => row.key === 'u15'), 'the mounted slice follows the latest fling position');
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+});
+
+test('idle measurement outside the mounted slice moves the window before changing cached geometry', () => {
+  const page = measuredPage({ _lastScrollTop: 1400, _lastNativeScrollTop: 1400 });
+  const rects = page.data.rows.map((row, index) => {
+    const top = -10000 + index * 70;
+    return { top, bottom: top + 70, height: 70 };
+  });
+  let requestedTop;
+  page.updateConversationWindow = top => { requestedTop = top; };
+  page.setData = () => { throw new Error('offscreen geometry must not be committed'); };
+  const previousWx = global.wx;
+  global.wx = { createSelectorQuery() {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect() { return query; }, scrollOffset() { return query; } }; },
+      selectAll() { return { boundingClientRect() { return query; } }; },
+      exec(callback) { callback([{ top: 0, bottom: 300 }, { scrollTop: 1400 }, rects]); }
+    };
+    return query;
+  } };
+
+  try {
+    page.measureConversationWindow();
+    assert.equal(page._conversationWindow.heights.get('u0'), 100,
+      'an offscreen slice cannot change the geometry model');
+    assert.equal(requestedTop, 1400, 'the next window is selected from the native scroll position');
   } finally {
     if (previousWx === undefined) delete global.wx;
     else global.wx = previousWx;
@@ -228,7 +329,7 @@ test('a pending measure cannot restore the old scroll position during an active 
     // Native momentum has moved, but the next bindscroll callback has not run.
     page._lastNativeScrollTop = 1400;
     const viewportTop = 0;
-    const measuredTop = 1260;
+    const measuredTop = 1400;
     const rowHeight = 62.5;
     const windowStart = page._conversationWindow.start;
     const topSpace = page.data.conversationTopSpace;
@@ -239,29 +340,33 @@ test('a pending measure cannot restore the old scroll position during an active 
     });
     const visibleRow = rects.findIndex(rect => rect.bottom > viewportTop + 1 && rect.top < 300 - 1);
     const anchorIndex = Number(page.data.rows[visibleRow].key.slice(1));
-    const anchorRelativeTop = rects[visibleRow].top - viewportTop;
+    const oldStart = page._conversationWindow.start;
+    const oldAnchorOffset = page._conversationWindow.offsets[anchorIndex];
+    const oldStartOffset = page._conversationWindow.offsets[oldStart];
+    const oldTopSpace = page.data.conversationTopSpace;
+    const expectedAnchorTop = oldTopSpace + oldAnchorOffset - oldStartOffset - 1400;
     completeMeasure([{ top: 0, bottom: 300 }, { scrollTop: measuredTop }, rects]);
 
-    const expectedTop = page._conversationWindow.offsets[anchorIndex] - anchorRelativeTop + (1400 - measuredTop);
-    const effectiveTop = applied.conversationScrollTop === undefined ? 1400 : applied.conversationScrollTop;
-    assert.equal(effectiveTop, expectedTop,
-      'geometry correction preserves the current visible row without returning to the query snapshot');
+    assert.equal(applied && applied.conversationScrollTop, undefined,
+      'a query observing newer momentum rebases spacers instead of replaying an old scroll position');
     assert.ok(page.data.rows.some(row => row.key === 'u23'),
       'the rendered window follows the latest native position even before its scroll event arrives');
-    assert.equal(page._lastNativeScrollTop, applied.conversationScrollTop === undefined ? 1400 : expectedTop);
+    assert.equal(page._lastNativeScrollTop, 1400);
     assert.equal(page._conversationWindow.heights.get('u23'), rowHeight,
       'real row heights are cached instead of estimated heights');
-    assert.equal(page._conversationWindow.offsets[anchorIndex] - effectiveTop, anchorRelativeTop - (1400 - measuredTop),
-      'the visible row follows native momentum during the active gesture');
+    const start = page._conversationWindow.start;
+    const rebasedTop = page.data.conversationTopSpace
+      + page._conversationWindow.offsets[anchorIndex] - page._conversationWindow.offsets[start] - 1400;
+    assert.equal(rebasedTop, expectedAnchorTop,
+      'the stable key remains at its pre-measure logical pixel position');
   } finally {
     if (previousWx === undefined) delete global.wx;
     else global.wx = previousWx;
   }
 });
 
-test('window-shift compensation accounts for the conversation content padding', () => {
-  // 真实布局：行 screen top = 视口 top + 内容 padding(8) + 占位 - scrollTop。
-  // 补偿公式若漏掉 padding，每次平移都会多发一次 8px 的滚动 → 「多滑一截」。
+test('window-shift measurement does not infer scrollTop from padded screen coordinates', () => {
+  // 实际布局有视口 padding；rect 只用于找可见 key，不再反算 scrollTop。
   const list = rows(200);
   const page = pageWith(list, { _lastScrollTop: 1200, _lastNativeScrollTop: 1200, _convClientHeight: 300 }, 62.5);
   const initial = page._conversationWindow.select(1200, 300);
@@ -287,8 +392,9 @@ test('window-shift compensation accounts for the conversation content padding', 
   try {
     const viewportTop = 100;
     const pad = 8;
-    const measuredTop = 1260;
+    const measuredTop = 1400;
     page._lastNativeScrollTop = 1400;
+    page._lastScrollTop = 1400;
     page.updateConversationWindow(1400);
     const rowHeight = 62.5;
     const windowStart = page._conversationWindow.start;
@@ -303,7 +409,7 @@ test('window-shift compensation accounts for the conversation content padding', 
 
     assert.equal(applied.conversationScrollTop, undefined,
       'with consistent geometry the padding-aware compensation produces no spurious scrollTop write');
-    assert.equal(page._lastScrollTop, 1200, 'no correction is recorded as the native position');
+    assert.equal(page._lastScrollTop, 1400, 'the latest native position is recorded without a corrective write');
   } finally {
     if (previousWx === undefined) delete global.wx;
     else global.wx = previousWx;
@@ -338,6 +444,7 @@ test('a window shift during an active swipe swaps rows without rewriting the scr
     page._panelGesture = { tab: 'conversation', axis: 'vertical' };
     page._lastConversationGestureAt = page._lastTouchAt;
     page._lastConvScrollAt = page._lastTouchAt;
+    page._lastNativeScrollTop = 1260;
     page.updateConversationWindow(1260);
     const viewportTop = 0;
     const measuredTop = 1260;
@@ -349,13 +456,24 @@ test('a window shift during an active swipe swaps rows without rewriting the scr
       const top = viewportTop + topSpace + (index - windowStart) * rowHeight - measuredTop;
       return { top, bottom: top + rowHeight, height: rowHeight };
     });
+    const visibleRow = rects.findIndex(rect => rect.bottom > viewportTop + 1 && rect.top < 300 - 1);
+    const anchorIndex = Number(page.data.rows[visibleRow].key.slice(1));
+    const oldStart = page._conversationWindow.start;
+    const oldAnchorOffset = page._conversationWindow.offsets[anchorIndex];
+    const oldStartOffset = page._conversationWindow.offsets[oldStart];
+    const oldTopSpace = page.data.conversationTopSpace;
+    const expectedAnchorTop = oldTopSpace + oldAnchorOffset - oldStartOffset - 1260;
     completeMeasure([{ top: viewportTop, bottom: 300 }, { scrollTop: measuredTop }, rects]);
 
-    assert.equal(applied.conversationScrollTop, undefined,
-      'the anchored compensation is a no-op for consistent geometry, so momentum is never interrupted');
-    assert.equal(page._lastNativeScrollTop, 1200, 'the native position is left to the running gesture');
+    assert.equal(applied && applied.conversationScrollTop, undefined,
+      'height corrections are absorbed by the spacers instead of interrupting momentum');
+    assert.equal(page._lastNativeScrollTop, 1260, 'the native position is left to the running gesture');
     assert.ok(page.data.rows.some(row => row.key === 'u23'), 'the row under the fling position is mounted');
     assert.equal(page._conversationWindow.heights.get('u23'), 70, 'measured heights are committed');
+    const start = page._conversationWindow.start;
+    const rebasedTop = page.data.conversationTopSpace
+      + page._conversationWindow.offsets[anchorIndex] - page._conversationWindow.offsets[start] - 1260;
+    assert.equal(rebasedTop, expectedAnchorTop, 'the visible key keeps its pre-measure logical screen coordinate');
   } finally {
     if (previousWx === undefined) delete global.wx;
     else global.wx = previousWx;
@@ -367,11 +485,45 @@ test('prepending history preserves the visible anchor and offset while incoming 
   const page = pageWith(list, { _lastScrollTop: 5025 }, 100);
   page._conversationWindow.heights.set('older', 100);
   const patch = page.conversationWindowPatch([{ key: 'older', kind: 'user', text: 'old' }, ...list]);
-  assert.equal(patch.conversationScrollTop, 5125);
+  assert.equal(patch.conversationScrollTop, undefined);
+  assert.equal(page._conversationWindow.origin, -100, 'the prepend shifts the virtual origin, not the reader');
+  assert.equal(page._lastScrollTop, 5025);
   assert.ok(patch.rows.some(row => row.key === 'u50'));
   const live = page.conversationWindowPatch([{ key: 'older', kind: 'user', text: 'old' }, ...list, { key: 'live', kind: 'assistant', text: 'live' }]);
   assert.equal(live.conversationScrollTop, undefined);
-  assert.equal(page._lastScrollTop, 5125);
+  assert.equal(page._lastScrollTop, 5025);
+});
+
+test('content re-estimation preserves the same visible row through spacer rebasing', () => {
+  const list = rows(100);
+  const page = pageWith(list, { _lastScrollTop: 5025, _lastNativeScrollTop: 5025 }, 100);
+  const initial = page.conversationWindowPatch(list);
+  const anchor = list[50];
+  const oldScreenTop = initial.conversationTopSpace
+    + page._conversationWindow.offsets[50] - page._conversationWindow.offsets[page._conversationWindow.start] - 5025;
+
+  page._conversationWindow.heights.set('u30', 200);
+  const patch = page.conversationWindowPatch(list);
+  const nextIndex = page._conversationWindow.rows.findIndex(row => row.key === anchor.key);
+  const newScreenTop = patch.conversationTopSpace
+    + page._conversationWindow.offsets[nextIndex]
+    - page._conversationWindow.offsets[page._conversationWindow.start] - 5025;
+
+  assert.equal(patch.conversationScrollTop, undefined, 'the user-controlled scrollTop is untouched');
+  assert.equal(newScreenTop, oldScreenTop, 'the anchor stays at the exact same pixel after an upstream height change');
+});
+
+test('row mutations anchor to the last measured stable key instead of an estimated index', () => {
+  const list = rows(100);
+  const page = pageWith(list, { _lastScrollTop: 5025, _lastNativeScrollTop: 5025 }, 100);
+  page._lastMeasuredConversationAnchor = { key: 'u45', screenTop: -20, scrollTop: 5025 };
+  page._conversationWindow.heights.set('u48', 200);
+
+  const patch = page.conversationWindowPatch(list);
+
+  assert.equal(page._conversationWindow.origin, 0,
+    'a height change below the actually visible row does not rebase its position');
+  assert.equal(patch.conversationScrollTop, undefined);
 });
 
 test('content re-estimation does not write scrollTop over a recent manual swipe', () => {
@@ -410,36 +562,115 @@ test('a fully rendered conversation never rewrites scrollTop from estimated offs
   assert.equal(page._lastScrollTop, 137);
 });
 
-test('history prepends anchor the viewport with scroll-into-view instead of guessed scrollTop', () => {
+test('history prepends preserve the keyed row in spacer coordinates without scroll-into-view', () => {
   const list = rows(100);
   const page = pageWith(list, { _lastScrollTop: 5025 }, 100);
+  page._lastTouchAt = Date.now();
+  page._lastConversationGestureAt = page._lastTouchAt;
+  page._panelGesture = { tab: 'conversation', axis: 'vertical' };
+  const before = page._conversationWindow.patch();
+  const oldAnchorIndex = 50;
+  const oldScreenTop = before.conversationTopSpace
+    + page._conversationWindow.offsets[oldAnchorIndex]
+    - page._conversationWindow.offsets[page._conversationWindow.start] - 5025;
   page._conversationWindow.heights.set('older', 100);
   const patch = page.conversationWindowPatch([{ key: 'older', kind: 'user', text: 'old' }, ...list], { anchor: true });
-  assert.equal(patch.scrollTarget, 'u50');
+  assert.equal(patch.scrollTarget, '');
   assert.equal(patch.scrollAnim, false);
   assert.equal(patch.conversationScrollTop, undefined);
-  assert.equal(page._lastScrollTop, 5125);
+  assert.equal(page._scrollAnchorAt, undefined, 'history insertion does not masquerade as a programmatic scroll');
+  assert.equal(page._lastScrollTop, 5025);
+  const anchorIndex = page._conversationWindow.rows.findIndex(row => row.key === 'u50');
+  const nextScreenTop = patch.conversationTopSpace
+    + page._conversationWindow.offsets[anchorIndex]
+    - page._conversationWindow.offsets[page._conversationWindow.start] - 5025;
+  assert.equal(nextScreenTop, oldScreenTop, 'the prepended page does not move the existing reading anchor');
 });
 
-// 120 行 × 100px 远超整段渲染阈值，实测后仍然走虚拟窗口 + 校正这条路径。
+test('settled history prepends canonicalize the virtual origin without moving the visible row', () => {
+  const list = rows(100);
+  const page = pageWith(list, { _lastScrollTop: 5025, _lastNativeScrollTop: 5025,
+    _convClientHeight: 700 }, 100);
+  const initial = page._conversationWindow.patch();
+  page.data = { tab: 'conversation', rows: initial.rows,
+    conversationTopSpace: initial.conversationTopSpace,
+    conversationBottomSpace: initial.conversationBottomSpace,
+    conversationScrollTop: 0 };
+  page._conversationWindow.heights.set('older', 100);
+  const prepend = page.conversationWindowPatch([{ key: 'older', kind: 'user', text: 'old' }, ...list], { anchor: true });
+  Object.assign(page.data, prepend);
+  const anchorIndex = page._conversationWindow.rows.findIndex(row => row.key === 'u50');
+  const oldScreenTop = page.data.conversationTopSpace
+    + page._conversationWindow.offsets[anchorIndex]
+    - page._conversationWindow.offsets[page._conversationWindow.start] - 5025;
+  let applied;
+  page.setData = (patch, callback) => {
+    applied = patch;
+    Object.assign(page.data, patch);
+    if (callback) callback();
+  };
+  const previousWx = global.wx;
+  global.wx = { createSelectorQuery() {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect() { return query; }, scrollOffset() { return query; } }; },
+      selectAll() { return { boundingClientRect() { return query; } }; },
+      exec(callback) {
+        const top = page.data.conversationTopSpace - 5025;
+        const rects = page.data.rows.map((_row, index) => {
+          const rowTop = top + index * 100;
+          return { top: rowTop, bottom: rowTop + 100, height: 100 };
+        });
+        callback([{ top: 0, bottom: 700 }, { scrollTop: 5025 }, rects]);
+      }
+    };
+    return query;
+  } };
+  try {
+    page.measureConversationWindow();
+    assert.equal(page._conversationWindow.origin, 0, 'the temporary origin is folded into native coordinates');
+    assert.equal(applied.conversationScrollTop, 5125, 'native scrollTop advances by the inserted-page offset');
+    const newIndex = page._conversationWindow.rows.findIndex(row => row.key === 'u50');
+    const newScreenTop = page.data.conversationTopSpace
+      + page._conversationWindow.offsets[newIndex]
+      - page._conversationWindow.offsets[page._conversationWindow.start] - applied.conversationScrollTop;
+    assert.equal(newScreenTop, oldScreenTop, 'normalization changes coordinates, not the reader-visible pixel');
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+});
+
+// 120 行 × 100px 远超整段渲染阈值，实测后仍然走虚拟窗口 + spacer 重基准。
 function measuredPage(extra) {
   const list = rows(120);
-  const page = pageWith(list, Object.assign({ _lastScrollTop: 500, _convClientHeight: 700 }, extra), 100);
-  page.data = { tab: 'conversation', rows: page.conversationWindowPatch(list).rows,
-    conversationTopSpace: 0, conversationBottomSpace: 10100 };
+  const page = pageWith(list, Object.assign({ _lastScrollTop: 1400, _lastNativeScrollTop: 1400,
+    _convClientHeight: 700 }, extra), 100);
+  const initial = page._conversationWindow.patch();
+  page.data = { tab: 'conversation', rows: initial.rows,
+    conversationTopSpace: initial.conversationTopSpace,
+    conversationBottomSpace: initial.conversationBottomSpace };
   return page;
 }
 
-function rectsAt(page, rowHeight) {
+function rectsAt(page, rowHeight, scrollTop) {
+  const top = page.data.conversationTopSpace - (scrollTop == null ? 1400 : scrollTop);
   return page.data.rows.map((row, index) => {
-    const top = 100 + (index - 7) * rowHeight;
-    return { top, bottom: top + rowHeight, height: rowHeight };
+    const rowTop = top + index * rowHeight;
+    return { top: rowTop, bottom: rowTop + rowHeight, height: rowHeight };
   });
 }
 
-test('measured height corrections preserve the first DOM-visible row, not the estimated index', () => {
+test('measured height changes rebase spacers around the first visible key without writing scrollTop', () => {
   const page = measuredPage();
-  const rects = rectsAt(page, 70);
+  const rects = rectsAt(page, 70, 1400);
+  const visibleRow = rects.findIndex(rect => rect.bottom > 101 && rect.top < 799);
+  const anchorIndex = page._conversationWindow.start + visibleRow;
+  const oldStart = page._conversationWindow.start;
+  const oldOffset = page._conversationWindow.offsets[anchorIndex];
+  const oldStartOffset = page._conversationWindow.offsets[oldStart];
+  const oldTopSpace = page.data.conversationTopSpace;
+  const oldScreenTop = oldTopSpace + oldOffset - oldStartOffset - 1400;
   let applied;
   page.setData = patch => { applied = patch; Object.assign(page.data, patch); };
   const previousWx = global.wx;
@@ -461,14 +692,18 @@ test('measured height corrections preserve the first DOM-visible row, not the es
     else global.wx = previousWx;
   }
 
-  assert.equal(applied.conversationScrollTop, 290,
-    'seven preceding rows each shrink by 30px, so the visible row stays at the same screen position');
-  assert.equal(page._lastScrollTop, 290);
+  assert.equal(applied && applied.conversationScrollTop, undefined,
+    'a measurement never feeds a corrective scrollTop into the native gesture');
+  const newScreenTop = page.data.conversationTopSpace
+    + page._conversationWindow.offsets[anchorIndex]
+    - page._conversationWindow.offsets[page._conversationWindow.start] - 1400;
+  assert.equal(newScreenTop, oldScreenTop, 'the same visible key keeps its old logical pixel position');
+  assert.equal(page._lastScrollTop, 1400);
 });
 
-test('first-load height corrections use native scrollTop when cached scroll state is stale', () => {
-  const page = measuredPage();
-  const rects = rectsAt(page, 70);
+test('first-load measurement adopts native scrollTop when cached scroll state is stale', () => {
+  const page = measuredPage({ _lastScrollTop: 1400, _lastNativeScrollTop: 1400 });
+  const rects = rectsAt(page, 70, 520);
   let applied;
   page.setData = patch => { applied = patch; Object.assign(page.data, patch); };
   const previousWx = global.wx;
@@ -490,9 +725,93 @@ test('first-load height corrections use native scrollTop when cached scroll stat
     else global.wx = previousWx;
   }
 
-  assert.equal(applied.conversationScrollTop, 310,
-    'the correction is applied to the current native offset, not an earlier cached offset');
-  assert.equal(page._lastScrollTop, 310);
+  assert.equal(applied && applied.conversationScrollTop, undefined,
+    'measuring the initial window does not issue a corrective scroll');
+  assert.equal(page._lastNativeScrollTop, 520, 'the queried native offset replaces stale cached state');
+  assert.equal(page._lastScrollTop, 520);
+});
+
+test('live-session entry keeps the first tail anchor and does not normalize scrollTop', () => {
+  const list = rows(120);
+  const page = pageWith(list, { _lastScrollTop: 1400, _lastNativeScrollTop: 1400,
+    _convClientHeight: 700, _convPinned: true, _fastLiveSessionEntry: true,
+    _initialConversationAnchorApplied: true, _initialConversationAnchorRecoveryPending: true }, 100);
+  const initial = page._conversationWindow.patch();
+  page.data = { tab: 'conversation', scrollTarget: 'conv-bottom', rows: initial.rows,
+    conversationTopSpace: initial.conversationTopSpace,
+    conversationBottomSpace: initial.conversationBottomSpace };
+  page._conversationWindow.origin = 100;
+  Object.assign(page.data, page._conversationWindow.patch());
+  const patches = [];
+  page.setData = patch => { patches.push(patch); Object.assign(page.data, patch); };
+  const rects = page.data.rows.map((_row, index) => ({
+    top: index * 100, bottom: (index + 1) * 100, height: 100
+  }));
+  const previousWx = global.wx;
+  global.wx = { createSelectorQuery() {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect() { return query; }, scrollOffset() { return query; } }; },
+      selectAll() { return { boundingClientRect() { return query; } }; },
+      exec(callback) { callback([{ top: 0, bottom: 700 }, { scrollTop: 1400, scrollHeight: 3000 }, rects]); }
+    };
+    return query;
+  } };
+  try {
+    page.measureConversationWindow();
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+
+  assert.equal(page._conversationWindow.origin, 100, 'entry measurement leaves the virtual origin alone');
+  assert.equal(page._initialConversationAnchorApplied, true, 'the first anchor remains protected until recovery settles');
+  assert.equal(page._fastLiveSessionEntry, true);
+  assert.ok(patches.every(patch => patch.conversationScrollTop === undefined),
+    'entry measurement never writes a compensating native scrollTop');
+});
+
+test('live-session entry absorbs measured height drift without a native position correction', () => {
+  const list = rows(120);
+  const page = pageWith(list, { _lastScrollTop: 1400, _lastNativeScrollTop: 1400,
+    _convClientHeight: 700, _convPinned: true, _fastLiveSessionEntry: true,
+    _initialConversationAnchorApplied: true, _initialConversationAnchorRecoveryPending: true }, 100);
+  const initial = page._conversationWindow.patch();
+  page.data = { tab: 'conversation', scrollTarget: 'conv-bottom', rows: initial.rows,
+    conversationTopSpace: initial.conversationTopSpace,
+    conversationBottomSpace: initial.conversationBottomSpace };
+  const patches = [];
+  page.setData = (patch, callback) => {
+    patches.push(patch);
+    Object.assign(page.data, patch);
+    if (callback) callback();
+  };
+  const rowHeight = 2000;
+  const rects = page.data.rows.map((_row, index) => ({
+    top: (index - 10) * rowHeight, bottom: (index - 9) * rowHeight, height: rowHeight
+  }));
+  const previousWx = global.wx;
+  global.wx = { createSelectorQuery() {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect() { return query; }, scrollOffset() { return query; } }; },
+      selectAll() { return { boundingClientRect() { return query; } }; },
+      exec(callback) { callback([{ top: 0, bottom: 700 }, { scrollTop: 1400, scrollHeight: 3000 }, rects]); }
+    };
+    return query;
+  } };
+  try {
+    page.measureConversationWindow();
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+
+  assert.ok(page._conversationWindow.heights.get(page.data.rows[0].key) > 100,
+    'real row heights are still adopted during entry');
+  assert.ok(patches.length > 0, 'spacers update to the measured geometry');
+  assert.ok(patches.every(patch => patch.conversationScrollTop === undefined),
+    'large initial estimate drift never feeds back into the native scroll position');
 });
 
 test('a tap measures immediately; only a real scroll defers the correction', () => {
@@ -502,7 +821,7 @@ test('a tap measures immediately; only a real scroll defers the correction', () 
   let now = 2000, timerId = 0;
   const timers = new Map();
   const page = measuredPage({ _lastTouchAt: now - 40 });
-  const rects = rectsAt(page, 70);
+  const rects = rectsAt(page, 70, 500);
   let applied;
   page.setData = patch => { applied = patch; Object.assign(page.data, patch); };
   const previousWx = global.wx;
@@ -523,8 +842,10 @@ test('a tap measures immediately; only a real scroll defers the correction', () 
   try {
     page.measureConversationWindow();
     assert.equal(timers.size, 0, 'a tap without scrolling does not postpone the measurement');
-    assert.equal(applied.conversationScrollTop, 290,
-      'the disclosure height correction lands in the same frame as the tap');
+    assert.equal(applied && applied.conversationScrollTop, undefined,
+      'the disclosure measurement does not move the native scroller');
+    assert.equal(page._conversationWindow.heights.get(page.data.rows[0].key), 70,
+      'the tap measurement still updates row geometry immediately');
   } finally {
     Date.now = realNow;
     global.setTimeout = realSetTimeout;
@@ -541,7 +862,7 @@ test('measured height changes still wait for a real scroll to settle before corr
   let now = 2000, timerId = 0;
   const timers = new Map();
   const page = measuredPage({ _lastTouchAt: now - 200, _lastConvScrollAt: now - 170 });
-  const rects = rectsAt(page, 70);
+  const rects = rectsAt(page, 70, 500);
   let applied;
   page.setData = patch => { applied = patch; Object.assign(page.data, patch); };
   const previousWx = global.wx;
@@ -573,8 +894,8 @@ test('measured height changes still wait for a real scroll to settle before corr
     deferred.fn();
     assert.equal(page._conversationWindow.heights.get(page.data.rows[7].key), 70,
       'cached measured heights update after touch and momentum settle');
-    assert.equal(applied.conversationScrollTop, 290,
-      'the measured visible-row anchor keeps the viewport stationary when offsets change');
+    assert.equal(applied && applied.conversationScrollTop, undefined,
+      'the settled measurement still does not write scrollTop');
   } finally {
     Date.now = realNow;
     global.setTimeout = realSetTimeout;
@@ -641,10 +962,16 @@ test('cache windows restore multiple local pages and preserve a paging cursor wh
   const cache = recentWindow({ events, rows: [], historyFormatVersion: 1, hasMore: false }, protocol, 's');
   assert.equal(cache.events.length, 2000); assert.equal(cache.rows.length, 2000);
   assert.equal(cache.events[0].seq, 1001); assert.equal(cache.nextBeforeSeq, 1001);
-  assert.equal(cache.hasMore, true); assert.equal(cache.historyFormatVersion, 1);
+  assert.equal(cache.hasMore, true); assert.equal(cache.hasMoreKnown, true);
+  assert.equal(cache.historyFormatVersion, 1);
   assert.equal(cache.rows.at(-1).text, 'Question 2999');
   const legacy = recentWindow({ rows: rows(2500) }, protocol, 's');
   assert.equal(legacy.rows.length, 2000); assert.equal(legacy.hasMore, true);
+  assert.equal(legacy.hasMoreKnown, true, 'a truncated cache proves older rows exist');
+  const boundary = recentWindow({ rows: rows(1), hasMore: false, hasMoreKnown: true }, protocol, 's');
+  assert.equal(boundary.hasMoreKnown, true, 'explicit boundary metadata survives cache normalization');
+  const legacyUnknown = recentWindow({ rows: rows(1), hasMore: false }, protocol, 's');
+  assert.equal(legacyUnknown.hasMoreKnown, false, 'old caches with a default false are not trusted as complete');
 });
 
 test('cached rows restore without replaying a large event window on session entry', () => {

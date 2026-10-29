@@ -91,11 +91,26 @@ test('opening a different session paints a loading shell before restoring its ca
 
   const sameSession = fixture();
   sameSession.page.syncLayoutStyles = () => {};
-  sameSession.page.syncFromStore = () => {};
+  let reusedSnapshot;
+  sameSession.page.syncFromStore = snapshot => { reusedSnapshot = snapshot; };
   sameSession.page.onLoad({ id: 's1', reopen: '1' });
-  assert.equal(sameSession.page._pendingInitialSessionOpen, true, 'home reopens retain their refresh semantics even for the active id');
+  assert.equal(sameSession.page._pendingInitialSessionOpen, true, 'the loading shell still paints before the live snapshot');
+  assert.equal(sameSession.page._reuseRunningSessionOnEntry, true);
+  assert.equal(sameSession.calls.some(call => call[0] === 'open'), false, 'an active run is not reloaded from cache');
+  assert.equal(reusedSnapshot, undefined, 'the live rows wait until the shell has reached the view layer');
   sameSession.ticks.shift()();
-  assert.deepEqual(sameSession.calls.find(call => call[0] === 'open'), ['open', 's1', '', null]);
+  assert.equal(reusedSnapshot.session, sameSession.store.sessionState, 'the existing running snapshot is projected directly');
+  assert.equal(sameSession.page._fastLiveSessionEntry, true, 'first-layout compensation suppression is enabled');
+  assert.equal(sameSession.page._preferImmediateStoreSync, true);
+
+  const completedSession = fixture();
+  completedSession.store.sessionState.running = false;
+  completedSession.page.syncLayoutStyles = () => {};
+  completedSession.page.syncFromStore = () => {};
+  completedSession.page.onLoad({ id: 's1', reopen: '1' });
+  completedSession.ticks.shift()();
+  assert.deepEqual(completedSession.calls.find(call => call[0] === 'open'), ['open', 's1', '', null],
+    'completed sessions keep the normal reopen-and-refresh behavior');
 });
 
 test('large outline selection patches nearby blur effects and auto-loads at the older edge', () => {
@@ -111,17 +126,19 @@ test('large outline selection patches nearby blur effects and auto-loads at the 
   page.data.hasMoreHistory = true;
   page.data.historyLoading = false;
   store.sessionState.nextBeforeSeq = 400;
-  page._turnScrollTop = 650;
-  page.onTurnListScroll({ detail: { scrollTop: 700, scrollHeight: 1000, clientHeight: 300 } });
-  assert.equal(page.data.turnNavActiveIndex, 18, 'the row nearest the viewport center becomes active');
+  page._turnScrollTop = 100;
+  page.onTurnListScroll({ detail: { scrollTop: 70, scrollHeight: 1000, clientHeight: 300 } });
+  assert.equal(page.data.turnNavActiveIndex, 2, 'the row nearest the viewport center becomes active');
+  assert.equal(calls.filter(call => call[0] === 'tick').length, 1,
+    'only the explicit selection above vibrates; scrolling the list stays silent');
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 0, 'history loading waits for scrolling to settle');
   const pending = Array.from(timers.values());
   timers.clear();
   pending.forEach(timer => timer.fn());
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
-  page.onTurnListScroll({ detail: { scrollTop: 700, scrollHeight: 1000, clientHeight: 300 } });
+  page.onTurnListScroll({ detail: { scrollTop: 70, scrollHeight: 1000, clientHeight: 300 } });
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1, 'scroll events do not duplicate an in-flight page request');
-  page.onTurnListScroll({ detail: { scrollTop: 650, scrollHeight: 1000, clientHeight: 300 } });
+  page.onTurnListScroll({ detail: { scrollTop: 120, scrollHeight: 1000, clientHeight: 300 } });
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1, 'scrolling back toward newer turns does not reload history');
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const outlineStart = xml.indexOf('class="turn-overlay');
@@ -154,7 +171,7 @@ test('horizontal gestures switch cached panels with feedback while vertical/canc
   assert.equal(page.data.tab, 'conversation');
 });
 test('navigator caches every turn and updates an open list while older history arrives', () => {
-  const { page, calls, store } = fixture();
+  const { page, calls, store, timers } = fixture();
   const rows = Array.from({ length: 80 }, (_, index) => [
     { kind: 'user', key: 'u' + index, text: 'Question ' + index },
     { kind: 'assistant', key: 'a' + index, text: 'Answer ' + index }
@@ -162,22 +179,62 @@ test('navigator caches every turn and updates an open list while older history a
   store.sessionState.rows = rows;
   page.setData(page.turnNavigatorPatch(rows));
   page.openTurnNavigator();
-  assert.equal(page.data.turnNavActiveIndex, 0, 'default selection is ready before measurement');
+  assert.equal(page.data.turnNavActiveIndex, 79, 'the latest turn is selected before measurement');
   assert.equal(page.data.turnNavWidths, undefined, 'the removed slider has no width state');
   assert.equal(page.data.turnNavItems.length, 80);
   assert.ok(page.data.turnNavVisibleItems.length < page.data.turnNavItems.length, 'the outline renders only a viewport window');
-  assert.equal(page.data.turnNavItems[0].key, 'u79');
+  assert.equal(page.data.turnNavItems[0].key, 'u0');
+  assert.equal(page.data.turnNavItems.at(-1).key, 'u79');
+  assert.equal(page.data.turnNavScrollTop, 79 * 38, 'opening centers the latest turn at the bottom');
   page.applyTurnIndex(20, false);
   const selected = page.data.turnNavItems[20].key;
   page.setData(page.turnNavigatorPatch([{ kind: 'user', key: 'older', text: 'Oldest' }, ...rows]));
   assert.equal(page.data.turnNavItems.length, 81);
   assert.equal(page.data.turnNavItems[page.data.turnNavActiveIndex].key, selected);
+  assert.equal(page.data.turnNavScrollTop, 79 * 38 + 38, 'prepending history preserves the selected turn position');
   page._turnListRect = { top: 0, rowHeight: 38, activeRowHeight: 64 };
   page.onTurnListScroll({ detail: { scrollTop: 80 } });
   assert.equal(page.data.turnNavActiveIndex, 2, 'scrolling keeps the center row selected');
-  assert.equal(calls.filter(call => call[0] === 'tick').length, 1);
-  page.applyTurnIndex(2); assert.equal(calls.filter(call => call[0] === 'tick').length, 1);
+  assert.equal(calls.filter(call => call[0] === 'tick').length, 0, 'scrolling does not vibrate once per crossed row');
+  page.applyTurnIndex(3); assert.equal(calls.filter(call => call[0] === 'tick').length, 1, 'explicit selection retains haptic feedback');
   page.onTurnScrubCancel(); page.onTurnScrubEnd(); assert.equal(page.data.turnNavOpen, true);
+});
+
+test('turn outline keeps its native scroll moving and shifts the virtual window in batches', () => {
+  const { page, calls, patches, timers } = fixture();
+  const items = Array.from({ length: 500 }, (_, index) => ({ key: 'u' + index, index, label: 'Question ' + index }));
+  page.data.turnNavItems = items;
+  page._turnListRect = { height: 300, rowHeight: 38, spacer: 131 };
+  const initial = page.turnNavigatorWindowPatch(items, 0);
+  Object.assign(page.data, initial, { turnNavActiveIndex: 0, turnNavRowStyles: items.map((_, i) => page.turnNavRowStyle(i, 0)) });
+  page._turnWindowStart = initial.turnNavWindowStart;
+  page._turnNavEffectsIndex = 0;
+  patches.length = 0;
+
+  page.onTurnListScroll({ detail: { scrollTop: 20 * 38 } });
+  assert.equal(page.data.turnNavActiveIndex, 20);
+  assert.equal(patches.length, 1, 'a row crossing updates the active index without replacing the virtual slice');
+  const styleChanges = Object.keys(patches[0]).filter(key => key.startsWith('turnNavRowStyles['));
+  assert.ok(styleChanges.length <= 13, 'the old row effects are cleared once at gesture start');
+  assert.ok(styleChanges.every(key => patches[0][key] === ''), 'new row effects wait until scrolling settles');
+  assert.equal(calls.filter(call => call[0] === 'tick').length, 0);
+
+  patches.length = 0;
+  page.onTurnListScroll({ detail: { scrollTop: 21 * 38 } });
+  assert.equal(patches.length, 1);
+  assert.ok(!Object.keys(patches[0]).some(key => key.startsWith('turnNavRowStyles[')),
+    'continuous scrolling changes only the selected index, not dozens of row styles');
+
+  const idle = [...timers.values()].find(timer => timer.delay === 120);
+  assert.ok(idle, 'visual effects are deferred until native scrolling goes idle');
+  idle.fn();
+  assert.match(page.data.turnNavRowStyles[21], /opacity:1\.00/);
+
+  patches.length = 0;
+  page.onTurnListScroll({ detail: { scrollTop: 25 * 38 } });
+  assert.equal(page._turnWindowStart, 12, 'the list slice advances by a buffer-sized batch');
+  assert.ok(patches.some(patch => Array.isArray(patch.turnNavVisibleItems)));
+  assert.equal(calls.filter(call => call[0] === 'tick').length, 0);
 });
 test('turn outline keeps cached nodes across openings and only adds newly observed turns', () => {
   const { page, store } = fixture();
@@ -200,7 +257,7 @@ test('turn outline keeps cached nodes across openings and only adds newly observ
   page.openTurnNavigator();
 
   assert.equal(page.data.turnNavItems.length, 5);
-  assert.deepEqual(Array.from(page.data.turnNavItems, item => item.key), ['u4', 'u3', 'u2', 'u1', 'u0']);
+  assert.deepEqual(Array.from(page.data.turnNavItems, item => item.key), ['u0', 'u1', 'u2', 'u3', 'u4']);
   assert.equal(new Set(page.data.turnNavItems.map(item => item.key)).size, 5, 'reopening never duplicates cached nodes');
 });
 test('opening the outline automatically pages through all history without a page, turn, or byte cap', () => {
@@ -219,7 +276,10 @@ test('opening the outline automatically pages through all history without a page
   for (let pageNumber = 1; pageNumber <= 12; pageNumber += 1) {
     store.sessionState.nextBeforeSeq = 100 - pageNumber * 10;
     store.sessionState.hasMoreHistory = pageNumber < 12;
+    store.sessionState.hasMoreHistoryKnown = true;
     store.sessionState.historyLastPageBytes = 400 * 1024;
+    store.sessionState.historyState = 'loaded:history';
+    store.sessionState.cacheDisplay = false;
     page.data.turnNavItems = Array.from({ length: 40 + pageNumber * 50 }, (_, i) => ({ key: 'u' + i }));
     page.pumpTurnNavigatorWarmup();
     if (pageNumber < 12) {
@@ -231,7 +291,8 @@ test('opening the outline automatically pages through all history without a page
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 12);
   assert.equal(page.data.turnNavItems.length, 640);
   assert.equal(page.data.turnNavWarming, false, 'warm-up ends only after the gateway reports no older history');
-  assert.match(page.data.turnNavWarmText, /完整历史/);
+  assert.equal(page.data.turnNavHistoryComplete, true, 'the oldest boundary is confirmed by authoritative loaded metadata');
+  assert.match(page.data.turnNavHistoryText, /最早一轮/);
   assert.equal(page._turnWarmup, null);
 });
 test('opening before the first history snapshot waits, then starts warming once pagination metadata arrives', () => {
@@ -247,6 +308,31 @@ test('opening before the first history snapshot waits, then starts warming once 
   assert.equal(page._turnWarmupStarted, true);
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
 });
+
+test('outline only declares the oldest turn after server history is authoritative', () => {
+  const { page, store } = fixture();
+  page.data.turnNavOpen = true;
+  page.data.turnNavItems = [{ key: 'u1' }];
+  store.sessionState = { sessionId: 's1', rows: [{ kind: 'user', key: 'u1' }],
+    historyState: 'loaded:1ev', historyPaging: false, cacheDisplay: false,
+    hasMoreHistory: false, hasMoreHistoryKnown: true };
+  page.startTurnNavigatorWarmup();
+  assert.equal(page.data.turnNavHistoryComplete, true);
+  assert.equal(page.data.turnNavHistoryPending, false);
+  assert.match(page.data.turnNavHistoryText, /最早一轮/);
+
+  store.sessionState = { sessionId: 's1', rows: [{ kind: 'user', key: 'u1' }],
+    historyState: 'loaded:cached', historyPaging: false, cacheDisplay: true,
+    hasMoreHistory: false, hasMoreHistoryKnown: false };
+  page.startTurnNavigatorWarmup();
+  assert.equal(page.data.turnNavHistoryComplete, false, 'a cached tail cannot prove that earlier turns do not exist');
+  assert.equal(page.data.turnNavHistoryPending, true);
+  assert.match(page.data.turnNavHistoryText, /确认历史范围/);
+
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  assert.match(xml, /turnNavHistoryComplete/);
+});
+
 test('outline warm-up continues at a low rate even when the panel closes', () => {
   const { page, calls, store, timers } = fixture();
   store.sessionState.hasMoreHistory = true;
@@ -295,8 +381,8 @@ test('persisted full outline survives page recreation, merges new nodes and isol
   next.store.sessionState.rows = [{ kind: 'user', key: 'u600', seq: 600, text: 'New' }];
   next.page.openTurnNavigator();
   assert.equal(next.page.data.turnNavItems.length, 601);
-  assert.equal(next.page.data.turnNavItems[0].key, 'u600');
-  assert.equal(next.page.data.turnNavItems.at(-1).key, 'u0');
+  assert.equal(next.page.data.turnNavItems[0].key, 'u0');
+  assert.equal(next.page.data.turnNavItems.at(-1).key, 'u600');
   next.page.closeTurnNavigator(); next.page.openTurnNavigator();
   assert.equal(next.page.data.turnNavItems.length, 601);
   next.store.state.activeID = 'host-b';
@@ -315,6 +401,21 @@ test('unchanged nodes do not rewrite the persistent outline on each opening', ()
   page.setData(page.turnNavigatorPatch(rows));
   assert.equal(writes, 2);
   assert.equal(page.data.turnNavItems.length, 2);
+});
+
+test('legacy newest-first outline caches migrate to chronological order', () => {
+  const { page, store } = fixture();
+  store.getTurnOutline = () => [
+    { key: 'u1', index: 2, label: 'Newer' },
+    { key: 'u0', index: 1, label: 'Older' }
+  ];
+  let saved;
+  store.saveTurnOutline = (sessionId, items) => { saved = items.map(item => ({ ...item })); };
+
+  const patch = page.turnNavigatorPatch([]);
+  assert.deepEqual(Array.from(patch.turnNavItems, item => item.key), ['u0', 'u1']);
+  assert.deepEqual(Array.from(saved, item => item.key), ['u0', 'u1'], 'the migrated order is persisted');
+  assert.deepEqual(Array.from(saved, item => item.index), [0, 1]);
 });
 
 test('cached outline target waits for its message page before jumping', () => {
@@ -353,20 +454,21 @@ test('outline has no right-hand slider or native scrollbar', () => {
   assert.match(xml.slice(start - 100, start), /show-scrollbar="\{\{false\}\}"/);
 });
 test('turn wheel keeps the centered row highlighted while scrolling and only jumps when tapped', () => {
-  const { page, calls, store } = fixture();
+  const { page, calls, store, timers } = fixture();
   const rows = Array.from({ length: 50 }, (_, i) => ({ kind: 'user', key: 'u' + i, text: 'Question ' + i }));
   store.sessionState.rows = rows;
   page.setData(page.turnNavigatorPatch(rows));
   page.openTurnNavigator();
   page._turnListRect = { top: 100, height: 400, rowHeight: 38, spacer: 181 };
   page.onTurnScrubStart({ touches: [{ clientY: 120 }] });
-  assert.equal(page.data.turnNavActiveIndex, 0);
+  assert.equal(page.data.turnNavActiveIndex, 49);
   page.onTurnListScroll({ detail: { scrollTop: 38 } });
   assert.equal(page.data.turnNavActiveIndex, 1);
+  assert.equal(calls.filter(call => call[0] === 'tick').length, 0, 'scrolling does not trigger haptics');
+  [...timers.values()].find(timer => timer.delay === 120).fn();
   assert.ok(!page.data.turnNavRowStyles[1].includes('blur'));
-  assert.ok(!page.data.turnNavRowStyles[0].includes('blur'));
+  assert.ok(!page.data.turnNavRowStyles[49].includes('blur'));
   assert.match(page.data.turnNavRowStyles[1], /opacity:1\.00/);
-  assert.equal(calls.filter(call => call[0] === 'tick').length, 1);
   page.onTurnScrubEnd();
   assert.equal(page.data.turnNavOpen, true, 'scrolling does not close the wheel selector');
   page.revealConversationRow = key => calls.push(['reveal', key]);

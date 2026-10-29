@@ -22,7 +22,9 @@ function recentWindow(cached, protocol, sessionId) {
     if (visibleTurns.has(String(key))) turnUsage[key] = cachedTurnUsage[key];
   });
   return { rows, events, savedAt: cached.savedAt, historyFormatVersion: cached.historyFormatVersion || null,
-    hasMore: truncated || cached.hasMore === true, stats: cached.stats || null, turnUsage,
+    hasMore: truncated || cached.hasMore === true,
+    hasMoreKnown: truncated || cached.hasMore === true || cached.hasMoreKnown === true,
+    stats: cached.stats || null, turnUsage,
     nextBeforeSeq: truncated && events.length ? events[0].seq : cached.nextBeforeSeq };
 }
 module.exports = { recentWindow, EVENT_LIMIT };

@@ -40,6 +40,8 @@ const { toolPresentation } = require('./utils/tool-presentation');
 const CONTEXT_TREND_OVERVIEW_AUTO_STEPS = 200;
 const TRACE_WINDOW_ROWS = 80;
 const TRACE_WINDOW_OVERSCAN = 18;
+const TURN_NAV_WINDOW_BUFFER = 12;
+const TURN_NAV_SCROLL_IDLE_MS = 120;
 // Keep virtual-list geometry in lockstep with trajectory.wxss.
 const TRACE_TURN_HEIGHT_RPX = 0;
 const TRACE_EVENT_ROW_HEIGHT_RPX = 80;
@@ -223,6 +225,9 @@ Page({
     turnNavCardTop: 0,
     turnNavWarming: false,
     turnNavWarmText: '',
+    turnNavHistoryComplete: false,
+    turnNavHistoryPending: false,
+    turnNavHistoryText: '',
     hasMoreHistory: false,
     // 旧历史分页在途标志。must be mirrored into page data: maybePrefetchOlderHistory
     historyPaging: false,
@@ -349,6 +354,10 @@ Page({
     this.sessionId = options.id || store.sessionState.sessionId;
     this._pendingQueue = [];
     this._pendingInitialSessionOpen = !!(options.id && (options.reopen === '1' || store.sessionState.sessionId !== options.id));
+    this._reuseRunningSessionOnEntry = this._pendingInitialSessionOpen
+      && String(store.sessionState.sessionId || '') === String(options.id || '')
+      && store.sessionState.running === true;
+    this._fastLiveSessionEntry = this._reuseRunningSessionOnEntry;
     if (this._pendingInitialSessionOpen) {
       // Paint the page shell before cache restore / row projection can occupy the logic thread.
       this.setData({ rows: [], historyState: 'requested', historyLoading: true,
@@ -390,7 +399,13 @@ Page({
         if (this._unloaded || this.sessionId !== sessionId) return;
         this._pendingInitialSessionOpen = false;
         this._preferImmediateStoreSync = true;
-        store.openSession(sessionId, options.title || '', options.preset || null);
+        if (this._reuseRunningSessionOnEntry) {
+          // Reuse the live snapshot: reopening the active run would reload its
+          // cache and delay mounting the already-available in-progress tail.
+          this.syncFromStore({ app: store.state, session: store.sessionState });
+        } else {
+          store.openSession(sessionId, options.title || '', options.preset || null);
+        }
       });
     } else {
       this.syncFromStore({ app: store.state, session: store.sessionState });
@@ -559,6 +574,8 @@ Page({
     if (this._windowShiftTimer) clearTimeout(this._windowShiftTimer);
     this._windowShiftTimer = null;
     this._pendingWindowScrollTop = null;
+    if (this._turnScrollIdleTimer) clearTimeout(this._turnScrollIdleTimer);
+    this._turnScrollIdleTimer = null;
     if (this._thumbTimer) clearTimeout(this._thumbTimer);
     this._thumbTimer = null; this._thumbQueue = null; this._thumbQueued = null; this._thumbFailed = null;
     if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
@@ -1335,6 +1352,9 @@ Page({
       ...this.turnNavigatorPatch(s.rows || rows),
       folds: processFolds,
       ...tracePatch,
+      turnNavHistoryComplete: this.turnNavigatorHistoryComplete(s),
+      turnNavHistoryPending: this.turnNavigatorHistoryPending(s),
+      turnNavHistoryText: this.turnNavigatorHistoryText(s),
       hasMoreHistory: s.hasMoreHistory,
       historyPaging: s.historyPaging === true,
       question: question,
@@ -4214,6 +4234,7 @@ Page({
       this._followPausedByUser = true;
       this._userScrollDirection = 'towardTop';
       this._convPinned = false;
+      this._fastLiveSessionEntry = false;
       this._initialConversationAnchorPending = false;
       this._initialConversationAnchorApplied = false;
       this._suppressScrollUntil = 0;
@@ -4390,21 +4411,33 @@ Page({
     return `opacity:${opacity.toFixed(2)};transform:scale(${scale.toFixed(3)});`;
   },
 
-  turnNavigatorWindowPatch(items, scrollTop) {
+  turnNavigatorRowHeight() {
+    if (this._turnListRect && this._turnListRect.rowHeight) return this._turnListRect.rowHeight;
     let windowWidth = 375;
-    let windowHeight = 800;
     try {
       const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
       windowWidth = Number(info && info.windowWidth) || windowWidth;
+    } catch (_) { /* Keep a safe row-height estimate. */ }
+    return 76 * windowWidth / 750;
+  },
+
+  turnNavigatorWindowPatch(items, scrollTop) {
+    let windowHeight = 800;
+    try {
+      const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
       windowHeight = Number(info && info.windowHeight) || windowHeight;
     } catch (_) { /* Keep a safe viewport estimate. */ }
     const rect = this._turnListRect || {};
-    const rowHeight = rect.rowHeight || 76 * windowWidth / 750;
+    const rowHeight = rect.rowHeight || this.turnNavigatorRowHeight();
     const clientHeight = rect.height || windowHeight * 0.76;
     const centerSpacer = rect.spacer == null ? Math.max(0, (clientHeight - rowHeight) / 2) : rect.spacer;
-    const buffer = 12;
+    const buffer = TURN_NAV_WINDOW_BUFFER;
     const visibleCount = Math.max(48, Math.ceil(clientHeight / rowHeight) + buffer * 2);
-    const start = Math.max(0, Math.min(items.length, Math.floor((Number(scrollTop) || 0) / rowHeight) - buffer));
+    const firstVisible = Math.floor((Number(scrollTop) || 0) / rowHeight);
+    const firstBuffered = Math.max(0, firstVisible - buffer);
+    // Move the virtual slice in batches, not once per row crossed during a fling.
+    const start = Math.max(0, Math.min(items.length,
+      Math.floor(firstBuffered / buffer) * buffer));
     const end = Math.min(items.length, start + visibleCount);
     return {
       turnNavVisibleItems: items.slice(start, end).map((item, offset) => Object.assign({}, item, { index: start + offset })),
@@ -4469,9 +4502,9 @@ Page({
         preview: snippet(replyPreview, 120),
         full: snippet(replyPreview || turn.sent, 800)
       };
-    }).reverse();
+    });
     // Keep the outline for this session independently of the conversation's
-    // rendered window. History pages add older turns; new messages add at the top.
+    // rendered window. Older history prepends; new turns append chronologically.
     const sessionId = String((store.sessionState && store.sessionState.sessionId) || this._renderSessionId || '');
     const scope = String(store.state && (store.state.activeID || store.state.endpoint) || '');
     const cacheKey = JSON.stringify([scope, sessionId]);
@@ -4480,9 +4513,18 @@ Page({
       this._pendingTurnJump = null;
       this._turnNavCacheSessionId = cacheKey;
       this._turnNavItemsCache = store.getTurnOutline ? store.getTurnOutline(sessionId) : [];
+      const cachedItems = this._turnNavItemsCache || [];
+      const originalKeys = cachedItems.map(item => item.key);
+      const allSequenced = cachedItems.length > 0 && cachedItems.every((item) => item.seq !== undefined
+        && item.seq !== null && item.seq !== '' && Number.isFinite(Number(item.seq)));
+      const allIndexed = cachedItems.length > 0 && cachedItems.every(item => Number.isFinite(Number(item.index)));
+      if (allSequenced) cachedItems.sort((a, b) => Number(a.seq) - Number(b.seq));
+      else if (allIndexed) cachedItems.sort((a, b) => Number(a.index) - Number(b.index));
+      this._turnNavCacheNeedsSave = originalKeys.some((key, index) => cachedItems[index] && cachedItems[index].key !== key);
     }
     const items = this._turnNavItemsCache || (this._turnNavItemsCache = []);
-    let changed = false;
+    let changed = this._turnNavCacheNeedsSave === true;
+    this._turnNavCacheNeedsSave = false;
     const cachedByKey = new Map(items.map((item) => [item.key, item]));
     if (!items.length) {
       items.push(...candidates);
@@ -4508,29 +4550,43 @@ Page({
       });
       if (pending.length) {
         // When a bounded source window has no shared keys, sequence numbers still
-        // preserve chronology; otherwise append the unseen older page in order.
+        // preserve chronology; otherwise append these unseen current turns in source order.
         const allSequenced = items.concat(pending).every((item) => item.seq !== undefined
           && item.seq !== null && item.seq !== '' && Number.isFinite(Number(item.seq)));
         items.push(...pending);
         changed = true;
-        if (allSequenced) items.sort((a, b) => Number(b.seq) - Number(a.seq));
+        if (allSequenced) items.sort((a, b) => Number(a.seq) - Number(b.seq));
         pending.forEach((item) => cachedByKey.set(item.key, item));
       }
     }
-    items.forEach((item, index) => { item.index = items.length - index; item.detail = uiText('轮次') + ' ' + item.index; });
+    items.forEach((item, index) => { item.index = index; item.detail = uiText('轮次') + ' ' + (index + 1); });
     if (changed && store.saveTurnOutline) store.saveTurnOutline(sessionId, items);
     const selected = (this.data.turnNavItems || [])[this.data.turnNavActiveIndex];
     const selectedIndex = selected ? items.findIndex(item => item.key === selected.key) : -1;
-    const active = selectedIndex >= 0 ? selectedIndex : (this.data.turnNavOpen && items.length ? 0 : -1);
-    const windowPatch = this.turnNavigatorWindowPatch(items, this._turnScrollTop || 0);
+    const previousActive = Number.isInteger(this.data.turnNavActiveIndex) ? this.data.turnNavActiveIndex : -1;
+    const active = selectedIndex >= 0 ? selectedIndex : (this.data.turnNavOpen && items.length ? items.length - 1 : -1);
+    const scrollPatch = {};
+    let scrollTop = Number(this._turnScrollTop) || 0;
+    if (this.data.turnNavOpen && items.length && selectedIndex >= 0 && selectedIndex !== previousActive) {
+      scrollTop = Math.max(0, scrollTop + (selectedIndex - previousActive) * this.turnNavigatorRowHeight());
+      this._turnScrollTop = scrollTop;
+      scrollPatch.turnNavScrollTop = scrollTop;
+    } else if (this.data.turnNavOpen && items.length && !(this.data.turnNavItems || []).length) {
+      scrollTop = (items.length - 1) * this.turnNavigatorRowHeight();
+      this._turnScrollTop = scrollTop;
+      scrollPatch.turnNavScrollTop = scrollTop;
+    }
+    this._turnNavEffectsIndex = active;
+    const windowPatch = this.turnNavigatorWindowPatch(items, scrollTop);
     this._turnWindowStart = windowPatch.turnNavWindowStart;
-    return { turnNavItems: items.map(item => Object.assign({}, item)), turnNavActiveIndex: active, ...windowPatch,
+    return { turnNavItems: items.map(item => Object.assign({}, item)), turnNavActiveIndex: active, ...scrollPatch, ...windowPatch,
       turnNavRowStyles: items.map((_, index) => this.turnNavRowStyle(index, active)) };
   },
 
   openTurnNavigator() {
     if (this.data.turnNavOpen) return;
     this.prioritizeInteraction();
+    const session = store.sessionState || {};
     this._turnScrollTop = 0;
     this._turnListRect = null;
     this._turnScrubbing = false;
@@ -4540,21 +4596,58 @@ Page({
     this._turnWindowStart = null;
     const navPatch = this.turnNavigatorPatch((store.sessionState && store.sessionState.rows) || this._conversationRows || []);
     const items = navPatch.turnNavItems || [];
-    const active = items.length ? 0 : -1;
+    const active = items.length ? items.length - 1 : -1;
+    const initialScrollTop = Math.max(0, active) * this.turnNavigatorRowHeight();
+    this._turnScrollTop = initialScrollTop;
+    Object.assign(navPatch, this.turnNavigatorWindowPatch(items, initialScrollTop));
+    this._turnWindowStart = navPatch.turnNavWindowStart;
     this.setData({
       ...navPatch,
       turnNavOpen: true,
-      turnNavScrollTop: 0,
+      turnNavScrollTop: initialScrollTop,
       turnNavActiveIndex: active,
       turnNavRowStyles: items.map((_, index) => this.turnNavRowStyle(index, active)),
       turnNavPreview: null,
       turnNavWarming: false,
-      turnNavWarmText: ''
+      turnNavWarmText: '',
+      turnNavHistoryComplete: this.turnNavigatorHistoryComplete(session),
+      turnNavHistoryPending: this.turnNavigatorHistoryPending(session),
+      turnNavHistoryText: this.turnNavigatorHistoryText(session)
     }, () => wx.nextTick(() => {
       if (!this.data.turnNavOpen || this._unloaded) return;
       this.measureTurnRail();
       this.startTurnNavigatorWarmup();
     }));
+  },
+
+  turnNavigatorHistoryComplete(session) {
+    const value = session || {};
+    return value.hasMoreHistory === false
+      && value.hasMoreHistoryKnown === true
+      && value.historyPaging !== true
+      && !value.historyError
+      && /^loaded(?::|$)/.test(String(value.historyState || ''));
+  },
+
+  turnNavigatorHistoryPending(session) {
+    const value = session || {};
+    if (!(Array.isArray(value.rows) && value.rows.length)
+      || this.turnNavigatorHistoryComplete(value)) return false;
+    const state = String(value.historyState || '');
+    return value.cacheDisplay === true || value.historyPaging === true
+      || !!value.historyError
+      || value.hasMoreHistoryKnown !== true
+      || (value.hasMoreHistory !== true && value.hasMoreHistory !== false)
+      || !/^loaded(?::|$)/.test(state);
+  },
+
+  turnNavigatorHistoryText(session) {
+    if (this.turnNavigatorHistoryComplete(session)) return uiText('已确认顶部为最早一轮');
+    if (this.turnNavigatorHistoryPending(session)) {
+      return session && session.historyError
+        ? uiText('历史范围尚未确认') : uiText('正在确认历史范围…');
+    }
+    return '';
   },
 
   startTurnNavigatorWarmup() {
@@ -4563,6 +4656,12 @@ Page({
     if (this._unloaded || this._voiceHidden || !session.sessionId || !session.hasMoreHistory || session.cacheDisplay) {
       // Wait for authoritative pagination metadata; cached tails are not complete.
       this._turnWarmupStarted = false;
+      this.setData({
+        turnNavWarming: false,
+        turnNavHistoryComplete: this.turnNavigatorHistoryComplete(session),
+        turnNavHistoryPending: this.turnNavigatorHistoryPending(session),
+        turnNavHistoryText: this.turnNavigatorHistoryText(session)
+      });
       return;
     }
     this.stopTurnNavigatorWarmup(false);
@@ -4573,7 +4672,8 @@ Page({
       requestCursor: null,
       requestedAt: 0
     };
-    this.setData({ turnNavWarming: true, turnNavWarmText: uiText('正在准备较早记录…') });
+    this.setData({ turnNavWarming: true, turnNavWarmText: uiText('正在准备较早记录…'),
+      turnNavHistoryComplete: false, turnNavHistoryPending: false, turnNavHistoryText: '' });
     this.pumpTurnNavigatorWarmup();
   },
 
@@ -4600,7 +4700,8 @@ Page({
       if (cursorAdvanced || session.hasMoreHistory === false) {
         warmup.waiting = false;
         if (session.hasMoreHistory === false) {
-          this.finishTurnNavigatorWarmup(uiText('已显示完整历史'));
+          const complete = this.turnNavigatorHistoryComplete(session);
+          this.finishTurnNavigatorWarmup(complete ? uiText('已确认顶部为最早一轮') : '');
           return;
         }
         this.scheduleTurnNavigatorWarmup(session.running === true ? 900 : 180);
@@ -4615,7 +4716,8 @@ Page({
     }
 
     if (session.hasMoreHistory !== true) {
-      this.finishTurnNavigatorWarmup(uiText('已显示完整历史'));
+      const complete = this.turnNavigatorHistoryComplete(session);
+      this.finishTurnNavigatorWarmup(complete ? uiText('已确认顶部为最早一轮') : '');
       return;
     }
     warmup.waiting = true;
@@ -4634,7 +4736,11 @@ Page({
     if (this._turnWarmTimer) clearTimeout(this._turnWarmTimer);
     this._turnWarmTimer = null;
     this._turnWarmup = null;
-    this.setData({ turnNavWarming: false, turnNavWarmText: text || '' });
+    const session = store.sessionState || {};
+    this.setData({ turnNavWarming: false, turnNavWarmText: text || '',
+      turnNavHistoryComplete: this.turnNavigatorHistoryComplete(session),
+      turnNavHistoryPending: this.turnNavigatorHistoryPending(session),
+      turnNavHistoryText: this.turnNavigatorHistoryText(session) });
   },
 
   stopTurnNavigatorWarmup(updateView) {
@@ -4647,14 +4753,9 @@ Page({
 
   measureTurnRail() {
     const query = wx.createSelectorQuery();
-    let windowWidth = 375;
-    try {
-      const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
-      windowWidth = Number(info && info.windowWidth) || windowWidth;
-    } catch (e) { /* 忽略 */ }
     query.select('#turn-scrub-list').boundingClientRect((rect) => {
       if (!this.data.turnNavOpen || this._unloaded || !rect || rect.height <= 0) return;
-      const rowHeight = 76 * windowWidth / 750;
+      const rowHeight = this.turnNavigatorRowHeight();
       const spacer = Math.max(0, (rect.height - rowHeight) / 2);
       this._turnListRect = {
         top: rect.top,
@@ -4669,15 +4770,15 @@ Page({
     query.select('.conversation').boundingClientRect((conv) => {
       query.selectAll('.row-user').boundingClientRect((rows) => {
         if (!this.data.turnNavOpen || this._unloaded || this._turnNavigatorTouched || this._convPinned !== false || !conv || !conv.height || !rows || !rows.length) return;
-        const total = (this.data.turnNavItems || []).length;
-        if (!total) return;
-        let firstVisible = 0;
-        for (let i = 0; i < rows.length; i += 1) {
-          if (rows[i].top <= conv.top + 12) firstVisible = i;
-          else break;
+        if (!(this.data.turnNavItems || []).length) return;
+        const userRows = (this.data.rows || []).filter(row => row && row.kind === 'user');
+        let index = -1;
+        for (let i = 0; i < Math.min(rows.length, userRows.length); i += 1) {
+          if (rows[i].bottom <= conv.top + 12 || rows[i].top >= conv.bottom) continue;
+          index = (this.data.turnNavItems || []).findIndex(item => item.key === userRows[i].key);
+          if (index >= 0) break;
         }
-        // items 是倒序（最新在上），用户行是正序
-        const index = Math.max(0, Math.min(total - 1, total - 1 - firstVisible));
+        if (index < 0) return;
         this.applyTurnIndex(index, false);
         const rect = this._turnListRect;
         if (rect) {
@@ -4696,9 +4797,20 @@ Page({
     this._turnScrollTop = top;
     this.syncTurnNavigatorWindow(top, false);
     const rect = this._turnListRect;
-    if (rect && rect.rowHeight > 0) this.applyTurnIndex(Math.round(top / rect.rowHeight));
-    // The rail is newest-first, so only movement toward its older end can page.
-    if (previousTop !== undefined && top > previousTop + 2) this.scheduleTurnNavigatorHistory(detail);
+    if (rect && rect.rowHeight > 0) {
+      const activeIndex = Math.round(top / rect.rowHeight);
+      const clearEffects = !this._turnScrollBusy;
+      this._turnScrollBusy = true;
+      this.applyTurnIndex(activeIndex, false, false, clearEffects);
+      if (this._turnScrollIdleTimer != null) clearTimeout(this._turnScrollIdleTimer);
+      this._turnScrollIdleTimer = setTimeout(() => {
+        this._turnScrollIdleTimer = null;
+        this._turnScrollBusy = false;
+        this.applyTurnIndex(Math.round((this._turnScrollTop || 0) / rect.rowHeight), false, true);
+      }, TURN_NAV_SCROLL_IDLE_MS);
+    }
+    // Chronological order puts older turns at the top of the rail.
+    if (previousTop !== undefined && top < previousTop - 2) this.scheduleTurnNavigatorHistory(detail);
   },
 
   /** 滚动中先不追加历史（加载 + 滚动叠加会卡），停手后再补一页。 */
@@ -4713,23 +4825,40 @@ Page({
     }, 180);
   },
 
-  applyTurnIndex(index, feedback = true) {
+  applyTurnIndex(index, feedback = true, refreshEffects, clearEffects) {
     const items = this.data.turnNavItems || [];
     const item = items[index];
     if (!item) return;
-    if (index === this.data.turnNavActiveIndex) return;
-    const patch = { turnNavActiveIndex: index };
-    const styled = new Set();
-    for (const center of [this.data.turnNavActiveIndex, index]) {
-      if (center < 0) continue;
-      for (let i = Math.max(0, center - 6); i <= Math.min(items.length - 1, center + 6); i++) styled.add(i);
+    const previousIndex = this.data.turnNavActiveIndex;
+    const activeChanged = index !== previousIndex;
+    const updateEffects = refreshEffects === true
+      || (refreshEffects !== false && !this._turnScrollBusy);
+    if (!activeChanged && !updateEffects && !clearEffects) return;
+    const patch = activeChanged ? { turnNavActiveIndex: index } : {};
+    if (clearEffects) {
+      const effectIndex = Number.isInteger(this._turnNavEffectsIndex)
+        ? this._turnNavEffectsIndex : previousIndex;
+      for (let i = Math.max(0, effectIndex - 6); i <= Math.min(items.length - 1, effectIndex + 6); i++) {
+        if (this.data.turnNavRowStyles[i]) patch['turnNavRowStyles[' + i + ']'] = '';
+      }
+      this._turnNavEffectsIndex = null;
     }
-    styled.forEach(i => {
-      const style = this.turnNavRowStyle(i, index);
-      if (this.data.turnNavRowStyles[i] !== style) patch['turnNavRowStyles[' + i + ']'] = style;
-    });
-    if (feedback) haptics.tick();
-    this.setData(patch);
+    if (updateEffects) {
+      const previousEffectIndex = Number.isInteger(this._turnNavEffectsIndex)
+        && this._turnNavEffectsIndex >= 0 ? this._turnNavEffectsIndex : previousIndex;
+      const styled = new Set();
+      for (const center of [previousEffectIndex, index]) {
+        if (center < 0) continue;
+        for (let i = Math.max(0, center - 6); i <= Math.min(items.length - 1, center + 6); i++) styled.add(i);
+      }
+      styled.forEach(i => {
+        const style = this.turnNavRowStyle(i, index);
+        if (this.data.turnNavRowStyles[i] !== style) patch['turnNavRowStyles[' + i + ']'] = style;
+      });
+      this._turnNavEffectsIndex = index;
+    }
+    if (feedback && activeChanged) haptics.tick();
+    if (Object.keys(patch).length) this.setData(patch);
   },
 
   onTurnScrubStart(e) {
@@ -4744,24 +4873,12 @@ Page({
 
   autoLoadTurnNavigatorHistory(detail, fillViewport, force) {
     if (this._turnWarmup && !(store.sessionState && store.sessionState.running === true)) return;
-    const items = this.data.turnNavItems || [];
     if (!this.data.turnNavOpen || !this.data.hasMoreHistory || this.data.historyLoading) return;
     if (this.data.histError && !force) return;
 
-    const rect = this._turnListRect || {};
-    let windowWidth = 375;
-    let windowHeight = 800;
-    try {
-      const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
-      windowWidth = Number(info && info.windowWidth) || windowWidth;
-      windowHeight = Number(info && info.windowHeight) || windowHeight;
-    } catch (_) { /* Keep a safe viewport estimate. */ }
-    const rowHeight = rect.rowHeight || 76 * windowWidth / 750;
-    const clientHeight = Number(detail && detail.clientHeight) || rect.height || windowHeight * 0.76;
+    const rowHeight = this.turnNavigatorRowHeight();
     const scrollTop = Number(detail && detail.scrollTop) || 0;
-    const contentHeight = Number(detail && detail.scrollHeight)
-      || items.length * rowHeight + 2 * (rect.spacer || Math.max(0, (clientHeight - rowHeight) / 2));
-    const nearOlderEdge = scrollTop + clientHeight >= contentHeight - Math.max(rowHeight * 2, 80);
+    const nearOlderEdge = scrollTop <= Math.max(rowHeight * 2, 80);
     if (detail) {
       if (!nearOlderEdge) return;
     } else {
@@ -4788,9 +4905,13 @@ Page({
   closeTurnNavigator() {
     this._turnListScrolling = false;
     this._turnScrubbing = false;
+    this._turnScrollTop = 0;
     this._pendingTurnJump = null;
     if (this._turnHistoryTimer != null && typeof clearTimeout === 'function') { clearTimeout(this._turnHistoryTimer); this._turnHistoryTimer = null; }
-    this.setData({ turnNavOpen: false, turnNavPreview: null });
+    if (this._turnScrollIdleTimer != null) clearTimeout(this._turnScrollIdleTimer);
+    this._turnScrollIdleTimer = null;
+    this._turnScrollBusy = false;
+    this.setData({ turnNavOpen: false, turnNavPreview: null, turnNavScrollTop: 0 });
   },
 
   onTurnScrubCancel() { this._turnScrubbing = false; },
@@ -4832,7 +4953,8 @@ Page({
     this._suppressPins = true;
     this._suppressScrollUntil = Date.now() + 900;
     this.revealConversationRow(key);
-    this.setData({ turnNavOpen: false, scrollTarget: '', scrollAnim: true }, () => {
+    this._turnScrollTop = 0;
+    this.setData({ turnNavOpen: false, turnNavScrollTop: 0, scrollTarget: '', scrollAnim: true }, () => {
       wx.nextTick(() => {
         this.setData({ scrollTarget: key });
         this._turnJumpTimer = setTimeout(() => {
@@ -4921,6 +5043,7 @@ Page({
     const touch = this._lastTouchAt;
     const sessionId = this._renderSessionId;
     const initialAnchorActive = this._initialConversationAnchorApplied === true;
+    const fastEntryAnchorActive = this._fastLiveSessionEntry === true && initialAnchorActive;
     const canFollow = () => !this._unloaded && !this._voiceHidden
       && this.data.tab === 'conversation' && sessionId === this._renderSessionId
       && touch === this._lastTouchAt && this._convPinned !== false && !this._followPausedByUser;
@@ -4963,8 +5086,11 @@ Page({
           if (height > 0 && Number.isFinite(scrollHeight)) {
             const bottom = Math.max(0, scrollHeight - height);
             const nativeTop = Number(offset && offset.scrollTop);
-            const scrollTopNeedsUpdate = Math.abs((Number(this.data.conversationScrollTop) || 0) - bottom) > 1;
             const nativePositionMissed = !Number.isFinite(nativeTop) || Math.abs(nativeTop - bottom) > 1;
+            // During the live-session entry anchor, retry with the native row
+            // target instead of writing a compensating scrollTop.
+            const scrollTopNeedsUpdate = !fastEntryAnchorActive
+              && Math.abs((Number(this.data.conversationScrollTop) || 0) - bottom) > 1;
             const retryTarget = !scrollTopNeedsUpdate && nativePositionMissed;
             const patch = { scrollAnim: false };
             if (scrollTopNeedsUpdate) patch.conversationScrollTop = bottom;

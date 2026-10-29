@@ -10,7 +10,8 @@
 // bottom spacer the document height is the rendered height, so estimates never
 // reach the layout at all and scrolling stays exact.
 class ConversationWindow {
-  constructor() { this.rows = []; this.heights = new Map(); this.offsets = [0]; this.start = 0; this.end = 0; this.full = false; }
+  // A spacer-only coordinate rebase keeps native scrollTop under the reader's control.
+  constructor() { this.rows = []; this.heights = new Map(); this.offsets = [0]; this.start = 0; this.end = 0; this.full = false; this.origin = 0; }
   update(rows) {
     this.rows = rows; this.offsets = [0];
     for (const row of rows) {
@@ -23,34 +24,43 @@ class ConversationWindow {
     while (lo < hi) { const mid = (lo + hi) >>> 1; if (this.offsets[mid + 1] <= top) lo = mid + 1; else hi = mid; }
     return Math.min(lo, Math.max(0, this.rows.length - 1));
   }
-  select(top, height, target) {
+  select(top, height, target, forceVirtual) {
     const total = this.offsets[this.rows.length] || 0;
     const limit = Math.max(FULL_RENDER_MIN_PX, Math.min(FULL_RENDER_MAX_PX, (Number(height) || 700) * FULL_RENDER_VIEWPORTS));
-    if (this.rows.length <= FULL_RENDER_MAX_ROWS && total <= limit) {
+    if (!forceVirtual && this.rows.length <= FULL_RENDER_MAX_ROWS && total <= limit) {
       // 整段渲染：上下占位都是 0，文档高度就是真实渲染高度，估算值完全不参与布局。
-      this.full = true; this.start = 0; this.end = this.rows.length;
+      this.full = true; this.start = 0; this.end = this.rows.length; this.origin = 0;
       return this.patch();
     }
     this.full = false;
-    const index = target == null ? this.indexAt(top) : target;
+    const logicalTop = (Number(top) || 0) - this.origin;
+    const index = target == null ? this.indexAt(logicalTop) : target;
     this.start = Math.max(0, index - 6);
-    this.end = Math.min(this.rows.length, Math.max(index + 12, this.indexAt(top + height) + 7));
+    this.end = Math.min(this.rows.length, Math.max(index + 12, this.indexAt(logicalTop + height) + 7));
     this.end = Math.min(this.end, this.start + 40);
     return this.patch();
   }
   shouldShiftForScroll(top, height) {
     if (!this.rows.length || this.full) return false;
     if (this.start >= this.end) return true;
-    const firstVisible = this.indexAt(top);
-    const lastVisible = this.indexAt(top + height);
+    const logicalTop = (Number(top) || 0) - this.origin;
+    const firstVisible = this.indexAt(logicalTop);
+    const lastVisible = this.indexAt(logicalTop + height);
     // Keep a stable DOM window through most of a swipe. Replacing keyed rows
     // on every crossed row makes the native scroll-view repeatedly re-layout.
     return firstVisible < this.start + 4 || lastVisible >= this.end - 6;
   }
   patch() {
+    const total = this.offsets[this.rows.length] || 0;
+    const startOffset = this.offsets[this.start] || 0;
+    const endOffset = this.offsets[this.end] || 0;
+    if (this.full) this.origin = 0;
+    else this.origin = Math.max(-startOffset, Number(this.origin) || 0);
+    // At the tail there may be no bottom spacer to trade against a positive origin.
+    // Let the document extend rather than pushing the reader's native scroll position.
     return { rows: this.rows.slice(this.start, this.end),
-      conversationTopSpace: this.offsets[this.start] || 0,
-      conversationBottomSpace: this.offsets[this.rows.length] - (this.offsets[this.end] || 0) };
+      conversationTopSpace: Math.max(0, startOffset + this.origin),
+      conversationBottomSpace: Math.max(0, total - endOffset - this.origin) };
   }
 }
 

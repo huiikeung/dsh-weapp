@@ -175,6 +175,7 @@ flex-shrink: 0;
 .brand-row {
 display: flex;
 align-items: center;
+transform: translateY(2px);
 }
 .brand-mark {
 font-size: 40rpx;

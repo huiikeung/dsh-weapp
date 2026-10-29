@@ -223,6 +223,7 @@
 .brand-row {
   display: flex;
   align-items: center;
+  transform: translateY(2px);
 }
 
 .brand-mark {

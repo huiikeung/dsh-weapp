@@ -3702,6 +3702,10 @@ font-size: 22rpx;
 text-align: center;
 pointer-events: none;
 }
+.turn-history-complete {
+color: rgba(151, 224, 184, 0.92);
+background: rgba(22, 72, 52, 0.76);
+}
 .turn-history-error { color: #FFB49B; pointer-events: auto; }
 .session-switch-overlay .session-switch-title { color: #F1F4FA; }
 .session-switch-overlay .session-switch-close .sheet-close-x { background: rgba(241, 244, 250, 0.12); }
