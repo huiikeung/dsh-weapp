@@ -944,13 +944,13 @@ class GatewayClient {
     }
     // Legacy gateways omit correlation metadata for unknown message types.
     if (frame.kind === 'error' && !frame.requestId && typeof frame.message === 'string') {
-      const unknown = /^unknown message type: (plugin-market-(?:indexes|set-indexes|search)|plugin-credential-(?:describe|set)|plugin-translation-limits)$/.exec(frame.message);
+      const unknown = /^unknown message type: (plugin-market-(?:indexes|set-indexes|search)|plugin-credential-(?:describe|set)|plugin-translation-limits|plugin-uninstall)$/.exec(frame.message);
       if (unknown) {
         for (const key of Object.keys(this.pendingRequests)) {
           const pending = this.pendingRequests[key];
           if (key.indexOf('plugin:') === 0 && pending.expectedKind === unknown[1]) {
             delete this.pendingRequests[key]; clearTimeout(pending.timer);
-            pending.reject(new Error(uiText(unknown[1].indexOf('plugin-market-') === 0 ? '当前网关未提供插件市场接口，请更新网关后重试' : '当前网关尚未开放此功能，请更新网关后重试。')));
+            pending.reject(new Error(uiText(unknown[1].indexOf('plugin-market-') === 0 ? '当前网关未提供插件市场接口，请更新网关后重试' : unknown[1] === 'plugin-uninstall' ? '当前网关未提供卸载接口，请更新网关或改用电脑端 DSH 卸载' : '当前网关尚未开放此功能，请更新网关后重试。')));
           }
         }
         return;
@@ -960,7 +960,7 @@ class GatewayClient {
     const pluginKey = frame.requestId && 'plugin:' + frame.requestId;
     const pluginRequest = pluginKey && this.pendingRequests[pluginKey];
     if (pluginRequest) {
-      if (frame.kind === pluginRequest.expectedKind || frame.kind === 'error') {
+      if (frame.kind === pluginRequest.expectedKind || (Array.isArray(pluginRequest.expectedKind) && pluginRequest.expectedKind.indexOf(frame.kind) >= 0) || frame.kind === 'error') {
         delete this.pendingRequests[pluginKey];
         clearTimeout(pluginRequest.timer);
         if (frame.kind === 'error') pluginRequest.reject(Object.assign(new Error(frame.message || frame.code || uiText('插件请求失败')), { code: frame.code }));
@@ -1538,7 +1538,7 @@ class GatewayClient {
   requestPlugin(type, payload, timeout) {
     const object = Object.assign({}, payload || {}, { type: type });
     object.requestId = object.requestId || util.uuid();
-    const expectedKind = { 'plugin-inspect': 'plugin-inspection', 'plugin-install': 'plugin-install-result', 'speech-configure': 'speech-configured', 'speech-prepare': 'speech-preparing', 'speech-cancel-preparation': 'speech-preparation-cancelled', 'speech-transcribe': 'speech-transcript', 'speech-cancel': 'speech-cancelled', 'speech-subscribe': 'speech-subscribed', 'speech-unsubscribe': 'speech-unsubscribed' }[type] || type;
+    const expectedKind = { 'plugin-inspect': 'plugin-inspection', 'plugin-install': 'plugin-install-result', 'plugin-uninstall': ['plugin-uninstall-result', 'plugin-uninstalled', 'plugin-removed'], 'speech-configure': 'speech-configured', 'speech-prepare': 'speech-preparing', 'speech-cancel-preparation': 'speech-preparation-cancelled', 'speech-transcribe': 'speech-transcript', 'speech-cancel': 'speech-cancelled', 'speech-subscribe': 'speech-subscribed', 'speech-unsubscribe': 'speech-unsubscribed' }[type] || type;
     const key = 'plugin:' + object.requestId;
     return new Promise((resolve, reject) => {
       if (this.pendingRequests[key]) { reject(new Error(uiText('插件请求正在进行'))); return; }
@@ -1553,6 +1553,11 @@ class GatewayClient {
         reject(new Error(uiText('连接网关后才能管理插件')));
       }
     });
+  }
+
+  /** 卸载插件；响应帧 kind=plugin-uninstall-result（或 error）。 */
+  requestPluginUninstall(name) {
+    return this.requestPlugin('plugin-uninstall', { name: name }, 60000);
   }
 
   /** 插件目录；响应帧 kind=plugin-catalog（bundles/plugins/officialItems）。 */

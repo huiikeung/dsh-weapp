@@ -7,18 +7,19 @@
 .sched .sched-back { width:64rpx; height:64rpx; border:1rpx solid var(--sp-border); border-radius:50%; display:flex; align-items:center; justify-content:center; }
 .sched-back-image { width:30rpx; height:30rpx; }.sched-title { position:absolute; left:110rpx; right:110rpx; text-align:center; font-size:34rpx; font-weight:600; pointer-events:none; }
 .sched-scroll { flex:1; height:0; min-height:0; }.sched-list { padding:28rpx 32rpx calc(48rpx + env(safe-area-inset-bottom)); display:flex; flex-direction:column; gap:28rpx; }
-.sched-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16rpx; }.sched-intro { color:var(--sp-text2); font-size:24rpx; }.sched-toolbar-actions { display:flex; gap:16rpx; align-items:center; }
+.sched-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16rpx; }
+.sched-intro { color:var(--sp-text2); font-size:24rpx; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }.sched-toolbar-actions { display:flex; gap:12rpx; align-items:center; flex-shrink:0; }
 .sched .sched-refresh { width:56rpx; height:56rpx; border:1rpx solid var(--sp-border); border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; }.sched-refresh-image { width:28rpx; height:28rpx; opacity:.7; }
-.sched .sched-primary { background:var(--sp-primary); color:var(--sp-on-primary); padding:16rpx 26rpx; border-radius:14rpx; text-align:center; }.sched .sched-new { padding:12rpx 22rpx; font-size:25rpx; white-space:nowrap; }
-.sched .sched-cta { display:flex; align-items:center; justify-content:center; min-height:88rpx; padding:18rpx 36rpx; font-size:27rpx; font-weight:500; }
-.sched .sched-cta.is-disabled { opacity:.4; }
-.sched .sched-cta-pressed { opacity:.82; }
+.sched .sched-primary { background:var(--sp-primary); color:var(--sp-on-primary); padding:16rpx 26rpx; border-radius:14rpx; text-align:center; }.sched .sched-new { padding:10rpx 18rpx; font-size:25rpx; white-space:nowrap; }
+
 .sched-empty-footer { flex-shrink:0; padding:20rpx 32rpx calc(20rpx + env(safe-area-inset-bottom)); border-top:1rpx solid var(--sp-border); background:var(--sp-bg); }
-.sched-empty-footer .sched-cta { width:100%; box-sizing:border-box; }
 .sched .sched-outline { border:1rpx solid var(--sp-border); padding:14rpx 24rpx; border-radius:14rpx; text-align:center; }
-.sched-search { display:flex; align-items:center; gap:18rpx; height:76rpx; padding:0 22rpx; border:1rpx solid var(--sp-border); border-radius:18rpx; }.sched-search input { flex:1; min-width:0; font-size:27rpx; height:100%; border:0; background:transparent; color:var(--sp-text); }.sched-search button { font-size:34rpx; color:var(--sp-text2); width:40rpx; }
+.sched-search { display:flex; align-items:center; gap:18rpx; height:84rpx; padding:0 24rpx; background:var(--sp-soft); border:1rpx solid transparent; border-radius:18rpx; }.sched-search input { flex:1; min-width:0; font-size:27rpx; height:100%; border:0; background:transparent; color:var(--sp-text); }.sched-search button { font-size:34rpx; color:var(--sp-text2); width:40rpx; }
 .sched-search-icon { width:24rpx; height:24rpx; border:2rpx solid var(--sp-text2); border-radius:50%; position:relative; box-sizing:border-box; }.sched-search-icon:after { content:''; width:10rpx; position:absolute; right:-8rpx; bottom:-4rpx; border-top:2rpx solid var(--sp-text2); transform:rotate(45deg); }
-.sched-filters { display:flex; gap:8rpx; padding:6rpx; border-radius:18rpx; background:var(--sp-soft); }.sched-filters button { flex:1; padding:12rpx 8rpx; border-radius:14rpx; color:var(--sp-text2); font-size:25rpx; border:1rpx solid transparent; }.sched-filters button.selected { background:var(--sp-card); border-color:var(--sp-border); color:var(--sp-text); font-weight:500; }.sched-filters text { font-size:21rpx; opacity:.7; margin-left:8rpx; }
+.sched-filters { display:flex; flex-wrap:nowrap; align-items:center; justify-content:flex-start; gap:10rpx; padding:0; border-radius:0; background:transparent; white-space:nowrap; }
+.sched-filters button { flex:none; padding:10rpx 18rpx; border-radius:16rpx; border:0; background:transparent; color:var(--sp-text2); font-size:27rpx; font-weight:400; }
+.sched-filters button.selected { background:rgba(255,255,255,0.08); color:var(--sp-text); font-weight:500; }
+.theme-light .sched-filters button.selected { background:rgba(16,19,24,0.07); }
 .sched-rows { display:flex; flex-direction:column; gap:18rpx; }.sched .sched-task { width:100%; display:flex; align-items:flex-start; gap:20rpx; padding:26rpx 22rpx; box-sizing:border-box; border:1rpx solid var(--sp-border); border-radius:22rpx; text-align:left; background:var(--sp-card); }
 .sched-task-clock { width:60rpx; height:60rpx; border-radius:18rpx; background:var(--sp-soft); flex-shrink:0; display:flex; align-items:center; justify-content:center; }.sched-task-image { width:36rpx; height:36rpx; opacity:.75; }.sched-task-copy { flex:1; min-width:0; display:flex; flex-direction:column; gap:9rpx; }.sched-task-heading { display:flex; align-items:center; gap:12rpx; }.sched-task-title { font-size:29rpx; font-weight:500; flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }.sched-status { font-size:19rpx; padding:3rpx 10rpx; border-radius:20rpx; color:var(--sp-text2); background:var(--sp-soft); white-space:nowrap; }.sched-status.active { color:var(--sp-accent); background:var(--sp-accent-bg); }
 .sched-task-rule { color:var(--sp-text2); font-size:24rpx; overflow-wrap:anywhere; }.sched-task-prompt { font-size:25rpx; color:var(--sp-text2); line-height:1.6; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; }.sched-task-next { font-size:22rpx; color:var(--sp-text2); margin-top:6rpx; }.sched-chevron { width:10rpx; height:10rpx; border-right:2rpx solid var(--sp-text2); border-top:2rpx solid var(--sp-text2); transform:rotate(45deg); margin-top:22rpx; flex-shrink:0; }.is-ended .sched-task-clock { opacity:.5; }
@@ -28,3 +29,25 @@
 .sched-detail-footer,.sched-edit-footer { padding:22rpx 32rpx; border-top:1rpx solid var(--sp-border); display:flex; justify-content:space-between; gap:20rpx; flex-shrink:0; }.sched .sched-delete { color:var(--sp-danger); padding:14rpx 0; }.sched-edit-footer button { flex:1; }.sched-muted { font-size:24rpx; color:var(--sp-text2); line-height:1.6; }
 .sched-history-head { display:flex; align-items:center; justify-content:space-between; }.sched .sched-link { width:auto; align-self:flex-start; color:var(--sp-accent); font-size:24rpx; padding:8rpx 0; }.sched-error { color:var(--sp-danger); font-size:25rpx; line-height:1.6; display:flex; flex-direction:column; gap:12rpx; }.sched-history-row { display:flex; align-items:flex-start; gap:20rpx; }.sched-history-dot { width:12rpx; height:12rpx; border:3rpx solid var(--sp-accent); border-radius:50%; margin-top:10rpx; flex-shrink:0; }.sched-history-copy { display:flex; flex-direction:column; gap:14rpx; flex:1; min-width:0; padding-bottom:24rpx; border-bottom:1rpx solid var(--sp-border); }.sched-history-date { font-size:27rpx; font-weight:500; }.sched-history-prompt { white-space:pre-wrap; overflow-wrap:anywhere; font-size:25rpx; line-height:1.7; color:var(--sp-text2); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }.sched-history-prompt.expanded { display:block; }.sched-loading { display:flex; gap:16rpx; align-items:center; justify-content:center; color:var(--sp-text2); font-size:25rpx; }.sched .sched-more { align-self:center; }.sched-retention { font-size:23rpx; color:var(--sp-text2); line-height:1.6; display:flex; flex-direction:column; gap:8rpx; }
 .edit-overlay { z-index:60; }.sched-edit-form { padding:12rpx 32rpx 32rpx; display:flex; flex-direction:column; gap:20rpx; }.sched-input { height:80rpx; box-sizing:border-box; width:100%; border:1rpx solid var(--sp-border); border-radius:16rpx; padding:0 20rpx; font-size:28rpx; color:var(--sp-text); background:var(--sp-card); }.sched-textarea { width:100%; min-height:200rpx; box-sizing:border-box; padding:20rpx; border:1rpx solid var(--sp-border); border-radius:16rpx; font-size:27rpx; line-height:1.6; background:var(--sp-card); color:var(--sp-text); }.sched-picker { border:1rpx solid var(--sp-border); border-radius:16rpx; padding:20rpx; display:flex; align-items:center; justify-content:space-between; gap:24rpx; font-size:27rpx; }.sched-picker text:last-child { color:var(--sp-accent); }.sched-interval { display:flex; gap:18rpx; }.sched-interval input { flex:1; min-width:0; }.sched-interval picker { flex:0 0 180rpx; }.sched-week { display:flex; gap:10rpx; }.sched-week button { flex:1; padding:14rpx 0; border-radius:12rpx; background:var(--sp-soft); font-size:26rpx; }.sched-week button.selected { background:var(--sp-accent-bg); color:var(--sp-accent); }
+
+/* 空状态：页面中间的新建自动化任务（透明背景 + 描边圆角，参考设计图）
+   注意 .sched button 的基础样式优先级更高，这里必须带 .sched 前缀。 */
+.sched .sched-empty-new {
+  margin: 32rpx auto 10rpx;
+  padding: 26rpx 78rpx;
+  min-width: 360rpx;
+  box-sizing: border-box;
+  border-radius: 30rpx;
+  border: 1rpx solid var(--sp-border);
+  background: transparent;
+  color: var(--sp-text);
+  font-size: 30rpx;
+  font-weight: 400;
+  line-height: 1.3;
+  letter-spacing: 1rpx;
+  text-align: center;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+.sched .sched-empty-new::after { border: 0; }
+.sched .sched-empty-new:active { background: var(--sp-soft); border-color: var(--sp-text2); }
+.sched .sched-empty-new[disabled] { opacity: 0.35; }

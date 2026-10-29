@@ -15,18 +15,31 @@
           <image wx:if="{{bundle.icon && !bundle.iconBroken}}" class="pdetail-icon-img" src="{{bundle.icon}}" mode="aspectFit" data-src="{{bundle.icon}}" binderror="onIconError"/>
           <image wx:else class="pdetail-icon-img" src="{{bundle.artwork}}" mode="aspectFit"/>
         </view>
-        <dsh-switch checked="{{bundle.enabled}}" disabled="{{bundle.toggleDisabled}}" bindchange="onBundleToggle" scale="0.68"/>
+        <view class="pdetail-top-actions">
+          <button wx:if="{{bundle.updateAvailable}}" class="pdetail-action pdetail-action-update" bindtap="onUpdateBundle" disabled="{{!connected || bundle.busy}}" aria-label="{{ui['更新']}}">
+            <image class="pdetail-action-ic" src="/assets/icons/refresh-round-{{theme === 'dark' ? 'white' : 'ink'}}.svg" mode="aspectFit"/>
+            <text>{{ui['更新']}}</text>
+          </button>
+          <button wx:if="{{bundle.canUninstall}}" class="pdetail-action pdetail-action-danger" bindtap="onUninstallBundle" disabled="{{!connected || bundle.busy}}" aria-label="{{ui['卸载']}}">
+            <image class="pdetail-action-ic" src="/assets/icons/trash-gray.png" mode="aspectFit"/>
+            <text>{{ui['卸载']}}</text>
+          </button>
+          <dsh-switch checked="{{bundle.enabled}}" disabled="{{bundle.toggleDisabled}}" bindchange="onBundleToggle" scale="0.68"/>
+        </view>
       </view>
 
       <view class="pdetail-title-row">
         <text class="pdetail-name">{{ui[bundle.title] !== undefined ? ui[bundle.title] : bundle.title}}</text>
         <text wx:if="{{bundle.version}}" class="pdetail-version">v{{bundle.version}}</text>
         <text wx:if="{{bundle.experimental}}" class="pdetail-badge">{{ui['实验性']}}</text>
+        <text wx:if="{{bundle.error}}" class="pdetail-badge pdetail-badge-error">{{ui['异常']}}</text>
+        <text wx:if="{{bundle.updateAvailable}}" class="pdetail-badge pdetail-badge-update" bindtap="onUpdateBundle" role="button" aria-label="{{ui['可更新']}}">{{ui['可更新']}}</text>
       </view>
       <text class="pdetail-pkg text-mono">{{bundle.name}}</text>
       <text wx:if="{{bundle.description}}" class="pdetail-desc">{{bundle.description}}</text>
       <text wx:if="{{bundle.readOnlyReason}}" class="pdetail-warn-sm">{{bundle.readOnlyReason}}</text>
       <text wx:if="{{bundle.error}}" class="pdetail-err">{{ui[bundle.error] !== undefined ? ui[bundle.error] : bundle.error}}</text>
+
       <text wx:if="{{notice}}" class="pdetail-warn-sm">{{ui[notice] !== undefined ? ui[notice] : notice}}</text>
       <text wx:if="{{!connected}}" class="pdetail-warn-sm">{{ui['网关已断开，插件状态待重新连接确认']}}</text>
 
@@ -75,6 +88,25 @@
       <text class="plugins-state-desc">{{ui['插件目录不可用，请返回后重新进入']}}</text>
     </view>
   </scroll-view>
+
+  <!-- 卸载插件：与安装面板同款的底部弹窗 -->
+  <view wx:if="{{uninstallOpen}}" class="pdetail-sheet-mask" catchtap="closeUninstallSheet" catchtouchmove="noop"></view>
+  <view wx:if="{{uninstallOpen}}" class="pdetail-sheet pdetail-uninstall-sheet">
+    <view class="pdetail-sheet-handle"></view>
+    <view class="pdetail-sheet-head">
+      <text class="pdetail-sheet-title">{{ui['卸载插件']}}</text>
+      <view class="pdetail-sheet-done tap" hover-class="press-dim" bindtap="closeUninstallSheet">{{ui['取消']}}</view>
+    </view>
+    <view class="pdetail-sheet-inner pdetail-uninstall-body">
+      <text class="pdetail-desc">{{ui['卸载后将从主机移除该插件及其组件，确定继续吗？']}}</text>
+      <text class="pdetail-pkg text-mono">{{bundle.name}}</text>
+      <text wx:if="{{bundle.version}}" class="pdetail-warn-sm">{{ui['当前版本']}} {{bundle.version}}</text>
+    </view>
+    <view class="pdetail-sheet-actions">
+      <button class="pdetail-sheet-cancel" bindtap="closeUninstallSheet">{{ui['取消']}}</button>
+      <button class="pdetail-sheet-danger" bindtap="confirmUninstall" disabled="{{!connected || bundle.busy}}">{{ui['卸载']}}</button>
+    </view>
+  </view>
 
   <!-- 组件详情半屏弹层（对齐 PluginComponentSheet，medium detent） -->
   <view wx:if="{{sheetEntry}}" class="pdetail-sheet-mask" catchtap="closeEntry" catchtouchmove="noop"></view>

@@ -314,3 +314,57 @@
 .config-link { color:#4679da;font-size:.87em; }
 .config-voice-card { display:flex;flex-direction:column;gap:16rpx;border-top:1rpx solid var(--pd-divider);padding:24rpx 0; }
 .config-step { display:flex;justify-content:space-between;gap:16rpx;padding:10rpx;font-size:.85em;color:var(--pd-text2); }
+
+/* 插件详情顶部操作：更新 / 卸载 / 启用开关 */
+/* 更新 / 卸载：开关左侧的小号描边按钮 */
+.pdetail-top-actions { display: flex; align-items: center; gap: 12rpx; flex-shrink: 0; margin-left: auto; }
+.pdetail-action {
+  flex: 0 0 auto;
+  /* 微信 button 默认块级会撑满宽度：inline-flex 按内容收缩，尺寸贴近右侧开关 */
+  width: 96rpx; max-width: 96rpx; min-width: 0; align-self: center;
+  display: inline-flex; align-items: center; justify-content: center; gap: 4rpx;
+  box-sizing: border-box;
+  margin: 0; height: 40rpx; padding: 0 8rpx;
+  min-height: 0; line-height: 1.2;
+  border-radius: 10rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.22);
+  background: transparent;
+  color: var(--pd-text, var(--text));
+  font-size: 20rpx; font-weight: 500; white-space: nowrap;
+  transition: background-color 120ms ease, opacity 120ms ease;
+}
+.pdetail-action::after { border: 0; }
+.pdetail-action-ic { width: 20rpx; height: 20rpx; opacity: 0.9; flex: none; }
+.pdetail-action-update:active { background: rgba(255, 255, 255, 0.06); }
+.pdetail-action-danger {
+  color: #FF5A52;
+  border-color: rgba(229, 72, 77, 0.55);
+  background: transparent;
+}
+.pdetail-action-danger:active { background: rgba(229, 72, 77, 0.10); }
+.pdetail-action[disabled] { opacity: 0.35; }
+.theme-light .pdetail-action { border-color: rgba(16, 19, 24, 0.20); }
+.theme-light .pdetail-action-update:active { background: rgba(16, 19, 24, 0.05); }
+.theme-light .pdetail-action-danger { color: #C7362D; border-color: rgba(199, 54, 45, 0.45); }
+.pdetail-badge-error { background: rgba(255, 69, 58, 0.16); color: #FF5A52; }
+.pdetail-badge-update { background: rgba(90, 120, 220, 0.18); color: #7E9AF2; }
+.theme-light .pdetail-badge-error { background: rgba(214, 45, 36, 0.10); color: #C7362D; }
+.theme-light .pdetail-badge-update { background: rgba(64, 90, 190, 0.10); color: #3D5BB8; }
+
+/* 卸载插件弹窗：底部操作按钮 */
+.pdetail-uninstall-body { display: flex; flex-direction: column; gap: 18rpx; padding: 8rpx 0 12rpx; }
+.pdetail-sheet-actions { display: flex; gap: 20rpx; padding: 16rpx 32rpx calc(28rpx + env(safe-area-inset-bottom)); flex-shrink: 0; }
+.pdetail-sheet-actions button { flex: 1; height: 88rpx; display: flex; align-items: center; justify-content: center; border-radius: 20rpx; font-size: 30rpx; font-weight: 500; }
+.pdetail-sheet-actions button::after { border: 0; }
+.pdetail-sheet-cancel { background: var(--pd-soft, var(--fill)); color: var(--pd-text, var(--text)); border: 1rpx solid var(--pd-border, var(--border)); }
+.pdetail-sheet-danger { background: rgba(229, 72, 77, 0.14); color: #FF5A52; border: 1rpx solid rgba(229, 72, 77, 0.50); }
+.theme-light .pdetail-sheet-danger { color: #C7362D; }
+.pdetail-sheet-actions button[disabled] { opacity: 0.4; }
+
+/* 卸载确认弹窗：高度按内容自适应，与安装弹窗一致，不再占半屏 */
+.pdetail-sheet.pdetail-uninstall-sheet {
+  height: auto;
+  max-height: 72vh;
+  padding-bottom: 0;
+}
+.pdetail-uninstall-sheet .pdetail-uninstall-body { padding: 8rpx 32rpx 24rpx; }

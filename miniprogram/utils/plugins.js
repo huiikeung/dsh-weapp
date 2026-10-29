@@ -63,6 +63,14 @@ function parseBundle(raw) {
       spec: raw.installTarget.spec,
       version: typeof raw.installTarget.version === 'string' ? raw.installTarget.version : ''
     } : null,
+    // 检查更新：已安装版本 ≠ 主机提供的安装目标版本（或网关直接下发 updateAvailable）
+    latestVersion: raw.installTarget && typeof raw.installTarget.version === 'string' ? raw.installTarget.version : null,
+    updateAvailable: raw.updateAvailable === true || !!(
+      raw.installed === true &&
+      raw.version && typeof raw.version === 'string' &&
+      raw.installTarget && typeof raw.installTarget.version === 'string' &&
+      raw.installTarget.version && raw.installTarget.version !== raw.version
+    ),
     optional: optional,
     experimental: raw.experimental === true || name.startsWith('@deepseek-ai/dsh-experimental-'),
     sourceSpec: typeof raw.source === 'string' ? raw.source : null,

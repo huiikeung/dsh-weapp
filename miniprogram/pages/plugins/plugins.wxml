@@ -6,7 +6,7 @@
         <image wx:else class="plugin-icon-art" src="{{item.artwork}}" mode="aspectFit"/>
       </view>
       <view class="plugin-line-body">
-        <view class="plugin-line-title-row"><text class="plugin-line-title">{{item.title}}</text><text wx:if="{{item.experimental}}" class="plugin-badge">{{ui['实验性']}}</text></view>
+        <view class="plugin-line-title-row"><text class="plugin-line-title">{{item.title}}</text><text wx:if="{{item.experimental}}" class="plugin-badge">{{ui['实验性']}}</text><text wx:if="{{item.error}}" class="plugin-badge plugin-badge-error">{{ui['异常']}}</text><text wx:if="{{item.updateAvailable}}" class="plugin-badge plugin-badge-update" data-name="{{item.name}}" catchtap="updateBundle" role="button" aria-label="{{ui['可更新']}}">{{ui['可更新']}}</text></view>
         <text wx:if="{{item.description}}" class="plugin-line-sub">{{item.description}}</text><text wx:if="{{item.needsInstall}}" class="plugin-install-needed">{{ui['开启时安装']}}</text>
       </view>
     </view>

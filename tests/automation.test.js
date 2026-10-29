@@ -10,11 +10,24 @@ test('search status filters and all view handlers exist',()=>{const {page,store}
 test('save preserves full expected task and error preserves draft',()=>{const {page,store,calls}=fixture();page.openDetail({currentTarget:{dataset:{id:'one'}}});page.onEditTap();page.patchEditing({title:'新日报'});page.onEditSave();const call=calls.find(c=>c.update).update;assert.equal(call[0],task);assert.equal(call[3],null);store.state.scheduledTaskPendingId=null;store.state.scheduleMutationError='任务已变化';page.syncFromStore({app:store.state});assert.equal(page.data.editing.title,'新日报');assert.equal(page.data.editing.saving,false);assert.match(page.data.editing.error,/任务已变化/);});
 test('history pagination deduplicates and stale Host responses are ignored',async()=>{const {page,store,calls}=fixture();page.openDetail({currentTarget:{dataset:{id:'one'}}});const read=page.refreshHistory();calls[0].resolve({records:[{messageId:'m1',scheduledAt:task.scheduledAt,prompt:'内容'}],nextBefore:'cursor'});await read;const more=page.moreHistory();assert.equal(calls[1].args[2],'cursor');calls[1].resolve({records:[{messageId:'m1'},{messageId:'m2',scheduledAt:task.scheduledAt}],earlierRecordsPruned:true,retention:{days:30,records:100}});await more;assert.equal(page.data.history.length,2);const stale=page.refreshHistory();store.state.activeID='host-b';page.syncFromStore({app:store.state});calls[2].resolve({records:[{messageId:'wrong'}]});await stale;assert.equal(page.data.history.length,0);assert.equal(page.data.selected,null);});
 test('new task opens blank session without inventing a scheduled operation',async()=>{const {page,calls}=fixture();page.newTask();await Promise.resolve();assert.equal(calls.filter(c=>c.create).length,1);assert.equal(calls.filter(c=>c.navigate).length,1);assert.equal(calls.filter(c=>c.update).length,0);});
-test('empty state CTA is a stable footer button and onShow clears a stuck creating flag',()=>{
+test('empty state offers a centered new-task button and onShow clears a stuck creating flag',()=>{
   const {page}=fixture();const xml=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/schedule/schedule.wxml'),'utf8');
-  assert.match(xml,/class="sched-empty-footer"/);
-  assert.match(xml,/class="sched-primary sched-cta[^"]*" bindtap="newTask"/);
+  // 底部 footer 已移除；空状态中间保留一个「新建自动化任务」，工具栏另有一个「＋ 新建」
+  assert.ok(!xml.includes('sched-empty-footer'));
+  assert.ok(xml.includes("ui['新建自动化任务']"));
+  assert.equal((xml.match(/bindtap="newTask"/g)||[]).length,2);
+  assert.match(xml,/class="sched-primary sched-new" bindtap="newTask"/);
+  assert.match(xml,/class="sched-empty-new" bindtap="newTask"/);
   page.data.creating=true;page.onShow();assert.equal(page.data.creating,false);
 });
 test('delete confirmation cannot apply after a Host switch',()=>{const {page,store,calls}=fixture();page.openDetail({currentTarget:{dataset:{id:'one'}}});page.onDeleteTap();store.state.activeID='host-b';calls[0].modal.success({confirm:true});assert.equal(calls.filter(c=>c.delete).length,0);});
 test('history transport correlates by request id, not latest task',async()=>{const c=Object.create(GatewayClient.prototype);c.pendingRequests={};const sent=[];c.send=f=>{sent.push(f);return true;};const a=c.requestScheduleHistory('s1','one'),b=c.requestScheduleHistory('s2','two','cursor');c.resolveCorrelated({kind:'schedule-history',requestId:sent[1].requestId,records:[{messageId:'second'}]});c.resolveCorrelated({kind:'schedule-history',requestId:sent[0].requestId,records:[{messageId:'first'}]});assert.equal((await a).records[0].messageId,'first');assert.equal((await b).records[0].messageId,'second');assert.equal(sent[1].before,'cursor');});
+
+test('status filters sit above the search box',()=>{
+  const xml=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/schedule/schedule.wxml'),'utf8');
+  const filtersAt=xml.indexOf('sched-filters');
+  const searchAt=xml.indexOf('sched-search');
+  const rowsAt=xml.indexOf('sched-rows');
+  assert.ok(filtersAt > 0 && searchAt > filtersAt && rowsAt > searchAt, 'filters -> search -> task rows');
+  for (const label of ["ui['全部']", "ui['已开启']", "ui['已结束']"]) assert.ok(xml.includes(label), label);
+});

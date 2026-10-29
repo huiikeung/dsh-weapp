@@ -363,3 +363,68 @@ test('source selector, tabs, compact toolbar and right-aligned More stay explici
   assert.match(css, /\.plugins \.plugin-add \{ flex: 0 0 auto; width: auto; min-width: 0/);
   assert.match(css, /\.plugins \.plugin-primary-button, \.plugins \.plugin-secondary-button \{ width: 100%; display: flex; align-items: center; justify-content: center; text-align: center/);
 });
+
+test('subagent bundles expose update availability for codex and claude code', () => {
+  const catalog = buildCatalog({
+    managementAvailable: true,
+    bundles: [
+      { name: '@deepseek-ai/dsh-subagent-codex', official: true, optional: true, installed: true, enabled: true, version: '1.0.0',
+        installTarget: { spec: '@deepseek-ai/dsh-subagent-codex', version: '1.1.0' } },
+      { name: '@deepseek-ai/dsh-subagent-claude-code', official: true, optional: true, installed: true, enabled: true, version: '2.0.0',
+        installTarget: { spec: '@deepseek-ai/dsh-subagent-claude-code', version: '2.0.0' } },
+      { name: '@deepseek-ai/dsh-subagent-codex-broken', official: true, optional: true, installed: true, enabled: false, error: { code: 'load-failed' },
+        version: '1.0.0', installTarget: { spec: 'x', version: '1.0.0' } }
+    ]
+  });
+  const codex = catalog.bundles.find(b => b.name === '@deepseek-ai/dsh-subagent-codex');
+  const claude = catalog.bundles.find(b => b.name === '@deepseek-ai/dsh-subagent-claude-code');
+  const broken = catalog.bundles.find(b => b.name === '@deepseek-ai/dsh-subagent-codex-broken');
+  assert.equal(codex.updateAvailable, true);
+  assert.equal(codex.latestVersion, '1.1.0');
+  assert.equal(claude.updateAvailable, false, 'same version means up to date');
+  assert.equal(broken.updateAvailable, false);
+  assert.equal(broken.error, 'load-failed', 'load failures surface as the 异常 badge');
+});
+
+test('plugin list renders 异常 / 可更新 badges and updates through the install target', () => {
+  const root = path.resolve(__dirname, '..');
+  const wxml = fs.readFileSync(path.join(root, 'miniprogram/pages/plugins/plugins.wxml'), 'utf8');
+  const js = fs.readFileSync(path.join(root, 'miniprogram/pages/plugins/plugins.js'), 'utf8');
+  const wxss = fs.readFileSync(path.join(root, 'miniprogram/pages/plugins/plugins.wxss'), 'utf8');
+  assert.ok(wxml.includes('plugin-badge-error'));
+  assert.ok(wxml.includes("ui['异常']"));
+  assert.ok(wxml.includes('plugin-badge-update'));
+  assert.ok(wxml.includes("ui['可更新']"));
+  assert.ok(wxml.includes('catchtap="updateBundle"'));
+  assert.match(js, /updateBundle\(e\)[\s\S]{0,200}?openOfficialInstall\(name\)/);
+  assert.match(js, /updateAvailable: !!b\.updateAvailable/);
+  assert.match(wxss, /\.plugin-badge-error \{[^}]*color: #FF5A52/);
+  assert.match(wxss, /\.plugin-badge-update \{[^}]*color: #7E9AF2/);
+});
+
+test('subagent settings no longer expose the model selection section', () => {
+  const form = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/plugin-detail/settings-form.wxml'), 'utf8');
+  assert.ok(!form.includes('subagentModelSelectionTitle'), 'model selection heading removed');
+  assert.ok(!form.includes('onModelSelectionChange'), 'model selection toggle removed');
+  assert.ok(form.includes('subagentLimitsTitle'), 'runtime limits stay');
+});
+
+test('detail update action hands the official install target to the plugins page', () => {
+  const root = path.resolve(__dirname, '..');
+  const detail = fs.readFileSync(path.join(root, 'miniprogram/pages/plugin-detail/plugin-detail.js'), 'utf8');
+  const list = fs.readFileSync(path.join(root, 'miniprogram/pages/plugins/plugins.js'), 'utf8');
+  // 详情页把目标写进 store
+  assert.match(detail, /onUpdateBundle\(\)[\s\S]{0,240}?store\.state\.pendingOfficialInstall = bundle\.name/);
+  // 列表页 onShow 读取 store 的挂起目标，并在目录就绪后消费
+  assert.match(list, /store\.state\.pendingOfficialInstall[\s\S]{0,120}?this\.pendingOfficialInstall = store\.state\.pendingOfficialInstall/);
+  assert.match(list, /consumePendingOfficialInstall\(\)[\s\S]{0,220}?openOfficialInstall\(name\)/);
+  assert.match(list, /this\.consumePendingOfficialInstall\(\)/);
+});
+
+test('uninstall request accepts the host result kinds and explains legacy gateways', () => {
+  const src = fs.readFileSync(path.resolve(__dirname, '../miniprogram/utils/gateway.js'), 'utf8');
+  assert.match(src, /'plugin-uninstall': \['plugin-uninstall-result', 'plugin-uninstalled', 'plugin-removed'\]/);
+  assert.match(src, /Array\.isArray\(pluginRequest\.expectedKind\)/);
+  assert.match(src, /plugin-uninstall\)\$\/\.exec/);
+  assert.match(src, /当前网关未提供卸载接口/);
+});

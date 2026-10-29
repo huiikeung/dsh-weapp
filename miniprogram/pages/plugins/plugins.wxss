@@ -48,6 +48,10 @@
 .plugin-line-title-row { display: flex; align-items: center; gap: 10rpx; min-width: 0; }
 .plugin-line-title { font-size: 27rpx; font-weight: 500; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .plugin-badge { flex-shrink: 0; font-size: 18rpx; line-height: 1.3; padding: 4rpx 10rpx; border-radius: 20rpx; background: var(--pg-badge-bg); color: var(--pg-badge-text); }
+.plugin-badge-error { background: rgba(255, 69, 58, 0.16); color: #FF5A52; }
+.plugin-badge-update { background: rgba(90, 120, 220, 0.18); color: #7E9AF2; }
+.theme-light .plugin-badge-error { background: rgba(214, 45, 36, 0.10); color: #C7362D; }
+.theme-light .plugin-badge-update { background: rgba(64, 90, 190, 0.10); color: #3D5BB8; }
 .plugin-line-sub { font-size: 23rpx; line-height: 1.5; color: var(--pg-text2); display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .plugin-empty { padding: 16rpx 0; }
 .plugins-state { display: flex; flex-direction: column; align-items: center; gap: 18rpx; padding: 64rpx 24rpx; text-align: center; }

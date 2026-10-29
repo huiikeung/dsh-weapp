@@ -30,20 +30,6 @@
         <text wx:if="{{item.hint}}" class="config-hint">{{item.hint}}</text>
         <text wx:if="{{!item.available}}" class="config-hint">{{ui['该插件当前未加载，暂时无法配置。']}}</text>
       </view>
-      <block wx:if="{{config.kind === 'subagent'}}">
-        <text class="config-heading">{{config.labels.subagentModelSelectionTitle}}</text>
-        <view class="config-toggle"><text class="config-label">{{config.labels.subagentModelSelectionToggle}}</text><dsh-switch checked="{{config.modelEnabled}}" disabled="{{config.disabled || !config.modelAvailable}}" bindchange="onModelSelectionChange"/></view>
-        <text class="config-hint">{{config.modelEnabled ? config.labels.subagentModelSelectionChoose : config.labels.subagentModelSelectionOff}}</text>
-        <text wx:if="{{!config.modelAvailable}}" class="config-hint">{{ui['该插件当前未加载，暂时无法配置。']}}</text>
-        <block wx:elif="{{config.modelEnabled}}">
-          <text class="config-label">{{config.labels.subagentModelSelectionAllowed}}</text>
-          <text wx:if="{{configModelsStatus === 'loading'}}" class="config-hint">{{config.labels.subagentModelSelectionLoading}}</text>
-          <text wx:if="{{configModelsStatus === 'partial'}}" class="config-hint">{{config.labels.subagentModelSelectionPartial}}</text>
-          <view wx:if="{{configModelsStatus === 'error'}}"><text class="config-hint">{{config.labels.subagentModelSelectionLoadFailed}}</text><button class="config-button" bindtap="loadConfigModels">{{ui['重试']}}</button></view>
-          <text wx:if="{{configModelsStatus === 'ready' && !config.models.length}}" class="config-hint">{{config.labels.subagentModelSelectionEmpty}}</text>
-          <view wx:for="{{config.models}}" wx:key="key" class="config-model" data-index="{{index}}" bindtap="onConfigModelToggle"><checkbox checked="{{item.selected}}" disabled="{{config.disabled || (!item.available && !item.selected)}}" color="{{theme === 'dark' ? '#FFFFFF' : '#000000'}}"/><view><text class="config-label">{{item.name}}</text><text class="config-hint">{{item.label}}{{!item.available ? ' · ' + config.labels.subagentModelSelectionUnavailable : ''}}</text></view></view>
-        </block>
-      </block>
       <block wx:if="{{config.kind === 'voice'}}"><include src="voice-settings.wxml"/></block>
       <view wx:if="{{config.kind !== 'voice'}}" class="config-actions"><button class="config-button config-save" disabled="{{config.disabled || !config.dirty}}" loading="{{configSaving}}" bindtap="saveSettings">{{configSaving ? ui['保存中…'] : ui['保存']}}</button><button class="config-button" disabled="{{configSaving}}" bindtap="discardSettings">{{ui['放弃修改']}}</button></view>
     </block>

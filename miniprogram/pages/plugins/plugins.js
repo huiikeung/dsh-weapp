@@ -76,6 +76,9 @@ function bundleToView(b, app) {
     enabled: b.enabled,
     experimental: b.experimental,
     needsInstall: b.availability === 'missing',
+    error: b.error || '',
+    updateAvailable: !!b.updateAvailable,
+    latestVersion: b.latestVersion || '',
     // iOS：断连 / 只读 / 有变更在途 / 目录不支持管理时禁用开关
     toggleDisabled: app.connection !== 'connected' || !!b.readOnlyReason ||
       !!app.pluginPendingName || !!(app.pluginInstall && ACTIVE.includes(app.pluginInstall.phase)) || !canManage
@@ -136,6 +139,11 @@ Page(Object.assign({}, installActions, marketActions, {
     if (this.pendingPluginAction === 'create') {
       this.pendingPluginAction = '';
       this.createPluginSession();
+    }
+    // 详情页「更新」把目标放到 store，这里消费后直接打开官方安装面板
+    if (!this.pendingOfficialInstall && store.state.pendingOfficialInstall) {
+      this.pendingOfficialInstall = store.state.pendingOfficialInstall;
+      store.state.pendingOfficialInstall = '';
     }
     if (this.pendingOfficialInstall && store.state.pluginCatalog) {
       const name = this.pendingOfficialInstall;
@@ -204,6 +212,7 @@ Page(Object.assign({}, installActions, marketActions, {
       installEditable: !install || ['failed', 'cancelled', 'unknown'].includes(install.phase),
       canAdd: app.connection === 'connected' && !!catalog && catalog.managementAvailable === true && !app.pluginPendingName
     });
+    this.consumePendingOfficialInstall();
     if (this.data.refreshing && app.pluginsLoading !== true) {
       this.setData({ refreshing: false });
     }
@@ -238,10 +247,25 @@ Page(Object.assign({}, installActions, marketActions, {
     });
   },
 
+  /** 目录就绪后消费详情页挂起的「更新」目标（onShow 时目录可能还没到）。 */
+  consumePendingOfficialInstall() {
+    if (!this.pendingOfficialInstall || !store.state.pluginCatalog) return;
+    const name = this.pendingOfficialInstall;
+    this.pendingOfficialInstall = '';
+    this.openOfficialInstall(name);
+  },
+
   openBundle(e) {
     const name = e.currentTarget.dataset.name;
     if (!name) return;
     wx.navigateTo({ url: '/pages/plugin-detail/plugin-detail?bundle=' + encodeURIComponent(name) });
+  },
+
+  /** 检查到新版本：按主机提供的安装目标升级该插件。 */
+  updateBundle(e) {
+    const name = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.name : '';
+    if (!name) return;
+    this.openOfficialInstall(name);
   },
 
   openOfficial(e) {

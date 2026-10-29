@@ -50,6 +50,7 @@ Page(Object.assign({}, settingsActions, {
     notice: '',
     pendingName: null,
     sheetEntry: null,
+    uninstallOpen: false,
     config: null, configStatus: 'idle', configError: '', configSaving: false, configModelsStatus: 'idle'
   },
 
@@ -135,6 +136,11 @@ Page(Object.assign({}, settingsActions, {
         sourceLabel: bundle.sourceSpec || (bundle.availability === 'missing' ? uiText(bundle.installed ? '文件缺失' : '未安装') : (bundle.isOfficial || bundle.availability === 'provided' || bundle.availability === 'installation') ? uiText('内置') : uiText('未提供')),
         initial: (bundle.title || bundle.name).charAt(0),
         version: bundle.version,
+        latestVersion: bundle.latestVersion || '',
+        updateAvailable: !!bundle.updateAvailable,
+        installed: bundle.installed === true,
+        canUninstall: bundle.installed === true && !bundle.readOnlyReason,
+        busy: !!app.pluginPendingName,
         enabled: bundle.enabled,
         needsInstall: bundle.availability === 'missing',
         readOnlyReason: bundle.readOnlyReason,
@@ -154,6 +160,50 @@ Page(Object.assign({}, settingsActions, {
       const fresh = entries.find((e) => e.id === this.data.sheetEntry.id);
       if (fresh) this.setData({ sheetEntry: fresh });
       else this.setData({ sheetEntry: null });
+    }
+  },
+
+  /** 有新版：回到插件列表并触发官方安装目标升级。 */
+  onUpdateBundle() {
+    const bundle = this.data.bundle;
+    if (!bundle || !this.data.connected) return;
+    store.state.pendingOfficialInstall = bundle.name;
+    this.goBack();
+  },
+
+  /** 卸载插件：打开与安装面板同款的底部弹窗确认。 */
+  onUninstallBundle() {
+    const bundle = this.data.bundle;
+    if (!bundle || !this.data.connected || bundle.busy) return;
+    this.setData({ uninstallOpen: true });
+  },
+
+  closeUninstallSheet() {
+    if (this.data.bundle && this.data.bundle.busy) return;
+    this.setData({ uninstallOpen: false });
+  },
+
+  confirmUninstall() {
+    if (!this.data.bundle || !this.data.connected) return;
+    this.setData({ uninstallOpen: false });
+    this.uninstallBundle();
+  },
+
+  async uninstallBundle() {
+    const bundle = this.data.bundle;
+    if (!bundle) return;
+    const name = bundle.name;
+    this.setData({ pendingName: name });
+    try {
+      await store.client.requestPluginUninstall(name);
+      wx.showToast({ title: uiText('已卸载'), icon: 'success' });
+      store.refreshPlugins();
+      this.goBack();
+    } catch (error) {
+      const message = error && error.message || uiText('卸载失败');
+      wx.showModal({ title: uiText('卸载失败'), content: message, showCancel: false, confirmText: uiText('知道了') });
+    } finally {
+      if (this.alive !== false) this.setData({ pendingName: null });
     }
   },
 
