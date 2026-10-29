@@ -147,13 +147,14 @@ Stop live auto-follow immediately; streamed row growth can otherwise pull the vi
 
 ## miniprogram/pages/session/session.js
 
-运行中发送：消息进本机队列等待用户点“发送”箭头，
-不再走网关 queue 模式（会被宿主在回合结束时自动发出）。
+旧实现（已废弃）：运行中发送先放入本机队列，等待用户点“发送”箭头；
+这个行为会阻止网关 queue 在回合结束时自动发送。
 
 ## miniprogram/pages/session/session.js
 
-运行中发送：只进本机队列，等用户点队列行的发送箭头再真正发出。
-之前走网关 queue 模式，宿主会在回合结束时把消息自动发出，绕过了队列的发送按钮。
+当前实现：运行中的普通消息、斜杠消息、图片和文件均使用网关 queue 模式，
+由网关在当前回合结束后自动发送。队列 dock 只展示网关队列状态，
+不再维护需要手动释放的本地待发副本。
 
 ## miniprogram/pages/session/session.js
 

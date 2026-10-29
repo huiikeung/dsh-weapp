@@ -10,12 +10,16 @@ const GAP = 8;
 const MIN_HEIGHT = 120;
 const PREFERRED_MAX_HEIGHT = 420;
 
-function pickerPopoverLayout(rect, windowInfo, navigationBottom) {
+function pickerPopoverLayout(rect, windowInfo, navigationBottom, options) {
   const info = windowInfo || {};
+  const opts = options || {};
   const windowWidth = info.windowWidth || 375;
   const windowHeight = info.windowHeight || 667;
   const edge = EDGE;
-  const width = Math.min(280, Math.max(224, windowWidth * 0.624), windowWidth - edge * 2);
+  // 诊断信息 / 清理缓存内容偏长，允许更宽的档位；其余选择项保持首页工作区弹层的窄菜单宽度。
+  const width = opts.wide
+    ? Math.min(340, Math.max(280, windowWidth * 0.8), windowWidth - edge * 2)
+    : Math.min(280, Math.max(224, windowWidth * 0.624), windowWidth - edge * 2);
   const safeTop = Math.max(edge, (navigationBottom || info.statusBarHeight || 44) + 8);
   const safeBottom = Math.min(windowHeight, (info.safeArea && info.safeArea.bottom) || windowHeight) - edge;
   const anchor = rect && rect.height > 0 ? rect : null;

@@ -352,7 +352,6 @@ Page({
     this.setData(procIconStyle.view(procIconStyle.read()));
     this._sessionDrafts = {};
     this.sessionId = options.id || store.sessionState.sessionId;
-    this._pendingQueue = [];
     this._pendingInitialSessionOpen = !!(options.id && (options.reopen === '1' || store.sessionState.sessionId !== options.id));
     this._reuseRunningSessionOnEntry = this._pendingInitialSessionOpen
       && String(store.sessionState.sessionId || '') === String(options.id || '')
@@ -1658,33 +1657,6 @@ Page({
     const { id, action } = e.currentTarget.dataset;
     const s = store.sessionState;
     if (!s.sessionId || this.data.queueBusyId) return;
-    const pending = this.pendingSubmission(id);
-    if (pending) {
-      // 本地排队项：编辑取回草稿、删除直接丢弃；发送箭头才真正发出去。
-      if (action === 'edit') {
-        const text = pending.rawText || pending.preview;
-        const restored = (pending.stagedImages || []).concat((pending.workspaceRefs || []).map((ref) => ({
-          id: util.uuid(),
-          isFile: true,
-          isWorkspaceRef: true,
-          workspaceKind: ref.kind === 'directory' ? 'directory' : 'file',
-          path: ref.path,
-          name: ref.name
-        })));
-        const images = this.data.images.concat(restored).slice(0, 20);
-        const nextDraft = this.data.draft ? this.data.draft + '\n\n' + text : text;
-        this.setComposerValue(nextDraft, {
-          draft: nextDraft,
-          images: images,
-          canSend: true
-        });
-        this.syncCommandMenu(this.data.draft, store.sessionState);
-        this.dropPendingSubmission(id);
-        return;
-      }
-      if (action === 'remove') { this.dropPendingSubmission(id); return; }
-      return this.releasePendingSubmission(pending);
-    }
     if (action === 'edit') {
       const item = this.data.queue.find((q) => q.id === id);
       if (!item) return;
@@ -1705,7 +1677,7 @@ Page({
     }, 20000);
   },
 
-  /** 队列 dock 数据源 = 网关队列 + 本地待发队列（尚未真正发出的消息）。 */
+  /** 队列 dock 只展示网关确认的队列项，避免重复维护本地待发副本。 */
   syncQueueDock() {
     // DSH 的队列项是 UserMessage：正文在 content[] block 中，而不是顶层字符串。
     const qContentOf = (it) => {
@@ -1765,119 +1737,11 @@ Page({
         editable: it.editable !== false
       };
     });
-    // DSH 会在 Host 回执前展示本地 pending submission，避免快速连续发送时数量短暂少算。
-    const currentSessionId = store.sessionState.sessionId;
-    const localItems = (this._pendingQueue || []).filter((item) => item.local && item.sessionId === currentSessionId).map((item) => ({
-      id: item.id,
-      local: true,
-      rawText: item.rawText,
-      preview: item.preview,
-      attachmentCount: item.attachmentCount,
-      attachmentLabel: item.attachmentLabel,
-      attachments: item.attachments,
-      statusText: item.statusText || '',
-      editable: item.editable !== false
-    }));
-    const pending = (this._pendingQueue || []).filter((item) => !item.local);
-    const unmatched = pending.slice();
-    q.forEach((item) => {
-      if (!item.rawText) return;
-      const match = unmatched.findIndex((candidate) => candidate.rawText === item.rawText);
-      if (match >= 0) unmatched.splice(match, 1);
-    });
-    q = q.concat(unmatched, localItems);
     if (JSON.stringify(q) !== JSON.stringify(this._lastQueue || [])) {
       this._lastQueue = q;
       this.setData({ queue: q, queueSending: q.some((item) => !!item.statusText) });
       this.updateDockInset();
     }
-  },
-
-  /**
-   * 运行中发送：消息只进本地队列，向网关发送前先等用户点队列行的发送箭头。
-   * 这样可以避免宿主把 queue 模式的消息在回合结束时自动发出。
-   * @param {string} text 正文
-   * @param {Array} encodedImages 已编码图片（点箭头发送时直接复用）
-   * @param {Array} stagedImages 输入框里的图片（用于队列缩略图与「编辑」还原）
-   * @param {Array} workspaceRefs 工作区文件/目录引用
-   * @param {string} ticket 一次性订阅通知票据
-   */
-  enqueueSubmission(text, encodedImages, stagedImages, workspaceRefs, ticket) {
-    if (!store.sessionState.running || (!text && !(stagedImages || []).length)) return false;
-    const attachments = (stagedImages || []).map((image, index) => ({
-      key: 'pending:' + index + ':' + (image.name || 'attachment'),
-      type: image.isFile ? 'file' : 'image',
-      url: image.previewUrl || image.tempPath || '',
-      name: image.name || uiText('附件')
-    })).filter((item) => item.type !== 'image' || item.url);
-    (workspaceRefs || []).forEach((ref, index) => {
-      attachments.push({
-        key: 'ref:' + index + ':' + (ref.path || ref.name || ''),
-        type: 'file',
-        url: '',
-        name: ref.name || ref.path || uiText('附件')
-      });
-    });
-    this._pendingQueue = (this._pendingQueue || []).concat([{
-      id: 'pending-' + util.uuid(),
-      local: true,
-      sessionId: store.sessionState.sessionId,
-      rawText: text || '',
-      preview: String(text || '').replace(/\s+/g, ' ').trim(),
-      attachmentCount: attachments.length,
-      attachmentLabel: attachments.length + uiText(' 个附件'),
-      attachments: attachments,
-      statusText: '',
-      editable: true,
-      // 点箭头发送时复用这些载荷：已编码图片、工作区引用、通知票据
-      images: (encodedImages || []).map((image) => ({ mediaType: image.mediaType, data: image.data, name: image.name || null })),
-      stagedImages: (stagedImages || []).map((image) => Object.assign({}, image)),
-      workspaceRefs: (workspaceRefs || []).map((ref) => Object.assign({}, ref)),
-      ticket: ticket || ''
-    }]);
-    this.syncQueueDock();
-    return true;
-  },
-
-  pendingSubmission(id) {
-    return (this._pendingQueue || []).find((item) => item.id === id) || null;
-  },
-
-  dropPendingSubmission(id) {
-    this._pendingQueue = (this._pendingQueue || []).filter((item) => item.id !== id);
-    this.syncQueueDock();
-  },
-
-  /** 点发送箭头：把本地排队项真正发给网关（运行中仍是插话，回合结束后是普通发送）。 */
-  releasePendingSubmission(pending) {
-    if (pending && (pending.stagedImages || []).some(file => file.isFile && !file.isWorkspaceRef)) {
-      return this.sendExternalFiles(pending.rawText, pending.stagedImages, pending);
-    }
-    const s = store.sessionState;
-    if (!pending || !s.sessionId) return;
-    // 排队项属于入队时的会话；已经切走就不能再发到当前会话。
-    if (pending.sessionId && pending.sessionId !== s.sessionId) {
-      this.dropPendingSubmission(pending.id);
-      wx.showToast({ title: uiText('会话已切换，消息已丢弃'), icon: 'none' });
-      return;
-    }
-    if (store.state.connection !== 'connected') {
-      wx.showToast({ title: uiText('未连接主机，消息仍在队列中'), icon: 'none' }); return;
-    }
-    const mode = s.running ? 'steer' : undefined;
-    const sent = store.client.sendMessage(
-      pending.rawText, s.sessionId, store.state.currentWorkspaceId,
-      pending.images || [], mode, pending.ticket || '', pending.workspaceRefs || []
-    );
-    if (sent === false) {
-      wx.showToast({ title: uiText('发送失败，消息仍在队列中'), icon: 'none' }); return;
-    }
-    this.dropPendingSubmission(pending.id);
-    // 立即发送（非插话）时补一条乐观回显；插话消息由网关按运行中回显合并。
-    if (mode !== 'steer') {
-      store.appendLocalUserRow(pending.rawText, [], pending.workspaceRefs || []);
-    }
-    this.jumpToBottom();
   },
 
   openContextSheet() {
@@ -6077,10 +5941,12 @@ Page({
       return ticketPromise.then(ticket => {
         if (self._unloaded) return false;
         if (store.sessionState.running) {
-          // 运行中发送：消息进本机队列等待用户点“发送”箭头，
-          self.enqueueSubmission(line, encodedImages || [], [], [], ticket);
-          if (!preserveDraft) self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
+          // 交给网关队列，在当前回合结束后自动发送。
+          const sent = store.client.sendMessage(line, store.sessionState.sessionId,
+            store.state.currentWorkspaceId, encodedImages, 'queue', ticket);
+          if (sent === false) return false;
           self.jumpToBottom();
+          if (!preserveDraft) self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
           return true;
         }
         const sent = store.client.sendMessage(line, store.sessionState.sessionId, store.state.currentWorkspaceId, encodedImages, undefined, ticket);
@@ -6389,32 +6255,26 @@ Page({
       if (activeCommand && activeCommand.ui && activeCommand.ui.kind === 'input') {
         return this.submitCommand(activeCommand, text, encoded, false, ticket);
       }
-      if (s.running) {
-        // 运行中发送：只进本机队列，等用户点队列行的发送箭头再真正发出。
-        this.enqueueSubmission(text, encoded, uploadImages, workspaceRefs, ticket);
-        self.setComposerValue('', { draft: '', images: [], canSend: false });
-        this.closeAttachMenu();
-        this.jumpToBottom();
-        return;
-      }
       const sent = client.sendMessage(
         text,
         s.sessionId,
         workspaceId,
         encoded,
-        undefined,
+        s.running ? 'queue' : undefined,
         ticket,
         workspaceRefs
       );
       if (sent !== false) {
-        // 乐观回显：消息立即可见（对齐桌面端），网关回显到达时自动合并。
-        store.appendLocalUserRow(text, uploadImages.map((image) => ({
-          attachmentId: image.id,
-          name: image.name,
-          mediaType: image.mediaType,
-          localUrl: image.tempPath,
-          tempPath: image.tempPath
-        })), workspaceRefs);
+        if (!s.running) {
+          // 普通发送乐观回显；排队消息等网关队列帧，避免提前显示成已发送。
+          store.appendLocalUserRow(text, uploadImages.map((image) => ({
+            attachmentId: image.id,
+            name: image.name,
+            mediaType: image.mediaType,
+            localUrl: image.tempPath,
+            tempPath: image.tempPath
+          })), workspaceRefs);
+        }
       } else {
         wx.showToast({ title: uiText('发送失败，草稿已保留'), icon: 'none' }); return;
       }
@@ -6427,28 +6287,22 @@ Page({
     }).finally(() => { if (!this._unloaded) this.setData({ sendingAttachments: false }); });
   },
 
-  async sendExternalFiles(text, staged, pending) {
+  async sendExternalFiles(text, staged) {
     if (this.data.sendingAttachments) return;
     const client = store.client, s = store.sessionState;
     const fail = message => wx.showToast({ title: uiText(message), icon: 'none' });
     if (store.state.connection !== 'connected' || !s.sessionId) return fail('请先连接网关并打开会话');
     if (!(store.state.gatewayCapabilities || []).includes('file-upload-v1')) return fail('当前网关不支持外部文件，请升级并重启网关');
-    if (!pending && this._activeCommand) return fail('斜杠命令不支持文件，请使用普通消息发送');
-    if (pending && pending.sessionId !== s.sessionId) return fail('会话已切换，消息仍保留在队列');
+    if (this._activeCommand) return fail('斜杠命令不支持文件，请使用普通消息发送');
     const context = this.composerContextKey(), sessionId = s.sessionId, generation = client.connectGeneration;
     const revision = this._draftRevision || 0;
     const current = () => !this._unloaded && store.client === client && this.composerContextKey() === context
-      && client.connectGeneration === generation && (pending ? this.pendingSubmission(pending.id) === pending : (this._draftRevision || 0) === revision);
-    const refs = pending ? pending.workspaceRefs || [] : staged.filter(file => file.isWorkspaceRef).map(file => ({ kind: file.workspaceKind, path: file.path, name: file.name }));
+      && client.connectGeneration === generation && (this._draftRevision || 0) === revision;
+    const refs = staged.filter(file => file.isWorkspaceRef).map(file => ({ kind: file.workspaceKind, path: file.path, name: file.name }));
     this.setData({ sendingAttachments: true });
     try {
-      const ticket = pending ? pending.ticket : await notifySubscription.requestCompletionTicket();
+      const ticket = await notifySubscription.requestCompletionTicket();
       if (!current()) return;
-      if (s.running && !pending) {
-        this.enqueueSubmission(text, [], staged.filter(file => !file.isWorkspaceRef), refs, ticket);
-        this.setComposerValue('', { draft: '', images: [], canSend: false });
-        this.closeAttachMenu(); return;
-      }
       const { uploadFile } = require('./utils/file-upload');
       const receipts = [];
       for (const file of staged.filter(file => file.isFile && !file.isWorkspaceRef)) {
@@ -6460,11 +6314,10 @@ Page({
       if (!current()) return;
       // A socket write is not acceptance; preserve the draft until the host ACK.
       await client.requestUpload('message', { sessionId, text, images, files: receipts, attachments: refs,
-        clientTimeZone: client.timeZone(), ...(s.running ? { mode: 'steer' } : {}),
+        clientTimeZone: client.timeZone(), ...(s.running ? { mode: 'queue' } : {}),
         ...(ticket ? { notificationTicket: ticket } : {}) });
       if (!current()) return;
-      if (pending) this.dropPendingSubmission(pending.id);
-      else this.setComposerValue('', { draft: '', images: [], canSend: false });
+      this.setComposerValue('', { draft: '', images: [], canSend: false });
       this.closeAttachMenu(); this.jumpToBottom();
     } catch (error) {
       if (current()) fail(error.message || error.errMsg || '文件上传失败，草稿已保留');

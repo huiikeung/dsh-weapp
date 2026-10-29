@@ -161,25 +161,18 @@
           </view>
         </block>
         <block wx:elif="{{picker === 'diagnostics'}}">
-          <view wx:for="{{diagnostics}}" wx:key="label" class="picker-pop-row picker-pop-kv">
-            <text class="picker-pop-kv-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
-            <text class="picker-pop-kv-value {{item.mono ? 'text-mono' : ''}}" selectable>{{item.value}}</text>
+          <view wx:for="{{diagnostics}}" wx:key="label" class="picker-pop-diag-row">
+            <text class="picker-pop-diag-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+            <text class="picker-pop-diag-value {{item.mono ? 'text-mono' : ''}}" selectable>{{item.value}}</text>
           </view>
         </block>
         <block wx:elif="{{picker === 'cache'}}">
-          <view class="picker-pop-cache-copy">
-            <text class="picker-pop-cache-desc">{{ui['仅清理本机的会话列表与正文缓存，下次打开时重新加载。']}}</text>
-            <text class="picker-pop-cache-note">{{ui['不会删除聊天记录、配对信息或公网有效期。']}}</text>
-            <text wx:if="{{cacheError}}" class="picker-pop-error">{{ui[cacheError] !== undefined ? ui[cacheError] : cacheError}}</text>
-          </view>
-          <view class="picker-pop-divider"></view>
-          <view class="picker-pop-row picker-pop-action-row {{cacheClearing ? 'busy' : ''}}" bindtap="confirmClearCache" hover-class="picker-pop-row-pressed" role="button" aria-disabled="{{cacheClearing}}">
-            <image class="picker-pop-ic picker-pop-action-ic" src="/assets/icons/trash-gray.png" mode="aspectFit"/>
-            <text class="picker-pop-action-label picker-pop-danger">{{cacheClearing ? ui['清理中…'] : ui['确认清理']}}</text>
-          </view>
-          <view class="picker-pop-row picker-pop-action-row" bindtap="closePickerSheet" hover-class="picker-pop-row-pressed" role="button">
-            <image class="picker-pop-ic picker-pop-action-ic" src="/assets/icons/collab-close.svg" mode="aspectFit"/>
-            <text class="picker-pop-action-label">{{ui['取消']}}</text>
+          <view class="picker-pop-cache-desc">{{ui['仅清理本机的会话列表与正文缓存，下次打开时重新加载。']}}</view>
+          <view class="picker-pop-cache-note">{{ui['不会删除聊天记录、配对信息或公网有效期。']}}</view>
+          <view wx:if="{{cacheError}}" class="picker-pop-error">{{ui[cacheError] !== undefined ? ui[cacheError] : cacheError}}</view>
+          <view class="picker-pop-actions">
+            <view class="picker-pop-action picker-pop-action-cancel {{cacheClearing ? 'picker-pop-action-disabled' : ''}}" bindtap="closePickerSheet" hover-class="picker-pop-action-pressed" role="button" aria-disabled="{{cacheClearing}}">{{ui['取消']}}</view>
+            <view class="picker-pop-action picker-pop-action-confirm {{cacheClearing ? 'picker-pop-action-disabled' : ''}}" bindtap="confirmClearCache" hover-class="picker-pop-action-pressed" role="button" aria-disabled="{{cacheClearing}}">{{cacheClearing ? ui['清理中…'] : ui['确认清理']}}</view>
           </view>
         </block>
         <view wx:if="{{pickerIntro}}" class="picker-pop-hint">{{ui[pickerIntro] !== undefined ? ui[pickerIntro] : pickerIntro}}</view>

@@ -312,25 +312,21 @@
   line-height: 1.5;
 }
 
-/* 诊断信息：键值同行，值右对齐（地址/帧统计等宽可换行） */
-.picker-pop-kv {
-  align-items: center;
-  gap: 24rpx;
-  min-height: 80rpx;
+/* 诊断信息：标签 + 值（值可换行 / 等宽） */
+.picker-pop-diag-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
   padding: 14rpx 40rpx;
 }
 
-.picker-pop-kv-label {
-  flex: none;
-  color: rgba(255, 255, 255, 0.55);
-  font-size: 24rpx;
+.picker-pop-diag-label {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 22rpx;
   line-height: 1.4;
 }
 
-.picker-pop-kv-value {
-  flex: 1;
-  min-width: 0;
-  text-align: right;
+.picker-pop-diag-value {
   color: #FFFFFF;
   font-size: 26rpx;
   line-height: 1.45;
@@ -339,55 +335,63 @@
   white-space: pre-wrap;
 }
 
-/* 清理缓存：说明 + 菜单行动作，危险操作红字 */
-.picker-pop-cache-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 8rpx;
-  padding: 12rpx 40rpx 16rpx;
-}
-
+/* 清理缓存：说明 + 危险操作按钮 */
 .picker-pop-cache-desc {
+  padding: 10rpx 40rpx 0;
   color: rgba(255, 255, 255, 0.88);
   font-size: 27rpx;
   line-height: 1.55;
 }
 
 .picker-pop-cache-note {
+  padding: 8rpx 40rpx 0;
   color: rgba(255, 255, 255, 0.55);
   font-size: 23rpx;
   line-height: 1.5;
 }
 
 .picker-pop-error {
-  margin-top: 2rpx;
+  padding: 10rpx 40rpx 0;
   color: #FF8E82;
   font-size: 23rpx;
   line-height: 1.5;
 }
 
-.picker-pop-action-row {
-  align-items: center;
-  min-height: 88rpx;
-  padding: 16rpx 40rpx;
+.picker-pop-actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 20rpx;
+  padding: 18rpx 40rpx 24rpx;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.12);
 }
 
-.picker-pop-action-ic {
-  margin-top: 0;
-  filter: brightness(0) invert(1);
-  opacity: 0.90;
-}
-
-.picker-pop-action-label {
+.picker-pop-action {
   flex: 1;
   min-width: 0;
-  color: #FFFFFF;
-  font-size: 30rpx;
+  min-height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 20rpx;
+  font-size: 27rpx;
   font-weight: 500;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
-.picker-pop-danger { color: #FF6B61; }
+.picker-pop-action-cancel {
+  background: rgba(255, 255, 255, 0.10);
+  color: #FFFFFF;
+}
+
+.picker-pop-action-confirm {
+  background: #BF3D31;
+  color: #FFFFFF;
+}
+
+.picker-pop-action-pressed { opacity: 0.80; }
+
+.picker-pop-action-disabled { opacity: 0.50; }
 
 /* 默认模型：供应商分组标题 + 单行模型（当前模型附所选思考等级） */
 .picker-pop-group {
@@ -514,9 +518,9 @@
   opacity: 0.85;
 }
 
-.theme-light .picker-pop-kv-label { color: rgba(16, 19, 24, 0.55); }
+.theme-light .picker-pop-diag-label { color: rgba(16, 19, 24, 0.52); }
 
-.theme-light .picker-pop-kv-value { color: #10131A; }
+.theme-light .picker-pop-diag-value { color: #10131A; }
 
 .theme-light .picker-pop-cache-desc { color: rgba(16, 19, 24, 0.88); }
 
@@ -524,11 +528,9 @@
 
 .theme-light .picker-pop-error { color: #BF3D31; }
 
-.theme-light .picker-pop-action-ic {
-  filter: none;
-  opacity: 0.62;
+.theme-light .picker-pop-actions { border-top-color: rgba(16, 19, 24, 0.08); }
+
+.theme-light .picker-pop-action-cancel {
+  background: rgba(16, 19, 24, 0.06);
+  color: #10131A;
 }
-
-.theme-light .picker-pop-action-label { color: #10131A; }
-
-.theme-light .picker-pop-danger { color: #C0392B; }

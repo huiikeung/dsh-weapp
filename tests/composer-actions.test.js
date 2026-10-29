@@ -25,6 +25,8 @@ function fixture(items = [command('goal', 'input'), command('compact'), command(
       setPermission: async (...args) => { calls.push(['permission', ...args]); },
       executeCommand: async (...args) => { calls.push(['execute', ...args]); },
       sendMessage: (...args) => { calls.push(['send', ...args]); return true; },
+      queueUpdate: (...args) => calls.push(['queueUpdate', ...args]),
+      requestQueue: (...args) => calls.push(['requestQueue', ...args]),
       requestFileList: async () => ({ path: '.', entries: [{ name: 'a b.js', path: 'src/a b.js', kind: 'file' }] })
     },
     beginNativeOverlay: () => {}, endNativeOverlay: () => {}, nativeOverlayActive: () => false
@@ -383,43 +385,69 @@ test('send refusal keeps draft; while reading attachments send is locked and sco
   const pending = page.send(); page.send(); assert.equal(reads.length, 1);
   store.sessionState.sessionId = 's2'; reads[0].success({ data: 'aGVsbG8=' }); await pending; assert.ok(!calls.some(x => x[0] === 'send')); assert.equal(page.data.draft, 'keep');
 });
-test('normal image messages use immediate mode; running sessions hold locally until the send arrow releases them', async () => {
+test('normal messages send immediately; running messages use the gateway queue for automatic post-run delivery', async () => {
   const { page, store, calls, reads } = fixture(); page.data.draft = 'image task'; page.data.images = [{ id: 'i', tempPath: '/tmp/i', mediaType: 'image/png', name: 'i.png' }];
   const pending = page.send(); reads[0].success({ data: 'aGVsbG8=' }); await pending;
   const sent = calls.find(x => x[0] === 'send'); assert.equal(sent[5], undefined); assert.equal(sent[4][0].mediaType, 'image/png'); assert.equal(page.data.draft, '');
   store.sessionState.running = true; page.data.draft = 'next'; await page.send();
-  // 运行中发送：不进网关，只进本地队列；发送箭头点击后才真正发出
-  assert.ok(!calls.some(x => x[0] === 'send' && x[1] === 'next'));
-  assert.equal(page.data.queue.length, 1);
-  assert.equal(page.data.queue[0].rawText, 'next');
+  const queued = calls.filter(x => x[0] === 'send').at(-1);
+  assert.equal(queued[1], 'next');
+  assert.equal(queued[5], 'queue', 'the host owns the queue and sends the item after the active turn ends');
+  assert.equal(page.data.queue.length, 0, 'do not show an unacknowledged local duplicate');
   assert.equal(page.data.draft, '');
-  // 点发送箭头（仍在运行） → steer
-  page.queueAction(event({ id: page.data.queue[0].id, action: 'steer' }));
-  const sent2 = calls.filter(x => x[0] === 'send').at(-1);
-  assert.equal(sent2[1], 'next'); assert.equal(sent2[5], 'steer');
-  assert.equal(page.data.queue.length, 0);
 });
-test('queued local messages support edit, remove and post-run release with optimistic echo', async () => {
+test('slash message commands also enter the gateway queue during an active run', async () => {
+  const prompt = command('prompt', 'immediate', { ui: { kind: 'immediate', submitRequest: 'message' } });
+  const { page, store, calls } = fixture([prompt]);
+  store.sessionState.running = true;
+  page._activeCommand = prompt;
+  page.data.draft = 'continue after this turn';
+
+  await page.send();
+
+  const sent = calls.filter(call => call[0] === 'send').at(-1);
+  assert.equal(sent[1], 'continue after this turn');
+  assert.equal(sent[5], 'queue');
+  assert.equal(page.data.draft, '');
+});
+test('queued messages are shown from the gateway and can still be removed', async () => {
   const { page, store, calls } = fixture();
-  // 运行时入队
-  store.sessionState.running = true; page.data.draft = 'hold-me'; await page.send();
-  assert.equal(page.data.queue.length, 1);
-  // 编辑：回到草稿
-  page.queueAction(event({ id: page.data.queue[0].id, action: 'edit' }));
-  assert.equal(page.data.draft, 'hold-me'); assert.equal(page.data.queue.length, 0);
-  // 重新入队并点删除
-  page.data.draft = 'hold-me'; await page.send();
-  page.queueAction(event({ id: page.data.queue[0].id, action: 'remove' }));
-  assert.equal(page.data.queue.length, 0);
-  // 仍在运行时再次入队，然后结束回合 → 点击发送箭头：立即发出 + 乐观回显
-  page.data.draft = 'after-run'; await page.send();
-  assert.equal(page.data.queue.length, 1);
-  store.sessionState.running = false;  // 回合结束，但消息仍在队列
-  page.queueAction(event({ id: page.data.queue[0].id, action: 'steer' }));
-  const sent = calls.filter(x => x[0] === 'send').at(-1);
-  assert.equal(sent[1], 'after-run'); assert.equal(sent[5], undefined);  // 回合结束 → 正常发送
-  assert.ok(calls.some(x => x[0] === 'echo' && x[1] === 'after-run'));
-  assert.equal(page.data.queue.length, 0);
+  store.sessionState.queue = [{ id: 'gateway-queue-1', text: 'after-run' }];
+  page.syncQueueDock();
+  assert.equal(page.data.queue[0].id, 'gateway-queue-1');
+  assert.equal(page.data.queue[0].rawText, 'after-run');
+  page.queueAction(event({ id: 'gateway-queue-1', action: 'remove' }));
+  assert.deepEqual(calls.filter(x => x[0] === 'queueUpdate').at(-1),
+    ['queueUpdate', 's1', 'gateway-queue-1', 'remove']);
+  clearTimeout(page._queueTimer);
+});
+test('external file messages queued during a run retain gateway queue mode', async () => {
+  const { page, store, calls, wx } = fixture();
+  store.sessionState.running = true;
+  store.state.gatewayCapabilities = ['file-upload-v1'];
+  store.client.timeZone = () => 'Asia/Shanghai';
+  store.client.requestUpload = async (action, payload) => {
+    calls.push(['upload', action, payload]);
+    if (action === 'open') return { sessionId: 's1', uploadId: 'u1', size: 0, chunkBytes: 1024 };
+    if (action === 'finish') return { sessionId: 's1', uploadId: 'u1', receiptId: 'r1',
+      sha256: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      file: { attachmentId: 'a1', name: 'empty.txt', bytes: 0 } };
+    return {};
+  };
+  wx.getFileSystemManager = () => ({
+    stat: options => options.success({ stats: { size: 0 } }),
+    open: options => options.success({ fd: 'fd1' }),
+    close: options => options.success({})
+  });
+  page.data.draft = 'send this file after the turn';
+  page.data.images = [{ isFile: true, name: 'empty.txt', tempPath: '/tmp/empty.txt' }];
+
+  await page.send();
+
+  const message = calls.find(call => call[0] === 'upload' && call[1] === 'message')[2];
+  assert.equal(message.mode, 'queue');
+  assert.equal(message.files[0].receiptId, 'r1');
+  assert.equal(page.data.draft, '');
 });
 test('successful send resets an old scroll gesture and immediately follows the tail', async () => {
   const {page,store}=fixture();let scrolls=0;page.refreshBottomAnchor=()=>scrolls++;

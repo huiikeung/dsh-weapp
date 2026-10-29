@@ -40,6 +40,16 @@ test('picker popover stays inside safe bounds on narrow and wide screens', () =>
   }
 });
 
+test('diagnostics and cache use a wider popover while other pickers keep the menu width', () => {
+  const row = { left: 20, top: 240, width: 350, height: 56 };
+  const normal = layout(row, phone, navBottom);
+  const wide = layout(row, phone, navBottom, { wide: true });
+  assert.ok(wide.pickerPopWidth > normal.pickerPopWidth);
+  assert.ok(wide.pickerPopWidth >= 280 && wide.pickerPopWidth <= 340);
+  assert.ok(wide.pickerPopLeft >= 16);
+  assert.ok(wide.pickerPopLeft + wide.pickerPopWidth <= 390 - 16);
+});
+
 test('a row scrolled above the viewport keeps the popover below the navigation bar', () => {
   const pop = layout({ left: 20, top: -80, width: 350, height: 56 }, phone, navBottom);
   assert.ok(pop.pickerPopTop >= navBottom + 8);
@@ -69,7 +79,7 @@ test('preset, model and permission rows all feed the same anchored glass list', 
   }
   assert.doesNotMatch(html, /picker-option-list|model-option-card|permission-card-head|picker-current-badge/);
   const js = read('pages/session-settings/session-settings.js');
-  assert.match(js, /pickerPopoverLayout\(rect, windowInfo, navigationBottom\)/);
+  assert.match(js, /pickerPopoverLayout\(rect, windowInfo, navigationBottom, \{ wide \}\)/);
   assert.match(js, /select\(anchorSelector\)/);
   for (const anchor of ['#agent-preset-row', '#default-model-row', '#default-permission-row']) {
     assert.ok(js.includes("'" + anchor + "'"), anchor);

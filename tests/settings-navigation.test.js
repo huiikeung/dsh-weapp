@@ -156,7 +156,7 @@ test('session settings retain model and permission APIs, file navigation and pri
   // 工作区文件改为弹窗浏览，不再跳转页面
   page.openFiles(); assert.equal(page.data.filesSheet,true);
   assert.equal(calls.filter(c => c[0] === 'navigate').length,0);
-  page.showDiagnostics(); assert.equal(page.data.picker,'diagnostics'); assert.equal(page.data.pickerPopOrigin,'50% 0'); assert.equal(page.data.diagnostics[1].label,'公网标识'); assert.equal(page.data.diagnostics[1].value,'public-id'); assert.doesNotMatch(JSON.stringify(page.data.diagnostics),/hidden.example/);
+  page.showDiagnostics(); assert.equal(page.data.picker,'diagnostics'); assert.equal(page.data.pickerPopOrigin,'50% 0'); assert.ok(page.data.pickerPopWidth >= 280, 'diagnostics popover is wider'); assert.equal(page.data.diagnostics[1].label,'公网标识'); assert.equal(page.data.diagnostics[1].value,'public-id'); assert.doesNotMatch(JSON.stringify(page.data.diagnostics),/hidden.example/);
   subscriber({app:{...state,defaultModel:{model:'changed'}}}); assert.equal(page.data.modelLabel,'changed');
   assert.equal(page.data.hostInfo.model, 'changed');
   assert.equal(page.data.hostInfo.version, '1.0');
@@ -167,7 +167,7 @@ test('session settings retain model and permission APIs, file navigation and pri
   const removed = [];
   wx.getStorageInfoSync = () => ({keys:['dsh_session_cache.fixture','dsh_home_cache.fixture','dsh_context_cache.fixture','gateway.profiles.v1','dsh_creds.fixture','public-access.session.v1']});
   wx.removeStorageSync = key => removed.push(key);
-  page.clearLocalCache(); assert.equal(page.data.picker,'cache'); assert.equal(page.data.pickerPopOrigin,'50% 0'); assert.equal(removed.length,0,'Opening confirmation must not delete anything');
+  page.clearLocalCache(); assert.equal(page.data.picker,'cache'); assert.equal(page.data.pickerPopOrigin,'50% 0'); assert.ok(page.data.pickerPopWidth >= 280, 'cache popover is wider'); assert.equal(removed.length,0,'Opening confirmation must not delete anything');
   page.closePickerSheet(); page.confirmClearCache(); assert.equal(removed.length,0,'Cancelled popover cannot delete');
   page.clearLocalCache(); page.confirmClearCache();
   assert.deepEqual(removed,['dsh_session_cache.fixture','dsh_home_cache.fixture','dsh_context_cache.fixture']); assert.equal(page.data.picker,'');
@@ -265,14 +265,14 @@ test('diagnostics and cache use the same anchored glass popover as the other row
   for (const [id, handler] of [['diagnostics-row', 'showDiagnostics'], ['clear-cache-row', 'clearLocalCache']]) {
     assert.match(html, new RegExp('id="' + id + '"[^>]*bindtap="' + handler + '"'));
   }
-  assert.match(html, /picker === 'diagnostics'[\s\S]*?picker-pop-kv[\s\S]*?picker-pop-kv-value/);
-  assert.match(html, /picker === 'cache'[\s\S]*?picker-pop-cache-copy[\s\S]*?picker-pop-action-row[\s\S]*?picker-pop-danger/);
+  assert.match(html, /picker === 'diagnostics'[\s\S]*?picker-pop-diag-row[\s\S]*?picker-pop-diag-value/);
+  assert.match(html, /picker === 'cache'[\s\S]*?picker-pop-cache-desc[\s\S]*?picker-pop-cache-note[\s\S]*?picker-pop-action-confirm/);
   assert.match(html, /bindtap="confirmClearCache"/);
-  assert.match(html, /trash-gray\.png[\s\S]*?picker-pop-action-label/);
   assert.ok(js.includes("'#diagnostics-row'") && js.includes("'#clear-cache-row'"));
-  assert.match(css, /\.picker-pop-kv-value[\s\S]*?text-align: right/);
-  assert.match(css, /\.picker-pop-action-row[\s\S]*?min-height: 88rpx/);
-  assert.match(css, /\.theme-light \.picker-pop-action-ic/);
+  assert.ok(js.includes("kind === 'diagnostics' || kind === 'cache'"), 'diagnostics and cache use the wider popover');
+  assert.match(css, /\.picker-pop-diag-row[\s\S]*?\.picker-pop-diag-value/);
+  assert.match(css, /\.picker-pop-actions[\s\S]*?\.picker-pop-action-confirm/);
+  assert.match(css, /\.theme-light \.picker-pop-action-cancel/);
 });
 
 test('settings sheets scroll as one page at a fixed 90% height', () => {

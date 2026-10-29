@@ -1491,7 +1491,7 @@
                 <view class="queue-actions">
                   <view wx:if="{{item.editable}}" class="queue-ic-btn {{queueBusyId === item.id + ':edit' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="edit"><image class="queue-ic" src="/assets/icons/pencil-line-gray.png"/></view>
                   <view class="queue-ic-btn {{queueBusyId === item.id + ':remove' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="remove"><image class="queue-ic" src="/assets/icons/trash-gray.png"/></view>
-                  <view wx:if="{{running || item.local}}" class="queue-ic-btn {{queueBusyId === item.id + ':steer' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="steer"><image class="queue-ic" src="/assets/icons/arrow-up-gray.png"/></view>
+                  <view wx:if="{{running}}" class="queue-ic-btn {{queueBusyId === item.id + ':steer' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="steer"><image class="queue-ic" src="/assets/icons/arrow-up-gray.png"/></view>
                 </view>
               </view>
               <view wx:if="{{index < queue.length - 1}}" class="queue-sep"></view>

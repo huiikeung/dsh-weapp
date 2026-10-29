@@ -178,7 +178,8 @@ Page({
     const reveal = (rect) => {
       if (this._pickerPopRequest !== request || !this._alive) return;
       this._pickerPopRequest = null;
-      const layout = pickerPopoverLayout(rect, windowInfo, navigationBottom);
+      const wide = kind === 'diagnostics' || kind === 'cache';
+      const layout = pickerPopoverLayout(rect, windowInfo, navigationBottom, { wide });
       this.setData({
         picker: kind,
         pickerTitle: title,

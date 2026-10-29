@@ -93,24 +93,17 @@ const diagnosticsRows = [
   { label: '公网标识', value: '7f3a9c2d', mono: true },
   { label: '网关', value: '客厅 Mac mini' },
   { label: '帧统计', value: '显示 1×  布局 2×  用户 1×', mono: true }
-].map(item => `        <div class="picker-pop-row picker-pop-kv">
-          <span class="picker-pop-kv-label">${item.label}</span>
-          <span class="picker-pop-kv-value ${item.mono ? 'text-mono' : ''}">${item.value}</span>
+].map(item => `        <div class="picker-pop-diag-row">
+          <span class="picker-pop-diag-label">${item.label}</span>
+          <span class="picker-pop-diag-value ${item.mono ? 'text-mono' : ''}">${item.value}</span>
         </div>`).join('');
 
 const cacheRows = `
-        <div class="picker-pop-cache-copy">
-          <span class="picker-pop-cache-desc">仅清理本机的会话列表与正文缓存，下次打开时重新加载。</span>
-          <span class="picker-pop-cache-note">不会删除聊天记录、配对信息或公网有效期。</span>
-        </div>
-        <div class="picker-pop-divider"></div>
-        <div class="picker-pop-row picker-pop-action-row">
-          <img class="picker-pop-ic picker-pop-action-ic" src="${icon('trash-gray.png')}">
-          <span class="picker-pop-action-label picker-pop-danger">确认清理</span>
-        </div>
-        <div class="picker-pop-row picker-pop-action-row">
-          <img class="picker-pop-ic picker-pop-action-ic" src="${icon('collab-close.svg')}">
-          <span class="picker-pop-action-label">取消</span>
+        <div class="picker-pop-cache-desc">仅清理本机的会话列表与正文缓存，下次打开时重新加载。</div>
+        <div class="picker-pop-cache-note">不会删除聊天记录、配对信息或公网有效期。</div>
+        <div class="picker-pop-actions">
+          <div class="picker-pop-action picker-pop-action-cancel">取消</div>
+          <div class="picker-pop-action picker-pop-action-confirm">确认清理</div>
         </div>`;
 
 const hints = {
@@ -120,7 +113,8 @@ const hints = {
 };
 
 function popover(kind) {
-  const layout = pickerPopoverLayout(anchors[kind], windowInfo, navBottom);
+  const layout = pickerPopoverLayout(anchors[kind], windowInfo, navBottom,
+    { wide: kind === 'diagnostics' || kind === 'cache' });
   const content = kind === 'preset' ? presetRows
     : kind === 'model' ? modelRows
       : kind === 'permission' ? permissionRows
