@@ -21,6 +21,8 @@ test('the shifted home panel floats above the DSH backplate with leading corners
       `${name} fades the floating shadow in step with the page slide`);
     assert.doesNotMatch(css, /\.drawer\s*\{[^}]*border-radius:/,
       `${name} does not clip or round the drawer itself`);
+    assert.match(css, /page \{\s*background:\s*#FFFFFF;\s*\}/,
+      `${name} gives the native page window the white drawer background`);
     assert.match(css, /@media \(prefers-color-scheme: dark\) \{\s*page \{\s*background:\s*#141518;\s*\}\s*\}/,
       `${name} gives the native page window the dark drawer background`);
     assert.match(css, /\.home-root\s*\{[^}]*background:\s*#FFFFFF;/,
@@ -31,8 +33,8 @@ test('the shifted home panel floats above the DSH backplate with leading corners
       'the native status-bar background uses the home-only theme token');
     assert.equal(themeTokens.dark.homeNavBgColor, '#141518',
       'dark home status bar matches the plugin page background');
-    assert.equal(themeTokens.light.homeNavBgColor, '#07182B',
-      'light home status bar keeps the home navy chrome');
+    assert.equal(themeTokens.light.homeNavBgColor, '#FFFFFF',
+      'light home status bar matches the white drawer');
     assert.doesNotMatch(css, /\.drawer-visible\s*\{[^}]*box-shadow:/,
       `${name} does not add a second shadow line at the drawer edge`);
     assert.match(css, /\.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*-4rpx 0 18rpx rgba\(0, 0, 0, 0\.12\), -8rpx 0 52rpx rgba\(0, 0, 0, 0\.30\)/,

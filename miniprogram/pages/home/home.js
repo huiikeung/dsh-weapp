@@ -1202,10 +1202,11 @@ Page({
       const windowBg = homeWindowBackground(darkTheme, open);
       this.setData({ pageStyle: 'background-color: ' + windowBg + ';' });
       if (typeof wx.setNavigationBarColor === 'function') {
-        const darkChrome = darkTheme || open;
+        // 状态栏前景与底色保持同一套：深色抽屉白字，浅色抽屉黑字；关闭时深海蓝底白字。
+        const lightChrome = open && !darkTheme;
         try {
           wx.setNavigationBarColor({
-            frontColor: darkChrome ? '#ffffff' : '#000000',
+            frontColor: lightChrome ? '#000000' : '#ffffff',
             backgroundColor: windowBg,
             fail: function () { /* 部分环境不支持，忽略 */ }
           });
