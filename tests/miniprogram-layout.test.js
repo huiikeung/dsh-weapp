@@ -15,14 +15,13 @@ test('WeChat root contains only runtime files and all packages stay inside sourc
   assert.ok(fs.existsSync(path.join(root,'pages/plugin-detail/plugin-settings-copy.js')));
   assert.ok(report.groups.find(group=>group.name==='session').bytes<checker.BUDGET);
 });
-test('running whale status artwork stays a tiny gray+alpha mask',()=>{
-  // 鲸尾图标改画布绘制后只取一帧做取色遮罩，60 帧动画不会再被渲染；
-  // 资源因此换成 28x28 灰度+透明静态 PNG（21.6KB → 0.5KB）。
+test('running whale status artwork is a compact 3x gray+alpha mask',()=>{
+  // Keep the native status image crisp on high-density iPhone screens without restoring animated frames.
   const image=fs.readFileSync(path.join(root,'assets/icons/dsh-running-whale.png'));
   assert.equal(image.subarray(1,4).toString(),'PNG');
-  assert.equal(image.readUInt32BE(16),28);assert.equal(image.readUInt32BE(20),28);
+  assert.equal(image.readUInt32BE(16),84);assert.equal(image.readUInt32BE(20),84);
   assert.equal(image.readUInt8(24),8,'8-bit');assert.equal(image.readUInt8(25),4,'gray + alpha');
-  assert.ok(image.length<2048,'mask must stay tiny');
+  assert.ok(image.length<8192,'mask must stay compact');
 });
 test('subpackages do not import each other and main package does not import subpackages',()=>{
   const roots=app.subPackages.map(p=>p.root+'/');const owner=f=>roots.find(r=>f.startsWith(r))||'';

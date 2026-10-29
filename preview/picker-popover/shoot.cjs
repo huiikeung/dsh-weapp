@@ -13,12 +13,16 @@ const dir = __dirname;
 const root = path.resolve(dir, '..', '..');
 const wxss = fs.readFileSync(path.join(root, 'miniprogram/pages/session-settings/session-settings.wxss'), 'utf8');
 const marker = '/* ---------- 选择弹层：与首页工作区选择同款的锚点玻璃弹窗 ----------';
+const cardMarker = '/* ---------- 设置页卡片：沿用首页工作区卡片的玻璃材质 ----------';
 const start = wxss.indexOf(marker);
-if (start < 0) throw new Error('picker popover styles not found in session-settings.wxss');
-const popoverCss = wxss.slice(start).replace(/(\d+(?:\.\d+)?)rpx/g, (_, value) => {
+const cardStart = wxss.indexOf(cardMarker);
+if (start < 0 || cardStart < 0) throw new Error('session-settings preview styles not found');
+const toPx = css => css.replace(/(\d+(?:\.\d+)?)rpx/g, (_, value) => {
   const px = Number(value) / 2;
   return (Number.isInteger(px) ? px : px.toFixed(2).replace(/\.?0+$/, '')) + 'px';
 });
+const popoverCss = toPx(wxss.slice(start, cardStart));
+const cardCss = toPx(wxss.slice(cardStart));
 
 // 390×844、状态栏 47、胶囊行 32 → 导航下沿 93。纵向位置由页面内脚本实测锚点行后写入。
 const windowInfo = { windowWidth: 390, windowHeight: 844, statusBarHeight: 47, safeArea: { bottom: 810 } };
@@ -113,6 +117,7 @@ const hints = {
 };
 
 function popover(kind) {
+  if (kind === 'none') return '';
   const layout = pickerPopoverLayout(anchors[kind], windowInfo, navBottom,
     { wide: kind === 'diagnostics' || kind === 'cache' });
   const content = kind === 'preset' ? presetRows
@@ -140,16 +145,23 @@ function stage(theme, kind) {
     <div class="page">
       <div class="nav">会话设置</div>
       <div class="group-title">新会话默认配置</div>
-      <div class="card">
+      <div class="card settings-glass-card">
         ${row(kind, 'preset', 'Agent 预设', '标准模式')}
         ${row(kind, 'model', '默认模型', 'DeepSeek V4 · Max')}
         ${row(kind, 'permission', '权限', '工作区内修改')}
       </div>
       <div class="hint">与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。</div>
       <div class="group-title">功能</div>
-      <div class="card">
+      <div class="card settings-glass-card">
         ${row(kind, 'diagnostics', '诊断信息')}
         ${row(kind, 'cache', '清理缓存')}
+      </div>
+      <div class="group-title">主机信息</div>
+      <div class="card settings-glass-card">
+        <div class="card-row"><span>模型服务商</span><span class="row-value">DeepSeek</span></div>
+        <div class="card-row"><span>模型</span><span class="row-value">DeepSeek V4</span></div>
+        <div class="card-row"><span>已连接会话</span><span class="row-value">2</span></div>
+        <div class="card-row"><span>工作目录</span><span class="row-value text-mono">/Users/me/project</span></div>
       </div>
     </div>
     ${popover(kind)}
@@ -169,7 +181,8 @@ function stage(theme, kind) {
   </section>`;
 }
 
-const shell = fs.readFileSync(path.join(dir, 'index.html'), 'utf8').replace('/*__PICKER_POP_CSS__*/', popoverCss);
+const shell = fs.readFileSync(path.join(dir, 'index.html'), 'utf8')
+  .replace('/*__PICKER_POP_CSS__*/', popoverCss + '\n' + cardCss);
 
 const candidates = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
@@ -192,7 +205,9 @@ const shots = [
   { name: 'preview-permission-dark.png', theme: 'dark', kind: 'permission' },
   { name: 'preview-diagnostics-dark.png', theme: 'dark', kind: 'diagnostics' },
   { name: 'preview-cache-dark.png', theme: 'dark', kind: 'cache' },
-  { name: 'preview-cache-light.png', theme: 'light', kind: 'cache' }
+  { name: 'preview-cache-light.png', theme: 'light', kind: 'cache' },
+  { name: 'preview-card-dark.png', theme: 'dark', kind: 'none' },
+  { name: 'preview-card-light.png', theme: 'light', kind: 'none' }
 ];
 for (const shot of shots) {
   const page = shell.replace('__STAGES__', stage(shot.theme, shot.kind));

@@ -5,7 +5,9 @@ const path = require('node:path');
 const protocol = require('../miniprogram/utils/protocol');
 const { buildEntries } = require('../miniprogram/pages/session/utils/conversation-workflow');
 const appearance = require('../miniprogram/pages/session/utils/status-appearance');
+const settingsAppearance = require('../miniprogram/pages/settings/utils/status-appearance');
 const procIcon = require('../miniprogram/pages/session/utils/proc-icon-style');
+const statusTailAnimation = require('../scripts/generate-status-tail-animation.cjs');
 function events(reason) { return [
   { seq: 1, time: 1000, type: 'user/message', data: { content: '检查文件' } },
   { seq: 2, time: 1001, type: 'turn/start', data: { turn: 1 } },
@@ -103,24 +105,26 @@ test('execution icon choice persists, defaults to the spinning ring, invalid val
   } finally { delete global.wx; }
 });
 test('all status styles animate the DSH whale through the same selected text palette', () => {
+  assert.deepEqual(settingsAppearance.OPTIONS,appearance.OPTIONS,'settings preview and live status use the same palettes');
   const template=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
   assert.match(template,/\{\{runPhrase\}\}\{\{ui\['，用时'\]\}\} \{\{runElapsedText\}\}…/);
-  // 图标必须用原生 image + CSS filter 动画（合成器驱动）：canvas 逐帧绘制
-  // 会在 scroll-view 滚动时滞后于文字，这是 v0.9.x 已验证过的回归红线。
-  assert.match(template,/<view class="status-tail status-tail-\{\{statusAppearance\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}" style="\{\{theme === 'dark' \? statusDarkTailAnimationStyle : statusLightTailAnimationStyle\}\}"><image class="status-tail-image" mode="aspectFit" src="\/assets\/icons\/dsh-running-whale\.png" style="filter:\{\{theme === 'dark' \? statusDarkTailFilter : statusLightTailFilter\}\}"\/>/);
+  // Animate a high-resolution native image directly; avoid nested filtered layers and a canvas ticker in scroll-view.
+  assert.match(template,/<view class="status-tail"><image class="status-tail-image status-tail-\{\{statusAppearance\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}" mode="aspectFit" src="\/assets\/icons\/dsh-running-whale\.png" style="\{\{theme === 'dark' \? statusDarkTailAnimationStyle : statusLightTailAnimationStyle\}\}animation-delay:\{\{statusFlowDelay\}\}s;"\/>/);
   assert.doesNotMatch(template,/statusTailCanvas/);
   const css=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-appearance.wxss'),'utf8');
+  const sessionCss=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxss'),'utf8');
+  assert.match(sessionCss,/@import "\.\.\/\.\.\/styles\/status-tail-animation\.wxss"/);
   assert.match(css,/\.status-tail\s*\{[^}]*width:36rpx[^}]*height:36rpx/);
   assert.match(css,/\.status-tail-image\s*\{[^}]*width:28rpx[^}]*height:28rpx/);
+  const animationCss=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-tail-animation.wxss'),'utf8');
+  assert.equal(animationCss,statusTailAnimation.render(),'all per-stop image filters stay in sync with the selected text palettes');
   const preview=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/settings/settings.wxml'),'utf8');
   assert.match(preview,/class="status-style-preview status-look-\{\{item\.id\}\}"><view class="status-tail"><canvas type="2d" id="statusPreviewCanvas-\{\{item\.id\}\}" class="status-tail-canvas" style="width:28rpx;height:28rpx;"><\/canvas><\/view>/);
-  assert.match(css,/@keyframes statusTailNeonLight[\s\S]*?hue-rotate\(142deg\)/);
-  assert.match(css,/@keyframes statusTailClassicLight[\s\S]*?hue-rotate\(360deg\)/);
-  assert.match(css,/@keyframes statusTailTerminalLight[\s\S]*?brightness\(80%\)/);
-  assert.match(css,/@keyframes statusTailTerminalDark[\s\S]*?brightness\(115%\)/);
-  // 默认「简约」风格也必须随文字变色（此前是静态色）。
-  assert.match(css,/\.status-tail-original\.status-tail-light\{animation-name:statusTailOriginalLight\}/);
-  assert.match(css,/\.status-tail-original\.status-tail-dark\{animation-name:statusTailOriginalDark\}/);
+  assert.match(animationCss,/@keyframes statusTailNeonLight\{0%\{filter:invert\(24%\).*?33\.3333%\{filter:invert\(25%\)/);
+  assert.match(animationCss,/@keyframes statusTailTerminalLight\{0%\{filter:invert\(32%\).*?50%\{filter:invert\(28%\)/);
+  // Default simple mode follows its two text-gradient stops as well.
+  assert.match(animationCss,/\.status-tail-original\.status-tail-light\{animation-name:statusTailOriginalLight\}/);
+  assert.match(animationCss,/\.status-tail-original\.status-tail-dark\{animation-name:statusTailOriginalDark\}/);
   for(const choice of appearance.choices()) {
     assert.equal(choice.lightTailAnimationStyle.match(/animation-duration:[^;]+/)[0],choice.lightStyle.match(/animation-duration:[^;]+/)[0],choice.id);
     assert.equal(choice.darkTailAnimationStyle.match(/animation-duration:[^;]+/)[0],choice.darkStyle.match(/animation-duration:[^;]+/)[0],choice.id);
@@ -130,16 +134,13 @@ test('all status styles animate the DSH whale through the same selected text pal
   const simple=appearance.choices().find(choice=>choice.id==='original');
   assert.equal(simple.light[0],'rgb(52.4,93.7,186.2)');
   assert.equal(simple.dark[0],'rgb(125.15,153.8,222.5)');
-  assert.match(simple.lightTailFilter,/invert\(0\.634\).*hue-rotate\(185\.7deg\)/);
-  assert.match(simple.darkTailFilter,/invert\(0\.431\).*hue-rotate\(184\.5deg\)/);
-  // 图标改画布绘制后，只取一帧做取色遮罩：60 帧 APNG 的动画永远不会被渲染，
-  // 因此资源换成 28x28 灰度+透明静态 PNG（21.6KB → 0.5KB）。
+  // Keep one native image layer and enough source pixels for 3x iPhone screens.
   const whale=fs.readFileSync(path.join(__dirname,"../miniprogram/assets/icons/dsh-running-whale.png"));
   assert.equal(whale.subarray(1,4).toString(),"PNG");
-  assert.equal(whale.readUInt32BE(16),28);assert.equal(whale.readUInt32BE(20),28);
+  assert.equal(whale.readUInt32BE(16),84);assert.equal(whale.readUInt32BE(20),84);
   assert.equal(whale.readUInt8(24),8,"8-bit");assert.equal(whale.readUInt8(25),4,"gray + alpha mask");
-  assert.ok(whale.length < 2048,"静态遮罩必须极小");
-  for(const choice of appearance.choices()) assert.notEqual(choice.lightTailFilter,choice.darkTailFilter,choice.id);
+  assert.ok(whale.length < 8192,"3x static mask stays compact");
+  assert.equal(whale.includes(Buffer.from('acTL')),false,'the live image remains a static compositor-friendly mask');
   const glyph=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/proc-icon.wxml'),'utf8');
   const procCss=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/proc-icon.wxss'),'utf8');
   for (const choice of procIcon.OPTIONS) assert.ok(glyph.includes(`styleId === '${choice.id}'`) || choice.id === 'wave');

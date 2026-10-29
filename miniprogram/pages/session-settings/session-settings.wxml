@@ -42,19 +42,19 @@
     </view>
   </view>
   <view class="group-title">{{ui['新会话默认配置']}}</view>
-  <view class="card">
+  <view class="card settings-glass-card">
     <view id="agent-preset-row" class="card-row" bindtap="pickAgentPreset" role="button"><text class="card-row-label">{{ui['Agent 预设']}}</text><view class="card-row-value"><text>{{ui[presetLabel] !== undefined ? ui[presetLabel] : presetLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
     <view id="default-model-row" class="card-row" bindtap="pickDefaultModel" role="button"><text class="card-row-label">{{ui['默认模型']}}</text><view class="card-row-value"><text>{{modelLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
     <view id="default-permission-row" class="card-row" bindtap="pickDefaultPermission" role="button"><text class="card-row-label">{{ui['权限']}}</text><view class="card-row-value"><text>{{ui[permissionLabel] !== undefined ? ui[permissionLabel] : permissionLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
   </view>
   <view class="group-hint">{{ui['与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。']}}</view>
   <view class="group-title">{{ui['功能']}}</view>
-  <view class="card">
+  <view class="card settings-glass-card">
     <view id="diagnostics-row" class="card-row" bindtap="showDiagnostics" role="button"><text class="card-row-label">{{ui['诊断信息']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
     <view id="clear-cache-row" class="card-row" bindtap="clearLocalCache" role="button"><text class="card-row-label">{{ui['清理缓存']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
   </view>
   <view class="group-title">{{ui['主机信息']}}</view>
-  <view class="card">
+  <view class="card settings-glass-card">
     <view class="card-row"><text class="card-row-label">{{ui['模型服务商']}}</text><text class="card-row-value host-value" selectable>{{hostInfo.provider}}</text></view>
     <view class="card-row"><text class="card-row-label">{{ui['模型']}}</text><text class="card-row-value host-value" selectable>{{hostInfo.model}}</text></view>
     <view class="card-row"><text class="card-row-label">{{ui['已连接会话']}}</text><text class="card-row-value host-value">{{host.attachedSessions !== undefined ? host.attachedSessions : '—'}}</text></view>

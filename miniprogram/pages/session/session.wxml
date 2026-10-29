@@ -339,7 +339,7 @@
 <view style="height:{{conversationBottomSpace}}px" aria-hidden="true"></view>
 <view wx:if="{{running}}" class="progress-strip conversation-progress" id="deep-search-progress">
 <view class="progress-row status-look-{{statusAppearance}}">
-<view class="status-tail status-tail-{{statusAppearance}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" style="{{theme === 'dark' ? statusDarkTailAnimationStyle : statusLightTailAnimationStyle}}"><image class="status-tail-image" mode="aspectFit" src="/assets/icons/dsh-running-whale.png" style="filter:{{theme === 'dark' ? statusDarkTailFilter : statusLightTailFilter}}"/></view>
+<view class="status-tail"><image class="status-tail-image status-tail-{{statusAppearance}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" mode="aspectFit" src="/assets/icons/dsh-running-whale.png" style="{{theme === 'dark' ? statusDarkTailAnimationStyle : statusLightTailAnimationStyle}}animation-delay:{{statusFlowDelay}}s;"/></view>
 <view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? statusDarkStyle : statusLightStyle}}animation-delay:{{statusFlowDelay}}s;">{{runPhrase}}{{ui['，用时']}} {{runElapsedText}}…</text></view>
 </view>
 </view>

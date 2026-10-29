@@ -1,4 +1,3 @@
-/* Use a native image component: Mini Program WXSS cannot reliably load local CSS masks. */
 .status-tail { position:relative;width:36rpx;height:36rpx;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:12rpx; }
 .status-tail-image { width:28rpx;height:28rpx;display:block; }
 .status-tail-canvas { width:28rpx;height:28rpx;display:block;flex-shrink:0; }
@@ -12,27 +11,3 @@
 @keyframes statusBreathe { 0%,100% {opacity:1} 50% {opacity:.74} }
 @keyframes statusGlitch { 0%,90%,100% {text-shadow:none} 92% {text-shadow:1px 0 #ff5f6d,-1px 0 #5fd4ff} 94% {text-shadow:-1px 0 #ff5f6d,1px 0 #5fd4ff} }
 @media (prefers-reduced-motion:reduce) { .status-gradient,.status-text-motion,.status-tail { animation:none !important; } }
-.status-tail-classic.status-tail-light{animation-name:statusTailClassicLight}
-.status-tail-classic.status-tail-dark{animation-name:statusTailClassicDark}
-.status-tail-neon.status-tail-light{animation-name:statusTailNeonLight}
-.status-tail-neon.status-tail-dark{animation-name:statusTailNeonDark}
-.status-tail-terminal.status-tail-light{animation-name:statusTailTerminalLight}
-.status-tail-terminal.status-tail-dark{animation-name:statusTailTerminalDark}
-.status-tail-candy.status-tail-light{animation-name:statusTailCandyLight}
-.status-tail-candy.status-tail-dark{animation-name:statusTailCandyDark}
-.status-tail-glitch.status-tail-light{animation-name:statusTailGlitchLight}
-.status-tail-glitch.status-tail-dark{animation-name:statusTailGlitchDark}
-.status-tail-original.status-tail-light{animation-name:statusTailOriginalLight}
-.status-tail-original.status-tail-dark{animation-name:statusTailOriginalDark}
-@keyframes statusTailClassicLight{0%{filter:hue-rotate(0deg) brightness(100%)}14.29%{filter:hue-rotate(29deg) brightness(108%)}28.57%{filter:hue-rotate(46deg) brightness(127%)}42.86%{filter:hue-rotate(153deg) brightness(122%)}57.14%{filter:hue-rotate(204deg) brightness(117%)}71.43%{filter:hue-rotate(274deg) brightness(82%)}85.71%{filter:hue-rotate(346deg) brightness(78%)}100%{filter:hue-rotate(360deg) brightness(100%)}}
-@keyframes statusTailClassicDark{0%{filter:hue-rotate(0deg) brightness(100%)}14.29%{filter:hue-rotate(40deg) brightness(155%)}28.57%{filter:hue-rotate(53deg) brightness(168%)}42.86%{filter:hue-rotate(125deg) brightness(168%)}57.14%{filter:hue-rotate(201deg) brightness(146%)}71.43%{filter:hue-rotate(260deg) brightness(118%)}85.71%{filter:hue-rotate(324deg) brightness(130%)}100%{filter:hue-rotate(360deg) brightness(100%)}}
-@keyframes statusTailNeonLight{0%{filter:hue-rotate(0deg) brightness(100%)}33.33%{filter:hue-rotate(69deg) brightness(88%)}66.67%{filter:hue-rotate(142deg) brightness(67%)}100%{filter:hue-rotate(0deg) brightness(100%)}}
-@keyframes statusTailNeonDark{0%{filter:hue-rotate(0deg) brightness(100%)}33.33%{filter:hue-rotate(67deg) brightness(87%)}66.67%{filter:hue-rotate(141deg) brightness(84%)}100%{filter:hue-rotate(0deg) brightness(100%)}}
-@keyframes statusTailTerminalLight{0%{filter:hue-rotate(0deg) brightness(100%)}50%{filter:hue-rotate(0deg) brightness(80%)}100%{filter:hue-rotate(0deg) brightness(100%)}}
-@keyframes statusTailTerminalDark{0%{filter:hue-rotate(0deg) brightness(100%)}50%{filter:hue-rotate(0deg) brightness(115%)}100%{filter:hue-rotate(0deg) brightness(100%)}}
-@keyframes statusTailCandyLight{0%{filter:hue-rotate(0deg) brightness(100%)}33.33%{filter:hue-rotate(41deg) brightness(171%)}66.67%{filter:hue-rotate(-10deg) brightness(112%)}100%{filter:hue-rotate(0deg) brightness(100%)}}
-@keyframes statusTailCandyDark{0%{filter:hue-rotate(0deg) brightness(100%)}33.33%{filter:hue-rotate(52deg) brightness(134%)}66.67%{filter:hue-rotate(-23deg) brightness(102%)}100%{filter:hue-rotate(0deg) brightness(100%)}}
-@keyframes statusTailGlitchLight{0%{filter:hue-rotate(0deg) brightness(100%)}50%{filter:hue-rotate(-156deg) brightness(117%)}100%{filter:hue-rotate(0deg) brightness(100%)}}
-@keyframes statusTailGlitchDark{0%{filter:hue-rotate(0deg) brightness(100%)}50%{filter:hue-rotate(-159deg) brightness(146%)}100%{filter:hue-rotate(0deg) brightness(100%)}}
-@keyframes statusTailOriginalLight{0%{filter:hue-rotate(0deg) brightness(100%)}33.33%{filter:hue-rotate(2deg) brightness(66%)}66.67%{filter:hue-rotate(0deg) brightness(100%)}100%{filter:hue-rotate(0deg) brightness(100%)}}
-@keyframes statusTailOriginalDark{0%{filter:hue-rotate(0deg) brightness(100%)}33.33%{filter:hue-rotate(-8deg) brightness(119%)}66.67%{filter:hue-rotate(0deg) brightness(100%)}100%{filter:hue-rotate(0deg) brightness(100%)}}

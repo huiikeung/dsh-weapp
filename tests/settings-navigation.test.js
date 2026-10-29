@@ -275,6 +275,28 @@ test('diagnostics and cache use the same anchored glass popover as the other row
   assert.match(css, /\.theme-light \.picker-pop-action-cancel/);
 });
 
+test('all session-settings module cards reuse the home workspace card glass', () => {
+  const html = read('pages/session-settings/session-settings.wxml');
+  const css = read('pages/session-settings/session-settings.wxss');
+  const homeCss = read('pages/home/home.wxss');
+  // 新会话默认配置 / 功能 / 主机信息 三张卡片共用同一套玻璃材质。
+  assert.equal((html.match(/class="card settings-glass-card"/g) || []).length, 3, 'three module cards');
+  for (const id of ['agent-preset-row', 'diagnostics-row', 'clear-cache-row']) {
+    assert.ok(html.includes('id="' + id + '"'), id);
+  }
+  // 材质参数与首页工作区卡片一致：36rpx 圆角、白色 0.06 → 0.015 渐变、发丝亮边、blur 3rpx、内发光。
+  const glass = 'linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015))';
+  for (const sheet of [css, homeCss]) {
+    assert.ok(sheet.includes(glass), 'workspace card gradient');
+    assert.ok(sheet.includes('border-radius: 36rpx'), 'workspace card radius');
+    assert.ok(sheet.includes('rgba(255, 255, 255, 0.38)'), 'workspace card hairline');
+    assert.ok(sheet.includes('rgba(255, 255, 255, 0.16)'), 'workspace card inner highlight');
+    assert.ok(sheet.includes('blur(3rpx)'), 'workspace card blur');
+  }
+  assert.match(css, /\.settings-glass-card \.card-row \+ \.card-row/);
+  assert.match(css, /\.theme-light \.settings-glass-card \{/);
+});
+
 test('settings sheets scroll as one page at a fixed 90% height', () => {
   const html = read('pages/settings/settings.wxml');
   const css = read('pages/settings/settings.wxss');
