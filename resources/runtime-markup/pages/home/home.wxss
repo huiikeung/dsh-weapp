@@ -38,16 +38,24 @@ page {
 
 .home-content-wrap.shifted {
   overflow: hidden;
-  /* 阴影收进内容内部：圆角外露的是侧栏背板（.home-root），
-     不能把外层底色压暗，否则左上/左下会与侧栏出现第二种颜色。 */
-  box-shadow: inset 4rpx 0 18rpx rgba(0, 0, 0, 0.06), inset 8rpx 0 52rpx rgba(0, 0, 0, 0.04);
+  /* 光边、内投影全部收进内容内部：圆角外露的是侧栏背板（.home-root），
+     任何向外投影都会让它变色。这里用 inset 叠出悬浮玻璃质感。 */
+  box-shadow:
+    inset 3rpx 0 0 rgba(255, 255, 255, 0.24),
+    inset 8rpx 0 18rpx rgba(255, 255, 255, 0.08),
+    inset 12rpx 0 30rpx rgba(0, 0, 0, 0.16),
+    inset 26rpx 0 60rpx rgba(0, 0, 0, 0.14);
 }
 
-/* 深色底保持侧栏原色：亮边和投影都放在内容内部，
-     圆角外露的 #141518 背板不被提亮或压暗。 */
+/* 深色底保持侧栏原色：把更强的光边和悬浮内投影放在内容内部，
+     圆角外露的 #141518 背板不会被提亮或压暗。 */
 .theme-dark .home-content-wrap.shifted {
   border-left: 0;
-  box-shadow: inset 2rpx 0 0 rgba(255, 255, 255, 0.12), inset 4rpx 0 18rpx rgba(0, 0, 0, 0.30), inset 8rpx 0 52rpx rgba(0, 0, 0, 0.40);
+  box-shadow:
+    inset 3rpx 0 0 rgba(255, 255, 255, 0.40),
+    inset 9rpx 0 22rpx rgba(255, 255, 255, 0.14),
+    inset 14rpx 0 40rpx rgba(0, 0, 0, 0.42),
+    inset 30rpx 0 78rpx rgba(0, 0, 0, 0.46);
 }
 
 /* 深海背景随内容位移：fixed → absolute（相对位移容器） */

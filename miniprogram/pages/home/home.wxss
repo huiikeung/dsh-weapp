@@ -27,11 +27,19 @@ background: var(--navy);
 }
 .home-content-wrap.shifted {
 overflow: hidden;
-box-shadow: inset 4rpx 0 18rpx rgba(0, 0, 0, 0.06), inset 8rpx 0 52rpx rgba(0, 0, 0, 0.04);
+box-shadow:
+inset 3rpx 0 0 rgba(255, 255, 255, 0.24),
+inset 8rpx 0 18rpx rgba(255, 255, 255, 0.08),
+inset 12rpx 0 30rpx rgba(0, 0, 0, 0.16),
+inset 26rpx 0 60rpx rgba(0, 0, 0, 0.14);
 }
 .theme-dark .home-content-wrap.shifted {
 border-left: 0;
-box-shadow: inset 2rpx 0 0 rgba(255, 255, 255, 0.12), inset 4rpx 0 18rpx rgba(0, 0, 0, 0.30), inset 8rpx 0 52rpx rgba(0, 0, 0, 0.40);
+box-shadow:
+inset 3rpx 0 0 rgba(255, 255, 255, 0.40),
+inset 9rpx 0 22rpx rgba(255, 255, 255, 0.14),
+inset 14rpx 0 40rpx rgba(0, 0, 0, 0.42),
+inset 30rpx 0 78rpx rgba(0, 0, 0, 0.46);
 }
 .home-deep-bg {
 position: absolute;

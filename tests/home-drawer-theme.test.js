@@ -37,12 +37,12 @@ test('the shifted home panel floats above the DSH backplate with leading corners
       'light home status bar matches the white drawer');
     assert.doesNotMatch(css, /\.drawer-visible\s*\{[^}]*box-shadow:/,
       `${name} does not add a second shadow line at the drawer edge`);
-    assert.match(css, /\.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*inset 4rpx 0 18rpx rgba\(0, 0, 0, 0\.06\), inset 8rpx 0 52rpx rgba\(0, 0, 0, 0\.04\)/,
-      `${name} keeps the light shadow inside the page instead of tinting the sidebar corners`);
+    assert.match(css, /\.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*inset 3rpx 0 0 rgba\(255, 255, 255, 0\.24\),\s*inset 8rpx 0 18rpx rgba\(255, 255, 255, 0\.08\),\s*inset 12rpx 0 30rpx rgba\(0, 0, 0, 0\.16\),\s*inset 26rpx 0 60rpx rgba\(0, 0, 0, 0\.14\)/,
+      `${name} builds a light inset rim and floating shadow without tinting the sidebar corners`);
     assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*border-left:\s*0\s*;/,
-      `${name} does not paint a rim light onto the dark sidebar corners`);
-    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*inset 2rpx 0 0 rgba\(255, 255, 255, 0\.12\), inset 4rpx 0 18rpx rgba\(0, 0, 0, 0\.30\), inset 8rpx 0 52rpx rgba\(0, 0, 0, 0\.40\)/,
-      `${name} keeps the dark rim and shadow inside the page`);
+      `${name} does not paint a border rim onto the dark sidebar corners`);
+    assert.match(css, /\.theme-dark \.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*inset 3rpx 0 0 rgba\(255, 255, 255, 0\.40\),\s*inset 9rpx 0 22rpx rgba\(255, 255, 255, 0\.14\),\s*inset 14rpx 0 40rpx rgba\(0, 0, 0, 0\.42\),\s*inset 30rpx 0 78rpx rgba\(0, 0, 0, 0\.46\)/,
+      `${name} strengthens the dark rim and floating shadow inside the page`);
     const rootLight = (css.match(/\.home-root\s*\{[^}]*background:\s*(#[0-9a-f]{6})/i) || [])[1];
     const drawerLight = (css.match(/\.drawer\s*\{[^}]*background:\s*(#[0-9a-f]{6})/i) || [])[1];
     assert.equal(rootLight && rootLight.toLowerCase(), drawerLight && drawerLight.toLowerCase(),
