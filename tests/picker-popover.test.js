@@ -77,7 +77,9 @@ test('preset, model and permission rows all feed the same anchored glass list', 
   for (const kind of ['preset', 'model', 'effort', 'permission']) {
     assert.match(html, new RegExp("picker === '" + kind + "'"));
   }
-  assert.doesNotMatch(html, /picker-option-list|model-option-card|permission-card-head|picker-current-badge/);
+  assert.match(html, /picker && settingsGlassEnabled/);
+  assert.match(html, /picker && !settingsGlassEnabled/);
+  assert.match(html, /utilitySheet && !settingsGlassEnabled/);
   const js = read('pages/session-settings/session-settings.js');
   assert.match(js, /pickerPopoverLayout\(rect, windowInfo, navigationBottom, \{ wide \}\)/);
   assert.match(js, /select\(anchorSelector\)/);

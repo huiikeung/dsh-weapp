@@ -82,6 +82,7 @@ test('session settings retain model and permission APIs, file navigation and pri
     if(name.endsWith('/version-info'))return require('../miniprogram/pages/settings/utils/version-info');
     if(name.endsWith('/account-view'))return require('../miniprogram/pages/settings/utils/account-view');
     if(name.endsWith('/account-card-pref'))return {KEY:'dsh_account_card_visible',DEFAULT:false,read:()=>false,set:v=>v===true};
+    if(name.endsWith('/settings-glass-pref'))return {KEY:'settingsGlassStyleEnabled',DEFAULT:true,read:()=>true,set:v=>v===true};
     if(name.endsWith('/picker-popover'))return require('../miniprogram/pages/session-settings/utils/picker-popover');
     if(name.endsWith('/build'))return {BUILD_TIME:'fixture',BUILD_VERSION:'0.9.27'};
     throw Error('Unexpected dependency '+name);
@@ -153,6 +154,17 @@ test('session settings retain model and permission APIs, file navigation and pri
   assert.ok(calls.some(call => call[0] === 'creator-back' && call[1] === 1));
   assert.equal(page.data.picker, '', 'the picker popover closes before returning to Home');
   assert.equal(page.data.creatingPreset, false);
+  // 关闭玻璃 UI 后，各入口恢复原生底部弹窗，不依赖锚点测量。
+  const selectorQuery = wx.createSelectorQuery;
+  wx.createSelectorQuery = undefined;
+  page.setData({ settingsGlassEnabled: false });
+  page.pickAgentPreset(); assert.equal(page.data.picker, 'preset'); page.closePickerSheet();
+  page.pickDefaultModel(); assert.equal(page.data.picker, 'model'); page.closePickerSheet();
+  page.pickDefaultPermission(); assert.equal(page.data.picker, 'permission'); page.closePickerSheet();
+  page.showDiagnostics(); assert.equal(page.data.utilitySheet, 'diagnostics'); page.closeUtilitySheet();
+  page.clearLocalCache(); assert.equal(page.data.utilitySheet, 'cache'); page.closeUtilitySheet();
+  wx.createSelectorQuery = selectorQuery;
+  page.setData({ settingsGlassEnabled: true });
   // 工作区文件改为弹窗浏览，不再跳转页面
   page.openFiles(); assert.equal(page.data.filesSheet,true);
   assert.equal(calls.filter(c => c[0] === 'navigate').length,0);
@@ -260,8 +272,9 @@ test('diagnostics and cache use the same anchored glass popover as the other row
   const html = read('pages/session-settings/session-settings.wxml');
   const css = read('pages/session-settings/session-settings.wxss');
   const js = read('pages/session-settings/session-settings.js');
-  assert.doesNotMatch(html, /utility-mask|utility-sheet|diagnostic-row|cache-description|closeUtilitySheet/);
-  assert.doesNotMatch(js, /utilitySheet|closeUtilitySheet/);
+  assert.match(html, /utilitySheet && !settingsGlassEnabled/);
+  assert.match(js, /closeUtilitySheet\(\)/);
+  assert.match(js, /this\.data\.utilitySheet === 'cache'/);
   for (const [id, handler] of [['diagnostics-row', 'showDiagnostics'], ['clear-cache-row', 'clearLocalCache']]) {
     assert.match(html, new RegExp('id="' + id + '"[^>]*bindtap="' + handler + '"'));
   }
@@ -280,7 +293,7 @@ test('all session-settings module cards reuse the home workspace card glass', ()
   const css = read('pages/session-settings/session-settings.wxss');
   const homeCss = read('pages/home/home.wxss');
   // 新会话默认配置 / 功能 / 主机信息 三张卡片共用同一套玻璃材质。
-  assert.equal((html.match(/class="card settings-glass-card"/g) || []).length, 3, 'three module cards');
+  assert.equal((html.match(/class="card \{\{settingsGlassEnabled \? 'settings-glass-card' : ''\}\}"/g) || []).length, 3, 'three module cards toggle together');
   for (const id of ['agent-preset-row', 'diagnostics-row', 'clear-cache-row']) {
     assert.ok(html.includes('id="' + id + '"'), id);
   }
@@ -321,12 +334,19 @@ test('all three session-setting pickers use the home workspace anchored glass po
     assert.ok(js.includes("'" + anchor + "'"), anchor);
   }
   assert.equal((html.match(/class="picker-pop-mask"/g) || []).length, 1);
-  assert.equal((html.match(/class="pair-sheet-mask"/g) || []).length, 1, 'only the files sheet keeps the bottom modal');
+  assert.equal((html.match(/class="pair-sheet-mask/g) || []).length, 2, 'native picker fallback and files sheet keep bottom modals');
   assert.match(html, /picker === 'preset'[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
   assert.match(html, /picker === 'model'[\s\S]*?picker-pop-group[\s\S]*?picker-pop-suffix/);
   assert.match(html, /picker === 'effort'[\s\S]*?picker-pop-effort/);
   assert.match(html, /picker === 'permission'[\s\S]*?picker-pop-shield[\s\S]*?picker-pop-check/);
-  assert.doesNotMatch(html, /picker-option-list|preset-option-card|model-option-card|permission-card-head|picker-current-badge/);
+  assert.match(html, /picker && settingsGlassEnabled/);
+  assert.match(html, /picker && !settingsGlassEnabled/);
+  assert.match(html, /utilitySheet && !settingsGlassEnabled/);
+  assert.match(html, /class="model-option-card/);
+  const nativeCss = read('pages/session-settings/native-picker.wxss');
+  assert.match(nativeCss, /\.picker-option-list/);
+  assert.match(nativeCss, /\.model-effort-chip/);
+  assert.match(html, /utilitySheet && !settingsGlassEnabled/);
   // 玻璃参数与首页工作区选择弹窗一致：白色 0.10 → 0.04 渐变、发丝亮边、blur 8rpx、64rpx 圆角。
   assert.match(css, /\.picker-pop \{[\s\S]*?border-radius: 64rpx[\s\S]*?linear-gradient\(165deg, rgba\(255, 255, 255, 0\.10\), rgba\(255, 255, 255, 0\.04\)\)[\s\S]*?backdrop-filter: blur\(8rpx\)/);
   assert.match(css, /@keyframes picker-pop-appear/);

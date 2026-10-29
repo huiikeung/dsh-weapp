@@ -1,3 +1,5 @@
+@import "./native-picker.wxss";
+
 .session-settings { padding: 0 40rpx calc(60rpx + env(safe-area-inset-bottom)); color: var(--text); }
 .session-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 10; padding-left: 40rpx; padding-right: 40rpx; background: var(--bg); display: flex; align-items: center; box-sizing: content-box; }
 .session-nav-placeholder { margin-bottom: 20rpx; }

@@ -8,19 +8,20 @@ const { clientVersion } = require('./utils/version-info');
 const accountView = require('./utils/account-view');
 const preferences = require('../../utils/ui-preferences');
 const accountCardPreference = require('./utils/account-card-pref');
+const settingsGlassPreference = require('../../utils/settings-glass-pref');
 const { connectionView } = require('../../utils/connection-status');
 const { pickerPopoverLayout } = require('./utils/picker-popover');
 
 Page({
   manualShareMenu: true,
-  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', diagnostics: [], cacheClearing: false, cacheError: '', picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, filesListH: 348, presetId: 'standard',
+  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', diagnostics: [], utilitySheet: '', cacheClearing: false, cacheError: '', picker: '', settingsGlassEnabled: settingsGlassPreference.read(), pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, filesListH: 348, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard',
     pickerPopLeft: 16, pickerPopTop: 140, pickerPopWidth: 240, pickerPopMaxH: 360, pickerPopOrigin: '50% 0', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true, dshAccount: accountView.normalize({}), dshAccountBusy: false, dshAccountVisible: false, dshBalanceExpanded: false, showAccountCard: false },
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onLoad() {
     this._alive = true;
     theme.applyTo(this);
     // 账号卡片是否显示由设置页的开关决定；每次进入本页都重新读一次偏好。
-    this.setData({ showAccountCard: accountCardPreference.read() });
+    this.setData({ showAccountCard: accountCardPreference.read(), settingsGlassEnabled: settingsGlassPreference.read() });
     this.updateNavigationLayout();
     this.setData(clientVersion(wx));
     this.unsubscribe = store.subscribe(snapshot => this.syncFromStore(snapshot));
@@ -33,6 +34,7 @@ Page({
       });
     }
   },
+  onShow() { this.setData({ settingsGlassEnabled: settingsGlassPreference.read() }); },
   updateNavigationLayout() {
     let info = {}, rect = null;
     try {
@@ -48,9 +50,11 @@ Page({
     const capBottom = navPadTop + navHeight;
     const sheetMaxH = Math.max(240, Math.round(windowHeight - capBottom - 16));
     const filesListH = Math.max(160, sheetMaxH - 132);   // 抓手+标题+底部安全区
+    const pickerListH = Math.max(160, sheetMaxH - 132);
+    const pickerCreatorListH = Math.max(120, pickerListH - 88);
     // 选择弹层按「行锚点」定位，需要窗口尺寸与安全区。
     this._windowInfo = info;
-    this.setData({ navPadTop, navHeight, sheetMaxH, filesListH });
+    this.setData({ navPadTop, navHeight, sheetMaxH, filesListH, pickerListH, pickerCreatorListH });
   },
   onResize() { this.updateNavigationLayout(); },
   goBack() {
@@ -103,7 +107,7 @@ Page({
     else wx.setClipboardData({ data: url });
   },
   onUnload() { this._alive = false; this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1; if (this.unsubscribe) this.unsubscribe(); },
-  onHide() { this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1; this._pickerPopRequest = null; this.setData({ picker: '', cacheError: '', dshAccountBusy: false }); },
+  onHide() { this._dshAccountGeneration = (this._dshAccountGeneration || 0) + 1; this._pickerPopRequest = null; this.setData({ picker: '', utilitySheet: '', cacheError: '', dshAccountBusy: false }); },
   syncFromStore(snapshot) {
     const app = snapshot.app;
     const defaults = app.defaults || {};
@@ -136,7 +140,7 @@ Page({
         this.refreshDshAccount();
       }
     }
-    if (this.data.picker === 'diagnostics') this.setData({ diagnostics: this.diagnosticRows(app) });
+    if (this.data.picker === 'diagnostics' || this.data.utilitySheet === 'diagnostics') this.setData({ diagnostics: this.diagnosticRows(app) });
   },
 
   pickAgentPreset() {
@@ -164,31 +168,33 @@ Page({
   },
 
   /**
-   * 选择弹层统一改成首页工作区选择同款的锚点玻璃弹窗：先量触发那一行，
-   * 再按行位置在下方（空间不足时上方）展开，尺寸与安全区由 pickerPopoverLayout 统一计算。
-   * kind: preset / model / permission；effort 是模型弹层里的二级列表，沿用模型行的位置。
+   * 选择弹层在开启玻璃 UI 时使用首页工作区同款锚点菜单；关闭时同步到原生底部弹窗。
+   * kind: preset / model / permission / effort / diagnostics / cache。
    */
   openPickerPopover(kind, title, options, intro, anchorSelector, extra) {
-    if (this.data.picker || this._pickerPopRequest) return;
+    if (this.data.picker || this.data.utilitySheet || this._pickerPopRequest) return;
+    const list = options || [];
+    const state = {
+      picker: kind,
+      pickerTitle: title,
+      pickerIntro: intro || '',
+      pickerOptions: list,
+      presetCreatorAvailable: kind === 'preset' && list.some(option => option.id === 'cordis'),
+      ...(extra || {})
+    };
+    if (!this.data.settingsGlassEnabled) {
+      this.setData(state);
+      return;
+    }
     const request = {};
     this._pickerPopRequest = request;
-    const list = options || [];
     const windowInfo = this._windowInfo || {};
     const navigationBottom = (this.data.navPadTop || 0) + (this.data.navHeight || 0);
     const reveal = (rect) => {
       if (this._pickerPopRequest !== request || !this._alive) return;
       this._pickerPopRequest = null;
       const wide = kind === 'diagnostics' || kind === 'cache';
-      const layout = pickerPopoverLayout(rect, windowInfo, navigationBottom, { wide });
-      this.setData({
-        picker: kind,
-        pickerTitle: title,
-        pickerIntro: intro || '',
-        pickerOptions: list,
-        presetCreatorAvailable: kind === 'preset' && list.some(option => option.id === 'cordis'),
-        ...(extra || {}),
-        ...layout
-      });
+      this.setData({ ...state, ...pickerPopoverLayout(rect, windowInfo, navigationBottom, { wide }) });
     };
     if (typeof wx.createSelectorQuery !== 'function') { reveal(null); return; }
     try {
@@ -386,6 +392,17 @@ Page({
     this.setData({ picker: '', pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, cacheError: '' });
   },
 
+  /** Native bottom-sheet fallback: select a model + reasoning level in one tap. */
+  chooseModelEffort(e) {
+    const optionIndex = Number(e.currentTarget.dataset.optionIndex);
+    const effortIndex = Number(e.currentTarget.dataset.effortIndex);
+    const option = (this.data.pickerOptions || [])[optionIndex];
+    const effort = option && (option.efforts || [])[effortIndex];
+    if (!option || !effort) return;
+    this.closePickerSheet();
+    this.applyModelSelection(option.provider, option.model, option.efforts || [], effort.id);
+  },
+
   choosePicker(e) {
     const index = Number(e.currentTarget.dataset.index);
     const option = (this.data.pickerOptions || [])[index];
@@ -495,8 +512,12 @@ Page({
   },
 
   showDiagnostics() {
-    if (this.data.picker || this._pickerPopRequest) return;
+    if (this.data.picker || this.data.utilitySheet || this._pickerPopRequest) return;
     const diagnostics = this.diagnosticRows(store.state || {});
+    if (!this.data.settingsGlassEnabled) {
+      this.setData({ utilitySheet: 'diagnostics', diagnostics, cacheError: '' });
+      return;
+    }
     this.openPickerPopover('diagnostics', uiText('诊断信息'), [], '', '#diagnostics-row', { diagnostics });
   },
 
@@ -515,15 +536,26 @@ Page({
   },
 
   clearLocalCache() {
-    if (this.data.picker || this._pickerPopRequest) return;
+    if (this.data.picker || this.data.utilitySheet || this._pickerPopRequest) return;
     this.setData({ cacheError: '' });
+    if (!this.data.settingsGlassEnabled) {
+      this.setData({ utilitySheet: 'cache' });
+      return;
+    }
     this.openPickerPopover('cache', uiText('清理缓存'), [], '', '#clear-cache-row');
+  },
+
+  closeUtilitySheet() {
+    if (!this.data.cacheClearing) this.setData({ utilitySheet: '', cacheError: '' });
   },
 
   noop() {},
 
   confirmClearCache() {
-    if (this.data.picker !== 'cache' || this.data.cacheClearing) return;
+    const cacheOpen = this.data.settingsGlassEnabled
+      ? this.data.picker === 'cache'
+      : this.data.utilitySheet === 'cache';
+    if (!cacheOpen || this.data.cacheClearing) return;
     this.setData({ cacheClearing: true, cacheError: '' });
     let removed = 0, failed = 0;
     try {
@@ -537,7 +569,7 @@ Page({
       this.setData({ cacheClearing: false, cacheError: uiText('无法读取缓存，请稍后重试。') });
       return;
     }
-    this.setData({ cacheClearing: false, ...(failed ? { cacheError: uiText('已清理 ') + removed + uiText(' 项，剩余 ') + failed + uiText(' 项未清理，请重试。') } : { picker: '', cacheError: '' }) });
+    this.setData({ cacheClearing: false, ...(failed ? { cacheError: uiText('已清理 ') + removed + uiText(' 项，剩余 ') + failed + uiText(' 项未清理，请重试。') } : { picker: '', utilitySheet: '', cacheError: '' }) });
     if (!failed) wx.showToast({ title: removed ? uiText('已清理 ') + removed + uiText(' 项') : uiText('没有可清理的缓存'), icon: 'none' });
     if (removed && store.refreshHosts) store.refreshHosts();
   }

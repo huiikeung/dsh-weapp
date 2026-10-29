@@ -9,6 +9,8 @@
   "保存失败，请重试": "Could not save. Try again.",
   "对话": "Conversation",
   "外观": "Appearance",
+  "玻璃设置界面": "Glass settings UI",
+  "在设置页使用首页工作区卡片和弹窗的玻璃样式；关闭后恢复原生样式。": "Use the home workspace card and popup glass in settings; turn off to restore native styles.",
   "界面": "Theme",
   "浅色": "Light",
   "深色": "Dark",

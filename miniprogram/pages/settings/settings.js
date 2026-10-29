@@ -10,6 +10,7 @@ const voicePreference = require('./utils/voice-preference');
 const homeAnimationPreference = require('../../utils/home-animation-pref');
 const contextPanelsPreference = require('./utils/context-panels-pref');
 const accountCardPreference = require('./utils/account-card-pref');
+const settingsGlassPreference = require('../../utils/settings-glass-pref');
 const contextPreferences = require('./utils/context-prefs');
 const theme = require('../../utils/theme');
 const accessApi = require('../../utils/access-api');
@@ -131,6 +132,7 @@ Page({
     dshAccountVisible: false,
     // 账号卡片默认收起（隐私）：开关在「通用设置」里，控制设置页与会话设置页的显示。
     showAccountCard: accountCardPreference.read(),
+    settingsGlassEnabled: settingsGlassPreference.read(),
     // 余额卡默认收起：点上面的身份卡才展开，且仅已登录时有效。
     dshBalanceExpanded: false,
     publicAccessDialog: null,
@@ -566,6 +568,7 @@ Page({
       showContextPanel: contextPanelPrefs.context,
       showFleetPanel: contextPanelPrefs.fleet,
       showAccountCard: accountCardPreference.read(),
+    settingsGlassEnabled: settingsGlassPreference.read(),
       ...this.contextPreferenceData(),
       ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
@@ -993,6 +996,15 @@ Page({
     try { this.setData({ homeAnimationEnabled: homeAnimationPreference.setEnabled(!!e.detail.value) }); }
     catch (_) {
       this.setData({ homeAnimationEnabled: homeAnimationPreference.enabled() });
+      wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
+    }
+  },
+
+  toggleSettingsGlass(e) {
+    const enabled = !!(e && e.detail && e.detail.value);
+    try { this.setData({ settingsGlassEnabled: settingsGlassPreference.set(enabled) }); }
+    catch (_) {
+      this.setData({ settingsGlassEnabled: settingsGlassPreference.read() });
       wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
     }
   },

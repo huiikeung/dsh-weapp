@@ -375,6 +375,10 @@
             <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
           </view>
         </view>
+        <view class="card-row glass-style-row">
+          <view class="exp-copy"><text class="card-row-label">{{ui['玻璃设置界面']}}</text><text class="exp-desc">{{ui['在设置页使用首页工作区卡片和弹窗的玻璃样式；关闭后恢复原生样式。']}}</text></view>
+          <dsh-switch checked="{{settingsGlassEnabled}}" aria-label="{{ui['玻璃设置界面']}}" bindchange="toggleSettingsGlass"/>
+        </view>
         <view class="card-row" bindtap="openStatusStyles" role="button" aria-label="{{ui['选择对话状态条样式']}}">
           <text class="card-row-label">{{ui['对话状态条']}}</text>
           <view class="card-row-value"><text>{{ui[statusAppearanceLabel] !== undefined ? ui[statusAppearanceLabel] : statusAppearanceLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
@@ -585,7 +589,7 @@
   <privacy-sheet id="settings-privacy" visible="{{privacyOpen}}" theme="{{theme}}" bindclose="closePrivacyPolicy" />
 
   <view wx:if="{{managementPanel && !pairSheetOpen}}" class="pair-sheet-mask" catchtap="closeManagementPanel" catchtouchmove="noop">
-    <view class="pair-sheet management-sheet resizable" style="height: {{sheetExpanded.management ? 90 : 62}}vh;" catchtap="noop">
+    <view class="pair-sheet management-sheet resizable {{managementPanel === 'public' && settingsGlassEnabled ? 'management-sheet-glass' : ''}}" style="height: {{sheetExpanded.management ? 90 : 62}}vh;" catchtap="noop">
       <view class="sheet-grabber-zone" data-sheet="management" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
       <view class="pair-sheet-head">
         <view>

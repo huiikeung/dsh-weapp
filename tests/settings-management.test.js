@@ -93,6 +93,7 @@ function createPage(apiOptions) {
         KEY: 'dsh_account_card_visible', DEFAULT: false,
         read: () => false, set: value => value === true
       };
+      if (name === '../../utils/settings-glass-pref') return { KEY: 'settingsGlassStyleEnabled', DEFAULT: true, read: () => true, set: value => value === true };
       if (name === '../../utils/haptics') return require('../miniprogram/utils/haptics');
       if (name === '../../utils/public-access-prompt') return require('../miniprogram/utils/public-access-prompt');
       if (name === '../../utils/cost-view') return require('../miniprogram/utils/cost-view');
@@ -683,3 +684,55 @@ test('节点卡片的状态点相对整张卡片垂直居中', () => {
   assert.match(wxss, /\.node-row > \.node-dot\s*\{[^}]*margin-right:\s*0/, '横向间距交给行的 gap，不叠加文字行的 margin');
   assert.ok(!/\.node-name-line \.status-dot/.test(wxss), '不再依赖名称行内的定位');
 });
+
+test('公网访问弹窗沿用首页工作区弹窗的玻璃背景，但保持底部弹窗', () => {
+  const wxmlRaw = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  const homeCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/home/home.wxss'), 'utf8');
+  // 只有公网访问面板套玻璃背景；节点/网关面板仍是原来的纯色底部弹窗。
+  assert.match(wxmlRaw, /managementPanel === 'public' && settingsGlassEnabled \? 'management-sheet-glass' : ''/);
+  assert.match(wxmlRaw, /class="pair-sheet management-sheet resizable /);
+  // 背景参数与首页工作区选择弹窗一致。
+  for (const sheet of [css, homeCss]) {
+    assert.ok(sheet.includes('linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04))'), 'workspace popover gradient');
+    assert.ok(sheet.includes('1rpx solid rgba(255, 255, 255, 0.38)'), 'workspace popover hairline');
+    assert.ok(sheet.includes('blur(8rpx)'), 'workspace popover blur');
+  }
+  assert.match(css, /\.pair-sheet\.management-sheet-glass\s*\{[\s\S]*?inset 0 1rpx 0 rgba\(255, 255, 255, 0\.16\)[\s\S]*?0 24rpx 72rpx rgba\(3, 14, 30, 0\.26\)/);
+  assert.match(css, /\.theme-light \.pair-sheet\.management-sheet-glass\s*\{/);
+  assert.match(css, /\.pair-sheet\.management-sheet-glass \.public-card\s*\{[^}]*background: linear-gradient/,
+    'the middle public-access card also uses translucent glass');
+  assert.match(css, /\.theme-light \.pair-sheet\.management-sheet-glass \.public-card/);
+  // 仍是底部弹窗：遮罩底部对齐、顶部圆角、抓手保留。
+  assert.match(css, /\.pair-sheet-mask\s*\{[^}]*align-items: flex-end/);
+  assert.match(css, /\.pair-sheet\s*\{[^}]*border-radius: 32rpx 32rpx 0 0/);
+  assert.match(wxmlRaw, /class="sheet-grabber-zone" data-sheet="management"/);
+});
+
+test('glass settings preference defaults on and controls both settings surfaces', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../miniprogram/utils/settings-glass-pref.js'), 'utf8');
+  let stored;
+  const context = {
+    module: { exports: {} },
+    wx: { getStorageSync: () => stored, setStorageSync: (_key, value) => { stored = value; } }
+  };
+  vm.runInNewContext(source, context);
+  const preference = context.module.exports;
+  assert.equal(preference.DEFAULT, true);
+  assert.equal(preference.read(), true, 'a new install starts with glass style enabled');
+  assert.equal(preference.set(false), false);
+  assert.equal(preference.read(), false);
+  assert.equal(preference.set(true), true);
+
+  const settingsWxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const settingsJs = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  const sessionWxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session-settings/session-settings.wxml'), 'utf8');
+  const sessionJs = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session-settings/session-settings.js'), 'utf8');
+  assert.match(settingsWxml, /dsh-switch checked="\{\{settingsGlassEnabled\}\}"[^>]*bindchange="toggleSettingsGlass"/);
+  assert.match(settingsJs, /toggleSettingsGlass\(e\)[\s\S]*?settingsGlassPreference\.set/);
+  assert.match(sessionWxml, /settingsGlassEnabled \? 'settings-glass-card' : ''/);
+  assert.match(sessionWxml, /picker && settingsGlassEnabled/);
+  assert.match(sessionWxml, /picker && !settingsGlassEnabled/);
+  assert.match(sessionJs, /if \(!this\.data\.settingsGlassEnabled\) \{[\s\S]*?this\.setData\(state\)/);
+});
+

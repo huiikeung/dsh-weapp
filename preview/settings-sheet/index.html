@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- 模板：由 shoot.cjs 注入从 settings.wxss 抽取的公网访问弹窗玻璃样式后由无头浏览器截图。
+     不要直接打开本文件预览；运行 node preview/settings-sheet/shoot.cjs 生成 PNG。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>设置页 · 公网访问底部弹窗背景预览</title>
+<style>
+  /* 页面模仿：卡片/弹窗按 settings.wxss 的取值折算成 px（375pt 视口，1rpx = 0.5px）。 */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: #e9edf3; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; padding: 28px; }
+  .stage { position: relative; width: 390px; height: 844px; border-radius: 40px; overflow: hidden; box-shadow: 0 18px 60px rgba(7, 24, 43, .22); }
+  .stage.theme-dark { background: #000; color: #F1F4FA; }
+  .stage.theme-light { background: #fff; color: #10131A; }
+  .stage.theme-dark { --surface: #1C1C1E; --text: #F1F4FA; --text-2: rgba(241, 244, 250, .62); --border: rgba(255, 255, 255, .10); --fill: rgba(255, 255, 255, .06); --fill-2: rgba(255, 255, 255, .10); --ocean: #2E6BE6; --success: #2EB85C; }
+  .stage.theme-light { --surface: #FFFFFF; --text: #10131A; --text-2: rgba(16, 19, 24, .62); --border: rgba(16, 19, 24, .10); --fill: rgba(16, 19, 24, .05); --fill-2: rgba(16, 19, 24, .07); --ocean: #2E6BE6; --success: #2EB85C; }
+  .page { position: absolute; inset: 0; padding: 0 20px; }
+  .nav { height: 79px; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; }
+  .group-title { margin: 20px 8px 9px; font-size: 15px; font-weight: 500; opacity: .55; }
+  .card { border-radius: 14px; overflow: hidden; border: .5px solid var(--border); background: var(--surface); }
+  .card-row { display: flex; align-items: center; justify-content: space-between; min-height: 44px; padding: 15px 16px; font-size: 15.5px; }
+  .card-row + .card-row { border-top: .5px solid var(--border); }
+  .row-value { font-size: 15px; opacity: .55; }
+  /* 底部弹窗骨架：与 settings.wxss 的 pair-sheet 一致，用来承接抽取出来的玻璃背景。 */
+  .pair-sheet-mask { position: absolute; z-index: 100; inset: 0; display: flex; align-items: flex-end; background: rgba(0, 0, 0, .42); }
+  .pair-sheet { width: 100%; box-sizing: border-box; padding: 5px 20px calc(16px + env(safe-area-inset-bottom)); border-radius: 16px 16px 0 0; background: var(--surface); color: var(--text); overflow-y: auto; }
+  .management-sheet { display: flex; flex-direction: column; max-height: 92vh; }
+  .sheet-grabber-zone { display: flex; align-items: center; justify-content: center; min-height: 24px; padding: 4px 0; margin-bottom: 2px; flex: none; }
+  .sheet-grabber { width: 36px; height: 5px; border-radius: 999px; background: rgba(150, 150, 155, .55); margin: 0; }
+  .pair-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 8px 0 12px; flex: none; }
+  .pair-sheet-title { display: block; font-size: 17px; font-weight: 650; }
+  .pair-sheet-subtitle { display: block; margin-top: 4px; color: var(--text-2); font-size: 11.5px; }
+  .pair-sheet-close { min-width: 32px; min-height: 32px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--fill); }
+  .close-x { width: 16px; height: 16px; position: relative; }
+  .close-x::before, .close-x::after { content: ''; position: absolute; left: 50%; top: 50%; width: 11px; height: 1.5px; background: var(--text-2); border-radius: 2px; }
+  .close-x::before { transform: translate(-50%, -50%) rotate(45deg); }
+  .close-x::after { transform: translate(-50%, -50%) rotate(-45deg); }
+  .public-card { padding: 14px 14px 12px; border-radius: 14px; border: .5px solid var(--border); background: var(--surface); }
+  .public-head { display: flex; align-items: center; gap: 11px; }
+  .public-icon { width: 22px; height: 22px; opacity: .8; }
+  .theme-dark .public-icon { filter: brightness(0) invert(1); }
+  .public-title { display: block; font-size: 15px; font-weight: 600; }
+  .public-sub { display: block; margin-top: 3px; color: var(--text-2); font-size: 12px; }
+  .public-detail-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; min-height: 26px; }
+  .public-detail-label { flex: none; font-size: 12.5px; color: var(--text-2); }
+  .public-detail-value { flex: 1; min-width: 0; text-align: right; font-size: 12px; }
+  .public-pill { display: flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 999px; background: var(--fill); font-size: 11.5px; }
+  .public-pill-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--success); }
+  .public-actions { display: flex; gap: 8px; margin-top: 12px; }
+  .public-share, .public-redeem { flex: 1; margin: 0; padding: 8px 0; border-radius: 10px; border: 0; font-size: 13px; background: var(--fill-2); color: var(--text); }
+  .public-share { background: var(--ocean); color: #fff; }
+  .group-hint { margin: 9px 12px 0; font-size: 12.5px; line-height: 1.55; color: var(--text-2); }
+  /*__SHEET_CSS__*/
+</style>
+</head>
+<body>
+__STAGES__
+</body>
+</html>
