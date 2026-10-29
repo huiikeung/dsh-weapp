@@ -733,6 +733,6 @@ test('glass settings preference defaults on and controls both settings surfaces'
   assert.match(sessionWxml, /settingsGlassEnabled \? 'settings-glass-card' : ''/);
   assert.match(sessionWxml, /picker && settingsGlassEnabled/);
   assert.match(sessionWxml, /picker && !settingsGlassEnabled/);
-  assert.match(sessionJs, /if \(!this\.data\.settingsGlassEnabled\) \{[\s\S]*?this\.setData\(state\)/);
+  assert.match(sessionJs, /if \(!this\.data\.settingsGlassEnabled \|\| kind === 'preset'\) \{[\s\S]*?this\.setData\(state\)/, 'the preset sheet never waits for anchor metrics');
 });
 

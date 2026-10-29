@@ -538,6 +538,83 @@
 }
 
 
+/* ---------- 玻璃 UI 的 Agent 预设底部弹窗 ----------
+   开启玻璃界面时，Agent 预设仍是与原生一致的底部弹窗（抓手 + 标题 + 关闭 + 列表 +
+   底部「添加自定义 Agent 预设」），只把材质换成首页工作区的玻璃：白色 0.10 → 0.04
+   渐变、发丝亮边、顶部内发光、blur 8rpx，上滑出现。 */
+.picker-glass-sheet {
+  /* 左右各让出 12px、底部让出 24px：整块玻璃浮在屏幕内侧，避开屏幕圆角，
+     底部两个圆角不会被机身圆角切掉；安全区内边距随之收窄，避免底部留白过多。 */
+  width: calc(100% - 24px);
+  margin: 0 12px 24px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 10rpx 0 calc(16rpx + env(safe-area-inset-bottom));
+  border-radius: 32rpx;
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  border: 1rpx solid rgba(255, 255, 255, 0.38);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
+  backdrop-filter: blur(8rpx);
+  -webkit-backdrop-filter: blur(8rpx);
+  overflow: hidden;
+  animation: picker-sheet-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes picker-sheet-rise {
+  from { opacity: 0; transform: translateY(28rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-glass-sheet { animation: none; }
+}
+
+.picker-glass-sheet.resizable { transition: height 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
+
+.picker-glass-sheet .pair-sheet-head {
+  padding: 0 40rpx;
+  margin: 16rpx 0 12rpx;
+}
+
+.picker-glass-sheet .pair-sheet-title {
+  color: #FFFFFF;
+  font-size: 34rpx;
+  font-weight: 650;
+}
+
+.picker-sheet-scroll {
+  width: 100%;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+/* 说明文字放在列表上方，和原生底部弹窗的 picker-intro 位置一致。 */
+.picker-sheet-hint {
+  padding: 4rpx 40rpx 16rpx;
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 22rpx;
+  line-height: 1.5;
+}
+
+.theme-light .picker-sheet-hint { color: rgba(16, 19, 24, 0.52); }
+
+.picker-glass-sheet.expanded .picker-sheet-scroll { max-height: none; flex: 1; min-height: 0; }
+
+.picker-sheet-footer { flex: none; }
+
+/* 浅色主题：同结构浅色玻璃，标题与图标配合浅色底。 */
+.theme-light .picker-glass-sheet {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.92));
+  border-color: rgba(16, 19, 24, 0.10);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 12rpx 48rpx rgba(7, 24, 43, 0.18);
+  backdrop-filter: blur(24rpx) saturate(1.05);
+  -webkit-backdrop-filter: blur(24rpx) saturate(1.05);
+}
+
+.theme-light .picker-glass-sheet .pair-sheet-title { color: #10131A; }
+
+
 /* ---------- 设置页卡片：沿用首页工作区卡片的玻璃材质 ---------- */
 .settings-glass-card {
   border-radius: 36rpx;

@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- 模板：由 shoot.cjs 注入从 session-settings.wxss 抽取的玻璃样式后由无头浏览器截图。
+     不要直接打开本文件预览；运行 node preview/preset-sheet/shoot.cjs 生成 PNG。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>会话设置 · Agent 预设玻璃底部弹窗预览</title>
+<style>
+  /* 页面模仿：卡片/弹窗按 session-settings.wxss 的取值折算成 px（375pt 视口，1rpx = 0.5px）。 */
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: #dfe4ec; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; padding: 26px; display: flex; gap: 26px; }
+  .stage { position: relative; width: 390px; height: 844px; border-radius: 40px; overflow: hidden; box-shadow: 0 18px 60px rgba(7, 24, 43, .22); }
+  .stage.theme-dark { background: #000; color: #F1F4FA; }
+  .stage.theme-light { background: #F4F6FA; color: #10131A; }
+  .stage.theme-dark { --surface: #1C1C1E; --text: #F1F4FA; --text-2: rgba(241, 244, 250, .62); --border: rgba(255, 255, 255, .10); --fill: rgba(255, 255, 255, .06); --fill-2: rgba(255, 255, 255, .10); --ocean: #2E6BE6; }
+  .stage.theme-light { --surface: #FFFFFF; --text: #10131A; --text-2: rgba(16, 19, 24, .62); --border: rgba(16, 19, 24, .10); --fill: rgba(16, 19, 24, .05); --fill-2: rgba(16, 19, 24, .07); --ocean: #2E6BE6; }
+  .page { position: absolute; inset: 0; padding: 0 16px; }
+  .nav { height: 79px; display: flex; align-items: center; justify-content: center; font-size: 17px; font-weight: 600; }
+  .group-title { margin: 20px 8px 9px; font-size: 15px; font-weight: 500; opacity: .55; }
+  .card { border-radius: 18px; overflow: hidden; border: .5px solid var(--border); background: var(--surface); }
+  .card-row { display: flex; align-items: center; justify-content: space-between; min-height: 46px; padding: 15px 16px; font-size: 15.5px; }
+  .card-row + .card-row { border-top: .5px solid var(--border); }
+  .row-value { display: flex; align-items: center; gap: 6px; font-size: 15px; opacity: .55; }
+  .group-hint { margin: 8px 8px 0; font-size: 12px; line-height: 1.5; color: var(--text-2); }
+  /* 底部弹窗骨架：与 session-settings.wxss 的 pair-sheet 一致，用来承接抽取出来的玻璃材质。 */
+  .pair-sheet-mask { position: absolute; z-index: 100; inset: 0; display: flex; align-items: flex-end; background: rgba(0, 0, 0, .42); }
+  .sheet-grabber-zone { display: flex; align-items: center; justify-content: center; min-height: 24px; padding: 4px 0; margin-bottom: 2px; flex: none; }
+  .sheet-grabber { width: 36px; height: 5px; border-radius: 999px; background: rgba(150, 150, 155, .55); }
+  .pair-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .pair-sheet-title { display: block; }
+  .pair-sheet-close { width: 32px; height: 32px; display: flex; align-items: center; justify-content: flex-end; }
+  .sheet-close-x { position: relative; width: 30px; height: 30px; border-radius: 50%; background: var(--fill); display: inline-block; flex-shrink: 0; }
+  .sheet-close-x::before, .sheet-close-x::after { content: ''; position: absolute; left: 50%; top: 50%; width: 1.5px; height: 15px; margin-left: -.75px; margin-top: -7.5px; border-radius: 2px; background: #565D68; }
+  .theme-dark .sheet-close-x::before, .theme-dark .sheet-close-x::after { background: #C0C4CC; }
+  .sheet-close-x::before { transform: rotate(45deg); }
+  .sheet-close-x::after { transform: rotate(-45deg); }
+  /*__SHEET_CSS__*/
+</style>
+</head>
+<body>
+__STAGES__
+</body>
+</html>

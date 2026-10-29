@@ -169,6 +169,7 @@ Page({
 
   /**
    * 选择弹层在开启玻璃 UI 时使用首页工作区同款锚点菜单；关闭时同步到原生底部弹窗。
+   * Agent 预设例外：两种风格都用底部弹窗，只是材质不同，因此不需要量锚点。
    * kind: preset / model / permission / effort / diagnostics / cache。
    */
   openPickerPopover(kind, title, options, intro, anchorSelector, extra) {
@@ -182,7 +183,8 @@ Page({
       presetCreatorAvailable: kind === 'preset' && list.some(option => option.id === 'cordis'),
       ...(extra || {})
     };
-    if (!this.data.settingsGlassEnabled) {
+    // 玻璃 UI 的 Agent 预设是与原生一致的底部弹窗，不做锚点测量。
+    if (!this.data.settingsGlassEnabled || kind === 'preset') {
       this.setData(state);
       return;
     }

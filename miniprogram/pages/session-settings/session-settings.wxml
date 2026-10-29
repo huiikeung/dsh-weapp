@@ -131,20 +131,18 @@
     </view>
   </view>
 
-  <!-- 选择弹层：Agent 预设 / 默认模型 / 思考等级 / 权限统一用锚点玻璃菜单，
-       与首页工作区选择弹窗同款；高度随内容，超出后在弹层内滚动。 -->
-  <view wx:if="{{picker && settingsGlassEnabled}}" class="picker-pop-mask" catchtap="closePickerPopover" catchtouchmove="noop"></view>
-  <view
-    wx:if="{{picker && settingsGlassEnabled}}"
-    class="picker-pop"
-    style="left: {{pickerPopLeft}}px; top: {{pickerPopTop}}px; width: {{pickerPopWidth}}px; max-height: {{pickerPopMaxH}}px; transform-origin: {{pickerPopOrigin}};"
-    catchtap="noop"
-    role="dialog"
-    aria-label="{{pickerTitle}}"
-  >
-    <scroll-view class="picker-pop-scroll" style="max-height: {{pickerPopMaxH}}px;" scroll-y enhanced show-scrollbar="{{false}}">
-      <view class="picker-pop-content">
-        <block wx:if="{{picker === 'preset'}}">
+  <!-- 玻璃 UI 的 Agent 预设：保留原生底部弹窗形态（抓手 + 标题 + 关闭 + 列表 + 底部添加入口），
+       只把材质换成首页工作区的玻璃；其余入口仍是锚点玻璃菜单。 -->
+  <view wx:if="{{picker === 'preset' && settingsGlassEnabled}}" class="pair-sheet-mask" catchtap="closePickerSheet" catchtouchmove="noop">
+    <view class="picker-glass-sheet resizable {{sheetExpanded.picker ? 'expanded' : ''}}" style="{{sheetExpanded.picker ? 'height: 90vh;' : ''}}max-height: {{sheetMaxH}}px;" catchtap="noop" role="dialog" aria-label="{{pickerTitle}}">
+      <view class="sheet-grabber-zone" data-sheet="picker" catchtouchstart="sheetGrabStart" catchtouchmove="sheetGrabMove" catchtouchend="sheetGrabEnd"><view class="sheet-grabber"></view></view>
+      <view class="pair-sheet-head">
+        <text class="pair-sheet-title">{{pickerTitle}}</text>
+        <view class="pair-sheet-close tap" bindtap="closePickerSheet" role="button" aria-label="{{ui['关闭弹窗']}}"><view class="sheet-close-x"></view></view>
+      </view>
+      <scroll-view class="picker-sheet-scroll" style="{{sheetExpanded.picker ? '' : 'max-height: ' + (presetCreatorAvailable ? pickerCreatorListH : pickerListH) + 'px;'}}" scroll-y enhanced show-scrollbar="{{false}}">
+        <view class="picker-pop-content">
+          <view wx:if="{{pickerIntro}}" class="picker-sheet-hint">{{ui[pickerIntro] !== undefined ? ui[pickerIntro] : pickerIntro}}</view>
           <view
             wx:for="{{pickerOptions}}"
             wx:key="id"
@@ -163,18 +161,35 @@
               <text wx:if="{{item.broken}}" class="picker-pop-warn">⚠ {{ui[item.brokenReason] !== undefined ? ui[item.brokenReason] : item.brokenReason || ui['该预设存在配置错误，暂时不能设为默认值']}}</text>
             </view>
           </view>
-          <block wx:if="{{presetCreatorAvailable}}">
-            <view class="picker-pop-divider"></view>
-            <view class="picker-pop-row {{creatingPreset ? 'busy' : ''}}" bindtap="createCustomAgentPreset" hover-class="picker-pop-row-pressed" role="button" aria-disabled="{{creatingPreset}}">
-              <image class="picker-pop-ic" src="/assets/icons/plus-white.png" mode="aspectFit"/>
-              <view class="picker-pop-body">
-                <text class="picker-pop-name">{{creatingPreset ? ui['正在打开…'] : ui['添加自定义 Agent 预设']}}</text>
-                <text class="picker-pop-desc">{{ui['新建创造模式会话，让 Agent 创建或维护预设']}}</text>
-              </view>
-            </view>
-          </block>
-        </block>
-        <block wx:elif="{{picker === 'model'}}">
+        </view>
+      </scroll-view>
+      <view wx:if="{{presetCreatorAvailable}}" class="picker-sheet-footer">
+        <view class="picker-pop-divider"></view>
+        <view class="picker-pop-row {{creatingPreset ? 'busy' : ''}}" bindtap="createCustomAgentPreset" hover-class="picker-pop-row-pressed" role="button" aria-disabled="{{creatingPreset}}">
+          <image class="picker-pop-ic" src="/assets/icons/plus-white.png" mode="aspectFit"/>
+          <view class="picker-pop-body">
+            <text class="picker-pop-name">{{creatingPreset ? ui['正在打开…'] : ui['添加自定义 Agent 预设']}}</text>
+            <text class="picker-pop-desc">{{ui['新建创造模式会话，让 Agent 创建或维护预设']}}</text>
+          </view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 选择弹层：默认模型 / 思考等级 / 权限 / 诊断 / 缓存用锚点玻璃菜单，
+       与首页工作区选择弹窗同款；高度随内容，超出后在弹层内滚动。 -->
+  <view wx:if="{{picker && settingsGlassEnabled && picker !== 'preset'}}" class="picker-pop-mask" catchtap="closePickerPopover" catchtouchmove="noop"></view>
+  <view
+    wx:if="{{picker && settingsGlassEnabled && picker !== 'preset'}}"
+    class="picker-pop"
+    style="left: {{pickerPopLeft}}px; top: {{pickerPopTop}}px; width: {{pickerPopWidth}}px; max-height: {{pickerPopMaxH}}px; transform-origin: {{pickerPopOrigin}};"
+    catchtap="noop"
+    role="dialog"
+    aria-label="{{pickerTitle}}"
+  >
+    <scroll-view class="picker-pop-scroll" style="max-height: {{pickerPopMaxH}}px;" scroll-y enhanced show-scrollbar="{{false}}">
+      <view class="picker-pop-content">
+        <block wx:if="{{picker === 'model'}}">
           <block wx:for="{{pickerOptions}}" wx:for-index="optionIndex" wx:key="key">
             <view wx:if="{{item.header}}" class="picker-pop-group">{{ui[item.header] !== undefined ? ui[item.header] : item.header}}</view>
             <view

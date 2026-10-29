@@ -103,12 +103,9 @@ test('session settings retain model and permission APIs, file navigation and pri
   page.pickAgentPreset(); assert.equal(page.data.picker,'preset'); assert.equal(page.data.presetCreatorAvailable,true);
   assert.equal(page.data.pickerIntro,'预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。');
   assert.equal(page.data.pickerOptions.find(o=>o.id==='code').description,'用于编码工作');
-  // 锚点弹窗：贴着「Agent 预设」行下方展开，宽度按首页工作区弹窗的规则钳制。
-  assert.equal(page.data.pickerPopOrigin,'50% 0');
-  assert.ok(page.data.pickerPopTop >= presetRowRect.bottom, 'the popover opens below its anchor row');
-  assert.ok(page.data.pickerPopWidth >= 224 && page.data.pickerPopWidth <= 280);
-  assert.ok(page.data.pickerPopMaxH > 0);
-  assert.match(read('pages/session-settings/session-settings.wxml'), /picker === 'preset'[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
+  // Agent 预设改成与原生一致的玻璃底部弹窗：不量锚点，弹层位置保持默认值。
+  assert.equal(page.data.pickerPopTop, 140, 'the preset sheet never measures an anchor row');
+  assert.match(read('pages/session-settings/session-settings.wxml'), /picker === 'preset' && settingsGlassEnabled[\s\S]*?picker-glass-sheet[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
   const presetIndex = page.data.pickerOptions.findIndex(o => o.id === 'code');
   page.choosePicker({ currentTarget: { dataset: { index: presetIndex } } });
   assert.deepEqual(calls.filter(c => c[0] === 'agent-preset').at(-1),['agent-preset','code']);
@@ -321,7 +318,7 @@ test('settings sheets scroll as one page at a fixed 90% height', () => {
   assert.doesNotMatch(css, /\.management-scroll\s*\{[^}]*max-height/, 'the inner block no longer caps the height');
 });
 
-test('all three session-setting pickers use the home workspace anchored glass popover', () => {
+test('the preset picker keeps a glass bottom sheet while model and permission stay anchored', () => {
   const html = read('pages/session-settings/session-settings.wxml');
   const css = read('pages/session-settings/session-settings.wxss');
   const js = read('pages/session-settings/session-settings.js');
@@ -334,8 +331,8 @@ test('all three session-setting pickers use the home workspace anchored glass po
     assert.ok(js.includes("'" + anchor + "'"), anchor);
   }
   assert.equal((html.match(/class="picker-pop-mask"/g) || []).length, 1);
-  assert.equal((html.match(/class="pair-sheet-mask/g) || []).length, 2, 'native picker fallback and files sheet keep bottom modals');
-  assert.match(html, /picker === 'preset'[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
+  assert.equal((html.match(/class="pair-sheet-mask/g) || []).length, 3, 'glass preset sheet, native picker fallback and files sheet keep bottom modals');
+  assert.match(html, /picker === 'preset' && settingsGlassEnabled[\s\S]*?picker-glass-sheet[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
   assert.match(html, /picker === 'model'[\s\S]*?picker-pop-group[\s\S]*?picker-pop-suffix/);
   assert.match(html, /picker === 'effort'[\s\S]*?picker-pop-effort/);
   assert.match(html, /picker === 'permission'[\s\S]*?picker-pop-shield[\s\S]*?picker-pop-check/);
@@ -354,6 +351,12 @@ test('all three session-setting pickers use the home workspace anchored glass po
   assert.match(css, /\.picker-pop-model,[\s\S]*?min-height: 44px/);
   assert.match(css, /\.picker-pop-shield[\s\S]*?filter: brightness\(0\) invert\(1\)/);
   assert.match(css, /\.picker-pop-badge/);
+  // 玻璃预设弹窗：底部弹窗形态（只圆上两角）+ 首页工作区玻璃材质。
+  assert.match(css, /\.picker-glass-sheet \{[\s\S]*?border-radius: 32rpx;[\s\S]*?linear-gradient\(165deg, rgba\(255, 255, 255, 0\.10\), rgba\(255, 255, 255, 0\.04\)\)[\s\S]*?backdrop-filter: blur\(8rpx\)/);
+  assert.match(css, /\.picker-glass-sheet \{[^}]*width: calc\(100% - 24px\)[^}]*margin: 0 12px 24px;[^}]*border-radius: 32rpx;/);
+  assert.match(css, /@keyframes picker-sheet-rise/);
+  assert.match(css, /\.theme-light \.picker-glass-sheet \{/);
+  assert.match(css, /\.picker-glass-sheet\.expanded \.picker-sheet-scroll \{[^}]*flex: 1/);
   assert.doesNotMatch(css, /\.picker-option-list|\.model-option-card|\.permission-card-head|\.picker-current-badge/);
 });
 
