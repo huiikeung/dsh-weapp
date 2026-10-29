@@ -1,4 +1,15 @@
 @import "../../styles/quota-sidebar.wxss";
+/* 原生页面窗口底色：抽屉打开时圆角外露的上/下区域与抽屉保持一致。 */
+page {
+  background: #07182B;
+}
+
+@media (prefers-color-scheme: dark) {
+  page {
+    background: #141518;
+  }
+}
+
 /* 内容水平边距对齐 iOS WorkspaceView：.padding(.horizontal, 22) = 44rpx */
 .home {
   padding: 30rpx 44rpx 60rpx;

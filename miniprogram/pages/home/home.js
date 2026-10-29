@@ -16,6 +16,14 @@ const { classifyEndpoint } = require('../../utils/route-table');
 
 const HOME_SESSION_REFRESH_MS = 1800;
 const SESSION_SWIPE_ACTION_RPX = 300; // 两个 150rpx 操作钮
+const HOME_WINDOW_BG = '#07182B';
+const HOME_DRAWER_DARK_BG = '#141518';
+
+/** 首页窗口/状态栏底色：抽屉打开时跟随抽屉，关闭时保持深海蓝。 */
+function homeWindowBackground(dark, open) {
+  if (open) return dark ? HOME_DRAWER_DARK_BG : '#FFFFFF';
+  return HOME_WINDOW_BG;
+}
 
 /** 主机线路族：已连接的那台取真实线路（lan/public/relay），其余按档案地址推断（局域网优先）。 */
 function hostLinkKind(profile, app) {
@@ -109,6 +117,7 @@ Page({
     workspacePickerOpen: false,
     sheetTheme: 'dark',
     themeClass: 'theme-dark',
+    pageStyle: 'background-color: #07182B;',
     pickerWorkspaces: [],
     popLeft: 16,
     popTop: 140,
@@ -211,7 +220,11 @@ Page({
     // themeClass 驱动 app.wxss 的语义变量（--surface/--text/--border…）。
     // 首页早先只切 drawer-dark，手动深色下变量仍是浅色值，额度卡片等
     // 用 var() 的组件会变成深字深底；这里补上类名切换。
-    this.setData({ sheetTheme: resolved, themeClass: 'theme-' + resolved });
+    this.setData({
+      sheetTheme: resolved,
+      themeClass: 'theme-' + resolved,
+      pageStyle: 'background-color: ' + homeWindowBackground(resolved === 'dark', this.data.drawerOpen) + ';'
+    });
   },
 
   onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
@@ -1180,19 +1193,24 @@ Page({
       maskOpacity,
       contentShifted: p > 0.02
     });
-    // 状态栏字色跟随抽屉底色：浅色模式抽屉为白底 → 黑字；其余白字（navy/深色底）。
-    // 拖拽按帧触发，只在开/合状态切换时调用一次。
+    // 状态栏底色跟随抽屉：深色抽屉和插件页同为 #141518，浅色抽屉为白底；
+    // 其余状态保持首页深海蓝。拖拽按帧触发，只在开/合状态切换时调用一次。
     const open = p > 0.5;
-    if (this.statusBarFront !== open && typeof wx.setNavigationBarColor === 'function') {
+    if (this.statusBarFront !== open) {
       this.statusBarFront = open;
-      const darkChrome = this.systemTheme === 'dark' || open;
-      try {
-        wx.setNavigationBarColor({
-          frontColor: darkChrome ? '#ffffff' : '#000000',
-          backgroundColor: open && this.systemTheme !== 'dark' ? '#ffffff' : '#07182B',
-          fail: function () { /* 部分环境不支持，忽略 */ }
-        });
-      } catch (e) { /* 忽略 */ }
+      const darkTheme = this.data.themeClass === 'theme-dark';
+      const windowBg = homeWindowBackground(darkTheme, open);
+      this.setData({ pageStyle: 'background-color: ' + windowBg + ';' });
+      if (typeof wx.setNavigationBarColor === 'function') {
+        const darkChrome = darkTheme || open;
+        try {
+          wx.setNavigationBarColor({
+            frontColor: darkChrome ? '#ffffff' : '#000000',
+            backgroundColor: windowBg,
+            fail: function () { /* 部分环境不支持，忽略 */ }
+          });
+        } catch (e) { /* 忽略 */ }
+      }
     }
   },
 

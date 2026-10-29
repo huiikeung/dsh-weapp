@@ -6,6 +6,8 @@ const source = fs.readFileSync('resources/runtime-markup/pages/home/home.wxss', 
 const runtime = fs.readFileSync('miniprogram/pages/home/home.wxss', 'utf8');
 const page = fs.readFileSync('miniprogram/pages/home/home.js', 'utf8');
 const template = fs.readFileSync('miniprogram/pages/home/home.wxml', 'utf8');
+const homeConfig = JSON.parse(fs.readFileSync('miniprogram/pages/home/home.json', 'utf8'));
+const themeTokens = JSON.parse(fs.readFileSync('miniprogram/theme.json', 'utf8'));
 
 test('the shifted home panel floats above the DSH backplate with leading corners', () => {
   for (const [name, css] of [['source', source], ['runtime', runtime]]) {
@@ -19,10 +21,18 @@ test('the shifted home panel floats above the DSH backplate with leading corners
       `${name} fades the floating shadow in step with the page slide`);
     assert.doesNotMatch(css, /\.drawer\s*\{[^}]*border-radius:/,
       `${name} does not clip or round the drawer itself`);
+    assert.match(css, /@media \(prefers-color-scheme: dark\) \{\s*page \{\s*background:\s*#141518;\s*\}\s*\}/,
+      `${name} gives the native page window the dark drawer background`);
     assert.match(css, /\.home-root\s*\{[^}]*background:\s*#FFFFFF;/,
       `${name} provides a full-screen light drawer surface under the home panel`);
     assert.match(css, /\.home-root\.theme-dark\s*\{\s*background:\s*#141518;/,
       `${name} matches the dark plugin background outside the rounded corners`);
+    assert.equal(homeConfig.navigationBarBackgroundColor, '@homeNavBgColor',
+      'the native status-bar background uses the home-only theme token');
+    assert.equal(themeTokens.dark.homeNavBgColor, '#141518',
+      'dark home status bar matches the plugin page background');
+    assert.equal(themeTokens.light.homeNavBgColor, '#07182B',
+      'light home status bar keeps the home navy chrome');
     assert.doesNotMatch(css, /\.drawer-visible\s*\{[^}]*box-shadow:/,
       `${name} does not add a second shadow line at the drawer edge`);
     assert.match(css, /\.home-content-wrap\.shifted\s*\{[^}]*box-shadow:\s*-4rpx 0 18rpx rgba\(0, 0, 0, 0\.12\), -8rpx 0 52rpx rgba\(0, 0, 0, 0\.30\)/,
@@ -38,6 +48,11 @@ test('the shifted home panel floats above the DSH backplate with leading corners
     'the content dim starts after 45% drawer progress like iOS');
   assert.match(page, /maskOpacity = 0\.16 \* dimProgress \* dimProgress \* \(3 - 2 \* dimProgress\)/,
     'the content dim uses the iOS smoothstep curve');
+  assert.match(page, /const HOME_DRAWER_DARK_BG = '#141518'/, 'the drawer dark window color is centralized');
+  assert.match(page, /function homeWindowBackground\(dark, open\) \{\s*if \(open\) return dark \? HOME_DRAWER_DARK_BG : '#FFFFFF';\s*return HOME_WINDOW_BG;\s*\}/,
+    'the opened dark drawer paints the native window and status bar with the plugin background');
+  assert.match(template, /<page-meta page-style="\{\{pageStyle\}\}" \/>/,
+    'the home page applies its window background through page-meta');
   assert.match(template, /border-radius:\s*\{\{contentCornerRadius\}\}px\s+0\s+0\s+\{\{contentCornerRadius\}\}px/,
     'only the shifted page upper-left and lower-left corners are rounded');
   assert.doesNotMatch(template, /drawer-underlay-extension/,

@@ -1,5 +1,6 @@
 {
   "navigationStyle": "custom",
+  "navigationBarBackgroundColor": "@homeNavBgColor",
   "navigationBarTextStyle": "white",
   "backgroundColor": "#07182B",
   "usingComponents": {

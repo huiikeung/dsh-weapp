@@ -1,3 +1,4 @@
+<page-meta page-style="{{pageStyle}}" />
 <import src="../../templates/quota-sidebar.wxml"/>
 <view class="page page-dark home-root {{themeClass}}" style="{{contentFontStyle}}">
   <!-- 侧边栏（对齐 dsh-mobile WorkspaceView drawerContent：品牌字标 + 插件 / 自动化任务） -->

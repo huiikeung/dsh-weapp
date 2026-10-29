@@ -2,12 +2,14 @@
   "light": {
     "navBgColor": "#FFFFFF",
     "navTxtStyle": "black",
+    "homeNavBgColor": "#07182B",
     "bgColor": "#FFFFFF",
     "bgTxtStyle": "light"
   },
   "dark": {
     "navBgColor": "#000000",
     "navTxtStyle": "white",
+    "homeNavBgColor": "#141518",
     "bgColor": "#000000",
     "bgTxtStyle": "dark"
   }
