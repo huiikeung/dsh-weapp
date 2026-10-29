@@ -1,9 +1,6 @@
 const { ConversationWindow } = require('./utils/conversation-window');
 const { dataPatch } = require('./utils/session-render');
 const WINDOW_SHIFT_INTERVAL = 32;
-const WINDOW_SHIFT_SETTLE_MS = 120;
-// 惯性滚动中可接受的补偿误差：≤8px 的位移肉眼不可见，不值得为它打断原生 momentum。
-const SWIPE_CORRECTION_MAX_PX = 8;
 const MANUAL_SCROLL_SETTLE_MS = 800;
 function hasRecentConversationTouch(page) {
   const touchedAt = Number(page._lastTouchAt) || 0;
@@ -43,7 +40,6 @@ module.exports = {
       this._lastWindowShiftAt = null;
       this._windowShiftMeasurePending = false;
       this._windowShiftRenderPending = false;
-      if (this._windowShiftSettleTimer) { clearTimeout(this._windowShiftSettleTimer); this._windowShiftSettleTimer = null; }
       this._conversationWindow = new ConversationWindow(); this._windowSession = this._renderSessionId;
     }
     const window = this._conversationWindow;
@@ -97,7 +93,6 @@ module.exports = {
     this._pendingWindowScrollTop = Math.max(0, Number(top) || 0);
     this._windowShiftScrollVersion = (this._windowShiftScrollVersion || 0) + 1;
     const height = this._convClientHeight || 700;
-    if (this._windowShiftSettleTimer) return;
     if (this._windowShiftMeasurePending || this._windowShiftRenderPending) return;
     if (!window.shouldShiftForScroll(this._pendingWindowScrollTop, height)) return;
     const now = Date.now();
@@ -133,9 +128,6 @@ module.exports = {
       const readerOwnsScroll = (this._panelGesture && this._panelGesture.tab === 'conversation')
         || settlingAfterTouch(this)
         || (this._convPinned === false && this._lastConvScrollAt && scrollQuietFor < 160);
-      // 补偿可能被否决（见下方 postponing），先留好还原现场。
-      const previousHeights = new Map();
-      renderedKeys.forEach(key => { if (key) previousHeights.set(key, window.heights.get(key)); });
       (rects || []).forEach((rect, index) => {
         const key = renderedKeys[index];
         if (key && rect && rect.height > 0) window.heights.set(key, rect.height);
@@ -175,39 +167,11 @@ module.exports = {
           + (Number.isFinite(measuredScrollTop) ? scrollTop - measuredScrollTop : 0)
         : scrollTop);
 
-      // 手指/惯性还握着视口时，凡是需要明显改写 scrollTop 的窗口平移都先押后：
-      // 惯性进行中写 scroll-top 会截断原生滑动，表现为「松手后页面又多滑一截，
-      // 停不到手指停的位置」。只有视口马上要滑出已挂载窗口（会露白）才立即换行。
-      const drift = correctedTop - scrollTop;
-      if (readerOwnsScroll && Math.abs(drift) > SWIPE_CORRECTION_MAX_PX) {
-        const total = window.offsets[sourceRows.length] || 0;
-        const urgent = window.indexAt(Math.min(scrollTop, total)) <= window.start + 1
-          || (window.end < sourceRows.length
-            && window.indexAt(Math.min(scrollTop + height, total)) >= window.end - 1);
-        if (!urgent) {
-          previousHeights.forEach((value, key) => {
-            if (value === undefined) window.heights.delete(key); else window.heights.set(key, value);
-          });
-          window.update(sourceRows);
-          this._pendingWindowScrollTop = scrollTop;
-          this._lastWindowShiftAt = Date.now();
-          if (!this._windowShiftSettleTimer) {
-            this._windowShiftSettleTimer = setTimeout(() => {
-              this._windowShiftSettleTimer = null;
-              const latestTop = this._pendingWindowScrollTop;
-              this._pendingWindowScrollTop = null;
-              if (!this._unloaded && this._conversationWindow === window && latestTop != null) {
-                this.updateConversationWindow(latestTop);
-              }
-            }, WINDOW_SHIFT_SETTLE_MS);
-          }
-          return;
-        }
-      }
       // Preserve the measured row's screen position as the virtual spacers change.
+      // padding 感知的补偿让修正量在几何自洽时恒等于 0：只有真实位移（比如
+      // 缓存高度与当前 DOM 不一致）才会落到这个写上；惯性滚动中它不再被无谓触发。
       const patch = dataPatch(this.data, window.select(correctedTop, height));
-      if (Math.abs(drift) > 1
-        && !(readerOwnsScroll && Math.abs(drift) <= SWIPE_CORRECTION_MAX_PX)) {
+      if (Math.abs(correctedTop - scrollTop) > 1) {
         patch.conversationScrollTop = correctedTop;
         this._lastScrollTop = correctedTop;
         this._lastNativeScrollTop = correctedTop;

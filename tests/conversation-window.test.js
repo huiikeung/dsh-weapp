@@ -259,6 +259,109 @@ test('a pending measure cannot restore the old scroll position during an active 
   }
 });
 
+test('window-shift compensation accounts for the conversation content padding', () => {
+  // 真实布局：行 screen top = 视口 top + 内容 padding(8) + 占位 - scrollTop。
+  // 补偿公式若漏掉 padding，每次平移都会多发一次 8px 的滚动 → 「多滑一截」。
+  const list = rows(200);
+  const page = pageWith(list, { _lastScrollTop: 1200, _lastNativeScrollTop: 1200, _convClientHeight: 300 }, 62.5);
+  const initial = page._conversationWindow.select(1200, 300);
+  page.data = { tab: 'conversation', rows: initial.rows,
+    conversationTopSpace: initial.conversationTopSpace, conversationBottomSpace: initial.conversationBottomSpace };
+  let completeMeasure;
+  let applied;
+  page.setData = (patch, callback) => {
+    applied = patch;
+    Object.assign(page.data, patch);
+    if (callback) callback();
+  };
+  const previousWx = global.wx;
+  global.wx = { createSelectorQuery() {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect() { return query; }, scrollOffset() { return query; } }; },
+      selectAll() { return { boundingClientRect() { return query; } }; },
+      exec(callback) { completeMeasure = callback; }
+    };
+    return query;
+  } };
+  try {
+    const viewportTop = 100;
+    const pad = 8;
+    const measuredTop = 1260;
+    page._lastNativeScrollTop = 1400;
+    page.updateConversationWindow(1400);
+    const rowHeight = 62.5;
+    const windowStart = page._conversationWindow.start;
+    const topSpace = page.data.conversationTopSpace;
+    const rects = page.data.rows.map(row => {
+      const index = Number(row.key.slice(1));
+      const top = viewportTop + pad + topSpace + (index - windowStart) * rowHeight - measuredTop;
+      return { top, bottom: top + rowHeight, height: rowHeight };
+    });
+    const visibleRow = rects.findIndex(rect => rect.bottom > viewportTop + 1 && rect.top < 400 - 1);
+    completeMeasure([{ top: viewportTop, bottom: viewportTop + 300 }, { scrollTop: measuredTop }, rects]);
+
+    assert.equal(applied.conversationScrollTop, undefined,
+      'with consistent geometry the padding-aware compensation produces no spurious scrollTop write');
+    assert.equal(page._lastScrollTop, 1200, 'no correction is recorded as the native position');
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+});
+
+test('a window shift during an active swipe swaps rows without rewriting the scroll position', () => {
+  const list = rows(200);
+  const page = pageWith(list, { _lastScrollTop: 1200, _lastNativeScrollTop: 1200, _convClientHeight: 300 }, 60);
+  const initial = page._conversationWindow.select(1200, 300);
+  page.data = { tab: 'conversation', rows: initial.rows,
+    conversationTopSpace: initial.conversationTopSpace, conversationBottomSpace: initial.conversationBottomSpace };
+  let completeMeasure;
+  let applied;
+  page.setData = (patch, callback) => {
+    applied = patch;
+    Object.assign(page.data, patch);
+    if (callback) callback();
+  };
+  const previousWx = global.wx;
+  global.wx = { createSelectorQuery() {
+    const query = {
+      in() { return this; },
+      select() { return { boundingClientRect() { return query; }, scrollOffset() { return query; } }; },
+      selectAll() { return { boundingClientRect() { return query; } }; },
+      exec(callback) { completeMeasure = callback; }
+    };
+    return query;
+  } };
+  try {
+    page._lastTouchAt = Date.now();
+    page._panelGesture = { tab: 'conversation', axis: 'vertical' };
+    page._lastConversationGestureAt = page._lastTouchAt;
+    page._lastConvScrollAt = page._lastTouchAt;
+    page.updateConversationWindow(1260);
+    const viewportTop = 0;
+    const measuredTop = 1260;
+    const rowHeight = 70;
+    const windowStart = page._conversationWindow.start;
+    const topSpace = page.data.conversationTopSpace;
+    const rects = page.data.rows.map(row => {
+      const index = Number(row.key.slice(1));
+      const top = viewportTop + topSpace + (index - windowStart) * rowHeight - measuredTop;
+      return { top, bottom: top + rowHeight, height: rowHeight };
+    });
+    completeMeasure([{ top: viewportTop, bottom: 300 }, { scrollTop: measuredTop }, rects]);
+
+    assert.equal(applied.conversationScrollTop, undefined,
+      'the anchored compensation is a no-op for consistent geometry, so momentum is never interrupted');
+    assert.equal(page._lastNativeScrollTop, 1200, 'the native position is left to the running gesture');
+    assert.ok(page.data.rows.some(row => row.key === 'u23'), 'the row under the fling position is mounted');
+    assert.equal(page._conversationWindow.heights.get('u23'), 70, 'measured heights are committed');
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+});
+
 test('prepending history preserves the visible anchor and offset while incoming tail does not move it', () => {
   const list = rows(100);
   const page = pageWith(list, { _lastScrollTop: 5025 }, 100);
