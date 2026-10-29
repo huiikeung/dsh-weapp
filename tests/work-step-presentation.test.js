@@ -346,13 +346,19 @@ test('settings page persists both work-step choices through the real tap chain',
 
     // 打开「工作步骤展示」菜单并选「简洁」
     page.toggleWorkStepMenu({ currentTarget: { dataset: { field: 'mode' } } });
-    assert.equal(page.data.workStepMenu, 'mode', 'the menu opens');
-    assert.equal(page.data.workStepMenuTop, '308px', '下拉按行高定位（视口坐标）');
-    assert.equal(page.data.workStepMenuRight, '40px');
-    page.chooseWorkStep({ currentTarget: { dataset: { field: 'mode', id: 'compact' } } });
+    assert.equal(page.data.choiceMenu, 'mode', 'the anchored glass menu opens');
+    // 位置由首页工作区选择同款的 workspacePopoverLayout 给出（有界、可见）。
+    for (const key of ['choiceLeft', 'choiceTop', 'choiceWidth', 'choiceHeight', 'choiceOriginY']) {
+      assert.ok(Number.isFinite(page.data[key]), key + ' is finite');
+    }
+    assert.ok(page.data.choiceLeft >= 16 && page.data.choiceTop >= 24);
+    assert.ok(page.data.choiceHeight < 260, 'menu height follows the option count instead of the workspace-menu extras, got ' + page.data.choiceHeight);
+    assert.equal(page.data.choiceOptions.length, 4, 'mode options feed the menu');
+    assert.equal(page.data.choiceCurrent, page.data.workStepMode);
+    page.chooseChoice({ currentTarget: { dataset: { kind: 'mode', id: 'compact' } } });
     assert.equal(page.data.workStepMode, 'compact');
     assert.equal(page.data.workStepModeLabel, '简洁');
-    assert.equal(page.data.workStepMenu, '', 'the menu closes after choosing');
+    assert.equal(page.data.choiceMenu, '', 'the menu closes after choosing');
     assert.deepEqual(memory.get('workStepPresentation'), { mode: 'compact', timing: 'completion' },
       'the choice is written to storage');
 

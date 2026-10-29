@@ -21,9 +21,17 @@ test('sidebar quota card colors come from theme variables, not hardcoded whites'
   const root = block(quotaWxss, '.qs-root');
   assert.ok(root.includes('var(--text)'), '卡片文字必须用 var(--text)');
   const card = block(quotaWxss, '.qs-summary');
-  assert.ok(card.includes('background:transparent'), '额度卡片背景必须透明，贴合侧栏底色');
-  assert.ok(card.includes('var(--border)'), '合并卡片边框必须用 var(--border)');
+  // 默认原生：透明底 + 主题边框，不需要阴影
+  assert.ok(card.includes('background:transparent'), '额度卡片默认透明，贴合侧栏底色');
+  assert.ok(card.includes('var(--border)'), '原生卡片边框用 var(--border)');
   assert.ok(!card.includes('var(--card-shadow)'), '透明卡片不再需要阴影');
+  // 玻璃态由独立开关控制：.qs-glass 下才叠加玻璃材质
+  const glassAt = quotaWxss.indexOf('.qs-glass .qs-standard .qs-sec.qs-card,');
+  assert.ok(glassAt > 0, 'glass modifier exists for the sidebar card');
+  const glass = quotaWxss.slice(glassAt, glassAt + 700);
+  assert.ok(glass.includes('var(--glass-alpha-top, 0.06)'), 'glass gradient');
+  assert.ok(glass.includes('var(--glass-edge-alpha, 0.38)'), 'glass hairline');
+  assert.ok(glass.includes('blur(var(--glass-blur-card, 3rpx))'), 'glass blur');
   assert.ok(!/rgba\(245,\s*247,\s*250|#2b2b2e|#f4f5f7|#80aaff|#7fa9ff/.test(quotaWxss), '共享侧栏样式不得硬编码深色色板');
   // 弹窗预览在深色 mock 面板内覆盖主题变量，而不是复制一套卡片色
   assert.match(previewWxss, /\.cost-preview \{[^}]*--surface:\s*#2b2b2e/);
@@ -44,7 +52,7 @@ test('home root view carries themeClass so manual dark mode switches variables',
 test('quota card sits in the bottom group above the settings entry', () => {
   // 结构：drawer-bottom 包住 卡片(wx:if) / 错误卡(wx:elif) / drawer-footer(设置)
   assert.match(wxml, /<view class="drawer-bottom">/);
-  assert.match(wxml, /<view wx:if="\{\{costSidebar\}\}" class="qs-wrap"/);
+  assert.match(wxml, /<view wx:if="\{\{costSidebar\}\}" class="qs-wrap \{\{quotaSidebarGlass && settingsGlassEnabled \? 'qs-glass' : ''\}\}"/);
   assert.match(wxml, /<template is="quota-sidebar" data="\{\{sections: costSections/);
   assert.ok(wxml.includes('templates/quota-sidebar.wxml'), '左侧栏必须引用共享额度卡片模板');
   assert.match(wxml, /<view wx:elif="\{\{costCardError\}\}" class="drawer-cost-unavailable"/);

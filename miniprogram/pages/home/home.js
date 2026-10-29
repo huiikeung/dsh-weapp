@@ -6,6 +6,9 @@ const util = require('../../utils/util');
 const labels = require('../../utils/labels');
 const hostsLib = require('../../utils/hosts');
 const { workspacePopoverLayout } = require('../../utils/workspace-popover');
+const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
+const settingsGlassPreference = require('../../utils/settings-glass-pref');
+const quotaSidebarGlassPreference = require('../../utils/quota-sidebar-glass-pref');
 const homeAnimationPreference = require('../../utils/home-animation-pref');
 const initialHomeAnimationEnabled = homeAnimationPreference.enabled();
 const costView = require('../../utils/cost-view');
@@ -82,6 +85,9 @@ Page({
     pairingResultClass: '',
     pairingConnecting: false,
     dirSheetOpen: false,
+    dirCreateOpen: false,
+    dirCreateName: '',
+    dirCreateBusy: false,
     dirLoading: false,
     dirCreatingWs: false,
     dirCreatingDir: false,
@@ -100,6 +106,8 @@ Page({
     hostOnline: false,
     hostRows: [],
     hostSheetOpen: false,
+    ...settingsGlassStylePreference.view(),
+    quotaSidebarGlass: quotaSidebarGlassPreference.read(),
     hostDeleteOpen: false,
     hostDeleteCount: 0,
     hostDeleteTitle: '',
@@ -245,6 +253,7 @@ Page({
 
   onShow() {
     this._homeHidden = false;
+    this.setData(Object.assign(settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }), { quotaSidebarGlass: quotaSidebarGlassPreference.read(), settingsGlassEnabled: settingsGlassPreference.read() }));
     this._homeVisible = true;
     this._openingSettings = false;
     this._openingSession = false;
@@ -820,29 +829,32 @@ Page({
     }
   },
 
+  /** 新建文件夹：底部弹窗（透明玻璃面板），不再用系统 showModal。 */
   newDirectory() {
     if (this.data.dirLoading || this.data.dirCreatingWs || this.data.dirCreatingDir || !this.data.dirPath) return;
-    const self = this;
-    wx.showModal({
-      title: uiText('新建文件夹'),
-      content: uiText('将在当前目录中创建一个新的子文件夹。'),
-      editable: true,
-      placeholderText: uiText('文件夹名称'),
-      success(res) {
-        if (!res.confirm || !res.content || !res.content.trim()) return;
-        const parent = self.data.dirPath;
-        self.setData({ dirCreatingDir: true });
-        store.client.createDirectory(parent, res.content.trim())
-          .then(() => {
-            self.setData({ dirCreatingDir: false });
-            self.browseDirs(parent);
-          })
-          .catch((err) => {
-            self.setData({ dirCreatingDir: false });
-            wx.showToast({ title: err.message || uiText('创建失败'), icon: 'none' });
-          });
-      }
-    });
+    this.setData({ dirCreateOpen: true, dirCreateName: '', dirCreateBusy: false });
+  },
+  closeDirCreate() {
+    if (this.data.dirCreateBusy) return;
+    this.setData({ dirCreateOpen: false, dirCreateName: '' });
+  },
+  onDirCreateInput(e) { this.setData({ dirCreateName: (e && e.detail && e.detail.value) || '' }); },
+  confirmDirCreate() {
+    if (this.data.dirCreateBusy) return;
+    const name = String(this.data.dirCreateName || '').trim();
+    if (!name) { wx.showToast({ title: uiText('请输入文件夹名称'), icon: 'none' }); return; }
+    if (!this.data.dirPath) return;
+    const parent = this.data.dirPath;
+    this.setData({ dirCreateBusy: true, dirCreatingDir: true });
+    store.client.createDirectory(parent, name)
+      .then(() => {
+        this.setData({ dirCreateBusy: false, dirCreatingDir: false, dirCreateOpen: false, dirCreateName: '' });
+        this.browseDirs(parent);
+      })
+      .catch((err) => {
+        this.setData({ dirCreateBusy: false, dirCreatingDir: false });
+        wx.showToast({ title: err.message || uiText('创建失败'), icon: 'none' });
+      });
   },
 
   createWorkspaceHere() {

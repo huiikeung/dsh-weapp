@@ -66,38 +66,41 @@ test('missing anchor metrics fall back to a finite, visible popover', () => {
   }
 });
 
-test('preset keeps a glass bottom sheet while model and permission feed the anchored glass menu', () => {
+test('glass pickers render as bottom sheets by default and fall back to the anchored menu when switched off', () => {
   const html = read('pages/session-settings/session-settings.wxml');
   const css = read('pages/session-settings/session-settings.wxss');
   const js = read('pages/session-settings/session-settings.js');
   for (const [id, handler] of [['agent-preset-row', 'pickAgentPreset'], ['default-model-row', 'pickDefaultModel'], ['default-permission-row', 'pickDefaultPermission']]) {
     assert.match(html, new RegExp('id="' + id + '"[^>]*bindtap="' + handler + '"'));
   }
-  // Agent 预设：玻璃界面下仍是与原生一致的底部弹窗，只是换成玻璃材质。
-  assert.match(html, /wx:if="\{\{picker === 'preset' && settingsGlassEnabled\}\}" class="pair-sheet-mask" catchtap="closePickerSheet"/);
-  assert.match(html, /class="picker-glass-sheet resizable[\s\S]*?data-sheet="picker"[\s\S]*?class="sheet-grabber"/);
-  assert.match(html, /class="picker-glass-sheet resizable[\s\S]*?bindtap="closePickerSheet"[\s\S]*?sheet-close-x/);
-  assert.match(html, /class="picker-sheet-scroll"[\s\S]*?picker-pop-preset/);
-  assert.match(html, /class="picker-sheet-footer"[\s\S]*?createCustomAgentPreset/);
-  // 其余入口继续用锚点玻璃菜单，预设不再走这条路径。
-  assert.match(html, /class="picker-pop-mask" catchtap="closePickerPopover"/);
-  assert.match(html, /picker && settingsGlassEnabled && picker !== 'preset'/);
-  assert.match(html, /class="picker-pop"\s+style="left: \{\{pickerPopLeft\}\}px; top: \{\{pickerPopTop\}\}px; width: \{\{pickerPopWidth\}\}px; max-height: \{\{pickerPopMaxH\}\}px; transform-origin: \{\{pickerPopOrigin\}\};"/);
-  assert.match(html, /scroll-view class="picker-pop-scroll"/);
-  for (const kind of ['preset', 'model', 'effort', 'permission']) {
+  // 两种形态共用同一份内容模板：预设 / 模型 / 思考等级 / 权限 / 诊断 / 缓存都在里面。
+  assert.match(html, /<template name="picker-pop-content">/);
+  assert.match(html, /<template is="picker-pop-content"/);
+  for (const kind of ['preset', 'model', 'effort', 'permission', 'diagnostics', 'cache']) {
     assert.match(html, new RegExp("picker === '" + kind + "'"));
   }
+  // 开 = 玻璃底部弹窗（抓手 + 标题 + 关闭 + 滚动列表），不量锚点。
+  assert.match(html, /wx:if="\{\{picker && settingsGlassEnabled && settingsGlassSheetEnabled\}\}" class="pair-sheet-mask" catchtap="closePickerSheet"/);
+  assert.match(html, /class="picker-glass-sheet resizable[\s\S]*?data-sheet="picker"[\s\S]*?class="sheet-grabber"/);
+  assert.match(html, /class="picker-glass-sheet resizable[\s\S]*?bindtap="closePickerSheet"[\s\S]*?sheet-close-x/);
+  assert.match(html, /class="picker-sheet-scroll"[\s\S]*?<template is="picker-pop-content"/);
+  // 关 = 锚点玻璃菜单（与首页工作区选择同款）。
+  assert.match(html, /wx:if="\{\{picker && settingsGlassEnabled && !settingsGlassSheetEnabled\}\}" class="picker-pop-mask" catchtap="closePickerPopover"/);
+  assert.match(html, /class="picker-pop"\s+style="left: \{\{pickerPopLeft\}\}px; top: \{\{pickerPopTop\}\}px; width: \{\{pickerPopWidth\}\}px; max-height: \{\{pickerPopMaxH\}\}px; transform-origin: \{\{pickerPopOrigin\}\};"/);
+  assert.match(html, /scroll-view class="picker-pop-scroll"[\s\S]*?<template is="picker-pop-content"/);
+  // 玻璃 UI 关闭时仍是原生弹窗。
   assert.match(html, /picker && !settingsGlassEnabled/);
   assert.match(html, /utilitySheet && !settingsGlassEnabled/);
-  // 玻璃弹窗参数：与首页工作区弹窗同款材质，但保持底部弹窗的形态（只圆上两角）。
-  assert.match(css, /\.picker-glass-sheet \{[\s\S]*?border-radius: 32rpx;[\s\S]*?linear-gradient\(165deg, rgba\(255, 255, 255, 0\.10\), rgba\(255, 255, 255, 0\.04\)\)[\s\S]*?backdrop-filter: blur\(8rpx\)/);
-  // 左右各让出 2px：玻璃边框不贴屏幕边缘，底部仍贴底。
-  assert.match(css, /\.picker-glass-sheet \{[^}]*width: calc\(100% - 24px\)[^}]*margin: 0 12px 24px;[^}]*border-radius: 32rpx;/);
+  // 玻璃材质：两种形态同一套玻璃参数。
+  assert.match(css, /\.picker-glass-sheet \{[\s\S]*?border-radius: var\(--glass-radius-sheet, 32rpx\);[\s\S]*?linear-gradient\(165deg, rgba\(255, 255, 255, var\(--glass-alpha-top, 0\.10\)\), rgba\(255, 255, 255, var\(--glass-alpha-bottom, 0\.04\)\)\)[\s\S]*?backdrop-filter: blur\(var\(--glass-blur-sheet, 8rpx\)\)/);
+  assert.match(css, /\.picker-glass-sheet \{[^}]*width: calc\(100% - 24px\)[^}]*margin: 0 12px 24px;[^}]*border-radius: var\(--glass-radius-sheet, 32rpx\);/);
   assert.match(css, /@keyframes picker-sheet-rise/);
   assert.match(css, /\.theme-light \.picker-glass-sheet \{/);
+  // JS：底部弹窗形态不量锚点；关闭开关后才按触发行量坐标。
+  assert.match(js, /if \(!this\.data\.settingsGlassEnabled \|\| this\.data\.settingsGlassSheetEnabled\) \{[\s\S]*?this\.setData\(state\)/,
+    'bottom-sheet mode never waits for anchor metrics');
   assert.match(js, /pickerPopoverLayout\(rect, windowInfo, navigationBottom, \{ wide \}\)/);
   assert.match(js, /select\(anchorSelector\)/);
-  assert.match(js, /settingsGlassEnabled \|\| kind === 'preset'/);
   for (const anchor of ['#agent-preset-row', '#default-model-row', '#default-permission-row']) {
     assert.ok(js.includes("'" + anchor + "'"), anchor);
   }

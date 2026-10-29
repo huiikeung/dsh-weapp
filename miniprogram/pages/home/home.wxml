@@ -1,6 +1,6 @@
 <page-meta page-style="{{pageStyle}}" />
 <import src="../../templates/quota-sidebar.wxml"/>
-<view class="page page-dark home-root {{themeClass}}" style="{{contentFontStyle}}">
+<view class="page page-dark home-root {{themeClass}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-blur-card: {{glassBlurCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-choice: {{glassRadiusChoice}}; --glass-backdrop-brightness: {{glassBackdropBrightness}}; {{settingsGlassEnabled ? '' : '--surface: ' + nativeSurfaceColor + '; --fill: ' + nativeFillColor + ';'}};">
   <!-- 侧边栏（对齐 dsh-mobile WorkspaceView drawerContent：品牌字标 + 插件 / 自动化任务） -->
   <view
     class="drawer {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}} {{drawerOpen || drawerDragging ? 'drawer-visible' : ''}} {{sheetTheme === 'dark' ? 'drawer-dark' : ''}}"
@@ -30,7 +30,7 @@
       </view>
       <!-- 底部组：额度卡片 + 设置入口，靠 margin-top:auto 贴底（对齐参考实现的底部卡片） -->
       <view class="drawer-bottom">
-      <view wx:if="{{costSidebar}}" class="qs-wrap" hover-class="qs-pressed" bindtap="onCostCardTap" role="button" aria-label="{{ui['用量额度卡片，点击刷新']}}">
+      <view wx:if="{{costSidebar}}" class="qs-wrap {{quotaSidebarGlass && settingsGlassEnabled ? 'qs-glass' : ''}}" hover-class="qs-pressed" bindtap="onCostCardTap" role="button" aria-label="{{ui['用量额度卡片，点击刷新']}}">
         <template is="quota-sidebar" data="{{sections: costSections, mode: costSidebar.style, model: costSidebar, ui: ui}}"/>
       </view>
       <view wx:elif="{{costCardError}}" class="drawer-cost-unavailable" bindtap="openCostDetail" role="button">
@@ -327,6 +327,36 @@
     </block>
   </view>
 
+  <!-- 新建文件夹：底部弹窗（透明玻璃面板），替换原来的系统弹窗 -->
+  <view wx:if="{{dirCreateOpen}}" class="dir-prompt-mask" catchtap="closeDirCreate" catchtouchmove="noop">
+  <view
+    wx:if="{{dirCreateOpen}}"
+    class="dir-prompt-sheet"
+    catchtap="noop"
+    role="dialog"
+    aria-label="{{ui['新建文件夹']}}"
+  >
+    <text class="dir-prompt-title">{{ui['新建文件夹']}}</text>
+    <text class="dir-prompt-hint">{{ui['将在当前目录中创建一个新的子文件夹。']}}</text>
+    <input
+      class="dir-prompt-input"
+      value="{{dirCreateName}}"
+      bindinput="onDirCreateInput"
+      bindconfirm="confirmDirCreate"
+      placeholder="{{ui['文件夹名称']}}"
+      placeholder-class="dir-prompt-ph"
+      confirm-type="done"
+      cursor-spacing="24"
+      adjust-position="{{false}}"
+      maxlength="120"
+    />
+    <view class="dir-prompt-actions">
+      <view class="dir-prompt-btn dir-prompt-cancel" bindtap="closeDirCreate" role="button">{{ui['取消']}}</view>
+      <view class="dir-prompt-btn dir-prompt-confirm {{dirCreateBusy ? 'is-busy' : ''}}" bindtap="confirmDirCreate" role="button">{{dirCreateBusy ? ui['正在创建…'] : ui['创建']}}</view>
+    </view>
+  </view>
+  </view>
+
   <!-- 工作区选择：卡片锚点弹窗（对齐 iOS workspaceCard 的 Menu） -->
   <view wx:if="{{workspacePickerOpen}}" class="ws-pop-mask" catchtap="closeWorkspacePicker" catchtouchmove="noop"></view>
   <view
@@ -382,7 +412,7 @@
     <view class="dir-head">
       <view class="dir-head-btn tap {{dirLoading || dirCreatingWs || dirCreatingDir ? 'disabled' : ''}}" bindtap="newDirectory">
         <image class="dir-head-folder" src="/assets/icons/workspace-folder-white.svg" mode="aspectFit"/>
-        <view class="dir-head-badge"><text>+</text></view>
+        <view class="dir-head-badge"><image class="dir-head-add" src="/assets/icons/ic-dir-add-white.png" mode="aspectFit"/></view>
       </view>
       <text class="dir-head-title">{{ui['选择工作区目录']}}</text>
       <view class="dir-head-cancel tap" bindtap="closeDirSheet">{{ui['取消']}}</view>
@@ -405,12 +435,12 @@
             hover-class="dir-row-hover"
             bindtap="goParentDir"
           >
-            <view class="dir-row-icon"><image class="dir-row-ic" src="/assets/icons/ic-dir-parent-ocean.png"/></view>
+            <view class="dir-row-icon"><image class="dir-row-ic" src="/assets/icons/ic-dir-parent-blue.png"/></view>
             <view class="dir-row-body">
               <text class="dir-row-name">..</text>
               <text class="dir-row-sub">{{ui['返回上一级']}}</text>
             </view>
-            <image class="dir-row-chev" src="/assets/icons/ic-dir-chevron-mist.png"/>
+            <image class="dir-row-chev" src="/assets/icons/chev-down-white.png"/>
           </view>
           <view class="dir-divider"></view>
           <block wx:for="{{dirEntries}}" wx:key="path">
@@ -423,7 +453,7 @@
                 <text class="dir-row-name">{{item.name}}</text>
                 <text wx:if="{{item.hidden}}" class="dir-row-sub">{{ui['隐藏目录']}}</text>
               </view>
-              <image class="dir-row-chev" src="/assets/icons/ic-dir-chevron-mist.png"/>
+              <image class="dir-row-chev" src="/assets/icons/chev-down-white.png"/>
             </view>
             <view wx:if="{{index < dirEntries.length - 1}}" class="dir-divider"></view>
           </block>

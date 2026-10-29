@@ -9,19 +9,21 @@ const accountView = require('./utils/account-view');
 const preferences = require('../../utils/ui-preferences');
 const accountCardPreference = require('./utils/account-card-pref');
 const settingsGlassPreference = require('../../utils/settings-glass-pref');
+const settingsGlassSheetPreference = require('../../utils/settings-glass-sheet-pref');
+const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
 const { connectionView } = require('../../utils/connection-status');
 const { pickerPopoverLayout } = require('./utils/picker-popover');
 
 Page({
   manualShareMenu: true,
-  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', diagnostics: [], utilitySheet: '', cacheClearing: false, cacheError: '', picker: '', settingsGlassEnabled: settingsGlassPreference.read(), pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, filesListH: 348, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard',
+  data: { sheetExpanded: {}, navPadTop: 50, navHeight: 32, presetLabel: uiText('标准模式'), modelLabel: '—', permissionLabel: uiText('工作区写入'), host: {}, hostInfo: { version: uiText('未提供'), provider: uiText('未提供'), model: uiText('未提供') }, buildLabel: '', diagnostics: [], utilitySheet: '', cacheClearing: false, cacheError: '', picker: '', settingsGlassEnabled: settingsGlassPreference.read(), settingsGlassSheetEnabled: settingsGlassSheetPreference.read(), ...settingsGlassStylePreference.view(), pickerTitle: '', pickerIntro: '', pickerOptions: [], presetCreatorAvailable: false, creatingPreset: false, sheetMaxH: 480, filesListH: 348, pickerListH: 348, pickerCreatorListH: 260, presetId: 'standard',
     pickerPopLeft: 16, pickerPopTop: 140, pickerPopWidth: 240, pickerPopMaxH: 360, pickerPopOrigin: '50% 0', modelId: '', modelProvider: '', pendingModel: null, filesSheet: false, filesEntries: [], filesLoading: false, filesError: '', filesPathLabel: '', filesIsRoot: true, dshAccount: accountView.normalize({}), dshAccountBusy: false, dshAccountVisible: false, dshBalanceExpanded: false, showAccountCard: false },
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
   onLoad() {
     this._alive = true;
     theme.applyTo(this);
     // 账号卡片是否显示由设置页的开关决定；每次进入本页都重新读一次偏好。
-    this.setData({ showAccountCard: accountCardPreference.read(), settingsGlassEnabled: settingsGlassPreference.read() });
+    this.setData({ showAccountCard: accountCardPreference.read(), settingsGlassEnabled: settingsGlassPreference.read(), settingsGlassSheetEnabled: settingsGlassSheetPreference.read() });
     this.updateNavigationLayout();
     this.setData(clientVersion(wx));
     this.unsubscribe = store.subscribe(snapshot => this.syncFromStore(snapshot));
@@ -34,7 +36,7 @@ Page({
       });
     }
   },
-  onShow() { this.setData({ settingsGlassEnabled: settingsGlassPreference.read() }); },
+  onShow() { this.setData(Object.assign({ settingsGlassEnabled: settingsGlassPreference.read(), settingsGlassSheetEnabled: settingsGlassSheetPreference.read() }, settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }))); },
   updateNavigationLayout() {
     let info = {}, rect = null;
     try {
@@ -168,8 +170,9 @@ Page({
   },
 
   /**
-   * 选择弹层在开启玻璃 UI 时使用首页工作区同款锚点菜单；关闭时同步到原生底部弹窗。
-   * Agent 预设例外：两种风格都用底部弹窗，只是材质不同，因此不需要量锚点。
+   * 选择弹层形态由两个开关决定：
+   * - 「玻璃UI样式」关闭 → 原生底部弹窗；
+   * - 「玻璃UI样式」开启 → 「底部弹窗」开=玻璃底部弹窗（不用量锚点），关=锚点玻璃菜单。
    * kind: preset / model / permission / effort / diagnostics / cache。
    */
   openPickerPopover(kind, title, options, intro, anchorSelector, extra) {
@@ -183,8 +186,8 @@ Page({
       presetCreatorAvailable: kind === 'preset' && list.some(option => option.id === 'cordis'),
       ...(extra || {})
     };
-    // 玻璃 UI 的 Agent 预设是与原生一致的底部弹窗，不做锚点测量。
-    if (!this.data.settingsGlassEnabled || kind === 'preset') {
+    // 底部弹窗形态不需要锚点测量，直接展开。
+    if (!this.data.settingsGlassEnabled || this.data.settingsGlassSheetEnabled) {
       this.setData(state);
       return;
     }

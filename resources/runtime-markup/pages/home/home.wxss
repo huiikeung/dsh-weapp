@@ -295,7 +295,7 @@ page {
   will-change: transform, opacity;
   padding: 12rpx 0;
   /* 与工作区选择弹窗完全一致：同一套白纱 + blur(8rpx) */
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
   border: 1rpx solid rgba(255, 255, 255, 0.38);
   backdrop-filter: blur(8rpx);
   -webkit-backdrop-filter: blur(8rpx);
@@ -480,7 +480,7 @@ page {
   padding: 24rpx 28rpx;   /* 高度减小一点 */
   margin-bottom: 36rpx;
   border-radius: 36rpx;
-  /* 与「新建会话」同一套 Liquid Glass：高光渐变 + 发丝亮边 + 内高光 */
+  /* 首页工作区卡片：固定材质，不跟设置里的玻璃样式参数变化 */
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
   border: 1rpx solid rgba(255, 255, 255, 0.38);
   backdrop-filter: blur(3rpx);
@@ -536,7 +536,7 @@ page {
   border-radius: 32rpx;
   padding: 18rpx 0;      /* 卡片高度减小 */
   margin-bottom: 36rpx;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
   backdrop-filter: blur(3rpx);
   -webkit-backdrop-filter: blur(3rpx);
   box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 8rpx 32rpx rgba(3, 14, 30, 0.18);
@@ -552,7 +552,7 @@ page {
   width: 48rpx;
   height: 48rpx;
   border-radius: 50%;
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
   border: 1rpx solid rgba(255, 255, 255, 0.20);
   box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.12);
   color: #FFFFFF;
@@ -928,30 +928,31 @@ page {
 /* 主机切换 sheet（对齐 iOS 高 detent 弹层：深炭玻璃 + 抓手 +
    居中标题 + 左侧编辑玻璃钮 + 内嵌分组卡片；
    默认紧凑高度，抓手拖拽/点击展开到近全屏） */
+/* 切换主机弹窗：沿用现在这套玻璃弹窗（浮起圆角面板），固定玻璃、不跟开关 */
 .host-sheet {
   position: fixed;
-  left: 16rpx;
-  right: 16rpx;
-  bottom: 16rpx;
+  left: 12px;
+  right: 12px;
+  bottom: 24px;
   z-index: 61;
   display: flex;
   flex-direction: column;
   height: auto;
   min-height: 46vh;      /* 默认高度更高 */
   max-height: 86vh;
-  /* 切换主机：白纱回到卡片同款（0.10 → 0.04），模糊保留一档轻磨砂 */
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
-  border: 1rpx solid rgba(255, 255, 255, 0.38);
-  backdrop-filter: blur(14rpx) saturate(1.15);
-  -webkit-backdrop-filter: blur(14rpx) saturate(1.15);
-  border-radius: 40rpx;
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  border-radius: var(--glass-radius-sheet, 32rpx);
   padding: 0 28rpx calc(28rpx + env(safe-area-inset-bottom));
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 16rpx 48rpx rgba(3, 14, 30, 0.26);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
+  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
   transition: height 0.5s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
+/* 底部让出 24px：展开高度同步扣除，顶边不抬高 */
 .host-sheet.expanded {
-  height: calc(100vh - 200rpx);
+  height: calc(100vh - 200rpx - 24px);
 }
 
 /* 编辑主机：在原「切换主机」弹窗内直接展开，高度沿用原弹窗 */
@@ -1404,23 +1405,113 @@ page {
 
 /* ---------- 目录浏览器弹层（对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet） ---------- */
 
+/* 添加工作区（目录浏览器）：与现在这套玻璃弹窗一致——浮起圆角面板，固定玻璃、不跟开关 */
 .dir-sheet {
   position: fixed;
-  left: 16rpx;
-  right: 16rpx;
-  bottom: 16rpx;
+  left: 12px;
+  right: 12px;
+  bottom: 24px;
   z-index: 62;
   display: flex;
   flex-direction: column;
-  height: 80vh;
-  /* 与工作区卡片同一套玻璃材质（白色渐变 + 发丝亮边 + 顶部内发光），模糊比卡片重一档 */
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
-  border: 1rpx solid rgba(255, 255, 255, 0.38);
-  backdrop-filter: blur(14rpx) saturate(1.1);
-  -webkit-backdrop-filter: blur(14rpx) saturate(1.1);
-  border-radius: 40rpx;
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 16rpx 48rpx rgba(3, 14, 30, 0.26);
+  /* 底部让出 24px：高度同步扣除，顶边不抬高 */
+  height: calc(80vh - 24px);
+  max-height: calc(80vh - 24px);
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
   padding-bottom: calc(4rpx + env(safe-area-inset-bottom));
+}
+
+/* ---------- 新建文件夹：居中透明玻璃弹窗 ---------- */
+.dir-prompt-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.dir-prompt-sheet {
+  width: 620rpx;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 40rpx 36rpx 28rpx;
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
+  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+}
+
+.dir-prompt-title {
+  color: #FFFFFF;
+  font-size: 32rpx;
+  font-weight: 700;
+}
+
+.dir-prompt-hint {
+  margin-top: 10rpx;
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 24rpx;
+  line-height: 1.5;
+}
+
+.dir-prompt-input {
+  margin-top: 26rpx;
+  height: 84rpx;
+  padding: 0 24rpx;
+  box-sizing: border-box;
+  border-radius: 18rpx;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1rpx solid rgba(255, 255, 255, 0.18);
+  color: #FFFFFF;
+  font-size: 28rpx;
+}
+
+.dir-prompt-ph {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.dir-prompt-actions {
+  display: flex;
+  gap: 20rpx;
+  margin-top: 28rpx;
+}
+
+.dir-prompt-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 84rpx;
+  border-radius: 18rpx;
+  font-size: 28rpx;
+}
+
+.dir-prompt-cancel {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1rpx solid rgba(255, 255, 255, 0.16);
+  color: #FFFFFF;
+}
+
+.dir-prompt-confirm {
+  /* 透明底：直接透出玻璃面板，仅用发丝边 + 白字区分主次 */
+  background: transparent;
+  border: 1rpx solid rgba(255, 255, 255, 0.38);
+  color: #FFFFFF;
+  font-weight: 600;
+}
+
+.dir-prompt-confirm.is-busy {
+  opacity: 0.7;
 }
 
 .dir-sheet-handle {
@@ -1469,27 +1560,28 @@ page {
 .dir-head-folder {
   width: 38rpx;
   height: 38rpx;
+  /* 圆形按钮内视觉居中偏左下：小图标组的视觉重心偏右上 */
+  transform: translate(-4rpx, 4rpx);
 }
 
 .dir-head-badge {
   position: absolute;
-  right: 12rpx;
-  top: 14rpx;
-  width: 22rpx;
-  height: 22rpx;
-  border-radius: 50%;
-  background: #171A20;
+  right: 8rpx;
+  top: 10rpx;
+  transform: translate(-4rpx, 4rpx);
+  width: 26rpx;
+  height: 26rpx;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.dir-head-badge text {
-  font-size: 22rpx;
-  line-height: 22rpx;
-  font-weight: 700;
-  color: #F1F4FA;
-  margin-top: -4rpx;
+/* 只要加号本身：白色、无底色；轻微阴影保证在白色文件夹上也看得清 */
+.dir-head-add {
+  width: 20rpx;
+  height: 20rpx;
+  display: block;
+  filter: drop-shadow(0 1rpx 1rpx rgba(0, 0, 0, 0.55));
 }
 
 .dir-head-cancel {
@@ -1568,7 +1660,8 @@ page {
 
 
 .dir-row.disabled {
-  opacity: 0.3;
+  /* 到根目录时上一级不可点：不再整体变灰，保持白色（只保留不可点语义） */
+  opacity: 1;
 }
 
 .dir-row.highlight {
@@ -1607,7 +1700,7 @@ page {
 .dir-row-name {
   display: block;
   font-size: 32rpx;
-  color: #F1F4FA;
+  color: #FFFFFF;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1616,14 +1709,17 @@ page {
 .dir-row-sub {
   display: block;
   font-size: 24rpx;
-  color: rgba(241, 244, 250, 0.46);
+  color: rgba(255, 255, 255, 0.82);
   margin-top: 2rpx;
 }
 
 .dir-row-chev {
-  width: 36rpx;
-  height: 36rpx;
+  width: 32rpx;
+  height: 32rpx;
   flex-shrink: 0;
+  /* 纯白箭头：chev-down-white 旋转 90° 指向右侧，在玻璃上足够亮 */
+  transform: rotate(-90deg);
+  opacity: 0.92;
 }
 
 .dir-divider {
@@ -1657,9 +1753,10 @@ page {
   width: calc(100% - 48rpx);
   height: 84rpx;
   border-radius: 28rpx;
-  background: #000000;
-  border: none;
-  box-shadow: none;
+  /* 透明玻璃：透出弹窗玻璃底，仅用发丝白边 + 白字 */
+  background: transparent;
+  border: 1rpx solid rgba(255, 255, 255, 0.38);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.14);
   font-size: 30rpx;
   font-weight: 600;
   color: #FFFFFF;
@@ -1976,7 +2073,7 @@ page {
 /* 工作区选择弹窗：透明玻璃底 + 白色图标 / 文字（保留这次的工作区样式） */
 .ws-pop.workspace-menu {
   /* 卡片同款玻璃材质（白色渐变 + 发丝亮边 + 顶部内发光），比卡片略厚一档 */
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
   border: 1rpx solid rgba(255, 255, 255, 0.38);
   box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 24rpx 72rpx rgba(3, 14, 30, 0.26);
   backdrop-filter: blur(8rpx);
@@ -2041,7 +2138,7 @@ page {
 /* 会话长按菜单：主题深色玻璃底 + 浅色文字，字号比工作区菜单小一档 */
 .ws-pop.session-menu {
   /* 与工作区卡片同一套玻璃材质（白色渐变 + 发丝亮边 + 顶部内发光） */
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
   border: 1rpx solid rgba(255, 255, 255, 0.38);
   box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 24rpx 72rpx rgba(3, 14, 30, 0.26);
   backdrop-filter: blur(8rpx);

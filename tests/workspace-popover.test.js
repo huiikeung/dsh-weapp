@@ -56,6 +56,9 @@ function setup() {
     Page: value => { definition = value; }, wx,
     require: name => name.endsWith('ui-preferences') ? require('../miniprogram/utils/ui-preferences') : name.endsWith('home-animation-pref') ? { enabled: () => true }
       : name.endsWith('workspace-popover') ? { workspacePopoverLayout: layout }
+      : name.endsWith('settings-glass-style-pref') ? { KEY: 'settingsGlassAlpha', DEFAULT: 10, MIN: 4, MAX: 40, read: () => 10, set: value => value, view: () => ({ glassAlpha: 10, glassAlphaTop: '0.040', glassAlphaBottom: '0.016' }) }
+      : name.endsWith('settings-glass-pref') ? { KEY: 'settingsGlassStyleEnabled', DEFAULT: true, read: () => true, set: value => value === true }
+      : name.endsWith('quota-sidebar-glass-pref') ? { KEY: 'quotaSidebarGlass', DEFAULT: false, read: () => false, set: value => value === true }
       : name.endsWith('/store') ? { state, stopHostProbes() {}, setCurrentWorkspace: id => selections.push(id) } : {}
   });
   const page = { ...definition, data: { ...definition.data, currentWorkspace: { workspaceId: 'ws-a' } },

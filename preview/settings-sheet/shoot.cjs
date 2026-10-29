@@ -11,10 +11,10 @@ const { execFileSync } = require('node:child_process');
 const dir = __dirname;
 const root = path.resolve(dir, '..', '..');
 const wxss = fs.readFileSync(path.join(root, 'miniprogram/pages/settings/settings.wxss'), 'utf8');
-const marker = '/* ---------- 公网访问弹窗：背景沿用首页工作区选择弹窗的玻璃材质（仍是底部弹窗） ---------- */';
-const start = wxss.indexOf(marker);
-if (start < 0) throw new Error('public access sheet glass styles not found in settings.wxss');
-const sheetCss = wxss.slice(start).replace(/(\d+(?:\.\d+)?)rpx/g, (_, value) => {
+// 玻璃卡片 / 弹窗材质在共用的 styles/glass-ui.wxss；选择菜单在 settings.wxss。
+const glassCss = fs.readFileSync(path.join(root, 'miniprogram/styles/glass-ui.wxss'), 'utf8');
+const choiceCss = ''; // 选择弹窗样式已并入 styles/glass-ui.wxss
+const sheetCss = (choiceCss + '\n' + glassCss).replace(/(\d+(?:\.\d+)?)rpx/g, (_, value) => {
   const px = Number(value) / 2;
   return (Number.isInteger(px) ? px : px.toFixed(2).replace(/\.?0+$/, '')) + 'px';
 });
@@ -27,12 +27,21 @@ function stage(theme) {
     <div class="page">
       <div class="nav">设置</div>
       <div class="group-title">连接</div>
-      <div class="card">
+      <div class="card settings-glass-card">
         <div class="card-row"><span>公网访问</span><span class="row-value">2026-11-05 ›</span></div>
         <div class="card-row"><span>节点管理</span><span class="row-value">2 个 ›</span></div>
       </div>
+      <div class="settings-choice" style="left: 24px; top: 720px; width: 243px; height: 188px; z-index: 300;">
+        <div class="settings-choice-content">
+          <div class="settings-choice-row"><img class="settings-choice-ic" src="../../miniprogram/assets/icons/circle-white.png"><span class="settings-choice-label">标准</span></div>
+          <div class="settings-choice-row"><img class="settings-choice-ic" src="../../miniprogram/assets/icons/check-fill-white.png"><span class="settings-choice-label">简洁</span></div>
+          <div class="settings-choice-row"><img class="settings-choice-ic" src="../../miniprogram/assets/icons/circle-white.png"><span class="settings-choice-label">详细</span></div>
+          <div class="settings-choice-row"><img class="settings-choice-ic" src="../../miniprogram/assets/icons/circle-white.png"><span class="settings-choice-label">完全展开</span></div>
+        </div>
+      </div>
+      <div class="group-title">外观</div><div class="card settings-glass-card"><div class="card-row"><span>玻璃UI样式</span><span class="row-value">已开启</span></div><div class="card-row"><span>底部弹窗</span><span class="row-value">已开启</span></div><div class="card-row glass-alpha-row"><span>玻璃透明度</span><div class="glass-alpha-control"><span class="glass-alpha-fake-track"><span class="glass-alpha-fake-fill" style="width: 17%"></span><span class="glass-alpha-fake-knob" style="left: 17%"></span></span><span class="glass-alpha-value">10%</span></div></div><div class="card-row glass-alpha-row"><span>玻璃模糊</span><div class="glass-alpha-control"><span class="glass-alpha-fake-track"><span class="glass-alpha-fake-fill" style="width: 33%"></span><span class="glass-alpha-fake-knob" style="left: 33%"></span></span><span class="glass-alpha-value">8rpx</span></div></div><div class="card-row glass-alpha-row"><span>玻璃亮边</span><div class="glass-alpha-control"><span class="glass-alpha-fake-track"><span class="glass-alpha-fake-fill" style="width: 47%"></span><span class="glass-alpha-fake-knob" style="left: 47%"></span></span><span class="glass-alpha-value">38%</span></div></div><div class="card-row glass-alpha-row"><span>玻璃圆角</span><div class="glass-alpha-control"><span class="glass-alpha-fake-track"><span class="glass-alpha-fake-fill" style="width: 60%"></span><span class="glass-alpha-fake-knob" style="left: 60%"></span></span><span class="glass-alpha-value">32rpx</span></div></div></div>
       <div class="group-title">对话</div>
-      <div class="card">
+      <div class="card settings-glass-card">
         <div class="card-row"><span>语音输入</span><span class="row-value">已开启</span></div>
         <div class="card-row"><span>工作步骤展示</span><span class="row-value">标准 ›</span></div>
       </div>
@@ -69,7 +78,8 @@ function stage(theme) {
   </section>`;
 }
 
-const shell = fs.readFileSync(path.join(dir, 'index.html'), 'utf8').replace('/*__SHEET_CSS__*/', sheetCss);
+const sliderCss = ".glass-alpha-row { align-items: center; } .glass-alpha-control { display: flex; align-items: center; gap: 8px; flex: 1; max-width: 58%; } .glass-alpha-fake-track { position: relative; flex: 1; height: 4px; border-radius: 2px; background: rgba(150,150,155,.35); } .glass-alpha-fake-fill { position: absolute; inset: 0 auto 0 0; border-radius: 2px; background: currentColor; } .glass-alpha-fake-knob { position: absolute; top: 50%; width: 11px; height: 11px; border-radius: 50%; background: currentColor; transform: translate(-50%, -50%); } .glass-alpha-value { min-width: 44px; text-align: right; font-size: 12px; opacity: .72; font-variant-numeric: tabular-nums; }";
+const shell = fs.readFileSync(path.join(dir, 'index.html'), 'utf8').replace('/*__SHEET_CSS__*/', sheetCss + '\n' + sliderCss);
 
 const candidates = [
   'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',

@@ -232,7 +232,7 @@ transform-origin: 100% 0;
 animation: pair-menu-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
 will-change: transform, opacity;
 padding: 12rpx 0;
-background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
 border: 1rpx solid rgba(255, 255, 255, 0.38);
 backdrop-filter: blur(8rpx);
 -webkit-backdrop-filter: blur(8rpx);
@@ -437,7 +437,7 @@ border: 1rpx solid rgba(255, 255, 255, 0.38);
 border-radius: 32rpx;
 padding: 18rpx 0;
 margin-bottom: 36rpx;
-background: linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
+background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
 backdrop-filter: blur(3rpx);
 -webkit-backdrop-filter: blur(3rpx);
 box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 8rpx 32rpx rgba(3, 14, 30, 0.18);
@@ -451,7 +451,7 @@ opacity: 0.85;
 width: 48rpx;
 height: 48rpx;
 border-radius: 50%;
-background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
 border: 1rpx solid rgba(255, 255, 255, 0.20);
 box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.12);
 color: #FFFFFF;
@@ -756,26 +756,26 @@ z-index: 60;
 }
 .host-sheet {
 position: fixed;
-left: 16rpx;
-right: 16rpx;
-bottom: 16rpx;
+left: 12px;
+right: 12px;
+bottom: 24px;
 z-index: 61;
 display: flex;
 flex-direction: column;
 height: auto;
 min-height: 46vh;
 max-height: 86vh;
-background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
-border: 1rpx solid rgba(255, 255, 255, 0.38);
-backdrop-filter: blur(14rpx) saturate(1.15);
--webkit-backdrop-filter: blur(14rpx) saturate(1.15);
-border-radius: 40rpx;
+background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+border-radius: var(--glass-radius-sheet, 32rpx);
 padding: 0 28rpx calc(28rpx + env(safe-area-inset-bottom));
-box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 16rpx 48rpx rgba(3, 14, 30, 0.26);
+box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
+backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
 transition: height 0.5s cubic-bezier(0.32, 0.72, 0, 1);
 }
 .host-sheet.expanded {
-height: calc(100vh - 200rpx);
+height: calc(100vh - 200rpx - 24px);
 }
 .host-sheet.host-sheet-editing {
 padding-top: 8rpx;
@@ -1159,20 +1159,96 @@ margin-top: 50rpx;
 }
 .dir-sheet {
 position: fixed;
-left: 16rpx;
-right: 16rpx;
-bottom: 16rpx;
+left: 12px;
+right: 12px;
+bottom: 24px;
 z-index: 62;
 display: flex;
 flex-direction: column;
-height: 80vh;
-background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
-border: 1rpx solid rgba(255, 255, 255, 0.38);
-backdrop-filter: blur(14rpx) saturate(1.1);
--webkit-backdrop-filter: blur(14rpx) saturate(1.1);
-border-radius: 40rpx;
-box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 16rpx 48rpx rgba(3, 14, 30, 0.26);
+height: calc(80vh - 24px);
+max-height: calc(80vh - 24px);
+background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+border-radius: var(--glass-radius-sheet, 32rpx);
+backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
 padding-bottom: calc(4rpx + env(safe-area-inset-bottom));
+}
+.dir-prompt-mask {
+position: fixed;
+inset: 0;
+z-index: 70;
+display: flex;
+align-items: center;
+justify-content: center;
+background: rgba(0, 0, 0, 0.45);
+}
+.dir-prompt-sheet {
+width: 620rpx;
+box-sizing: border-box;
+display: flex;
+flex-direction: column;
+padding: 40rpx 36rpx 28rpx;
+border-radius: var(--glass-radius-sheet, 32rpx);
+background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
+backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+}
+.dir-prompt-title {
+color: #FFFFFF;
+font-size: 32rpx;
+font-weight: 700;
+}
+.dir-prompt-hint {
+margin-top: 10rpx;
+color: rgba(255, 255, 255, 0.62);
+font-size: 24rpx;
+line-height: 1.5;
+}
+.dir-prompt-input {
+margin-top: 26rpx;
+height: 84rpx;
+padding: 0 24rpx;
+box-sizing: border-box;
+border-radius: 18rpx;
+background: rgba(255, 255, 255, 0.10);
+border: 1rpx solid rgba(255, 255, 255, 0.18);
+color: #FFFFFF;
+font-size: 28rpx;
+}
+.dir-prompt-ph {
+color: rgba(255, 255, 255, 0.42);
+}
+.dir-prompt-actions {
+display: flex;
+gap: 20rpx;
+margin-top: 28rpx;
+}
+.dir-prompt-btn {
+flex: 1;
+display: flex;
+align-items: center;
+justify-content: center;
+height: 84rpx;
+border-radius: 18rpx;
+font-size: 28rpx;
+}
+.dir-prompt-cancel {
+background: rgba(255, 255, 255, 0.08);
+border: 1rpx solid rgba(255, 255, 255, 0.16);
+color: #FFFFFF;
+}
+.dir-prompt-confirm {
+background: transparent;
+border: 1rpx solid rgba(255, 255, 255, 0.38);
+color: #FFFFFF;
+font-weight: 600;
+}
+.dir-prompt-confirm.is-busy {
+opacity: 0.7;
 }
 .dir-sheet-handle {
 width: 76rpx;
@@ -1215,25 +1291,24 @@ opacity: 0.4;
 .dir-head-folder {
 width: 38rpx;
 height: 38rpx;
+transform: translate(-4rpx, 4rpx);
 }
 .dir-head-badge {
 position: absolute;
-right: 12rpx;
-top: 14rpx;
-width: 22rpx;
-height: 22rpx;
-border-radius: 50%;
-background: #171A20;
+right: 8rpx;
+top: 10rpx;
+transform: translate(-4rpx, 4rpx);
+width: 26rpx;
+height: 26rpx;
 display: flex;
 align-items: center;
 justify-content: center;
 }
-.dir-head-badge text {
-font-size: 22rpx;
-line-height: 22rpx;
-font-weight: 700;
-color: #F1F4FA;
-margin-top: -4rpx;
+.dir-head-add {
+width: 20rpx;
+height: 20rpx;
+display: block;
+filter: drop-shadow(0 1rpx 1rpx rgba(0, 0, 0, 0.55));
 }
 .dir-head-cancel {
 position: absolute;
@@ -1301,7 +1376,7 @@ border-radius: 20rpx;
 padding: 22rpx 16rpx;
 }
 .dir-row.disabled {
-opacity: 0.3;
+opacity: 1;
 }
 .dir-row.highlight {
 background: rgba(46, 107, 230, 0.20);
@@ -1333,7 +1408,7 @@ margin-left: 12rpx;
 .dir-row-name {
 display: block;
 font-size: 32rpx;
-color: #F1F4FA;
+color: #FFFFFF;
 overflow: hidden;
 text-overflow: ellipsis;
 white-space: nowrap;
@@ -1341,13 +1416,15 @@ white-space: nowrap;
 .dir-row-sub {
 display: block;
 font-size: 24rpx;
-color: rgba(241, 244, 250, 0.46);
+color: rgba(255, 255, 255, 0.82);
 margin-top: 2rpx;
 }
 .dir-row-chev {
-width: 36rpx;
-height: 36rpx;
+width: 32rpx;
+height: 32rpx;
 flex-shrink: 0;
+transform: rotate(-90deg);
+opacity: 0.92;
 }
 .dir-divider {
 height: 1rpx;
@@ -1377,9 +1454,9 @@ justify-content: center;
 width: calc(100% - 48rpx);
 height: 84rpx;
 border-radius: 28rpx;
-background: #000000;
-border: none;
-box-shadow: none;
+background: transparent;
+border: 1rpx solid rgba(255, 255, 255, 0.38);
+box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.14);
 font-size: 30rpx;
 font-weight: 600;
 color: #FFFFFF;
@@ -1643,7 +1720,7 @@ overflow: hidden;
 animation: ws-pop-appear 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 .ws-pop.workspace-menu {
-background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
 border: 1rpx solid rgba(255, 255, 255, 0.38);
 box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 24rpx 72rpx rgba(3, 14, 30, 0.26);
 backdrop-filter: blur(8rpx);
@@ -1695,7 +1772,7 @@ white-space: nowrap;
 text-overflow: ellipsis;
 }
 .ws-pop.session-menu {
-background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
 border: 1rpx solid rgba(255, 255, 255, 0.38);
 box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 24rpx 72rpx rgba(3, 14, 30, 0.26);
 backdrop-filter: blur(8rpx);

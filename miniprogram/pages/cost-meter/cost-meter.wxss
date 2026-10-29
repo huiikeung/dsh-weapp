@@ -1,4 +1,5 @@
 @import "../../styles/quota-sidebar.wxss";
+@import "../../styles/glass-ui.wxss";
 .cost-page { min-height: 100vh; box-sizing: border-box; padding: 0 48rpx calc(72rpx + env(safe-area-inset-bottom)); color: var(--text); background: var(--bg); }
 .cost-nav { position: fixed; z-index: 10; top: 0; left: 0; right: 0; display: flex; align-items: center; padding: 0 40rpx; box-sizing: content-box; background: var(--bg); }
 .cost-nav-back { display: flex; align-items: center; justify-content: center; width: 64rpx; height: 64rpx; flex: none; border-radius: 50%; background: var(--fill); }
@@ -182,6 +183,8 @@
 /* ---------- 弹窗（供应商配置 / 显示设置） ---------- */
 .cost-sheet-mask { position: fixed; inset: 0; z-index: 200; display: flex; align-items: flex-end; justify-content: center; background: rgba(0, 0, 0, .45); }
 .cost-sheet { display: flex; flex-direction: column; width: 100%; height: 90vh; max-height: 90vh; border-radius: 28rpx 28rpx 0 0; background: var(--bg); animation: cost-sheet-in .22s ease-out; transition: transform .2s ease; }
+/* 玻璃形态：底部让出 24px，固定 90vh 高度同步扣除，弹窗顶边保持原位。 */
+.cost-sheet.settings-glass-sheet { height: calc(90vh - var(--glass-sheet-drop, 0px)); max-height: calc(90vh - var(--glass-sheet-drop, 0px)); }
 .cost-sheet.dragging { transition: none; }
 .cost-sheet-grabber { display: flex; flex: none; align-items: center; justify-content: center; padding: 16rpx 0 8rpx; }
 .cost-sheet-grabbar { width: 84rpx; height: 8rpx; border-radius: 8rpx; background: var(--text-3); opacity: .45; }
@@ -210,3 +213,19 @@
 .cost-card.is-off { background: var(--fill); }
 .cost-card.is-off .cost-row-label { color: var(--text-2); }
 .cost-save-button.ghost { background: transparent; border: 1rpx solid var(--border); color: var(--text-2); }
+
+/* ---------- 额度卡片页玻璃：统计小块、提示条与弹窗分隔线跟着卡片一起透 ---------- */
+.cost-glass .cost-stat { background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.14); }
+.cost-glass .cost-stat-primary { background: #0E776A; border-color: transparent; }
+.cost-glass .cost-sheet-head,
+.cost-glass .cost-sheet-foot { border-color: rgba(255, 255, 255, 0.12); }
+.cost-glass .cost-sheet-close,
+.cost-glass .cost-sheet-icon-btn,
+.cost-glass .cost-nav-back { background: rgba(255, 255, 255, 0.09); }
+.theme-light .cost-glass .cost-stat { background: rgba(255, 255, 255, 0.72); border-color: rgba(16, 19, 24, 0.08); }
+.theme-light .cost-glass .cost-stat-primary { background: #0E776A; border-color: transparent; }
+.theme-light .cost-glass .cost-sheet-head,
+.theme-light .cost-glass .cost-sheet-foot { border-color: rgba(16, 19, 24, 0.08); }
+.theme-light .cost-glass .cost-sheet-close,
+.theme-light .cost-glass .cost-sheet-icon-btn,
+.theme-light .cost-glass .cost-nav-back { background: rgba(16, 19, 24, 0.05); }

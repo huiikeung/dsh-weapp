@@ -2,6 +2,11 @@ const { t: uiText } = require('../../utils/ui-preferences');
 const store = require('../../utils/store');
 const theme = require('../../utils/theme');
 const costView = require('../../utils/cost-view');
+const settingsGlassPreference = require('../../utils/settings-glass-pref');
+const settingsGlassSheetPreference = require('../../utils/settings-glass-sheet-pref');
+const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
+const quotaSidebarGlassPreference = require('../../utils/quota-sidebar-glass-pref');
+const { choiceMenuLayout } = require('../../utils/choice-menu');
 
 const PLAN_FIELD_LABELS = {
   workspaceId: 'Workspace ID',
@@ -105,6 +110,21 @@ function defaultGatewaySource() {
 
 Page({
   data: {
+    settingsGlassEnabled: settingsGlassPreference.read(),
+    quotaSidebarGlass: quotaSidebarGlassPreference.read(),
+    ...settingsGlassStylePreference.view(),
+    // 「底部弹窗」开关：开=底部弹窗，关=贴行的锚点菜单；两种都有玻璃/原生皮肤。
+    choiceSheet: settingsGlassSheetPreference.read(),
+    // 货币单位等选择：玻璃 UI 下用工作区同款锚点玻璃弹窗，关闭玻璃 UI 时用原生底部弹窗。
+    choiceMenu: '',
+    choiceTitle: '',
+    choiceOptions: [],
+    choiceCurrent: '',
+    choiceLeft: 16,
+    choiceTop: 160,
+    choiceWidth: 224,
+    choiceHeight: 200,
+    choiceOriginY: 100,
     navPadTop: 50,
     navHeight: 32,
     themeClass: '',
@@ -168,6 +188,7 @@ Page({
   },
 
   onShow() {
+    this.setData(Object.assign({ settingsGlassEnabled: settingsGlassPreference.read(), choiceSheet: settingsGlassSheetPreference.read(), quotaSidebarGlass: quotaSidebarGlassPreference.read() }, settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 })));
     this.syncFromStore({ app: store.state });
     if (store.state.connection === 'connected') this.loadAll(false);
     else this.setData({ loading: false, error: uiText('请先连接电脑端网关') });
@@ -206,6 +227,8 @@ Page({
   noop() {},
 
   closeSheet() {
+    this._choicePick = null;
+    if (this.data.choiceMenu) this.setData({ choiceMenu: '' });
     this._sheetGrabY = 0;
     this._sheetDragY = 0;
     this.setData({ sheet: '', sheetDragY: 0, sheetDragging: false, componentPickerOpen: false });
@@ -785,6 +808,19 @@ Page({
     return node && node.enabled === true;
   },
 
+  /** 组件检查器：点「组件」行打开锚点弹窗选择要调整的组件（wxml 之前绑了不存在的 handler）。 */
+  pickPreviewComponent(e) {
+    const options = this.previewComponents() || [];
+    if (!options.length) { wx.showToast({ title: uiText('暂无可调整组件'), icon: 'none' }); return; }
+    this.pickChoice(e, 'preview-component', uiText('组件'),
+      options.map(item => ({ id: item.id, label: item.label })),
+      this.data.previewComponent || options[0].id,
+      id => {
+        this.setData({ previewComponent: id, componentPickerOpen: false });
+        this.refreshPreviewInspector();
+      });
+  },
+
   toggleComponentPicker() {
     const options = this.previewComponents();
     if (!options.length) { wx.showToast({ title: uiText('暂无可调整组件'), icon: 'none' }); return; }
@@ -798,75 +834,6 @@ Page({
     this.refreshPreviewInspector();
   },
 
-  /** 通用小列表选择（弹窗内的单选项，最多 3 项）。 */
-  pickPanelOption(items, onPick) {
-    wx.showActionSheet({
-      itemList: items.map(item => item.label),
-      success: res => { const item = items[res.tapIndex]; if (item) onPick(item); },
-    });
-  },
-
-  pickTodayMetric() {
-    this.pickPanelOption([
-      { id: 'both', label: uiText('金额 + Token') },
-      { id: 'amount', label: uiText('仅金额') },
-      { id: 'tokens', label: uiText('仅 Token') },
-    ], item => {
-      this.setData({ 'displayForm.sidebarTodayMetric': item.id });
-      this.commitPatch({ display: { sidebarTodayMetric: item.id } });
-      this.refreshPreviewInspector();
-    });
-  },
-
-  pickPeakStyle() {
-    this.pickPanelOption([{ id: 'progress', label: uiText('进度条') }, { id: 'classic', label: uiText('经典') }], item => {
-      this.setData({ 'peakForm.style': item.id });
-      this.commitPatch({ display: { peakStyle: item.id } });
-    });
-  },
-
-  pickPeakTimeDisplay() {
-    this.pickPanelOption([
-      { id: 'both', label: uiText('倒计时 + 切换时间') },
-      { id: 'countdown', label: uiText('只看倒计时') },
-      { id: 'switch', label: uiText('只看切换时间') },
-    ], item => {
-      this.setData({ 'displayForm.peakTimeDisplay': item.id, 'peakForm.peakTimeDisplay': item.id });
-      this.commitPatch({ display: { peakTimeDisplay: item.id } });
-    });
-  },
-
-  pickBalanceBarDirection() {
-    this.pickPanelOption([{ id: 'remaining', label: uiText('剩余') }, { id: 'used', label: uiText('已用') }], item => {
-      this.setData({ 'balanceForm.barDirection': item.id });
-      this.commitPatch({ balance: { barDirection: item.id } });
-    });
-  },
-
-  pickBudgetBarDirection() {
-    this.pickPanelOption([{ id: 'used', label: uiText('已用') }, { id: 'remaining', label: uiText('剩余') }], item => {
-      this.setData({ 'budgetForm.barDirection': item.id });
-      this.commitPatch({ budget: { barDirection: item.id } });
-    });
-  },
-
-  pickGoBarDirection() {
-    this.pickPanelOption([{ id: 'used', label: uiText('已用') }, { id: 'remaining', label: uiText('剩余') }], item => {
-      this.setData({ 'goForm.barDirection': item.id });
-      this.commitPatch({ goQuota: { barDirection: item.id } });
-    });
-  },
-
-  pickGoMain() {
-    this.pickPanelOption([
-      { id: 'rolling', label: uiText('滚动 5 小时') },
-      { id: 'weekly', label: uiText('本周') },
-      { id: 'monthly', label: uiText('本月') },
-    ], item => {
-      this.setData({ 'goForm.main': item.id });
-      this.commitPatch({ goQuota: { main: item.id } });
-    });
-  },
 
   /** 点击预览里的任意分区，检查器跟随选中该组件（与参考插件一致）。 */
   onSidebarPartTap(e) {
@@ -889,10 +856,10 @@ Page({
     });
   },
 
-  pickPreviewDisplay() {
+  pickPreviewDisplay(e) {
     const meta = this.previewComponentMeta();
     if (!meta) return;
-    this.pickDisplay(value => {
+    this.pickDisplay(e, 'preview-display', uiText('显示位置'), this.previewComponentDisplay(), value => {
       this.commitComponentDisplay(meta, value);
     });
   },
@@ -1183,19 +1150,68 @@ Page({
 
   // ---------- display / format ----------
 
-  pickCurrency() {
-    wx.showActionSheet({ itemList: ['人民币 CNY', '美元 USD', '欧元 EUR'], success: res => {
-      const currency = res.tapIndex === 0 ? 'CNY' : res.tapIndex === 1 ? 'USD' : 'EUR';
-      const previous = this.data.displayForm || {};
-      // 符号仅在仍是「旧币种默认值」时跟随切换；用户自定义过符号就保留，
-      // 这样货币与符号可以分别编辑，不会互相覆盖。
-      const previousDefault = previous.currency === 'USD' ? '$' : previous.currency === 'EUR' ? '€' : '¥';
-      const customized = !!previous.symbol && previous.symbol !== previousDefault;
-      const fallback = currency === 'CNY' ? '¥' : currency === 'USD' ? '$' : '€';
-      const symbol = customized ? previous.symbol : fallback;
-      this.setData({ displayForm: Object.assign({}, previous, { currency, symbol }) });
-      this.commitPatch(customized ? { currency } : { currency, symbol });
-    } });
+  /**
+   * 货币单位：玻璃 UI 下用「工作区选择」同款的锚点玻璃弹窗（与设置页工作步骤/语言一致）；
+   * 关闭玻璃 UI 时退回本页原生底部弹窗（实色面板 + 选项行），不再用系统 ActionSheet。
+   */
+  pickCurrency(e) {
+    const options = [
+      { id: 'CNY', label: uiText('人民币 CNY') },
+      { id: 'USD', label: uiText('美元 USD') },
+      { id: 'EUR', label: uiText('欧元 EUR') }
+    ];
+    const current = (this.data.displayForm || {}).currency || 'CNY';
+    // 两种模式都是这个锚点菜单：玻璃 UI 用玻璃材质，关闭后换成原生实色皮肤。
+    this.pickChoice(e, 'currency', uiText('货币单位'), options, current, id => this.applyCurrency(id));
+  },
+  openChoiceMenu(kind, selector, title, options, current) {
+    let windowInfo = {};
+    try { windowInfo = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync(); } catch (_) { /* 手机端默认值兜底 */ }
+    const navigationBottom = (this.data.navPadTop || 0) + (this.data.navHeight || 0);
+    const list = options || [];
+    const open = (rect) => {
+      const anchor = rect && [rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) ? rect : null;
+      this.setData(Object.assign({
+        choiceMenu: kind,
+        choiceTitle: title || '',
+        choiceOptions: list,
+        choiceCurrent: current || ''
+      }, choiceMenuLayout(anchor, windowInfo, list.length, navigationBottom)));
+    };
+    if (typeof wx.createSelectorQuery !== 'function') { open(null); return; }
+    try {
+      wx.createSelectorQuery().in(this).select(selector).boundingClientRect(rect => open(rect || null)).exec();
+    } catch (_) { open(null); }
+  },
+  closeChoiceMenu() {
+    this._choicePick = null;
+    if (this.data.choiceMenu) this.setData({ choiceMenu: '' });
+  },
+  /** 通用选择入口：锚定被点的行，打开工作区同款的锚点弹窗（玻璃 / 原生皮肤由开关决定）。 */
+  pickChoice(e, kind, title, options, current, onPick) {
+    const domId = e && e.currentTarget && e.currentTarget.id;
+    this._choicePick = typeof onPick === 'function' ? onPick : null;
+    this.openChoiceMenu(kind, domId ? '#' + domId : '', title, options, current);
+  },
+  chooseChoice(e) {
+    const id = e.currentTarget.dataset.id;
+    const pick = this._choicePick;
+    this._choicePick = null;
+    this.setData({ choiceMenu: '' });
+    if (pick) { pick(id); return; }
+    if (e.currentTarget.dataset.kind === 'currency') this.applyCurrency(id);
+  },
+  applyCurrency(currency) {
+    if (['CNY', 'USD', 'EUR'].indexOf(currency) < 0) return;
+    const previous = this.data.displayForm || {};
+    // 符号仅在仍是「旧币种默认值」时跟随切换；用户自定义过符号就保留，
+    // 这样货币与符号可以分别编辑，不会互相覆盖。
+    const previousDefault = previous.currency === 'USD' ? '$' : previous.currency === 'EUR' ? '€' : '¥';
+    const customized = !!previous.symbol && previous.symbol !== previousDefault;
+    const fallback = currency === 'CNY' ? '¥' : currency === 'USD' ? '$' : '€';
+    const symbol = customized ? previous.symbol : fallback;
+    this.setData({ displayForm: Object.assign({}, previous, { currency, symbol }) });
+    this.commitPatch(customized ? { currency } : { currency, symbol });
   },
 
   onSymbolInput(e) {
@@ -1220,22 +1236,29 @@ Page({
     this.commitPatch(patch);
   },
   pickSidebarStyle(e) {
+    // 侧栏样式在弹窗里是一组 chip，点 chip 直接生效；这里保留兜底（无 dataset 时打开菜单）。
     const picked = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.id;
     if (picked) {
       this.setData({ 'displayForm.sidebarStyle': picked });
       this.commitPatch({ display: { sidebarStyle: picked } });
       return;
     }
-    wx.showActionSheet({
-      itemList: costView.SIDEBAR_STYLES.map(item => item.label),
-      success: res => {
-        const style = costView.SIDEBAR_STYLES[res.tapIndex];
-        if (!style) return;
-        this.setData({ 'displayForm.sidebarStyle': style.id });
-        this.commitPatch({ display: { sidebarStyle: style.id } });
-      },
-    });
+    const styles = costView.SIDEBAR_STYLES;
+    this.pickChoice(e, 'sidebar-style', uiText('侧栏样式'),
+      styles.map(item => ({ id: item.id, label: item.label })),
+      this.data.displayForm.sidebarStyle || 'standard',
+      id => { this.setData({ 'displayForm.sidebarStyle': id }); this.commitPatch({ display: { sidebarStyle: id } }); });
   },
+  /** 左侧栏额度卡片：独立开关，原生 / 玻璃两套皮肤。 */
+  toggleSidebarGlass(e) {
+    const enabled = !!(e && e.detail && e.detail.value);
+    try { this.setData({ quotaSidebarGlass: quotaSidebarGlassPreference.set(enabled) }); }
+    catch (_) {
+      this.setData({ quotaSidebarGlass: quotaSidebarGlassPreference.read() });
+      wx.showToast({ title: uiText('保存失败'), icon: 'none' });
+    }
+  },
+
   toggleSidebarVisible(e) {
     const visible = !!(e && e.detail && e.detail.value);
     this.setData({ 'displayForm.sidebarVisible': visible });
@@ -1246,40 +1269,54 @@ Page({
     this.setData({ 'displayForm.sidebarTodayBalanceInline': inline });
     this.commitPatch({ display: { sidebarTodayBalanceInline: inline } });
   },
-  pickTodayMetric() {
-    wx.showActionSheet({ itemList: ['仅金额', '仅 Token', '金额 + Token'], success: res => {
-      const metric = res.tapIndex === 0 ? 'amount' : res.tapIndex === 1 ? 'tokens' : 'both';
-      this.setData({ 'displayForm.sidebarTodayMetric': metric });
-      this.commitPatch({ display: { sidebarTodayMetric: metric } });
-    } });
+  pickTodayMetric(e) {
+    this.pickChoice(e, 'today-metric', uiText('今日显示项'), [
+      { id: 'both', label: uiText('金额 + Token') },
+      { id: 'amount', label: uiText('仅金额') },
+      { id: 'tokens', label: uiText('仅 Token') },
+    ], this.data.displayForm.sidebarTodayMetric || 'both', id => {
+      this.setData({ 'displayForm.sidebarTodayMetric': id });
+      this.commitPatch({ display: { sidebarTodayMetric: id } });
+      this.refreshPreviewInspector();
+    });
   },
-  pickPeakTimeDisplay() {
-    wx.showActionSheet({ itemList: ['倒计时 + 切换时间', '只看倒计时', '只看切换时间'], success: res => {
-      const value = res.tapIndex === 0 ? 'both' : res.tapIndex === 1 ? 'countdown' : 'switch';
-      this.setData({ 'displayForm.peakTimeDisplay': value, 'peakForm.peakTimeDisplay': value });
-      this.commitPatch({ display: { peakTimeDisplay: value } });
-    } });
+  pickPeakTimeDisplay(e) {
+    this.pickChoice(e, 'peak-time-display', uiText('峰谷时间显示'), [
+      { id: 'both', label: uiText('倒计时 + 切换时间') },
+      { id: 'countdown', label: uiText('只看倒计时') },
+      { id: 'switch', label: uiText('只看切换时间') },
+    ], this.data.displayForm.peakTimeDisplay || 'both', id => {
+      this.setData({ 'displayForm.peakTimeDisplay': id, 'peakForm.peakTimeDisplay': id });
+      this.commitPatch({ display: { peakTimeDisplay: id } });
+    });
   },
-  pickBarDirection(scope) {
-    wx.showActionSheet({ itemList: ['已用', '剩余'], success: res => {
-      const value = res.tapIndex === 0 ? 'used' : 'remaining';
+  pickBarDirection(scope, e) {
+    const current = scope === 'balance'
+      ? (this.data.balanceForm || {}).barDirection
+      : (this.data.budgetForm || {}).barDirection;
+    this.pickChoice(e, scope + '-bar-direction', scope === 'balance' ? uiText('余额进度条方向') : uiText('预算进度条方向'), [
+      { id: 'used', label: uiText('已用') },
+      { id: 'remaining', label: uiText('剩余') },
+    ], current || 'remaining', id => {
       if (scope === 'balance') {
-        this.setData({ 'balanceForm.barDirection': value });
-        this.commitPatch({ balance: { barDirection: value } });
+        this.setData({ 'balanceForm.barDirection': id });
+        this.commitPatch({ balance: { barDirection: id } });
       } else {
-        this.setData({ 'budgetForm.barDirection': value });
-        this.commitPatch({ budget: { barDirection: value } });
+        this.setData({ 'budgetForm.barDirection': id });
+        this.commitPatch({ budget: { barDirection: id } });
       }
-    } });
+    });
   },
-  pickBalanceBarDirection() { this.pickBarDirection('balance'); },
-  pickBudgetBarDirection() { this.pickBarDirection('budget'); },
-  pickPeakStyle() {
-    wx.showActionSheet({ itemList: ['进度条', '经典'], success: res => {
-      const style = res.tapIndex === 0 ? 'progress' : 'classic';
-      this.setData({ 'displayForm.peakStyle': style });
-      this.commitPatch({ display: { peakStyle: style } });
-    } });
+  pickBalanceBarDirection(e) { this.pickBarDirection('balance', e); },
+  pickBudgetBarDirection(e) { this.pickBarDirection('budget', e); },
+  pickPeakStyle(e) {
+    this.pickChoice(e, 'peak-style', uiText('峰谷样式'), [
+      { id: 'progress', label: uiText('进度条') },
+      { id: 'classic', label: uiText('经典') },
+    ], this.data.displayForm.peakStyle || 'progress', id => {
+      this.setData({ 'displayForm.peakStyle': id });
+      this.commitPatch({ display: { peakStyle: id } });
+    });
   },
 
   // ---------- balance / go / budget / peak ----------
@@ -1289,8 +1326,8 @@ Page({
     this.setData({ 'balanceForm.enabled': enabled });
     this.commitPatch({ balance: { enabled } });
   },
-  pickBalanceDisplay() { this.pickDisplay(value => { this.setData({ 'balanceForm.display': value }); this.commitPatch({ balance: { display: value } }); }); },
-  pickBalanceRefresh() { this.pickRefresh(value => { this.setData({ 'balanceForm.refreshMinutes': value }); this.commitPatch({ balance: { refreshMinutes: value } }); }); },
+  pickBalanceDisplay(e) { this.pickDisplay(e, 'balance-display', uiText('显示位置'), this.data.balanceForm.display, value => { this.setData({ 'balanceForm.display': value }); this.commitPatch({ balance: { display: value } }); }); },
+  pickBalanceRefresh(e) { this.pickRefresh(e, 'balance-refresh', uiText('刷新间隔'), this.data.balanceForm.refreshMinutes, value => { this.setData({ 'balanceForm.refreshMinutes': value }); this.commitPatch({ balance: { refreshMinutes: value } }); }); },
   toggleBalanceProgress(e) {
     const show = !!(e && e.detail && e.detail.value);
     this.setData({ 'balanceForm.showProgressBar': show });
@@ -1320,21 +1357,26 @@ Page({
     this.setData({ 'goForm.enabled': enabled });
     this.commitPatch({ goQuota: { enabled } });
   },
-  pickGoDisplay() { this.pickDisplay(value => { this.setData({ 'goForm.display': value }); this.commitPatch({ goQuota: { display: value } }); }); },
-  pickGoRefresh() { this.pickRefresh(value => { this.setData({ 'goForm.refreshMinutes': value }); this.commitPatch({ goQuota: { refreshMinutes: value } }); }); },
-  pickGoMain() {
-    wx.showActionSheet({ itemList: ['滚动 5 小时', '本周', '本月'], success: res => {
-      const main = ['rolling', 'weekly', 'monthly'][res.tapIndex];
-      this.setData({ 'goForm.main': main });
-      this.commitPatch({ goQuota: { main } });
-    } });
+  pickGoDisplay(e) { this.pickDisplay(e, 'go-display', uiText('显示位置'), this.data.goForm.display, value => { this.setData({ 'goForm.display': value }); this.commitPatch({ goQuota: { display: value } }); }); },
+  pickGoRefresh(e) { this.pickRefresh(e, 'go-refresh', uiText('刷新间隔'), this.data.goForm.refreshMinutes, value => { this.setData({ 'goForm.refreshMinutes': value }); this.commitPatch({ goQuota: { refreshMinutes: value } }); }); },
+  pickGoMain(e) {
+    this.pickChoice(e, 'go-main', uiText('额度窗口'), [
+      { id: 'rolling', label: uiText('滚动 5 小时') },
+      { id: 'weekly', label: uiText('本周') },
+      { id: 'monthly', label: uiText('本月') },
+    ], this.data.goForm.main || 'rolling', id => {
+      this.setData({ 'goForm.main': id });
+      this.commitPatch({ goQuota: { main: id } });
+    });
   },
-  pickGoDirection() {
-    wx.showActionSheet({ itemList: ['显示已用百分比', '显示剩余百分比'], success: res => {
-      const barDirection = res.tapIndex === 0 ? 'used' : 'remaining';
-      this.setData({ 'goForm.barDirection': barDirection });
-      this.commitPatch({ goQuota: { barDirection } });
-    } });
+  pickGoDirection(e) {
+    this.pickChoice(e, 'go-direction', uiText('进度条方向'), [
+      { id: 'used', label: uiText('显示已用百分比') },
+      { id: 'remaining', label: uiText('显示剩余百分比') },
+    ], this.data.goForm.barDirection || 'used', id => {
+      this.setData({ 'goForm.barDirection': id });
+      this.commitPatch({ goQuota: { barDirection: id } });
+    });
   },
   toggleGoDetail(e) {
     const detail = !!(e && e.detail && e.detail.value);
@@ -1384,16 +1426,14 @@ Page({
     this.setData({ 'budgetForm.detail': detail });
     this.commitPatch({ budget: { detail } });
   },
-  pickBudgetPeriod() {
-    wx.showActionSheet({ itemList: BUDGET_PERIODS.map(item => item.label), success: res => {
-      const period = BUDGET_PERIODS[res.tapIndex];
-      if (!period) return;
-      this.setData({ 'budgetForm.period': period.id });
-      this.commitBudget();
-    } });
+  pickBudgetPeriod(e) {
+    this.pickChoice(e, 'budget-period', uiText('预算周期'),
+      BUDGET_PERIODS.map(item => ({ id: item.id, label: item.label })),
+      this.data.budgetForm.period || 'month',
+      id => { this.setData({ 'budgetForm.period': id }); this.commitBudget(); });
   },
-  pickBudgetDisplay() {
-    this.pickDisplay(value => { this.setData({ 'budgetForm.display': value }); this.commitPatch({ budget: { display: value } }); });
+  pickBudgetDisplay(e) {
+    this.pickDisplay(e, 'budget-display', uiText('显示位置'), this.data.budgetForm.display, value => { this.setData({ 'budgetForm.display': value }); this.commitPatch({ budget: { display: value } }); });
   },
 
   togglePeak(e) {
@@ -1401,7 +1441,7 @@ Page({
     this.setData({ 'peakForm.enabled': enabled });
     this.commitPatch({ peak: { enabled } });
   },
-  pickPeakDisplay() { this.pickDisplay(value => { this.setData({ 'peakForm.display': value }); this.commitPatch({ peak: { display: value } }); }); },
+  pickPeakDisplay(e) { this.pickDisplay(e, 'peak-display', uiText('显示位置'), this.data.peakForm.display, value => { this.setData({ 'peakForm.display': value }); this.commitPatch({ peak: { display: value } }); }); },
   editPeakWindows() {
     const current = this.data.peakForm.windowsLabel;
     wx.showModal({
@@ -1448,35 +1488,35 @@ Page({
     }
     this.commitPatch({ peak: { peakAlertAhead: ahead } });
   },
-  pickPeakAlertTarget() {
-    wx.showActionSheet({ itemList: ['峰和谷', '进入峰时', '进入谷时'], success: res => {
-      const value = res.tapIndex === 0 ? 'both' : res.tapIndex === 1 ? 'peak' : 'offpeak';
-      this.setData({ 'peakForm.peakAlertTarget': value });
-      this.commitPatch({ peak: { peakAlertTarget: value } });
-    } });
+  pickPeakAlertTarget(e) {
+    this.pickChoice(e, 'peak-alert-target', uiText('提醒类型'), [
+      { id: 'both', label: uiText('峰和谷') },
+      { id: 'peak', label: uiText('进入峰时') },
+      { id: 'offpeak', label: uiText('进入谷时') },
+    ], this.data.peakForm.peakAlertTarget || 'both', id => {
+      this.setData({ 'peakForm.peakAlertTarget': id });
+      this.commitPatch({ peak: { peakAlertTarget: id } });
+    });
   },
-  pickPeakAlertPosition() {
-    wx.showActionSheet({ itemList: ['右下角', '屏幕中心'], success: res => {
-      const value = res.tapIndex === 0 ? 'corner' : 'center';
-      this.setData({ 'peakForm.peakAlertPosition': value });
-      this.commitPatch({ peak: { peakAlertPosition: value } });
-    } });
+  pickPeakAlertPosition(e) {
+    this.pickChoice(e, 'peak-alert-position', uiText('弹窗位置'), [
+      { id: 'corner', label: uiText('右下角') },
+      { id: 'center', label: uiText('屏幕中心') },
+    ], this.data.peakForm.peakAlertPosition || 'corner', id => {
+      this.setData({ 'peakForm.peakAlertPosition': id });
+      this.commitPatch({ peak: { peakAlertPosition: id } });
+    });
   },
 
   // ---------- generic pickers ----------
 
-  pickDisplay(callback) {
-    const items = costView.DISPLAY_OPTIONS.slice(0, 4);
-    wx.showActionSheet({ itemList: items.map(item => item.label), success: res => {
-      const option = items[res.tapIndex];
-      if (option) callback(option.id);
-    } });
+  pickDisplay(e, kind, title, current, callback) {
+    const items = costView.DISPLAY_OPTIONS.slice(0, 4).map(item => ({ id: item.id, label: item.label }));
+    this.pickChoice(e, kind, title || uiText('显示位置'), items, current, callback);
   },
-  pickRefresh(callback) {
-    wx.showActionSheet({ itemList: REFRESH_OPTIONS.map(n => n + ' 分钟'), success: res => {
-      const value = REFRESH_OPTIONS[res.tapIndex];
-      if (value) callback(value);
-    } });
+  pickRefresh(e, kind, title, current, callback) {
+    const items = REFRESH_OPTIONS.map(n => ({ id: n, label: n + uiText(' 分钟') }));
+    this.pickChoice(e, kind, title || uiText('刷新间隔'), items, current, callback);
   },
 
   // ---------- Coding Plans ----------
@@ -1493,7 +1533,7 @@ Page({
     const index = Number(e.currentTarget.dataset.index);
     const cell = this.data.planCells[index];
     if (!cell) return;
-    this.pickDisplay(value => {
+    this.pickDisplay(e, 'plan-display', uiText('显示位置'), cell.display, value => {
       this.setData({ [`planCells[${index}].display`]: value });
       this.commitPatch({ codingPlans: { [cell.id]: { display: value } } });
     });
@@ -1502,7 +1542,7 @@ Page({
     const index = Number(e.currentTarget.dataset.index);
     const cell = this.data.planCells[index];
     if (!cell) return;
-    this.pickRefresh(value => {
+    this.pickRefresh(e, 'plan-refresh', uiText('刷新间隔'), cell.refreshMinutes, value => {
       this.setData({ [`planCells[${index}].refreshMinutes`]: value, [`planCells[${index}].refreshLabel`]: this.refreshLabel(value) });
       this.commitPatch({ codingPlans: { [cell.id]: { refreshMinutes: value } } });
     });
@@ -1663,26 +1703,33 @@ Page({
   },
   pickCustomAdapter(e) {
     const index = Number(e.currentTarget.dataset.index);
-    wx.showActionSheet({ itemList: ['自定义 HTTP', '阿里云余额', 'Token Rhythm'], success: res => {
-      const adapter = ['custom', 'aliyun', 'tokenrhythm'][res.tapIndex];
-      this.setData({ [`customCells[${index}].adapter`]: adapter });
-    } });
+    const cell = (this.data.customCells || [])[index] || {};
+    this.pickChoice(e, 'custom-adapter', uiText('类型'), [
+      { id: 'custom', label: uiText('自定义 HTTP') },
+      { id: 'aliyun', label: uiText('阿里云余额') },
+      { id: 'tokenrhythm', label: 'Token Rhythm' },
+    ], cell.adapter || 'custom', id => this.setData({ [`customCells[${index}].adapter`]: id }));
   },
   pickCustomDisplay(e) {
     const index = Number(e.currentTarget.dataset.index);
-    this.pickDisplay(value => this.setData({ [`customCells[${index}].display`]: value }));
+    const cell = (this.data.customCells || [])[index] || {};
+    this.pickDisplay(e, 'custom-display', uiText('显示位置'), cell.display, value => this.setData({ [`customCells[${index}].display`]: value }));
   },
   pickCustomRefresh(e) {
     const index = Number(e.currentTarget.dataset.index);
-    this.pickRefresh(value => this.setData({ [`customCells[${index}].refreshMinutes`]: value }));
+    const cell = (this.data.customCells || [])[index] || {};
+    this.pickRefresh(e, 'custom-refresh', uiText('刷新间隔'), cell.refreshMinutes, value => this.setData({ [`customCells[${index}].refreshMinutes`]: value }));
   },
   pickCustomMethod(e) {
     const index = Number(e.currentTarget.dataset.index);
-    wx.showActionSheet({ itemList: ['GET', 'POST'], success: res => {
-      const method = res.tapIndex === 1 ? 'POST' : 'GET';
+    const current = ((this.data.customCells || [])[index] || {}).request || {};
+    this.pickChoice(e, 'custom-method', uiText('请求方法'), [
+      { id: 'GET', label: 'GET' },
+      { id: 'POST', label: 'POST' },
+    ], current.method || 'GET', method => {
       const cells = (this.data.customCells || []).map((cell, i) => (i === index ? Object.assign({}, cell, { request: Object.assign({}, cell.request, { method }) }) : cell));
       this.setData({ customCells: cells, sheetCustom: Object.assign({}, this.data.sheetCustom, { request: Object.assign({}, this.data.sheetCustom.request, { method }) }) });
-    } });
+    });
   },
   /** 已配置的密钥不回显：点「编辑凭据」才展开输入框（与桌面插件一致）。 */
   editCustomKey() { this.setData({ keyEditing: true }); },
@@ -1768,11 +1815,13 @@ Page({
   },
   pickGatewayDisplay(e) {
     const index = Number(e.currentTarget.dataset.index);
-    this.pickDisplay(value => this.setData({ [`gatewayCells[${index}].display`]: value }));
+    const cell = (this.data.gatewayCells || [])[index] || {};
+    this.pickDisplay(e, 'gateway-display', uiText('显示位置'), cell.display, value => this.setData({ [`gatewayCells[${index}].display`]: value }));
   },
   pickGatewayRefresh(e) {
     const index = Number(e.currentTarget.dataset.index);
-    this.pickRefresh(value => this.setData({ [`gatewayCells[${index}].refreshMinutes`]: value }));
+    const cell = (this.data.gatewayCells || [])[index] || {};
+    this.pickRefresh(e, 'gateway-refresh', uiText('刷新间隔'), cell.refreshMinutes, value => this.setData({ [`gatewayCells[${index}].refreshMinutes`]: value }));
   },
   saveGatewayKey(e) {
     const index = Number(e.currentTarget.dataset.index);

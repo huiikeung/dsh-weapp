@@ -19,7 +19,9 @@ function walk(relative) {
     fs.readdirSync(full).sort().forEach(name => walk(relative + '/' + name));
   } else { hash.update(relative); hash.update('\0'); hash.update(fs.readFileSync(full)); }
 }
-['app.js', 'app.json', 'app.wxss', 'theme.json', 'pages', 'components', 'utils', 'assets', 'i18n'].filter(name => fs.existsSync(path.join(root, name))).forEach(walk);
+// styles/ 与 templates/ 也参与指纹：只改共用样式时 BUILD_ID 必须变化，
+// 否则无法从设置页的构建记录判断手机上是哪个包。
+['app.js', 'app.json', 'app.wxss', 'theme.json', 'pages', 'components', 'utils', 'styles', 'templates', 'assets', 'i18n'].filter(name => fs.existsSync(path.join(root, name))).forEach(walk);
 const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date());
 const date = Object.fromEntries(parts.map(part => [part.type, part.value]));
 const build = { BUILD_VERSION: version, BUILD_TIME: date.year + '-' + date.month + '-' + date.day + ' ' + date.hour + ':' + date.minute, BUILD_ID: hash.digest('hex').slice(0, 8) };

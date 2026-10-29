@@ -1,6 +1,6 @@
 <import src="../../templates/quota-sidebar.wxml"/>
-<view class="page page-dark home-root {{themeClass}}" style="{{contentFontStyle}}">
-  <view class="cost-page {{themeClass}}">
+<view class="page page-dark home-root {{themeClass}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-blur-card: {{glassBlurCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-choice: {{glassRadiusChoice}}; --glass-backdrop-brightness: {{glassBackdropBrightness}}; {{settingsGlassEnabled ? '' : '--surface: ' + nativeSurfaceColor + '; --fill: ' + nativeFillColor + ';'}};">
+  <view class="cost-page {{themeClass}} {{settingsGlassEnabled ? 'cost-glass' : ''}}">
     <view class="cost-nav" style="padding-top:{{navPadTop}}px;height:{{navHeight}}px;">
       <view class="cost-nav-back" bindtap="goBack" hover-class="cost-pressed" role="button" aria-label="{{ui['返回']}}">
         <image class="cost-nav-back-icon" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
@@ -19,21 +19,13 @@
     <!-- 显示与左侧栏样式：开关决定下面所有分区是否展示 -->
     <view wx:if="{{connected && supported}}" class="cost-section">
       <text class="cost-section-title">{{ui['显示设置']}}</text>
-      <view class="cost-card cost-entry-card">
+      <view class="cost-card cost-entry-card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
         <view class="cost-row" bindtap="openDisplaySheet" role="button" aria-label="{{ui['显示设置']}}">
           <view class="cost-row-copy">
             <text class="cost-row-label">{{ui['左侧栏样式']}}</text>
             <text class="cost-row-hint">{{displayForm.sidebarStyle === 'summary' ? ui['合并卡片'] : displayForm.sidebarStyle === 'simple' ? ui['简洁'] : displayForm.sidebarStyle === 'compact' ? ui['紧凑'] : ui['标准']}} · {{ui['货币单位']}} {{displayForm.currency}}</text>
           </view>
           <view class="cost-row-value"><text class="cost-chevron">›</text></view>
-        </view>
-        <view class="cost-divider"></view>
-        <view class="cost-row">
-          <view class="cost-row-copy">
-            <text class="cost-row-label">{{ui['显示额度卡片']}}</text>
-            <text class="cost-row-hint">{{ui['在左侧栏显示余额与额度卡片']}}</text>
-          </view>
-          <dsh-switch checked="{{displayForm.sidebarVisible}}" bindchange="toggleSidebarVisible"/>
         </view>
       </view>
     </view>
@@ -44,7 +36,7 @@
     <!-- ============ 显示：四个开关型组件合成一张卡 ============ -->
     <view wx:if="{{connected && supported && (balanceForm || goForm || budgetForm || peakForm)}}" class="cost-section">
       <text class="cost-section-title">{{ui['显示']}}</text>
-      <view class="cost-card cost-entry-card">
+      <view class="cost-card cost-entry-card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
         <block wx:if="{{balanceForm}}">
           <view class="cost-row" bindtap="openBalanceSheet" role="button" aria-label="{{ui['官方账户余额']}}">
             <view class="cost-row-copy">
@@ -92,7 +84,7 @@
       <text class="cost-section-title">{{ui['额度']}}</text>
       <text class="cost-source-note">{{ui['逐家启用；凭据保存在电脑端 DSH 凭据库，移动端只显示是否已配置。点卡片配置。']}}</text>
 
-      <view class="cost-card cost-entry-card">
+      <view class="cost-card cost-entry-card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
         <!-- Coding Plan -->
         <block wx:if="{{planCells.length}}">
           <view class="cost-group-label">{{ui['Coding Plan 订阅额度']}}</view>
@@ -163,7 +155,7 @@
 
   <!-- ============ 弹窗：显示设置（含侧栏预览与确认） ============ -->
   <view wx:if="{{sheet === 'display'}}" class="cost-sheet-mask" bindtap="closeSheet">
-    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
+    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
       <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
         <view class="cost-sheet-grabbar"></view>
       </view>
@@ -172,7 +164,12 @@
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
       </view>
       <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body carded">
-        <view class="cost-row" bindtap="pickCurrency" role="button">
+        <view class="cost-row">
+          <view class="cost-row-copy"><text class="cost-row-label">{{ui['侧栏玻璃卡片']}}</text><text class="cost-row-hint">{{ui['开启后使用玻璃样式，关闭保持原生样式']}}</text></view>
+          <dsh-switch checked="{{quotaSidebarGlass}}" bindchange="toggleSidebarGlass"/>
+        </view>
+        <view class="cost-divider"></view>
+        <view class="cost-row currency-row" id="pick-currency" bindtap="pickCurrency" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['货币单位']}}</text><text class="cost-row-hint">{{ui['显示金额使用的币种']}}</text></view>
           <view class="cost-row-value">{{displayForm.currency}}<text class="cost-chevron">›</text></view>
         </view>
@@ -191,18 +188,12 @@
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['汇率']}}</text><text class="cost-row-hint">{{ui['1 美元 = ? 目标币种']}}</text></view>
           <input class="cost-inline-input" type="digit" value="{{displayForm.exchangeRate}}" bindinput="onExchangeRateInput" bindblur="commitDisplay"/>
         </view>
-        <view class="cost-divider"></view>
-        <view class="cost-row">
-          <view class="cost-row-copy"><text class="cost-row-label">{{ui['在左侧栏显示额度卡片']}}</text><text class="cost-row-hint">{{ui['关闭后侧栏不显示额度卡片']}}</text></view>
-          <dsh-switch checked="{{displayForm.sidebarVisible}}" bindchange="toggleSidebarVisible"/>
-        </view>
-        <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickTodayMetric" role="button">
+        <view class="cost-row" id="pick-today-metric" bindtap="pickTodayMetric" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['今日显示项']}}</text><text class="cost-row-hint">{{ui['侧栏今日行显示金额 / Token / 两者']}}</text></view>
           <view class="cost-row-value">{{displayForm.sidebarTodayMetric === 'amount' ? ui['仅金额'] : displayForm.sidebarTodayMetric === 'tokens' ? ui['仅 Token'] : ui['金额 + Token']}}<text class="cost-chevron">›</text></view>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickPeakTimeDisplay" role="button">
+        <view class="cost-row" id="pick-peak-time-display" bindtap="pickPeakTimeDisplay" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['峰谷时间显示']}}</text><text class="cost-row-hint">{{ui['倒计时与切换时间的显示方式']}}</text></view>
           <view class="cost-row-value">{{displayForm.peakTimeDisplay === 'countdown' ? ui['只看倒计时'] : displayForm.peakTimeDisplay === 'switch' ? ui['只看切换时间'] : ui['倒计时 + 切换时间']}}<text class="cost-chevron">›</text></view>
         </view>
@@ -212,17 +203,17 @@
           <dsh-switch checked="{{displayForm.sidebarTodayBalanceInline}}" bindchange="toggleTodayInline"/>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickBalanceBarDirection" role="button">
+        <view class="cost-row" id="pick-balance-bar-direction" bindtap="pickBalanceBarDirection" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['余额进度条方向']}}</text><text class="cost-row-hint">{{ui['已用或剩余']}}</text></view>
           <view class="cost-row-value">{{balanceForm.barDirection === 'used' ? ui['已用'] : ui['剩余']}}<text class="cost-chevron">›</text></view>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickBudgetBarDirection" role="button">
+        <view class="cost-row" id="pick-budget-bar-direction" bindtap="pickBudgetBarDirection" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['预算进度条方向']}}</text><text class="cost-row-hint">{{ui['已用或剩余']}}</text></view>
           <view class="cost-row-value">{{budgetForm.barDirection === 'used' ? ui['已用'] : ui['剩余']}}<text class="cost-chevron">›</text></view>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickPeakStyle" role="button">
+        <view class="cost-row" id="pick-peak-style" bindtap="pickPeakStyle" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['峰谷样式']}}</text><text class="cost-row-hint">{{ui['进度条或经典条']}}</text></view>
           <view class="cost-row-value">{{displayForm.peakStyle === 'classic' ? ui['经典'] : ui['进度条']}}<text class="cost-chevron">›</text></view>
         </view>
@@ -243,12 +234,12 @@
             </view>
             <scroll-view scroll-y class="cost-preview-body">
               <block wx:if="{{previewSidebar}}">
-                <view class="drawer-quota drawer-quota-{{previewSidebar.style}}">
+                <view class="drawer-quota drawer-quota-{{previewSidebar.style}} {{quotaSidebarGlass && settingsGlassEnabled ? 'qs-glass' : ''}}">
                   <template is="quota-sidebar" data="{{sections: previewSections, mode: previewSidebar.style, model: previewSidebar, ui: ui}}"/>
                 </view>
                 <view class="drawer-footer"><view class="drawer-item drawer-settings"><image class="drawer-item-ic" src="/assets/icons/settings-white.svg" mode="aspectFit"/><text class="drawer-item-text">{{ui['设置']}}</text></view></view>
               </block>
-              <view wx:elif="{{!previewSidebar}}" class="cost-preview-empty">{{ui['侧栏卡片已关闭，打开「在左侧栏显示额度卡片」后可见']}}</view>
+              <view wx:elif="{{!previewSidebar}}" class="cost-preview-empty">{{ui['侧栏卡片已关闭，可在 设置 → 实验性功能 打开「额度卡片」开关']}}</view>
             </scroll-view>
           </view>
           <text class="cost-source-note">{{ui['预览使用当前额度数据；切换样式可对比四种布局。']}}</text>
@@ -284,7 +275,7 @@
           </view>
           <view class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
-            <view class="cost-row-value" bindtap="pickPreviewDisplay">{{previewComponentDisplayLabel}}<text class="cost-chevron">›</text></view>
+            <view class="cost-row-value" id="pick-preview-display" bindtap="pickPreviewDisplay">{{previewComponentDisplayLabel}}<text class="cost-chevron">›</text></view>
           </view>
         </view>
 
@@ -313,7 +304,7 @@
 
   <!-- ============ 弹窗：官方余额 ============ -->
   <view wx:if="{{sheet === 'balance'}}" class="cost-sheet-mask" bindtap="closeSheet">
-    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
+    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
       <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
         <view class="cost-sheet-grabbar"></view>
       </view>
@@ -327,12 +318,12 @@
           <dsh-switch checked="{{balanceForm.enabled}}" bindchange="toggleBalance"/>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickBalanceDisplay" role="button">
+        <view class="cost-row" id="pick-balance-display" bindtap="pickBalanceDisplay" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
           <view class="cost-row-value">{{balanceForm.display === 'both' ? ui['侧栏 + 设置页'] : balanceForm.display === 'sidebar' ? ui['仅侧栏'] : balanceForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickBalanceRefresh" role="button">
+        <view class="cost-row" id="pick-balance-refresh" bindtap="pickBalanceRefresh" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
           <view class="cost-row-value">{{balanceForm.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
         </view>
@@ -360,7 +351,7 @@
 
   <!-- ============ 弹窗：OpenCode Go ============ -->
   <view wx:if="{{sheet === 'go'}}" class="cost-sheet-mask" bindtap="closeSheet">
-    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
+    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
       <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
         <view class="cost-sheet-grabbar"></view>
       </view>
@@ -374,22 +365,22 @@
           <dsh-switch checked="{{goForm.enabled}}" bindchange="toggleGo"/>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickGoDisplay" role="button">
+        <view class="cost-row" id="pick-go-display" bindtap="pickGoDisplay" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
           <view class="cost-row-value">{{goForm.display === 'both' ? ui['侧栏 + 设置页'] : goForm.display === 'sidebar' ? ui['仅侧栏'] : goForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickGoRefresh" role="button">
+        <view class="cost-row" id="pick-go-refresh" bindtap="pickGoRefresh" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
           <view class="cost-row-value">{{goForm.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickGoMain" role="button">
+        <view class="cost-row" id="pick-go-main" bindtap="pickGoMain" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['主用量窗口']}}</text></view>
           <view class="cost-row-value">{{goForm.main === 'weekly' ? ui['本周'] : goForm.main === 'monthly' ? ui['本月'] : ui['滚动 5 小时']}}<text class="cost-chevron">›</text></view>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickGoDirection" role="button">
+        <view class="cost-row" id="pick-go-direction" bindtap="pickGoDirection" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['进度条方向']}}</text></view>
           <view class="cost-row-value">{{goForm.barDirection === 'remaining' ? ui['剩余'] : ui['已用']}}<text class="cost-chevron">›</text></view>
         </view>
@@ -419,7 +410,7 @@
 
   <!-- ============ 弹窗：预算 ============ -->
   <view wx:if="{{sheet === 'budget'}}" class="cost-sheet-mask" bindtap="closeSheet">
-    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
+    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
       <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
         <view class="cost-sheet-grabbar"></view>
       </view>
@@ -438,7 +429,7 @@
           <input class="cost-inline-input" type="digit" value="{{budgetForm.amount}}" bindinput="onBudgetAmountInput" bindblur="commitBudget" placeholder="{{ui['请输入有效的预算金额']}}"/>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickBudgetPeriod" role="button">
+        <view class="cost-row" id="pick-budget-period" bindtap="pickBudgetPeriod" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['预算周期']}}</text></view>
           <view class="cost-row-value">{{budgetForm.period === 'day' ? ui['今日'] : budgetForm.period === 'all' ? ui['累计'] : budgetForm.period === 'custom' ? ui['自定义区间'] : ui['本月']}}<text class="cost-chevron">›</text></view>
         </view>
@@ -460,7 +451,7 @@
           <dsh-switch checked="{{budgetForm.detail}}" bindchange="toggleBudgetDetail"/>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickBudgetDisplay" role="button">
+        <view class="cost-row" id="pick-budget-display" bindtap="pickBudgetDisplay" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
           <view class="cost-row-value">{{budgetForm.display === 'both' ? ui['侧栏 + 设置页'] : budgetForm.display === 'sidebar' ? ui['仅侧栏'] : budgetForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
         </view>
@@ -477,7 +468,7 @@
 
   <!-- ============ 弹窗：峰谷 ============ -->
   <view wx:if="{{sheet === 'peak'}}" class="cost-sheet-mask" bindtap="closeSheet">
-    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
+    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
       <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
         <view class="cost-sheet-grabbar"></view>
       </view>
@@ -491,7 +482,7 @@
           <dsh-switch checked="{{peakForm.enabled}}" bindchange="togglePeak"/>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickPeakDisplay" role="button">
+        <view class="cost-row" id="pick-peak-display" bindtap="pickPeakDisplay" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
           <view class="cost-row-value">{{peakForm.display === 'both' ? ui['侧栏 + 设置页'] : peakForm.display === 'sidebar' ? ui['仅侧栏'] : peakForm.display === 'settings' ? ui['仅设置页'] : ui['关闭']}}<text class="cost-chevron">›</text></view>
         </view>
@@ -521,12 +512,12 @@
             <input class="cost-inline-input short" type="number" value="{{peakForm.peakAlertAhead}}" bindinput="onPeakAlertAheadInput" bindblur="commitPeakAlert" maxlength="2"/>
           </view>
           <view class="cost-divider"></view>
-          <view class="cost-row" bindtap="pickPeakAlertTarget" role="button">
+          <view class="cost-row" id="pick-peak-alert-target" bindtap="pickPeakAlertTarget" role="button">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['提醒类型']}}</text></view>
             <view class="cost-row-value">{{peakForm.peakAlertTarget === 'peak' ? ui['进入峰时'] : peakForm.peakAlertTarget === 'offpeak' ? ui['进入谷时'] : ui['峰和谷']}}<text class="cost-chevron">›</text></view>
           </view>
           <view class="cost-divider"></view>
-          <view class="cost-row" bindtap="pickPeakAlertPosition" role="button">
+          <view class="cost-row" id="pick-peak-alert-position" bindtap="pickPeakAlertPosition" role="button">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['弹窗位置']}}</text></view>
             <view class="cost-row-value">{{peakForm.peakAlertPosition === 'center' ? ui['屏幕中心'] : ui['右下角']}}<text class="cost-chevron">›</text></view>
           </view>
@@ -537,7 +528,7 @@
 
   <!-- ============ 弹窗：Coding Plan 配置 ============ -->
   <view wx:if="{{sheet === 'plan'}}" class="cost-sheet-mask" bindtap="closeSheet">
-    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
+    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
       <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
         <view class="cost-sheet-grabbar"></view>
       </view>
@@ -554,12 +545,12 @@
           <dsh-switch checked="{{sheetPlan.enabled}}" data-index="{{sheetPlan.index}}" bindchange="togglePlan"/>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickPlanDisplay" data-index="{{sheetPlan.index}}" role="button">
+        <view class="cost-row" id="pick-plan-display" bindtap="pickPlanDisplay" data-index="{{sheetPlan.index}}" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
           <view class="cost-row-value">{{sheetPlan.displayLabel}}<text class="cost-chevron">›</text></view>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickPlanRefresh" data-index="{{sheetPlan.index}}" role="button">
+        <view class="cost-row" id="pick-plan-refresh" bindtap="pickPlanRefresh" data-index="{{sheetPlan.index}}" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
           <view class="cost-row-value">{{sheetPlan.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
         </view>
@@ -606,7 +597,7 @@
 
   <!-- ============ 弹窗：网关来源配置 ============ -->
   <view wx:if="{{sheet === 'gateway'}}" class="cost-sheet-mask" bindtap="closeSheet">
-    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
+    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
       <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
         <view class="cost-sheet-grabbar"></view>
       </view>
@@ -633,12 +624,12 @@
           <input class="cost-field-input" value="{{sheetGateway.baseURL}}" data-index="{{sheetGateway.index}}" data-field="baseURL" bindinput="onGatewayFieldInput" bindblur="onGatewayFieldBlur" placeholder="http://127.0.0.1:8317" maxlength="2048"/>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickGatewayDisplay" data-index="{{sheetGateway.index}}" role="button">
+        <view class="cost-row" id="pick-gateway-display" bindtap="pickGatewayDisplay" data-index="{{sheetGateway.index}}" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
           <view class="cost-row-value">{{sheetGateway.displayLabel}}<text class="cost-chevron">›</text></view>
         </view>
         <view class="cost-divider"></view>
-        <view class="cost-row" bindtap="pickGatewayRefresh" data-index="{{sheetGateway.index}}" role="button">
+        <view class="cost-row" id="pick-gateway-refresh" bindtap="pickGatewayRefresh" data-index="{{sheetGateway.index}}" role="button">
           <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
           <view class="cost-row-value">{{sheetGateway.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
         </view>
@@ -686,7 +677,7 @@
 
   <!-- ============ 弹窗：自定义余额配置 ============ -->
   <view wx:if="{{sheet === 'custom'}}" class="cost-sheet-mask" bindtap="closeSheet">
-    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
+    <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
       <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
         <view class="cost-sheet-grabbar"></view>
       </view>
@@ -699,13 +690,13 @@
       </view>
       <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="cost-sheet-body">
         <!-- ============ 开关 ============ -->
-        <view class="cost-card">
+        <view class="cost-card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
           <view class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['启用']}}</text><text class="cost-row-hint">{{sheetCustom.status === 'ok' ? sheetCustom.amountText : sheetCustom.message || ui['待刷新']}}</text></view>
             <dsh-switch checked="{{sheetCustom.enabled}}" data-index="{{sheetCustom.index}}" bindchange="toggleCustom"/>
           </view>
           <view class="cost-divider"></view>
-          <view class="cost-row" bindtap="pickCustomAdapter" data-index="{{sheetCustom.index}}" role="button">
+          <view class="cost-row" id="pick-custom-adapter" bindtap="pickCustomAdapter" data-index="{{sheetCustom.index}}" role="button">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['类型']}}</text></view>
             <view class="cost-row-value">{{sheetCustom.adapter === 'aliyun' ? '阿里云余额' : sheetCustom.adapter === 'tokenrhythm' ? 'Token Rhythm' : ui['自定义 HTTP']}}<text class="cost-chevron">›</text></view>
           </view>
@@ -713,7 +704,7 @@
 
         <!-- ============ 基本信息 ============ -->
         <view class="cost-sheet-section">{{ui['基本信息']}}</view>
-        <view class="cost-card">
+        <view class="cost-card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
           <view class="cost-field">
             <text class="cost-field-label">{{ui['名称']}}</text>
             <input class="cost-field-input" value="{{sheetCustom.label}}" data-index="{{sheetCustom.index}}" data-field="label" bindinput="onCustomFieldInput" bindblur="onCustomFieldBlur" placeholder="{{ui['例如：赛博']}}" maxlength="40"/>
@@ -729,12 +720,12 @@
             <input class="cost-field-input short" value="{{sheetCustom.unit}}" data-index="{{sheetCustom.index}}" data-field="unit" bindinput="onCustomFieldInput" bindblur="onCustomFieldBlur" placeholder="USD" maxlength="16"/>
           </view>
           <view class="cost-divider"></view>
-          <view class="cost-row" bindtap="pickCustomDisplay" data-index="{{sheetCustom.index}}" role="button">
+          <view class="cost-row" id="pick-custom-display" bindtap="pickCustomDisplay" data-index="{{sheetCustom.index}}" role="button">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['显示位置']}}</text></view>
             <view class="cost-row-value">{{sheetCustom.displayLabel}}<text class="cost-chevron">›</text></view>
           </view>
           <view class="cost-divider"></view>
-          <view class="cost-row" bindtap="pickCustomRefresh" data-index="{{sheetCustom.index}}" role="button">
+          <view class="cost-row" id="pick-custom-refresh" bindtap="pickCustomRefresh" data-index="{{sheetCustom.index}}" role="button">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['刷新间隔']}}</text></view>
             <view class="cost-row-value">{{sheetCustom.refreshMinutes}} {{ui['分钟']}}<text class="cost-chevron">›</text></view>
           </view>
@@ -743,13 +734,13 @@
         <!-- ============ 接口请求（仅自定义 HTTP） ============ -->
         <block wx:if="{{sheetCustom.adapter === 'custom'}}">
           <view class="cost-sheet-section">{{ui['接口请求']}}</view>
-          <view class="cost-card">
+          <view class="cost-card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
             <view class="cost-field">
               <text class="cost-field-label">{{ui['接口地址']}}</text>
               <input class="cost-field-input" value="{{sheetCustom.request.url}}" data-index="{{sheetCustom.index}}" data-field="url" bindinput="onCustomRequestInput" bindblur="onCustomRequestBlur" placeholder="https://api.example.com/balance" maxlength="2048"/>
             </view>
             <view class="cost-divider"></view>
-            <view class="cost-row" bindtap="pickCustomMethod" data-index="{{sheetCustom.index}}" role="button">
+            <view class="cost-row" id="pick-custom-method" bindtap="pickCustomMethod" data-index="{{sheetCustom.index}}" role="button">
               <view class="cost-row-copy"><text class="cost-row-label">{{ui['请求方法']}}</text></view>
               <view class="cost-row-value">{{sheetCustom.request.method}}<text class="cost-chevron">›</text></view>
             </view>
@@ -770,7 +761,7 @@
 
         <!-- ============ 解析规则 ============ -->
         <view class="cost-sheet-section">{{ui['解析规则']}}<text class="cost-section-note">{{ui['JSON 路径，可用 op:path|path']}}</text></view>
-        <view class="cost-card">
+        <view class="cost-card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
           <view class="cost-field">
             <text class="cost-field-label">{{ui['解析规则']}}<text class="cost-field-optional">{{ui['留空则不解析']}}</text></text>
             <textarea class="cost-field-input cost-field-textarea cost-field-mono" value="{{sheetCustom.extractText}}" data-index="{{sheetCustom.index}}" data-field="extractText" bindinput="onCustomFieldInput" bindblur="onCustomFieldBlur" placeholder="{{ui['解析规则默认模板']}}" maxlength="4096" cursor-spacing="24" show-confirm-bar="{{false}}"/>
@@ -780,7 +771,7 @@
 
         <!-- ============ 高级 ============ -->
         <view class="cost-sheet-section">{{ui['高级']}}</view>
-        <view class="cost-card">
+        <view class="cost-card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
           <view class="cost-row">
             <view class="cost-row-copy"><text class="cost-row-label">{{ui['按显示币种折算']}}</text></view>
             <dsh-switch checked="{{sheetCustom.convertToDisplayCurrency}}" data-index="{{sheetCustom.index}}" bindchange="onCustomConvert"/>
@@ -821,5 +812,50 @@
         </view>
       </scroll-view>
     </view>
+  </view>
+
+  <!-- 选择弹窗内容模板：底部弹窗与锚点菜单共用 -->
+  <template name="choiceRows">
+    <view class="settings-choice-content">
+      <view
+        wx:for="{{items}}"
+        wx:key="id"
+        class="settings-choice-row"
+        hover-class="settings-choice-row-pressed"
+        data-kind="{{kind}}"
+        data-id="{{item.id}}"
+        bindtap="chooseChoice"
+        role="button"
+        aria-label="{{ui[item.label] !== undefined ? ui[item.label] : item.label}}"
+      >
+        <image class="settings-choice-ic" src="/assets/icons/{{item.id === current ? 'check-fill-white.png' : 'circle-white.png'}}" mode="aspectFit"/>
+        <text class="settings-choice-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
+      </view>
+    </view>
+  </template>
+
+  <!-- 形态一：底部弹窗（受设置页「底部弹窗」开关控制，皮肤跟随「玻璃UI样式」） -->
+  <view wx:if="{{choiceMenu && choiceSheet}}" class="choice-sheet-mask" catchtap="closeChoiceMenu" catchtouchmove="noop">
+    <view class="choice-sheet {{settingsGlassEnabled ? 'choice-sheet-glass' : ''}}" catchtap="noop" role="dialog" aria-label="{{choiceTitle}}">
+      <view class="choice-sheet-grabber"><view class="choice-sheet-grabbar"></view></view>
+      <scroll-view scroll-y class="choice-sheet-body" show-scrollbar="{{false}}">
+        <template is="choiceRows" data="{{items: choiceOptions, current: choiceCurrent, kind: choiceMenu, ui: ui}}"/>
+      </scroll-view>
+    </view>
+  </view>
+
+  <!-- 形态二：贴行的锚点菜单 -->
+  <view wx:if="{{choiceMenu && !choiceSheet}}" class="settings-choice-mask" catchtap="closeChoiceMenu" catchtouchmove="noop"></view>
+  <view
+    wx:if="{{choiceMenu && !choiceSheet}}"
+    class="settings-choice {{settingsGlassEnabled ? 'settings-choice-glass' : ''}}"
+    style="left: {{choiceLeft}}px; top: {{choiceTop}}px; width: {{choiceWidth}}px; height: {{choiceHeight}}px; transform-origin: 50% {{choiceOriginY}}px;"
+    catchtap="noop"
+    role="dialog"
+    aria-label="{{choiceTitle}}"
+  >
+    <scroll-view class="settings-choice-scroll" scroll-y show-scrollbar="{{false}}">
+      <template is="choiceRows" data="{{items: choiceOptions, current: choiceCurrent, kind: choiceMenu, ui: ui}}"/>
+    </scroll-view>
   </view>
 </view>

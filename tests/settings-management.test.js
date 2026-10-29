@@ -47,6 +47,7 @@ function createPage(apiOptions) {
       ? { requestAccount: api.requestAccount } : {}, typeof api.requestClawbot === 'function'
       ? { requestClawbot: api.requestClawbot } : {}),
     refreshHostPresence() { calls.push('refresh'); },
+    refreshPlugins() {},
     pairWithPayload(raw) { calls.push(['pair', raw]); return { ok: true }; },
     selectHost(id) { calls.push(['select', id]); },
     createRelayShare() { return Promise.resolve({ raw: 'test-share', expiresAt: Date.now() + 60000 }); }
@@ -80,6 +81,8 @@ function createPage(apiOptions) {
       if (name === './utils/identity-badge') return require('../miniprogram/pages/settings/utils/identity-badge');
       if (name === './utils/storage-usage') return require('../miniprogram/pages/settings/utils/storage-usage');
       if (name === '../../utils/host-info') return require('../miniprogram/utils/host-info');
+      if (name === '../../utils/choice-menu') return require('../miniprogram/utils/choice-menu');
+      if (name === '../../utils/settings-glass-style-pref') return { KEY: 'settingsGlassStyle', DEFAULTS: { alpha: 10, blur: 8, edge: 38, radius: 32, brightness: 100 }, LIMITS: { alpha: [4, 40], blur: [2, 24], edge: [10, 70], radius: [20, 40], brightness: [40, 160] }, read: () => ({ alpha: 10, blur: 8, edge: 38, radius: 32 }), set: patch => patch, view: () => ({ glassSurfaceStyle: 'background: linear-gradient(165deg, rgba(255, 255, 255, 0.040), rgba(255, 255, 255, 0.016)); border: 1px solid rgba(255, 255, 255, 0.38); border-radius: 16.64px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 6.24px 24.96px rgba(3, 14, 30, 0.26); backdrop-filter: blur(4.16px); -webkit-backdrop-filter: blur(4.16px);', glassAlpha: 10, glassBlur: 8, glassEdge: 38, glassRadius: 32, glassAlphaTop: '0.040', glassAlphaBottom: '0.016', glassAlphaTopPct: 4, glassAlphaBottomPct: 1.6, glassBrightness: 100, glassEdgeAlpha: '0.38', glassBlurSheet: '4.16px', glassBlurCard: '1.56px', glassRadiusSheet: '16.64px', glassRadiusCard: '18.72px' }) };
       if (name === '../../utils/labels') return { presetModeName: (v) => v, presetDisplayName: (name, id) => name || id, permissionName: (v) => v };
       if (name === './utils/notify-pref') return { enabled: () => false };
       if (name === './utils/voice-preference') return require('../miniprogram/pages/settings/utils/voice-preference');
@@ -94,6 +97,7 @@ function createPage(apiOptions) {
         read: () => false, set: value => value === true
       };
       if (name === '../../utils/settings-glass-pref') return { KEY: 'settingsGlassStyleEnabled', DEFAULT: true, read: () => true, set: value => value === true };
+      if (name === '../../utils/settings-glass-sheet-pref') return { KEY: 'settingsGlassSheetEnabled', DEFAULT: true, read: () => true, set: value => value === true };
       if (name === '../../utils/haptics') return require('../miniprogram/utils/haptics');
       if (name === '../../utils/public-access-prompt') return require('../miniprogram/utils/public-access-prompt');
       if (name === '../../utils/cost-view') return require('../miniprogram/utils/cost-view');
@@ -135,18 +139,111 @@ test('work-step selections persist and their open row stays above the dismiss ma
     page.chooseWorkStep({ currentTarget: { dataset: { field: 'timing', id: 'next-input' } } });
     assert.deepEqual(storage.get('workStepPresentation'), { mode: 'compact', timing: 'next-input' });
     assert.equal(page.data.workStepTiming, 'next-input');
-    assert.equal(page.data.workStepMenu, '');
+    assert.equal(page.data.choiceMenu, '');
   } finally {
     if (previousWx === undefined) delete global.wx;
     else global.wx = previousWx;
   }
 
-  assert.match(wxml, /workStepMenu === 'mode' \? 'work-step-row-open'/);
-  assert.match(wxml, /workStepMenu === 'timing' \? 'work-step-row-open'/);
-  assert.match(wxss, /\.work-step-menu-mask\s*\{[^}]*z-index:\s*80/);
+  // 两个选项菜单都改用「工作区选择」同款的锚点玻璃弹窗。
+  assert.match(wxml, /choiceMenu === 'mode' \? 'work-step-row-open'/);
+  assert.match(wxml, /choiceMenu === 'timing' \? 'work-step-row-open'/);
+  assert.match(wxml, /wx:if="\{\{choiceMenu && choiceSheet\}\}" class="choice-sheet-mask" catchtap="closeChoiceMenu"/);
+  assert.match(wxml, /class="choice-sheet \{\{settingsGlassEnabled \? 'choice-sheet-glass' : ''\}\}"/);
+  assert.match(wxml, /wx:if="\{\{choiceMenu && !choiceSheet\}\}" class="settings-choice-mask" catchtap="closeChoiceMenu"/);
+  assert.match(wxml, /class="settings-choice \{\{settingsGlassEnabled \? 'settings-choice-glass' : ''\}\}"\s+style="left: \{\{choiceLeft\}\}px; top: \{\{choiceTop\}\}px; width: \{\{choiceWidth\}\}px; height: \{\{choiceHeight\}\}px;/);
+  // 锚点玻璃弹窗的样式在共用的 styles/glass-ui.wxss（设置页与额度卡片页同源）。
+  const glassCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/styles/glass-ui.wxss'), 'utf8');
+  assert.match(wxss, /@import "\.\.\/\.\.\/styles\/glass-ui\.wxss"/);
+  assert.match(glassCss, /\.settings-choice-mask\s*\{[^}]*z-index:\s*300/);
+  assert.match(glassCss, /\.settings-choice \{[\s\S]{0,80}?z-index:\s*301/);
+  // 默认是原生实色形态（跟随深浅色变量），玻璃 UI 开启才叠加 .settings-choice-glass。
+  assert.match(glassCss, /\.settings-choice \{[\s\S]*?border-radius: var\(--glass-radius-choice, 64rpx\);[\s\S]*?background: var\(--surface\);[\s\S]*?border: 1rpx solid var\(--border\)/);
+  assert.match(glassCss, /\.settings-choice\.settings-choice-glass \{[\s\S]*?linear-gradient\(165deg, rgba\(255, 255, 255, var\(--glass-alpha-top, 0\.10\)\), rgba\(255, 255, 255, var\(--glass-alpha-bottom, 0\.04\)\)\)[\s\S]*?backdrop-filter: blur\(var\(--glass-blur-sheet, 8rpx\)\)/);
+  assert.match(glassCss, /\.settings-choice\.settings-choice-glass \.settings-choice-label \{ color: #FFFFFF/);
+  assert.match(glassCss, /\.settings-choice-row \{[^}]*min-height: 44px/);
+  assert.match(wxml, /class="settings-choice \{\{settingsGlassEnabled \? 'settings-choice-glass' : ''\}\}"/);
   assert.match(wxss, /\.work-step-row-open\s*\{[^}]*z-index:\s*82/);
+  // 语言行不再原地展开：同一个玻璃弹窗承载。
+  assert.match(wxml, /preference-select" bindtap="pickLanguage"[^>]*>[\s\S]{0,200}?choiceMenu === 'language' \? 'expanded' : ''/);
+  assert.doesNotMatch(wxml, /preference-menu/);
 });
 
+
+test('语言选择复用工作区同款的锚点玻璃弹窗', () => {
+  const { page, wx, storage } = createPage();
+  const previousWx = global.wx;
+  global.wx = wx;
+  try {
+    page.setData({ languageOptions: [{ id: 'system', label: '跟随系统' }, { id: 'zh', label: '简体中文' }, { id: 'en', label: 'English' }] });
+    page.pickLanguage();
+    assert.equal(page.data.choiceMenu, 'language', 'the workspace-style menu opens for language');
+    assert.equal(page.data.choiceTitle, '语言');
+    assert.equal(page.data.choiceOptions.length, 3);
+    assert.equal(page.data.choiceCurrent, 'system');
+    assert.ok(Number.isFinite(page.data.choiceLeft) && Number.isFinite(page.data.choiceTop));
+    page.pickLanguage();
+    assert.equal(page.data.choiceMenu, '', 'tapping the row again closes the menu');
+    page.pickLanguage();
+    page.chooseChoice({ currentTarget: { dataset: { kind: 'language', id: 'en' } } });
+    assert.equal(page.data.choiceMenu, '');
+    assert.equal(storage.get('appLanguage'), 'en', 'the language choice persists');
+  } finally {
+    if (previousWx === undefined) delete global.wx;
+    else global.wx = previousWx;
+  }
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  // 三个入口共用一个浮层：语言行没有任何原地展开的旧菜单。
+  assert.doesNotMatch(wxml, /preference-menu/);
+  assert.match(wxml, /bindtap="pickLanguage"[\s\S]{0,200}?choiceMenu === 'language' \? 'expanded' : ''/);
+  assert.match(wxml, /bindtap="toggleWorkStepMenu" data-field="mode"/);
+  assert.match(wxml, /bindtap="toggleWorkStepMenu" data-field="timing"/);
+});
+
+test('额度卡片入口移到实验性功能，箭头改成开关并复用额度卡片页的显示开关', async () => {
+  const { page, store, costRequests, calls } = createPage();
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  // 入口不再带箭头，也不再是外观卡片里的 management-entry
+  assert.doesNotMatch(wxml, /card-row management-entry" bindtap="openCostMeter"/);
+  // 落在「实验性功能」卡片里：标题可点进额度卡片页，右侧是开关
+  const experimental = wxml.slice(wxml.indexOf("{{ui['实验性功能']}}"));
+  const card = experimental.slice(0, experimental.indexOf('group-hint'));
+  assert.match(card, /bindtap="openCostMeter"/);
+  assert.match(card, /dsh-switch checked="\{\{quotaSidebarVisible\}\}"[^>]*bindchange="toggleQuotaSidebarVisibility"/);
+  assert.doesNotMatch(card.slice(card.indexOf('bindtap="openCostMeter"') - 200, card.indexOf('bindtap="openCostMeter"') + 600), /chevron-img/);
+  assert.match(js, /toggleQuotaSidebarVisibility\(e\)/);
+  assert.match(js, /requestCostMeter\('update', \{ patch: \{ display: \{ sidebarVisible: enabled \} \} \}\)/);
+
+  // 打开设置页时读取额度卡片配置，勾选状态与额度卡片页「显示额度卡片」同源
+  store.state.connection = 'connected';
+  page.onShow();
+  await Promise.resolve();
+  const configRequest = costRequests.find(item => item.action === 'config');
+  assert.ok(configRequest, 'settings page asks for the quota config');
+  configRequest.resolve({ display: { sidebarVisible: true } });
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(page.data.quotaSidebarVisible, true);
+
+  // 关闭开关 → 写回同一份配置，但留在设置页（不跳页）
+  const before = calls.length;
+  let pending = page.toggleQuotaSidebarVisibility({ detail: { value: false } });
+  let update = costRequests.filter(item => item.action === 'update').at(-1);
+  update.resolve({ config: { display: { sidebarVisible: false } } });
+  await pending;
+  assert.equal(page.data.quotaSidebarVisible, false);
+  assert.equal(calls.filter(call => call[0] === 'navigate').length, 0, 'turning it off stays on settings');
+
+  // 打开开关 → 保存成功后自动进入额度卡片页
+  pending = page.toggleQuotaSidebarVisibility({ detail: { value: true } });
+  update = costRequests.filter(item => item.action === 'update').at(-1);
+  update.resolve({ config: { display: { sidebarVisible: true } } });
+  await pending;
+  assert.equal(page.data.quotaSidebarVisible, true);
+  assert.ok(calls.some(call => call[0] === 'navigate' && call[1] === '/pages/cost-meter/cost-meter'),
+    'turning it on opens the quota card page');
+  assert.deepEqual(JSON.parse(JSON.stringify(update.payload)), { patch: { display: { sidebarVisible: true } } });
+});
 test('settings account area shows login and balance while connected and hides when disconnected', async () => {
   const { page, store } = createPage({
     requestAccount: async () => ({ state: { status: 'signed-out' } })
@@ -685,28 +782,64 @@ test('节点卡片的状态点相对整张卡片垂直居中', () => {
   assert.ok(!/\.node-name-line \.status-dot/.test(wxss), '不再依赖名称行内的定位');
 });
 
-test('公网访问弹窗沿用首页工作区弹窗的玻璃背景，但保持底部弹窗', () => {
+test('设置页底部弹窗的玻璃形态对齐首页设置页的选择弹窗', () => {
   const wxmlRaw = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
   const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  const glassCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/styles/glass-ui.wxss'), 'utf8');
   const homeCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/home/home.wxss'), 'utf8');
-  // 只有公网访问面板套玻璃背景；节点/网关面板仍是原来的纯色底部弹窗。
-  assert.match(wxmlRaw, /managementPanel === 'public' && settingsGlassEnabled \? 'management-sheet-glass' : ''/);
-  assert.match(wxmlRaw, /class="pair-sheet management-sheet resizable /);
-  // 背景参数与首页工作区选择弹窗一致。
-  for (const sheet of [css, homeCss]) {
-    assert.ok(sheet.includes('linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04))'), 'workspace popover gradient');
-    assert.ok(sheet.includes('1rpx solid rgba(255, 255, 255, 0.38)'), 'workspace popover hairline');
-    assert.ok(sheet.includes('blur(8rpx)'), 'workspace popover blur');
+  const pickerCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session-settings/session-settings.wxss'), 'utf8');
+  assert.match(css, /@import "\.\.\/\.\.\/styles\/glass-ui\.wxss"/);
+  const gated = wxmlRaw.match(/settingsGlassEnabled \? 'settings-glass-sheet' : ''/g) || [];
+  assert.ok(gated.length >= 15, 'every sheet container gates the glass class, got ' + gated.length);
+  assert.match(wxmlRaw, /class="pair-sheet management-sheet resizable \{\{settingsGlassEnabled \? 'settings-glass-sheet' : ''\}\}"/);
+  assert.doesNotMatch(wxmlRaw, /management-sheet-glass/);
+  for (const sheet of [glassCss, pickerCss]) {
+    assert.ok(sheet.includes('linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)))'), 'glass gradient');
+    assert.ok(sheet.includes('1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38))'), 'glass hairline');
+    assert.ok(sheet.includes('blur(var(--glass-blur-sheet, 8rpx))'), 'glass blur');
   }
-  assert.match(css, /\.pair-sheet\.management-sheet-glass\s*\{[\s\S]*?inset 0 1rpx 0 rgba\(255, 255, 255, 0\.16\)[\s\S]*?0 24rpx 72rpx rgba\(3, 14, 30, 0\.26\)/);
-  assert.match(css, /\.theme-light \.pair-sheet\.management-sheet-glass\s*\{/);
-  assert.match(css, /\.pair-sheet\.management-sheet-glass \.public-card\s*\{[^}]*background: linear-gradient/,
-    'the middle public-access card also uses translucent glass');
-  assert.match(css, /\.theme-light \.pair-sheet\.management-sheet-glass \.public-card/);
-  // 仍是底部弹窗：遮罩底部对齐、顶部圆角、抓手保留。
+  assert.match(glassCss, /\.pair-sheet\.settings-glass-sheet,[\s\S]*?\.status-style-sheet\.settings-glass-sheet,[\s\S]*?\.referral-sheet\.settings-glass-sheet,[\s\S]*?\.cost-sheet\.settings-glass-sheet \{[\s\S]*?width: calc\(100% - 24px\);[\s\S]*?margin: 0 12px 24px;[\s\S]*?border-radius: var\(--glass-radius-sheet, 32rpx\);/);
+  assert.match(glassCss, /\.theme-light \.pair-sheet\.settings-glass-sheet/);
+  assert.match(glassCss, /\.pair-sheet\.settings-glass-sheet,[\s\S]*?--glass-sheet-drop: 24px/);
+  assert.equal((wxmlRaw.match(/calc\(90vh - var\(--glass-sheet-drop, 0px\)\)/g) || []).length, 6, 'fixed-height sheets subtract the inset');
+  assert.equal((wxmlRaw.match(/var\(--glass-sheet-drop, 0px\)/g) || []).length, 9, 'every vh-sized sheet follows the inset');
+  assert.match(glassCss, /\.pair-sheet\.settings-glass-sheet,[\s\S]*?--surface: rgba\(255, 255, 255, 0\.07\)/);
+  assert.match(glassCss, /\.theme-light \.pair-sheet\.settings-glass-sheet,[\s\S]*?--surface: rgba\(255, 255, 255, 0\.82\)/);
+  assert.match(css, /\.pair-sheet\.settings-glass-sheet \.public-card[\s\S]{0,200}?background: linear-gradient/);
   assert.match(css, /\.pair-sheet-mask\s*\{[^}]*align-items: flex-end/);
-  assert.match(css, /\.pair-sheet\s*\{[^}]*border-radius: 32rpx 32rpx 0 0/);
   assert.match(wxmlRaw, /class="sheet-grabber-zone" data-sheet="management"/);
+  assert.ok(homeCss.includes('var(--glass-alpha-top, 0.10)'), 'workspace popover shares the same glass recipe');
+});
+
+test('设置页卡片沿用首页设置页的玻璃卡片材质', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  const glassCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/styles/glass-ui.wxss'), 'utf8');
+  const sessionCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session-settings/session-settings.wxss'), 'utf8');
+  const homeCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/home/home.wxss'), 'utf8');
+  const gated = wxml.match(/settingsGlassEnabled \? 'settings-glass-card' : ''/g) || [];
+  assert.equal(gated.length, 9, 'every page-level card gates the glass class');
+  for (const line of ['class="card {{settingsGlassEnabled ? \'settings-glass-card\' : \'\'}}"', 'class="card work-step-settings', 'class="card general-preferences']) {
+    assert.ok(wxml.includes(line), line);
+  }
+  const recipe = [
+    'border-radius: var(--glass-radius-card, 36rpx);',
+    'background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));',
+    'border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));',
+    'backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));',
+    'box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 8rpx 32rpx rgba(3, 14, 30, 0.18);'
+  ];
+  assert.match(css, /@import "\.\.\/\.\.\/styles\/glass-ui\.wxss"/);
+  const start = glassCss.indexOf('.settings-glass-card,');
+  const end = glassCss.indexOf('}', start);
+  const pageBlock = glassCss.slice(start, end);
+  const sessionStart = sessionCss.indexOf('.settings-glass-card {');
+  const sessionBlock = sessionCss.slice(sessionStart, sessionCss.indexOf('}', sessionStart));
+  for (const declaration of recipe) {
+    assert.ok(pageBlock.includes(declaration), 'settings page glass card: ' + declaration);
+    assert.ok(sessionBlock.includes(declaration), 'session settings glass card: ' + declaration);
+  }
+  assert.ok(homeCss.includes('var(--glass-alpha-top, 0.06)'), 'home workspace cards share the same glass recipe');
 });
 
 test('glass settings preference defaults on and controls both settings surfaces', () => {
@@ -719,11 +852,10 @@ test('glass settings preference defaults on and controls both settings surfaces'
   vm.runInNewContext(source, context);
   const preference = context.module.exports;
   assert.equal(preference.DEFAULT, true);
-  assert.equal(preference.read(), true, 'a new install starts with glass style enabled');
+  assert.equal(preference.read(), true);
   assert.equal(preference.set(false), false);
   assert.equal(preference.read(), false);
   assert.equal(preference.set(true), true);
-
   const settingsWxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
   const settingsJs = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
   const sessionWxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session-settings/session-settings.wxml'), 'utf8');
@@ -733,6 +865,318 @@ test('glass settings preference defaults on and controls both settings surfaces'
   assert.match(sessionWxml, /settingsGlassEnabled \? 'settings-glass-card' : ''/);
   assert.match(sessionWxml, /picker && settingsGlassEnabled/);
   assert.match(sessionWxml, /picker && !settingsGlassEnabled/);
-  assert.match(sessionJs, /if \(!this\.data\.settingsGlassEnabled \|\| kind === 'preset'\) \{[\s\S]*?this\.setData\(state\)/, 'the preset sheet never waits for anchor metrics');
+  assert.match(sessionJs, /if \(!this\.data\.settingsGlassEnabled \|\| this\.data\.settingsGlassSheetEnabled\) \{[\s\S]*?this\.setData\(state\)/);
 });
 
+test('glass popup sheet preference defaults on and switches the picker presentation', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../miniprogram/utils/settings-glass-sheet-pref.js'), 'utf8');
+  let stored;
+  const context = {
+    module: { exports: {} },
+    wx: { getStorageSync: () => stored, setStorageSync: (_key, value) => { stored = value; } }
+  };
+  vm.runInNewContext(source, context);
+  const preference = context.module.exports;
+  assert.equal(preference.KEY, 'settingsGlassSheetEnabled');
+  assert.equal(preference.DEFAULT, true);
+  assert.equal(preference.read(), true);
+  assert.equal(preference.set(false), false);
+  assert.equal(preference.read(), false);
+  assert.equal(preference.set(true), true);
+  const settingsWxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const settingsJs = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  const sessionWxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session-settings/session-settings.wxml'), 'utf8');
+  const sessionJs = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session-settings/session-settings.js'), 'utf8');
+  assert.match(settingsWxml, /settingsGlassEnabled[\s\S]*?settingsGlassSheetEnabled[\s\S]*?bindchange="toggleSettingsGlassSheet"/);
+  assert.match(settingsJs, /toggleSettingsGlassSheet\(e\)[\s\S]*?settingsGlassSheetPreference\.set/);
+  assert.match(sessionJs, /settings-glass-sheet-pref/);
+  assert.match(sessionJs, /settingsGlassSheetEnabled: settingsGlassSheetPreference\.read\(\)/);
+  assert.match(sessionWxml, /picker && settingsGlassEnabled && settingsGlassSheetEnabled/);
+  assert.match(sessionWxml, /picker && settingsGlassEnabled && !settingsGlassSheetEnabled/);
+});
+
+test('设置页里的玻璃样式滑杆可拖动，透明度 / 模糊 / 亮边 / 圆角即时生效', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  const glassCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/styles/glass-ui.wxss'), 'utf8');
+  for (const field of ['alpha', 'blur', 'edge', 'radius', 'brightness']) {
+    assert.ok(wxml.includes('data-field="' + field + '"'), 'slider for ' + field);
+  }
+  assert.equal((wxml.match(/bindchanging="onGlassStyleChanging"/g) || []).length, 5);
+  assert.equal((wxml.match(/bindchange="onGlassStyleChange"/g) || []).length, 5);
+  assert.match(wxml, /glass-alpha-value">\{\{glassAlpha\}\}%/);
+  assert.match(wxml, /glass-alpha-value">\{\{glassBlur\}\}rpx/);
+  assert.match(wxml, /glass-alpha-value">\{\{glassEdge\}\}%/);
+  assert.match(wxml, /glass-alpha-value">\{\{glassRadius\}\}rpx/);
+  assert.match(wxml, /glass-alpha-value">\{\{glassBrightness\}\}%/);
+  assert.match(js, /onGlassStyleChanging\(e\)[\s\S]*?settingsGlassStylePreference\.view/);
+  assert.match(js, /onGlassStyleChange\(e\)[\s\S]*?settingsGlassStylePreference\.set/);
+  assert.match(glassCss, /var\(--glass-alpha-top, 0\.10\)/);
+  assert.match(glassCss, /var\(--glass-edge-alpha, 0\.38\)/);
+  assert.match(glassCss, /var\(--glass-blur-sheet, 8rpx\)/);
+  assert.match(glassCss, /var\(--glass-radius-sheet, 32rpx\)/);
+  for (const file of ['pages/settings/settings.wxml', 'pages/home/home.wxml', 'pages/cost-meter/cost-meter.wxml', 'pages/session-settings/session-settings.wxml']) {
+    const source = fs.readFileSync(path.resolve(__dirname, '../miniprogram', file), 'utf8');
+    assert.match(source, /--glass-alpha-top: \{\{glassAlphaTop\}\}; --glass-alpha-bottom: \{\{glassAlphaBottom\}\}; --glass-edge-alpha: \{\{glassEdgeAlpha\}\}/, file + ' binds the glass style vars');
+  }
+  assert.match(css, /\.glass-alpha-slider/);
+});
+
+test('玻璃样式设置是独立弹窗，只在玻璃 UI 开启时出现', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  // 入口：玻璃开关打开时才显示「玻璃样式设置」
+  assert.match(wxml, /<view wx:if="\{\{settingsGlassEnabled\}\}" class="card-row" id="glass-style-entry" bindtap="openGlassStyleSheet"/);
+  assert.match(wxml, /class="card-row" id="glass-style-entry"[^>]*aria-label="\{\{ui\['玻璃样式设置'\]\}\}"/);
+  // 独立弹窗：玻璃皮肤，底部 / 非底部两种形态
+  assert.match(wxml, /wx:if="\{\{glassStyleOpen\}\}"[\s\S]{0,160}?class="\{\{settingsGlassSheetEnabled \? 'glass-style-sheet' : 'glass-style-pop'\}\}"/);
+  assert.match(wxml, /glass-style-done tap" catchtap="closeGlassStyleSheet"/);
+  const combined = css.slice(css.indexOf('.glass-style-sheet,'));
+  for (const declaration of [
+    'linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)))',
+    '1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38))',
+    'blur(var(--glass-blur-sheet, 8rpx))'
+  ]) {
+    assert.ok(combined.includes(declaration), 'glass material: ' + declaration);
+  }
+  // JS：打开只允许玻璃模式，关闭玻璃时两个弹窗都收起
+  assert.match(js, /openGlassStyleSheet\(\) \{\s*if \(!this\.data\.settingsGlassEnabled\) return;/);
+  assert.match(js, /openGlassStyleSheet\(\)[\s\S]{0,160}?openStylePopup\('#glass-style-entry', 'glassStyleOpen'\)/);
+  assert.match(js, /toggleSettingsGlass\(e\)[\s\S]{0,220}?glassStyleOpen: false, nativeStyleOpen: false/);
+  // 五根玻璃滑杆都在玻璃弹窗里
+  const popupAt = wxml.indexOf('glass-style-title">{{ui[\'玻璃样式设置\']}}');
+  const endAt = wxml.indexOf('原生样式设置弹窗');
+  const glassSection = wxml.slice(popupAt, endAt);
+  assert.equal((glassSection.match(/class="glass-alpha-slider"/g) || []).length, 5);
+});
+
+
+test('玻璃样式弹窗带拖动条，并可以一键恢复默认参数', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  const pref = fs.readFileSync(path.resolve(__dirname, '../miniprogram/utils/settings-glass-style-pref.js'), 'utf8');
+  // 底部形态带拖动条，非底部浮层不带
+  assert.match(wxml, /<view wx:if="\{\{settingsGlassSheetEnabled\}\}" class="sheet-grabber"><\/view>\s*<view class="glass-style-head">/);
+  // 重置按钮 + 完成按钮同排
+  assert.match(wxml, /class="glass-style-actions"[\s\S]{0,400}?class="glass-style-reset tap" catchtap="resetGlassStyle"[\s\S]{0,200}?class="glass-style-done tap" catchtap="closeGlassStyleSheet"/);
+  // 文案与 toast
+  assert.match(wxml, /重置为默认/);
+  assert.match(js, /resetGlassStyle\(\) \{[\s\S]*?settingsGlassStylePreference\.reset\(\)[\s\S]*?已恢复默认/);
+  // 偏好模块提供 reset()，回到默认四项
+  assert.match(pref, /function reset\(\) \{\s*return set\(DEFAULTS\);\s*\}/);
+  assert.match(pref, /module\.exports = \{ KEY, DEFAULTS, LIMITS, read, set, view, reset, nativePalette \};/);
+  const source = pref;
+  let stored;
+  const context = { module: { exports: {} }, wx: { getStorageSync: () => stored, setStorageSync: (_k, v) => { stored = v; } } };
+  vm.runInNewContext(source, context);
+  const module = context.module.exports;
+  module.set({ alpha: 34, blur: 20, edge: 66, radius: 22, native: 20 });
+  assert.equal(module.read().alpha, 34);
+  module.reset();
+  assert.equal(JSON.stringify(module.read()), JSON.stringify({ alpha: 10, blur: 8, edge: 38, radius: 32, brightness: 100, native: 50 }), 'reset restores every default (透明度 4% 即 10% -> 4% 渐变)');
+});
+
+test('玻璃样式设置入口排在玻璃UI样式开关正下方', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const glassSwitchAt = wxml.indexOf('bindchange="toggleSettingsGlass"');
+  const entryAt = wxml.indexOf('id="glass-style-entry"');
+  const sheetSwitchAt = wxml.indexOf('bindchange="toggleSettingsGlassSheet"');
+  assert.ok(glassSwitchAt > 0 && entryAt > glassSwitchAt, 'entry sits under the glass UI switch');
+  assert.ok(sheetSwitchAt > entryAt, 'the bottom-sheet switch keeps its place after the entry');
+  assert.equal((wxml.match(/id="glass-style-entry"/g) || []).length, 1, 'only one entry row');
+  assert.equal((wxml.match(/bindchange="toggleSettingsGlass"/g) || []).length, 1);
+});
+
+test('原生样式设置弹窗用原生皮肤：实色底 + 主题文字', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  // 弹窗带 native-skin，背景用当前原生调色（调节滑杆时弹窗自身即时变化）
+  assert.match(wxml, /class="native-skin \{\{settingsGlassSheetEnabled \? 'glass-style-sheet' : 'glass-style-pop'\}\}"/);
+  assert.match(wxml, /style="background-color: \{\{nativeSurfaceColor\}\};/);
+  assert.match(css, /\.glass-style-sheet\.native-skin,[\s\S]{0,60}?\.glass-style-pop\.native-skin \{[\s\S]{0,200}?background: var\(--surface\);[\s\S]{0,200}?backdrop-filter: none;/);
+  for (const selector of ['.glass-style-title', '.glass-style-label', '.glass-alpha-value']) {
+    assert.ok(css.includes('.native-skin ' + selector), 'native skin text rule for ' + selector);
+  }
+  assert.ok(css.includes('color: var(--text);'), 'native skin text follows theme text colour');
+  // 深浅色各自锁死文字色，避免继承错色
+  assert.match(css, /\.theme-dark \.native-skin \.glass-style-title,[\s\S]{0,240}?#F1F4FA/);
+  assert.match(css, /\.theme-light \.native-skin \.glass-style-title,[\s\S]{0,240}?#10131A/);
+});
+
+test('调节原生背景时，原生样式设置弹窗自身背景即时变化', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const pref = fs.readFileSync(path.resolve(__dirname, '../miniprogram/utils/settings-glass-style-pref.js'), 'utf8');
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  // 弹窗背景绑定 nativeSurfaceColor；滑杆事件会重算调色并 setData
+  assert.match(wxml, /style="background-color: \{\{nativeSurfaceColor\}\};/);
+  assert.match(js, /onNativeBgChanging\(e\)[\s\S]{0,220}?applyNativeBg/);
+  assert.match(js, /applyNativeBg\(value\)[\s\S]{0,220}?nativePaletteData\(v\)/);
+  assert.match(js, /nativePaletteData\(value\)[\s\S]{0,260}?nativeSurfaceColor/);
+  // 共享调色函数：默认 50 = 主题底色，亮度变化会给出不同颜色
+  let stored;
+  const context = { module: { exports: {} }, wx: { getStorageSync: () => stored, setStorageSync: (_k, v) => { stored = v; }, getWindowInfo: () => ({ windowWidth: 390 }) } };
+  vm.runInNewContext(pref, context);
+  const preference = context.module.exports;
+  const dark = preference.nativePalette(50, false);
+  const darker = preference.nativePalette(10, false);
+  const brighter = preference.nativePalette(90, false);
+  assert.equal(dark.surface, 'rgb(28, 28, 30)');
+  assert.notEqual(darker.surface, dark.surface);
+  assert.notEqual(brighter.surface, dark.surface);
+  const light = preference.nativePalette(50, true);
+  assert.equal(light.surface, 'rgb(255, 255, 255)');
+  assert.match(preference.view({ native: 80 }).nativeSurfaceColor, /^rgb\(/);
+});
+
+test('非底部浮层形态下，玻璃样式设置弹窗比设置页内容宽度略窄', () => {
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  // 设置页左右内边距 40rpx：浮层左右各让出同样间距，宽度与内容区一致
+  assert.match(js, /const pagePad = Math\.round\(40 \* \(windowWidth \/ 750\)\)/);
+  assert.match(js, /const sideGap = pagePad \+ 16/);
+  assert.match(js, /const popWidth = Math\.max\(240, windowWidth - sideGap \* 2\)/);
+  assert.match(js, /glassStyleLeft: sideGap/);
+  assert.match(js, /glassStyleWidth: popWidth/);
+  // 设置页内容区宽度基准
+  assert.match(css, /\.settings \{\s*padding: 0 40rpx 80rpx;/);
+});
+
+test('关闭玻璃 UI 时设置页卡片改用对话状态条卡片的填充背景', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  const appCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/app.wxss'), 'utf8');
+  // 根节点区分玻璃 / 原生：原生模式下卡片走 var(--fill)（对话状态条选项用的就是它）
+  assert.match(wxml, /class="page settings \{\{themeClass\}\} \{\{settingsGlassEnabled \? 'settings-glass-ui' : 'settings-native-ui'\}\}"/);
+  assert.match(css, /\.settings\.settings-native-ui\.theme-dark \.card \{[\s\S]{0,80}?background: var\(--fill\);/);
+  // 浅色模式下卡片保持白色 surface，不套用深色的浅填充
+  assert.doesNotMatch(css, /\.settings\.settings-native-ui \.card \{/);
+  // 默认 .card 仍是实色 surface（玻璃开启时用玻璃材质）
+  assert.match(appCss, /\.card \{[\s\S]{0,60}?background: var\(--surface\);/);
+  // 对话状态条卡片（选项）也是 var(--fill)，两者背景一致
+  assert.match(css, /\.status-style-option \{[^}]*background:\s*var\(--fill\)/);
+});
+
+test('原生背景：常用样式一键切换 + 亮度滑杆微调', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  // 预设色阶：五档，点击直接切换
+  assert.match(js, /nativeBgPresets: \[[\s\S]{0,400}?\{ id: 'default', label: '默认', value: 50 \}/);
+  assert.match(js, /\{ id: 'dim', label: '偏暗', value: 32 \}/);
+  assert.match(js, /\{ id: 'dark', label: '更暗', value: 12 \}/);
+  assert.match(js, /\{ id: 'bright', label: '偏亮', value: 72 \}/);
+  assert.match(js, /\{ id: 'brightest', label: '最亮', value: 92 \}/);
+  assert.match(wxml, /wx:for="\{\{nativeBgPresets\}\}"[\s\S]{0,300}?data-value="\{\{item.value\}\}"[\s\S]{0,200}?bindtap="pickNativeBgPreset"/);
+  assert.match(wxml, /class="native-bg-chip \{\{nativeBgValue === item.value \? 'active' : ''\}\}"/);
+  // 滑杆继续微调
+  assert.match(wxml, /min="0"[\s\S]{0,200}?max="100"[\s\S]{0,200}?value="\{\{nativeBgValue\}\}"[\s\S]{0,200}?bindchanging="onNativeBgChanging"[\s\S]{0,120}?bindchange="onNativeBgChange"/);
+  assert.match(js, /pickNativeBgPreset\(e\)[\s\S]{0,320}?settingsGlassStylePreference\.set\(\{ native: value \}\)[\s\S]{0,200}?this\.applyNativeBg\(value\)/);
+  // 调色：默认 50 = 主题底色；更暗更黑、更亮更浅（逻辑在共享偏好里，各页面复用）
+  const pref = fs.readFileSync(path.resolve(__dirname, '../miniprogram/utils/settings-glass-style-pref.js'), 'utf8');
+  assert.match(pref, /const base = light \? \[255, 255, 255\] : \[28, 28, 30\];/);
+  assert.match(pref, /const darken = v < 50 \? \(50 - v\) \/ 50 \* \(light \? 0\.13 : 0\.55\) : 0;/);
+  assert.match(pref, /const lighten = v > 50/);
+  // 只在原生模式下覆盖 surface/bg/fill，玻璃模式不干预
+  assert.match(wxml, /\{\{settingsGlassEnabled \? '' : '--surface: ' \+ nativeSurfaceColor \+ '; --fill: ' \+ nativeFillColor \+ ';'\}\}/);
+  assert.doesNotMatch(wxml, /--bg: ' \+ nativeBgColor/, 'page/nav background stays fixed');
+  // chips 样式
+  assert.match(css, /\.native-bg-chip \{[\s\S]{0,200}?border-radius: 999rpx;/);
+  assert.match(css, /\.native-bg-chip\.active \{/);
+});
+
+test('原生背景调暗时 fill 透明度同步降低（深色卡片不会再变亮）', () => {
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/utils/settings-glass-style-pref.js'), 'utf8');
+  // 深色：fill 是白色叠加，调暗减 alpha；浅色：黑色叠加，方向相反
+  assert.match(js, /0\.06 \+ lighten \* 0\.16 - darken \* 0\.045/);
+  assert.match(js, /0\.05 \+ darken \* 0\.50/);
+  assert.match(js, /const fillAlpha = Math\.max\(0\.01, Math\.min\(0\.5, rawFill\)\);/);
+});
+
+test('原生样式设置是另一个独立弹窗，两个弹窗同时只显示一个', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  // 两个入口互斥：玻璃开 → 玻璃参数；玻璃关 → 原生样式设置
+  assert.match(wxml, /<view wx:if="\{\{settingsGlassEnabled\}\}" class="card-row" id="glass-style-entry"/);
+  assert.match(wxml, /<view wx:else class="card-row" id="native-style-entry" bindtap="openNativeStyleSheet"[^>]*aria-label="\{\{ui\['原生样式设置'\]\}\}"/);
+  // 两个独立弹窗，分别由各自 open 状态控制
+  assert.match(wxml, /wx:if="\{\{glassStyleOpen\}\}"/);
+  assert.match(wxml, /wx:if="\{\{nativeStyleOpen\}\}"[\s\S]{0,160}?class="native-skin/);
+  // 原生弹窗里只有原生背景相关控件（滑杆 + 预设），没有玻璃五参数
+  const nativeStart = wxml.indexOf('<!-- 原生样式设置弹窗');
+  assert.ok(nativeStart > 0, 'native popup block exists');
+  const nativeSection = wxml.slice(nativeStart);
+  assert.equal((nativeSection.match(/class="glass-alpha-slider"/g) || []).length, 1, 'native popup keeps one brightness slider');
+  assert.ok(nativeSection.includes('{{ui[\'原生背景亮度\']}}'));
+  assert.ok(nativeSection.includes('native-bg-chip'));
+  assert.ok(!nativeSection.includes('{{ui[\'玻璃透明度\']}}'));
+  // 原生弹窗背景色随调色即时变化
+  assert.match(wxml, /class="native-skin \{\{settingsGlassSheetEnabled \? 'glass-style-sheet' : 'glass-style-pop'\}\}"[\s\S]{0,200}?style="background-color: \{\{nativeSurfaceColor\}\};/);
+  // JS：各自打开/关闭，互斥由玻璃开关守卫
+  assert.match(js, /openNativeStyleSheet\(\) \{\s*if \(this\.data\.settingsGlassEnabled\) return;/);
+  assert.match(js, /openNativeStyleSheet\(\)[\s\S]{0,160}?openStylePopup\('#native-style-entry', 'nativeStyleOpen'\)/);
+  assert.match(js, /closeNativeStyleSheet\(\) \{[\s\S]{0,100}?nativeStyleOpen: false/);
+  assert.match(js, /nativeStyleOpen: false/);
+});
+
+
+test('原生背景亮度同时作用于首页、额度卡片页与会话设置页（含其弹窗）', () => {
+  const pages = ['pages/home/home.wxml', 'pages/cost-meter/cost-meter.wxml', 'pages/session-settings/session-settings.wxml'];
+  for (const file of pages) {
+    const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram', file), 'utf8');
+    assert.match(wxml, /\{\{settingsGlassEnabled \? '' : '--surface: ' \+ nativeSurfaceColor \+ '; --fill: ' \+ nativeFillColor \+ ';'\}\}/, file + ' injects native vars only in native mode');
+    assert.doesNotMatch(wxml, /--bg: ' \+ nativeBgColor/, file + ' keeps the page background fixed');
+    const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram', file.replace(/\.wxml$/, '.js')), 'utf8');
+    assert.match(js, /settingsGlassStylePreference\.view\(\{ light: String\(this\.data\.themeClass \|\| ''\)\.indexOf\('light'\) >= 0 \}\)/, file + ' refreshes palette on show');
+  }
+  // 共享偏好导出的调色函数被这三页复用，避免数值漂移
+  const pref = fs.readFileSync(path.resolve(__dirname, '../miniprogram/utils/settings-glass-style-pref.js'), 'utf8');
+  assert.match(pref, /function nativePalette\(value, light\)/);
+  assert.match(pref, /nativeSurfaceColor: p\.surface, nativeBgColor: p\.bg, nativeFillColor: p\.fill/);
+});
+
+test('原生背景适配深色 / 浅色模式，切换外观后立即重算', () => {
+  const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  const pref = fs.readFileSync(path.resolve(__dirname, '../miniprogram/utils/settings-glass-style-pref.js'), 'utf8');
+  // 切换外观后重新应用主题并重算原生调色
+  assert.match(js, /chooseAppearance\(e\)[\s\S]{0,320}?theme\.applyTo\(this\)[\s\S]{0,260}?this\.nativePaletteData\(this\.data\.nativeBgValue\)/);
+  // 调色按主题取两套基色，默认 50 等于各自主题底色
+  assert.match(pref, /const base = light \? \[255, 255, 255\] : \[28, 28, 30\];/);
+  assert.match(pref, /const bgBase = light \? \[255, 255, 255\] : \[0, 0, 0\];/);
+  // 深色 fill 是白叠加、浅色是黑叠加
+  assert.match(pref, /const rawFill = light/);
+  assert.match(pref, /rgba\(16, 19, 24, '/);
+  assert.match(pref, /rgba\(255, 255, 255, '/);
+  let stored;
+  const context = { module: { exports: {} }, wx: { getStorageSync: () => stored, setStorageSync: (_k, v) => { stored = v; }, getWindowInfo: () => ({ windowWidth: 390 }) } };
+  vm.runInNewContext(pref, context);
+  const preference = context.module.exports;
+  const dark = preference.view({ light: false });
+  const light = preference.view({ light: true });
+  assert.equal(dark.nativeBgValue, 50);
+  assert.equal(dark.nativeSurfaceColor, 'rgb(28, 28, 30)');
+  assert.equal(light.nativeSurfaceColor, 'rgb(255, 255, 255)');
+  assert.notEqual(dark.nativeBgColor, light.nativeBgColor);
+  assert.notEqual(dark.nativeFillColor, light.nativeFillColor);
+  // 深浅模式下“更暗”都变暗
+  const darkDim = preference.view({ light: false, native: 10 });
+  const lightDim = preference.view({ light: true, native: 10 });
+  assert.notEqual(darkDim.nativeSurfaceColor, dark.nativeSurfaceColor);
+  assert.notEqual(lightDim.nativeSurfaceColor, light.nativeSurfaceColor);
+});
+
+test('样式设置弹窗包在主题容器里，深色下文字才继承正确的主题变量', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const themeAt = wxml.indexOf('<view class="{{themeClass}}">');
+  const glassAt = wxml.indexOf('玻璃样式设置弹窗');
+  const nativeAt = wxml.indexOf('原生样式设置弹窗');
+  assert.ok(themeAt > 0, 'popups are wrapped in a theme container');
+  assert.ok(glassAt > themeAt, 'glass popup inside the theme container');
+  assert.ok(nativeAt > themeAt, 'native popup inside the theme container');
+  // 容器在原生弹窗之后关闭
+  assert.ok(wxml.lastIndexOf('</view>') > nativeAt, 'wrapper closes after the popups');
+  const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  assert.match(css, /\.theme-dark \.native-skin \.glass-style-title,[\s\S]{0,240}?#F1F4FA/);
+  assert.match(css, /\.theme-light \.native-skin \.glass-style-title,[\s\S]{0,240}?#10131A/);
+});

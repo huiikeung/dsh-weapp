@@ -2,6 +2,7 @@ const { t: uiText } = require('../../utils/ui-preferences');
 const haptics = require('../../utils/haptics');
 const preferences = require('../../utils/ui-preferences');
 const workSteps = require('./utils/work-step-presentation');
+const { choiceMenuLayout } = require('../../utils/choice-menu');
 const statusAppearance = require('./utils/status-appearance');
 const procIconStyle = require('./utils/proc-icon-style');
 const store = require('../../utils/store');
@@ -11,6 +12,9 @@ const homeAnimationPreference = require('../../utils/home-animation-pref');
 const contextPanelsPreference = require('./utils/context-panels-pref');
 const accountCardPreference = require('./utils/account-card-pref');
 const settingsGlassPreference = require('../../utils/settings-glass-pref');
+const settingsGlassSheetPreference = require('../../utils/settings-glass-sheet-pref');
+const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
+
 const contextPreferences = require('./utils/context-prefs');
 const theme = require('../../utils/theme');
 const accessApi = require('../../utils/access-api');
@@ -37,9 +41,16 @@ Page({
   manualShareMenu: true,
   data: {
     navPadTop: 50,
-    workStepMenu: '',
-    workStepMenuTop: '120px',
-    workStepMenuRight: '20px',
+    // 工作步骤展示 / 收起时机 / 语言共用工作区选择同款的锚点玻璃弹窗。
+    choiceMenu: '',
+    choiceTitle: '',
+    choiceOptions: [],
+    choiceCurrent: '',
+    choiceLeft: 16,
+    choiceTop: 120,
+    choiceWidth: 224,
+    choiceHeight: 200,
+    choiceOriginY: 100,
     workStepModes: workSteps.MODES,
     workStepTimings: workSteps.TIMINGS,
     ...workSteps.view(),
@@ -62,7 +73,7 @@ Page({
     appVersion: '',
     minGatewayVersion: '≥ 0.8.6',
     connectedGatewayVersion: uiText('未连接'),
-    languageLabel: uiText('跟随系统'), preferenceMenu: '', fontSettingsExpanded: false, contentFontSize: 14,
+    languageLabel: uiText('跟随系统'), fontSettingsExpanded: false, contentFontSize: 14,
     fontSizeLabel: '14 px',          // 构建时间标记：用于确认手机上运行的是最新预览包
     appearanceLabel: uiText('跟随微信'),
     endpoint: '',
@@ -133,6 +144,34 @@ Page({
     // 账号卡片默认收起（隐私）：开关在「通用设置」里，控制设置页与会话设置页的显示。
     showAccountCard: accountCardPreference.read(),
     settingsGlassEnabled: settingsGlassPreference.read(),
+    settingsGlassSheetEnabled: settingsGlassSheetPreference.read(),
+    choiceSheet: settingsGlassSheetPreference.read(),
+    quotaSidebarVisible: false,
+    glassStyleOpen: false,
+    nativeStyleOpen: false,
+    nativeBgPresets: [
+      { id: 'default', label: '默认', value: 50 },
+      { id: 'dim', label: '偏暗', value: 32 },
+      { id: 'dark', label: '更暗', value: 12 },
+      { id: 'bright', label: '偏亮', value: 72 },
+      { id: 'brightest', label: '最亮', value: 92 }
+    ],
+    glassStyleLeft: 16,
+    glassStyleTop: 200,
+    glassStyleWidth: 240,
+    glassStyleHeight: 260,
+    glassStyleOriginY: 0,
+    glassAlphaMin: settingsGlassStylePreference.LIMITS.alpha[0],
+    glassAlphaMax: settingsGlassStylePreference.LIMITS.alpha[1],
+    glassBlurMin: settingsGlassStylePreference.LIMITS.blur[0],
+    glassBlurMax: settingsGlassStylePreference.LIMITS.blur[1],
+    glassEdgeMin: settingsGlassStylePreference.LIMITS.edge[0],
+    glassEdgeMax: settingsGlassStylePreference.LIMITS.edge[1],
+    glassRadiusMin: settingsGlassStylePreference.LIMITS.radius[0],
+    glassRadiusMax: settingsGlassStylePreference.LIMITS.radius[1],
+    glassBrightnessMin: settingsGlassStylePreference.LIMITS.brightness[0],
+    glassBrightnessMax: settingsGlassStylePreference.LIMITS.brightness[1],
+    ...settingsGlassStylePreference.view(),
     // 余额卡默认收起：点上面的身份卡才展开，且仅已登录时有效。
     dshBalanceExpanded: false,
     publicAccessDialog: null,
@@ -272,25 +311,49 @@ Page({
 
   // ---------- 外观模式 ----------
 
+  /**
+   * 工作步骤展示 / 工作步骤收起时机 / 语言共用「工作区选择」同款的锚点玻璃弹窗：
+   * 以触发行为锚点、浮起的圆角玻璃面板（utils/workspace-popover 与首页共用）。
+   */
   toggleWorkStepMenu(e) {
     const field = e.currentTarget.dataset.field;
-    const next = this.data.workStepMenu === field ? '' : field;
-    if (!next) { this.setData({ workStepMenu: '' }); return; }
-    // 下拉挂在 fixed 遮罩内部（子元素必然画在遮罩背景之上，避免部分 WebView 里
-    // fixed 遮罩无视 z-index 盖住绝对定位的下拉，导致点了选项没反应），
-    // 因此要用视口坐标：先量当前行位置再开菜单，避免闪一下。
-    let viewportWidth = 375;
-    try { viewportWidth = wx.getSystemInfoSync().windowWidth || viewportWidth; } catch (_) {}
-    // 量不到位置就用默认值兜底：不能因为取位置失败就让菜单打不开。
-    const open = (top, right) => this.setData({ workStepMenu: field, workStepMenuTop: top, workStepMenuRight: right });
-    try {
-      wx.createSelectorQuery().in(this).select('.work-step-' + field + '-row').boundingClientRect((rect) => {
-        open(rect && Number.isFinite(rect.bottom) ? Math.round(rect.bottom + 8) + 'px' : '120px',
-          rect && Number.isFinite(rect.right) ? Math.max(0, Math.round(viewportWidth - rect.right)) + 'px' : '20px');
-      }).exec();
-    } catch (_) { open('120px', '20px'); }
+    if (field !== 'mode' && field !== 'timing') return;
+    if (this.data.choiceMenu === field) { this.setData({ choiceMenu: '' }); return; }
+    this.openChoiceMenu(field, '.work-step-' + field + '-row',
+      field === 'mode' ? this.data.workStepModes : this.data.workStepTimings,
+      field === 'mode' ? this.data.workStepMode : this.data.workStepTiming);
   },
-  closeWorkStepMenu() { this.setData({ workStepMenu: '' }); },
+  pickLanguage() {
+    if (this.data.choiceMenu === 'language') { this.setData({ choiceMenu: '' }); return; }
+    this.openChoiceMenu('language', '.preference-language-row',
+      this.data.languageOptions, preferences.language());
+  },
+  openChoiceMenu(kind, selector, options, current) {
+    let windowInfo = {};
+    try { windowInfo = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync(); } catch (_) { /* 手机端默认值兜底 */ }
+    const navigationBottom = (this.data.navPadTop || 0) + (this.data.navHeight || 0);
+    const list = options || [];
+    const open = (rect) => {
+      const anchor = rect && [rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) ? rect : null;
+      this.setData(Object.assign({
+        choiceMenu: kind,
+        choiceTitle: kind === 'language' ? uiText('语言') : uiText(kind === 'mode' ? '工作步骤展示' : '工作步骤收起时机'),
+        choiceOptions: list,
+        choiceCurrent: current || (kind === 'language' ? 'system' : '')
+      }, choiceMenuLayout(anchor, windowInfo, list.length, navigationBottom)));
+    };
+    if (typeof wx.createSelectorQuery !== 'function') { open(null); return; }
+    try {
+      wx.createSelectorQuery().in(this).select(selector).boundingClientRect(rect => open(rect || null)).exec();
+    } catch (_) { open(null); }
+  },
+  closeChoiceMenu() { this.setData({ choiceMenu: '' }); },
+  closeWorkStepMenu() { this.setData({ choiceMenu: '' }); },
+  chooseChoice(e) {
+    const { kind, id } = e.currentTarget.dataset;
+    if (kind === 'language') { this.chooseLanguage({ currentTarget: { dataset: { id } } }); return; }
+    this.chooseWorkStep({ currentTarget: { dataset: { field: kind, id } } });
+  },
   chooseWorkStep(e) {
     const { field, id } = e.currentTarget.dataset;
     if (!['mode','timing'].includes(field)) return;
@@ -299,7 +362,7 @@ Page({
     if (!allowed) return;
     try {
       const value = workSteps.save({ ...workSteps.read(), [field]: id });
-      this.setData({ ...workSteps.view(value), workStepMenu: '' });
+      this.setData({ ...workSteps.view(value), choiceMenu: '' });
     } catch (_) { wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' }); }
   },
 
@@ -549,11 +612,13 @@ Page({
     const mode = e.currentTarget.dataset.mode;
     if (!mode) return;
     if (mode !== theme.getMode()) theme.setMode(mode);
-    this.setData({
+    theme.applyTo(this);
+    // 主题变了：原生背景的调色（深/浅）要立刻重算，卡片与弹窗背景随之适配
+    this.setData(Object.assign({
       appearanceMode: theme.getMode(),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       appearanceSheet: false
-    });
+    }, this.nativePaletteData(this.data.nativeBgValue)));
   },
 
   appearanceLabelOf(mode) {
@@ -569,12 +634,16 @@ Page({
       showFleetPanel: contextPanelPrefs.fleet,
       showAccountCard: accountCardPreference.read(),
     settingsGlassEnabled: settingsGlassPreference.read(),
+    settingsGlassSheetEnabled: settingsGlassSheetPreference.read(),
+    choiceSheet: settingsGlassSheetPreference.read(),
+    ...settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }),
       ...this.contextPreferenceData(),
       ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       hapticsLevel: haptics.getLevel() });
     this.syncFromStore({ app: store.state, session: store.sessionState });
     this.refreshDshAccount();
+    this.loadQuotaSidebarPreference();
     // 「已连接网关版本」显示真实数据：网关未在 hello 里自报版本时，拉一次插件目录取网关插件版本。
     const gatewayMetadata = store.state.gatewayMetadata || {};
     if (store.state.connection === 'connected' && !store.state.pluginCatalog && !gatewayMetadata.version) store.refreshPlugins();
@@ -619,8 +688,7 @@ Page({
     this._syncThrottleTimer = null;
     this._pendingSnapshot = null;
     this.cancelSettingsRefresh();
-    this.setData({ preferenceMenu: '' });
-    this.setData({ workStepMenu: '' });
+    this.setData({ choiceMenu: '' });
     this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
     this.setData({ nodePingBusy: false });
     this._contentGeneration = (this._contentGeneration || 0) + 1;
@@ -1002,9 +1070,120 @@ Page({
 
   toggleSettingsGlass(e) {
     const enabled = !!(e && e.detail && e.detail.value);
-    try { this.setData({ settingsGlassEnabled: settingsGlassPreference.set(enabled) }); }
+    try { this.setData({ settingsGlassEnabled: settingsGlassPreference.set(enabled), glassStyleOpen: false, nativeStyleOpen: false }); }
     catch (_) {
       this.setData({ settingsGlassEnabled: settingsGlassPreference.read() });
+      wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
+    }
+  },
+
+  /** 原生背景亮度：50 = 主题默认，调低更暗、调高更亮；影响原生卡片与弹窗背景。 */
+  nativePaletteData(value) {
+    const light = String(this.data.themeClass || '').indexOf('light') >= 0;
+    const view = settingsGlassStylePreference.view({ native: value, light });
+    return {
+      nativeBgValue: view.nativeBgValue,
+      nativeSurfaceColor: view.nativeSurfaceColor,
+      nativeBgColor: view.nativeBgColor,
+      nativeFillColor: view.nativeFillColor
+    };
+  },
+  applyNativeBg(value) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+    this.setData(this.nativePaletteData(v));
+  },
+  onNativeBgChanging(e) {
+    this.applyNativeBg(e && e.detail ? e.detail.value : settingsGlassStylePreference.DEFAULTS.native);
+  },
+  pickNativeBgPreset(e) {
+    const value = Number(e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.value : settingsGlassStylePreference.DEFAULTS.native);
+    try { settingsGlassStylePreference.set({ native: value }); } catch (_) { /* 内存生效 */ }
+    this.applyNativeBg(value);
+  },
+  onNativeBgChange(e) {
+    const v = Math.max(0, Math.min(100, Math.round(Number(e && e.detail ? e.detail.value : settingsGlassStylePreference.DEFAULTS.native) || 0)));
+    try { settingsGlassStylePreference.set({ native: v }); } catch (_) { /* 内存生效 */ }
+    this.applyNativeBg(v);
+  },
+
+  /** 弹窗布局：锚定入口行，底部弹窗形态直接用样式类。 */
+  openStylePopup(selector, flag) {
+    let windowInfo = {};
+    try { windowInfo = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync(); } catch (_) { windowInfo = {}; }
+    const navigationBottom = (this.data.navPadTop || 0) + (this.data.navHeight || 0);
+    const open = (rect) => {
+      const anchor = rect && [rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) ? rect : null;
+      const layout = choiceMenuLayout(anchor, windowInfo, 4, navigationBottom);
+      const windowWidth = (windowInfo && windowInfo.windowWidth) || 375;
+      const pagePad = Math.round(40 * (windowWidth / 750));
+      const sideGap = pagePad + 16;
+      const popWidth = Math.max(240, windowWidth - sideGap * 2);
+      const popTop = anchor ? Math.min(anchor.top + anchor.height + 8, (windowInfo.windowHeight || 667) - 320) : layout.choiceTop;
+      const patch = {
+        glassStyleLeft: sideGap,
+        glassStyleTop: Math.max(popTop, 60),
+        glassStyleWidth: popWidth,
+        glassStyleHeight: layout.choiceHeight,
+        glassStyleOriginY: layout.choiceOriginY
+      };
+      patch[flag] = true;
+      this.setData(patch);
+    };
+    if (typeof wx.createSelectorQuery !== 'function') { open(null); return; }
+    try {
+      wx.createSelectorQuery().in(this).select(selector).boundingClientRect(rect => open(rect || null)).exec();
+    } catch (_) { open(null); }
+  },
+
+  /** 玻璃样式参数弹窗（仅玻璃模式）：跟「底部弹窗」开关选形态，只有玻璃皮肤。 */
+  openGlassStyleSheet() {
+    if (!this.data.settingsGlassEnabled) return;
+    this.openStylePopup('#glass-style-entry', 'glassStyleOpen');
+  },
+  closeGlassStyleSheet() {
+    if (this.data.glassStyleOpen) this.setData({ glassStyleOpen: false });
+  },
+
+  /** 原生样式设置弹窗（仅原生模式）：原生皮肤，背景随原生背景亮度即时变化。 */
+  openNativeStyleSheet() {
+    if (this.data.settingsGlassEnabled) return;
+    this.openStylePopup('#native-style-entry', 'nativeStyleOpen');
+  },
+  closeNativeStyleSheet() {
+    if (this.data.nativeStyleOpen) this.setData({ nativeStyleOpen: false });
+  },
+
+  /** 恢复玻璃样式的默认参数（透明度 10% / 模糊 8rpx / 亮边 38% / 圆角 32rpx）。 */
+  resetGlassStyle() {
+    try { this.setData(settingsGlassStylePreference.view(settingsGlassStylePreference.reset())); }
+    catch (_) { this.setData(settingsGlassStylePreference.view()); }
+    wx.showToast({ title: uiText('已恢复默认'), icon: 'none' });
+  },
+
+  /** 玻璃样式滑杆（透明度 / 模糊 / 亮边 / 圆角）：拖动即时预览，松手保存。 */
+  onGlassStyleChanging(e) {
+    const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : undefined;
+    const value = e && e.detail ? e.detail.value : undefined;
+    this.setData(settingsGlassStylePreference.view({ [field]: value }));
+  },
+  onGlassStyleChange(e) {
+    const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : undefined;
+    const value = e && e.detail ? e.detail.value : undefined;
+    try { this.setData(settingsGlassStylePreference.view(settingsGlassStylePreference.set({ [field]: Number(value) }))); }
+    catch (_) {
+      this.setData(settingsGlassStylePreference.view());
+      wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
+    }
+  },
+
+  toggleSettingsGlassSheet(e) {
+    const enabled = !!(e && e.detail && e.detail.value);
+    try {
+      const value = settingsGlassSheetPreference.set(enabled);
+      this.setData({ settingsGlassSheetEnabled: value, choiceSheet: value });
+    } catch (_) {
+      const value = settingsGlassSheetPreference.read();
+      this.setData({ settingsGlassSheetEnabled: value, choiceSheet: value });
       wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
     }
   },
@@ -1085,6 +1264,42 @@ Page({
   /** 侧栏额度卡片：入口搬到设置页，开关只控制左侧栏是否显示卡片。 */
   openCostMeter() {
     wx.navigateTo({ url: '/pages/cost-meter/cost-meter' });
+  },
+
+  /** 额度卡片在左侧栏的显示开关：与额度卡片页「显示额度卡片」是同一份配置（display.sidebarVisible）。 */
+  loadQuotaSidebarPreference() {
+    const client = store.client;
+    if (store.state.connection !== 'connected' || !client || typeof client.requestCostMeter !== 'function') {
+      this.setData({ quotaSidebarVisible: false });
+      return;
+    }
+    const generation = (this._quotaPrefGeneration || 0) + 1;
+    this._quotaPrefGeneration = generation;
+    Promise.resolve(client.requestCostMeter('config')).then(frame => {
+      if (this._quotaPrefGeneration !== generation) return;
+      const config = (frame && (frame.config || frame)) || {};
+      const display = config.display || {};
+      this.setData({ quotaSidebarVisible: display.sidebarVisible === true });
+    }).catch(() => { /* 网关未启用额度卡片时保持关闭态 */ });
+  },
+  async toggleQuotaSidebarVisibility(e) {
+    const enabled = !!(e && e.detail && e.detail.value);
+    const client = store.client;
+    if (store.state.connection !== 'connected' || !client || typeof client.requestCostMeter !== 'function') {
+      wx.showToast({ title: uiText('尚未连接电脑端网关'), icon: 'none' });
+      return;
+    }
+    this.setData({ quotaSidebarVisible: enabled });
+    try {
+      const frame = await client.requestCostMeter('update', { patch: { display: { sidebarVisible: enabled } } });
+      if (frame && frame.kind === 'error') throw new Error(frame.message || uiText('保存失败'));
+      wx.showToast({ title: uiText('已保存'), icon: 'success' });
+      // 打开开关时直接进入额度卡片页，省去再点一次入口（关闭时留在设置页）。
+      if (enabled) wx.navigateTo({ url: '/pages/cost-meter/cost-meter' });
+    } catch (error) {
+      this.setData({ quotaSidebarVisible: !enabled });
+      wx.showToast({ title: (error && error.message) || uiText('保存失败，请重试'), icon: 'none' });
+    }
   },
 
   openVoiceSettings() { wx.navigateTo({ url: voicePreference.SETTINGS_URL }); },
@@ -1335,9 +1550,8 @@ Page({
       workStepModes: workSteps.MODES.map(item => ({ ...item, label: uiText(item.label) })), workStepTimings: workSteps.TIMINGS.map(item => ({ ...item, label: uiText(item.label) })), statusStyleChoices: statusAppearance.choices(), procIconChoices: procIconStyle.choices(), appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       languageOptions: [{ id: 'system', label: preferences.t('跟随系统') }, { id: 'zh', label: '简体中文' }, { id: 'en', label: 'English' }] });
   },
-  pickLanguage() { this.setData({ preferenceMenu: this.data.preferenceMenu === 'language' ? '' : 'language' }); },
   chooseLanguage(e) {
-    try { preferences.setLanguage(e.currentTarget.dataset.id); this.onUiPreferencesChange(); this.setData({ preferenceMenu: '' }); }
+    try { preferences.setLanguage(e.currentTarget.dataset.id); this.onUiPreferencesChange(); this.setData({ choiceMenu: '' }); }
     catch (_) { wx.showToast({ title: preferences.t('保存失败，请重试'), icon: 'none' }); }
   },
   changeFontSize(e) {

@@ -1,0 +1,31 @@
+<!doctype html>
+<!-- 模板：由 shoot.cjs 注入从 glass-ui.wxss / cost-meter.wxss 抽取的样式后由无头浏览器截图。
+     不要直接打开本文件预览；运行 node preview/cost-glass/shoot.cjs 生成 PNG。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>额度卡片页 · 玻璃 UI 预览</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { background: #e9edf3; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; padding: 28px; }
+  .stage { position: relative; width: 390px; height: 844px; border-radius: 40px; overflow: hidden; box-shadow: 0 18px 60px rgba(7, 24, 43, .22); }
+  .stage.theme-dark { background: #000; color: #F1F4FA; }
+  .stage.theme-light { background: #fff; color: #10131A; }
+  .stage.theme-dark { --bg:#000; --surface:#1C1C1E; --text:#F1F4FA; --text-2:rgba(241,244,250,.62); --text-3:rgba(241,244,250,.42); --border:rgba(255,255,255,.10); --border-strong:rgba(255,255,255,.18); --divider:rgba(255,255,255,.08); --fill:rgba(255,255,255,.06); --fill-2:rgba(255,255,255,.10); --ocean:#2E6BE6; --success:#2EB85C; }
+  .stage.theme-light { --bg:#fff; --surface:#fff; --text:#10131A; --text-2:rgba(16,19,24,.62); --text-3:rgba(16,19,24,.42); --border:rgba(16,19,24,.10); --border-strong:rgba(16,19,24,.18); --divider:rgba(16,19,24,.08); --fill:rgba(16,19,24,.05); --fill-2:rgba(16,19,24,.07); --ocean:#2E6BE6; --success:#2EB85C; }
+  .cost-page { position: absolute; inset: 0; height: 100%; }
+  .cost-switch { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--fill); color: var(--text-2); }
+  .cost-overview { margin-top: 24px; }
+  .cost-sheet-mask { position: absolute; }
+  .stage .cost-sheet.settings-glass-sheet { height: 520px; max-height: 520px; }
+  /* 选择弹窗的两种形态在预览里都限定在手机壳内（实现里是 fixed 到整个视口） */
+  .stage .choice-sheet-mask { position: absolute; }
+  .stage .choice-sheet { position: absolute; max-height: 62%; }
+  /*__SHEET_CSS__*/
+</style>
+</head>
+<body>
+__STAGES__
+</body>
+</html>

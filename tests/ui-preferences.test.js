@@ -128,9 +128,12 @@ test('preference arrows use font-independent centered chevrons for both controls
   const html = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
   assert.doesNotMatch(html, /[⌃⌄]/);
-  assert.equal((html.match(/class="preference-chevron-line"/g) || []).length, 2);
-  assert.match(html, /preference-chevron \{\{preferenceMenu === 'language'/);
-  assert.match(html, /preference-chevron \{\{fontSettingsExpanded/);
+  assert.equal((html.match(/class="preference-chevron-line"/g) || []).length, 1, 'only the language row keeps a chevron');
+  assert.match(html, /preference-chevron \{\{choiceMenu === 'language'/);
+  // 字号行不再带折叠箭头：整行可点展开，输入框不触发切换
+  assert.doesNotMatch(html, /font-expand|preference-chevron \{\{fontSettingsExpanded/);
+  assert.match(html, /class="card-row preference-font-row" bindtap="toggleFontSettings"/);
+  assert.match(html, /class="font-number-control" catchtap="noop"/);
   assert.match(css, /\.preference-chevron\.expanded\s*\{\s*transform: rotate\(180deg\)/);
-  assert.match(css, /\.font-expand\s*\{[^}]*align-items: center[^}]*justify-content: center/);
+  assert.doesNotMatch(css, /\.font-expand/);
 });

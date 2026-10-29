@@ -57,6 +57,8 @@ test('session settings retain model and permission APIs, file navigation and pri
     client: { requestHost() {calls.push(['host']);}, requestAccount: async client => { accountRequests.push(client); return { state: { status: 'credential-stored' }, balance: { status: 'ready', value: [{ currency: 'CNY', balance: '12.34' }] } }; }, requestAgentPresets: async () => { calls.push(['agent-presets']); return {authorable:false,presets:[{id:'cordis'}]}; }, setDefault: async (...args) => calls.push(args), saveDefaultModel: async (...args) => calls.push(args),
       requestFileList: async () => ({ entries: [{ name: 'README.md', path: 'README.md', kind: 'file', bytes: 10 }] }) } };
   const presetRowRect = { left: 40, top: 200, width: 300, height: 44, right: 340, bottom: 244 };
+  const sheetPreference = { KEY: 'settingsGlassSheetEnabled', DEFAULT: true, value: true,
+    read() { return this.value; }, set(v) { this.value = v === true; return this.value; } };
   const wx = { showActionSheet(o) { wx.sheet = o; }, showModal() { throw Error('Must use bottom sheet'); }, showToast() {}, navigateTo(o) {calls.push(['navigate',o.url]);},
     // Agent 预设弹窗先量锚点行：回调同步触发，等价于真机 selectorQuery 的首帧回包。
     createSelectorQuery() {
@@ -83,6 +85,8 @@ test('session settings retain model and permission APIs, file navigation and pri
     if(name.endsWith('/account-view'))return require('../miniprogram/pages/settings/utils/account-view');
     if(name.endsWith('/account-card-pref'))return {KEY:'dsh_account_card_visible',DEFAULT:false,read:()=>false,set:v=>v===true};
     if(name.endsWith('/settings-glass-pref'))return {KEY:'settingsGlassStyleEnabled',DEFAULT:true,read:()=>true,set:v=>v===true};
+    if(name.endsWith('/settings-glass-sheet-pref'))return sheetPreference;
+    if(name.endsWith('/settings-glass-style-pref'))return { KEY:'settingsGlassAlpha', DEFAULT:10, MIN:4, MAX:40, read:()=>10, set:v=>v, view:v=>{ const a = v === undefined ? 10 : v; return { glassAlpha:a, glassAlphaTop:(a/100).toFixed(2), glassAlphaBottom:(a*0.4/100).toFixed(3) }; } };
     if(name.endsWith('/picker-popover'))return require('../miniprogram/pages/session-settings/utils/picker-popover');
     if(name.endsWith('/build'))return {BUILD_TIME:'fixture',BUILD_VERSION:'0.9.27'};
     throw Error('Unexpected dependency '+name);
@@ -103,12 +107,19 @@ test('session settings retain model and permission APIs, file navigation and pri
   page.pickAgentPreset(); assert.equal(page.data.picker,'preset'); assert.equal(page.data.presetCreatorAvailable,true);
   assert.equal(page.data.pickerIntro,'预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。');
   assert.equal(page.data.pickerOptions.find(o=>o.id==='code').description,'用于编码工作');
-  // Agent 预设改成与原生一致的玻璃底部弹窗：不量锚点，弹层位置保持默认值。
-  assert.equal(page.data.pickerPopTop, 140, 'the preset sheet never measures an anchor row');
-  assert.match(read('pages/session-settings/session-settings.wxml'), /picker === 'preset' && settingsGlassEnabled[\s\S]*?picker-glass-sheet[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
+  // 默认「玻璃弹窗用底部弹窗」：所有选择弹层都是底部弹窗，不量锚点，弹层位置保持默认值。
+  assert.equal(page.data.pickerPopTop, 140, 'the glass bottom sheet never measures an anchor row');
+  assert.match(read('pages/session-settings/session-settings.wxml'), /settingsGlassSheetEnabled[\s\S]*?class="picker-glass-sheet resizable/);
+  assert.match(read('pages/session-settings/session-settings.wxml'), /picker === 'preset'[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
   const presetIndex = page.data.pickerOptions.findIndex(o => o.id === 'code');
   page.choosePicker({ currentTarget: { dataset: { index: presetIndex } } });
   assert.deepEqual(calls.filter(c => c[0] === 'agent-preset').at(-1),['agent-preset','code']);
+  page.pickDefaultPermission(); assert.equal(page.data.picker,'permission');
+  assert.equal(page.data.pickerPopTop, 140, 'the bottom sheet does not measure the permission row either');
+  // 关掉「玻璃弹窗用底部弹窗」后回到「默认模型」那种锚点玻璃菜单：重新按触发行量坐标。
+  page.closePickerSheet();
+  sheetPreference.value = false;
+  page.setData({ settingsGlassSheetEnabled: false });
   page.pickDefaultPermission(); assert.equal(page.data.picker,'permission');
   assert.equal(page.data.pickerPopOrigin,'50% 0', 'permission uses the same anchored glass popover');
   assert.ok(page.data.pickerPopTop >= presetRowRect.bottom);
@@ -219,7 +230,7 @@ test('conversation status style sheet has a resizable grabber and no text close 
   const statusSheet = html.match(/<view wx:if="\{\{statusStyleSheetOpen\}\}"[\s\S]*?status-style-footer[\s\S]*?<\/view>\s*<\/view>\s*<\/view>/);
   assert.ok(statusSheet, 'status style sheet exists');
   assert.match(statusSheet[0], /class="sheet-grabber-zone" data-sheet="statusStyle"[^>]*sheetGrabStart[^>]*sheetGrabMove[^>]*sheetGrabEnd/);
-  assert.match(statusSheet[0], /sheetExpanded\.statusStyle \? 90 : 90/);
+  assert.match(statusSheet[0], /height: calc\(90vh - var\(--glass-sheet-drop, 0px\)\)/);
   assert.doesNotMatch(statusSheet[0], /status-style-close|\{\{ui\['完成'\]\}\}/);
   assert.match(css, /\.status-style-sheet\.resizable\s*\{[^}]*transition:height/);
   assert.match(css, /\.status-style-list\s*\{[^}]*flex:1/);
@@ -243,7 +254,7 @@ test('execution icon row follows the status style row and mirrors its resizable 
   const sheet = html.match(/<view wx:if="\{\{procIconSheetOpen\}\}"[\s\S]*?status-style-footer[\s\S]*?<\/view>\s*<\/view>\s*<\/view>/);
   assert.ok(sheet, 'execution icon sheet exists');
   assert.match(sheet[0], /class="sheet-grabber-zone" data-sheet="procIcon"[^>]*sheetGrabStart[^>]*sheetGrabMove[^>]*sheetGrabEnd/);
-  assert.match(sheet[0], /sheetExpanded\.procIcon \? 90 : 90/);
+  assert.match(sheet[0], /height: calc\(90vh - var\(--glass-sheet-drop, 0px\)\)/);
   assert.match(sheet[0], /wx:for="\{\{procIconChoices\}\}"/);
   assert.match(sheet[0], /class="proc-loader proc-look-\{\{item\.id\}\}"/);
   assert.match(sheet[0], /template is="procIconGlyph" data="\{\{styleId: item\.id\}\}"/);
@@ -294,35 +305,79 @@ test('all session-settings module cards reuse the home workspace card glass', ()
   for (const id of ['agent-preset-row', 'diagnostics-row', 'clear-cache-row']) {
     assert.ok(html.includes('id="' + id + '"'), id);
   }
-  // 材质参数与首页工作区卡片一致：36rpx 圆角、白色 0.06 → 0.015 渐变、发丝亮边、blur 3rpx、内发光。
-  const glass = 'linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015))';
-  for (const sheet of [css, homeCss]) {
-    assert.ok(sheet.includes(glass), 'workspace card gradient');
-    assert.ok(sheet.includes('border-radius: 36rpx'), 'workspace card radius');
-    assert.ok(sheet.includes('rgba(255, 255, 255, 0.38)'), 'workspace card hairline');
-    assert.ok(sheet.includes('rgba(255, 255, 255, 0.16)'), 'workspace card inner highlight');
-    assert.ok(sheet.includes('blur(3rpx)'), 'workspace card blur');
-  }
+  // 会话设置页卡片沿用同一套玻璃，但数值走设置里的玻璃样式设置（变量下发）。
+  const glassVar = 'linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)))';
+  assert.ok(css.includes(glassVar), 'session settings glass gradient uses the tunable vars');
+  assert.ok(css.includes('border-radius: var(--glass-radius-card, 36rpx);'), 'session settings glass radius');
+  assert.ok(css.includes('rgba(255, 255, 255, var(--glass-edge-alpha, 0.38))'), 'session settings glass hairline');
+  assert.ok(css.includes('rgba(255, 255, 255, 0.16)'), 'session settings glass inner highlight');
+  assert.ok(css.includes('blur(var(--glass-blur-card, 3rpx))'), 'session settings glass blur');
+  // 首页工作区卡片是固定材质，不受设置影响。
+  const fixedGlass = 'linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015))';
+  assert.ok(homeCss.includes(fixedGlass), 'home workspace card keeps the fixed gradient');
+  assert.ok(homeCss.includes('border-radius: 36rpx;'), 'home workspace card fixed radius');
+  assert.ok(homeCss.includes('blur(3rpx)'), 'home workspace card fixed blur');
+  assert.doesNotMatch(homeCss.slice(homeCss.indexOf('.workspace-card {'), homeCss.indexOf('.workspace-card {') + 600), /--glass-alpha-top/, 'workspace card ignores the glass style tuning');
   assert.match(css, /\.settings-glass-card \.card-row \+ \.card-row/);
   assert.match(css, /\.theme-light \.settings-glass-card \{/);
 });
 
+
+test('设置页的浮层不被玻璃卡片的 backdrop-filter 裁掉', () => {
+  const html = read('pages/settings/settings.wxml');
+  const css = read('pages/settings/settings.wxss');
+  const glass = read('styles/glass-ui.wxss');
+  // backdrop-filter 会成为 position:fixed 后代的包含块，卡片本身还 overflow:hidden：
+  // 任何浮层只要嵌在玻璃卡片里就会被裁掉。所有遮罩必须挂在页面根层级（2 空格缩进）。
+  const overlays = html.match(/^( *)(<view wx:if="\{\{[a-zA-Z]+\}\}" class="(?:pair-sheet|clawbot-modal|status-style|code-modal|referral|settings-choice)[a-z-]*-mask)/gm) || [];
+  assert.ok(overlays.length >= 17, 'every overlay mask is listed, got ' + overlays.length);
+  for (const line of overlays) {
+    assert.ok(line.match(/^ */)[0].length <= 2, 'overlay must sit at page root: ' + line.trim().slice(0, 60));
+  }
+  // ClawBot 的两个浮层原本嵌在「实验性功能」卡片里，玻璃卡片一带滤镜就整块消失。
+  assert.match(html, /\n  <view wx:if="\{\{clawbotPanelOpen\}\}" class="pair-sheet-mask" catchtap="closeClawbotPanel"/);
+  assert.match(html, /\n  <view wx:if="\{\{clawbotSessionsOpen\}\}" class="clawbot-modal-mask/);
+  // 卡片关闭之后才出现浮层：卡片内容里不能再夹着浮层。
+  const cardClose = html.indexOf('bindchange="toggleClawbot"');
+  assert.ok(html.indexOf('clawbotPanelOpen') > cardClose, 'clawbot sheet renders outside the experimental card');
+  assert.ok(html.indexOf('clawbotSessionsOpen') > cardClose, 'clawbot session picker renders outside the experimental card');
+  // 玻璃卡片确实带滤镜（这也是为什么浮层必须提到根层级）。
+  assert.match(glass, /\.settings-glass-card,[\s\S]{0,400}?backdrop-filter: blur\(var\(--glass-blur-card, 3rpx\)\)/);
+  assert.match(css, /\.settings-glass-card,[\s\S]{0,80}?backdrop-filter: blur\(3rpx\)|@import "\.\.\/\.\.\/styles\/glass-ui\.wxss"/);
+});
+
+test('字号大小弹窗：原生形态参考额度卡片弹窗底色，且内容区独立滚动', () => {
+  const html = read('pages/settings/settings.wxml');
+  const css = read('pages/settings/settings.wxss');
+  const costCss = read('pages/cost-meter/cost-meter.wxss');
+  // 原生底色与额度卡片「显示设置」弹窗一致（纯底色，深色为 #000）
+  assert.match(costCss, /\.cost-sheet \{[^}]*background: var\(--bg\)/);
+  assert.match(css, /\.pair-sheet\.font-sheet \{ background: var\(--bg\)/);
+  // 弹窗本身 fixed 90% 高：头部固定、内容区 scroll-view 独立滚动，长内容不会滑不动
+  assert.match(html, /class="pair-sheet resizable font-sheet \{\{settingsGlassEnabled \? 'settings-glass-sheet' : ''\}\}"[^>]*aria-label="字号大小"/);
+  assert.match(html, /<scroll-view class="font-sheet-body" scroll-y enhanced show-scrollbar="\{\{false\}\}">/);
+  assert.match(css, /\.font-sheet \{ display: flex; flex-direction: column; overflow: hidden; \}/);
+  assert.match(css, /\.font-sheet-body \{ flex: 1; min-height: 0; height: 0; \}/);
+  // 玻璃形态仍保留玻璃底（3 类选择器压过原生的纯底色）
+  assert.match(css, /\.pair-sheet\.font-sheet\.settings-glass-sheet \{ background: linear-gradient\(165deg, rgba\(255, 255, 255, var\(--glass-alpha-top, 0\.10\)\), rgba\(255, 255, 255, var\(--glass-alpha-bottom, 0\.04\)\)\)/);
+});
 test('settings sheets scroll as one page at a fixed 90% height', () => {
   const html = read('pages/settings/settings.wxml');
   const css = read('pages/settings/settings.wxss');
   // 用户要的形态：弹窗固定 90% 高，整个弹窗一起滑——不再有内层滚动区。
-  assert.equal((html.match(/style="height: 90vh;"/g) || []).length, 4, 'four sheets pin the 90% height');
+  assert.equal((html.match(/style="height: calc\(90vh - var\(--glass-sheet-drop, 0px\)\);"/g) || []).length, 6,
+    'four sheets pin 90% height and give the glass bottom inset back');
+  assert.doesNotMatch(html, /style="height: 90vh;"/, 'glass sheets subtract the bottom inset so the top edge stays put');
   assert.equal((html.match(/<scroll-view[^>]*class="management-scroll"/g) || []).length, 0, 'no inner scroll region inside the sheet');
   assert.equal((html.match(/class="management-scroll"/g) || []).length >= 5, true, 'content blocks stay in flow');
   assert.match(css, /\.pair-sheet\s*\{[^}]*overflow-y:\s*auto/, 'the sheet itself is the scroll container');
   assert.doesNotMatch(css, /\.management-scroll\s*\{[^}]*max-height/, 'the inner block no longer caps the height');
 });
 
-test('the preset picker keeps a glass bottom sheet while model and permission stay anchored', () => {
+test('the picker presentation follows the glass bottom-sheet preference', () => {
   const html = read('pages/session-settings/session-settings.wxml');
   const css = read('pages/session-settings/session-settings.wxss');
   const js = read('pages/session-settings/session-settings.js');
-  // 三个入口都各量自己那一行，弹层改用首页工作区选择同款的锚点玻璃菜单。
   for (const [id, handler] of [['agent-preset-row', 'pickAgentPreset'], ['default-model-row', 'pickDefaultModel'], ['default-permission-row', 'pickDefaultPermission']]) {
     assert.match(html, new RegExp('id="' + id + '"[^>]*bindtap="' + handler + '"'));
   }
@@ -330,35 +385,46 @@ test('the preset picker keeps a glass bottom sheet while model and permission st
   for (const anchor of ['#agent-preset-row', '#default-model-row', '#default-permission-row']) {
     assert.ok(js.includes("'" + anchor + "'"), anchor);
   }
+  // 两种形态各一个容器，共用同一份内容模板；原生兜底弹窗与文件弹窗仍是底部弹窗。
   assert.equal((html.match(/class="picker-pop-mask"/g) || []).length, 1);
-  assert.equal((html.match(/class="pair-sheet-mask/g) || []).length, 3, 'glass preset sheet, native picker fallback and files sheet keep bottom modals');
-  assert.match(html, /picker === 'preset' && settingsGlassEnabled[\s\S]*?picker-glass-sheet[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
+  assert.equal((html.match(/class="pair-sheet-mask/g) || []).length, 3, 'glass sheet, native picker fallback and files sheet keep bottom modals');
+  assert.match(html, /<template name="picker-pop-content">/);
+  assert.equal((html.match(/<template is="picker-pop-content"/g) || []).length, 2, 'both containers share one content template');
+  // 开：玻璃底部弹窗（抓手 + 标题 + 关闭 + 滚动列表）。
+  assert.match(html, /wx:if="\{\{picker && settingsGlassEnabled && settingsGlassSheetEnabled\}\}" class="pair-sheet-mask" catchtap="closePickerSheet"/);
+  assert.match(html, /class="picker-glass-sheet resizable[\s\S]*?class="picker-sheet-scroll"[\s\S]*?<template is="picker-pop-content"/);
+  // 关：锚点玻璃菜单（与首页工作区选择同款）。
+  assert.match(html, /wx:if="\{\{picker && settingsGlassEnabled && !settingsGlassSheetEnabled\}\}" class="picker-pop-mask" catchtap="closePickerPopover"/);
+  assert.match(html, /class="picker-pop"\s+style="left: \{\{pickerPopLeft\}\}px; top: \{\{pickerPopTop\}\}px; width: \{\{pickerPopWidth\}\}px; max-height: \{\{pickerPopMaxH\}\}px; transform-origin: \{\{pickerPopOrigin\}\};"/);
+  assert.match(html, /scroll-view class="picker-pop-scroll"[\s\S]*?<template is="picker-pop-content"/);
+  // 模板内容：预设 / 模型 / 思考等级 / 权限 / 诊断 / 缓存。
+  assert.match(html, /picker === 'preset'[\s\S]*?presetCreatorAvailable[\s\S]*?createCustomAgentPreset/);
   assert.match(html, /picker === 'model'[\s\S]*?picker-pop-group[\s\S]*?picker-pop-suffix/);
   assert.match(html, /picker === 'effort'[\s\S]*?picker-pop-effort/);
   assert.match(html, /picker === 'permission'[\s\S]*?picker-pop-shield[\s\S]*?picker-pop-check/);
-  assert.match(html, /picker && settingsGlassEnabled/);
+  assert.match(html, /picker === 'diagnostics'[\s\S]*?picker-pop-diag-row/);
+  assert.match(html, /picker === 'cache'[\s\S]*?picker-pop-cache-desc/);
   assert.match(html, /picker && !settingsGlassEnabled/);
   assert.match(html, /utilitySheet && !settingsGlassEnabled/);
   assert.match(html, /class="model-option-card/);
   const nativeCss = read('pages/session-settings/native-picker.wxss');
   assert.match(nativeCss, /\.picker-option-list/);
   assert.match(nativeCss, /\.model-effort-chip/);
-  assert.match(html, /utilitySheet && !settingsGlassEnabled/);
   // 玻璃参数与首页工作区选择弹窗一致：白色 0.10 → 0.04 渐变、发丝亮边、blur 8rpx、64rpx 圆角。
-  assert.match(css, /\.picker-pop \{[\s\S]*?border-radius: 64rpx[\s\S]*?linear-gradient\(165deg, rgba\(255, 255, 255, 0\.10\), rgba\(255, 255, 255, 0\.04\)\)[\s\S]*?backdrop-filter: blur\(8rpx\)/);
+  assert.match(css, /\.picker-pop \{[\s\S]*?border-radius: var\(--glass-radius-choice, 64rpx\)[\s\S]*?linear-gradient\(165deg, rgba\(255, 255, 255, var\(--glass-alpha-top, 0\.10\)\), rgba\(255, 255, 255, var\(--glass-alpha-bottom, 0\.04\)\)\)[\s\S]*?backdrop-filter: blur\(var\(--glass-blur-sheet, 8rpx\)\)/);
   assert.match(css, /@keyframes picker-pop-appear/);
   assert.match(css, /\.theme-light \.picker-pop \{/);
   assert.match(css, /\.picker-pop-model,[\s\S]*?min-height: 44px/);
   assert.match(css, /\.picker-pop-shield[\s\S]*?filter: brightness\(0\) invert\(1\)/);
   assert.match(css, /\.picker-pop-badge/);
-  // 玻璃预设弹窗：底部弹窗形态（只圆上两角）+ 首页工作区玻璃材质。
-  assert.match(css, /\.picker-glass-sheet \{[\s\S]*?border-radius: 32rpx;[\s\S]*?linear-gradient\(165deg, rgba\(255, 255, 255, 0\.10\), rgba\(255, 255, 255, 0\.04\)\)[\s\S]*?backdrop-filter: blur\(8rpx\)/);
-  assert.match(css, /\.picker-glass-sheet \{[^}]*width: calc\(100% - 24px\)[^}]*margin: 0 12px 24px;[^}]*border-radius: 32rpx;/);
+  // 玻璃底部弹窗：浮在屏幕内侧 + 首页工作区玻璃材质。
+  assert.match(css, /\.picker-glass-sheet \{[\s\S]*?border-radius: var\(--glass-radius-sheet, 32rpx\);[\s\S]*?linear-gradient\(165deg, rgba\(255, 255, 255, var\(--glass-alpha-top, 0\.10\)\), rgba\(255, 255, 255, var\(--glass-alpha-bottom, 0\.04\)\)\)[\s\S]*?backdrop-filter: blur\(var\(--glass-blur-sheet, 8rpx\)\)/);
+  assert.match(css, /\.picker-glass-sheet \{[^}]*width: calc\(100% - 24px\)[^}]*margin: 0 12px 24px;[^}]*border-radius: var\(--glass-radius-sheet, 32rpx\);/);
   assert.match(css, /@keyframes picker-sheet-rise/);
   assert.match(css, /\.theme-light \.picker-glass-sheet \{/);
   assert.match(css, /\.picker-glass-sheet\.expanded \.picker-sheet-scroll \{[^}]*flex: 1/);
   assert.doesNotMatch(css, /\.picker-option-list|\.model-option-card|\.permission-card-head|\.picker-current-badge/);
-});
+})
 
 // 两个设置页顶部的账号区：余额卡必须点上面的身份卡才展开，且仅已登录有效。
 for (const [name, wxml, js] of [

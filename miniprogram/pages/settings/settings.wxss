@@ -1,5 +1,6 @@
 @import "../../styles/status-appearance.wxss";
 @import "../../styles/proc-icon.wxss";
+@import "../../styles/glass-ui.wxss";
 .settings {
   padding: 0 40rpx 80rpx;
   color: var(--text);
@@ -275,6 +276,201 @@
 .management-scroll {
   min-height: 0;
 }
+
+/* ---------- 字号大小弹窗 ----------
+   原生形态参考额度卡片「显示设置」弹窗：纯底色（深色 #000）+ 头部固定、内容区独立滚动，
+   避免内容超过 90% 高度时整页滑不动。玻璃形态保持玻璃面板，同样只滚内容区。 */
+/* ---------- 玻璃样式参数弹窗：只有玻璃皮肤，底部弹窗 / 非底部浮层两种形态 ---------- */
+.glass-style-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  background: rgba(0, 0, 0, 0.45);
+}
+/* 非底部浮层：遮罩只负责接住点击，不透出压暗 */
+.glass-style-mask-pass { background: transparent; }
+
+/* 「原生样式设置」弹窗：原生皮肤（实色底 + 主题文字），背景色随原生背景亮度即时变化 */
+.glass-style-sheet.native-skin,
+.glass-style-pop.native-skin {
+  background: var(--surface);
+  border: 1rpx solid var(--border);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: 0 12rpx 48rpx rgba(0, 0, 0, 0.24);
+}
+
+.native-skin { color: var(--text); }
+.native-skin .glass-style-title,
+.native-skin .glass-style-label,
+.native-skin .glass-alpha-value,
+.native-skin .native-bg-chip { color: var(--text); }
+
+/* 深色 / 浅色各自锁死文字色，避免继承到不匹配的颜色 */
+.theme-dark .native-skin,
+.theme-dark .native-skin .glass-style-title,
+.theme-dark .native-skin .glass-style-label,
+.theme-dark .native-skin .glass-alpha-value,
+.theme-dark .native-skin .glass-style-done { color: #F1F4FA; }
+
+.theme-light .native-skin,
+.theme-light .native-skin .glass-style-title,
+.theme-light .native-skin .glass-style-label,
+.theme-light .native-skin .glass-alpha-value,
+.theme-light .native-skin .glass-style-done { color: #10131A; }
+
+.theme-dark .native-skin .glass-style-reset { color: rgba(241, 244, 250, 0.62); }
+.theme-light .native-skin .glass-style-reset { color: rgba(16, 19, 24, 0.62); }
+
+.native-skin .glass-style-reset {
+  color: var(--text-2);
+  background: var(--fill);
+  border: 1rpx solid var(--border);
+}
+
+.native-skin .glass-style-done {
+  color: var(--text);
+  background: var(--fill);
+  border: 1rpx solid var(--border);
+}
+
+.glass-style-sheet,
+.glass-style-pop {
+  position: fixed;
+  z-index: 301;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
+  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx));
+  overflow: hidden;
+}
+
+.glass-style-sheet {
+  left: 12px;
+  right: 12px;
+  bottom: 24px;
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  /* 圆角内底部留白收紧一些，上紧下松的问题已经由标题间距解决 */
+  padding: 8rpx 0 calc(30rpx + env(safe-area-inset-bottom));
+  animation: glass-style-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.glass-style-pop .glass-style-head { padding-top: 24rpx; }
+
+.glass-style-pop {
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  /* 浮层没有拖动条：底部留白收紧到 16rpx */
+  padding: 0 0 16rpx;
+  animation: glass-style-pop-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes glass-style-rise {
+  from { transform: translateY(40rpx); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes glass-style-pop-in {
+  from { transform: scale(0.94); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+.glass-style-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 36rpx 44rpx;
+  flex-shrink: 0;
+}
+
+.glass-style-title {
+  font-size: 32rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+}
+
+.native-bg-presets-row { padding: 4rpx 36rpx 20rpx; }
+.native-bg-row { align-items: center; }
+.native-bg-presets { padding: 4rpx 32rpx 24rpx; }
+.native-bg-chip-row { display: flex; align-items: center; gap: 16rpx; width: 100%; }
+.native-bg-chip {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 64rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  color: var(--text-2);
+  background: var(--fill);
+  border: 1rpx solid var(--border);
+}
+.native-bg-chip.active {
+  color: var(--text);
+  border-color: rgba(107, 135, 215, 0.70);
+  background: rgba(83, 112, 198, 0.14);
+}
+.native-bg-row .glass-alpha-control { max-width: 58%; }
+.glass-style-actions { display: flex; align-items: center; gap: 12rpx; }
+
+.glass-style-reset {
+  font-size: 26rpx;
+  color: #FFFFFF;
+  padding: 10rpx 22rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+}
+
+.glass-style-done {
+  font-size: 26rpx;
+  color: #FFFFFF;
+  padding: 10rpx 24rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.10);
+  border: 1rpx solid rgba(255, 255, 255, 0.18);
+}
+
+.theme-light .glass-style-reset {
+  color: rgba(16, 19, 24, 0.80);
+  background: rgba(16, 19, 24, 0.05);
+  border-color: rgba(16, 19, 24, 0.10);
+}
+
+/* 浅色主题：玻璃面板是白底，文字改用深色 */
+.theme-light .glass-style-title,
+.theme-light .glass-style-label,
+.theme-light .glass-style-done,
+.theme-light .glass-alpha-value { color: var(--text); }
+
+.theme-light .glass-alpha-row { border-top: none; }
+
+.theme-light .glass-style-done {
+  color: #10131A;
+  background: rgba(16, 19, 24, 0.06);
+  border-color: rgba(16, 19, 24, 0.10);
+}
+
+/* 滑杆行 */
+.glass-alpha-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24rpx;
+  padding: 20rpx 36rpx;
+  flex-shrink: 0;
+}
+.glass-style-label { font-size: 28rpx; color: #FFFFFF; flex: none; }
+.glass-alpha-control { display: flex; align-items: center; gap: 16rpx; flex: 1; max-width: 58%; }
+.glass-alpha-slider { flex: 1; margin: 0; }
+.glass-alpha-value { min-width: 76rpx; text-align: right; font-size: 24rpx; color: #FFFFFF; font-variant-numeric: tabular-nums; }
+
+.font-sheet { display: flex; flex-direction: column; overflow: hidden; }
+.pair-sheet.font-sheet { background: var(--bg); }
+.pair-sheet.font-sheet.settings-glass-sheet { background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04))); }
+.font-sheet-body { flex: 1; min-height: 0; height: 0; }
 
 .public-detail-row {
   display: flex;
@@ -958,6 +1154,11 @@
 /* 双主题：基础样式已全部变量化（app.wxss / 上方规则），无需 page-dark 覆盖 */
 
 /* 管理员区：两张卡片之间留出间距（避免贴在一起） */
+/* 关闭玻璃 UI 的原生模式：深色沿用「对话状态条」的浅填充；浅色保持原来的白色卡片 */
+.settings.settings-native-ui.theme-dark .card {
+  background: var(--fill);
+}
+
 .settings .card + .card {
   margin-top: 24rpx;
 }
@@ -1067,20 +1268,10 @@
 .work-step-hint { font-size:22rpx;color:var(--text-3); }
 .work-step-select { display:flex;align-items:center;gap:12rpx;padding:14rpx 18rpx;border-radius:16rpx;background:var(--fill);white-space:nowrap;flex-shrink:0; }
 .work-step-select-chevron { width:22rpx;height:22rpx;transform:rotate(90deg); }
-.work-step-menu-mask { position:fixed;inset:0;z-index:80;background:transparent; }
-/* 下拉在 fixed 遮罩内部，用视口坐标定位（top/right 由 JS 量行高后写入），
-   不再依赖与遮罩的 z-index 高低关系。 */
-.work-step-menu { position:absolute;min-width:240rpx;padding:8rpx;background:var(--surface);border:1rpx solid var(--border);border-radius:24rpx;box-shadow:0 10rpx 40rpx rgba(0,0,0,.12); }
-.work-step-option { display:flex;align-items:center;justify-content:space-between;gap:28rpx;min-height:76rpx;padding:8rpx 20rpx;font-size:26rpx; }
-.work-step-selected { color:var(--text-2); }
-.timing-menu { min-width:320rpx; }
 .general-preferences { overflow: visible; }
 .preference-language-row { position: relative; }
 .preference-select { display: flex; align-items: center; gap: 24rpx; padding: 12rpx 24rpx; background: var(--fill-2); border-radius: 14rpx; }
 .work-step-select, .preference-select { font-family: inherit; font-size: 28rpx; font-weight: 400; line-height: 1.5; }
-.preference-menu { position: absolute; right: 20rpx; top: 88rpx; width: 300rpx; z-index: 20; padding: 10rpx; border: 1rpx solid var(--divider); border-radius: 20rpx; background: var(--surface); box-shadow: 0 12rpx 40rpx rgba(0,0,0,.15); }
-.preference-option { display: flex; justify-content: space-between; padding: 20rpx; font-size: 28rpx; }
-.preference-check { color: var(--ocean); }
 .preference-description { display: flex; flex-direction: column; gap: 8rpx; min-width: 0; flex: 1; }
 .preference-hint { font-size: 23rpx; line-height: 1.5; color: var(--text-3); }
 .preference-font-row { gap: 20rpx; }
@@ -1095,7 +1286,6 @@
 .font-number-control { display: flex; align-items: center; gap: 18rpx; flex-shrink: 0; }
 .font-number { width: 112rpx; height: 64rpx; min-height: 64rpx; text-align: center; background: var(--fill-2); border-radius: 18rpx; font-size: 28rpx; color: var(--text); }
 .font-unit { font-size: 24rpx; color: var(--text-3); }
-.font-expand { display: flex; align-items: center; justify-content: center; width: 52rpx; height: 64rpx; padding: 0; flex-shrink: 0; }
 /* Draw chevrons independently of the selected text font and glyph baseline. */
 .preference-chevron { display: flex; align-items: center; justify-content: center; width: 24rpx; height: 24rpx; flex-shrink: 0; color: var(--text-3); transition: transform 160ms ease; }
 .preference-chevron-line { width: 10rpx; height: 10rpx; box-sizing: border-box; border-right: 2rpx solid currentColor; border-bottom: 2rpx solid currentColor; transform: translateY(-2rpx) rotate(45deg); }
@@ -1777,33 +1967,20 @@
 .code-option.on { background: var(--fill); color: var(--ocean); font-weight: 600; }
 .code-option-check { color: var(--ocean); font-size: 26rpx; }
 
-/* ---------- 公网访问弹窗：背景沿用首页工作区选择弹窗的玻璃材质（仍是底部弹窗） ---------- */
-.pair-sheet.management-sheet-glass {
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
-  border: 1rpx solid rgba(255, 255, 255, 0.38);
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 24rpx 72rpx rgba(3, 14, 30, 0.26);
-  backdrop-filter: blur(8rpx);
-  -webkit-backdrop-filter: blur(8rpx);
-}
-
-.theme-light .pair-sheet.management-sheet-glass {
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.94), rgba(244, 247, 252, 0.90));
-  border: 1rpx solid rgba(16, 19, 24, 0.10);
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 24rpx 72rpx rgba(7, 24, 43, 0.16);
-  backdrop-filter: blur(18rpx);
-  -webkit-backdrop-filter: blur(18rpx);
-}
-
-/* 公网访问内容卡从实色面改成内层轻玻璃，保留卡片边界但让弹窗背景透出来。 */
-.pair-sheet.management-sheet-glass .public-card {
-  background: linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015));
+/* 弹窗内的内容卡（公网访问等）从实色面改成内层轻玻璃，和首页弹窗一致。 */
+.pair-sheet.settings-glass-sheet .public-card,
+.status-style-sheet.settings-glass-sheet .public-card,
+.referral-sheet.settings-glass-sheet .public-card {
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
   border-color: rgba(255, 255, 255, 0.22);
   box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.10);
   backdrop-filter: blur(3rpx);
   -webkit-backdrop-filter: blur(3rpx);
 }
 
-.theme-light .pair-sheet.management-sheet-glass .public-card {
+.theme-light .pair-sheet.settings-glass-sheet .public-card,
+.theme-light .status-style-sheet.settings-glass-sheet .public-card,
+.theme-light .referral-sheet.settings-glass-sheet .public-card {
   background: linear-gradient(165deg, rgba(255, 255, 255, 0.82), rgba(244, 247, 252, 0.70));
   border-color: rgba(16, 19, 24, 0.08);
   box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 4rpx 16rpx rgba(7, 24, 43, 0.05);
