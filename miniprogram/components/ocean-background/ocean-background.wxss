@@ -7,7 +7,10 @@
 /* 流体帧：只含平滑的流体/光带/暗角，低分辨率（约 0.7x CSS 像素）渲染后淡入。 */
 .ocean-fluid { z-index: 1; opacity: 0; transition: opacity 520ms ease-out; }
 .ocean-fluid-live { opacity: 1; }
-.ocean-buffer { opacity: 0; transition: opacity 120ms linear; }
+/* iOS 双缓冲：帧解码完成（bindload）后才切前层，切换必须是瞬时的。
+   帧间隔 125ms、解码完成到下一帧只剩 ~70ms，120ms 的交叉淡化还没走完，
+   下一帧就会写进仍在半透明的旧层——亮光带（光圈）位置每帧抖一下。 */
+.ocean-buffer { opacity: 0; transition: none; }
 .ocean-buffer-front { opacity: 1; }
 /* 胶片颗粒：只覆盖流体层，补偿 JPEG 量化；按设备像素 1:1 平铺（不放大）。 */
 .ocean-grain { z-index: 2; opacity: 0.06; mix-blend-mode: overlay; background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAwAAAAMCAAAAABzHgM7AAAAlklEQVR42gXBDQ9CQBgA4PeXKsSYCYkbTedq5+tymNKWi9Mv7Xng/MHKLLuNcUPCJVB9LdNW0lx3wJ0plNuD9GILwIw4NRITj/P3B3iqkB4MeEkPBaQV7d3u3oYdX4Cki81Yzm+nDEG7erFLi9pLsj0orxLpyO6tyfzBmD9zw2Jxq4sSCm2shfoejlwSwCxyHCS0lfrNH0+3SNZKtaboAAAAAElFTkSuQmCC"); background-repeat: repeat; background-size: 8rpx 8rpx; animation: ocean-grain-shift 1.1s steps(1) infinite; }

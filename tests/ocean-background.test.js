@@ -109,6 +109,10 @@ test('first paint is already the full static composition: plate, device-resoluti
   assert.match(css, /@keyframes ocean-whale-shimmer/);
   assert.match(css, /\.ocean-paused \.ocean-whale-tail[^{]*\{[^}]*animation-play-state: paused/);
   assert.match(css, /\.ocean-fluid \{[^}]*transition: opacity 520ms/, 'first fluid frame eases in instead of popping');
+  // iOS 双缓冲帧间隔 125ms、解码后到下一帧只剩约 70ms：交叉淡化还没走完就会把下一帧
+  // 写进仍半透明的旧层，亮光带（光圈）每帧抖一下，所以切换必须是瞬时的。
+  assert.match(css, /\.ocean-buffer \{[^}]*transition: none/, 'iOS frame swaps are instant so a fading layer is never overwritten');
+  assert.doesNotMatch(css, /\.ocean-buffer \{[^}]*transition: opacity/, 'no per-frame cross-fade between buffered fluid frames');
   assert.match(css, /prefers-reduced-motion/, 'system reduce-motion still stops the decorative animations');
   assert.match(css, /ocean-settle 24s/, 'the slow settle dimmer is preserved');
   assert.match(css, /\.ocean-grain \{[^}]*background-size: 8rpx 8rpx/, 'grain is 1:1 with device pixels instead of being upscaled');

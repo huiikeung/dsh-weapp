@@ -273,12 +273,13 @@
   animation: pair-menu-in 180ms cubic-bezier(0.32, 0.72, 0, 1) both;
   will-change: transform, opacity;
   padding: 12rpx 0;
-  background: rgba(10, 14, 24, 0.30);
-  border: 1rpx solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(20rpx) saturate(1.2);
-  -webkit-backdrop-filter: blur(20rpx) saturate(1.2);
+  /* 与工作区卡片同一套玻璃材质（白色渐变 + 发丝亮边 + 顶部内发光） */
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  border: 1rpx solid rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(8rpx);
+  -webkit-backdrop-filter: blur(8rpx);
   border-radius: 36rpx;
-  box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.30);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 16rpx 48rpx rgba(3, 14, 30, 0.26);
   overflow: hidden;
 }
 
@@ -917,13 +918,14 @@
   height: auto;
   min-height: 46vh;      /* 默认高度更高 */
   max-height: 86vh;
-  background: rgba(10, 14, 24, 0.30);
-  border: 1rpx solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(20rpx) saturate(1.2);
-  -webkit-backdrop-filter: blur(20rpx) saturate(1.2);
+  /* 与工作区卡片同一套玻璃材质（白色渐变 + 发丝亮边 + 顶部内发光） */
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  border: 1rpx solid rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(8rpx);
+  -webkit-backdrop-filter: blur(8rpx);
   border-radius: 40rpx;
   padding: 0 28rpx calc(28rpx + env(safe-area-inset-bottom));
-  box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.30);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 16rpx 48rpx rgba(3, 14, 30, 0.26);
   transition: height 0.5s cubic-bezier(0.32, 0.72, 0, 1);
 }
 
@@ -1390,11 +1392,13 @@
   display: flex;
   flex-direction: column;
   height: 80vh;
-  background: rgba(16, 24, 40, 0.62);      /* 与弹层整体同一层玻璃，减少割裂 */
-  border: 1rpx solid rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(30rpx) saturate(1.25);
-  -webkit-backdrop-filter: blur(30rpx) saturate(1.25);
+  /* 与工作区卡片同一套玻璃材质（白色渐变 + 发丝亮边 + 顶部内发光） */
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  border: 1rpx solid rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(8rpx);
+  -webkit-backdrop-filter: blur(8rpx);
   border-radius: 40rpx;
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 16rpx 48rpx rgba(3, 14, 30, 0.26);
   padding-bottom: calc(4rpx + env(safe-area-inset-bottom));
 }
 
@@ -1950,11 +1954,12 @@
 
 /* 工作区选择弹窗：透明玻璃底 + 白色图标 / 文字（保留这次的工作区样式） */
 .ws-pop.workspace-menu {
-  background: linear-gradient(165deg, rgba(116, 142, 178, 0.08), rgba(44, 68, 110, 0.14));
-  border: 1rpx solid rgba(255, 255, 255, 0.18);
-  box-shadow: 0 24rpx 72rpx rgba(4, 12, 28, 0.32), inset 0 1rpx 0 rgba(255, 255, 255, 0.26);
-  backdrop-filter: blur(72rpx) saturate(1.4);
-  -webkit-backdrop-filter: blur(72rpx) saturate(1.4);
+  /* 卡片同款玻璃材质（白色渐变 + 发丝亮边 + 顶部内发光），比卡片略厚一档 */
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  border: 1rpx solid rgba(255, 255, 255, 0.38);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 24rpx 72rpx rgba(3, 14, 30, 0.26);
+  backdrop-filter: blur(8rpx);
+  -webkit-backdrop-filter: blur(8rpx);
 }
 
 .ws-pop.workspace-menu .ws-pop-label {
@@ -2014,9 +2019,16 @@
 
 /* 会话长按菜单：主题深色玻璃底 + 浅色文字，字号比工作区菜单小一档 */
 .ws-pop.session-menu {
-  background: rgba(10, 14, 24, 0.30);
-  border-color: rgba(255, 255, 255, 0.12);
-  box-shadow: 0 16rpx 48rpx rgba(0, 0, 0, 0.30);
+  /* 与工作区卡片同一套玻璃材质（白色渐变 + 发丝亮边 + 顶部内发光） */
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0.04));
+  border: 1rpx solid rgba(255, 255, 255, 0.38);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 24rpx 72rpx rgba(3, 14, 30, 0.26);
+  backdrop-filter: blur(8rpx);
+  -webkit-backdrop-filter: blur(8rpx);
+}
+
+.ws-pop.session-menu .ws-pop-divider {
+  background: rgba(255, 255, 255, 0.14);
 }
 
 .session-menu .ws-pop-label {
