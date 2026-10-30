@@ -104,27 +104,51 @@ test('execution icon choice persists, defaults to the spinning ring, invalid val
     wx.setStorageSync=()=>{throw Error('storage full');};assert.throws(()=>procIcon.save('terra'));
   } finally { delete global.wx; }
 });
+// 鲸尾必须和文字同色，而且是「各端一致」的同色。
+// 早先用 CSS filter 从纯黑染出颜色：一是关键帧之间按 filter 参数插值会串色，
+// 二是 Chromium 与 WebKit 渲染 filter 的结果不同（iOS 上更亮更饱和），
+// 于是出现「文字深绿、鲸尾薄荷绿」且只有苹果端不对。
+// 现在鲸尾改为 mask 裁轮廓 + background-color 关键帧，颜色是普通色值，
+// 与文字渐变同一套 sRGB 插值，误差应为 0（只剩 8 位取整）。
+test('whale tail keyframes track the text palette between keyframes', () => {
+  const result = statusTailAnimation.measure(120);
+  assert.ok(result.worst <= 1, 'worst channel error must stay within rounding, got ' + result.worst.toFixed(2));
+  assert.equal(result.rows.length, appearance.OPTIONS.length * 2);
+  for (const row of result.rows) {
+    assert.ok(row.maxError <= 1, row.style + ' ' + row.mode + ' deviates by ' + row.maxError);
+  }
+});
+
 test('all status styles animate the DSH whale through the same selected text palette', () => {
   assert.deepEqual(settingsAppearance.OPTIONS,appearance.OPTIONS,'settings preview and live status use the same palettes');
   const template=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
   assert.match(template,/\{\{runPhrase\}\}\{\{ui\['，用时'\]\}\} \{\{runElapsedText\}\}…/);
-  // Animate a high-resolution native image directly; avoid nested filtered layers and a canvas ticker in scroll-view.
-  assert.match(template,/<view class="status-tail"><image class="status-tail-image status-tail-\{\{statusAppearance\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}" mode="aspectFit" src="\/assets\/icons\/dsh-running-whale\.png" style="\{\{theme === 'dark' \? statusDarkTailAnimationStyle : statusLightTailAnimationStyle\}\}animation-delay:\{\{statusFlowDelay\}\}s;"\/>/);
+  // 鲸尾是 mask 裁出来的色块（不是 image + filter），滚动时仍是同层合成，不会像 canvas 那样滞后。
+  assert.match(template,/<view class="status-tail"><view class="status-tail-ink status-tail-\{\{statusAppearance\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}" style="\{\{theme === 'dark' \? statusDarkTailAnimationStyle : statusLightTailAnimationStyle\}\}animation-delay:\{\{statusFlowDelay\}\}s;"\/>/);
+  assert.doesNotMatch(template,/status-tail-image/);
   assert.doesNotMatch(template,/statusTailCanvas/);
   const css=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-appearance.wxss'),'utf8');
   const sessionCss=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxss'),'utf8');
   assert.match(sessionCss,/@import "\.\.\/\.\.\/styles\/status-tail-animation\.wxss"/);
   assert.match(css,/\.status-tail\s*\{[^}]*width:36rpx[^}]*height:36rpx/);
-  assert.match(css,/\.status-tail-image\s*\{[^}]*width:28rpx[^}]*height:28rpx/);
   const animationCss=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-tail-animation.wxss'),'utf8');
+  // 鲸尾轮廓来自内联 data URI 遮罩：WXSS 不涉及本地路径解析，iOS 的 WKWebView 也能用。
+  assert.match(animationCss,/\.status-tail-ink\{[^}]*-webkit-mask-image:url\("data:image\/png;base64,/);
+  assert.match(animationCss,/\.status-tail-ink\{[^}]*mask-image:url\("data:image\/png;base64,/);
+  assert.match(animationCss,/\.status-tail-ink\{[^}]*width:28rpx[^}]*height:28rpx/);
   assert.equal(animationCss,statusTailAnimation.render(),'all per-stop image filters stay in sync with the selected text palettes');
   const preview=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/settings/settings.wxml'),'utf8');
   assert.match(preview,/class="status-style-preview status-look-\{\{item\.id\}\}"><view class="status-tail"><canvas type="2d" id="statusPreviewCanvas-\{\{item\.id\}\}" class="status-tail-canvas" style="width:28rpx;height:28rpx;"><\/canvas><\/view>/);
-  assert.match(animationCss,/@keyframes statusTailNeonLight\{0%\{filter:invert\(24%\).*?33\.3333%\{filter:invert\(25%\)/);
-  assert.match(animationCss,/@keyframes statusTailTerminalLight\{0%\{filter:invert\(32%\).*?50%\{filter:invert\(28%\)/);
-  // Default simple mode follows its two text-gradient stops as well.
-  assert.match(animationCss,/\.status-tail-original\.status-tail-light\{animation-name:statusTailOriginalLight\}/);
-  assert.match(animationCss,/\.status-tail-original\.status-tail-dark\{animation-name:statusTailOriginalDark\}/);
+  // 每个样式/主题都有关键帧，并带静态 filter 兜底（系统关掉动画时鲸尾仍有正确颜色）。
+  for (const item of appearance.OPTIONS) {
+    for (const [mode, suffix] of [['light', 'Light'], ['dark', 'Dark']]) {
+      const name = 'statusTail' + item.id[0].toUpperCase() + item.id.slice(1) + suffix;
+      // 关键帧动的是 background-color（普通色值），不再经过 filter 数学。
+      assert.match(animationCss, new RegExp('@keyframes ' + name + '\\{0%\\{background-color:rgb\\('), item.id + ' ' + mode);
+      assert.match(animationCss, new RegExp('\\.status-tail-ink\\.status-tail-' + item.id + '\\.status-tail-' + mode + '\\{animation-name:' + name + ';background-color:rgb\\('), item.id + ' ' + mode);
+      assert.doesNotMatch(animationCss, new RegExp('@keyframes ' + name + '\\{[^}]*filter:'), item.id + ' ' + mode + ' must not tint through filters');
+    }
+  }
   for(const choice of appearance.choices()) {
     assert.equal(choice.lightTailAnimationStyle.match(/animation-duration:[^;]+/)[0],choice.lightStyle.match(/animation-duration:[^;]+/)[0],choice.id);
     assert.equal(choice.darkTailAnimationStyle.match(/animation-duration:[^;]+/)[0],choice.darkStyle.match(/animation-duration:[^;]+/)[0],choice.id);

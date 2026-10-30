@@ -339,7 +339,7 @@
 <view style="height:{{conversationBottomSpace}}px" aria-hidden="true"></view>
 <view wx:if="{{running}}" class="progress-strip conversation-progress" id="deep-search-progress">
 <view class="progress-row status-look-{{statusAppearance}}">
-<view class="status-tail"><image class="status-tail-image status-tail-{{statusAppearance}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" mode="aspectFit" src="/assets/icons/dsh-running-whale.png" style="{{theme === 'dark' ? statusDarkTailAnimationStyle : statusLightTailAnimationStyle}}animation-delay:{{statusFlowDelay}}s;"/></view>
+<view class="status-tail"><view class="status-tail-ink status-tail-{{statusAppearance}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" style="{{theme === 'dark' ? statusDarkTailAnimationStyle : statusLightTailAnimationStyle}}animation-delay:{{statusFlowDelay}}s;"/></view>
 <view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? statusDarkStyle : statusLightStyle}}animation-delay:{{statusFlowDelay}}s;">{{runPhrase}}{{ui['，用时']}} {{runElapsedText}}…</text></view>
 </view>
 </view>
@@ -1363,7 +1363,7 @@
 <view wx:if="{{queue.length}}" class="queue-dock {{queueExpanded || queue.length === 1 ? 'open' : ''}}">
 <view class="queue-panel">
 <view wx:if="{{queue.length > 1}}" class="queue-head" bindtap="toggleQueue">
-<view class="queue-lead"><image class="queue-head-ic" src="/assets/icons/bubble-gray.png"/></view>
+<view class="queue-lead"><image class="queue-head-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-message-dark.svg' : 'queue-message.svg'}}" mode="aspectFit"/></view>
 <text class="queue-head-title">{{ui['排队消息 ·']}} {{queue.length}}</text>
 <text wx:if="{{queueSending}}" class="queue-head-status">{{ui['发送中…']}}</text>
 <view class="event-spacer"></view>
@@ -1372,7 +1372,7 @@
 <scroll-view wx:if="{{queueExpanded || queue.length === 1}}" class="queue-list {{queue.length > 4 ? 'capped' : ''}}" scroll-y>
 <block wx:for="{{queue}}" wx:key="id">
 <view class="queue-row">
-<view wx:if="{{queue.length === 1}}" class="queue-lead"><image class="queue-row-ic" src="/assets/icons/bubble-gray.png"/></view>
+<view class="queue-lead"><image class="queue-row-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-message-dark.svg' : 'queue-message.svg'}}" mode="aspectFit"/></view>
 <view class="queue-content">
 <text wx:if="{{item.preview}}" class="queue-preview">{{item.preview}}</text>
 <view wx:if="{{item.attachments.length}}" class="queue-attachments">
@@ -1388,9 +1388,9 @@
 </view>
 <text wx:if="{{item.statusText}}" class="queue-status">{{ui[item.statusText] !== undefined ? ui[item.statusText] : item.statusText}}</text>
 <view class="queue-actions">
-<view wx:if="{{item.editable}}" class="queue-ic-btn {{queueBusyId === item.id + ':edit' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="edit"><image class="queue-ic" src="/assets/icons/pencil-line-gray.png"/></view>
-<view class="queue-ic-btn {{queueBusyId === item.id + ':remove' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="remove"><image class="queue-ic" src="/assets/icons/trash-gray.png"/></view>
-<view wx:if="{{running}}" class="queue-ic-btn {{queueBusyId === item.id + ':steer' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="steer"><image class="queue-ic" src="/assets/icons/arrow-up-gray.png"/></view>
+<view wx:if="{{item.editable}}" class="queue-ic-btn {{queueBusyId === item.id + ':edit' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="edit" aria-label="{{ui['编辑']}}"><image class="queue-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-edit-dark.svg' : 'queue-edit.svg'}}" mode="aspectFit"/></view>
+<view class="queue-ic-btn {{queueBusyId === item.id + ':remove' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="remove" aria-label="{{ui['删除']}}"><image class="queue-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-delete-dark.svg' : 'queue-delete.svg'}}" mode="aspectFit"/></view>
+<view wx:if="{{running}}" class="queue-ic-btn {{queueBusyId === item.id + ':steer' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="steer" aria-label="{{ui['发送']}}"><image class="queue-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-send-dark.svg' : 'queue-send.svg'}}" mode="aspectFit"/></view>
 </view>
 </view>
 <view wx:if="{{index < queue.length - 1}}" class="queue-sep"></view>
