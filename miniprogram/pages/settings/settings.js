@@ -1164,23 +1164,29 @@ Page({
 
   /** 恢复玻璃样式的默认参数（透明度 10% / 模糊 8rpx / 亮边 38% / 圆角 32rpx）。 */
   resetGlassStyle() {
-    try { this.setData(settingsGlassStylePreference.view(settingsGlassStylePreference.reset())); }
-    catch (_) { this.setData(settingsGlassStylePreference.view()); }
+    try { this.setData(this.glassViewStyle(settingsGlassStylePreference.reset())); }
+    catch (_) { this.setData(this.glassViewStyle()); }
     wx.showToast({ title: uiText('已恢复默认'), icon: 'none' });
+  },
+
+  /** 重建玻璃样式数据时必须带主题标记，否则浅色下会退回深色磨砂（看起来就是透明的）。 */
+  glassViewStyle(extra) {
+    const light = String(this.data.themeClass || '').indexOf('light') >= 0;
+    return settingsGlassStylePreference.view(Object.assign({ light: light }, extra || {}));
   },
 
   /** 玻璃样式滑杆（透明度 / 模糊 / 亮边 / 圆角）：拖动即时预览，松手保存。 */
   onGlassStyleChanging(e) {
     const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : undefined;
     const value = e && e.detail ? e.detail.value : undefined;
-    this.setData(settingsGlassStylePreference.view({ [field]: value }));
+    this.setData(this.glassViewStyle({ [field]: value }));
   },
   onGlassStyleChange(e) {
     const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : undefined;
     const value = e && e.detail ? e.detail.value : undefined;
-    try { this.setData(settingsGlassStylePreference.view(settingsGlassStylePreference.set({ [field]: Number(value) }))); }
+    try { this.setData(this.glassViewStyle(settingsGlassStylePreference.set({ [field]: Number(value) }))); }
     catch (_) {
-      this.setData(settingsGlassStylePreference.view());
+      this.setData(this.glassViewStyle());
       wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
     }
   },

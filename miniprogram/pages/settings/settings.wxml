@@ -1128,6 +1128,15 @@
       <view class="glass-style-done tap" catchtap="closeGlassStyleSheet" role="button">{{ui['完成']}}</view>
     </view>
   </view>
+  <view class="card-preview-stage">
+    <view class="card-preview-card" style="border-radius: {{glassRadiusCard}}; background: linear-gradient(165deg, rgba(255, 255, 255, {{glassAlphaTop}}), rgba(255, 255, 255, {{glassAlphaBottom}})); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 0.5px rgba(255, 255, 255, {{glassEdgeAlpha}}), 0 10px 28px rgba(3, 14, 30, 0.22); backdrop-filter: blur({{glassBlurSheet}}) brightness({{glassBackdropBrightness}}); -webkit-backdrop-filter: blur({{glassBlurSheet}}) brightness({{glassBackdropBrightness}});">
+      <view class="card-preview-dot"></view>
+      <view class="card-preview-copy">
+        <text class="card-preview-title">{{ui['预览']}}</text>
+        <text class="card-preview-sub">{{glassAlpha}}% · {{glassBlur}}rpx · {{glassEdge}}% · {{glassRadius}}rpx</text>
+      </view>
+    </view>
+  </view>
           <view class="glass-alpha-row">
             <text class="glass-style-label">{{ui['玻璃透明度']}}</text>
             <view class="glass-alpha-control">

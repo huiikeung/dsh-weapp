@@ -919,8 +919,14 @@ test('设置页里的玻璃样式滑杆可拖动，透明度 / 模糊 / 亮边 /
   assert.match(wxml, /glass-alpha-value">\{\{glassBlur\}\}rpx/);
   assert.match(wxml, /glass-alpha-value">\{\{glassEdge\}\}%/);
   assert.match(wxml, /glass-alpha-value">\{\{glassRadius\}\}rpx/);
+  // 玻璃样式弹窗里同样内嵌实时预览（透明度/模糊/亮边/圆角/亮度全部跟随）
+  assert.match(wxml, /card-preview-card" style="border-radius: \{\{glassRadiusCard\}\}/);
+  assert.ok(wxml.includes('rgba(255, 255, 255, {{glassAlphaTop}})') && wxml.includes('backdrop-filter: blur({{glassBlurSheet}})'), 'glass preview reflects alpha/blur');
+  assert.ok(wxml.includes('inset 0 0 0 0.5px rgba(255, 255, 255, {{glassEdgeAlpha}})'), 'glass preview reflects edge');
   assert.match(wxml, /glass-alpha-value">\{\{glassBrightness\}\}%/);
-  assert.match(js, /onGlassStyleChanging\(e\)[\s\S]*?settingsGlassStylePreference\.view/);
+  // 滑杆重建样式必须经过 glassViewStyle 包装，否则浅色主题会被丢成深色磨砂
+  assert.match(js, /onGlassStyleChanging\(e\)[\s\S]{0,320}?this\.glassViewStyle\(/);
+  assert.match(js, /glassViewStyle\(extra\)[\s\S]{0,240}?light: light/);
   assert.match(js, /onGlassStyleChange\(e\)[\s\S]*?settingsGlassStylePreference\.set/);
   assert.match(glassCss, /var\(--glass-alpha-top, 0\.10\)/);
   assert.match(glassCss, /var\(--glass-edge-alpha, 0\.38\)/);

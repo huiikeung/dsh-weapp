@@ -1980,8 +1980,9 @@
 .code-modal-close { width: 52rpx; height: 52rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--fill); color: var(--text-2); font-size: 24rpx; }
 .code-modal-body { flex: 1; min-height: 0; max-height: 52vh; }
 /* 卡片外观弹窗里的实时预览：浅底上摆一张按当前参数渲染的卡片 */
-.card-preview-stage { margin: 6rpx 20rpx 10rpx; padding: 34rpx 22rpx; border-radius: 22rpx; background: linear-gradient(180deg, rgba(126, 134, 150, 0.16), rgba(126, 134, 150, 0.05)); }
-.card-preview-card { display: flex; align-items: center; gap: 16rpx; padding: 20rpx 22rpx; background: var(--surface); }
+/* 预览舞台用中间调，白描边 / 顶部光线 / 投影才看得出来 */
+.card-preview-stage { margin: 6rpx 20rpx 10rpx; padding: 40rpx 24rpx; border-radius: 22rpx; background: linear-gradient(180deg, rgba(96, 112, 138, 0.42), rgba(96, 112, 138, 0.14)); }
+.card-preview-card { display: flex; align-items: center; gap: 16rpx; padding: 24rpx 22rpx; background: linear-gradient(165deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.34)); }
 .card-preview-dot { width: 30rpx; height: 30rpx; border-radius: 50%; background: var(--text-2); opacity: 0.5; flex: none; }
 .card-preview-copy { display: flex; flex-direction: column; gap: 4rpx; min-width: 0; }
 .card-preview-title { font-size: 26rpx; color: var(--text); }
