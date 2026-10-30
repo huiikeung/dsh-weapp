@@ -152,7 +152,9 @@ function allowedFamilies(client) {
 
 /**
  * 把路由表排成有序候选：上次连通的线路优先（preferred），其余按客户端能力排序。
- * options: { client?: 'wechat'|'native', preferred?: string }
+ * options: { client?: 'wechat'|'native', preferred?: string, relayAuthorized?: boolean }
+ * relayAuthorized === false 表示当前没有公网授权：跳过中继候选，
+ * 优先公网直连（Cloudflare 等）和局域网；纯中继二维码仍保留中继兜底。
  * 返回 [{ endpoint, kind, relay? }]。
  */
 /**
@@ -177,7 +179,7 @@ function orderCandidates(routeTable, options) {
   // 而永久停止重连；空列表时仍回退到原始网络族集合。
   const dropLan = network === 'cellular'
 
-  function build(skipLan) {
+  function build(skipLan, allowRelayOverride) {
     const ordered = []
     const seen = {}
     const push = (endpoint, kind, relay) => {
@@ -185,6 +187,7 @@ function orderCandidates(routeTable, options) {
       seen[endpoint] = true
       ordered.push(relay ? { endpoint: endpoint, kind: kind, relay: relay } : { endpoint: endpoint, kind: kind })
     }
+
     const kindOf = (endpoint) => {
       if (table.relay && table.relay.endpoint === endpoint) return 'relay'
       return classifyEndpoint(endpoint)
@@ -201,6 +204,8 @@ function orderCandidates(routeTable, options) {
     if (preferredIsAllowed && !skipPreferred) {
       push(preferred, preferredKind, preferredKind === 'relay' ? table.relay : null)
     }
+    // 没有公网授权时跳过中继：用户明确指定中继（preferred）或纯中继码兜底除外。
+    const skipRelay = opts.relayAuthorized === false && preferredKind !== 'relay' && !allowRelayOverride
     let families = allowedFamilies(client)
     if (opts.promoteLan === true && families.indexOf('lan') >= 0) {
       families = ['lan'].concat(families.filter((family) => family !== 'lan'))
@@ -209,7 +214,7 @@ function orderCandidates(routeTable, options) {
       const family = families[i]
       if (skipLan && family === 'lan') continue
       if (family === 'relay') {
-        if (table.relay) push(table.relay.endpoint, 'relay', table.relay)
+        if (table.relay && !skipRelay) push(table.relay.endpoint, 'relay', table.relay)
         continue
       }
       const list = Array.isArray(table[family]) ? table[family] : []
@@ -220,6 +225,9 @@ function orderCandidates(routeTable, options) {
 
   const filtered = build(dropLan)
   if (dropLan && !filtered.length) return build(false)
+  // 过滤中继后没有任何候选（纯中继码且未授权）：保留中继，让连接层给出可操作的错误。
+  if (!filtered.length && opts.relayAuthorized === false) return build(dropLan, true)
+  if (!filtered.length) return build(false)
   return filtered
 }
 

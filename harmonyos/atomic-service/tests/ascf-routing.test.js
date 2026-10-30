@@ -93,6 +93,30 @@ test('ASCF orders direct WSS before a validated relay fallback', () => {
   assert.deepEqual(routeTable.orderCandidates(null, { client: 'ascf' }), []);
 });
 
+test('ASCF drops relay candidates when public access is unauthorized but keeps Cloudflare and LAN', () => {
+  const table = {
+    public: [direct],
+    lan: [localWss],
+    relay: relayRoute()
+  };
+  const candidates = routeTable.orderCandidates(table, { client: 'ascf', relayAuthorized: false });
+  assert.deepEqual(candidates.map(item => item.endpoint), [direct, localWss]);
+  assert.ok(candidates.every(item => item.kind !== 'relay'), 'unauthorized relay must not be dialed');
+
+  // 已授权（或用户首选中继）时中继保留在回退链上。
+  assert.equal(
+    routeTable.orderCandidates(table, { client: 'ascf', relayAuthorized: true })[2].kind, 'relay');
+  const preferredRelay = routeTable.orderCandidates(table, {
+    client: 'ascf', relayAuthorized: false, preferred: relay + '/c/' + nodeId
+  });
+  assert.equal(preferredRelay[0].kind, 'relay');
+
+  // 纯中继二维码（v3）：即使未授权也保留中继兜底，交由连接层给出可操作错误。
+  const relayOnly = routeTable.orderCandidates({ relay: relayRoute() }, { client: 'ascf', relayAuthorized: false });
+  assert.equal(relayOnly.length, 1);
+  assert.equal(relayOnly[0].kind, 'relay');
+});
+
 test('v2 merges ASCF WSS routes without letting miniProgramRoute replace a direct route', () => {
   const parsed = parse(raw(v2({
     routes: { public: [direct, secondDirect], lan: [localWs] },

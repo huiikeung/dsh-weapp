@@ -150,7 +150,7 @@
         <input class="search-input" placeholder="{{ui['搜索会话内容']}}" placeholder-class="field-placeholder" value="{{searchQuery}}" bindinput="onSearchInput" confirm-type="search"/>
       </view>
 
-      <view has:if="{{homeDataHint}}" class="home-data-hint {{connectionHintIsError ? 'home-connection-error' : ''}}">{{ui[homeDataHint] !== undefined ? ui[homeDataHint] : homeDataHint}}</view>
+      <view has:if="{{homeDataHint}}" class="home-data-hint {{connectionHintIsError ? 'home-connection-error' : ''}}" bindtap="{{connectionHintIsError ? 'pairByManual' : ''}}" role="button">{{ui[homeDataHint] !== undefined ? ui[homeDataHint] : homeDataHint}}</view>
 
       <view class="session-list">
         <block has:for="{{displaySessions}}" has:key="sessionId">

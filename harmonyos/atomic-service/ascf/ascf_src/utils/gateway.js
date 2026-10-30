@@ -28,7 +28,7 @@ const SESSION_CREATE_TIMEOUT = 30000;
 // 配对期每个候选地址的最长等待：候选可能包含不可达的内网地址（手输/旧二维码），
 // 操作系统默认 TCP 超时可达 30s+，逐候选等待会让「换一条线路」拖到一分钟以上。
 // 达到该时长即视为本候选不可达，按候选顺序继续尝试（中继候选含 E2EE 握手，仍用 REQUEST_TIMEOUT）。
-const PAIRING_CONNECT_TIMEOUT = 8000;
+const PAIRING_CONNECT_TIMEOUT = 30000;
 
 class GatewayClient {
   constructor(callbacks) {

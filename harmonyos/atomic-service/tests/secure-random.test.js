@@ -482,7 +482,7 @@ test('timeout falls back with the same unconfirmed code to the next route', t =>
   assert.equal(sockets.length, 2);
   assert.equal(sockets[1].options.url, 'wss://backup.example.test/ws/mobile');
   assert.ok(sockets[1].options.protocols.includes('dsh-pair.pair-code'));
-  assert.equal(client.timeoutTimer.delay, 8000);
+  assert.equal(client.timeoutTimer.delay, 30000);
   clock.fire(client.timeoutTimer);
   assert.equal(client.state, 'failed');
   assert.equal(client.pairingCode, 'pair-code');

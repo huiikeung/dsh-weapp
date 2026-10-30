@@ -2970,12 +2970,29 @@ function createStore() {
   //   多端 App：首选 → 公网直连 → 局域网；没有微信登录，不碰托管中继。
   // v3/中继二维码的中继是首选且唯一。
 
+  /** 当前是否可用托管中继：公网服务已配置且账号有公网授权（或该节点租赁仍在缓存）。 */
+  function relayAuthorizedFor(table) {
+    try {
+      if (typeof accessApi.configured !== 'function' || !accessApi.configured()) return false;
+      if (typeof accessApi.hasPublicAccess === 'function' && accessApi.hasPublicAccess()) return true;
+      const nodeId = table && table.relay && table.relay.nodeId;
+      return !!(nodeId && typeof accessApi.cachedLease === 'function' && accessApi.cachedLease(nodeId));
+    } catch (e) {
+      // 判定异常时不改变原有选路行为（保留中继候选）。
+      return true;
+    }
+  }
+
   /** 按当前运行时能力排序候选。network 传入当前网络类型（蜂窝下整族跳过局域网）。 */
   function orderedCandidates(table, preferred, options) {
-    return routeTable.orderCandidates(table, Object.assign({
+    const merged = Object.assign({
       client: runtime.clientKind(),
       preferred: preferred || null
-    }, options || {}));
+    }, options || {});
+    // 没有公网授权时跳过中继候选：Cloudflare 直连和局域网不受影响，
+    // 纯中继二维码仍保留中继兜底（由 orderCandidates 处理空列表回退）。
+    merged.relayAuthorized = relayAuthorizedFor(table);
+    return routeTable.orderCandidates(table, merged);
   }
 
   /** 当前网络下的选路附加参数：蜂窝整族跳过局域网；网络族真的变过才让局域网插队。 */
