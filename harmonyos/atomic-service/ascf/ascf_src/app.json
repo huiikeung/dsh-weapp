@@ -123,6 +123,13 @@
       "pages": [
         "announcements"
       ]
+    },
+    {
+      "root": "pages/models",
+      "name": "models",
+      "pages": [
+        "models"
+      ]
     }
   ],
   "preloadRule": {

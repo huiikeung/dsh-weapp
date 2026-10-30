@@ -6,6 +6,7 @@ const theme = require('../../utils/theme');
 // 远端目录浏览 + 新建文件夹 + 在当前目录创建工作区。
 Page({
   data: {
+    ui: require('../../utils/ui-preferences').snapshot().ui,
     dirPath: '',
     dirCrumbs: [],
     dirEntries: [],

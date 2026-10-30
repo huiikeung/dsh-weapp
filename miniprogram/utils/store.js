@@ -2196,6 +2196,13 @@ const sessionState = {
     if (typeof frame.kind === 'string' && frame.kind.indexOf('plugin-market-') === 0 ||
         frame.kind === 'error' && (typeof frame.requestType === 'string' && frame.requestType.indexOf('plugin-market-') === 0 ||
           typeof frame.message === 'string' && frame.message.indexOf('unknown message type: plugin-market-') === 0)) return true;
+    // settings 文档被任一客户端（含 DSH 客户端）修改：只广播 ns/revision，不携带内容。
+    // 模型页订阅这个快照后重新读取 plugin-settings，从而与桌面端双向同步。
+    if (frame.kind === 'plugin-settings-changed') {
+      state.pluginSettingsChanged = { ns: frame.ns || '', revision: frame.revision, at: Date.now() };
+      emit();
+      return true;
+    }
     if (frame.kind === 'plugin-catalog' &&
         (!frame.requestId || frame.requestId === pluginCatalogToken)) {
       state.pluginCatalog = pluginsLib.buildCatalog(frame);

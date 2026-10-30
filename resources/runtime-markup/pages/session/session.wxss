@@ -5368,26 +5368,44 @@ overscroll-behavior-y: auto;
   -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
 }
 /* 三横线「对话节点定位」全屏页（仅玻璃模式）：整页铺一层可见的磨砂玻璃。
-   玻璃层放在 ::before 上：iOS 上 backdrop-filter 挂在这个带淡入动画的 fixed 元素上时经常不合成，
-   挪到伪元素既避开动画，也不会影响内容布局。 */
+   玻璃层用真实元素承载，理由：
+   1) iOS 微信里 backdrop-filter 挂在带淡入动画的 fixed 元素（或它的伪元素）上经常不合成，真机看不到；
+   2) 即便机型完全不支持 backdrop-filter，半透明暗底 + 13% 奶白高光也能看出「玻璃」而不是纯黑遮罩。 */
 .session-glass .turn-overlay {
-  background: transparent;
+  background: rgba(8, 10, 16, 0.50);
+  animation: none;                     /* 淡入交给内容层，避免动画把整个 fixed 层栅格化 */
 }
-.session-glass .turn-overlay::before {
-  content: "";
+.session-glass .turn-overlay-glass {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 0;
   pointer-events: none;
+  transform: translateZ(0);            /* iOS 微信里 backdrop-filter 需要显式合成层，否则打开时不画 */
+  will-change: transform;
   background:
-    linear-gradient(165deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.04) 46%, rgba(255, 255, 255, 0.02)),
-    rgba(26, 28, 34, 0.50);
+    linear-gradient(165deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.045) 46%, rgba(255, 255, 255, 0.02));
   backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.45) brightness(var(--glass-backdrop-brightness, 1));
   -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.45) brightness(var(--glass-backdrop-brightness, 1));
 }
+/* 浅色模式：沿用深色模式的暗底玻璃，只是罩层更透一点；文字保持亮色 */
+.theme-light.session-glass .turn-overlay {
+  background: rgba(8, 10, 16, 0.36);
+}
+.theme-light.session-glass .turn-overlay .turn-scrub-row-title {
+  color: rgba(255, 255, 255, 0.88);
+}
+.theme-light.session-glass .turn-overlay .turn-scrub-row.active .turn-scrub-row-title { color: #FFFFFF; }
+.theme-light.session-glass .turn-overlay .turn-history-status { color: rgba(255, 255, 255, 0.78); }
+.theme-light.session-glass .turn-overlay .turn-nav-empty { color: rgba(255, 255, 255, 0.7); }
+.theme-light.session-glass .turn-overlay .turn-scrub-tick { background: rgba(255, 255, 255, 0.5); }
+.theme-light.session-glass .turn-overlay .turn-scrub-row.active .turn-scrub-tick { background: #FFFFFF; }
 .session-glass .turn-overlay .turn-overlay-inner {
   position: relative;
   z-index: 1;
+  animation: turnOverlayIn 0.18s ease-out;
 }
 /* 三个点「更多」弹层（仅玻璃模式）：与输入框 / 卡片同一套 iOS 磨砂，宽/高参考首页「切换主机」弹窗 */
 .session-glass .sheet.session-menu {

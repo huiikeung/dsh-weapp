@@ -9,6 +9,7 @@ const TOTAL_DOTS = 2;   // 准备 / 配对
 
 Page({
   data: {
+    ui: require('../../utils/ui-preferences').snapshot().ui,
     theme: 'light',
     themeClass: 'theme-light',
     pageStyle: '',

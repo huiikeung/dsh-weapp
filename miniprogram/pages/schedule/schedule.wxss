@@ -27,6 +27,10 @@
 /* 空状态：页面中间的新建自动化任务（透明背景 + 描边圆角，参考设计图）
    注意 .sched button 的基础样式优先级更高，这里必须带 .sched 前缀。 */
 .sched .sched-empty-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
   margin: 32rpx auto 10rpx;
   padding: 26rpx 78rpx;
   min-width: 360rpx;
@@ -96,3 +100,10 @@
 .sched-filter-check { width: 30rpx; flex: none; font-size: 30rpx; line-height: 1.2; color: var(--sp-text); }
 .sched-filter-label { font-size: 31rpx; color: var(--sp-text); }
 .sched-filter-item.selected .sched-filter-label { font-weight: 500; }
+
+/* 空状态新建按钮里的加号图标 */
+.sched-empty-new-plus { position: relative; width: 26rpx; height: 26rpx; flex: none; }
+.sched-empty-new-plus::before, .sched-empty-new-plus::after { content: ''; position: absolute; left: 50%; top: 50%; border-radius: 3rpx; background: currentColor; transform: translate(-50%, -50%); }
+.sched-empty-new-plus::before { width: 26rpx; height: 3rpx; }
+.sched-empty-new-plus::after { width: 3rpx; height: 26rpx; }
+

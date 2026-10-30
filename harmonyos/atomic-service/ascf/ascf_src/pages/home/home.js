@@ -74,6 +74,7 @@ function sessionMenuLayout(rect, windowInfo, navigationBottom) {
 
 Page({
   data: {
+    ui: require('../../utils/ui-preferences').snapshot().ui,
     oceanActive: true,
     oceanReducedMotion: !initialHomeAnimationEnabled,
     homeAnimationEnabled: initialHomeAnimationEnabled,

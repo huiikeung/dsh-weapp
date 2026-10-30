@@ -22,14 +22,14 @@ const row = (title, active) => '<div class="turn-scrub-row' + (active ? ' active
   + '<div class="turn-scrub-row-copy"><span class="turn-scrub-row-title">' + title + '</span></div>'
   + '<span class="turn-scrub-tick-slot"><span class="turn-scrub-tick"></span></span></div>';
 
-const stage = (theme) => '<div class="stage theme-' + theme + (theme === 'dark' ? ' session-glass' : '') + '">'
+const stage = (theme) => '<div class="stage theme-' + theme + ' session-glass' + '">'
   + '<div class="convo">'
   + '<div class="bubble user">帮我把设置页外观重做一下</div>'
   + '<div class="bubble bot">已换成磨砂材质，浅色加了一层柔光。</div>'
   + '<div class="bubble user">再做一版深色，不要加光</div>'
   + '<div class="bubble bot">深色已回到第一版中性暗底 + 细描边。</div>'
   + '</div>'
-  + '<div class="turn-overlay">'
+  + '<div class="turn-overlay"><div class="turn-overlay-glass"></div>'
   + '<div class="turn-overlay-inner"><div class="turn-scrub-body">'
   + '<div class="turn-history-status">全部历史 · 4</div>'
   + '<div class="turn-scrub-list">'

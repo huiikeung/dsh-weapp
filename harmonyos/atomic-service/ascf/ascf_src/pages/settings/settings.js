@@ -41,6 +41,7 @@ const codeUseLabels = () => CODE_USE_KEYS.map(uiText);
 Page({
   manualShareMenu: true,
   data: {
+    ui: require('../../utils/ui-preferences').snapshot().ui,
     navPadTop: 50,
     // 工作步骤展示 / 收起时机 / 语言共用工作区选择同款的锚点玻璃弹窗。
     choiceMenu: '',

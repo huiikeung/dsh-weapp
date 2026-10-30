@@ -126,7 +126,11 @@ function transform(source) {
     'CONTEXT_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) {',
     'CONTEXT_REQUEST_TYPES.has(msg.type) || COST_METER_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) {',
   ];
-  if (!whitelistPatched.some(marker => source.includes(marker))) {
+  // Newer gateways append more request-type sets after PLUGIN_REQUEST_TYPES (e.g.
+  // MODEL_CONFIG_REQUEST_TYPES); treat any control whitelist line that already
+  // contains CONTEXT_REQUEST_TYPES as patched instead of matching one exact line.
+  const modernWhitelist = /^[^\n]*CONTEXT_REQUEST_TYPES\.has\(msg\.type\)[^\n]*PLUGIN_REQUEST_TYPES\.has\(msg\.type\)[^\n]*\) \{[ \t]*$/m.test(source);
+  if (!modernWhitelist && !whitelistPatched.some(marker => source.includes(marker))) {
     const whitelistAnchors = [
       '                       ACCOUNT_REQUEST_TYPES.has(msg.type) || WORKSPACE_CHANGES_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) {',
       '                       ACCOUNT_REQUEST_TYPES.has(msg.type) || WORKSPACE_CHANGES_TYPES.has(msg.type) || CONTEXT_REQUEST_TYPES.has(msg.type) || COST_METER_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) {',
@@ -140,7 +144,8 @@ function transform(source) {
   // 5. Require a paired device for the new request, like plugin management.
   //    Variant A (weapp fork) already wraps the whole condition; variant B
   //    (upstream mobile gateway) needs the inserted group parenthesised.
-  const authPatched = [
+  const modernAuth = /^[^\n]*CONTEXT_REQUEST_TYPES\.has\(msg\.type\)[^\n]*PLUGIN_REQUEST_TYPES\.has\(msg\.type\)[^\n]*!ws\.deviceId/m.test(source);
+  const authPatched = modernAuth || [
     "if ((CONTEXT_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) && !ws.deviceId) {",
     "if ((COST_METER_REQUEST_TYPES.has(msg.type) || CONTEXT_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type)) && !ws.deviceId) {",
     "CONTEXT_REQUEST_TYPES.has(msg.type) || PLUGIN_REQUEST_TYPES.has(msg.type) || msg.type === 'clawbot-control') && !ws.deviceId) {",

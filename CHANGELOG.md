@@ -1,5 +1,18 @@
 # 更新记录
 
+## v0.9.89 — 2026-10-30
+
+- 对话页三横线按钮打开的「对话节点定位」页玻璃背景修好：玻璃层改成真实元素并加 `translateZ(0)` 强制合成层，fixed 遮罩不再做淡入动画（淡入交给内容层），避开 iOS 微信 `backdrop-filter` 不合成的问题；浅色模式沿用深色模式背景、罩层透明度 0.50→0.36，文字保持亮色。即使机型不支持模糊，13% 奶白高光也能看出玻璃质感。
+- iOS 微信滚动时会在右侧画系统滚动条（鸿蒙端 / 开发者工具不画）：`app.wxss` 全局隐藏 `::-webkit-scrollbar` 并给 page/view/scroll-view 设 `scrollbar-width: none`，节点定位列表继续 `show-scrollbar="{{false}}"`；右侧刻度列保持原样。
+- 新增 `preview/turn-navigator` 预览脚本（真实 wxss + 模拟对话背景，深浅两套），并补测试断言：玻璃层在 `.turn-overlay-glass`、浅色罩层 `rgba(8,10,16,0.36)`、遮罩本身不再带淡入动画。
+- 会话设置页「功能」新增「模型」入口，点击打开独立的模型管理页；版式对齐 DSH 客户端「设置 → 模型」：提供商行（名称 / 自定义徽标 / 状态点 / 编辑按钮）+ 展开后的模型列表、删除、添加模型。
+- 模型页直接读写 DSH 的 `llm-pi-ai` settings（`plugin-settings` / `plugin-settings-mutate`，带 revision 冲突保护）：增删模型会立即写回 profile 的 `cordis.patch.yml`，桌面端模型页即时可见；桌面端修改通过 `plugin-settings-changed` 广播回小程序，模型页自动刷新。
+- 默认模型受保护：删除前会提示先在「会话设置 → 默认模型」切换；新增模型支持模型 ID、显示名称、上下文窗口、最大输出 Token 与文本/图片输入类型，字段校验与 DSH 客户端模型行一致。
+- 「添加模型」弹层加入**自动获取模型**：按提供商/端点调用宿主 `llm/discoverModels`，结果可搜索、勾选、全选，一次写入所选模型；宿主没有可读取目录时回退到手动填写，旧网关显示「重启 DSH」提示。
+- 模型页底部新增 **添加模型提供商**（对齐 DSH 客户端）：内置目录模式从 40 个未配置 provider 中选择并自动取模型；自定义 API 模式填写 Provider ID / 端点 / 协议 / API Key 后取模型；创建时写入 `llm-pi-ai` provider 配置，API Key 经凭据接口写入 DSH（响应/日志不回显），失败会保留提供商并提示。
+- 新增 `miniprogram/utils/model-settings.js` 纯函数、`pages/models` 分包与 17 项回归测试；华为 ASCF 元服务副本同步模型页与文案；`preview/models-page/shoot.cjs` 提供设计预览。
+- **需要网关插件 0.8.37+**（新增 `llm-discover-models` / `model-credential-describe` / `model-credential-set` 与 `llm-model-config-v1` 能力）并重启 DSH 才会启用自动获取与添加提供商；旧网关仍可手动增删模型。
+
 ## v0.9.88 — 2026-10-30
 
 - 对话页右上角三横线按钮打开的「对话节点定位」全屏页加上玻璃背景：玻璃模式下整页铺一层可见的磨砂（模糊 + 饱和 + 中性暗底 50% + 13% 白高光渐变），背后的对话被糊成色晕；原生样式仍是不透明的深色遮罩。玻璃层放在 `.turn-overlay::before` 上，避免 iOS 上 `backdrop-filter` 挂在带淡入动画的 fixed 元素上不合成；即使机型不支持 backdrop-filter，高光层也能看出玻璃质感。

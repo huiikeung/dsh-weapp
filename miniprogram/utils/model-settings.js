@@ -56,11 +56,29 @@ function buildProviderRows(providersFrame, namespace, defaultSelection, labels) 
   const value = (namespace && namespace.value) || {};
   const configured = value.providers && typeof value.providers === 'object' ? value.providers : {};
   const frameRows = (providersFrame && Array.isArray(providersFrame.providers) ? providersFrame.providers : [])
-    .filter(isPiProvider)
-    .filter((entry) => entry.declared === true);
-  const source = frameRows.length
-    ? frameRows.map((entry) => ({ id: entry.provider, displayName: entry.displayName, config: configured[entry.provider] }))
-    : Object.keys(configured).map((id) => ({ id: id, displayName: configured[id] && configured[id].displayName, config: configured[id] }));
+    .filter(isPiProvider);
+  const frameIndex = {};
+  frameRows.forEach((entry) => { if (!frameIndex[entry.provider]) frameIndex[entry.provider] = entry; });
+  // 已配置的 pi-ai provider 都展示（内置目录 provider 也可能是用户配置过的）；
+  // 顺序跟 DSH 模型页一致：providers 帧顺序在前，其余按 settings 键顺序补在后面。
+  const orderedIds = [];
+  frameRows.forEach((entry) => {
+    if (configured[entry.provider] && orderedIds.indexOf(entry.provider) < 0) orderedIds.push(entry.provider);
+  });
+  Object.keys(configured).forEach((id) => {
+    if (orderedIds.indexOf(id) < 0) orderedIds.push(id);
+  });
+  const source = orderedIds.map((id) => {
+    const entry = frameIndex[id];
+    return {
+      id: id,
+      displayName: (entry && entry.displayName) || (configured[id] && configured[id].displayName),
+      defaultBaseURL: entry && entry.defaultBaseURL,
+      // 没有 providers 帧的旧网关无法区分内置目录与手写路由，统一按自定义展示。
+      declared: entry ? entry.declared === true : true,
+      config: configured[id]
+    };
+  });
   const rows = [];
   source.forEach((entry) => {
     const id = entry.id;
@@ -76,9 +94,10 @@ function buildProviderRows(providersFrame, namespace, defaultSelection, labels) 
     rows.push({
       id: id,
       name: entry.displayName || config.displayName || id,
-      custom: true,
+      // 只有手工声明的 pi-ai 路由带「自定义」徽标；内置目录 provider 不显示。
+      custom: entry.declared === true,
       apiLabel: protocolLabel(config.api),
-      baseURL: config.baseURL || '',
+      baseURL: config.baseURL || entry.defaultBaseURL || '',
       count: models.length,
       status: models.length ? 'ready' : 'empty',
       models: models
@@ -143,6 +162,139 @@ function modelsMutation(providerId, models, revision) {
   };
 }
 
+// ---------- 添加模型提供商 / 自动获取模型 ----------
+
+const PROTOCOLS = [
+  { id: 'openai-completions', label: 'OpenAI Chat Completions' },
+  { id: 'openai-responses', label: 'OpenAI Responses' },
+  { id: 'anthropic-messages', label: 'Anthropic Messages' }
+];
+
+/** 与 DSH 客户端一致的派生凭据引用：<ROUTE>_API_KEY。 */
+function credentialRefFor(providerId) {
+  const stem = String(providerId == null ? '' : providerId).toUpperCase()
+    .replace(/[^A-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  return (stem || 'MODEL') + '_API_KEY';
+}
+
+/** 只接受带主机的 http(s) 绝对地址（不依赖 WeChat 的 URL 实现）。 */
+function isValidBaseURL(value) {
+  const text = String(value == null ? '' : value).trim();
+  return /^https?:\/\/[^\s/?#]+(?:\/[^\s]*)?$/i.test(text);
+}
+
+function validateProviderId(id, existingIds) {
+  const value = String(id == null ? '' : id).trim();
+  if (!value) return { error: 'provider-id-empty' };
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(value)) return { error: 'provider-id-invalid' };
+  if ((existingIds || []).indexOf(value) >= 0) return { error: 'provider-id-duplicate' };
+  return { value: value };
+}
+
+/** 内置目录里尚未配置的 pi-ai provider（用于「第三方模型提供商」）。 */
+function dormantCatalogProviders(providersFrame, namespace) {
+  const configured = (namespace && namespace.value && namespace.value.providers) || {};
+  return (providersFrame && Array.isArray(providersFrame.providers) ? providersFrame.providers : [])
+    .filter(isPiProvider)
+    .filter((entry) => entry.declared !== true && !configured[entry.provider])
+    .map((entry) => ({
+      id: entry.provider,
+      name: entry.displayName || entry.provider,
+      defaultBaseURL: entry.defaultBaseURL || '',
+      nativeAuthEnv: (entry.nativeAuth && Array.isArray(entry.nativeAuth.env) ? entry.nativeAuth.env : []).slice(0, 3)
+    }));
+}
+
+/** 校验「添加模型提供商」草稿，返回创建所需的 provider 描述。 */
+function validateProviderDraft(mode, draft, options) {
+  const input = draft || {};
+  const opts = options || {};
+  if (mode === 'catalog') {
+    const id = String(input.providerId == null ? '' : input.providerId).trim();
+    const catalog = (opts.catalogProviders || []).filter((entry) => entry.id === id)[0];
+    if (!catalog) return { error: 'catalog-empty' };
+    return {
+      value: {
+        providerId: id,
+        displayName: input.displayName ? String(input.displayName).trim() : catalog.name,
+        baseURL: String(input.baseURL || catalog.defaultBaseURL || '').trim(),
+        api: input.api || '',
+        apiKeyEnv: credentialRefFor(id)
+      }
+    };
+  }
+  const idCheck = validateProviderId(input.providerId, opts.existingIds);
+  if (idCheck.error) return idCheck;
+  const baseURL = String(input.baseURL == null ? '' : input.baseURL).trim();
+  if (!isValidBaseURL(baseURL)) return { error: 'base-url-invalid' };
+  if (!PROTOCOLS.some((entry) => entry.id === input.api)) return { error: 'api-invalid' };
+  return {
+    value: {
+      providerId: idCheck.value,
+      displayName: String(input.displayName == null ? '' : input.displayName).trim(),
+      baseURL: baseURL,
+      api: input.api,
+      apiKeyEnv: credentialRefFor(idCheck.value)
+    }
+  };
+}
+
+function buildProviderConfig(input) {
+  const source = input || {};
+  const config = { apiKeyEnv: source.apiKeyEnv, models: Array.isArray(source.models) ? source.models.slice() : [] };
+  if (source.displayName) config.displayName = source.displayName;
+  if (source.api) config.api = source.api;
+  if (source.baseURL) config.baseURL = source.baseURL;
+  return config;
+}
+
+function providerCreateMutation(providerId, config, revision) {
+  return {
+    ns: PI_NS,
+    expectedRevision: revision,
+    ops: [{ op: 'set', path: [PI_PREFIX, providerId], value: config }]
+  };
+}
+
+/** 把 discovery 候选按 DSH 模型字段映射进现有 models（跳过重复 id）。 */
+function addDiscoveredModels(models, candidates) {
+  const existing = {};
+  (Array.isArray(models) ? models : []).forEach((model) => { if (model && model.id) existing[model.id] = true; });
+  const next = (Array.isArray(models) ? models : []).slice();
+  const added = [];
+  (Array.isArray(candidates) ? candidates : []).forEach((candidate) => {
+    if (!candidate || typeof candidate.id !== 'string' || !candidate.id || existing[candidate.id]) return;
+    existing[candidate.id] = true;
+    const model = { id: candidate.id };
+    if (typeof candidate.name === 'string' && candidate.name) model.name = candidate.name;
+    if (Number.isSafeInteger(candidate.contextWindow) && candidate.contextWindow > 0) model.contextWindow = candidate.contextWindow;
+    if (Number.isSafeInteger(candidate.maxTokens) && candidate.maxTokens > 0) model.maxTokens = candidate.maxTokens;
+    if (Array.isArray(candidate.inputModalities)) {
+      const inputs = candidate.inputModalities.filter((kind) => kind === 'text' || kind === 'image');
+      if (inputs.length) model.input = inputs;
+    }
+    next.push(model);
+    added.push(model);
+  });
+  return { models: next, added: added };
+}
+
+/** 发现结果转成列表行（页面只显示白名单字段）。 */
+function discoveryRows(candidates, labels) {
+  return (Array.isArray(candidates) ? candidates : [])
+    .filter((candidate) => candidate && typeof candidate.id === 'string' && candidate.id)
+    .map((candidate) => ({
+      id: candidate.id,
+      name: candidate.name || candidate.id,
+      meta: modelMeta({
+        contextWindow: candidate.contextWindow,
+        input: Array.isArray(candidate.inputModalities) ? candidate.inputModalities.filter((kind) => kind === 'text' || kind === 'image') : []
+      }, labels),
+      selected: false
+    }));
+}
+
 /** 把网关错误映射到界面文案键；没有匹配时返回空串，由页面显示原始信息。 */
 function errorKey(message) {
   const text = String(message || '');
@@ -165,5 +317,15 @@ module.exports = {
   removeModel,
   isDefaultModel,
   modelsMutation,
+  PROTOCOLS,
+  credentialRefFor,
+  isValidBaseURL,
+  validateProviderId,
+  dormantCatalogProviders,
+  validateProviderDraft,
+  buildProviderConfig,
+  providerCreateMutation,
+  addDiscoveredModels,
+  discoveryRows,
   errorKey
 };

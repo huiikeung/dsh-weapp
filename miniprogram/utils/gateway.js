@@ -1212,6 +1212,21 @@ class GatewayClient {
   /** 可配置的 model provider 列表（host llm/providers；含 settingsNs / declared / 默认端点）。 */
   requestProviders() { return this.request({ type: 'providers' }); }
 
+  /** 自动获取模型：宿主 llm/discoverModels（需要网关 capabilities 含 llm-model-config-v1）。 */
+  discoverModels(ns, request) {
+    return this.requestPlugin('llm-discover-models', Object.assign({ ns: ns }, request || {}), 30000);
+  }
+
+  /** 模型 provider 的 API Key 状态（脱敏；需要 llm-model-config-v1）。 */
+  describeModelCredential(ref) {
+    return this.requestPlugin('model-credential-describe', { ref: ref });
+  }
+
+  /** 写入模型 provider 的 API Key（密钥只在请求里出现，响应不回显）。 */
+  setModelCredential(ref, value) {
+    return this.requestPlugin('model-credential-set', { ref: ref, value: value }, 20000);
+  }
+
   selectModel(sessionId, provider, model, reasoningEffort) {
     const payload = { type: 'select-model', sessionId: sessionId, provider: provider, model: model };
     if (reasoningEffort) payload.reasoningEffort = reasoningEffort;

@@ -442,6 +442,11 @@ Page({
     wx.navigateTo({ url: '/pages/plugins/plugins' });
   },
 
+  /** 模型管理页：读取/增删 llm-pi-ai 的模型，和 DSH 客户端共享同一份 settings。 */
+  openModels() {
+    wx.navigateTo({ url: '/pages/models/models' });
+  },
+
   openFiles() {
     this._filesRel = null;
     this.setData({ filesSheet: true, filesEntries: [], filesLoading: true, filesError: '' });

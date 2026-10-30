@@ -119,6 +119,7 @@ Page({
   ...imageBlocks,
   ...changesActions,
   data: {
+    ui: require('../../utils/ui-preferences').snapshot().ui,
     sessionGlassEnabled: sessionGlassPreference.read(),
     ...settingsGlassStylePreference.view(),
     statusFlowDelay: 0,

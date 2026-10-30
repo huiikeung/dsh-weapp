@@ -1,0 +1,9 @@
+{
+  "navigationStyle": "custom",
+  "navigationBarTitleText": "模型",
+  "navigationBarBackgroundColor": "@navBgColor",
+  "navigationBarTextStyle": "@navTxtStyle",
+  "backgroundColor": "@bgColor",
+  "disableScroll": true,
+  "usingComponents": {}
+}

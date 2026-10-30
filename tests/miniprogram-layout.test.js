@@ -5,7 +5,7 @@ const app=JSON.parse(fs.readFileSync(path.join(root,'app.json'),'utf8'));
 const routes=require('./helpers/routes.cjs')(app);
 test('WeChat root contains only runtime files and all packages stay inside source budget',()=>{
   const checker=require('../scripts/check-miniprogram-package.cjs');const report=checker.check();assert.ok(report.groups[0].bytes<checker.MAIN_SOURCE_BUDGET);assert.ok(report.groups[0].mediaBytes<checker.MEDIA_BUDGET);assert.ok(report.packagedMediaBytes<checker.MEDIA_BUDGET);
-  assert.equal(routes.length,18);assert.equal(new Set(routes).size,18);
+  assert.equal(routes.length,19);assert.equal(new Set(routes).size,19);
   assert.ok(app.subPackages.some(pkg=>pkg.root==='pages/session'&&pkg.pages.includes('session')),'the large conversation page stays in its own on-demand package');
   assert.ok(app.preloadRule['pages/home/home'].packages.includes('pages/session'),'the conversation package preloads from home to keep navigation responsive');
   for(const route of routes)for(const ext of ['js','json','wxml','wxss'])assert.ok(fs.existsSync(path.join(root,route+'.'+ext)),route+'.'+ext);

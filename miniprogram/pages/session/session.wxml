@@ -1837,6 +1837,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
 </view>
 </view>
 <view hidden="{{!turnNavOpen}}" class="turn-overlay {{!turnNavOpen ? 'session-panel-hidden' : ''}}" catchtap="closeTurnNavigator" catchtouchmove="noop">
+<view wx:if="{{sessionGlassEnabled}}" class="turn-overlay-glass" aria-hidden="true"></view>
 <view class="turn-overlay-inner" catchtap="closeTurnNavigator" role="dialog" aria-label="{{ui['对话']}}">
 <view class="turn-scrub-body" id="turn-scrub-body">
 <view wx:if="{{turnNavWarming}}" class="turn-history-status">{{turnNavWarmText}} · {{turnNavItems.length}}</view>
@@ -1847,7 +1848,6 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
 <view wx:elif="{{turnNavWarmText}}" class="turn-history-status">{{turnNavWarmText}} · {{turnNavItems.length}}</view>
 <scroll-view
           scroll-y
-          enhanced
           show-scrollbar="{{false}}"
           class="turn-scrub-list"
           id="turn-scrub-list"

@@ -3,6 +3,22 @@
  * 深海蓝氛围 + 纸白内容面 + 海洋蓝点缀 + 液态玻璃控件。
  */
 
+/* iOS 微信滚动时会画原生滚动条（华为鸿蒙端 / 开发者工具不画）。统一隐藏所有滚动条，
+   覆盖 scroll-view 内外层元素，避免再出现右侧灰色滑块。 */
+::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+  color: transparent !important;
+}
+page,
+view,
+scroll-view {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
 page {
   /* 品牌色（双主题共用） */
   --navy: #07182B;

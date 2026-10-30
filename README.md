@@ -83,6 +83,7 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 | ApprovalRequestView | `pages/session` 审批卡片 | 允许一次 / 拒绝 |
 | Composer 输入面板 | 同页 | 权限、模型、思考等级芯片、图片附件、发送、停止回合 |
 | SettingsView | `pages/settings` | Agent 预设、默认模型、权限默认值、Gateway 状态/Ping/断开/忘记设备、DSH Host 信息、关于（隐私政策） |
+| ModelsView 模型管理 | `pages/models`（入口：会话设置 → 功能 → 模型） | 与 DSH 客户端共用 `llm-pi-ai` settings：提供商行与模型列表、添加/删除模型、默认模型保护、桌面端修改通过 `plugin-settings-changed` 自动同步；自动获取模型与「添加模型提供商」（内置目录 / 自定义 API + API Key 写入）需要网关插件 0.8.37+（`llm-model-config-v1`）并重启 DSH |
 | SessionStats | 同页「··· → 查看统计」 | 轮次/步骤/耗时/Tokens |
 | WorkspaceView 侧边栏 drawer | `pages/home`（品牌 logo 点击/右滑唤出） | 品牌字标 + 插件 / 定时任务入口 + 可选额度卡片（默认关闭，显示开关在 设置 → 侧栏），主内容右移圆角 + 压暗，抽屉内拖拽关闭 |
 | ScheduledTasksView 定时任务 | `pages/schedule` | schedule-catalog 目录、卡片左滑编辑/删除、展开详情、编辑弹层（标题/内容/执行时间）、删除确认、下拉刷新 |
