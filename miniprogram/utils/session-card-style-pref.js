@@ -39,13 +39,14 @@ function reset() {
   return set(DEFAULTS);
 }
 
-/** 悬浮滑杆 -> CSS 阴影；0 表示完全不悬浮。 */
-function floatShadow(value) {
+/** 悬浮滑杆 -> CSS 阴影；0 表示完全不悬浮。factor 用于预览放大（真实卡片始终 1）。 */
+function floatShadow(value, factor) {
   const n = clampField('float', value);
   if (!n) return '0 0 0 rgba(0, 0, 0, 0)';
-  const y = Math.round(n * 0.05 * 10) / 10;
-  const blur = Math.round(n * 0.2);
-  const alpha = Math.round(n * 0.00175 * 1000) / 1000;
+  const k = Number(factor) > 0 ? Number(factor) : 1;
+  const y = Math.round(n * 0.05 * k * 10) / 10;
+  const blur = Math.round(n * 0.2 * k);
+  const alpha = Math.min(0.32, Math.round(n * 0.00175 * k * 1000) / 1000);
   return '0 ' + y + 'rpx ' + blur + 'rpx rgba(7, 24, 43, ' + alpha + ')';
 }
 
@@ -58,8 +59,13 @@ function view(style) {
     cardEdge: s.edge,
     cardRadius: s.radius,
     cardFloatShadow: floatShadow(s.float),
+    // 预览把投影放大 4 倍，否则 1rpx/3.5% 的差异肉眼看不出来（真实卡片不用这个值）
+    cardFloatPreview: floatShadow(s.float, 4),
     cardEdgeColor: 'rgba(255, 255, 255, ' + (s.edge / 100).toFixed(2) + ')',
     cardLightColor: 'rgba(255, 255, 255, ' + (s.light * 0.0025).toFixed(3) + ')',
+    // 预览专用：描边 ×2、光线 ×4 并封顶，否则 0.38 的白环和 0.05 的顶光在预览里看不见
+    cardEdgePreview: 'rgba(255, 255, 255, ' + Math.min(0.85, s.edge / 100 * 2).toFixed(2) + ')',
+    cardLightPreview: 'rgba(255, 255, 255, ' + Math.min(0.6, s.light * 0.0025 * 4).toFixed(3) + ')',
     cardRadiusRpx: s.radius + 'rpx',
     cardFloatMin: LIMITS.float[0], cardFloatMax: LIMITS.float[1],
     cardLightMin: LIMITS.light[0], cardLightMax: LIMITS.light[1],

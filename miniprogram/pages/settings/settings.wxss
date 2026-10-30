@@ -1928,6 +1928,11 @@
   overflow-wrap: anywhere;
 }
 /* 上下文偏好：分段按钮（dsh-context settings.css 的 pill 组） */
+/* 外观卡片里的子项：横杠与最左侧文字对齐，横杠与标题之间留一个汉字宽度 */
+.card-sub-row { padding-left: 32rpx; }
+.card-sub-title { display: flex; align-items: center; min-width: 0; }
+/* 横杠画成短线段：横杠宽 + 间距 = 一个汉字宽度（31rpx），标题首字正好落在普通标签第二个字的位置 */
+.card-sub-dash { flex: none; width: 20rpx; height: 2rpx; border-radius: 2rpx; background: var(--text-3); margin-right: 11rpx; }
 .card-row.card-row-stack { display: flex; flex-direction: column; align-items: stretch; gap: 14rpx; }
 .card-row.card-row-stack .exp-copy { width: 100%; margin-right: 0; }
 .ctx-seg{display:flex;flex-wrap:wrap;gap:6rpx;padding:4rpx;border-radius:14rpx;background:var(--fill);}
@@ -1981,8 +1986,20 @@
 .code-modal-body { flex: 1; min-height: 0; max-height: 52vh; }
 /* 卡片外观弹窗里的实时预览：浅底上摆一张按当前参数渲染的卡片 */
 /* 预览舞台用中间调，白描边 / 顶部光线 / 投影才看得出来 */
-.card-preview-stage { margin: 6rpx 20rpx 10rpx; padding: 40rpx 24rpx; border-radius: 22rpx; background: linear-gradient(180deg, rgba(96, 112, 138, 0.42), rgba(96, 112, 138, 0.14)); }
-.card-preview-card { display: flex; align-items: center; gap: 16rpx; padding: 24rpx 22rpx; background: linear-gradient(165deg, rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.34)); }
+.card-preview-stage { margin: 6rpx 20rpx 10rpx; padding: 56rpx 26rpx; border-radius: 22rpx; background: linear-gradient(160deg, #55607a, #2b3242); }
+.card-preview-card { display: flex; align-items: center; gap: 16rpx; min-height: 96rpx; padding: 26rpx 24rpx; background: rgba(255, 255, 255, 0.14); }
+.card-preview-title { color: #FFFFFF; }
+.card-preview-sub { color: rgba(255, 255, 255, 0.66); }
+/* 「卡片样式设置」的预览不用舞台底色，直接贴在弹窗上；示例卡片用中间调才看得出白描边/顶光 */
+.card-preview-stage.plain { padding: 24rpx 20rpx 10rpx; background: transparent; }
+/* 两个预览都不用深色舞台：示例卡片自带底色，白描边/顶光/投影直接落在弹窗上 */
+.card-preview-stage.plain .card-preview-card { background: rgba(126, 142, 168, 0.32); border: none; }
+.card-preview-stage.plain .card-preview-title { color: var(--text); }
+.card-preview-stage.plain .card-preview-sub { color: var(--text-2); }
+/* 深色模式：预览卡片不能是实色块，用极淡的白保留玻璃感 */
+.theme-dark .card-preview-stage.plain .card-preview-card { background: rgba(255, 255, 255, 0.07); }
+.theme-dark .card-preview-stage.plain .card-preview-title { color: var(--text); }
+.theme-dark .card-preview-stage.plain .card-preview-sub { color: rgba(241, 244, 250, 0.66); }
 .card-preview-dot { width: 30rpx; height: 30rpx; border-radius: 50%; background: var(--text-2); opacity: 0.5; flex: none; }
 .card-preview-copy { display: flex; flex-direction: column; gap: 4rpx; min-width: 0; }
 .card-preview-title { font-size: 26rpx; color: var(--text); }

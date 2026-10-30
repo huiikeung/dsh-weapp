@@ -89,6 +89,12 @@ function view(style) {
     glassRadius: s.radius,
     glassBrightness: s.brightness,
     glassAlphaTop: (topPct / 100).toFixed(3),
+    // 预览专用：透明度与亮边放大 3 倍并封顶，否则浅色下这些参数看不出变化
+    glassPreviewTop: Math.min(0.55, topPct / 100 * 3).toFixed(3),
+    glassPreviewBottom: Math.min(0.42, bottomPct / 100 * 3).toFixed(3),
+    glassPreviewEdge: Math.min(0.75, s.edge / 100 * 2).toFixed(2),
+    // 预览衬底：浅色用中间调灰蓝（透明度才看得出来），深色用极淡的白（玻璃本色，不是实色块）
+    glassPreviewBase: light ? 'rgba(126, 142, 168, 0.55)' : 'rgba(255, 255, 255, 0.06)',
     glassAlphaBottom: (bottomPct / 100).toFixed(3),
     glassAlphaTopPct: Math.round(topPct * 10) / 10,
     glassAlphaBottomPct: Math.round(bottomPct * 10) / 10,

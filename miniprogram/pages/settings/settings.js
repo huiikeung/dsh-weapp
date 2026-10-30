@@ -645,7 +645,7 @@ Page({
     ...sessionCardStylePreference.view(),
     cardStyleOpen: false,
     choiceSheet: settingsGlassSheetPreference.read(),
-    ...settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }),
+    ...settingsGlassStylePreference.view({ light: theme.resolveTheme() === 'light' }),
       ...this.contextPreferenceData(),
       ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
@@ -1088,7 +1088,7 @@ Page({
 
   /** 原生背景亮度：50 = 主题默认，调低更暗、调高更亮；影响原生卡片与弹窗背景。 */
   nativePaletteData(value) {
-    const light = String(this.data.themeClass || '').indexOf('light') >= 0;
+    const light = theme.resolveTheme() === 'light';
     const view = settingsGlassStylePreference.view({ native: value, light });
     return {
       nativeBgValue: view.nativeBgValue,
@@ -1171,8 +1171,9 @@ Page({
 
   /** 重建玻璃样式数据时必须带主题标记，否则浅色下会退回深色磨砂（看起来就是透明的）。 */
   glassViewStyle(extra) {
-    const light = String(this.data.themeClass || '').indexOf('light') >= 0;
-    return settingsGlassStylePreference.view(Object.assign({ light: light }, extra || {}));
+    // 主题以 theme.resolveTheme() 为准：onShow 里 this.data.themeClass 可能还是旧值，
+    // 会导致浅色下弹窗拿到深色参数（看起来透明）。
+    return settingsGlassStylePreference.view(Object.assign({ light: theme.resolveTheme() === 'light' }, extra || {}));
   },
 
   /** 玻璃样式滑杆（透明度 / 模糊 / 亮边 / 圆角）：拖动即时预览，松手保存。 */
@@ -1200,14 +1201,12 @@ Page({
     this.setData({ cardStyleOpen: false });
   },
 
-  /** 拖动时只更新界面数值，松手（bindchange）才落盘。 */
+  /** 拖动中实时预览（含预览卡片的放大值），松手（bindchange）才落盘。 */
   onCardStyleChanging(e) {
     const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : '';
-    const value = (e && e.detail && e.detail.value) || 0;
-    if (!field) return;
-    const patch = {};
-    patch['card' + field.charAt(0).toUpperCase() + field.slice(1)] = Number(value);
-    this.setData(patch);
+    const value = e && e.detail ? e.detail.value : undefined;
+    if (!field || value === undefined) return;
+    this.setData(sessionCardStylePreference.view({ [field]: Number(value) }));
   },
 
   onCardStyleChange(e) {

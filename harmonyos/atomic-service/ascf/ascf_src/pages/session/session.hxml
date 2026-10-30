@@ -1550,7 +1550,7 @@
 </scroll-view>
 </view>
 <view has:if="{{modeSheet.length}}" class="opt-mask" bindtap="closePickSheets"></view>
-<view has:if="{{modeSheet.length}}" class="opt-pop">
+<view has:if="{{modeSheet.length}}" class="opt-pop mode-pop">
 <view has:for="{{modeSheet}}" has:key="id" class="opt-row {{item.current ? 'current' : ''}}" bindtap="pickModeOption" data-id="{{item.id}}">
 <view class="opt-main">
 <text class="opt-label">{{item.name}}</text>

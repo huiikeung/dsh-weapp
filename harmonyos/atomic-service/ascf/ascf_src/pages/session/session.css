@@ -4909,6 +4909,26 @@ backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backd
 .session-glass .composer-backdrop {
 background: linear-gradient(to bottom, transparent, transparent);
 }
+.session-glass .preset-capsule {
+background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
+border-color: transparent;
+box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 8rpx 24rpx rgba(3, 14, 30, 0.20);
+backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
+}
+.session-glass .opt-pop.mode-pop {
+background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+border-color: transparent;
+box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), 0 12rpx 36rpx rgba(7, 24, 43, 0.18);
+backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+}
+.theme-dark.session-glass .preset-capsule {
+box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 8rpx 24rpx rgba(0, 0, 0, 0.34);
+}
+.theme-dark.session-glass .opt-pop.mode-pop {
+box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), 0 12rpx 36rpx rgba(0, 0, 0, 0.42);
+}
 .session-glass .sheet.collab-sheet {
 background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
 box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), 0 -12rpx 48rpx rgba(3, 14, 30, 0.18);

@@ -1660,7 +1660,7 @@ hover-class="permission-row-pressed" hover-start-time="0" hover-stay-time="100"
 </scroll-view>
 </view>
 <view wx:if="{{modeSheet.length}}" class="opt-mask" bindtap="closePickSheets"></view>
-<view wx:if="{{modeSheet.length}}" class="opt-pop">
+<view wx:if="{{modeSheet.length}}" class="opt-pop mode-pop">
 <view
 wx:for="{{modeSheet}}" wx:key="id"
 class="opt-row {{item.current ? 'current' : ''}}"

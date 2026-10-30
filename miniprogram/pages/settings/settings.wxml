@@ -412,24 +412,24 @@
           </view>
         </view>
         <view class="card-row glass-style-row">
-          <view class="exp-copy"><text class="card-row-label">{{ui['玻璃UI样式']}}</text></view>
-          <dsh-switch checked="{{settingsGlassEnabled}}" aria-label="{{ui['玻璃UI样式']}}" bindchange="toggleSettingsGlass"/>
+          <view class="exp-copy"><text class="card-row-label">{{ui['设置页玻璃UI']}}</text></view>
+          <dsh-switch checked="{{settingsGlassEnabled}}" aria-label="{{ui['设置页玻璃UI']}}" bindchange="toggleSettingsGlass"/>
         </view>
-        <view class="card-row glass-style-row session-glass-row">
-          <view class="exp-copy"><text class="card-row-label">{{ui['对话页面玻璃']}}</text></view>
-          <dsh-switch checked="{{sessionGlassEnabled}}" aria-label="{{ui['对话页面玻璃']}}" bindchange="toggleSessionGlass"/>
-        </view>
-        <view class="card-row" id="session-card-style-entry" bindtap="openCardStyleSheet" role="button" aria-label="{{ui['卡片外观']}}">
-          <text class="card-row-label">{{ui['卡片外观']}}</text>
-          <view class="card-row-value"><text>{{ui['悬浮']}} {{cardFloat}}% · {{ui['圆角']}} {{cardRadius}}rpx</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
-        </view>
-        <view wx:if="{{settingsGlassEnabled}}" class="card-row" id="glass-style-entry" bindtap="openGlassStyleSheet" role="button" aria-label="{{ui['玻璃样式设置']}}">
-          <text class="card-row-label">{{ui['玻璃样式设置']}}</text>
+        <view wx:if="{{settingsGlassEnabled}}" class="card-row card-sub-row" id="glass-style-entry" bindtap="openGlassStyleSheet" role="button" aria-label="{{ui['玻璃样式设置']}}">
+          <view class="card-sub-title"><view class="card-sub-dash"></view><text class="card-row-label">{{ui['玻璃样式设置']}}</text></view>
           <view class="card-row-value"><text>{{glassAlpha}}% · {{glassBlur}}rpx</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
         </view>
-        <view wx:else class="card-row" id="native-style-entry" bindtap="openNativeStyleSheet" role="button" aria-label="{{ui['原生样式设置']}}">
-          <text class="card-row-label">{{ui['原生样式设置']}}</text>
+        <view wx:else class="card-row card-sub-row" id="native-style-entry" bindtap="openNativeStyleSheet" role="button" aria-label="{{ui['原生样式设置']}}">
+          <view class="card-sub-title"><view class="card-sub-dash"></view><text class="card-row-label">{{ui['原生样式设置']}}</text></view>
           <view class="card-row-value"><text>{{ui['原生背景']}} {{nativeBgValue}}%</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+        </view>
+        <view class="card-row glass-style-row session-glass-row">
+          <view class="exp-copy"><text class="card-row-label">{{ui['对话页玻璃UI']}}</text></view>
+          <dsh-switch checked="{{sessionGlassEnabled}}" aria-label="{{ui['对话页玻璃UI']}}" bindchange="toggleSessionGlass"/>
+        </view>
+        <view wx:if="{{sessionGlassEnabled}}" class="card-row card-sub-row" id="session-card-style-entry" bindtap="openCardStyleSheet" role="button" aria-label="{{ui['卡片样式设置']}}">
+          <view class="card-sub-title"><view class="card-sub-dash"></view><text class="card-row-label">{{ui['卡片样式设置']}}</text></view>
+          <view class="card-row-value"><text>{{ui['悬浮']}} {{cardFloat}}% · {{ui['圆角']}} {{cardRadius}}rpx</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
         </view>
 
         <view class="card-row glass-style-row">
@@ -1044,17 +1044,17 @@
 <!-- 卡片外观弹窗：悬浮 / 光线 / 描边 / 圆角（自带主题容器，否则浅色规则匹配不到） -->
 <view class="{{themeClass}}">
 <view wx:if="{{cardStyleOpen}}" class="glass-style-mask {{settingsGlassSheetEnabled ? '' : 'glass-style-mask-pass'}}" catchtap="closeCardStyleSheet" catchtouchmove="noop"></view>
-  <view wx:if="{{cardStyleOpen}}" class="glass-style-sheet {{settingsGlassSheetEnabled ? '' : 'native-skin'}}" catchtap="noop" role="dialog" aria-label="{{ui['卡片外观']}}">
+  <view wx:if="{{cardStyleOpen}}" class="glass-style-sheet {{settingsGlassSheetEnabled ? '' : 'native-skin'}}" catchtap="noop" role="dialog" aria-label="{{ui['卡片样式设置']}}">
     <view wx:if="{{settingsGlassSheetEnabled}}" class="sheet-grabber"></view>
     <view class="glass-style-head">
-      <text class="glass-style-title">{{ui['卡片外观']}}</text>
+      <text class="glass-style-title">{{ui['卡片样式设置']}}</text>
       <view class="glass-style-actions">
         <view class="glass-style-reset tap" catchtap="resetCardStyle" role="button">{{ui['重置为默认']}}</view>
         <view class="glass-style-done tap" catchtap="closeCardStyleSheet" role="button">{{ui['完成']}}</view>
       </view>
     </view>
-    <view class="card-preview-stage">
-      <view class="card-preview-card" style="border-radius: {{cardRadiusRpx}}; box-shadow: inset 0 0 0 0.5px {{cardEdgeColor}}, inset 0 1px 0 {{cardLightColor}}, {{cardFloatShadow}};">
+    <view class="card-preview-stage plain">
+      <view class="card-preview-card" style="border-radius: {{cardRadiusRpx}}; box-shadow: inset 0 0 0 1px {{cardEdgePreview}}, inset 0 2px 0 {{cardLightPreview}}, {{cardFloatPreview}};">
         <view class="card-preview-dot"></view>
         <view class="card-preview-copy">
           <text class="card-preview-title">{{ui['预览']}}</text>
@@ -1128,8 +1128,8 @@
       <view class="glass-style-done tap" catchtap="closeGlassStyleSheet" role="button">{{ui['完成']}}</view>
     </view>
   </view>
-  <view class="card-preview-stage">
-    <view class="card-preview-card" style="border-radius: {{glassRadiusCard}}; background: linear-gradient(165deg, rgba(255, 255, 255, {{glassAlphaTop}}), rgba(255, 255, 255, {{glassAlphaBottom}})); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), inset 0 0 0 0.5px rgba(255, 255, 255, {{glassEdgeAlpha}}), 0 10px 28px rgba(3, 14, 30, 0.22); backdrop-filter: blur({{glassBlurSheet}}) brightness({{glassBackdropBrightness}}); -webkit-backdrop-filter: blur({{glassBlurSheet}}) brightness({{glassBackdropBrightness}});">
+  <view class="card-preview-stage plain">
+    <view class="card-preview-card" style="border-radius: {{glassRadiusCard}}; background: linear-gradient(165deg, rgba(255, 255, 255, {{glassPreviewTop}}), rgba(255, 255, 255, {{glassPreviewBottom}})), {{glassPreviewBase}}; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.20), inset 0 0 0 1px rgba(255, 255, 255, {{glassPreviewEdge}}), 0 12px 32px rgba(3, 14, 30, 0.30); backdrop-filter: blur({{glassBlurSheet}}) brightness({{glassBackdropBrightness}}); -webkit-backdrop-filter: blur({{glassBlurSheet}}) brightness({{glassBackdropBrightness}});">
       <view class="card-preview-dot"></view>
       <view class="card-preview-copy">
         <text class="card-preview-title">{{ui['预览']}}</text>

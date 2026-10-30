@@ -111,7 +111,7 @@ function createPage(apiOptions) {
       if (name === '../../utils/haptics') return require('../miniprogram/utils/haptics');
       if (name === '../../utils/public-access-prompt') return require('../miniprogram/utils/public-access-prompt');
       if (name === '../../utils/cost-view') return require('../miniprogram/utils/cost-view');
-      if (name === '../../utils/theme') return { applyTo() {}, getMode: () => 'auto' };
+      if (name === '../../utils/theme') return { applyTo() {}, getMode: () => 'auto', resolveTheme: () => 'light', PAGE_BG: {} };
       if (name === '../../utils/build') return { BUILD_TIME: 'test-build', BUILD_VERSION: '0.9.27' };
       if (name === '../../utils/connection-status') return require('../miniprogram/utils/connection-status');
       throw new Error('Unexpected dependency: ' + name);
@@ -921,12 +921,16 @@ test('设置页里的玻璃样式滑杆可拖动，透明度 / 模糊 / 亮边 /
   assert.match(wxml, /glass-alpha-value">\{\{glassRadius\}\}rpx/);
   // 玻璃样式弹窗里同样内嵌实时预览（透明度/模糊/亮边/圆角/亮度全部跟随）
   assert.match(wxml, /card-preview-card" style="border-radius: \{\{glassRadiusCard\}\}/);
-  assert.ok(wxml.includes('rgba(255, 255, 255, {{glassAlphaTop}})') && wxml.includes('backdrop-filter: blur({{glassBlurSheet}})'), 'glass preview reflects alpha/blur');
-  assert.ok(wxml.includes('inset 0 0 0 0.5px rgba(255, 255, 255, {{glassEdgeAlpha}})'), 'glass preview reflects edge');
+  assert.ok(wxml.includes('rgba(255, 255, 255, {{glassPreviewTop}})') && wxml.includes('backdrop-filter: blur({{glassBlurSheet}})'), 'glass preview reflects alpha/blur');
+  assert.ok(wxml.includes('inset 0 0 0 1px rgba(255, 255, 255, {{glassPreviewEdge}})'), 'glass preview reflects edge');
+  // 预览放大值：真实值太小看不出来，预览单独放大（投影 x4、透明度/亮边封顶）
+  const cardPrefSource = fs.readFileSync(path.resolve(__dirname, '../miniprogram/utils/session-card-style-pref.js'), 'utf8');
+  assert.match(cardPrefSource, /cardFloatPreview: floatShadow\(s\.float, 4\)/);
+  assert.ok(wxml.includes('{{cardFloatPreview}}'), 'card preview uses the amplified shadow');
   assert.match(wxml, /glass-alpha-value">\{\{glassBrightness\}\}%/);
   // 滑杆重建样式必须经过 glassViewStyle 包装，否则浅色主题会被丢成深色磨砂
   assert.match(js, /onGlassStyleChanging\(e\)[\s\S]{0,320}?this\.glassViewStyle\(/);
-  assert.match(js, /glassViewStyle\(extra\)[\s\S]{0,240}?light: light/);
+  assert.match(js, /glassViewStyle\(extra\)[\s\S]{0,320}?light: theme\.resolveTheme\(\) === 'light'/);
   assert.match(js, /onGlassStyleChange\(e\)[\s\S]*?settingsGlassStylePreference\.set/);
   assert.match(glassCss, /var\(--glass-alpha-top, 0\.10\)/);
   assert.match(glassCss, /var\(--glass-edge-alpha, 0\.38\)/);
@@ -944,8 +948,8 @@ test('玻璃样式设置是独立弹窗，只在玻璃 UI 开启时出现', () =
   const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
   const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
   // 入口：玻璃开关打开时才显示「玻璃样式设置」
-  assert.match(wxml, /<view wx:if="\{\{settingsGlassEnabled\}\}" class="card-row" id="glass-style-entry" bindtap="openGlassStyleSheet"/);
-  assert.match(wxml, /class="card-row" id="glass-style-entry"[^>]*aria-label="\{\{ui\['玻璃样式设置'\]\}\}"/);
+  assert.match(wxml, /<view wx:if="\{\{settingsGlassEnabled\}\}" class="card-row(?: card-sub-row)?" id="glass-style-entry" bindtap="openGlassStyleSheet"/);
+  assert.match(wxml, /class="card-row[^"]*" id="glass-style-entry"[^>]*aria-label="\{\{ui\['玻璃样式设置'\]\}\}"/);
   // 独立弹窗：玻璃皮肤，底部 / 非底部两种形态
   assert.match(wxml, /wx:if="\{\{glassStyleOpen\}\}"[\s\S]{0,160}?class="\{\{settingsGlassSheetEnabled \? 'glass-style-sheet' : 'glass-style-pop'\}\}"/);
   assert.match(wxml, /glass-style-done tap" catchtap="closeGlassStyleSheet"/);
@@ -1114,8 +1118,8 @@ test('原生样式设置是另一个独立弹窗，两个弹窗同时只显示�
   const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
   const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
   // 两个入口互斥：玻璃开 → 玻璃参数；玻璃关 → 原生样式设置
-  assert.match(wxml, /<view wx:if="\{\{settingsGlassEnabled\}\}" class="card-row" id="glass-style-entry"/);
-  assert.match(wxml, /<view wx:else class="card-row" id="native-style-entry" bindtap="openNativeStyleSheet"[^>]*aria-label="\{\{ui\['原生样式设置'\]\}\}"/);
+  assert.match(wxml, /<view wx:if="\{\{settingsGlassEnabled\}\}" class="card-row(?: card-sub-row)?" id="glass-style-entry"/);
+  assert.match(wxml, /<view wx:else class="card-row[^"]*" id="native-style-entry" bindtap="openNativeStyleSheet"[^>]*aria-label="\{\{ui\['原生样式设置'\]\}\}"/);
   // 两个独立弹窗，分别由各自 open 状态控制
   assert.match(wxml, /wx:if="\{\{glassStyleOpen\}\}"/);
   assert.match(wxml, /wx:if="\{\{nativeStyleOpen\}\}"[\s\S]{0,160}?class="native-skin/);
@@ -1232,7 +1236,7 @@ test('对话页面玻璃：设置页独立开关控制，页面头部/输入区/
   }
   // 设置页独立开关：一行 switch + 处理器
   assert.ok(settingsWxml.includes('checked="{{sessionGlassEnabled}}"') && settingsWxml.includes('bindchange="toggleSessionGlass"'), 'settings switch exists');
-  assert.ok(settingsWxml.includes("ui['对话页面玻璃']"), 'switch label present');
+  assert.ok(settingsWxml.includes("ui['对话页玻璃UI']"), 'switch label present');
   assert.match(settingsJs, /toggleSessionGlass\(e\)[\s\S]{0,240}?sessionGlassPreference\.set/);
   assert.match(settingsJs, /onShow\(\)[\s\S]{0,1200}?sessionGlassEnabled: sessionGlassPreference\.read\(\)/);
   // 卡片外观弹窗：悬浮 / 光线 / 描边 / 圆角 -> 四个 CSS 变量，入口行 + 默认重置
@@ -1257,6 +1261,7 @@ test('对话页面玻璃：设置页独立开关控制，页面头部/输入区/
   assert.ok(wxss.includes('box-shadow: var(--card-float);'), 'stacked cards read the float variable');
   assert.ok(wxss.includes('border-radius: var(--card-radius, 36rpx);'), 'cards read the radius variable');
   assert.ok(settingsWxml.includes('bindtap="openCardStyleSheet"') && settingsWxml.includes('resetCardStyle'), 'settings entry + reset exist');
+  assert.match(settingsWxml, /wx:if="\{\{sessionGlassEnabled\}\}" class="card-row card-sub-row" id="session-card-style-entry"/, 'card style row hides when conversation glass is off');
   for (const field of ['float', 'light', 'edge', 'radius']) {
     assert.ok(settingsWxml.includes('data-field="' + field + '"'), 'slider for ' + field);
   }
