@@ -1,5 +1,5 @@
 <page-meta page-style="{{pageStyle}}" />
-<view class="page models {{themeClass}}" style="{{contentFontStyle}}">
+<view class="page models {{themeClass}} {{glassEnabled ? 'models-glass-ui' : 'models-native-ui'}} {{glassEnabled && glassSheetEnabled ? 'models-glass-sheet-ui' : 'models-native-sheet-ui'}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-blur-card: {{glassBlurCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-choice: {{glassRadiusChoice}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
   <!-- 导航：与 DSH 客户端「设置 → 模型」一致的自定义标题栏 -->
   <view class="models-nav" style="padding-top: {{statusBarH}}px;">
     <view class="models-back tap" bindtap="goBack" hover-class="models-press" role="button" aria-label="{{ui['返回']}}">
@@ -11,6 +11,7 @@
   <scroll-view class="models-scroll" scroll-y refresher-enabled refresher-triggered="{{refreshing}}" bindrefresherrefresh="onPullRefresh">
     <view class="models-body">
       <text class="models-intro">{{ui['管理已配置提供商的模型；修改会同步到 DSH 客户端。']}}</text>
+      <view wx:if="{{!supportsModelConfig && connected}}" class="models-restart-notice">{{ui['自动获取模型和添加模型提供商需要重启 DSH 加载新版网关；重启并重新连接后即可使用。']}}</view>
 
       <view wx:if="{{loading && !providers.length}}" class="models-state">
         <view class="models-spinner"></view>
@@ -40,6 +41,7 @@
             <view class="provider-dot {{item.status}}" aria-hidden="true"></view>
             <view class="provider-actions">
               <view class="provider-edit">{{expandedId === item.id ? ui['完成'] : ui['编辑']}}</view>
+              <view class="provider-delete tap" data-id="{{item.id}}" catchtap="askDeleteProvider" hover-class="models-press" role="button" aria-label="{{ui['删除']}} {{item.name}}">{{ui['删除']}}</view>
             </view>
           </view>
 
@@ -56,12 +58,15 @@
             </view>
 
             <view class="provider-models-head">
-              <text class="provider-models-title">{{ui['模型']}}</text>
-              <text class="provider-models-count">{{item.count}}{{ui[' 个模型']}}</text>
+              <view class="provider-models-heading">
+                <text class="provider-models-title">{{ui['模型']}}</text>
+                <text class="provider-models-count">{{item.count}}{{ui[' 个模型']}}</text>
+              </view>
+              <view class="provider-models-fetch tap" data-id="{{item.id}}" bindtap="openDiscoverySheet" hover-class="models-press" role="button">{{ui['获取模型']}}</view>
             </view>
 
             <view wx:if="{{!item.models.length}}" class="provider-models-empty">{{ui['这个提供商还没有模型']}}</view>
-            <view wx:for="{{item.models}}" wx:for-item="model" wx:key="id" class="model-row">
+            <view wx:for="{{item.models}}" wx:for-item="model" wx:key="id" class="model-row tap" data-provider="{{item.id}}" data-model="{{model.id}}" bindtap="openEditModel" hover-class="model-row-pressed" role="button" aria-label="{{ui['编辑模型']}} {{model.name}}">
               <view class="model-copy">
                 <view class="model-title-row">
                   <text class="model-name">{{model.name}}</text>
@@ -70,7 +75,7 @@
                 <text class="model-id" selectable>{{model.id}}</text>
                 <text wx:if="{{model.meta}}" class="model-meta">{{model.meta}}</text>
               </view>
-              <view class="model-delete tap" data-provider="{{item.id}}" data-model="{{model.id}}" catchtap="askDeleteModel" hover-class="models-press" role="button" aria-label="{{ui['删除']}} {{model.name}}">{{ui['删除']}}</view>
+              <view class="model-delete tap" data-provider="{{item.id}}" data-model="{{model.id}}" catchtap="askDeleteModel" hover-class="models-press" role="button" aria-label="{{ui['删除']}} {{model.name}}"><image class="model-delete-icon" src="/assets/icons/trash-red.png" mode="aspectFit"/></view>
             </view>
 
             <view class="model-add tap" data-id="{{item.id}}" bindtap="openAddModel" hover-class="model-add-pressed" role="button">
@@ -101,40 +106,7 @@
       <view class="models-sheet-close tap" bindtap="closeAddModel" hover-class="models-press" role="button" aria-label="{{ui['取消']}}">×</view>
     </view>
     <scroll-view class="models-sheet-body" scroll-y>
-      <view class="discovery-panel">
-        <view class="discovery-head">
-          <view class="discovery-copy">
-            <text class="field-label">{{ui['自动获取模型']}}</text>
-            <text class="field-hint">{{ui['从提供商端点读取可用模型，勾选后批量添加。']}}</text>
-          </view>
-          <view class="discovery-btn tap {{discovering || !supportsModelConfig ? 'disabled' : ''}}" bindtap="runAddDiscovery" role="button">
-            <view wx:if="{{discovering}}" class="mini-spinner"></view>
-            <text>{{discovering ? ui['正在获取…'] : ui['获取可用模型']}}</text>
-          </view>
-        </view>
-        <text wx:if="{{!supportsModelConfig}}" class="field-hint">{{ui['当前网关暂不支持自动获取模型：请重启 DSH 加载新版网关后重试。']}}</text>
-        <text wx:elif="{{discoveryError}}" class="field-error">{{discoveryError}}</text>
-        <block wx:if="{{discoveryResults.length}}">
-          <input class="field-input discovery-search" value="{{discoveryQuery}}" bindinput="onDiscoveryQuery" placeholder="{{ui['搜索模型']}}" placeholder-class="field-placeholder"/>
-          <view class="discovery-toolbar">
-            <text class="discovery-count">{{discoverySelectedCount}}{{ui[' 个已选择']}}</text>
-            <view class="discovery-all tap" bindtap="toggleAllDiscovery" role="button">{{ui['全选/取消全选']}}</view>
-          </view>
-          <scroll-view class="discovery-list" scroll-y>
-            <view wx:for="{{discoveryVisible}}" wx:key="id" class="discovery-row {{item.selected ? 'on' : ''}}" data-id="{{item.id}}" bindtap="toggleDiscoveryResult" role="checkbox" aria-checked="{{item.selected}}">
-              <view class="discovery-check">{{item.selected ? '✓' : ''}}</view>
-              <view class="discovery-row-copy">
-                <text class="discovery-name">{{item.name}}</text>
-                <text class="discovery-id">{{item.id}}</text>
-                <text wx:if="{{item.meta}}" class="discovery-meta">{{item.meta}}</text>
-              </view>
-            </view>
-            <view wx:if="{{!discoveryVisible.length}}" class="discovery-empty">{{ui['没有匹配的模型']}}</view>
-          </scroll-view>
-          <view class="discovery-add tap {{discoverySelectedCount && !saving ? '' : 'disabled'}}" bindtap="addDiscoveredSelected" role="button">{{ui['添加所选']}}<text wx:if="{{discoverySelectedCount}}" class="discovery-add-count">（{{discoverySelectedCount}}）</text></view>
-        </block>
-      </view>
-      <text class="sheet-section-title">{{ui['手动添加']}}</text>
+      <text class="field-hint">{{ui['手动填写模型 ID 与参数；如需从提供商获取，请在提供商的「获取模型」中批量选择。']}}</text>
       <view class="field">
         <text class="field-label">{{ui['模型 ID']}}</text>
         <input class="field-input field-mono" value="{{form.id}}" data-field="id" bindinput="onFormInput" placeholder="{{ui['上游接口使用的模型 ID']}}" placeholder-class="field-placeholder" maxlength="200"/>
@@ -155,16 +127,34 @@
       </view>
       <view class="field">
         <text class="field-label">{{ui['输入类型']}}</text>
-        <view class="input-chips">
-          <view class="input-chip {{form.text ? 'on' : ''}}" data-input="text" bindtap="toggleInputType" role="checkbox" aria-checked="{{form.text}}">
-            <text class="input-chip-check">{{form.text ? '✓' : ''}}</text>
+        <view class="input-checks">
+          <view class="input-check {{form.text ? 'checked' : ''}}" data-input="text" bindtap="toggleInputType" role="checkbox" aria-checked="{{form.text}}">
+            <view class="input-check-box">{{form.text ? '✓' : ''}}</view>
             <text>{{ui['文本']}}</text>
           </view>
-          <view class="input-chip {{form.image ? 'on' : ''}}" data-input="image" bindtap="toggleInputType" role="checkbox" aria-checked="{{form.image}}">
-            <text class="input-chip-check">{{form.image ? '✓' : ''}}</text>
+          <view class="input-check {{form.image ? 'checked' : ''}}" data-input="image" bindtap="toggleInputType" role="checkbox" aria-checked="{{form.image}}">
+            <view class="input-check-box">{{form.image ? '✓' : ''}}</view>
             <text>{{ui['图片']}}</text>
           </view>
         </view>
+      </view>
+      <view class="field">
+        <view class="reasoning-head">
+          <text class="field-label">{{ui['支持推理']}}</text>
+          <view class="reasoning-toggle {{form.reasoning ? 'on' : ''}}" bindtap="toggleFormReasoning" role="switch" aria-checked="{{form.reasoning}}"><view class="reasoning-toggle-knob"></view></view>
+        </view>
+        <block wx:if="{{form.reasoning}}">
+          <view class="reasoning-columns"><text>{{ui['档位']}}</text><text>{{ui['API 参数值']}}</text></view>
+          <view wx:for="{{form.reasoningRows}}" wx:for-index="rowIndex" wx:key="level" class="reasoning-row">
+            <view class="reasoning-select tap" data-index="{{rowIndex}}" data-target="form" bindtap="openReasoningLevelPicker" role="button">
+              <text>{{item.levelLabel}}</text><text class="reasoning-caret">⌄</text>
+            </view>
+            <input class="field-input reasoning-value" value="{{item.value}}" data-index="{{rowIndex}}" bindinput="onFormReasoningValue" disabled="{{item.isOff}}" placeholder="{{item.isOff ? ui['关闭思考'] : item.level}}" placeholder-class="field-placeholder"/>
+            <view class="reasoning-remove tap" data-index="{{rowIndex}}" bindtap="removeFormReasoningRow" role="button" aria-label="{{ui['删除']}}"><image class="reasoning-remove-icon" src="/assets/icons/trash-gray.png" mode="aspectFit"/></view>
+          </view>
+          <view class="reasoning-add tap" bindtap="addFormReasoningRow" role="button">＋ {{ui['添加档位']}}</view>
+          <text class="field-hint">{{ui['关闭表示不支持推理；开启后可配置档位与 API 参数值。']}}</text>
+        </block>
       </view>
       <text class="field-hint">{{ui['留空表示使用提供商默认值；模型 ID 必须与上游一致。']}}</text>
       <text wx:if="{{formError}}" class="field-error">{{formError}}</text>
@@ -172,6 +162,123 @@
     <view class="models-sheet-actions">
       <view class="sheet-btn" bindtap="closeAddModel" hover-class="models-press" role="button">{{ui['取消']}}</view>
       <view class="sheet-btn primary {{saving ? 'disabled' : ''}}" bindtap="submitAddModel" hover-class="models-press" role="button">{{saving ? ui['正在保存…'] : ui['添加']}}</view>
+    </view>
+  </view>
+
+
+  <!-- 获取模型：从提供商端点批量选择（入口在「x 个模型」右侧） -->
+  <view wx:if="{{discoveryOpen}}" class="models-mask" bindtap="closeDiscoverySheet" catchtouchmove="noop"></view>
+  <view wx:if="{{discoveryOpen}}" class="models-sheet discovery-sheet" catchtap="noop" role="dialog" aria-label="{{ui['获取模型']}}">
+    <view class="models-handle"></view>
+    <view class="models-sheet-head">
+      <view class="models-sheet-heading">
+        <text class="models-sheet-title">{{ui['获取模型']}}</text>
+        <text class="models-sheet-subtitle">{{discoveryProviderName}}</text>
+      </view>
+      <view class="models-sheet-close tap" bindtap="closeDiscoverySheet" hover-class="models-press" role="button" aria-label="{{ui['取消']}}">×</view>
+    </view>
+    <scroll-view class="models-sheet-body" scroll-y>
+      <view class="discovery-panel">
+        <view class="discovery-head">
+          <view class="discovery-copy">
+            <text class="field-label">{{ui['从提供商获取模型']}}</text>
+            <text class="field-hint">{{ui['从提供商端点读取可用模型，勾选后批量添加。']}}</text>
+          </view>
+          <view class="discovery-btn tap {{discovering || !supportsModelConfig ? 'disabled' : ''}}" bindtap="runAddDiscovery" role="button">
+            <view wx:if="{{discovering}}" class="mini-spinner"></view>
+            <text>{{discovering ? ui['正在获取…'] : ui['获取可用模型']}}</text>
+          </view>
+        </view>
+        <text wx:if="{{!supportsModelConfig}}" class="field-hint">{{ui['当前网关暂不支持自动获取模型：请重启 DSH 加载新版网关后重试。']}}</text>
+        <text wx:elif="{{discoveryError}}" class="field-error">{{discoveryError}}</text>
+        <view wx:elif="{{discovering && !discoveryResults.length}}" class="discovery-empty">{{ui['正在获取模型…']}}</view>
+        <block wx:if="{{discoveryResults.length}}">
+          <input class="field-input discovery-search" value="{{discoveryQuery}}" bindinput="onDiscoveryQuery" placeholder="{{ui['搜索模型']}}" placeholder-class="field-placeholder"/>
+          <view class="discovery-toolbar">
+            <text class="discovery-count">{{discoverySelectedCount}}{{ui[' 个已选择']}}</text>
+            <view class="discovery-all tap" bindtap="toggleAllDiscovery" role="button">{{ui['全选/取消全选']}}</view>
+          </view>
+          <scroll-view class="discovery-list" scroll-y>
+            <view wx:for="{{discoveryVisible}}" wx:key="id" class="discovery-row {{item.selected ? 'on' : ''}} {{item.existing ? 'existing' : ''}}" data-id="{{item.id}}" bindtap="toggleDiscoveryResult" role="checkbox" aria-checked="{{item.selected}}" aria-disabled="{{item.existing}}">
+              <view class="discovery-check">{{item.selected ? '✓' : ''}}</view>
+              <view class="discovery-row-copy">
+                <view class="discovery-title-row">
+                  <text class="discovery-name">{{item.name}}</text>
+                  <text wx:if="{{item.existing}}" class="discovery-badge">{{ui['已添加']}}</text>
+                </view>
+                <text class="discovery-id">{{item.id}}</text>
+                <text wx:if="{{item.meta}}" class="discovery-meta">{{item.meta}}</text>
+              </view>
+            </view>
+            <view wx:if="{{!discoveryVisible.length}}" class="discovery-empty">{{ui['没有匹配的模型']}}</view>
+          </scroll-view>
+          <view wx:if="{{discoveryAllExisting}}" class="discovery-hint">{{ui['所有可用模型都已添加']}}</view>
+          <view class="discovery-add tap {{discoverySelectedCount && !saving ? '' : 'disabled'}}" bindtap="addDiscoveredSelected" role="button">{{ui['添加所选']}}<text wx:if="{{discoverySelectedCount}}" class="discovery-add-count">（{{discoverySelectedCount}}）</text></view>
+        </block>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- 编辑模型：点模型行打开，编辑上下文窗口、图片输入与推理开关 -->
+  <view wx:if="{{editModelOpen}}" class="models-mask" bindtap="closeEditModel" catchtouchmove="noop"></view>
+  <view wx:if="{{editModelOpen}}" class="models-sheet models-edit-sheet" catchtap="noop" role="dialog" aria-label="{{ui['编辑模型']}}">
+    <view class="models-handle"></view>
+    <view class="models-sheet-head">
+      <view class="models-sheet-heading">
+        <text class="models-sheet-title">{{ui['编辑模型']}}</text>
+        <text class="models-sheet-subtitle">{{editTarget.providerName}} · {{editTarget.name}}</text>
+      </view>
+      <view class="models-sheet-close tap" bindtap="closeEditModel" hover-class="models-press" role="button" aria-label="{{ui['取消']}}">×</view>
+    </view>
+    <scroll-view class="models-sheet-body" scroll-y>
+      <view class="field-grid">
+        <view class="field field-half">
+          <text class="field-label">{{ui['上下文窗口']}}</text>
+          <input class="field-input" type="number" value="{{editForm.contextWindow}}" data-field="contextWindow" bindinput="onEditInput" placeholder="1000000" placeholder-class="field-placeholder"/>
+        </view>
+        <view class="field field-half">
+          <text class="field-label">{{ui['最大输出 Token']}}</text>
+          <input class="field-input" type="number" value="{{editForm.maxTokens}}" data-field="maxTokens" bindinput="onEditInput" placeholder="8192" placeholder-class="field-placeholder"/>
+        </view>
+      </view>
+      <view class="field">
+        <text class="field-label">{{ui['输入类型']}}</text>
+        <view class="input-checks">
+          <view class="input-check checked disabled" role="checkbox" aria-checked="true">
+            <view class="input-check-box">✓</view>
+            <text>{{ui['文本']}}</text>
+          </view>
+          <view class="input-check {{editForm.image ? 'checked' : ''}}" bindtap="toggleEditImage" role="checkbox" aria-checked="{{editForm.image}}">
+            <view class="input-check-box">{{editForm.image ? '✓' : ''}}</view>
+            <text>{{ui['图片']}}</text>
+          </view>
+        </view>
+        <text class="field-hint">{{ui['开启后模型输入类型会包含图片。']}}</text>
+      </view>
+      <view class="field">
+        <view class="reasoning-head">
+          <text class="field-label">{{ui['支持推理']}}</text>
+          <view class="reasoning-toggle {{editForm.reasoning ? 'on' : ''}}" bindtap="toggleEditReasoning" role="switch" aria-checked="{{editForm.reasoning}}"><view class="reasoning-toggle-knob"></view></view>
+        </view>
+        <block wx:if="{{editForm.reasoning}}">
+          <text wx:if="{{editLevelsInherited && !editForm.reasoningRows.length}}" class="field-hint">{{ui['当前沿用提供商目录的推理能力；添加档位会改为显式配置。']}}</text>
+          <view wx:if="{{editForm.reasoningRows.length}}" class="reasoning-columns"><text>{{ui['档位']}}</text><text>{{ui['API 参数值']}}</text></view>
+          <view wx:for="{{editForm.reasoningRows}}" wx:for-index="rowIndex" wx:key="level" class="reasoning-row">
+            <view class="reasoning-select tap" data-index="{{rowIndex}}" data-target="edit" bindtap="openReasoningLevelPicker" role="button">
+              <text>{{item.levelLabel}}</text><text class="reasoning-caret">⌄</text>
+            </view>
+            <input class="field-input reasoning-value" value="{{item.value}}" data-index="{{rowIndex}}" bindinput="onEditReasoningValue" disabled="{{item.isOff}}" placeholder="{{item.isOff ? ui['关闭思考'] : item.level}}" placeholder-class="field-placeholder"/>
+            <view class="reasoning-remove tap" data-index="{{rowIndex}}" bindtap="removeEditReasoningRow" role="button" aria-label="{{ui['删除']}}"><image class="reasoning-remove-icon" src="/assets/icons/trash-gray.png" mode="aspectFit"/></view>
+          </view>
+          <view class="reasoning-add tap" bindtap="addEditReasoningRow" role="button">＋ {{ui['添加档位']}}</view>
+          <text class="field-hint">{{ui['勾选该模型支持的推理等级；关闭支持推理会写入 reasoningEfforts:false。']}}</text>
+        </block>
+      </view>
+      <text wx:if="{{editError}}" class="field-error">{{editError}}</text>
+    </scroll-view>
+    <view class="models-sheet-actions">
+      <view class="sheet-btn" bindtap="closeEditModel" hover-class="models-press" role="button">{{ui['取消']}}</view>
+      <view class="sheet-btn primary {{saving ? 'disabled' : ''}}" bindtap="saveEditModel" hover-class="models-press" role="button">{{saving ? ui['正在保存…'] : ui['保存']}}</view>
     </view>
   </view>
 
@@ -295,6 +402,40 @@
     <view class="models-sheet-actions">
       <view class="sheet-btn" bindtap="closeProviderSheet" hover-class="models-press" role="button">{{ui['取消']}}</view>
       <view class="sheet-btn primary {{providerBusy || !supportsModelConfig ? 'disabled' : ''}}" bindtap="createProvider" hover-class="models-press" role="button">{{providerBusy ? ui['正在保存…'] : ui['添加提供商']}}</view>
+    </view>
+  </view>
+
+  <!-- 推理档位选择：玻璃底部弹层（替代原生 picker 的系统弹窗） -->
+  <view wx:if="{{reasoningPickerOpen}}" class="models-mask reasoning-picker-mask" bindtap="closeReasoningLevelPicker" catchtouchmove="noop"></view>
+  <view wx:if="{{reasoningPickerOpen}}" class="models-sheet reasoning-picker-sheet" catchtap="noop" role="dialog" aria-label="{{ui['推理等级']}}">
+    <view class="models-handle"></view>
+    <view class="models-sheet-head">
+      <view class="models-sheet-heading">
+        <text class="models-sheet-title">{{ui['推理等级']}}</text>
+        <text class="models-sheet-subtitle">{{ui['选择档位']}}</text>
+      </view>
+      <view class="models-sheet-close tap" bindtap="closeReasoningLevelPicker" hover-class="models-press" role="button" aria-label="{{ui['取消']}}">×</view>
+    </view>
+    <scroll-view class="reasoning-picker-list" scroll-y>
+      <view wx:for="{{reasoningLevels}}" wx:key="id" class="reasoning-option {{reasoningPickerLevel === item.id ? 'current' : ''}}" data-level="{{item.id}}" bindtap="selectReasoningLevel" role="button">
+        <text>{{item.label}}</text>
+        <text wx:if="{{reasoningPickerLevel === item.id}}" class="reasoning-option-check">✓</text>
+      </view>
+    </scroll-view>
+  </view>
+
+  <!-- 删除模型提供商确认 -->
+  <view wx:if="{{providerDeleteOpen}}" class="models-mask" bindtap="cancelDeleteProvider" catchtouchmove="noop"></view>
+  <view wx:if="{{providerDeleteOpen}}" class="models-sheet models-confirm" catchtap="noop" role="dialog" aria-label="{{ui['删除模型提供商？']}}">
+    <view class="models-handle"></view>
+    <view class="models-sheet-head">
+      <view class="models-sheet-heading"><text class="models-sheet-title">{{ui['删除模型提供商？']}}</text></view>
+      <view class="models-sheet-close tap" bindtap="cancelDeleteProvider" hover-class="models-press" role="button" aria-label="{{ui['取消']}}">×</view>
+    </view>
+    <view class="models-confirm-body"><text class="models-confirm-text">{{providerDeleteTarget.message}}</text></view>
+    <view class="models-sheet-actions">
+      <view class="sheet-btn" bindtap="cancelDeleteProvider" hover-class="models-press" role="button">{{ui['取消']}}</view>
+      <view class="sheet-btn danger {{providerDeleting ? 'disabled' : ''}}" bindtap="confirmDeleteProvider" hover-class="models-press" role="button">{{providerDeleting ? ui['正在保存…'] : ui['删除']}}</view>
     </view>
   </view>
 </view>

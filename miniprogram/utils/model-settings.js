@@ -5,6 +5,9 @@ const PI_NS = 'llm-pi-ai';
 const PI_PREFIX = 'providers';
 
 // DSH 模型页把协议显示为产品名，存储值仍是 schema 标识符。
+// llm-pi-ai 允许作为 reasoningEfforts 键的思考档位（按升级顺序）。
+const REASONING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
 const PROTOCOL_LABELS = {
   'openai-completions': 'OpenAI Chat Completions',
   'openai-responses': 'OpenAI Responses',
@@ -43,6 +46,15 @@ function modelMeta(model, labels) {
   const inputs = Array.isArray(model && model.input) ? model.input : [];
   if (inputs.length) {
     parts.push(inputs.map((kind) => (kind === 'image' ? (copy.image || 'Image') : (copy.text || 'Text'))).join('/'));
+  }
+  if (model && model.reasoningEfforts === false) {
+    parts.push(copy.noReasoning || 'No reasoning');
+  } else if (model && model.reasoningEfforts && typeof model.reasoningEfforts === 'object') {
+    const levelLabels = copy.levelLabels || {};
+    const declared = REASONING_LEVELS.filter((level) => model.reasoningEfforts[level] !== undefined);
+    if (declared.length) {
+      parts.push((copy.reasoning || 'Reasoning') + ' ' + declared.map((level) => levelLabels[level] || level).join('/'));
+    }
   }
   return parts.join(' · ');
 }
@@ -134,7 +146,66 @@ function validateNewModel(form, existingModels) {
   if (input.image) inputs.push('image');
   if (!inputs.length) return { error: 'input-empty' };
   model.input = inputs;
+  if (input.reasoning === true) {
+    const efforts = Array.isArray(input.reasoningRows)
+      ? buildReasoningEffortsFromRows(input.reasoningRows)
+      : buildReasoningEfforts(input.levels, null);
+    if (efforts.error) return efforts;
+    model.reasoningEfforts = efforts.value;
+  } else {
+    model.reasoningEfforts = false;
+  }
   return { model: model };
+}
+
+/** 把 reasoningEfforts 展开成可编辑的档位行（off 的 null 值显示为空）。 */
+function reasoningRowsFromEfforts(efforts) {
+  if (!efforts || efforts === false || typeof efforts !== 'object') return [];
+  return ['off'].concat(REASONING_LEVELS).filter((level) => efforts[level] !== undefined).map((level) => ({
+    level: level,
+    value: efforts[level] === null ? '' : String(efforts[level])
+  }));
+}
+
+/** 默认档位行：off + low/medium/high（与 DSH 打开推理开关时的初始行一致）。 */
+function defaultReasoningRows() {
+  return reasoningRowsFromEfforts({ off: null, low: 'low', medium: 'medium', high: 'high' });
+}
+
+/** 行 -> reasoningEfforts；非 off 档位留空时用档位名作为 API 参数值。 */
+function buildReasoningEffortsFromRows(rows) {
+  const source = Array.isArray(rows) ? rows : [];
+  const efforts = { off: null };
+  let declared = 0;
+  for (const row of source) {
+    if (!row || typeof row.level !== 'string' || REASONING_LEVELS.indexOf(row.level) < 0) continue;
+    if (Object.prototype.hasOwnProperty.call(efforts, row.level)) return { error: 'reasoning-levels-duplicate' };
+    const value = String(row.value == null ? '' : row.value).trim();
+    if (row.level === 'off') {
+      efforts.off = value.length > 0 ? value : null;
+      continue;
+    }
+    efforts[row.level] = value.length > 0 ? value : row.level;
+    declared += 1;
+  }
+  if (!declared) return { error: 'reasoning-levels-empty' };
+  return { value: efforts };
+}
+
+/** 由勾选的档位生成 reasoningEfforts；已有模型保留原 wire 值，新档位用档位名。 */
+function buildReasoningEfforts(levels, original) {
+  const source = original && typeof original === 'object' ? original : {};
+  const selected = levels && typeof levels === 'object' ? levels : {};
+  const efforts = { off: source.off === undefined ? null : source.off };
+  let declared = 0;
+  REASONING_LEVELS.forEach((level) => {
+    if (selected[level] !== true) return;
+    const wire = source[level];
+    efforts[level] = typeof wire === 'string' && wire.length > 0 ? wire : level;
+    declared += 1;
+  });
+  if (!declared) return { error: 'reasoning-levels-empty' };
+  return { value: efforts };
 }
 
 function appendModel(models, model) {
@@ -143,6 +214,52 @@ function appendModel(models, model) {
 
 function removeModel(models, id) {
   return (Array.isArray(models) ? models : []).filter((item) => !item || item.id !== id);
+}
+
+/** 编辑已有模型：保留 id/name，更新上下文窗口、输出上限、图片输入与推理开关。 */
+function applyModelEdit(model, form, originalReasoning) {
+  const input = form || {};
+  const next = Object.assign({}, model || {});
+  const contextWindow = String(input.contextWindow == null ? '' : input.contextWindow).trim();
+  const maxTokens = String(input.maxTokens == null ? '' : input.maxTokens).trim();
+  if (contextWindow) {
+    const number = Number(contextWindow);
+    if (!Number.isSafeInteger(number) || number <= 0) return { error: 'context-invalid' };
+    next.contextWindow = number;
+  } else {
+    delete next.contextWindow;
+  }
+  if (maxTokens) {
+    const number = Number(maxTokens);
+    if (!Number.isSafeInteger(number) || number <= 0) return { error: 'max-invalid' };
+    next.maxTokens = number;
+  } else {
+    delete next.maxTokens;
+  }
+  const inputs = ['text'];
+  if (input.image) inputs.push('image');
+  next.input = inputs;
+  // DSH schema 只允许 reasoningEfforts 为 false 或等级映射；开启表示「沿用目录/提供商能力」。
+  if (input.reasoning === false) {
+    next.reasoningEfforts = false;
+  } else if (Array.isArray(input.reasoningRows)) {
+    const efforts = buildReasoningEffortsFromRows(input.reasoningRows);
+    if (efforts.error) return efforts;
+    next.reasoningEfforts = efforts.value;
+  } else if (input.levels !== undefined) {
+    const efforts = buildReasoningEfforts(input.levels, originalReasoning);
+    if (efforts.error) return efforts;
+    next.reasoningEfforts = efforts.value;
+  } else if (originalReasoning !== undefined && originalReasoning !== null && originalReasoning !== false) {
+    next.reasoningEfforts = originalReasoning;
+  } else {
+    delete next.reasoningEfforts;
+  }
+  return { model: next };
+}
+
+function replaceModel(models, id, model) {
+  return (Array.isArray(models) ? models : []).map((item) => (item && item.id === id ? model : item));
 }
 
 function isDefaultModel(selection, providerId, modelId) {
@@ -160,6 +277,39 @@ function modelsMutation(providerId, models, revision) {
       value: (Array.isArray(models) ? models : []).slice()
     }]
   };
+}
+
+/**
+ * 精确编辑单个模型：只写该模型的受管字段，避免整段 models 覆盖掉 DSH 客户端
+ * 在同一提供商下新增/修改的其他模型。
+ */
+function appendModelsMutation(providerId, startIndex, models, revision) {
+  const ops = [];
+  (Array.isArray(models) ? models : []).forEach((model, offset) => {
+    ops.push({ op: 'set', path: [PI_PREFIX, providerId, 'models', String(startIndex + offset)], value: model });
+  });
+  return { ns: PI_NS, expectedRevision: revision, ops: ops };
+}
+
+function removeModelMutation(providerId, index, revision) {
+  return {
+    ns: PI_NS,
+    expectedRevision: revision,
+    ops: [{ op: 'unset', path: [PI_PREFIX, providerId, 'models', String(index)] }]
+  };
+}
+
+function editModelMutation(providerId, index, model, revision) {
+  const base = [PI_PREFIX, providerId, 'models', String(index)];
+  const ops = [];
+  [['contextWindow', model && model.contextWindow],
+    ['maxTokens', model && model.maxTokens],
+    ['input', model && model.input],
+    ['reasoningEfforts', model && model.reasoningEfforts]].forEach(([field, value]) => {
+    if (value === undefined) ops.push({ op: 'unset', path: base.concat(field) });
+    else ops.push({ op: 'set', path: base.concat(field), value: value });
+  });
+  return { ns: PI_NS, expectedRevision: revision, ops: ops };
 }
 
 // ---------- 添加模型提供商 / 自动获取模型 ----------
@@ -187,7 +337,9 @@ function isValidBaseURL(value) {
 function validateProviderId(id, existingIds) {
   const value = String(id == null ? '' : id).trim();
   if (!value) return { error: 'provider-id-empty' };
-  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(value)) return { error: 'provider-id-invalid' };
+  // 与 DSH 自定义 provider 的 ROUTE_PATTERN 一致：小写字母开头，后接小写字母/数字/连字符；
+  // 该 id 同时是 apiKeyEnv 的派生前缀，不能以数字开头，也不能含点/下划线。
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value)) return { error: 'provider-id-invalid' };
   if ((existingIds || []).indexOf(value) >= 0) return { error: 'provider-id-duplicate' };
   return { value: value };
 }
@@ -242,7 +394,10 @@ function validateProviderDraft(mode, draft, options) {
 
 function buildProviderConfig(input) {
   const source = input || {};
-  const config = { apiKeyEnv: source.apiKeyEnv, models: Array.isArray(source.models) ? source.models.slice() : [] };
+  const config = { models: Array.isArray(source.models) ? source.models.slice() : [] };
+  // 与 DSH CustomProviderCard 一致：只有在创建时填写了 API Key 才写 apiKeyEnv；
+  // 留空时交给 pi-ai 的原生认证/环境变量解析。
+  if (source.apiKeyEnv) config.apiKeyEnv = source.apiKeyEnv;
   if (source.displayName) config.displayName = source.displayName;
   if (source.api) config.api = source.api;
   if (source.baseURL) config.baseURL = source.baseURL;
@@ -280,8 +435,13 @@ function addDiscoveredModels(models, candidates) {
   return { models: next, added: added };
 }
 
-/** 发现结果转成列表行（页面只显示白名单字段）。 */
-function discoveryRows(candidates, labels) {
+/** 发现结果转成列表行（页面只显示白名单字段）。existing 行表示该提供商下已配置，灰显且不可选。 */
+function discoveryRows(candidates, labels, existingModels) {
+  const existing = {};
+  (Array.isArray(existingModels) ? existingModels : []).forEach((model) => {
+    const id = typeof model === 'string' ? model : (model && model.id);
+    if (typeof id === 'string' && id) existing[id] = true;
+  });
   return (Array.isArray(candidates) ? candidates : [])
     .filter((candidate) => candidate && typeof candidate.id === 'string' && candidate.id)
     .map((candidate) => ({
@@ -291,6 +451,7 @@ function discoveryRows(candidates, labels) {
         contextWindow: candidate.contextWindow,
         input: Array.isArray(candidate.inputModalities) ? candidate.inputModalities.filter((kind) => kind === 'text' || kind === 'image') : []
       }, labels),
+      existing: existing[candidate.id] === true,
       selected: false
     }));
 }
@@ -307,14 +468,25 @@ function errorKey(message) {
 
 module.exports = {
   PI_NS,
+  PI_PREFIX,
   isPiProvider,
   protocolLabel,
   formatTokenCount,
   modelMeta,
   buildProviderRows,
   validateNewModel,
+  REASONING_LEVELS,
+  buildReasoningEfforts,
+  reasoningRowsFromEfforts,
+  defaultReasoningRows,
+  buildReasoningEffortsFromRows,
   appendModel,
   removeModel,
+  applyModelEdit,
+  replaceModel,
+  appendModelsMutation,
+  removeModelMutation,
+  editModelMutation,
   isDefaultModel,
   modelsMutation,
   PROTOCOLS,

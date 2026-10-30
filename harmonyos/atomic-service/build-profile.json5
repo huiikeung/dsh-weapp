@@ -217,6 +217,18 @@
           ]
         }
       ]
+    },
+    {
+      "name": "pages_models",
+      "srcPath": "./ascf/ascf_build/pages_models",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
     }
   ]
 }

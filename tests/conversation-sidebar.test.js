@@ -83,8 +83,8 @@ test('session header renders the sidebar button left of the more button and the 
     assert.ok(wxml.includes("theme === 'dark' ? 'pinwheel-white.png' : 'pinwheel-ink.png'"), base + ': plugins icon matches the drawer');
     assert.ok(wxml.includes("theme === 'dark' ? 'automation-white.svg' : 'automation.svg'"), base + ': schedule icon matches the drawer');
     assert.ok(wxml.includes("item.ungrouped ? (theme === 'dark' ? 'tray-white.png' : 'tray-ink.png')"), base + ': ungrouped tray icon matches the workspace popup');
-    assert.ok(wxml.includes("theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-blue.svg'"), base + ': folder icon matches the workspace popup');
-    assert.ok(wxml.includes("item.expanded ? 'workspace-folder-blue.svg'"), base + ': expanded folder turns blue');
+    assert.ok(wxml.includes("theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-ink.svg'"), base + ': collapsed folder stays neutral');
+    assert.ok(wxml.includes("item.containsCurrent ? 'workspace-folder-blue.svg'"), base + ': folder turns blue for the group containing the selected session');
   }
 });
 

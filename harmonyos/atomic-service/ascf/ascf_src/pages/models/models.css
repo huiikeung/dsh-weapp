@@ -152,6 +152,8 @@
   margin-top: 16rpx;
   padding: 12rpx 0 4rpx;
 }
+.provider-models-heading { display: flex; align-items: baseline; gap: 12rpx; }
+.provider-models-fetch { font-size: 24rpx; color: var(--ocean); padding: 2rpx 0 2rpx 16rpx; }
 .provider-models-title { font-size: 26rpx; font-weight: 600; color: var(--text); }
 .provider-models-count { font-size: 22rpx; color: var(--text-4); }
 .provider-models-empty { padding: 20rpx 0 8rpx; font-size: 24rpx; color: var(--text-4); }
@@ -163,6 +165,7 @@
   padding: 22rpx 0;
   border-bottom: 1rpx solid var(--divider);
 }
+.model-row-pressed { background: var(--fill); }
 .model-copy { flex: 1; min-width: 0; }
 .model-title-row { display: flex; align-items: center; gap: 12rpx; }
 .model-name { font-size: 28rpx; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -255,6 +258,15 @@
   line-height: 1;
 }
 .models-outline-btn::after { border: none; }
+.models-restart-notice {
+  margin: 0 4rpx 20rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 14rpx;
+  background: rgba(255, 174, 31, 0.12);
+  color: #FFAE1F;
+  font-size: 24rpx;
+  line-height: 36rpx;
+}
 .models-notice {
   margin-bottom: 16rpx;
   padding: 16rpx 20rpx;
@@ -321,7 +333,11 @@
   font-size: 34rpx;
   line-height: 1;
 }
-.models-sheet-body { padding: 8rpx 32rpx 20rpx; }
+.models-sheet-body {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 8rpx 32rpx 20rpx;
+}
 
 .field { margin-bottom: 22rpx; }
 .field-grid { display: flex; gap: 16rpx; }
@@ -365,6 +381,18 @@
   color: var(--ocean);
 }
 .input-chip-check { width: 22rpx; font-size: 22rpx; text-align: center; }
+.reasoning-levels { margin-top: 14rpx; }
+.reasoning-levels-label { display: block; font-size: 22rpx; color: var(--text-3); }
+.level-chips { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 8rpx; }
+.level-chip {
+  padding: 8rpx 18rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 10rpx;
+  background: var(--fill);
+  font-size: 23rpx;
+  color: var(--text-2);
+}
+.level-chip.on { border-color: var(--ocean); background: rgba(46, 107, 230, 0.14); color: var(--ocean); }
 
 .models-confirm-body { padding: 8rpx 32rpx 12rpx; }
 .models-confirm-text { font-size: 26rpx; line-height: 42rpx; color: var(--text-2); }
@@ -511,6 +539,18 @@
 .discovery-row { display: flex; align-items: flex-start; gap: 14rpx; padding: 14rpx 16rpx; border-bottom: 1rpx solid var(--divider); }
 .discovery-row:last-child { border-bottom: none; }
 .discovery-row.on { background: rgba(46, 107, 230, 0.10); }
+.discovery-row.existing { opacity: 0.55; }
+.discovery-row.existing .discovery-check { border-color: var(--border); background: var(--fill-2); color: var(--text-4); }
+.discovery-title-row { display: flex; align-items: center; gap: 10rpx; }
+.discovery-badge {
+  flex: none;
+  padding: 2rpx 12rpx;
+  border-radius: 8rpx;
+  background: var(--fill-2);
+  color: var(--text-4);
+  font-size: 20rpx;
+  line-height: 28rpx;
+}
 .discovery-check {
   flex: none;
   width: 32rpx;
@@ -530,6 +570,7 @@
 .discovery-id { display: block; font-family: Menlo, Consolas, monospace; font-size: 22rpx; color: var(--text-3); word-break: break-all; }
 .discovery-meta { display: block; font-size: 21rpx; color: var(--text-4); }
 .discovery-empty { padding: 26rpx; text-align: center; font-size: 24rpx; color: var(--text-4); }
+.discovery-hint { padding: 10rpx 2rpx 0; text-align: center; font-size: 22rpx; color: var(--text-4); }
 .discovery-add {
   margin-top: 12rpx;
   height: 72rpx;
@@ -547,3 +588,669 @@
 .sheet-section-title { display: block; margin: 6rpx 0 14rpx; font-size: 26rpx; font-weight: 600; color: var(--text); }
 
 @keyframes models-spin { to { transform: rotate(360deg); } }
+
+/* ===== 视觉打磨：间距 / 按钮 / 玻璃材质（参考设置页） ===== */
+.models {
+  background: linear-gradient(180deg, rgba(46, 107, 230, 0.055), transparent 300rpx), var(--bg);
+}
+.models-nav { height: 104rpx; }
+.models-back {
+  width: 68rpx;
+  height: 68rpx;
+  margin-top: -34rpx;
+  background: var(--fill);
+  border: 1rpx solid var(--border);
+}
+.models-title { font-size: 35rpx; letter-spacing: 0.5rpx; }
+.models-body { padding: 12rpx 32rpx 100rpx; }
+.models-intro { padding: 6rpx 6rpx 24rpx; font-size: 25rpx; line-height: 40rpx; }
+.models-section-head { padding: 12rpx 6rpx 18rpx; }
+.models-section-title { font-size: 25rpx; letter-spacing: 1rpx; }
+.models-section-refresh {
+  padding: 8rpx 20rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 999rpx;
+  background: var(--fill);
+  font-size: 23rpx;
+}
+
+.provider-card {
+  margin-bottom: 20rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 30rpx;
+  background: var(--surface);
+  box-shadow: 0 6rpx 24rpx rgba(7, 24, 43, 0.08);
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+.provider-row { min-height: 108rpx; padding: 0 26rpx 0 30rpx; }
+.provider-name { max-width: 44%; font-size: 32rpx; font-weight: 600; letter-spacing: 0.2rpx; }
+.provider-badge {
+  margin-left: 10rpx;
+  padding: 3rpx 13rpx;
+  border: none;
+  border-radius: 999rpx;
+  background: var(--fill-2);
+  font-size: 20rpx;
+  line-height: 30rpx;
+  color: var(--text-3);
+}
+.provider-dot { width: 13rpx; height: 13rpx; margin-left: 10rpx; box-shadow: 0 0 0 6rpx rgba(52, 199, 89, 0.10); }
+.provider-dot.empty { box-shadow: 0 0 0 6rpx rgba(255, 174, 31, 0.10); }
+.provider-edit {
+  min-width: 104rpx;
+  height: 60rpx;
+  padding: 0 26rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 999rpx;
+  background: var(--fill);
+  font-size: 25rpx;
+  color: var(--text-2);
+}
+.provider-card.expanded .provider-edit { border-color: rgba(46, 107, 230, 0.32); background: rgba(46, 107, 230, 0.12); color: var(--ocean); }
+.provider-body { padding: 4rpx 30rpx 28rpx; border-top: 1rpx solid var(--divider); }
+.provider-meta { display: flex; flex-direction: column; gap: 10rpx; padding: 16rpx 0 6rpx; }
+.provider-meta-row {
+  padding: 13rpx 20rpx;
+  border-radius: 16rpx;
+  background: var(--fill);
+  gap: 20rpx;
+}
+.provider-meta-label { font-size: 23rpx; color: var(--text-3); }
+.provider-meta-value { font-size: 23rpx; color: var(--text-2); }
+.provider-meta-mono { font-size: 21rpx; }
+
+.provider-models-head { align-items: center; margin-top: 20rpx; padding: 14rpx 2rpx 10rpx; }
+.provider-models-heading { gap: 10rpx; }
+.provider-models-title { font-size: 27rpx; }
+.provider-models-count {
+  padding: 3rpx 12rpx;
+  border-radius: 999rpx;
+  background: var(--fill-2);
+  font-size: 21rpx;
+  color: var(--text-3);
+}
+.provider-models-fetch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 58rpx;
+  padding: 0 22rpx;
+  border: 1rpx solid rgba(46, 107, 230, 0.26);
+  border-radius: 999rpx;
+  background: rgba(46, 107, 230, 0.10);
+  color: var(--ocean);
+  font-size: 24rpx;
+}
+.provider-models-fetch:active { background: rgba(46, 107, 230, 0.18); }
+.provider-models-empty { padding: 28rpx 0 14rpx; font-size: 24rpx; }
+
+.model-row { align-items: center; gap: 18rpx; padding: 24rpx 4rpx; }
+.model-copy { padding: 2rpx 0; }
+.model-name { font-size: 29rpx; font-weight: 600; }
+.model-default-badge { padding: 2rpx 11rpx; border-radius: 999rpx; font-size: 19rpx; }
+.model-id { margin-top: 5rpx; font-size: 21rpx; line-height: 32rpx; }
+.model-meta { margin-top: 7rpx; font-size: 21rpx; }
+.model-delete {
+  height: 54rpx;
+  padding: 0 22rpx;
+  border: 1rpx solid rgba(255, 90, 95, 0.16);
+  border-radius: 999rpx;
+  background: rgba(255, 90, 95, 0.08);
+  font-size: 23rpx;
+}
+.model-add {
+  height: 84rpx;
+  margin-top: 18rpx;
+  border: 1rpx dashed rgba(46, 107, 230, 0.34);
+  border-radius: 20rpx;
+  background: rgba(46, 107, 230, 0.05);
+  font-size: 26rpx;
+}
+.model-add:active { background: rgba(46, 107, 230, 0.12); }
+.model-add-plus { font-size: 30rpx; }
+.provider-add {
+  height: 96rpx;
+  margin-top: 14rpx;
+  border: 1rpx dashed var(--border-strong);
+  border-radius: 24rpx;
+  background: var(--fill);
+  font-size: 28rpx;
+  letter-spacing: 0.3rpx;
+}
+.provider-add:active { background: var(--fill-2); }
+.models-footer-hint { padding: 16rpx 10rpx 28rpx; font-size: 21rpx; line-height: 34rpx; }
+
+.models-restart-notice,
+.models-notice {
+  padding: 18rpx 22rpx;
+  border: 1rpx solid rgba(255, 174, 31, 0.18);
+  border-radius: 18rpx;
+  background: rgba(255, 174, 31, 0.09);
+  font-size: 23rpx;
+  line-height: 34rpx;
+}
+
+.models-mask { background: rgba(0, 0, 0, 0.46); }
+.models-sheet {
+  left: 20rpx;
+  right: 20rpx;
+  bottom: calc(16rpx + env(safe-area-inset-bottom));
+  padding-bottom: 0;
+  border-radius: 40rpx;
+  background: var(--surface);
+  box-shadow: 0 24rpx 90rpx rgba(0, 0, 0, 0.36);
+}
+.models-handle { width: 84rpx; height: 9rpx; margin: 16rpx auto 6rpx; }
+.models-sheet-head { padding: 20rpx 36rpx 12rpx; }
+.models-sheet-title { font-size: 36rpx; }
+.models-sheet-subtitle { margin-top: 6rpx; font-size: 24rpx; }
+.models-sheet-close { width: 62rpx; height: 62rpx; font-size: 36rpx; }
+.models-sheet-body { padding: 12rpx 36rpx 24rpx; }
+
+.field { margin-bottom: 26rpx; }
+.field-label { margin-bottom: 12rpx; font-size: 25rpx; font-weight: 500; color: var(--text-2); }
+.field-input {
+  height: 92rpx;
+  padding: 0 24rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 20rpx;
+  background: var(--fill);
+  font-size: 28rpx;
+}
+.field-hint { margin-top: 8rpx; font-size: 22rpx; line-height: 34rpx; }
+.field-error { margin-top: 12rpx; font-size: 23rpx; line-height: 34rpx; }
+.input-chips { gap: 14rpx; }
+.input-chip {
+  min-width: 152rpx;
+  height: 68rpx;
+  padding: 0 24rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 999rpx;
+  background: var(--fill);
+  font-size: 26rpx;
+  color: var(--text-2);
+}
+.input-chip.on { border-color: rgba(46, 107, 230, 0.55); background: rgba(46, 107, 230, 0.13); color: var(--ocean); }
+.input-chip-check { font-size: 23rpx; }
+.reasoning-levels { margin-top: 18rpx; }
+.level-chips { gap: 12rpx; margin-top: 10rpx; }
+.level-chip {
+  height: 56rpx;
+  padding: 0 20rpx;
+  display: flex;
+  align-items: center;
+  border: 1rpx solid var(--border);
+  border-radius: 999rpx;
+  background: var(--fill);
+  font-size: 23rpx;
+  color: var(--text-2);
+}
+.level-chip.on { border-color: rgba(46, 107, 230, 0.45); background: rgba(46, 107, 230, 0.12); color: var(--ocean); }
+
+.models-sheet-actions { gap: 16rpx; padding: 16rpx 36rpx calc(24rpx + env(safe-area-inset-bottom)); }
+.sheet-btn {
+  height: 92rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 24rpx;
+  background: var(--fill);
+  font-size: 30rpx;
+  color: var(--text);
+}
+.sheet-btn.primary {
+  border-color: transparent;
+  background: linear-gradient(135deg, #2E6BE6, #4C8DFF);
+  box-shadow: 0 10rpx 26rpx rgba(46, 107, 230, 0.28);
+  font-weight: 600;
+}
+.sheet-btn.danger { border-color: rgba(255, 90, 95, 0.24); background: rgba(255, 90, 95, 0.10); }
+.sheet-btn:active { transform: scale(0.985); }
+
+.discovery-panel { padding: 22rpx; border: 1rpx solid var(--border); border-radius: 24rpx; background: var(--fill); }
+.discovery-btn {
+  height: 64rpx;
+  min-width: 176rpx;
+  border: 1rpx solid var(--border-strong);
+  border-radius: 999rpx;
+  background: var(--surface);
+  font-size: 24rpx;
+}
+.discovery-search { height: 78rpx; margin-top: 16rpx; }
+.discovery-toolbar { padding: 12rpx 2rpx; }
+.discovery-list { max-height: 400rpx; border-radius: 18rpx; background: var(--surface); }
+.discovery-row { gap: 16rpx; padding: 18rpx 18rpx; }
+.discovery-row.on { background: rgba(46, 107, 230, 0.10); box-shadow: inset 0 0 0 1rpx rgba(46, 107, 230, 0.22); }
+.discovery-check { width: 34rpx; height: 34rpx; margin-top: 5rpx; border-radius: 9rpx; line-height: 34rpx; }
+.discovery-name { font-size: 27rpx; font-weight: 500; }
+.discovery-id { font-size: 21rpx; }
+.discovery-badge { padding: 2rpx 10rpx; border-radius: 999rpx; background: var(--fill-2); }
+.discovery-add { height: 82rpx; margin-top: 16rpx; border-radius: 20rpx; background: linear-gradient(135deg, #2E6BE6, #4C8DFF); font-size: 27rpx; box-shadow: 0 8rpx 22rpx rgba(46, 107, 230, 0.22); }
+
+.mode-tabs { height: 76rpx; padding: 6rpx; border-radius: 20rpx; background: var(--fill); }
+.mode-tab { height: 64rpx; border-radius: 14rpx; font-size: 26rpx; }
+.mode-tab.on { box-shadow: 0 4rpx 14rpx rgba(0, 0, 0, 0.12); }
+.catalog-list { border-radius: 18rpx; }
+.catalog-row { padding: 18rpx 20rpx; }
+.protocol-chip { height: 56rpx; display: inline-flex; align-items: center; padding: 0 20rpx; border-radius: 999rpx; font-size: 23rpx; }
+
+/* ===== 玻璃材质（跟随设置页的玻璃开关与可调参数） ===== */
+.models-glass-ui .provider-card,
+.models-glass-ui .provider-add,
+.models-glass-ui .discovery-panel {
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
+  border-color: rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  -webkit-backdrop-filter: blur(var(--glass-blur-card, 4px)) brightness(var(--glass-backdrop-brightness, 1));
+  backdrop-filter: blur(var(--glass-blur-card, 4px)) brightness(var(--glass-backdrop-brightness, 1));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 10rpx 36rpx rgba(3, 14, 30, 0.18);
+}
+.models-glass-ui .provider-card { border-radius: var(--glass-radius-card, 36rpx); }
+.models-glass-ui.models-glass-sheet-ui .models-sheet {
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  border-color: rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8px)) brightness(var(--glass-backdrop-brightness, 1));
+  backdrop-filter: blur(var(--glass-blur-sheet, 8px)) brightness(var(--glass-backdrop-brightness, 1));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 24rpx 90rpx rgba(3, 14, 30, 0.34);
+}
+.models-glass-ui .models-mask { background: rgba(0, 0, 0, 0.36); }
+.models-glass-ui .provider-body { border-top-color: rgba(255, 255, 255, 0.10); }
+.models-glass-ui .provider-meta-row { background: rgba(255, 255, 255, 0.055); }
+.models-glass-ui .model-add { background: rgba(255, 255, 255, 0.045); border-color: rgba(255, 255, 255, 0.16); }
+.models-glass-ui .provider-add { background: rgba(255, 255, 255, 0.045); }
+.models-glass-ui .provider-add:active,
+.models-glass-ui .model-add:active { background: rgba(255, 255, 255, 0.10); }
+.models-glass-ui.models-glass-sheet-ui .models-sheet .field-input,
+.models-glass-ui.models-glass-sheet-ui .models-sheet .discovery-panel,
+.models-glass-ui.models-glass-sheet-ui .models-sheet .input-chip,
+.models-glass-ui.models-glass-sheet-ui .models-sheet .level-chip { background: rgba(255, 255, 255, 0.07); }
+.models-glass-ui.models-glass-sheet-ui .models-sheet .sheet-btn { background: rgba(255, 255, 255, 0.08); }
+.models-glass-ui.models-glass-sheet-ui .models-sheet .sheet-btn.primary { background: linear-gradient(135deg, #2E6BE6, #4C8DFF); }
+
+/* 浅色玻璃：近白磨砂 + 深色发丝边 */
+.models-glass-ui.theme-light .provider-card,
+.models-glass-ui.theme-light .provider-add,
+.models-glass-ui.theme-light .discovery-panel {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 252, 0.86));
+  border-color: rgba(16, 19, 24, 0.08);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 10rpx 36rpx rgba(7, 24, 43, 0.10);
+  -webkit-backdrop-filter: blur(18rpx) saturate(1.05);
+  backdrop-filter: blur(18rpx) saturate(1.05);
+}
+.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.92));
+  border-color: rgba(16, 19, 24, 0.10);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 24rpx 90rpx rgba(7, 24, 43, 0.18);
+  -webkit-backdrop-filter: blur(24rpx) saturate(1.05);
+  backdrop-filter: blur(24rpx) saturate(1.05);
+}
+.models-glass-ui.theme-light .provider-body { border-top-color: rgba(16, 19, 24, 0.08); }
+.models-glass-ui.theme-light .provider-meta-row { background: rgba(16, 19, 24, 0.05); }
+.models-glass-ui.theme-light .model-add { background: rgba(16, 19, 24, 0.035); border-color: rgba(16, 19, 24, 0.14); }
+.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet .field-input,
+.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet .discovery-panel,
+.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet .input-chip,
+.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet .level-chip { background: rgba(16, 19, 24, 0.045); }
+.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet .sheet-btn { background: rgba(16, 19, 24, 0.05); }
+
+
+/* 内容型玻璃面板需要底衬，避免背后文字透出影响可读性 */
+.models-glass-ui.models-glass-sheet-ui .models-sheet {
+  overflow: hidden;
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04))),
+    rgba(18, 19, 22, 0.88);
+}
+.models-glass-ui .provider-card,
+.models-glass-ui .provider-add,
+.models-glass-ui .discovery-panel {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(28, 28, 30, 0.58);
+}
+.models-glass-ui.models-glass-sheet-ui .models-sheet-body { flex: 1; min-height: 0; }
+.models-glass-ui .models-mask { background: rgba(0, 0, 0, 0.50); }
+.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.92));
+}
+.models-glass-ui.theme-light .provider-card,
+.models-glass-ui.theme-light .provider-add,
+.models-glass-ui.theme-light .discovery-panel {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 252, 0.86));
+}
+
+
+/* 主操作按钮改为透明底 + 蓝色描边，不再使用整块蓝色背景 */
+.sheet-btn.primary,
+.models-glass-ui.models-glass-sheet-ui .models-sheet .sheet-btn.primary {
+  border: 1rpx solid rgba(46, 107, 230, 0.55);
+  background: transparent;
+  color: var(--ocean);
+  box-shadow: none;
+  font-weight: 500;
+}
+.sheet-btn.primary:active,
+.models-glass-ui.models-glass-sheet-ui .models-sheet .sheet-btn.primary:active { background: rgba(46, 107, 230, 0.10); }
+.discovery-add { border: 1rpx solid rgba(46, 107, 230, 0.50); background: transparent; color: var(--ocean); box-shadow: none; }
+.discovery-add:active { background: rgba(46, 107, 230, 0.10); }
+.provider-models-fetch { background: transparent; }
+.provider-models-fetch:active { background: rgba(46, 107, 230, 0.10); }
+.model-add,
+.models-glass-ui .model-add { background: transparent; }
+.provider-add,
+.models-glass-ui .provider-add { background: transparent; }
+.provider-card.expanded .provider-edit { background: transparent; }
+.input-chip.on,
+.level-chip.on,
+.protocol-chip.on { background: transparent; }
+.models-glass-ui.models-glass-sheet-ui .models-sheet .input-chip.on,
+.models-glass-ui.models-glass-sheet-ui .models-sheet .level-chip.on { background: transparent; }
+.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet .input-chip.on,
+.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet .level-chip.on { background: transparent; }
+
+
+.models-sheet-body { position: relative; z-index: 1; }
+.models-sheet-actions { position: relative; z-index: 3; flex: none; }
+
+.models-sheet-body { flex: none; height: 55vh; max-height: 55vh; }
+.provider-sheet .models-sheet-body { height: 60vh; max-height: 60vh; }
+.discovery-sheet .models-sheet-body { height: 52vh; max-height: 52vh; }
+.models-sheet-actions { background: transparent; }
+
+/* 推理等级：档位 + API 参数值行（对齐 DSH 模型编辑器） */
+.reasoning-head { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; }
+.reasoning-head .field-label { margin-bottom: 0; }
+.reasoning-switch { transform: scale(0.88); transform-origin: right center; }
+.reasoning-columns {
+  display: grid;
+  grid-template-columns: 230rpx minmax(0, 1fr) 56rpx;
+  gap: 14rpx;
+  margin: 18rpx 0 10rpx;
+  font-size: 22rpx;
+  color: var(--text-3);
+}
+.reasoning-row {
+  display: grid;
+  grid-template-columns: 230rpx minmax(0, 1fr) 56rpx;
+  gap: 14rpx;
+  align-items: center;
+  margin-bottom: 12rpx;
+}
+.reasoning-picker { min-width: 0; }
+.reasoning-select {
+  height: 74rpx;
+  padding: 0 18rpx;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 16rpx;
+  background: var(--fill);
+  font-size: 25rpx;
+  color: var(--text);
+}
+.reasoning-caret { font-size: 20rpx; color: var(--text-3); }
+.reasoning-value { height: 74rpx !important; font-family: Menlo, Consolas, monospace; font-size: 24rpx; }
+.reasoning-remove {
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--text-3);
+  font-size: 32rpx;
+  line-height: 1;
+}
+.reasoning-remove:active { background: var(--fill); }
+.reasoning-add {
+  height: 66rpx;
+  margin-top: 8rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx dashed var(--border-strong);
+  border-radius: 16rpx;
+  background: transparent;
+  color: var(--ocean);
+  font-size: 24rpx;
+}
+.reasoning-add:active { background: rgba(46, 107, 230, 0.08); }
+
+
+.reasoning-toggle {
+  position: relative;
+  width: 92rpx;
+  height: 54rpx;
+  border: 1rpx solid var(--border-strong);
+  border-radius: 999rpx;
+  background: var(--fill-2);
+  transition: background 160ms ease, border-color 160ms ease;
+}
+.reasoning-toggle-knob {
+  position: absolute;
+  top: 5rpx;
+  left: 5rpx;
+  width: 42rpx;
+  height: 42rpx;
+  border-radius: 50%;
+  background: #FFFFFF;
+  box-shadow: 0 2rpx 8rpx rgba(0, 0, 0, 0.25);
+  transition: left 160ms ease;
+}
+.reasoning-toggle.on { border-color: transparent; background: #34C759; }
+.reasoning-toggle.on .reasoning-toggle-knob { left: 45rpx; }
+
+
+.model-delete { height: auto; min-height: 0; padding: 0 6rpx; border: none; border-radius: 0; background: transparent; color: #FF5A5F; font-size: 24rpx; }
+.sheet-btn.danger { background: transparent; }
+
+.models-sheet-body { height: 60vh; max-height: 60vh; }
+.discovery-sheet .models-sheet-body { height: 52vh; max-height: 52vh; }
+.provider-sheet .models-sheet-body { height: 60vh; max-height: 60vh; }
+.sheet-btn { background: transparent; }
+.models-glass-ui.models-glass-sheet-ui .models-sheet .sheet-btn { background: transparent; }
+.provider-edit { background: transparent; }
+
+.provider-card.expanded .provider-edit { background: transparent; }
+.models-glass-ui.models-glass-sheet-ui .models-sheet .input-chip.on, .models-glass-ui.models-glass-sheet-ui .models-sheet .level-chip.on { background: transparent; }
+.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet .input-chip.on, .models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet .level-chip.on { background: transparent; }
+
+.reasoning-remove-icon { width: 32rpx; height: 32rpx; opacity: 0.55; }
+.reasoning-remove:active .reasoning-remove-icon { opacity: 0.9; }
+
+/* 推理档位选择弹层：玻璃材质，替代原生 picker */
+.reasoning-picker-mask { z-index: 80; }
+.reasoning-picker-sheet {
+  z-index: 81;
+  left: 36rpx;
+  right: 36rpx;
+  max-height: 62vh;
+  padding-bottom: 0;
+}
+.reasoning-picker-list { max-height: 46vh; padding: 4rpx 0 12rpx; }
+.reasoning-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 92rpx;
+  padding: 0 36rpx;
+  border-bottom: 1rpx solid var(--divider);
+  font-size: 29rpx;
+  color: var(--text);
+}
+.reasoning-option:last-child { border-bottom: none; }
+.reasoning-option.current { color: var(--ocean); }
+.reasoning-option:active { background: var(--fill); }
+.reasoning-option-check { color: var(--ocean); font-size: 27rpx; }
+.models-glass-ui.models-glass-sheet-ui .reasoning-option { border-bottom-color: rgba(255, 255, 255, 0.09); }
+.models-glass-ui.models-glass-sheet-ui.theme-light .reasoning-option { border-bottom-color: rgba(16, 19, 24, 0.08); }
+
+
+/* 去卡片/元信息底色：模型页直接铺在页面背景上 */
+.provider-meta-row,
+.models-glass-ui .provider-meta-row,
+.models-glass-ui.theme-light .provider-meta-row {
+  padding: 10rpx 0;
+  border-radius: 0;
+  background: transparent;
+}
+.provider-meta-row + .provider-meta-row { border-top: 1rpx solid var(--divider); }
+.provider-card,
+.models-glass-ui .provider-card,
+.models-glass-ui.theme-light .provider-card {
+  background: transparent;
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* 编辑模型弹层：输入框/档位框透明，只保留描边 */
+.models-edit-sheet .field-input,
+.models-edit-sheet .reasoning-select { border-color: var(--border-strong); background: transparent; }
+.models-glass-ui .models-edit-sheet .field-input,
+.models-glass-ui .models-edit-sheet .reasoning-select,
+.models-glass-ui.theme-light .models-edit-sheet .field-input,
+.models-glass-ui.theme-light .models-edit-sheet .reasoning-select { background: transparent; }
+
+.models-edit-sheet .models-sheet-body, .models-edit-sheet .models-sheet-body { height: 64vh; max-height: 64vh; }
+
+.input-checks { display: flex; align-items: center; gap: 32rpx; }
+.input-check { display: flex; align-items: center; gap: 12rpx; font-size: 27rpx; color: var(--text); }
+.input-check-box {
+  width: 36rpx;
+  height: 36rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid var(--border-strong);
+  border-radius: 9rpx;
+  background: transparent;
+  color: var(--ocean);
+  font-size: 24rpx;
+  line-height: 1;
+}
+.input-check.checked .input-check-box { border-color: var(--ocean); }
+.input-check.disabled { opacity: 0.7; }
+
+/* 与 Agent 预设弹窗（picker-glass-sheet）同一套背景：只叠白色玻璃渐变，不加深灰底 */
+.models-glass-ui.models-glass-sheet-ui .models-sheet {
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  border-color: rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8px)) brightness(var(--glass-backdrop-brightness, 1));
+  backdrop-filter: blur(var(--glass-blur-sheet, 8px)) brightness(var(--glass-backdrop-brightness, 1));
+}
+.models-glass-ui .models-mask { background: rgba(0, 0, 0, 0.42); }
+.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.92));
+  border-color: rgba(16, 19, 24, 0.10);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 12rpx 48rpx rgba(7, 24, 43, 0.18);
+  -webkit-backdrop-filter: blur(24rpx) saturate(1.05);
+  backdrop-filter: blur(24rpx) saturate(1.05);
+}
+
+/* 模型页表单模块去掉全局 .field 的灰色卡片底 */
+.models .field {
+  width: auto;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: inherit;
+  color: inherit;
+}
+
+/* 模型页所有输入框：透明底，只留描边 */
+.models .models-sheet .field-input,
+.models .models-sheet .reasoning-select,
+.models.models-glass-ui.models-glass-sheet-ui .models-sheet .field-input,
+.models.models-glass-ui.models-glass-sheet-ui .models-sheet .reasoning-select,
+.models.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet .field-input,
+.models.models-glass-ui.models-glass-sheet-ui.theme-light .models-sheet .reasoning-select { background: transparent; }
+
+/* 添加提供商顶部两个模式按钮：无底色，选中态用下划线 */
+.mode-tabs {
+  height: 76rpx;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+}
+.mode-tab {
+  height: 76rpx;
+  border-radius: 0;
+  border-bottom: 2rpx solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 27rpx;
+}
+.mode-tab.on {
+  background: transparent;
+  border-bottom-color: var(--ocean);
+  color: var(--text);
+  font-weight: 600;
+  box-shadow: none;
+}
+.mode-tab:active { background: transparent; }
+
+.models .models-sheet .field-input, .models .models-sheet .reasoning-select { background: transparent !important; }
+
+/* 提供商卡片使用设置页卡片底；添加按钮保持透明虚线不变 */
+.provider-card {
+  background: var(--surface);
+  box-shadow: 0 6rpx 24rpx rgba(7, 24, 43, 0.08);
+}
+.models-glass-ui .provider-card {
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
+  -webkit-backdrop-filter: blur(var(--glass-blur-card, 3px)) brightness(var(--glass-backdrop-brightness, 1));
+  backdrop-filter: blur(var(--glass-blur-card, 3px)) brightness(var(--glass-backdrop-brightness, 1));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 8rpx 32rpx rgba(3, 14, 30, 0.18);
+}
+.models-glass-ui.theme-light .provider-card {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 252, 0.86));
+  border-color: rgba(16, 19, 24, 0.08);
+  -webkit-backdrop-filter: blur(18rpx) saturate(1.05);
+  backdrop-filter: blur(18rpx) saturate(1.05);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 8rpx 32rpx rgba(7, 24, 43, 0.10);
+}
+
+.model-delete {
+  width: 56rpx;
+  height: 56rpx;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+}
+.model-delete-icon { width: 34rpx; height: 34rpx; }
+.model-delete:active .model-delete-icon { opacity: 0.7; }
+
+.provider-actions { display: flex; align-items: center; gap: 10rpx; }
+.provider-edit, .provider-delete {
+  min-width: 92rpx;
+  height: 56rpx;
+  padding: 0 20rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1rpx solid var(--border);
+  border-radius: 999rpx;
+  background: transparent;
+  font-size: 24rpx;
+}
+.provider-delete { color: #FF5A5F; }
+.provider-delete:active { background: rgba(255, 90, 95, 0.08); }
+.provider-name { max-width: 38%; }
+
+.provider-edit, .provider-delete {
+  box-sizing: border-box;
+  width: 104rpx;
+  min-width: 104rpx;
+  height: 56rpx;
+  padding: 0;
+  justify-content: center;
+  font-size: 24rpx;
+  line-height: 1;
+}

@@ -56,9 +56,12 @@ test('token formatting and protocol labels follow the DSH model page', () => {
 });
 
 test('new model validation matches the DSH editor rules', () => {
-  assert.deepEqual(helper.validateNewModel({ id: 'm1', text: true }, []), { model: { id: 'm1', input: ['text'] } });
+  assert.deepEqual(helper.validateNewModel({ id: 'm1', text: true }, []), { model: { id: 'm1', input: ['text'], reasoningEfforts: false } });
   assert.deepEqual(helper.validateNewModel({ id: 'm2', name: ' Mega ', contextWindow: '1000', maxTokens: '512', text: true, image: true }, [{ id: 'm1' }]),
-    { model: { id: 'm2', contextWindow: 1000, maxTokens: 512, name: 'Mega', input: ['text', 'image'] } });
+    { model: { id: 'm2', contextWindow: 1000, maxTokens: 512, name: 'Mega', input: ['text', 'image'], reasoningEfforts: false } });
+  assert.deepEqual(helper.validateNewModel({ id: 'r1', text: true, reasoning: true, levels: { low: true, high: true } }, []),
+    { model: { id: 'r1', input: ['text'], reasoningEfforts: { off: null, low: 'low', high: 'high' } } });
+  assert.equal(helper.validateNewModel({ id: 'r2', text: true, reasoning: true, levels: {} }, []).error, 'reasoning-levels-empty');
   assert.equal(helper.validateNewModel({ id: '', text: true }, []).error, 'id-empty');
   assert.equal(helper.validateNewModel({ id: 'm1', text: true }, [{ id: 'm1' }]).error, 'id-duplicate');
   assert.equal(helper.validateNewModel({ id: 'm2', contextWindow: '-1', text: true }, []).error, 'context-invalid');
@@ -83,6 +86,11 @@ test('provider helpers derive credential refs and validate drafts', () => {
   assert.equal(helper.isValidBaseURL('ftp://relay.example'), false);
   assert.deepEqual(helper.validateProviderDraft('custom', { providerId: 'my relay', baseURL: 'https://x/v1', api: 'openai-completions' }, { existingIds: [] }), { error: 'provider-id-invalid' });
   assert.deepEqual(helper.validateProviderDraft('custom', { providerId: 'mimo', baseURL: 'https://x/v1', api: 'openai-completions' }, { existingIds: ['mimo'] }), { error: 'provider-id-duplicate' });
+  assert.equal(helper.validateProviderDraft('custom', { providerId: 'My-Relay', baseURL: 'https://x/v1', api: 'openai-completions' }, { existingIds: [] }).error, 'provider-id-invalid');
+  assert.equal(helper.validateProviderDraft('custom', { providerId: '1relay', baseURL: 'https://x/v1', api: 'openai-completions' }, { existingIds: [] }).error, 'provider-id-invalid');
+  assert.deepEqual(helper.buildProviderConfig({ displayName: 'Relay', baseURL: 'https://x/v1', api: 'openai-completions', models: [{ id: 'm' }] }), {
+    displayName: 'Relay', baseURL: 'https://x/v1', api: 'openai-completions', models: [{ id: 'm' }]
+  });
   assert.equal(helper.validateProviderDraft('custom', { providerId: 'relay', baseURL: 'nope', api: 'openai-completions' }, { existingIds: [] }).error, 'base-url-invalid');
   assert.equal(helper.validateProviderDraft('custom', { providerId: 'relay', baseURL: 'https://x', api: 'bogus' }, { existingIds: [] }).error, 'api-invalid');
 });
@@ -97,6 +105,12 @@ test('discovered models keep DSH fields and skip duplicates', () => {
   assert.equal(result.models[0].id, 'a');
   const rows = helper.discoveryRows([{ id: 'b', name: 'B', inputModalities: ['text'] }], LABELS);
   assert.equal(rows[0].meta, '文本');
+  assert.equal(rows[0].existing, false);
+  const configured = helper.discoveryRows([{ id: 'm1' }, { id: 'd1' }], LABELS, [{ id: 'm1' }]);
+  assert.equal(configured[0].existing, true);
+  assert.equal(configured[1].existing, false);
+  assert.equal(helper.modelMeta({ contextWindow: 1000, input: ['text'], reasoningEfforts: { low: 'low', high: 'high' } },
+    { context: '上下文', text: '文本', reasoning: '推理', levelLabels: { low: '低', high: '高' } }), '上下文 1K · 文本 · 推理 低/高');
 });
 
 test('dormant catalog providers exclude already configured routes', () => {
@@ -135,6 +149,25 @@ test('page markup and routing are wired into the mini program', () => {
   assert.ok(wxml.includes('bindtap="runAddDiscovery"'));
   assert.ok(wxml.includes('bindtap="runProviderDiscovery"'));
   assert.ok(wxml.includes('bindtap="createProvider"'));
+  assert.ok(wxml.includes('models-restart-notice'));
+  assert.ok(wxml.includes('catchtap="askDeleteProvider"'));
+  assert.ok(wxml.includes("{{item.existing ? 'existing' : ''}}"));
+  assert.ok(wxml.includes("{{ui['已添加']}}"));
+  assert.ok(wxml.includes("{{ui['所有可用模型都已添加']}}"));
+  assert.ok(wxml.includes('bindtap="openDiscoverySheet"'));
+  assert.ok(wxml.includes("{{ui['获取模型']}}"));
+  assert.ok(wxml.includes('bindtap="openEditModel"'));
+  assert.ok(wxml.includes("{{ui['编辑模型']}}"));
+  assert.ok(wxml.includes('bindtap="saveEditModel"'));
+  assert.ok(wxml.includes("{{ui['支持推理']}}"));
+  assert.ok(wxml.includes("{{ui['档位']}}"));
+  assert.ok(wxml.includes('bindtap="openReasoningLevelPicker"'));
+  assert.ok(wxml.includes('bindtap="selectReasoningLevel"'));
+  assert.ok(wxml.includes('class="reasoning-row"'));
+  assert.ok(wxml.includes('reasoning-picker-sheet'));
+  const wxss = read('pages/models/models.wxss');
+  assert.match(wxss, /\.discovery-row\.existing/);
+  assert.match(wxss, /\.models-sheet-body \{[^}]*box-sizing: border-box/);
   const gateway = read('utils/gateway.js');
   assert.ok(gateway.includes("requestProviders() { return this.request({ type: 'providers' }); }"));
   assert.ok(gateway.includes("requestPlugin('llm-discover-models'"));
@@ -177,10 +210,20 @@ function createPage(options = {}) {
   };
   const applyOps = (ops) => {
     for (const op of ops) {
-      if (op.op !== 'set') continue;
       let node = namespace.value;
-      for (let index = 0; index < op.path.length - 1; index++) node = node[op.path[index]];
-      node[op.path[op.path.length - 1]] = op.value;
+      for (let index = 0; index < op.path.length - 1; index++) {
+        const part = op.path[index];
+        node = Array.isArray(node) ? node[Number(part)] : node[part];
+      }
+      const last = op.path[op.path.length - 1];
+      if (op.op === 'unset') {
+        if (Array.isArray(node)) node.splice(Number(last), 1);
+        else delete node[last];
+      } else if (Array.isArray(node)) {
+        node[Number(last)] = op.value;
+      } else {
+        node[last] = op.value;
+      }
     }
   };
   const store = {
@@ -223,10 +266,13 @@ function createPage(options = {}) {
   };
   const requireStub = (name) => {
     if (name.endsWith('store')) return store;
-    if (name.endsWith('theme')) return { applyTo() {} };
+    if (name.endsWith('theme')) return { applyTo() {}, resolveTheme: () => 'dark' };
     if (name.endsWith('haptics')) return { tick() {}, vibrate() {} };
     if (name.endsWith('ui-preferences')) return { t: text => text };
     if (name.endsWith('model-settings')) return helper;
+    if (name.endsWith('settings-glass-pref')) return { read: () => true };
+    if (name.endsWith('settings-glass-sheet-pref')) return { read: () => true };
+    if (name.endsWith('settings-glass-style-pref')) return { view: () => ({ glassAlphaTop: '0.04', glassAlphaBottom: '0.016', glassEdgeAlpha: '0.38', glassBlurSheet: '4px', glassBlurCard: '2px', glassRadiusSheet: '16px', glassRadiusCard: '18px', glassRadiusChoice: '32px', glassBackdropBrightness: '1.00' }) };
     return {};
   };
   vm.runInNewContext(read('pages/models/models.js'), {
@@ -238,10 +284,14 @@ function createPage(options = {}) {
     data: JSON.parse(JSON.stringify(definition.data)),
     setData(patch) {
       Object.keys(patch).forEach((key) => {
-        if (key.indexOf('.') < 0) { this.data[key] = patch[key]; return; }
         const parts = key.split('.');
-        if (!this.data[parts[0]]) this.data[parts[0]] = {};
-        this.data[parts[0]][parts[1]] = patch[key];
+        let node = this.data;
+        for (let index = 0; index < parts.length - 1; index++) {
+          const part = parts[index];
+          if (node[part] === null || typeof node[part] !== 'object') node[part] = {};
+          node = node[part];
+        }
+        node[parts[parts.length - 1]] = patch[key];
       });
     }
   };
@@ -264,7 +314,8 @@ test('page loads providers, adds a model and deletes it through settings mutatio
   page.submitAddModel();
   await settle();
   assert.equal(mutations.length, 1);
-  assert.deepEqual(mutations[0].ops[0].path, ['providers', 'mimo', 'models']);
+  assert.deepEqual(mutations[0].ops[0].path, ['providers', 'mimo', 'models', '1']);
+  assert.equal(mutations[0].ops[0].value.id, 'm2');
   assert.equal(namespace.value.providers.mimo.models.length, 2);
   assert.ok(namespace.value.providers.mimo.models.some(model => model.id === 'm2'));
   assert.equal(page.data.addOpen, false);
@@ -275,6 +326,7 @@ test('page loads providers, adds a model and deletes it through settings mutatio
   page.confirmDelete();
   await settle();
   assert.equal(mutations.length, 2);
+  assert.deepEqual(mutations[1].ops, [{ op: 'unset', path: ['providers', 'mimo', 'models', '1'] }]);
   assert.equal(namespace.value.providers.mimo.models.length, 1);
   assert.equal(page.data.deleteOpen, false);
 });
@@ -307,7 +359,7 @@ test('model discovery adds selected models in one mutation', async () => {
   page.onLoad();
   await settle();
   assert.equal(page.data.supportsModelConfig, true);
-  page.setData({ addOpen: true, addProviderId: 'mimo', addProviderName: '小米' });
+  page.setData({ discoveryOpen: true, discoveryProviderId: 'mimo', discoveryProviderName: '小米' });
   page.runAddDiscovery();
   await settle();
   assert.equal(discoveries.length, 1);
@@ -319,8 +371,8 @@ test('model discovery adds selected models in one mutation', async () => {
   page.addDiscoveredSelected();
   await settle();
   assert.equal(mutations.length, 1);
-  assert.ok(mutations[0].ops[0].value.some((model) => model.id === 'd1'));
-  assert.equal(page.data.addOpen, false);
+  assert.ok(mutations[0].ops.some((op) => op.op === 'set' && op.value && op.value.id === 'd1'));
+  assert.equal(page.data.discoveryOpen, false);
 });
 
 test('catalog provider mode writes provider config and API key', async () => {
@@ -392,5 +444,271 @@ test('discovery and provider creation are gated by gateway capability', async ()
   page.createProvider();
   assert.equal(mutations.length, 0);
   assert.ok(String(page.data.providerError).includes('重启 DSH'));
+});
+
+
+test('opening the discovery sheet auto-fetches models when the gateway supports it', async () => {
+  const { page, discoveries } = createPage({ capabilities: ['plugin-management-v1', 'llm-model-config-v1'] });
+  page.onLoad();
+  await settle();
+  page.openDiscoverySheet({ currentTarget: { dataset: { id: 'mimo' } } });
+  await new Promise((resolve) => setTimeout(resolve, 140));
+  await settle();
+  assert.ok(discoveries.length >= 1);
+  assert.equal(discoveries[0].request.provider, 'mimo');
+  assert.equal(page.data.discoveryResults.length, 1);
+  assert.equal(page.data.discoveryOpen, true);
+});
+
+
+test('provider creation without an API key omits apiKeyEnv for native auth', async () => {
+  const { page, mutations, credentials } = createPage({ capabilities: ['plugin-management-v1', 'llm-model-config-v1'] });
+  page.onLoad();
+  await settle();
+  page.openProviderSheet();
+  page.selectCatalogProvider({ currentTarget: { dataset: { id: 'anthropic' } } });
+  page.runProviderDiscovery();
+  await settle();
+  page.toggleProviderDiscovery({ currentTarget: { dataset: { id: 'd1' } } });
+  page.createProvider();
+  await settle();
+  assert.equal(mutations.length, 1);
+  assert.equal(mutations[0].ops[0].value.apiKeyEnv, undefined);
+  assert.equal(credentials.length, 0);
+});
+
+
+test('discovered models already configured are greyed out and unselectable', async () => {
+  const { page, mutations } = createPage({
+    capabilities: ['plugin-management-v1', 'llm-model-config-v1'],
+    discoveryModels: [{ id: 'm1', name: 'Existing' }, { id: 'd1', name: 'New' }]
+  });
+  page.onLoad();
+  await settle();
+  page.setData({ discoveryOpen: true, discoveryProviderId: 'mimo', discoveryProviderName: '小米' });
+  page.runAddDiscovery();
+  await settle();
+  assert.equal(page.data.discoveryResults[0].existing, true);
+  assert.equal(page.data.discoveryResults[1].existing, false);
+  assert.equal(page.data.discoveryAllExisting, false);
+  page.toggleDiscoveryResult({ currentTarget: { dataset: { id: 'm1' } } });
+  assert.equal(page.data.discoverySelectedCount, 0, 'configured model must not be selectable');
+  page.toggleAllDiscovery();
+  assert.equal(page.data.discoveryResults[0].selected, false);
+  assert.equal(page.data.discoveryResults[1].selected, true);
+  assert.equal(page.data.discoverySelectedCount, 1);
+  page.addDiscoveredSelected();
+  await settle();
+  assert.equal(mutations.length, 1);
+  assert.deepEqual(mutations[0].ops.map((op) => op.path.join('.')), ['providers.mimo.models.1']);
+  assert.equal(mutations[0].ops[0].value.id, 'd1');
+});
+
+test('model writes use fresh settings so concurrent DSH-client models are not clobbered', async () => {
+  const { page, mutations, namespace } = createPage();
+  page.onLoad();
+  await settle();
+  // Simulate the DSH client adding m2 after this page loaded.
+  namespace.value.providers.mimo.models.push({ id: 'm2', name: 'M2', contextWindow: 8000, input: ['text'] });
+  namespace.revision += 1;
+  page.setData({ 'form.id': 'm3', 'form.name': 'M3', 'form.text': true, 'form.image': false });
+  page.setData({ addOpen: true, addProviderId: 'mimo', addProviderName: '小米' });
+  page.submitAddModel();
+  await settle();
+  assert.equal(mutations.length, 1);
+  assert.deepEqual(mutations[0].ops.map((op) => op.path.join('.')), ['providers.mimo.models.2']);
+  assert.deepEqual(namespace.value.providers.mimo.models.map((model) => model.id), ['m1', 'm2', 'm3']);
+});
+
+test('discovery shows all-existing hint when nothing new is available', async () => {
+  const { page } = createPage({
+    capabilities: ['plugin-management-v1', 'llm-model-config-v1'],
+    discoveryModels: [{ id: 'm1', name: 'Existing' }]
+  });
+  page.onLoad();
+  await settle();
+  page.setData({ discoveryOpen: true, discoveryProviderId: 'mimo', discoveryProviderName: '小米' });
+  page.runAddDiscovery();
+  await settle();
+  assert.equal(page.data.discoveryAllExisting, true);
+  page.toggleAllDiscovery();
+  assert.equal(page.data.discoverySelectedCount, 0);
+});
+
+test('model edit helper preserves capacity, image input and reasoning mapping', () => {
+  const original = { id: 'm1', name: 'M1', contextWindow: 1000, input: ['text'], reasoningEfforts: { low: 'low', high: 'high' } };
+  const hidden = helper.applyModelEdit(original, { contextWindow: '2000', maxTokens: '4096', image: true, reasoning: false }, original.reasoningEfforts);
+  assert.equal(hidden.model.contextWindow, 2000);
+  assert.equal(hidden.model.maxTokens, 4096);
+  assert.deepEqual(hidden.model.input, ['text', 'image']);
+  assert.equal(hidden.model.reasoningEfforts, false);
+  const restored = helper.applyModelEdit(hidden.model, { contextWindow: '2000', maxTokens: '4096', image: true, reasoning: true }, original.reasoningEfforts);
+  assert.deepEqual(restored.model.reasoningEfforts, { low: 'low', high: 'high' });
+  assert.equal(helper.applyModelEdit(original, { contextWindow: '0', maxTokens: '', image: false, reasoning: true }).error, 'context-invalid');
+  assert.equal(helper.applyModelEdit(original, { contextWindow: '', maxTokens: '-1', image: false, reasoning: true }).error, 'max-invalid');
+  assert.deepEqual(helper.replaceModel([{ id: 'a' }, { id: 'b' }], 'b', { id: 'b', name: 'B' }).map((model) => model.name), [undefined, 'B']);
+});
+
+test('clicking a model row opens the editor and saves context/image/reasoning', async () => {
+  const { page, mutations } = createPage({ capabilities: ['plugin-management-v1', 'llm-model-config-v1'] });
+  page.onLoad();
+  await settle();
+  page.openEditModel({ currentTarget: { dataset: { provider: 'mimo', model: 'm1' } } });
+  assert.equal(page.data.editModelOpen, true);
+  assert.equal(page.data.editForm.contextWindow, '1000000');
+  assert.equal(page.data.editForm.image, false);
+  assert.equal(page.data.editForm.reasoning, true);
+  page.setData({ 'editForm.contextWindow': '200000', 'editForm.maxTokens': '4096' });
+  page.toggleEditImage();
+  page.toggleEditReasoning();
+  page.saveEditModel();
+  await settle();
+  assert.equal(mutations.length, 1);
+  const fields = {};
+  mutations[0].ops.forEach((op) => { fields[op.path[op.path.length - 1]] = op; });
+  assert.equal(fields.contextWindow.op, 'set');
+  assert.equal(fields.contextWindow.value, 200000);
+  assert.equal(fields.maxTokens.value, 4096);
+  assert.deepEqual(fields.input.value, ['text', 'image']);
+  assert.equal(fields.reasoningEfforts.value, false);
+  assert.equal(page.data.editModelOpen, false);
+});
+
+test('model editor rejects an invalid context window', async () => {
+  const { page, mutations } = createPage({ capabilities: ['plugin-management-v1', 'llm-model-config-v1'] });
+  page.onLoad();
+  await settle();
+  page.openEditModel({ currentTarget: { dataset: { provider: 'mimo', model: 'm1' } } });
+  page.setData({ 'editForm.contextWindow': '0' });
+  page.saveEditModel();
+  await settle();
+  assert.equal(mutations.length, 0);
+  assert.ok(String(page.data.editError).includes('上下文'));
+});
+
+
+test('discovery uses fresh settings so newly added DSH-client models are marked existing', async () => {
+  const { page, namespace } = createPage({
+    capabilities: ['plugin-management-v1', 'llm-model-config-v1'],
+    discoveryModels: [{ id: 'm1', name: 'M1' }, { id: 'd1', name: 'D1' }, { id: 'm2', name: 'M2' }]
+  });
+  page.onLoad();
+  await settle();
+  // DSH client adds m2 after this page loaded; the page cache still only has m1.
+  namespace.value.providers.mimo.models.push({ id: 'm2', name: 'M2', contextWindow: 8000, input: ['text'] });
+  namespace.revision += 1;
+  page.setData({ discoveryOpen: true, discoveryProviderId: 'mimo', discoveryProviderName: '小米' });
+  page.runAddDiscovery();
+  await settle();
+  const byId = {};
+  page.data.discoveryResults.forEach((row) => { byId[row.id] = row; });
+  assert.equal(byId.m1.existing, true);
+  assert.equal(byId.m2.existing, true, 'model added by DSH client must be greyed out');
+  assert.equal(byId.d1.existing, false);
+  assert.equal(page.data.discoveryAllExisting, false);
+  assert.equal(page.data.providers.find((row) => row.id === 'mimo').count, 2);
+});
+
+
+test('manual add supports reasoning levels', async () => {
+  const { page, mutations } = createPage();
+  page.onLoad();
+  await settle();
+  page.setData({
+    'form.id': 'r1', 'form.name': 'R1', 'form.text': true,
+    'form.reasoning': true,
+    'form.reasoningRows': [{ level: 'low', value: 'low' }, { level: 'high', value: 'high' }]
+  });
+  page.setData({ addOpen: true, addProviderId: 'mimo', addProviderName: '小米' });
+  page.submitAddModel();
+  await settle();
+  assert.equal(mutations.length, 1);
+  const added = mutations[0].ops[0].value;
+  assert.deepEqual(added.reasoningEfforts, { off: null, low: 'low', high: 'high' });
+});
+
+test('model editor displays and edits explicit reasoning levels', async () => {
+  const { page, mutations, namespace } = createPage({ capabilities: ['plugin-management-v1', 'llm-model-config-v1'] });
+  page.onLoad();
+  await settle();
+  namespace.value.providers.mimo.models[0].reasoningEfforts = { off: null, low: 'low', medium: 'medium' };
+  page.openEditModel({ currentTarget: { dataset: { provider: 'mimo', model: 'm1' } } });
+  assert.equal(page.data.editLevelsInherited, false);
+  assert.deepEqual(page.data.editForm.reasoningRows.map((row) => row.level), ['off', 'low', 'medium']);
+  page.addEditReasoningRow();
+  page.saveEditModel();
+  await settle();
+  assert.equal(mutations.length, 1, page.data.editError || 'no edit error');
+  const ops = {};
+  mutations[0].ops.forEach((op) => { ops[op.path[op.path.length - 1]] = op; });
+  assert.deepEqual(ops.reasoningEfforts.value, { off: null, minimal: 'minimal', low: 'low', medium: 'medium' });
+});
+
+test('model editor keeps inherited reasoning when levels are untouched', async () => {
+  const { page, mutations, namespace } = createPage({ capabilities: ['plugin-management-v1', 'llm-model-config-v1'] });
+  page.onLoad();
+  await settle();
+  page.openEditModel({ currentTarget: { dataset: { provider: 'mimo', model: 'm1' } } });
+  assert.equal(page.data.editLevelsInherited, true);
+  page.setData({ 'editForm.contextWindow': '200000' });
+  page.saveEditModel();
+  await settle();
+  assert.equal(mutations.length, 1);
+  const reasoningOp = mutations[0].ops.filter((op) => op.path[op.path.length - 1] === 'reasoningEfforts')[0];
+  assert.ok(!reasoningOp || reasoningOp.op === 'unset');
+  assert.equal(namespace.value.providers.mimo.models[0].reasoningEfforts, undefined);
+});
+
+
+test('reasoning level picker uses the glass sheet and updates the row', async () => {
+  const { page, mutations } = createPage({ capabilities: ['plugin-management-v1', 'llm-model-config-v1'] });
+  page.onLoad();
+  await settle();
+  page.openEditModel({ currentTarget: { dataset: { provider: 'mimo', model: 'm1' } } });
+  page.setData({
+    'editForm.reasoning': true,
+    'editForm.reasoningRows': [
+      { level: 'off', value: '', levelIndex: 0, levelLabel: '关闭', isOff: true },
+      { level: 'low', value: 'low', levelIndex: 1, levelLabel: '低', isOff: false }
+    ]
+  });
+  page.openReasoningLevelPicker({ currentTarget: { dataset: { target: 'edit', index: 1 } } });
+  assert.equal(page.data.reasoningPickerOpen, true);
+  assert.equal(page.data.reasoningPickerLevel, 'low');
+  page.selectReasoningLevel({ currentTarget: { dataset: { level: 'high' } } });
+  assert.equal(page.data.reasoningPickerOpen, false);
+  assert.equal(page.data.editForm.reasoningRows[1].level, 'high');
+  assert.equal(page.data.editForm.reasoningRows[1].value, 'high');
+  page.saveEditModel();
+  await settle();
+  assert.equal(mutations.length, 1);
+  const reasoning = mutations[0].ops.filter((op) => op.path[op.path.length - 1] === 'reasoningEfforts')[0];
+  assert.deepEqual(reasoning.value, { off: null, high: 'high' });
+});
+
+
+test('provider delete removes the provider from llm-pi-ai settings', async () => {
+  const { page, mutations, namespace } = createPage();
+  page.onLoad();
+  await settle();
+  page.askDeleteProvider({ currentTarget: { dataset: { id: 'opencode-go' } } });
+  assert.equal(page.data.providerDeleteOpen, true);
+  assert.equal(page.data.providerDeleteTarget.id, 'opencode-go');
+  page.confirmDeleteProvider();
+  await settle();
+  assert.equal(mutations.length, 1);
+  assert.deepEqual(mutations[0].ops, [{ op: 'unset', path: ['providers', 'opencode-go'] }]);
+  assert.equal(namespace.value.providers['opencode-go'], undefined);
+  assert.equal(page.data.providerDeleteOpen, false);
+});
+
+test('provider hosting the current default model cannot be deleted', async () => {
+  const { page, mutations, toasts } = createPage();
+  page.onLoad();
+  await settle();
+  page.askDeleteProvider({ currentTarget: { dataset: { id: 'mimo' } } });
+  assert.equal(page.data.providerDeleteOpen, false);
+  assert.equal(mutations.length, 0);
+  assert.ok(toasts.some((item) => String(item.title).includes('默认模型')));
 });
 
