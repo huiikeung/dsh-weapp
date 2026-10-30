@@ -2693,7 +2693,7 @@ display: flex;
 align-items: center;
 justify-content: center;
 min-width: 0;
-gap: 20rpx;
+gap: 24rpx;
 padding: 12rpx 18rpx 0;
 color: var(--text-2);
 box-sizing: border-box;
@@ -2756,7 +2756,7 @@ background: var(--bg);
 }
 @media (max-width: 350px) {
 .composer-metrics {
-gap: 20rpx;
+gap: 24rpx;
 padding-left: 10rpx;
 padding-right: 10rpx;
 }

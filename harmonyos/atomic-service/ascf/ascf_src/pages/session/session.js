@@ -30,6 +30,7 @@ const viewportActions = require('./viewport-actions');
 const collaboration = require('../../utils/collaboration');
 const protocol = require('../../utils/protocol');
 const fileDeliverables = require('./utils/file-deliverables');
+const filePicker = require('./utils/file-picker');
 const theme = require('../../utils/theme');
 const conversationWorkflow = require('./utils/conversation-workflow');
 const composerMenu = require('./utils/composer-menu');
@@ -465,7 +466,7 @@ Page({
     this._lastForegroundEpoch = foregroundEpoch;
     this.syncContextPanelPreferences();
     this._voiceHidden = false; this.syncVoicePreference();
-    // 从原生浮层（chooseMedia / chooseMessageFile / previewImage）返回：
+    // 从原生浮层（chooseMedia / chooseFile / previewImage）返回：
     if (this._hiddenByNativeOverlay) {
       this._hiddenByNativeOverlay = false;
       this.startScrollPolling();
@@ -555,6 +556,7 @@ Page({
   onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
 
   onUnload() {
+    this.disposeStagedAttachments(this.data.images);
     this.retainSessionView();
     this.stopContextFlow();
     this.clearContextModalDrag();
@@ -5972,7 +5974,11 @@ Page({
             store.state.currentWorkspaceId, encodedImages, 'queue', ticket);
           if (sent === false) return false;
           self.jumpToBottom();
-          if (!preserveDraft) self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
+          if (!preserveDraft) {
+            const staged = self.data.images;
+            self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
+            self.disposeStagedAttachments(staged);
+          }
           return true;
         }
         const sent = store.client.sendMessage(line, store.sessionState.sessionId, store.state.currentWorkspaceId, encodedImages, undefined, ticket);
@@ -5980,7 +5986,11 @@ Page({
           store.appendLocalUserRow(line, []);
           self.jumpToBottom();
         }
-        if (sent !== false && !preserveDraft) self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
+        if (sent !== false && !preserveDraft) {
+          const staged = self.data.images;
+          self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
+          self.disposeStagedAttachments(staged);
+        }
         return sent;
       });
     }
@@ -5990,7 +6000,11 @@ Page({
       this.setData({ commandLoading: true });
       return store.client.executeCommand(store.sessionState.sessionId, line, encodedImages).then(() => {
         if (this._unloaded || this.composerContextKey() !== context) return false;
-        if (!preserveDraft && (this._draftRevision || 0) === revision) this.setComposerValue('', { images: [], canSend: false, commandMenu: null });
+        if (!preserveDraft && (this._draftRevision || 0) === revision) {
+          const staged = this.data.images;
+          this.setComposerValue('', { images: [], canSend: false, commandMenu: null });
+          this.disposeStagedAttachments(staged);
+        }
         this.setData({ commandLoading: false });
         this.jumpToBottom();
         return true;
@@ -6095,7 +6109,7 @@ Page({
     const context = this.composerContextKey();
     this.closeAttachMenu();
     has.showModal({ title: uiText('外部文件'),
-      content: uiText('请先将手机或其他应用中的文件发送到微信聊天或文件传输助手，再从这里选择上传。无需放入远端工作区。'),
+      content: uiText('将从系统文件选择器选择文件，复制到元服务缓存后上传。无需放入远端工作区。'),
       confirmText: uiText('选择文件'),
       success: result => { if (result.confirm && !this._unloaded && this.composerContextKey() === context) this.pickComposerFiles(); } });
   },
@@ -6123,12 +6137,11 @@ Page({
     const options = { count: Math.min(9, remaining), type: 'file', success: res => {
       if (!current()) { finish(); return; }
       const kept = [];
-      let skipped = false;
+      let skipped = res.skipped === true;
       for (const file of res.tempFiles || []) {
-        if (Number(file.size) > 50 * 1024 * 1024) { skipped = true; continue; }
         const tempPath = file.path || file.tempFilePath;
         if (!tempPath) continue;
-        kept.push({ id: util.uuid(), isFile: true, tempPath, name: file.name || 'file', size: Number(file.size) || 0 });
+        kept.push({ id: util.uuid(), isFile: true, tempPath, name: file.name || 'file', size: Number(file.size) || 0, staged: file.staged === true });
       }
       if (!kept.length) { finish(); has.showToast({ title: uiText(skipped ? '外部文件不能超过 50 MB' : '未能读取所选文件'), icon: 'none' }); return; }
       if (!current()) { finish(); return; }
@@ -6140,8 +6153,14 @@ Page({
       if (current() && !/cancel/i.test(err && err.errMsg || '')) has.showToast({ title: uiText('选择文件失败，请重试'), icon: 'none' });
       finish();
     } };
-// 暂不支持api has.chooseMessageFile TODO
-    try { has.chooseMessageFile(options); } catch (error) { options.fail(error); }
+    // ASCF 不提供 chooseMessageFile；官方 has.chooseFile（1.0.20+）选择系统文件，
+    // 返回的媒体库原始路径不可直接读写，先复制到 internal://cache/ 再上传。
+    filePicker.chooseAndStage(has, { type: 'file', count: options.count, maxBytes: filePicker.MAX_FILE_BYTES })
+      .then(result => options.success({
+        tempFiles: result.files.map(file => ({ path: file.tempPath, name: file.name, size: file.size, staged: true })),
+        skipped: result.skipped
+      }))
+      .catch(error => options.fail(error));
   },
 
   pickComposerImages(fromChat) {
@@ -6214,7 +6233,7 @@ Page({
           if (match) mediaType = composerMenu.imageType('image.' + match[1]);
         }
         if (!mediaType) { skipped = true; continue; }
-        kept.push({ id: util.uuid(), tempPath, mediaType, name: file.name || 'image', size: finalSize });
+        kept.push({ id: util.uuid(), tempPath, mediaType, name: file.name || 'image', size: finalSize, staged: file.staged === true });
       }
       if (!current()) { finish(); return; }
       if (!this.data.canAttach) { finish(); return; }
@@ -6226,11 +6245,16 @@ Page({
       if (current() && !/cancel/i.test(err && err.errMsg || '')) has.showToast({ title: uiText('选择图片失败，请重试'), icon: 'none' });
       finish();
     } };
-    try {
-// 暂不支持api has.chooseMessageFile TODO
-      if (fromChat) has.chooseMessageFile(Object.assign(options, { type: 'image' }));
-      else has.chooseMedia(Object.assign(options, { mediaType: ['image'], sizeType: ['compressed'] }));
-    } catch (error) { options.fail(error); }
+    if (!fromChat) {
+      try { has.chooseMedia(Object.assign(options, { mediaType: ['image'], sizeType: ['compressed'] })); } catch (error) { options.fail(error); }
+      return;
+    }
+    // ASCF 无法读取聊天记录图片；改用官方 chooseFile 图片选择器，并暂存到沙箱后上传。
+    filePicker.chooseAndStage(has, { type: 'image', count: options.count, maxBytes: filePicker.MAX_IMAGE_BYTES })
+      .then(result => options.success({
+        tempFiles: result.files.map(file => ({ path: file.tempPath, name: file.name, size: file.size, staged: true }))
+      }))
+      .catch(error => options.fail(error));
   },
 
   previewPendingImage(e) {
@@ -6243,10 +6267,23 @@ Page({
     if (file && file.isFile) this.openFileSheet(file, { origin: 'composer' });
   },
 
+  /** 选择器暂存副本只属于草稿：删除、发送成功或页面卸载时必须回收。 */
+  stagedAttachments(list) {
+    return (Array.isArray(list) ? list : []).filter(file => file && file.staged === true);
+  },
+
+  disposeStagedAttachments(list) {
+    const files = this.stagedAttachments(list);
+    if (!files.length) return Promise.resolve();
+    const api = typeof has !== 'undefined' ? has : null;
+    return filePicker.cleanupStagedFiles(api, files).catch(() => {});
+  },
+
   removeImage(e) {
     if (this.data.sendingAttachments) return;
     const images = this.data.images.slice();
-    images.splice(e.currentTarget.dataset.index, 1);
+    const removed = images.splice(e.currentTarget.dataset.index, 1)[0];
+    this.disposeStagedAttachments([removed]);
     this.setData({
       images: images,
       canSend: !!this.data.draft.trim() || images.length > 0

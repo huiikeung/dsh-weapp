@@ -32,5 +32,6 @@ ASCF 编译会将 `ascf/ascf_src/` 转换到 `ascf/ascf_build/` 并更新根 `bu
 
 - ASCF 客户端固定访问 `https://dsh.ahwe.top`，托管中继使用其对应的 `wss://` 域名；两者必须在华为开发者中心按 HTTPS/WSS 配置且 TLS 证书有效。本地代码只做 WSS 格式筛选，不会绕过或验证域名白名单。不能假定原小程序的局域网 `ws://` 或任意动态域名可用。
 - 微信 `wx.login` 凭证不等于华为账号授权码。服务端已实现华为 code 验证和分离身份，但需部署时设置 `HUAWEI_CLIENT_ID`、`HUAWEI_CLIENT_SECRET`（管理员名单可选 `HUAWEI_ADMIN_OPENIDS`），并由真实华为 Client ID 和签名指纹联调。微信与华为权益不自动合并；外部 grant adapter 是否接受 `huawei:<sha256>` account ID 尚未验证。
-- 离屏画布、消息文件选择等接口在转换报告中标为不支持；分享、订阅消息、语音、文件以及跨平台存储还需要逐项验证和适配。
+- 离屏画布（`createOffscreenCanvas`）、图片压缩（`compressImage`）、账号信息（`getAccountInfoSync`）在转换报告中标为不支持，相关调用都有能力检测并降级；分享、订阅消息、语音和跨平台存储仍需逐项验证。
+- 消息文件选择已改用官方 `has.chooseFile`（1.0.20+）：其返回路径是媒体库原始路径，不能直接读写，必须先用 `FileSystemManager.copyFile` 复制到 `internal://cache/`（见 `ascf/ascf_src/pages/session/utils/file-picker.js`）。草稿删除、发送成功和页面卸载会回收这些沙箱副本；ASCF 无法读取微信聊天记录，因此「聊天中的图片/文件」入口改为系统选择器。
 - 元服务有包体、隐私、导航和账号规范；自动转换及源码体积检查不能代替构建、设备测试和上架审核。

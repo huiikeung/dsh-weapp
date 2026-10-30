@@ -12,3 +12,13 @@
 /.clang-tidy
 **/.test
 /.appanalyzer
+
+# 本地构建/调试缓存（DSH 自动化任务生成，不提交）
+/.pnpm-cache
+/.cache
+/.localappdata
+/.dsh-hvigor-tmp
+/.dsh-*.cjs
+/.dsh-*.ps1
+/.dsh-*.cmd
+/entry/.ohpmrc
