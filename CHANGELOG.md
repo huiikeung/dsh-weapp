@@ -7,7 +7,7 @@
 - 两个弹窗都内嵌实时预览：玻璃样式预览展示透明度/模糊/亮边/圆角/亮度，「卡片样式设置」预览展示悬浮/光线/描边/圆角；滑杆**边拖边变**（拖动走完整 `view()` 重算，松手才落盘）。预览用放大档（投影 ×4、透明度 ×3、描边 ×2、光线 ×4）否则这些参数在小尺寸下看不出来；舞台底色按主题给（浅色中间调衬底、深色极淡白），不再用深色托盘。
 - 修复浅色下弹窗变透明：主题判断原来读 `this.data.themeClass`（`onShow` 里还是旧值/空串），导致 `view()` 拿到 `light:false` 下发深色半透明参数；统一改用 `theme.resolveTheme()`（含跟随系统），覆盖弹窗内联样式、滑杆回调、原生背景调色三处。
 - 修复拖动滑杆后弹窗变透明：滑杆回调重建样式时丢主题标记，新增 `glassViewStyle()` 包装统一带上 `light`。
-- 设置页「卡片悬浮」滑杆并入弹窗后，旧的 `session-card-float-pref` 改为转发到新的 `session-card-style-pref`。
+- 设置页「卡片悬浮」滑杆并入弹窗后，参数统一由 `session-card-style-pref` 提供；旧的 `session-card-float-pref` 与 `settings-glass-alpha-pref` 这两个无人引用的兼容转发壳已删除（主包工具可达性检查不再点名它们）。
 - 新建会话输入框左上角的模式胶囊（`.preset-capsule`）和它的预设浮层一起接入「对话页玻璃UI」：胶囊复用输入框同一套 `--glass-alpha-top/bottom` + `--glass-blur-card` + 0.5px 发丝描边与顶部高光，浮层走 sheet 档透明度与 `--glass-blur-sheet`，并单独加 `mode-pop` 标记（权限 / 模型浮层不受影响），深色下阴影压暗；华为 ASCF 元服务副本同步同样两条规则。
 
 ## v0.9.84 — 2026-10-30
