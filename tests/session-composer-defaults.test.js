@@ -59,7 +59,9 @@ test('the composer starts at its resting height instead of the native 150px firs
 
   // 真机上原生 textarea 的默认高度是 150px，而且 CSS 夹不住它（父级 overflow / max-height 都无效，
   // 探针实测首帧 i=150px）。所以直接把首帧高度写进 textarea 自己的 style；量到内容后由 auto-height 接管。
-  const textarea = wxml.slice(wxml.indexOf('<textarea'), wxml.indexOf('/>', wxml.indexOf('<textarea')) + 2);
+  // 目标卡片的就地编辑框也是一个 textarea，按 composer-input 精确定位输入框。
+  const composerAt = wxml.lastIndexOf('<textarea', wxml.indexOf('class="composer-input"'));
+  const textarea = wxml.slice(composerAt, wxml.indexOf('/>', composerAt) + 2);
   assert.match(textarea, /style="height:\{\{composerInputHeightPx\}\}px"/, 'the textarea carries an explicit first-frame height');
   assert.match(textarea, /auto-height="\{\{true\}\}"/, 'auto-height still drives growth once it measures');
   assert.match(textarea, /bindlinechange="onComposerLineChange"/);

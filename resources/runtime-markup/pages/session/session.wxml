@@ -36,7 +36,7 @@
   </view>
 </template>
 
-<view class="page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-card: {{glassBlurCard}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
+<view class="page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}" style="{{contentFontStyle}}; --card-float: {{cardFloatShadow}}; --card-edge: {{cardEdgeColor}}; --card-light: {{cardLightColor}}; --card-radius: {{cardRadiusRpx}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-card: {{glassBlurCard}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
   <!-- 顶部区域：导航 + 切换栏，背景遮罩截止到切换下划线 -->
   <view class="session-header">
   <!-- 顶部导航：标题居中，右侧连接状态、模式与菜单 -->
@@ -1333,7 +1333,7 @@
   <!-- ================= 待处理请求 ================= -->
 
   <!-- ================= 底部栈（对齐 iOS：滚到底 → 审批/提问卡 互斥替代输入区 → 排队托盘+胶囊行+输入卡） ================= -->
-  <view hidden="{{tab !== 'conversation'}}" class="dock-stack {{voiceOverlayVisible ? 'voice-holding' : ''}} {{question ? 'question-active' : ''}} {{tab !== 'conversation' ? 'session-panel-hidden' : ''}}" style="{{dockStyle}}">
+  <view hidden="{{tab !== 'conversation'}}" class="dock-stack {{voiceOverlayVisible ? 'voice-holding' : ''}} {{question ? 'question-active' : ''}} {{tasks || goal || queue.length ? 'stacked' : ''}} {{tab !== 'conversation' ? 'session-panel-hidden' : ''}}" style="{{dockStyle}}">
     <view wx:if="{{showJump && rows.length}}" class="jump-wrap">
       <view class="jump-bottom" bindtap="jumpToBottom">
         <view wx:if="{{running}}" class="jump-ring"></view>
@@ -1517,23 +1517,32 @@
           </view>
         </view>
       </view>
-      <view wx:if="{{goal}}" class="goal-panel">
-        <image class="goal-ic" src="/assets/icons/target-gray.png"/>
-        <view class="goal-main">
-          <text class="goal-phase">{{ui[goal.phaseLabel] !== undefined ? ui[goal.phaseLabel] : goal.phaseLabel}}</text>
-          <text class="goal-objective">{{goal.objective}}</text>
-        </view>
-        <view wx:if="{{goalBusy}}" class="goal-spinner"></view>
+      <view wx:if="{{goal}}" class="goal-panel {{goalEditing ? 'editing' : ''}}">
+        <block wx:if="{{goalEditing}}">
+          <textarea class="goal-edit-input" value="{{goalDraft}}" maxlength="-1" auto-height focus="{{goalEditing}}" cursor-spacing="24" confirm-type="done" bindinput="goalDraftInput" bindconfirm="goalSaveEdit"/>
+          <view class="goal-edit-actions">
+            <view class="goal-action" bindtap="goalSaveEdit" role="button" aria-label="{{ui['保存']}}"><text class="goal-edit-glyph">✓</text></view>
+            <view class="goal-action" bindtap="goalCancelEdit" role="button" aria-label="{{ui['取消']}}"><text class="goal-edit-glyph">×</text></view>
+          </view>
+        </block>
         <block wx:else>
-          <view class="goal-action" bindtap="goalAction" data-action="toggle">
-            <image class="goal-action-ic" src="/assets/icons/{{goal.active ? 'sched-clock-gray.png' : 'arrow-up-gray.png'}}"/>
+          <image class="goal-ic" src="/assets/icons/{{theme === 'dark' ? 'goal-target-dark.svg' : 'goal-target.svg'}}" mode="aspectFit"/>
+          <view class="goal-main">
+            <text class="goal-phase">{{ui[goal.phaseLabel] !== undefined ? ui[goal.phaseLabel] : goal.phaseLabel}}</text>
+            <text class="goal-objective">{{goal.objective}}</text>
           </view>
-          <view class="goal-action" bindtap="goalAction" data-action="edit">
-            <image class="goal-action-ic" src="/assets/icons/pencil-line-gray.png"/>
-          </view>
-          <view class="goal-action" bindtap="goalAction" data-action="clear">
-            <image class="goal-action-ic" src="/assets/icons/trash-gray.png"/>
-          </view>
+          <view wx:if="{{goalBusy}}" class="goal-spinner"></view>
+          <block wx:else>
+            <view class="goal-action" bindtap="goalAction" data-action="toggle" role="button">
+              <image class="goal-action-ic" src="/assets/icons/{{theme === 'dark' ? goal.actionIconDark : goal.actionIcon}}" mode="aspectFit"/>
+            </view>
+            <view class="goal-action" bindtap="goalAction" data-action="edit" role="button" aria-label="{{ui['编辑目标']}}">
+              <image class="goal-action-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-edit-dark.svg' : 'queue-edit.svg'}}" mode="aspectFit"/>
+            </view>
+            <view class="goal-action" bindtap="goalAction" data-action="clear" role="button" aria-label="{{ui['清除目标']}}">
+              <image class="goal-action-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-delete-dark.svg' : 'queue-delete.svg'}}" mode="aspectFit"/>
+            </view>
+          </block>
         </block>
       </view>
       </block>

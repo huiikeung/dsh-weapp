@@ -733,12 +733,14 @@ test('removeComposerRef drops the placeholder and rebuilds the draft without the
 test('the composer renders a reference chip row above the textarea with typed icons and removal', () => {
   const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const start = wxml.indexOf('class="composer-slash-chip');
-  const row = wxml.slice(start, wxml.indexOf('<textarea'));
+  // 目标卡片的就地编辑框也是一个 textarea，按 composer-input 精确定位输入框。
+  const composerAt = wxml.lastIndexOf('<textarea', wxml.indexOf('class="composer-input"'));
+  const row = wxml.slice(start, composerAt);
   assert.match(row, /<view hidden="\{\{!composerRefs.length\}\}" class="composer-refs/);
   assert.match(row, /wx:for="\{\{composerRefs\}\}" wx:key="key"/);
   assert.match(row, /src="\/assets\/icons\/\{\{item.icon\}\}"/);
   assert.match(row, /catchtap="removeComposerRef"/);
-  assert.ok(wxml.indexOf('class="composer-refs') < wxml.indexOf('<textarea'), 'chips render before the textarea');
+  assert.ok(wxml.indexOf('class="composer-refs') < composerAt, 'chips render before the textarea');
   const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8').replace(/\s+/g, '');
   assert.ok(css.includes('.composer-refs{display:none;flex-wrap:wrap;'));
   assert.ok(css.includes('.composer-refs[hidden]{display:none!important;}'));
@@ -805,4 +807,52 @@ test('command token survives reference insertion, voice input and chip removal',
   assert.equal(page.data.draft, '/goal 识别文字');
   assert.equal(page.composerDisplay(), '识别文字');
   assert.equal(page.data.commandToken, '/goal');
+});
+
+test('the goal card edits inline instead of opening a modal, and keeps pause wired', async () => {
+  const { page, calls, store } = fixture();
+  store.mutateGoal = (...args) => { calls.push(['goal', ...args]); return Promise.resolve(true); };
+  page.data.goal = { id: 'g1', revision: 2, objective: '旧目标', phase: 'active', phaseLabel: '进行中的目标',
+    active: true, actionIcon: 'goal-pause.svg', actionIconDark: 'goal-pause-dark.svg' };
+  // 点编辑：直接进就地编辑，不弹窗
+  page.goalAction(event({ action: 'edit' }));
+  assert.equal(page.data.goalEditing, true);
+  assert.equal(page.data.goalDraft, '旧目标');
+  // 改完保存：提交 goal-edit 并退出编辑态
+  page.goalDraftInput({ detail: { value: '新目标' } });
+  page.goalSaveEdit();
+  assert.equal(page.data.goalEditing, false);
+  assert.deepEqual(calls.filter(x => x[0] === 'goal'), [['goal', 'goal-edit', '新目标']]);
+  // 没改动就保存：不发请求
+  page.goalAction(event({ action: 'edit' }));
+  page.goalSaveEdit();
+  assert.equal(calls.filter(x => x[0] === 'goal').length, 1, 'unchanged objective is not resubmitted');
+  // 取消：丢弃草稿，不发请求
+  page.goalAction(event({ action: 'edit' }));
+  page.goalDraftInput({ detail: { value: '改了一半' } });
+  page.goalCancelEdit();
+  assert.equal(page.data.goalEditing, false);
+  assert.equal(calls.filter(x => x[0] === 'goal').length, 1, 'cancel does not submit');
+  // 暂停/继续仍走 mutateGoal（按当前 phase 选 kind）
+  page.goalAction(event({ action: 'toggle' }));
+  assert.deepEqual(calls.filter(x => x[0] === 'goal').at(-1), ['goal', 'goal-pause']);
+  page.data.goal.active = false;
+  page.goalAction(event({ action: 'toggle' }));
+  assert.deepEqual(calls.filter(x => x[0] === 'goal').at(-1), ['goal', 'goal-resume']);
+});
+
+test('queued messages can be removed one after another without re-entering the session', async () => {
+  const { page, calls, store } = fixture();
+  page.data.queue = [
+    { id: 'q1', editable: true, rawText: '一', preview: '一', attachments: [] },
+    { id: 'q2', editable: true, rawText: '二', preview: '二', attachments: [] }
+  ];
+  store.client.queueUpdate = (...args) => { calls.push(['queueUpdate', ...args]); return Promise.resolve(true); };
+  page.queueAction(event({ id: 'q1', action: 'remove' }));
+  assert.equal(page.data.queueBusyId, 'q1:remove');
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(page.data.queueBusyId, '', '回执到达后必须立即解锁');
+  page.queueAction(event({ id: 'q2', action: 'remove' }));
+  assert.deepEqual(calls.filter(x => x[0] === 'queueUpdate').map(x => x.slice(1)),
+    [['s1', 'q1', 'remove'], ['s1', 'q2', 'remove']], '第二条条目的点击不能被锁吞掉');
 });

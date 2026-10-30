@@ -106,7 +106,13 @@ function createStore() {
   };
 
   // 当前会话工作区（仅会话页读写）
-  const sessionState = {
+  // 目标操作的回执兜底：旧网关不支持 goal-pause/goal-resume 时不回执，
+// goalMutation 会一直占着 spinner，暂停/继续按钮就再也回不来了。
+let goalMutationTimer = null;
+function clearGoalMutationTimer() {
+  if (goalMutationTimer) { clearTimeout(goalMutationTimer); goalMutationTimer = null; }
+}
+const sessionState = {
     sessionId: null,
     rowsAgg: null,
     rows: [],
@@ -1784,6 +1790,7 @@ function createStore() {
         if (sessionState.goalAsOfSeq == null || seq == null || seq >= sessionState.goalAsOfSeq) {
           sessionState.goal = frame.goal || null;
           sessionState.goalAsOfSeq = seq;
+          clearGoalMutationTimer();
           sessionState.goalMutation = '';
           emit();
         }
@@ -1793,6 +1800,7 @@ function createStore() {
       case 'goal-paused':
       case 'goal-resumed':
       case 'goal-cleared':
+        clearGoalMutationTimer();
         sessionState.goalMutation = '';
         safeRequest(client.requestGoal(sessionState.sessionId));
         emit();
@@ -1937,6 +1945,7 @@ function createStore() {
           return;
         }
         if (String(frame.requestType || '').indexOf('goal-') === 0) {
+          clearGoalMutationTimer();
           sessionState.goalMutation = '';
           safeRequest(client.requestGoal(sessionState.sessionId));
           state.notice = { text: frame.message || uiText('目标操作失败'), isError: true, at: Date.now() };
@@ -4265,6 +4274,14 @@ function createStore() {
       const ref = { id: goal.id, revision: goal.revision };
       sessionState.goalMutation = kind;
       emit();
+      clearGoalMutationTimer();
+      goalMutationTimer = setTimeout(function () {
+        goalMutationTimer = null;
+        if (!sessionState.goalMutation) return;
+        sessionState.goalMutation = '';
+        safeRequest(client.requestGoal(sessionState.sessionId));
+        emit();
+      }, 15000);
       const request = kind === 'goal-edit'
         ? client.editGoal(sessionState.sessionId, ref, objective)
         : client.updateGoalState(kind, sessionState.sessionId, ref);

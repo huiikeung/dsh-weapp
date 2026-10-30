@@ -419,6 +419,10 @@
           <view class="exp-copy"><text class="card-row-label">{{ui['对话页面玻璃']}}</text></view>
           <dsh-switch checked="{{sessionGlassEnabled}}" aria-label="{{ui['对话页面玻璃']}}" bindchange="toggleSessionGlass"/>
         </view>
+        <view class="card-row" id="session-card-style-entry" bindtap="openCardStyleSheet" role="button" aria-label="{{ui['卡片外观']}}">
+          <text class="card-row-label">{{ui['卡片外观']}}</text>
+          <view class="card-row-value"><text>{{ui['悬浮']}} {{cardFloat}}% · {{ui['圆角']}} {{cardRadius}}rpx</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+        </view>
         <view wx:if="{{settingsGlassEnabled}}" class="card-row" id="glass-style-entry" bindtap="openGlassStyleSheet" role="button" aria-label="{{ui['玻璃样式设置']}}">
           <text class="card-row-label">{{ui['玻璃样式设置']}}</text>
           <view class="card-row-value"><text>{{glassAlpha}}% · {{glassBlur}}rpx</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
@@ -1034,6 +1038,58 @@
         <text wx:if="{{codeDurationIndex === index}}" class="code-option-check">✓</text>
       </view>
     </scroll-view>
+  </view>
+</view>
+
+<!-- 卡片外观弹窗：悬浮 / 光线 / 描边 / 圆角（自带主题容器，否则浅色规则匹配不到） -->
+<view class="{{themeClass}}">
+<view wx:if="{{cardStyleOpen}}" class="glass-style-mask {{settingsGlassSheetEnabled ? '' : 'glass-style-mask-pass'}}" catchtap="closeCardStyleSheet" catchtouchmove="noop"></view>
+  <view wx:if="{{cardStyleOpen}}" class="glass-style-sheet {{settingsGlassSheetEnabled ? '' : 'native-skin'}}" catchtap="noop" role="dialog" aria-label="{{ui['卡片外观']}}">
+    <view wx:if="{{settingsGlassSheetEnabled}}" class="sheet-grabber"></view>
+    <view class="glass-style-head">
+      <text class="glass-style-title">{{ui['卡片外观']}}</text>
+      <view class="glass-style-actions">
+        <view class="glass-style-reset tap" catchtap="resetCardStyle" role="button">{{ui['重置为默认']}}</view>
+        <view class="glass-style-done tap" catchtap="closeCardStyleSheet" role="button">{{ui['完成']}}</view>
+      </view>
+    </view>
+    <view class="card-preview-stage">
+      <view class="card-preview-card" style="border-radius: {{cardRadiusRpx}}; box-shadow: inset 0 0 0 0.5px {{cardEdgeColor}}, inset 0 1px 0 {{cardLightColor}}, {{cardFloatShadow}};">
+        <view class="card-preview-dot"></view>
+        <view class="card-preview-copy">
+          <text class="card-preview-title">{{ui['预览']}}</text>
+          <text class="card-preview-sub">{{ui['悬浮']}} {{cardFloat}}% · {{ui['光线']}} {{cardLight}}% · {{ui['描边']}} {{cardEdge}}% · {{ui['圆角']}} {{cardRadius}}rpx</text>
+        </view>
+      </view>
+    </view>
+      <view class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['悬浮']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardFloatMin}}" max="{{cardFloatMax}}" step="1" value="{{cardFloat}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['悬浮']}}" data-field="float" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardFloat}}%</text>
+        </view>
+      </view>
+      <view class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['光线']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardLightMin}}" max="{{cardLightMax}}" step="1" value="{{cardLight}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['光线']}}" data-field="light" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardLight}}%</text>
+        </view>
+      </view>
+      <view class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['描边']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardEdgeMin}}" max="{{cardEdgeMax}}" step="1" value="{{cardEdge}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['描边']}}" data-field="edge" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardEdge}}%</text>
+        </view>
+      </view>
+      <view class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['圆角']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardRadiusMin}}" max="{{cardRadiusMax}}" step="1" value="{{cardRadius}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['圆角']}}" data-field="radius" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardRadius}}rpx</text>
+        </view>
+      </view>
   </view>
 </view>
 

@@ -83,6 +83,15 @@ function createPage(apiOptions) {
       if (name === '../../utils/host-info') return require('../miniprogram/utils/host-info');
       if (name === '../../utils/choice-menu') return require('../miniprogram/utils/choice-menu');
       if (name === '../../utils/session-glass-pref') return { KEY: 'sessionGlassEnabled', DEFAULT: true, read: () => true, set: value => value === true };
+      if (name === '../../utils/session-card-style-pref') return {
+        KEY: 'sessionCardStyleV1',
+        DEFAULTS: { float: 20, light: 20, edge: 38, radius: 36 },
+        LIMITS: { float: [0, 100], light: [0, 60], edge: [0, 80], radius: [20, 48] },
+        read: () => ({ float: 20, light: 20, edge: 38, radius: 36 }),
+        set: patch => Object.assign({ float: 20, light: 20, edge: 38, radius: 36 }, patch),
+        reset: () => ({ float: 20, light: 20, edge: 38, radius: 36 }),
+        view: () => ({ cardFloat: 20, cardLight: 20, cardEdge: 38, cardRadius: 36, cardFloatShadow: '0 1rpx 4rpx rgba(7, 24, 43, 0.035)', cardEdgeColor: 'rgba(255, 255, 255, 0.38)', cardLightColor: 'rgba(255, 255, 255, 0.050)', cardRadiusRpx: '36rpx', cardFloatMin: 0, cardFloatMax: 100, cardLightMin: 0, cardLightMax: 60, cardEdgeMin: 0, cardEdgeMax: 80, cardRadiusMin: 20, cardRadiusMax: 48 })
+      };
       if (name === '../../utils/settings-glass-style-pref') return { KEY: 'settingsGlassStyle', DEFAULTS: { alpha: 10, blur: 8, edge: 38, radius: 32, brightness: 100 }, LIMITS: { alpha: [4, 40], blur: [2, 24], edge: [10, 70], radius: [20, 40], brightness: [40, 160] }, read: () => ({ alpha: 10, blur: 8, edge: 38, radius: 32 }), set: patch => patch, view: () => ({ glassSurfaceStyle: 'background: linear-gradient(165deg, rgba(255, 255, 255, 0.040), rgba(255, 255, 255, 0.016)); border: 1px solid rgba(255, 255, 255, 0.38); border-radius: 16.64px; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 6.24px 24.96px rgba(3, 14, 30, 0.26); backdrop-filter: blur(4.16px); -webkit-backdrop-filter: blur(4.16px);', glassAlpha: 10, glassBlur: 8, glassEdge: 38, glassRadius: 32, glassAlphaTop: '0.040', glassAlphaBottom: '0.016', glassAlphaTopPct: 4, glassAlphaBottomPct: 1.6, glassBrightness: 100, glassEdgeAlpha: '0.38', glassBlurSheet: '4.16px', glassBlurCard: '1.56px', glassRadiusSheet: '16.64px', glassRadiusCard: '18.72px' }) };
       if (name === '../../utils/labels') return { presetModeName: (v) => v, presetDisplayName: (name, id) => name || id, permissionName: (v) => v };
       if (name === './utils/notify-pref') return { enabled: () => false };
@@ -1199,16 +1208,20 @@ test('对话页面玻璃：设置页独立开关控制，页面头部/输入区/
   assert.equal(preference.set(false), false);
   assert.equal(preference.read(), false);
   // 对话页根节点按开关挂 session-glass，并注入玻璃变量
-  assert.ok(wxml.includes("class=\"page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}\""), 'session root toggles the glass class');
+  assert.ok(wxml.includes("class=\"page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}"), 'session root toggles the glass class');
   assert.ok(wxml.includes('--glass-alpha-top: {{glassAlphaTop}}'), 'session root injects glass alpha');
-  assert.ok(wxml.includes('style="{{contentFontStyle}}; --glass-alpha-top'), 'session root keeps content font style and adds glass vars');
+  assert.match(wxml, /style="\{\{contentFontStyle\}\};[^"]*--glass-alpha-top/, 'session root keeps content font style and adds glass vars');
   // 玻璃材质覆盖到头部、输入区、协作弹窗、文件提及菜单
-  for (const selector of ['.session-glass .session-header', '.session-glass .composer', '.session-glass .sheet.collab-sheet', '.session-glass .file-mention-menu']) {
+  for (const selector of ['.session-glass .session-header', '.session-glass .composer', '.session-glass .sheet.collab-sheet', '.session-glass .file-mention-menu',
+    '.session-glass .task-panel', '.session-glass .goal-panel', '.session-glass .queue-panel']) {
     const at = wxss.indexOf(selector);
     assert.ok(at >= 0, selector + ' glass rule');
     const slice = wxss.slice(at, at + 420);
     assert.ok(slice.includes('var(--glass-alpha-top'), selector + ' gradient');
-    assert.ok(slice.includes('var(--glass-edge-alpha'), selector + ' hairline');
+    // 卡片描边走自己的 --card-edge（可在「卡片外观」弹窗里调），其余玻璃元素沿用 --glass-edge-alpha
+    const edgeToken = selector.indexOf('task-panel') >= 0 || selector.indexOf('goal-panel') >= 0 || selector.indexOf('queue-panel') >= 0
+      ? 'var(--card-edge' : 'var(--glass-edge-alpha';
+    assert.ok(slice.includes(edgeToken), selector + ' hairline');
     assert.ok(slice.includes('blur(var(--glass-blur-'), selector + ' blur');
   }
   // 设置页独立开关：一行 switch + 处理器
@@ -1216,4 +1229,31 @@ test('对话页面玻璃：设置页独立开关控制，页面头部/输入区/
   assert.ok(settingsWxml.includes("ui['对话页面玻璃']"), 'switch label present');
   assert.match(settingsJs, /toggleSessionGlass\(e\)[\s\S]{0,240}?sessionGlassPreference\.set/);
   assert.match(settingsJs, /onShow\(\)[\s\S]{0,1200}?sessionGlassEnabled: sessionGlassPreference\.read\(\)/);
+  // 卡片外观弹窗：悬浮 / 光线 / 描边 / 圆角 -> 四个 CSS 变量，入口行 + 默认重置
+  const cardPref = fs.readFileSync(path.join(root, 'miniprogram/utils/session-card-style-pref.js'), 'utf8');
+  let cardStored;
+  const cardContext = { module: { exports: {} }, wx: { getStorageSync: () => cardStored, setStorageSync: (_k, v) => { cardStored = v; } } };
+  vm.runInNewContext(cardPref, cardContext);
+  const cardPreference = cardContext.module.exports;
+  const cardDefaults = JSON.parse(JSON.stringify(cardPreference.read()));
+  assert.deepEqual(cardDefaults, { float: 20, light: 20, edge: 38, radius: 36 }, 'card style defaults');
+  const cardView = cardPreference.view();
+  assert.equal(cardView.cardFloatShadow, '0 1rpx 4rpx rgba(7, 24, 43, 0.035)', '20% float reproduces the tuned shadow');
+  assert.equal(cardView.cardEdgeColor, 'rgba(255, 255, 255, 0.38)');
+  assert.equal(cardView.cardLightColor, 'rgba(255, 255, 255, 0.050)');
+  assert.equal(cardView.cardRadiusRpx, '36rpx');
+  assert.equal(cardPreference.set({ float: 140 }).float, 100, 'slider value clamps to max');
+  assert.equal(cardPreference.set({ radius: 4 }).radius, 20, 'radius clamps to min');
+  assert.equal(cardPreference.floatShadow(0), '0 0 0 rgba(0, 0, 0, 0)', 'zero float disables the shadow');
+  assert.deepEqual(JSON.parse(JSON.stringify(cardPreference.reset())), { float: 20, light: 20, edge: 38, radius: 36 }, 'reset restores defaults');
+  assert.ok(wxml.includes('--card-float: {{cardFloatShadow}}') && wxml.includes('--card-edge: {{cardEdgeColor}}')
+    && wxml.includes('--card-light: {{cardLightColor}}') && wxml.includes('--card-radius: {{cardRadiusRpx}}'), 'session root injects the card style variables');
+  assert.ok(wxss.includes('box-shadow: var(--card-float);'), 'stacked cards read the float variable');
+  assert.ok(wxss.includes('border-radius: var(--card-radius, 36rpx);'), 'cards read the radius variable');
+  assert.ok(settingsWxml.includes('bindtap="openCardStyleSheet"') && settingsWxml.includes('resetCardStyle'), 'settings entry + reset exist');
+  for (const field of ['float', 'light', 'edge', 'radius']) {
+    assert.ok(settingsWxml.includes('data-field="' + field + '"'), 'slider for ' + field);
+  }
+  assert.match(settingsJs, /onCardStyleChange\(e\)[\s\S]{0,400}?sessionCardStylePreference\.set/);
+  assert.match(settingsJs, /resetCardStyle\(\)[\s\S]{0,200}?sessionCardStylePreference\.reset/);
 });

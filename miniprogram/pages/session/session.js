@@ -20,6 +20,7 @@ const contextPanelsPreference = require('./utils/context-panels-pref');
 const contextPreferences = require('./utils/context-prefs');
 const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
 const sessionGlassPreference = require('../../utils/session-glass-pref');
+const sessionCardStylePreference = require('../../utils/session-card-style-pref');
 const voiceActions = require('./voice-actions');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
 const fileActions = require('./file-actions');
@@ -120,6 +121,7 @@ Page({
   data: {
     sessionGlassEnabled: sessionGlassPreference.read(),
     ...settingsGlassStylePreference.view(),
+    ...sessionCardStylePreference.view(),
     statusFlowDelay: 0,
     publicAccessDialog: null,
     publicAccessDialogOpen: false,
@@ -293,6 +295,8 @@ Page({
     tasksExpanded: false,
     goal: null,
     goalBusy: false,
+    goalEditing: false,
+    goalDraft: '',
     commandMenu: null,
     commandLoading: false,
     commandError: '',
@@ -456,7 +460,7 @@ Page({
   },
 
   onShow() {
-    this.setData(Object.assign({ sessionGlassEnabled: sessionGlassPreference.read() }, settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 })));
+    this.setData(Object.assign({ sessionGlassEnabled: sessionGlassPreference.read() }, settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }), sessionCardStylePreference.view()));
     const firstPageShow = this._initialPageShowPending === true;
     this._initialPageShowPending = false;
     const foregroundEpoch = this.currentAppForegroundEpoch();
@@ -1217,7 +1221,10 @@ Page({
       objective: goalPayload.goal.objective || '',
       phase: goalPayload.goal.phase || '',
       phaseLabel: goalPhaseLabel(goalPayload.goal.phase),
-      active: goalPayload.goal.phase === 'active'
+      active: goalPayload.goal.phase === 'active',
+      // 暂停/继续按钮图标：进行中显示暂停，已暂停显示继续（浅/深两套）。
+      actionIcon: goalPayload.goal.phase === 'active' ? 'goal-pause.svg' : 'goal-play.svg',
+      actionIconDark: goalPayload.goal.phase === 'active' ? 'goal-pause-dark.svg' : 'goal-play-dark.svg'
     } : null;
 
     // 会话级 Agent 预设胶囊（对齐 dsh-mobile v1.6.0）：
@@ -1619,23 +1626,31 @@ Page({
     this.updateDockInset();
   },
 
+  /** 目标卡片就地编辑：输入框直接替换卡片正文（对齐客户端，不弹窗）。 */
+  goalDraftInput(e) {
+    this.setData({ goalDraft: e.detail.value });
+  },
+
+  goalSaveEdit() {
+    const goal = this.data.goal;
+    const draft = String(this.data.goalDraft || '').trim();
+    this.setData({ goalEditing: false });
+    if (!goal || !draft || draft === goal.objective) return;
+    store.mutateGoal('goal-edit', draft).catch((err) => {
+      wx.showToast({ title: (err && err.message) || uiText('编辑失败'), icon: 'none' });
+    });
+  },
+
+  goalCancelEdit() {
+    this.setData({ goalEditing: false, goalDraft: '' });
+  },
+
   goalAction(e) {
     const action = e.currentTarget.dataset.action;
     const goal = this.data.goal;
     if (!goal || this.data.goalBusy) return;
     if (action === 'edit') {
-      wx.showModal({
-        title: uiText('编辑目标'),
-        editable: true,
-        placeholderText: goal.objective,
-        success: (res) => {
-          const objective = (res.content || '').trim();
-          if (!res.confirm || !objective || objective === goal.objective) return;
-          store.mutateGoal('goal-edit', objective).catch((err) => {
-            wx.showToast({ title: err.message || uiText('编辑失败'), icon: 'none' });
-          });
-        }
-      });
+      this.setData({ goalEditing: true, goalDraft: goal.objective || '' });
       return;
     }
     if (action === 'clear') {
@@ -1672,14 +1687,34 @@ Page({
       this.setComposerValue(nextDraft, { draft: nextDraft });
       this.syncCommandMenu(this.data.draft, store.sessionState);
     }
-    this.setData({ queueBusyId: id + ':' + action });
-    store.client.queueUpdate(s.sessionId, id, action === 'steer' ? 'steer' : 'remove');
-    // 20s 兜底解锁（对齐 iOS 队列操作超时）
+    // 队列操作是串行的，但锁必须跟着「回执」释放：之前只在 20s 兜底里解锁，
+    // 连续删除第二条时点击会被 queueBusyId 直接吞掉，只能退出会话重进。
+    const itemId = id;
+    const operation = action === 'steer' ? 'steer' : 'remove';
+    this.setData({ queueBusyId: itemId + ':' + action });
+    this._queueBusyItemId = itemId;
+    const release = () => this.endQueueAction();
+    try {
+      Promise.resolve(store.client.queueUpdate(s.sessionId, itemId, operation)).then(release, release);
+    } catch (err) {
+      release();
+    }
+    // 20s 兜底只在网关丢帧时生效
     if (this._queueTimer) clearTimeout(this._queueTimer);
     this._queueTimer = setTimeout(() => {
-      this.setData({ queueBusyId: '' });
+      this.endQueueAction();
       if (s.sessionId) store.client.requestQueue(s.sessionId);
     }, 20000);
+  },
+
+  /** 结束一次队列操作：清锁 + 清兜底定时器（回执到达时也会调用）。 */
+  endQueueAction() {
+    if (this._queueTimer) {
+      clearTimeout(this._queueTimer);
+      this._queueTimer = null;
+    }
+    this._queueBusyItemId = '';
+    if (this.data.queueBusyId) this.setData({ queueBusyId: '' });
   },
 
   /** 队列 dock 只展示网关确认的队列项，避免重复维护本地待发副本。 */
@@ -1742,6 +1777,11 @@ Page({
         editable: it.editable !== false
       };
     });
+    // 兜底：被操作的那条已经从网关队列里消失了，锁必须释放
+    // （回执帧和队列帧顺序不保证，只靠回执会漏）。
+    if (this._queueBusyItemId && !q.some((item) => item.id === this._queueBusyItemId)) {
+      this.endQueueAction();
+    }
     if (JSON.stringify(q) !== JSON.stringify(this._lastQueue || [])) {
       this._lastQueue = q;
       this.setData({ queue: q, queueSending: q.some((item) => !!item.statusText) });

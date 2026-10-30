@@ -249,8 +249,17 @@
 }
 .task-panel,
 .goal-panel {
-  border-radius: 36rpx;
+  border-radius: var(--card-radius, 36rpx);
 }
+.task-panel,
+.goal-panel {
+  box-shadow: 0 2rpx 8rpx rgba(7, 24, 43, 0.05);
+}
+/* 卡片叠在输入框上方时整组只保留输入框一层投影，去掉卡片底部阴影与间距，避免明显分层 */
+.page.session { --card-float: 0 1rpx 4rpx rgba(7, 24, 43, 0.035); }
+.stacked .task-panel,
+.stacked .goal-panel,
+.stacked .queue-panel { box-shadow: var(--card-float); }
 .task-head {
   min-height: 88rpx;
   padding: 0 28rpx;
@@ -258,7 +267,8 @@
   align-items: center;
   gap: 16rpx;
 }
-.task-head-ic, .goal-ic { width: 36rpx; height: 36rpx; flex-shrink: 0; }
+.task-head-ic { width: 36rpx; height: 36rpx; flex-shrink: 0; }
+.goal-ic { width: 34rpx; height: 34rpx; flex-shrink: 0; }
 .task-head-title, .goal-phase { font-size: 29rpx; font-weight: 650; color: var(--text); }
 .task-summary { font-size: 25rpx; color: var(--text-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .task-chev { width: 26rpx; height: 26rpx; transition: transform .18s ease; }
@@ -274,8 +284,13 @@
 .goal-phase { flex-shrink: 0; }
 .goal-objective { min-width: 0; font-size: 28rpx; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .goal-action { width: 64rpx; height: 64rpx; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-.goal-action-ic { width: 36rpx; height: 36rpx; }
+.goal-action-ic { width: 34rpx; height: 34rpx; }
 .goal-spinner { width: 30rpx; height: 30rpx; border: 4rpx solid rgba(46,107,230,.18); border-top-color: #2E6BE6; border-radius: 50%; }
+/* 就地编辑：蓝框输入区 + ✓ / ×，直接替换卡片正文（对齐客户端） */
+.goal-panel.editing { min-height: 96rpx; padding: 12rpx 16rpx 12rpx 20rpx; align-items: center; }
+.goal-edit-input { flex: 1 1 auto; min-width: 0; min-height: 76rpx; box-sizing: border-box; margin: 0; padding: 10rpx 16rpx; border: 2rpx solid rgba(46,107,230,.55); border-radius: 14rpx; background: rgba(46,107,230,.07); color: var(--text); font-size: 28rpx; line-height: 1.45; }
+.goal-edit-actions { flex: 0 0 auto; display: flex; align-items: center; gap: 4rpx; }
+.goal-edit-glyph { font-size: 34rpx; line-height: 1; color: var(--text-3); }
 .command-menu-mask{position:fixed;inset:0;z-index:30;background:transparent}
 .command-menu{z-index:31;border-radius:12px;border-color:var(--border);padding:4px;box-sizing:border-box;overflow:hidden;max-height:52vh;display:flex;flex-direction:column}
 .file-mention-menu{position:relative;z-index:32;margin:0 12rpx 14rpx;border:1rpx solid var(--border-strong);border-radius:24rpx;background:var(--surface);box-shadow:0 12rpx 36rpx rgba(7,24,43,.18);overflow:hidden;max-height:54vh;display:flex;flex-direction:column}
@@ -1794,11 +1809,11 @@ overscroll-behavior-y: auto;
   width: 100%;
   padding: 4rpx 0;
   box-sizing: border-box;
-  border-radius: 36rpx;
+  border-radius: var(--card-radius, 36rpx);
   overflow: hidden;
   background: var(--surface);
   border: 1rpx solid var(--border-strong);
-  box-shadow: 0 8rpx 24rpx rgba(7, 24, 43, 0.08);
+  box-shadow: 0 2rpx 8rpx rgba(7, 24, 43, 0.05);
 }
 .theme-dark .queue-panel {
   background: var(--surface);
@@ -1816,21 +1831,21 @@ overscroll-behavior-y: auto;
   border-radius: 20rpx;
 }
 .queue-lead {
-  width: 28rpx;
-  height: 28rpx;
-  flex: 0 0 28rpx;
+  width: 38rpx;
+  height: 38rpx;
+  flex: 0 0 38rpx;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 .queue-head-ic {
-  width: 28rpx;
-  height: 28rpx;
+  width: 38rpx;
+  height: 38rpx;
   opacity: 0.72;
 }
 .queue-row-ic {
-  width: 28rpx;
-  height: 28rpx;
+  width: 38rpx;
+  height: 38rpx;
   opacity: 0.72;
 }
 .queue-head-title {
@@ -1965,8 +1980,8 @@ overscroll-behavior-y: auto;
   border-radius: 999rpx;
 }
 .queue-ic {
-  width: 30rpx;
-  height: 30rpx;
+  width: 34rpx;
+  height: 34rpx;
   opacity: 0.72;
 }
 .queue-ic-btn.busy {
@@ -2800,7 +2815,7 @@ overscroll-behavior-y: auto;
   align-items: center;
   justify-content: center;
   min-width: 0;
-  gap: 20rpx;
+  gap: 24rpx;
   padding: 12rpx 18rpx 0;
   color: var(--text-2);
   box-sizing: border-box;
@@ -2863,7 +2878,7 @@ overscroll-behavior-y: auto;
 }
 @media (max-width: 350px) {
   .composer-metrics {
-    gap: 20rpx;
+    gap: 24rpx;
     padding-left: 10rpx;
     padding-right: 10rpx;
   }
@@ -5167,6 +5182,17 @@ overscroll-behavior-y: auto;
 }
 .session-glass .composer-backdrop {
   background: linear-gradient(to bottom, transparent, transparent);
+}
+/* 玻璃：任务列表 / 排队消息 / 目标卡片复用输入框同一套材质，由「对话页面玻璃」开关控制 */
+.session-glass .task-panel, .session-glass .goal-panel, .session-glass .queue-panel {
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
+  backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  box-shadow: inset 0 0 0 0.5px var(--card-edge), inset 0 1px 0 var(--card-light), var(--card-float);
+  -webkit-backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  border-color: transparent;
+}
+.theme-dark.session-glass .task-panel, .theme-dark.session-glass .goal-panel, .theme-dark.session-glass .queue-panel {
+  box-shadow: inset 0 0 0 0.5px var(--card-edge), inset 0 1px 0 var(--card-light), var(--card-float);
 }
 .session-glass .sheet.collab-sheet {
   background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));

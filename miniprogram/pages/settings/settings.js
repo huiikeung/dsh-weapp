@@ -15,6 +15,7 @@ const settingsGlassPreference = require('../../utils/settings-glass-pref');
 const settingsGlassSheetPreference = require('../../utils/settings-glass-sheet-pref');
 const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
 const sessionGlassPreference = require('../../utils/session-glass-pref');
+const sessionCardStylePreference = require('../../utils/session-card-style-pref');
 
 const contextPreferences = require('./utils/context-prefs');
 const theme = require('../../utils/theme');
@@ -147,6 +148,8 @@ Page({
     settingsGlassEnabled: settingsGlassPreference.read(),
     settingsGlassSheetEnabled: settingsGlassSheetPreference.read(),
     sessionGlassEnabled: sessionGlassPreference.read(),
+    ...sessionCardStylePreference.view(),
+    cardStyleOpen: false,
     choiceSheet: settingsGlassSheetPreference.read(),
     quotaSidebarVisible: false,
     glassStyleOpen: false,
@@ -639,6 +642,8 @@ Page({
     settingsGlassEnabled: settingsGlassPreference.read(),
     settingsGlassSheetEnabled: settingsGlassSheetPreference.read(),
     sessionGlassEnabled: sessionGlassPreference.read(),
+    ...sessionCardStylePreference.view(),
+    cardStyleOpen: false,
     choiceSheet: settingsGlassSheetPreference.read(),
     ...settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }),
       ...this.contextPreferenceData(),
@@ -1178,6 +1183,43 @@ Page({
       this.setData(settingsGlassStylePreference.view());
       wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
     }
+  },
+
+  /** 卡片外观弹窗：悬浮 / 光线 / 描边 / 圆角。 */
+  openCardStyleSheet() {
+    this.setData(Object.assign({ cardStyleOpen: true }, sessionCardStylePreference.view()));
+  },
+
+  closeCardStyleSheet() {
+    this.setData({ cardStyleOpen: false });
+  },
+
+  /** 拖动时只更新界面数值，松手（bindchange）才落盘。 */
+  onCardStyleChanging(e) {
+    const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : '';
+    const value = (e && e.detail && e.detail.value) || 0;
+    if (!field) return;
+    const patch = {};
+    patch['card' + field.charAt(0).toUpperCase() + field.slice(1)] = Number(value);
+    this.setData(patch);
+  },
+
+  onCardStyleChange(e) {
+    const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : '';
+    const value = (e && e.detail && e.detail.value) || 0;
+    if (!field) return;
+    try {
+      const next = {};
+      next[field] = Number(value);
+      this.setData(sessionCardStylePreference.view(sessionCardStylePreference.set(next)));
+    } catch (_) {
+      this.setData(sessionCardStylePreference.view());
+      wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
+    }
+  },
+
+  resetCardStyle() {
+    this.setData(sessionCardStylePreference.view(sessionCardStylePreference.reset()));
   },
 
   /** 对话页面玻璃：设置页里的独立开关，不影响其它页面的玻璃 UI。 */
