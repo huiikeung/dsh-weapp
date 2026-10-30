@@ -204,8 +204,8 @@
           bindtap="chooseAppearance"
           role="button"
         >
-          <view class="appearance-option-icon appearance-{{item.mode}}">
-            <view class="appearance-swatch"></view>
+          <view class="appearance-option-icon">
+            <view class="appearance-glyph appearance-glyph-{{item.mode}}"></view>
           </view>
           <text class="appearance-option-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
           <text class="appearance-option-check">{{appearanceMode === item.mode ? '✓' : ''}}</text>
@@ -1109,13 +1109,13 @@
   </view>
 </view>
 <!-- 弹窗浮层都在页面根节点之外，单独包一层主题容器，保证深/浅色变量与文字色可用 -->
-<view class="{{themeClass}}">
+<view class="{{themeClass}}" style="--glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-blur-card: {{glassBlurCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-choice: {{glassRadiusChoice}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
 <!-- 玻璃样式设置弹窗（仅玻璃模式）：玻璃皮肤，底部弹窗 / 非底部浮层两种形态 -->
 <view wx:if="{{glassStyleOpen}}" class="{{settingsGlassSheetEnabled ? 'glass-style-mask' : 'glass-style-mask glass-style-mask-pass'}}" catchtap="closeGlassStyleSheet" catchtouchmove="noop"></view>
 <view
   wx:if="{{glassStyleOpen}}"
   class="{{settingsGlassSheetEnabled ? 'glass-style-sheet' : 'glass-style-pop'}}"
-  style="{{glassSurfaceStyle}} {{settingsGlassSheetEnabled ? '' : 'left: ' + glassStyleLeft + 'px; top: ' + glassStyleTop + 'px; width: ' + glassStyleWidth + 'px; transform-origin: 50% ' + glassStyleOriginY + 'px;'}}"
+  style="--glass-paint: {{glassStylePaint ? 1 : 0}}; {{settingsGlassSheetEnabled ? '' : 'left: ' + glassStyleLeft + 'px; top: ' + glassStyleTop + 'px; width: ' + glassStyleWidth + 'px; transform-origin: 50% ' + glassStyleOriginY + 'px;'}}"
   catchtap="noop"
   role="dialog"
   aria-label="{{ui['玻璃样式设置']}}"

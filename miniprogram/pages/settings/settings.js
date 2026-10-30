@@ -153,6 +153,8 @@ Page({
     choiceSheet: settingsGlassSheetPreference.read(),
     quotaSidebarVisible: false,
     glassStyleOpen: false,
+    // 打开玻璃弹窗后切换一次，触发重绘，让深色模式下的 backdrop-filter 首次也生效
+    glassStylePaint: false,
     sessionGlassEnabled: sessionGlassPreference.read(),
     nativeStyleOpen: false,
     nativeBgPresets: [
@@ -624,7 +626,7 @@ Page({
       appearanceMode: theme.getMode(),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       appearanceSheet: false
-    }, this.nativePaletteData(this.data.nativeBgValue)));
+    }, this.nativePaletteData(this.data.nativeBgValue), this.glassViewStyle()));
   },
 
   appearanceLabelOf(mode) {
@@ -1137,6 +1139,14 @@ Page({
       };
       patch[flag] = true;
       this.setData(patch);
+      // 深色下玻璃弹窗依赖 backdrop-filter，首次出现时 WebView 可能不合成；这里延迟改一次
+      // 自定义属性，强制样式重算，避免必须点「重置为默认」才正常。
+      if (typeof setTimeout === 'function') {
+        setTimeout(() => {
+          if (!this.data[flag]) return;
+          this.setData({ glassStylePaint: !this.data.glassStylePaint });
+        }, 60);
+      }
     };
     if (typeof wx.createSelectorQuery !== 'function') { open(null); return; }
     try {
