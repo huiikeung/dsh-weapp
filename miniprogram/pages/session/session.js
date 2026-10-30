@@ -20,6 +20,7 @@ const contextPanelsPreference = require('./utils/context-panels-pref');
 const contextPreferences = require('./utils/context-prefs');
 const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
 const sessionGlassPreference = require('../../utils/session-glass-pref');
+const conversationSidebarUtil = require('./utils/conversation-sidebar');
 const sessionCardStylePreference = require('../../utils/session-card-style-pref');
 const voiceActions = require('./voice-actions');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
@@ -128,7 +129,7 @@ Page({
     turnUsageSheet: null, turnUsageOpen: false, turnUsagePos: null,
     // ctx-flow 连接线：用原生 view 线段拼成曲线，避免小程序内联 SVG 不渲染。
     contextFlowLinks: [], contextFlowW: 0, contextFlowH: 0,
-    collaborationOpen: false, collaborationExpanded: false, collaborationTab: 'members', collaborationRows: [], collaborationTabs: [],
+    collaborationOpen: false, collaborationExpanded: false, collaborationTab: 'members', collaborationRows: [], collaborationTabs: [], collabTabIntoView: '',
     collaborationCount: 0, collaborationActive: 0, collaborationNote: '', collaborationPreview: null, collaborationBusy: false,
     fileExpanded: {}, filePreview: null, changesDiff: null, fileBusyKey: '', fileSharingKey: '', fileProgress: 0,
     fileMentionOpen: false, fileMentionEntries: [], fileMentionSessionGroups: [], fileMentionLoading: false, fileMentionError: '', fileMentionPathLabel: '', fileMentionQuery: '',
@@ -288,6 +289,15 @@ Page({
     effortSheet: [],
     queue: [],
     queueSending: false,
+    // 会话页右上角悬浮侧栏（对齐 dsh-mobile ConversationSidebar）
+    convSidebarOpen: false,
+    convSidebarTop: 120,
+    convSidebarHeight: 480,
+    convSidebarWidth: 300,
+    convSidebarOriginX: 0,
+    convSidebarOriginY: 0,
+    convSidebarExpanded: [],
+    convSidebarGroups: [],
     queueExpanded: false,
     queueBusyId: '',
     tasks: null,
@@ -455,6 +465,8 @@ Page({
     if (this._turnWarmTimer) clearTimeout(this._turnWarmTimer);
     this._turnWarmTimer = null;
     this.stopScrollPolling();
+    if (this._flingSettleTimer) { clearTimeout(this._flingSettleTimer); this._flingSettleTimer = null; }
+    this._flingSettlePending = false;
     // 记录本次隐藏的原因：原生选择器/预览浮层会把小程序切到后台，
     this._hiddenByNativeOverlay = !!(store.nativeOverlayActive && store.nativeOverlayActive());
   },
@@ -1759,17 +1771,41 @@ Page({
         const isImage = attachment && (attachment.type === 'image'
           || String(attachment.mediaType || '').indexOf('image/') === 0
           || !!attachment.tempPath || !!attachment.localUrl || !!attachment.thumbUrl);
+        const attachmentId = attachment && (attachment.attachmentId || attachment.id) || '';
+        const cachedUrl = attachmentId ? attachmentCache.localPath({ attachmentId: attachmentId, mediaType: attachment && attachment.mediaType }, { api: wx }) : '';
+        if (!this._queueThumbUrls) this._queueThumbUrls = new Map();
+        const rememberedUrl = attachmentId ? (this._queueThumbUrls.get(attachmentId) || '') : '';
+        // 排队中的附件还没被网关持久化时，用本地临时文件直接显示缩略图
+        let localUrl = '';
+        if (!cachedUrl && Array.isArray(this._queueLocalImages)) {
+          const name = attachment && (attachment.name || attachment.fileName) || '';
+          const mediaType = attachment && attachment.mediaType || '';
+          const match = (name && this._queueLocalImages.find((entry) => entry.name === name))
+            || (this._queueLocalImages.filter((entry) => !mediaType || entry.mediaType === mediaType));
+          const picked = Array.isArray(match) ? (match.length === 1 ? match[0] : null) : match;
+          if (picked && picked.tempPath) localUrl = picked.tempPath;
+        }
         return {
           key: String(attachment && (attachment.id || attachment.attachmentId || attachment.name) || index) + ':' + attachmentIndex,
           type: isImage ? 'image' : 'file',
-          url: attachment && (attachment.url || attachment.previewUrl || attachment.tempPath || attachment.localUrl || attachment.thumbUrl) || '',
+          attachmentId: attachmentId,
+          mediaType: attachment && attachment.mediaType || '',
+          url: (attachment && (attachment.url || attachment.previewUrl || attachment.tempPath || attachment.localUrl || attachment.thumbUrl)) || rememberedUrl || cachedUrl || localUrl || '',
           name: attachment && (attachment.name || attachment.fileName || uiText('附件')) || uiText('附件')
         };
-      }).filter((attachment) => attachment.type !== 'image' || attachment.url);
+      }).filter((attachment) => attachment.type !== 'image' || attachment.url || attachment.attachmentId);
+      // 文本预览只保留真正的文字；图片/文件改用缩略图/文件胶囊显示，不再留「[图片]」占位。
+      const textPreview = contentBlocks.map((block) => {
+        if (typeof block === 'string') return block;
+        if (!block || typeof block !== 'object') return '';
+        if (block.type === 'text' || typeof block.text === 'string') return block.text || '';
+        return '';
+      }).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+      const preview = textPreview || (attachments.length ? '' : rawText.replace(/\s+/g, ' ').trim());
       return {
         id: it.id,
         rawText: rawText,
-        preview: rawText.replace(/\s+/g, ' ').trim(),
+        preview: preview,
         attachmentCount: it.attachmentCount || attachments.length,
         attachmentLabel: (it.attachmentCount || attachments.length) + uiText(' 个附件'),
         attachments: attachments,
@@ -1786,7 +1822,202 @@ Page({
       this._lastQueue = q;
       this.setData({ queue: q, queueSending: q.some((item) => !!item.statusText) });
       this.updateDockInset();
+      this.syncQueueImageThumbs();
     }
+  },
+
+  /** 排队消息里的图片附件：用附件缓存补缩略图，展示成 DSH 客户端那样的缩略图。 */
+  syncQueueImageThumbs() {
+    if (this._unloaded || typeof wx === 'undefined') return;
+    const sessionId = store.sessionState.sessionId;
+    if (!sessionId) return;
+    const queue = this.data.queue || [];
+    if (!this._queueThumbPending) this._queueThumbPending = new Set();
+    if (!this._queueThumbFailed) this._queueThumbFailed = new Set();
+    queue.forEach((item, itemIndex) => {
+      (item.attachments || []).forEach((attachment, attachmentIndex) => {
+        if (attachment.type !== 'image' || attachment.url || !attachment.attachmentId) return;
+        const id = attachment.attachmentId;
+        if (this._queueThumbPending.has(id) || this._queueThumbFailed.has(id)) return;
+        this._queueThumbPending.add(id);
+        attachmentCache.fetchImage(store.client, sessionId, {
+          attachmentId: id,
+          mediaType: attachment.mediaType || 'image/jpeg',
+          name: attachment.name || (String(id) + '.jpg')
+        }, { api: wx }).then((path) => {
+          this._queueThumbPending.delete(id);
+          if (this._unloaded) return;
+          const rows = this.data.queue || [];
+          const rowIndex = rows.findIndex((row) => (row.attachments || []).some((entry) => entry.attachmentId === id));
+          if (rowIndex < 0) return;
+          const index = rows[rowIndex].attachments.findIndex((entry) => entry.attachmentId === id);
+          if (index < 0) return;
+          if (!this._queueThumbUrls) this._queueThumbUrls = new Map();
+          this._queueThumbUrls.set(id, path);
+          const patch = {};
+          patch['queue[' + rowIndex + '].attachments[' + index + '].url'] = path;
+          this.setData(patch);
+        }).catch(() => {
+          this._queueThumbPending.delete(id);
+          this._queueThumbFailed.add(id);
+        });
+      });
+    });
+  },
+
+  /** 点排队消息里的缩略图：把该条消息的图片一起进原生预览。 */
+  previewQueueImage(e) {
+    const dataset = (e && e.currentTarget && e.currentTarget.dataset) || {};
+    const itemId = dataset.itemId;
+    const item = (this.data.queue || []).find((entry) => entry.id === itemId);
+    const urls = item ? (item.attachments || []).filter((a) => a.type === 'image' && a.url).map((a) => a.url) : [];
+    const current = dataset.url || urls[0];
+    if (!current || typeof wx.previewImage !== 'function') return;
+    wx.previewImage({ current, urls: urls.indexOf(current) < 0 ? [current].concat(urls) : urls });
+  },
+
+  // ---------- 会话页悬浮侧栏（对齐 dsh-mobile ConversationSidebar） ----------
+
+  convSidebarStorageKey: 'conversationSidebarExpanded',
+  convSidebarInitKey: 'conversationSidebarInitialized',
+
+  readConvSidebarExpanded() {
+    try {
+      const stored = wx.getStorageSync(this.convSidebarStorageKey);
+      const list = typeof stored === 'string' ? JSON.parse(stored) : stored;
+      return Array.isArray(list) ? list.filter((id) => typeof id === 'string') : [];
+    } catch (_) {
+      return [];
+    }
+  },
+
+  writeConvSidebarExpanded(list) {
+    try { wx.setStorageSync(this.convSidebarStorageKey, JSON.stringify(list)); } catch (_) { /* 内存生效 */ }
+  },
+
+  /** 工作区 + 会话分组，口径对齐首页抽屉：过滤空白/归档会话，同一会话可属于多个工作区。 */
+  convSidebarData(expandedIds, autoExpandCurrent) {
+    const app = store.state || {};
+    const result = conversationSidebarUtil.buildGroups({
+      sessions: app.sessions,
+      workspaces: app.workspaces,
+      archivedSessionIds: app.archivedSessionIds,
+      currentSessionId: store.sessionState && store.sessionState.sessionId || '',
+      text: uiText,
+      relativeTime: util.formatRelativeTime,
+      expanded: expandedIds,
+      autoExpandCurrent: autoExpandCurrent !== false
+    });
+    this._convSidebarExpanded = result.expanded;
+    return { convSidebarExpanded: result.expanded, convSidebarGroups: result.groups };
+  },
+
+  convSidebarInitialized() {
+    try { return wx.getStorageSync(this.convSidebarInitKey) === true; } catch (_) { return false; }
+  },
+
+  markConvSidebarInitialized() {
+    try { wx.setStorageSync(this.convSidebarInitKey, true); } catch (_) { /* 内存生效 */ }
+  },
+
+  toggleConversationSidebar() {
+    if (this.data.convSidebarOpen) this.closeConversationSidebar();
+    else this.openConversationSidebar();
+  },
+
+  openConversationSidebar() {
+    if (this._convSidebarOpening || this.data.convSidebarOpen) return;
+    this._convSidebarOpening = true;
+    let info = {};
+    try { info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync(); } catch (_) { info = {}; }
+    const windowWidth = info.windowWidth || 375;
+    const windowHeight = info.windowHeight || 667;
+    const statusBar = info.statusBarHeight || 44;
+    const gap = 12;
+    const width = Math.min(windowWidth - 24, 300);
+    const panelLeft = windowWidth - gap - width;
+    const expandedIds = this.readConvSidebarExpanded();
+    // 每次打开都展开当前会话所在分组；打开后仍可手动收起
+    const autoExpand = true;
+    const basePatch = Object.assign({
+      convSidebarTop: statusBar + 92,
+      convSidebarHeight: Math.max(240, windowHeight - statusBar - 104),
+      convSidebarWidth: width,
+      convSidebarOriginX: Math.round(width / 2),
+      convSidebarOriginY: 28
+    }, this.convSidebarData(expandedIds, autoExpand));
+    // 先量好按钮行和输入框，再一次 setData 把面板放到最终位置：避免出现后又被上弹一下
+    const show = (patch) => {
+      if (!this._convSidebarOpening || this._unloaded) return;
+      this._convSidebarOpening = false;
+      this.setData(Object.assign({ convSidebarOpen: true }, basePatch, patch || {}));
+    };
+    try {
+      wx.createSelectorQuery().in(this)
+        .select('.nav-actions').boundingClientRect()
+        .select('.composer').boundingClientRect()
+        .exec((results) => {
+          const rect = results && results[0];
+          const composer = results && results[1];
+          if (!rect || !Number.isFinite(rect.top)) { show(null); return; }
+          const anchorTop = Math.max(0, Math.round(rect.top));
+          const centerX = rect.left + rect.width / 2;
+          const composerBottom = composer && Number.isFinite(composer.bottom) ? Math.round(composer.bottom) : 0;
+          const height = composerBottom > anchorTop
+            ? composerBottom - anchorTop
+            : Math.max(240, Math.round(windowHeight - anchorTop - gap));
+          show({
+            convSidebarTop: anchorTop,
+            convSidebarHeight: Math.max(240, height),
+            convSidebarOriginX: Math.max(0, Math.round(centerX - panelLeft)),
+            convSidebarOriginY: Math.round(rect.height / 2)
+          });
+        });
+    } catch (_) {
+      show(null);
+    }
+  },
+
+  closeConversationSidebar() {
+    if (this.data.convSidebarOpen) this.setData({ convSidebarOpen: false });
+  },
+
+  toggleConvSidebarGroup(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
+    if (!id) return;
+    const expanded = (this._convSidebarExpanded || this.readConvSidebarExpanded()).slice();
+    const index = expanded.indexOf(id);
+    if (index >= 0) expanded.splice(index, 1);
+    else expanded.push(id);
+    this.writeConvSidebarExpanded(expanded);
+    this._convSidebarExpanded = expanded;
+    this.setData(this.convSidebarData(expanded, false));
+  },
+
+  /** 切换会话：原地换会话（和「更多 → 会话快捷切换」一致），不重开页面，点完立即切换。 */
+  selectConvSidebarSession(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
+    this.closeConversationSidebar();
+    if (!id || id === (store.sessionState && store.sessionState.sessionId)) return;
+    const item = (store.state && store.state.sessions || []).find((s) => s && s.sessionId === id) || {};
+    store.openSession(id, item.title || '', item.agentPreset || null);
+    this.sessionId = id;
+    if (this.data.tab === 'conversation') this.startScrollPolling();
+  },
+
+  openConvSidebarPlugins() {
+    this.closeConversationSidebar();
+    wx.navigateTo({ url: '/pages/plugins/plugins' });
+  },
+
+  openConvSidebarSchedule() {
+    this.closeConversationSidebar();
+    wx.navigateTo({ url: '/pages/schedule/schedule' });
+  },
+
+  openConvSidebarSettings() {
+    this.closeConversationSidebar();
+    wx.navigateTo({ url: '/pages/settings/settings' });
   },
 
   openContextSheet() {
@@ -3716,8 +3947,7 @@ Page({
       });
       return;
     }
-    // 统计 / 重命名 / 工作区文件 / 会话快捷切换都在当前「更多」弹层内展开
-    if (action === 'switchSessions') { this.closeMoreActions(); this.openSessionSwitcher(); return; }
+    // 统计 / 重命名 / 工作区文件都在当前「更多」弹层内展开（会话快捷切换入口已移除）
     if (action === 'stats') { this.openStatsPane(); return; }
     if (action === 'files') { this.openFilesPane(); return; }
     if (action === 'rename') {
@@ -4106,6 +4336,15 @@ Page({
     const now = Date.now();
     this._lastConvScrollAt = now;
     const scrollTop = Number(d.scrollTop) || 0;
+    // 快速滑动（甩动）时不要做虚拟窗口位移和高度重测：中途重挂行会闪，
+    // 停手后再统一按最终位置校正一次。
+    const sampleAt = Number(this._lastScrollSampleAt) || 0;
+    const sampleTop = Number(this._lastScrollSampleTop);
+    this._lastScrollSampleAt = now;
+    this._lastScrollSampleTop = scrollTop;
+    const dt = Math.max(16, now - sampleAt);
+    const fastFling = sampleAt > 0 && Number.isFinite(sampleTop)
+      && Math.abs(scrollTop - sampleTop) / dt * 1000 > 3000;
     const previousTop = this._lastNativeScrollTop !== undefined
       ? this._lastNativeScrollTop : this._lastScrollTop;
     this._lastNativeScrollTop = scrollTop;
@@ -4156,6 +4395,12 @@ Page({
       this._lastConversationGestureAt = now;
       this._initialConversationAnchorPending = false;
     }
+    if (fastFling) {
+      this._lastScrollTop = scrollTop;
+      this._flingSettlePending = true;
+      this.scheduleConversationFlingSettle();
+      return;
+    }
     this.applyScrollPosition({
       scrollTop: scrollTop,
       scrollHeight: Number(d.scrollHeight) || 0,
@@ -4165,6 +4410,19 @@ Page({
     });
     this.updateConversationWindow(scrollTop);
     this.maybePrefetchOlderHistory(scrollTop, !programmaticScroll && movingTowardOlder);
+  },
+
+  /** 甩动结束后按最终位置做一次校正：窗口位移 + 视口重测，避免中途反复重排。 */
+  scheduleConversationFlingSettle() {
+    if (this._flingSettleTimer) clearTimeout(this._flingSettleTimer);
+    this._flingSettleTimer = setTimeout(() => {
+      this._flingSettleTimer = null;
+      this._flingSettlePending = false;
+      if (this._unloaded || this.data.tab !== 'conversation') return;
+      const top = Math.max(0, Number(this._lastNativeScrollTop) || Number(this._lastScrollTop) || 0);
+      this.updateConversationWindow(top);
+      this.measureConversationViewport();
+    }, 160);
   },
 
   // Scroll events can omit clientHeight; measure it even while idle so the
@@ -6329,6 +6587,14 @@ Page({
         workspaceRefs
       );
       if (sent !== false) {
+        if (s.running) {
+          // 排队消息的附件只有网关侧 id，本地临时文件先记下来，队列行直接用它当缩略图。
+          this._queueLocalImages = uploadImages.map((image) => ({
+            name: image.name || '',
+            mediaType: image.mediaType || '',
+            tempPath: image.tempPath || ''
+          })).filter((entry) => !!entry.tempPath);
+        }
         if (!s.running) {
           // 普通发送乐观回显；排队消息等网关队列帧，避免提前显示成已发送。
           store.appendLocalUserRow(text, uploadImages.map((image) => ({
@@ -6905,7 +7171,7 @@ Page({
   openCollaboration() {
     this.cancelVoice(); this.prioritizeInteraction();
     this._collaborationRequest = null; this._collaborationRefresh = null;
-    this.setData({collaborationOpen:true,collaborationExpanded:false,collaborationPreview:null,collaborationBusy:false,moreSheetOpen:false,statsPopOpen:false,morePane:'menu',renameKeyboard:0,
+    this.setData({collaborationOpen:true,collaborationExpanded:false,collaborationPreview:null,collaborationBusy:false,moreSheetOpen:false,statsPopOpen:false,morePane:'menu',renameKeyboard:0,collabTabIntoView:'collab-tab-'+(this.data.collaborationTab||'members'),
       showContextSheet:false,traceDetail:null,attachSheetOpen:false,modelSheetOpen:false,effortSheetOpen:false,permissionSheet:[],modeSheet:[],
       kbHeight:0,composerFocused:false,composerFocus:false,...this.layoutPatch({kbHeight:0})});
     this.setData(this.collaborationPatch()); this.stopScrollPolling();
@@ -6948,7 +7214,39 @@ Page({
       store.refreshScheduledTasks();
     }
     if (!['members','children','tasks','calls','background','schedule'].includes(tab)) return;
-    this._collaborationRequest = null; this.setData({collaborationTab:tab,collaborationPreview:null}); this.setData(this.collaborationPatch());
+    this._collaborationRequest = null;
+    this.setData({ collaborationTab: tab, collaborationPreview: null, collabTabIntoView: 'collab-tab-' + tab });
+    this.setData(this.collaborationPatch());
+  },
+  /** 左右滑动手势切换协作 Tab；纵向滚动时完全不介入。 */
+  collabSwipeStart(e) {
+    const t = e && e.touches && e.touches[0];
+    if (!t) return;
+    this._collabSwipe = { x: t.clientX, y: t.clientY, axis: undefined };
+  },
+  collabSwipeMove(e) {
+    const g = this._collabSwipe;
+    const t = e && e.touches && e.touches[0];
+    if (!g || !t) return;
+    if (g.axis) return;
+    const dx = Math.abs(t.clientX - g.x);
+    const dy = Math.abs(t.clientY - g.y);
+    if (dx > 8 || dy > 8) g.axis = dx > dy ? 'x' : 'y';
+  },
+  collabSwipeEnd(e) {
+    const g = this._collabSwipe;
+    this._collabSwipe = null;
+    if (!g || g.axis !== 'x') return;
+    const t = (e && e.changedTouches && e.changedTouches[0]) || (e && e.touches && e.touches[0]);
+    if (!t) return;
+    const dx = t.clientX - g.x;
+    if (Math.abs(dx) < 48) return;
+    const tabs = this.data.collaborationTabs || [];
+    const idx = tabs.findIndex(tab => tab.id === this.data.collaborationTab);
+    if (idx < 0) return;
+    const next = idx + (dx < 0 ? 1 : -1);
+    if (next < 0 || next >= tabs.length) return;
+    this.selectCollaborationTab({ currentTarget: { dataset: { id: tabs[next].id } } });
   },
   refreshCollaboration() {
     if (!store.state || store.state.connection !== 'connected' || !store.client || this.data.collaborationBusy || typeof store.client.requestSessions !== 'function') return;

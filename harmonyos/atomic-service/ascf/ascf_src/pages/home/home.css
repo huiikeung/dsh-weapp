@@ -1330,24 +1330,176 @@ color: #F1F4FA;
 flex: 1;
 min-height: 0;
 }
-.dir-cwd {
-padding: 0 44rpx;
+.dir-loc {
+padding: 0 32rpx;
 flex-shrink: 0;
 }
-.dir-cwd-label {
-display: block;
-font-size: 28rpx;
-font-weight: 600;
-color: rgba(241, 244, 250, 0.52);
+.dir-loc-row {
+display: flex;
+align-items: center;
+gap: 12rpx;
 }
-.dir-cwd-path {
-display: block;
-font-size: 26rpx;
-color: rgba(241, 244, 250, 0.40);
-margin-top: 4rpx;
+.dir-loc-btn {
+flex-shrink: 0;
+display: flex;
+align-items: center;
+gap: 8rpx;
+height: 60rpx;
+padding: 0 20rpx;
+border-radius: 999rpx;
+background: rgba(255, 255, 255, 0.08);
+border: 1rpx solid rgba(255, 255, 255, 0.14);
+color: rgba(241, 244, 250, 0.82);
+font-size: 24rpx;
+}
+.dir-loc-btn-ic {
+width: 28rpx;
+height: 28rpx;
+}
+.dir-loc-edit {
+flex-shrink: 0;
+width: 60rpx;
+height: 60rpx;
+border-radius: 50%;
+background: rgba(255, 255, 255, 0.08);
+border: 1rpx solid rgba(255, 255, 255, 0.14);
+display: flex;
+align-items: center;
+justify-content: center;
+}
+.dir-loc-edit-ic {
+width: 28rpx;
+height: 28rpx;
+}
+.dir-crumbs {
+flex: 1;
+min-width: 0;
+height: 60rpx;
+}
+.dir-crumbs-inner {
+display: inline-flex;
+align-items: center;
+height: 60rpx;
+padding: 0 4rpx;
+}
+.dir-crumb {
+flex-shrink: 0;
+max-width: 260rpx;
 overflow: hidden;
 text-overflow: ellipsis;
 white-space: nowrap;
+padding: 0 12rpx;
+height: 52rpx;
+line-height: 52rpx;
+border-radius: 14rpx;
+font-size: 24rpx;
+color: rgba(241, 244, 250, 0.52);
+}
+.dir-crumb.current {
+color: #FFFFFF;
+background: rgba(255, 255, 255, 0.10);
+}
+.dir-crumb-sep {
+flex-shrink: 0;
+color: rgba(241, 244, 250, 0.28);
+font-size: 24rpx;
+}
+.dir-filter-row {
+display: flex;
+align-items: center;
+justify-content: flex-end;
+margin-top: 12rpx;
+}
+.dir-hidden-toggle {
+display: flex;
+align-items: center;
+gap: 8rpx;
+height: 48rpx;
+padding: 0 16rpx;
+border-radius: 999rpx;
+font-size: 22rpx;
+color: rgba(241, 244, 250, 0.46);
+background: rgba(255, 255, 255, 0.04);
+}
+.dir-hidden-toggle.on {
+color: rgba(241, 244, 250, 0.82);
+background: rgba(255, 255, 255, 0.10);
+}
+.dir-hidden-ic {
+width: 24rpx;
+height: 24rpx;
+}
+.dir-hidden-count {
+padding: 0 8rpx;
+border-radius: 999rpx;
+background: rgba(255, 255, 255, 0.10);
+font-size: 20rpx;
+color: rgba(241, 244, 250, 0.56);
+}
+.dir-empty {
+padding: 64rpx 20rpx;
+text-align: center;
+font-size: 26rpx;
+line-height: 1.5;
+color: rgba(241, 244, 250, 0.46);
+}
+.dir-prompt-error {
+display: block;
+margin-top: 12rpx;
+font-size: 24rpx;
+line-height: 1.4;
+color: #FF8A8A;
+}
+.dir-locations-sheet {
+max-height: 72vh;
+}
+.dir-locations-list {
+max-height: 46vh;
+margin-top: 8rpx;
+}
+.dir-locations-label {
+padding: 20rpx 4rpx 8rpx;
+font-size: 24rpx;
+font-weight: 600;
+color: rgba(241, 244, 250, 0.46);
+}
+.dir-location-row {
+display: flex;
+align-items: center;
+gap: 20rpx;
+padding: 20rpx 12rpx;
+border-radius: 20rpx;
+}
+.dir-location-ic {
+flex-shrink: 0;
+width: 36rpx;
+height: 36rpx;
+}
+.dir-location-body {
+flex: 1;
+min-width: 0;
+}
+.dir-location-name {
+display: block;
+color: #F1F4FA;
+font-size: 28rpx;
+}
+.dir-location-sub {
+display: block;
+margin-top: 4rpx;
+color: rgba(241, 244, 250, 0.40);
+font-size: 22rpx;
+overflow: hidden;
+text-overflow: ellipsis;
+white-space: nowrap;
+}
+.dir-locations-status {
+display: flex;
+align-items: center;
+gap: 14rpx;
+padding: 24rpx 12rpx;
+font-size: 24rpx;
+color: rgba(241, 244, 250, 0.46);
 }
 .dir-list-card {
 margin: 20rpx 24rpx 8rpx;

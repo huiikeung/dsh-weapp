@@ -1053,12 +1053,17 @@
         <view class="glass-style-done tap" catchtap="closeCardStyleSheet" role="button">{{ui['完成']}}</view>
       </view>
     </view>
+    <view class="card-style-mode" role="tablist" aria-label="{{ui['卡片样式设置']}}">
+      <view class="card-style-mode-btn {{cardStyleMode === 'light' ? 'on' : ''}}" bindtap="switchCardStyleMode" data-mode="light" role="button" aria-pressed="{{cardStyleMode === 'light'}}">{{ui['浅色']}}</view>
+      <view class="card-style-mode-btn {{cardStyleMode === 'dark' ? 'on' : ''}}" bindtap="switchCardStyleMode" data-mode="dark" role="button" aria-pressed="{{cardStyleMode === 'dark'}}">{{ui['深色']}}</view>
+    </view>
     <view class="card-preview-stage plain">
-      <view class="card-preview-card" style="border-radius: {{cardRadiusRpx}}; box-shadow: inset 0 0 0 1px {{cardEdgePreview}}, inset 0 2px 0 {{cardLightPreview}}, {{cardFloatPreview}};">
+      <view class="card-preview-card" style="border-radius: {{cardRadiusRpx}}; {{cardPreviewStyle}}">
         <view class="card-preview-dot"></view>
         <view class="card-preview-copy">
           <text class="card-preview-title">{{ui['预览']}}</text>
-          <text class="card-preview-sub">{{ui['悬浮']}} {{cardFloat}}% · {{ui['光线']}} {{cardLight}}% · {{ui['描边']}} {{cardEdge}}% · {{ui['圆角']}} {{cardRadius}}rpx</text>
+          <text wx:if="{{cardStyleMode === 'light'}}" class="card-preview-sub">{{ui['悬浮']}} {{cardFloat}} · {{ui['底色']}} {{cardFill}} · {{ui['光线']}} {{cardLight}} · {{ui['柔光']}} {{cardGlow}} · {{ui['描边']}} {{cardEdge}} · {{ui['圆角']}} {{cardRadius}}rpx</text>
+          <text wx:else class="card-preview-sub">{{ui['悬浮']}} {{cardFloat}} · {{ui['底色']}} {{cardFill}} · {{ui['描边']}} {{cardEdge}} · {{ui['圆角']}} {{cardRadius}}rpx</text>
         </view>
       </view>
     </view>
@@ -1070,10 +1075,24 @@
         </view>
       </view>
       <view class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['底色']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardFillMin}}" max="{{cardFillMax}}" step="1" value="{{cardFill}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['底色']}}" data-field="fill" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardFill}}%</text>
+        </view>
+      </view>
+      <view wx:if="{{cardStyleMode === 'light'}}" class="glass-alpha-row">
         <text class="glass-style-label">{{ui['光线']}}</text>
         <view class="glass-alpha-control">
           <slider class="glass-alpha-slider" min="{{cardLightMin}}" max="{{cardLightMax}}" step="1" value="{{cardLight}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['光线']}}" data-field="light" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
           <text class="glass-alpha-value">{{cardLight}}%</text>
+        </view>
+      </view>
+      <view wx:if="{{cardStyleMode === 'light'}}" class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['柔光']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardGlowMin}}" max="{{cardGlowMax}}" step="1" value="{{cardGlow}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['柔光']}}" data-field="glow" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardGlow}}%</text>
         </view>
       </view>
       <view class="glass-alpha-row">

@@ -751,3 +751,29 @@ test('closing a session stops both panel pollers', () => {
   f.timers.filter(fn => fn.delay === 2500).forEach(fn => fn());
   assert.equal(f.requested.length, before, 'no panel request after the session was closed');
 });
+
+test('dark context panel cards use the same transparent background as the fleet cards', () => {
+  for (const base of ['../resources/runtime-markup/pages/session/session.wxss', '../miniprogram/pages/session/session.wxss']) {
+    const css = fs.readFileSync(path.join(__dirname, base), 'utf8');
+    assert.match(css, /\.theme-dark \.context-panel \.ctx-card \{[^}]*background: transparent/);
+    // 编队卡片本来就是透明底，两侧保持同一视觉层级
+    assert.match(css, /\.fleet-card \{[^}]*background: transparent/);
+  }
+});
+
+test('dark context stats pills use translucent fill instead of solid surface', () => {
+  for (const base of ['../resources/runtime-markup/pages/session/session.wxss', '../miniprogram/pages/session/session.wxss']) {
+    const css = fs.readFileSync(path.join(__dirname, base), 'utf8');
+    assert.match(css, /\.theme-dark \.context-panel \.ctx-pill:not\(\.ctx-pill-tint\) \{[^}]*background: transparent/);
+    // 五类胶囊都走统一规则（用户输入/读取/写入/搜索/图片）
+    assert.match(css, /\.theme-dark \.context-panel \.ctx-stat-q \{[^}]*background: var\(--fill\)/);
+  }
+});
+
+test('dark context stats node cards drop their solid surface background', () => {
+  for (const base of ['../resources/runtime-markup/pages/session/session.wxss', '../miniprogram/pages/session/session.wxss']) {
+    const css = fs.readFileSync(path.join(__dirname, base), 'utf8');
+    assert.match(css, /\.theme-dark \.context-panel \.ctx-flow-node,[\s\S]{0,120}?background: transparent/);
+    assert.match(css, /\.theme-dark \.context-panel \.ctx-flow-self \{[^}]*background: transparent|background: transparent[\s\S]{0,120}?\.theme-dark \.context-panel \.ctx-flow-self/);
+  }
+});

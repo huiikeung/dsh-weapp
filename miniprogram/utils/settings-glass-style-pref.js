@@ -101,6 +101,9 @@ function view(style) {
     glassEdgeAlpha: (s.edge / 100).toFixed(2),
     glassBlurSheet: px(s.blur, scale),
     glassBlurCard: px(Math.max(1, s.blur * 0.375), scale),
+    // iOS 磨砂材质（输入框 / 任务卡 / 模式胶囊 / 模式浮层共用）：模糊走大档，白描边压到滑杆值 ×0.3
+    glassFrostBlur: px(Math.max(28, Math.min(56, s.blur * 5)), scale),
+    glassFrostEdge: (s.edge / 100 * 0.30).toFixed(2),
     glassRadiusSheet: px(s.radius, scale),
     glassRadiusCard: px(s.radius * 36 / 32, scale),
     glassRadiusChoice: px(s.radius * 2, scale),

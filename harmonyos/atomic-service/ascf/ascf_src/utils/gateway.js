@@ -12,6 +12,8 @@ const { ClientSession } = require('./relay-e2ee');
 const accessApi = require('./access-api');
 const publicAccessPrompt = require('./public-access-prompt');
 const routeTable = require('./route-table');
+const hosts = require('./hosts');
+const accessConfig = require('./access-config');
 
 /** Uint8Array → 独立 ArrayBuffer（wx.send 要 ArrayBuffer）。 */
 function toArrayBuffer(u8) {
@@ -168,8 +170,13 @@ class GatewayClient {
     const opts = options || {};
     this.disconnect({ keepWant: false, deliberate: false });
     this.probeOnly = !!opts.probe;
-    if (!/^wss:\/\//i.test(endpoint || '')) {
-      this.setState('failed', uiText('元服务仅支持已在华为开发者中心配置域名的 wss:// 地址'));
+    const rawEndpoint = String(endpoint || '');
+    const endpointAuthority = rawEndpoint.split('://')[1] || '';
+    const endpointHost = endpointAuthority.split('/')[0].replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+    const localWsDevelopment = /^ws:\/\//i.test(rawEndpoint) &&
+      accessConfig.allowLocalWs === true && hosts.isLocalHost(endpointHost);
+    if (!/^wss:\/\//i.test(rawEndpoint) && !localWsDevelopment) {
+      this.setState('failed', uiText('元服务仅支持已在华为开发者中心配置域名的 wss:// 地址；本地调试请使用局域网地址'));
       return;
     }
     if (opts.relay && opts.relay.authMode !== 'gateway' && opts.relay.expiresAt && Number(opts.relay.expiresAt) <= Date.now()) {

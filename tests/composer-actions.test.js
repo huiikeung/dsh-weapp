@@ -856,3 +856,12 @@ test('queued messages can be removed one after another without re-entering the s
   assert.deepEqual(calls.filter(x => x[0] === 'queueUpdate').map(x => x.slice(1)),
     [['s1', 'q1', 'remove'], ['s1', 'q2', 'remove']], '第二条条目的点击不能被锁吞掉');
 });
+
+test('queue thumbnail urls survive queue frame rebuilds so streaming does not flash them', () => {
+  const fsMod = require('node:fs');
+  const src = fsMod.readFileSync(require('node:path').resolve(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
+  // 队列缩略图路径写进内存缓存，重建队列行时优先复用，避免每帧清空 -> 重新拉取 -> 闪烁
+  assert.match(src, /this\._queueThumbUrls = new Map\(\)/);
+  assert.match(src, /const rememberedUrl = attachmentId \? \(this\._queueThumbUrls\.get\(attachmentId\) \|\| ''\) : ''/);
+  assert.match(src, /this\._queueThumbUrls\.set\(id, path\)/);
+});

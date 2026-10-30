@@ -33,20 +33,28 @@ test('胶囊与浮层复用输入框的玻璃配方', () => {
     const capsule = ruleOf(css, '.session-glass .preset-capsule');
     const popup = ruleOf(css, '.session-glass .opt-pop.mode-pop');
     // 同一个渐变角度和同一组透明度变量 -> 与输入框同一材质
-    const gradient = (rule) => (rule.match(/linear-gradient\(165deg[^;]+;/) || [''])[0];
-    assert.ok(gradient(capsule), file + ': capsule gradient');
-    assert.equal(gradient(capsule), gradient(composer), file + ': capsule shares the composer gradient');
-    assert.ok(capsule.includes('var(--glass-edge-alpha'), file + ': capsule hairline');
-    assert.ok(capsule.includes('blur(var(--glass-blur-card'), file + ': capsule blur');
+    const gradient = 'linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)))';
+    const frostBase = 'rgba(44, 45, 49, 0.62)';
+    assert.ok(capsule.includes(gradient) && capsule.includes(frostBase), file + ': capsule gradient');
+    assert.ok(composer.includes(gradient) && composer.includes(frostBase), file + ': capsule shares the composer gradient');
+    // iOS 磨砂：描边和模糊都走 --glass-frost-*
+    assert.ok(capsule.includes('var(--glass-frost-edge'), file + ': capsule hairline');
+    assert.ok(capsule.includes('blur(var(--glass-frost-blur'), file + ': capsule blur');
     assert.ok(capsule.includes('-webkit-backdrop-filter'), file + ': capsule webkit blur');
-    // 浮层是浮起来的菜单：沿用 sheet 档透明度与模糊，仍是同一套变量
-    assert.ok(popup.includes('var(--glass-alpha-top, 0.10)'), file + ': popup gradient');
-    assert.ok(popup.includes('var(--glass-edge-alpha'), file + ': popup hairline');
-    assert.ok(popup.includes('blur(var(--glass-blur-sheet'), file + ': popup blur');
+    // 浮层与输入框同一档磨砂，不再是 sheet 档的弱模糊
+    assert.ok(popup.includes(gradient) && popup.includes(frostBase), file + ': popup gradient');
+    assert.ok(popup.includes('var(--glass-frost-edge'), file + ': popup hairline');
+    assert.ok(popup.includes('blur(var(--glass-frost-blur'), file + ': popup blur');
     assert.ok(popup.includes('-webkit-backdrop-filter'), file + ': popup webkit blur');
-    // 深色下描边不变，阴影压暗
-    assert.ok(ruleOf(css, '.theme-dark.session-glass .preset-capsule').includes('rgba(0, 0, 0, 0.34)'), file + ': dark capsule shadow');
-    assert.ok(ruleOf(css, '.theme-dark.session-glass .opt-pop.mode-pop').includes('rgba(0, 0, 0, 0.42)'), file + ': dark popup shadow');
+    // 浅色：近白磨砂 + 墨色发丝边
+    const lightCapsule = ruleOf(css, '.theme-light.session-glass .preset-capsule');
+    const lightPopup = ruleOf(css, '.theme-light.session-glass .opt-pop.mode-pop');
+    assert.ok(lightCapsule.includes('rgba(247, 248, 251, 0.86)') && lightCapsule.includes('inset 0 0 16rpx rgba(255, 255, 255, 0.50)'), file + ': light capsule uses a soft white rim glow');
+    assert.ok(lightPopup.includes('rgba(247, 248, 251, 0.86)') && lightPopup.includes('inset 0 0 22rpx rgba(255, 255, 255, 0.55)'), file + ': light popup uses a soft white rim glow');
+    // 深色阴影收在基础规则里
+    assert.ok(capsule.includes('0 8rpx 24rpx rgba(3, 14, 30, 0.20)'), file + ': dark capsule shadow');
+    assert.ok(popup.includes('0 18rpx 48rpx rgba(3, 14, 30, 0.26)'), file + ': dark popup shadow');
+    assert.ok(!/inset 0 1rpx 0 rgba\(255, 255, 255, 0\.1/.test(capsule), file + ': dark capsule keeps no top highlight');
   }
 });
 

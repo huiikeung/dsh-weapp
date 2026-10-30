@@ -336,43 +336,72 @@
       <text class="dir-head-title">{{ui['选择工作区目录']}}</text>
       <view class="dir-head-cancel tap" bindtap="closeDirSheet">{{ui['取消']}}</view>
     </view>
-    <!-- 目录列表：当前目录在卡片边框外，随列表一起上滑 -->
-    <scroll-view class="dir-body" scroll-y>
-      <view class="dir-cwd">
-        <text class="dir-cwd-label">{{ui['当前目录']}}</text>
-        <text class="dir-cwd-path text-mono">{{dirPath || ui['正在读取…']}}</text>
+    <!-- 位置栏：位置面板 + 面包屑（点按任一级跳转）+ 编辑路径 -->
+    <view class="dir-loc">
+      <view class="dir-loc-row">
+        <view class="dir-loc-btn tap" bindtap="openDirLocations" role="button" aria-label="{{ui['位置']}}">
+          <image class="dir-loc-btn-ic" src="/assets/icons/server-white.png" mode="aspectFit"/>
+          <text>{{ui['位置']}}</text>
+        </view>
+        <scroll-view class="dir-crumbs" scroll-x show-scrollbar="{{false}}" scroll-into-view="{{dirCrumbIntoView}}">
+          <view class="dir-crumbs-inner">
+            <block has:for="{{dirCrumbTrail}}" has:key="path">
+              <view has:if="{{index > 0}}" class="dir-crumb-sep">›</view>
+              <view id="dir-crumb-{{index}}" class="dir-crumb {{item.current ? 'current' : ''}}" bindtap="selectDirCrumb" data-path="{{item.path}}" role="button" aria-label="{{item.label}}">{{item.label}}</view>
+            </block>
+          </view>
+        </scroll-view>
+        <view class="dir-loc-edit tap" bindtap="openDirJump" role="button" aria-label="{{ui['编辑路径']}}">
+          <image class="dir-loc-edit-ic" src="/assets/icons/pencil-edit-white.svg" mode="aspectFit"/>
+        </view>
       </view>
+      <view class="dir-filter-row">
+        <view class="dir-hidden-toggle tap {{dirShowHidden ? 'on' : ''}}" bindtap="toggleDirHidden" role="switch" aria-checked="{{dirShowHidden ? 'true' : 'false'}}" aria-label="{{ui['显示隐藏文件']}}">
+          <image class="dir-hidden-ic" src="/assets/icons/{{dirShowHidden ? 'check-fill-white.png' : 'ic-dir-badge-question.png'}}" mode="aspectFit"/>
+          <text>{{ui['显示隐藏文件']}}</text>
+          <text has:if="{{dirHiddenCount && !dirShowHidden}}" class="dir-hidden-count">{{dirHiddenCount}}</text>
+        </view>
+      </view>
+    </view>
+    <!-- 目录列表：当前目录随面包屑展示，列表只渲染可见项 -->
+    <scroll-view class="dir-body" scroll-y>
       <view class="dir-list-card">
         <view class="dir-list">
-          <view has:if="{{dirLoading && !dirEntries.length}}" class="dir-loading">
-          <view class="dir-spinner"></view>
-          <text>{{ui['正在读取远程目录…']}}</text>
-        </view>
-        <block has:else>
-          <view class="dir-row {{parentPath ? '' : 'disabled'}}" hover-class="dir-row-hover" bindtap="goParentDir">
-            <view class="dir-row-icon"><image class="dir-row-ic" src="/assets/icons/ic-dir-parent-blue.png"/></view>
-            <view class="dir-row-body">
-              <text class="dir-row-name">..</text>
-              <text class="dir-row-sub">{{ui['返回上一级']}}</text>
-            </view>
-            <image class="dir-row-chev" src="/assets/icons/chev-down-white.png"/>
+          <view has:if="{{dirLoading && !dirVisibleEntries.length}}" class="dir-loading">
+            <view class="dir-spinner"></view>
+            <text>{{ui['正在读取远程目录…']}}</text>
           </view>
-          <view class="dir-divider"></view>
-          <block has:for="{{dirEntries}}" has:key="path">
-            <view class="dir-row {{item.highlight ? 'highlight' : ''}}" hover-class="dir-row-hover" bindtap="openDirEntry" data-index="{{index}}">
-              <view class="dir-row-icon">
-                <image class="dir-row-ic" src="/assets/icons/workspace-folder-white.svg" mode="aspectFit"/>
-                <image has:if="{{item.hidden}}" class="dir-row-badge" src="/assets/icons/ic-dir-badge-question.png"/>
+          <block has:else>
+            <view has:if="{{dirError}}" class="dir-empty"><text>{{dirError}}</text></view>
+            <block has:else>
+              <view has:if="{{parentPath}}" class="dir-row" hover-class="dir-row-hover" bindtap="goParentDir" role="button" aria-label="{{ui['返回上一级']}}">
+                <view class="dir-row-icon"><image class="dir-row-ic" src="/assets/icons/ic-dir-parent-blue.png"/></view>
+                <view class="dir-row-body">
+                  <text class="dir-row-name">..</text>
+                  <text class="dir-row-sub">{{ui['返回上一级']}}</text>
+                </view>
+                <image class="dir-row-chev" src="/assets/icons/chev-down-white.png"/>
               </view>
-              <view class="dir-row-body">
-                <text class="dir-row-name">{{item.name}}</text>
-                <text has:if="{{item.hidden}}" class="dir-row-sub">{{ui['隐藏目录']}}</text>
+              <view has:if="{{parentPath && dirVisibleEntries.length}}" class="dir-divider"></view>
+              <block has:for="{{dirVisibleEntries}}" has:key="path">
+                <view class="dir-row {{item.highlight ? 'highlight' : ''}}" hover-class="dir-row-hover" bindtap="openDirEntry" data-index="{{index}}" role="button" aria-label="{{item.name}}">
+                  <view class="dir-row-icon">
+                    <image class="dir-row-ic" src="/assets/icons/workspace-folder-white.svg" mode="aspectFit"/>
+                    <image has:if="{{item.hidden}}" class="dir-row-badge" src="/assets/icons/ic-dir-badge-question.png"/>
+                  </view>
+                  <view class="dir-row-body">
+                    <text class="dir-row-name">{{item.name}}</text>
+                    <text has:if="{{item.hidden}}" class="dir-row-sub">{{ui['隐藏目录']}}</text>
+                  </view>
+                  <image class="dir-row-chev" src="/assets/icons/chev-down-white.png"/>
+                </view>
+                <view has:if="{{index < dirVisibleEntries.length - 1}}" class="dir-divider"></view>
+              </block>
+              <view has:if="{{!dirVisibleEntries.length}}" class="dir-empty">
+                <text>{{dirEntries.length ? ui['没有可显示的目录，打开“显示隐藏文件”查看'] : ui['此目录为空']}}</text>
               </view>
-              <image class="dir-row-chev" src="/assets/icons/chev-down-white.png"/>
-            </view>
-            <view has:if="{{index < dirEntries.length - 1}}" class="dir-divider"></view>
+            </block>
           </block>
-        </block>
         </view>
       </view>
     </scroll-view>
@@ -387,6 +416,70 @@
       <view has:if="{{dirCreatingDir}}" class="dir-creating-hint">
         <view class="dir-spinner small"></view>
         <text>{{ui['正在创建文件夹…']}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 位置面板：电脑 / 主目录 / 其他盘（网关主机上的所有盘与挂载卷） -->
+  <view has:if="{{dirLocationsOpen}}" class="dir-prompt-mask" catchtap="closeDirLocations" catchtouchmove="noop">
+    <view class="dir-prompt-sheet dir-locations-sheet" catchtap="noop" role="dialog" aria-label="{{ui['位置']}}">
+      <text class="dir-prompt-title">{{ui['位置']}}</text>
+      <scroll-view class="dir-locations-list" scroll-y>
+        <view has:if="{{dirRootPath}}" class="dir-location-row" hover-class="dir-row-hover" bindtap="selectDirLocation" data-path="{{dirRootPath}}" role="button">
+          <image class="dir-location-ic" src="/assets/icons/server-white.png" mode="aspectFit"/>
+          <view class="dir-location-body">
+            <text class="dir-location-name">{{ui['电脑']}}</text>
+            <text class="dir-location-sub text-mono">{{dirRootPath}}</text>
+          </view>
+        </view>
+        <view has:if="{{dirHome}}" class="dir-location-row" hover-class="dir-row-hover" bindtap="selectDirLocation" data-path="{{dirHome}}" role="button">
+          <image class="dir-location-ic" src="/assets/icons/workspace-folder-white.svg" mode="aspectFit"/>
+          <view class="dir-location-body">
+            <text class="dir-location-name">{{ui['主目录']}}</text>
+            <text class="dir-location-sub text-mono">{{dirHome}}</text>
+          </view>
+        </view>
+        <view class="dir-locations-label">{{ui['其他盘']}}</view>
+        <block has:for="{{dirVolumes}}" has:key="path">
+          <view class="dir-location-row" hover-class="dir-row-hover" bindtap="selectDirLocation" data-path="{{item.path}}" role="button">
+            <image class="dir-location-ic" src="/assets/icons/workspace-folder-white.svg" mode="aspectFit"/>
+            <view class="dir-location-body">
+              <text class="dir-location-name">{{item.name}}</text>
+              <text class="dir-location-sub text-mono">{{item.path}}</text>
+            </view>
+          </view>
+        </block>
+        <view has:if="{{dirVolumesLoading}}" class="dir-locations-status"><view class="dir-spinner small"></view><text>{{ui['正在查找其他盘…']}}</text></view>
+        <view has:elif="{{dirVolumesLoaded && !dirVolumes.length}}" class="dir-locations-status"><text>{{ui['没有发现其他盘']}}</text></view>
+        <view has:if="{{dirVolumesError}}" class="dir-locations-status">{{dirVolumesError}}</view>
+      </scroll-view>
+      <view class="dir-prompt-actions">
+        <view class="dir-prompt-btn dir-prompt-cancel" bindtap="closeDirLocations" role="button">{{ui['取消']}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 编辑路径：手动输入任意绝对路径（其他盘/卷直达） -->
+  <view has:if="{{dirJumpOpen}}" class="dir-prompt-mask" catchtap="closeDirJump" catchtouchmove="noop">
+    <view class="dir-prompt-sheet" catchtap="noop" role="dialog" aria-label="{{ui['编辑路径']}}">
+      <text class="dir-prompt-title">{{ui['编辑路径']}}</text>
+      <text class="dir-prompt-hint">{{ui['输入绝对路径，例如 /Users/… 或 D:/…']}}</text>
+      <input
+        class="dir-prompt-input"
+        value="{{dirJumpValue}}"
+        bindinput="onDirJumpInput"
+        bindconfirm="submitDirJump"
+        placeholder="{{ui['输入绝对路径']}}"
+        placeholder-class="dir-prompt-ph"
+        confirm-type="go"
+        cursor-spacing="24"
+        focus="{{dirJumpOpen}}"
+        maxlength="1024"
+      />
+      <text has:if="{{dirJumpError}}" class="dir-prompt-error">{{dirJumpError}}</text>
+      <view class="dir-prompt-actions">
+        <view class="dir-prompt-btn dir-prompt-cancel" bindtap="closeDirJump" role="button">{{ui['取消']}}</view>
+        <view class="dir-prompt-btn dir-prompt-confirm" bindtap="submitDirJump" role="button">{{ui['前往']}}</view>
       </view>
     </view>
   </view>

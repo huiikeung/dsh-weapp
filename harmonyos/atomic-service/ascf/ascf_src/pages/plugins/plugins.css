@@ -103,6 +103,15 @@
 .plugin-add-group { border-radius: 14rpx; flex: 0 0 auto; }
 .plugin-chevron { width: 10rpx; height: 10rpx; border-right: 2rpx solid currentColor; border-bottom: 2rpx solid currentColor; transform: rotate(45deg); margin: -5rpx 4rpx 0; flex-shrink: 0; }
 .plugin-chevron.is-open { transform: rotate(225deg); margin-top: 5rpx; }
+/* 断连 / 只读时渲染层会给原生 disabled 按钮铺灰底并强制灰字，分体按钮会变成
+   一个灰白块。这里用更高优先级保住胶囊配色，整组只通过 .disabled 淡出一次。 */
+.plugins .plugin-add-group .plugin-add[disabled],
+.plugins .plugin-add-group .plugin-add-arrow[disabled] {
+  opacity: 1;
+  background: transparent;
+  color: var(--pg-on-primary);
+}
+.plugins .plugins-actions .plugins-refresh[disabled] { background: transparent; }
 .plugin-tabs { display: flex; align-self: flex-start; width: 480rpx; max-width: 100%; padding: 6rpx; background: var(--pg-soft); border-radius: 20rpx; gap: 6rpx; margin-top: -16rpx; }
 .plugins .plugin-tab { flex: 1; min-width: 0; width: auto; padding: 14rpx 24rpx; border-radius: 16rpx; font-size: 28rpx; text-align: center; color: var(--pg-text2); }
 .plugins .plugin-tab.selected { background: var(--pg-bg); color: var(--pg-text); border: 1rpx solid var(--pg-border); font-weight: 600; box-shadow: 0 2rpx 4rpx #00000006; }

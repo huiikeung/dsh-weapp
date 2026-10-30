@@ -6,6 +6,7 @@ const util = require('../../utils/util');
 const labels = require('../../utils/labels');
 const hostsLib = require('../../utils/hosts');
 const { workspacePopoverLayout } = require('../../utils/workspace-popover');
+const directoryBrowse = require('../../utils/directory-browse');
 const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
 const settingsGlassPreference = require('../../utils/settings-glass-pref');
 const quotaSidebarGlassPreference = require('../../utils/quota-sidebar-glass-pref');
@@ -93,6 +94,22 @@ Page({
     dirCreatingDir: false,
     dirPath: '',
     dirCrumbs: [],
+    dirCrumbTrail: [],
+    dirCrumbIntoView: '',
+    dirHome: '',
+    dirRootPath: '',
+    parentPath: null,
+    dirShowHidden: false,
+    dirHiddenCount: 0,
+    dirVisibleEntries: [],
+    dirLocationsOpen: false,
+    dirVolumes: [],
+    dirVolumesLoading: false,
+    dirVolumesLoaded: false,
+    dirVolumesError: '',
+    dirJumpOpen: false,
+    dirJumpValue: '',
+    dirJumpError: '',
     dirEntries: [],
     dirError: '',
     currentWorkspace: {},
@@ -773,15 +790,82 @@ Page({
   },
 
   // ---------- 目录浏览器弹层（对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet） ----------
+  // 浏览范围是整个宿主机：面包屑可回到「电脑」根与「主目录」，位置面板可切到其他盘/卷，
+  // 也能直接输入绝对路径。隐藏目录默认收起（与 dsh 客户端的浏览选择器一致）。
 
   openDirSheet() {
     this.closeWorkspacePicker();
-    this.setData({ dirSheetOpen: true, dirEntries: [], dirPath: '', dirLoading: true, dirError: '' });
+    let showHidden = false;
+    try { showHidden = wx.getStorageSync('workspaceDirShowHidden') === true; } catch (e) { showHidden = false; }
+    this._dirVolumeToken = (this._dirVolumeToken || 0) + 1;
+    this.setData({
+      dirSheetOpen: true,
+      dirEntries: [],
+      dirVisibleEntries: [],
+      dirCrumbTrail: [],
+      dirCrumbs: [],
+      dirRootPath: '',
+      dirHome: '',
+      parentPath: null,
+      dirPath: '',
+      dirShowHidden: showHidden,
+      dirHiddenCount: 0,
+      dirLoading: true,
+      dirError: '',
+      dirLocationsOpen: false,
+      dirVolumes: [],
+      dirVolumesLoading: false,
+      dirVolumesLoaded: false,
+      dirVolumesError: '',
+      dirJumpOpen: false,
+      dirJumpValue: '',
+      dirJumpError: ''
+    });
     this.browseDirs(null);
   },
 
   closeDirSheet() {
-    this.setData({ dirSheetOpen: false });
+    this._dirVolumeToken = (this._dirVolumeToken || 0) + 1;
+    this.setData({ dirSheetOpen: false, dirLocationsOpen: false, dirJumpOpen: false });
+  },
+
+  /** 把网关帧转成路径、面包屑与可见列表；隐藏目录按当前开关过滤。 */
+  applyDirFrame(frame, requestedPath) {
+    const rawList = (frame && (frame.entries || frame.items)) || [];
+    const entries = rawList
+      .map((item) => ({
+        name: item.name || item.title || '',
+        path: item.path || '',
+        hidden: item.hidden === true
+      }))
+      .filter((item) => item.name && item.path)
+      .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+    const crumbs = (frame && Array.isArray(frame.crumbs)) ? frame.crumbs : [];
+    const home = (frame && typeof frame.home === 'string') ? frame.home : '';
+    const showHidden = this.data.dirShowHidden === true;
+    const visible = directoryBrowse.visibleDirectoryEntries(entries, showHidden);
+    const trail = directoryBrowse.directoryCrumbTrail(crumbs, { root: uiText('电脑'), home: uiText('主目录') }, home);
+    this.setData({
+      dirEntries: entries,
+      dirVisibleEntries: visible,
+      dirCrumbs: crumbs,
+      dirCrumbTrail: trail,
+      dirCrumbIntoView: trail.length ? 'dir-crumb-' + (trail.length - 1) : '',
+      dirHome: home || this.data.dirHome,
+      dirRootPath: trail.length ? trail[0].path : this.data.dirRootPath,
+      parentPath: directoryBrowse.directoryParentPath(crumbs),
+      dirShowHidden: showHidden,
+      dirHiddenCount: entries.length - visible.length,
+      dirPath: (frame && frame.path) || requestedPath || '',
+      dirLoading: false,
+      dirError: ''
+    });
+    if (this._dirVolumesPending) {
+      this._dirVolumesPending = false;
+      this.setData({ dirVolumesLoading: false });
+      if (this.data.dirLocationsOpen) this.loadDirVolumes();
+    }
+    return entries.length;
   },
 
   browseDirs(path) {
@@ -791,42 +875,162 @@ Page({
     }
     this.setData({ dirLoading: true, dirError: '' });
     store.client.requestDirectories(path)
-      .then((frame) => {
-        const entries = (frame.entries || frame.items || [])
-          .map((item) => ({
-            name: item.name || item.title || '',
-            path: item.path || '',
-            hidden: item.hidden === true
-          }))
-          .filter((item) => item.name && item.path)
-          .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-        const crumbs = frame.crumbs || [];
-        this.setData({
-          dirEntries: entries,
-          dirCrumbs: crumbs,
-          dirPath: frame.path || path || '',
-          dirLoading: false
-        });
-      })
+      .then((frame) => { this.applyDirFrame(frame, path); })
       .catch((err) => {
-        this.setData({ dirLoading: false, dirError: err.message || uiText('读取目录失败') });
+        this.setData({ dirLoading: false, dirError: (err && err.message) || uiText('读取目录失败') });
       });
   },
 
   openDirEntry(e) {
-    const item = this.data.dirEntries[e.currentTarget.dataset.index];
+    const item = this.data.dirVisibleEntries[e.currentTarget.dataset.index];
     if (!item || this.data.dirLoading) return;
     this.browseDirs(item.path);
   },
 
   goParentDir() {
-    const crumbs = this.data.dirCrumbs;
-    if (this.data.dirLoading) return;
-    if (crumbs.length > 1) {
-      this.browseDirs(crumbs[crumbs.length - 2].path);
-    } else {
-      this.browseDirs(null);
+    if (this.data.dirLoading || !this.data.parentPath) return;
+    this.browseDirs(this.data.parentPath);
+  },
+
+  /** 跳到面包屑上的某一级。 */
+  selectDirCrumb(e) {
+    const path = (e && e.currentTarget && e.currentTarget.dataset) ? e.currentTarget.dataset.path : '';
+    if (!path || this.data.dirLoading || path === this.data.dirPath) return;
+    haptics.tick();
+    this.browseDirs(path);
+  },
+
+  toggleDirHidden() {
+    const next = this.data.dirShowHidden !== true;
+    try { wx.setStorageSync('workspaceDirShowHidden', next); } catch (e) { /* 只影响本机偏好 */ }
+    const visible = directoryBrowse.visibleDirectoryEntries(this.data.dirEntries, next);
+    haptics.tick();
+    this.setData({
+      dirShowHidden: next,
+      dirVisibleEntries: visible,
+      dirHiddenCount: this.data.dirEntries.length - visible.length
+    });
+  },
+
+  // ---------- 位置面板：电脑 / 主目录 / 其他盘 ----------
+
+  openDirLocations() {
+    if (!this.data.dirHome) {
+      // 首屏目录还没回来时先等它确定主机是 POSIX 还是 Windows。
+      this._dirVolumesPending = true;
+      this.setData({ dirLocationsOpen: true, dirVolumesLoading: true, dirVolumesLoaded: false });
+      return;
     }
+    this.setData({ dirLocationsOpen: true });
+    this.loadDirVolumes();
+  },
+
+  closeDirLocations() {
+    this._dirVolumeToken = (this._dirVolumeToken || 0) + 1;
+    this.setData({ dirLocationsOpen: false, dirVolumesLoading: false });
+  },
+
+  selectDirLocation(e) {
+    const path = (e && e.currentTarget && e.currentTarget.dataset) ? e.currentTarget.dataset.path : '';
+    if (!path) return;
+    this._dirVolumeToken = (this._dirVolumeToken || 0) + 1;
+    this.setData({ dirLocationsOpen: false, dirVolumesLoading: false });
+    haptics.tick();
+    this.browseDirs(path);
+  },
+
+  /** 读取某一层目录（供位置面板探测盘符/卷使用，不与浏览请求并发）。 */
+  requestDirEntries(path) {
+    return store.client.requestDirectories(path).then((frame) => {
+      const rawList = (frame && (frame.entries || frame.items)) || [];
+      return rawList
+        .map((item) => ({ name: item.name || item.title || '', path: item.path || '' }))
+        .filter((item) => item.name && item.path);
+    });
+  },
+
+  /**
+   * 懒加载其他盘/卷：
+   * - POSIX 主机依次探测 /Volumes、/mnt、/media（macOS 外接盘、Linux 挂载点）；
+   * - Windows 主机按 C:–Z: 顺序探测存在的盘符。
+   * 目录请求同类串行，避免把正在浏览的请求顶掉。
+   */
+  loadDirVolumes() {
+    if (this.data.dirVolumesLoaded || this.data.dirVolumesLoading) return;
+    const token = (this._dirVolumeToken = (this._dirVolumeToken || 0) + 1);
+    const home = this.data.dirHome || this.data.dirPath || '';
+    const posix = home.charAt(0) === '/';
+    const cacheKey = home + '|' + (posix ? 'posix' : 'win');
+    if (this._dirVolumeCache && this._dirVolumeCache.key === cacheKey) {
+      this.setData({ dirVolumesLoading: false, dirVolumesLoaded: true, dirVolumes: this._dirVolumeCache.volumes.slice() });
+      return;
+    }
+    this.setData({ dirVolumesLoading: true, dirVolumesError: '' });
+    const finish = (volumes) => {
+      if (this._dirVolumeToken !== token) return;
+      this._dirVolumeCache = { key: cacheKey, volumes: volumes.slice() };
+      this.setData({ dirVolumesLoading: false, dirVolumesLoaded: true, dirVolumes: volumes });
+    };
+    if (posix) {
+      const bases = ['/Volumes', '/mnt', '/media'];
+      const found = [];
+      const seen = {};
+      const step = (index) => {
+        if (this._dirVolumeToken !== token) return;
+        if (index >= bases.length) { finish(found); return; }
+        this.requestDirEntries(bases[index]).then((entries) => {
+          entries.forEach((entry) => {
+            if (seen[entry.path]) return;
+            seen[entry.path] = true;
+            found.push({ name: entry.name, path: entry.path });
+          });
+          step(index + 1);
+        }, () => step(index + 1));
+      };
+      step(0);
+      return;
+    }
+    const letters = [];
+    for (let code = 67; code <= 90; code++) letters.push(String.fromCharCode(code));
+    const skip = ((home.match(/^([A-Za-z]):/) || [])[1] || '').toUpperCase();
+    const found = [];
+    const step = (index) => {
+      if (this._dirVolumeToken !== token) return;
+      if (index >= letters.length) { finish(found); return; }
+      const letter = letters[index];
+      if (letter === skip) { step(index + 1); return; }
+      const path = letter + ':\\';
+      this.requestDirEntries(path).then(() => {
+        found.push({ name: letter + ':', path: path });
+        if (this._dirVolumeToken === token) this.setData({ dirVolumes: found.slice() });
+        step(index + 1);
+      }, () => step(index + 1));
+    };
+    step(0);
+  },
+
+  // ---------- 手动输入绝对路径 ----------
+
+  openDirJump() {
+    this.setData({ dirJumpOpen: true, dirJumpValue: this.data.dirPath || '', dirJumpError: '' });
+  },
+
+  closeDirJump() {
+    this.setData({ dirJumpOpen: false, dirJumpValue: '', dirJumpError: '' });
+  },
+
+  onDirJumpInput(e) {
+    this.setData({ dirJumpValue: (e && e.detail && e.detail.value) || '', dirJumpError: '' });
+  },
+
+  submitDirJump() {
+    const result = directoryBrowse.normalizeDirectoryInput(this.data.dirJumpValue, this.data.dirHome);
+    if (result.error) {
+      this.setData({ dirJumpError: result.error === 'empty' ? uiText('请输入绝对路径') : uiText('请输入以 / 或盘符开头的绝对路径') });
+      return;
+    }
+    this.setData({ dirJumpOpen: false, dirJumpValue: '', dirJumpError: '' });
+    this.browseDirs(result.path);
   },
 
   /** 新建文件夹：底部弹窗（透明玻璃面板），不再用系统 showModal。 */

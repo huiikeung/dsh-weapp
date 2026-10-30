@@ -205,8 +205,42 @@ test('collaboration handle toggles height without changing selected content or r
   page.toggleCollaborationExpanded();page.closeCollaboration();assert.equal(page.data.collaborationExpanded,false);
   store.client.requestSessions=undefined;page.openCollaboration();assert.equal(page.data.collaborationExpanded,false);
   const css=fs.readFileSync(path.resolve(__dirname,'../miniprogram/pages/session/session.wxss'),'utf8');
+  // 原生样式保持原样：全宽 + 76vh/90vh
   assert.match(css,/\.sheet\.collab-sheet\s*\{[^}]*max-height:90vh/);
   assert.match(css,/\.sheet\.collab-sheet\.is-expanded\s*\{\s*height:90vh/);
+  // 玻璃模式才参考首页「切换主机」弹窗的宽度与离底距离：.sheet 是静态 flex 子项，用 margin + width:calc() 留边
+  assert.match(css,/\.session-glass \.sheet\.collab-sheet\s*\{[^}]*width: calc\(100% - 24px\)/);
+  assert.match(css,/\.session-glass \.sheet\.collab-sheet\s*\{[^}]*margin: 0 12px 24px/);
+});
+
+test('horizontal swipe switches collaboration tabs without hijacking vertical scrolling', () => {
+  const {page}=fixture();
+  const xml=fs.readFileSync(path.resolve(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
+  assert.ok(xml.includes('bindtouchstart="collabSwipeStart"') && xml.includes('bindtouchend="collabSwipeEnd"'), 'sheet body carries the swipe handlers');
+  assert.ok(xml.includes('scroll-into-view="{{collabTabIntoView}}"') && xml.includes('id="collab-tab-{{item.id}}"'), 'tab bar can scroll the active tab into view');
+  page.collaborationPatch=()=>({});
+  page.data.collaborationTabs=[{id:'members'},{id:'children'},{id:'tasks'},{id:'calls'}];
+  page.data.collaborationTab='members';
+  const swipe=(x0,y0,x1,y1)=>{
+    page.collabSwipeStart({touches:[{clientX:x0,clientY:y0}]});
+    page.collabSwipeMove({touches:[{clientX:x1,clientY:y1}]});
+    page.collabSwipeEnd({changedTouches:[{clientX:x1,clientY:y1}]});
+  };
+  swipe(320,200,180,203);
+  assert.equal(page.data.collaborationTab,'children','swiping left moves to the next tab');
+  assert.equal(page.data.collabTabIntoView,'collab-tab-children','the newly active tab is focused in the tab bar');
+  swipe(180,200,320,203);
+  assert.equal(page.data.collaborationTab,'members','swiping right moves back');
+  swipe(320,200,180,340);
+  assert.equal(page.data.collaborationTab,'members','a mostly vertical drag does not switch tabs');
+  swipe(120,200,320,203);
+  assert.equal(page.data.collaborationTab,'members','swiping past the first tab stays put');
+  swipe(320,200,180,203);
+  swipe(320,200,180,203);
+  swipe(320,200,180,203);
+  assert.equal(page.data.collaborationTab,'calls');
+  swipe(320,200,180,203);
+  assert.equal(page.data.collaborationTab,'calls','swiping past the last tab stays put');
 });
 const compiler=require('./helpers/wechat-wcc.cjs');
 test('native collaboration sheet renders all four tabs in light and dark modes', {skip:!compiler},t=>{

@@ -62,10 +62,12 @@ function pushUnique(list, value) {
   if (value && list.indexOf(value) < 0) list.push(value)
 }
 
-/** ASCF direct routes must be syntactically valid WSS endpoints. */
+/** ASCF release routes use WSS; local ws is allowed only for development hosts. */
 function normalizeASCFEndpoint(value) {
   const endpoint = normalizeEndpoint(value)
-  if (!endpoint || !/^wss:\/\//i.test(endpoint) || /[\s\\]/.test(endpoint)) return null
+  if (!endpoint || /[\s\\]/.test(endpoint)) return null
+  if (/^ws:\/\//i.test(endpoint) && !isLocalHost(endpointHost(endpoint))) return null
+  if (!/^wss:\/\//i.test(endpoint) && !/^ws:\/\//i.test(endpoint)) return null
   const authority = endpoint.split('://')[1].split('/')[0]
   if (!authority || authority.indexOf('@') >= 0) return null
   let port = null

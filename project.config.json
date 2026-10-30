@@ -69,5 +69,6 @@
     "wxext14566970e7e9f62": "2.27.3"
   },
   "miniprogramRoot": "miniprogram/",
-  "srcMiniprogramRoot": "miniprogram/"
+  "srcMiniprogramRoot": "miniprogram/",
+  "projectArchitecture": "multiPlatform"
 }

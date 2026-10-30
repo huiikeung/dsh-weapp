@@ -149,6 +149,7 @@ Page({
     settingsGlassSheetEnabled: settingsGlassSheetPreference.read(),
     sessionGlassEnabled: sessionGlassPreference.read(),
     ...sessionCardStylePreference.view(),
+    cardStyleMode: 'light',
     cardStyleOpen: false,
     choiceSheet: settingsGlassSheetPreference.read(),
     quotaSidebarVisible: false,
@@ -644,7 +645,7 @@ Page({
     settingsGlassEnabled: settingsGlassPreference.read(),
     settingsGlassSheetEnabled: settingsGlassSheetPreference.read(),
     sessionGlassEnabled: sessionGlassPreference.read(),
-    ...sessionCardStylePreference.view(),
+    ...sessionCardStylePreference.view(this.data && this.data.cardStyleMode),
     cardStyleOpen: false,
     choiceSheet: settingsGlassSheetPreference.read(),
     ...settingsGlassStylePreference.view({ light: theme.resolveTheme() === 'light' }),
@@ -1202,13 +1203,20 @@ Page({
     }
   },
 
-  /** 卡片外观弹窗：悬浮 / 光线 / 描边 / 圆角。 */
+  /** 卡片样式弹窗：浅色 / 深色各一套参数（悬浮 / 底色 / 光线 / 柔光 / 描边 / 圆角）。 */
   openCardStyleSheet() {
-    this.setData(Object.assign({ cardStyleOpen: true }, sessionCardStylePreference.view()));
+    const mode = this.data.cardStyleMode === 'dark' ? 'dark' : 'light';
+    this.setData(Object.assign({ cardStyleOpen: true }, sessionCardStylePreference.view(mode)));
   },
 
   closeCardStyleSheet() {
     this.setData({ cardStyleOpen: false });
+  },
+
+  /** 浅色 / 深色切换：两套参数互不影响。 */
+  switchCardStyleMode(e) {
+    const mode = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.mode === 'dark' ? 'dark' : 'light';
+    this.setData(sessionCardStylePreference.view(mode));
   },
 
   /** 拖动中实时预览（含预览卡片的放大值），松手（bindchange）才落盘。 */
@@ -1216,25 +1224,30 @@ Page({
     const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : '';
     const value = e && e.detail ? e.detail.value : undefined;
     if (!field || value === undefined) return;
-    this.setData(sessionCardStylePreference.view({ [field]: Number(value) }));
+    const mode = this.data.cardStyleMode === 'dark' ? 'dark' : 'light';
+    this.setData(sessionCardStylePreference.view(mode, { mode: mode, patch: { [field]: Number(value) } }));
   },
 
   onCardStyleChange(e) {
     const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : '';
     const value = (e && e.detail && e.detail.value) || 0;
     if (!field) return;
+    const mode = this.data.cardStyleMode === 'dark' ? 'dark' : 'light';
     try {
       const next = {};
       next[field] = Number(value);
-      this.setData(sessionCardStylePreference.view(sessionCardStylePreference.set(next)));
+      sessionCardStylePreference.set(mode, next);
+      this.setData(sessionCardStylePreference.view(mode));
     } catch (_) {
-      this.setData(sessionCardStylePreference.view());
+      this.setData(sessionCardStylePreference.view(mode));
       wx.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
     }
   },
 
   resetCardStyle() {
-    this.setData(sessionCardStylePreference.view(sessionCardStylePreference.reset()));
+    const mode = this.data.cardStyleMode === 'dark' ? 'dark' : 'light';
+    sessionCardStylePreference.reset(mode);
+    this.setData(sessionCardStylePreference.view(mode));
   },
 
   /** 对话页面玻璃：设置页里的独立开关，不影响其它页面的玻璃 UI。 */

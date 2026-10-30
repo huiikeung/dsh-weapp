@@ -563,7 +563,13 @@ test('more sheet handle expands on tap or upward drag and collapses again', () =
   assert.ok(xml.includes('catchtouchstart="moreSheetGrabStart"'));
   assert.match(xml, /class="sheet session-menu \{\{moreSheetExpanded \? 'expanded' : ''\}\}"/);
   const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
-  assert.match(css, /\.sheet\.session-menu\.expanded\s*\{[^}]*height: 86vh;/);
+  // 原生样式保持原样：全宽 + 顶部圆角 + 86vh
+  assert.match(css, /\.sheet\.session-menu\s*\{[^}]*border-radius: 32rpx 32rpx 0 0/);
+  assert.match(css, /\.sheet\.session-menu\.expanded\s*\{[^}]*height: 86vh/);
+  // 玻璃模式才参考首页「切换主机」弹窗：左右 12px、离底 24px、auto 高度 46vh～86vh
+  assert.match(css, /\.session-glass \.sheet\.session-menu\s*\{[^}]*width:\s*calc\(100% - 24px\)/);
+  assert.match(css, /\.session-glass \.sheet\.session-menu\s*\{[^}]*margin:\s*0 12px 24px/);
+  assert.match(css, /\.session-glass \.sheet\.session-menu\.expanded\s*\{[^}]*height:\s*calc\(100vh - 200rpx - 24px\)/);
 });
 
 test('session quick switch filters recent sessions and switches in place', () => {
@@ -589,9 +595,9 @@ test('session quick switch filters recent sessions and switches in place', () =>
 test('quick switch opens as a full-screen overlay like the turn navigator', () => {
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
-  // 三横线按钮改为「对话节点定位」，会话快捷切换移入更多菜单并以蒙版呈现
+  // 三横线按钮改为「对话节点定位」；更多菜单里的「会话快捷切换」入口已按要求移除
   assert.ok(xml.includes('bindtap="openTurnNavigator"'));
-  assert.ok(xml.includes('data-action="switchSessions"'));
+  assert.ok(!xml.includes('data-action="switchSessions"'), 'the quick-switch entry is gone from the more menu');
   // 三横线按钮固定在右上角导航栏（和更多菜单同一排），只出现一次。
   assert.equal((xml.match(/session-switch-trigger/g) || []).length, 1, 'the trigger lives in exactly one place');
   assert.match(xml, /wx:if="\{\{rows\.length\}\}" class="session-switch-trigger/,

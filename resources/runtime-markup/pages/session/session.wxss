@@ -249,17 +249,24 @@
 }
 .task-panel,
 .goal-panel {
-  border-radius: var(--card-radius, 36rpx);
+  border-radius: var(--card-light-radius, 36rpx);
+}
+.theme-dark .task-panel,
+.theme-dark .goal-panel,
+.theme-dark .queue-panel {
+  border-radius: var(--card-dark-radius, 36rpx);
 }
 .task-panel,
 .goal-panel {
   box-shadow: 0 2rpx 8rpx rgba(7, 24, 43, 0.05);
 }
 /* 卡片叠在输入框上方时整组只保留输入框一层投影，去掉卡片底部阴影与间距，避免明显分层 */
-.page.session { --card-float: 0 1rpx 4rpx rgba(7, 24, 43, 0.035); }
 .stacked .task-panel,
 .stacked .goal-panel,
-.stacked .queue-panel { box-shadow: var(--card-float); }
+.stacked .queue-panel { box-shadow: var(--card-light-float, 0 1rpx 4rpx rgba(7, 24, 43, 0.035)); }
+.theme-dark .stacked .task-panel,
+.theme-dark .stacked .goal-panel,
+.theme-dark .stacked .queue-panel { box-shadow: var(--card-dark-float, 0 1rpx 4rpx rgba(7, 24, 43, 0.035)); }
 .task-head {
   min-height: 88rpx;
   padding: 0 28rpx;
@@ -869,7 +876,7 @@ to{transform:translateX(340%)}
   box-sizing: border-box;
   padding: 0 24rpx;               /* padding h12 */
   background: var(--surface);
-  border: 1rpx solid var(--border);
+  border: 1rpx solid var(--border-strong);
   border-radius: 32rpx;           /* radius 16 */
   box-shadow: var(--float-shadow);
   max-width: 60%;
@@ -1809,7 +1816,7 @@ overscroll-behavior-y: auto;
   width: 100%;
   padding: 4rpx 0;
   box-sizing: border-box;
-  border-radius: var(--card-radius, 36rpx);
+  border-radius: var(--card-light-radius, 36rpx);
   overflow: hidden;
   background: var(--surface);
   border: 1rpx solid var(--border-strong);
@@ -1901,9 +1908,17 @@ overscroll-behavior-y: auto;
   gap: 4rpx;
   padding: 6rpx 0;
 }
+.queue-inline {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  width: 100%;
+  min-width: 0;
+}
 .queue-preview {
   min-width: 0;
-  width: 100%;
+  flex: 1 1 auto;
+  width: auto;
   color: var(--text-2);
   font-size: 26rpx;
   line-height: 36rpx;
@@ -1929,9 +1944,9 @@ overscroll-behavior-y: auto;
 }
 .queue-thumb,
 .queue-file {
-  width: 48rpx;
-  height: 48rpx;
-  flex: 0 0 48rpx;
+  width: 64rpx;
+  height: 64rpx;
+  flex: 0 0 64rpx;
   box-sizing: border-box;
   border: 1rpx solid var(--border);
   border-radius: 8rpx;
@@ -1939,6 +1954,11 @@ overscroll-behavior-y: auto;
 }
 .queue-thumb {
   object-fit: cover;
+  border-radius: 10rpx;
+}
+.queue-thumb-pending {
+  background: var(--fill);
+  border: 1rpx solid var(--divider);
 }
 .queue-file {
   display: flex;
@@ -5173,58 +5193,417 @@ overscroll-behavior-y: auto;
   backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
   -webkit-backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
 }
+/* 输入框玻璃：对齐 iOS 磨砂输入框——中性暗底 + 极淡白高光，靠大半径模糊把背后的
+   会话内容糊开；描边走 --glass-frost-edge（滑杆值 ×0.3），不再是 38% 白边。 */
 .session-glass .composer {
-  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(44, 45, 49, 0.62);
   border-color: transparent;
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
-  backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
-  -webkit-backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  box-shadow:
+    inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
+    0 14rpx 44rpx rgba(3, 14, 30, 0.22);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+}
+/* 浅色：Liquid Glass 观感——均匀近白底 + 一圈柔白边光 + 很淡的外投影，不用描边线 */
+.theme-light.session-glass .composer {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(247, 248, 251, 0.86);
+  box-shadow:
+    inset 0 6rpx 16rpx rgba(255, 255, 255, 0.85),
+    inset 0 -6rpx 16rpx rgba(255, 255, 255, 0.65),
+    inset 0 0 22rpx rgba(255, 255, 255, 0.55),
+    0 2rpx 6rpx rgba(7, 24, 43, 0.05),
+    0 14rpx 30rpx rgba(7, 24, 43, 0.10);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .composer-backdrop {
   background: linear-gradient(to bottom, transparent, transparent);
 }
-/* 玻璃：输入框左上角的模式胶囊与预设浮层沿用输入框的材质（同一开关、同一组变量） */
+/* 玻璃：模式胶囊 / 模式浮层 / 任务·排队·目标卡片统一走输入框的 iOS 磨砂材质 */
 .session-glass .preset-capsule {
-  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(44, 45, 49, 0.62);
+  /* 用真实 1rpx 描边而不是 inset 环：胶囊圆角小，半像素环在圆角处会断线 */
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-frost-edge, 0.11));
+  box-shadow: 0 8rpx 24rpx rgba(3, 14, 30, 0.20);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+}
+.theme-light.session-glass .preset-capsule {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 50%),
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(247, 248, 251, 0.86);
   border-color: transparent;
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 8rpx 24rpx rgba(3, 14, 30, 0.20);
-  backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
-  -webkit-backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  box-shadow: inset 0 4rpx 12rpx rgba(255, 255, 255, 0.85), inset 0 -4rpx 12rpx rgba(255, 255, 255, 0.60), inset 0 0 16rpx rgba(255, 255, 255, 0.50), 0 2rpx 5rpx rgba(7, 24, 43, 0.04), 0 10rpx 22rpx rgba(7, 24, 43, 0.09);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .opt-pop.mode-pop {
-  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(44, 45, 49, 0.62);
   border-color: transparent;
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), 0 12rpx 36rpx rgba(7, 24, 43, 0.18);
-  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
-  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  box-shadow:
+    inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
+    0 18rpx 48rpx rgba(3, 14, 30, 0.26);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
 }
-.theme-dark.session-glass .preset-capsule {
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 8rpx 24rpx rgba(0, 0, 0, 0.34);
+.theme-light.session-glass .opt-pop.mode-pop {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(247, 248, 251, 0.86);
+  box-shadow:
+    inset 0 6rpx 16rpx rgba(255, 255, 255, 0.85),
+    inset 0 -6rpx 16rpx rgba(255, 255, 255, 0.65),
+    inset 0 0 22rpx rgba(255, 255, 255, 0.55),
+    0 4rpx 10rpx rgba(7, 24, 43, 0.05),
+    0 20rpx 44rpx rgba(7, 24, 43, 0.13);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
 }
-.theme-dark.session-glass .opt-pop.mode-pop {
-  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), 0 12rpx 36rpx rgba(0, 0, 0, 0.42);
-}
-/* 玻璃：任务列表 / 排队消息 / 目标卡片复用输入框同一套材质，由「对话页面玻璃」开关控制 */
+/* 玻璃：任务列表 / 排队消息 / 目标卡片——与输入框同一套磨砂，描边/顶光仍由「卡片样式设置」控制 */
 .session-glass .task-panel, .session-glass .goal-panel, .session-glass .queue-panel {
-  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
-  backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
-  box-shadow: inset 0 0 0 0.5px var(--card-edge), inset 0 1px 0 var(--card-light), var(--card-float);
-  -webkit-backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(44, 45, 49, var(--card-dark-fill, 0.62));
   border-color: transparent;
+  box-shadow: inset 0 0 0 1rpx var(--card-dark-edge), var(--card-dark-float);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
 }
-.theme-dark.session-glass .task-panel, .theme-dark.session-glass .goal-panel, .theme-dark.session-glass .queue-panel {
-  box-shadow: inset 0 0 0 0.5px var(--card-edge), inset 0 1px 0 var(--card-light), var(--card-float);
+.theme-light.session-glass .task-panel, .theme-light.session-glass .goal-panel, .theme-light.session-glass .queue-panel {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(247, 248, 251, var(--card-light-fill, 0.86));
+  box-shadow: inset 0 6rpx 16rpx rgba(255, 255, 255, var(--card-light-glow-top, 0.5)), inset 0 -6rpx 16rpx rgba(255, 255, 255, var(--card-light-glow-bottom, 0.35)), inset 0 0 22rpx rgba(255, 255, 255, var(--card-light-glow-all, 0.3)), inset 0 0 0 1rpx var(--card-light-edge), var(--card-light-float);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
 }
+/* 协作详情浮层（仅玻璃模式）：宽/离底距离参考首页「切换主机」弹窗。
+   .sheet 是 .sheet-mask（fixed + flex）里的静态 flex 子项，left/right/bottom 无效，只能用 margin + width:calc()。
+   原生样式下不生效，保持原来的全宽 + 76/90vh。 */
 .session-glass .sheet.collab-sheet {
-  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
-  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), 0 -12rpx 48rpx rgba(3, 14, 30, 0.18);
-  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
-  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  width: calc(100% - 24px);
+  margin: 0 12px 24px;
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(44, 45, 49, var(--card-dark-fill, 0.62));
+  box-shadow:
+    inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
+    0 -12rpx 48rpx rgba(3, 14, 30, 0.18);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
 }
+.theme-light.session-glass .sheet.collab-sheet {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(247, 248, 251, var(--card-light-fill, 0.86));
+  box-shadow:
+    inset 0 6rpx 16rpx rgba(255, 255, 255, 0.85),
+    inset 0 -6rpx 16rpx rgba(255, 255, 255, 0.65),
+    inset 0 0 22rpx rgba(255, 255, 255, 0.55),
+    0 -12rpx 40rpx rgba(7, 24, 43, 0.10);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+}
+/* 成员行：磨砂内不再用实色 surface 卡片，改成半透明 + 发丝边 */
+.session-glass .collab-row {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, var(--glass-frost-edge, 0.11));
+}
+.session-glass .collab-row.current { background: var(--fill-2); }
+.theme-light.session-glass .collab-row {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 2rpx 8rpx rgba(7, 24, 43, 0.04);
+}
+.theme-light.session-glass .collab-row.current { background: var(--fill-2); }
+/* 置底的「回到底部」圆钮：玻璃模式下同样是磨砂圆钮。
+   玻璃层放在 ::before 上，箭头和进度环压在它上面——避免 backdrop-filter 建层后把 <image> 吞掉。 */
+.session-glass .jump-bottom {
+  background: transparent;
+  box-shadow: none;
+  isolation: isolate;
+}
+.session-glass .jump-bottom::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  z-index: 0;
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(44, 45, 49, var(--card-dark-fill, 0.62));
+  box-shadow:
+    inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
+    0 6rpx 20rpx rgba(3, 14, 30, 0.20);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+}
+.session-glass .jump-ic { position: relative; z-index: 2; }
+.session-glass .jump-ring { z-index: 1; }
+.theme-light.session-glass .jump-bottom::before {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(247, 248, 251, var(--card-light-fill, 0.86));
+  box-shadow:
+    inset 0 3rpx 10rpx rgba(255, 255, 255, 0.85),
+    inset 0 -3rpx 10rpx rgba(255, 255, 255, 0.65),
+    inset 0 0 14rpx rgba(255, 255, 255, 0.55),
+    0 6rpx 18rpx rgba(7, 24, 43, 0.10);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+}
+/* 三个点「更多」弹层（仅玻璃模式）：与输入框 / 卡片同一套 iOS 磨砂，宽/高参考首页「切换主机」弹窗 */
+.session-glass .sheet.session-menu {
+  width: calc(100% - 24px);
+  margin: 0 12px 24px;
+  height: auto;
+  min-height: 46vh;
+  max-height: 86vh;
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(44, 45, 49, var(--card-dark-fill, 0.62));
+  box-shadow:
+    inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
+    0 -12rpx 48rpx rgba(3, 14, 30, 0.18);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+}
+.session-glass .sheet.session-menu.expanded {
+  height: calc(100vh - 200rpx - 24px);
+  max-height: calc(100vh - 200rpx - 24px);
+}
+.theme-light.session-glass .sheet.session-menu {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(247, 248, 251, var(--card-light-fill, 0.86));
+  box-shadow:
+    inset 0 6rpx 16rpx rgba(255, 255, 255, 0.85),
+    inset 0 -6rpx 16rpx rgba(255, 255, 255, 0.65),
+    inset 0 0 22rpx rgba(255, 255, 255, 0.55),
+    0 -12rpx 40rpx rgba(7, 24, 43, 0.10);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+}
+.session-glass .session-menu-group {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, var(--glass-frost-edge, 0.11));
+}
+.session-glass .session-menu-pressed { background: rgba(255, 255, 255, 0.08); }
+.theme-light.session-glass .session-menu-group {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+.theme-light.session-glass .session-menu-pressed { background: rgba(16, 19, 24, 0.05); }
 .session-glass .file-mention-menu {
   background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
   border-color: transparent;
   box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, var(--glass-edge-alpha, 0.38)), 0 12rpx 36rpx rgba(7, 24, 43, 0.18);
   backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
   -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+}
+
+/* 深色模式：上下文面板卡片背景对齐编队面板（透明底，仅靠描边与阴影分层） */
+.theme-dark .context-panel .ctx-card {
+  background: transparent;
+}
+
+/* 深色模式：上下文统计里的五类胶囊（用户输入/读取/写入/搜索/图片）背景改用半透明填充，
+   与编队面板的胶囊一致，不再用实色 surface 灰块；彩色事件胶囊保留原色。 */
+.theme-dark .context-panel .ctx-pill:not(.ctx-pill-tint) {
+  background: transparent;
+  border-color: var(--divider);
+}
+.theme-dark .context-panel .ctx-stat-q {
+  background: var(--fill);
+}
+
+/* 深色模式：上下文统计里的五个节点卡片（输入输出 / 上下文事件 / 当前会话 / 工具调用 / Agent 网络）
+   背景与编队卡片一致，改为透明，只保留描边分层。 */
+.theme-dark .context-panel .ctx-flow-node,
+.theme-dark .context-panel .ctx-flow-self {
+  background: transparent;
+}
+
+/* ---------- 会话页悬浮侧栏（对齐 dsh-mobile ConversationSidebar） ---------- */
+.session .segmented-row .nav-actions .nav-sidebar {
+  position: static;
+  width: 64rpx;
+  height: 64rpx;
+  min-width: 64rpx;
+  flex: 0 0 64rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.nav-sidebar-glyph {
+  position: relative;
+  width: 34rpx;
+  height: 30rpx;
+  box-sizing: border-box;
+  border: 3rpx solid var(--text-2);
+  border-radius: 8rpx;
+}
+.nav-sidebar-glyph-line {
+  position: absolute;
+  left: 9rpx;
+  top: 0;
+  bottom: 0;
+  width: 3rpx;
+  background: var(--text-2);
+}
+.conv-sidebar-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 209;
+  background: transparent;
+}
+.conv-sidebar {
+  position: fixed;
+  right: 24rpx;
+  z-index: 210;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding-top: 10rpx;
+  border-radius: 56rpx;
+  border: 1rpx solid var(--border-strong);
+  background: var(--surface);
+  box-shadow: 0 24rpx 64rpx rgba(3, 14, 30, 0.26);
+  overflow: hidden;
+  animation: conv-sidebar-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  will-change: transform, opacity;
+}
+@keyframes conv-sidebar-in {
+  from { opacity: 0; transform: scale(0.92) translateY(-10rpx); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.session .segmented-row .nav-actions .nav-sidebar.is-hidden { visibility: hidden; }
+/* 玻璃皮肤：直接复用输入框（composer）的玻璃配方 */
+.conv-sidebar.conv-sidebar-glass {
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(44, 45, 49, 0.62);
+  border-color: transparent;
+  box-shadow:
+    inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-composer-edge, 0.11)),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.08),
+    0 14rpx 44rpx rgba(3, 14, 30, 0.22);
+  backdrop-filter: blur(var(--glass-composer-blur, 20px)) saturate(1.35);
+  -webkit-backdrop-filter: blur(var(--glass-composer-blur, 20px)) saturate(1.35);
+}
+.theme-light .conv-sidebar.conv-sidebar-glass {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0) 36%),
+    linear-gradient(0deg, rgba(16, 19, 24, 0.06), rgba(16, 19, 24, 0) 30%),
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(247, 248, 251, 0.80);
+  border-color: rgba(16, 19, 24, 0.10);
+  box-shadow:
+    inset 0 0 0 1rpx rgba(16, 19, 24, 0.06),
+    inset 0 1rpx 0 rgba(255, 255, 255, 0.9),
+    0 14rpx 44rpx rgba(3, 14, 30, 0.16);
+}
+.conv-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  padding: 16rpx 32rpx 18rpx;
+  flex-shrink: 0;
+}
+.conv-sidebar-whale { width: 46rpx; height: 40rpx; flex: none; }
+.conv-sidebar-wordmark { height: 32rpx; width: 172rpx; flex: none; }
+.conv-sidebar-badge {
+  margin-left: 2rpx;
+  padding: 2rpx 8rpx;
+  border-radius: 6rpx;
+  border: 1rpx solid currentColor;
+  font-size: 16rpx;
+  line-height: 1.4;
+  color: var(--text);
+  letter-spacing: 0.5rpx;
+}
+.conv-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 20rpx 32rpx;
+  flex-shrink: 0;
+}
+.conv-sidebar-ic { width: 40rpx; height: 40rpx; flex: none; }
+.conv-sidebar-label { font-size: 30rpx; color: var(--text); }
+.conv-sidebar-press { background: var(--fill); }
+.conv-sidebar-section {
+  padding: 22rpx 32rpx 8rpx;
+  font-size: 24rpx;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.conv-sidebar-scroll { flex: 1; min-height: 0; }
+.conv-sidebar-workspace {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin: 0 16rpx;
+  padding: 18rpx 16rpx;
+  border-radius: 18rpx;
+}
+.conv-sidebar-folder { width: 38rpx; height: 38rpx; flex: none; }
+.conv-sidebar-workspace-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 30rpx;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-sidebar-chev { width: 22rpx; height: 22rpx; flex: none; opacity: 0.55; transition: transform 150ms ease; }
+.conv-sidebar-chev.open { transform: rotate(180deg); }
+.conv-sidebar-session {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  margin: 2rpx 16rpx;
+  padding: 14rpx 16rpx 14rpx 44rpx;
+  border-radius: 18rpx;
+}
+.conv-sidebar-session.selected { background: var(--fill-2); }
+.conv-sidebar-dot { width: 12rpx; height: 12rpx; border-radius: 50%; flex: none; background: transparent; }
+.conv-sidebar-dot.on { background: #31B77A; }
+.conv-sidebar-session-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 28rpx;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.conv-sidebar-time { flex: none; font-size: 22rpx; color: var(--text-3); }
+.conv-sidebar-empty { padding: 12rpx 44rpx 16rpx; font-size: 24rpx; color: var(--text-3); }
+.conv-sidebar-footer { flex-shrink: 0; border-top: 1rpx solid var(--divider); padding-bottom: 10rpx; }
+@media (min-width: 700px) {
+  .session .segmented-row .nav-actions .nav-sidebar { width: 48px; height: 48px; min-width: 48px; flex: 0 0 48px; }
+  .nav-sidebar-glyph { width: 26px; height: 23px; border-width: 2px; border-radius: 6px; }
+  .nav-sidebar-glyph-line { left: 7px; width: 2px; }
 }

@@ -36,7 +36,7 @@
   </view>
 </template>
 
-<view class="page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}" style="{{contentFontStyle}}; --card-float: {{cardFloatShadow}}; --card-edge: {{cardEdgeColor}}; --card-light: {{cardLightColor}}; --card-radius: {{cardRadiusRpx}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-card: {{glassBlurCard}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
+<view class="page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}" style="{{contentFontStyle}}; --card-light-float: {{cardLightFloatShadow}}; --card-light-edge: {{cardLightEdgeColor}}; --card-light-fill: {{cardLightFillAlpha}}; --card-light-glow-top: {{cardLightGlowTop}}; --card-light-glow-bottom: {{cardLightGlowBottom}}; --card-light-glow-all: {{cardLightGlowAll}}; --card-light-radius: {{cardLightRadiusRpx}}; --card-dark-float: {{cardDarkFloatShadow}}; --card-dark-edge: {{cardDarkEdgeColor}}; --card-dark-fill: {{cardDarkFillAlpha}}; --card-dark-radius: {{cardDarkRadiusRpx}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-card: {{glassBlurCard}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-frost-blur: {{glassFrostBlur}}; --glass-frost-edge: {{glassFrostEdge}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
   <!-- 顶部区域：导航 + 切换栏，背景遮罩截止到切换下划线 -->
   <view class="session-header">
   <!-- 顶部导航：标题居中，右侧连接状态、模式与菜单 -->
@@ -61,6 +61,9 @@
       <view wx:if="{{showFleetPanel}}" class="segment {{tab === 'fleet' ? 'active' : ''}}" bindtap="switchTab" data-tab="fleet" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['编队']}}">{{ui['编队']}}</view>
     </view>
     <view class="nav-actions">
+      <view class="nav-sidebar glass-press {{convSidebarOpen ? 'is-hidden' : ''}}" bindtap="toggleConversationSidebar" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['展开侧边栏']}}">
+        <view class="nav-sidebar-glyph" aria-hidden="true"><view class="nav-sidebar-glyph-line"></view></view>
+      </view>
       <view class="nav-more glass-press" bindtap="moreActions" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['更多']}}"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
       <view wx:if="{{rows.length}}" class="session-switch-trigger glass-press" bindtap="openTurnNavigator" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['对话']}}">
         <view class="session-switch-lines" aria-hidden="true"><view/><view/><view/></view>
@@ -392,7 +395,7 @@
   <view wx:if="{{trajectoryMounted}}" hidden="{{tab !== 'trajectory'}}" class="trajectory-panel {{tab !== 'trajectory' ? 'session-panel-hidden' : ''}}" style="{{trajectoryStyle}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
     <view class="trace-overview">
       <view class="trace-overview-head">
-        <view class="trace-overview-head-label {{traceFocusMode === 'duration' ? 'active' : ''}}" bindtap="selectTraceMetric" data-mode="duration" hover-class="trace-overview-metric-pressed" role="button" aria-label="{{ui['时长']}}"><image class="trace-overview-clock" src="/assets/icons/{{theme === 'dark' ? 'dsh-clock-dark.svg' : 'dsh-clock.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{ui['时长']}}</text></view>
+        <view class="trace-overview-head-label {{traceFocusMode === 'duration' ? 'active' : ''}}" bindtap="selectTraceMetric" data-mode="duration" hover-class="trace-overview-metric-pressed" role="button" aria-label="{{ui['时长']}}"><image class="trace-overview-clock" src="/assets/icons/{{theme === 'dark' ? 'automation-white.svg' : 'automation.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{ui['时长']}}</text></view>
         <view class="trace-overview-stat {{traceFocusMode === 'turns' ? 'active' : ''}}" bindtap="selectTraceMetric" data-mode="turns" hover-class="trace-overview-metric-pressed" role="button" aria-label="{{ui['轮次']}}"><image class="trace-overview-metric-icon" src="/assets/icons/{{theme === 'dark' ? 'dsh-checklist-dark.svg' : 'dsh-checklist.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{traceOverview.turns}}</text><text>{{ui['轮次']}}</text></view>
         <view class="trace-overview-stat {{traceFocusMode === 'calls' ? 'active' : ''}}" bindtap="selectTraceMetric" data-mode="calls" hover-class="trace-overview-metric-pressed" role="button" aria-label="{{ui['调用']}}"><image class="trace-overview-metric-icon" src="/assets/icons/{{theme === 'dark' ? 'dsh-process-tool-dark.svg' : 'dsh-process-tool.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{traceOverview.calls}}</text><text>{{ui['调用']}}</text></view>
       </view>
@@ -1926,9 +1929,9 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           <view class="collab-action-disc"><image class="collab-action-icon" src="/assets/icons/collab-close{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/></view>
         </view>
       </view>
-      <scroll-view class="collab-tabs" scroll-x enhanced show-scrollbar="{{false}}" enable-flex>
+      <scroll-view class="collab-tabs" scroll-x enhanced show-scrollbar="{{false}}" enable-flex scroll-into-view="{{collabTabIntoView}}" scroll-with-animation>
         <view class="collab-tabs-track">
-          <view wx:for="{{collaborationTabs}}" wx:key="id" class="collab-tab {{collaborationTab === item.id ? 'active' : ''}}" bindtap="selectCollaborationTab" data-id="{{item.id}}" role="button" aria-label="{{item.label}} {{item.count}}" aria-pressed="{{collaborationTab === item.id}}" hover-class="press-dim" hover-start-time="0" hover-stay-time="60">
+          <view wx:for="{{collaborationTabs}}" wx:key="id" id="collab-tab-{{item.id}}" class="collab-tab {{collaborationTab === item.id ? 'active' : ''}}" bindtap="selectCollaborationTab" data-id="{{item.id}}" role="button" aria-label="{{item.label}} {{item.count}}" aria-pressed="{{collaborationTab === item.id}}" hover-class="press-dim" hover-start-time="0" hover-stay-time="60">
             <view class="collab-tab-summary">
               <image class="collab-tab-icon" src="/assets/icons/{{item.icon}}{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/>
               <text class="collab-tab-count">{{item.count}}</text>
@@ -1938,7 +1941,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
           </view>
         </view>
       </scroll-view>
-      <scroll-view class="collab-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+      <scroll-view class="collab-scroll" scroll-y enhanced show-scrollbar="{{false}}" bindtouchstart="collabSwipeStart" bindtouchmove="collabSwipeMove" bindtouchend="collabSwipeEnd" bindtouchcancel="collabSwipeEnd">
         <view wx:if="{{collaborationPreview}}" class="collab-preview">
           <view class="collab-back" bindtap="backCollaborationList" role="button">‹ {{ui['返回列表']}}</view>
           <view class="collab-preview-title">{{collaborationPreview.title}}</view>
@@ -2021,7 +2024,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
 
   <!-- 更多菜单：重命名 / 查看统计 / 工作区文件都在当前弹层内切换，不再叠加新的底部弹窗 -->
   <view class="sheet-mask session-menu-mask {{moreSheetOpen ? 'is-open' : ''}}" aria-hidden="{{!moreSheetOpen}}" catchtap="closeMoreActions" catchtouchmove="noop">
-    <view class="sheet session-menu {{moreSheetExpanded ? 'expanded' : ''}}" style="margin-bottom: {{renameKeyboard}}px;" catchtap="noop">
+    <view class="sheet session-menu {{moreSheetExpanded ? 'expanded' : ''}}" style="{{renameKeyboard ? 'margin-bottom: ' + renameKeyboard + 'px;' : ''}}" catchtap="noop">
       <view class="session-menu-grabber-zone" catchtouchstart="moreSheetGrabStart" catchtouchmove="moreSheetGrabMove" catchtouchend="moreSheetGrabEnd" role="button" aria-label="{{moreSheetExpanded ? ui['收起'] : ui['展开']}}">
         <view class="sheet-handle"></view>
       </view>
@@ -2044,10 +2047,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
             <image class="session-menu-icon" src="/assets/icons/dsh-gauge.svg" mode="aspectFit"/><text class="session-menu-label">{{ui['查看统计']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
           </view>
           <view class="session-menu-row" bindtap="selectMoreAction" data-action="files" hover-class="session-menu-pressed" role="button">
-            <image class="session-menu-icon session-menu-folder" src="/assets/icons/{{theme === 'dark' ? 'ic-dir-folder-white.png' : 'ic-dir-folder-ink.png'}}" mode="aspectFit"/><text class="session-menu-label">{{ui['工作区文件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
-          </view>
-          <view class="session-menu-row" bindtap="selectMoreAction" data-action="switchSessions" hover-class="session-menu-pressed" role="button">
-            <image class="session-menu-icon" src="/assets/icons/list-gray.png" mode="aspectFit"/><text class="session-menu-label">{{ui['会话快捷切换']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
+            <image class="session-menu-icon session-menu-folder" src="/assets/icons/{{item.ungrouped ? (theme === 'dark' ? 'tray-white.png' : 'tray-ink.png') : (item.expanded ? 'workspace-folder-blue.svg' : (theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-blue.svg'))}}" mode="aspectFit"/><text class="session-menu-label">{{ui['工作区文件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
           </view>
         </view>
         <view class="session-menu-group">
@@ -2269,4 +2269,53 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
 
   <voice-overlay id="voice-overlay" visible="{{voiceOverlayVisible && tab === 'conversation'}}" theme="{{theme}}" cancel-armed="{{voiceCancelArmed}}" status="{{voiceStatus}}" />
   <public-access-dialog visible="{{publicAccessDialogOpen}}" dialog="{{publicAccessDialog}}" theme="{{theme}}" bindconfirm="onPublicAccessDialogConfirm" />
+  <!-- 悬浮侧栏：右上角按钮打开，原生/玻璃两种皮肤 -->
+  <view wx:if="{{convSidebarOpen}}" class="conv-sidebar-mask" bindtap="closeConversationSidebar" catchtouchmove="noop"></view>
+  <view
+    wx:if="{{convSidebarOpen}}"
+    class="conv-sidebar {{sessionGlassEnabled ? 'conv-sidebar-glass' : ''}}"
+    style="top: {{convSidebarTop}}px; height: {{convSidebarHeight}}px; width: {{convSidebarWidth}}px; transform-origin: {{convSidebarOriginX}}px {{convSidebarOriginY}}px;"
+    catchtap="noop"
+    catchtouchmove="noop"
+    role="dialog"
+    aria-label="{{ui['展开侧边栏']}}"
+  >
+    <view class="conv-sidebar-brand">
+      <image class="conv-sidebar-whale" src="/assets/icons/{{theme === 'dark' ? 'whale-white.png' : 'whale-ink.png'}}" mode="aspectFit"/>
+      <image class="conv-sidebar-wordmark" src="/assets/icons/{{theme === 'dark' ? 'wordmark-white.png' : 'wordmark-ink.png'}}" mode="widthFix"/>
+      <text class="conv-sidebar-badge">HARNESS</text>
+    </view>
+    <view class="conv-sidebar-item" bindtap="openConvSidebarPlugins" hover-class="conv-sidebar-press" role="button" aria-label="{{ui['插件']}}">
+      <image class="conv-sidebar-ic" src="/assets/icons/{{theme === 'dark' ? 'pinwheel-white.png' : 'pinwheel-ink.png'}}" mode="aspectFit"/>
+      <text class="conv-sidebar-label">{{ui['插件']}}</text>
+    </view>
+    <view class="conv-sidebar-item" bindtap="openConvSidebarSchedule" hover-class="conv-sidebar-press" role="button" aria-label="{{ui['定时任务']}}">
+      <image class="conv-sidebar-ic" src="/assets/icons/{{theme === 'dark' ? 'automation-white.svg' : 'automation.svg'}}" mode="aspectFit"/>
+      <text class="conv-sidebar-label">{{ui['定时任务']}}</text>
+    </view>
+    <text class="conv-sidebar-section">{{ui['工作区']}}</text>
+    <scroll-view class="conv-sidebar-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+      <block wx:for="{{convSidebarGroups}}" wx:key="id">
+        <view class="conv-sidebar-workspace {{item.containsCurrent ? 'current' : ''}}" bindtap="toggleConvSidebarGroup" data-id="{{item.id}}" hover-class="conv-sidebar-press" role="button" aria-expanded="{{item.expanded}}" aria-label="{{item.title}}">
+          <image class="conv-sidebar-folder" src="/assets/icons/{{item.ungrouped ? (theme === 'dark' ? 'tray-white.png' : 'tray-ink.png') : (item.expanded ? 'workspace-folder-blue.svg' : (theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-blue.svg'))}}" mode="aspectFit"/>
+          <text class="conv-sidebar-workspace-title">{{item.title}}</text>
+          <image class="conv-sidebar-chev {{item.expanded ? 'open' : ''}}" src="/assets/icons/chev-down-gray.png" mode="aspectFit"/>
+        </view>
+        <block wx:if="{{item.expanded}}">
+          <view wx:if="{{!item.sessions.length}}" class="conv-sidebar-empty">{{ui['暂无会话']}}</view>
+          <view wx:for="{{item.sessions}}" wx:for-item="session" wx:key="id" class="conv-sidebar-session {{session.selected ? 'selected' : ''}}" bindtap="selectConvSidebarSession" data-id="{{session.id}}" hover-class="conv-sidebar-press" role="button" aria-label="{{session.title}}">
+            <view class="conv-sidebar-dot {{session.running ? 'on' : ''}}"></view>
+            <text class="conv-sidebar-session-title">{{session.title}}</text>
+            <text class="conv-sidebar-time">{{session.timeText}}</text>
+          </view>
+        </block>
+      </block>
+    </scroll-view>
+    <view class="conv-sidebar-footer">
+      <view class="conv-sidebar-item" bindtap="openConvSidebarSettings" hover-class="conv-sidebar-press" role="button" aria-label="{{ui['设置']}}">
+        <image class="conv-sidebar-ic" src="/assets/icons/{{theme === 'dark' ? 'settings-white.svg' : 'settings-ink.svg'}}" mode="aspectFit"/>
+        <text class="conv-sidebar-label">{{ui['设置']}}</text>
+      </view>
+    </view>
+  </view>
 </view>

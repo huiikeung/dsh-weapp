@@ -152,16 +152,20 @@ test('gateway rejects non-WSS before dialing and permits WSS for platform valida
   let failure = '';
   const client = new GatewayClient({ onState(state, message) { if (state === 'failed') failure = message; } });
   t.after(() => client.disconnect());
-  for (const endpoint of ['ws://192.168.1.10/ws/mobile', 'http://example.test', '']) {
+  for (const endpoint of ['ws://public.example.test/ws/mobile', 'http://example.test', '']) {
     client.connectTransport(endpoint);
     assert.equal(client.state, 'failed');
     assert.match(failure, /wss:\/\//i);
     assert.match(failure, /配置/);
     assert.equal(sockets.length, 0);
   }
-  client.connectTransport('wss://gateway.example.test/ws/mobile');
+  client.connectTransport('ws://192.168.1.10/ws/mobile');
   assert.equal(client.state, 'connecting');
   assert.equal(sockets.length, 1);
+  client.disconnect();
+  client.connectTransport('wss://gateway.example.test/ws/mobile');
+  assert.equal(client.state, 'connecting');
+  assert.equal(sockets.length, 2);
 });
 
 test('gateway waits for random bytes and fails closed on missing or failed source', async t => {

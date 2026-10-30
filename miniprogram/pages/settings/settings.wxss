@@ -2041,6 +2041,11 @@
 .code-modal-title { color: var(--text); font-size: 30rpx; font-weight: 620; }
 .code-modal-close { width: 52rpx; height: 52rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--fill); color: var(--text-2); font-size: 24rpx; }
 .code-modal-body { flex: 1; min-height: 0; max-height: 52vh; }
+/* 卡片样式弹窗：浅色 / 深色分开调，各自一套参数 */
+.card-style-mode { display: flex; gap: 8rpx; margin: 4rpx 20rpx 4rpx; padding: 4rpx; border-radius: 16rpx; background: var(--fill); }
+.card-style-mode-btn { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 64rpx; border-radius: 12rpx; font-size: 26rpx; color: var(--text-2); }
+.card-style-mode-btn.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: var(--card-shadow); }
+
 /* 卡片外观弹窗里的实时预览：浅底上摆一张按当前参数渲染的卡片 */
 /* 预览舞台用中间调，白描边 / 顶部光线 / 投影才看得出来 */
 .card-preview-stage { margin: 6rpx 20rpx 10rpx; padding: 56rpx 26rpx; border-radius: 22rpx; background: linear-gradient(160deg, #55607a, #2b3242); }

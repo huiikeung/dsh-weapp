@@ -364,6 +364,26 @@ test('source selector, tabs, compact toolbar and right-aligned More stay explici
   assert.match(css, /\.plugins \.plugin-primary-button, \.plugins \.plugin-secondary-button \{ width: 100%; display: flex; align-items: center; justify-content: center; text-align: center/);
 });
 
+test('disconnected split add button keeps its pill instead of the native disabled grey', () => {
+  const root = path.resolve(__dirname, '..');
+  const wxml = fs.readFileSync(path.join(root, 'miniprogram/pages/plugins/plugins.wxml'), 'utf8');
+  const css = fs.readFileSync(path.join(root, 'miniprogram/pages/plugins/plugins.wxss'), 'utf8');
+  const ascf = fs.readFileSync(path.join(root, 'harmonyos/atomic-service/ascf/ascf_src/pages/plugins/plugins.css'), 'utf8');
+  // 未连接网关时 canAdd=false：分体按钮的两个原生 button 都带 disabled。
+  assert.match(wxml, /class="plugin-add-group \{\{canAdd \? '' : 'disabled'\}\}"/);
+  assert.match(wxml, /class="plugin-add" disabled="\{\{!canAdd\}\}"/);
+  assert.match(wxml, /class="plugin-add-arrow" disabled="\{\{!canAdd\}\}"/);
+  const compact = source => source.replace(/\s+/g, ' ');
+  // 微信会给 disabled 的原生 button 铺灰底/灰字并叠加 opacity：这里复位子按钮，
+  // 让胶囊配色保留、整组只通过 .disabled 淡出一次，刷新圆钮也不变成灰色实心圆。
+  for (const source of [css, ascf]) {
+    const sheet = compact(source);
+    assert.ok(sheet.includes('.plugins .plugin-add-group .plugin-add[disabled], .plugins .plugin-add-group .plugin-add-arrow[disabled] { opacity: 1; background: transparent; color: var(--pg-on-primary); }'), 'split button keeps pill colors in disabled state');
+    assert.ok(sheet.includes('.plugins .plugins-actions .plugins-refresh[disabled] { background: transparent; }'), 'refresh button keeps transparent background when disabled');
+    assert.ok(sheet.includes('.plugins button[disabled], .plugins .disabled { opacity: .4; }'), 'the group still fades once');
+  }
+});
+
 test('subagent bundles expose update availability for codex and claude code', () => {
   const catalog = buildCatalog({
     managementAvailable: true,

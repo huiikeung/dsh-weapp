@@ -244,3 +244,18 @@ test('idle conversation measures viewport height so scroll events without client
   page.onConvScroll({ detail: { scrollTop: 900, scrollHeight: 1400 } });
   assert.equal(page.data.showJump, true);
 });
+
+test('fast flings defer virtual window shifts until the gesture settles', () => {
+  const { page } = pageFixture([]);
+  let windowCalls = 0, measureCalls = 0;
+  page.updateConversationWindow = () => { windowCalls++; };
+  page.measureConversationViewport = () => { measureCalls++; };
+  page.onConvScroll({ detail: { scrollTop: 100, scrollHeight: 9000, clientHeight: 400 } });
+  assert.equal(page._flingSettlePending, undefined, 'first sample just seeds the velocity');
+  windowCalls = 0;
+  page.onConvScroll({ detail: { scrollTop: 5000, scrollHeight: 9000, clientHeight: 400 } });
+  assert.equal(page._flingSettlePending, true, 'fast fling defers the window shift');
+  assert.equal(windowCalls, 0, 'no virtual window shift mid-fling');
+  assert.equal(page._lastScrollSampleTop, 5000, 'final position is recorded for the settle pass');
+  assert.equal(measureCalls, 0);
+});
