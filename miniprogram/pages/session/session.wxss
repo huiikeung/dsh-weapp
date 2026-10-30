@@ -3625,6 +3625,7 @@ flex-direction: column;
 justify-content: center;
 padding: 0 40rpx;
 box-sizing: border-box;
+position: relative;
 }
 .turn-scrub-body {
 position: relative;
@@ -3722,6 +3723,42 @@ text-align: center;
 color: rgba(241, 244, 250, 0.6);
 font-size: 26rpx;
 }
+.turn-nav-empty { display: flex; flex-direction: column; align-items: center; gap: 18rpx; }
+.turn-sync-spinner {
+width: 36rpx;
+height: 36rpx;
+border: 3rpx solid rgba(255, 255, 255, 0.18);
+border-top-color: rgba(255, 255, 255, 0.72);
+border-radius: 50%;
+animation: turnSyncSpin 0.9s linear infinite;
+}
+@keyframes turnSyncSpin { to { transform: rotate(360deg); } }
+.turn-nav-retry { color: #FFB49B; font-size: 24rpx; padding: 8rpx 16rpx; }
+.turn-sync-indicator {
+position: absolute;
+left: 50%;
+bottom: 2rpx;
+transform: translateX(-50%);
+display: flex;
+align-items: center;
+gap: 10rpx;
+padding: 8rpx 20rpx;
+border-radius: 999rpx;
+color: rgba(241, 244, 250, 0.5);
+font-size: 21rpx;
+white-space: nowrap;
+pointer-events: auto;
+}
+.turn-sync-dot {
+width: 10rpx;
+height: 10rpx;
+border-radius: 50%;
+background: #34C759;
+opacity: 0.65;
+animation: turnSyncPulse 1.6s ease-in-out infinite;
+}
+@keyframes turnSyncPulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 0.8; } }
+.turn-sync-error { color: #FFB49B; }
 .turn-history-status {
 position: absolute;
 z-index: 2;

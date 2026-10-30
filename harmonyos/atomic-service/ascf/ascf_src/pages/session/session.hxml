@@ -63,7 +63,7 @@
 </view>
 <scroll-view hidden="{{tab !== 'conversation'}}" class="conversation {{tab !== 'conversation' ? 'session-panel-hidden' : ''}}" style="{{conversationStyle}}" scroll-y enhanced scroll-anchoring="{{false}}" show-scrollbar="{{false}}" scroll-into-view="{{scrollTarget}}" scroll-with-animation="{{scrollAnim}}" scroll-top="{{conversationScrollTop}}" bindscroll="onConvScroll" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel" bindscrolltoupper="loadOlder" upper-threshold="80">
 <view class="conversation-inner {{rows.length ? 'has-rows' : ''}}" style="{{conversationInnerStyle}}">
-<view has:if="{{rows.length && (historyLoading || hasMoreHistory)}}" class="hist-banner {{historyLoading ? 'is-loading' : 'is-idle'}}" bindtap="onHistoryBannerTap" role="button" aria-label="{{ui['加载更早记录']}}">
+<view has:if="{{rows.length && (historyLoading || hasMoreHistory) && !turnNavOpen}}" class="hist-banner {{historyLoading ? 'is-loading' : 'is-idle'}}" bindtap="onHistoryBannerTap" role="button" aria-label="{{ui['加载更早记录']}}">
 <view has:if="{{historyLoading && !histError && connected}}" class="banner-spinner"></view>
 <text class="banner-text">{{historyLoading ? historyProgressText : (histError || ui['加载更早记录'])}}</text>
 <text has:if="{{histError && !historyLoading}}" class="banner-retry">{{ui['重试']}}</text>
@@ -330,8 +330,8 @@
 <view class="trace-overview-axis"><text>0 {{ui['秒']}}</text><text>{{ui[traceOverview.durationLabel] !== undefined ? ui[traceOverview.durationLabel] : traceOverview.durationLabel}}</text></view>
 </view>
 <scroll-view class="trajectory" scroll-y enhanced show-scrollbar="{{false}}" scroll-into-view="{{traceScrollTarget}}" scroll-with-animation bindscroll="onTraceListScroll" bindscrolltoupper="loadOlder" upper-threshold="80">
-<view has:if="{{historyLoading}}" class="hist-banner"><view class="banner-spinner"/><text class="banner-text">{{historyProgressText}}</text></view>
-<view has:elif="{{hasMoreHistory}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
+<view has:if="{{historyLoading && !turnNavOpen}}" class="hist-banner"><view class="banner-spinner"/><text class="banner-text">{{historyProgressText}}</text></view>
+<view has:elif="{{hasMoreHistory && !turnNavOpen}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
 <view class="trace-list">
 <view class="trace-window-spacer" style="height:{{traceSpacerTopRpx}}rpx;" aria-hidden="true"/>
 <block has:for="{{trajectory}}" has:key="key">
@@ -1697,12 +1697,6 @@
 <view hidden="{{!turnNavOpen}}" class="turn-overlay {{!turnNavOpen ? 'session-panel-hidden' : ''}}" catchtap="closeTurnNavigator" catchtouchmove="noop">
 <view class="turn-overlay-inner" catchtap="closeTurnNavigator" role="dialog" aria-label="{{ui['对话']}}">
 <view class="turn-scrub-body" id="turn-scrub-body">
-<view has:if="{{turnNavWarming}}" class="turn-history-status">{{turnNavWarmText}} · {{turnNavItems.length}}</view>
-<view has:elif="{{historyLoading}}" class="turn-history-status">{{historyProgressText}} · {{turnNavItems.length}}</view>
-<view has:elif="{{hasMoreHistory && histError}}" class="turn-history-status turn-history-error" catchtap="retryTurnNavigatorHistory">{{histError}} · {{ui['重试']}}</view>
-<view has:elif="{{turnNavHistoryComplete && turnNavItems.length}}" class="turn-history-status turn-history-complete">{{turnNavHistoryText}} · {{turnNavItems.length}}</view>
-<view has:elif="{{turnNavHistoryPending && turnNavItems.length}}" class="turn-history-status">{{turnNavHistoryText}} · {{turnNavItems.length}}</view>
-<view has:elif="{{turnNavWarmText}}" class="turn-history-status">{{turnNavWarmText}} · {{turnNavItems.length}}</view>
 <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="turn-scrub-list" id="turn-scrub-list" style="height: 76vh;" scroll-top="{{turnNavScrollTop}}" bindscroll="onTurnListScroll" bindtouchstart="onTurnScrubStart" bindtouchend="onTurnScrubEnd" bindtouchcancel="onTurnScrubCancel">
 <view class="turn-scrub-inner">
 <view class="turn-scrub-spacer" style="height: {{turnNavTopPadPx}}px;"></view>
@@ -1715,8 +1709,14 @@
 <view class="turn-scrub-spacer" style="height: {{turnNavBottomPadPx}}px;"></view>
 </view>
 </scroll-view>
-<view has:if="{{!turnNavItems.length}}" class="turn-nav-empty">{{ui['暂无可显示的消息']}}</view>
+<view has:if="{{!turnNavItems.length}}" class="turn-nav-empty">
+<block has:if="{{turnNavWarming || historyLoading}}"><view class="turn-sync-spinner" aria-hidden="true"></view><text>{{ui['正在同步会话…']}}</text></block>
+<block has:elif="{{hasMoreHistory && histError}}"><view class="turn-nav-retry" catchtap="retryTurnNavigatorHistory">{{histError}} · {{ui['重试']}}</view></block>
+<block has:else>{{ui['暂无可显示的消息']}}</block>
 </view>
+</view>
+<view has:if="{{turnNavItems.length && (turnNavWarming || historyLoading)}}" class="turn-sync-indicator" catchtap="noop"><view class="turn-sync-dot" aria-hidden="true"></view><text>{{ui['正在同步会话…']}}</text></view>
+<view has:if="{{turnNavItems.length && hasMoreHistory && histError}}" class="turn-sync-indicator turn-sync-error" catchtap="retryTurnNavigatorHistory">{{ui['同步中断，点击重试']}}</view>
 </view>
 </view>
 <view class="sheet-mask session-menu-mask {{moreSheetOpen ? 'is-open' : ''}}" aria-hidden="{{!moreSheetOpen}}" catchtap="closeMoreActions" catchtouchmove="noop">

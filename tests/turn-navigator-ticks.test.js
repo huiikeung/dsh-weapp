@@ -20,6 +20,17 @@ test('turn ticks share the row selection and reserve fixed right-aligned space',
   }
 });
 
+test('turn navigator removes the top sync banner and uses a subtle bottom indicator', () => {
+  for (const base of [root, path.resolve(__dirname, '../resources/runtime-markup')]) {
+    const xml = fs.readFileSync(path.join(base, 'pages/session/session.wxml'), 'utf8');
+    const css = fs.readFileSync(path.join(base, 'pages/session/session.wxss'), 'utf8');
+    assert.ok(!xml.includes('turn-history-status'), 'top sync banner removed');
+    assert.ok(xml.includes('turn-sync-indicator'), 'subtle sync indicator present');
+    assert.ok(xml.includes('turn-sync-spinner'), 'empty state uses a spinner while syncing');
+    assert.match(css, /\.turn-sync-indicator\s*\{[^}]*position: absolute;/);
+  }
+});
+
 test('native WXML renders one tick per visible turn and follows selection in both themes', { skip: !compiler }, t => {
   const os = require('node:os');
   const { execFileSync } = require('node:child_process');

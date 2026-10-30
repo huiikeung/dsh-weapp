@@ -330,7 +330,8 @@ test('outline only declares the oldest turn after server history is authoritativ
   assert.match(page.data.turnNavHistoryText, /确认历史范围/);
 
   const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
-  assert.match(xml, /turnNavHistoryComplete/);
+  assert.ok(!xml.includes('turn-history-status'), 'authoritative/pending state no longer renders as a top banner');
+  assert.match(xml, /turn-sync-indicator/);
 });
 
 test('outline warm-up continues at a low rate even when the panel closes', () => {

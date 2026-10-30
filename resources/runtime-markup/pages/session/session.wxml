@@ -94,7 +94,7 @@
   >
     <view class="conversation-inner {{rows.length ? 'has-rows' : ''}}" style="{{conversationInnerStyle}}">
     <!-- 更早历史状态行：加载中与空闲共用同一行，避免状态切换时内容高度变化导致跳动 -->
-    <view wx:if="{{rows.length && (historyLoading || hasMoreHistory)}}" class="hist-banner {{historyLoading ? 'is-loading' : 'is-idle'}}" bindtap="onHistoryBannerTap" role="button" aria-label="{{ui['加载更早记录']}}">
+    <view wx:if="{{rows.length && (historyLoading || hasMoreHistory) && !turnNavOpen}}" class="hist-banner {{historyLoading ? 'is-loading' : 'is-idle'}}" bindtap="onHistoryBannerTap" role="button" aria-label="{{ui['加载更早记录']}}">
       <view wx:if="{{historyLoading && !histError && connected}}" class="banner-spinner"></view>
       <text class="banner-text">{{historyLoading ? historyProgressText : (histError || ui['加载更早记录'])}}</text>
       <text wx:if="{{histError && !historyLoading}}" class="banner-retry">{{ui['重试']}}</text>
@@ -409,8 +409,8 @@
       <view class="trace-overview-axis"><text>0 {{ui['秒']}}</text><text>{{ui[traceOverview.durationLabel] !== undefined ? ui[traceOverview.durationLabel] : traceOverview.durationLabel}}</text></view>
     </view>
     <scroll-view class="trajectory" scroll-y enhanced show-scrollbar="{{false}}" scroll-into-view="{{traceScrollTarget}}" scroll-with-animation bindscroll="onTraceListScroll" bindscrolltoupper="loadOlder" upper-threshold="80">
-      <view wx:if="{{historyLoading}}" class="hist-banner"><view class="banner-spinner"/><text class="banner-text">{{historyProgressText}}</text></view>
-      <view wx:elif="{{hasMoreHistory}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
+      <view wx:if="{{historyLoading && !turnNavOpen}}" class="hist-banner"><view class="banner-spinner"/><text class="banner-text">{{historyProgressText}}</text></view>
+      <view wx:elif="{{hasMoreHistory && !turnNavOpen}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
       <view class="trace-list">
         <view class="trace-window-spacer" style="height:{{traceSpacerTopRpx}}rpx;" aria-hidden="true"/>
         <block wx:for="{{trajectory}}" wx:key="key">
@@ -1980,12 +1980,6 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
     <view wx:if="{{sessionGlassEnabled}}" class="turn-overlay-glass" aria-hidden="true"></view>
     <view class="turn-overlay-inner" catchtap="closeTurnNavigator" role="dialog" aria-label="{{ui['对话']}}">
       <view class="turn-scrub-body" id="turn-scrub-body">
-        <view wx:if="{{turnNavWarming}}" class="turn-history-status">{{turnNavWarmText}} · {{turnNavItems.length}}</view>
-        <view wx:elif="{{historyLoading}}" class="turn-history-status">{{historyProgressText}} · {{turnNavItems.length}}</view>
-        <view wx:elif="{{hasMoreHistory && histError}}" class="turn-history-status turn-history-error" catchtap="retryTurnNavigatorHistory">{{histError}} · {{ui['重试']}}</view>
-        <view wx:elif="{{turnNavHistoryComplete && turnNavItems.length}}" class="turn-history-status turn-history-complete">{{turnNavHistoryText}} · {{turnNavItems.length}}</view>
-        <view wx:elif="{{turnNavHistoryPending && turnNavItems.length}}" class="turn-history-status">{{turnNavHistoryText}} · {{turnNavItems.length}}</view>
-        <view wx:elif="{{turnNavWarmText}}" class="turn-history-status">{{turnNavWarmText}} · {{turnNavItems.length}}</view>
         <scroll-view
           scroll-y
           show-scrollbar="{{false}}"
@@ -2017,8 +2011,22 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
             <view class="turn-scrub-spacer" style="height: {{turnNavBottomPadPx}}px;"></view>
           </view>
         </scroll-view>
-        <view wx:if="{{!turnNavItems.length}}" class="turn-nav-empty">{{ui['暂无可显示的消息']}}</view>
+        <view wx:if="{{!turnNavItems.length}}" class="turn-nav-empty">
+          <block wx:if="{{turnNavWarming || historyLoading}}">
+            <view class="turn-sync-spinner" aria-hidden="true"></view>
+            <text>{{ui['正在同步会话…']}}</text>
+          </block>
+          <block wx:elif="{{hasMoreHistory && histError}}">
+            <view class="turn-nav-retry" catchtap="retryTurnNavigatorHistory">{{histError}} · {{ui['重试']}}</view>
+          </block>
+          <block wx:else>{{ui['暂无可显示的消息']}}</block>
+        </view>
       </view>
+      <view wx:if="{{turnNavItems.length && (turnNavWarming || historyLoading)}}" class="turn-sync-indicator" catchtap="noop">
+        <view class="turn-sync-dot" aria-hidden="true"></view>
+        <text>{{ui['正在同步会话…']}}</text>
+      </view>
+      <view wx:if="{{turnNavItems.length && hasMoreHistory && histError}}" class="turn-sync-indicator turn-sync-error" catchtap="retryTurnNavigatorHistory">{{ui['同步中断，点击重试']}}</view>
     </view>
   </view>
 

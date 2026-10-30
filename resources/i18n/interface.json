@@ -2486,5 +2486,7 @@
   "将从 llm-pi-ai 设置中移除「{provider}」及其 {count} 个模型，修改会立即同步到 DSH 客户端。已保存的 API Key 不会自动删除。": "This removes “{provider}” and its {count} model(s) from the llm-pi-ai settings. The change syncs to the DSH client immediately. Stored API keys are not deleted automatically.",
   "提供商已删除": "Provider deleted",
   "删除提供商失败，请重试": "Could not delete the provider. Please retry.",
-  "这是当前默认模型提供商，请先在「会话设置 → 默认模型」切换后再删除。": "This is the provider used by the current default model. Switch the default model in Session settings → Default model before deleting it."
+  "这是当前默认模型提供商，请先在「会话设置 → 默认模型」切换后再删除。": "This is the provider used by the current default model. Switch the default model in Session settings → Default model before deleting it.",
+  "正在同步会话…": "Syncing conversation…",
+  "同步中断，点击重试": "Sync interrupted. Tap to retry."
 }
