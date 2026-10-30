@@ -1,0 +1,14 @@
+<page-meta page-style="{{pageStyle}}"/>
+<view class="announcements-page {{themeClass}}" style="{{contentFontStyle}}">
+  <view has:if="{{loading}}" class="notice-state">{{ui['正在加载公告…']}}</view>
+  <view has:elif="{{error}}" class="notice-state" role="alert"><text>{{ui[error] !== undefined ? ui[error] : error}}</text><button class="notice-retry" bindtap="refresh">{{ui['重新加载']}}</button></view>
+  <view has:elif="{{!items.length}}" class="notice-state"><text>{{ui['暂无开发者公告']}}</text><text class="notice-empty-hint">{{ui['更新说明和使用提醒将发布在这里。']}}</text></view>
+  <view has:for="{{items}}" has:key="id" class="notice-card {{item.expanded ? 'is-expanded' : ''}}">
+    <view class="notice-toggle" data-id="{{item.id}}" bindtap="toggle" hover-class="notice-pressed" role="button" aria-label="{{item.expanded ? ui['收起'] : ui['展开']}}{{ui['公告：']}}{{item.title}}">
+      <view class="notice-heading"><text class="notice-tag">{{ui['公告']}}</text><text class="notice-title">{{item.title}}</text><view class="notice-chevron {{item.expanded ? 'up' : ''}}"/></view>
+      <text has:if="{{!item.expanded}}" class="notice-preview">{{item.content}}</text>
+    </view>
+    <view has:if="{{item.expanded}}" class="notice-body"><text selectable>{{item.content}}</text></view>
+  </view>
+  <text class="notice-footer">{{ui['公告不会索取密码、配对令牌或模型密钥。']}}</text>
+</view>

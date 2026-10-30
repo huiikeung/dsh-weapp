@@ -1,0 +1,56 @@
+小程序项目：miniprogram
+
+Error: 暂不支持api has.createOffscreenCanvas
+位置：harmonyos/atomic-service/ascf/ascf_src/components/ocean-background/ocean-background.js {"line":72,"column":25}
+
+
+Error: 暂不支持api has.createOffscreenCanvas
+位置：harmonyos/atomic-service/ascf/ascf_src/pages/plugins/plugins.js {"line":28,"column":62}
+
+
+Error: 暂不支持api has.createOffscreenCanvas
+位置：harmonyos/atomic-service/ascf/ascf_src/pages/plugins/plugins.js {"line":32,"column":19}
+
+
+Error: 暂不支持api has.createOffscreenCanvas
+位置：harmonyos/atomic-service/ascf/ascf_src/pages/session/session.js {"line":2972,"column":31}
+
+
+Error: 暂不支持api has.createOffscreenCanvas
+位置：harmonyos/atomic-service/ascf/ascf_src/pages/session/session.js {"line":2976,"column":23}
+
+
+Error: 暂不支持api has.chooseMessageFile
+位置：harmonyos/atomic-service/ascf/ascf_src/pages/session/session.js {"line":6144,"column":10}
+
+
+Error: 暂不支持api has.compressImage
+位置：harmonyos/atomic-service/ascf/ascf_src/pages/session/session.js {"line":6186,"column":48}
+
+
+Error: 暂不支持api has.compressImage
+位置：harmonyos/atomic-service/ascf/ascf_src/pages/session/session.js {"line":6193,"column":60}
+
+
+Error: 暂不支持api has.chooseMessageFile
+位置：harmonyos/atomic-service/ascf/ascf_src/pages/session/session.js {"line":6231,"column":20}
+
+
+Error: 暂不支持api has.getAccountInfoSync
+位置：harmonyos/atomic-service/ascf/ascf_src/utils/runtime.js {"line":13,"column":15}
+
+
+Error: 暂不支持api has.getAccountInfoSync
+位置：harmonyos/atomic-service/ascf/ascf_src/utils/runtime.js {"line":15,"column":17}
+
+
+Error: 暂不支持api has.setBackgroundColor
+位置：harmonyos/atomic-service/ascf/ascf_src/utils/theme.js {"line":104,"column":15}
+
+
+Error: 暂不支持api has.setBackgroundColor
+位置：harmonyos/atomic-service/ascf/ascf_src/utils/theme.js {"line":106,"column":6}
+
+
+以上接口当前版本暂不支持，请期待后续更新。
+如有需要使用请参考官方文档获取暂不支持的接口处理方式：https://developer.huawei.com/consumer/cn/doc/atomic-ascf-V5/faqs-diff-ascf-applets-V5

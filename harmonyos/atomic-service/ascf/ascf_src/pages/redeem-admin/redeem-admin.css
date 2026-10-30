@@ -1,0 +1,39 @@
+.admin-page { padding: 28rpx 40rpx calc(60rpx + env(safe-area-inset-bottom)); }
+.admin-intro { display: flex; flex-direction: column; gap: 12rpx; margin: 8rpx 0 32rpx; }
+.admin-title { font-size: 40rpx; font-weight: 650; color: var(--text); }
+.admin-subtitle, .code-meta, .code-result-label { color: var(--text-2); font-size: 23rpx; line-height: 1.6; }
+.admin-message { margin: 22rpx 0; padding: 24rpx; border-radius: 16rpx; background: var(--fill); color: var(--text-2); font-size: 25rpx; line-height: 1.65; }
+.admin-value { max-width: 60%; min-width: 0; color: var(--text-2); font-size: 26rpx; text-align: right; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.admin-primary, .admin-secondary { margin: 24rpx 0; min-height: 88rpx; border-radius: 20rpx; font-size: 29rpx; line-height: 88rpx; }
+.admin-primary { background: var(--ocean); color: #fff; }
+.admin-primary[disabled] { background: var(--fill); color: var(--text-3); }
+.admin-secondary { background: var(--fill); color: var(--ocean); margin-bottom: 0; }
+button::after { border: 0; }
+.code-result, .code-item { padding: 26rpx; margin-top: 24rpx; }
+.code-value { display: block; margin: 18rpx 0; font-family: ui-monospace, Menlo, monospace; font-size: 34rpx; font-weight: 600; color: var(--text); letter-spacing: 2rpx; overflow-wrap: anywhere; }
+.code-meta { display: block; word-break: break-all; }
+.admin-list-head, .code-heading, .code-footer { display: flex; align-items: center; justify-content: space-between; gap: 18rpx; }
+.admin-list-head { margin-top: 30rpx; }
+.admin-list-head .group-title { flex: 1; min-width: 0; }
+/* 右上角两个入口：清空已用完（危险色，只有存在已用完的码时才出现）+ 刷新 */
+.admin-list-actions { flex: none; display: flex; align-items: center; gap: 8rpx; }
+.admin-link { color: var(--ocean); font-size: 25rpx; padding: 12rpx 0 12rpx 24rpx; }
+.admin-link-danger { color: #E5484D; }
+.code-title { font-size: 28rpx; font-weight: 600; color: var(--text); }
+.code-status { font-size: 22rpx; color: var(--text-2); flex-shrink: 0; }
+.code-heading { margin-bottom: 12rpx; }
+.code-footer { margin-top: 18rpx; align-items: flex-end; }
+.admin-stop { margin: 0; flex-shrink: 0; padding: 0 18rpx; background: var(--fill); color: var(--text-2); font-size: 23rpx; line-height: 60rpx; border-radius: 12rpx; }
+.code-actions { display: flex; justify-content: flex-end; gap: 16rpx; margin-top: 20rpx; }
+
+/* 访问时长居中弹窗 */
+.admin-modal-mask { position: fixed; inset: 0; z-index: 900; display: flex; align-items: center; justify-content: center; padding: 48rpx; background: rgba(0, 0, 0, .45); }
+.admin-modal { width: 100%; max-width: 600rpx; max-height: 70vh; box-sizing: border-box; display: flex; flex-direction: column; padding: 28rpx 28rpx 20rpx; border-radius: 24rpx; background: var(--surface); border: 1rpx solid var(--border); box-shadow: 0 24rpx 64rpx rgba(0, 0, 0, .28); }
+.admin-modal-head { display: flex; flex: none; align-items: center; justify-content: space-between; gap: 16rpx; padding-bottom: 16rpx; }
+.admin-modal-title { color: var(--text); font-size: 30rpx; font-weight: 620; }
+.admin-modal-close { width: 52rpx; height: 52rpx; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--fill); color: var(--text-2); font-size: 24rpx; }
+.admin-modal-body { flex: 1; min-height: 0; max-height: 52vh; }
+.admin-option { display: flex; align-items: center; justify-content: space-between; gap: 16rpx; min-height: 96rpx; padding: 0 22rpx; border-radius: 16rpx; color: var(--text); font-size: 28rpx; }
+.admin-option + .admin-option { margin-top: 8rpx; }
+.admin-option.on { background: var(--fill); color: var(--ocean); font-weight: 600; }
+.admin-option-check { color: var(--ocean); font-size: 26rpx; }

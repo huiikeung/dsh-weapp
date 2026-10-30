@@ -1,0 +1,2 @@
+<page-meta page-style="{{pageStyle}}"/>
+<privacy-sheet visible="{{privacyOpen}}" theme="{{theme}}" bindclose="closePrivacyPolicy"/>

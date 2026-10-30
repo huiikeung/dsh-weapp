@@ -1,0 +1,357 @@
+/* Native picker sheets used when the glass settings style is disabled. */
+.picker-option-list {
+  border: 1rpx solid var(--border);
+  border-radius: 24rpx;
+  overflow: hidden;
+  margin-bottom: 16rpx;
+  flex: none;            /* 高度由上方的 max-height 决定，内部独立滚动 */
+  width: 100%;
+}
+
+.picker-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  padding: 26rpx 28rpx;
+  font-size: 30rpx;
+  color: var(--text);
+}
+
+.picker-option + .picker-option {
+  border-top: 1rpx solid var(--divider);
+}
+
+.picker-option:active {
+  background: var(--fill);
+}
+
+.picker-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-option.checked .picker-option-label {
+  color: var(--ocean);
+  font-weight: 600;
+}
+
+.picker-option-check {
+  flex: none;
+  color: var(--ocean);
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+/* Agent preset and model cards follow dsh-mobile while staying in the existing sheet. */
+.picker-option-list.preset-picker-list,
+.picker-option-list.model-picker-list,
+.picker-option-list.permission-picker-list {
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  padding: 0 2rpx 8rpx;
+  box-sizing: border-box;
+}
+
+.picker-intro {
+  margin: 0 8rpx 20rpx;
+  color: var(--text-2);
+  font-size: 25rpx;
+  line-height: 1.55;
+}
+
+.preset-option-card,
+.model-option-card {
+  box-sizing: border-box;
+  margin-bottom: 14rpx;
+  padding: 26rpx 28rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 24rpx;
+  background: var(--fill);
+  transition: background-color 0.16s ease, border-color 0.16s ease, opacity 0.16s ease;
+}
+
+.preset-option-card.selected,
+.model-option-card.selected {
+  border: 1rpx solid var(--text);
+}
+
+.preset-option-card.broken {
+  opacity: .68;
+}
+
+.preset-create-entry {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin: 10rpx 2rpx 8rpx;
+  padding: 22rpx 26rpx;
+  border: 1rpx dashed var(--border);
+  border-radius: 24rpx;
+  background: var(--fill);
+  transition: background-color 0.16s ease, opacity 0.16s ease;
+}
+
+.preset-create-plus {
+  width: 50rpx;
+  height: 50rpx;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(46, 107, 230, .10);
+  color: #2E6BE6;
+  font-size: 38rpx;
+  font-weight: 400;
+  line-height: 1;
+}
+
+.preset-create-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.preset-create-title {
+  color: var(--text);
+  font-size: 27rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.preset-create-description {
+  color: var(--text-2);
+  font-size: 22rpx;
+  line-height: 1.45;
+}
+
+.preset-create-chevron {
+  width: 24rpx;
+  height: 24rpx;
+  flex: none;
+  opacity: .55;
+}
+
+.preset-create-pressed { background: var(--fill-2); }
+.preset-create-entry.busy { opacity: .65; }
+
+.picker-card-hover,
+.model-option-main-hover {
+  background: var(--fill-2);
+}
+
+.preset-card-head,
+.model-option-main {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.permission-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  min-width: 0;
+}
+
+.permission-card-icon {
+  width: 42rpx;
+  height: 42rpx;
+  flex: none;
+}
+
+.preset-card-name,
+.model-option-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--text);
+  font-size: 29rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.preset-card-id {
+  flex: none;
+  max-width: 190rpx;
+  padding: 4rpx 12rpx;
+  border-radius: 999rpx;
+  background: var(--fill-2);
+  color: var(--text-2);
+  font-size: 21rpx;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-current-badge {
+  flex: none;
+  margin-left: auto;
+  padding: 7rpx 14rpx;
+  border-radius: 999rpx;
+  background: #111315;
+  color: #FFFFFF;
+  font-size: 21rpx;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.permission-experimental-badge {
+  flex: none;
+  padding: 5rpx 9rpx;
+  border-radius: 8rpx;
+  background: rgba(196, 102, 11, .12);
+  color: #B65B00;
+  font-size: 18rpx;
+  font-weight: 700;
+  letter-spacing: .4rpx;
+}
+
+.theme-dark .permission-experimental-badge {
+  background: rgba(255, 180, 84, .16);
+  color: #FFB454;
+}
+
+.preset-card-description {
+  display: block;
+  margin-top: 14rpx;
+  color: var(--text-2);
+  font-size: 25rpx;
+  line-height: 1.55;
+}
+
+.preset-card-warning {
+  display: block;
+  margin-top: 14rpx;
+  color: #C4660B;
+  font-size: 23rpx;
+  line-height: 1.45;
+}
+
+.theme-dark .preset-card-warning {
+  color: #FFB454;
+}
+
+/* Model groups use provider headings and one bordered card per model. */
+.picker-provider-title {
+  margin: 18rpx 6rpx 10rpx;
+  color: var(--text-2);
+  font-size: 25rpx;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.picker-provider-title:first-child {
+  margin-top: 0;
+}
+
+.model-option-main {
+  min-height: 42rpx;
+  border-radius: 8rpx;
+}
+
+.model-effort-section {
+  margin-top: 18rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid var(--divider);
+}
+
+.model-effort-label {
+  display: block;
+  margin-bottom: 10rpx;
+  color: var(--text-2);
+  font-size: 22rpx;
+  font-weight: 500;
+}
+
+.model-effort-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10rpx;
+}
+
+.model-effort-chip {
+  padding: 8rpx 16rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 999rpx;
+  background: var(--fill);
+  color: var(--text);
+  font-size: 22rpx;
+  line-height: 1.3;
+}
+
+.model-effort-chip.selected {
+  border-color: var(--text);
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.model-effort-chip-hover {
+  opacity: .72;
+}
+
+/* General picker group headings (permissions / reasoning effort) */
+.picker-group {
+  padding: 20rpx 28rpx 10rpx;
+  font-size: 24rpx;
+  font-weight: 600;
+  letter-spacing: 0.5rpx;
+  color: var(--text-3);
+  background: var(--fill);
+}
+
+.utility-mask {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, .42);
+}
+
+.utility-sheet {
+  width: 100%;
+  max-height: 92vh;
+  box-sizing: border-box;
+  padding: 10rpx 40rpx calc(32rpx + env(safe-area-inset-bottom));
+  border-radius: 32rpx 32rpx 0 0;
+  background: var(--surface);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+}
+
+.utility-header { position: relative; display: flex; align-items: center; min-height: 64rpx; margin: 8rpx 0 16rpx; padding-right: 68rpx; flex-shrink: 0; }
+.utility-title { font-size: 34rpx; font-weight: 650; }
+.utility-sheet .utility-close { position: absolute; right: 0; top: 50%; transform: translateY(-50%); display: flex; align-items: center; justify-content: center; width: 60rpx; height: 60rpx; margin: 0; padding: 0; background: transparent; border: 0; box-shadow: none; flex-shrink: 0; }
+.utility-scroll { min-height: 0; max-height: 50vh; }
+.diagnostic-list { border: 1rpx solid var(--border); border-radius: 24rpx; overflow: hidden; }
+.diagnostic-row { display: flex; gap: 24rpx; align-items: flex-start; padding: 24rpx; }
+.diagnostic-row + .diagnostic-row { border-top: 1rpx solid var(--divider); }
+.diagnostic-label { flex: none; color: var(--text-2); font-size: 26rpx; line-height: 1.5; }
+.diagnostic-value { flex: 1; min-width: 0; text-align: right; color: var(--text); font-size: 26rpx; line-height: 1.5; overflow-wrap: anywhere; word-break: break-all; white-space: pre-wrap; }
+.cache-description { font-size: 29rpx; line-height: 1.7; color: var(--text); padding: 4rpx 0 24rpx; }
+.cache-description text { display: block; }
+.cache-note { color: var(--text-2); font-size: 25rpx; margin-top: 16rpx; }
+.cache-error { color: #BF3D31; font-size: 25rpx; margin-top: 16rpx; }
+.theme-dark .cache-error { color: #FF8E82; }
+.utility-actions { display: flex; gap: 20rpx; margin-top: 24rpx; flex-shrink: 0; }
+.utility-sheet .utility-button { flex: 1; width: 100%; min-width: 0; margin: 0; padding: 24rpx 16rpx; border-radius: 22rpx; font-size: 29rpx; font-weight: 500; line-height: 1.5; }
+.utility-button::after, .utility-close::after { border: 0; }
+.utility-sheet .utility-cancel { background: var(--fill); color: var(--text); }
+.utility-sheet .utility-confirm { background: #BF3D31; color: #FFFFFF; }
+.theme-dark .utility-sheet .utility-confirm { background: #A83227; }
+.utility-sheet .utility-done { flex: none; margin-top: 24rpx; background: var(--fill); color: var(--text); }
+.utility-sheet button[disabled] { opacity: .5; }
+
+.pair-sheet.expanded .picker-option-list { max-height: none; flex: 1; min-height: 0; }
+.utility-sheet.expanded .utility-scroll { max-height: none; flex: 1; min-height: 0; }

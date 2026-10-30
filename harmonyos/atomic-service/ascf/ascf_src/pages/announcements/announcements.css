@@ -1,0 +1,18 @@
+.announcements-page { min-height: 100vh; box-sizing: border-box; padding: 30rpx 24rpx calc(44rpx + env(safe-area-inset-bottom)); color: var(--text); }
+.notice-card { margin-bottom: 16rpx; border: 1px solid #dce0e8; border-radius: 26rpx; background: #f7f8fa; overflow: hidden; box-shadow: inset 0 1px 0 rgba(255,255,255,.6); }
+.theme-dark .notice-card { background: #18191e; border-color: #383a40; box-shadow: inset 0 1px 0 rgba(255,255,255,.07); }
+.notice-toggle { padding: 26rpx 24rpx; min-height: 88rpx; box-sizing: border-box; }
+.notice-pressed { opacity: .7; }
+.notice-heading { display: flex; align-items: flex-start; gap: 12rpx; min-width: 0; }
+.notice-tag { flex-shrink: 0; color: var(--ocean); font-size: 23rpx; font-weight: 600; line-height: 42rpx; }
+.notice-title { flex: 1; min-width: 0; font-size: 29rpx; font-weight: 600; line-height: 1.45; overflow-wrap: anywhere; }
+.notice-chevron { width: 10rpx; height: 10rpx; flex-shrink: 0; margin: 13rpx 7rpx 0 12rpx; border-right: 1.5px solid #858d9d; border-bottom: 1.5px solid #858d9d; transform: rotate(45deg); }
+.notice-chevron.up { transform: rotate(225deg); margin-top: 18rpx; }
+.notice-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; margin-top: 14rpx; font-size: 26rpx; line-height: 1.65; color: var(--text-2); word-break: break-word; }
+.notice-body { margin: 0 24rpx; padding: 21rpx 0 27rpx; border-top: 1px solid #dce0e8; font-size: 27rpx; line-height: 1.85; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text-2); }
+.theme-dark .notice-body { border-color: #303440; }
+.notice-footer { display: block; margin: 35rpx 7rpx 0; font-size: 22rpx; color: var(--text-3); line-height: 1.7; }
+.notice-state { padding: 55rpx 24rpx; color: var(--text-2); font-size: 28rpx; line-height: 1.7; text-align: center; }
+.notice-empty-hint { display: block; margin-top: 14rpx; font-size: 24rpx; }
+.notice-retry { margin-top: 24rpx; background: var(--fill); color: var(--ocean); font-size: 27rpx; }
+.notice-retry::after { border: 0; }

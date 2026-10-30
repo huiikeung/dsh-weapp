@@ -1,0 +1,20 @@
+module.exports = {
+  '协作':'Team', '成员':'Members', '智能体团队':'Agent team', '编队':'Squads', '编队总览':'Squad overview', '后台任务':'Background tasks', '子智能体':'Subagents', '团队任务':'Team tasks',
+  '团队数据版本暂不支持':'This team data version is not supported yet',
+  '创建中':'Starting', '状态待同步':'Status unavailable', '空闲':'Idle',
+  '主智能体':'Lead agent', '团队成员':'Teammate', '一次性子智能体':'One-shot subagent',
+  '可继续子智能体':'Continuable subagent', '未分配':'Unassigned',
+  '连接断开，状态可能已过期':'Disconnected; status may be outdated',
+  '暂无协作记录，创建成员或子智能体后会自动显示':'Members and subagents will appear here when created',
+  '暂无成员':'No team members', '暂无子智能体':'No subagents', '暂无团队任务':'No team tasks', '暂无工具调用':'No tool calls',
+  '当前会话':'Current session', '查看记录':'View history', '返回列表':'Back to list',
+  '只读记录，不会切换当前对话或发送任务':'Read-only history; your current conversation stays open',
+  '加载记录失败，请重试':'Unable to load history. Please retry', '暂无可显示的消息':'No messages to display',
+  '刷新协作状态':'Refresh collaboration status', '协作详情':'Collaboration details',
+  '收起协作面板':'Collapse collaboration panel', '展开协作面板至九成屏幕':'Expand collaboration panel to 90% of the screen',
+  '最近消息':'Recent messages', '下级子智能体':'Child subagents',
+  '已加载的调用':'Loaded calls', '正在加载记录…':'Loading history…', '任务详情':'Task details',
+  '阻塞任务':'Blocked by', '更多记录可在 DSH 客户端查看':'More history is available in DSH',
+  '仅显示最近 200 次调用':'Showing the latest 200 calls',
+  '记录请求超时，请重新连接后重试':'History request timed out. Reconnect and try again'
+};

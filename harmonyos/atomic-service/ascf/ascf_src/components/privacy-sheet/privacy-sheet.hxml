@@ -1,0 +1,26 @@
+<view has:if="{{mounted}}" class="privacy-overlay {{closing ? 'privacy-overlay-closing' : ''}} {{theme === 'dark' ? 'privacy-dark' : 'privacy-light'}}" catchtouchmove="noop">
+  <view class="privacy-sheet {{dragging ? 'privacy-sheet-dragging' : ''}}" style="padding-top:0;transform:translateY({{dragOffset}}px);" role="dialog" aria-label="{{ui['隐私政策']}}">
+    <view class="privacy-grabber-area" catchtouchstart="onDragStart" catchtouchmove="onDragMove" catchtouchend="onDragEnd" catchtouchcancel="onDragCancel" aria-label="{{ui['下拉关闭隐私政策']}}">
+      <view class="privacy-grabber"></view>
+    </view>
+    <view class="privacy-header">
+      <view class="privacy-heading"><text class="privacy-eyebrow">{{ui['鲸尾助手小程序版']}}</text><text class="privacy-title">{{ui['隐私政策']}}</text></view>
+      <button class="privacy-close" bindtap="close" hover-class="privacy-pressed" aria-label="{{ui['关闭隐私政策']}}"><view class="sheet-close-x"></view></button>
+    </view>
+    <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="privacy-scroll" scroll-top="{{scrollTop}}">
+      <view class="privacy-content">
+        <text class="privacy-updated">{{ui['更新日期：']}}{{policy.updatedAt}}</text>
+        <text class="privacy-intro" selectable>{{policy.intro}}</text>
+        <view has:for="{{policy.sections}}" has:key="id" class="privacy-section">
+          <text class="privacy-section-title">{{item.title}}</text>
+          <text has:for="{{item.paragraphs}}" has:for-item="paragraph" has:key="*this" class="privacy-paragraph" selectable>{{paragraph}}</text>
+        </view>
+        <view class="privacy-links">
+          <button class="privacy-link" bindtap="openPlatformPrivacy" hover-class="privacy-pressed">{{ui['查看微信平台隐私指引']}}</button>
+          <button class="privacy-link" open-type="contact" session-from="whaletail-privacy" binderror="onContactError" hover-class="privacy-pressed">{{ui['联系隐私与客服支持']}}</button>
+        </view>
+        <text class="privacy-footer">{{ui['关闭此页仅表示结束阅读，不代表同意授权。']}}</text>
+      </view>
+    </scroll-view>
+  </view>
+</view>

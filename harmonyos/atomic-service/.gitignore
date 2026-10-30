@@ -1,0 +1,14 @@
+**/node_modules/
+**/oh_modules/
+/ascf/ascf_build/
+/entry/src/main/resources/rawfile/
+/local.properties
+/.idea
+**/build
+/.hvigor
+.cxx
+/.clangd
+/.clang-format
+/.clang-tidy
+**/.test
+/.appanalyzer

@@ -1,0 +1,9 @@
+{
+  "desc": "鲸尾 Harness 微信小程序",
+  "rules": [
+    {
+      "action": "disallow",
+      "page": "*"
+    }
+  ]
+}

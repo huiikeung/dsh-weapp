@@ -1,0 +1,642 @@
+@import "./native-picker.css";
+
+.session-settings { padding: 0 40rpx calc(60rpx + env(safe-area-inset-bottom)); color: var(--text); }
+.session-nav { position: fixed; top: 0; left: 0; right: 0; z-index: 10; padding-left: 40rpx; padding-right: 40rpx; background: var(--bg); display: flex; align-items: center; box-sizing: content-box; }
+.session-nav-placeholder { margin-bottom: 20rpx; }
+
+/* DSH desktop AccountSection: 8px section inset, 16px card gap, 20px radius. */
+.dsh-account-section { display: flex; flex-direction: column; gap: 32rpx; padding: 16rpx 0 0; color: var(--text); font-size: 26rpx; line-height: 44rpx; }
+.dsh-account-card,
+.dsh-balance-card { box-sizing: border-box; border: 1rpx solid var(--border); border-radius: 20rpx; background: var(--surface); padding: 24rpx 32rpx; }
+/* 箭头用绝对定位贴右缘：微信里 <image> 是原生组件，flex 布局不可靠。 */
+.dsh-account-card { position: relative; display: flex; align-items: center; gap: 32rpx; }
+.dsh-account-card.has-chevron { padding-right: 76rpx; }
+.dsh-account-chevron { position: absolute; right: 32rpx; top: 50%; width: 32rpx; height: 32rpx; transform: translateY(-50%); transition: transform 0.16s ease; }
+.dsh-account-chevron.open { transform: translateY(-50%) rotate(90deg); }
+.dsh-account-identity { display: flex; flex: 1; align-items: center; gap: 20rpx; min-width: 0; min-height: 88rpx; }
+.dsh-account-avatar { width: 64rpx; height: 64rpx; flex: none; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 50%; color: var(--text-3); background: var(--fill); font-size: 21rpx; font-weight: 600; }
+.dsh-account-avatar-image { width: 100%; height: 100%; }
+.dsh-account-avatar-user { width: 32rpx; height: 32rpx; display: block; }
+.dsh-account-avatar-placeholder { line-height: 1; }
+.dsh-account-identity-copy { min-width: 0; display: flex; flex-direction: column; }
+.dsh-account-name { color: var(--text); font-size: 28rpx; font-weight: 500; line-height: 44rpx; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dsh-account-status, .dsh-account-muted, .dsh-account-secondary { color: var(--text-3); }
+.dsh-account-status { display: block; font-size: 26rpx; line-height: 36rpx; }
+.dsh-account-info { flex: none; color: var(--text); font-size: 26rpx; line-height: 44rpx; white-space: nowrap; }
+.dsh-balance-card { display: flex; flex-direction: column; gap: 16rpx; }
+.dsh-balance-row { display: flex; align-items: center; justify-content: space-between; gap: 32rpx; min-height: 80rpx; padding: 12rpx 0; box-sizing: border-box; }
+.dsh-balance-row > text:first-child { color: var(--text); }
+.dsh-balance-amount { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0; color: var(--text); font-size: 36rpx; font-weight: 510; line-height: 56rpx; }
+.dsh-balance-amount text + text::before { content: ' + '; white-space: pre; }
+.dsh-balance-bonus { display: flex; align-items: center; justify-content: flex-end; gap: 16rpx; }
+.dsh-account-divider { border-top: 1rpx solid var(--divider); }
+.dsh-account-unavailable { color: var(--text-3); text-decoration: underline; text-underline-offset: 6rpx; }
+.dsh-account-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 20rpx; }
+.dsh-account-link-button { min-width: 116rpx; height: 72rpx; box-sizing: border-box; display: flex; align-items: center; justify-content: center; padding: 0 28rpx; border: 1rpx solid var(--border-strong); border-radius: 12rpx; color: var(--text); font-size: 28rpx; line-height: 44rpx; white-space: nowrap; }
+.dsh-account-primary { color: #fff; background: var(--ocean); border-color: transparent; font-weight: 500; }
+.session-nav-back {
+  position: relative;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
+  background: var(--fill);          /* 与左侧栏设置页一致的圆形底 */
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 20rpx;
+}
+.session-nav-back::before { content: ''; position: absolute; left: 50%; top: 50%; width: 44px; height: 44px; transform: translate(-50%, -50%); }
+.session-nav-back-icon { width: 32rpx; height: 32rpx; }
+.session-nav-title { position: absolute; left: 96rpx; right: 96rpx; display: flex; align-items: center; justify-content: center; font-size: 34rpx; font-weight: 600; color: var(--text); pointer-events: none; }
+.session-nav-pressed { opacity: .65; }
+.session-settings .card-row { gap: 24rpx; }
+.session-settings .card-row-label { min-width: 0; }
+.session-settings .card-row-value { min-width: 0; max-width: 65%; justify-content: flex-end; }
+.session-settings .card-row-value > text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chevron-img { width: 26rpx; height: 26rpx; margin-left: 12rpx; flex-shrink: 0; opacity: .55; }
+.host-value { max-width: 65%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.session-settings .build-value { white-space: normal; font-size: 24rpx; overflow-wrap: anywhere; text-align: right; }
+
+/* ---------- 与设置页一致的底部弹窗（选择项） ---------- */
+.pair-sheet-mask {
+  position: fixed;
+  z-index: 100;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.pair-sheet {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10rpx 40rpx calc(32rpx + env(safe-area-inset-bottom));
+  border-radius: 32rpx 32rpx 0 0;
+  background: var(--surface);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+}
+
+.pair-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 16rpx 0 24rpx;
+}
+
+.pair-sheet-title {
+  color: var(--text);
+  font-size: 34rpx;
+  font-weight: 650;
+}
+
+.pair-sheet-close { display: flex; align-items: center; justify-content: flex-end; width: 64rpx; height: 64rpx; padding: 0; flex-shrink: 0; }
+
+/* ---------- 工作区文件弹窗 ---------- */
+.files-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin: 0 0 12rpx;
+}
+
+.files-up {
+  padding: 10rpx 4rpx;
+  color: var(--ocean);
+  font-size: 27rpx;
+}
+
+.files-up.disabled {
+  visibility: hidden;
+}
+
+.files-list {
+  border: 1rpx solid var(--border);
+  border-radius: 24rpx;
+  overflow: hidden;
+  margin-bottom: 16rpx;
+  flex: none;            /* 高度由上方的 max-height 决定，内部独立滚动 */
+  width: 100%;
+}
+
+.files-center {
+  padding: 40rpx 20rpx;
+  text-align: center;
+  color: var(--text-2);
+  font-size: 27rpx;
+}
+
+.files-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 22rpx 28rpx;
+}
+
+.files-row + .files-row {
+  border-top: 1rpx solid var(--divider);
+}
+
+.files-row-hover {
+  background: var(--fill);
+}
+
+.files-row-icon {
+  width: 48rpx;
+  height: 48rpx;
+  flex-shrink: 0;
+}
+
+.files-row-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+}
+
+.files-row-name {
+  font-size: 29rpx;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.files-row-sub {
+  font-size: 23rpx;
+  color: var(--text-3);
+}
+
+.files-row-chevron {
+  flex: none;
+  color: var(--text-3);
+  font-size: 30rpx;
+}
+
+/* 当前路径：弹窗底部、左对齐 */
+.files-path-footer {
+  padding: 16rpx 8rpx 4rpx;
+  color: var(--text-2);
+  font-size: 24rpx;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+/* ---------- 可拖动/点击调整高度的弹窗 ---------- */
+.sheet-grabber-zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 48rpx;
+  padding: 8rpx 0;
+  margin-bottom: 4rpx;
+  flex-shrink: 0;
+}
+
+.pair-sheet.resizable {
+  transition: height 0.24s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+
+/* ---------- 选择弹层：与首页工作区选择同款的锚点玻璃弹窗 ----------
+   深色主题沿用首页 .ws-pop.workspace-menu 的玻璃参数：白色 0.10 → 0.04 渐变、
+   发丝亮边、顶部内发光、blur 8rpx、64rpx 圆角与 180ms 缩放出现；浅色主题换成
+   同结构的浅色玻璃，白色图标用 filter 翻成墨色，避免白底白字。
+   内容覆盖：Agent 预设 / 默认模型 / 思考等级 / 权限。 */
+.picker-pop-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  background: transparent;
+}
+
+.picker-pop {
+  position: fixed;
+  z-index: 61;
+  box-sizing: border-box;
+  border-radius: var(--glass-radius-choice, 64rpx);
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 24rpx 72rpx rgba(3, 14, 30, 0.26);
+  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  overflow: hidden;
+  animation: picker-pop-appear 180ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes picker-pop-appear {
+  from { opacity: 0; transform: scale(0.92); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-pop { animation: none; }
+}
+
+.picker-pop-scroll { width: 100%; }
+
+.picker-pop-content { padding: 12rpx 0; }
+
+.picker-pop-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 24rpx;
+  padding: 20rpx 40rpx;
+  box-sizing: border-box;
+}
+
+.picker-pop-row-pressed { background: rgba(255, 255, 255, 0.10); }
+
+.picker-pop-ic {
+  width: 36rpx;
+  height: 36rpx;
+  flex: none;
+  margin-top: 6rpx;
+}
+
+.picker-pop-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.picker-pop-name {
+  color: #FFFFFF;
+  font-size: 30rpx;
+  font-weight: 500;
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picker-pop-row.checked .picker-pop-name { font-weight: 600; }
+
+.picker-pop-desc {
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 23rpx;
+  line-height: 1.5;
+}
+
+.picker-pop-warn {
+  color: #FFB36B;
+  font-size: 23rpx;
+  line-height: 1.5;
+}
+
+.picker-pop-row.broken { opacity: 0.72; }
+
+.picker-pop-row.broken .picker-pop-name { color: rgba(255, 255, 255, 0.72); }
+
+.picker-pop-row.busy { opacity: 0.65; }
+
+.picker-pop-divider {
+  height: 1rpx;
+  margin: 12rpx 40rpx;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.picker-pop-hint {
+  padding: 2rpx 44rpx 18rpx;
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 22rpx;
+  line-height: 1.5;
+}
+
+/* 诊断信息：标签 + 值（值可换行 / 等宽） */
+.picker-pop-diag-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2rpx;
+  padding: 14rpx 40rpx;
+}
+
+.picker-pop-diag-label {
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 22rpx;
+  line-height: 1.4;
+}
+
+.picker-pop-diag-value {
+  color: #FFFFFF;
+  font-size: 26rpx;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+
+/* 清理缓存：说明 + 危险操作按钮 */
+.picker-pop-cache-desc {
+  padding: 10rpx 40rpx 0;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 27rpx;
+  line-height: 1.55;
+}
+
+.picker-pop-cache-note {
+  padding: 8rpx 40rpx 0;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 23rpx;
+  line-height: 1.5;
+}
+
+.picker-pop-error {
+  padding: 10rpx 40rpx 0;
+  color: #FF8E82;
+  font-size: 23rpx;
+  line-height: 1.5;
+}
+
+.picker-pop-actions {
+  display: flex;
+  gap: 16rpx;
+  margin-top: 20rpx;
+  padding: 18rpx 40rpx 24rpx;
+  border-top: 1rpx solid rgba(255, 255, 255, 0.12);
+}
+
+.picker-pop-action {
+  flex: 1;
+  min-width: 0;
+  min-height: 72rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  border-radius: 20rpx;
+  font-size: 27rpx;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.picker-pop-action-cancel {
+  background: rgba(255, 255, 255, 0.10);
+  color: #FFFFFF;
+}
+
+.picker-pop-action-confirm {
+  background: #BF3D31;
+  color: #FFFFFF;
+}
+
+.picker-pop-action-pressed { opacity: 0.80; }
+
+.picker-pop-action-disabled { opacity: 0.50; }
+
+/* 默认模型：供应商分组标题 + 单行模型（当前模型附所选思考等级） */
+.picker-pop-group {
+  padding: 16rpx 40rpx 4rpx;
+  color: rgba(255, 255, 255, 0.50);
+  font-size: 22rpx;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.picker-pop-group:first-child { padding-top: 8rpx; }
+
+.picker-pop-model,
+.picker-pop-effort {
+  align-items: center;
+  min-height: 44px;
+  padding: 16rpx 40rpx;
+}
+
+.picker-pop-model-line {
+  display: flex;
+  align-items: baseline;
+  gap: 10rpx;
+  flex: 1;
+  min-width: 0;
+}
+
+.picker-pop-model-line .picker-pop-name { flex: 0 1 auto; min-width: 0; }
+
+.picker-pop-suffix {
+  flex: none;
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 22rpx;
+}
+
+.picker-pop-effort .picker-pop-name { flex: 1; min-width: 0; }
+
+.picker-pop-model .picker-pop-ic,
+.picker-pop-effort .picker-pop-ic { margin-top: 0; }
+
+/* 权限：盾牌图标 + 说明，右侧勾选 + EXP 徽标 */
+.picker-pop-shield {
+  width: 40rpx;
+  height: 40rpx;
+  margin-top: 2rpx;
+  filter: brightness(0) invert(1);
+  opacity: 0.90;
+}
+
+.picker-pop-permission-line {
+  display: flex;
+  align-items: center;
+  gap: 10rpx;
+  min-width: 0;
+}
+
+.picker-pop-permission-line .picker-pop-name { flex: 0 1 auto; min-width: 0; }
+
+.picker-pop-badge {
+  flex: none;
+  padding: 2rpx 8rpx;
+  border: 1rpx solid rgba(255, 255, 255, 0.28);
+  border-radius: 6rpx;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 17rpx;
+  font-weight: 700;
+  letter-spacing: 0.4rpx;
+  line-height: 1.3;
+}
+
+.picker-pop-check {
+  width: 30rpx;
+  height: 30rpx;
+  flex: none;
+  margin-left: auto;
+}
+
+/* 浅色主题：同款玻璃结构 + 浅色材质，把白色图标翻成墨色。 */
+.theme-light .picker-pop {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.92));
+  border: 1rpx solid rgba(16, 19, 24, 0.10);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 24rpx 72rpx rgba(7, 24, 43, 0.18);
+  backdrop-filter: blur(24rpx) saturate(1.05);
+  -webkit-backdrop-filter: blur(24rpx) saturate(1.05);
+}
+
+.theme-light .picker-pop-row-pressed { background: rgba(16, 19, 24, 0.06); }
+
+.theme-light .picker-pop-name { color: #10131A; }
+
+.theme-light .picker-pop-desc { color: rgba(16, 19, 24, 0.62); }
+
+.theme-light .picker-pop-warn { color: #B65B00; }
+
+.theme-light .picker-pop-row.broken .picker-pop-name { color: rgba(16, 19, 24, 0.66); }
+
+.theme-light .picker-pop-divider { background: rgba(16, 19, 24, 0.08); }
+
+.theme-light .picker-pop-hint { color: rgba(16, 19, 24, 0.52); }
+
+.theme-light .picker-pop-group { color: rgba(16, 19, 24, 0.50); }
+
+.theme-light .picker-pop-suffix { color: rgba(16, 19, 24, 0.55); }
+
+.theme-light .picker-pop-ic {
+  filter: brightness(0);
+  opacity: 0.78;
+}
+
+.theme-light .picker-pop-row.checked .picker-pop-ic { opacity: 0.92; }
+
+.theme-light .picker-pop-shield {
+  filter: none;
+  opacity: 0.72;
+}
+
+.theme-light .picker-pop-badge {
+  border-color: rgba(16, 19, 24, 0.22);
+  color: rgba(16, 19, 24, 0.68);
+}
+
+.theme-light .picker-pop-check {
+  filter: brightness(0);
+  opacity: 0.85;
+}
+
+.theme-light .picker-pop-diag-label { color: rgba(16, 19, 24, 0.52); }
+
+.theme-light .picker-pop-diag-value { color: #10131A; }
+
+.theme-light .picker-pop-cache-desc { color: rgba(16, 19, 24, 0.88); }
+
+.theme-light .picker-pop-cache-note { color: rgba(16, 19, 24, 0.55); }
+
+.theme-light .picker-pop-error { color: #BF3D31; }
+
+.theme-light .picker-pop-actions { border-top-color: rgba(16, 19, 24, 0.08); }
+
+.theme-light .picker-pop-action-cancel {
+  background: rgba(16, 19, 24, 0.06);
+  color: #10131A;
+}
+
+
+/* ---------- 玻璃 UI 的 Agent 预设底部弹窗 ----------
+   开启玻璃界面时，Agent 预设仍是与原生一致的底部弹窗（抓手 + 标题 + 关闭 + 列表 +
+   底部「添加自定义 Agent 预设」），只把材质换成首页工作区的玻璃：白色 0.10 → 0.04
+   渐变、发丝亮边、顶部内发光、blur 8rpx，上滑出现。 */
+.picker-glass-sheet {
+  /* 左右各让出 12px、底部让出 24px：整块玻璃浮在屏幕内侧，避开屏幕圆角，
+     底部两个圆角不会被机身圆角切掉；安全区内边距随之收窄，避免底部留白过多。 */
+  width: calc(100% - 24px);
+  margin: 0 12px 24px;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: 10rpx 0 calc(16rpx + env(safe-area-inset-bottom));
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
+  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  overflow: hidden;
+  animation: picker-sheet-rise 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes picker-sheet-rise {
+  from { opacity: 0; transform: translateY(28rpx); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .picker-glass-sheet { animation: none; }
+}
+
+.picker-glass-sheet.resizable { transition: height 0.24s cubic-bezier(0.32, 0.72, 0, 1); }
+
+.picker-glass-sheet .pair-sheet-head {
+  padding: 0 40rpx;
+  margin: 16rpx 0 12rpx;
+}
+
+.picker-glass-sheet .pair-sheet-title {
+  color: #FFFFFF;
+  font-size: 34rpx;
+  font-weight: 650;
+}
+
+.picker-sheet-scroll {
+  width: 100%;
+  flex: 0 1 auto;
+  min-height: 0;
+}
+
+/* 说明文字放在列表上方，和原生底部弹窗的 picker-intro 位置一致。 */
+.picker-sheet-hint {
+  padding: 4rpx 40rpx 16rpx;
+  color: rgba(255, 255, 255, 0.52);
+  font-size: 22rpx;
+  line-height: 1.5;
+}
+
+.theme-light .picker-sheet-hint { color: rgba(16, 19, 24, 0.52); }
+
+.picker-glass-sheet.expanded .picker-sheet-scroll { max-height: none; flex: 1; min-height: 0; }
+
+.picker-sheet-footer { flex: none; }
+
+/* 浅色主题：同结构浅色玻璃，标题与图标配合浅色底。 */
+.theme-light .picker-glass-sheet {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.92));
+  border-color: rgba(16, 19, 24, 0.10);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 12rpx 48rpx rgba(7, 24, 43, 0.18);
+  backdrop-filter: blur(24rpx) saturate(1.05);
+  -webkit-backdrop-filter: blur(24rpx) saturate(1.05);
+}
+
+.theme-light .picker-glass-sheet .pair-sheet-title { color: #10131A; }
+
+
+/* ---------- 设置页卡片：沿用首页工作区卡片的玻璃材质 ---------- */
+.settings-glass-card {
+  border-radius: var(--glass-radius-card, 36rpx);
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 8rpx 32rpx rgba(3, 14, 30, 0.18);
+}
+
+.settings-glass-card .card-row + .card-row {
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-light .settings-glass-card {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 252, 0.86));
+  border-color: rgba(16, 19, 24, 0.08);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 8rpx 32rpx rgba(7, 24, 43, 0.10);
+  backdrop-filter: blur(18rpx);
+  -webkit-backdrop-filter: blur(18rpx);
+}
+
+.theme-light .settings-glass-card .card-row + .card-row {
+  border-top-color: rgba(16, 19, 24, 0.08);
+}

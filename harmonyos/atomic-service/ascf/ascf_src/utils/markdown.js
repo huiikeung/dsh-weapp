@@ -1,0 +1,187 @@
+// 轻量 Markdown → 结构化块，供小程序渲染。
+// 覆盖 iOS 对话流实际出现的语法：标题、段落、围栏代码块、行内代码、
+// 粗体、斜体、链接、列表、分割线、引用、表格。不追求完整 CommonMark。
+
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/** 行内语法 → HTML（rich-text 可渲染的白名单标签）。 */
+function inlineHtml(text) {
+  let out = escapeHtml(text);
+  out = out.replace(/`([^`]+)`/g, function (_m, code) {
+    return '<code class="md-inline-code">' + code + '</code>';
+  });
+  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  out = out.replace(/(^|[\s(（])\*([^*\s][^*]*)\*/g, '$1<em>$2</em>');
+  // 行内图片：富文本里不直接嵌图，先转成可点的链接文字，避免留下孤立的 "!"。
+  out = out.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, function (_m, alt, src) {
+    return '<a href="' + src + '" class="md-inline-image">' + (alt || '图片') + '</a>';
+  });
+  out = out.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, function (_m, label, href) {
+    return '<a href="' + href + '">' + label + '</a>';
+  });
+  out = out.replace(/~~([^~]+)~~/g, '<del>$1</del>');
+  return out;
+}
+
+/**
+ * 解析 Markdown 文本为块数组：
+ * { type: 'heading', level, html }
+ * { type: 'code', lang, text }
+ * { type: 'quote', html }
+ * { type: 'list', ordered, items: [html] }
+ * { type: 'table', header: [html], rows: [[html]] }
+ * { type: 'hr' }
+ * { type: 'para', html }
+ * { type: 'image', src, alt }
+ */
+const TABLE_SEPARATOR = /^\s*\|?(\s*:?-{2,}:?\s*\|)+\s*:?-{2,}:?\s*\|?\s*$/;
+
+function splitTableRow(line) {
+  let cells = String(line).trim();
+  if (cells.startsWith('|')) cells = cells.slice(1);
+  if (cells.endsWith('|')) cells = cells.slice(0, -1);
+  return cells.split('|').map(function (cell) { return inlineHtml(cell.trim()); });
+}
+function parse(markdown) {
+  const lines = String(markdown || '').split(/\r?\n/);
+  const blocks = [];
+  let paragraph = [];
+  let list = null;
+  let quote = null;
+  let i = 0;
+
+  function flushParagraph() {
+    if (paragraph.length) {
+      blocks.push({ type: 'para', html: inlineHtml(paragraph.join('\n')).replace(/\n/g, '<br/>') });
+      paragraph = [];
+    }
+  }
+  function flushList() {
+    if (list) {
+      blocks.push(list);
+      list = null;
+    }
+  }
+  function flushQuote() {
+    if (quote) {
+      blocks.push({ type: 'quote', html: inlineHtml(quote.join('\n')).replace(/\n/g, '<br/>') });
+      quote = null;
+    }
+  }
+  function flushAll() {
+    flushParagraph();
+    flushList();
+    flushQuote();
+  }
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // 围栏代码块
+    const fence = line.match(/^\s*```\s*([A-Za-z0-9+#\-_]*)/);
+    if (fence) {
+      flushAll();
+      const lang = fence[1] || '';
+      const code = [];
+      i += 1;
+      while (i < lines.length && !/^\s*```/.test(lines[i])) {
+        code.push(lines[i]);
+        i += 1;
+      }
+      i += 1; // 跳过结尾 ```
+      blocks.push({ type: 'code', lang: lang, text: code.join('\n') });
+      continue;
+    }
+
+    // 标题
+    const heading = line.match(/^(#{1,6})\s+(.*)$/);
+    if (heading) {
+      flushAll();
+      blocks.push({ type: 'heading', level: heading[1].length, html: inlineHtml(heading[2]) });
+      i += 1;
+      continue;
+    }
+
+    // 分割线
+    if (/^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(line)) {
+      flushAll();
+      blocks.push({ type: 'hr' });
+      i += 1;
+      continue;
+    }
+
+    // 引用
+    if (/^\s*>\s?/.test(line)) {
+      flushParagraph();
+      flushList();
+      if (!quote) quote = [];
+      quote.push(line.replace(/^\s*>\s?/, ''));
+      i += 1;
+      continue;
+    }
+
+    // 列表
+    const bullet = line.match(/^\s*[-*+]\s+(.*)$/);
+    const ordered = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
+    if (bullet || ordered) {
+      flushParagraph();
+      flushQuote();
+      const isOrdered = !!ordered;
+      if (!list || list.ordered !== isOrdered) {
+        flushList();
+        list = { type: 'list', ordered: isOrdered, items: [] };
+      }
+      list.items.push(inlineHtml(bullet ? bullet[1] : ordered[2]));
+      i += 1;
+      continue;
+    }
+
+    // 表格：当前行含 |，下一行是 |---|---| 分隔行
+    if (line.indexOf('|') !== -1 && i + 1 < lines.length && TABLE_SEPARATOR.test(lines[i + 1])) {
+      flushAll();
+      const header = splitTableRow(line);
+      const rows = [];
+      i += 2;
+      while (i < lines.length && lines[i].indexOf('|') !== -1 && lines[i].trim()) {
+        rows.push(splitTableRow(lines[i]));
+        i += 1;
+      }
+      blocks.push({ type: 'table', header: header, rows: rows });
+      continue;
+    }
+
+    // 图片：整行只有图片时，解析成 image 块（由页面下载/渲染）
+    if (/^\s*(?:!\[[^\]]*\]\([^)\s]+\)\s*)+$/.test(line)) {
+      flushAll();
+      const imageRe = /!\[([^\]]*)\]\(([^)\s]+)\)/g;
+      let imageMatch;
+      while ((imageMatch = imageRe.exec(line))) {
+        blocks.push({ type: 'image', alt: imageMatch[1] || '', src: imageMatch[2] });
+      }
+      i += 1;
+      continue;
+    }
+
+    // 空行
+    if (!line.trim()) {
+      flushAll();
+      i += 1;
+      continue;
+    }
+
+    flushList();
+    flushQuote();
+    paragraph.push(line);
+    i += 1;
+  }
+  flushAll();
+  return blocks;
+}
+
+module.exports = { parse, inlineHtml, escapeHtml };

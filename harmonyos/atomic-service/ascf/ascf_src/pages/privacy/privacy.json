@@ -1,0 +1,7 @@
+{
+  "navigationStyle": "custom",
+  "backgroundColor": "#FFFFFF",
+  "usingComponents": {
+    "privacy-sheet": "/components/privacy-sheet/privacy-sheet"
+  }
+}

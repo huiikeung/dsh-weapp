@@ -1,0 +1,179 @@
+/* 工作区文件页 —— 对齐 dsh-mobile WorkspaceFilesBottomSheet 版式
+   头部（上一级/新建目录）+ 路径栏 + 扁平列表 */
+
+.wf {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg);
+}
+
+/* ===== 头部行 ===== */
+.wf-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 96rpx;
+  padding: 0 32rpx;
+}
+
+.wf-back {
+  font-size: 30rpx;
+  color: var(--text);
+}
+
+.wf-back-ph {
+  width: 120rpx;
+}
+
+.wf-new {
+  font-size: 30rpx;
+  font-weight: 500;
+  color: var(--ocean);
+}
+
+.wf-new.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+/* ===== 路径栏 ===== */
+.wf-pathbar {
+  display: flex;
+  align-items: center;
+  height: 88rpx;
+  padding: 0 40rpx;
+}
+
+.wf-path-icon {
+  width: 34rpx;
+  height: 34rpx;
+  flex-shrink: 0;
+}
+
+.wf-path {
+  flex: 1;
+  min-width: 0;
+  margin-left: 14rpx;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 28rpx;
+  color: var(--text-2);
+}
+
+.wf-bar-divider {
+  height: 1px;
+  background: var(--divider);
+  margin: 0 24rpx;
+}
+
+/* ===== 列表 ===== */
+.wf-list {
+  flex: 1;
+  min-height: 0;
+}
+
+.wf-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 140rpx 40rpx;
+}
+
+.wf-center-text {
+  margin-top: 20rpx;
+  font-size: 28rpx;
+  color: var(--text-3);
+}
+
+.wf-row {
+  display: flex;
+  align-items: center;
+  min-height: 144rpx;
+  padding: 20rpx 24rpx 20rpx 44rpx;
+}
+
+.wf-row-hover {
+  background: rgba(16, 19, 26, 0.04);
+}
+
+.theme-dark .wf-row-hover {
+  background: rgba(241, 244, 250, 0.06);
+}
+
+.wf-row.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.wf-row-icon {
+  width: 50rpx;
+  height: 50rpx;
+  flex-shrink: 0;
+}
+
+.wf-row-body {
+  flex: 1;
+  min-width: 0;
+  margin-left: 22rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.wf-row-name {
+  font-size: 32rpx;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.wf-row-sub {
+  font-size: 24rpx;
+  color: var(--text-3);
+}
+
+.wf-row-chev {
+  width: 32rpx;
+  height: 32rpx;
+  flex-shrink: 0;
+  margin-left: 12rpx;
+}
+
+.wf-divider {
+  height: 1px;
+  background: var(--divider);
+  margin-left: 134rpx;
+}
+
+.wf-list-spacer {
+  height: calc(24rpx + env(safe-area-inset-bottom));
+}
+
+/* ===== Spinner ===== */
+.wf-spinner {
+  width: 30rpx;
+  height: 30rpx;
+  border: 3rpx solid rgba(120, 120, 128, 0.28);
+  border-top-color: var(--ocean);
+  border-radius: 50%;
+  animation: wf-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.wf-spinner.large {
+  width: 44rpx;
+  height: 44rpx;
+  border-width: 4rpx;
+}
+
+@keyframes wf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

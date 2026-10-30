@@ -1,0 +1,163 @@
+/* ---------- 执行中：方形格子闪动加载图标 ---------- */
+/* Shared by the session process head and the execution-icon picker previews. */
+.proc-loader {
+  width: 32rpx;
+  height: 32rpx;
+  box-sizing: border-box;
+  display: flex;
+  flex-shrink: 0;
+  position: relative;
+  --proc-color: #6C6C6C;
+}
+
+.theme-dark .proc-loader { --proc-color: #A6A6A6; }
+
+.proc-loader.proc-look-cells {
+  border-radius: 8rpx;
+  border: 1rpx solid rgba(127, 127, 127, 0.32);
+  background: rgba(127, 127, 127, 0.06);
+  padding: 4rpx;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-content: space-between;
+}
+
+.proc-cell {
+  width: 10rpx;
+  height: 10rpx;
+  border-radius: 2rpx;
+  background: var(--proc-color);
+  opacity: 0.25;
+  animation: procCellBlink 1.2s ease-in-out infinite;
+}
+
+.proc-cell.c1 { animation-delay: 0s; }
+.proc-cell.c2 { animation-delay: 0.15s; }
+.proc-cell.c3 { animation-delay: 0.3s; }
+.proc-cell.c4 { animation-delay: 0.45s; }
+
+@keyframes procCellBlink {
+  0%, 100% { opacity: 0.22; transform: scale(0.9); }
+  40% { opacity: 1; transform: scale(1); }
+}
+
+/* CSS loaders keep the six selectable process animations out of the media budget. */
+.proc-terra,
+.proc-morph,
+.proc-grid,
+.proc-orbit,
+.proc-ripple,
+.proc-wave,
+.proc-pulse,
+.proc-breathe,
+.proc-spin-square-rot,
+.proc-typing,
+.proc-scan,
+.proc-spin-ring {
+  position: absolute;
+  inset: 0;
+}
+
+.proc-terra { animation: procTerraSpin 3s linear infinite; }
+.proc-terra-dot {
+  position: absolute;
+  width: 6rpx;
+  height: 6rpx;
+  border-radius: 50%;
+  background: var(--proc-color);
+  animation: procTerraPulse 1.4s ease-in-out infinite;
+}
+.proc-terra-dot.d1 { left: 13rpx; top: 1rpx; }
+.proc-terra-dot.d2 { left: 3rpx; top: 7rpx; animation-delay: .16s; }
+.proc-terra-dot.d3 { right: 3rpx; top: 7rpx; animation-delay: .32s; }
+.proc-terra-dot.d4 { left: 3rpx; bottom: 7rpx; animation-delay: .48s; }
+.proc-terra-dot.d5 { right: 3rpx; bottom: 7rpx; animation-delay: .64s; }
+.proc-terra-dot.d6 { left: 13rpx; bottom: 1rpx; animation-delay: .8s; }
+@keyframes procTerraSpin { to { transform: rotate(360deg); } }
+@keyframes procTerraPulse { 0%, 100% { opacity: .35; transform: scale(.72); } 50% { opacity: 1; transform: scale(1.12); } }
+
+.proc-morph-shape { position: absolute; left: 8rpx; top: 8rpx; animation: procMorphShape 2.4s ease-in-out infinite; }
+.proc-morph-shape.circle { width: 16rpx; height: 16rpx; border-radius: 50%; background: var(--proc-color); }
+.proc-morph-shape.triangle {
+  left: 7rpx;
+  top: 6rpx;
+  width: 0;
+  height: 0;
+  border-left: 9rpx solid transparent;
+  border-right: 9rpx solid transparent;
+  border-bottom: 18rpx solid var(--proc-color);
+  animation-delay: .8s;
+}
+.proc-morph-shape.square { width: 15rpx; height: 15rpx; border-radius: 2rpx; background: var(--proc-color); animation-delay: 1.6s; }
+@keyframes procMorphShape { 0%, 5%, 31%, 100% { opacity: 0; transform: scale(.68) rotate(-25deg); } 12%, 23% { opacity: 1; transform: scale(1) rotate(0); } }
+
+.proc-grid { display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); gap: 3rpx; padding: 3rpx; }
+.proc-grid-dot { border-radius: 2rpx; background: var(--proc-color); animation: procGridPulse 1.2s ease-in-out infinite; }
+.proc-grid-dot.d2,.proc-grid-dot.d4 { animation-delay: .14s; }
+.proc-grid-dot.d3,.proc-grid-dot.d7 { animation-delay: .28s; }
+.proc-grid-dot.d5 { animation-delay: .42s; }
+.proc-grid-dot.d6,.proc-grid-dot.d8 { animation-delay: .56s; }
+.proc-grid-dot.d9 { animation-delay: .7s; }
+@keyframes procGridPulse { 0%, 100% { opacity: .28; transform: scale(.72); } 45% { opacity: 1; transform: scale(1); } }
+
+.proc-orbit-track {
+  position: absolute;
+  left: 5rpx;
+  top: 5rpx;
+  width: 22rpx;
+  height: 22rpx;
+  border: 1rpx solid rgba(108, 108, 108, .45);
+  border-radius: 5rpx;
+}
+.theme-dark .proc-orbit-track { border-color: rgba(166, 166, 166, .45); }
+.proc-orbit-rotator { position: absolute; inset: 0; animation: procOrbitSpin 1.8s linear infinite; }
+.proc-orbit-rotator.reverse { animation-duration: 2.7s; animation-direction: reverse; }
+.proc-orbit-dot { position: absolute; left: 13rpx; top: 1rpx; width: 6rpx; height: 6rpx; border-radius: 50%; background: var(--proc-color); }
+.proc-orbit-dot.small { left: 14rpx; top: 3rpx; width: 4rpx; height: 4rpx; opacity: .65; }
+@keyframes procOrbitSpin { to { transform: rotate(360deg); } }
+
+.proc-ripple-ring { position: absolute; left: 50%; top: 50%; border: 1.5rpx solid var(--proc-color); border-radius: 4rpx; animation: procRipple 1.5s ease-out infinite; }
+.proc-ripple-ring.r1 { width: 9rpx; height: 9rpx; margin: -4.5rpx 0 0 -4.5rpx; }
+.proc-ripple-ring.r2 { width: 17rpx; height: 17rpx; margin: -8.5rpx 0 0 -8.5rpx; animation-delay: .5s; }
+.proc-ripple-ring.r3 { width: 25rpx; height: 25rpx; margin: -12.5rpx 0 0 -12.5rpx; animation-delay: 1s; }
+@keyframes procRipple { 0% { opacity: .9; transform: scale(.5); } 75%, 100% { opacity: .08; transform: scale(1); } }
+
+.proc-wave { display: flex; align-items: center; justify-content: center; }
+.proc-wave-bar { width: 3rpx; height: 20rpx; margin: 0 1rpx; border-radius: 99rpx; background: var(--proc-color); animation: procWave 800ms ease-in-out infinite; }
+.proc-wave-bar.b1,.proc-wave-bar.b5 { height: 8rpx; animation-delay: .1s; }
+.proc-wave-bar.b2,.proc-wave-bar.b4 { height: 14rpx; animation-delay: .25s; }
+@keyframes procWave { 0%, 100% { transform: scaleY(.42); opacity: .55; } 50% { transform: scaleY(1); opacity: 1; } }
+
+/* ---------- 新增：脉冲环 / 呼吸条 / 旋方 / 打字点 / 扫描线 / 旋转圆环 ---------- */
+.proc-pulse,.proc-breathe,.proc-typing,.proc-spin-ring{display:flex;align-items:center;justify-content:center}
+.proc-pulse-ring{width:26rpx;height:26rpx;box-sizing:border-box;border:1.6rpx solid var(--proc-color);border-radius:50%;animation:procPulseRing 1.7s ease-out infinite}
+.proc-breathe-bar{width:3rpx;height:20rpx;margin:0 2rpx;border-radius:99rpx;background:var(--proc-color);animation:procBreathe 1.4s ease-in-out infinite}
+.proc-breathe-bar.b2{animation-delay:.18s}.proc-breathe-bar.b3{animation-delay:.36s}
+.proc-spin-square-rot{animation:procSpinSquare 2.4s linear infinite}
+.proc-spin-square-box{position:absolute;left:7rpx;top:7rpx;width:18rpx;height:18rpx;box-sizing:border-box;border:1.6rpx solid var(--proc-color);border-radius:4rpx}
+.proc-spin-square-dot{position:absolute;left:5rpx;top:5rpx;width:5rpx;height:5rpx;border-radius:50%;background:var(--proc-color)}
+.proc-typing-dot{width:6rpx;height:6rpx;margin:0 2rpx;border-radius:50%;background:var(--proc-color);opacity:.25;animation:procTyping 1.2s ease-in-out infinite}
+.proc-typing-dot.d2{animation-delay:.18s}.proc-typing-dot.d3{animation-delay:.36s}
+.proc-scan-frame{position:absolute;left:5rpx;top:5rpx;width:22rpx;height:22rpx;box-sizing:border-box;border:1rpx solid rgba(127,127,127,.32);border-radius:4rpx}
+.proc-scan-line{position:absolute;left:7rpx;right:7rpx;height:2rpx;border-radius:99rpx;background:var(--proc-color);animation:procScan 1.8s ease-in-out infinite alternate}
+.proc-spin-ring::before{content:'';width:22rpx;height:22rpx;box-sizing:border-box;border:2rpx solid rgba(127,127,127,.22);border-top-color:var(--proc-color);border-radius:50%;animation:procSpinRing .95s linear infinite}
+@keyframes procPulseRing{0%{transform:scale(.16);opacity:.95}65%,100%{transform:scale(1);opacity:.05}}
+@keyframes procBreathe{0%,100%{transform:scaleY(.35);opacity:.4}50%{transform:scaleY(1);opacity:1}}
+@keyframes procSpinSquare{to{transform:rotate(360deg)}}
+@keyframes procTyping{0%,60%,100%{opacity:.25;transform:translateY(0)}30%{opacity:1;transform:translateY(-3rpx)}}
+@keyframes procScan{from{top:6rpx;opacity:.45}to{top:24rpx;opacity:1}}
+@keyframes procSpinRing{to{transform:rotate(360deg)}}
+
+@media (prefers-reduced-motion: reduce) {
+  .proc-cell { animation-duration: 2.4s; }
+  .proc-pulse-ring { animation-duration: 3s; }
+  .proc-breathe-bar { animation-duration: 2.6s; }
+  .proc-spin-square-rot { animation-duration: 4.5s; }
+  .proc-typing-dot { animation-duration: 2.2s; }
+  .proc-scan-line { animation-duration: 3.4s; }
+  .proc-spin-ring::before { animation-duration: 2s; }
+}
+
+/* Settings preview mirrors the process head: loader followed by the running title. */
+.proc-preview { gap: 14rpx; }
+.proc-preview-title { font-size: 28rpx; color: var(--text); }

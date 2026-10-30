@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "module_desc",
+      "value": "whaletail Harness atomic service"
+    },
+    {
+      "name": "EntryAbility_desc",
+      "value": "whaletail Harness atomic service"
+    },
+    {
+      "name": "EntryAbility_label",
+      "value": "whaletail Harness"
+    }
+  ]
+}

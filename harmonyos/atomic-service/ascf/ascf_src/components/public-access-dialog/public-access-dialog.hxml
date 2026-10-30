@@ -1,0 +1,16 @@
+<view has:if="{{visible && dialog}}" class="access-mask {{theme === 'dark' ? 'access-dark' : 'access-light'}}" catchtap="noop" catchtouchmove="noop">
+  <view class="access-dialog access-dialog-{{dialog.kind}}" role="dialog" aria-label="{{dialog.title}}" catchtap="noop">
+    <view class="access-top">
+      <view class="access-icon" aria-hidden="true">
+        <image class="access-icon-img" src="/assets/icons/node-router.svg" mode="aspectFit"/>
+        <view has:if="{{dialog.kind === 'expired' || dialog.kind === 'required'}}" class="icon-badge"></view>
+      </view>
+      <view class="access-heading">
+        <text class="access-eyebrow">{{dialog.eyebrow}}</text>
+        <text class="access-title">{{dialog.title}}</text>
+      </view>
+    </view>
+    <text class="access-content">{{dialog.content}}</text>
+    <button class="access-action" bindtap="confirm" hover-class="access-action-pressed">{{dialog.actionLabel}}</button>
+  </view>
+</view>

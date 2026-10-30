@@ -1,0 +1,161 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/share-activity/share-activity",
+    "pages/privacy/privacy"
+  ],
+  "window": {
+    "navigationBarBackgroundColor": "#FFFFFF",
+    "navigationBarTextStyle": "black",
+    "navigationBarTitleText": "鲸尾 Harness",
+    "backgroundColor": "#FFFFFF",
+    "backgroundTextStyle": "light",
+    "backgroundColorTop": "#FFFFFF",
+    "backgroundColorBottom": "#FFFFFF"
+  },
+  "darkmode": true,
+  "themeLocation": "theme.json",
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
+  "sitemapLocation": "sitemap.json",
+  "subPackages": [
+    {
+      "root": "pages/session",
+      "name": "session",
+      "pages": [
+        "session"
+      ]
+    },
+    {
+      "root": "pages/settings",
+      "name": "settings",
+      "pages": [
+        "settings"
+      ]
+    },
+    {
+      "root": "pages/plugins",
+      "name": "plugins",
+      "pages": [
+        "plugins"
+      ]
+    },
+    {
+      "root": "pages/cost-meter",
+      "name": "cost-meter",
+      "pages": [
+        "cost-meter"
+      ]
+    },
+    {
+      "root": "pages/plugin-detail",
+      "name": "plugin-detail",
+      "pages": [
+        "plugin-detail"
+      ]
+    },
+    {
+      "root": "pages/schedule",
+      "name": "schedule",
+      "pages": [
+        "schedule"
+      ]
+    },
+    {
+      "root": "pages/announcement-admin",
+      "name": "announcement-admin",
+      "pages": [
+        "announcement-admin"
+      ]
+    },
+    {
+      "root": "pages/pairing-admin",
+      "name": "pairing-admin",
+      "pages": [
+        "pairing-admin"
+      ]
+    },
+    {
+      "root": "pages/redeem-admin",
+      "name": "redeem-admin",
+      "pages": [
+        "redeem-admin"
+      ]
+    },
+    {
+      "root": "pages/session-settings",
+      "name": "session-settings",
+      "pages": [
+        "session-settings"
+      ]
+    },
+    {
+      "root": "pages/add-node",
+      "name": "add-node",
+      "pages": [
+        "add-node"
+      ]
+    },
+    {
+      "root": "pages/workspace-picker",
+      "name": "workspace-picker",
+      "pages": [
+        "workspace-picker"
+      ]
+    },
+    {
+      "root": "pages/insights",
+      "name": "insights",
+      "pages": [
+        "insights"
+      ]
+    },
+    {
+      "root": "pages/files",
+      "name": "files",
+      "pages": [
+        "files"
+      ]
+    },
+    {
+      "root": "pages/announcements",
+      "name": "announcements",
+      "pages": [
+        "announcements"
+      ]
+    }
+  ],
+  "preloadRule": {
+    "pages/home/home": {
+      "network": "all",
+      "packages": [
+        "pages/session",
+        "pages/settings",
+        "pages/session-settings",
+        "pages/plugins"
+      ]
+    },
+    "pages/session/session": {
+      "network": "all",
+      "packages": [
+        "pages/session-settings",
+        "pages/insights",
+        "pages/files",
+        "pages/workspace-picker"
+      ]
+    },
+    "pages/settings/settings": {
+      "network": "all",
+      "packages": [
+        "pages/add-node",
+        "pages/workspace-picker",
+        "pages/announcements",
+        "pages/cost-meter",
+        "pages/schedule",
+        "pages/plugin-detail",
+        "pages/pairing-admin",
+        "pages/redeem-admin"
+      ]
+    }
+  }
+}

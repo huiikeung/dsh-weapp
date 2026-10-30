@@ -1,0 +1,3 @@
+@import "../redeem-admin/redeem-admin.css";
+.pairing-code { max-height: 180rpx; overflow-y: auto; font-size: 22rpx; font-weight: 400; letter-spacing: 0; word-break: break-all; }
+.sync-label { color: var(--text-3); font-size: 22rpx; margin-top: 14rpx; display: block; }

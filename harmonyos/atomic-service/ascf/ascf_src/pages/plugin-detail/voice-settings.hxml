@@ -1,0 +1,24 @@
+<view class="voice-settings">
+  <text class="config-hint">{{ui['使用微信系统麦克风；输入设备由系统管理。']}}</text>
+  <text has:if="{{voiceError}}" class="config-hint">{{ui[voiceError] !== undefined ? ui[voiceError] : voiceError}}</text>
+  <button has:if="{{voiceError}}" class="config-button" bindtap="loadVoiceSettings">{{ui['重试']}}</button>
+  <block has:if="{{voice}}">
+    <view class="config-field"><text class="config-label">{{config.labels.provider}}</text><picker range="{{voice.providerNames}}" value="{{voice.providerIndex}}" disabled="{{!connected || voiceBusy}}" data-field="providerId" bindchange="changeVoiceSetting"><view class="config-input config-select"><text>{{voice.providerName}}</text><view class="config-chevron"></view></view></picker></view>
+    <view class="config-field"><text class="config-label">{{config.labels.language}}</text><picker range="{{voice.languageNames}}" value="{{voice.languageIndex}}" disabled="{{!connected || voiceBusy}}" data-field="language" bindchange="changeVoiceSetting"><view class="config-input config-select"><text>{{voice.languageName}}</text><view class="config-chevron"></view></view></picker></view>
+    <text class="config-hint">{{voice.cloud ? config.labels.cloud : config.labels.local}}</text>
+    <view has:for="{{voice.providers}}" has:key="id" class="config-voice-card">
+      <text class="config-heading">{{item.name}}</text>
+      <text has:for="{{item.estimates}}" has:for-item="estimate" has:key="*this" class="config-hint">{{estimate}}</text>
+      <view class="config-select" data-id="{{item.id}}" bindtap="toggleVoiceSteps"><text class="config-label">{{item.summary}}</text><view has:if="{{item.steps.length}}" class="config-chevron {{item.expanded ? 'config-chevron-open' : ''}}"></view></view>
+      <progress has:if="{{item.progress !== null}}" percent="{{item.progress}}" stroke-width="3" activeColor="#4679da"/>
+      <text has:if="{{item.metric}}" class="config-hint">{{item.metric}}</text>
+      <view has:if="{{item.expanded}}" has:for="{{item.steps}}" has:for-item="step" has:key="key" class="config-step"><text>{{step.label}}</text><text>{{step.statusLabel}}</text></view>
+      <text has:if="{{item.failure}}" class="pdetail-err">{{item.failure}}</text>
+      <text has:if="{{item.sourceDetail}}" class="config-hint">{{item.sourceDetail}}</text><text has:if="{{item.errorCode}}" class="config-hint">{{item.errorCode}}</text>
+      <text has:if="{{item.advice}}" class="config-hint">{{item.advice}}</text>
+      <view has:if="{{item.sources.length && item.canPrepare}}" class="config-field"><text class="config-label">{{config.labels.sourceChoice}}</text><picker range="{{item.sourceNames}}" value="{{item.sourceIndex}}" data-id="{{item.id}}" bindchange="changeVoiceSource"><view class="config-input config-select"><text>{{item.sourceName}}</text><view class="config-chevron"></view></view></picker><text class="config-hint">{{item.manualSource ? config.labels.sourceManualHelp : config.labels.sourceAutoHelp}}</text></view>
+      <button has:if="{{item.canPrepare}}" class="config-button" disabled="{{!connected || voiceBusy}}" data-id="{{item.id}}" bindtap="prepareVoice">{{item.failed ? config.labels.retryPrepare : config.labels.prepare}}</button>
+      <button has:if="{{item.canCancel}}" class="config-button" disabled="{{!connected || voiceBusy}}" data-id="{{item.id}}" bindtap="cancelVoicePreparation">{{config.labels.cancelPrepare}}</button>
+    </view>
+  </block>
+</view>

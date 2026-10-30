@@ -1,0 +1,417 @@
+<page-meta page-style="{{pageStyle}}"/>
+<import src="../../templates/quota-sidebar.hxml"/>
+<view class="page page-dark home-root {{themeClass}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-blur-card: {{glassBlurCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-choice: {{glassRadiusChoice}}; --glass-backdrop-brightness: {{glassBackdropBrightness}}; {{settingsGlassEnabled ? '' : '--surface: ' + nativeSurfaceColor + '; --fill: ' + nativeFillColor + ';'}};">
+  <!-- 侧边栏（对齐 dsh-mobile WorkspaceView drawerContent：品牌字标 + 插件 / 自动化任务） -->
+  <view class="drawer {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}} {{drawerOpen || drawerDragging ? 'drawer-visible' : ''}} {{sheetTheme === 'dark' ? 'drawer-dark' : ''}}" style="width: {{drawerW}}px; transform: translateX({{drawerX}}px);" catchtouchmove="onDrawerTouchMove" bindtouchstart="onDrawerTouchStart" bindtouchend="onDrawerTouchEnd" bindtouchcancel="onDrawerTouchEnd">
+    <view class="drawer-body" style="padding-top: {{drawerTopPad}}px;">
+      <view class="drawer-brand">
+        <image class="drawer-whale drawer-whale-light" src="/assets/icons/whale-ink.png" mode="aspectFit"/>
+        <image class="drawer-whale drawer-whale-dark" src="/assets/icons/whale-white.png" mode="aspectFit"/>
+        <image class="brand-wordmark drawer-wordmark-light" src="/assets/icons/wordmark-ink.png" mode="widthFix" aria-hidden="true"/>
+        <image class="brand-wordmark drawer-wordmark-dark" src="/assets/icons/wordmark-white.png" mode="widthFix" aria-hidden="true"/>
+        <view class="drawer-brand-badge">HARNESS</view>
+      </view>
+      <view class="drawer-item" hover-class="drawer-item-active" bindtap="openPlugins">
+        <image class="drawer-item-ic" src="/assets/icons/pinwheel-ink.png"/>
+        <image class="drawer-item-ic drawer-item-ic-dark" src="/assets/icons/pinwheel-white.png"/>
+        <text class="drawer-item-text">{{ui['插件']}}</text>
+      </view>
+      <view class="drawer-item" hover-class="drawer-item-active" bindtap="openScheduledTasks">
+        <image class="drawer-item-ic drawer-item-ic-clock" src="/assets/icons/automation.svg" mode="aspectFit"/>
+        <image class="drawer-item-ic drawer-item-ic-clock drawer-item-ic-dark" src="/assets/icons/automation-white.svg" mode="aspectFit"/>
+        <text class="drawer-item-text">{{ui['自动化任务']}}</text>
+      </view>
+      <!-- 底部组：额度卡片 + 设置入口，靠 margin-top:auto 贴底（对齐参考实现的底部卡片） -->
+      <view class="drawer-bottom">
+      <view has:if="{{costSidebar}}" class="qs-wrap {{quotaSidebarGlass && settingsGlassEnabled ? 'qs-glass' : ''}}" hover-class="qs-pressed" bindtap="onCostCardTap" role="button" aria-label="{{ui['用量额度卡片，点击刷新']}}">
+        <template is="quota-sidebar" data="{{sections: costSections, mode: costSidebar.style, model: costSidebar, ui: ui}}"/>
+      </view>
+      <view has:elif="{{costCardError}}" class="drawer-cost-unavailable" bindtap="openCostDetail" role="button">
+        <text class="drawer-cost-unavailable-title">{{ui['额度卡片暂不可用']}}</text>
+        <text class="drawer-cost-unavailable-hint">{{costCardError}}</text>
+      </view>
+      <view has:elif="{{connectionClass !== 'connected'}}" class="drawer-cost-unavailable" bindtap="retryGatewayConnection" role="button">
+        <text class="drawer-cost-unavailable-title">{{ui['额度卡片未连接到 DSH 网关']}}</text>
+        <text class="drawer-cost-unavailable-hint">{{ui['点此重新连接']}}</text>
+      </view>
+      <view class="drawer-footer">
+        <view class="drawer-item drawer-settings" hover-class="drawer-item-active" bindtap="openSettings" role="button" aria-label="{{ui['设置']}}">
+          <image class="drawer-item-ic" src="/assets/icons/settings-ink.svg" mode="aspectFit"/>
+          <image class="drawer-item-ic drawer-item-ic-dark" src="/assets/icons/settings-white.svg" mode="aspectFit"/>
+          <text class="drawer-item-text">{{ui['设置']}}</text>
+        </view>
+      </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 主内容：抽屉打开时右移 + 圆角 + 阴影（对齐 iOS workspaceContent） -->
+  <view class="home-content-wrap {{contentShifted ? 'shifted' : ''}} {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}}" style="transform: {{contentX ? 'translateX(' + contentX + 'px)' : 'none'}}; border-radius: {{contentCornerRadius}}px 0 0 {{contentCornerRadius}}px;" bindtouchstart="onContentTouchStart" bindtouchend="onContentTouchEnd">
+    <!-- 深海背景随内容一起位移（对齐 iOS DeepOceanBackground 在 workspaceContent 内） -->
+    <view class="deep-bg home-deep-bg"><ocean-background id="home-ocean" active="{{oceanActive}}" reduced-motion="{{oceanReducedMotion}}"/></view>
+
+    <scroll-view class="home-scroll" scroll-y="{{!workspacePickerOpen && !sessionMenuOpen && !swiping}}" show-scrollbar="{{false}}">
+    <view class="home" style="padding-top: {{topbarTop}}px;">
+
+      <!-- 顶部品牌行：随页面一起滚动（不再固定） -->
+      <view class="topbar-inline" style="height: {{topbarHeight}}px;">
+        <view class="brand-row tap" hover-class="brand-dim" bindtap="openDrawer" role="button" aria-label="whaletail HARNESS">
+          <image class="brand-whale" src="/assets/icons/whale-white.png" mode="aspectFit" aria-hidden="true"/>
+          <image class="brand-wordmark" src="/assets/icons/wordmark-white.png" mode="widthFix" aria-hidden="true"/>
+          <view class="brand-badge">HARNESS</view>
+        </view>
+      </view>
+
+      <!-- 配对菜单遮罩：点击空白处关闭（留在 wrap 内保证与 pair-menu 同层叠上下文） -->
+      <view has:if="{{pairMenuVisible}}" class="pair-menu-mask" catchtap="closePairMenu" catchtouchmove="noop"></view>
+
+      <!-- 主机切换行：选择主机（左） + 配对/设置（右，与下文右边距对齐） -->
+      <view class="host-row">
+        <view class="host-bar glass-press" bindtap="openHostSwitcher">
+          <image class="host-kind" src="/assets/icons/{{hostKindIcon}}"/>
+          <view class="host-name">{{hostLabel}}</view>
+          <view class="host-dot {{hostDotClass}}"></view>
+          <image class="host-chev" src="/assets/icons/chev-down-white.png"/>
+        </view>
+        <view class="host-actions">
+          <view class="pair-wrap {{pairMenuVisible ? 'pair-menu-open' : ''}}">
+            <view class="icon-btn glass-press" catchtap="togglePairMenu" role="button" aria-label="{{ui['设备配置']}}">
+              <image class="icon-img pair-ic" src="/assets/icons/person-key-white.svg" mode="aspectFit"/>
+            </view>
+            <!-- 对齐 dsh-mobile GatewayAuthenticationMenu：点击弹出两个配对选项 -->
+            <view has:if="{{pairMenuVisible}}" class="pair-menu">
+              <view class="pair-menu-item" hover-class="pair-menu-item-active" catchtap="pairByScan">
+                <view class="pair-menu-ic" aria-hidden="true">
+                  <view class="ico-scan">
+                    <view class="corner tl"></view><view class="corner tr"></view>
+                    <view class="corner bl"></view><view class="corner br"></view>
+                    <view class="find a"></view><view class="find b"></view><view class="find c"></view>
+                    <view class="dots"><view></view><view></view><view></view><view></view></view>
+                  </view>
+                </view>
+                <text>{{ui['扫描二维码']}}</text>
+              </view>
+              <view class="pair-menu-item" hover-class="pair-menu-item-active" catchtap="pairByManual">
+                <view class="pair-menu-ic" aria-hidden="true">
+                  <view class="ico-keyboard">
+                    <view class="kb-row"><view></view><view></view><view></view><view></view><view></view></view>
+                    <view class="kb-row"><view></view><view></view><view></view><view></view><view></view></view>
+                    <view class="kb-row kb-last"><view></view><view class="kb-bar"></view><view></view></view>
+                  </view>
+                </view>
+                <text>{{ui['手动输入配对信息']}}</text>
+              </view>
+              <view class="pair-menu-item" hover-class="pair-menu-item-active" catchtap="openPairGuide" role="button" aria-label="{{ui['配置引导']}}">
+                <view class="pair-menu-ic" aria-hidden="true">
+                  <image class="pair-guide-icon" src="/assets/icons/setup-guide-white.svg" mode="aspectFit"/>
+                </view>
+                <text>{{ui['配置引导']}}</text>
+              </view>
+            </view>
+          </view>
+          <view class="icon-btn glass-press" catchtap="openSessionSettings" role="button" aria-label="{{ui['会话设置']}}">
+            <image class="icon-img" src="/assets/icons/sliders-white.svg" mode="aspectFit"/>
+          </view>
+        </view>
+      </view>
+
+      <view class="hero">
+        <view class="title-hero {{connectionClass}}">{{ui['探索未至之境']}}</view>
+        <view has:if="{{connectionClass === 'connected'}}" class="subtitle-hero">{{ui['已连接 whaletail Harness 预览版']}}</view>
+      </view>
+
+      <!-- 工作区选择器 -->
+      <view class="workspace-card glass glass-press {{workspacePickerOpen ? 'workspace-card-menu-open' : ''}}" bindtap="openWorkspacePicker" role="button" aria-label="{{ui['选择工作区']}}" aria-hidden="{{workspacePickerOpen}}">
+        <image class="ws-icon" src="/assets/icons/workspace-folder-blue.svg" mode="aspectFit"/>
+        <view class="ws-body">
+          <view class="ws-title">{{currentWorkspace.title || ui['未选择工作区']}}</view>
+          <view class="ws-path text-mono">{{currentWorkspace.path || ui['轻触以切换工作区']}}</view>
+        </view>
+        <view class="ws-right">
+          <view class="status-dot {{connectionClass}}"></view>
+          <image class="ws-chevron" src="/assets/icons/chev-down-white.png"/>
+        </view>
+      </view>
+
+      <!-- 新建会话 -->
+      <view class="new-session glass-press" bindtap="newSession">
+        <view class="plus-circle"><image class="plus-img" src="/assets/icons/plus-white.png"/></view>
+        <text class="new-session-text">{{ui['新建会话']}}</text>
+      </view>
+
+      <!-- 最近会话 -->
+      <view class="recent-header">
+        <view class="section-title">{{ui['最近会话']}}</view>
+        <view class="conn-label {{connectionClass}}">{{ui[connectionLabel] !== undefined ? ui[connectionLabel] : connectionLabel}}</view>
+      </view>
+
+      <view class="search-box glass">
+        <image class="search-icon" src="/assets/icons/search-white-thin.svg" mode="aspectFit"/>
+        <input class="search-input" placeholder="{{ui['搜索会话内容']}}" placeholder-class="field-placeholder" value="{{searchQuery}}" bindinput="onSearchInput" confirm-type="search"/>
+      </view>
+
+      <view has:if="{{homeDataHint}}" class="home-data-hint {{connectionHintIsError ? 'home-connection-error' : ''}}">{{ui[homeDataHint] !== undefined ? ui[homeDataHint] : homeDataHint}}</view>
+
+      <view class="session-list">
+        <block has:for="{{displaySessions}}" has:key="sessionId">
+          <view class="session-swipe {{swipeId === item.sessionId ? 'open' : ''}}" bindtouchstart="onSessionTouchStart" bindtouchmove="onSessionTouchMove" bindtouchend="onSessionTouchEnd" bindtouchcancel="onSessionTouchCancel" data-id="{{item.sessionId}}" data-index="{{index}}">
+            <view class="session-actions {{swipeId === item.sessionId ? 'show' : ''}}" aria-hidden="true">
+              <view class="session-action rename" catchtap="sessionSwipeAction" data-action="rename" data-index="{{index}}" role="button" aria-label="{{ui['重命名']}}">{{ui['重命名']}}</view>
+              <view class="session-action archive" catchtap="sessionSwipeAction" data-action="archive" data-index="{{index}}" role="button" aria-label="{{ui['归档会话']}}">{{ui['归档会话']}}</view>
+            </view>
+            <view id="session-row-{{index}}" class="session-row glass-press {{sessionMenuOpen && sessionMenuId === item.sessionId ? 'session-row-hidden' : ''}}" style="transform: translateX({{swipeId === item.sessionId ? -swipeOffset : 0}}px);" bindtap="openSession" data-id="{{item.sessionId}}" data-title="{{item.displayTitle}}" data-preset="{{item.agentPreset}}" bindlongpress="sessionActions" data-index="{{index}}">
+              <image has:if="{{item.searchIcon}}" class="search-result-ic" src="/assets/icons/{{item.searchIcon}}"/>
+              <view class="session-dot {{item.running ? 'running' : (item.hasUnread ? 'unread' : (item.recentlyCompleted ? 'done' : ''))}}"></view>
+              <view class="session-body">
+                <view class="session-title">{{item.displayTitle}}</view>
+                <view class="session-sub text-mono">{{ui[item.idLabel] !== undefined ? ui[item.idLabel] : item.idLabel}}</view>
+              </view>
+              <view class="session-time {{item.running ? 'running' : ''}}">{{item.running ? ui['运行中'] : item.timeLabel}}</view>
+            </view>
+          </view>
+        </block>
+        <view has:if="{{!displaySessions.length}}" class="empty">{{ui[emptySessionsText] !== undefined ? ui[emptySessionsText] : emptySessionsText}}</view>
+      </view>
+    </view>
+    </scroll-view>
+
+    <!-- 抽屉遮罩：压在内容层内部压暗主内容，点击关闭（对齐 iOS dim + tap-to-close）。
+         必须留在 home-content-wrap 内：放到根层会盖到页面根背景上，在内容圆角处压出灰边/断层。 -->
+    <view has:if="{{drawerOpen || drawerDragging}}" class="drawer-mask {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}}" style="opacity: {{maskOpacity}};" catchtap="closeDrawer" catchtouchmove="noop"></view>
+  </view>
+
+  <!-- 删除主机确认弹窗 -->
+  <view has:if="{{hostDeleteOpen}}" class="host-confirm-mask" catchtap="cancelDeleteHosts" catchtouchmove="noop">
+    <view class="host-confirm" catchtap="noop" role="dialog" aria-label="{{hostDeleteTitle}}">
+      <view class="sheet-grabber"></view>
+      <view class="host-confirm-title">{{hostDeleteTitle}}</view>
+      <view has:if="{{hostDeleteNames}}" class="host-confirm-names">{{hostDeleteNames}}</view>
+      <view class="host-confirm-body">{{ui['从 App 移除选中的']}} {{hostDeleteCount}} {{ui['台主机及连接凭证；网关上的会话和工作区不会被删除。再次连接需重新配对。']}}</view>
+      <view class="host-confirm-actions">
+        <view class="host-confirm-cancel" bindtap="cancelDeleteHosts" role="button">{{ui['取消']}}</view>
+        <view class="host-confirm-ok" bindtap="confirmDeleteHosts" role="button">{{hostDeleteCount > 1 ? ui['批量删除'] : ui['删除']}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 切换主机 sheet（GatewaySwitcherSheet 对齐） -->
+  <view has:if="{{hostSheetOpen}}" class="host-mask" bindtap="closeHostSwitcher"></view>
+  <view has:if="{{kindMenuOpen}}" class="host-kind-outside-mask" catchtap="closeKindMenu" catchtouchmove="noop"></view>
+  <view has:if="{{hostSheetOpen}}" class="host-sheet {{hostSheetExpanded ? 'expanded' : ''}} {{hostEditOpen ? 'host-sheet-editing' : ''}}" style="{{hostEditOpen ? 'bottom: ' + (hostEditKb + 8) + 'px' : ''}}">
+    <view class="sheet-grabber-zone" catchtouchstart="onHostSheetGrabStart" catchtouchmove="onHostSheetGrabMove" catchtouchend="onHostSheetGrabEnd">
+      <view class="sheet-grabber"></view>
+    </view>
+    <block has:if="{{hostEditOpen}}">
+      <view has:if="{{kindMenuOpen}}" class="host-kind-mask" catchtap="closeKindMenu" catchtouchmove="noop"></view>
+      <view class="host-edit-head">
+        <view class="host-edit-pill host-edit-pill-cancel tap" bindtap="cancelHostEdit" role="button">{{ui['取消']}}</view>
+        <view class="host-edit-heading">{{ui['编辑主机']}}</view>
+        <view class="host-edit-pill host-edit-pill-save tap" bindtap="saveHostEdit" role="button">{{ui['保存']}}</view>
+      </view>
+      <view class="host-edit-hint">{{ui['留空使用网关提供的名称：']}}{{editingGatewayName}}</view>
+      <view class="host-edit-card">
+        <input class="host-edit-input" placeholder="{{editingGatewayName}}" placeholder-class="host-edit-ph" value="{{editAlias}}" bindinput="onHostAliasInput" bindkeyboardheightchange="onHostEditKeyboard" adjust-position="{{false}}" cursor-spacing="24" maxlength="80"/>
+        <view class="host-edit-divider"></view>
+        <view class="host-edit-kind-anchor">
+          <view class="host-edit-row tap" bindtap="toggleKindMenu" role="button" aria-label="{{ui['主机类型']}}">
+            <view class="host-edit-row-label">{{ui['主机类型']}}</view>
+            <view class="host-edit-row-value">
+              <image class="host-kind-ic" src="/assets/icons/{{editKind === 'server.rack' ? 'server-white.png' : 'desktop-white.png'}}" mode="aspectFit" aria-hidden="true"/>
+              <text>{{editKind === 'server.rack' ? ui['服务器'] : ui['电脑']}}</text>
+              <image class="host-edit-chev" src="/assets/icons/chev-down-white.png" mode="aspectFit" aria-hidden="true"/>
+            </view>
+          </view>
+          <view has:if="{{kindMenuOpen}}" class="host-kind-menu" role="menu">
+            <view class="host-kind-menu-item {{editKind === 'desktopcomputer' ? 'on' : ''}} tap" bindtap="setHostKind" data-kind="desktopcomputer" role="menuitem">
+              <view class="host-kind-check-slot">
+                <image has:if="{{editKind === 'desktopcomputer'}}" class="host-kind-check" src="/assets/icons/check-white.svg" mode="aspectFit" aria-hidden="true"/>
+              </view>
+              <image class="host-kind-ic" src="/assets/icons/desktop-white.png" mode="aspectFit" aria-hidden="true"/>
+              <text>{{ui['电脑']}}</text>
+            </view>
+            <view class="host-kind-menu-item {{editKind === 'server.rack' ? 'on' : ''}} tap" bindtap="setHostKind" data-kind="server.rack" role="menuitem">
+              <view class="host-kind-check-slot">
+                <image has:if="{{editKind === 'server.rack'}}" class="host-kind-check" src="/assets/icons/check-white.svg" mode="aspectFit" aria-hidden="true"/>
+              </view>
+              <image class="host-kind-ic" src="/assets/icons/server-white.png" mode="aspectFit" aria-hidden="true"/>
+              <text>{{ui['服务器']}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+    </block>
+    <block has:else>
+    <view class="host-sheet-head">
+      <view class="host-sheet-left">
+        <view class="host-sheet-edit tap" bindtap="toggleHostEditMode">{{hostEditMode ? ui['完成'] : ui['编辑']}}</view>
+      </view>
+      <view class="host-sheet-title">{{ui['切换主机']}}</view>
+      <view class="host-sheet-right">
+        <view has:if="{{hostEditMode && hostSelection.length}}" class="host-sheet-del tap" bindtap="deleteHosts">{{hostSelection.length > 1 ? ui['批量删除'] : ui['删除']}}</view>
+      </view>
+    </view>
+    <view class="host-section-label">{{ui['我的主机']}}</view>
+    <view class="host-list">
+      <view class="host-group">
+        <view has:for="{{hostRows}}" has:key="id" class="host-opt">
+          <view has:if="{{hostEditMode}}" class="host-select tap" catchtap="toggleHostSelect" data-id="{{item.id}}">
+            <image class="host-select-ic" src="/assets/icons/{{item.selected ? 'circle-filled-white.png' : 'circle-white.png'}}"/>
+          </view>
+          <image class="host-row-kind" src="/assets/icons/{{item.kindIcon}}"/>
+          <view class="host-row-body tap" bindtap="pickHost" data-id="{{item.id}}">
+            <view class="host-row-title">
+              <view class="host-row-name">{{item.displayName}}</view>
+              <text has:if="{{item.linkLabel}}" class="host-link-badge {{item.linkClass}}">{{item.linkLabel}}</text>
+            </view>
+            <view class="host-row-sub {{item.isActive ? 'on' : ''}}">{{ui[item.subLabel] !== undefined ? ui[item.subLabel] : item.subLabel}}</view>
+          </view>
+          <view class="host-dot {{item.dotClass}}"></view>
+          <view has:if="{{hostEditMode}}" class="host-edit tap" catchtap="editHostOpen" data-id="{{item.id}}">
+            <image class="host-edit-ic" src="/assets/icons/pencil-edit-white.svg" mode="aspectFit"/>
+          </view>
+        </view>
+        <view has:if="{{!hostRows.length}}" class="host-empty">{{ui['暂无已保存的主机，请扫码添加']}}</view>
+      </view>
+    </view>
+    </block>
+  </view>
+
+  <!-- 新建文件夹：底部弹窗（透明玻璃面板），替换原来的系统弹窗 -->
+  <view has:if="{{dirCreateOpen}}" class="dir-prompt-mask" catchtap="closeDirCreate" catchtouchmove="noop">
+  <view has:if="{{dirCreateOpen}}" class="dir-prompt-sheet" catchtap="noop" role="dialog" aria-label="{{ui['新建文件夹']}}">
+    <text class="dir-prompt-title">{{ui['新建文件夹']}}</text>
+    <text class="dir-prompt-hint">{{ui['将在当前目录中创建一个新的子文件夹。']}}</text>
+    <input class="dir-prompt-input" value="{{dirCreateName}}" bindinput="onDirCreateInput" bindconfirm="confirmDirCreate" placeholder="{{ui['文件夹名称']}}" placeholder-class="dir-prompt-ph" confirm-type="done" cursor-spacing="24" adjust-position="{{false}}" maxlength="120"/>
+    <view class="dir-prompt-actions">
+      <view class="dir-prompt-btn dir-prompt-cancel" bindtap="closeDirCreate" role="button">{{ui['取消']}}</view>
+      <view class="dir-prompt-btn dir-prompt-confirm {{dirCreateBusy ? 'is-busy' : ''}}" bindtap="confirmDirCreate" role="button">{{dirCreateBusy ? ui['正在创建…'] : ui['创建']}}</view>
+    </view>
+  </view>
+  </view>
+
+  <!-- 工作区选择：卡片锚点弹窗（对齐 iOS workspaceCard 的 Menu） -->
+  <view has:if="{{workspacePickerOpen}}" class="ws-pop-mask" catchtap="closeWorkspacePicker" catchtouchmove="noop"></view>
+  <view has:if="{{workspacePickerOpen}}" class="ws-pop workspace-menu" style="left: {{popLeft}}px; top: {{popTop}}px; width: {{popWidth}}px; height: {{popHeight}}px; transform-origin: 50% {{popOriginY}}px;" catchtap="noop" role="dialog" aria-label="{{ui['选择工作区']}}">
+    <scroll-view class="ws-pop-scroll" scroll-y show-scrollbar="{{false}}">
+    <view class="ws-pop-content">
+    <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="selectUngrouped" role="button" aria-label="{{ui['未分组']}}">
+      <image class="ws-pop-ic" src="/assets/icons/{{currentWorkspace.ungrouped ? 'check-fill-white.png' : 'tray-white.png'}}" mode="aspectFit"/>
+      <text class="ws-pop-label">{{ui['未分组']}}</text>
+    </view>
+    <view has:if="{{pickerWorkspaces.length}}" class="ws-pop-divider"></view>
+    <block has:for="{{pickerWorkspaces}}" has:key="workspaceId">
+      <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="selectWorkspace" data-id="{{item.workspaceId}}" role="button" aria-label="{{item.title}}">
+        <image class="ws-pop-ic" src="/assets/icons/{{item.workspaceId === currentWorkspaceId ? 'check-fill-white.png' : 'workspace-folder-white.svg'}}" mode="aspectFit"/>
+        <text class="ws-pop-label">{{item.title}}</text>
+      </view>
+    </block>
+    <view class="ws-pop-divider"></view>
+    <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="openDirSheet" role="button" aria-label="{{ui['添加工作区']}}">
+      <image class="ws-pop-ic" src="/assets/icons/plus-white.png" mode="aspectFit"/>
+      <text class="ws-pop-label">{{ui['添加工作区']}}</text>
+    </view>
+    </view>
+    </scroll-view>
+  </view>
+
+  <!-- 会话操作：长按后在当前会话位置弹出选择菜单（与工作区选择同一锚点弹层） -->
+  <view has:if="{{sessionMenuOpen}}" class="ws-pop-mask" catchtap="closeSessionMenu" catchtouchmove="noop"></view>
+  <view has:if="{{sessionMenuOpen}}" class="ws-pop session-menu" style="left: {{popLeft}}px; top: {{popTop}}px; width: {{popWidth}}px; height: {{popHeight}}px; transform-origin: 50% {{popOriginY}}px;" catchtap="noop" role="dialog" aria-label="{{sessionMenuTitle}}">
+    <view class="ws-pop-content">
+      <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="sessionMenuAction" data-action="rename" role="button" aria-label="{{ui['重命名']}}"><image class="ws-pop-ic" src="/assets/icons/dsh-edit-white.svg" mode="aspectFit"/><text class="ws-pop-label">{{ui['重命名']}}</text></view>
+      <view class="ws-pop-row ws-pop-row-danger" hover-class="ws-pop-row-pressed" bindtap="sessionMenuAction" data-action="archive" role="button" aria-label="{{ui['归档会话']}}"><image class="ws-pop-ic" src="/assets/icons/session-archive-red.svg" mode="aspectFit"/><text class="ws-pop-label">{{ui['归档会话']}}</text></view>
+    </view>
+  </view>
+
+  <!-- 目录浏览器弹层（对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet） -->
+  <view has:if="{{dirSheetOpen}}" class="host-mask" bindtap="closeDirSheet"></view>
+  <view has:if="{{dirSheetOpen}}" class="dir-sheet">
+    <view class="dir-sheet-handle"></view>
+    <!-- 头部：新建文件夹 / 标题 / 取消 -->
+    <view class="dir-head">
+      <view class="dir-head-btn tap {{dirLoading || dirCreatingWs || dirCreatingDir ? 'disabled' : ''}}" bindtap="newDirectory">
+        <image class="dir-head-folder" src="/assets/icons/workspace-folder-white.svg" mode="aspectFit"/>
+        <view class="dir-head-badge"><image class="dir-head-add" src="/assets/icons/ic-dir-add-white.png" mode="aspectFit"/></view>
+      </view>
+      <text class="dir-head-title">{{ui['选择工作区目录']}}</text>
+      <view class="dir-head-cancel tap" bindtap="closeDirSheet">{{ui['取消']}}</view>
+    </view>
+    <!-- 目录列表：当前目录在卡片边框外，随列表一起上滑 -->
+    <scroll-view class="dir-body" scroll-y>
+      <view class="dir-cwd">
+        <text class="dir-cwd-label">{{ui['当前目录']}}</text>
+        <text class="dir-cwd-path text-mono">{{dirPath || ui['正在读取…']}}</text>
+      </view>
+      <view class="dir-list-card">
+        <view class="dir-list">
+          <view has:if="{{dirLoading && !dirEntries.length}}" class="dir-loading">
+          <view class="dir-spinner"></view>
+          <text>{{ui['正在读取远程目录…']}}</text>
+        </view>
+        <block has:else>
+          <view class="dir-row {{parentPath ? '' : 'disabled'}}" hover-class="dir-row-hover" bindtap="goParentDir">
+            <view class="dir-row-icon"><image class="dir-row-ic" src="/assets/icons/ic-dir-parent-blue.png"/></view>
+            <view class="dir-row-body">
+              <text class="dir-row-name">..</text>
+              <text class="dir-row-sub">{{ui['返回上一级']}}</text>
+            </view>
+            <image class="dir-row-chev" src="/assets/icons/chev-down-white.png"/>
+          </view>
+          <view class="dir-divider"></view>
+          <block has:for="{{dirEntries}}" has:key="path">
+            <view class="dir-row {{item.highlight ? 'highlight' : ''}}" hover-class="dir-row-hover" bindtap="openDirEntry" data-index="{{index}}">
+              <view class="dir-row-icon">
+                <image class="dir-row-ic" src="/assets/icons/workspace-folder-white.svg" mode="aspectFit"/>
+                <image has:if="{{item.hidden}}" class="dir-row-badge" src="/assets/icons/ic-dir-badge-question.png"/>
+              </view>
+              <view class="dir-row-body">
+                <text class="dir-row-name">{{item.name}}</text>
+                <text has:if="{{item.hidden}}" class="dir-row-sub">{{ui['隐藏目录']}}</text>
+              </view>
+              <image class="dir-row-chev" src="/assets/icons/chev-down-white.png"/>
+            </view>
+            <view has:if="{{index < dirEntries.length - 1}}" class="dir-divider"></view>
+          </block>
+        </block>
+        </view>
+      </view>
+    </scroll-view>
+    <!-- 底部创建栏 -->
+    <view class="dir-create-bar">
+      <text has:if="{{dirPath}}" class="dir-create-path text-mono">{{dirPath}}</text>
+      <view class="dir-create-btn {{dirPath && !dirCreatingWs && !dirCreatingDir && !dirLoading ? '' : 'disabled'}}" bindtap="createWorkspaceHere">
+        <view has:if="{{dirCreatingWs}}" class="dir-spinner light"></view>
+        <image has:else class="dir-create-add" src="/assets/icons/ic-dir-add-white.png"/>
+        <text>{{ui['在当前目录创建工作区']}}</text>
+      </view>
+      <view has:if="{{dirCreatingDir}}" class="dir-creating-hint">
+        <view class="dir-spinner small"></view>
+        <text>{{ui['正在创建文件夹…']}}</text>
+      </view>
+    </view>
+  </view>
+
+  <!-- 手动配对弹层（对齐 dsh-mobile v1.6.0 ManualGatewayPairingSheet） -->
+  <view has:if="{{manualSheetOpen}}" class="host-mask" bindtap="closeManualSheet"></view>
+  <view has:if="{{manualSheetOpen}}" class="manual-sheet {{manualSheetExpanded ? 'expanded' : ''}}">
+    <view class="sheet-grabber-zone" catchtouchstart="onManualSheetGrabStart" catchtouchmove="onManualSheetGrabMove" catchtouchend="onManualSheetGrabEnd">
+      <view class="sheet-grabber"></view>
+    </view>
+    <view class="manual-sheet-head">
+      <text class="manual-sheet-title">{{ui['设备认证']}}</text>
+      <view class="manual-sheet-done tap" bindtap="closeManualSheet">{{ui['完成']}}</view>
+    </view>
+    <scroll-view class="manual-sheet-body" scroll-y>
+      <view class="manual-sec-title">{{ui['手动输入配对信息']}}</view>
+      <view class="manual-sec-desc">{{ui['粘贴 Harness WebUI 提供的 Base64URL 配对字符串。长期设备 token 只会安全保存在本机。']}}</view>
+      <textarea class="manual-input text-mono {{manualInputFocused ? 'focused' : ''}}" value="{{pairingText}}" bindinput="onPairingTextInput" bindfocus="onManualInputFocus" bindblur="onManualInputBlur" placeholder="{{ui['粘贴 Base64URL 配对字符串或完整配对信息']}}" placeholder-class="manual-input-ph" maxlength="-1"/>
+      <view has:if="{{pairingResult}}" class="manual-result {{pairingResultClass}}">{{ui[pairingResult] !== undefined ? ui[pairingResult] : pairingResult}}</view>
+      <view class="manual-connect {{pairingText && !pairingConnecting ? '' : 'disabled'}}" hover-class="manual-connect-press" bindtap="connectManualPairing">
+        <view has:if="{{pairingConnecting}}" class="dir-spinner light small-spin"></view>
+        <image has:else class="manual-connect-ic" src="/assets/icons/node-router-white.svg" mode="aspectFit"/>
+        <text>{{pairingConnecting ? ui['连接中…'] : ui['连接']}}</text>
+      </view>
+    </scroll-view>
+  </view>
+</view>
+<public-access-dialog visible="{{publicAccessDialogOpen}}" dialog="{{publicAccessDialog}}" theme="{{sheetTheme}}" bindconfirm="onPublicAccessDialogConfirm"/>

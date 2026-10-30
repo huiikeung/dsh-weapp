@@ -1,0 +1,547 @@
+/* 添加节点引导页：对齐产品设计稿（介绍 → 电脑端准备 → 扫码配对） */
+.page.add-node {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* ---------- 自定义导航 ---------- */
+.add-node .nav {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  margin-left: 20rpx;
+  margin-right: 20rpx;
+  box-sizing: content-box;
+}
+
+.add-node .nav-back {
+  width: 96rpx;
+  height: 64rpx;
+  border-radius: 999rpx;
+  background: rgba(76, 108, 224, 0.16);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.add-node .nav-back-ic {
+  width: 34rpx;
+  height: 34rpx;
+}
+
+.add-node .nav-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ---------- 进度点 ---------- */
+.steps {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18rpx;
+  padding: 18rpx 0 8rpx;
+}
+
+.step-dot {
+  width: 14rpx;
+  height: 14rpx;
+  border-radius: 50%;
+  background: rgba(120, 120, 128, 0.22);
+  transition: background 0.2s ease;
+}
+
+.step-dot.on {
+  background: #4C6CE0;
+}
+
+.step-line {
+  width: 96rpx;
+  height: 4rpx;
+  border-radius: 999rpx;
+  background: rgba(120, 120, 128, 0.22);
+  transition: background 0.2s ease;
+}
+
+.step-line.on {
+  background: #4C6CE0;
+}
+
+.body {
+  flex: 1;
+  height: 0;
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+/* ---------- 电脑端准备 ---------- */
+
+.section {
+  padding: 40rpx 32rpx 24rpx;
+}
+
+.section-title {
+  display: block;
+  font-size: 44rpx;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.section-sub {
+  display: block;
+  margin-top: 16rpx;
+  font-size: 26rpx;
+  color: var(--text-2);
+  line-height: 1.6;
+}
+
+.card-step {
+  margin-top: 24rpx;
+  padding: 28rpx;
+  border-radius: 28rpx;
+  background: var(--surface);
+  box-shadow: 0 6rpx 24rpx rgba(23, 42, 84, 0.06);
+}
+
+.step-head {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.step-no {
+  width: 44rpx;
+  height: 44rpx;
+  border-radius: 50%;
+  background: rgba(76, 108, 224, 0.12);
+  color: #4C6CE0;
+  font-size: 24rpx;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.step-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.step-text {
+  display: block;
+  margin-top: 16rpx;
+  font-size: 26rpx;
+  color: var(--text-2);
+  line-height: 1.65;
+}
+
+.code-row {
+  margin-top: 18rpx;
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 20rpx 22rpx;
+  border-radius: 18rpx;
+  background: var(--fill);
+}
+
+.code-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 27rpx;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.code-copy {
+  flex: none;
+  width: 64rpx;
+  height: 64rpx;
+  border-radius: 14rpx;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.code-copy-ic {
+  width: 32rpx;
+  height: 32rpx;
+}
+
+/* ---------- 第三步：扫码 ---------- */
+.btn-scan {
+  margin-top: 40rpx;
+  width: 100%;
+  height: 104rpx;
+  padding: 0;
+  border-radius: 999rpx;
+  border: 0;
+  background: #4C6CE0;
+  color: #FFFFFF;
+  font-size: 32rpx;
+  font-weight: 600;
+  line-height: normal;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+}
+
+.btn-scan::after {
+  border: 0;
+}
+
+.scan-ic {
+  font-size: 34rpx;
+}
+
+.pair-actions {
+  margin-top: 40rpx;
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.btn-ic {
+  width: 36rpx;
+  height: 36rpx;
+  flex: none;
+}
+
+.btn-label {
+  line-height: 1;
+  display: flex;
+  align-items: center;
+}
+
+/* 输入配对信息：浅底按钮也带前置图标 */
+.pair-ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+}
+
+.pair-actions .btn-scan {
+  margin-top: 0;
+}
+
+.pair-error {
+  display: block;
+  margin-top: 20rpx;
+  text-align: center;
+  font-size: 24rpx;
+  color: #E5533C;
+}
+
+/* ---------- 底部按钮 ---------- */
+.footer {
+  flex-shrink: 0;
+  padding: 16rpx 40rpx calc(32rpx + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 20rpx;
+}
+
+.btn-primary {
+  width: 100%;
+  height: 104rpx;
+  padding: 0;
+  border-radius: 999rpx;
+  border: 0;
+  background: #4C6CE0;
+  color: #FFFFFF;
+  font-size: 32rpx;
+  font-weight: 600;
+  line-height: normal;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10rpx;
+}
+
+.btn-primary::after,
+.btn-ghost::after {
+  border: 0;
+}
+
+.btn-chev {
+  font-size: 38rpx;
+  margin-top: -4rpx;
+}
+
+.btn-ghost {
+  width: 100%;
+  height: 104rpx;
+  padding: 0;
+  border-radius: 999rpx;
+  border: 0;
+  background: var(--fill);
+  color: var(--text);
+  font-size: 32rpx;
+  font-weight: 500;
+  line-height: normal;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.btn-press {
+  opacity: 0.72;
+}
+
+
+/* ---------- 底部弹窗（与设置页同款） ---------- */
+.pair-sheet-mask {
+  position: fixed;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 120;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.42);
+}
+
+.pair-sheet {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10rpx 40rpx calc(32rpx + env(safe-area-inset-bottom));
+  border-radius: 32rpx 32rpx 0 0;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.sheet-grabber {
+  width: 72rpx;
+  height: 10rpx;
+  margin: 6rpx auto 20rpx;
+  border-radius: 999rpx;
+  background: var(--text-3);
+  opacity: 0.75;
+}
+
+.pair-sheet-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 16rpx 0 24rpx;
+}
+
+.pair-sheet-head > view {
+  display: flex;
+  flex-direction: column;
+}
+
+.pair-sheet-title {
+  color: var(--text);
+  font-size: 34rpx;
+  font-weight: 650;
+}
+
+.pair-sheet-subtitle {
+  margin-top: 4rpx;
+  color: var(--text-2);
+  font-size: 23rpx;
+}
+
+.pair-sheet-close {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 88rpx;
+  min-height: 64rpx;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.pair-payload-input {
+  width: 100%;
+  height: 240rpx;
+  box-sizing: border-box;
+  padding: 20rpx 22rpx;
+  border: 1rpx solid var(--border);
+  border-radius: 16rpx;
+  background: var(--fill);
+  color: var(--text);
+  font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  font-size: 23rpx;
+  line-height: 1.45;
+}
+
+.pair-payload-placeholder {
+  color: var(--text-4);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+}
+
+.pair-result {
+  display: block;
+  min-height: 34rpx;
+  margin-top: 12rpx;
+  color: #D14343;
+  font-size: 23rpx;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.pair-result-pending {
+  color: var(--text-2);
+}
+
+.pair-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 88rpx;
+  margin-top: 14rpx;
+  border-radius: 16rpx;
+  background: var(--ocean);
+  color: #FFFFFF;
+  font-size: 30rpx;
+  font-weight: 600;
+}
+
+.pair-submit-disabled {
+  opacity: 0.45;
+}
+
+/* ---------- 与首页配对菜单一致的 CSS 图标 ---------- */
+.btn-ic {
+  width: 36rpx;
+  height: 36rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.ico-scan {
+  position: relative;
+  width: 36rpx;
+  height: 36rpx;
+}
+
+.ico-scan .corner {
+  position: absolute;
+  width: 11rpx;
+  height: 11rpx;
+  border: 3rpx solid #FFFFFF;
+  box-sizing: border-box;
+}
+
+.ico-scan .corner.tl { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 5rpx; }
+.ico-scan .corner.tr { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 5rpx; }
+.ico-scan .corner.bl { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 5rpx; }
+.ico-scan .corner.br { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 5rpx; }
+
+.ico-scan .find {
+  position: absolute;
+  width: 10rpx;
+  height: 10rpx;
+  border: 2rpx solid #FFFFFF;
+  border-radius: 3rpx;
+  box-sizing: border-box;
+}
+
+.ico-scan .find::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3rpx;
+  height: 3rpx;
+  margin: -1.5rpx 0 0 -1.5rpx;
+  border-radius: 1rpx;
+  background: #FFFFFF;
+}
+
+.ico-scan .find.a { left: 7rpx; top: 7rpx; }
+.ico-scan .find.b { right: 7rpx; top: 7rpx; }
+.ico-scan .find.c { left: 7rpx; bottom: 7rpx; }
+
+.ico-scan .dots {
+  position: absolute;
+  right: 6rpx;
+  bottom: 6rpx;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2rpx;
+  width: 16rpx;
+}
+
+.ico-scan .dots view {
+  width: 3rpx;
+  height: 3rpx;
+  background: #FFFFFF;
+  border-radius: 1rpx;
+}
+
+/* 键盘图标（浅色按钮上使用深灰线条） */
+.ico-keyboard {
+  position: relative;
+  width: 36rpx;
+  height: 26rpx;
+  box-sizing: border-box;
+  border: 2rpx solid #565D68;
+  border-radius: 6rpx;
+  padding: 4rpx;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.ico-keyboard .kb-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.ico-keyboard .kb-row view {
+  width: 4rpx;
+  height: 4rpx;
+  background: #565D68;
+  border-radius: 1rpx;
+}
+
+.ico-keyboard .kb-bar {
+  flex: 1;
+  width: auto;
+  height: 4rpx;
+  margin: 0 2rpx;
+  border-radius: 2rpx;
+}
+
+/* 配对按钮：图标与文字严格垂直居中 */
+.pair-actions .btn-scan,
+.pair-actions .btn-ghost {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12rpx;
+  line-height: 1;
+}
+
+.pair-actions .btn-ic {
+  align-self: center;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pair-actions .btn-label {
+  display: flex;
+  align-items: center;
+  line-height: 1;
+  margin: 0;
+}

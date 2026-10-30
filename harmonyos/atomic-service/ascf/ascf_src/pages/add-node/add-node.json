@@ -1,0 +1,9 @@
+{
+  "navigationStyle": "custom",
+  "backgroundColor": "#FFFFFF",
+  "enablePullDownRefresh": false,
+  "usingComponents": {
+    "public-access-dialog": "/components/public-access-dialog/public-access-dialog"
+  },
+  "disableScroll": true
+}

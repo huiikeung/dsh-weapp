@@ -1,0 +1,18 @@
+<view class="ocean-background {{active ? '' : 'ocean-paused'}} {{staticMode ? 'ocean-static' : ''}} {{ios ? 'ocean-ios' : ''}}" aria-hidden="true">
+  <view class="ocean-base"></view>
+  <view class="ocean-fluid {{ready ? 'ocean-fluid-live' : ''}}">
+    <block has:if="{{buffered}}">
+      <image has:if="{{frameA}}" class="ocean-frame ocean-buffer {{frontSlot === 'a' ? 'ocean-buffer-front' : ''}}" src="{{frameA}}" data-slot="a" data-frame-id="{{frameAId}}" bindload="onFrameLoad" binderror="onFrameError" mode="scaleToFill" aria-hidden="true"/>
+      <image has:if="{{frameB}}" class="ocean-frame ocean-buffer {{frontSlot === 'b' ? 'ocean-buffer-front' : ''}}" src="{{frameB}}" data-slot="b" data-frame-id="{{frameBId}}" bindload="onFrameLoad" binderror="onFrameError" mode="scaleToFill" aria-hidden="true"/>
+    </block>
+    <image has:elif="{{frameImage}}" class="ocean-frame" src="{{frameImage}}" mode="scaleToFill" aria-hidden="true"/>
+  </view>
+  <view class="ocean-grain"></view>
+  <view class="ocean-grid"></view>
+  <view class="ocean-whale">
+    <image class="ocean-whale-body" src="/assets/ocean/whale-body.svg" mode="scaleToFill" aria-hidden="true"/>
+    <image class="ocean-whale-tail" src="/assets/ocean/whale-tail.svg" mode="scaleToFill" aria-hidden="true"/>
+  </view>
+  <view class="ocean-depth"></view>
+  <view class="ocean-settle"></view>
+</view>

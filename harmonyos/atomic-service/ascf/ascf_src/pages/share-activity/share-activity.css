@@ -1,0 +1,32 @@
+.activity-page { min-height:100vh; box-sizing:border-box; padding:40rpx 32rpx calc(40rpx + env(safe-area-inset-bottom)); background:var(--bg); color:var(--text); }
+.activity-brand { display:flex; align-items:center; gap:16rpx; font-size:32rpx; font-weight:600; margin-bottom:36rpx; }
+.activity-brand image { width:72rpx; height:72rpx; border-radius:20rpx; }
+.brand-sub { font-size:24rpx; font-weight:400; color:var(--text-2); }
+.activity-logo { display:block; width:116rpx; height:116rpx; margin:8rpx auto 30rpx; filter:invert(0.94); }
+.theme-dark .activity-logo { filter:none; }
+.activity-heading { display:block; font-size:36rpx; font-weight:650; margin-bottom:18rpx; }
+.activity-reward-hint { display:block; font-size:26rpx; color:var(--ocean); margin:24rpx 0; }
+.theme-dark .activity-reward-hint,.theme-dark .reward-chip { color:var(--mist); }
+.activity-scope { font-size:22rpx; margin-top:12rpx; }
+.activity-intro { display:block; color:var(--text-2); font-size:25rpx; line-height:1.8; }
+.activity-card { border:1rpx solid var(--border); background:var(--surface); border-radius:28rpx; padding:30rpx; margin-top:28rpx; }
+.reward-overview { text-align:center; margin-top:0; padding-top:38rpx; }
+.overview-label { color:var(--text-2); font-size:26rpx; }
+.reward-number { font-size:66rpx; font-weight:650; line-height:1.5; color:var(--text); }
+.reward-number text { font-size:28rpx; font-weight:400; }
+.activity-primary,.activity-secondary { border-radius:999rpx; min-height:84rpx; line-height:84rpx; font-size:27rpx; margin-top:22rpx; background:var(--ocean); color:#fff; }
+.activity-secondary { background:var(--fill); color:var(--text); }
+button::after { border:0; }
+.activity-page .activity-primary[disabled],.activity-page .activity-secondary[disabled] { background:var(--fill); color:var(--text-3); }
+.activity-links,.activity-actions,.card-heading,.rule-row,.record-item { display:flex; align-items:center; justify-content:space-between; gap:16rpx; }
+.activity-links button { background:transparent; color:var(--text-2); margin:14rpx 0 0; padding:12rpx 0; font-size:24rpx; line-height:1.8; }
+.activity-actions button { flex:1; padding:0 16rpx; }
+.card-heading { flex-wrap:wrap; margin-bottom:16rpx; }
+.card-title { display:block; font-size:30rpx; font-weight:600; margin-bottom:12rpx; }
+.card-heading .card-title { margin:0; }
+.reward-chip { color:var(--ocean); font-size:24rpx; flex-shrink:0; }
+.rule-row { font-size:26rpx; padding:14rpx 0; }
+.moment-item,.record-item { border-top:1rpx solid var(--divider); padding-top:18rpx; margin-top:18rpx; font-size:26rpx; }
+.record-time { display:block; color:var(--text-3); font-size:22rpx; margin-top:6rpx; }
+.activity-message { padding:22rpx; margin:20rpx 0; background:var(--fill); border-radius:16rpx; color:var(--text-2); font-size:25rpx; line-height:1.7; }
+.activity-footer { display:block; margin:38rpx 0 10rpx; text-align:center; color:var(--text-3); font-size:22rpx; }

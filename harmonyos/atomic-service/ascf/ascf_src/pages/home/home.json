@@ -1,0 +1,10 @@
+{
+  "navigationStyle": "custom",
+  "navigationBarBackgroundColor": "#FFFFFF",
+  "navigationBarTextStyle": "white",
+  "backgroundColor": "#07182B",
+  "usingComponents": {
+    "ocean-background": "/components/ocean-background/ocean-background",
+    "public-access-dialog": "/components/public-access-dialog/public-access-dialog"
+  }
+}

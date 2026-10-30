@@ -1,0 +1,23 @@
+.editor-page { padding: 28rpx 30rpx calc(50rpx + env(safe-area-inset-bottom)); color: var(--text); }
+.editor-intro, .editor-message { display: block; color: var(--text-2); font-size: 25rpx; line-height: 1.7; margin-bottom: 24rpx; }
+.editor-card { background: var(--fill); border: 1px solid var(--border); border-radius: 24rpx; padding: 26rpx; margin-bottom: 22rpx; }
+.editor-heading { font-size: 31rpx; font-weight: 600; }
+.editor-label { display: block; font-size: 26rpx; margin: 25rpx 0 13rpx; }
+.editor-input, .editor-textarea { width: 100%; box-sizing: border-box; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 15rpx; font-size: 28rpx; padding: 20rpx; }
+.editor-input { height: 90rpx; }
+.editor-textarea { height: 380rpx; line-height: 1.6; }
+.editor-placeholder, .editor-count { color: var(--text-3); font-size: 24rpx; }
+.editor-count { display: block; text-align: right; margin-top: 10rpx; }
+.editor-primary, .editor-secondary { min-height: 88rpx; line-height: 88rpx; border-radius: 17rpx; font-size: 28rpx; margin-top: 22rpx; }
+.editor-page .editor-primary { background: transparent; color: var(--ocean); border: 1rpx solid var(--border-strong); box-sizing: border-box; }
+.editor-page .editor-primary[disabled] { background: transparent; color: var(--text-3); }
+.editor-primary-hover { opacity: 0.65; }
+.editor-secondary { background: var(--fill); color: var(--text-2); }
+.editor-list-head, .editor-actions { display: flex; justify-content: space-between; align-items: center; gap: 20rpx; }
+.editor-actions { justify-content: flex-end; margin-top: 12rpx; }
+.editor-link { margin: 0; padding: 0 18rpx; min-height: 88rpx; line-height: 88rpx; font-size: 26rpx; background: transparent; color: var(--ocean); }
+.editor-danger { color: #c93b46; }
+.theme-dark .editor-danger { color: #ff8690; }
+.editor-item-title { display: block; font-size: 29rpx; font-weight: 600; overflow-wrap: anywhere; }
+.editor-preview { margin-top: 15rpx; font-size: 25rpx; line-height: 1.7; color: var(--text-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+button::after { border: 0; }

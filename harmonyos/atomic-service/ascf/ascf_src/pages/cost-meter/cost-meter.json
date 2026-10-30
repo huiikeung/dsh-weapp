@@ -1,0 +1,10 @@
+{
+  "navigationBarTitleText": "用量与费用",
+  "navigationStyle": "custom",
+  "navigationBarBackgroundColor": "#FFFFFF",
+  "navigationBarTextStyle": "black",
+  "backgroundColor": "#FFFFFF",
+  "usingComponents": {
+    "dsh-switch": "/components/dsh-switch/dsh-switch"
+  }
+}

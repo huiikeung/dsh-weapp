@@ -1,0 +1,47 @@
+<page-meta page-style="{{pageStyle}}"/>
+<view class="page files {{themeClass}}" style="{{contentFontStyle}}">
+  <view class="wf">
+    <!-- 头部行：上一级 / 新建目录（标题在系统导航栏） -->
+    <view class="wf-header">
+      <view has:if="{{!isRoot}}" class="wf-back tap" bindtap="goUp">{{ui['‹ 上一级']}}</view>
+      <view has:else class="wf-back-ph"></view>
+      <view class="wf-new tap {{loading ? 'disabled' : ''}}" bindtap="newDirectory">{{ui['新建目录']}}</view>
+    </view>
+
+    <!-- 路径栏：小图标 + 完整路径 + 加载中 -->
+    <view class="wf-pathbar">
+      <image class="wf-path-icon" src="/assets/icons/ic-dir-folder-blue.png"/>
+      <text class="wf-path">{{displayPath}}</text>
+      <view has:if="{{loading}}" class="wf-spinner"></view>
+    </view>
+    <view class="wf-bar-divider"></view>
+
+    <!-- 文件列表 -->
+    <scroll-view class="wf-list" scroll-y>
+      <view has:if="{{loading && !entries.length}}" class="wf-center">
+        <view class="wf-spinner large"></view>
+        <text class="wf-center-text">{{ui['正在读取工作区文件…']}}</text>
+      </view>
+      <view has:elif="{{error}}" class="wf-center">
+        <text class="wf-center-text">{{ui[error] !== undefined ? ui[error] : error}}</text>
+      </view>
+      <block has:else>
+        <view has:if="{{!entries.length}}" class="wf-center">
+          <text class="wf-center-text">{{ui['此目录为空']}}</text>
+        </view>
+        <block has:for="{{entries}}" has:key="path">
+          <view class="wf-row {{loading ? 'disabled' : ''}}" hover-class="wf-row-hover" bindtap="openEntry" data-index="{{index}}">
+            <image class="wf-row-icon" src="/assets/icons/{{item.iconFile}}"/>
+            <view class="wf-row-body">
+              <text class="wf-row-name">{{item.name}}</text>
+              <text has:if="{{item.subLabel}}" class="wf-row-sub">{{ui[item.subLabel] !== undefined ? ui[item.subLabel] : item.subLabel}}</text>
+            </view>
+            <image has:if="{{item.kind === 'dir'}}" class="wf-row-chev" src="/assets/icons/ic-dir-chevron-mist.png"/>
+          </view>
+          <view has:if="{{index < entries.length - 1}}" class="wf-divider"></view>
+        </block>
+      </block>
+      <view class="wf-list-spacer"></view>
+    </scroll-view>
+  </view>
+</view>
