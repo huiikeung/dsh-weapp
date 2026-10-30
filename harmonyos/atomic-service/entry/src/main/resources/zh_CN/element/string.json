@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "鲸尾 Harness 元服务"
+      "value": "鲸尾助手 元服务"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "鲸尾 Harness 元服务"
+      "value": "鲸尾助手 元服务"
     },
     {
       "name": "EntryAbility_label",
-      "value": "鲸尾 Harness"
+      "value": "鲸尾助手"
     }
   ]
 }

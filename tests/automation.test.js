@@ -23,11 +23,19 @@ test('empty state offers a centered new-task button and onShow clears a stuck cr
 test('delete confirmation cannot apply after a Host switch',()=>{const {page,store,calls}=fixture();page.openDetail({currentTarget:{dataset:{id:'one'}}});page.onDeleteTap();store.state.activeID='host-b';calls[0].modal.success({confirm:true});assert.equal(calls.filter(c=>c.delete).length,0);});
 test('history transport correlates by request id, not latest task',async()=>{const c=Object.create(GatewayClient.prototype);c.pendingRequests={};const sent=[];c.send=f=>{sent.push(f);return true;};const a=c.requestScheduleHistory('s1','one'),b=c.requestScheduleHistory('s2','two','cursor');c.resolveCorrelated({kind:'schedule-history',requestId:sent[1].requestId,records:[{messageId:'second'}]});c.resolveCorrelated({kind:'schedule-history',requestId:sent[0].requestId,records:[{messageId:'first'}]});assert.equal((await a).records[0].messageId,'first');assert.equal((await b).records[0].messageId,'second');assert.equal(sent[1].before,'cursor');});
 
-test('status filters sit above the search box',()=>{
+test('search and filter share one iOS-style capsule before the task rows',()=>{
   const xml=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/schedule/schedule.wxml'),'utf8');
-  const filtersAt=xml.indexOf('sched-filters');
-  const searchAt=xml.indexOf('sched-search');
-  const rowsAt=xml.indexOf('sched-rows');
-  assert.ok(filtersAt > 0 && searchAt > filtersAt && rowsAt > searchAt, 'filters -> search -> task rows');
+  const bar=xml.indexOf('sched-searchbar');
+  const pop=xml.indexOf('sched-filter-pop');
+  const rows=xml.indexOf('sched-rows');
+  const scrollEnd=xml.indexOf('</scroll-view>');
+  assert.ok(bar > 0 && rows > bar, 'capsule sits above the task rows');
+  assert.ok(pop > scrollEnd, 'filter popover lives outside the scroll-view so fixed positioning matches the button');
+  assert.ok(!xml.includes('sched-filters') && !xml.includes('class="sched-search"'), 'old filter row and search box are gone');
+  assert.ok(xml.includes('bindtap="openSchedSearch"') && xml.includes('bindtap="toggleSchedFilter"'), 'capsule has search and filter triggers');
+  assert.ok(xml.includes('bindtap="pickSchedFilter"') && xml.includes('bindtap="closeSchedFilter"'), 'filter popover is interactive');
   for (const label of ["ui['全部']", "ui['已开启']", "ui['已结束']"]) assert.ok(xml.includes(label), label);
+  const css=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/schedule/schedule.wxss'),'utf8');
+  assert.match(css, /\.sched-searchbar \{[^}]*border-radius: 999rpx/);
+  assert.match(css, /\.sched-filter-pop \{[^}]*position: fixed/);
 });

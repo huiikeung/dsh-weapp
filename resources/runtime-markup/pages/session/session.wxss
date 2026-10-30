@@ -5367,6 +5367,28 @@ overscroll-behavior-y: auto;
   backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
   -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
 }
+/* 三横线「对话节点定位」全屏页（仅玻璃模式）：整页铺一层可见的磨砂玻璃。
+   玻璃层放在 ::before 上：iOS 上 backdrop-filter 挂在这个带淡入动画的 fixed 元素上时经常不合成，
+   挪到伪元素既避开动画，也不会影响内容布局。 */
+.session-glass .turn-overlay {
+  background: transparent;
+}
+.session-glass .turn-overlay::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.04) 46%, rgba(255, 255, 255, 0.02)),
+    rgba(26, 28, 34, 0.50);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.45) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.45) brightness(var(--glass-backdrop-brightness, 1));
+}
+.session-glass .turn-overlay .turn-overlay-inner {
+  position: relative;
+  z-index: 1;
+}
 /* 三个点「更多」弹层（仅玻璃模式）：与输入框 / 卡片同一套 iOS 磨砂，宽/高参考首页「切换主机」弹窗 */
 .session-glass .sheet.session-menu {
   width: calc(100% - 24px);

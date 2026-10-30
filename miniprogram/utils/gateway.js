@@ -1209,6 +1209,9 @@ class GatewayClient {
     return this.request(payload);
   }
 
+  /** 可配置的 model provider 列表（host llm/providers；含 settingsNs / declared / 默认端点）。 */
+  requestProviders() { return this.request({ type: 'providers' }); }
+
   selectModel(sessionId, provider, model, reasoningEffort) {
     const payload = { type: 'select-model', sessionId: sessionId, provider: provider, model: model };
     if (reasoningEffort) payload.reasoningEffort = reasoningEffort;

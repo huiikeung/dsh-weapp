@@ -101,6 +101,8 @@ function createStore() {
     pluginPendingName: null,
     pluginNotice: null,
     pluginInstall: null,
+    // settings 文档变更（模型页等订阅它，收到 DSH 客户端的写入后重新读取）
+    pluginSettingsChanged: null,
 
     notice: null
   };

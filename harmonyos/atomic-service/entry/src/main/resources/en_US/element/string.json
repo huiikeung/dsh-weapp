@@ -2,15 +2,15 @@
   "string": [
     {
       "name": "module_desc",
-      "value": "whaletail Harness atomic service"
+      "value": "鲸尾助手 atomic service"
     },
     {
       "name": "EntryAbility_desc",
-      "value": "whaletail Harness atomic service"
+      "value": "鲸尾助手 atomic service"
     },
     {
       "name": "EntryAbility_label",
-      "value": "whaletail Harness"
+      "value": "鲸尾助手"
     }
   ]
 }

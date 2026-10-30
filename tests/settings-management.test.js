@@ -1238,6 +1238,9 @@ test('对话页面玻璃：设置页独立开关控制，页面头部/输入区/
     assert.ok(slice.includes(edgeToken), selector + ' hairline');
     assert.ok(slice.includes(blurToken), selector + ' blur');
   }
+  // 三横线「对话节点定位」全屏页也铺一层玻璃背景
+  assert.match(wxss, /\.session-glass \.turn-overlay::before \{[^}]*backdrop-filter: blur\(var\(--glass-frost-blur/, 'turn navigator frosted background');
+  assert.match(wxss, /\.session-glass \.turn-overlay::before \{[^}]*rgba\(255, 255, 255, 0\.13\)/, 'turn navigator glass sheen');
   // 设置页独立开关：一行 switch + 处理器
   assert.ok(settingsWxml.includes('checked="{{sessionGlassEnabled}}"') && settingsWxml.includes('bindchange="toggleSessionGlass"'), 'settings switch exists');
   assert.ok(settingsWxml.includes("ui['对话页玻璃UI']"), 'switch label present');

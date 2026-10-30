@@ -2378,5 +2378,6 @@
   "前往": "Go",
   "请输入绝对路径": "Enter an absolute path",
   "请输入以 / 或盘符开头的绝对路径": "Enter an absolute path starting with / or a drive letter",
-  "没有可显示的目录，打开“显示隐藏文件”查看": "No folders to show. Turn on “Show hidden files”."
+  "没有可显示的目录，打开“显示隐藏文件”查看": "No folders to show. Turn on “Show hidden files”.",
+  "筛选": "Filter"
 }

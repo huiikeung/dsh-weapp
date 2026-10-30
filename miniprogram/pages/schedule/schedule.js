@@ -7,7 +7,7 @@ const theme = require('../../utils/theme');
 const week = [uiText('一'), uiText('二'), uiText('三'), uiText('四'), uiText('五'), uiText('六'), uiText('日')];
 Page({
   data: { theme: 'light', themeClass: 'theme-light', statusBarH: 44, connected: false, tasks: [], visibleTasks: [], loading: false, error: '', busyId: null,
-    search: '', statusFilter: 'all', activeCount: 0, inactiveCount: 0, refreshing: false, selected: null, detailTab: 'rule', editingOpen: false, editing: null,
+    search: '', statusFilter: 'all', schedSearchOpen: false, schedFilterOpen: false, schedFilterTop: 96, schedFilterLeft: 12, schedFilterWidth: 240, schedFilterOriginX: 0, schedFilterOriginY: 0, activeCount: 0, inactiveCount: 0, refreshing: false, selected: null, detailTab: 'rule', editingOpen: false, editing: null,
     rules: editor.RULES, units: [uiText('小时'), uiText('分钟'), uiText('秒')], weekOptions: [], history: [], historyLoading: false, historyError: '', historyNext: '', historyPruned: false, historyRetention: '', creating: false },
   owner() { return store.state.activeID || store.state.gatewayId || store.state.endpoint || ''; },
   onUiPreferencesChange() { this.setData({ rules: editor.RULES.map(item => ({ ...item, title: uiText(item.title) })), units: [uiText('小时'), uiText('分钟'), uiText('秒')], weekOptions: (this.data.weekOptions || []).map(item => ({ ...item, title: uiText(item.title) })) }); },
@@ -19,7 +19,24 @@ Page({
     this.unsubscribe = store.subscribe(snapshot => this.syncFromStore(snapshot));
     this.syncFromStore({ app: store.state });
   },
+  /** 记录搜索胶囊在视口中的位置：筛选弹窗要贴着它展开。 */
+  measureSchedSearchBar(done) {
+    try {
+      wx.createSelectorQuery().in(this)
+        .select('#schedSearchBar').boundingClientRect()
+        .select('.sched-new').boundingClientRect()
+        .exec((res) => {
+          const bar = res && res[0];
+          const create = res && res[1];
+          if (bar && Number.isFinite(bar.left) && Number.isFinite(bar.top)) this._schedBarRect = bar;
+          if (create && Number.isFinite(create.top)) this._schedNewRect = create;
+          if (typeof done === 'function') done(this._schedBarRect || null);
+        });
+    } catch (_) { if (typeof done === 'function') done(this._schedBarRect || null); }
+  },
+
   onShow() {
+    if (typeof wx.nextTick === 'function') wx.nextTick(() => this.measureSchedSearchBar());
     // 从会话页返回时上一轮创建请求一定已结束（成功或失败），
     // 清掉页面级防重入标记，避免底部「新建」按钮因卡住的 creating 变灰不可点。
     if (this.data.creating) this.setData({ creating: false });
@@ -65,6 +82,47 @@ Page({
     this.setData({ visibleTasks: this.data.tasks.filter(t => (filter === 'all' || t.status === filter) && (!q || [t.title, t.prompt, t.sessionId].some(v => String(v).toLowerCase().includes(q)))) });
   },
   onSearch(e) { this.setData({ search: e.detail.value }); this.filterTasks(); },
+  /** iOS 风格：默认只是一个搜索 + 筛选胶囊，点左边展开输入框，点右边弹出筛选菜单。 */
+  openSchedSearch() { this.closeSchedFilter(); this.setData({ schedSearchOpen: true }); },
+  closeSchedSearch() { if (this.data.schedSearchOpen) this.setData({ schedSearchOpen: false }); },
+  clearSchedSearch() { this.setData({ search: '', schedSearchOpen: false }); this.filterTasks(); },
+  toggleSchedFilter() {
+    if (this.data.schedFilterOpen) { this.closeSchedFilter(); return; }
+    if (this.data.schedSearchOpen) this.setData({ schedSearchOpen: false });
+    let info = {};
+    try { info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync(); } catch (_) { info = {}; }
+    const windowWidth = info.windowWidth || 375;
+    const show = (bar) => {
+      const left = bar && Number.isFinite(bar.left) ? Math.max(12, Math.round(bar.left)) : 12;
+      // 顶边与右侧「＋ 新建」按钮的上边对齐（同一行但两者高度不同）
+      const create = this._schedNewRect;
+      const top = create && Number.isFinite(create.top) ? Math.round(create.top)
+        : (bar && Number.isFinite(bar.top) ? Math.round(bar.top) : 96);
+      const width = Math.min(248, windowWidth - left - 12);
+      this.setData({ schedFilterOpen: true, schedFilterLeft: left, schedFilterTop: top, schedFilterWidth: width });
+    };
+    // 有缓存就直接用缓存定位，避免首帧落在兜底位置；同时异步刷新缓存
+    if (this._schedBarRect) show(this._schedBarRect);
+    this.measureSchedSearchBar((rect) => {
+      if (!rect) { if (!this._schedBarRect && !this.data.schedFilterOpen) show(null); return; }
+      this._schedBarRect = rect;
+      if (!this.data.schedFilterOpen) return;
+      const left = Math.max(12, Math.round(rect.left));
+      const create = this._schedNewRect;
+      const top = create && Number.isFinite(create.top) ? Math.round(create.top) : Math.round(rect.top);
+      const width = Math.min(248, windowWidth - left - 12);
+      if (left !== this.data.schedFilterLeft || top !== this.data.schedFilterTop || width !== this.data.schedFilterWidth) {
+        this.setData({ schedFilterLeft: left, schedFilterTop: top, schedFilterWidth: width });
+      }
+    });
+  },
+  closeSchedFilter() { if (this.data.schedFilterOpen) this.setData({ schedFilterOpen: false }); },
+  pickSchedFilter(e) {
+    const value = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.status : '';
+    if (!['all', 'active', 'inactive'].includes(value)) return;
+    this.setData({ statusFilter: value, schedFilterOpen: false });
+    this.filterTasks();
+  },
   clearSearch() { this.setData({ search: '' }); this.filterTasks(); },
   selectStatus(e) { const value = e.currentTarget.dataset.status; if (!['all','active','inactive'].includes(value)) return; this.setData({ statusFilter: value }); this.filterTasks(); },
   onRefresh() { if (!this.data.connected) return; this.setData({ refreshing: true }); store.refreshScheduledTasks(); if (this.data.selected && this.data.detailTab === 'records') this.loadHistory(false); },
