@@ -4079,8 +4079,8 @@ Page({
             name: item.name || item.title || '',
             path: item.path || '',
             kind: isDir ? 'dir' : 'file',
-            // 与「工作区文件」入口和其他工作区图标保持同一套 SVG 文件夹（蓝色版）
-            iconFile: isDir ? 'workspace-folder-blue.svg' : 'doc-ocean.png',
+            // 文件夹与「工作区文件」入口同一套 SVG；文件按格式用对应的 deliverable 图标
+            iconFile: fileDeliverables.iconFileFor(item.name || item.title || '', isDir),
             key: (item.path || '') + '/' + index
           };
         });

@@ -80,4 +80,10 @@ function relativePath(path, cwd) {
   return value;
 }
 
-module.exports = { describe, relativePath, classify, formatBytes, extensionOf, extensionOfMediaType, OPEN_TYPES };
+/** 工作区文件浏览器里的图标：文件夹沿用工作区蓝色 SVG，文件沿用附件同一套格式分类。 */
+function iconFileFor(name, isDir) {
+  if (isDir) return 'workspace-folder-blue.svg';
+  return 'deliverable-' + classify(extensionOf(name)).kind + '.svg';
+}
+
+module.exports = { describe, relativePath, classify, formatBytes, extensionOf, extensionOfMediaType, iconFileFor, OPEN_TYPES };

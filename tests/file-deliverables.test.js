@@ -6,7 +6,7 @@ const path=require('node:path');
 const vm=require('node:vm');
 const {buildRows,normalizeRawEvent,newAggregator,applyEvent}=require('../miniprogram/utils/protocol');
 const {buildEntries}=require('../miniprogram/pages/session/utils/conversation-workflow');
-const {describe,relativePath}=require('../miniprogram/pages/session/utils/file-deliverables');
+const {describe,relativePath,iconFileFor}=require('../miniprogram/pages/session/utils/file-deliverables');
 const {downloadFile,MAX_BYTES}=require('../miniprogram/pages/session/utils/file-download');
 const SHA256=require('../miniprogram/pages/session/utils/file-sha256');
 const event=(seq,type,data)=>({seq,type,data});
@@ -242,6 +242,20 @@ test('file menu forwarding retains a direct retry after a user-gesture rejection
   assert.ok(f.page.data.filePreview,'the sheet stays open so the retry has a target');
   assert.equal(f.calls.at(-1)[0],'toast');
   f.page.shareSelectedFile();assert.equal(f.calls.at(-1)[0],'share');assert.equal(f.downloads(),1);
+});
+
+test('workspace file browser icons follow the same format classes',()=>{
+  assert.equal(iconFileFor('README.md',false),'deliverable-document.svg');
+  assert.equal(iconFileFor('main.js',false),'deliverable-code.svg');
+  assert.equal(iconFileFor('config.yaml',false),'deliverable-code.svg');
+  assert.equal(iconFileFor('shot.png',false),'deliverable-image.svg');
+  assert.equal(iconFileFor('report.pdf',false),'deliverable-pdf.svg');
+  assert.equal(iconFileFor('sheet.xlsx',false),'deliverable-table.svg');
+  assert.equal(iconFileFor('slides.pptx',false),'deliverable-slides.svg');
+  assert.equal(iconFileFor('archive.zip',false),'deliverable-file.svg');
+  assert.equal(iconFileFor('no-extension',false),'deliverable-file.svg');
+  assert.equal(iconFileFor('',true),'workspace-folder-blue.svg');
+  assert.equal(iconFileFor('nested/folder',true),'workspace-folder-blue.svg');
 });
 
 test('active native share retains its file until completion even when the page is disposed',async()=>{
