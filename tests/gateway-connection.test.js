@@ -207,3 +207,32 @@ test('public history requests keep a small default and accept bounded larger-pag
   assert.equal(payloads[0].maxMessages, 40);
   assert.equal(payloads[3].maxMessages, 12, 'public session entry prioritizes a smaller, faster latest-history tail');
 });
+
+test('subagent history and subscribe carry the durable parent address', t => {
+  const f = fixture(t);
+  const payloads = [];
+  f.client.send = payload => { payloads.push(payload); return true; };
+
+  f.client.setSessionParent('child-1', { parentSessionId: 'parent-1', mode: 'one-shot' });
+  f.client.requestHistory('child-1');
+  f.client.subscribe('child-1');
+  assert.equal(payloads[0].parentSessionId, 'parent-1', 'history includes the durable parent');
+  assert.equal(payloads[0].mode, 'one-shot');
+  assert.equal(payloads[1].parentSessionId, 'parent-1', 'subscribe includes the durable parent');
+
+  f.client.requestHistory('plain-session');
+  assert.equal(payloads[2].parentSessionId, undefined, 'plain sessions stay unchanged');
+  f.client.setSessionParent('child-1', null);
+  f.client.requestHistory('child-1');
+  assert.equal(payloads[3].parentSessionId, undefined, 'clearing the parent drops the field');
+});
+
+test('subagent mode falls back to unknown when the session list carries a non-subagent mode', t => {
+  const f = fixture(t);
+  const payloads = [];
+  f.client.send = payload => { payloads.push(payload); return true; };
+  f.client.setSessionParent('child-2', { parentSessionId: 'parent-2', mode: 'standard' });
+  f.client.requestHistory('child-2');
+  assert.equal(payloads[0].parentSessionId, 'parent-2');
+  assert.equal(payloads[0].mode, 'unknown', 'gateway only accepts continuable / one-shot / unknown');
+});

@@ -40,6 +40,7 @@ class GatewayClient {
     this.reconnectTimer = null;
     this.timeoutTimer = null;
     this.pendingRequests = {}; // key → { resolve, reject, timer }
+    this.sessionParents = Object.create(null); // 子 Agent 会话 → durable parent address
     this.sessionCreations = {}; // requestId → { resolve, reject, timer }
     this.relayShares = {}; // requestId → { resolve, reject, timer }
     this.relayCodes = {};  // requestId → 兑换码生成挂起
@@ -1355,6 +1356,12 @@ class GatewayClient {
         : defaultMaxBytes,
       view: 'conversation'
     };
+    // 子 Agent 会话：网关要求带 durable parent address，否则拒绝读取历史。
+    const parent = this.sessionParents[sessionId];
+    if (parent && parent.parentSessionId) {
+      payload.parentSessionId = parent.parentSessionId;
+      if (parent.mode) payload.mode = parent.mode;
+    }
     if (beforeSeq !== undefined && beforeSeq !== null && beforeSeq >= 0 && historyFormatVersion) {
       payload.beforeSeq = beforeSeq;
       payload.historyFormatVersion = historyFormatVersion;
@@ -1405,6 +1412,18 @@ class GatewayClient {
     return true;
   }
 
+  /** 登记子 Agent 会话的 durable parent，后续 subscribe/history 自动带上。 */
+  setSessionParent(sessionId, parent) {
+    const id = sessionId ? String(sessionId) : '';
+    if (!id) return;
+    const parentSessionId = parent && typeof parent.parentSessionId === 'string' ? parent.parentSessionId.trim() : '';
+    if (!parentSessionId) { delete this.sessionParents[id]; return; }
+    // 网关只接受这三个值；列表里的 mode 可能是 Agent 模式（如 standard），不能原样透传。
+    const rawMode = parent && typeof parent.mode === 'string' ? parent.mode.trim() : '';
+    const mode = ['one-shot', 'continuable', 'unknown'].includes(rawMode) ? rawMode : 'unknown';
+    this.sessionParents[id] = { parentSessionId, mode };
+  }
+
   requestAttachment(sessionId, attachmentId) {
     return this.request({ type: 'attachment', sessionId: sessionId, attachmentId: attachmentId });
   }
@@ -1415,9 +1434,12 @@ class GatewayClient {
       // 中继线路上订阅快照默认 1 MiB，整包加密后单帧转发，手机要等好几秒。
       // 声明一个小预算：先拿到最新一小段立即可见，旧记录由上滑分页补。
       const snapshotMaxBytes = this.relayMeta ? 128 * 1024 : undefined;
+      const parent = this.sessionParents[sessionId];
       return this.send({ type: 'subscribe', sessionId: sessionId, assistantStream: true,
         ...(Number.isSafeInteger(afterSeq) && afterSeq >= 0 ? { afterSeq: afterSeq } : {}),
-        ...(snapshotMaxBytes ? { snapshotMaxBytes } : {}) });
+        ...(snapshotMaxBytes ? { snapshotMaxBytes } : {}),
+        ...(parent && parent.parentSessionId ? { parentSessionId: parent.parentSessionId } : {}),
+        ...(parent && parent.parentSessionId && parent.mode ? { mode: parent.mode } : {}) });
     }
     return this.send({ type: 'unsubscribe' });
   }

@@ -76,7 +76,7 @@ test('a session opened offline refreshes its history and composer state after re
   }
 
   for (const [id, timer] of [...timers]) {
-    if (timer.delay === 1200) { timers.delete(id); timer.fn(); }
+    if (timer.delay === 450 || timer.delay === 1200) { timers.delete(id); timer.fn(); }
   }
 
   for (const method of ['requestHistory', 'requestQueue']) {

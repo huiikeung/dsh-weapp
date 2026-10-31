@@ -8,10 +8,10 @@
 // 只承载平滑的流体与光带，可以用 ~0.7x CSS 像素渲染，体积小、编码快，
 // 放大后也看不出锯齿，贴近 dsh-mobile 原生的 Metal 观感。
 const INIT_DELAY_MS = 60;       // 首屏绘制完成后再创建 WebGL 上下文
-const FRAME_INTERVAL_MS = 125;  // 8fps：流体变化缓慢，省电且不卡顿
-const FLUID_PIXEL_BUDGET = 160000; // 单帧缓存的像素上限（约 273x590）
+const FRAME_INTERVAL_MS = 200;  // 5fps：流体变化缓慢，进一步省电（长时间停留首页时明显降温）
+const FLUID_PIXEL_BUDGET = 120000; // 单帧缓存的像素上限（约 250x480），编码耗时随像素数线性下降
 const FLUID_SCALE_CAP = 0.72;   // 低分辨率上限：帧里只有平滑渐变，放大后依然细腻
-const FLUID_JPEG_QUALITY = 0.72;
+const FLUID_JPEG_QUALITY = 0.66;
 
 /** 跨组件实例共享的流体相位：页面被替换/重建后继续从同一时间点绘制，光带不会跳位。 */
 let sharedElapsed = 0;

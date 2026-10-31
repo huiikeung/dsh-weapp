@@ -707,7 +707,9 @@ Page({
     this._pendingStoreSnapshot = snapshot;
     if (this._storeSyncTimer) return;
     // 大会话（上千行）每次投影 + 分组 + 差分的成本远高于 32ms：帧率换平滑没有意义，
-    const busyFloor = (this.data.rows && this.data.rows.length > 120) ? 96 : 32;
+    // 长会话/长回合里进一步降频，明显降低持续流式输出时的 CPU 占用与发热。
+    const rowCount = (this.data.rows && this.data.rows.length) || 0;
+    const busyFloor = rowCount > 300 ? 150 : (rowCount > 120 ? 110 : 32);
     const delay = this._preferImmediateStoreSync
       ? 0 : Math.max(busyFloor, (this._interactionUntil || 0) - Date.now());
     this._preferImmediateStoreSync = false;
@@ -929,13 +931,17 @@ Page({
       }
     }
     // 用户消息现在也走 Markdown 缓存，必须一起 retain，否则每次 emit 都被清空重解析。
-    this._markdownCache.retain((s.rows || []).filter(row => row.kind === 'assistant' || row.kind === 'user').flatMap(row => {
-      const keys = [row.key];
-      if (row.kind === 'assistant' && row.key) (row.events || []).forEach((event, index) => {
-        if (event && event.kind === 'text') keys.push(row.key + '/process/' + index);
-      });
-      return keys;
-    }));
+    // 流式回合里 retain 是 O(全部行) 的分配大户：降频到约 1.2s 一次，缓存多留几行无害。
+    if (!this.data.running || Date.now() - (this._lastRetainAt || 0) >= 1200) {
+      this._lastRetainAt = Date.now();
+      this._markdownCache.retain((s.rows || []).filter(row => row.kind === 'assistant' || row.kind === 'user').flatMap(row => {
+        const keys = [row.key];
+        if (row.kind === 'assistant' && row.key) (row.events || []).forEach((event, index) => {
+          if (event && event.kind === 'text') keys.push(row.key + '/process/' + index);
+        });
+        return keys;
+      }));
+    }
 
     // dsh-mobile 同款两段投影：protocol 只产生语义行，conversation-workflow
     const previewOf = (text) => {
@@ -1530,17 +1536,29 @@ Page({
 
   /** 运行条（对齐 iOS deep-search-progress）：活动短语 + 用时秒数 */
   /** 过程组活标题：耗时 X · N 项上下文 · N 次工具调用（对齐 iOS 组头，随秒跳动） */
-  buildRunHeader(rows, elapsed) {
+  runHeaderCounts(rows) {
     let ctx = 0;
     let tools = 0;
     (rows || []).forEach((r) => {
       if (r.kind === 'context') ctx += 1;
       if (r.tools && r.tools.length) tools += r.tools.length;
     });
+    return { ctx, tools };
+  },
+
+  buildRunHeaderFromCounts(elapsed) {
+    // 跑起来后计数由 syncRunningStrip 随行数据刷新，这里只拼字符串。
+    const counts = this._runHeaderCounts || { ctx: 0, tools: 0 };
     let head = uiText('耗时 ') + elapsed;
-    if (ctx) head += ' · ' + ctx + uiText(' 项上下文');
-    if (tools) head += ' · ' + tools + uiText(' 次工具调用');
+    if (counts.ctx) head += ' · ' + counts.ctx + uiText(' 项上下文');
+    if (counts.tools) head += ' · ' + counts.tools + uiText(' 次工具调用');
     return head;
+  },
+
+  buildRunHeader(rows, elapsed) {
+    const counts = this.runHeaderCounts(rows);
+    this._runHeaderCounts = counts;
+    return this.buildRunHeaderFromCounts(elapsed);
   },
 
   syncRunningStrip(rows, running) {
@@ -1565,6 +1583,8 @@ Page({
         runHeader: this.buildRunHeader(rows, uiText('0 秒'))
       });
       const self = this;
+      const counts = this.runHeaderCounts(rows);
+      this._runHeaderCounts = counts;
       this._runTimer = setInterval(() => {
         const sec = Math.max(0, Math.floor((Date.now() - self._runStart) / 1000));
         // iOS 文案为「用时 {N} 秒…」，N 恒为整秒
@@ -1572,7 +1592,8 @@ Page({
         self.setData({
           runSeconds: sec,
           runElapsedText: elapsed,
-          runHeader: self.buildRunHeader(self.data.rows, elapsed),
+          // 每秒只重算字符串，不再全量扫描上千行（长回合时这是实打实的 CPU 开销）。
+          runHeader: self.buildRunHeaderFromCounts(elapsed),
           runPhrase: self.runActivityPhrase()
         });
       }, 1000);
@@ -5646,6 +5667,10 @@ Page({
 
   /** 收集当前可见行里尚未缓存的图片，按顺序串行回填（网关同类型请求只能有一个在途）。 */
   collectAttachmentThumbs() {
+    // 运行中每次同步都会排一次收集：全量扫 rows + 对每张图做一次本地文件探测，
+    // 长会话里是持续的同步 I/O。流式期间降频到约 2s 一次即可。
+    if (this.data.running && Date.now() - (this._thumbCollectedAt || 0) < 2000) return;
+    this._thumbCollectedAt = Date.now();
     const client = store.client, sessionId = store.sessionState && store.sessionState.sessionId;
     if (!client || !sessionId || this._unloaded) return;
     if (this._thumbSession !== sessionId) {

@@ -762,7 +762,9 @@ const sessionState = {
   }
   function scheduleHistoryFallback(sessionId) {
     if (historyFallbackTimer) clearTimeout(historyFallbackTimer);
-    // 1.2s 足够快照到达（一次宿主读取）；老网关/异常路径下退回 history。
+    // 有本地缓存时先展示缓存，1.2s 等宿主快照即可；
+    // 没有任何缓存时页面就是空白，等不了那么久——450ms 就主动补 history。
+    const hasLocalRows = Array.isArray(sessionState.rows) && sessionState.rows.length > 0;
     historyFallbackTimer = setTimeout(function () {
       historyFallbackTimer = null;
       if (snapshotPendingFor !== sessionId) return;
@@ -771,7 +773,7 @@ const sessionState = {
       if (String(sessionState.historyState || '').indexOf('loaded') === 0 && !sessionState.cacheDisplay) return;
       client.requestHistory(sessionId);
       scheduleHistoryRetry(sessionId);
-    }, 1200);
+    }, hasLocalRows ? 1200 : 450);
   }
 
   /** 历史请求自愈：4s 内没等到 history 帧 → 重发（最多 3 次，之后明确失败） */
@@ -1453,12 +1455,12 @@ const sessionState = {
     } catch (e) { /* 单帧失败不中断 */ }
     if (restoring) return;
     if (firstContent) { emit(); return; }
-    // 流式 chunk 频率极高：120ms 合帧刷新，避免逐 token 全页 setData 饿死连接层
+    // 流式 chunk 频率极高：160ms 合帧刷新（约 6fps），在观感与持续 CPU/发热之间取平衡。
     if (!streamFlushTimer) {
       streamFlushTimer = setTimeout(function () {
         streamFlushTimer = null;
         emit();
-      }, 120);
+      }, 160);
     }
   }
 
@@ -2854,6 +2856,7 @@ const sessionState = {
       title: title,
       // 子代理（subagent/child）会话与工作区归属：用于快捷切换时过滤
       parentSessionId: source.parentSessionId || source.parent_session_id || source.parentId || source.parent_id || null,
+      mode: source.subagentMode || source.subagent_mode || source.mode || source.agentMode || source.agent_mode || null,
       kind: source.kind || source.type || null,
       workspaceId: source.workspaceId || source.workspace_id || null
     };
@@ -3969,6 +3972,13 @@ const sessionState = {
       trajectoryDirty = true;
       sessionState.title = title || '';
       const listedSession = state.sessions.find(item => item.sessionId === sessionId);
+      // 子 Agent 会话读取历史需要 durable parent address：先登记到连接对象。
+      if (client && typeof client.setSessionParent === 'function') {
+        client.setSessionParent(sessionId, {
+          parentSessionId: listedSession && listedSession.parentSessionId,
+          mode: listedSession && listedSession.mode
+        });
+      }
       sessionState.agentPreset = listedSession && typeof listedSession.agentPreset === 'string'
         ? listedSession.agentPreset : (typeof agentPreset === 'string' ? agentPreset : null);
       sessionState.agentPresetAsOfSeq = listedSession ? listedSession.agentPresetAsOfSeq : null;

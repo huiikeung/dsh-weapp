@@ -525,7 +525,8 @@ test('a missing snapshot falls back to a history request', () => {
   const f = fixture();
   f.store.openSession('s', 'Current');
   assert.deepEqual(f.requests, []);
-  f.flush(1200);
+  // 没有任何本地缓存时页面是空白，回落窗口缩短到 450ms。
+  f.flush(450);
   assert.deepEqual(f.requests, [['s']], 'no snapshot within the window must re-issue history');
 });
 
