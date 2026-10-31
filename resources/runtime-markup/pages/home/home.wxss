@@ -2336,8 +2336,9 @@ page {
 }
 
 /* 「全部会话」未选中图标：层叠会话（对齐 iOS square.stack：圆角方框 + 上方两条短线，纯 CSS）
-   线宽 3rpx 与菜单其他图标一致（tray/plus 栅格图标在 36rpx 下约 1.5px 描边）；
-   方框 24×24、5rpx 圆角，两条横线 12/18。 */
+   线宽 2.8rpx = 文件夹图标在 36rpx 下的有效描边（1.85 × 36/24 ≈ 2.78rpx），保证粗细一致；
+   方框 30×25（36rpx 下约 15×12.5px，接近文件夹 16×12.6px 的视觉宽度）、6rpx 圆角，
+   两条横线 15/22。 */
 .ws-pop-stack {
   position: relative;
 }
@@ -2347,31 +2348,31 @@ page {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  height: 3rpx;
-  border-radius: 1.5rpx;
+  height: 2.8rpx;
+  border-radius: 1.4rpx;
   background: rgba(255, 255, 255, 0.95);
 }
 
 .ws-pop-stack-top {
   top: 1rpx;
-  width: 12rpx;
+  width: 15rpx;
 }
 
 .ws-pop-stack-back {
-  top: 6rpx;
-  width: 18rpx;
+  top: 5rpx;
+  width: 22rpx;
 }
 
 .ws-pop-stack-front {
   position: absolute;
   left: 50%;
-  top: 11rpx;
+  top: 9.5rpx;
   transform: translateX(-50%);
-  width: 24rpx;
-  height: 24rpx;
+  width: 30rpx;
+  height: 25rpx;
   box-sizing: border-box;
-  border: 3rpx solid rgba(255, 255, 255, 0.95);
-  border-radius: 5rpx;    /* 方框四角更圆润，贴近参考图标 */
+  border: 2.8rpx solid rgba(255, 255, 255, 0.95);
+  border-radius: 6rpx;    /* 方框四角圆润 */
 }
 
 .ws-pop-row-danger .ws-pop-label {

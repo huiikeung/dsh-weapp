@@ -1970,28 +1970,28 @@ position: relative;
 position: absolute;
 left: 50%;
 transform: translateX(-50%);
-height: 3rpx;
-border-radius: 1.5rpx;
+height: 2.8rpx;
+border-radius: 1.4rpx;
 background: rgba(255, 255, 255, 0.95);
 }
 .ws-pop-stack-top {
 top: 1rpx;
-width: 12rpx;
+width: 15rpx;
 }
 .ws-pop-stack-back {
-top: 6rpx;
-width: 18rpx;
+top: 5rpx;
+width: 22rpx;
 }
 .ws-pop-stack-front {
 position: absolute;
 left: 50%;
-top: 11rpx;
+top: 9.5rpx;
 transform: translateX(-50%);
-width: 24rpx;
-height: 24rpx;
+width: 30rpx;
+height: 25rpx;
 box-sizing: border-box;
-border: 3rpx solid rgba(255, 255, 255, 0.95);
-border-radius: 5rpx;
+border: 2.8rpx solid rgba(255, 255, 255, 0.95);
+border-radius: 6rpx;
 }
 .ws-pop-row-danger .ws-pop-label {
 color: #FF3B30;
