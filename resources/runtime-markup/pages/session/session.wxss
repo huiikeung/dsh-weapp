@@ -3212,7 +3212,7 @@ overscroll-behavior-y: auto;
 .model-menu-back .model-entry-chevron{transform:rotate(-135deg)}
 .model-trigger-chevron.open{transform:translateY(1px) rotate(225deg)}
 .theme-dark .model-pop{box-shadow:0 4px 16px rgba(0,0,0,.35)}
-@media (hover: hover) and (pointer: fine){.model-pop .model-row:hover,.model-chip:hover{background:var(--fill-2)}}
+@media (hover: hover) and (pointer: fine){.model-pop .model-row:hover{background:var(--fill-2)}}
 @media (hover: none), (pointer: coarse){.model-pop .model-row{min-height:44px}.composer-bar .chip.model-chip{height:28px;max-width:min(280px,48%)}.model-name{font-size:14px;line-height:20px}}
 .navbar .nav-back {
   width: 46rpx;

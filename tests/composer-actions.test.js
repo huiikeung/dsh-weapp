@@ -654,7 +654,7 @@ test('menu uses compact rows, trailing checks, right-aligned details and pointer
     '.command-options.command-option,.command-options-return{min-height:44px}',
     '.opt-pop.permission-pop.opt-row:hover{background:var(--fill-2)}',
     '.opt-pop.permission-pop.opt-row{min-height:44px}',
-    '.model-pop.model-row:hover,.model-chip:hover{background:var(--fill-2)}',
+    '.model-pop.model-row:hover{background:var(--fill-2)}',
     '.model-pop.model-row{min-height:44px}',
     '.model-entry-value{flex:1;min-width:0;display:flex;align-items:center;justify-content:flex-end;'
   ]) assert.ok(css.includes(rule), rule);
