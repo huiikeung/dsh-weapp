@@ -1917,7 +1917,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
 <image class="session-menu-icon" src="/assets/icons/dsh-gauge.svg" mode="aspectFit"/><text class="session-menu-label">{{ui['查看统计']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
 </view>
 <view class="session-menu-row" bindtap="selectMoreAction" data-action="files" hover-class="session-menu-pressed" role="button">
-<image class="session-menu-icon session-menu-folder" src="/assets/icons/{{item.ungrouped ? (theme === 'dark' ? 'tray-white.png' : 'tray-ink.png') : (item.expanded ? 'workspace-folder-blue.svg' : (theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-ink.svg'))}}" mode="aspectFit"/><text class="session-menu-label">{{ui['工作区文件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
+<image class="session-menu-icon session-menu-folder" src="/assets/icons/{{item.ungrouped ? (theme === 'dark' ? 'tray-white.svg' : 'tray-ink.svg') : (item.expanded ? 'workspace-folder-blue.svg' : (theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-ink.svg'))}}" mode="aspectFit"/><text class="session-menu-label">{{ui['工作区文件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
 </view>
 </view>
 <view class="session-menu-group">
@@ -2148,7 +2148,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
 <scroll-view class="conv-sidebar-scroll" scroll-y enhanced show-scrollbar="{{false}}">
 <block wx:for="{{convSidebarGroups}}" wx:key="id">
 <view class="conv-sidebar-workspace {{item.containsCurrent ? 'current' : ''}}" bindtap="toggleConvSidebarGroup" data-id="{{item.id}}" hover-class="conv-sidebar-press" role="button" aria-expanded="{{item.expanded}}" aria-label="{{item.title}}">
-<image class="conv-sidebar-folder" src="/assets/icons/{{item.ungrouped ? (theme === 'dark' ? 'tray-white.png' : 'tray-ink.png') : (item.containsCurrent ? 'workspace-folder-blue.svg' : (theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-ink.svg'))}}" mode="aspectFit"/>
+<image class="conv-sidebar-folder" src="/assets/icons/{{item.ungrouped ? (theme === 'dark' ? 'tray-white.svg' : 'tray-ink.svg') : (item.containsCurrent ? 'workspace-folder-blue.svg' : (theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-ink.svg'))}}" mode="aspectFit"/>
 <text class="conv-sidebar-workspace-title">{{item.title}}</text>
 <image class="conv-sidebar-chev {{item.expanded ? 'open' : ''}}" src="/assets/icons/chev-down-gray.png" mode="aspectFit"/>
 </view>

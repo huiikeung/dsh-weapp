@@ -2329,11 +2329,8 @@ page {
   flex-shrink: 0;
 }
 
-/* 未分组 tray 的栅格字身比文件夹图标窄约 11%（36rpx 下约 14.25px vs 16px），
-   横向补宽让两个图标的视觉宽度一致；不改元素盒宽，行内文字仍对齐。 */
-.ws-pop-ic-tray {
-  transform: scaleX(1.12);
-}
+/* 未分组图标改用 SVG 资产（assets/icons/tray-white.svg / tray-ink.svg）：
+   与文件夹图标同一套 viewBox 24 + stroke-width 1.85，不再需要横向拉伸。 */
 
 /* 「全部会话」未选中图标改用 SVG 资产（assets/icons/all-sessions-white.svg）：
    viewBox 24 + stroke-width 1.85，与文件夹图标完全同一套描边参数，

@@ -1959,9 +1959,6 @@ width: 36rpx;
 height: 36rpx;
 flex-shrink: 0;
 }
-.ws-pop-ic-tray {
-transform: scaleX(1.12);
-}
 .ws-pop-row-danger .ws-pop-label {
 color: #FF3B30;
 }
