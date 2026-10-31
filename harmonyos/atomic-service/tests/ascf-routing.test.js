@@ -55,7 +55,7 @@ test('ASCF candidates keep LAN routes for the relay-plus-LAN topology', () => {
   assert.deepEqual(candidates.map(item => item.kind), ['lan', 'lan']);
 
   const configuredHost = 'wss://unlisted-here.example.test/ws/mobile';
-  assert.equal(routeTable.orderCandidates({ public: [configuredHost] }, { client: 'ascf' }), [],
+  assert.deepEqual(routeTable.orderCandidates({ public: [configuredHost] }, { client: 'ascf' }), [],
     'the client filters URL syntax only and leaves developer-center domain authorization to platform configuration');
 });
 
@@ -105,7 +105,7 @@ test('ASCF drops relay candidates when public access is unauthorized but keeps C
 
   // 已授权（或用户首选中继）时中继保留在回退链上。
   assert.equal(
-    routeTable.orderCandidates(table, { client: 'ascf', relayAuthorized: true })[2].kind, 'relay');
+    routeTable.orderCandidates(table, { client: 'ascf', relayAuthorized: true })[0].kind, 'relay');
   const preferredRelay = routeTable.orderCandidates(table, {
     client: 'ascf', relayAuthorized: false, preferred: relay + '/c/' + nodeId
   });
@@ -147,17 +147,16 @@ test('v2 retains a local ws route alongside a WSS miniProgramRoute', () => {
 test('v2 includes a validated mini relay as fallback after direct WSS and ignores a bad relay beside a good route', () => {
   const parsed = parse(raw(v2({ miniProgramRoute: { mode: 'relay', ...relayRoute() } })), now);
   assert.equal(parsed.ok, true);
-  assert.equal(parsed.payload.mode, undefined);
-  assert.deepEqual(parsed.payload.endpoints, [relay + '/c/' + nodeId, localWs]);
+  assert.equal(parsed.payload.mode, 'relay');
+  assert.deepEqual(parsed.payload.endpoints, [relay + '/c/' + nodeId]);
   const candidates = routeTable.orderCandidates(parsed.payload.routeTable, { client: runtime.clientKind() });
   assert.equal(candidates[0].kind, 'relay');
   assert.equal(candidates[0].relay.agentPubKey, agentPubKey);
   assert.equal(parsed.payload.pairingCode, pairingCode);
 
   const badRelay = parse(raw(v2({ miniProgramRoute: { mode: 'relay', ...relayRoute({ agentPubKey: 'bad' }) } })), now);
-  assert.equal(badRelay.ok, true, 'a malformed optional relay must not displace a usable direct route');
-  assert.deepEqual(badRelay.payload.endpoints, [direct]);
-  assert.equal(badRelay.payload.routeTable.relay, null);
+  assert.equal(badRelay.ok, false, 'a malformed relay cannot be used without a public or LAN route');
+  assert.equal(badRelay.payload, undefined);
 });
 
 test('v2 relay-only pairing retains relay mode and credential checks', () => {

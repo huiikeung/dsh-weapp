@@ -13,25 +13,28 @@
 .models-nav {
   position: relative;
   flex: none;
+  box-sizing: content-box;
+}
+.models-nav-row {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100rpx;
-  box-sizing: content-box;
 }
 .models-back {
   position: absolute;
   left: 24rpx;
   top: 50%;
-  width: 72rpx;
-  height: 72rpx;
-  margin-top: -36rpx;
+  width: 64rpx;
+  height: 64rpx;
+  margin-top: -32rpx;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
+  border-radius: 999rpx;
+  background: var(--fill);
 }
-.models-back-ic { width: 40rpx; height: 40rpx; }
+.models-back-ic { width: 32rpx; height: 32rpx; }
 .models-title { font-size: 34rpx; font-weight: 600; color: var(--text); }
 .models-press { opacity: 0.6; }
 
@@ -593,14 +596,7 @@
 .models {
   background: linear-gradient(180deg, rgba(46, 107, 230, 0.055), transparent 300rpx), var(--bg);
 }
-.models-nav { height: 104rpx; }
-.models-back {
-  width: 68rpx;
-  height: 68rpx;
-  margin-top: -34rpx;
-  background: var(--fill);
-  border: 1rpx solid var(--border);
-}
+
 .models-title { font-size: 35rpx; letter-spacing: 0.5rpx; }
 .models-body { padding: 12rpx 32rpx 100rpx; }
 .models-intro { padding: 6rpx 6rpx 24rpx; font-size: 25rpx; line-height: 40rpx; }
@@ -639,10 +635,10 @@
 .provider-name { max-width: 44%; font-size: 32rpx; font-weight: 600; letter-spacing: 0.2rpx; }
 .provider-badge {
   margin-left: 10rpx;
-  padding: 3rpx 13rpx;
-  border: none;
+  padding: 2rpx 12rpx;
+  border: 1rpx solid var(--border);
   border-radius: 999rpx;
-  background: var(--fill-2);
+  background: transparent;
   font-size: 20rpx;
   line-height: 30rpx;
   color: var(--text-3);
@@ -1267,3 +1263,16 @@
   font-size: 24rpx;
   line-height: 1;
 }
+
+/* 底部说明：极淡的底色，不要看起来像按钮 */
+.models-intro-footer {
+  margin: 8rpx 6rpx 24rpx;
+  padding: 16rpx 20rpx;
+  border: 0;
+  border-radius: 14rpx;
+  background: rgba(46, 107, 230, 0.045);
+  color: var(--text-3);
+  font-size: 23rpx;
+  line-height: 34rpx;
+}
+

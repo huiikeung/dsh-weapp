@@ -1,16 +1,17 @@
 <page-meta page-style="{{pageStyle}}" />
 <view class="page models {{themeClass}} {{glassEnabled ? 'models-glass-ui' : 'models-native-ui'}} {{glassEnabled && glassSheetEnabled ? 'models-glass-sheet-ui' : 'models-native-sheet-ui'}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-blur-card: {{glassBlurCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-choice: {{glassRadiusChoice}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
   <!-- 导航：与 DSH 客户端「设置 → 模型」一致的自定义标题栏 -->
-  <view class="models-nav" style="padding-top: {{statusBarH}}px;">
-    <view class="models-back tap" bindtap="goBack" hover-class="models-press" role="button" aria-label="{{ui['返回']}}">
-      <image class="models-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}" mode="aspectFit"/>
+  <view class="models-nav" style="padding-top: {{navPadTop}}px;">
+    <view class="models-nav-row" style="height: {{navHeight}}px;">
+      <view class="models-back tap" bindtap="goBack" hover-class="models-press" role="button" aria-label="{{ui['返回']}}">
+        <image class="models-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}" mode="aspectFit"/>
+      </view>
+      <text class="models-title">{{ui['模型']}}</text>
     </view>
-    <text class="models-title">{{ui['模型']}}</text>
   </view>
 
   <scroll-view class="models-scroll" scroll-y refresher-enabled refresher-triggered="{{refreshing}}" bindrefresherrefresh="onPullRefresh">
     <view class="models-body">
-      <text class="models-intro">{{ui['管理已配置提供商的模型；修改会同步到 DSH 客户端。']}}</text>
       <view wx:if="{{!supportsModelConfig && connected}}" class="models-restart-notice">{{ui['自动获取模型和添加模型提供商需要重启 DSH 加载新版网关；重启并重新连接后即可使用。']}}</view>
 
       <view wx:if="{{loading && !providers.length}}" class="models-state">
@@ -90,6 +91,7 @@
           <text class="provider-add-label">{{ui['添加模型提供商']}}</text>
         </view>
         <view class="models-footer-hint">{{ui['提供商配置与 API Key 会写入 DSH，数据和 DSH 客户端双向同步。']}}</view>
+        <view class="models-intro-footer">{{ui['管理已配置提供商的模型；修改会同步到 DSH 客户端。']}}</view>
       </block>
     </view>
   </scroll-view>

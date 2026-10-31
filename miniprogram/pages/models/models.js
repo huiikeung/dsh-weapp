@@ -71,6 +71,9 @@ Page({
     glassSheetEnabled: settingsGlassSheetPreference.read(),
     ...settingsGlassStylePreference.view(),
     statusBarH: 44,
+    navPadTop: 50,
+    navHeight: 32,
+    navRight: 100,
     connected: false,
     loading: true,
     refreshing: false,
@@ -144,7 +147,19 @@ Page({
     this.syncGlass();
     try {
       const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
-      this.setData({ statusBarH: info.statusBarHeight || 44 });
+      let rect = null;
+      try {
+        rect = typeof wx.getMenuButtonBoundingClientRect === 'function' ? wx.getMenuButtonBoundingClientRect() : null;
+      } catch (_) { rect = null; }
+      const statusBarH = info.statusBarHeight || 44;
+      const winW = info.windowWidth || 375;
+      this.setData({
+        statusBarH,
+        // 返回箭头和标题都要与右上角小程序胶囊同一行
+        navPadTop: rect && rect.top ? rect.top : statusBarH + 6,
+        navHeight: rect && rect.height ? rect.height : 32,
+        navRight: rect && rect.left ? Math.max(Math.round(winW - rect.left) + 8, 96) : 100
+      });
     } catch (e) { /* 默认 44 */ }
     this._piNamespace = null;
     this._providersFrame = null;
