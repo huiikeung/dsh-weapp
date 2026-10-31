@@ -387,7 +387,8 @@
       <text class="ws-pop-label">{{ui['全部会话']}}</text>
     </view>
     <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="selectUngrouped" role="button" aria-label="{{ui['未分组']}}">
-      <image class="ws-pop-ic" src="/assets/icons/{{currentWorkspace.ungrouped ? 'check-fill-white.png' : 'tray-white.png'}}" mode="aspectFit"/>
+      <image wx:if="{{currentWorkspace.ungrouped}}" class="ws-pop-ic" src="/assets/icons/check-fill-white.png" mode="aspectFit"/>
+      <image wx:else class="ws-pop-ic ws-pop-ic-tray" src="/assets/icons/tray-white.png" mode="aspectFit"/>
       <text class="ws-pop-label">{{ui['未分组']}}</text>
     </view>
     <view wx:if="{{pickerWorkspaces.length}}" class="ws-pop-divider"></view>

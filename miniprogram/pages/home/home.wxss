@@ -1959,6 +1959,9 @@ width: 36rpx;
 height: 36rpx;
 flex-shrink: 0;
 }
+.ws-pop-ic-tray {
+transform: scaleX(1.12);
+}
 .ws-pop-stack {
 position: relative;
 }

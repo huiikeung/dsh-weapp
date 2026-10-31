@@ -2329,6 +2329,12 @@ page {
   flex-shrink: 0;
 }
 
+/* 未分组 tray 的栅格字身比文件夹图标窄约 11%（36rpx 下约 14.25px vs 16px），
+   横向补宽让两个图标的视觉宽度一致；不改元素盒宽，行内文字仍对齐。 */
+.ws-pop-ic-tray {
+  transform: scaleX(1.12);
+}
+
 /* 「全部会话」未选中图标：层叠会话（对齐 iOS square.stack：圆角方框 + 上方两条短线，纯 CSS）
    线宽 3rpx 与菜单其他图标一致（tray/plus 栅格图标在 36rpx 下约 1.5px 描边）；
    方框 24×24、5rpx 圆角，两条横线 12/18。 */
