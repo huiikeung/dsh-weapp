@@ -1,6 +1,6 @@
-// 左侧栏额度卡片的玻璃开关：默认原生（关闭），可在额度卡片页的弹窗里单独控制。
+// 左侧栏额度卡片的玻璃开关：默认开启玻璃样式，可在额度卡片页的弹窗里单独关掉。
 const KEY = 'quotaSidebarGlass';
-const DEFAULT = false;
+const DEFAULT = true;
 
 function read() {
   try {

@@ -288,6 +288,14 @@ test('额度卡片页跟随玻璃 UI 开关：卡片与弹窗都用首页设置�
   assert.match(js, /onShow\(\) \{\s*this\.setData\(Object\.assign\(\{ settingsGlassEnabled: settingsGlassPreference\.read\(\), choiceSheet: settingsGlassSheetPreference\.read\(\), quotaSidebarGlass: quotaSidebarGlassPreference\.read\(\) \}, settingsGlassStylePreference\.view\(\{ light: String\(this\.data\.themeClass \|\| ''\)\.indexOf\('light'\) >= 0 \}\)\)\)/);
 });
 
+test('侧栏玻璃样式开关默认开启', () => {
+  const pref = require('../miniprogram/utils/quota-sidebar-glass-pref');
+  assert.equal(pref.DEFAULT, true);
+  assert.equal(pref.read(), true, '未保存过偏好时默认玻璃样式');
+  const f = fixture();
+  assert.equal(f.page.data.quotaSidebarGlass, true, '额度卡片页默认勾选玻璃样式');
+});
+
 test('货币单位：玻璃 UI 用工作区同款锚点弹窗，关闭后回退原生 ActionSheet', () => {
   const f = fixture();
   const { page, wx } = f;
