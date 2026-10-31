@@ -115,3 +115,22 @@
   -webkit-mask-image: linear-gradient(180deg, transparent 0%, transparent 30%, #000 46%, #000 100%);
   mask-image: linear-gradient(180deg, transparent 0%, transparent 30%, #000 46%, #000 100%);
 }
+
+/* 顶部压暗：上方（鲸鱼上半部分所在区域）需要比中段更暗，向下渐隐与主带衔接。 */
+.ocean-css .ocean-aurora-warm {
+  display: block;
+  inset: 0;
+  z-index: 7;
+  opacity: 1;
+  background:
+    /* 鲸鱼肚子：在图幅中部偏左再压一层暗，让下腹更沉 */
+    radial-gradient(48% 20% at 54% 44%, rgba(0, 0, 0, 0.24), rgba(0, 0, 0, 0.10) 46%, transparent 74%),
+    linear-gradient(180deg,
+      rgba(0, 0, 0, 0.30) 0%,
+      rgba(0, 0, 0, 0.22) 18%,
+      rgba(0, 0, 0, 0.12) 34%,
+      rgba(0, 0, 0, 0.04) 48%,
+      transparent 62%);
+  animation: none;
+  will-change: auto;
+}

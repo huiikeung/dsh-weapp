@@ -313,10 +313,10 @@ test('all session-settings module cards reuse the home workspace card glass', ()
   assert.ok(css.includes('rgba(255, 255, 255, 0.16)'), 'session settings glass inner highlight');
   assert.ok(css.includes('blur(var(--glass-blur-card, 3rpx))'), 'session settings glass blur');
   // 首页工作区卡片是固定材质，不受设置影响。
-  const fixedGlass = 'linear-gradient(165deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.015))';
+  const fixedGlass = 'linear-gradient(165deg, rgba(255, 255, 255, 0.018), rgba(255, 255, 255, 0.004))';
   assert.ok(homeCss.includes(fixedGlass), 'home workspace card keeps the fixed gradient');
   assert.ok(homeCss.includes('border-radius: 36rpx;'), 'home workspace card fixed radius');
-  assert.ok(homeCss.includes('blur(3rpx)'), 'home workspace card fixed blur');
+  assert.ok(homeCss.includes('blur(2rpx)'), 'home workspace card fixed blur');
   assert.doesNotMatch(homeCss.slice(homeCss.indexOf('.workspace-card {'), homeCss.indexOf('.workspace-card {') + 600), /--glass-alpha-top/, 'workspace card ignores the glass style tuning');
   assert.match(css, /\.settings-glass-card \.card-row \+ \.card-row/);
   assert.match(css, /\.theme-light \.settings-glass-card \{/);
