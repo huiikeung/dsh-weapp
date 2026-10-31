@@ -14,6 +14,7 @@ const publicAccessPrompt = require('./public-access-prompt');
 const routeTable = require('./route-table');
 const hosts = require('./hosts');
 const accessConfig = require('./access-config');
+const runtime = require('./runtime');
 
 /** Uint8Array → 独立 ArrayBuffer（wx.send 要 ArrayBuffer）。 */
 function toArrayBuffer(u8) {
@@ -206,7 +207,7 @@ class GatewayClient {
     const header = {
       'X-DSH-Channel': CHANNEL,
       'X-DSH-Device-ID': this.deviceId,
-      'X-DSH-Client-Type': 'wechat-miniprogram'
+      'X-DSH-Client-Type': runtime.clientKind()
     };
     if (!opts.relay) {
       // 网关要求 UTF-8 标准 Base64；不能直接把中文或 Base64URL 放进头部。

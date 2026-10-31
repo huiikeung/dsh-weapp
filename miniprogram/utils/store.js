@@ -75,6 +75,7 @@ function createStore() {
     archivedSessionIds: [],
     currentWorkspaceId: null,
     isUngroupedWorkspaceSelected: false,
+    isAllWorkspacesSelected: false,
     sessions: [],
     searchResults: null,
     searchQuery: '',
@@ -627,7 +628,8 @@ const sessionState = {
       const archivedSessionIds = (state.archivedSessionIds || []).length
         ? state.archivedSessionIds
         : ((previous && previous.archivedSessionIds) || []);
-      const currentWorkspaceId = state.isUngroupedWorkspaceSelected ? null : (state.currentWorkspaceId ||
+      const isAllWorkspacesSelected = state.isAllWorkspacesSelected === true;
+      const currentWorkspaceId = (isAllWorkspacesSelected || state.isUngroupedWorkspaceSelected) ? null : (state.currentWorkspaceId ||
         (previous && previous.currentWorkspaceId) ||
         (workspaces[0] && workspaces[0].workspaceId) || null);
       homeCache.set(state.activeID, {
@@ -636,6 +638,7 @@ const sessionState = {
         archivedSessionIds: archivedSessionIds,
         currentWorkspaceId: currentWorkspaceId,
         isUngroupedWorkspaceSelected: state.isUngroupedWorkspaceSelected,
+        isAllWorkspacesSelected: isAllWorkspacesSelected,
         savedAt: Date.now()
       }, { immediate: true });
     } catch (e) { /* 存储失败不阻断 */ }
@@ -700,8 +703,9 @@ const sessionState = {
     if (requestType === 'workspaces' && !(state.workspaces || []).length && (cached.workspaces || []).length) {
       state.workspaces = cached.workspaces;
       state.archivedSessionIds = cached.archivedSessionIds || state.archivedSessionIds || [];
-      state.isUngroupedWorkspaceSelected = cached.isUngroupedWorkspaceSelected === true;
-      state.currentWorkspaceId = state.isUngroupedWorkspaceSelected ? null : (cached.currentWorkspaceId ||
+      state.isAllWorkspacesSelected = cached.isAllWorkspacesSelected === true;
+      state.isUngroupedWorkspaceSelected = !state.isAllWorkspacesSelected && cached.isUngroupedWorkspaceSelected === true;
+      state.currentWorkspaceId = (state.isAllWorkspacesSelected || state.isUngroupedWorkspaceSelected) ? null : (cached.currentWorkspaceId ||
         (state.workspaces[0] && state.workspaces[0].workspaceId) || null);
       state.lastWorkspacesFrame = {
         count: state.workspaces.length,
@@ -879,7 +883,8 @@ const sessionState = {
           keys: state.workspaces.length ? Object.keys((frame.items || [])[0] || {}).slice(0, 8).join(',') : '',
           at: Date.now()
         };
-        if (!state.isUngroupedWorkspaceSelected && !state.currentWorkspaceId && state.workspaces.length) {
+        if (!state.isUngroupedWorkspaceSelected && !state.isAllWorkspacesSelected
+          && !state.currentWorkspaceId && state.workspaces.length) {
           state.currentWorkspaceId = state.workspaces[0].workspaceId;
         }
         // 自愈（对称方向）：工作区到了但会话列表仍为空 → 主动补拉
@@ -1061,7 +1066,6 @@ const sessionState = {
       sessionState.lastFrames = sessionState.lastFrames.slice(-7).concat(
         'MISMATCH:' + String(frame.sessionId).slice(-8) + '!=' + String(sessionState.sessionId).slice(-8)
       );
-      emit();
     }
   }
 
@@ -3310,6 +3314,7 @@ const sessionState = {
     state.archivedSessionIds = [];
     state.currentWorkspaceId = null;
     state.isUngroupedWorkspaceSelected = false;
+    state.isAllWorkspacesSelected = false;
     state.sessions = [];
     state.searchQuery = '';
     state.searchResults = null;
@@ -3682,8 +3687,9 @@ const sessionState = {
             state.sessions = cached.sessions || [];
             state.workspaces = cached.workspaces || [];
             state.archivedSessionIds = cached.archivedSessionIds || [];
-            state.isUngroupedWorkspaceSelected = cached.isUngroupedWorkspaceSelected === true;
-            state.currentWorkspaceId = state.isUngroupedWorkspaceSelected ? null : (cached.currentWorkspaceId || null);
+            state.isAllWorkspacesSelected = cached.isAllWorkspacesSelected === true;
+            state.isUngroupedWorkspaceSelected = !state.isAllWorkspacesSelected && cached.isUngroupedWorkspaceSelected === true;
+            state.currentWorkspaceId = (state.isAllWorkspacesSelected || state.isUngroupedWorkspaceSelected) ? null : (cached.currentWorkspaceId || null);
             state.homeCacheAt = cached.savedAt || 0;
             state.lastSessionsFrame = {
               count: state.sessions.length,
@@ -4115,6 +4121,11 @@ const sessionState = {
     createAndOpenSession: function (workspaceId, agentPreset) {
       const self = this;
       const wsId = workspaceId === undefined ? state.currentWorkspaceId : workspaceId;
+      // 全部会话是跨工作区浏览态，没有可归属的工作区：创建前必须先选具体工作区
+      // （对齐 iOS AppStore.prepareNewConversation / Android prepareNewSession 的状态层守卫）。
+      if (state.isAllWorkspacesSelected && (wsId === null || wsId === undefined)) {
+        return Promise.reject(new Error(uiText('请先选择一个具体工作区，再创建新会话。')));
+      }
       // 乐观创建：立即进入本地创建态（秒开会话页），真实创建在后台进行
       sessionState.creating = true;
       trajectoryDirty = true; trajectoryActive = false;
@@ -4251,8 +4262,18 @@ const sessionState = {
 
     setCurrentWorkspace: function (workspaceId) {
       // null is an explicit selection, not the default-workspace fallback.
+      state.isAllWorkspacesSelected = false;
       state.isUngroupedWorkspaceSelected = workspaceId == null;
       state.currentWorkspaceId = workspaceId == null ? null : workspaceId;
+      saveHomeCache();
+      emit();
+    },
+
+    /** 全部会话：跨工作区分组视图；创建新会话前必须先选具体工作区。 */
+    setAllWorkspaces: function () {
+      state.isAllWorkspacesSelected = true;
+      state.isUngroupedWorkspaceSelected = false;
+      state.currentWorkspaceId = null;
       saveHomeCache();
       emit();
     },

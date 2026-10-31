@@ -120,6 +120,7 @@ Page({
   ...imageBlocks,
   ...changesActions,
   data: {
+    ...(typeof theme.initialData === 'function' ? theme.initialData() : {}),
     sessionGlassEnabled: sessionGlassPreference.read(),
     ...settingsGlassStylePreference.view(),
     ...sessionCardStylePreference.view(),
@@ -1481,7 +1482,7 @@ Page({
     if (!this._voiceHidden && !this._unloaded) {
       if (this._turnWarmup && this._turnWarmup.sessionId !== s.sessionId) this.stopTurnNavigatorWarmup(false);
       if (this._turnWarmup) this.pumpTurnNavigatorWarmup();
-      else if (!this._turnWarmupStarted && s.hasMoreHistory && !s.cacheDisplay) this.startTurnNavigatorWarmup();
+      else if (this.data.turnNavOpen && !this._turnWarmupStarted && s.hasMoreHistory && !s.cacheDisplay) this.startTurnNavigatorWarmup();
     }
     if (this._pendingTurnJump && (this._conversationRows || []).some(row => row.key === this._pendingTurnJump)) {
       const key = this._pendingTurnJump;
@@ -4562,7 +4563,10 @@ Page({
 
   startScrollPolling() {
     if (this._scrollPollTimer) return;
-    this._scrollPollTimer = setInterval(() => this.pollScrollPosition(), 350);
+    // Scroll events are immediate; this timer only covers runtimes that omit
+    // viewport height during a live stream. A 1s cadence avoids keeping the
+    // native selector/layout bridge hot on phones while preserving live follow.
+    this._scrollPollTimer = setInterval(() => this.pollScrollPosition(), 1000);
   },
 
   stopScrollPolling() {
@@ -5070,6 +5074,8 @@ Page({
   },
 
   closeTurnNavigator() {
+    // 大纲历史回填只服务于当前打开的面板；关闭后立即停止，避免后台持续翻页/重投影导致发热。
+    this.stopTurnNavigatorWarmup();
     this._turnListScrolling = false;
     this._turnScrubbing = false;
     this._turnScrollTop = 0;
@@ -5114,6 +5120,7 @@ Page({
       return;
     }
     haptics.vibrate();
+    this.stopTurnNavigatorWarmup();
     if (this.data.tab !== 'conversation') this.switchTab({ currentTarget: { dataset: { tab: 'conversation' } } });
     this._convPinned = false;
     // 程序化跳转期间禁止 scroll 事件重新贴底，否则 key 会被 conv-bottom 覆盖。

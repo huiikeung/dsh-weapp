@@ -72,6 +72,64 @@ function sessionMenuLayout(rect, windowInfo, navigationBottom) {
   };
 }
 
+const ALL_SESSIONS_SECTION_LIMIT = 5;
+const UNGROUPED_SECTION_ID = '__ungrouped__';
+
+/** 工作区卡片/分区头里的会话数：「1 个会话」/「N 个会话」（对齐 iOS WorkspaceSessionCopy.count）。 */
+function homeSessionCountLabel(count) {
+  return count === 1 ? uiText('1 个会话') : uiText('{n} 个会话', { n: count });
+}
+
+/** 分区无障碍标签（对齐 iOS WorkspaceSessionCopy.sectionAccessibility）。 */
+function sectionAriaLabel(title, countLabel) {
+  return uiText('工作区 {title}，{countLabel}', { title: title, countLabel: countLabel });
+}
+
+/** 分区折叠开关文案（对齐 iOS WorkspaceSessionCopy.expand / 「收起」）。 */
+function homeSectionExpandLabel(remaining) {
+  return remaining === 1 ? uiText('展开其余 1 个会话') : uiText('展开其余 {n} 个会话', { n: remaining });
+}
+
+/** 分区标题：优先工作区标题，其次路径最后一段，最后兜底「工作区」。 */
+function workspaceSectionTitle(workspace) {
+  const title = workspace && workspace.title ? String(workspace.title).trim() : '';
+  if (title) return title;
+  const parts = (workspace && workspace.path ? String(workspace.path) : '').split('/').filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : uiText('工作区');
+}
+
+/** 会话排序：最近更新在前，同时间按 sessionId 升序，保证多次渲染顺序稳定。 */
+function compareSessionRecency(a, b) {
+  const diff = (b.updatedAt || 0) - (a.updatedAt || 0);
+  if (diff) return diff;
+  const left = String(a.sessionId || '');
+  const right = String(b.sessionId || '');
+  return left < right ? -1 : (left > right ? 1 : 0);
+}
+
+/** 会话行视图模型（与「最近会话」行完全一致，供两种模式共用）。 */
+function sessionItemView(s) {
+  return {
+    sessionId: s.sessionId,
+    updatedAt: s.updatedAt || 0,
+    running: s.running,
+    hasUnread: s.hasUnread,
+    // 完成后 24h 内显示绿点；一旦完成之后被看过（本机 openSession 或电脑端
+    // 经网关订阅/读取，见 store.lastOpenedAt）就立刻置灰。
+    recentlyCompleted: (function () {
+      if (s.running) return false;
+      var done = Number(s.completedAt) || 0;
+      if (!done || Date.now() - done >= 24 * 60 * 60 * 1000) return false;
+      var seen = Math.max(Number(s.lastOpenedAt) || 0, Number(s.viewedAt) || 0);
+      return seen < done;
+    })(),
+    agentPreset: s.agentPreset,
+    displayTitle: s.title || util.sessionIdLabel(s.sessionId),
+    idLabel: String(s.sessionId || '').slice(0, 16),
+    timeLabel: util.formatRelativeTime(s.updatedAt)
+  };
+}
+
 Page({
   data: {
     oceanActive: true,
@@ -114,6 +172,9 @@ Page({
     dirError: '',
     currentWorkspace: {},
     displaySessions: [],
+    displayEntries: [],
+    allWorkspacesSelected: false,
+    expandedSectionIds: [],
     searchQuery: '',
     connectionLabel: uiText('未连接'),
     connectionClass: 'disconnected',
@@ -154,6 +215,7 @@ Page({
     emptySessionsText: uiText('暂无已知会话。连接服务后创建第一个任务。'),
     // 侧边栏（对齐 dsh-mobile WorkspaceView drawer）
     drawerOpen: false,
+    homeScrollStored: 0,
     drawerDragging: false,
     drawerAnim: true,
     drawerW: 280,
@@ -178,6 +240,11 @@ Page({
   },
 
   onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
+  onHomeScroll(e) {
+    const top = Number(e && e.detail && e.detail.scrollTop);
+    if (Number.isFinite(top)) this._homeScrollTop = top;
+  },
+
   onLoad() {
     // 抽屉宽度：min(屏宽 × 0.76, 360pt)（对齐 iOS drawerWidth）
     try {
@@ -225,7 +292,19 @@ Page({
     this.unsubscribe = store.subscribe((snapshot) => {
       this.syncFromStore(snapshot);
     });
-    this.syncFromStore({ app: store.state, session: store.sessionState });
+    // 从会话页原地替换回来时恢复首页滚动位置，避免看起来像重新加载
+    try {
+      const app = getApp();
+      const restore = app && app.globalData && app.globalData.homeRestore;
+      if (restore && Number.isFinite(restore.scrollTop)) {
+        app.globalData.homeRestore = null;
+        this._homeScrollTop = restore.scrollTop;
+        this.setData({ homeScrollStored: restore.scrollTop });
+      }
+    } catch (_) { /* 忽略 */ }
+    // 首帧先出骨架，列表等重活放到 nextTick，减少进入首页时的掉帧
+    const renderStore = () => this.syncFromStore({ app: store.state, session: store.sessionState });
+    if (typeof wx.nextTick === 'function') wx.nextTick(renderStore); else renderStore();
     // 弹窗主题：跟随系统外观（浅色弹窗 / 深色弹窗），首页背景保持深海
     this.applySheetTheme();
     if (typeof wx.onThemeChange === 'function' && !getApp()._homeThemeWatched) {
@@ -289,7 +368,7 @@ Page({
       const owner = store.state.activeID || store.state.gatewayId || store.state.endpoint || '';
       if (creator.owner === owner && store.state.connection === 'connected') {
         const creation = store.createAndOpenSession(creator.workspaceId, 'cordis');
-        wx.navigateTo({ url: '/pages/session/session' });
+        wx.navigateTo({ url: '/pages/session/session', animationType: 'none', animationDuration: 0 });
         creation.catch(() => {});
       }
     }
@@ -323,6 +402,7 @@ Page({
   syncFromStore(snapshot) {
     // Stream updates still enter the store, but hidden pages must not rebuild lists.
     if (this._homeHidden) return;
+    this._lastSyncSnapshot = snapshot;
     const app = snapshot.app;
     const conn = app.connection;
     this.syncSessionStatusPolling(conn === 'connected');
@@ -342,7 +422,7 @@ Page({
     if (conn === 'connected' || this.data.costDashboard || this.data.costCardError || this._costMeterInFlight) {
       this.loadCostMeterSummary();
     }
-    // 对齐 dsh-mobile WorkspaceView.displayedSessions：
+    // 对齐 dsh-mobile WorkspaceView + WorkspaceSessionList：
     // 先限定历史可见性和归档状态，再按工作区归属筛选，最后应用搜索结果。
     const workspaces = app.workspaces || [];
     const rawSessions = app.sessions || [];
@@ -350,15 +430,23 @@ Page({
     const visibleSessions = rawSessions.filter((s) => (
       s.hasConversation !== false && !s.blank && !archivedIds.has(s.sessionId)
     ));
-    const isUngrouped = app.isUngroupedWorkspaceSelected === true;
-    const current = isUngrouped ? null : (workspaces.find((w) => w.workspaceId === app.currentWorkspaceId)
+    const isAll = app.isAllWorkspacesSelected === true;
+    const isUngrouped = !isAll && app.isUngroupedWorkspaceSelected === true;
+    // 预建归属索引：同一会话只归第一个工作区（对齐 iOS WorkspaceSessionListInput.project）。
+    const ownerOf = {};
+    const sectionTitles = {};
+    workspaces.forEach((w) => {
+      sectionTitles[w.workspaceId] = workspaceSectionTitle(w);
+      (w.sessionIds || []).forEach((id) => { if (ownerOf[id] === undefined) ownerOf[id] = w.workspaceId; });
+    });
+    const current = (!isAll && !isUngrouped) ? (workspaces.find((w) => w.workspaceId === app.currentWorkspaceId)
       || workspaces[0]
-      || null);
-    const groupedIds = new Set();
-    workspaces.forEach((w) => (w.sessionIds || []).forEach((id) => groupedIds.add(id)));
-    const ungroupedSessions = visibleSessions.filter((s) => !groupedIds.has(s.sessionId));
+      || null) : null;
+    const ungroupedSessions = visibleSessions.filter((s) => ownerOf[s.sessionId] === undefined);
     let scopedSource;
-    if (isUngrouped) {
+    if (isAll) {
+      scopedSource = visibleSessions;
+    } else if (isUngrouped) {
       scopedSource = ungroupedSessions;
     } else if (current) {
       const workspaceIds = new Set(current.sessionIds || []);
@@ -371,34 +459,83 @@ Page({
     if (query) {
       const resultIds = new Set((app.searchResults || []).map((item) => item.sessionId));
       const queryLower = query.toLowerCase();
+      // 对齐 WorkspaceSessionList：网关正文命中、标题、会话 ID 三者任一匹配即可。
       scopedSource = scopedSource.filter((s) => (
-        resultIds.has(s.sessionId) || String(s.title || '').toLowerCase().indexOf(queryLower) >= 0
+        resultIds.has(s.sessionId)
+        || String(s.title || '').toLowerCase().indexOf(queryLower) >= 0
+        || String(s.sessionId || '').toLowerCase().indexOf(queryLower) >= 0
       ));
     }
+    scopedSource = scopedSource.slice().sort(compareSessionRecency);
 
-    const displaySessions = scopedSource
-      .filter((s) => !s.blank)
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-      .slice(0, 12)
-      .map((s) => ({
-        sessionId: s.sessionId,
-        updatedAt: s.updatedAt || 0,
-        running: s.running,
-        hasUnread: s.hasUnread,
-        // 完成后 24h 内显示绿点；一旦完成之后被看过（本机 openSession 或电脑端
-        // 经网关订阅/读取，见 store.lastOpenedAt）就立刻置灰。
-        recentlyCompleted: (function () {
-          if (s.running) return false;
-          var done = Number(s.completedAt) || 0;
-          if (!done || Date.now() - done >= 24 * 60 * 60 * 1000) return false;
-          var seen = Math.max(Number(s.lastOpenedAt) || 0, Number(s.viewedAt) || 0);
-          return seen < done;
-        })(),
-        agentPreset: s.agentPreset,
-        displayTitle: s.title || util.sessionIdLabel(s.sessionId),
-        idLabel: String(s.sessionId || '').slice(0, 16),
-        timeLabel: util.formatRelativeTime(s.updatedAt)
-      }));
+    // 展开状态跟随主机：换主机后工作区可能同名但语义不同，清空避免串用。
+    const hostKey = app.activeID || app.endpoint || '';
+    if (this._expandedSectionsHostKey !== hostKey) {
+      this._expandedSectionsHostKey = hostKey;
+      this.expandedSectionIds = [];
+    }
+    const expandedSectionIds = Array.isArray(this.expandedSectionIds)
+      ? this.expandedSectionIds
+      : (Array.isArray(this.data.expandedSectionIds) ? this.data.expandedSectionIds : []);
+    let displaySessions = [];
+    let displayEntries = [];
+    if (isAll) {
+      // 全部会话：按工作区分区；每区默认折叠到 5 条，展开状态各自独立。
+      const groups = new Map();
+      scopedSource.forEach((s) => {
+        const sectionId = ownerOf[s.sessionId] !== undefined ? ownerOf[s.sessionId] : UNGROUPED_SECTION_ID;
+        if (!groups.has(sectionId)) groups.set(sectionId, []);
+        groups.get(sectionId).push(s);
+      });
+      const ordered = Array.from(groups.keys()).sort((a, b) => {
+        const diff = (groups.get(b)[0].updatedAt || 0) - (groups.get(a)[0].updatedAt || 0);
+        if (diff) return diff;
+        return a < b ? -1 : (a > b ? 1 : 0);
+      });
+      let rowIndex = 0;
+      ordered.forEach((sectionId, sectionIndex) => {
+        const rows = groups.get(sectionId);
+        const expanded = expandedSectionIds.indexOf(sectionId) >= 0;
+        const title = sectionTitles[sectionId] !== undefined ? sectionTitles[sectionId] : uiText('未分组');
+        const countLabel = homeSessionCountLabel(rows.length);
+        displayEntries.push({
+          type: 'section',
+          key: 'section-' + sectionId,
+          sectionId: sectionId,
+          title: title,
+          count: rows.length,
+          countLabel: countLabel,
+          sectionLabel: sectionAriaLabel(title, countLabel),
+          first: sectionIndex === 0
+        });
+        const shown = expanded ? rows : rows.slice(0, ALL_SESSIONS_SECTION_LIMIT);
+        shown.forEach((s) => {
+          const item = sessionItemView(s);
+          item.index = rowIndex;
+          rowIndex += 1;
+          displaySessions.push(item);
+          displayEntries.push(Object.assign({ type: 'session', key: 'session-' + s.sessionId }, item));
+        });
+        if (rows.length > ALL_SESSIONS_SECTION_LIMIT) {
+          const remaining = rows.length - ALL_SESSIONS_SECTION_LIMIT;
+          displayEntries.push({
+            type: 'toggle',
+            key: 'toggle-' + sectionId,
+            sectionId: sectionId,
+            remaining: remaining,
+            expanded: expanded,
+            label: expanded ? uiText('收起') : homeSectionExpandLabel(remaining)
+          });
+        }
+      });
+    } else {
+      displaySessions = scopedSource.slice(0, 12).map((s, index) => {
+        const item = sessionItemView(s);
+        item.index = index;
+        return item;
+      });
+      displayEntries = displaySessions.map((item) => Object.assign({ type: 'session', key: 'session-' + item.sessionId }, item));
+    }
 
     if (store.warmSessionCache) {
       if (!this._sessionWarmup) this._sessionWarmup = createSessionWarmup({
@@ -409,7 +546,13 @@ Page({
         !s.running && !s.historyPaging && s.historyState !== 'requested');
     }
     const hostCompatibilityError = !!app.coreCompatibilityError;
-    const currentWorkspace = isUngrouped ? {
+    const currentWorkspace = isAll ? {
+      title: uiText('全部会话'),
+      path: homeSessionCountLabel(visibleSessions.length),
+      workspaceId: '',
+      ungrouped: false,
+      all: true
+    } : isUngrouped ? {
       title: uiText('未分组'),
       path: ungroupedSessions.length + uiText(' 个未归属会话'),
       workspaceId: '',
@@ -431,7 +574,10 @@ Page({
     this.setHomePatch({
       currentWorkspace: currentWorkspace,
       currentWorkspaceId: currentWorkspace.workspaceId,
+      allWorkspacesSelected: isAll,
+      expandedSectionIds: expandedSectionIds,
       displaySessions: displaySessions,
+      displayEntries: displayEntries,
       connectionLabel: hostCompatibilityError ? uiText('服务异常') : connection.label,
       connectionClass: hostCompatibilityError ? 'failed' : connection.key,
       connectionHintIsError: !hostCompatibilityError && connectionHint && conn !== 'connecting',
@@ -759,11 +905,13 @@ Page({
     const show = (rect) => {
       if (this._workspacePickerRequest !== request) return;
       this._workspacePickerRequest = null;
-      const layout = workspacePopoverLayout(rect, windowInfo, rows.length, this.topbarTop + this.topbarH);
+      // 「全部会话」是弹窗第一行，布局高度按工作区数 +1 计算。
+      const layout = workspacePopoverLayout(rect, windowInfo, rows.length + 1, this.topbarTop + this.topbarH);
       this.setData(Object.assign({
         workspacePickerOpen: true,
         pickerWorkspaces: rows,
         currentWorkspaceId: this.data.currentWorkspace.workspaceId || st.currentWorkspaceId || '',
+        allWorkspacesSelected: st.isAllWorkspacesSelected === true,
         pairMenuVisible: false
       }, layout));
     };
@@ -772,6 +920,12 @@ Page({
     } catch (e) {
       show(null);
     }
+  },
+
+  /** 弹窗顶部「全部会话」：跨工作区分组视图（对齐 iOS workspaceCard Menu 第一项）。 */
+  selectAll() {
+    store.setAllWorkspaces();
+    this.setData({ workspacePickerOpen: false, allWorkspacesSelected: true });
   },
 
   selectUngrouped() {
@@ -787,6 +941,20 @@ Page({
   selectWorkspace(e) {
     store.setCurrentWorkspace(e.currentTarget.dataset.id);
     this.setData({ workspacePickerOpen: false });
+  },
+
+  /** 全部会话分区折叠开关：只翻转目标分区，其他分区保持不变。 */
+  toggleSessionSection(e) {
+    const dataset = (e && e.currentTarget && e.currentTarget.dataset) || {};
+    const sectionId = dataset.id;
+    if (!sectionId) return;
+    const expanded = Array.isArray(this.expandedSectionIds) ? this.expandedSectionIds.slice() : [];
+    const at = expanded.indexOf(sectionId);
+    if (at >= 0) expanded.splice(at, 1); else expanded.push(sectionId);
+    this.expandedSectionIds = expanded;
+    this.setData({ expandedSectionIds: expanded, swipeId: '', swipeOffset: 0 });
+    const snapshot = this._lastSyncSnapshot || { app: store.state, session: store.sessionState };
+    this.syncFromStore(snapshot);
   },
 
   // ---------- 目录浏览器弹层（对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet） ----------
@@ -1080,6 +1248,16 @@ Page({
   },
 
   newSession() {
+    // 全部会话跨工作区展示时没有可归属的工作区：先提示选择具体工作区。
+    if (store.state.isAllWorkspacesSelected === true) {
+      wx.showModal({
+        title: uiText('请先选择工作区'),
+        content: uiText('请先选择一个具体工作区，再创建新会话。'),
+        showCancel: false,
+        confirmText: uiText('知道了')
+      });
+      return;
+    }
     if (store.state.connection !== 'connected') {
       wx.showToast({ title: uiText('请先连接 Gateway'), icon: 'none' });
       return;
@@ -1087,7 +1265,7 @@ Page({
     // 乐观创建：先进入会话页，后台创建结果由会话页呈现
     const workspaceId = this.data.currentWorkspace.workspaceId || store.state.currentWorkspaceId;
     const creation = store.createAndOpenSession(workspaceId);
-    wx.navigateTo({ url: '/pages/session/session', animationDuration: 160 });
+    wx.navigateTo({ url: '/pages/session/session', animationType: 'none', animationDuration: 0 });
     creation.catch(() => {}); // 失败状态已写入 store，由会话页显示重试入口
   },
 
@@ -1098,7 +1276,7 @@ Page({
       this.closeSwipe();
       return;
     }
-    const { id, preset } = e.currentTarget.dataset;
+    const { id, title, preset } = e.currentTarget.dataset;
     if (!id) {
       wx.showToast({ title: uiText('会话 ID 不可用'), icon: 'none' });
       return;
@@ -1110,11 +1288,13 @@ Page({
     const ocean = this.selectComponent && this.selectComponent('#home-ocean');
     if (ocean) ocean.pause();
     this.setData({ oceanActive: false });
+    // Hydrate before navigation: cache restore and the history request start on
+    // the tap event, so the session page can reuse rows during its first layout.
+    // The page detects the matching active session and skips a second openSession.
+    store.openSession(id, title || '', preset || null);
     const query = ['id=' + encodeURIComponent(id), 'reopen=1'];
     if (preset) query.push('preset=' + encodeURIComponent(preset));
-    // Navigate first: the session page paints its loading shell before opening
-    // the store/cache, which may synchronously restore a large conversation.
-    wx.navigateTo({ url: '/pages/session/session?' + query.join('&'), animationDuration: 160, fail: () => {
+    wx.navigateTo({ url: '/pages/session/session?' + query.join('&'), animationType: 'none', animationDuration: 0, fail: () => {
       this._openingSession = false; this._homeHidden = false;
       this.setData({ oceanActive: true });
       this.syncFromStore({ app: store.state, session: store.sessionState });

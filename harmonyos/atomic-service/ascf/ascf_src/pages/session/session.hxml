@@ -63,7 +63,7 @@
 </view>
 <scroll-view hidden="{{tab !== 'conversation'}}" class="conversation {{tab !== 'conversation' ? 'session-panel-hidden' : ''}}" style="{{conversationStyle}}" scroll-y enhanced scroll-anchoring="{{false}}" show-scrollbar="{{false}}" scroll-into-view="{{scrollTarget}}" scroll-with-animation="{{scrollAnim}}" scroll-top="{{conversationScrollTop}}" bindscroll="onConvScroll" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel" bindscrolltoupper="loadOlder" upper-threshold="80">
 <view class="conversation-inner {{rows.length ? 'has-rows' : ''}}" style="{{conversationInnerStyle}}">
-<view has:if="{{rows.length && (historyLoading || hasMoreHistory) && !turnNavOpen}}" class="hist-banner {{historyLoading ? 'is-loading' : 'is-idle'}}" bindtap="onHistoryBannerTap" role="button" aria-label="{{ui['加载更早记录']}}">
+<view has:if="{{rows.length && !historyLoading && hasMoreHistory && !turnNavOpen}}" class="hist-banner {{historyLoading ? 'is-loading' : 'is-idle'}}" bindtap="onHistoryBannerTap" role="button" aria-label="{{ui['加载更早记录']}}">
 <view has:if="{{historyLoading && !histError && connected}}" class="banner-spinner"></view>
 <text class="banner-text">{{historyLoading ? historyProgressText : (histError || ui['加载更早记录'])}}</text>
 <text has:if="{{histError && !historyLoading}}" class="banner-retry">{{ui['重试']}}</text>
@@ -330,8 +330,7 @@
 <view class="trace-overview-axis"><text>0 {{ui['秒']}}</text><text>{{ui[traceOverview.durationLabel] !== undefined ? ui[traceOverview.durationLabel] : traceOverview.durationLabel}}</text></view>
 </view>
 <scroll-view class="trajectory" scroll-y enhanced show-scrollbar="{{false}}" scroll-into-view="{{traceScrollTarget}}" scroll-with-animation bindscroll="onTraceListScroll" bindscrolltoupper="loadOlder" upper-threshold="80">
-<view has:if="{{historyLoading && !turnNavOpen}}" class="hist-banner"><view class="banner-spinner"/><text class="banner-text">{{historyProgressText}}</text></view>
-<view has:elif="{{hasMoreHistory && !turnNavOpen}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
+<view has:if="{{hasMoreHistory && !turnNavOpen}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
 <view class="trace-list">
 <view class="trace-window-spacer" style="height:{{traceSpacerTopRpx}}rpx;" aria-hidden="true"/>
 <block has:for="{{trajectory}}" has:key="key">

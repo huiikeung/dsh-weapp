@@ -13,6 +13,9 @@ const FLUID_PIXEL_BUDGET = 160000; // 单帧缓存的像素上限（约 273x590�
 const FLUID_SCALE_CAP = 0.72;   // 低分辨率上限：帧里只有平滑渐变，放大后依然细腻
 const FLUID_JPEG_QUALITY = 0.72;
 
+/** 跨组件实例共享的流体相位：页面被替换/重建后继续从同一时间点绘制，光带不会跳位。 */
+let sharedElapsed = 0;
+
 Component({
   properties: {
     active: { type: Boolean, value: true, observer: 'syncPlayback' },
@@ -21,7 +24,7 @@ Component({
   data: { ready: false, failed: false, frameImage: '', buffered: false, ios: false, staticMode: false, frameA: '', frameB: '', frontSlot: '', frameAId: 0, frameBId: 0 },
   lifetimes: {
     ready() {
-      this._visible = true; this._disposed = false; this._elapsed = 0;
+      this._visible = true; this._disposed = false; this._elapsed = sharedElapsed;
       // 关掉「首页动画」时只要静态层：海报 + 网格 + 鲸鱼本身就是 dsh-mobile 的静态构图，
       // 连 WebGL 上下文都不用建。
       if (this.data.reducedMotion) {
@@ -97,6 +100,7 @@ Component({
       const now = Date.now();
       if (now - this._lastPaint >= FRAME_INTERVAL_MS - 1) {
         this._elapsed += Math.min(0.1, Math.max(0, (now - this._lastTick) / 1000));
+        sharedElapsed = this._elapsed;
         this._lastTick = now; this._lastPaint = now;
         try { this.draw(this._elapsed); } catch (e) { this.onCanvasError(); return; }
       }

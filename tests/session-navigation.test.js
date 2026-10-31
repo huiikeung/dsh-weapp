@@ -334,7 +334,7 @@ test('outline only declares the oldest turn after server history is authoritativ
   assert.match(xml, /turn-sync-indicator/);
 });
 
-test('outline warm-up continues at a low rate even when the panel closes', () => {
+test('outline warm-up stops when the panel closes', () => {
   const { page, calls, store, timers } = fixture();
   store.sessionState.hasMoreHistory = true;
   store.sessionState.nextBeforeSeq = 90;
@@ -342,29 +342,26 @@ test('outline warm-up continues at a low rate even when the panel closes', () =>
   page.startTurnNavigatorWarmup();
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
   assert.ok([...timers.values()].some(timer => timer.delay === 900), 'active-turn history reads are throttled');
-  store.sessionState.nextBeforeSeq = 80;
-  page.pumpTurnNavigatorWarmup();
-  assert.equal(page.data.turnNavWarming, true, 'history backfill stays active while the live event stream continues');
-  assert.equal(page._turnWarmup.waiting, false);
-  assert.ok([...timers.values()].some(timer => timer.delay === 900));
   page.closeTurnNavigator();
   assert.equal(page.data.turnNavOpen, false);
-  assert.equal(page.data.turnNavWarming, true);
-  assert.ok(page._turnWarmup);
-  page.pumpTurnNavigatorWarmup();
-  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 2);
-  store.sessionState.hasMoreHistory = false;
-  page.pumpTurnNavigatorWarmup();
+  assert.equal(page.data.turnNavWarming, false);
   assert.equal(page._turnWarmup, null);
+  const before = calls.filter(call => call[0] === 'loadOlderHistory').length;
+  store.sessionState.nextBeforeSeq = 80;
+  page.pumpTurnNavigatorWarmup();
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, before, 'no background paging after close');
 });
 
-test('entering a session fills the outline before its first opening', () => {
+test('entering a session does not warm history until the outline opens', () => {
   const { page, store, calls } = fixture();
   store.sessionState = { sessionId: 's1', running: false, rows: [{ kind: 'user', key: 'u1', seq: 50, text: 'Latest' }],
     historyState: 'loaded', hasMoreHistory: true, nextBeforeSeq: 50 };
   page.syncFromStore({ app: store.state, session: store.sessionState });
   assert.equal(page.data.turnNavOpen, false);
   assert.equal(page.data.turnNavItems[0].key, 'u1');
+  assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 0, 'closed outline never pages history in the background');
+  page.data.turnNavOpen = true;
+  page.startTurnNavigatorWarmup();
   assert.equal(calls.filter(call => call[0] === 'loadOlderHistory').length, 1);
 });
 

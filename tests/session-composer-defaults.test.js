@@ -72,12 +72,25 @@ test('the composer starts at its resting height instead of the native 150px firs
   assert.match(page, /composerInputHeightPx: oneLinePx/);
 });
 
+test('unrelated session frames do not trigger the active conversation page', () => {
+  for (const relative of [
+    '../miniprogram/utils/store.js',
+    '../harmonyos/atomic-service/ascf/ascf_src/utils/store.js'
+  ]) {
+    const store = fs.readFileSync(path.resolve(__dirname, relative), 'utf8');
+    const mismatch = store.indexOf("'MISMATCH:'");
+    assert.ok(mismatch >= 0, `${relative} keeps mismatch diagnostics`);
+    const branch = store.slice(Math.max(0, mismatch - 240), mismatch + 260);
+    assert.doesNotMatch(branch, /emit\(\);/, `${relative} does not emit unrelated session frames`);
+  }
+});
+
 test('entering a session does not duplicate the projection or poll the scroll view while idle', () => {
   const page = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
   // onLoad 已经同步过同一份快照：onShow 在 400ms 内不再整份重投影（冷启动最大的一笔重复开销）。
   assert.match(page, /syncFromStore\(snapshot\) \{\s*\/\/[\s\S]{0,200}?this\._lastSyncAt = Date\.now\(\)/);
   assert.match(page, /Date\.now\(\) - \(this\._lastSyncAt \|\| 0\) > 400/);
-  // 空闲（没有回合在跑）时内容高度不会变，350ms 的三连 selector 查询全部跳过。
+  // 空闲（没有回合在跑）时内容高度不会变，1s 轮询只作为流式布局兜底。
   assert.match(page, /pollScrollPosition\(\) \{\s*if \([^)]*\) return;[\s\S]{0,400}?if \(!this\.data\.running\) return;/);
   // 首帧不做编队舞台的 selector 查询，挪到 400ms 后。
   const readyBody = page.slice(page.indexOf('onReady() {'), page.indexOf('onReady() {') + 2000);

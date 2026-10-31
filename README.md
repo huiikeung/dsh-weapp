@@ -71,7 +71,7 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 
 | iOS | 小程序 | 说明 |
 | --- | --- | --- |
-| WorkspaceView 工作区首页 | `pages/home` | 工作区选择器、新建会话、最近会话（长按弹出重命名/归档菜单、左滑滑出这两个操作）、搜索、连接状态 |
+| WorkspaceView 工作区首页 | `pages/home` | 工作区选择器（含「全部会话」跨工作区分区视图：卡片显示会话总数、列表按工作区分组、每区 5 条折叠/展开、全部会话下新建会话需先选工作区）、新建会话、最近会话（长按弹出重命名/归档菜单、左滑滑出这两个操作）、搜索、连接状态 |
 | GatewayQRScanner / ManualPairing | `pages/pairing` | 扫码（wx.scanCode）+ 手动输入，Base64URL 载荷解析、过期校验 |
 | GatewaySwitcher / DirectoryBrowser | `pages/workspace-picker` + `pages/files` | 工作区切换、远端目录浏览、新建目录、目录创建会话 |
 | ConversationView 对话 | `pages/session`（对话分段） | Markdown/代码块、思考过程与工具调用折叠行、图片附件、流式生成 |

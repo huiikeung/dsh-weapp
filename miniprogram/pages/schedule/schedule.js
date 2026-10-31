@@ -134,10 +134,22 @@ Page({
       wx.showToast({ title: uiText('请先连接鲸尾 Harness'), icon: 'none' });
       return;
     }
+    // 首页选中「全部会话」时没有具体工作区：与首页新建会话一致，先提示再返回。
+    if (store.state.isAllWorkspacesSelected === true) {
+      wx.showModal({
+        title: uiText('请先选择工作区'),
+        content: uiText('请先选择一个具体工作区，再创建新会话。'),
+        showCancel: false,
+        confirmText: uiText('知道了')
+      });
+      return;
+    }
     this.setData({ creating: true }); const host = this.owner();
     const creation = store.createAndOpenSession(store.state.currentWorkspaceId);
     wx.navigateTo({
       url: '/pages/session/session',
+      animationType: 'none',
+      animationDuration: 0,
       fail: () => {
         // 导航失败（页面栈满/路径异常）时恢复按钮并给出提示，不再静默无响应。
         if (this.alive && this.owner() === host) this.setData({ creating: false });
@@ -149,7 +161,7 @@ Page({
   openDetail(e) { const item = this.data.tasks.find(t => t.id === e.currentTarget.dataset.id); if (!item) return; this.historyRead++; this.setData({ selected: item, detailTab: 'rule', history: [], historyNext: '', historyError: '', historyLoading: false, historyPruned: false, historyRetention: '' }); },
   closeDetail() { this.historyRead++; this.setData({ selected: null, history: [], historyLoading: false }); },
   selectDetailTab(e) { const tab = e.currentTarget.dataset.tab; if (!['rule','records'].includes(tab)) return; this.setData({ detailTab: tab }); if (tab === 'records') this.loadHistory(false); },
-  openLinkedSession() { const t = this.data.selected; if (!t || !this.data.connected) return; store.openSession(t.sessionId, t.sessionLabel, null); wx.navigateTo({ url: '/pages/session/session' }); },
+  openLinkedSession() { const t = this.data.selected; if (!t || !this.data.connected) return; store.openSession(t.sessionId, t.sessionLabel, null); wx.navigateTo({ url: '/pages/session/session', animationType: 'none', animationDuration: 0 }); },
   refreshHistory() { return this.loadHistory(false); },
   moreHistory() { if (this.data.historyNext && !this.data.historyLoading) return this.loadHistory(true); },
   async loadHistory(more) {

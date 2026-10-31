@@ -1088,7 +1088,7 @@ Page({
     // 乐观创建：先进入会话页，后台创建结果由会话页呈现
     const workspaceId = this.data.currentWorkspace.workspaceId || store.state.currentWorkspaceId;
     const creation = store.createAndOpenSession(workspaceId);
-    has.navigateTo({ url: '/pages/session/session', animationDuration: 160 });
+    has.navigateTo({ url: '/pages/session/session', animationType: 'none', animationDuration: 0 });
     creation.catch(() => {}); // 失败状态已写入 store，由会话页显示重试入口
   },
 
@@ -1099,7 +1099,7 @@ Page({
       this.closeSwipe();
       return;
     }
-    const { id, preset } = e.currentTarget.dataset;
+    const { id, title, preset } = e.currentTarget.dataset;
     if (!id) {
       has.showToast({ title: uiText('会话 ID 不可用'), icon: 'none' });
       return;
@@ -1111,11 +1111,13 @@ Page({
     const ocean = this.selectComponent && this.selectComponent('#home-ocean');
     if (ocean) ocean.pause();
     this.setData({ oceanActive: false });
+    // Hydrate before navigation: cache restore and the history request start on
+    // the tap event, so the session page can reuse rows during its first layout.
+    // The page detects the matching active session and skips a second openSession.
+    store.openSession(id, title || '', preset || null);
     const query = ['id=' + encodeURIComponent(id), 'reopen=1'];
     if (preset) query.push('preset=' + encodeURIComponent(preset));
-    // Navigate first: the session page paints its loading shell before opening
-    // the store/cache, which may synchronously restore a large conversation.
-    has.navigateTo({ url: '/pages/session/session?' + query.join('&'), animationDuration: 160, fail: () => {
+    has.navigateTo({ url: '/pages/session/session?' + query.join('&'), animationType: 'none', animationDuration: 0, fail: () => {
       this._openingSession = false; this._homeHidden = false;
       this.setData({ oceanActive: true });
       this.syncFromStore({ app: store.state, session: store.sessionState });

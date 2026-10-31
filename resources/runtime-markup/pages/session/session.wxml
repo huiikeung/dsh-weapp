@@ -94,7 +94,7 @@
   >
     <view class="conversation-inner {{rows.length ? 'has-rows' : ''}}" style="{{conversationInnerStyle}}">
     <!-- 更早历史状态行：加载中与空闲共用同一行，避免状态切换时内容高度变化导致跳动 -->
-    <view wx:if="{{rows.length && (historyLoading || hasMoreHistory) && !turnNavOpen}}" class="hist-banner {{historyLoading ? 'is-loading' : 'is-idle'}}" bindtap="onHistoryBannerTap" role="button" aria-label="{{ui['加载更早记录']}}">
+    <view wx:if="{{rows.length && !historyLoading && hasMoreHistory && !turnNavOpen}}" class="hist-banner {{historyLoading ? 'is-loading' : 'is-idle'}}" bindtap="onHistoryBannerTap" role="button" aria-label="{{ui['加载更早记录']}}">
       <view wx:if="{{historyLoading && !histError && connected}}" class="banner-spinner"></view>
       <text class="banner-text">{{historyLoading ? historyProgressText : (histError || ui['加载更早记录'])}}</text>
       <text wx:if="{{histError && !historyLoading}}" class="banner-retry">{{ui['重试']}}</text>
@@ -105,6 +105,13 @@
       <view class="state-spinner"></view>
       <view class="state-title">{{ui['正在创建会话']}}</view>
       <view class="state-sub">{{ui['正在从 Mobile Gateway 建立会话…']}}</view>
+    </view>
+    <!-- 首屏骨架：会话内容还在路上时先给结构感，避免整片空白 -->
+    <view wx:if="{{!rows.length && (historyLoading || historyState === 'requested')}}" class="conv-skeleton" aria-hidden="true">
+      <view class="conv-skeleton-row short"></view>
+      <view class="conv-skeleton-row"></view>
+      <view class="conv-skeleton-row medium"></view>
+      <view class="conv-skeleton-row short"></view>
     </view>
     <!-- 创建失败态（可重试） -->
     <view wx:elif="{{historyState === 'error:create'}}" class="conv-state conv-fail">
@@ -409,8 +416,7 @@
       <view class="trace-overview-axis"><text>0 {{ui['秒']}}</text><text>{{ui[traceOverview.durationLabel] !== undefined ? ui[traceOverview.durationLabel] : traceOverview.durationLabel}}</text></view>
     </view>
     <scroll-view class="trajectory" scroll-y enhanced show-scrollbar="{{false}}" scroll-into-view="{{traceScrollTarget}}" scroll-with-animation bindscroll="onTraceListScroll" bindscrolltoupper="loadOlder" upper-threshold="80">
-      <view wx:if="{{historyLoading && !turnNavOpen}}" class="hist-banner"><view class="banner-spinner"/><text class="banner-text">{{historyProgressText}}</text></view>
-      <view wx:elif="{{hasMoreHistory && !turnNavOpen}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
+            <view wx:if="{{hasMoreHistory && !turnNavOpen}}" class="load-older" bindtap="loadOlder">{{histError || ui['加载更早记录']}}</view>
       <view class="trace-list">
         <view class="trace-window-spacer" style="height:{{traceSpacerTopRpx}}rpx;" aria-hidden="true"/>
         <block wx:for="{{trajectory}}" wx:key="key">
@@ -1665,6 +1671,19 @@
       <view class="composer-surface {{voiceOverlayVisible ? 'voice-holding' : ''}}">
       <view class="composer-backdrop" aria-hidden="true"></view>
       <view class="composer">
+<view wx:if="{{images.length}}" class="composer-images">
+      <block wx:for="{{images}}" wx:key="id">
+        <view wx:if="{{item.isFile}}" class="pending-file" catchtap="previewPendingFile" data-index="{{index}}" role="button" aria-label="{{ui['预览']}} {{item.name}}">
+          <image class="pending-file-ic" src="/assets/icons/paperclip-gray.png"/>
+          <text class="pending-file-name">{{item.name}}</text>
+          <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
+        </view>
+        <view wx:else class="composer-thumb">
+          <image src="{{item.tempPath}}" mode="aspectFill" class="composer-thumb-img" bindtap="previewPendingImage" data-index="{{index}}"/>
+          <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
+        </view>
+      </block>
+    </view>
       <view class="voice-input-wrap">
       <view class="composer-input-row composer-live {{composerPreview ? 'previewing' : ''}}">
       <!-- 渲染层：不透明覆盖在输入框之上（不改 textarea 任何属性，避免原生组件被重置） -->
@@ -1717,19 +1736,7 @@
       <view wx:if="{{voicePhase === 'transcribing' || voicePhase === 'stopping'}}" class="voice-progress"><text>{{ui['正在转文字…']}}</text><view class="voice-inline-action" bindtap="cancelVoice" role="button">{{ui['取消']}}</view></view>
       <view wx:if="{{voicePendingText}}" class="voice-transcript"><text class="voice-transcript-hint">{{ui['草稿已修改，识别文字待插入']}}</text><text class="voice-transcript-text" selectable>{{voicePendingText}}</text><view class="voice-transcript-actions"><view class="voice-inline-action" bindtap="discardPendingVoiceText" role="button">{{ui['丢弃识别文字']}}</view><view class="voice-inline-action" bindtap="insertPendingVoiceText" role="button">{{ui['插入文字']}}</view></view></view>
 
-    <view wx:if="{{images.length}}" class="composer-images">
-      <block wx:for="{{images}}" wx:key="id">
-        <view wx:if="{{item.isFile}}" class="pending-file" catchtap="previewPendingFile" data-index="{{index}}" role="button" aria-label="{{ui['预览']}} {{item.name}}">
-          <image class="pending-file-ic" src="/assets/icons/paperclip-gray.png"/>
-          <text class="pending-file-name">{{item.name}}</text>
-          <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
-        </view>
-        <view wx:else class="composer-thumb">
-          <image src="{{item.tempPath}}" mode="aspectFill" class="composer-thumb-img" bindtap="previewPendingImage" data-index="{{index}}"/>
-          <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
-        </view>
-      </block>
-    </view>
+    
     <view class="composer-bar">
       <view class="chip icon composer-plus {{attachSheetOpen ? 'active' : ''}}" bindtap="attachMenu" role="button" aria-label="{{ui['添加与指令']}}" aria-expanded="{{attachSheetOpen}}"><image class="attach-ic" src="/assets/icons/plus-gray.png"/></view>
        <view class="chip permission-chip" bindtap="pickPermission" role="button" aria-label="{{ui['权限']}}" aria-expanded="{{permissionSheet.length > 0}}">

@@ -1,0 +1,28 @@
+{
+  "modulePathMap": {
+    "entry": "/Users/0the/Downloads/dsh-weapp/harmonyos/atomic-service/entry"
+  },
+  "compileMode": "esmodule",
+  "projectRootPath": "/Users/0the/Downloads/dsh-weapp/harmonyos/atomic-service",
+  "nodeModulesPath": "/Users/0the/Downloads/dsh-weapp/harmonyos/atomic-service/entry/.preview/default/intermediates/loader_out/default/node_modules",
+  "byteCodeHarInfo": {},
+  "declarationEntry": [],
+  "moduleName": "entry",
+  "hspNameOhmMap": {
+    "@atomicservice/ascfapi": "@normalized:N&ascf&com.huawei.hms.ascfruntime&@atomicservice/ascfapi/Index&"
+  },
+  "harNameOhmMap": {},
+  "packageManagerType": "ohpm",
+  "compileEntry": [],
+  "otherCompileFiles": [],
+  "dynamicImportLibInfo": {},
+  "routerMap": [],
+  "hspResourcesMap": {
+    "@atomicservice/ascfapi": "/Users/0the/Downloads/dsh-weapp/harmonyos/atomic-service/oh_modules/.ohpm/@atomicservice+ascfapi@1.0.23/oh_modules/@atomicservice/ascfapi/ResourceTable.txt"
+  },
+  "updateVersionInfo": {},
+  "customizedHar": false,
+  "anBuildOutPut": "/Users/0the/Downloads/dsh-weapp/harmonyos/atomic-service/entry/.preview/default/intermediates/loader_out/default/an/arm64-v8a",
+  "anBuildMode": "type",
+  "buildConfigPath": ".preview/config/buildConfig.json"
+}

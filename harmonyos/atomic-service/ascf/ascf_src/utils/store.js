@@ -1049,11 +1049,11 @@ function createStore() {
     } else if (sessionState.sessionId && !frame.sessionId && SESSION_SCOPED[frame.kind]) {
       handleSessionFrame(frame);
     } else if (frame.kind && frame.sessionId && sessionState.sessionId) {
-      // 诊断：sessionId 不匹配——记录两侧尾部片段
+      // 诊断信息保留在 store 中，但无关会话不能通知当前页面：
+      // 并行运行时每个 token 都可能命中这里，否则会放大整页投影和跨桥渲染。
       sessionState.lastFrames = sessionState.lastFrames.slice(-7).concat(
         'MISMATCH:' + String(frame.sessionId).slice(-8) + '!=' + String(sessionState.sessionId).slice(-8)
       );
-      emit();
     }
   }
 

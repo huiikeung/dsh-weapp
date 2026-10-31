@@ -93,7 +93,7 @@ test('long press opens the anchored session menu instead of a native action shee
   assert.match(wxml, /class="ws-pop session-menu"/);
   assert.match(wxml, /bindtap="sessionMenuAction" data-action="rename"/);
   assert.match(wxml, /bindtap="sessionMenuAction" data-action="archive"/);
-  assert.match(wxml, /id="session-row-\{\{index\}\}"/, 'the row has a stable id selector');
+  assert.match(wxml, /id="session-row-\{\{item\.index\}\}"/, 'the row has a stable id selector');
   assert.match(wxml, /session-row-hidden/, 'the pressed row is hidden while its menu is open');
   assert.match(wxss, /\.session-row-hidden[^{]*\{[^}]*visibility:\s*hidden/);
 
@@ -103,7 +103,7 @@ test('long press opens the anchored session menu instead of a native action shee
   assert.equal(modals[0].title, preferences.t('重命名会话'));
 });
 
-test('opening a conversation pauses the home renderer and navigates before store hydration', () => {
+test('opening a conversation hydrates before navigation while pausing the home renderer', () => {
   const { page, calls } = fixture(sessions);
   let paused = false;
   page.selectComponent = () => ({ pause() { paused = true; } });
@@ -112,12 +112,15 @@ test('opening a conversation pauses the home renderer and navigates before store
   assert.equal(paused, true);
   assert.equal(page._homeHidden, true, 'store emissions cannot rebuild the home list during navigation');
   page.openSession({ currentTarget: { dataset: { id: 's2' } } });
-  assert.equal(calls[0][0], 'navigate');
-  assert.equal(calls[0][1].url, '/pages/session/session?id=s1&reopen=1&preset=standard');
-  assert.equal(calls[0][1].animationDuration, 160, 'the session page enters with a shorter native transition');
+  const navigation = calls.find(call => call[0] === 'navigate');
+  assert.ok(navigation, 'navigation starts after eager hydration');
+  assert.equal(navigation[1].url, '/pages/session/session?id=s1&reopen=1&preset=standard');
+  assert.equal(navigation[1].animationType, 'none', 'the session page disables the native slide transition');
+  assert.equal(navigation[1].animationDuration, 0, 'the session page opens without a transition delay');
+  assert.deepEqual(calls[0], ['open', 's1', '会话一', 'standard'], 'cache restore and history request start on tap');
   const source = fs.readFileSync(pageFile, 'utf8');
   const openBody = source.slice(source.indexOf('  openSession(e) {'), source.indexOf('  /** 长按会话行', source.indexOf('  openSession(e) {')));
-  assert.ok(!openBody.includes('store.openSession('), 'the home tap cannot synchronously hydrate the selected conversation');
+  assert.ok(openBody.includes('store.openSession('), 'the home tap hydrates the selected conversation before navigation');
   assert.ok(!openBody.includes('title='), 'Chinese titles stay in the store/session list instead of the navigation URL');
 });
 
@@ -129,7 +132,7 @@ test('failed session navigation restores the home and allows retry', () => {
   assert.equal(page._homeHidden, false);
   assert.equal(page._openingSession, false);
   assert.equal(page.data.oceanActive, true);
-  assert.equal(calls.some(call => call[0] === 'open'), false, 'failed navigation does not switch the active store session');
+  assert.equal(calls.some(call => call[0] === 'open'), true, 'the selected session is prepared before navigation');
   assert.equal(syncs, 1);
   page.openSession(event);
   assert.equal(calls.filter(call => call[0] === 'navigate').length, 2);

@@ -1,0 +1,250 @@
+{
+    "darkmode": true,
+    "themeLocation": "theme.json",
+    "style": "v2",
+    "lazyCodeLoading": "requiredComponents",
+    "sitemapLocation": "sitemap.json",
+    "subPackages": [],
+    "preloadRule": {
+        "pages/home/home": {
+            "network": "all",
+            "packages": [
+                "pages/session",
+                "pages/settings",
+                "pages/session-settings",
+                "pages/plugins"
+            ]
+        },
+        "pages/session/session": {
+            "network": "all",
+            "packages": [
+                "pages/session-settings",
+                "pages/insights",
+                "pages/files",
+                "pages/workspace-picker"
+            ]
+        },
+        "pages/settings/settings": {
+            "network": "all",
+            "packages": [
+                "pages/add-node",
+                "pages/workspace-picker",
+                "pages/announcements",
+                "pages/cost-meter",
+                "pages/schedule",
+                "pages/plugin-detail",
+                "pages/pairing-admin",
+                "pages/redeem-admin"
+            ]
+        }
+    },
+    "type": "ascf",
+    "independentList": [],
+    "subpackages": [],
+    "versionType": "debug",
+    "debug": true,
+    "debugable": true,
+    "minPlatformVersion": "10000",
+    "global": {
+        "window": {
+            "navigationBarBackgroundColor": "#FFFFFF",
+            "navigationBarTextStyle": "black",
+            "navigationBarTitleText": "鲸尾 Harness",
+            "backgroundColor": "#FFFFFF",
+            "backgroundTextStyle": "light",
+            "backgroundColorTop": "#FFFFFF",
+            "backgroundColorBottom": "#FFFFFF"
+        }
+    },
+    "features": {
+        "lazyCode": "v2"
+    },
+    "router": {
+        "entry": "pages/home/home",
+        "pages": {
+            "pages/home/home": {
+                "component": "",
+                "info": {
+                    "navigationStyle": "custom",
+                    "navigationBarBackgroundColor": "#FFFFFF",
+                    "navigationBarTextStyle": "white",
+                    "backgroundColor": "#07182B",
+                    "usingComponents": {
+                        "ocean-background": "components/ocean-background/ocean-background",
+                        "public-access-dialog": "components/public-access-dialog/public-access-dialog"
+                    }
+                }
+            },
+            "pages/share-activity/share-activity": {
+                "component": "",
+                "info": {
+                    "navigationBarTitleText": "鲸尾 · 分享助手"
+                }
+            },
+            "pages/privacy/privacy": {
+                "component": "",
+                "info": {
+                    "navigationStyle": "custom",
+                    "backgroundColor": "#FFFFFF",
+                    "usingComponents": {
+                        "privacy-sheet": "components/privacy-sheet/privacy-sheet"
+                    }
+                }
+            },
+            "pages/session/session": {
+                "component": "",
+                "info": {
+                    "navigationStyle": "custom",
+                    "navigationBarTextStyle": "black",
+                    "disableScroll": true,
+                    "usingComponents": {
+                        "voice-overlay": "components/voice-overlay/voice-overlay",
+                        "public-access-dialog": "components/public-access-dialog/public-access-dialog"
+                    }
+                }
+            },
+            "pages/settings/settings": {
+                "component": "",
+                "info": {
+                    "backgroundColor": "#FFFFFF",
+                    "usingComponents": {
+                        "dsh-switch": "components/dsh-switch/dsh-switch",
+                        "privacy-sheet": "components/privacy-sheet/privacy-sheet",
+                        "public-access-dialog": "components/public-access-dialog/public-access-dialog"
+                    },
+                    "navigationStyle": "custom"
+                }
+            },
+            "pages/plugins/plugins": {
+                "component": "",
+                "info": {
+                    "navigationStyle": "custom",
+                    "backgroundColor": "#FFFFFF",
+                    "usingComponents": {
+                        "dsh-switch": "components/dsh-switch/dsh-switch"
+                    },
+                    "disableScroll": true
+                }
+            },
+            "pages/cost-meter/cost-meter": {
+                "component": "",
+                "info": {
+                    "navigationBarTitleText": "用量与费用",
+                    "navigationStyle": "custom",
+                    "navigationBarBackgroundColor": "#FFFFFF",
+                    "navigationBarTextStyle": "black",
+                    "backgroundColor": "#FFFFFF",
+                    "usingComponents": {
+                        "dsh-switch": "components/dsh-switch/dsh-switch"
+                    }
+                }
+            },
+            "pages/plugin-detail/plugin-detail": {
+                "component": "",
+                "info": {
+                    "navigationStyle": "custom",
+                    "backgroundColor": "#FFFFFF",
+                    "usingComponents": {
+                        "dsh-switch": "components/dsh-switch/dsh-switch"
+                    },
+                    "disableScroll": true
+                }
+            },
+            "pages/schedule/schedule": {
+                "component": "",
+                "info": {
+                    "navigationStyle": "custom",
+                    "backgroundColor": "#FFFFFF",
+                    "enablePullDownRefresh": false,
+                    "usingComponents": {},
+                    "disableScroll": true
+                }
+            },
+            "pages/announcement-admin/announcement-admin": {
+                "component": "",
+                "info": {
+                    "navigationBarTitleText": "公告管理"
+                }
+            },
+            "pages/pairing-admin/pairing-admin": {
+                "component": "",
+                "info": {
+                    "navigationBarTitleText": "配对码管理"
+                }
+            },
+            "pages/redeem-admin/redeem-admin": {
+                "component": "",
+                "info": {
+                    "navigationBarTitleText": "兑换码管理"
+                }
+            },
+            "pages/session-settings/session-settings": {
+                "component": "",
+                "info": {
+                    "navigationBarTitleText": "会话设置",
+                    "navigationStyle": "custom",
+                    "navigationBarBackgroundColor": "#FFFFFF",
+                    "navigationBarTextStyle": "black",
+                    "backgroundColor": "#FFFFFF",
+                    "usingComponents": {}
+                }
+            },
+            "pages/add-node/add-node": {
+                "component": "",
+                "info": {
+                    "navigationStyle": "custom",
+                    "backgroundColor": "#FFFFFF",
+                    "enablePullDownRefresh": false,
+                    "usingComponents": {
+                        "public-access-dialog": "components/public-access-dialog/public-access-dialog"
+                    },
+                    "disableScroll": true
+                }
+            },
+            "pages/workspace-picker/workspace-picker": {
+                "component": "",
+                "info": {
+                    "navigationBarTitleText": "选择工作区目录",
+                    "navigationBarBackgroundColor": "#FFFFFF",
+                    "navigationBarTextStyle": "black",
+                    "backgroundColor": "#FFFFFF",
+                    "disableScroll": true,
+                    "usingComponents": {}
+                }
+            },
+            "pages/insights/insights": {
+                "component": "",
+                "info": {
+                    "navigationBarTitleText": "上下文洞察",
+                    "enablePullDownRefresh": true
+                }
+            },
+            "pages/files/files": {
+                "component": "",
+                "info": {
+                    "navigationBarTitleText": "工作区文件",
+                    "navigationBarBackgroundColor": "#FFFFFF",
+                    "navigationBarTextStyle": "black",
+                    "backgroundColor": "#FFFFFF",
+                    "usingComponents": {}
+                }
+            },
+            "pages/announcements/announcements": {
+                "component": "",
+                "info": {
+                    "navigationBarTitleText": "开发者公告",
+                    "enablePullDownRefresh": true
+                }
+            },
+            "pages/models/models": {
+                "component": "",
+                "info": {
+                    "navigationStyle": "custom",
+                    "backgroundColor": "#FFFFFF",
+                    "usingComponents": {},
+                    "disableScroll": true
+                }
+            }
+        }
+    }
+}

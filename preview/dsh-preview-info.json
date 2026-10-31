@@ -1,0 +1,79 @@
+{
+  "size": {
+    "total": 2700711,
+    "packages": [
+      {
+        "name": "TOTAL",
+        "size": 2700711
+      },
+      {
+        "name": "main",
+        "size": 982955
+      },
+      {
+        "name": "/pages/add-node/",
+        "size": 17659
+      },
+      {
+        "name": "/pages/announcement-admin/",
+        "size": 8384
+      },
+      {
+        "name": "/pages/announcements/",
+        "size": 5125
+      },
+      {
+        "name": "/pages/cost-meter/",
+        "size": 141706
+      },
+      {
+        "name": "/pages/files/",
+        "size": 8464
+      },
+      {
+        "name": "/pages/insights/",
+        "size": 82821
+      },
+      {
+        "name": "/pages/models/",
+        "size": 95466
+      },
+      {
+        "name": "/pages/pairing-admin/",
+        "size": 10805
+      },
+      {
+        "name": "/pages/plugin-detail/",
+        "size": 77638
+      },
+      {
+        "name": "/pages/plugins/",
+        "size": 83800
+      },
+      {
+        "name": "/pages/redeem-admin/",
+        "size": 20046
+      },
+      {
+        "name": "/pages/schedule/",
+        "size": 47656
+      },
+      {
+        "name": "/pages/session-settings/",
+        "size": 76245
+      },
+      {
+        "name": "/pages/session/",
+        "size": 793389
+      },
+      {
+        "name": "/pages/settings/",
+        "size": 237747
+      },
+      {
+        "name": "/pages/workspace-picker/",
+        "size": 10805
+      }
+    ]
+  }
+}

@@ -79,6 +79,12 @@ function notifyListeners() {
   });
 }
 
+/** 页面创建时就能拿到的主题数据：让首帧就带正确的页面底色，避免先白屏再变色。 */
+function initialData() {
+  const resolved = resolveTheme();
+  return { theme: resolved, themeClass: 'theme-' + resolved, pageStyle: 'background-color: ' + PAGE_BG[resolved] + ';' };
+}
+
 /**
  * 接入页面：onLoad 中调用 theme.applyTo(this)。
  * 自动订阅主题变更并在页面卸载时取消订阅。
@@ -122,7 +128,7 @@ function applyTo(page) {
   }
 }
 
-module.exports = {
+module.exports = { initialData: initialData,
   getMode,
   setMode,
   resolveTheme,

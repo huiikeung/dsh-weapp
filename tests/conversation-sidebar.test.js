@@ -102,7 +102,8 @@ test('sidebar native and glass skins follow the composer recipe', () => {
     const anim = css.slice(css.indexOf('@keyframes conv-sidebar-in'));
     assert.ok(anim.includes('scale(0.92)'), base + ': ws-pop style appear animation');
     assert.ok(css.includes('.nav-sidebar.is-hidden'), base + ': toggle button hides during the animation');
-    assert.ok(!css.includes('.conv-sidebar-workspace.current .conv-sidebar-workspace-title'), base + ': expanded title keeps the default colour');
+    assert.ok(!css.includes('.conv-sidebar-workspace.current .conv-sidebar-workspace-title { color: var(--ocean)'), base + ': expanded title keeps the default colour');
+    assert.ok(css.includes('.theme-light .conv-sidebar.conv-sidebar-glass'), base + ': light glass keeps its own recipe');
   }
 });
 
