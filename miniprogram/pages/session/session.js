@@ -2051,23 +2051,37 @@ Page({
     if (store.setTrajectoryActive) store.setTrajectoryActive(tab === 'trajectory');
     if (store.setContextActive) store.setContextActive(tab === 'context');
     if (store.setFleetActive) store.setFleetActive(tab === 'fleet');
+    // 数据源没变时跳过重新投影/差分：切回已挂载的面板只需要切换显示状态。
+    const locale = preferences.locale();
     let tracePatch = {};
-    if (tab === 'trajectory') { this._traceRows = store.sessionState.trajectory || []; tracePatch = dataPatch(this.data, this.trajectoryPatch()); }
+    if (tab === 'trajectory') {
+      const source = store.sessionState.trajectory || [];
+      if (source !== this._switchTraceSource || locale !== this._switchLocale) {
+        this._switchTraceSource = source;
+        this._switchLocale = locale;
+        this._traceRows = source;
+        tracePatch = dataPatch(this.data, this.trajectoryPatch());
+      }
+    }
     // 上下文与编队合并成一个滚动（对齐客户端侧栏 Context 面板）：两个 Tab 共享
     let contextPatch = {};
-    if (tab === 'context') contextPatch = this.contextPanelPatch();
+    if (tab === 'context' && (store.sessionState.contextDashboard !== this._switchDashboard || locale !== this._switchLocale || !this.data.contextPanel)) {
+      this._switchDashboard = store.sessionState.contextDashboard;
+      contextPatch = this.contextPanelPatch();
+    }
     let fleetPatch = {};
-    if (tab === 'fleet') fleetPatch = this.fleetPanelPatch();
-    // 离开对应 Tab 时清掉大对象，减少 page data 体积与内存占用（切回时按需重建）。
+    if (tab === 'fleet' && (store.sessionState.contextFleet !== this._switchFleet || locale !== this._switchLocale || !this.data.fleetPanel)) {
+      this._switchFleet = store.sessionState.contextFleet;
+      fleetPatch = this.fleetPanelPatch();
+    }
+    // 面板挂载后保持挂载：只切换显示状态，避免每次切换重建整棵节点树（切换卡顿的主因）。
     const clearPatch = {};
     if (tab !== 'context') {
-      clearPatch.contextPanel = null;
       clearPatch.contextModalOpen = false;
       clearPatch.contextBrowserPickerOpen = false;
       clearPatch.contextBrowserPickerTarget = '';
       clearPatch.contextFlowLinks = [];
     }
-    if (tab !== 'fleet') clearPatch.fleetPanel = null;
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
     this._collaborationRequest = null; this._collaborationRefresh = null;
@@ -2081,7 +2095,7 @@ Page({
         this.scheduleFleetLinksDraw();
       }, 60);
     }
-    this.setData({ tab, trajectoryMounted: tab === 'trajectory', contextMounted: tab === 'context', fleetMounted: tab === 'fleet', ...clearPatch, ...tracePatch, ...contextPatch, ...fleetPatch, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
+    this.setData({ tab, trajectoryMounted: this.data.trajectoryMounted || tab === 'trajectory', contextMounted: this.data.contextMounted || tab === 'context', fleetMounted: this.data.fleetMounted || tab === 'fleet', ...clearPatch, ...tracePatch, ...contextPatch, ...fleetPatch, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
       statsPopOpen: false, showContextSheet: false, commandMenu: null,
       attachSheetOpen: false, modelSheetOpen: false, effortSheetOpen: false,
       permissionSheet: [], modeSheet: [], ...this.layoutPatch({ kbHeight: 0 }) }, () => {

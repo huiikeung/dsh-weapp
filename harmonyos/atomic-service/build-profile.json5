@@ -1,6 +1,20 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/0the/.ohos/config/default_atomic-service_A2Rl-OcJmJcRUF-2Z-Bo19SGSq1dh9UwLasHOyeXngs=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001B92398A38763D6C84B92572F2835FDF0D726DEF3E3F42EA075E0C55A1F1C5778D37CDF500310BF4",
+          "profile": "/Users/0the/.ohos/config/default_atomic-service_A2Rl-OcJmJcRUF-2Z-Bo19SGSq1dh9UwLasHOyeXngs=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/0the/.ohos/config/default_atomic-service_A2Rl-OcJmJcRUF-2Z-Bo19SGSq1dh9UwLasHOyeXngs=.p12",
+          "storePassword": "0000001BD20607ECB4C02CA8693CB3DF8FC6A0D9DF39D16D73F61BCEF0ED5E01340EE12E6EC5523B30AB37"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",

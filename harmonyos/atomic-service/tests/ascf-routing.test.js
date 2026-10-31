@@ -39,11 +39,11 @@ test('ASCF identifies separately and never inherits native route capabilities', 
   assert.equal(runtime.isASCFRuntime(), true);
   assert.equal(runtime.isWeChatMiniProgram(), false);
   assert.equal(runtime.clientKind(), 'ascf');
-  assert.deepEqual(routeTable.allowedFamilies(runtime.clientKind()), ['public', 'lan', 'relay']);
+  assert.deepEqual(routeTable.allowedFamilies(runtime.clientKind()), ['relay', 'lan']);
   delete global.wx;
 });
 
-test('ASCF candidates keep WSS routes and allow only local development ws', () => {
+test('ASCF candidates keep LAN routes for the relay-plus-LAN topology', () => {
   const table = routeTable.parseRouteTable({
     routes: {
       public: [direct, localWs, 'ws://public.example.test/ws', 'wss://user:pass@bad.example/ws', 'wss://bad.example/ws?token=x', 'wss://bad host.example/ws', 'wss://bad-port.example:70000/ws'],
@@ -51,11 +51,11 @@ test('ASCF candidates keep WSS routes and allow only local development ws', () =
     }
   });
   const candidates = routeTable.orderCandidates(table, { client: 'ascf' });
-  assert.deepEqual(candidates.map(item => item.endpoint), [direct, localWs, localWss]);
-  assert.deepEqual(candidates.map(item => item.kind), ['public', 'lan', 'lan']);
+  assert.deepEqual(candidates.map(item => item.endpoint), [localWs, localWss]);
+  assert.deepEqual(candidates.map(item => item.kind), ['lan', 'lan']);
 
   const configuredHost = 'wss://unlisted-here.example.test/ws/mobile';
-  assert.equal(routeTable.orderCandidates({ public: [configuredHost] }, { client: 'ascf' })[0].endpoint, configuredHost,
+  assert.equal(routeTable.orderCandidates({ public: [configuredHost] }, { client: 'ascf' }), [],
     'the client filters URL syntax only and leaves developer-center domain authorization to platform configuration');
 });
 
@@ -63,15 +63,15 @@ test('ASCF preferred endpoint is normalized and accepted only when present in th
   const table = { public: [direct, secondDirect], lan: [localWss], relay: relayRoute() };
   assert.deepEqual(
     routeTable.orderCandidates(table, { client: 'ascf', preferred: secondDirect }).map(item => item.endpoint),
-    [secondDirect, direct, localWss, relay + '/c/' + nodeId]
+    [secondDirect, relay + '/c/' + nodeId, localWss]
   );
   assert.deepEqual(
     routeTable.orderCandidates(table, { client: 'ascf', preferred: localWs }).map(item => item.endpoint),
-    [direct, secondDirect, localWss, relay + '/c/' + nodeId]
+    [relay + '/c/' + nodeId, localWss]
   );
   assert.deepEqual(
     routeTable.orderCandidates(table, { client: 'ascf', preferred: 'wss://not-in-pairing.example/ws' }).map(item => item.endpoint),
-    [direct, secondDirect, localWss, relay + '/c/' + nodeId]
+    [relay + '/c/' + nodeId, localWss]
   );
   const preferredRelay = routeTable.orderCandidates(table, {
     client: 'ascf', preferred: relay + '/c/' + nodeId
@@ -86,9 +86,9 @@ test('ASCF orders direct WSS before a validated relay fallback', () => {
     lan: [localWss],
     relay: relayRoute()
   }, { client: 'ascf' });
-  assert.deepEqual(candidates.map(item => item.endpoint), [direct, localWs, localWss, relay + '/c/' + nodeId]);
-  assert.equal(candidates[3].kind, 'relay');
-  assert.equal(candidates[3].relay.agentPubKey, agentPubKey);
+  assert.deepEqual(candidates.map(item => item.endpoint), [relay + '/c/' + nodeId, localWs, localWss]);
+  assert.equal(candidates[0].kind, 'relay');
+  assert.equal(candidates[0].relay.agentPubKey, agentPubKey);
   assert.deepEqual(routeTable.orderCandidates({ public: ['ws://public.example.test/ws'] }, { client: 'ascf' }), []);
   assert.deepEqual(routeTable.orderCandidates(null, { client: 'ascf' }), []);
 });
@@ -100,7 +100,7 @@ test('ASCF drops relay candidates when public access is unauthorized but keeps C
     relay: relayRoute()
   };
   const candidates = routeTable.orderCandidates(table, { client: 'ascf', relayAuthorized: false });
-  assert.deepEqual(candidates.map(item => item.endpoint), [direct, localWss]);
+  assert.deepEqual(candidates.map(item => item.endpoint), [localWss]);
   assert.ok(candidates.every(item => item.kind !== 'relay'), 'unauthorized relay must not be dialed');
 
   // 已授权（或用户首选中继）时中继保留在回退链上。
@@ -123,8 +123,8 @@ test('v2 merges ASCF WSS routes without letting miniProgramRoute replace a direc
     miniProgramRoute: { mode: 'direct', publicUrl: 'wss://wechat-route.example.test/ws/mobile' }
   })), now);
   assert.equal(parsed.ok, true);
-  assert.equal(parsed.payload.publicUrl, direct);
-  assert.deepEqual(parsed.payload.endpoints, [direct, secondDirect, 'wss://wechat-route.example.test/ws/mobile', localWs]);
+  assert.equal(parsed.payload.publicUrl, localWs);
+  assert.deepEqual(parsed.payload.endpoints, [localWs]);
   assert.equal(parsed.payload.pairingCode, pairingCode);
   assert.equal(parsed.payload.expiresAt, future);
 });
@@ -136,11 +136,11 @@ test('v2 retains a local ws route alongside a WSS miniProgramRoute', () => {
     miniProgramRoute: {
       mode: 'direct',
       publicUrl: 'wss://configured.example.test/ws/mobile',
-      endpoints: ['wss://configured.example.test/ws/mobile', localWs]
+      endpoints: [localWs]
     }
   })), now);
   assert.equal(parsed.ok, true);
-  assert.deepEqual(parsed.payload.endpoints, ['wss://configured.example.test/ws/mobile', localWs]);
+  assert.deepEqual(parsed.payload.endpoints, [localWs]);
   assert.equal(parsed.payload.endpoints.some(endpoint => endpoint.startsWith('ws://')), true);
 });
 
@@ -148,10 +148,10 @@ test('v2 includes a validated mini relay as fallback after direct WSS and ignore
   const parsed = parse(raw(v2({ miniProgramRoute: { mode: 'relay', ...relayRoute() } })), now);
   assert.equal(parsed.ok, true);
   assert.equal(parsed.payload.mode, undefined);
-  assert.deepEqual(parsed.payload.endpoints, [direct, relay + '/c/' + nodeId]);
+  assert.deepEqual(parsed.payload.endpoints, [relay + '/c/' + nodeId, localWs]);
   const candidates = routeTable.orderCandidates(parsed.payload.routeTable, { client: runtime.clientKind() });
-  assert.equal(candidates[1].kind, 'relay');
-  assert.equal(candidates[1].relay.agentPubKey, agentPubKey);
+  assert.equal(candidates[0].kind, 'relay');
+  assert.equal(candidates[0].relay.agentPubKey, agentPubKey);
   assert.equal(parsed.payload.pairingCode, pairingCode);
 
   const badRelay = parse(raw(v2({ miniProgramRoute: { mode: 'relay', ...relayRoute({ agentPubKey: 'bad' }) } })), now);

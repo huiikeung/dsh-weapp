@@ -21,6 +21,14 @@ function toArrayBuffer(u8) {
   return u8.slice().buffer;
 }
 
+function socketErrorMessage(value) {
+  const raw = String(value || '');
+  if (/2302998|not allowed to access this domain/i.test(raw)) {
+    return uiText('ASCF 域名未配置：请在华为开发者中心/AGC 的元服务服务器域名白名单中加入该 wss 域名；局域网 ws 地址不能绕过平台白名单。');
+  }
+  return raw || uiText('无法建立 WebSocket 连接');
+}
+
 const CHANNEL = 'miniprogram';
 const RECONNECT_BASE_DELAY = 1000;
 const RECONNECT_MAX_DELAY = 30000;
@@ -254,7 +262,7 @@ class GatewayClient {
         protocols: protocols,  // 务必传递完整的 protocols 数组
         fail: function (err) {
           if (transportTask && self.socketTask !== transportTask) return;
-          const message = (err && err.errMsg) || uiText('无法建立 WebSocket 连接');
+          const message = socketErrorMessage(err && err.errMsg);
           // Some test/runtime shims may invoke fail before connectSocket returns.
           if (!transportTask) {
             earlyFailure = message;
@@ -327,7 +335,7 @@ class GatewayClient {
       });
       transportTask.onError(function (err) {
       if (self.socketTask !== transportTask) return;
-      self.handleTransportFailure((err && err.errMsg) || uiText('连接发生错误'));
+      self.handleTransportFailure(socketErrorMessage(err && err.errMsg));
       });
       transportTask.onClose(function (res) {
       if (self.socketTask !== transportTask) return;

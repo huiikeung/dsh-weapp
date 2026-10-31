@@ -20,7 +20,8 @@ assert.match(wxml, /dsh-account-link-button dsh-account-primary[^>]*catchtap="ex
   'Signed-out settings expose a sign-in explanation entry that does not bubble into the balance toggle');
 // 连接分组：公网访问 / 节点管理 / 公网权限 只保留标题，不再挂副标题；
 // 公网访问右侧改为有效期时间（无有效期时才回落状态文案）。
-const connectionCard = wxml.slice(wxml.indexOf('公网访问'), wxml.indexOf('</view>\n  <view class="group-title">对话') > 0 ? wxml.indexOf('</view>\n  <view class="group-title">对话') : wxml.indexOf('对话'));
+const appearanceAt = wxml.indexOf('<!-- 管理员弹窗 -->');
+const connectionCard = wxml.slice(wxml.indexOf('公网访问'), appearanceAt > 0 ? appearanceAt : wxml.indexOf('对话'));
 assert.ok(!/management-entry-desc/.test(connectionCard),
   'Connect rows carry no secondary description any more');
 assert.match(connectionCard, /ui\[publicValueLabel\] !== undefined \? ui\[publicValueLabel\] : publicValueLabel/,
@@ -828,8 +829,8 @@ test('设置页卡片沿用首页设置页的玻璃卡片材质', () => {
   const sessionCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session-settings/session-settings.wxss'), 'utf8');
   const homeCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/home/home.wxss'), 'utf8');
   const gated = wxml.match(/settingsGlassEnabled \? 'settings-glass-card' : ''/g) || [];
-  assert.equal(gated.length, 9, 'every page-level card gates the glass class');
-  for (const line of ['class="card {{settingsGlassEnabled ? \'settings-glass-card\' : \'\'}}"', 'class="card work-step-settings', 'class="card general-preferences']) {
+  assert.equal(gated.length, 8, 'every page-level card gates the glass class');
+  for (const line of ['class="card {{settingsGlassEnabled ? \'settings-glass-card\' : \'\'}}"', 'class="card work-step-settings']) {
     assert.ok(wxml.includes(line), line);
   }
   const recipe = [

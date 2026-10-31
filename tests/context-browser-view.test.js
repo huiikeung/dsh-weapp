@@ -908,7 +908,7 @@ test('fleet header is pinned above its scroll area, matching the context header'
   assert.ok(!/\.cf-fleet-section \.fleet-toolbar/.test(css), 'no merged-layout padding compensation is left');
 });
 
-test('context and fleet are independent panels, each mounted only on its own tab', () => {
+test('context and fleet mount on first use and stay mounted while switching', () => {
   const { page, store, calls } = pageFixture();
   store.state = { connection: 'connected', sessions: [] };
   store.sessionState.contextDashboard = { loading: false, error: null, code: '', unsupported: false, asOfSeq: 3, value: sampleBrowserValue() };
@@ -920,19 +920,20 @@ test('context and fleet are independent panels, each mounted only on its own tab
   assert.equal(page.data.fleetMounted, true, 'the fleet tab mounts the fleet panel');
   assert.equal(page.data.contextMounted, false, 'the fleet tab does not mount the context panel');
   assert.ok(page.data.fleetPanel, 'fleet data is derived on the fleet tab');
-  assert.equal(page.data.contextPanel, null, 'no context payload leaks onto the fleet tab');
+  assert.equal(page.data.contextMounted, false, 'the fleet tab does not mount the context panel');
 
   page.switchTab({ currentTarget: { dataset: { tab: 'context' } } });
   assert.equal(page.data.contextMounted, true, 'the context tab mounts the context panel');
-  assert.equal(page.data.fleetMounted, false, 'the context tab does not mount the fleet panel');
   assert.ok(page.data.contextPanel, 'context data is derived on the context tab');
-  assert.equal(page.data.fleetPanel, null, 'no fleet payload leaks onto the context tab');
+  // 面板挂载后保持挂载，切换只改显示状态：避免每次切换重建整棵节点树（真机切换卡顿）。
+  assert.equal(page.data.fleetMounted, true, 'the fleet panel stays mounted after first use');
+  assert.ok(page.data.fleetPanel, 'fleet data stays available for the mounted panel');
 
   page.switchTab({ currentTarget: { dataset: { tab: 'conversation' } } });
-  assert.equal(page.data.contextPanel, null, 'leaving releases both big objects');
-  assert.equal(page.data.fleetPanel, null);
-  assert.equal(page.data.contextMounted, false);
-  assert.equal(page.data.fleetMounted, false);
+  assert.equal(page.data.contextMounted, true, 'panels keep their mounted node trees');
+  assert.equal(page.data.fleetMounted, true);
+  assert.ok(page.data.contextPanel, 'context data stays for the mounted panel');
+  assert.ok(page.data.fleetPanel, 'fleet data stays for the mounted panel');
 });
 
 test('footer copy and jump buttons share one geometry across every row kind', () => {

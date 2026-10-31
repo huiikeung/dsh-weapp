@@ -92,25 +92,7 @@
     </block>
   </view>
 
-  <view class="group-title">{{ui['对话']}}</view>
-  <view class="card work-step-settings {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
-    <view class="card-row">
-      <view class="work-step-copy"><text class="card-row-label">{{ui['语音输入']}}</text><text class="work-step-hint">{{ui['按住说话，由已连接的 DSH 语音插件转写']}}</text></view>
-      <dsh-switch checked="{{voiceEnabled}}" aria-label="{{ui['语音输入']}}" bindchange="toggleVoice"/>
-    </view>
-    <view wx:if="{{voiceEnabled}}" class="card-row" bindtap="openVoiceSettings" role="button">
-      <text class="card-row-label">{{ui['语音插件设置']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
-    </view>
-    <view class="card-row work-step-row work-step-mode-row {{choiceMenu === 'mode' ? 'work-step-row-open' : ''}}">
-      <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤展示']}}</text><text class="work-step-hint">{{ui['选择希望看到多少工具调用细节']}}</text></view>
-      <view class="work-step-select" bindtap="toggleWorkStepMenu" data-field="mode" role="button" aria-label="{{ui['工作步骤展示：']}}{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}"><text>{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}</text><image class="work-step-select-chevron" src="/assets/icons/chev-right-gray.png"/></view>
-    </view>
-    <view class="card-row work-step-row work-step-timing-row {{choiceMenu === 'timing' ? 'work-step-row-open' : ''}}">
-      <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤收起时机']}}</text><text class="work-step-hint">{{ui['选择何时自动收起工作步骤']}}</text></view>
-      <view class="work-step-select" bindtap="toggleWorkStepMenu" data-field="timing" role="button" aria-label="{{ui['工作步骤收起时机：']}}{{ui[workStepTimingLabel] !== undefined ? ui[workStepTimingLabel] : workStepTimingLabel}}"><text>{{ui[workStepTimingLabel] !== undefined ? ui[workStepTimingLabel] : workStepTimingLabel}}</text><image class="work-step-select-chevron" src="/assets/icons/chev-right-gray.png"/></view>
-    </view>
-  </view>
-  <view class="group-hint">{{ui['完全展开时不自动收起；设置保存在当前小程序。']}}</view>
+  
   <!-- 选择弹窗内容模板：底部弹窗与锚点菜单共用 -->
   <template name="choiceRows">
     <view class="settings-choice-content">
@@ -474,16 +456,30 @@
     </view>
   </view>
 
-  <view class="group-title">{{ui['会话面板']}}</view>
-  <view class="card general-preferences {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
-
-        <view class="card-row">
-          <view class="exp-copy"><text class="card-row-label">{{ui['显示上下文']}}</text></view>
-          <dsh-switch checked="{{showContextPanel}}" aria-label="{{ui['显示上下文']}}" bindchange="toggleContextPanel"/>
+  <view class="group-title">{{ui['对话']}}</view>
+  <view class="card work-step-settings {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
+    <view class="card-row">
+      <view class="work-step-copy"><text class="card-row-label">{{ui['语音输入']}}</text><text class="work-step-hint">{{ui['按住说话，由已连接的 DSH 语音插件转写']}}</text></view>
+      <dsh-switch checked="{{voiceEnabled}}" aria-label="{{ui['语音输入']}}" bindchange="toggleVoice"/>
+    </view>
+    <view wx:if="{{voiceEnabled}}" class="card-row" bindtap="openVoiceSettings" role="button">
+      <text class="card-row-label">{{ui['语音插件设置']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+    </view>
+    <view class="card-row work-step-row work-step-mode-row {{choiceMenu === 'mode' ? 'work-step-row-open' : ''}}">
+      <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤展示']}}</text><text class="work-step-hint">{{ui['选择希望看到多少工具调用细节']}}</text></view>
+      <view class="work-step-select" bindtap="toggleWorkStepMenu" data-field="mode" role="button" aria-label="{{ui['工作步骤展示：']}}{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}"><text>{{ui[workStepModeLabel] !== undefined ? ui[workStepModeLabel] : workStepModeLabel}}</text><image class="work-step-select-chevron" src="/assets/icons/chev-right-gray.png"/></view>
+    </view>
+    <view class="card-row work-step-row work-step-timing-row {{choiceMenu === 'timing' ? 'work-step-row-open' : ''}}">
+      <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤收起时机']}}</text><text class="work-step-hint">{{ui['选择何时自动收起工作步骤']}}</text></view>
+      <view class="work-step-select" bindtap="toggleWorkStepMenu" data-field="timing" role="button" aria-label="{{ui['工作步骤收起时机：']}}{{ui[workStepTimingLabel] !== undefined ? ui[workStepTimingLabel] : workStepTimingLabel}}"><text>{{ui[workStepTimingLabel] !== undefined ? ui[workStepTimingLabel] : workStepTimingLabel}}</text><image class="work-step-select-chevron" src="/assets/icons/chev-right-gray.png"/></view>
+    </view>
+  <view class="card-row">
+          <view class="exp-copy"><text class="card-row-label">{{ui['上下文标签页']}}</text><text class="exp-desc">{{ui['在会话顶部显示上下文标签页']}}</text></view>
+          <dsh-switch checked="{{showContextPanel}}" aria-label="{{ui['上下文标签页']}}" bindchange="toggleContextPanel"/>
         </view>
         <view class="card-row">
-          <view class="exp-copy"><text class="card-row-label">{{ui['显示编队']}}</text></view>
-          <dsh-switch checked="{{showFleetPanel}}" aria-label="{{ui['显示编队']}}" bindchange="toggleFleetPanel"/>
+          <view class="exp-copy"><text class="card-row-label">{{ui['编队标签页']}}</text><text class="exp-desc">{{ui['在会话顶部显示编队标签页']}}</text></view>
+          <dsh-switch checked="{{showFleetPanel}}" aria-label="{{ui['编队标签页']}}" bindchange="toggleFleetPanel"/>
         </view>
 
     <view class="card-row" bindtap="openContextSheet" role="button" aria-label="{{ui['上下文面板']}}">
@@ -491,6 +487,7 @@
       <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
     </view>
   </view>
+  <view class="group-hint">{{ui['完全展开时不自动收起；设置保存在当前小程序。']}}</view>
 
   <view class="group-title">{{ui['实验性功能']}}</view>
   <view class="card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">

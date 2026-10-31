@@ -24,7 +24,7 @@ test('sidebar application settings and home session settings have separate entri
   // read() 会把 {{ui['…']}} 剥成裸文案，所以这里按裸文案断言（和上面的 label 循环一致）。
   assert.ok(settings.includes('>公网权限</'), 'application settings owns the public-permission entry');
   assert.ok(!sessions.includes('>公网权限</'), 'session settings must not repeat it');
-  const panelSettings = settings.slice(settings.indexOf('会话面板'));
+  const panelSettings = settings.slice(settings.indexOf('显示上下文'));
   assert.match(panelSettings, /checked="\{\{showContextPanel\}\}"[\s\S]*?bindchange="toggleContextPanel"[\s\S]*?checked="\{\{showFleetPanel\}\}"[\s\S]*?bindchange="toggleFleetPanel"/);
   assert.match(read('pages/settings/settings.js'), /toggleContextPanel\(e\)[\s\S]*?contextPanelsPreference\.set\('context'/);
   assert.match(read('pages/settings/settings.js'), /toggleFleetPanel\(e\)[\s\S]*?contextPanelsPreference\.set\('fleet'/);

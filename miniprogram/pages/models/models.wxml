@@ -32,7 +32,7 @@
         <view wx:if="{{error}}" class="models-notice">{{ui[error] !== undefined ? ui[error] : error}}</view>
         <view class="models-section-head">
           <text class="models-section-title">{{ui['模型提供商']}}</text>
-          <view class="models-section-refresh tap" bindtap="onPullRefresh" hover-class="models-press" role="button" aria-label="{{ui['刷新']}}">{{ui['刷新']}}</view>
+          <view class="models-section-refresh tap" bindtap="onPullRefresh" hover-class="models-press" role="button" aria-label="{{ui['刷新']}}"><image class="models-section-refresh-ic" src="/assets/icons/{{theme === 'dark' ? 'refresh.png' : 'refresh-ink.png'}}" mode="aspectFit"/></view>
         </view>
         <view wx:for="{{providers}}" wx:key="id" class="provider-card {{expandedId === item.id ? 'expanded' : ''}}">
           <view class="provider-row" data-id="{{item.id}}" bindtap="toggleProvider" hover-class="provider-row-pressed" role="button" aria-expanded="{{expandedId === item.id}}">

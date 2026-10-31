@@ -144,7 +144,10 @@ function parseRouteTable(payload) {
 
 /** 该客户端能使用哪些线路族（按尝试顺序）。 */
 function allowedFamilies(client) {
-  if (client === 'ascf') return ['public', 'lan', 'relay']
+  // ASCF follows the mini-program topology: hosted relay first, LAN fallback.
+  // Cloudflare direct endpoints are intentionally excluded from this product path;
+  // relay requires Huawei public-access authorization, while LAN uses a registered WSS domain.
+  if (client === 'ascf') return ['relay', 'lan']
   // 微信小程序：公网 = 托管中继（已配合法域名）+ 局域网；不碰运营者自己的公网直连地址。
   // 多端 App / 原生 App：公网直连 + 局域网；没有微信登录，不碰托管中继。
   return client === 'native' ? ['public', 'lan'] : ['relay', 'lan']

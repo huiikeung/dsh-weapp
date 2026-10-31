@@ -69,7 +69,7 @@ test('the settings page hides the account area by default and keeps the switch i
     'the account area is gated by the switch');
   // 开关搬进「通用设置」分组：文案在左（.exp-copy 撑满），switch 在右（最后一个子节点）。
   const generalAt = settingsWxml.indexOf("ui['通用设置']");
-  const nextGroupAt = settingsWxml.indexOf("ui['会话面板']");
+  const nextGroupAt = settingsWxml.indexOf("ui['实验性功能']");
   assert.ok(generalAt > 0 && nextGroupAt > generalAt, 'the General settings group exists');
   const general = settingsWxml.slice(generalAt, nextGroupAt);
   assert.match(general, /<view class="exp-copy"><text class="card-row-label">\{\{ui\['显示账号卡片'\]\}\}<\/text><text class="exp-desc">/,

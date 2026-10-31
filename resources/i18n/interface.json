@@ -2495,5 +2495,7 @@
   "删除提供商失败，请重试": "Could not delete the provider. Please retry.",
   "这是当前默认模型提供商，请先在「会话设置 → 默认模型」切换后再删除。": "This is the provider used by the current default model. Switch the default model in Session settings → Default model before deleting it.",
   "正在同步会话…": "Syncing conversation…",
-  "同步中断，点击重试": "Sync interrupted. Tap to retry."
+  "同步中断，点击重试": "Sync interrupted. Tap to retry.",
+  "上下文标签页": "Context tab",
+  "编队标签页": "Fleet tab"
 }
