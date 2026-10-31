@@ -1979,16 +1979,16 @@ top: 1rpx;
 width: 15rpx;
 }
 .ws-pop-stack-back {
-top: 5rpx;
+top: 6.5rpx;
 width: 22rpx;
 }
 .ws-pop-stack-front {
 position: absolute;
 left: 50%;
-top: 9.5rpx;
+top: 12rpx;
 transform: translateX(-50%);
 width: 30rpx;
-height: 25rpx;
+height: 24rpx;
 box-sizing: border-box;
 border: 2.8rpx solid rgba(255, 255, 255, 0.95);
 border-radius: 6rpx;
