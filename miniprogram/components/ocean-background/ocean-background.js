@@ -131,6 +131,13 @@ Component({
       // 这里再兜一次默认参数。
       if (!image || image === 'data:,') image = this._canvas.toDataURL('image/jpeg');
       if (!image || image === 'data:,') { this.onCanvasError(); return; }
+      // 安卓/鸿蒙 WebView 偶发拿到全黑帧（JPEG 压缩后极小）：先不推给视图层，
+      // 下一帧再编码，最多重试 3 次，避免整页被压黑闪一下。
+      const pixels = Number((this._canvas && this._canvas.width) || 0) * Number((this._canvas && this._canvas.height) || 0);
+      if (pixels > 20000 && image.length < 2000 && (this._darkFrames || 0) < 3) {
+        this._darkFrames = (this._darkFrames || 0) + 1;
+        return;
+      }
       if (!this.data.buffered) {
         const transfer = this._frameTransfer = {};
         this.setData({ frameImage: image, ready: true, failed: false }, () => {

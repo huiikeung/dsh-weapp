@@ -37,7 +37,9 @@ void main(){
  gl_FragColor=vec4(max(color,0.0),1);
 }`;
 function createOceanRenderer(canvas, width, height, pixelRatio) {
-  const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: false });
+  // preserveDrawingBuffer: 安卓/鸿蒙 WebView 在合成后可能清空绘制缓冲，
+  // toDataURL 会拿到黑图；保留缓冲后每次编码都能读到刚画完的帧。
+  const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: true });
   if (!gl) throw new Error('WebGL unavailable');
   const shaders = [], programs = [], buffers = [];
   function dispose() { buffers.forEach(b => gl.deleteBuffer(b)); programs.forEach(p => gl.deleteProgram(p)); shaders.forEach(s => gl.deleteShader(s)); }
