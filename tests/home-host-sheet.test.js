@@ -41,7 +41,7 @@ test('添加工作区弹窗沿用同一套玻璃面板', () => {
   assert.ok(sheet.includes('1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38))'));
   assert.ok(sheet.includes('backdrop-filter: blur(var(--glass-blur-sheet, 8rpx))'));
 });
-test('添加工作区弹窗：上一级行与箭头用白色高亮，+ 号是白色', () => {
+test('添加工作区弹窗：上一级行与箭头用白色高亮，+ 号是蓝色圆形徽标', () => {
   const css = read('pages/home/home.wxss');
   const rowName = css.slice(css.indexOf('.dir-row-name {'), css.indexOf('.dir-row-name {') + 200);
   assert.match(rowName, /color: #FFFFFF;/);
@@ -51,15 +51,18 @@ test('添加工作区弹窗：上一级行与箭头用白色高亮，+ 号是白
   const chev = css.slice(css.indexOf('.dir-row-chev {'), css.indexOf('.dir-row-chev {') + 220);
   assert.match(chev, /transform: rotate\(-90deg\)/);
   assert.doesNotMatch(chev, /brightness/);
-  // 「+」只保留加号本体：无底色，白色加号 + 轻阴影
+  // 按下图改为浅色圆钮 + 蓝色文件夹 + 蓝色圆形加号徽标
+  const headBtn = css.slice(css.indexOf('.dir-head-btn {'), css.indexOf('.dir-head-btn {') + 400);
+  assert.match(headBtn, /background: #FFFFFF;/);
   const badge = css.slice(css.indexOf('.dir-head-badge {'), css.indexOf('.dir-head-badge {') + 320);
   assert.doesNotMatch(badge, /background:/);
   assert.doesNotMatch(badge, /border:/);
   const add = css.slice(css.indexOf('.dir-head-add {'), css.indexOf('.dir-head-add {') + 200);
-  assert.match(add, /width: 20rpx;/);
-  assert.match(add, /drop-shadow/);
+  assert.match(add, /width: 30rpx;/);
+  assert.doesNotMatch(add, /drop-shadow/);
   const wxml = read('pages/home/home.wxml');
-  assert.match(wxml, /class="dir-head-badge"><image class="dir-head-add" src="\/assets\/icons\/ic-dir-add-white\.png"/);
+  assert.match(wxml, /class="dir-head-folder" src="\/assets\/icons\/workspace-folder-blue\.svg"/);
+  assert.match(wxml, /class="dir-head-badge"><image class="dir-head-add" src="\/assets\/icons\/ic-dir-add-badge-blue\.svg"/);
   assert.doesNotMatch(wxml, /dir-head-badge"><text>\+<\/text>/);
   // 上一级行：恢复原来的返回箭头，颜色改成问号徽标的蓝色；行文字纯白
   assert.match(wxml, /dir-row-icon"><image class="dir-row-ic" src="\/assets\/icons\/ic-dir-parent-blue\.png"/);

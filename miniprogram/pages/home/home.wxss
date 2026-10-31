@@ -1327,9 +1327,9 @@ left: 36rpx;
 width: 80rpx;
 height: 80rpx;
 border-radius: 50%;
-background: rgba(255, 255, 255, 0.08);
-border: 1rpx solid rgba(255, 255, 255, 0.14);
-box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16);
+background: #FFFFFF;
+border: 1rpx solid rgba(255, 255, 255, 0.92);
+box-shadow: 0 4rpx 16rpx rgba(3, 14, 30, 0.28);
 display: flex;
 align-items: center;
 justify-content: center;
@@ -1344,20 +1344,19 @@ transform: translate(-4rpx, 4rpx);
 }
 .dir-head-badge {
 position: absolute;
-right: 8rpx;
-top: 10rpx;
-transform: translate(-4rpx, 4rpx);
-width: 26rpx;
-height: 26rpx;
+right: 6rpx;
+top: 9rpx;
+transform: translate(-3rpx, 3rpx);
+width: 30rpx;
+height: 30rpx;
 display: flex;
 align-items: center;
 justify-content: center;
 }
 .dir-head-add {
-width: 20rpx;
-height: 20rpx;
+width: 30rpx;
+height: 30rpx;
 display: block;
-filter: drop-shadow(0 1rpx 1rpx rgba(0, 0, 0, 0.55));
 }
 .dir-head-cancel {
 position: absolute;

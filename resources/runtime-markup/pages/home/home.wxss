@@ -1603,9 +1603,10 @@ page {
   width: 80rpx;
   height: 80rpx;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1rpx solid rgba(255, 255, 255, 0.14);
-  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16);
+  /* 按下图改为浅色圆形按钮，内部放蓝色文件夹 + 蓝色圆形加号徽标 */
+  background: #FFFFFF;
+  border: 1rpx solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4rpx 16rpx rgba(3, 14, 30, 0.28);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1624,22 +1625,21 @@ page {
 
 .dir-head-badge {
   position: absolute;
-  right: 8rpx;
-  top: 10rpx;
-  transform: translate(-4rpx, 4rpx);
-  width: 26rpx;
-  height: 26rpx;
+  right: 6rpx;
+  top: 9rpx;
+  transform: translate(-3rpx, 3rpx);
+  width: 30rpx;
+  height: 30rpx;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-/* 只要加号本身：白色、无底色；轻微阴影保证在白色文件夹上也看得清 */
+/* 蓝色圆形徽标（内含白色加号）：位图资源改为 SVG，避免缩放发虚 */
 .dir-head-add {
-  width: 20rpx;
-  height: 20rpx;
+  width: 30rpx;
+  height: 30rpx;
   display: block;
-  filter: drop-shadow(0 1rpx 1rpx rgba(0, 0, 0, 0.55));
 }
 
 .dir-head-cancel {
