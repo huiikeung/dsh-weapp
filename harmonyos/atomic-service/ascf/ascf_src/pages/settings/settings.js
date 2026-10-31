@@ -46,6 +46,7 @@ Page({
     // 工作步骤展示 / 收起时机 / 语言共用工作区选择同款的锚点玻璃弹窗。
     choiceMenu: '',
     choiceTitle: '',
+    choiceSubtitle: '',
     choiceOptions: [],
     choiceCurrent: '',
     choiceLeft: 16,
@@ -332,24 +333,21 @@ Page({
     this.openChoiceMenu('language', '.preference-language-row',
       this.data.languageOptions, preferences.language());
   },
+  /** 语言与工作步骤共用设置页的居中选择卡片。 */
   openChoiceMenu(kind, selector, options, current) {
-    let windowInfo = {};
-    try { windowInfo = typeof has.getWindowInfo === 'function' ? has.getWindowInfo() : has.getSystemInfoSync(); } catch (_) { /* 手机端默认值兜底 */ }
-    const navigationBottom = (this.data.navPadTop || 0) + (this.data.navHeight || 0);
-    const list = options || [];
-    const open = (rect) => {
-      const anchor = rect && [rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) ? rect : null;
-      this.setData(Object.assign({
-        choiceMenu: kind,
-        choiceTitle: kind === 'language' ? uiText('语言') : uiText(kind === 'mode' ? '工作步骤展示' : '工作步骤收起时机'),
-        choiceOptions: list,
-        choiceCurrent: current || (kind === 'language' ? 'system' : '')
-      }, choiceMenuLayout(anchor, windowInfo, list.length, navigationBottom)));
+    const titles = { language: uiText('语言'), mode: uiText('工作步骤展示'), timing: uiText('工作步骤收起时机') };
+    const subtitles = {
+      language: uiText('界面语言，选择后立即生效'),
+      mode: uiText('选择希望看到多少工具调用细节'),
+      timing: uiText('选择何时自动收起工作步骤')
     };
-    if (typeof has.createSelectorQuery !== 'function') { open(null); return; }
-    try {
-      has.createSelectorQuery().in(this).select(selector).boundingClientRect(rect => open(rect || null)).exec();
-    } catch (_) { open(null); }
+    this.setData({
+      choiceMenu: kind,
+      choiceTitle: titles[kind] || '',
+      choiceSubtitle: subtitles[kind] || '',
+      choiceOptions: options || [],
+      choiceCurrent: current || (kind === 'language' ? 'system' : '')
+    });
   },
   closeChoiceMenu() { this.setData({ choiceMenu: '' }); },
   closeWorkStepMenu() { this.setData({ choiceMenu: '' }); },

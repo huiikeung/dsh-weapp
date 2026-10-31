@@ -11,6 +11,8 @@ const workSteps = require('./utils/work-step-presentation');
 const statusAppearance = require('./utils/status-appearance');
 const procIconStyle = require('./utils/proc-icon-style');
 const store = require('../../utils/store');
+// 草稿只在本次运行内保留：返回首页再进来能恢复；重启小程序后自然清空。
+const sessionDraftStore = Object.create(null);
 const markdown = require('../../utils/markdown');
 const labels = require('../../utils/labels');
 const util = require('../../utils/util');
@@ -369,8 +371,9 @@ Page({
     this._initialPageShowPending = true;
     this.setData(statusAppearance.view(statusAppearance.read()));
     this.setData(procIconStyle.view(procIconStyle.read()));
-    this._sessionDrafts = {};
+    this._sessionDrafts = sessionDraftStore;
     this.sessionId = options.id || store.sessionState.sessionId;
+    this._isNewSessionEntry = !options.id;
     this._pendingInitialSessionOpen = !!(options.id && (options.reopen === '1' || store.sessionState.sessionId !== options.id));
     this._reuseRunningSessionOnEntry = this._pendingInitialSessionOpen
       && String(store.sessionState.sessionId || '') === String(options.id || '')
@@ -451,6 +454,7 @@ Page({
   },
 
   onHide() {
+    this.persistComposerDraft();
     if (store.setTrajectoryActive) store.setTrajectoryActive(false);
     if (store.setContextActive) store.setContextActive(false);
     if (store.setFleetActive) store.setFleetActive(false);
@@ -476,6 +480,7 @@ Page({
     this.setData(Object.assign({ sessionGlassEnabled: sessionGlassPreference.read() }, settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }), sessionCardStylePreference.view()));
     const firstPageShow = this._initialPageShowPending === true;
     this._initialPageShowPending = false;
+    if (firstPageShow) this.restoreComposerDraft();
     const foregroundEpoch = this.currentAppForegroundEpoch();
     const resumedFromBackground = this._lastForegroundEpoch != null
       && foregroundEpoch !== this._lastForegroundEpoch;
@@ -572,6 +577,7 @@ Page({
   onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
 
   onUnload() {
+    this.persistComposerDraft();
     this.retainSessionView();
     this.stopContextFlow();
     this.clearContextModalDrag();
@@ -5654,7 +5660,11 @@ Page({
     const now = Date.now();
     const enqueueRow = (row, budgeted) => {
       if (!row || row.pending) return;
-      const images = (row.images || []).concat((row.tools || []).flatMap(tool => tool && tool.resultImages || []));
+      const children = Array.isArray(row.children) ? row.children : [];
+      const childImages = children.flatMap(child => (child && child.images || []).concat(
+        ((child && child.tools) || []).flatMap(tool => (tool && tool.resultImages) || [])
+      ));
+      const images = (row.images || []).concat((row.tools || []).flatMap(tool => tool && tool.resultImages || []), childImages);
       images.forEach((image) => {
         if (!image || !image.attachmentId) return;
         const id = String(image.attachmentId);
@@ -5751,13 +5761,10 @@ Page({
       }
       return changed ? next : row;
     };
-    // 窗口缓存复用同一批行对象，就地更新，下一次窗口切片才不会退回空白。
+    // 先构造新行对象再写回缓存：如果先就地改掉与 data.rows 共享的对象，
+    // dataPatch 会认为没有变化而跳过 setData，图片就永远停在空白。
     if (Array.isArray(this._conversationRows)) {
-      this._conversationRows = this._conversationRows.map((row) => {
-        const next = patchRow(row);
-        if (next !== row) Object.assign(row, next);
-        return row;
-      });
+      this._conversationRows = this._conversationRows.map(patchRow);
     }
     const rows = (this.data.rows || []).map(patchRow);
     const patch = dataPatch(this.data, { rows });
@@ -6084,6 +6091,53 @@ Page({
    * 引用 token 还原成 chip 行 + 零宽占位符显示值——否则选一个命令会同时
    * 出现 chip 和原文两份。
    */
+  /** 当前会话的草稿键：优先已渲染会话，其次 URL/接收到的会话 id。 */
+  composerDraftKey() {
+    return this._renderSessionId || this.sessionId || (store.sessionState && store.sessionState.sessionId) || '';
+  },
+
+  persistComposerDraft() {
+    const key = this.composerDraftKey();
+    if (!key) return;
+    const images = Array.isArray(this.data.images) ? this.data.images.slice() : [];
+    const draft = String(this.data.draft || '');
+    this._sessionDrafts = this._sessionDrafts || sessionDraftStore;
+    if (!draft.trim() && !images.length) {
+      delete this._sessionDrafts[key];
+      if (this._isNewSessionEntry) delete this._sessionDrafts.__new__;
+      return;
+    }
+    this._sessionDrafts[key] = { draft, images };
+    // 首页「新建会话」每次都会分配到新的临时会话 id：再存一份"新会话"草稿，
+    // 这样返回首页后重新点新建按钮，刚才输入的内容和附件也能带回来。
+    if (this._isNewSessionEntry) this._sessionDrafts.__new__ = { draft, images };
+  },
+
+  restoreComposerDraft() {
+    const key = this.composerDraftKey();
+    const drafts = this._sessionDrafts || sessionDraftStore;
+    this._sessionDrafts = drafts;
+    const saved = (key && drafts[key]) || (this._isNewSessionEntry ? drafts.__new__ : null);
+    if (!saved) return;
+    const hasEditor = String(this.data.draft || '').trim() || (Array.isArray(this.data.images) && this.data.images.length);
+    if (hasEditor) return;
+    const images = Array.isArray(saved.images) ? saved.images.slice() : [];
+    if (!String(saved.draft || '').trim() && !images.length) return;
+    this.setComposerValue(saved.draft || '', {
+      images,
+      canSend: !!String(saved.draft || '').trim() || images.length > 0
+    });
+  },
+
+  /** 发送成功/主动清空时显式丢弃草稿（切会话恢复不经过这里）。 */
+  clearComposerDraft() {
+    const drafts = this._sessionDrafts || sessionDraftStore;
+    this._sessionDrafts = drafts;
+    const key = this.composerDraftKey();
+    if (key) delete drafts[key];
+    delete drafts.__new__;
+  },
+
   setComposerValue(text, extra) {
     const raw = String(text == null ? '' : text);
     const { display, refs } = composerMenu.referencesToDisplay(raw);
@@ -6289,7 +6343,7 @@ Page({
             store.state.currentWorkspaceId, encodedImages, 'queue', ticket);
           if (sent === false) return false;
           self.jumpToBottom();
-          if (!preserveDraft) self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
+          if (!preserveDraft) { self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null }); self.clearComposerDraft(); }
           return true;
         }
         const sent = store.client.sendMessage(line, store.sessionState.sessionId, store.state.currentWorkspaceId, encodedImages, undefined, ticket);
@@ -6297,7 +6351,7 @@ Page({
           store.appendLocalUserRow(line, []);
           self.jumpToBottom();
         }
-        if (sent !== false && !preserveDraft) self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
+        if (sent !== false && !preserveDraft) { self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null }); self.clearComposerDraft(); }
         return sent;
       });
     }
@@ -6307,7 +6361,7 @@ Page({
       this.setData({ commandLoading: true });
       return store.client.executeCommand(store.sessionState.sessionId, line, encodedImages).then(() => {
         if (this._unloaded || this.composerContextKey() !== context) return false;
-        if (!preserveDraft && (this._draftRevision || 0) === revision) this.setComposerValue('', { images: [], canSend: false, commandMenu: null });
+        if (!preserveDraft && (this._draftRevision || 0) === revision) { this.setComposerValue('', { images: [], canSend: false, commandMenu: null }); this.clearComposerDraft(); }
         this.setData({ commandLoading: false });
         this.jumpToBottom();
         return true;
@@ -6629,7 +6683,7 @@ Page({
       } else {
         wx.showToast({ title: uiText('发送失败，草稿已保留'), icon: 'none' }); return;
       }
-      self.setComposerValue('', { draft: '', images: [], canSend: false });
+      self.setComposerValue('', { draft: '', images: [], canSend: false }); self.clearComposerDraft();
       this.closeAttachMenu();
       this.jumpToBottom();
     }).catch((err) => {
@@ -6668,7 +6722,7 @@ Page({
         clientTimeZone: client.timeZone(), ...(s.running ? { mode: 'queue' } : {}),
         ...(ticket ? { notificationTicket: ticket } : {}) });
       if (!current()) return;
-      this.setComposerValue('', { draft: '', images: [], canSend: false });
+      this.setComposerValue('', { draft: '', images: [], canSend: false }); this.clearComposerDraft();
       this.closeAttachMenu(); this.jumpToBottom();
     } catch (error) {
       if (current()) fail(error.message || error.errMsg || '文件上传失败，草稿已保留');

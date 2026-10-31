@@ -172,36 +172,36 @@ test('all sessions group visible sessions by workspace with section and session 
   page.selectAll();
   assert.deepEqual(entriesOf(page).map((entry) => entry.type), [
     'section', 'session',
-    'section', 'session',
-    'section', 'session', 'session', 'session'
+    'section', 'session', 'session', 'session',
+    'section', 'session'
   ]);
   const sections = entriesOfType(page, 'section');
   assert.equal(sections.length, 3, 'one section per workspace that has visible sessions');
-  // Ungrouped first (newest session), then workspace B (4000), then workspace A (3000).
-  assert.equal(sections[0].title, '未分组');
+  // Workspace B (4000) then workspace A (3000)，「未分组」固定排最后。
+  assert.equal(sections[0].title, '工作区 B');
+  assert.equal(sections[0].sectionId, 'w2');
   assert.equal(sections[0].count, 1);
   assert.equal(sections[0].countLabel, '1 个会话');
-  assert.equal(sections[0].sectionLabel, '工作区 未分组，1 个会话', 'section headers expose an accessible label');
+  assert.equal(sections[0].key, 'section-w2');
   assert.equal(sections[0].first, true);
-  assert.ok(sections[0].sectionId, 'the ungrouped section exposes a stable id');
-  assert.equal(sections[0].key, 'section-' + sections[0].sectionId);
-  assert.equal(sections[1].title, '工作区 B');
-  assert.equal(sections[1].sectionId, 'w2');
-  assert.equal(sections[1].count, 1);
-  assert.equal(sections[1].countLabel, '1 个会话');
-  assert.equal(sections[1].key, 'section-w2');
+  assert.equal(sections[1].title, '工作区 A');
+  assert.equal(sections[1].sectionId, 'w1');
+  assert.equal(sections[1].count, 3);
+  assert.equal(sections[1].countLabel, '3 个会话');
+  assert.equal(sections[1].key, 'section-w1');
   assert.equal(sections[1].first, false);
-  assert.equal(sections[2].title, '工作区 A');
-  assert.equal(sections[2].sectionId, 'w1');
-  assert.equal(sections[2].count, 3);
-  assert.equal(sections[2].countLabel, '3 个会话');
-  assert.equal(sections[2].key, 'section-w1');
+  assert.equal(sections[2].title, '未分组');
+  assert.equal(sections[2].count, 1);
+  assert.equal(sections[2].countLabel, '1 个会话');
+  assert.equal(sections[2].sectionLabel, '工作区 未分组，1 个会话', 'section headers expose an accessible label');
   assert.equal(sections[2].first, false);
+  assert.ok(sections[2].sectionId, 'the ungrouped section exposes a stable id');
+  assert.equal(sections[2].key, 'section-' + sections[2].sectionId);
   const sessionEntries = entriesOfType(page, 'session');
-  assert.deepEqual(sessionEntries.map((entry) => entry.sessionId), ['free1', 'b1', 'a2', 'a3', 'a1']);
-  assert.deepEqual(sessionEntries.map((entry) => entry.displayTitle), ['未归属一', 'B 一', 'A 二', 'A 三', 'A 一']);
+  assert.deepEqual(sessionEntries.map((entry) => entry.sessionId), ['b1', 'a2', 'a3', 'a1', 'free1']);
+  assert.deepEqual(sessionEntries.map((entry) => entry.displayTitle), ['B 一', 'A 二', 'A 三', 'A 一', '未归属一']);
   assert.deepEqual(sessionEntries.map((entry) => entry.key),
-    ['session-free1', 'session-b1', 'session-a2', 'session-a3', 'session-a1']);
+    ['session-b1', 'session-a2', 'session-a3', 'session-a1', 'session-free1']);
   const rendered = page.data.displaySessions;
   assert.equal(rendered.length, sessionEntries.length, 'displaySessions is exactly the rendered rows');
   sessionEntries.forEach((entry, index) => {

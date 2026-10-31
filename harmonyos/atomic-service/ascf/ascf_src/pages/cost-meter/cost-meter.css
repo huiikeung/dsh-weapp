@@ -186,8 +186,6 @@
 /* 玻璃形态：底部让出 24px，固定 90vh 高度同步扣除，弹窗顶边保持原位。 */
 .cost-sheet.settings-glass-sheet { height: calc(90vh - var(--glass-sheet-drop, 0px)); max-height: calc(90vh - var(--glass-sheet-drop, 0px)); }
 .cost-sheet.dragging { transition: none; }
-.cost-sheet-grabber { display: flex; flex: none; align-items: center; justify-content: center; padding: 16rpx 0 8rpx; }
-.cost-sheet-grabbar { width: 84rpx; height: 8rpx; border-radius: 8rpx; background: var(--text-3); opacity: .45; }
 @keyframes cost-sheet-in { from { transform: translateY(6%); opacity: .6; } to { transform: translateY(0); opacity: 1; } }
 .cost-sheet-head { display: flex; flex: none; align-items: center; justify-content: space-between; padding: 10rpx 32rpx 18rpx; border-bottom: 1rpx solid var(--divider); }
 .cost-sheet-title { color: var(--text); font-size: 32rpx; font-weight: 620; }

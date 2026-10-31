@@ -98,8 +98,10 @@ function workspaceSectionTitle(workspace) {
   return parts.length ? parts[parts.length - 1] : uiText('工作区');
 }
 
-/** 会话排序：最近更新在前，同时间按 sessionId 升序，保证多次渲染顺序稳定。 */
+/** 会话排序：正在运行的排最前，其余按最近更新在前，同时间按 sessionId 升序。 */
 function compareSessionRecency(a, b) {
+  const runDiff = (b.running ? 1 : 0) - (a.running ? 1 : 0);
+  if (runDiff) return runDiff;
   const diff = (b.updatedAt || 0) - (a.updatedAt || 0);
   if (diff) return diff;
   const left = String(a.sessionId || '');
@@ -488,7 +490,14 @@ Page({
         groups.get(sectionId).push(s);
       });
       const ordered = Array.from(groups.keys()).sort((a, b) => {
-        const diff = (groups.get(b)[0].updatedAt || 0) - (groups.get(a)[0].updatedAt || 0);
+        // 全部会话视图里，「未分组」固定排最后（不参与运行中置顶和时间排序）。
+        if (a === UNGROUPED_SECTION_ID) return 1;
+        if (b === UNGROUPED_SECTION_ID) return -1;
+        const left = groups.get(a)[0] || {};
+        const right = groups.get(b)[0] || {};
+        const runDiff = (right.running ? 1 : 0) - (left.running ? 1 : 0);
+        if (runDiff) return runDiff;
+        const diff = (right.updatedAt || 0) - (left.updatedAt || 0);
         if (diff) return diff;
         return a < b ? -1 : (a > b ? 1 : 0);
       });

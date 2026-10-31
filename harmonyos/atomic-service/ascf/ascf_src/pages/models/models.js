@@ -71,6 +71,9 @@ Page({
     glassSheetEnabled: settingsGlassSheetPreference.read(),
     ...settingsGlassStylePreference.view(),
     statusBarH: 44,
+    navPadTop: 50,
+    navHeight: 32,
+    navRight: 100,
     connected: false,
     loading: true,
     refreshing: false,
@@ -144,8 +147,17 @@ Page({
     this.syncGlass();
     try {
       const info = typeof has.getWindowInfo === 'function' ? has.getWindowInfo() : has.getSystemInfoSync();
-      this.setData({ statusBarH: info.statusBarHeight || 44 });
-    } catch (e) { /* 默认 44 */ }
+      let rect = null;
+      try { rect = typeof has.getMenuButtonBoundingClientRect === 'function' ? has.getMenuButtonBoundingClientRect() : null; } catch (_) { rect = null; }
+      const statusBarH = info.statusBarHeight || 44;
+      const winW = info.windowWidth || 375;
+      this.setData({
+        statusBarH,
+        navPadTop: rect && rect.top ? rect.top : statusBarH + 6,
+        navHeight: rect && rect.height ? rect.height : 32,
+        navRight: rect && rect.left ? Math.max(Math.round(winW - rect.left) + 8, 96) : 100
+      });
+    } catch (e) { /* 默认导航布局 */ }
     this._piNamespace = null;
     this._providersFrame = null;
     this._providers = {};

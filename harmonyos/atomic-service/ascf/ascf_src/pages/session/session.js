@@ -198,6 +198,14 @@ Page({
     sessionSwitcherQuery: '',
     sessionSwitcherSearchOpen: false,
     sessionSwitcherItems: [],
+    convSidebarOpen: false,
+    convSidebarTop: 120,
+    convSidebarHeight: 480,
+    convSidebarWidth: 300,
+    convSidebarOriginX: 0,
+    convSidebarOriginY: 0,
+    convSidebarExpanded: [],
+    convSidebarGroups: [],
     navPadTop: 48,      // 自定义导航：状态栏下沿前的顶部偏移
     navHeight: 32,      // 与右上角原生胶囊同高
     navMoreRight: 100,  // 右侧胶囊避让宽度
@@ -1770,6 +1778,161 @@ Page({
     });
   },
 
+  convSidebarStorageKey: 'conversationSidebarExpanded',
+
+  readConvSidebarExpanded() {
+    try {
+      const stored = has.getStorageSync(this.convSidebarStorageKey);
+      const list = typeof stored === 'string' ? JSON.parse(stored) : stored;
+      return Array.isArray(list) ? list.filter(id => typeof id === 'string') : [];
+    } catch (_) {
+      return [];
+    }
+  },
+
+  writeConvSidebarExpanded(list) {
+    try { has.setStorageSync(this.convSidebarStorageKey, JSON.stringify(list)); } catch (_) { /* Keep the in-memory state. */ }
+  },
+
+  convSidebarData(expandedIds, autoExpandCurrent) {
+    const state = store.state || {};
+    const sessions = Array.isArray(state.sessions) ? state.sessions : [];
+    const workspaces = Array.isArray(state.workspaces) ? state.workspaces : [];
+    const archived = new Set(Array.isArray(state.archivedSessionIds) ? state.archivedSessionIds : []);
+    const currentId = store.sessionState && store.sessionState.sessionId || '';
+    const visible = sessions.filter(s => s && s.hasConversation !== false && !s.blank && !archived.has(s.sessionId));
+    const owned = new Set();
+    workspaces.forEach(workspace => (workspace.sessionIds || []).forEach(id => owned.add(id)));
+    const groups = workspaces.map(workspace => ({
+      id: workspace.workspaceId,
+      title: workspace.title || uiText('工作区'),
+      ungrouped: false,
+      sessions: visible.filter(session => (workspace.sessionIds || []).indexOf(session.sessionId) >= 0)
+    }));
+    groups.push({
+      id: '__ungrouped__',
+      title: uiText('未分组'),
+      ungrouped: true,
+      sessions: visible.filter(session => !owned.has(session.sessionId))
+    });
+    const currentGroup = groups.find(group => group.sessions.some(session => session.sessionId === currentId));
+    const expanded = (Array.isArray(expandedIds) ? expandedIds : []).slice();
+    if (autoExpandCurrent !== false && currentGroup && expanded.indexOf(currentGroup.id) < 0) expanded.push(currentGroup.id);
+    this._convSidebarExpanded = expanded;
+    return {
+      convSidebarExpanded: expanded,
+      convSidebarGroups: groups.map(group => ({
+        id: group.id,
+        title: group.title,
+        ungrouped: group.ungrouped,
+        containsCurrent: !!currentGroup && currentGroup.id === group.id,
+        expanded: expanded.indexOf(group.id) >= 0,
+        sessions: group.sessions.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map(session => ({
+          id: session.sessionId,
+          title: session.title || uiText('未命名会话'),
+          running: session.running === true,
+          selected: session.sessionId === currentId,
+          timeText: util.formatRelativeTime(session.updatedAt)
+        }))
+      }))
+    };
+  },
+
+  toggleConversationSidebar() {
+    if (this.data.convSidebarOpen || this._convSidebarOpening) this.closeConversationSidebar();
+    else this.openConversationSidebar();
+  },
+
+  openConversationSidebar() {
+    if (this._convSidebarOpening || this.data.convSidebarOpen) return;
+    this._convSidebarOpening = true;
+    let info = {};
+    try { info = typeof has.getWindowInfo === 'function' ? has.getWindowInfo() : has.getSystemInfoSync(); } catch (_) { info = {}; }
+    const windowWidth = info.windowWidth || 375;
+    const windowHeight = info.windowHeight || 667;
+    const statusBar = info.statusBarHeight || 44;
+    const gap = 12;
+    const width = Math.min(windowWidth - 24, 300);
+    const panelLeft = windowWidth - gap - width;
+    const basePatch = Object.assign({
+      convSidebarTop: statusBar + 92,
+      convSidebarHeight: Math.max(240, windowHeight - statusBar - 104),
+      convSidebarWidth: width,
+      convSidebarOriginX: Math.round(width / 2),
+      convSidebarOriginY: 28
+    }, this.convSidebarData(this.readConvSidebarExpanded(), true));
+    const show = patch => {
+      if (!this._convSidebarOpening || this._unloaded) return;
+      this._convSidebarOpening = false;
+      this.setData(Object.assign({ convSidebarOpen: true }, basePatch, patch || {}));
+    };
+    if (typeof has.createSelectorQuery !== 'function') { show(null); return; }
+    try {
+      has.createSelectorQuery().in(this)
+        .select('.nav-actions').boundingClientRect()
+        .select('.composer').boundingClientRect()
+        .exec(results => {
+          const rect = results && results[0];
+          const composer = results && results[1];
+          if (!rect || !Number.isFinite(rect.top)) { show(null); return; }
+          const anchorTop = Math.max(0, Math.round(rect.top));
+          const centerX = rect.left + rect.width / 2;
+          const composerBottom = composer && Number.isFinite(composer.bottom) ? Math.round(composer.bottom) : 0;
+          const height = composerBottom > anchorTop ? composerBottom - anchorTop : Math.max(240, Math.round(windowHeight - anchorTop - gap));
+          show({
+            convSidebarTop: anchorTop,
+            convSidebarHeight: Math.max(240, height),
+            convSidebarOriginX: Math.max(0, Math.round(centerX - panelLeft)),
+            convSidebarOriginY: Math.round(rect.height / 2)
+          });
+        });
+    } catch (_) {
+      show(null);
+    }
+  },
+
+  closeConversationSidebar() {
+    this._convSidebarOpening = false;
+    if (this.data.convSidebarOpen) this.setData({ convSidebarOpen: false });
+  },
+
+  toggleConvSidebarGroup(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
+    if (!id) return;
+    const expanded = (this._convSidebarExpanded || this.readConvSidebarExpanded()).slice();
+    const index = expanded.indexOf(id);
+    if (index >= 0) expanded.splice(index, 1);
+    else expanded.push(id);
+    this.writeConvSidebarExpanded(expanded);
+    this._convSidebarExpanded = expanded;
+    this.setData(this.convSidebarData(expanded, false));
+  },
+
+  selectConvSidebarSession(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
+    this.closeConversationSidebar();
+    if (!id || id === (store.sessionState && store.sessionState.sessionId)) return;
+    const item = (store.state && store.state.sessions || []).find(session => session && session.sessionId === id) || {};
+    store.openSession(id, item.title || '', item.agentPreset || null);
+    this.sessionId = id;
+    if (this.data.tab === 'conversation') this.startScrollPolling();
+  },
+
+  openConvSidebarPlugins() {
+    this.closeConversationSidebar();
+    has.navigateTo({ url: '/pages/plugins/plugins' });
+  },
+
+  openConvSidebarSchedule() {
+    this.closeConversationSidebar();
+    has.navigateTo({ url: '/pages/schedule/schedule' });
+  },
+
+  openConvSidebarSettings() {
+    this.closeConversationSidebar();
+    has.navigateTo({ url: '/pages/settings/settings' });
+  },
+
   switchTab(e) {
     const tab = e.currentTarget.dataset.tab;
     if (!['conversation', 'trajectory', 'context', 'fleet'].includes(tab) || tab === this.data.tab) return;
@@ -1782,27 +1945,43 @@ Page({
     if (store.setTrajectoryActive) store.setTrajectoryActive(tab === 'trajectory');
     if (store.setContextActive) store.setContextActive(tab === 'context');
     if (store.setFleetActive) store.setFleetActive(tab === 'fleet');
+    const state = store.sessionState || {};
+    const locale = preferences.locale();
     let tracePatch = {};
-    if (tab === 'trajectory') { this._traceRows = store.sessionState.trajectory || []; tracePatch = dataPatch(this.data, this.trajectoryPatch()); }
-    // 上下文与编队合并成一个滚动（对齐客户端侧栏 Context 面板）：两个 Tab 共享
+    if (tab === 'trajectory') {
+      const source = state.trajectory || [];
+      if (source !== this._switchTraceSource || state.sessionId !== this._switchTraceSessionId || locale !== this._switchTraceLocale) {
+        this._switchTraceSource = source;
+        this._switchTraceSessionId = state.sessionId;
+        this._switchTraceLocale = locale;
+        this._traceRows = source;
+        tracePatch = dataPatch(this.data, this.trajectoryPatch());
+      }
+    }
     let contextPatch = {};
-    if (tab === 'context') contextPatch = this.contextPanelPatch();
+    if (tab === 'context' && (state.contextDashboard !== this._switchDashboard || state.sessionId !== this._switchContextSessionId || locale !== this._switchContextLocale || !this.data.contextPanel)) {
+      this._switchDashboard = state.contextDashboard;
+      this._switchContextSessionId = state.sessionId;
+      this._switchContextLocale = locale;
+      contextPatch = this.contextPanelPatch();
+    }
     let fleetPatch = {};
-    if (tab === 'fleet') fleetPatch = this.fleetPanelPatch();
-    // 离开对应 Tab 时清掉大对象，减少 page data 体积与内存占用（切回时按需重建）。
+    if (tab === 'fleet' && (state.contextFleet !== this._switchFleet || state.sessionId !== this._switchFleetSessionId || locale !== this._switchFleetLocale || !this.data.fleetPanel)) {
+      this._switchFleet = state.contextFleet;
+      this._switchFleetSessionId = state.sessionId;
+      this._switchFleetLocale = locale;
+      fleetPatch = this.fleetPanelPatch();
+    }
     const clearPatch = {};
     if (tab !== 'context') {
-      clearPatch.contextPanel = null;
       clearPatch.contextModalOpen = false;
       clearPatch.contextBrowserPickerOpen = false;
       clearPatch.contextBrowserPickerTarget = '';
       clearPatch.contextFlowLinks = [];
     }
-    if (tab !== 'fleet') clearPatch.fleetPanel = null;
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
     this._collaborationRequest = null; this._collaborationRefresh = null;
-    // 只挂载当前 Tab 的面板：离开后销毁对应节点树，避免隐藏面板保留大量
     if (tab === 'fleet') {
       this.measureFleetStage();
       // 首次切入时节点还没渲染，上面的实测会退回兜底值：渲染完成后再量一次。
@@ -1812,7 +1991,7 @@ Page({
         this.scheduleFleetLinksDraw();
       }, 60);
     }
-    this.setData({ tab, trajectoryMounted: tab === 'trajectory', contextMounted: tab === 'context', fleetMounted: tab === 'fleet', ...clearPatch, ...tracePatch, ...contextPatch, ...fleetPatch, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
+    this.setData({ tab, trajectoryMounted: this.data.trajectoryMounted || tab === 'trajectory', contextMounted: this.data.contextMounted || tab === 'context', fleetMounted: this.data.fleetMounted || tab === 'fleet', ...clearPatch, ...tracePatch, ...contextPatch, ...fleetPatch, collaborationOpen:false, collaborationPreview:null, collaborationBusy:false, kbHeight: 0, composerFocused: false, showJump: false,
       statsPopOpen: false, showContextSheet: false, commandMenu: null,
       attachSheetOpen: false, modelSheetOpen: false, effortSheetOpen: false,
       permissionSheet: [], modeSheet: [], ...this.layoutPatch({ kbHeight: 0 }) }, () => {

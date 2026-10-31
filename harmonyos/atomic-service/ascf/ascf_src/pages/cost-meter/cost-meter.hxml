@@ -156,9 +156,6 @@
   <!-- ============ 弹窗：显示设置（含侧栏预览与确认） ============ -->
   <view has:if="{{sheet === 'display'}}" class="cost-sheet-mask" bindtap="closeSheet">
     <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
-      <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
-        <view class="cost-sheet-grabbar"></view>
-      </view>
       <view class="cost-sheet-head">
         <text class="cost-sheet-title">{{ui['显示设置']}}</text>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
@@ -305,9 +302,6 @@
   <!-- ============ 弹窗：官方余额 ============ -->
   <view has:if="{{sheet === 'balance'}}" class="cost-sheet-mask" bindtap="closeSheet">
     <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
-      <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
-        <view class="cost-sheet-grabbar"></view>
-      </view>
       <view class="cost-sheet-head">
         <text class="cost-sheet-title">{{ui['官方账户余额']}}</text>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
@@ -352,9 +346,6 @@
   <!-- ============ 弹窗：OpenCode Go ============ -->
   <view has:if="{{sheet === 'go'}}" class="cost-sheet-mask" bindtap="closeSheet">
     <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
-      <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
-        <view class="cost-sheet-grabbar"></view>
-      </view>
       <view class="cost-sheet-head">
         <text class="cost-sheet-title">{{ui['OpenCode Go 订阅额度']}}</text>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
@@ -411,9 +402,6 @@
   <!-- ============ 弹窗：预算 ============ -->
   <view has:if="{{sheet === 'budget'}}" class="cost-sheet-mask" bindtap="closeSheet">
     <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
-      <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
-        <view class="cost-sheet-grabbar"></view>
-      </view>
       <view class="cost-sheet-head">
         <text class="cost-sheet-title">{{ui['预算']}}</text>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
@@ -469,9 +457,6 @@
   <!-- ============ 弹窗：峰谷 ============ -->
   <view has:if="{{sheet === 'peak'}}" class="cost-sheet-mask" bindtap="closeSheet">
     <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
-      <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
-        <view class="cost-sheet-grabbar"></view>
-      </view>
       <view class="cost-sheet-head">
         <text class="cost-sheet-title">{{ui['峰谷时段']}}</text>
         <view class="cost-sheet-close" bindtap="closeSheet" role="button" aria-label="{{ui['关闭']}}">✕</view>
@@ -529,9 +514,6 @@
   <!-- ============ 弹窗：Coding Plan 配置 ============ -->
   <view has:if="{{sheet === 'plan'}}" class="cost-sheet-mask" bindtap="closeSheet">
     <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
-      <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
-        <view class="cost-sheet-grabbar"></view>
-      </view>
 <view class="cost-sheet-head">
         <text class="cost-sheet-title">{{sheetPlan.label}}</text>
         <view class="cost-sheet-icon-btn" bindtap="refreshPlan" data-index="{{sheetPlan.index}}" role="button" aria-label="{{ui['刷新']}}">
@@ -598,9 +580,6 @@
   <!-- ============ 弹窗：网关来源配置 ============ -->
   <view has:if="{{sheet === 'gateway'}}" class="cost-sheet-mask" bindtap="closeSheet">
     <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
-      <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
-        <view class="cost-sheet-grabbar"></view>
-      </view>
 <view class="cost-sheet-head">
         <text class="cost-sheet-title">{{sheetGateway.label || sheetGateway.id}}</text>
         <view class="cost-sheet-icon-btn" bindtap="refreshGateway" data-index="{{sheetGateway.index}}" role="button" aria-label="{{ui['刷新']}}">
@@ -678,9 +657,6 @@
   <!-- ============ 弹窗：自定义余额配置 ============ -->
   <view has:if="{{sheet === 'custom'}}" class="cost-sheet-mask" bindtap="closeSheet">
     <view class="cost-sheet {{sheetDragging ? 'dragging' : ''}} {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="transform: translateY({{sheetDragY}}px);" catchtap="noop">
-      <view class="cost-sheet-grabber" catchtouchstart="onSheetGrabStart" catchtouchmove="onSheetGrabMove" catchtouchend="onSheetGrabEnd" aria-hidden="true">
-        <view class="cost-sheet-grabbar"></view>
-      </view>
 <view class="cost-sheet-head">
         <text class="cost-sheet-title">{{sheetCustom.label || ui['自定义余额']}}</text>
         <view class="cost-sheet-icon-btn" bindtap="refreshCustom" data-index="{{sheetCustom.index}}" role="button" aria-label="{{ui['刷新']}}">
@@ -827,7 +803,6 @@
   <!-- 形态一：底部弹窗（受设置页「底部弹窗」开关控制，皮肤跟随「玻璃UI样式」） -->
   <view has:if="{{choiceMenu && choiceSheet}}" class="choice-sheet-mask" catchtap="closeChoiceMenu" catchtouchmove="noop">
     <view class="choice-sheet {{settingsGlassEnabled ? 'choice-sheet-glass' : ''}}" catchtap="noop" role="dialog" aria-label="{{choiceTitle}}">
-      <view class="choice-sheet-grabber"><view class="choice-sheet-grabbar"></view></view>
       <scroll-view scroll-y class="choice-sheet-body" show-scrollbar="{{false}}">
         <template is="choiceRows" data="{{items: choiceOptions, current: choiceCurrent, kind: choiceMenu, ui: ui}}"/>
       </scroll-view>

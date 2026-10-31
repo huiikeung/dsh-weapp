@@ -54,6 +54,7 @@
 <view has:if="{{showFleetPanel}}" class="segment {{tab === 'fleet' ? 'active' : ''}}" bindtap="switchTab" data-tab="fleet" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['编队']}}">{{ui['编队']}}</view>
 </view>
 <view class="nav-actions">
+<view class="nav-sidebar glass-press {{convSidebarOpen ? 'is-hidden' : ''}}" bindtap="toggleConversationSidebar" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['展开侧边栏']}}"><view class="nav-sidebar-glyph" aria-hidden="true"><view class="nav-sidebar-glyph-line"></view></view></view>
 <view class="nav-more glass-press" bindtap="moreActions" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['更多']}}"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
 <view has:if="{{rows.length}}" class="session-switch-trigger glass-press" bindtap="openTurnNavigator" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['对话']}}">
 <view class="session-switch-lines" aria-hidden="true"><view/><view/><view/></view>
@@ -72,6 +73,12 @@
 <view class="state-spinner"></view>
 <view class="state-title">{{ui['正在创建会话']}}</view>
 <view class="state-sub">{{ui['正在从 Mobile Gateway 建立会话…']}}</view>
+</view>
+<view has:if="{{!rows.length && (historyLoading || historyState === 'requested')}}" class="conv-skeleton" aria-hidden="true">
+<view class="conv-skeleton-row short"></view>
+<view class="conv-skeleton-row"></view>
+<view class="conv-skeleton-row medium"></view>
+<view class="conv-skeleton-row short"></view>
 </view>
 <view has:elif="{{historyState === 'error:create'}}" class="conv-state conv-fail">
 <image class="hist-warn" src="/assets/icons/warn-orange.png"/>
@@ -1470,6 +1477,19 @@
 <view class="composer-surface {{voiceOverlayVisible ? 'voice-holding' : ''}}">
 <view class="composer-backdrop" aria-hidden="true"></view>
 <view class="composer">
+<view has:if="{{images.length}}" class="composer-images">
+<block has:for="{{images}}" has:key="id">
+<view has:if="{{item.isFile}}" class="pending-file" catchtap="previewPendingFile" data-index="{{index}}" role="button" aria-label="{{ui['预览']}} {{item.name}}">
+<image class="pending-file-ic" src="/assets/icons/paperclip-gray.png"/>
+<text class="pending-file-name">{{item.name}}</text>
+<view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
+</view>
+<view has:else class="composer-thumb">
+<image src="{{item.tempPath}}" mode="aspectFill" class="composer-thumb-img" bindtap="previewPendingImage" data-index="{{index}}"/>
+<view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
+</view>
+</block>
+</view>
 <view class="voice-input-wrap">
 <view class="composer-input-row composer-live {{composerPreview ? 'previewing' : ''}}">
 <scroll-view hidden="{{!(composerPreview && composerPreviewBlocks.length)}}" class="composer-veil {{composerPreview && composerPreviewBlocks.length ? 'on' : ''}}" scroll-y enhanced show-scrollbar="{{false}}" bindtap="exitComposerPreviewEdit">
@@ -1494,19 +1514,6 @@
 </view>
 <view has:if="{{voicePhase === 'transcribing' || voicePhase === 'stopping'}}" class="voice-progress"><text>{{ui['正在转文字…']}}</text><view class="voice-inline-action" bindtap="cancelVoice" role="button">{{ui['取消']}}</view></view>
 <view has:if="{{voicePendingText}}" class="voice-transcript"><text class="voice-transcript-hint">{{ui['草稿已修改，识别文字待插入']}}</text><text class="voice-transcript-text" selectable>{{voicePendingText}}</text><view class="voice-transcript-actions"><view class="voice-inline-action" bindtap="discardPendingVoiceText" role="button">{{ui['丢弃识别文字']}}</view><view class="voice-inline-action" bindtap="insertPendingVoiceText" role="button">{{ui['插入文字']}}</view></view></view>
-<view has:if="{{images.length}}" class="composer-images">
-<block has:for="{{images}}" has:key="id">
-<view has:if="{{item.isFile}}" class="pending-file" catchtap="previewPendingFile" data-index="{{index}}" role="button" aria-label="{{ui['预览']}} {{item.name}}">
-<image class="pending-file-ic" src="/assets/icons/paperclip-gray.png"/>
-<text class="pending-file-name">{{item.name}}</text>
-<view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
-</view>
-<view has:else class="composer-thumb">
-<image src="{{item.tempPath}}" mode="aspectFill" class="composer-thumb-img" bindtap="previewPendingImage" data-index="{{index}}"/>
-<view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
-</view>
-</block>
-</view>
 <view class="composer-bar">
 <view class="chip icon composer-plus {{attachSheetOpen ? 'active' : ''}}" bindtap="attachMenu" role="button" aria-label="{{ui['添加与指令']}}" aria-expanded="{{attachSheetOpen}}"><image class="attach-ic" src="/assets/icons/plus-gray.png"/></view>
 <view class="chip permission-chip" bindtap="pickPermission" role="button" aria-label="{{ui['权限']}}" aria-expanded="{{permissionSheet.length > 0}}">
@@ -1937,4 +1944,44 @@
 </view>
 <voice-overlay id="voice-overlay" visible="{{voiceOverlayVisible && tab === 'conversation'}}" theme="{{theme}}" cancel-armed="{{voiceCancelArmed}}" status="{{voiceStatus}}"/>
 <public-access-dialog visible="{{publicAccessDialogOpen}}" dialog="{{publicAccessDialog}}" theme="{{theme}}" bindconfirm="onPublicAccessDialogConfirm"/>
+<view has:if="{{convSidebarOpen}}" class="conv-sidebar-mask" bindtap="closeConversationSidebar" catchtouchmove="noop"></view>
+<view has:if="{{convSidebarOpen}}" class="conv-sidebar {{sessionGlassEnabled ? 'conv-sidebar-glass' : ''}}" style="top: {{convSidebarTop}}px; height: {{convSidebarHeight}}px; width: {{convSidebarWidth}}px; transform-origin: {{convSidebarOriginX}}px {{convSidebarOriginY}}px;" catchtap="noop" catchtouchmove="noop" role="dialog" aria-label="{{ui['展开侧边栏']}}">
+<view class="conv-sidebar-brand">
+<image class="conv-sidebar-whale" src="/assets/icons/{{theme === 'dark' ? 'whale-white.png' : 'whale-ink.png'}}" mode="aspectFit"/>
+<image class="conv-sidebar-wordmark" src="/assets/icons/{{theme === 'dark' ? 'wordmark-white.png' : 'wordmark-ink.png'}}" mode="widthFix"/>
+<text class="conv-sidebar-badge">HARNESS</text>
+</view>
+<view class="conv-sidebar-item" bindtap="openConvSidebarPlugins" hover-class="conv-sidebar-press" role="button" aria-label="{{ui['插件']}}">
+<image class="conv-sidebar-ic" src="/assets/icons/{{theme === 'dark' ? 'pinwheel-white.png' : 'pinwheel-ink.png'}}" mode="aspectFit"/>
+<text class="conv-sidebar-label">{{ui['插件']}}</text>
+</view>
+<view class="conv-sidebar-item" bindtap="openConvSidebarSchedule" hover-class="conv-sidebar-press" role="button" aria-label="{{ui['定时任务']}}">
+<image class="conv-sidebar-ic" src="/assets/icons/{{theme === 'dark' ? 'automation-white.svg' : 'automation.svg'}}" mode="aspectFit"/>
+<text class="conv-sidebar-label">{{ui['定时任务']}}</text>
+</view>
+<text class="conv-sidebar-section">{{ui['工作区']}}</text>
+<scroll-view class="conv-sidebar-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+<block has:for="{{convSidebarGroups}}" has:key="id" has:for-item="group">
+<view class="conv-sidebar-workspace {{group.containsCurrent ? 'current' : ''}}" bindtap="toggleConvSidebarGroup" data-id="{{group.id}}" hover-class="conv-sidebar-press" role="button" aria-expanded="{{group.expanded}}" aria-label="{{group.title}}">
+<image class="conv-sidebar-folder" src="/assets/icons/{{group.ungrouped ? (theme === 'dark' ? 'tray-white.png' : 'tray-ink.png') : (group.containsCurrent ? 'workspace-folder-blue.svg' : (theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-ink.svg'))}}" mode="aspectFit"/>
+<text class="conv-sidebar-workspace-title">{{group.title}}</text>
+<image class="conv-sidebar-chev {{group.expanded ? 'open' : ''}}" src="/assets/icons/chev-down-gray.png" mode="aspectFit"/>
+</view>
+<block has:if="{{group.expanded}}">
+<view has:if="{{!group.sessions.length}}" class="conv-sidebar-empty">{{ui['暂无会话']}}</view>
+<view has:for="{{group.sessions}}" has:key="id" has:for-item="session" class="conv-sidebar-session {{session.selected ? 'selected' : ''}}" bindtap="selectConvSidebarSession" data-id="{{session.id}}" hover-class="conv-sidebar-press" role="button" aria-label="{{session.title}}">
+<view class="conv-sidebar-dot {{session.running ? 'on' : ''}}"></view>
+<text class="conv-sidebar-session-title">{{session.title}}</text>
+<text class="conv-sidebar-time">{{session.timeText}}</text>
+</view>
+</block>
+</block>
+</scroll-view>
+<view class="conv-sidebar-footer">
+<view class="conv-sidebar-item" bindtap="openConvSidebarSettings" hover-class="conv-sidebar-press" role="button" aria-label="{{ui['设置']}}">
+<image class="conv-sidebar-ic" src="/assets/icons/{{theme === 'dark' ? 'settings-white.svg' : 'settings-ink.svg'}}" mode="aspectFit"/>
+<text class="conv-sidebar-label">{{ui['设置']}}</text>
+</view>
+</view>
+</view>
 </view>
