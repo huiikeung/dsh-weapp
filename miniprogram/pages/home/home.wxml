@@ -426,8 +426,8 @@
     <!-- 头部：新建文件夹 / 标题 / 取消 -->
     <view class="dir-head">
       <view class="dir-head-btn tap {{dirLoading || dirCreatingWs || dirCreatingDir ? 'disabled' : ''}}" bindtap="newDirectory">
-        <image class="dir-head-folder" src="/assets/icons/workspace-folder-blue.svg" mode="aspectFit"/>
-        <view class="dir-head-badge"><image class="dir-head-add" src="/assets/icons/ic-dir-add-badge-blue.svg" mode="aspectFit"/></view>
+        <image class="dir-head-folder" src="/assets/icons/workspace-folder-white.svg" mode="aspectFit"/>
+        <view class="dir-head-badge"><image class="dir-head-add" src="/assets/icons/ic-dir-add-white.png" mode="aspectFit"/></view>
       </view>
       <text class="dir-head-title">{{ui['选择工作区目录']}}</text>
       <view class="dir-head-cancel tap" bindtap="closeDirSheet">{{ui['取消']}}</view>

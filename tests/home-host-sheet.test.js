@@ -51,18 +51,18 @@ test('添加工作区弹窗：上一级行与箭头用白色高亮，+ 号是蓝
   const chev = css.slice(css.indexOf('.dir-row-chev {'), css.indexOf('.dir-row-chev {') + 220);
   assert.match(chev, /transform: rotate\(-90deg\)/);
   assert.doesNotMatch(chev, /brightness/);
-  // 按下图改为浅色圆钮 + 蓝色文件夹 + 蓝色圆形加号徽标
+  // 深色玻璃圆钮 + 白色文件夹 + 白色加号（加号小、嵌在文件夹右上角）
   const headBtn = css.slice(css.indexOf('.dir-head-btn {'), css.indexOf('.dir-head-btn {') + 400);
-  assert.match(headBtn, /background: #FFFFFF;/);
+  assert.match(headBtn, /background: rgba\(255, 255, 255, 0\.08\);/);
   const badge = css.slice(css.indexOf('.dir-head-badge {'), css.indexOf('.dir-head-badge {') + 320);
   assert.doesNotMatch(badge, /background:/);
   assert.doesNotMatch(badge, /border:/);
   const add = css.slice(css.indexOf('.dir-head-add {'), css.indexOf('.dir-head-add {') + 200);
   assert.match(add, /width: 18rpx;/);
-  assert.doesNotMatch(add, /drop-shadow/);
+  assert.match(add, /drop-shadow/);
   const wxml = read('pages/home/home.wxml');
-  assert.match(wxml, /class="dir-head-folder" src="\/assets\/icons\/workspace-folder-blue\.svg"/);
-  assert.match(wxml, /class="dir-head-badge"><image class="dir-head-add" src="\/assets\/icons\/ic-dir-add-badge-blue\.svg"/);
+  assert.match(wxml, /class="dir-head-folder" src="\/assets\/icons\/workspace-folder-white\.svg"/);
+  assert.match(wxml, /class="dir-head-badge"><image class="dir-head-add" src="\/assets\/icons\/ic-dir-add-white\.png"/);
   assert.doesNotMatch(wxml, /dir-head-badge"><text>\+<\/text>/);
   // 上一级行：恢复原来的返回箭头，颜色改成问号徽标的蓝色；行文字纯白
   assert.match(wxml, /dir-row-icon"><image class="dir-row-ic" src="\/assets\/icons\/ic-dir-parent-blue\.png"/);
