@@ -626,13 +626,15 @@ test('statistics title icons use full-contrast colors without changing footer ic
   assert.ok(css.includes('.theme-dark.metric-icon{filter:brightness(0)invert(1);opacity:0.82;}'));
 });
 test('model trigger presents effort as plain muted text with one hover and touch target', () => {
+  const xmlEarly = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const css = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8').replace(/\s+/g, '');
   const effort = css.match(/\.model-trigger-effort\{([^}]+)\}/)[1];
   assert.ok(effort.includes('color:var(--text-4)'));
   assert.doesNotMatch(effort, /background|border|padding|margin|font-weight/);
   assert.ok(!css.includes('.effort-pill'));
-  assert.ok(css.includes('.composer-bar.chip.model-chip{height:44px}'));
-  assert.ok(css.includes('.model-chip.model-trigger-pressed,.model-chip:active,.model-chip:focus-visible{background:var(--fill-2)}'));
+  assert.ok(css.includes('.composer-bar.chip.model-chip{height:28px;max-width:min(280px,48%)}'));
+  assert.ok(!css.includes('.model-chip.model-trigger-pressed'), 'model chip has no touch background, like the permission chip');
+  assert.ok(!xmlEarly.includes('hover-class="model-trigger-pressed"'), 'model chip no longer paints a pressed background');
   assert.ok(css.includes('.model-trigger-chevron.open{transform:translateY(1px)rotate(225deg)}'));
   const xml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const trigger = xml.match(/<view class="chip model-chip"[^]*?<view class="model-trigger-chevron[^]*?<\/view><\/view>/)[0];

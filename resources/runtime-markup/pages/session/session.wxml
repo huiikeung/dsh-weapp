@@ -1746,7 +1746,7 @@
         <view class="permission-chip-chevron {{permissionSheet.length ? 'open' : ''}}"></view>
       </view>
       <view class="composer-spacer"></view>
-      <view class="chip model-chip" bindtap="pickModel" hover-class="model-trigger-pressed" hover-start-time="0" hover-stay-time="100" role="button" aria-label="{{ui['模型']}} {{modelLabel}} {{effortLabel}}" aria-expanded="{{modelSheetOpen || effortSheetOpen}}"><text class="chip-model-name">{{modelLabel}}</text><text wx:if="{{modelBadge}}" class="model-release-badge">{{modelBadge}}</text><text class="model-trigger-effort">{{effortLabel}}</text><view class="model-trigger-chevron {{modelSheetOpen || effortSheetOpen ? 'open' : ''}}"></view></view>
+      <view class="chip model-chip" bindtap="pickModel" role="button" aria-label="{{ui['模型']}} {{modelLabel}} {{effortLabel}}" aria-expanded="{{modelSheetOpen || effortSheetOpen}}"><text class="chip-model-name">{{modelLabel}}</text><text wx:if="{{modelBadge}}" class="model-release-badge">{{modelBadge}}</text><text class="model-trigger-effort">{{effortLabel}}</text><view class="model-trigger-chevron {{modelSheetOpen || effortSheetOpen ? 'open' : ''}}"></view></view>
       <view
         wx:if="{{running && !canSend}}"
         class="send-btn stop glass-press"

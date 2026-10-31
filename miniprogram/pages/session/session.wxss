@@ -2799,7 +2799,7 @@ padding-right: 10rpx;
 }
 .composer-bar {
 gap: 14rpx;
-margin-top: 24rpx;
+margin-top: 36rpx;
 }
 .chip {
 padding: 6rpx 0;
@@ -3061,11 +3061,10 @@ transform: translateY(-1px) rotate(45deg);
 transition: transform 0.12s;
 }
 .permission-chip-chevron.open { transform: translateY(1px) rotate(225deg); }
-.composer-bar .chip.model-chip{flex:0 1 auto;max-width:min(360px,60%);min-width:0;height:28px;padding:0 4px 0 8px;gap:4px;border-radius:6px;box-sizing:border-box;overflow:hidden;font-size:13px;font-weight:400;line-height:20px;cursor:pointer}
+.composer-bar .chip.model-chip{flex:0 1 auto;max-width:min(320px,56%);min-width:0;height:28px;padding:0 3px 0 6px;gap:4px;border-radius:6px;box-sizing:border-box;overflow:hidden;font-size:13px;font-weight:400;line-height:20px;cursor:pointer;touch-action:manipulation}
 .chip-model-name{display:block;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .model-trigger-effort{flex:none;color:var(--text-4);white-space:nowrap}
 .model-trigger-chevron{flex:0 0 5px;width:5px;height:5px;margin:0 3px;border-right:1px solid var(--text-4);border-bottom:1px solid var(--text-4);transform:translateY(-1px) rotate(45deg);transition:transform .12s}
-.model-chip.model-trigger-pressed,.model-chip:active,.model-chip:focus-visible{background:var(--fill-2)}
 .model-pop{left:auto;right:28rpx;bottom:calc(132rpx + env(safe-area-inset-bottom));width:max-content;min-width:min(240px, calc(100vw - 32px));max-width:min(420px, calc(100vw - 32px));border-radius:10px;border:1px solid var(--border);box-shadow:0 4px 16px rgba(7,24,43,.12);padding:4px;box-sizing:border-box;overflow:hidden}
 .model-pop-scroll{max-height:min(360px, 48vh);overflow-x:hidden}
 .model-list{width:250px}
@@ -3089,7 +3088,7 @@ transition: transform 0.12s;
 .model-trigger-chevron.open{transform:translateY(1px) rotate(225deg)}
 .theme-dark .model-pop{box-shadow:0 4px 16px rgba(0,0,0,.35)}
 @media (hover: hover) and (pointer: fine){.model-pop .model-row:hover,.model-chip:hover{background:var(--fill-2)}}
-@media (hover: none), (pointer: coarse){.model-pop .model-row{min-height:44px}.composer-bar .chip.model-chip{height:44px}.model-name{font-size:14px;line-height:20px}}
+@media (hover: none), (pointer: coarse){.model-pop .model-row{min-height:44px}.composer-bar .chip.model-chip{height:28px;max-width:min(280px,48%)}.model-name{font-size:14px;line-height:20px}}
 .navbar .nav-back {
 width: 46rpx;
 height: 46rpx;
@@ -5401,3 +5400,12 @@ white-space: nowrap;
 .conv-skeleton-row { height: 30rpx; border-radius: 15rpx; background: var(--fill); }
 .conv-skeleton-row.short { width: 42%; }
 .conv-skeleton-row.medium { width: 68%; }
+@media (hover: none), (pointer: coarse) {
+.composer-bar .permission-chip {
+height: 44px;
+min-width: 44px;
+padding: 0 6px;
+align-self: center;
+box-sizing: border-box;
+}
+}
