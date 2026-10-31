@@ -7,7 +7,7 @@ function choiceMenuLayout(rect, windowInfo, count, navigationBottom) {
   const windowHeight = info.windowHeight || 667;
   const scale = windowWidth / 750;
   const edge = 16;
-  const width = Math.min(280, Math.max(224, windowWidth * 0.624), windowWidth - edge * 2);
+  const width = Math.min(232, Math.max(192, windowWidth * 0.53), windowWidth - edge * 2);
   const safeTop = Math.max(edge, (navigationBottom || info.statusBarHeight || 44) + 8);
   const safeBottom = Math.min(windowHeight, (info.safeArea && info.safeArea.bottom) || windowHeight) - edge;
   const rowHeight = Math.max(44, 84 * scale);

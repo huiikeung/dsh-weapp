@@ -2497,5 +2497,6 @@
   "正在同步会话…": "Syncing conversation…",
   "同步中断，点击重试": "Sync interrupted. Tap to retry.",
   "上下文标签页": "Context tab",
-  "编队标签页": "Fleet tab"
+  "编队标签页": "Fleet tab",
+  "界面语言，选择后立即生效": "Interface language; applies immediately"
 }

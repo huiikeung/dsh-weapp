@@ -63,7 +63,7 @@ test('ASCF preferred endpoint is normalized and accepted only when present in th
   const table = { public: [direct, secondDirect], lan: [localWss], relay: relayRoute() };
   assert.deepEqual(
     routeTable.orderCandidates(table, { client: 'ascf', preferred: secondDirect }).map(item => item.endpoint),
-    [secondDirect, relay + '/c/' + nodeId, localWss]
+    [relay + '/c/' + nodeId, localWss]
   );
   assert.deepEqual(
     routeTable.orderCandidates(table, { client: 'ascf', preferred: localWs }).map(item => item.endpoint),

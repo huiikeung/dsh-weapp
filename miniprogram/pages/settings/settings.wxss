@@ -490,7 +490,14 @@
 
 .font-sheet { display: flex; flex-direction: column; overflow: hidden; }
 .pair-sheet.font-sheet { background: var(--bg); }
-.pair-sheet.font-sheet.settings-glass-sheet { background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04))); }
+.theme-dark .pair-sheet.font-sheet.settings-glass-sheet { background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04))); }
+.theme-light .pair-sheet.font-sheet.settings-glass-sheet {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.92));
+  border-color: rgba(16, 19, 24, 0.10);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 12rpx 48rpx rgba(7, 24, 43, 0.18);
+  backdrop-filter: blur(24rpx) saturate(1.05);
+  -webkit-backdrop-filter: blur(24rpx) saturate(1.05);
+}
 .font-sheet-body { flex: 1; min-height: 0; height: 0; }
 
 .public-detail-row {

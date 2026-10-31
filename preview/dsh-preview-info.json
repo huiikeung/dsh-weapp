@@ -1,14 +1,14 @@
 {
   "size": {
-    "total": 2700711,
+    "total": 2707768,
     "packages": [
       {
         "name": "TOTAL",
-        "size": 2700711
+        "size": 2707768
       },
       {
         "name": "main",
-        "size": 982955
+        "size": 990263
       },
       {
         "name": "/pages/add-node/",
@@ -24,7 +24,7 @@
       },
       {
         "name": "/pages/cost-meter/",
-        "size": 141706
+        "size": 140038
       },
       {
         "name": "/pages/files/",
@@ -36,7 +36,7 @@
       },
       {
         "name": "/pages/models/",
-        "size": 95466
+        "size": 96029
       },
       {
         "name": "/pages/pairing-admin/",
@@ -56,7 +56,7 @@
       },
       {
         "name": "/pages/schedule/",
-        "size": 47656
+        "size": 47947
       },
       {
         "name": "/pages/session-settings/",
@@ -64,11 +64,11 @@
       },
       {
         "name": "/pages/session/",
-        "size": 793389
+        "size": 794720
       },
       {
         "name": "/pages/settings/",
-        "size": 237747
+        "size": 236979
       },
       {
         "name": "/pages/workspace-picker/",

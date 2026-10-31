@@ -111,8 +111,6 @@
 }
 .theme-light .settings-choice.settings-choice-glass .settings-choice-label { color: #10131A; }
 .theme-light .settings-choice.settings-choice-glass .settings-choice-row-pressed { background: rgba(16, 19, 24, 0.06); }
-/* 原生形态下白色图标在浅色主题不可见：统一反色成黑色 */
-.theme-light .settings-choice-ic { filter: brightness(0); }
 
 /* ---------- 同一组选择弹窗的底部弹窗形态（受「玻璃弹窗用底部弹窗」开关控制） ----------
    默认 = 原生实色底部弹窗（跟随深浅色变量）；玻璃 UI 开启时叠加 .choice-sheet-glass，
@@ -121,34 +119,44 @@
 .choice-sheet {
   position: fixed;
   z-index: 301;
-  left: 0;
-  right: 0;
+  left: 26px;
+  right: 26px;
   bottom: 0;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  max-height: 70vh;
-  padding: 10rpx 0 calc(24rpx + env(safe-area-inset-bottom));
-  border-radius: 32rpx 32rpx 0 0;
+  max-height: 72vh;
+  padding: 6rpx 0 calc(10rpx + env(safe-area-inset-bottom));
+  border-radius: 40rpx 40rpx 0 0;
   background: var(--surface);
   color: var(--text);
   animation: choice-sheet-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
-.choice-sheet-grabber { display: flex; flex: none; align-items: center; justify-content: center; padding: 14rpx 0 10rpx; }
-.choice-sheet-grabbar { width: 72rpx; height: 10rpx; border-radius: 999rpx; background: rgba(150, 150, 155, 0.55); }
+.choice-sheet-grabber { display: flex; flex: none; align-items: center; justify-content: center; padding: 20rpx 0 10rpx; }
+.choice-sheet-grabbar { width: 64rpx; height: 8rpx; border-radius: 999rpx; background: rgba(150, 150, 155, 0.45); }
 /* 标题行已去掉：只留抓手 + 居中的选项；点遮罩或选中即关闭。
    列表上下留白左右对称，行与行之间没有额外间距，视觉节奏保持一致。 */
-.choice-sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 38rpx 0 24rpx; text-align: center; }
+.choice-sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: calc(22rpx + env(safe-area-inset-bottom)) 0 14rpx; text-align: center; }
 /* 选项块整体居中，块内每行从同一条左边缘开始（图标对齐、文案左对齐），
    因此不同长度的标签也左对齐，而不是各自居中。 */
 .choice-sheet .settings-choice-content { display: inline-flex; flex-direction: column; align-items: stretch; padding: 0; text-align: left; }
-.choice-sheet .settings-choice-row { height: 96rpx; padding: 0 40rpx; justify-content: flex-start; }
+.choice-sheet .settings-choice-row {
+  height: 104rpx;
+  margin: 0 20rpx;
+  padding: 0 26rpx;
+  gap: 18rpx;
+  border-radius: 18rpx;
+  justify-content: flex-start;
+}
+.choice-sheet .settings-choice-row-pressed { background: var(--fill); }
 .choice-sheet .settings-choice-label { flex: none; text-align: left; }
+/* 原生形态下白色图标在浅色主题不可见：统一反色成黑色 */
+.theme-light .settings-choice-ic { filter: brightness(0); }
 
 /* 玻璃形态：浮在屏幕内侧的圆角玻璃面板，材质与首页设置页弹窗一致 */
 .choice-sheet.choice-sheet-glass {
-  left: 12px;
-  right: 12px;
+  left: 22px;
+  right: 22px;
   bottom: 24px;
   border-radius: var(--glass-radius-sheet, 32rpx);
   background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));

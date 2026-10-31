@@ -342,7 +342,7 @@ test('货币单位：玻璃 UI 用工作区同款锚点弹窗，关闭后回退�
   assert.match(wxml, /wx:if="\{\{choiceMenu && choiceSheet\}\}" class="choice-sheet-mask" catchtap="closeChoiceMenu"/);
   assert.match(wxml, /class="choice-sheet \{\{settingsGlassEnabled \? 'choice-sheet-glass' : ''\}\}"/);
   // 底部弹窗的选项居中，标题行保持左对齐 + 关闭按钮不变
-  assert.match(glassCss, /\.choice-sheet-body \{[^}]*padding: 38rpx 0 24rpx/);
+  assert.match(glassCss, /\.choice-sheet-body \{[^}]*padding: calc\(22rpx \+ env\(safe-area-inset-bottom\)\) 0 14rpx/);
   assert.match(glassCss, /\.choice-sheet \.settings-choice-content \{[^}]*padding: 0;[^}]*text-align: left/);
   // 选项块整体居中，块内逐行左对齐（图标与文案从同一条左边缘开始）
   assert.match(glassCss, /\.choice-sheet-body \{[^}]*text-align: center/);
@@ -351,7 +351,7 @@ test('货币单位：玻璃 UI 用工作区同款锚点弹窗，关闭后回退�
   assert.match(glassCss, /\.choice-sheet \.settings-choice-label \{ flex: none; text-align: left/);
   assert.doesNotMatch(wxml, /choice-sheet-head|choice-sheet-title|choice-sheet-close/);
   assert.doesNotMatch(glassCss, /\.choice-sheet-head|choice-sheet-title|choice-sheet-close/);
-  assert.match(wxml, /class="choice-sheet-grabber"><view class="choice-sheet-grabbar">/);
+  assert.doesNotMatch(wxml, /choice-sheet-grabber/, 'bottom sheet has no drag handle');
   assert.match(wxml, /wx:if="\{\{choiceMenu && !choiceSheet\}\}" class="settings-choice-mask" catchtap="closeChoiceMenu"/);
   assert.match(wxml, /class="settings-choice \{\{settingsGlassEnabled \? 'settings-choice-glass' : ''\}\}"[\s\S]{0,200}?height: \{\{choiceHeight\}\}px/);
   assert.match(css, /@import "\.\.\/\.\.\/styles\/glass-ui\.wxss"/);

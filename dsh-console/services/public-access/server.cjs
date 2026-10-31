@@ -208,9 +208,7 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
       if (req.method === 'GET' && route === '/health') { respond(res, 200, { ok: true }); return; }
       // Public product information must not require a subscription, device, or WeChat login.
       if (req.method === 'GET' && route === '/app-content') { respond(res, 200, { ...announcements.list(), shareEnabled: engagement.rules().enabled }); return; }
-      const handled = consoleApp && await consoleApp.handle(req, res, route);
-      if (handled === true) return;
-      if (handled) route = handled.route;
+      // Huawei authorization-code exchange is a public entry point, not a WeChat console API.
       if (req.method === 'POST' && route === '/session/huawei') {
         limit('login-huawei:' + req.socket.remoteAddress, 20);
         if (!huaweiConfigured(huaweiClientId, huaweiClientSecret, huaweiFetch)) throw fail(503, 'HUAWEI_NOT_CONFIGURED', '华为账号身份服务尚未配置');
@@ -225,6 +223,9 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
         sessions.set(hash(token), { ...user, expiresAt });
         respond(res, 201, { token, expiresAt, account: view }); return;
       }
+      const handled = consoleApp && await consoleApp.handle(req, res, route);
+      if (handled === true) return;
+      if (handled) route = handled.route;
       if (req.method === 'POST' && route === '/session') {
         limit('login:' + req.socket.remoteAddress, 20);
         const input = await body(req);

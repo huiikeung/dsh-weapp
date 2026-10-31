@@ -219,18 +219,16 @@ test('the compact list keeps only summaries; configuration lives in the sheet', 
   assert.ok(!wxml.includes('toggleGatewayExpand'), 'gateway 不应再内联展开');
 });
 
-test('every quota sheet has a drag handle, 90% height and a scrollable body', () => {
+test('every quota sheet has 90% height and a scrollable body, without a drag handle', () => {
   const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/cost-meter/cost-meter.wxml'), 'utf8');
   const wxss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/cost-meter/cost-meter.wxss'), 'utf8');
   const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/cost-meter/cost-meter.js'), 'utf8');
   const sheetKinds = ['display', 'balance', 'go', 'budget', 'peak', 'plan', 'gateway', 'custom'];
   for (const kind of sheetKinds) assert.ok(wxml.includes(`sheet === '${kind}'`), '缺少 ' + kind + ' 弹窗');
-  assert.equal((wxml.match(/class="cost-sheet-grabber"/g) || []).length, sheetKinds.length, '每个弹窗都要有拖动条');
+  assert.equal((wxml.match(/class="cost-sheet-grabber"/g) || []).length, 0, '这些弹窗不再显示拖动条');
   // 非 custom 弹窗的滚动区带 carded 类（卡片化边框），断言两种写法合计。
   assert.equal((wxml.match(/class="cost-sheet-body( carded)?"/g) || []).length, sheetKinds.length, '每个弹窗都要有可滚动内容区');
-  assert.match(wxml, /catchtouchstart="onSheetGrabStart"/);
-  assert.match(wxml, /catchtouchmove="onSheetGrabMove"/);
-  assert.match(wxml, /catchtouchend="onSheetGrabEnd"/);
+  assert.doesNotMatch(wxml, /onSheetGrabStart|onSheetGrabMove|onSheetGrabEnd/, '拖动条与拖拽手势一起移除');
   assert.match(wxss, /\.cost-sheet \{[^}]*height: 90vh/);
   assert.match(wxss, /\.cost-sheet-body \{[^}]*height: 0/);
   assert.match(js, /onSheetGrabStart\(e\)/);

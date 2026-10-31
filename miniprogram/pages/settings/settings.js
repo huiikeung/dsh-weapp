@@ -48,6 +48,7 @@ Page({
     choiceTitle: '',
     choiceOptions: [],
     choiceCurrent: '',
+    choiceSubtitle: '',
     choiceLeft: 16,
     choiceTop: 120,
     choiceWidth: 224,
@@ -337,24 +338,21 @@ Page({
     this.openChoiceMenu('language', '.preference-language-row',
       this.data.languageOptions, preferences.language());
   },
+  /** 选择弹窗与「震动反馈」同一个居中卡片：标题 + 说明 + 选项列表。 */
   openChoiceMenu(kind, selector, options, current) {
-    let windowInfo = {};
-    try { windowInfo = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync(); } catch (_) { /* 手机端默认值兜底 */ }
-    const navigationBottom = (this.data.navPadTop || 0) + (this.data.navHeight || 0);
-    const list = options || [];
-    const open = (rect) => {
-      const anchor = rect && [rect.left, rect.top, rect.width, rect.height].every(Number.isFinite) ? rect : null;
-      this.setData(Object.assign({
-        choiceMenu: kind,
-        choiceTitle: kind === 'language' ? uiText('语言') : uiText(kind === 'mode' ? '工作步骤展示' : '工作步骤收起时机'),
-        choiceOptions: list,
-        choiceCurrent: current || (kind === 'language' ? 'system' : '')
-      }, choiceMenuLayout(anchor, windowInfo, list.length, navigationBottom)));
+    const titles = { language: uiText('语言'), mode: uiText('工作步骤展示'), timing: uiText('工作步骤收起时机') };
+    const subtitles = {
+      language: uiText('界面语言，选择后立即生效'),
+      mode: uiText('选择希望看到多少工具调用细节'),
+      timing: uiText('选择何时自动收起工作步骤')
     };
-    if (typeof wx.createSelectorQuery !== 'function') { open(null); return; }
-    try {
-      wx.createSelectorQuery().in(this).select(selector).boundingClientRect(rect => open(rect || null)).exec();
-    } catch (_) { open(null); }
+    this.setData({
+      choiceMenu: kind,
+      choiceTitle: titles[kind] || '',
+      choiceSubtitle: subtitles[kind] || '',
+      choiceOptions: options || [],
+      choiceCurrent: current || (kind === 'language' ? 'system' : '')
+    });
   },
   closeChoiceMenu() { this.setData({ choiceMenu: '' }); },
   closeWorkStepMenu() { this.setData({ choiceMenu: '' }); },

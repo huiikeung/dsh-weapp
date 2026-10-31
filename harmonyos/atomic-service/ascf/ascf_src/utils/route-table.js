@@ -198,7 +198,7 @@ function orderCandidates(routeTable, options) {
     const preferred = client === 'ascf' ? normalizeASCFEndpoint(opts.preferred) : opts.preferred
     const detectedPreferredKind = preferred ? kindOf(preferred) : null
     const preferredIsAllowed = !!preferred && (client !== 'ascf' ||
-      detectedPreferredKind === 'relay' || table.public.indexOf(preferred) >= 0 || table.lan.indexOf(preferred) >= 0)
+      detectedPreferredKind === 'relay' || table.lan.indexOf(preferred) >= 0)
     const preferredKind = preferredIsAllowed ? detectedPreferredKind : null
     const skipPreferred = preferredIsAllowed && (
       (skipLan && preferredKind === 'lan') ||

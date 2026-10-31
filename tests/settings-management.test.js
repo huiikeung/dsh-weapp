@@ -156,27 +156,17 @@ test('work-step selections persist and their open row stays above the dismiss ma
     else global.wx = previousWx;
   }
 
-  // 两个选项菜单都改用「工作区选择」同款的锚点玻璃弹窗。
+  // 选择弹窗与「震动反馈」同一套居中卡片：标题 + 说明 + 选项 + 勾选。
   assert.match(wxml, /choiceMenu === 'mode' \? 'work-step-row-open'/);
   assert.match(wxml, /choiceMenu === 'timing' \? 'work-step-row-open'/);
-  assert.match(wxml, /wx:if="\{\{choiceMenu && choiceSheet\}\}" class="choice-sheet-mask" catchtap="closeChoiceMenu"/);
-  assert.match(wxml, /class="choice-sheet \{\{settingsGlassEnabled \? 'choice-sheet-glass' : ''\}\}"/);
-  assert.match(wxml, /wx:if="\{\{choiceMenu && !choiceSheet\}\}" class="settings-choice-mask" catchtap="closeChoiceMenu"/);
-  assert.match(wxml, /class="settings-choice \{\{settingsGlassEnabled \? 'settings-choice-glass' : ''\}\}"\s+style="left: \{\{choiceLeft\}\}px; top: \{\{choiceTop\}\}px; width: \{\{choiceWidth\}\}px; height: \{\{choiceHeight\}\}px;/);
-  // 锚点玻璃弹窗的样式在共用的 styles/glass-ui.wxss（设置页与额度卡片页同源）。
-  const glassCss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/styles/glass-ui.wxss'), 'utf8');
+  assert.match(wxml, /wx:if="\{\{choiceMenu\}\}" class="pair-sheet-mask" catchtap="closeChoiceMenu"/);
+  assert.match(wxml, /class="pair-sheet appearance-sheet \{\{settingsGlassEnabled \? 'settings-glass-sheet' : ''\}\}"/);
+  assert.match(wxml, /class="appearance-option \{\{choiceCurrent === item\.id \? 'selected' : ''\}\}" data-kind="\{\{choiceMenu\}\}"/);
+  assert.match(wxml, /class="pair-sheet-subtitle">\{\{choiceSubtitle\}\}/);
   assert.match(wxss, /@import "\.\.\/\.\.\/styles\/glass-ui\.wxss"/);
-  assert.match(glassCss, /\.settings-choice-mask\s*\{[^}]*z-index:\s*300/);
-  assert.match(glassCss, /\.settings-choice \{[\s\S]{0,80}?z-index:\s*301/);
-  // 默认是原生实色形态（跟随深浅色变量），玻璃 UI 开启才叠加 .settings-choice-glass。
-  assert.match(glassCss, /\.settings-choice \{[\s\S]*?border-radius: var\(--glass-radius-choice, 64rpx\);[\s\S]*?background: var\(--surface\);[\s\S]*?border: 1rpx solid var\(--border\)/);
-  assert.match(glassCss, /\.settings-choice\.settings-choice-glass \{[\s\S]*?linear-gradient\(165deg, rgba\(255, 255, 255, var\(--glass-alpha-top, 0\.10\)\), rgba\(255, 255, 255, var\(--glass-alpha-bottom, 0\.04\)\)\)[\s\S]*?backdrop-filter: blur\(var\(--glass-blur-sheet, 8rpx\)\)/);
-  assert.match(glassCss, /\.settings-choice\.settings-choice-glass \.settings-choice-label \{ color: #FFFFFF/);
-  assert.match(glassCss, /\.settings-choice-row \{[^}]*min-height: 44px/);
-  assert.match(wxml, /class="settings-choice \{\{settingsGlassEnabled \? 'settings-choice-glass' : ''\}\}"/);
   assert.match(wxss, /\.work-step-row-open\s*\{[^}]*z-index:\s*82/);
   // 语言行不再原地展开：同一个玻璃弹窗承载。
-  assert.match(wxml, /preference-select" bindtap="pickLanguage"[^>]*>[\s\S]{0,200}?choiceMenu === 'language' \? 'expanded' : ''/);
+  assert.match(wxml, /class="card-row preference-language-row" bindtap="pickLanguage"[^>]*>[\s\S]{0,240}?class="card-row-value">[\s\S]{0,200}?chevron-img/);
   assert.doesNotMatch(wxml, /preference-menu/);
 });
 
@@ -206,7 +196,7 @@ test('语言选择复用工作区同款的锚点玻璃弹窗', () => {
   const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
   // 三个入口共用一个浮层：语言行没有任何原地展开的旧菜单。
   assert.doesNotMatch(wxml, /preference-menu/);
-  assert.match(wxml, /bindtap="pickLanguage"[\s\S]{0,200}?choiceMenu === 'language' \? 'expanded' : ''/);
+  assert.match(wxml, /class="card-row preference-language-row" bindtap="pickLanguage"[^>]*>[\s\S]{0,240}?class="card-row-value">/);
   assert.match(wxml, /bindtap="toggleWorkStepMenu" data-field="mode"/);
   assert.match(wxml, /bindtap="toggleWorkStepMenu" data-field="timing"/);
 });
