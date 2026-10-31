@@ -19,12 +19,20 @@ let sharedElapsed = 0;
 Component({
   properties: {
     active: { type: Boolean, value: true, observer: 'syncPlayback' },
-    reducedMotion: { type: Boolean, value: false, observer: 'syncPlayback' }
+    reducedMotion: { type: Boolean, value: false, observer: 'syncPlayback' },
+    // 纯 CSS 模式：不建 WebGL、不推 JPEG 帧，只保留静态构图 + 缓慢色温变化。
+    cssOnly: { type: Boolean, value: false, observer: 'syncPlayback' }
   },
-  data: { ready: false, failed: false, frameImage: '', buffered: false, ios: false, staticMode: false, frameA: '', frameB: '', frontSlot: '', frameAId: 0, frameBId: 0 },
+  data: { ready: false, failed: false, frameImage: '', buffered: false, ios: false, staticMode: false, frameA: '', frameB: '', frontSlot: '', frameAId: 0, frameBId: 0, cssOnly: false },
   lifetimes: {
     ready() {
       this._visible = true; this._disposed = false; this._elapsed = sharedElapsed;
+      if (this.data.cssOnly) {
+        // CSS 渐变模式：保留海报 / 网格 / 鲸鱼 / 底部压暗，不创建 WebGL 上下文。
+        this._cssOnly = true;
+        this.setData({ cssOnly: true });
+        return;
+      }
       // 关掉「首页动画」时只要静态层：海报 + 网格 + 鲸鱼本身就是 dsh-mobile 的静态构图，
       // 连 WebGL 上下文都不用建。
       if (this.data.reducedMotion) {
@@ -82,6 +90,8 @@ Component({
       });
     },
     syncPlayback() {
+      if (this.data.cssOnly) { this._cssOnly = true; this.pause(); return; }
+      this._cssOnly = false;
       this.pause();
       if (this._disposed || !this._visible || !this.data.active) return;
       if (this.data.reducedMotion) {

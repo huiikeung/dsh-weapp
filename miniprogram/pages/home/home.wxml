@@ -60,7 +60,7 @@
     bindtouchend="onContentTouchEnd"
   >
     <!-- 深海背景随内容一起位移（对齐 iOS DeepOceanBackground 在 workspaceContent 内） -->
-    <view class="deep-bg home-deep-bg"><ocean-background id="home-ocean" active="{{oceanActive}}" reduced-motion="{{oceanReducedMotion}}" /></view>
+    <view class="deep-bg home-deep-bg"><ocean-background id="home-ocean" active="{{oceanActive}}" reduced-motion="{{oceanReducedMotion}}" css-only="{{true}}" /></view>
 
     <scroll-view class="home-scroll" scroll-y="{{!workspacePickerOpen && !sessionMenuOpen && !swiping}}" show-scrollbar="{{false}}">
     <view class="home" style="padding-top: {{topbarTop}}px;">

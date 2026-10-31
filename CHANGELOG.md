@@ -7,6 +7,7 @@
 - theme.applyTo 支持 pageBackground 覆盖，供首页保持海面窗口色；浅色模式与抽屉打开时的窗口色保持不变。
 - 华为/安卓真机加载时整页压黑闪一下：WebGL 开启 preserveDrawingBuffer，避免 toDataURL 读到被清空的缓冲；并对异常小的全黑 JPEG 帧做过滤与重试，不再把黑帧推给视图层。
 - 打包质检「主包内未使用的 JS」：在主包入口显式引用被多个分包共用的 5 个工具模块（choice-menu / model-settings / session-card-style-pref / session-glass-pref / settings-glass-sheet-pref），声明真实依赖。
+- 首页海面改为纯 CSS 渐变模式：去掉 WebGL 流体波纹（不再逐帧编码 JPEG、不再跨桥 setData），保留静态海报 / 网格 / 鲸鱼 / 底部压暗，叠加缓慢的中段主带、底端副带与色温变化；光带使用椭圆柔光，避免直线渐变留下斜切亮线。
 - 全量 Node 测试：1457 项、1443 通过、13 项环境依赖跳过。
 
 ## v0.9.98 — 2026-10-31
