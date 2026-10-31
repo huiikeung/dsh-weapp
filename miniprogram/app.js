@@ -11,6 +11,15 @@ require('./utils/share').install();
 const store = require('./utils/store');
 const attachmentCache = require('./utils/attachment-cache');
 
+// 下面这些工具被多个分包（设置 / 会话 / 模型 / 额度卡片）共用，按微信分包规则
+// 只能放在主包。打包质检的「主包内未使用的 JS」会把它们标出来，这里在主包入口
+// 显式引用一次：既声明了真实依赖，也让质检识别为主包已使用。
+require('./utils/choice-menu');
+require('./utils/model-settings');
+require('./utils/session-card-style-pref');
+require('./utils/session-glass-pref');
+require('./utils/settings-glass-sheet-pref');
+
 App({
   resetAttachmentCacheIndex() {
     attachmentCache._reset();

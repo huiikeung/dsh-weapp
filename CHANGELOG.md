@@ -6,6 +6,7 @@
 - 深色模式下启动窗口 / 页面底色统一为海面色 #07182B（原为纯黑），首页加载过渡不再出现不同深色之间的夹层；首页 pageStyle 首帧即按主题给出正确值。
 - theme.applyTo 支持 pageBackground 覆盖，供首页保持海面窗口色；浅色模式与抽屉打开时的窗口色保持不变。
 - 华为/安卓真机加载时整页压黑闪一下：WebGL 开启 preserveDrawingBuffer，避免 toDataURL 读到被清空的缓冲；并对异常小的全黑 JPEG 帧做过滤与重试，不再把黑帧推给视图层。
+- 打包质检「主包内未使用的 JS」：在主包入口显式引用被多个分包共用的 5 个工具模块（choice-menu / model-settings / session-card-style-pref / session-glass-pref / settings-glass-sheet-pref），声明真实依赖。
 - 全量 Node 测试：1457 项、1443 通过、13 项环境依赖跳过。
 
 ## v0.9.98 — 2026-10-31
