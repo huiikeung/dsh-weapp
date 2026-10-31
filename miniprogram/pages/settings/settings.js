@@ -1352,8 +1352,7 @@ Page({
   loadQuotaSidebarPreference() {
     const client = store.client;
     if (store.state.connection !== 'connected' || !client || typeof client.requestCostMeter !== 'function') {
-      // 读不到配置时按默认开启展示，连接后可再同步真实值。
-      this.setData({ quotaSidebarVisible: true });
+      this.setData({ quotaSidebarVisible: false });
       return;
     }
     const generation = (this._quotaPrefGeneration || 0) + 1;
@@ -1362,7 +1361,7 @@ Page({
       if (this._quotaPrefGeneration !== generation) return;
       const config = (frame && (frame.config || frame)) || {};
       const display = config.display || {};
-      this.setData({ quotaSidebarVisible: display.sidebarVisible !== false });
+      this.setData({ quotaSidebarVisible: display.sidebarVisible === true });
     }).catch(() => { /* 网关未启用额度卡片时保持关闭态 */ });
   },
   async toggleQuotaSidebarVisibility(e) {

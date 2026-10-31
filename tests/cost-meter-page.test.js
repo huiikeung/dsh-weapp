@@ -265,18 +265,6 @@ test('the quota card page owns the sidebar visibility switch and hides everythin
   assert.ok(wxml.includes("ui['额度']"), 'Coding Plan/网关/自定义归到「额度」');
 });
 
-test('sidebar card visibility defaults on when the gateway config omits it', async () => {
-  const visibleByDefault = frame();
-  delete visibleByDefault.config.display.sidebarVisible;
-  delete visibleByDefault.dashboard.display.sidebarVisible;
-  const f = fixture();
-  f.page.onLoad();
-  f.requests[0].resolve(visibleByDefault);
-  await tick();
-  assert.equal(f.page.data.displayForm.sidebarVisible, true, '侧栏卡片默认开启');
-  assert.ok(f.page.data.previewSidebar, 'display preview renders by default');
-});
-
 
 test('额度卡片页跟随玻璃 UI 开关：卡片与弹窗都用首页设置页的玻璃材质', () => {
   const pageDir = path.resolve(__dirname, '../miniprogram/pages/cost-meter');

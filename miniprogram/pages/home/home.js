@@ -1881,8 +1881,7 @@ Page({
       if (this.data.costDashboard || this.data.costSidebar) this.setData({ costDashboard: null, costSidebar: null, costSections: [] });
       return;
     }
-    // 侧栏额度卡片默认开启：仅在网关明确下发 false 时隐藏。
-    const visible = !view.display || view.display.sidebarVisible !== false;
+    const visible = view.display && view.display.sidebarVisible === true;
     const sidebar = visible ? costView.quotaSidebarModel(view, view.display.sidebarStyle) : null;
     const nextSidebar = sidebar && !sidebar.empty ? sidebar : null;
     // 按网关下发的 sidebarOrder 摊平成分区序列，侧栏按这个顺序渲染。
