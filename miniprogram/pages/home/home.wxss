@@ -1962,37 +1962,6 @@ flex-shrink: 0;
 .ws-pop-ic-tray {
 transform: scaleX(1.12);
 }
-.ws-pop-stack {
-position: relative;
-}
-.ws-pop-stack-top,
-.ws-pop-stack-back {
-position: absolute;
-left: 50%;
-transform: translateX(-50%);
-height: 2.8rpx;
-border-radius: 1.4rpx;
-background: rgba(255, 255, 255, 0.95);
-}
-.ws-pop-stack-top {
-top: 1rpx;
-width: 15rpx;
-}
-.ws-pop-stack-back {
-top: 6.5rpx;
-width: 22rpx;
-}
-.ws-pop-stack-front {
-position: absolute;
-left: 50%;
-top: 12rpx;
-transform: translateX(-50%);
-width: 30rpx;
-height: 24rpx;
-box-sizing: border-box;
-border: 2.8rpx solid rgba(255, 255, 255, 0.95);
-border-radius: 6rpx;
-}
 .ws-pop-row-danger .ws-pop-label {
 color: #FF3B30;
 }

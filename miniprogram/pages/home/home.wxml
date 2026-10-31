@@ -379,11 +379,7 @@
     <view class="ws-pop-content">
     <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="selectAll" role="button" aria-label="{{ui['全部会话']}}">
       <image wx:if="{{allWorkspacesSelected}}" class="ws-pop-ic" src="/assets/icons/check-fill-white.png" mode="aspectFit"/>
-      <view wx:else class="ws-pop-ic ws-pop-stack" aria-hidden="true">
-        <view class="ws-pop-stack-top"></view>
-        <view class="ws-pop-stack-back"></view>
-        <view class="ws-pop-stack-front"></view>
-      </view>
+      <image wx:else class="ws-pop-ic" src="/assets/icons/all-sessions-white.svg" mode="aspectFit"/>
       <text class="ws-pop-label">{{ui['全部会话']}}</text>
     </view>
     <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="selectUngrouped" role="button" aria-label="{{ui['未分组']}}">
