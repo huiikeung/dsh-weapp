@@ -4,7 +4,7 @@ background: #FFFFFF;
 }
 @media (prefers-color-scheme: dark) {
 page {
-background: #141518;
+background: #07182B;
 }
 }
 .home {
@@ -44,6 +44,9 @@ inset 30rpx 0 78rpx rgba(0, 0, 0, 0.46);
 .home-deep-bg {
 position: absolute;
 z-index: 0;
+background:
+linear-gradient(180deg, transparent, rgba(6, 23, 43, 0.12) 50%, rgba(0, 0, 0, 0.58)),
+#07182B;
 }
 .home-scroll {
 position: relative;

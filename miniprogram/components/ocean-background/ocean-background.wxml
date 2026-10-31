@@ -8,11 +8,10 @@
     <image wx:elif="{{frameImage}}" class="ocean-frame" src="{{frameImage}}" mode="scaleToFill" aria-hidden="true" />
   </view>
   <view class="ocean-grain"></view>
+  <view class="ocean-depth"></view>
   <view class="ocean-grid"></view>
   <view class="ocean-whale">
     <image class="ocean-whale-body" src="/assets/ocean/whale-body.svg" mode="scaleToFill" aria-hidden="true" />
     <image class="ocean-whale-tail" src="/assets/ocean/whale-tail.svg" mode="scaleToFill" aria-hidden="true" />
   </view>
-  <view class="ocean-depth"></view>
-  <view class="ocean-settle"></view>
 </view>

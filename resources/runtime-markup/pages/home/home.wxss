@@ -4,9 +4,10 @@ page {
   background: #FFFFFF;
 }
 
+/* 深色页面窗口与首页海面同色：启动窗口到页面绘制之间不出现黑色夹层。 */
 @media (prefers-color-scheme: dark) {
   page {
-    background: #141518;
+    background: #07182B;
   }
 }
 
@@ -62,6 +63,11 @@ page {
 .home-deep-bg {
   position: absolute;
   z-index: 0;
+  /* 与海面组件的最终合成一致：海面色 + 底部压暗渐变。
+     先铺好压暗，组件上屏时底部亮度不变，不再出现「蓝底之后又闪一层黑」。 */
+  background:
+    linear-gradient(180deg, transparent, rgba(6, 23, 43, 0.12) 50%, rgba(0, 0, 0, 0.58)),
+    #07182B;
 }
 
 .home-scroll {

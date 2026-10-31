@@ -89,28 +89,39 @@ function initialData() {
  * 接入页面：onLoad 中调用 theme.applyTo(this)。
  * 自动订阅主题变更并在页面卸载时取消订阅。
  */
-function applyTo(page) {
+/**
+ * 把主题写到页面。
+ * options.pageBackground 可覆盖页面窗口底色（字符串或 theme => color），
+ * 首页用它保持海面深蓝，避免主题默认底色在首帧之后又刷一次、闪出夹层。
+ */
+function applyTo(page, options) {
   ensureThemeListener();
+  const background = (theme) => {
+    const custom = options && options.pageBackground;
+    const value = typeof custom === 'function' ? custom(theme) : custom;
+    return value || PAGE_BG[theme];
+  };
   const render = () => {
     const theme = resolveTheme();
+    const pageBackground = background(theme);
     page.setData({
       theme,
       themeClass: 'theme-' + theme,
-      pageStyle: 'background-color: ' + PAGE_BG[theme] + ';'
+      pageStyle: 'background-color: ' + pageBackground + ';'
     });
     if (typeof wx.setNavigationBarColor === 'function') {
       wx.setNavigationBarColor({
         frontColor: theme === 'dark' ? '#ffffff' : '#000000',
-        backgroundColor: PAGE_BG[theme],
+        backgroundColor: pageBackground,
         fail: () => {}
       });
     }
     // 顶部状态栏/下拉区域背景：手动切深色时必须同步，否则导航栏上方会露白
     if (typeof wx.setBackgroundColor === 'function') {
       wx.setBackgroundColor({
-        backgroundColor: PAGE_BG[theme],
-        backgroundColorTop: PAGE_BG[theme],
-        backgroundColorBottom: PAGE_BG[theme],
+        backgroundColor: pageBackground,
+        backgroundColorTop: pageBackground,
+        backgroundColorBottom: pageBackground,
         fail: () => {}
       });
     }

@@ -23,7 +23,7 @@ test('the shifted home panel floats above the DSH backplate with leading corners
       `${name} does not clip or round the drawer itself`);
     assert.match(css, /page \{\s*background:\s*#FFFFFF;\s*\}/,
       `${name} gives the native page window the white drawer background`);
-    assert.match(css, /@media \(prefers-color-scheme: dark\) \{\s*page \{\s*background:\s*#141518;\s*\}\s*\}/,
+    assert.match(css, /@media \(prefers-color-scheme: dark\) \{\s*page \{\s*background:\s*#07182B;\s*\}\s*\}/,
       `${name} gives the native page window the dark drawer background`);
     assert.match(css, /\.home-root\s*\{[^}]*background:\s*#FFFFFF;/,
       `${name} provides a full-screen light drawer surface under the home panel`);
@@ -60,7 +60,7 @@ test('the shifted home panel floats above the DSH backplate with leading corners
     'the content dim uses the iOS smoothstep curve');
   assert.match(page, /const HOME_DRAWER_DARK_BG = '#141518'/, 'the drawer dark window color is centralized');
   assert.match(page, /function homeWindowBackground\(dark, open\) \{\s*if \(open\) return dark \? HOME_DRAWER_DARK_BG : '#FFFFFF';\s*return HOME_WINDOW_BG;\s*\}/,
-    'the opened dark drawer paints the native window and status bar with the plugin background');
+    'the opened dark drawer paints the native window and status bar with the plugin background; closed dark home uses pure black');
   assert.match(template, /<page-meta page-style="\{\{pageStyle\}\}" \/>/,
     'the home page applies its window background through page-meta');
   assert.match(template, /border-radius:\s*\{\{contentCornerRadius\}\}px\s+0\s+0\s+\{\{contentCornerRadius\}\}px/,
