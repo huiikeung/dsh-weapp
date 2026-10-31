@@ -1623,26 +1623,6 @@ page {
   transform: translate(-3rpx, 3rpx);
 }
 
-.dir-head-badge {
-  position: absolute;
-  /* 小加号嵌进文件夹右上角，只比描边外沿多出一点 */
-  right: 20rpx;
-  top: 20rpx;
-  width: 18rpx;
-  height: 18rpx;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* 白色加号：轻阴影保证压在白色文件夹描边上也看得清 */
-.dir-head-add {
-  width: 18rpx;
-  height: 18rpx;
-  display: block;
-  filter: drop-shadow(0 1rpx 1rpx rgba(0, 0, 0, 0.55));
-}
-
 .dir-head-cancel {
   position: absolute;
   right: 36rpx;

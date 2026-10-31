@@ -51,19 +51,17 @@ test('添加工作区弹窗：上一级行与箭头用白色高亮，+ 号是蓝
   const chev = css.slice(css.indexOf('.dir-row-chev {'), css.indexOf('.dir-row-chev {') + 220);
   assert.match(chev, /transform: rotate\(-90deg\)/);
   assert.doesNotMatch(chev, /brightness/);
-  // 深色玻璃圆钮 + 白色文件夹 + 白色加号（加号小、嵌在文件夹右上角）
+  // 深色玻璃圆钮 + 单张「文件夹右上角缺圆形、加号嵌其中」的白色图标
   const headBtn = css.slice(css.indexOf('.dir-head-btn {'), css.indexOf('.dir-head-btn {') + 400);
   assert.match(headBtn, /background: rgba\(255, 255, 255, 0\.08\);/);
-  const badge = css.slice(css.indexOf('.dir-head-badge {'), css.indexOf('.dir-head-badge {') + 320);
-  assert.doesNotMatch(badge, /background:/);
-  assert.doesNotMatch(badge, /border:/);
-  const add = css.slice(css.indexOf('.dir-head-add {'), css.indexOf('.dir-head-add {') + 200);
-  assert.match(add, /width: 18rpx;/);
-  assert.match(add, /drop-shadow/);
   const wxml = read('pages/home/home.wxml');
-  assert.match(wxml, /class="dir-head-folder" src="\/assets\/icons\/workspace-folder-white\.svg"/);
-  assert.match(wxml, /class="dir-head-badge"><image class="dir-head-add" src="\/assets\/icons\/ic-dir-add-white\.png"/);
-  assert.doesNotMatch(wxml, /dir-head-badge"><text>\+<\/text>/);
+  assert.match(wxml, /class="dir-head-folder" src="\/assets\/icons\/dir-head-folder-add-white\.svg"/);
+  assert.doesNotMatch(wxml, /dir-head-badge/);
+  const icon = fs.readFileSync(path.join(__dirname, '../miniprogram/assets/icons/dir-head-folder-add-white.svg'), 'utf8');
+  assert.match(icon, /<mask id="folderAddCut">/);
+  assert.match(icon, /<circle cx="19\.5" cy="5" r="4\.2" fill="#000000"\/>/);
+  assert.equal((icon.match(/stroke-width="1\.85"/g) || []).length, 2,
+    '文件夹描边与加号使用同样的 1.85 线宽');
   // 上一级行：恢复原来的返回箭头，颜色改成问号徽标的蓝色；行文字纯白
   assert.match(wxml, /dir-row-icon"><image class="dir-row-ic" src="\/assets\/icons\/ic-dir-parent-blue\.png"/);
   assert.doesNotMatch(wxml, /back-white\.png/);

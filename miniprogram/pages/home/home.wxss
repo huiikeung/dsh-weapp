@@ -1342,22 +1342,6 @@ width: 42rpx;
 height: 42rpx;
 transform: translate(-3rpx, 3rpx);
 }
-.dir-head-badge {
-position: absolute;
-right: 20rpx;
-top: 20rpx;
-width: 18rpx;
-height: 18rpx;
-display: flex;
-align-items: center;
-justify-content: center;
-}
-.dir-head-add {
-width: 18rpx;
-height: 18rpx;
-display: block;
-filter: drop-shadow(0 1rpx 1rpx rgba(0, 0, 0, 0.55));
-}
 .dir-head-cancel {
 position: absolute;
 right: 36rpx;
