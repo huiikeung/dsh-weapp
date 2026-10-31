@@ -2330,7 +2330,8 @@ page {
 }
 
 /* 「全部会话」未选中图标：层叠会话（对齐 iOS square.stack：圆角方框 + 上方两条短线，纯 CSS）
-   按参考图 2x 像素 1:1 还原：图标 24×32、方框 24×24（描边/线宽 2、圆角 3），两条横线 12/18。 */
+   线宽 3rpx 与菜单其他图标一致（tray/plus 栅格图标在 36rpx 下约 1.5px 描边）；
+   方框 24×24、5rpx 圆角，两条横线 12/18。 */
 .ws-pop-stack {
   position: relative;
 }
@@ -2340,13 +2341,13 @@ page {
   position: absolute;
   left: 50%;
   transform: translateX(-50%);
-  height: 2rpx;
-  border-radius: 1rpx;
+  height: 3rpx;
+  border-radius: 1.5rpx;
   background: rgba(255, 255, 255, 0.95);
 }
 
 .ws-pop-stack-top {
-  top: 2rpx;
+  top: 1rpx;
   width: 12rpx;
 }
 
@@ -2358,12 +2359,12 @@ page {
 .ws-pop-stack-front {
   position: absolute;
   left: 50%;
-  top: 10rpx;
+  top: 11rpx;
   transform: translateX(-50%);
   width: 24rpx;
   height: 24rpx;
   box-sizing: border-box;
-  border: 2rpx solid rgba(255, 255, 255, 0.95);
+  border: 3rpx solid rgba(255, 255, 255, 0.95);
   border-radius: 5rpx;    /* 方框四角更圆润，贴近参考图标 */
 }
 

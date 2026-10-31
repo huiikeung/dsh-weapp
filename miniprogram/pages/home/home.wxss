@@ -1967,12 +1967,12 @@ position: relative;
 position: absolute;
 left: 50%;
 transform: translateX(-50%);
-height: 2rpx;
-border-radius: 1rpx;
+height: 3rpx;
+border-radius: 1.5rpx;
 background: rgba(255, 255, 255, 0.95);
 }
 .ws-pop-stack-top {
-top: 2rpx;
+top: 1rpx;
 width: 12rpx;
 }
 .ws-pop-stack-back {
@@ -1982,12 +1982,12 @@ width: 18rpx;
 .ws-pop-stack-front {
 position: absolute;
 left: 50%;
-top: 10rpx;
+top: 11rpx;
 transform: translateX(-50%);
 width: 24rpx;
 height: 24rpx;
 box-sizing: border-box;
-border: 2rpx solid rgba(255, 255, 255, 0.95);
+border: 3rpx solid rgba(255, 255, 255, 0.95);
 border-radius: 5rpx;
 }
 .ws-pop-row-danger .ws-pop-label {
