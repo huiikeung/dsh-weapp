@@ -1617,19 +1617,19 @@ page {
 }
 
 .dir-head-folder {
-  width: 38rpx;
-  height: 38rpx;
+  width: 42rpx;
+  height: 42rpx;
   /* 圆形按钮内视觉居中偏左下：小图标组的视觉重心偏右上 */
-  transform: translate(-4rpx, 4rpx);
+  transform: translate(-3rpx, 3rpx);
 }
 
 .dir-head-badge {
   position: absolute;
-  right: 6rpx;
-  top: 9rpx;
-  transform: translate(-3rpx, 3rpx);
-  width: 30rpx;
-  height: 30rpx;
+  right: 7rpx;
+  top: 8rpx;
+  transform: translate(-2rpx, 2rpx);
+  width: 24rpx;
+  height: 24rpx;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1637,8 +1637,8 @@ page {
 
 /* 蓝色圆形徽标（内含白色加号）：位图资源改为 SVG，避免缩放发虚 */
 .dir-head-add {
-  width: 30rpx;
-  height: 30rpx;
+  width: 24rpx;
+  height: 24rpx;
   display: block;
 }
 

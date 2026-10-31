@@ -58,7 +58,7 @@ test('添加工作区弹窗：上一级行与箭头用白色高亮，+ 号是蓝
   assert.doesNotMatch(badge, /background:/);
   assert.doesNotMatch(badge, /border:/);
   const add = css.slice(css.indexOf('.dir-head-add {'), css.indexOf('.dir-head-add {') + 200);
-  assert.match(add, /width: 30rpx;/);
+  assert.match(add, /width: 24rpx;/);
   assert.doesNotMatch(add, /drop-shadow/);
   const wxml = read('pages/home/home.wxml');
   assert.match(wxml, /class="dir-head-folder" src="\/assets\/icons\/workspace-folder-blue\.svg"/);
@@ -106,7 +106,8 @@ test('新建文件夹改成居中透明弹窗，不再调用系统 showModal', (
 test('目录弹窗：左上角图标下沉、底部创建工作区按钮改为透明', () => {
   const css = read('pages/home/home.wxss');
   const folder = css.slice(css.indexOf('.dir-head-folder {'), css.indexOf('.dir-head-folder {') + 200);
-  assert.match(folder, /transform: translate\(-4rpx, 4rpx\)/);
+  assert.match(folder, /width: 42rpx;/);
+  assert.match(folder, /transform: translate\(-3rpx, 3rpx\)/);
   const btn = css.slice(css.indexOf('.dir-create-btn {'), css.indexOf('.dir-create-btn {') + 500);
   assert.match(btn, /background: transparent;/);
   assert.match(btn, /1rpx solid rgba\(255, 255, 255, 0\.38\)/);

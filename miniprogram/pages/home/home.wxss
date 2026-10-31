@@ -1338,24 +1338,24 @@ justify-content: center;
 opacity: 0.4;
 }
 .dir-head-folder {
-width: 38rpx;
-height: 38rpx;
-transform: translate(-4rpx, 4rpx);
+width: 42rpx;
+height: 42rpx;
+transform: translate(-3rpx, 3rpx);
 }
 .dir-head-badge {
 position: absolute;
-right: 6rpx;
-top: 9rpx;
-transform: translate(-3rpx, 3rpx);
-width: 30rpx;
-height: 30rpx;
+right: 7rpx;
+top: 8rpx;
+transform: translate(-2rpx, 2rpx);
+width: 24rpx;
+height: 24rpx;
 display: flex;
 align-items: center;
 justify-content: center;
 }
 .dir-head-add {
-width: 30rpx;
-height: 30rpx;
+width: 24rpx;
+height: 24rpx;
 display: block;
 }
 .dir-head-cancel {
