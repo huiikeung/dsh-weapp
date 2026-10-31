@@ -107,6 +107,19 @@ test('server-side sidebar visibility hides the card without rendering stale data
   assert.equal(!!f.page._sessionStatusPollTimer, false, 'hidden pages do not start session status polling');
 });
 
+test('sidebar quota card defaults on when the gateway omits sidebarVisible', async () => {
+  const f = fixture();
+  f.store.state.connection = 'connected';
+  f.emit();
+  const visibleByDefault = frame();
+  delete visibleByDefault.dashboard.display.sidebarVisible;
+  delete visibleByDefault.config.display.sidebarVisible;
+  f.requests[0].resolve(visibleByDefault);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.ok(f.page.data.costSidebar, 'sidebar card renders by default');
+  assert.equal(f.page.data.costSidebar.style, 'summary');
+});
+
 test('the four layout styles are carried into the drawer model', async () => {
   for (const style of ['summary', 'simple', 'standard', 'compact']) {
     const f = fixture();

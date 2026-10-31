@@ -142,7 +142,8 @@ Page({
     styleOptions: costView.SIDEBAR_STYLES,
     displayOptions: costView.DISPLAY_OPTIONS,
     budgetPeriods: BUDGET_PERIODS,
-    displayForm: { currency: 'CNY', symbol: '¥', decimals: 3, exchangeRate: 7.2, sidebarStyle: 'standard', sidebarVisible: false, peakStyle: 'progress', refreshLabel: '15 分钟' },
+    // 侧栏额度卡片默认开启；网关配置未下发 display.sidebarVisible 时也按开启处理。
+    displayForm: { currency: 'CNY', symbol: '¥', decimals: 3, exchangeRate: 7.2, sidebarStyle: 'standard', sidebarVisible: true, peakStyle: 'progress', refreshLabel: '15 分钟' },
     sidebarOrderCells: [],
     previewComponent: 'budget',
     previewComponentOptions: [],
@@ -596,7 +597,8 @@ Page({
       exchangeRate: config.exchangeRate === undefined ? 7.2 : config.exchangeRate,
       exchangeRateAuto: config.exchangeRateAuto === true,
       sidebarStyle: display.sidebarStyle || 'standard',
-      sidebarVisible: display.sidebarVisible === true,
+      // 默认开启：只有网关明确返回 false 时才关闭。
+      sidebarVisible: display.sidebarVisible !== false,
       sidebarTodayMetric: display.sidebarTodayMetric || 'both',
       sidebarTodayBalanceInline: display.sidebarTodayBalanceInline === true,
       peakStyle: display.peakStyle || 'progress',
@@ -668,7 +670,7 @@ Page({
   /** 预览用侧栏模型：与 home 页同一套 quotaSidebarModel，使用参考插件同款示例数据。 */
   buildPreviewSidebar(displayForm) {
     const form = displayForm || this.data.displayForm || {};
-    if (form.sidebarVisible !== true) return null;
+    if (form.sidebarVisible === false) return null;
     const view = costView.normalizeQuotaDashboard(this.previewDashboard(form), this.previewSummary(form));
     if (!view) return null;
     return costView.quotaSidebarModel(view, form.sidebarStyle);

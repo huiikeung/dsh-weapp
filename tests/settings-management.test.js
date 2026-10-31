@@ -244,6 +244,15 @@ test('额度卡片入口移到实验性功能，箭头改成开关并复用额�
   assert.ok(calls.some(call => call[0] === 'navigate' && call[1] === '/pages/cost-meter/cost-meter'),
     'turning it on opens the quota card page');
   assert.deepEqual(JSON.parse(JSON.stringify(update.payload)), { patch: { display: { sidebarVisible: true } } });
+
+  // 网关配置里没有 sidebarVisible 时按默认开启展示
+  page.setData({ quotaSidebarVisible: false });
+  page.loadQuotaSidebarPreference();
+  await Promise.resolve();
+  const defaultConfig = costRequests.filter(item => item.action === 'config').at(-1);
+  defaultConfig.resolve({ display: {} });
+  await Promise.resolve(); await Promise.resolve();
+  assert.equal(page.data.quotaSidebarVisible, true, '网关未下发开关时默认开启');
 });
 test('settings account area shows login and balance while connected and hides when disconnected', async () => {
   const { page, store } = createPage({
