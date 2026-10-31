@@ -58,7 +58,7 @@ test('添加工作区弹窗：上一级行与箭头用白色高亮，+ 号是蓝
   assert.doesNotMatch(badge, /background:/);
   assert.doesNotMatch(badge, /border:/);
   const add = css.slice(css.indexOf('.dir-head-add {'), css.indexOf('.dir-head-add {') + 200);
-  assert.match(add, /width: 24rpx;/);
+  assert.match(add, /width: 18rpx;/);
   assert.doesNotMatch(add, /drop-shadow/);
   const wxml = read('pages/home/home.wxml');
   assert.match(wxml, /class="dir-head-folder" src="\/assets\/icons\/workspace-folder-blue\.svg"/);
