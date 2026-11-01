@@ -134,7 +134,7 @@
 
       <view class="hero">
         <view class="title-hero {{connectionClass}}">{{ui['探索未至之境']}}</view>
-        <view wx:if="{{connectionClass === 'connected'}}" class="subtitle-hero">{{ui['已连接 whaletail Harness 预览版']}}</view>
+        <view wx:if="{{connectionClass === 'connected'}}" class="subtitle-hero">{{ui['已连接 DeepSeek Harness 预览版']}}</view>
       </view>
 
       <!-- 工作区选择器 -->

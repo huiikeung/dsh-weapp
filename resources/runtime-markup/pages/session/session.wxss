@@ -5660,7 +5660,7 @@ overscroll-behavior-y: auto;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.conv-sidebar-chev { width: 22rpx; height: 22rpx; flex: none; opacity: 0.55; transition: transform 150ms ease; }
+.conv-sidebar-chev { width: 22rpx; height: 22rpx; flex: none; margin-left: -10rpx; opacity: 0.55; transition: transform 150ms ease; }
 .conv-sidebar-chev.open { transform: rotate(180deg); }
 .conv-sidebar-session {
   display: flex;
@@ -5708,3 +5708,19 @@ overscroll-behavior-y: auto;
     box-sizing: border-box;
   }
 }
+
+/* 工作区行右侧的新建会话图标（折叠箭头左边）：DSH 客户端同款「气泡 + 加号」。 */
+.conv-sidebar-new {
+  flex: none;
+  width: 56rpx;
+  height: 56rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 2rpx;
+  border-radius: 50%;
+  color: var(--text-3);
+}
+.conv-sidebar-new-ic { width: 36rpx; height: 36rpx; opacity: 0.55; }
+/* 分组展开后，新建会话入口移到会话列表上方；标题栏的按钮隐藏。 */
+

@@ -2033,6 +2033,23 @@ Page({
     if (this.data.tab === 'conversation') this.startScrollPolling();
   },
 
+  /** 侧栏工作区行右侧「＋」：在该工作区新建会话并原地打开。 */
+  createConvSidebarSession(e) {
+    const workspaceId = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
+    if (!workspaceId || workspaceId === '__ungrouped__' || this._creatingSidebarSession) return;
+    this._creatingSidebarSession = true;
+    this.closeConversationSidebar();
+    Promise.resolve(store.createAndOpenSession(workspaceId)).then((id) => {
+      if (this._unloaded) return;
+      if (id) {
+        this.sessionId = id;
+        if (this.data.tab === 'conversation') this.startScrollPolling();
+      }
+    }).catch((err) => {
+      if (!this._unloaded) wx.showToast({ title: (err && err.message) || uiText('创建会话失败'), icon: 'none' });
+    }).finally(() => { this._creatingSidebarSession = false; });
+  },
+
   openConvSidebarPlugins() {
     this.closeConversationSidebar();
     wx.navigateTo({ url: '/pages/plugins/plugins' });

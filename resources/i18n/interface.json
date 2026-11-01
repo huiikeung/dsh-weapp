@@ -251,7 +251,6 @@
   "正在思考，用时 12 秒…": "Thinking, 12 seconds elapsed…",
   "只改变文字流光 · 自动保存": "Changes only the text shimmer · Auto-saved",
   "探索未至之境": "Explore the unknown",
-  "已连接 whaletail Harness 预览版": "Connected to whaletail Harness Preview",
   "暂无已保存的主机，请扫码添加": "No saved hosts. Scan a QR code to add one.",
   "精简": "Compact",
   "标准": "Standard",
@@ -2498,5 +2497,6 @@
   "同步中断，点击重试": "Sync interrupted. Tap to retry.",
   "上下文标签页": "Context tab",
   "编队标签页": "Fleet tab",
-  "界面语言，选择后立即生效": "Interface language; applies immediately"
+  "界面语言，选择后立即生效": "Interface language; applies immediately",
+  "已连接 DeepSeek Harness 预览版": "Connected to DeepSeek Harness Preview"
 }
