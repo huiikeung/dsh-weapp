@@ -12,11 +12,11 @@ test('history pagination deduplicates and stale Host responses are ignored',asyn
 test('new task opens blank session without inventing a scheduled operation',async()=>{const {page,calls}=fixture();page.newTask();await Promise.resolve();assert.equal(calls.filter(c=>c.create).length,1);assert.equal(calls.filter(c=>c.navigate).length,1);assert.equal(calls.filter(c=>c.update).length,0);});
 test('empty state offers a centered new-task button and onShow clears a stuck creating flag',()=>{
   const {page}=fixture();const xml=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/schedule/schedule.wxml'),'utf8');
-  // 底部 footer 已移除；空状态中间保留一个「新建自动化任务」，工具栏另有一个「＋ 新建」
+  // 底部 footer 已移除；空状态中间保留一个「新建自动化任务」，工具栏另有与返回按钮同款的圆形新建按钮
   assert.ok(!xml.includes('sched-empty-footer'));
   assert.ok(xml.includes("ui['新建自动化任务']"));
   assert.equal((xml.match(/bindtap="newTask"/g)||[]).length,2);
-  assert.match(xml,/class="sched-primary sched-new" bindtap="newTask"/);
+  assert.match(xml,/class="sched-new" bindtap="newTask"/);
   assert.match(xml,/class="sched-empty-new" bindtap="newTask"/);
   page.data.creating=true;page.onShow();assert.equal(page.data.creating,false);
 });

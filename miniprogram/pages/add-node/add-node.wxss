@@ -20,18 +20,24 @@
 }
 
 .add-node .nav-back {
-  width: 96rpx;
+  width: 64rpx;
   height: 64rpx;
-  border-radius: 999rpx;
-  background: rgba(76, 108, 224, 0.16);
+  flex: none;
+  border-radius: 50%;
+  background: var(--fill);
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
-.add-node .nav-back-ic {
-  width: 34rpx;
-  height: 34rpx;
+/* 返回箭头用 CSS 画，跟随文字色自动适配深浅主题 */
+.add-node .nav-back-chev {
+  width: 16rpx;
+  height: 16rpx;
+  margin-left: 5rpx;
+  border-left: 3rpx solid var(--text);
+  border-bottom: 3rpx solid var(--text);
+  transform: rotate(45deg);
 }
 
 .add-node .nav-title {
@@ -184,9 +190,9 @@
   height: 104rpx;
   padding: 0;
   border-radius: 999rpx;
-  border: 0;
-  background: #4C6CE0;
-  color: #FFFFFF;
+  border: 2rpx solid var(--border);
+  background: transparent;
+  color: var(--text);
   font-size: 32rpx;
   font-weight: 600;
   line-height: normal;
@@ -194,6 +200,11 @@
   align-items: center;
   justify-content: center;
   gap: 12rpx;
+}
+.theme-dark .btn-scan {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text);
 }
 
 .btn-scan::after {
@@ -257,9 +268,9 @@
   height: 104rpx;
   padding: 0;
   border-radius: 999rpx;
-  border: 0;
-  background: #4C6CE0;
-  color: #FFFFFF;
+  border: 2rpx solid rgba(76, 108, 224, 0.55);
+  background: rgba(76, 108, 224, 0.06);
+  color: #3D5ACB;
   font-size: 32rpx;
   font-weight: 600;
   line-height: normal;
@@ -267,6 +278,11 @@
   align-items: center;
   justify-content: center;
   gap: 10rpx;
+}
+.theme-dark .btn-primary {
+  border-color: rgba(143, 182, 255, 0.55);
+  background: rgba(143, 182, 255, 0.08);
+  color: #A9C6FF;
 }
 
 .btn-primary::after,
@@ -284,8 +300,8 @@
   height: 104rpx;
   padding: 0;
   border-radius: 999rpx;
-  border: 0;
-  background: var(--fill);
+  border: 1rpx solid var(--border);
+  background: transparent;
   color: var(--text);
   font-size: 32rpx;
   font-weight: 500;
@@ -293,6 +309,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+/* 上一步：纯文字按钮，不做底色，弱化以突出上面的主操作 */
+.footer .btn-ghost {
+  height: 88rpx;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-weight: 500;
 }
 
 .btn-press {
@@ -314,12 +338,32 @@
 }
 
 .pair-sheet {
-  width: 100%;
+  position: fixed;
+  /* 与首页「手动输入配对信息」弹窗同一套玻璃材质与外缩尺寸 */
+  left: 12px;
+  right: 12px;
+  bottom: 24px;
   box-sizing: border-box;
-  padding: 10rpx 40rpx calc(32rpx + env(safe-area-inset-bottom));
-  border-radius: 32rpx 32rpx 0 0;
-  background: var(--surface);
-  color: var(--text);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
+  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  color: #F1F4FA;
+}
+
+.pair-sheet.keyboard-open { height: auto; max-height: none; }
+
+.pair-sheet-body {
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 0 40rpx;
 }
 
 .sheet-grabber {
@@ -335,52 +379,101 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 16rpx 0 24rpx;
-}
-
-.pair-sheet-head > view {
-  display: flex;
-  flex-direction: column;
-}
-
-.pair-sheet-title {
-  color: var(--text);
-  font-size: 34rpx;
-  font-weight: 650;
-}
-
-.pair-sheet-subtitle {
-  margin-top: 4rpx;
-  color: var(--text-2);
-  font-size: 23rpx;
-}
-
-.pair-sheet-close {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  min-width: 88rpx;
-  min-height: 64rpx;
-  padding: 0;
+  gap: 16rpx;
+  height: 96rpx;
+  padding: 0 8rpx 0 40rpx;
   flex-shrink: 0;
 }
 
+.pair-sheet-title {
+  flex: 1;
+  min-width: 0;
+  color: #FFFFFF;
+  font-size: 34rpx;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pair-sheet-subtitle {
+  display: block;
+  margin: 4rpx 0 24rpx;
+  color: rgba(241, 244, 250, 0.52);
+  font-size: 27rpx;
+  line-height: 1.5;
+}
+
+.pair-sheet-close {
+  width: 60rpx;
+  height: 60rpx;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.10);
+}
+.pair-close-x { position: relative; width: 22rpx; height: 22rpx; }
+.pair-close-x::before,
+.pair-close-x::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 22rpx;
+  height: 2.5rpx;
+  margin-top: -1.25rpx;
+  border-radius: 2rpx;
+  background: rgba(241, 244, 250, 0.85);
+}
+.pair-close-x::before { transform: rotate(45deg); }
+.pair-close-x::after { transform: rotate(-45deg); }
+
+.pair-input-card {
+  background: rgba(6, 12, 24, 0.52);
+  border: 1rpx solid rgba(241, 244, 250, 0.16);
+  border-radius: 28rpx;
+  overflow: hidden;
+  box-shadow: inset 0 2rpx 6rpx rgba(0, 0, 0, 0.28), inset 0 1rpx 0 rgba(255, 255, 255, 0.06);
+}
+.pair-input-card:focus-within {
+  border-color: rgba(76, 140, 245, 0.85);
+  box-shadow: 0 0 0 5rpx rgba(46, 107, 230, 0.18), inset 0 2rpx 6rpx rgba(0, 0, 0, 0.30);
+}
+.pair-input-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 20rpx 24rpx 0;
+}
+.pair-input-label { font-size: 24rpx; color: rgba(241, 244, 250, 0.45); }
+.pair-input-actions { display: flex; align-items: center; gap: 20rpx; }
+.pair-input-action { padding: 6rpx 2rpx; font-size: 26rpx; color: #8FB6FF; }
+
+.pair-sheet-footer {
+  flex: none;
+  padding: 18rpx 40rpx calc(20rpx + env(safe-area-inset-bottom));
+}
+.pair-sheet-footer .pair-submit { margin-top: 0; }
+
 .pair-payload-input {
   width: 100%;
-  height: 240rpx;
+  height: 260rpx;
   box-sizing: border-box;
-  padding: 20rpx 22rpx;
-  border: 1rpx solid var(--border);
-  border-radius: 16rpx;
-  background: var(--fill);
-  color: var(--text);
+  padding: 16rpx 24rpx 24rpx;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #F1F4FA;
   font-family: "SF Mono", ui-monospace, Menlo, Consolas, monospace;
   font-size: 23rpx;
   line-height: 1.45;
 }
 
 .pair-payload-placeholder {
-  color: var(--text-4);
+  color: rgba(241, 244, 250, 0.34);
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
 }
 
@@ -435,7 +528,7 @@
   position: absolute;
   width: 11rpx;
   height: 11rpx;
-  border: 3rpx solid #FFFFFF;
+  border: 3rpx solid currentColor;
   box-sizing: border-box;
 }
 
@@ -448,7 +541,7 @@
   position: absolute;
   width: 10rpx;
   height: 10rpx;
-  border: 2rpx solid #FFFFFF;
+  border: 2rpx solid currentColor;
   border-radius: 3rpx;
   box-sizing: border-box;
 }
@@ -462,7 +555,7 @@
   height: 3rpx;
   margin: -1.5rpx 0 0 -1.5rpx;
   border-radius: 1rpx;
-  background: #FFFFFF;
+  background: currentColor;
 }
 
 .ico-scan .find.a { left: 7rpx; top: 7rpx; }
@@ -482,7 +575,7 @@
 .ico-scan .dots view {
   width: 3rpx;
   height: 3rpx;
-  background: #FFFFFF;
+  background: currentColor;
   border-radius: 1rpx;
 }
 
@@ -492,7 +585,7 @@
   width: 36rpx;
   height: 26rpx;
   box-sizing: border-box;
-  border: 2rpx solid #565D68;
+  border: 2rpx solid currentColor;
   border-radius: 6rpx;
   padding: 4rpx;
   display: flex;
@@ -509,7 +602,7 @@
 .ico-keyboard .kb-row view {
   width: 4rpx;
   height: 4rpx;
-  background: #565D68;
+  background: currentColor;
   border-radius: 1rpx;
 }
 
@@ -522,14 +615,22 @@
 }
 
 /* 配对按钮：图标与文字严格垂直居中 */
+/* 两个按钮的图标固定在同一列，文字各自起于同一横坐标，且单行显示 */
 .pair-actions .btn-scan,
 .pair-actions .btn-ghost {
-  display: flex;
+  display: grid;
+  grid-template-columns: 36rpx 1fr;
   align-items: center;
-  justify-content: center;
-  gap: 12rpx;
+  justify-items: start;
+  column-gap: 16rpx;
+  padding: 0 32rpx;
   line-height: 1;
 }
+.pair-actions .btn-ic { width: 36rpx; height: 36rpx; display: flex; align-items: center; justify-content: center; }
+.pair-actions .btn-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 第一页「已完成，去配对」再往下一些 */
+.footer .btn-primary { margin-top: 24rpx; }
 
 .pair-actions .btn-ic {
   align-self: center;
@@ -545,3 +646,291 @@
   line-height: 1;
   margin: 0;
 }
+
+/* 浅色模式：弹窗改用浅色玻璃，文字转深色；输入卡改为透明只留描边。 */
+.theme-light .pair-sheet {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.92));
+  border-color: rgba(16, 19, 24, 0.10);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 12rpx 48rpx rgba(7, 24, 43, 0.18);
+  color: #10131A;
+  backdrop-filter: blur(24rpx) saturate(1.05);
+  -webkit-backdrop-filter: blur(24rpx) saturate(1.05);
+}
+.theme-light .pair-sheet-title { color: #10131A; }
+.theme-light .pair-sheet-subtitle { color: rgba(16, 19, 24, 0.55); }
+.theme-light .pair-sheet-close { background: rgba(16, 19, 24, 0.06); }
+.theme-light .pair-close-x::before,
+.theme-light .pair-close-x::after { background: rgba(16, 19, 24, 0.62); }
+.theme-light .pair-input-card {
+  background: transparent;
+  border-color: rgba(16, 19, 24, 0.14);
+  box-shadow: none;
+}
+.theme-light .pair-input-card:focus-within {
+  border-color: rgba(46, 107, 230, 0.55);
+  box-shadow: 0 0 0 4rpx rgba(46, 107, 230, 0.10);
+}
+.theme-light .pair-input-label { color: rgba(16, 19, 24, 0.45); }
+.theme-light .pair-input-action { color: #2E6BE6; }
+.theme-light .pair-payload-input { color: #10131A; }
+.theme-light .pair-payload-placeholder { color: rgba(16, 19, 24, 0.32); }
+.theme-light .sheet-grabber { background: rgba(16, 19, 24, 0.22); }
+.theme-light .pair-result { color: #C44848; }
+
+/* ===== 与首页手动配对弹窗完全一致的样式 ===== */
+.manual-sheet {
+  position: fixed;
+  /* 与「切换主机」弹窗同一套玻璃材质与内缩尺寸 */
+  left: 12px;
+  right: 12px;
+  bottom: 24px;
+  z-index: 62;
+  display: flex;
+  flex-direction: column;
+  height: auto;
+  max-height: 90vh;
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  padding: 0 28rpx calc(28rpx + env(safe-area-inset-bottom));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 12rpx 48rpx rgba(3, 14, 30, 0.26);
+  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  transition: height 0.5s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.manual-sheet.expanded {
+  height: calc(90vh - 24px);
+  max-height: none;
+}
+
+/* 键盘弹出：高度交给内容，弹层靠 bottom 上移；max-height 由内联样式按键盘高度计算。 */
+.manual-sheet.keyboard-open {
+  height: auto;
+  max-height: none;
+}
+
+.manual-sheet-head {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  height: 96rpx;
+  padding: 0 8rpx;
+  flex-shrink: 0;
+}
+
+.manual-sheet-close {
+  width: 60rpx;
+  height: 60rpx;
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.10);
+}
+.manual-close-x { position: relative; width: 22rpx; height: 22rpx; }
+.manual-close-x::before,
+.manual-close-x::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 22rpx;
+  height: 2.5rpx;
+  margin-top: -1.25rpx;
+  border-radius: 2rpx;
+  background: rgba(241, 244, 250, 0.85);
+}
+.manual-close-x::before { transform: rotate(45deg); }
+.manual-close-x::after { transform: rotate(-45deg); }
+
+.manual-sheet-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #FFFFFF;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.manual-sheet-done {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 60rpx;
+  padding: 0 22rpx;
+  border-radius: 999rpx;
+  background: rgba(255, 255, 255, 0.12);
+  border: 1rpx solid rgba(255, 255, 255, 0.20);
+  color: #FFFFFF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26rpx;
+  font-weight: 500;
+}
+
+.manual-sheet-body {
+  flex: 1;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 8rpx 40rpx 0;
+}
+
+.manual-input-card {
+  background: rgba(6, 12, 24, 0.52);
+  border: 1rpx solid rgba(241, 244, 250, 0.16);
+  border-radius: 28rpx;
+  overflow: hidden;
+  box-shadow: inset 0 2rpx 6rpx rgba(0, 0, 0, 0.28), inset 0 1rpx 0 rgba(255, 255, 255, 0.06);
+}
+.manual-input-card:focus-within {
+  background: rgba(6, 12, 24, 0.68);
+  border-color: rgba(76, 140, 245, 0.85);
+  box-shadow: 0 0 0 5rpx rgba(46, 107, 230, 0.18), inset 0 2rpx 6rpx rgba(0, 0, 0, 0.30);
+}
+.manual-input-tools {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16rpx;
+  padding: 20rpx 24rpx 0;
+}
+.manual-input-label {
+  font-size: 24rpx;
+  color: rgba(241, 244, 250, 0.45);
+}
+.manual-input-actions { display: flex; align-items: center; gap: 20rpx; }
+.manual-input-action {
+  padding: 6rpx 2rpx;
+  font-size: 26rpx;
+  color: #8FB6FF;
+}
+.manual-sheet-footer {
+  flex: none;
+  padding: 18rpx 40rpx calc(20rpx + env(safe-area-inset-bottom));
+}
+.manual-sheet-footer .manual-connect { margin-top: 0; }
+
+.manual-sec-title {
+  font-size: 34rpx;
+  font-weight: 700;
+  color: #F1F4FA;
+}
+
+.manual-sec-desc {
+  font-size: 27rpx;
+  line-height: 1.5;
+  color: rgba(241, 244, 250, 0.52);
+  margin: 4rpx 0 24rpx;
+}
+
+.manual-input {
+  width: 100%;
+  min-height: 260rpx;
+  box-sizing: border-box;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  padding: 16rpx 24rpx 24rpx;
+  font-size: 26rpx;
+  line-height: 1.5;
+  color: rgba(241, 244, 250, 0.92);
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+}
+
+.manual-input.focused { background: transparent; }
+
+.manual-input-ph {
+  color: rgba(241, 244, 250, 0.34);
+}
+
+.manual-result {
+  margin-top: 24rpx;
+  font-size: 28rpx;
+}
+
+.manual-result.connecting {
+  color: var(--mist);
+}
+
+.manual-result.error {
+  color: #FF8589;
+}
+
+.manual-connect {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 96rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, #5B95FF 0%, #2E6BE6 52%, #1E55C8 100%);
+  box-shadow: 0 14rpx 34rpx rgba(46, 107, 230, 0.42), inset 0 1rpx 0 rgba(255, 255, 255, 0.42);
+  margin-top: 44rpx;
+  font-size: 31rpx;
+  font-weight: 600;
+  letter-spacing: 2rpx;
+  color: #FFFFFF;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+}
+
+.manual-connect-press {
+  transform: scale(0.985);
+  opacity: 0.9;
+}
+
+.manual-connect.disabled {
+  background: rgba(46, 107, 230, 0.28);
+  box-shadow: none;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.manual-connect-ic {
+  width: 36rpx;
+  height: 36rpx;
+  margin-right: 14rpx;
+  opacity: 0.95;
+}
+
+
+.pair-sheet-mask .manual-sheet { z-index: 121; }
+
+/* 弹窗层级：遮罩 120，弹窗需在其上 */
+.add-node .manual-sheet { z-index: 121; }
+
+/* 浅色模式：配对弹窗转浅色玻璃，输入卡透明、深色文字 */
+.theme-light .manual-sheet {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.92));
+  border-color: rgba(16, 19, 24, 0.10);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 12rpx 48rpx rgba(7, 24, 43, 0.18);
+  color: #10131A;
+  backdrop-filter: blur(24rpx) saturate(1.05);
+  -webkit-backdrop-filter: blur(24rpx) saturate(1.05);
+}
+.theme-light .manual-sheet-title { color: #10131A; }
+.theme-light .manual-sheet-close { background: rgba(16, 19, 24, 0.06); }
+.theme-light .manual-close-x::before,
+.theme-light .manual-close-x::after { background: rgba(16, 19, 24, 0.62); }
+.theme-light .manual-sec-desc { color: rgba(16, 19, 24, 0.55); }
+.theme-light .manual-input-card {
+  background: transparent;
+  border-color: rgba(16, 19, 24, 0.14);
+  box-shadow: none;
+}
+.theme-light .manual-input-card:focus-within {
+  border-color: rgba(46, 107, 230, 0.55);
+  box-shadow: 0 0 0 4rpx rgba(46, 107, 230, 0.10);
+}
+.theme-light .manual-input-label { color: rgba(16, 19, 24, 0.45); }
+.theme-light .manual-input-action { color: #2E6BE6; }
+.theme-light .manual-input { color: #10131A; }
+.theme-light .manual-input-ph { color: rgba(16, 19, 24, 0.32); }
+.theme-light .manual-result { color: #C44848; }

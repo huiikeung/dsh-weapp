@@ -2,8 +2,7 @@
 <view class="page pdetail {{themeClass}}" style="{{contentFontStyle}}padding-top: {{statusBarH}}px;">
   <view class="pdetail-header">
     <view class="pdetail-back tap" hover-class="press-dim" bindtap="goBack" role="button" aria-label="{{ui['返回插件']}}">
-      <image class="pdetail-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
-      <text>{{ui['插件']}}</text>
+      <view class="pdetail-back-chev"></view>
     </view>
   </view>
 
@@ -43,7 +42,10 @@
       <text wx:if="{{notice}}" class="pdetail-warn-sm">{{ui[notice] !== undefined ? ui[notice] : notice}}</text>
       <text wx:if="{{!connected}}" class="pdetail-warn-sm">{{ui['网关已断开，插件状态待重新连接确认']}}</text>
 
-<include src="settings-form.wxml"/>
+<view wx:if="{{config || configStatus === 'loading' || configStatus === 'error'}}" class="pdetail-config-entry tap" hover-class="press-dim" bindtap="openSettings" role="button" aria-label="{{ui['插件设置']}}">
+        <text class="pdetail-config-entry-text">{{ui['插件设置']}}</text>
+        <view class="pdetail-config-entry-chev"></view>
+      </view>
       <!-- 包含的组件 -->
       <view class="pdetail-entries-head">
         <text class="pdetail-section-title">{{ui['包含的组件']}}</text>
@@ -80,7 +82,10 @@
       </view>
       <text class="pdetail-name pdetail-gap">{{ui[official.title] !== undefined ? ui[official.title] : official.title}}</text>
       <text wx:if="{{config.labels.description || config.labels.subagentDescription || official.description}}" class="pdetail-desc">{{config.labels.description || config.labels.subagentDescription || official.description}}</text>
-<include src="settings-form.wxml"/>
+<view wx:if="{{config || configStatus === 'loading' || configStatus === 'error'}}" class="pdetail-config-entry tap" hover-class="press-dim" bindtap="openSettings" role="button" aria-label="{{ui['插件设置']}}">
+        <text class="pdetail-config-entry-text">{{ui['插件设置']}}</text>
+        <view class="pdetail-config-entry-chev"></view>
+      </view>
     </view>
 
     <!-- 目录缺失回退 -->
@@ -88,6 +93,19 @@
       <text class="plugins-state-desc">{{ui['插件目录不可用，请返回后重新进入']}}</text>
     </view>
   </scroll-view>
+
+  <!-- 插件设置：玻璃底部弹窗 -->
+  <view wx:if="{{settingsOpen}}" class="pdetail-sheet-mask" catchtap="closeSettings" catchtouchmove="noop"></view>
+  <view wx:if="{{settingsOpen}}" class="pdetail-sheet pdetail-settings-sheet">
+    <view class="pdetail-sheet-handle"></view>
+    <view class="pdetail-sheet-head">
+      <text class="pdetail-sheet-title">{{ui['插件设置']}}</text>
+      <view class="pdetail-sheet-done tap" hover-class="press-dim" bindtap="closeSettings">{{ui['完成']}}</view>
+    </view>
+    <scroll-view class="pdetail-settings-scroll" scroll-y>
+      <view class="pdetail-settings-body"><include src="../../plugin-settings/settings-form.wxml"/></view>
+    </scroll-view>
+  </view>
 
   <!-- 卸载插件：与安装面板同款的底部弹窗 -->
   <view wx:if="{{uninstallOpen}}" class="pdetail-sheet-mask" catchtap="closeUninstallSheet" catchtouchmove="noop"></view>

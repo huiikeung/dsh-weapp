@@ -378,7 +378,7 @@ test('disconnected split add button keeps its pill instead of the native disable
   // 让胶囊配色保留、整组只通过 .disabled 淡出一次，刷新圆钮也不变成灰色实心圆。
   for (const source of [css, ascf]) {
     const sheet = compact(source);
-    assert.ok(sheet.includes('.plugins .plugin-add-group .plugin-add[disabled], .plugins .plugin-add-group .plugin-add-arrow[disabled] { opacity: 1; background: transparent; color: var(--pg-on-primary); }'), 'split button keeps pill colors in disabled state');
+    assert.match(sheet, /\.plugins \.plugin-add-group \.plugin-add\[disabled\],[\s\S]{0,200}color: var\(--pg-text\)/, 'split button keeps its outline colors in disabled state');
     assert.ok(sheet.includes('.plugins .plugins-actions .plugins-refresh[disabled] { background: transparent; }'), 'refresh button keeps transparent background when disabled');
     assert.ok(sheet.includes('.plugins button[disabled], .plugins .disabled { opacity: .4; }'), 'the group still fades once');
   }
@@ -416,14 +416,15 @@ test('plugin list renders 异常 / 可更新 badges and updates through the inst
   assert.ok(wxml.includes('plugin-badge-update'));
   assert.ok(wxml.includes("ui['可更新']"));
   assert.ok(wxml.includes('catchtap="updateBundle"'));
-  assert.match(js, /updateBundle\(e\)[\s\S]{0,200}?openOfficialInstall\(name\)/);
+  assert.match(js, /updateBundle\(e\)[\s\S]{0,600}?prepareUpdate\(name\)/);
+  assert.match(js, /prepareUpdate\(name\)[\s\S]{0,800}?addOpen: true/);
   assert.match(js, /updateAvailable: !!b\.updateAvailable/);
   assert.match(wxss, /\.plugin-badge-error \{[^}]*color: #FF5A52/);
   assert.match(wxss, /\.plugin-badge-update \{[^}]*color: #7E9AF2/);
 });
 
 test('subagent settings no longer expose the model selection section', () => {
-  const form = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/plugin-detail/settings-form.wxml'), 'utf8');
+  const form = fs.readFileSync(path.resolve(__dirname, '../miniprogram/plugin-settings/settings-form.wxml'), 'utf8');
   assert.ok(!form.includes('subagentModelSelectionTitle'), 'model selection heading removed');
   assert.ok(!form.includes('onModelSelectionChange'), 'model selection toggle removed');
   assert.ok(form.includes('subagentLimitsTitle'), 'runtime limits stay');
@@ -437,7 +438,7 @@ test('detail update action hands the official install target to the plugins page
   assert.match(detail, /onUpdateBundle\(\)[\s\S]{0,240}?store\.state\.pendingOfficialInstall = bundle\.name/);
   // 列表页 onShow 读取 store 的挂起目标，并在目录就绪后消费
   assert.match(list, /store\.state\.pendingOfficialInstall[\s\S]{0,120}?this\.pendingOfficialInstall = store\.state\.pendingOfficialInstall/);
-  assert.match(list, /consumePendingOfficialInstall\(\)[\s\S]{0,220}?openOfficialInstall\(name\)/);
+  assert.match(list, /consumePendingOfficialInstall\(\)[\s\S]{0,900}?openOfficialInstall\(name\)/);
   assert.match(list, /this\.consumePendingOfficialInstall\(\)/);
 });
 
@@ -447,4 +448,18 @@ test('uninstall request accepts the host result kinds and explains legacy gatewa
   assert.match(src, /Array\.isArray\(pluginRequest\.expectedKind\)/);
   assert.match(src, /plugin-uninstall\)\$\/\.exec/);
   assert.match(src, /当前网关未提供卸载接口/);
+});
+
+test('plugin cards open an in-page glass sheet instead of navigating', () => {
+  const root = path.resolve(__dirname, '..');
+  const js = fs.readFileSync(path.join(root, 'miniprogram/pages/plugins/plugins.js'), 'utf8');
+  const wxml = fs.readFileSync(path.join(root, 'miniprogram/pages/plugins/plugins.wxml'), 'utf8');
+  assert.ok(!/openBundle\(e\)[\s\S]{0,200}?wx\.navigateTo/.test(js), 'bundle card no longer navigates');
+  assert.ok(!/openOfficial\(e\)[\s\S]{0,200}?wx\.navigateTo/.test(js), 'built-in card no longer navigates');
+  assert.match(js, /openBundle\(e\)[\s\S]{0,600}?detailOpen: true/);
+  assert.match(js, /openOfficial\(e\)[\s\S]{0,600}?detailOpen: true/);
+  assert.match(js, /syncSettings\(\)/);
+  assert.match(wxml, /wx:if="\{\{detailOpen\}\}" class="plugin-sheet-mask" bindtap="closeDetail"/);
+  assert.match(wxml, /class="plugin-sheet plugin-detail-sheet"/);
+  assert.ok(wxml.includes('include src="../../plugin-settings/settings-form.wxml"'));
 });

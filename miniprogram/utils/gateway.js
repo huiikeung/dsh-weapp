@@ -1595,9 +1595,14 @@ class GatewayClient {
     });
   }
 
-  /** 卸载插件；响应帧 kind=plugin-uninstall-result（或 error）。 */
-  requestPluginUninstall(name) {
-    return this.requestPlugin('plugin-uninstall', { name: name }, 60000);
+  /** 卸载插件：新版网关用 plugin-remove，旧版本回退 plugin-uninstall。 */
+  async requestPluginUninstall(name) {
+    try {
+      return await this.requestPlugin('plugin-remove', { name: name }, 60000);
+    } catch (error) {
+      if (!/unknown message type|not supported/i.test((error && error.message) || '')) throw error;
+      return this.requestPlugin('plugin-uninstall', { name: name }, 60000);
+    }
   }
 
   /** 插件目录；响应帧 kind=plugin-catalog（bundles/plugins/officialItems）。 */

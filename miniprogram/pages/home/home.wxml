@@ -580,7 +580,7 @@
   </view>
   <!-- 手动配对弹层（对齐 dsh-mobile v1.6.0 ManualGatewayPairingSheet） -->
   <view wx:if="{{manualSheetOpen}}" class="host-mask" bindtap="closeManualSheet"></view>
-  <view wx:if="{{manualSheetOpen}}" class="manual-sheet {{manualSheetExpanded ? 'expanded' : ''}}">
+  <view wx:if="{{manualSheetOpen}}" class="manual-sheet {{manualSheetExpanded ? 'expanded' : ''}} {{manualKb ? 'keyboard-open' : ''}}" style="{{manualSheetStyle}}">
     <view class="sheet-grabber-zone"
       catchtouchstart="onManualSheetGrabStart"
       catchtouchmove="onManualSheetGrabMove"
@@ -589,28 +589,41 @@
     </view>
     <view class="manual-sheet-head">
       <text class="manual-sheet-title">{{ui['设备认证']}}</text>
-      <view class="manual-sheet-done tap" bindtap="closeManualSheet">{{ui['完成']}}</view>
+      <view class="manual-sheet-close tap" bindtap="closeManualSheet" hover-class="press-dim" role="button" aria-label="{{ui['关闭']}}"><view class="manual-close-x"></view></view>
     </view>
     <scroll-view class="manual-sheet-body" scroll-y>
-      <view class="manual-sec-title">{{ui['手动输入配对信息']}}</view>
-      <view class="manual-sec-desc">{{ui['粘贴 Harness WebUI 提供的 Base64URL 配对字符串。长期设备 token 只会安全保存在本机。']}}</view>
+      <view class="manual-sec-desc">{{ui['粘贴 Harness WebUI 提供的配对信息即可连接；长期设备 token 只会安全保存在本机。']}}</view>
+      <view class="manual-input-card">
+        <view class="manual-input-tools">
+          <text class="manual-input-label">{{ui['配对信息']}}</text>
+          <view class="manual-input-actions">
+            <view class="manual-input-action tap" bindtap="pastePairingText" hover-class="press-dim" role="button" aria-label="{{ui['粘贴']}}">{{ui['粘贴']}}</view>
+            <view wx:if="{{pairingText}}" class="manual-input-action tap" bindtap="clearPairingText" hover-class="press-dim" role="button" aria-label="{{ui['清空']}}">{{ui['清空']}}</view>
+          </view>
+        </view>
       <textarea
         class="manual-input text-mono {{manualInputFocused ? 'focused' : ''}}"
         value="{{pairingText}}"
         bindinput="onPairingTextInput"
         bindfocus="onManualInputFocus"
         bindblur="onManualInputBlur"
+        bindkeyboardheightchange="onManualKeyboard"
+        adjust-position="{{false}}"
+        cursor-spacing="24"
         placeholder="{{ui['粘贴 Base64URL 配对字符串或完整配对信息']}}"
         placeholder-class="manual-input-ph"
         maxlength="-1"
       />
+      </view>
       <view wx:if="{{pairingResult}}" class="manual-result {{pairingResultClass}}">{{ui[pairingResult] !== undefined ? ui[pairingResult] : pairingResult}}</view>
+    </scroll-view>
+    <view class="manual-sheet-footer">
       <view class="manual-connect {{pairingText && !pairingConnecting ? '' : 'disabled'}}" hover-class="manual-connect-press" bindtap="connectManualPairing">
         <view wx:if="{{pairingConnecting}}" class="dir-spinner light small-spin"></view>
         <image wx:else class="manual-connect-ic" src="/assets/icons/node-router-white.svg" mode="aspectFit"/>
         <text>{{pairingConnecting ? ui['连接中…'] : ui['连接']}}</text>
       </view>
-    </scroll-view>
+    </view>
   </view>
 </view>
 <public-access-dialog visible="{{publicAccessDialogOpen}}" dialog="{{publicAccessDialog}}" theme="{{sheetTheme}}" bindconfirm="onPublicAccessDialogConfirm" />

@@ -2,8 +2,8 @@
 <view class="page add-node {{themeClass}}" style="{{contentFontStyle}}">
   <!-- 自定义导航 -->
   <view class="nav" style="padding-top:{{navPadTop}}px;height:{{navHeight}}px;">
-    <view class="nav-back tap" bindtap="goBack" hover-class="press-dim">
-      <image class="nav-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/>
+    <view class="nav-back tap" bindtap="goBack" hover-class="press-dim" role="button" aria-label="{{ui['返回']}}">
+      <view class="nav-back-chev"></view>
     </view>
     <text class="nav-title">{{ui['添加节点']}}</text>
   </view>
@@ -54,7 +54,6 @@
         </view>
       </view>
       <view class="footer">
-        <button class="btn-ghost" bindtap="prev" hover-class="btn-press">{{ui['上一步']}}</button>
         <button class="btn-primary" bindtap="toPair" hover-class="btn-press">{{ui['已完成，去配对']}}</button>
       </view>
     </block>
@@ -74,7 +73,7 @@
                 <view class="dots"><view></view><view></view><view></view><view></view></view>
               </view>
             </view>
-            <text class="btn-label">{{scanning ? ui['正在连接…'] : ui['扫描配对']}}</text>
+            <text class="btn-label">{{scanning ? ui['正在连接…'] : ui['扫描二维码']}}</text>
           </button>
           <button class="btn-ghost pair-ghost" bindtap="manual" hover-class="btn-press">
             <view class="btn-ic" aria-hidden="true">
@@ -84,7 +83,7 @@
                 <view class="kb-row kb-last"><view></view><view class="kb-bar"></view><view></view></view>
               </view>
             </view>
-            <text class="btn-label">{{ui['输入配对信息']}}</text>
+            <text class="btn-label">{{ui['手动输入配对信息']}}</text>
           </button>
         </view>
         <text wx:if="{{pairError}}" class="pair-error">{{ui[pairError] !== undefined ? ui[pairError] : pairError}}</text>
@@ -95,30 +94,47 @@
     </block>
   </scroll-view>
 
-  <!-- 底部弹窗：粘贴配对信息（与设置页同款） -->
-  <view wx:if="{{pairSheetOpen}}" class="pair-sheet-mask" catchtap="closePairSheet" catchtouchmove="noop">
-    <view class="pair-sheet" catchtap="noop">
+  <!-- 底部弹窗：与首页「手动输入配对信息」弹窗完全一致 -->
+  <view wx:if="{{pairSheetOpen}}" class="pair-sheet-mask" bindtap="closePairSheet" catchtouchmove="noop"></view>
+  <view wx:if="{{pairSheetOpen}}" class="manual-sheet {{pairKb ? 'keyboard-open' : ''}}" style="{{pairSheetStyle}}">
+    <view class="sheet-grabber-zone">
       <view class="sheet-grabber"></view>
-      <view class="pair-sheet-head">
-        <view>
-          <text class="pair-sheet-title">{{ui['输入配对信息']}}</text>
-          <text class="pair-sheet-subtitle">{{ui['粘贴插件提供的 Base64URL 配对信息']}}</text>
+    </view>
+    <view class="manual-sheet-head">
+      <text class="manual-sheet-title">{{ui['设备认证']}}</text>
+      <view class="manual-sheet-close tap" bindtap="closePairSheet" hover-class="press-dim" role="button" aria-label="{{ui['关闭']}}"><view class="manual-close-x"></view></view>
+    </view>
+    <scroll-view class="manual-sheet-body" scroll-y>
+      <view class="manual-sec-desc">{{ui['粘贴 Harness WebUI 提供的配对信息即可连接；长期设备 token 只会安全保存在本机。']}}</view>
+      <view class="manual-input-card">
+        <view class="manual-input-tools">
+          <text class="manual-input-label">{{ui['配对信息']}}</text>
+          <view class="manual-input-actions">
+            <view class="manual-input-action tap" bindtap="pastePairingText" hover-class="press-dim" role="button" aria-label="{{ui['粘贴']}}">{{ui['粘贴']}}</view>
+            <view wx:if="{{pairingText}}" class="manual-input-action tap" bindtap="clearPairingText" hover-class="press-dim" role="button" aria-label="{{ui['清空']}}">{{ui['清空']}}</view>
+          </view>
         </view>
-        <view class="pair-sheet-close tap" bindtap="closePairSheet"><view class="sheet-close-x"></view></view>
+        <textarea
+          class="manual-input text-mono"
+          value="{{pairingText}}"
+          maxlength="20000"
+          auto-height="{{false}}"
+          placeholder="{{ui['粘贴 Base64URL 配对字符串或完整配对信息']}}"
+          placeholder-class="manual-input-ph"
+          bindinput="onPairingInput"
+          bindkeyboardheightchange="onPairKeyboard"
+          adjust-position="{{false}}"
+          cursor-spacing="24"
+          disabled="{{pairingConnecting}}"
+        />
       </view>
-      <textarea
-        class="pair-payload-input"
-        value="{{pairingText}}"
-        maxlength="20000"
-        auto-height="{{false}}"
-        placeholder="{{ui['粘贴完整配对字符串']}}"
-        placeholder-class="pair-payload-placeholder"
-        bindinput="onPairingInput"
-        disabled="{{pairingConnecting}}"
-      />
-      <text wx:if="{{pairingError}}" class="pair-result {{pairingConnecting ? 'pair-result-pending' : ''}}">{{ui[pairingError] !== undefined ? ui[pairingError] : pairingError}}</text>
-      <view class="pair-submit {{!pairingText || pairingConnecting ? 'pair-submit-disabled' : ''}}" bindtap="connectPublicNode">
-        <text>{{pairingConnecting ? ui['连接中…'] : ui['连接节点']}}</text>
+      <view wx:if="{{pairingError}}" class="manual-result error">{{ui[pairingError] !== undefined ? ui[pairingError] : pairingError}}</view>
+    </scroll-view>
+    <view class="manual-sheet-footer">
+      <view class="manual-connect {{pairingText && !pairingConnecting ? '' : 'disabled'}}" hover-class="manual-connect-press" bindtap="connectPublicNode">
+        <view wx:if="{{pairingConnecting}}" class="dir-spinner light small-spin"></view>
+        <image wx:else class="manual-connect-ic" src="/assets/icons/node-router-white.svg" mode="aspectFit"/>
+        <text>{{pairingConnecting ? ui['连接中…'] : ui['连接']}}</text>
       </view>
     </view>
   </view>

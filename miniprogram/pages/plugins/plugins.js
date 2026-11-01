@@ -8,6 +8,9 @@ const { ACTIVE } = require('../../utils/plugin-install');
 const { installSummary } = require('./plugin-presentation');
 const installActions = require('./install-actions');
 const marketActions = require('./market-actions');
+// 卡片点击直接弹窗：复用详情页的设置表单逻辑（配置读写、语音、校验）。
+const settingsActions = require('../../plugin-settings/settings-actions');
+const { kindFor } = require('../../plugin-settings/plugin-settings');
 
 
 const { artworkFor, imageSource } = require('./plugin-artwork');
@@ -85,8 +88,28 @@ function bundleToView(b, app) {
   };
 }
 
-Page(Object.assign({}, installActions, marketActions, {
+Page(Object.assign({}, settingsActions, installActions, marketActions, {
   data: {
+    detailOpen: false,
+    detailTitle: '',
+    detailDescription: '',
+    detailCaption: '',
+    detailName: '',
+    detailIcon: '',
+    detailArtwork: '',
+    detailVersion: '',
+    detailUpdateAvailable: false,
+    detailCanUninstall: false,
+    detailEntries: [],
+    detailActiveCount: 0,
+    detailEntriesToggleDisabled: true,
+    detailSourceLabel: '',
+    detailPackageName: '',
+    detailEnabled: false,
+    detailToggleDisabled: false,
+    detailHasConfig: false,
+    config: null, configStatus: 'idle', configError: '', configSaving: false, configModelsStatus: 'idle',
+    voice: null, voiceBusy: false, voiceError: '',
     theme: 'light',
     themeClass: 'theme-light',
     pageStyle: '',
@@ -212,6 +235,7 @@ Page(Object.assign({}, installActions, marketActions, {
       installEditable: !install || ['failed', 'cancelled', 'unknown'].includes(install.phase),
       canAdd: app.connection === 'connected' && !!catalog && catalog.managementAvailable === true && !app.pluginPendingName
     });
+    this.refreshDetailSheet(catalog);
     this.consumePendingOfficialInstall();
     if (this.data.refreshing && app.pluginsLoading !== true) {
       this.setData({ refreshing: false });
@@ -252,26 +276,194 @@ Page(Object.assign({}, installActions, marketActions, {
     if (!this.pendingOfficialInstall || !store.state.pluginCatalog) return;
     const name = this.pendingOfficialInstall;
     this.pendingOfficialInstall = '';
+    const bundle = (store.state.pluginCatalog.bundles || []).find(b => b.name === name);
+    // 已安装且有新版本：走覆盖安装（等同桌面端更新）；否则按缺失插件安装。
+    if (bundle && bundle.updateAvailable) {
+      this.updateBundle({ currentTarget: { dataset: { name } } });
+      return;
+    }
     this.openOfficialInstall(name);
   },
 
+  /** 卡片点击：直接在当前页弹出玻璃弹窗（详情 + 设置），不再跳转页面。 */
   openBundle(e) {
     const name = e.currentTarget.dataset.name;
     if (!name) return;
-    wx.navigateTo({ url: '/pages/plugin-detail/plugin-detail?bundle=' + encodeURIComponent(name) });
+    const bundle = (store.state.pluginCatalog && store.state.pluginCatalog.bundles || []).find(b => b.name === name);
+    if (!bundle) return;
+    const view = bundleToView(bundle, store.state);
+    const entries = this.buildDetailEntries(bundle);
+    this.bundleName = name;
+    this.officialId = null;
+    this.configForm = null; this.configInputs = {}; this.configSecret = '';
+    // 先只渲染弹窗骨架，下一帧再补条目和设置，避免开弹窗瞬间卡一下。
+    this.setData({
+      detailOpen: true,
+      detailName: name,
+      detailTitle: view.title || name,
+      detailDescription: view.description || '',
+      detailCaption: bundle.availability === 'missing' ? uiText('需先安装') : '',
+      detailIcon: view.icon || '',
+      detailArtwork: view.artwork || '',
+      detailVersion: bundle.version || '',
+      detailUpdateAvailable: !!bundle.updateAvailable,
+      detailCanUninstall: bundle.installed === true && !bundle.readOnlyReason,
+      detailEntries: entries,
+      detailActiveCount: entries.filter(e => e.enabled && e.phase === 'active').length,
+      detailEntriesToggleDisabled: store.state.connection !== 'connected' || !!bundle.readOnlyReason || !!store.state.pluginPendingName || (store.state.pluginCatalog && store.state.pluginCatalog.managementAvailable !== true),
+      detailEnabled: view.enabled === true,
+      detailToggleDisabled: view.toggleDisabled === true,
+      detailSourceLabel: bundle.sourceSpec || (bundle.availability === 'missing'
+        ? uiText(bundle.installed ? '文件缺失' : '未安装')
+        : ((bundle.isOfficial || bundle.availability === 'provided' || bundle.availability === 'installation') ? uiText('内置') : uiText('未提供'))),
+      detailPackageName: name,
+      detailHasConfig: !!kindFor(null, name),
+      config: null, configStatus: 'idle', configError: '', configSaving: false, voice: null, voiceError: ''
+    });
+    this.scheduleSettingsLoad();
   },
 
-  /** 检查到新版本：按主机提供的安装目标升级该插件。 */
+  /** 打开弹窗即开始加载设置；命中预取缓存时同步渲染，避免等一次网络往返。 */
+  scheduleSettingsLoad() {
+    if (this._detailRenderTimer) { clearTimeout(this._detailRenderTimer); this._detailRenderTimer = null; }
+    this.setData({ configStatus: 'idle' });
+    this.syncSettings();
+  },
+
+  onDetailIconError() {
+    if (this.data.detailIcon) this.setData({ detailIcon: '' });
+  },
+
+  closeDetail() {
+    if (this.data.configSaving) return;
+    if (this._detailRenderTimer) { clearTimeout(this._detailRenderTimer); this._detailRenderTimer = null; }
+    this.bundleName = null; this.officialId = null;
+    this.configForm = null; this.configInputs = {}; this.configSecret = '';
+    this.setData({ detailOpen: false, config: null, configStatus: 'idle', configError: '', voice: null, detailName: '' });
+  },
+
+  /** 弹窗内更新：复用列表的覆盖安装流程。 */
+  updateDetailBundle() {
+    const name = this.data.detailName;
+    if (!name) return;
+    this.setData({ detailOpen: false });
+    this.updateBundle({ currentTarget: { dataset: { name } } });
+  },
+
+  /** 弹窗内卸载：二次确认后调用网关卸载并刷新目录。 */
+  uninstallDetailBundle() {
+    const name = this.data.detailName;
+    if (!name) return;
+    wx.showModal({
+      title: uiText('卸载插件'),
+      content: uiText('卸载后将从主机移除该插件及其组件，确定继续吗？'),
+      confirmText: uiText('卸载'),
+      confirmColor: '#E5484D',
+      success: (res) => {
+        if (!res.confirm) return;
+        Promise.resolve(store.client.requestPluginUninstall(name)).then(() => {
+          store.refreshPlugins();
+          this.setData({ detailOpen: false });
+          wx.showToast({ title: uiText('已卸载'), icon: 'success' });
+        }).catch((error) => {
+          wx.showToast({ title: (error && error.message) || uiText('卸载失败'), icon: 'none' });
+        });
+      }
+    });
+  },
+
+  /** 检查到新版本：按主机提供的安装目标直接覆盖安装，等同在 DSH 客户端更新。 */
   updateBundle(e) {
     const name = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.name : '';
-    if (!name) return;
-    this.openOfficialInstall(name);
+    if (!name || !this.data.canAdd || this.data.installBusy) return;
+    if (!store.pluginInstaller.reset()) return;
+    try {
+      store.pluginInstaller.prepareUpdate(name);
+    } catch (error) {
+      wx.showToast({ title: (error && error.message) || uiText('无法更新该插件'), icon: 'none' });
+      return;
+    }
+    this.setData({ officialInstallName: '', spec: '', addOpen: true, actionError: '' });
+    this.openAdd();
   },
 
+  /** 内置插件配置卡片：同样直接弹窗。 */
   openOfficial(e) {
     const id = e.currentTarget.dataset.id;
     if (!id) return;
-    wx.navigateTo({ url: '/pages/plugin-detail/plugin-detail?official=' + encodeURIComponent(id) });
+    // 用已处理过的目录视图：图标已转成本地可渲染的 PNG / artwork，原始数据里的 SVG data URL 在 <image> 里不显示。
+    const item = ((this.data.catalog && this.data.catalog.officialItems) || []).find(x => x.id === id);
+    if (!item) return;
+    this.officialId = id;
+    this.bundleName = null;
+    this.configForm = null; this.configInputs = {}; this.configSecret = '';
+    this.setData({
+      detailOpen: true,
+      detailName: '',
+      detailTitle: item.title || id,
+      detailDescription: item.description || '',
+      detailCaption: uiText('内置插件配置'),
+      detailIcon: item.icon || '',
+      detailArtwork: item.artwork || '',
+      detailVersion: '',
+      detailUpdateAvailable: false,
+      detailCanUninstall: false,
+      detailEntries: [],
+      detailActiveCount: 0,
+      detailSourceLabel: uiText('内置'),
+      detailPackageName: item.id,
+      detailHasConfig: !!kindFor(item.id, null),
+      config: null, configStatus: 'idle', configError: '', configSaving: false, voice: null, voiceError: ''
+    });
+    this.scheduleSettingsLoad();
+  },
+
+  /** 目录/状态变化时，让已打开的弹窗跟着刷新（开关、条目、更新角标）。 */
+  refreshDetailSheet(catalog) {
+    if (!this.data.detailOpen) return;
+    const name = this.data.detailName;
+    if (!name) { this.syncSettings(); return; }
+    const bundle = (catalog && catalog.bundles || []).find(b => b.name === name);
+    if (!bundle) return;
+    const entries = this.buildDetailEntries(bundle);
+    this.setData({
+      detailEntries: entries,
+      detailActiveCount: entries.filter(e => e.enabled && e.phase === 'active').length,
+      detailEntriesToggleDisabled: store.state.connection !== 'connected' || !!bundle.readOnlyReason || !!store.state.pluginPendingName || (store.state.pluginCatalog && store.state.pluginCatalog.managementAvailable !== true),
+      detailUpdateAvailable: !!bundle.updateAvailable,
+      detailCanUninstall: bundle.installed === true && !bundle.readOnlyReason,
+      detailVersion: bundle.version || '',
+      detailEnabled: bundle.enabled === true,
+      detailToggleDisabled: store.state.connection !== 'connected' || !!bundle.readOnlyReason || !!store.state.pluginPendingName
+    });
+    this.syncSettings();
+  },
+
+  /** 组件条目视图（与详情页同口径）。 */
+  buildDetailEntries(bundle) {
+    const catalog = store.state.pluginCatalog;
+    if (!catalog || !Array.isArray(bundle.rows)) return [];
+    return bundle.rows.map((row) => {
+      const live = (catalog.plugins || []).find((p) => p.id === row.entryId);
+      const built = plugins.buildRow(row, live);
+      return {
+        id: built.id,
+        entryID: built.entryID || row.entryId,
+        name: built.name,
+        description: built.description,
+        enabled: built.enabled,
+        phase: built.phase,
+        statusText: built.statusText,
+        readOnlyReason: built.readOnlyReason
+      };
+    });
+  },
+
+  onDetailEntryToggle(e) {
+    const name = this.data.detailName;
+    const entryId = e.currentTarget.dataset.entry;
+    if (!name || !entryId || this.data.detailEntriesToggleDisabled) { this.syncFromStore(); return; }
+    store.setPluginEnabled(name, e.detail.value, entryId);
   },
 
   /** bundle 开关；停用移动网关前需确认（对齐 iOS gatewayToggle alert）。 */

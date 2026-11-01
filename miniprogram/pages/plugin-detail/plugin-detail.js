@@ -8,7 +8,7 @@ const plugins = require('../../utils/plugins');
 const { artworkFor, imageSource } = require('./plugin-artwork');
 const { ACTIVE } = require('../../utils/plugin-install');
 // WeChat's dependency scanner skips require() inside object spread.
-const settingsActions = require('./settings-actions');
+const settingsActions = require('../../plugin-settings/settings-actions');
 
 const GATEWAY_PLUGIN = 'dsh-plugin-mobile-gateway';
 
@@ -51,8 +51,13 @@ Page(Object.assign({}, settingsActions, {
     pendingName: null,
     sheetEntry: null,
     uninstallOpen: false,
+    settingsOpen: false,
     config: null, configStatus: 'idle', configError: '', configSaving: false, configModelsStatus: 'idle'
   },
+
+  /** 插件设置改为玻璃底部弹窗：详情页只保留入口。 */
+  openSettings() { this.setData({ settingsOpen: true }); },
+  closeSettings() { if (this.data.configSaving) return; this.setData({ settingsOpen: false }); },
 
   onUiLocaleChange() { this.syncFromStore(); this.renderVoiceSettings(); },
   onLoad(options) {

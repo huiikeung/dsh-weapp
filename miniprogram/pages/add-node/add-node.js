@@ -22,7 +22,9 @@ Page({
     pairingError: '',
     pairingConnecting: false,
     publicAccessDialog: null,
-    publicAccessDialogOpen: false
+    publicAccessDialogOpen: false,
+    pairKb: 0,
+    pairSheetStyle: ''
   },
 
   onLoad() {
@@ -36,9 +38,16 @@ Page({
           ? wx.getMenuButtonBoundingClientRect() : null;
       } catch (e) { rect = null; }
       // 导航行与右上角胶囊严格同一水平线：顶距=胶囊 top，行高=胶囊 height
+      const navTop = rect && rect.top ? rect.top : sbH + 6;
+      const navH = rect && rect.height ? rect.height : 32;
+      const winH = info.windowHeight || 800;
+      this._windowH = winH;
+      // 弹窗顶部让开胶囊行：可用高度 = 窗口高度 - 导航行底部 - 40px
+      this._pairSheetMax = Math.max(240, winH - (navTop + navH) - 40);
       this.setData({
-        navPadTop: rect && rect.top ? rect.top : sbH + 6,
-        navHeight: rect && rect.height ? rect.height : 32
+        navPadTop: navTop,
+        navHeight: navH,
+        pairSheetStyle: 'max-height: ' + this._pairSheetMax + 'px;'
       });
     } catch (e) {
       this.setData({ navPadTop: 48, navHeight: 32 });
@@ -114,7 +123,14 @@ Page({
 
   /** 打开底部输入弹窗 */
   manual() {
-    this.setData({ pairSheetOpen: true, pairingText: '', pairingError: '', pairingConnecting: false });
+    this.setData({
+      pairSheetOpen: true,
+      pairingText: '',
+      pairingError: '',
+      pairingConnecting: false,
+      pairKb: 0,
+      pairSheetStyle: 'max-height: ' + (this._pairSheetMax || 600) + 'px;'
+    });
   },
 
   closePairSheet() {
@@ -124,6 +140,36 @@ Page({
 
   onPairingInput(e) {
     this.setData({ pairingText: e.detail.value, pairingError: '' });
+  },
+
+  /** 一键粘贴配对信息。 */
+  pastePairingText() {
+    if (typeof wx.getClipboardData !== 'function') return;
+    wx.getClipboardData({
+      success: (res) => {
+        const text = String((res && res.data) || '').trim();
+        if (!text) { wx.showToast({ title: uiText('剪贴板为空'), icon: 'none' }); return; }
+        this.setData({ pairingText: text, pairingError: '' });
+      },
+      fail: () => wx.showToast({ title: uiText('读取剪贴板失败'), icon: 'none' })
+    });
+  },
+
+  clearPairingText() {
+    this.setData({ pairingText: '', pairingError: '' });
+  },
+
+  /** 键盘高度：弹窗上移并限制高度，输入框始终在输入法上方。 */
+  onPairKeyboard(e) {
+    const height = Math.max(0, Number(e && e.detail && e.detail.height) || 0);
+    if (height === this.data.pairKb) return;
+    const windowH = this._windowH || 800;
+    const base = this._pairSheetMax || Math.max(240, windowH - 160);
+    const available = height > 0 ? Math.min(base, windowH - height - 32) : base;
+    this.setData({
+      pairKb: height,
+      pairSheetStyle: (height > 0 ? 'bottom: ' + (height + 8) + 'px; ' : '') + 'max-height: ' + available + 'px;'
+    });
   },
 
   connectPublicNode() {

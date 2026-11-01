@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs');
 const path=require('node:path');
 const vm=require('node:vm');
-const {PluginSettings}=require('../miniprogram/pages/plugin-detail/plugin-settings');
+const {PluginSettings}=require('../miniprogram/plugin-settings/plugin-settings');
 const bridge=require('../scripts/install-plugin-settings-bridge.cjs');
 const {GatewayClient}=require('../miniprogram/utils/gateway');
 const root = path.resolve(__dirname, '..', 'miniprogram');
@@ -12,7 +12,7 @@ function form(kind,sections,writable=true){return new PluginSettings(kind,{writa
 function fixture(kind='shell',sections=[section('pwsh-sandbox',{timeoutMs:30000,maxOutputBytes:1000},{timeoutMs:30000,maxOutputBytes:1000})]){
   const calls=[],store={state:{activeID:'a',connection:'connected',endpoint:'wss://a'},client:{requestPlugin(type,payload){return new Promise((resolve,reject)=>calls.push({type,payload,resolve,reject}));},requestModels(){return new Promise((resolve,reject)=>calls.push({type:'models',resolve,reject}));}}};
   const cache={};function load(file){const full=path.resolve(root,file);if(cache[full])return cache[full].exports;const module={exports:{}};cache[full]=module;vm.runInNewContext(fs.readFileSync(full,'utf8'),{module,setTimeout,clearTimeout,require:id=>id.endsWith('/store')?store:id.startsWith('.')&&path.resolve(path.dirname(full),id).startsWith(path.join(root,'pages'))?load(path.relative(root,path.resolve(path.dirname(full),id))+'.js'):require(path.resolve(path.dirname(full),id))});return module.exports;}
-  const page={...load('pages/plugin-detail/settings-actions.js'),officialId:kind,configForm:form(kind,sections),configGeneration:1,configOwner:'a|wss://a|',configConnected:true,configInputs:{},data:{configStatus:'ready',configSaving:false},setData(p){Object.assign(this.data,p);}};page.renderSettings();return {page,store,calls};
+  const page={...load('plugin-settings/settings-actions.js'),officialId:kind,configForm:form(kind,sections),configGeneration:1,configOwner:'a|wss://a|',configConnected:true,configInputs:{},data:{configStatus:'ready',configSaving:false},setData(p){Object.assign(this.data,p);}};page.renderSettings();return {page,store,calls};
 }
 const tick=()=>new Promise(r=>setImmediate(r));
 test('Shell selects PowerShell and writes only edited values with revisions',()=>{
@@ -69,15 +69,28 @@ test('ClawBot owner controls use a correlated paired-gateway request',async()=>{
 test('voice view renders actual progress, failure reason and available download sources',()=>{
   const {page}=fixture();page.voiceCatalog={selection:{providerId:'local',language:'zh'},providers:[{id:'local',name:'Local',location:'host-local',languages:['auto','zh'],downloadSources:['https://hf-mirror.com'],preparation:{phase:'failed',message:'bad',download:{reason:'dns',resource:'model',source:'https://hf-mirror.com',code:'DNS'},steps:[{kind:'model',status:'failed'}]}}]};page.renderVoiceSettings();assert.match(page.data.voice.providers[0].failure,/解析/);assert.equal(page.data.voice.providers[0].sources[0],'https://hf-mirror.com');assert.equal(page.data.voice.languageName,'中文');assert.equal(page.data.voice.providers[0].canPrepare,true);
 });
-test('no namespace-only placeholders remain in builtin details',()=>{const xml=fs.readFileSync(path.join(root,'pages/plugin-detail/plugin-detail.wxml'),'utf8');assert.ok(xml.includes('include src="settings-form.wxml"'));assert.ok(!xml.includes('wx:for="{{official.namespaces}}"'));});
+test('no namespace-only placeholders remain in builtin details',()=>{const xml=fs.readFileSync(path.join(root,'pages/plugin-detail/plugin-detail.wxml'),'utf8');assert.ok(xml.includes('include src="../../plugin-settings/settings-form.wxml"'));assert.ok(!xml.includes('wx:for="{{official.namespaces}}"'));});
 
 test('all configuration template handlers are implemented by the detail page',()=>{
   const {page}=fixture();const detail=fs.readFileSync(path.join(root,'pages/plugin-detail/plugin-detail.js'),'utf8');
-  for(const name of ['settings-form.wxml','voice-settings.wxml']){const xml=fs.readFileSync(path.join(root,'pages/plugin-detail',name),'utf8');for(const match of xml.matchAll(/(?:bind|catch)(?:tap|change|input)="([^"]+)"/g))assert.ok(typeof page[match[1]]==='function'||detail.includes(match[1]+'('),match[1]);}
+  for(const name of ['settings-form.wxml','voice-settings.wxml']){const xml=fs.readFileSync(path.join(root,'plugin-settings',name),'utf8');for(const match of xml.matchAll(/(?:bind|catch)(?:tap|change|input)="([^"]+)"/g))assert.ok(typeof page[match[1]]==='function'||detail.includes(match[1]+'('),match[1]);}
 });
 test('unknown credential endpoints fail promptly without touching other requests',async()=>{
   const client=Object.create(GatewayClient.prototype);client.pendingRequests={};client.send=()=>true;
   const pending=client.requestPlugin('plugin-credential-describe',{requestId:'key'},1000);
   client.resolveCorrelated({kind:'error',message:'unknown message type: plugin-credential-describe'});
   await assert.rejects(pending);assert.equal(Object.keys(client.pendingRequests).length,0);
+});
+
+test('dsh-context plugin exposes its visibility, view and prompt settings', () => {
+  const { PluginSettings } = require('../miniprogram/plugin-settings/plugin-settings');
+  const sections = [{ ns: 'dsh-context', value: { defaultPlacement: 'all', defaultGranularity: 'step', promptPrefix: '' }, base: {}, user: {}, revision: 1 }];
+  const form = new PluginSettings('dsh-context', { writable: true, namespaces: sections });
+  const fields = form.fields();
+  assert.equal(fields.length, 13);
+  assert.equal(fields[0].key, 'defaultPlacement');
+  assert.deepEqual(fields[0].choices, ['all','tab','sidebar','hide']);
+  assert.equal(fields.find(f => f.key === 'promptPrefix').multiline, true);
+  form.stage('dsh-context', 'defaultPlacement', 'tab');
+  assert.deepEqual(form.operations(), [{ ns: 'dsh-context', expectedRevision: 1, ops: [{ op: 'set', path: ['defaultPlacement'], value: 'tab' }] }]);
 });

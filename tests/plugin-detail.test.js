@@ -72,7 +72,7 @@ test('voice detail cold entry refreshes catalog without requiring the plugin lis
   assert.deepEqual(calls, ['catalog']);
   const route = require('../miniprogram/pages/session/utils/voice-preference').SETTINGS_URL;
   const bundle = decodeURIComponent(route.split('bundle=')[1]);
-  assert.equal(require('../miniprogram/pages/plugin-detail/plugin-settings').kindFor(null, bundle), 'voice');
+  assert.equal(require('../miniprogram/plugin-settings/plugin-settings').kindFor(null, bundle), 'voice');
 });
 
 test('subagent bundle detail exposes update and uninstall actions', () => {
@@ -99,13 +99,15 @@ test('subagent bundle detail exposes update and uninstall actions', () => {
   assert.match(js, /confirmUninstall\(\)[\s\S]{0,240}?uninstallBundle\(\)/);
   assert.match(js, /uninstallBundle\(\)[\s\S]{0,320}?requestPluginUninstall\(name\)/);
   assert.match(js, /requestPluginUninstall\(name\)[\s\S]{0,260}?store\.refreshPlugins\(\)/);
-  assert.match(gateway, /requestPluginUninstall\(name\) \{[\s\S]{0,120}?plugin-uninstall/);
+  assert.match(gateway, /requestPluginUninstall\(name\)[\s\S]{0,200}?plugin-remove/);
+  assert.match(gateway, /plugin-uninstall/);
   // 数据字段来自目录
   assert.match(js, /updateAvailable: !!bundle\.updateAvailable/);
   assert.match(js, /canUninstall: bundle\.installed === true/);
   // 样式：更新为中性按钮，卸载为红色文字按钮
   assert.match(wxss, /\.pdetail-action-danger \{[^}]*#FF5A52/);
   assert.match(wxss, /\.pdetail-badge-update \{[^}]*#7E9AF2/);
-  assert.match(wxss, /\.pdetail-action \{[^}]*height: 40rpx/);
-  assert.match(wxss, /\.pdetail-action \{[^}]*font-size: 20rpx/);
+  assert.match(wxss, /\.pdetail-action \{[^}]*height: 48rpx/);
+  assert.match(wxss, /\.pdetail-action \{[^}]*font-size: 22rpx/);
+  assert.match(wxss, /\.pdetail-action \{[^}]*border-radius: 999rpx/);
 });

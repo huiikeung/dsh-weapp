@@ -5,12 +5,12 @@ const path = require('node:path');
 const vm = require('node:vm');
 const root = path.resolve(__dirname, '../miniprogram');
 const entry = 'pages/plugin-detail/plugin-detail.js';
-const actions = 'pages/plugin-detail/settings-actions.js';
-const voice = 'pages/plugin-detail/voice-actions.js';
+const actions = 'plugin-settings/settings-actions.js';
+const voice = 'plugin-settings/voice-actions.js';
 const archive = process.env.WECHAT_DEVTOOLS_ASAR || 'D:/Program Files (x86)/Tencent/微信web开发者工具/resources/app.asar';
 
 test('plugin configuration mixins use explicit imports for WeChat packaging', () => {
-  for (const [file, dependency] of [[entry, './settings-actions'], [actions, './voice-actions']]) {
+  for (const [file, dependency] of [[entry, '../../plugin-settings/settings-actions'], [actions, './voice-actions']]) {
     const source = fs.readFileSync(path.join(root, file), 'utf8');
     assert.doesNotMatch(source, /\.\.\.\s*require\s*\(/);
     assert.ok(source.includes('= require(\'' + dependency + '\')'));

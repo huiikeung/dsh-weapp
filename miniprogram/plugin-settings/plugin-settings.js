@@ -1,11 +1,12 @@
-const { t, localized } = require('../../utils/ui-preferences');
+const { t, localized } = require('../utils/ui-preferences');
 const copy = require('./plugin-settings-copy');
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o || {}, k);
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const routeKey = r => JSON.stringify([r.provider, r.model]);
 const COT = '@deepseek-ai/dsh-experimental-cot-translation-bundle';
 const VOICE = '@deepseek-ai/dsh-experimental-voice-input-bundle';
-function kindFor(official, bundle) { return official || (bundle === COT ? 'cot-translation' : bundle === VOICE ? 'voice' : null); }
+const CONTEXT = /(^|\/)dsh-context$/i;
+function kindFor(official, bundle) { return official || (bundle === COT ? 'cot-translation' : bundle === VOICE ? 'voice' : (bundle && CONTEXT.test(bundle) ? 'dsh-context' : null)); }
 class PluginSettings {
   constructor(kind, response) {
     this.kind = kind; this.writable = response.writable === true; this.sections = {}; this.edits = {};
@@ -43,12 +44,31 @@ class PluginSettings {
       const api = this.searchApi(), ns = api ? 'web-deepseek-api' : 'web-search-deepseek';
       return [{ ns,key:'baseURL',label:c[api?'searchApiBaseUrl':'baseUrl'],hint:c[api?'searchApiBaseUrlHint':'baseUrlHint'] }, api ? {ns,key:'count',label:c.count,hint:c.countHint,numeric:true,min:1,max:50,integer:true,invalid:c.invalidCount} : {ns,key:'maxUses',label:c.maxUses,hint:c.maxUsesHint,numeric:true,invalid:c.invalidNumber}];
     }
+    if (this.kind === 'dsh-context') {
+      const ns = 'dsh-context';
+      const choice = (key, label, choices, labels) => ({ ns, key, label, choices, choiceLabels: labels });
+      return [
+        { ns, key: 'defaultPlacement', label: '上下文面板入口', group: '入口与可见性', choices: ['all','tab','sidebar','hide'], choiceLabels: ['全部','标签页','侧边栏','隐藏'] },
+        { ns, key: 'insightsEntry', label: '上下文洞察', choices: ['show','hide'], choiceLabels: ['显示','隐藏'] },
+        { ns, key: 'fleetTab', label: '编队标签页', choices: ['show','hide'], choiceLabels: ['显示','隐藏'] },
+        { ns, key: 'defaultOverviewRange', label: '上下文洞察 · 默认时间范围', group: '视图默认值', choices: ['today','7d','30d','all'], choiceLabels: ['今天','近 7 天','近 30 天','全部'] },
+        { ns, key: 'defaultGranularity', label: '趋势图 · 粒度', choices: ['step','turn'], choiceLabels: ['步骤','轮次'] },
+        { ns, key: 'defaultTrendMode', label: '趋势图 · 展示方式', choices: ['total','delta'], choiceLabels: ['全量','增量'] },
+        { ns, key: 'defaultDurationCurve', label: '趋势图 · 耗时曲线', choices: ['show','hide'], choiceLabels: ['显示','隐藏'] },
+        { ns, key: 'overviewAutoSteps', label: '趋势图 · 自动总览', choices: ['100','200','300','off'], choiceLabels: ['100 步','200 步','300 步','关闭'] },
+        { ns, key: 'defaultDeltaBase', label: '上下文浏览器 · 对比基线', choices: ['step','turn'], choiceLabels: ['比前步','比前轮'] },
+        { ns, key: 'defaultToolSort', label: '工具定义 · 排序', choices: ['size','count','name'], choiceLabels: ['按大小','按次数','按名称'] },
+        { ns, key: 'defaultFileSort', label: '文件活动 · 排序', choices: ['count','lines','latest','path','name'], choiceLabels: ['按次数','按行数','按最新','按路径','按文件名'] },
+        { ns, key: 'promptPrefix', label: '前缀', group: '系统提示词', multiline: true, hint: '留空则不启用' },
+        { ns, key: 'promptSuffix', label: '后缀', multiline: true, hint: '留空则不启用' }
+      ];
+    }
     if (this.kind === 'cot-translation') return [{ns:'cot-translation',key:'provider',label:c.provider,choices:['bing','google','deepseek-account','deepseek-official'],invalid:c.invalidProvider},{ns:'cot-translation',key:'targetLanguage',label:c.targetLanguage,hint:c.targetLanguageHint,language:true,invalid:c.invalidLanguage}];
     return [];
   }
   fields() { return this.definitions().map(f => {
     const section = this.sections[f.ns], value = this.get(f.ns,f.key), edit = (this.edits[f.ns] || {})[f.key];
-    return { ...f, id:f.ns+':'+f.key, label:t(f.label), hint:this.kind === 'subagent' && f.key === 'maxDepth' ? [t(copy.subagent.subagentDepthHelp),'0: '+t(copy.subagent.subagentDepthZero),'1: '+t(copy.subagent.subagentDepthOne),t(copy.subagent.subagentDepthOverride)].join('\n') : t(f.hint || ''), value:value == null ? '' : String(value), available:!!section, overridden:edit ? edit.op === 'set' : has(section && section.user,f.key), placeholder:section && section.base && section.base[f.key] != null ? String(section.base[f.key]) : '', isChoice:!!f.choices, choices:f.choices || [] };
+    return { ...f, id:f.ns+':'+f.key, label:t(f.label), hint:this.kind === 'subagent' && f.key === 'maxDepth' ? [t(copy.subagent.subagentDepthHelp),'0: '+t(copy.subagent.subagentDepthZero),'1: '+t(copy.subagent.subagentDepthOne),t(copy.subagent.subagentDepthOverride)].join('\n') : t(f.hint || ''), value:value == null ? '' : String(value), available:!!section, overridden:edit ? edit.op === 'set' : has(section && section.user,f.key), placeholder:section && section.base && section.base[f.key] != null ? String(section.base[f.key]) : '', isChoice:!!f.choices, choices:f.choices || [], choiceLabels:(f.choiceLabels||[]).map(x=>t(x)), choiceIndex:(f.choices||[]).indexOf(String(value)), multiline:!!f.multiline, group:f.group ? t(f.group) : '' };
   }); }
   parse(field, text) {
     const value = String(text).trim(); if (!value && !field.language) return { reset:true };

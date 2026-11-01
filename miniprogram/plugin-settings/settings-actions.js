@@ -1,5 +1,5 @@
-const store = require('../../utils/store');
-const { t } = require('../../utils/ui-preferences');
+const store = require('../utils/store');
+const { t } = require('../utils/ui-preferences');
 const { PluginSettings, kindFor, routeKey } = require('./plugin-settings');
 const copy = require('./plugin-settings-copy');
 // Keep this dependency explicit so lazy subpackage builds include voice actions.
@@ -42,6 +42,44 @@ module.exports = Object.assign({}, voiceActions, {
     this.setData({configProvidersUnavailable:f.kind==='cot-translation'&&!this.configProviders,config:{kind:f.kind,labels,fields,writable:f.writable,disabled:!f.writable||store.state.connection!=='connected'||this.data.configSaving||this.configBlocked,dirty:this.configDirty(),useSearchApi:f.searchApi(),switchAvailable:!!f.sections.web&&!!f.sections['web-deepseek-api'],modelAvailable:!!f.sections[ns],modelEnabled:!!f.get(ns,'enabled'),models:f.modelRows(this.configModels||[]),credential:this.configCredential,secret:this.configSecret||'',translationPaid:['deepseek-account','deepseek-official'].includes((this.configInputs||{})['cot-translation:provider'] || f.get('cot-translation','provider'))}});
   },
   onConfigInput(e) {if(!this.configForm||this.data.config.disabled)return;this.configInputs[e.currentTarget.dataset.id]=e.detail.value;this.setData({configError:''});this.renderSettings();},
+  /** 选项类设置：点开玻璃弹窗选择，替代原生 picker。 */
+  openConfigChoice(e) {
+    const field = this.data.config && this.data.config.fields.find(f => f.id === e.currentTarget.dataset.id);
+    if (!field || !field.choices || !field.available || this.data.config.disabled || this.data.configProvidersUnavailable) return;
+    this._choiceField = field;
+    const options = field.choices.map((value, index) => ({
+      value,
+      label: (field.choiceLabels && field.choiceLabels[index]) || value,
+      selected: value === field.value
+    }));
+    // 先用兜底定位，量到触发框后再贴到它下面（量不到也能正常弹出）
+    this.setData({
+      choiceSheetOpen: true,
+      choiceSheetTitle: field.label,
+      choiceSheetOptions: options,
+      choiceMenuStyle: 'left: 24px; right: 24px; bottom: 24px; top: auto; width: auto;'
+    });
+    const index = e.currentTarget.dataset.index;
+    const apply = (r) => {
+      if (!r || !this.data.choiceSheetOpen) return;
+      let winH = 800;
+      try { winH = (wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync()).windowHeight || 800; } catch (err) { /* 默认 */ }
+      const rowH = 44 * (options.length) + 16;
+      let top = r.bottom + 6;
+      if (top + rowH > winH - 24) top = Math.max(24, r.top - rowH - 6);
+      this.setData({ choiceMenuStyle: 'left:' + r.left + 'px; top:' + top + 'px; bottom: auto; right: auto; width:' + r.width + 'px;' });
+    };
+    if (typeof wx.createSelectorQuery !== 'function' || index === undefined) return;
+    wx.createSelectorQuery().in(this).select('#config-choice-' + index).boundingClientRect((r) => apply(r)).exec();
+  },
+  closeConfigChoice() { this._choiceField = null; this.setData({ choiceSheetOpen: false }); },
+  pickConfigChoice(e) {
+    const value = e.currentTarget.dataset.value;
+    const field = this._choiceField;
+    this.closeConfigChoice();
+    if (!field || value === undefined) return;
+    this.onConfigInput({ currentTarget: { dataset: { id: field.id } }, detail: { value } });
+  },
   onConfigChoice(e) {const field=this.data.config.fields.find(f=>f.id===e.currentTarget.dataset.id);if(field && !this.data.configProvidersUnavailable && field.choices[Number(e.detail.value)] !== undefined)this.onConfigInput({currentTarget:e.currentTarget,detail:{value:field.choices[Number(e.detail.value)]}});},
   resetConfigField(e) {if(!this.configForm||this.data.config.disabled)return;const field=this.configForm.definitions().find(f=>f.ns+':'+f.key===e.currentTarget.dataset.id);if(!field)return;delete this.configInputs[e.currentTarget.dataset.id];this.configForm.stage(field.ns,field.key,null,true);this.setData({configError:''});this.renderSettings();},
   stageConfigInputs() {

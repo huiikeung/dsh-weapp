@@ -141,6 +141,8 @@ Page({
     manualSheetOpen: false,
     manualSheetExpanded: false,
     manualInputFocused: false,
+    manualKb: 0,
+    manualSheetStyle: '',
     pairingText: '',
     pairingResult: '',
     pairingResultClass: '',
@@ -279,6 +281,15 @@ Page({
     this._swipeActionPx = SESSION_SWIPE_ACTION_RPX * ((this._windowWidth || 375) / 750);
     this.topbarTop = Math.max(capTop - 6, 0);
     this.topbarH = capH + 12;
+    // 手动配对弹层：顶部必须让开胶囊行，最大高度按「胶囊下方到底部」计算。
+    try {
+      const winH = (info && info.windowHeight) || 800;
+      this._windowH = winH;
+      this._sheetMaxHeight = Math.max(240, winH - (this.topbarTop + this.topbarH) - 40);
+    } catch (e) {
+      this._windowH = 800;
+      this._sheetMaxHeight = 600;
+    }
     // 抽屉字标（48rpx = 24px 高）与首页品牌行/胶囊垂直居中对齐
     this.drawerTopPad = Math.max(capTop + Math.max((capH - 24) / 2, 0), 8);
     this.setData({
@@ -289,7 +300,8 @@ Page({
       topbarTop: this.topbarTop,
       topbarHeight: this.topbarH,
       homePadTop: this.topbarTop + this.topbarH + 14,
-      drawerTopPad: this.drawerTopPad
+      drawerTopPad: this.drawerTopPad,
+      manualSheetStyle: 'max-height: ' + this._sheetMaxHeight + 'px;'
     });
     this.unsubscribe = store.subscribe((snapshot) => {
       this.syncFromStore(snapshot);
@@ -1513,11 +1525,46 @@ Page({
 
   // 输入框聚焦时高亮边框，避免在深色半透明弹层里看不清输入区域。
   onManualInputFocus() {
-    if (!this.data.manualInputFocused) this.setData({ manualInputFocused: true });
+    // 聚焦即向上展开，给输入框和键盘之间留出空间。
+    if (!this.data.manualInputFocused || !this.data.manualSheetExpanded) {
+      this.setData({ manualInputFocused: true, manualSheetExpanded: true });
+    }
   },
 
   onManualInputBlur() {
     if (this.data.manualInputFocused) this.setData({ manualInputFocused: false });
+  },
+
+  /** 键盘高度：弹层整体上移，输入框始终留在输入法上方。 */
+  onManualKeyboard(e) {
+    const height = Math.max(0, Number(e && e.detail && e.detail.height) || 0);
+    if (height === this.data.manualKb) return;
+    const windowH = this._windowH || 800;
+    const base = this._sheetMaxHeight || Math.max(240, windowH - 160);
+    const available = height > 0 ? Math.min(base, windowH - height - 32) : base;
+    const patch = {
+      manualKb: height,
+      manualSheetStyle: (height > 0 ? 'bottom: ' + (height + 8) + 'px; ' : '') + 'max-height: ' + available + 'px;'
+    };
+    if (height > 0) { patch.manualInputFocused = true; patch.manualSheetExpanded = true; }
+    this.setData(patch);
+  },
+
+  /** 一键粘贴配对信息（从剪贴板读取，读不到就提示）。 */
+  pastePairingText() {
+    if (typeof wx.getClipboardData !== 'function') return;
+    wx.getClipboardData({
+      success: (res) => {
+        const text = String((res && res.data) || '').trim();
+        if (!text) { wx.showToast({ title: uiText('剪贴板为空'), icon: 'none' }); return; }
+        this.setData({ pairingText: text, pairingResult: '', pairingResultClass: '' });
+      },
+      fail: () => wx.showToast({ title: uiText('读取剪贴板失败'), icon: 'none' })
+    });
+  },
+
+  clearPairingText() {
+    this.setData({ pairingText: '', pairingResult: '', pairingResultClass: '' });
   },
 
   /* 手动配对弹层抓手：上滑/点按展开到顶栏之下，下滑/再点收回紧凑 */

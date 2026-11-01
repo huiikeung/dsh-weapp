@@ -24,8 +24,7 @@
       <view wx:if="{{!showingMore}}" class="plugins-toolbar">
         <text class="plugins-hint">{{ui['安装、启用和配置插件']}}</text>
         <view wx:if="{{pluginTab === 'installed'}}" class="plugins-actions">
-          <button class="plugins-refresh" disabled="{{loading || !connected}}" bindtap="onRefresh" aria-label="{{ui['刷新插件']}}"><image class="plugins-refresh-ic" src="/assets/icons/{{theme === 'dark' ? 'refresh.png' : 'refresh-ink.png'}}"/></button>
-          <view class="plugin-add-group {{canAdd ? '' : 'disabled'}}"><button class="plugin-add" disabled="{{!canAdd}}" bindtap="openAdd">{{ui['＋ 添加插件']}}</button><button class="plugin-add-arrow" disabled="{{!canAdd}}" bindtap="toggleAddMenu" aria-label="{{ui['选择添加方式']}}"><view class="plugin-chevron {{addMenuOpen ? 'is-open' : ''}}"></view></button></view>
+          <view class="plugin-add-group {{canAdd ? '' : 'disabled'}}"><button class="plugin-add" disabled="{{!canAdd}}" bindtap="openAdd"><view class="plugin-add-plus" aria-hidden="true"></view><text>{{ui['添加插件']}}</text></button><button class="plugin-add-arrow" disabled="{{!canAdd}}" bindtap="toggleAddMenu" aria-label="{{ui['选择添加方式']}}"><view class="plugin-chevron {{addMenuOpen ? 'is-open' : ''}}"></view></button></view>
         </view>
       </view>
       <view wx:if="{{!showingMore}}" class="plugin-tabs" role="tablist"><button class="plugin-tab {{pluginTab === 'installed' ? 'selected' : ''}}" data-tab="installed" bindtap="selectPluginTab" role="tab" aria-selected="{{pluginTab === 'installed'}}">{{ui['已安装']}}</button><button class="plugin-tab {{pluginTab === 'discover' ? 'selected' : ''}}" data-tab="discover" bindtap="selectPluginTab" role="tab" aria-selected="{{pluginTab === 'discover'}}">{{ui['发现']}}</button></view>
@@ -107,7 +106,7 @@
         <text wx:if="{{actionError}}" class="plugin-inline-error">{{ui[actionError] !== undefined ? ui[actionError] : actionError}}</text>
         <block wx:if="{{install && install.logs}}"><button class="plugin-text-button" bindtap="toggleLogs">{{logsOpen ? ui['收起安装详情'] : ui['查看安装详情']}}</button><view wx:if="{{logsOpen}}" class="plugin-install-log"><text selectable>{{install.logs}}</text></view></block>
         <view wx:if="{{install && install.pendingBuilds.length}}" class="plugin-builds"><text>{{ui['以下依赖需要运行安装脚本：']}}</text><text wx:for="{{install.pendingBuilds}}" wx:key="*this">{{item}}</text><button class="plugin-secondary-button" bindtap="approveBuilds" disabled="{{!canAdd || installBusy}}">{{ui['审阅授权并重试']}}</button></view>
-        <button wx:if="{{installEditable || install && install.phase === 'checking'}}" class="plugin-primary-button" bindtap="checkPlugin" disabled="{{!canAdd || !spec || installBusy || registryLoading}}">{{install && install.phase === 'checking' ? ui['正在准备…'] : ui['安装']}}</button>
+        <button wx:if="{{installEditable || install && install.phase === 'checking'}}" class="plugin-primary-button {{!canAdd || !spec || installBusy || registryLoading ? 'is-disabled' : ''}}" bindtap="checkPlugin">{{install && install.phase === 'checking' ? ui['正在准备…'] : ui['安装']}}</button>
         <view wx:elif="{{install && install.phase === 'ready'}}" class="plugin-sheet-buttons"><button class="plugin-secondary-button" bindtap="editInstall">{{ui['返回编辑']}}</button><button class="plugin-primary-button" bindtap="confirmInstall" disabled="{{!canAdd}}">{{ui['确认安装']}}</button></view>
         <view wx:elif="{{installActive}}" class="plugin-sheet-buttons"><button class="plugin-secondary-button" bindtap="cancelInstall" disabled="{{!connected || install.cancelling || install.phase === 'applying'}}">{{install.cancelling ? ui['取消中…'] : ui['取消安装']}}</button><button class="plugin-primary-button" bindtap="reconcileInstall" disabled="{{!connected || install.recovering}}">{{install.recovering ? ui['核对中…'] : ui['核对安装状态']}}</button></view>
         <view wx:elif="{{install && install.phase === 'done'}}" class="plugin-sheet-buttons"><button class="plugin-secondary-button" bindtap="editInstall">{{ui['继续添加']}}</button><button class="plugin-primary-button" bindtap="closeAdd">{{ui['完成']}}</button></view>
@@ -140,5 +139,60 @@
       <view wx:if="{{marketStatus !== 'ready'}}" class="sources-availability"><text>{{marketStatus === 'loading' ? ui['正在读取主机索引源…'] : marketError || ui['连接网关后可管理索引源']}}</text><button wx:if="{{marketStatus !== 'loading'}}" class="market-subtle" bindtap="loadMarketSources" disabled="{{!connected}}">{{ui['重试']}}</button></view>
       <view class="sources-trust"><text class="sources-warning-icon">!</text><text>{{ui['索引由第三方提供。只添加你信任的来源：其中的插件安装后以你的权限运行']}}</text></view>
     </view>
+  </view>
+
+  <!-- 插件卡片：直接弹出玻璃弹窗（详情 + 设置），不再跳转详情页 -->
+  <view wx:if="{{detailOpen}}" class="plugin-sheet-mask" bindtap="closeDetail" catchtouchmove="noop"></view>
+  <view wx:if="{{detailOpen}}" class="plugin-sheet plugin-detail-sheet">
+    <view class="plugin-sheet-handle"></view>
+    <view class="plugin-sheet-head">
+      <text>{{detailTitle}}</text>
+      <button class="plugin-sheet-close" bindtap="closeDetail" aria-label="{{ui['关闭']}}">×</button>
+    </view>
+    <scroll-view class="plugin-sheet-scroll" scroll-y>
+      <view class="plugin-sheet-content">
+        <view class="plugin-detail-top">
+          <view class="plugin-detail-icon">
+            <image wx:if="{{detailIcon}}" class="plugin-detail-icon-img" src="{{detailIcon}}" mode="aspectFit" binderror="onDetailIconError"/>
+            <image wx:elif="{{detailArtwork}}" class="plugin-detail-icon-img" src="{{detailArtwork}}" mode="aspectFit"/>
+          </view>
+          <view class="plugin-detail-top-copy">
+            <text class="plugin-detail-name">{{detailTitle}}</text>
+            <view class="plugin-detail-meta">
+              <text wx:if="{{detailVersion}}" class="plugin-detail-version">v{{detailVersion}}</text>
+              <text wx:if="{{detailCaption}}" class="plugin-detail-caption">{{detailCaption}}</text>
+            </view>
+          </view>
+          <view class="plugin-detail-actions">
+            <button wx:if="{{detailUpdateAvailable}}" class="pdetail-action pdetail-action-update" bindtap="updateDetailBundle" aria-label="{{ui['更新']}}">{{ui['更新']}}</button>
+            <button wx:if="{{detailCanUninstall}}" class="pdetail-action pdetail-action-danger" bindtap="uninstallDetailBundle" aria-label="{{ui['卸载']}}">{{ui['卸载']}}</button>
+            <dsh-switch wx:if="{{detailName}}" checked="{{detailEnabled}}" disabled="{{detailToggleDisabled}}" data-name="{{detailName}}" data-enabled="{{detailEnabled}}" bindchange="onBundleToggle" scale="0.72"/>
+          </view>
+        </view>
+        <text wx:if="{{detailDescription}}" class="plugin-sheet-desc">{{detailDescription}}</text>
+        <view class="plugin-detail-config {{detailHasConfig ? 'has-config' : ''}}"><include src="../../plugin-settings/settings-form.wxml"/></view>
+        <view wx:if="{{detailEntries.length}}" class="plugin-detail-entries">
+          <view class="plugin-detail-entries-head">
+            <text class="plugin-detail-entries-title">{{ui['包含的组件']}}</text>
+            <text class="plugin-detail-entries-count">{{ui['共']}} {{detailEntries.length}} {{ui['个 ·']}} {{detailActiveCount}} {{ui['运行中']}}</text>
+          </view>
+          <view wx:for="{{detailEntries}}" wx:key="id" class="plugin-detail-entry">
+            <view class="plugin-detail-entry-copy">
+              <text class="plugin-detail-entry-name">{{item.name}}</text>
+              <text wx:if="{{item.description}}" class="plugin-detail-entry-desc">{{item.description}}</text>
+              <text class="plugin-detail-entry-id">{{item.entryID}}</text>
+            </view>
+            <dsh-switch checked="{{item.enabled}}" disabled="{{detailEntriesToggleDisabled || !!item.readOnlyReason}}" data-entry="{{item.entryID}}" bindchange="onDetailEntryToggle" scale="0.72"/>
+          </view>
+        </view>
+
+        <view class="plugin-detail-source">
+          <text class="plugin-detail-section-title">{{ui['来源信息']}}</text>
+          <view class="plugin-detail-source-row"><text class="plugin-detail-source-key">{{ui['代码来源']}}</text><text class="plugin-detail-source-value">{{detailSourceLabel}}</text></view>
+          <view wx:if="{{detailVersion}}" class="plugin-detail-source-row"><text class="plugin-detail-source-key">{{ui['当前版本']}}</text><text class="plugin-detail-source-value">{{detailVersion}}</text></view>
+          <view wx:if="{{detailPackageName}}" class="plugin-detail-source-row"><text class="plugin-detail-source-key">{{ui['包名']}}</text><text class="plugin-detail-source-value text-mono">{{detailPackageName}}</text></view>
+        </view>
+      </view>
+    </scroll-view>
   </view>
 </view>

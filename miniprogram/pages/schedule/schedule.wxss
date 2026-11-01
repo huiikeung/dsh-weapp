@@ -10,7 +10,13 @@
 .sched-toolbar { display:flex; align-items:center; justify-content:space-between; gap:16rpx; }
 .sched-intro { color:var(--sp-text2); font-size:24rpx; line-height:1.4; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; min-width:0; }.sched-toolbar-actions { display:flex; gap:12rpx; align-items:center; flex-shrink:0; }
 .sched .sched-refresh { width:56rpx; height:56rpx; border:1rpx solid var(--sp-border); border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; }.sched-refresh-image { width:28rpx; height:28rpx; opacity:.7; }
-.sched .sched-primary { background:var(--sp-primary); color:var(--sp-on-primary); padding:16rpx 26rpx; border-radius:14rpx; text-align:center; }.sched .sched-new { padding:10rpx 18rpx; font-size:25rpx; white-space:nowrap; }
+.sched .sched-primary { background:var(--sp-primary); color:var(--sp-on-primary); padding:16rpx 26rpx; border-radius:14rpx; text-align:center; }/* 新建：与左侧「返回」按钮同款的圆形发丝描边按钮，加号用 CSS 画 */
+.sched .sched-new { width:64rpx; height:64rpx; padding:0; border:1rpx solid var(--sp-border); border-radius:50%; background:transparent; color:var(--sp-text); display:flex; align-items:center; justify-content:center; flex:none; }
+.sched-new-plus { position:relative; width:26rpx; height:26rpx; }
+.sched-new-plus::before, .sched-new-plus::after { content:''; position:absolute; left:50%; top:50%; border-radius:3rpx; background:currentColor; transform:translate(-50%,-50%); }
+.sched-new-plus::before { width:26rpx; height:3rpx; }
+.sched-new-plus::after { width:3rpx; height:26rpx; }
+.sched .sched-new[disabled] { opacity:.35; }
 
 .sched-empty-footer { flex-shrink:0; padding:20rpx 32rpx calc(20rpx + env(safe-area-inset-bottom)); border-top:1rpx solid var(--sp-border); background:var(--sp-bg); }
 .sched .sched-outline { border:1rpx solid var(--sp-border); padding:14rpx 24rpx; border-radius:14rpx; text-align:center; }
@@ -32,17 +38,18 @@
   justify-content: center;
   gap: 12rpx;
   margin: 32rpx auto 10rpx;
-  padding: 26rpx 78rpx;
-  min-width: 360rpx;
+  padding: 22rpx 56rpx;
+  min-width: 380rpx;
   box-sizing: border-box;
-  border-radius: 30rpx;
+  /* 与工具栏圆形新建按钮同源的胶囊形态：发丝描边 + 透明底 */
+  border-radius: 999rpx;
   border: 1rpx solid var(--sp-border);
   background: transparent;
   color: var(--sp-text);
-  font-size: 30rpx;
-  font-weight: 400;
+  font-size: 28rpx;
+  font-weight: 500;
   line-height: 1.3;
-  letter-spacing: 1rpx;
+  letter-spacing: 0;
   text-align: center;
   transition: background-color 120ms ease, border-color 120ms ease;
 }

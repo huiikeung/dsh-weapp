@@ -12,7 +12,7 @@ test('WeChat root contains only runtime files and all packages stay inside sourc
   assert.equal(fs.existsSync(path.join(root,'../app.js')),false);
   for(const file of ['plugin-artwork.js','plugin-presentation.js','plugin-settings.js','plugin-settings-copy.js'])assert.equal(fs.existsSync(path.join(root,'utils',file)),false);
   assert.equal(fs.existsSync(path.join(root,'utils/schedule-editor.js')),false);
-  assert.ok(fs.existsSync(path.join(root,'pages/plugin-detail/plugin-settings-copy.js')));
+  assert.ok(fs.existsSync(path.join(root,'plugin-settings/plugin-settings-copy.js')));
   assert.ok(report.groups.find(group=>group.name==='session').bytes<checker.BUDGET);
 });
 test('running whale status artwork is a compact 3x gray+alpha mask',()=>{
