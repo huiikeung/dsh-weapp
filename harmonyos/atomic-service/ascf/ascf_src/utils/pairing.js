@@ -77,7 +77,12 @@ function parseV2Payload(payload, now) {
   if (!Number.isFinite(expiresAt) || expiresAt <= now) return failure(PairingError.EXPIRED);
 
   const tables = [
-    routeTable.parseRouteTable({ routes: payload.routes }),
+    routeTable.parseRouteTable({
+      routes: payload.routes,
+      // Prefer the validated mini-program relay when the generic relay base omits /relay.
+      miniProgramRoute: payload.miniProgramRoute && payload.miniProgramRoute.mode === 'relay'
+        ? payload.miniProgramRoute : null
+    }),
     routeTable.parseRouteTable({ publicUrl: payload.publicUrl, endpoints: payload.endpoints })
   ];
   let invalidOptionalRoute = false;

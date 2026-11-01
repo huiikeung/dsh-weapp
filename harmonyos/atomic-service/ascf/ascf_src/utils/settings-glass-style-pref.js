@@ -77,6 +77,8 @@ function px(value, scale) {
 function view(style) {
   const s = normalize(style === undefined ? read() : Object.assign(read(), style));
   const factor = s.brightness / 100;
+  // 主题：浅色下弹窗用近白磨砂 + 深色发丝边，深色下保持白渐变磨砂
+  const light = !!(style && style.light);
   const scale = rpxScale();
   const topPct = s.alpha * 0.4 * factor;
   const bottomPct = topPct * 0.4;
@@ -87,31 +89,47 @@ function view(style) {
     glassRadius: s.radius,
     glassBrightness: s.brightness,
     glassAlphaTop: (topPct / 100).toFixed(3),
+    // 预览专用：透明度与亮边放大 3 倍并封顶，否则浅色下这些参数看不出变化
+    glassPreviewTop: Math.min(0.55, topPct / 100 * 3).toFixed(3),
+    glassPreviewBottom: Math.min(0.42, bottomPct / 100 * 3).toFixed(3),
+    glassPreviewEdge: Math.min(0.75, s.edge / 100 * 2).toFixed(2),
+    // 预览衬底：浅色用中间调灰蓝（透明度才看得出来），深色用极淡的白（玻璃本色，不是实色块）
+    glassPreviewBase: light ? 'rgba(126, 142, 168, 0.55)' : 'rgba(255, 255, 255, 0.06)',
     glassAlphaBottom: (bottomPct / 100).toFixed(3),
     glassAlphaTopPct: Math.round(topPct * 10) / 10,
     glassAlphaBottomPct: Math.round(bottomPct * 10) / 10,
     glassEdgeAlpha: (s.edge / 100).toFixed(2),
     glassBlurSheet: px(s.blur, scale),
     glassBlurCard: px(Math.max(1, s.blur * 0.375), scale),
+    // iOS 磨砂材质（输入框 / 任务卡 / 模式胶囊 / 模式浮层共用）：模糊走大档，白描边压到滑杆值 ×0.3
+    glassFrostBlur: px(Math.max(28, Math.min(56, s.blur * 5)), scale),
+    glassFrostEdge: (s.edge / 100 * 0.30).toFixed(2),
     glassRadiusSheet: px(s.radius, scale),
     glassRadiusCard: px(s.radius * 36 / 32, scale),
     glassRadiusChoice: px(s.radius * 2, scale),
     glassBackdropBrightness: factor.toFixed(2),
     nativeBgValue: s.native,
     ...(() => {
-      const light = !!(style && style.light);
       const p = nativePalette(s.native, light);
       return { nativeSurfaceColor: p.surface, nativeBgColor: p.bg, nativeFillColor: p.fill };
     })(),
-    /* 直接下发给玻璃样式弹窗的 inline style：不依赖 CSS 变量是否被 WebView 解析 */
-    glassSurfaceStyle: [
+    /* 直接下发给玻璃样式弹窗的 inline style：不依赖 CSS 变量是否被 WebView 解析。
+       浅色主题走项目里既有的浅色玻璃配方（近白底 + 深色发丝边），否则浅色下还是深色磨砂。 */
+    glassSurfaceStyle: (light ? [
+      'background: linear-gradient(165deg, rgba(255, 255, 255, 0.96), rgba(244, 247, 252, 0.92));',
+      'border: 1px solid rgba(16, 19, 24, 0.10);',
+      'border-radius: ' + px(s.radius, scale) + ';',
+      'box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.90), 0 ' + px(12, scale) + ' ' + px(48, scale) + ' rgba(7, 24, 43, 0.18);',
+      'backdrop-filter: blur(' + px(Math.max(24, s.blur), scale) + ') saturate(1.05);',
+      '-webkit-backdrop-filter: blur(' + px(Math.max(24, s.blur), scale) + ') saturate(1.05);'
+    ] : [
       'background: linear-gradient(165deg, rgba(255, 255, 255, ' + (topPct / 100).toFixed(3) + '), rgba(255, 255, 255, ' + (bottomPct / 100).toFixed(3) + '));',
       'border: 1px solid rgba(255, 255, 255, ' + (s.edge / 100).toFixed(2) + ');',
       'border-radius: ' + px(s.radius, scale) + ';',
       'box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16), 0 ' + px(12, scale) + ' ' + px(48, scale) + ' rgba(3, 14, 30, 0.26);',
       'backdrop-filter: blur(' + px(s.blur, scale) + ') brightness(' + factor.toFixed(2) + ');',
       '-webkit-backdrop-filter: blur(' + px(s.blur, scale) + ') brightness(' + factor.toFixed(2) + ');'
-    ].join(' ')
+    ]).join(' ')
   };
 }
 

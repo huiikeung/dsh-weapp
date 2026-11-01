@@ -38,10 +38,12 @@ function entryToView(row) {
 
 Page(Object.assign({}, settingsActions, {
   data: {
+    // ASCF 页面需显式注入 i18n 词典，模板 {{ui['…']}} 才有值。
+    ui: require('../../utils/ui-preferences').snapshot().ui,
     theme: 'light',
     themeClass: 'theme-light',
     pageStyle: '',
-    statusBarH: 44,
+    statusBarH: 44, navPadTop: 44, navHeight: 32,
     detailScrollHeight: 600,
     mode: 'bundle', // bundle | official
     bundle: null,
@@ -51,11 +53,34 @@ Page(Object.assign({}, settingsActions, {
     pendingName: null,
     sheetEntry: null,
     uninstallOpen: false,
+    settingsOpen: false,
     config: null, configStatus: 'idle', configError: '', configSaving: false, configModelsStatus: 'idle'
   },
 
+  /** 插件设置改为玻璃底部弹窗：详情页只保留入口。 */
+  openSettings() { this.setData({ settingsOpen: true }); },
+  closeSettings() { if (this.data.configSaving) return; this.setData({ settingsOpen: false }); },
+
   onUiLocaleChange() { this.syncFromStore(); this.renderVoiceSettings(); },
+  /** ASCF 自定义导航：返回按钮与系统胶囊按同一水平线对齐。 */
+  applyNavigationInsets() {
+    let top = 44, height = 32;
+    try {
+      const info = typeof has.getWindowInfo === 'function' ? has.getWindowInfo() : has.getSystemInfoSync();
+      const statusBar = Number(info && info.statusBarHeight) || 0;
+      const safeTop = Number(info && info.safeArea && info.safeArea.top) || 0;
+      top = Math.max(statusBar, safeTop) + 6;
+    } catch (e) { /* 保持默认 */ }
+    try {
+      const rect = typeof has.getMenuButtonBoundingClientRect === 'function' ? has.getMenuButtonBoundingClientRect() : null;
+      if (rect && Number(rect.top) > 0 && Number(rect.height) > 0) { top = Number(rect.top); height = Number(rect.height); }
+    } catch (e) { /* 旧基础库回退到状态栏高度 */ }
+    if (!(top > 40)) top = 44;
+    this.setData({ navPadTop: top, navHeight: height });
+  },
+
   onLoad(options) {
+    this.applyNavigationInsets();
     this.configDisposed = false;
     this.brokenIcons = new Set();
     theme.applyTo(this);

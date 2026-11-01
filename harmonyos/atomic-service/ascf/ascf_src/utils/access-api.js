@@ -209,6 +209,8 @@ function redeem(code, nodeId) { return request('/redemptions', { code, nodeId })
 function redeemPublicAccess(code) {
   return request('/redemptions', { code }).then(result => me().then(() => result));
 }
+/** 本次会话是否已成功加载过账号身份；未加载时公网授权状态是「未知」而非「未授权」。 */
+function accountLoaded() { return !!account; }
 function hasPublicAccess() {
   return !!(account && account.publicAccess === true && (account.isAdmin === true || Number(account.publicAccessExpiresAt) > Date.now()));
 }
@@ -281,4 +283,4 @@ function claimAdminBinding(code) { return request('/admin-binding/claim', { code
 function pairings() { return request('/admin/pairings'); }
 function createPairing(nodeId, days) { return request('/admin/pairings', { nodeId, days }, false, 30000); }
 function revokePairing(id) { return request('/admin/pairings/' + encodeURIComponent(id) + '/revoke', {}); }
-module.exports = { configured, lastGrant, cachedLease, saveGrant, forgetGrant, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, hasPublicAccess, isManagedRelay, publicLease, issueCompletionNotificationTicket, claimAdminBinding, pairings, createPairing, revokePairing, clear };
+module.exports = { configured, accountLoaded, lastGrant, cachedLease, saveGrant, forgetGrant, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, hasPublicAccess, isManagedRelay, publicLease, issueCompletionNotificationTicket, claimAdminBinding, pairings, createPairing, revokePairing, clear };

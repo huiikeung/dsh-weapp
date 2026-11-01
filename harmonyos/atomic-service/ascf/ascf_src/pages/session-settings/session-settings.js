@@ -1,3 +1,6 @@
+// ASCF（鸿蒙元服务）平台适配 —— 与小程序唯一事实来源的差异仅限以下几处，请勿反向同步回小程序：
+// 1) 全局对象 wx → has（含 clientVersion(wx) → clientVersion(has)）。
+// 2) data.ui 显式带一份界面词典快照，兜住浮层模板的首帧渲染。
 const { t: uiText } = require('../../utils/ui-preferences');
 const store = require('../../utils/store');
 const labels = require('../../utils/labels');
@@ -440,6 +443,11 @@ Page({
 
   openPlugins() {
     has.navigateTo({ url: '/pages/plugins/plugins' });
+  },
+
+  /** 模型管理页：读取/增删 llm-pi-ai 的模型，和 DSH 客户端共享同一份 settings。 */
+  openModels() {
+    has.navigateTo({ url: '/pages/models/models' });
   },
 
   openFiles() {

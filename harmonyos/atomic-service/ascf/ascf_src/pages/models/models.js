@@ -64,6 +64,8 @@ function selectedCandidates(rows) {
 
 Page({
   data: {
+    // ASCF 页面需显式注入 i18n 词典，模板 {{ui['…']}} 才有值。
+    ui: require('../../utils/ui-preferences').snapshot().ui,
     theme: 'light',
     themeClass: 'theme-light',
     pageStyle: '',
@@ -148,16 +150,19 @@ Page({
     try {
       const info = typeof has.getWindowInfo === 'function' ? has.getWindowInfo() : has.getSystemInfoSync();
       let rect = null;
-      try { rect = typeof has.getMenuButtonBoundingClientRect === 'function' ? has.getMenuButtonBoundingClientRect() : null; } catch (_) { rect = null; }
+      try {
+        rect = typeof has.getMenuButtonBoundingClientRect === 'function' ? has.getMenuButtonBoundingClientRect() : null;
+      } catch (_) { rect = null; }
       const statusBarH = info.statusBarHeight || 44;
       const winW = info.windowWidth || 375;
       this.setData({
         statusBarH,
+        // 返回箭头和标题都要与右上角小程序胶囊同一行
         navPadTop: rect && rect.top ? rect.top : statusBarH + 6,
         navHeight: rect && rect.height ? rect.height : 32,
         navRight: rect && rect.left ? Math.max(Math.round(winW - rect.left) + 8, 96) : 100
       });
-    } catch (e) { /* 默认导航布局 */ }
+    } catch (e) { /* 默认 44 */ }
     this._piNamespace = null;
     this._providersFrame = null;
     this._providers = {};

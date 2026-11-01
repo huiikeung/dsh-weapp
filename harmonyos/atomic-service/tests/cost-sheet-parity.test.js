@@ -20,11 +20,13 @@ function count(source, value) {
   return source.split(value).length - 1;
 }
 
-test('cost sheets no longer expose drag-handle touch targets', () => {
+test('cost sheet grabbers stay visual-only (match latest miniprogram)', () => {
+  // 最新版小程序在 cost-meter.wxss 增加了纯展示的抓手（无拖拽事件），这里同步断言样式存在、
+  // 但模板里不出现抓手触摸目标与拖拽绑定。
   assert.equal(count(costMarkup, 'class="cost-sheet-grabber"'), 0);
   assert.equal(count(costMarkup, 'class="choice-sheet-grabber"'), 0);
-  assert.equal(costStyles.includes('.cost-sheet-grabber'), false);
-  assert.equal(costStyles.includes('.cost-sheet-grabbar'), false);
+  assert.ok(costStyles.includes('.cost-sheet-grabber {'));
+  assert.ok(costStyles.includes('.cost-sheet-grabbar {'));
 });
 
 test('shared choice sheet uses the e60105a inset and row geometry', () => {

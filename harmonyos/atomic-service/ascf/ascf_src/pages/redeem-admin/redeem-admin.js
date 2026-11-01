@@ -9,6 +9,8 @@ const USE_KEYS = ['1 次', '5 次', '20 次', '50 次', '100 次'];
 function date(value) { const d = new Date(value); return [d.getFullYear(), d.getMonth() + 1, d.getDate()].join('/'); }
 Page({
   data: {
+    // ASCF 页面需显式注入 i18n 词典，模板 {{ui['…']}} 才有值。
+    ui: require('../../utils/ui-preferences').snapshot().ui,
     loading: true, verified: false, isAdmin: false, grantReady: false,
     busy: false, actionId: '', error: '', nodes: [], nodeIndex: 0,
     durations: DURATION_KEYS.map(uiText), durationIndex: 3, durationPickerOpen: false, countPickerOpen: false,
@@ -24,10 +26,10 @@ Page({
     const generation = this._generation = (this._generation || 0) + 1;
     this.setData({ loading: true, isAdmin: false, verified: false, busy: false, actionId: '', error: '', generatedCode: '', generatedId: '' });
     try {
-      const account = await api.ensureAccount({ freshLogin: true });
+      const account = await api.ensureAccount();
       if (generation !== this._generation) return;
       if (!account || account.isAdmin !== true) {
-        this.setData({ loading: false, verified: true, items: [], usedCodeCount: 0, error: uiText('当前微信不是管理员，不能生成或管理兑换码。') });
+        this.setData({ loading: false, verified: true, items: [], usedCodeCount: 0, error: uiText('当前账号不是管理员，不能生成或管理兑换码。') });
         return;
       }
       const items = await api.codes();

@@ -3,7 +3,9 @@ const api = require('../../utils/access-api');
 const theme = require('../../utils/theme');
 Page({
   manualShareMenu: true,
-  data: { loading: true, busy: false, isAdmin: false, error: '', items: [], editingId: '', revision: null, title: '', content: '' },
+  data: {
+    // ASCF 页面需显式注入 i18n 词典，模板 {{ui['…']}} 才有值。
+    ui: require('../../utils/ui-preferences').snapshot().ui, loading: true, busy: false, isAdmin: false, error: '', items: [], editingId: '', revision: null, title: '', content: '' },
   onLoad() { theme.applyTo(this); },
   onShow() { return this.refresh(); },
   onHide() { this.invalidate(); },
@@ -14,9 +16,9 @@ Page({
     const generation = this._generation = (this._generation || 0) + 1;
     this.setData({ loading: true, error: '', isAdmin: false, items: [] });
     try {
-      const account = await api.ensureAccount({ freshLogin: true });
+      const account = await api.ensureAccount();
       if (generation !== this._generation) return;
-      if (!account.isAdmin) throw Object.assign(new Error(uiText('当前微信没有管理员权限')), { code: 'FORBIDDEN' });
+      if (!account.isAdmin) throw Object.assign(new Error(uiText('当前账号没有管理员权限')), { code: 'FORBIDDEN' });
       const result = await api.announcements();
       if (generation === this._generation) this.setData({ isAdmin: true, items: result.items });
     } catch (e) {

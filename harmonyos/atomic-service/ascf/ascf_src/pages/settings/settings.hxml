@@ -1,5 +1,6 @@
 <page-meta page-style="{{pageStyle}}"/>
 <import src="../../styles/proc-icon.hxml"/>
+<!-- ASCF 平台适配：模板指令 wx: → has:；模板/样式导入 .wxml/.wxss → .hxml/.css；「管理当前微信账号的公网有效期」→「管理当前账号的公网有效期」（本端用华为账号）。 -->
 <view class="page settings {{themeClass}} {{settingsGlassEnabled ? 'settings-glass-ui' : 'settings-native-ui'}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-blur-card: {{glassBlurCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-choice: {{glassRadiusChoice}}; --glass-backdrop-brightness: {{glassBackdropBrightness}}; {{settingsGlassEnabled ? '' : '--surface: ' + nativeSurfaceColor + '; --fill: ' + nativeFillColor + ';'}}">
   <!-- 自定义导航：与右上角胶囊同一水平线，避免原生导航在手动深色时露白 -->
   <view class="nav" style="padding-top:{{navPadTop}}px;height:{{navHeight}}px;">
@@ -92,7 +93,8 @@
     </block>
   </view>
 
-  <!-- 语言与工作步骤选择：统一为居中卡片 -->
+  
+  <!-- 选择弹窗：与「震动反馈」一致的居中卡片样式 -->
   <view has:if="{{choiceMenu}}" class="pair-sheet-mask" catchtap="closeChoiceMenu" catchtouchmove="noop">
     <view class="pair-sheet appearance-sheet {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" catchtap="noop" role="dialog" aria-label="{{choiceTitle}}">
       <view class="pair-sheet-head">
@@ -145,8 +147,8 @@
       </view>
       <view class="appearance-options">
         <view has:for="{{appearanceModes}}" has:key="mode" class="appearance-option {{appearanceMode === item.mode ? 'selected' : ''}}" data-mode="{{item.mode}}" bindtap="chooseAppearance" role="button">
-          <view class="appearance-option-icon appearance-{{item.mode}}">
-            <view class="appearance-swatch"></view>
+          <view class="appearance-option-icon">
+            <view class="appearance-glyph appearance-glyph-{{item.mode}}"></view>
           </view>
           <text class="appearance-option-label">{{ui[item.label] !== undefined ? ui[item.label] : item.label}}</text>
           <text class="appearance-option-check">{{appearanceMode === item.mode ? '✓' : ''}}</text>
@@ -276,7 +278,7 @@
                   </view>
                   <view class="card-row management-entry">
                     <view class="management-entry-copy"><text class="card-row-label">{{ui['分享活动']}}</text><text class="management-entry-desc">{{shareSaving ? ui['正在保存…'] : (contentLoaded ? ui['关闭后隐藏分享入口，已获时长不变'] : (contentError || ui['正在同步设置…']))}}</text></view>
-                    <dsh-switch checked="{{referralEnabled}}" disabled="{{shareSaving || !contentLoaded || accountBusy}}" aria-label="{{ui['分享活动开关']}}" bindchange="toggleReferralSharing"/>
+                    <dsh-switch theme-mode="{{theme}}" checked="{{referralEnabled}}" disabled="{{shareSaving || !contentLoaded || accountBusy}}" aria-label="{{ui['分享活动开关']}}" bindchange="toggleReferralSharing"/>
                   </view>
                   <view has:if="{{contentError}}" class="card-row" bindtap="refreshAppContent" hover-class="management-entry-active" role="button"><text class="card-row-label">{{ui['重试同步分享设置']}}</text></view>
 
@@ -322,7 +324,7 @@
                 </view>
                 <view class="card-row">
                   <view class="exp-copy"><text class="card-row-label">{{ui['显示耗时曲线']}}</text><text class="exp-desc">{{ui['在上下文趋势上叠加每步耗时曲线']}}</text></view>
-                  <dsh-switch checked="{{contextTrendShowDuration}}" aria-label="{{ui['显示耗时曲线']}}" bindchange="toggleContextTrendDuration"/>
+                  <dsh-switch theme-mode="{{theme}}" checked="{{contextTrendShowDuration}}" aria-label="{{ui['显示耗时曲线']}}" bindchange="toggleContextTrendDuration"/>
                 </view>
                 <view class="card-row card-row-stack">
                   <view class="exp-copy"><text class="card-row-label">{{ui['文件活动排序']}}</text><text class="exp-desc">{{ui['上下文面板里文件列表的默认排序']}}</text></view>
@@ -353,25 +355,29 @@
           </view>
         </view>
         <view class="card-row glass-style-row">
-          <view class="exp-copy"><text class="card-row-label">{{ui['玻璃UI样式']}}</text></view>
-          <dsh-switch checked="{{settingsGlassEnabled}}" aria-label="{{ui['玻璃UI样式']}}" bindchange="toggleSettingsGlass"/>
+          <view class="exp-copy"><text class="card-row-label">{{ui['设置页玻璃UI']}}</text></view>
+          <dsh-switch theme-mode="{{theme}}" checked="{{settingsGlassEnabled}}" aria-label="{{ui['设置页玻璃UI']}}" bindchange="toggleSettingsGlass"/>
         </view>
-        <view class="card-row glass-style-row session-glass-row">
-          <view class="exp-copy"><text class="card-row-label">{{ui['对话页面玻璃']}}</text></view>
-          <dsh-switch checked="{{sessionGlassEnabled}}" aria-label="{{ui['对话页面玻璃']}}" bindchange="toggleSessionGlass"/>
-        </view>
-        <view has:if="{{settingsGlassEnabled}}" class="card-row" id="glass-style-entry" bindtap="openGlassStyleSheet" role="button" aria-label="{{ui['玻璃样式设置']}}">
-          <text class="card-row-label">{{ui['玻璃样式设置']}}</text>
+        <view has:if="{{settingsGlassEnabled}}" class="card-row card-sub-row" id="glass-style-entry" bindtap="openGlassStyleSheet" role="button" aria-label="{{ui['玻璃样式设置']}}">
+          <view class="card-sub-title"><view class="card-sub-dash"></view><text class="card-row-label">{{ui['玻璃样式设置']}}</text></view>
           <view class="card-row-value"><text>{{glassAlpha}}% · {{glassBlur}}rpx</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
         </view>
-        <view has:else class="card-row" id="native-style-entry" bindtap="openNativeStyleSheet" role="button" aria-label="{{ui['原生样式设置']}}">
-          <text class="card-row-label">{{ui['原生样式设置']}}</text>
+        <view has:else class="card-row card-sub-row" id="native-style-entry" bindtap="openNativeStyleSheet" role="button" aria-label="{{ui['原生样式设置']}}">
+          <view class="card-sub-title"><view class="card-sub-dash"></view><text class="card-row-label">{{ui['原生样式设置']}}</text></view>
           <view class="card-row-value"><text>{{ui['原生背景']}} {{nativeBgValue}}%</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+        </view>
+        <view class="card-row glass-style-row session-glass-row">
+          <view class="exp-copy"><text class="card-row-label">{{ui['对话页玻璃UI']}}</text></view>
+          <dsh-switch theme-mode="{{theme}}" checked="{{sessionGlassEnabled}}" aria-label="{{ui['对话页玻璃UI']}}" bindchange="toggleSessionGlass"/>
+        </view>
+        <view has:if="{{sessionGlassEnabled}}" class="card-row card-sub-row" id="session-card-style-entry" bindtap="openCardStyleSheet" role="button" aria-label="{{ui['卡片样式设置']}}">
+          <view class="card-sub-title"><view class="card-sub-dash"></view><text class="card-row-label">{{ui['卡片样式设置']}}</text></view>
+          <view class="card-row-value"><text>{{ui['悬浮']}} {{cardFloat}}% · {{ui['圆角']}} {{cardRadius}}rpx</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
         </view>
 
         <view class="card-row glass-style-row">
           <view class="exp-copy"><text class="card-row-label">{{ui['底部弹窗']}}</text></view>
-          <dsh-switch checked="{{settingsGlassSheetEnabled}}" aria-label="{{ui['底部弹窗']}}" bindchange="toggleSettingsGlassSheet"/>
+          <dsh-switch theme-mode="{{theme}}" checked="{{settingsGlassSheetEnabled}}" aria-label="{{ui['底部弹窗']}}" bindchange="toggleSettingsGlassSheet"/>
         </view>        <view class="card-row" bindtap="openStatusStyles" role="button" aria-label="{{ui['选择对话状态条样式']}}">
           <text class="card-row-label">{{ui['对话状态条']}}</text>
           <view class="card-row-value"><text>{{ui[statusAppearanceLabel] !== undefined ? ui[statusAppearanceLabel] : statusAppearanceLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
@@ -384,16 +390,19 @@
 
     <view class="card-row">
           <view class="exp-copy"><text class="card-row-label">{{ui['首页动画']}}</text><text class="exp-desc">{{ui['控制首页动态海洋背景，关闭后保留静态画面']}}</text></view>
-          <dsh-switch checked="{{homeAnimationEnabled}}" aria-label="{{ui['首页动画']}}" bindchange="toggleHomeAnimation"/>
+          <dsh-switch theme-mode="{{theme}}" checked="{{homeAnimationEnabled}}" aria-label="{{ui['首页动画']}}" bindchange="toggleHomeAnimation"/>
         </view>
   </view>
 
   <view class="group-title">{{ui['通用设置']}}</view>
   <view class="card general-preferences {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
     <view class="card-row preference-language-row" bindtap="pickLanguage" role="button" aria-label="{{ui['语言']}}">
-      <text class="card-row-label">{{ui['语言']}}</text>
-      <view class="card-row-value"><text>{{ui[languageLabel] !== undefined ? ui[languageLabel] : languageLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
-    </view>
+          <text class="card-row-label">{{ui['语言']}}</text>
+          <view class="card-row-value">
+            <text>{{ui[languageLabel] !== undefined ? ui[languageLabel] : languageLabel}}</text>
+            <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+          </view>
+        </view>
     <view class="card-row" bindtap="openHapticsPicker" role="button" aria-label="{{ui['震动反馈']}}">
           <text class="card-row-label">{{ui['震动反馈']}}</text>
           <view class="card-row-value">
@@ -407,7 +416,7 @@
     </view>
     <view class="card-row">
       <view class="exp-copy"><text class="card-row-label">{{ui['显示账号卡片']}}</text><text class="exp-desc">{{ui['在设置页和会话设置顶部显示账号与余额卡片']}}</text></view>
-      <dsh-switch checked="{{showAccountCard}}" aria-label="{{ui['显示账号卡片']}}" bindchange="toggleAccountCard"/>
+      <dsh-switch theme-mode="{{theme}}" checked="{{showAccountCard}}" aria-label="{{ui['显示账号卡片']}}" bindchange="toggleAccountCard"/>
     </view>
   </view>
 
@@ -415,7 +424,7 @@
   <view class="card work-step-settings {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
     <view class="card-row">
       <view class="work-step-copy"><text class="card-row-label">{{ui['语音输入']}}</text><text class="work-step-hint">{{ui['按住说话，由已连接的 DSH 语音插件转写']}}</text></view>
-      <dsh-switch checked="{{voiceEnabled}}" aria-label="{{ui['语音输入']}}" bindchange="toggleVoice"/>
+      <dsh-switch theme-mode="{{theme}}" checked="{{voiceEnabled}}" aria-label="{{ui['语音输入']}}" bindchange="toggleVoice"/>
     </view>
     <view has:if="{{voiceEnabled}}" class="card-row" bindtap="openVoiceSettings" role="button">
       <text class="card-row-label">{{ui['语音插件设置']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
@@ -428,14 +437,15 @@
       <view class="work-step-copy"><text class="card-row-label">{{ui['工作步骤收起时机']}}</text><text class="work-step-hint">{{ui['选择何时自动收起工作步骤']}}</text></view>
       <view class="card-row-value"><text>{{ui[workStepTimingLabel] !== undefined ? ui[workStepTimingLabel] : workStepTimingLabel}}</text><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
     </view>
-    <view class="card-row">
-      <view class="exp-copy"><text class="card-row-label">{{ui['上下文标签页']}}</text><text class="exp-desc">{{ui['在会话顶部显示上下文标签页']}}</text></view>
-      <dsh-switch checked="{{showContextPanel}}" aria-label="{{ui['上下文标签页']}}" bindchange="toggleContextPanel"/>
-    </view>
-    <view class="card-row">
-      <view class="exp-copy"><text class="card-row-label">{{ui['编队标签页']}}</text><text class="exp-desc">{{ui['在会话顶部显示编队标签页']}}</text></view>
-      <dsh-switch checked="{{showFleetPanel}}" aria-label="{{ui['编队标签页']}}" bindchange="toggleFleetPanel"/>
-    </view>
+  <view class="card-row">
+          <view class="exp-copy"><text class="card-row-label">{{ui['上下文标签页']}}</text><text class="exp-desc">{{ui['在会话顶部显示上下文标签页']}}</text></view>
+          <dsh-switch theme-mode="{{theme}}" checked="{{showContextPanel}}" aria-label="{{ui['上下文标签页']}}" bindchange="toggleContextPanel"/>
+        </view>
+        <view class="card-row">
+          <view class="exp-copy"><text class="card-row-label">{{ui['编队标签页']}}</text><text class="exp-desc">{{ui['在会话顶部显示编队标签页']}}</text></view>
+          <dsh-switch theme-mode="{{theme}}" checked="{{showFleetPanel}}" aria-label="{{ui['编队标签页']}}" bindchange="toggleFleetPanel"/>
+        </view>
+
     <view class="card-row" bindtap="openContextSheet" role="button" aria-label="{{ui['上下文面板']}}">
       <view class="preference-description"><text class="card-row-label">{{ui['上下文面板']}}</text></view>
       <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
@@ -450,21 +460,21 @@
         <text class="card-row-label">{{ui['订阅通知']}}</text>
         <text class="exp-desc">{{ui['发送任务后申请订阅消息授权，回合完成时通过服务通知提醒']}}</text>
       </view>
-      <dsh-switch checked="{{notifyEnabled}}" bindchange="toggleNotify"/>
+      <dsh-switch theme-mode="{{theme}}" checked="{{notifyEnabled}}" bindchange="toggleNotify"/>
     </view>
     <view class="card-row clawbot-experimental-row">
       <view class="exp-copy" bindtap="openClawbotPanel" role="button">
         <text class="card-row-label">{{ui['微信 ClawBot 私聊接线']}}</text>
         <text class="exp-desc">{{ui['将微信私聊接入指定 DSH 会话；微信凭据保存在电脑端']}}</text>
       </view>
-      <dsh-switch checked="{{clawbotStatus ? clawbotStatus.enabled : false}}" disabled="{{clawbotBusy}}" bindchange="toggleClawbot"/>
+      <dsh-switch theme-mode="{{theme}}" checked="{{clawbotStatus ? clawbotStatus.enabled : false}}" disabled="{{clawbotBusy}}" bindchange="toggleClawbot"/>
     </view>
     <view class="card-row clawbot-experimental-row">
       <view class="exp-copy" bindtap="openCostMeter" role="button" aria-label="{{ui['额度卡片']}}">
         <text class="card-row-label">{{ui['额度卡片']}}</text>
         <text class="exp-desc">{{ui['在左侧栏显示余额与额度卡片']}}</text>
       </view>
-      <dsh-switch checked="{{quotaSidebarVisible}}" aria-label="{{ui['额度卡片']}}" bindchange="toggleQuotaSidebarVisibility"/>
+      <dsh-switch theme-mode="{{theme}}" checked="{{quotaSidebarVisible}}" aria-label="{{ui['额度卡片']}}" bindchange="toggleQuotaSidebarVisibility"/>
     </view>
   </view>
 
@@ -597,7 +607,7 @@
       <view class="pair-sheet-head">
         <view>
           <text class="pair-sheet-title">{{managementPanel === 'public' ? ui['公网访问'] : (managementPanel === 'gateway' ? ui['网关连接'] : ui['节点管理'])}}</text>
-          <text class="pair-sheet-subtitle">{{managementPanel === 'public' ? ui['管理当前微信账号的公网有效期'] : (managementPanel === 'gateway' ? nodeDetail.name : ui['点击节点查看连接信息与操作'])}}</text>
+          <text class="pair-sheet-subtitle">{{managementPanel === 'public' ? ui['管理当前账号的公网有效期'] : (managementPanel === 'gateway' ? nodeDetail.name : ui['点击节点查看连接信息与操作'])}}</text>
         </view>
         <view class="pair-sheet-close tap" bindtap="closeManagementPanel" role="button"><view class="sheet-close-x"></view></view>
       </view>
@@ -939,6 +949,77 @@
   </view>
 </view>
 
+<!-- 卡片外观弹窗：悬浮 / 光线 / 描边 / 圆角（自带主题容器，否则浅色规则匹配不到） -->
+<view class="{{themeClass}}">
+<view has:if="{{cardStyleOpen}}" class="glass-style-mask {{settingsGlassSheetEnabled ? '' : 'glass-style-mask-pass'}}" catchtap="closeCardStyleSheet" catchtouchmove="noop"></view>
+  <view has:if="{{cardStyleOpen}}" class="glass-style-sheet {{settingsGlassSheetEnabled ? '' : 'native-skin'}}" catchtap="noop" role="dialog" aria-label="{{ui['卡片样式设置']}}">
+    <view has:if="{{settingsGlassSheetEnabled}}" class="sheet-grabber"></view>
+    <view class="glass-style-head">
+      <text class="glass-style-title">{{ui['卡片样式设置']}}</text>
+      <view class="glass-style-actions">
+        <view class="glass-style-reset tap" catchtap="resetCardStyle" role="button">{{ui['重置为默认']}}</view>
+        <view class="glass-style-done tap" catchtap="closeCardStyleSheet" role="button">{{ui['完成']}}</view>
+      </view>
+    </view>
+    <view class="card-style-mode" role="tablist" aria-label="{{ui['卡片样式设置']}}">
+      <view class="card-style-mode-btn {{cardStyleMode === 'light' ? 'on' : ''}}" bindtap="switchCardStyleMode" data-mode="light" role="button" aria-pressed="{{cardStyleMode === 'light'}}">{{ui['浅色']}}</view>
+      <view class="card-style-mode-btn {{cardStyleMode === 'dark' ? 'on' : ''}}" bindtap="switchCardStyleMode" data-mode="dark" role="button" aria-pressed="{{cardStyleMode === 'dark'}}">{{ui['深色']}}</view>
+    </view>
+    <view class="card-preview-stage plain">
+      <view class="card-preview-card" style="border-radius: {{cardRadiusRpx}}; {{cardPreviewStyle}}">
+        <view class="card-preview-dot"></view>
+        <view class="card-preview-copy">
+          <text class="card-preview-title">{{ui['预览']}}</text>
+          <text has:if="{{cardStyleMode === 'light'}}" class="card-preview-sub">{{ui['悬浮']}} {{cardFloat}} · {{ui['底色']}} {{cardFill}} · {{ui['光线']}} {{cardLight}} · {{ui['柔光']}} {{cardGlow}} · {{ui['描边']}} {{cardEdge}} · {{ui['圆角']}} {{cardRadius}}rpx</text>
+          <text has:else class="card-preview-sub">{{ui['悬浮']}} {{cardFloat}} · {{ui['底色']}} {{cardFill}} · {{ui['描边']}} {{cardEdge}} · {{ui['圆角']}} {{cardRadius}}rpx</text>
+        </view>
+      </view>
+    </view>
+      <view class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['悬浮']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardFloatMin}}" max="{{cardFloatMax}}" step="1" value="{{cardFloat}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['悬浮']}}" data-field="float" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardFloat}}%</text>
+        </view>
+      </view>
+      <view class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['底色']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardFillMin}}" max="{{cardFillMax}}" step="1" value="{{cardFill}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['底色']}}" data-field="fill" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardFill}}%</text>
+        </view>
+      </view>
+      <view has:if="{{cardStyleMode === 'light'}}" class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['光线']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardLightMin}}" max="{{cardLightMax}}" step="1" value="{{cardLight}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['光线']}}" data-field="light" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardLight}}%</text>
+        </view>
+      </view>
+      <view has:if="{{cardStyleMode === 'light'}}" class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['柔光']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardGlowMin}}" max="{{cardGlowMax}}" step="1" value="{{cardGlow}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['柔光']}}" data-field="glow" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardGlow}}%</text>
+        </view>
+      </view>
+      <view class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['描边']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardEdgeMin}}" max="{{cardEdgeMax}}" step="1" value="{{cardEdge}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['描边']}}" data-field="edge" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardEdge}}%</text>
+        </view>
+      </view>
+      <view class="glass-alpha-row">
+        <text class="glass-style-label">{{ui['圆角']}}</text>
+        <view class="glass-alpha-control">
+          <slider class="glass-alpha-slider" min="{{cardRadiusMin}}" max="{{cardRadiusMax}}" step="1" value="{{cardRadius}}" activeColor="{{theme === 'dark' ? '#FFFFFF' : '#10131A'}}" backgroundColor="rgba(150, 150, 155, 0.35)" block-size="22" aria-label="{{ui['圆角']}}" data-field="radius" bindchanging="onCardStyleChanging" bindchange="onCardStyleChange"/>
+          <text class="glass-alpha-value">{{cardRadius}}rpx</text>
+        </view>
+      </view>
+  </view>
+</view>
+
 <!-- 兑换码「可兑换次数」：居中弹窗 -->
 <view has:if="{{codeCountPickerOpen}}" class="code-modal-mask {{themeClass}}" catchtap="closeCodeCountPicker" catchtouchmove="noop">
   <view class="code-modal" catchtap="noop" role="dialog" aria-label="{{ui['可兑换次数']}}">
@@ -955,16 +1036,25 @@
   </view>
 </view>
 <!-- 弹窗浮层都在页面根节点之外，单独包一层主题容器，保证深/浅色变量与文字色可用 -->
-<view class="{{themeClass}}">
+<view class="{{themeClass}}" style="--glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-blur-card: {{glassBlurCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-choice: {{glassRadiusChoice}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
 <!-- 玻璃样式设置弹窗（仅玻璃模式）：玻璃皮肤，底部弹窗 / 非底部浮层两种形态 -->
 <view has:if="{{glassStyleOpen}}" class="{{settingsGlassSheetEnabled ? 'glass-style-mask' : 'glass-style-mask glass-style-mask-pass'}}" catchtap="closeGlassStyleSheet" catchtouchmove="noop"></view>
-<view has:if="{{glassStyleOpen}}" class="{{settingsGlassSheetEnabled ? 'glass-style-sheet' : 'glass-style-pop'}}" style="{{glassSurfaceStyle}} {{settingsGlassSheetEnabled ? '' : 'left: ' + glassStyleLeft + 'px; top: ' + glassStyleTop + 'px; width: ' + glassStyleWidth + 'px; transform-origin: 50% ' + glassStyleOriginY + 'px;'}}" catchtap="noop" role="dialog" aria-label="{{ui['玻璃样式设置']}}">
+<view has:if="{{glassStyleOpen}}" class="{{settingsGlassSheetEnabled ? 'glass-style-sheet' : 'glass-style-pop'}}" style="--glass-paint: {{glassStylePaint ? 1 : 0}}; {{settingsGlassSheetEnabled ? '' : 'left: ' + glassStyleLeft + 'px; top: ' + glassStyleTop + 'px; width: ' + glassStyleWidth + 'px; transform-origin: 50% ' + glassStyleOriginY + 'px;'}}" catchtap="noop" role="dialog" aria-label="{{ui['玻璃样式设置']}}">
   <view has:if="{{settingsGlassSheetEnabled}}" class="sheet-grabber"></view>
   <view class="glass-style-head">
     <text class="glass-style-title">{{ui['玻璃样式设置']}}</text>
     <view class="glass-style-actions">
       <view class="glass-style-reset tap" catchtap="resetGlassStyle" role="button">{{ui['重置为默认']}}</view>
       <view class="glass-style-done tap" catchtap="closeGlassStyleSheet" role="button">{{ui['完成']}}</view>
+    </view>
+  </view>
+  <view class="card-preview-stage plain">
+    <view class="card-preview-card" style="border-radius: {{glassRadiusCard}}; background: linear-gradient(165deg, rgba(255, 255, 255, {{glassPreviewTop}}), rgba(255, 255, 255, {{glassPreviewBottom}})), {{glassPreviewBase}}; box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.20), inset 0 0 0 1px rgba(255, 255, 255, {{glassPreviewEdge}}), 0 12px 32px rgba(3, 14, 30, 0.30); backdrop-filter: blur({{glassBlurSheet}}) brightness({{glassBackdropBrightness}}); -webkit-backdrop-filter: blur({{glassBlurSheet}}) brightness({{glassBackdropBrightness}});">
+      <view class="card-preview-dot"></view>
+      <view class="card-preview-copy">
+        <text class="card-preview-title">{{ui['预览']}}</text>
+        <text class="card-preview-sub">{{glassAlpha}}% · {{glassBlur}}rpx · {{glassEdge}}% · {{glassRadius}}rpx</text>
+      </view>
     </view>
   </view>
           <view class="glass-alpha-row">

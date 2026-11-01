@@ -3,7 +3,9 @@ const api = require('../../utils/access-api');
 const theme = require('../../utils/theme');
 Page({
   manualShareMenu: true,
-  data: { loading: true, error: '', items: [] },
+  data: {
+    // ASCF 页面需显式注入 i18n 词典，模板 {{ui['…']}} 才有值。
+    ui: require('../../utils/ui-preferences').snapshot().ui, loading: true, error: '', items: [] },
   onLoad() { theme.applyTo(this); },
   onShow() { return this.refresh(); },
   onPullDownRefresh() { return this.refresh().finally(() => has.stopPullDownRefresh()); },

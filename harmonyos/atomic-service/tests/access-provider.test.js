@@ -85,6 +85,21 @@ test('exchanges only the Huawei code and installs the server-verified account', 
   assert.deepEqual(removeSessionRequest(f).map(item => item.url), ['https://identity.example.test/session/huawei']);
 });
 
+test('ensureAccount reuses a valid Huawei session instead of prompting on every public-service visit', async () => {
+  const f = fixture();
+  const first = await f.api.ensureAccount();
+  assert.equal(first.isAdmin, true);
+  assert.equal(f.loginCalls.length, 1);
+  assert.equal(f.requests.length, 1);
+  assert.equal(f.requests[0].url, 'https://identity.example.test/session/huawei');
+
+  const second = await f.api.ensureAccount();
+  assert.equal(second.publicAccess, true);
+  assert.equal(f.loginCalls.length, 1);
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.requests[1].url, 'https://identity.example.test/me');
+});
+
 test('concurrent logins coalesce to one has.login and one Huawei exchange', async () => {
   let callback;
   const f = fixture({ loginHandler: request => { callback = request; } });

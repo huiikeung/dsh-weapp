@@ -33,7 +33,7 @@
 </view>
 </view>
 </template>
-<view class="page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-card: {{glassBlurCard}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
+<view class="page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}" style="{{contentFontStyle}}; --card-light-float: {{cardLightFloatShadow}}; --card-light-edge: {{cardLightEdgeColor}}; --card-light-fill: {{cardLightFillAlpha}}; --card-light-glow-top: {{cardLightGlowTop}}; --card-light-glow-bottom: {{cardLightGlowBottom}}; --card-light-glow-all: {{cardLightGlowAll}}; --card-light-radius: {{cardLightRadiusRpx}}; --card-dark-float: {{cardDarkFloatShadow}}; --card-dark-edge: {{cardDarkEdgeColor}}; --card-dark-fill: {{cardDarkFillAlpha}}; --card-dark-radius: {{cardDarkRadiusRpx}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-card: {{glassBlurCard}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-frost-blur: {{glassFrostBlur}}; --glass-frost-edge: {{glassFrostEdge}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
 <view class="session-header">
 <view class="navbar" style="{{navbarStyle}}">
 <view class="nav-back tap" hover-class="press-dim" bindtap="goBack">
@@ -54,7 +54,9 @@
 <view has:if="{{showFleetPanel}}" class="segment {{tab === 'fleet' ? 'active' : ''}}" bindtap="switchTab" data-tab="fleet" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['编队']}}">{{ui['编队']}}</view>
 </view>
 <view class="nav-actions">
-<view class="nav-sidebar glass-press {{convSidebarOpen ? 'is-hidden' : ''}}" bindtap="toggleConversationSidebar" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['展开侧边栏']}}"><view class="nav-sidebar-glyph" aria-hidden="true"><view class="nav-sidebar-glyph-line"></view></view></view>
+<view class="nav-sidebar glass-press {{convSidebarOpen ? 'is-hidden' : ''}}" bindtap="toggleConversationSidebar" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['展开侧边栏']}}">
+<view class="nav-sidebar-glyph" aria-hidden="true"><view class="nav-sidebar-glyph-line"></view></view>
+</view>
 <view class="nav-more glass-press" bindtap="moreActions" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['更多']}}"><image class="nav-ic" src="/assets/icons/more-black.png"/></view>
 <view has:if="{{rows.length}}" class="session-switch-trigger glass-press" bindtap="openTurnNavigator" hover-class="press-dim" hover-start-time="0" hover-stay-time="60" role="button" aria-label="{{ui['对话']}}">
 <view class="session-switch-lines" aria-hidden="true"><view/><view/><view/></view>
@@ -313,7 +315,7 @@
 <view style="height:{{conversationBottomSpace}}px" aria-hidden="true"></view>
 <view has:if="{{running}}" class="progress-strip conversation-progress" id="deep-search-progress">
 <view class="progress-row status-look-{{statusAppearance}}">
-<view class="status-tail"><image class="status-tail-image status-tail-{{statusAppearance}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" mode="aspectFit" src="/assets/icons/dsh-running-whale.png" style="{{theme === 'dark' ? statusDarkTailAnimationStyle : statusLightTailAnimationStyle}}animation-delay:{{statusFlowDelay}}s;"/></view>
+<view class="status-tail"><view class="status-tail-ink status-tail-js status-tail-{{statusAppearance}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" style="background-color:{{statusTailColor}};"/></view>
 <view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? statusDarkStyle : statusLightStyle}}animation-delay:{{statusFlowDelay}}s;">{{runPhrase}}{{ui['，用时']}} {{runElapsedText}}…</text></view>
 </view>
 </view>
@@ -323,7 +325,7 @@
 <view has:if="{{trajectoryMounted}}" hidden="{{tab !== 'trajectory'}}" class="trajectory-panel {{tab !== 'trajectory' ? 'session-panel-hidden' : ''}}" style="{{trajectoryStyle}}" bindtouchstart="onPanelTouchStart" bindtouchmove="onPanelTouchMove" bindtouchend="onPanelTouchEnd" bindtouchcancel="onPanelTouchCancel">
 <view class="trace-overview">
 <view class="trace-overview-head">
-<view class="trace-overview-head-label {{traceFocusMode === 'duration' ? 'active' : ''}}" bindtap="selectTraceMetric" data-mode="duration" hover-class="trace-overview-metric-pressed" role="button" aria-label="{{ui['时长']}}"><image class="trace-overview-clock" src="/assets/icons/{{theme === 'dark' ? 'dsh-clock-dark.svg' : 'dsh-clock.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{ui['时长']}}</text></view>
+<view class="trace-overview-head-label {{traceFocusMode === 'duration' ? 'active' : ''}}" bindtap="selectTraceMetric" data-mode="duration" hover-class="trace-overview-metric-pressed" role="button" aria-label="{{ui['时长']}}"><image class="trace-overview-clock" src="/assets/icons/{{theme === 'dark' ? 'automation-white.svg' : 'automation.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{ui['时长']}}</text></view>
 <view class="trace-overview-stat {{traceFocusMode === 'turns' ? 'active' : ''}}" bindtap="selectTraceMetric" data-mode="turns" hover-class="trace-overview-metric-pressed" role="button" aria-label="{{ui['轮次']}}"><image class="trace-overview-metric-icon" src="/assets/icons/{{theme === 'dark' ? 'dsh-checklist-dark.svg' : 'dsh-checklist.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{traceOverview.turns}}</text><text>{{ui['轮次']}}</text></view>
 <view class="trace-overview-stat {{traceFocusMode === 'calls' ? 'active' : ''}}" bindtap="selectTraceMetric" data-mode="calls" hover-class="trace-overview-metric-pressed" role="button" aria-label="{{ui['调用']}}"><image class="trace-overview-metric-icon" src="/assets/icons/{{theme === 'dark' ? 'dsh-process-tool-dark.svg' : 'dsh-process-tool.svg'}}" mode="aspectFit" aria-hidden="true"/><text>{{traceOverview.calls}}</text><text>{{ui['调用']}}</text></view>
 </view>
@@ -961,7 +963,7 @@
 <block has:else>
 <scroll-view class="fleet-stage {{fleetAllOpen ? 'all' : ''}}" scroll-y enhanced show-scrollbar="{{false}}">
 <view class="fleet-canvas" style="width:{{fleetPanel.graph.width}}px;height:{{fleetPanel.graph.height}}px;">
-<image has:if="{{fleetLinksSrc}}" class="fleet-links-image" src="{{fleetLinksSrc}}" style="width:{{fleetPanel.graph.width}}px;height:{{fleetPanel.graph.height}}px;" mode="scaleToFill"/>
+<view has:if="{{fleetLinksSrc}}" class="fleet-links-image" style="width:{{fleetPanel.graph.width}}px;height:{{fleetPanel.graph.height}}px;" style="width:{{fleetPanel.graph.width}}px;height:{{fleetPanel.graph.height}}px;background-image:url('{{fleetLinksSrc}}');background-size:100% 100%;background-repeat:no-repeat;"/>
 <canvas has:else type="2d" id="fleetLinks" class="fleet-links-canvas" style="width:{{fleetPanel.graph.width}}px;height:{{fleetPanel.graph.height}}px;"></canvas>
 <view has:for="{{fleetPanel.graph.nodes}}" has:key="key" class="fleet-node {{item.isCurrent ? 'self' : ''}} {{item.selected ? 'selected' : ''}} {{item.running ? 'running' : ''}}" style="left:{{item.x}}px;top:{{item.y}}px;width:{{item.w}}px;height:{{item.h}}px;" bindtap="fleetSelectAgent" data-id="{{item.id}}" hover-class="fleet-node-pressed" role="button" aria-label="{{item.title}}">
 <view class="fleet-node-head">
@@ -1217,7 +1219,7 @@
 </scroll-view>
 </view>
 </view>
-<view hidden="{{tab !== 'conversation'}}" class="dock-stack {{voiceOverlayVisible ? 'voice-holding' : ''}} {{question ? 'question-active' : ''}} {{tab !== 'conversation' ? 'session-panel-hidden' : ''}}" style="{{dockStyle}}">
+<view hidden="{{tab !== 'conversation'}}" class="dock-stack {{voiceOverlayVisible ? 'voice-holding' : ''}} {{question ? 'question-active' : ''}} {{tasks || goal || queue.length ? 'stacked' : ''}} {{tab !== 'conversation' ? 'session-panel-hidden' : ''}}" style="{{dockStyle}}">
 <view has:if="{{showJump && rows.length}}" class="jump-wrap">
 <view class="jump-bottom" bindtap="jumpToBottom">
 <view has:if="{{running}}" class="jump-ring"></view>
@@ -1279,7 +1281,7 @@
 <input confirm-type="done" show-confirm-bar="{{false}}" placeholder="{{ui['输入你的答案']}}" placeholder-class="field-placeholder" value="{{question.custom[question.questions[qIndex].id]}}" bindinput="onCustomInput" data-qid="{{question.questions[qIndex].id}}"/>
 </view>
 <view has:else class="q-custom-row">
-<image class="q-pencil" src="/assets/icons/pencil-line-gray.png"/>
+<image class="q-pencil" src="/assets/icons/{{theme === 'dark' ? 'queue-edit-dark.svg' : 'queue-edit.svg'}}"/>
 <input class="q-custom-input" confirm-type="done" show-confirm-bar="{{false}}" placeholder="{{ui['或输入自定义答案']}}" placeholder-class="field-placeholder" value="{{question.custom[question.questions[qIndex].id]}}" bindinput="onCustomInput" data-qid="{{question.questions[qIndex].id}}"/>
 </view>
 </view>
@@ -1304,7 +1306,7 @@
 <view has:if="{{queue.length}}" class="queue-dock {{queueExpanded || queue.length === 1 ? 'open' : ''}}">
 <view class="queue-panel">
 <view has:if="{{queue.length > 1}}" class="queue-head" bindtap="toggleQueue">
-<view class="queue-lead"><image class="queue-head-ic" src="/assets/icons/bubble-gray.png"/></view>
+<view class="queue-lead"><image class="queue-head-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-message-dark.svg' : 'queue-message.svg'}}" mode="aspectFit"/></view>
 <text class="queue-head-title">{{ui['排队消息 ·']}} {{queue.length}}</text>
 <text has:if="{{queueSending}}" class="queue-head-status">{{ui['发送中…']}}</text>
 <view class="event-spacer"></view>
@@ -1313,7 +1315,7 @@
 <scroll-view has:if="{{queueExpanded || queue.length === 1}}" class="queue-list {{queue.length > 4 ? 'capped' : ''}}" scroll-y>
 <block has:for="{{queue}}" has:key="id">
 <view class="queue-row">
-<view has:if="{{queue.length === 1}}" class="queue-lead"><image class="queue-row-ic" src="/assets/icons/bubble-gray.png"/></view>
+<view class="queue-lead"><image class="queue-row-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-message-dark.svg' : 'queue-message.svg'}}" mode="aspectFit"/></view>
 <view class="queue-content">
 <text has:if="{{item.preview}}" class="queue-preview">{{item.preview}}</text>
 <view has:if="{{item.attachments.length}}" class="queue-attachments">
@@ -1329,9 +1331,9 @@
 </view>
 <text has:if="{{item.statusText}}" class="queue-status">{{ui[item.statusText] !== undefined ? ui[item.statusText] : item.statusText}}</text>
 <view class="queue-actions">
-<view has:if="{{item.editable}}" class="queue-ic-btn {{queueBusyId === item.id + ':edit' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="edit"><image class="queue-ic" src="/assets/icons/pencil-line-gray.png"/></view>
-<view class="queue-ic-btn {{queueBusyId === item.id + ':remove' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="remove"><image class="queue-ic" src="/assets/icons/trash-gray.png"/></view>
-<view has:if="{{running}}" class="queue-ic-btn {{queueBusyId === item.id + ':steer' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="steer"><image class="queue-ic" src="/assets/icons/arrow-up-gray.png"/></view>
+<view has:if="{{item.editable}}" class="queue-ic-btn {{queueBusyId === item.id + ':edit' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="edit" aria-label="{{ui['编辑']}}"><image class="queue-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-edit-dark.svg' : 'queue-edit.svg'}}" mode="aspectFit"/></view>
+<view class="queue-ic-btn {{queueBusyId === item.id + ':remove' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="remove" aria-label="{{ui['删除']}}"><image class="queue-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-delete-dark.svg' : 'queue-delete.svg'}}" mode="aspectFit"/></view>
+<view has:if="{{running}}" class="queue-ic-btn {{queueBusyId === item.id + ':steer' ? 'busy' : ''}}" bindtap="queueAction" data-id="{{item.id}}" data-action="steer" aria-label="{{ui['发送']}}"><image class="queue-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-send-dark.svg' : 'queue-send.svg'}}" mode="aspectFit"/></view>
 </view>
 </view>
 <view has:if="{{index < queue.length - 1}}" class="queue-sep"></view>
@@ -1354,23 +1356,32 @@
 </view>
 </view>
 </view>
-<view has:if="{{goal}}" class="goal-panel">
-<image class="goal-ic" src="/assets/icons/target-gray.png"/>
+<view has:if="{{goal}}" class="goal-panel {{goalEditing ? 'editing' : ''}}">
+<block has:if="{{goalEditing}}">
+<textarea class="goal-edit-input" value="{{goalDraft}}" maxlength="-1" auto-height focus="{{goalEditing}}" cursor-spacing="24" confirm-type="done" bindinput="goalDraftInput" bindconfirm="goalSaveEdit"/>
+<view class="goal-edit-actions">
+<view class="goal-action" bindtap="goalSaveEdit" role="button" aria-label="{{ui['保存']}}"><text class="goal-edit-glyph">✓</text></view>
+<view class="goal-action" bindtap="goalCancelEdit" role="button" aria-label="{{ui['取消']}}"><text class="goal-edit-glyph">×</text></view>
+</view>
+</block>
+<block has:else>
+<image class="goal-ic" src="/assets/icons/{{theme === 'dark' ? 'goal-target-dark.svg' : 'goal-target.svg'}}" mode="aspectFit"/>
 <view class="goal-main">
 <text class="goal-phase">{{ui[goal.phaseLabel] !== undefined ? ui[goal.phaseLabel] : goal.phaseLabel}}</text>
 <text class="goal-objective">{{goal.objective}}</text>
 </view>
 <view has:if="{{goalBusy}}" class="goal-spinner"></view>
 <block has:else>
-<view class="goal-action" bindtap="goalAction" data-action="toggle">
-<image class="goal-action-ic" src="/assets/icons/{{goal.active ? 'sched-clock-gray.png' : 'arrow-up-gray.png'}}"/>
+<view class="goal-action" bindtap="goalAction" data-action="toggle" role="button">
+<image class="goal-action-ic" src="/assets/icons/{{theme === 'dark' ? goal.actionIconDark : goal.actionIcon}}" mode="aspectFit"/>
 </view>
-<view class="goal-action" bindtap="goalAction" data-action="edit">
-<image class="goal-action-ic" src="/assets/icons/pencil-line-gray.png"/>
+<view class="goal-action" bindtap="goalAction" data-action="edit" role="button" aria-label="{{ui['编辑目标']}}">
+<image class="goal-action-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-edit-dark.svg' : 'queue-edit.svg'}}" mode="aspectFit"/>
 </view>
-<view class="goal-action" bindtap="goalAction" data-action="clear">
-<image class="goal-action-ic" src="/assets/icons/trash-gray.png"/>
+<view class="goal-action" bindtap="goalAction" data-action="clear" role="button" aria-label="{{ui['清除目标']}}">
+<image class="goal-action-ic" src="/assets/icons/{{theme === 'dark' ? 'queue-delete-dark.svg' : 'queue-delete.svg'}}" mode="aspectFit"/>
 </view>
+</block>
 </block>
 </view>
 </block>
@@ -1523,7 +1534,7 @@
 <view class="permission-chip-chevron {{permissionSheet.length ? 'open' : ''}}"></view>
 </view>
 <view class="composer-spacer"></view>
-<view class="chip model-chip" bindtap="pickModel" hover-class="model-trigger-pressed" hover-start-time="0" hover-stay-time="100" role="button" aria-label="{{ui['模型']}} {{modelLabel}} {{effortLabel}}" aria-expanded="{{modelSheetOpen || effortSheetOpen}}"><text class="chip-model-name">{{modelLabel}}</text><text has:if="{{modelBadge}}" class="model-release-badge">{{modelBadge}}</text><text class="model-trigger-effort">{{effortLabel}}</text><view class="model-trigger-chevron {{modelSheetOpen || effortSheetOpen ? 'open' : ''}}"></view></view>
+<view class="chip model-chip" bindtap="pickModel" role="button" aria-label="{{ui['模型']}} {{modelLabel}} {{effortLabel}}" aria-expanded="{{modelSheetOpen || effortSheetOpen}}"><text class="chip-model-name">{{modelLabel}}</text><text has:if="{{modelBadge}}" class="model-release-badge">{{modelBadge}}</text><text class="model-trigger-effort">{{effortLabel}}</text><view class="model-trigger-chevron {{modelSheetOpen || effortSheetOpen ? 'open' : ''}}"></view></view>
 <view has:if="{{running && !canSend}}" class="send-btn stop glass-press" bindtap="stopAgent"><view class="stop-square"></view></view>
 <view has:else class="send-btn {{canSend || voiceEnabled ? '' : 'disabled'}} glass-press" bindtap="onComposerAction" role="button" aria-label="{{canSend || !voiceEnabled ? ui['发送'] : (voiceTyping ? ui['切换到语音输入'] : ui['切换到文字输入'])}}"><image class="send-ic" src="/assets/icons/{{canSend || !voiceEnabled ? 'arrow-up-white.png' : (voiceTyping ? 'voice-wave.svg' : 'voice-keyboard.svg')}}"/></view>
 </view>
@@ -1655,9 +1666,9 @@
 <view class="collab-action-disc"><image class="collab-action-icon" src="/assets/icons/collab-close{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/></view>
 </view>
 </view>
-<scroll-view class="collab-tabs" scroll-x enhanced show-scrollbar="{{false}}" enable-flex>
+<scroll-view class="collab-tabs" scroll-x enhanced show-scrollbar="{{false}}" enable-flex scroll-into-view="{{collabTabIntoView}}" scroll-with-animation>
 <view class="collab-tabs-track">
-<view has:for="{{collaborationTabs}}" has:key="id" class="collab-tab {{collaborationTab === item.id ? 'active' : ''}}" bindtap="selectCollaborationTab" data-id="{{item.id}}" role="button" aria-label="{{item.label}} {{item.count}}" aria-pressed="{{collaborationTab === item.id}}" hover-class="press-dim" hover-start-time="0" hover-stay-time="60">
+<view has:for="{{collaborationTabs}}" has:key="id" id="collab-tab-{{item.id}}" class="collab-tab {{collaborationTab === item.id ? 'active' : ''}}" bindtap="selectCollaborationTab" data-id="{{item.id}}" role="button" aria-label="{{item.label}} {{item.count}}" aria-pressed="{{collaborationTab === item.id}}" hover-class="press-dim" hover-start-time="0" hover-stay-time="60">
 <view class="collab-tab-summary">
 <image class="collab-tab-icon" src="/assets/icons/{{item.icon}}{{theme === 'dark' ? '-dark' : ''}}.svg" mode="aspectFit" aria-hidden="true"/>
 <text class="collab-tab-count">{{item.count}}</text>
@@ -1667,7 +1678,7 @@
 </view>
 </view>
 </scroll-view>
-<scroll-view class="collab-scroll" scroll-y enhanced show-scrollbar="{{false}}">
+<scroll-view class="collab-scroll" scroll-y enhanced show-scrollbar="{{false}}" bindtouchstart="collabSwipeStart" bindtouchmove="collabSwipeMove" bindtouchend="collabSwipeEnd" bindtouchcancel="collabSwipeEnd">
 <view has:if="{{collaborationPreview}}" class="collab-preview">
 <view class="collab-back" bindtap="backCollaborationList" role="button">‹ {{ui['返回列表']}}</view>
 <view class="collab-preview-title">{{collaborationPreview.title}}</view>
@@ -1701,6 +1712,7 @@
 </view>
 </view>
 <view hidden="{{!turnNavOpen}}" class="turn-overlay {{!turnNavOpen ? 'session-panel-hidden' : ''}}" catchtap="closeTurnNavigator" catchtouchmove="noop">
+<view has:if="{{sessionGlassEnabled}}" class="turn-overlay-glass" aria-hidden="true"></view>
 <view class="turn-overlay-inner" catchtap="closeTurnNavigator" role="dialog" aria-label="{{ui['对话']}}">
 <view class="turn-scrub-body" id="turn-scrub-body">
 <scroll-view scroll-y enhanced show-scrollbar="{{false}}" class="turn-scrub-list" id="turn-scrub-list" style="height: 76vh;" scroll-top="{{turnNavScrollTop}}" bindscroll="onTurnListScroll" bindtouchstart="onTurnScrubStart" bindtouchend="onTurnScrubEnd" bindtouchcancel="onTurnScrubCancel">
@@ -1716,17 +1728,25 @@
 </view>
 </scroll-view>
 <view has:if="{{!turnNavItems.length}}" class="turn-nav-empty">
-<block has:if="{{turnNavWarming || historyLoading}}"><view class="turn-sync-spinner" aria-hidden="true"></view><text>{{ui['正在同步会话…']}}</text></block>
-<block has:elif="{{hasMoreHistory && histError}}"><view class="turn-nav-retry" catchtap="retryTurnNavigatorHistory">{{histError}} · {{ui['重试']}}</view></block>
+<block has:if="{{turnNavWarming || historyLoading}}">
+<view class="turn-sync-spinner" aria-hidden="true"></view>
+<text>{{ui['正在同步会话…']}}</text>
+</block>
+<block has:elif="{{hasMoreHistory && histError}}">
+<view class="turn-nav-retry" catchtap="retryTurnNavigatorHistory">{{histError}} · {{ui['重试']}}</view>
+</block>
 <block has:else>{{ui['暂无可显示的消息']}}</block>
 </view>
 </view>
-<view has:if="{{turnNavItems.length && (turnNavWarming || historyLoading)}}" class="turn-sync-indicator" catchtap="noop"><view class="turn-sync-dot" aria-hidden="true"></view><text>{{ui['正在同步会话…']}}</text></view>
+<view has:if="{{turnNavItems.length && (turnNavWarming || historyLoading)}}" class="turn-sync-indicator" catchtap="noop">
+<view class="turn-sync-dot" aria-hidden="true"></view>
+<text>{{ui['正在同步会话…']}}</text>
+</view>
 <view has:if="{{turnNavItems.length && hasMoreHistory && histError}}" class="turn-sync-indicator turn-sync-error" catchtap="retryTurnNavigatorHistory">{{ui['同步中断，点击重试']}}</view>
 </view>
 </view>
 <view class="sheet-mask session-menu-mask {{moreSheetOpen ? 'is-open' : ''}}" aria-hidden="{{!moreSheetOpen}}" catchtap="closeMoreActions" catchtouchmove="noop">
-<view class="sheet session-menu {{moreSheetExpanded ? 'expanded' : ''}}" style="margin-bottom: {{renameKeyboard}}px;" catchtap="noop">
+<view class="sheet session-menu {{moreSheetExpanded ? 'expanded' : ''}}" style="{{renameKeyboard ? 'margin-bottom: ' + renameKeyboard + 'px;' : ''}}" catchtap="noop">
 <view class="session-menu-grabber-zone" catchtouchstart="moreSheetGrabStart" catchtouchmove="moreSheetGrabMove" catchtouchend="moreSheetGrabEnd" role="button" aria-label="{{moreSheetExpanded ? ui['收起'] : ui['展开']}}">
 <view class="sheet-handle"></view>
 </view>
@@ -1742,16 +1762,13 @@
 <scroll-view has:if="{{morePane === 'menu'}}" scroll-y enhanced show-scrollbar="{{false}}" class="session-menu-scroll">
 <view class="session-menu-group">
 <view class="session-menu-row" bindtap="selectMoreAction" data-action="rename" hover-class="session-menu-pressed" role="button">
-<image class="session-menu-icon" src="/assets/icons/pencil-line-gray.png" mode="aspectFit"/><text class="session-menu-label">{{ui['重命名会话']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
+<image class="session-menu-icon" src="/assets/icons/{{theme === 'dark' ? 'queue-edit-dark.svg' : 'queue-edit.svg'}}" mode="aspectFit"/><text class="session-menu-label">{{ui['重命名会话']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
 </view>
 <view class="session-menu-row" bindtap="selectMoreAction" data-action="stats" hover-class="session-menu-pressed" role="button">
 <image class="session-menu-icon" src="/assets/icons/dsh-gauge.svg" mode="aspectFit"/><text class="session-menu-label">{{ui['查看统计']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
 </view>
 <view class="session-menu-row" bindtap="selectMoreAction" data-action="files" hover-class="session-menu-pressed" role="button">
-<image class="session-menu-icon session-menu-folder" src="/assets/icons/{{theme === 'dark' ? 'ic-dir-folder-white.png' : 'ic-dir-folder-ink.png'}}" mode="aspectFit"/><text class="session-menu-label">{{ui['工作区文件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
-</view>
-<view class="session-menu-row" bindtap="selectMoreAction" data-action="switchSessions" hover-class="session-menu-pressed" role="button">
-<image class="session-menu-icon" src="/assets/icons/list-gray.png" mode="aspectFit"/><text class="session-menu-label">{{ui['会话快捷切换']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
+<image class="session-menu-icon session-menu-folder" src="/assets/icons/{{item.ungrouped ? (theme === 'dark' ? 'tray-white.svg' : 'tray-ink.svg') : (item.expanded ? 'workspace-folder-blue.svg' : (theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-ink.svg'))}}" mode="aspectFit"/><text class="session-menu-label">{{ui['工作区文件']}}</text><image class="session-menu-chevron" src="/assets/icons/chev-right-gray.png"/>
 </view>
 </view>
 <view class="session-menu-group">
@@ -1961,15 +1978,16 @@
 </view>
 <text class="conv-sidebar-section">{{ui['工作区']}}</text>
 <scroll-view class="conv-sidebar-scroll" scroll-y enhanced show-scrollbar="{{false}}">
-<block has:for="{{convSidebarGroups}}" has:key="id" has:for-item="group">
-<view class="conv-sidebar-workspace {{group.containsCurrent ? 'current' : ''}}" bindtap="toggleConvSidebarGroup" data-id="{{group.id}}" hover-class="conv-sidebar-press" role="button" aria-expanded="{{group.expanded}}" aria-label="{{group.title}}">
-<image class="conv-sidebar-folder" src="/assets/icons/{{group.ungrouped ? (theme === 'dark' ? 'tray-white.png' : 'tray-ink.png') : (group.containsCurrent ? 'workspace-folder-blue.svg' : (theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-ink.svg'))}}" mode="aspectFit"/>
-<text class="conv-sidebar-workspace-title">{{group.title}}</text>
-<image class="conv-sidebar-chev {{group.expanded ? 'open' : ''}}" src="/assets/icons/chev-down-gray.png" mode="aspectFit"/>
+<block has:for="{{convSidebarGroups}}" has:key="id">
+<view class="conv-sidebar-workspace {{item.containsCurrent ? 'current' : ''}}" bindtap="toggleConvSidebarGroup" data-id="{{item.id}}" hover-class="conv-sidebar-press" role="button" aria-expanded="{{item.expanded}}" aria-label="{{item.title}}">
+<image class="conv-sidebar-folder" src="/assets/icons/{{item.ungrouped ? (theme === 'dark' ? 'tray-white.svg' : 'tray-ink.svg') : (item.containsCurrent ? 'workspace-folder-blue.svg' : (theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-ink.svg'))}}" mode="aspectFit"/>
+<text class="conv-sidebar-workspace-title">{{item.title}}</text>
+<view has:if="{{!item.ungrouped}}" class="conv-sidebar-new tap" catchtap="createConvSidebarSession" data-id="{{item.id}}" hover-class="conv-sidebar-press" role="button" aria-label="{{ui['新会话']}} {{item.title}}"><view class="conv-sidebar-new-ic"/></view>
+<image class="conv-sidebar-chev {{item.expanded ? 'open' : ''}}" src="/assets/icons/chev-down-gray.png" mode="aspectFit"/>
 </view>
-<block has:if="{{group.expanded}}">
-<view has:if="{{!group.sessions.length}}" class="conv-sidebar-empty">{{ui['暂无会话']}}</view>
-<view has:for="{{group.sessions}}" has:key="id" has:for-item="session" class="conv-sidebar-session {{session.selected ? 'selected' : ''}}" bindtap="selectConvSidebarSession" data-id="{{session.id}}" hover-class="conv-sidebar-press" role="button" aria-label="{{session.title}}">
+<block has:if="{{item.expanded}}">
+<view has:if="{{!item.sessions.length}}" class="conv-sidebar-empty">{{ui['暂无会话']}}</view>
+<view has:for="{{item.sessions}}" has:for-item="session" has:key="id" class="conv-sidebar-session {{session.selected ? 'selected' : ''}}" bindtap="selectConvSidebarSession" data-id="{{session.id}}" hover-class="conv-sidebar-press" role="button" aria-label="{{session.title}}">
 <view class="conv-sidebar-dot {{session.running ? 'on' : ''}}"></view>
 <text class="conv-sidebar-session-title">{{session.title}}</text>
 <text class="conv-sidebar-time">{{session.timeText}}</text>

@@ -8,20 +8,31 @@
 // 只承载平滑的流体与光带，可以用 ~0.7x CSS 像素渲染，体积小、编码快，
 // 放大后也看不出锯齿，贴近 dsh-mobile 原生的 Metal 观感。
 const INIT_DELAY_MS = 60;       // 首屏绘制完成后再创建 WebGL 上下文
-const FRAME_INTERVAL_MS = 125;  // 8fps：流体变化缓慢，省电且不卡顿
-const FLUID_PIXEL_BUDGET = 160000; // 单帧缓存的像素上限（约 273x590）
+const FRAME_INTERVAL_MS = 200;  // 5fps：流体变化缓慢，进一步省电（长时间停留首页时明显降温）
+const FLUID_PIXEL_BUDGET = 120000; // 单帧缓存的像素上限（约 250x480），编码耗时随像素数线性下降
 const FLUID_SCALE_CAP = 0.72;   // 低分辨率上限：帧里只有平滑渐变，放大后依然细腻
-const FLUID_JPEG_QUALITY = 0.72;
+const FLUID_JPEG_QUALITY = 0.66;
+
+/** 跨组件实例共享的流体相位：页面被替换/重建后继续从同一时间点绘制，光带不会跳位。 */
+let sharedElapsed = 0;
 
 Component({
   properties: {
     active: { type: Boolean, value: true, observer: 'syncPlayback' },
-    reducedMotion: { type: Boolean, value: false, observer: 'syncPlayback' }
+    reducedMotion: { type: Boolean, value: false, observer: 'syncPlayback' },
+    // 纯 CSS 模式：不建 WebGL、不推 JPEG 帧，只保留静态构图 + 缓慢色温变化。
+    cssOnly: { type: Boolean, value: false, observer: 'syncPlayback' }
   },
-  data: { ready: false, failed: false, frameImage: '', buffered: false, ios: false, staticMode: false, frameA: '', frameB: '', frontSlot: '', frameAId: 0, frameBId: 0 },
+  data: { ready: false, failed: false, frameImage: '', buffered: false, ios: false, staticMode: false, frameA: '', frameB: '', frontSlot: '', frameAId: 0, frameBId: 0, cssOnly: false },
   lifetimes: {
     ready() {
-      this._visible = true; this._disposed = false; this._elapsed = 0;
+      this._visible = true; this._disposed = false; this._elapsed = sharedElapsed;
+      if (this.data.cssOnly) {
+        // CSS 渐变模式：保留海报 / 网格 / 鲸鱼 / 底部压暗，不创建 WebGL 上下文。
+        this._cssOnly = true;
+        this.setData({ cssOnly: true });
+        return;
+      }
       // 关掉「首页动画」时只要静态层：海报 + 网格 + 鲸鱼本身就是 dsh-mobile 的静态构图，
       // 连 WebGL 上下文都不用建。
       if (this.data.reducedMotion) {
@@ -68,7 +79,11 @@ Component({
           this.setData({ buffered: this._platform === 'ios', ios: this._platform === 'ios' });
           // 帧里只剩平滑渐变：按像素预算压低分辨率，编码耗时和 setData 体积都降一个量级。
           this._pixelRatio = fluidPixelRatio(field.width, field.height);
-// 暂不支持api has.createOffscreenCanvas TODO
+          // ASCF/ArkWeb 部分版本不提供离屏画布；保留静态 CSS/SVG 背景。
+          if (typeof has === 'undefined' || typeof has.createOffscreenCanvas !== 'function') {
+            this.onCanvasError();
+            return;
+          }
           this._canvas = has.createOffscreenCanvas({ type: 'webgl', width: field.width, height: field.height });
           const { createOceanRenderer } = require('../../utils/ocean-renderer');
           this._renderer = createOceanRenderer(this._canvas, field.width, field.height, this._pixelRatio);
@@ -80,6 +95,8 @@ Component({
       });
     },
     syncPlayback() {
+      if (this.data.cssOnly) { this._cssOnly = true; this.pause(); return; }
+      this._cssOnly = false;
       this.pause();
       if (this._disposed || !this._visible || !this.data.active) return;
       if (this.data.reducedMotion) {
@@ -98,6 +115,7 @@ Component({
       const now = Date.now();
       if (now - this._lastPaint >= FRAME_INTERVAL_MS - 1) {
         this._elapsed += Math.min(0.1, Math.max(0, (now - this._lastTick) / 1000));
+        sharedElapsed = this._elapsed;
         this._lastTick = now; this._lastPaint = now;
         try { this.draw(this._elapsed); } catch (e) { this.onCanvasError(); return; }
       }
@@ -128,6 +146,13 @@ Component({
       // 这里再兜一次默认参数。
       if (!image || image === 'data:,') image = this._canvas.toDataURL('image/jpeg');
       if (!image || image === 'data:,') { this.onCanvasError(); return; }
+      // 安卓/鸿蒙 WebView 偶发拿到全黑帧（JPEG 压缩后极小）：先不推给视图层，
+      // 下一帧再编码，最多重试 3 次，避免整页被压黑闪一下。
+      const pixels = Number((this._canvas && this._canvas.width) || 0) * Number((this._canvas && this._canvas.height) || 0);
+      if (pixels > 20000 && image.length < 2000 && (this._darkFrames || 0) < 3) {
+        this._darkFrames = (this._darkFrames || 0) + 1;
+        return;
+      }
       if (!this.data.buffered) {
         const transfer = this._frameTransfer = {};
         this.setData({ frameImage: image, ready: true, failed: false }, () => {

@@ -94,6 +94,13 @@ function createInstaller(deps) {
     const payload = { requestId: task.installId, spec: task.spec, enabled: task.enabled };
     if (task.registry !== undefined) payload.registry = task.registry;
     if (approvedBuilds && approvedBuilds.length) payload.approvedBuilds = approvedBuilds;
+    // 覆盖升级：主机安装接口不允许同名包重复安装，先移除旧版本再装新版。
+    if (task.reinstall && task.bundleName) {
+      task.message = uiText('正在移除旧版本…');
+      publish(task);
+      try { await deps.client.requestPluginUninstall(task.bundleName); }
+      catch (error) { task.logs = (task.logs ? task.logs + '\n' : '') + message(error); }
+    }
     try { settle(task, (await deps.client.requestPlugin('plugin-install', payload, 600000)).result); }
     catch (error) { uncertain(task, error); }
   }
@@ -120,6 +127,24 @@ function createInstaller(deps) {
       const task = { owner: owner(), catalogName: name, spec: target.spec, registry, enabled: true,
         subject: { status: 'accepted', name, version: target.version, selection: true },
         phase: 'ready', message: uiText('此插件需要先安装；将安装与当前 DSH 匹配的版本并启用'), logs: '', pendingBuilds: [] };
+      tasks.set(task.owner, task); publish(task);
+    },
+    /** 已安装插件升级：不要求官方/缺失状态，直接用主机提供的安装目标覆盖安装。 */
+    prepareUpdate(name) {
+      assertManage();
+      const existing = current();
+      if (existing && (ACTIVE.includes(existing.phase) || existing.phase === 'checking')) throw new Error(uiText('已有安装任务，请先核对状态'));
+      const bundle = (deps.state.pluginCatalog.bundles || []).find(b => b.name === name);
+      if (!bundle) throw new Error(uiText('目录中没有该插件，请刷新后重试'));
+      if (bundle.readOnlyReason) throw new Error(uiText('该插件为只读，请到电脑端 DSH 更新'));
+      const target = bundle.installTarget;
+      if (!target || !target.spec.trim()) throw new Error(uiText('主机未提供可用版本，请升级 DSH 或移动网关后重试'));
+      // 已安装包再用裸包名安装会被主机判为 already-installed；带精确版本才能走覆盖升级。
+      let spec = target.spec.trim();
+      if (target.version && !/@(?:[\^~<>=\d]|latest$|next$)/i.test(spec)) spec = name + '@' + target.version;
+      const task = { owner: owner(), spec, enabled: true, bundleName: name, reinstall: true,
+        subject: { status: 'accepted', name, version: target.version || bundle.version, selection: true },
+        phase: 'ready', message: uiText('将更新到主机提供的版本并启用'), logs: '', pendingBuilds: [] };
       tasks.set(task.owner, task); publish(task);
     },
     async inspect(spec, registry) {

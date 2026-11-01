@@ -5,6 +5,8 @@ const theme = require('../../utils/theme');
 
 Page({
   data: {
+    // ASCF 页面需显式注入 i18n 词典，模板 {{ui['…']}} 才有值。
+    ui: require('../../utils/ui-preferences').snapshot().ui,
     mode: 'browser', // browser | picker
     displayPath: uiText('工作区根目录'),
     isRoot: true,

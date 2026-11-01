@@ -5,7 +5,9 @@ const labels = { waiting: uiText('等待满 24 小时'), pending: uiText('等待
 const stamp = value => new Date(value).toLocaleString();
 Page({
   manualShareMenu: true,
-  data: { loading: true, busy: false, error: '', incoming: false, accepted: false, openResult: '', enabled: false,
+  data: {
+    // ASCF 页面需显式注入 i18n 词典，模板 {{ui['…']}} 才有值。
+    ui: require('../../utils/ui-preferences').snapshot().ui, loading: true, busy: false, error: '', incoming: false, accepted: false, openResult: '', enabled: false,
     inviteToken: '', earnedDays: 0, validOpens: 0, tiers: [], momentsDays: 3, moments: [], records: [], rulesOpen: false },
   onLoad(options) { theme.applyTo(this); this._ref = options.ref || ''; this.setData({ incoming: !!this._ref, rulesOpen: options.moments === '1' || options.rules === '1' }); },
   onShow() { if (!this._choosingProof) return this.refresh(); },
@@ -16,7 +18,7 @@ Page({
     this.setData({ loading: true, busy: false, error: '', inviteToken: '', enabled: false, earnedDays: 0, validOpens: 0, moments: [], records: [] });
     this.syncShareMenu(false);
     try {
-      await api.ensureAccount({ freshLogin: true });
+      await api.ensureAccount();
       if (generation !== this._generation) return;
       const value = await api.shareStatus();
       if (generation !== this._generation) return;

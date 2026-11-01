@@ -144,15 +144,27 @@ test('v2 retains a local ws route alongside a WSS miniProgramRoute', () => {
   assert.equal(parsed.payload.endpoints.some(endpoint => endpoint.startsWith('ws://')), true);
 });
 
-test('v2 includes a validated mini relay as fallback after direct WSS and ignores a bad relay beside a good route', () => {
-  const parsed = parse(raw(v2({ miniProgramRoute: { mode: 'relay', ...relayRoute() } })), now);
+test('v2 prefers the validated mini relay path over a generic relay base without /relay', () => {
+  const parsed = parse(raw(v2({
+    routes: {
+      public: [direct],
+      lan: [localWs],
+      relay: { relay: 'wss://relay.example.test', nodeId, agentPubKey, authMode: 'gateway' }
+    },
+    miniProgramRoute: { mode: 'relay', ...relayRoute() }
+  })), now);
   assert.equal(parsed.ok, true);
-  assert.equal(parsed.payload.mode, 'relay');
-  assert.deepEqual(parsed.payload.endpoints, [relay + '/c/' + nodeId]);
-  const candidates = routeTable.orderCandidates(parsed.payload.routeTable, { client: runtime.clientKind() });
+  assert.equal(parsed.payload.routeTable.relay.relay, relay);
+  assert.equal(parsed.payload.routeTable.relay.endpoint, relay + '/c/' + nodeId);
+
+  const parsedFallbackOnly = parse(raw(v2({ miniProgramRoute: { mode: 'relay', ...relayRoute() } })), now);
+  assert.equal(parsedFallbackOnly.ok, true);
+  assert.equal(parsedFallbackOnly.payload.mode, 'relay');
+  assert.deepEqual(parsedFallbackOnly.payload.endpoints, [relay + '/c/' + nodeId]);
+  const candidates = routeTable.orderCandidates(parsedFallbackOnly.payload.routeTable, { client: runtime.clientKind() });
   assert.equal(candidates[0].kind, 'relay');
   assert.equal(candidates[0].relay.agentPubKey, agentPubKey);
-  assert.equal(parsed.payload.pairingCode, pairingCode);
+  assert.equal(parsedFallbackOnly.payload.pairingCode, pairingCode);
 
   const badRelay = parse(raw(v2({ miniProgramRoute: { mode: 'relay', ...relayRoute({ agentPubKey: 'bad' }) } })), now);
   assert.equal(badRelay.ok, false, 'a malformed relay cannot be used without a public or LAN route');
@@ -214,6 +226,22 @@ test('empty WSS candidate sets and expired or invalid v2 pairing data fail close
   assert.equal(parse(raw(v2({ publicUrl: 'ws://public.example.test/ws', endpoints: ['ws://public.example.test/ws'] })), now).error, PairingError.INVALID_ENDPOINT);
   assert.equal(parse(raw(v2({ pairingCode: 'has,comma' })), now).error, PairingError.INVALID_CODE);
   assert.equal(parse(raw(v2({ expiresAt: now })), now).error, PairingError.EXPIRED);
+});
+
+test('managed relay without the /relay prefix falls back to the proven mini-program relay', () => {
+  const table = routeTable.parseRouteTable({
+    routes: { public: [direct], lan: [localWs], relay: { relay: 'wss://relay.example.test', nodeId, agentPubKey, authMode: 'gateway' } },
+    miniProgramRoute: { mode: 'relay', relay, nodeId, agentPubKey, authMode: 'gateway' }
+  });
+  assert.equal(table.relay.relay, relay);
+  assert.equal(table.relay.endpoint, relay + '/c/' + nodeId);
+  assert.equal(routeTable.orderCandidates(table, { client: 'ascf' })[0].kind, 'relay');
+
+  const kept = routeTable.parseRouteTable({
+    routes: { relay: { relay: 'wss://custom.example.test/relay', nodeId, agentPubKey, authMode: 'gateway' } },
+    miniProgramRoute: { mode: 'relay', relay, nodeId, agentPubKey, authMode: 'gateway' }
+  });
+  assert.equal(kept.relay.relay, 'wss://custom.example.test/relay');
 });
 
 test('test module restores the Harmony API stub', () => {

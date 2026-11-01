@@ -130,6 +130,16 @@ page {
   background: transparent;
 }
 
+/* ASCF 原生 page 底色不保证跟随 page-meta：深色页面根节点自己铺底，
+   否则透明区域/玻璃卡片会露出白色 page 背景（白底白字）。首页保留自身海洋蓝。 */
+.page.theme-dark:not(.home-root) {
+  background: #000000;
+}
+
+.page.theme-light:not(.home-root) {
+  background: #FFFFFF;
+}
+
 /* 弹层抓手（iOS sheet grabber：中性灰胶囊） */
 .sheet-grabber {
   width: 72rpx;

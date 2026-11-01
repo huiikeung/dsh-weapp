@@ -7,11 +7,11 @@
         "material": {
           "certpath": "/Users/0the/.ohos/config/default_atomic-service_A2Rl-OcJmJcRUF-2Z-Bo19SGSq1dh9UwLasHOyeXngs=.cer",
           "keyAlias": "debugKey",
-          "keyPassword": "0000001B92398A38763D6C84B92572F2835FDF0D726DEF3E3F42EA075E0C55A1F1C5778D37CDF500310BF4",
+          "keyPassword": "0000001BE4C4A54F985F257F1A3DD8342809ABD45FD7458C74A96C0281614E124D3F3BA6FCDB5817856BDC",
           "profile": "/Users/0the/.ohos/config/default_atomic-service_A2Rl-OcJmJcRUF-2Z-Bo19SGSq1dh9UwLasHOyeXngs=.p7b",
           "signAlg": "SHA256withECDSA",
           "storeFile": "/Users/0the/.ohos/config/default_atomic-service_A2Rl-OcJmJcRUF-2Z-Bo19SGSq1dh9UwLasHOyeXngs=.p12",
-          "storePassword": "0000001BD20607ECB4C02CA8693CB3DF8FC6A0D9DF39D16D73F61BCEF0ED5E01340EE12E6EC5523B30AB37"
+          "storePassword": "0000001B5948D98A1AA2FAEA818A6E4916E4BDA744F749B085C2C54CF30899FA9983CB43E228F1D52E086C"
         }
       }
     ],
@@ -19,8 +19,8 @@
       {
         "name": "default",
         "signingConfig": "default",
-        "compatibleSdkVersion": "5.0.0(12)",
-        "targetSdkVersion": "5.0.0(12)",
+        "compatibleSdkVersion": "26.0.0",
+        "targetSdkVersion": "26.0.0",
         "runtimeOS": "HarmonyOS",
         "buildOption": {
           "strictMode": {

@@ -6,20 +6,59 @@ const editor = require('./schedule-editor');
 const theme = require('../../utils/theme');
 const week = [uiText('一'), uiText('二'), uiText('三'), uiText('四'), uiText('五'), uiText('六'), uiText('日')];
 Page({
-  data: { theme: 'light', themeClass: 'theme-light', statusBarH: 44, connected: false, tasks: [], visibleTasks: [], loading: false, error: '', busyId: null,
-    search: '', statusFilter: 'all', activeCount: 0, inactiveCount: 0, refreshing: false, selected: null, detailTab: 'rule', editingOpen: false, editing: null,
+  data: {
+    // ASCF 页面需显式注入 i18n 词典，模板 {{ui['…']}} 才有值。
+    ui: require('../../utils/ui-preferences').snapshot().ui, theme: 'light', themeClass: 'theme-light', statusBarH: 44, navPadTop: 44, navHeight: 32, connected: false, tasks: [], visibleTasks: [], loading: false, error: '', busyId: null,
+    search: '', statusFilter: 'all', schedSearchOpen: false, schedFilterOpen: false, schedFilterTop: 96, schedFilterLeft: 12, schedFilterWidth: 240, schedFilterOriginX: 0, schedFilterOriginY: 0, activeCount: 0, inactiveCount: 0, refreshing: false, selected: null, detailTab: 'rule', editingOpen: false, editing: null,
     rules: editor.RULES, units: [uiText('小时'), uiText('分钟'), uiText('秒')], weekOptions: [], history: [], historyLoading: false, historyError: '', historyNext: '', historyPruned: false, historyRetention: '', creating: false },
   owner() { return store.state.activeID || store.state.gatewayId || store.state.endpoint || ''; },
   onUiPreferencesChange() { this.setData({ rules: editor.RULES.map(item => ({ ...item, title: uiText(item.title) })), units: [uiText('小时'), uiText('分钟'), uiText('秒')], weekOptions: (this.data.weekOptions || []).map(item => ({ ...item, title: uiText(item.title) })) }); },
   onUiLocaleChange() { this.syncFromStore({ app: store.state }); },
+  /** ASCF 自定义导航：返回按钮与系统胶囊按同一水平线对齐。 */
+  applyNavigationInsets() {
+    let top = 44, height = 32;
+    try {
+      const info = typeof has.getWindowInfo === 'function' ? has.getWindowInfo() : has.getSystemInfoSync();
+      const statusBar = Number(info && info.statusBarHeight) || 0;
+      const safeTop = Number(info && info.safeArea && info.safeArea.top) || 0;
+      top = Math.max(statusBar, safeTop) + 6;
+    } catch (e) { /* 保持默认 */ }
+    try {
+      const rect = typeof has.getMenuButtonBoundingClientRect === 'function' ? has.getMenuButtonBoundingClientRect() : null;
+      if (rect && Number(rect.top) > 0 && Number(rect.height) > 0) { top = Number(rect.top); height = Number(rect.height); }
+    } catch (e) { /* 旧基础库回退到状态栏高度 */ }
+    if (!(top > 40)) top = 44;
+    this.setData({ navPadTop: top, navHeight: height });
+  },
   onLoad() {
+    this.applyNavigationInsets();
     this.alive = true; this.host = this.owner(); this.historyRead = 0; this.rawTasks = {}; this.pendingRequestId = null;
     theme.applyTo(this);
     try { this.setData({ statusBarH: (has.getWindowInfo ? has.getWindowInfo() : has.getSystemInfoSync()).statusBarHeight || 44 }); } catch (_) {}
     this.unsubscribe = store.subscribe(snapshot => this.syncFromStore(snapshot));
     this.syncFromStore({ app: store.state });
   },
+  /** 记录搜索胶囊在视口中的位置：筛选弹窗要贴着它展开。 */
+  measureSchedSearchBar(done) {
+    const finish = () => { if (typeof done === 'function') done(this._schedBarRect || null); };
+    // ASCF 能力检测：宿主没有 selector query 时退回默认坐标，筛选菜单仍可打开。
+    if (typeof has.createSelectorQuery !== 'function') { finish(); return; }
+    try {
+      has.createSelectorQuery().in(this)
+        .select('#schedSearchBar').boundingClientRect()
+        .select('.sched-new').boundingClientRect()
+        .exec((res) => {
+          const bar = res && res[0];
+          const create = res && res[1];
+          if (bar && Number.isFinite(bar.left) && Number.isFinite(bar.top)) this._schedBarRect = bar;
+          if (create && Number.isFinite(create.top)) this._schedNewRect = create;
+          finish();
+        });
+    } catch (_) { finish(); }
+  },
+
   onShow() {
+    if (typeof has.nextTick === 'function') has.nextTick(() => this.measureSchedSearchBar());
     // 从会话页返回时上一轮创建请求一定已结束（成功或失败），
     // 清掉页面级防重入标记，避免底部「新建」按钮因卡住的 creating 变灰不可点。
     if (this.data.creating) this.setData({ creating: false });
@@ -65,6 +104,47 @@ Page({
     this.setData({ visibleTasks: this.data.tasks.filter(t => (filter === 'all' || t.status === filter) && (!q || [t.title, t.prompt, t.sessionId].some(v => String(v).toLowerCase().includes(q)))) });
   },
   onSearch(e) { this.setData({ search: e.detail.value }); this.filterTasks(); },
+  /** iOS 风格：默认只是一个搜索 + 筛选胶囊，点左边展开输入框，点右边弹出筛选菜单。 */
+  openSchedSearch() { this.closeSchedFilter(); this.setData({ schedSearchOpen: true }); },
+  closeSchedSearch() { if (this.data.schedSearchOpen) this.setData({ schedSearchOpen: false }); },
+  clearSchedSearch() { this.setData({ search: '', schedSearchOpen: false }); this.filterTasks(); },
+  toggleSchedFilter() {
+    if (this.data.schedFilterOpen) { this.closeSchedFilter(); return; }
+    if (this.data.schedSearchOpen) this.setData({ schedSearchOpen: false });
+    let info = {};
+    try { info = typeof has.getWindowInfo === 'function' ? has.getWindowInfo() : has.getSystemInfoSync(); } catch (_) { info = {}; }
+    const windowWidth = info.windowWidth || 375;
+    const show = (bar) => {
+      const left = bar && Number.isFinite(bar.left) ? Math.max(12, Math.round(bar.left)) : 12;
+      // 顶边与右侧「＋ 新建」按钮的上边对齐（同一行但两者高度不同）
+      const create = this._schedNewRect;
+      const top = create && Number.isFinite(create.top) ? Math.round(create.top)
+        : (bar && Number.isFinite(bar.top) ? Math.round(bar.top) : 96);
+      const width = Math.min(248, windowWidth - left - 12);
+      this.setData({ schedFilterOpen: true, schedFilterLeft: left, schedFilterTop: top, schedFilterWidth: width });
+    };
+    // 有缓存就直接用缓存定位，避免首帧落在兜底位置；同时异步刷新缓存
+    if (this._schedBarRect) show(this._schedBarRect);
+    this.measureSchedSearchBar((rect) => {
+      if (!rect) { if (!this._schedBarRect && !this.data.schedFilterOpen) show(null); return; }
+      this._schedBarRect = rect;
+      if (!this.data.schedFilterOpen) return;
+      const left = Math.max(12, Math.round(rect.left));
+      const create = this._schedNewRect;
+      const top = create && Number.isFinite(create.top) ? Math.round(create.top) : Math.round(rect.top);
+      const width = Math.min(248, windowWidth - left - 12);
+      if (left !== this.data.schedFilterLeft || top !== this.data.schedFilterTop || width !== this.data.schedFilterWidth) {
+        this.setData({ schedFilterLeft: left, schedFilterTop: top, schedFilterWidth: width });
+      }
+    });
+  },
+  closeSchedFilter() { if (this.data.schedFilterOpen) this.setData({ schedFilterOpen: false }); },
+  pickSchedFilter(e) {
+    const value = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.status : '';
+    if (!['all', 'active', 'inactive'].includes(value)) return;
+    this.setData({ statusFilter: value, schedFilterOpen: false });
+    this.filterTasks();
+  },
   clearSearch() { this.setData({ search: '' }); this.filterTasks(); },
   selectStatus(e) { const value = e.currentTarget.dataset.status; if (!['all','active','inactive'].includes(value)) return; this.setData({ statusFilter: value }); this.filterTasks(); },
   onRefresh() { if (!this.data.connected) return; this.setData({ refreshing: true }); store.refreshScheduledTasks(); if (this.data.selected && this.data.detailTab === 'records') this.loadHistory(false); },
@@ -76,10 +156,22 @@ Page({
       has.showToast({ title: uiText('请先连接鲸尾 Harness'), icon: 'none' });
       return;
     }
+    // 首页选中「全部会话」时没有具体工作区：与首页新建会话一致，先提示再返回。
+    if (store.state.isAllWorkspacesSelected === true) {
+      has.showModal({
+        title: uiText('请先选择工作区'),
+        content: uiText('请先选择一个具体工作区，再创建新会话。'),
+        showCancel: false,
+        confirmText: uiText('知道了')
+      });
+      return;
+    }
     this.setData({ creating: true }); const host = this.owner();
     const creation = store.createAndOpenSession(store.state.currentWorkspaceId);
     has.navigateTo({
       url: '/pages/session/session',
+      animationType: 'none',
+      animationDuration: 0,
       fail: () => {
         // 导航失败（页面栈满/路径异常）时恢复按钮并给出提示，不再静默无响应。
         if (this.alive && this.owner() === host) this.setData({ creating: false });
@@ -91,7 +183,7 @@ Page({
   openDetail(e) { const item = this.data.tasks.find(t => t.id === e.currentTarget.dataset.id); if (!item) return; this.historyRead++; this.setData({ selected: item, detailTab: 'rule', history: [], historyNext: '', historyError: '', historyLoading: false, historyPruned: false, historyRetention: '' }); },
   closeDetail() { this.historyRead++; this.setData({ selected: null, history: [], historyLoading: false }); },
   selectDetailTab(e) { const tab = e.currentTarget.dataset.tab; if (!['rule','records'].includes(tab)) return; this.setData({ detailTab: tab }); if (tab === 'records') this.loadHistory(false); },
-  openLinkedSession() { const t = this.data.selected; if (!t || !this.data.connected) return; store.openSession(t.sessionId, t.sessionLabel, null); has.navigateTo({ url: '/pages/session/session' }); },
+  openLinkedSession() { const t = this.data.selected; if (!t || !this.data.connected) return; store.openSession(t.sessionId, t.sessionLabel, null); has.navigateTo({ url: '/pages/session/session', animationType: 'none', animationDuration: 0 }); },
   refreshHistory() { return this.loadHistory(false); },
   moreHistory() { if (this.data.historyNext && !this.data.historyLoading) return this.loadHistory(true); },
   async loadHistory(more) {

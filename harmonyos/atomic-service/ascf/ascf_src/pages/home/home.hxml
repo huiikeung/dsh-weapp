@@ -48,7 +48,7 @@
   <!-- 主内容：抽屉打开时右移 + 圆角 + 阴影（对齐 iOS workspaceContent） -->
   <view class="home-content-wrap {{contentShifted ? 'shifted' : ''}} {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}}" style="transform: {{contentX ? 'translateX(' + contentX + 'px)' : 'none'}}; border-radius: {{contentCornerRadius}}px 0 0 {{contentCornerRadius}}px;" bindtouchstart="onContentTouchStart" bindtouchend="onContentTouchEnd">
     <!-- 深海背景随内容一起位移（对齐 iOS DeepOceanBackground 在 workspaceContent 内） -->
-    <view class="deep-bg home-deep-bg"><ocean-background id="home-ocean" active="{{oceanActive}}" reduced-motion="{{oceanReducedMotion}}"/></view>
+    <view class="deep-bg home-deep-bg"><ocean-background id="home-ocean" active="{{oceanActive}}" reduced-motion="{{oceanReducedMotion}}" css-only="{{true}}"/></view>
 
     <scroll-view class="home-scroll" scroll-y="{{!workspacePickerOpen && !sessionMenuOpen && !swiping}}" show-scrollbar="{{false}}">
     <view class="home" style="padding-top: {{topbarTop}}px;">
@@ -117,7 +117,7 @@
 
       <view class="hero">
         <view class="title-hero {{connectionClass}}">{{ui['探索未至之境']}}</view>
-        <view has:if="{{connectionClass === 'connected'}}" class="subtitle-hero">{{ui['已连接 whaletail Harness 预览版']}}</view>
+        <view has:if="{{connectionClass === 'connected'}}" class="subtitle-hero">{{ui['已连接 DeepSeek Harness 预览版']}}</view>
       </view>
 
       <!-- 工作区选择器 -->
@@ -141,7 +141,7 @@
 
       <!-- 最近会话 -->
       <view class="recent-header">
-        <view class="section-title">{{ui['最近会话']}}</view>
+        <view class="section-title">{{allWorkspacesSelected ? ui['全部会话'] : ui['最近会话']}}</view>
         <view class="conn-label {{connectionClass}}">{{ui[connectionLabel] !== undefined ? ui[connectionLabel] : connectionLabel}}</view>
       </view>
 
@@ -150,16 +150,25 @@
         <input class="search-input" placeholder="{{ui['搜索会话内容']}}" placeholder-class="field-placeholder" value="{{searchQuery}}" bindinput="onSearchInput" confirm-type="search"/>
       </view>
 
-      <view has:if="{{homeDataHint}}" class="home-data-hint {{connectionHintIsError ? 'home-connection-error' : ''}}" bindtap="{{connectionHintIsError ? 'pairByManual' : ''}}" role="button">{{ui[homeDataHint] !== undefined ? ui[homeDataHint] : homeDataHint}}</view>
+      <view has:if="{{homeDataHint}}" class="home-data-hint {{connectionHintIsError ? 'home-connection-error' : ''}}">{{ui[homeDataHint] !== undefined ? ui[homeDataHint] : homeDataHint}}</view>
 
       <view class="session-list">
-        <block has:for="{{displaySessions}}" has:key="sessionId">
-          <view class="session-swipe {{swipeId === item.sessionId ? 'open' : ''}}" bindtouchstart="onSessionTouchStart" bindtouchmove="onSessionTouchMove" bindtouchend="onSessionTouchEnd" bindtouchcancel="onSessionTouchCancel" data-id="{{item.sessionId}}" data-index="{{index}}">
+        <block has:for="{{displayEntries}}" has:key="key">
+          <view has:if="{{item.type === 'section'}}" class="session-section {{item.first ? 'session-section-first' : ''}}" role="heading" aria-label="{{item.sectionLabel}}">
+            <text class="session-section-title">{{item.title}}</text>
+            <view class="session-section-line"></view>
+            <text class="session-section-count">{{item.countLabel}}</text>
+          </view>
+          <view has:elif="{{item.type === 'toggle'}}" class="session-section-toggle" bindtap="toggleSessionSection" data-id="{{item.sectionId}}" role="button" aria-label="{{item.label}}">
+            <text class="session-section-toggle-label">{{item.label}}</text>
+            <image class="session-section-toggle-ic" src="/assets/icons/{{item.expanded ? 'chev-up-gray.png' : 'chev-down-gray.png'}}" mode="aspectFit"/>
+          </view>
+          <view has:elif="{{item.type === 'session'}}" class="session-swipe {{swipeId === item.sessionId ? 'open' : ''}}" bindtouchstart="onSessionTouchStart" bindtouchmove="onSessionTouchMove" bindtouchend="onSessionTouchEnd" bindtouchcancel="onSessionTouchCancel" data-id="{{item.sessionId}}" data-index="{{item.index}}">
             <view class="session-actions {{swipeId === item.sessionId ? 'show' : ''}}" aria-hidden="true">
-              <view class="session-action rename" catchtap="sessionSwipeAction" data-action="rename" data-index="{{index}}" role="button" aria-label="{{ui['重命名']}}">{{ui['重命名']}}</view>
-              <view class="session-action archive" catchtap="sessionSwipeAction" data-action="archive" data-index="{{index}}" role="button" aria-label="{{ui['归档会话']}}">{{ui['归档会话']}}</view>
+              <view class="session-action rename" catchtap="sessionSwipeAction" data-action="rename" data-index="{{item.index}}" role="button" aria-label="{{ui['重命名']}}">{{ui['重命名']}}</view>
+              <view class="session-action archive" catchtap="sessionSwipeAction" data-action="archive" data-index="{{item.index}}" role="button" aria-label="{{ui['归档会话']}}">{{ui['归档会话']}}</view>
             </view>
-            <view id="session-row-{{index}}" class="session-row glass-press {{sessionMenuOpen && sessionMenuId === item.sessionId ? 'session-row-hidden' : ''}}" style="transform: translateX({{swipeId === item.sessionId ? -swipeOffset : 0}}px);" bindtap="openSession" data-id="{{item.sessionId}}" data-title="{{item.displayTitle}}" data-preset="{{item.agentPreset}}" bindlongpress="sessionActions" data-index="{{index}}">
+            <view id="session-row-{{item.index}}" class="session-row glass-press {{sessionMenuOpen && sessionMenuId === item.sessionId ? 'session-row-hidden' : ''}}" style="transform: translateX({{swipeId === item.sessionId ? -swipeOffset : 0}}px);" bindtap="openSession" data-id="{{item.sessionId}}" data-title="{{item.displayTitle}}" data-preset="{{item.agentPreset}}" bindlongpress="sessionActions" data-index="{{item.index}}">
               <image has:if="{{item.searchIcon}}" class="search-result-ic" src="/assets/icons/{{item.searchIcon}}"/>
               <view class="session-dot {{item.running ? 'running' : (item.hasUnread ? 'unread' : (item.recentlyCompleted ? 'done' : ''))}}"></view>
               <view class="session-body">
@@ -170,7 +179,7 @@
             </view>
           </view>
         </block>
-        <view has:if="{{!displaySessions.length}}" class="empty">{{ui[emptySessionsText] !== undefined ? ui[emptySessionsText] : emptySessionsText}}</view>
+        <view has:if="{{!displayEntries || !displayEntries.length}}" class="empty">{{ui[emptySessionsText] !== undefined ? ui[emptySessionsText] : emptySessionsText}}</view>
       </view>
     </view>
     </scroll-view>
@@ -294,8 +303,14 @@
   <view has:if="{{workspacePickerOpen}}" class="ws-pop workspace-menu" style="left: {{popLeft}}px; top: {{popTop}}px; width: {{popWidth}}px; height: {{popHeight}}px; transform-origin: 50% {{popOriginY}}px;" catchtap="noop" role="dialog" aria-label="{{ui['选择工作区']}}">
     <scroll-view class="ws-pop-scroll" scroll-y show-scrollbar="{{false}}">
     <view class="ws-pop-content">
+    <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="selectAll" role="button" aria-label="{{ui['全部会话']}}">
+      <image has:if="{{allWorkspacesSelected}}" class="ws-pop-ic" src="/assets/icons/check-fill-white.png" mode="aspectFit"/>
+      <image has:else class="ws-pop-ic" src="/assets/icons/all-sessions-white.svg" mode="aspectFit"/>
+      <text class="ws-pop-label">{{ui['全部会话']}}</text>
+    </view>
     <view class="ws-pop-row" hover-class="ws-pop-row-pressed" bindtap="selectUngrouped" role="button" aria-label="{{ui['未分组']}}">
-      <image class="ws-pop-ic" src="/assets/icons/{{currentWorkspace.ungrouped ? 'check-fill-white.png' : 'tray-white.png'}}" mode="aspectFit"/>
+      <image has:if="{{currentWorkspace.ungrouped}}" class="ws-pop-ic" src="/assets/icons/check-fill-white.png" mode="aspectFit"/>
+      <image has:else class="ws-pop-ic" src="/assets/icons/tray-white.svg" mode="aspectFit"/>
       <text class="ws-pop-label">{{ui['未分组']}}</text>
     </view>
     <view has:if="{{pickerWorkspaces.length}}" class="ws-pop-divider"></view>
@@ -463,18 +478,7 @@
     <view class="dir-prompt-sheet" catchtap="noop" role="dialog" aria-label="{{ui['编辑路径']}}">
       <text class="dir-prompt-title">{{ui['编辑路径']}}</text>
       <text class="dir-prompt-hint">{{ui['输入绝对路径，例如 /Users/… 或 D:/…']}}</text>
-      <input
-        class="dir-prompt-input"
-        value="{{dirJumpValue}}"
-        bindinput="onDirJumpInput"
-        bindconfirm="submitDirJump"
-        placeholder="{{ui['输入绝对路径']}}"
-        placeholder-class="dir-prompt-ph"
-        confirm-type="go"
-        cursor-spacing="24"
-        focus="{{dirJumpOpen}}"
-        maxlength="1024"
-      />
+      <input class="dir-prompt-input" value="{{dirJumpValue}}" bindinput="onDirJumpInput" bindconfirm="submitDirJump" placeholder="{{ui['输入绝对路径']}}" placeholder-class="dir-prompt-ph" confirm-type="go" cursor-spacing="24" focus="{{dirJumpOpen}}" maxlength="1024"/>
       <text has:if="{{dirJumpError}}" class="dir-prompt-error">{{dirJumpError}}</text>
       <view class="dir-prompt-actions">
         <view class="dir-prompt-btn dir-prompt-cancel" bindtap="closeDirJump" role="button">{{ui['取消']}}</view>
@@ -482,28 +486,37 @@
       </view>
     </view>
   </view>
-
   <!-- 手动配对弹层（对齐 dsh-mobile v1.6.0 ManualGatewayPairingSheet） -->
   <view has:if="{{manualSheetOpen}}" class="host-mask" bindtap="closeManualSheet"></view>
-  <view has:if="{{manualSheetOpen}}" class="manual-sheet {{manualSheetExpanded ? 'expanded' : ''}}">
+  <view has:if="{{manualSheetOpen}}" class="manual-sheet {{manualSheetExpanded ? 'expanded' : ''}} {{manualKb ? 'keyboard-open' : ''}}" style="{{manualSheetStyle}}">
     <view class="sheet-grabber-zone" catchtouchstart="onManualSheetGrabStart" catchtouchmove="onManualSheetGrabMove" catchtouchend="onManualSheetGrabEnd">
       <view class="sheet-grabber"></view>
     </view>
     <view class="manual-sheet-head">
       <text class="manual-sheet-title">{{ui['设备认证']}}</text>
-      <view class="manual-sheet-done tap" bindtap="closeManualSheet">{{ui['完成']}}</view>
+      <view class="manual-sheet-close tap" bindtap="closeManualSheet" hover-class="press-dim" role="button" aria-label="{{ui['关闭']}}"><view class="manual-close-x"></view></view>
     </view>
     <scroll-view class="manual-sheet-body" scroll-y>
-      <view class="manual-sec-title">{{ui['手动输入配对信息']}}</view>
-      <view class="manual-sec-desc">{{ui['粘贴 Harness WebUI 提供的 Base64URL 配对字符串。长期设备 token 只会安全保存在本机。']}}</view>
-      <textarea class="manual-input text-mono {{manualInputFocused ? 'focused' : ''}}" value="{{pairingText}}" bindinput="onPairingTextInput" bindfocus="onManualInputFocus" bindblur="onManualInputBlur" placeholder="{{ui['粘贴 Base64URL 配对字符串或完整配对信息']}}" placeholder-class="manual-input-ph" maxlength="-1"/>
+      <view class="manual-sec-desc">{{ui['粘贴 Harness WebUI 提供的配对信息即可连接；长期设备 token 只会安全保存在本机。']}}</view>
+      <view class="manual-input-card">
+        <view class="manual-input-tools">
+          <text class="manual-input-label">{{ui['配对信息']}}</text>
+          <view class="manual-input-actions">
+            <view class="manual-input-action tap" bindtap="pastePairingText" hover-class="press-dim" role="button" aria-label="{{ui['粘贴']}}">{{ui['粘贴']}}</view>
+            <view has:if="{{pairingText}}" class="manual-input-action tap" bindtap="clearPairingText" hover-class="press-dim" role="button" aria-label="{{ui['清空']}}">{{ui['清空']}}</view>
+          </view>
+        </view>
+      <textarea class="manual-input text-mono {{manualInputFocused ? 'focused' : ''}}" value="{{pairingText}}" bindinput="onPairingTextInput" bindfocus="onManualInputFocus" bindblur="onManualInputBlur" bindkeyboardheightchange="onManualKeyboard" adjust-position="{{false}}" cursor-spacing="24" placeholder="{{ui['粘贴 Base64URL 配对字符串或完整配对信息']}}" placeholder-class="manual-input-ph" maxlength="-1"/>
+      </view>
       <view has:if="{{pairingResult}}" class="manual-result {{pairingResultClass}}">{{ui[pairingResult] !== undefined ? ui[pairingResult] : pairingResult}}</view>
+    </scroll-view>
+    <view class="manual-sheet-footer">
       <view class="manual-connect {{pairingText && !pairingConnecting ? '' : 'disabled'}}" hover-class="manual-connect-press" bindtap="connectManualPairing">
         <view has:if="{{pairingConnecting}}" class="dir-spinner light small-spin"></view>
         <image has:else class="manual-connect-ic" src="/assets/icons/node-router-white.svg" mode="aspectFit"/>
         <text>{{pairingConnecting ? ui['连接中…'] : ui['连接']}}</text>
       </view>
-    </scroll-view>
+    </view>
   </view>
 </view>
 <public-access-dialog visible="{{publicAccessDialogOpen}}" dialog="{{publicAccessDialog}}" theme="{{sheetTheme}}" bindconfirm="onPublicAccessDialogConfirm"/>

@@ -11,6 +11,8 @@ const { t: uiText } = preferences;
 
 Page({
   data: {
+    // ASCF 页面需显式注入 i18n 词典，模板 {{ui['…']}} 才有值。
+    ui: require('../../utils/ui-preferences').snapshot().ui,
     status: 'loading',
     errorText: '',
     sessionId: '',

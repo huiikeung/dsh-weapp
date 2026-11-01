@@ -21,11 +21,20 @@ function toArrayBuffer(u8) {
   return u8.slice().buffer;
 }
 
-function socketErrorMessage(value) {
-  const raw = String(value || '');
+function socketErrorMessage(value, endpoint) {
+  const error = value && typeof value === 'object' ? value : null;
+  const raw = String(error ? error.errMsg || error.message || '' : value || '');
+  const errorCode = error && [error.errno, error.errCode].find(item => Number.isFinite(Number(item)));
   if (/2302998|not allowed to access this domain/i.test(raw)) {
+    const match = /^wss?:\/\/([^/?#]+)(?:[/?#]|$)/i.exec(String(endpoint || ''));
+    const host = match && !match[1].includes('@') ? match[1].replace(/:\d+$/, '') : '';
+    if (host && hosts.isLocalHost(host)) {
+      return uiText('ASCF 当前回退到局域网地址 {host}：IP/局域网不能加入元服务白名单，请先恢复公网中继再重新配对。', { host: host });
+    }
+    if (host) return uiText('ASCF 域名未配置：当前 WebSocket 主机 {host} 未在元服务白名单中；请核对 Bundle Name 和签名证书。', { host: 'wss://' + host });
     return uiText('ASCF 域名未配置：请在华为开发者中心/AGC 的元服务服务器域名白名单中加入该 wss 域名；局域网 ws 地址不能绕过平台白名单。');
   }
+  if (/unknown error/i.test(raw) && errorCode !== undefined) return raw + ' (errno ' + Number(errorCode) + ')';
   return raw || uiText('无法建立 WebSocket 连接');
 }
 
@@ -52,6 +61,7 @@ class GatewayClient {
     this.timeoutTimer = null;
     this.timeoutToken = null;
     this.pendingRequests = {}; // key → { resolve, reject, timer }
+    this.sessionParents = Object.create(null); // 子 Agent 会话 → durable parent address
     this.sessionCreations = {}; // requestId → { resolve, reject, timer }
     this.relayShares = {}; // requestId → { resolve, reject, timer }
     this.relayCodes = {};  // requestId → 兑换码生成挂起
@@ -184,8 +194,21 @@ class GatewayClient {
     const endpointHost = endpointAuthority.split('/')[0].replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
     const localWsDevelopment = /^ws:\/\//i.test(rawEndpoint) &&
       accessConfig.allowLocalWs === true && hosts.isLocalHost(endpointHost);
+    // 诊断：记录实际拨号地址（不含 token），便于对照服务端 101/非 101 结果。
+    try { console.log('[gateway] dial ' + rawEndpoint); } catch (e) { /* 无 console 环境忽略 */ }
+    // 先初始化候选链：ws:// 局域网候选被拒时要能继续回退到下一条线路（如托管中继）。
+    this.endpoint = endpoint;
+    this.initPairingChain(endpoint, opts);
     if (!/^wss:\/\//i.test(rawEndpoint) && !localWsDevelopment) {
-      this.setState('failed', uiText('元服务仅支持已在华为开发者中心配置域名的 wss:// 地址；本地调试请使用局域网地址'));
+      const message = uiText('元服务仅支持已在华为开发者中心配置域名的 wss:// 地址；本地调试请使用局域网地址');
+      // 与小程序「拨号失败后换下一条线路」保持一致：配对候选链里还有候选时继续回退，
+      // 而不是直接终止——否则中继被授权判定跳过后只剩局域网候选，连接会死在这里。
+      if (this.pairingCode && this.pairingFallbacks.length) {
+        this.wantsConnection = true;
+        this.handleTransportFailure(message, { pairingCodeConsumed: false });
+        return;
+      }
+      this.setState('failed', message);
       return;
     }
     if (opts.relay && opts.relay.authMode !== 'gateway' && opts.relay.expiresAt && Number(opts.relay.expiresAt) <= Date.now()) {
@@ -197,8 +220,6 @@ class GatewayClient {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    this.endpoint = endpoint;
-    this.initPairingChain(endpoint, opts);
     this.relayMeta = opts.relay || null;
     this.relayAccessToken = (opts.relay && opts.relay.accessToken) || null;
     // 重连必须复用完整连接参数（relay 档案丢了 relay 元信息就永远连不回）
@@ -256,13 +277,26 @@ class GatewayClient {
     let transportTask;
     let earlyFailure = null;
     try {
+      // ASCF 的 connectSocket 会把 protocols 数组序列化成非法头（中继回 400），
+      // 而内部写 Sec-WebSocket-Protocol 又会被服务器回显、客户端却不认，
+      // 于是握手后立刻 abnormal termination。
+      // 方案：只用 protocols 声明主协议（可被服务器回显），凭据走自定义头，
+      // 由中继（relay-server.js）从 X-DSH-* 头补全校验。
+      const leaseToken = serviceLease && serviceLease.token ? String(serviceLease.token) : '';
+      if (leaseToken) header['X-DSH-Public-Lease'] = leaseToken;
+      if (serviceLease && opts.relay && opts.relay.authMode === 'gateway') header['X-DSH-Gateway-Auth'] = '1';
+      if (opts.relay && opts.relay.inviteToken) header['X-DSH-Invite'] = opts.relay.inviteToken;
+      if (opts.relay && opts.relay.accessToken) header['X-DSH-Access'] = opts.relay.accessToken;
+      if (this.pairingCode && !(opts.relay && opts.relay.authMode === 'gateway')) header['X-DSH-Pair-Code'] = this.pairingCode;
+      try { console.log('[gateway] negotiate dsh-mobile-v1 lease=' + (leaseToken ? 'yes' : 'no') + ' pair=' + (header['X-DSH-Pair-Code'] ? 'yes' : 'no') + ' gw=' + (header['X-DSH-Gateway-Auth'] || 'no')); } catch (e) { /* 无 console 环境忽略 */ }
+      // 不传 protocols：ASCF 传了会写出非法头；服务器已改为只在客户端真正提供
+      // Sec-WebSocket-Protocol 时才回显，因此这里不能声明协议。
       const task = has.connectSocket({
         url: endpoint,
         header: header,
-        protocols: protocols,  // 务必传递完整的 protocols 数组
         fail: function (err) {
           if (transportTask && self.socketTask !== transportTask) return;
-          const message = socketErrorMessage(err && err.errMsg);
+          const message = socketErrorMessage(err, endpoint);
           // Some test/runtime shims may invoke fail before connectSocket returns.
           if (!transportTask) {
             earlyFailure = message;
@@ -289,6 +323,7 @@ class GatewayClient {
 
     try {
       transportTask.onOpen(function () {
+      try { console.log('[gateway] open'); } catch (e) {}
       if (self.socketTask !== transportTask || self.socketOpened) return;
       self.socketOpened = true;
       // 传输已建立：握手/鉴权阶段换回长超时（中继还要等连接器回拨网关）。
@@ -335,9 +370,10 @@ class GatewayClient {
       });
       transportTask.onError(function (err) {
       if (self.socketTask !== transportTask) return;
-      self.handleTransportFailure(socketErrorMessage(err && err.errMsg));
+      self.handleTransportFailure(socketErrorMessage(err, endpoint));
       });
       transportTask.onClose(function (res) {
+      try { console.log('[gateway] close ' + JSON.stringify(res || {})); } catch (e) {}
       if (self.socketTask !== transportTask) return;
       if (self.state === 'connected' || self.state === 'connecting') {
         if (res && Number(res.code) === 4003) {
@@ -1379,6 +1415,11 @@ class GatewayClient {
         : defaultMaxBytes,
       view: 'conversation'
     };
+    const parent = this.sessionParents[sessionId];
+    if (parent && parent.parentSessionId) {
+      payload.parentSessionId = parent.parentSessionId;
+      if (parent.mode) payload.mode = parent.mode;
+    }
     if (beforeSeq !== undefined && beforeSeq !== null && beforeSeq >= 0 && historyFormatVersion) {
       payload.beforeSeq = beforeSeq;
       payload.historyFormatVersion = historyFormatVersion;
@@ -1429,6 +1470,17 @@ class GatewayClient {
     return true;
   }
 
+  /** 登记子 Agent 会话的 durable parent，后续 subscribe/history 自动带上。 */
+  setSessionParent(sessionId, parent) {
+    const id = sessionId ? String(sessionId) : '';
+    if (!id) return;
+    const parentSessionId = parent && typeof parent.parentSessionId === 'string' ? parent.parentSessionId.trim() : '';
+    if (!parentSessionId) { delete this.sessionParents[id]; return; }
+    const rawMode = parent && typeof parent.mode === 'string' ? parent.mode.trim() : '';
+    const mode = ['one-shot', 'continuable', 'unknown'].includes(rawMode) ? rawMode : 'unknown';
+    this.sessionParents[id] = { parentSessionId, mode };
+  }
+
   requestAttachment(sessionId, attachmentId) {
     return this.request({ type: 'attachment', sessionId: sessionId, attachmentId: attachmentId });
   }
@@ -1439,9 +1491,12 @@ class GatewayClient {
       // 中继线路上订阅快照默认 1 MiB，整包加密后单帧转发，手机要等好几秒。
       // 声明一个小预算：先拿到最新一小段立即可见，旧记录由上滑分页补。
       const snapshotMaxBytes = this.relayMeta ? 128 * 1024 : undefined;
+      const parent = this.sessionParents[sessionId];
       return this.send({ type: 'subscribe', sessionId: sessionId, assistantStream: true,
         ...(Number.isSafeInteger(afterSeq) && afterSeq >= 0 ? { afterSeq: afterSeq } : {}),
-        ...(snapshotMaxBytes ? { snapshotMaxBytes } : {}) });
+        ...(snapshotMaxBytes ? { snapshotMaxBytes } : {}),
+        ...(parent && parent.parentSessionId ? { parentSessionId: parent.parentSessionId } : {}),
+        ...(parent && parent.parentSessionId && parent.mode ? { mode: parent.mode } : {}) });
     }
     return this.send({ type: 'unsubscribe' });
   }

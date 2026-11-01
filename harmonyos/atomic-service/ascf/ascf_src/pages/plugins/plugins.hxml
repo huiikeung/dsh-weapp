@@ -11,11 +11,11 @@
       </view>
     </view>
     <view has:if="{{pendingName === item.name}}" class="plugins-spinner small"></view>
-    <dsh-switch checked="{{item.enabled}}" disabled="{{item.toggleDisabled}}" aria-label="{{ui['启用']}}{{item.title}}" data-name="{{item.name}}" data-enabled="{{item.enabled}}" bindchange="onBundleToggle" scale="0.72"/>
+    <dsh-switch theme-mode="{{theme}}" checked="{{item.enabled}}" disabled="{{item.toggleDisabled}}" aria-label="{{ui['启用']}}{{item.title}}" data-name="{{item.name}}" data-enabled="{{item.enabled}}" bindchange="onBundleToggle" scale="0.72"/>
   </view>
 </template>
-<view class="page plugins {{themeClass}}" style="{{contentFontStyle}}padding-top: {{statusBarH}}px;">
-  <view class="plugins-header">
+<view class="page plugins {{themeClass}}" style="{{contentFontStyle}}">
+  <view class="plugins-header" style="height: {{navHeight}}px; margin-top: {{navPadTop}}px;">
     <view class="plugins-back tap" hover-class="brand-dim" bindtap="goBack" role="button" aria-label="{{ui['返回']}}"><image class="plugins-back-ic" src="/assets/icons/{{theme === 'dark' ? 'back-white.png' : 'back-black.png'}}"/></view>
     <text class="plugins-title">{{showingMore ? ui['实验性插件'] : ui['插件']}}</text>
   </view>
@@ -24,8 +24,7 @@
       <view has:if="{{!showingMore}}" class="plugins-toolbar">
         <text class="plugins-hint">{{ui['安装、启用和配置插件']}}</text>
         <view has:if="{{pluginTab === 'installed'}}" class="plugins-actions">
-          <button class="plugins-refresh" disabled="{{loading || !connected}}" bindtap="onRefresh" aria-label="{{ui['刷新插件']}}"><image class="plugins-refresh-ic" src="/assets/icons/{{theme === 'dark' ? 'refresh.png' : 'refresh-ink.png'}}"/></button>
-          <view class="plugin-add-group {{canAdd ? '' : 'disabled'}}"><button class="plugin-add" disabled="{{!canAdd}}" bindtap="openAdd">{{ui['＋ 添加插件']}}</button><button class="plugin-add-arrow" disabled="{{!canAdd}}" bindtap="toggleAddMenu" aria-label="{{ui['选择添加方式']}}"><view class="plugin-chevron {{addMenuOpen ? 'is-open' : ''}}"></view></button></view>
+          <view class="plugin-add-group {{canAdd ? '' : 'disabled'}}"><button class="plugin-add" disabled="{{!canAdd}}" bindtap="openAdd"><view class="plugin-add-plus" aria-hidden="true"></view><text>{{ui['添加插件']}}</text></button><button class="plugin-add-arrow" disabled="{{!canAdd}}" bindtap="toggleAddMenu" aria-label="{{ui['选择添加方式']}}"><view class="plugin-chevron {{addMenuOpen ? 'is-open' : ''}}"></view></button></view>
         </view>
       </view>
       <view has:if="{{!showingMore}}" class="plugin-tabs" role="tablist"><button class="plugin-tab {{pluginTab === 'installed' ? 'selected' : ''}}" data-tab="installed" bindtap="selectPluginTab" role="tab" aria-selected="{{pluginTab === 'installed'}}">{{ui['已安装']}}</button><button class="plugin-tab {{pluginTab === 'discover' ? 'selected' : ''}}" data-tab="discover" bindtap="selectPluginTab" role="tab" aria-selected="{{pluginTab === 'discover'}}">{{ui['发现']}}</button></view>
@@ -84,7 +83,7 @@
   </scroll-view>
   <block has:if="{{addMenuOpen}}">
     <view class="plugin-menu-mask" bindtap="closeAddMenu" catchtouchmove="noop"></view>
-    <view class="plugin-add-menu" style="top: calc({{statusBarH}}px + 198rpx);"><view class="plugin-menu-item" bindtap="openAdd"><text>{{ui['安装第三方插件']}}</text><text class="plugin-menu-desc">{{ui['支持 npm 包、Git 仓库和主机目录']}}</text></view><view class="plugin-menu-item" bindtap="createPluginSession"><text>{{creatingPlugin ? ui['正在打开…'] : ui['让 Agent 创建插件']}}</text><text class="plugin-menu-desc">{{ui['新建创造模式会话，制作自己的 DSH 插件']}}</text></view></view>
+    <view class="plugin-add-menu" style="top: calc({{navPadTop}}px + {{navHeight}}px + 66rpx);"><view class="plugin-menu-item" bindtap="openAdd"><text>{{ui['安装第三方插件']}}</text><text class="plugin-menu-desc">{{ui['支持 npm 包、Git 仓库和主机目录']}}</text></view><view class="plugin-menu-item" bindtap="createPluginSession"><text>{{creatingPlugin ? ui['正在打开…'] : ui['让 Agent 创建插件']}}</text><text class="plugin-menu-desc">{{ui['新建创造模式会话，制作自己的 DSH 插件']}}</text></view></view>
   </block>
   <view has:if="{{addOpen}}" class="plugin-sheet-overlay">
     <view class="plugin-sheet-mask" bindtap="closeAdd" catchtouchmove="noop"></view>
@@ -102,12 +101,12 @@
         </block>
         <view has:if="{{install && install.phase !== 'checking'}}" class="plugin-install-summary"><text class="plugin-install-name" selectable>{{install.name}}</text><text has:if="{{install.version}}">{{ui['版本']}} {{install.version}}</text><text class="plugin-install-source" selectable>{{install.spec}}</text></view>
         <view class="plugin-safety">{{ui['请确认插件来源可信。插件将在所连接的 DSH 主机以你的权限运行，可能读取、修改或泄露数据。安装操作不会在手机上执行。']}}</view>
-        <view has:if="{{install && install.phase === 'ready'}}" class="plugin-enable-row"><text>{{ui['安装后立即启用']}}</text><dsh-switch checked="{{enableAfterInstall}}" bindchange="onEnableChange" scale="0.72"/></view>
+        <view has:if="{{install && install.phase === 'ready'}}" class="plugin-enable-row"><text>{{ui['安装后立即启用']}}</text><dsh-switch theme-mode="{{theme}}" checked="{{enableAfterInstall}}" bindchange="onEnableChange" scale="0.72"/></view>
         <view has:if="{{install}}" class="plugin-install-status {{install.phase === 'failed' ? 'is-error' : ''}}"><view has:if="{{installBusy}}" class="plugins-spinner small"></view><text>{{ui[install.message] !== undefined ? ui[install.message] : install.message}}</text></view>
         <text has:if="{{actionError}}" class="plugin-inline-error">{{ui[actionError] !== undefined ? ui[actionError] : actionError}}</text>
         <block has:if="{{install && install.logs}}"><button class="plugin-text-button" bindtap="toggleLogs">{{logsOpen ? ui['收起安装详情'] : ui['查看安装详情']}}</button><view has:if="{{logsOpen}}" class="plugin-install-log"><text selectable>{{install.logs}}</text></view></block>
         <view has:if="{{install && install.pendingBuilds.length}}" class="plugin-builds"><text>{{ui['以下依赖需要运行安装脚本：']}}</text><text has:for="{{install.pendingBuilds}}" has:key="*this">{{item}}</text><button class="plugin-secondary-button" bindtap="approveBuilds" disabled="{{!canAdd || installBusy}}">{{ui['审阅授权并重试']}}</button></view>
-        <button has:if="{{installEditable || install && install.phase === 'checking'}}" class="plugin-primary-button" bindtap="checkPlugin" disabled="{{!canAdd || !spec || installBusy || registryLoading}}">{{install && install.phase === 'checking' ? ui['正在准备…'] : ui['安装']}}</button>
+        <button has:if="{{installEditable || install && install.phase === 'checking'}}" class="plugin-primary-button {{!canAdd || !spec || installBusy || registryLoading ? 'is-disabled' : ''}}" bindtap="checkPlugin">{{install && install.phase === 'checking' ? ui['正在准备…'] : ui['安装']}}</button>
         <view has:elif="{{install && install.phase === 'ready'}}" class="plugin-sheet-buttons"><button class="plugin-secondary-button" bindtap="editInstall">{{ui['返回编辑']}}</button><button class="plugin-primary-button" bindtap="confirmInstall" disabled="{{!canAdd}}">{{ui['确认安装']}}</button></view>
         <view has:elif="{{installActive}}" class="plugin-sheet-buttons"><button class="plugin-secondary-button" bindtap="cancelInstall" disabled="{{!connected || install.cancelling || install.phase === 'applying'}}">{{install.cancelling ? ui['取消中…'] : ui['取消安装']}}</button><button class="plugin-primary-button" bindtap="reconcileInstall" disabled="{{!connected || install.recovering}}">{{install.recovering ? ui['核对中…'] : ui['核对安装状态']}}</button></view>
         <view has:elif="{{install && install.phase === 'done'}}" class="plugin-sheet-buttons"><button class="plugin-secondary-button" bindtap="editInstall">{{ui['继续添加']}}</button><button class="plugin-primary-button" bindtap="closeAdd">{{ui['完成']}}</button></view>
@@ -140,5 +139,60 @@
       <view has:if="{{marketStatus !== 'ready'}}" class="sources-availability"><text>{{marketStatus === 'loading' ? ui['正在读取主机索引源…'] : marketError || ui['连接网关后可管理索引源']}}</text><button has:if="{{marketStatus !== 'loading'}}" class="market-subtle" bindtap="loadMarketSources" disabled="{{!connected}}">{{ui['重试']}}</button></view>
       <view class="sources-trust"><text class="sources-warning-icon">!</text><text>{{ui['索引由第三方提供。只添加你信任的来源：其中的插件安装后以你的权限运行']}}</text></view>
     </view>
+  </view>
+
+  <!-- 插件卡片：直接弹出玻璃弹窗（详情 + 设置），不再跳转详情页 -->
+  <view has:if="{{detailOpen}}" class="plugin-sheet-mask" bindtap="closeDetail" catchtouchmove="noop"></view>
+  <view has:if="{{detailOpen}}" class="plugin-sheet plugin-detail-sheet">
+    <view class="plugin-sheet-handle"></view>
+    <view class="plugin-sheet-head">
+      <text>{{detailTitle}}</text>
+      <button class="plugin-sheet-close" bindtap="closeDetail" aria-label="{{ui['关闭']}}">×</button>
+    </view>
+    <scroll-view class="plugin-sheet-scroll" scroll-y>
+      <view class="plugin-sheet-content">
+        <view class="plugin-detail-top">
+          <view class="plugin-detail-icon">
+            <image has:if="{{detailIcon}}" class="plugin-detail-icon-img" src="{{detailIcon}}" mode="aspectFit" binderror="onDetailIconError"/>
+            <image has:elif="{{detailArtwork}}" class="plugin-detail-icon-img" src="{{detailArtwork}}" mode="aspectFit"/>
+          </view>
+          <view class="plugin-detail-top-copy">
+            <text class="plugin-detail-name">{{detailTitle}}</text>
+            <view class="plugin-detail-meta">
+              <text has:if="{{detailVersion}}" class="plugin-detail-version">v{{detailVersion}}</text>
+              <text has:if="{{detailCaption}}" class="plugin-detail-caption">{{detailCaption}}</text>
+            </view>
+          </view>
+          <view class="plugin-detail-actions">
+            <button has:if="{{detailUpdateAvailable}}" class="pdetail-action pdetail-action-update" bindtap="updateDetailBundle" aria-label="{{ui['更新']}}">{{ui['更新']}}</button>
+            <button has:if="{{detailCanUninstall}}" class="pdetail-action pdetail-action-danger" bindtap="uninstallDetailBundle" aria-label="{{ui['卸载']}}">{{ui['卸载']}}</button>
+            <dsh-switch theme-mode="{{theme}}" has:if="{{detailName}}" checked="{{detailEnabled}}" disabled="{{detailToggleDisabled}}" data-name="{{detailName}}" data-enabled="{{detailEnabled}}" bindchange="onBundleToggle" scale="0.72"/>
+          </view>
+        </view>
+        <text has:if="{{detailDescription}}" class="plugin-sheet-desc">{{detailDescription}}</text>
+        <view class="plugin-detail-config {{detailHasConfig ? 'has-config' : ''}}"><include src="settings-form.hxml"/></view>
+        <view has:if="{{detailEntries.length}}" class="plugin-detail-entries">
+          <view class="plugin-detail-entries-head">
+            <text class="plugin-detail-entries-title">{{ui['包含的组件']}}</text>
+            <text class="plugin-detail-entries-count">{{ui['共']}} {{detailEntries.length}} {{ui['个 ·']}} {{detailActiveCount}} {{ui['运行中']}}</text>
+          </view>
+          <view has:for="{{detailEntries}}" has:key="id" class="plugin-detail-entry">
+            <view class="plugin-detail-entry-copy">
+              <text class="plugin-detail-entry-name">{{item.name}}</text>
+              <text has:if="{{item.description}}" class="plugin-detail-entry-desc">{{item.description}}</text>
+              <text class="plugin-detail-entry-id">{{item.entryID}}</text>
+            </view>
+            <dsh-switch theme-mode="{{theme}}" checked="{{item.enabled}}" disabled="{{detailEntriesToggleDisabled || !!item.readOnlyReason}}" data-entry="{{item.entryID}}" bindchange="onDetailEntryToggle" scale="0.72"/>
+          </view>
+        </view>
+
+        <view class="plugin-detail-source">
+          <text class="plugin-detail-section-title">{{ui['来源信息']}}</text>
+          <view class="plugin-detail-source-row"><text class="plugin-detail-source-key">{{ui['代码来源']}}</text><text class="plugin-detail-source-value">{{detailSourceLabel}}</text></view>
+          <view has:if="{{detailVersion}}" class="plugin-detail-source-row"><text class="plugin-detail-source-key">{{ui['当前版本']}}</text><text class="plugin-detail-source-value">{{detailVersion}}</text></view>
+          <view has:if="{{detailPackageName}}" class="plugin-detail-source-row"><text class="plugin-detail-source-key">{{ui['包名']}}</text><text class="plugin-detail-source-value text-mono">{{detailPackageName}}</text></view>
+        </view>
+      </view>
+    </scroll-view>
   </view>
 </view>

@@ -37,7 +37,7 @@ void main(){
  gl_FragColor=vec4(max(color,0.0),1);
 }`;
 function createOceanRenderer(canvas, width, height, pixelRatio) {
-  const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: false });
+  const gl = canvas.getContext('webgl', { alpha: false, antialias: false, depth: false, stencil: false, preserveDrawingBuffer: true });
   if (!gl) throw new Error('WebGL unavailable');
   const shaders = [], programs = [], buffers = [];
   function dispose() { buffers.forEach(b => gl.deleteBuffer(b)); programs.forEach(p => gl.deleteProgram(p)); shaders.forEach(s => gl.deleteShader(s)); }

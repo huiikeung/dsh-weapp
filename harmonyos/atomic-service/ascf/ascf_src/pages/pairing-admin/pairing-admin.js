@@ -4,7 +4,9 @@ const theme = require('../../utils/theme');
 const statuses = { issuing: uiText('生成中'), pending: uiText('待配对'), active: uiText('使用中'), expired: uiText('已到期'), revoking: uiText('等待设备确认停用'), revoked: uiText('已停用'), superseded: uiText('已被新配对替换'), failed: uiText('生成失败') };
 function date(value) { if (!value) return '—'; const d = new Date(value); return [d.getFullYear(), d.getMonth() + 1, d.getDate()].join('/') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
 Page({
-  data: { loading: true, isAdmin: false, busy: false, syncing: false, error: '', nodes: [], nodeIndex: 0, durations: [], durationIndex: 0, items: [], generatedCode: '', generatedMeta: '', generatedId: '', syncedLabel: '', actionId: '', selectedReady: false },
+  data: {
+    // ASCF 页面需显式注入 i18n 词典，模板 {{ui['…']}} 才有值。
+    ui: require('../../utils/ui-preferences').snapshot().ui, loading: true, isAdmin: false, busy: false, syncing: false, error: '', nodes: [], nodeIndex: 0, durations: [], durationIndex: 0, items: [], generatedCode: '', generatedMeta: '', generatedId: '', syncedLabel: '', actionId: '', selectedReady: false },
   onLoad() { theme.applyTo(this); },
   onShow() { this._visible = true; return this.refresh(); },
   onHide() { this.stop(); },
@@ -15,9 +17,9 @@ Page({
     clearInterval(this._timer);
     this.setData({ loading: true, isAdmin: false, busy: false, error: '', generatedCode: '', generatedId: '', actionId: '' });
     try {
-      const account = await api.ensureAccount({ freshLogin: true });
+      const account = await api.ensureAccount();
       if (generation !== this._generation) return;
-      if (!account || account.isAdmin !== true) { this.setData({ loading: false, error: uiText('当前微信不是管理员，无法生成配对码。'), items: [], nodes: [] }); return; }
+      if (!account || account.isAdmin !== true) { this.setData({ loading: false, error: uiText('当前账号不是管理员，无法生成配对码。'), items: [], nodes: [] }); return; }
       const state = await api.pairings();
       if (generation !== this._generation) return;
       this.setData({ isAdmin: true, loading: false }); this.applyState(state);

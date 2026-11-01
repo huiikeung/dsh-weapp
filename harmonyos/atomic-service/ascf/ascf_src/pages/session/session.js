@@ -11,6 +11,8 @@ const workSteps = require('./utils/work-step-presentation');
 const statusAppearance = require('./utils/status-appearance');
 const procIconStyle = require('./utils/proc-icon-style');
 const store = require('../../utils/store');
+// 草稿只在本次运行内保留：返回首页再进来能恢复；重启小程序后自然清空。
+const sessionDraftStore = Object.create(null);
 const markdown = require('../../utils/markdown');
 const labels = require('../../utils/labels');
 const util = require('../../utils/util');
@@ -20,6 +22,8 @@ const contextPanelsPreference = require('./utils/context-panels-pref');
 const contextPreferences = require('./utils/context-prefs');
 const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
 const sessionGlassPreference = require('../../utils/session-glass-pref');
+const conversationSidebarUtil = require('./utils/conversation-sidebar');
+const sessionCardStylePreference = require('../../utils/session-card-style-pref');
 const voiceActions = require('./voice-actions');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
 const fileActions = require('./file-actions');
@@ -111,6 +115,9 @@ function formatSessionCacheHitPercent(cacheReadTokens, billedInputTokens) {
   return '99.999999';
 }
 
+// 跨页面实例复用上一次的行投影：冷启动打开同一会话时可跳过整段装饰/分组。
+let sharedProjectionCache = { scope: '', rows: null };
+
 Page({
   ...viewportActions,
   ...voiceActions,
@@ -119,16 +126,19 @@ Page({
   ...imageBlocks,
   ...changesActions,
   data: {
+    ...(typeof theme.initialData === 'function' ? theme.initialData() : {}),
+    // ASCF 页面不会自动注入 i18n 词典，模板里的 {{ui['…']}} 需要显式快照。
     ui: require('../../utils/ui-preferences').snapshot().ui,
     sessionGlassEnabled: sessionGlassPreference.read(),
     ...settingsGlassStylePreference.view(),
+    ...sessionCardStylePreference.view(),
     statusFlowDelay: 0,
     publicAccessDialog: null,
     publicAccessDialogOpen: false,
     turnUsageSheet: null, turnUsageOpen: false, turnUsagePos: null,
     // ctx-flow 连接线：用原生 view 线段拼成曲线，避免小程序内联 SVG 不渲染。
     contextFlowLinks: [], contextFlowW: 0, contextFlowH: 0,
-    collaborationOpen: false, collaborationExpanded: false, collaborationTab: 'members', collaborationRows: [], collaborationTabs: [],
+    collaborationOpen: false, collaborationExpanded: false, collaborationTab: 'members', collaborationRows: [], collaborationTabs: [], collabTabIntoView: '',
     collaborationCount: 0, collaborationActive: 0, collaborationNote: '', collaborationPreview: null, collaborationBusy: false,
     fileExpanded: {}, filePreview: null, changesDiff: null, fileBusyKey: '', fileSharingKey: '', fileProgress: 0,
     fileMentionOpen: false, fileMentionEntries: [], fileMentionSessionGroups: [], fileMentionLoading: false, fileMentionError: '', fileMentionPathLabel: '', fileMentionQuery: '',
@@ -198,14 +208,6 @@ Page({
     sessionSwitcherQuery: '',
     sessionSwitcherSearchOpen: false,
     sessionSwitcherItems: [],
-    convSidebarOpen: false,
-    convSidebarTop: 120,
-    convSidebarHeight: 480,
-    convSidebarWidth: 300,
-    convSidebarOriginX: 0,
-    convSidebarOriginY: 0,
-    convSidebarExpanded: [],
-    convSidebarGroups: [],
     navPadTop: 48,      // 自定义导航：状态栏下沿前的顶部偏移
     navHeight: 32,      // 与右上角原生胶囊同高
     navMoreRight: 100,  // 右侧胶囊避让宽度
@@ -287,6 +289,7 @@ Page({
     connState: 'disconnected',
     connected: false,
     kbHeight: 0,
+    statusTailColor: '',
     permissionSheet: [],
     modeSheet: [],
     modelSheetOpen: false,
@@ -296,6 +299,15 @@ Page({
     effortSheet: [],
     queue: [],
     queueSending: false,
+    // 会话页右上角悬浮侧栏（对齐 dsh-mobile ConversationSidebar）
+    convSidebarOpen: false,
+    convSidebarTop: 120,
+    convSidebarHeight: 480,
+    convSidebarWidth: 300,
+    convSidebarOriginX: 0,
+    convSidebarOriginY: 0,
+    convSidebarExpanded: [],
+    convSidebarGroups: [],
     queueExpanded: false,
     queueBusyId: '',
     tasks: null,
@@ -303,6 +315,8 @@ Page({
     tasksExpanded: false,
     goal: null,
     goalBusy: false,
+    goalEditing: false,
+    goalDraft: '',
     commandMenu: null,
     commandLoading: false,
     commandError: '',
@@ -355,6 +369,7 @@ Page({
 
   onLoad(options) {
     theme.applyTo(this);
+    this.installKeyboardFallback();
     this._initialConversationAnchorPending = true;
     this._initialConversationAnchorApplied = false;
     this._initialConversationAnchorRecoveryPending = false;
@@ -362,10 +377,11 @@ Page({
     this._initialConversationAnchorRecoveryEpoch = 0;
     this._conversationReady = false;
     this._initialPageShowPending = true;
-    this.setData(statusAppearance.view(statusAppearance.read()));
-    this.setData(procIconStyle.view(procIconStyle.read()));
-    this._sessionDrafts = {};
+    // 首屏只发一次 setData：外观、导航尺寸与布局变量合并，少几次跨桥通信。
+    const initialPatch = Object.assign({}, statusAppearance.view(statusAppearance.read()), procIconStyle.view(procIconStyle.read()));
+    this._sessionDrafts = sessionDraftStore;
     this.sessionId = options.id || store.sessionState.sessionId;
+    this._isNewSessionEntry = !options.id;
     this._pendingInitialSessionOpen = !!(options.id && (options.reopen === '1' || store.sessionState.sessionId !== options.id));
     this._reuseRunningSessionOnEntry = this._pendingInitialSessionOpen
       && String(store.sessionState.sessionId || '') === String(options.id || '')
@@ -373,7 +389,7 @@ Page({
     this._fastLiveSessionEntry = this._reuseRunningSessionOnEntry;
     if (this._pendingInitialSessionOpen) {
       // Paint the page shell before cache restore / row projection can occupy the logic thread.
-      this.setData({ rows: [], historyState: 'requested', historyLoading: true,
+      Object.assign(initialPatch, { rows: [], historyState: 'requested', historyLoading: true,
         historyLoaded: false, historyProgressText: uiText('正在从 Mobile Gateway 同步会话内容…') });
     }
     this.folds = {};
@@ -390,16 +406,17 @@ Page({
       this.viewportRpx = winW * 2;
       // 76rpx 的一行高度换算成 px：首帧直接用它，避免原生 textarea 的 150px 默认值露出来。
       const oneLinePx = Math.max(24, Math.round(76 * winW / 750));
-      this.setData({
+      Object.assign(initialPatch, {
         composerInputHeightPx: oneLinePx,
         navPadTop: rect && rect.top ? rect.top : sbH + 7,
         navHeight: rect && rect.height ? rect.height : 32,
         navMoreRight: rect && rect.left ? Math.max(Math.round(winW - rect.left) + 8, 96) : 100
       });
     } catch (e) {
-      this.setData({ navPadTop: 48, navHeight: 32, navMoreRight: 100 });
+      Object.assign(initialPatch, { navPadTop: 48, navHeight: 32, navMoreRight: 100 });
     }
-    this.syncLayoutStyles();
+    Object.assign(initialPatch, this.layoutPatch());
+    this.setData(initialPatch);
     this.unsubscribe = store.subscribe((snapshot) => {
       this.scheduleStoreSync(snapshot);
     });
@@ -446,6 +463,7 @@ Page({
   },
 
   onHide() {
+    this.persistComposerDraft();
     if (store.setTrajectoryActive) store.setTrajectoryActive(false);
     if (store.setContextActive) store.setContextActive(false);
     if (store.setFleetActive) store.setFleetActive(false);
@@ -461,14 +479,17 @@ Page({
     if (this._turnWarmTimer) clearTimeout(this._turnWarmTimer);
     this._turnWarmTimer = null;
     this.stopScrollPolling();
+    if (this._flingSettleTimer) { clearTimeout(this._flingSettleTimer); this._flingSettleTimer = null; }
+    this._flingSettlePending = false;
     // 记录本次隐藏的原因：原生选择器/预览浮层会把小程序切到后台，
     this._hiddenByNativeOverlay = !!(store.nativeOverlayActive && store.nativeOverlayActive());
   },
 
   onShow() {
-    this.setData(Object.assign({ sessionGlassEnabled: sessionGlassPreference.read() }, settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 })));
+    this.setData(Object.assign({ sessionGlassEnabled: sessionGlassPreference.read() }, settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }), sessionCardStylePreference.view()));
     const firstPageShow = this._initialPageShowPending === true;
     this._initialPageShowPending = false;
+    if (firstPageShow) this.restoreComposerDraft();
     const foregroundEpoch = this.currentAppForegroundEpoch();
     const resumedFromBackground = this._lastForegroundEpoch != null
       && foregroundEpoch !== this._lastForegroundEpoch;
@@ -488,6 +509,7 @@ Page({
     }
     if (this._pendingInitialSessionOpen) {
       this.setData(Object.assign(statusAppearance.view(statusAppearance.read()), procIconStyle.view(procIconStyle.read())));
+      if (this.data.running) this.paintStatusTail();
       return;
     }
     if (resumedFromBackground) this.refreshSessionPreset(true);
@@ -565,6 +587,9 @@ Page({
   onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
 
   onUnload() {
+    if (this._kbFallback && typeof has.offKeyboardHeightChange === 'function') { try { has.offKeyboardHeightChange(this._kbFallback); } catch (err) {} }
+    this._kbFallback = null;
+    this.persistComposerDraft();
     this.disposeStagedAttachments(this.data.images);
     this.retainSessionView();
     this.stopContextFlow();
@@ -695,7 +720,9 @@ Page({
     this._pendingStoreSnapshot = snapshot;
     if (this._storeSyncTimer) return;
     // 大会话（上千行）每次投影 + 分组 + 差分的成本远高于 32ms：帧率换平滑没有意义，
-    const busyFloor = (this.data.rows && this.data.rows.length > 120) ? 96 : 32;
+    // 长会话/长回合里进一步降频，明显降低持续流式输出时的 CPU 占用与发热。
+    const rowCount = (this.data.rows && this.data.rows.length) || 0;
+    const busyFloor = rowCount > 300 ? 150 : (rowCount > 120 ? 110 : 32);
     const delay = this._preferImmediateStoreSync
       ? 0 : Math.max(busyFloor, (this._interactionUntil || 0) - Date.now());
     this._preferImmediateStoreSync = false;
@@ -791,7 +818,8 @@ Page({
   },
 
   syncFromStoreInner(snapshot) {
-    this.checkVoiceContext();
+    // 语音上下文检测依赖窗口信息，首次进入时推迟到首帧之后，别抢首屏时间。
+    if (this._conversationReady) this.checkVoiceContext();
     if (this._composerContextKey && this._composerContextKey !== this.composerContextKey()) {
       this._commandRequest = null; this._commandOptionRequest = null; this._attachmentRequest = null;
       this._filesRequest = null;
@@ -917,13 +945,17 @@ Page({
       }
     }
     // 用户消息现在也走 Markdown 缓存，必须一起 retain，否则每次 emit 都被清空重解析。
-    this._markdownCache.retain((s.rows || []).filter(row => row.kind === 'assistant' || row.kind === 'user').flatMap(row => {
-      const keys = [row.key];
-      if (row.kind === 'assistant' && row.key) (row.events || []).forEach((event, index) => {
-        if (event && event.kind === 'text') keys.push(row.key + '/process/' + index);
-      });
-      return keys;
-    }));
+    // 流式回合里 retain 是 O(全部行) 的分配大户：降频到约 1.2s 一次，缓存多留几行无害。
+    if (!this.data.running || Date.now() - (this._lastRetainAt || 0) >= 1200) {
+      this._lastRetainAt = Date.now();
+      this._markdownCache.retain((s.rows || []).filter(row => row.kind === 'assistant' || row.kind === 'user').flatMap(row => {
+        const keys = [row.key];
+        if (row.kind === 'assistant' && row.key) (row.events || []).forEach((event, index) => {
+          if (event && event.kind === 'text') keys.push(row.key + '/process/' + index);
+        });
+        return keys;
+      }));
+    }
 
     // dsh-mobile 同款两段投影：protocol 只产生语义行，conversation-workflow
     const previewOf = (text) => {
@@ -949,11 +981,17 @@ Page({
     }
     const semanticRows = [];
     // 图片预取不参与渲染：历史行到达时先排队下载，滚到可见位置通常已就绪。
-    this.prefetchImageMarkdown(s.rows || []);
+    // 首次进入（切会话）时推迟到首帧之后，避免和行投影抢同一个逻辑帧。
+    if (this._conversationReady) this.prefetchImageMarkdown(s.rows || []);
+    else setTimeout(() => { if (!this._unloaded) this.prefetchImageMarkdown(s.rows || []); }, 120);
     // 行投影缓存：静态协议行按对象身份复用；少数会被协议原地修改的行用浅快照验证，
     const projected = this._projectedRows || (this._projectedRows = new Map());
     if (projected.size > 4000) projected.clear();
     const projectionScope = String(s.cwd || '') + '@' + String(this.viewportRpx || 750);
+    const projectionCacheKey = projectionScope + '|' + String(s.sessionId || '');
+    if (!this._projectedRows && sharedProjectionCache.scope === projectionCacheKey && sharedProjectionCache.rows) {
+      this._projectedRows = new Map(sharedProjectionCache.rows);
+    }
     const nextProjected = new Map();
     const listedSession = (app.sessions || []).find(item => item.id === s.sessionId || item.sessionId === s.sessionId);
     (s.rows || []).forEach((row, rowIndex) => {
@@ -1085,6 +1123,7 @@ Page({
       emit(copy);
     });
     this._projectedRows = nextProjected;
+    sharedProjectionCache = { scope: projectionCacheKey, rows: nextProjected };
     const rows = this.buildEntriesCached(semanticRows, {
       running: processRunning,
       completedEntryKey: this._processRunningDone || '',
@@ -1228,7 +1267,10 @@ Page({
       objective: goalPayload.goal.objective || '',
       phase: goalPayload.goal.phase || '',
       phaseLabel: goalPhaseLabel(goalPayload.goal.phase),
-      active: goalPayload.goal.phase === 'active'
+      active: goalPayload.goal.phase === 'active',
+      // 暂停/继续按钮图标：进行中显示暂停，已暂停显示继续（浅/深两套）。
+      actionIcon: goalPayload.goal.phase === 'active' ? 'goal-pause.svg' : 'goal-play.svg',
+      actionIconDark: goalPayload.goal.phase === 'active' ? 'goal-pause-dark.svg' : 'goal-play-dark.svg'
     } : null;
 
     // 会话级 Agent 预设胶囊（对齐 dsh-mobile v1.6.0）：
@@ -1289,7 +1331,7 @@ Page({
     applyTurnFooters(rows, s.rows || [], s.turnUsage || {}, processRunning);
 
     // 回合级「已完成」disclosure 收起时，它管辖的过程组与中间叙述要从行列表里滤掉：
-    // 对话窗口按行索引推算偏移，只靠 wx:if 隐藏会让占位高度算错、滚动位置跳。
+    // 对话窗口按行索引推算偏移，只靠 has:if 隐藏会让占位高度算错、滚动位置跳。
     // 全量行另存一份，toggleFold 翻 folds 时靠它重算可见行（否则点了要等下一次
     // 同步才补上，空闲时就干脆点不开）。
     this._allConversationRows = rows;
@@ -1515,28 +1557,43 @@ Page({
 
   /** 运行条（对齐 iOS deep-search-progress）：活动短语 + 用时秒数 */
   /** 过程组活标题：耗时 X · N 项上下文 · N 次工具调用（对齐 iOS 组头，随秒跳动） */
-  buildRunHeader(rows, elapsed) {
+  runHeaderCounts(rows) {
     let ctx = 0;
     let tools = 0;
     (rows || []).forEach((r) => {
       if (r.kind === 'context') ctx += 1;
       if (r.tools && r.tools.length) tools += r.tools.length;
     });
+    return { ctx, tools };
+  },
+
+  buildRunHeaderFromCounts(elapsed) {
+    // 跑起来后计数由 syncRunningStrip 随行数据刷新，这里只拼字符串。
+    const counts = this._runHeaderCounts || { ctx: 0, tools: 0 };
     let head = uiText('耗时 ') + elapsed;
-    if (ctx) head += ' · ' + ctx + uiText(' 项上下文');
-    if (tools) head += ' · ' + tools + uiText(' 次工具调用');
+    if (counts.ctx) head += ' · ' + counts.ctx + uiText(' 项上下文');
+    if (counts.tools) head += ' · ' + counts.tools + uiText(' 次工具调用');
     return head;
+  },
+
+  buildRunHeader(rows, elapsed) {
+    const counts = this.runHeaderCounts(rows);
+    this._runHeaderCounts = counts;
+    return this.buildRunHeaderFromCounts(elapsed);
   },
 
   syncRunningStrip(rows, running) {
     if (!running) {
       this._lastRunSeconds = this.data.runSeconds || this._lastRunSeconds || 0;
       if (this._runTimer) { clearInterval(this._runTimer); this._runTimer = null; }
+      this.stopStatusTailTicker();
+      this._statusTailAnchor = 0;
       if (this.data.runPhrase || this.data.runSeconds) {
         this.setData({ runPhrase: '', runSeconds: 0, runElapsedText: '', runHeader: '' });
       }
       return;
     }
+    this.startStatusTailTicker();
     if (!this._runTimer) {
       // 起始时间 = 最近一条用户消息时间（对齐 iOS DeepSearchProgressRow）
       const s = store.sessionState;
@@ -1550,6 +1607,8 @@ Page({
         runHeader: this.buildRunHeader(rows, uiText('0 秒'))
       });
       const self = this;
+      const counts = this.runHeaderCounts(rows);
+      this._runHeaderCounts = counts;
       this._runTimer = setInterval(() => {
         const sec = Math.max(0, Math.floor((Date.now() - self._runStart) / 1000));
         // iOS 文案为「用时 {N} 秒…」，N 恒为整秒
@@ -1557,11 +1616,37 @@ Page({
         self.setData({
           runSeconds: sec,
           runElapsedText: elapsed,
-          runHeader: self.buildRunHeader(self.data.rows, elapsed),
+          // 每秒只重算字符串，不再全量扫描上千行（长回合时这是实打实的 CPU 开销）。
+          runHeader: self.buildRunHeaderFromCounts(elapsed),
           runPhrase: self.runActivityPhrase()
         });
       }, 1000);
     }
+  },
+
+  /** 鲸尾颜色：与设置页预览同一套采样算法，JS 直接写内联色值，不依赖 CSS 关键帧。 */
+  startStatusTailTicker() {
+    if (this._statusTailTimer) return;
+    // 与文字渐变的动画起点对齐：以状态条渲染/开始运行的本地时间为锚点，
+    // 不用 runStart（可能早于动画开始，会造成鲸尾与文字不同步）。
+    if (!this._statusTailAnchor) this._statusTailAnchor = Date.now();
+    this.paintStatusTail();
+    this._statusTailTimer = setInterval(() => this.paintStatusTail(), 80);
+  },
+
+  stopStatusTailTicker() {
+    if (this._statusTailTimer) { clearInterval(this._statusTailTimer); this._statusTailTimer = null; }
+  },
+
+  paintStatusTail() {
+    if (this._unloaded || !this.data.running) return;
+    const colors = this.data.theme === 'dark' ? this.data.statusColorsDark : this.data.statusColors;
+    const speed = Number(this.data.statusSpeed) || 4;
+    const anchor = this._statusTailAnchor || this._runStart || Date.now();
+    const raw = (((Date.now() - anchor) / 1000 / speed) % 1 + 1) % 1;
+    const phase = this.data.statusReverse ? 1 - raw : raw;
+    const color = statusAppearance.sampleColor(colors, phase);
+    if (color && color !== this.data.statusTailColor) this.setData({ statusTailColor: color });
   },
 
   /** 短语轮换（对齐 dsh-mobile §3.4：30s 一桶；取 (起始Unix秒 + 桶序) % 词数） */
@@ -1630,23 +1715,31 @@ Page({
     this.updateDockInset();
   },
 
+  /** 目标卡片就地编辑：输入框直接替换卡片正文（对齐客户端，不弹窗）。 */
+  goalDraftInput(e) {
+    this.setData({ goalDraft: e.detail.value });
+  },
+
+  goalSaveEdit() {
+    const goal = this.data.goal;
+    const draft = String(this.data.goalDraft || '').trim();
+    this.setData({ goalEditing: false });
+    if (!goal || !draft || draft === goal.objective) return;
+    store.mutateGoal('goal-edit', draft).catch((err) => {
+      has.showToast({ title: (err && err.message) || uiText('编辑失败'), icon: 'none' });
+    });
+  },
+
+  goalCancelEdit() {
+    this.setData({ goalEditing: false, goalDraft: '' });
+  },
+
   goalAction(e) {
     const action = e.currentTarget.dataset.action;
     const goal = this.data.goal;
     if (!goal || this.data.goalBusy) return;
     if (action === 'edit') {
-      has.showModal({
-        title: uiText('编辑目标'),
-        editable: true,
-        placeholderText: goal.objective,
-        success: (res) => {
-          const objective = (res.content || '').trim();
-          if (!res.confirm || !objective || objective === goal.objective) return;
-          store.mutateGoal('goal-edit', objective).catch((err) => {
-            has.showToast({ title: err.message || uiText('编辑失败'), icon: 'none' });
-          });
-        }
-      });
+      this.setData({ goalEditing: true, goalDraft: goal.objective || '' });
       return;
     }
     if (action === 'clear') {
@@ -1683,14 +1776,34 @@ Page({
       this.setComposerValue(nextDraft, { draft: nextDraft });
       this.syncCommandMenu(this.data.draft, store.sessionState);
     }
-    this.setData({ queueBusyId: id + ':' + action });
-    store.client.queueUpdate(s.sessionId, id, action === 'steer' ? 'steer' : 'remove');
-    // 20s 兜底解锁（对齐 iOS 队列操作超时）
+    // 队列操作是串行的，但锁必须跟着「回执」释放：之前只在 20s 兜底里解锁，
+    // 连续删除第二条时点击会被 queueBusyId 直接吞掉，只能退出会话重进。
+    const itemId = id;
+    const operation = action === 'steer' ? 'steer' : 'remove';
+    this.setData({ queueBusyId: itemId + ':' + action });
+    this._queueBusyItemId = itemId;
+    const release = () => this.endQueueAction();
+    try {
+      Promise.resolve(store.client.queueUpdate(s.sessionId, itemId, operation)).then(release, release);
+    } catch (err) {
+      release();
+    }
+    // 20s 兜底只在网关丢帧时生效
     if (this._queueTimer) clearTimeout(this._queueTimer);
     this._queueTimer = setTimeout(() => {
-      this.setData({ queueBusyId: '' });
+      this.endQueueAction();
       if (s.sessionId) store.client.requestQueue(s.sessionId);
     }, 20000);
+  },
+
+  /** 结束一次队列操作：清锁 + 清兜底定时器（回执到达时也会调用）。 */
+  endQueueAction() {
+    if (this._queueTimer) {
+      clearTimeout(this._queueTimer);
+      this._queueTimer = null;
+    }
+    this._queueBusyItemId = '';
+    if (this.data.queueBusyId) this.setData({ queueBusyId: '' });
   },
 
   /** 队列 dock 只展示网关确认的队列项，避免重复维护本地待发副本。 */
@@ -1735,17 +1848,41 @@ Page({
         const isImage = attachment && (attachment.type === 'image'
           || String(attachment.mediaType || '').indexOf('image/') === 0
           || !!attachment.tempPath || !!attachment.localUrl || !!attachment.thumbUrl);
+        const attachmentId = attachment && (attachment.attachmentId || attachment.id) || '';
+        const cachedUrl = attachmentId ? attachmentCache.localPath({ attachmentId: attachmentId, mediaType: attachment && attachment.mediaType }, { api: has }) : '';
+        if (!this._queueThumbUrls) this._queueThumbUrls = new Map();
+        const rememberedUrl = attachmentId ? (this._queueThumbUrls.get(attachmentId) || '') : '';
+        // 排队中的附件还没被网关持久化时，用本地临时文件直接显示缩略图
+        let localUrl = '';
+        if (!cachedUrl && Array.isArray(this._queueLocalImages)) {
+          const name = attachment && (attachment.name || attachment.fileName) || '';
+          const mediaType = attachment && attachment.mediaType || '';
+          const match = (name && this._queueLocalImages.find((entry) => entry.name === name))
+            || (this._queueLocalImages.filter((entry) => !mediaType || entry.mediaType === mediaType));
+          const picked = Array.isArray(match) ? (match.length === 1 ? match[0] : null) : match;
+          if (picked && picked.tempPath) localUrl = picked.tempPath;
+        }
         return {
           key: String(attachment && (attachment.id || attachment.attachmentId || attachment.name) || index) + ':' + attachmentIndex,
           type: isImage ? 'image' : 'file',
-          url: attachment && (attachment.url || attachment.previewUrl || attachment.tempPath || attachment.localUrl || attachment.thumbUrl) || '',
+          attachmentId: attachmentId,
+          mediaType: attachment && attachment.mediaType || '',
+          url: (attachment && (attachment.url || attachment.previewUrl || attachment.tempPath || attachment.localUrl || attachment.thumbUrl)) || rememberedUrl || cachedUrl || localUrl || '',
           name: attachment && (attachment.name || attachment.fileName || uiText('附件')) || uiText('附件')
         };
-      }).filter((attachment) => attachment.type !== 'image' || attachment.url);
+      }).filter((attachment) => attachment.type !== 'image' || attachment.url || attachment.attachmentId);
+      // 文本预览只保留真正的文字；图片/文件改用缩略图/文件胶囊显示，不再留「[图片]」占位。
+      const textPreview = contentBlocks.map((block) => {
+        if (typeof block === 'string') return block;
+        if (!block || typeof block !== 'object') return '';
+        if (block.type === 'text' || typeof block.text === 'string') return block.text || '';
+        return '';
+      }).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+      const preview = textPreview || (attachments.length ? '' : rawText.replace(/\s+/g, ' ').trim());
       return {
         id: it.id,
         rawText: rawText,
-        preview: rawText.replace(/\s+/g, ' ').trim(),
+        preview: preview,
         attachmentCount: it.attachmentCount || attachments.length,
         attachmentLabel: (it.attachmentCount || attachments.length) + uiText(' 个附件'),
         attachments: attachments,
@@ -1753,11 +1890,228 @@ Page({
         editable: it.editable !== false
       };
     });
+    // 兜底：被操作的那条已经从网关队列里消失了，锁必须释放
+    // （回执帧和队列帧顺序不保证，只靠回执会漏）。
+    if (this._queueBusyItemId && !q.some((item) => item.id === this._queueBusyItemId)) {
+      this.endQueueAction();
+    }
     if (JSON.stringify(q) !== JSON.stringify(this._lastQueue || [])) {
       this._lastQueue = q;
       this.setData({ queue: q, queueSending: q.some((item) => !!item.statusText) });
       this.updateDockInset();
+      this.syncQueueImageThumbs();
     }
+  },
+
+  /** 排队消息里的图片附件：用附件缓存补缩略图，展示成 DSH 客户端那样的缩略图。 */
+  syncQueueImageThumbs() {
+    if (this._unloaded || typeof has === 'undefined') return;
+    const sessionId = store.sessionState.sessionId;
+    if (!sessionId) return;
+    const queue = this.data.queue || [];
+    if (!this._queueThumbPending) this._queueThumbPending = new Set();
+    if (!this._queueThumbFailed) this._queueThumbFailed = new Set();
+    queue.forEach((item, itemIndex) => {
+      (item.attachments || []).forEach((attachment, attachmentIndex) => {
+        if (attachment.type !== 'image' || attachment.url || !attachment.attachmentId) return;
+        const id = attachment.attachmentId;
+        if (this._queueThumbPending.has(id) || this._queueThumbFailed.has(id)) return;
+        this._queueThumbPending.add(id);
+        attachmentCache.fetchImage(store.client, sessionId, {
+          attachmentId: id,
+          mediaType: attachment.mediaType || 'image/jpeg',
+          name: attachment.name || (String(id) + '.jpg')
+        }, { api: has }).then((path) => {
+          this._queueThumbPending.delete(id);
+          if (this._unloaded) return;
+          const rows = this.data.queue || [];
+          const rowIndex = rows.findIndex((row) => (row.attachments || []).some((entry) => entry.attachmentId === id));
+          if (rowIndex < 0) return;
+          const index = rows[rowIndex].attachments.findIndex((entry) => entry.attachmentId === id);
+          if (index < 0) return;
+          if (!this._queueThumbUrls) this._queueThumbUrls = new Map();
+          this._queueThumbUrls.set(id, path);
+          const patch = {};
+          patch['queue[' + rowIndex + '].attachments[' + index + '].url'] = path;
+          this.setData(patch);
+        }).catch(() => {
+          this._queueThumbPending.delete(id);
+          this._queueThumbFailed.add(id);
+        });
+      });
+    });
+  },
+
+  /** 点排队消息里的缩略图：把该条消息的图片一起进原生预览。 */
+  previewQueueImage(e) {
+    const dataset = (e && e.currentTarget && e.currentTarget.dataset) || {};
+    const itemId = dataset.itemId;
+    const item = (this.data.queue || []).find((entry) => entry.id === itemId);
+    const urls = item ? (item.attachments || []).filter((a) => a.type === 'image' && a.url).map((a) => a.url) : [];
+    const current = dataset.url || urls[0];
+    if (!current || typeof has.previewImage !== 'function') return;
+    has.previewImage({ current, urls: urls.indexOf(current) < 0 ? [current].concat(urls) : urls });
+  },
+
+  // ---------- 会话页悬浮侧栏（对齐 dsh-mobile ConversationSidebar） ----------
+
+  convSidebarStorageKey: 'conversationSidebarExpanded',
+  convSidebarInitKey: 'conversationSidebarInitialized',
+
+  readConvSidebarExpanded() {
+    try {
+      const stored = has.getStorageSync(this.convSidebarStorageKey);
+      const list = typeof stored === 'string' ? JSON.parse(stored) : stored;
+      return Array.isArray(list) ? list.filter((id) => typeof id === 'string') : [];
+    } catch (_) {
+      return [];
+    }
+  },
+
+  writeConvSidebarExpanded(list) {
+    try { has.setStorageSync(this.convSidebarStorageKey, JSON.stringify(list)); } catch (_) { /* 内存生效 */ }
+  },
+
+  /** 工作区 + 会话分组，口径对齐首页抽屉：过滤空白/归档会话，同一会话可属于多个工作区。 */
+  convSidebarData(expandedIds, autoExpandCurrent) {
+    const app = store.state || {};
+    const result = conversationSidebarUtil.buildGroups({
+      sessions: app.sessions,
+      workspaces: app.workspaces,
+      archivedSessionIds: app.archivedSessionIds,
+      currentSessionId: store.sessionState && store.sessionState.sessionId || '',
+      text: uiText,
+      relativeTime: util.formatRelativeTime,
+      expanded: expandedIds,
+      autoExpandCurrent: autoExpandCurrent !== false
+    });
+    this._convSidebarExpanded = result.expanded;
+    return { convSidebarExpanded: result.expanded, convSidebarGroups: result.groups };
+  },
+
+  convSidebarInitialized() {
+    try { return has.getStorageSync(this.convSidebarInitKey) === true; } catch (_) { return false; }
+  },
+
+  markConvSidebarInitialized() {
+    try { has.setStorageSync(this.convSidebarInitKey, true); } catch (_) { /* 内存生效 */ }
+  },
+
+  toggleConversationSidebar() {
+    if (this.data.convSidebarOpen) this.closeConversationSidebar();
+    else this.openConversationSidebar();
+  },
+
+  openConversationSidebar() {
+    if (this._convSidebarOpening || this.data.convSidebarOpen) return;
+    this._convSidebarOpening = true;
+    let info = {};
+    try { info = typeof has.getWindowInfo === 'function' ? has.getWindowInfo() : has.getSystemInfoSync(); } catch (_) { info = {}; }
+    const windowWidth = info.windowWidth || 375;
+    const windowHeight = info.windowHeight || 667;
+    const statusBar = info.statusBarHeight || 44;
+    const gap = 12;
+    const width = Math.min(windowWidth - 24, 300);
+    const panelLeft = windowWidth - gap - width;
+    const expandedIds = this.readConvSidebarExpanded();
+    // 每次打开都展开当前会话所在分组；打开后仍可手动收起
+    const autoExpand = true;
+    const basePatch = Object.assign({
+      convSidebarTop: statusBar + 92,
+      convSidebarHeight: Math.max(240, windowHeight - statusBar - 104),
+      convSidebarWidth: width,
+      convSidebarOriginX: Math.round(width / 2),
+      convSidebarOriginY: 28
+    }, this.convSidebarData(expandedIds, autoExpand));
+    // 先量好按钮行和输入框，再一次 setData 把面板放到最终位置：避免出现后又被上弹一下
+    const show = (patch) => {
+      if (!this._convSidebarOpening || this._unloaded) return;
+      this._convSidebarOpening = false;
+      this.setData(Object.assign({ convSidebarOpen: true }, basePatch, patch || {}));
+    };
+    try {
+      has.createSelectorQuery().in(this)
+        .select('.nav-actions').boundingClientRect()
+        .select('.composer').boundingClientRect()
+        .exec((results) => {
+          const rect = results && results[0];
+          const composer = results && results[1];
+          if (!rect || !Number.isFinite(rect.top)) { show(null); return; }
+          const anchorTop = Math.max(0, Math.round(rect.top));
+          const centerX = rect.left + rect.width / 2;
+          const composerBottom = composer && Number.isFinite(composer.bottom) ? Math.round(composer.bottom) : 0;
+          const height = composerBottom > anchorTop
+            ? composerBottom - anchorTop
+            : Math.max(240, Math.round(windowHeight - anchorTop - gap));
+          show({
+            convSidebarTop: anchorTop,
+            convSidebarHeight: Math.max(240, height),
+            convSidebarOriginX: Math.max(0, Math.round(centerX - panelLeft)),
+            convSidebarOriginY: Math.round(rect.height / 2)
+          });
+        });
+    } catch (_) {
+      show(null);
+    }
+  },
+
+  closeConversationSidebar() {
+    if (this.data.convSidebarOpen) this.setData({ convSidebarOpen: false });
+  },
+
+  toggleConvSidebarGroup(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
+    if (!id) return;
+    const expanded = (this._convSidebarExpanded || this.readConvSidebarExpanded()).slice();
+    const index = expanded.indexOf(id);
+    if (index >= 0) expanded.splice(index, 1);
+    else expanded.push(id);
+    this.writeConvSidebarExpanded(expanded);
+    this._convSidebarExpanded = expanded;
+    this.setData(this.convSidebarData(expanded, false));
+  },
+
+  /** 切换会话：原地换会话（和「更多 → 会话快捷切换」一致），不重开页面，点完立即切换。 */
+  selectConvSidebarSession(e) {
+    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
+    this.closeConversationSidebar();
+    if (!id || id === (store.sessionState && store.sessionState.sessionId)) return;
+    const item = (store.state && store.state.sessions || []).find((s) => s && s.sessionId === id) || {};
+    store.openSession(id, item.title || '', item.agentPreset || null);
+    this.sessionId = id;
+    if (this.data.tab === 'conversation') this.startScrollPolling();
+  },
+
+  /** 侧栏工作区行右侧「＋」：在该工作区新建会话并原地打开。 */
+  createConvSidebarSession(e) {
+    const workspaceId = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
+    if (!workspaceId || workspaceId === '__ungrouped__' || this._creatingSidebarSession) return;
+    this._creatingSidebarSession = true;
+    this.closeConversationSidebar();
+    Promise.resolve(store.createAndOpenSession(workspaceId)).then((id) => {
+      if (this._unloaded) return;
+      if (id) {
+        this.sessionId = id;
+        if (this.data.tab === 'conversation') this.startScrollPolling();
+      }
+    }).catch((err) => {
+      if (!this._unloaded) has.showToast({ title: (err && err.message) || uiText('创建会话失败'), icon: 'none' });
+    }).finally(() => { this._creatingSidebarSession = false; });
+  },
+
+  openConvSidebarPlugins() {
+    this.closeConversationSidebar();
+    has.navigateTo({ url: '/pages/plugins/plugins' });
+  },
+
+  openConvSidebarSchedule() {
+    this.closeConversationSidebar();
+    has.navigateTo({ url: '/pages/schedule/schedule' });
+  },
+
+  openConvSidebarSettings() {
+    this.closeConversationSidebar();
+    has.navigateTo({ url: '/pages/settings/settings' });
   },
 
   openContextSheet() {
@@ -1778,161 +2132,6 @@ Page({
     });
   },
 
-  convSidebarStorageKey: 'conversationSidebarExpanded',
-
-  readConvSidebarExpanded() {
-    try {
-      const stored = has.getStorageSync(this.convSidebarStorageKey);
-      const list = typeof stored === 'string' ? JSON.parse(stored) : stored;
-      return Array.isArray(list) ? list.filter(id => typeof id === 'string') : [];
-    } catch (_) {
-      return [];
-    }
-  },
-
-  writeConvSidebarExpanded(list) {
-    try { has.setStorageSync(this.convSidebarStorageKey, JSON.stringify(list)); } catch (_) { /* Keep the in-memory state. */ }
-  },
-
-  convSidebarData(expandedIds, autoExpandCurrent) {
-    const state = store.state || {};
-    const sessions = Array.isArray(state.sessions) ? state.sessions : [];
-    const workspaces = Array.isArray(state.workspaces) ? state.workspaces : [];
-    const archived = new Set(Array.isArray(state.archivedSessionIds) ? state.archivedSessionIds : []);
-    const currentId = store.sessionState && store.sessionState.sessionId || '';
-    const visible = sessions.filter(s => s && s.hasConversation !== false && !s.blank && !archived.has(s.sessionId));
-    const owned = new Set();
-    workspaces.forEach(workspace => (workspace.sessionIds || []).forEach(id => owned.add(id)));
-    const groups = workspaces.map(workspace => ({
-      id: workspace.workspaceId,
-      title: workspace.title || uiText('工作区'),
-      ungrouped: false,
-      sessions: visible.filter(session => (workspace.sessionIds || []).indexOf(session.sessionId) >= 0)
-    }));
-    groups.push({
-      id: '__ungrouped__',
-      title: uiText('未分组'),
-      ungrouped: true,
-      sessions: visible.filter(session => !owned.has(session.sessionId))
-    });
-    const currentGroup = groups.find(group => group.sessions.some(session => session.sessionId === currentId));
-    const expanded = (Array.isArray(expandedIds) ? expandedIds : []).slice();
-    if (autoExpandCurrent !== false && currentGroup && expanded.indexOf(currentGroup.id) < 0) expanded.push(currentGroup.id);
-    this._convSidebarExpanded = expanded;
-    return {
-      convSidebarExpanded: expanded,
-      convSidebarGroups: groups.map(group => ({
-        id: group.id,
-        title: group.title,
-        ungrouped: group.ungrouped,
-        containsCurrent: !!currentGroup && currentGroup.id === group.id,
-        expanded: expanded.indexOf(group.id) >= 0,
-        sessions: group.sessions.slice().sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)).map(session => ({
-          id: session.sessionId,
-          title: session.title || uiText('未命名会话'),
-          running: session.running === true,
-          selected: session.sessionId === currentId,
-          timeText: util.formatRelativeTime(session.updatedAt)
-        }))
-      }))
-    };
-  },
-
-  toggleConversationSidebar() {
-    if (this.data.convSidebarOpen || this._convSidebarOpening) this.closeConversationSidebar();
-    else this.openConversationSidebar();
-  },
-
-  openConversationSidebar() {
-    if (this._convSidebarOpening || this.data.convSidebarOpen) return;
-    this._convSidebarOpening = true;
-    let info = {};
-    try { info = typeof has.getWindowInfo === 'function' ? has.getWindowInfo() : has.getSystemInfoSync(); } catch (_) { info = {}; }
-    const windowWidth = info.windowWidth || 375;
-    const windowHeight = info.windowHeight || 667;
-    const statusBar = info.statusBarHeight || 44;
-    const gap = 12;
-    const width = Math.min(windowWidth - 24, 300);
-    const panelLeft = windowWidth - gap - width;
-    const basePatch = Object.assign({
-      convSidebarTop: statusBar + 92,
-      convSidebarHeight: Math.max(240, windowHeight - statusBar - 104),
-      convSidebarWidth: width,
-      convSidebarOriginX: Math.round(width / 2),
-      convSidebarOriginY: 28
-    }, this.convSidebarData(this.readConvSidebarExpanded(), true));
-    const show = patch => {
-      if (!this._convSidebarOpening || this._unloaded) return;
-      this._convSidebarOpening = false;
-      this.setData(Object.assign({ convSidebarOpen: true }, basePatch, patch || {}));
-    };
-    if (typeof has.createSelectorQuery !== 'function') { show(null); return; }
-    try {
-      has.createSelectorQuery().in(this)
-        .select('.nav-actions').boundingClientRect()
-        .select('.composer').boundingClientRect()
-        .exec(results => {
-          const rect = results && results[0];
-          const composer = results && results[1];
-          if (!rect || !Number.isFinite(rect.top)) { show(null); return; }
-          const anchorTop = Math.max(0, Math.round(rect.top));
-          const centerX = rect.left + rect.width / 2;
-          const composerBottom = composer && Number.isFinite(composer.bottom) ? Math.round(composer.bottom) : 0;
-          const height = composerBottom > anchorTop ? composerBottom - anchorTop : Math.max(240, Math.round(windowHeight - anchorTop - gap));
-          show({
-            convSidebarTop: anchorTop,
-            convSidebarHeight: Math.max(240, height),
-            convSidebarOriginX: Math.max(0, Math.round(centerX - panelLeft)),
-            convSidebarOriginY: Math.round(rect.height / 2)
-          });
-        });
-    } catch (_) {
-      show(null);
-    }
-  },
-
-  closeConversationSidebar() {
-    this._convSidebarOpening = false;
-    if (this.data.convSidebarOpen) this.setData({ convSidebarOpen: false });
-  },
-
-  toggleConvSidebarGroup(e) {
-    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
-    if (!id) return;
-    const expanded = (this._convSidebarExpanded || this.readConvSidebarExpanded()).slice();
-    const index = expanded.indexOf(id);
-    if (index >= 0) expanded.splice(index, 1);
-    else expanded.push(id);
-    this.writeConvSidebarExpanded(expanded);
-    this._convSidebarExpanded = expanded;
-    this.setData(this.convSidebarData(expanded, false));
-  },
-
-  selectConvSidebarSession(e) {
-    const id = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.id : '';
-    this.closeConversationSidebar();
-    if (!id || id === (store.sessionState && store.sessionState.sessionId)) return;
-    const item = (store.state && store.state.sessions || []).find(session => session && session.sessionId === id) || {};
-    store.openSession(id, item.title || '', item.agentPreset || null);
-    this.sessionId = id;
-    if (this.data.tab === 'conversation') this.startScrollPolling();
-  },
-
-  openConvSidebarPlugins() {
-    this.closeConversationSidebar();
-    has.navigateTo({ url: '/pages/plugins/plugins' });
-  },
-
-  openConvSidebarSchedule() {
-    this.closeConversationSidebar();
-    has.navigateTo({ url: '/pages/schedule/schedule' });
-  },
-
-  openConvSidebarSettings() {
-    this.closeConversationSidebar();
-    has.navigateTo({ url: '/pages/settings/settings' });
-  },
-
   switchTab(e) {
     const tab = e.currentTarget.dataset.tab;
     if (!['conversation', 'trajectory', 'context', 'fleet'].includes(tab) || tab === this.data.tab) return;
@@ -1945,33 +2144,30 @@ Page({
     if (store.setTrajectoryActive) store.setTrajectoryActive(tab === 'trajectory');
     if (store.setContextActive) store.setContextActive(tab === 'context');
     if (store.setFleetActive) store.setFleetActive(tab === 'fleet');
-    const state = store.sessionState || {};
+    // 数据源没变时跳过重新投影/差分：切回已挂载的面板只需要切换显示状态。
     const locale = preferences.locale();
     let tracePatch = {};
     if (tab === 'trajectory') {
-      const source = state.trajectory || [];
-      if (source !== this._switchTraceSource || state.sessionId !== this._switchTraceSessionId || locale !== this._switchTraceLocale) {
+      const source = store.sessionState.trajectory || [];
+      if (source !== this._switchTraceSource || locale !== this._switchLocale) {
         this._switchTraceSource = source;
-        this._switchTraceSessionId = state.sessionId;
-        this._switchTraceLocale = locale;
+        this._switchLocale = locale;
         this._traceRows = source;
         tracePatch = dataPatch(this.data, this.trajectoryPatch());
       }
     }
+    // 上下文与编队合并成一个滚动（对齐客户端侧栏 Context 面板）：两个 Tab 共享
     let contextPatch = {};
-    if (tab === 'context' && (state.contextDashboard !== this._switchDashboard || state.sessionId !== this._switchContextSessionId || locale !== this._switchContextLocale || !this.data.contextPanel)) {
-      this._switchDashboard = state.contextDashboard;
-      this._switchContextSessionId = state.sessionId;
-      this._switchContextLocale = locale;
+    if (tab === 'context' && (store.sessionState.contextDashboard !== this._switchDashboard || locale !== this._switchLocale || !this.data.contextPanel)) {
+      this._switchDashboard = store.sessionState.contextDashboard;
       contextPatch = this.contextPanelPatch();
     }
     let fleetPatch = {};
-    if (tab === 'fleet' && (state.contextFleet !== this._switchFleet || state.sessionId !== this._switchFleetSessionId || locale !== this._switchFleetLocale || !this.data.fleetPanel)) {
-      this._switchFleet = state.contextFleet;
-      this._switchFleetSessionId = state.sessionId;
-      this._switchFleetLocale = locale;
+    if (tab === 'fleet' && (store.sessionState.contextFleet !== this._switchFleet || locale !== this._switchLocale || !this.data.fleetPanel)) {
+      this._switchFleet = store.sessionState.contextFleet;
       fleetPatch = this.fleetPanelPatch();
     }
+    // 面板挂载后保持挂载：只切换显示状态，避免每次切换重建整棵节点树（切换卡顿的主因）。
     const clearPatch = {};
     if (tab !== 'context') {
       clearPatch.contextModalOpen = false;
@@ -1982,6 +2178,7 @@ Page({
     this.prioritizeInteraction();
     const hadKeyboard = this.data.kbHeight > 0 || this.data.composerFocused;
     this._collaborationRequest = null; this._collaborationRefresh = null;
+    // 只挂载当前 Tab 的面板：离开后销毁对应节点树，避免隐藏面板保留大量
     if (tab === 'fleet') {
       this.measureFleetStage();
       // 首次切入时节点还没渲染，上面的实测会退回兜底值：渲染完成后再量一次。
@@ -3132,6 +3329,35 @@ Page({
     ctx.globalAlpha = 1;
   },
 
+  /* ASCF 不支持离屏画布/2d canvas 导出：直接用几何数据拼 SVG，写成缓存文件给 <image> 用。 */
+  fleetLinksSvg(width, height) {
+    const graph = this.data.fleetPanel && this.data.fleetPanel.graph;
+    const links = (graph && graph.links) || [];
+    const paths = links.map((link) => {
+      const p = link && link.p;
+      if (!p || p.length < 8) return '';
+      const d = 'M' + p[0] + ' ' + p[1] + 'C' + p[2] + ' ' + p[3] + ' ' + p[4] + ' ' + p[5] + ' ' + p[6] + ' ' + p[7];
+      const stroke = link.color || '#8a93a3';
+      const opacity = link.live ? 0.85 : 0.45;
+      const weight = link.live ? 2 : 1.5;
+      const dash = link.live ? ' stroke-dasharray="2 7"' : '';
+      return '<path d="' + d + '" fill="none" stroke="' + stroke + '" stroke-opacity="' + opacity + '" stroke-width="' + weight + '" stroke-linecap="round"' + dash + '/>';
+    }).join('');
+    if (!paths) return '';
+    return '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + ' ' + height + '">' + paths + '</svg>';
+  },
+
+  renderFleetLinksSvg(width, height, token) {
+    const svg = this.fleetLinksSvg(width, height);
+    const apply = (src) => {
+      if (!this.data || this._fleetLinksToken !== token) return;
+      if (src && src !== this.data.fleetLinksSrc) this.setData({ fleetLinksSrc: src });
+    };
+    // 连线用 view 的 background-image 渲染：保证按 DOM 层级压在节点卡片下方，
+    // 原生 <image> 在 ArkWeb 上会浮到普通视图之上。
+    apply('data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg));
+  },
+
   drawFleetLinks() {
     const panel = this.data.fleetPanel;
     const graph = panel && panel.graph;
@@ -3171,12 +3397,12 @@ Page({
                 try { has.getFileSystemManager().unlink({ filePath: previous, fail: () => {} }); } catch (_) { /* 忽略 */ }
               }
             },
-            fail: () => { if (this.data && this._fleetLinksToken === token) this.drawFleetLinksOnCanvas(ratio, width, height, token); }
+            fail: () => { if (this.data && this._fleetLinksToken === token) this.renderFleetLinksSvg(width, height, token); }
           });
           return;
         }
       }
-      this.drawFleetLinksOnCanvas(ratio, width, height, token);
+      this.renderFleetLinksSvg(width, height, token);
     };
     // The image branch hides the fallback canvas. Unmount it before drawing so
     // export failures always have a real canvas element to fall back to.
@@ -3500,11 +3726,31 @@ Page({
 
   onPanelTouchCancel() { this._panelGesture = null; this._bottomAnchorDeferred = false; },
 
+  /** ASCF 运行时不保证派发 bindkeyboardheightchange：用全局键盘事件兜底，保证输入条抬到键盘上方。 */
+  installKeyboardFallback() {
+    if (typeof has === 'undefined' || typeof has.onKeyboardHeightChange !== 'function' || this._kbFallback) return;
+    this._kbFallback = (res) => {
+      const raw = Math.max(0, Math.round(Number(res && res.height) || 0));
+      let info = {};
+      try { info = typeof has.getWindowInfo === 'function' ? has.getWindowInfo() : has.getSystemInfoSync(); } catch (err) {}
+      const ratio = Number(info && info.pixelRatio) || 1;
+      const winH = Number(info && info.windowHeight) || 0;
+      // ASCF 回调可能返回物理像素：超过窗口高度时按像素比换算成 CSS px。
+      let height = raw;
+      if (winH && height > winH) height = Math.round(height / ratio);
+      // 兜底再按窗口高度收敛，避免异常值把内容整体顶出可视区。
+      if (winH && height > winH * 0.7) height = Math.round(winH * 0.7);
+      if (height > 0) this.onKeyboardHeight({ detail: { height } });
+      else this.onKeyboardHide();
+    };
+    try { has.onKeyboardHeightChange(this._kbFallback); } catch (err) { this._kbFallback = null; }
+  },
+
   /** 键盘高度：手动把输入条抬到键盘上方（adjust-position 关闭，避免整页顶起） */
   onKeyboardHeight(e) {
     const h = this.data.tab === 'conversation' ? ((e.detail && e.detail.height) || 0) : 0;
     // 高度与布局一次 setData 写完：键盘弹起/收起会连发多次事件，分开写等于把整页布局
-    if (h !== this.data.kbHeight) this.setData(Object.assign({ kbHeight: h }, this.layoutPatch({ kbHeight: h })), () => this.measureConversationViewport());
+    if (h !== this.data.kbHeight) this.setData(Object.assign({ kbHeight: h }, this.layoutPatch({ kbHeight: h })), () => { this.measureConversationViewport(); this.pinConversationToKeyboard(); });
   },
 
   onComposerFocus() {
@@ -3513,9 +3759,19 @@ Page({
     if (!this.data.composerFocused) this.setData({ composerFocused: true, voiceTyping: true });
   },
 
+  /** 键盘弹起/收起会改变可视高度：直接重新贴底，绕过「触摸后 800ms 延迟」。 */
+  pinConversationToKeyboard() {
+    if (this._unloaded || this.data.tab !== 'conversation') return;
+    if (this._convPinned === false || this._followPausedByUser) return;
+    const savedTouch = this._lastTouchAt;
+    this._lastTouchAt = 0;
+    this.refreshBottomAnchor();
+    this._lastTouchAt = savedTouch;
+  },
+
   onKeyboardHide() {
     // 三个 setData 合成一个，避免 blur 时连续三次布局/渲染。
-    this.setData(Object.assign({ kbHeight: 0, composerFocused: false, composerFocus: false, voiceTyping: false }, this.layoutPatch({ kbHeight: 0 })), () => this.measureConversationViewport());
+    this.setData(Object.assign({ kbHeight: 0, composerFocused: false, composerFocus: false, voiceTyping: false }, this.layoutPatch({ kbHeight: 0 })), () => { this.measureConversationViewport(); this.pinConversationToKeyboard(); });
   },
 
 
@@ -3860,8 +4116,7 @@ Page({
       });
       return;
     }
-    // 统计 / 重命名 / 工作区文件 / 会话快捷切换都在当前「更多」弹层内展开
-    if (action === 'switchSessions') { this.closeMoreActions(); this.openSessionSwitcher(); return; }
+    // 统计 / 重命名 / 工作区文件都在当前「更多」弹层内展开（会话快捷切换入口已移除）
     if (action === 'stats') { this.openStatsPane(); return; }
     if (action === 'files') { this.openFilesPane(); return; }
     if (action === 'rename') {
@@ -3972,7 +4227,8 @@ Page({
             name: item.name || item.title || '',
             path: item.path || '',
             kind: isDir ? 'dir' : 'file',
-            iconFile: isDir ? 'folder-blue.png' : 'doc-ocean.png',
+            // 文件夹与「工作区文件」入口同一套 SVG；文件按格式用对应的 deliverable 图标
+            iconFile: fileDeliverables.iconFileFor(item.name || item.title || '', isDir),
             key: (item.path || '') + '/' + index
           };
         });
@@ -4250,6 +4506,15 @@ Page({
     const now = Date.now();
     this._lastConvScrollAt = now;
     const scrollTop = Number(d.scrollTop) || 0;
+    // 快速滑动（甩动）时不要做虚拟窗口位移和高度重测：中途重挂行会闪，
+    // 停手后再统一按最终位置校正一次。
+    const sampleAt = Number(this._lastScrollSampleAt) || 0;
+    const sampleTop = Number(this._lastScrollSampleTop);
+    this._lastScrollSampleAt = now;
+    this._lastScrollSampleTop = scrollTop;
+    const dt = Math.max(16, now - sampleAt);
+    const fastFling = sampleAt > 0 && Number.isFinite(sampleTop)
+      && Math.abs(scrollTop - sampleTop) / dt * 1000 > 3000;
     const previousTop = this._lastNativeScrollTop !== undefined
       ? this._lastNativeScrollTop : this._lastScrollTop;
     this._lastNativeScrollTop = scrollTop;
@@ -4300,6 +4565,12 @@ Page({
       this._lastConversationGestureAt = now;
       this._initialConversationAnchorPending = false;
     }
+    if (fastFling) {
+      this._lastScrollTop = scrollTop;
+      this._flingSettlePending = true;
+      this.scheduleConversationFlingSettle();
+      return;
+    }
     this.applyScrollPosition({
       scrollTop: scrollTop,
       scrollHeight: Number(d.scrollHeight) || 0,
@@ -4309,6 +4580,19 @@ Page({
     });
     this.updateConversationWindow(scrollTop);
     this.maybePrefetchOlderHistory(scrollTop, !programmaticScroll && movingTowardOlder);
+  },
+
+  /** 甩动结束后按最终位置做一次校正：窗口位移 + 视口重测，避免中途反复重排。 */
+  scheduleConversationFlingSettle() {
+    if (this._flingSettleTimer) clearTimeout(this._flingSettleTimer);
+    this._flingSettleTimer = setTimeout(() => {
+      this._flingSettleTimer = null;
+      this._flingSettlePending = false;
+      if (this._unloaded || this.data.tab !== 'conversation') return;
+      const top = Math.max(0, Number(this._lastNativeScrollTop) || Number(this._lastScrollTop) || 0);
+      this.updateConversationWindow(top);
+      this.measureConversationViewport();
+    }, 160);
   },
 
   // Scroll events can omit clientHeight; measure it even while idle so the
@@ -5255,7 +5539,7 @@ Page({
   refreshProcessFollow(key) {
     if (!key || key !== this._processFollowKey || this._unloaded || this._voiceHidden) return;
     if ((this._processFollowPaused || {})[key]) return;
-    // 测试/异常环境下没有 wx.nextTick：退化为同步执行，行为不变只是少了布局等待
+    // 测试/异常环境下没有 has.nextTick：退化为同步执行，行为不变只是少了布局等待
     const tick = typeof has !== 'undefined' && typeof has.nextTick === 'function' ? has.nextTick : (fn) => fn();
     const version = this._processFollowVersion;
     const request = this._processFollowRequest = (this._processFollowRequest || 0) + 1;
@@ -5510,6 +5794,10 @@ Page({
 
   /** 收集当前可见行里尚未缓存的图片，按顺序串行回填（网关同类型请求只能有一个在途）。 */
   collectAttachmentThumbs() {
+    // 运行中每次同步都会排一次收集：全量扫 rows + 对每张图做一次本地文件探测，
+    // 长会话里是持续的同步 I/O。流式期间降频到约 2s 一次即可。
+    if (this.data.running && Date.now() - (this._thumbCollectedAt || 0) < 2000) return;
+    this._thumbCollectedAt = Date.now();
     const client = store.client, sessionId = store.sessionState && store.sessionState.sessionId;
     if (!client || !sessionId || this._unloaded) return;
     if (this._thumbSession !== sessionId) {
@@ -5525,7 +5813,11 @@ Page({
     const now = Date.now();
     const enqueueRow = (row, budgeted) => {
       if (!row || row.pending) return;
-      const images = (row.images || []).concat((row.tools || []).flatMap(tool => tool && tool.resultImages || []));
+      const children = Array.isArray(row.children) ? row.children : [];
+      const childImages = children.flatMap(child => (child && child.images || []).concat(
+        ((child && child.tools) || []).flatMap(tool => (tool && tool.resultImages) || [])
+      ));
+      const images = (row.images || []).concat((row.tools || []).flatMap(tool => tool && tool.resultImages || []), childImages);
       images.forEach((image) => {
         if (!image || !image.attachmentId) return;
         const id = String(image.attachmentId);
@@ -5622,13 +5914,10 @@ Page({
       }
       return changed ? next : row;
     };
-    // 窗口缓存复用同一批行对象，就地更新，下一次窗口切片才不会退回空白。
+    // 先构造新行对象再写回缓存：如果先就地改掉与 data.rows 共享的对象，
+    // dataPatch 会认为没有变化而跳过 setData，图片就永远停在空白。
     if (Array.isArray(this._conversationRows)) {
-      this._conversationRows = this._conversationRows.map((row) => {
-        const next = patchRow(row);
-        if (next !== row) Object.assign(row, next);
-        return row;
-      });
+      this._conversationRows = this._conversationRows.map(patchRow);
     }
     const rows = (this.data.rows || []).map(patchRow);
     const patch = dataPatch(this.data, { rows });
@@ -5955,6 +6244,53 @@ Page({
    * 引用 token 还原成 chip 行 + 零宽占位符显示值——否则选一个命令会同时
    * 出现 chip 和原文两份。
    */
+  /** 当前会话的草稿键：优先已渲染会话，其次 URL/接收到的会话 id。 */
+  composerDraftKey() {
+    return this._renderSessionId || this.sessionId || (store.sessionState && store.sessionState.sessionId) || '';
+  },
+
+  persistComposerDraft() {
+    const key = this.composerDraftKey();
+    if (!key) return;
+    const images = Array.isArray(this.data.images) ? this.data.images.slice() : [];
+    const draft = String(this.data.draft || '');
+    this._sessionDrafts = this._sessionDrafts || sessionDraftStore;
+    if (!draft.trim() && !images.length) {
+      delete this._sessionDrafts[key];
+      if (this._isNewSessionEntry) delete this._sessionDrafts.__new__;
+      return;
+    }
+    this._sessionDrafts[key] = { draft, images };
+    // 首页「新建会话」每次都会分配到新的临时会话 id：再存一份"新会话"草稿，
+    // 这样返回首页后重新点新建按钮，刚才输入的内容和附件也能带回来。
+    if (this._isNewSessionEntry) this._sessionDrafts.__new__ = { draft, images };
+  },
+
+  restoreComposerDraft() {
+    const key = this.composerDraftKey();
+    const drafts = this._sessionDrafts || sessionDraftStore;
+    this._sessionDrafts = drafts;
+    const saved = (key && drafts[key]) || (this._isNewSessionEntry ? drafts.__new__ : null);
+    if (!saved) return;
+    const hasEditor = String(this.data.draft || '').trim() || (Array.isArray(this.data.images) && this.data.images.length);
+    if (hasEditor) return;
+    const images = Array.isArray(saved.images) ? saved.images.slice() : [];
+    if (!String(saved.draft || '').trim() && !images.length) return;
+    this.setComposerValue(saved.draft || '', {
+      images,
+      canSend: !!String(saved.draft || '').trim() || images.length > 0
+    });
+  },
+
+  /** 发送成功/主动清空时显式丢弃草稿（切会话恢复不经过这里）。 */
+  clearComposerDraft() {
+    const drafts = this._sessionDrafts || sessionDraftStore;
+    this._sessionDrafts = drafts;
+    const key = this.composerDraftKey();
+    if (key) delete drafts[key];
+    delete drafts.__new__;
+  },
+
   setComposerValue(text, extra) {
     const raw = String(text == null ? '' : text);
     const { display, refs } = composerMenu.referencesToDisplay(raw);
@@ -6163,6 +6499,7 @@ Page({
           if (!preserveDraft) {
             const staged = self.data.images;
             self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
+            self.clearComposerDraft();
             self.disposeStagedAttachments(staged);
           }
           return true;
@@ -6175,6 +6512,7 @@ Page({
         if (sent !== false && !preserveDraft) {
           const staged = self.data.images;
           self.setComposerValue('', { draft: '', images: [], canSend: false, commandMenu: null });
+          self.clearComposerDraft();
           self.disposeStagedAttachments(staged);
         }
         return sent;
@@ -6189,6 +6527,7 @@ Page({
         if (!preserveDraft && (this._draftRevision || 0) === revision) {
           const staged = this.data.images;
           this.setComposerValue('', { images: [], canSend: false, commandMenu: null });
+          this.clearComposerDraft();
           this.disposeStagedAttachments(staged);
         }
         this.setData({ commandLoading: false });
@@ -6518,6 +6857,14 @@ Page({
         workspaceRefs
       );
       if (sent !== false) {
+        if (s.running) {
+          // 排队消息的附件只有网关侧 id，本地临时文件先记下来，队列行直接用它当缩略图。
+          this._queueLocalImages = uploadImages.map((image) => ({
+            name: image.name || '',
+            mediaType: image.mediaType || '',
+            tempPath: image.tempPath || ''
+          })).filter((entry) => !!entry.tempPath);
+        }
         if (!s.running) {
           // 普通发送乐观回显；排队消息等网关队列帧，避免提前显示成已发送。
           store.appendLocalUserRow(text, uploadImages.map((image) => ({
@@ -6531,7 +6878,12 @@ Page({
       } else {
         has.showToast({ title: uiText('发送失败，草稿已保留'), icon: 'none' }); return;
       }
-      self.setComposerValue('', { draft: '', images: [], canSend: false });
+      {
+        const staged = self.data.images;
+        self.setComposerValue('', { draft: '', images: [], canSend: false });
+        self.clearComposerDraft();
+        self.disposeStagedAttachments(staged);
+      }
       this.closeAttachMenu();
       this.jumpToBottom();
     }).catch((err) => {
@@ -6570,7 +6922,12 @@ Page({
         clientTimeZone: client.timeZone(), ...(s.running ? { mode: 'queue' } : {}),
         ...(ticket ? { notificationTicket: ticket } : {}) });
       if (!current()) return;
-      this.setComposerValue('', { draft: '', images: [], canSend: false });
+      {
+        const staged = this.data.images;
+        this.setComposerValue('', { draft: '', images: [], canSend: false });
+        this.clearComposerDraft();
+        this.disposeStagedAttachments(staged);
+      }
       this.closeAttachMenu(); this.jumpToBottom();
     } catch (error) {
       if (current()) fail(error.message || error.errMsg || '文件上传失败，草稿已保留');
@@ -7094,7 +7451,7 @@ Page({
   openCollaboration() {
     this.cancelVoice(); this.prioritizeInteraction();
     this._collaborationRequest = null; this._collaborationRefresh = null;
-    this.setData({collaborationOpen:true,collaborationExpanded:false,collaborationPreview:null,collaborationBusy:false,moreSheetOpen:false,statsPopOpen:false,morePane:'menu',renameKeyboard:0,
+    this.setData({collaborationOpen:true,collaborationExpanded:false,collaborationPreview:null,collaborationBusy:false,moreSheetOpen:false,statsPopOpen:false,morePane:'menu',renameKeyboard:0,collabTabIntoView:'collab-tab-'+(this.data.collaborationTab||'members'),
       showContextSheet:false,traceDetail:null,attachSheetOpen:false,modelSheetOpen:false,effortSheetOpen:false,permissionSheet:[],modeSheet:[],
       kbHeight:0,composerFocused:false,composerFocus:false,...this.layoutPatch({kbHeight:0})});
     this.setData(this.collaborationPatch()); this.stopScrollPolling();
@@ -7137,7 +7494,39 @@ Page({
       store.refreshScheduledTasks();
     }
     if (!['members','children','tasks','calls','background','schedule'].includes(tab)) return;
-    this._collaborationRequest = null; this.setData({collaborationTab:tab,collaborationPreview:null}); this.setData(this.collaborationPatch());
+    this._collaborationRequest = null;
+    this.setData({ collaborationTab: tab, collaborationPreview: null, collabTabIntoView: 'collab-tab-' + tab });
+    this.setData(this.collaborationPatch());
+  },
+  /** 左右滑动手势切换协作 Tab；纵向滚动时完全不介入。 */
+  collabSwipeStart(e) {
+    const t = e && e.touches && e.touches[0];
+    if (!t) return;
+    this._collabSwipe = { x: t.clientX, y: t.clientY, axis: undefined };
+  },
+  collabSwipeMove(e) {
+    const g = this._collabSwipe;
+    const t = e && e.touches && e.touches[0];
+    if (!g || !t) return;
+    if (g.axis) return;
+    const dx = Math.abs(t.clientX - g.x);
+    const dy = Math.abs(t.clientY - g.y);
+    if (dx > 8 || dy > 8) g.axis = dx > dy ? 'x' : 'y';
+  },
+  collabSwipeEnd(e) {
+    const g = this._collabSwipe;
+    this._collabSwipe = null;
+    if (!g || g.axis !== 'x') return;
+    const t = (e && e.changedTouches && e.changedTouches[0]) || (e && e.touches && e.touches[0]);
+    if (!t) return;
+    const dx = t.clientX - g.x;
+    if (Math.abs(dx) < 48) return;
+    const tabs = this.data.collaborationTabs || [];
+    const idx = tabs.findIndex(tab => tab.id === this.data.collaborationTab);
+    if (idx < 0) return;
+    const next = idx + (dx < 0 ? 1 : -1);
+    if (next < 0 || next >= tabs.length) return;
+    this.selectCollaborationTab({ currentTarget: { dataset: { id: tabs[next].id } } });
   },
   refreshCollaboration() {
     if (!store.state || store.state.connection !== 'connected' || !store.client || this.data.collaborationBusy || typeof store.client.requestSessions !== 'function') return;

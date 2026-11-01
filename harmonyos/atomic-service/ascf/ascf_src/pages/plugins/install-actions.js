@@ -93,7 +93,7 @@ module.exports = {
   toggleGuide() { this.setData({ guideOpen: !this.data.guideOpen }); },
   toggleLogs() { this.setData({ logsOpen: !this.data.logsOpen }); },
   async checkPlugin() {
-    if (!this.data.canAdd || this.data.installBusy || this.data.registryLoading) return;
+    if (!this.data.canAdd || !this.data.spec || this.data.installBusy || this.data.registryLoading) return;
     const choice = this.data.registryOptions[this.data.registryIndex];
     const registry = choice.value === 'host' ? undefined : choice.value === 'custom' ? this.data.customRegistry.trim() : choice.value;
     const owner = this.currentOwner();

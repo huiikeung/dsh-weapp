@@ -1,3 +1,10 @@
+// ASCF（鸿蒙元服务）平台适配 —— 与小程序唯一事实来源的差异仅限以下几处，请勿反向同步回小程序：
+// 1) 全局对象 wx → has（含 clientVersion(wx) → clientVersion(has)）。
+// 2) 账号文案「微信身份 / 微信账号」→「账号」：本端用华为账号登录（utils/access-api 走 /session/huawei）。
+// 3) accessApi.ensureAccount({ freshLogin: true }) → ensureAccount()：华为账号强制登录会弹授权窗，
+//    管理类操作改为静默校验（未登录时才回落到 login()）。
+// 4) onShow 用 me() 静默回显身份（passive，不触发华为授权窗）；打开「公网访问」面板时仍走 ensureAccount() 完整刷新。
+// 5) data.ui 显式带一份界面词典快照，兜住弹窗浮层的首帧渲染。
 const { t: uiText } = require('../../utils/ui-preferences');
 const haptics = require('../../utils/haptics');
 const preferences = require('../../utils/ui-preferences');
@@ -15,6 +22,7 @@ const settingsGlassPreference = require('../../utils/settings-glass-pref');
 const settingsGlassSheetPreference = require('../../utils/settings-glass-sheet-pref');
 const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
 const sessionGlassPreference = require('../../utils/session-glass-pref');
+const sessionCardStylePreference = require('../../utils/session-card-style-pref');
 
 const contextPreferences = require('./utils/context-prefs');
 const theme = require('../../utils/theme');
@@ -42,13 +50,15 @@ Page({
   manualShareMenu: true,
   data: {
     ui: require('../../utils/ui-preferences').snapshot().ui,
+    // 字号/语言等偏好由全局页面包装器注入；ASCF 需显式展开，否则 fontSizes 为空、字号行只显示「 px」。
+    ...((snapshot) => { const { ui: _ui, ...rest } = snapshot; return rest; })(require('../../utils/ui-preferences').snapshot()),
     navPadTop: 50,
     // 工作步骤展示 / 收起时机 / 语言共用工作区选择同款的锚点玻璃弹窗。
     choiceMenu: '',
     choiceTitle: '',
-    choiceSubtitle: '',
     choiceOptions: [],
     choiceCurrent: '',
+    choiceSubtitle: '',
     choiceLeft: 16,
     choiceTop: 120,
     choiceWidth: 224,
@@ -140,7 +150,7 @@ Page({
     isWechatAdmin: false,
     accountLabel: uiText('识别中…'),
     identityBadgeLabel: uiText('待识别'),
-    accountHint: uiText('自动识别当前微信身份，无需手动切换'),
+    accountHint: uiText('自动识别当前账号，无需手动切换'),
     dshAccount: accountView.normalize({}),
     dshAccountBusy: false,
     dshAccountVisible: false,
@@ -149,9 +159,14 @@ Page({
     settingsGlassEnabled: settingsGlassPreference.read(),
     settingsGlassSheetEnabled: settingsGlassSheetPreference.read(),
     sessionGlassEnabled: sessionGlassPreference.read(),
+    ...sessionCardStylePreference.view(),
+    cardStyleMode: 'light',
+    cardStyleOpen: false,
     choiceSheet: settingsGlassSheetPreference.read(),
     quotaSidebarVisible: false,
     glassStyleOpen: false,
+    // 打开玻璃弹窗后切换一次，触发重绘，让深色模式下的 backdrop-filter 首次也生效
+    glassStylePaint: false,
     sessionGlassEnabled: sessionGlassPreference.read(),
     nativeStyleOpen: false,
     nativeBgPresets: [
@@ -237,6 +252,8 @@ Page({
   onLoad(options) {
     theme.applyTo(this);
     this.updateNavigationLayout();
+    // ASCF 没有小程序全局 Page 包装器：首屏主动初始化一次偏好，保证「语言」弹窗有选项。
+    this.onUiPreferencesChange();
     const contextPanelPrefs = contextPanelsPreference.read();
     this.setData({
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
@@ -333,7 +350,7 @@ Page({
     this.openChoiceMenu('language', '.preference-language-row',
       this.data.languageOptions, preferences.language());
   },
-  /** 语言与工作步骤共用设置页的居中选择卡片。 */
+  /** 选择弹窗与「震动反馈」同一个居中卡片：标题 + 说明 + 选项列表。 */
   openChoiceMenu(kind, selector, options, current) {
     const titles = { language: uiText('语言'), mode: uiText('工作步骤展示'), timing: uiText('工作步骤收起时机') };
     const subtitles = {
@@ -620,7 +637,7 @@ Page({
       appearanceMode: theme.getMode(),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       appearanceSheet: false
-    }, this.nativePaletteData(this.data.nativeBgValue)));
+    }, this.nativePaletteData(this.data.nativeBgValue), this.glassViewStyle()));
   },
 
   appearanceLabelOf(mode) {
@@ -638,14 +655,18 @@ Page({
     settingsGlassEnabled: settingsGlassPreference.read(),
     settingsGlassSheetEnabled: settingsGlassSheetPreference.read(),
     sessionGlassEnabled: sessionGlassPreference.read(),
+    ...sessionCardStylePreference.view(this.data && this.data.cardStyleMode),
+    cardStyleOpen: false,
     choiceSheet: settingsGlassSheetPreference.read(),
-    ...settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }),
+    ...settingsGlassStylePreference.view({ light: theme.resolveTheme() === 'light' }),
       ...this.contextPreferenceData(),
       ...workSteps.view(workSteps.read()), ...statusAppearance.view(statusAppearance.read()), ...procIconStyle.view(procIconStyle.read()),
       appearanceLabel: preferences.t(this.appearanceLabelOf(theme.getMode())),
       hapticsLevel: haptics.getLevel() });
     this.syncFromStore({ app: store.state, session: store.sessionState });
     this.refreshDshAccount();
+    // 进入页面即静默回显华为身份/公网状态，不必先点开「公网访问」；无会话时保持「待验证」不弹窗。
+    if (accessApi.configured()) this.refreshWechatAccount(true).catch(() => {});
     this.loadQuotaSidebarPreference();
     // 「已连接网关版本」显示真实数据：网关未在 hello 里自报版本时，拉一次插件目录取网关插件版本。
     const gatewayMetadata = store.state.gatewayMetadata || {};
@@ -672,7 +693,8 @@ Page({
       this._settingsRefresh = null;
       store.refreshHostPresence();
       if (store.state.connection === 'connected') store.client.requestHost();
-      Promise.all([this.refreshWechatAccount(), this.refreshAppContent()]).then(request.resolve, request.resolve);
+      // ASCF：进设置页不自动刷新账号身份（华为账号走静默校验），打开「公网访问」时再刷新。
+      this.refreshAppContent().then(request.resolve, request.resolve);
     }, 80);
   },
 
@@ -1082,7 +1104,7 @@ Page({
 
   /** 原生背景亮度：50 = 主题默认，调低更暗、调高更亮；影响原生卡片与弹窗背景。 */
   nativePaletteData(value) {
-    const light = String(this.data.themeClass || '').indexOf('light') >= 0;
+    const light = theme.resolveTheme() === 'light';
     const view = settingsGlassStylePreference.view({ native: value, light });
     return {
       nativeBgValue: view.nativeBgValue,
@@ -1131,6 +1153,14 @@ Page({
       };
       patch[flag] = true;
       this.setData(patch);
+      // 深色下玻璃弹窗依赖 backdrop-filter，首次出现时 WebView 可能不合成；这里延迟改一次
+      // 自定义属性，强制样式重算，避免必须点「重置为默认」才正常。
+      if (typeof setTimeout === 'function') {
+        setTimeout(() => {
+          if (!this.data[flag]) return;
+          this.setData({ glassStylePaint: !this.data.glassStylePaint });
+        }, 60);
+      }
     };
     if (typeof has.createSelectorQuery !== 'function') { open(null); return; }
     try {
@@ -1158,25 +1188,79 @@ Page({
 
   /** 恢复玻璃样式的默认参数（透明度 10% / 模糊 8rpx / 亮边 38% / 圆角 32rpx）。 */
   resetGlassStyle() {
-    try { this.setData(settingsGlassStylePreference.view(settingsGlassStylePreference.reset())); }
-    catch (_) { this.setData(settingsGlassStylePreference.view()); }
+    try { this.setData(this.glassViewStyle(settingsGlassStylePreference.reset())); }
+    catch (_) { this.setData(this.glassViewStyle()); }
     has.showToast({ title: uiText('已恢复默认'), icon: 'none' });
+  },
+
+  /** 重建玻璃样式数据时必须带主题标记，否则浅色下会退回深色磨砂（看起来就是透明的）。 */
+  glassViewStyle(extra) {
+    // 主题以 theme.resolveTheme() 为准：onShow 里 this.data.themeClass 可能还是旧值，
+    // 会导致浅色下弹窗拿到深色参数（看起来透明）。
+    return settingsGlassStylePreference.view(Object.assign({ light: theme.resolveTheme() === 'light' }, extra || {}));
   },
 
   /** 玻璃样式滑杆（透明度 / 模糊 / 亮边 / 圆角）：拖动即时预览，松手保存。 */
   onGlassStyleChanging(e) {
     const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : undefined;
     const value = e && e.detail ? e.detail.value : undefined;
-    this.setData(settingsGlassStylePreference.view({ [field]: value }));
+    this.setData(this.glassViewStyle({ [field]: value }));
   },
   onGlassStyleChange(e) {
     const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : undefined;
     const value = e && e.detail ? e.detail.value : undefined;
-    try { this.setData(settingsGlassStylePreference.view(settingsGlassStylePreference.set({ [field]: Number(value) }))); }
+    try { this.setData(this.glassViewStyle(settingsGlassStylePreference.set({ [field]: Number(value) }))); }
     catch (_) {
-      this.setData(settingsGlassStylePreference.view());
+      this.setData(this.glassViewStyle());
       has.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
     }
+  },
+
+  /** 卡片样式弹窗：浅色 / 深色各一套参数（悬浮 / 底色 / 光线 / 柔光 / 描边 / 圆角）。 */
+  openCardStyleSheet() {
+    const mode = this.data.cardStyleMode === 'dark' ? 'dark' : 'light';
+    this.setData(Object.assign({ cardStyleOpen: true }, sessionCardStylePreference.view(mode)));
+  },
+
+  closeCardStyleSheet() {
+    this.setData({ cardStyleOpen: false });
+  },
+
+  /** 浅色 / 深色切换：两套参数互不影响。 */
+  switchCardStyleMode(e) {
+    const mode = e && e.currentTarget && e.currentTarget.dataset && e.currentTarget.dataset.mode === 'dark' ? 'dark' : 'light';
+    this.setData(sessionCardStylePreference.view(mode));
+  },
+
+  /** 拖动中实时预览（含预览卡片的放大值），松手（bindchange）才落盘。 */
+  onCardStyleChanging(e) {
+    const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : '';
+    const value = e && e.detail ? e.detail.value : undefined;
+    if (!field || value === undefined) return;
+    const mode = this.data.cardStyleMode === 'dark' ? 'dark' : 'light';
+    this.setData(sessionCardStylePreference.view(mode, { mode: mode, patch: { [field]: Number(value) } }));
+  },
+
+  onCardStyleChange(e) {
+    const field = e && e.currentTarget && e.currentTarget.dataset ? e.currentTarget.dataset.field : '';
+    const value = (e && e.detail && e.detail.value) || 0;
+    if (!field) return;
+    const mode = this.data.cardStyleMode === 'dark' ? 'dark' : 'light';
+    try {
+      const next = {};
+      next[field] = Number(value);
+      sessionCardStylePreference.set(mode, next);
+      this.setData(sessionCardStylePreference.view(mode));
+    } catch (_) {
+      this.setData(sessionCardStylePreference.view(mode));
+      has.showToast({ title: uiText('保存失败，请重试'), icon: 'none' });
+    }
+  },
+
+  resetCardStyle() {
+    const mode = this.data.cardStyleMode === 'dark' ? 'dark' : 'light';
+    sessionCardStylePreference.reset(mode);
+    this.setData(sessionCardStylePreference.view(mode));
   },
 
   /** 对话页面玻璃：设置页里的独立开关，不影响其它页面的玻璃 UI。 */
@@ -1422,7 +1506,7 @@ Page({
       publicPatch.publicTitle = active ? uiText('公网服务可用') : expiry ? uiText('公网服务已到期') : uiText('兑换开通公网服务');
       publicPatch.publicExpiryLabel = account && account.isAdmin && active ? uiText('管理员权限') : expiry ? formatExpiry(expiry) : '';
       publicPatch.publicSub = uiText('仅控制鲸尾公网中继，局域网直连不受影响');
-      publicPatch.publicHint = uiText('兑换码开通当前微信账号的公网有效期；设备仍需扫描自己 DSH 插件的二维码配对。无需把电脑添加到后台或填写连接器 JSON。');
+      publicPatch.publicHint = uiText('兑换码开通当前账号的公网有效期；设备仍需扫描自己 DSH 插件的二维码配对。无需把电脑添加到后台或填写连接器 JSON。');
       publicPatch.shareEnabled = active && shareEnabled;
       publicPatch.shareReason = active ? publicState.shareReason : uiText('请先兑换开通公网服务。分享设备邀请不会赠送公网有效期。');
     }
@@ -1593,19 +1677,24 @@ Page({
 
   // ---------- 公网访问 / 节点管理（独立入口） ----------
 
-  refreshWechatAccount() {
-    if (this.data.accountBusy) return;
+  /** passive=true：仅用本地缓存会话静默刷新身份（不触发华为登录弹窗），用于进入设置页自动回显。 */
+  refreshWechatAccount(passive) {
+    if (this.data.accountBusy) return Promise.resolve();
     const generation = this._accountGeneration = (this._accountGeneration || 0) + 1;
     if (!accessApi.configured()) {
       this.setData({ accountBusy: false, accountIdentityReady: true, isWechatAdmin: false, accountLabel: uiText('待识别'), identityBadgeLabel: uiText('待识别'),
         accountHint: uiText('身份服务待配置，管理员入口暂未启用') });
       return Promise.resolve();
     }
-    this.setData({ accountBusy: true, accountIdentityReady: false, isWechatAdmin: false, accountDeviceId: '', accountLabel: uiText('识别中…'), identityBadgeLabel: uiText('待识别'),
-      accountHint: uiText('自动匹配服务端绑定的管理员微信身份') });
+    if (!passive) {
+      this.setData({ accountBusy: true, accountIdentityReady: false, isWechatAdmin: false, accountDeviceId: '', accountLabel: uiText('识别中…'), identityBadgeLabel: uiText('待识别'),
+        accountHint: uiText('自动识别当前账号及管理员权限') });
+    }
     this._publicAccount = null;
     this.syncFromStore({ app: store.state });
-    return accessApi.ensureAccount({ freshLogin: true }).then(account => {
+    // 被动模式只读本地会话（accessApi.me），避免 ensureAccount 在无会话时触发华为授权窗。
+    const request = passive ? accessApi.me() : accessApi.ensureAccount();
+    return request.then(account => {
       if (generation !== this._accountGeneration) return;
       if (!account || typeof account.isAdmin !== 'boolean') throw new Error(uiText('身份服务响应无效'));
       const admin = account && account.isAdmin === true;
@@ -1613,7 +1702,7 @@ Page({
       this._publicAccount = account;
       this.syncFromStore({ app: store.state });
       this.setData({ accountIdentityReady: true, isWechatAdmin: admin, accountDeviceId: account.deviceId || '', accountLabel: badge, identityBadgeLabel: badge,
-        accountHint: admin ? uiText('已匹配服务端绑定的管理员微信身份') : uiText('已自动识别当前微信账号'),
+        accountHint: admin ? uiText('已匹配服务端绑定的管理员账号') : uiText('已自动识别当前账号'),
         accountIdHint: account.deviceId ? '' : uiText('后台尚未支持设备 ID，请升级后台') });
     }).catch((error) => {
       if (generation !== this._accountGeneration) return;
@@ -1653,11 +1742,11 @@ Page({
   loadCodes() {
     const generation = this._codeGen = (this._codeGen || 0) + 1;
     this.setData({ codeLoading: true, codeError: '' });
-    accessApi.ensureAccount({ freshLogin: true })
+    accessApi.ensureAccount()
       .then((account) => {
         if (generation !== this._codeGen) return null;
         if (!account || account.isAdmin !== true) {
-          this.setData({ codeLoading: false, codeIsAdmin: false, codeError: uiText('当前微信不是管理员，不能生成或管理兑换码。') });
+          this.setData({ codeLoading: false, codeIsAdmin: false, codeError: uiText('当前账号不是管理员，不能生成或管理兑换码。') });
           return null;
         }
         return accessApi.codes().then((items) => {
@@ -1900,11 +1989,11 @@ Page({
   loadAnnouncements() {
     const generation = this._annGen = (this._annGen || 0) + 1;
     this.setData({ annLoading: true, annError: '' });
-    accessApi.ensureAccount({ freshLogin: true })
+    accessApi.ensureAccount()
       .then((account) => {
         if (generation !== this._annGen) return null;
         if (!account || account.isAdmin !== true) {
-          this.setData({ annLoading: false, annIsAdmin: false, annError: uiText('当前微信没有管理员权限') });
+          this.setData({ annLoading: false, annIsAdmin: false, annError: uiText('当前账号没有管理员权限') });
           return null;
         }
         return accessApi.announcements().then((result) => {
@@ -2055,7 +2144,7 @@ Page({
         const generation = this._accountGeneration;
         this.setData({ accountBusy: true });
         try {
-          await accessApi.ensureAccount({ freshLogin: true });
+          await accessApi.ensureAccount();
           if (generation !== this._accountGeneration) return;
           await accessApi.claimAdminBinding(code);
           if (generation !== this._accountGeneration) return;
@@ -2070,7 +2159,8 @@ Page({
   openPublicAccess() {
     this.syncFromStore({ app: store.state, session: store.sessionState });
     this.setData({ managementPanel: 'public', pairSheetOpen: false });
-    this.refreshAppContent();
+    // ASCF：身份刷新挪到这里（onShow 不再自动刷新），打开公网面板时一并更新账号与公网状态。
+    Promise.all([this.refreshWechatAccount(), this.refreshAppContent()]);
   },
 
   async openReferralShare() {
@@ -2078,7 +2168,7 @@ Page({
     const generation = this._accountGeneration;
     this.setData({ referralSheetOpen: true, referralBusy: true, referralError: '', referralToken: '' });
     try {
-      await accessApi.ensureAccount({ freshLogin: true });
+      await accessApi.ensureAccount();
       if (generation !== this._accountGeneration) return;
       const status = await accessApi.shareStatus();
       if (generation !== this._accountGeneration) return;
@@ -2254,7 +2344,7 @@ Page({
         }
         if (generation !== this._accountGeneration) return;
         this.setData({ redeemBusy: true, redeemResultLabel: '' });
-        accessApi.ensureAccount({ freshLogin: true }).then(() => accessApi.redeemPublicAccess(code)).then(async (result) => {
+        accessApi.ensureAccount().then(() => accessApi.redeemPublicAccess(code)).then(async (result) => {
           if (generation !== this._accountGeneration) return;
           this._redeemDraft = '';
           this.setData({

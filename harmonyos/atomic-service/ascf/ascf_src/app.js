@@ -11,6 +11,14 @@ require('./utils/share').install();
 const store = require('./utils/store');
 const attachmentCache = require('./utils/attachment-cache');
 
+// 这些工具由多个分包共享；在 ASCF 中显式预加载，确保设置、会话和模型页
+// 在冷启动时使用同一份偏好与模型配置模块。
+require('./utils/choice-menu');
+require('./utils/model-settings');
+require('./utils/session-card-style-pref');
+require('./utils/session-glass-pref');
+require('./utils/settings-glass-sheet-pref');
+
 App({
   resetAttachmentCacheIndex() {
     attachmentCache._reset();

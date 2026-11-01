@@ -168,6 +168,40 @@ test('gateway rejects non-WSS before dialing and permits WSS for platform valida
   assert.equal(sockets.length, 2);
 });
 
+test('whitelist failures show only the rejected WebSocket host for allowlist comparison', t => {
+  const { sockets } = installRuntime(t);
+  let failure = '';
+  const client = new GatewayClient({ onState(state, message) { if (state === 'failed') failure = message; } });
+  t.after(() => client.disconnect());
+  const endpoint = 'wss://relay.other.example.test/c/private-node-token';
+  client.connectTransport(endpoint);
+  sockets[0].options.fail({ errMsg: 'connectSocket:fail 2302998 It is not allowed to access this domain' });
+  assert.ok(failure.includes('wss://relay.other.example.test'));
+  assert.equal(failure.includes('private-node-token'), false);
+});
+
+test('generic websocket unknown error retains the platform errno', t => {
+  const { sockets } = installRuntime(t);
+  let failure = '';
+  const client = new GatewayClient({ onState(state, message) { if (state === 'failed') failure = message; } });
+  t.after(() => client.disconnect());
+  client.connectTransport('wss://relay.example.test/relay/c/node-example');
+  sockets[0].options.fail({ errMsg: 'unknown error', errno: 2302998 });
+  assert.match(failure, /unknown error.*errno 2302998/);
+});
+
+test('LAN fallback blocked by domain policy is reported as LAN, not a missing whitelist entry', t => {
+  const { sockets } = installRuntime(t);
+  let failure = '';
+  const client = new GatewayClient({ onState(state, message) { if (state === 'failed') failure = message; } });
+  t.after(() => client.disconnect());
+  client.connectTransport('ws://192.168.1.10/ws/mobile');
+  sockets[0].options.fail({ errMsg: 'connectSocket:fail 2302998 It is not allowed to access this domain' });
+  assert.ok(failure.includes('192.168.1.10'));
+  assert.ok(failure.includes('局域网'));
+  assert.equal(failure.includes('ws/mobile'), false);
+});
+
 test('gateway waits for random bytes and fails closed on missing or failed source', async t => {
   const { requests, sockets } = installRuntime(t);
   const client = new GatewayClient();
@@ -481,7 +515,10 @@ test('timeout falls back with the same unconfirmed code to the next route', t =>
   clock.fire(fallback);
   assert.equal(sockets.length, 2);
   assert.equal(sockets[1].options.url, 'wss://backup.example.test/ws/mobile');
-  assert.ok(sockets[1].options.protocols.includes('dsh-pair.pair-code'));
+  // ASCF 运行时不声明子协议（否则会写出非法头/被回显中断），配对码保留在客户端状态，
+  // 由 X-DSH-* 头在需要时携带。
+  assert.equal(sockets[1].options.protocols, undefined);
+  assert.equal(sockets[1].options.header['X-DSH-Device-ID'], 'fixture-device');
   assert.equal(client.timeoutTimer.delay, 30000);
   clock.fire(client.timeoutTimer);
   assert.equal(client.state, 'failed');

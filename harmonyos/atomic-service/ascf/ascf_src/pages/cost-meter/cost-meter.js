@@ -110,6 +110,8 @@ function defaultGatewaySource() {
 
 Page({
   data: {
+    // ASCF 页面需显式注入 i18n 词典，模板 {{ui['…']}} 才有值。
+    ui: require('../../utils/ui-preferences').snapshot().ui,
     settingsGlassEnabled: settingsGlassPreference.read(),
     quotaSidebarGlass: quotaSidebarGlassPreference.read(),
     ...settingsGlassStylePreference.view(),

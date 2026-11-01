@@ -127,6 +127,13 @@ function parseRouteTable(payload) {
       if (classifyEndpoint(pub[i]) === 'public') pushUnique(table.public, normalizeEndpoint(pub[i]))
     }
     table.relay = normalizeRelay(routes.relay)
+    // 小程序使用 miniProgramRoute 连接，已在现网验证；通用 routes.relay 若指向
+    // 托管域名却缺少 /relay 路径，会拼成 /c/<node> 落到控制台并返回 401，
+    // 鸿蒙只报 unknown error。此时优先采用 miniProgramRoute 的中继。
+    const legacyRelay = normalizeRelay(source.miniProgramRoute)
+    const hasRelayPath = value => /\/relay$/i.test(String(value || '').replace(/\/$/, ''))
+    if (legacyRelay && hasRelayPath(legacyRelay.relay) &&
+      (!table.relay || !hasRelayPath(table.relay.relay))) table.relay = legacyRelay
     return table
   }
   // 老载荷：publicUrl 优先，其余按地址特征归类。

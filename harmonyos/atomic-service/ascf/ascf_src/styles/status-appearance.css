@@ -1,5 +1,4 @@
 .status-tail { position:relative;width:36rpx;height:36rpx;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-right:12rpx; }
-.status-tail-image { width:28rpx;height:28rpx;display:block; }
 .status-tail-canvas { width:28rpx;height:28rpx;display:block;flex-shrink:0; }
 .status-tail-classic,.status-tail-neon,.status-tail-terminal,.status-tail-candy,.status-tail-glitch,.status-tail-original { animation-timing-function:linear;animation-iteration-count:infinite; }
 .status-gradient { display:block;font-size:24rpx;font-weight:400;line-height:36rpx;background-size:200% 100%;background-repeat:repeat-x;-webkit-background-clip:text;background-clip:text;color:transparent;animation:statusColorFlow 4s linear infinite;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
@@ -10,4 +9,6 @@
 @keyframes statusColorFlow { from {background-position:0 0} to {background-position:200% 0} }
 @keyframes statusBreathe { 0%,100% {opacity:1} 50% {opacity:.74} }
 @keyframes statusGlitch { 0%,90%,100% {text-shadow:none} 92% {text-shadow:1px 0 #ff5f6d,-1px 0 #5fd4ff} 94% {text-shadow:-1px 0 #ff5f6d,1px 0 #5fd4ff} }
-@media (prefers-reduced-motion:reduce) { .status-gradient,.status-text-motion,.status-tail { animation:none !important; } }
+/* 鲸尾的动画挂在 .status-tail-ink 上，父层 .status-tail 只是槽位：两个都要关。
+   关掉动画后该元素规则里的静态 background-color 会接管，颜色仍是该样式的起始色。 */
+@media (prefers-reduced-motion:reduce) { .status-gradient,.status-text-motion,.status-tail,.status-tail-ink { animation:none !important; } }

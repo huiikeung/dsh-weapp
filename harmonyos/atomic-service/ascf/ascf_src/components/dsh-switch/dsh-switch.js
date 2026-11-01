@@ -7,7 +7,9 @@ Component({
     checked: { type: Boolean, value: false },
     disabled: { type: Boolean, value: false },
     ariaLabel: { type: String, value: '' },
-    scale: { type: Number, value: 1 }
+    scale: { type: Number, value: 1 },
+    // 页面把当前主题传进来：手动切深浅色时属性变化会立即重新同步 .dk 配色。
+    themeMode: { type: String, value: '', observer() { this.syncTheme(); } }
   },
   data: { dark: false },
   lifetimes: {
@@ -26,7 +28,10 @@ Component({
     show() { this.syncTheme(); }
   },
   methods: {
-    syncTheme() { this.setData({ dark: theme.resolveTheme() === 'dark' }); },
+    syncTheme() {
+      const mode = this.data.themeMode === 'dark' || this.data.themeMode === 'light' ? this.data.themeMode : theme.resolveTheme();
+      this.setData({ dark: mode === 'dark' });
+    },
     onTap() {
       if (this.data.disabled) return;
       this.triggerEvent('change', { value: !this.data.checked });

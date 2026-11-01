@@ -75,6 +75,7 @@ function createStore() {
     archivedSessionIds: [],
     currentWorkspaceId: null,
     isUngroupedWorkspaceSelected: false,
+    isAllWorkspacesSelected: false,
     sessions: [],
     searchResults: null,
     searchQuery: '',
@@ -101,12 +102,20 @@ function createStore() {
     pluginPendingName: null,
     pluginNotice: null,
     pluginInstall: null,
+    // settings 文档变更（模型页等订阅它，收到 DSH 客户端的写入后重新读取）
+    pluginSettingsChanged: null,
 
     notice: null
   };
 
   // 当前会话工作区（仅会话页读写）
-  const sessionState = {
+  // 目标操作的回执兜底：旧网关不支持 goal-pause/goal-resume 时不回执，
+// goalMutation 会一直占着 spinner，暂停/继续按钮就再也回不来了。
+let goalMutationTimer = null;
+function clearGoalMutationTimer() {
+  if (goalMutationTimer) { clearTimeout(goalMutationTimer); goalMutationTimer = null; }
+}
+const sessionState = {
     sessionId: null,
     rowsAgg: null,
     rows: [],
@@ -331,6 +340,8 @@ function createStore() {
   const historyPageCache = createLocalCache({ prefix: 'dsh_history_page', version: 1,
     maxEntries: 16, maxBytes: 420000, storage: typeof has !== 'undefined' ? has : null, setTimeout, clearTimeout });
   let sessionCacheScope = null;
+  // 按会话记住用户选中的模型：切会话/新建会话不应互相影响。
+  const sessionSelectionCache = Object.create(null);
   // Keep the compact, complete outline separate from the bounded message tail.
   const turnOutlineCache = createLocalCache({ prefix: 'dsh_turn_outline', version: 1,
     maxEntries: 20, maxBytes: 4 * 1024 * 1024, storage: typeof has !== 'undefined' ? has : null, setTimeout, clearTimeout });
@@ -619,7 +630,8 @@ function createStore() {
       const archivedSessionIds = (state.archivedSessionIds || []).length
         ? state.archivedSessionIds
         : ((previous && previous.archivedSessionIds) || []);
-      const currentWorkspaceId = state.isUngroupedWorkspaceSelected ? null : (state.currentWorkspaceId ||
+      const isAllWorkspacesSelected = state.isAllWorkspacesSelected === true;
+      const currentWorkspaceId = (isAllWorkspacesSelected || state.isUngroupedWorkspaceSelected) ? null : (state.currentWorkspaceId ||
         (previous && previous.currentWorkspaceId) ||
         (workspaces[0] && workspaces[0].workspaceId) || null);
       homeCache.set(state.activeID, {
@@ -628,6 +640,7 @@ function createStore() {
         archivedSessionIds: archivedSessionIds,
         currentWorkspaceId: currentWorkspaceId,
         isUngroupedWorkspaceSelected: state.isUngroupedWorkspaceSelected,
+        isAllWorkspacesSelected: isAllWorkspacesSelected,
         savedAt: Date.now()
       }, { immediate: true });
     } catch (e) { /* 存储失败不阻断 */ }
@@ -692,8 +705,9 @@ function createStore() {
     if (requestType === 'workspaces' && !(state.workspaces || []).length && (cached.workspaces || []).length) {
       state.workspaces = cached.workspaces;
       state.archivedSessionIds = cached.archivedSessionIds || state.archivedSessionIds || [];
-      state.isUngroupedWorkspaceSelected = cached.isUngroupedWorkspaceSelected === true;
-      state.currentWorkspaceId = state.isUngroupedWorkspaceSelected ? null : (cached.currentWorkspaceId ||
+      state.isAllWorkspacesSelected = cached.isAllWorkspacesSelected === true;
+      state.isUngroupedWorkspaceSelected = !state.isAllWorkspacesSelected && cached.isUngroupedWorkspaceSelected === true;
+      state.currentWorkspaceId = (state.isAllWorkspacesSelected || state.isUngroupedWorkspaceSelected) ? null : (cached.currentWorkspaceId ||
         (state.workspaces[0] && state.workspaces[0].workspaceId) || null);
       state.lastWorkspacesFrame = {
         count: state.workspaces.length,
@@ -750,7 +764,9 @@ function createStore() {
   }
   function scheduleHistoryFallback(sessionId) {
     if (historyFallbackTimer) clearTimeout(historyFallbackTimer);
-    // 1.2s 足够快照到达（一次宿主读取）；老网关/异常路径下退回 history。
+    // 有本地缓存时先展示缓存，1.2s 等宿主快照即可；
+    // 没有任何缓存时页面就是空白，等不了那么久——450ms 就主动补 history。
+    const hasLocalRows = Array.isArray(sessionState.rows) && sessionState.rows.length > 0;
     historyFallbackTimer = setTimeout(function () {
       historyFallbackTimer = null;
       if (snapshotPendingFor !== sessionId) return;
@@ -759,7 +775,7 @@ function createStore() {
       if (String(sessionState.historyState || '').indexOf('loaded') === 0 && !sessionState.cacheDisplay) return;
       client.requestHistory(sessionId);
       scheduleHistoryRetry(sessionId);
-    }, 1200);
+    }, hasLocalRows ? 1200 : 450);
   }
 
   /** 历史请求自愈：4s 内没等到 history 帧 → 重发（最多 3 次，之后明确失败） */
@@ -871,7 +887,8 @@ function createStore() {
           keys: state.workspaces.length ? Object.keys((frame.items || [])[0] || {}).slice(0, 8).join(',') : '',
           at: Date.now()
         };
-        if (!state.isUngroupedWorkspaceSelected && !state.currentWorkspaceId && state.workspaces.length) {
+        if (!state.isUngroupedWorkspaceSelected && !state.isAllWorkspacesSelected
+          && !state.currentWorkspaceId && state.workspaces.length) {
           state.currentWorkspaceId = state.workspaces[0].workspaceId;
         }
         // 自愈（对称方向）：工作区到了但会话列表仍为空 → 主动补拉
@@ -1049,8 +1066,7 @@ function createStore() {
     } else if (sessionState.sessionId && !frame.sessionId && SESSION_SCOPED[frame.kind]) {
       handleSessionFrame(frame);
     } else if (frame.kind && frame.sessionId && sessionState.sessionId) {
-      // 诊断信息保留在 store 中，但无关会话不能通知当前页面：
-      // 并行运行时每个 token 都可能命中这里，否则会放大整页投影和跨桥渲染。
+      // 诊断：sessionId 不匹配——记录两侧尾部片段
       sessionState.lastFrames = sessionState.lastFrames.slice(-7).concat(
         'MISMATCH:' + String(frame.sessionId).slice(-8) + '!=' + String(sessionState.sessionId).slice(-8)
       );
@@ -1441,12 +1457,12 @@ function createStore() {
     } catch (e) { /* 单帧失败不中断 */ }
     if (restoring) return;
     if (firstContent) { emit(); return; }
-    // 流式 chunk 频率极高：120ms 合帧刷新，避免逐 token 全页 setData 饿死连接层
+    // 流式 chunk 频率极高：160ms 合帧刷新（约 6fps），在观感与持续 CPU/发热之间取平衡。
     if (!streamFlushTimer) {
       streamFlushTimer = setTimeout(function () {
         streamFlushTimer = null;
         emit();
-      }, 120);
+      }, 160);
     }
   }
 
@@ -1761,6 +1777,7 @@ function createStore() {
         sessionState.commandLoading = false;
         if (frame.value && frame.value.provider && frame.value.model) {
           sessionState.selection = Object.assign({}, sessionState.selection || {}, frame.value);
+          rememberSessionSelection();
         }
         emit();
         return;
@@ -1784,6 +1801,7 @@ function createStore() {
         if (sessionState.goalAsOfSeq == null || seq == null || seq >= sessionState.goalAsOfSeq) {
           sessionState.goal = frame.goal || null;
           sessionState.goalAsOfSeq = seq;
+          clearGoalMutationTimer();
           sessionState.goalMutation = '';
           emit();
         }
@@ -1793,6 +1811,7 @@ function createStore() {
       case 'goal-paused':
       case 'goal-resumed':
       case 'goal-cleared':
+        clearGoalMutationTimer();
         sessionState.goalMutation = '';
         safeRequest(client.requestGoal(sessionState.sessionId));
         emit();
@@ -1852,12 +1871,7 @@ function createStore() {
         // 主机回执可能只带模型名：与本地选中态合并，避免丢 provider 导致弹窗无法打勾
         if (frame.selected) {
           sessionState.selection = Object.assign({}, sessionState.selection || {}, frame.selected);
-          if (frame.selected.provider && frame.selected.model && state.modelCatalog) {
-            state.modelCatalog.current = {
-              provider: frame.selected.provider,
-              model: frame.selected.model
-            };
-          }
+          rememberSessionSelection();
         }
         emit();
         return;
@@ -1937,6 +1951,7 @@ function createStore() {
           return;
         }
         if (String(frame.requestType || '').indexOf('goal-') === 0) {
+          clearGoalMutationTimer();
           sessionState.goalMutation = '';
           safeRequest(client.requestGoal(sessionState.sessionId));
           state.notice = { text: frame.message || uiText('目标操作失败'), isError: true, at: Date.now() };
@@ -2185,6 +2200,13 @@ function createStore() {
     if (typeof frame.kind === 'string' && frame.kind.indexOf('plugin-market-') === 0 ||
         frame.kind === 'error' && (typeof frame.requestType === 'string' && frame.requestType.indexOf('plugin-market-') === 0 ||
           typeof frame.message === 'string' && frame.message.indexOf('unknown message type: plugin-market-') === 0)) return true;
+    // settings 文档被任一客户端（含 DSH 客户端）修改：只广播 ns/revision，不携带内容。
+    // 模型页订阅这个快照后重新读取 plugin-settings，从而与桌面端双向同步。
+    if (frame.kind === 'plugin-settings-changed') {
+      state.pluginSettingsChanged = { ns: frame.ns || '', revision: frame.revision, at: Date.now() };
+      emit();
+      return true;
+    }
     if (frame.kind === 'plugin-catalog' &&
         (!frame.requestId || frame.requestId === pluginCatalogToken)) {
       state.pluginCatalog = pluginsLib.buildCatalog(frame);
@@ -2254,6 +2276,13 @@ function createStore() {
     refreshPlugins();
   }
 
+  function rememberSessionSelection() {
+    const id = sessionState.sessionId;
+    if (!id) return;
+    if (sessionState.selection) sessionSelectionCache[id] = Object.assign({}, sessionState.selection);
+    else delete sessionSelectionCache[id];
+  }
+
   /**
    * 选择模型：本地乐观更新选中态（弹窗打勾与输入栏标签立即同步），
    * 主机回执到达后以回执为准；失败则回滚。
@@ -2261,18 +2290,18 @@ function createStore() {
   function selectModel(sessionId, provider, model, reasoningEffort) {
     if (!provider || !model) return Promise.reject(new Error(uiText('缺少模型信息')));
     const previous = sessionState.selection;
-    const previousCatalogCurrent = state.modelCatalog ? state.modelCatalog.current : null;
     const next = { provider: provider, model: model };
     if (reasoningEffort) next.reasoningEffort = reasoningEffort;
     else if (previous && previous.provider === provider && previous.model === model && previous.reasoningEffort) {
       next.reasoningEffort = previous.reasoningEffort;
     }
     sessionState.selection = next;
-    if (state.modelCatalog) state.modelCatalog.current = { provider: provider, model: model };
+    // 只影响当前会话：全局 modelCatalog.current 代表默认模型，不能被单会话切换覆盖。
+    rememberSessionSelection();
     emit();
     return client.selectModel(sessionId, provider, model, reasoningEffort).catch(function (err) {
       sessionState.selection = previous;
-      if (state.modelCatalog) state.modelCatalog.current = previousCatalogCurrent;
+      rememberSessionSelection();
       emit();
       throw err;
     });
@@ -2832,6 +2861,7 @@ function createStore() {
       title: title,
       // 子代理（subagent/child）会话与工作区归属：用于快捷切换时过滤
       parentSessionId: source.parentSessionId || source.parent_session_id || source.parentId || source.parent_id || null,
+      mode: source.subagentMode || source.subagent_mode || source.mode || source.agentMode || source.agent_mode || null,
       kind: source.kind || source.type || null,
       workspaceId: source.workspaceId || source.workspace_id || null
     };
@@ -2976,7 +3006,12 @@ function createStore() {
       if (typeof accessApi.configured !== 'function' || !accessApi.configured()) return false;
       if (typeof accessApi.hasPublicAccess === 'function' && accessApi.hasPublicAccess()) return true;
       const nodeId = table && table.relay && table.relay.nodeId;
-      return !!(nodeId && typeof accessApi.cachedLease === 'function' && accessApi.cachedLease(nodeId));
+      if (nodeId && typeof accessApi.cachedLease === 'function' && accessApi.cachedLease(nodeId)) return true;
+      // 身份还没加载（冷启动未完成华为验证）时授权是「未知」：保留中继候选，
+      // 由连接层的 publicLease/授权提示给出结论，而不是悄悄把中继跳过、
+      // 只剩元服务连不了的局域网 ws 候选。
+      if (typeof accessApi.accountLoaded === 'function' && !accessApi.accountLoaded()) return true;
+      return false;
     } catch (e) {
       // 判定异常时不改变原有选路行为（保留中继候选）。
       return true;
@@ -3309,6 +3344,7 @@ function createStore() {
     state.archivedSessionIds = [];
     state.currentWorkspaceId = null;
     state.isUngroupedWorkspaceSelected = false;
+    state.isAllWorkspacesSelected = false;
     state.sessions = [];
     state.searchQuery = '';
     state.searchResults = null;
@@ -3681,8 +3717,9 @@ function createStore() {
             state.sessions = cached.sessions || [];
             state.workspaces = cached.workspaces || [];
             state.archivedSessionIds = cached.archivedSessionIds || [];
-            state.isUngroupedWorkspaceSelected = cached.isUngroupedWorkspaceSelected === true;
-            state.currentWorkspaceId = state.isUngroupedWorkspaceSelected ? null : (cached.currentWorkspaceId || null);
+            state.isAllWorkspacesSelected = cached.isAllWorkspacesSelected === true;
+            state.isUngroupedWorkspaceSelected = !state.isAllWorkspacesSelected && cached.isUngroupedWorkspaceSelected === true;
+            state.currentWorkspaceId = (state.isAllWorkspacesSelected || state.isUngroupedWorkspaceSelected) ? null : (cached.currentWorkspaceId || null);
             state.homeCacheAt = cached.savedAt || 0;
             state.lastSessionsFrame = {
               count: state.sessions.length,
@@ -3952,6 +3989,8 @@ function createStore() {
       // 订阅成功就等快照；失败/未连接才立即走 history。
       clearHistoryFallback();
       sessionState.sessionId = sessionId;
+      // 每个会话各自的模型选择；没有记录时先置空，回落到主机的默认模型。
+      sessionState.selection = sessionSelectionCache[sessionId] || null;
       sessionCacheScope = activeCacheScope();
       sessionState.lastEventAt = 0;
       sessionState.collaboration = collaboration.create(sessionId);
@@ -3962,6 +4001,13 @@ function createStore() {
       trajectoryDirty = true;
       sessionState.title = title || '';
       const listedSession = state.sessions.find(item => item.sessionId === sessionId);
+      // 子 Agent 会话读取历史需要 durable parent address：先登记到连接对象。
+      if (client && typeof client.setSessionParent === 'function') {
+        client.setSessionParent(sessionId, {
+          parentSessionId: listedSession && listedSession.parentSessionId,
+          mode: listedSession && listedSession.mode
+        });
+      }
       sessionState.agentPreset = listedSession && typeof listedSession.agentPreset === 'string'
         ? listedSession.agentPreset : (typeof agentPreset === 'string' ? agentPreset : null);
       sessionState.agentPresetAsOfSeq = listedSession ? listedSession.agentPresetAsOfSeq : null;
@@ -4114,6 +4160,11 @@ function createStore() {
     createAndOpenSession: function (workspaceId, agentPreset) {
       const self = this;
       const wsId = workspaceId === undefined ? state.currentWorkspaceId : workspaceId;
+      // 全部会话是跨工作区浏览态，没有可归属的工作区：创建前必须先选具体工作区
+      // （对齐 iOS AppStore.prepareNewConversation / Android prepareNewSession 的状态层守卫）。
+      if (state.isAllWorkspacesSelected && (wsId === null || wsId === undefined)) {
+        return Promise.reject(new Error(uiText('请先选择一个具体工作区，再创建新会话。')));
+      }
       // 乐观创建：立即进入本地创建态（秒开会话页），真实创建在后台进行
       sessionState.creating = true;
       trajectoryDirty = true; trajectoryActive = false;
@@ -4250,8 +4301,18 @@ function createStore() {
 
     setCurrentWorkspace: function (workspaceId) {
       // null is an explicit selection, not the default-workspace fallback.
+      state.isAllWorkspacesSelected = false;
       state.isUngroupedWorkspaceSelected = workspaceId == null;
       state.currentWorkspaceId = workspaceId == null ? null : workspaceId;
+      saveHomeCache();
+      emit();
+    },
+
+    /** 全部会话：跨工作区分组视图；创建新会话前必须先选具体工作区。 */
+    setAllWorkspaces: function () {
+      state.isAllWorkspacesSelected = true;
+      state.isUngroupedWorkspaceSelected = false;
+      state.currentWorkspaceId = null;
       saveHomeCache();
       emit();
     },
@@ -4282,6 +4343,14 @@ function createStore() {
       const ref = { id: goal.id, revision: goal.revision };
       sessionState.goalMutation = kind;
       emit();
+      clearGoalMutationTimer();
+      goalMutationTimer = setTimeout(function () {
+        goalMutationTimer = null;
+        if (!sessionState.goalMutation) return;
+        sessionState.goalMutation = '';
+        safeRequest(client.requestGoal(sessionState.sessionId));
+        emit();
+      }, 15000);
       const request = kind === 'goal-edit'
         ? client.editGoal(sessionState.sessionId, ref, objective)
         : client.updateGoalState(kind, sessionState.sessionId, ref);

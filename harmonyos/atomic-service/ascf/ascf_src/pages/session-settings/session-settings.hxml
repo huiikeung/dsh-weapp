@@ -50,6 +50,7 @@
   <view class="group-hint">{{ui['与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。']}}</view>
   <view class="group-title">{{ui['功能']}}</view>
   <view class="card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
+    <view id="models-row" class="card-row" bindtap="openModels" role="button"><text class="card-row-label">{{ui['模型']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
     <view id="diagnostics-row" class="card-row" bindtap="showDiagnostics" role="button"><text class="card-row-label">{{ui['诊断信息']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
     <view id="clear-cache-row" class="card-row" bindtap="clearLocalCache" role="button"><text class="card-row-label">{{ui['清理缓存']}}</text><view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view></view>
   </view>
