@@ -135,7 +135,7 @@ test('all status styles animate the DSH whale through the same selected text pal
   const css=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-appearance.wxss'),'utf8');
   const sessionCss=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxss'),'utf8');
   assert.match(sessionCss,/@import "\.\.\/\.\.\/styles\/status-tail-animation\.wxss"/);
-  assert.match(sessionCss,/@keyframes statusTailWag/);
+  assert.match(sessionCss,/@keyframes statusTailSwim/);
   assert.match(css,/\.status-tail\s*\{[^}]*width:36rpx[^}]*height:36rpx/);
   const animationCss=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-tail-animation.wxss'),'utf8');
   // 鲸尾轮廓来自内联 data URI 遮罩：WXSS 不涉及本地路径解析，iOS 的 WKWebView 也能用。
