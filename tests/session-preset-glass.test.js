@@ -64,6 +64,7 @@ test('华为 ASCF 副本与小程序保持同一材质', () => {
   assert.ok(hxml.includes('class="opt-pop mode-pop"'), 'ascf mode popup hook');
   const capsule = ruleOf(css, '.session-glass .preset-capsule');
   const popup = ruleOf(css, '.session-glass .opt-pop.mode-pop');
-  assert.ok(capsule.includes('var(--glass-alpha-top, 0.06)') && capsule.includes('blur(var(--glass-blur-card'), 'ascf capsule glass');
-  assert.ok(popup.includes('var(--glass-alpha-top, 0.10)') && popup.includes('blur(var(--glass-blur-sheet'), 'ascf popup glass');
+  // 最新小程序与 ASCF 副本统一改用 frost 配方（--glass-frost-*），不再是旧 card/sheet 档。
+  assert.ok(capsule.includes('var(--glass-frost-edge') && capsule.includes('blur(var(--glass-frost-blur'), 'ascf capsule glass');
+  assert.ok(popup.includes('var(--glass-frost-edge') && popup.includes('blur(var(--glass-frost-blur'), 'ascf popup glass');
 });
