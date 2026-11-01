@@ -1565,8 +1565,11 @@ Page({
   /** 鲸尾颜色：与设置页预览同一套采样算法，JS 直接写内联色值，不依赖 CSS 关键帧。 */
   startStatusTailTicker() {
     if (this._statusTailTimer) return;
+    // 与文字渐变的动画起点对齐：以状态条渲染/开始运行的本地时间为锚点，
+    // 不用 runStart（可能早于动画开始，会造成鲸尾与文字不同步）。
+    if (!this._statusTailAnchor) this._statusTailAnchor = Date.now();
     this.paintStatusTail();
-    this._statusTailTimer = setInterval(() => this.paintStatusTail(), 100);
+    this._statusTailTimer = setInterval(() => this.paintStatusTail(), 80);
   },
 
   stopStatusTailTicker() {
@@ -1577,7 +1580,7 @@ Page({
     if (this._unloaded || !this.data.running) return;
     const colors = this.data.theme === 'dark' ? this.data.statusColorsDark : this.data.statusColors;
     const speed = Number(this.data.statusSpeed) || 4;
-    const anchor = this._runStart || Date.now();
+    const anchor = this._statusTailAnchor || this._runStart || Date.now();
     const raw = (((Date.now() - anchor) / 1000 / speed) % 1 + 1) % 1;
     const phase = this.data.statusReverse ? 1 - raw : raw;
     const color = statusAppearance.sampleColor(colors, phase);
@@ -1589,6 +1592,7 @@ Page({
       this._lastRunSeconds = this.data.runSeconds || this._lastRunSeconds || 0;
       if (this._runTimer) { clearInterval(this._runTimer); this._runTimer = null; }
       this.stopStatusTailTicker();
+      this._statusTailAnchor = 0;
       if (this.data.runPhrase || this.data.runSeconds) {
         this.setData({ runPhrase: '', runSeconds: 0, runElapsedText: '', runHeader: '' });
       }
