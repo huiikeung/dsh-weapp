@@ -340,6 +340,8 @@ const sessionState = {
   const historyPageCache = createLocalCache({ prefix: 'dsh_history_page', version: 1,
     maxEntries: 16, maxBytes: 420000, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
   let sessionCacheScope = null;
+  // 按会话记住用户选中的模型：切会话/新建会话不应互相影响。
+  const sessionSelectionCache = Object.create(null);
   // Keep the compact, complete outline separate from the bounded message tail.
   const turnOutlineCache = createLocalCache({ prefix: 'dsh_turn_outline', version: 1,
     maxEntries: 20, maxBytes: 4 * 1024 * 1024, storage: typeof wx !== 'undefined' ? wx : null, setTimeout, clearTimeout });
@@ -1775,6 +1777,7 @@ const sessionState = {
         sessionState.commandLoading = false;
         if (frame.value && frame.value.provider && frame.value.model) {
           sessionState.selection = Object.assign({}, sessionState.selection || {}, frame.value);
+          rememberSessionSelection();
         }
         emit();
         return;
@@ -1868,12 +1871,7 @@ const sessionState = {
         // 主机回执可能只带模型名：与本地选中态合并，避免丢 provider 导致弹窗无法打勾
         if (frame.selected) {
           sessionState.selection = Object.assign({}, sessionState.selection || {}, frame.selected);
-          if (frame.selected.provider && frame.selected.model && state.modelCatalog) {
-            state.modelCatalog.current = {
-              provider: frame.selected.provider,
-              model: frame.selected.model
-            };
-          }
+          rememberSessionSelection();
         }
         emit();
         return;
@@ -2278,6 +2276,13 @@ const sessionState = {
     refreshPlugins();
   }
 
+  function rememberSessionSelection() {
+    const id = sessionState.sessionId;
+    if (!id) return;
+    if (sessionState.selection) sessionSelectionCache[id] = Object.assign({}, sessionState.selection);
+    else delete sessionSelectionCache[id];
+  }
+
   /**
    * 选择模型：本地乐观更新选中态（弹窗打勾与输入栏标签立即同步），
    * 主机回执到达后以回执为准；失败则回滚。
@@ -2285,18 +2290,18 @@ const sessionState = {
   function selectModel(sessionId, provider, model, reasoningEffort) {
     if (!provider || !model) return Promise.reject(new Error(uiText('缺少模型信息')));
     const previous = sessionState.selection;
-    const previousCatalogCurrent = state.modelCatalog ? state.modelCatalog.current : null;
     const next = { provider: provider, model: model };
     if (reasoningEffort) next.reasoningEffort = reasoningEffort;
     else if (previous && previous.provider === provider && previous.model === model && previous.reasoningEffort) {
       next.reasoningEffort = previous.reasoningEffort;
     }
     sessionState.selection = next;
-    if (state.modelCatalog) state.modelCatalog.current = { provider: provider, model: model };
+    // 只影响当前会话：全局 modelCatalog.current 代表默认模型，不能被单会话切换覆盖。
+    rememberSessionSelection();
     emit();
     return client.selectModel(sessionId, provider, model, reasoningEffort).catch(function (err) {
       sessionState.selection = previous;
-      if (state.modelCatalog) state.modelCatalog.current = previousCatalogCurrent;
+      rememberSessionSelection();
       emit();
       throw err;
     });
@@ -3962,6 +3967,8 @@ const sessionState = {
       // 订阅成功就等快照；失败/未连接才立即走 history。
       clearHistoryFallback();
       sessionState.sessionId = sessionId;
+      // 每个会话各自的模型选择；没有记录时先置空，回落到主机的默认模型。
+      sessionState.selection = sessionSelectionCache[sessionId] || null;
       sessionCacheScope = activeCacheScope();
       sessionState.lastEventAt = 0;
       sessionState.collaboration = collaboration.create(sessionId);
