@@ -124,12 +124,18 @@ test('all status styles animate the DSH whale through the same selected text pal
   const template=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
   assert.match(template,/\{\{runPhrase\}\}\{\{ui\['，用时'\]\}\} \{\{runElapsedText\}\}…/);
   // 鲸尾是 mask 裁出来的色块（不是 image + filter），滚动时仍是同层合成，不会像 canvas 那样滞后。
-  assert.match(template,/<view class="status-tail"><view class="status-tail-ink status-tail-\{\{statusAppearance\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}" style="\{\{theme === 'dark' \? statusDarkTailAnimationStyle : statusLightTailAnimationStyle\}\}animation-delay:\{\{statusFlowDelay\}\}s;"\/>/);
+  assert.match(template,/<view class="status-tail"><view class="status-tail-ink status-tail-js status-tail-\{\{statusAppearance\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}" style="background-color:\{\{statusTailColor\}\};"\/>/);
+  // 颜色由 JS 定时采样（不依赖 CSS 关键帧），形状用 CSS 摆动；两者都来自同一份 statusAppearance 配置。
+  const statusJs=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.js'),'utf8');
+  assert.match(statusJs,/startStatusTailTicker\(\)/);
+  assert.match(statusJs,/paintStatusTail\(\)/);
+  assert.match(statusJs,/statusAppearance\.sampleColor\(colors, phase\)/);
   assert.doesNotMatch(template,/status-tail-image/);
   assert.doesNotMatch(template,/statusTailCanvas/);
   const css=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-appearance.wxss'),'utf8');
   const sessionCss=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxss'),'utf8');
   assert.match(sessionCss,/@import "\.\.\/\.\.\/styles\/status-tail-animation\.wxss"/);
+  assert.match(sessionCss,/@keyframes statusTailWag/);
   assert.match(css,/\.status-tail\s*\{[^}]*width:36rpx[^}]*height:36rpx/);
   const animationCss=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-tail-animation.wxss'),'utf8');
   // 鲸尾轮廓来自内联 data URI 遮罩：WXSS 不涉及本地路径解析，iOS 的 WKWebView 也能用。
@@ -145,7 +151,9 @@ test('all status styles animate the DSH whale through the same selected text pal
       const name = 'statusTail' + item.id[0].toUpperCase() + item.id.slice(1) + suffix;
       // 关键帧动的是 background-color（普通色值），不再经过 filter 数学。
       assert.match(animationCss, new RegExp('@keyframes ' + name + '\\{0%\\{background-color:rgb\\('), item.id + ' ' + mode);
-      assert.match(animationCss, new RegExp('\\.status-tail-ink\\.status-tail-' + item.id + '\\.status-tail-' + mode + '\\{animation-name:' + name + ';background-color:rgb\\('), item.id + ' ' + mode);
+      assert.match(animationCss, new RegExp('\\.status-tail-ink\\.status-tail-' + item.id + '\\.status-tail-' + mode + '\\{animation-name:' + name + ';[^}]*background-color:rgb\\('), item.id + ' ' + mode);
+      // 时长也写在 CSS 里：运行时的内联样式缺失时动画也不会退化成静止。
+      assert.match(animationCss, new RegExp('\\.status-tail-ink\\.status-tail-' + item.id + '\\.status-tail-' + mode + '\\{[^}]*animation-duration:' + item.speed + 's'), item.id + ' ' + mode + ' duration');
       assert.doesNotMatch(animationCss, new RegExp('@keyframes ' + name + '\\{[^}]*filter:'), item.id + ' ' + mode + ' must not tint through filters');
     }
   }

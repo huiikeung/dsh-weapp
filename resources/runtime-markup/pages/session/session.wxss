@@ -1,5 +1,18 @@
 @import "../../styles/status-appearance.wxss";
 @import "../../styles/status-tail-animation.wxss";
+/* 鲸尾：颜色由 JS 定时采样写内联色值；形状用 CSS 摆动模拟 DSH 的 APNG 尾巴动作。 */
+.status-tail-ink.status-tail-js {
+  animation: statusTailWag 1.7s ease-in-out infinite !important;
+  transform-origin: 50% 76%;
+  will-change: transform;
+}
+@keyframes statusTailWag {
+  0%, 100% { transform: rotate(-7deg) scaleX(0.98); }
+  50% { transform: rotate(8deg) scaleX(1.02); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-tail-ink.status-tail-js { animation: none !important; }
+}
 @import "../../styles/trajectory.wxss";
 @import "../../styles/proc-icon.wxss";
 .session {
@@ -5721,6 +5734,8 @@ overscroll-behavior-y: auto;
   border-radius: 50%;
   color: var(--text-3);
 }
-.conv-sidebar-new-ic { width: 36rpx; height: 36rpx; opacity: 0.55; }
+.conv-sidebar-new-ic { width: 36rpx; height: 36rpx; opacity: 0.55; background-color: #909090;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2016%2016%27%20fill%3D%27none%27%20stroke%3D%27black%27%20stroke-width%3D%270.8%27%20stroke-linecap%3D%27round%27%3E%3Cpath%20d%3D%27M2.37%2011.25C1.59%209.89%201.32%208.3%201.62%206.76C1.92%205.22%202.76%203.84%204%202.88C5.23%201.91%206.77%201.43%208.34%201.51C9.9%201.59%2011.39%202.24%2012.51%203.32C13.64%204.41%2014.34%205.87%2014.48%207.43C14.61%208.99%2014.18%2010.55%2013.26%2011.82C12.34%2013.09%2010.99%2013.98%209.46%2014.33C8.19%2014.63%206.86%2014.53%205.65%2014.06C5.17%2013.87%204.77%2013.49%204.27%2013.4C3.67%2013.28%202.95%2013.56%202.04%2014.33%27%2F%3E%3Cpath%20d%3D%27M5.1%207.8h5.8M8%204.9v5.8%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2016%2016%27%20fill%3D%27none%27%20stroke%3D%27black%27%20stroke-width%3D%270.8%27%20stroke-linecap%3D%27round%27%3E%3Cpath%20d%3D%27M2.37%2011.25C1.59%209.89%201.32%208.3%201.62%206.76C1.92%205.22%202.76%203.84%204%202.88C5.23%201.91%206.77%201.43%208.34%201.51C9.9%201.59%2011.39%202.24%2012.51%203.32C13.64%204.41%2014.34%205.87%2014.48%207.43C14.61%208.99%2014.18%2010.55%2013.26%2011.82C12.34%2013.09%2010.99%2013.98%209.46%2014.33C8.19%2014.63%206.86%2014.53%205.65%2014.06C5.17%2013.87%204.77%2013.49%204.27%2013.4C3.67%2013.28%202.95%2013.56%202.04%2014.33%27%2F%3E%3Cpath%20d%3D%27M5.1%207.8h5.8M8%204.9v5.8%27%2F%3E%3C%2Fsvg%3E");
+  -webkit-mask-size: 100% 100%; mask-size: 100% 100%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; }
 /* 分组展开后，新建会话入口移到会话列表上方；标题栏的按钮隐藏。 */
 

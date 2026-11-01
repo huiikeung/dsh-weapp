@@ -58,7 +58,11 @@ function renderCss() {
       const colors = item[mode];
       const name = 'statusTail' + item.id[0].toUpperCase() + item.id.slice(1) + mode[0].toUpperCase() + mode.slice(1);
       const selector = '.status-tail-ink.status-tail-' + item.id + '.status-tail-' + mode;
-      blocks.push(selector + '{animation-name:' + name + ';background-color:' + cssColor(colors[0]) + '}');
+      // 时长/方向也写进 CSS：运行时的内联样式万一没下发，动画也不会退化成静止。
+      blocks.push(selector + '{animation-name:' + name + ';animation-duration:' + item.speed + 's;'
+        + 'animation-direction:' + (['terminal', 'glitch'].includes(item.id) ? 'reverse' : 'normal') + ';'
+        + 'animation-iteration-count:infinite;animation-timing-function:linear;'
+        + 'background-color:' + cssColor(colors[0]) + '}');
       blocks.push('@keyframes ' + name + '{'
         + keyframeStops(colors).map(stop => formatPercent(stop.percent) + '{background-color:' + stop.color + '}').join('')
         + '}');

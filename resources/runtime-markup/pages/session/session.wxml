@@ -390,7 +390,7 @@
       <view class="progress-row status-look-{{statusAppearance}}">
         <!-- 鲸尾用 mask 裁轮廓 + background-color 关键帧着色：颜色是普通色值，与文字同一套 sRGB 插值，
              iOS WebKit 与 Chromium 渲染一致（早先用 CSS filter 染色时 iOS 会明显偏亮偏绿）。 -->
-        <view class="status-tail"><view class="status-tail-ink status-tail-{{statusAppearance}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" style="{{theme === 'dark' ? statusDarkTailAnimationStyle : statusLightTailAnimationStyle}}animation-delay:{{statusFlowDelay}}s;"/></view>
+        <view class="status-tail"><view class="status-tail-ink status-tail-js status-tail-{{statusAppearance}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" style="background-color:{{statusTailColor}};"/></view>
         <view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? statusDarkStyle : statusLightStyle}}animation-delay:{{statusFlowDelay}}s;">{{runPhrase}}{{ui['，用时']}} {{runElapsedText}}…</text></view>
       </view>
     </view>
@@ -2314,7 +2314,7 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
         <view class="conv-sidebar-workspace {{item.containsCurrent ? 'current' : ''}}" bindtap="toggleConvSidebarGroup" data-id="{{item.id}}" hover-class="conv-sidebar-press" role="button" aria-expanded="{{item.expanded}}" aria-label="{{item.title}}">
           <image class="conv-sidebar-folder" src="/assets/icons/{{item.ungrouped ? (theme === 'dark' ? 'tray-white.svg' : 'tray-ink.svg') : (item.containsCurrent ? 'workspace-folder-blue.svg' : (theme === 'dark' ? 'workspace-folder-white.svg' : 'workspace-folder-ink.svg'))}}" mode="aspectFit"/>
           <text class="conv-sidebar-workspace-title">{{item.title}}</text>
-          <view wx:if="{{!item.ungrouped}}" class="conv-sidebar-new tap" catchtap="createConvSidebarSession" data-id="{{item.id}}" hover-class="conv-sidebar-press" role="button" aria-label="{{ui['新会话']}} {{item.title}}"><image class="conv-sidebar-new-ic" src="/assets/icons/{{theme === 'dark' ? 'dsh-new-session-white.svg' : 'dsh-new-session-ink.svg'}}" mode="aspectFit"/></view>
+          <view wx:if="{{!item.ungrouped}}" class="conv-sidebar-new tap" catchtap="createConvSidebarSession" data-id="{{item.id}}" hover-class="conv-sidebar-press" role="button" aria-label="{{ui['新会话']}} {{item.title}}"><view class="conv-sidebar-new-ic"/></view>
           <image class="conv-sidebar-chev {{item.expanded ? 'open' : ''}}" src="/assets/icons/chev-down-gray.png" mode="aspectFit"/>
         </view>
         <block wx:if="{{item.expanded}}">

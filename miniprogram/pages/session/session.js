@@ -127,6 +127,7 @@ Page({
     ...settingsGlassStylePreference.view(),
     ...sessionCardStylePreference.view(),
     statusFlowDelay: 0,
+    statusTailColor: '',
     publicAccessDialog: null,
     publicAccessDialogOpen: false,
     turnUsageSheet: null, turnUsageOpen: false, turnUsagePos: null,
@@ -1561,15 +1562,39 @@ Page({
     return this.buildRunHeaderFromCounts(elapsed);
   },
 
+  /** 鲸尾颜色：与设置页预览同一套采样算法，JS 直接写内联色值，不依赖 CSS 关键帧。 */
+  startStatusTailTicker() {
+    if (this._statusTailTimer) return;
+    this.paintStatusTail();
+    this._statusTailTimer = setInterval(() => this.paintStatusTail(), 100);
+  },
+
+  stopStatusTailTicker() {
+    if (this._statusTailTimer) { clearInterval(this._statusTailTimer); this._statusTailTimer = null; }
+  },
+
+  paintStatusTail() {
+    if (this._unloaded || !this.data.running) return;
+    const colors = this.data.theme === 'dark' ? this.data.statusColorsDark : this.data.statusColors;
+    const speed = Number(this.data.statusSpeed) || 4;
+    const anchor = this._runStart || Date.now();
+    const raw = (((Date.now() - anchor) / 1000 / speed) % 1 + 1) % 1;
+    const phase = this.data.statusReverse ? 1 - raw : raw;
+    const color = statusAppearance.sampleColor(colors, phase);
+    if (color && color !== this.data.statusTailColor) this.setData({ statusTailColor: color });
+  },
+
   syncRunningStrip(rows, running) {
     if (!running) {
       this._lastRunSeconds = this.data.runSeconds || this._lastRunSeconds || 0;
       if (this._runTimer) { clearInterval(this._runTimer); this._runTimer = null; }
+      this.stopStatusTailTicker();
       if (this.data.runPhrase || this.data.runSeconds) {
         this.setData({ runPhrase: '', runSeconds: 0, runElapsedText: '', runHeader: '' });
       }
       return;
     }
+    this.startStatusTailTicker();
     if (!this._runTimer) {
       // 起始时间 = 最近一条用户消息时间（对齐 iOS DeepSearchProgressRow）
       const s = store.sessionState;
