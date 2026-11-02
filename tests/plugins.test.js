@@ -423,10 +423,11 @@ test('plugin list renders 异常 / 可更新 badges and updates through the inst
   assert.match(wxss, /\.plugin-badge-update \{[^}]*color: #7E9AF2/);
 });
 
-test('subagent settings no longer expose the model selection section', () => {
+test('subagent settings expose the model selection section', () => {
   const form = fs.readFileSync(path.resolve(__dirname, '../miniprogram/plugin-settings/settings-form.wxml'), 'utf8');
-  assert.ok(!form.includes('subagentModelSelectionTitle'), 'model selection heading removed');
-  assert.ok(!form.includes('onModelSelectionChange'), 'model selection toggle removed');
+  assert.ok(form.includes('subagentModelSelectionTitle'), 'model selection heading is back');
+  assert.ok(form.includes('onModelSelectionChange'), 'model selection toggle is back');
+  assert.ok(form.includes('onConfigModelToggle'), 'per-model checkboxes are back');
   assert.ok(form.includes('subagentLimitsTitle'), 'runtime limits stay');
 });
 

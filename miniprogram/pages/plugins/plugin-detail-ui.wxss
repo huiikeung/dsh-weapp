@@ -372,3 +372,17 @@
 .config-field.is-row .config-select.is-disabled { opacity: .5; }
 
 .config-field.is-row .config-select { width: 46%; flex: none; box-sizing: border-box; }
+
+/* 子智能体 · 模型选择（对齐 DSH 客户端插件页） */
+.config-model-toggle { align-items: center; }
+.config-model-allowed { margin-top: 20rpx; }
+.config-model-panel { margin-top: 10rpx; border: 1rpx solid var(--pd-divider, rgba(255,255,255,0.16)); border-radius: 20rpx; overflow: hidden; }
+.config-model-scroll { max-height: 52vh; padding: 6rpx 24rpx 12rpx; box-sizing: border-box; }
+.config-model-group { display: block; margin: 18rpx 0 6rpx; font-size: 25rpx; font-weight: 600; color: var(--pd-text, #FFFFFF); }
+.config-model { display: flex; align-items: flex-start; gap: 16rpx; padding: 16rpx 0; }
+.config-model checkbox { flex: none; transform: scale(0.86); transform-origin: left top; margin-top: 2rpx; }
+.config-model-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4rpx; }
+.config-model-name { font-size: 28rpx; color: var(--pd-text, #FFFFFF); }
+.config-model-sub { font-size: 23rpx; color: var(--pd-text2, rgba(235,235,245,0.6)); overflow-wrap: anywhere; }
+.config-model-empty { display: block; padding: 16rpx 0; }
+.config-model-retry { margin-top: 12rpx; }
