@@ -406,10 +406,10 @@ page {
 /* ---------- 品牌图标 ---------- */
 
 .brand-whale {
-  width: 58rpx;
-  height: 58rpx;
-  margin-right: 7rpx;      /* 缩小一半 */
-  margin-top: -8rpx;      /* 下移一点，与文字基线视觉对齐 */
+  width: 52rpx;
+  height: 52rpx;
+  margin-right: 6rpx;
+  margin-top: -7rpx;      /* 下移一点，与文字基线视觉对齐 */
   flex-shrink: 0;
 }
 

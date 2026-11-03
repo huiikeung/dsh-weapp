@@ -5643,21 +5643,29 @@ overscroll-behavior-y: auto;
 .conv-sidebar-brand {
   display: flex;
   align-items: center;
-  gap: 10rpx;
+  gap: 0;
   padding: 16rpx 32rpx 18rpx;
   flex-shrink: 0;
 }
-.conv-sidebar-whale { width: 46rpx; height: 40rpx; flex: none; }
-.conv-sidebar-wordmark { height: 32rpx; width: 172rpx; flex: none; }
+/* 与首页顶栏同一套品牌尺寸：鲸鱼 58×58、词标 104rpx、徽标 19rpx */
+.conv-sidebar-whale { width: 52rpx; height: 52rpx; margin-right: 6rpx; margin-top: -7rpx; flex: none; }
+.conv-sidebar-wordmark { width: 104rpx; height: auto; margin-right: 18rpx; flex: none; }
 .conv-sidebar-badge {
-  margin-left: 2rpx;
-  padding: 2rpx 8rpx;
-  border-radius: 6rpx;
+  display: flex;
+  align-items: center;
+  height: 32rpx;
+  box-sizing: border-box;
+  margin-left: 0;
+  padding: 0 10rpx;
+  border-radius: 8rpx;
   border: 1rpx solid currentColor;
-  font-size: 16rpx;
-  line-height: 1.4;
+  font-size: 19rpx;
+  line-height: 1;
   color: var(--text);
-  letter-spacing: 0.5rpx;
+  letter-spacing: 1rpx;
+  /* 徽标描边盒比词标低，按视觉中心上提对齐（首页顶栏徽标同样略低于词标约 1px） */
+  position: relative;
+  top: 2rpx;
 }
 .conv-sidebar-item {
   display: flex;

@@ -123,10 +123,10 @@ page {
 }
 
 .drawer-whale {
-  width: 58rpx;
-  height: 58rpx;
-  margin-right: 7rpx;      /* 缩小一半，与首页一致 */
-  margin-top: -8rpx;
+  width: 52rpx;
+  height: 52rpx;
+  margin-right: 6rpx;
+  margin-top: -7rpx;
   flex: none;
 }
 

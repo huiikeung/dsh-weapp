@@ -5346,21 +5346,27 @@ backdrop-filter: blur(var(--glass-composer-blur, 20px)) saturate(1.05);
 .conv-sidebar-brand {
 display: flex;
 align-items: center;
-gap: 10rpx;
+gap: 0;
 padding: 16rpx 32rpx 18rpx;
 flex-shrink: 0;
 }
-.conv-sidebar-whale { width: 46rpx; height: 40rpx; flex: none; }
-.conv-sidebar-wordmark { height: 32rpx; width: 172rpx; flex: none; }
+.conv-sidebar-whale { width: 52rpx; height: 52rpx; margin-right: 6rpx; margin-top: -7rpx; flex: none; }
+.conv-sidebar-wordmark { width: 104rpx; height: auto; margin-right: 18rpx; flex: none; }
 .conv-sidebar-badge {
-margin-left: 2rpx;
-padding: 2rpx 8rpx;
-border-radius: 6rpx;
+display: flex;
+align-items: center;
+height: 32rpx;
+box-sizing: border-box;
+margin-left: 0;
+padding: 0 10rpx;
+border-radius: 8rpx;
 border: 1rpx solid currentColor;
-font-size: 16rpx;
-line-height: 1.4;
+font-size: 19rpx;
+line-height: 1;
 color: var(--text);
-letter-spacing: 0.5rpx;
+letter-spacing: 1rpx;
+position: relative;
+top: 2rpx;
 }
 .conv-sidebar-item {
 display: flex;

@@ -91,10 +91,10 @@ padding: 0 0 32rpx 24rpx;
 width: 100%;
 }
 .drawer-whale {
-width: 58rpx;
-height: 58rpx;
-margin-right: 7rpx;
-margin-top: -8rpx;
+width: 52rpx;
+height: 52rpx;
+margin-right: 6rpx;
+margin-top: -7rpx;
 flex: none;
 }
 .drawer-brand-badge {
