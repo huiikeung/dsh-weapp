@@ -223,3 +223,13 @@ test('aborted and completed turns never render the error card', () => {
   assert.equal(done.failed, false);
   assert.equal(done.failureMessage, '');
 });
+
+test('leaving a running session stops the status ticker so repeated returns cannot pile up timers', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
+  const start = source.indexOf('  onUnload() {');
+  const end = source.indexOf('  retainSessionView()', start);
+  assert.ok(start > 0 && end > start, 'onUnload body is present');
+  const unload = source.slice(start, end);
+  assert.match(unload, /stopStatusTailTicker\(\)/, 'the status tail interval is cleared on unload');
+  assert.match(unload, /clearInterval\(this\._runTimer\)/, 'the running strip timer is cleared on unload');
+});

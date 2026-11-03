@@ -1,5 +1,17 @@
 # 更新记录
 
+## v0.9.112 — 2026-11-03
+
+- 修复「进行中的会话返回首页会卡住、之后点击无响应」：
+  - 会话页 onUnload 没有停掉状态条鲸尾的 80ms 定时器。只有运行中的会话才会启动它，paintStatusTail 里的 _unloaded 判断救不了 interval，反复进出会累积定时器拖死 JS 线程。现在卸载时显式 stopStatusTailTicker()，并补了回归测试。
+  - 首页每收到一次 store 更新就整页重算列表；运行中会话返回首页后 store 仍在流式输出，列表每帧重建。现在给首页加列表签名短路，只重算真正影响列表的字段（连接状态、工作区、会话列表、搜索、归档等）；语言切换与分区折叠强制重绘，断线提示仍立即生效。
+- 主包代码质量与体积：
+  - voice-overlay 只被会话页使用，整体移入 pages/session/components/。
+  - dsh-switch 只被 4 个子包使用，源文件放 resources/components/dsh-switch，构建前由 scripts/sync-subpackage-components.cjs 生成到各子包（已挂到 stamp-build）。
+  - ocean-particles.js（约 50 KB，仅供脚本/测试）移出主包到 resources/ocean/，同步更新生成脚本与测试路径。
+  - 主包「未使用的 JS / 未使用的组件」清零，主包体积相应减少。
+- 全量 Node 测试：1464 项、1451 通过、13 项环境依赖跳过、0 失败。
+
 ## v0.9.111 — 2026-11-03
 
 - 语音输入粒子修复：运行中的会话流式 setData 很密，voice-overlay 的 canvas 可能晚一帧才挂上，原实现查不到节点就直接放弃，导致只有色块没有粒子。现改为有限重试（40ms × 12），隐藏/松手时清理定时器。

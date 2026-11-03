@@ -4,12 +4,12 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const root = path.resolve(__dirname, '../miniprogram');
-const { createField, drawField, paletteInk } = require('../miniprogram/components/voice-overlay/voice-field');
+const { createField, drawField, paletteInk } = require('../miniprogram/pages/session/components/voice-overlay/voice-field');
 function fixture(options = {}) {
   let definition, id = 0, emptyQueries = options.emptyQueries || 0; const timers = new Map(), frames = new Map(), queries = [], arcs = [];
   const ctx = { scale() {}, clearRect() { arcs.length = 0; }, beginPath() {}, fill() {}, arc(...args) { arcs.push(args); } };
   const canvas = { getContext: () => ctx, requestAnimationFrame(fn) { frames.set(++id, fn); return id; }, cancelAnimationFrame(key) { frames.delete(key); } };
-  const file = path.join(root, 'components/voice-overlay/voice-overlay.js');
+  const file = path.join(root, 'pages/session/components/voice-overlay/voice-overlay.js');
   vm.runInNewContext(fs.readFileSync(file, 'utf8'), { Component: value => { definition = value; }, Date, wx: { getWindowInfo: () => ({ pixelRatio: 3 }) },
     require: name => require(path.resolve(path.dirname(file), name)),
     setTimeout(fn, delay) { timers.set(++id, { fn, delay }); return id; }, clearTimeout(key) { timers.delete(key); } });
@@ -58,8 +58,8 @@ test('rapid release/repress invalidates pending canvas callbacks and keeps one a
   f.update({visible:false}); f.definition.lifetimes.detached.call(f.component); assert.equal(f.frames.size,0); assert.equal(f.timers.size,0);
 });
 test('overlay covers safe area, masks particles and hides the entire composer dock without unmounting', () => {
-  const css=fs.readFileSync(path.join(root,'components/voice-overlay/voice-overlay.wxss'),'utf8');
-  const xml=fs.readFileSync(path.join(root,'components/voice-overlay/voice-overlay.wxml'),'utf8');
+  const css=fs.readFileSync(path.join(root,'pages/session/components/voice-overlay/voice-overlay.wxss'),'utf8');
+  const xml=fs.readFileSync(path.join(root,'pages/session/components/voice-overlay/voice-overlay.wxml'),'utf8');
   const page=fs.readFileSync(path.join(root,'pages/session/session.wxml'),'utf8');
   assert.ok(css.includes('height:40vh')); assert.ok(css.includes('transparent 71.9%,#000 72%'));
   assert.ok(css.includes('.voice-overlay.leaving { opacity:0; visibility:visible; transform:translateY(0); transition:opacity 280ms'));

@@ -2,7 +2,7 @@
   "navigationStyle": "custom",
   "backgroundColor": "@bgColor",
   "usingComponents": {
-    "dsh-switch": "/components/dsh-switch/dsh-switch"
+    "dsh-switch": "./components/dsh-switch/dsh-switch"
   },
   "disableScroll": true
 }

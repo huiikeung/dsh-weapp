@@ -3,7 +3,7 @@
   "navigationBarTextStyle": "@navTxtStyle",
   "disableScroll": true,
   "usingComponents": {
-    "voice-overlay": "/components/voice-overlay/voice-overlay",
+    "voice-overlay": "./components/voice-overlay/voice-overlay",
     "public-access-dialog": "/components/public-access-dialog/public-access-dialog"
   }
 }

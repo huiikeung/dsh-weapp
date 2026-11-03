@@ -5,6 +5,6 @@
   "navigationBarTextStyle": "@navTxtStyle",
   "backgroundColor": "@bgColor",
   "usingComponents": {
-    "dsh-switch": "/components/dsh-switch/dsh-switch"
+    "dsh-switch": "./components/dsh-switch/dsh-switch"
   }
 }

@@ -625,6 +625,10 @@ Page({
     this._traceSource = null;
     this._traceCache = null;
     this.stopScrollPolling();
+    // 运行中会话返回首页时，状态条鲸尾的 80ms 定时器必须在这里停掉：
+    // 只靠 paintStatusTail 里的 _unloaded 判断会让 interval 永久存活，
+    // 多次进出运行中会话后会累积多个定时器，界面开始卡住。
+    this.stopStatusTailTicker();
     if (this._runTimer) { clearInterval(this._runTimer); this._runTimer = null; }
     this._dockMeasurePending = false;
     if (this.unsubscribe) this.unsubscribe();

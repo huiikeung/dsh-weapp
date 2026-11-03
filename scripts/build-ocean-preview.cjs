@@ -104,7 +104,7 @@ function browserOceanModule(globalName, rendererSource, useParticles) {
   if (useParticles) {
     lines.splice(3, 0,
       '  var particlesModule = (function () { var module = { exports: {} };',
-      read('miniprogram/utils/ocean-particles.js'),
+      read('resources/ocean/ocean-particles.js'),
       '    return module.exports; })();');
   } else {
     lines.splice(3, 0, '  var particlesModule = null;');

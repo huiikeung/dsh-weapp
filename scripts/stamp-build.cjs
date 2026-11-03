@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const root = path.join(__dirname, '..', 'miniprogram');
+require('./sync-subpackage-components.cjs').build();
 require('./compact-runtime-markup.cjs').build();
 require('./check-miniprogram-package.cjs').check();
 const settingsBuild = path.join(root, 'pages/settings/utils/build.js');

@@ -243,7 +243,7 @@ Page({
     swiping: false
   },
 
-  onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }); },
+  onUiLocaleChange() { this.syncFromStore({ app: store.state, session: store.sessionState }, { force: true }); },
   onHomeScroll(e) {
     const top = Number(e && e.detail && e.detail.scrollTop);
     if (Number.isFinite(top)) this._homeScrollTop = top;
@@ -413,9 +413,37 @@ Page({
     if (this.unsubscribe) this.unsubscribe();
   },
 
-  syncFromStore(snapshot) {
+  /** 首页列表真正依赖的字段；只变会话正文（rows）时返回相同签名，跳过整页重算。 */
+  homeSyncSignature(snapshot) {
+    const app = (snapshot && snapshot.app) || {};
+    const workspaces = app.workspaces || [];
+    const sessions = app.sessions || [];
+    return JSON.stringify([
+      app.connection,
+      app.everConnected === true,
+      app.connectionMessage || '',
+      app.connectionErrorCode || '',
+      app.activeID || app.endpoint || '',
+      app.currentWorkspaceId || '',
+      app.isAllWorkspacesSelected === true,
+      app.isUngroupedWorkspaceSelected === true,
+      app.searchQuery || '',
+      (app.archivedSessionIds || []).length,
+      (app.searchResults || []).length,
+      workspaces.map((w) => [w.workspaceId, (w.sessionIds || []).length, w.title || '']).join('|'),
+      sessions.map((s) => [s.sessionId, s.running ? 1 : 0, s.updatedAt || 0,
+        s.blank ? 1 : 0, s.hasConversation === false ? 1 : 0]).join('|')
+    ]);
+  },
+
+  syncFromStore(snapshot, options) {
     // Stream updates still enter the store, but hidden pages must not rebuild lists.
     if (this._homeHidden) return;
+    const signature = this.homeSyncSignature(snapshot);
+    // 运行中的会话会持续产生 store 事件；列表依赖的数据没变就跳过整页重算，
+    // 否则返回首页时每一帧都在重建列表，界面会直接卡住。
+    if (signature === this._homeSyncSignatureDone && !(options && options.force)) return;
+    this._homeSyncSignatureDone = signature;
     this._lastSyncSnapshot = snapshot;
     const app = snapshot.app;
     const conn = app.connection;
@@ -975,7 +1003,7 @@ Page({
     this.expandedSectionIds = expanded;
     this.setData({ expandedSectionIds: expanded, swipeId: '', swipeOffset: 0 });
     const snapshot = this._lastSyncSnapshot || { app: store.state, session: store.sessionState };
-    this.syncFromStore(snapshot);
+    this.syncFromStore(snapshot, { force: true });
   },
 
   // ---------- 目录浏览器弹层（对齐 dsh-mobile v1.6.0 WorkspaceDirectoryBrowserSheet） ----------

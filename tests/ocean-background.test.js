@@ -284,7 +284,7 @@ test('the whale layers ship as compact vector assets rebuilt from the upstream m
   assert.equal(fs.existsSync(path.join(__dirname, '..', 'miniprogram', 'assets', 'ocean', 'whale-dots.svg')), false, 'the unsplit layer is replaced');
   const generator = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'generate-ocean-whale-asset.cjs'), 'utf8');
   assert.match(generator, /ocean-particles/, 'the asset derives from the dsh-mobile particle mask');
-  const dots = require('../miniprogram/utils/ocean-particles');
+  const dots = require('../resources/ocean/ocean-particles');
   assert.ok(dots.length > 1000 && dots.length < 3600);
   assert.ok(dots.some(p => p[0] > 0.9), 'tail extends to the right edge');
   for (const p of dots) { assert.equal(p.length, 6); assert.ok(p.every(Number.isFinite)); assert.ok(p[0] > 0 && p[0] < 1 && p[1] > 0 && p[1] < 1); }
