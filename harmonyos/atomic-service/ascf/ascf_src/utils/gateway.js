@@ -96,6 +96,7 @@ class GatewayClient {
     this.heartbeatTimer = null;
     this.heartbeatPending = false;
     this.heartbeatMisses = 0;
+    this.lastInboundAt = 0;          // 最近一次收到任何入站帧（心跳/自检判定「链路是否活着」用）
   }
 
   // ---------- 状态 ----------
@@ -179,6 +180,12 @@ class GatewayClient {
     }, function () {
       self.heartbeatPending = false;
       if (self.state !== 'connected') return;
+      // 会话页渲染/流式消息会把 JS 线程占住，pong 只是「晚到」而不是链路已死：
+      // 只要最近 30s 内有任何入站帧，就不计入 miss，避免误拆一条好连接。
+      if (self.lastInboundAt && Date.now() - self.lastInboundAt < 30000) {
+        self.heartbeatMisses = 0;
+        return;
+      }
       self.heartbeatMisses += 1;
       try {
         console.log('[gateway] heartbeat miss ' + self.heartbeatMisses + '/' + HEARTBEAT_MAX_MISSES);
@@ -266,6 +273,7 @@ class GatewayClient {
     // 记录拨号目标：内部 disconnect（换线路/取租赁）不清它，只有真正的
     // 失败/用户断开才清，避免拨号途中被重复触发拆掉。
     this.connectAttempt = this.connectSignature(endpoint, opts);
+    this.lastConnectReason = (opts && opts.reason) || 'unknown';
     if (!accessApi.isManagedRelay(endpoint)) return this.connectTransport(endpoint, opts);
     // Only our hosted relay is metered. LAN/direct/self-hosted connections keep
     // their existing behavior and never depend on the account server.
@@ -329,7 +337,7 @@ class GatewayClient {
     const localWsDevelopment = /^ws:\/\//i.test(rawEndpoint) &&
       accessConfig.allowLocalWs === true && hosts.isLocalHost(endpointHost);
     // 诊断：记录实际拨号地址（不含 token），便于对照服务端 101/非 101 结果。
-    try { console.log('[gateway] dial ' + rawEndpoint); } catch (e) { /* 无 console 环境忽略 */ }
+    try { console.log('[gateway] dial ' + rawEndpoint + ' reason=' + (this.lastConnectReason || 'unknown')); } catch (e) { /* 无 console 环境忽略 */ }
     // 先初始化候选链：ws:// 局域网候选被拒时要能继续回退到下一条线路（如托管中继）。
     this.endpoint = endpoint;
     this.initPairingChain(endpoint, opts);
@@ -425,8 +433,17 @@ class GatewayClient {
       try { console.log('[gateway] negotiate dsh-mobile-v1 lease=' + (leaseToken ? 'yes' : 'no') + ' pair=' + (header['X-DSH-Pair-Code'] ? 'yes' : 'no') + ' gw=' + (header['X-DSH-Gateway-Auth'] || 'no')); } catch (e) { /* 无 console 环境忽略 */ }
       // 不传 protocols：ASCF 传了会写出非法头；服务器已改为只在客户端真正提供
       // Sec-WebSocket-Protocol 时才回显，因此这里不能声明协议。
+      // 直连/局域网的首次配对：网关（0.8.x）只从 Sec-WebSocket-Protocol 或
+      // query.pairingCode 读一次性配对码，X-DSH-Pair-Code 头会被忽略（401）。
+      // ASCF 又不能在协议列表里带凭据，所以把配对码放进 query——否则局域网
+      // 首次配对必然 401，重试几次就表现为「局域网连不上/反复重连」。
+      let dialUrl = endpoint;
+      if (!opts.relay && this.pairingCode) {
+        const separator = String(endpoint).indexOf('?') >= 0 ? '&' : '?';
+        dialUrl = endpoint + separator + 'pairingCode=' + encodeURIComponent(this.pairingCode);
+      }
       const task = has.connectSocket({
-        url: endpoint,
+        url: dialUrl,
         header: header,
         fail: function (err) {
           if (transportTask && self.socketTask !== transportTask) return;
@@ -466,7 +483,7 @@ class GatewayClient {
         // 剩余有效期可能已经为 0（缓存租赁在拨号途中过期）：至少隔 5s 再刷新，
         // 否则会立刻重拨、形成毫秒级的「连上就重连」循环。
         self.publicLeaseTimer = setTimeout(() => {
-          if (self.wantsConnection) self.connect(self.endpoint, Object.assign({}, self.lastConnectOpts, { force: true }));
+          if (self.wantsConnection) self.connect(self.endpoint, Object.assign({}, self.lastConnectOpts, { force: true, reason: 'lease-refresh' }));
         }, Math.max(5000, serviceLease.expiresAt - Date.now()));
       }
       if (self.relayMeta) {
@@ -498,6 +515,7 @@ class GatewayClient {
       });
       transportTask.onMessage(function (res) {
       if (self.socketTask !== transportTask) return;
+      self.lastInboundAt = Date.now();
       if (self.relayMeta) {
         self.handleRelayMessage(res.data);
         return;
@@ -780,7 +798,7 @@ class GatewayClient {
     const self = this;
     setTimeout(function () {
       if (!self.wantsConnection || !self.endpoint) return;
-      self.connect(self.endpoint, self.lastConnectOpts || { token: self.lastToken || null });
+      self.connect(self.endpoint, Object.assign({}, self.lastConnectOpts || { token: self.lastToken || null }, { reason: 'lease-refresh' }));
     }, 0);
   }
 
@@ -818,7 +836,7 @@ class GatewayClient {
     this.reconnectTimer = setTimeout(function () {
       self.reconnectTimer = null;
       if (self.wantsConnection && self.endpoint) {
-        self.connect(self.endpoint, Object.assign({}, self.lastConnectOpts, { force: true }));
+        self.connect(self.endpoint, Object.assign({}, self.lastConnectOpts, { force: true, reason: 'bridge-teardown' }));
       }
     }, delay);
   }
@@ -840,7 +858,7 @@ class GatewayClient {
     this.reconnectTimer = setTimeout(function () {
       self.reconnectTimer = null;
       if (self.wantsConnection && self.endpoint) {
-        self.connect(self.endpoint, self.lastConnectOpts || { token: self.lastToken || null });
+        self.connect(self.endpoint, Object.assign({}, self.lastConnectOpts || { token: self.lastToken || null }, { reason: 'reconnect' }));
       }
     }, delay);
   }
@@ -974,8 +992,15 @@ class GatewayClient {
       // 诊断：密文帧被拒的形态（长度/首字节/计数），便于区分「中继控制帧/残帧」
       // 「重复帧」与真正的会话密钥不一致——这张日志是排查「反复重连」的关键线索。
       try {
+        let hex = '';
+        let ascii = '';
+        for (let i = 0; i < Math.min(bytes.length, 24); i += 1) {
+          hex += (bytes[i] < 16 ? '0' : '') + bytes[i].toString(16) + ' ';
+          ascii += bytes[i] >= 32 && bytes[i] < 127 ? String.fromCharCode(bytes[i]) : '.';
+        }
         console.log('[gateway] relay frame rejected: len=' + bytes.length + ' head=' + (bytes.length ? bytes[0] : -1) +
-          ' counter=' + session.packetCounter(bytes) + ' rx=' + session.rxCounter + ' reason=' + reason);
+          ' counter=' + session.packetCounter(bytes) + ' rx=' + session.rxCounter + ' reason=' + reason +
+          ' hex=' + hex.trim() + ' ascii=' + ascii);
       } catch (e) { /* 忽略 */ }
       // 非密文包（中继控制帧、被拆分的残片）和重复帧都不代表会话密钥坏了：
       // 直接丢弃即可，绝不能因此断开整条连接——否则一个杂帧就会触发一次重连，
@@ -1626,12 +1651,14 @@ class GatewayClient {
     // 公网中继下整包要经 E2EE 加密后单帧转发；移动端解密大帧会阻塞首屏。
     // 首屏进一步压到 12 条 / 128KB，先呈现最新记录；向上翻页仍保留 256KB。
     const relay = !!this.relayMeta;
-    const defaultMaxBytes = relay ? (tail ? 128 * 1024 : 256 * 1024) : 2 * 1024 * 1024;
+    // 局域网/直连也别一次要 2 MiB：超大单帧在手机 WebSocket 上容易触发
+    // 收包失败，表现就是「点开会话就断开」。先取小尾巴，往上滑再分页补齐。
+    const defaultMaxBytes = relay ? (tail ? 128 * 1024 : 256 * 1024) : (tail ? 256 * 1024 : 512 * 1024);
     const requestedMaxBytes = Number(maxBytesOverride);
     const payload = {
       type: 'history',
       sessionId: sessionId,
-      maxMessages: tail ? (relay ? 12 : 60) : 40,
+      maxMessages: tail ? (relay ? 12 : 30) : 40,
       maxBytes: Number.isSafeInteger(requestedMaxBytes)
         ? Math.min(2 * 1024 * 1024, Math.max(defaultMaxBytes, requestedMaxBytes))
         : defaultMaxBytes,
@@ -1710,9 +1737,10 @@ class GatewayClient {
   subscribe(sessionId, afterSeq) {
     this.activeSessionId = sessionId || null;
     if (sessionId) {
-      // 中继线路上订阅快照默认 1 MiB，整包加密后单帧转发，手机要等好几秒。
-      // 声明一个小预算：先拿到最新一小段立即可见，旧记录由上滑分页补。
-      const snapshotMaxBytes = this.relayMeta ? 128 * 1024 : undefined;
+      // 订阅快照别一次性塞满 1 MiB：中继要整包加密后单帧转发，手机端
+      // WebSocket 处理超大单帧也容易出问题（点开会话就掉线的来源之一）。
+      // 统一声明一个小预算：先拿到最新一小段立即可见，旧记录由上滑分页补。
+      const snapshotMaxBytes = 160 * 1024;
       const parent = this.sessionParents[sessionId];
       return this.send({ type: 'subscribe', sessionId: sessionId, assistantStream: true,
         ...(Number.isSafeInteger(afterSeq) && afterSeq >= 0 ? { afterSeq: afterSeq } : {}),

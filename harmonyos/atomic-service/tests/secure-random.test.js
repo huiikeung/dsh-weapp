@@ -516,7 +516,9 @@ test('timeout falls back with the same unconfirmed code to the next route', t =>
   assert.ok(fallback);
   clock.fire(fallback);
   assert.equal(sockets.length, 2);
-  assert.equal(sockets[1].options.url, 'wss://backup.example.test/ws/mobile');
+  // 直连/局域网首次配对：配对码走 query（网关只认协议头或 query，不认 ASCF 的自定义头）
+  assert.equal(sockets[1].options.url,
+    'wss://backup.example.test/ws/mobile?pairingCode=' + encodeURIComponent('pair-code'));
   // ASCF 运行时不声明子协议（否则会写出非法头/被回显中断），配对码保留在客户端状态，
   // 由 X-DSH-* 头在需要时携带。
   assert.equal(sockets[1].options.protocols, undefined);

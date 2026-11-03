@@ -256,7 +256,7 @@ const sessionState = {
             if (!rotationTimer) {
               rotationTimer = setTimeout(function () {
                 rotationTimer = null;
-                if (client.wantsConnection) reconnectPreferred({ force: true });
+                if (client.wantsConnection) reconnectPreferred({ force: true, reason: 'network' });
               }, 600);
             }
             emit();
@@ -281,7 +281,7 @@ const sessionState = {
               rotationTimer = setTimeout(function () {
                 rotationTimer = null;
                 if (client.wantsConnection && state.endpoint === next) {
-                  client.connect(next, Object.assign({}, connectOpts, { routeKind: nextMeta.kind, force: true }));
+                  client.connect(next, Object.assign({}, connectOpts, { routeKind: nextMeta.kind, force: true, reason: 'rotate' }));
                 }
               }, 3000);
             }
@@ -3592,7 +3592,8 @@ const sessionState = {
       candidateKinds: endpointCandidateMeta.map(candidate => candidate.kind),
       relayCandidates: endpointCandidateMeta.slice(1).map(candidate => candidate.relay || null),
       routeKind: primaryMeta.kind,
-      force: !!(options && options.force)
+      force: !!(options && options.force),
+      reason: (options && options.reason) || 'route'
     }));
     return true;
   }
@@ -3712,11 +3713,13 @@ const sessionState = {
         if (foregroundPing !== check) return;
         foregroundPing = null;
         if (!stillCurrent() || (error && error.message === 'stale')) return;
-        reconnectPreferred();
+        // 诊断：回前台自检连续两次 ping 失败才会走到这里
+        try { console.log('[store] foreground ping failed: ' + ((error && error.message) || '')); } catch (e) { /* 忽略 */ }
+        reconnectPreferred({ reason: 'foreground' });
       });
       return;
     }
-    reconnectPreferred();
+    reconnectPreferred({ reason: 'foreground' });
   }
 
   function selectHost(id) {
@@ -4020,7 +4023,7 @@ const sessionState = {
               // 局域网线路在蜂窝下一定不可达：直接按新网络重新选路（跳过 lan 族）。
               const routeDead = currentKind === 'lan' && family === 'cellular';
               if (state.connection === 'connected' && !routeDead) return;
-              reconnectPreferred({ force: true });
+              reconnectPreferred({ force: true, reason: 'network' });
             };
             if (info.networkType) apply();
             else refreshNetworkType(apply);
@@ -4042,7 +4045,7 @@ const sessionState = {
                   const profile = getProfile(state.activeID);
                   const credential = profile && hosts.loadCredential(profile.id);
                   const preferred = profile && profileCandidates(profile, undefined, credential)[0];
-                  if (preferred && preferred.endpoint !== current.endpoint) reconnectPreferred();
+                  if (preferred && preferred.endpoint !== current.endpoint) reconnectPreferred({ force: true, reason: 'network' });
                 }
               },
               fail: function () {}
