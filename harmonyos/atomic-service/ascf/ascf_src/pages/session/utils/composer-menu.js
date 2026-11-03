@@ -49,7 +49,7 @@ function catalog(groups, options) {
     { id: 'local:chat-image', name: 'chatImage', label: t('图库中的图片'), description: t('从系统图库选择图片'), searchText: 'chat image 图库 图片 相册 记录', icon: 'menu-chat-image.svg', action: 'chatImage', hasOptions: false },
     { id: 'local:workspace', name: 'workspace', label: t('工作区文件'), description: t('引用远端工作区文件'), searchText: 'workspace file 工作区 文件 引用 目录', icon: 'menu-folder.svg', action: 'workspace', hasOptions: false },
     { id: 'local:chat-file', name: 'chatFile', label: t('手机中的文件'), description: t('从系统文件选择器选择'), searchText: 'chat file 文件 系统 记录 附件', icon: 'menu-chat-file.svg', action: 'chatFile', hasOptions: false },
-    { id: 'local:external-file', name: 'externalFile', label: t('外部文件'), description: t('导入手机文件并上传到会话'), searchText: 'external upload file 外部 手机 文件 上传 导入', icon: 'menu-external-file.svg', action: 'externalFile', hasOptions: false }
+    { id: 'local:external-file', name: 'externalFile', label: t('外部文件'), description: t('从手机选择文件'), searchText: 'external upload file 外部 手机 文件 上传 导入', icon: 'menu-external-file.svg', action: 'externalFile', hasOptions: false }
   ] : [];
   const sections = [
     { id: 'add', title: t('添加'), items: attachRows.concat(pick(ADD)) },

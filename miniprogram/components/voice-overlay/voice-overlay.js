@@ -30,20 +30,37 @@ Component({
       this.ink = paletteInk(this.data.theme, this.data.cancelArmed);
       this.setData({ displayStatus: this.data.status, displayCancelArmed: this.data.cancelArmed });
       const generation = this._generation;
-      const mount = () => {
+      const mount = (attempt) => {
         if (generation !== this._generation || !this._ready || !this.data.visible) return;
         this.createSelectorQuery().select('#voice-particles').fields({ node: true, size: true }).exec(result => {
-        if (generation !== this._generation || !this._ready || !this.data.visible || !result[0] || !result[0].node) return;
-        this.canvas = result[0].node; this.ctx = this.canvas.getContext('2d');
-        this.width = result[0].width; this.height = result[0].height;
-        if (!this.width || !this.height) return;
-        let ratio = 2;
-        try { ratio = (wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync()).pixelRatio || 2; } catch (_) {}
-        this.canvas.width = this.width * ratio; this.canvas.height = this.height * ratio; this.ctx.scale(ratio, ratio);
-        this.field = createField(this.width, this.height); this._lastFrame = 0; this.draw();
+          if (generation !== this._generation || !this._ready || !this.data.visible) return;
+          const info = result && result[0];
+          // 运行中的会话 setData 很密，wx:if 的 canvas 可能晚一帧才挂上；这里做有限重试，
+          // 否则松手后画布一直找不到，就只剩静态色块、没有粒子。
+          if (!info || !info.node || !info.width || !info.height) {
+            this.scheduleMountRetry(mount, attempt, generation);
+            return;
+          }
+          const ctx = info.node.getContext('2d');
+          if (!ctx) { this.scheduleMountRetry(mount, attempt, generation); return; }
+          this.canvas = info.node; this.ctx = ctx;
+          this.width = info.width; this.height = info.height;
+          let ratio = 2;
+          try { ratio = (wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync()).pixelRatio || 2; } catch (_) {}
+          this.canvas.width = this.width * ratio; this.canvas.height = this.height * ratio; this.ctx.scale(ratio, ratio);
+          this.field = createField(this.width, this.height); this._lastFrame = 0; this.draw();
         });
       };
-      if (typeof wx.nextTick === 'function') wx.nextTick(mount); else mount();
+      if (typeof wx.nextTick === 'function') wx.nextTick(() => mount(0)); else mount(0);
+    },
+    scheduleMountRetry(mount, attempt, generation) {
+      if (attempt >= 12 || generation !== this._generation || !this.data.visible) return;
+      if (this._mountTimer) clearTimeout(this._mountTimer);
+      this._mountTimer = setTimeout(() => {
+        this._mountTimer = null;
+        if (generation !== this._generation || !this._ready || !this.data.visible) return;
+        mount(attempt + 1);
+      }, 40);
     },
     pushLevel(value) {
       if (!this.levels || !this.data.visible) return;
@@ -73,6 +90,7 @@ Component({
     },
     stop() {
       this._generation = (this._generation || 0) + 1;
+      if (this._mountTimer) { clearTimeout(this._mountTimer); this._mountTimer = null; }
       if (this.canvas && this._raf != null) this.canvas.cancelAnimationFrame(this._raf);
       this._raf = null;
       if (this.ctx) this.ctx.clearRect(0, 0, this.width || 0, this.height || 0);

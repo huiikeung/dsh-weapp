@@ -6649,12 +6649,9 @@ Page({
 
   chooseExternalFile() {
     if (!this.data.canAttach || this.data.attachmentPicking || this.data.sendingAttachments) return;
-    const context = this.composerContextKey();
+    // ASCF 运行在原生环境，chooseFile 直接拉起系统文件选择器，无需中转说明。
     this.closeAttachMenu();
-    has.showModal({ title: uiText('外部文件'),
-      content: uiText('将从系统文件选择器选择文件，复制到元服务缓存后上传。无需放入远端工作区。'),
-      confirmText: uiText('选择文件'),
-      success: result => { if (result.confirm && !this._unloaded && this.composerContextKey() === context) this.pickComposerFiles(); } });
+    this.pickComposerFiles();
   },
 
   pickComposerFiles() {

@@ -2526,5 +2526,11 @@
   "200 步": "200 steps",
   "300 步": "300 steps",
   "按大小": "By size",
-  "按名称": "By name"
+  "按名称": "By name",
+  "外部文件": "External files",
+  "微信小程序无法直接读取手机文件": "The WeChat mini program cannot read phone files directly",
+  "先把文件发送到微信聊天或文件传输助手": "First send the file to a WeChat chat or File Transfer",
+  "回到这里从聊天记录中选择并上传": "Come back here and pick it from the chat to upload",
+  "想直接选择手机文件？请使用鸿蒙原生版，那边支持系统文件选择器。": "Need to pick phone files directly? Use the HarmonyOS native app, which supports the system file picker.",
+  "选择聊天文件": "Choose chat file"
 }

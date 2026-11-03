@@ -213,6 +213,7 @@ export struct SessionPage {
       }
       Row() {
         TextArea({ text: this.draft, placeholder: '输入内容并发送到 DSH' })
+          .caretStyle({ width: 1 })
           .onChange((value: string) => {
             this.draft = value;
           })

@@ -146,6 +146,7 @@ export struct AppSettingsPage {
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
       TextInput({ text: value, placeholder: '默认' })
+        .caretStyle({ width: 1 })
         .width(120)
         .height(34)
         .fontSize(12)

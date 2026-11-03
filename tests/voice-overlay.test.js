@@ -5,8 +5,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 const root = path.resolve(__dirname, '../miniprogram');
 const { createField, drawField, paletteInk } = require('../miniprogram/components/voice-overlay/voice-field');
-function fixture() {
-  let definition, id = 0; const timers = new Map(), frames = new Map(), queries = [], arcs = [];
+function fixture(options = {}) {
+  let definition, id = 0, emptyQueries = options.emptyQueries || 0; const timers = new Map(), frames = new Map(), queries = [], arcs = [];
   const ctx = { scale() {}, clearRect() { arcs.length = 0; }, beginPath() {}, fill() {}, arc(...args) { arcs.push(args); } };
   const canvas = { getContext: () => ctx, requestAnimationFrame(fn) { frames.set(++id, fn); return id; }, cancelAnimationFrame(key) { frames.delete(key); } };
   const file = path.join(root, 'components/voice-overlay/voice-overlay.js');
@@ -15,7 +15,7 @@ function fixture() {
     setTimeout(fn, delay) { timers.set(++id, { fn, delay }); return id; }, clearTimeout(key) { timers.delete(key); } });
   const component = { ...definition.methods, data: { ...definition.data, visible: false, theme: 'light', cancelArmed: false, status: '' },
     setData(patch) { Object.assign(this.data, patch); },
-    createSelectorQuery() { return { select() { return this; }, fields() { return this; }, exec(fn) { queries.push(() => fn([{ node: canvas, width: 390, height: 337.6 }])); } }; } };
+    createSelectorQuery() { return { select() { return this; }, fields() { return this; }, exec(fn) { queries.push(() => fn(emptyQueries-- > 0 ? [{}] : [{ node: canvas, width: 390, height: 337.6 }])); } }; } };
   definition.lifetimes.ready.call(component);
   const update = patch => { Object.assign(component.data, patch); for (const key of Object.keys(patch)) if (definition.observers[key]) definition.observers[key].call(component, patch[key]); };
   return { component, definition, update, frames, timers, queries, arcs, canvas };
@@ -77,4 +77,27 @@ test('late audio and already queued animation cannot paint over the restored com
   assert.equal(f.frames.size,1); const current=f.component._raf; queued();
   assert.equal(f.component._raf,current); assert.equal(f.frames.size,1);
   f.definition.lifetimes.detached.call(f.component);
+});
+
+test('a late canvas mount during dense streaming retries instead of dropping the particles', () => {
+  const f = fixture({ emptyQueries: 2 });
+  f.update({ visible: true, status: '松手转文字 · 上滑取消' });
+  // 第一次查询时 canvas 还没挂上（运行中的会话 setData 密，可能晚一帧）。
+  f.queries.shift()();
+  assert.equal(f.canvas.width, undefined, 'no drawing before the node exists');
+  assert.equal(f.frames.size, 0);
+  assert.ok([...f.timers.values()].some(timer => timer.delay === 40), 'missing canvas schedules a retry');
+  for (let guard = 0; guard < 6; guard++) {
+    const retry = [...f.timers.entries()].find(([, timer]) => timer.delay === 40);
+    if (!retry) break;
+    f.timers.delete(retry[0]); retry[1].fn();
+    const query = f.queries.shift();
+    if (query) query();
+  }
+  assert.equal(f.canvas.width, 1170);
+  assert.equal(f.arcs.length, 585);
+  assert.equal(f.frames.size, 1);
+  f.definition.lifetimes.detached.call(f.component);
+  assert.equal(f.frames.size, 0);
+  assert.equal(f.timers.size, 0);
 });

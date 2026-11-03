@@ -318,6 +318,7 @@ Page({
     commandError: '',
     ...voicePreference.view(),
     voicePhase: 'idle', voiceOverlayVisible: false, voiceCancelArmed: false, voiceStatus: '',
+    externalFileSheet: false,
     voiceTyping: false, composerFocus: false, voicePendingText: '',
     convBottomInset: 520,   // 首帧安全默认值：真实高度由 dock 测量校准
     statsSheet: [],
@@ -6563,12 +6564,19 @@ Page({
 
   chooseExternalFile() {
     if (!this.data.canAttach || this.data.attachmentPicking || this.data.sendingAttachments) return;
-    const context = this.composerContextKey();
+    // 微信小程序没有系统文件选择器：这里用自绘说明弹窗讲清楚路径，再进聊天文件选择。
     this.closeAttachMenu();
-    wx.showModal({ title: uiText('外部文件'),
-      content: uiText('请先将手机或其他应用中的文件发送到微信聊天或文件传输助手，再从这里选择上传。无需放入远端工作区。'),
-      confirmText: uiText('选择文件'),
-      success: result => { if (result.confirm && !this._unloaded && this.composerContextKey() === context) this.pickComposerFiles(); } });
+    this.setData({ externalFileSheet: true });
+  },
+
+  closeExternalFileSheet() {
+    if (this.data.externalFileSheet) this.setData({ externalFileSheet: false });
+  },
+
+  confirmExternalFile() {
+    if (!this.data.externalFileSheet) return;
+    this.setData({ externalFileSheet: false });
+    this.pickComposerFiles();
   },
 
   pickComposerFiles() {

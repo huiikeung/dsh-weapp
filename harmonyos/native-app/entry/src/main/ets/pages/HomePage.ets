@@ -455,6 +455,7 @@ export struct HomePage {
         if (this.newFolderOpen) {
           Row({ space: 8 }) {
             TextInput({ text: this.newFolderName, placeholder: '文件夹名称' })
+              .caretStyle({ width: 1 })
               .layoutWeight(1)
               .height(40)
               .fontSize(13)
@@ -776,6 +777,7 @@ export struct HomePage {
 
           Column() {
             TextInput({ text: this.editAlias, placeholder: this.gatewayName })
+              .caretStyle({ width: 1 })
               .fontSize(15)
               .fontColor('#FFFFFF')
               .placeholderColor('rgba(255,255,255,0.35)')
@@ -1044,6 +1046,7 @@ export struct HomePage {
           .padding({ left: 12, right: 12, top: 10 })
 
           TextArea({ text: this.manualText, placeholder: '粘贴 Base64URL 配对字符串或完整配对信息' })
+            .caretStyle({ width: 1 })
             .height(this.keyboardHeightVp > 0 ? 64 : 120)
             .fontSize(13)
             .fontColor('#FFFFFF')
@@ -1448,6 +1451,7 @@ export struct HomePage {
               .height(15)
               .fillColor(this.isDark ? 'rgba(255,255,255,0.5)' : 'rgba(16,19,24,0.4)')
             TextInput({ text: this.search, placeholder: '搜索会话内容' })
+              .caretStyle({ width: 1 })
               .fontSize(15)
               .fontColor(this.isDark ? '#FFFFFF' : '#101318')
               .placeholderColor(this.isDark ? 'rgba(255,255,255,0.5)' : 'rgba(16,19,24,0.4)')

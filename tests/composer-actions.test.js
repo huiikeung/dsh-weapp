@@ -746,7 +746,7 @@ test('the composer renders a reference chip row above the textarea with typed ic
   const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const start = wxml.lastIndexOf('<view hidden="{{!composerRefs.length}}"', wxml.indexOf('class="composer-refs'));
   // 目标卡片的就地编辑框也是一个 textarea，按 composer-input 精确定位输入框。
-  const composerAt = wxml.lastIndexOf('<textarea', wxml.indexOf('class="composer-input"'));
+  const composerAt = wxml.lastIndexOf('<textarea', wxml.indexOf('class="composer-input '));
   const row = wxml.slice(start, composerAt);
   assert.match(row, /<view hidden="\{\{!composerRefs.length\}\}" class="composer-refs/);
   assert.match(row, /wx:for="\{\{composerRefs\}\}" wx:key="key"/);
@@ -875,4 +875,27 @@ test('queue thumbnail urls survive queue frame rebuilds so streaming does not fl
   assert.match(src, /this\._queueThumbUrls = new Map\(\)/);
   assert.match(src, /const rememberedUrl = attachmentId \? \(this\._queueThumbUrls\.get\(attachmentId\) \|\| ''\) : ''/);
   assert.match(src, /this\._queueThumbUrls\.set\(id, path\)/);
+});
+
+test('attachment rows carry a right-aligned hint and the external file sheet explains the WeChat limit', () => {
+  const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  assert.match(wxml, /<text wx:if="\{\{command.description\}\}" class="command-desc">/,
+    'local action rows show the same right-aligned hint as commands');
+  assert.ok(!wxml.includes('!command.action && command.description'));
+  const menu = require('../miniprogram/pages/session/utils/composer-menu');
+  const sections = menu.catalog([], { t: text => text, dark: false, canAttach: true, includeSkills: false });
+  const external = sections[0].items.find(item => item.name === 'externalFile');
+  assert.equal(external.description, '其他应用文件请先发到微信');
+
+  const { page } = fixture();
+  let picked = 0; page.pickComposerFiles = () => { picked += 1; };
+  page.chooseExternalFile();
+  assert.equal(page.data.externalFileSheet, true);
+  page.confirmExternalFile();
+  assert.equal(page.data.externalFileSheet, false);
+  assert.equal(picked, 1);
+  page.chooseExternalFile();
+  page.closeExternalFileSheet();
+  assert.equal(page.data.externalFileSheet, false);
+  assert.equal(picked, 1);
 });

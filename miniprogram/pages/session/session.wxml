@@ -1500,7 +1500,7 @@
 <view wx:for="{{group.items}}" wx:key="id" wx:for-item="command" class="command-row" bindtap="selectCommand" data-name="{{command.name}}" data-id="{{command.id}}" data-action="{{command.action}}" role="button" aria-label="{{command.label}} {{command.name}} {{command.description}}" hover-class="command-row-pressed" hover-start-time="0" hover-stay-time="100">
 <view class="command-menu-icon-slot"><image class="command-menu-icon {{command.action ? 'command-monochrome' : ''}}" mode="aspectFit" src="/assets/icons/{{command.icon}}"/></view>
 <view class="command-identity"><text class="command-name">{{command.label}}</text><text wx:if="{{command.label !== '/' + command.name && !command.action}}" class="command-alias">{{command.name}}</text></view>
-<text wx:if="{{!command.action && command.description}}" class="command-desc">{{command.description}}</text>
+<text wx:if="{{command.description}}" class="command-desc">{{command.description}}</text>
 </view>
 </block>
 <view wx:if="{{!commandMenu.groups.length && !commandLoading && !commandPaletteLoading}}" class="command-empty">{{ui['没有匹配的命令']}}</view>
@@ -1569,7 +1569,7 @@
 <view class="voice-input-wrap">
 <view class="composer-input-row composer-live {{composerPreview ? 'previewing' : ''}}">
 <text class="composer-token-measure" id="composer-token-measure">{{commandTokenLabel}} </text>
-<view wx:if="{{commandToken}}" class="composer-token-overlay" aria-hidden="true"><text class="composer-slash-token">{{commandTokenLabel}} </text></view>
+<view wx:if="{{commandToken}}" class="composer-token-overlay" aria-hidden="true"><text class="composer-slash-token">{{commandTokenLabel}} </text><text wx:if="{{!draftArg}}" class="composer-command-hint">{{ui[composerPlaceholder] !== undefined ? ui[composerPlaceholder] : composerPlaceholder}}</text></view>
 <scroll-view hidden="{{!(composerPreview && composerPreviewBlocks.length)}}" class="composer-veil {{composerPreview && composerPreviewBlocks.length ? 'on' : ''}}" scroll-y enhanced show-scrollbar="{{false}}" bindtap="exitComposerPreviewEdit">
 <view class="composer-veil-inner">
 <template is="mdBlocks" data="{{blocks: composerPreviewBlocks, rowKey: 'live'}}"/>
@@ -1583,9 +1583,9 @@
 </view>
 </view>
 <textarea
-      class="composer-input"
+      class="composer-input {{commandToken && !draftArg ? 'is-token-empty' : ''}}"
       style="height:{{composerInputHeightPx}}px;{{commandToken ? 'padding-left:' + composerTokenPad + 'px;' : ''}}"
-      placeholder="{{ui[composerPlaceholder] !== undefined ? ui[composerPlaceholder] : composerPlaceholder}}"
+      placeholder="{{commandToken && !draftArg ? '' : (ui[composerPlaceholder] !== undefined ? ui[composerPlaceholder] : composerPlaceholder)}}"
       placeholder-class="composer-placeholder"
       placeholder-style="{{theme === 'dark' ? 'color:rgba(241,244,250,0.36)' : 'color:rgba(16,19,24,0.28)'}}"
       value="{{composerValue}}"
@@ -2115,6 +2115,25 @@ role="button" aria-pressed="{{e.current}}" hover-class="model-row-pressed" hover
 <view class="turn-usage-row"><text class="turn-usage-label">{{ui['缓存写入']}}</text><text class="turn-usage-value">{{turnUsageSheet.cacheWrite}} tok</text></view>
 <view class="turn-usage-row"><text class="turn-usage-label">{{ui['输出']}}</text><text class="turn-usage-value">{{turnUsageSheet.output}} tok</text></view>
 </view>
+</view>
+</view>
+<view wx:if="{{externalFileSheet}}" class="sheet-mask ext-file-mask" catchtap="closeExternalFileSheet" catchtouchmove="noop">
+<view class="sheet ext-file-sheet" catchtap="noop" role="dialog" aria-label="{{ui['外部文件']}}">
+<view class="sheet-handle"></view>
+<view class="ext-file-head">
+<view class="ext-file-icon"><image src="/assets/icons/menu-external-file.svg" mode="aspectFit"/></view>
+<view class="ext-file-copy">
+<text class="ext-file-title">{{ui['外部文件']}}</text>
+<text class="ext-file-sub">{{ui['微信小程序无法直接读取手机文件']}}</text>
+</view>
+</view>
+<view class="ext-file-steps">
+<view class="ext-file-step"><text class="ext-file-step-no">1</text><text class="ext-file-step-text">{{ui['先把文件发送到微信聊天或文件传输助手']}}</text></view>
+<view class="ext-file-step"><text class="ext-file-step-no">2</text><text class="ext-file-step-text">{{ui['回到这里从聊天记录中选择并上传']}}</text></view>
+</view>
+<text class="ext-file-note">{{ui['想直接选择手机文件？请使用鸿蒙原生版，那边支持系统文件选择器。']}}</text>
+<view class="ext-file-primary" bindtap="confirmExternalFile" hover-class="press-dim" role="button">{{ui['选择聊天文件']}}</view>
+<view class="ext-file-cancel" bindtap="closeExternalFileSheet" hover-class="press-dim" role="button">{{ui['取消']}}</view>
 </view>
 </view>
 <voice-overlay id="voice-overlay" visible="{{voiceOverlayVisible && tab === 'conversation'}}" theme="{{theme}}" cancel-armed="{{voiceCancelArmed}}" status="{{voiceStatus}}" />

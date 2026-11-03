@@ -84,6 +84,7 @@ export struct SettingsPage {
                 this.scanPairing();
               })
             TextInput({ text: this.payloadText, placeholder: '粘贴配对载荷（Base64）' })
+              .caretStyle({ width: 1 })
               .onChange((value: string) => {
                 this.payloadText = value;
               })
@@ -99,6 +100,7 @@ export struct SettingsPage {
                 this.connectByPayload();
               })
             TextInput({ text: this.wsUrl, placeholder: 'wss://…' })
+              .caretStyle({ width: 1 })
               .onChange((value: string) => {
                 this.wsUrl = value;
               })
@@ -107,6 +109,7 @@ export struct SettingsPage {
               .backgroundColor(this.fieldBg())
               .borderRadius(10)
             TextInput({ text: this.pairCode, placeholder: '配对码（可空）' })
+              .caretStyle({ width: 1 })
               .onChange((value: string) => {
                 this.pairCode = value;
               })

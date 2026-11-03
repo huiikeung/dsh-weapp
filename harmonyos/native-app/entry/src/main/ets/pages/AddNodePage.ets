@@ -422,6 +422,7 @@ export struct AddNodePage {
           .width('100%')
           .padding({ left: 12, right: 12, top: 10 })
           TextArea({ text: this.manualText, placeholder: '粘贴 Base64URL 配对字符串或完整配对信息' })
+            .caretStyle({ width: 1 })
             .height(110)
             .fontSize(13)
             .fontColor('#FFFFFF')

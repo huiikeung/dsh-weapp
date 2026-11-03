@@ -978,7 +978,11 @@ to{transform:translateX(340%)}
   white-space: pre; pointer-events: none;
 }
 .composer-token-measure { visibility: hidden; }
-.composer-token-overlay { color: var(--ocean); }
+.composer-token-overlay { display: flex; align-items: flex-start; color: var(--ocean); }
+.composer-token-overlay .composer-slash-token { font-size: 28rpx; line-height: 39rpx; }
+.composer-command-hint { font-size: 28rpx; line-height: 39rpx; color: rgba(16, 19, 24, 0.28); }
+.theme-dark .composer-command-hint { color: rgba(241, 244, 250, 0.36); }
+.composer-input.is-token-empty { color: transparent; }
 /* 引用 chip（对话 / 文件夹 / 文件）：与指令 chip 同一语言——只保留图标 + 主色
    文字，不加背景；排在输入框上方，多个引用自动换行。蓝色取桌面端引用芯片的
    #5483E8，暗色主题提亮保证对比度。 */
@@ -5755,4 +5759,117 @@ overscroll-behavior-y: auto;
   -webkit-mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2016%2016%27%20fill%3D%27none%27%20stroke%3D%27black%27%20stroke-width%3D%270.8%27%20stroke-linecap%3D%27round%27%3E%3Cpath%20d%3D%27M2.37%2011.25C1.59%209.89%201.32%208.3%201.62%206.76C1.92%205.22%202.76%203.84%204%202.88C5.23%201.91%206.77%201.43%208.34%201.51C9.9%201.59%2011.39%202.24%2012.51%203.32C13.64%204.41%2014.34%205.87%2014.48%207.43C14.61%208.99%2014.18%2010.55%2013.26%2011.82C12.34%2013.09%2010.99%2013.98%209.46%2014.33C8.19%2014.63%206.86%2014.53%205.65%2014.06C5.17%2013.87%204.77%2013.49%204.27%2013.4C3.67%2013.28%202.95%2013.56%202.04%2014.33%27%2F%3E%3Cpath%20d%3D%27M5.1%207.8h5.8M8%204.9v5.8%27%2F%3E%3C%2Fsvg%3E"); mask-image: url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2016%2016%27%20fill%3D%27none%27%20stroke%3D%27black%27%20stroke-width%3D%270.8%27%20stroke-linecap%3D%27round%27%3E%3Cpath%20d%3D%27M2.37%2011.25C1.59%209.89%201.32%208.3%201.62%206.76C1.92%205.22%202.76%203.84%204%202.88C5.23%201.91%206.77%201.43%208.34%201.51C9.9%201.59%2011.39%202.24%2012.51%203.32C13.64%204.41%2014.34%205.87%2014.48%207.43C14.61%208.99%2014.18%2010.55%2013.26%2011.82C12.34%2013.09%2010.99%2013.98%209.46%2014.33C8.19%2014.63%206.86%2014.53%205.65%2014.06C5.17%2013.87%204.77%2013.49%204.27%2013.4C3.67%2013.28%202.95%2013.56%202.04%2014.33%27%2F%3E%3Cpath%20d%3D%27M5.1%207.8h5.8M8%204.9v5.8%27%2F%3E%3C%2Fsvg%3E");
   -webkit-mask-size: 100% 100%; mask-size: 100% 100%; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-position: center; mask-position: center; }
 /* 分组展开后，新建会话入口移到会话列表上方；标题栏的按钮隐藏。 */
+
+/* ---------- 外部文件说明弹窗 ---------- */
+.ext-file-mask {
+  z-index: 1200;
+  background: rgba(0, 0, 0, 0.45);
+}
+.ext-file-sheet {
+  border-radius: 34rpx 34rpx 0 0;
+  padding: 18rpx 36rpx calc(28rpx + env(safe-area-inset-bottom));
+}
+.ext-file-head {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  margin: 4rpx 0 24rpx;
+}
+.ext-file-icon {
+  width: 76rpx;
+  height: 76rpx;
+  flex: none;
+  border-radius: 22rpx;
+  border: 1rpx solid var(--border);
+  background: var(--fill);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.ext-file-icon image { width: 42rpx; height: 42rpx; opacity: .9; }
+.ext-file-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
+.ext-file-title { font-size: 33rpx; font-weight: 650; color: var(--text); }
+.ext-file-sub { font-size: 24rpx; line-height: 1.4; color: var(--text-3); }
+.ext-file-steps { display: flex; flex-direction: column; gap: 14rpx; margin-bottom: 20rpx; }
+.ext-file-step { display: flex; align-items: flex-start; gap: 14rpx; }
+.ext-file-step-no {
+  flex: none;
+  width: 34rpx;
+  height: 34rpx;
+  margin-top: 2rpx;
+  border-radius: 50%;
+  border: 1rpx solid var(--border);
+  background: var(--fill);
+  color: var(--text-2);
+  font-size: 20rpx;
+  line-height: 34rpx;
+  text-align: center;
+}
+.ext-file-step-text { flex: 1; min-width: 0; font-size: 26rpx; line-height: 1.55; color: var(--text-2); }
+.ext-file-note { display: block; font-size: 22rpx; line-height: 1.6; color: var(--text-3); margin-bottom: 28rpx; }
+.ext-file-primary {
+  height: 92rpx;
+  border-radius: 999rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--ocean);
+  color: #FFFFFF;
+  font-size: 29rpx;
+  font-weight: 600;
+}
+.ext-file-cancel {
+  height: 88rpx;
+  border-radius: 999rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-2);
+  font-size: 27rpx;
+}
+
+/* 工作区文件 / 外部文件弹窗：跟随「会话玻璃」开关使用同一套磨砂材质 */
+.session-glass .sheet.more-files-sheet,
+.session-glass .sheet.ext-file-sheet {
+  /* 与右上角 ⋯ 的「工作区文件」浮层同宽：左右各留 12px，底部留 24px，圆角随玻璃档位 */
+  width: calc(100% - 24px);
+  margin: 0 12px 24px;
+  max-height: calc(100vh - 48px);
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(44, 45, 49, var(--card-dark-fill, 0.62));
+  box-shadow:
+    inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
+    0 -12rpx 48rpx rgba(3, 14, 30, 0.18);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+}
+.theme-light.session-glass .sheet.more-files-sheet,
+.theme-light.session-glass .sheet.ext-file-sheet {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 46%),
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
+    rgba(247, 248, 251, var(--card-light-fill, 0.86));
+  box-shadow:
+    inset 0 6rpx 16rpx rgba(255, 255, 255, 0.85),
+    inset 0 -6rpx 16rpx rgba(255, 255, 255, 0.65),
+    inset 0 0 22rpx rgba(255, 255, 255, 0.55),
+    0 -12rpx 40rpx rgba(7, 24, 43, 0.10);
+  backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+}
+/* 玻璃面板内的行/图标改成半透明，避免实色块压住磨砂 */
+.session-glass .more-files-row,
+.session-glass .ext-file-icon {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, var(--glass-frost-edge, 0.11));
+}
+.session-glass .more-files-row + .more-files-row { border-top-color: rgba(255, 255, 255, var(--glass-frost-edge, 0.11)); }
+.theme-light.session-glass .more-files-row,
+.theme-light.session-glass .ext-file-icon {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(255, 255, 255, 0.70);
+}
+.theme-light.session-glass .more-files-row + .more-files-row { border-top-color: rgba(16, 19, 24, 0.06); }
 
