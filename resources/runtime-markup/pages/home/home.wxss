@@ -265,7 +265,7 @@ page {
   font-size: 19rpx;
   font-weight: 600;
   line-height: 30rpx;
-  height: 30rpx;          /* 与 whaletail 大写字高一致 */
+  height: 30rpx;          /* 与 flukit 大写字高一致 */
   padding: 0 12rpx;
   margin-top: 1rpx;
   letter-spacing: 1rpx;
@@ -2461,7 +2461,8 @@ page {
    深色面用 wordmark-white.png、浅色面用 wordmark-ink.png；
    首页顶部与左侧栏共用同一套尺寸，375 宽下字高约 16px（源图 351×64 @4x）。 */
 .brand-wordmark {
-  width: 168.75rpx;
+  /* flukit 词标 215×64：Montserrat Bold + 原 tail 的平底 t，字距微调后宽度 104rpx */
+  width: 104rpx;
   height: auto;
   margin-right: 18rpx;
   flex: none;

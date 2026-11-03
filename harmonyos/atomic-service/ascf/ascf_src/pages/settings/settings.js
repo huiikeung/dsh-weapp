@@ -2415,7 +2415,7 @@ Page({
         path: '/pages/settings/settings?pair=' + this.data.sharePayload
       };
     }
-    return { title: uiText('whaletail Harness · 公网节点'), path: '/pages/settings/settings' };
+    return { title: uiText('Flukit Harness · 公网节点'), path: '/pages/settings/settings' };
   },
 
   addPublicNode() {

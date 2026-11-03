@@ -1,5 +1,12 @@
 # 更新记录
 
+## v0.9.114 — 2026-11-03
+
+- 品牌词标换成 flukit：Montserrat Bold（700），双色分段 flu（白/墨）+ kit（雾蓝/品牌蓝），末尾 t 取自原词标 tail 的平底 t（无右钩、近 ascender 高度）；字距微调后字标 215×64、展示宽度 104rpx，首页顶栏与侧边栏抽屉同步。
+- 英文品牌名统一：Whaletail → Flukit（i18n 英文文案、分享标题、生成中状态、原生壳英文标签、包描述、分享封面设计稿）；中文品牌「鲸尾」保持不变。
+- 技术标识刻意不动，避免破坏身份与兼容：bundleName（com.whaletail.*）、vendor、oh-package 包名、PreferencesStore 存储名、客服 session-from。
+- 全量 Node 测试：1466 项、1453 通过、13 项环境依赖跳过、0 失败。
+
 ## v0.9.113 — 2026-11-03
 
 - 修复进入会话页「加载一点卡一下」：首页点击时已经 openSession（恢复缓存 + 发起 history），会话页因 reopen=1 又 openSession 一次，导致缓存被投影两次、history 请求安排两次、两次订阅互相覆盖。现在首页跳转带 hydrated=1，会话页骨架画完后直接采纳现有快照，不再二次打开。

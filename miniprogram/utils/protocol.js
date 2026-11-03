@@ -493,7 +493,7 @@ function normalizeRawEvent(raw, sessionId) {
 
 const TITLES = {
   user: uiText('你'),
-  streaming: uiText('whaletail · 正在生成'),
+  streaming: uiText('flukit · 正在生成'),
   streamingReasoning: uiText('Think · 正在推理'),
   assemblingTool: uiText('Tool Call · 正在组装'),
   toolDone: uiText('工具完成'),

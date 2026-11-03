@@ -2059,7 +2059,7 @@ color: #10131A;
 color: #F1F4FA;
 }
 .brand-wordmark {
-width: 168.75rpx;
+width: 104rpx;
 height: auto;
 margin-right: 18rpx;
 flex: none;

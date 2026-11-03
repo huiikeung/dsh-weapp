@@ -67,7 +67,7 @@
 
       <!-- 顶部品牌行：随页面一起滚动（不再固定） -->
       <view class="topbar-inline" style="height: {{topbarHeight}}px;">
-        <view class="brand-row tap" hover-class="brand-dim" bindtap="openDrawer" role="button" aria-label="whaletail HARNESS">
+        <view class="brand-row tap" hover-class="brand-dim" bindtap="openDrawer" role="button" aria-label="flukit HARNESS">
           <image class="brand-whale" src="/assets/icons/whale-white.png" mode="aspectFit" aria-hidden="true"/>
           <image class="brand-wordmark" src="/assets/icons/wordmark-white.png" mode="widthFix" aria-hidden="true"/>
           <view class="brand-badge">HARNESS</view>
