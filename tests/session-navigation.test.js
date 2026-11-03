@@ -993,3 +993,21 @@ test('hidden conversations discard scheduled projection without losing source up
   late.fn(); page.scheduleStoreSync({ session: { title: 'hidden' } });
   assert.equal(timers.size, 0); assert.equal(rendered.length, 0);
 });
+
+
+test('a home-hydrated session adopts the live snapshot instead of reopening it', () => {
+  const { page, store, calls, ticks } = fixture();
+  store.sessionState.running = false;
+  page.syncLayoutStyles = () => {};
+  let snapshot;
+  page.syncFromStore = value => { snapshot = value; };
+  page.onLoad({ id: 's1', reopen: '1', hydrated: '1', title: 'Target' });
+  assert.equal(page._pendingInitialSessionOpen, true, 'the loading shell still paints first');
+  assert.equal(page._adoptHydratedSessionOnEntry, true);
+  assert.equal(calls.some(call => call[0] === 'open'), false, 'no duplicate cache restore on the session side');
+  assert.equal(snapshot, undefined, 'rows wait for the shell to reach the view layer');
+  ticks.shift()();
+  assert.equal(snapshot.session, store.sessionState, 'the already-hydrated store snapshot is projected directly');
+  assert.equal(calls.some(call => call[0] === 'open'), false, 'still exactly one open for the whole tap');
+  assert.equal(page._preferImmediateStoreSync, true, 'the first selected-session snapshot paints without a debounce window');
+});

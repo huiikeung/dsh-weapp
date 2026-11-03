@@ -1341,7 +1341,9 @@ Page({
     // the tap event, so the session page can reuse rows during its first layout.
     // The page detects the matching active session and skips a second openSession.
     store.openSession(id, title || '', preset || null);
-    const query = ['id=' + encodeURIComponent(id), 'reopen=1'];
+    // hydrated=1：告诉会话页首页已经在点击时完成缓存恢复与 history 请求，
+    // 页面不要再 openSession 一次（重复恢复缓存/重复订阅会造成「加载一点卡一下」）。
+    const query = ['id=' + encodeURIComponent(id), 'reopen=1', 'hydrated=1'];
     if (preset) query.push('preset=' + encodeURIComponent(preset));
     wx.navigateTo({ url: '/pages/session/session?' + query.join('&'), animationType: 'none', animationDuration: 0, fail: () => {
       this._openingSession = false; this._homeHidden = false;

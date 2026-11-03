@@ -382,6 +382,12 @@ Page({
     this._reuseRunningSessionOnEntry = this._pendingInitialSessionOpen
       && String(store.sessionState.sessionId || '') === String(options.id || '')
       && store.sessionState.running === true;
+    // 首页在 tap 时已经 openSession（缓存恢复 + history 请求已在路上）：这里直接采纳
+    // 现有快照，避免页面再 openSession 一次造成重复投影/重复订阅。
+    this._adoptHydratedSessionOnEntry = this._pendingInitialSessionOpen
+      && options.hydrated === '1'
+      && String(store.sessionState.sessionId || '') === String(options.id || '')
+      && store.sessionState.running !== true;
     this._fastLiveSessionEntry = this._reuseRunningSessionOnEntry;
     if (this._pendingInitialSessionOpen) {
       // Paint the page shell before cache restore / row projection can occupy the logic thread.
@@ -424,9 +430,9 @@ Page({
         if (this._unloaded || this.sessionId !== sessionId) return;
         this._pendingInitialSessionOpen = false;
         this._preferImmediateStoreSync = true;
-        if (this._reuseRunningSessionOnEntry) {
-          // Reuse the live snapshot: reopening the active run would reload its
-          // cache and delay mounting the already-available in-progress tail.
+        if (this._reuseRunningSessionOnEntry || this._adoptHydratedSessionOnEntry) {
+          // Reuse the live snapshot: reopening would reload the cache and restart
+          // the history request that the home tap already issued.
           this.syncFromStore({ app: store.state, session: store.sessionState });
         } else {
           store.openSession(sessionId, options.title || '', options.preset || null);

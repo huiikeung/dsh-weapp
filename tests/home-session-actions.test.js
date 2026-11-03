@@ -114,7 +114,7 @@ test('opening a conversation hydrates before navigation while pausing the home r
   page.openSession({ currentTarget: { dataset: { id: 's2' } } });
   const navigation = calls.find(call => call[0] === 'navigate');
   assert.ok(navigation, 'navigation starts after eager hydration');
-  assert.equal(navigation[1].url, '/pages/session/session?id=s1&reopen=1&preset=standard');
+  assert.equal(navigation[1].url, '/pages/session/session?id=s1&reopen=1&hydrated=1&preset=standard');
   assert.equal(navigation[1].animationType, 'none', 'the session page disables the native slide transition');
   assert.equal(navigation[1].animationDuration, 0, 'the session page opens without a transition delay');
   assert.deepEqual(calls[0], ['open', 's1', '会话一', 'standard'], 'cache restore and history request start on tap');
