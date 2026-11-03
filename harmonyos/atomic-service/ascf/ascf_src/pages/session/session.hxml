@@ -1508,9 +1508,8 @@
 <template is="mdBlocks" data="{{blocks: composerPreviewBlocks, rowKey: 'live'}}"/>
 </view>
 </scroll-view>
-<view hidden="{{!(commandToken && draft)}}" class="composer-slash-chip {{commandToken && draft ? 'on' : ''}}" catchtap="clearCommandToken" hover-class="press-dim" role="button" aria-label="{{ui['移除指令']}}">
+<view hidden="{{!(commandToken && draft)}}" class="composer-slash-chip {{commandToken && draft ? 'on' : ''}}" catchtap="clearCommandToken" role="button" aria-label="{{ui['移除指令']}}">
 <text class="composer-slash-token">{{commandTokenLabel}}</text>
-<text class="composer-slash-x">×</text>
 </view>
 <view hidden="{{!composerRefs.length}}" class="composer-refs {{composerRefs.length ? 'on' : ''}}">
 <view has:for="{{composerRefs}}" has:key="key" class="composer-ref-chip">

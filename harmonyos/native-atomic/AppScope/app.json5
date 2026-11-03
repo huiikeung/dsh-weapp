@@ -1,0 +1,11 @@
+{
+  "app": {
+    "bundleName": "com.atomicservice.6917620735987886803",
+    "bundleType": "atomicService",
+    "vendor": "whaletail",
+    "versionCode": 1000000,
+    "versionName": "1.0.0",
+    "icon": "$media:app_icon",
+    "label": "$string:app_name"
+  }
+}

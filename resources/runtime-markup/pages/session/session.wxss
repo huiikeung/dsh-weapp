@@ -958,18 +958,27 @@ to{transform:translateX(340%)}
 .voice-transcript-hint { display:block; color:var(--text-2); padding-top:16rpx; font-size:24rpx; }
 .voice-transcript-text { display:block; max-height:180rpx; overflow:auto; padding-top:12rpx; color:var(--text); }
 .voice-transcript-actions { display:flex; justify-content:flex-end; gap:20rpx; }
-.composer-input-row { display:flex; align-items:flex-start; gap:8rpx; width:100%; }
+.composer-input-row { display:flex; align-items:flex-start; gap:8rpx; width:100%; position:relative; }
 .composer-input-row .composer-input { flex:1 1 auto; width:auto; min-width:0; }
 /* 芯片只保留纯文字 + 主色，不加背景；字号与输入框一致（30rpx）。
    芯片与输入框同为 30rpx/42rpx 行盒，文字中心都在 21rpx，
    不需要任何垂直偏移（3/6rpx 实测都偏低）。 */
-/* 灰色占位文字在 textarea 里的渲染位置比实际输入行高 ~4rpx（组件内部差异），
-   芯片和它并排显示，所以上提 4rpx 对齐占位文字。 */
-/* 行高回原生默认后，芯片与输入文字靠 flex 居中同排，不再依赖行盒数值匹配。 */
-.composer-slash-chip { display: none; align-items: center; gap: 2rpx; flex-shrink: 0; align-self: center; margin-right: 4rpx; }
-.composer-slash-chip.on { display: flex; }
-.composer-slash-token { color: var(--ocean); font-size: 28rpx; }
-.composer-slash-x { padding: 0 2rpx; color: var(--ocean); font-size: 18rpx; opacity: .66; }
+/* 指令前缀是纯文字（无背景、无删除按钮）：退格可删，点它也能移除。
+   灰色占位文字在 textarea 里比输入行高约 4rpx，这里同步上提保持同一基线。 */
+.composer-slash-chip { display: none; flex-shrink: 0; align-self: center; margin: -4rpx 4rpx 0 0; background: transparent; padding: 0; border: 0; }
+.composer-slash-chip.on { display: block; }
+.composer-slash-token { color: var(--ocean); background: transparent; font-size: 28rpx; line-height: 1.2; }
+.composer-slash-chip[hidden] { display: none !important; }
+/* 指令激活且还没输入参数：textarea 里的文字先隐藏，用同一行的字形显示
+   「蓝色前缀 + 空格 + 灰色提示」，保证与后续输入文字同一条基线、无背景。 */
+.composer-token-overlay,
+.composer-token-measure {
+  position: absolute; left: 0; top: 0;
+  font-size: 28rpx; line-height: 39rpx;
+  white-space: pre; pointer-events: none;
+}
+.composer-token-measure { visibility: hidden; }
+.composer-token-overlay { color: var(--ocean); }
 /* 引用 chip（对话 / 文件夹 / 文件）：与指令 chip 同一语言——只保留图标 + 主色
    文字，不加背景；排在输入框上方，多个引用自动换行。蓝色取桌面端引用芯片的
    #5483E8，暗色主题提亮保证对比度。 */

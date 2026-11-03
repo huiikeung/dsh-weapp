@@ -660,18 +660,27 @@ test('menu uses compact rows, trailing checks, right-aligned details and pointer
   ]) assert.ok(css.includes(rule), rule);
 });
 
-test('input commands render a blue token chip and keep the hint as placeholder', () => {
+test('input commands insert the token as inline text and keep the hint as placeholder', () => {
   const { page } = fixture();
   page.selectCommand(event({ id: 'command:goal', name: 'goal' }));
   assert.equal(page.data.draft, '/goal ');
   assert.equal(page.data.commandToken, '/goal');
   assert.equal(page.data.commandTokenLabel, '/目标');
-  assert.equal(page.data.draftArg, '', 'textarea only edits the argument');
+  assert.equal(page.data.draftArg, '');
+  assert.equal(page.data.composerValue, '', 'the textarea only holds the argument');
+  assert.equal(page.composerDisplay(), '', 'the argument mirror stays empty');
 
   page.onDraftInput({ detail: { value: '写一份报告', cursor: 5 } });
   assert.equal(page.data.draft, '/goal 写一份报告');
   assert.equal(page.data.draftArg, '写一份报告');
 
+  // 退格删进前缀：token 自然消失，剩下的文字留在草稿里
+  page.onDraftInput({ detail: { value: '/目', cursor: 2 } });
+  assert.equal(page.data.draft, '/目');
+  assert.equal(page.data.commandToken, '');
+
+  page.selectCommand(event({ id: 'command:goal', name: 'goal' }));
+  page.onDraftInput({ detail: { value: '写一份报告', cursor: 5 } });
   page.clearCommandToken();
   assert.equal(page.data.draft, '写一份报告');
   assert.equal(page.data.commandToken, '');
@@ -679,13 +688,14 @@ test('input commands render a blue token chip and keep the hint as placeholder',
   const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
   const js = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
   assert.match(wxml, /class="composer-input-row composer-live/);
-  assert.match(wxml, /catchtap="clearCommandToken"/);
-    // textarea 改绑 composerValue：用户打字/删除零数据桥回写（否则连删卡顿）；
-  // 程序化改写（清空/恢复/插指令）统一走 setComposerValue。
+  assert.ok(!wxml.includes('composer-slash-chip'), 'no background chip element any more');
+  assert.match(wxml, /class="composer-token-overlay"/, 'the token is a plain text overlay');
+  assert.match(wxml, /padding-left:' \+ composerTokenPad \+ 'px;/, 'the textarea leaves room for the token');
   assert.match(wxml, /value="\{\{composerValue\}\}"/);
-  assert.match(js, /setComposerValue\(/);
+  assert.match(js, /composerTokenPad: 0/);
+  assert.match(js, /measureCommandTokenWidth\(/);
   const wxss = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
-  assert.match(wxss, /\.composer-slash-token \{[^}]*color:\s*var\(--ocean\)/);
+  assert.match(wxss, /\.composer-token-overlay[^{]*\{[^}]*color:\s*var\(--ocean\)/);
 });
 
 test('typing around a reference chip keeps the raw draft and the placeholder display aligned', () => {
@@ -734,7 +744,7 @@ test('removeComposerRef drops the placeholder and rebuilds the draft without the
 
 test('the composer renders a reference chip row above the textarea with typed icons and removal', () => {
   const wxml = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
-  const start = wxml.indexOf('class="composer-slash-chip');
+  const start = wxml.lastIndexOf('<view hidden="{{!composerRefs.length}}"', wxml.indexOf('class="composer-refs'));
   // 目标卡片的就地编辑框也是一个 textarea，按 composer-input 精确定位输入框。
   const composerAt = wxml.lastIndexOf('<textarea', wxml.indexOf('class="composer-input"'));
   const row = wxml.slice(start, composerAt);
@@ -751,18 +761,17 @@ test('the composer renders a reference chip row above the textarea with typed ic
   assert.match(js, /composerRefs: \[\],/);
 });
 
-test('selecting one input command renders the token once: the textarea keeps only the argument', () => {
+test('selecting one input command renders the token once: inline prefix plus argument', () => {
   const { page } = fixture([command('goal', 'input'), command('plan', 'input'), command('compact'), command('model', 'select'), command('permission', 'select')]);
   const menu = require('../miniprogram/pages/session/utils/composer-menu');
   page.selectCommand(event({ id: 'command:goal', name: 'goal' }));
-  // chip 承载 token，textarea 只留参数（空参数时连占位文案都是指令提示）
+  // 前缀就是输入框里的普通文字，参数紧跟在后面
   assert.equal(page.data.draft, '/goal ');
   assert.equal(page.data.commandToken, '/goal');
-  assert.equal(page.data.composerValue, '', 'the textarea must not repeat the token');
+  assert.equal(page.data.composerValue, '', 'the textarea only holds the argument');
   assert.equal(page.composerDisplay(), '');
   assert.equal(page.data.composerRefs.length, 0);
 
-  // 继续打参数：草稿拼回 token，显示值仍然只有参数（打字不回写 data，以镜像为准）
   page.onDraftInput({ detail: { value: '写一份报告', cursor: 5 } });
   assert.equal(page.data.draft, '/goal 写一份报告');
   assert.equal(page.composerDisplay(), '写一份报告');

@@ -62,7 +62,7 @@ test('the composer starts at its resting height instead of the native 150px firs
   // 目标卡片的就地编辑框也是一个 textarea，按 composer-input 精确定位输入框。
   const composerAt = wxml.lastIndexOf('<textarea', wxml.indexOf('class="composer-input"'));
   const textarea = wxml.slice(composerAt, wxml.indexOf('/>', composerAt) + 2);
-  assert.match(textarea, /style="height:\{\{composerInputHeightPx\}\}px"/, 'the textarea carries an explicit first-frame height');
+  assert.match(textarea, /style="height:\{\{composerInputHeightPx\}\}px/, 'the textarea carries an explicit first-frame height');
   assert.match(textarea, /auto-height="\{\{true\}\}"/, 'auto-height still drives growth once it measures');
   assert.match(textarea, /bindlinechange="onComposerLineChange"/);
   assert.ok(!/composer-input-clamped|composer-first-frame/.test(wxml), 'the ineffective row clamp is gone');

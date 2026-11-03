@@ -150,6 +150,25 @@ function kindIconFile(kind) {
   return kind === 'server.rack' ? 'server-white.png' : 'desktop-white.png';
 }
 
+/**
+ * 中继节点 ID（E2EE 验签与 /c/<nodeId> 路由使用）。
+ * 旧档案把中继 nodeId 直接存在 gatewayId 里；新档案用 relayNodeId 单独保存，
+ * gatewayId 始终是网关自身的 UUID——同一台主机的局域网与公网线路才能合并成
+ * 一份档案（主机列表只显示一条，线路由客户端自动切换）。
+ */
+function relayNodeId(profile) {
+  if (!profile) return null;
+  if (profile.relayNodeId) return String(profile.relayNodeId);
+  const table = profile.routeTable;
+  if (table && table.relay && table.relay.nodeId) return String(table.relay.nodeId);
+  const endpoints = Array.isArray(profile.endpoints) ? profile.endpoints : [];
+  for (let i = 0; i < endpoints.length; i += 1) {
+    const match = /\/c\/([A-Za-z0-9_-]{8,128})$/.exec(String(endpoints[i] || ''));
+    if (match) return match[1];
+  }
+  return profile.relay ? (profile.gatewayId || null) : null;
+}
+
 /** 首选地址优先的连接候选（GatewayProfile.connectionEndpoints 对齐）。 */
 function connectionEndpoints(profile) {
   const result = [];
@@ -252,6 +271,7 @@ module.exports = {
   deriveDeviceKind: deriveDeviceKind,
   resolveDeviceKind: resolveDeviceKind,
   connectionEndpoints: connectionEndpoints,
+  relayNodeId: relayNodeId,
   loadProfiles: loadProfiles,
   saveProfiles: saveProfiles,
   loadActiveID: loadActiveID,

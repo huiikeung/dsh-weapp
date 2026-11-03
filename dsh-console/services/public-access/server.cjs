@@ -25,15 +25,21 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
   if (huaweiAdminOpenIds.some(id => !validHuaweiOpenId(id))) throw new Error('Invalid Huawei administrator OpenID');
   const admins = new Set(adminOpenIds), huaweiAdmins = new Set(huaweiAdminOpenIds), nodes = new Set(managedNodeIds.map(id => id.toLowerCase()));
   if ([...nodes].some(id => !nodeIdPattern.test(id))) throw new Error('Invalid managed node ID');
-  let state = { version: 2, codes: {}, redemptions: {}, access: {}, notificationTickets: {} };
+  let state = { version: 2, codes: {}, redemptions: {}, access: {}, huaweiDevices: {}, huaweiAdmins: {}, notificationTickets: {} };
   try {
     state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
     if (![1, 2].includes(state.version) || !state.codes || !state.redemptions) throw new Error('Unsupported state');
     if (state.version === 1 && state.access === undefined) state.access = {};
     if (!state.access || typeof state.access !== 'object' || Array.isArray(state.access) || Object.values(state.access).some(r => !r || !Number.isSafeInteger(r.expiresAt) || r.expiresAt < 0)) throw new Error('Invalid access state');
-    if (state.huaweiDevices !== undefined && (!state.huaweiDevices || typeof state.huaweiDevices !== 'object' || Array.isArray(state.huaweiDevices) ||
+    if (state.huaweiDevices === undefined) state.huaweiDevices = {};
+    if (!state.huaweiDevices || typeof state.huaweiDevices !== 'object' || Array.isArray(state.huaweiDevices) ||
       Object.entries(state.huaweiDevices).some(([key, value]) => !/^huawei:[a-f0-9]{64}$/.test(key) || typeof value !== 'string' || !/^HW-[A-F0-9]{24}$/.test(value)) ||
-      new Set(Object.values(state.huaweiDevices)).size !== Object.keys(state.huaweiDevices).length)) throw new Error('Invalid Huawei device state');
+      new Set(Object.values(state.huaweiDevices)).size !== Object.keys(state.huaweiDevices).length) throw new Error('Invalid Huawei device state');
+    if (state.huaweiAdmins === undefined) state.huaweiAdmins = {};
+    if (!state.huaweiAdmins || typeof state.huaweiAdmins !== 'object' || Array.isArray(state.huaweiAdmins) ||
+      Object.entries(state.huaweiAdmins).some(([key, item]) => !/^huawei:[a-f0-9]{64}$/.test(key) || !item ||
+        !/^HW-[A-F0-9]{24}$/.test(item.deviceId || '') || typeof item.label !== 'string' || item.label.length > 60 ||
+        !Number.isSafeInteger(item.createdAt) || item.createdAt < 0 || state.huaweiDevices[key] !== item.deviceId)) throw new Error('Invalid Huawei administrator state');
     if (state.notificationTickets === undefined) state.notificationTickets = {};
     if (!state.notificationTickets || typeof state.notificationTickets !== 'object' || Array.isArray(state.notificationTickets) ||
       Object.entries(state.notificationTickets).some(([key, item]) => !/^[a-f0-9]{64}$/.test(key) || !item || !/^[a-f0-9]{64}$/.test(item.openidHash || '') ||
@@ -106,7 +112,7 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
   function accountIdFor(user) { return (isHuawei(user) ? 'huawei:' : '') + hash(user.openid); }
   function rateIdentity(user) { return user.consoleAdmin ? 'console' : (isHuawei(user) ? 'huawei:' : 'wechat:') + hash(user.openid); }
   function isAdmin(user) {
-    return isHuawei(user) ? huaweiAdmins.has(user.openid) : admins.has(user.openid) || !!consoleApp?.adminIds().includes(user.openid);
+    return isHuawei(user) ? huaweiAdmins.has(user.openid) || !!consoleApp?.huaweiAdminAccountIds().has(accountIdFor(user)) : admins.has(user.openid) || !!consoleApp?.adminIds().includes(user.openid);
   }
   function activeGrant() { const config = consoleApp?.grant(); return config?.url ? grantAdapter(config.url, config.token) : grantAccess; }
   function deviceIdFor(user, accountId) {
@@ -173,7 +179,14 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
   const engagement = createEngagement({ getState: () => state, commit, now, limit });
   const announcements = createAnnouncements({ getState: () => state, commit, now });
   const consoleApp = createConsole({ options: consoleOptions, getState: () => state, commit, body, respond, now, limit, engagement,
-    envAdmins: [...admins], invalidateSessions: () => { sessions.clear(); leases.clear(); persistLeases(); }, hasPendingGrants: () => Object.values(state.redemptions).some(r => r.status === 'pending') });
+    envAdmins: [...admins], envHuaweiAdminOpenIds: [...huaweiAdmins], huaweiClientId, huaweiClientSecret,
+    invalidateSessions: () => { sessions.clear(); leases.clear(); persistLeases(); },
+    invalidateHuaweiSessions: () => { for (const [key, user] of sessions) if (user.provider === 'huawei') sessions.delete(key); },
+    hasPendingGrants: () => Object.values(state.redemptions).some(r => r.status === 'pending') });
+  function huaweiCredentials() {
+    const configured = consoleApp?.huawei();
+    return { clientId: configured?.clientId || huaweiClientId, clientSecret: configured?.clientSecret || huaweiClientSecret };
+  }
   const deliverNotification = sendNotification || createWechatNotificationSender({
     getWechatConfig: async () => consoleApp?.wechat(), templateId: notificationTemplateId, now,
   });
@@ -211,10 +224,11 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
       // Huawei authorization-code exchange is a public entry point, not a WeChat console API.
       if (req.method === 'POST' && route === '/session/huawei') {
         limit('login-huawei:' + req.socket.remoteAddress, 20);
-        if (!huaweiConfigured(huaweiClientId, huaweiClientSecret, huaweiFetch)) throw fail(503, 'HUAWEI_NOT_CONFIGURED', '华为账号身份服务尚未配置');
+        const credentials = huaweiCredentials();
+        if (!huaweiConfigured(credentials.clientId, credentials.clientSecret, huaweiFetch)) throw fail(503, 'HUAWEI_NOT_CONFIGURED', '华为账号身份服务尚未配置');
         const input = await body(req);
         if (typeof input.code !== 'string' || !input.code.trim() || input.code.length > 4096 || /[\x00-\x1f\x7f]/.test(input.code)) throw fail(400, 'INVALID_LOGIN_CODE', '缺少或无效的华为账号授权码');
-        const openid = await exchangeWithHuawei(huaweiClientId, huaweiClientSecret, huaweiFetch)(input.code);
+        const openid = await exchangeWithHuawei(credentials.clientId, credentials.clientSecret, huaweiFetch)(input.code);
         const user = { provider: 'huawei', openid };
         for (const [key, item] of sessions) if (item.expiresAt <= now()) sessions.delete(key);
         if (sessions.size >= 10000) throw fail(503, 'BUSY', '登录服务繁忙，请稍后重试');

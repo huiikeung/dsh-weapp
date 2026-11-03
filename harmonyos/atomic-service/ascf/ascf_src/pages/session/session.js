@@ -6172,6 +6172,13 @@ Page({
     this.prioritizeInteraction();
     this._draftRevision = (this._draftRevision || 0) + 1;
     const raw = String(e.detail.value == null ? '' : e.detail.value);
+    // 指令前缀是纯文字：输入框已空时再按退格，应像桌面端一样把它删掉。
+    const tokenDraft = this.data.draft || '';
+    if (this.data.commandToken && raw === ''
+      && (tokenDraft === this.data.commandToken || tokenDraft === this.data.commandToken + ' ')) {
+      this.clearCommandToken();
+      return;
+    }
     const cursor = Number.isInteger(e.detail.cursor) ? e.detail.cursor : raw.length;
     // 指令 token 由蓝色 chip 承载，textarea 只编辑参数；这里再拼回完整草稿。
     const token = this.data.commandToken;
@@ -6317,6 +6324,17 @@ Page({
     const body = composerMenu.displayToDraft(view, chips);
     this._composerDisplay = view;
     const patch = Object.assign({ composerValue: view, composerRefs: chips, draft: slash ? slash.token + ' ' + body : body }, extra || {});
+    // ASCF 的原生 textarea 在聚焦时可能不重绘受控 value（发送后文字残留）：
+    // 程序化清空时先失焦再恢复焦点，强制原生层同步一次。
+    if (typeof has !== 'undefined' && view === '' && (this.data.composerFocus === true || this.data.composerFocused === true)) {
+      this.setData(Object.assign({}, patch, { composerFocus: false }), () => {
+        if (this._unloaded) return;
+        setTimeout(() => {
+          if (!this._unloaded) this.setData({ composerFocus: true });
+        }, 40);
+      });
+      return;
+    }
     this.setData(patch);
   },
 

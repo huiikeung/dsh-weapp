@@ -43,7 +43,10 @@ async function fixture(t, extra = {}) {
 test('console serves a real page, rejects unauthenticated writes and protects bootstrap', async t => {
   const f = await fixture(t);
   const page = await fetch(f.base + '/');
-  assert.match(await page.text(), /鲸尾 · 管理台/);
+  const html = await page.text();
+  assert.match(html, /鲸尾 · 管理台/);
+  assert.match(html, /id="huawei-form"/);
+  assert.match(html, /id="huawei-admin-form"/);
   assert.match(page.headers.get('content-security-policy'), /frame-ancestors 'none'/);
   assert.equal((await f.call('/console/api/overview')).status, 401);
   assert.equal((await f.call('/console/api/setup', { setupToken: 'wrong', password: PASSWORD })).status, 403);

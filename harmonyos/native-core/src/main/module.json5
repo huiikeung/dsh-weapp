@@ -1,0 +1,7 @@
+{
+  "module": {
+    "name": "nativecore",
+    "type": "har",
+    "deviceTypes": ["phone", "tablet"]
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "modelVersion": "6.0.0",
+  "name": "whaletail-native-app",
+  "version": "1.0.0",
+  "description": "Whaletail Harness 原生鸿蒙应用（ArkTS/ArkUI）",
+  "main": "",
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.19"
+  }
+}

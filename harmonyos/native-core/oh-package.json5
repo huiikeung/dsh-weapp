@@ -1,0 +1,9 @@
+{
+  "name": "nativecore",
+  "version": "1.0.0",
+  "description": "鲸尾 Harness 原生共享核心：主题、偏好、网关客户端",
+  "main": "Index.ets",
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {}
+}

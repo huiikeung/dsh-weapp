@@ -41,6 +41,16 @@ function socketErrorMessage(value, endpoint) {
 const CHANNEL = 'miniprogram';
 const RECONNECT_BASE_DELAY = 1000;
 const RECONNECT_MAX_DELAY = 30000;
+// 抖动链路（握手成功但几秒内又断）不能每次连上都把退避清零，否则永远是 1s
+// 重连一次，体感就是「一直在重连」。只有稳定存活超过该阈值才清零。
+const CONNECTION_STABLE_MS = 20000;
+const RECONNECT_JITTER = 0.3; // ±30% 抖动，避免多端同时重连撞在一起
+// 前台保活：中继/Cloudflare/运营商 NAT 对静默连接有 60–100s 的空闲回收，
+// 只靠 onClose 发现不了“半死”连接；应用层心跳要早于这些超时。
+const HEARTBEAT_INTERVAL_MS = 25000;
+const HEARTBEAT_TIMEOUT_MS = 8000;
+// 单次回包慢不足以判定断链（弱网下很常见），连续 miss 两次才重连。
+const HEARTBEAT_MAX_MISSES = 2;
 const REQUEST_TIMEOUT = 30000;
 const SESSION_CREATE_TIMEOUT = 30000;
 // 配对期每个候选地址的最长等待：候选可能包含不可达的内网地址（手输/旧二维码），
@@ -79,6 +89,13 @@ class GatewayClient {
     this.candidateKinds = null;      // 本次尝试的候选线路族（首选 + 剩余回退）
     this.pairingAllKinds = null;      // 本次配对的全部候选线路族（回退链上保持不变）
     this.socketOpened = false;       // TCP/TLS 是否已建立（区分「连不上」与「握手慢」）
+    this.stableTimer = null;         // 连接稳定存活计时（到期才清零重连退避）
+    this.connectedAt = 0;            // 最近一次进入 connected 的时间
+    this.connectAttempt = null;      // 当前拨号目标的签名（重复 connect 去重用）
+    this.heartbeatEnabled = true;    // 前台保活开关（store 随 App 前后台切换）
+    this.heartbeatTimer = null;
+    this.heartbeatPending = false;
+    this.heartbeatMisses = 0;
   }
 
   // ---------- 状态 ----------
@@ -87,11 +104,88 @@ class GatewayClient {
     this.state = state;
     if (state === 'connected') {
       this.clearConnectionTimeout();
-      this.reconnectAttempts = 0;
+      this.connectedAt = Date.now();
+      // 稳定存活 CONNECTION_STABLE_MS 之后才清零退避：抖动链路每次都能握手、
+      // 又在几秒内被断开时，退避按 1/2/4/8… 递增，而不是永远 1s 重连一次。
+      this.scheduleStableReset();
+      if (this.heartbeatEnabled) this.startHeartbeat();
+    } else {
+      this.clearStableReset();
+      this.stopHeartbeat();
     }
     // deliberate：用户主动断开（切换主机/移除节点/设置里断开），
     // 与「曾连上又掉线」区分开，首页据此把断链显示为红色。
     if (this.cb.onState) this.cb.onState(state, message || null, errorCode || null, deliberate === true);
+  }
+
+  scheduleStableReset() {
+    this.clearStableReset();
+    if (!this.reconnectAttempts) return; // 退避本来就是 0，不必多挂一个计时器
+    const self = this;
+    this.stableTimer = setTimeout(function () {
+      self.stableTimer = null;
+      if (self.state === 'connected') self.reconnectAttempts = 0;
+    }, CONNECTION_STABLE_MS);
+  }
+
+  clearStableReset() {
+    if (this.stableTimer) {
+      clearTimeout(this.stableTimer);
+      this.stableTimer = null;
+    }
+  }
+
+  // ---------- 心跳 ----------
+
+  /**
+   * 前台保活（store 随 App 前后台/原生浮层切换）。心跳用独立 key 的 ping，
+   * 不与 store 的前台自检互相取代；连续 miss HEARTBEAT_MAX_MISSES 次才判定
+   * 断链——单次回包慢（弱网、刚唤醒）不该拆掉一条好连接。
+   */
+  setHeartbeatEnabled(enabled) {
+    const next = enabled !== false;
+    if (this.heartbeatEnabled === next) return;
+    this.heartbeatEnabled = next;
+    if (next) this.startHeartbeat();
+    else this.stopHeartbeat();
+  }
+
+  startHeartbeat() {
+    this.stopHeartbeat();
+    if (!this.heartbeatEnabled || this.probeOnly || this.state !== 'connected') return;
+    const self = this;
+    this.heartbeatTimer = setInterval(function () { self.runHeartbeat(); }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  stopHeartbeat() {
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
+    this.heartbeatPending = false;
+    this.heartbeatMisses = 0;
+  }
+
+  runHeartbeat() {
+    if (!this.heartbeatEnabled || this.state !== 'connected' || this.probeOnly) return;
+    if (this.heartbeatPending) return;
+    const self = this;
+    this.heartbeatPending = true;
+    Promise.resolve(this.request({ type: 'ping' }, {
+      matchType: 'pong', key: 'heartbeat:ping', timeout: HEARTBEAT_TIMEOUT_MS
+    })).then(function () {
+      self.heartbeatPending = false;
+      self.heartbeatMisses = 0;
+    }, function () {
+      self.heartbeatPending = false;
+      if (self.state !== 'connected') return;
+      self.heartbeatMisses += 1;
+      try {
+        console.log('[gateway] heartbeat miss ' + self.heartbeatMisses + '/' + HEARTBEAT_MAX_MISSES);
+      } catch (e) { /* 无 console 环境忽略 */ }
+      if (self.heartbeatMisses < HEARTBEAT_MAX_MISSES) return;
+      self.handleTransportFailure(uiText('连接无响应（心跳超时）'));
+    });
   }
 
   // ---------- 设备标识 ----------
@@ -129,14 +223,54 @@ class GatewayClient {
     return (name || '小程序 ' + this.deviceId.slice(0, 8)).slice(0, 80).replace(/[\uD800-\uDBFF]$/, '');
   }
 
+  /**
+   * 拨号目标签名：同一 endpoint + 同一凭据/中继档案算同一次尝试。
+   * App.onShow、网络状态回调、租赁刷新会在拨号过程中重复触发 connect()，
+   * 旧实现每次都先 disconnect() 拆掉在拨的 socket 再重拨，服务端看到的就是
+   * 「连上 0.2s 又断、2s 后再连」的抖动；同目标在拨号中直接忽略。
+   */
+  connectSignature(endpoint, options) {
+    const opts = options || {};
+    const relay = opts.relay || null;
+    return [
+      String(endpoint || ''),
+      opts.token || '',
+      opts.pairingCode || '',
+      // 邀请/访问令牌是随时会被 relay-authorized 刷新的易变字段，不能参与
+      // 「是否同一次拨号」的判定：否则同一目标的重复 connect 会因为 token
+      // 变了而绕过去重，开出第二条 socket（两条 E2EE 会话互相踩坏、连接被拆）。
+      relay ? [relay.nodeId || '', relay.authMode || '', relay.role || ''].join('~') : '',
+      opts.probe ? 'probe' : 'live',
+      // 走托管中继取租赁与直连拨号是两条不同的路径：同一个地址在两种判定下
+      // 不能当成同一次尝试（否则切换路径的 connect 会被去重忽略）。
+      typeof accessApi.isManagedRelay === 'function' && accessApi.isManagedRelay(endpoint) ? 'managed' : 'direct'
+    ].join('|');
+  }
+
+  ignoreDuplicateConnect(endpoint, options) {
+    if ((options && options.force) || this.probeOnly) return false;
+    // 拨号中（connecting）或已连上（connected）时，同目标的重复 connect 一律忽略；
+    // 真正需要重建的路径（换线路、前台恢复自检失败、网络切换）显式传 force。
+    if ((this.state !== 'connecting' && this.state !== 'connected') || !this.connectAttempt) return false;
+    const same = this.connectAttempt === this.connectSignature(endpoint, options);
+    if (same) {
+      try { console.log('[gateway] duplicate connect ignored: ' + this.endpoint); } catch (e) { /* 忽略 */ }
+    }
+    return same;
+  }
+
   /** pairingCode 非空表示一次性配对握手；否则使用已保存的 Bearer 凭据。 */
   connect(endpoint, options) {
-    if (!accessApi.isManagedRelay(endpoint)) return this.connectTransport(endpoint, options);
+    const opts = options || {};
+    if (this.ignoreDuplicateConnect(endpoint, opts)) return;
+    // 记录拨号目标：内部 disconnect（换线路/取租赁）不清它，只有真正的
+    // 失败/用户断开才清，避免拨号途中被重复触发拆掉。
+    this.connectAttempt = this.connectSignature(endpoint, opts);
+    if (!accessApi.isManagedRelay(endpoint)) return this.connectTransport(endpoint, opts);
     // Only our hosted relay is metered. LAN/direct/self-hosted connections keep
     // their existing behavior and never depend on the account server.
     this.disconnect({ keepWant: false, deliberate: false });
     const generation = this.connectGeneration;
-    const opts = options || {};
     if (!opts.relay || !opts.relay.nodeId) {
       this.setState('failed', uiText('请扫描 DSH 插件生成的公网配对二维码'));
       return;
@@ -329,9 +463,11 @@ class GatewayClient {
       // 传输已建立：握手/鉴权阶段换回长超时（中继还要等连接器回拨网关）。
       self.startConnectionTimeout(REQUEST_TIMEOUT);
       if (serviceLease) {
+        // 剩余有效期可能已经为 0（缓存租赁在拨号途中过期）：至少隔 5s 再刷新，
+        // 否则会立刻重拨、形成毫秒级的「连上就重连」循环。
         self.publicLeaseTimer = setTimeout(() => {
-          if (self.wantsConnection) self.connect(self.endpoint, self.lastConnectOpts);
-        }, Math.max(1, serviceLease.expiresAt - Date.now()));
+          if (self.wantsConnection) self.connect(self.endpoint, Object.assign({}, self.lastConnectOpts, { force: true }));
+        }, Math.max(5000, serviceLease.expiresAt - Date.now()));
       }
       if (self.relayMeta) {
         // Each connection waits for its own secure random material.
@@ -397,12 +533,18 @@ class GatewayClient {
               : uiText('正在刷新公网授权'));
           }
         } else if (res && Number(res.code) === 4001) {
-          // The desktop connector may be starting or temporarily offline. Keep the
-          // actionable status visible, but retry saved credentials with backoff.
-          self.noteAuthorizationFailure(
-            uiText('电脑端的公网连接器已离线，请在 DSH 中重新开启「微信连接」后重试'),
-            { retryable: true }
-          );
+          if (String(res.reason || '') === 'gateway-closed') {
+            // 连接器主动拆掉桥接（本地网关 ws 关闭后中继统一以 4001 gateway-closed
+            // 通知手机）。这通常是瞬时的：快速重建即可，不该显示成「离线」。
+            self.handleBridgeTeardown();
+          } else {
+            // The desktop connector may be starting or temporarily offline. Keep the
+            // actionable status visible, but retry saved credentials with backoff.
+            self.noteAuthorizationFailure(
+              uiText('电脑端的公网连接器已离线，请在 DSH 中重新开启「微信连接」后重试'),
+              { retryable: true }
+            );
+          }
         } else if (res && Number(res.code) === 4004) {
           self.noteAuthorizationFailure(uiText('DSH 电脑端连接器未支持安全公网配对，请升级插件连接器'));
         } else {
@@ -484,8 +626,16 @@ class GatewayClient {
   handleTransportFailure(message, options) {
     const pairingOutcomeUnknown = !(options && options.pairingCodeConsumed === false);
     clearTimeout(this.publicLeaseTimer);
+    this.publicLeaseTimer = null;
     this.clearConnectionTimeout();
+    this.clearStableReset();
+    this.connectAttempt = null;
     const wasDeliberate = !this.wantsConnection;
+    // 诊断：断链原因 + 本次连接存活时长，便于对照网关/中继日志排查反复重连。
+    try {
+      console.log('[gateway] transport failure: ' + message + ' (up ' +
+        (this.connectedAt ? Math.round((Date.now() - this.connectedAt) / 1000) + 's' : '0s') + ')');
+    } catch (e) { /* 无 console 环境忽略 */ }
     const socket = this.socketTask;
     this.socketTask = null;
     if (socket) {
@@ -563,6 +713,8 @@ class GatewayClient {
     clearTimeout(this.publicLeaseTimer);
     this.publicLeaseTimer = null;
     this.clearConnectionTimeout();
+    this.clearStableReset();
+    this.connectAttempt = null;
     const socket = this.socketTask;
     this.socketTask = null;
     if (socket) {
@@ -580,7 +732,10 @@ class GatewayClient {
 
   handleAuthorizationFailure(message) {
     clearTimeout(this.publicLeaseTimer);
+    this.publicLeaseTimer = null;
     this.clearConnectionTimeout();
+    this.clearStableReset();
+    this.connectAttempt = null;
     this.wantsConnection = false;
     const socket = this.socketTask;
     this.socketTask = null;
@@ -600,7 +755,10 @@ class GatewayClient {
    */
   refreshManagedLease(message) {
     clearTimeout(this.publicLeaseTimer);
+    this.publicLeaseTimer = null;
     this.clearConnectionTimeout();
+    this.clearStableReset();
+    this.connectAttempt = null;
     const socket = this.socketTask;
     this.socketTask = null;
     if (socket) {
@@ -626,14 +784,59 @@ class GatewayClient {
     }, 0);
   }
 
+  /**
+   * 连接器主动拆桥（4001 gateway-closed）：本地网关 ws 关闭后中继统一用它通知手机。
+   * 这是瞬时事件，快速重建即可；频率过高才退回退避，避免自己把自己打成重连风暴。
+   */
+  handleBridgeTeardown() {
+    clearTimeout(this.publicLeaseTimer);
+    this.publicLeaseTimer = null;
+    this.clearConnectionTimeout();
+    this.clearStableReset();
+    this.connectAttempt = null;
+    const socket = this.socketTask;
+    this.socketTask = null;
+    if (socket) {
+      try { socket.close({}); } catch (e) { /* 忽略 */ }
+    }
+    this.failAllPending(uiText('连接已重建'));
+    if (!this.wantsConnection) {
+      this.setState('disconnected', null, null, true);
+      return;
+    }
+    const now = Date.now();
+    if (!this.bridgeTeardownWindow || now - this.bridgeTeardownWindow > 30000) {
+      this.bridgeTeardownWindow = now;
+      this.bridgeTeardowns = 0;
+    }
+    this.bridgeTeardowns = (this.bridgeTeardowns || 0) + 1;
+    const delay = this.bridgeTeardowns <= 6 ? 800 : this.reconnectDelay(this.reconnectAttempts + 1);
+    try { console.log('[gateway] bridge closed by connector; reconnect in ' + delay + 'ms'); } catch (e) { /* 忽略 */ }
+    this.setState('connecting', uiText('正在重新连接…'));
+    const self = this;
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(function () {
+      self.reconnectTimer = null;
+      if (self.wantsConnection && self.endpoint) {
+        self.connect(self.endpoint, Object.assign({}, self.lastConnectOpts, { force: true }));
+      }
+    }, delay);
+  }
+
+  /** 第 n 次重连的等待时间：指数退避 + ±RECONNECT_JITTER 抖动（可单测）。 */
+  reconnectDelay(attempts) {
+    const exponent = Math.max(0, Math.min(30, (attempts || 1) - 1));
+    const base = Math.min(RECONNECT_BASE_DELAY * Math.pow(2, exponent), RECONNECT_MAX_DELAY);
+    const jitter = 1 + (Math.random() * 2 - 1) * RECONNECT_JITTER;
+    return Math.max(RECONNECT_BASE_DELAY, Math.round(base * jitter));
+  }
+
   scheduleReconnect() {
     if (!this.wantsConnection || this.reconnectTimer || this.probeOnly) return;
     const self = this;
     this.reconnectAttempts += 1;
-    const delay = Math.min(
-      RECONNECT_BASE_DELAY * Math.pow(2, this.reconnectAttempts - 1),
-      RECONNECT_MAX_DELAY
-    );
+    const delay = this.reconnectDelay(this.reconnectAttempts);
+    try { console.log('[gateway] reconnect #' + this.reconnectAttempts + ' in ' + delay + 'ms'); } catch (e) { /* 忽略 */ }
     this.reconnectTimer = setTimeout(function () {
       self.reconnectTimer = null;
       if (self.wantsConnection && self.endpoint) {
@@ -650,6 +853,10 @@ class GatewayClient {
     const deliberate = !(options && options.deliberate === false);
     this.wantsConnection = !!keepWant;
     this.clearConnectionTimeout();
+    this.clearStableReset();
+    // 内部重建（换线路/取租赁）保留 connectAttempt，让拨号途中的重复触发被忽略；
+    // 用户主动断开则清空，下一次 connect 一定会重新拨号。
+    if (deliberate) this.connectAttempt = null;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -763,6 +970,17 @@ class GatewayClient {
     }
     const text = session.open(bytes);
     if (text === null) {
+      const reason = session.lastOpenFailure;
+      // 诊断：密文帧被拒的形态（长度/首字节/计数），便于区分「中继控制帧/残帧」
+      // 「重复帧」与真正的会话密钥不一致——这张日志是排查「反复重连」的关键线索。
+      try {
+        console.log('[gateway] relay frame rejected: len=' + bytes.length + ' head=' + (bytes.length ? bytes[0] : -1) +
+          ' counter=' + session.packetCounter(bytes) + ' rx=' + session.rxCounter + ' reason=' + reason);
+      } catch (e) { /* 忽略 */ }
+      // 非密文包（中继控制帧、被拆分的残片）和重复帧都不代表会话密钥坏了：
+      // 直接丢弃即可，绝不能因此断开整条连接——否则一个杂帧就会触发一次重连，
+      // 表现就是「点开会话/看会话时掉线」。
+      if (reason === 'format' || reason === 'duplicate' || reason === 'not-ready') return;
       this.handleTransportFailure(uiText('E2EE 解密失败，连接已终止'));
       return;
     }
@@ -1072,14 +1290,16 @@ class GatewayClient {
       else historyRequest.resolve(frame);
       return;
     }
-    // pong 关联到 ping
+    // pong 关联到 ping（store 前台自检用 type:ping，心跳用 matchType=pong 的独立 lane）
     if (frame.kind === 'pong') {
-      const pendingPing = this.pendingRequests['type:ping'];
-      if (pendingPing) {
-        delete this.pendingRequests['type:ping'];
+      Object.keys(this.pendingRequests).forEach(key => {
+        const pendingPing = this.pendingRequests[key];
+        if (!pendingPing) return;
+        if (key !== 'type:ping' && pendingPing.expectedKind !== 'pong') return;
+        delete this.pendingRequests[key];
         clearTimeout(pendingPing.timer);
         pendingPing.resolve(frame);
-      }
+      });
       return;
     }
     // 会话创建
@@ -1139,7 +1359,9 @@ class GatewayClient {
         resolve(null);
         return;
       }
-      const key = (opts.rpcId ? 'rpc:' + opts.rpcId : 'type:' + (opts.matchType || object.type));
+      // key 可显式指定：心跳用自己的 lane，避免与 store 前台 ping 的
+      // 「同类型请求只能有一个在途」互相取代、把好连接判成无响应。
+      const key = opts.key || (opts.rpcId ? 'rpc:' + opts.rpcId : 'type:' + (opts.matchType || object.type));
       const previous = self.pendingRequests[key];
       if (previous) {
         clearTimeout(previous.timer);

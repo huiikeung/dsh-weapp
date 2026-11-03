@@ -256,3 +256,57 @@ test('WeChat console binding cannot grant Huawei administrator rights', async t 
   assert.equal(hwAgain.account.isAdmin, false);
   assert.equal((await f.call('/admin/codes', undefined, hwAgain.token)).status, 403);
 });
+
+test('admin console configures Huawei credentials and binds a Huawei account for public access', async t => {
+  const subject = 'owner-huawei-account-subject';
+  const setupToken = 'fixture-one-time-huawei-setup-token';
+  const password = 'fixture-console-password-123';
+  const f = await fixture(t, {
+    huaweiClientId: '', huaweiClientSecret: '',
+    exchangeCode: async code => code === 'wx-owner' ? subject : code,
+    identities: { 'hw-owner': subject, 'hw-owner-again': subject },
+    consoleOptions: { origin: ORIGIN, setupToken, masterKey: 'ab'.repeat(32) }
+  });
+  assert.equal((await f.call('/session/huawei', { code: 'before-config' })).code, 'HUAWEI_NOT_CONFIGURED');
+  assert.equal((await f.call('/console/api/setup', { setupToken, password })).status, 200);
+  assert.equal((await f.call('/console/api/huawei-settings', { clientId: CLIENT_ID, clientSecret: CLIENT_SECRET })).status, 200);
+  assert.equal((await f.call('/console/api/huawei-settings', { clientId: 'not-numeric', clientSecret: 'bad' })).status, 400);
+  assert.equal((await f.call('/console/api/huawei-settings', { clientId: CLIENT_ID, clientSecret: '' })).status, 200);
+  const overview = await f.call('/console/api/overview');
+  assert.equal(overview.settings.huaweiClientId, CLIENT_ID);
+  assert.equal(overview.settings.huaweiSecretConfigured, true);
+  assert.equal(JSON.stringify(overview).includes(CLIENT_SECRET), false);
+  assert.equal(fs.readFileSync(f.options.stateFile, 'utf8').includes(CLIENT_SECRET), false);
+
+  const login = await f.call('/session/huawei', { code: 'hw-owner', openid: 'forged', isAdmin: true });
+  assert.equal(login.status, 201);
+  assert.equal(login.account.isAdmin, false);
+  assert.equal(login.account.publicAccess, false);
+  const deviceId = login.account.deviceId;
+  assert.equal((await f.call('/console/api/huawei-admins/device', { deviceId: 'HW-' + 'A'.repeat(24), label: 'owner' })).status, 404);
+  const bound = await f.call('/console/api/huawei-admins/device', { deviceId, label: 'owner' });
+  assert.equal(bound.status, 200);
+  assert.match(bound.accountId, /^huawei:[a-f0-9]{64}$/);
+  assert.equal(JSON.stringify(bound).includes(subject), false);
+
+  const account = await f.call('/me', undefined, login.token);
+  assert.equal(account.account.isAdmin, true);
+  assert.equal(account.account.publicAccess, true);
+  assert.equal((await f.call('/admin/codes', { days: 1, uses: 1 }, login.token)).status, 201);
+  const wx = await f.call('/session', { code: 'wx-owner' });
+  assert.equal(wx.account.isAdmin, false, 'same subject under WeChat remains a separate role');
+
+  await f.restart();
+  assert.equal((await f.call('/console/api/login', { password })).status, 200);
+  const afterRestart = await f.call('/session/huawei', { code: 'hw-owner-again' });
+  assert.equal(afterRestart.status, 201);
+  assert.equal(afterRestart.account.deviceId, deviceId);
+  assert.equal(afterRestart.account.isAdmin, true);
+  assert.equal(afterRestart.account.publicAccess, true);
+
+  assert.equal((await f.call('/console/api/huawei-admins/remove', { accountId: bound.accountId })).status, 200);
+  const revoked = await f.call('/me', undefined, afterRestart.token);
+  assert.equal(revoked.account.isAdmin, false);
+  assert.equal(revoked.account.publicAccess, false);
+  assert.equal((await f.call('/admin/codes', undefined, afterRestart.token)).status, 403);
+});

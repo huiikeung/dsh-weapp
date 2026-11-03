@@ -223,7 +223,16 @@ Page(Object.assign({}, settingsActions, installActions, marketActions, {
       this.resetMarket();
       this.setData({ addOpen: false, addMenuOpen: false, registryOpen: false, officialInstallName: '', spec: '', customRegistry: '', registryIndex: 0, actionError: '', showingMore: false, creatingPlugin: false });
     }
-    const mapBundle = (b) => Object.assign(bundleToView(b, app), { iconBroken: this.brokenIcons && this.brokenIcons.has(b.name) });
+    const mapBundle = (b) => {
+      const view = Object.assign(bundleToView(b, app), { iconBroken: this.brokenIcons && this.brokenIcons.has(b.name) });
+      // 开关点击后先本地回显，等目录帧回来再看服务端口径（ASCF 回执较慢，不能一直显示旧状态）。
+      const pending = this._pendingBundleToggle;
+      if (pending && pending.name === b.name) {
+        if (view.enabled === pending.enabled) this._pendingBundleToggle = null;
+        else view.enabled = pending.enabled;
+      }
+      return view;
+    };
     const install = app.pluginInstall;
     const active = !!(install && ACTIVE.includes(install.phase));
     const busy = active || !!(install && install.phase === 'checking');
@@ -447,7 +456,15 @@ Page(Object.assign({}, settingsActions, installActions, marketActions, {
     if (!name) { this.syncSettings(); return; }
     const bundle = (catalog && catalog.bundles || []).find(b => b.name === name);
     if (!bundle) return;
-    const entries = this.buildDetailEntries(bundle);
+    const entries = this.buildDetailEntries(bundle).map((entry) => {
+      const key = name + ':' + entry.entryID;
+      const pending = this._pendingEntryToggles && this._pendingEntryToggles[key];
+      if (pending === undefined) return entry;
+      if (entry.enabled === pending) { delete this._pendingEntryToggles[key]; return entry; }
+      return Object.assign({}, entry, { enabled: pending });
+    });
+    const bundlePending = this._pendingBundleToggle;
+    const enabledOverride = bundlePending && bundlePending.name === name ? bundlePending.enabled : null;
     this.setData({
       detailEntries: entries,
       detailActiveCount: entries.filter(e => e.enabled && e.phase === 'active').length,
@@ -455,7 +472,7 @@ Page(Object.assign({}, settingsActions, installActions, marketActions, {
       detailUpdateAvailable: !!bundle.updateAvailable,
       detailCanUninstall: bundle.installed === true && !bundle.readOnlyReason,
       detailVersion: bundle.version || '',
-      detailEnabled: bundle.enabled === true,
+      detailEnabled: enabledOverride === null ? bundle.enabled === true : enabledOverride,
       detailToggleDisabled: store.state.connection !== 'connected' || !!bundle.readOnlyReason || !!store.state.pluginPendingName
     });
     this.syncSettings();
@@ -485,7 +502,10 @@ Page(Object.assign({}, settingsActions, installActions, marketActions, {
     const name = this.data.detailName;
     const entryId = e.currentTarget.dataset.entry;
     if (!name || !entryId || this.data.detailEntriesToggleDisabled) { this.syncFromStore(); return; }
-    store.setPluginEnabled(name, e.detail.value, entryId);
+    this._pendingEntryToggles = this._pendingEntryToggles || {};
+    this._pendingEntryToggles[name + ':' + entryId] = e.detail.value;
+    if (!store.setPluginEnabled(name, e.detail.value, entryId)) delete this._pendingEntryToggles[name + ':' + entryId];
+    this.syncFromStore();
   },
 
   /** bundle 开关；停用移动网关前需确认（对齐 iOS gatewayToggle alert）。 */
@@ -519,6 +539,7 @@ Page(Object.assign({}, settingsActions, installActions, marketActions, {
       });
       return;
     }
-    if (!store.setPluginEnabled(name, requested)) this.syncFromStore();
+    this._pendingBundleToggle = { name: name, enabled: requested };
+    if (!store.setPluginEnabled(name, requested)) { this._pendingBundleToggle = null; this.syncFromStore(); }
   }
 }));

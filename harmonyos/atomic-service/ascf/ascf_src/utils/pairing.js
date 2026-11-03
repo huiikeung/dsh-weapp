@@ -135,6 +135,7 @@ function parseV2Payload(payload, now) {
         pairingCode: code,
         expiresAt: expiresAt,
         gatewayId: payload.gatewayId || relayOnly.nodeId,
+        relayNodeId: relayOnly.nodeId,
         gatewayName: payload.gatewayName || relayOnly.gatewayName,
         endpoints: endpoints,
         routeTable: table,
@@ -154,6 +155,7 @@ function parseV2Payload(payload, now) {
       gatewayName: payload.gatewayName || null,
       endpoints: endpoints,
       routeTable: table,
+      relayNodeId: table.relay ? table.relay.nodeId : null,
       ...deviceFields(payload)
     }
   };
@@ -190,7 +192,11 @@ function parseRelayPayload(payload, now) {
       role: payload.role === 'owner' ? 'owner' : 'guest',
       pairingCode: inviteToken ? null : pairingCode,
       expiresAt: expiresAt,
-      gatewayId: nodeId,
+      // v3 载荷同时带网关自身 UUID（插件 ...gatewayIdentity）和中继 nodeId：
+      // 前者是主机身份（用于与局域网档案合并），后者是 E2EE/路由身份。
+      // 旧插件不带 gatewayId 时退回 nodeId，连上后再由 hello 学到真实身份。
+      gatewayId: payload.gatewayId ? String(payload.gatewayId).toLowerCase() : nodeId,
+      relayNodeId: nodeId,
       accessExpiresAt: Number.isSafeInteger(payload.accessExpiresAt) && payload.accessExpiresAt > now ? payload.accessExpiresAt : null,
       accessDays: [3, 7, 30, 180, 365].includes(payload.accessDays) ? payload.accessDays : null,
       gatewayName: payload.gatewayName || null,

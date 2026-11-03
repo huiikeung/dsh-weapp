@@ -12,7 +12,7 @@ const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i;
 const openIdPattern = /^[A-Za-z0-9_-]{10,128}$/;
 const constantEqual = (a, b) => crypto.timingSafeEqual(Buffer.from(hash(a)), Buffer.from(hash(b)));
 
-function createConsole({ options, getState, commit, body, respond, now, limit, envAdmins, invalidateSessions, hasPendingGrants, engagement }) {
+function createConsole({ options, getState, commit, body, respond, now, limit, envAdmins, envHuaweiAdminOpenIds = [], huaweiClientId = '', huaweiClientSecret = '', invalidateSessions, invalidateHuaweiSessions, hasPendingGrants, engagement }) {
   if (!options) return null;
   const origin = new URL(options.origin);
   const local = origin.protocol === 'http:' && ['127.0.0.1', 'localhost', '[::1]'].includes(origin.hostname);
@@ -37,6 +37,7 @@ function createConsole({ options, getState, commit, body, respond, now, limit, e
   }
   // Refuse to start with the wrong encryption key, instead of silently discarding credentials.
   unseal(state().settings.wechatSecret);
+  unseal(state().settings.huaweiClientSecret);
   unseal(state().settings.grantToken);
   for (const record of Object.values(getState().codes)) if (record.sealedCode) unseal(record.sealedCode);
   function cookie(value, expired = false) {
@@ -54,6 +55,24 @@ function createConsole({ options, getState, commit, body, respond, now, limit, e
   function adminIds() { return state().admins.map(a => a.openid); }
   function nodeIds() { return Object.values(state().nodes).filter(n => !n.disabled && n.relayNodeId).map(n => n.relayNodeId); }
   function wechat() { const s = state().settings; return { appId: s.appId || '', appSecret: unseal(s.wechatSecret) }; }
+  function huawei() {
+    const s = state().settings;
+    if (s.huaweiClientId && s.huaweiClientSecret) return { clientId: s.huaweiClientId, clientSecret: unseal(s.huaweiClientSecret) };
+    return { clientId: huaweiClientId || '', clientSecret: huaweiClientSecret || '' };
+  }
+  function huaweiAdminAccountId(openid) { return 'huawei:' + hash(openid); }
+  function huaweiAdminViews() {
+    const current = getState(), envIds = new Set(envHuaweiAdminOpenIds.map(huaweiAdminAccountId));
+    const result = envHuaweiAdminOpenIds.map(openid => {
+      const accountId = huaweiAdminAccountId(openid);
+      return { accountId, deviceId: current.huaweiDevices?.[accountId] || '', label: '环境变量管理员', source: 'environment' };
+    });
+    for (const [accountId, record] of Object.entries(current.huaweiAdmins || {})) {
+      if (!envIds.has(accountId)) result.push({ accountId, ...record, source: 'console' });
+    }
+    return result;
+  }
+  function huaweiAdminAccountIds() { return new Set(huaweiAdminViews().map(item => item.accountId)); }
   function grant() { const s = state().settings; return { url: s.grantUrl || '', token: unseal(s.grantToken) }; }
   function nodeView(n) {
     const live = seen.get(n.id);
@@ -235,6 +254,26 @@ function createConsole({ options, getState, commit, body, respond, now, limit, e
       if(!adminIds().includes(identity.openid)&&!envAdmins.includes(identity.openid))update(s=>s.admins.push({openid:identity.openid,deviceId:identity.deviceId,label:String(input.label||'管理员').slice(0,60),createdAt:now()}));
       respond(res,200,{ok:true,deviceId:identity.deviceId});return true;
     }
+    if (req.method === 'POST' && route === '/console/api/huawei-admins/device') {
+      const input = await body(req), deviceId = String(input.deviceId || '').trim().toUpperCase();
+      if (!/^HW-[A-F0-9]{24}$/.test(deviceId)) throw failure(400, 'INVALID_HUAWEI_DEVICE_ID', '请输入华为账号对应的 HW- 设备 ID');
+      const accountId = Object.entries(getState().huaweiDevices || {}).find(([, value]) => value === deviceId)?.[0];
+      if (!accountId) throw failure(404, 'HUAWEI_DEVICE_NOT_FOUND', '服务器尚未识别此设备 ID，请先在元服务登录华为账号并打开公网访问');
+      const admins = huaweiAdminAccountIds();
+      if (admins.has(accountId)) { respond(res, 200, { ok: true, accountId, deviceId, alreadyBound: true }); return true; }
+      if (admins.size >= 100) throw failure(400, 'ADMIN_LIMIT', '最多配置 100 位华为管理员');
+      const label = String(input.label || '华为管理员').trim().slice(0, 60) || '华为管理员';
+      commit(next => { next.huaweiAdmins ||= {}; next.huaweiAdmins[accountId] = { deviceId, label, createdAt: now() }; });
+      respond(res, 200, { ok: true, accountId, deviceId }); return true;
+    }
+    if (req.method === 'POST' && route === '/console/api/huawei-admins/remove') {
+      const input = await body(req), accountId = String(input.accountId || '');
+      if (!/^huawei:[a-f0-9]{64}$/.test(accountId)) throw failure(400, 'INVALID_HUAWEI_ACCOUNT', '华为账号标识无效');
+      if (envHuaweiAdminOpenIds.some(openid => huaweiAdminAccountId(openid) === accountId)) throw failure(409, 'ENV_ADMIN', '此账号由服务器环境变量配置，请在服务器修改');
+      if (!getState().huaweiAdmins?.[accountId]) throw failure(404, 'NOT_FOUND', '华为管理员不存在');
+      commit(next => { delete next.huaweiAdmins[accountId]; });
+      respond(res, 200, { ok: true }); return true;
+    }
     if (req.method === 'GET' && route === '/console/api/pairings') { respond(res, 200, pairingState()); return true; }
     if (req.method === 'POST' && route === '/console/api/pairings') { respond(res, 201, await issuePairing(await body(req), { consoleAdmin: true, openid: 'console-owner' })); return true; }
     const revokePair = /^\/console\/api\/pairings\/([a-f0-9-]{36})\/revoke$/.exec(route);
@@ -246,9 +285,12 @@ function createConsole({ options, getState, commit, body, respond, now, limit, e
     }
     if (req.method === 'GET' && route === '/console/api/overview') {
       const s = state();
+      const huaweiCredentials = huawei();
       respond(res, 200, { origin: options.origin, settings: { appId: s.settings.appId || '', secretConfigured: !!s.settings.wechatSecret,
+        huaweiClientId: huaweiCredentials.clientId, huaweiSecretConfigured: !!huaweiCredentials.clientSecret,
         grantUrl: s.settings.grantUrl || '', grantTokenConfigured: !!s.settings.grantToken },
         admins: [...envAdmins.map(openid => ({ openid, deviceId: engagement.deviceIdFor(openid), label: '环境变量管理员', source: 'environment' })), ...s.admins.map(a => ({ ...a, deviceId: engagement.deviceIdFor(a.openid), source: 'console' }))],
+        huaweiAdmins: huaweiAdminViews(),
         bindings: Object.values(s.bindings).map(b => ({ id: b.id, label: b.label, expiresAt: b.expiresAt, openid: b.openid || '', status: b.status })),
         nodes: Object.values(s.nodes).map(nodeView) }); return true;
     }
@@ -262,6 +304,15 @@ function createConsole({ options, getState, commit, body, respond, now, limit, e
       if (!input.appSecret && !old.wechatSecret) throw failure(400, 'MISSING_APPSECRET', '首次配置需要填写 AppSecret');
       update(s => { s.settings.appId = input.appId; if (input.appSecret) s.settings.wechatSecret = seal(input.appSecret); });
       invalidateSessions(); respond(res, 200, { ok: true }); return true;
+    }
+    if (req.method === 'POST' && route === '/console/api/huawei-settings') {
+      const input = await body(req), current = huawei();
+      if (typeof input.clientId !== 'string' || !/^[0-9]{1,64}$/.test(input.clientId)) throw failure(400, 'INVALID_HUAWEI_CLIENT_ID', '请输入有效的华为 Client ID');
+      if (input.clientSecret != null && input.clientSecret !== '' && (typeof input.clientSecret !== 'string' || input.clientSecret.length > 1024 || input.clientSecret.trim() !== input.clientSecret || /[\x00-\x1f\x7f]/.test(input.clientSecret))) throw failure(400, 'INVALID_HUAWEI_CLIENT_SECRET', '华为 Client Secret 格式无效');
+      if (!input.clientSecret && (!current.clientSecret || input.clientId !== current.clientId)) throw failure(400, 'MISSING_HUAWEI_CLIENT_SECRET', '首次配置或更换 Client ID 时必须填写 Client Secret');
+      update(s => { s.settings.huaweiClientId = input.clientId; if (input.clientSecret) s.settings.huaweiClientSecret = seal(input.clientSecret); });
+      invalidateHuaweiSessions?.();
+      respond(res, 200, { ok: true }); return true;
     }
     if (req.method === 'POST' && route === '/console/api/password') {
       limit('console-password', 8);
@@ -345,6 +396,6 @@ function createConsole({ options, getState, commit, body, respond, now, limit, e
     return { pendingApproval: true };
   }
   function close() { for (const job of jobs.values()) job.finish(failure(503, 'SHUTTING_DOWN', '服务正在关闭')); }
-  return { handle, adminIds, nodeIds, wechat, grant, claim, close, pairingState, issuePairing, revokePairing, seal, unseal };
+  return { handle, adminIds, nodeIds, wechat, huawei, huaweiAdminAccountIds, grant, claim, close, pairingState, issuePairing, revokePairing, seal, unseal };
 }
 module.exports = { createConsole };

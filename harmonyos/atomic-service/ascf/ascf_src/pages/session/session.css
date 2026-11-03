@@ -911,10 +911,10 @@ box-shadow: var(--float-shadow);
 .voice-transcript-actions { display:flex; justify-content:flex-end; gap:20rpx; }
 .composer-input-row { display:flex; align-items:flex-start; gap:8rpx; width:100%; }
 .composer-input-row .composer-input { flex:1 1 auto; width:auto; min-width:0; }
-.composer-slash-chip { display: none; align-items: center; gap: 2rpx; flex-shrink: 0; align-self: center; margin-right: 4rpx; }
-.composer-slash-chip.on { display: flex; }
-.composer-slash-token { color: var(--ocean); font-size: 28rpx; }
-.composer-slash-x { padding: 0 2rpx; color: var(--ocean); font-size: 18rpx; opacity: .66; }
+.composer-slash-chip { display: none; flex-shrink: 0; align-self: center; margin: -4rpx 4rpx 0 0; background: transparent; padding: 0; border: 0; }
+.composer-slash-chip.on { display: block; }
+.composer-slash-token { color: var(--ocean); background: transparent; font-size: 28rpx; line-height: 1.2; }
+.composer-slash-chip[hidden] { display: none !important; }
 .composer-refs { display: none; flex-wrap: wrap; align-items: center; gap: 2rpx 22rpx; margin: 2rpx 0 8rpx; }
 .composer-refs.on { display: flex; }
 .composer-refs[hidden] { display: none !important; }

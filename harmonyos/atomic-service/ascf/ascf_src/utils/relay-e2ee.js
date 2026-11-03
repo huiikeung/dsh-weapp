@@ -168,13 +168,27 @@ class ClientSession {
     return concat(new Uint8Array([PACKET_SEALED]), counterBytes(counter), sealed);
   }
 
-  /** 密文包 → 明文帧文本；失败返回 null。 */
+  /** 读出密文包的计数器（诊断用；非法包返回 -1）。 */
+  packetCounter(packet) {
+    if (!packet || packet.length < 9 || packet[0] !== PACKET_SEALED) return -1;
+    return readCounter(packet, 1);
+  }
+
+  /** 是否为数据密文包（首字节 0x03）；用于把中继控制帧/残帧和真密文区分开。 */
+  isSealedPacket(packet) {
+    return !!packet && packet.length >= 1 + 8 + 17 && packet[0] === PACKET_SEALED;
+  }
+
+  /** 密文包 → 明文帧文本；失败返回 null。失败原因记在 lastOpenFailure。 */
   open(packet) {
-    if (!this.ready || !packet || packet.length < 1 + 8 + 17 || packet[0] !== PACKET_SEALED) return null;
+    this.lastOpenFailure = null;
+    if (!this.ready) { this.lastOpenFailure = 'not-ready'; return null; }
+    if (!this.isSealedPacket(packet)) { this.lastOpenFailure = 'format'; return null; }
     const counter = readCounter(packet, 1);
-    if (counter < this.rxCounter) return null; // 严格递增，拒绝重放
+    // 重复帧（counter 已处理过）不是密钥错误：丢弃即可，不能因此断开整条连接。
+    if (counter < this.rxCounter) { this.lastOpenFailure = 'duplicate'; return null; }
     const clear = nacl.secretbox.open(packet.subarray(9), concat(this.rxPrefix, counterBytes(counter)), this.key);
-    if (!clear || clear.length < 1 || clear[0] !== CLEAR_DATA) return null;
+    if (!clear || clear.length < 1 || clear[0] !== CLEAR_DATA) { this.lastOpenFailure = 'decrypt'; return null; }
     this.rxCounter = counter + 1;
     return utf8Decode(clear.subarray(1));
   }

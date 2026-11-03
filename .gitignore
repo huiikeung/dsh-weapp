@@ -33,3 +33,8 @@ pairing-qr.png
 
 # Reference checkouts (dsh-context parity)
 .reference/
+
+# HarmonyOS 原生工程本地缓存（不入库）
+.hvigor/
+harmonyos/.idea/
+**/oh_modules/

@@ -1686,17 +1686,17 @@
     </view>
       <view class="voice-input-wrap">
       <view class="composer-input-row composer-live {{composerPreview ? 'previewing' : ''}}">
+      <!-- 指令前缀：绝对定位的纯文字（无背景），textarea 用 padding-left 让出它的宽度，
+           后面的参数与灰色占位符都从它右侧开始，二者共享同一行基线。 -->
+      <text class="composer-token-measure" id="composer-token-measure">{{commandTokenLabel}} </text>
+      <view wx:if="{{commandToken}}" class="composer-token-overlay" aria-hidden="true"><text class="composer-slash-token">{{commandTokenLabel}} </text></view>
+
       <!-- 渲染层：不透明覆盖在输入框之上（不改 textarea 任何属性，避免原生组件被重置） -->
       <scroll-view hidden="{{!(composerPreview && composerPreviewBlocks.length)}}" class="composer-veil {{composerPreview && composerPreviewBlocks.length ? 'on' : ''}}" scroll-y enhanced show-scrollbar="{{false}}" bindtap="exitComposerPreviewEdit">
         <view class="composer-veil-inner">
           <template is="mdBlocks" data="{{blocks: composerPreviewBlocks, rowKey: 'live'}}"/>
         </view>
       </scroll-view>
-      <!-- 常驻 + hidden：wx:if 会让 textarea 重排、把刚粘贴的内容冲掉 -->
-      <view hidden="{{!(commandToken && draft)}}" class="composer-slash-chip {{commandToken && draft ? 'on' : ''}}" catchtap="clearCommandToken" hover-class="press-dim" role="button" aria-label="{{ui['移除指令']}}">
-        <text class="composer-slash-token">{{commandTokenLabel}}</text>
-        <text class="composer-slash-x">×</text>
-      </view>
       <!-- 引用 chip 行：@ 菜单选中的对话 / 文件夹 / 文件。textarea 里对应位置是零宽
            占位符，chip 只负责展示；同样常驻 + hidden，避免 textarea 被重排冲掉。 -->
       <view hidden="{{!composerRefs.length}}" class="composer-refs {{composerRefs.length ? 'on' : ''}}">
@@ -1708,7 +1708,7 @@
       </view>
       <textarea
       class="composer-input"
-      style="height:{{composerInputHeightPx}}px"
+      style="height:{{composerInputHeightPx}}px;{{commandToken ? 'padding-left:' + composerTokenPad + 'px;' : ''}}"
       placeholder="{{ui[composerPlaceholder] !== undefined ? ui[composerPlaceholder] : composerPlaceholder}}"
       placeholder-class="composer-placeholder"
       placeholder-style="{{theme === 'dark' ? 'color:rgba(241,244,250,0.36)' : 'color:rgba(16,19,24,0.28)'}}"

@@ -1,7 +1,7 @@
 'use strict';
 const $ = id => document.getElementById(id);
 let csrf = '', initialized = false, overview = null, currentTab = 'overview', timer;
-const titles = { overview: '连接，从这里开始', wechat: '微信与管理员', nodes: '高级 · 托管节点与配对', pairings: '高级 · 限时设备配对', codes: '兑换码管理', security: '安全设置' };
+const titles = { overview: '连接，从这里开始', wechat: '微信与华为管理员', nodes: '高级 · 托管节点与配对', pairings: '高级 · 限时设备配对', codes: '兑换码管理', security: '安全设置' };
 titles.share = '分享活动';
 titles.announcements = '开发者公告';
 let announcementEditing = null, sharingEnabled = false;
@@ -32,7 +32,7 @@ async function tab(name) { if (!titles[name]) name = 'overview'; currentTab = na
 async function boot() {
   csrf = ''; overview = null; $('dashboard').hidden = true; $('gate').hidden = false;
   resetAnnouncement(); $('announcements-list').replaceChildren();
-  for (const id of ['password', 'setup-token', 'app-secret', 'grant-token', 'old-password', 'new-password']) $(id).value = '';
+  for (const id of ['password', 'setup-token', 'app-secret', 'huawei-client-secret', 'grant-token', 'old-password', 'new-password']) $(id).value = '';
   if ($('result-dialog').open) $('result-dialog').close();
   if ($('confirm-dialog').open) $('confirm-cancel').click();
   try {
@@ -48,19 +48,35 @@ async function refresh() {
   overview = await api('/overview');
   $('stat-nodes').textContent = overview.nodes.filter(n => !n.disabled).length;
   $('stat-online').textContent = overview.nodes.filter(n => n.online).length;
-  $('stat-admins').textContent = overview.admins.length;
+  $('stat-admins').textContent = overview.admins.length + (overview.huaweiAdmins || []).length;
   $('server-origin').textContent = overview.origin;
   $('app-id').value = overview.settings.appId; $('app-id').readOnly = !!overview.settings.appId;
   $('wechat-status').textContent = overview.settings.secretConfigured ? 'AppSecret 已加密保存。更换时填写新值，留空则保留。' : '尚未配置微信凭据。节点配对与网页管理可独立使用。';
+  $('huawei-client-id').value = overview.settings.huaweiClientId || '';
+  const huaweiSecretConfigured = overview.settings.huaweiSecretConfigured === true;
+  $('huawei-client-secret').required = !huaweiSecretConfigured;
+  $('huawei-status').textContent = huaweiSecretConfigured ? '华为 Client Secret 已配置。更换时填写新值，留空则保留。' : '尚未配置华为 Client Secret。';
   $('grant-url').value = overview.settings.grantUrl || '';
   $('checklist').replaceChildren();
   for (const [i, item] of [
     ['配置小程序', overview.settings.secretConfigured ? '微信凭据已保存' : '填写 AppID 与 AppSecret，启用微信身份核验', 'wechat'],
-    ['绑定管理员', overview.admins.length ? '已绑定 ' + overview.admins.length + ' 个微信身份' : '复制小程序 WX- 设备 ID，在网页核实并绑定', 'wechat'],
+    ['配置华为账号', overview.settings.huaweiSecretConfigured ? 'Account Kit 凭据已保存' : '填写 Huawei Client ID 与 Client Secret', 'wechat'],
+    ['绑定微信管理员', overview.admins.length ? '已绑定 ' + overview.admins.length + ' 个微信身份' : '复制 WX- 设备 ID，在网页核实并绑定', 'wechat'],
+    ['绑定华为管理员', (overview.huaweiAdmins || []).length ? '已绑定 ' + overview.huaweiAdmins.length + ' 个华为身份' : '本人登录元服务后，用 HW- 设备 ID 核实绑定', 'wechat'],
     ['分发公网有效期', '生成兑换码，用户兑换后扫描自己 DSH 插件的二维码', 'codes']
   ].entries()) { const r = element('div', 'check-row'), copy = element('div'); copy.append(element('strong', '', item[0]), element('p', '', item[1])); r.append(element('span', 'check-number', String(i + 1).padStart(2, '0')), copy, button('查看 →', () => tab(item[2]), 'quiet')); $('checklist').append(r); }
   $('admins').replaceChildren(); if (!overview.admins.length) empty($('admins'), '还没有绑定微信管理员');
   for (const admin of overview.admins) $('admins').append(row(admin.label, admin.deviceId ? '设备ID：' + admin.deviceId : '设备ID待同步，请本人打开新版小程序设置', admin.source === 'environment' ? [element('span', 'tag', '环境配置')] : [button('移除权限', async () => { if (await confirmAction('移除管理员？', '此微信将立即失去管理权限，网页管理密码不受影响。')) { await api('/admins/remove', { openid: admin.openid }); await refresh(); } }, 'quiet danger')]));
+  $('huawei-admins').replaceChildren();
+  if (!overview.huaweiAdmins.length) empty($('huawei-admins'), '还没有绑定华为管理员');
+  for (const admin of overview.huaweiAdmins) {
+    const description = '设备 ID：' + (admin.deviceId || '尚未登录');
+    const actions = admin.source === 'environment' ? [element('span', 'tag', '环境配置')] : [button('移除权限', async () => {
+      if (!await confirmAction('移除华为管理员？', '设备 ID ' + (admin.deviceId || admin.accountId) + ' 对应账号将立即失去管理权限。')) return;
+      await api('/huawei-admins/remove', { accountId: admin.accountId }); await refresh(); notice('华为管理员权限已移除');
+    }, 'quiet danger')];
+    $('huawei-admins').append(row(admin.label || '华为账号管理员', description, actions));
+  }
   $('nodes').replaceChildren(); $('code-node').replaceChildren();
   const globalScope = element('option', '', '鲸尾公网服务（用户自己的设备）'); globalScope.value = ''; $('code-node').append(globalScope);
   if (!overview.nodes.length) empty($('nodes'), '还没有节点。先添加一台运行 DSH 的电脑。');
@@ -163,11 +179,28 @@ async function loadShare() {
   }
 }
 form('device-admin-form', async () => { const deviceId = $('device-admin-id').value.trim().toUpperCase(); if (!await confirmAction('绑定这个微信为管理员？', '请先向本人核实设备 ID：' + deviceId + '。此权限可以生成、复制和删除兑换码。')) return; await api('/admins/device', {deviceId, label:$('device-admin-label').value.trim()}); $('device-admin-id').value = ''; await refresh(); notice('绑定成功，请重新进入小程序设置'); });
+form('huawei-admin-form', async () => {
+  const deviceId = $('huawei-admin-device-id').value.trim();
+  const label = $('huawei-admin-label').value.trim();
+  if (!label) throw new Error('请填写管理员备注');
+  if (!/^HW-.+/.test(deviceId)) throw new Error('设备ID 必须以 HW- 开头');
+  if (!await confirmAction('绑定这个华为账号为管理员？', '请先向本人核实设备 ID：' + deviceId + '。')) return;
+  await api('/huawei-admins/device', { deviceId, label });
+  $('huawei-admin-device-id').value = ''; $('huawei-admin-label').value = '';
+  await refresh(); notice('华为管理员绑定成功');
+});
 form('share-rules-form', async () => { await api('/share/rules', {enabled:$('share-enabled').value === 'true', tiers:[1,2,3].map(i=>({from:i===1?1:Number($('tier-'+i+'-from').value),days:Number($('tier-'+i+'-days').value)})), momentsDays:Number($('moments-days').value)}); await loadShare(); notice('活动规则已保存'); });
 $('refresh-share').onclick = () => busy($('refresh-share'), loadShare);
 $('delete-result').onclick = () => busy($('delete-result'), () => deleteCode(resultCodeId));
 form('auth-form', async () => { $('auth-error').textContent = ''; try { const value = await api(initialized ? '/login' : '/setup', { password: $('password').value, setupToken: $('setup-token').value }); csrf = value.csrf; $('password').value = ''; $('setup-token').value = ''; await boot(); } catch (e) { $('auth-error').textContent = e.message; } });
 form('wechat-form', async () => { await api('/settings', { appId: $('app-id').value.trim(), appSecret: $('app-secret').value.trim() }); $('app-secret').value = ''; await refresh(); notice('微信配置已保存'); });
+form('huawei-form', async () => {
+  const clientId = $('huawei-client-id').value.trim();
+  const clientSecret = $('huawei-client-secret').value;
+  $('huawei-client-secret').value = '';
+  await api('/huawei-settings', { clientId, clientSecret });
+  await refresh(); notice('华为凭据已保存');
+});
 form('node-form', async () => { showConnector(await api('/nodes', { name: $('node-name').value.trim() })); $('node-name').value = ''; await refresh(); });
 form('pairing-form', async () => {
   pairingIssuing = true;

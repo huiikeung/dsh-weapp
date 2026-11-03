@@ -1,0 +1,11 @@
+{
+  "name": "entry",
+  "version": "1.0.0",
+  "description": "Whaletail Harness entry module",
+  "main": "",
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "nativecore": "file:../../native-core"
+  }
+}

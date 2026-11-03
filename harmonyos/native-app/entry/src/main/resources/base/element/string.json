@@ -1,0 +1,8 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "鲸尾 Harness 原生应用" },
+    { "name": "EntryAbility_desc", "value": "鲸尾 Harness" },
+    { "name": "EntryAbility_label", "value": "鲸尾" },
+    { "name": "camera_reason", "value": "扫描配对二维码" }
+  ]
+}

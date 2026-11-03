@@ -1,0 +1,8 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "Whaletail Harness native app" },
+    { "name": "EntryAbility_desc", "value": "Whaletail Harness" },
+    { "name": "EntryAbility_label", "value": "Whaletail" },
+    { "name": "camera_reason", "value": "Scan the pairing QR code" }
+  ]
+}

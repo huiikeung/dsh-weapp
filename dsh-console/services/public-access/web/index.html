@@ -22,7 +22,7 @@
     <aside class="sidebar"><a href="#overview" class="wordmark">鲸尾 <span>管理台</span></a><span class="eyebrow">WORKSPACE / 管理空间</span>
       <nav aria-label="后台导航">
         <button data-tab="overview" class="nav-item active"><span class="nav-dot"></span>总览</button>
-        <button data-tab="wechat" class="nav-item"><span class="nav-dot"></span>微信与管理员</button>
+        <button data-tab="wechat" class="nav-item"><span class="nav-dot"></span>微信与华为管理员</button>
         <button data-tab="codes" class="nav-item"><span class="nav-dot"></span>兑换码</button>
         <button data-tab="announcements" class="nav-item"><span class="nav-dot"></span>开发者公告</button>
         <button data-tab="share" class="nav-item"><span class="nav-dot"></span>分享活动</button>
@@ -35,18 +35,24 @@
     </aside>
     <main class="content"><header><div><span class="eyebrow">DSH / CONTROL ROOM</span><h1 id="page-title">连接，从这里开始</h1></div><div class="header-actions"><button id="theme" class="quiet">切换明暗</button><button id="refresh" class="quiet">刷新</button><button id="logout" class="quiet">退出</button></div></header>
       <section id="panel-overview" class="panel">
-        <div class="hero"><div><span class="badge">公网控制台</span><h2>你的设备。你的连接。</h2><p>管理微信身份与公网有效期，<br>用户扫码连接自己的 DSH。</p><button class="primary" data-go="codes">生成公网兑换码 <span aria-hidden="true">↗</span></button></div><div class="hero-mark" aria-hidden="true"><div></div><div></div><span>DSH</span></div></div>
-        <div class="stats"><article><span>托管节点（可选）</span><strong id="stat-nodes">0</strong><small>不是用户扫码设备总数</small></article><article><span>在线托管节点</span><strong id="stat-online">0</strong><small>仅统计后台连接器</small></article><article><span>微信管理员</span><strong id="stat-admins">0</strong><small>服务端验证身份</small></article></div>
+        <div class="hero"><div><span class="badge">公网控制台</span><h2>你的设备。你的连接。</h2><p>管理微信与华为账号，连接你的电脑，<br>配置管理员权限与公网访问。</p><button class="primary" data-go="codes">生成公网兑换码 <span aria-hidden="true">↗</span></button></div><div class="hero-mark" aria-hidden="true"><div></div><div></div><span>DSH</span></div></div>
+        <div class="stats"><article><span>托管节点（可选）</span><strong id="stat-nodes">0</strong><small>不是用户扫码设备总数</small></article><article><span>在线托管节点</span><strong id="stat-online">0</strong><small>仅统计后台连接器</small></article><article><span>管理员账号</span><strong id="stat-admins">0</strong><small>微信与华为身份</small></article></div>
         <article class="card"><div class="section-head"><h2>部署检查</h2><span class="muted">完成三步，开始连接</span></div><div id="checklist"></div></article>
       </section>
       <section id="panel-wechat" class="panel" hidden>
         <div class="two-columns"><article class="card"><div class="section-head"><h2>小程序凭据</h2><span class="tag">仅服务端保存</span></div><p class="muted">填写与你的小程序一致的 AppID。AppSecret 加密保存，提交后不回显。</p>
           <form id="wechat-form"><label for="app-id">小程序 AppID</label><input id="app-id" required placeholder="wx…" autocomplete="off"><label for="app-secret">AppSecret</label><input id="app-secret" type="password" autocomplete="new-password" placeholder="首次配置必填，之后留空保留"><button type="submit" class="primary">保存微信配置</button></form><p id="wechat-status" class="help"></p>
         </article><article class="card"><h2>小程序接入</h2><p class="muted">将下方域名加入微信后台的 request 合法域名，并填入小程序 utils/access-config.js 的 baseUrl。</p><code id="server-origin" class="code-block"></code><p class="help">统一部署的中继地址为同域名的 wss://域名/relay；微信 socket 合法域名只填 wss://域名。公网到期不影响局域网与直连。</p></article></div>
-        <article class="card"><div class="section-head"><h2>通过设备ID绑定管理员</h2><span class="tag">微信服务端核验</span></div><p class="muted">让管理员本人打开小程序「设置 → 公网访问」，复制 WX- 开头的设备ID，在这里绑定。统一使用小程序设备ID，不再填写电脑节点ID、OpenID或旧绑定码。请本人在最近 24 小时内打开过设置。</p>
+        <article class="card"><div class="section-head"><h2>华为元服务凭据</h2><span class="tag">仅服务端保存</span></div><p class="muted">配置华为开发者平台中的 Client ID 与 Client Secret，用于核验元服务账号。Secret 加密保存，提交后不会回显。</p>
+          <form id="huawei-form"><label for="huawei-client-id">Client ID</label><input id="huawei-client-id" required maxlength="64" pattern="[0-9]{1,64}" inputmode="numeric" autocomplete="off" placeholder="华为应用 Client ID"><label for="huawei-client-secret">Client Secret</label><input id="huawei-client-secret" type="password" maxlength="500" autocomplete="new-password" placeholder="首次配置必填，之后留空保留"><button type="submit" class="primary">保存华为配置</button></form><p id="huawei-status" class="help" role="status"></p>
+        </article>
+        <article class="card"><div class="section-head"><h2>通过设备ID绑定微信管理员</h2><span class="tag">微信服务端核验</span></div><p class="muted">让管理员本人打开小程序「设置 → 公网访问」，复制 WX- 开头的设备ID，在这里绑定。统一使用小程序设备ID，不再填写电脑节点ID、OpenID或旧绑定码。请本人在最近 24 小时内打开过设置。</p>
           <form id="device-admin-form" class="inline-form"><div><label for="device-admin-label">管理员备注</label><input id="device-admin-label" maxlength="60" required placeholder="例如：运营管理员"></div><div><label for="device-admin-id">设备ID</label><input id="device-admin-id" required maxlength="27" pattern="WX-[A-Fa-f0-9]{24}" placeholder="WX-…" autocomplete="off" spellcheck="false"></div><button class="primary" type="submit">绑定管理员</button></form>
           <p class="help">绑定后重新进入小程序设置，即显示「微信身份」与兑换码管理；普通用户不显示微信身份模块。</p>
-        </article><article class="card"><h2>已授权管理员</h2><div id="admins" class="list"></div></article>
+        </article><article class="card"><h2>已授权微信管理员</h2><div id="admins" class="list"></div></article>
+        <article class="card"><div class="section-head"><h2>通过 HW- 设备ID绑定华为管理员</h2><span class="tag">华为账号核验</span></div><p class="muted">请管理员本人从华为元服务中复制 HW- 开头的设备ID，在这里绑定。管理员备注仅用于后台识别。</p>
+          <form id="huawei-admin-form" class="inline-form"><div><label for="huawei-admin-label">管理员备注</label><input id="huawei-admin-label" maxlength="60" required placeholder="例如：运营管理员"></div><div><label for="huawei-admin-device-id">设备ID</label><input id="huawei-admin-device-id" required maxlength="27" pattern="HW-[A-Fa-f0-9]{24}" placeholder="HW-…" autocomplete="off" spellcheck="false"></div><button class="primary" type="submit">绑定华为管理员</button></form>
+        </article><article class="card"><h2>已授权华为管理员</h2><div id="huawei-admins" class="list"></div></article>
       </section>
       <section id="panel-nodes" class="panel" hidden>
         <article class="card"><div class="section-head"><h2>接入托管电脑节点（可选）</h2><span class="tag">无需开放本机管理端口</span></div><p class="muted">仅供需要后台签发限时设备配对的管理员使用。普通用户兑换公网服务后直接扫描自己插件的二维码，无需添加这里的节点。托管模式在电脑端运行 connector.cjs，仅出站请求，不运行远程命令。</p><form id="node-form" class="inline-form"><div><label for="node-name">节点名称</label><input id="node-name" maxlength="60" required placeholder="例如：工作室 Mac"></div><button class="primary" type="submit">添加节点</button></form></article>

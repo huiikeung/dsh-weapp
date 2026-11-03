@@ -190,6 +190,8 @@ const sessionState = {
       }
       if (status === 'connected') {
         resetHistoryPaging();
+        // 看门狗按连接重新计时（连续判定半死的次数跨连接累计，超过 2 次就停手）。
+        sawBusinessData = false;
         // 记住这次真正连通的地址，下次优先使用；轮换游标对齐当前线路
         endpointCandidates = endpointCandidates.length ? endpointCandidates : [state.endpoint];
         // 候选被兜底成单条时按地址特征补线路族，保证轮换/中继升级判断有据可依。
@@ -210,14 +212,15 @@ const sessionState = {
               profileChanged = true;
             }
             // 经中继连上（v2 直连二维码的中继候选）：把档案升级成中继档案，
-            // 否则下次重连不会带 E2EE 元信息，又掉回直连候选。gatewayId 换成
-            // 中继 nodeId（与 v3 载荷一致）：重连的中继参数和 E2EE 验签都用它。
+            // 否则下次重连不会带 E2EE 元信息，又掉回直连候选。
+            // 中继 nodeId 存到 relayNodeId：gatewayId 保持网关自身 UUID，局域网与
+            // 公网才是同一台主机的两条线路（不会分裂成两个主机条目）。
             if (client.routeKind === 'relay' && !profile.relay && client.relayMeta && client.relayMeta.agentPubKey) {
               profile.relay = true;
               profile.relayAgentPubKey = client.relayMeta.agentPubKey;
               profile.relayAuthMode = client.relayMeta.authMode || 'invite';
               profile.relayRole = profile.relayRole || 'guest';
-              if (client.relayMeta.nodeId) profile.gatewayId = client.relayMeta.nodeId;
+              if (client.relayMeta.nodeId) profile.relayNodeId = client.relayMeta.nodeId;
               profileChanged = true;
             }
             if (profileChanged) hosts.saveProfiles(state.profiles);
@@ -241,6 +244,25 @@ const sessionState = {
           emit();
           return;
         }
+        // 网络切到蜂窝后，旧的局域网线路一定不可达：不要在同族候选里空转，
+        // 直接按当前网络重新选路（选路层会整族跳过 lan，改走公网/中继）。
+        {
+          const family = routeTable.networkFamily(cachedNetworkType);
+          const currentMeta = endpointCandidateMeta[endpointIdx] || {};
+          const currentKind = currentMeta.kind || routeTable.classifyEndpoint(state.endpoint || '');
+          const routeDead = currentKind === 'lan' && family === 'cellular';
+          if (routeDead && state.activeID) {
+            state.connectionMessage = uiText('已切换到移动网络，正在改用公网线路…');
+            if (!rotationTimer) {
+              rotationTimer = setTimeout(function () {
+                rotationTimer = null;
+                if (client.wantsConnection) reconnectPreferred({ force: true });
+              }, 600);
+            }
+            emit();
+            return;
+          }
+        }
         // 候选地址循环轮换（中继 ↔ 直连互为备份，3s 节流防紧密循环）：
         if (status === 'failed' && endpointCandidates.length > 1) {
           endpointIdx = (endpointIdx + 1) % endpointCandidates.length;
@@ -259,7 +281,7 @@ const sessionState = {
               rotationTimer = setTimeout(function () {
                 rotationTimer = null;
                 if (client.wantsConnection && state.endpoint === next) {
-                  client.connect(next, Object.assign({}, connectOpts, { routeKind: nextMeta.kind }));
+                  client.connect(next, Object.assign({}, connectOpts, { routeKind: nextMeta.kind, force: true }));
                 }
               }, 3000);
             }
@@ -318,17 +340,31 @@ const sessionState = {
     });
   }
 
-  /** 数据看门狗：握手成功但数据帧静默（fnOS 半死）→ 主动断链，交给端点轮换重连 */
+  /** 数据看门狗：握手成功但数据帧静默（fnOS 半死）→ 主动断链，交给端点轮换重连。
+   *  连续多次判定为半死时就停手：否则「重连→无数据→再重连」会变成每 20s 一次
+   *  的死循环，用户看到的就是「明明连上了却一直在重连」。 */
+  let sawBusinessData = false;
+  let dataWatchdogStrikes = 0;
+  let emptySessionsReconnects = 0; // 空会话列表的自愈重连预算（跨连接，拿到数据后归零）
   function startDataWatchdog() {
     if (dataWatchdogTimer) clearTimeout(dataWatchdogTimer);
     dataWatchdogTimer = setTimeout(function () {
       dataWatchdogTimer = null;
       if (state.connection !== 'connected') return;
-      if (state.workspaces.length || state.sessions.length) return;
+      if (sawBusinessData || state.workspaces.length || state.sessions.length) {
+        dataWatchdogStrikes = 0;
+        return;
+      }
+      dataWatchdogStrikes += 1;
+      if (dataWatchdogStrikes > 2) {
+        state.connectionMessage = uiText('数据通道无响应，请检查电脑端 DSH 是否正常运行');
+        emit();
+        return;
+      }
       if (typeof client.handleTransportFailure === 'function') {
         client.handleTransportFailure(uiText('数据通道无响应，正在重新连接'));
       }
-    }, 12000);
+    }, 20000);
   }
 
   // Shared bounded L1/L2 history cache. Host scope is part of every key;
@@ -579,6 +615,10 @@ const sessionState = {
     if (!left || !right) return false;
     if (left.id && right.id && left.id === right.id) return true;
     if (left.gatewayId && right.gatewayId && left.gatewayId === right.gatewayId) return true;
+    // 同一主机可能一份档案只有局域网地址、另一份只有中继地址：nodeId 也算共享身份。
+    const leftNodeId = hosts.relayNodeId(left);
+    const rightNodeId = hosts.relayNodeId(right);
+    if (leftNodeId && rightNodeId && leftNodeId === rightNodeId) return true;
     const leftEndpoints = left.endpoints || [];
     const rightEndpoints = right.endpoints || [];
     const sharesEndpoint = leftEndpoints.some(function (endpoint) {
@@ -881,6 +921,9 @@ const sessionState = {
         }
         state.workspaces = frame.items || [];
         state.archivedSessionIds = frame.archivedSessionIds || [];
+        sawBusinessData = true;
+        dataWatchdogStrikes = 0;
+        state.workspaceRetries = 0;
         saveHomeCache();
         state.lastWorkspacesFrame = {
           count: state.workspaces.length,
@@ -929,6 +972,12 @@ const sessionState = {
           state.workspaceRetries = (state.workspaceRetries || 0) + 1;
           safeRequest(client.requestWorkspaces(), uiText('工作区'));
         }
+        if (sessionItems.length) {
+          sawBusinessData = true;
+          dataWatchdogStrikes = 0;
+          emptySessionsReconnects = 0;
+          state.sessionsRetries = 0;
+        }
         // 自愈 B：已连接但主机回了空会话列表 → 节流补拉（0.8.x 偶发空视图）
         if (!sessionItems.length && state.connection === 'connected') {
           if (Date.now() - (state.lastSessionsRetryAt || 0) > 8000
@@ -939,9 +988,15 @@ const sessionState = {
           } else if ((state.sessionsRetries || 0) >= 5
             && Date.now() - (state.lastSessionsRetryAt || 0) > 8000
             && typeof client.handleTransportFailure === 'function') {
-            // 重试预算用尽：判定线路/主机半死，断链交给端点轮换
+            // 重试预算用尽：判定线路/主机半死，断链交给端点轮换。
+            // 但预算跨连接累计：空列表本身可能是真实状态（新工作区、全部归档），
+            // 反复「连上→空列表→重连」正是用户看到的「老是重连」，所以最多
+            // 自愈两次，之后把它当真实空列表处理（拿到非空列表即恢复预算）。
             state.lastSessionsRetryAt = Date.now();
-            client.handleTransportFailure(uiText('会话列表持续为空，正在重新连接'));
+            if (emptySessionsReconnects < 2) {
+              emptySessionsReconnects += 1;
+              client.handleTransportFailure(uiText('会话列表持续为空，正在重新连接'));
+            }
           }
         }
         // 空帧不落缓存：避免瞬时空响应抹掉「秒加载」用的上次列表
@@ -2934,21 +2989,154 @@ const sessionState = {
     hosts.saveProfiles(state.profiles);
   }
 
+  function relayNodeIdOf(profile) {
+    return hosts.relayNodeId(profile);
+  }
+
+  /** 档案的身份键：网关自身 UUID + 中继节点 ID（旧档案的 gatewayId 可能存的是 nodeId）。 */
+  function profileIdentityKeys(profile) {
+    const keys = [];
+    if (!profile) return keys;
+    if (profile.gatewayId) keys.push(String(profile.gatewayId).toLowerCase());
+    const nodeId = relayNodeIdOf(profile);
+    if (nodeId && keys.indexOf(String(nodeId).toLowerCase()) < 0) keys.push(String(nodeId).toLowerCase());
+    return keys;
+  }
+
+  /**
+   * 两台档案是否同一台主机：局域网线路与公网/中继线路只是同一主机的不同路由，
+   * 不能各存一份档案（否则主机列表出现两条、界面以为连了两台机器）。
+   */
+  function sameHostProfile(left, right) {
+    if (!left || !right) return false;
+    if (left.id && right.id && left.id === right.id) return true;
+    const leftKeys = profileIdentityKeys(left);
+    const rightKeys = profileIdentityKeys(right);
+    for (let i = 0; i < leftKeys.length; i += 1) {
+      if (rightKeys.indexOf(leftKeys[i]) >= 0) return true;
+    }
+    // 旧版配对流程可能没存身份字段：同名主机且共享地址时视为同一台。
+    if (!left.gatewayName || String(left.gatewayName) !== String(right.gatewayName)) return false;
+    const leftEndpoints = left.endpoints || [];
+    const rightEndpoints = right.endpoints || [];
+    return leftEndpoints.some(function (endpoint) { return rightEndpoints.indexOf(endpoint) >= 0; });
+  }
+
+  /** 把同一主机的另一份档案并入 keep：线路取并集、凭据/中继身份补齐。 */
+  function mergeHostProfile(keep, drop) {
+    if (!keep || !drop || keep.id === drop.id) return keep;
+    const endpoints = [];
+    const push = function (endpoint) {
+      if (!endpoint || endpoints.indexOf(endpoint) >= 0 || endpoints.length >= 16) return;
+      endpoints.push(endpoint);
+    };
+    push(keep.preferredEndpoint);
+    (keep.endpoints || []).forEach(push);
+    (drop.endpoints || []).forEach(push);
+    keep.endpoints = endpoints;
+    if (endpoints.indexOf(keep.preferredEndpoint) < 0) keep.preferredEndpoint = endpoints[0] || null;
+    // 路由表：局域网/公网取并集，中继保留先有的那份（另一份通常是同一 nodeId）。
+    const tables = [keep.routeTable, drop.routeTable].filter(function (table) {
+      return table && typeof table === 'object';
+    });
+    if (tables.length) {
+      const lan = [];
+      const pub = [];
+      tables.forEach(function (table) {
+        (Array.isArray(table.lan) ? table.lan : []).forEach(function (endpoint) {
+          if (lan.indexOf(endpoint) < 0 && lan.length + pub.length < 16) lan.push(endpoint);
+        });
+        (Array.isArray(table.public) ? table.public : []).forEach(function (endpoint) {
+          if (pub.indexOf(endpoint) < 0 && lan.length + pub.length < 16) pub.push(endpoint);
+        });
+      });
+      keep.routeTable = { lan: lan, public: pub, relay: (tables[0] && tables[0].relay) || (tables[1] && tables[1].relay) || null };
+    } else {
+      keep.routeTable = routeTable.parseRouteTable({ endpoints: endpoints });
+    }
+    if (!keep.relay && drop.relay) keep.relay = true;
+    if (!keep.relayNodeId) keep.relayNodeId = relayNodeIdOf(drop);
+    if (!keep.relayAgentPubKey) keep.relayAgentPubKey = drop.relayAgentPubKey || null;
+    if (!keep.relayAuthMode) keep.relayAuthMode = drop.relayAuthMode || null;
+    if (!keep.relayRole) keep.relayRole = drop.relayRole || null;
+    if (!keep.relayAccessToken) keep.relayAccessToken = drop.relayAccessToken || null;
+    if (!keep.relayExpiresAt) keep.relayExpiresAt = drop.relayExpiresAt || null;
+    if (!keep.relayInviteExpiresAt) keep.relayInviteExpiresAt = drop.relayInviteExpiresAt || null;
+    // 真实网关身份优先保留「不是 nodeId」的那个。
+    const keepNodeId = relayNodeIdOf(keep);
+    if ((!keep.gatewayId || keep.gatewayId === keepNodeId) && drop.gatewayId && drop.gatewayId !== relayNodeIdOf(drop)) {
+      keep.gatewayId = drop.gatewayId;
+    }
+    if (!keep.gatewayName && drop.gatewayName) keep.gatewayName = drop.gatewayName;
+    if (!keep.alias && drop.alias) keep.alias = drop.alias;
+    if (!keep.remoteDeviceId && drop.remoteDeviceId) keep.remoteDeviceId = drop.remoteDeviceId;
+    if (drop.deviceKindSource === 'user') {
+      keep.deviceKind = drop.deviceKind;
+      keep.deviceKindSource = 'user';
+    }
+    // 凭据：keep 没有可用的设备 token 时继承 drop 的（局域网 token 同样能用于中继网关鉴权）。
+    const keepCred = hosts.loadCredential(keep.id);
+    if (!keepCred || !keepCred.token) {
+      const dropCred = hosts.loadCredential(drop.id);
+      if (dropCred && dropCred.token) hosts.saveCredential(keep.id, dropCred.endpoint || keep.preferredEndpoint, dropCred.token);
+    }
+    if (state.activeID === drop.id) {
+      state.activeID = keep.id;
+      hosts.setActiveID(keep.id);
+    }
+    if (pendingProfile === drop) pendingProfile = keep;
+    state.profiles = state.profiles.filter(function (p) { return p.id !== drop.id; });
+    hosts.saveProfiles(state.profiles);
+    try {
+      console.log('[hosts] merged duplicate host profiles into one: ' + hosts.displayName(keep) +
+        ' (' + keep.endpoints.length + ' routes)');
+    } catch (e) { /* 无 console 环境忽略 */ }
+    return keep;
+  }
+
   /** paired/hello 帧接受网关身份（iOS acceptIdentity 对齐）。 */
   function acceptIdentity(frame) {
     const isPending = !!pendingProfile;
     let profile = isPending ? pendingProfile : getProfile(state.activeID);
-    const frameGatewayId = frame.gatewayId ? String(frame.gatewayId).toLowerCase() : null;
-    if (frameGatewayId && !(profile && profile.relay)) {
-      // 网关身份已有归属档案（如配对载荷缺 gatewayId）：并入原档案。
-      for (let i = 0; i < state.profiles.length; i += 1) {
-        const p = state.profiles[i];
-        if (p.gatewayId === frameGatewayId && (!profile || p.id !== profile.id)) {
-          profile = p;
-          break;
-        }
+    const relayNodeId = (client.relayMeta && client.relayMeta.nodeId) || null;
+    let frameGatewayId = frame.gatewayId ? String(frame.gatewayId).toLowerCase() : null;
+    // 中继 nodeId 不是网关身份：旧链路可能把它当 gatewayId 回传，不能覆盖真实身份。
+    if (frameGatewayId && relayNodeId && frameGatewayId === relayNodeId) frameGatewayId = null;
+
+    if (profile && frameGatewayId) {
+      const profileNodeId = relayNodeIdOf(profile);
+      if (profile.gatewayId === frameGatewayId) {
+        if (profile.relay && !profile.relayNodeId) profile.relayNodeId = profileNodeId || relayNodeId;
+      } else if (profile.relay) {
+        // 旧中继档案把 nodeId 存在 gatewayId 里：学到真实身份后就地迁移，
+        // nodeId 转到 relayNodeId（/c/<nodeId> 路由与 E2EE 验签继续用它）。
+        if (!profile.relayNodeId) profile.relayNodeId = profile.gatewayId || profileNodeId || relayNodeId;
+        profile.gatewayId = frameGatewayId;
+      } else if (!profile.gatewayId || profile.gatewayId === profileNodeId) {
+        profile.gatewayId = frameGatewayId;
       }
     }
+
+    // 同一台主机的多份档案（局域网一份、公网/中继一份）合并成一份：
+    // 主机列表只显示一条，线路由客户端在同一档案内自动切换。
+    if (profile) {
+      const identity = {
+        gatewayId: profile.gatewayId || frameGatewayId,
+        relayNodeId: relayNodeIdOf(profile) || relayNodeId,
+        endpoints: profile.endpoints,
+        gatewayName: profile.gatewayName
+      };
+      let merged = false;
+      for (let i = state.profiles.length - 1; i >= 0; i -= 1) {
+        const other = state.profiles[i];
+        if (!other || other.id === profile.id) continue;
+        if (!sameHostProfile(other, identity)) continue;
+        profile = mergeHostProfile(profile, other);
+        merged = true;
+      }
+      if (merged && isPending) pendingProfile = profile;
+    }
+
     if (!profile) {
       profile = hosts.newProfile({
         gatewayName: frame.gatewayName || hostLabelFromEndpoint(state.endpoint) || uiText('新主机'),
@@ -2956,8 +3144,15 @@ const sessionState = {
         preferredEndpoint: state.endpoint
       });
     }
-    // relay 的 nodeId 用于路由和 E2EE 验签，不能被网关自身 UUID 覆盖。
-    if (frameGatewayId && !profile.relay) profile.gatewayId = frameGatewayId;
+    // 网关自身 UUID 与中继 nodeId 分开保存：前者是主机身份，后者只用于路由/E2EE。
+    if (frameGatewayId) {
+      if (profile.gatewayId && profile.gatewayId !== frameGatewayId && profile.relay && !profile.relayNodeId) {
+        profile.relayNodeId = profile.gatewayId;
+      }
+      profile.gatewayId = frameGatewayId;
+    } else if (profile.relay && !profile.relayNodeId && relayNodeId) {
+      profile.relayNodeId = relayNodeId;
+    }
     const name = String(frame.gatewayName || '').trim();
     if (name) profile.gatewayName = frame.gatewayName;
     // 老档案没有设备来源：连上后用最新网关名重新推断一次（默认电脑），并随档案落盘。
@@ -3052,13 +3247,14 @@ const sessionState = {
     });
     // Older relay profiles stored only the endpoint and E2EE identity. Rebuild
     // their relay route instead of classifying /c/<nodeId> as a public direct URL.
-    if (!table.relay && profile && profile.relay && profile.gatewayId && profile.relayAgentPubKey) {
-      const relayPath = '/c/' + profile.gatewayId;
+    const profileRelayNodeId = relayNodeIdOf(profile);
+    if (!table.relay && profile && profile.relay && profileRelayNodeId && profile.relayAgentPubKey) {
+      const relayPath = '/c/' + profileRelayNodeId;
       const endpoint = hosts.connectionEndpoints(profile).find(value => value.endsWith(relayPath));
       if (endpoint) {
         table.relay = routeTable.normalizeRelay({
           relay: endpoint.slice(0, -relayPath.length),
-          nodeId: profile.gatewayId,
+          nodeId: profileRelayNodeId,
           agentPubKey: profile.relayAgentPubKey,
           authMode: profile.relayAuthMode || 'invite',
           accessExpiresAt: profile.relayExpiresAt
@@ -3072,7 +3268,7 @@ const sessionState = {
     const pairedRelayReady = !!(profile && credential && credential.token && table.relay
       && table.relay.authMode === 'gateway');
     const profileRelayReady = !!(profile && profile.relay && profile.relayAgentPubKey
-      && table.relay && profile.gatewayId === table.relay.nodeId);
+      && table.relay && (relayNodeIdOf(profile) === table.relay.nodeId || profile.gatewayId === table.relay.nodeId));
     const relayReady = pairedRelayReady || profileRelayReady;
     const usable = relayReady ? ordered : ordered.filter(candidate => candidate.kind !== 'relay');
     // 网络过滤 + 缺少可用中继授权可能把候选一起清空。
@@ -3096,7 +3292,7 @@ const sessionState = {
     if (candidate.kind === 'relay') {
       const relay = candidate.relay || (profile.relay ? {
         authMode: profile.relayAuthMode || 'invite',
-        nodeId: profile.gatewayId,
+        nodeId: relayNodeIdOf(profile),
         agentPubKey: profile.relayAgentPubKey,
         accessExpiresAt: profile.relayExpiresAt
       } : null);
@@ -3142,10 +3338,16 @@ const sessionState = {
     endpointCandidateMeta = candidates.slice();
     endpointIdx = 0;
     const gid = payload && payload.gatewayId ? String(payload.gatewayId).toLowerCase() : null;
+    const payloadNodeId = payload && (payload.relayNodeId || (payload.mode === 'relay' ? payload.nodeId : null));
     let profile = null;
     for (let i = 0; i < state.profiles.length; i += 1) {
       const p = state.profiles[i];
-      if (gid ? p.gatewayId === gid : (!p.gatewayId && p.endpoints.indexOf(normalized[0]) >= 0)) {
+      const sameIdentity = gid ? p.gatewayId === gid : false;
+      const sameRelay = payloadNodeId ? relayNodeIdOf(p) === String(payloadNodeId) : false;
+      const sameEndpoint = p.endpoints.indexOf(normalized[0]) >= 0;
+      // 重新扫码是同一台主机（局域网或公网任一身份命中）就复用同一份档案，
+      // 只补齐线路；绝不因为这次走的是另一条线路就新建「第二台主机」。
+      if (sameIdentity || sameRelay || (sameEndpoint && (!gid || !p.gatewayId || p.gatewayId === gid))) {
         profile = p;
         break;
       }
@@ -3175,15 +3377,46 @@ const sessionState = {
       profile.deviceKind = device.kind;
       profile.deviceKindSource = explicitKind ? 'payload' : 'auto';
     }
-    // 重新扫码代表用户明确认可本次地址集合；publicUrl 优先（iOS pair 对齐）。
-    profile.endpoints = normalized;
+    // 同一台主机的线路取并集：重新扫码可能是从「局域网二维码」换成「公网/中继二维码」，
+    // 直接覆盖会把原有线路丢掉，于是只能二选一、看着像两台机器。本次载荷的地址优先，
+    // 旧的保留在后面（最多 16 条），线路切换由客户端按网络自动完成。
+    const mergedEndpoints = [];
+    normalized.concat(profile.endpoints || []).forEach(function (endpoint) {
+      if (!endpoint || mergedEndpoints.indexOf(endpoint) >= 0 || mergedEndpoints.length >= 16) return;
+      mergedEndpoints.push(endpoint);
+    });
+    profile.endpoints = mergedEndpoints;
     profile.preferredEndpoint = normalized[0];
     // 持久化整张路由表：重连时按当前网络重新选路，不需要重新扫码。
-    profile.routeTable = table;
+    const previousTable = profile.routeTable && typeof profile.routeTable === 'object' ? profile.routeTable : null;
+    if (previousTable) {
+      const lan = [];
+      const pub = [];
+      [table, previousTable].forEach(function (source) {
+        (Array.isArray(source.lan) ? source.lan : []).forEach(function (endpoint) {
+          if (lan.indexOf(endpoint) < 0 && lan.length + pub.length < 16) lan.push(endpoint);
+        });
+        (Array.isArray(source.public) ? source.public : []).forEach(function (endpoint) {
+          if (pub.indexOf(endpoint) < 0 && lan.length + pub.length < 16) pub.push(endpoint);
+        });
+      });
+      profile.routeTable = {
+        lan: lan,
+        public: pub,
+        relay: (table && table.relay) || previousTable.relay || null
+      };
+    } else {
+      profile.routeTable = table;
+    }
     if (payload && String(payload.gatewayName || '').trim()) profile.gatewayName = payload.gatewayName;
     // v3 relay 支持邀请鉴权及插件配对码；后者保存手机独立的网关凭据。
     if (payload && payload.mode === 'relay') {
       profile.relay = true;
+      // 中继 nodeId 与网关自身 UUID 分开存：前者用于 /c/<nodeId> 与 E2EE，
+      // 后者用于判断「这台主机的局域网/公网线路是同一台主机」。
+      if (payloadNodeId) profile.relayNodeId = String(payloadNodeId);
+      if (gid && gid !== String(payloadNodeId || '')) profile.gatewayId = gid;
+      else if (!profile.gatewayId && payloadNodeId) profile.gatewayId = String(payloadNodeId);
       profile.relayAgentPubKey = payload.agentPubKey || null;
       profile.relayAuthMode = payload.authMode || 'invite';
       profile.relayRole = payload.role || 'guest';
@@ -3202,8 +3435,12 @@ const sessionState = {
       // v2 直连载荷一律先按直连档案配对：中继是否成为档案的认证模型，由真正
       // 连通的线路决定（connected 时按 client.routeKind 升级）。提前按首选候选
       // 打标记会在中继失败、局域网胜出时留下错误的中继元信息。
-      profile.relay = false;
-      profile.relayAgentPubKey = null;
+      // 例外：复用已合并档案（已学会中继身份）时不能清掉，否则重新扫局域网码
+      // 会把同一台主机的公网/中继线路抹掉。
+      if (!profile.relayNodeId && !profile.relayAgentPubKey) {
+        profile.relay = false;
+        profile.relayAgentPubKey = null;
+      }
       pendingProfile = profile;
     }
     state.endpoint = endpointCandidates[0];
@@ -3215,7 +3452,7 @@ const sessionState = {
         pairingCode: code,
         relay: {
           authMode: payload.authMode || 'invite',
-          nodeId: payload.nodeId || profile.gatewayId,
+          nodeId: payload.nodeId || relayNodeIdOf(profile),
           agentPubKey: payload.agentPubKey,
           inviteToken: payload.inviteToken,
           role: payload.role
@@ -3277,16 +3514,37 @@ const sessionState = {
   let cachedNetworkType = '';
   let lastNetworkFamily = '';
 
+  /** 主动查询一次网络类型（onNetworkStatusChange 的回调不一定带 networkType）。 */
+  function refreshNetworkType(done) {
+    if (typeof has.getNetworkType !== 'function') { if (done) done(); return; }
+    try {
+      has.getNetworkType({
+        success: function (res) {
+          const type = (res && res.networkType) || '';
+          if (type) cachedNetworkType = type;
+          const family = routeTable.networkFamily(cachedNetworkType);
+          if (family) lastNetworkFamily = family;
+          if (done) done();
+        },
+        fail: function () { if (done) done(); }
+      });
+    } catch (e) { if (done) done(); }
+  }
+
   /** 重置候选顺序并连接首选线路（网络恢复/回前台时用，避免死守不可达候选） */
-  function reconnectPreferred() {
+  /**
+   * 按当前网络重新选路并强制重建连接（换线路/回前台/网络切换）。
+   * force=true 让 gateway 侧跳过「同目标重复 connect」去重——这里确实要重建。
+   */
+  function reconnectPreferred(options) {
     endpointCandidates = [];
     endpointCandidateMeta = [];
     endpointIdx = 0;
     if (rotationTimer) { clearTimeout(rotationTimer); rotationTimer = null; }
-    return connectActiveProfile();
+    return connectActiveProfile(options);
   }
 
-  function connectActiveProfile() {
+  function connectActiveProfile(options) {
     const profile = getProfile(state.activeID);
     if (!profile) return false;
     const cred = hosts.loadCredential(profile.id);
@@ -3333,7 +3591,8 @@ const sessionState = {
     client.connect(primaryMeta.endpoint, Object.assign({}, connectOpts, {
       candidateKinds: endpointCandidateMeta.map(candidate => candidate.kind),
       relayCandidates: endpointCandidateMeta.slice(1).map(candidate => candidate.relay || null),
-      routeKind: primaryMeta.kind
+      routeKind: primaryMeta.kind,
+      force: !!(options && options.force)
     }));
     return true;
   }
@@ -3417,24 +3676,19 @@ const sessionState = {
   let nativeOverlayDepth = 0;
   let appActive = false;
   let foregroundPing = null;
-  let healthTimer = null;
-  const FOREGROUND_PING_TIMEOUT_MS = 2500;
-  // 连接静默自检：socket 掉线时 onClose 不一定及时（弱网/息屏），
-  const HEALTH_PING_INTERVAL_MS = 45000;
+  // 弱网/刚唤醒时单次回包慢很常见：8s 超时 + 连续两次失败才重连。
+  // 旧实现是 2.5s 一次超时就重新握手，每次回到前台/每次网络抖动都要断一次，
+  // 体感就是「老是重连」。
+  const FOREGROUND_PING_TIMEOUT_MS = 8000;
 
+  /**
+   * 前后台/原生浮层切换只负责开关 GatewayClient 的心跳：
+   * 保活和超时判定统一由心跳负责（25s 一次、连续 miss 两次才算断链），
+   * 不再额外跑一个 45s 的 ping 自检，避免两套机制互相把好连接判死。
+   */
   function syncHealthCheck() {
-    if (healthTimer) { clearInterval(healthTimer); healthTimer = null; }
-    if (!appActive || state.connection !== 'connected') return;
-    healthTimer = setInterval(function () {
-      if (!appActive || nativeOverlayDepth > 0 || state.connection !== 'connected') return;
-      if (typeof client.ping !== 'function') return;
-      Promise.resolve(client.ping(FOREGROUND_PING_TIMEOUT_MS)).catch(function () {
-        if (appActive && nativeOverlayDepth === 0 && state.connection === 'connected' &&
-            typeof client.handleTransportFailure === 'function') {
-          client.handleTransportFailure(uiText('连接无响应'));
-        }
-      });
-    }, HEALTH_PING_INTERVAL_MS);
+    if (typeof client.setHeartbeatEnabled !== 'function') return;
+    client.setHeartbeatEnabled(appActive && nativeOverlayDepth === 0 && state.connection === 'connected');
   }
 
   function maybeReconnectOnActive() {
@@ -3444,16 +3698,21 @@ const sessionState = {
       // onLaunch is commonly followed immediately by onShow, and native pickers
       if (foregroundPing || typeof client.ping !== 'function') return;
       const check = { client, generation: client.connectGeneration };
+      const stillCurrent = () => appActive && nativeOverlayDepth === 0 && check.client === client &&
+        check.generation === client.connectGeneration && state.connection === 'connected';
+      const probe = () => Promise.resolve(client.ping(FOREGROUND_PING_TIMEOUT_MS));
       foregroundPing = check;
-      Promise.resolve(client.ping(FOREGROUND_PING_TIMEOUT_MS)).then(function () {}, function () {
-        if (foregroundPing !== check) return;
-        foregroundPing = null;
-        if (appActive && nativeOverlayDepth === 0 && check.client === client &&
-            check.generation === client.connectGeneration && state.connection === 'connected') {
-          reconnectPreferred();
-        }
+      probe().catch(function () {
+        // 第一次超时只补一次探测，不直接拆链。
+        if (!stillCurrent()) return Promise.reject(new Error('stale'));
+        return probe();
       }).then(function () {
         if (foregroundPing === check) foregroundPing = null;
+      }, function (error) {
+        if (foregroundPing !== check) return;
+        foregroundPing = null;
+        if (!stillCurrent() || (error && error.message === 'stale')) return;
+        reconnectPreferred();
       });
       return;
     }
@@ -3568,7 +3827,7 @@ const sessionState = {
           options.token = authMode === 'gateway' && credential ? credential.token : null;
           options.relay = {
             authMode,
-            nodeId: profile.gatewayId,
+            nodeId: relayNodeIdOf(profile),
             agentPubKey: profile.relayAgentPubKey,
             accessToken: profile.relayAccessToken || null,
             expiresAt: profile.relayExpiresAt || null,
@@ -3638,7 +3897,7 @@ const sessionState = {
           probeOpts.token = profile.relayAuthMode === 'gateway' && cred ? cred.token : null;
           probeOpts.relay = {
             authMode: profile.relayAuthMode || 'invite',
-            nodeId: profile.gatewayId,
+            nodeId: relayNodeIdOf(profile),
             agentPubKey: profile.relayAgentPubKey,
             accessToken: profile.relayAccessToken || null,
             expiresAt: profile.relayExpiresAt || null
@@ -3750,13 +4009,21 @@ const sessionState = {
           has.onNetworkStatusChange(function (res) {
             const info = res || {};
             if (info.networkType) cachedNetworkType = info.networkType;
-            const family = routeTable.networkFamily(cachedNetworkType);
-            if (family) lastNetworkFamily = family;
-            if (!info.isConnected || !state.activeID) return;
-            const current = endpointCandidateMeta[endpointIdx] || {};
-            const routeDead = current.kind === 'lan' && family === 'cellular';
-            if (state.connection === 'connected' && !routeDead) return;
-            if (routeDead || state.connection !== 'connected') reconnectPreferred();
+            // 有些平台的回调只给 isConnected、不带 networkType：先用旧类型判断，
+            // 再异步补一次 getNetworkType 重新选路，不能因为拿不到类型就不切换。
+            const apply = function () {
+              const family = routeTable.networkFamily(cachedNetworkType);
+              if (family) lastNetworkFamily = family;
+              if (!info.isConnected || !state.activeID) return;
+              const current = endpointCandidateMeta[endpointIdx] || {};
+              const currentKind = current.kind || routeTable.classifyEndpoint(state.endpoint || '');
+              // 局域网线路在蜂窝下一定不可达：直接按新网络重新选路（跳过 lan 族）。
+              const routeDead = currentKind === 'lan' && family === 'cellular';
+              if (state.connection === 'connected' && !routeDead) return;
+              reconnectPreferred({ force: true });
+            };
+            if (info.networkType) apply();
+            else refreshNetworkType(apply);
           });
         }
         // 首屏也要知道网络类型，否则第一次选路拿不到它。
@@ -3881,7 +4148,7 @@ const sessionState = {
           version: 3,
           mode: 'relay',
           relay: endpoint.replace(/\/c\/[^/]+$/, ''),
-          nodeId: profile.gatewayId,
+          nodeId: relayNodeIdOf(profile),
           agentPubKey: profile.relayAgentPubKey,
           gatewayName: profile.alias || profile.gatewayName,
           inviteToken: invite.inviteToken,

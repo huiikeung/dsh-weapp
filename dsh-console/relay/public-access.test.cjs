@@ -101,6 +101,18 @@ test('paid own-device relay: both credentials required, E2EE works, expired reco
   await rejected(['dsh-mobile-v1', 'dsh-gateway-auth', 'dsh-public.' + 'x'.repeat(43)], 4003);
   // No gateway marker/invite must not treat a paid subscription as device auth.
   await rejected(['dsh-mobile-v1', 'dsh-public.' + lease.token], 4003);
+  // 鸿蒙 ASCF 客户端不声明子协议、凭据走 X-DSH-* 头：必须与子协议等价。
+  {
+    const ws = new WebSocket(endpoint, { headers: Object.assign({}, headers, {
+      'X-DSH-Public-Lease': lease.token, 'X-DSH-Gateway-Auth': '1'
+    }) });
+    sockets.push(ws); ws.on('error', () => {});
+    const authorized = new Promise(resolve => ws.on('message', (data, binary) => {
+      if (!binary && JSON.parse(data).kind === 'relay-authorized') resolve(true);
+    }));
+    assert.equal(await authorized, true, 'X-DSH-* headers must authorize like subprotocols');
+    ws.terminate();
+  }
   async function encryptedClient(ticket, credential) {
     const ws = new WebSocket(endpoint, ['dsh-mobile-v1', 'dsh-gateway-auth', 'dsh-public.' + ticket.token], { headers }); sockets.push(ws);
     const session = new ClientSession(identity.nodeId, identity.signPublicKey), frames = [];

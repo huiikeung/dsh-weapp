@@ -384,6 +384,27 @@ wss.on('connection', async (socket, req) => {
 
   const requestedProtocols = String(req.headers['sec-websocket-protocol'] || '')
     .split(',').map((value) => value.trim()).filter(Boolean);
+  // 鸿蒙 ASCF 客户端无法在子协议里携带凭据（其 WebSocket 实现会拒绝服务器回显），
+  // 允许从 X-DSH-* 头补全同一套凭据；其他客户端行为不变。
+  const headerLease = String(req.headers['x-dsh-public-lease'] || '').trim();
+  if (headerLease && !requestedProtocols.includes('dsh-public.' + headerLease)) {
+    requestedProtocols.push('dsh-public.' + headerLease);
+  }
+  const headerPair = String(req.headers['x-dsh-pair-code'] || '').trim();
+  if (headerPair && !requestedProtocols.includes('dsh-pair.' + headerPair)) {
+    requestedProtocols.push('dsh-pair.' + headerPair);
+  }
+  const headerInvite = String(req.headers['x-dsh-invite'] || '').trim();
+  if (headerInvite && !requestedProtocols.includes('dsh-invite.' + headerInvite)) {
+    requestedProtocols.push('dsh-invite.' + headerInvite);
+  }
+  const headerAccess = String(req.headers['x-dsh-access'] || '').trim();
+  if (headerAccess && !requestedProtocols.includes('dsh-access.' + headerAccess)) {
+    requestedProtocols.push('dsh-access.' + headerAccess);
+  }
+  if (String(req.headers['x-dsh-gateway-auth'] || '') === '1' && !requestedProtocols.includes('dsh-gateway-auth')) {
+    requestedProtocols.push('dsh-gateway-auth');
+  }
   const deviceId = String(req.headers['x-dsh-device-id'] || '').slice(0, 128);
   const leaseProtocol = requestedProtocols.find(value => value.startsWith('dsh-public.'));
   const leaseToken = leaseProtocol ? leaseProtocol.slice('dsh-public.'.length) : '';

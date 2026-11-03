@@ -1568,15 +1568,13 @@
 </view>
 <view class="voice-input-wrap">
 <view class="composer-input-row composer-live {{composerPreview ? 'previewing' : ''}}">
+<text class="composer-token-measure" id="composer-token-measure">{{commandTokenLabel}} </text>
+<view wx:if="{{commandToken}}" class="composer-token-overlay" aria-hidden="true"><text class="composer-slash-token">{{commandTokenLabel}} </text></view>
 <scroll-view hidden="{{!(composerPreview && composerPreviewBlocks.length)}}" class="composer-veil {{composerPreview && composerPreviewBlocks.length ? 'on' : ''}}" scroll-y enhanced show-scrollbar="{{false}}" bindtap="exitComposerPreviewEdit">
 <view class="composer-veil-inner">
 <template is="mdBlocks" data="{{blocks: composerPreviewBlocks, rowKey: 'live'}}"/>
 </view>
 </scroll-view>
-<view hidden="{{!(commandToken && draft)}}" class="composer-slash-chip {{commandToken && draft ? 'on' : ''}}" catchtap="clearCommandToken" hover-class="press-dim" role="button" aria-label="{{ui['移除指令']}}">
-<text class="composer-slash-token">{{commandTokenLabel}}</text>
-<text class="composer-slash-x">×</text>
-</view>
 <view hidden="{{!composerRefs.length}}" class="composer-refs {{composerRefs.length ? 'on' : ''}}">
 <view wx:for="{{composerRefs}}" wx:key="key" class="composer-ref-chip">
 <image class="composer-ref-icon" src="/assets/icons/{{item.icon}}" mode="aspectFit"/>
@@ -1586,7 +1584,7 @@
 </view>
 <textarea
       class="composer-input"
-      style="height:{{composerInputHeightPx}}px"
+      style="height:{{composerInputHeightPx}}px;{{commandToken ? 'padding-left:' + composerTokenPad + 'px;' : ''}}"
       placeholder="{{ui[composerPlaceholder] !== undefined ? ui[composerPlaceholder] : composerPlaceholder}}"
       placeholder-class="composer-placeholder"
       placeholder-style="{{theme === 'dark' ? 'color:rgba(241,244,250,0.36)' : 'color:rgba(16,19,24,0.28)'}}"

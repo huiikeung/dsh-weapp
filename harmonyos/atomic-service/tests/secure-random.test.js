@@ -279,9 +279,10 @@ test('reconnect ignores stale success and failure and requests new randomness', 
   t.after(() => client.disconnect());
   client.connect(endpoint, relayOptions);
   sockets[0].open();
-  client.connect(endpoint, relayOptions);
+  // 主动重拨要显式 force：同目标在拨号中的重复 connect 现在会被去重（见 gateway-reconnect.test.js）。
+  client.connect(endpoint, { ...relayOptions, force: true });
   sockets[1].open();
-  client.connect(endpoint, relayOptions);
+  client.connect(endpoint, { ...relayOptions, force: true });
   sockets[2].open();
   assert.equal(requests.length, 3);
   requests[0].fail({ errMsg: 'old failure' });
@@ -489,7 +490,8 @@ test('cancelled stage and old socket timers cannot break a later connection', t 
   clock.fire(firstStage);
   assert.equal(client.state, 'connecting');
   assert.equal(sockets[0].closed, false);
-  client.connect(endpoint, relayOptions);
+  // 主动换一次拨号（force）以验证旧 socket 的计时器不会破坏新连接
+  client.connect(endpoint, { ...relayOptions, force: true });
   const secondStage = client.timeoutTimer;
   clock.fire(firstHandshake);
   assert.equal(client.state, 'connecting');

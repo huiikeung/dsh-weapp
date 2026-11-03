@@ -135,7 +135,23 @@ npm install
 node e2e-test.mjs    # 13 项端到端检查（握手/验签/密文往返/token 捕获/子协议透传/离线拒绝）
 ```
 
-## 五、文件清单
+## 五、鸿蒙元服务（ASCF）的凭据头兼容
+
+ASCF 的 `has.connectSocket` 无法可靠携带 `Sec-WebSocket-Protocol`：传数组会被序列化成非法头（中继回 `400 Invalid Sec-WebSocket-Protocol header`），自己写该头又会被服务器回显、而 ASCF 不认回显，导致握手成功后立刻 `abnormal termination`。
+
+因此 ASCF 客户端改为只声明主协议并把凭据放进自定义头，中继在解析 `requestedProtocols` 后按需补全同一套值：
+
+| 头 | 等价子协议 |
+| --- | --- |
+| `X-DSH-Public-Lease` | `dsh-public.<token>` |
+| `X-DSH-Pair-Code` | `dsh-pair.<code>` |
+| `X-DSH-Invite` | `dsh-invite.<token>` |
+| `X-DSH-Access` | `dsh-access.<token>` |
+| `X-DSH-Gateway-Auth: 1` | `dsh-gateway-auth` |
+
+微信小程序与原生 App 不受影响，仍走子协议。修改 `relay-server.js` 后必须重建镜像（`docker compose build relay && docker compose up -d relay`），否则容器只读根文件系统会让热改文件在重启后失效。
+
+## 六、文件清单
 
 | 文件 | 位置 | 作用 |
 | --- | --- | --- |
@@ -145,7 +161,7 @@ node e2e-test.mjs    # 13 项端到端检查（握手/验签/密文往返/token 
 | `utils/nacl.min.js` | 小程序 | tweetnacl 1.0.3 |
 | `e2e-test.mjs` | 本地 | 端到端回归测试 |
 
-## 六、已知边界（v1）
+## 七、已知边界（v1）
 
 - 中继通过一次性邀请换发访问令牌，并按 bridgeId 隔离并发客户端管道；业务帧仍由 E2EE 保护。
 - 多台设备各自运行一份 connector（各自 nodeId）即可多人使用。

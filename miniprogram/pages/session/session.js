@@ -261,6 +261,8 @@ Page({
     composerPreviewHint: false,
     // 首帧把 textarea 高度直接定成一行（原生组件默认 150px，auto-height 在真机上
     composerInputHeightPx: 38,
+    // 指令前缀的像素宽度（测量后写入，textarea 用它做 padding-left）
+    composerTokenPad: 0,
     composerCursor: -1,
     composerPreviewBlocks: [],
     canAttach: true,
@@ -6092,10 +6094,14 @@ Page({
     this._draftRevision = (this._draftRevision || 0) + 1;
     const raw = String(e.detail.value == null ? '' : e.detail.value);
     const cursor = Number.isInteger(e.detail.cursor) ? e.detail.cursor : raw.length;
-    // 指令 token 由蓝色 chip 承载，textarea 只编辑参数；这里再拼回完整草稿。
+    // 指令前缀是输入框左侧的纯文字（不算进 textarea 的值）：所以 value 只有参数。
+    // 输入框为空时按退格＝删掉指令前缀；在空框里重新输入“/”则换指令。
     const token = this.data.commandToken;
     const current = this.data.draft || '';
-    // 重新输入“/”视为换指令：清掉旧 token，让新的斜杠命令接管输入框。
+    if (token && raw === '' && (current === token || current === token + ' ')) {
+      this.clearCommandToken();
+      return;
+    }
     const keepsToken = !!token && raw.charAt(0) !== '/' && (current === token || current.indexOf(token + ' ') === 0);
     // 引用 chip：textarea 里引用位置是零宽占位符。按编辑前后差分对齐 chips，
     // 再把占位符还原成原始引用文本拼回草稿。
@@ -6104,7 +6110,7 @@ Page({
     this._composerDisplay = edited.display;
     const body = composerMenu.displayToDraft(edited.display, edited.refs);
     const value = keepsToken ? token + ' ' + body : body;
-    this._composerCursor = keepsToken ? token.length + 1 + cursor : cursor;
+    this._composerCursor = cursor;
     this._dismissedCommandDraft = null;
     if (this.data.attachSheetOpen) this.closeAttachMenu();
     // 草稿里有 Markdown 语法时点亮「预览」按钮，提示可以切换渲染视图。
@@ -6216,6 +6222,27 @@ Page({
     const slash = this.composerSlash(raw);
     const view = slash ? (display === slash.token ? '' : display.slice(slash.token.length + 1)) : display;
     this.setComposerDisplay(view, composerMenu.referenceChips(refs), extra, slash);
+  },
+
+  /** 测量指令前缀的像素宽度，写入 composerTokenPad 给 textarea 当左侧留白。 */
+  measureCommandTokenWidth() {
+    if (typeof wx === 'undefined' || typeof wx.createSelectorQuery !== 'function') return;
+    const label = this.data.commandTokenLabel || '';
+    if (!label) return;
+    if (this._measuredTokenLabel === label && (this.data.composerTokenPad || 0) > 0) return;
+    wx.nextTick(() => {
+      if (this._unloaded || !this.data.commandToken) return;
+      const query = wx.createSelectorQuery().in(this);
+      query.select('#composer-token-measure').boundingClientRect();
+      query.exec((res) => {
+        if (this._unloaded || !this.data.commandToken) return;
+        const rect = res && res[0];
+        if (!rect || !(Number(rect.width) > 0)) return;
+        this._measuredTokenLabel = label;
+        const pad = Math.ceil(Number(rect.width) + 2);
+        if (Math.abs(pad - (this.data.composerTokenPad || 0)) > 1) this.setData({ composerTokenPad: pad });
+      });
+    });
   },
 
   /** 当前（或指定）草稿对应的指令 token：仅 input 类指令，且草稿确实以它开头。 */
@@ -6333,6 +6360,7 @@ Page({
     if (this.data.tab !== 'conversation') patch.commandMenu = null;
     if (Object.keys(patch).length) {
       this.setData(patch);
+      if (patch.commandToken) this.measureCommandTokenWidth();
       if (Object.keys(patch).some(key => key === 'commandMenu' || key.indexOf('commandMenu.') === 0 || key.indexOf('commandMenu[') === 0)) this.updateDockInset();
     }
   },
