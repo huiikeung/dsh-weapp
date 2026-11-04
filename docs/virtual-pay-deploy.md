@@ -45,7 +45,7 @@
 3. **小程序简称**：左下角图标 → 账号设置 → 基本信息 → 配置简称（iOS 需展示 display name）。
 4. **iOS 支付**：虚拟支付 → 基本配置 → 开通苹果 IAP 支付（需先配好简称）。
 5. **道具管理**：按档位创建道具，**道具 ID 必须等于 `pub_<days>d`**，价格与小程序档位价格一致（单位分），发布。发布后约 10 分钟生效（错误码 15014）。
-   - 道具图：`assets/props/pub-<days>d.png`（200×200，按时长配色与标注，见 [assets/props/README.md](../assets/props/README.md)）；通用兜底图是 `assets/prop-pub-network.png`。
+   - 道具图：统一使用 `assets/prop-pub-network.png`（200×200，PNG，不带时长标识，任何档位都能用；说明见 [assets/props/README.md](../assets/props/README.md)）。
 6. **发货推送配置**：虚拟支付 → 基本配置 → 发货推送配置：
    - URL：`https://dsh.ahwe.top/pay/notify`
    - Token：与 `XPAY_MSG_TOKEN` 一致
