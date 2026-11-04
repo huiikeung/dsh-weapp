@@ -691,7 +691,7 @@
               </view>
             </view>
           </view>
-          <!-- 支付卡片：总开关打开且服务端已配置时出现；未登录也能看到，点购买才静默 wx.login。 -->
+          <!-- 支付卡片：总开关打开、服务端已配置、且至少一个档位在当前设备可买时才出现；未登录也能看到，点购买才静默 wx.login。 -->
           <view wx:if="{{payVisible}}" class="pay-block">
             <!-- 标题区：档位改成可选中的订阅卡，底部只保留一个主按钮，避免每张卡各放一个按钮 -->
             <view class="pay-head">
@@ -703,7 +703,7 @@
               <view
                 wx:for="{{payTiers}}"
                 wx:key="id"
-                class="pay-tier {{item.selected ? 'is-selected' : ''}} {{item.priceBlocked ? 'is-blocked' : ''}}"
+                class="pay-tier {{item.selected ? 'is-selected' : ''}}"
                 data-id="{{item.id}}"
                 bindtap="selectPayTier"
                 hover-class="pay-tier-hover"
@@ -717,11 +717,9 @@
                 <text class="pay-tier-days">{{item.daysLabel}}</text>
                 <view class="pay-tier-price"><text class="pay-tier-currency">¥</text><text class="pay-tier-amount">{{item.priceLabel}}</text></view>
                 <text wx:if="{{item.unitLabel}}" class="pay-tier-unit">{{item.unitLabel}}</text>
-                <text wx:if="{{item.priceBlocked}}" class="pay-tier-hint">{{item.priceHint}}</text>
               </view>
             </view>
 
-            <view wx:if="{{paySupportReason}}" class="pay-warning">{{paySupportReason}}</view>
             <view wx:if="{{payResultLabel}}" class="pay-result"><view class="pay-result-dot"></view><text class="pay-result-text">{{ui[payResultLabel] !== undefined ? ui[payResultLabel] : payResultLabel}}</text></view>
 
             <!-- 用 view 而不是 button：微信 v2 原生 button 会覆盖 class 里的宽度，导致按钮缩成内容宽。 -->

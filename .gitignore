@@ -38,3 +38,7 @@ pairing-qr.png
 .hvigor/
 harmonyos/.idea/
 **/oh_modules/
+
+# 本地性能/布局分析临时产物（可重新生成）
+.tmp-*
+preview-qr.jpg

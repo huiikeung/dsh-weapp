@@ -2107,36 +2107,35 @@ Page({
       else wx.hideShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] });
     } catch (e) { /* 忽略 */ }
   },
-  /** 支付卡片：仅当总开关打开、服务端已配置（ready）且至少一个档位时显示。 */
+  /** 支付卡片：仅当总开关打开、服务端已配置（ready）且至少一个档位在当前设备可买时显示。 */
   applyPayment(payment) {
     const source = payment && typeof payment === 'object' ? payment : {};
     this._payPayment = source;
-    const tiers = (Array.isArray(source.tiers) ? source.tiers : [])
-      .filter(tier => tier && Number.isInteger(tier.days) && tier.days > 0 && Number.isInteger(tier.price) && tier.price > 0)
-      .map(tier => {
-        const issue = virtualPay.priceIssue(tier.price);
-        // 天数够长时才显示折算日均价；不足 1 分/天不显示，避免出现 ¥0.00/天。
-        const perDayCents = tier.price / tier.days;
-        const unitLabel = tier.days >= 7 && perDayCents >= 1
-          ? '¥' + (Math.round(perDayCents) / 100).toFixed(2) + uiText('/天')
-          : '';
-        return {
-          id: typeof tier.id === 'string' && tier.id ? tier.id : virtualPay.productId(tier.days),
-          days: tier.days,
-          price: tier.price,
-          daysLabel: tier.days + uiText(' 天'),
-          priceLabel: virtualPay.formatPrice(tier.price),
-          unitLabel,
-          // iOS 上低于 1 元的档位禁用并标注，避免点了才报错。
-          priceBlocked: !issue.ok,
-          priceHint: issue.reason
-        };
+    const tiers = [];
+    (Array.isArray(source.tiers) ? source.tiers : []).forEach(tier => {
+      if (!tier || !Number.isInteger(tier.days) || tier.days <= 0
+        || !Number.isInteger(tier.price) || tier.price <= 0) return;
+      // 当前设备买不了的档位（例如 iOS 上低于 1 元）直接不展示，
+      // 不要渲染成灰卡+原因：用户在购买卡片里只该看到能买的档位。
+      if (!virtualPay.priceIssue(tier.price).ok) return;
+      // 天数够长时才显示折算日均价；不足 1 分/天不显示，避免出现 ¥0.00/天。
+      const perDayCents = tier.price / tier.days;
+      const unitLabel = tier.days >= 7 && perDayCents >= 1
+        ? '¥' + (Math.round(perDayCents) / 100).toFixed(2) + uiText('/天')
+        : '';
+      tiers.push({
+        id: typeof tier.id === 'string' && tier.id ? tier.id : virtualPay.productId(tier.days),
+        days: tier.days,
+        price: tier.price,
+        daysLabel: tier.days + uiText(' 天'),
+        priceLabel: virtualPay.formatPrice(tier.price),
+        unitLabel
       });
-    // 「推荐」= 每天单价最低的可用档位（同价取天数更长者）；至少两个可用档位才标。
+    });
+    // 「推荐」= 每天单价最低的档位（同价取天数更长者）；至少两个档位才标。
     let bestId = '';
-    const usable = tiers.filter(tier => !tier.priceBlocked);
-    if (usable.length > 1) {
-      const best = usable.reduce((left, right) => {
+    if (tiers.length > 1) {
+      const best = tiers.reduce((left, right) => {
         const a = left.price / left.days, b = right.price / right.days;
         if (a !== b) return a < b ? left : right;
         return left.days >= right.days ? left : right;
@@ -2144,22 +2143,24 @@ Page({
       bestId = best.id;
     }
     tiers.forEach(tier => { tier.best = tier.id === bestId; });
-    // 选中项：沿用旧选择；否则默认推荐档，其次第一个可购档。
+    // 选中项：沿用旧选择；否则默认推荐档，其次第一个档位。
     const previous = this.data.paySelectedTierId;
-    const selected = tiers.find(tier => tier.id === previous && !tier.priceBlocked)
-      || tiers.find(tier => tier.best && !tier.priceBlocked)
-      || tiers.find(tier => !tier.priceBlocked)
+    const selected = tiers.find(tier => tier.id === previous)
+      || tiers.find(tier => tier.best)
       || tiers[0] || null;
     tiers.forEach(tier => { tier.selected = !!selected && tier.id === selected.id; });
     const support = virtualPay.capability();
+    // 一个可买档位都没有（全部被平台价格规则过滤，或当前微信不支持虚拟支付）时，
+    // 整张购买卡片都不显示。
+    const purchasable = support.ok === true && tiers.length > 0;
     this.applySettingsPatch({
       payEnabled: source.enabled === true,
       payReady: source.ready === true,
       payTiers: tiers,
       paySelectedTierId: selected ? selected.id : '',
       paySelectedPriceLabel: selected ? selected.priceLabel : '',
-      payBuyDisabled: !selected || !!selected.priceBlocked,
-      payVisible: source.enabled === true && source.ready === true && tiers.length > 0,
+      payBuyDisabled: !selected,
+      payVisible: source.enabled === true && source.ready === true && purchasable,
       paySupportReason: support.ok ? '' : support.reason,
       payUpgradeRequired: source.upgradeRequired === true
     });
@@ -2216,16 +2217,12 @@ Page({
     wx.navigateTo({ url: '/pages/pay-admin/pay-admin' });
   },
 
-  /** 选择要购买的档位；被禁用（价格不合法/平台不支持）的档位只提示原因。 */
+  /** 选择要购买的档位；列表里只会出现当前设备可买的档位。 */
   selectPayTier(event) {
     if (this.data.payBusyTier || !this.data.payVisible) return;
     const id = event && event.currentTarget && event.currentTarget.dataset ? event.currentTarget.dataset.id : '';
     const tier = (this.data.payTiers || []).find(item => item.id === id);
     if (!tier || tier.selected) return;
-    if (tier.priceBlocked) {
-      wx.showToast({ title: tier.priceHint || uiText('该档位暂不可购买，请选择其他档位'), icon: 'none' });
-      return;
-    }
     this.setData({
       payTiers: (this.data.payTiers || []).map(item => Object.assign({}, item, { selected: item.id === id })),
       paySelectedTierId: id,

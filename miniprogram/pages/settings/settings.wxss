@@ -2127,7 +2127,6 @@
   box-shadow: var(--card-shadow);
   transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
 }
-.pay-tier.is-blocked { opacity: .55; }
 .pay-tier.is-selected {
   border-color: rgba(46, 107, 230, .55);
   background: linear-gradient(160deg, rgba(46, 107, 230, .10), rgba(46, 107, 230, .02));
@@ -2161,9 +2160,7 @@
 .pay-tier-currency { font-size: 24rpx; font-weight: 600; }
 .pay-tier-amount { font-size: 46rpx; font-weight: 700; letter-spacing: -.5rpx; line-height: 1.05; font-variant-numeric: tabular-nums; }
 .pay-tier-unit { display: block; margin-top: 4rpx; color: var(--text-3); font-size: 20rpx; }
-.pay-tier-hint { display: block; margin-top: 10rpx; color: var(--text-3); font-size: 19rpx; line-height: 1.4; }
 
-.pay-warning { margin-top: 18rpx; color: #E5484D; font-size: 23rpx; line-height: 1.5; }
 .pay-result {
   display: flex; align-items: center; gap: 10rpx;
   margin-top: 16rpx; padding: 14rpx 18rpx;

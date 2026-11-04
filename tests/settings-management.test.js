@@ -1284,3 +1284,40 @@ test('对话页面玻璃：设置页独立开关控制，页面头部/输入区/
   assert.match(settingsJs, /onCardStyleChange\(e\)[\s\S]{0,400}?sessionCardStylePreference\.set/);
   assert.match(settingsJs, /resetCardStyle\(\)[\s\S]{0,200}?sessionCardStylePreference\.reset/);
 });
+
+test('payment card hides tiers that cannot be purchased on this device', () => {
+  const { page } = createPage();
+  const virtualPay = require('../miniprogram/utils/virtual-pay');
+  const originalPriceIssue = virtualPay.priceIssue;
+  const originalCapability = virtualPay.capability;
+  virtualPay.priceIssue = cents => (cents < 100
+    ? { ok: false, reason: 'iOS 购买最低 1 元' }
+    : { ok: true, reason: '' });
+  virtualPay.capability = () => ({ ok: true, reason: '' });
+  try {
+    page.applyPayment({ enabled: true, ready: true, tiers: [
+      { days: 1, price: 1 },
+      { days: 30, price: 299 },
+      { days: 3, price: 100 }
+    ] });
+    assert.deepEqual(Array.from(page.data.payTiers, tier => tier.days), [30, 3],
+      'unpurchasable low-price tiers are removed before rendering');
+    assert.equal(page.data.payVisible, true);
+    assert.equal(page.data.payTiers.some(tier => tier.priceBlocked || tier.priceHint), false,
+      'render rows carry no blocked-tier fields');
+
+    page.applyPayment({ enabled: true, ready: true, tiers: [{ days: 1, price: 1 }] });
+    assert.equal(page.data.payTiers.length, 0);
+    assert.equal(page.data.payVisible, false, 'no purchasable tier hides the whole purchase card');
+
+    virtualPay.priceIssue = () => ({ ok: true, reason: '' });
+    virtualPay.capability = () => ({ ok: false, reason: '当前微信版本不支持小程序虚拟支付' });
+    page.applyPayment({ enabled: true, ready: true, tiers: [{ days: 30, price: 299 }] });
+    assert.equal(page.data.payVisible, false, 'unsupported payment platform hides the card too');
+  } finally {
+    virtualPay.priceIssue = originalPriceIssue;
+    virtualPay.capability = originalCapability;
+  }
+  assert.doesNotMatch(wxml, /priceBlocked|priceHint|pay-tier-hint|is-blocked/,
+    'blocked-tier markup is removed from the settings template');
+});
