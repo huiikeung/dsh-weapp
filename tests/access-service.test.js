@@ -155,7 +155,7 @@ test('public codes work without managed nodes/adapters and renew account expiry 
   }
   assert.equal(f.grants.length, 0, 'No external authorization or user DSH required');
   const records = JSON.parse(fs.readFileSync(f.stateFile, 'utf8'));
-  assert.equal(records.version, 2); assert.equal(Object.keys(records.access).length, 1);
+  assert.equal(records.version, 3); assert.equal(Object.keys(records.access).length, 1);
   assert.ok(Object.values(records.redemptions).every(r => r.status === 'complete' && r.nodeId === null));
   f.tick(700 * DAY);
   assert.equal((await f.login('user')).account.publicAccess, false);

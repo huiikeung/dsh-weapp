@@ -1,0 +1,140 @@
+<page-meta page-style="{{pageStyle}}" />
+<view class="page admin-page {{themeClass}}" style="{{contentFontStyle}}">
+  <view class="pay-wrap">
+
+    <!-- 页头 -->
+    <view class="pay-head">
+      <view class="pay-head-icon">¥</view>
+      <view class="pay-head-copy">
+        <text class="pay-head-title">{{ui['虚拟支付']}}</text>
+        <text class="pay-head-sub">{{ui['管理员配置 · 天数与价格']}}</text>
+      </view>
+    </view>
+
+    <!-- 状态提示 -->
+    <view wx:if="{{loading}}" class="pay-note">{{ui['正在验证管理员身份…']}}</view>
+    <view wx:if="{{error}}" class="pay-note pay-note-warn" role="alert">{{ui[error] !== undefined ? ui[error] : error}}</view>
+    <view wx:if="{{upgradeRequired}}" class="pay-note pay-note-link" bindtap="refresh" role="button">{{ui['部署完成后点此重试']}}</view>
+
+    <block wx:if="{{isAdmin && !loading}}">
+
+      <!-- 总开关 -->
+      <view class="pay-card pay-switch">
+        <view class="pay-switch-copy">
+          <text class="pay-switch-title">{{ui['虚拟支付']}}</text>
+          <text class="pay-switch-desc">{{enabled ? ui['用户端显示支付卡片'] : ui['关闭后用户端隐藏支付卡片，已购买天数不变']}}</text>
+        </view>
+        <dsh-switch checked="{{enabled}}" disabled="{{busy || upgradeRequired}}" aria-label="{{ui['虚拟支付开关']}}" bindchange="toggleEnabled"/>
+      </view>
+      <view wx:if="{{!ready}}" class="pay-note pay-note-warn">{{ui['服务端尚未配置虚拟支付参数，用户端不会显示支付卡片。']}}</view>
+
+      <!-- 档位 -->
+      <view class="pay-group-head">
+        <text class="pay-group-title">{{ui['档位列表']}}</text>
+        <text class="pay-group-meta">{{tiers.length}} / 10</text>
+      </view>
+      <view class="pay-group-hint">{{ui['每个档位由天数与价格组成；道具 ID 由天数决定，需在 MP 后台按同一 ID 建道具并发布。']}}</view>
+
+      <view class="pay-card pay-tiers">
+        <view wx:for="{{tiers}}" wx:key="key" class="tier-item">
+          <view class="tier-row">
+            <picker range="{{dayLabels}}" value="{{item.dayIndex}}" data-index="{{index}}" bindchange="chooseDays" disabled="{{busy}}">
+              <view class="tier-day">
+                <text class="tier-day-value">{{item.daysLabel}}</text>
+                <text class="tier-day-caret">▾</text>
+              </view>
+            </picker>
+            <view class="tier-price">
+              <text class="tier-currency">¥</text>
+              <input class="tier-price-input" type="digit" value="{{item.priceYuan}}" data-index="{{index}}" bindinput="inputPrice" disabled="{{busy}}" placeholder="0.00" placeholder-class="tier-price-ph"/>
+            </view>
+            <view class="tier-del" data-index="{{index}}" bindtap="deleteTier" role="button" aria-label="{{ui['删除']}}">
+              <text class="tier-del-x">×</text>
+            </view>
+          </view>
+          <view class="tier-meta">
+            <text class="tier-prop-label">{{ui['道具 ID']}}</text>
+            <text class="tier-prop-chip">{{item.productId}}</text>
+          </view>
+        </view>
+
+        <view wx:if="{{!tiers.length}}" class="pay-empty">{{ui['还没有配置档位']}}</view>
+
+        <view wx:if="{{!maxReached && !upgradeRequired}}" class="pay-add" bindtap="addTier" role="button">
+          <text class="pay-add-plus">+</text>
+          <text>{{ui['添加价格档位']}}</text>
+        </view>
+      </view>
+
+      <!-- 保存 -->
+      <view class="pay-save {{busy || loading || upgradeRequired || !isAdmin ? 'is-disabled' : ''}}" bindtap="save" role="button" aria-disabled="{{busy || loading || upgradeRequired || !isAdmin}}">{{busy ? ui['保存中…'] : ui['保存']}}</view>
+      <view wx:if="{{savedLabel}}" class="pay-saved">{{savedLabel}}</view>
+
+      <view class="pay-footnote">{{ui['保存后请到 MP 后台的虚拟支付道具管理里按上面的道具 ID 建道具并发布，约 10 分钟生效。']}}</view>
+
+      <!-- 交易记录 -->
+      <view class="pay-group-head">
+        <text class="pay-group-title">{{ui['交易记录']}}</text>
+        <text class="pay-group-action" bindtap="refresh" role="button">{{ui['刷新']}}</text>
+      </view>
+
+      <view wx:if="{{summary}}" class="pay-card pay-summary">
+        <view class="summary-item">
+          <text class="summary-label">{{ui['本月笔数']}}</text>
+          <text class="summary-value">{{summary.count}}</text>
+        </view>
+        <view class="summary-sep"></view>
+        <view class="summary-item">
+          <text class="summary-label">{{ui['本月金额']}}</text>
+          <text class="summary-value">¥{{summary.amountLabel}}</text>
+        </view>
+        <view class="summary-sep"></view>
+        <view class="summary-item">
+          <text class="summary-label">{{ui['月限额']}}</text>
+          <text class="summary-value">¥{{summary.limitLabel}}</text>
+        </view>
+      </view>
+      <view wx:if="{{summary}}" class="pay-group-hint">{{summary.month}} · {{ui['仅统计已发货订单，以 MP 后台「虚拟支付 → 交易订单」为准']}}</view>
+
+      <view class="order-filters" role="tablist" aria-label="{{ui['筛选']}}">
+        <view class="order-filter {{orderFilter === 'all' ? 'on' : ''}}" data-id="all" bindtap="setOrderFilter" role="button" aria-selected="{{orderFilter === 'all'}}">{{ui['全部']}}</view>
+        <view class="order-filter {{orderFilter === 'today' ? 'on' : ''}}" data-id="today" bindtap="setOrderFilter" role="button" aria-selected="{{orderFilter === 'today'}}">{{ui['今天']}}</view>
+        <view class="order-filter {{orderFilter === '7d' ? 'on' : ''}}" data-id="7d" bindtap="setOrderFilter" role="button" aria-selected="{{orderFilter === '7d'}}">{{ui['近 7 天']}}</view>
+        <view class="order-filter {{orderFilter === '30d' ? 'on' : ''}}" data-id="30d" bindtap="setOrderFilter" role="button" aria-selected="{{orderFilter === '30d'}}">{{ui['近 30 天']}}</view>
+      </view>
+
+      <view wx:if="{{ordersBusy && !ordersLoaded}}" class="pay-note">{{ui['加载交易记录…']}}</view>
+      <view wx:if="{{ordersLoaded && !orders.length}}" class="pay-card pay-empty">{{ui['还没有交易记录']}}</view>
+      <view wx:if="{{orderGroups.length}}" class="pay-card pay-orders">
+        <view wx:for="{{orderGroups}}" wx:for-item="group" wx:key="date" class="order-group">
+          <view class="order-date">{{group.date}}</view>
+          <view wx:for="{{group.items}}" wx:for-item="order" wx:key="outTradeNo" class="order-item">
+            <view class="order-top">
+              <text class="order-time">{{order.time}}</text>
+              <text class="order-amount">¥{{order.amountLabel}}</text>
+            </view>
+            <view class="order-bottom">
+              <text class="order-no">{{order.outTradeNo}}</text>
+              <text class="order-status is-{{order.status}}">{{order.statusLabel}}</text>
+              <view class="order-acts">
+                <text class="order-act" data-id="{{order.outTradeNo}}" bindtap="inspectOrder" role="button">{{ui['核对']}}</text>
+                <text wx:if="{{order.status === 'delivered'}}" class="order-act order-act-warn" data-id="{{order.outTradeNo}}" bindtap="refundOrder" role="button">{{ui['退款']}}</text>
+              </view>
+            </view>
+          </view>
+        </view>
+        <view wx:if="{{ordersRemaining > 0}}" class="order-toggle" bindtap="toggleOrders" role="button" aria-label="{{ordersToggleLabel}}">{{ordersToggleLabel}}</view>
+        <view wx:if="{{ordersExpanded && ordersHasMore}}" class="order-toggle {{loadMoreBusy ? 'is-busy' : ''}}" bindtap="loadMoreOrders" role="button">{{loadMoreBusy ? ui['加载中…'] : ui['加载更多']}}</view>
+        <view wx:if="{{ordersCapped}}" class="order-capped">{{ui['已加载最近 200 条，更早的订单请在 MP 后台查看']}}</view>
+      </view>
+
+    </block>
+
+    <!-- 非管理员 -->
+    <view wx:if="{{!loading && !isAdmin}}" class="pay-noauth">
+      <text class="pay-noauth-text">{{ui['当前微信不是管理员，不能管理支付档位。']}}</text>
+      <view class="pay-save" bindtap="refresh" role="button">{{ui['重新验证']}}</view>
+    </view>
+
+  </view>
+</view>

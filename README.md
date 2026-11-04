@@ -20,6 +20,8 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 
 服务器相关代码统一放在 [dsh-console/](dsh-console/README.md)，内部按 `deploy/`（部署升级）、`services/public-access/`（管理后台）、`relay/`（公网中继）区分，微信小程序代码独立放在 `miniprogram/`，上传不会包含控制台、鸿蒙、原生端或开发工具。
 
+虚拟支付（个人主体 · 道具直购）的服务端配置、推送地址、MP 后台步骤与逐项验收见 [docs/virtual-pay-deploy.md](docs/virtual-pay-deploy.md)，接口与状态模型见 [docs/virtual-pay-contract.md](docs/virtual-pay-contract.md)。
+
 宝塔上传时，只把本地 `dsh-console/` **里面的内容**上传到 `/www/wwwroot/dsh-console/`，不要重复嵌套同名目录；保留服务器原 `deploy/.env` 和数据，不上传本机运行数据或依赖。已部署服务器仍执行 `cd /www/wwwroot/dsh-console/deploy`、`bash upgrade.sh`。详见 [统一部署教程](dsh-console/deploy/README.md)。
 
 ## 运行方式
@@ -90,6 +92,7 @@ DeepSeek Harness Mobile 的微信小程序客户端，界面与功能对齐 iOS 
 | PluginsView 插件管理 | `pages/plugins` + `pages/plugin-detail` | plugin-catalog 目录（官方/已安装分组）、bundle 启用开关（停用移动网关需确认）、实验性徽标、官方配置项详情、组件条目开关与半屏组件详情、plugins-changed 自动刷新 |
 | WorkspaceDrawerDestination 插件 | 已升级为真实插件管理页 | （v1.7.x 前为占位页，现对齐 PluginsView） |
 | PrivacyPolicySheet 隐私政策 | `components/privacy-sheet` | 设置页底部滑出全屏弹窗，本地正文、顶部拖动条下拉关闭；旧路由复用同一组件 |
+| （iOS 无对应）虚拟支付 | `pages/settings`（购买卡片）+ `pages/pay-admin`（管理员档位） | 管理员在「设置 → 公网权限」打开开关并配置「天数 + 价格」档位；用户在「设置 → 公网访问」直接购买，支付成功后自动累加公网有效期，无需兑换码。个人主体、服务类目含「工具」、全终端月限额 10 万元；接入与部署见 [docs/virtual-pay-deploy.md](docs/virtual-pay-deploy.md) |
 | （iOS 无对应）微信分享 | 全部页面（`utils/share.js` 全局注入） | 每个页面支持「转发给朋友」（onShareAppMessage）与「分享到朋友圈」（onShareTimeline），按页面给出中文文案；依赖页面参数的深页（插件详情/文件）转发落地首页。注意：朋友圈入口仅真机可用（开发者工具不显示），对方以单页模式打开 |
 | （对齐 v1.7.2 视觉） | `pages/home` + `theme.js` | 首页对齐 iOS v1.7.2：深海背景（navy + 流体辉光 + 84rpx 技术网格渐隐 + 鲸鱼 screen 混合 + 底部压暗 clear→navy12%→black58%）、玻璃卡片（white 5.5%/6%/8% 填充 + white 14%/10% 描边 + 15pt 圆角）、按压反馈（scale 0.96 + 变暗）、字号/间距/分隔线按 WorkspaceView 度量；除首页外所有页面背景纯白（浅色）/纯黑（深色） |
 

@@ -75,6 +75,7 @@ function createPage(apiOptions) {
       if (name === './utils/status-appearance') return require('../miniprogram/pages/settings/utils/status-appearance');
       if (name === './utils/proc-icon-style') return require('../miniprogram/pages/settings/utils/proc-icon-style');
       if (name === '../../utils/access-api') return api;
+      if (name === '../../utils/virtual-pay') return require('../miniprogram/utils/virtual-pay');
       if (name === './public-access-state') return require('../miniprogram/pages/settings/public-access-state');
       if (name === './utils/node-presentation') return require('../miniprogram/pages/settings/utils/node-presentation');
       if (name === './utils/version-info') return require('../miniprogram/pages/settings/utils/version-info');

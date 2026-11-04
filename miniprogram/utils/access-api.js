@@ -84,12 +84,49 @@ function momentsSubmit(id, proof) { return shareRequest('/share/moments/submit',
 function contentRequest(route, body, anonymous) {
   return request(route, body, anonymous).catch(e => { if (e.code === 'NOT_FOUND' || anonymous && e.code === 'UNAUTHORIZED') throw error(uiText('公告与分享设置服务尚未升级，请管理员更新后台'), 'CONTENT_UPGRADE_REQUIRED'); throw e; });
 }
-function appContent() { return contentRequest('/app-content', undefined, true); }
+function appContent() {
+  return contentRequest('/app-content', undefined, true).then(result => {
+    // 旧后端没有 payment 字段：补成关闭状态并标记 upgradeRequired，页面据此提示升级；
+    // 不能静默当成「没有档位」，否则管理员会误以为保存失败。
+    if (result && typeof result === 'object' && result.payment === undefined) {
+      result.payment = { enabled: false, ready: false, tiers: [], upgradeRequired: true };
+    }
+    return result;
+  });
+}
 function announcements() { return contentRequest('/admin/announcements'); }
 function saveAnnouncement(input) { return contentRequest('/admin/announcements', input); }
 function deleteAnnouncement(id, revision) { return contentRequest('/admin/announcements/' + encodeURIComponent(id) + '/delete', { revision }); }
 function setSharingEnabled(enabled) { return contentRequest('/admin/share/enabled', { enabled }); }
 function redeem(code, nodeId) { return request('/redemptions', { code, nodeId }); }
+/** 下单：code 是本次 wx.login 的新 code，服务端据此取 openid/session_key 并签名。 */
+function createPayOrder(code, tierId) { return request('/pay/order', { code, tierId }); }
+/** 查单：只能查自己的订单；status 为 delivered 时才代表权益已到账。 */
+function queryPayOrder(outTradeNo) { return request('/pay/query', { outTradeNo }); }
+/** 管理员保存总开关与档位；服务端按 days 生成 pub_<days>d，忽略客户端 id。 */
+function savePayConfig(input) {
+  const source = input && typeof input === 'object' ? input : {};
+  const tiers = (Array.isArray(source.tiers) ? source.tiers : [])
+    .filter(tier => tier && Number.isInteger(tier.days) && Number.isInteger(tier.price))
+    .map(tier => ({ days: tier.days, price: tier.price }));
+  return request('/admin/pay/config', { enabled: source.enabled === true, tiers }).catch(e => {
+    if (e.code === 'NOT_FOUND') throw error(uiText('支付服务尚未升级，请先部署新版 public-access 服务'), 'PAY_UPGRADE_REQUIRED');
+    throw e;
+  });
+}
+/** 管理员订单列表（P1）：不返回 openid。 */
+function payOrders(limit, before, since) {
+  const payload = { limit: Number.isInteger(limit) && limit > 0 ? limit : 50 };
+  if (before && before.outTradeNo) payload.before = { createdAt: Number(before.createdAt) || 0, outTradeNo: String(before.outTradeNo) };
+  if (Number.isInteger(since) && since > 0) payload.since = since;
+  return request('/admin/pay/orders', payload);
+}
+/** 管理员月流水与限额（P1）。 */
+function paySummary() { return request('/admin/pay/summary', {}); }
+/** 管理员强制查单：以微信侧为准核对状态/退款，并同步本地权益。 */
+function inspectPayOrder(outTradeNo) { return request('/admin/pay/inspect', { outTradeNo }); }
+/** 管理员发起退款（仅 Android；iOS 由用户走 App Store）。 */
+function refundPayOrder(outTradeNo, reason) { return request('/admin/pay/refund', { outTradeNo, reason: Number.isInteger(reason) ? reason : 3 }); }
 function redeemPublicAccess(code) {
   return request('/redemptions', { code }).then(result => me().then(() => result));
 }
@@ -170,4 +207,4 @@ function claimAdminBinding(code) { return request('/admin-binding/claim', { code
 function pairings() { return request('/admin/pairings'); }
 function createPairing(nodeId, days) { return request('/admin/pairings', { nodeId, days }, false, 30000); }
 function revokePairing(id) { return request('/admin/pairings/' + encodeURIComponent(id) + '/revoke', {}); }
-module.exports = { configured, lastGrant, cachedLease, saveGrant, forgetGrant, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, hasPublicAccess, isManagedRelay, publicLease, issueCompletionNotificationTicket, claimAdminBinding, pairings, createPairing, revokePairing, clear };
+module.exports = { configured, lastGrant, cachedLease, saveGrant, forgetGrant, login, me, ensureAccount, codes, createCode, revokeCode, copyCode, deleteCode, shareStatus, shareInvite, recordShareOpen, momentsStart, momentsSubmit, appContent, announcements, saveAnnouncement, deleteAnnouncement, setSharingEnabled, redeem, redeemPublicAccess, createPayOrder, queryPayOrder, savePayConfig, payOrders, paySummary, inspectPayOrder, refundPayOrder, hasPublicAccess, isManagedRelay, publicLease, issueCompletionNotificationTicket, claimAdminBinding, pairings, createPairing, revokePairing, clear };

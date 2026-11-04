@@ -158,7 +158,10 @@
 
       <!-- 最近会话 -->
       <view class="recent-header">
-        <view class="section-title">{{allWorkspacesSelected ? ui['全部会话'] : ui['最近会话']}}</view>
+        <view class="recent-heading">
+          <view class="section-title">{{allWorkspacesSelected ? ui['全部会话'] : ui['最近会话']}}</view>
+          <text wx:if="{{!allWorkspacesSelected && recentSessionCount}}" class="recent-count">{{recentCountLabel}}</text>
+        </view>
         <view class="conn-label {{connectionClass}}">{{ui[connectionLabel] !== undefined ? ui[connectionLabel] : connectionLabel}}</view>
       </view>
 
@@ -182,6 +185,10 @@
             <text class="session-section-title">{{item.title}}</text>
             <view class="session-section-line"></view>
             <text class="session-section-count">{{item.countLabel}}</text>
+          </view>
+          <view wx:elif="{{item.type === 'recent-toggle'}}" class="session-section-toggle" bindtap="toggleRecentSessions" role="button" aria-label="{{item.label}}">
+            <text class="session-section-toggle-label">{{item.label}}</text>
+            <image class="session-section-toggle-ic" src="/assets/icons/{{item.expanded ? 'chev-up-gray.png' : 'chev-down-gray.png'}}" mode="aspectFit"/>
           </view>
           <view wx:elif="{{item.type === 'toggle'}}" class="session-section-toggle" bindtap="toggleSessionSection" data-id="{{item.sectionId}}" role="button" aria-label="{{item.label}}">
             <text class="session-section-toggle-label">{{item.label}}</text>

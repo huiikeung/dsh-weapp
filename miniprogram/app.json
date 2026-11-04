@@ -83,6 +83,13 @@
       ]
     },
     {
+      "root": "pages/pay-admin",
+      "name": "pay-admin",
+      "pages": [
+        "pay-admin"
+      ]
+    },
+    {
       "root": "pages/session-settings",
       "name": "session-settings",
       "pages": [
@@ -161,7 +168,8 @@
         "pages/schedule",
         "pages/plugin-detail",
         "pages/pairing-admin",
-        "pages/redeem-admin"
+        "pages/redeem-admin",
+        "pages/pay-admin"
       ]
     }
   }

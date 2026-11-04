@@ -29,6 +29,7 @@ const { clientVersion, gatewayVersionInfo } = require('./utils/version-info');
 const accountView = require('./utils/account-view');
 const { identityBadge } = require('./utils/identity-badge');
 const publicAccessPrompt = require('../../utils/public-access-prompt');
+const virtualPay = require('../../utils/virtual-pay');
 
 // 兑换码档位：天数与文案一一对应，顺序必须与服务端 CODE_DAYS/CODE_USES 一致
 // （dsh-console/services/public-access/server.cjs）。文案只是展示用的字典键。
@@ -113,6 +114,18 @@ Page({
     redeemFormOpen: false,
     redeemCode: '',
     shareEnabled: false,
+    // 虚拟支付：开关与档位来自 /app-content 的 payment 字段；未登录也能看到支付卡片。
+    payEnabled: false,
+    payReady: false,
+    payVisible: false,
+    payTiers: [],
+    paySelectedTierId: '',
+    paySelectedPriceLabel: '',
+    payBuyDisabled: true,
+    payBusyTier: '',
+    payResultLabel: '',
+    paySupportReason: '',
+    payUpgradeRequired: false,
     sharePayload: '',
     shareExpiresLabel: '',
     notifyEnabled: false,
@@ -255,6 +268,10 @@ Page({
     });
     this.unsubscribe = store.subscribe((snapshot) => {
       if (this._settingsVisible === false) return;
+      // 设置页只依赖 app 级数据；会话流式输出（rows/事件）不会改变这些字段。
+      // 命中相同签名直接跳过，避免设置页盖在运行中会话上时每 160ms 整页重算。
+      const nextApp = snapshot && snapshot.app;
+      if (nextApp && this._settingsAppSignature === this.settingsAppSignature(nextApp)) return;
       // 合并短时间内的多次 store 通知，避免弹窗打开时背景页频繁重绘闪烁
       this._pendingSnapshot = snapshot;
       if (this._syncThrottleTimer) return;
@@ -702,7 +719,7 @@ Page({
     this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
     this.setData({ nodePingBusy: false });
     this._contentGeneration = (this._contentGeneration || 0) + 1;
-    this.setData({ referralEnabled: false, contentLoaded: false, shareSaving: false, referralToken: '' });
+    this.setData({ referralEnabled: false, contentLoaded: false, shareSaving: false, referralToken: '', payBusyTier: '', payResultLabel: '' });
     this._accountGeneration = (this._accountGeneration || 0) + 1;
     this.stopClawbotPolling();
     this._clawbotGeneration = (this._clawbotGeneration || 0) + 1;
@@ -1410,8 +1427,33 @@ Page({
     if (count) this.setData(changed);
   },
 
+  /** 设置页真正依赖的 app 字段签名；session 流式变化不影响页面内容。 */
+  settingsAppSignature(app) {
+    app = app || {};
+    return JSON.stringify([
+      app.connection,
+      app.activeID || app.endpoint || '',
+      app.endpoint || '',
+      app.gatewayName || '',
+      app.port || 0,
+      app.connectionMessage || '',
+      app.connectionErrorCode || '',
+      (app.onlineIDs || []).join(','),
+      JSON.stringify(app.host || null),
+      (app.profiles || []).map(profile => [
+        profile.id,
+        profile.gatewayId || '',
+        profile.alias || '',
+        profile.gatewayName || '',
+        profile.relay ? 1 : 0,
+        profile.relayClientCount || 0
+      ].join(':')).join('|')
+    ]);
+  },
+
   syncFromStore(snapshot) {
     const app = snapshot.app;
+    this._settingsAppSignature = this.settingsAppSignature(app);
     const onlineIDs = app.onlineIDs || [];
     const nodes = (app.profiles || []).map((profile) => {
       const online = onlineIDs.indexOf(profile.id) >= 0 ||
@@ -1621,8 +1663,9 @@ Page({
   readLanguageLabel() { return preferences.snapshot().languageLabel; },
   readFontLabel() { return preferences.snapshot().fontSizeLabel; },
   onUiLocaleChange() {
-    // 兑换码档位文案是本地拼的（不走 ui[] 映射），切语言时要跟着重建。
+    // 兑换码/支付档位文案是本地拼的（不走 ui[] 映射），切语言时要跟着重建。
     this.setData({ codeDurations: codeDurationLabels(), codeCounts: codeUseLabels() });
+    this.applyPayment(this._payPayment);
     this.syncFromStore({ app: store.state });
   },
   onUiPreferencesChange(next) {
@@ -2064,17 +2107,86 @@ Page({
       else wx.hideShareMenu({ menus: ['shareAppMessage', 'shareTimeline'] });
     } catch (e) { /* 忽略 */ }
   },
+  /** 支付卡片：仅当总开关打开、服务端已配置（ready）且至少一个档位时显示。 */
+  applyPayment(payment) {
+    const source = payment && typeof payment === 'object' ? payment : {};
+    this._payPayment = source;
+    const tiers = (Array.isArray(source.tiers) ? source.tiers : [])
+      .filter(tier => tier && Number.isInteger(tier.days) && tier.days > 0 && Number.isInteger(tier.price) && tier.price > 0)
+      .map(tier => {
+        const issue = virtualPay.priceIssue(tier.price);
+        // 天数够长时才显示折算日均价；不足 1 分/天不显示，避免出现 ¥0.00/天。
+        const perDayCents = tier.price / tier.days;
+        const unitLabel = tier.days >= 7 && perDayCents >= 1
+          ? '¥' + (Math.round(perDayCents) / 100).toFixed(2) + uiText('/天')
+          : '';
+        return {
+          id: typeof tier.id === 'string' && tier.id ? tier.id : virtualPay.productId(tier.days),
+          days: tier.days,
+          price: tier.price,
+          daysLabel: tier.days + uiText(' 天'),
+          priceLabel: virtualPay.formatPrice(tier.price),
+          unitLabel,
+          // iOS 上低于 1 元的档位禁用并标注，避免点了才报错。
+          priceBlocked: !issue.ok,
+          priceHint: issue.reason
+        };
+      });
+    // 「推荐」= 每天单价最低的可用档位（同价取天数更长者）；至少两个可用档位才标。
+    let bestId = '';
+    const usable = tiers.filter(tier => !tier.priceBlocked);
+    if (usable.length > 1) {
+      const best = usable.reduce((left, right) => {
+        const a = left.price / left.days, b = right.price / right.days;
+        if (a !== b) return a < b ? left : right;
+        return left.days >= right.days ? left : right;
+      });
+      bestId = best.id;
+    }
+    tiers.forEach(tier => { tier.best = tier.id === bestId; });
+    // 选中项：沿用旧选择；否则默认推荐档，其次第一个可购档。
+    const previous = this.data.paySelectedTierId;
+    const selected = tiers.find(tier => tier.id === previous && !tier.priceBlocked)
+      || tiers.find(tier => tier.best && !tier.priceBlocked)
+      || tiers.find(tier => !tier.priceBlocked)
+      || tiers[0] || null;
+    tiers.forEach(tier => { tier.selected = !!selected && tier.id === selected.id; });
+    const support = virtualPay.capability();
+    this.applySettingsPatch({
+      payEnabled: source.enabled === true,
+      payReady: source.ready === true,
+      payTiers: tiers,
+      paySelectedTierId: selected ? selected.id : '',
+      paySelectedPriceLabel: selected ? selected.priceLabel : '',
+      payBuyDisabled: !selected || !!selected.priceBlocked,
+      payVisible: source.enabled === true && source.ready === true && tiers.length > 0,
+      paySupportReason: support.ok ? '' : support.reason,
+      payUpgradeRequired: source.upgradeRequired === true
+    });
+  },
   async refreshAppContent() {
     const generation = this._contentGeneration = (this._contentGeneration || 0) + 1;
     this.setData({ contentLoaded: false, contentError: '' });
     this.applySharing(false);
+    this.applyPayment(null);
     try {
       const content = await accessApi.appContent();
       if (generation !== this._contentGeneration) return;
       this.applySharing(content.shareEnabled === true);
+      this.applyPayment(content.payment);
+      // 本次打开公网面板后首次拿到支付配置：有支付卡片就展开到 90vh，没有就保持 62vh。
+      if (this._expandPublicOnContent) {
+        this._expandPublicOnContent = false;
+        if (this.data.managementPanel === 'public') {
+          this.setData({ 'sheetExpanded.management': this.data.payVisible === true });
+        }
+      }
       this.setData({ contentLoaded: true });
     } catch (error) {
-      if (generation === this._contentGeneration) this.setData({ contentError: error.message || uiText('分享设置同步失败，请重试') });
+      if (generation === this._contentGeneration) {
+        this._expandPublicOnContent = false;
+        this.setData({ contentError: error.message || uiText('分享设置同步失败，请重试') });
+      }
     }
   },
   async toggleReferralSharing(event) {
@@ -2096,6 +2208,71 @@ Page({
       if (['FORBIDDEN', 'UNAUTHORIZED', 'LOGIN_REQUIRED'].includes(error.code)) this.setData({ isWechatAdmin: false, identityBadgeLabel: uiText('待识别'), accountLabel: uiText('待识别') });
       wx.showModal({ title: uiText('设置未保存'), content: error.message || uiText('请稍后重试'), showCancel: false });
     } finally { if (generation === this._contentGeneration && accountGeneration === this._accountGeneration) this.setData({ shareSaving: false }); }
+  },
+
+  /** 管理员：打开/关闭虚拟支付。关闭只隐藏用户端卡片，不删档位、不扣已购买天数。 */
+  openPayAdmin() {
+    if (!this.data.isWechatAdmin || this.data.accountBusy) return;
+    wx.navigateTo({ url: '/pages/pay-admin/pay-admin' });
+  },
+
+  /** 选择要购买的档位；被禁用（价格不合法/平台不支持）的档位只提示原因。 */
+  selectPayTier(event) {
+    if (this.data.payBusyTier || !this.data.payVisible) return;
+    const id = event && event.currentTarget && event.currentTarget.dataset ? event.currentTarget.dataset.id : '';
+    const tier = (this.data.payTiers || []).find(item => item.id === id);
+    if (!tier || tier.selected) return;
+    if (tier.priceBlocked) {
+      wx.showToast({ title: tier.priceHint || uiText('该档位暂不可购买，请选择其他档位'), icon: 'none' });
+      return;
+    }
+    this.setData({
+      payTiers: (this.data.payTiers || []).map(item => Object.assign({}, item, { selected: item.id === id })),
+      paySelectedTierId: id,
+      paySelectedPriceLabel: tier.priceLabel,
+      payBuyDisabled: false
+    });
+  },
+
+  /** 用户端购买：技术链路全部在 utils/virtual-pay.js；这里只做 busy 状态、提示与刷新有效期。 */
+  buyPayTier(event) {
+    const id = event && event.currentTarget && event.currentTarget.dataset ? event.currentTarget.dataset.id : '';
+    const tier = (this.data.payTiers || []).find(item => item.id === id);
+    if (!tier || this.data.payBusyTier || !this.data.payVisible || this.data.payBuyDisabled) return;
+    if (this.data.paySupportReason) { wx.showToast({ title: this.data.paySupportReason, icon: 'none' }); return; }
+    // iOS Apple 支付要求最低 1 元；低价测试档在 iOS 上直接给出原因，不让微信抛 -15001。
+    const price = virtualPay.priceIssue(tier.price);
+    if (!price.ok) { wx.showToast({ title: price.reason, icon: 'none' }); return; }
+    const generation = this._accountGeneration;
+    this.setData({ payBusyTier: id, payResultLabel: '' });
+    return virtualPay.purchase(id)
+      .then(async order => {
+        if (generation !== this._accountGeneration) return;
+        const delivered = !!(order && order.delivered);
+        const expiresAt = Number(order && order.expiresAt) || 0;
+        this.setData({
+          payResultLabel: delivered && expiresAt
+            ? uiText('支付成功，有效期至 ') + formatExpiry(expiresAt)
+            : delivered ? uiText('支付成功，公网有效期已更新') : uiText('支付成功，权益到账中，请稍后刷新查看')
+        });
+        wx.showToast({ title: delivered ? uiText('支付成功') : uiText('支付成功，权益到账中'), icon: 'none' });
+        // 刷新账号与公网有效期展示：与兑换成功走同一条路径。
+        this.syncFromStore({ app: store.state, session: store.sessionState });
+        await this.refreshWechatAccount();
+        store.appDidBecomeActive();
+      })
+      .catch(error => {
+        if (generation !== this._accountGeneration) return;
+        if (error && error.silent) return;   // 用户取消支付：静默，不打扰
+        const detail = error && error.detail ? error.detail : '';
+        // -15001 这类参数错误的具体原因在 errMsg 里，用弹窗完整展示，便于定位道具/价格/签名问题。
+        if (detail) {
+          wx.showModal({ title: (error && error.message) || uiText('支付失败'), content: detail, showCancel: false, confirmText: uiText('知道了') });
+        } else {
+          wx.showToast({ title: (error && error.message) || uiText('支付失败，请稍后重试'), icon: 'none' });
+        }
+      })
+      .finally(() => { if (generation === this._accountGeneration) this.setData({ payBusyTier: '' }); });
   },
 
   toggleAdminAdvanced() {
@@ -2138,7 +2315,9 @@ Page({
 
   openPublicAccess() {
     this.syncFromStore({ app: store.state, session: store.sessionState });
-    this.setData({ managementPanel: 'public', pairSheetOpen: false });
+    // 支付卡片可见时内容较长：等 /app-content 回来后再默认展开到 90vh；没有支付仍是 62vh。
+    this._expandPublicOnContent = true;
+    this.setData({ managementPanel: 'public', pairSheetOpen: false, 'sheetExpanded.management': false });
     this.refreshAppContent();
   },
 
@@ -2167,7 +2346,7 @@ Page({
   openMomentsActivity() { this.setData({ referralSheetOpen: false }); wx.navigateTo({ url: '/pages/share-activity/share-activity?moments=1' }); },
 
   openNodeManagement() {
-    this.setData({ managementPanel: 'nodes', pairSheetOpen: false, nodeDetailId: '', nodeDetail: null });
+    this.setData({ managementPanel: 'nodes', pairSheetOpen: false, nodeDetailId: '', nodeDetail: null, 'sheetExpanded.management': false });
     this.refreshNodes();
   },
 
@@ -2206,7 +2385,17 @@ Page({
 
   closeManagementPanel() {
     this._nodePingGeneration = (this._nodePingGeneration || 0) + 1;
-    this.setData({ managementPanel: this.data.managementPanel === 'gateway' ? 'nodes' : '', nodeDetailId: '', nodeDetail: null, nodePingBusy: false });
+    // 从网关详情返回节点列表时保留当前高度；真正关闭面板时回到默认 62vh。
+    const backToNodes = this.data.managementPanel === 'gateway';
+    const patch = {
+      managementPanel: backToNodes ? 'nodes' : '',
+      nodeDetailId: '', nodeDetail: null, nodePingBusy: false
+    };
+    if (!backToNodes) {
+      patch['sheetExpanded.management'] = false;
+      this._expandPublicOnContent = false;
+    }
+    this.setData(patch);
   },
 
   refreshNodes() {
@@ -2310,7 +2499,7 @@ Page({
 
   closeRedeemForm() {
     this._redeemDraft = '';
-    this.setData({ redeemFormOpen: false, redeemCode: '', redeemError: '' });
+    this.setData({ redeemFormOpen: false, redeemCode: '', redeemError: '', 'sheetExpanded.management': false });
   },
 
   submitRedeem() {
@@ -2443,7 +2632,7 @@ Page({
 
   closePairSheet() {
     if (this.data.pairingConnecting) return;
-    this.setData({ pairSheetOpen: false, pairingText: '', pairingError: '' });
+    this.setData({ pairSheetOpen: false, pairingText: '', pairingError: '', 'sheetExpanded.management': false });
   },
 
   noop() {},

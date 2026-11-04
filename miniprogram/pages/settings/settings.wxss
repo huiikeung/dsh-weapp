@@ -219,11 +219,14 @@
   display: flex;
   flex-direction: column;
   max-height: 92vh;
+  /* 头部固定，内容交给 scroll-view；遮罩的 catchtouchmove 会阻止普通 overflow 滚动 */
+  overflow: hidden;
 }
 
 .management-sheet .management-scroll {
   flex: 1;
   min-height: 0;
+  height: 0;
 }
 
 .management-sheet .pair-sheet-head {
@@ -272,7 +275,8 @@
 .gateway-action::after { border: 0; }
 .gateway-action[disabled] { background: transparent; opacity: .45; }
 
-/* 弹窗自身是唯一滚动容器（整个弹窗一起滑），内层不再限高造出「框里滚动」 */
+/* 管理面板的内容区：scroll-view 靠 flex 拿到固定高度后自己滚动；
+   外层的 catchtouchmove 会让普通 view 的 overflow 滚动失效，因此不能用 view。 */
 .management-scroll {
   min-height: 0;
 }
@@ -2099,3 +2103,99 @@
   backdrop-filter: blur(14rpx);
   -webkit-backdrop-filter: blur(14rpx);
 }
+
+
+/* ---------- 虚拟支付（公网访问面板，兑换码入口下方） ----------
+   档位是可选中订阅卡 + 底部单一主按钮；圆角/描边/玻璃材质沿用设置页变量。 */
+.pay-block { margin-top: 34rpx; }
+
+.pay-head { padding: 0 4rpx; }
+.pay-title { display: block; color: var(--text); font-size: 30rpx; font-weight: 650; }
+.pay-sub { display: block; margin-top: 6rpx; color: var(--text-3); font-size: 22rpx; line-height: 1.45; }
+
+.pay-grid { display: flex; flex-wrap: wrap; justify-content: space-between; margin: 20rpx 0 -16rpx; }
+.pay-tier {
+  position: relative; box-sizing: border-box;
+  /* 真机上从 50% 再留出余量：微信 flex 对 50% + gap 的取整容易把第二张挤到下一行 */
+  width: calc(50% - 12rpx);
+  min-width: 0;
+  margin-bottom: 16rpx;
+  padding: 18rpx 22rpx 22rpx;
+  border-radius: 22rpx;
+  background: var(--surface);
+  border: 1rpx solid var(--border);
+  box-shadow: var(--card-shadow);
+  transition: border-color .16s ease, background .16s ease, box-shadow .16s ease, transform .16s ease;
+}
+.pay-tier.is-blocked { opacity: .55; }
+.pay-tier.is-selected {
+  border-color: rgba(46, 107, 230, .55);
+  background: linear-gradient(160deg, rgba(46, 107, 230, .10), rgba(46, 107, 230, .02));
+  box-shadow: 0 8rpx 24rpx rgba(46, 107, 230, .16);
+}
+.theme-dark .pay-tier.is-selected {
+  border-color: rgba(106, 156, 255, .55);
+  background: linear-gradient(160deg, rgba(46, 107, 230, .24), rgba(46, 107, 230, .06));
+  box-shadow: 0 8rpx 24rpx rgba(0, 0, 0, .28);
+}
+.pay-tier-hover { transform: scale(.985); }
+.pay-tier-head { display: flex; align-items: center; justify-content: space-between; min-height: 30rpx; }
+.pay-tier-best {
+  padding: 5rpx 12rpx; border-radius: 999rpx;
+  background: linear-gradient(135deg, var(--ocean), #1A5CC8);
+  color: #fff; font-size: 19rpx; line-height: 1.2; font-weight: 600;
+  box-shadow: 0 4rpx 10rpx rgba(46, 107, 230, .24);
+}
+.pay-tier-radio {
+  margin-left: auto; width: 32rpx; height: 32rpx; box-sizing: border-box;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; border: 2rpx solid rgba(46, 107, 230, .42);
+}
+.pay-tier-radio.on { border-color: var(--ocean); background: var(--ocean); }
+.pay-tier-radio-dot { width: 12rpx; height: 12rpx; border-radius: 50%; background: #fff; transform: scale(0); transition: transform .16s ease; }
+.pay-tier-radio.on .pay-tier-radio-dot { transform: scale(1); }
+.pay-tier-days { display: block; margin-top: 16rpx; color: var(--text-2); font-size: 24rpx; font-weight: 550; }
+.pay-tier-price { display: flex; align-items: baseline; gap: 3rpx; margin-top: 6rpx; color: var(--text); }
+.pay-tier.is-selected .pay-tier-price { color: var(--ocean); }
+.theme-dark .pay-tier.is-selected .pay-tier-price { color: #8FB4FF; }
+.pay-tier-currency { font-size: 24rpx; font-weight: 600; }
+.pay-tier-amount { font-size: 46rpx; font-weight: 700; letter-spacing: -.5rpx; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.pay-tier-unit { display: block; margin-top: 4rpx; color: var(--text-3); font-size: 20rpx; }
+.pay-tier-hint { display: block; margin-top: 10rpx; color: var(--text-3); font-size: 19rpx; line-height: 1.4; }
+
+.pay-warning { margin-top: 18rpx; color: #E5484D; font-size: 23rpx; line-height: 1.5; }
+.pay-result {
+  display: flex; align-items: center; gap: 10rpx;
+  margin-top: 16rpx; padding: 14rpx 18rpx;
+  border-radius: 14rpx;
+  background: rgba(58, 130, 96, .12);
+  color: #3A8260; font-size: 22rpx; line-height: 1.45;
+}
+.theme-dark .pay-result { background: rgba(78, 201, 127, .14); color: #4FC97F; }
+.pay-result-dot { flex: none; width: 12rpx; height: 12rpx; border-radius: 50%; background: currentColor; }
+.pay-result-text { flex: 1; min-width: 0; }
+
+.pay-buy {
+  margin: 22rpx 0 0; padding: 0 34rpx; height: 92rpx; line-height: 92rpx;
+  width: 100%; box-sizing: border-box; border: 0;
+  display: flex; align-items: center; justify-content: center; gap: 12rpx;
+  border-radius: 999rpx;
+  background: linear-gradient(135deg, var(--ocean), #1A5CC8);
+  color: #fff; font-size: 30rpx; font-weight: 600;
+  box-shadow: 0 10rpx 26rpx rgba(46, 107, 230, .26);
+}
+.pay-buy::after { border: 0; }
+.pay-buy-hover { opacity: .88; transform: scale(.99); }
+.pay-buy.is-disabled { background: var(--fill); color: var(--text-3); box-shadow: none; }
+.pay-buy-label { font-size: 30rpx; font-weight: 600; }
+.pay-buy-price { font-size: 28rpx; font-weight: 650; opacity: .92; }
+
+.pay-compliance { margin-top: 20rpx; padding: 18rpx 4rpx 0; border-top: 1rpx solid var(--divider); display: flex; flex-direction: column; gap: 8rpx; }
+.pay-compliance-text { color: var(--text-3); font-size: 22rpx; line-height: 1.55; }
+.pay-support {
+  margin: 10rpx 0 0; padding: 0; width: auto; align-self: flex-start;
+  display: inline-flex; background: transparent; border: 0;
+  color: var(--ocean); font-size: 23rpx; line-height: 1.6; text-align: left;
+}
+.pay-support::after { border: 0; }
+.identity-badge.is-pending { opacity: .55; }

@@ -73,6 +73,7 @@ function sessionMenuLayout(rect, windowInfo, navigationBottom) {
 }
 
 const ALL_SESSIONS_SECTION_LIMIT = 5;
+const RECENT_SESSION_LIMIT = 12;
 const UNGROUPED_SECTION_ID = '__ungrouped__';
 
 /** 工作区卡片/分区头里的会话数：「1 个会话」/「N 个会话」（对齐 iOS WorkspaceSessionCopy.count）。 */
@@ -176,6 +177,9 @@ Page({
     dirError: '',
     currentWorkspace: {},
     displaySessions: [],
+    recentSessionCount: 0,
+    recentCountLabel: '',
+    recentExpanded: false,
     displayEntries: [],
     allWorkspacesSelected: false,
     expandedSectionIds: [],
@@ -431,7 +435,11 @@ Page({
       (app.archivedSessionIds || []).length,
       (app.searchResults || []).length,
       workspaces.map((w) => [w.workspaceId, (w.sessionIds || []).length, w.title || '']).join('|'),
-      sessions.map((s) => [s.sessionId, s.running ? 1 : 0, s.updatedAt || 0,
+      // updatedAt 会随流式事件/会话探测帧抖动；网关不回传时 mapSessionSummary
+      // 还会退化成每帧 Date.now()。直接进签名会导致首页反复整页重建（返回首页
+      // 卡死的来源），所以按分钟取桶：分钟内的抖动忽略，跨分钟才重排一次。
+      sessions.map((s) => [s.sessionId, s.running ? 1 : 0,
+        Math.floor((s.updatedAt || 0) / 60000),
         s.blank ? 1 : 0, s.hasConversation === false ? 1 : 0]).join('|')
     ]);
   },
@@ -474,6 +482,11 @@ Page({
     ));
     const isAll = app.isAllWorkspacesSelected === true;
     const isUngrouped = !isAll && app.isUngroupedWorkspaceSelected === true;
+    const recentViewKey = [app.currentWorkspaceId || '', isAll, isUngrouped].join('|');
+    if (this._recentViewKey !== recentViewKey) {
+      this._recentViewKey = recentViewKey;
+      this.recentExpanded = false;
+    }
     // 预建归属索引：同一会话只归第一个工作区（对齐 iOS WorkspaceSessionListInput.project）。
     const ownerOf = {};
     const sectionTitles = {};
@@ -578,12 +591,24 @@ Page({
         }
       });
     } else {
-      displaySessions = scopedSource.slice(0, 12).map((s, index) => {
+      const recentExpanded = this.recentExpanded === true;
+      const shown = recentExpanded ? scopedSource : scopedSource.slice(0, RECENT_SESSION_LIMIT);
+      displaySessions = shown.map((s, index) => {
         const item = sessionItemView(s);
         item.index = index;
         return item;
       });
       displayEntries = displaySessions.map((item) => Object.assign({ type: 'session', key: 'session-' + item.sessionId }, item));
+      if (scopedSource.length > RECENT_SESSION_LIMIT) {
+        const remaining = scopedSource.length - RECENT_SESSION_LIMIT;
+        displayEntries.push({
+          type: 'recent-toggle',
+          key: 'toggle-recent',
+          remaining: remaining,
+          expanded: recentExpanded,
+          label: recentExpanded ? uiText('收起') : homeSectionExpandLabel(remaining)
+        });
+      }
     }
 
     if (store.warmSessionCache) {
@@ -627,6 +652,9 @@ Page({
       expandedSectionIds: expandedSectionIds,
       displaySessions: displaySessions,
       displayEntries: displayEntries,
+      recentSessionCount: scopedSource.length,
+      recentCountLabel: homeSessionCountLabel(scopedSource.length),
+      recentExpanded: this.recentExpanded === true,
       connectionLabel: hostCompatibilityError ? uiText('服务异常') : connection.label,
       connectionClass: hostCompatibilityError ? 'failed' : connection.key,
       connectionHintIsError: !hostCompatibilityError && connectionHint && conn !== 'connecting',
@@ -990,6 +1018,12 @@ Page({
   selectWorkspace(e) {
     store.setCurrentWorkspace(e.currentTarget.dataset.id);
     this.setData({ workspacePickerOpen: false });
+  },
+
+  /** 最近会话列表展开/收起：默认只画 12 条，展开后显示所选工作区的全部会话。 */
+  toggleRecentSessions() {
+    this.recentExpanded = this.recentExpanded !== true;
+    this.syncFromStore(this._lastSyncSnapshot || { app: store.state, session: store.sessionState }, { force: true });
   },
 
   /** 全部会话分区折叠开关：只翻转目标分区，其他分区保持不变。 */
@@ -1659,6 +1693,9 @@ Page({
     // 这里保留一处主包内静态引用，让微信「代码质量」的依赖分析把它算作主包已使用；
     // require 位于函数体内，只有打开会话设置时才真正加载，不影响启动耗时。
     require('../../plugin-settings/settings-actions');
+    // virtual-pay 只被 settings / pay-admin 两个子包页面使用（子包之间不能互引，
+    // 只能放主包）。这里同样留一处主包内惰性引用，避免被判「主包未使用的 JS」。
+    require('../../utils/virtual-pay');
     wx.navigateTo({ url: '/pages/session-settings/session-settings' });
   },
 

@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const SOURCE = path.join(root, 'resources/components/dsh-switch');
-const TARGETS = ['pages/settings', 'pages/plugins', 'pages/cost-meter', 'pages/plugin-detail'];
+const TARGETS = ['pages/settings', 'pages/plugins', 'pages/cost-meter', 'pages/plugin-detail', 'pages/pay-admin'];
 const FILES = ['dsh-switch.js', 'dsh-switch.json', 'dsh-switch.wxml', 'dsh-switch.wxss'];
 
 function build() {

@@ -16,7 +16,7 @@ function files(dir, extension) {
   return fs.readdirSync(path.join(root, dir), { recursive: true }).filter(name => name.endsWith(extension)).map(name => path.join(root, dir, name));
 }
 test('all pages and shared components translate authored template copy', () => {
-  assert.equal(require('./helpers/routes.cjs')(JSON.parse(fs.readFileSync(path.join(root, 'app.json'), 'utf8'))).length, 19);
+  assert.equal(require('./helpers/routes.cjs')(JSON.parse(fs.readFileSync(path.join(root, 'app.json'), 'utf8'))).length, 20);
   for (const file of files('pages', '.wxml').concat(files('components', '.wxml'), files('templates', '.wxml'))) {
     const text = fs.readFileSync(file, 'utf8').replace(/<!--[\s\S]*?-->/g, '');
     for (const match of text.matchAll(/ui\['([^']*)'\]/g)) {
@@ -43,7 +43,8 @@ test('page UI dictionaries omit redundant reverse aliases from the initial data 
   try {
     const ui = preferences.snapshot().ui;
     assert.equal(Object.keys(ui).length, Object.keys(dictionary).length);
-    assert.equal(Buffer.byteLength(JSON.stringify(ui)) < 180 * 1024, true,
+    // 预算随业务文案增长调整（虚拟支付整套 UI 约 +17 KiB）；仍远低于「反向表导致翻倍」的量级。
+    assert.equal(Buffer.byteLength(JSON.stringify(ui)) < 190 * 1024, true,
       'initial page data contains source keys only, not a second reverse-lookup table');
   } finally { delete global.wx; }
 });

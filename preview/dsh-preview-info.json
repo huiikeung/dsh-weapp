@@ -1,18 +1,18 @@
 {
   "size": {
-    "total": 2707768,
+    "total": 2953382,
     "packages": [
       {
         "name": "TOTAL",
-        "size": 2707768
+        "size": 2953382
       },
       {
         "name": "main",
-        "size": 990263
+        "size": 1062600
       },
       {
         "name": "/pages/add-node/",
-        "size": 17659
+        "size": 29715
       },
       {
         "name": "/pages/announcement-admin/",
@@ -24,7 +24,7 @@
       },
       {
         "name": "/pages/cost-meter/",
-        "size": 140038
+        "size": 141871
       },
       {
         "name": "/pages/files/",
@@ -43,12 +43,16 @@
         "size": 10805
       },
       {
+        "name": "/pages/pay-admin/",
+        "size": 14246
+      },
+      {
         "name": "/pages/plugin-detail/",
-        "size": 77638
+        "size": 41583
       },
       {
         "name": "/pages/plugins/",
-        "size": 83800
+        "size": 124853
       },
       {
         "name": "/pages/redeem-admin/",
@@ -56,19 +60,19 @@
       },
       {
         "name": "/pages/schedule/",
-        "size": 47947
+        "size": 48650
       },
       {
         "name": "/pages/session-settings/",
-        "size": 76245
+        "size": 76246
       },
       {
         "name": "/pages/session/",
-        "size": 794720
+        "size": 923847
       },
       {
         "name": "/pages/settings/",
-        "size": 236979
+        "size": 247292
       },
       {
         "name": "/pages/workspace-picker/",

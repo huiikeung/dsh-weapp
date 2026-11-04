@@ -1,0 +1,62 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>A · 极简深色</title>
+<style>
+@page { margin: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1000px; height: 800px; overflow: hidden; }
+body { font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.canvas { position: relative; width: 1000px; height: 800px; overflow: hidden; }
+.grain { position: absolute; inset: 0; opacity: .04; mix-blend-mode: overlay; pointer-events: none; }
+
+.bg { position:absolute; inset:0; background:radial-gradient(120% 110% at 78% 30%, #14294A 0%, #0A1930 48%, #050D1B 100%); }
+.aura { position:absolute; right:-180px; top:-220px; width:800px; height:800px; border-radius:50%;
+  background: radial-gradient(circle at 42% 42%, rgba(46,107,230,.34) 0%, rgba(46,107,230,.10) 46%, rgba(46,107,230,0) 72%);
+  filter: blur(14px); }
+.aura2 { position:absolute; left:-160px; bottom:-260px; width:640px; height:640px; border-radius:50%;
+  background: radial-gradient(circle, rgba(64,168,255,.12) 0%, rgba(64,168,255,0) 70%); }
+.grid { position:absolute; inset:0; background-image:linear-gradient(rgba(140,180,240,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(140,180,240,.035) 1px, transparent 1px); background-size:70px 70px; }
+.brand { position:absolute; left:116px; top:62px; display:flex; align-items:center; gap:12px; }
+.brand img { height:30px; width:auto; }
+.badge { font-size:12px; letter-spacing:.26em; color:rgba(200,222,255,.62); border:1px solid rgba(160,195,255,.28); padding:5px 11px; border-radius:6px; font-weight:600; }
+.rule { position:absolute; left:116px; top:132px; width:56px; height:4px; border-radius:2px; background:linear-gradient(90deg,#9CC6FF,#2E6BE6); }
+.eyebrow { position:absolute; left:116px; top:196px; font-size:17px; letter-spacing:.22em; color:rgba(178,206,255,.76); font-weight:500; }
+h1 { position:absolute; left:114px; top:242px; font-size:88px; line-height:1.16; font-weight:700; letter-spacing:.02em; color:#F2F7FF;
+  text-shadow:0 4px 40px rgba(0,0,0,.35); }
+h1 .em { color:#8FB8FF; }
+.sub { position:absolute; left:116px; top:452px; font-size:27px; color:rgba(228,239,255,.90); letter-spacing:.01em; }
+.sub b { color:#9CC6FF; font-weight:600; }
+.sub2 { position:absolute; left:116px; top:498px; font-size:19px; color:rgba(178,204,244,.62); letter-spacing:.06em; }
+.tags { position:absolute; left:116px; top:558px; display:flex; gap:10px; }
+.tag { height:38px; padding:0 18px; border-radius:19px; background:rgba(255,255,255,.06); border:1px solid rgba(160,195,255,.22);
+  font-size:18px; color:rgba(222,236,255,.86); display:flex; align-items:center; gap:9px; }
+.tag i { width:6px; height:6px; border-radius:50%; background:#8FB8FF; box-shadow:0 0 8px rgba(143,184,255,.8); }
+.footer { position:absolute; left:116px; bottom:56px; font-size:16px; letter-spacing:.08em; color:rgba(160,190,235,.55); }
+.footer b { color:rgba(210,228,255,.84); font-weight:600; }
+
+.art-ring { position:absolute; right:-46px; bottom:-88px; width:560px; height:560px; border-radius:50%; border:1px solid rgba(160,195,255,.14); }
+.art-ring2 { position:absolute; right:-116px; bottom:-158px; width:700px; height:700px; border-radius:50%; border:1px solid rgba(160,195,255,.07); }
+.art-tail { position:absolute; right:116px; bottom:38px; width:300px; height:308px; object-fit:contain;
+  filter: drop-shadow(0 0 30px rgba(90,150,255,.45)); opacity:.95; }
+.art-cross { position:absolute; width:16px; height:16px; opacity:.55; }
+.art-cross::before, .art-cross::after { content:""; position:absolute; background:rgba(160,195,255,.45); }
+.art-cross::before { left:0; top:7px; width:16px; height:1px; }
+.art-cross::after { top:0; left:7px; width:1px; height:16px; }
+.c1 { right:444px; bottom:326px; } .c2 { right:96px; bottom:44px; }
+
+</style></head><body><div class="canvas">
+  <div class="bg"></div><div class="aura"></div><div class="aura2"></div><div class="grid"></div>
+  <div class="art-ring"></div><div class="art-ring2"></div>
+  <img class="art-tail" src="brand-tail-bright.svg" alt="">
+  <div class="art-cross c1"></div><div class="art-cross c2"></div>
+  <div class="brand"><img src="../../miniprogram/assets/icons/wordmark-white.png" alt="flukit"><span class="badge">HARNESS</span></div>
+  <div class="rule"></div>
+  <div class="eyebrow">FLUKIT HARNESS · 微信小程序</div>
+  <h1>探索<br><span class="em">未至之境</span></h1>
+  <div class="sub">手机远程连接你的 <b>DSH</b></div>
+  <div class="sub2">随时查看进展 · 继续对话 · 审批操作</div>
+  <div class="tags"><span class="tag"><i></i>实时对话</span><span class="tag"><i></i>会话轨迹</span><span class="tag"><i></i>上下文透视</span></div>
+  <div class="footer"><b>鲸尾 Flukit</b> · 随时连接自己的 DSH</div>
+  <svg class="grain" width="1000" height="800" aria-hidden="true">
+    <filter id="g"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>
+    <rect width="1000" height="800" filter="url(#g)"/>
+  </svg></div></body></html>

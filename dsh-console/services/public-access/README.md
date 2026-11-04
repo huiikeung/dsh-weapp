@@ -23,6 +23,7 @@ Node.js 22+，二维码使用 qrcode，核心身份 API 使用 Node 内置库，
 - ACCESS_HOST / ACCESS_PORT：默认 127.0.0.1:8790，置于固定 HTTPS 反向代理后。
 - RELAY_AUTH_SECRET：本服务和 relay 共用的内部鉴权密钥，统一部署自动生成。不能发给用户或放到小程序。
 - ACCESS_GRANT_URL / ACCESS_GRANT_TOKEN：仅旧节点绑定码需要的外部授权适配器。缺少时只拒绝旧节点码，新账号公网码正常生成和兑换。
+- XPAY_OFFER_ID / XPAY_APP_KEY / XPAY_ENV / XPAY_MSG_TOKEN / XPAY_MSG_AES_KEY / XPAY_MSG_ENCRYPT：虚拟支付（个人主体）配置；取值见「MP 后台 → 支付与交易 → 虚拟支付 → 基本配置」。AppID/AppSecret 复用网页后台或 WECHAT_APP_ID/WECHAT_APP_SECRET。未配置时支付卡片隐藏，不影响兑换码和中继。
 
 独立部署 relay 时需要 RELAY_REQUIRE_PUBLIC_ACCESS=true、RELAY_AUTH_URL 指向此服务私网的 /internal/relay/authorize，以及同一 RELAY_AUTH_SECRET。内部接口不能暴露公网；统一部署 Caddy 已屏蔽 /internal/*。不开启强制鉴权的旧独立 relay 不会执行此账号有效期，不能只部署网页就视为公网限制生效。
 
@@ -101,6 +102,21 @@ Token 字段若在微信模板中定义为 `number`，服务端会发送纯数�
 API：GET /share，POST /share/invite、/share/open、/share/moments/start、/share/moments/submit。普通请求上限 16KB；两个截图上传接口上限 470000 字节 JSON（解码图片上限 330KB）。网页管理接口 /console/api/share、/share/rules、/share/review、/share/proof/:id 受 Cookie/CSRF 保护，不允许小程序自行发奖。分享仅续期账号公网服务，LAN/节点权限完全独立。
 
 截图审核后删除，未处理 7 天后清理；必要去重/奖励账本持久化。生产仍为单实例 JSON 状态存储，小规模可用；有较大流量须迁移数据库事务及私有对象存储，不要多实例共用状态文件。身份/奖励去重不等于防小号，截图不等于连续保留的技术证明。隐私、平台审核与两微信真机验收步骤见 deploy/README.md。
+
+## 虚拟支付（个人主体 · 道具直购）
+
+服务端只卖「天数」这一种道具：档位 = 天数 + 价格（单位分），天数复用兑换码的 `CODE_DAYS` 白名单，权益写入与兑换码完全一致（`expiresAt = max(now, prev) + days*DAY`）。管理员在小程序「设置 → 公网权限」打开总开关并配置档位；普通用户在「设置 → 公网访问」看到支付卡片，付款成功后自动给当前微信 openid 加天数，不需要兑换码或绑定。
+
+- 道具 ID 由天数决定：`pub_<days>d`（如 30 天 → `pub_30d`）。档位改完必须去 MP 后台「虚拟支付 → 道具管理」按同一 ID 建道具、价格一致（单位分）并发布（约 10 分钟生效；报 15010/15014 是未发布或未生效，报 15013 是三处价格不一致）。
+- 推送 URL：`https://<域名>/pay/notify`（现网示例 `https://dsh.ahwe.top/pay/notify`）。后台「发货推送配置」的 Token、EncodingAESKey 必须分别等于服务端 `XPAY_MSG_TOKEN`、`XPAY_MSG_AES_KEY`，消息加解密方式必须与 `XPAY_MSG_ENCRYPT` 一致（`plaintext` / `aes` / `compatible`，推荐安全模式 `aes`），数据格式选 JSON。GET 用于后台 URL 验证（返回 echostr），POST 用于发货/退款推送。
+- 沙箱与现网：`XPAY_ENV=0` 现网、`XPAY_APP_KEY` 填现网 AppKey；沙箱联调用 `XPAY_ENV=1` + 沙箱 AppKey，**生产必须为 0**（否则支付报 15011）。Apple 支付不支持沙箱，仅现网；iOS 支付需小程序简称、用户微信 ≥ 8.0.68、iOS ≥ 15 且中国大陆 App Store 账户。
+- 月限额：个人主体全终端月支付限额 10 万元。服务端按北京时间自然月统计 `payGmv`（单位分），达 950 万分在 `/admin/pay/summary` 告警（`warnAt`），达 1000 万分拒绝新单（429 `MONTHLY_LIMIT_REACHED`，用户端提示下月再来）。退款推送会扣回对应天数，但月 GMV 按累计支付额统计、不回冲。
+- 签名与安全：下单时小程序静默 `wx.login` 取新 code，服务端用 `jscode2session` 同时拿 openid 与 session_key；`paySig = HMAC-SHA256(AppKey, 'requestVirtualPayment&' + signData)`、`signature = HMAC-SHA256(session_key, signData)`，session_key 只活在该请求内，不落盘、不进日志。服务端调用微信接口时 `pay_sig` 按 `uri + '&' + body` 计算。`signData` 键顺序固定，客户端必须原样字符串传给 `wx.requestVirtualPayment`。
+- 发货：推送先验签/解密，再校验订单存在、Env、`GoodsInfo.ProductId`、`GoodsInfo.ActualPrice` 与本地订单一致；`outTradeNo`/`TransactionId` 幂等，重复推送只发一次。订单 `created/paid` 超过 15 秒查单时用 `/xpay/query_order` 兜底补发；进程内每 5 分钟 `payment.tick()` 对账（未发货超 30 分钟，单批 50 单），推送丢失也能到账。推送应答格式必须镜像请求（JSON/XML），否则微信重推 15 次。
+- 退款：Android/Windows/鸿蒙订单可由管理员在 `POST /admin/pay/refund` 发起（内部调 `/xpay/refund_order`），收到 `xpay_refund_notify` 后扣回本次购买天数；iOS 订单不允许主动退（返回 400 `IOS_REFUND_UNSUPPORTED`），用户走 App Store，退款成功后同样按退款推送扣回。
+- 接口：公开 `GET /app-content`（含 `payment: { enabled, ready, tiers }`）与 `GET /pay/config` 兜底；用户 `POST /pay/order`、`POST /pay/query`（Bearer）；推送 `GET|POST /pay/notify`；管理员 `POST /admin/pay/config`、`/admin/pay/orders`、`/admin/pay/refund`、`/admin/pay/summary`。`ready` = OfferID + AppKey + 小程序 AppID/AppSecret 齐全。
+- 状态：`state.version = 3`，新增 `payment` / `orders` / `payGmv`；读取 v1/v2 自动迁移，脏数据拒绝启动、不重置订单或权益。订单只存 openid 的 SHA-256，不存 openid 明文。
+- 测试：`node --test --test-reporter=spec dsh-console/services/public-access/test/payment.test.cjs`（签名向量、开关、档位、下单、推送发货幂等、金额/道具校验、验签、URL 验证、查单兜底、退款扣回、月限额、v2→v3 迁移、AES/XML 推送）。
 
 ## 新账号公网码（默认方式）
 

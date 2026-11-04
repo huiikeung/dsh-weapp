@@ -21,8 +21,10 @@ test('non-admin node permission is a passive badge while admins retain the manag
   const styles = read('settings.wxss');
   assert.match(markup, /ui\['公网权限'\]/);
   assert.doesNotMatch(markup, /ui\['节点身份'\]/);
-  assert.match(markup, /wx:if="\{\{accountIdentityReady\}\}"[\s\S]*?wx:if="\{\{isWechatAdmin\}\}"[^>]*bindtap="openAdminSheet"/);
-  assert.match(markup, /wx:else class="card-row management-entry identity-entry"(?![^>]*bindtap)[\s\S]*?class="identity-badge"/);
-  assert.match(markup, /class="identity-badge is-admin">\{\{identityBadgeLabel\}\}<\/view>/);
+  assert.ok(!markup.includes('<block wx:if="{{accountIdentityReady}}">'), 'the permission row is not gated by account verification');
+  assert.match(markup, /wx:if="\{\{isWechatAdmin\}\}"[^>]*bindtap="openAdminSheet"/);
+  assert.match(markup, /wx:else class="card-row management-entry identity-entry"(?![^>]*bindtap)[\s\S]*?class="identity-badge/);
+  assert.match(markup, /accountIdentityReady \? identityBadgeLabel : ui\['识别中…'\]/, 'row shows a loading label until identity is verified');
+  assert.match(markup, /class="identity-badge is-admin \{\{accountIdentityReady \? '' : 'is-pending'\}\}">{{accountIdentityReady \? identityBadgeLabel : ui\['识别中…'\]}}<\/view>/);
   assert.match(styles, /\.identity-badge\s*\{[^}]*font-size:\s*21rpx/);
 });

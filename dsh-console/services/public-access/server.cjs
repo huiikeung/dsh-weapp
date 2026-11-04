@@ -8,27 +8,48 @@ const { createConsole } = require('./console.cjs');
 const { createEngagement } = require('./engagement.cjs');
 const { createAnnouncements } = require('./announcements.cjs');
 const { DEFAULT_TEMPLATE_ID, createWechatNotificationSender } = require('./notifications.cjs');
+const { createPayment, CODE_DAYS: PAYMENT_CODE_DAYS, validatePaymentState } = require('./payment.cjs');
 const DAY = 86400000;
 // 兑换码可选档位：签发时代入 days/uses，兑换时按 days 累加到公网到期时间。
 // 1 天=体验/补偿，90=季度，730=2 年，1095=3 年，3650=长期（近似永久，避开真·永久的判定分支）。
-// 客户端（小程序设置页/兑换码管理）的档位顺序必须与这两个数组一致。
+// 客户端（小程序设置页/兑换码管理/支付档位）的档位顺序必须与这两个数组一致。
 const CODE_DAYS = [1, 3, 7, 30, 60, 90, 180, 365, 730, 1095, 3650];
 const CODE_USES = [1, 5, 20, 50, 100];
+// payment.cjs 与兑换码共用同一套天数；两份声明必须一致，避免用户买得到却被服务端拒绝。
+if (CODE_DAYS.join(',') !== PAYMENT_CODE_DAYS.join(',')) throw new Error('Payment CODE_DAYS must match server CODE_DAYS');
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const nodeIdPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 function fail(status, code, message) { return Object.assign(new Error(message), { status, code }); }
+function escapeXml(value) {
+  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+// 推送应答必须镜像推送格式（JSON → JSON，XML → XML），否则微信会重推 15 次。
+function respondPayNotify(res, result) {
+  const errCode = Number(result && result.errCode) || 0;
+  const errMsg = String(result && result.errMsg || (errCode ? 'error' : 'success'));
+  const headers = { 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' };
+  if (result && result.format === 'xml') {
+    res.writeHead(Number(result.httpStatus) || 200, { ...headers, 'Content-Type': 'application/xml; charset=utf-8' });
+    res.end('<xml><ErrCode>' + errCode + '</ErrCode><ErrMsg>' + escapeXml(errMsg) + '</ErrMsg></xml>');
+  } else {
+    res.writeHead(Number(result.httpStatus) || 200, { ...headers, 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify({ ErrCode: errCode, ErrMsg: errMsg }));
+  }
+}
 function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exchangeCode, grantAccess, consoleOptions, relayAuthSecret = '', now = Date.now,
   notificationTemplateId = DEFAULT_TEMPLATE_ID, sendNotification, huaweiClientId = '', huaweiClientSecret = '',
-  huaweiAdminOpenIds = [], huaweiFetch = globalThis.fetch }) {
+  huaweiAdminOpenIds = [], huaweiFetch = globalThis.fetch,
+  xpay = null, xpayFetch = globalThis.fetch, exchangeSession, wechatAppId = '', wechatAppSecret = '' }) {
   if (!stateFile || !Array.isArray(adminOpenIds) || !Array.isArray(huaweiAdminOpenIds) || !Array.isArray(managedNodeIds) || (!consoleOptions && (!adminOpenIds.length || typeof exchangeCode !== 'function'))) throw new Error('Missing server configuration');
   if (relayAuthSecret && !/^[A-Za-z0-9_-]{32,128}$/.test(relayAuthSecret)) throw new Error('Invalid relay authorization secret');
   if (huaweiAdminOpenIds.some(id => !validHuaweiOpenId(id))) throw new Error('Invalid Huawei administrator OpenID');
   const admins = new Set(adminOpenIds), huaweiAdmins = new Set(huaweiAdminOpenIds), nodes = new Set(managedNodeIds.map(id => id.toLowerCase()));
   if ([...nodes].some(id => !nodeIdPattern.test(id))) throw new Error('Invalid managed node ID');
-  let state = { version: 2, codes: {}, redemptions: {}, access: {}, huaweiDevices: {}, huaweiAdmins: {}, notificationTickets: {} };
+  let state = { version: 3, codes: {}, redemptions: {}, access: {}, huaweiDevices: {}, huaweiAdmins: {}, notificationTickets: {},
+    payment: { enabled: false, tiers: [], updatedAt: 0 }, orders: {}, payGmv: {} };
   try {
     state = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
-    if (![1, 2].includes(state.version) || !state.codes || !state.redemptions) throw new Error('Unsupported state');
+    if (![1, 2, 3].includes(state.version) || !state.codes || !state.redemptions) throw new Error('Unsupported state');
     if (state.version === 1 && state.access === undefined) state.access = {};
     if (!state.access || typeof state.access !== 'object' || Array.isArray(state.access) || Object.values(state.access).some(r => !r || !Number.isSafeInteger(r.expiresAt) || r.expiresAt < 0)) throw new Error('Invalid access state');
     if (state.huaweiDevices === undefined) state.huaweiDevices = {};
@@ -50,6 +71,15 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
     // Let the gateway's idempotent retry resume the notification after restart.
     for (const item of Object.values(state.notificationTickets)) if (item.status === 'sending') item.status = 'issued';
     if (state.version === 1) state.version = 2;
+    // v2 → v3：补虚拟支付状态并保留现有兑换码、管理员和到期时间；脏数据拒绝启动。
+    if (state.version === 2) {
+      state.payment = { enabled: false, tiers: [], updatedAt: 0 };
+      state.orders = {};
+      state.payGmv = {};
+      state.version = 3;
+    }
+    if (state.payment === undefined || state.orders === undefined || state.payGmv === undefined) throw new Error('Invalid payment state');
+    validatePaymentState({ payment: state.payment, orders: state.orders, payGmv: state.payGmv });
   } catch (e) { if (e.code !== 'ENOENT') throw new Error('Cannot read authorization state; refusing to reset it'); }
   const sessions = new Map(), limits = new Map(), inFlight = new Set(), notificationSends = new Map();
   // 公网租赁持久化：以前只存在内存里，进程一重启所有 lease 立刻失效，而小程序会把旧
@@ -172,6 +202,19 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
       return data;
     } finally { clearTimeout(timer); }
   }
+  // 微信消息推送是原始 JSON/XML（可能是密文），不能走 JSON 解析器。
+  async function rawBody(req, maxBytes = 16384) {
+    let size = 0; const chunks = [];
+    const timer = setTimeout(() => req.destroy(), 10000); timer.unref();
+    try {
+      for await (const chunk of req) {
+        size += chunk.length;
+        if (size > maxBytes) throw fail(413, 'TOO_LARGE', '请求内容过长');
+        chunks.push(chunk);
+      }
+      return Buffer.concat(chunks).toString('utf8');
+    } finally { clearTimeout(timer); }
+  }
   function respond(res, status, value) {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
     res.end(JSON.stringify(value));
@@ -187,6 +230,33 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
     const configured = consoleApp?.huawei();
     return { clientId: configured?.clientId || huaweiClientId, clientSecret: configured?.clientSecret || huaweiClientSecret };
   }
+  // 虚拟支付：AppID/AppSecret 优先取网页后台（加密保存），其次环境变量；
+  // openid 只用于向微信查单/退款，从分享身份表按 accountId 反查，不写进订单。
+  function paySessionExchange() {
+    if (typeof exchangeSession === 'function') return exchangeSession;
+    const config = consoleApp?.wechat();
+    const appId = config?.appId || wechatAppId;
+    const appSecret = config?.appSecret || wechatAppSecret;
+    return appId && appSecret ? exchangeWithWechatSession(appId, appSecret) : null;
+  }
+  function payXpayConfig() {
+    const base = xpay && typeof xpay === 'object' ? xpay : {};
+    const wechat = consoleApp?.wechat() || {};
+    return {
+      offerId: base.offerId || '', appKey: base.appKey || '',
+      env: Number(base.env) === 1 ? 1 : 0,
+      msgToken: base.msgToken || '', msgAesKey: base.msgAesKey || '',
+      msgEncrypt: base.msgEncrypt || 'plaintext',
+      appId: wechat.appId || wechatAppId || base.appId || '',
+      appSecret: wechat.appSecret || wechatAppSecret || base.appSecret || '',
+      resolveOpenid: accountId => state.engagement?.identities?.[accountId]?.openid || ''
+    };
+  }
+  const payment = createPayment({ getState: () => state, commit, now, limit, config: payXpayConfig, fetch: xpayFetch });
+  const payTick = setInterval(() => {
+    Promise.resolve().then(() => payment.tick()).catch(error => console.error('[pay] periodic reconciliation failed:', error && error.message || 'UNKNOWN'));
+  }, 300000);
+  payTick.unref();
   const deliverNotification = sendNotification || createWechatNotificationSender({
     getWechatConfig: async () => consoleApp?.wechat(), templateId: notificationTemplateId, now,
   });
@@ -217,10 +287,36 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
       }
       // Authenticated connectors have their own per-node limit; shared reverse proxies
       // must not make a few nodes exhaust the browser/WeChat request bucket.
-      if (!route.startsWith('/connector/')) limit('ip:' + req.socket.remoteAddress, 120);
+      // 微信推送在 3 秒内必须答复：单独限流，避免和其他用户请求抢同一个 IP 桶。
+      if (!route.startsWith('/connector/') && route !== '/pay/notify') limit('ip:' + req.socket.remoteAddress, 120);
       if (req.method === 'GET' && route === '/health') { respond(res, 200, { ok: true }); return; }
       // Public product information must not require a subscription, device, or WeChat login.
-      if (req.method === 'GET' && route === '/app-content') { respond(res, 200, { ...announcements.list(), shareEnabled: engagement.rules().enabled }); return; }
+      if (req.method === 'GET' && route === '/app-content') {
+        respond(res, 200, { ...announcements.list(), shareEnabled: engagement.rules().enabled, payment: payment.catalog() }); return;
+      }
+      if (req.method === 'GET' && route === '/pay/config') { respond(res, 200, { payment: payment.catalog() }); return; }
+      // 虚拟支付消息推送：公开入口，必须放在 auth 之前。GET 用于后台 URL 验证。
+      if (route === '/pay/notify') {
+        const notifyUrl = new URL(req.url, 'http://localhost');
+        const notifyQuery = Object.fromEntries(notifyUrl.searchParams);
+        if (req.method === 'GET') {
+          limit('pay-notify:' + req.socket.remoteAddress, 120);
+          // 诊断日志：只记录参数名与来源，不记录 Token/完整签名。
+          console.log('[pay] notify GET', JSON.stringify({
+            keys: Object.keys(notifyQuery).sort().join(','),
+            ua: String(req.headers['user-agent'] || '').slice(0, 60),
+            xff: String(req.headers['x-forwarded-for'] || '').slice(0, 80)
+          }));
+          const echo = payment.verifyUrl(notifyQuery);
+          res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' });
+          res.end(echo); return;
+        }
+        if (req.method === 'POST') {
+          limit('pay-notify:' + req.socket.remoteAddress, 300);
+          const raw = await rawBody(req, 16384);
+          respondPayNotify(res, await payment.notify({ query: notifyQuery, rawBody: raw })); return;
+        }
+      }
       // Huawei authorization-code exchange is a public entry point, not a WeChat console API.
       if (req.method === 'POST' && route === '/session/huawei') {
         limit('login-huawei:' + req.socket.remoteAddress, 20);
@@ -304,6 +400,30 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
       }
       const user = handled?.user || auth(req);
       if (req.method === 'GET' && route === '/me') { respond(res, 200, { account: account(user) }); return; }
+      // 虚拟支付用户接口：下单时现取 session_key 算签名，算完即丢，不落盘。
+      if (req.method === 'POST' && route === '/pay/order') {
+        if (isHuawei(user)) throw fail(403, 'FORBIDDEN', '虚拟支付仅支持微信账号');
+        limit('pay-order:' + rateIdentity(user), 10);
+        const input = await body(req);
+        const current = payment.catalog();
+        if (!current.enabled) throw fail(403, 'PAY_DISABLED', '虚拟支付暂未开放');
+        if (!current.ready) throw fail(503, 'PAY_NOT_CONFIGURED', '虚拟支付尚未配置，请联系管理员');
+        if (typeof input.tierId !== 'string' || !current.tiers.some(tier => tier.id === input.tierId)) throw fail(400, 'INVALID_TIER', '该支付档位不存在或已下架');
+        if (typeof input.code !== 'string' || input.code.length < 1 || input.code.length > 512) throw fail(401, 'PAY_LOGIN_FAILED', '缺少微信登录凭证');
+        const exchange = paySessionExchange();
+        if (typeof exchange !== 'function') throw fail(503, 'PAY_NOT_CONFIGURED', '微信登录服务尚未配置');
+        const session = await exchange(input.code);
+        if (!session || typeof session.openid !== 'string' || !session.openid || typeof session.sessionKey !== 'string' || !session.sessionKey) throw fail(401, 'PAY_LOGIN_FAILED', '微信身份验证失败，请重新登录');
+        // 下单的 session_key 必须和当前登录 token 属于同一个微信账号；切换账号后客户端会重新登录再试。
+        if (hash(session.openid) !== accountIdFor(user)) throw fail(403, 'PAY_ACCOUNT_MISMATCH', '微信身份已切换，请重新进入小程序');
+        respond(res, 200, payment.createOrder({ accountId: hash(session.openid), tierId: input.tierId, sessionKey: session.sessionKey })); return;
+      }
+      if (req.method === 'POST' && route === '/pay/query') {
+        if (isHuawei(user)) throw fail(403, 'FORBIDDEN', '虚拟支付仅支持微信账号');
+        limit('pay-query:' + rateIdentity(user), 60);
+        const input = await body(req);
+        respond(res, 200, await payment.queryOrder({ accountId: accountIdFor(user), outTradeNo: input.outTradeNo, openid: user.openid })); return;
+      }
       if (req.method === 'POST' && route === '/notifications/tickets') {
         if (isHuawei(user)) throw fail(403, 'HUAWEI_NOTIFICATION_UNAVAILABLE', '华为账号暂不支持微信订阅通知');
         const input = await body(req);
@@ -368,6 +488,33 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
         const input = await body(req); requireAdmin(user);
         if (typeof input.enabled !== 'boolean') throw fail(400, 'INVALID_RULES', '分享开关无效');
         respond(res, 200, { shareEnabled: engagement.saveRules({ ...engagement.rules(), enabled: input.enabled }).enabled }); return;
+      }
+      // 虚拟支付管理接口（P1 订单/退款/月额度）。
+      if (req.method === 'POST' && route === '/admin/pay/config') {
+        limit('pay-config:' + rateIdentity(user), 30);
+        const input = await body(req); requireAdmin(user);
+        respond(res, 200, { payment: payment.saveConfig(input) }); return;
+      }
+      if (req.method === 'POST' && route === '/admin/pay/orders') {
+        const input = await body(req); requireAdmin(user);
+        const page = payment.listOrders(input.limit, input.before, input.since);
+        respond(res, 200, { items: page.items, nextCursor: page.nextCursor }); return;
+      }
+      if (req.method === 'POST' && route === '/admin/pay/refund') {
+        limit('pay-refund:' + rateIdentity(user), 20);
+        const input = await body(req); requireAdmin(user);
+        const reason = Number.isSafeInteger(input.reason) ? input.reason : 3;
+        respond(res, 200, await payment.refund({ outTradeNo: input.outTradeNo, reason })); return;
+      }
+      if (req.method === 'POST' && route === '/admin/pay/summary') {
+        await body(req); requireAdmin(user);
+        respond(res, 200, payment.summary()); return;
+      }
+      // 管理员强制查单：以微信侧为准核对状态/退款，并同步本地权益。
+      if (req.method === 'POST' && route === '/admin/pay/inspect') {
+        limit('pay-inspect:' + rateIdentity(user), 30);
+        const input = await body(req); requireAdmin(user);
+        respond(res, 200, await payment.inspectOrder(input.outTradeNo)); return;
       }
       if (consoleApp && req.method === 'GET' && route === '/admin/pairings') { respond(res, 200, consoleApp.pairingState()); return; }
       if (consoleApp && req.method === 'POST' && route === '/admin/pairings') {
@@ -477,7 +624,9 @@ function createService({ stateFile, adminOpenIds = [], managedNodeIds = [], exch
     }
   });
   server.requestTimeout = 15000; server.headersTimeout = 12000;
-  server.on('close', () => { clearInterval(proofCleanup); consoleApp?.close(); });
+  server.on('close', () => { clearInterval(proofCleanup); clearInterval(payTick); consoleApp?.close(); });
+  // 供测试手动触发一次对账（生产由 payTick 定时器驱动）。
+  server.payTick = () => payment.tick();
   return server;
 }
 function validHuaweiOpenId(value) {
@@ -533,6 +682,23 @@ function exchangeWithWechat(appId, appSecret) {
     return result.openid;
   };
 }
+// 虚拟支付下单需要 session_key 参与用户态签名；只在本请求内存里使用，不落盘、不打日志。
+function exchangeWithWechatSession(appId, appSecret, fetchImpl = globalThis.fetch) {
+  return async code => {
+    const url = new URL('https://api.weixin.qq.com/sns/jscode2session');
+    url.search = new URLSearchParams({ appid: appId, secret: appSecret, js_code: code, grant_type: 'authorization_code' });
+    // URL 含 AppSecret，不可记录到日志。
+    let response;
+    try { response = await fetchImpl(url, { signal: AbortSignal.timeout(10000), redirect: 'error' }); }
+    catch (error) { throw fail(503, 'WECHAT_PAY_UNAVAILABLE', '微信登录服务暂时不可用，请稍后重试'); }
+    let result = null;
+    try { result = await response.json(); } catch (error) { result = null; }
+    if (!response || response.ok === false || !result || result.errcode ||
+      typeof result.openid !== 'string' || !result.openid ||
+      typeof result.session_key !== 'string' || !result.session_key) throw fail(401, 'PAY_LOGIN_FAILED', '微信登录已过期，请重新进入小程序');
+    return { openid: result.openid, sessionKey: result.session_key };
+  };
+}
 function grantAdapter(url, token) {
   const endpoint = new URL(url);
   if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || !token) throw new Error('Grant service requires HTTPS and a server-side token');
@@ -554,7 +720,16 @@ if (require.main === module) {
     managedNodeIds: (env.MANAGED_NODE_IDS || '').split(',').map(v => v.trim()).filter(Boolean),
     consoleOptions: { origin: env.CONSOLE_ORIGIN, masterKey: env.ACCESS_MASTER_KEY, setupToken: env.CONSOLE_SETUP_TOKEN, legacyAppId: env.WECHAT_APP_ID },
     exchangeCode: env.WECHAT_APP_ID && env.WECHAT_APP_SECRET ? exchangeWithWechat(env.WECHAT_APP_ID, env.WECHAT_APP_SECRET) : undefined,
-    grantAccess: env.ACCESS_GRANT_URL ? grantAdapter(env.ACCESS_GRANT_URL, env.ACCESS_GRANT_TOKEN) : null });
+    grantAccess: env.ACCESS_GRANT_URL ? grantAdapter(env.ACCESS_GRANT_URL, env.ACCESS_GRANT_TOKEN) : null,
+    // AppID/AppSecret 复用现有配置（网页后台优先，缺省用环境变量）。
+    wechatAppId: env.WECHAT_APP_ID || '', wechatAppSecret: env.WECHAT_APP_SECRET || '',
+    // 虚拟支付：AppKey/OfferID/推送密钥只保存在服务端；生产 env 必须为 0。
+    xpay: {
+      offerId: env.XPAY_OFFER_ID || '', appKey: env.XPAY_APP_KEY || '',
+      env: Number(env.XPAY_ENV || 0) === 1 ? 1 : 0,
+      msgToken: env.XPAY_MSG_TOKEN || '', msgAesKey: env.XPAY_MSG_AES_KEY || '',
+      msgEncrypt: env.XPAY_MSG_ENCRYPT || 'plaintext'
+    } });
   server.listen(Number(env.ACCESS_PORT || 8790), env.ACCESS_HOST || '127.0.0.1', () => console.log('Public access service listening; secrets are not logged'));
 }
-module.exports = { createService, exchangeWithWechat, exchangeWithHuawei, grantAdapter };
+module.exports = { createService, exchangeWithWechat, exchangeWithWechatSession, exchangeWithHuawei, grantAdapter };

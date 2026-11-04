@@ -361,17 +361,47 @@ test('字号大小弹窗：原生形态参考额度卡片弹窗底色，且内�
   // 玻璃形态仍保留玻璃底（3 类选择器压过原生的纯底色）
   assert.match(css, /\.pair-sheet\.font-sheet\.settings-glass-sheet \{ background: linear-gradient\(165deg, rgba\(255, 255, 255, var\(--glass-alpha-top, 0\.10\)\), rgba\(255, 255, 255, var\(--glass-alpha-bottom, 0\.04\)\)\)/);
 });
-test('settings sheets scroll as one page at a fixed 90% height', () => {
+test('settings sheets pin a fixed height and keep long content scrollable', () => {
   const html = read('pages/settings/settings.wxml');
   const css = read('pages/settings/settings.wxss');
-  // 用户要的形态：弹窗固定 90% 高，整个弹窗一起滑——不再有内层滚动区。
+  // 遮罩上的 catchtouchmove 等同 preventDefault，普通 view 的 overflow 滚动在真机会失效。
+  // 管理面板因此改成「头部固定 + 内容区 scroll-view」，否则下半截滑不到。
   assert.equal((html.match(/style="height: calc\(90vh - var\(--glass-sheet-drop, 0px\)\);"/g) || []).length, 6,
     'four sheets pin 90% height and give the glass bottom inset back');
   assert.doesNotMatch(html, /style="height: 90vh;"/, 'glass sheets subtract the bottom inset so the top edge stays put');
-  assert.equal((html.match(/<scroll-view[^>]*class="management-scroll"/g) || []).length, 0, 'no inner scroll region inside the sheet');
+  assert.equal((html.match(/<scroll-view[^>]*class="management-scroll"/g) || []).length, 1, 'management sheet body is a native scroll-view');
   assert.equal((html.match(/class="management-scroll"/g) || []).length >= 5, true, 'content blocks stay in flow');
-  assert.match(css, /\.pair-sheet\s*\{[^}]*overflow-y:\s*auto/, 'the sheet itself is the scroll container');
-  assert.doesNotMatch(css, /\.management-scroll\s*\{[^}]*max-height/, 'the inner block no longer caps the height');
+  assert.match(css, /\.management-sheet\s*\{[^}]*overflow:\s*hidden/, 'sheet header stays fixed');
+  assert.match(css, /\.management-sheet \.management-scroll\s*\{[^}]*flex:\s*1;[^}]*min-height:\s*0;[^}]*height:\s*0;/, 'scroll-view gets a definite flex height');
+  assert.match(css, /\.pair-sheet\s*\{[^}]*overflow-y:\s*auto/, 'other sheets can still scroll as one page');
+  assert.doesNotMatch(css, /\.management-scroll\s*\{[^}]*max-height/, 'the inner block does not cap the height');
+});
+
+test('management sheet opens collapsed and expands to 90vh only when payment is visible', () => {
+  const html = read('pages/settings/settings.wxml');
+  const js = read('pages/settings/settings.js');
+  // 基础高度仍是 62vh，90vh 只在支付卡片可见/兑换表单打开/拖动抓手时使用。
+  assert.match(html, /sheetExpanded\.management \? 90 : 62/);
+  // 没有支付时：打开公网/节点面板、关闭面板都回到 62vh，避免上次展开的状态残留。
+  assert.match(js, /openPublicAccess\(\) \{[\s\S]{0,300}?'sheetExpanded\.management': false/);
+  assert.match(js, /openNodeManagement\(\) \{[\s\S]{0,240}?'sheetExpanded\.management': false/);
+  assert.match(js, /closeManagementPanel\(\) \{[\s\S]{0,400}?patch\['sheetExpanded\.management'\] = false/);
+  assert.match(js, /closeRedeemForm\(\) \{[\s\S]{0,200}?'sheetExpanded\.management': false/);
+  // 有支付卡片时：/app-content 回来后按 payVisible 自动展开到 90vh。
+  assert.match(js, /_expandPublicOnContent = true/);
+  assert.match(js, /'sheetExpanded\.management': this\.data\.payVisible === true/);
+});
+
+test('payment tiers keep the two-column grid for an odd tier count', () => {
+  const html = read('pages/settings/settings.wxml');
+  const css = read('pages/settings/settings.wxss');
+  // 不用 flex gap（真机取整会把第二张挤到下一行），改用 space-between + 更窄的 50%。
+  assert.match(css, /\.pay-grid\s*\{[^}]*justify-content:\s*space-between/);
+  assert.match(css, /\.pay-tier\s*\{[^}]*width:\s*calc\(50% - 12rpx\)/);
+  assert.doesNotMatch(css, /\.pay-tier:last-child:nth-child\(odd\)/);
+  // 主按钮用 view：微信 v2 原生 button 会覆盖 class 里的宽度，按钮会缩成内容宽。
+  assert.match(html, /<view\s+class="pay-buy /);
+  assert.doesNotMatch(html, /<button[^>]*class="pay-buy/);
 });
 
 test('the picker presentation follows the glass bottom-sheet preference', () => {

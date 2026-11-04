@@ -1,0 +1,145 @@
+/* 支付档位管理 —— 分组卡片式（跟随小程序深浅色主题） */
+
+.pay-wrap { padding: 24rpx 32rpx calc(64rpx + env(safe-area-inset-bottom)); }
+
+/* 页头 */
+.pay-head { display: flex; align-items: center; gap: 22rpx; margin: 8rpx 4rpx 30rpx; }
+.pay-head-icon {
+  width: 84rpx; height: 84rpx; flex: none;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 24rpx;
+  background: linear-gradient(140deg, var(--ocean), #1A5CC8);
+  color: #fff; font-size: 42rpx; font-weight: 600;
+  box-shadow: 0 10rpx 26rpx rgba(46, 107, 230, 0.28);
+}
+.pay-head-copy { display: flex; flex-direction: column; gap: 6rpx; min-width: 0; }
+.pay-head-title { font-size: 40rpx; font-weight: 700; color: var(--text); letter-spacing: 0.5rpx; }
+.pay-head-sub { font-size: 23rpx; color: var(--text-2); }
+
+/* 提示条 */
+.pay-note { margin: 18rpx 0; padding: 22rpx 26rpx; border-radius: 18rpx; background: var(--fill); color: var(--text-2); font-size: 24rpx; line-height: 1.6; }
+.pay-note-warn { border: 1rpx solid rgba(229, 72, 77, 0.22); background: rgba(229, 72, 77, 0.06); color: var(--text); }
+.pay-note-link { border: 1rpx solid var(--ocean); color: var(--ocean); font-weight: 500; text-align: center; }
+
+/* 通用卡片 */
+.pay-card {
+  margin-bottom: 22rpx; overflow: hidden;
+  border-radius: 28rpx; background: var(--surface);
+  border: 1rpx solid var(--border); box-shadow: var(--card-shadow);
+}
+
+/* 分组标题 */
+.pay-group-head { display: flex; align-items: baseline; justify-content: space-between; margin: 34rpx 8rpx 6rpx; }
+.pay-group-title { font-size: 27rpx; font-weight: 600; color: var(--text); }
+.pay-group-meta { font-size: 23rpx; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.pay-group-action { font-size: 24rpx; color: var(--ocean); padding: 4rpx 8rpx; margin: -4rpx -8rpx; border-radius: 10rpx; }
+.pay-group-action:active { opacity: .6; }
+.pay-group-hint { margin: 0 8rpx 18rpx; font-size: 22rpx; color: var(--text-3); line-height: 1.65; }
+
+/* 总开关 */
+.pay-switch { display: flex; align-items: center; justify-content: space-between; gap: 20rpx; padding: 28rpx 30rpx; }
+.pay-switch-copy { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6rpx; }
+.pay-switch-title { font-size: 30rpx; font-weight: 600; color: var(--text); }
+.pay-switch-desc { font-size: 23rpx; color: var(--text-2); line-height: 1.5; }
+
+/* 档位列表 */
+.pay-tiers { padding-bottom: 0; }
+.tier-item { padding: 24rpx 28rpx 18rpx; }
+.tier-item + .tier-item { border-top: 1rpx solid var(--divider); }
+.tier-row { display: flex; align-items: center; gap: 18rpx; }
+.tier-day {
+  display: flex; align-items: center; gap: 8rpx;
+  min-width: 132rpx; height: 68rpx; padding: 0 18rpx 0 20rpx; box-sizing: border-box;
+  border-radius: 16rpx; background: var(--fill); border: 1rpx solid var(--border);
+}
+.tier-day-value { font-size: 28rpx; font-weight: 600; color: var(--text); }
+.tier-day-caret { font-size: 20rpx; color: var(--text-3); }
+.tier-price { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 8rpx; min-width: 0; }
+.tier-currency { flex: none; font-size: 26rpx; color: var(--text-2); }
+.tier-price-input {
+  width: 190rpx; height: 68rpx; padding: 0 18rpx; box-sizing: border-box;
+  border-radius: 16rpx; border: 1rpx solid var(--border);
+  background: var(--fill); color: var(--text);
+  font-size: 30rpx; font-weight: 600; text-align: right;
+}
+.tier-price-ph { color: var(--text-4); font-weight: 400; }
+.tier-del {
+  flex: none; width: 56rpx; height: 56rpx;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 50%; background: var(--fill);
+}
+.tier-del:active { background: rgba(229, 72, 77, 0.12); }
+.tier-del-x { font-size: 34rpx; line-height: 1; color: var(--text-3); }
+.tier-meta { display: flex; align-items: center; gap: 10rpx; margin: 14rpx 0 0 2rpx; }
+.tier-prop-label { font-size: 21rpx; color: var(--text-3); }
+.tier-prop-chip {
+  font-size: 21rpx; font-family: monospace; color: var(--ocean);
+  padding: 4rpx 12rpx; border-radius: 8rpx;
+  background: rgba(46, 107, 230, 0.08);
+}
+
+/* 空状态 / 添加 */
+.pay-empty { padding: 56rpx 20rpx; text-align: center; color: var(--text-3); font-size: 24rpx; }
+.pay-add {
+  display: flex; align-items: center; justify-content: center; gap: 8rpx;
+  padding: 28rpx; margin: 0;
+  border-top: 1rpx solid var(--divider);
+  color: var(--ocean); font-size: 26rpx; font-weight: 500;
+}
+.pay-add:active { background: var(--fill); }
+.pay-add-plus { font-size: 32rpx; font-weight: 300; line-height: 1; }
+
+/* 保存 */
+.pay-save {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; box-sizing: border-box;
+  margin: 26rpx 0 14rpx; min-height: 92rpx; line-height: 1.2; text-align: center;
+  border-radius: 24rpx; font-size: 30rpx; font-weight: 600; letter-spacing: 1rpx;
+  color: #fff; background: linear-gradient(135deg, var(--ocean), #1A5CC8);
+  box-shadow: 0 8rpx 24rpx rgba(46, 107, 230, 0.25);
+}
+.pay-save:active { transform: scale(0.985); }
+.pay-save.is-disabled { background: var(--fill); color: var(--text-3); box-shadow: none; }
+
+/* 结果与脚注 */
+.pay-saved { margin: 10rpx 0; padding: 20rpx 24rpx; border-radius: 18rpx; background: rgba(46, 184, 92, 0.08); border: 1rpx solid rgba(46, 184, 92, 0.18); color: var(--success); font-size: 23rpx; line-height: 1.6; }
+.pay-footnote { margin-top: 12rpx; padding: 18rpx 22rpx; border-radius: 16rpx; background: var(--fill); color: var(--text-3); font-size: 22rpx; line-height: 1.65; }
+
+/* 非管理员 */
+.pay-noauth { padding: 90rpx 40rpx; text-align: center; }
+.pay-noauth-text { display: block; color: var(--text-3); font-size: 26rpx; line-height: 1.7; margin-bottom: 30rpx; }
+
+/* 交易记录 */
+.pay-summary { display: flex; align-items: stretch; }
+.summary-item { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8rpx; padding: 28rpx 8rpx; min-width: 0; }
+.summary-sep { width: 1rpx; margin: 28rpx 0; background: var(--divider); }
+.summary-label { font-size: 21rpx; color: var(--text-3); }
+.summary-value { font-size: 30rpx; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+
+.order-filters { display: flex; gap: 8rpx; margin: 2rpx 2rpx 16rpx; padding: 6rpx; border-radius: 16rpx; background: var(--fill); }
+.order-filter { flex: 1; display: flex; align-items: center; justify-content: center; min-height: 56rpx; border-radius: 12rpx; font-size: 23rpx; color: var(--text-2); }
+.order-filter.on { background: var(--surface); color: var(--text); font-weight: 600; box-shadow: 0 1rpx 4rpx rgba(0, 0, 0, 0.08); }
+.order-filter:active { opacity: 0.7; }
+
+.pay-orders { padding-bottom: 0; margin-top: 2rpx; }
+.order-group + .order-group { border-top: 1rpx solid var(--divider); }
+.order-date { padding: 18rpx 26rpx 8rpx; font-size: 21rpx; font-weight: 600; color: var(--text-3); letter-spacing: 0.5rpx; }
+.order-item { padding: 14rpx 26rpx 18rpx; }
+.order-item + .order-item { border-top: 1rpx solid var(--divider); }
+.order-top { display: flex; align-items: baseline; justify-content: space-between; gap: 16rpx; }
+.order-time { font-size: 24rpx; color: var(--text); }
+.order-amount { flex: none; font-size: 27rpx; font-weight: 650; color: var(--ocean); }
+.order-bottom { display: flex; align-items: center; gap: 12rpx; margin-top: 6rpx; }
+.order-no { flex: 1; min-width: 0; font-size: 19rpx; color: var(--text-3); font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.order-status { flex: none; font-size: 20rpx; color: var(--text-3); }
+.order-status.is-delivered { color: var(--success); }
+.order-status.is-refunded { color: #E5484D; }
+.order-status.is-closed { color: var(--text-4); }
+.order-acts { flex: none; display: flex; gap: 14rpx; }
+.order-act { font-size: 22rpx; color: var(--ocean); padding: 2rpx 6rpx; }
+.order-act:active { opacity: .6; }
+.order-act-warn { color: #E5484D; }
+.order-toggle { padding: 22rpx; text-align: center; border-top: 1rpx solid var(--divider); font-size: 24rpx; color: var(--ocean); font-weight: 500; }
+.order-toggle.is-busy { color: var(--text-3); }
+.order-capped { padding: 18rpx 26rpx; border-top: 1rpx solid var(--divider); font-size: 21rpx; color: var(--text-3); text-align: center; line-height: 1.5; }
+.order-toggle:active { background: var(--fill); }

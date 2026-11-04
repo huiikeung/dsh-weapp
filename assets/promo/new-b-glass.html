@@ -1,0 +1,62 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>B · 渐变玻璃</title>
+<style>
+@page { margin: 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 1000px; height: 800px; overflow: hidden; }
+body { font-family: "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", Arial, sans-serif;
+  -webkit-font-smoothing: antialiased; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.canvas { position: relative; width: 1000px; height: 800px; overflow: hidden; }
+.grain { position: absolute; inset: 0; opacity: .045; mix-blend-mode: overlay; pointer-events: none; }
+
+.bg { position:absolute; inset:0; background:linear-gradient(135deg,#0A1B33 0%,#122A4C 45%,#0A1526 100%); }
+.blob { position:absolute; border-radius:50%; filter:blur(60px); }
+.b1 { left:-120px; top:-140px; width:620px; height:620px; background:rgba(46,107,230,.55); }
+.b2 { right:-160px; top:-60px; width:560px; height:560px; background:rgba(120,88,230,.42); }
+.b3 { left:240px; bottom:-260px; width:660px; height:660px; background:rgba(46,168,230,.30); }
+.b4 { right:80px; bottom:-180px; width:420px; height:420px; background:rgba(46,107,230,.30); }
+.ring { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:660px; height:660px; border-radius:50%;
+  border:1px solid rgba(190,215,255,.13); }
+.ring2 { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:860px; height:860px; border-radius:50%;
+  border:1px solid rgba(190,215,255,.07); }
+.card { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:820px; height:640px; border-radius:40px;
+  background:linear-gradient(150deg, rgba(255,255,255,.13) 0%, rgba(255,255,255,.05) 55%, rgba(255,255,255,.02) 100%);
+  border:1px solid rgba(255,255,255,.20); box-shadow:0 30px 90px rgba(0,0,0,.30), inset 0 1px 0 rgba(255,255,255,.22);
+  backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px); }
+.card::before { content:""; position:absolute; left:0; right:0; top:0; height:52%; border-radius:40px 40px 0 0;
+  background:linear-gradient(180deg, rgba(255,255,255,.07), rgba(255,255,255,0)); }
+.brand { position:absolute; left:64px; top:56px; display:flex; align-items:center; gap:12px; }
+.brand img { height:28px; width:auto; }
+.badge { font-size:12px; letter-spacing:.26em; color:rgba(220,234,255,.72); border:1px solid rgba(200,222,255,.30); padding:5px 11px; border-radius:6px; font-weight:600; }
+.eyebrow { position:absolute; left:64px; top:152px; font-size:16px; letter-spacing:.24em; color:rgba(178,206,255,.80); }
+h1 { position:absolute; left:62px; top:196px; font-size:80px; line-height:1.1; font-weight:700; letter-spacing:.02em; color:#fff;
+  text-shadow:0 6px 40px rgba(0,0,0,.25); }
+.line { position:absolute; left:64px; top:320px; width:72px; height:5px; border-radius:3px; background:linear-gradient(90deg,#8FB8FF,#2E6BE6); }
+.sub { position:absolute; left:64px; top:356px; font-size:27px; color:rgba(235,243,255,.92); }
+.sub b { color:#9CC6FF; font-weight:600; }
+.sub2 { position:absolute; left:64px; top:402px; font-size:19px; color:rgba(190,212,244,.66); letter-spacing:.05em; }
+.tags { position:absolute; left:64px; top:466px; display:flex; gap:10px; }
+.tag { height:40px; padding:0 19px; border-radius:20px; background:rgba(255,255,255,.08); border:1px solid rgba(200,222,255,.20);
+  font-size:18px; color:rgba(226,238,255,.88); display:flex; align-items:center; gap:9px; }
+.tag i { width:6px; height:6px; border-radius:50%; background:#8FB8FF; box-shadow:0 0 8px #8FB8FF; }
+.footer { position:absolute; left:64px; bottom:50px; font-size:16px; letter-spacing:.08em; color:rgba(180,205,244,.55); }
+.footer b { color:rgba(215,231,255,.82); font-weight:600; }
+
+</style></head><body><div class="canvas">
+  <div class="bg"></div>
+  <div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="blob b4"></div>
+  <div class="ring"></div><div class="ring2"></div>
+  <div class="card">
+    <div class="brand"><img src="../../miniprogram/assets/icons/wordmark-white.png" alt="flukit"><span class="badge">HARNESS</span></div>
+    <div class="eyebrow">FLUKIT HARNESS · 微信小程序</div>
+    <h1>探索未至之境</h1>
+    <div class="line"></div>
+    <div class="sub">手机远程连接你的 <b>DSH</b></div>
+    <div class="sub2">随时查看进展 · 继续对话 · 审批操作</div>
+    <div class="tags"><span class="tag"><i></i>实时对话</span><span class="tag"><i></i>会话轨迹</span><span class="tag"><i></i>上下文透视</span></div>
+    <div class="footer"><b>鲸尾 Flukit</b> · 随时连接自己的 DSH</div>
+  </div>
+
+  <svg class="grain" width="1000" height="800" aria-hidden="true">
+    <filter id="g"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="3" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter>
+    <rect width="1000" height="800" filter="url(#g)"/>
+  </svg></div></body></html>

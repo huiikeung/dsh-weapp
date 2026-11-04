@@ -51,3 +51,46 @@ test('unchanged session emissions do not resend home lists and hide stops host p
   assert.ok(f.calls.includes('stopProbes'));
   assert.equal(f.page.data.hostSheetOpen, false);
 });
+
+
+test('settings skips store emissions that only change session streaming data', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  assert.ok(source.includes('if (nextApp && this._settingsAppSignature === this.settingsAppSignature(nextApp)) return;'),
+    'the subscribe path short-circuits on an unchanged app signature');
+  assert.ok(source.includes('this._settingsAppSignature = this.settingsAppSignature(app);'),
+    'syncFromStore records the signature it just rendered');
+  assert.ok(source.includes('settingsAppSignature(app) {') && source.includes('app.profiles'),
+    'signature covers profile changes');
+});
+
+test('running-session stream churn does not rebuild the home list', () => {
+  const f = homeFixture();
+  const base = 1790000000000;
+  f.store.state.sessions = [{ sessionId: 'live', title: '运行中', running: true, updatedAt: base, hasConversation: true }];
+  f.store.state.workspaces = [{ workspaceId: 'w1', title: 'W', sessionIds: ['live'] }];
+  f.store.state.currentWorkspaceId = 'w1';
+  f.page.syncFromStore({ app: f.store.state, session: f.store.sessionState });
+  let patches = 0;
+  const set = f.page.setData;
+  f.page.setData = patch => { patches += 1; set.call(f.page, patch); };
+  // 会话仍在后台流式输出：store 的探测帧会把 running 会话的 updatedAt 抬高不到一分钟。
+  for (let i = 0; i < 200; i += 1) {
+    f.store.state.sessions[0].updatedAt = base + i * 10;
+    f.emit();
+  }
+  assert.equal(patches, 0, 'running updatedAt churn must not resend the home list every frame');
+});
+
+test('a completed session update still refreshes the home list', () => {
+  const f = homeFixture();
+  f.store.state.sessions = [{ sessionId: 'done', title: '已结束', running: false, updatedAt: 1, hasConversation: true }];
+  f.store.state.workspaces = [{ workspaceId: 'w1', title: 'W', sessionIds: ['done'] }];
+  f.store.state.currentWorkspaceId = 'w1';
+  f.page.syncFromStore({ app: f.store.state, session: f.store.sessionState });
+  let patches = 0;
+  const set = f.page.setData;
+  f.page.setData = patch => { patches += 1; set.call(f.page, patch); };
+  f.store.state.sessions[0].updatedAt = 61001;
+  f.emit();
+  assert.ok(patches > 0, 'a finished session moving up the list must still refresh home');
+});

@@ -17,6 +17,16 @@ test('plugin configuration mixins use explicit imports for WeChat packaging', ()
   }
 });
 
+test('the main package reaches every shared utility it ships, including virtual-pay', () => {
+  // virtual-pay.js 只被 settings / pay-admin 两个子包页面使用；子包之间不能互相 require，
+  // 所以文件必须在主包。主包页面留一处惰性静态引用，防止「代码质量」判定为未使用 JS。
+  const home = fs.readFileSync(path.join(root, 'pages/home/home.js'), 'utf8');
+  assert.match(home, /require\('\.\.\/\.\.\/utils\/virtual-pay'\)/,
+    'a main-package page keeps a static reference to utils/virtual-pay.js');
+  assert.match(home, /require\('\.\.\/\.\.\/plugin-settings\/settings-actions'\)/,
+    'the same fix stays in place for the shared plugin settings module');
+});
+
 test('subpackage artwork manifests stay inside their package roots', () => {
   const mainManifest = path.join(root, 'assets/plugin-artwork/desktop/manifest.js');
   assert.equal(fs.existsSync(mainManifest), false, 'subpackage-only mapping must not remain in the main package');

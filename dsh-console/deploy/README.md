@@ -66,6 +66,10 @@ node /Users/0the/Downloads/dsh-weapp/dsh-console/relay/install-plugin-connector.
 
 网页侧栏「高级功能」默认收起，包含「托管节点与配对」「限时设备配对」。小程序设置已移除管理员限时配对入口，普通「节点 → 添加节点 → 扫码/输入」保留。高级接口和历史记录仅兼容托管电脑的旧场景，不是用户开通公网的前置步骤。
 
+### 虚拟支付（可选，个人主体）
+
+小程序「设置 → 公网权限」可打开虚拟支付，并由管理员配置天数/价格档位；用户端在「设置 → 公网访问」直接购买，付款后自动累加公网有效期，无需兑换码。服务端需在 `.env` 配置 `XPAY_OFFER_ID`、`XPAY_APP_KEY`、`XPAY_ENV=0`、`XPAY_MSG_TOKEN`、`XPAY_MSG_AES_KEY`、`XPAY_MSG_ENCRYPT`，并在 MP 后台把发货推送 URL 配成 `https://<域名>/pay/notify`（Token/AESKey/加解密方式与服务端一致，道具按 `pub_<days>d` 命名并发布）。未配置时支付卡片隐藏，兑换码与中继不受影响。完整步骤见 [services/public-access/README.md](../services/public-access/README.md) 与仓库 `docs/virtual-pay-deploy.md`。
+
 ## 本次更新：管理员设备 ID、兑换码与分享活动
 
 ### 开发者公告、客服与分享开关

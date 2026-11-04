@@ -233,3 +233,30 @@ test('leaving a running session stops the status ticker so repeated returns cann
   assert.match(unload, /stopStatusTailTicker\(\)/, 'the status tail interval is cleared on unload');
   assert.match(unload, /clearInterval\(this\._runTimer\)/, 'the running strip timer is cleared on unload');
 });
+
+test('hiding a running session stops its status timers, showing restarts them', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
+  const hideStart = source.indexOf('  onHide() {');
+  const hideEnd = source.indexOf('  onShow() {', hideStart);
+  assert.ok(hideStart > 0 && hideEnd > hideStart);
+  const hide = source.slice(hideStart, hideEnd);
+  assert.match(hide, /stopStatusTailTicker\(\)/, 'the 80ms status ticker stops when the page is covered');
+  assert.match(hide, /clearInterval\(this\._runTimer\)/, 'the running strip timer stops when the page is covered');
+  const show = source.slice(source.indexOf('  onShow() {'));
+  assert.match(show, /syncRunningStrip\(this\.data\.rows \|\| \[\], true\)/, 'showing the page restarts the running strip');
+});
+
+test('unload detaches timers and the store before the heavy view snapshot', () => {
+  const source = fs.readFileSync(path.resolve(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
+  const start = source.indexOf('  onUnload() {');
+  const end = source.indexOf('  retainSessionView() {', start);
+  assert.ok(start > 0 && end > start, 'onUnload body is present');
+  const unload = source.slice(start, end);
+  const cleanupAt = unload.indexOf('stopStatusTailTicker()');
+  const detachAt = unload.indexOf('this.unsubscribe()');
+  const snapshotAt = unload.indexOf('this.retainSessionView();');
+  assert.ok(cleanupAt >= 0 && snapshotAt > cleanupAt, 'timers stop before the view snapshot');
+  assert.ok(detachAt >= 0 && snapshotAt > detachAt, 'store subscription drops before the view snapshot');
+  assert.match(source, /startStatusTailTicker\(\) \{[\s\S]{0,240}?if \(this\._unloaded \|\| this\._voiceHidden\) return;/,
+    'a late callback cannot restart the 80ms interval after unload/hide');
+});

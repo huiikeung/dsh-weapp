@@ -464,6 +464,13 @@ Page({
   },
 
   onHide() {
+    // 先停掉还会持续回调的计时器并标记隐藏：后面的草稿/预览/语音清理即使抛错，
+    // 也不能把 80ms 状态条 interval 留在后台——这就是返回首页后卡死的来源。
+    this._voiceHidden = true;
+    this.stopStatusTailTicker();
+    if (this._runTimer) { clearInterval(this._runTimer); this._runTimer = null; }
+    if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
+    this._storeSyncTimer = null; this._pendingStoreSnapshot = null;
     this.persistComposerDraft();
     if (store.setTrajectoryActive) store.setTrajectoryActive(false);
     if (store.setContextActive) store.setContextActive(false);
@@ -472,11 +479,9 @@ Page({
     this._collaborationRequest = null; this._collaborationRefresh = null;
     this.setData({ collaborationOpen:false, collaborationPreview:null, collaborationBusy:false });
     this.cancelFileDownload();
-    this._voiceHidden = true; this.cancelVoice();
+    this.cancelVoice();
     if (this._historyFormatTimer) clearTimeout(this._historyFormatTimer);
     this._historyFormatTimer = null;
-    if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
-    this._storeSyncTimer = null; this._pendingStoreSnapshot = null;
     if (this._turnWarmTimer) clearTimeout(this._turnWarmTimer);
     this._turnWarmTimer = null;
     this.stopScrollPolling();
@@ -497,6 +502,8 @@ Page({
     this._lastForegroundEpoch = foregroundEpoch;
     this.syncContextPanelPreferences();
     this._voiceHidden = false; this.syncVoicePreference();
+    // 从设置页等返回：运行中会话恢复状态条 ticker 与跑秒定时器。
+    if (this.data.running) this.syncRunningStrip(this.data.rows || [], true);
     // 从原生浮层（chooseMedia / chooseMessageFile / previewImage）返回：
     if (this._hiddenByNativeOverlay) {
       this._hiddenByNativeOverlay = false;
@@ -587,6 +594,18 @@ Page({
   onPublicAccessDialogConfirm() { publicAccessPrompt.resolvePublicAccessDialog(this); },
 
   onUnload() {
+    // 卸载时先把“还会持续回调”的东西全部收干净，再做视图缓存/文件清理。
+    // 这样即使 retainSessionView 或后面的清理变慢、抛错，也不会把 80ms
+    // 状态条 interval 和 store 订阅留在已经销毁的页面上（返回首页卡死的根因）。
+    this._unloaded = true;
+    this._voiceHidden = true;
+    this.stopStatusTailTicker();
+    if (this._runTimer) { clearInterval(this._runTimer); this._runTimer = null; }
+    this.stopScrollPolling();
+    if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
+    this._storeSyncTimer = null;
+    this._pendingStoreSnapshot = null;
+    if (this.unsubscribe) { this.unsubscribe(); this.unsubscribe = null; }
     this.persistComposerDraft();
     this.retainSessionView();
     this.stopContextFlow();
@@ -601,7 +620,6 @@ Page({
     this.disposeMarkdownImages();
     this.cancelVoice();
     if (this._voice) this._voice.dispose();
-    this._unloaded = true;
     if (this._historyFormatTimer) clearTimeout(this._historyFormatTimer);
     this._historyFormatTimer = null; this._pendingHistoryFormat = null;
     if (this._fleetMeasureTimer) clearTimeout(this._fleetMeasureTimer);
@@ -615,10 +633,7 @@ Page({
     this._turnScrollIdleTimer = null;
     if (this._thumbTimer) clearTimeout(this._thumbTimer);
     this._thumbTimer = null; this._thumbQueue = null; this._thumbQueued = null; this._thumbFailed = null;
-    if (this._storeSyncTimer) clearTimeout(this._storeSyncTimer);
-    this._storeSyncTimer = null;
     this.stopTurnNavigatorWarmup(false);
-    this._pendingStoreSnapshot = null;
     if (this._traceHighlightTimer) clearTimeout(this._traceHighlightTimer);
     if (this._traceCursorTimer) clearTimeout(this._traceCursorTimer);
     if (this._bottomAnchorTimer) clearTimeout(this._bottomAnchorTimer);
@@ -630,14 +645,7 @@ Page({
     this._traceByKey = null;
     this._traceSource = null;
     this._traceCache = null;
-    this.stopScrollPolling();
-    // 运行中会话返回首页时，状态条鲸尾的 80ms 定时器必须在这里停掉：
-    // 只靠 paintStatusTail 里的 _unloaded 判断会让 interval 永久存活，
-    // 多次进出运行中会话后会累积多个定时器，界面开始卡住。
-    this.stopStatusTailTicker();
-    if (this._runTimer) { clearInterval(this._runTimer); this._runTimer = null; }
     this._dockMeasurePending = false;
-    if (this.unsubscribe) this.unsubscribe();
   },
 
   // ---------- 状态同步 ----------
@@ -1577,6 +1585,9 @@ Page({
 
   /** 鲸尾颜色：与设置页预览同一套采样算法，JS 直接写内联色值，不依赖 CSS 关键帧。 */
   startStatusTailTicker() {
+    // 卸载/隐藏后绝不能再开 interval：否则一旦有一次晚到的 store 回调，
+    // 80ms ticker 会在已销毁的页面上永久存活，反复进出后拖死 JS 线程。
+    if (this._unloaded || this._voiceHidden) return;
     if (this._statusTailTimer) return;
     // 与文字渐变的动画起点对齐：以状态条渲染/开始运行的本地时间为锚点，
     // 不用 runStart（可能早于动画开始，会造成鲸尾与文字不同步）。
@@ -1601,6 +1612,7 @@ Page({
   },
 
   syncRunningStrip(rows, running) {
+    if (this._unloaded) return;
     if (!running) {
       this._lastRunSeconds = this.data.runSeconds || this._lastRunSeconds || 0;
       if (this._runTimer) { clearInterval(this._runTimer); this._runTimer = null; }

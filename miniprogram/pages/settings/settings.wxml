@@ -71,25 +71,23 @@
           </view>
         </view>
 
-    <block wx:if="{{accountIdentityReady}}">
-      <view wx:if="{{isWechatAdmin}}" class="card-row management-entry" bindtap="openAdminSheet" hover-class="management-entry-active" role="button" aria-label="{{ui['公网权限']}}">
-        <view class="management-entry-copy">
-          <text class="card-row-label">{{ui['公网权限']}}</text>
-        </view>
-        <view class="card-row-value management-entry-value identity-entry-value">
-          <view class="identity-badge is-admin">{{identityBadgeLabel}}</view>
-          <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
-        </view>
+    <view wx:if="{{isWechatAdmin}}" class="card-row management-entry" bindtap="openAdminSheet" hover-class="management-entry-active" role="button" aria-label="{{ui['公网权限']}}">
+      <view class="management-entry-copy">
+        <text class="card-row-label">{{ui['公网权限']}}</text>
       </view>
-      <view wx:else class="card-row management-entry identity-entry">
-        <view class="management-entry-copy">
-          <text class="card-row-label">{{ui['公网权限']}}</text>
-        </view>
-        <view class="card-row-value management-entry-value identity-entry-value">
-          <view class="identity-badge">{{identityBadgeLabel}}</view>
-        </view>
+      <view class="card-row-value management-entry-value identity-entry-value">
+        <view class="identity-badge is-admin {{accountIdentityReady ? '' : 'is-pending'}}">{{accountIdentityReady ? identityBadgeLabel : ui['识别中…']}}</view>
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
       </view>
-    </block>
+    </view>
+    <view wx:else class="card-row management-entry identity-entry" aria-label="{{ui['公网权限']}}">
+      <view class="management-entry-copy">
+        <text class="card-row-label">{{ui['公网权限']}}</text>
+      </view>
+      <view class="card-row-value management-entry-value identity-entry-value">
+        <view class="identity-badge {{accountIdentityReady ? '' : 'is-pending'}}">{{accountIdentityReady ? identityBadgeLabel : ui['识别中…']}}</view>
+      </view>
+    </view>
   </view>
 
   
@@ -294,6 +292,13 @@
                     <dsh-switch checked="{{referralEnabled}}" disabled="{{shareSaving || !contentLoaded || accountBusy}}" aria-label="{{ui['分享活动开关']}}" bindchange="toggleReferralSharing"/>
                   </view>
                   <view wx:if="{{contentError}}" class="card-row" bindtap="refreshAppContent" hover-class="management-entry-active" role="button"><text class="card-row-label">{{ui['重试同步分享设置']}}</text></view>
+                  <view class="card-row management-entry" bindtap="openPayAdmin" hover-class="management-entry-active" role="button" aria-label="{{ui['虚拟支付']}}">
+                    <view class="management-entry-copy">
+                      <text class="card-row-label">{{ui['虚拟支付']}}</text>
+                      <text class="management-entry-desc">{{payUpgradeRequired ? ui['服务端尚未升级，暂不能配置'] : (!contentLoaded ? (contentError || ui['正在同步设置…']) : (payEnabled ? (payReady ? ui['用户端显示支付卡片'] : ui['服务端尚未配置虚拟支付参数，用户端不会显示支付卡片。']) : ui['关闭后用户端隐藏支付卡片，已购买天数不变']))}}</text>
+                    </view>
+                    <view class="card-row-value"><image class="chevron-img" src="/assets/icons/chev-right-gray.png"/></view>
+                  </view>
 
           </view>
         </block>
@@ -624,7 +629,9 @@
         </view>
         <view class="pair-sheet-close tap" bindtap="closeManagementPanel" role="button"><view class="sheet-close-x"></view></view>
       </view>
-      <view class="management-scroll">
+      <!-- 内容区用 scroll-view：遮罩上的 catchtouchmove 会 preventDefault，
+           普通 view 的 overflow 滚动在真机会失效，下半截就滑不到。 -->
+      <scroll-view class="management-scroll" scroll-y enhanced show-scrollbar="{{false}}">
         <block wx:if="{{managementPanel === 'public'}}">
           <view class="card public-card">
             <view class="public-head">
@@ -682,6 +689,57 @@
                 <button open-type="share">{{ui['转发']}}</button>
                 <text class="public-share-copy" bindtap="copyNodeShare">{{ui['复制邀请']}}</text>
               </view>
+            </view>
+          </view>
+          <!-- 支付卡片：总开关打开且服务端已配置时出现；未登录也能看到，点购买才静默 wx.login。 -->
+          <view wx:if="{{payVisible}}" class="pay-block">
+            <!-- 标题区：档位改成可选中的订阅卡，底部只保留一个主按钮，避免每张卡各放一个按钮 -->
+            <view class="pay-head">
+              <text class="pay-title">{{ui['在线购买公网有效期']}}</text>
+              <text class="pay-sub">{{ui['虚拟商品，支付后即时生效。']}}</text>
+            </view>
+
+            <view class="pay-grid">
+              <view
+                wx:for="{{payTiers}}"
+                wx:key="id"
+                class="pay-tier {{item.selected ? 'is-selected' : ''}} {{item.priceBlocked ? 'is-blocked' : ''}}"
+                data-id="{{item.id}}"
+                bindtap="selectPayTier"
+                hover-class="pay-tier-hover"
+                role="button"
+                aria-label="{{item.daysLabel}} {{item.priceLabel}}"
+              >
+                <view class="pay-tier-head">
+                  <text wx:if="{{item.best}}" class="pay-tier-best">{{ui['推荐']}}</text>
+                  <view class="pay-tier-radio {{item.selected ? 'on' : ''}}"><view class="pay-tier-radio-dot"></view></view>
+                </view>
+                <text class="pay-tier-days">{{item.daysLabel}}</text>
+                <view class="pay-tier-price"><text class="pay-tier-currency">¥</text><text class="pay-tier-amount">{{item.priceLabel}}</text></view>
+                <text wx:if="{{item.unitLabel}}" class="pay-tier-unit">{{item.unitLabel}}</text>
+                <text wx:if="{{item.priceBlocked}}" class="pay-tier-hint">{{item.priceHint}}</text>
+              </view>
+            </view>
+
+            <view wx:if="{{paySupportReason}}" class="pay-warning">{{paySupportReason}}</view>
+            <view wx:if="{{payResultLabel}}" class="pay-result"><view class="pay-result-dot"></view><text class="pay-result-text">{{ui[payResultLabel] !== undefined ? ui[payResultLabel] : payResultLabel}}</text></view>
+
+            <!-- 用 view 而不是 button：微信 v2 原生 button 会覆盖 class 里的宽度，导致按钮缩成内容宽。 -->
+            <view
+              class="pay-buy {{!!payBusyTier || !!paySupportReason || payBuyDisabled ? 'is-disabled' : ''}}"
+              data-id="{{paySelectedTierId}}"
+              bindtap="buyPayTier"
+              hover-class="{{!!payBusyTier || !!paySupportReason || payBuyDisabled ? 'none' : 'pay-buy-hover'}}"
+              role="button"
+              aria-disabled="{{!!payBusyTier || !!paySupportReason || payBuyDisabled}}"
+            >
+              <text class="pay-buy-label">{{payBusyTier ? ui['支付中…'] : ui['立即购买']}}</text>
+              <text wx:if="{{!payBusyTier && !paySupportReason && !payBuyDisabled && paySelectedPriceLabel}}" class="pay-buy-price">¥{{paySelectedPriceLabel}}</text>
+            </view>
+
+            <view class="pay-compliance">
+              <text class="pay-compliance-text">{{ui['Android 可联系客服退款；iOS 购买请通过 App Store 申请退款。']}}</text>
+              <button class="pay-support" open-type="contact" hover-class="public-share-hover">{{ui['联系客服']}}</button>
             </view>
           </view>
           <view class="group-hint">{{ui[publicHint] !== undefined ? ui[publicHint] : publicHint}}</view>
@@ -754,7 +812,7 @@
           </view>
           <view class="group-hint">{{nodeDetail.isPublic ? ui['通过公网标识识别节点，不展示公网地址。'] : ui['局域网连接保留原地址与端口；不会消耗公网有效期。']}}</view>
         </block>
-      </view>
+      </scroll-view>
     </view>
   </view>
 

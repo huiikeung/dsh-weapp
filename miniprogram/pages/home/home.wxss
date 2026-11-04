@@ -2153,3 +2153,5 @@ background: linear-gradient(135deg, #F0565B, #D93A41);
 color: #FFFFFF;
 box-shadow: 0 10rpx 24rpx rgba(217, 58, 65, 0.3);
 }
+.recent-heading { display: flex; align-items: baseline; gap: 12rpx; min-width: 0; }
+.recent-count { flex: none; font-size: 22rpx; color: rgba(255, 255, 255, 0.55); }

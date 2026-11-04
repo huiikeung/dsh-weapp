@@ -396,13 +396,17 @@ test('the regular recent-sessions list keeps its twelve-row cap and entry indexe
   assert.equal(page.data.displaySessions[0].sessionId, 's19');
   assert.equal(page.data.displaySessions[11].sessionId, 's8');
   const entries = entriesOf(page);
-  assert.equal(entries.length, 12);
-  assert.ok(entries.every((entry) => entry.type === 'session'), 'the regular list has no section entries');
-  entries.forEach((entry, index) => {
+  const sessionEntries = entries.filter((entry) => entry.type === 'session');
+  assert.equal(sessionEntries.length, 12);
+  sessionEntries.forEach((entry, index) => {
     assert.equal(entry.index, index);
     assert.equal(entry.sessionId, 's' + (19 - index));
   });
   assert.equal(new Set(entries.map((entry) => entry.key)).size, entries.length);
+  const toggle = entries.find((entry) => entry.type === 'recent-toggle');
+  assert.ok(toggle, 'a workspace with more sessions exposes an expand entry');
+  assert.equal(toggle.remaining, 8);
+  assert.equal(page.data.recentSessionCount, 20, 'the header reports the real session count');
 });
 
 test('the workspace menu lists all sessions first and the grouped list markup is wired', () => {

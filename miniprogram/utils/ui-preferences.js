@@ -75,7 +75,7 @@ function localized(value) {
 }
 const navigationTitles = {
   'pages/announcements/announcements': '开发者公告', 'pages/announcement-admin/announcement-admin': '公告管理',
-  'pages/pairing-admin/pairing-admin': '配对码管理', 'pages/redeem-admin/redeem-admin': '兑换码管理',
+  'pages/pairing-admin/pairing-admin': '配对码管理', 'pages/redeem-admin/redeem-admin': '兑换码管理', 'pages/pay-admin/pay-admin': '虚拟支付',
   'pages/share-activity/share-activity': '鲸尾 · 分享助手', 'pages/files/files': '工作区文件',
   'pages/workspace-picker/workspace-picker': '选择工作区目录', 'pages/session-settings/session-settings': '会话设置'
 };
