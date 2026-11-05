@@ -1,5 +1,5 @@
 <page-meta page-style="{{pageStyle}}" />
-<view class="page admin-page {{themeClass}}" style="{{contentFontStyle}}">
+<view class="page admin-page {{themeClass}} {{settingsGlassEnabled ? 'pay-glass' : ''}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-card: {{glassBlurCard}}; --glass-radius-card: {{glassRadiusCard}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
   <view class="pay-wrap">
 
     <!-- 页头 -->
@@ -44,6 +44,7 @@
                 <text class="tier-day-caret">▾</text>
               </view>
             </picker>
+            <text class="tier-prop-chip" aria-label="{{ui['道具 ID']}}">{{item.productId}}</text>
             <view class="tier-price">
               <text class="tier-currency">¥</text>
               <input class="tier-price-input" type="digit" value="{{item.priceYuan}}" data-index="{{index}}" bindinput="inputPrice" disabled="{{busy}}" placeholder="0.00" placeholder-class="tier-price-ph"/>
@@ -51,10 +52,6 @@
             <view class="tier-del" data-index="{{index}}" bindtap="deleteTier" role="button" aria-label="{{ui['删除']}}">
               <text class="tier-del-x">×</text>
             </view>
-          </view>
-          <view class="tier-meta">
-            <text class="tier-prop-label">{{ui['道具 ID']}}</text>
-            <text class="tier-prop-chip">{{item.productId}}</text>
           </view>
         </view>
 
@@ -129,6 +126,20 @@
       </view>
 
     </block>
+
+    <!-- 自定义弹窗：确认退款 / 微信侧订单，跟随玻璃样式 -->
+    <view wx:if="{{payDialog.open}}" class="pay-dialog-mask" catchtap="closePayDialog" catchtouchmove="noop">
+      <view class="pay-dialog" catchtap="noop" role="dialog" aria-modal="true" aria-label="{{payDialog.title}}">
+        <view class="pay-dialog-title">{{payDialog.title}}</view>
+        <view wx:if="{{payDialog.lines.length}}" class="pay-dialog-body">
+          <text wx:for="{{payDialog.lines}}" wx:key="index" class="pay-dialog-line">{{item}}</text>
+        </view>
+        <view class="pay-dialog-actions">
+          <view wx:if="{{payDialog.cancelText}}" class="pay-dialog-btn" bindtap="closePayDialog" hover-class="pay-dialog-btn-hover" role="button">{{payDialog.cancelText}}</view>
+          <view class="pay-dialog-btn is-primary {{payDialog.tone === 'danger' ? 'is-danger' : ''}} {{payDialog.pending ? 'is-busy' : ''}}" bindtap="confirmPayDialog" hover-class="pay-dialog-btn-hover" role="button">{{payDialog.pending ? ui['处理中…'] : payDialog.confirmText}}</view>
+        </view>
+      </view>
+    </view>
 
     <!-- 非管理员 -->
     <view wx:if="{{!loading && !isAdmin}}" class="pay-noauth">

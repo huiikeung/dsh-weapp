@@ -1,6 +1,7 @@
 const haptics = require('../../utils/haptics');
 const { t: uiText } = require('../../utils/ui-preferences');
 const store = require('../../utils/store');
+const jankGuard = require('../../utils/jank-guard');
 const theme = require('../../utils/theme');
 const util = require('../../utils/util');
 const labels = require('../../utils/labels');
@@ -182,6 +183,7 @@ Page({
     recentExpanded: false,
     displayEntries: [],
     allWorkspacesSelected: false,
+    jankSafe: false,
     expandedSectionIds: [],
     searchQuery: '',
     connectionLabel: uiText('未连接'),
@@ -367,7 +369,7 @@ Page({
 
   onShow() {
     this._homeHidden = false;
-    this.setData(Object.assign(settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }), { quotaSidebarGlass: quotaSidebarGlassPreference.read(), settingsGlassEnabled: settingsGlassPreference.read() }));
+    this.setData(Object.assign(settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }), { quotaSidebarGlass: quotaSidebarGlassPreference.read(), settingsGlassEnabled: settingsGlassPreference.read(), jankSafe: jankGuard.degraded() }));
     this._homeVisible = true;
     this._openingSettings = false;
     this._openingSession = false;

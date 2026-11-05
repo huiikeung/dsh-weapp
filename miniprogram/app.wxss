@@ -550,3 +550,26 @@ page {
 .theme-dark .sheet-close-x::after {
   background: #C0C4CC;
 }
+
+/* ===== 卡顿守护降级（jank-guard）=====
+   检测到主线程长时间停滞后，页面根节点会带上 .perf-safe：
+   去掉所有磨砂 backdrop-filter 与状态条颜色动画，只保留半透明底色。
+   状态持久化 1 小时，因此重启小程序也不会立刻回到重渲染路径。 */
+.perf-safe.session-glass .composer,
+.perf-safe.session-glass .session-header,
+.perf-safe.session-glass .preset-capsule,
+.perf-safe.session-glass .opt-pop,
+.perf-safe.session-glass .task-panel,
+.perf-safe.session-glass .goal-panel,
+.perf-safe.session-glass .queue-panel,
+.perf-safe.session-glass .sheet,
+.perf-safe .settings-glass-card,
+.perf-safe .settings-glass-sheet,
+.perf-safe.pay-glass .pay-card,
+.perf-safe.pay-glass .pay-dialog,
+.perf-safe.pay-glass .tier-price,
+.perf-safe.pay-glass .order-filters {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.perf-safe .status-tail-ink { animation: none !important; }

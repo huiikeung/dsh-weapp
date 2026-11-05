@@ -11,6 +11,7 @@ const workSteps = require('./utils/work-step-presentation');
 const statusAppearance = require('./utils/status-appearance');
 const procIconStyle = require('./utils/proc-icon-style');
 const store = require('../../utils/store');
+const jankGuard = require('../../utils/jank-guard');
 // 草稿只在本次运行内保留：返回首页再进来能恢复；重启小程序后自然清空。
 const sessionDraftStore = Object.create(null);
 const markdown = require('../../utils/markdown');
@@ -127,7 +128,7 @@ Page({
     ...settingsGlassStylePreference.view(),
     ...sessionCardStylePreference.view(),
     statusFlowDelay: 0,
-    statusTailColor: '',
+    jankSafe: false,
     publicAccessDialog: null,
     publicAccessDialogOpen: false,
     turnUsageSheet: null, turnUsageOpen: false, turnUsagePos: null,
@@ -492,7 +493,7 @@ Page({
   },
 
   onShow() {
-    this.setData(Object.assign({ sessionGlassEnabled: sessionGlassPreference.read() }, settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }), sessionCardStylePreference.view()));
+    this.setData(Object.assign({ sessionGlassEnabled: sessionGlassPreference.read(), jankSafe: jankGuard.degraded() }, settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }), sessionCardStylePreference.view()));
     const firstPageShow = this._initialPageShowPending === true;
     this._initialPageShowPending = false;
     if (firstPageShow) this.restoreComposerDraft();
@@ -1585,15 +1586,9 @@ Page({
 
   /** 鲸尾颜色：与设置页预览同一套采样算法，JS 直接写内联色值，不依赖 CSS 关键帧。 */
   startStatusTailTicker() {
-    // 卸载/隐藏后绝不能再开 interval：否则一旦有一次晚到的 store 回调，
-    // 80ms ticker 会在已销毁的页面上永久存活，反复进出后拖死 JS 线程。
-    if (this._unloaded || this._voiceHidden) return;
-    if (this._statusTailTimer) return;
-    // 与文字渐变的动画起点对齐：以状态条渲染/开始运行的本地时间为锚点，
-    // 不用 runStart（可能早于动画开始，会造成鲸尾与文字不同步）。
-    if (!this._statusTailAnchor) this._statusTailAnchor = Date.now();
-    this.paintStatusTail();
-    this._statusTailTimer = setInterval(() => this.paintStatusTail(), 80);
+    // 颜色动画已改由 status-tail-animation.wxss 的 CSS 关键帧驱动：
+    // 以前这里每 80ms setData 一次颜色（12.5 次/秒），运行中的会话叠着玻璃/滚动时
+    // 会持续重排整页，是「很卡、最后卡死」的主要来源。保留空实现兼容旧调用。
   },
 
   stopStatusTailTicker() {
@@ -1601,6 +1596,8 @@ Page({
   },
 
   paintStatusTail() {
+    return;
+    // 兼容旧调用：CSS 关键帧已经负责取色，不再从 JS 采样。
     if (this._unloaded || !this.data.running) return;
     const colors = this.data.theme === 'dark' ? this.data.statusColorsDark : this.data.statusColors;
     const speed = Number(this.data.statusSpeed) || 4;
@@ -1623,7 +1620,6 @@ Page({
       }
       return;
     }
-    this.startStatusTailTicker();
     if (!this._runTimer) {
       // 起始时间 = 最近一条用户消息时间（对齐 iOS DeepSearchProgressRow）
       const s = store.sessionState;
@@ -1785,6 +1781,11 @@ Page({
     // 连续删除第二条时点击会被 queueBusyId 直接吞掉，只能退出会话重进。
     const itemId = id;
     const operation = action === 'steer' ? 'steer' : 'remove';
+    if (operation === 'steer' && typeof wx.hideKeyboard === 'function') {
+      // 插队发送会立刻起一轮新回合：先把键盘收起，避免 iOS 在键盘动画中
+      // 切到原生请求把输入区卡在抬起位置（看起来就是「输入框悬着不动」）。
+      try { wx.hideKeyboard({ complete() {} }); } catch (e) { /* 忽略 */ }
+    }
     this.setData({ queueBusyId: itemId + ':' + action });
     this._queueBusyItemId = itemId;
     const release = () => this.endQueueAction();
@@ -6768,8 +6769,11 @@ Page({
     const revision = this._draftRevision, context = this.composerContextKey(), client = store.client, workspaceId = store.state.currentWorkspaceId;
     this.setData({ sendingAttachments: true });
     // The task-send tap is the only reliable gesture context for WeChat's one-time subscription prompt.
-    const notificationTicket = notifySubscription.requestCompletionTicket();
+    // 运行中（排队）发送不请求完成通知票据：那是「当前回合结束」的订阅，
+    // 排队消息要等这一回合结束才执行，票据对不上；更重要的是原生订阅弹窗
+    // 会在键盘/队列卡片切换期间压住页面，看起来就是「点发送卡住」。
     const s = store.sessionState;
+    const notificationTicket = s.running ? Promise.resolve('') : notifySubscription.requestCompletionTicket();
     const self = this;
     const sendWithImages = uploadImages.length
       ? Promise.all(uploadImages.map(readImageBase64))
@@ -6815,7 +6819,12 @@ Page({
       }
       self.setComposerValue('', { draft: '', images: [], canSend: false }); self.clearComposerDraft();
       this.closeAttachMenu();
-      this.jumpToBottom();
+      if (s.running) {
+        // 排队消息不进对话窗口：只校准输入区高度，避免运行中重建窗口/贴底把页面拖住。
+        this.updateDockInset();
+      } else {
+        this.jumpToBottom();
+      }
     }).catch((err) => {
       if (this._unloaded || this.composerContextKey() !== context) return;
       wx.showToast({ title: err.message || uiText('附件处理失败'), icon: 'none' });

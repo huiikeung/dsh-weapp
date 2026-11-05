@@ -46,7 +46,7 @@ test('sidebar quota card colors come from theme variables, not hardcoded whites'
 });
 
 test('home root view carries themeClass so manual dark mode switches variables', () => {
-  assert.match(wxml, /class="page page-dark home-root \{\{themeClass\}\}"/, '根视图必须挂 themeClass');
+  assert.match(wxml, /class="page page-dark home-root \{\{themeClass\}\}(?: \{\{jankSafe[^"]*\}\})?"/, '根视图必须挂 themeClass');
 });
 
 test('quota card sits in the bottom group above the settings entry', () => {

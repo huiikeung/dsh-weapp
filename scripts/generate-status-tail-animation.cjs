@@ -66,6 +66,16 @@ function renderCss() {
       blocks.push('@keyframes ' + name + '{'
         + keyframeStops(colors).map(stop => formatPercent(stop.percent) + '{background-color:' + stop.color + '}').join('')
         + '}');
+      // 鲸鱼精灵形态由 statusTailSwim（mask-position）驱动，颜色由上面的关键帧驱动。
+      // 两条动画必须写在同一条 animation 声明里：以前 JS 每 80ms setData 一次颜色，
+      // 运行中会话会持续重排整页；现在全部交给合成器。
+      const opposite = ['terminal', 'glitch'].includes(item.id) ? 'reverse' : 'normal';
+      blocks.push('.status-tail-ink.status-tail-js.status-tail-' + item.id + '.status-tail-' + mode + '{'
+        + 'animation-name:statusTailSwim,' + name + ';'
+        + 'animation-duration:3s,' + item.speed + 's;'
+        + 'animation-timing-function:steps(59),linear;'
+        + 'animation-iteration-count:infinite,infinite;'
+        + 'animation-direction:normal,' + opposite + ';}');
     });
   });
   return blocks.join('\n') + '\n';

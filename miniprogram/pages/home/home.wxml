@@ -1,6 +1,6 @@
 <page-meta page-style="{{pageStyle}}" />
 <import src="../../templates/quota-sidebar.wxml"/>
-<view class="page page-dark home-root {{themeClass}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-blur-card: {{glassBlurCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-choice: {{glassRadiusChoice}}; --glass-backdrop-brightness: {{glassBackdropBrightness}}; {{settingsGlassEnabled ? '' : '--surface: ' + nativeSurfaceColor + '; --fill: ' + nativeFillColor + ';'}};">
+<view class="page page-dark home-root {{themeClass}} {{jankSafe ? 'perf-safe' : ''}}" style="{{contentFontStyle}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-blur-card: {{glassBlurCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-choice: {{glassRadiusChoice}}; --glass-backdrop-brightness: {{glassBackdropBrightness}}; {{settingsGlassEnabled ? '' : '--surface: ' + nativeSurfaceColor + '; --fill: ' + nativeFillColor + ';'}};">
   <!-- 侧边栏（对齐 dsh-mobile WorkspaceView drawerContent：品牌字标 + 插件 / 自动化任务） -->
   <view
     class="drawer {{drawerAnim && !drawerDragging ? 'drawer-anim' : ''}} {{drawerOpen || drawerDragging ? 'drawer-visible' : ''}} {{sheetTheme === 'dark' ? 'drawer-dark' : ''}}"

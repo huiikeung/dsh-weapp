@@ -10,6 +10,7 @@ require('./utils/share').install();
 
 const store = require('./utils/store');
 const attachmentCache = require('./utils/attachment-cache');
+const jankGuard = require('./utils/jank-guard');
 
 // 下面这些工具被多个分包（设置 / 会话 / 模型 / 额度卡片）共用，按微信分包规则
 // 只能放在主包。打包质检的「主包内未使用的 JS」会把它们标出来，这里在主包入口
@@ -26,15 +27,18 @@ App({
   },
   onLaunch() {
     store.init();
+    jankGuard.start();
     if (typeof wx.onMemoryWarning === 'function') wx.onMemoryWarning(() => {
       require('./utils/session-view-cache').clear();
     });
   },
   onShow() {
+    jankGuard.setActive(true);
     this.globalData.foregroundEpoch = (this.globalData.foregroundEpoch || 0) + 1;
     store.appDidBecomeActive();
   },
   onHide() {
+    jankGuard.setActive(false);
     store.appDidEnterBackground();
   },
   globalData: {

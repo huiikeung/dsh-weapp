@@ -33,7 +33,7 @@
 </view>
 </view>
 </template>
-<view class="page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}}" style="{{contentFontStyle}}; --card-light-float: {{cardLightFloatShadow}}; --card-light-edge: {{cardLightEdgeColor}}; --card-light-fill: {{cardLightFillAlpha}}; --card-light-glow-top: {{cardLightGlowTop}}; --card-light-glow-bottom: {{cardLightGlowBottom}}; --card-light-glow-all: {{cardLightGlowAll}}; --card-light-radius: {{cardLightRadiusRpx}}; --card-dark-float: {{cardDarkFloatShadow}}; --card-dark-edge: {{cardDarkEdgeColor}}; --card-dark-fill: {{cardDarkFillAlpha}}; --card-dark-radius: {{cardDarkRadiusRpx}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-card: {{glassBlurCard}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-frost-blur: {{glassFrostBlur}}; --glass-frost-edge: {{glassFrostEdge}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
+<view class="page session {{themeClass}} {{sessionGlassEnabled ? 'session-glass' : ''}} {{jankSafe ? 'perf-safe' : ''}}" style="{{contentFontStyle}}; --card-light-float: {{cardLightFloatShadow}}; --card-light-edge: {{cardLightEdgeColor}}; --card-light-fill: {{cardLightFillAlpha}}; --card-light-glow-top: {{cardLightGlowTop}}; --card-light-glow-bottom: {{cardLightGlowBottom}}; --card-light-glow-all: {{cardLightGlowAll}}; --card-light-radius: {{cardLightRadiusRpx}}; --card-dark-float: {{cardDarkFloatShadow}}; --card-dark-edge: {{cardDarkEdgeColor}}; --card-dark-fill: {{cardDarkFillAlpha}}; --card-dark-radius: {{cardDarkRadiusRpx}}; --glass-alpha-top: {{glassAlphaTop}}; --glass-alpha-bottom: {{glassAlphaBottom}}; --glass-edge-alpha: {{glassEdgeAlpha}}; --glass-blur-card: {{glassBlurCard}}; --glass-blur-sheet: {{glassBlurSheet}}; --glass-frost-blur: {{glassFrostBlur}}; --glass-frost-edge: {{glassFrostEdge}}; --glass-radius-card: {{glassRadiusCard}}; --glass-radius-sheet: {{glassRadiusSheet}}; --glass-backdrop-brightness: {{glassBackdropBrightness}};">
 <view class="session-header">
 <view class="navbar" style="{{navbarStyle}}">
 <view class="nav-back tap" hover-class="press-dim" bindtap="goBack">
@@ -348,7 +348,7 @@
 <view style="height:{{conversationBottomSpace}}px" aria-hidden="true"></view>
 <view wx:if="{{running}}" class="progress-strip conversation-progress" id="deep-search-progress">
 <view class="progress-row status-look-{{statusAppearance}}">
-<view class="status-tail"><view class="status-tail-ink status-tail-js status-tail-{{statusAppearance}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}" style="background-color:{{statusTailColor}};"/></view>
+<view class="status-tail"><view class="status-tail-ink status-tail-js status-tail-{{statusAppearance}} {{theme === 'dark' ? 'status-tail-dark' : 'status-tail-light'}}"/></view>
 <view class="status-text-motion"><text class="status-gradient" style="{{theme === 'dark' ? statusDarkStyle : statusLightStyle}}animation-delay:{{statusFlowDelay}}s;">{{runPhrase}}{{ui['，用时']}} {{runElapsedText}}…</text></view>
 </view>
 </view>

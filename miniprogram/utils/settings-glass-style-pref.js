@@ -102,7 +102,10 @@ function view(style) {
     glassBlurSheet: px(s.blur, scale),
     glassBlurCard: px(Math.max(1, s.blur * 0.375), scale),
     // iOS 磨砂材质（输入框 / 任务卡 / 模式胶囊 / 模式浮层共用）：模糊走大档，白描边压到滑杆值 ×0.3
-    glassFrostBlur: px(Math.max(28, Math.min(56, s.blur * 5)), scale),
+    // 磨砂模糊：原来滑杆 8 会下发 40px（上限 56px）。iOS 上这么重的 backdrop-filter
+    // 叠在输入框/队列卡/模式胶囊上会把 GPU 压满，是「运行中很卡、最后卡死」的主因之一；
+    // 压到 16–24px 观感几乎不变，合成成本降到原来一半以下。
+    glassFrostBlur: px(Math.max(14, Math.min(24, s.blur * 2)), scale),
     glassFrostEdge: (s.edge / 100 * 0.30).toFixed(2),
     glassRadiusSheet: px(s.radius, scale),
     glassRadiusCard: px(s.radius * 36 / 32, scale),

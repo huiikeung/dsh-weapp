@@ -1,6 +1,8 @@
 const { t: uiText } = require('../../utils/ui-preferences');
 const api = require('../../utils/access-api');
 const theme = require('../../utils/theme');
+const settingsGlassPreference = require('../../utils/settings-glass-pref');
+const settingsGlassStylePreference = require('../../utils/settings-glass-style-pref');
 const virtualPay = require('../../utils/virtual-pay');
 
 // 与服务端 CODE_DAYS 完全一致；顺序与文案一一对应。
@@ -58,12 +60,16 @@ Page({
     summary: null, orders: [], ordersLoaded: false, ordersBusy: false,
     orderGroups: [], ordersCursor: null, ordersHasMore: false,
     ordersExpanded: false, ordersRemaining: 0, ordersToggleLabel: '', loadMoreBusy: false, ordersCapped: false,
-    orderFilter: 'all'
+    orderFilter: 'all',
+    payDialog: { open: false, title: '', lines: [], confirmText: '', cancelText: '', tone: 'primary', pending: false, action: '', outTradeNo: '' },
+    settingsGlassEnabled: false,
+    glassAlphaTop: '0.060', glassAlphaBottom: '0.015', glassEdgeAlpha: '0.38',
+    glassBlurCard: '3rpx', glassRadiusCard: '36rpx', glassBackdropBrightness: '1'
   },
   onUiLocaleChange() {
     this.setData({ dayLabels: dayLabels(), tiers: (this.data.tiers || []).map(tier => Object.assign({}, tier, { daysLabel: dayLabels()[tier.dayIndex] })) });
   },
-  onLoad() { theme.applyTo(this); },
+  onLoad() { theme.applyTo(this); this.applyGlass(); },
   onShow() { return this.refresh(); },
   onHide() {
     this._generation = (this._generation || 0) + 1;
@@ -72,6 +78,7 @@ Page({
   onUnload() { this._generation = (this._generation || 0) + 1; },
 
   async refresh() {
+    this.applyGlass();
     const generation = this._generation = (this._generation || 0) + 1;
     this.setData({ loading: true, verified: false, isAdmin: false, busy: false, error: '', savedLabel: '', tiers: [] });
     try {
@@ -126,6 +133,13 @@ Page({
     } catch (e) {
       if (generation === this._generation) this.setData({ ordersBusy: false, ordersLoaded: true });
     }
+  },
+
+  /** 与设置页同一套玻璃偏好：卡片/输入框跟随「设置页玻璃UI」和玻璃样式参数。 */
+  applyGlass() {
+    const enabled = settingsGlassPreference.read();
+    const view = settingsGlassStylePreference.view({ light: theme.resolveTheme() === 'light' });
+    this.setData(Object.assign({ settingsGlassEnabled: enabled }, view));
   },
 
   /** 日期筛选换算成 since 时间戳：服务端按 createdAt >= since 过滤，筛选对全部历史生效而不是只在已加载页里找。 */
@@ -210,7 +224,7 @@ Page({
         uiText('可退余额：') + '¥' + virtualPay.formatPrice(w.leftFee || 0),
         w.wxOrderId ? uiText('微信单号：') + w.wxOrderId : ''
       ].filter(Boolean);
-      wx.showModal({ title: uiText('微信侧订单'), content: lines.join('\n'), showCancel: false });
+      this.openPayDialog({ title: uiText('微信侧订单'), lines, confirmText: uiText('关闭'), cancelText: '' });
       this.loadOrders(this._generation);
     } catch (err) {
       wx.showToast({ title: err.message || uiText('查单失败'), icon: 'none' });
@@ -218,23 +232,59 @@ Page({
     }
   },
 
-  /** 点「退款」：仅 Android/鸿蒙单可退，iOS 由用户走 App Store。 */
-  async refundOrder(event) {
-    const id = event && event.currentTarget && event.currentTarget.dataset ? event.currentTarget.dataset.id : '';
+  /** 自定义弹窗：标题 + 若干行说明 + 主/次按钮，跟随玻璃样式。 */
+  openPayDialog(config) {
+    this.setData({
+      payDialog: Object.assign({
+        open: true, title: '', lines: [], confirmText: uiText('确认'), cancelText: uiText('取消'),
+        tone: 'primary', pending: false, action: '', outTradeNo: ''
+      }, config)
+    });
+  },
+
+  closePayDialog() {
+    if (this.data.payDialog && this.data.payDialog.pending) return;
+    this.setData({ 'payDialog.open': false });
+  },
+
+  confirmPayDialog() {
+    const dialog = this.data.payDialog || {};
+    if (!dialog.open || dialog.pending) return;
+    if (dialog.action === 'refund') { this.performRefund(); return; }
+    this.closePayDialog();
+  },
+
+  /** 点「退款」：仅 Android/鸿蒙单可退，iOS 由用户走 App Store。确认走自定义玻璃弹窗。 */
+  refundOrder(eventOrId) {
+    const id = typeof eventOrId === 'string'
+      ? eventOrId
+      : (eventOrId && eventOrId.currentTarget && eventOrId.currentTarget.dataset ? eventOrId.currentTarget.dataset.id : '');
     if (!id || this.data.ordersBusy) return;
-    const ok = await new Promise(resolve => wx.showModal({
-      title: uiText('确认退款'), content: uiText('将向微信发起退款，成功后自动扣回该订单赠送的天数。iOS 订单不支持主动退款。'),
-      success: r => resolve(!!r.confirm), fail: () => resolve(false)
-    }));
-    if (!ok) return;
-    this.setData({ ordersBusy: true });
+    this.openPayDialog({
+      title: uiText('确认退款'),
+      lines: [uiText('将向微信发起退款，成功后自动扣回该订单赠送的天数。iOS 订单不支持主动退款。')],
+      confirmText: uiText('退款'),
+      cancelText: uiText('取消'),
+      tone: 'danger',
+      action: 'refund',
+      outTradeNo: id
+    });
+  },
+
+  async performRefund() {
+    const dialog = this.data.payDialog || {};
+    const id = dialog.outTradeNo;
+    if (!id || dialog.pending) return;
+    this.setData({ 'payDialog.pending': true, ordersBusy: true });
     try {
       const res = await api.refundPayOrder(id, 3);
+      this.setData({ 'payDialog.open': false, 'payDialog.pending': false });
       wx.showToast({ title: uiText('退款已发起') + (res && res.refundOrderId ? ' ' + res.refundOrderId : ''), icon: 'none' });
       this.loadOrders(this._generation);
     } catch (err) {
+      this.setData({ 'payDialog.pending': false, ordersBusy: false });
       wx.showToast({ title: err.message || uiText('退款失败'), icon: 'none' });
-      this.setData({ ordersBusy: false });
+      this.closePayDialog();
     }
   },
 

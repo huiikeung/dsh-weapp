@@ -124,12 +124,12 @@ test('all status styles animate the DSH whale through the same selected text pal
   const template=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.wxml'),'utf8');
   assert.match(template,/\{\{runPhrase\}\}\{\{ui\['，用时'\]\}\} \{\{runElapsedText\}\}…/);
   // 鲸尾是 mask 裁出来的色块（不是 image + filter），滚动时仍是同层合成，不会像 canvas 那样滞后。
-  assert.match(template,/<view class="status-tail"><view class="status-tail-ink status-tail-js status-tail-\{\{statusAppearance\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}" style="background-color:\{\{statusTailColor\}\};"\/>/);
-  // 颜色由 JS 定时采样（不依赖 CSS 关键帧），形状用 CSS 摆动；两者都来自同一份 statusAppearance 配置。
+  // 颜色交给 CSS 关键帧（status-tail-animation.wxss）驱动，模板里不再有 80ms 刷新的内联颜色。
+  assert.match(template,/<view class="status-tail"><view class="status-tail-ink status-tail-js status-tail-\{\{statusAppearance\}\} \{\{theme === 'dark' \? 'status-tail-dark' : 'status-tail-light'\}\}"\/>/);
+  assert.doesNotMatch(template,/statusTailColor/);
   const statusJs=fs.readFileSync(path.join(__dirname,'../miniprogram/pages/session/session.js'),'utf8');
-  assert.match(statusJs,/startStatusTailTicker\(\)/);
-  assert.match(statusJs,/paintStatusTail\(\)/);
-  assert.match(statusJs,/statusAppearance\.sampleColor\(colors, phase\)/);
+  assert.doesNotMatch(statusJs,/setInterval\(\(\) => this\.paintStatusTail\(\), 80\)/, 'the 12.5Hz colour ticker must stay gone');
+  assert.match(statusJs,/status-tail-animation\.wxss/);
   assert.doesNotMatch(template,/status-tail-image/);
   assert.doesNotMatch(template,/statusTailCanvas/);
   const css=fs.readFileSync(path.join(__dirname,'../miniprogram/styles/status-appearance.wxss'),'utf8');
@@ -257,6 +257,6 @@ test('unload detaches timers and the store before the heavy view snapshot', () =
   const snapshotAt = unload.indexOf('this.retainSessionView();');
   assert.ok(cleanupAt >= 0 && snapshotAt > cleanupAt, 'timers stop before the view snapshot');
   assert.ok(detachAt >= 0 && snapshotAt > detachAt, 'store subscription drops before the view snapshot');
-  assert.match(source, /startStatusTailTicker\(\) \{[\s\S]{0,240}?if \(this\._unloaded \|\| this\._voiceHidden\) return;/,
-    'a late callback cannot restart the 80ms interval after unload/hide');
+  assert.match(source, /startStatusTailTicker\(\) \{[\s\S]{0,400}?CSS 关键帧/,
+    'the ticker start is a documented no-op: the CSS keyframes own the animation');
 });

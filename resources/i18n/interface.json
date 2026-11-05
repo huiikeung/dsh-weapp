@@ -2635,5 +2635,6 @@
   "退款已发起": "Refund requested",
   "退款失败": "Refund failed",
   "展开其余 {n} 条记录": "Show {n} more records",
-  "已加载最近 200 条，更早的订单请在 MP 后台查看": "Showing the latest 200. See MP console for older orders."
+  "已加载最近 200 条，更早的订单请在 MP 后台查看": "Showing the latest 200. See MP console for older orders.",
+  "处理中…": "Processing…"
 }

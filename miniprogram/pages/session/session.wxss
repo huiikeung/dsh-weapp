@@ -9,7 +9,6 @@ mask-size: 6000% 100%;
 mask-repeat: no-repeat;
 -webkit-mask-position: 0% 50%;
 mask-position: 0% 50%;
-animation: statusTailSwim 3s steps(59) infinite !important;
 will-change: mask-position;
 }
 @keyframes statusTailSwim {
@@ -5007,8 +5006,8 @@ border-color: transparent;
 box-shadow:
 inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
 0 14rpx 44rpx rgba(3, 14, 30, 0.22);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .theme-light.session-glass .composer {
 background:
@@ -5021,8 +5020,8 @@ inset 0 -6rpx 16rpx rgba(255, 255, 255, 0.65),
 inset 0 0 22rpx rgba(255, 255, 255, 0.55),
 0 2rpx 6rpx rgba(7, 24, 43, 0.05),
 0 14rpx 30rpx rgba(7, 24, 43, 0.10);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .composer-backdrop {
 background: linear-gradient(to bottom, transparent, transparent);
@@ -5033,8 +5032,8 @@ linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(
 rgba(44, 45, 49, 0.62);
 border: 1rpx solid rgba(255, 255, 255, var(--glass-frost-edge, 0.11));
 box-shadow: 0 8rpx 24rpx rgba(3, 14, 30, 0.20);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .theme-light.session-glass .preset-capsule {
 background:
@@ -5043,8 +5042,8 @@ linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(
 rgba(247, 248, 251, 0.86);
 border-color: transparent;
 box-shadow: inset 0 4rpx 12rpx rgba(255, 255, 255, 0.85), inset 0 -4rpx 12rpx rgba(255, 255, 255, 0.60), inset 0 0 16rpx rgba(255, 255, 255, 0.50), 0 2rpx 5rpx rgba(7, 24, 43, 0.04), 0 10rpx 22rpx rgba(7, 24, 43, 0.09);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .opt-pop.mode-pop {
 background:
@@ -5054,8 +5053,8 @@ border-color: transparent;
 box-shadow:
 inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
 0 18rpx 48rpx rgba(3, 14, 30, 0.26);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .theme-light.session-glass .opt-pop.mode-pop {
 background:
@@ -5068,8 +5067,8 @@ inset 0 -6rpx 16rpx rgba(255, 255, 255, 0.65),
 inset 0 0 22rpx rgba(255, 255, 255, 0.55),
 0 4rpx 10rpx rgba(7, 24, 43, 0.05),
 0 20rpx 44rpx rgba(7, 24, 43, 0.13);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .task-panel, .session-glass .goal-panel, .session-glass .queue-panel {
 background:
@@ -5077,8 +5076,8 @@ linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(
 rgba(44, 45, 49, var(--card-dark-fill, 0.62));
 border-color: transparent;
 box-shadow: inset 0 0 0 1rpx var(--card-dark-edge), var(--card-dark-float);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .theme-light.session-glass .task-panel, .theme-light.session-glass .goal-panel, .theme-light.session-glass .queue-panel {
 background:
@@ -5086,8 +5085,8 @@ linear-gradient(180deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0) 46%),
 linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015))),
 rgba(247, 248, 251, var(--card-light-fill, 0.86));
 box-shadow: inset 0 6rpx 16rpx rgba(255, 255, 255, var(--card-light-glow-top, 0.5)), inset 0 -6rpx 16rpx rgba(255, 255, 255, var(--card-light-glow-bottom, 0.35)), inset 0 0 22rpx rgba(255, 255, 255, var(--card-light-glow-all, 0.3)), inset 0 0 0 1rpx var(--card-light-edge), var(--card-light-float);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .sheet.collab-sheet {
 width: calc(100% - 24px);
@@ -5099,8 +5098,8 @@ rgba(44, 45, 49, var(--card-dark-fill, 0.62));
 box-shadow:
 inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
 0 -12rpx 48rpx rgba(3, 14, 30, 0.18);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .theme-light.session-glass .sheet.collab-sheet {
 background:
@@ -5112,8 +5111,8 @@ inset 0 6rpx 16rpx rgba(255, 255, 255, 0.85),
 inset 0 -6rpx 16rpx rgba(255, 255, 255, 0.65),
 inset 0 0 22rpx rgba(255, 255, 255, 0.55),
 0 -12rpx 40rpx rgba(7, 24, 43, 0.10);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .collab-row {
 background: rgba(255, 255, 255, 0.04);
@@ -5143,8 +5142,8 @@ rgba(44, 45, 49, var(--card-dark-fill, 0.62));
 box-shadow:
 inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
 0 6rpx 20rpx rgba(3, 14, 30, 0.20);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .jump-ic { position: relative; z-index: 2; }
 .session-glass .jump-ring { z-index: 1; }
@@ -5158,8 +5157,8 @@ inset 0 3rpx 10rpx rgba(255, 255, 255, 0.85),
 inset 0 -3rpx 10rpx rgba(255, 255, 255, 0.65),
 inset 0 0 14rpx rgba(255, 255, 255, 0.55),
 0 6rpx 18rpx rgba(7, 24, 43, 0.10);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .turn-overlay {
 background: rgba(8, 10, 16, 0.50);
@@ -5209,8 +5208,8 @@ rgba(44, 45, 49, var(--card-dark-fill, 0.62));
 box-shadow:
 inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
 0 -12rpx 48rpx rgba(3, 14, 30, 0.18);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .sheet.session-menu.expanded {
 height: calc(100vh - 200rpx - 24px);
@@ -5226,8 +5225,8 @@ inset 0 6rpx 16rpx rgba(255, 255, 255, 0.85),
 inset 0 -6rpx 16rpx rgba(255, 255, 255, 0.65),
 inset 0 0 22rpx rgba(255, 255, 255, 0.55),
 0 -12rpx 40rpx rgba(7, 24, 43, 0.10);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .session-menu-group {
 background: rgba(255, 255, 255, 0.04);
@@ -5538,8 +5537,8 @@ rgba(44, 45, 49, var(--card-dark-fill, 0.62));
 box-shadow:
 inset 0 0 0 1rpx rgba(255, 255, 255, var(--glass-frost-edge, 0.11)),
 0 -12rpx 48rpx rgba(3, 14, 30, 0.18);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.35) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .theme-light.session-glass .sheet.more-files-sheet,
 .theme-light.session-glass .sheet.ext-file-sheet {
@@ -5552,8 +5551,8 @@ inset 0 6rpx 16rpx rgba(255, 255, 255, 0.85),
 inset 0 -6rpx 16rpx rgba(255, 255, 255, 0.65),
 inset 0 0 22rpx rgba(255, 255, 255, 0.55),
 0 -12rpx 40rpx rgba(7, 24, 43, 0.10);
-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
--webkit-backdrop-filter: blur(var(--glass-frost-blur, 20px)) saturate(1.1) brightness(var(--glass-backdrop-brightness, 1));
+backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
+-webkit-backdrop-filter: blur(var(--glass-frost-blur, 16px)) brightness(var(--glass-backdrop-brightness, 1));
 }
 .session-glass .more-files-row,
 .session-glass .ext-file-icon {

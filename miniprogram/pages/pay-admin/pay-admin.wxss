@@ -44,39 +44,47 @@
 
 /* 档位列表 */
 .pay-tiers { padding-bottom: 0; }
-.tier-item { padding: 24rpx 28rpx 18rpx; }
+.tier-item { padding: 22rpx 26rpx; }
 .tier-item + .tier-item { border-top: 1rpx solid var(--divider); }
-.tier-row { display: flex; align-items: center; gap: 18rpx; }
-.tier-day {
-  display: flex; align-items: center; gap: 8rpx;
-  min-width: 132rpx; height: 68rpx; padding: 0 18rpx 0 20rpx; box-sizing: border-box;
-  border-radius: 16rpx; background: var(--fill); border: 1rpx solid var(--border);
+.tier-row { display: flex; align-items: center; gap: 12rpx; }
+
+/* 天数：纯文字 + 箭头 */
+.tier-day { display: flex; align-items: center; gap: 8rpx; }
+.tier-day-value { font-size: 29rpx; font-weight: 650; color: var(--text); letter-spacing: 0.2rpx; }
+.tier-day-caret { font-size: 18rpx; color: var(--ocean); line-height: 1; }
+
+/* 道具 ID：单行内联，弱化存在感 */
+.tier-prop-chip {
+  flex: none; font-size: 19rpx; font-family: monospace; color: var(--text-3);
+  padding: 4rpx 10rpx; border-radius: 8rpx; background: var(--fill);
 }
-.tier-day-value { font-size: 28rpx; font-weight: 600; color: var(--text); }
-.tier-day-caret { font-size: 20rpx; color: var(--text-3); }
-.tier-price { flex: 1; display: flex; align-items: center; justify-content: flex-end; gap: 8rpx; min-width: 0; }
-.tier-currency { flex: none; font-size: 26rpx; color: var(--text-2); }
+
+/* 价格：唯一输入框，和这一行文字同一垂直中线 */
+.tier-price {
+  flex: 1; min-width: 0; max-width: 216rpx; margin-left: auto;
+  display: flex; align-items: center; gap: 8rpx;
+  height: 64rpx; padding: 0 16rpx; box-sizing: border-box;
+  border-radius: 14rpx;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1rpx solid rgba(255, 255, 255, 0.05);
+}
+.theme-light .tier-price { background: rgba(16, 19, 24, 0.035); border-color: rgba(16, 19, 24, 0.05); }
+.tier-currency { flex: none; font-size: 24rpx; color: var(--text-3); line-height: 1; }
 .tier-price-input {
-  width: 190rpx; height: 68rpx; padding: 0 18rpx; box-sizing: border-box;
-  border-radius: 16rpx; border: 1rpx solid var(--border);
-  background: var(--fill); color: var(--text);
-  font-size: 30rpx; font-weight: 600; text-align: right;
+  flex: 1; min-width: 0; height: 40rpx; padding: 0;
+  border: 0; background: transparent; color: var(--text);
+  font-size: 31rpx; font-weight: 650; line-height: 40rpx; text-align: right;
 }
 .tier-price-ph { color: var(--text-4); font-weight: 400; }
+
+/* 删除：无底色小叉 */
 .tier-del {
-  flex: none; width: 56rpx; height: 56rpx;
+  flex: none; width: 52rpx; height: 52rpx;
   display: flex; align-items: center; justify-content: center;
-  border-radius: 50%; background: var(--fill);
+  border-radius: 50%;
 }
-.tier-del:active { background: rgba(229, 72, 77, 0.12); }
-.tier-del-x { font-size: 34rpx; line-height: 1; color: var(--text-3); }
-.tier-meta { display: flex; align-items: center; gap: 10rpx; margin: 14rpx 0 0 2rpx; }
-.tier-prop-label { font-size: 21rpx; color: var(--text-3); }
-.tier-prop-chip {
-  font-size: 21rpx; font-family: monospace; color: var(--ocean);
-  padding: 4rpx 12rpx; border-radius: 8rpx;
-  background: rgba(46, 107, 230, 0.08);
-}
+.tier-del:active { background: rgba(229, 72, 77, 0.14); }
+.tier-del-x { font-size: 30rpx; line-height: 1; color: var(--text-4); }
 
 /* 空状态 / 添加 */
 .pay-empty { padding: 56rpx 20rpx; text-align: center; color: var(--text-3); font-size: 24rpx; }
@@ -143,3 +151,114 @@
 .order-toggle.is-busy { color: var(--text-3); }
 .order-capped { padding: 18rpx 26rpx; border-top: 1rpx solid var(--divider); font-size: 21rpx; color: var(--text-3); text-align: center; line-height: 1.5; }
 .order-toggle:active { background: var(--fill); }
+/* ===== 玻璃 UI：与设置页共用「设置页玻璃UI」开关与玻璃参数 ===== */
+.pay-glass .pay-card {
+  border-radius: var(--glass-radius-card, 36rpx);
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.06)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.015)));
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 8rpx 32rpx rgba(3, 14, 30, 0.18);
+  backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-blur-card, 3rpx)) brightness(var(--glass-backdrop-brightness, 1));
+}
+.pay-glass .tier-item + .tier-item,
+.pay-glass .order-item + .order-item,
+.pay-glass .order-group + .order-group,
+.pay-glass .order-toggle { border-top-color: rgba(255, 255, 255, 0.12); }
+
+/* 输入框与分段器：半透明层 + 发丝亮边，贴在玻璃卡片上不突兀 */
+.pay-glass .tier-price {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.10);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.08);
+}
+.pay-glass .order-filters {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+.pay-glass .order-filter.on {
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.20);
+}
+.pay-glass .pay-add:active,
+.pay-glass .order-toggle:active { background: rgba(255, 255, 255, 0.08); }
+
+/* 浅色主题：近白磨砂 + 深色发丝边 */
+.theme-light .pay-glass .pay-card {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.92), rgba(247, 249, 252, 0.86));
+  border-color: rgba(16, 19, 24, 0.08);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 8rpx 32rpx rgba(7, 24, 43, 0.10);
+}
+.theme-light .pay-glass .tier-item + .tier-item,
+.theme-light .pay-glass .order-item + .order-item,
+.theme-light .pay-glass .order-group + .order-group,
+.theme-light .pay-glass .order-toggle { border-top-color: rgba(16, 19, 24, 0.08); }
+.theme-light .pay-glass .tier-price,
+.theme-light .pay-glass .order-filters {
+  background: rgba(255, 255, 255, 0.55);
+  border-color: rgba(16, 19, 24, 0.08);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.70);
+}
+.theme-light .pay-glass .order-filter.on { background: rgba(255, 255, 255, 0.95); }
+
+/* ===== 自定义弹窗（确认退款 / 微信侧订单） ===== */
+.pay-dialog-mask {
+  position: fixed; left: 0; right: 0; top: 0; bottom: 0; z-index: 60;
+  display: flex; align-items: center; justify-content: center;
+  padding: 0 52rpx calc(env(safe-area-inset-bottom) + 24rpx);
+  background: rgba(3, 8, 16, 0.52);
+  animation: pay-dialog-fade 0.16s ease-out;
+}
+.pay-dialog {
+  width: 100%; max-width: 540rpx; box-sizing: border-box;
+  padding: 36rpx 32rpx 26rpx; border-radius: 30rpx;
+  background: var(--surface); border: 1rpx solid var(--border);
+  box-shadow: 0 24rpx 64rpx rgba(3, 14, 30, 0.38);
+  animation: pay-dialog-in 0.18s cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.pay-dialog-title { font-size: 31rpx; font-weight: 650; color: var(--text); text-align: center; letter-spacing: 0.3rpx; }
+.pay-dialog-body { display: flex; flex-direction: column; gap: 10rpx; margin-top: 20rpx; }
+.pay-dialog-line { font-size: 24rpx; line-height: 1.65; color: var(--text-2); word-break: break-all; }
+.pay-dialog-actions { display: flex; gap: 16rpx; margin-top: 30rpx; }
+.pay-dialog-btn {
+  flex: 1; min-height: 84rpx; display: flex; align-items: center; justify-content: center;
+  border-radius: 20rpx; background: var(--fill); color: var(--text-2);
+  font-size: 28rpx; font-weight: 500;
+}
+.pay-dialog-btn-hover { opacity: 0.82; }
+.pay-dialog-btn.is-primary {
+  color: #FFFFFF; font-weight: 600;
+  background: linear-gradient(135deg, var(--ocean), #1A5CC8);
+  box-shadow: 0 8rpx 22rpx rgba(46, 107, 230, 0.26);
+}
+.pay-dialog-btn.is-danger {
+  background: linear-gradient(135deg, #E5484D, #C93A3F);
+  box-shadow: 0 8rpx 22rpx rgba(229, 72, 77, 0.24);
+}
+.pay-dialog-btn.is-busy { opacity: 0.6; }
+
+@keyframes pay-dialog-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes pay-dialog-in { from { opacity: 0; transform: translateY(12rpx) scale(0.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+
+/* 玻璃：弹窗用浮起面板材质，遮罩带轻微模糊 */
+.pay-glass .pay-dialog {
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  background: linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04)));
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 24rpx 64rpx rgba(3, 14, 30, 0.42);
+  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+}
+.pay-glass .pay-dialog-mask { backdrop-filter: blur(2rpx); -webkit-backdrop-filter: blur(2rpx); }
+.pay-glass .pay-dialog-btn:not(.is-primary):not(.is-danger) {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+}
+.theme-light .pay-glass .pay-dialog {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.94), rgba(247, 249, 252, 0.88));
+  border-color: rgba(16, 19, 24, 0.08);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 24rpx 64rpx rgba(7, 24, 43, 0.22);
+}
+.theme-light .pay-glass .pay-dialog-btn:not(.is-primary):not(.is-danger) {
+  background: rgba(16, 19, 24, 0.05);
+  border-color: rgba(16, 19, 24, 0.08);
+}
