@@ -16,7 +16,7 @@ function getPublicAccessState(profile, connection) {
     : !authorized || expired ? uiText('当前邀请授权无效或已过期，请重新配对。')
     : !owner ? uiText('只有当前节点的所有者可以生成邀请；微信管理员身份与节点所有权是独立的。') : '';
   return {
-    publicOn, shareEnabled, shareReason, gatewayMode, expiresAt, authorized,
+    publicOn, shareEnabled, shareReason, gatewayMode, expiresAt, authorized, expired,
     isRelayOwner: owner,
     publicStatusLabel: expired ? uiText('已到期') : gatewayMode ? (connected ? uiText('已连接') : uiText('未连接')) : publicOn ? uiText('已开通') : uiText('未开通'),
     publicTitle: expired ? uiText('公网访问已到期') : gatewayMode ? (connected ? uiText('公网连接正常') : uiText('公网节点未连接')) : publicOn ? uiText('公网身份已建立') : uiText('尚未开通公网访问'),

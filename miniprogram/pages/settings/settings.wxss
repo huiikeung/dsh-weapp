@@ -2173,19 +2173,49 @@
 .pay-result-text { flex: 1; min-width: 0; }
 
 .pay-buy {
-  margin: 22rpx 0 0; padding: 0 34rpx; height: 92rpx; line-height: 92rpx;
-  width: 100%; box-sizing: border-box; border: 0;
+  /* 居中且收窄：不再满宽，也不带投影，避免和下方合规说明挤在一起 */
+  margin: 22rpx auto 0; padding: 0 30rpx; height: 88rpx; line-height: 88rpx;
+  width: 72%; box-sizing: border-box; border: 0;
   display: flex; align-items: center; justify-content: center; gap: 12rpx;
   border-radius: 999rpx;
   background: linear-gradient(135deg, var(--ocean), #1A5CC8);
   color: #fff; font-size: 30rpx; font-weight: 600;
-  box-shadow: 0 10rpx 26rpx rgba(46, 107, 230, .26);
 }
 .pay-buy::after { border: 0; }
 .pay-buy-hover { opacity: .88; transform: scale(.99); }
-.pay-buy.is-disabled { background: var(--fill); color: var(--text-3); box-shadow: none; }
+.pay-buy.is-disabled { background: var(--fill); color: var(--text-3); }
 .pay-buy-label { font-size: 30rpx; font-weight: 600; }
 .pay-buy-price { font-size: 28rpx; font-weight: 650; opacity: .92; }
+
+/* 付费协议勾选：位于购买按钮上方，未勾选时按钮不可点 */
+.pay-terms { display: flex; align-items: flex-start; gap: 12rpx; margin: 22rpx 8rpx 0; }
+.pay-terms-check {
+  flex: none; width: 32rpx; height: 32rpx; margin-top: 3rpx; box-sizing: border-box;
+  border-radius: 50%; border: 2rpx solid var(--border-strong);
+  display: flex; align-items: center; justify-content: center;
+}
+.pay-terms-check.on { background: var(--ocean); border-color: var(--ocean); }
+.pay-terms-tick { width: 13rpx; height: 7rpx; border-left: 3rpx solid #FFFFFF; border-bottom: 3rpx solid #FFFFFF; transform: rotate(-45deg) translateY(-1rpx); }
+.pay-terms-text { flex: 1; min-width: 0; font-size: 22rpx; line-height: 1.6; color: var(--text-3); }
+.pay-terms-link { color: var(--ocean); }
+
+/* 付费协议弹窗 */
+/* 需要盖在「公网访问」管理面板（同 z-index 但 DOM 更靠后）之上 */
+.pay-agreement-mask { z-index: 1300; }
+.agreement-scroll { max-height: 52vh; margin-top: 6rpx; }
+.agreement-text { display: block; margin-top: 14rpx; font-size: 23rpx; line-height: 1.7; color: var(--text-2); }
+.agreement-meta { display: block; margin: 4rpx 0 6rpx; font-size: 21rpx; color: var(--text-3); }
+.agreement-section { margin-top: 18rpx; }
+.agreement-heading { display: block; font-size: 25rpx; font-weight: 650; color: var(--text); }
+.agreement-section .agreement-text { margin-top: 8rpx; }
+.agreement-actions { margin-top: 22rpx; }
+.agreement-accept {
+  height: 88rpx; line-height: 88rpx; text-align: center; border-radius: 999rpx;
+  background: linear-gradient(135deg, var(--ocean), #1A5CC8); color: #FFFFFF;
+  font-size: 28rpx; font-weight: 600;
+}
+.agreement-accept.is-on { background: var(--fill); color: var(--text-3); }
+
 
 .pay-compliance { margin-top: 20rpx; padding: 18rpx 4rpx 0; border-top: 1rpx solid var(--divider); display: flex; flex-direction: column; gap: 8rpx; }
 .pay-compliance-text { color: var(--text-3); font-size: 22rpx; line-height: 1.55; }

@@ -116,6 +116,8 @@ function createPage(apiOptions) {
       if (name === '../../utils/theme') return { applyTo() {}, getMode: () => 'auto', resolveTheme: () => 'light', PAGE_BG: {} };
       if (name === '../../utils/build') return { BUILD_TIME: 'test-build', BUILD_VERSION: '0.9.27' };
       if (name === '../../utils/connection-status') return require('../miniprogram/utils/connection-status');
+      if (name === './pay-cta') return require('../miniprogram/pages/settings/pay-cta');
+      if (name === './pay-agreement') return require('../miniprogram/pages/settings/pay-agreement');
       throw new Error('Unexpected dependency: ' + name);
     },
     wx, Date,
@@ -1320,4 +1322,93 @@ test('payment card hides tiers that cannot be purchased on this device', () => {
   }
   assert.doesNotMatch(wxml, /priceBlocked|priceHint|pay-tier-hint|is-blocked/,
     'blocked-tier markup is removed from the settings template');
+});
+
+test('the purchase button offers activation or renewal from the account state', () => {
+  const { ctaKey } = require('../miniprogram/pages/settings/pay-cta');
+  const now = Date.now();
+  // 从未开通：没有账号记录、没有有效期、没有中继授权。
+  assert.equal(ctaKey(null, {}), '立即开通');
+  assert.equal(ctaKey({ publicAccess: false }, { expiresAt: 0 }), '立即开通');
+  // 管理员 / 有有效期（含已过期）/ 正在使用：都应显示续期。
+  assert.equal(ctaKey({ isAdmin: true }, {}), '立即续期');
+  assert.equal(ctaKey({ publicAccessExpiresAt: now + 86400000 }, {}), '立即续期');
+  assert.equal(ctaKey({ publicAccessExpiresAt: now - 86400000 }, {}), '立即续期');
+  assert.equal(ctaKey({ publicAccess: true }, {}), '立即续期');
+  assert.equal(ctaKey(null, { expiresAt: now - 1000, authorized: true }), '立即续期');
+  assert.equal(ctaKey(null, { gatewayMode: true, authorized: true }), '立即续期');
+
+  const source = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  assert.match(source, /const \{ ctaKey: payCtaKey \} = require\('\.\/pay-cta'\)/);
+  assert.match(source, /payCTALabel = uiText\(payCtaKey\(this\._publicAccount, publicState\)\)/);
+  assert.match(source, /payCTALabel: payCTALabel/);
+  const template = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  assert.match(template, /在线开通公网有效期/, 'the purchase card title says activate, not buy');
+  assert.match(template, /payCTALabel/, 'the button renders the lifecycle label');
+});
+
+test('the purchase button requires accepting the payment agreement first', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  const template = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  // 勾选控件 + 协议弹窗
+  assert.match(template, /class="pay-terms-check \{\{payAgreed \? 'on' : ''\}\}"/);
+  assert.match(template, /catchtap="openPayAgreement"/, 'the agreement title opens the sheet');
+  assert.match(template, /class="agreement-accept/, 'the agreement sheet has an accept button');
+  // 未同意时按钮禁用，点击给出提示并打开协议
+  assert.match(template, /payBuyDisabled \|\| !payAgreed \? 'is-disabled'/, 'the buy button is disabled until accepted');
+  assert.match(source, /if \(this\.data\.payAgreed !== true\) \{[\s\S]{0,220}?payAgreementSheet: true/);
+  assert.match(source, /togglePayAgreement\(\)[\s\S]{0,200}?dsh_pay_agreement_v1/);
+  assert.match(source, /acceptPayAgreement\(\)[\s\S]{0,240}?payAgreed: true/);
+  // 弹窗样式存在
+  for (const rule of ['.pay-terms-check', '.agreement-scroll', '.agreement-accept']) {
+    assert.ok(css.includes(rule), rule + ' style exists');
+  }
+  const dictionary = require('../miniprogram/i18n/interface');
+  for (const key of ['我已阅读并同意', '付费服务协议', '同意并继续', '请先阅读并同意付费服务协议', '在线开通公网有效期']) {
+    assert.ok(dictionary[key], key + ' must be translated');
+    assert.equal(/[㐀-鿿]/.test(dictionary[key]), false, key + ' must not stay Chinese in English');
+  }
+});
+
+test('public access state reports expiry so the purchase CTA can offer renewal', () => {
+  const { getPublicAccessState } = require('../miniprogram/pages/settings/public-access-state');
+  const now = Date.now();
+  const expired = getPublicAccessState({ relay: true, relayExpiresAt: now - 60000, relayAccessToken: 'token' }, 'connected');
+  assert.equal(expired.expired, true, 'a past relay expiry is reported as expired');
+  assert.equal(expired.publicOn, false, 'an expired relay is not considered online');
+  assert.ok(expired.expiresAt > 0, 'the expiry timestamp survives so the CTA can say renew');
+
+  const active = getPublicAccessState({ relay: true, relayExpiresAt: now + 3600000, relayAccessToken: 'token' }, 'connected');
+  assert.equal(active.expired, false);
+  assert.equal(active.publicOn, true);
+
+  const never = getPublicAccessState({ relay: true, relayAccessToken: 'token' }, 'connected');
+  assert.equal(never.expiresAt, 0, 'a never-activated relay has no expiry');
+  assert.equal(never.expired, false);
+});
+
+test('the paid service agreement ships seven sections tailored to the mini program', () => {
+  const agreement = require('../miniprogram/pages/settings/pay-agreement');
+  const sections = agreement.sections();
+  assert.equal(sections.length, 7, 'seven sections as drafted');
+  assert.equal(sections.reduce((total, item) => total + item.paragraphs.length, 0), 15);
+  const paragraphs = [];
+  for (const section of sections) paragraphs.push(section.heading);
+  for (const section of sections) paragraphs.push(...section.paragraphs);
+  const all = paragraphs.join(' | ');
+  // 微信小程序虚拟支付 / 公网访问 / 退款 / 客服：不能残留华为 IAP 的表述。
+  assert.match(all, /微信小程序虚拟支付/);
+  assert.doesNotMatch(all, /华为/);
+  assert.match(all, /联系客服/);
+  assert.match(agreement.metaLine(), /版本 v1\.0/);
+  assert.match(agreement.metaLine(), /2026年11月6日/);
+  const dictionary = require('../miniprogram/i18n/interface');
+  for (const text of paragraphs) {
+    assert.ok(dictionary[text], text.slice(0, 24) + ' must be translated');
+    assert.equal(/[\u3400-\u9fff]/.test(dictionary[text]), false, text.slice(0, 24) + ' must not stay Chinese');
+  }
+  const template = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  assert.match(template, /wx:for="\{\{payAgreementSections\}\}"/, 'the sheet renders the structured sections');
+  assert.match(template, /付费服务协议/);
 });

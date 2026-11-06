@@ -1,5 +1,30 @@
 # 更新记录
 
+## v0.9.120 — 2026-11-06
+
+- 公网访问购买卡片重做：
+  - 标题由「在线购买公网有效期」改为「在线开通公网有效期」。
+  - 主按钮去掉投影、宽度收窄到 72% 并居中；高度略降。
+  - 按钮文案按账号状态显示：从未开通 → 立即开通；管理员、有有效期、已过期、正在使用 → 立即续期。
+- 付费服务协议：
+  - 购买前必须勾选「我已阅读并同意《付费服务协议》」，未勾选时按钮置灰不可点，点击会提示并自动弹出协议。
+  - 协议按小程序虚拟支付能力重写：7 章（主体与范围、服务内容、价格与支付、退款规则、可用性与免责、使用规范、变更与联系），含生效日期与版本 v1.0。
+  - 修复协议弹窗被公网访问管理面板遮住的问题（独立 z-index）。
+  - 勾选状态本地记住，无需每次重复勾选。
+- 测试：全量 1485 项、1471 通过、14 项环境依赖跳过、0 失败；新增 CTA 判定、协议结构、i18n 覆盖用例。
+
+
+## v0.9.120 — 2026-11-05
+
+- 原生鸿蒙（harmonyos/native-atomic）设置页全面对齐小程序：
+  - 完全重写 AppSettingsPage 为与 pages/settings 一致的结构与顺序，包括连接、外观、通用设置、对话、实验性功能、关于等所有分类。
+  - 新增 ParticleBackground 组件（ArkUI Particle 粒子 API），提供与小程序 ocean-background 一致的深海漂浮粒子背景。
+  - 新增 GlassCard 组件（18vp 圆角、高斯模糊、描边、阴影），配合 ParticleBackground 实现原生 "粒子+玻璃拟态" 弹窗，子页面风格统一。
+  - PreferencesStore 增加 getBoolean/putBoolean/getNumber/putNumber，与小程序 local-cache 兼容（如 glassAlpha、glassBlur、settingsGlassEnabled 等）。
+  - 左侧抽屉（Brand + Plugins + Schedule + CostCard + Settings）已对齐小程序 drawer 结构。
+  - Index.ets 中增加 privacy-policy / announcements 路由兜底，避免 pushPathByName 崩溃。
+
+
 ## v0.9.119 — 2026-11-05
 
 - 虚拟支付管理页整合：设置里的「虚拟支付」行改为箭头入口，支付档位合并进同一页；档位列表改为单行布局（天数 · 道具 ID · 价格 · 删除），价格输入框缩短并适配玻璃材质，保存按钮整宽。

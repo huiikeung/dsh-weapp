@@ -260,6 +260,29 @@
       </view>
     </view>
   </view>
+  <!-- 付费协议弹窗 -->
+  <view wx:if="{{payAgreementSheet}}" class="pair-sheet-mask pay-agreement-mask" catchtap="closePayAgreement" catchtouchmove="noop">
+    <view class="pair-sheet appearance-sheet {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" catchtap="noop" role="dialog" aria-label="{{ui['付费服务协议']}}">
+      <view class="pair-sheet-head">
+        <view>
+          <text class="pair-sheet-title">{{ui['付费服务协议']}}</text>
+          <text class="pair-sheet-subtitle">{{ui['请在购买前阅读以下条款']}}</text>
+        </view>
+        <view class="pair-sheet-close tap" bindtap="closePayAgreement" role="button"><view class="sheet-close-x"></view></view>
+      </view>
+      <scroll-view scroll-y class="agreement-scroll">
+        <text class="agreement-meta">{{payAgreementMeta}}</text>
+        <view wx:for="{{payAgreementSections}}" wx:key="key" class="agreement-section">
+          <text class="agreement-heading">{{item.heading}}</text>
+          <text wx:for="{{item.paragraphs}}" wx:for-item="para" wx:key="*this" class="agreement-text">{{para}}</text>
+        </view>
+      </scroll-view>
+      <view class="agreement-actions">
+        <view class="agreement-accept {{payAgreed ? 'is-on' : ''}}" bindtap="acceptPayAgreement" role="button">{{payAgreed ? ui['已同意'] : ui['同意并继续']}}</view>
+      </view>
+    </view>
+  </view>
+
   <!-- 管理员弹窗 -->
   <view wx:if="{{adminSheet}}" class="pair-sheet-mask" catchtap="closeAdminSheet" catchtouchmove="noop">
     <view class="pair-sheet resizable {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" style="height: calc(90vh - var(--glass-sheet-drop, 0px));" catchtap="noop" role="dialog" aria-label="{{ui['公网权限']}}">
@@ -695,7 +718,7 @@
           <view wx:if="{{payVisible}}" class="pay-block">
             <!-- 标题区：档位改成可选中的订阅卡，底部只保留一个主按钮，避免每张卡各放一个按钮 -->
             <view class="pay-head">
-              <text class="pay-title">{{ui['在线购买公网有效期']}}</text>
+              <text class="pay-title">{{ui['在线开通公网有效期']}}</text>
               <text class="pay-sub">{{ui['虚拟商品，支付后即时生效。']}}</text>
             </view>
 
@@ -722,16 +745,23 @@
 
             <view wx:if="{{payResultLabel}}" class="pay-result"><view class="pay-result-dot"></view><text class="pay-result-text">{{ui[payResultLabel] !== undefined ? ui[payResultLabel] : payResultLabel}}</text></view>
 
+            <view class="pay-terms">
+              <view class="pay-terms-check {{payAgreed ? 'on' : ''}}" bindtap="togglePayAgreement" role="checkbox" aria-checked="{{payAgreed}}" aria-label="{{ui['我已阅读并同意付费服务协议']}}">
+                <view wx:if="{{payAgreed}}" class="pay-terms-tick"></view>
+              </view>
+              <text class="pay-terms-text" bindtap="togglePayAgreement">{{ui['我已阅读并同意']}}<text class="pay-terms-link" catchtap="openPayAgreement">{{ui['付费服务协议']}}</text></text>
+            </view>
+
             <!-- 用 view 而不是 button：微信 v2 原生 button 会覆盖 class 里的宽度，导致按钮缩成内容宽。 -->
             <view
-              class="pay-buy {{!!payBusyTier || !!paySupportReason || payBuyDisabled ? 'is-disabled' : ''}}"
+              class="pay-buy {{!!payBusyTier || !!paySupportReason || payBuyDisabled || !payAgreed ? 'is-disabled' : ''}}"
               data-id="{{paySelectedTierId}}"
               bindtap="buyPayTier"
-              hover-class="{{!!payBusyTier || !!paySupportReason || payBuyDisabled ? 'none' : 'pay-buy-hover'}}"
+              hover-class="{{!!payBusyTier || !!paySupportReason || payBuyDisabled || !payAgreed ? 'none' : 'pay-buy-hover'}}"
               role="button"
-              aria-disabled="{{!!payBusyTier || !!paySupportReason || payBuyDisabled}}"
+              aria-disabled="{{!!payBusyTier || !!paySupportReason || payBuyDisabled || !payAgreed}}"
             >
-              <text class="pay-buy-label">{{payBusyTier ? ui['支付中…'] : ui['立即购买']}}</text>
+              <text class="pay-buy-label">{{payBusyTier ? ui['支付中…'] : (ui[payCTALabel] !== undefined ? ui[payCTALabel] : payCTALabel)}}</text>
               <text wx:if="{{!payBusyTier && !paySupportReason && !payBuyDisabled && paySelectedPriceLabel}}" class="pay-buy-price">¥{{paySelectedPriceLabel}}</text>
             </view>
 

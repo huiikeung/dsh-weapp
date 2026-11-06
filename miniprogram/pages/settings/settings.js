@@ -21,6 +21,8 @@ const contextPreferences = require('./utils/context-prefs');
 const theme = require('../../utils/theme');
 const accessApi = require('../../utils/access-api');
 const { getPublicAccessState } = require('./public-access-state');
+const { ctaKey: payCtaKey } = require('./pay-cta');
+const payAgreement = require('./pay-agreement');
 const { nodePresentation } = require('./utils/node-presentation');
 const { connectionView } = require('../../utils/connection-status');
 const { normalizeHostInfo } = require('../../utils/host-info');
@@ -118,6 +120,10 @@ Page({
     payEnabled: false,
     payReady: false,
     payVisible: false,
+    payAgreed: false,
+    payAgreementSheet: false,
+    payAgreementSections: [],
+    payAgreementMeta: '',
     payTiers: [],
     paySelectedTierId: '',
     paySelectedPriceLabel: '',
@@ -652,7 +658,7 @@ Page({
   onShow() {
     this._settingsVisible = true;
     const contextPanelPrefs = contextPanelsPreference.read();
-    this.setData({ voiceEnabled: voicePreference.enabled(),
+    this.setData({ payAgreed: this.readPayAgreement(), voiceEnabled: voicePreference.enabled(),
       homeAnimationEnabled: homeAnimationPreference.enabled(),
       showContextPanel: contextPanelPrefs.context,
       showFleetPanel: contextPanelPrefs.fleet,
@@ -1478,6 +1484,8 @@ Page({
       this.setData({ nodeDetailId: '', nodePingBusy: false, managementPanel: this.data.managementPanel === 'gateway' ? 'nodes' : this.data.managementPanel });
     }
     const publicState = getPublicAccessState(activeProfile, app.connection);
+    // 购买按钮文案：从未开通过公网访问 → 立即开通；管理员 / 有有效期 / 已过期 / 正在使用 → 立即续期。
+    const payCTALabel = uiText(payCtaKey(this._publicAccount, publicState));
     const relayOwner = publicState.isRelayOwner;
     const nodeId = activeProfile ? (activeProfile.gatewayId || activeProfile.id || '') : '';
     const { expiresAt, authorized, publicOn, publicStatusLabel, publicTitle } = publicState;
@@ -1522,7 +1530,8 @@ Page({
       publicExpiryLabel: expiresAt ? formatExpiry(expiresAt) : authorized ? (publicState.gatewayMode ? uiText('以网关设备授权为准') : uiText('未设置到期时间')) : '',
       publicTitle: publicTitle,
       publicSub: publicSub,
-      publicHint: publicHint
+      publicHint: publicHint,
+      payCTALabel: payCTALabel
     };
     if (accessApi.configured()) {
       const account = this._publicAccount;
@@ -2218,6 +2227,36 @@ Page({
   },
 
   /** 选择要购买的档位；列表里只会出现当前设备可买的档位。 */
+  /** 付费协议勾选：同意后才能点击购买按钮；本地记住，避免每次重复勾选。 */
+  togglePayAgreement() {
+    const next = this.data.payAgreed !== true;
+    try { wx.setStorageSync('dsh_pay_agreement_v1', next); } catch (e) { /* 内存生效 */ }
+    this.setData({ payAgreed: next });
+  },
+
+  acceptPayAgreement() {
+    if (this.data.payAgreed !== true) {
+      try { wx.setStorageSync('dsh_pay_agreement_v1', true); } catch (e) { /* 内存生效 */ }
+    }
+    this.setData({ payAgreed: true, payAgreementSheet: false });
+  },
+
+  openPayAgreement() {
+    this.setData({
+      payAgreementSections: payAgreement.sections(),
+      payAgreementMeta: payAgreement.metaLine(),
+      payAgreementSheet: true
+    });
+  },
+
+  closePayAgreement() {
+    this.setData({ payAgreementSheet: false });
+  },
+
+  readPayAgreement() {
+    try { return wx.getStorageSync('dsh_pay_agreement_v1') === true; } catch (e) { return false; }
+  },
+
   selectPayTier(event) {
     if (this.data.payBusyTier || !this.data.payVisible) return;
     const id = event && event.currentTarget && event.currentTarget.dataset ? event.currentTarget.dataset.id : '';
@@ -2236,6 +2275,11 @@ Page({
     const id = event && event.currentTarget && event.currentTarget.dataset ? event.currentTarget.dataset.id : '';
     const tier = (this.data.payTiers || []).find(item => item.id === id);
     if (!tier || this.data.payBusyTier || !this.data.payVisible || this.data.payBuyDisabled) return;
+    if (this.data.payAgreed !== true) {
+      wx.showToast({ title: uiText('请先阅读并同意付费服务协议'), icon: 'none' });
+      this.setData({ payAgreementSheet: true });
+      return;
+    }
     if (this.data.paySupportReason) { wx.showToast({ title: this.data.paySupportReason, icon: 'none' }); return; }
     // iOS Apple 支付要求最低 1 元；低价测试档在 iOS 上直接给出原因，不让微信抛 -15001。
     const price = virtualPay.priceIssue(tier.price);
