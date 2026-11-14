@@ -1670,7 +1670,7 @@
       <!-- 输入卡 -->
       <view class="composer-surface {{voiceOverlayVisible ? 'voice-holding' : ''}}">
       <view class="composer-backdrop" aria-hidden="true"></view>
-      <view class="composer {{composerFocused ? 'composer-expanded' : ''}}" style="--composer-line: {{composerInputHeightPx}}px;">
+      <view class="composer {{composerFocused || draft || images.length ? 'composer-expanded' : ''}}" style="--composer-line: {{composerInputHeightPx}}px;">
 <view wx:if="{{images.length}}" class="composer-images">
       <block wx:for="{{images}}" wx:key="id">
         <view wx:if="{{item.isFile}}" class="pending-file" catchtap="previewPendingFile" data-index="{{index}}" role="button" aria-label="{{ui['预览']}} {{item.name}}">
@@ -1686,7 +1686,7 @@
     </view>
       <view class="composer-line">
       <!-- 默认单栏：左侧加号；聚焦后隐藏，回到原来的 chips 栏布局 -->
-      <view wx:if="{{!composerFocused}}" class="composer-plus-inline {{attachSheetOpen ? 'active' : ''}}" bindtap="attachMenu" role="button" aria-label="{{ui['添加与指令']}}" aria-expanded="{{attachSheetOpen}}">
+      <view wx:if="{{!composerFocused && !draft && !images.length}}" class="composer-plus-inline {{attachSheetOpen ? 'active' : ''}}" bindtap="attachMenu" role="button" aria-label="{{ui['添加与指令']}}" aria-expanded="{{attachSheetOpen}}">
         <image class="composer-plus-ic" src="/assets/icons/plus-gray.png"/>
       </view>
       <view class="voice-input-wrap">
@@ -1736,11 +1736,11 @@
     />
       </view>
       <!-- A dedicated touch surface avoids fighting native text selection/keyboard gestures. -->
-      <view wx:if="{{!composerFocused && !composerValue && !images.length && !composerPreview}}" class="composer-collapsed-placeholder">{{ui['描述你想要构建的内容']}}</view>
+      <view wx:if="{{!composerFocused && !draft && !images.length && !composerPreview}}" class="composer-collapsed-placeholder">{{ui['描述你想要构建的内容']}}</view>
       <view wx:if="{{voiceEnabled && ((!composerFocused && !voiceTyping && voicePhase === 'idle') || voiceOverlayVisible)}}" class="voice-touch-surface" catchtouchstart="onVoiceTouchStart" catchtouchmove="onVoiceTouchMove" catchtouchend="onVoiceTouchEnd" catchtouchcancel="cancelVoice" role="button" aria-label="{{ui['轻点输入，按住说话，上滑取消']}}"></view>
       </view>
       <!-- 默认单栏右侧动作：运行中显示停止，有内容时显示发送 -->
-      <block wx:if="{{!composerFocused}}">
+      <block wx:if="{{!composerFocused && !draft && !images.length}}">
         <view wx:if="{{running && !canSend}}" class="send-btn stop composer-inline-send glass-press" bindtap="stopAgent" role="button" aria-label="{{ui['停止当前回合']}}"><view class="stop-square"></view></view>
         <view wx:elif="{{canSend}}" class="send-btn composer-inline-send glass-press" bindtap="onComposerAction" role="button" aria-label="{{ui['发送']}}"><image class="send-ic" src="/assets/icons/arrow-up-white.png"/></view>
       </block>

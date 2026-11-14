@@ -3804,7 +3804,7 @@ Page({
     this.prioritizeInteraction();
     // 占位双态（iOS：聚焦后切换为「描述你想要构建的内容」）
     if (!this.data.composerFocused) {
-      this.setData({ composerFocused: true, voiceTyping: true });
+      this.setData({ composerFocused: true, voiceTyping: true }, () => this.schedulePermissionChipFit());
       // 展开后输入卡变高：不在这里立刻重测 dock（会和键盘高度事件叠成两次
       // 布局，真机上表现为内容上推一顿一顿）。改为防抖等待键盘高度落定后
       // 统一重测一次；若没有键盘（外接键盘/取消失败），320ms 后也会补一次。
@@ -3829,6 +3829,7 @@ Page({
     // 三个 setData 合成一个，避免 blur 时连续三次布局/渲染。
     this.setData(Object.assign({ kbHeight: 0, composerFocused: false, composerFocus: false, voiceTyping: false }, this.layoutPatch({ kbHeight: 0 })), () => {
       // 收起回单栏后 dock 变矮：等过渡结束再重测，避免对话底部留下多余空白。
+      this.schedulePermissionChipFit();
       this.scheduleDockRemeasure(360);
       this.measureConversationViewport();
     });
@@ -6995,7 +6996,7 @@ Page({
     }, 80);
   },
 
-  fitPermissionChip() {
+  fitPermissionChip(attempt) {
     if (this._unloaded || typeof wx === 'undefined' || !wx.createSelectorQuery) return;
     const query = wx.createSelectorQuery().in(this);
     query.select('.composer-bar').boundingClientRect();
@@ -7009,7 +7010,15 @@ Page({
       const probe = results && results[2];
       const label = results && results[3];
       const spacer = results && results[4];
-      if (!bar || !probe || !probe.width) return;
+      if (!bar || !bar.width || !probe || !probe.width) {
+        // 单栏状态下 chips 栏是隐藏的（宽度 0）：稍后重试，等展开后拿到真实宽度再决定
+        // 是否只显示图标 + 箭头，避免中文标签被压成「完全访…」。
+        const tries = typeof attempt === 'number' ? attempt : 0;
+        if (tries < 3 && typeof setTimeout === 'function') {
+          setTimeout(() => { if (!this._unloaded) this.fitPermissionChip(tries + 1); }, 160);
+        }
+        return;
+      }
       const iconOnly = this.data.permissionChipIconOnly === true;
       let next = iconOnly;
       if (iconOnly) {

@@ -184,3 +184,33 @@ test('composer focus and keyboard height share one debounced dock remeasure', ()
   assert.match(source, /wx\.onWindowResize\(/, 'window resize fallback exists for clients without the global keyboard API');
   assert.doesNotMatch(source, /_dockSkipRetries/);
 });
+
+test('composer keeps its expanded layout while a draft exists', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  const source = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
+  // 真机上用户打字只更新 draft（原生 textarea 自己保存显示值），composerValue 不会跟着变；
+  // 展开条件必须用 draft，否则收起键盘就掉回单栏。
+  assert.match(xml, /class="composer \{\{composerFocused \|\| draft \|\| images\.length \? 'composer-expanded' : ''\}\}"/);
+  assert.doesNotMatch(xml, /composerFocused \|\| composerValue/);
+  assert.match(xml, /wx:if="\{\{!composerFocused && !draft && !images\.length\}\}"[^>]*composer-plus-inline/);
+  assert.match(source, /const patch = \{ draft: value, composerCursor: this\._composerCursor, canSend:/);
+  assert.match(source, /if \(edited\.display !== raw\) patch\.composerValue = edited\.display;/);
+});
+
+test('permission chip falls back to icon plus chevron when its label does not fit', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  // 单栏时 chips 栏是隐藏的（宽度 0），展开后必须重新量一次，否则中文会被压成「完全访…」。
+  assert.match(source, /this\.setData\(\{ composerFocused: true, voiceTyping: true \}, \(\) => this\.schedulePermissionChipFit\(\)\)/);
+  assert.match(source, /fitPermissionChip\(attempt\)/);
+  assert.match(source, /if \(!bar \|\| !bar\.width \|\| !probe \|\| !probe\.width\) \{/, 'hidden bar measurement is retried');
+  assert.match(source, /setTimeout\(\(\) => \{ if \(!this\._unloaded\) this\.fitPermissionChip\(tries \+ 1\); \}, 160\)/);
+  // 放不下 → 只留图标 + 箭头；有富余空间 → 恢复文字。
+  assert.match(source, /if \(next !== iconOnly\) this\.setData\(\{ permissionChipIconOnly: next \}\)/);
+  assert.match(xml, /wx:if="\{\{!permissionChipIconOnly\}\}" class="chip-label"/);
+  assert.match(xml, /class="permission-chip-chevron/);
+});
