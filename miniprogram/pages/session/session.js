@@ -401,6 +401,8 @@ Page({
       const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
       const sbH = info.statusBarHeight || 44;
       const winW = info.windowWidth || 375;
+      // 基准窗口高度：用来判断键盘是「覆盖」窗口还是「压缩」窗口。
+      this._windowHeightBaseline = info.windowHeight || 0;
       let rect = null;
       try {
         rect = typeof wx.getMenuButtonBoundingClientRect === 'function'
@@ -442,6 +444,29 @@ Page({
     } else {
       this.syncFromStore({ app: store.state, session: store.sessionState });
     }
+    // 全局键盘高度：鸿蒙 / Android 的 textarea 事件经常不触发，必须同时听全局事件，
+    // 否则会出现「点了输入框，内容完全不跟着上推」。两路事件在 applyKeyboardHeight 里去重。
+    if (typeof wx.onKeyboardHeightChange === 'function') {
+      this._keyboardHeightListener = (res) => this.applyKeyboardHeight(res && res.height);
+      wx.onKeyboardHeightChange(this._keyboardHeightListener);
+    } else if (typeof wx.onWindowResize === 'function') {
+      // 极少数版本没有全局键盘 API：用窗口高度变化推断键盘高度。
+      try {
+        const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+        this._windowHeightBaseline = info && info.windowHeight || 0;
+      } catch (e) { this._windowHeightBaseline = 0; }
+      this._windowResizeListener = (res) => {
+        const size = res && res.size;
+        const next = size && size.windowHeight;
+        if (!next || this._unloaded) return;
+        const prev = this._windowHeightBaseline;
+        if (prev && Math.abs(next - prev) > 60 && Date.now() - (this._lastKeyboardSignalAt || 0) > 400) {
+          this.applyKeyboardHeight(next < prev ? prev - next : 0);
+        }
+        this._windowHeightBaseline = next;
+      };
+      wx.onWindowResize(this._windowResizeListener);
+    }
   },
 
   onReady() {
@@ -465,6 +490,9 @@ Page({
   },
 
   onHide() {
+    this._pageHidden = true;
+    this._pendingKeyboardHeight = null;
+    if (this._keyboardApplyTimer) { clearTimeout(this._keyboardApplyTimer); this._keyboardApplyTimer = null; }
     // 先停掉还会持续回调的计时器并标记隐藏：后面的草稿/预览/语音清理即使抛错，
     // 也不能把 80ms 状态条 interval 留在后台——这就是返回首页后卡死的来源。
     this._voiceHidden = true;
@@ -493,6 +521,7 @@ Page({
   },
 
   onShow() {
+    this._pageHidden = false;
     this.setData(Object.assign({ sessionGlassEnabled: sessionGlassPreference.read(), jankSafe: jankGuard.degraded() }, settingsGlassStylePreference.view({ light: String(this.data.themeClass || '').indexOf('light') >= 0 }), sessionCardStylePreference.view()));
     const firstPageShow = this._initialPageShowPending === true;
     this._initialPageShowPending = false;
@@ -599,6 +628,18 @@ Page({
     // 这样即使 retainSessionView 或后面的清理变慢、抛错，也不会把 80ms
     // 状态条 interval 和 store 订阅留在已经销毁的页面上（返回首页卡死的根因）。
     this._unloaded = true;
+    this._pageHidden = true;
+    if (this._keyboardHeightListener && typeof wx.offKeyboardHeightChange === 'function') {
+      wx.offKeyboardHeightChange(this._keyboardHeightListener);
+    }
+    this._keyboardHeightListener = null;
+    if (this._windowResizeListener && typeof wx.offWindowResize === 'function') {
+      wx.offWindowResize(this._windowResizeListener);
+    }
+    this._windowResizeListener = null;
+    if (this._keyboardApplyTimer) { clearTimeout(this._keyboardApplyTimer); this._keyboardApplyTimer = null; }
+    this._pendingKeyboardHeight = null;
+    this._lastKeyboardSignalAt = 0;
     this._voiceHidden = true;
     this.stopStatusTailTicker();
     if (this._runTimer) { clearInterval(this._runTimer); this._runTimer = null; }
@@ -3703,20 +3744,94 @@ Page({
 
   /** 键盘高度：手动把输入条抬到键盘上方（adjust-position 关闭，避免整页顶起） */
   onKeyboardHeight(e) {
-    const h = this.data.tab === 'conversation' ? ((e.detail && e.detail.height) || 0) : 0;
-    // 高度与布局一次 setData 写完：键盘弹起/收起会连发多次事件，分开写等于把整页布局
-    if (h !== this.data.kbHeight) this.setData(Object.assign({ kbHeight: h }, this.layoutPatch({ kbHeight: h })), () => this.measureConversationViewport());
+    this.applyKeyboardHeight(e && e.detail && e.detail.height);
+  },
+
+  /**
+   * 统一键盘高度入口：textarea 的 bindkeyboardheightchange、全局 wx.onKeyboardHeightChange
+   * 以及窗口尺寸兜底都走这里。鸿蒙 / 部分 Android 机型上 textarea 自带事件不触发，
+   * 只靠它会出现「点了输入框但内容完全不上推」。
+   */
+  applyKeyboardHeight(height) {
+    if (this._unloaded || this._pageHidden) return;
+    this._lastKeyboardSignalAt = Date.now();
+    const raw = Number(height);
+    const next = this.data.tab === 'conversation' && Number.isFinite(raw) && raw > 0 ? Math.round(raw) : 0;
+    if (next === (Number(this.data.kbHeight) || 0)) return;
+    // 收起立即生效；弹起时合并 40ms 内的连续高度上报，少做几次整页布局。
+    if (next === 0) {
+      this._pendingKeyboardHeight = null;
+      if (this._keyboardApplyTimer) { clearTimeout(this._keyboardApplyTimer); this._keyboardApplyTimer = null; }
+      this.commitKeyboardHeight(0);
+      return;
+    }
+    this._pendingKeyboardHeight = next;
+    if (this._keyboardApplyTimer) return;
+    this._keyboardApplyTimer = setTimeout(() => {
+      this._keyboardApplyTimer = null;
+      if (this._unloaded || this._pageHidden) return;
+      const value = this._pendingKeyboardHeight;
+      this._pendingKeyboardHeight = null;
+      if (value == null) return;
+      this.commitKeyboardHeight(value);
+    }, 40);
+  },
+
+  commitKeyboardHeight(h) {
+    // 鸿蒙 / 部分 Android 弹键盘时窗口本身会被压缩（windowHeight 变小）：
+    // fixed 底栏已经跟着视口上移，再加键盘高度会推两次（表现为「推过头再弹回」）。
+    // 这种情况只做一次 dock 校准，不额外增加底部留白。
+    if (h > 0) {
+      try {
+        const info = typeof wx.getWindowInfo === 'function' ? wx.getWindowInfo() : wx.getSystemInfoSync();
+        const base = Number(this._windowHeightBaseline) || 0;
+        const now = Number(info && info.windowHeight) || 0;
+        if (base && now && base - now > 60) {
+          this.scheduleDockRemeasure(160);
+          if (Number(this.data.kbHeight) === 0) return;
+          h = 0;
+        }
+      } catch (e) { /* 取不到窗口信息时按覆盖式键盘处理 */ }
+    }
+    if (h === (Number(this.data.kbHeight) || 0)) return;
+    this.setData(Object.assign({ kbHeight: h }, this.layoutPatch({ kbHeight: h })), () => this.measureConversationViewport());
+    // dock 的 bottom 有 250ms 过渡：等它结束再测，否则量到动画中间值，
+    // 留白会算错（表现为「要么没上推，要么推过头再弹回来」）。
+    this.scheduleDockRemeasure(300);
   },
 
   onComposerFocus() {
     this.prioritizeInteraction();
     // 占位双态（iOS：聚焦后切换为「描述你想要构建的内容」）
-    if (!this.data.composerFocused) this.setData({ composerFocused: true, voiceTyping: true });
+    if (!this.data.composerFocused) {
+      this.setData({ composerFocused: true, voiceTyping: true });
+      // 展开后输入卡变高：不在这里立刻重测 dock（会和键盘高度事件叠成两次
+      // 布局，真机上表现为内容上推一顿一顿）。改为防抖等待键盘高度落定后
+      // 统一重测一次；若没有键盘（外接键盘/取消失败），320ms 后也会补一次。
+      this.scheduleDockRemeasure(360);
+    }
+  },
+
+  /** 输入卡高度变化后的 dock 重测：防抖合并键盘连续的高度事件。 */
+  scheduleDockRemeasure(delay) {
+    if (typeof setTimeout !== 'function') return;
+    if (this._dockRemeasureTimer) clearTimeout(this._dockRemeasureTimer);
+    this._dockRemeasureTimer = setTimeout(() => {
+      this._dockRemeasureTimer = null;
+      if (this._unloaded) return;
+      this.updateDockInset();
+    }, typeof delay === 'number' ? delay : 300);
   },
 
   onKeyboardHide() {
+    this._pendingKeyboardHeight = null;
+    if (this._keyboardApplyTimer) { clearTimeout(this._keyboardApplyTimer); this._keyboardApplyTimer = null; }
     // 三个 setData 合成一个，避免 blur 时连续三次布局/渲染。
-    this.setData(Object.assign({ kbHeight: 0, composerFocused: false, composerFocus: false, voiceTyping: false }, this.layoutPatch({ kbHeight: 0 })), () => this.measureConversationViewport());
+    this.setData(Object.assign({ kbHeight: 0, composerFocused: false, composerFocus: false, voiceTyping: false }, this.layoutPatch({ kbHeight: 0 })), () => {
+      // 收起回单栏后 dock 变矮：等过渡结束再重测，避免对话底部留下多余空白。
+      this.scheduleDockRemeasure(360);
+      this.measureConversationViewport();
+    });
   },
 
 

@@ -24,6 +24,7 @@ const { getPublicAccessState } = require('./public-access-state');
 const { ctaKey: payCtaKey } = require('./pay-cta');
 const payAgreement = require('./pay-agreement');
 const { nodePresentation } = require('./utils/node-presentation');
+const { connectionCardView } = require('./utils/connection-card');
 const { connectionView } = require('../../utils/connection-status');
 const { normalizeHostInfo } = require('../../utils/host-info');
 const storageUsage = require('./utils/storage-usage');
@@ -94,6 +95,8 @@ Page({
     nodeEditMode: false,
     nodeSelection: [],
     nodeCount: 0,
+    confirmDialog: { open: false, title: '', content: '', confirmText: '', cancelText: '', tone: 'primary', busy: false, action: '', ids: [] },
+    connectionCard: null,
     activeNodeName: '',
     onlineNodeCount: 0,
     managementPanel: '',
@@ -1518,6 +1521,8 @@ Page({
       });
     }
 
+    // 连接卡片投影：只读展示，不含公网地址或凭据。
+    const connectionCard = connectionCardView(app, { publicStatusLabel: publicStatusLabel });
     // 公网状态只算一次再 setData：避免同一帧先写网关值、再写账号值造成模块闪烁。
     const publicPatch = {
       shareEnabled: shareEnabled,
@@ -1563,6 +1568,7 @@ Page({
         (app.connection === 'connected' && app.gatewayName ? app.gatewayName : ''),
       onlineNodeCount: nodes.filter((node) => node.online).length,
       ...gatewayVersionInfo(app),
+      connectionCard: connectionCard,
       ...publicPatch
     });
     // 账号区只在已连接网关时显示；断开后立即隐藏并清掉上次快照。
@@ -2460,37 +2466,62 @@ Page({
     this.syncFromStore({ app: store.state, session: store.sessionState });
   },
 
+  /** 编辑模式下的删除：确认弹窗与小程序 UI 一致（玻璃/深色主题跟随），不用系统 wx.showModal。 */
   deleteSelectedNodes() {
-    const ids = this.data.nodeSelection || [];
+    const ids = (this.data.nodeSelection || []).slice();
     if (!ids.length) return;
-    const names = (this.data.nodes || []).filter((n) => ids.indexOf(n.id) >= 0).map((n) => n.name);
-    wx.showModal({
-      title: ids.length > 1 ? uiText('删除 ') + ids.length + uiText(' 个节点？') : uiText('删除节点？'),
-      content: uiText('将移除：') + names.join('、') + uiText('。删除后需重新配对才能连接。'),
-      confirmText: uiText('删除'),
-      confirmColor: '#E5533C',
-      success: (res) => {
-        if (!res.confirm) return;
-        if (typeof store.forgetHosts !== 'function') {
-          store.removeHosts(ids);
-          this.setData({ nodeSelection: [], nodeEditMode: false });
-          this.syncFromStore({ app: store.state, session: store.sessionState });
-          wx.showToast({ title: uiText('已删除'), icon: 'success' });
-          return;
-        }
-        if (typeof wx.showLoading === 'function') wx.showLoading({ title: uiText('正在移除设备'), mask: true });
-        const removal = store.forgetHosts(ids);
-        Promise.resolve(removal).then((result) => {
-          if (typeof wx.hideLoading === 'function') wx.hideLoading();
-          this.setData({ nodeSelection: [], nodeEditMode: false });
-          this.syncFromStore({ app: store.state, session: store.sessionState });
-          wx.showToast({ title: result && result.failed
-            ? uiText('主机离线或网关需更新，记录未同步') : uiText('已删除'), icon: result && result.failed ? 'none' : 'success' });
-        }).catch((error) => {
-          if (typeof wx.hideLoading === 'function') wx.hideLoading();
-          wx.showToast({ title: error && error.message || uiText('移除设备失败'), icon: 'none' });
-        });
+    const names = (this.data.nodes || []).filter((node) => ids.indexOf(node.id) >= 0).map((node) => node.name);
+    this.setData({
+      confirmDialog: {
+        open: true,
+        title: ids.length > 1 ? uiText('删除 ') + ids.length + uiText(' 个节点？') : uiText('删除节点？'),
+        content: uiText('将移除：') + names.join('、') + uiText('。删除后需重新配对才能连接。'),
+        confirmText: uiText('删除'),
+        cancelText: uiText('取消'),
+        tone: 'danger',
+        busy: false,
+        action: 'delete-nodes',
+        ids: ids
       }
+    });
+  },
+
+  closeConfirmDialog() {
+    if (this.data.confirmDialog && this.data.confirmDialog.busy) return;
+    this.setData({ 'confirmDialog.open': false });
+  },
+
+  confirmDialogConfirm() {
+    const dialog = this.data.confirmDialog || {};
+    if (!dialog.open || dialog.busy) return;
+    if (dialog.action === 'delete-nodes') {
+      this.performNodeDeletion(dialog.ids || []);
+      return;
+    }
+    this.setData({ 'confirmDialog.open': false });
+  },
+
+  /** 真正移除节点：host 离线或网关过旧时给出明确提示，成功后清空选择并刷新列表。 */
+  performNodeDeletion(ids) {
+    const selected = Array.isArray(ids) ? ids.slice() : [];
+    if (!selected.length) return;
+    if (typeof store.forgetHosts !== 'function') {
+      store.removeHosts(selected);
+      this.setData({ 'confirmDialog.open': false, 'confirmDialog.busy': false, nodeSelection: [], nodeEditMode: false });
+      this.syncFromStore({ app: store.state, session: store.sessionState });
+      wx.showToast({ title: uiText('已删除'), icon: 'success' });
+      return;
+    }
+    this.setData({ 'confirmDialog.busy': true });
+    const removal = store.forgetHosts(selected);
+    Promise.resolve(removal).then((result) => {
+      this.setData({ 'confirmDialog.open': false, 'confirmDialog.busy': false, nodeSelection: [], nodeEditMode: false });
+      this.syncFromStore({ app: store.state, session: store.sessionState });
+      wx.showToast({ title: result && result.failed
+        ? uiText('主机离线或网关需更新，记录未同步') : uiText('已删除'), icon: result && result.failed ? 'none' : 'success' });
+    }).catch((error) => {
+      this.setData({ 'confirmDialog.open': false, 'confirmDialog.busy': false });
+      wx.showToast({ title: error && error.message || uiText('移除设备失败'), icon: 'none' });
     });
   },
 

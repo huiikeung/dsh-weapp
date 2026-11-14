@@ -2226,3 +2226,107 @@
 }
 .pay-support::after { border: 0; }
 .identity-badge.is-pending { opacity: .55; }
+
+/* ===== 连接卡片（设置页「连接」模块）=====
+   结构参考桌面客户端的节点卡：图标 + 主机名 + 传输/状态 → 状态胶囊 → 统计行 → 入口行。 */
+.conn-card { overflow: hidden; }
+
+.conn-head { display: flex; align-items: center; gap: 20rpx; padding: 28rpx 30rpx 0; }
+.conn-icon {
+  flex: none; width: 84rpx; height: 84rpx;
+  display: flex; align-items: center; justify-content: center;
+  border-radius: 24rpx; background: var(--fill);
+}
+.conn-icon-img { width: 46rpx; height: 46rpx; opacity: .92; }
+.conn-head-copy { flex: 1; min-width: 0; }
+.conn-name { font-size: 32rpx; font-weight: 650; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-sub { margin-top: 6rpx; font-size: 23rpx; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conn-manage {
+  flex: none; display: flex; align-items: center; gap: 8rpx;
+  padding: 10rpx 18rpx; border-radius: 999rpx; background: var(--fill);
+}
+.conn-manage:active { opacity: .72; }
+.conn-manage-ic { width: 28rpx; height: 28rpx; opacity: .8; }
+.conn-manage-text { font-size: 24rpx; color: var(--text-2); }
+
+.conn-chips { display: flex; flex-wrap: wrap; gap: 12rpx; padding: 22rpx 30rpx 0; }
+.conn-chip {
+  display: flex; align-items: center; gap: 8rpx;
+  padding: 8rpx 18rpx; border-radius: 999rpx;
+  background: var(--fill); font-size: 22rpx; color: var(--text-2);
+}
+.conn-chip-dot { width: 12rpx; height: 12rpx; border-radius: 50%; background: currentColor; }
+.conn-chip.is-ok { color: var(--success); background: rgba(46, 184, 92, .12); }
+.conn-chip.is-warn { color: var(--amber); background: rgba(255, 174, 31, .12); }
+.conn-chip.is-bad { color: #E5484D; background: rgba(229, 72, 77, .12); }
+.conn-chip.is-off { color: var(--text-3); }
+.conn-chip.is-muted { color: var(--text-4); }
+
+.conn-divider { height: 1rpx; margin: 24rpx 30rpx 0; background: var(--divider); }
+
+.conn-stats { display: flex; align-items: flex-start; padding: 26rpx 14rpx 24rpx; }
+.conn-stat { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 8rpx; }
+.conn-stat-value {
+  font-size: 40rpx; font-weight: 650; line-height: 1.15;
+  color: var(--text); font-variant-numeric: tabular-nums;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.conn-stat-value.is-text { font-size: 27rpx; font-weight: 600; }
+.conn-stat-label { font-size: 21rpx; color: var(--text-3); }
+
+.conn-row { min-height: 96rpx; }
+
+/* ===== 通用确认弹窗（节点删除等）=====
+   居中卡片而不是底部弹层：删除这类破坏性操作需要更聚焦；跟随玻璃/深色主题。 */
+.confirm-mask { align-items: center; justify-content: center; padding: 0 52rpx; z-index: 1400; }
+.confirm-card {
+  width: 100%; max-width: 540rpx; box-sizing: border-box;
+  padding: 36rpx 32rpx 26rpx; border-radius: 30rpx;
+  background: var(--surface); border: 1rpx solid var(--border);
+  box-shadow: 0 24rpx 64rpx rgba(3, 14, 30, .38);
+}
+.confirm-title { font-size: 31rpx; font-weight: 650; color: var(--text); text-align: center; letter-spacing: .3rpx; }
+.confirm-content { margin-top: 18rpx; font-size: 25rpx; line-height: 1.65; color: var(--text-2); word-break: break-all; }
+.confirm-actions { display: flex; gap: 16rpx; margin-top: 30rpx; }
+.confirm-btn {
+  flex: 1; min-height: 84rpx; display: flex; align-items: center; justify-content: center;
+  border-radius: 20rpx; background: var(--fill); color: var(--text-2);
+  font-size: 28rpx; font-weight: 500;
+}
+.confirm-btn-hover { opacity: .82; }
+.confirm-btn.is-primary {
+  color: #FFFFFF; font-weight: 600;
+  background: linear-gradient(135deg, var(--ocean), #1A5CC8);
+  box-shadow: 0 8rpx 22rpx rgba(46, 107, 230, .26);
+}
+.confirm-btn.is-danger {
+  background: linear-gradient(135deg, #E5533C, #C9402B);
+  box-shadow: 0 8rpx 22rpx rgba(229, 83, 60, .24);
+}
+.confirm-btn.is-busy { opacity: .6; }
+
+/* 玻璃主题：与设置页其它弹窗同一套材质 */
+.settings-glass-sheet.confirm-card {
+  border-radius: var(--glass-radius-sheet, 32rpx);
+  /* 破坏性操作弹窗：玻璃质感之外再垫一层高不透明底，避免背后文字透上来影响阅读 */
+  background:
+    linear-gradient(165deg, rgba(255, 255, 255, var(--glass-alpha-top, 0.10)), rgba(255, 255, 255, var(--glass-alpha-bottom, 0.04))),
+    rgba(30, 32, 38, 0.94);
+  border: 1rpx solid rgba(255, 255, 255, var(--glass-edge-alpha, 0.38));
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.16), 0 24rpx 64rpx rgba(3, 14, 30, 0.42);
+  backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+  -webkit-backdrop-filter: blur(var(--glass-blur-sheet, 8rpx)) brightness(var(--glass-backdrop-brightness, 1));
+}
+.theme-light .settings-glass-sheet.confirm-card {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.94), rgba(247, 249, 252, 0.88));
+  border-color: rgba(16, 19, 24, 0.08);
+  box-shadow: inset 0 1rpx 0 rgba(255, 255, 255, 0.90), 0 24rpx 64rpx rgba(7, 24, 43, 0.22);
+}
+.settings-glass-sheet.confirm-card .confirm-btn:not(.is-primary):not(.is-danger) {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1rpx solid rgba(255, 255, 255, 0.12);
+}
+.theme-light .settings-glass-sheet.confirm-card .confirm-btn:not(.is-primary):not(.is-danger) {
+  background: rgba(16, 19, 24, 0.05);
+  border-color: rgba(16, 19, 24, 0.08);
+}

@@ -118,6 +118,7 @@ function createPage(apiOptions) {
       if (name === '../../utils/connection-status') return require('../miniprogram/utils/connection-status');
       if (name === './pay-cta') return require('../miniprogram/pages/settings/pay-cta');
       if (name === './pay-agreement') return require('../miniprogram/pages/settings/pay-agreement');
+      if (name === './utils/connection-card') return require('../miniprogram/pages/settings/utils/connection-card');
       throw new Error('Unexpected dependency: ' + name);
     },
     wx, Date,
@@ -1411,4 +1412,25 @@ test('the paid service agreement ships seven sections tailored to the mini progr
   const template = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
   assert.match(template, /wx:for="\{\{payAgreementSections\}\}"/, 'the sheet renders the structured sections');
   assert.match(template, /付费服务协议/);
+});
+
+test('node deletion confirms through the in-app dialog instead of wx.showModal', () => {
+  const source = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.js'), 'utf8');
+  const template = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxml'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/settings/settings.wxss'), 'utf8');
+  const start = source.indexOf('  deleteSelectedNodes() {');
+  const end = source.indexOf('  selectNode(e) {', start);
+  assert.ok(start > 0 && end > start);
+  const block = source.slice(start, end);
+  assert.doesNotMatch(block, /wx\.showModal/, 'the destructive confirmation must not use the system modal');
+  assert.match(block, /confirmDialog: \{/);
+  assert.match(block, /action: 'delete-nodes'/);
+  assert.match(source, /confirmDialogConfirm\(\)[\s\S]{0,260}?performNodeDeletion\(dialog\.ids/);
+  assert.match(source, /performNodeDeletion\(ids\)[\s\S]{0,1200}?forgetHosts\(selected\)/);
+  assert.match(source, /closeConfirmDialog\(\)[\s\S]{0,120}?busy\) return;/);
+  assert.match(template, /class="pair-sheet-mask confirm-mask"/);
+  assert.match(template, /confirmDialog\.tone === 'danger' \? 'is-danger'/);
+  for (const rule of ['.confirm-mask', '.confirm-card', '.confirm-btn.is-danger', '.settings-glass-sheet.confirm-card']) {
+    assert.ok(css.includes(rule), rule + ' style exists');
+  }
 });

@@ -1552,7 +1552,7 @@
 </view>
 <view class="composer-surface {{voiceOverlayVisible ? 'voice-holding' : ''}}">
 <view class="composer-backdrop" aria-hidden="true"></view>
-<view class="composer">
+<view class="composer {{composerFocused ? 'composer-expanded' : ''}}" style="--composer-line: {{composerInputHeightPx}}px;">
 <view wx:if="{{images.length}}" class="composer-images">
 <block wx:for="{{images}}" wx:key="id">
 <view wx:if="{{item.isFile}}" class="pending-file" catchtap="previewPendingFile" data-index="{{index}}" role="button" aria-label="{{ui['预览']}} {{item.name}}">
@@ -1565,6 +1565,10 @@
 <view class="composer-thumb-remove" catchtap="removeImage" data-index="{{index}}"><image class="thumb-x" src="/assets/icons/xmark-circle-dark.png"/></view>
 </view>
 </block>
+</view>
+<view class="composer-line">
+<view wx:if="{{!composerFocused}}" class="composer-plus-inline {{attachSheetOpen ? 'active' : ''}}" bindtap="attachMenu" role="button" aria-label="{{ui['添加与指令']}}" aria-expanded="{{attachSheetOpen}}">
+<image class="composer-plus-ic" src="/assets/icons/plus-gray.png"/>
 </view>
 <view class="voice-input-wrap">
 <view class="composer-input-row composer-live {{composerPreview ? 'previewing' : ''}}">
@@ -1585,7 +1589,7 @@
 <textarea
       class="composer-input {{commandToken && !draftArg ? 'is-token-empty' : ''}}"
       style="height:{{composerInputHeightPx}}px;{{commandToken ? 'padding-left:' + composerTokenPad + 'px;' : ''}}"
-      placeholder="{{commandToken && !draftArg ? '' : (ui[composerPlaceholder] !== undefined ? ui[composerPlaceholder] : composerPlaceholder)}}"
+      placeholder="{{!composerFocused ? '' : (commandToken && !draftArg ? '' : (ui[composerPlaceholder] !== undefined ? ui[composerPlaceholder] : composerPlaceholder))}}"
       placeholder-class="composer-placeholder"
       placeholder-style="{{theme === 'dark' ? 'color:rgba(241,244,250,0.36)' : 'color:rgba(16,19,24,0.28)'}}"
       value="{{composerValue}}"
@@ -1606,7 +1610,13 @@
       maxlength="-1"
     />
 </view>
+<view wx:if="{{!composerFocused && !composerValue && !images.length && !composerPreview}}" class="composer-collapsed-placeholder">{{ui['描述你想要构建的内容']}}</view>
 <view wx:if="{{voiceEnabled && ((!composerFocused && !voiceTyping && voicePhase === 'idle') || voiceOverlayVisible)}}" class="voice-touch-surface" catchtouchstart="onVoiceTouchStart" catchtouchmove="onVoiceTouchMove" catchtouchend="onVoiceTouchEnd" catchtouchcancel="cancelVoice" role="button" aria-label="{{ui['轻点输入，按住说话，上滑取消']}}"></view>
+</view>
+<block wx:if="{{!composerFocused}}">
+<view wx:if="{{running && !canSend}}" class="send-btn stop composer-inline-send glass-press" bindtap="stopAgent" role="button" aria-label="{{ui['停止当前回合']}}"><view class="stop-square"></view></view>
+<view wx:elif="{{canSend}}" class="send-btn composer-inline-send glass-press" bindtap="onComposerAction" role="button" aria-label="{{ui['发送']}}"><image class="send-ic" src="/assets/icons/arrow-up-white.png"/></view>
+</block>
 </view>
 <view wx:if="{{voicePhase === 'transcribing' || voicePhase === 'stopping'}}" class="voice-progress"><text>{{ui['正在转文字…']}}</text><view class="voice-inline-action" bindtap="cancelVoice" role="button">{{ui['取消']}}</view></view>
 <view wx:if="{{voicePendingText}}" class="voice-transcript"><text class="voice-transcript-hint">{{ui['草稿已修改，识别文字待插入']}}</text><text class="voice-transcript-text" selectable>{{voicePendingText}}</text><view class="voice-transcript-actions"><view class="voice-inline-action" bindtap="discardPendingVoiceText" role="button">{{ui['丢弃识别文字']}}</view><view class="voice-inline-action" bindtap="insertPendingVoiceText" role="button">{{ui['插入文字']}}</view></view></view>

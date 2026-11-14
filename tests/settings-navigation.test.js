@@ -17,7 +17,9 @@ test('sidebar application settings and home session settings have separate entri
   assert.doesNotMatch(home, /ic-pair-auth.png/);
   assert.doesNotMatch(home, /g-head|g-ring|g-tooth/);
   assert.match(read('pages/home/home.js'), /openSessionSettings\(\)[\s\S]*?pages\/session-settings\/session-settings/);
-  for (const label of ['公网访问', '节点管理', '管理员', '外观', '实验性功能', '关于']) {
+  // 连接卡片把「节点管理」收进右上角的「管理」按钮：断言入口仍在，只是不再单独占一行。
+  assert.match(home, /drawer-footer[\s\S]*?bindtap="openSettings"/);
+  for (const label of ['公网访问', '管理员', '外观', '实验性功能', '关于']) {
     assert.ok(settings.includes('>' + label + '</view>'), label);
     assert.ok(!sessions.includes('>' + label + '</view>'), label);
   }

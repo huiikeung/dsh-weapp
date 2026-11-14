@@ -77,7 +77,7 @@ test('composer backdrop starts at its card, not above the jump button or queued 
   const css=fs.readFileSync(path.resolve(__dirname,'../miniprogram/pages/session/session.wxss'),'utf8');
   const surface=xml.indexOf('class="composer-surface'),backdrop=xml.indexOf('class="composer-backdrop"');
   assert.ok(surface>xml.indexOf('class="jump-wrap"'));
-  assert.ok(backdrop>surface);assert.ok(backdrop<xml.indexOf('class="composer"'));
+  assert.ok(backdrop>surface);assert.ok(backdrop<xml.indexOf('class="composer ',surface));
   assert.equal((xml.match(/class="composer-backdrop"/g)||[]).length,1);
   const rule=css.match(/\.composer-backdrop\s*\{([^}]+)\}/)[1];
   assert.match(rule,/position:\s*absolute/);assert.match(rule,/top:\s*0/);
@@ -136,4 +136,51 @@ test('new snapshot replaces old transient output and abandoned attempt clears im
  f.frame({kind:'assistant-stream',frame:{type:'end',attemptId:'a2',outcome:{kind:'abandoned'}}});
  assert.equal(f.store.sessionState.rows.length,0);
  snapshot(undefined);assert.equal(f.store.sessionState.rows.length,0);
+});
+
+test('collapsed composer clips the native textarea to one line so entry never jumps', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const xml = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxml'), 'utf8');
+  const css = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.wxss'), 'utf8');
+  assert.match(xml, /style="--composer-line: \{\{composerInputHeightPx\}\}px;"/, 'the one-line height is exposed to CSS');
+  assert.match(css, /\.composer:not\(\.composer-expanded\) \.voice-input-wrap\s*\{[^}]*height:\s*(?:var\(--composer-line|64rpx)[^}]*overflow:\s*hidden/,
+    'the collapsed input row is clipped to one line');
+  assert.match(xml, /composer-collapsed-placeholder/, 'single-row placeholder exists');
+  assert.match(css, /\.composer-collapsed-placeholder\s*\{[^}]*top:\s*(?:calc\(50% - 6rpx\)|50%)/, 'placeholder is aligned with the plus button centre');
+});
+
+test('composer focus and keyboard height share one debounced dock remeasure', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
+
+  const focus = source.slice(source.indexOf('  onComposerFocus() {'), source.indexOf('  scheduleDockRemeasure('));
+  assert.ok(focus.length > 0, 'focus handler exists');
+  assert.doesNotMatch(focus, /this\.updateDockInset\(\)/, 'focus must not measure the dock synchronously');
+  assert.match(focus, /this\.scheduleDockRemeasure\(360\)/);
+
+  const scheduleStart = source.indexOf('  scheduleDockRemeasure(delay) {');
+  assert.ok(scheduleStart > 0, 'debounce helper exists');
+  const schedule = source.slice(scheduleStart, scheduleStart + 900);
+  assert.match(schedule, /clearTimeout\(this\._dockRemeasureTimer\)/, 'repeated triggers are coalesced');
+  assert.match(schedule, /setTimeout\(/, 'the helper defers the measure to its own timer');
+
+  const keyboard = source.slice(source.indexOf('  onKeyboardHeight('), source.indexOf('  applyKeyboardHeight('));
+  assert.match(keyboard, /this\.applyKeyboardHeight\(/, 'textarea events go through the shared keyboard entry');
+
+  const apply = source.slice(source.indexOf('  applyKeyboardHeight(height) {'), source.indexOf('  commitKeyboardHeight('));
+  assert.match(apply, /_keyboardApplyTimer/, 'rapid height reports are coalesced');
+  assert.match(apply, /commitKeyboardHeight\(0\)/, 'hiding the keyboard applies immediately');
+
+  const commit = source.slice(source.indexOf('  commitKeyboardHeight('), source.indexOf('  onComposerFocus()'));
+  assert.match(commit, /this\.scheduleDockRemeasure\(300\)/, 'the dock is measured after its 250ms transition');
+  assert.doesNotMatch(commit, /updateDockInset\(\)/, 'keyboard layout changes never measure the dock in the same frame');
+  assert.match(commit, /_windowHeightBaseline/, 'compressed-viewport keyboards (HarmonyOS) do not push content twice');
+
+  // 鸿蒙 / Android：textarea 事件可能不触发，必须有全局键盘监听兜底。
+  assert.match(source, /wx\.onKeyboardHeightChange\(/, 'global keyboard height listener is registered');
+  assert.match(source, /wx\.offKeyboardHeightChange\(/, 'listener is removed on unload');
+  assert.match(source, /wx\.onWindowResize\(/, 'window resize fallback exists for clients without the global keyboard API');
+  assert.doesNotMatch(source, /_dockSkipRetries/);
 });

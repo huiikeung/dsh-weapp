@@ -48,30 +48,59 @@
   </view>
 
   <view class="group-title">{{ui['连接']}}</view>
-  <view class="card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
+  <view class="card conn-card {{settingsGlassEnabled ? 'settings-glass-card' : ''}}">
 
-        <view class="card-row management-entry" bindtap="openPublicAccess" hover-class="management-entry-active" role="button" aria-label="{{ui['公网访问']}}">
-          <view class="management-entry-copy">
-            <view class="card-row-label">{{ui['公网访问']}}</view>
-          </view>
-          <view class="card-row-value management-entry-value">
-            <text>{{ui[publicValueLabel] !== undefined ? ui[publicValueLabel] : publicValueLabel}}</text>
-            <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
-          </view>
-        </view>
+    <!-- 当前节点概览：图标 + 主机名 + 传输方式/连接状态 + 管理入口 -->
+    <view class="conn-head">
+      <view class="conn-icon">
+        <image class="conn-icon-img" src="/assets/icons/node-router{{theme === 'dark' ? '-white' : ''}}.svg" mode="aspectFit"/>
+      </view>
+      <view class="conn-head-copy">
+        <view class="conn-name">{{connectionCard.name}}</view>
+        <view class="conn-sub">{{connectionCard.subtitle}}</view>
+      </view>
+      <view class="conn-manage" bindtap="openNodeManagement" hover-class="management-entry-active" role="button" aria-label="{{ui['节点管理']}}">
+        <image class="conn-manage-ic" src="/assets/icons/sliders-white.svg" mode="aspectFit"/>
+        <text class="conn-manage-text">{{ui['管理']}}</text>
+      </view>
+    </view>
 
+    <!-- 状态胶囊：连接状态 + 网关版本 -->
+    <view class="conn-chips">
+      <view class="conn-chip is-{{connectionCard.statusTone}}">
+        <view class="conn-chip-dot"></view>
+        <text>{{connectionCard.statusLabel}}</text>
+      </view>
+      <view class="conn-chip {{connectionCard.versionKnown ? '' : 'is-muted'}}">
+        <text>{{connectionCard.versionLabel}}</text>
+      </view>
+    </view>
 
-        <view class="card-row management-entry" bindtap="openNodeManagement" hover-class="management-entry-active" role="button" aria-label="{{ui['节点管理']}}">
-          <view class="management-entry-copy">
-            <view class="card-row-label">{{ui['节点管理']}}</view>
-          </view>
-          <view class="card-row-value management-entry-value">
-            <text>{{nodeCount}} {{ui['个']}}</text>
-            <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
-          </view>
-        </view>
+    <view class="conn-divider"></view>
 
-    <view wx:if="{{isWechatAdmin}}" class="card-row management-entry" bindtap="openAdminSheet" hover-class="management-entry-active" role="button" aria-label="{{ui['公网权限']}}">
+    <!-- 统计行：会话 / 工作区 / 定时任务 / 公网访问 / 节点 -->
+    <view class="conn-stats">
+      <view wx:for="{{connectionCard.stats}}" wx:key="key" class="conn-stat">
+        <text class="conn-stat-value {{item.text ? 'is-text' : ''}}">{{item.value}}</text>
+        <text class="conn-stat-label">{{item.label}}</text>
+      </view>
+    </view>
+
+    <view class="conn-divider"></view>
+
+    <!-- 公网访问入口 -->
+    <view class="card-row management-entry conn-row" bindtap="openPublicAccess" hover-class="management-entry-active" role="button" aria-label="{{ui['公网访问']}}">
+      <view class="management-entry-copy">
+        <view class="card-row-label">{{ui['公网访问']}}</view>
+      </view>
+      <view class="card-row-value management-entry-value">
+        <text>{{ui[publicValueLabel] !== undefined ? ui[publicValueLabel] : publicValueLabel}}</text>
+        <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
+      </view>
+    </view>
+
+    <!-- 公网权限：管理员可点开管理面板，普通用户只读展示身份 -->
+    <view wx:if="{{isWechatAdmin}}" class="card-row management-entry conn-row" bindtap="openAdminSheet" hover-class="management-entry-active" role="button" aria-label="{{ui['公网权限']}}">
       <view class="management-entry-copy">
         <text class="card-row-label">{{ui['公网权限']}}</text>
       </view>
@@ -80,7 +109,7 @@
         <image class="chevron-img" src="/assets/icons/chev-right-gray.png"/>
       </view>
     </view>
-    <view wx:else class="card-row management-entry identity-entry" aria-label="{{ui['公网权限']}}">
+    <view wx:else class="card-row management-entry identity-entry conn-row" aria-label="{{ui['公网权限']}}">
       <view class="management-entry-copy">
         <text class="card-row-label">{{ui['公网权限']}}</text>
       </view>
@@ -88,6 +117,7 @@
         <view class="identity-badge {{accountIdentityReady ? '' : 'is-pending'}}">{{accountIdentityReady ? identityBadgeLabel : ui['识别中…']}}</view>
       </view>
     </view>
+
   </view>
 
   
@@ -260,6 +290,18 @@
       </view>
     </view>
   </view>
+  <!-- 通用确认弹窗（节点删除等）：样式跟随小程序玻璃/深色主题，不用系统 wx.showModal -->
+  <view wx:if="{{confirmDialog.open}}" class="pair-sheet-mask confirm-mask" catchtap="closeConfirmDialog" catchtouchmove="noop">
+    <view class="confirm-card {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" catchtap="noop" role="dialog" aria-modal="true" aria-label="{{confirmDialog.title}}">
+      <view class="confirm-title">{{confirmDialog.title}}</view>
+      <view class="confirm-content">{{confirmDialog.content}}</view>
+      <view class="confirm-actions">
+        <view class="confirm-btn" bindtap="closeConfirmDialog" hover-class="confirm-btn-hover" role="button">{{confirmDialog.cancelText}}</view>
+        <view class="confirm-btn is-primary {{confirmDialog.tone === 'danger' ? 'is-danger' : ''}} {{confirmDialog.busy ? 'is-busy' : ''}}" bindtap="confirmDialogConfirm" hover-class="confirm-btn-hover" role="button">{{confirmDialog.busy ? ui['处理中…'] : confirmDialog.confirmText}}</view>
+      </view>
+    </view>
+  </view>
+
   <!-- 付费协议弹窗 -->
   <view wx:if="{{payAgreementSheet}}" class="pair-sheet-mask pay-agreement-mask" catchtap="closePayAgreement" catchtouchmove="noop">
     <view class="pair-sheet appearance-sheet {{settingsGlassEnabled ? 'settings-glass-sheet' : ''}}" catchtap="noop" role="dialog" aria-label="{{ui['付费服务协议']}}">

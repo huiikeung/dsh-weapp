@@ -5566,3 +5566,32 @@ background: rgba(255, 255, 255, 0.55);
 border-color: rgba(255, 255, 255, 0.70);
 }
 .theme-light.session-glass .more-files-row + .more-files-row { border-top-color: rgba(16, 19, 24, 0.06); }
+.composer-line { display: flex; align-items: center; gap: 12rpx; width: 100%; }
+.composer-line .voice-input-wrap { flex: 1 1 auto; min-width: 0; }
+.composer-plus-inline {
+flex: none; width: 56rpx; height: 56rpx; box-sizing: border-box;
+display: flex; align-items: center; justify-content: center;
+border-radius: 50%; border: 2rpx solid var(--border-strong); background: transparent;
+}
+.composer-plus-inline.active { background: var(--fill-2); }
+.composer-plus-ic { width: 26rpx; height: 26rpx; opacity: .85; }
+.composer-inline-send { width: 68rpx; height: 68rpx; }
+.composer-inline-send .send-ic { width: 36rpx; height: 36rpx; }
+.composer:not(.composer-expanded) {
+padding: 12rpx 20rpx;
+border-radius: 44rpx;
+}
+.composer:not(.composer-expanded) .composer-bar { display: none; }
+.composer:not(.composer-expanded) .composer-input-row { align-items: center; }
+.composer:not(.composer-expanded) .composer-input { min-height: 56rpx; }
+.composer:not(.composer-expanded) .voice-input-wrap {
+height: 64rpx;
+overflow: hidden;
+}
+.composer:not(.composer-expanded) .composer-input-row { height: 100%; }
+.composer-collapsed-placeholder {
+position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+font-size: 28rpx; line-height: 1.4; color: rgba(16, 19, 24, 0.32);
+white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; z-index: 1;
+}
+.theme-dark .composer-collapsed-placeholder { color: rgba(241, 244, 250, 0.40); }
