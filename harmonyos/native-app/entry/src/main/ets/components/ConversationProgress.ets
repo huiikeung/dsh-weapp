@@ -15,6 +15,7 @@
  * 文字逐字取渐变相位色（等价于 background-clip:text 的横向渐变）。
  */
 import { StatusAppearance } from 'nativecore';
+import { WHALE_TAIL_PATHS } from './WhaleTailPaths';
 
 /** 一个字符 + 它当前的颜色（逐字渐变用） */
 interface GlyphColor {
@@ -25,6 +26,8 @@ interface GlyphColor {
 @Component
 export struct ConversationProgress {
   @Prop appearance: string = 'classic';
+  /** 实时主题：直接订阅 AppStorage，避免父级 @Prop 未刷新时颜色不跟随 */
+  @StorageProp('statusAppearance') appearanceLive: string = 'classic';
   @Prop isDark: boolean = false;
   /** 如「推敲细节中，用时 12 秒…」 */
   @Prop label: string = '';
@@ -47,13 +50,17 @@ export struct ConversationProgress {
 
   // ==================== 色板采样（对齐小程序 keyframes） ====================
 
+  private styleId(): string {
+    return this.appearanceLive.length > 0 ? this.appearanceLive : this.appearance;
+  }
+
   private reverse(): boolean {
-    return this.appearance === 'terminal' || this.appearance === 'glitch';
+    return this.styleId() === 'terminal' || this.styleId() === 'glitch';
   }
 
   /** 当前相位 0..1（按样式周期循环，terminal/glitch 反向） */
   private phase(): number {
-    const duration: number = StatusAppearance.durationMs(this.appearance);
+    const duration: number = StatusAppearance.durationMs(this.styleId());
     const total: number = duration > 0 ? duration : 4000;
     const raw: number = (this.elapsedMs % total) / total;
     return this.reverse() ? 1 - raw : raw;
@@ -74,7 +81,7 @@ export struct ConversationProgress {
 
   /** 按相位从色板插值（色标等分，末段回到首色，与小程序 keyframes 一致） */
   private sampleAt(p: number): string {
-    const colors: string[] = StatusAppearance.colors(this.appearance, this.isDark);
+    const colors: string[] = StatusAppearance.colors(this.styleId(), this.isDark);
     if (colors.length === 0) {
       return '#A8BEDB';
     }
@@ -88,9 +95,9 @@ export struct ConversationProgress {
     return this.mix(colors[index], colors[next], scaled - Math.floor(scaled));
   }
 
-  /** 鲸尾颜色 = 相位最左端颜色（小程序 .status-tail-ink 的 background-color） */
+  /** 鲸尾颜色：小程序 .status-tail-ink 的 background-color 关键帧（reverse 感知） */
   private tailColor(): string {
-    return this.sampleAt(this.phase());
+    return StatusAppearance.sample(this.styleId(), this.isDark, this.elapsedMs);
   }
 
   /** 文字渐变色：逐字按横向位置 + 相位取色（小程序 background-size 200% 的横向渐变） */
@@ -101,15 +108,18 @@ export struct ConversationProgress {
     const result: GlyphColor[] = [];
     for (let i = 0; i < count; i++) {
       // 小程序 background-size:200% 100% → 元素宽度只覆盖色板的一半
+      // 小程序：background-size:200%（整条渐变铺两遍），元素宽度只占其中一半，
+      // 因此文字横向覆盖「半个色板」；左端颜色 == 鲸尾颜色
       const at: number = count > 1 ? (i / count) * 0.5 : 0;
-      result.push({ ch: chars[i], color: this.sampleAt(at + base) });
+      // 与鲸尾同一条关键帧曲线，横向展开半个色板
+      result.push({ ch: chars[i], color: StatusAppearance.sampleAtPhase(this.styleId(), this.isDark, base + at) });
     }
     return result;
   }
 
   /** 故障样式：错色偏移（-1 左红右青 / 1 左青右红 / 0 无） */
   private glitchDir(): number {
-    if (this.appearance !== 'glitch') {
+    if (this.styleId() !== 'glitch') {
       return 0;
     }
     const pos: number = (this.glitchTick % 40) / 40;
@@ -158,7 +168,7 @@ export struct ConversationProgress {
 
   /** 呼吸只在 neon/candy 生效 */
   private textOpacity(): number {
-    const id: string = this.appearance;
+    const id: string = this.styleId();
     return id === 'neon' || id === 'candy' ? this.breathe : 1;
   }
 
@@ -193,7 +203,7 @@ export struct ConversationProgress {
             .fontWeight(FontWeight.Regular)
             .lineHeight(21)
             .fontColor(glyph.color)
-            .fontFamily(this.appearance === 'terminal' ? 'monospace' : 'HarmonyOS Sans')
+            .fontFamily(this.styleId() === 'terminal' ? 'monospace' : 'HarmonyOS Sans')
             .textShadow(this.glitchDir() === 0
               ? { radius: 0, color: '#00000000', offsetX: 0, offsetY: 0 }
               : (this.glitchDir() > 0

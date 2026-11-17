@@ -235,6 +235,11 @@ export struct ConversationComposer {
     return this.isDark ? 0.72 : 0.62;
   }
 
+  /** 搜索框式亮边：深色下是微亮的「光感边框」，浅色下几乎不可见 */
+  private searchEdge(): string {
+    return this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.85)';
+  }
+
   /** 权限名放不下时只显示图标 + 箭头（小程序 permissionChipIconOnly） */
   private permissionIconOnly(): boolean {
     if (this.chipsBarWidth <= 0) {
@@ -767,13 +772,13 @@ export struct ConversationComposer {
       .padding(this.expanded()
         ? { left: 14, right: 14, top: 14, bottom: 12 }
         : { left: 10, right: 10, top: 6, bottom: 6 })
-      // 圆角对齐系统菜单弹窗（弹窗约 16）
+      // 圆角对齐系统菜单弹窗
       .borderRadius(16)
-      // 参考右上角「⋯」弹窗：系统菜单同款玻璃材质，不叠自己的不透明底色
-      .backgroundColor(Color.Transparent)
+      // 参考系统「搜索框」的玻璃样式：系统灰底 + 厚模糊 + 亮边（光感边框）
+      .backgroundColor($r('sys.color.comp_background_gray'))
       .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-      .border({ width: 0.5, color: this.cardEdge() })
-      .shadow({ radius: 24, color: this.cardShadowColor(), offsetY: 6 })
+      .border({ width: this.isDark ? 0.8 : 0.5, color: this.searchEdge() })
+      .shadow({ radius: 20, color: this.cardShadowColor(), offsetY: 6 })
 
       // 卡片下方三个指标按钮：折叠/展开都常驻（对齐小程序 composer-metrics）
       Row({ space: 10 }) {

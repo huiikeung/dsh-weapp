@@ -61,6 +61,9 @@ export default class EntryAbility extends UIAbility {
       // 工作步骤展示偏好 → AppStorage（对话页 StorageProp 响应式读取）
       AppStorage.setOrCreate<string>('workStepMode', PreferencesStore.get().getString('workStepMode', 'detailed'));
       AppStorage.setOrCreate<string>('workStepTiming', PreferencesStore.get().getString('workStepTiming', 'completion'));
+      // 外观偏好：必须在 init 完成后再读，否则读到的是兜底值（重启后回默认色就是这个问题）
+      AppStorage.setOrCreate<string>('statusAppearance', PreferencesStore.get().getString('statusAppearance', 'classic'));
+      AppStorage.setOrCreate<string>('procIconStyle', PreferencesStore.get().getString('procIconStyle', 'spin-ring'));
       ThemeManager.get().init(this.context.config.colorMode);
     TailscaleTunnelStore.get().start(this.context.filesDir + '/tailscale', this.context);
     GatewayClient.get().setTailnetEnabler(() => {
@@ -121,7 +124,6 @@ export default class EntryAbility extends UIAbility {
             });
           } catch (ignored) {
           }
-          AppStorage.setOrCreate<string>('procIconStyle', 'spin-ring');
           AppStorage.setOrCreate<number>('safeTopVp', sysArea.topRect.height / density);
           AppStorage.setOrCreate<number>('safeBottomVp', navArea.bottomRect.height / density);
           Logger.info('immersive ok: top=' + (sysArea.topRect.height / density) + ' bottom=' + (navArea.bottomRect.height / density));

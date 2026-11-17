@@ -5,6 +5,11 @@
  *   classic  4s / 7 色    neon    3s / 3 色    terminal 6s / 2 色（反向）
  *   candy    5s / 3 色    glitch  2s / 2 色（反向）   original（固定色）
  */
+export interface StatusKeyframe {
+  at: number;
+  color: string;
+}
+
 export interface StatusAppearanceOption {
   id: string;
   label: string;
@@ -65,6 +70,72 @@ export class StatusAppearance {
     return 4000;
   }
 
+  /**
+   * 鲸尾配色关键帧（逐字对齐小程序 status-tail-animation.wxss 的 @keyframes）：
+   * 每个样式有自己的停靠点，注意「简约」是非对称的（66.7% 后停在首色）。
+   */
+  static keyframes(id: string, isDark: boolean): StatusKeyframe[] {
+    const normalized: string = StatusAppearance.normalize(id);
+    if (normalized === 'neon') {
+      return isDark
+        ? [
+          { at: 0, color: '#22D3EE' }, { at: 33.3333, color: '#A78BFA' },
+          { at: 66.6667, color: '#F472B6' }, { at: 100, color: '#22D3EE' }
+        ]
+        : [
+          { at: 0, color: '#0E7490' }, { at: 33.3333, color: '#7C3AED' },
+          { at: 66.6667, color: '#BE185D' }, { at: 100, color: '#0E7490' }
+        ];
+    }
+    if (normalized === 'terminal') {
+      return isDark
+        ? [{ at: 0, color: '#4ADE80' }, { at: 50, color: '#86EFAC' }, { at: 100, color: '#4ADE80' }]
+        : [{ at: 0, color: '#15803D' }, { at: 50, color: '#166534' }, { at: 100, color: '#15803D' }];
+    }
+    if (normalized === 'candy') {
+      return isDark
+        ? [
+          { at: 0, color: '#FB7185' }, { at: 33.3333, color: '#FBBF24' },
+          { at: 66.6667, color: '#F472B6' }, { at: 100, color: '#FB7185' }
+        ]
+        : [
+          { at: 0, color: '#BE123C' }, { at: 33.3333, color: '#B45309' },
+          { at: 66.6667, color: '#BE185D' }, { at: 100, color: '#BE123C' }
+        ];
+    }
+    if (normalized === 'glitch') {
+      return isDark
+        ? [{ at: 0, color: '#FF5F6D' }, { at: 50, color: '#5FD4FF' }, { at: 100, color: '#FF5F6D' }]
+        : [{ at: 0, color: '#D92B4B' }, { at: 50, color: '#0E7490' }, { at: 100, color: '#D92B4B' }];
+    }
+    if (normalized === 'original') {
+      // 非对称：0 → 33.3% 变暗，66.7% 回亮，之后停在首色
+      return isDark
+        ? [
+          { at: 0, color: '#7D9ADE' }, { at: 33.3333, color: '#8ABBFE' },
+          { at: 66.6667, color: '#7D9ADE' }, { at: 100, color: '#7D9ADE' }
+        ]
+        : [
+          { at: 0, color: '#345DBA' }, { at: 33.3333, color: '#243D80' },
+          { at: 66.6667, color: '#345DBA' }, { at: 100, color: '#345DBA' }
+        ];
+    }
+    // classic：7 色等分（每段 14.2857%）
+    return isDark
+      ? [
+        { at: 0, color: '#FF5F6D' }, { at: 14.2857, color: '#FFC371' },
+        { at: 28.5714, color: '#FFDD55' }, { at: 42.8571, color: '#7DFF7D' },
+        { at: 57.1429, color: '#5FD4FF' }, { at: 71.4286, color: '#A78BFA' },
+        { at: 85.7143, color: '#FF8ADB' }, { at: 100, color: '#FF5F6D' }
+      ]
+      : [
+        { at: 0, color: '#D92B4B' }, { at: 14.2857, color: '#C2410C' },
+        { at: 28.5714, color: '#A16207' }, { at: 42.8571, color: '#15803D' },
+        { at: 57.1429, color: '#0E7490' }, { at: 71.4286, color: '#6D28D9' },
+        { at: 85.7143, color: '#BE185D' }, { at: 100, color: '#D92B4B' }
+      ];
+  }
+
   /** 色板：按 appearance + 主题返回颜色序列（#RRGGBB）。 */
   static colors(id: string, isDark: boolean): string[] {
     const normalized: string = StatusAppearance.normalize(id);
@@ -86,30 +157,48 @@ export class StatusAppearance {
     }
     if (normalized === 'original') {
       // DSH 客户端默认配色（label-deep-diving / shimmer）
-      return isDark ? ['#7D9ADE', '#8ABBFE'] : ['#345DBA', '#243D80'];
+      return isDark ? ['#7D9ADE', '#8ABBFE', '#7D9ADE'] : ['#345DBA', '#243D80', '#345DBA'];
     }
     return isDark
       ? ['#FF5F6D', '#FFC371', '#FFDD55', '#7DFF7D', '#5FD4FF', '#A78BFA', '#FF8ADB']
       : ['#D92B4B', '#C2410C', '#A16207', '#15803D', '#0E7490', '#6D28D9', '#BE185D'];
   }
 
-  /** 按时间采样当前颜色（线性插值，对齐小程序 sampleColor）。 */
-  static sample(id: string, isDark: boolean, elapsedMs: number): string {
-    const palette: string[] = StatusAppearance.colors(id, isDark);
-    if (palette.length === 0) {
+  /** 正向相位（0..1，不反向）上采样关键帧颜色：文字与鲸尾共用同一条曲线。 */
+  static sampleAtPhase(id: string, isDark: boolean, phase: number): string {
+    const frames: StatusKeyframe[] = StatusAppearance.keyframes(id, isDark);
+    if (frames.length === 0) {
       return '#A8BEDB';
     }
-    if (palette.length === 1) {
-      return palette[0];
+    let p: number = phase % 1;
+    if (p < 0) {
+      p = p + 1;
     }
+    const pct: number = p * 100;
+    for (let i = 0; i < frames.length - 1; i++) {
+      const from: StatusKeyframe = frames[i];
+      const to: StatusKeyframe = frames[i + 1];
+      if (pct >= from.at && pct <= to.at) {
+        const span: number = to.at - from.at;
+        const t: number = span > 0 ? (pct - from.at) / span : 0;
+        return StatusAppearance.mix(from.color, to.color, t);
+      }
+    }
+    return frames[frames.length - 1].color;
+  }
+
+  /** 按时间采样鲸尾颜色：先算相位，terminal/glitch 反向播放。 */
+  static sample(id: string, isDark: boolean, elapsedMs: number): string {
     const duration: number = StatusAppearance.durationMs(id);
     const total: number = duration > 0 ? duration : 4000;
-    const ratio: number = (elapsedMs % total) / total;
-    const scaled: number = ratio * palette.length;
-    const index: number = Math.floor(scaled) % palette.length;
-    const next: number = (index + 1) % palette.length;
-    const t: number = scaled - Math.floor(scaled);
-    return StatusAppearance.mix(palette[index], palette[next], t);
+    let ratio: number = (elapsedMs % total) / total;
+    if (ratio < 0) {
+      ratio = ratio + 1;
+    }
+    if (id === 'terminal' || id === 'glitch') {
+      ratio = 1 - ratio;
+    }
+    return StatusAppearance.sampleAtPhase(id, isDark, ratio);
   }
 
   private static mix(from: string, to: string, t: number): string {
