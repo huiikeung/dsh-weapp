@@ -533,7 +533,11 @@ Page({
     this.syncContextPanelPreferences();
     this._voiceHidden = false; this.syncVoicePreference();
     // 从设置页等返回：运行中会话恢复状态条 ticker 与跑秒定时器。
-    if (this.data.running) this.syncRunningStrip(this.data.rows || [], true);
+    if (this.data.running) {
+      this.syncRunningStrip(this.data.rows || [], true);
+      // 后台期间可能错过队列推送：队列为空时补拉一次。
+      if (!(this.data.queue || []).length) this.pullQueueInBackground();
+    }
     // 从原生浮层（chooseMedia / chooseMessageFile / previewImage）返回：
     if (this._hiddenByNativeOverlay) {
       this._hiddenByNativeOverlay = false;
@@ -1520,7 +1524,11 @@ Page({
         this.maybeAutoScanFleetComms();
       }
       // 运行刚开始：重置文字渐变相位；鲸尾图标为纯 CSS 动画，随节点挂载自动同相起跑。
-      if (!wasRunning && this.data.running) this.setData({ statusFlowDelay: 0 });
+      if (!wasRunning && this.data.running) {
+        this.setData({ statusFlowDelay: 0 });
+        // 新回合开始（含断线重连后）：主动补拉一次队列，推送丢失时也能显示排队消息。
+        this.pullQueueInBackground();
+      }
       // 过程组用实测 scrollTop 跟随尾部，避免每个流式片段切换锚点造成闪跳。
       if (processFollowKey && (processFollowChanged || processFollowContentChanged)) {
         this.refreshProcessFollow(processFollowKey);
@@ -1854,6 +1862,13 @@ Page({
   },
 
   /** 队列 dock 只展示网关确认的队列项，避免重复维护本地待发副本。 */
+  /** 主动拉一次当前会话队列：队列以网关推送为主，这里只做丢失推送时的兜底。 */
+  pullQueueInBackground() {
+    const sessionId = store.sessionState && store.sessionState.sessionId;
+    if (!sessionId || !store.client || typeof store.client.requestQueue !== 'function') return;
+    Promise.resolve(store.client.requestQueue(sessionId)).catch(() => {});
+  },
+
   syncQueueDock() {
     // DSH 的队列项是 UserMessage：正文在 content[] block 中，而不是顶层字符串。
     const qContentOf = (it) => {
@@ -6919,6 +6934,10 @@ Page({
             mediaType: image.mediaType || '',
             tempPath: image.tempPath || ''
           })).filter((entry) => !!entry.tempPath);
+          // 队列面板以网关推送为主；推送偶发丢失时主动拉一次，保证刚发出的排队消息可见。
+          if (s.sessionId && store.client && typeof store.client.requestQueue === 'function') {
+            Promise.resolve(store.client.requestQueue(s.sessionId)).catch(() => {});
+          }
         }
         if (!s.running) {
           // 普通发送乐观回显；排队消息等网关队列帧，避免提前显示成已发送。

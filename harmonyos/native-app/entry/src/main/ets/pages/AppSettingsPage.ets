@@ -1,8 +1,14 @@
 import { KeyboardAvoidMode } from '@kit.ArkUI';
+import { bundleManager, common } from '@kit.AbilityKit';
 import { vibrator } from '@kit.SensorServiceKit';
-import { GatewayClient, PreferencesStore, SessionSummary, WorkspaceRow } from 'nativecore';
+import type { WorkStepOption } from 'nativecore';
+import { AttachmentCache, CredentialStore, GatewayClient, NotificationService, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, WorkspaceRow } from 'nativecore';
 
-/** 设置（左侧栏「设置」）：对齐小程序 pages/settings */
+/**
+ * 设置（左侧栏「设置」）：逐行对齐小程序 pages/settings。
+ * 分组顺序：连接 → 外观 → 通用设置 → 对话 → 实验性功能 → 关于（逐行对齐 settings.wxml）。
+ * 无原生数据源的行在本页用 AppStorage（小写驼峰键）保存开关，并同步 PreferencesStore 持久化。
+ */
 @Component
 export struct AppSettingsPage {
   @Consume('pageStack') pageStack: NavPathStack;
@@ -15,18 +21,58 @@ export struct AppSettingsPage {
   @StorageLink('sessions') sessions: SessionSummary[] = [];
   @StorageLink('workspaces') workspaces: WorkspaceRow[] = [];
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
+  @StorageLink('gatewayVersion') gatewayVersion: string = '';
+  @StorageLink('pluginBundles') pluginBundles: Object[] = [];
+  @StorageLink('scheduleTasks') scheduleTasks: Object[] = [];
+
+  // ── 对齐小程序的本地偏好：AppStorage 键名小写驼峰，PreferencesStore 持久化 ──
+  @StorageLink('settingsGlassEnabled') settingsGlassEnabled: boolean = true;
+  @StorageLink('sessionGlassEnabled') sessionGlassEnabled: boolean = true;
+  @StorageLink('bottomSheetGlassEnabled') bottomSheetGlassEnabled: boolean = true;
+  @StorageLink('homeAnimationEnabled') homeAnimationEnabled: boolean = true;
+  @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
+  @StorageLink('showAccountCard') showAccountCard: boolean = false;
+  @StorageLink('notifyEnabled') notifyEnabled: boolean = false;
+  @StorageLink('quotaCardEnabled') quotaCardEnabled: boolean = false;
+  @StorageLink('contextTabVisible') contextTabVisible: boolean = true;
+  @StorageLink('fleetTabVisible') fleetTabVisible: boolean = true;
+  @StorageLink('clawbotBridgeEnabled') clawbotBridgeEnabled: boolean = false;
+  @StorageLink('appLanguage') appLanguage: string = 'system';
+  @StorageLink('appearanceMode') appearanceMode: string = 'auto';
+  @StorageLink('statusAppearance') statusAppearance: string = 'classic';
+  @StorageLink('procIconStyle') procIconStyle: string = 'spin-ring';
+  /** 二级页回传的选择（kind\u0001id），@Watch 复用 applyOptionChoice */
+  @StorageLink('prefPickerChoice') @Watch('onPrefPickerChoice') prefPickerChoice: string = '';
+
   @State fontSize: string = '标准';
-  @State haptics: string = '标准';
+  @State haptics: string = 'medium';
   @State textFont: string = '';
   @State codeFont: string = '';
   @State terminalFont: string = '';
   @State codeSize: string = '';
   @State terminalSize: string = '';
   @State hint: string = '';
+  @State notificationHint: string = '';
+  @State attachmentCacheLabel: string = '未读取';
+  @State appVersion: string = '1.0.2';
+  @State workStepMode: string = 'detailed';
+  @State workStepTiming: string = 'completion';
+  @State glassStylePreset: string = 'glass-default';
+  @State nativeStylePreset: string = 'default';
+  @State cardStylePreset: string = 'float';
+
+  // 页内轻量弹层（复用半模态写法）
   @State pickerOpen: boolean = false;
-  @State pickerTitle: string = '';
   @State pickerKind: string = '';
-  @State pickerItems: string[] = [];
+  @State pickerTitle: string = '';
+  @State pickerSubtitle: string = '';
+  @State fontSheetOpen: boolean = false;
+  @State storageSheetOpen: boolean = false;
+  @State infoOpen: boolean = false;
+  @State infoTitle: string = '';
+  @State infoText: string = '';
+
+  // 连接相关弹层（保留公网访问 / 公网权限）
   @State connectionSheetOpen: boolean = false;
   @State connectionSheetKind: string = '';
   @State connectionHint: string = '';
@@ -62,28 +108,104 @@ export struct AppSettingsPage {
     return selected ? 'rgba(76,108,224,0.55)' : this.dividerColor();
   }
 
+  private innerFill(): string {
+    return this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)';
+  }
+
+  private faintColor(): string {
+    return this.isDark ? 'rgba(241,244,250,0.40)' : 'rgba(16,19,24,0.40)';
+  }
+
   aboutToAppear(): void {
-    this.fontSize = PreferencesStore.get().getString('contentFontSize', '标准');
-    this.haptics = PreferencesStore.get().getString('hapticsLevel', '标准');
-    this.textFont = PreferencesStore.get().getString('fontFamilyText', '');
-    this.codeFont = PreferencesStore.get().getString('fontFamilyCode', '');
-    this.terminalFont = PreferencesStore.get().getString('fontFamilyTerminal', '');
-    this.codeSize = PreferencesStore.get().getString('codeFontSize', '');
-    this.terminalSize = PreferencesStore.get().getString('terminalFontSize', '');
+    const prefs: PreferencesStore = PreferencesStore.get();
+    this.fontSize = prefs.getString('contentFontSize', '标准');
+    this.haptics = this.normalizeHaptics(prefs.getString('hapticsLevel', 'medium'));
+    this.workStepMode = WorkStepPresentation.normalizeMode(prefs.getString(WorkStepPresentation.MODE_KEY, 'detailed'));
+    this.workStepTiming = WorkStepPresentation.normalizeTiming(prefs.getString(WorkStepPresentation.TIMING_KEY, 'completion'));
+    this.textFont = prefs.getString('fontFamilyText', '');
+    this.codeFont = prefs.getString('fontFamilyCode', '');
+    this.terminalFont = prefs.getString('fontFamilyTerminal', '');
+    this.codeSize = prefs.getString('codeFontSize', '');
+    this.terminalSize = prefs.getString('terminalFontSize', '');
+
+    this.settingsGlassEnabled = prefs.getBoolean('settingsGlassEnabled', true);
+    this.sessionGlassEnabled = prefs.getBoolean('sessionGlassEnabled', true);
+    this.bottomSheetGlassEnabled = prefs.getBoolean('bottomSheetGlassEnabled', true);
+    this.homeAnimationEnabled = prefs.getBoolean('homeAnimationEnabled', true);
+    this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', true);
+    this.showAccountCard = prefs.getBoolean('showAccountCard', false);
+    this.notifyEnabled = prefs.getBoolean('notifyEnabled', false);
+    this.quotaCardEnabled = prefs.getBoolean('quotaCardEnabled', false);
+    this.contextTabVisible = prefs.getBoolean('contextTabVisible', true);
+    this.fleetTabVisible = prefs.getBoolean('fleetTabVisible', true);
+    this.clawbotBridgeEnabled = prefs.getBoolean('clawbotBridgeEnabled', false);
+    this.appLanguage = prefs.getString('appLanguage', 'system');
+    const storedAppearance: string = prefs.getString('appearanceMode', '');
+    if (storedAppearance.length > 0) {
+      this.appearanceMode = storedAppearance;
+    } else {
+      this.appearanceMode = this.themeMode === 'light' ? 'light' : (this.themeMode === 'dark' ? 'dark' : 'auto');
+    }
+    this.statusAppearance = prefs.getString('statusAppearance', 'classic');
+    this.procIconStyle = prefs.getString('procIconStyle', 'spin-ring');
+    this.glassStylePreset = prefs.getString('glassStylePreset', 'glass-default');
+    this.nativeStylePreset = prefs.getString('nativeStylePreset', 'default');
+    this.cardStylePreset = prefs.getString('cardStylePreset', 'float');
+    this.appVersion = this.readAppVersion();
+
+    this.refreshAttachmentCache();
     try {
       this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
     } catch (ignored) {
     }
   }
 
+  /** 从二级页（如「对话状态条」）返回时刷新偏好行，避免父页停留在旧值 */
+  private refreshPrefs(): void {
+    const prefs: PreferencesStore = PreferencesStore.get();
+    this.statusAppearance = prefs.getString('statusAppearance', 'classic');
+    this.procIconStyle = prefs.getString('procIconStyle', 'spin-ring');
+    this.showAccountCard = prefs.getBoolean('showAccountCard', this.showAccountCard);
+    this.notifyEnabled = prefs.getBoolean('notifyEnabled', this.notifyEnabled);
+    this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', this.voiceInputEnabled);
+    this.contextTabVisible = prefs.getBoolean('contextTabVisible', this.contextTabVisible);
+    this.fleetTabVisible = prefs.getBoolean('fleetTabVisible', this.fleetTabVisible);
+    this.homeAnimationEnabled = prefs.getBoolean('homeAnimationEnabled', this.homeAnimationEnabled);
+  }
+
+  /** 兼容旧版按中文保存的震动档位，统一成小程序档位 id。 */
+  private normalizeHaptics(value: string): string {
+    if (value === '关闭' || value === 'off') {
+      return 'off';
+    }
+    if (value === '轻' || value === 'light') {
+      return 'light';
+    }
+    if (value === '强' || value === 'heavy') {
+      return 'heavy';
+    }
+    return 'medium';
+  }
+
+  private readAppVersion(): string {
+    try {
+      const info = bundleManager.getBundleInfoForSelfSync(bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT);
+      return info.versionName.length > 0 ? info.versionName : '1.0.2';
+    } catch (err) {
+      return '1.0.2';
+    }
+  }
+
+  // ── 分组标题 / 行 / 分隔线：沿用页面既有风格 ──
+
+  /** 分组标题：字号/字重/缩进与「会话设置」「Tailscale 内嵌隧道」页一致 */
   @Builder
   groupTitle(title: string) {
     Text(title)
-      .fontSize(15)
-      .fontWeight(FontWeight.Medium)
+      .fontSize(13)
       .fontColor(this.subColor())
       .width('100%')
-      .padding({ left: 8, top: 20, bottom: 9 })
+      .padding({ left: 16, right: 16, top: 18, bottom: 7 })
   }
 
   @Builder
@@ -95,10 +217,11 @@ export struct AppSettingsPage {
       .padding({ left: 8, top: 8 })
   }
 
+  /** 值 / 箭头行（对齐小程序 card-row） */
   @Builder
   row(label: string, value: string, chevron: boolean, onTap: () => void) {
     Row() {
-      Text(label).fontSize(15).fontColor(this.textColor())
+      Text(label).fontSize(16).fontColor(this.textColor())
       Blank()
       Row({ space: 6 }) {
         Text(value)
@@ -116,6 +239,61 @@ export struct AppSettingsPage {
     .constraintSize({ minHeight: 44 })
     .padding({ left: 16, right: 16, top: 15, bottom: 15 })
     .onClick(onTap)
+  }
+
+  /** 标题 + 说明 + 值 / 箭头行 */
+  @Builder
+  rowDesc(label: string, desc: string, value: string, chevron: boolean, onTap: () => void) {
+    Row() {
+      Column({ space: 3 }) {
+        Text(label).fontSize(16).fontColor(this.textColor())
+        if (desc.length > 0) {
+          Text(desc).fontSize(12).fontColor(this.subColor())
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      Row({ space: 6 }) {
+        Text(value)
+          .fontSize(15)
+          .fontColor(this.subColor())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: 200 })
+        if (chevron) {
+          Text('›').fontSize(18).fontColor(this.subColor())
+        }
+      }
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 44 })
+    .padding({ left: 16, right: 16, top: 13, bottom: 13 })
+    .onClick(onTap)
+  }
+
+  /** 开关行（系统 Toggle，开启色 #2E6BE6） */
+  @Builder
+  toggleRow(label: string, desc: string, isOn: boolean, onChanged: (value: boolean) => void) {
+    Row() {
+      Column({ space: 3 }) {
+        Text(label).fontSize(16).fontColor(this.textColor())
+        if (desc.length > 0) {
+          Text(desc).fontSize(12).fontColor(this.subColor())
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      Toggle({ type: ToggleType.Switch, isOn: isOn })
+        .selectedColor('#2E6BE6')
+        .onChange((value: boolean) => {
+          onChanged(value);
+        })
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 44 })
+    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
   }
 
   @Builder
@@ -140,8 +318,8 @@ export struct AppSettingsPage {
   fontRow(label: string, hint: string, value: string, role: string) {
     Row() {
       Column({ space: 3 }) {
-        Text(label).fontSize(15).fontColor(this.textColor())
-        Text(hint).fontSize(11.5).fontColor(this.subColor())
+        Text(label).fontSize(16).fontColor(this.textColor())
+        Text(hint).fontSize(12).fontColor(this.subColor())
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
@@ -177,21 +355,331 @@ export struct AppSettingsPage {
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
   }
 
-  private publicValueLabel(): string {
-    if (this.connection !== 'connected') {
-      return '未连接';
+  // ── 选项数据（与小程序同名选项）──
+
+  private optionIdsOf(kind: string): string[] {
+    if (kind === 'appearance') {
+      return ['auto', 'light', 'dark'];
     }
-    return this.transportKind === 'relay' ? '公网（中继）' : '局域网直连';
+    if (kind === 'status') {
+      return ['classic', 'neon', 'terminal', 'candy', 'glitch', 'original'];
+    }
+    if (kind === 'procion') {
+      return ['spin-ring', 'cells', 'terra', 'morph', 'grid', 'orbit', 'ripple', 'wave', 'pulse-ring', 'breathe-bars', 'spin-square', 'typing-dots', 'scan-line'];
+    }
+    if (kind === 'language') {
+      return ['system', 'zh', 'en'];
+    }
+    if (kind === 'mode') {
+      const ids: string[] = [];
+      for (const option of WorkStepPresentation.modes()) {
+        ids.push(option.id);
+      }
+      return ids;
+    }
+    if (kind === 'timing') {
+      const ids: string[] = [];
+      for (const option of WorkStepPresentation.timings()) {
+        ids.push(option.id);
+      }
+      return ids;
+    }
+    if (kind === 'haptics') {
+      return ['off', 'light', 'medium', 'heavy'];
+    }
+    if (kind === 'glass') {
+      return ['glass-default', 'glass-clear', 'glass-frosted', 'glass-dark'];
+    }
+    if (kind === 'native') {
+      return ['default', 'dim', 'darker', 'bright', 'brightest'];
+    }
+    if (kind === 'card') {
+      return ['float', 'plain', 'compact'];
+    }
+    return [];
   }
 
-  private themeLabel(): string {
-    if (this.themeMode === 'light') {
-      return '浅色';
+  private optionLabelsOf(kind: string): string[] {
+    if (kind === 'appearance') {
+      return ['跟随微信', '浅色', '深色'];
     }
-    if (this.themeMode === 'dark') {
-      return '深色';
+    if (kind === 'status') {
+      return ['经典流光', '霓虹', '终端', '糖果', '故障', '简约'];
     }
-    return '跟随系统';
+    if (kind === 'procion') {
+      return ['旋转圆环', '格子', '思考球', '变形方', '点阵', '轨道', '波纹', '声波', '脉冲环', '呼吸条', '旋方', '打字点', '扫描线'];
+    }
+    if (kind === 'language') {
+      return ['跟随系统', '简体中文', 'English'];
+    }
+    if (kind === 'mode') {
+      const labels: string[] = [];
+      for (const option of WorkStepPresentation.modes()) {
+        labels.push(option.label);
+      }
+      return labels;
+    }
+    if (kind === 'timing') {
+      const labels: string[] = [];
+      for (const option of WorkStepPresentation.timings()) {
+        labels.push(option.label);
+      }
+      return labels;
+    }
+    if (kind === 'haptics') {
+      return ['关闭', '轻', '中', '重'];
+    }
+    if (kind === 'glass') {
+      return ['默认玻璃', '通透玻璃', '磨砂玻璃', '深色玻璃'];
+    }
+    if (kind === 'native') {
+      return ['默认', '偏暗', '更暗', '偏亮', '最亮'];
+    }
+    if (kind === 'card') {
+      return ['悬浮卡片', '平面卡片', '紧凑卡片'];
+    }
+    return [];
+  }
+
+  private labelOf(kind: string, id: string): string {
+    const ids: string[] = this.optionIdsOf(kind);
+    const labels: string[] = this.optionLabelsOf(kind);
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i] === id) {
+        return labels[i];
+      }
+    }
+    return labels.length > 0 ? labels[0] : '';
+  }
+
+  private currentOptionId(): string {
+    const kind: string = this.pickerKind;
+    if (kind === 'appearance') {
+      return this.appearanceMode;
+    }
+    if (kind === 'status') {
+      return this.statusAppearance;
+    }
+    if (kind === 'procion') {
+      return this.procIconStyle;
+    }
+    if (kind === 'language') {
+      return this.appLanguage;
+    }
+    if (kind === 'mode') {
+      return this.workStepMode;
+    }
+    if (kind === 'timing') {
+      return this.workStepTiming;
+    }
+    if (kind === 'haptics') {
+      return this.haptics;
+    }
+    if (kind === 'glass') {
+      return this.glassStylePreset;
+    }
+    if (kind === 'native') {
+      return this.nativeStylePreset;
+    }
+    if (kind === 'card') {
+      return this.cardStylePreset;
+    }
+    return '';
+  }
+
+  private optionIds(): string[] {
+    return this.optionIdsOf(this.pickerKind);
+  }
+
+  private optionLabels(): string[] {
+    return this.optionLabelsOf(this.pickerKind);
+  }
+
+  private pickerTitleFor(kind: string): string {
+    if (kind === 'appearance') {
+      return '外观';
+    }
+    if (kind === 'status') {
+      return '对话状态条';
+    }
+    if (kind === 'procion') {
+      return '执行图标';
+    }
+    if (kind === 'language') {
+      return '语言';
+    }
+    if (kind === 'mode') {
+      return '工作步骤展示';
+    }
+    if (kind === 'timing') {
+      return '工作步骤收起时机';
+    }
+    if (kind === 'haptics') {
+      return '震动反馈';
+    }
+    if (kind === 'glass') {
+      return '玻璃样式设置';
+    }
+    if (kind === 'native') {
+      return '原生样式设置';
+    }
+    if (kind === 'card') {
+      return '卡片样式设置';
+    }
+    return '';
+  }
+
+  private pickerSubtitleFor(kind: string): string {
+    if (kind === 'appearance') {
+      return '跟随微信';
+    }
+    if (kind === 'status') {
+      return '对话页运行指示（鲸尾+流光）的配色循环';
+    }
+    if (kind === 'procion') {
+      return '选择执行图标动效';
+    }
+    if (kind === 'language') {
+      return '选择界面语言';
+    }
+    if (kind === 'mode') {
+      return '选择希望看到多少工具调用细节';
+    }
+    if (kind === 'timing') {
+      return '选择何时自动收起工作步骤';
+    }
+    if (kind === 'haptics') {
+      return '点击与滑动时的震动强度，全局生效。';
+    }
+    if (kind === 'glass') {
+      return '调整设置页玻璃的透明度与模糊';
+    }
+    if (kind === 'native') {
+      return '不使用玻璃时设置页的底色强度';
+    }
+    if (kind === 'card') {
+      return '调整会话卡片的悬浮高度与圆角';
+    }
+    return '';
+  }
+
+  /** 二级页选择回调：应用选择并清空回传值 */
+  private onPrefPickerChoice(): void {
+    const raw: string = this.prefPickerChoice;
+    if (raw.length === 0) {
+      return;
+    }
+    this.prefPickerChoice = '';
+    const sep: number = raw.indexOf('\u0001');
+    if (sep <= 0) {
+      return;
+    }
+    const kind: string = raw.substring(0, sep);
+    const id: string = raw.substring(sep + 1);
+    this.pickerKind = kind;
+    this.applyOptionChoice(id);
+  }
+
+  /** 打开设置项二级页（不再用页内弹层） */
+  private openPicker(kind: string): void {
+    this.closeSheets();
+    this.pickerKind = kind;
+    AppStorage.setOrCreate<string>('prefPickerKind', kind);
+    AppStorage.setOrCreate<string>('prefPickerValue', this.currentOptionId());
+    this.pageStack.pushPathByName('pref-picker', null);
+  }
+
+  private applyOptionChoice(id: string): void {
+    const kind: string = this.pickerKind;
+    if (kind === 'appearance') {
+      this.appearanceMode = id;
+      PreferencesStore.get().putString('appearanceMode', id);
+      this.applyTheme(id === 'light' ? 'light' : (id === 'dark' ? 'dark' : 'system'));
+    } else if (kind === 'status') {
+      this.statusAppearance = id;
+      PreferencesStore.get().putString('statusAppearance', id);
+    } else if (kind === 'procion') {
+      this.procIconStyle = id;
+      PreferencesStore.get().putString('procIconStyle', id);
+    } else if (kind === 'language') {
+      this.appLanguage = id;
+      PreferencesStore.get().putString('appLanguage', id);
+    } else if (kind === 'mode') {
+      this.workStepMode = WorkStepPresentation.normalizeMode(id);
+      PreferencesStore.get().putString(WorkStepPresentation.MODE_KEY, this.workStepMode);
+      AppStorage.setOrCreate<string>('workStepMode', this.workStepMode);
+    } else if (kind === 'timing') {
+      this.workStepTiming = WorkStepPresentation.normalizeTiming(id);
+      PreferencesStore.get().putString(WorkStepPresentation.TIMING_KEY, this.workStepTiming);
+      AppStorage.setOrCreate<string>('workStepTiming', this.workStepTiming);
+    } else if (kind === 'haptics') {
+      this.haptics = id;
+      PreferencesStore.get().putString('hapticsLevel', id);
+    } else if (kind === 'glass') {
+      this.glassStylePreset = id;
+      PreferencesStore.get().putString('glassStylePreset', id);
+    } else if (kind === 'native') {
+      this.nativeStylePreset = id;
+      PreferencesStore.get().putString('nativeStylePreset', id);
+    } else if (kind === 'card') {
+      this.cardStylePreset = id;
+      PreferencesStore.get().putString('cardStylePreset', id);
+    }
+    this.pickerOpen = false;
+  }
+
+  private closeSheets(): void {
+    this.connectionSheetOpen = false;
+    this.pickerOpen = false;
+    this.fontSheetOpen = false;
+    this.storageSheetOpen = false;
+    this.infoOpen = false;
+  }
+
+  private openInfo(title: string, text: string): void {
+    this.closeSheets();
+    this.infoTitle = title;
+    this.infoText = text;
+    this.infoOpen = true;
+  }
+
+  private openFontSheet(): void {
+    this.closeSheets();
+    this.fontSheetOpen = true;
+  }
+
+  private openStorageSheet(): void {
+    this.closeSheets();
+    this.storageSheetOpen = true;
+    this.refreshAttachmentCache();
+  }
+
+  private openConnectionSheet(kind: string): void {
+    this.closeSheets();
+    this.connectionSheetKind = kind;
+    this.connectionSheetOpen = true;
+  }
+
+  // ── 主题 / 字号 / 震动 ──
+
+  private appearanceLabel(): string {
+    return this.labelOf('appearance', this.appearanceMode);
+  }
+
+  private statusLabel(): string {
+    return this.labelOf('status', this.statusAppearance);
+  }
+
+  private procIconLabel(): string {
+    return this.labelOf('procion', this.procIconStyle);
+  }
+
+  private languageLabel(): string {
+    return this.labelOf('language', this.appLanguage);
+  }
+
+  private hapticsLabel(): string {
+    return this.labelOf('haptics', this.haptics);
   }
 
   private applyTheme(mode: string): void {
@@ -203,11 +691,7 @@ export struct AppSettingsPage {
   private applyFontSize(value: string): void {
     this.fontSize = value;
     PreferencesStore.get().putString('contentFontSize', value);
-  }
-
-  private applyHaptics(value: string): void {
-    this.haptics = value;
-    PreferencesStore.get().putString('hapticsLevel', value);
+    AppStorage.setOrCreate<string>('contentFontSize', value);
   }
 
   private testVibrate(): void {
@@ -220,178 +704,284 @@ export struct AppSettingsPage {
     }
   }
 
-  @Builder
-  connectionSheet() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Column().width('100%').height('100%').backgroundColor('rgba(0,0,0,0.45)').onClick(() => { this.connectionSheetOpen = false; })
-      Column({ space: 0 }) {
-        Row() {
-          Text(this.connectionSheetKind === 'public' ? '公网访问' : '公网权限').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.textColor())
-          Blank()
-          Text('关闭').fontSize(14).fontColor(this.subColor()).onClick(() => { this.connectionSheetOpen = false; })
-        }.width('100%').height(48).padding({ left: 16, right: 16 })
-        if (this.connectionSheetKind === 'public') {
-          Column() {
-            this.row('访问状态', this.publicValueLabel(), false, () => {})
-            this.divider()
-            this.row('网关', this.gatewayName.length > 0 ? this.gatewayName : '—', false, () => {})
-            this.divider()
-            this.row('访问有效期', '—', false, () => {})
-            Button('重新连接').width('calc(100% - 32vp)').height(44).fontSize(15).backgroundColor('#2E6BE6').fontColor('#FFFFFF').margin({ top: 12, bottom: 12 }).onClick(() => { GatewayClient.get().autoConnect(); this.connectionHint = '正在重新连接…'; })
-          }.width('100%').borderRadius(14).backgroundColor(this.cardBg())
-        } else {
-          Column() {
-            Text('公网权限用于控制当前设备是否可以访问公网节点。').fontSize(13).fontColor(this.subColor()).width('100%').padding(16)
-            this.row('当前权限', this.publicAccessState.length > 0 ? this.publicAccessState : '未授权', false, () => {})
-            Button('刷新权限状态').width('calc(100% - 32vp)').height(44).fontSize(15).backgroundColor('rgba(255,255,255,0.10)').fontColor(this.textColor()).margin({ top: 12, bottom: 12 }).onClick(() => { this.connectionHint = '已刷新权限状态'; })
-          }.width('100%').borderRadius(14).backgroundColor(this.cardBg())
-        }
-        if (this.connectionHint.length > 0) { Text(this.connectionHint).fontSize(12).fontColor(this.subColor()).width('100%').padding({ left: 16, top: 8 }) }
-      }.width('100%').padding({ top: 8, bottom: 24 }).borderRadius({ topLeft: 18, topRight: 18 }).backgroundColor(this.pageBg())
-    }.width('100%').height('100%')
+  // ── 存储空间 / 通知 ──
+
+  private async refreshAttachmentCache(): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const entries = await AttachmentCache.list(context);
+      let total: number = 0;
+      for (const entry of entries) {
+        total += entry.bytes;
+      }
+      this.attachmentCacheLabel = entries.length + ' 个文件 · ' + this.bytesLabel(total);
+    } catch (err) {
+      this.attachmentCacheLabel = '暂不可用';
+    }
   }
 
-  build() {
-    NavDestination() {
-      Column() {
+  private bytesLabel(bytes: number): string {
+    if (bytes < 1024) {
+      return bytes + ' B';
+    }
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(1) + ' KB';
+    }
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  private async clearAttachmentCache(): Promise<void> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const removed: number = await AttachmentCache.clear(context);
+      this.attachmentCacheLabel = '已清理 ' + removed + ' 个文件';
+      this.hint = '已清理下载文件缓存';
+    } catch (err) {
+      this.hint = '清理下载文件失败';
+    }
+  }
+
+  private clearLocalCache(): void {
+    // Clear UI-restorable projections while preserving credentials and gateway data.
+    SessionStore.get().clear();
+    AppStorage.setOrCreate<SessionSummary[]>('sessions', []);
+    AppStorage.setOrCreate<Object[]>('dirEntries', []);
+    AppStorage.setOrCreate<Object[]>('queueItems', []);
+    AppStorage.setOrCreate<Object[]>('sessionRows', []);
+    AppStorage.setOrCreate<number>('queueCount', 0);
+    AppStorage.setOrCreate<number>('sessionRowCount', 0);
+    this.hint = '已清理本机缓存（不含凭据与网关数据）';
+  }
+
+  private async authorizeNotifications(): Promise<void> {
+    const context = getContext(this) as common.UIAbilityContext;
+    const enabled: boolean = await NotificationService.ensureAuthorized(context);
+    this.notificationHint = enabled ? '通知已启用' : '通知未启用，请在系统设置中允许';
+  }
+
+  // ── 连接卡片数据 ──
+
+  private publicValueLabel(): string {
+    if (this.connection !== 'connected') {
+      return '未连接';
+    }
+    return this.transportKind === 'relay' ? '公网（中继）' : '局域网直连';
+  }
+
+  private connStatusLabel(): string {
+    if (this.connection === 'connected') {
+      return '已连接';
+    }
+    if (this.connection === 'connecting') {
+      return '连接中';
+    }
+    if (this.connection === 'failed') {
+      return '连接失败';
+    }
+    return '未连接';
+  }
+
+  private connStatusColor(): string {
+    if (this.connection === 'connected') {
+      return '#2EB85C';
+    }
+    if (this.connection === 'connecting') {
+      return '#FFAE1F';
+    }
+    if (this.connection === 'failed') {
+      return '#E5484D';
+    }
+    return this.subColor();
+  }
+
+  private connStatusFill(): string {
+    if (this.connection === 'connected') {
+      return 'rgba(46,184,92,0.12)';
+    }
+    if (this.connection === 'connecting') {
+      return 'rgba(255,174,31,0.12)';
+    }
+    if (this.connection === 'failed') {
+      return 'rgba(229,72,77,0.12)';
+    }
+    return this.innerFill();
+  }
+
+  private connSubtitle(): string {
+    const parts: string[] = [];
+    if (this.transportKind.length > 0) {
+      parts.push(this.transportKind);
+    }
+    parts.push(this.connStatusLabel());
+    return parts.join(' · ');
+  }
+
+  private nodeCount(): number {
+    return CredentialStore.get().list().length;
+  }
+
+  @Builder
+  connStat(value: string, label: string) {
+    Column({ space: 4 }) {
+      Text(value)
+        .fontSize(18.5)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.textColor())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Text(label)
+        .fontSize(10.5)
+        .fontColor(this.subColor())
+        .maxLines(1)
+    }
+    .layoutWeight(1)
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  // ── 弹层：选项选择（外观 / 状态条 / 执行图标 / 语言 / 工作步骤 / 震动 / 样式）──
+
+  @Builder
+  choiceSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.45)')
+        .onClick(() => {
+          this.closeSheets();
+        })
+      Column({ space: 0 }) {
         Row() {
-          Text('‹').fontSize(26).fontColor(this.textColor()).width(40).height(40).textAlign(TextAlign.Center)
+          Column({ space: 4 }) {
+            Text(this.pickerTitle)
+              .fontSize(17)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.textColor())
+            if (this.pickerSubtitle.length > 0) {
+              Text(this.pickerSubtitle)
+                .fontSize(12)
+                .fontColor(this.subColor())
+            }
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+          Text('✕')
+            .fontSize(16)
+            .fontColor(this.subColor())
+            .padding(8)
             .onClick(() => {
-              this.pageStack.pop();
+              this.closeSheets();
             })
-          Blank()
-          Text('设置').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.textColor())
-          Blank()
-          Row().width(40)
         }
         .width('100%')
-        .height(44)
-        .padding({ left: 8, right: 8 })
-        .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
+        .padding({ left: 16, right: 16, top: 14, bottom: 6 })
 
         Scroll() {
-          Column() {
-            // 账号与余额
-            this.groupTitle('账号与余额')
-            Row({ space: 12 }) {
+          Column({ space: 0 }) {
+            ForEach(this.optionLabels(), (label: string, index: number) => {
               Row() {
-                Text('👤').fontSize(18).fontColor(this.textColor())
-              }
-              .width(36)
-              .height(36)
-              .borderRadius(18)
-              .justifyContent(FlexAlign.Center)
-              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
-              Column({ space: 3 }) {
-                Text(this.connection === 'connected' ? 'DSH 账号' : '未登录')
-                  .fontSize(15).fontWeight(FontWeight.Medium).fontColor(this.textColor())
-                Text(this.connection === 'connected' ? '已连接' : '登录后查看余额')
-                  .fontSize(12).fontColor(this.subColor())
-              }
-              .alignItems(HorizontalAlign.Start)
-              .layoutWeight(1)
-            }
-            .width('100%')
-            .padding(16)
-            .backgroundColor(this.cardBg())
-            .border({ width: 1, color: this.dividerColor() })
-            .borderRadius(14)
-
-            // 连接
-            this.groupTitle('连接')
-            Column() {
-              this.row('公网访问', this.publicValueLabel(), true, () => {
-                this.connectionSheetKind = 'public';
-                this.connectionSheetOpen = true;
-              })
-              this.divider()
-              this.row('节点管理', this.workspaces.length + ' 个节点', true, () => {
-                this.pageStack.pushPathByName('node-manage', null);
-              })
-              this.divider()
-              this.row('公网权限', this.publicAccessState.length > 0 ? this.publicAccessState : '未授权', true, () => {
-                this.connectionSheetKind = 'permission';
-                this.connectionSheetOpen = true;
-              })
-            }
-            .width('100%')
-            .backgroundColor(this.cardBg())
-            .border({ width: 1, color: this.dividerColor() })
-            .borderRadius(14)
-            .clip(true)
-
-            // 震动反馈
-            this.groupTitle('震动反馈')
-            Column() {
-              Row({ space: 8 }) {
-                ForEach(['关闭', '轻', '标准', '强'], (level: string) => {
-                  this.chip(level, this.haptics === level, () => {
-                    this.applyHaptics(level);
-                  })
-                }, (level: string) => level)
+                Text(label).fontSize(16).fontColor(this.textColor()).layoutWeight(1)
+                if (this.optionIds()[index] === this.currentOptionId()) {
+                  Text('✓').fontSize(16).fontColor('#2E6BE6')
+                }
               }
               .width('100%')
-              .padding({ left: 16, right: 16, top: 12, bottom: 6 })
+              .height(48)
+              .padding({ left: 16, right: 16 })
+              .onClick(() => {
+                this.applyOptionChoice(this.optionIds()[index]);
+              })
+              if (index < this.optionLabels().length - 1) {
+                this.divider()
+              }
+            }, (label: string) => label)
+
+            if (this.pickerKind === 'haptics') {
               this.divider()
               this.row('测试震动', '', true, () => {
                 this.testVibrate();
               })
+              if (this.hint.length > 0) {
+                Text(this.hint)
+                  .fontSize(12)
+                  .fontColor(this.subColor())
+                  .width('100%')
+                  .padding({ left: 16, top: 8 })
+              }
+            }
+          }
+          .width('100%')
+        }
+        .width('100%')
+        .constraintSize({ maxHeight: 380 })
+        .scrollBar(BarState.Off)
+      }
+      .width('100%')
+      .padding({ top: 6, bottom: 24 })
+      .borderRadius({ topLeft: 18, topRight: 18 })
+      .backgroundColor(this.pageBg())
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  // ── 弹层：字号大小（保留原有字体与字号设置）──
+
+  @Builder
+  fontSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.45)')
+        .onClick(() => {
+          this.closeSheets();
+        })
+      Column({ space: 0 }) {
+        Row() {
+          Column({ space: 4 }) {
+            Text('字号大小').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.textColor())
+            Text('仅影响会话内容的字号').fontSize(12).fontColor(this.subColor())
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+          Text('✕')
+            .fontSize(16)
+            .fontColor(this.subColor())
+            .padding(8)
+            .onClick(() => {
+              this.closeSheets();
+            })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 14, bottom: 6 })
+
+        Scroll() {
+          Column({ space: 0 }) {
+            Row({ space: 8 }) {
+              ForEach(['小', '标准', '大', '特大'], (size: string) => {
+                this.chip(size, this.fontSize === size, () => {
+                  this.applyFontSize(size);
+                })
+              }, (size: string) => size)
             }
             .width('100%')
-            .backgroundColor(this.cardBg())
-            .border({ width: 1, color: this.dividerColor() })
-            .borderRadius(14)
-            .clip(true)
-            this.groupHint('点击与滑动时的震动强度，全局生效。')
+            .padding({ left: 16, right: 16, top: 12, bottom: 12 })
 
-            // 外观
-            this.groupTitle('外观')
-            Column() {
-              Row({ space: 8 }) {
-                this.chip('跟随系统', this.themeMode === 'system', () => {
-                  this.applyTheme('system');
-                })
-                this.chip('浅色', this.themeMode === 'light', () => {
-                  this.applyTheme('light');
-                })
-                this.chip('深色', this.themeMode === 'dark', () => {
-                  this.applyTheme('dark');
-                })
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 12, bottom: 10 })
-              this.divider()
-              Row({ space: 8 }) {
-                Text('字号大小').fontSize(15).fontColor(this.textColor()).layoutWeight(1)
-                ForEach(['小', '标准', '大', '特大'], (size: string) => {
-                  this.chip(size, this.fontSize === size, () => {
-                    this.applyFontSize(size);
-                  })
-                }, (size: string) => size)
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 10, bottom: 12 })
-              this.divider()
-              this.fontRow('正文字体', '用于界面与会话正文', this.textFont, 'text')
-              this.divider()
-              this.fontRow('代码字体', '用于代码块与工具输出', this.codeFont, 'code')
-              this.divider()
-              this.fontRow('代码字号', '代码块与工具输出字号', this.codeSize, 'codeSize')
-              this.divider()
-              this.fontRow('终端字体', '用于侧栏终端', this.terminalFont, 'terminal')
-              this.divider()
-              this.fontRow('终端字号', '侧栏终端字号', this.terminalSize, 'terminalSize')
-            }
-            .width('100%')
-            .backgroundColor(this.cardBg())
-            .border({ width: 1, color: this.dividerColor() })
-            .borderRadius(14)
-            .clip(true)
-            this.groupHint('字体留空使用默认字体；实际可用字体取决于设备。')
+            this.divider()
+            this.fontRow('正文字体', '用于界面与会话正文', this.textFont, 'text')
+            this.divider()
+            this.fontRow('代码字体', '用于代码块与工具输出', this.codeFont, 'code')
+            this.divider()
+            this.fontRow('代码字号', '代码块与工具输出字号', this.codeSize, 'codeSize')
+            this.divider()
+            this.fontRow('终端字体', '用于侧栏终端', this.terminalFont, 'terminal')
+            this.divider()
+            this.fontRow('终端字号', '侧栏终端字号', this.terminalSize, 'terminalSize')
+            this.divider()
 
-            // 字体预览
-            this.groupTitle('字体预览')
             Column({ space: 6 }) {
+              Text('字体预览').fontSize(12).fontColor(this.subColor())
               Text('正文字体预览 Aa 你好')
                 .fontSize(this.fontSize === '特大' ? 20 : (this.fontSize === '大' ? 18 : (this.fontSize === '小' ? 14 : 16)))
                 .fontColor(this.textColor())
@@ -399,20 +989,397 @@ export struct AppSettingsPage {
                 .fontSize(this.codeSize.length > 0 ? Number(this.codeSize) : 13)
                 .fontColor(this.subColor())
             }
+            .alignItems(HorizontalAlign.Start)
             .width('100%')
             .padding(16)
-            .borderRadius(14)
+          }
+          .width('100%')
+        }
+        .width('100%')
+        .constraintSize({ maxHeight: 420 })
+        .scrollBar(BarState.Off)
+      }
+      .width('100%')
+      .padding({ top: 6, bottom: 24 })
+      .borderRadius({ topLeft: 18, topRight: 18 })
+      .backgroundColor(this.pageBg())
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  // ── 弹层：存储空间（保留清理能力）──
+
+  @Builder
+  storageSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.45)')
+        .onClick(() => {
+          this.closeSheets();
+        })
+      Column({ space: 0 }) {
+        Row() {
+          Column({ space: 4 }) {
+            Text('存储空间').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.textColor())
+            Text('本机缓存与清理').fontSize(12).fontColor(this.subColor())
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+          Text('✕')
+            .fontSize(16)
+            .fontColor(this.subColor())
+            .padding(8)
+            .onClick(() => {
+              this.closeSheets();
+            })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 14, bottom: 12 })
+
+        Column({ space: 0 }) {
+          this.row('聊天记录', this.sessions.length + ' 个会话', false, () => {
+          })
+          this.divider()
+          this.row('图片缓存', '暂未缓存', false, () => {
+          })
+          this.divider()
+          this.row('下载文件缓存', this.attachmentCacheLabel, false, () => {
+            this.refreshAttachmentCache();
+          })
+          this.divider()
+          this.row('清理下载文件', '', true, () => {
+            this.clearAttachmentCache();
+          })
+          this.divider()
+          this.row('清理会话状态', '', true, () => {
+            this.clearLocalCache();
+          })
+        }
+        .width('100%')
+        .backgroundColor(this.cardBg())
+        .borderRadius(14)
+        .margin({ left: 16, right: 16 })
+        .clip(true)
+
+        this.groupHint('清理下载文件会删除本地附件缓存；清理会话状态只移除本机会话副本与目录列表，不会删除网关记录或设备文件。')
+        if (this.hint.length > 0) {
+          Text(this.hint)
+            .fontSize(12)
+            .fontColor(this.subColor())
+            .width('100%')
+            .padding({ left: 16, top: 8 })
+        }
+      }
+      .width('100%')
+      .padding({ top: 6, bottom: 24 })
+      .borderRadius({ topLeft: 18, topRight: 18 })
+      .backgroundColor(this.pageBg())
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  // ── 弹层：轻量说明 ──
+
+  @Builder
+  infoSheet() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.45)')
+        .onClick(() => {
+          this.closeSheets();
+        })
+      Column({ space: 14 }) {
+        Column({ space: 6 }) {
+          Text(this.infoTitle)
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.textColor())
+            .width('100%')
+          Text(this.infoText)
+            .fontSize(13)
+            .fontColor(this.subColor())
+            .width('100%')
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+
+        Button('知道了')
+          .width('100%')
+          .height(42)
+          .fontSize(15)
+          .backgroundColor('#2E6BE6')
+          .fontColor('#FFFFFF')
+          .onClick(() => {
+            this.closeSheets();
+          })
+      }
+      .width('calc(100% - 64vp)')
+      .padding(18)
+      .borderRadius(16)
+      .backgroundColor(this.isDark ? '#1C1C22' : '#FFFFFF')
+      .border({ width: 1, color: this.dividerColor() })
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  // ── 弹层：公网访问 / 公网权限 ──
+
+  @Builder
+  connectionSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.45)')
+        .onClick(() => {
+          this.connectionSheetOpen = false;
+        })
+      Column({ space: 0 }) {
+        Row() {
+          Text(this.connectionSheetKind === 'public' ? '公网访问' : '公网权限')
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.textColor())
+          Blank()
+          Text('关闭')
+            .fontSize(14)
+            .fontColor(this.subColor())
+            .onClick(() => {
+              this.connectionSheetOpen = false;
+            })
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
+
+        if (this.connectionSheetKind === 'public') {
+          Column() {
+            this.row('访问状态', this.publicValueLabel(), false, () => {
+            })
+            this.divider()
+            this.row('网关', this.gatewayName.length > 0 ? this.gatewayName : '—', false, () => {
+            })
+            this.divider()
+            this.row('访问有效期', '—', false, () => {
+            })
+            Button('重新连接')
+              .width('calc(100% - 32vp)')
+              .height(44)
+              .fontSize(15)
+              .backgroundColor('#2E6BE6')
+              .fontColor('#FFFFFF')
+              .margin({ top: 12, bottom: 12 })
+              .onClick(() => {
+                GatewayClient.get().autoConnect();
+                this.connectionHint = '正在重新连接…';
+              })
+          }
+          .width('100%')
+          .borderRadius(14)
+          .backgroundColor(this.cardBg())
+        } else {
+          Column() {
+            Text('公网权限用于控制当前设备是否可以访问公网节点。')
+              .fontSize(13)
+              .fontColor(this.subColor())
+              .width('100%')
+              .padding(16)
+            this.row('当前权限', this.publicAccessState.length > 0 ? this.publicAccessState : '未授权', false, () => {
+            })
+            Button('刷新权限状态')
+              .width('calc(100% - 32vp)')
+              .height(44)
+              .fontSize(15)
+              .backgroundColor('rgba(255,255,255,0.10)')
+              .fontColor(this.textColor())
+              .margin({ top: 12, bottom: 12 })
+              .onClick(() => {
+                this.connectionHint = '已刷新权限状态';
+              })
+          }
+          .width('100%')
+          .borderRadius(14)
+          .backgroundColor(this.cardBg())
+        }
+        if (this.connectionHint.length > 0) {
+          Text(this.connectionHint)
+            .fontSize(12)
+            .fontColor(this.subColor())
+            .width('100%')
+            .padding({ left: 16, top: 8 })
+        }
+      }
+      .width('100%')
+      .padding({ top: 8, bottom: 24 })
+      .borderRadius({ topLeft: 18, topRight: 18 })
+      .backgroundColor(this.pageBg())
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  build() {
+    NavDestination() {
+      // 根必须是 Stack：NavDestination 只接受一个子节点，且弹层要盖在页面之上
+      Stack({ alignContent: Alignment.TopStart }) {
+      Column() {
+        // 导航（标题字号/字重/缩进与「会话设置」「Tailscale 内嵌隧道」页一致）
+        Row() {
+          Row() {
+            Text('‹')
+              .fontSize(24)
+              .fontColor(this.textColor())
+          }
+          .width(44)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            this.pageStack.pop();
+          })
+
+          Text('设置')
+            .fontSize(17)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+            .layoutWeight(1)
+            .textAlign(TextAlign.Center)
+
+          Row().width(44).height(44)
+        }
+        .width('100%')
+        .height(56)
+        .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
+
+        Scroll() {
+          Column() {
+            // ── 连接 ──
+            this.groupTitle('连接')
+            Column({ space: 0 }) {
+              Row({ space: 12 }) {
+                Row() {
+                  Image(this.isDark ? $r('app.media.node_router_white') : $r('app.media.node_router'))
+                    .width(23)
+                    .height(23)
+                    .objectFit(ImageFit.Contain)
+                }
+                .width(42)
+                .height(42)
+                .borderRadius(12)
+                .justifyContent(FlexAlign.Center)
+                .backgroundColor(this.innerFill())
+
+                Column({ space: 3 }) {
+                  Text(this.gatewayName.length > 0 ? this.gatewayName : '本机')
+                    .fontSize(17)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(this.textColor())
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .width('100%')
+                  Text(this.connSubtitle())
+                    .fontSize(12)
+                    .fontColor(this.subColor())
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .width('100%')
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+
+                Row({ space: 5 }) {
+                  Image(this.isDark ? $r('app.media.sliders_white') : $r('app.media.sliders_ink'))
+                    .width(13)
+                    .height(13)
+                    .objectFit(ImageFit.Contain)
+                  Text('管理')
+                    .fontSize(12.5)
+                    .fontColor(this.textColor())
+                }
+                .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+                .backgroundColor(this.innerFill())
+                .borderRadius(999)
+                .onClick(() => {
+                  this.pageStack.pushPathByName('node-manage', null);
+                })
+              }
+              .width('100%')
+              .padding({ left: 15, right: 15, top: 14 })
+
+              Row({ space: 6 }) {
+                Row({ space: 5 }) {
+                  Circle({ width: 6, height: 6 })
+                    .fill(this.connStatusColor())
+                  Text(this.connStatusLabel())
+                    .fontSize(11.5)
+                    .fontColor(this.connStatusColor())
+                }
+                .padding({ left: 9, right: 9, top: 4, bottom: 4 })
+                .borderRadius(999)
+                .backgroundColor(this.connStatusFill())
+
+                Text(this.gatewayVersion.length > 0 ? this.gatewayVersion : '版本未知')
+                  .fontSize(11.5)
+                  .fontColor(this.gatewayVersion.length > 0 ? this.subColor() : this.faintColor())
+                  .padding({ left: 9, right: 9, top: 4, bottom: 4 })
+                  .borderRadius(999)
+                  .backgroundColor(this.innerFill())
+              }
+              .width('100%')
+              .padding({ left: 15, right: 15, top: 11 })
+
+              Row()
+                .width('100%')
+                .height(1)
+                .backgroundColor(this.dividerColor())
+                .margin({ top: 12 })
+
+              Row() {
+                this.connStat(this.sessions.length.toString(), '会话')
+                this.connStat(this.workspaces.length.toString(), '工作区')
+                this.connStat(this.scheduleTasks.length.toString(), '定时任务')
+                this.connStat(this.pluginBundles.length.toString(), '插件')
+                this.connStat(this.nodeCount().toString(), '节点')
+              }
+              .width('100%')
+              .padding({ top: 13, bottom: 12 })
+
+              Row()
+                .width('100%')
+                .height(1)
+                .backgroundColor(this.dividerColor())
+
+            }
+            .width('100%')
             .backgroundColor(this.cardBg())
             .border({ width: 1, color: this.dividerColor() })
+            .borderRadius(14)
+            .clip(true)
 
-            // 存储空间
-            this.groupTitle('存储空间')
-            Column() {
-              this.row('本机缓存', this.sessions.length + ' 个会话', false, () => {
+            // ── 外观 ──
+            this.groupTitle('外观')
+            Column({ space: 0 }) {
+              this.row('界面', this.appearanceLabel(), true, () => {
+                this.openPicker('appearance');
               })
               this.divider()
-              this.row('清理本机缓存', '', true, () => {
-                this.hint = '已清理本机缓存（不含图片与文件）';
+              this.row('对话状态条', this.statusLabel(), true, () => {
+                this.pageStack.pushPathByName('status-styles', null);
+              })
+              this.divider()
+              this.row('执行图标', this.procIconLabel(), true, () => {
+                this.openPicker('procion');
+              })
+              this.divider()
+              this.toggleRow('首页动画', '控制首页动态海洋背景，关闭后保留静态画面', this.homeAnimationEnabled, (value: boolean) => {
+                this.homeAnimationEnabled = value;
+                PreferencesStore.get().putBoolean('homeAnimationEnabled', value);
               })
             }
             .width('100%')
@@ -420,8 +1387,149 @@ export struct AppSettingsPage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-            this.groupHint('本机缓存不含图片与文件。')
 
+            // ── 通用设置 ──
+            this.groupTitle('通用设置')
+            Column({ space: 0 }) {
+              this.row('语言', this.languageLabel(), true, () => {
+                this.openPicker('language');
+              })
+              this.divider()
+              this.row('震动反馈', this.hapticsLabel(), true, () => {
+                this.openPicker('haptics');
+              })
+              this.divider()
+              this.rowDesc('字号大小', '仅影响会话内容的字号', this.fontSize, true, () => {
+                this.openFontSheet();
+              })
+              this.divider()
+              this.toggleRow('显示账号卡片', '在设置页和会话设置顶部显示账号与余额卡片', this.showAccountCard, (value: boolean) => {
+                this.showAccountCard = value;
+                PreferencesStore.get().putBoolean('showAccountCard', value);
+              })
+            }
+            .width('100%')
+            .backgroundColor(this.cardBg())
+            .border({ width: 1, color: this.dividerColor() })
+            .borderRadius(14)
+            .clip(true)
+
+            // ── 对话 ──
+            this.groupTitle('对话')
+            Column({ space: 0 }) {
+              this.toggleRow('语音输入', '按住说话，由已连接的 DSH 语音插件转写', this.voiceInputEnabled, (value: boolean) => {
+                this.voiceInputEnabled = value;
+                PreferencesStore.get().putBoolean('voiceInputEnabled', value);
+              })
+              this.divider()
+              if (this.voiceInputEnabled) {
+                this.row('语音插件设置', '', true, () => {
+                  this.openInfo('语音插件设置', '语音输入由已连接的 DSH 语音插件转写；请在网关侧安装并连接语音插件后使用。');
+                })
+                this.divider()
+              }
+              this.rowDesc('工作步骤展示', '选择希望看到多少工具调用细节', WorkStepPresentation.modeLabel(this.workStepMode), true, () => {
+                this.openPicker('mode');
+              })
+              this.divider()
+              this.rowDesc('工作步骤收起时机', '选择何时自动收起工作步骤', WorkStepPresentation.timingLabel(this.workStepTiming), true, () => {
+                this.openPicker('timing');
+              })
+              this.divider()
+              this.toggleRow('上下文标签页', '在会话顶部显示上下文标签页', this.contextTabVisible, (value: boolean) => {
+                this.contextTabVisible = value;
+                PreferencesStore.get().putBoolean('contextTabVisible', value);
+              })
+              this.divider()
+              this.toggleRow('编队标签页', '在会话顶部显示编队标签页', this.fleetTabVisible, (value: boolean) => {
+                this.fleetTabVisible = value;
+                PreferencesStore.get().putBoolean('fleetTabVisible', value);
+              })
+              this.divider()
+              this.row('上下文面板', '', true, () => {
+                this.openInfo('上下文面板', '上下文面板用于查看当前会话的上下文占用、趋势与编队信息；面板入口显示在会话顶部。');
+              })
+            }
+            .width('100%')
+            .backgroundColor(this.cardBg())
+            .border({ width: 1, color: this.dividerColor() })
+            .borderRadius(14)
+            .clip(true)
+            this.groupHint('完全展开时不自动收起；设置保存在本机。')
+
+            // ── 实验性功能 ──
+            this.groupTitle('实验性功能')
+            Column({ space: 0 }) {
+              this.toggleRow('订阅通知', '发送任务后申请订阅消息授权，回合完成时通过服务通知提醒', this.notifyEnabled, (value: boolean) => {
+                this.notifyEnabled = value;
+                PreferencesStore.get().putBoolean('notifyEnabled', value);
+                if (value) {
+                  this.authorizeNotifications();
+                }
+              })
+              this.divider()
+              this.toggleRow('微信 ClawBot 私聊接线', '将微信私聊接入指定 DSH 会话；微信凭据保存在电脑端', this.clawbotBridgeEnabled, (value: boolean) => {
+                this.clawbotBridgeEnabled = value;
+                PreferencesStore.get().putBoolean('clawbotBridgeEnabled', value);
+              })
+              this.divider()
+              this.toggleRow('额度卡片', '在左侧栏显示余额与额度卡片', this.quotaCardEnabled, (value: boolean) => {
+                this.quotaCardEnabled = value;
+                PreferencesStore.get().putBoolean('quotaCardEnabled', value);
+              })
+            }
+            .width('100%')
+            .backgroundColor(this.cardBg())
+            .border({ width: 1, color: this.dividerColor() })
+            .borderRadius(14)
+            .clip(true)
+            this.groupHint('实验性功能默认关闭，可能随基础库版本变化不稳定，仅供试用。')
+
+            // ── 关于 ──
+            this.groupTitle('关于')
+            Column({ space: 0 }) {
+              this.row('存储空间', this.attachmentCacheLabel, true, () => {
+                this.openStorageSheet();
+              })
+              this.divider()
+              this.row('开发者公告', '', true, () => {
+                this.openInfo('开发者公告', '暂无开发者公告。');
+              })
+              this.divider()
+              this.row('联系客服', '', true, () => {
+                this.openInfo('联系客服', '请在小程序「鲸尾助手」中联系客服，或通过开发者公告获取支持渠道。');
+              })
+              this.divider()
+              this.row('客户端', '鲸尾助手鸿蒙版', false, () => {
+              })
+              this.divider()
+              this.row('当前版本', this.appVersion, false, () => {
+              })
+              this.divider()
+              this.row('要求网关版本', '≥ 0.8.6', false, () => {
+              })
+              this.divider()
+              this.row('已连接网关版本', this.connection === 'connected' ? (this.gatewayVersion.length > 0 ? this.gatewayVersion : '未上报') : '未连接', false, () => {
+              })
+              this.divider()
+              this.row('隐私政策', '', true, () => {
+                this.openInfo('隐私政策', '账号与网关凭据仅保存在本机与已连接的 DSH 网关；语音、通知等能力需在系统中单独授权，可随时关闭。');
+              })
+            }
+            .width('100%')
+            .backgroundColor(this.cardBg())
+            .border({ width: 1, color: this.dividerColor() })
+            .borderRadius(14)
+            .clip(true)
+            this.groupHint('适配基线：0.8.6+；旧版移动网关 0.10.0+。')
+
+            if (this.notificationHint.length > 0) {
+              Text(this.notificationHint)
+                .fontSize(12)
+                .fontColor(this.subColor())
+                .width('100%')
+                .padding({ left: 8, top: 8 })
+            }
             if (this.hint.length > 0) {
               Text(this.hint)
                 .fontSize(12)
@@ -440,11 +1548,30 @@ export struct AppSettingsPage {
       .width('100%')
       .height('100%')
       .backgroundColor(this.pageBg())
+
       if (this.connectionSheetOpen) {
         this.connectionSheet()
       }
+      if (this.pickerOpen) {
+        this.choiceSheet()
+      }
+      if (this.fontSheetOpen) {
+        this.fontSheet()
+      }
+      if (this.storageSheetOpen) {
+        this.storageSheet()
+      }
+      if (this.infoOpen) {
+        this.infoSheet()
+      }
+      }
+      .width('100%')
+      .height('100%')
     }
     .hideTitleBar(true)
     .backgroundColor(this.pageBg())
+    .onShown(() => {
+      this.refreshPrefs();
+    })
   }
 }

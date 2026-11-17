@@ -1,6 +1,20 @@
 {
   "app": {
-    "signingConfigs": [],
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/0the/.ohos/config/default_native-app_gGiDr2MCjbgYGrRJJBGW6Trb8PiBuhsbGSVRZnF0EUI=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001AF90562FCC345BB195B835C6AB7A06EA87DE5DDCE517440580AD0272EE7BCA42B534024FEC52A",
+          "profile": "/Users/0the/.ohos/config/default_native-app_gGiDr2MCjbgYGrRJJBGW6Trb8PiBuhsbGSVRZnF0EUI=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/0the/.ohos/config/default_native-app_gGiDr2MCjbgYGrRJJBGW6Trb8PiBuhsbGSVRZnF0EUI=.p12",
+          "storePassword": "0000001A314679A0B683DB7D0E50685DC6A1B7B77B2436D0F56C900B3F8565D31606F6F90B1B87428DCE"
+        }
+      }
+    ],
     "products": [
       {
         "name": "default",
@@ -12,13 +26,18 @@
           "strictMode": {
             "caseSensitiveCheck": true,
             "useNormalizedOHMUrl": true
-          }
+          },
+          "nativeCompiler": "BiSheng"
         }
       }
     ],
     "buildModeSet": [
-      { "name": "debug" },
-      { "name": "release" }
+      {
+        "name": "debug"
+      },
+      {
+        "name": "release"
+      }
     ]
   },
   "modules": [
@@ -28,7 +47,9 @@
       "targets": [
         {
           "name": "default",
-          "applyToProducts": ["default"]
+          "applyToProducts": [
+            "default"
+          ]
         }
       ]
     },
@@ -38,7 +59,9 @@
       "targets": [
         {
           "name": "default",
-          "applyToProducts": ["default"]
+          "applyToProducts": [
+            "default"
+          ]
         }
       ]
     }

@@ -519,18 +519,31 @@ export struct HomePage {
       Column() {
         // 品牌
         Row({ space: 6 }) {
-          Image($r('app.media.whale_ink')).width(29).height(29).objectFit(ImageFit.Contain)
-          Image($r('app.media.wordmark_ink')).width(76).objectFit(ImageFit.Contain)
+          // 品牌鲸鱼：与顶部品牌行一致
+          Image($r('app.media.whale_ink'))
+            .width(29)
+            .height(29)
+            .objectFit(ImageFit.Contain)
+            .translate({ y: -3.5 })
+          // 文字标：与顶部品牌行等高（52×15），侧栏标题高度与主页一致
+          Image($r('app.media.wordmark_ink'))
+            .width(52)
+            .height(15)
+            .objectFit(ImageFit.Contain)
+          // HARNESS 徽章：白底抽屉上用深底白字，与主页顶栏同一规格
           Text('HARNESS')
             .fontSize(9.5)
             .fontWeight(FontWeight.Bold)
-            .fontColor('#10151F')
-            .backgroundColor('#FFFFFF')
+            .fontColor('#FFFFFF')
+            .backgroundColor('#10151F')
             .borderRadius(4)
             .height(15)
             .padding({ left: 6, right: 6 })
+            .textAlign(TextAlign.Center)
+            .letterSpacing(0.5)
         }
         .width('100%')
+        .alignItems(VerticalAlign.Center)
         .padding({ left: 12, bottom: 16 })
 
         // 插件
@@ -567,7 +580,7 @@ export struct HomePage {
       .width('76%')
       .constraintSize({ maxWidth: 360 })
       .height('100%')
-      .padding({ left: 18, right: 18, top: this.safeTop + 18, bottom: this.safeBottom + 12 })
+      .padding({ left: 18, right: 18, top: (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 14, bottom: this.safeBottom + 12 })
       .backgroundColor('#FFFFFF')
       .alignItems(HorizontalAlign.Start)
     }
@@ -1224,10 +1237,12 @@ export struct HomePage {
               .width(29)
               .height(29)
               .objectFit(ImageFit.Contain)
-              .margin({ right: 3.5, top: -4 })
-            // 文字标：168.75rpx ≈ 84vp 固定宽
+              .margin({ right: 3.5 })
+              .translate({ y: -3.5 })
+            // 文字标：与徽章同高，垂直居中（对齐小程序 brand-row）
             Image($r('app.media.wordmark_white'))
-              .width(84)
+              .width(52)
+              .height(15)
               .objectFit(ImageFit.Contain)
               .margin({ right: 9 })
             // HARNESS 徽章：19rpx 字 / 30rpx 高 / 8rpx 圆角

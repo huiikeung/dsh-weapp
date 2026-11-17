@@ -42,3 +42,9 @@ harmonyos/.idea/
 # 本地性能/布局分析临时产物（可重新生成）
 .tmp-*
 preview-qr.jpg
+# Vendored Tailscale/Go toolchain sources (large, rebuilt by scripts)
+harmonyos/third_party/
+# Prebuilt Go bridge binaries (built by scripts/build-go-ohos.sh)
+harmonyos/native-app/entry/libs/
+# Local agent ops state
+.dsh-ops/

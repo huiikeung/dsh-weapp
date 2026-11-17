@@ -19,6 +19,10 @@ export class PreferencesStore {
     Logger.info('preferences ready');
   }
 
+  isReady(): boolean {
+    return this.store !== null;
+  }
+
   getString(key: string, fallback: string): string {
     if (this.store === null) {
       return fallback;
@@ -38,5 +42,49 @@ export class PreferencesStore {
     this.store.flush().catch((err: BusinessError) => {
       Logger.error('preferences flush failed: ' + JSON.stringify(err));
     });
+  }
+
+  /** 读取布尔偏好（小程序 wx.getStorageSync 布尔值的对应实现）。 */
+  getBoolean(key: string, fallback: boolean): boolean {
+    if (this.store === null) {
+      return fallback;
+    }
+    const value: preferences.ValueType = this.store.getSync(key, fallback);
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'string') {
+      return value === 'true';
+    }
+    return fallback;
+  }
+
+  /** 写入布尔偏好。 */
+  putBoolean(key: string, value: boolean): void {
+    if (this.store === null) {
+      return;
+    }
+    this.store.putSync(key, value);
+    this.store.flush().catch((err: BusinessError) => {
+      Logger.error('preferences flush failed: ' + JSON.stringify(err));
+    });
+  }
+
+  /** 读取数字偏好（字符串形式存储，兼容小程序）。 */
+  getNumber(key: string, fallback: number): number {
+    const raw: string = this.getString(key, '');
+    if (raw.length === 0) {
+      return fallback;
+    }
+    const parsed: number = Number(raw);
+    if (isNaN(parsed)) {
+      return fallback;
+    }
+    return parsed;
+  }
+
+  /** 写入数字偏好（以字符串存储，便于与小程序共享同一份配置）。 */
+  putNumber(key: string, value: number): void {
+    this.putString(key, String(value));
   }
 }

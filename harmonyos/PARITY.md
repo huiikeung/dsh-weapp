@@ -45,12 +45,12 @@
 
 | # | 区块 | 状态 |
 | --- | --- | --- |
-| 1 | 对话（气泡 + markdown + 输入框 + 发送/排队） | 🟡 基础可用，样式未对 |
-| 2 | 排队（steer/remove） | 🟡 |
-| 3 | 轨迹（turn/step/tool） | 🟡 |
-| 4 | 上下文（requests/window/stats） | 🟡 |
-| 5 | 编队（fleet 节点+连线） | 🟡 |
-| 6 | 顶部标签栏/更多菜单 | ⬜ |
+| 1 | 对话（气泡 + markdown + 输入框 + 发送/排队） | ✅ 原生 `pages/ConversationPage`（对齐 dsh-mobile ConversationView） |
+| 2 | 排队（steer/remove） | 🟡 仍在 `pages/SessionPage`（更多菜单 → 任务面板） |
+| 3 | 轨迹（turn/step/tool） | 🟡 同上 |
+| 4 | 上下文（requests/window/stats） | 🟡 同上 |
+| 5 | 编队（fleet 节点+连线） | 🟡 同上 |
+| 6 | 顶部标签栏/更多菜单 | 🟡 更多菜单已接「会话设置 / 任务面板」 |
 
 ## 插件页 / 自动化页
 

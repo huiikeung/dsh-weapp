@@ -1,6 +1,9 @@
 import { AbilityConstant, Configuration, UIAbility, Want } from '@kit.AbilityKit';
 import { display, window } from '@kit.ArkUI';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { TailscaleTunnelStore } from '../services/TailscaleTunnelStore';
+import { TsnetBridge } from '../services/TsnetBridge';
+import { BackgroundKeepAlive } from '../services/BackgroundKeepAlive';
 import {
   AppState, GatewayClient, Logger, PreferencesStore, SessionStore, ThemeManager,
   parsePairingPayload, sodiumSelfTest
@@ -9,6 +12,23 @@ import {
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     AppState.init();
+    SessionStore.restoreCatalogCache();
+    Logger.info('UIBOOT onCreate');
+    AppStorage.setOrCreate<string>('appLifecycle', 'foreground');
+    AppStorage.setOrCreate<Context>('uiAbilityContext', this.context);
+    const deepSession: string = want.parameters !== undefined && want.parameters['sessionId'] !== undefined
+      ? String(want.parameters['sessionId']) : '';
+    if (deepSession.length > 0) {
+      AppStorage.setOrCreate<string>('pendingSessionId', deepSession);
+    }
+    const pageRoute: string = want.parameters !== undefined && want.parameters['pageRoute'] !== undefined
+      ? String(want.parameters['pageRoute']) : '';
+    if (want.parameters !== undefined && String(want.parameters['loginNow'] ?? '') === '1') {
+      AppStorage.setOrCreate<boolean>('pendingTailscaleLogin', true);
+    }
+    if (pageRoute.length > 0) {
+      AppStorage.setOrCreate<string>('pendingPageRoute', pageRoute);
+    }
     // 调试/深度链接：aa start --ps pairPayload <base64> 可直接传入配对载荷
     const paramPayload: string = want.parameters !== undefined && want.parameters['pairPayload'] !== undefined
       ? String(want.parameters['pairPayload']) : '';
@@ -36,7 +56,27 @@ export default class EntryAbility extends UIAbility {
     }
     Logger.info('EntryAbility onCreate');
     PreferencesStore.get().init(this.context).then(() => {
+      // 会话内容字号（小/标准/大/特大）→ AppStorage，供对话页与设置预览统一读取
+      AppStorage.setOrCreate<string>('contentFontSize', PreferencesStore.get().getString('contentFontSize', '标准'));
+      // 工作步骤展示偏好 → AppStorage（对话页 StorageProp 响应式读取）
+      AppStorage.setOrCreate<string>('workStepMode', PreferencesStore.get().getString('workStepMode', 'detailed'));
+      AppStorage.setOrCreate<string>('workStepTiming', PreferencesStore.get().getString('workStepTiming', 'completion'));
       ThemeManager.get().init(this.context.config.colorMode);
+    TailscaleTunnelStore.get().start(this.context.filesDir + '/tailscale', this.context);
+    GatewayClient.get().setTailnetEnabler(() => {
+      TailscaleTunnelStore.get().enableAndStart();
+    });
+    GatewayClient.get().setTailnetDialer((url: string): string => {
+      const stage: string = AppStorage.get<string>('tailscaleStage') ?? 'disabled';
+      if (stage !== 'ready') {
+        return '';
+      }
+      // 统一使用轻量 tsnet 引擎的本地代理（避免两个引擎争用 18080 端口导致连接被踢）
+      const dialed: string = TsnetBridge.startFastProxyForWsUrl(url, 18080);
+      Logger.info('tailnet dial result=' + (dialed.length > 0 ? dialed : 'EMPTY'));
+      Logger.info('tailnet dial ' + url + ' -> ' + (dialed.length > 0 ? dialed : 'FAILED'));
+      return dialed;
+    });
       // 有已保存的配对凭据时自动重连，无需重新扫码。
       if (!GatewayClient.get().autoConnect()) {
         Logger.info('no saved gateway, waiting for scan');
@@ -47,18 +87,20 @@ export default class EntryAbility extends UIAbility {
     });
   }
 
+  onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
+    const sessionId: string = want.parameters !== undefined && want.parameters['sessionId'] !== undefined
+      ? String(want.parameters['sessionId']) : '';
+    if (sessionId.length > 0) AppStorage.setOrCreate<string>('pendingSessionId', sessionId);
+  }
+
   onWindowStageCreate(windowStage: window.WindowStage): void {
-    windowStage.loadContent('pages/Index', (err: BusinessError) => {
-      if (err.code) {
-        Logger.error('loadContent failed: ' + JSON.stringify(err));
-        return;
-      }
-      Logger.info('loadContent done');
-      windowStage.getMainWindow((werr: BusinessError, win: window.Window) => {
-        if (!win) {
-          Logger.error('getMainWindow failed: ' + JSON.stringify(werr));
-          return;
-        }
+    Logger.info('UIBOOT onWindowStageCreate');
+    // 先把窗口做成沉浸式并写入安全区，再 loadContent：
+    // 页面首帧就能拿到真实 safeTop/safeBottom，不会先按兜底值排一遍再被顶一下（打开页面时「抖」）。
+    windowStage.getMainWindow((werr: BusinessError, win: window.Window) => {
+      if (!win) {
+        Logger.error('getMainWindow failed: ' + JSON.stringify(werr));
+      } else {
         try {
           win.setWindowLayoutFullScreen(true);
           win.setWindowBackgroundColor('#07182B');
@@ -79,14 +121,44 @@ export default class EntryAbility extends UIAbility {
             });
           } catch (ignored) {
           }
+          AppStorage.setOrCreate<string>('procIconStyle', 'spin-ring');
           AppStorage.setOrCreate<number>('safeTopVp', sysArea.topRect.height / density);
           AppStorage.setOrCreate<number>('safeBottomVp', navArea.bottomRect.height / density);
           Logger.info('immersive ok: top=' + (sysArea.topRect.height / density) + ' bottom=' + (navArea.bottomRect.height / density));
         } catch (e) {
           Logger.error('immersive failed: ' + JSON.stringify(e));
         }
+      }
+      windowStage.loadContent('pages/Index', (err: BusinessError) => {
+        if (err.code) {
+          Logger.error('loadContent failed: ' + JSON.stringify(err));
+          return;
+        }
+        Logger.info('loadContent done');
       });
     });
+  }
+
+  onForeground(): void {
+    void BackgroundKeepAlive.stop();
+    GatewayClient.get().revalidateOnForeground();
+    AppStorage.setOrCreate<string>('appLifecycle', 'foreground');
+    const state: string = AppStorage.get<string>('connectionState') ?? 'disconnected';
+    if (PreferencesStore.get().isReady() && state !== 'connected' && state !== 'connecting') {
+      GatewayClient.get().autoConnect();
+    }
+    Logger.info('EntryAbility foreground: reconnect checked');
+  }
+
+  onBackground(): void {
+    AppStorage.setOrCreate<string>('appLifecycle', 'background');
+    Logger.info('EntryAbility background: websocket lifecycle retained');
+    const agentWork: boolean = AppStorage.get<boolean>('agentWorkActive') ?? false;
+    if (agentWork) {
+      BackgroundKeepAlive.start(this.context).catch(() => {});
+    } else {
+      Logger.info('BGKEEP skipped (no agent work)');
+    }
   }
 
   onConfigurationUpdate(newConfig: Configuration): void {

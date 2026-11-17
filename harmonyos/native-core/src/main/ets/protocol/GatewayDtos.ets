@@ -462,6 +462,8 @@ export interface GatewayFrame {
   settingsWritable?: boolean;
   events?: RawSessionEvent[];
   hasMore?: boolean;
+  beforeSeq?: number;
+  beforeSeqPlaceholder?: boolean;
   nextBeforeSeq?: number;
   bytes?: number;
   view?: string;
@@ -478,6 +480,11 @@ export interface GatewayFrame {
   path?: string;
   requestId?: string;
   transferId?: string;
+  uploadId?: string;
+  receiptId?: string;
+  nextOffset?: number;
+  file?: Object;
+  data?: string;
   name?: string;
   mediaType?: string;
   size?: number;
@@ -534,5 +541,4 @@ export interface GatewayFrame {
   toolName?: string;
   callId?: string;
   attachment?: GatewayImageAttachment;
-  data?: string;
 }

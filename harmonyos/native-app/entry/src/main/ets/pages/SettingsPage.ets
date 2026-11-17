@@ -15,13 +15,12 @@ export struct SettingsPage {
   @StorageLink('isDark') isDark: boolean = false;
   @StorageLink('themeMode') themeMode: string = 'system';
   @StorageLink('connectionState') connection: string = 'disconnected';
-  @State wsUrl: string = 'ws://10.0.2.2:3081/ws/mobile';
+  @State wsUrl: string = '';
   @State payloadText: string = '';
   @State pairCode: string = '';
   @State connectHint: string = '';
   @StorageLink('pairingHint') pairingHint: string = '';
   @StorageLink('gatewayName') gatewayName: string = '';
-  @StorageLink('publicAccessState') publicAccessState: string = '未连接';
   @StorageLink('transportKind') transportKind: string = '';
 
   private options: ThemeOption[] = [
@@ -69,21 +68,21 @@ export struct SettingsPage {
           .borderRadius(18)
           .backgroundColor(this.cardBg())
 
-          Text('连接（调试用）')
+          Text('连接设备')
             .fontSize(13)
             .fontColor(this.subColor())
             .width('100%')
             .padding({ left: 4, top: 8 })
 
           Column({ space: 10 }) {
-            Button('扫码配对（DSH 插件二维码）')
+            Button('扫描 DSH 移动网关二维码')
               .width('100%')
               .height(42)
               .backgroundColor('#2E6BE6')
               .onClick(() => {
                 this.scanPairing();
               })
-            TextInput({ text: this.payloadText, placeholder: '粘贴配对载荷（Base64）' })
+            TextInput({ text: this.payloadText, placeholder: '粘贴二维码配对载荷（Base64URL）' })
               .caretStyle({ width: 1 })
               .onChange((value: string) => {
                 this.payloadText = value;
@@ -92,14 +91,14 @@ export struct SettingsPage {
               .fontColor(this.textColor())
               .backgroundColor(this.fieldBg())
               .borderRadius(10)
-            Button('用配对载荷连接')
+            Button('使用配对载荷连接')
               .width('100%')
               .height(40)
               .backgroundColor('#34C759')
               .onClick(() => {
                 this.connectByPayload();
               })
-            TextInput({ text: this.wsUrl, placeholder: 'wss://…' })
+            TextInput({ text: this.wsUrl, placeholder: 'WebSocket 地址（如 ws://192.168.1.10:3081/ws/mobile；也支持 wss://）' })
               .caretStyle({ width: 1 })
               .onChange((value: string) => {
                 this.wsUrl = value;
@@ -108,7 +107,7 @@ export struct SettingsPage {
               .fontColor(this.textColor())
               .backgroundColor(this.fieldBg())
               .borderRadius(10)
-            TextInput({ text: this.pairCode, placeholder: '配对码（可空）' })
+            TextInput({ text: this.pairCode, placeholder: '一次性配对码' })
               .caretStyle({ width: 1 })
               .onChange((value: string) => {
                 this.pairCode = value;
@@ -173,9 +172,7 @@ export struct SettingsPage {
 
           Column() {
             this.infoRow('连接状态', this.connection)
-            this.infoRow('连接方式', this.transportKind === 'relay' ? '公网中继（E2EE）'
-              : (this.transportKind === 'direct' ? '直连网关' : '—'))
-            this.infoRow('公网状态', this.publicAccessState)
+            this.infoRow('连接方式', this.transportKind === 'direct' ? '直接连接' : '—')
             this.infoRow('工程类型', 'HarmonyOS 原生（ArkTS）')
             this.infoRow('版本', '1.0.0')
           }
@@ -236,7 +233,7 @@ export struct SettingsPage {
 
   private connect(): void {
     if (this.wsUrl.trim().length === 0) {
-      this.connectHint = '请填写 wss 地址';
+      this.connectHint = '请填写 WebSocket 地址（ws:// 或 wss://）';
       return;
     }
     const profile: GatewayProfile = {

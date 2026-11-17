@@ -20,7 +20,8 @@ export class ThemeManager {
   }
 
   init(colorMode?: ConfigurationConstant.ColorMode): void {
-    const saved: string = PreferencesStore.get().getString(THEME_KEY_MODE, 'dark');
+    // 默认跟随系统（用户显式选过浅/深色才会固定）
+    const saved: string = PreferencesStore.get().getString(THEME_KEY_MODE, 'system');
     if (saved === 'light' || saved === 'dark' || saved === 'system') {
       this.mode = saved as ThemeMode;
     } else {

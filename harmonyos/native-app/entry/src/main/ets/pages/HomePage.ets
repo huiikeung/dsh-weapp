@@ -1,25 +1,52 @@
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { display, KeyboardAvoidMode } from '@kit.ArkUI';
+import { display, KeyboardAvoidMode, LengthMetrics, uiMaterial } from '@kit.ArkUI';
+import { drawing } from '@kit.ArkGraphics2D';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
+import { TailscaleMarkView } from '../components/TailscaleMarkView';
 import {
   GatewayClient, OceanBackground, PairingResult, PreferencesStore, SessionStore, SessionSummary,
-  DirEntry, WorkspaceRow, parsePairingPayload
+  DirEntry, DirCrumb, WorkspaceRow, parsePairingPayload
 } from 'nativecore';
+
+/** 全部会话视图：每个工作区分区默认显示的条数（对齐小程序 ALL_SESSIONS_SECTION_LIMIT） */
+const SESSION_SECTION_LIMIT: number = 5;
+/** 最近会话 / 单个工作区视图默认显示的条数（对齐小程序 RECENT_SESSION_LIMIT） */
+const SESSION_RECENT_LIMIT: number = 12;
+const SESSION_UNGROUPED: string = '__ungrouped__';
+
+/** 全部会话视图中的一个工作区分区（对齐小程序 displayEntries 的 section 项） */
+interface SessionSection {
+  id: string;
+  title: string;
+  rows: SessionSummary[];
+  shown: SessionSummary[];
+  expanded: boolean;
+  toggleLabel: string;
+  lastSection: boolean;
+}
 
 @Component
 export struct HomePage {
   @StorageLink('isDark') isDark: boolean = false;
   @StorageLink('connectionState') connection: string = 'disconnected';
+  @StorageLink('tailscaleTunnelEnabled') tailscaleTunnelEnabled: boolean = false;
+  @StorageLink('tailscaleStage') tailscaleStage: string = 'disabled';
+  @StorageLink('transportTailnet') transportTailnet: boolean = false;
   @StorageLink('sessions') sessions: SessionSummary[] = [];
   @StorageLink('gatewayName') gatewayName: string = '';
   @State creating: boolean = false;
   @State createHint: string = '';
   @State search: string = '';
   @State drawerOpen: boolean = false;
-  @State pairMenuOpen: boolean = false;
-  @State pairMenuScale: number = 0.86;
+  // 侧栏右推：抽屉在下层，首页整体右移（对齐小程序 contentX / contentCornerRadius）
+  @State drawerWidth: number = 280;
+  private drawerShift(): number {
+    return this.drawerOpen ? this.drawerWidth : 0;
+  }
   @State manualSheetOpen: boolean = false;
+  /** 配对按钮屏幕左边缘（用于把菜单水平居中） */
+  @State private pairBtnX: number = 0;
   @State manualText: string = '';
   @State manualHint: string = '';
   @StorageLink('keyboardHeightVp') keyboardHeightVp: number = 0;
@@ -27,21 +54,39 @@ export struct HomePage {
   @State hostEditMode: boolean = false;
   @State hostSelected: boolean = false;
   @State hostEditOpen: boolean = false;
+  @State hostDeleteOpen: boolean = false;
   @State editAlias: string = '';
   @State editKind: string = 'desktop';
+  @State pairMenuOpen: boolean = false;
   @State kindMenuOpen: boolean = false;
-  @State kindRowY: number = 0;
-  @State wsMenuOpen: boolean = false;
   @State wsFilter: string = 'all';
-  @State wsCardY: number = 0;
+  @State wsMenuOpen: boolean = false;
+  @State wsCardW: number = 0;
   @State wsCardH: number = 0;
+  // 全部会话视图里已展开的工作区分区（对齐小程序 expandedSectionIds）
+  @State expandedSectionIds: string[] = [];
+  // 最近会话 / 单个工作区视图是否展开到全部（对齐小程序 recentExpanded）
+  @State recentExpanded: boolean = false;
   @State dirSheetOpen: boolean = false;
   @State dirError: string = '';
-  @State newFolderOpen: boolean = false;
-  @State newFolderName: string = '';
-  @StorageLink('dirEntries') dirEntries: DirEntry[] = [];
+  @State dirLoading: boolean = false;
+  @State dirShowHidden: boolean = false;
+  @State dirCreatingWs: boolean = false;
+  @State dirCreatingDir: boolean = false;
+  @State dirNewFolderOpen: boolean = false;
+  @State dirNewFolderName: string = '';
+  @State dirNewFolderError: string = '';
+  @State dirJumpOpen: boolean = false;
+  @State dirJumpValue: string = '';
+  @State dirJumpError: string = '';
+  @State dirLocationsOpen: boolean = false;
+  // 首屏是否还需要跳到网关家目录（对齐小程序 openDirSheet）
+  private dirAutoHome: boolean = false;
+  @StorageLink('dirEntries') @Watch('onDirEntriesChanged') dirEntries: DirEntry[] = [];
   @StorageLink('dirCurrent') dirCurrent: string = '';
-  @StorageLink('workspaces') workspaces: WorkspaceRow[] = [];
+  @StorageLink('dirCrumbs') dirCrumbs: DirCrumb[] = [];
+  @StorageLink('dirHome') dirHome: string = '';
+  @StorageLink('workspaces') @Watch('onWorkspacesChanged') workspaces: WorkspaceRow[] = [];
   @StorageLink('hostAlias') hostAlias: string = '';
   @StorageLink('transportKind') transportKind: string = '';
   @State rowY: number = 0;
@@ -60,7 +105,7 @@ export struct HomePage {
   @Consume('pageStack') pageStack: NavPathStack;
 
   private bg(): string {
-    return this.isDark ? '#141518' : '#FFFFFF';
+    return '#141518';
   }
 
   private navPad(): Length {
@@ -76,11 +121,34 @@ export struct HomePage {
     return '~/workspace/dsh';
   }
 
-  /** 弹窗以工作区卡片中心为中心（对齐 workspacePopoverLayout） */
-  private wsOffsetY(): number {
-    const screenH: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().height);
-    const cardCenter: number = this.wsCardY + this.wsCardH / 2;
-    return cardCenter - screenH / 2;
+  /** rpx → vp：小程序 750rpx = 屏宽，这里按同一比例换算字号/尺寸 */
+  private rpx(value: number): number {
+    try {
+      const screenW: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+      return value * screenW / 750;
+    } catch (err) {
+      return value * 0.53;
+    }
+  }
+
+  /** 菜单行宽：约 52% 屏宽（190~232） */
+  /**
+   * 选择工作区菜单宽度（对齐小程序 home.js 的弹窗布局）：
+   *   width = min(240, max(200, screenW * 0.6), screenW - 16)
+   */
+  private wsMenuWidth(): number {
+    try {
+      const screenW: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+      return Math.min(240, Math.max(200, screenW * 0.6), screenW - 16);
+    } catch (err) {
+      return 232;
+    }
+  }
+
+  /** 菜单高度估算（行高 84rpx + 内容上下 16rpx） */
+  private wsMenuHeight(): number {
+    const rows: number = 2 + 1 + this.workspaces.length;
+    return rows * this.rpx(84) + this.rpx(32);
   }
 
   private workspaceTitle(): string {
@@ -201,9 +269,178 @@ export struct HomePage {
   }
 
   private sessionMeta(item: SessionSummary): string {
-    return item.id.substring(0, 8);
+    // 对齐小程序 .session-sub：sessionId 前 16 位，等宽字体
+    return item.id.substring(0, 16);
   }
 
+  /** 排序：运行中优先 → 最近更新 → sessionId 升序（对齐小程序 compareSessionRecency） */
+  private compareRecency(a: SessionSummary, b: SessionSummary): number {
+    const runDiff: number = (b.running ? 1 : 0) - (a.running ? 1 : 0);
+    if (runDiff !== 0) {
+      return runDiff;
+    }
+    const timeDiff: number = b.updatedAt - a.updatedAt;
+    if (timeDiff !== 0) {
+      return timeDiff;
+    }
+    return a.id < b.id ? -1 : (a.id > b.id ? 1 : 0);
+  }
+
+  private sortSessions(input: SessionSummary[]): SessionSummary[] {
+    const out: SessionSummary[] = input.slice();
+    out.sort((a: SessionSummary, b: SessionSummary) => this.compareRecency(a, b));
+    return out;
+  }
+
+  /** 分区标题：优先工作区标题，其次路径最后一段（对齐小程序 workspaceSectionTitle） */
+  private sectionTitle(ws: WorkspaceRow): string {
+    const title: string = ws.title.trim();
+    if (title.length > 0) {
+      return title;
+    }
+    const parts: string[] = ws.path.split('/').filter((part: string) => part.length > 0);
+    return parts.length > 0 ? parts[parts.length - 1] : '工作区';
+  }
+
+  private sectionExpanded(id: string): boolean {
+    return this.expandedSectionIds.indexOf(id) >= 0;
+  }
+
+  private toggleSection(id: string): void {
+    const next: string[] = [];
+    let hit: boolean = false;
+    for (const item of this.expandedSectionIds) {
+      if (item === id) {
+        hit = true;
+      } else {
+        next.push(item);
+      }
+    }
+    if (!hit) {
+      next.push(id);
+    }
+    this.expandedSectionIds = next;
+  }
+
+  /** 全部会话：按工作区分区（未分组固定最后），每区默认折叠到 5 条（对齐小程序 displayEntries） */
+  private sessionSections(): SessionSection[] {
+    const sorted: SessionSummary[] = this.sortSessions(this.filtered());
+    const owner: Map<string, string> = new Map<string, string>();
+    const titles: Map<string, string> = new Map<string, string>();
+    for (const ws of this.workspaces) {
+      titles.set(ws.workspaceId, this.sectionTitle(ws));
+      for (const id of ws.sessionIds) {
+        if (!owner.has(id)) {
+          owner.set(id, ws.workspaceId);
+        }
+      }
+    }
+    const groups: Map<string, SessionSummary[]> = new Map<string, SessionSummary[]>();
+    for (const item of sorted) {
+      const sid: string = owner.has(item.id) ? (owner.get(item.id) as string) : SESSION_UNGROUPED;
+      const bucket: SessionSummary[] | undefined = groups.get(sid);
+      if (bucket === undefined) {
+        groups.set(sid, [item]);
+      } else {
+        bucket.push(item);
+      }
+    }
+    const ids: string[] = [];
+    groups.forEach((rows: SessionSummary[], sid: string) => {
+      ids.push(sid);
+    });
+    ids.sort((a: string, b: string) => {
+      if (a === SESSION_UNGROUPED) {
+        return 1;
+      }
+      if (b === SESSION_UNGROUPED) {
+        return -1;
+      }
+      const left: SessionSummary[] = groups.get(a) as SessionSummary[];
+      const right: SessionSummary[] = groups.get(b) as SessionSummary[];
+      return this.compareRecency(left[0], right[0]);
+    });
+    const out: SessionSection[] = [];
+    for (let i = 0; i < ids.length; i++) {
+      const sid: string = ids[i];
+      const rows: SessionSummary[] = groups.get(sid) as SessionSummary[];
+      const expanded: boolean = this.sectionExpanded(sid);
+      const shown: SessionSummary[] = expanded ? rows : rows.slice(0, SESSION_SECTION_LIMIT);
+      const remaining: number = rows.length - SESSION_SECTION_LIMIT;
+      out.push({
+        id: sid,
+        title: titles.has(sid) ? (titles.get(sid) as string) : '未分组',
+        rows: rows,
+        shown: shown,
+        expanded: expanded,
+        toggleLabel: remaining > 0 ? (expanded ? '收起' : ('展开其余 ' + remaining + ' 个会话')) : '',
+        lastSection: i === ids.length - 1
+      });
+    }
+    return out;
+  }
+
+  /** 最近会话 / 单个工作区：默认 12 条（对齐小程序 RECENT_SESSION_LIMIT） */
+  private recentRows(): SessionSummary[] {
+    const sorted: SessionSummary[] = this.sortSessions(this.filtered());
+    return this.recentExpanded ? sorted : sorted.slice(0, SESSION_RECENT_LIMIT);
+  }
+
+
+
+  /** iOS 风格「桌面电脑」图标（近似 SF Symbols desktopcomputer：屏幕 + 支架 + 底座） */
+  @Builder
+  hostGlyph(size: number, color: string) {
+    Column() {
+      Column()
+        .width(size * 0.94)
+        .height(size * 0.60)
+        .border({ width: 1.4, color: color })
+        .borderRadius(size * 0.12)
+      Column()
+        .width(1.4)
+        .height(size * 0.14)
+        .backgroundColor(color)
+      Column()
+        .width(size * 0.42)
+        .height(1.4)
+        .borderRadius(1)
+        .backgroundColor(color)
+    }
+    .width(size)
+    .height(size)
+    .justifyContent(FlexAlign.Center)
+  }
+
+  /** iOS 风格「服务器」图标（近似 SF Symbols server.rack：竖长机箱 + 两道分隔线 + 状态点） */
+  @Builder
+  serverGlyph(size: number, color: string) {
+    Stack({ alignContent: Alignment.Center }) {
+      // 机箱外框（接近 SF Symbols：略扁的方形）
+      Column()
+        .width(size * 0.90)
+        .height(size * 0.76)
+        .border({ width: 1.4, color: color })
+        .borderRadius(size * 0.14)
+      // 两道分隔线（与机箱同宽，把它分成三层）
+      Column()
+        .width(size * 0.90)
+        .height(1.2)
+        .backgroundColor(color)
+        .translate({ y: -size * 0.127 })
+      Column()
+        .width(size * 0.90)
+        .height(1.2)
+        .backgroundColor(color)
+        .translate({ y: size * 0.127 })
+      // 三层状态点（左侧）
+      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: -size * 0.253 })
+      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: 0 })
+      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: size * 0.253 })
+    }
+    .width(size)
+    .height(size)
+  }
 
   /** 扫描二维码图标：15×15 等比设计（四角外沿 + 三个定位框 + 右下四个圆点） */
   @Builder
@@ -211,19 +448,19 @@ export struct HomePage {
     Stack() {
       // 四角（只留外沿）
       Column().width(4.6).height(4.6)
-        .borderWidth({ left: 1.1, top: 1.1 }).borderColor('#FFFFFF')
+        .borderWidth({ left: 1.1, top: 1.1 }).borderColor(this.iconColor())
         .borderRadius({ topLeft: 2.1 })
         .position({ x: 0, y: 0 })
       Column().width(4.6).height(4.6)
-        .borderWidth({ right: 1.1, top: 1.1 }).borderColor('#FFFFFF')
+        .borderWidth({ right: 1.1, top: 1.1 }).borderColor(this.iconColor())
         .borderRadius({ topRight: 2.1 })
         .position({ x: 10.4, y: 0 })
       Column().width(4.6).height(4.6)
-        .borderWidth({ left: 1.1, bottom: 1.1 }).borderColor('#FFFFFF')
+        .borderWidth({ left: 1.1, bottom: 1.1 }).borderColor(this.iconColor())
         .borderRadius({ bottomLeft: 2.1 })
         .position({ x: 0, y: 10.4 })
       Column().width(4.6).height(4.6)
-        .borderWidth({ right: 1.1, bottom: 1.1 }).borderColor('#FFFFFF')
+        .borderWidth({ right: 1.1, bottom: 1.1 }).borderColor(this.iconColor())
         .borderRadius({ bottomRight: 2.1 })
         .position({ x: 10.4, y: 10.4 })
       // 三个定位方框
@@ -231,10 +468,10 @@ export struct HomePage {
       this.scanFind(7.9, 2.9)
       this.scanFind(2.9, 7.9)
       // 右下四个圆点（与定位框同栅格）
-      Circle({ width: 1.85, height: 1.85 }).fill('#FFFFFF').position({ x: 7.9, y: 7.9 })
-      Circle({ width: 1.85, height: 1.85 }).fill('#FFFFFF').position({ x: 10.25, y: 7.9 })
-      Circle({ width: 1.85, height: 1.85 }).fill('#FFFFFF').position({ x: 7.9, y: 10.25 })
-      Circle({ width: 1.85, height: 1.85 }).fill('#FFFFFF').position({ x: 10.25, y: 10.25 })
+      Circle({ width: 1.85, height: 1.85 }).fill(this.iconColor()).position({ x: 7.9, y: 7.9 })
+      Circle({ width: 1.85, height: 1.85 }).fill(this.iconColor()).position({ x: 10.25, y: 7.9 })
+      Circle({ width: 1.85, height: 1.85 }).fill(this.iconColor()).position({ x: 7.9, y: 10.25 })
+      Circle({ width: 1.85, height: 1.85 }).fill(this.iconColor()).position({ x: 10.25, y: 10.25 })
     }
     .width(15)
     .height(15)
@@ -244,709 +481,1535 @@ export struct HomePage {
   scanFind(x: number, y: number) {
     Stack() {
       Column().width(4.2).height(4.2)
-        .border({ width: 0.9, color: '#FFFFFF' })
+        .border({ width: 0.9, color: this.iconColor() })
         .borderRadius(0.9)
-      Circle({ width: 1.25, height: 1.25 }).fill('#FFFFFF')
+      Circle({ width: 1.25, height: 1.25 }).fill(this.iconColor())
     }
     .width(4.2)
     .height(4.2)
     .position({ x: x, y: y })
   }
 
-  /** 配对菜单项 */
+  /** 系统菜单里的行：完全按小程序 .ws-pop-row 换算（行高84rpx / 图标36rpx / 间距24rpx / 左右48rpx） */
   @Builder
-  pairMenuItem(kind: string, label: string) {
-    Row({ space: 7 }) {
-      if (kind === 'scan') {
-        this.scanIcon()
-      } else if (kind === 'keyboard') {
-        Image($r('app.media.voice_keyboard')).width(18).height(18).objectFit(ImageFit.Contain)
-      } else {
-        Image($r('app.media.setup_guide_white')).width(18).height(18).objectFit(ImageFit.Contain)
-      }
+  menuRow(icon: Resource, label: string, selected: boolean, rowWidth: number) {
+    Row({ space: this.rpx(24) }) {
+      Image(selected ? $r('app.media.check_fill_white') : icon)
+        .width(this.rpx(36))
+        .height(this.rpx(36))
+        .objectFit(ImageFit.Contain)
+        .colorFilter(this.iconTint(this.iconColor()))
       Text(label)
-        .fontSize(17)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#FFFFFF')
+        .fontSize(this.rpx(32))
+        .fontColor(this.labelColor())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
     }
-    .width('100%')
-    .height(58)
-    .padding({ left: 22, right: 22 })
-    .onClick(() => {
-      this.pairMenuOpen = false;
-      if (kind === 'scan') {
-        this.scanPairingNow();
-      } else if (kind === 'keyboard') {
-        this.manualSheetOpen = true;
-        this.manualHint = '';
-      } else {
-        this.pageStack.pushPathByName('add-node', null);
-      }
-    })
+    .width(rowWidth)
+    .height(this.rpx(84))
+    .padding({ left: this.rpx(48), right: this.rpx(48) })
   }
 
+  /** 主机类型菜单内容（系统 Menu 容器；行内图标/字号对齐小程序） */
   @Builder
-  kindMenuItem(kind: string, label: string) {
-    Row({ space: 6 }) {
-      Row() {
-        if (this.editKind === kind) {
-          Image($r('app.media.check_white')).width(13).height(13).objectFit(ImageFit.Contain)
-        }
-      }
-      .width(16)
-      if (kind === 'server') {
-        Image($r('app.media.server_white')).width(15).height(15).objectFit(ImageFit.Contain)
-      } else {
-        Image($r('app.media.host_desktop_white')).width(15).height(15).objectFit(ImageFit.Contain)
-      }
-      Text(label)
-        .fontSize(15)
-        .fontColor('#FFFFFF')
-        .layoutWeight(1)
-    }
-    .width('100%')
-    .height(44)
-    .padding({ left: 10, right: 10 })
-    .onClick(() => {
-      this.editKind = kind;
-      this.kindMenuOpen = false;
-    })
-  }
-
-  @Builder
-  kindMenuOverlay() {
-    Stack({ alignContent: Alignment.TopEnd }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor(Color.Transparent)
+  kindMenuBuilder() {
+    Menu() {
+      MenuItem(this.menuRow($r('app.media.host_desktop_white'), '电脑', this.editKind === 'desktop', this.wsMenuWidth()))
+        .id('host-kind-desktop')
         .onClick(() => {
-          this.kindMenuOpen = false;
+          this.editKind = 'desktop';
         })
-      Column() {
-        this.kindMenuItem('desktop', '电脑')
-        this.kindMenuItem('server', '服务器')
-      }
-      .width(160)
-      .borderRadius(14)
-      .padding({ top: 5, bottom: 5 })
-      .backgroundEffect({ radius: 10, saturation: 1.2, brightness: 1 })
-      .backgroundColor('rgba(10,14,24,0.30)')
-      .linearGradient({
-        angle: 165,
-        colors: [['rgba(255,255,255,0.10)', 0], ['rgba(255,255,255,0.04)', 1]]
-      })
-      .border({ width: 1, color: 'rgba(255,255,255,0.12)' })
-      .shadow({ radius: 24, color: 'rgba(0,0,0,0.30)', offsetY: 8 })
-      .margin({ top: this.kindRowY + 44, right: 28 })
+      MenuItem(this.menuRow($r('app.media.server_white'), '服务器', this.editKind === 'server', this.wsMenuWidth()))
+        .id('host-kind-server')
+        .onClick(() => {
+          this.editKind = 'server';
+        })
     }
-    .width('100%')
-    .height('100%')
   }
 
-  /** 工作区选择弹窗（对齐小程序 .ws-pop） */
-  /** 添加工作区：目录浏览弹层（对齐小程序 openDirSheet） */
+  /** 添加工作区（系统半模态 bindSheet + ImmersiveMaterial，与「切换主机」同款） */
   @Builder
-  dirSheetOverlay() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('rgba(0,0,0,0.55)')
-        .onClick(() => {
-          this.dirSheetOpen = false;
-        })
+  dirSheetContent() {
+    Stack({ alignContent: Alignment.TopStart }) {
       Column({ space: 0 }) {
+        // 抓手（对齐 .dir-sheet-handle：76rpx × 10rpx）
         Column() {
-          Column().width(36).height(4).borderRadius(2).backgroundColor('rgba(255,255,255,0.28)')
+          Column()
+            .width(38)
+            .height(5)
+            .borderRadius(999)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.24)' : 'rgba(0,0,0,0.20)')
         }
         .width('100%')
-        .height(14)
+        .height(17)
         .justifyContent(FlexAlign.Center)
 
-        Row() {
-          Text('添加工作区')
+        // 头部：新建文件夹（左） / 选择工作区目录（居中） / 取消（右）
+        Stack({ alignContent: Alignment.Center }) {
+          Text('选择工作区目录')
             .fontSize(17)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
-          Blank()
-          Text('✕')
-            .fontSize(16)
-            .fontColor('rgba(255,255,255,0.75)')
-            .onClick(() => {
-              this.dirSheetOpen = false;
-            })
-        }
-        .width('100%')
-        .height(44)
-        .alignItems(VerticalAlign.Center)
-
-        Text(this.dirCurrent.length > 0 ? this.dirCurrent : '选择要添加为工作区的目录')
-          .fontSize(12)
-          .fontColor('rgba(255,255,255,0.55)')
-          .maxLines(2)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
-          .margin({ bottom: 8 })
-
-        List({ space: 2 }) {
-          ForEach(this.dirEntries, (entry: DirEntry) => {
-            ListItem() {
-              Row({ space: 10 }) {
-                Image($r('app.media.workspace_folder_white'))
-                  .width(16)
-                  .height(16)
-                  .objectFit(ImageFit.Contain)
-                Text(entry.name)
-                  .fontSize(14)
-                  .fontColor('#FFFFFF')
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .layoutWeight(1)
-              }
-              .width('100%')
-              .height(40)
-              .padding({ left: 8, right: 8 })
-              .borderRadius(8)
-              .onClick(() => {
-                GatewayClient.get().requestDirectories(entry.path);
-              })
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.labelColor())
+          Row() {
+            Row() {
+              Image($r('app.media.plus_white'))
+                .width(19)
+                .height(19)
+                .objectFit(ImageFit.Contain)
+                .colorFilter(this.iconTint(this.iconColor()))
             }
-          }, (entry: DirEntry) => entry.path)
-        }
-        .width('100%')
-        .height(200)
-        .scrollBar(BarState.Off)
-
-        if (this.dirError.length > 0) {
-          Text(this.dirError).fontSize(12).fontColor('#FF6B60').width('100%')
-        }
-
-        Row({ space: 10 }) {
-          Button('新建文件夹')
-            .layoutWeight(1)
-            .height(42)
-            .fontSize(14)
-            .fontColor('#FFFFFF')
-            .backgroundColor('rgba(255,255,255,0.10)')
+            .width(36)
+            .height(36)
+            .borderRadius(18)
+            .justifyContent(FlexAlign.Center)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.55)')
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.85)' })
             .onClick(() => {
-              this.newFolderOpen = true;
+              this.dirNewFolderName = '';
+              this.dirNewFolderError = '';
+              this.dirNewFolderOpen = true;
             })
-          Button('添加此目录')
-            .layoutWeight(1)
-            .height(42)
-            .fontSize(14)
-            .fontColor('#FFFFFF')
-            .backgroundColor('#2E6BE6')
-            .enabled(this.dirCurrent.length > 0)
-            .opacity(this.dirCurrent.length > 0 ? 1 : 0.5)
-            .onClick(() => {
-              if (this.dirCurrent.length === 0) {
-                return;
-              }
-              GatewayClient.get().createWorkspace(this.dirCurrent);
-              this.dirSheetOpen = false;
-            })
-        }
-        .width('100%')
-        .margin({ top: 10 })
-
-        if (this.newFolderOpen) {
-          Row({ space: 8 }) {
-            TextInput({ text: this.newFolderName, placeholder: '文件夹名称' })
-              .caretStyle({ width: 1 })
-              .layoutWeight(1)
-              .height(40)
-              .fontSize(13)
-              .fontColor('#FFFFFF')
-              .placeholderColor('rgba(255,255,255,0.35)')
-              .backgroundColor('rgba(255,255,255,0.08)')
-              .borderRadius(10)
-              .onChange((value: string) => {
-                this.newFolderName = value;
-              })
-            Button('创建')
-              .height(40)
+            Blank()
+            Text('取消')
               .fontSize(14)
-              .backgroundColor('#2E6BE6')
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.labelColor())
+              .height(36)
+              .padding({ left: 15, right: 15 })
+              .borderRadius(999)
+              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.55)')
+              .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.85)' })
               .onClick(() => {
-                const name: string = this.newFolderName.trim();
-                if (name.length === 0) {
-                  this.dirError = '请输入文件夹名称';
-                  return;
-                }
-                GatewayClient.get().createDirectory(this.dirCurrent, name);
-                this.newFolderName = '';
-                this.newFolderOpen = false;
+                this.closeDirSheet();
               })
           }
           .width('100%')
-          .margin({ top: 10 })
+          .height(66)
+          .padding({ left: 16, right: 16 })
+          .alignItems(VerticalAlign.Center)
         }
+        .width('100%')
+        .height(66)
+
+        // 位置 + 面包屑 + 编辑路径（对齐 .dir-loc-row）
+        Row({ space: 6 }) {
+          Row({ space: 4 }) {
+            Image($r('app.media.server_white'))
+              .width(14)
+              .height(14)
+              .objectFit(ImageFit.Contain)
+              .colorFilter(this.iconTint(this.iconColor()))
+            Text('位置')
+              .fontSize(12)
+              .fontColor(this.labelColor())
+          }
+          .height(30)
+          .padding({ left: 10, right: 10 })
+          .borderRadius(999)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.55)')
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.85)' })
+          .onClick(() => {
+            this.dirLocationsOpen = true;
+          })
+          Scroll() {
+            Row() {
+              ForEach(this.dirCrumbs, (crumb: DirCrumb, index: number) => {
+                Row() {
+                  if (index > 0) {
+                    Text('›')
+                      .fontSize(12)
+                      .fontColor(this.secondaryLabel())
+                      .padding({ left: 2, right: 2 })
+                  }
+                  Text(this.dirCrumbLabel(crumb))
+                    .fontSize(12)
+                    .fontColor(index === this.dirCrumbs.length - 1 ? this.labelColor() : this.secondaryLabel())
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .constraintSize({ maxWidth: 130 })
+                    .height(26)
+                    .padding({ left: 6, right: 6 })
+                    .borderRadius(7)
+                    .backgroundColor(index === this.dirCrumbs.length - 1 ? (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)') : 'rgba(0,0,0,0)')
+                    .onClick(() => {
+                      if (index !== this.dirCrumbs.length - 1) {
+                        this.browseDirs(crumb.path);
+                      }
+                    })
+                }
+              }, (crumb: DirCrumb) => crumb.path)
+            }
+            .height(30)
+            .padding({ left: 2, right: 2 })
+            .alignItems(VerticalAlign.Center)
+            // 路径短时也保持左对齐（Scroll 子内容默认会居中）
+            .constraintSize({ minWidth: '100%' })
+          }
+          .layoutWeight(1)
+          .height(30)
+          .scrollable(ScrollDirection.Horizontal)
+          .scrollBar(BarState.Off)
+          Row() {
+            Image($r('app.media.pencil_edit_white'))
+              .width(14)
+              .height(14)
+              .objectFit(ImageFit.Contain)
+              .fillColor(this.iconColor())
+          }
+          .width(30)
+          .height(30)
+          .borderRadius(15)
+          .justifyContent(FlexAlign.Center)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.55)')
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.85)' })
+          .onClick(() => {
+            this.dirJumpValue = this.dirCurrent;
+            this.dirJumpError = '';
+            this.dirJumpOpen = true;
+          })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16 })
+        .alignItems(VerticalAlign.Center)
+
+        // 显示隐藏文件（对齐 .dir-filter-row）
+        Row() {
+          Row({ space: 4 }) {
+            Text('显示隐藏文件')
+              .fontSize(11)
+              .fontColor(this.dirShowHidden ? this.labelColor() : this.secondaryLabel())
+            if (!this.dirShowHidden && this.dirHiddenCount() > 0) {
+              Text(this.dirHiddenCount().toString())
+                .fontSize(10)
+                .fontColor(this.secondaryLabel())
+                .padding({ left: 4, right: 4 })
+                .borderRadius(999)
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)')
+            }
+          }
+          .height(24)
+          .padding({ left: 8, right: 8 })
+          .borderRadius(999)
+          .backgroundColor(this.dirShowHidden ? (this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)') : (this.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.40)'))
+          .onClick(() => {
+            this.dirShowHidden = !this.dirShowHidden;
+          })
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.End)
+        .padding({ left: 16, right: 16 })
+        .margin({ top: 6 })
+
+        // 目录列表（对齐 .dir-body / .dir-list-card）
+        Scroll() {
+          Column() {
+            Column() {
+            if (this.dirLoading) {
+              Row({ space: 10 }) {
+                LoadingProgress()
+                  .width(20)
+                  .height(20)
+                  .color(this.iconColor())
+                Text('正在读取远程目录…')
+                  .fontSize(15)
+                  .fontColor(this.secondaryLabel())
+              }
+              .width('100%')
+              .justifyContent(FlexAlign.Center)
+              .padding({ top: 40, bottom: 40 })
+            } else if (this.dirError.length > 0) {
+              Text(this.dirError)
+                .fontSize(13)
+                .fontColor('#FF8A8A')
+                .width('100%')
+                .padding({ top: 30, bottom: 30 })
+                .textAlign(TextAlign.Center)
+            } else {
+              if (this.dirParentPath().length > 0) {
+                this.dirEntryRow('..', '返回上一级', false, this.dirParentPath())
+                if (this.dirVisible().length > 0) {
+                  this.dirDividerRow()
+                }
+              }
+              ForEach(this.dirVisible(), (entry: DirEntry, index: number) => {
+                this.dirEntryRow(entry.name, entry.hidden ? '隐藏目录' : '', entry.hidden, entry.path)
+                if (index < this.dirVisible().length - 1) {
+                  this.dirDividerRow()
+                }
+              }, (entry: DirEntry) => entry.path)
+              if (this.dirVisible().length === 0) {
+                Text(this.dirEntries.length > 0 ? '没有可显示的目录，打开“显示隐藏文件”查看' : '此目录为空')
+                  .fontSize(13)
+                  .fontColor(this.secondaryLabel())
+                  .lineHeight(20)
+                  .width('100%')
+                  .textAlign(TextAlign.Center)
+                  .padding({ top: 32, bottom: 32 })
+              }
+            }
+          }
+          .width('100%')
+          .padding({ left: 8, right: 8, top: 5, bottom: 5 })
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.45)')
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.80)' })
+            .borderRadius(16)
+            .margin({ top: 10, bottom: 4 })
+            }
+            .width('100%')
+            // 内容不足一屏时也靠上，不垂直居中
+            .constraintSize({ minHeight: '100%' })
+            .justifyContent(FlexAlign.Start)
+            .padding({ left: 12, right: 12 })
+        }
+        .layoutWeight(1)
+        .width('100%')
+        .scrollBar(BarState.Off)
+
+        // 底部：当前路径 + 在当前目录创建工作区（对齐 .dir-create-bar）
+        Column() {
+          Text(this.dirCurrent.length > 0 ? this.dirCurrent : '选择要添加为工作区的目录')
+            .fontSize(12)
+            .fontColor(this.secondaryLabel())
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+            .textAlign(TextAlign.Center)
+            .margin({ bottom: 8 })
+          Row({ space: 6 }) {
+            if (this.dirCreatingWs) {
+              LoadingProgress()
+                .width(15)
+                .height(15)
+                .color(this.iconColor())
+            } else {
+              Image($r('app.media.plus_white'))
+                .width(15)
+                .height(15)
+                .objectFit(ImageFit.Contain)
+                .colorFilter(this.iconTint(this.iconColor()))
+            }
+            Text(this.dirCreatingWs ? '正在创建…' : '在当前目录创建工作区')
+              .fontSize(15)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.labelColor())
+          }
+          .width('100%')
+          .height(42)
+          .justifyContent(FlexAlign.Center)
+          .borderRadius(14)
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.18)' })
+          .backgroundColor('rgba(0,0,0,0)')
+          .enabled(this.dirCurrent.length > 0 && !this.dirCreatingWs && !this.dirLoading)
+          .opacity(this.dirCurrent.length > 0 && !this.dirCreatingWs && !this.dirLoading ? 1 : 0.45)
+          .onClick(() => {
+            this.createWorkspaceHere();
+          })
+          if (this.dirCreatingDir) {
+            Row({ space: 7 }) {
+              LoadingProgress()
+                .width(12)
+                .height(12)
+                .color(this.iconColor())
+              Text('正在创建文件夹…')
+                .fontSize(12)
+                .fontColor(this.secondaryLabel())
+            }
+            .width('100%')
+            .justifyContent(FlexAlign.Center)
+            .margin({ top: 8 })
+          }
+        }
+        .width('100%')
+        .padding({ left: 20, right: 20, top: 9 })
+        .alignItems(HorizontalAlign.Center)
       }
-      .width('calc(100% - 24vp)')
-      .constraintSize({ maxHeight: '70%' })
-      .padding({ left: 14, right: 14, bottom: 20 })
-      .borderRadius(18)
-      .backgroundEffect({ radius: 4, saturation: 1, brightness: 1 })
-      .linearGradient({
-        angle: 165,
-        colors: [['rgba(255,255,255,0.10)', 0], ['rgba(255,255,255,0.04)', 1]]
-      })
-      .border({ width: 1, color: 'rgba(255,255,255,0.38)' })
-      .shadow({ radius: 24, color: 'rgba(3,14,30,0.26)', offsetY: 6 })
-      .margin({ bottom: 24 })
+      .width('100%')
+      .height('100%')
+      .padding({ bottom: 8 })
+      // 角标弹窗放在弹层内部，避免被半模态层级遮挡
+      if (this.dirNewFolderOpen) {
+        this.dirNewFolderPrompt()
+      }
+      if (this.dirJumpOpen) {
+        this.dirJumpPrompt()
+      }
+      if (this.dirLocationsOpen) {
+        this.dirLocationsPrompt()
+      }
     }
     .width('100%')
     .height('100%')
   }
 
-  /** 左侧栏（对齐小程序 drawer：品牌 + 插件 / 自动化任务 + 额度卡片 + 设置） */
+  /** 目录行（对齐小程序 .dir-row） */
   @Builder
-  drawerOverlay() {
-    Stack({ alignContent: Alignment.TopStart }) {
-      // 遮罩
+  dirEntryRow(name: string, sub: string, hidden: boolean, path: string) {
+    Row() {
+      Row() {
+        Image($r('app.media.workspace_folder_white'))
+          .width(21)
+          .height(21)
+          .objectFit(ImageFit.Contain)
+          .colorFilter(this.iconTint(this.iconColor()))
+          .opacity(hidden ? 0.86 : 1)
+      }
+      .width(29)
+      .justifyContent(FlexAlign.Center)
+      Column() {
+        Text(name)
+          .fontSize(16)
+          .fontColor(this.labelColor())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        if (sub.length > 0) {
+          Text(sub)
+            .fontSize(12)
+            .fontColor(this.secondaryLabel())
+            .maxLines(1)
+            .margin({ top: 1 })
+            .width('100%')
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      .margin({ left: 6 })
+      Image($r('app.media.ic_dir_chevron_mist'))
+        .width(16)
+        .height(16)
+        .colorFilter(this.iconTint(this.iconColorSecondary()))
+        .opacity(0.92)
+    }
+    .width('100%')
+    .padding({ top: 11, bottom: 11, left: 8, right: 8 })
+    .borderRadius(10)
+    .onClick(() => {
+      if (this.dirLoading || path.length === 0) {
+        return;
+      }
+      this.browseDirs(path);
+    })
+  }
+
+  /** 目录分隔线（对齐小程序 .dir-divider） */
+  @Builder
+  dirDividerRow() {
+    Row() {
+      Row()
+        .width('100%')
+        .height(0.5)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)')
+    }
+    .width('100%')
+    .padding({ left: 54 })
+  }
+
+  /** 新建文件夹弹窗（对齐小程序 .dir-prompt-sheet） */
+  @Builder
+  dirNewFolderPrompt() {
+    Stack({ alignContent: Alignment.Center }) {
       Column()
         .width('100%')
         .height('100%')
         .backgroundColor('rgba(0,0,0,0.45)')
         .onClick(() => {
-          this.drawerOpen = false;
+          this.dirNewFolderOpen = false;
         })
-
-      // 面板
       Column() {
-        // 品牌
-        Row({ space: 6 }) {
-          Image($r('app.media.whale_ink')).width(29).height(29).objectFit(ImageFit.Contain)
-          Image($r('app.media.wordmark_ink')).width(76).objectFit(ImageFit.Contain)
-          Text('HARNESS')
-            .fontSize(9.5)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#10151F')
-            .backgroundColor('#FFFFFF')
-            .borderRadius(4)
-            .height(15)
-            .padding({ left: 6, right: 6 })
+        Text('新建文件夹')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.labelColor())
+          .width('100%')
+        Text('将在当前目录中创建一个新的子文件夹。')
+          .fontSize(12)
+          .fontColor(this.secondaryLabel())
+          .lineHeight(18)
+          .width('100%')
+          .margin({ top: 5 })
+        TextInput({ text: this.dirNewFolderName, placeholder: '文件夹名称' })
+          .caretStyle({ width: 1 })
+          .height(42)
+          .margin({ top: 13 })
+          .padding({ left: 12, right: 12 })
+          .borderRadius(9)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)')
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.85)' })
+          .fontSize(14)
+          .fontColor(this.labelColor())
+          .placeholderColor(this.secondaryLabel())
+          .onChange((value: string) => {
+            this.dirNewFolderName = value;
+            this.dirNewFolderError = '';
+          })
+        if (this.dirNewFolderError.length > 0) {
+          Text(this.dirNewFolderError)
+            .fontSize(12)
+            .fontColor('#FF8A8A')
+            .width('100%')
+            .margin({ top: 6 })
         }
-        .width('100%')
-        .padding({ left: 12, bottom: 16 })
-
-        // 插件
-        this.drawerItem($r('app.media.pinwheel_ink'), '插件', 'plugins')
-        // 自动化任务
-        this.drawerItem($r('app.media.automation_ink'), '自动化任务', 'schedule')
-
-        Blank()
-
-        // 额度卡片（未连接时展示提示）
-        Column({ space: 3 }) {
-          Text(this.connection === 'connected' ? '用量额度' : '额度卡片未连接到网关')
-            .fontSize(13)
+        Row({ space: 10 }) {
+          Button('取消')
+            .layoutWeight(1)
+            .height(42)
+            .fontSize(14)
+            .fontColor(this.labelColor())
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.55)')
+            .borderRadius(9)
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.85)' })
+            .onClick(() => {
+              this.dirNewFolderOpen = false;
+            })
+          Button(this.dirCreatingDir ? '正在创建…' : '创建')
+            .layoutWeight(1)
+            .height(42)
+            .fontSize(14)
             .fontWeight(FontWeight.Medium)
-            .fontColor('#101318')
-          Text(this.connection === 'connected' ? '点击查看用量明细' : '点此重新连接')
-            .fontSize(10.5)
-            .fontColor('rgba(16,19,24,0.55)')
+            .fontColor(this.labelColor())
+            .backgroundColor('rgba(0,0,0,0)')
+            .borderRadius(9)
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.18)' })
+            .enabled(!this.dirCreatingDir)
+            .opacity(this.dirCreatingDir ? 0.7 : 1)
+            .onClick(() => {
+              this.confirmNewFolder();
+            })
         }
         .width('100%')
-        .padding(11)
-        .borderRadius(10)
-        .border({ width: 1, color: 'rgba(122,142,175,0.16)' })
-        .backgroundColor('rgba(116,133,161,0.07)')
-        .alignItems(HorizontalAlign.Start)
-        .onClick(() => {
-          this.drawerOpen = false;
-          this.pageStack.pushPathByName('session-settings', null);
-        })
-
-        // 设置
-        this.drawerItem($r('app.media.settings_ink'), '设置', 'app-settings')
+        .margin({ top: 14 })
       }
-      .width('76%')
-      .constraintSize({ maxWidth: 360 })
-      .height('100%')
-      .padding({ left: 18, right: 18, top: this.safeTop + 18, bottom: this.safeBottom + 12 })
-      .backgroundColor('#FFFFFF')
-      .alignItems(HorizontalAlign.Start)
+      .width(310)
+      .padding({ left: 18, right: 18, top: 20, bottom: 14 })
+      .borderRadius(16)
+      // 玻璃材质对齐会话设置弹窗：半透明底 + 亮边 + 背景模糊
+      .backgroundColor(this.isDark ? 'rgba(30,33,40,0.72)' : 'rgba(255,255,255,0.90)')
+      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.85)' })
+      .backdropBlur(16)
+      .shadow({ radius: 24, color: 'rgba(3,14,30,0.26)', offsetY: 6 })
     }
     .width('100%')
     .height('100%')
   }
 
+  /** 编辑路径弹窗（对齐小程序 .dir-prompt-sheet） */
   @Builder
-  drawerItem(icon: Resource, label: string, route: string) {
-    Row({ space: 10 }) {
-      Image(icon).width(22).height(22).objectFit(ImageFit.Contain)
+  dirJumpPrompt() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.45)')
+        .onClick(() => {
+          this.dirJumpOpen = false;
+        })
+      Column() {
+        Text('编辑路径')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.labelColor())
+          .width('100%')
+        Text('输入绝对路径，例如 /Users/… 或 D:/…')
+          .fontSize(12)
+          .fontColor(this.secondaryLabel())
+          .lineHeight(18)
+          .width('100%')
+          .margin({ top: 5 })
+        TextInput({ text: this.dirJumpValue, placeholder: '输入绝对路径' })
+          .caretStyle({ width: 1 })
+          .height(42)
+          .margin({ top: 13 })
+          .padding({ left: 12, right: 12 })
+          .borderRadius(9)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)')
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.85)' })
+          .fontSize(14)
+          .fontColor(this.labelColor())
+          .placeholderColor(this.secondaryLabel())
+          .onChange((value: string) => {
+            this.dirJumpValue = value;
+            this.dirJumpError = '';
+          })
+        if (this.dirJumpError.length > 0) {
+          Text(this.dirJumpError)
+            .fontSize(12)
+            .fontColor('#FF8A8A')
+            .width('100%')
+            .margin({ top: 6 })
+        }
+        Row({ space: 10 }) {
+          Button('取消')
+            .layoutWeight(1)
+            .height(42)
+            .fontSize(14)
+            .fontColor(this.labelColor())
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.55)')
+            .borderRadius(9)
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.85)' })
+            .onClick(() => {
+              this.dirJumpOpen = false;
+            })
+          Button('前往')
+            .layoutWeight(1)
+            .height(42)
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.labelColor())
+            .backgroundColor('rgba(0,0,0,0)')
+            .borderRadius(9)
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(0,0,0,0.18)' })
+            .onClick(() => {
+              this.submitDirJump();
+            })
+        }
+        .width('100%')
+        .margin({ top: 14 })
+      }
+      .width(310)
+      .padding({ left: 18, right: 18, top: 20, bottom: 14 })
+      .borderRadius(16)
+      // 玻璃材质对齐会话设置弹窗：半透明底 + 亮边 + 背景模糊
+      .backgroundColor(this.isDark ? 'rgba(30,33,40,0.72)' : 'rgba(255,255,255,0.90)')
+      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.85)' })
+      .backdropBlur(16)
+      .shadow({ radius: 24, color: 'rgba(3,14,30,0.26)', offsetY: 6 })
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  /** 位置面板：电脑 / 主目录（对齐小程序 .dir-prompt-sheet 位置） */
+  @Builder
+  dirLocationsPrompt() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.45)')
+        .onClick(() => {
+          this.dirLocationsOpen = false;
+        })
+      Column() {
+        Text('位置')
+          .fontSize(16)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.labelColor())
+          .width('100%')
+        Scroll() {
+          Column() {
+            if (this.dirRootPath().length > 0) {
+              Row({ space: 10 }) {
+                Image($r('app.media.server_white'))
+                  .width(18)
+                  .height(18)
+                  .objectFit(ImageFit.Contain)
+                Column() {
+                  Text('电脑')
+                    .fontSize(14)
+                    .fontColor('#F1F4FA')
+                    .width('100%')
+                  Text(this.dirRootPath())
+                    .fontSize(11)
+                    .fontColor('rgba(241,244,250,0.40)')
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .width('100%')
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+              }
+              .width('100%')
+              .padding({ top: 10, bottom: 10, left: 6, right: 6 })
+              .borderRadius(10)
+              .onClick(() => {
+                this.dirLocationsOpen = false;
+                this.browseDirs(this.dirRootPath());
+              })
+            }
+            if (this.dirHome.length > 0) {
+              Row({ space: 10 }) {
+                Image($r('app.media.workspace_folder_white'))
+                  .width(18)
+                  .height(18)
+                  .objectFit(ImageFit.Contain)
+                Column() {
+                  Text('主目录')
+                    .fontSize(14)
+                    .fontColor('#F1F4FA')
+                    .width('100%')
+                  Text(this.dirHome)
+                    .fontSize(11)
+                    .fontColor('rgba(241,244,250,0.40)')
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .width('100%')
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+              }
+              .width('100%')
+              .padding({ top: 10, bottom: 10, left: 6, right: 6 })
+              .borderRadius(10)
+              .onClick(() => {
+                this.dirLocationsOpen = false;
+                this.browseDirs(this.dirHome);
+              })
+            }
+          }
+          .width('100%')
+          .margin({ top: 8 })
+        }
+        .constraintSize({ maxHeight: 320 })
+        .scrollBar(BarState.Off)
+        Row({ space: 10 }) {
+          Button('取消')
+            .layoutWeight(1)
+            .height(42)
+            .fontSize(14)
+            .fontColor(this.labelColor())
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.55)')
+            .borderRadius(9)
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.85)' })
+            .onClick(() => {
+              this.dirLocationsOpen = false;
+            })
+        }
+        .width('100%')
+        .margin({ top: 14 })
+      }
+      .width(310)
+      .padding({ left: 18, right: 18, top: 20, bottom: 14 })
+      .borderRadius(16)
+      // 玻璃材质对齐会话设置弹窗：半透明底 + 亮边 + 背景模糊
+      .backgroundColor(this.isDark ? 'rgba(30,33,40,0.72)' : 'rgba(255,255,255,0.90)')
+      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.85)' })
+      .backdropBlur(16)
+      .shadow({ radius: 24, color: 'rgba(3,14,30,0.26)', offsetY: 6 })
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  // ── 添加工作区：数据与交互（对齐小程序 openDirSheet / browseDirs / 弹窗动作）──
+
+  private closeDirSheet(): void {
+    this.dirSheetOpen = false;
+    this.dirNewFolderOpen = false;
+    this.dirJumpOpen = false;
+    this.dirLocationsOpen = false;
+  }
+
+  private openDirSheet(): void {
+    this.wsMenuOpen = false;
+    this.dirShowHidden = false;
+    this.dirLoading = true;
+    this.dirError = '';
+    this.dirNewFolderOpen = false;
+    this.dirJumpOpen = false;
+    this.dirLocationsOpen = false;
+    this.dirSheetOpen = true;
+    // 对齐小程序：默认落在网关家目录（未知时先请求空路径，拿到 home 后再补一次）
+    this.dirAutoHome = true;
+    this.browseDirs(this.dirHome.length > 0 ? this.dirHome : '');
+  }
+
+  private browseDirs(path: string): void {
+    this.dirLoading = true;
+    this.dirError = '';
+    if (!GatewayClient.get().requestDirectories(path)) {
+      this.dirLoading = false;
+      this.dirError = '请先连接鲸尾 Harness';
+    }
+  }
+
+  private dirVisible(): DirEntry[] {
+    const out: DirEntry[] = [];
+    for (const entry of this.dirEntries) {
+      if (!this.dirShowHidden && entry.hidden) {
+        continue;
+      }
+      out.push(entry);
+    }
+    out.sort((a: DirEntry, b: DirEntry) => {
+      const left: string = a.name.toLowerCase();
+      const right: string = b.name.toLowerCase();
+      return left < right ? -1 : (left > right ? 1 : 0);
+    });
+    return out;
+  }
+
+  private dirHiddenCount(): number {
+    let hidden: number = 0;
+    for (const entry of this.dirEntries) {
+      if (entry.hidden) {
+        hidden += 1;
+      }
+    }
+    return hidden;
+  }
+
+  private dirParentPath(): string {
+    if (this.dirCrumbs.length < 2) {
+      return '';
+    }
+    return this.dirCrumbs[this.dirCrumbs.length - 2].path;
+  }
+
+  private dirRootPath(): string {
+    return this.dirCrumbs.length > 0 ? this.dirCrumbs[0].path : '';
+  }
+
+  private dirCrumbLabel(crumb: DirCrumb): string {
+    if (crumb.path === '/') {
+      return '电脑';
+    }
+    if (this.dirHome.length > 0 && crumb.path === this.dirHome) {
+      return '主目录';
+    }
+    return crumb.name.length > 0 ? crumb.name : crumb.path;
+  }
+
+  private confirmNewFolder(): void {
+    const name: string = this.dirNewFolderName.trim();
+    if (name.length === 0) {
+      this.dirNewFolderError = '请输入文件夹名称';
+      return;
+    }
+    this.dirNewFolderError = '';
+    this.dirNewFolderName = '';
+    this.dirNewFolderOpen = false;
+    this.dirCreatingDir = true;
+    if (!GatewayClient.get().createDirectory(this.dirCurrent, name)) {
+      this.dirCreatingDir = false;
+      this.dirError = '请先连接鲸尾 Harness';
+    }
+  }
+
+  private submitDirJump(): void {
+    let value: string = this.dirJumpValue.trim();
+    if (value.length === 0) {
+      this.dirJumpError = '请输入绝对路径';
+      return;
+    }
+    if (value === '~') {
+      value = this.dirHome;
+    } else if (value.indexOf('~/') === 0 || value.indexOf('~\\') === 0) {
+      value = this.dirHome + value.slice(1);
+    }
+    const posix: boolean = value.charAt(0) === '/';
+    const windows: boolean = /^[A-Za-z]:[\\/]/.test(value);
+    if (!posix && !windows) {
+      this.dirJumpError = '请输入以 / 或盘符开头的绝对路径';
+      return;
+    }
+    this.dirJumpError = '';
+    this.dirJumpOpen = false;
+    this.browseDirs(value);
+  }
+
+  private createWorkspaceHere(): void {
+    if (this.dirCurrent.length === 0 || this.dirCreatingWs) {
+      return;
+    }
+    this.dirCreatingWs = true;
+    if (!GatewayClient.get().createWorkspace(this.dirCurrent)) {
+      this.dirCreatingWs = false;
+      this.dirError = '请先连接鲸尾 Harness';
+      return;
+    }
+    // 兜底：网关没回工作区列表时也不要一直停在「正在创建…」
+    setTimeout(() => {
+      if (this.dirCreatingWs) {
+        this.dirCreatingWs = false;
+        this.closeDirSheet();
+      }
+    }, 4000);
+  }
+
+  onDirEntriesChanged(): void {
+    this.dirLoading = false;
+    this.dirCreatingDir = false;
+    if (this.dirAutoHome) {
+      this.dirAutoHome = false;
+      // 网关把空路径解析成根目录时，回到家目录（对齐小程序首屏）
+      if (this.dirHome.length > 0 && this.dirCurrent !== this.dirHome && this.dirCrumbs.length <= 1) {
+        this.browseDirs(this.dirHome);
+      }
+    }
+  }
+
+  onWorkspacesChanged(): void {
+    if (this.dirCreatingWs) {
+      this.dirCreatingWs = false;
+      this.closeDirSheet();
+    }
+  }
+
+  /** 左侧栏（对齐小程序 drawer：品牌 + 插件 / 自动化任务 + 设置） */
+  /** 侧栏底层：抽屉固定在左侧，首页内容右推后露出它（对齐小程序 drawer + home-content-wrap） */
+  @Builder
+  drawerOverlay() {
+    Column() {
+        // 品牌
+        Row({ space: 6 }) {
+          // 品牌鲸鱼：与顶部品牌行一致
+          Image(this.isDark ? $r('app.media.whale_white') : $r('app.media.whale_ink'))
+            .width(29)
+            .height(29)
+            .objectFit(ImageFit.Contain)
+            .translate({ y: -3.5 })
+          // 文字标：与顶部品牌行等高（52×15），侧栏标题高度与主页一致
+          Image(this.isDark ? $r('app.media.wordmark_white') : $r('app.media.wordmark_ink'))
+            .width(52)
+            .height(15)
+            .objectFit(ImageFit.Contain)
+          // HARNESS 徽章：白底抽屉上用深底白字，与主页顶栏同一规格
+          Text('HARNESS')
+            .fontSize(9.5)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.isDark ? '#10151F' : '#FFFFFF')
+            .backgroundColor(this.isDark ? '#FFFFFF' : '#10151F')
+            .borderRadius(4)
+            .height(15)
+            .padding({ left: 6, right: 6 })
+            .textAlign(TextAlign.Center)
+            .letterSpacing(0.5)
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        .padding({ left: this.rpx(24), bottom: this.rpx(32) })
+
+        // 插件
+        this.drawerItem($r('app.media.pinwheel_ink'), $r('app.media.pinwheel_ink'), '插件', 'plugins')
+        // 自动化任务
+        this.drawerItem($r('app.media.automation_ink'), $r('app.media.automation_white'), '自动化任务', 'schedule')
+
+        Blank()
+
+        // 设置（对齐小程序 .drawer-footer：上方 24rpx 间距，底部 24rpx + 安全区）
+        Column() {
+          this.drawerItem($r('app.media.settings_ink'), $r('app.media.settings_white'), '设置', 'app-settings')
+        }
+        .width('100%')
+        .padding({ top: this.rpx(24) })
+      }
+      .width(this.drawerWidth)
+      .height('100%')
+      .padding({
+        left: this.rpx(36),
+        right: this.rpx(36),
+        // 小程序：calc(20rpx + safe-area-inset-top) / calc(24rpx + safe-area-inset-bottom)
+        top: Math.max(this.safeTopStorage, 38) + this.rpx(20),
+        // 底部安全区补足到接近 iOS 手势条高度，避免设置按钮贴底
+        bottom: Math.max(this.safeBottomStorage, 30) + this.rpx(24)
+      })
+      .backgroundColor(this.isDark ? '#181A1F' : '#FFFFFF')
+      .alignItems(HorizontalAlign.Start)
+      .position({ x: 0, y: 0 })
+      // 抽屉自身从左向右展开；关闭时缩回屏外（对齐小程序 translateX(-100%) → 0）
+      .translate({ x: this.drawerOpen ? 0 : -this.drawerWidth })
+      .animation({ duration: 320, curve: Curve.FastOutSlowIn })
+  }
+
+  @Builder
+  drawerItem(icon: Resource, iconDark: Resource, label: string, route: string) {
+    Row({ space: this.rpx(20) }) {
+      // 深色模式用白色图标资源（SVG 描边色写死）；PNG 再用颜色矩阵染白
+      Image(this.isDark ? iconDark : icon)
+        .width(this.rpx(44))
+        .height(this.rpx(44))
+        .objectFit(ImageFit.Contain)
+        .colorFilter(this.iconTint(this.isDark ? '#FFFFFF' : '#101318'))
       Text(label)
-        .fontSize(17)
-        .fontColor('#101318')
+        .fontSize(this.rpx(34))
+        .fontColor(this.isDark ? '#FFFFFF' : '#101318')
         .layoutWeight(1)
     }
     .width('100%')
-    .height(52)
-    .padding({ left: 14, right: 14 })
-    .borderRadius(12)
+    .height(this.rpx(104))
+    .padding({ left: this.rpx(28), right: this.rpx(28) })
+    .borderRadius(this.rpx(24))
     .onClick(() => {
       this.drawerOpen = false;
       this.pageStack.pushPathByName(route, null);
     })
   }
 
+  /** 选择工作区菜单（系统 Menu 容器 + 分组分割线；行内图标/字号对齐小程序） */
   @Builder
-  workspaceMenuOverlay() {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('rgba(0,0,0,0.01)')
-        .onClick(() => {
-          this.wsMenuOpen = false;
-        })
-      Column({ space: 0 }) {
-        // 全部会话
-        this.wsRow('all', '全部会话', $r('app.media.all_sessions_white'))
-        // 未分组
-        this.wsRow('ungrouped', '未分组', $r('app.media.tray_white'))
-        if (this.workspaces.length > 0) {
-          Divider().color('rgba(255,255,255,0.14)').strokeWidth(1).margin({ left: 22, right: 22 })
-        }
-        ForEach(this.workspaces, (ws: WorkspaceRow) => {
-          this.wsRow(ws.workspaceId, ws.title, $r('app.media.workspace_folder_white'))
-        }, (ws: WorkspaceRow) => ws.workspaceId)
-        Divider().color('rgba(255,255,255,0.14)').strokeWidth(1).margin({ left: 22, right: 22 })
-        // 添加工作区
-        Row({ space: 12 }) {
-          Image($r('app.media.plus_white')).width(18).height(18).objectFit(ImageFit.Contain)
-          Text('添加工作区')
-            .fontSize(16)
-            .fontColor('#FFFFFF')
-            .layoutWeight(1)
-        }
-        .width('100%')
-        .height(42)
-        .padding({ left: 24, right: 24 })
-        .onClick(() => {
-          this.wsMenuOpen = false;
-          this.dirSheetOpen = true;
-          this.dirError = '';
-          GatewayClient.get().requestDirectories('');
-        })
+  workspaceMenuBuilder() {
+    Menu()
+      .menuItemDivider({
+        strokeWidth: LengthMetrics.vp(1),
+        color: this.separatorColor(),
+        startMargin: LengthMetrics.vp(this.rpx(44)),
+        endMargin: LengthMetrics.vp(this.rpx(44))
+      }) {
+      MenuItemGroup() {
+        MenuItem(this.menuRow($r('app.media.all_sessions_white'), '全部会话', this.wsFilter === 'all', this.wsMenuWidth()))
+          .id('ws-all')
+          .onClick(() => {
+            this.pickWorkspace('all');
+          })
+        MenuItem(this.menuRow($r('app.media.tray_white'), '未分组', this.wsFilter === 'ungrouped', this.wsMenuWidth()))
+          .id('ws-ungrouped')
+          .onClick(() => {
+            this.pickWorkspace('ungrouped');
+          })
       }
-      .width('62.4%')
-      .constraintSize({ minWidth: 224, maxWidth: 280 })
-      .borderRadius(32)
-      .padding({ top: 8, bottom: 8 })
-      .backgroundEffect({ radius: 4, saturation: 1, brightness: 1 })
-      .linearGradient({
-        angle: 165,
-        colors: [['rgba(255,255,255,0.10)', 0], ['rgba(255,255,255,0.04)', 1]]
-      })
-      .border({ width: 1, color: 'rgba(255,255,255,0.38)' })
-      .shadow({ radius: 32, color: 'rgba(3,14,30,0.26)', offsetY: 10 })
-      .translate({ y: this.wsOffsetY() })
+      MenuItemGroup() {
+        ForEach(this.workspaces, (ws: WorkspaceRow) => {
+          MenuItem(this.menuRow($r('app.media.workspace_folder_white'), ws.title, this.wsFilter === ws.workspaceId, this.wsMenuWidth()))
+            .id('ws-' + ws.workspaceId)
+            .onClick(() => {
+              this.pickWorkspace(ws.workspaceId);
+            })
+        }, (ws: WorkspaceRow) => ws.workspaceId)
+      }
+      MenuItemGroup() {
+        MenuItem(this.menuRow($r('app.media.plus_white'), '添加工作区', false, this.wsMenuWidth()))
+          .id('ws-add')
+          .onClick(() => {
+            this.openDirSheet();
+          })
+      }
     }
-    .width('100%')
-    .height('100%')
   }
 
+  /** 选择工作区：切换筛选并重置折叠状态（对齐小程序 expandedSectionIds / recentExpanded） */
+  private pickWorkspace(id: string): void {
+    this.wsFilter = id;
+    this.wsMenuOpen = false;
+    this.expandedSectionIds = [];
+    this.recentExpanded = false;
+  }
+
+
+  /** 会话行（对齐小程序 .session-row）：圆点 / 标题 + 等宽 id / 右侧时间 */
   @Builder
-  wsRow(id: string, label: string, icon: Resource) {
-    Row({ space: 12 }) {
-      if (this.wsFilter === id) {
-        Image($r('app.media.check_fill_white')).width(18).height(18).objectFit(ImageFit.Contain)
-      } else {
-        Image(icon).width(18).height(18).objectFit(ImageFit.Contain)
-      }
-      Text(label)
-        .fontSize(16)
-        .fontColor('#FFFFFF')
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
+  sessionRow(item: SessionSummary, last: boolean) {
+    Column() {
+      Row({ space: 11 }) {
+        Row() {
+          if (item.running) {
+            LoadingProgress()
+              .width(14)
+              .height(14)
+              .color('#FFFFFF')
+          } else {
+            Circle({ width: 7, height: 7 })
+              .fill('rgba(255,255,255,0.4)')
+          }
+        }
+        .width(14)
+        .height(14)
+        .justifyContent(FlexAlign.Center)
+        Column({ space: 1 }) {
+          Text(this.sessionTitle(item))
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor('#FFFFFF')
+            .width('100%')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text(this.sessionMeta(item))
+            .fontSize(10)
+            .fontFamily('monospace')
+            .fontColor('rgba(255,255,255,0.42)')
+            .width('100%')
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+        .alignItems(HorizontalAlign.Start)
         .layoutWeight(1)
+        Text(item.running ? '运行中' : this.timeLabel(item.updatedAt))
+          .fontSize(11)
+          .fontColor(item.running ? '#0A84FF' : 'rgba(255,255,255,0.48)')
+          .margin({ left: 9 })
+      }
+      .width('100%')
+      .padding({ top: 10, bottom: 10, left: 4, right: 4 })
+      .borderRadius(8)
+      .onClick(() => {
+        SessionStore.get().open(item.id);
+        this.pageStack.pushPathByName('session', null);
+      })
+      if (!last) {
+        Row() {
+          Row()
+            .width('100%')
+            .height(0.5)
+            .backgroundColor('rgba(255,255,255,0.10)')
+        }
+        .width('100%')
+        .padding({ left: 18 })
+      }
     }
     .width('100%')
-    .height(42)
-    .padding({ left: 24, right: 24 })
+  }
+
+  /** 折叠开关（对齐小程序 .session-section-toggle）；sectionId 为空代表最近会话视图 */
+  @Builder
+  sessionToggle(label: string, expanded: boolean, sectionId: string) {
+    Row({ space: 3 }) {
+      Text(label)
+        .fontSize(13)
+        .fontColor('rgba(255,255,255,0.62)')
+      Image($r('app.media.ic_dir_chevron_mist'))
+        .width(11)
+        .height(11)
+        .opacity(0.62)
+        .rotate({ angle: expanded ? 180 : 0 })
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 44 })
+    .padding({ left: 18 })
+    .alignItems(VerticalAlign.Center)
     .onClick(() => {
-      this.wsFilter = id;
-      this.wsMenuOpen = false;
+      if (sectionId.length > 0) {
+        this.toggleSection(sectionId);
+      } else {
+        this.recentExpanded = !this.recentExpanded;
+      }
     })
   }
 
-  @Builder
-  pairMenuOverlay() {
-    Stack({ alignContent: Alignment.TopEnd }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('rgba(0,0,0,0.18)')
-        .onClick(() => {
-          this.pairMenuOpen = false;
-        })
-      Column() {
-        this.pairMenuItem('scan', '扫描二维码')
-        this.pairMenuItem('keyboard', '手动输入配对信息')
-        this.pairMenuItem('guide', '配置引导')
-      }
-      .width(248)
-      .borderRadius(18)
-      .padding({ top: 6, bottom: 6 })
-      .scale({ x: this.pairMenuScale, y: this.pairMenuScale, centerX: '100%', centerY: '0%' })
-      .opacity(this.pairMenuScale)
-      .backgroundEffect({ radius: 4, saturation: 1, brightness: 1 })
-      .backgroundColor('rgba(255,255,255,0.06)')
-      .linearGradient({
-        angle: 165,
-        colors: [['rgba(255,255,255,0.10)', 0], ['rgba(255,255,255,0.04)', 1]]
-      })
-      .border({ width: 1, color: 'rgba(255,255,255,0.38)' })
-      .shadow({ radius: 24, color: 'rgba(3,14,30,0.26)', offsetY: 8 })
-      .margin({ top: this.rowY + this.rowH + 6, right: 73 })
+  /** 配对菜单宽度：与工作区菜单同一套公式，避免贴右溢出 */
+  private pairMenuWidth(): number {
+    try {
+      const screenW: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+      return Math.min(240, Math.max(200, screenW * 0.6), screenW - 16);
+    } catch (err) {
+      return 232;
     }
-    .width('100%')
-    .height('100%')
   }
 
-  @Builder
-  hostSheetOverlay() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('rgba(0,0,0,0.55)')
-        .onClick(() => {
-          this.hostSheetOpen = false;
-          this.hostEditMode = false;
-          this.hostSelected = false;
-          this.hostEditOpen = false;
-        })
+  /** 菜单水平居中所需的锚点偏移（相对按钮左边缘） */
+  private pairMenuAnchorX(): number {
+    try {
+      const screenW: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+      const width: number = this.pairMenuWidth();
+      // 按钮实测位置不可靠时，按「右侧内边距 20 + 按钮宽 49」估算
+      const fallbackX: number = screenW - 20 - 49;
+      const buttonX: number = (isFinite(this.pairBtnX) && this.pairBtnX > 0) ? this.pairBtnX : fallbackX;
+      // 系统 Menu 容器比内容宽约 18vp（实测：805px 容器 / 720px 内容），居中要一起算
+      const containerW: number = width + 18;
+      const offset: number = (screenW - containerW) / 2 - buttonX;
+      return isFinite(offset) ? offset : 0;
+    } catch (err) {
+      return 0;
+    }
+  }
 
-      Column({ space: 0 }) {
+  /** 配对菜单（系统 Menu 容器；行内图标/字号对齐小程序） */
+  @Builder
+  pairMenuBuilder() {
+    Menu() {
+      MenuItem(this.menuRow($r('app.media.scan_white'), '扫描二维码', false, this.pairMenuWidth()))
+        .id('pair-scan')
+        .onClick(() => {
+          this.pairMenuOpen = false;
+          this.scanPairingNow();
+        })
+      MenuItem(this.menuRow($r('app.media.voice_keyboard'), '手动输入配对信息', false, this.pairMenuWidth()))
+        .id('pair-keyboard')
+        .onClick(() => {
+          this.pairMenuOpen = false;
+          this.manualSheetOpen = true;
+          this.manualHint = '';
+        })
+      MenuItem(this.menuRow($r('app.media.setup_guide_white'), '配置引导', false, this.pairMenuWidth()))
+        .id('pair-guide')
+        .onClick(() => {
+          this.pairMenuOpen = false;
+          this.pageStack.pushPathByName('add-node', null);
+        })
+    }
+  }
+
+  /** 切换主机（系统半模态 bindSheet + ImmersiveMaterial 沉浸光感） */
+  @Builder
+  hostSheetContent() {
+    Column({ space: 0 }) {
+        // 顶部拖动条
         Column() {
           Column()
             .width(36)
             .height(4)
             .borderRadius(2)
-            .backgroundColor('rgba(255,255,255,0.28)')
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
         }
         .width('100%')
-        .height(14)
+        .height(16)
         .justifyContent(FlexAlign.Center)
 
         if (this.hostEditOpen) {
-          // ── 编辑主机子页（对齐 .host-edit-*）──
-          Row() {
-            Text('取消')
-              .fontSize(14)
-              .fontColor('#FFFFFF')
-              .padding({ left: 15, right: 15, top: 7, bottom: 7 })
-              .borderRadius(999)
-              .backgroundColor('rgba(255,255,255,0.10)')
-              .border({ width: 1, color: 'rgba(255,255,255,0.24)' })
-              .onClick(() => {
-                this.hostEditOpen = false;
-              })
-            Blank()
+          // ── 编辑主机（iOS Form 风格）──
+          Stack({ alignContent: Alignment.Center }) {
             Text('编辑主机')
               .fontSize(17)
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#FFFFFF')
-            Blank()
-            Text('保存')
-              .fontSize(14)
               .fontWeight(FontWeight.Medium)
-              .fontColor('#FFFFFF')
-              .padding({ left: 15, right: 15, top: 7, bottom: 7 })
-              .borderRadius(999)
-              .backgroundColor('#2E6BE6')
-              .onClick(() => {
-                this.saveHostAlias();
-              })
-          }
-          .width('100%')
-          .height(48)
-          .alignItems(VerticalAlign.Center)
-
-          Text('留空使用网关提供的名称：' + (this.gatewayName.length > 0 ? this.gatewayName : '未命名'))
-            .fontSize(12)
-            .fontColor('rgba(255,255,255,0.45)')
-            .width('100%')
-            .padding({ left: 4, bottom: 10 })
-
-          Column() {
-            TextInput({ text: this.editAlias, placeholder: this.gatewayName })
-              .caretStyle({ width: 1 })
-              .fontSize(15)
-              .fontColor('#FFFFFF')
-              .placeholderColor('rgba(255,255,255,0.35)')
-              .backgroundColor(Color.Transparent)
-              .padding({ left: 14, right: 14, top: 14, bottom: 14 })
-              .onChange((value: string) => {
-                this.editAlias = value;
-              })
-            Divider().color('rgba(255,255,255,0.10)').strokeWidth(1)
+              .fontColor(this.labelColor())
             Row() {
-              Text('主机类型')
-                .fontSize(14)
-                .fontColor('#FFFFFF')
+              Text('取消')
+                .fontSize(16)
+                .fontColor(this.labelColor())
+                .height(44)
+                .onClick(() => {
+                  this.hostEditOpen = false;
+                })
               Blank()
-              Row({ space: 6 }) {
-                if (this.editKind === 'server') {
-                  Image($r('app.media.server_white')).width(15).height(15).objectFit(ImageFit.Contain)
-                } else {
-                  Image($r('app.media.host_desktop_white')).width(15).height(15).objectFit(ImageFit.Contain)
-                }
-                Text(this.editKind === 'server' ? '服务器' : '电脑')
-                  .fontSize(14)
-                  .fontColor('#FFFFFF')
-                Image($r('app.media.chev_down_white')).width(10).height(10)
-              }
-              .onClick(() => {
-                this.kindMenuOpen = !this.kindMenuOpen;
-              })
+              Text('保存')
+                .fontSize(16)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.labelColor())
+                .height(44)
+                .onClick(() => {
+                  this.saveHostAlias();
+                })
             }
             .width('100%')
             .height(48)
-            .padding({ left: 14, right: 14 })
-            .onAreaChange((oldValue: Area, newValue: Area) => {
-              this.kindRowY = Number(newValue.globalPosition.y);
-            })
-            .width('100%')
-          }
-          .width('100%')
-          .borderRadius(18)
-          .backgroundColor('rgba(255,255,255,0.055)')
-          .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
-
-          Blank()
-        } else {
-          // ── 主机列表 ──
-          Row() {
-            Text(this.hostEditMode ? '完成' : '编辑')
-              .fontSize(14)
-              .fontColor('#FFFFFF')
-              .padding({ left: 15, right: 15, top: 7, bottom: 7 })
-              .borderRadius(999)
-              .backgroundColor('rgba(255,255,255,0.10)')
-              .border({ width: 1, color: 'rgba(255,255,255,0.24)' })
-              .onClick(() => {
-                this.hostEditMode = !this.hostEditMode;
-                if (!this.hostEditMode) {
-                  this.hostSelected = false;
-                }
-              })
-            Blank()
-            Text('切换主机')
-              .fontSize(17)
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#FFFFFF')
-            Blank()
-            if (this.hostEditMode && this.hostSelected) {
-              Text('删除')
-                .fontSize(14)
-                .fontColor('#FF6B60')
-                .padding({ left: 15, right: 15, top: 7, bottom: 7 })
-                .onClick(() => {
-                  this.forgetHost();
-                })
-            } else {
-              Row().width(60)
-            }
+            .padding({ left: 16, right: 16 })
           }
           .width('100%')
           .height(48)
-          .alignItems(VerticalAlign.Center)
 
-          Text('我的主机')
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
-            .fontColor('rgba(255,255,255,0.50)')
-            .width('100%')
-            .padding({ left: 4, top: 6, bottom: 8 })
-
-          Column() {
-            Row({ space: 10 }) {
-              if (this.hostEditMode) {
-                Image(this.hostSelected ? $r('app.media.circle_filled_white') : $r('app.media.circle_white'))
-                  .width(20)
-                  .height(20)
-                  .objectFit(ImageFit.Contain)
-                  .margin({ right: 9 })
-                  .onClick(() => {
-                    this.hostSelected = !this.hostSelected;
+          Scroll() {
+            Column() {
+              Text('留空使用网关提供的名称：' + (this.gatewayName.length > 0 ? this.gatewayName : '未命名'))
+                .fontSize(12)
+                .fontColor(this.secondaryLabel())
+                .width('100%')
+                .padding({ left: 16, top: 16, bottom: 6 })
+              Column() {
+                TextInput({ text: this.editAlias, placeholder: this.gatewayName })
+                  .caretStyle({ width: 1 })
+                  .fontSize(16)
+                  .fontColor(this.labelColor())
+                  .placeholderColor(this.secondaryLabel())
+                  .backgroundColor(Color.Transparent)
+                  .height(44)
+                  .padding({ left: 16, right: 16 })
+                  .onChange((value: string) => {
+                    this.editAlias = value;
                   })
-              }
-              Image($r('app.media.host_desktop_white'))
-                .height(22)
-                .objectFit(ImageFit.Contain)
-              Column({ space: 3 }) {
-                Row({ space: 5 }) {
-                  Text(this.hostDisplayName())
-                    .fontSize(15)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor('#FFFFFF')
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  if (this.hostLinkLabel().length > 0) {
-                    Text(this.hostLinkLabel())
-                      .fontSize(9)
-                      .fontWeight(FontWeight.Medium)
-                      .fontColor(this.hostLinkColor())
-                      .backgroundColor(this.hostLinkBg())
-                      .border({ width: 1, color: this.hostLinkBorder() })
-                      .borderRadius(999)
-                      .padding({ left: 5, right: 5, top: 2, bottom: 2 })
-                  }
-                }
-                .alignItems(VerticalAlign.Center)
-                Text(this.connection === 'connected' ? '当前使用 · 在线' : '暂无已保存的主机，请扫码添加')
-                  .fontSize(12)
-                  .fontColor('rgba(255,255,255,0.45)')
-              }
-              .alignItems(HorizontalAlign.Start)
-              .layoutWeight(1)
-              Circle({ width: 7, height: 7 }).fill(this.statusColor())
-              if (this.hostEditMode) {
                 Row() {
-                  Image($r('app.media.pencil_edit_white'))
-                    .width(18)
-                    .height(18)
-                    .objectFit(ImageFit.Contain)
+                  Row()
+                    .width('100%')
+                    .height(0.5)
+                    .backgroundColor(this.separatorColor())
                 }
-                .width(30)
-                .height(30)
-                .justifyContent(FlexAlign.Center)
+                .width('100%')
+                .padding({ left: 16 })
+                Row() {
+                  Text('主机类型')
+                    .fontSize(16)
+                    .fontColor(this.labelColor())
+                  Blank()
+                  Row({ space: 6 }) {
+                    if (this.editKind === 'server') {
+                      this.serverGlyph(16, this.iconColor())
+                    } else {
+                      this.hostGlyph(16, this.iconColor())
+                    }
+                    Text(this.editKind === 'server' ? '服务器' : '电脑')
+                      .fontSize(16)
+                      .fontColor(this.labelColor())
+                    Image($r('app.media.chev_down_white'))
+                      .width(12)
+                      .height(12)
+                      .objectFit(ImageFit.Contain)
+                      .colorFilter(this.iconTint(this.iconColor()))
+                  }
+                  .onClick(() => {
+                    this.kindMenuOpen = !this.kindMenuOpen;
+                  })
+                  // 系统菜单：与对话页右上角「⋯」同款
+                  .bindMenu(this.kindMenuOpen, this.kindMenuBuilder(), {
+                    outlineColor: this.separatorColor(),
+                    outlineWidth: 1,
+                    onWillDisappear: () => {
+                      this.kindMenuOpen = false;
+                    },
+                    onDisappear: () => {
+                      this.kindMenuOpen = false;
+                    },
+                    onDidDisappear: () => {
+                      this.kindMenuOpen = false;
+                    }
+                  })
+                }
+                .width('100%')
+                .height(44)
+                .padding({ left: 16, right: 16 })
+              }
+              .width('100%')
+              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.38)')
+              .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.60)' })
+              .borderRadius(16)
+              .margin({ bottom: 16 })
+            }
+            .width('100%')
+            .padding({ left: 14, right: 14 })
+          }
+          .layoutWeight(1)
+          .width('100%')
+          .scrollBar(BarState.Off)
+          .align(Alignment.Top)
+        } else {
+          // ── 主机列表（iOS inset grouped List）──
+          Stack({ alignContent: Alignment.Center }) {
+            Text('切换主机')
+              .fontSize(17)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.labelColor())
+            Row() {
+              Text(this.hostEditMode ? '完成' : '编辑')
+                .fontSize(16)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.labelColor())
+                .height(32)
+                .padding({ left: 14, right: 14 })
+                .borderRadius(999)
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.60)')
+                .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.10)' })
                 .onClick(() => {
-                  this.editAlias = this.hostAlias;
-                  this.hostEditOpen = true;
+                  this.hostEditMode = !this.hostEditMode;
+                  if (!this.hostEditMode) {
+                    this.hostSelected = false;
+                  }
                 })
+              Blank()
+              if (this.hostEditMode && this.hostSelected) {
+                Text('删除')
+                  .fontSize(16)
+                  .fontColor(this.destructiveColor())
+                  .height(44)
+                  .onClick(() => {
+                    this.confirmDeleteHost();
+                  })
               }
             }
             .width('100%')
-            .padding({ left: 14, right: 14, top: 13, bottom: 13 })
+            .height(48)
+            .padding({ left: 16, right: 16 })
           }
           .width('100%')
-          .borderRadius(18)
-          .backgroundColor('rgba(255,255,255,0.055)')
-          .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
+          .height(48)
 
-          Blank()
+          Scroll() {
+            Column() {
+              Text('我的主机')
+                .fontSize(14)
+                .fontColor(this.secondaryLabel())
+                .width('100%')
+                .padding({ left: 19, top: 16, bottom: 6 })
+
+              if (this.gatewayName.length === 0 && this.hostAlias.length === 0) {
+                Column() {
+                  Row({ space: 12 }) {
+                    this.hostGlyph(22, this.iconColorSecondary())
+                    Text('暂无已连接的主机')
+                      .fontSize(16)
+                      .fontColor(this.secondaryLabel())
+                      .layoutWeight(1)
+                  }
+                  .width('100%')
+                  .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+                }
+                .width('100%')
+                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.50)')
+                  .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.80)' })
+                .borderRadius(16)
+              } else {
+                Column() {
+                  Row({ space: 12 }) {
+                    if (this.hostEditMode) {
+                      // 单选圆：40rpx=20vp 外圈 + 选中时内圈实心点（留 2.5vp 空隙）
+                      Stack({ alignContent: Alignment.Center }) {
+                        Circle()
+                          .width(20)
+                          .height(20)
+                          .fill('rgba(0,0,0,0)')
+                          .stroke(this.hostSelected ? this.iconColor() : this.iconColorSecondary())
+                          .strokeWidth(1.5)
+                        if (this.hostSelected) {
+                          Circle()
+                            .width(11)
+                            .height(11)
+                            .fill(this.iconColor())
+                        }
+                      }
+                      .width(20)
+                      .height(20)
+                      .margin({ right: 2 })
+                      .onClick(() => {
+                        this.hostSelected = !this.hostSelected;
+                      })
+                    }
+                    if (this.editKind === 'server') {
+                      this.serverGlyph(22, this.iconColor())
+                    } else {
+                      this.hostGlyph(22, this.iconColor())
+                    }
+                    Column({ space: 2 }) {
+                      Row({ space: 6 }) {
+                        Text(this.hostDisplayName())
+                          .fontSize(16)
+                          .fontColor(this.labelColor())
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .constraintSize({ maxWidth: 180 })
+                        if (this.hostLinkLabel().length > 0) {
+                          Text(this.hostLinkLabel())
+                            .fontSize(10.5)
+                            .fontWeight(FontWeight.Medium)
+                            .fontColor(this.hostLinkColor())
+                            .backgroundColor(this.hostLinkBg())
+                            .border({ width: 1, color: this.hostLinkBorder() })
+                            .borderRadius(999)
+                            .height(16)
+                            .padding({ left: 6, right: 6 })
+                            .textAlign(TextAlign.Center)
+                        }
+                      }
+                      .width('100%')
+                      Text(this.connection === 'connected' ? '当前主机 · 已连接' : '点击连接')
+                        .fontSize(12.5)
+                        .fontColor(this.hostRowSubColor(this.connection === 'connected'))
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                        .width('100%')
+                    }
+                    .alignItems(HorizontalAlign.Start)
+                    .layoutWeight(1)
+                    Circle({ width: 8, height: 8 }).fill(this.hostPillDotColor())
+                    if (this.hostEditMode) {
+                      Row() {
+                        Image($r('app.media.pencil_edit_white'))
+                          .width(18)
+                          .height(18)
+                          .objectFit(ImageFit.Contain)
+                          .fillColor(this.iconColor())
+                      }
+                      .width(44)
+                      .height(44)
+                      .justifyContent(FlexAlign.Center)
+                      .onClick(() => {
+                        this.editAlias = this.hostAlias;
+                        this.hostEditOpen = true;
+                      })
+                    }
+                  }
+                  .width('100%')
+                  .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+                  .onClick(() => {
+                    if (this.hostEditMode) {
+                      this.hostSelected = !this.hostSelected;
+                    } else {
+                      // 点击主机：关闭面板并立即尝试连接（按当前网络选择局域网/隧道）
+                      this.hostSheetOpen = false;
+                      if (this.connection !== 'connected') {
+                        GatewayClient.get().revalidateOnForeground();
+                        GatewayClient.get().reconnectCurrent();
+                      }
+                    }
+                  })
+                }
+                .width('100%')
+                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.50)')
+                  .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.80)' })
+                .borderRadius(16)
+              }
+            }
+            .width('100%')
+            .padding({ left: 14, right: 14, bottom: 16 })
+          }
+          .layoutWeight(1)
+          .width('100%')
+          .scrollBar(BarState.Off)
+          .align(Alignment.Top)
         }
       }
-      .width('calc(100% - 24vp)')
-      .constraintSize({ minHeight: '46%' })
-      .padding({ left: 14, right: 14, bottom: 24 })
-      .borderRadius(18)
-      .backgroundEffect({ radius: 4, saturation: 1, brightness: 1 })
-      .linearGradient({
-        angle: 165,
-        colors: [['rgba(255,255,255,0.10)', 0], ['rgba(255,255,255,0.04)', 1]]
-      })
-      .border({ width: 1, color: 'rgba(255,255,255,0.38)' })
-      .shadow({ radius: 24, color: 'rgba(3,14,30,0.26)', offsetY: 6 })
-      .margin({ bottom: 24 })
+      .width('100%')
+      .height('100%')
+      .padding({ bottom: 8 })
+  }
+
+  /** 删除主机确认（对齐 iOS alert） */
+  @Builder
+  hostDeleteAlert() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.35)')
+        .onClick(() => {
+          this.hostDeleteOpen = false;
+        })
+      Column() {
+        Column() {
+          Text('删除主机？')
+            .fontSize(20)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.labelColor())
+            .textAlign(TextAlign.Center)
+            .width('100%')
+          Text('从 App 移除选中的 1 台主机及连接凭证；网关上的会话和工作区不会被删除。再次连接需重新配对。')
+            .fontSize(16)
+            .fontColor(this.labelColor())
+            .textAlign(TextAlign.Center)
+            .lineHeight(18)
+            .width('100%')
+            .margin({ top: 4 })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 20, bottom: 18 })
+
+        Row()
+          .width('100%')
+          .height(0.5)
+          .backgroundColor(this.separatorColor())
+
+        Row() {
+          Row() {
+            Text('取消')
+              .fontSize(16)
+              .fontColor(this.accentColor())
+          }
+          .layoutWeight(1)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            this.hostDeleteOpen = false;
+          })
+          Column()
+            .width(0.5)
+            .height(44)
+            .backgroundColor(this.separatorColor())
+          Row() {
+            Text('删除')
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.destructiveColor())
+          }
+          .layoutWeight(1)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            this.hostDeleteOpen = false;
+            this.forgetHost();
+          })
+        }
+        .width('100%')
+        .height(44)
+      }
+      .width(320)
+      // 鸿蒙对话框：32vp 圆角 + 系统底色
+      .backgroundColor(this.isDark ? '#2E2E2E' : this.labelColor())
+      .borderRadius(32)
     }
     .width('100%')
     .height('100%')
@@ -977,65 +2040,67 @@ export struct HomePage {
   /** 手动输入配对信息：对齐小程序 manual-sheet 的「设备认证」 */
   @Builder
   manualSheetOverlay() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('rgba(0,0,0,0.55)')
-        .onClick(() => {
-          this.manualSheetOpen = false;
-        })
-
-      Column({ space: 0 }) {
+    Column({ space: 0 }) {
+        // 顶部拖动条（与「切换主机」半模态同款）
         Column() {
-          Column().width(36).height(4).borderRadius(2).backgroundColor('rgba(255,255,255,0.28)')
+          Column()
+            .width(36)
+            .height(4)
+            .borderRadius(2)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
         }
         .width('100%')
-        .height(14)
+        .height(16)
         .justifyContent(FlexAlign.Center)
 
-        Row() {
+        // 头部：标题居中 + 右侧取消（对齐切换主机头部）
+        Stack({ alignContent: Alignment.Center }) {
           Text('设备认证')
             .fontSize(17)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
-          Blank()
-          Text('✕')
-            .fontSize(16)
-            .fontColor('rgba(255,255,255,0.75)')
-            .onClick(() => {
-              this.manualSheetOpen = false;
-            })
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.labelColor())
+          Row() {
+            Blank()
+            Text('取消')
+              .fontSize(16)
+              .fontColor(this.labelColor())
+              .height(44)
+              .onClick(() => {
+                this.manualSheetOpen = false;
+              })
+          }
+          .width('100%')
+          .height(48)
+          .padding({ left: 16, right: 16 })
         }
         .width('100%')
-        .height(44)
-        .alignItems(VerticalAlign.Center)
+        .height(48)
 
         if (this.keyboardHeightVp <= 0) {
           Text('粘贴 Harness WebUI 提供的配对信息即可连接；长期设备 token 只会安全保存在本机。')
             .fontSize(12)
-            .fontColor('rgba(255,255,255,0.55)')
+            .fontColor(this.secondaryLabel())
             .width('100%')
-            .margin({ bottom: 10 })
+            .padding({ left: 16, right: 16, top: 8, bottom: 10 })
         }
 
         Column() {
           Row() {
             Text('配对信息')
               .fontSize(12)
-              .fontColor('rgba(255,255,255,0.55)')
+              .fontColor(this.secondaryLabel())
             Blank()
             Row({ space: 14 }) {
               Text('粘贴')
                 .fontSize(12)
-                .fontColor('#7BA7F5')
+                .fontColor(this.accentColor())
                 .onClick(() => {
                   this.pastePairingText();
                 })
               if (this.manualText.length > 0) {
                 Text('清空')
                   .fontSize(12)
-                  .fontColor('#7BA7F5')
+                  .fontColor(this.accentColor())
                   .onClick(() => {
                     this.manualText = '';
                   })
@@ -1049,8 +2114,8 @@ export struct HomePage {
             .caretStyle({ width: 1 })
             .height(this.keyboardHeightVp > 0 ? 64 : 120)
             .fontSize(13)
-            .fontColor('#FFFFFF')
-            .placeholderColor('rgba(255,255,255,0.35)')
+            .fontColor(this.labelColor())
+            .placeholderColor(this.secondaryLabel())
             .backgroundColor(Color.Transparent)
             .padding({ left: 12, right: 12, top: 6, bottom: 10 })
             .onChange((value: string) => {
@@ -1059,8 +2124,8 @@ export struct HomePage {
         }
         .width('100%')
         .borderRadius(16)
-        .backgroundColor('rgba(255,255,255,0.06)')
-        .border({ width: 1, color: 'rgba(255,255,255,0.12)' })
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.38)')
+        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.60)' })
 
         if (this.manualHint.length > 0) {
           Text(this.manualHint)
@@ -1074,7 +2139,7 @@ export struct HomePage {
           .width('100%')
           .height(46)
           .fontSize(15)
-          .fontColor('#FFFFFF')
+          .fontColor(this.labelColor())
           .backgroundColor('#2E6BE6')
           .margin({ top: 12 })
           .enabled(this.manualText.trim().length > 0)
@@ -1083,20 +2148,8 @@ export struct HomePage {
             this.connectManual();
           })
       }
-      .width('calc(100% - 24vp)')
-      .padding({ left: 14, right: 14, bottom: 20 })
-      .borderRadius(18)
-      .backgroundEffect({ radius: 4, saturation: 1, brightness: 1 })
-      .linearGradient({
-        angle: 165,
-        colors: [['rgba(255,255,255,0.10)', 0], ['rgba(255,255,255,0.04)', 1]]
-      })
-      .border({ width: 1, color: 'rgba(255,255,255,0.38)' })
-      .shadow({ radius: 24, color: 'rgba(3,14,30,0.26)', offsetY: 6 })
-      .margin({ bottom: this.keyboardHeightVp > 0 ? this.keyboardHeightVp + 8 : 24 })
-    }
-    .width('100%')
-    .height('100%')
+      .width('100%')
+      .padding({ left: 14, right: 14, bottom: this.safeBottom })
   }
 
   /** 从系统剪贴板粘贴配对信息（对齐小程序 pastePairingText） */
@@ -1131,45 +2184,263 @@ export struct HomePage {
     GatewayClient.get().connectPairing(parsed);
   }
 
-  /** 配对菜单：从按钮右上角放大展开（对齐 .pair-menu 的 pair-menu-in） */
-  private togglePairMenu(): void {
-    if (this.pairMenuOpen) {
-      this.pairMenuOpen = false;
-      return;
+  /** 连接方式徽标：直连局域网 / 公网中继（对齐 .host-link-badge） */
+  /** 判断地址是否属于局域网（私有网段 / localhost / mDNS） */
+  private isLanEndpoint(url: string): boolean {
+    let host: string = url;
+    const scheme: number = host.indexOf('://');
+    if (scheme >= 0) {
+      host = host.substring(scheme + 3);
     }
-    this.pairMenuScale = 0.86;
-    this.pairMenuOpen = true;
-    setTimeout(() => {
-      animateTo({ duration: 180, curve: Curve.Friction }, () => {
-        this.pairMenuScale = 1;
-      });
-    }, 16);
+    const slash: number = host.indexOf('/');
+    if (slash >= 0) {
+      host = host.substring(0, slash);
+    }
+    const colon: number = host.indexOf(':');
+    if (colon >= 0) {
+      host = host.substring(0, colon);
+    }
+    if (host === 'localhost' || host.endsWith('.local')) {
+      return true;
+    }
+    const parts: string[] = host.split('.');
+    if (parts.length === 4) {
+      const a: number = Number(parts[0]);
+      const b: number = Number(parts[1]);
+      if (a === 127) return true;
+      if (a === 10) return true;
+      if (a === 192 && b === 168) return true;
+      if (a === 172 && b >= 16 && b <= 31) return true;
+      if (a === 169 && b === 254) return true;
+    }
+    return false;
   }
 
-  /** 连接方式徽标：直连局域网 / 公网中继（对齐 .host-link-badge） */
+  /** 线路族：lan / public（对齐小程序 hostLinkKind） */
+  private hostLinkKind(): string {
+    if (this.connection === 'connected') {
+      // 按实际链路：只有真的走中继/内嵌隧道才是公网，局域网直连保持局域网
+      if (this.transportKind === 'relay' || this.transportTailnet) {
+        return 'public';
+      }
+      return 'lan';
+    }
+    // 未连接：按已保存端点推断，局域网优先
+    const saved = GatewayClient.get().savedGateways();
+    let lan: boolean = false;
+    let pub: boolean = false;
+    for (const one of saved) {
+      const list: string[] = one.endpoints !== undefined && one.endpoints.length > 0 ? one.endpoints : [one.wsUrl];
+      for (const endpoint of list) {
+        if (this.isLanEndpoint(endpoint)) {
+          lan = true;
+        } else {
+          pub = true;
+        }
+      }
+    }
+    if (lan) return 'lan';
+    if (pub) return 'public';
+    return '';
+  }
+
   private hostLinkLabel(): string {
-    if (this.connection !== 'connected') {
-      return '';
-    }
-    if (this.transportKind === 'relay') {
-      return '公网';
-    }
-    if (this.transportKind === 'direct') {
+    const kind: string = this.hostLinkKind();
+    if (kind === 'lan') {
       return '局域网';
+    }
+    if (kind === 'public') {
+      return '公网';
     }
     return '';
   }
 
+  /** 切换主机按钮的状态点：公网中继 / Tailscale 隧道=蓝色、局域网直连=绿色，其余按连接状态 */
+  private hostPillDotColor(): string {
+    if (this.connection === 'connected') {
+      // Tailscale 内嵌隧道同样走公网路径，与中继共用蓝色
+      // 按实际链路：中继或真的走了内嵌隧道才显示公网蓝，局域网直连保持绿色
+      if (this.transportKind === 'relay' || this.transportTailnet) {
+        return '#4C8CF5';
+      }
+      return '#34C759';
+    }
+    return this.statusColor();
+  }
+
+  /** Tailscale 隧道是否已就绪（节点 Running 且开关打开） */
+  private tailscaleTunnelActive(): boolean {
+    return this.tailscaleTunnelEnabled && this.tailscaleStage === 'ready';
+  }
+
+  /** 徽标颜色与状态点保持一致：公网/Tailscale=蓝，局域网=绿 */
   private hostLinkColor(): string {
-    return this.transportKind === 'relay' ? '#9CC2FF' : '#7BE39E';
+    return this.hostLinkKind() === 'public' ? '#4C8CF5' : '#34C759';
   }
 
   private hostLinkBg(): string {
-    return this.transportKind === 'relay' ? 'rgba(156,194,255,0.10)' : 'rgba(123,227,158,0.10)';
+    return this.hostLinkKind() === 'public' ? 'rgba(76,140,245,0.12)' : 'rgba(52,199,89,0.12)';
   }
 
   private hostLinkBorder(): string {
-    return this.transportKind === 'relay' ? 'rgba(156,194,255,0.32)' : 'rgba(123,227,158,0.35)';
+    return this.hostLinkKind() === 'public' ? 'rgba(76,140,245,0.34)' : 'rgba(52,199,89,0.34)';
+  }
+
+  /** 沉浸光感能力判断（旧系统降级） */
+  private immersiveSupported(): boolean {
+    try {
+      return uiMaterial.isImmersiveMaterialSupported();
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /** 半模态弹窗材质：浅色=奶白玻璃、深色=通透深玻璃（系统按算力自动降级） */
+  private hostSheetMaterial(): uiMaterial.Material | undefined {
+    if (!this.immersiveSupported()) {
+      return undefined;
+    }
+    return new uiMaterial.ImmersiveMaterial({
+      style: uiMaterial.ImmersiveStyle.THICK,
+      // 浅色模式叠白做「奶白」，深色模式几乎不叠白保持通透
+      materialColor: this.isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.34)',
+      colorInvert: true,
+      applyShadow: true
+    });
+  }
+
+  /** 删除主机确认：系统 AlertDialog（自动使用沉浸材质） */
+  private confirmDeleteHost(): void {
+    AlertDialog.show({
+      title: '删除主机？',
+      message: '从 App 移除这台主机及连接凭证；网关上的会话和工作区不会被删除。再次连接需重新配对。',
+      autoCancel: true,
+      systemMaterial: this.hostSheetMaterial(),
+      primaryButton: {
+        value: '取消',
+        action: () => {
+        }
+      },
+      secondaryButton: {
+        value: '删除',
+        fontColor: this.destructiveColor(),
+        action: () => {
+          this.forgetHost();
+        }
+      }
+    });
+  }
+
+  // ── iOS 风格（系统 sheet / 分组列表）配色与图标着色 ──
+  private labelColor(): string {
+    // 鸿蒙主文字：黑/白 90%
+    return this.isDark ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.90)';
+  }
+
+  private secondaryLabel(): string {
+    // 鸿蒙次要文字：黑/白 60%
+    return this.isDark ? 'rgba(255,255,255,0.60)' : 'rgba(0,0,0,0.55)';
+  }
+
+  /** 主机行副标题：深色=白 60%/45%，浅色=黑 60%/45%（对齐小程序 host-row-sub 的 on/off） */
+  private hostRowSubColor(isActive: boolean): string {
+    if (isActive) {
+      return this.isDark ? 'rgba(255,255,255,0.60)' : 'rgba(16,19,24,0.55)';
+    }
+    return this.isDark ? 'rgba(255,255,255,0.45)' : 'rgba(16,19,24,0.40)';
+  }
+
+  private separatorColor(): string {
+    // 鸿蒙分割线：黑 10% / 白 20%
+    return this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(0,0,0,0.10)';
+  }
+
+  private accentColor(): string {
+    // 鸿蒙品牌蓝
+    return this.isDark ? '#6FA8FF' : '#0A59F7';
+  }
+
+  private destructiveColor(): string {
+    // 鸿蒙警示红
+    return this.isDark ? '#FF6B60' : '#E84026';
+  }
+
+  private sheetBackground(): string {
+    return this.isDark ? '#000000' : '#F2F2F7';
+  }
+
+  private cellBackground(): string {
+    // 鸿蒙列表卡片：玻璃上叠淡白（深色模式叠淡白 8%）
+    return this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.45)';
+  }
+
+  /** 鸿蒙沉浸光感材质；不支持或低算力设备返回 undefined，回退到系统模糊 + 半透明底 */
+  private immersiveMaterial(style: uiMaterial.ImmersiveStyle, materialColor: ResourceColor, interactive: boolean): uiMaterial.Material | undefined {
+    if (!uiMaterial.isImmersiveMaterialSupported()) {
+      return undefined;
+    }
+    // 低算力设备上材质会退化成纯色层（没有模糊），回退到半透明底更稳
+    if (uiMaterial.getGlobalMaterialLevel() === uiMaterial.MaterialLevel.SMOOTH) {
+      return undefined;
+    }
+    return new uiMaterial.ImmersiveMaterial({
+      style: style,
+      materialColor: materialColor,
+      colorInvert: true,
+      applyShadow: true,
+      interactive: interactive,
+      lightEffect: interactive ? { color: '#FFFFFF' } : undefined
+    });
+  }
+
+  /** 图标主色 / 次色：随浅深色切换 */
+  private iconColor(): string {
+    return this.isDark ? '#FFFFFF' : '#000000';
+  }
+
+  private iconColorSecondary(): string {
+    return this.isDark ? '#A0A0A8' : '#8A8A8E';
+  }
+
+  /** 单色图标着色（颜色矩阵）：支持 #RRGGBB / #AARRGGBB / rgb() / rgba()，只换 RGB 保留透明度 */
+  private iconTint(color: string): number[] {
+    const text: string = color.trim();
+    let alpha: number = 1;
+    let red: number = 255;
+    let green: number = 255;
+    let blue: number = 255;
+    if (text.startsWith('#')) {
+      const hex: string = text.substring(1);
+      const value: number = parseInt(hex, 16);
+      if (hex.length === 8) {
+        alpha = ((value >>> 24) & 255) / 255;
+        red = (value >> 16) & 255;
+        green = (value >> 8) & 255;
+        blue = value & 255;
+      } else {
+        red = (value >> 16) & 255;
+        green = (value >> 8) & 255;
+        blue = value & 255;
+      }
+    } else if (text.startsWith('rgb')) {
+      const inner: string = text.substring(text.indexOf('(') + 1, text.lastIndexOf(')'));
+      const parts: string[] = inner.split(',');
+      if (parts.length >= 3) {
+        red = Math.round(parseFloat(parts[0].trim()));
+        green = Math.round(parseFloat(parts[1].trim()));
+        blue = Math.round(parseFloat(parts[2].trim()));
+        if (parts.length >= 4) {
+          alpha = parseFloat(parts[3].trim());
+        }
+      }
+    }
+    // 注意：颜色矩阵的偏移列是 0~1 归一化值（不是 0~255），否则会被截断成白色
+    return [
+      0, 0, 0, 0, red / 255,
+      0, 0, 0, 0, green / 255,
+      0, 0, 0, 0, blue / 255,
+      0, 0, 0, alpha, 0
+    ];
   }
 
   private hostDisplayName(): string {
@@ -1193,30 +2464,44 @@ export struct HomePage {
   }
 
   aboutToAppear(): void {
+    try {
+      console.info('[HiGlass] supported=' + uiMaterial.isImmersiveMaterialSupported()
+        + ' level=' + uiMaterial.getGlobalMaterialLevel()
+        + ' state=' + uiMaterial.getMaterialInfo().state);
+    } catch (err) {
+      console.info('[HiGlass] query failed');
+    }
     // 键盘出现时不移动整页，只让底部弹层自己上浮
     try {
       this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
+    } catch (ignored) {
+    }
+    // 抽屉宽度：min(屏宽 × 0.76, 360)（对齐小程序 drawerW）
+    try {
+      const screenW: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+      this.drawerWidth = Math.min(Math.round(screenW * 0.76), 360);
     } catch (ignored) {
     }
   }
 
   build() {
     NavDestination() {
-      Stack() {
-        // 深色海洋渐变背景
-        if (this.isDark) {
-          OceanBackground()
-        } else {
-          Column()
-            .width('100%')
-            .height('100%')
-            .linearGradient({
-              angle: 165,
-              colors: [['#EAF2F8', 0], ['#F7FAFC', 0.6], ['#FFFFFF', 1]]
-            })
-        }
+      // 左上对齐：抽屉必须从屏幕左缘 (x=0) 展开，默认居中会把它推到中间
+      Stack({ alignContent: Alignment.TopStart }) {
+        // ── 侧栏底层：常驻挂载，打开时自身向右展开（对齐小程序 drawer translateX(-100%) → 0）──
+        this.drawerOverlay()
 
-        Column() {
+        // ── 首页内容层：深海背景 + 内容同层，整体右移并被左侧圆角裁切（对齐小程序 home-content-wrap）──
+        Stack({ alignContent: Alignment.TopStart }) {
+          // 深海鲸鱼背景：首页恒用深海背景，不随明暗主题变化（对齐小程序 .deep-bg）
+          Stack() {
+            OceanBackground()
+          }
+          .width('100%')
+          .height('100%')
+
+          Scroll() {
+          Column() {
           // ── 顶栏：品牌 + 两个圆形玻璃按钮 ──
           Row() {
             // 品牌鲸鱼：58rpx = 29vp 正方形
@@ -1224,18 +2509,20 @@ export struct HomePage {
               .width(29)
               .height(29)
               .objectFit(ImageFit.Contain)
-              .margin({ right: 3.5, top: -4 })
-            // 文字标：168.75rpx ≈ 84vp 固定宽
+              .margin({ right: 3.5 })
+              .translate({ y: -3.5 })
+            // 文字标：与徽章同高，垂直居中（对齐小程序 brand-row）
             Image($r('app.media.wordmark_white'))
-              .width(84)
+              .width(52)
+              .height(15)
               .objectFit(ImageFit.Contain)
               .margin({ right: 9 })
             // HARNESS 徽章：19rpx 字 / 30rpx 高 / 8rpx 圆角
             Text('HARNESS')
               .fontSize(9.5)
               .fontWeight(FontWeight.Bold)
-              .fontColor(this.isDark ? '#10151F' : '#FFFFFF')
-              .backgroundColor(this.isDark ? '#FFFFFF' : '#141518')
+              .fontColor('#10151F')
+              .backgroundColor('#FFFFFF')
               .borderRadius(4)
               .height(15)
               .padding({ left: 6, right: 6 })
@@ -1252,22 +2539,32 @@ export struct HomePage {
 
           // ── 主机行：主机胶囊（左） + 配对/设置圆形玻璃钮（右） ──
           Row() {
-            // 主机胶囊：点击打开主机切换面板
+            // 主机胶囊：点击打开主机切换面板（外层固定 49 = 圆钮高度，保证垂直居中对齐）
+            Column() {
             Row({ space: 8 }) {
-              Image($r('app.media.host_desktop_white'))
-                .height(15)
-                .objectFit(ImageFit.Contain)
+              if (this.tailscaleTunnelEnabled) {
+                TailscaleMarkView({
+                  connected: this.tailscaleStage === 'ready',
+                  tint: 'rgba(255,255,255,0.85)',
+                  markSize: 18
+                })
+              }
+              if (this.editKind === 'server') {
+                this.serverGlyph(18, '#FFFFFF')
+              } else {
+                this.hostGlyph(18, '#FFFFFF')
+              }
               Text(this.gatewayName.length > 0 ? this.gatewayName : '本机')
-                .fontSize(12)
+                .fontSize(14)
                 .fontColor('#FFFFFF')
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .constraintSize({ maxWidth: 170 })
-              Circle({ width: 6, height: 6 }).fill(this.statusColor())
+                .constraintSize({ maxWidth: 200 })
+              Circle({ width: 8, height: 8 }).fill(this.hostPillDotColor())
               Image($r('app.media.chev_down_white'))
-                .height(12)
+                .height(13)
             }
-            .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+            .padding({ left: 14, right: 14, top: 7, bottom: 7 })
             .borderRadius(999)
             .border({ width: 1, color: 'rgba(255,255,255,0.20)' })
             .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
@@ -1276,6 +2573,9 @@ export struct HomePage {
             .onClick(() => {
               this.hostSheetOpen = true;
             })
+            }
+            .height(49)
+            .justifyContent(FlexAlign.Center)
 
             Blank()
 
@@ -1283,36 +2583,62 @@ export struct HomePage {
             Stack({ alignContent: Alignment.TopEnd }) {
               Row() {
                 Image($r('app.media.person_key_white'))
-                  .height(24)
+                  .height(28)
                   .objectFit(ImageFit.Contain)
               }
-              .width(42)
-              .height(42)
-              .borderRadius(21)
+              .width(49)
+              .height(49)
+              .borderRadius(24.5)
               .justifyContent(FlexAlign.Center)
+              .onAreaChange((oldArea: Area, newArea: Area) => {
+                const gx: number = Number(newArea.globalPosition.x);
+                if (isFinite(gx) && gx > 0) {
+                  this.pairBtnX = gx;
+                }
+              })
               .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
               .backgroundColor('rgba(255,255,255,0.08)')
               .border({ width: 1, color: 'rgba(255,255,255,0.24)' })
-              .visibility(this.pairMenuOpen ? Visibility.Hidden : Visibility.Visible)
               .onClick(() => {
-                this.togglePairMenu();
+                this.pairMenuOpen = !this.pairMenuOpen;
               })
+              // 系统菜单：打开时按钮隐藏（保留布局做锚点），关闭后恢复
+              .bindMenu(this.pairMenuOpen, this.pairMenuBuilder(), {
+                outlineColor: this.separatorColor(),
+                outlineWidth: 1,
+                // 菜单水平居中：左右留白相等；y 保持在按钮下方
+                anchorPosition: {
+                  x: this.pairMenuAnchorX(),
+                  y: 56
+                },
+                onWillDisappear: () => {
+                  this.pairMenuOpen = false;
+                },
+                onDisappear: () => {
+                  this.pairMenuOpen = false;
+                },
+                onDidDisappear: () => {
+                  this.pairMenuOpen = false;
+                }
+              })
+              .opacity(this.pairMenuOpen ? 0 : 1)
+              .hitTestBehavior(this.pairMenuOpen ? HitTestMode.None : HitTestMode.Default)
             }
 
             // 设置：玻璃圆钮（打开会话设置）
             Row() {
               Image($r('app.media.sliders_white'))
-                .height(20)
+                .height(23)
                 .objectFit(ImageFit.Contain)
             }
-            .width(42)
-            .height(42)
-            .borderRadius(21)
+            .width(49)
+            .height(49)
+            .borderRadius(24.5)
             .justifyContent(FlexAlign.Center)
             .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
             .backgroundColor('rgba(255,255,255,0.08)')
             .border({ width: 1, color: 'rgba(255,255,255,0.24)' })
-            .margin({ left: 9 })
+            .margin({ left: 10.6 })
             .onClick(() => {
               this.pageStack.pushPathByName('session-settings', null);
             })
@@ -1330,10 +2656,10 @@ export struct HomePage {
             Text('探索未至之境')
               .fontSize(25)
               .fontWeight(FontWeight.Bold)
-              .fontColor(this.isDark ? '#FFFFFF' : '#101318')
+              .fontColor('#FFFFFF')
             Text('从想法到落地，一个对话即可。')
               .fontSize(13)
-              .fontColor(this.isDark ? 'rgba(255,255,255,0.65)' : 'rgba(16,19,24,0.55)')
+              .fontColor('rgba(255,255,255,0.65)')
           }
           .alignItems(HorizontalAlign.Start)
           .width('100%')
@@ -1341,18 +2667,18 @@ export struct HomePage {
           // ── 工作区卡片 ──
           Row({ space: 10 }) {
             Image($r('app.media.workspace_folder_blue'))
-              .height(22)
+              .height(26)
               .objectFit(ImageFit.Contain)
             Column({ space: 2 }) {
               Text(this.workspaceTitle())
-                .fontSize(15)
+                .fontSize(15) // 30rpx（对齐小程序 .ws-title）
                 .fontWeight(FontWeight.Medium)
-                .fontColor(this.isDark ? '#FFFFFF' : '#101318')
+                .fontColor('#FFFFFF')
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(this.workspaceSubtitle())
-                .fontSize(12)
-                .fontColor(this.isDark ? 'rgba(255,255,255,0.55)' : 'rgba(16,19,24,0.5)')
+                .fontSize(12) // 24rpx（对齐小程序 .ws-path）
+                .fontColor('rgba(255,255,255,0.55)')
                 .maxLines(1)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
             }
@@ -1362,12 +2688,12 @@ export struct HomePage {
               Circle({ width: 7, height: 7 }).fill(this.statusColor())
               Image($r('app.media.ic_dir_chevron_mist'))
                 .height(14)
-                .fillColor(this.isDark ? 'rgba(255,255,255,0.5)' : 'rgba(16,19,24,0.4)')
+                .fillColor('rgba(255,255,255,0.5)')
             }
           }
           .width('100%')
-          .padding({ top: 12, bottom: 12, left: 14, right: 14 })
-          .borderRadius(18)
+          .padding({ top: 14, bottom: 14, left: 16, right: 16 })
+          .borderRadius(21)
           .border({ width: 1, color: 'rgba(255,255,255,0.22)' })
           .backgroundEffect({ radius: 1, saturation: 1, brightness: 1 })
           .linearGradient({
@@ -1376,40 +2702,63 @@ export struct HomePage {
           })
           .shadow({ radius: 14, color: 'rgba(3,14,30,0.12)', offsetY: 4 })
           .onAreaChange((oldValue: Area, newValue: Area) => {
-            this.wsCardY = Number(newValue.globalPosition.y);
+            this.wsCardW = Number(newValue.width);
             this.wsCardH = Number(newValue.height);
           })
           .onClick(() => {
-            this.wsMenuOpen = true;
+            this.wsMenuOpen = !this.wsMenuOpen;
           })
-          .visibility(this.wsMenuOpen ? Visibility.Hidden : Visibility.Visible)
+          // 系统菜单：打开时卡片隐藏（保留布局做锚点），关闭后恢复
+          .bindMenu(this.wsMenuOpen, this.workspaceMenuBuilder(), {
+            // 描边用中性色，深色模式下不再出现系统蓝边
+            outlineColor: this.separatorColor(),
+            outlineWidth: 1,
+            // 菜单中心对齐工作区卡片（比默认贴在卡片下方更高）
+            anchorPosition: {
+              // 菜单比卡片窄：补偿容器差值后水平居中
+              x: (this.wsCardW - (this.wsMenuWidth() + 15)) / 2,
+              // 垂直方向不再居中上浮：菜单顶贴着卡片顶向下展开，整体位置更低
+              y: 0
+            },
+            onWillDisappear: () => {
+              this.wsMenuOpen = false;
+            },
+            onDisappear: () => {
+              this.wsMenuOpen = false;
+            },
+            onDidDisappear: () => {
+              this.wsMenuOpen = false;
+            }
+          })
+          .opacity(this.wsMenuOpen ? 0 : 1)
+          .hitTestBehavior(this.wsMenuOpen ? HitTestMode.None : HitTestMode.Default)
 
           // ── 新建会话 ──
           Row() {
             // plus-circle：24vp 玻璃圆（48rpx）
             Row() {
               Text('＋')
-                .fontSize(15)
+                .fontSize(15) // 30rpx 图标（对齐小程序 .plus-img）
                 .fontColor('#FFFFFF')
             }
-            .width(24)
-            .height(24)
-            .borderRadius(12)
+            .width(28)
+            .height(28)
+            .borderRadius(14)
             .justifyContent(FlexAlign.Center)
             .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
-            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(16,19,24,0.06)')
+            .backgroundColor('rgba(255,255,255,0.07)')
             .border({ width: 1, color: 'rgba(255,255,255,0.20)' })
             .margin({ right: 11 })
             Text(this.creating ? '正在新建…' : '新建会话')
-              .fontSize(15)
+              .fontSize(15) // 30rpx（对齐小程序 .new-session-text）
               .fontWeight(FontWeight.Bold)
-              .fontColor(this.isDark ? '#FFFFFF' : '#101318')
+              .fontColor('#FFFFFF')
           }
           .width('100%')
           .justifyContent(FlexAlign.Center)
-          .padding({ top: 9, bottom: 9 })
-          .borderRadius(16)
-          .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.38)' : 'rgba(16,19,24,0.30)' })
+          .padding({ top: 10.5, bottom: 10.5 })
+          .borderRadius(19)
+          .border({ width: 1, color: 'rgba(255,255,255,0.38)' })
           .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
           .linearGradient({
             angle: 165,
@@ -1418,7 +2767,7 @@ export struct HomePage {
           .shadow({ radius: 16, color: 'rgba(3,14,30,0.18)', offsetY: 4 })
           .enabled(!this.creating)
           .opacity(this.creating ? 0.6 : 1)
-          .margin({ top: 18, bottom: 18 })
+          .margin({ top: 21, bottom: 21 })
           .onClick(() => {
             this.createSession();
           })
@@ -1436,36 +2785,40 @@ export struct HomePage {
             Text('最近会话')
               .fontSize(14)
               .fontWeight(FontWeight.Medium)
-              .fontColor(this.isDark ? '#FFFFFF' : '#101318')
+              .fontColor('#FFFFFF')
             Blank()
             Text(this.statusText())
               .fontSize(12)
               .fontColor(this.statusColor())
           }
           .width('100%')
-          .margin({ bottom: 10 })
+          .margin({ bottom: 12 })
 
           // ── 搜索条 ──
           Row({ space: 8 }) {
             Image($r('app.media.search_white_thin'))
-              .height(15)
-              .fillColor(this.isDark ? 'rgba(255,255,255,0.5)' : 'rgba(16,19,24,0.4)')
+              .width(20)
+              .height(20)
+              .objectFit(ImageFit.Contain)
+              .opacity(0.68)
             TextInput({ text: this.search, placeholder: '搜索会话内容' })
               .caretStyle({ width: 1 })
-              .fontSize(15)
-              .fontColor(this.isDark ? '#FFFFFF' : '#101318')
-              .placeholderColor(this.isDark ? 'rgba(255,255,255,0.5)' : 'rgba(16,19,24,0.4)')
+              .fontSize(16)
+              .fontColor('rgba(255,255,255,0.92)')
+              .placeholderColor('rgba(255,255,255,0.58)')
               .backgroundColor(Color.Transparent)
               .padding(0)
+              .height('100%')
               .layoutWeight(1)
               .onChange((value: string) => {
                 this.search = value;
               })
           }
           .width('100%')
-          .padding({ left: 12, right: 12, top: 9, bottom: 9 })
+          .height(42)
+          .padding({ left: 12, right: 12 })
           .borderRadius(13)
-          .border({ width: 1, color: 'rgba(255,255,255,0.10)' })
+          .border({ width: 1, color: 'rgba(255,255,255,0.15)' })
           .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
           .linearGradient({
             angle: 165,
@@ -1473,82 +2826,142 @@ export struct HomePage {
           })
           .margin({ bottom: 14 })
 
-          // ── 会话列表 ──
-          List({ space: 2 }) {
-            if (this.filtered().length === 0) {
-              ListItem() {
-                Text(this.sessions.length === 0 ? '暂无会话' : '没有匹配的会话')
-                  .fontSize(13)
-                  .fontColor(this.isDark ? 'rgba(255,255,255,0.52)' : 'rgba(16,19,24,0.45)')
-                  .width('100%')
-                  .textAlign(TextAlign.Center)
-                  .padding(20)
-              }
-            }
-            ForEach(this.filtered(), (item: SessionSummary) => {
-              ListItem() {
-                Row({ space: 11 }) {
-                  Circle({ width: 7, height: 7 })
-                    .fill(this.connection === 'connected' ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.2)')
-                  Text(this.sessionTitle(item))
-                    .fontSize(14)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor(this.isDark ? '#FFFFFF' : '#101318')
-                    .layoutWeight(1)
+          // ── 会话列表（对齐小程序 .session-list / .session-row / .session-section）──
+          if (this.filtered().length === 0) {
+            Text(this.sessions.length === 0 ? '暂无会话' : '没有匹配的会话')
+              .fontSize(15)
+              .fontColor('rgba(255,255,255,0.5)')
+              .width('100%')
+              .textAlign(TextAlign.Start)
+              .padding(18)
+              .borderRadius(15)
+              .backgroundColor('rgba(255,255,255,0.04)')
+              .margin({ bottom: 8 })
+          } else if (this.wsFilter === 'all') {
+            // 全部会话：按工作区分区，未分组排最后，每区默认只显示 5 条
+            ForEach(this.sessionSections(), (sec: SessionSection, si: number) => {
+              Column() {
+                Row({ space: 10 }) {
+                  Text(sec.title)
+                    .fontSize(12)
+                    .fontColor('rgba(255,255,255,0.55)')
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  Text(item.running ? '运行中' : this.timeLabel(item.updatedAt))
-                    .fontSize(12)
-                    .fontColor(item.running ? '#34C759' : (this.isDark ? 'rgba(255,255,255,0.45)' : 'rgba(16,19,24,0.4)'))
+                    .constraintSize({ maxWidth: '55%' })
+                  // 与会话行分割线一致：0.5vp / rgba(255,255,255,0.10)
+                  Row()
+                    .layoutWeight(1)
+                    .height(0.5)
+                    .backgroundColor('rgba(255,255,255,0.10)')
+                  Text(sec.rows.length + ' 个会话')
+                    .fontSize(11)
+                    .fontColor('rgba(255,255,255,0.55)')
+                    .margin({ left: 10 })
                 }
                 .width('100%')
-                .padding({ top: 10, bottom: 10, left: 4, right: 4 })
-                .borderRadius(8)
-                .onClick(() => {
-                  SessionStore.get().open(item.id);
-                  this.pageStack.pushPathByName('session', null);
-                })
+                .alignItems(VerticalAlign.Center)
+                .padding({ bottom: 8 })
+                .margin({ top: si === 0 ? 8 : 24 })
+                ForEach(sec.shown, (item: SessionSummary, index: number) => {
+                  this.sessionRow(item, sec.lastSection && sec.toggleLabel.length === 0 && index === sec.shown.length - 1)
+                }, (item: SessionSummary) => item.id)
+                if (sec.toggleLabel.length > 0) {
+                  this.sessionToggle(sec.toggleLabel, sec.expanded, sec.id)
+                }
               }
+              .width('100%')
+            }, (sec: SessionSection) => sec.id)
+          } else {
+            // 最近会话 / 单个工作区：默认只显示 12 条
+            ForEach(this.recentRows(), (item: SessionSummary, index: number) => {
+              this.sessionRow(item, this.filtered().length <= SESSION_RECENT_LIMIT && index === this.recentRows().length - 1)
             }, (item: SessionSummary) => item.id)
+            if (this.filtered().length > SESSION_RECENT_LIMIT) {
+              this.sessionToggle(this.recentExpanded ? '收起' : ('展开其余 ' + (this.filtered().length - SESSION_RECENT_LIMIT) + ' 个会话'), this.recentExpanded, '')
+            }
+          }
           }
           .width('100%')
-          .layoutWeight(1)
+          // 内容不足一屏时也保持顶部对齐（否则 Scroll 会把短内容垂直居中）
+          .constraintSize({ minHeight: '100%' })
+          .padding({ left: 22, right: 22, top: (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 14, bottom: (this.safeBottomStorage > 0 ? this.safeBottomStorage : 28) + 12 })
+          }
+          .width('100%')
+          .height('100%')
           .scrollBar(BarState.Off)
+          .edgeEffect(EdgeEffect.Spring)
+
+          // 抽屉遮罩：压在内容层内部，点击收回（对齐小程序 .drawer-mask，必须留在本层才能贴合圆角）
+          if (this.drawerOpen) {
+            Column()
+              .width('100%')
+              .height('100%')
+              .backgroundColor('rgba(0,0,0,0.16)')
+              .onClick(() => {
+                this.drawerOpen = false;
+              })
+          }
         }
         .width('100%')
         .height('100%')
-        .padding({ left: 22, right: 22, top: (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 14, bottom: (this.safeBottomStorage > 0 ? this.safeBottomStorage : 28) + 12 })
+        // 左上/左下圆角 + clip：小程序 contentCornerRadius 为 48（单位 px≈vp），非 rpx
+        .borderRadius({ topLeft: this.drawerOpen ? 48 : 0, bottomLeft: this.drawerOpen ? 48 : 0 })
+        .clip(true)
+        .translate({ x: this.drawerShift() })
+        .animation({ duration: 320, curve: Curve.FastOutSlowIn })
 
-        if (this.pairMenuOpen) {
-          this.pairMenuOverlay()
-        }
-        if (this.hostSheetOpen) {
-          this.hostSheetOverlay()
-        }
-        if (this.kindMenuOpen) {
-          this.kindMenuOverlay()
-        }
-        if (this.drawerOpen) {
-          this.drawerOverlay()
-        }
-        if (this.wsMenuOpen) {
-          this.workspaceMenuOverlay()
-        }
-        if (this.dirSheetOpen) {
-          this.dirSheetOverlay()
-        }
-        if (this.manualSheetOpen) {
-          this.manualSheetOverlay()
-        }
+        // ── 以下浮层必须留在根层：跟随内容层会被 translate/clip 影响 ──
+
+
       }
       .width('100%')
       .height('100%')
-      .backgroundColor(this.bg())
+      // 抽屉打开时根层为白色：圆角裁开处透出白色，才能看出圆角（对齐小程序 .home-root #FFFFFF）
+      .backgroundColor(this.drawerOpen ? (this.isDark ? '#181A1F' : '#FFFFFF') : this.bg())
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+      // 系统半模态：ImmersiveMaterial（沉浸光感）+ 空间动效；不支持时回退半透明底
+      .bindSheet($$this.hostSheetOpen, this.hostSheetContent(), {
+        height: '65%',
+        dragBar: false,
+        showClose: false,
+        preferType: SheetType.BOTTOM,
+        backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+        systemMaterial: this.hostSheetMaterial(),
+        onDisappear: () => {
+          this.hostEditMode = false;
+          this.hostSelected = false;
+          this.hostEditOpen = false;
+          this.hostDeleteOpen = false;
+        }
+      })
     }
     .hideTitleBar(true)
-    .backgroundColor(this.bg())
+    .backgroundColor(this.drawerOpen ? (this.isDark ? '#181A1F' : '#FFFFFF') : this.bg())
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    // 添加工作区：系统半模态 + 沉浸材质（与切换主机一致）
+    .bindSheet($$this.dirSheetOpen, this.dirSheetContent(), {
+      height: '82%',
+      dragBar: false,
+      showClose: false,
+      preferType: SheetType.BOTTOM,
+      backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+      systemMaterial: this.hostSheetMaterial(),
+      onDisappear: () => {
+        this.closeDirSheet();
+      }
+    })
+    // 设备认证：系统半模态（与「切换主机」同款材质与空间动效）
+    .bindSheet($$this.manualSheetOpen, this.manualSheetOverlay(), {
+      height: '58%',
+      dragBar: false,
+      showClose: false,
+      preferType: SheetType.BOTTOM,
+      backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+      systemMaterial: this.hostSheetMaterial(),
+      onDisappear: () => {
+        this.manualHint = '';
+      }
+    })
   }
 
   private createSession(): void {

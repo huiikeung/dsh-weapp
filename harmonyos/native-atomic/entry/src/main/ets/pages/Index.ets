@@ -30,6 +30,10 @@ struct Index {
       SessionSettingsPage();
     } else if (name === 'app-settings') {
       AppSettingsPage();
+    } else if (name === 'privacy-policy') {
+      SettingsPage();
+    } else if (name === 'announcements') {
+      SettingsPage();
     } else if (name === 'settings') {
       SettingsPage();
     }

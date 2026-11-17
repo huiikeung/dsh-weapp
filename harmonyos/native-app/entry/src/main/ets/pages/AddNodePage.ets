@@ -3,7 +3,7 @@ import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import {
-  GatewayClient, PairingResult, parsePairingPayload
+  GatewayClient, GatewayProfile, PairingResult, parsePairingPayload
 } from 'nativecore';
 
 @Component
@@ -16,7 +16,8 @@ export struct AddNodePage {
   @State copied: boolean = false;
   @State pairError: string = '';
   @State sheetOpen: boolean = false;
-  @State manualText: string = '';
+  @State manualUrl: string = '';
+  @State manualPairCode: string = '';
   @State manualHint: string = '';
 
   private textColor(): string {
@@ -36,7 +37,7 @@ export struct AddNodePage {
   }
 
   private pluginName(): string {
-    return 'dsh-plugin-weapp-gateway';
+    return 'dsh-plugin-mobile-gateway';
   }
 
   @Builder
@@ -235,12 +236,12 @@ export struct AddNodePage {
                   .fontColor(this.text2())
                   .lineHeight(21)
                   .margin({ top: 8 })
-                this.cardStep1('安装微信连接插件',
-                  '打开 DSH 桌面端，在「插件 → 添加插件」中输入下方名称，安装并启用。带插件管理器的 Web 端也可这样安装。')
-                this.cardStep('2', '确认插件已生效',
-                  '按安装结果提示操作；若提示需要重启，请保存工作后正常重启对应的 DSH。已生效时无需重启，仅刷新 Web 网页不会重启服务。')
-                this.cardStep('3', '显示小程序配对码',
-                  '打开「微信连接」插件详情，或「设置 → 微信连接」，显示当前节点的小程序配对码。下一步用本应用扫码。')
+                this.cardStep1('安装移动网关插件',
+                  '在电脑端 DSH 插件管理中安装并启用下方的 dsh-plugin-mobile-gateway。')
+                this.cardStep('2', '开启移动连接与设备鉴权',
+                  '打开 DSH WebUI 的「移动设备」面板，启用移动连接和设备鉴权。')
+                this.cardStep('3', '生成一次性配对二维码',
+                  '在移动设备面板生成二维码或配对信息。手机与电脑处于同一局域网时会优先直接连接；也可手动填写 WebSocket 地址和配对码。')
               }
               .width('100%')
               .padding({ left: 16, right: 16, top: 0, bottom: 12 })
@@ -266,7 +267,7 @@ export struct AddNodePage {
                   .fontSize(22)
                   .fontWeight(FontWeight.Bold)
                   .fontColor(this.textColor())
-                Text('扫码绑定你的 Agent 节点，建立手机与电脑的安全连接。配对后支持同一局域网内安全直连，也支持公网连接。')
+                Text('扫描电脑端 DSH 移动网关生成的一次性二维码，或手动填写局域网 WebSocket 地址与配对码。支持 ws:// 直连，也可使用已配置的 wss:// 地址。')
                   .fontSize(13)
                   .fontColor(this.text2())
                   .lineHeight(21)
@@ -403,34 +404,44 @@ export struct AddNodePage {
         .width('100%')
         .height(44)
         .alignItems(VerticalAlign.Center)
-        Text('粘贴 Harness WebUI 提供的配对信息即可连接；长期设备 token 只会安全保存在本机。')
+        Text('扫描 Base64URL 配对二维码即可自动读取 publicUrl 与 endpoints；手动连接时填写 WebSocket 地址和一次性配对码。')
           .fontSize(12)
           .fontColor('rgba(255,255,255,0.55)')
           .width('100%')
           .margin({ bottom: 10 })
         Column() {
           Row() {
-            Text('配对信息').fontSize(12).fontColor('rgba(255,255,255,0.55)')
+            Text('WebSocket 地址').fontSize(12).fontColor('rgba(255,255,255,0.55)')
             Blank()
             Text('清空')
               .fontSize(12)
               .fontColor('#7BA7F5')
               .onClick(() => {
-                this.manualText = '';
+                this.manualUrl = '';
+                this.manualPairCode = '';
               })
           }
           .width('100%')
           .padding({ left: 12, right: 12, top: 10 })
-          TextArea({ text: this.manualText, placeholder: '粘贴 Base64URL 配对字符串或完整配对信息' })
+          TextInput({ text: this.manualUrl, placeholder: 'ws://192.168.1.10:3081/ws/mobile（也支持 wss://）' })
             .caretStyle({ width: 1 })
-            .height(110)
             .fontSize(13)
             .fontColor('#FFFFFF')
             .placeholderColor('rgba(255,255,255,0.35)')
             .backgroundColor(Color.Transparent)
-            .padding({ left: 12, right: 12, top: 6, bottom: 10 })
+            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
             .onChange((value: string) => {
-              this.manualText = value;
+              this.manualUrl = value;
+            })
+          TextInput({ text: this.manualPairCode, placeholder: '一次性配对码' })
+            .caretStyle({ width: 1 })
+            .fontSize(13)
+            .fontColor('#FFFFFF')
+            .placeholderColor('rgba(255,255,255,0.35)')
+            .backgroundColor(Color.Transparent)
+            .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+            .onChange((value: string) => {
+              this.manualPairCode = value;
             })
         }
         .width('100%')
@@ -503,18 +514,25 @@ export struct AddNodePage {
   }
 
   private connectManual(): void {
-    const raw: string = this.manualText.trim();
-    if (raw.length === 0) {
-      this.manualHint = '请先粘贴配对信息';
+    const wsUrl: string = this.manualUrl.trim();
+    const pairCode: string = this.manualPairCode.trim();
+    if (wsUrl.length === 0 || pairCode.length === 0) {
+      this.manualHint = '请填写 WebSocket 地址和一次性配对码';
       return;
     }
-    const parsed: PairingResult = parsePairingPayload(raw);
-    if (!parsed.ok) {
-      this.manualHint = parsed.error;
+    if (!wsUrl.startsWith('ws://') && !wsUrl.startsWith('wss://')) {
+      this.manualHint = '地址需以 ws:// 或 wss:// 开头';
       return;
     }
+    const profile: GatewayProfile = {
+      wsUrl: wsUrl,
+      pairCode: pairCode,
+      leaseToken: '',
+      inviteToken: '',
+      accessToken: ''
+    };
     this.sheetOpen = false;
-    GatewayClient.get().connectPairing(parsed);
+    GatewayClient.get().connect(profile);
     this.pageStack.pop();
   }
 }

@@ -52,6 +52,14 @@ export class GatewayRequests {
     return GatewayRequests.encode(frame);
   }
 
+  static messageWithAttachments(text: string, sessionId: string, timeZone: string, attachments: Object[]): string {
+    const frame: Record<string, Object> = {
+      'type': 'message', 'text': text, 'images': [], 'attachments': attachments, 'clientTimeZone': timeZone
+    };
+    if (sessionId.length > 0) frame['sessionId'] = sessionId;
+    return GatewayRequests.encode(frame);
+  }
+
   static message(text: string, sessionId: string, timeZone: string): string {
     const frame: Record<string, Object> = {
       'type': 'message',

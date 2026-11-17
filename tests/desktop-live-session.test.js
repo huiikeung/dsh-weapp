@@ -214,3 +214,17 @@ test('permission chip falls back to icon plus chevron when its label does not fi
   assert.match(xml, /wx:if="\{\{!permissionChipIconOnly\}\}" class="chip-label"/);
   assert.match(xml, /class="permission-chip-chevron/);
 });
+
+test('queued messages are pulled back when the gateway push is missed', () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const source = fs.readFileSync(path.join(__dirname, '../miniprogram/pages/session/session.js'), 'utf8');
+  // 发送排队消息后主动拉取
+  assert.match(source, /if \(s\.sessionId && store\.client && typeof store\.client\.requestQueue === 'function'\) \{/, 'send path pulls the queue');
+  assert.match(source, /Promise\.resolve\(store\.client\.requestQueue\(s\.sessionId\)\)\.catch\(\(\) => \{\}\)/);
+  // 新回合开始 / 回到前台且队列为空时补拉
+  assert.match(source, /pullQueueInBackground\(\) \{/);
+  assert.match(source, /this\.pullQueueInBackground\(\);\n\s*\}/, 'turn start pulls once');
+  assert.match(source, /if \(!\(this\.data\.queue \|\| \[\]\)\.length\) this\.pullQueueInBackground\(\);/);
+  assert.match(source, /Promise\.resolve\(store\.client\.requestQueue\(sessionId\)\)\.catch\(\(\) => \{\}\)/);
+});

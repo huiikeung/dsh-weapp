@@ -1,7 +1,7 @@
 import { util } from '@kit.ArkTS';
 import { str, num, asRec } from './GatewayFrameCodec';
 
-/** 解析后的配对信息（原生 MVP：直连候选优先，中继元信息保留待 E2EE 接入）。 */
+/** 配对信息，与 dsh-plugin-mobile-gateway v2 直连协议一致。 */
 export interface PairingResult {
   ok: boolean;
   error: string;
@@ -17,28 +17,20 @@ export interface PairingResult {
 }
 
 function fail(error: string): PairingResult {
-  return {
-    ok: false,
-    error: error,
-    pairCode: '',
-    expiresAt: 0,
-    gatewayName: '',
-    gatewayId: '',
-    candidates: [],
-    relayNodeId: '',
-    relayAgentPubKey: '',
-    relayInviteToken: '',
-    relayAuthMode: ''
-  };
+  return { ok: false, error: error, pairCode: '', expiresAt: 0, gatewayName: '', gatewayId: '',
+    candidates: [], relayNodeId: '', relayAgentPubKey: '', relayInviteToken: '', relayAuthMode: '' };
 }
 
-function decodeBase64Url(value: string): string | undefined {
+function decodeStrictBase64Url(value: string): string | undefined {
+  if (value.length === 0 || value.indexOf('=') >= 0 || value.length % 4 === 1) return undefined;
+  for (let i = 0; i < value.length; i++) {
+    const c: number = value.charCodeAt(i);
+    const alpha: boolean = (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || (c >= 48 && c <= 57);
+    if (!alpha && c !== 45 && c !== 95) return undefined;
+  }
   try {
-    let normalized: string = value.replace(/-/g, '+').replace(/_/g, '/').trim();
-    // Base64URL 常省略 '=' 填充；Base64Helper 需要合法长度，否则解出错误字节。
-    while (normalized.length % 4 !== 0) {
-      normalized += '=';
-    }
+    let normalized: string = value.replace(/-/g, '+').replace(/_/g, '/');
+    while (normalized.length % 4 !== 0) normalized += '=';
     const helper = new util.Base64Helper();
     const bytes: Uint8Array = helper.decodeSync(normalized, util.Type.BASIC);
     return util.TextDecoder.create('utf-8').decodeToString(bytes);
@@ -47,144 +39,121 @@ function decodeBase64Url(value: string): string | undefined {
   }
 }
 
+function isIpv4(value: string): boolean {
+  const parts: string[] = value.split('.');
+  if (parts.length !== 4) return false;
+  for (const part of parts) {
+    if (part.length === 0) return false;
+    const n: number = Number(part);
+    if (isNaN(n) || n < 0 || n > 255 || String(n) !== part) return false;
+  }
+  return true;
+}
+
+function isLocalHost(rawHost: string): boolean {
+  let host: string = rawHost.toLowerCase();
+  if (host.startsWith('[') && host.endsWith(']')) host = host.substring(1, host.length - 1);
+  if (host === 'localhost' || host === '::1' || host.endsWith('.local')) return true;
+  if (host.indexOf(':') >= 0) return host.startsWith('fc') || host.startsWith('fd') || host.startsWith('fe80:');
+  if (!isIpv4(host)) return false;
+  const p: string[] = host.split('.');
+  const a: number = Number(p[0]);
+  const b: number = Number(p[1]);
+  return a === 10 || a === 127 || (a === 100 && b >= 64 && b <= 127) ||
+    (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31) || (a === 169 && b === 254);
+}
+
+/** 规范化地址；明文 ws 只允许本地/局域网，公网必须使用 wss。 */
 function normalizeEndpoint(raw: string): string {
-  let value: string = raw.trim();
-  if (value.length === 0) {
-    return '';
+  const value: string = raw.trim();
+  if (value.length === 0 || value.length > 2048 || value.indexOf('\\') >= 0 ||
+      value.indexOf('?') >= 0 || value.indexOf('#') >= 0 || value.indexOf('@') >= 0) return '';
+  const schemeEnd: number = value.indexOf('://');
+  if (schemeEnd <= 0) return '';
+  const scheme: string = value.substring(0, schemeEnd).toLowerCase();
+  if (scheme !== 'ws' && scheme !== 'wss') return '';
+  const rest: string = value.substring(schemeEnd + 3);
+  const slash: number = rest.indexOf('/');
+  const authority: string = slash >= 0 ? rest.substring(0, slash) : rest;
+  const path: string = slash >= 0 ? rest.substring(slash) : '/ws/mobile';
+  if (authority.length === 0 || path.length === 0) return '';
+  let host: string = authority;
+  let port: string = '';
+  if (authority.startsWith('[')) {
+    const close: number = authority.indexOf(']');
+    if (close < 0) return '';
+    host = authority.substring(0, close + 1);
+    port = authority.substring(close + 1);
+    if (port.length > 0 && !port.startsWith(':')) return '';
+  } else {
+    const colon: number = authority.lastIndexOf(':');
+    if (colon >= 0) {
+      host = authority.substring(0, colon);
+      port = authority.substring(colon);
+      if (port.length <= 1) return '';
+      const portNumber: number = Number(port.substring(1));
+      if (isNaN(portNumber) || portNumber < 1 || portNumber > 65535) return '';
+    }
   }
-  if (value.startsWith('https://')) {
-    value = 'wss://' + value.substring('https://'.length);
-  } else if (value.startsWith('http://')) {
-    value = 'ws://' + value.substring('http://'.length);
-  } else if (!value.startsWith('ws://') && !value.startsWith('wss://')) {
-    // 裸主机按局域网直连处理（原生应用不受元服务的 wss 域名白名单限制）。
-    value = 'ws://' + value;
-  }
-  while (value.endsWith('/')) {
-    value = value.substring(0, value.length - 1);
-  }
-  return value;
+  if (host.length === 0 || host === '0.0.0.0' || host === '::' || host === '[::]') return '';
+  if (scheme === 'ws' && !isLocalHost(host)) return '';
+  return scheme + '://' + host.toLowerCase() + port + path;
 }
 
 function pushUnique(list: string[], value: string): void {
   const normalized: string = normalizeEndpoint(value);
-  if (normalized.length > 0 && list.indexOf(normalized) < 0) {
-    list.push(normalized);
-  }
+  if (normalized.length > 0 && list.indexOf(normalized) < 0 && list.length < 16) list.push(normalized);
 }
 
-function collectEndpoints(node: Object | undefined, list: string[]): void {
-  const record = asRec(node);
-  if (record === undefined) {
-    return;
+function validPairCode(value: string): boolean {
+  if (value.length === 0 || value.indexOf(',') >= 0) return false;
+  for (let i = 0; i < value.length; i++) {
+    const c: number = value.charCodeAt(i);
+    if (c <= 32 || c === 127) return false;
   }
-  const single: string | undefined = str(record, 'url') ?? str(record, 'endpoint') ?? str(record, 'publicUrl');
-  if (single !== undefined) {
-    pushUnique(list, single);
-  }
-  const endpoints = record['endpoints'];
-  if (Array.isArray(endpoints)) {
-    for (const item of endpoints as Object[]) {
-      if (typeof item === 'string') {
-        pushUnique(list, item as string);
-      } else {
-        const inner: string | undefined = str(item, 'url') ?? str(item, 'endpoint');
-        if (inner !== undefined) {
-          pushUnique(list, inner);
-        }
-      }
-    }
-  }
-  const routes = record['routes'];
-  if (Array.isArray(routes)) {
-    for (const item of routes as Object[]) {
-      if (typeof item === 'string') {
-        pushUnique(list, item as string);
-      } else {
-        const inner: string | undefined = str(item, 'url') ?? str(item, 'endpoint');
-        if (inner !== undefined) {
-          pushUnique(list, inner);
-        }
-      }
-    }
-  }
+  return true;
 }
 
-/** 解析扫码得到的配对文本（v2 直连 / v3 中继）。 */
+/** 解析严格 v2 载荷：不带 padding 的 Base64URL、未过期 pairingCode。 */
 export function parsePairingPayload(rawText: string, nowMs: number = Date.now()): PairingResult {
   const text: string = rawText.trim();
-  if (text.length === 0) {
-    return fail('配对内容为空');
-  }
-  let jsonText: string | undefined = undefined;
-  if (text.startsWith('{')) {
-    jsonText = text;
-  } else {
-    jsonText = decodeBase64Url(text);
-  }
-  if (jsonText === undefined) {
-    return fail('配对内容不是有效的 Base64URL');
-  }
-  let payload: Object | undefined = undefined;
-  try {
-    payload = JSON.parse(jsonText) as Object;
-  } catch (err) {
-    return fail('配对 JSON 解析失败');
-  }
+  if (text.length === 0) return fail('配对内容为空');
+  const decoded: string | undefined = decodeStrictBase64Url(text);
+  if (decoded === undefined || decoded.length === 0) return fail('配对内容不是有效的 Base64URL');
+  let payload: Object;
+  try { payload = JSON.parse(decoded) as Object; } catch (err) { return fail('配对 JSON 解析失败'); }
   const record = asRec(payload);
-  if (record === undefined) {
-    return fail('配对内容不是对象');
-  }
+  if (record === undefined) return fail('配对内容不是对象');
   const version: number = num(record, 'version') ?? 0;
-  if (version !== 2 && version !== 3) {
-    return fail('不支持的配对版本：' + version);
-  }
+  if (version !== 2) return fail('不支持的配对版本：' + version + '（当前需要 version 2）');
   const pairCode: string = str(record, 'pairingCode') ?? '';
   const expiresAt: number = num(record, 'expiresAt') ?? 0;
-  if (pairCode.length === 0) {
-    return fail('二维码缺少 pairingCode');
+  if (!validPairCode(pairCode)) return fail('二维码缺少有效 pairingCode');
+  if (expiresAt <= 0 || expiresAt <= nowMs) return fail('二维码已过期，请重新生成');
+  const result: PairingResult = { ok: true, error: '', pairCode: pairCode, expiresAt: expiresAt,
+    gatewayName: str(record, 'gatewayName') ?? '', gatewayId: str(record, 'gatewayId') ?? '',
+    candidates: [], relayNodeId: '', relayAgentPubKey: '', relayInviteToken: '', relayAuthMode: '' };
+  const publicUrl: string | undefined = str(record, 'publicUrl');
+  if (publicUrl === undefined || normalizeEndpoint(publicUrl) === '') return fail('二维码 publicUrl 无效');
+  const gatewayId: Object | undefined = record['gatewayId'];
+  if (gatewayId !== undefined && gatewayId !== null &&
+      (typeof gatewayId !== 'string' || !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/.test(gatewayId))) {
+    return fail('网关身份格式无效');
   }
-  if (expiresAt > 0 && expiresAt <= nowMs) {
-    return fail('二维码已过期，请重新生成');
-  }
-
-  const result: PairingResult = {
-    ok: true,
-    error: '',
-    pairCode: pairCode,
-    expiresAt: expiresAt,
-    gatewayName: str(record, 'gatewayName') ?? '',
-    gatewayId: str(record, 'gatewayId') ?? '',
-    candidates: [],
-    relayNodeId: '',
-    relayAgentPubKey: '',
-    relayInviteToken: '',
-    relayAuthMode: ''
-  };
-
-  collectEndpoints(record, result.candidates);
-  const mini = asRec(record['miniProgramRoute']);
-  if (mini !== undefined) {
-    collectEndpoints(mini, result.candidates);
-  }
-
-  // 中继元信息（v3 顶层，或 miniProgramRoute.mode === 'relay'）。
-  let relay: Record<string, Object> | undefined = undefined;
-  if (version === 3) {
-    relay = record;
-  } else if (mini !== undefined && str(mini, 'mode') === 'relay') {
-    relay = mini;
-  }
-  if (relay !== undefined) {
-    result.relayNodeId = str(relay, 'nodeId') ?? str(relay, 'gatewayId') ?? '';
-    result.relayAgentPubKey = str(relay, 'agentPubKey') ?? '';
-    result.relayInviteToken = str(relay, 'inviteToken') ?? '';
-    result.relayAuthMode = str(relay, 'authMode') ?? '';
-    collectEndpoints(relay, result.candidates);
-  }
-
-  if (result.candidates.length === 0 && result.relayNodeId.length === 0) {
-    return fail('二维码中没有可用地址（直连或中继）');
+  const gatewayName: Object | undefined = record['gatewayName'];
+  if (gatewayName !== undefined && gatewayName !== null && typeof gatewayName !== 'string') return fail('网关名称格式无效');
+  pushUnique(result.candidates, publicUrl);
+  const endpoints = record['endpoints'];
+  if (endpoints !== undefined && endpoints !== null && !Array.isArray(endpoints)) return fail('二维码候选地址格式无效');
+  if (Array.isArray(endpoints)) {
+    if (endpoints.length > 16) return fail('二维码候选地址超过 16 个');
+    for (const item of endpoints as Object[]) {
+      if (typeof item !== 'string' || normalizeEndpoint(item) === '') return fail('二维码候选地址无效');
+      pushUnique(result.candidates, item);
+    }
+    const all: string[] = [publicUrl];
+    for (const item of endpoints as string[]) if (all.indexOf(item) < 0) all.push(item);
+    if (all.length > 16) return fail('二维码候选地址超过 16 个');
   }
   return result;
 }
