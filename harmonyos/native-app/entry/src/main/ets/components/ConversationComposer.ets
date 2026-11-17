@@ -235,9 +235,24 @@ export struct ConversationComposer {
     return this.isDark ? 0.72 : 0.62;
   }
 
-  /** 搜索框式亮边：深色下是微亮的「光感边框」，浅色下几乎不可见 */
-  private searchEdge(): string {
-    return this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.85)';
+  /** 工作区卡片同款亮边：深色 1px 白 22%，浅色用极淡描边 */
+  private surfaceBorder(): string {
+    return this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(16,19,24,0.08)';
+  }
+
+  /** 卡片渐变顶色（深色几乎透明，浅色接近白） */
+  private surfaceGradientTop(): string {
+    return this.isDark ? 'rgba(255,255,255,0.020)' : 'rgba(255,255,255,0.92)';
+  }
+
+  /** 卡片渐变底色 */
+  private surfaceGradientBottom(): string {
+    return this.isDark ? 'rgba(255,255,255,0.004)' : 'rgba(255,255,255,0.72)';
+  }
+
+  /** 卡片投影 */
+  private surfaceShadow(): string {
+    return this.isDark ? 'rgba(3,14,30,0.12)' : 'rgba(0,0,0,0.07)';
   }
 
   /** 权限名放不下时只显示图标 + 箭头（小程序 permissionChipIconOnly） */
@@ -772,13 +787,15 @@ export struct ConversationComposer {
       .padding(this.expanded()
         ? { left: 14, right: 14, top: 14, bottom: 12 }
         : { left: 10, right: 10, top: 6, bottom: 6 })
-      // 圆角对齐系统菜单弹窗
-      .borderRadius(16)
-      // 参考系统「搜索框」的玻璃样式：系统灰底 + 厚模糊 + 亮边（光感边框）
-      .backgroundColor($r('sys.color.comp_background_gray'))
+      // 对齐首页「工作区卡片」的玻璃样式：近乎透明的白渐变 + 1px 亮边（光感边框）+ 柔和投影
+      .borderRadius(21)
       .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-      .border({ width: this.isDark ? 0.8 : 0.5, color: this.searchEdge() })
-      .shadow({ radius: 20, color: this.cardShadowColor(), offsetY: 6 })
+      .linearGradient({
+        angle: 165,
+        colors: [[this.surfaceGradientTop(), 0], [this.surfaceGradientBottom(), 1]]
+      })
+      .border({ width: 1, color: this.surfaceBorder() })
+      .shadow({ radius: 14, color: this.surfaceShadow(), offsetY: 4 })
 
       // 卡片下方三个指标按钮：折叠/展开都常驻（对齐小程序 composer-metrics）
       Row({ space: 10 }) {
