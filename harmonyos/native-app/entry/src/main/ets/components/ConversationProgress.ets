@@ -209,7 +209,7 @@ export struct ConversationProgress {
               : (this.glitchDir() > 0
                 ? { radius: 0, color: '#FF5F6D', offsetX: 1, offsetY: 0 }
                 : { radius: 0, color: '#5FD4FF', offsetX: 1, offsetY: 0 }))
-        }, (glyph: GlyphColor, index: number) => index.toString() + glyph.ch)
+        }, (glyph: GlyphColor, index: number) => index.toString() + glyph.ch + glyph.color)
       }
       .layoutWeight(1)
       .opacity(this.textOpacity())

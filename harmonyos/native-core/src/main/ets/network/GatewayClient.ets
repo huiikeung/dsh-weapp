@@ -1458,11 +1458,15 @@ export class GatewayClient {
   sendUserMessage(text: string, sessionId: string): boolean {
     if (!this.isConnected()) return false;
     const request: GatewayRequest = GatewayRequestFactory.message(text, [], sessionId, undefined, 'Asia/Shanghai');
+    // 乐观置为「运行中」：turns 可能要几百毫秒才回第一帧事件，
+    // 这段时间里首页列表不该还显示「已完成」。
+    SessionStore.get().notifySessionStarted(sessionId);
     this.requestGateway(request, 60000).catch((error: Error) => Logger.warn('message request failed: ' + error.message));
     return true;
   }
 
   sendUserMessageWithAttachments(text: string, sessionId: string, files: Object[]): Promise<GatewayFrame> {
+    SessionStore.get().notifySessionStarted(sessionId);
     this.requestSeq += 1;
     const requestId: string = 'message-' + this.requestSeq;
     const payload: Record<string, Object> = { 'type': 'message', 'requestId': requestId, 'sessionId': sessionId,

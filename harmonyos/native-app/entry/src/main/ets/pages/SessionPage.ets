@@ -317,7 +317,7 @@ export struct SessionPage {
                 this.tab = 'conversation';
               })
             }
-          }, (session: SessionSummary) => session.id)
+          }, (session: SessionSummary) => session.id + '|' + (session.running ? '1' : '0') + '|' + session.title)
         }
         .width('100%')
         .height(320)

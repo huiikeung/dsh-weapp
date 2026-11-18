@@ -3,9 +3,9 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { KeyboardAvoidMode, window } from '@kit.ArkUI';
 import {
   asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, GatewayClient, GatewayRequestFactory, num,
-  PickedAttachment, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, pickDocuments, uploadAttachment
+  PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, parseNamespace, pickDocuments, uploadAttachment
 } from 'nativecore';
-import type { ModelMenuItem, ModelOption } from 'nativecore';
+import type { GatewayFrame, ModelMenuItem, ModelOption } from 'nativecore';
 import type { UploadResult } from 'nativecore';
 import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair } from '../components/ConversationComposer';
@@ -124,6 +124,8 @@ export struct ConversationPage {
   @StorageLink('defaultPermission') defaultPermission: string = '';
   @StorageLink('defaultModel') defaultModel: string = '';
   @StorageLink('defaultEffort') defaultEffort: string = '';
+  /** 当前模型配置的推理等级键列表（对应 DSH 客户端 reasoningEfforts，直接映射显示） */
+  @State modelEfforts: string[] = [];
   @StorageLink('contextUsage') contextUsage: Object | null = null;
   @StorageLink('contextDashboard') dashboard: Object | null = null;
 
@@ -162,7 +164,7 @@ export struct ConversationPage {
   @State modelRows: ModelRow[] = [];
   @State effortRows: EffortRow[] = [];
   @StorageLink('permissionValues') permissionValues: string[] = [];
-  @StorageLink('modelDetails') modelOptions: ModelOption[] = [];
+  @StorageLink('modelDetails') @Watch('onModelDetailsChanged') modelOptions: ModelOption[] = [];
   @State metricTitle: string = '';
   @State metricPairs: MetricPair[] = [];
 @State metricTotal: string = '';
@@ -190,6 +192,7 @@ export struct ConversationPage {
     this.ready = true;
     this.rebuildEntries();
     this.refreshProgress();
+    this.refreshModelEfforts();
     this.progressTimer = setInterval(() => {
       this.refreshProgress();
     }, 1000);
@@ -1154,13 +1157,20 @@ export struct ConversationPage {
     return out;
   }
 
-  /** 推理等级取值（小程序 pickEffort：Off/Low/Medium/High）。 */
+  /** 推理等级取值：优先映射当前模型配置的 reasoningEfforts（与 DSH 客户端一致），未取到时回退默认档位。 */
   private effortMenuValues(): string[] {
+    if (this.modelEfforts.length > 0) {
+      return this.modelEfforts;
+    }
     return ['off', 'low', 'medium', 'high'];
   }
 
   private effortMenuLabels(): string[] {
-    return ['Off', 'Low', 'Medium', 'High'];
+    const labels: string[] = [];
+    for (const value of this.effortMenuValues()) {
+      labels.push(this.effortName(value));
+    }
+    return labels;
   }
 
   /** 只切推理等级：沿用当前模型下发 select-model（对齐小程序 pickEffortOption）。 */
@@ -1207,9 +1217,12 @@ export struct ConversationPage {
 
   private buildEffortRows(): EffortRow[] {
     const rows: EffortRow[] = [];
-    rows.push({ id: 'low', label: '低', current: this.defaultEffort === 'low' });
-    rows.push({ id: 'medium', label: '中', current: this.defaultEffort === 'medium' });
-    rows.push({ id: 'high', label: '高', current: this.defaultEffort === 'high' });
+    const values: string[] = this.effortMenuValues();
+    const labels: string[] = this.effortMenuLabels();
+    for (let index = 0; index < values.length; index++) {
+      const value: string = values[index];
+      rows.push({ id: value, label: labels[index], current: this.currentEffort() === value });
+    }
     return rows;
   }
 
@@ -1241,6 +1254,86 @@ export struct ConversationPage {
       return 'Ultra';
     }
     return effort;
+  }
+
+  private onModelDetailsChanged(): void {
+    this.refreshModelEfforts();
+  }
+
+  /** 拉取模型配置里当前模型的推理等级键列表（reasoningEfforts，DSH 客户端直接映射显示）。 */
+  private refreshModelEfforts(): void {
+    const model: string = this.currentModelId();
+    if (model.length === 0) {
+      this.modelEfforts = [];
+      return;
+    }
+    const client: GatewayClient = GatewayClient.get();
+    if (!client.isConnected()) {
+      this.modelEfforts = [];
+      return;
+    }
+    client.requestPluginSettings(PI_NS).then((nsFrame: GatewayFrame) => {
+      const namespace = parseNamespace(nsFrame);
+      const value: Object | undefined = namespace.value;
+      const rawProviders = value !== undefined ? (value as Record<string, Object>)['providers'] : undefined;
+      if (rawProviders === undefined) {
+        this.modelEfforts = [];
+        return;
+      }
+      const providers = rawProviders as Record<string, Object>;
+      let provider: string = this.selectedProvider;
+      if (provider.length === 0) {
+        for (const key of Object.keys(providers)) {
+          const config = providers[key] as Record<string, Object>;
+          const models = config['models'];
+          if (models !== undefined && Array.isArray(models)) {
+            for (const one of models as Object[]) {
+              const record = one as Record<string, Object>;
+              if (String(record['id'] ?? '') === model) {
+                provider = key;
+              }
+            }
+          }
+        }
+      }
+      if (provider.length === 0 || providers[provider] === undefined) {
+        this.modelEfforts = [];
+        return;
+      }
+      const config = providers[provider] as Record<string, Object>;
+      const models = config['models'];
+      if (models === undefined || !Array.isArray(models)) {
+        this.modelEfforts = [];
+        return;
+      }
+      for (const one of models as Object[]) {
+        const record = one as Record<string, Object>;
+        if (String(record['id'] ?? '') !== model) {
+          continue;
+        }
+        const efforts = record['reasoningEfforts'];
+        const ids: string[] = [];
+        if (efforts !== undefined && Array.isArray(efforts)) {
+          for (const level of efforts as Object[]) {
+            const id: string = String((level as Record<string, Object>)['id'] ?? '');
+            if (id.length > 0 && ids.indexOf(id) < 0) {
+              ids.push(id);
+            }
+          }
+        } else if (efforts !== undefined) {
+          for (const key of Object.keys(efforts as Record<string, Object>)) {
+            if (ids.indexOf(key) < 0) {
+              ids.push(key);
+            }
+          }
+        }
+        this.modelEfforts = ids;
+        return;
+      }
+      this.modelEfforts = [];
+    }).catch((ignored: Error) => {
+      this.modelEfforts = [];
+    });
   }
 
   /** 选中权限：下发 permission 帧并本地更新（对齐小程序 pickPermissionOption）。 */
@@ -1276,6 +1369,7 @@ export struct ConversationPage {
     // 会话级选择：本地乐观更新 chip（对齐小程序 sessionState.selection），不覆盖主机默认模型
     this.selectedModel = model;
     this.selectedProvider = provider;
+    this.refreshModelEfforts();
     client.requestGateway(GatewayRequestFactory.selectModel(sessionId, provider, model, this.currentEffort())).catch((error: Error) => {
       this.hint = '模型切换失败：' + error.message;
     });

@@ -40,6 +40,8 @@ export struct ConversationComposer {
   @State modelListShown: boolean = false;
   /** 第二层内容：model | effort */
   @State modelListPane: string = 'model';
+  /** 模型列表悬停高亮行（hover 与权限菜单一致） */
+  @State hoveredModelKey: string = '';
   /** 应用内菜单卡片可见性（样式对齐原系统菜单；不抢焦点，键盘收起仍保持） */
   @State permSheetVisible: boolean = false;
   @State modelSheetVisible: boolean = false;
@@ -586,7 +588,7 @@ export struct ConversationComposer {
             this.openModelList('root');
           })
         ForEach(this.effortValues, (value: string, index: number) => {
-          MenuItem({ content: this.effortLabels[index], labelInfo: this.effortCurrent === value ? '✓' : '' })
+          MenuItem(this.effortRow(value, this.effortLabels[index]))
             .id('effort-' + value)
             .onClick(() => {
               this.modelListShown = false;
@@ -617,14 +619,26 @@ export struct ConversationComposer {
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .layoutWeight(1)
                   if (row.current) {
-                    Text('✓')
-                      .fontSize(14)
-                      .fontColor(this.menuLabelColor())
+                    Row()
+                      .width(8)
+                      .height(4)
+                      .border({
+                        width: { left: 1.5, bottom: 1.5 },
+                        color: this.menuLabelColor()
+                      })
+                      .rotate({ angle: -45 })
+                      .margin({ left: 8, right: 2 })
+                      .translate({ y: -1 })
                   }
                 }
                 .width('100%')
                 .height(40)
                 .padding({ left: 16, right: 16 })
+                .borderRadius(6)
+                .backgroundColor(row.current || this.hoveredModelKey === row.key ? this.chipActiveFill() : Color.Transparent)
+                .onHover((isHover: boolean) => {
+                  this.hoveredModelKey = isHover ? row.key : '';
+                })
                 .onClick(() => {
                   this.modelListShown = false;
                   this.onPickModelOption(row.provider, row.model);
@@ -640,6 +654,36 @@ export struct ConversationComposer {
       }
       .width(180)
     }
+  }
+
+  /** 推理等级菜单行：选中样式与权限菜单行一致（底色高亮 + 细勾） */
+  @Builder
+  effortRow(value: string, label: string) {
+    Row() {
+      Text(label)
+        .fontSize(14)
+        .fontColor(this.menuLabelColor())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+      if (this.effortCurrent === value) {
+        Row()
+          .width(8)
+          .height(4)
+          .border({
+            width: { left: 1.5, bottom: 1.5 },
+            color: this.menuLabelColor()
+          })
+          .rotate({ angle: -45 })
+          .margin({ left: 8, right: 2 })
+          .translate({ y: -1 })
+      }
+    }
+    .width(168)
+    .height(34)
+    .padding({ left: 7, right: 7 })
+    .borderRadius(6)
+    .backgroundColor(this.effortCurrent === value ? this.chipActiveFill() : Color.Transparent)
   }
 
   /** 权限菜单卡片：输入框上方应用内浮层（观感对齐右上角三点系统菜单；不抢焦点，键盘收起仍保持） */
@@ -1071,13 +1115,14 @@ export struct ConversationComposer {
     })
   }
 
-  /** ③ 上下文指标：13×13 环形 + N% → 上下文弹层 */
+  /** ③ 上下文指标：14×14 细环（环厚 2.5vp，对齐小程序 metric-context-ring）+ N% → 上下文弹层 */
   @Builder
   contextMetricItem() {
     Row({ space: 3 }) {
       Progress({ value: this.contextPercent < 0 ? 0 : this.contextPercent, total: 100, type: ProgressType.Ring })
         .width(14)
         .height(14)
+        .style({ strokeWidth: 2.5 })
         .color('#2E6BE6')
         .backgroundColor(this.ringTrack())
       Text(this.contextMetric)

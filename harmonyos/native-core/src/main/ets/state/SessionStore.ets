@@ -105,6 +105,27 @@ export class SessionStore {
   private replayingHistory: boolean = false;
   /** 会话列表轮询：网关只推迟到快照，首页状态需要主动拉取 */
   private sessionsTimer: number = -1;
+  /** 进行中的 sessions 请求去重：轮询/事件触发/前台刷新可能同时要列表 */
+  private sessionsInFlight: boolean = false;
+  /** 在途请求的发出时刻：超时后允许重新发起，避免一次卡住的请求长期挡住轮询 */
+  private sessionsInFlightAt: number = 0;
+  /** 事件触发的会话列表校准节流（毫秒）：避免每个 token 帧都请求主机快照 */
+  private lastSessionsSyncAt: number = 0;
+  /** 最近一次收到实时事件的时间：用来决定列表轮询是快速还是降频 */
+  private lastEventAt: number = 0;
+  /** 最近一次请求会话列表的时间（低频兜底用） */
+  private lastSessionsPollAt: number = 0;
+  /**
+   * 本地刚改过「运行中」的会话与改动时刻。
+   * 列表快照可能是这次改动之前生成的，直接覆盖会把刚亮起的状态又抹掉，
+   * 所以本地结论在 2.5s 内优先，之后无条件让位给主机。
+   */
+  private localRunningAt: Map<string, boolean> = new Map<string, boolean>();
+  /** 上一次写进 AppStorage 的列表指纹：内容没变就不再重绘/落盘 */
+  private sessionsSignature: string = '';
+  /** 上一次写入的 agentWorkActive：相同就不重复派发 */
+  private agentWorkActive: boolean = false;
+  private localRunningMarkAt: Map<string, number> = new Map<string, number>();
   private sessionId: string = '';
   private gatewayKey: string = '';
   private attached: boolean = false;
@@ -149,6 +170,8 @@ export class SessionStore {
       this.olderRequestPending = false;
       this.olderRequestCursor = 0;
       this.running = false;
+      this.localRunningAt.clear();
+      this.localRunningMarkAt.clear();
       this.clearPendingPrompts();
       EventProjector.get().reset();
       this.resetConversation();
@@ -490,7 +513,20 @@ export class SessionStore {
     }
     if (frame.kind === 'event') {
       const frameSession: string = frame.sessionId !== undefined ? frame.sessionId : this.sessionId;
-      if (this.sessionId.length > 0 && frameSession !== this.sessionId) return;
+      this.lastEventAt = Date.now();
+      // 别的会话的事件：不并入当前对话，但「运行中」标记要照单收下，
+      // 否则手机端打开的会话一直空闲时，桌面端新开的会话永远不会亮起。
+      if (this.sessionId.length > 0 && frameSession !== this.sessionId) {
+        const otherRaw: RawSessionEvent | undefined = this.rawFromFrame(frame);
+        if (otherRaw !== undefined && frameSession.length > 0) {
+          if (SessionStore.isTurnEnd(otherRaw.type)) {
+            this.markSessionRunning(frameSession, false);
+          } else if (SessionStore.isRunningSignal(otherRaw.type)) {
+            this.markSessionRunning(frameSession, true);
+          }
+        }
+        return;
+      }
       const raw: RawSessionEvent | undefined = this.rawFromFrame(frame);
       if (raw !== undefined && !this.hasRawEvent(raw)) {
         this.rawEvents.push(raw);
@@ -498,11 +534,15 @@ export class SessionStore {
         this.appendRaw(raw);
         this.publish();
         this.publishConversation();
-        // 首页会话状态即时更新：事件流比 sessions 快照快得多
-        if (raw.type === 'turn/end') {
+        // 首页会话状态即时更新：只按「起止信号」改，不是每帧都置 true。
+        // 之前任何一帧（包括 turn/end 之后的迟到帧、会话外的杂项事件）都会把列表翻成运行中，
+        // 于是桌面端早就结束、手机端还一直显示「运行中」。
+        if (SessionStore.isTurnEnd(raw.type)) {
           this.markSessionRunning(frameSession, false);
-        } else {
+        } else if (SessionStore.isRunningSignal(raw.type)) {
           this.markSessionRunning(frameSession, true);
+          // 开跑时立刻校准一次列表：别的会话此刻可能正在结束（手机端此前收不到）
+          this.syncSessionsSoon();
         }
         this.liveEventCount += 1;
         if (this.liveEventCount % 10 === 1) {
@@ -511,6 +551,23 @@ export class SessionStore {
         }
       }
     }
+  }
+
+  /** turn 结束类事件：只有这些能把列表状态改回「已结束」 */
+  private static isTurnEnd(type: string): boolean {
+    return type === 'turn/end' || type === 'generation/cancelled' || type === 'generation/failed'
+      || type === 'turn/cancelled';
+  }
+
+  /**
+   * 运行中信号：与 foldConversation 的判定保持一致。
+   * 只看「真的开始干活」的事件，助手消息结算（assistant/message）之类不算——
+   * 那些帧常常在一轮结束后才到，误判会让列表卡在运行中。
+   */
+  private static isRunningSignal(type: string): boolean {
+    return type === 'turn/start' || type === 'step/start' || type === 'assistant/chunk'
+      || type === 'tool/call' || type === 'tool/result' || type === 'reasoning/chunk'
+      || type === 'reasoning/message';
   }
 
   private rawEventKey(raw: RawSessionEvent): string {
@@ -609,8 +666,11 @@ export class SessionStore {
     this.conversation = new ConversationProjector(this.conversationLabels());
   }
 
-  /** 把单条原始事件折叠进对话投影。 */
-  /** 每 2.5s 拉一次会话列表，保证首页「运行中」状态及时（前台才拉）。 */
+  /**
+   * 会话列表轮询：500ms 一拍，但只在「桌面端状态可能变了」时才真的问主机：
+   * 最近 5 秒内有实时事件、刚回到前台、或本机正处于执行中。
+   * 空闲时退化成 1.2s 一拍的低频探测，既不会漏掉桌面端开跑，也不会空转太凶。
+   */
   private startSessionsPoll(): void {
     if (this.sessionsTimer >= 0) {
       return;
@@ -619,15 +679,68 @@ export class SessionStore {
       if (this.client === null) {
         return;
       }
+      if (this.sessionsInFlight && Date.now() - this.sessionsInFlightAt < 12000) {
+        return;
+      }
       const lifecycle: string = AppStorage.get<string>('appLifecycle') ?? 'foreground';
       if (lifecycle === 'background') {
         return;
       }
-      this.client.requestSessions().then((frame: GatewayFrame) => {
-        this.consumeSessions(frame);
-      }).catch(() => {
-      });
-    }, 2500);
+      const now: number = Date.now();
+      const busy: boolean = this.running || now - this.lastEventAt < 5000;
+      // 空闲 ~1.5s、活跃 ~1s 发现桌面端的变化；sessions 是裁剪过的轻量投影，
+      // 不会像 history 那样把主机拖去重读会话日志，但也没必要每 500ms 打一次。
+      const interval: number = busy ? 1000 : 1500;
+      if (now - this.lastSessionsPollAt < interval) {
+        return;
+      }
+      this.requestSessionsNow();
+    }, 500);
+  }
+
+  /** 立刻向主机要一次权威会话列表（去重 + 记录时间戳）。 */
+  private requestSessionsNow(): void {
+    if (this.client === null) {
+      return;
+    }
+    // 在途超过 12s 视为卡死（断线重连后旧请求不会再有回调），允许重新发起。
+    if (this.sessionsInFlight && Date.now() - this.sessionsInFlightAt < 12000) {
+      return;
+    }
+    this.sessionsInFlight = true;
+    this.sessionsInFlightAt = Date.now();
+    this.lastSessionsPollAt = Date.now();
+    this.client.requestSessions().then((frame: GatewayFrame) => {
+      this.sessionsInFlight = false;
+      this.consumeSessions(frame);
+    }).catch(() => {
+      this.sessionsInFlight = false;
+    });
+  }
+
+  /**
+   * 事件驱动的列表校准：延时 400ms 触发，2s 内不重复。
+   * 手机端只有「已打开的那个会话」的事件流，别的会话在桌面端开始/结束它完全看不到，
+   * 所以只要是这个会话动了，就顺手问一次全量列表，让首页立刻跟上。
+   */
+  private syncSessionsSoon(): void {
+    const now: number = Date.now();
+    if (now - this.lastSessionsSyncAt < 2000) {
+      return;
+    }
+    this.lastSessionsSyncAt = now;
+    setTimeout(() => this.requestSessionsNow(), 400);
+  }
+
+  /** 发消息后立刻把该会话标成运行中（乐观更新，等事件流与列表快照校正）。 */
+  notifySessionStarted(sessionId: string): void {
+    this.markSessionRunning(sessionId, true);
+  }
+
+  /** 回到前台：桌面端可能在后台跑完了，立刻校准一次（对齐小程序的运行态兜底）。 */
+  refreshSessionsNow(): void {
+    this.lastSessionsPollAt = 0;
+    this.requestSessionsNow();
   }
 
   private stopSessionsPoll(): void {
@@ -647,8 +760,12 @@ export class SessionStore {
     }
     const current: SessionSummary[] = AppStorage.get<SessionSummary[]>('sessions') ?? [];
     let changed: boolean = false;
+    let found: boolean = false;
     const next: SessionSummary[] = [];
     for (const one of current) {
+      if (one.id === targetSessionId) {
+        found = true;
+      }
       if (one.id === targetSessionId && one.running !== running) {
         next.push({
           id: one.id,
@@ -662,8 +779,20 @@ export class SessionStore {
         next.push(one);
       }
     }
+    // 列表里还没有这个会话（桌面端刚建的）：直接拉一次列表让它出现。
+    if (!found) {
+      this.syncSessionsSoon();
+      return;
+    }
     if (changed) {
+      this.localRunningAt.set(targetSessionId, running);
+      this.localRunningMarkAt.set(targetSessionId, Date.now());
+      // 本地已经改过，下一次快照就不必再当成变化重写一遍
+      this.sessionsSignature = '';
       AppStorage.setOrCreate<SessionSummary[]>('sessions', next);
+      // 有会话开始/结束时尽快拿一次权威列表：
+      // 开始 → 桌面端能立刻看到「运行中」；结束 → 别的会话的变化也能一并刷新。
+      this.syncSessionsSoon();
     }
   }
 
@@ -915,13 +1044,43 @@ export class SessionStore {
       const rawTitle: string | undefined = projTitle ?? str(item, 'title') ?? str(item, 'summary');
       // 与小程序一致：没有标题时用会话 ID 短标签（去掉 session- 前缀取前 8 位）。
       const title: string = rawTitle !== undefined && rawTitle.length > 0 ? rawTitle : sessionIdLabel(id);
-      const running: boolean = bool(item, 'running') === true;
+      const hostRunning: boolean = bool(item, 'running') === true;
       const updatedAt: number = num(item, 'updatedAt') ?? 0;
       const cwd: string = str(item, 'cwd') ?? '';
+      // 主机是权威来源，但刚按实时事件改过的状态要压过这份可能更旧的快照。
+      let running: boolean = hostRunning;
+      const markedAt: number = this.localRunningMarkAt.get(id) ?? 0;
+      if (markedAt > 0) {
+        if (Date.now() - markedAt < 2500) {
+          running = this.localRunningAt.get(id) ?? hostRunning;
+        } else {
+          this.localRunningMarkAt.delete(id);
+          this.localRunningAt.delete(id);
+        }
+      }
       list.push({ id: id, title: title, running: running, updatedAt: updatedAt, cwd: cwd });
     }
-    AppStorage.setOrCreate<SessionSummary[]>('sessions', list);
-    this.saveCatalogCache('cacheSessionsV1', JSON.stringify(list));
+    // 列表没变就什么都不写：轮询每秒一次，重复赋值会让首页整表重绘、还平白写磁盘。
+    let signature: string = '';
+    let anyRunning: boolean = false;
+    for (const one of list) {
+      signature += one.id + (one.running ? '1' : '0') + one.updatedAt.toString() + one.title + ';';
+      if (one.running) {
+        anyRunning = true;
+      }
+    }
+    if (signature !== this.sessionsSignature) {
+      this.sessionsSignature = signature;
+      // 桌面端列表是权威来源，直接整表替换（个别刚改过的会话已按本地结论修正）。
+      AppStorage.setOrCreate<SessionSummary[]>('sessions', list);
+      this.saveCatalogCache('cacheSessionsV1', JSON.stringify(list));
+      Logger.info('sessions updated n=' + list.length.toString() + ' running=' + (anyRunning ? '1' : '0'));
+    }
+    // 让后台保活/前台角标跟列表一起动：之前只在冷启动缓存恢复时算过一次。
+    if (anyRunning !== this.agentWorkActive) {
+      this.agentWorkActive = anyRunning;
+      AppStorage.setOrCreate<boolean>('agentWorkActive', anyRunning);
+    }
     if (this.sessionId.length === 0 && list.length > 0 && this.client !== null) {
       this.open(list[0].id);
       Logger.info('auto open session ' + this.sessionId);

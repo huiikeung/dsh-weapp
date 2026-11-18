@@ -119,8 +119,22 @@ export default class EntryAbility extends UIAbility {
           // 监听输入法高度：弹层据此上浮，避免输入框被键盘盖住
           try {
             win.on('keyboardHeightChange', (height: number) => {
+              Logger.info('IMEKB event raw=' + height);
               const density: number = display.getDefaultDisplaySync().densityPixels;
               AppStorage.setOrCreate<number>('keyboardHeightVp', height > 0 ? height / density : 0);
+            });
+          } catch (ignored) {
+          }
+          // 第二事件源：avoidAreaChange 的键盘区域（部分版本 keyboardHeightChange 不回调时兜底）
+          try {
+            win.on('avoidAreaChange', (data: window.AvoidAreaOptions) => {
+              if (data.type !== window.AvoidAreaType.TYPE_KEYBOARD) {
+                return;
+              }
+              const density: number = display.getDefaultDisplaySync().densityPixels;
+              const raw: number = data.area.bottomRect.height;
+              Logger.info('AVOIDKB bottom=' + raw + ' top=' + data.area.topRect.height);
+              AppStorage.setOrCreate<number>('keyboardHeightVp', raw > 0 ? raw / density : 0);
             });
           } catch (ignored) {
           }
@@ -145,6 +159,9 @@ export default class EntryAbility extends UIAbility {
     void BackgroundKeepAlive.stop();
     GatewayClient.get().revalidateOnForeground();
     AppStorage.setOrCreate<string>('appLifecycle', 'foreground');
+    // 后台期间桌面端可能开跑或跑完：回前台立刻校准一次会话列表，
+    // 不要再等下一拍轮询（用户看到的第一眼就是旧状态）。
+    SessionStore.get().refreshSessionsNow();
     const state: string = AppStorage.get<string>('connectionState') ?? 'disconnected';
     if (PreferencesStore.get().isReady() && state !== 'connected' && state !== 'connecting') {
       GatewayClient.get().autoConnect();

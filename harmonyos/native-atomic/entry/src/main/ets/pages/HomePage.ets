@@ -1524,7 +1524,7 @@ export struct HomePage {
                   this.pageStack.pushPathByName('session', null);
                 })
               }
-            }, (item: SessionSummary) => item.id)
+            }, (item: SessionSummary) => item.id + '|' + (item.running ? '1' : '0') + '|' + item.updatedAt.toString())
           }
           .width('100%')
           .layoutWeight(1)

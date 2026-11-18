@@ -1,6 +1,7 @@
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { GatewayClient, PreferencesStore, SessionStore, SessionSummary, WorkspaceRow } from 'nativecore';
 import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 'nativecore';
+import { NavBackButton } from '../components/NavBackButton';
 
 /** 会话设置（右上角滑杆按钮）：对齐小程序 pages/session-settings */
 @Component
@@ -335,17 +336,10 @@ export struct SessionSettingsPage {
         Column() {
         // 导航（标题字号/字重/缩进与「Tailscale 内嵌隧道」页完全一致）
         Row() {
-          Row() {
-            Text('‹')
-              .fontSize(24)
-              .fontColor(this.textColor())
-          }
-          .width(44)
-          .height(44)
-          .justifyContent(FlexAlign.Center)
-          .onClick(() => {
-            this.pageStack.pop();
-          })
+          NavBackButton({ isDark: this.isDark })
+            .onClick(() => {
+              this.pageStack.pop();
+            })
 
           Text('会话设置')
             .fontSize(17)
@@ -358,6 +352,8 @@ export struct SessionSettingsPage {
         }
         .width('100%')
         .height(56)
+        // 左右与内容一致（内容区 padding 16）
+        .padding({ left: 16, right: 16 })
         .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
 
         Scroll() {

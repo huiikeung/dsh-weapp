@@ -11,6 +11,7 @@
  */
 
 import { ProcLoaderView } from '../components/ProcLoaderView';
+import { NavBackButton } from '../components/NavBackButton';
 
 interface PickerOption {
   id: string;
@@ -26,7 +27,7 @@ function optionsFor(kind: string): PickerOption[] {
     out.push({ id: id, label: label, detail: detail });
   };
   if (kind === 'appearance') {
-    push('auto', '跟随微信', '与微信客户端的深浅色保持一致');
+    push('auto', '跟随系统', '与系统深浅色保持一致');
     push('light', '浅色', '始终使用浅色界面');
     push('dark', '深色', '始终使用深色界面');
   } else if (kind === 'procion') {
@@ -179,45 +180,72 @@ export struct PreferencePickerPage {
     this.pageStack.pop();
   }
 
+  /** 界面选项的迷你界面预览：light=浅色主题小屏，half=跟随系统的对半布局 */
+  @Builder
+  themeMock(light: boolean, half: boolean) {
+    Column() {
+      Row()
+        .width(half ? 12 : 18)
+        .height(4.5)
+        .borderRadius(2.25)
+        .backgroundColor(light ? 'rgba(16,19,24,0.20)' : 'rgba(241,244,250,0.25)')
+      Row()
+        .width(half ? 16 : 34)
+        .height(4)
+        .borderRadius(2)
+        .backgroundColor(light ? 'rgba(16,19,24,0.11)' : 'rgba(241,244,250,0.14)')
+        .margin({ top: 6 })
+      Row()
+        .width(half ? 9 : 22)
+        .height(4)
+        .borderRadius(2)
+        .backgroundColor(light ? 'rgba(16,19,24,0.11)' : 'rgba(241,244,250,0.14)')
+        .margin({ top: 4 })
+    }
+    .width(half ? 32 : 64)
+    .height('100%')
+    .backgroundColor(light ? '#F7F9FC' : '#16181D')
+    .borderRadius(light
+      ? { topLeft: 6, bottomLeft: 6, topRight: half ? 0 : 6, bottomRight: half ? 0 : 6 }
+      : { topRight: 6, bottomRight: 6, topLeft: half ? 0 : 6, bottomLeft: half ? 0 : 6 })
+    .padding({ top: 8, left: 8, right: 8, bottom: 8 })
+    .alignItems(HorizontalAlign.Start)
+  }
+
   build() {
     NavDestination() {
       Column() {
-        // 顶栏：返回 + 标题（对齐小程序二级页头部层级）
-        Row({ space: 4 }) {
-          Text('‹')
-            .fontSize(28)
-            .fontColor(this.textColor())
-            .width(44)
-            .height(44)
-            .textAlign(TextAlign.Center)
+        // 导航：返回 + 居中标题（与「设置」「对话状态条」等二级页一致）
+        Row() {
+          NavBackButton({ isDark: this.isDark })
             .onClick(() => {
               this.pageStack.pop();
             })
-          Blank()
+
+          Text(titleFor(this.kind))
+            .fontSize(17)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+            .layoutWeight(1)
+            .textAlign(TextAlign.Center)
+
+          Row().width(44).height(44)
         }
         .width('100%')
-        .height(52)
-        .padding({ left: 4, right: 16 })
+        .height(56)
+        // 左右与内容一致（内容区 padding 18.7）
+        .padding({ left: 18.7, right: 18.7 })
 
         Scroll() {
           Column() {
-            // .status-style-head：标题 + 说明（小程序 status-style-hint）
-            Column({ space: 6 }) {
-              Text(titleFor(this.kind))
-                .fontSize(20) // 34rpx ≈ 20vp
-                .fontWeight(FontWeight.Bold)
-                .fontColor(this.textColor())
+            // 说明（小程序 status-style-hint）：标题已上移到导航栏居中显示
+            if (subtitleFor(this.kind).length > 0) {
+              Text(subtitleFor(this.kind))
+                .fontSize(14) // 24rpx
+                .fontColor(this.subColor())
                 .width('100%')
-              if (subtitleFor(this.kind).length > 0) {
-                Text(subtitleFor(this.kind))
-                  .fontSize(14) // 24rpx
-                  .fontColor(this.subColor())
-                  .width('100%')
-              }
+                .padding({ bottom: 14 })
             }
-            .width('100%')
-            .alignItems(HorizontalAlign.Start)
-            .padding({ bottom: 14 })
 
             // 选项卡片：每张 = 标题行 + 动效预览 + 描述（对齐 .status-style-option）
             ForEach(optionsFor(this.kind), (option: PickerOption) => {
@@ -234,16 +262,42 @@ export struct PreferencePickerPage {
                 }
                 .width('100%')
 
-                // 预览行：动效 + 「正在执行命令」
-                Row({ space: 10 }) {
-                  ProcLoaderView({ style: option.id, isDark: this.isDark, boxSize: 18.77 })
-                  Text('正在执行命令')
-                    .fontSize(14)
-                    .fontColor(this.textColor())
+                // 预览行：按当前设置类型渲染——执行图标=动效预览；界面=深浅色色块；其余类型无预览
+                if (this.kind === 'procion') {
+                  Row({ space: 10 }) {
+                    ProcLoaderView({ style: option.id, isDark: this.isDark, boxSize: 18.77 })
+                    Text('正在执行命令')
+                      .fontSize(14)
+                      .fontColor(this.textColor())
+                  }
+                  .width('100%')
+                  .margin({ top: 13, bottom: 8 })
+                  .alignItems(VerticalAlign.Center)
+                } else if (this.kind === 'appearance') {
+                  Row({ space: 10 }) {
+                    // 迷你界面预览：跟随系统=左浅右深对半小屏，浅色/深色=整块小屏
+                    Row() {
+                      if (option.id !== 'dark') {
+                        this.themeMock(true, option.id === 'auto')
+                      }
+                      if (option.id !== 'light') {
+                        this.themeMock(false, option.id === 'auto')
+                      }
+                    }
+                    .width(64)
+                    .height(40)
+                    .borderRadius(6)
+                    .clip(true)
+                    .border({ width: 1, color: this.dividerColor(), radius: 6 })
+
+                    Text(option.id === 'auto' ? '跟随系统深浅色' : (option.id === 'light' ? '浅色界面' : '深色界面'))
+                      .fontSize(14)
+                      .fontColor(this.textColor())
+                  }
+                  .width('100%')
+                  .margin({ top: 13, bottom: 8 })
+                  .alignItems(VerticalAlign.Center)
                 }
-                .width('100%')
-                .margin({ top: 13, bottom: 8 })
-                .alignItems(VerticalAlign.Center)
 
                 if (option.detail.length > 0) {
                   Text(option.detail)
@@ -270,7 +324,7 @@ export struct PreferencePickerPage {
               })
             }, (option: PickerOption) => this.kind + '-' + option.id)
 
-            Text('动效保存在当前 App · 自动保存')
+            Text(this.kind === 'procion' ? '动效保存在当前 App · 自动保存' : '保存在当前 App · 自动保存')
               .fontSize(12.9)
               .fontColor(this.subColor())
               .width('100%')
