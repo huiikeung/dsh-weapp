@@ -155,6 +155,8 @@ export struct ConversationComposer {
   private voiceStartY: number = 0;
   private voiceHolding: boolean = false;
   private voiceArmedLocal: boolean = false;
+  /** 本轮触摸已经当成长按处理：吞掉随后触发的 onClick，避免又展开输入框 */
+  private voiceHoldConsumed: boolean = false;
 
   private clearVoiceTimer(): void {
     if (this.voiceHoldTimer >= 0) {
@@ -185,6 +187,7 @@ export struct ConversationComposer {
       this.voiceHoldTimer = setTimeout(() => {
         this.voiceHoldTimer = -1;
         this.voiceHolding = true;
+        this.voiceHoldConsumed = true;
         this.onVoiceHoldStart();
       }, 350);
       return;
@@ -1096,15 +1099,55 @@ export struct ConversationComposer {
     return this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(12,14,19,0.08)';
   }
 
-  /** 指标弹层标题行（恢复标题：会话统计 / Token 用量 / 上下文已用） */
+  /**
+   * 指标弹层标题行（对齐小程序 stats-pop-title）：
+   *   左侧指标图标（run=dsh-gauge / token=dsh-storage / context=圆环）
+   *   + 标题 + 右侧总量（会话统计=x 轮 x 步、Token=tok · 命中率、上下文=占比）
+   */
   @Builder
-  metricHeaderRow(title: string) {
-    Row() {
+  metricHeaderRow(kind: string, title: string) {
+    Row({ space: 6 }) {
+      if (kind === 'run') {
+        Image($r('app.media.dsh_gauge'))
+          .width(14)
+          .height(14)
+          .objectFit(ImageFit.Contain)
+          .colorFilter(this.iconTint(this.menuLabelColor()))
+      } else if (kind === 'token') {
+        Image($r('app.media.dsh_storage'))
+          .width(14)
+          .height(14)
+          .objectFit(ImageFit.Contain)
+          .colorFilter(this.iconTint(this.menuLabelColor()))
+      } else {
+        Circle()
+          .width(13)
+          .height(13)
+          .fill(Color.Transparent)
+          .stroke(this.menuLabelColor())
+          .strokeWidth(1.4)
+      }
       Text(title)
         .fontSize(14)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.menuLabelColor())
       Blank()
+      if (kind === 'run') {
+        Text(this.runMetric)
+          .fontSize(12)
+          .fontColor(this.mutedText())
+          .maxLines(1)
+      } else if (kind === 'token') {
+        Text(this.tokenMetric)
+          .fontSize(12)
+          .fontColor(this.mutedText())
+          .maxLines(1)
+      } else {
+        Text(this.contextMetric)
+          .fontSize(12)
+          .fontColor(this.mutedText())
+          .maxLines(1)
+      }
     }
     .width(232)
     .height(36)
@@ -1140,7 +1183,7 @@ export struct ConversationComposer {
         endMargin: LengthMetrics.vp(12)
       }) {
       MenuItemGroup() {
-        MenuItem(this.metricHeaderRow('会话统计')).enabled(false)
+        MenuItem(this.metricHeaderRow('run', '会话统计')).enabled(false)
         ForEach(this.metricPairsFor('run'), (pair: MetricMenuPair) => {
           MenuItem(this.metricRow(pair.label, pair.value))
         }, (pair: MetricMenuPair) => pair.label)
@@ -1158,7 +1201,7 @@ export struct ConversationComposer {
         endMargin: LengthMetrics.vp(12)
       }) {
       MenuItemGroup() {
-        MenuItem(this.metricHeaderRow('Token 用量')).enabled(false)
+        MenuItem(this.metricHeaderRow('token', 'Token 用量')).enabled(false)
         ForEach(this.metricPairsFor('token'), (pair: MetricMenuPair) => {
           MenuItem(this.metricRow(pair.label, pair.value))
         }, (pair: MetricMenuPair) => pair.label)
@@ -1176,7 +1219,7 @@ export struct ConversationComposer {
         endMargin: LengthMetrics.vp(12)
       }) {
       MenuItemGroup() {
-        MenuItem(this.metricHeaderRow('上下文已用')).enabled(false)
+        MenuItem(this.metricHeaderRow('context', '上下文已用')).enabled(false)
         ForEach(this.metricPairsFor('context'), (pair: MetricMenuPair) => {
           MenuItem(this.metricRow(pair.label, pair.value))
         }, (pair: MetricMenuPair) => pair.label)
@@ -1312,15 +1355,37 @@ export struct ConversationComposer {
             if (this.voiceRecording) {
               VoiceRipplePanel({ level: this.voiceLevel, cancelling: this.voiceCancelArmed, visible: true })
             }
+            // 文字区 + 语音触摸层（对齐小程序 .voice-touch-surface：
+            // 单独一层覆盖在文字区上接收长按滑动，而不是依赖文字节点自身的触摸）
+            Stack({ alignContent: Alignment.Start }) {
             Text(this.voiceRecording ? this.voiceHint
               : (this.voiceEnabled && this.voiceMode ? '按住说话' : this.placeholder))
               .fontSize(this.voiceRecording ? 13 : 15)
               .fontColor(this.voiceCancelArmed ? '#D9413A' : this.collapsedPlaceholderColor())
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .layoutWeight(1)
-              .onTouch((event: TouchEvent) => this.onVoiceTouch(event))
+              .width('100%')
+            if (this.voiceEnabled && (this.voiceMode || this.voiceRecording)) {
+              Column()
+                .width('100%')
+                .height('100%')
+                .backgroundColor('#00000000')
+                .onTouch((event: TouchEvent) => this.onVoiceTouch(event))
+            }
+            }
+            .layoutWeight(1)
+            .height(36)
+            .alignContent(Alignment.Start)
               .onClick(() => {
+                // 长按已经被当成录音：吞掉这次点击，不要再展开输入框
+                if (this.voiceHoldConsumed) {
+                  this.voiceHoldConsumed = false;
+                  return;
+                }
+                // 录音中（或刚松手等待识别）也不展开
+                if (this.voiceRecording) {
+                  return;
+                }
                 // 语音态下轻点：切回文字输入（对齐小程序 voice surface 的 tap 行为）
                 if (this.voiceMode) {
                   this.onToggleVoiceMode();
