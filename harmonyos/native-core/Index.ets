@@ -90,6 +90,7 @@ export * from './src/main/ets/stores/SharedTurnTimingStore';
 export * from './src/main/ets/stores/SharedVoiceInputStore';
 export * from './src/main/ets/stores/SharedSlashCommandStore';
 export * from './src/main/ets/stores/SharedTeamStore';
+export * from './src/main/ets/state/TeamStore';
 export * from './src/main/ets/stores/SharedFileUploadStore';
 export * from './src/main/ets/stores/SharedWorkspaceFileStore';
 export * from './src/main/ets/stores/SharedSessionAgentPresetStore';
