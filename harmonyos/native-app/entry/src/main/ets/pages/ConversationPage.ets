@@ -1510,6 +1510,16 @@ export struct ConversationPage {
           break;
         }
       }
+      // 会话当前档位（如 max）即使不在模型目录档位里也要显示——DSH 客户端同款行为
+      let sessionEffort: string = '';
+      const rawCurrentEffort = rec['current'];
+      if (rawCurrentEffort !== undefined && !Array.isArray(rawCurrentEffort)) {
+        sessionEffort = String((rawCurrentEffort as Record<string, Object>)['reasoningEffort'] ?? '');
+      }
+      if (sessionEffort.length > 0 && ids.indexOf(sessionEffort) < 0) {
+        ids.push(sessionEffort);
+        names.push(this.effortName(sessionEffort));
+      }
       Logger.info('[EffortDebug] ids=' + JSON.stringify(ids) + ' names=' + JSON.stringify(names));
       this.modelEfforts = ids;
       this.modelEffortNames = names;

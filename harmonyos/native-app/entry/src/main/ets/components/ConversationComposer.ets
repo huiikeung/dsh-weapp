@@ -1296,7 +1296,8 @@ export struct ConversationComposer {
             if (this.voiceRecording) {
               VoiceRipplePanel({ level: this.voiceLevel, cancelling: this.voiceCancelArmed, visible: true })
             }
-            Text(this.voiceRecording ? this.voiceHint : this.placeholder)
+            Text(this.voiceRecording ? this.voiceHint
+              : (this.voiceEnabled && this.voiceMode ? '按住说话' : this.placeholder))
               .fontSize(this.voiceRecording ? 13 : 15)
               .fontColor(this.voiceCancelArmed ? '#D9413A' : this.collapsedPlaceholderColor())
               .maxLines(1)
@@ -1304,6 +1305,10 @@ export struct ConversationComposer {
               .layoutWeight(1)
               .onTouch((event: TouchEvent) => this.onVoiceTouch(event))
               .onClick(() => {
+                // 语音态下轻点：切回文字输入（对齐小程序 voice surface 的 tap 行为）
+                if (this.voiceMode) {
+                  this.onToggleVoiceMode();
+                }
                 this.onFocusChange(true);
                 // 点击折叠态占位：展开后延迟拉起键盘（节点刚从 Visibility.None 转可见，
                 // 立即 focus 会落在布局完成前；两次重试保证真机一次点按即弹键盘）
@@ -1314,6 +1319,8 @@ export struct ConversationComposer {
                   this.getUIContext().getFocusController().requestFocus('composer-draft-area');
                 }, 240);
               })
+            // 折叠态右侧按钮（对齐小程序 composer-inline-send 三态）：
+            //   运行中 → 停止方块；有草稿 → 发送箭头；否则开了语音 → 麦克风/键盘切换
             if (this.showStopState()) {
               Stack() {
                 Rect({ width: 13, height: 13, radius: 3 }).fill('#FFFFFF')
@@ -1324,6 +1331,36 @@ export struct ConversationComposer {
               .backgroundColor('#2E6BE6')
               .onClick(() => {
                 this.onStop();
+              })
+            } else if (this.canSendNow()) {
+              Stack() {
+                Image($r('app.media.arrow_up_white'))
+                  .width(18)
+                  .height(18)
+                  .objectFit(ImageFit.Contain)
+                  .draggable(false)
+              }
+              .width(33)
+              .height(33)
+              .borderRadius(17)
+              .backgroundColor('#2E6BE6')
+              .onClick(() => {
+                this.onSend();
+              })
+            } else if (this.voiceEnabled) {
+              Stack() {
+                // 文字态显示麦克风（点了切到语音），语音态显示键盘（点了切回文字）
+                SymbolGlyph(this.voiceMode ? $r('sys.symbol.keyboard') : $r('sys.symbol.mic'))
+                  .fontSize(18)
+                  .fontColor(['#FFFFFF'])
+              }
+              .width(33)
+              .height(33)
+              .borderRadius(17)
+              .backgroundColor('#2E6BE6')
+              .accessibilityText(this.voiceMode ? '切换到文字输入' : '切换到语音输入')
+              .onClick(() => {
+                this.onToggleVoiceMode();
               })
             }
           }
