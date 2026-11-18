@@ -2,10 +2,10 @@ import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { KeyboardAvoidMode, window } from '@kit.ArkUI';
 import {
-  asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, GatewayClient, GatewayRequestFactory, num,
-  PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, parseNamespace, pickDocuments, uploadAttachment
+  asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, GatewayClient, GatewayRequestFactory, Logger, num,
+  PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, VoiceDictation, WorkStepPresentation, parseNamespace, pickDocuments, uploadAttachment
 } from 'nativecore';
-import type { GatewayFrame, ModelMenuItem, ModelOption } from 'nativecore';
+import type { GatewayFrame, ModelMenuItem, ModelOption, PresetOption } from 'nativecore';
 import type { UploadResult } from 'nativecore';
 import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair } from '../components/ConversationComposer';
@@ -124,13 +124,35 @@ export struct ConversationPage {
   @StorageLink('defaultPermission') defaultPermission: string = '';
   @StorageLink('defaultModel') defaultModel: string = '';
   @StorageLink('defaultEffort') defaultEffort: string = '';
-  /** 当前模型配置的推理等级键列表（对应 DSH 客户端 reasoningEfforts，直接映射显示） */
+  /** 当前模型的推理等级 id 列表（网关实时下发） */
   @State modelEfforts: string[] = [];
+  /** 与 modelEfforts 一一对应的显示名（网关下发，如 Max） */
+  @State modelEffortNames: string[] = [];
   @StorageLink('contextUsage') contextUsage: Object | null = null;
   @StorageLink('contextDashboard') dashboard: Object | null = null;
+  /** 部署级默认 Agent 预设（运行模式）：新会话没有 per-session 值时用它 */
+  @StorageLink('defaultAgentPreset') defaultAgentPreset: string = '';
+  /** 每会话运行模式缓存（sessionId → preset id）：网关每会话回执/事件写入 */
+  @StorageLink('sessionAgentPresets') sessionAgentPresets: Record<string, Object> = {};
+  /** 预设详细列表：提供网关下发的显示名（自定义预设名优先） */
+  @StorageLink('agentPresetDetails') agentPresetDetails: PresetOption[] = [];
 
   @State entries: ConversationFeedEntryModel[] = [];
   @State draft: string = '';
+
+  // ===== 长按语音输入（对齐小程序 voice-actions.js） =====
+  @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
+  /** 当前是语音输入态（右下角显示键盘图标） */
+  @State voiceMode: boolean = false;
+  /** 正在录音：输入条显示波纹 + 提示 */
+  @State voiceRecording: boolean = false;
+  /** 上滑已进入取消区 */
+  @State voiceCancelArmed: boolean = false;
+  /** 实时音量（本轮只做稳定波纹，后续可接真实电平） */
+  @State voiceLevel: number = 0.5;
+  /** 录音提示文案 */
+  @State voiceHint: string = '';
+  private dictation: VoiceDictation = new VoiceDictation();
   @State hint: string = '';
   @State autoStick: boolean = true;
   @State sending: boolean = false;
@@ -570,9 +592,10 @@ export struct ConversationPage {
     return id.length > 0 ? id.substring(0, 8) : '会话';
   }
 
+  /** 连接状态点：连接中=琥珀、失败=红；已连接时随会话运行状态——运行中绿、空闲灰（对齐产品约定）。 */
   private connectionDotColor(): string {
     if (this.connection === 'connected') {
-      return '#2EB85C';
+      return this.running ? '#2EB85C' : (this.isDark ? 'rgba(241,244,250,0.35)' : 'rgba(16,19,24,0.30)');
     }
     if (this.connection === 'connecting') {
       return '#FFAD1F';
@@ -581,6 +604,58 @@ export struct ConversationPage {
       return '#D65D64';
     }
     return this.isDark ? 'rgba(241,244,250,0.40)' : 'rgba(16,19,24,0.35)';
+  }
+
+  /** 当前会话的 Agent 预设 id：会话快照优先，其次部署默认，最后标准模式。 */
+  private currentAgentPresetId(): string {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    // ① 网关每会话回执（session-agent-preset / 快照投影）最权威
+    const live: string = String(this.sessionAgentPresets[sessionId] ?? '');
+    if (live.length > 0) {
+      return live;
+    }
+    // ② 会话列表快照里的 agentPreset
+    for (const one of this.sessions) {
+      if (one.id === sessionId && one.agentPreset.length > 0) {
+        return one.agentPreset;
+      }
+    }
+    // ③ 部署默认
+    return this.defaultAgentPreset.length > 0 ? this.defaultAgentPreset : 'standard';
+  }
+
+  /** 预设内置名称（对齐 dsh-mobile L10n.presetModeName）。 */
+  private presetModeName(id: string): string {
+    const key: string = id.length > 0 ? id : 'standard';
+    if (key === 'standard') {
+      return '标准模式';
+    }
+    if (key === 'code' || key === 'ptc') {
+      return 'PTC 模式';
+    }
+    if (key === 'minimal') {
+      return '极简模式';
+    }
+    if (key === 'cordis') {
+      return '创造模式';
+    }
+    return key + ' 模式';
+  }
+
+  /** 运行模式标签：网关自定义显示名优先，名字等于 id 时回退内置名称。 */
+  private sessionModeLabel(): string {
+    const id: string = this.currentAgentPresetId();
+    for (const one of this.agentPresetDetails) {
+      if (one.id !== id) {
+        continue;
+      }
+      const custom: string = (one.label ?? '').trim();
+      if (custom.length > 0 && custom.toLowerCase() !== id.toLowerCase()) {
+        return custom;
+      }
+      break;
+    }
+    return this.presetModeName(id);
   }
 
   private connectionLabel(): string {
@@ -719,6 +794,79 @@ export struct ConversationPage {
     }
   }
 
+  // ==================== 长按语音 ====================
+  private async onVoiceHoldStart(): Promise<void> {
+    if (this.voiceRecording || this.dictation.isActive()) {
+      return;
+    }
+    this.voiceCancelArmed = false;
+    this.voiceLevel = 0.5;
+    this.voiceHint = '松手转文字 · 上滑取消';
+    this.voiceRecording = true;
+    try {
+      await this.dictation.start(
+        (partial: string) => {
+          // 实时中间结果不写入草稿，避免抖动；等最终结果一次性插入
+        },
+        (finalText: string) => {
+          this.insertVoiceText(finalText);
+        },
+        (message: string) => {
+          this.voiceRecording = false;
+          this.voiceCancelArmed = false;
+          this.hint = '语音输入失败：' + message;
+        },
+        () => {
+          this.voiceRecording = false;
+          this.voiceCancelArmed = false;
+        }
+      );
+    } catch (err) {
+      this.voiceRecording = false;
+      this.voiceCancelArmed = false;
+      this.hint = '语音输入不可用：' + (err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  private onVoiceHoldMove(cancel: boolean): void {
+    this.voiceCancelArmed = cancel;
+    this.voiceHint = cancel ? '松手取消' : '松手转文字 · 上滑取消';
+  }
+
+  private onVoiceHoldEnd(cancel: boolean): void {
+    this.voiceCancelArmed = false;
+    if (cancel) {
+      this.dictation.cancel();
+      this.voiceRecording = false;
+      return;
+    }
+    // 松手：结束采集，识别结果经 onFinal 插入草稿
+    this.dictation.stop();
+  }
+
+  private insertVoiceText(text: string): void {
+    const trimmed: string = text.trim();
+    if (trimmed.length === 0) {
+      return;
+    }
+    this.draft = this.draft + trimmed;
+    this.voiceRecording = false;
+    this.voiceMode = false;
+  }
+
+  private toggleVoiceMode(): void {
+    const next: boolean = !this.voiceMode;
+    this.voiceMode = next;
+    if (next) {
+      // 进入语音态：收起键盘，露出折叠条的长按区
+      this.composerFocused = false;
+      try {
+        this.getUIContext().getFocusController().clearFocus();
+      } catch (err) {
+      }
+    }
+  }
+
   private async pickAttachments(): Promise<void> {
     try {
       const context = getContext(this) as common.UIAbilityContext;
@@ -785,6 +933,24 @@ export struct ConversationPage {
           connected: this.connection === 'connected',
           running: this.running,
           sending: this.sending,
+          voiceEnabled: this.voiceInputEnabled,
+          voiceMode: this.voiceMode,
+          voiceRecording: this.voiceRecording,
+          voiceCancelArmed: this.voiceCancelArmed,
+          voiceLevel: this.voiceLevel,
+          voiceHint: this.voiceHint,
+          onToggleVoiceMode: () => {
+            this.toggleVoiceMode();
+          },
+          onVoiceHoldStart: () => {
+            this.onVoiceHoldStart().catch(() => {});
+          },
+          onVoiceHoldMove: (cancel: boolean) => {
+            this.onVoiceHoldMove(cancel);
+          },
+          onVoiceHoldEnd: (cancel: boolean) => {
+            this.onVoiceHoldEnd(cancel);
+          },
           permissionTitle: this.permissionTitle(),
           permissionIcon: this.permissionIconGlyph(),
           permissionOpen: this.permissionMenuOpen,
@@ -1161,17 +1327,22 @@ export struct ConversationPage {
     return out;
   }
 
-  /** 推理等级取值：对齐 DSH 客户端——开启推理的模型展示完整档位阶梯（Off + Minimal→Max），未取到配置时回退默认四档。 */
+  /** 推理等级取值：实时映射当前模型配置的 reasoningEfforts 键（与 DSH 客户端一致），未取到配置时回退默认四档。 */
   private effortMenuValues(): string[] {
-    if (this.modelEfforts.length > 0) {
-      return ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
-    }
-    return ['off', 'low', 'medium', 'high'];
+    const values: string[] = this.modelEfforts.length > 0
+      ? this.modelEfforts
+      : ['off', 'low', 'medium', 'high'];
+    Logger.info('[EffortDebug] menuValues=' + JSON.stringify(values) + ' modelEfforts=' + JSON.stringify(this.modelEfforts));
+    return values;
   }
 
   private effortMenuLabels(): string[] {
+    const values: string[] = this.effortMenuValues();
+    if (this.modelEffortNames.length === values.length && this.modelEffortNames.length > 0) {
+      return this.modelEffortNames.slice();
+    }
     const labels: string[] = [];
-    for (const value of this.effortMenuValues()) {
+    for (const value of values) {
       labels.push(this.effortName(value));
     }
     return labels;
@@ -1264,80 +1435,73 @@ export struct ConversationPage {
     this.refreshModelEfforts();
   }
 
-  /** 拉取模型配置里当前模型的推理等级键列表（reasoningEfforts，DSH 客户端直接映射显示）。 */
+  /** 拉取模型目录帧：当前模型的 reasoning.efforts [{id, name}]（与 DSH 客户端同源、实时映射）。 */
   private refreshModelEfforts(): void {
-    const model: string = this.currentModelId();
-    const needle: string = model.toLowerCase();
-    if (model.length === 0) {
-      this.modelEfforts = [];
-      return;
-    }
     const client: GatewayClient = GatewayClient.get();
     if (!client.isConnected()) {
       this.modelEfforts = [];
+      this.modelEffortNames = [];
       return;
     }
-    client.requestPluginSettings(PI_NS).then((nsFrame: GatewayFrame) => {
-      const namespace = parseNamespace(nsFrame);
-      const value: Object | undefined = namespace.value;
-      const rawProviders = value !== undefined ? (value as Record<string, Object>)['providers'] : undefined;
-      if (rawProviders === undefined) {
-        this.modelEfforts = [];
-        return;
-      }
-      const providers = rawProviders as Record<string, Object>;
-      let provider: string = this.selectedProvider;
-      if (provider.length === 0) {
-        for (const key of Object.keys(providers)) {
-          const config = providers[key] as Record<string, Object>;
-          const models = config['models'];
-          if (models !== undefined && Array.isArray(models)) {
-            for (const one of models as Object[]) {
-              const record = one as Record<string, Object>;
-              if (String(record['id'] ?? '').toLowerCase() === needle) {
-                provider = key;
-              }
-            }
-          }
+    const sessionId: string = SessionStore.get().currentSessionId();
+    const request = sessionId.length > 0
+      ? GatewayRequestFactory.make('models', 'models', { 'sessionId': sessionId }, sessionId)
+      : GatewayRequestFactory.simple('models');
+    client.requestGateway(request, 15000).then((frame: GatewayFrame) => {
+      Logger.info('[EffortDebug] modelsFrame=' + JSON.stringify(frame).substring(0, 700));
+      const rec = frame as unknown as Record<string, Object>;
+      const rawGroups = rec['groups'];
+      const groups = rawGroups !== undefined && Array.isArray(rawGroups) ? rawGroups as Object[] : [];
+      // 目标模型：网关帧里的 current 优先（权威当前模型），否则回退本地推算
+      let targetId: string = this.currentModelId();
+      const rawCurrent = rec['current'];
+      if (rawCurrent !== undefined && !Array.isArray(rawCurrent)) {
+        const cur = rawCurrent as Record<string, Object>;
+        const cm: string = String(cur['model'] ?? '');
+        if (cm.length > 0) {
+          targetId = cm;
         }
       }
-      if (provider.length === 0 || providers[provider] === undefined) {
-        this.modelEfforts = [];
-        return;
-      }
-      const config = providers[provider] as Record<string, Object>;
-      const models = config['models'];
-      if (models === undefined || !Array.isArray(models)) {
-        this.modelEfforts = [];
-        return;
-      }
-      for (const one of models as Object[]) {
-        const record = one as Record<string, Object>;
-        if (String(record['id'] ?? '').toLowerCase() !== needle) {
+      const needle: string = targetId.toLowerCase();
+      const ids: string[] = [];
+      const names: string[] = [];
+      for (const group of groups) {
+        const g = group as Record<string, Object>;
+        const rawModels = g['models'];
+        if (rawModels === undefined || !Array.isArray(rawModels)) {
           continue;
         }
-        const efforts = record['reasoningEfforts'];
-        const ids: string[] = [];
-        if (efforts !== undefined && Array.isArray(efforts)) {
-          for (const level of efforts as Object[]) {
-            const id: string = String((level as Record<string, Object>)['id'] ?? '');
-            if (id.length > 0 && ids.indexOf(id) < 0) {
+        for (const one of rawModels as Object[]) {
+          const m = one as Record<string, Object>;
+          if (String(m['id'] ?? '').toLowerCase() !== needle) {
+            continue;
+          }
+          Logger.info('[EffortDebug] catalogRecord=' + JSON.stringify(m).substring(0, 420));
+          const reasoning = m['reasoning'] as Record<string, Object> | undefined;
+          const efforts = reasoning === undefined ? undefined : reasoning['efforts'];
+          if (efforts !== undefined && Array.isArray(efforts)) {
+            for (const level of efforts as Object[]) {
+              const er = level as Record<string, Object>;
+              const id: string = String(er['id'] ?? '');
+              if (id.length === 0 || ids.indexOf(id) >= 0) {
+                continue;
+              }
               ids.push(id);
+              names.push(String(er['name'] ?? this.effortName(id)));
             }
           }
-        } else if (efforts !== undefined) {
-          for (const key of Object.keys(efforts as Record<string, Object>)) {
-            if (ids.indexOf(key) < 0) {
-              ids.push(key);
-            }
-          }
+          break;
         }
-        this.modelEfforts = ids;
-        return;
+        if (ids.length > 0) {
+          break;
+        }
       }
-      this.modelEfforts = [];
+      Logger.info('[EffortDebug] ids=' + JSON.stringify(ids) + ' names=' + JSON.stringify(names));
+      this.modelEfforts = ids;
+      this.modelEffortNames = names;
     }).catch((ignored: Error) => {
       this.modelEfforts = [];
+      this.modelEffortNames = [];
     });
   }
 
@@ -1987,10 +2151,12 @@ export struct ConversationPage {
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
+        // 绿点 = 连接状态，右侧显示运行模式（Agent 预设），对齐 dsh-mobile ConversationNavigationStatus
         Row({ space: 6 }) {
           Circle().width(8).height(8).fill(this.connectionDotColor())
-          Text(this.connectionLabel())
-            .fontSize(13)
+          Text(this.sessionModeLabel())
+            .fontSize(12)
+            .fontWeight(FontWeight.Medium)
             .fontColor(this.subColor())
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })

@@ -12,6 +12,7 @@
  */
 import { LengthMetrics } from '@kit.ArkUI';
 import type { ModelMenuItem } from 'nativecore';
+import { VoiceRipplePanel } from './VoiceRipplePanel';
 
 /** 指标菜单行（鸿蒙原生 Menu 的 MenuItem：content 在左，labelInfo 数值在右） */
 export interface MetricMenuPair {
@@ -100,6 +101,28 @@ export struct ConversationComposer {
   /** 指标菜单行数据：点开菜单时由页面现算（会话统计 / Token 用量 / 上下文已用） */
   metricPairsFor: (kind: string) => MetricMenuPair[] = () => [];
 
+  // ===== 长按语音输入（对齐小程序 voice-actions.js） =====
+  /** 语音输入开关（设置页「语音输入」） */
+  @Prop voiceEnabled: boolean = false;
+  /** 语音模式：true=当前在语音输入（右下角显示键盘图标），false=文字输入（显示麦克风） */
+  @Prop voiceMode: boolean = false;
+  /** 正在录音：折叠条换成波纹 + 提示 */
+  @Prop voiceRecording: boolean = false;
+  /** 上滑已进入「松手取消」 */
+  @Prop voiceCancelArmed: boolean = false;
+  /** 实时音量 0..1，驱动波纹高度 */
+  @Prop voiceLevel: number = 0.5;
+  /** 录音提示文案 */
+  @Prop voiceHint: string = '';
+  /** 右下角按钮：在语音/键盘之间切换 */
+  onToggleVoiceMode: () => void = () => {};
+  /** 长按满 350ms：开始录音 */
+  onVoiceHoldStart: () => void = () => {};
+  /** 录音中滑动：cancel=true 表示已滑到取消区 */
+  onVoiceHoldMove: (cancel: boolean) => void = () => {};
+  /** 松手：cancel=true 表示取消，不转文字 */
+  onVoiceHoldEnd: (cancel: boolean) => void = () => {};
+
   // ===== 底部三个指标按钮的文案（小程序 composer-metrics） =====
   @Prop runMetric: string = '— 轮 — 步';
   @Prop tokenMetric: string = '— tok';
@@ -123,6 +146,75 @@ export struct ConversationComposer {
 
   private canSendNow(): boolean {
     return this.hasDraft() || this.attachmentCount > 0;
+  }
+
+  // ===== 折叠条长按语音手势 =====
+  // 对齐小程序：按住 350ms 起录；按下后滑开超过 12 视为滚动不录音；录音中上滑 64 进入取消区
+  private voiceHoldTimer: number = -1;
+  private voiceStartX: number = 0;
+  private voiceStartY: number = 0;
+  private voiceHolding: boolean = false;
+  private voiceArmedLocal: boolean = false;
+
+  private clearVoiceTimer(): void {
+    if (this.voiceHoldTimer >= 0) {
+      clearTimeout(this.voiceHoldTimer);
+      this.voiceHoldTimer = -1;
+    }
+  }
+
+  private onVoiceTouch(event: TouchEvent): void {
+    if (!this.voiceEnabled) {
+      return;
+    }
+    let touch: TouchObject | undefined = undefined;
+    if (event.touches.length > 0) {
+      touch = event.touches[0];
+    } else if (event.changedTouches.length > 0) {
+      touch = event.changedTouches[0];
+    }
+    if (touch === undefined) {
+      return;
+    }
+    if (event.type === TouchType.Down) {
+      this.voiceStartX = touch.x;
+      this.voiceStartY = touch.y;
+      this.voiceHolding = false;
+      this.voiceArmedLocal = false;
+      this.clearVoiceTimer();
+      this.voiceHoldTimer = setTimeout(() => {
+        this.voiceHoldTimer = -1;
+        this.voiceHolding = true;
+        this.onVoiceHoldStart();
+      }, 350);
+      return;
+    }
+    if (event.type === TouchType.Move) {
+      const dy: number = touch.y - this.voiceStartY;
+      const dx: number = touch.x - this.voiceStartX;
+      if (!this.voiceHolding) {
+        if (Math.abs(dy) > 12 || Math.abs(dx) > 12) {
+          this.clearVoiceTimer();
+        }
+        return;
+      }
+      const cancel: boolean = dy < -64;
+      if (cancel !== this.voiceArmedLocal) {
+        this.voiceArmedLocal = cancel;
+        this.onVoiceHoldMove(cancel);
+      }
+      return;
+    }
+    if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      this.clearVoiceTimer();
+      if (this.voiceHolding) {
+        this.voiceHolding = false;
+        const cancel: boolean = this.voiceArmedLocal || (event.type === TouchType.Cancel) || (touch.y - this.voiceStartY < -64);
+        this.onVoiceHoldEnd(cancel);
+        return;
+      }
+      this.onFocusChange(true);
+    }
   }
 
   // ==================== 色板 ====================
@@ -586,11 +678,6 @@ export struct ConversationComposer {
   modelListMenu() {
     if (this.modelListPane === 'effort') {
       Menu() {
-        MenuItem({ content: '‹ 推理等级' })
-          .id('effort-back')
-          .onClick(() => {
-            this.openModelList('root');
-          })
         ForEach(this.effortValues, (value: string, index: number) => {
           MenuItem(this.effortRow(value, this.effortLabels[index]))
             .id('effort-' + value)
@@ -944,21 +1031,26 @@ export struct ConversationComposer {
     Stack() {
       if (this.showStopState()) {
         Rect({ width: 14, height: 14, radius: 3 }).fill('#FFFFFF')
-      } else {
+      } else if (this.canSendNow() || !this.voiceEnabled) {
         // 小程序 .composer-inline-send .send-ic：36rpx(18vp) 的 arrow-up-white.png 图标箭头
         Image($r('app.media.arrow_up_white'))
           .width(18)
           .height(18)
           .objectFit(ImageFit.Contain)
           .draggable(false)
+      } else {
+        // 无草稿且开了语音：文字态显示麦克风、语音态显示键盘（对齐小程序 voice-wave / voice-keyboard）
+        SymbolGlyph(this.voiceMode ? $r('sys.symbol.keyboard') : $r('sys.symbol.mic'))
+          .fontSize(18)
+          .fontColor(['#FFFFFF'])
       }
     }
     .width(36)
     .height(36)
     .borderRadius(18)
     .backgroundColor('#2E6BE6')
-    .opacity(this.sending ? 0.66 : (this.showStopState() || this.canSendNow() ? 1 : 0.48))
-    .enabled(!this.sending && (this.showStopState() || this.canSendNow()))
+    .opacity(this.sending ? 0.66 : (this.showStopState() || this.canSendNow() || this.voiceEnabled ? 1 : 0.48))
+    .enabled(!this.sending && (this.showStopState() || this.canSendNow() || this.voiceEnabled))
     .onClick(() => {
       if (this.sending) {
         return;
@@ -969,6 +1061,11 @@ export struct ConversationComposer {
       }
       if (this.canSendNow()) {
         this.onSend();
+        return;
+      }
+      // 无草稿：点按钮在「语音输入 / 键盘输入」之间切换
+      if (this.voiceEnabled) {
+        this.onToggleVoiceMode();
       }
     })
   }
@@ -1196,12 +1293,16 @@ export struct ConversationComposer {
                 this.onAddAttachment();
               }
             })
-            Text(this.placeholder)
-              .fontSize(15)
-              .fontColor(this.collapsedPlaceholderColor())
+            if (this.voiceRecording) {
+              VoiceRipplePanel({ level: this.voiceLevel, cancelling: this.voiceCancelArmed, visible: true })
+            }
+            Text(this.voiceRecording ? this.voiceHint : this.placeholder)
+              .fontSize(this.voiceRecording ? 13 : 15)
+              .fontColor(this.voiceCancelArmed ? '#D9413A' : this.collapsedPlaceholderColor())
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
+              .onTouch((event: TouchEvent) => this.onVoiceTouch(event))
               .onClick(() => {
                 this.onFocusChange(true);
                 // 点击折叠态占位：展开后延迟拉起键盘（节点刚从 Visibility.None 转可见，

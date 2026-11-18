@@ -1104,6 +1104,9 @@ export class GatewayClient {
     const queue = GatewayRequestFactory.make('session-queue', 'session-queue', { 'sessionId': sessionId }, sessionId);
     this.requestGateway(queue).catch((error: Error) => Logger.warn(error.message));
     this.requestContextPanels(sessionId);
+    // 每会话运行模式（Agent 预设）：与 dsh-mobile 一致，打开会话时问一次
+    const preset = GatewayRequestFactory.make('session-agent-preset', 'session-agent-preset', { 'sessionId': sessionId }, sessionId);
+    this.requestGateway(preset).catch((error: Error) => Logger.warn(error.message));
   }
 
   /** 新建会话：返回 sessionId。 */

@@ -82,6 +82,8 @@ export interface SessionSummary {
   running: boolean;
   updatedAt: number;
   cwd: string;
+  /** 会话的 Agent 预设（运行模式）id：standard / code / minimal / cordis 或自定义 */
+  agentPreset: string;
 }
 
 export interface SessionRow {
@@ -189,6 +191,28 @@ export class SessionStore {
     this.olderRequestPending = false;
     this.olderRequestCursor = 0;
     if (this.client !== null && this.sessionId.length > 0) this.client.openSession(this.sessionId);
+  }
+
+  /** 每会话运行模式（Agent 预设）缓存：sessionId → preset id，映射写进 AppStorage 供页面订阅。 */
+  static rememberSessionPreset(sessionId: string, preset: string): void {
+    if (sessionId.length === 0 || preset.length === 0) {
+      return;
+    }
+    const current: Record<string, Object> = (AppStorage.get<Record<string, Object>>('sessionAgentPresets') ?? {}) as Record<string, Object>;
+    if (String(current[sessionId] ?? '') === preset) {
+      return;
+    }
+    current[sessionId] = preset;
+    AppStorage.setOrCreate<Record<string, Object>>('sessionAgentPresets', current);
+  }
+
+  /** 读某会话的运行模式；没有时返回空串（由页面回退到默认或列表值）。 */
+  static sessionPreset(sessionId: string): string {
+    if (sessionId.length === 0) {
+      return '';
+    }
+    const current: Record<string, Object> = (AppStorage.get<Record<string, Object>>('sessionAgentPresets') ?? {}) as Record<string, Object>;
+    return String(current[sessionId] ?? '');
   }
 
   currentSessionId(): string {
@@ -343,6 +367,14 @@ export class SessionStore {
       AppStorage.setOrCreate<string>('defaultPermission', str(frame, 'permissionDefault') ?? '');
       return;
     }
+    if (frame.kind === 'session-agent-preset' || frame.kind === 'session-agent-preset-updated' || frame.kind === 'select-agent-preset') {
+      const target: string = frame.sessionId !== undefined && frame.sessionId.length > 0 ? frame.sessionId : this.sessionId;
+      const preset: string = str(frame, 'agentPreset') ?? '';
+      if (target.length > 0 && preset.length > 0) {
+        SessionStore.rememberSessionPreset(target, preset);
+      }
+      return;
+    }
     if (frame.kind === 'agent-presets') {
       const names: string[] = [];
       // 详细预设：供会话设置的卡片式弹窗（名称 / ID / 描述 / 失效原因）
@@ -493,6 +525,15 @@ export class SessionStore {
     if (frame.kind === 'session-snapshot') {
       const responseSession: string = frame.sessionId !== undefined ? frame.sessionId : this.sessionId;
       if (this.sessionId.length > 0 && responseSession !== this.sessionId) return;
+      // 快照投影里带每会话运行模式（对齐 dsh-mobile：projections.values.agentPreset）
+      const snapProjections: Record<string, Object> | undefined = asRec(field(frame, 'projections'));
+      const snapValues: Record<string, Object> | undefined = snapProjections !== undefined ? asRec(field(snapProjections, 'values')) : undefined;
+      if (snapValues !== undefined && responseSession.length > 0) {
+        const snapPreset: string = str(snapValues, 'agentPreset') ?? '';
+        if (snapPreset.length > 0) {
+          SessionStore.rememberSessionPreset(responseSession, snapPreset);
+        }
+      }
       const events: RawSessionEvent[] = frame.events !== undefined ? frame.events : [];
       if (frame.resetRequired === true || frame.replace === true) {
         this.replaceSnapshot(events, frame.cursor, frame.resetRequired === true);
@@ -772,7 +813,8 @@ export class SessionStore {
           title: one.title,
           running: running,
           updatedAt: one.updatedAt,
-          cwd: one.cwd
+          cwd: one.cwd,
+          agentPreset: one.agentPreset
         });
         changed = true;
       } else {
@@ -976,7 +1018,8 @@ export class SessionStore {
             title: str(item, 'title') ?? sessionIdLabel(id),
             running: bool(item, 'running') === true,
             updatedAt: num(item, 'updatedAt') ?? 0,
-            cwd: str(item, 'cwd') ?? ''
+            cwd: str(item, 'cwd') ?? '',
+            agentPreset: str(item, 'agentPreset') ?? ''
           });
         }
         if (list.length > 0) {
@@ -1047,6 +1090,7 @@ export class SessionStore {
       const hostRunning: boolean = bool(item, 'running') === true;
       const updatedAt: number = num(item, 'updatedAt') ?? 0;
       const cwd: string = str(item, 'cwd') ?? '';
+    const agentPreset: string = str(item, 'agentPreset') ?? '';
       // 主机是权威来源，但刚按实时事件改过的状态要压过这份可能更旧的快照。
       let running: boolean = hostRunning;
       const markedAt: number = this.localRunningMarkAt.get(id) ?? 0;
@@ -1058,7 +1102,7 @@ export class SessionStore {
           this.localRunningAt.delete(id);
         }
       }
-      list.push({ id: id, title: title, running: running, updatedAt: updatedAt, cwd: cwd });
+      list.push({ id: id, title: title, running: running, updatedAt: updatedAt, cwd: cwd, agentPreset: agentPreset });
     }
     // 列表没变就什么都不写：轮询每秒一次，重复赋值会让首页整表重绘、还平白写磁盘。
     let signature: string = '';

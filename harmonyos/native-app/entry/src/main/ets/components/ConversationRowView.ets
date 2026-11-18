@@ -9,6 +9,7 @@
  *   STATUS/SYSTEM 单行小字
  */
 
+import { display } from '@kit.ArkUI';
 import { ConversationFeed, ConversationFeedEntryModel, ToolActivity } from 'nativecore';
 import type { ConversationItem, ToolFace } from 'nativecore';
 import { MarkdownBodyView } from './MarkdownBodyView';
@@ -28,6 +29,20 @@ export struct ConversationRowView {
   @ObjectLink entry: ConversationFeedEntryModel;
   /** 运行中四格加载动画相位 */
   @State private loaderPhase: number = 0;
+
+  /**
+   * rpx → vp：小程序 750rpx 等于屏宽，这里按当前屏宽实时换算。
+   * 图标尺寸必须走这一步——写死 18.77vp 只在 440vp 宽的屏上等于 32rpx，
+   * 窄屏上就会比小程序明显偏大。
+   */
+  private rpx(value: number): number {
+    try {
+      const screenW: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+      return value * screenW / 750;
+    } catch (err) {
+      return value * 0.53;
+    }
+  }
   /** 已展开的步骤 id（每一步都能点开看详情） */
   @State private expandedSteps: string[] = [];
   private loaderTimer: number = -1;
@@ -348,7 +363,8 @@ export struct ConversationRowView {
   groupHead(title: string, summary: string, isError: boolean, expanded: boolean, expandable: boolean, running: boolean) {
     Column() {
       Row({ space: 7.04 }) {
-        // 图标槽（对齐小程序 .command-icon-slot：32rpx=18.77vp；chevron 24rpx=14.08vp 叠放其中）
+        // 图标槽（对齐小程序 .command-icon-slot：32rpx；chevron 24rpx 叠放其中）。
+        // 用 rpx() 实时换算：写死 18.77vp 只在 440vp 宽的屏上等于 32rpx，窄屏会明显偏大。
         // 折叠：活动图标；展开：图标淡出、换成向上 chevron；运行中：四格闪动；TURN：只有 chevron（.turn-process-slot）
         Stack({ alignContent: Alignment.Center }) {
           if (running) {
@@ -356,30 +372,30 @@ export struct ConversationRowView {
           } else if (this.entry.kind === KIND_TURN) {
             if (expandable) {
               Image($r('app.media.chev_right_gray'))
-                .width(14.08)
-                .height(14.08)
+                .width(this.rpx(24))
+                .height(this.rpx(24))
                 .objectFit(ImageFit.Contain)
                 .rotate({ angle: expanded ? -90 : 90 })
                 .opacity(0.65)
             }
           } else {
             Image(this.procIcon(this.entry.activityKind))
-              .width(18.77)
-              .height(18.77)
+              .width(this.rpx(32))
+              .height(this.rpx(32))
               .objectFit(ImageFit.Contain)
               .opacity(expanded && expandable ? 0 : 1)
             if (expandable) {
               Image($r('app.media.chev_right_gray'))
-                .width(14.08)
-                .height(14.08)
+                .width(this.rpx(24))
+                .height(this.rpx(24))
                 .objectFit(ImageFit.Contain)
                 .rotate({ angle: expanded ? -90 : 90 })
                 .opacity(expanded ? 0.65 : 0)
             }
           }
         }
-        .width(18.77)
-        .height(18.77)
+        .width(this.rpx(32))
+        .height(this.rpx(32))
 
         // 组标题：14vp（比正文略小）；简洁档换行显示、不省略
         Text(title)
@@ -713,8 +729,8 @@ export struct ConversationRowView {
           // 步骤行（对齐小程序 .disclosure-head.tool）：gap 10rpx、padding 8rpx 0、min-height 56rpx
           Row({ space: 5.87 }) {
             Image(this.stepIcon(item))
-              .width(18.77)
-              .height(18.77)
+              .width(this.rpx(32))
+              .height(this.rpx(32))
               .objectFit(ImageFit.Contain)
               .flexShrink(0)
             if ((item.kind as string) === 'ASSISTANT') {
@@ -805,8 +821,8 @@ export struct ConversationRowView {
             }
             // .command-chevron 24rpx：折叠 90°、展开 -90°，opacity 0 → .65
             Image($r('app.media.chev_right_gray'))
-              .width(14.08)
-              .height(14.08)
+              .width(this.rpx(24))
+              .height(this.rpx(24))
               .objectFit(ImageFit.Contain)
               .opacity(this.expandedSteps.indexOf(item.id) >= 0 ? 0.65 : 0)
               .rotate({ angle: this.expandedSteps.indexOf(item.id) >= 0 ? -90 : 90 })
