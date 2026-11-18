@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { KeyboardAvoidMode, window } from '@kit.ArkUI';
 import {
-  asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, GatewayClient, GatewayRequestFactory, num,
+  asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, GatewayClient, GatewayRequestFactory, Logger, num,
   PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, parseNamespace, pickDocuments, uploadAttachment
 } from 'nativecore';
 import type { GatewayFrame, ModelMenuItem, ModelOption } from 'nativecore';
@@ -858,6 +858,10 @@ export struct ConversationPage {
           },
           onModelMenuVisible: (visible: boolean) => {
             this.modelMenuOpen = visible;
+            if (visible) {
+              // 展开模型菜单时刷新当前模型的推理等级列表（含 Max 等，避免进页时拉取过早）
+              this.refreshModelEfforts();
+            }
           },
           onContext: () => {
             this.openMetricPopover('context');
@@ -1263,6 +1267,8 @@ export struct ConversationPage {
   /** 拉取模型配置里当前模型的推理等级键列表（reasoningEfforts，DSH 客户端直接映射显示）。 */
   private refreshModelEfforts(): void {
     const model: string = this.currentModelId();
+    Logger.info('[EffortDebug] refresh model=' + model + ' selectedProvider=' + this.selectedProvider);
+    const needle: string = model.toLowerCase();
     if (model.length === 0) {
       this.modelEfforts = [];
       return;
@@ -1289,7 +1295,7 @@ export struct ConversationPage {
           if (models !== undefined && Array.isArray(models)) {
             for (const one of models as Object[]) {
               const record = one as Record<string, Object>;
-              if (String(record['id'] ?? '') === model) {
+              if (String(record['id'] ?? '').toLowerCase() === needle) {
                 provider = key;
               }
             }
@@ -1308,7 +1314,7 @@ export struct ConversationPage {
       }
       for (const one of models as Object[]) {
         const record = one as Record<string, Object>;
-        if (String(record['id'] ?? '') !== model) {
+        if (String(record['id'] ?? '').toLowerCase() !== needle) {
           continue;
         }
         const efforts = record['reasoningEfforts'];
@@ -1327,6 +1333,7 @@ export struct ConversationPage {
             }
           }
         }
+        Logger.info('[EffortDebug] ids=' + JSON.stringify(ids) + ' provider=' + provider);
         this.modelEfforts = ids;
         return;
       }

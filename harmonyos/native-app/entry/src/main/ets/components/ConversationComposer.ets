@@ -343,9 +343,12 @@ export struct ConversationComposer {
       .caretStyle({ width: 1.5, color: '#2E6BE6' })
       .backgroundColor('#00000000')
       .borderWidth(0)
-      // 左缘归零：文字与下方 chip 行的「+」按钮左缘对齐（卡片的 14vp 内边距已提供与光圈的距离）。
-      // 顶部留 2vp：TextArea 首行紧贴上沿时会被卡片的圆角/描边压住，看起来像「第一个字被挡」。
-      .padding({ left: 0, right: 0, top: 2, bottom: 0 })
+      // 左缘 2vp：与下方 chip 行的「+」按钮基本对齐（卡片 14vp 内边距已隔开光圈）。
+      // 顶部 6vp：首行不能贴着内容框上沿——贴边时字形左上角会被裁掉一块，
+      // 而且行数超过 maxHeight 触发内部滚动后，首行上半截会被直接切掉。
+      // 上下留白 4/2：minHeight 28 减去后仍剩 22vp，大于 14vp 字号的行高，
+      // 既不让首行贴着上沿被裁掉左上角，也不会把内容区压到行高之下。
+      .padding({ left: 2, right: 2, top: 4, bottom: 2 })
       .constraintSize({ minHeight: 28, maxHeight: 154 })
       // 不在这里用 defaultFocus：条件挂载 + defaultFocus 在本机会崩；改为点击文本域即获焦，
       // onBlur 时若草稿与附件均为空才塌回单栏。
@@ -406,6 +409,7 @@ export struct ConversationComposer {
         .margin({ left: 3, right: 3 })
     }
     .height(30)
+    .margin({ left: 8 })
     .padding({ left: 5, right: 5 })
     .borderRadius(15)
     .backgroundColor(this.permissionOpen ? this.chipActiveFill() : Color.Transparent)
@@ -647,6 +651,8 @@ export struct ConversationComposer {
             }, (row: ModelMenuItem) => row.key)
           }
           .width('100%')
+          // 底部留出空隙：末行 hover 高亮不贴卡片边框
+          .padding({ bottom: 8 })
         }
         .constraintSize({ maxHeight: 320 })
         .scrollBar(BarState.Off)
@@ -939,7 +945,12 @@ export struct ConversationComposer {
       if (this.showStopState()) {
         Rect({ width: 14, height: 14, radius: 3 }).fill('#FFFFFF')
       } else {
-        Text('↑').fontSize(18).fontWeight(FontWeight.Bold).fontColor('#FFFFFF')
+        // 小程序 .composer-inline-send .send-ic：36rpx(18vp) 的 arrow-up-white.png 图标箭头
+        Image($r('app.media.arrow_up_white'))
+          .width(18)
+          .height(18)
+          .objectFit(ImageFit.Contain)
+          .draggable(false)
       }
     }
     .width(36)
