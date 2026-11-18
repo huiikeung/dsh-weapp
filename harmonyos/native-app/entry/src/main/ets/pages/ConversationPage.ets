@@ -592,10 +592,24 @@ export struct ConversationPage {
     return id.length > 0 ? id.substring(0, 8) : '会话';
   }
 
+  /** 当前会话是否在运行：实时事件优先，其次会话列表快照（外部客户端启动时没有本地事件）。 */
+  private currentSessionRunning(): boolean {
+    if (this.running) {
+      return true;
+    }
+    const id: string = SessionStore.get().currentSessionId();
+    for (const one of this.sessions) {
+      if (one.id === id) {
+        return one.running;
+      }
+    }
+    return false;
+  }
+
   /** 连接状态点：连接中=琥珀、失败=红；已连接时随会话运行状态——运行中绿、空闲灰（对齐产品约定）。 */
   private connectionDotColor(): string {
     if (this.connection === 'connected') {
-      return this.running ? '#2EB85C' : (this.isDark ? 'rgba(241,244,250,0.35)' : 'rgba(16,19,24,0.30)');
+      return this.currentSessionRunning() ? '#2EB85C' : (this.isDark ? 'rgba(241,244,250,0.35)' : 'rgba(16,19,24,0.30)');
     }
     if (this.connection === 'connecting') {
       return '#FFAD1F';
@@ -1449,7 +1463,7 @@ export struct ConversationPage {
       : GatewayRequestFactory.simple('models');
     client.requestGateway(request, 15000).then((frame: GatewayFrame) => {
       Logger.info('[EffortDebug] modelsFrame=' + JSON.stringify(frame).substring(0, 700));
-      const rec = frame as unknown as Record<string, Object>;
+      const rec: Record<string, Object> = asRec(frame) ?? ({} as Record<string, Object>);
       const rawGroups = rec['groups'];
       const groups = rawGroups !== undefined && Array.isArray(rawGroups) ? rawGroups as Object[] : [];
       // 目标模型：网关帧里的 current 优先（权威当前模型），否则回退本地推算
