@@ -558,7 +558,8 @@ export struct ConversationComposer {
     .width(168)
     .height(34)
     .padding({ left: 7, right: 7 })
-    .borderRadius(6)
+    // 最大圆角：胶囊形（高度的一半）
+    .borderRadius(17)
     .backgroundColor(this.permissionCurrent === value ? this.chipActiveFill() : Color.Transparent)
   }
 
@@ -725,7 +726,8 @@ export struct ConversationComposer {
                 .width('100%')
                 .height(40)
                 .padding({ left: 16, right: 16 })
-                .borderRadius(6)
+                // 最大圆角：胶囊形（高度的一半）
+                .borderRadius(20)
                 .backgroundColor(row.current || this.hoveredModelKey === row.key ? this.chipActiveFill() : Color.Transparent)
                 .onHover((isHover: boolean) => {
                   this.hoveredModelKey = isHover ? row.key : '';
@@ -775,7 +777,8 @@ export struct ConversationComposer {
     .width(168)
     .height(34)
     .padding({ left: 7, right: 7 })
-    .borderRadius(6)
+    // 最大圆角：胶囊形（高度的一半）
+    .borderRadius(17)
     .backgroundColor(this.effortCurrent === value ? this.chipActiveFill() : Color.Transparent)
   }
 
