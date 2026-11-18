@@ -158,6 +158,8 @@ export struct ConversationPage {
   private speechLimits: SpeechLimits | null = null;
   /** 长按会话令牌：松手/重按时让在途的 catalog+start 流程自动作废 */
   private voiceHoldToken: number = 0;
+  /** 录音期间轮询音量驱动波纹 */
+  private voiceLevelTimer: number = -1;
   @State hint: string = '';
   @State autoStick: boolean = true;
   @State sending: boolean = false;
@@ -254,6 +256,13 @@ export struct ConversationPage {
       clearInterval(this.progressTimer);
       this.progressTimer = -1;
     }
+    // 离页时收掉录音：不然麦克风会一直占着
+    this.stopVoiceLevelPoll();
+    if (this.voiceRecording || this.dictation.isActive()) {
+      this.dictation.cancel();
+    }
+    this.voiceRecording = false;
+    this.voiceCancelArmed = false;
   }
 
   /** 输入法收起（高度归零）时塌回：无草稿无附件回单栏，有草稿保持展开卡片（对齐小程序 onKeyboardHide） */
@@ -872,8 +881,10 @@ export struct ConversationPage {
       this.speechLimits = limits;
       await this.dictation.start(limits, (message: string) => {
         this.voiceRecording = false;
+        this.stopVoiceLevelPoll();
         this.hint = '录音中断：' + message;
       });
+      this.startVoiceLevelPoll();
       if (token !== this.voiceHoldToken) {
         this.dictation.cancel();
         this.voiceRecording = false;
@@ -884,6 +895,27 @@ export struct ConversationPage {
       this.voiceRecording = false;
       this.voiceCancelArmed = false;
       this.hint = msg;
+    }
+  }
+
+  /** 录音期间每 100ms 取一次真实音量（对齐小程序 onLevel 的节流） */
+  private startVoiceLevelPoll(): void {
+    if (this.voiceLevelTimer >= 0) {
+      return;
+    }
+    this.voiceLevelTimer = setInterval(() => {
+      if (!this.voiceRecording) {
+        this.stopVoiceLevelPoll();
+        return;
+      }
+      this.voiceLevel = this.dictation.level();
+    }, 100);
+  }
+
+  private stopVoiceLevelPoll(): void {
+    if (this.voiceLevelTimer >= 0) {
+      clearInterval(this.voiceLevelTimer);
+      this.voiceLevelTimer = -1;
     }
   }
 
@@ -898,12 +930,15 @@ export struct ConversationPage {
     if (cancel) {
       this.dictation.cancel();
       this.voiceRecording = false;
+      this.stopVoiceLevelPoll();
       return;
     }
     const limits: SpeechLimits | null = this.speechLimits;
     if (!this.voiceRecording || limits === null) {
+      this.stopVoiceLevelPoll();
       return;
     }
+    this.stopVoiceLevelPoll();
     // 松手：结束采集 → 转 WAV → 网关转写
     this.voiceHint = '正在转文字…';
     this.dictation.stopAndTranscribe(limits).then((text: string) => {

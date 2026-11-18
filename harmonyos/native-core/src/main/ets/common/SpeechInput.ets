@@ -32,9 +32,16 @@ export class SpeechInput {
   private generating: number = 0;
   private limitPcmBytes: number = 0;
   private recording: boolean = false;
+  /** 最近一帧的音量 0..1（对齐小程序 frameLevel，用于波纹高度） */
+  private currentLevel: number = 0;
 
   isActive(): boolean {
     return this.capturer !== null || this.recording;
+  }
+
+  /** 当前音量 0..1，录音时用于驱动波纹 */
+  level(): number {
+    return this.currentLevel;
   }
 
   /** 读网关语音插件能力；不可用时抛出可读错误 */
@@ -44,6 +51,7 @@ export class SpeechInput {
       throw new Error('请先连接网关，再使用语音输入');
     }
     const frame: GatewayFrame = await client.requestPlugin('speech-catalog', {}, 8000);
+    Logger.info('speech catalog available=' + (bool(frame, 'available') === true ? '1' : '0'));
     const available: boolean = bool(frame, 'available') === true;
     if (!available) {
       throw new Error('请在 DSH 插件管理中启用官方语音输入');
@@ -125,6 +133,7 @@ export class SpeechInput {
               const chunk: Uint8Array = new Uint8Array(buffer.slice(0));
               this.chunks.push(chunk);
               this.totalBytes += chunk.length;
+              this.currentLevel = SpeechInput.frameLevel(chunk);
             }
           }
         } catch (err) {
@@ -184,6 +193,7 @@ export class SpeechInput {
     if (limits.language.length > 0) {
       payload['language'] = limits.language;
     }
+    Logger.info('speech transcribe bytes=' + wav.length.toString() + ' provider=' + limits.providerId);
     const frame: GatewayFrame = await GatewayClient.get().requestPlugin('speech-transcribe', payload, 185000);
     const text: string = str(frame, 'text') ?? '';
     if (text.trim().length === 0) {
@@ -202,6 +212,22 @@ export class SpeechInput {
     if (requestId !== undefined && requestId.length > 0) {
       GatewayClient.get().requestPlugin('speech-cancel', { 'targetRequestId': requestId }, 6000).catch(() => {});
     }
+  }
+
+  /** 一帧 PCM16 的 RMS → 0..1（对齐小程序 frameLevel 的 dB 映射） */
+  private static frameLevel(chunk: Uint8Array): number {
+    const view: DataView = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength);
+    let energy: number = 0;
+    let count: number = 0;
+    for (let i = 0; i + 1 < view.byteLength; i += 2) {
+      const value: number = view.getInt16(i, true) / 32768;
+      energy += value * value;
+      count += 1;
+    }
+    const rms: number = Math.sqrt(energy / Math.max(1, count));
+    const db: number = 20 * Math.log10(Math.max(0.0001, rms));
+    const level: number = (db + 55) / 55;
+    return Math.max(0, Math.min(1, level));
   }
 
   /** PCM16 小端 → 44 字节 WAV；两端补静音并做峰值归一（对齐小程序 pcmToWav） */

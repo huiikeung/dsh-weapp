@@ -1442,7 +1442,9 @@ export struct ConversationComposer {
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .width('100%')
-            if (this.voiceEnabled && (this.voiceMode || this.voiceRecording)) {
+            // 折叠态默认就挂语音触摸层（对齐小程序 voice-touch-surface 的可见条件）：
+            // 不必先点麦克风，直接在占位区按住就能说话；轻点仍然展开去打字。
+            if (this.voiceEnabled) {
               Column()
                 .width('100%')
                 .height('100%')
@@ -1451,7 +1453,7 @@ export struct ConversationComposer {
             }
             }
             .layoutWeight(1)
-            .height(36)
+            .height(this.voiceRecording ? 52 : 36)
             .alignContent(Alignment.Start)
               .onClick(() => {
                 // 长按已经被当成录音：吞掉这次点击，不要再展开输入框
@@ -1523,7 +1525,8 @@ export struct ConversationComposer {
             }
           }
           .width('100%')
-          .height(36)
+          // 录音态把行高放到 52：波纹面板本身高 52，留在 36 会被裁掉一半
+          .height(this.voiceRecording ? 52 : 36)
           .alignItems(VerticalAlign.Center)
         }
 
