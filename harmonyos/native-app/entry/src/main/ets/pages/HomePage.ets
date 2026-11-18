@@ -1,6 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { display, KeyboardAvoidMode, LengthMetrics, uiMaterial } from '@kit.ArkUI';
+import { display, KeyboardAvoidMode, LengthMetrics, uiMaterial, window } from '@kit.ArkUI';
 import { drawing } from '@kit.ArkGraphics2D';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
@@ -29,7 +29,7 @@ interface SessionSection {
 @Component
 export struct HomePage {
   @StorageLink('isDark') isDark: boolean = false;
-  @StorageLink('connectionState') connection: string = 'disconnected';
+  @StorageLink('connectionState') @Watch('onConnectionChanged') connection: string = 'disconnected';
   @StorageLink('tailscaleTunnelEnabled') tailscaleTunnelEnabled: boolean = false;
   @StorageLink('tailscaleStage') tailscaleStage: string = 'disabled';
   @StorageLink('transportTailnet') transportTailnet: boolean = false;
@@ -106,6 +106,25 @@ export struct HomePage {
 
   private bg(): string {
     return '#141518';
+  }
+
+  /** 首页恒为深海深色背景：状态栏内容强制白色（浅色主题下系统会重置成黑，需显式覆盖）。
+   *  setColorMode 会异步重置状态栏样式，单次调用可能被盖回，因此延迟重试四次确保最终态为白。 */
+  private applyStatusBarWhite(): void {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const apply = (): void => {
+        window.getLastWindow(context).then((win: window.Window) => {
+          win.setWindowSystemBarProperties({ statusBarContentColor: '#FFFFFF' });
+        }).catch(() => {
+        });
+      };
+      apply();
+      setTimeout(apply, 100);
+      setTimeout(apply, 400);
+      setTimeout(apply, 1000);
+    } catch (err) {
+    }
   }
 
   private navPad(): Length {
@@ -1486,6 +1505,35 @@ export struct HomePage {
   }
 
 
+  /**
+   * 分区本身的 ForEach key：必须随区内会话的运行状态一起变。
+   * ArkUI 只按 key 复用节点——key 不变时，连它内部的 ForEach 都不会重跑，
+   * 于是「运行中」这种行内变化永远上不了屏。
+   */
+  private sectionKey(sec: SessionSection): string {
+    let runCount: number = 0;
+    let stamp: number = 0;
+    for (const row of sec.rows) {
+      if (row.running) {
+        runCount += 1;
+      }
+      if (row.updatedAt > stamp) {
+        stamp = row.updatedAt;
+      }
+    }
+    return sec.id + '|' + sec.rows.length.toString() + '|' + runCount.toString() + '|'
+      + stamp.toString() + '|' + sec.toggleLabel;
+  }
+
+  /**
+   * 会话行的 ForEach key：必须带上会变的状态。
+   * ArkUI 的 ForEach 只按 key 复用节点，key 不变就不会重跑 item builder，
+   * 于是「运行中 / 时间」这类内容变了界面也不动——这正是手机端状态更新不及时的直接原因。
+   */
+  private sessionKey(item: SessionSummary): string {
+    return item.id + '|' + (item.running ? '1' : '0') + '|' + item.updatedAt.toString() + '|' + item.title;
+  }
+
   /** 会话行（对齐小程序 .session-row）：圆点 / 标题 + 等宽 id / 右侧时间 */
   @Builder
   sessionRow(item: SessionSummary, last: boolean) {
@@ -2463,7 +2511,18 @@ export struct HomePage {
     this.hostSheetOpen = false;
   }
 
+  /**
+   * 连上/重连后立刻校准一次会话列表：
+   * 断线期间桌面端可能开跑或跑完，重连后不能干等下一拍轮询。
+   */
+  onConnectionChanged(): void {
+    if (this.connection === 'connected') {
+      SessionStore.get().refreshSessionsNow();
+    }
+  }
+
   aboutToAppear(): void {
+    this.applyStatusBarWhite();
     try {
       console.info('[HiGlass] supported=' + uiMaterial.isImmersiveMaterialSupported()
         + ' level=' + uiMaterial.getGlobalMaterialLevel()
@@ -2864,18 +2923,18 @@ export struct HomePage {
                 .margin({ top: si === 0 ? 8 : 24 })
                 ForEach(sec.shown, (item: SessionSummary, index: number) => {
                   this.sessionRow(item, sec.lastSection && sec.toggleLabel.length === 0 && index === sec.shown.length - 1)
-                }, (item: SessionSummary) => item.id)
+                }, (item: SessionSummary) => this.sessionKey(item))
                 if (sec.toggleLabel.length > 0) {
                   this.sessionToggle(sec.toggleLabel, sec.expanded, sec.id)
                 }
               }
               .width('100%')
-            }, (sec: SessionSection) => sec.id)
+            }, (sec: SessionSection) => this.sectionKey(sec))
           } else {
             // 最近会话 / 单个工作区：默认只显示 12 条
             ForEach(this.recentRows(), (item: SessionSummary, index: number) => {
               this.sessionRow(item, this.filtered().length <= SESSION_RECENT_LIMIT && index === this.recentRows().length - 1)
-            }, (item: SessionSummary) => item.id)
+            }, (item: SessionSummary) => this.sessionKey(item))
             if (this.filtered().length > SESSION_RECENT_LIMIT) {
               this.sessionToggle(this.recentExpanded ? '收起' : ('展开其余 ' + (this.filtered().length - SESSION_RECENT_LIMIT) + ' 个会话'), this.recentExpanded, '')
             }
@@ -2936,6 +2995,9 @@ export struct HomePage {
       })
     }
     .hideTitleBar(true)
+    .onShown(() => {
+      this.applyStatusBarWhite();
+    })
     .backgroundColor(this.drawerOpen ? (this.isDark ? '#181A1F' : '#FFFFFF') : this.bg())
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     // 添加工作区：系统半模态 + 沉浸材质（与切换主机一致）

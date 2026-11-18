@@ -10,7 +10,14 @@
  * 视觉来源：miniprogram/pages/session/session.wxss 5569-5602（两态）、893-1050、2694-2800。
  * 约束：ArkTS 严格模式；颜色全部字符串字面量。
  */
+import { LengthMetrics } from '@kit.ArkUI';
 import type { ModelMenuItem } from 'nativecore';
+
+/** 指标菜单行（鸿蒙原生 Menu 的 MenuItem：content 在左，labelInfo 数值在右） */
+export interface MetricMenuPair {
+  label: string;
+  value: string;
+}
 
 @Component
 export struct ConversationComposer {
@@ -33,6 +40,9 @@ export struct ConversationComposer {
   @State modelListShown: boolean = false;
   /** 第二层内容：model | effort */
   @State modelListPane: string = 'model';
+  /** 应用内菜单卡片可见性（样式对齐原系统菜单；不抢焦点，键盘收起仍保持） */
+  @State permSheetVisible: boolean = false;
+  @State modelSheetVisible: boolean = false;
   /** 模型列表菜单展开态 */
   @State modelsShown: boolean = false;
   /** 推理等级 / 提供商列表菜单展开态 */
@@ -42,10 +52,8 @@ export struct ConversationComposer {
   /** 模型列表当前展示的提供商 */
   @State activeProvider: string = '';
 
-  /** chip 展开态（控制 ▾ 旋转与底色） */
+  /** chip 展开态（控制 ▾ 旋转） */
   @Prop permissionOpen: boolean = false;
-  /** chip 行可用宽度：放不下权限名时只留图标 + 箭头（对齐小程序 permissionChipIconOnly） */
-  @State chipsBarWidth: number = 0;
   @Prop modelOpen: boolean = false;
   /** 推理等级文案（低/中/高） */
   @Prop effort: string = '';
@@ -87,6 +95,8 @@ export struct ConversationComposer {
   onStats: () => void = () => {};
   onTokenStats: () => void = () => {};
   onContext: () => void = () => {};
+  /** 指标菜单行数据：点开菜单时由页面现算（会话统计 / Token 用量 / 上下文已用） */
+  metricPairsFor: (kind: string) => MetricMenuPair[] = () => [];
 
   // ===== 底部三个指标按钮的文案（小程序 composer-metrics） =====
   @Prop runMetric: string = '— 轮 — 步';
@@ -122,7 +132,8 @@ export struct ConversationComposer {
 
   /** 描边：对齐系统菜单（右上角「⋯」弹窗）的细亮边 */
   private cardEdge(): string {
-    return this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.08)';
+    // 与返回按钮玻璃盘的内缘细边同值
+    return this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)';
   }
 
   /** 阴影：菜单浮层的柔和投影 */
@@ -138,9 +149,9 @@ export struct ConversationComposer {
     return this.isDark ? 'rgba(241,244,250,0.36)' : 'rgba(16,19,24,0.28)';
   }
 
-  /** 折叠态占位文案色（小程序 .composer-collapsed-placeholder） */
+  /** 折叠态占位文案色（参考截图的中灰占位） */
   private collapsedPlaceholderColor(): string {
-    return this.isDark ? 'rgba(241,244,250,0.40)' : 'rgba(16,19,24,0.32)';
+    return this.isDark ? 'rgba(241,244,250,0.40)' : 'rgba(16,19,24,0.42)';
   }
 
   private chipText(): string {
@@ -235,46 +246,36 @@ export struct ConversationComposer {
     return this.isDark ? 0.72 : 0.62;
   }
 
-  /** 工作区卡片同款亮边：深色 1px 白 22%，浅色用极淡描边 */
-  private surfaceBorder(): string {
-    return this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(16,19,24,0.08)';
+  /**
+   * 卡片底色：浅色=接近纯白的半透明（比光边暗一档，0.50→0.80 让内部更亮但不抢过白环）；
+   * 深色=贴近对话页纯黑背景的深色半透明（不发灰发亮）
+   */
+  /** 输入框上方浮层（权限 / 模型菜单卡片）底色：与页面卡片同色 */
+  private surfaceColor(): string {
+    return this.isDark ? '#1C1C1E' : '#FFFFFF';
   }
 
-  /** 卡片渐变顶色（深色几乎透明，浅色接近白） */
-  private surfaceGradientTop(): string {
-    return this.isDark ? 'rgba(255,255,255,0.020)' : 'rgba(255,255,255,0.92)';
+  private sheetCardFill(): string {
+    // 与返回按钮的玻璃盘同一底色（深色贴黑、浅色接近纯白）
+    return this.isDark ? 'rgba(8,8,10,0.60)' : 'rgba(255,255,255,0.80)';
   }
 
-  /** 卡片渐变底色 */
-  private surfaceGradientBottom(): string {
-    return this.isDark ? 'rgba(255,255,255,0.004)' : 'rgba(255,255,255,0.72)';
+  /**
+   * 最外圈光圈颜色：深色与系统菜单（权限弹窗）的光边完全一致。
+   * 系统菜单的描边在 HomePage 里显式设为 separatorColor()（深色 rgba(255,255,255,0.16)、浅色 rgba(0,0,0,0.10)），
+   * 这里取同一值，保证输入框光边和权限弹窗边缘是同一个亮度。
+   */
+  private ringColor(): string {
+    return this.isDark ? 'rgba(255,255,255,0.26)' : 'rgba(255,255,255,0.96)';
   }
 
-  /** 卡片投影 */
-  private surfaceShadow(): string {
-    return this.isDark ? 'rgba(3,14,30,0.12)' : 'rgba(0,0,0,0.07)';
+  /** 光圈外的投影：与返回按钮同为中性色（深色黑色、浅色淡灰），不再用白色光晕 */
+  private haloShadow(): string {
+    // 与返回按钮同一档悬浮感（按钮调轻后同步）
+    return this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)';
   }
 
-  /** 权限名放不下时只显示图标 + 箭头（小程序 permissionChipIconOnly） */
-  private permissionIconOnly(): boolean {
-    if (this.chipsBarWidth <= 0) {
-      return false;
-    }
-    let labelWidth: number = 0;
-    try {
-      // measureText 返回 px，转 vp 后才能和 onAreaChange 的宽度比较
-      labelWidth = px2vp(this.getUIContext().getMeasureUtils().measureText({
-        textContent: this.permissionLabel(),
-        fontSize: 12
-      }));
-    } catch (e) {
-      return false;
-    }
-    // 小程序 .permission-chip max-width 38%；扣掉图标 14 + 间距 3 + 箭头 5 + 箭头边距 5 + chip 内边距 10
-    const chrome: number = 37;
-    const available: number = this.chipsBarWidth * 0.38 - chrome;
-    return labelWidth > available;
-  }
+
 
   /** 小程序 --text-4：chip 右侧箭头等最弱的文字/描边色 */
   private text4(): string {
@@ -331,6 +332,7 @@ export struct ConversationComposer {
   @Builder
   draftField() {
     TextArea({ text: this.draft, placeholder: this.placeholder })
+      .id('composer-draft-area')
       .width('100%')
       .fontSize(14)
       .fontColor(this.inputText())
@@ -339,7 +341,9 @@ export struct ConversationComposer {
       .caretStyle({ width: 1.5, color: '#2E6BE6' })
       .backgroundColor('#00000000')
       .borderWidth(0)
-      .padding({ left: 2, right: 2, top: 0, bottom: 0 })
+      // 左缘归零：文字与下方 chip 行的「+」按钮左缘对齐（卡片的 14vp 内边距已提供与光圈的距离）。
+      // 顶部留 2vp：TextArea 首行紧贴上沿时会被卡片的圆角/描边压住，看起来像「第一个字被挡」。
+      .padding({ left: 0, right: 0, top: 2, bottom: 0 })
       .constraintSize({ minHeight: 28, maxHeight: 154 })
       // 不在这里用 defaultFocus：条件挂载 + defaultFocus 在本机会崩；改为点击文本域即获焦，
       // onBlur 时若草稿与附件均为空才塌回单栏。
@@ -347,7 +351,12 @@ export struct ConversationComposer {
         this.onFocusChange(true);
       })
       .onBlur(() => {
-        this.onFocusChange(false);
+        // 菜单弹出瞬间可能短暂抢焦点：延迟确认，chip 菜单在开时不收起输入态
+        setTimeout(() => {
+          if (!this.permissionOpen && !this.modelOpen && !this.modelRootShown && !this.modelListShown) {
+            this.onFocusChange(false);
+          }
+        }, 140);
       })
       .onChange((value: string) => {
         this.onDraft(value);
@@ -356,13 +365,13 @@ export struct ConversationComposer {
 
   @Builder
   plusButton() {
-    // 小程序 .chip.icon：64rpx = 32vp 圆形，无描边（描边只出现在折叠态 composer-plus-inline）
+    // 与折叠态 composer-plus-inline 同尺寸：27vp 圆形（展开/折叠两个 + 一致）
     Stack() {
-      Text('+').fontSize(16).fontColor(this.chipText())
+      Text('+').fontSize(15).fontColor(this.chipText())
     }
-    .width(32)
-    .height(32)
-    .borderRadius(16)
+    .width(27)
+    .height(27)
+    .borderRadius(14)
     .border({ width: 0.9, color: this.plusBorder() })
     .opacity(this.connected ? 1 : 0.4)
     .enabled(this.connected)
@@ -384,13 +393,7 @@ export struct ConversationComposer {
         .objectFit(ImageFit.Contain)
         .colorFilter(this.iconTint(this.chipIconColor()))
         .opacity(this.chipIconOpacity())
-      if (!this.permissionIconOnly()) {
-        Text(this.permissionLabel())
-          .fontSize(12)
-          .fontColor(this.chipText())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-      }
+      // 权限 chip 默认只显示图标 + 箭头（不放权限名）
       // 小程序 .permission-chip-chevron：5×5 的 border 箭头（1px 右下边框转 45°），展开转 225°
       Row()
         .width(5)
@@ -407,6 +410,7 @@ export struct ConversationComposer {
     .alignItems(VerticalAlign.Center)
     // 权限菜单：与顶栏「⋯」同款系统菜单（bindMenu 自带点击弹出，不要再挂 onClick，否则会重复触发）
     .bindMenu(this.permissionMenu(), {
+      showInSubWindow: false,
       onDisappear: () => {
         this.onPermissionMenuVisible(false);
       },
@@ -510,12 +514,12 @@ export struct ConversationComposer {
     .borderRadius(15)
     .backgroundColor(this.modelOpen ? this.chipActiveFill() : Color.Transparent)
     .alignItems(VerticalAlign.Center)
-    // 与权限按钮同一控件：原生系统菜单（bindMenu）。两层各一枚菜单 + 各自隐形锚点，
-    // 保持系统菜单的字号/圆角/模糊/动效；不会因「点一项必收起」导致第二层闪没。
+    // 与权限按钮同一控件：原生系统菜单（bindMenu）。两层各一枚菜单 + 各自隐形锚点
     .onClick(() => {
       this.modelRootShown = true;
     })
     .bindMenu(this.modelRootShown, this.modelRootMenu(), {
+      showInSubWindow: false,
       onAppear: () => {
         this.onModelMenuVisible(true);
       },
@@ -534,6 +538,7 @@ export struct ConversationComposer {
       .height(1)
       .opacity(0.01)
       .bindMenu(this.modelListShown, this.modelListMenu(), {
+        showInSubWindow: false,
         onDisappear: () => {
           this.modelListShown = false;
         }
@@ -570,11 +575,11 @@ export struct ConversationComposer {
     }
   }
 
-  /** 第二层：全部模型按提供商分组（内容与之前一致）/ 推理等级，✓ 放最右 */
+  /** 第二层：全部模型按提供商分组（自带滚动、隐藏滑块）/ 推理等级保持原生菜单样式，✓ 放最右 */
   @Builder
   modelListMenu() {
-    Menu() {
-      if (this.modelListPane === 'effort') {
+    if (this.modelListPane === 'effort') {
+      Menu() {
         MenuItem({ content: '‹ 推理等级' })
           .id('effort-back')
           .onClick(() => {
@@ -588,27 +593,299 @@ export struct ConversationComposer {
               this.onPickEffortOption(value);
             })
         }, (value: string, index: number) => 'effort-' + value)
-      } else {
-        ForEach(this.modelMenuItems, (row: ModelMenuItem) => {
-          if (row.isHeader) {
-            MenuItem({ content: row.label }).id('group-' + row.label).enabled(false)
-          } else {
-            MenuItem({ content: row.label, labelInfo: row.current ? '✓' : '' })
-              .id('model-' + row.key)
-              .onClick(() => {
-                this.modelListShown = false;
-                this.onPickModelOption(row.provider, row.model);
-              })
-          }
-        }, (row: ModelMenuItem) => row.key)
       }
+    } else {
+      Column() {
+        Scroll() {
+          Column() {
+            ForEach(this.modelMenuItems, (row: ModelMenuItem) => {
+              if (row.isHeader) {
+                Row() {
+                  Text(row.label)
+                    .fontSize(13)
+                    .fontColor(this.mutedText())
+                }
+                .width('100%')
+                .height(32)
+                .padding({ left: 16, right: 16 })
+              } else {
+                Row() {
+                  Text(row.label)
+                    .fontSize(14)
+                    .fontColor(this.menuLabelColor())
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .layoutWeight(1)
+                  if (row.current) {
+                    Text('✓')
+                      .fontSize(14)
+                      .fontColor(this.menuLabelColor())
+                  }
+                }
+                .width('100%')
+                .height(40)
+                .padding({ left: 16, right: 16 })
+                .onClick(() => {
+                  this.modelListShown = false;
+                  this.onPickModelOption(row.provider, row.model);
+                })
+              }
+            }, (row: ModelMenuItem) => row.key)
+          }
+          .width('100%')
+        }
+        .constraintSize({ maxHeight: 320 })
+        .scrollBar(BarState.Off)
+        .align(Alignment.Top)
+      }
+      .width(180)
     }
   }
 
+  /** 权限菜单卡片：输入框上方应用内浮层（观感对齐右上角三点系统菜单；不抢焦点，键盘收起仍保持） */
+  @Builder
+  permissionSheet() {
+    Row() {
+      Column() {
+        ForEach(this.permissionValues, (value: string, index: number) => {
+          Row() {
+            Image(this.permissionIconRes(value))
+              .width(18)
+              .height(18)
+              .objectFit(ImageFit.Contain)
+              .colorFilter(this.iconTint(this.permissionIconColor()))
+              .opacity(this.permissionIconOpacity())
+            Text(this.permissionLabels[index])
+              .fontSize(16)
+              .fontColor(this.menuLabelColor())
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
+              .margin({ left: 10 })
+            if (value === 'auto') {
+              Text('EXP')
+                .fontSize(9)
+                .fontColor(this.mutedText())
+                .margin({ left: 4 })
+            }
+            if (this.permissionCurrent === value) {
+              Text('✓')
+                .fontSize(15)
+                .fontColor(this.menuLabelColor())
+                .margin({ left: 10 })
+            }
+          }
+          .width('100%')
+          .height(44)
+          .padding({ left: 16, right: 16 })
+          .onClick(() => {
+            this.permSheetVisible = false;
+            this.onPickPermissionOption(value);
+          })
+          if (index < this.permissionValues.length - 1) {
+            Row()
+              .width('100%')
+              .height(1)
+              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.20)')
+              .margin({ left: 16, right: 16 })
+          }
+        }, (value: string) => value)
+      }
+      .width(204)
+      .padding({ top: 4, bottom: 4 })
+      .borderRadius(16)
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+      .backgroundColor(this.isDark ? 'rgba(26,28,32,0.92)' : 'rgba(252,252,254,0.92)')
+      .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.18)', offsetY: 8 })
+      .alignItems(HorizontalAlign.Start)
+      .clip(true)
+      Blank()
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, bottom: 6 })
+  }
 
+  /** 模型菜单卡片：两级（根：模型 / 推理等级 → 分组模型列表 / 推理等级列表），观感对齐右上角三点系统菜单 */
+  @Builder
+  modelSheet() {
+    Row() {
+      Blank()
+      Column() {
+        if (this.modelListPane === 'root') {
+          Row() {
+            Text('模型')
+              .fontSize(16)
+              .fontColor(this.menuLabelColor())
+            Blank()
+            Text(this.modelLabel() + ' ›')
+              .fontSize(14)
+              .fontColor(this.mutedText())
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .constraintSize({ maxWidth: 160 })
+          }
+          .width('100%')
+          .height(44)
+          .padding({ left: 16, right: 16 })
+          .onClick(() => {
+            this.openModelList('model');
+          })
+          Row()
+            .width('100%')
+            .height(1)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.20)')
+            .margin({ left: 16, right: 16 })
+          Row() {
+            Text('推理等级')
+              .fontSize(16)
+              .fontColor(this.menuLabelColor())
+            Blank()
+            Text((this.effort.length > 0 ? this.effort : 'High') + ' ›')
+              .fontSize(14)
+              .fontColor(this.mutedText())
+          }
+          .width('100%')
+          .height(44)
+          .padding({ left: 16, right: 16 })
+          .onClick(() => {
+            this.openModelList('effort');
+          })
+        } else {
+          Scroll() {
+            Column() {
+              if (this.modelListPane === 'effort') {
+                Row() {
+                  Text('‹ 推理等级')
+                    .fontSize(16)
+                    .fontColor(this.menuLabelColor())
+                }
+                .width('100%')
+                .height(44)
+                .padding({ left: 16, right: 16 })
+                .onClick(() => {
+                  this.openModelList('root');
+                })
+                ForEach(this.effortValues, (value: string, index: number) => {
+                  Column() {
+                    Row() {
+                      Text(this.effortLabels[index])
+                        .fontSize(16)
+                        .fontColor(this.menuLabelColor())
+                      Blank()
+                      Text(this.effortCurrent === value ? '✓' : '')
+                        .fontSize(15)
+                        .fontColor(this.menuLabelColor())
+                    }
+                    .width('100%')
+                    .height(44)
+                    .padding({ left: 16, right: 16 })
+                    .onClick(() => {
+                      this.modelSheetVisible = false;
+                      this.onPickEffortOption(value);
+                    })
+                    if (index < this.effortValues.length - 1) {
+                      Row()
+                        .width('100%')
+                        .height(1)
+                        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.20)')
+                        .margin({ left: 16, right: 16 })
+                    }
+                  }
+                }, (value: string) => 'effort-' + value)
+              } else {
+                ForEach(this.modelMenuItems, (row: ModelMenuItem) => {
+                  Column() {
+                    if (row.isHeader) {
+                      Row() {
+                        Text(row.label)
+                          .fontSize(13)
+                          .fontColor(this.mutedText())
+                      }
+                      .width('100%')
+                      .height(32)
+                      .padding({ left: 16, right: 16 })
+                    } else {
+                      Row() {
+                        Text(row.label)
+                          .fontSize(16)
+                          .fontColor(this.menuLabelColor())
+                          .maxLines(1)
+                          .textOverflow({ overflow: TextOverflow.Ellipsis })
+                          .layoutWeight(1)
+                        Text(row.current ? '✓' : '')
+                          .fontSize(15)
+                          .fontColor(this.menuLabelColor())
+                      }
+                      .width('100%')
+                      .height(44)
+                      .padding({ left: 16, right: 16 })
+                      .onClick(() => {
+                        this.modelSheetVisible = false;
+                        this.onPickModelOption(row.provider, row.model);
+                      })
+                    }
+                    Row()
+                      .width('100%')
+                      .height(1)
+                      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.20)')
+                      .margin({ left: 16, right: 16 })
+                  }
+                }, (row: ModelMenuItem) => row.key)
+                Row() {
+                  Text('‹ 模型')
+                    .fontSize(16)
+                    .fontColor(this.menuLabelColor())
+                }
+                .width('100%')
+                .height(44)
+                .padding({ left: 16, right: 16 })
+                .onClick(() => {
+                  this.openModelList('root');
+                })
+              }
+            }
+            .width('100%')
+          }
+          .width('100%')
+          .constraintSize({ maxHeight: 320 })
+          .scrollBar(BarState.Off)
+          .align(Alignment.Top)
+        }
+      }
+      .width(248)
+      .padding({ top: 4, bottom: 4 })
+      .borderRadius(16)
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+      .backgroundColor(this.isDark ? 'rgba(26,28,32,0.92)' : 'rgba(252,252,254,0.92)')
+      .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.18)', offsetY: 8 })
+      .alignItems(HorizontalAlign.Start)
+      .clip(true)
+      Blank()
+    }
+    .width('100%')
+    .padding({ left: 14, right: 14, bottom: 6 })
+  }
   /** 指标行文字色（小程序 .stat / .meta 的次要色） */
   private metricText(): string {
     return this.isDark ? 'rgba(241,244,250,0.62)' : 'rgba(16,19,24,0.56)';
+  }
+
+  /** 图标着色（支持 rgba()：颜色矩阵连 alpha 一起换，和文字完全同色） */
+  private iconTintRgba(color: string): number[] {
+    const match: RegExpExecArray | null = /rgba\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*,\s*([\d.]+)\s*\)/.exec(color.trim());
+    if (match !== null) {
+      const r: number = Number(match[1]) / 255;
+      const g: number = Number(match[2]) / 255;
+      const b: number = Number(match[3]) / 255;
+      const a: number = Number(match[4]);
+      return [
+        0, 0, 0, 0, r,
+        0, 0, 0, 0, g,
+        0, 0, 0, 0, b,
+        0, 0, 0, a, 0
+      ];
+    }
+    return this.iconTint(color);
   }
 
   /** 主按钮：可发送 → ↑；运行中 → 停止方块 */
@@ -641,12 +918,113 @@ export struct ConversationComposer {
     })
   }
 
+  /** 三个指标弹层的展开态（对齐首页工作区卡片：控制变量式系统 Menu） */
+  @State runMenuOpen: boolean = false;
+  @State tokenMenuOpen: boolean = false;
+  @State contextMenuOpen: boolean = false;
+
+  /** 菜单分隔/描边色（与上下文进度条底色同源） */
+  private menuSeparator(): string {
+    return this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(12,14,19,0.08)';
+  }
+
+  /** 指标弹层标题行（恢复标题：会话统计 / Token 用量 / 上下文已用） */
+  @Builder
+  metricHeaderRow(title: string) {
+    Row() {
+      Text(title)
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.menuLabelColor())
+      Blank()
+    }
+    .width(232)
+    .height(36)
+    .padding({ left: 24, right: 24 })
+  }
+
+  /** 指标弹层数据行：名称在左（系统菜单字色），数值在右（次级色） */
+  @Builder
+  metricRow(label: string, value: string) {
+    Row() {
+      Text(label)
+        .fontSize(14)
+        .fontColor(this.menuLabelColor())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Blank()
+      Text(value)
+        .fontSize(13)
+        .fontColor(this.mutedText())
+    }
+    .width(232)
+    .height(40)
+    .padding({ left: 24, right: 24 })
+  }
+
+  @Builder
+  runMenuBuilder() {
+    Menu()
+      .menuItemDivider({
+        strokeWidth: LengthMetrics.vp(0.6),
+        color: this.menuSeparator(),
+        startMargin: LengthMetrics.vp(12),
+        endMargin: LengthMetrics.vp(12)
+      }) {
+      MenuItemGroup() {
+        MenuItem(this.metricHeaderRow('会话统计')).enabled(false)
+        ForEach(this.metricPairsFor('run'), (pair: MetricMenuPair) => {
+          MenuItem(this.metricRow(pair.label, pair.value))
+        }, (pair: MetricMenuPair) => pair.label)
+      }
+    }
+  }
+
+  @Builder
+  tokenMenuBuilder() {
+    Menu()
+      .menuItemDivider({
+        strokeWidth: LengthMetrics.vp(0.6),
+        color: this.menuSeparator(),
+        startMargin: LengthMetrics.vp(12),
+        endMargin: LengthMetrics.vp(12)
+      }) {
+      MenuItemGroup() {
+        MenuItem(this.metricHeaderRow('Token 用量')).enabled(false)
+        ForEach(this.metricPairsFor('token'), (pair: MetricMenuPair) => {
+          MenuItem(this.metricRow(pair.label, pair.value))
+        }, (pair: MetricMenuPair) => pair.label)
+      }
+    }
+  }
+
+  @Builder
+  contextMenuBuilder() {
+    Menu()
+      .menuItemDivider({
+        strokeWidth: LengthMetrics.vp(0.6),
+        color: this.menuSeparator(),
+        startMargin: LengthMetrics.vp(12),
+        endMargin: LengthMetrics.vp(12)
+      }) {
+      MenuItemGroup() {
+        MenuItem(this.metricHeaderRow('上下文已用')).enabled(false)
+        ForEach(this.metricPairsFor('context'), (pair: MetricMenuPair) => {
+          MenuItem(this.metricRow(pair.label, pair.value))
+        }, (pair: MetricMenuPair) => pair.label)
+      }
+    }
+  }
+
   @Builder
   runMetricItem() {
     Row({ space: 3 }) {
-      Text('◷').fontSize(11).fontColor(this.metricText())
+      Image($r('app.media.dsh_gauge'))
+        .width(14)
+        .height(14)
+        .colorFilter(this.iconTintRgba(this.metricText()))
       Text(this.runMetric)
-        .fontSize(11)
+        .fontSize(13)
         .fontColor(this.metricText())
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -654,7 +1032,14 @@ export struct ConversationComposer {
     .opacity(0.78)
     .alignItems(VerticalAlign.Center)
     .onClick(() => {
-      this.onStats();
+      this.runMenuOpen = !this.runMenuOpen;
+    })
+    .bindMenu(this.runMenuOpen, this.runMenuBuilder(), {
+      outlineColor: this.menuSeparator(),
+      outlineWidth: 1,
+      onWillDisappear: () => {
+        this.runMenuOpen = false;
+      }
     })
   }
 
@@ -662,9 +1047,12 @@ export struct ConversationComposer {
   @Builder
   tokenMetricItem() {
     Row({ space: 3 }) {
-      Text('▤').fontSize(11).fontColor(this.metricText())
+      Image($r('app.media.dsh_storage'))
+        .width(14)
+        .height(14)
+        .colorFilter(this.iconTintRgba(this.metricText()))
       Text(this.tokenMetric)
-        .fontSize(11)
+        .fontSize(13)
         .fontColor(this.metricText())
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -672,7 +1060,14 @@ export struct ConversationComposer {
     .opacity(0.78)
     .alignItems(VerticalAlign.Center)
     .onClick(() => {
-      this.onTokenStats();
+      this.tokenMenuOpen = !this.tokenMenuOpen;
+    })
+    .bindMenu(this.tokenMenuOpen, this.tokenMenuBuilder(), {
+      outlineColor: this.menuSeparator(),
+      outlineWidth: 1,
+      onWillDisappear: () => {
+        this.tokenMenuOpen = false;
+      }
     })
   }
 
@@ -681,12 +1076,12 @@ export struct ConversationComposer {
   contextMetricItem() {
     Row({ space: 3 }) {
       Progress({ value: this.contextPercent < 0 ? 0 : this.contextPercent, total: 100, type: ProgressType.Ring })
-        .width(13)
-        .height(13)
+        .width(14)
+        .height(14)
         .color('#2E6BE6')
         .backgroundColor(this.ringTrack())
       Text(this.contextMetric)
-        .fontSize(11)
+        .fontSize(13)
         .fontColor(this.metricText())
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -694,7 +1089,14 @@ export struct ConversationComposer {
     .opacity(0.78)
     .alignItems(VerticalAlign.Center)
     .onClick(() => {
-      this.onContext();
+      this.contextMenuOpen = !this.contextMenuOpen;
+    })
+    .bindMenu(this.contextMenuOpen, this.contextMenuBuilder(), {
+      outlineColor: this.menuSeparator(),
+      outlineWidth: 1,
+      onWillDisappear: () => {
+        this.contextMenuOpen = false;
+      }
     })
   }
 
@@ -706,6 +1108,8 @@ export struct ConversationComposer {
   //   ① 卡片 padding/圆角随 expanded 变化；② chip 行与折叠占位分别显示；③ 右侧按钮按需显示。
   build() {
     Column() {
+      // 最外圈白色光圈层：白色包边裹住卡片，外圈再叠一层柔和光晕（参考截图的光圈）
+      Column() {
       Column() {
         if (this.attachmentCount > 0) {
           this.attachmentRow()
@@ -737,13 +1141,21 @@ export struct ConversationComposer {
               }
             })
             Text(this.placeholder)
-              .fontSize(14)
+              .fontSize(15)
               .fontColor(this.collapsedPlaceholderColor())
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
               .onClick(() => {
                 this.onFocusChange(true);
+                // 点击折叠态占位：展开后延迟拉起键盘（节点刚从 Visibility.None 转可见，
+                // 立即 focus 会落在布局完成前；两次重试保证真机一次点按即弹键盘）
+                setTimeout(() => {
+                  this.getUIContext().getFocusController().requestFocus('composer-draft-area');
+                }, 80);
+                setTimeout(() => {
+                  this.getUIContext().getFocusController().requestFocus('composer-draft-area');
+                }, 240);
               })
             if (this.showStopState()) {
               Stack() {
@@ -759,7 +1171,7 @@ export struct ConversationComposer {
             }
           }
           .width('100%')
-          .height(33)
+          .height(36)
           .alignItems(VerticalAlign.Center)
         }
 
@@ -778,24 +1190,27 @@ export struct ConversationComposer {
           .height(34)
           .alignItems(VerticalAlign.Center)
           .margin({ top: 8 })
-          .onAreaChange((oldValue: Area, newValue: Area) => {
-            this.chipsBarWidth = Number(newValue.width);
-          })
         }
       }
       .width('100%')
       .padding(this.expanded()
-        ? { left: 14, right: 14, top: 14, bottom: 12 }
-        : { left: 10, right: 10, top: 6, bottom: 6 })
-      // 对齐首页「工作区卡片」的玻璃样式：近乎透明的白渐变 + 1px 亮边（光感边框）+ 柔和投影
-      .borderRadius(21)
+        ? { left: 14, right: 14, top: 12, bottom: 10 }
+        : { left: 8, right: 8, top: 7, bottom: 7 })
+      // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
+      // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
+      .borderRadius(24)
       .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-      .linearGradient({
-        angle: 165,
-        colors: [[this.surfaceGradientTop(), 0], [this.surfaceGradientBottom(), 1]]
-      })
-      .border({ width: 1, color: this.surfaceBorder() })
-      .shadow({ radius: 14, color: this.surfaceShadow(), offsetY: 4 })
+      .backgroundColor(this.sheetCardFill())
+      .border({ width: 0.5, color: this.cardEdge() })
+
+      }
+      .width('100%')
+      // 光圈层：统一 1.3vp 白环（深/浅色同一厚度，细而可见）
+      .padding(1.3)
+      .borderRadius(25.3)
+      .backgroundColor(this.ringColor())
+      // 与返回按钮同一套悬浮投影：中性色、向下偏移 2vp
+      .shadow({ radius: 6, color: this.haloShadow(), offsetX: 0, offsetY: 2 })
 
       // 卡片下方三个指标按钮：折叠/展开都常驻（对齐小程序 composer-metrics）
       Row({ space: 10 }) {

@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { KeyboardAvoidMode, window } from '@kit.ArkUI';
 import {
   asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, GatewayClient, GatewayRequestFactory, num,
   PickedAttachment, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, pickDocuments, uploadAttachment
@@ -7,7 +8,8 @@ import {
 import type { ModelMenuItem, ModelOption } from 'nativecore';
 import type { UploadResult } from 'nativecore';
 import { ConversationRowView } from '../components/ConversationRowView';
-import { ConversationComposer } from '../components/ConversationComposer';
+import { ConversationComposer, MetricMenuPair } from '../components/ConversationComposer';
+import { NavBackButton } from '../components/NavBackButton';
 import { ConversationProgress } from '../components/ConversationProgress';
 
 interface UploadReceipt {
@@ -142,6 +144,8 @@ export struct ConversationPage {
 
   /** 输入条是否聚焦（决定折叠/展开两态） */
   @State composerFocused: boolean = false;
+  /** 输入法高度（vp，EntryAbility 写入 AppStorage）：归零即键盘收起 → 输入条塌回单栏 */
+  @StorageLink('keyboardHeightVp') @Watch('onKeyboardChanged') keyboardHeightVp: number = 0;
   /** 指标弹层：'' | run | token | context */
   @State metricPopover: string = '';
   /** 输入条 chip 弹层：'' | model（权限改用系统菜单） */
@@ -161,6 +165,7 @@ export struct ConversationPage {
   @StorageLink('modelDetails') modelOptions: ModelOption[] = [];
   @State metricTitle: string = '';
   @State metricPairs: MetricPair[] = [];
+@State metricTotal: string = '';
   /** 系统状态栏高度（vp）：EntryAbility 建窗时写入 AppStorage，页面据此避让。 */
   @StorageLink('safeTopVp') topInset: number = 0;
   /** 执行图标样式（设置页「执行图标」） */
@@ -176,6 +181,11 @@ export struct ConversationPage {
 
   // ==================== 生命周期 ====================
   aboutToAppear(): void {
+    // 其他页面（首页/设置）把全局键盘避让设成了 NONE，进对话页必须恢复：
+    // RESIZE = 键盘弹出时根布局收缩，输入条整体上浮到输入法上方（标题栏不动）
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+    // 状态栏内容色跟随页面背景：深色纯黑 → 白，浅色灰底 → 黑
+    this.applyStatusBarColor();
     this.syncWorkStepPrefs();
     this.ready = true;
     this.rebuildEntries();
@@ -214,6 +224,18 @@ export struct ConversationPage {
       clearInterval(this.progressTimer);
       this.progressTimer = -1;
     }
+  }
+
+  /** 输入法收起（高度归零）时塌回：无草稿无附件回单栏，有草稿保持展开卡片（对齐小程序 onKeyboardHide） */
+  private onKeyboardChanged(propName: string): void {
+    if (propName !== 'keyboardHeightVp' || this.keyboardHeightVp > 0 || !this.composerFocused) {
+      return;
+    }
+    // 输入条弹层（权限/模型选择）开着时不塌回：塌回会连带卸载 chip 行，弹窗跟着消失
+    if (this.composerSheet.length > 0) {
+      return;
+    }
+    this.composerFocused = false;
   }
 
   // ==================== 输入条指标（对齐小程序 composer-metrics） ====================
@@ -273,7 +295,7 @@ export struct ConversationPage {
     }
     let compact: string = total.toString();
     if (total >= 1000000) {
-      compact = (total / 1000000).toFixed(1) + 'M';
+      compact = (total / 1000000).toFixed(total % 1000000 === 0 ? 0 : 1) + 'M';
     } else if (total >= 1000) {
       compact = (total / 1000).toFixed(1) + 'K';
     }
@@ -287,21 +309,10 @@ export struct ConversationPage {
     return percent >= 0 ? percent.toString() + '%' : '—%';
   }
 
-  /** 上下文占用百分比（context-usage 帧的 pressure/contextWindow）。 */
+  /** 上下文占用百分比（已用 / 窗口，来自 pressureRecord 的候选）。 */
   private contextPercent(): number {
-    if (this.contextUsage === null) {
-      return -1;
-    }
-    const record = asRec(this.contextUsage);
-    if (record === undefined) {
-      return -1;
-    }
-    const pressure = asRec(record['pressure']);
-    if (pressure === undefined) {
-      return -1;
-    }
-    const used: number = num(pressure, 'projectedTokens') ?? (num(pressure, 'pressureTokens') ?? -1);
-    const window: number = num(pressure, 'contextWindow') ?? -1;
+    const used: number = this.contextUsedTokens();
+    const window: number = this.contextWindowTokens();
     if (used < 0 || window <= 0) {
       return -1;
     }
@@ -343,23 +354,16 @@ export struct ConversationPage {
 
   /** 会话 token 总量：计费输入（未缓存 + 缓存读 + 缓存写）+ 输出。 */
   private sessionTokenTotal(): number {
-    if (this.dashboard === null) {
-      return -1;
-    }
-    const record = asRec(this.dashboard);
-    if (record === undefined) {
-      return -1;
-    }
-    const stats = asRec(record['stats']);
-    const tokens = stats === undefined ? asRec(record['tokenUsage']) : asRec(stats['tokenUsage']);
+    const tokens = asRec(this.tokenUsageRecord());
     if (tokens === undefined) {
       return -1;
     }
-    const uncached: number = num(tokens, 'uncachedInputTokens') ?? -1;
-    const cacheRead: number = num(tokens, 'cacheReadTokens') ?? -1;
-    const cacheWrite: number = num(tokens, 'cacheWriteTokens') ?? -1;
-    const input: number = num(tokens, 'inputTokens') ?? -1;
-    const output: number = num(tokens, 'outputTokens') ?? -1;
+    const totals = asRec(tokens['totals']);
+    const uncached: number = this.tokenBucket(tokens, totals, 'uncachedInputTokens');
+    const cacheRead: number = this.tokenBucket(tokens, totals, 'cacheReadTokens');
+    const cacheWrite: number = this.tokenBucket(tokens, totals, 'cacheWriteTokens');
+    const input: number = this.tokenBucket(tokens, totals, 'inputTokens');
+    const output: number = this.tokenBucket(tokens, totals, 'outputTokens');
     let billed: number = input;
     if (uncached >= 0 && cacheRead >= 0 && cacheWrite >= 0) {
       billed = uncached + cacheRead + cacheWrite;
@@ -372,22 +376,15 @@ export struct ConversationPage {
 
   /** 缓存命中率（cacheRead / 计费输入）。 */
   private sessionCacheHitPercent(): number {
-    if (this.dashboard === null) {
-      return -1;
-    }
-    const record = asRec(this.dashboard);
-    if (record === undefined) {
-      return -1;
-    }
-    const stats = asRec(record['stats']);
-    const tokens = stats === undefined ? asRec(record['tokenUsage']) : asRec(stats['tokenUsage']);
+    const tokens = asRec(this.tokenUsageRecord());
     if (tokens === undefined) {
       return -1;
     }
-    const cacheRead: number = num(tokens, 'cacheReadTokens') ?? -1;
-    const uncached: number = num(tokens, 'uncachedInputTokens') ?? -1;
-    const cacheWrite: number = num(tokens, 'cacheWriteTokens') ?? -1;
-    const input: number = num(tokens, 'inputTokens') ?? -1;
+    const totals = asRec(tokens['totals']);
+    const cacheRead: number = this.tokenBucket(tokens, totals, 'cacheReadTokens');
+    const uncached: number = this.tokenBucket(tokens, totals, 'uncachedInputTokens');
+    const cacheWrite: number = this.tokenBucket(tokens, totals, 'cacheWriteTokens');
+    const input: number = this.tokenBucket(tokens, totals, 'inputTokens');
     let billed: number = input;
     if (uncached >= 0 && cacheRead >= 0 && cacheWrite >= 0) {
       billed = uncached + cacheRead + cacheWrite;
@@ -516,7 +513,26 @@ export struct ConversationPage {
 
   // ==================== 主题 ====================
   private pageBg(): string {
-    return this.isDark ? '#000000' : '#FFFFFF';
+    // 浅色模式按参考截图改为浅灰底（不再是纯白），让白色胶囊输入条和光圈浮出层次；深色仍为纯黑
+    return this.isDark ? '#000000' : '#F2F2F4';
+  }
+
+  /** 状态栏内容色跟随页面背景：深色纯黑 → 白，浅色灰底 → 黑。setColorMode 会异步重置，延迟重试四次确保最终态正确 */
+  private applyStatusBarColor(): void {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const apply = (): void => {
+        window.getLastWindow(context).then((win: window.Window) => {
+          win.setWindowSystemBarProperties({ statusBarContentColor: this.isDark ? '#FFFFFF' : '#000000' });
+        }).catch(() => {
+        });
+      };
+      apply();
+      setTimeout(apply, 100);
+      setTimeout(apply, 400);
+      setTimeout(apply, 1000);
+    } catch (err) {
+    }
   }
 
   private textColor(): string {
@@ -529,6 +545,16 @@ export struct ConversationPage {
 
   private surfaceColor(): string {
     return this.isDark ? '#1C1C1E' : '#FFFFFF';
+  }
+
+  /** 系统菜单（右上角「⋯」）的磨砂玻璃材质色：模糊会被压暗，故基色偏亮半透明 */
+  private menuMaterial(): string {
+    return this.isDark ? 'rgba(61,61,61,0.72)' : 'rgba(248,248,250,0.78)';
+  }
+
+  /** 卡片描边：浅色极淡黑边、深色极淡白边（弹层与输入框分层用） */
+  private dividerColor(): string {
+    return this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)';
   }
 
   private activeSessionTitle(): string {
@@ -742,6 +768,13 @@ export struct ConversationPage {
         }
         // 输入条容器：小程序 dock-stack 左右 14vp 内边距 + 底部安全区
         Column() {
+        // 切换会话 / 权限 / 模型面板：同样紧贴输入框上方展开，输入框保持可见
+        if (this.sessionPickerOpen) {
+          this.sessionPicker()
+        }
+        if (this.composerSheet.length > 0) {
+          this.composerSheetPanel()
+        }
         ConversationComposer({
           isDark: this.isDark,
           draft: this.draft,
@@ -772,8 +805,21 @@ export struct ConversationPage {
           tokenMetric: this.tokenMetric(),
           contextMetric: this.contextMetric(),
           attachmentCount: this.pickedAttachments.length,
+          metricPairsFor: (kind: string): MetricMenuPair[] => {
+            const pairs: MetricMenuPair[] = [];
+            const rows: MetricPair[] = this.buildMetricPairs(kind);
+            for (const p of rows) {
+              const pair: MetricMenuPair = { label: p.label, value: p.value };
+              pairs.push(pair);
+            }
+            return pairs;
+          },
           focused: this.composerFocused,
           onFocusChange: (focused: boolean) => {
+            // 输入条弹层开着时不塌回：点弹窗会连带收起键盘并让输入框失焦，这时必须保住 chip 行
+            if (!focused && this.composerSheet.length > 0) {
+              return;
+            }
             this.composerFocused = focused;
           },
           onDraft: (value: string) => {
@@ -789,8 +835,7 @@ export struct ConversationPage {
             this.pickAttachments();
           },
           onPickPermission: () => {
-            // 权限走系统菜单（bindMenu），这里只记录展开态用于 ▾ 旋转
-            this.permissionMenuOpen = !this.permissionMenuOpen;
+            this.openComposerSheet('permission');
           },
           onPickPermissionOption: (value: string) => {
             this.permissionMenuOpen = false;
@@ -799,8 +844,9 @@ export struct ConversationPage {
           onPermissionMenuVisible: (visible: boolean) => {
             this.permissionMenuOpen = visible;
           },
-          // 模型菜单由 composer 内部的原生系统菜单负责（两级各一枚 bindMenu），页面不画浮层
-          onPickModel: () => {},
+          onPickModel: () => {
+            this.openComposerSheet('model');
+          },
           onPickModelOption: (provider: string, model: string) => {
             this.selectModel(provider, model);
           },
@@ -823,23 +869,21 @@ export struct ConversationPage {
         }
         .width('100%')
         .padding({ left: 14, right: 14, bottom: 18 + this.bottomInset })
-        if (this.sessionPickerOpen) {
-          this.sessionPicker()
-        }
-        if (this.metricPopover.length > 0) {
-          this.metricPopoverPanel()
-        }
       }
       .width('100%')
       .height('100%')
       .backgroundColor(this.pageBg())
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
 
+
       }
       .width('100%')
       .height('100%')
     }
     .hideTitleBar(true)
+    .onShown(() => {
+      this.applyStatusBarColor();
+    })
     .backgroundColor(this.pageBg())
   }
 
@@ -1249,6 +1293,7 @@ export struct ConversationPage {
     }
     this.metricTitle = this.metricTitleFor(kind);
     this.metricPairs = this.buildMetricPairs(kind);
+    this.metricTotal = this.metricTotalFor(kind);
     this.metricPopover = kind;
   }
 
@@ -1260,6 +1305,61 @@ export struct ConversationPage {
       return 'Token 用量';
     }
     return '上下文已用';
+  }
+
+  /** 标题行右侧总量（对齐小程序 statsPopTotal / ctx 头部）：Token=计费输入+输出；上下文=已用/窗口。 */
+  private metricTotalFor(kind: string): string {
+    if (kind === 'context') {
+      const used: number = this.contextUsedTokens();
+      const window: number = this.contextWindowTokens();
+      if (used >= 0 && window >= 0) {
+        return '~' + this.compactTok(used) + ' / ' + this.compactTok(window);
+      }
+      return '';
+    }
+    if (kind !== 'token') {
+      return '';
+    }
+    const uncached: number = this.tokenValue('uncachedInputTokens', true);
+    const cacheRead: number = this.tokenValue('cacheReadTokens', false);
+    const cacheWrite: number = this.tokenValue('cacheWriteTokens', false);
+    const input: number = this.tokenValue('inputTokens', false);
+    const output: number = this.tokenValue('outputTokens', false);
+    const hasDisjoint: boolean = uncached >= 0 && cacheRead >= 0 && cacheWrite >= 0;
+    const billed: number = hasDisjoint ? uncached + cacheRead + cacheWrite : input;
+    if (billed < 0 || output < 0) {
+      return '';
+    }
+    return this.tokenLabel(billed + output);
+  }
+
+  /** 紧凑 token 计数（对齐小程序 compactTok：1234 → 1.2k，1234567 → 1.2M）。 */
+  private compactTok(value: number): string {
+    if (value < 0) {
+      return '—';
+    }
+    const n: number = Math.round(value);
+    if (n >= 1000000) {
+      return (Math.round(n / 100000) / 10).toString().replace(/\.0$/, '') + 'M';
+    }
+    if (n >= 1000) {
+      return (Math.round(n / 100) / 10).toString().replace(/\.0$/, '') + 'k';
+    }
+    return n.toString();
+  }
+
+  /** 上下文占比分项（pressure.breakdown.*，缺省 -1）。 */
+  private breakdownNum(key: string): number {
+    if (this.contextUsage === null) {
+      return -1;
+    }
+    const record = asRec(this.contextUsage);
+    const pressure = record === undefined ? undefined : asRec(record['pressure']);
+    const breakdown = pressure === undefined ? undefined : asRec(pressure['breakdown']);
+    if (breakdown === undefined) {
+      return -1;
+    }
+    return num(breakdown, key) ?? -1;
   }
 
   /** 生成弹层行（只在打开时算一次）。 */
@@ -1276,9 +1376,34 @@ export struct ConversationPage {
       pairs.push({ key: 'cacheRead', label: '缓存读取', value: this.tokenLabel(this.tokenValue('cacheReadTokens', false)) });
       pairs.push({ key: 'output', label: '输出', value: this.tokenLabel(this.tokenValue('outputTokens', false)) });
     } else {
-      pairs.push({ key: 'pressure', label: '当前压力', value: this.contextMetric() });
-      pairs.push({ key: 'used', label: '预计用量', value: this.tokenLabel(this.contextUsedTokens()) });
-      pairs.push({ key: 'window', label: '上下文窗口', value: this.tokenLabel(this.contextWindowTokens()) });
+      // 对齐小程序 ctx-pop：分项明细（系统提示词/工具定义/对话消息），缺 breakdown 时退回 token 用量三项
+      const systemTokens: number = this.breakdownNum('systemTokens');
+      const toolsTokens: number = this.breakdownNum('toolsTokens');
+      const messageTokens: number = this.breakdownNum('messageTokens');
+      if (systemTokens >= 0 || toolsTokens >= 0 || messageTokens >= 0) {
+        if (systemTokens >= 0) {
+          pairs.push({ key: 'system', label: '系统提示词', value: this.compactTok(systemTokens) + ' tok' });
+        }
+        if (toolsTokens >= 0) {
+          pairs.push({ key: 'tools', label: '工具定义', value: this.compactTok(toolsTokens) + ' tok' });
+        }
+        if (messageTokens >= 0) {
+          pairs.push({ key: 'messages', label: '对话消息', value: this.compactTok(messageTokens) + ' tok' });
+        }
+      } else {
+        const uncached: number = this.tokenValue('uncachedInputTokens', true);
+        const cacheRead: number = this.tokenValue('cacheReadTokens', false);
+        const output: number = this.tokenValue('outputTokens', false);
+        if (uncached >= 0) {
+          pairs.push({ key: 'uncached', label: '未缓存输入', value: this.compactTok(uncached) + ' tok' });
+        }
+        if (cacheRead >= 0) {
+          pairs.push({ key: 'cacheRead', label: '缓存读取', value: this.compactTok(cacheRead) + ' tok' });
+        }
+        if (output >= 0) {
+          pairs.push({ key: 'output', label: '模型输出', value: this.compactTok(output) + ' tok' });
+        }
+      }
     }
     return pairs;
   }
@@ -1337,12 +1462,71 @@ export struct ConversationPage {
     return rounded.toString() + ' tok/s';
   }
 
-  private contextUsedTokens(): number {
-    if (this.contextUsage === null) {
-      return -1;
+  /** 上下文压力记录：候选顺序对齐小程序（stats.pressure → 顶层 → value 包装 → 帧本身）。 */
+  private pressureRecord(): Object | undefined {
+    if (this.dashboard !== null) {
+      const record = asRec(this.dashboard);
+      if (record !== undefined) {
+        const stats = asRec(record['stats']);
+        if (stats !== undefined) {
+          const inStats = asRec(stats['contextPressure']);
+          if (inStats !== undefined && this.pressureValid(inStats)) {
+            return inStats;
+          }
+        }
+        const top = asRec(record['contextPressure']);
+        if (top !== undefined && this.pressureValid(top)) {
+          return top;
+        }
+        if (this.pressureValid(record)) {
+          return record;
+        }
+      }
     }
-    const record = asRec(this.contextUsage);
-    const pressure = record === undefined ? undefined : asRec(record['pressure']);
+    if (this.contextUsage !== null) {
+      const frame = asRec(this.contextUsage);
+      if (frame !== undefined) {
+        const cp = asRec(frame['contextPressure']);
+        if (cp !== undefined && this.pressureValid(cp)) {
+          return cp;
+        }
+        const direct = asRec(frame['pressure']);
+        if (direct !== undefined && this.pressureValid(direct)) {
+          return direct;
+        }
+        const value = asRec(frame['value']);
+        if (value !== undefined) {
+          const nested = asRec(value['pressure']);
+          if (nested !== undefined && this.pressureValid(nested)) {
+            return nested;
+          }
+          const nestedCp = asRec(value['contextPressure']);
+          if (nestedCp !== undefined && this.pressureValid(nestedCp)) {
+            return nestedCp;
+          }
+          if (this.pressureValid(value)) {
+            return value;
+          }
+        }
+        if (this.pressureValid(frame)) {
+          return frame;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  private pressureValid(pressure: Object | undefined): boolean {
+    if (pressure === undefined) {
+      return false;
+    }
+    const window: number = num(pressure, 'contextWindow') ?? -1;
+    const used: number = num(pressure, 'projectedTokens') ?? (num(pressure, 'pressureTokens') ?? -1);
+    return window >= 0 && used >= 0;
+  }
+
+  private contextUsedTokens(): number {
+    const pressure = this.pressureRecord();
     if (pressure === undefined) {
       return -1;
     }
@@ -1351,11 +1535,7 @@ export struct ConversationPage {
   }
 
   private contextWindowTokens(): number {
-    if (this.contextUsage === null) {
-      return -1;
-    }
-    const record = asRec(this.contextUsage);
-    const pressure = record === undefined ? undefined : asRec(record['pressure']);
+    const pressure = this.pressureRecord();
     if (pressure === undefined) {
       return -1;
     }
@@ -1385,25 +1565,67 @@ export struct ConversationPage {
     return percent >= 0 ? percent.toString() + '%' : '—';
   }
 
-  private tokenValue(key: string, fallbackToInput: boolean): number {
-    if (this.dashboard === null) {
-      return -1;
+  /** token 分项记录：context-usage 帧（同帧提供 Token 分项）优先，缺了回 context-dashboard。 */
+  private tokenUsageRecord(): Object | undefined {
+    if (this.contextUsage !== null) {
+      const frame = asRec(this.contextUsage);
+      if (frame !== undefined) {
+        const direct = asRec(frame['tokenUsage']);
+        if (direct !== undefined) {
+          return direct;
+        }
+        const value = asRec(frame['value']);
+        if (value !== undefined) {
+          const nested = asRec(value['tokenUsage']);
+          if (nested !== undefined) {
+            return nested;
+          }
+        }
+      }
     }
-    const record = asRec(this.dashboard);
-    if (record === undefined) {
-      return -1;
+    if (this.dashboard !== null) {
+      const record = asRec(this.dashboard);
+      if (record !== undefined) {
+        const top = asRec(record['tokenUsage']);
+        if (top !== undefined) {
+          return top;
+        }
+        const stats = asRec(record['stats']);
+        if (stats !== undefined) {
+          const inStats = asRec(stats['tokenUsage']);
+          if (inStats !== undefined) {
+            return inStats;
+          }
+        }
+      }
     }
-    const stats = asRec(record['stats']);
-    const tokens = stats === undefined ? asRec(record['tokenUsage']) : asRec(stats['tokenUsage']);
-    if (tokens === undefined) {
-      return -1;
-    }
-    const direct: number = num(tokens, key) ?? -1;
+    return undefined;
+  }
+
+  /** token 分项读取：先直取，缺了再回会话 totals 桶（对齐小程序 tokenUsageValue）。 */
+  private tokenBucket(tokens: Object | undefined, totals: Object | undefined, name: string): number {
+    const direct: number = num(tokens, name) ?? -1;
     if (direct >= 0) {
       return direct;
     }
+    if (totals !== undefined) {
+      return num(totals, name) ?? -1;
+    }
+    return -1;
+  }
+
+  private tokenValue(key: string, fallbackToInput: boolean): number {
+    const tokens = asRec(this.tokenUsageRecord());
+    if (tokens === undefined) {
+      return -1;
+    }
+    const totals = asRec(tokens['totals']);
+    const value: number = this.tokenBucket(tokens, totals, key);
+    if (value >= 0) {
+      return value;
+    }
     if (fallbackToInput) {
-      return num(tokens, 'inputTokens') ?? -1;
+      return this.tokenBucket(tokens, totals, 'inputTokens');
     }
     return -1;
   }
@@ -1411,15 +1633,8 @@ export struct ConversationPage {
   /** 输入条 chip 弹层：底部卡片（权限列表 / 模型列表 + 推理等级）。 */
   @Builder
   composerSheetPanel() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('rgba(0,0,0,0.28)')
-        .onClick(() => {
-          this.composerSheet = '';
-        })
-      Column({ space: 2 }) {
+    // 不再用全屏遮罩：面板直接叠在输入框上方，输入框保持可见可点
+    Column({ space: 2 }) {
         Row() {
           Text(this.composerSheet === 'permission' ? '权限' : '模型')
             .fontSize(14)
@@ -1436,7 +1651,7 @@ export struct ConversationPage {
         .width('100%')
         .height(36)
 
-        if (this.composerSheet === 'permission-legacy') {
+        if (this.composerSheet === 'permission') {
           Scroll() {
             Column({ space: 1 }) {
               ForEach(this.permissionRows, (row: PermissionRow) => {
@@ -1458,6 +1673,7 @@ export struct ConversationPage {
                 .borderRadius(8)
                 .backgroundColor(row.current ? 'rgba(46,107,230,0.12)' : Color.Transparent)
                 .onClick(() => {
+                  this.composerSheet = '';
                   this.selectPermission(row.value);
                 })
               }, (row: PermissionRow) => row.value)
@@ -1487,6 +1703,7 @@ export struct ConversationPage {
                 .borderRadius(8)
                 .backgroundColor(row.current ? 'rgba(46,107,230,0.12)' : Color.Transparent)
                 .onClick(() => {
+                  this.composerSheet = '';
                   this.selectModel(row.provider, row.model);
                 })
               }, (row: ModelRow) => row.key)
@@ -1514,6 +1731,7 @@ export struct ConversationPage {
                 .borderRadius(8)
                 .backgroundColor(row.current ? 'rgba(46,107,230,0.12)' : Color.Transparent)
                 .onClick(() => {
+                  this.composerSheet = '';
                   this.selectEffort(row.id);
                 })
               }, (row: EffortRow) => row.id)
@@ -1523,68 +1741,97 @@ export struct ConversationPage {
           .constraintSize({ maxHeight: 420 })
           .scrollBar(BarState.Off)
         }
-      }
-      .alignItems(HorizontalAlign.Start)
-      .width('100%')
-      .padding(16)
-      .borderRadius({ topLeft: 18, topRight: 18 })
-      .backgroundColor(this.surfaceColor())
-      .margin({ left: 12, right: 12, bottom: 8 })
     }
+    .alignItems(HorizontalAlign.Start)
     .width('100%')
-    .height('100%')
+    .padding(16)
+    .borderRadius(18)
+    .backgroundColor(this.surfaceColor())
+    .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
+    .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.12)', offsetY: 6 })
+    .margin({ left: 12, right: 12, bottom: 8 })
   }
-  /** 指标弹层：遮罩 + 卡片（小程序 ctx-pop / stats-pop 同款）。 */
+  /** 指标弹层：输入框正上方的菜单式小卡片（样式对齐右上角三点 Menu：无遮罩、圆角卡片、细描边、行分隔线）。 */
   /** 行数据在打开时算好存进 @State，build 内不再调用会新建数组的方法（否则会反复重渲染）。 */
   @Builder
   metricPopoverPanel() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('rgba(0,0,0,0.28)')
-        .onClick(() => {
-          this.metricPopover = '';
-        })
-      Column({ space: 6 }) {
+    // 不再用全屏遮罩：面板直接叠在输入框上方，输入框保持可见可点
+    Column({ space: 2 }) {
+        // 标题行：标题 + 占比（上下文已用）/ 总量（Token 用量）
         Row() {
           Text(this.metricTitle)
             .fontSize(14)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.textColor())
           Blank()
+          if (this.metricPopover === 'context' && this.contextPercent() >= 0) {
+            Text(this.contextMetric())
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#2E6BE6')
+          }
+          if (this.metricPopover === 'token' && this.metricTotal.length > 0) {
+            Text(this.metricTotal)
+              .fontSize(12)
+              .fontColor(this.subColor())
+          }
           Text('关闭')
             .fontSize(12)
             .fontColor(this.subColor())
+            .margin({ left: 12 })
             .onClick(() => {
               this.metricPopover = '';
             })
         }
         .width('100%')
-        .height(32)
+        .height(36)
+
+        // 上下文：已用/窗口 + 占比进度条（对齐小程序 ctx-pop 头部与 ctx-bar）
+        if (this.metricPopover === 'context') {
+          if (this.metricTotal.length > 0) {
+            Text(this.metricTotal)
+              .fontSize(11.5)
+              .fontColor(this.subColor())
+              .width('100%')
+              .margin({ bottom: 5 })
+          }
+          Progress({
+            value: this.contextPercent() < 0 ? 0 : Math.min(100, this.contextPercent()),
+            total: 100,
+            type: ProgressType.Linear
+          })
+            .width('100%')
+            .height(3)
+            .color('#2E6BE6')
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(12,14,19,0.08)')
+            .margin({ bottom: 4 })
+        }
+
         ForEach(this.metricPairs, (pair: MetricPair) => {
           Row() {
             Text(pair.label)
-              .fontSize(12)
+              .fontSize(14)
               .fontColor(this.subColor())
             Blank()
             Text(pair.value)
-              .fontSize(12)
+              .fontSize(14)
               .fontColor(this.textColor())
           }
           .width('100%')
-          .height(30)
+          .height(38)
+          .padding({ left: 8, right: 8 })
+          .borderRadius(8)
+          .backgroundColor(Color.Transparent)
         }, (pair: MetricPair) => pair.key)
-      }
-      .alignItems(HorizontalAlign.Start)
-      .width('100%')
-      .padding(16)
-      .borderRadius({ topLeft: 18, topRight: 18 })
-      .backgroundColor(this.surfaceColor())
-      .margin({ left: 12, right: 12, bottom: 12 })
     }
+    .alignItems(HorizontalAlign.Start)
     .width('100%')
-    .height('100%')
+    .padding(16)
+    .borderRadius(18)
+    .backgroundColor(this.surfaceColor())
+    .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
+    .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.12)', offsetY: 6 })
+    .margin({ left: 12, right: 12, bottom: 8 })
   }
 
   /** 顶栏：返回 + 标题/连接状态 + 更多。 */
@@ -1596,17 +1843,11 @@ export struct ConversationPage {
   @Builder
   headerBar() {
     Row({ space: 4 }) {
-      Button({ type: ButtonType.Circle }) {
-        Text('‹').fontSize(28).fontColor(this.textColor())
-      }
-      .id('conversation-back')
-      .width(44)
-      .height(44)
-      .backgroundColor(Color.Transparent)
-      .accessibilityText('返回')
-      .onClick(() => {
-        this.pageStack.pop();
-      })
+      NavBackButton({ isDark: this.isDark })
+        .id('conversation-back')
+        .onClick(() => {
+          this.pageStack.pop();
+        })
 
       Column({ space: 3 }) {
         Text(this.activeSessionTitle())
@@ -1644,7 +1885,8 @@ export struct ConversationPage {
     }
     .width('100%')
     .height(64 + this.topSafe())
-    .padding({ left: 8, right: 8, top: 6 + this.topSafe() })
+    // 左缘与输入条一致（输入条容器 padding 14）：返回按钮和输入框左边缘对齐
+    .padding({ left: 14, right: 14, top: 6 + this.topSafe() })
   }
 
   /** 加载更早记录。 */
@@ -1773,18 +2015,54 @@ export struct ConversationPage {
       })
 
       if (!this.autoStick && this.entries.length > 0) {
-        Button('回到底部')
-          .height(34)
-          .fontSize(12)
-          .fontColor('#2E6BE6')
-          .backgroundColor(this.surfaceColor())
-          .border({ width: 0.7, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(12,14,19,0.10)' })
-          .shadow({ radius: 10, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.12)', offsetY: 4 })
-          .margin({ bottom: 12 })
-          .onClick(() => {
-            this.autoStick = true;
-            this.scroller.scrollEdge(Edge.Bottom);
-          })
+        // 回到底部：居中圆形按钮，结构与「返回」按钮（NavBackButton）完全一致——
+        // 外层 1.3vp 白色光圈包住 37.4 玻璃圆盘（背景模糊 + 半透明底色 + 0.5 细边），再加轻微悬浮投影。
+        Row() {
+          Stack({ alignContent: Alignment.Center }) {
+            // 运行中：玻璃盘外圈叠一段蓝色弧（对齐小程序 .jump-ring）
+            if (this.running) {
+              Circle()
+                .width(30)
+                .height(30)
+                .fill(Color.Transparent)
+                .stroke('#2E6BE6')
+                .strokeWidth(1.5)
+                .strokeDashArray([24, 60])
+            }
+            Button({ type: ButtonType.Circle }) {
+              // 向下箭头：右 + 下 1.8vp 描边旋转 45°（与返回箭头同一套画法）
+              Row()
+                .width(8)
+                .height(8)
+                .border({
+                  width: { right: 1.8, bottom: 1.8 },
+                  color: this.isDark ? 'rgba(255,255,255,0.86)' : 'rgba(16,19,24,0.72)'
+                })
+                .rotate({ angle: 45 })
+                .translate({ y: -1.5 })
+            }
+            .width(37.4)
+            .height(37.4)
+            // 与返回按钮同款玻璃：半透明底色 + 背景模糊 + 0.5 内缘细边
+            .backgroundColor(this.isDark ? 'rgba(8,8,10,0.60)' : 'rgba(255,255,255,0.80)')
+            .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)' })
+            .onClick(() => {
+              this.autoStick = true;
+              this.scroller.scrollEdge(Edge.Bottom);
+            })
+          }
+          .width(40)
+          .height(40)
+          .borderRadius(20)
+          // 光圈：1.3vp 实色白环，与返回按钮、输入框卡片同厚度
+          .padding(1.3)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.26)' : 'rgba(255,255,255,0.96)')
+          .shadow({ radius: 6, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 2 })
+        }
+        .width('100%')
+        .padding({ bottom: 10 })
+        .justifyContent(FlexAlign.Center)
       }
     }
     .width('100%')
@@ -1807,15 +2085,8 @@ export struct ConversationPage {
   /** 切换会话底部面板。 */
   @Builder
   sessionPicker() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('rgba(0,0,0,0.45)')
-        .onClick(() => {
-          this.sessionPickerOpen = false;
-        })
-      Column() {
+    // 不再用全屏遮罩：面板直接叠在输入框上方，输入框保持可见可点
+    Column() {
         Row() {
           Text('切换会话').fontSize(17).fontWeight(FontWeight.Medium).fontColor(this.textColor())
           Blank()
@@ -1851,18 +2122,18 @@ export struct ConversationPage {
                 this.sessionPickerOpen = false;
               })
             }
-          }, (session: SessionSummary) => session.id)
+          }, (session: SessionSummary) => session.id + '|' + (session.running ? '1' : '0') + '|' + session.title)
         }
         .width('100%')
         .height(360)
         .scrollBar(BarState.Off)
-      }
-      .width('100%')
-      .padding({ top: 8, bottom: 24 })
-      .borderRadius({ topLeft: 18, topRight: 18 })
-      .backgroundColor(this.pageBg())
     }
     .width('100%')
-    .height('100%')
+    .padding({ top: 8, bottom: 8 })
+    .borderRadius(18)
+    .backgroundColor(this.surfaceColor())
+    .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
+    .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.12)', offsetY: 6 })
+    .margin({ left: 12, right: 12, bottom: 8 })
   }
 }

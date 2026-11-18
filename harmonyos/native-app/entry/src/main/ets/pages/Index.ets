@@ -16,6 +16,7 @@ import { ModelsPage } from './ModelsPage';
 import { TailscalePage } from './TailscalePage';
 import { StatusStylesPage } from './StatusStylesPage';
 import { PreferencePickerPage } from './PreferencePickerPage';
+import { FontSizePage } from './FontSizePage';
 
 @Entry
 @Component
@@ -105,6 +106,8 @@ struct Index {
       StatusStylesPage();
     } else if (name === 'pref-picker') {
       PreferencePickerPage();
+    } else if (name === 'font-size') {
+      FontSizePage();
     }
   }
 

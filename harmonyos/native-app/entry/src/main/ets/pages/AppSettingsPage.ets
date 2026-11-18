@@ -2,6 +2,7 @@ import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { bundleManager, common } from '@kit.AbilityKit';
 import { vibrator } from '@kit.SensorServiceKit';
 import type { WorkStepOption } from 'nativecore';
+import { NavBackButton } from '../components/NavBackButton';
 import { AttachmentCache, CredentialStore, GatewayClient, NotificationService, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, WorkspaceRow } from 'nativecore';
 
 /**
@@ -33,7 +34,6 @@ export struct AppSettingsPage {
   @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
   @StorageLink('showAccountCard') showAccountCard: boolean = false;
   @StorageLink('notifyEnabled') notifyEnabled: boolean = false;
-  @StorageLink('quotaCardEnabled') quotaCardEnabled: boolean = false;
   @StorageLink('contextTabVisible') contextTabVisible: boolean = true;
   @StorageLink('fleetTabVisible') fleetTabVisible: boolean = true;
   @StorageLink('clawbotBridgeEnabled') clawbotBridgeEnabled: boolean = false;
@@ -135,7 +135,6 @@ export struct AppSettingsPage {
     this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', true);
     this.showAccountCard = prefs.getBoolean('showAccountCard', false);
     this.notifyEnabled = prefs.getBoolean('notifyEnabled', false);
-    this.quotaCardEnabled = prefs.getBoolean('quotaCardEnabled', false);
     this.contextTabVisible = prefs.getBoolean('contextTabVisible', true);
     this.fleetTabVisible = prefs.getBoolean('fleetTabVisible', true);
     this.clawbotBridgeEnabled = prefs.getBoolean('clawbotBridgeEnabled', false);
@@ -401,7 +400,7 @@ export struct AppSettingsPage {
 
   private optionLabelsOf(kind: string): string[] {
     if (kind === 'appearance') {
-      return ['跟随微信', '浅色', '深色'];
+      return ['跟随系统', '浅色', '深色'];
     }
     if (kind === 'status') {
       return ['经典流光', '霓虹', '终端', '糖果', '故障', '简约'];
@@ -531,7 +530,7 @@ export struct AppSettingsPage {
 
   private pickerSubtitleFor(kind: string): string {
     if (kind === 'appearance') {
-      return '跟随微信';
+      return '跟随系统';
     }
     if (kind === 'status') {
       return '对话页运行指示（鲸尾+流光）的配色循环';
@@ -643,9 +642,10 @@ export struct AppSettingsPage {
     this.infoOpen = true;
   }
 
-  private openFontSheet(): void {
+  /** 打开「字号大小」二级页（原来这里是页内底部弹层） */
+  private openFontSizePage(): void {
     this.closeSheets();
-    this.fontSheetOpen = true;
+    this.pageStack.pushPathByName('font-size', null);
   }
 
   private openStorageSheet(): void {
@@ -1232,17 +1232,10 @@ export struct AppSettingsPage {
       Column() {
         // 导航（标题字号/字重/缩进与「会话设置」「Tailscale 内嵌隧道」页一致）
         Row() {
-          Row() {
-            Text('‹')
-              .fontSize(24)
-              .fontColor(this.textColor())
-          }
-          .width(44)
-          .height(44)
-          .justifyContent(FlexAlign.Center)
-          .onClick(() => {
-            this.pageStack.pop();
-          })
+          NavBackButton({ isDark: this.isDark })
+            .onClick(() => {
+              this.pageStack.pop();
+            })
 
           Text('设置')
             .fontSize(17)
@@ -1255,6 +1248,8 @@ export struct AppSettingsPage {
         }
         .width('100%')
         .height(56)
+        // 左右与下方内容一致（内容区 padding 16）
+        .padding({ left: 16, right: 16 })
         .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
 
         Scroll() {
@@ -1400,7 +1395,7 @@ export struct AppSettingsPage {
               })
               this.divider()
               this.rowDesc('字号大小', '仅影响会话内容的字号', this.fontSize, true, () => {
-                this.openFontSheet();
+                this.openFontSizePage();
               })
               this.divider()
               this.toggleRow('显示账号卡片', '在设置页和会话设置顶部显示账号与余额卡片', this.showAccountCard, (value: boolean) => {
@@ -1445,10 +1440,6 @@ export struct AppSettingsPage {
                 this.fleetTabVisible = value;
                 PreferencesStore.get().putBoolean('fleetTabVisible', value);
               })
-              this.divider()
-              this.row('上下文面板', '', true, () => {
-                this.openInfo('上下文面板', '上下文面板用于查看当前会话的上下文占用、趋势与编队信息；面板入口显示在会话顶部。');
-              })
             }
             .width('100%')
             .backgroundColor(this.cardBg())
@@ -1471,11 +1462,6 @@ export struct AppSettingsPage {
               this.toggleRow('微信 ClawBot 私聊接线', '将微信私聊接入指定 DSH 会话；微信凭据保存在电脑端', this.clawbotBridgeEnabled, (value: boolean) => {
                 this.clawbotBridgeEnabled = value;
                 PreferencesStore.get().putBoolean('clawbotBridgeEnabled', value);
-              })
-              this.divider()
-              this.toggleRow('额度卡片', '在左侧栏显示余额与额度卡片', this.quotaCardEnabled, (value: boolean) => {
-                this.quotaCardEnabled = value;
-                PreferencesStore.get().putBoolean('quotaCardEnabled', value);
               })
             }
             .width('100%')
@@ -1554,9 +1540,6 @@ export struct AppSettingsPage {
       }
       if (this.pickerOpen) {
         this.choiceSheet()
-      }
-      if (this.fontSheetOpen) {
-        this.fontSheet()
       }
       if (this.storageSheetOpen) {
         this.storageSheet()
