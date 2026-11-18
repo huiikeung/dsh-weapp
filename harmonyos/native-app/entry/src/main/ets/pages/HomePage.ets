@@ -4,6 +4,7 @@ import { display, KeyboardAvoidMode, LengthMetrics, uiMaterial, window } from '@
 import { drawing } from '@kit.ArkGraphics2D';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
+import { Haptics } from '../services/Haptics';
 import {
   GatewayClient, OceanBackground, PairingResult, PreferencesStore, SessionStore, SessionSummary,
   DirEntry, DirCrumb, WorkspaceRow, parsePairingPayload
@@ -44,6 +45,38 @@ export struct HomePage {
   private drawerShift(): number {
     return this.drawerOpen ? this.drawerWidth : 0;
   }
+  /** 侧栏展开时首页内容层上下各让出的高度（vp）：顶部让到状态栏下方，底部同高对称，形成明显的浮起卡片 */
+  private drawerInsetVp(): number {
+    if (!this.drawerOpen) {
+      return 0;
+    }
+    const statusBar: number = this.safeTopStorage > 0 ? this.safeTopStorage : 38.9;
+    // 状态栏高度 + 一点缝隙（16rpx 约 9vp），保证卡片顶边落在状态栏下方
+    return Math.round(statusBar + this.rpx(16));
+  }
+
+  /** 打开左侧栏的统一入口：附带与设置页「震动反馈」一致档位的触感 */
+  private openDrawer(): void {
+    if (this.drawerOpen) {
+      return;
+    }
+    this.drawerOpen = true;
+    Haptics.play();
+  }
+
+  /** 首页右滑手势结束：横向位移够大且以横向为主时打开左侧栏 */
+  private onDrawerSwipeEnd(event: GestureEvent): void {
+    if (this.drawerOpen) {
+      return;
+    }
+    const dx: number = event.offsetX;
+    const dy: number = event.offsetY;
+    // 64vp 起、且横向位移明显大于纵向，避免垂直滚动（Scroll）时误触
+    if (dx < 64 || dx < Math.abs(dy) * 1.2) {
+      return;
+    }
+    this.openDrawer();
+  }
   @State manualSheetOpen: boolean = false;
   /** 配对按钮屏幕左边缘（用于把菜单水平居中） */
   @State private pairBtnX: number = 0;
@@ -67,6 +100,22 @@ export struct HomePage {
   @State expandedSectionIds: string[] = [];
   // 最近会话 / 单个工作区视图是否展开到全部（对齐小程序 recentExpanded）
   @State recentExpanded: boolean = false;
+  // 会话长按菜单 / 重命名 / 归档（对齐小程序 session-menu）
+  @State sessionMenuOpen: boolean = false;
+  @State sessionMenuId: string = '';
+  @State renameSessionOpen: boolean = false;
+  @State renameSessionId: string = '';
+  @State renameValue: string = '';
+  @State archiveSessionOpen: boolean = false;
+  @State archiveSessionId: string = '';
+  // 最近一次长按时间：抬手后的点按要忽略，避免长按又顺带打开会话
+  private sessionLongPressAt: number = 0;
+  // 长按检测（自己做计时，不走手势仲裁，避免被 Scroll 抢走）
+  private pressTimer: number = -1;
+  private pressX: number = 0;
+  private pressY: number = 0;
+  // 本次长按的落点（vp），菜单据此定位：水平居中、纵向跟手
+  private menuPressY: number = 0;
   @State dirSheetOpen: boolean = false;
   @State dirError: string = '';
   @State dirLoading: boolean = false;
@@ -285,6 +334,145 @@ export struct HomePage {
       return item.title;
     }
     return '新会话';
+  }
+
+  private screenWidthVp(): number {
+    try {
+      return this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+    } catch (err) {
+      return 360;
+    }
+  }
+
+  private screenHeightVp(): number {
+    try {
+      return this.getUIContext().px2vp(display.getDefaultDisplaySync().height);
+    } catch (err) {
+      return 780;
+    }
+  }
+
+  /** 长按会话：记录目标会话，菜单锚点固定在屏幕正中弹出 */
+  private openSessionMenu(item: SessionSummary): void {
+    this.sessionMenuId = item.id;
+    this.sessionMenuOpen = true;
+  }
+
+  private cancelPressTimer(): void {
+    if (this.pressTimer >= 0) {
+      clearTimeout(this.pressTimer);
+      this.pressTimer = -1;
+    }
+  }
+
+  /** 手指按住不动 1s 视为长按：不参与手势仲裁，Scroll 不会抢走 */
+  private handleRowTouch(event: TouchEvent, item: SessionSummary): void {
+    if (event.type === TouchType.Down) {
+      this.cancelPressTimer();
+      const touch = event.touches.length > 0 ? event.touches[0] : undefined;
+      this.pressX = touch !== undefined ? touch.x : 0;
+      this.pressY = touch !== undefined ? touch.y : 0;
+      this.menuPressY = touch !== undefined ? touch.windowY : this.menuPressY;
+      this.pressTimer = setTimeout(() => {
+        this.pressTimer = -1;
+        this.sessionLongPressAt = Date.now();
+        this.openSessionMenu(item);
+      }, 1000);
+      return;
+    }
+    if (event.type === TouchType.Move) {
+      const touch = event.touches.length > 0 ? event.touches[0] : undefined;
+      const dx: number = touch !== undefined ? Math.abs(touch.x - this.pressX) : 0;
+      const dy: number = touch !== undefined ? Math.abs(touch.y - this.pressY) : 0;
+      if (dx > 10 || dy > 10) {
+        this.cancelPressTimer();
+      }
+      return;
+    }
+    // Up / Cancel
+    this.cancelPressTimer();
+  }
+
+  /**
+   * 菜单锚点：只做**水平居中**（纵向跟随长按位置，不上下居中）。
+   * 实测系统菜单约 173×83vp；锚点 x 取"屏幕中心 - 菜单半宽"，
+   * 纵向由 bindMenu 从锚点向下展开，实测菜单顶边 ≈ 锚点 y - 140。
+   */
+  private menuAnchorX(): number {
+    return Math.max(0, this.screenWidthVp() / 2 - 78);
+  }
+
+  private menuAnchorY(): number {
+    const y: number = this.menuPressY + 140;
+    return Math.min(y, Math.max(0, this.screenHeightVp() - 120));
+  }
+
+  private menuSession(): SessionSummary | undefined {
+    for (const one of this.sessions) {
+      if (one.id === this.sessionMenuId) {
+        return one;
+      }
+    }
+    return undefined;
+  }
+
+  private onSessionMenuAction(action: string): void {
+    const item: SessionSummary | undefined = this.menuSession();
+    this.sessionMenuOpen = false;
+    if (item === undefined) {
+      return;
+    }
+    if (action === 'rename') {
+      this.beginRenameSession(item);
+    } else if (action === 'archive') {
+      this.beginArchiveSession(item);
+    }
+  }
+
+  private beginRenameSession(item: SessionSummary): void {
+    this.renameSessionId = item.id;
+    this.renameValue = this.sessionTitle(item);
+    this.renameSessionOpen = true;
+  }
+
+  private beginArchiveSession(item: SessionSummary): void {
+    this.archiveSessionId = item.id;
+    this.archiveSessionOpen = true;
+  }
+
+  private submitRenameSession(): void {
+    const title: string = this.renameValue.trim();
+    const id: string = this.renameSessionId;
+    if (title.length === 0 || id.length === 0) {
+      return;
+    }
+    this.renameSessionOpen = false;
+    this.renameSessionId = '';
+    try {
+      GatewayClient.get().renameSession(id, title);
+    } catch (ignored) {
+    }
+    // 兜底刷新：主机回执也会自动请求一次会话列表（对齐小程序 500ms 后 requestSessions）
+    setTimeout(() => {
+      SessionStore.get().refreshSessionsNow();
+    }, 500);
+  }
+
+  private submitArchiveSession(): void {
+    const id: string = this.archiveSessionId;
+    this.archiveSessionOpen = false;
+    this.archiveSessionId = '';
+    if (id.length === 0) {
+      return;
+    }
+    try {
+      GatewayClient.get().archiveSession(id);
+    } catch (ignored) {
+    }
+    // 兜底刷新（同上）
+    setTimeout(() => {
+      SessionStore.get().refreshSessionsNow();
+    }, 500);
   }
 
   private sessionMeta(item: SessionSummary): string {
@@ -1579,7 +1767,17 @@ export struct HomePage {
       .width('100%')
       .padding({ top: 10, bottom: 10, left: 4, right: 4 })
       .borderRadius(8)
+      // 长按菜单打开时这一行先隐去（对齐小程序 .session-row-hidden）；
+      // 用透明度而不是 visibility，锚点节点保持布局，弹窗不会被系统提前关掉
+      .opacity(this.sessionMenuOpen && this.sessionMenuId === item.id ? 0 : 1)
+      .onTouch((event: TouchEvent) => {
+        this.handleRowTouch(event, item);
+      })
       .onClick(() => {
+        // 长按/菜单打开时抬手那一下不算点按
+        if (this.sessionMenuOpen || Date.now() - this.sessionLongPressAt < 900) {
+          return;
+        }
         SessionStore.get().open(item.id);
         this.pageStack.pushPathByName('session', null);
       })
@@ -1595,6 +1793,190 @@ export struct HomePage {
       }
     }
     .width('100%')
+  }
+
+  /**
+   * 会话长按菜单：系统 Menu 弹窗（与对话页右上角「⋯」同款）。
+   * 图标走 startIcon（系统固定槽位），用带内边距的图标资源让字形视觉约 18vp，避免图标显得过大。
+   */
+  @Builder
+  sessionActionMenu() {
+    Menu() {
+      MenuItem({
+        content: '重命名',
+        startIcon: this.isDark ? $r('app.media.session_menu_rename_white') : $r('app.media.session_menu_rename_dark')
+      }).id('session-menu-rename').onClick(() => {
+        this.onSessionMenuAction('rename');
+      })
+      MenuItem({
+        content: '归档会话',
+        startIcon: $r('app.media.session_menu_archive')
+      }).id('session-menu-archive').onClick(() => {
+        this.onSessionMenuAction('archive');
+      })
+    }
+  }
+
+  /** 重命名会话弹窗（对齐小程序 showModal editable）：系统弹窗圆角 + 分隔线 */
+  @Builder
+  renameSessionAlert() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.35)')
+        .onClick(() => {
+          this.renameSessionOpen = false;
+        })
+      Column() {
+        Column() {
+          Text('重命名会话')
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.dialogText())
+            .textAlign(TextAlign.Center)
+            .width('100%')
+          TextInput({ text: this.renameValue, placeholder: '输入新的会话名称' })
+            .caretStyle({ width: 1 })
+            .fontSize(15)
+            .fontColor(this.dialogText())
+            .placeholderColor(this.dialogSubText())
+            .backgroundColor(this.dialogInputBackground())
+            .height(40)
+            .borderRadius(10)
+            .padding({ left: 12, right: 12 })
+            .margin({ top: 14 })
+            .maxLength(80)
+            .defaultFocus(true)
+            .onChange((value: string) => {
+              this.renameValue = value;
+            })
+            .onSubmit(() => {
+              this.submitRenameSession();
+            })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 20, bottom: 18 })
+
+        Row()
+          .width('100%')
+          .height(0.5)
+          .backgroundColor(this.separatorColor())
+
+        Row() {
+          Row() {
+            Text('取消')
+              .fontSize(16)
+              .fontColor(this.accentColor())
+          }
+          .layoutWeight(1)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            this.renameSessionOpen = false;
+          })
+          Column()
+            .width(0.5)
+            .height(44)
+            .backgroundColor(this.separatorColor())
+          Row() {
+            Text('保存')
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.renameValue.trim().length > 0 ? this.accentColor() : this.secondaryLabel())
+          }
+          .layoutWeight(1)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            this.submitRenameSession();
+          })
+        }
+        .width('100%')
+        .height(44)
+      }
+      .width(300)
+      .backgroundColor(this.dialogBackground())
+      .borderRadius(28)
+      .clip(true)
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  /** 归档会话确认（文案对齐小程序 archiveSession） */
+  @Builder
+  archiveSessionAlert() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.35)')
+        .onClick(() => {
+          this.archiveSessionOpen = false;
+        })
+      Column() {
+        Column() {
+          Text('归档会话')
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.dialogText())
+            .textAlign(TextAlign.Center)
+            .width('100%')
+          Text('归档后会话将从列表隐藏，可在 WebUI 中恢复。')
+            .fontSize(15)
+            .fontColor(this.dialogSubText())
+            .textAlign(TextAlign.Center)
+            .width('100%')
+            .margin({ top: 6 })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 20, bottom: 18 })
+
+        Row()
+          .width('100%')
+          .height(0.5)
+          .backgroundColor(this.separatorColor())
+
+        Row() {
+          Row() {
+            Text('取消')
+              .fontSize(16)
+              .fontColor(this.accentColor())
+          }
+          .layoutWeight(1)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            this.archiveSessionOpen = false;
+          })
+          Column()
+            .width(0.5)
+            .height(44)
+            .backgroundColor(this.separatorColor())
+          Row() {
+            Text('归档')
+              .fontSize(16)
+              .fontWeight(FontWeight.Bold)
+              .fontColor(this.destructiveColor())
+          }
+          .layoutWeight(1)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            this.submitArchiveSession();
+          })
+        }
+        .width('100%')
+        .height(44)
+      }
+      .width(300)
+      .backgroundColor(this.dialogBackground())
+      .borderRadius(28)
+      .clip(true)
+    }
+    .width('100%')
+    .height('100%')
   }
 
   /** 折叠开关（对齐小程序 .session-section-toggle）；sectionId 为空代表最近会话视图 */
@@ -2413,6 +2795,23 @@ export struct HomePage {
     return this.isDark ? '#FF6B60' : '#E84026';
   }
 
+  private dialogBackground(): string {
+    // 系统弹窗底色（深色 #2E2E2E / 浅色 #FFFFFF）
+    return this.isDark ? '#2E2E2E' : '#FFFFFF';
+  }
+
+  private dialogText(): string {
+    return this.isDark ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.90)';
+  }
+
+  private dialogSubText(): string {
+    return this.isDark ? 'rgba(255,255,255,0.60)' : 'rgba(0,0,0,0.55)';
+  }
+
+  private dialogInputBackground(): string {
+    return this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)';
+  }
+
   private sheetBackground(): string {
     return this.isDark ? '#000000' : '#F2F2F7';
   }
@@ -2543,7 +2942,7 @@ export struct HomePage {
         // ── 侧栏底层：常驻挂载，打开时自身向右展开（对齐小程序 drawer translateX(-100%) → 0）──
         this.drawerOverlay()
 
-        // ── 首页内容层：深海背景 + 内容同层，整体右移并被左侧圆角裁切（对齐小程序 home-content-wrap）──
+        // ── 首页内容层：深海背景 + 内容同层，整体右移并被左侧圆角裁切；侧栏展开时上下同时内缩（对齐小程序 home-content-wrap）──
         Stack({ alignContent: Alignment.TopStart }) {
           // 深海鲸鱼背景：首页恒用深海背景，不随明暗主题变化（对齐小程序 .deep-bg）
           Stack() {
@@ -2586,7 +2985,7 @@ export struct HomePage {
           .alignItems(VerticalAlign.Center)
           .margin({ bottom: 22 })
           .onClick(() => {
-            this.drawerOpen = true;
+            this.openDrawer();
           })
 
           // ── 主机行：主机胶囊（左） + 配对/设置圆形玻璃钮（右） ──
@@ -2955,15 +3354,42 @@ export struct HomePage {
           }
         }
         .width('100%')
-        .height('100%')
+        // 侧栏展开时上下缩小：高度减去上下各一份内缩，再整体下移一份，保证上下留白一致
+        .height(this.drawerOpen ? ('calc(100% - ' + (this.drawerInsetVp() * 2) + 'vp)') : '100%')
         // 左上/左下圆角 + clip：小程序 contentCornerRadius 为 48（单位 px≈vp），非 rpx
         .borderRadius({ topLeft: this.drawerOpen ? 48 : 0, bottomLeft: this.drawerOpen ? 48 : 0 })
         .clip(true)
-        .translate({ x: this.drawerShift() })
+        .translate({ x: this.drawerShift(), y: this.drawerInsetVp() })
         .animation({ duration: 320, curve: Curve.FastOutSlowIn })
+        // 首页右滑打开左侧栏（只吃横向滑动，避免抢走 Scroll 的竖向手势）
+        .gesture(
+          PanGesture({ fingers: 1, direction: PanDirection.Right, distance: 12 })
+            .onActionEnd((event: GestureEvent) => {
+              this.onDrawerSwipeEnd(event);
+            })
+        )
 
         // ── 以下浮层必须留在根层：跟随内容层会被 translate/clip 影响 ──
-
+        // 会话长按菜单的锚点：固定在屏幕正中，系统菜单从这里展开，因此居中显示
+        Column()
+          .width(1)
+          .height(1)
+          .position({ x: this.menuAnchorX(), y: this.menuAnchorY() })
+          .bindMenu(this.sessionMenuOpen, this.sessionActionMenu(), {
+            placement: Placement.BottomLeft,
+            onWillDisappear: () => {
+              this.sessionMenuOpen = false;
+            },
+            onDisappear: () => {
+              this.sessionMenuOpen = false;
+            }
+          })
+        if (this.renameSessionOpen) {
+          this.renameSessionAlert()
+        }
+        if (this.archiveSessionOpen) {
+          this.archiveSessionAlert()
+        }
 
       }
       .width('100%')

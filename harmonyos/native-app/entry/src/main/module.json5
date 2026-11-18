@@ -25,6 +25,10 @@
       {
         "name": "ohos.permission.GET_NETWORK_INFO"
       },
+      // 触感反馈（侧栏展开 / 点击反馈）：system_grant，无需运行时授权
+      {
+        "name": "ohos.permission.VIBRATE"
+      },
       {
         "name": "ohos.permission.CAMERA",
         "reason": "$string:camera_reason",

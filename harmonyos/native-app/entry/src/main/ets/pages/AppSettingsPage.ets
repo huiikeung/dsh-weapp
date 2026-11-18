@@ -1,9 +1,9 @@
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { bundleManager, common } from '@kit.AbilityKit';
-import { vibrator } from '@kit.SensorServiceKit';
 import type { WorkStepOption } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
 import { AttachmentCache, CredentialStore, GatewayClient, NotificationService, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, WorkspaceRow } from 'nativecore';
+import { Haptics } from '../services/Haptics';
 
 /**
  * 设置（左侧栏「设置」）：逐行对齐小程序 pages/settings。
@@ -696,8 +696,8 @@ export struct AppSettingsPage {
 
   private testVibrate(): void {
     try {
-      vibrator.startVibration({ type: 'time', duration: 200 }, { id: 0, usage: 'touch' }).catch(() => {
-      });
+      // 走全局触感：按当前「震动反馈」档位触发，关闭档位时不震
+      Haptics.play();
       this.hint = '已触发震动';
     } catch (err) {
       this.hint = '当前设备不支持震动';

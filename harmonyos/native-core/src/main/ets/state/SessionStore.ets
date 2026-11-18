@@ -902,7 +902,20 @@ export class SessionStore {
       this.resetConversation();
     }
     const projector: ConversationProjector = this.conversation as ConversationProjector;
-    AppStorage.setOrCreate<ConversationItem[]>('conversationItems', projector.items);
+    const items: ConversationItem[] = projector.items;
+    // 本地乐观回显排在时间线末尾（对齐小程序 seq 9e9 的 pending 行）
+    const nowSeconds: number = Math.floor(Date.now() / 1000);
+    const kept: ConversationItem[] = [];
+    for (const item of this.optimisticUsers) {
+      if (nowSeconds - item.epochSeconds <= 60) {
+        kept.push(item);
+      }
+    }
+    this.optimisticUsers = kept;
+    for (const item of this.optimisticUsers) {
+      items.push(item);
+    }
+    AppStorage.setOrCreate<ConversationItem[]>('conversationItems', items);
     AppStorage.setOrCreate<boolean>('conversationRunning', this.running);
   }
 
@@ -1071,6 +1084,13 @@ export class SessionStore {
   /** 会话列表：解析后写入 AppStorage；首次拿到列表时自动打开最近一个会话。 */
   private consumeSessions(frame: GatewayFrame): void {
     const items: Object[] = frame.items !== undefined ? frame.items : [];
+    // 网关会话列表包含已归档会话，并另附 archivedSessionIds；与小程序一致，视图只保留未归档的。
+    const archivedIds: Set<string> = new Set<string>();
+    if (frame.archivedSessionIds !== undefined) {
+      for (const one of frame.archivedSessionIds) {
+        archivedIds.add(one);
+      }
+    }
     const list: SessionSummary[] = [];
     for (const item of items) {
       // 网关字段是 sessionId（兼容旧版 id）。
