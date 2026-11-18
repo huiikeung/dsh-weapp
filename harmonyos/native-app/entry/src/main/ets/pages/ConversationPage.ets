@@ -1287,6 +1287,21 @@ export struct ConversationPage {
         return;
       }
       const providers = rawProviders as Record<string, Object>;
+      Logger.info('[EffortDebug] providerKeys=' + JSON.stringify(Object.keys(providers)));
+      for (const key of Object.keys(providers)) {
+        const config = providers[key] as Record<string, Object>;
+        const models = config['models'];
+        if (models === undefined || !Array.isArray(models)) {
+          continue;
+        }
+        for (const one of models as Object[]) {
+          const record = one as Record<string, Object>;
+          const efforts = record['reasoningEfforts'];
+          if (efforts !== undefined && efforts !== false) {
+            Logger.info('[EffortDebug] has=' + key + '/' + String(record['id'] ?? '') + ' efforts=' + JSON.stringify(efforts).substring(0, 220));
+          }
+        }
+      }
       let provider: string = this.selectedProvider;
       if (provider.length === 0) {
         for (const key of Object.keys(providers)) {
@@ -1317,6 +1332,7 @@ export struct ConversationPage {
         if (String(record['id'] ?? '').toLowerCase() !== needle) {
           continue;
         }
+        Logger.info('[EffortDebug] record=' + JSON.stringify(record).substring(0, 420));
         const efforts = record['reasoningEfforts'];
         const ids: string[] = [];
         if (efforts !== undefined && Array.isArray(efforts)) {
