@@ -329,8 +329,24 @@ export struct ConversationPage {
     } else if (total >= 1000) {
       compact = (total / 1000).toFixed(1) + 'K';
     }
-    // 弹层最右只显示总量数字（对齐小程序：token 弹层不跟百分比）
-    return compact + ' tok';
+    // 输入框底部指标：总量 + 缓存命中率（弹层内用 tokenTotalLabel，不带百分比）
+    const hit: number = this.sessionCacheHitPercent();
+    return hit >= 0 ? compact + ' tok · ' + hit.toString() + '%' : compact + ' tok';
+  }
+
+  /** Token 弹层标题行最右：只显示总量数字（不含命中率） */
+  private tokenTotalLabel(): string {
+    const total: number = this.sessionTokenTotal();
+    if (total < 0) {
+      return '';
+    }
+    if (total >= 1000000) {
+      return (total / 1000000).toFixed(total % 1000000 === 0 ? 0 : 1) + 'M tok';
+    }
+    if (total >= 1000) {
+      return (total / 1000).toFixed(1) + 'K tok';
+    }
+    return total.toString() + ' tok';
   }
 
   /** 上下文弹层标题行最右：已用 / 窗口（如 ~523K / 1M） */
@@ -1027,6 +1043,7 @@ export struct ConversationPage {
           contextPercent: this.contextPercent(),
           runMetric: this.runMetric(),
           tokenMetric: this.tokenMetric(),
+          tokenTotal: this.tokenTotalLabel(),
           contextMetric: this.contextMetric(),
           contextTotal: this.contextTotalLabel(),
           ctxSystemPct: this.contextSegmentPercent('systemTokens'),

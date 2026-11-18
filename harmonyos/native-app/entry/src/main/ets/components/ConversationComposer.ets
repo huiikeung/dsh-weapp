@@ -126,6 +126,8 @@ export struct ConversationComposer {
   // ===== 底部三个指标按钮的文案（小程序 composer-metrics） =====
   @Prop runMetric: string = '— 轮 — 步';
   @Prop tokenMetric: string = '— tok';
+  /** Token 弹层标题行最右：只显示总量（不带命中率） */
+  @Prop tokenTotal: string = '';
   @Prop contextMetric: string = '—%';
   /** 上下文用量总量（如 ~523K / 1M），显示在弹层标题行最右 */
   @Prop contextTotal: string = '';
@@ -1146,10 +1148,12 @@ export struct ConversationComposer {
           .fontColor(this.mutedText())
           .maxLines(1)
       } else if (kind === 'token') {
-        Text(this.tokenMetric)
-          .fontSize(12)
-          .fontColor(this.mutedText())
-          .maxLines(1)
+        if (this.tokenTotal.length > 0) {
+          Text(this.tokenTotal)
+            .fontSize(12)
+            .fontColor(this.mutedText())
+            .maxLines(1)
+        }
       } else if (this.contextTotal.length > 0) {
         Text(this.contextTotal)
           .fontSize(12)
