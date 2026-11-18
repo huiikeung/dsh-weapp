@@ -269,8 +269,15 @@ export struct ConversationComposer {
 
   // ==================== 派生文案 ====================
 
+  /** 着色矩阵缓存：同一颜色复用同一数组实例，避免菜单重建时反复分配导致图标重绘闪烁 */
+  private tintCache: Map<string, number[]> = new Map<string, number[]>();
+
   /** 单色图标着色（颜色矩阵）：只换 RGB，保留透明度 */
   private iconTint(color: string): number[] {
+    const cached: number[] | undefined = this.tintCache.get(color);
+    if (cached !== undefined) {
+      return cached;
+    }
     const text: string = color.trim();
     let alpha: number = 1;
     let red: number = 255;
@@ -290,12 +297,14 @@ export struct ConversationComposer {
         blue = value & 255;
       }
     }
-    return [
+    const matrix: number[] = [
       0, 0, 0, 0, red / 255,
       0, 0, 0, 0, green / 255,
       0, 0, 0, 0, blue / 255,
       0, 0, 0, alpha, 0
     ];
+    this.tintCache.set(color, matrix);
+    return matrix;
   }
 
   /** 权限行图标：直接使用小程序 assets/icons 里的盾牌图形（utils/labels.js 同款映射） */
@@ -488,6 +497,8 @@ export struct ConversationComposer {
         .width(14)
         .height(14)
         .objectFit(ImageFit.Contain)
+        // 同步解码：避免菜单/状态重建时位图先空白再绘制的闪动
+        .syncLoad(true)
         .colorFilter(this.iconTint(this.chipIconColor()))
         .opacity(this.chipIconOpacity())
       // 权限 chip 默认只显示图标 + 箭头（不放权限名）
@@ -526,6 +537,8 @@ export struct ConversationComposer {
         .width(16)
         .height(16)
         .objectFit(ImageFit.Contain)
+        // 同步解码：避免菜单重建时位图先空白再绘制的闪动
+        .syncLoad(true)
         .colorFilter(this.iconTint(this.permissionIconColor()))
         .opacity(this.permissionIconOpacity())
       Text(label)
