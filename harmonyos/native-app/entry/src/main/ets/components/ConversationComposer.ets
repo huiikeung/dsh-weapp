@@ -127,6 +127,12 @@ export struct ConversationComposer {
   @Prop runMetric: string = '— 轮 — 步';
   @Prop tokenMetric: string = '— tok';
   @Prop contextMetric: string = '—%';
+  /** 上下文用量总量（如 ~523K / 1M），显示在弹层标题行最右 */
+  @Prop contextTotal: string = '';
+  /** 上下文分段占比（系统提示词 / 工具定义 / 对话消息），用于标题下彩色分段条 */
+  @Prop ctxSystemPct: number = 0;
+  @Prop ctxToolsPct: number = 0;
+  @Prop ctxMsgPct: number = 0;
   @Prop contextPercent: number = 0;
 
   // ==================== 状态 ====================
@@ -1107,6 +1113,7 @@ export struct ConversationComposer {
   @Builder
   metricHeaderRow(kind: string, title: string) {
     Row({ space: 6 }) {
+      // 图标：run=gauge、token=storage；上下文按截图不带图标
       if (kind === 'run') {
         Image($r('app.media.dsh_gauge'))
           .width(14)
@@ -1119,18 +1126,19 @@ export struct ConversationComposer {
           .height(14)
           .objectFit(ImageFit.Contain)
           .colorFilter(this.iconTint(this.menuLabelColor()))
-      } else {
-        Circle()
-          .width(13)
-          .height(13)
-          .fill(Color.Transparent)
-          .stroke(this.menuLabelColor())
-          .strokeWidth(1.4)
       }
       Text(title)
         .fontSize(14)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.menuLabelColor())
+      // 上下文：百分比紧贴在标题后面（不再靠右）
+      if (kind === 'context') {
+        Text(this.contextMetric)
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.mutedText())
+          .maxLines(1)
+      }
       Blank()
       if (kind === 'run') {
         Text(this.runMetric)
@@ -1142,8 +1150,8 @@ export struct ConversationComposer {
           .fontSize(12)
           .fontColor(this.mutedText())
           .maxLines(1)
-      } else {
-        Text(this.contextMetric)
+      } else if (this.contextTotal.length > 0) {
+        Text(this.contextTotal)
           .fontSize(12)
           .fontColor(this.mutedText())
           .maxLines(1)
@@ -1154,10 +1162,74 @@ export struct ConversationComposer {
     .padding({ left: 24, right: 24 })
   }
 
+  /** 上下文分段色：系统提示词=灰、工具定义=紫、对话消息=蓝（对齐小程序 ctx-bar 分段） */
+  private segmentColor(label: string): string {
+    if (label.indexOf('系统') >= 0 || label.indexOf('提示') >= 0) {
+      return '#8E8E93';
+    }
+    if (label.indexOf('工具') >= 0) {
+      return '#AF7AE1';
+    }
+    if (label.indexOf('消息') >= 0 || label.indexOf('对话') >= 0) {
+      return '#3B82F6';
+    }
+    return '';
+  }
+
+  /** 上下文标题下的彩色用量条：按 系统/工具/消息 三段占比铺满 */
+  @Builder
+  contextBarRow() {
+    Row() {
+      Row() {
+        if (this.ctxSystemPct > 0) {
+          Row()
+            .height(4)
+            .layoutWeight(this.ctxSystemPct)
+            .backgroundColor('#8E8E93')
+        }
+        if (this.ctxToolsPct > 0) {
+          Row()
+            .height(4)
+            .layoutWeight(this.ctxToolsPct)
+            .backgroundColor('#AF7AE1')
+        }
+        if (this.ctxMsgPct > 0) {
+          Row()
+            .height(4)
+            .layoutWeight(this.ctxMsgPct)
+            .backgroundColor('#3B82F6')
+        }
+        if (this.ctxSystemPct <= 0 && this.ctxToolsPct <= 0 && this.ctxMsgPct <= 0) {
+          Row()
+            .height(4)
+            .layoutWeight(1)
+            .backgroundColor(this.menuSeparator())
+        }
+      }
+      .width('100%')
+      .height(4)
+      .borderRadius(2)
+      .clip(true)
+      .backgroundColor(this.menuSeparator())
+    }
+    .width(232)
+    .height(18)
+    .padding({ left: 24, right: 24 })
+    .alignItems(VerticalAlign.Center)
+  }
+
   /** 指标弹层数据行：名称在左（系统菜单字色），数值在右（次级色） */
   @Builder
-  metricRow(label: string, value: string) {
-    Row() {
+  metricRow(label: string, value: string, dotColor: string) {
+    Row({ space: 7 }) {
+      // 上下文分项前的颜色小方块（其余弹层传空串不渲染）
+      if (dotColor.length > 0) {
+        Row()
+          .width(8)
+          .height(8)
+          .borderRadius(2)
+          .backgroundColor(dotColor)
+      }
       Text(label)
         .fontSize(14)
         .fontColor(this.menuLabelColor())
@@ -1185,7 +1257,7 @@ export struct ConversationComposer {
       MenuItemGroup() {
         MenuItem(this.metricHeaderRow('run', '会话统计')).enabled(false)
         ForEach(this.metricPairsFor('run'), (pair: MetricMenuPair) => {
-          MenuItem(this.metricRow(pair.label, pair.value))
+          MenuItem(this.metricRow(pair.label, pair.value, ''))
         }, (pair: MetricMenuPair) => pair.label)
       }
     }
@@ -1203,7 +1275,7 @@ export struct ConversationComposer {
       MenuItemGroup() {
         MenuItem(this.metricHeaderRow('token', 'Token 用量')).enabled(false)
         ForEach(this.metricPairsFor('token'), (pair: MetricMenuPair) => {
-          MenuItem(this.metricRow(pair.label, pair.value))
+          MenuItem(this.metricRow(pair.label, pair.value, ''))
         }, (pair: MetricMenuPair) => pair.label)
       }
     }
@@ -1220,8 +1292,9 @@ export struct ConversationComposer {
       }) {
       MenuItemGroup() {
         MenuItem(this.metricHeaderRow('context', '上下文已用')).enabled(false)
+        MenuItem(this.contextBarRow()).enabled(false)
         ForEach(this.metricPairsFor('context'), (pair: MetricMenuPair) => {
-          MenuItem(this.metricRow(pair.label, pair.value))
+          MenuItem(this.metricRow(pair.label, pair.value, this.segmentColor(pair.label)))
         }, (pair: MetricMenuPair) => pair.label)
       }
     }

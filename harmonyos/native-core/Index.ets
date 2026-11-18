@@ -9,6 +9,8 @@ export { uploadAttachment, downloadAttachment } from './src/main/ets/common/Atta
 export type { UploadResult, DownloadResult } from './src/main/ets/common/AttachmentTransfer';
 export { AttachmentCache } from './src/main/ets/common/AttachmentCache';
 export { VoiceDictation } from './src/main/ets/common/VoiceDictation';
+export { SpeechInput } from './src/main/ets/common/SpeechInput';
+export type { SpeechLimits } from './src/main/ets/common/SpeechInput';
 export type { AttachmentCacheEntry } from './src/main/ets/common/AttachmentCache';
 export { ThemeManager } from './src/main/ets/common/ThemeManager';
 export type { ThemeMode } from './src/main/ets/common/ThemeManager';

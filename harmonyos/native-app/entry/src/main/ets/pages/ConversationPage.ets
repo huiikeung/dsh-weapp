@@ -3,9 +3,10 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { KeyboardAvoidMode, window } from '@kit.ArkUI';
 import {
   asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, GatewayClient, GatewayRequestFactory, Logger, num,
-  PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, VoiceDictation, WorkStepPresentation, parseNamespace, pickDocuments, uploadAttachment
+  PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechInput, WorkStepPresentation, parseNamespace, pickDocuments, uploadAttachment
 } from 'nativecore';
 import type { GatewayFrame, ModelMenuItem, ModelOption, PresetOption } from 'nativecore';
+import type { SpeechLimits } from 'nativecore';
 import type { UploadResult } from 'nativecore';
 import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair } from '../components/ConversationComposer';
@@ -152,7 +153,11 @@ export struct ConversationPage {
   @State voiceLevel: number = 0.5;
   /** 录音提示文案 */
   @State voiceHint: string = '';
-  private dictation: VoiceDictation = new VoiceDictation();
+  private dictation: SpeechInput = new SpeechInput();
+  /** 本次录音的网关限制（catalog 结果） */
+  private speechLimits: SpeechLimits | null = null;
+  /** 长按会话令牌：松手/重按时让在途的 catalog+start 流程自动作废 */
+  private voiceHoldToken: number = 0;
   @State hint: string = '';
   @State autoStick: boolean = true;
   @State sending: boolean = false;
@@ -324,8 +329,31 @@ export struct ConversationPage {
     } else if (total >= 1000) {
       compact = (total / 1000).toFixed(1) + 'K';
     }
-    const hit: number = this.sessionCacheHitPercent();
-    return hit >= 0 ? compact + ' tok · ' + hit.toString() + '%' : compact + ' tok';
+    // 弹层最右只显示总量数字（对齐小程序：token 弹层不跟百分比）
+    return compact + ' tok';
+  }
+
+  /** 上下文弹层标题行最右：已用 / 窗口（如 ~523K / 1M） */
+  private contextTotalLabel(): string {
+    const used: number = this.contextUsedTokens();
+    const window: number = this.contextWindowTokens();
+    if (used < 0 || window < 0) {
+      return '';
+    }
+    return '~' + this.compactTok(used) + ' / ' + this.compactTok(window);
+  }
+
+  /** 上下文分段占比（系统提示词 / 工具定义 / 对话消息），用于标题下彩色用量条 */
+  private contextSegmentPercent(key: string): number {
+    const system: number = Math.max(0, this.breakdownNum('systemTokens'));
+    const tools: number = Math.max(0, this.breakdownNum('toolsTokens'));
+    const messages: number = Math.max(0, this.breakdownNum('messageTokens'));
+    const total: number = system + tools + messages;
+    if (total <= 0) {
+      return 0;
+    }
+    const value: number = key === 'systemTokens' ? system : (key === 'toolsTokens' ? tools : messages);
+    return value / total;
   }
 
   /** 上下文指标：「37%」。 */
@@ -808,37 +836,38 @@ export struct ConversationPage {
     }
   }
 
-  // ==================== 长按语音 ====================
+  // ==================== 长按语音（走网关语音插件，和微信小程序同一条链路） ====================
   private async onVoiceHoldStart(): Promise<void> {
-    if (this.voiceRecording || this.dictation.isActive()) {
+    if (this.voiceRecording) {
       return;
     }
+    const token: number = ++this.voiceHoldToken;
     this.voiceCancelArmed = false;
     this.voiceLevel = 0.5;
     this.voiceHint = '松手转文字 · 上滑取消';
     this.voiceRecording = true;
     try {
-      await this.dictation.start(
-        (partial: string) => {
-          // 实时中间结果不写入草稿，避免抖动；等最终结果一次性插入
-        },
-        (finalText: string) => {
-          this.insertVoiceText(finalText);
-        },
-        (message: string) => {
-          this.voiceRecording = false;
-          this.voiceCancelArmed = false;
-          this.hint = '语音输入失败：' + message;
-        },
-        () => {
-          this.voiceRecording = false;
-          this.voiceCancelArmed = false;
-        }
-      );
+      const limits: SpeechLimits = await this.dictation.catalog();
+      if (token !== this.voiceHoldToken) {
+        // 拿限制期间已经松手了
+        this.voiceRecording = false;
+        return;
+      }
+      this.speechLimits = limits;
+      await this.dictation.start(limits, (message: string) => {
+        this.voiceRecording = false;
+        this.hint = '录音中断：' + message;
+      });
+      if (token !== this.voiceHoldToken) {
+        this.dictation.cancel();
+        this.voiceRecording = false;
+      }
     } catch (err) {
+      const msg: string = err instanceof Error ? err.message : String(err);
+      Logger.warn('speech start failed: ' + msg);
       this.voiceRecording = false;
       this.voiceCancelArmed = false;
-      this.hint = '语音输入不可用：' + (err instanceof Error ? err.message : String(err));
+      this.hint = msg;
     }
   }
 
@@ -848,14 +877,26 @@ export struct ConversationPage {
   }
 
   private onVoiceHoldEnd(cancel: boolean): void {
+    this.voiceHoldToken++;
     this.voiceCancelArmed = false;
     if (cancel) {
       this.dictation.cancel();
       this.voiceRecording = false;
       return;
     }
-    // 松手：结束采集，识别结果经 onFinal 插入草稿
-    this.dictation.stop();
+    const limits: SpeechLimits | null = this.speechLimits;
+    if (!this.voiceRecording || limits === null) {
+      return;
+    }
+    // 松手：结束采集 → 转 WAV → 网关转写
+    this.voiceHint = '正在转文字…';
+    this.dictation.stopAndTranscribe(limits).then((text: string) => {
+      this.insertVoiceText(text);
+    }).catch((err: Error) => {
+      Logger.warn('speech transcribe failed: ' + err.message);
+      this.voiceRecording = false;
+      this.hint = err.message;
+    });
   }
 
   private insertVoiceText(text: string): void {
@@ -987,6 +1028,10 @@ export struct ConversationPage {
           runMetric: this.runMetric(),
           tokenMetric: this.tokenMetric(),
           contextMetric: this.contextMetric(),
+          contextTotal: this.contextTotalLabel(),
+          ctxSystemPct: this.contextSegmentPercent('systemTokens'),
+          ctxToolsPct: this.contextSegmentPercent('toolsTokens'),
+          ctxMsgPct: this.contextSegmentPercent('messageTokens'),
           attachmentCount: this.pickedAttachments.length,
           metricPairsFor: (kind: string): MetricMenuPair[] => {
             const pairs: MetricMenuPair[] = [];

@@ -1224,6 +1224,27 @@ export class GatewayClient {
   }
 
   /** 读取 llm 插件命名空间（模型配置）。 */
+  /**
+   * 通用插件请求（对齐小程序 requestPlugin）：type 即帧类型，响应 kind 由网关决定。
+   * 语音输入用到的三种：speech-catalog→speech-catalog、speech-transcribe→speech-transcript、
+   * speech-cancel→speech-cancelled。
+   */
+  requestPlugin(type: string, payload: Record<string, Object>, timeoutMs: number = 15000): Promise<GatewayFrame> {
+    this.pluginRequestSeq += 1;
+    const requestId: string = 'plugin-' + this.pluginRequestSeq;
+    const fields: Record<string, Object> = { 'requestId': requestId };
+    const keys: string[] = Object.keys(payload);
+    for (const key of keys) {
+      if (key !== 'type' && key !== 'requestId') {
+        fields[key] = payload[key];
+      }
+    }
+    const expectedKind: string = type === 'speech-transcribe' ? 'speech-transcript'
+      : (type === 'speech-cancel' ? 'speech-cancelled' : type);
+    return this.requestGateway(GatewayRequestFactory.make(type, expectedKind, fields, undefined, requestId,
+      GatewayRequestLanePolicy.REJECT_IF_BUSY, timeoutMs), timeoutMs);
+  }
+
   requestPluginSettings(ns: string): Promise<GatewayFrame> {
     this.pluginRequestSeq += 1;
     return this.requestGateway(GatewayRequestFactory.pluginSettings(ns, 'plugin-settings-' + this.pluginRequestSeq), 15000);
