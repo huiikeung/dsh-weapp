@@ -2,6 +2,7 @@ import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { GatewayClient, PreferencesStore, SessionStore, SessionSummary, WorkspaceRow } from 'nativecore';
 import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
+import { openSessionRoute } from '../common/SessionRoute';
 
 /** 会话设置（右上角滑杆按钮）：对齐小程序 pages/session-settings */
 @Component
@@ -1387,7 +1388,7 @@ export struct SessionSettingsPage {
       this.pickerOpen = false;
       this.hint = '';
       SessionStore.get().open(sessionId);
-      this.pageStack.pushPathByName('session', null);
+      openSessionRoute(this.pageStack);
     }).catch((err: Error) => {
       this.creatingPreset = false;
       this.pickerOpen = false;

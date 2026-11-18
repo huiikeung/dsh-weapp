@@ -1,5 +1,6 @@
 export { Logger } from './src/main/ets/common/Logger';
 export { PreferencesStore } from './src/main/ets/common/PreferencesStore';
+export { DraftStore } from './src/main/ets/common/DraftStore';
 export { StatusAppearance } from './src/main/ets/common/StatusAppearance';
 export type { StatusAppearanceOption } from './src/main/ets/common/StatusAppearance';
 export { NotificationService } from './src/main/ets/common/NotificationService';
@@ -9,7 +10,7 @@ export { uploadAttachment, downloadAttachment } from './src/main/ets/common/Atta
 export type { UploadResult, DownloadResult } from './src/main/ets/common/AttachmentTransfer';
 export { AttachmentCache } from './src/main/ets/common/AttachmentCache';
 export { VoiceDictation } from './src/main/ets/common/VoiceDictation';
-export { SpeechInput } from './src/main/ets/common/SpeechInput';
+export { SpeechInput, SpeechFailure } from './src/main/ets/common/SpeechInput';
 export type { SpeechLimits } from './src/main/ets/common/SpeechInput';
 export type { AttachmentCacheEntry } from './src/main/ets/common/AttachmentCache';
 export { ThemeManager } from './src/main/ets/common/ThemeManager';
@@ -17,7 +18,7 @@ export type { ThemeMode } from './src/main/ets/common/ThemeManager';
 export { AppState, KEY_CONNECTION, KEY_WORKSPACE } from './src/main/ets/common/AppState';
 export { GatewayClient, ConnectionState } from './src/main/ets/network/GatewayClient';
 export type { GatewayProfile } from './src/main/ets/network/GatewayClient';
-export { SessionStore } from './src/main/ets/state/SessionStore';
+export { SessionStore, goalPhaseLabel, emptySessionGoal } from './src/main/ets/state/SessionStore';
 export type { GatewayFrame } from './src/main/ets/protocol/GatewayDtos';
 export {
   PI_NS, buildProviderRows, protocolLabel, formatTokenCount, modelMeta,
@@ -37,10 +38,10 @@ export { EventProjector } from './src/main/ets/state/EventProjector';
 export type { ProjTurn, ProjStep, ProjTool } from './src/main/ets/state/EventProjector';
 export { CredentialStore } from './src/main/ets/state/CredentialStore';
 export type { SavedGateway } from './src/main/ets/state/CredentialStore';
-export type { DirEntry, DirCrumb, SessionRow, SessionSummary, QueueItem, WorkspaceRow } from './src/main/ets/state/SessionStore';
+export type { DirEntry, DirCrumb, SessionRow, SessionSummary, QueueItem, WorkspaceRow, SessionGoalView } from './src/main/ets/state/SessionStore';
 export { GatewayRequests } from './src/main/ets/protocol/GatewayRequests';
 export { GatewayRequestFactory, GatewayRequestLanePolicy } from './src/main/ets/protocol/GatewayRequest';
-export type { GatewayRequest } from './src/main/ets/protocol/GatewayRequest';
+export type { GatewayRequest, GatewayGoalReference } from './src/main/ets/protocol/GatewayRequest';
 export {
   box as naclBox, boxOpen as naclBoxOpen, boxKeyPair, boxBeforenm, randomBytes as naclRandomBytes,
   selfTest as sodiumSelfTest

@@ -1,21 +1,48 @@
-import { common } from '@kit.AbilityKit';
+import { abilityAccessCtrl, common, Want } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { KeyboardAvoidMode, window } from '@kit.ArkUI';
+import { display, KeyboardAvoidMode, uiMaterial, window } from '@kit.ArkUI';
 import {
-  asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, GatewayClient, GatewayRequestFactory, Logger, num,
-  PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechInput, WorkStepPresentation, parseNamespace, pickDocuments, uploadAttachment
+  asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
+  DraftStore, PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechFailure, SpeechInput, TeamStore, WorkStepPresentation,
+  parseNamespace, pickDocuments, uploadAttachment
 } from 'nativecore';
-import type { GatewayFrame, ModelMenuItem, ModelOption, PresetOption } from 'nativecore';
+import type { GatewayFrame, GatewayTask, GatewayGoalReference, ModelMenuItem, ModelOption, PresetOption, QueueItem, SessionGoalView } from 'nativecore';
+import type { TeamMemberView, TeamTaskView } from 'nativecore';
 import type { SpeechLimits } from 'nativecore';
 import type { UploadResult } from 'nativecore';
 import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair } from '../components/ConversationComposer';
+import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { NavBackButton } from '../components/NavBackButton';
 import { ConversationProgress } from '../components/ConversationProgress';
+import { FluKeCoin } from '../components/FluKeCoin';
+
+/** 流式期间重排时间线的最小间隔：太密会把 UI 线程占满，手指点不动、也滑不动 */
+const TIMELINE_MIN_INTERVAL_MS: number = 90;
 
 interface UploadReceipt {
   receiptId: string;
 }
+
+/** iOS AgentAvatar 彩色智能体头像（取自 dsh-mobile Assets.xcassets）。 */
+const TEAM_AVATARS: Resource[] = [
+  $r('app.media.agent_avatar_00'),
+  $r('app.media.agent_avatar_01'),
+  $r('app.media.agent_avatar_02'),
+  $r('app.media.agent_avatar_03'),
+  $r('app.media.agent_avatar_04'),
+  $r('app.media.agent_avatar_05'),
+  $r('app.media.agent_avatar_06'),
+  $r('app.media.agent_avatar_07'),
+  $r('app.media.agent_avatar_08'),
+  $r('app.media.agent_avatar_09'),
+  $r('app.media.agent_avatar_10'),
+  $r('app.media.agent_avatar_11'),
+  $r('app.media.agent_avatar_12'),
+  $r('app.media.agent_avatar_13'),
+  $r('app.media.agent_avatar_14'),
+  $r('app.media.agent_avatar_15')
+];
 
 /** 指标弹层的一行（label / value），预生成后交给 ForEach。 */
 interface MetricPair {
@@ -117,11 +144,13 @@ interface ModelSheetGroup {
 export struct ConversationPage {
   @Consume('pageStack') pageStack: NavPathStack;
   @StorageLink('isDark') isDark: boolean = false;
-  @StorageLink('connectionState') connection: string = 'disconnected';
+  @StorageLink('connectionState') @Watch('onConnectionChanged') connection: string = 'disconnected';
   @StorageLink('sessions') sessions: SessionSummary[] = [];
   @StorageLink('conversationItems') @Watch('onItemsChanged') items: ConversationItem[] = [];
   @StorageLink('conversationRunning') @Watch('onRunningChanged') running: boolean = false;
   @StorageLink('historyHasMore') hasMoreHistory: boolean = false;
+  /** 首屏历史加载中：显示加载骨架，而不是「新建会话」空态 */
+  @StorageLink('historyLoading') historyLoading: boolean = false;
   @StorageLink('defaultPermission') defaultPermission: string = '';
   @StorageLink('defaultModel') defaultModel: string = '';
   @StorageLink('defaultEffort') defaultEffort: string = '';
@@ -145,27 +174,41 @@ export struct ConversationPage {
   @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
   /** 当前是语音输入态（右下角显示键盘图标） */
   @State voiceMode: boolean = false;
-  /** 正在录音：输入条显示波纹 + 提示 */
+  /** 录音/识别进行中：输入条不展开、不给发送 */
   @State voiceRecording: boolean = false;
   /** 上滑已进入取消区 */
   @State voiceCancelArmed: boolean = false;
-  /** 实时音量（本轮只做稳定波纹，后续可接真实电平） */
-  @State voiceLevel: number = 0.5;
-  /** 录音提示文案 */
-  @State voiceHint: string = '';
+  /** 语音阶段：idle / authorizing / starting / recording / transcribing（对齐小程序 voicePhase） */
+  @State voicePhase: string = 'idle';
+  /** 全屏特效是否显示：只在授权/开启/录音三段显示（和文案同一个来源） */
+  @State voiceOverlayVisible: boolean = false;
+  /** 特效里的状态文案（正在获取麦克风权限 / 松手转文字 · 上滑取消 / 松手取消） */
+  @State voiceStatus: string = '';
   private dictation: SpeechInput = new SpeechInput();
   /** 本次录音的网关限制（catalog 结果） */
   private speechLimits: SpeechLimits | null = null;
-  /** 长按会话令牌：松手/重按时让在途的 catalog+start 流程自动作废 */
+  /** 长按会话令牌：松手/重按时让在途的 catalog+permission+start 流程自动作废 */
   private voiceHoldToken: number = 0;
-  /** 录音期间轮询音量驱动波纹 */
-  private voiceLevelTimer: number = -1;
   @State hint: string = '';
+  // ===== 顶部轻提示（队列操作等瞬时反馈，替代输入框上方的红色小字）=====
+  @State toastText: string = '';
+  @State toastError: boolean = false;
+  @State toastOpacity: number = 0;
+  @State toastOffset: number = -10;
+  private toastTimer: number = -1;
+  /** steer 失败过的排队项（多半是回合已结束）：暂时收起「立即发送」，等运行态再允许 */
+  @State steerFailedIds: string[] = [];
   @State autoStick: boolean = true;
   @State sending: boolean = false;
   @State pickedAttachments: PickedAttachment[] = [];
   @State attachmentHint: string = '';
-  @State expandedIds: string[] = [];
+  /**
+   * 折叠状态表（对齐小程序 folds 对象）：组头/回合行/步骤行共用一份，
+   * 重投影、翻页、切换会话都保留；缺省由 applyWorkStepPolicy 按档位算默认可见性。
+   */
+  private folds: Map<string, boolean> = new Map<string, boolean>();
+  /** 已展开的步骤行 id（图标换成箭头那一层）；用数组做 @Prop 传给行组件（Map 传参会崩） */
+  @State stepOpenIds: string[] = [];
   @State progressLabel: string = '';
   /** 工作步骤展示档位与收起时机（对齐 DSH 客户端 presentation policy） */
   /** 工作步骤展示档位/收起时机：响应式绑定，设置页改完立刻重排 */
@@ -196,11 +239,33 @@ export struct ConversationPage {
   @StorageLink('modelDetails') @Watch('onModelDetailsChanged') modelOptions: ModelOption[] = [];
   @State metricTitle: string = '';
   @State metricPairs: MetricPair[] = [];
+
+  // ===== 智能体团队（右上角协作入口 + 成员弹层 + 团队内容面板，对齐 dsh-mobile） =====
+  @StorageLink('teamVisible') teamVisible: boolean = false;
+  @StorageLink('teamMembers') teamMembers: TeamMemberView[] = [];
+  @StorageLink('teamTasks') teamTasks: TeamTaskView[] = [];
+  @StorageLink('teamLeadSessionId') teamLeadSessionId: string = '';
+  @StorageLink('teamFailure') teamFailure: string = '';
+  @State teamPopoverOpen: boolean = false;
+  @State teamSheetOpen: boolean = false;
+  @State teamTaskFilter: string = 'all';
+  @State teamExpandedTasks: string[] = [];
 @State metricTotal: string = '';
   /** 系统状态栏高度（vp）：EntryAbility 建窗时写入 AppStorage，页面据此避让。 */
   @StorageLink('safeTopVp') topInset: number = 0;
   /** 执行图标样式（设置页「执行图标」） */
   @StorageLink('procIconStyle') procIconStyle: string = 'spin-ring';
+  // ===== 底部 dock：排队消息 / 任务 / 目标（对齐小程序 dock-stack）=====
+  @StorageLink('queueItems') @Watch('onQueueChanged') queue: QueueItem[] = [];
+  @StorageLink('sessionTasks') @Watch('onTasksChanged') tasks: GatewayTask[] = [];
+  @StorageLink('sessionGoal') goal: SessionGoalView = emptySessionGoal();
+  @StorageLink('goalBusy') goalBusy: boolean = false;
+  @State queueExpanded: boolean = false;
+  @State queueBusyId: string = '';
+  @State tasksExpanded: boolean = false;
+  @State goalEditing: boolean = false;
+  @State goalDraft: string = '';
+  private goalBusyTimer: number = -1;
   /** 系统手势条高度（vp）：输入条据此抬升。 */
   @StorageLink('safeBottomVp') bottomInset: number = 0;
 
@@ -209,6 +274,26 @@ export struct ConversationPage {
   private progressTimer: number = -1;
   private lastTailKey: string = '';
   private ready: boolean = false;
+  /** 当前是否是这个 NavDestination 的显示态：被设置页/任务面板盖住时不再重排时间线 */
+  private pageVisible: boolean = true;
+  private pendingItemsWhileHidden: boolean = false;
+  /** 草稿归属的会话：切会话时先落盘旧的，再读新的 */
+  private draftOwnerSessionId: string = '';
+  private draftSaveTimer: number = -1;
+  private draftRestoreRetries: number = 0;
+  /** 手指是否压在时间线上（含刚松开的一小段时间）：这段时间绝不自动吸底 */
+  private listTouching: boolean = false;
+  /** 手指压着列表时发生结构变化：先记下，抬手后再重建，避免重建把拖动打断 */
+  private pendingStructure: boolean = false;
+  /** 顶部毛玻璃强度 0~1：内容在顶部时 0（完全透明），往上滑逐渐出现 */
+  @State private topBarMaterial: number = 0;
+  /** 正在重建列表：这期间的 onReachEnd 是重建造成的，不能当成「用户滑到底」而恢复吸底 */
+  private suppressReachEnd: boolean = false;
+  private lastTouchAt: number = 0;
+  private lastUserScrollAt: number = 0;
+  /** 时间线重排节流（流式期间用） */
+  private timelineTimer: number = -1;
+  private lastTimelineUpdateAt: number = 0;
 
   // ==================== 生命周期 ====================
   aboutToAppear(): void {
@@ -218,13 +303,25 @@ export struct ConversationPage {
     // 状态栏内容色跟随页面背景：深色纯黑 → 白，浅色灰底 → 黑
     this.applyStatusBarColor();
     this.syncWorkStepPrefs();
+    // 团队半模态是全局 StorageLink：上个会话/上个页面残留 true 时，新会话页一打开就被
+    // 半模态的遮罩盖住，表现成「整页点不动、滑不动」。进门先收掉。
+    this.teamSheetOpen = false;
     this.ready = true;
+
+    this.requestDockData();
     this.rebuildEntries();
     this.refreshProgress();
     this.refreshModelEfforts();
     this.progressTimer = setInterval(() => {
+      if (!this.pageVisible) {
+        return;
+      }
       this.refreshProgress();
+      // 工作步骤档位兜底轮询：无论设置页走哪条返回路径，1s 内都会按最新偏好重排
+      this.syncWorkStepLive();
     }, 1000);
+    // 进页恢复该会话上次没发出去的草稿
+    this.restoreDraft();
   }
 
   /** 运行中标题最短展示：id → 已展示标题与时间戳（对齐客户端防抖） */
@@ -243,8 +340,26 @@ export struct ConversationPage {
     this.workStepTiming = timing;
   }
 
+  /** 轮询兜底：偏好变了就重排（@StorageProp 的 watch 漏拍时靠它保证 1s 内生效） */
+  private syncWorkStepLive(): void {
+    const mode: string = WorkStepPresentation.normalizeMode(
+      PreferencesStore.get().getString(WorkStepPresentation.MODE_KEY, 'detailed'));
+    const timing: string = WorkStepPresentation.normalizeTiming(
+      PreferencesStore.get().getString(WorkStepPresentation.TIMING_KEY, 'completion'));
+    if (mode === this.workStepMode && timing === this.workStepTiming) {
+      return;
+    }
+    Logger.info('MODE LIVE poll ' + mode + '/' + timing + ' (was ' + this.workStepMode + '/' + this.workStepTiming + ')');
+    AppStorage.setOrCreate<string>('workStepMode', mode);
+    AppStorage.setOrCreate<string>('workStepTiming', timing);
+    this.workStepMode = mode;
+    this.workStepTiming = timing;
+    this.rebuildEntries();
+  }
+
   /** 设置页切换档位/时机后立即重排（四档才能即时生效） */
   private onWorkStepPrefsChanged(): void {
+    Logger.info('MODE WATCH ' + this.workStepMode + '/' + this.workStepTiming);
     if (this.ready) {
       this.rebuildEntries();
     }
@@ -256,13 +371,18 @@ export struct ConversationPage {
       clearInterval(this.progressTimer);
       this.progressTimer = -1;
     }
+    if (this.timelineTimer >= 0) {
+      clearTimeout(this.timelineTimer);
+      this.timelineTimer = -1;
+    }
+    // 离页前把草稿落盘（含防抖里还没写的那一次）
+    this.flushDraft();
     // 离页时收掉录音：不然麦克风会一直占着
-    this.stopVoiceLevelPoll();
-    if (this.voiceRecording || this.dictation.isActive()) {
+    this.voiceHoldToken++;
+    if (this.dictation.isActive()) {
       this.dictation.cancel();
     }
-    this.voiceRecording = false;
-    this.voiceCancelArmed = false;
+    this.resetVoice();
   }
 
   /** 输入法收起（高度归零）时塌回：无草稿无附件回单栏，有草稿保持展开卡片（对齐小程序 onKeyboardHide） */
@@ -478,10 +598,22 @@ export struct ConversationPage {
   private rebuildEntries(): void {
     const source: ConversationItem[] = this.items === undefined ? [] : this.items;
     const built: ConversationFeedEntryModel[] = [];
-    const rows: ConversationFeedEntry[] = ConversationFeed.build(source, this.running && this.connection === 'connected');
+    let rows: ConversationFeedEntry[] = ConversationFeed.build(source, this.running && this.connection === 'connected');
     // 任何时候都要算策略：运行中也要决定组体是否可见 / 限高 / 标题隐藏
     // （对齐小程序：workSteps.apply 每帧无条件执行，运行态由 policy 内部判断）
-    ConversationFeed.applyWorkStepPolicy(rows, this.workStepMode, this.workStepTiming, this.expandedIds);
+    ConversationFeed.applyWorkStepPolicy(rows, this.workStepMode, this.workStepTiming, this.folds);
+    // 回合展开时，把组行摊平到它下面当同级行（对齐小程序：turnProcess 行 + 各 processGroup 行，
+    // 收起时按 turnProcessKey 过滤）。不嵌套组件——嵌套 @ObjectLink 行在本机会崩。
+    const flat: ConversationFeedEntry[] = [];
+    for (const row of rows) {
+      flat.push(row);
+      if (row.kind === 'TURN' && row.expanded) {
+        for (const child of row.children) {
+          flat.push(child);
+        }
+      }
+    }
+    rows = flat;
     // 运行中标题最短展示 150ms，避免快速切换闪烁（对齐客户端 PROCESS_TITLE_MINIMUM_MS）
     const nowMs: number = Date.now();
     for (const entry of rows) {
@@ -503,21 +635,56 @@ export struct ConversationPage {
     }
     for (const entry of rows) {
       const existing: ConversationFeedEntryModel | undefined = previous.get(entry.id);
-      const isExpanded: boolean = this.expandedIds.indexOf(entry.id) >= 0;
       if (existing !== undefined) {
-        existing.assign(entry, isExpanded);
+        existing.assign(entry, entry.expanded);
         built.push(existing);
       } else {
         const model: ConversationFeedEntryModel = ConversationFeedEntryModel.from(entry);
-        model.expanded = isExpanded;
+        model.expanded = entry.expanded;
         built.push(model);
       }
     }
+    // 行 id 顺序没变 = 只是正文/状态在涨：行实例已经原地 assign 过，@ObjectLink 会把
+    // 改动推给对应行，这里绝不能再重载列表。onDataReloaded 会把所有可见行拆掉重建
+    // （连带重新解析 Markdown），流式期间每秒来十几次，页面就是被它拖死的。
+    let structureChanged: boolean = built.length !== this.entries.length;
+    if (!structureChanged) {
+      for (let i = 0; i < built.length; i++) {
+        if (built[i].id !== this.entries[i].id) {
+          structureChanged = true;
+          break;
+        }
+      }
+    }
+    if (!structureChanged) {
+      return;
+    }
+    // 手指压在列表上时先不重建：onDataReloaded 会把可见行整体拆掉重建，
+    // 正在拖的手势被中断 —— 表现出来就是「运行中滑不动」。抬手后补一次。
+    if (this.listTouching) {
+      this.pendingStructure = true;
+      return;
+    }
+    // 用户已经往上翻（不再吸底）时，重建后把滚动位置放回去，避免列表自己跳到顶部
+    const keepOffset: boolean = !this.autoStick;
+    const yOffset: number = keepOffset ? this.scroller.currentOffset().yOffset : 0;
+    this.suppressReachEnd = true;
     this.entries = built;
     this.source.update(built);
+    setTimeout(() => {
+      if (keepOffset) {
+        // 用户已经往上翻：无条件把位置放回去（重建会让列表自己跳到别处）
+        this.scroller.scrollTo({ xOffset: 0, yOffset: yOffset, animation: false });
+      }
+      this.suppressReachEnd = false;
+    }, 0);
   }
 
   private onRunningChanged(): void {
+    // 重新运行起来后允许再次尝试「立即发送」
+    if (this.running && this.steerFailedIds.length > 0) {
+      this.steerFailedIds = [];
+    }
     // 运行状态翻转会改变折叠策略（运行中不收起过程组），必须重投影
     this.rebuildEntries();
     this.refreshProgress();
@@ -533,18 +700,68 @@ export struct ConversationPage {
     if (!this.ready) {
       return;
     }
+    if (!this.pageVisible) {
+      // 被别的页面盖住时只记账，回到本页再统一重排
+      this.pendingItemsWhileHidden = true;
+      return;
+    }
+    this.scheduleTimelineUpdate();
+  }
+
+  /**
+   * 网关一次生成会连着推很多帧（每个 delta 都会刷新 conversationItems），
+   * 每帧都重排 + 吸底会把 UI 线程打满。这里收敛到最多 ~11 次/秒，
+   * 并保留一次尾随执行，保证最后一段文字不会停在旧状态。
+   */
+  private scheduleTimelineUpdate(): void {
+    if (this.timelineTimer >= 0) {
+      return;
+    }
+    const wait: number = TIMELINE_MIN_INTERVAL_MS - (Date.now() - this.lastTimelineUpdateAt);
+    if (wait <= 0) {
+      this.applyTimelineUpdate();
+      return;
+    }
+    this.timelineTimer = setTimeout(() => {
+      this.timelineTimer = -1;
+      if (this.ready) {
+        this.applyTimelineUpdate();
+      }
+    }, wait);
+  }
+
+  private applyTimelineUpdate(): void {
+    this.lastTimelineUpdateAt = Date.now();
     this.rebuildEntries();
     this.refreshProgress();
     const tail: ConversationFeedEntryModel | null = this.entries.length > 0 ? this.entries[this.entries.length - 1] : null;
     const key: string = tail === null ? '' : tail.id + ':' + tail.text.length.toString();
     if (key !== this.lastTailKey) {
       this.lastTailKey = key;
-      if (this.autoStick) {
+      if (this.autoStick && !this.userInteracting()) {
         setTimeout(() => {
-          this.scroller.scrollEdge(Edge.Bottom);
+          if (!this.userInteracting()) {
+            this.scroller.scrollEdge(Edge.Bottom);
+          }
         }, 30);
       }
     }
+  }
+
+  /**
+   * 用户正在跟列表较劲就不要再吸底。
+   * 以前流式期间每 90ms 强制 scrollEdge(Bottom)：手指刚上滑就被拽回底部，
+   * 表现出来就是「滑不动、点了没反应」——这是对话页卡死的直接观感来源。
+   */
+  private userInteracting(): boolean {
+    const now: number = Date.now();
+    if (this.listTouching) {
+      return true;
+    }
+    if (now - this.lastTouchAt < 800) {
+      return true;
+    }
+    return now - this.lastUserScrollAt < 800;
   }
 
   /** 运行中的过程组 id（点击运行条时展开它） */
@@ -564,12 +781,13 @@ export struct ConversationPage {
     if (id.length === 0) {
       return;
     }
-    const at: number = this.expandedIds.indexOf(id);
-    if (at >= 0) {
-      this.expandedIds.splice(at, 1);
-    } else {
-      this.expandedIds.push(id);
+    let visible: boolean = false;
+    for (const row of this.entries) {
+      if (row.id === id) {
+        visible = row.kind === 'TURN' ? row.expanded : row.processBodyVisible;
+      }
     }
+    this.folds.set(id, !visible);
     this.rebuildEntries();
   }
 
@@ -766,18 +984,32 @@ export struct ConversationPage {
   // ==================== 交互回调 ====================
   private onToggleEntry(id: string): void {
     // 先原地翻转：@Observed 会立即刷新该行，不依赖后续列表重建
+    let next: boolean = true;
     for (const row of this.entries) {
       if (row.id === id) {
-        row.expanded = !row.expanded;
+        if (row.kind === 'TURN') {
+          row.expanded = !row.expanded;
+          next = row.expanded;
+        } else {
+          // 过程组：按组体当前是否可见翻转（详细档对话过程中组体自动可见）
+          next = !row.processBodyVisible;
+        }
       }
     }
-    const index: number = this.expandedIds.indexOf(id);
-    if (index >= 0) {
-      this.expandedIds.splice(index, 1);
-    } else {
-      this.expandedIds.push(id);
-    }
+    this.folds.set(id, next);
     this.rebuildEntries();
+  }
+
+  /** 步骤行展开/收起（图标槽换成箭头那一层） */
+  private onToggleStep(id: string): void {
+    const at: number = this.stepOpenIds.indexOf(id);
+    const next: string[] = this.stepOpenIds.slice();
+    if (at >= 0) {
+      next.splice(at, 1);
+    } else {
+      next.push(id);
+    }
+    this.stepOpenIds = next;
   }
 
   private onCopyEntry(text: string): void {
@@ -844,6 +1076,12 @@ export struct ConversationPage {
       this.attachmentHint = '';
       this.pickedAttachments = [];
       this.draft = '';
+      // 发送成功：清掉该会话草稿（含防抖里还没落盘的那一次）
+      if (this.draftSaveTimer >= 0) {
+        clearTimeout(this.draftSaveTimer);
+        this.draftSaveTimer = -1;
+      }
+      DraftStore.get().clear(sessionId);
       this.autoStick = true;
       setTimeout(() => {
         this.scroller.scrollEdge(Edge.Bottom);
@@ -862,66 +1100,110 @@ export struct ConversationPage {
   }
 
   // ==================== 长按语音（走网关语音插件，和微信小程序同一条链路） ====================
+  /**
+   * 按下 350ms：先问网关要能力（没有插件时没必要弹麦克风权限），再申请麦克风，最后开录。
+   * 顺序对齐小程序 voice-input.js：catalog → permission → start。
+   *
+   * 之前这里缺了麦克风权限申请，也缺了 module.json5 里的 ohos.permission.MICROPHONE 声明，
+   * 于是 createAudioCapturer 直接抛 6800301「system error」，用户只看到「麦克风启动失败，system error」。
+   */
   private async onVoiceHoldStart(): Promise<void> {
-    if (this.voiceRecording) {
+    if (this.voicePhase !== 'idle') {
       return;
     }
     const token: number = ++this.voiceHoldToken;
     this.voiceCancelArmed = false;
-    this.voiceLevel = 0.5;
-    this.voiceHint = '松手转文字 · 上滑取消';
-    this.voiceRecording = true;
+    this.speechLimits = null;
+    this.setVoicePhase('authorizing');
     try {
       const limits: SpeechLimits = await this.dictation.catalog();
       if (token !== this.voiceHoldToken) {
         // 拿限制期间已经松手了
-        this.voiceRecording = false;
+        this.resetVoice();
         return;
       }
       this.speechLimits = limits;
-      await this.dictation.start(limits, (message: string) => {
-        this.voiceRecording = false;
-        this.stopVoiceLevelPoll();
-        this.hint = '录音中断：' + message;
-      });
-      this.startVoiceLevelPoll();
+      const granted: boolean = await this.requestMicPermission();
       if (token !== this.voiceHoldToken) {
-        this.dictation.cancel();
-        this.voiceRecording = false;
-      }
-    } catch (err) {
-      const msg: string = err instanceof Error ? err.message : String(err);
-      Logger.warn('speech start failed: ' + msg);
-      this.voiceRecording = false;
-      this.voiceCancelArmed = false;
-      this.hint = msg;
-    }
-  }
-
-  /** 录音期间每 100ms 取一次真实音量（对齐小程序 onLevel 的节流） */
-  private startVoiceLevelPoll(): void {
-    if (this.voiceLevelTimer >= 0) {
-      return;
-    }
-    this.voiceLevelTimer = setInterval(() => {
-      if (!this.voiceRecording) {
-        this.stopVoiceLevelPoll();
+        // 弹权限框期间手指已经松开了：授权成功就提示再按住一次，否则用户会以为没生效
+        if (granted) {
+          this.hint = '麦克风已授权，按住输入框再说一次';
+        }
+        this.resetVoice();
         return;
       }
-      this.voiceLevel = this.dictation.level();
-    }, 100);
+      if (!granted) {
+        throw new SpeechFailure('voice/permission', SpeechFailure.messageFor('voice/permission'));
+      }
+      this.setVoicePhase('starting');
+      await this.dictation.start(limits, (message: string) => {
+        // 录音中断属于「已经结束」的状态，不再用输入框上方那条红字提示，
+        // 收起特效即可（红字留给真正需要用户处理的失败）。
+        Logger.warn('speech interrupted: ' + message);
+        this.resetVoice();
+      });
+      if (token !== this.voiceHoldToken) {
+        this.dictation.cancel();
+        this.resetVoice();
+        return;
+      }
+      this.setVoicePhase('recording');
+    } catch (err) {
+      this.failVoice(err);
+    }
   }
 
-  private stopVoiceLevelPoll(): void {
-    if (this.voiceLevelTimer >= 0) {
-      clearInterval(this.voiceLevelTimer);
-      this.voiceLevelTimer = -1;
+  /** 只在按住时申请一次：已授权时系统直接返回，不会反复弹窗 */
+  private async requestMicPermission(): Promise<boolean> {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const manager = abilityAccessCtrl.createAtManager();
+      const result = await manager.requestPermissionsFromUser(context, ['ohos.permission.MICROPHONE']);
+      if (result.authResults.length === 0) {
+        return false;
+      }
+      return result.authResults[0] === 0;
+    } catch (err) {
+      Logger.warn('request microphone permission failed: ' + JSON.stringify(err));
+      return false;
     }
+  }
+
+  /** 阶段切换：特效可见性、状态文案、输入条让位都从这里统一派发 */
+  private setVoicePhase(phase: string): void {
+    this.voicePhase = phase;
+    this.voiceOverlayVisible = phase === 'authorizing' || phase === 'starting' || phase === 'recording';
+    this.voiceRecording = phase !== 'idle';
+    if (this.voiceCancelArmed) {
+      this.voiceStatus = '松手取消';
+    } else if (phase === 'authorizing') {
+      this.voiceStatus = '正在获取麦克风权限';
+    } else if (phase === 'starting') {
+      this.voiceStatus = '正在开启麦克风';
+    } else if (phase === 'recording') {
+      this.voiceStatus = '松手转文字 · 上滑取消';
+    } else if (phase === 'transcribing') {
+      this.voiceStatus = '正在转文字…';
+    } else {
+      this.voiceStatus = '';
+    }
+  }
+
+  private resetVoice(): void {
+    this.speechLimits = null;
+    this.voiceCancelArmed = false;
+    this.setVoicePhase('idle');
   }
 
   private onVoiceHoldMove(cancel: boolean): void {
+    if (this.voiceCancelArmed === cancel) {
+      return;
+    }
     this.voiceCancelArmed = cancel;
-    this.voiceHint = cancel ? '松手取消' : '松手转文字 · 上滑取消';
+    if (!this.voiceOverlayVisible) {
+      return;
+    }
+    this.voiceStatus = cancel ? '松手取消' : '松手转文字 · 上滑取消';
   }
 
   private onVoiceHoldEnd(cancel: boolean): void {
@@ -929,25 +1211,88 @@ export struct ConversationPage {
     this.voiceCancelArmed = false;
     if (cancel) {
       this.dictation.cancel();
-      this.voiceRecording = false;
-      this.stopVoiceLevelPoll();
+      this.resetVoice();
       return;
     }
     const limits: SpeechLimits | null = this.speechLimits;
-    if (!this.voiceRecording || limits === null) {
-      this.stopVoiceLevelPoll();
+    if (this.voicePhase !== 'recording' || limits === null) {
+      if (this.dictation.isActive()) {
+        this.dictation.cancel();
+      }
+      this.resetVoice();
       return;
     }
-    this.stopVoiceLevelPoll();
-    // 松手：结束采集 → 转 WAV → 网关转写
-    this.voiceHint = '正在转文字…';
+    // 松手：结束采集 → 转 WAV → 网关转写（特效收起，输入条回来显示「正在转文字…」）
+    this.setVoicePhase('transcribing');
     this.dictation.stopAndTranscribe(limits).then((text: string) => {
       this.insertVoiceText(text);
-    }).catch((err: Error) => {
-      Logger.warn('speech transcribe failed: ' + err.message);
-      this.voiceRecording = false;
-      this.hint = err.message;
+      this.resetVoice();
+    }).catch((err: Object) => {
+      this.failVoice(err);
     });
+  }
+
+  /** 失败统一收尾：把错误码翻成人话，并给出可执行动作（去设置 / 插件设置） */
+  private failVoice(err: Object): void {
+    this.resetVoice();
+    const failure: SpeechFailure | null = err instanceof SpeechFailure ? err : null;
+    const code: string = failure !== null ? failure.code : '';
+    const message: string = failure !== null
+      ? failure.message
+      : (err instanceof Error ? err.message : SpeechFailure.messageFor(''));
+    Logger.warn('speech failed code=' + code + ' message=' + message);
+    this.showVoiceError(message, code);
+  }
+
+  private showVoiceError(message: string, code: string): void {
+    const needsPermission: boolean = code === 'voice/permission' || code === 'voice/start-timeout';
+    const needsPlugin: boolean = code === 'speech/not-ready' || code === 'speech/unavailable'
+      || code === 'speech/invalid-response';
+    if (!needsPermission && !needsPlugin) {
+      AlertDialog.show({
+        title: '语音输入',
+        message: message,
+        autoCancel: true,
+        alignment: DialogAlignment.Center,
+        confirm: { value: '知道了', action: () => {} }
+      });
+      return;
+    }
+    AlertDialog.show({
+      title: '语音输入',
+      message: message,
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: { value: '取消', action: () => {} },
+      secondaryButton: {
+        value: needsPermission ? '去设置' : '插件设置',
+        action: () => {
+          if (needsPermission) {
+            this.openSystemPermissionPage();
+          } else {
+            this.pageStack.pushPathByName('plugins', null);
+          }
+        }
+      }
+    });
+  }
+
+  /** 跳到系统的「应用信息 / 权限」页；入口名各 ROM 不一，失败就退化成文案提示 */
+  private openSystemPermissionPage(): void {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const want: Want = {
+        bundleName: 'com.huawei.hmos.settings',
+        abilityName: 'com.huawei.hmos.settings.MainAbility',
+        uri: 'application_info_entry',
+        parameters: { pushParams: context.abilityInfo.bundleName }
+      };
+      context.startAbility(want).catch(() => {
+        this.hint = '请到「设置 > 应用和元服务 > 鲸尾 > 权限」中开启麦克风';
+      });
+    } catch (err) {
+      this.hint = '请到「设置 > 应用和元服务 > 鲸尾 > 权限」中开启麦克风';
+    }
   }
 
   private insertVoiceText(text: string): void {
@@ -956,7 +1301,6 @@ export struct ConversationPage {
       return;
     }
     this.draft = this.draft + trimmed;
-    this.voiceRecording = false;
     this.voiceMode = false;
   }
 
@@ -992,22 +1336,739 @@ export struct ConversationPage {
 
   private openSession(sessionId: string): void {
     if (sessionId !== SessionStore.get().currentSessionId()) {
-      this.expandedIds = [];
+      // 切会话：先把当前草稿落盘，再清空输入框并载入目标会话的草稿
+      this.flushDraft();
+      this.folds.clear();
+      this.stepOpenIds = [];
       this.lastTailKey = '';
       SessionStore.get().open(sessionId);
+      this.draft = '';
+      this.draftRestoreRetries = 0;
+      this.restoreDraft();
     }
+  }
+
+  // ==================== 草稿持久化（对齐小程序 sessionDraftStore） ====================
+  /** 每个会话各存一份草稿，重启后仍在；发送成功后清掉 */
+  private restoreDraft(): void {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (!PreferencesStore.get().isReady()) {
+      // 冷启动偏好还没就绪：稍后再读，别把草稿读成空
+      if (this.draftRestoreRetries < 5) {
+        this.draftRestoreRetries += 1;
+        setTimeout(() => {
+          this.restoreDraft();
+        }, 300);
+      }
+      return;
+    }
+    if (sessionId.length === 0) {
+      return;
+    }
+    this.draftOwnerSessionId = sessionId;
+    const saved: string = DraftStore.get().load(sessionId);
+    if (saved.length > 0 && this.draft.length === 0) {
+      this.draft = saved;
+    }
+  }
+
+  private scheduleDraftSave(): void {
+    if (this.draftSaveTimer >= 0) {
+      return;
+    }
+    this.draftSaveTimer = setTimeout(() => {
+      this.draftSaveTimer = -1;
+      this.flushDraft();
+    }, 300);
+  }
+
+  private flushDraft(): void {
+    if (this.draftSaveTimer >= 0) {
+      clearTimeout(this.draftSaveTimer);
+      this.draftSaveTimer = -1;
+    }
+    const sessionId: string = this.draftOwnerSessionId.length > 0
+      ? this.draftOwnerSessionId : SessionStore.get().currentSessionId();
+    if (sessionId.length === 0) {
+      return;
+    }
+    DraftStore.get().save(sessionId, this.draft);
   }
 
 
 
 
 
+  // ==================== 底部 dock：排队消息 / 任务 / 目标（对齐小程序 dock-stack）====================
+  private rpx(value: number): number {
+    try {
+      const screenW: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+      return value * screenW / 750;
+    } catch (err) {
+      return value * 0.53;
+    }
+  }
+
+  private onConnectionChanged(): void {
+    if (this.connection === 'connected') {
+      this.requestDockData();
+    }
+  }
+
+  private requestDockData(): void {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0 || this.connection !== 'connected') {
+      return;
+    }
+    const client: GatewayClient = GatewayClient.get();
+    client.requestQueue(sessionId).catch(() => {});
+    client.requestTasks(sessionId).catch(() => {});
+    client.requestGoal(sessionId).catch(() => {});
+  }
+
+  /** 顶部轻提示：淡入 + 停留 2.6s + 淡出（不打断输入，不挡触摸） */
+  private showToast(message: string, error: boolean = false): void {
+    if (message.length === 0) {
+      return;
+    }
+    if (this.toastTimer >= 0) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = -1;
+    }
+    this.toastText = message;
+    this.toastError = error;
+    this.toastOffset = -10;
+    this.toastOpacity = 0;
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+      this.toastOpacity = 1;
+      this.toastOffset = 0;
+    });
+    this.toastTimer = setTimeout(() => {
+      this.getUIContext().animateTo({ duration: 160, curve: Curve.EaseIn }, () => {
+        this.toastOpacity = 0;
+        this.toastOffset = -10;
+      });
+      setTimeout(() => {
+        if (this.toastOpacity === 0) {
+          this.toastText = '';
+        }
+      }, 200);
+      this.toastTimer = -1;
+    }, 2600);
+  }
+
+  @Builder
+  topToast() {
+    if (this.toastText.length > 0) {
+      Row({ space: 9 }) {
+        Text('!')
+          .fontSize(12)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .width(18)
+          .height(18)
+          .borderRadius(9)
+          .textAlign(TextAlign.Center)
+          .backgroundColor(this.toastError ? '#E5533C' : '#2E6BE6')
+        Text(this.toastText)
+          .fontSize(13)
+          .lineHeight(19)
+          .fontColor(this.toastError ? (this.isDark ? '#FF9B9F' : '#C0392B') : this.textColor())
+          .layoutWeight(1)
+          .maxLines(3)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .constraintSize({ maxWidth: '92%' })
+      .padding({ left: 14, right: 18, top: 12, bottom: 12 })
+      .borderRadius(16)
+      .backgroundColor(this.isDark ? 'rgba(32,34,40,0.96)' : 'rgba(255,255,255,0.97)')
+      .border({
+        width: 0.5,
+        color: this.toastError
+          ? 'rgba(235,87,87,0.38)'
+          : (this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)')
+      })
+      .shadow({ radius: 18, color: this.isDark ? 'rgba(0,0,0,0.5)' : 'rgba(16,19,24,0.16)', offsetY: 4 })
+      .opacity(this.toastOpacity)
+      .translate({ y: this.toastOffset })
+    }
+  }
+
+  private onQueueChanged(): void {
+    // steer 失败标记：队列里已不存在该项就清掉，避免 id 列表无限增长
+    if (this.steerFailedIds.length > 0) {
+      const kept: string[] = [];
+      for (const id of this.steerFailedIds) {
+        for (const item of this.queue) {
+          if (item.id === id) {
+            kept.push(id);
+            break;
+          }
+        }
+      }
+      this.steerFailedIds = kept;
+    }
+    if (this.queueBusyId.length === 0) {
+      return;
+    }
+    const busyId: string = this.queueBusyId.split(':')[0];
+    let found: boolean = false;
+    for (const item of this.queue) {
+      if (item.id === busyId) {
+        found = true;
+      }
+    }
+    if (!found) {
+      this.queueBusyId = '';
+    }
+  }
+
+  private onTasksChanged(): void {
+  }
+
+  private async queueAction(item: QueueItem, action: string): Promise<void> {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0 || this.queueBusyId.length > 0) {
+      return;
+    }
+    let operation: string = action;
+    if (action === 'edit') {
+      // 编辑：取回草稿并从队列移除（对齐小程序 queueAction edit 分支）
+      const text: string = item.preview;
+      this.draft = this.draft.length > 0 ? this.draft + '\n\n' + text : text;
+      operation = 'remove';
+    }
+    this.queueBusyId = item.id + ':' + operation;
+    try {
+      const frame: GatewayFrame = await GatewayClient.get().queueUpdateAndWait(sessionId, item.id, operation);
+      const failed: boolean = frame.kind === 'error' || frame.code !== undefined;
+      if (failed) {
+        const raw: string = frame.message !== undefined ? frame.message : '';
+        let message: string = raw;
+        if (raw.indexOf('no longer accepts steering') >= 0) {
+          message = '当前回合已结束，这条排队消息会在下一轮发送';
+        } else if (message.length === 0) {
+          message = operation === 'steer' ? '立即发送失败，请重试' : '队列操作失败';
+        }
+        if (operation === 'steer' && this.steerFailedIds.indexOf(item.id) < 0) {
+          const failedIds: string[] = this.steerFailedIds.slice();
+          failedIds.push(item.id);
+          this.steerFailedIds = failedIds;
+        }
+        this.showToast(message, true);
+        this.requestDockData();
+      } else {
+        // 成功：先本地移除，队列数字/行立刻消失，再拉权威快照校正
+        SessionStore.get().removeQueueItem(item.id);
+        if (this.steerFailedIds.indexOf(item.id) >= 0) {
+          const kept: string[] = [];
+          for (const id of this.steerFailedIds) {
+            if (id !== item.id) {
+              kept.push(id);
+            }
+          }
+          this.steerFailedIds = kept;
+        }
+        this.hint = '';
+        if (operation === 'steer') {
+          this.autoStick = true;
+          setTimeout(() => {
+            this.scroller.scrollEdge(Edge.Bottom);
+          }, 60);
+        }
+        setTimeout(() => {
+          this.requestDockData();
+        }, 600);
+      }
+    } catch (error) {
+      this.showToast(error instanceof Error ? error.message : '队列操作超时，请重试', true);
+      this.requestDockData();
+    } finally {
+      this.queueBusyId = '';
+    }
+  }
+
+  private goalReference(): GatewayGoalReference {
+    const ref: GatewayGoalReference = { id: this.goal.id, revision: this.goal.revision };
+    return ref;
+  }
+
+  /** 目标变更（pause/resume/clear/edit）：本地置忙 + 5s 兜底，回执帧会清掉忙碌态。 */
+  private mutateGoal(type: string, objective: string = ''): void {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0 || this.goalBusy) {
+      return;
+    }
+    const client: GatewayClient = GatewayClient.get();
+    let sent: boolean = false;
+    if (type === 'goal-edit') {
+      sent = client.goalEdit(sessionId, this.goalReference(), objective);
+    } else {
+      sent = client.goalAction(type, sessionId, this.goalReference());
+    }
+    if (!sent) {
+      return;
+    }
+    this.goalBusy = true;
+    if (this.goalBusyTimer >= 0) {
+      clearTimeout(this.goalBusyTimer);
+    }
+    this.goalBusyTimer = setTimeout(() => {
+      this.goalBusy = false;
+      this.goalBusyTimer = -1;
+    }, 5000);
+  }
+
+  private saveGoalEdit(): void {
+    const text: string = this.goalDraft.trim();
+    this.goalEditing = false;
+    if (text.length === 0 || text === this.goal.objective) {
+      return;
+    }
+    this.mutateGoal('goal-edit', text);
+  }
+
+  private clearGoal(): void {
+    AlertDialog.show({
+      title: '清除目标',
+      message: '清除后将停止当前目标的后续自动轮次。',
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: { value: '取消', action: () => {} },
+      secondaryButton: {
+        value: '清除',
+        fontColor: '#E5484D',
+        action: () => {
+          this.mutateGoal('goal-clear');
+        }
+      }
+    });
+  }
+
+  private taskSummary(): string {
+    let done: number = 0;
+    let active: number = 0;
+    let pending: number = 0;
+    for (const task of this.tasks) {
+      if (task.status === 'completed') {
+        done += 1;
+      } else if (task.status === 'in_progress') {
+        active += 1;
+      } else {
+        pending += 1;
+      }
+    }
+    const parts: string[] = [];
+    if (done > 0) {
+      parts.push(done.toString() + ' 已完成');
+    }
+    if (active > 0) {
+      parts.push(active.toString() + ' 进行中');
+    }
+    if (pending > 0) {
+      parts.push(pending.toString() + ' 待处理');
+    }
+    return parts.join(' · ');
+  }
+
+  @Builder
+  dockStack() {
+    Column() {
+      if (this.queue.length > 0) {
+        this.queueDock()
+      }
+      if (this.tasks.length > 0) {
+        this.tasksPanel()
+      }
+      if (this.goal.id.length > 0) {
+        this.goalPanel()
+      }
+    }
+    .width('100%')
+  }
+
+  /** 排队消息图标（小程序同款 queue-message.svg，38rpx，0.72 透明度）。 */
+  @Builder
+  queueBubbleIcon(size: number) {
+    Image(this.isDark ? $r('app.media.queue_message_dark') : $r('app.media.queue_message'))
+      .width(size)
+      .height(size)
+      .objectFit(ImageFit.Contain)
+      .opacity(0.72)
+  }
+
+  /** 任务状态图标（小程序同款：完成 check-green / 进行中 pinwheel / 待处理 dotted-gray）。 */
+  @Builder
+  taskStatusGlyph(status: string) {
+    Stack({ alignContent: Alignment.Center }) {
+      if (status === 'completed') {
+        Image($r('app.media.check_green'))
+          .width(this.rpx(32))
+          .height(this.rpx(32))
+          .objectFit(ImageFit.Contain)
+      } else if (status === 'in_progress') {
+        Image(this.isDark ? $r('app.media.pinwheel_white') : $r('app.media.pinwheel_ink'))
+          .width(this.rpx(32))
+          .height(this.rpx(32))
+          .objectFit(ImageFit.Contain)
+      } else {
+        Image($r('app.media.dotted_gray'))
+          .width(this.rpx(32))
+          .height(this.rpx(32))
+          .objectFit(ImageFit.Contain)
+      }
+    }
+    .width(this.rpx(32))
+    .height(this.rpx(32))
+    .margin({ top: this.rpx(3) })
+    .flexShrink(0)
+  }
+
+  @Builder
+  queueDock() {
+    Column() {
+      if (this.queue.length > 1) {
+        Row({ space: this.rpx(20) }) {
+          this.queueBubbleIcon(this.rpx(38))
+          Text('排队消息 · ' + this.queue.length.toString())
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Image($r('app.media.chev_right_gray'))
+            .width(this.rpx(22))
+            .height(this.rpx(22))
+            .objectFit(ImageFit.Contain)
+            .rotate({ angle: this.queueExpanded ? 90 : -90 })
+            .opacity(0.72)
+        }
+        .width('100%')
+        .height(this.rpx(72))
+        .padding({ left: this.rpx(24), right: this.rpx(24) })
+        .alignItems(VerticalAlign.Center)
+        .onClick(() => {
+          this.queueExpanded = !this.queueExpanded;
+        })
+      }
+      if (this.queueExpanded || this.queue.length === 1) {
+        Scroll() {
+          Column() {
+            ForEach(this.queue, (item: QueueItem, index: number) => {
+              Column() {
+                Row({ space: this.rpx(8) }) {
+                  this.queueBubbleIcon(this.rpx(38))
+                  Column({ space: this.rpx(4) }) {
+                    if (item.preview.length > 0 || item.attachmentCount === 0) {
+                      Text(item.preview.length > 0 ? item.preview : '（空消息）')
+                        .fontSize(13)
+                      .lineHeight(this.rpx(36))
+                      .fontColor(this.subColor())
+                        .width('100%')
+                        .maxLines(2)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    }
+                    if (item.attachmentCount > 0) {
+                      Text(item.attachmentCount.toString() + ' 个附件')
+                        .fontSize(11)
+                        .fontColor(this.subColor())
+                        .width('100%')
+                    }
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                  Row({ space: this.rpx(4) }) {
+                    Stack({ alignContent: Alignment.Center }) {
+                      if (this.queueBusyId === item.id + ':edit') {
+                        LoadingProgress()
+                          .width(this.rpx(26))
+                          .height(this.rpx(26))
+                          .color(this.subColor())
+                      } else {
+                        Image(this.isDark ? $r('app.media.queue_edit_dark') : $r('app.media.queue_edit'))
+                          .width(this.rpx(34))
+                          .height(this.rpx(34))
+                          .objectFit(ImageFit.Contain)
+                          .opacity(0.72)
+                      }
+                    }
+                    .width(this.rpx(72))
+                    .height(this.rpx(80))
+                    .id('queue-action-edit')
+                    .accessibilityText('编辑排队消息')
+                    .onClick(() => {
+                      this.queueAction(item, 'edit');
+                    })
+                    Stack({ alignContent: Alignment.Center }) {
+                      if (this.queueBusyId === item.id + ':remove') {
+                        LoadingProgress()
+                          .width(this.rpx(26))
+                          .height(this.rpx(26))
+                          .color(this.subColor())
+                      } else {
+                        Image(this.isDark ? $r('app.media.queue_delete_dark') : $r('app.media.queue_delete'))
+                          .width(this.rpx(34))
+                          .height(this.rpx(34))
+                          .objectFit(ImageFit.Contain)
+                          .opacity(0.72)
+                      }
+                    }
+                    .width(this.rpx(72))
+                    .height(this.rpx(80))
+                    .id('queue-action-remove')
+                    .accessibilityText('删除排队消息')
+                    .onClick(() => {
+                      this.queueAction(item, 'remove');
+                    })
+                    // 立即发送只在回合进行中才有意义（网关：current turn no longer accepts steering）；
+                    // 回合结束后排队项等下一轮自动发送，不再露出这个按钮。
+                    if (this.running && this.steerFailedIds.indexOf(item.id) < 0) {
+                      Stack({ alignContent: Alignment.Center }) {
+                        if (this.queueBusyId === item.id + ':steer') {
+                          LoadingProgress()
+                            .width(this.rpx(26))
+                            .height(this.rpx(26))
+                            .color('#2E6BE6')
+                        } else {
+                          Image(this.isDark ? $r('app.media.queue_send_dark') : $r('app.media.queue_send'))
+                            .width(this.rpx(34))
+                            .height(this.rpx(34))
+                            .objectFit(ImageFit.Contain)
+                            .opacity(0.72)
+                        }
+                      }
+                      .width(this.rpx(72))
+                      .height(this.rpx(80))
+                      .id('queue-action-steer')
+                      .accessibilityText('立即发送排队消息')
+                      .onClick(() => {
+                        this.queueAction(item, 'steer');
+                      })
+                    }
+                  }
+                  .alignItems(VerticalAlign.Center)
+                }
+                .width('100%')
+                .constraintSize({ minHeight: this.rpx(80) })
+                .padding({ left: this.rpx(24), right: this.rpx(8) })
+                .alignItems(VerticalAlign.Center)
+                .opacity(this.queueBusyId.indexOf(item.id + ':') === 0 ? 0.5 : 1)
+                if (index < this.queue.length - 1) {
+                  Row()
+                    .width('100%')
+                    .height(1)
+                    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.08)')
+                    .margin({ left: this.rpx(20), right: this.rpx(20) })
+                }
+              }
+              .width('100%')
+            }, (item: QueueItem) => item.id)
+          }
+          .width('100%')
+        }
+        .width('100%')
+        .constraintSize({ maxHeight: this.rpx(360) })
+        .scrollBar(BarState.Off)
+      }
+    }
+    .width('100%')
+    .padding({ top: this.rpx(4), bottom: this.rpx(4) })
+    .borderRadius(this.rpx(36))
+    .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.12)' })
+    .backgroundColor(this.surfaceColor())
+    .margin({ bottom: this.rpx(12) })
+    .clip(true)
+  }
+
+  @Builder
+  tasksPanel() {
+    Column() {
+      Row({ space: this.rpx(16) }) {
+        Image($r('app.media.tasks_list'))
+          .width(this.rpx(36))
+          .height(this.rpx(36))
+          .objectFit(ImageFit.Contain)
+          .flexShrink(0)
+        Text('任务')
+          .fontSize(15.5)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.textColor())
+          .flexShrink(0)
+        Text(this.taskSummary())
+          .fontSize(13.5)
+          .fontColor(this.subColor())
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Image($r('app.media.chev_right_gray'))
+          .width(this.rpx(20))
+          .height(this.rpx(20))
+          .objectFit(ImageFit.Contain)
+          .rotate({ angle: this.tasksExpanded ? 90 : -90 })
+          .opacity(0.7)
+      }
+      .width('100%')
+      .constraintSize({ minHeight: this.rpx(88) })
+      .padding({ left: this.rpx(28), right: this.rpx(28) })
+      .alignItems(VerticalAlign.Center)
+      .onClick(() => {
+        this.tasksExpanded = !this.tasksExpanded;
+      })
+      if (this.tasksExpanded) {
+        Column() {
+          ForEach(this.tasks, (task: GatewayTask) => {
+            Row({ space: this.rpx(18) }) {
+              this.taskStatusGlyph(task.status)
+              Text(task.content)
+                .fontSize(15.5)
+                .lineHeight(this.rpx(42))
+                .fontColor(task.status === 'completed' ? this.subColor() : this.textColor())
+                .layoutWeight(1)
+            }
+            .width('100%')
+            .padding({ top: this.rpx(10), bottom: this.rpx(10) })
+            .alignItems(VerticalAlign.Top)
+          }, (task: GatewayTask) => task.content + '#' + task.status)
+        }
+        .width('100%')
+        .padding({ left: this.rpx(28), right: this.rpx(28), bottom: this.rpx(24) })
+        .alignItems(HorizontalAlign.Start)
+      }
+    }
+    .width('100%')
+    .borderRadius(this.rpx(36))
+    .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.12)' })
+    .backgroundColor(this.surfaceColor())
+    .margin({ bottom: this.rpx(12) })
+    .clip(true)
+  }
+
+  @Builder
+  goalPanel() {
+    if (this.goalEditing) {
+      Row({ space: this.rpx(8) }) {
+        TextArea({ text: this.goalDraft, placeholder: '目标' })
+          .layoutWeight(1)
+          .height(this.rpx(76))
+          .fontSize(15)
+          .fontColor(this.textColor())
+          .placeholderColor(this.subColor())
+          .backgroundColor('rgba(46,107,230,0.07)')
+          .border({ width: 1, color: 'rgba(46,107,230,0.55)', radius: this.rpx(14) })
+          .onChange((value: string) => {
+            this.goalDraft = value;
+          })
+        Text('✓')
+          .fontSize(20)
+          .fontColor(this.subColor())
+          .width(this.rpx(56))
+          .height(this.rpx(64))
+          .textAlign(TextAlign.Center)
+          .onClick(() => {
+            this.saveGoalEdit();
+          })
+        Text('×')
+          .fontSize(22)
+          .fontColor(this.subColor())
+          .width(this.rpx(56))
+          .height(this.rpx(64))
+          .textAlign(TextAlign.Center)
+          .onClick(() => {
+            this.goalEditing = false;
+            this.goalDraft = '';
+          })
+      }
+      .width('100%')
+      .constraintSize({ minHeight: this.rpx(96) })
+      .padding({ left: this.rpx(20), right: this.rpx(16), top: this.rpx(12), bottom: this.rpx(12) })
+      .alignItems(VerticalAlign.Center)
+      .borderRadius(this.rpx(36))
+      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.12)' })
+      .backgroundColor(this.surfaceColor())
+      .margin({ bottom: this.rpx(12) })
+    } else {
+      Row({ space: this.rpx(16) }) {
+        Image(this.isDark ? $r('app.media.goal_target_dark') : $r('app.media.goal_target'))
+          .width(this.rpx(34))
+          .height(this.rpx(34))
+          .objectFit(ImageFit.Contain)
+          .flexShrink(0)
+        Text(this.goal.phaseLabel)
+          .fontSize(15.5)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.textColor())
+          .flexShrink(0)
+        Text(this.goal.objective)
+          .fontSize(15)
+          .fontColor(this.textColor())
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (this.goalBusy) {
+          LoadingProgress()
+            .width(this.rpx(30))
+            .height(this.rpx(30))
+            .color('#2E6BE6')
+        } else {
+          Row() {
+            Stack({ alignContent: Alignment.Center }) {
+              Image(this.goal.active
+                ? (this.isDark ? $r('app.media.goal_pause_dark') : $r('app.media.goal_pause'))
+                : (this.isDark ? $r('app.media.goal_play_dark') : $r('app.media.goal_play')))
+                .width(this.rpx(34))
+                .height(this.rpx(34))
+                .objectFit(ImageFit.Contain)
+            }
+            .width(this.rpx(64))
+            .height(this.rpx(64))
+            .onClick(() => {
+              this.mutateGoal(this.goal.active ? 'goal-pause' : 'goal-resume');
+            })
+            Stack({ alignContent: Alignment.Center }) {
+              Image(this.isDark ? $r('app.media.queue_edit_dark') : $r('app.media.queue_edit'))
+                .width(this.rpx(34))
+                .height(this.rpx(34))
+                .objectFit(ImageFit.Contain)
+            }
+            .width(this.rpx(64))
+            .height(this.rpx(64))
+            .onClick(() => {
+              this.goalEditing = true;
+              this.goalDraft = this.goal.objective;
+            })
+            Stack({ alignContent: Alignment.Center }) {
+              Image(this.isDark ? $r('app.media.queue_delete_dark') : $r('app.media.queue_delete'))
+                .width(this.rpx(34))
+                .height(this.rpx(34))
+                .objectFit(ImageFit.Contain)
+            }
+            .width(this.rpx(64))
+            .height(this.rpx(64))
+            .onClick(() => {
+              this.clearGoal();
+            })
+          }
+          .alignItems(VerticalAlign.Center)
+        }
+      }
+      .width('100%')
+      .constraintSize({ minHeight: this.rpx(92) })
+      .padding({ left: this.rpx(28), right: this.rpx(24) })
+      .alignItems(VerticalAlign.Center)
+      .borderRadius(this.rpx(36))
+      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.12)' })
+      .backgroundColor(this.surfaceColor())
+      .margin({ bottom: this.rpx(12) })
+    }
+  }
+
   // ==================== 视图 ====================
   build() {
     NavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
       Column() {
-        this.headerBar()
+        // 顶栏不再占位：时间线从屏幕顶部铺满，往上滚时内容直接在标题下面穿过去（对齐 iOS 导航栏）
         // 「加载更早记录」与运行条都在滚动内容内部（对齐小程序：横幅在 scroll-view 里，
         // 运行条在列表末尾），随内容一起滚动，而不是固定在容器外的两条横条。
         Column() {
@@ -1025,6 +2086,8 @@ export struct ConversationPage {
         }
         // 输入条容器：小程序 dock-stack 左右 14vp 内边距 + 底部安全区
         Column() {
+        // 底部 dock：排队消息 / 任务 / 目标（对齐小程序 dock-stack）
+        this.dockStack()
         // 切换会话 / 权限 / 模型面板：同样紧贴输入框上方展开，输入框保持可见
         if (this.sessionPickerOpen) {
           this.sessionPicker()
@@ -1043,8 +2106,7 @@ export struct ConversationPage {
           voiceMode: this.voiceMode,
           voiceRecording: this.voiceRecording,
           voiceCancelArmed: this.voiceCancelArmed,
-          voiceLevel: this.voiceLevel,
-          voiceHint: this.voiceHint,
+          voiceHint: this.voiceStatus,
           onToggleVoiceMode: () => {
             this.toggleVoiceMode();
           },
@@ -1104,6 +2166,7 @@ export struct ConversationPage {
           },
           onDraft: (value: string) => {
             this.draft = value;
+            this.scheduleDraftSave();
           },
           onSend: () => {
             this.onSend();
@@ -1153,20 +2216,87 @@ export struct ConversationPage {
         }
         .width('100%')
         .padding({ left: 14, right: 14, bottom: 18 + this.bottomInset })
+        // 录音时整条输入区让位给全屏语音特效（对齐小程序 .dock-stack.voice-holding { opacity: 0 }）
+        .opacity(this.voiceOverlayVisible ? 0 : 1)
       }
       .width('100%')
       .height('100%')
       .backgroundColor(this.pageBg())
-      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.BOTTOM])
+      // 上下都顶到屏幕边缘：内容可以一直滑到状态栏下面（对齐 iOS）
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
+      // 顶部渐进模糊（对齐 iOS 导航栏）：越靠上越糊、往下逐渐变清，内容滑过时被虚化
+      this.topProgressiveBlur()
+
+      // 浮动顶栏：透明底叠在时间线之上，内容从它下面滚过（对齐 iOS 导航栏，无遮盖条）
+      this.headerBar()
+
+      // 长按语音的全屏特效：盖在对话与输入条之上，但不拦触摸（手指还压在下面的输入条上）
+      VoiceRipplePanel({
+        visible: this.voiceOverlayVisible,
+        cancelArmed: this.voiceCancelArmed,
+        isDark: this.isDark,
+        status: this.voiceStatus,
+        readLevel: (): number => this.dictation.level()
+      })
+        .width('100%')
+        .height('100%')
+        // 组件内部的 hitTestBehavior(None) 只作用到组件根节点，外层这个 %100 的包装节点
+        // 仍然会参与命中测试 → 整页被这层透明特效挡住（点、滑都失效）。这里一并关掉。
+        .hitTestBehavior(HitTestMode.None)
+
+      // 顶部轻提示：状态栏下方、标题栏下沿淡入的玻璃小卡（不挡触摸）
+      Column() {
+        this.topToast()
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: this.topInset + 58 })
+      .alignItems(HorizontalAlign.Center)
+      .zIndex(30)
+      .hitTestBehavior(HitTestMode.None)
 
       }
       .width('100%')
       .height('100%')
+      // 团队内容面板：系统半模态（对齐 dsh-mobile TeamContentSheet 的 detents）
+      // 团队内容面板：与首页「切换主机」同款系统半模态（ImmersiveMaterial 沉浸光感）
+      .bindSheet($$this.teamSheetOpen, this.teamSheetContent(), {
+        height: '65%',
+        dragBar: false,
+        showClose: false,
+        preferType: SheetType.BOTTOM,
+        backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+        systemMaterial: this.teamSheetMaterial(),
+        onDisappear: () => {
+          this.teamTaskFilter = 'all';
+          this.teamExpandedTasks = [];
+        }
+      })
     }
     .hideTitleBar(true)
     .onShown(() => {
+      this.pageVisible = true;
       this.applyStatusBarColor();
+      // 每次回到会话页都重新读一次工作步骤偏好：设置页改完回来立刻按新档位重排，
+      // 不依赖 @StorageProp 的 @Watch 是否触发（被压栈/重建的边界情况下它可能漏拍）。
+      if (this.ready) {
+        this.syncWorkStepPrefs();
+        this.rebuildEntries();
+      }
+      if (this.pendingItemsWhileHidden) {
+        this.pendingItemsWhileHidden = false;
+        this.scheduleTimelineUpdate();
+      }
+    })
+    .onHidden(() => {
+      // 被压栈盖住：先把草稿落盘，再停掉重排与进度刷新
+      this.flushDraft();
+      this.teamSheetOpen = false;
+      this.pageVisible = false;
+      if (this.timelineTimer >= 0) {
+        clearTimeout(this.timelineTimer);
+        this.timelineTimer = -1;
+      }
     })
     .backgroundColor(this.pageBg())
   }
@@ -2249,10 +3379,294 @@ export struct ConversationPage {
     .margin({ left: 12, right: 12, bottom: 8 })
   }
 
-  /** 顶栏：返回 + 标题/连接状态 + 更多。 */
+  // ==================== 智能体团队 ====================
+  /** 团队根会话标题（顶栏弹层首行）。 */
+  private teamLeadTitle(): string {
+    const lead: string = this.teamLeadSessionId;
+    if (lead.length === 0) {
+      return 'Lead 会话';
+    }
+    for (const one of this.sessions) {
+      if (one.id === lead && one.title.length > 0) {
+        return one.title;
+      }
+    }
+    return 'Lead 会话';
+  }
+
+  /** 当前打开的会话（成员行据此标记「当前会话」）。 */
+  private teamSelectedId(): string {
+    const current: string = SessionStore.get().currentSessionId();
+    return current.length > 0 ? current : this.teamLeadSessionId;
+  }
+
+  /** 彩色智能体头像（iOS AgentAvatar，按成员稳定哈希取一张）。 */
+  private teamAvatarResource(index: number): Resource {
+    return TEAM_AVATARS[index % TEAM_AVATARS.length];
+  }
+
+  /** 成员显示名：合成出来的 Lead 用会话标题兜底。 */
+  private teamMemberName(member: TeamMemberView): string {
+    if (member.name.length === 0 || member.name === 'lead') {
+      return member.id === this.teamLeadSessionId ? this.teamLeadTitle() : member.id.substring(0, 8);
+    }
+    return member.name;
+  }
+
+  /**
+   * 成员实时状态：phase 只描述创建阶段，运行态以会话列表（事件驱动）为准，
+   * 不镜像桌面端投影里的静态字段。
+   */
+  private teamMemberLiveStatus(member: TeamMemberView): string {
+    if (member.phase === 'provisioning') {
+      return '正在创建';
+    }
+    if (member.phase === 'failed') {
+      return '创建失败';
+    }
+    for (const one of this.sessions) {
+      if (one.id === member.id) {
+        return one.running ? '运行中' : '未运行';
+      }
+    }
+    if (member.id === SessionStore.get().currentSessionId()) {
+      return this.running ? '运行中' : '未运行';
+    }
+    return '状态同步中';
+  }
+
+  private teamStatusDotColor(member: TeamMemberView): string {
+    if (member.phase === 'failed') {
+      return '#D65D64';
+    }
+    if (member.phase === 'provisioning') {
+      return '#E0A03C';
+    }
+    return this.teamMemberLiveStatus(member) === '运行中' ? '#2EB85C' : this.subColor();
+  }
+
+  private teamMemberSubtitle(member: TeamMemberView): string {
+    const parts: string[] = [];
+    if (member.provider.length > 0) {
+      parts.push(member.provider);
+    }
+    parts.push(this.teamMemberLiveStatus(member));
+    return parts.join(' · ');
+  }
+
+  /** 半模态材质：与首页「切换主机」弹窗同款（ImmersiveMaterial，系统不支持时回退） */
+  private immersiveSupported(): boolean {
+    try {
+      return uiMaterial.isImmersiveMaterialSupported();
+    } catch (err) {
+      return false;
+    }
+  }
+
+  private teamSheetMaterial(): uiMaterial.Material | undefined {
+    if (!this.immersiveSupported()) {
+      return undefined;
+    }
+    return new uiMaterial.ImmersiveMaterial({
+      style: uiMaterial.ImmersiveStyle.THICK,
+      materialColor: this.isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.34)',
+      colorInvert: true,
+      applyShadow: true
+    });
+  }
+
+  /** 点击成员：切到该成员会话（对齐 iOS selectTeamMember）。 */
+  private selectTeamMember(id: string): void {
+    this.teamSheetOpen = false;
+    if (id.length === 0) {
+      return;
+    }
+    if (id === SessionStore.get().currentSessionId()) {
+      return;
+    }
+    SessionStore.get().open(id);
+  }
+
+  private teamTaskOwnedBy(task: TeamTaskView, sessionId: string): boolean {
+    if (task.ownerId.length > 0) {
+      return task.ownerId === sessionId;
+    }
+    if (task.ownerName.length === 0) {
+      return false;
+    }
+    for (const member of this.teamMembers) {
+      if (member.id === sessionId) {
+        return member.name === task.ownerName;
+      }
+    }
+    return false;
+  }
+
+  private teamOwnerMember(task: TeamTaskView): TeamMemberView | undefined {
+    if (task.ownerId.length > 0) {
+      for (const member of this.teamMembers) {
+        if (member.id === task.ownerId) {
+          return member;
+        }
+      }
+      return undefined;
+    }
+    if (task.ownerName.length === 0) {
+      return undefined;
+    }
+    let found: TeamMemberView | undefined = undefined;
+    let matches: number = 0;
+    for (const member of this.teamMembers) {
+      if (member.name === task.ownerName) {
+        found = member;
+        matches += 1;
+      }
+    }
+    return matches === 1 ? found : undefined;
+  }
+
+  private teamOwnerLabel(task: TeamTaskView): string {
+    const member: TeamMemberView | undefined = this.teamOwnerMember(task);
+    if (member !== undefined) {
+      return member.name;
+    }
+    if (task.ownerName.length > 0) {
+      return task.ownerName;
+    }
+    if (task.ownerId.length > 0) {
+      return task.ownerId;
+    }
+    return '未分配';
+  }
+
+  private teamStatusColor(status: string): string {
+    if (status === 'completed') {
+      return '#12A594';
+    }
+    if (status === 'in_progress') {
+      return '#2E6BE6';
+    }
+    return '#8A8F98';
+  }
+
+  private teamStatusLabel(status: string): string {
+    if (status === 'completed') {
+      return '已完成';
+    }
+    if (status === 'in_progress') {
+      return '进行中';
+    }
+    if (status === 'pending') {
+      return '待处理';
+    }
+    return status;
+  }
+
+  /** 共享任务筛选（对齐 iOS：全部 / 当前成员 / 未分配）。 */
+  private teamFilteredTasks(): TeamTaskView[] {
+    const rows: TeamTaskView[] = [];
+    const current: string = this.teamSelectedId();
+    for (const task of this.teamTasks) {
+      if (task.status === 'deleted') {
+        continue;
+      }
+      if (this.teamTaskFilter === 'current' && !this.teamTaskOwnedBy(task, current)) {
+        continue;
+      }
+      if (this.teamTaskFilter === 'unassigned' && (task.ownerId.length > 0 || task.ownerName.length > 0)) {
+        continue;
+      }
+      rows.push(task);
+    }
+    return rows;
+  }
+
+  private toggleTeamTask(id: string): void {
+    const index: number = this.teamExpandedTasks.indexOf(id);
+    const next: string[] = this.teamExpandedTasks.slice();
+    if (index >= 0) {
+      next.splice(index, 1);
+    } else {
+      next.push(id);
+    }
+    this.teamExpandedTasks = next;
+  }
+
+  private teamTaskExpanded(id: string): boolean {
+    return this.teamExpandedTasks.indexOf(id) >= 0;
+  }
+
+  private teamEmptyTaskHint(): string {
+    if (this.teamTasks.length > 0) {
+      return '当前筛选下暂无共享任务';
+    }
+    if (this.teamMembers.length > 1) {
+      return '当前团队尚未创建共享任务';
+    }
+    return '此会话尚无团队共享任务';
+  }
+
+  /** 依赖任务显示名：优先用任务标题，找不到就用 id。 */
+  private teamBlockedLabel(task: TeamTaskView): string {
+    const parts: string[] = [];
+    for (const id of task.blockedBy) {
+      let label: string = id;
+      for (const one of this.teamTasks) {
+        if (one.id === id && one.subject.length > 0) {
+          label = one.subject;
+          break;
+        }
+      }
+      parts.push(label);
+    }
+    return parts.join('、');
+  }
+
+  /** 顶栏：返回 + 标题/连接状态 + 团队/更多。 */
   /** 顶部安全区：safeTopVp 未就绪时用状态栏兜底高度，避免顶栏被状态栏遮挡 */
   private topSafe(): number {
     return this.topInset > 0 ? this.topInset : 38.9;
+  }
+
+  /** 材质高度 = 整条导航栏（状态栏 + 标题行），和 iOS UINavigationBar 的范围一致 */
+  private topBlurHeight(): number {
+    return 56 + this.topSafe();
+  }
+
+  /**
+   * 按滚动位置驱动顶部材质（对齐 iOS 的 scrollEdgeAppearance → standardAppearance）：
+   * 内容在顶部时完全透明，一旦往上滑就在这里平滑浮现一层均匀毛玻璃。
+   * 用 0~1 的透明度做交叉淡入，而不是空间上的渐变，所以不会有分块。
+   */
+  private syncTopBarMaterial(): void {
+    const y: number = this.scroller.currentOffset().yOffset;
+    // 8vp 起步、到 68vp 才完全显现：滚过差不多一整行，材质才慢慢罩满（iOS 的手感）
+    const raw: number = (y - 8) / 60;
+    const target: number = raw < 0 ? 0 : (raw > 1 ? 1 : raw);
+    // 量化到 1/20，避免每个像素都触发一次状态刷新
+    const quantized: number = Math.round(target * 20) / 20;
+    if (Math.abs(quantized - this.topBarMaterial) > 0.001) {
+      this.topBarMaterial = quantized;
+    }
+  }
+
+  /**
+   * 顶部毛玻璃：整块均匀材质 + 底部 hairline，透明度跟随滚动位置淡入。
+   */
+  @Builder
+  topProgressiveBlur() {
+    Column()
+      .width('100%')
+      .height(this.topBlurHeight())
+      .backgroundBlurStyle(
+        this.isDark ? BlurStyle.COMPONENT_THICK : BlurStyle.COMPONENT_ULTRA_THICK,
+        {
+          colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT,
+          adaptiveColor: AdaptiveColor.AVERAGE
+        }
+      )
+      .opacity(this.topBarMaterial)
+      .hitTestBehavior(HitTestMode.None)
   }
 
   @Builder
@@ -2290,6 +3704,43 @@ export struct ConversationPage {
         this.sessionPickerOpen = true;
       })
 
+      // 团队协作入口：圆形玻璃钮 + 双人线框图标，点开成员弹层（对齐 dsh-mobile TeamNavigationEntry）
+      if (this.teamVisible) {
+        Button({ type: ButtonType.Circle }) {
+          // 图标沿用小程序 assets/icons/dsh-team(-dark).svg
+          Image(this.isDark ? $r('app.media.dsh_team_dark') : $r('app.media.dsh_team'))
+            .width(20)
+            .height(20)
+            .objectFit(ImageFit.Contain)
+        }
+        .id('conversation-team')
+        .width(44)
+        .height(44)
+        .backgroundColor(this.teamPopoverOpen
+          ? (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+          : Color.Transparent)
+        .accessibilityText('智能体团队')
+        .onClick(() => {
+          this.teamPopoverOpen = !this.teamPopoverOpen;
+        })
+        // 弹窗直接用右上角「⋯」同款系统菜单容器（原生材质/圆角/点空白收起），内容不变
+        .bindMenu(this.teamPopoverOpen, this.teamPopoverPanel(), {
+          placement: Placement.BottomRight,
+          offset: { x: 0, y: 4 },
+          outlineColor: this.dividerColor(),
+          outlineWidth: 1,
+          onWillDisappear: () => {
+            this.teamPopoverOpen = false;
+          },
+          onDisappear: () => {
+            this.teamPopoverOpen = false;
+          },
+          onDidDisappear: () => {
+            this.teamPopoverOpen = false;
+          }
+        })
+      }
+
       Button({ type: ButtonType.Circle }) {
         Text('⋯').fontSize(18).fontColor(this.textColor())
       }
@@ -2304,6 +3755,357 @@ export struct ConversationPage {
     .height(64 + this.topSafe())
     // 左缘与输入条一致（输入条容器 padding 14）：返回按钮和输入框左边缘对齐
     .padding({ left: 14, right: 14, top: 6 + this.topSafe() })
+    // 浮动顶栏完全不铺底：内容上滑时直接从标题下面穿过去（纯 iOS 透明导航栏）
+  }
+
+  // ==================== 团队协作弹层（对齐 dsh-mobile TeamMemberPopover） ====================
+  /** 成员弹层：小字团队标题 + 成员 N + 成员行 + 查看完整团队内容。 */
+  @Builder
+  teamPopoverPanel() {
+    Column({ space: 8 }) {
+      Text(this.teamLeadTitle())
+        .fontSize(11)
+        .fontColor(this.subColor())
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+        .padding({ left: 12, right: 12 })
+      Text('成员 ' + this.teamMembers.length)
+        .fontSize(15)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.textColor())
+        .width('100%')
+        .padding({ left: 12, right: 12 })
+      Scroll() {
+        Column({ space: 2 }) {
+          ForEach(this.teamMembers, (member: TeamMemberView) => {
+            this.teamMemberRow(member)
+          }, (member: TeamMemberView) => 'pop-' + member.id)
+        }
+        .width('100%')
+      }
+      .constraintSize({ maxHeight: 300 })
+      .scrollBar(BarState.Off)
+      .width('100%')
+      Row() {
+        Row()
+          .width('100%')
+          .height(0.5)
+          .backgroundColor(this.dividerColor())
+      }
+      .width('100%')
+      .padding({ left: 4, right: 4 })
+      Row() {
+        Text('查看完整团队内容')
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+        Blank()
+        Text('›')
+          .fontSize(14)
+          .fontColor(this.subColor())
+      }
+      .width('100%')
+      .height(44)
+      .padding({ left: 12, right: 12 })
+      .borderRadius(10)
+      .onClick(() => {
+        this.teamPopoverOpen = false;
+        setTimeout(() => {
+          this.teamSheetOpen = true;
+        }, 80);
+      })
+    }
+    // 背景材质、圆角、描边、阴影都交给系统菜单容器（与「⋯」完全同一套），这里只负责内容排版
+    .width(280)
+    .padding({ top: 2, bottom: 2 })
+  }
+
+  /** 成员行：彩色头像 + 名字 + 实时状态 + 描述（行样式对齐首页「切换主机」名单）。 */
+  @Builder
+  teamMemberRow(member: TeamMemberView) {
+    Row({ space: 12 }) {
+      Image(this.teamAvatarResource(member.avatarIndex))
+        .width(36)
+        .height(36)
+        .borderRadius(18)
+        .objectFit(ImageFit.Contain)
+      Column({ space: 2 }) {
+        Row({ space: 6 }) {
+          Text(this.teamMemberName(member))
+            .fontSize(16)
+            .fontColor(this.textColor())
+            // 名字占满剩余宽度并省略，否则「当前」徽标会被挤出到右侧状态圆点上
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (member.id === this.teamSelectedId()) {
+            Text('当前')
+              .fontSize(10.5)
+              .fontWeight(FontWeight.Medium)
+              .flexShrink(0)
+              .fontColor('#2E6BE6')
+              .backgroundColor('rgba(46,107,230,0.12)')
+              .borderRadius(999)
+              .height(16)
+              .padding({ left: 6, right: 6 })
+              .textAlign(TextAlign.Center)
+          }
+        }
+        .width('100%')
+        Text(this.teamMemberSubtitle(member))
+          .fontSize(12.5)
+          .fontColor(this.subColor())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        if (member.error.length > 0 || member.description.length > 0) {
+          Text(member.error.length > 0 ? member.error : member.description)
+            .fontSize(12)
+            .fontColor(member.error.length > 0 ? '#D65D64' : this.subColor())
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+        }
+      }
+      .layoutWeight(1)
+      .alignItems(HorizontalAlign.Start)
+      Circle({ width: 8, height: 8 }).fill(this.teamStatusDotColor(member))
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+    .opacity(member.canOpen ? 1 : 0.55)
+    .onClick(() => {
+      if (member.canOpen) {
+        this.selectTeamMember(member.id);
+      }
+    })
+  }
+
+  /** 任务筛选分段（对齐 iOS Picker segmented：全部 / 当前成员 / 未分配）。 */
+  @Builder
+  teamFilterChip(id: string, label: string) {
+    Text(label)
+      .fontSize(12)
+      .fontWeight(this.teamTaskFilter === id ? FontWeight.Medium : FontWeight.Normal)
+      .fontColor(this.teamTaskFilter === id ? this.textColor() : this.subColor())
+      .layoutWeight(1)
+      .height(30)
+      .textAlign(TextAlign.Center)
+      .borderRadius(7)
+      .backgroundColor(this.teamTaskFilter === id
+        ? (this.isDark ? 'rgba(255,255,255,0.14)' : Color.White)
+        : Color.Transparent)
+      .onClick(() => {
+        this.teamTaskFilter = id;
+      })
+  }
+
+  /** 共享任务卡片：点卡片展开/收起，点负责人切到负责人会话。 */
+  @Builder
+  teamTaskCard(task: TeamTaskView) {
+    Column({ space: 10 }) {
+      Row({ space: 8 }) {
+        Text(task.subject.length > 0 ? task.subject : task.id)
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+          .layoutWeight(1)
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Row({ space: 5 }) {
+          Circle().width(7).height(7).fill(this.teamStatusColor(task.status))
+          Text(this.teamStatusLabel(task.status))
+            .fontSize(11)
+            .fontColor(this.subColor())
+        }
+      }
+      .width('100%')
+      if (task.description.length > 0) {
+        Text(task.description)
+          .fontSize(12)
+          .fontColor(this.subColor())
+          .maxLines(this.teamTaskExpanded(task.id) ? 30 : 2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+      }
+      Row() {
+        Text(task.id)
+          .fontSize(10)
+          .fontFamily('monospace')
+          .fontColor(this.subColor())
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.teamTaskExpanded(task.id) ? '收起' : '展开')
+          .fontSize(11)
+          .fontColor(this.subColor())
+      }
+      .width('100%')
+      Row({ space: 8 }) {
+        Text('负责人：' + this.teamOwnerLabel(task))
+          .fontSize(11)
+          .fontColor(this.teamOwnerMember(task) !== undefined ? '#2E6BE6' : this.subColor())
+      }
+      .width('100%')
+      .onClick(() => {
+        const owner: TeamMemberView | undefined = this.teamOwnerMember(task);
+        if (owner !== undefined && owner.canOpen) {
+          this.selectTeamMember(owner.id);
+        }
+      })
+      if (this.teamTaskExpanded(task.id) && task.blockedBy.length > 0) {
+        Text('依赖：' + this.teamBlockedLabel(task))
+          .fontSize(11)
+          .fontColor(this.subColor())
+          .width('100%')
+      }
+    }
+    .width('100%')
+    .padding(14)
+    .borderRadius(16)
+    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.50)')
+    .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.80)' })
+    .onClick(() => {
+      this.toggleTeamTask(task.id);
+    })
+  }
+
+  /** 团队内容面板：成员 + 共享任务（样式对齐首页「切换主机」弹窗：拖动条 + 分组卡片）。 */
+  @Builder
+  teamSheetContent() {
+    Column({ space: 0 }) {
+      // 顶部拖动条
+      Column() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
+      }
+      .width('100%')
+      .height(16)
+      .justifyContent(FlexAlign.Center)
+
+      // 标题行：居中标题 + 右侧完成
+      Stack({ alignContent: Alignment.Center }) {
+        Text(this.teamMembers.length > 1 ? '智能体团队' : '子智能体')
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+        Row() {
+          Blank()
+          // 右侧完成按钮：胶囊样式，与「切换主机」弹窗的编辑按钮一致
+          Text('完成')
+            .fontSize(16)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+            .height(32)
+            .padding({ left: 14, right: 14 })
+            .borderRadius(999)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.60)')
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.10)' })
+            .onClick(() => {
+              this.teamSheetOpen = false;
+            })
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
+      }
+      .width('100%')
+      .height(48)
+
+      Scroll() {
+        Column() {
+          Text(this.teamLeadTitle())
+            .fontSize(14)
+            .fontColor(this.subColor())
+            .maxLines(2)
+            .width('100%')
+            .padding({ left: 19, top: 4, bottom: 4 })
+          if (this.teamMembers.length <= 1) {
+            Text('当前会话使用普通子智能体')
+              .fontSize(12)
+              .fontColor(this.subColor())
+              .width('100%')
+              .padding({ left: 19, bottom: 4 })
+          }
+          if (this.teamFailure.length > 0) {
+            Text(this.teamFailure)
+              .fontSize(12)
+              .fontColor('#E08A00')
+              .width('100%')
+              .padding({ left: 19, top: 2, bottom: 4 })
+          }
+
+          Text('成员 ' + this.teamMembers.length)
+            .fontSize(14)
+            .fontColor(this.subColor())
+            .width('100%')
+            .padding({ left: 19, top: 16, bottom: 6 })
+          Column() {
+            ForEach(this.teamMembers, (member: TeamMemberView, index: number) => {
+              this.teamMemberRow(member)
+              if (index < this.teamMembers.length - 1) {
+                Row() {
+                  Row()
+                    .width('100%')
+                    .height(0.5)
+                    .backgroundColor(this.dividerColor())
+                }
+                .width('100%')
+                .padding({ left: 16 })
+              }
+            }, (member: TeamMemberView) => 'sheet-' + member.id)
+          }
+          .width('100%')
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.50)')
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.80)' })
+          .borderRadius(16)
+
+          Text('共享任务 ' + this.teamTasks.length)
+            .fontSize(14)
+            .fontColor(this.subColor())
+            .width('100%')
+            .padding({ left: 19, top: 16, bottom: 6 })
+          Row() {
+            this.teamFilterChip('all', '全部')
+            this.teamFilterChip('current', '当前成员')
+            this.teamFilterChip('unassigned', '未分配')
+          }
+          .width('100%')
+          .padding(2)
+          .borderRadius(9)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
+          .margin({ bottom: 8 })
+
+          if (this.teamFilteredTasks().length === 0) {
+            Text(this.teamEmptyTaskHint())
+              .fontSize(12)
+              .fontColor(this.subColor())
+              .width('100%')
+              .padding({ top: 4, bottom: 8 })
+          }
+          ForEach(this.teamFilteredTasks(), (task: TeamTaskView) => {
+            Column() {
+              this.teamTaskCard(task)
+            }
+            .width('100%')
+            .margin({ bottom: 8 })
+          }, (task: TeamTaskView) => 'sheet-task-' + task.id)
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14, bottom: 16 })
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .scrollBar(BarState.Off)
+      .align(Alignment.Top)
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ bottom: 8 })
   }
 
   /** 加载更早记录。 */
@@ -2355,9 +4157,46 @@ export struct ConversationPage {
     // Stack 不支持 layoutWeight，因此高度由外层 Column 的 layoutWeight 承担，
     // 这里给 Stack 显式 height('100%') 才能让内部 List 撑满。
     Stack({ alignContent: Alignment.Bottom }) {
-      if (this.entries.length === 0) {
+      if (this.entries.length === 0 && this.historyLoading) {
+        // 有历史记录的会话：首屏历史还没到，显示加载骨架（对齐小程序 conv-skeleton），
+        // 不能把「新建会话」的居中空态闪出来。
+        Column({ space: 10 }) {
+          Row()
+            .width(180)
+            .height(12)
+            .borderRadius(6)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
+          Row()
+            .width('86%')
+            .height(12)
+            .borderRadius(6)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.045)')
+          Row()
+            .width('64%')
+            .height(12)
+            .borderRadius(6)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.045)')
+          LoadingProgress()
+            .width(20)
+            .height(20)
+            .color(this.subColor())
+            .margin({ top: 8 })
+          Text('正在加载会话记录…')
+            .fontSize(12)
+            .fontColor(this.subColor())
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .padding({ left: 40, right: 40 })
+        .zIndex(1)
+      } else if (this.entries.length === 0) {
         // 空会话：整块在时间线区域内垂直居中（对齐 spec §1.6 的空会话态）
         Column({ space: 8 }) {
+          // 空会话态：品牌硬币（可拖动翻转），放在标题上方
+          FluKeCoin({ diameter: 64 })
+            .margin({ bottom: 18 })
           Text('操作远端 DSH Agent')
             .fontSize(18)
             .fontWeight(FontWeight.Medium)
@@ -2371,8 +4210,17 @@ export struct ConversationPage {
         .height('100%')
         .justifyContent(FlexAlign.Center)
         .padding({ left: 32, right: 32 })
+        // 空会话时 List 仍然铺满整块区域，会盖在这层上面把拖动吃掉（硬币拖不动）。
+        // 提到 List 之上，硬币才能收到手势。
+        .zIndex(1)
       }
       List({ space: 0, scroller: this.scroller }) {
+        // 顶部占位：给浮动顶栏让出高度；往上滚时这段空白先滑走，内容直接从标题下面穿过
+        ListItem() {
+          Column()
+            .width('100%')
+            .height(64 + this.topSafe())
+        }
         // 列表头：「加载更早记录」在滚动内容顶部（对齐小程序 .hist-banner）
         if (this.hasMoreHistory && this.entries.length > 0) {
           ListItem() {
@@ -2387,8 +4235,12 @@ export struct ConversationPage {
               entry: entry,
               isDark: this.isDark,
               procIconStyle: this.procIconStyle,
+              stepOpenIds: this.stepOpenIds,
               onToggle: (id: string) => {
                 this.onToggleEntry(id);
+              },
+              onToggleStep: (id: string) => {
+                this.onToggleStep(id);
               },
               onCopy: (text: string) => {
                 this.onCopyEntry(text);
@@ -2424,11 +4276,37 @@ export struct ConversationPage {
       .cachedCount(8)
       .scrollBar(BarState.Off)
       .contentEndOffset(12)
+      .onTouch((event: TouchEvent) => {
+        // 只记录触摸，不在这里改 autoStick：轻点某行不应该打断跟随
+        if (event.type === TouchType.Down) {
+          this.listTouching = true;
+        } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+          this.listTouching = false;
+          this.lastTouchAt = Date.now();
+          // 拖动期间攒下的结构变化，抬手后再重建
+          if (this.pendingStructure) {
+            this.pendingStructure = false;
+            this.scheduleTimelineUpdate();
+          }
+        }
+      })
+      .onScroll(() => {
+        this.syncTopBarMaterial();
+      })
+      .onScrollStop(() => {
+        this.syncTopBarMaterial();
+      })
       .onScrollStart(() => {
+        // 用户自己拖动过：停掉自动跟随，给一个不被打断的浏览窗口
         this.autoStick = false;
+        this.lastUserScrollAt = Date.now();
       })
       .onReachEnd(() => {
-        this.autoStick = true;
+        // 只有「用户自己滑到底」才恢复吸底。流式期间内容不断增长、列表重建也会触发 reachEnd，
+        // 若据此恢复吸底，用户往上看的历史会被立刻拽回底部（表现就是「运行时滑不动」）。
+        if (!this.suppressReachEnd) {
+          this.autoStick = true;
+        }
       })
 
       if (!this.autoStick && this.entries.length > 0) {

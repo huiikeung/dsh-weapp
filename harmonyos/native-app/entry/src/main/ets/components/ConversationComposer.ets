@@ -12,7 +12,6 @@
  */
 import { LengthMetrics } from '@kit.ArkUI';
 import type { ModelMenuItem } from 'nativecore';
-import { VoiceRipplePanel } from './VoiceRipplePanel';
 
 /** 指标菜单行（鸿蒙原生 Menu 的 MenuItem：content 在左，labelInfo 数值在右） */
 export interface MetricMenuPair {
@@ -110,8 +109,6 @@ export struct ConversationComposer {
   @Prop voiceRecording: boolean = false;
   /** 上滑已进入「松手取消」 */
   @Prop voiceCancelArmed: boolean = false;
-  /** 实时音量 0..1，驱动波纹高度 */
-  @Prop voiceLevel: number = 0.5;
   /** 录音提示文案 */
   @Prop voiceHint: string = '';
   /** 右下角按钮：在语音/键盘之间切换 */
@@ -254,9 +251,9 @@ export struct ConversationComposer {
     return this.isDark ? 'rgba(241,244,250,0.36)' : 'rgba(16,19,24,0.28)';
   }
 
-  /** 折叠态占位文案色（参考截图的中灰占位） */
+  /** 折叠态占位文案色（对齐小程序 .composer-collapsed-placeholder：浅 0.32 / 深 0.40） */
   private collapsedPlaceholderColor(): string {
-    return this.isDark ? 'rgba(241,244,250,0.40)' : 'rgba(16,19,24,0.42)';
+    return this.isDark ? 'rgba(241,244,250,0.40)' : 'rgba(16,19,24,0.32)';
   }
 
   private chipText(): string {
@@ -448,20 +445,29 @@ export struct ConversationComposer {
     TextArea({ text: this.draft, placeholder: this.placeholder })
       .id('composer-draft-area')
       .width('100%')
+      // 文字度量对齐小程序 .composer-input：28rpx≈14vp / 字重 350 / 行高 1.4(≈20vp)
       .fontSize(14)
+      .fontWeight(350)
+      .lineHeight(20)
       .fontColor(this.inputText())
       .placeholderColor(this.placeholderColor())
-      .placeholderFont({ size: 14 })
+      .placeholderFont({ size: 14, weight: 350 })
       .caretStyle({ width: 1.5, color: '#2E6BE6' })
       .backgroundColor('#00000000')
       .borderWidth(0)
+      // 圆角归零：TextArea 默认带圆角，内容会按圆角形状裁剪，左内边距只有 2vp 时
+      // 最后一行的第一个字左下角会被圆角切掉。卡片本身仍是 24 圆角，这里只让文字框变矩形。
+      .borderRadius(0)
       // 左缘 2vp：与下方 chip 行的「+」按钮基本对齐（卡片 14vp 内边距已隔开光圈）。
       // 顶部 6vp：首行不能贴着内容框上沿——贴边时字形左上角会被裁掉一块，
       // 而且行数超过 maxHeight 触发内部滚动后，首行上半截会被直接切掉。
-      // 上下留白 4/2：minHeight 28 减去后仍剩 22vp，大于 14vp 字号的行高，
-      // 既不让首行贴着上沿被裁掉左上角，也不会把内容区压到行高之下。
-      .padding({ left: 2, right: 2, top: 4, bottom: 2 })
-      .constraintSize({ minHeight: 28, maxHeight: 154 })
+      // 上下各留 4vp：minHeight 30 减去后仍剩 22vp，大于 14vp 字号的行高，
+      // 首行/末行都不会贴边；下缘的 4vp 也让 g/y/p 这类下伸字形不会触到内容框底边。
+      // 左右 0：文字左缘与下方 chip 行的「+」按钮同一条线（小程序 .composer-input
+      // 没有额外内边距，就是卡片 28rpx 内边距）；上下各 4vp 留给字形不贴边。
+      .padding({ left: 0, right: 0, top: 4, bottom: 4 })
+      // 小程序：min-height 76rpx≈38vp / max-height 320rpx≈160vp
+      .constraintSize({ minHeight: 38, maxHeight: 160 })
       // 不在这里用 defaultFocus：条件挂载 + defaultFocus 在本机会崩；改为点击文本域即获焦，
       // onBlur 时若草稿与附件均为空才塌回单栏。
       .onFocus(() => {
@@ -1066,10 +1072,14 @@ export struct ConversationComposer {
           .objectFit(ImageFit.Contain)
           .draggable(false)
       } else {
-        // 无草稿且开了语音：文字态显示麦克风、语音态显示键盘（对齐小程序 voice-wave / voice-keyboard）
-        SymbolGlyph(this.voiceMode ? $r('sys.symbol.keyboard') : $r('sys.symbol.mic'))
-          .fontSize(18)
-          .fontColor(['#FFFFFF'])
+        // 无草稿且开了语音：文字态 voice-wave.svg、语音态 voice-keyboard.svg
+        // （小程序 .send-ic 36rpx≈18vp，与折叠态用同一套图标）
+        Image(this.voiceMode ? $r('app.media.voice_keyboard') : $r('app.media.voice_wave'))
+          .width(18)
+          .height(18)
+          .objectFit(ImageFit.Contain)
+          .draggable(false)
+          .syncLoad(true)
       }
     }
     .width(36)
@@ -1429,15 +1439,14 @@ export struct ConversationComposer {
                 this.onAddAttachment();
               }
             })
-            if (this.voiceRecording) {
-              VoiceRipplePanel({ level: this.voiceLevel, cancelling: this.voiceCancelArmed, visible: true })
-            }
             // 文字区 + 语音触摸层（对齐小程序 .voice-touch-surface：
             // 单独一层覆盖在文字区上接收长按滑动，而不是依赖文字节点自身的触摸）
             Stack({ alignContent: Alignment.Start }) {
+            // 折叠态占位：小程序 28rpx≈14vp、行高 1.4、垂直居中
             Text(this.voiceRecording ? this.voiceHint
               : (this.voiceEnabled && this.voiceMode ? '按住说话' : this.placeholder))
-              .fontSize(this.voiceRecording ? 13 : 15)
+              .fontSize(this.voiceRecording ? 13 : 14)
+              .lineHeight(this.voiceRecording ? 18 : 20)
               .fontColor(this.voiceCancelArmed ? '#D9413A' : this.collapsedPlaceholderColor())
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -1453,7 +1462,7 @@ export struct ConversationComposer {
             }
             }
             .layoutWeight(1)
-            .height(this.voiceRecording ? 52 : 36)
+            .height(36)
             .alignContent(Alignment.Start)
               .onClick(() => {
                 // 长按已经被当成录音：吞掉这次点击，不要再展开输入框
@@ -1509,10 +1518,14 @@ export struct ConversationComposer {
               })
             } else if (this.voiceEnabled) {
               Stack() {
-                // 文字态显示麦克风（点了切到语音），语音态显示键盘（点了切回文字）
-                SymbolGlyph(this.voiceMode ? $r('sys.symbol.keyboard') : $r('sys.symbol.mic'))
-                  .fontSize(18)
-                  .fontColor(['#FFFFFF'])
+                // 和小程序同一套图标：文字态 voice-wave.svg（五根波形条，点了切到语音），
+                // 语音态 voice-keyboard.svg（点了切回文字）。inline 尺寸 36rpx≈18vp。
+                Image(this.voiceMode ? $r('app.media.voice_keyboard') : $r('app.media.voice_wave'))
+                  .width(18)
+                  .height(18)
+                  .objectFit(ImageFit.Contain)
+                  .draggable(false)
+                  .syncLoad(true)
               }
               .width(33)
               .height(33)
@@ -1525,8 +1538,8 @@ export struct ConversationComposer {
             }
           }
           .width('100%')
-          // 录音态把行高放到 52：波纹面板本身高 52，留在 36 会被裁掉一半
-          .height(this.voiceRecording ? 52 : 36)
+          // 录音特效已经移到全屏 VoiceRipplePanel：折叠条保持 36，不再为波纹加高
+          .height(36)
           .alignItems(VerticalAlign.Center)
         }
 
@@ -1548,9 +1561,10 @@ export struct ConversationComposer {
         }
       }
       .width('100%')
+      // 对齐小程序 .composer：展开 28/28/24rpx = 14/14/12vp；折叠 12/20rpx = 6/10vp
       .padding(this.expanded()
-        ? { left: 14, right: 14, top: 12, bottom: 10 }
-        : { left: 8, right: 8, top: 7, bottom: 7 })
+        ? { left: 14, right: 14, top: 12, bottom: 12 }
+        : { left: 10, right: 10, top: 6, bottom: 6 })
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)

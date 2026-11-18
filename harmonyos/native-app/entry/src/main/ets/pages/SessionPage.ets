@@ -11,7 +11,6 @@ import type { UploadResult } from 'nativecore';
 import type { PickedAttachment } from 'nativecore';
 import { FileTypeIcon } from '../components/FileTypeIcon';
 import { CodeSyntaxHighlighter } from '../components/CodeSyntaxHighlighter';
-import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 
 interface UploadReceipt {
   receiptId: string;
@@ -449,7 +448,19 @@ export struct SessionPage {
         .padding({ left: 12, right: 12, top: 4 })
       }
       if (this.dictating) {
-        VoiceRipplePanel({ level: 0.5, cancelling: false, visible: true });
+        // 旧工具页只留一个小的音量条；全屏特效在对话页（VoiceRipplePanel 现在是整页覆盖层）
+        Row({ space: 3 }) {
+          ForEach([0.3, 0.6, 1, 0.6, 0.3], (factor: number) => {
+            Column()
+              .width(3)
+              .height(10 + factor * 18)
+              .borderRadius(2)
+              .backgroundColor('#2E6BE6')
+          }, (factor: number) => factor.toString())
+        }
+        .height(30)
+        .padding({ left: 12, right: 12 })
+        .alignItems(VerticalAlign.Center)
       }
       if (this.dictationHint.length > 0) {
         Text(this.dictationHint).fontSize(11).fontColor(this.subColor())

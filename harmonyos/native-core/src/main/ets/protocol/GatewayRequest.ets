@@ -11,6 +11,14 @@ export interface GatewayRequest {
   payload: string;
   timeoutMilliseconds?: number;
   isBackgroundHistory: boolean;
+  /**
+   * 超时是否视为「连接已坏」。
+   * 默认 true：历史/订阅这类一旦不回就应该重连的请求。
+   * 但会话控制类（goal / tasks / queue / context-*）在旧网关上可能根本不回执，
+   * 那种情况绝不能再 failSocket —— 否则点一下「暂停目标」就把整条网关连接打断，
+   * 页面上所有操作（发送、滑动、切换）都会跟着失灵。
+   */
+  timeoutIsFatal?: boolean;
 }
 
 export interface LaneSubmission { status: string; cancelled: GatewayRequest[]; }
@@ -63,7 +71,7 @@ export class GatewayRequestFactory {
     wire['type'] = type;
     return { requestType: type, responseKind: responseKind, targetSessionId: targetSessionId,
       correlationId: correlationId, lanePolicy: lanePolicy, payload: JSON.stringify(wire),
-      timeoutMilliseconds: timeoutMilliseconds, isBackgroundHistory: isBackgroundHistory };
+      timeoutMilliseconds: timeoutMilliseconds, isBackgroundHistory: isBackgroundHistory, timeoutIsFatal: true };
   }
   static simple(type: string, responseKind: string = type): GatewayRequest { return GatewayRequestFactory.make(type, responseKind); }
   static ping(): GatewayRequest { return GatewayRequestFactory.make('ping', 'pong', {}, undefined, undefined, GatewayRequestLanePolicy.REJECT_IF_BUSY); }
@@ -92,8 +100,9 @@ export class GatewayRequestFactory {
   }
   static queueUpdate(sessionId: string, itemId: string, action: string): GatewayRequest {
     if (action !== 'remove' && action !== 'steer') throw new Error('invalid queue action');
-    return GatewayRequestFactory.make('queue-update', 'queue-item-updated', { 'sessionId': sessionId, 'itemId': itemId, 'action': action },
-      sessionId, itemId, GatewayRequestLanePolicy.REJECT_IF_BUSY);
+    return GatewayRequestFactory.tolerated(
+      GatewayRequestFactory.make('queue-update', 'queue-item-updated', { 'sessionId': sessionId, 'itemId': itemId, 'action': action },
+        sessionId, itemId, GatewayRequestLanePolicy.REJECT_IF_BUSY));
   }
   static questionCancel(rpcId: string, sessionId: string): GatewayRequest {
     return GatewayRequestFactory.make('question-cancel', 'question-response', { 'rpcId': rpcId, 'sessionId': sessionId },
@@ -114,16 +123,30 @@ export class GatewayRequestFactory {
       sessionId, undefined, GatewayRequestLanePolicy.REJECT_IF_BUSY);
   }
   static goal(sessionId: string): GatewayRequest { return GatewayRequestFactory.sessionControl('goal', sessionId); }
+
+  /** 标记为非致命超时：网关不回执时只让这次请求失败，不打断连接。 */
+  static tolerated(request: GatewayRequest): GatewayRequest {
+    request.timeoutIsFatal = false;
+    return request;
+  }
   static editGoal(sessionId: string, ref: GatewayGoalReference, objective?: string, maxGoalRounds?: number): GatewayRequest {
     const fields: Record<string, Object> = { 'sessionId': sessionId, 'ref': ref };
     if (objective !== undefined && objective.trim().length > 0) fields['objective'] = objective.trim();
     if (maxGoalRounds !== undefined) fields['maxGoalRounds'] = maxGoalRounds;
-    return GatewayRequestFactory.make('goal-edit', 'goal-edit', fields, sessionId, undefined, GatewayRequestLanePolicy.REJECT_IF_BUSY);
+    // 回执 kind 是 goal-edited（对齐小程序 gateway.js editGoal 的 matchType）
+    const request: GatewayRequest = GatewayRequestFactory.make('goal-edit', 'goal-edited', fields, sessionId, undefined,
+      GatewayRequestLanePolicy.REJECT_IF_BUSY);
+    return GatewayRequestFactory.tolerated(request);
   }
   static goalAction(type: string, sessionId: string, ref: GatewayGoalReference): GatewayRequest {
     if (type !== 'goal-pause' && type !== 'goal-resume' && type !== 'goal-clear') throw new Error('invalid goal action');
-    return GatewayRequestFactory.make(type, type, { 'sessionId': sessionId, 'ref': ref }, sessionId, undefined,
-      GatewayRequestLanePolicy.REJECT_IF_BUSY);
+    // 回执 kind 是过去式（goal-paused / goal-resumed / goal-cleared），和小程序 responseKinds 一致；
+    // 之前这里直接拿 type 当 kind，永远等不到回执，超时后还会把 WebSocket 打断。
+    const responseKind: string = type === 'goal-pause' ? 'goal-paused'
+      : (type === 'goal-resume' ? 'goal-resumed' : 'goal-cleared');
+    const request: GatewayRequest = GatewayRequestFactory.make(type, responseKind, { 'sessionId': sessionId, 'ref': ref },
+      sessionId, undefined, GatewayRequestLanePolicy.REJECT_IF_BUSY);
+    return GatewayRequestFactory.tolerated(request);
   }
   static slashCommands(sessionId: string, locale?: string): GatewayRequest {
     const fields: Record<string, Object> = { 'sessionId': sessionId };
@@ -150,7 +173,8 @@ export class GatewayRequestFactory {
     return GatewayRequestFactory.make('queue-update', 'queue-item-updated', fields, sessionId, itemId, GatewayRequestLanePolicy.REJECT_IF_BUSY);
   }
   static sessionControl(type: string, sessionId: string): GatewayRequest {
-    return GatewayRequestFactory.make(type, type, { 'sessionId': sessionId }, sessionId);
+    // 会话控制/快照类：旧网关可以不回执，超时只让本次请求失败，不能因此重连
+    return GatewayRequestFactory.tolerated(GatewayRequestFactory.make(type, type, { 'sessionId': sessionId }, sessionId));
   }
   static selectModel(sessionId: string, provider: string, model: string, reasoningEffort?: string): GatewayRequest {
     const fields: Record<string, Object> = { 'sessionId': sessionId, 'provider': provider, 'model': model };

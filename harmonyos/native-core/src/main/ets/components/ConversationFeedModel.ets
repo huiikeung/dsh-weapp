@@ -67,49 +67,186 @@ export class ConversationFeedEntryModel {
   headingHidden: boolean = false;
   titleWrap: boolean = false;
   turnClosed: boolean = false;
+  /** 回合展开时的摘要（N 次工具调用），对齐小程序 turnProcess.expandedSummary */
+  expandedSummary: string = '';
+  /** 组内活动命名（回合内子组标题） */
+  activityTitle: string = '';
+  /** 可折叠（失败/中断回合恒展开） */
+  foldable: boolean = true;
+  /** 上一次写进 items 的内容签名（原地更新的工具行靠它判断要不要重渲染） */
+  private itemsSignatureValue: string = '';
 
   /**
    * 原地覆盖字段（保持实例 identity）。
    * LazyForEach 按 key 复用组件，@ObjectLink 绑定的是旧实例；
    * 新建实例会让改动丢失，所以同 id 行必须复用同一对象再赋值。
    */
-  assign(entry: ConversationFeedEntry, expanded: boolean): void {
-    this.id = entry.id;
-    this.kind = entry.kind;
-    this.title = entry.title;
-    this.text = entry.text;
-    this.isError = entry.isError;
-    this.streaming = entry.streaming;
-    this.copyable = entry.copyable;
-    this.epochSeconds = entry.epochSeconds;
-    this.expanded = expanded;
-    this.items = entry.items;
-    this.imageCount = entry.imageCount;
-    this.running = entry.running;
-    this.expandable = entry.expandable;
-    this.summary = entry.summary;
-    this.toolCount = entry.toolCount;
-    this.contextCount = entry.contextCount;
-    this.childIds = entry.childIds;
-    this.activityKind = entry.activityKind;
-    this.liveDetail = entry.liveDetail;
-    this.narration = entry.narration;
-    this.footerVisible = entry.footerVisible;
-    this.turnMetaText = entry.turnMetaText;
-    this.turnTimeText = entry.turnTimeText;
-    this.failureTitle = entry.failureTitle;
-    this.processGrouped = entry.processGrouped;
-    this.processAutoOpen = entry.processAutoOpen;
-    this.processBodyVisible = entry.processBodyVisible;
-    this.processBodyCapped = entry.processBodyCapped;
-    this.headingHidden = entry.headingHidden;
-    this.titleWrap = entry.titleWrap;
-    this.turnClosed = entry.turnClosed;
-    const kids: ConversationFeedEntryModel[] = [];
-    for (const child of entry.children) {
-      kids.push(ConversationFeedEntryModel.from(child));
+  /** 数组是否「同一个东西」：引用相同，或长度与元素引用都相同（不改就不触发重渲染） */
+  private static sameRefs(a: Object[], b: Object[]): boolean {
+    if (a === b) {
+      return true;
     }
-    this.children = kids;
+    if (a.length !== b.length) {
+      return false;
+    }
+    for (let i = 0; i < a.length; i++) {
+      if (a[i] !== b[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * 工具行的内容签名：projector 是原地改 ConversationItem 的（引用不变），
+   * 单看引用判断会漏掉流式结果，所以再看一眼 id/状态/正文长度。
+   */
+  private static itemsSignature(items: ConversationItem[]): string {
+    let signature: string = '';
+    for (const item of items) {
+      signature += item.id + '|' + (item.status === undefined ? '' : item.status) + '|'
+        + item.text.length.toString() + '|' + (item.resultText === undefined ? 0 : item.resultText.length).toString()
+        + '|' + (item.isError === true ? '1' : '0') + ';';
+    }
+    return signature;
+  }
+
+  assign(entry: ConversationFeedEntry, expanded: boolean): void {
+    // 只写真正变了的字段：@Observed 每一次赋值都会让绑定它的行重渲染，
+    // 流式期间把上百行全量赋值 = 每秒重建上百个行组件，页面就卡死、点不动了。
+    if (this.expanded !== expanded) {
+      this.expanded = expanded;
+    }
+    if (this.kind !== entry.kind) {
+      this.kind = entry.kind;
+    }
+    if (this.title !== entry.title) {
+      this.title = entry.title;
+    }
+    if (this.text !== entry.text) {
+      this.text = entry.text;
+    }
+    if (this.isError !== entry.isError) {
+      this.isError = entry.isError;
+    }
+    if (this.streaming !== entry.streaming) {
+      this.streaming = entry.streaming;
+    }
+    if (this.copyable !== entry.copyable) {
+      this.copyable = entry.copyable;
+    }
+    if (this.epochSeconds !== entry.epochSeconds) {
+      this.epochSeconds = entry.epochSeconds;
+    }
+    if (!ConversationFeedEntryModel.sameRefs(this.items, entry.items)) {
+      const itemsSignature: string = ConversationFeedEntryModel.itemsSignature(entry.items);
+      if (itemsSignature !== this.itemsSignatureValue) {
+        this.items = entry.items;
+        this.itemsSignatureValue = itemsSignature;
+      }
+    }
+    if (this.imageCount !== entry.imageCount) {
+      this.imageCount = entry.imageCount;
+    }
+    if (this.running !== entry.running) {
+      this.running = entry.running;
+    }
+    if (this.expandable !== entry.expandable) {
+      this.expandable = entry.expandable;
+    }
+    if (this.summary !== entry.summary) {
+      this.summary = entry.summary;
+    }
+    if (this.toolCount !== entry.toolCount) {
+      this.toolCount = entry.toolCount;
+    }
+    if (this.contextCount !== entry.contextCount) {
+      this.contextCount = entry.contextCount;
+    }
+    if (!ConversationFeedEntryModel.sameRefs(this.childIds, entry.childIds)) {
+      this.childIds = entry.childIds;
+    }
+    if (this.activityKind !== entry.activityKind) {
+      this.activityKind = entry.activityKind;
+    }
+    if (this.liveDetail !== entry.liveDetail) {
+      this.liveDetail = entry.liveDetail;
+    }
+    if (this.narration !== entry.narration) {
+      this.narration = entry.narration;
+    }
+    if (this.footerVisible !== entry.footerVisible) {
+      this.footerVisible = entry.footerVisible;
+    }
+    if (this.turnMetaText !== entry.turnMetaText) {
+      this.turnMetaText = entry.turnMetaText;
+    }
+    if (this.turnTimeText !== entry.turnTimeText) {
+      this.turnTimeText = entry.turnTimeText;
+    }
+    if (this.failureTitle !== entry.failureTitle) {
+      this.failureTitle = entry.failureTitle;
+    }
+    if (this.processGrouped !== entry.processGrouped) {
+      this.processGrouped = entry.processGrouped;
+    }
+    if (this.processAutoOpen !== entry.processAutoOpen) {
+      this.processAutoOpen = entry.processAutoOpen;
+    }
+    if (this.processBodyVisible !== entry.processBodyVisible) {
+      this.processBodyVisible = entry.processBodyVisible;
+    }
+    if (this.processBodyCapped !== entry.processBodyCapped) {
+      this.processBodyCapped = entry.processBodyCapped;
+    }
+    if (this.headingHidden !== entry.headingHidden) {
+      this.headingHidden = entry.headingHidden;
+    }
+    if (this.titleWrap !== entry.titleWrap) {
+      this.titleWrap = entry.titleWrap;
+    }
+    if (this.turnClosed !== entry.turnClosed) {
+      this.turnClosed = entry.turnClosed;
+    }
+    if (this.expandedSummary !== entry.expandedSummary) {
+      this.expandedSummary = entry.expandedSummary;
+    }
+    if (this.activityTitle !== entry.activityTitle) {
+      this.activityTitle = entry.activityTitle;
+    }
+    if (this.foldable !== entry.foldable) {
+      this.foldable = entry.foldable;
+    }
+    if (this.id === entry.id) {
+      this.assignChildren(entry);
+    } else {
+      this.id = entry.id;
+      this.assignChildren(entry);
+    }
+  }
+
+  /** 子行（回合内的过程组）能复用就复用，只把变化写进去，避免整棵子树重建 */
+  private assignChildren(entry: ConversationFeedEntry): void {
+    let same: boolean = this.children.length === entry.children.length;
+    if (same) {
+      for (let i = 0; i < this.children.length; i++) {
+        if (this.children[i].id !== entry.children[i].id) {
+          same = false;
+          break;
+        }
+      }
+    }
+    if (!same) {
+      const kids: ConversationFeedEntryModel[] = [];
+      for (const child of entry.children) {
+        kids.push(ConversationFeedEntryModel.from(child));
+      }
+      this.children = kids;
+      return;
+    }
+    for (let i = 0; i < this.children.length; i++) {
+      this.children[i].assign(entry.children[i], entry.children[i].expanded);
+    }
   }
 
   static from(entry: ConversationFeedEntry): ConversationFeedEntryModel {
@@ -145,6 +282,9 @@ export class ConversationFeedEntryModel {
     next.headingHidden = entry.headingHidden;
     next.titleWrap = entry.titleWrap;
     next.turnClosed = entry.turnClosed;
+    next.expandedSummary = entry.expandedSummary;
+    next.activityTitle = entry.activityTitle;
+    next.foldable = entry.foldable;
     for (const child of entry.children) {
       next.children.push(ConversationFeedEntryModel.from(child));
     }

@@ -17,6 +17,7 @@ import { TailscalePage } from './TailscalePage';
 import { StatusStylesPage } from './StatusStylesPage';
 import { PreferencePickerPage } from './PreferencePickerPage';
 import { FontSizePage } from './FontSizePage';
+import { openSessionRoute } from '../common/SessionRoute';
 
 @Entry
 @Component
@@ -75,7 +76,7 @@ struct Index {
     if (sessionId.length === 0) return;
     this.pendingSessionId = '';
     SessionStore.get().open(sessionId);
-    this.pageStack.pushPathByName('session', null);
+    openSessionRoute(this.pageStack);
   }
 
   @Builder

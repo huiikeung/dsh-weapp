@@ -8,7 +8,6 @@ import {
   AppState, GatewayClient, Logger, PreferencesStore, SessionStore, ThemeManager,
   parsePairingPayload, sodiumSelfTest
 } from 'nativecore';
-
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     AppState.init();
@@ -48,11 +47,23 @@ export default class EntryAbility extends UIAbility {
       }
     }
     SessionStore.get().attach(GatewayClient.get());
-    // 启动自检一次：X25519 + XSalsa20-Poly1305 与 tweetnacl 向量比对（失败会打日志）。
-    try {
-      sodiumSelfTest();
-    } catch (err) {
-      Logger.error('sodium self-test threw: ' + JSON.stringify(err));
+    // 启动自检：X25519 + XSalsa20-Poly1305 与 tweetnacl 向量比对（失败会打日志）。
+    // 注意：纯 JS 的 curve25519 自检很吃 CPU，放在 onCreate 里同步跑会把主线程堵住、
+    // 启动窗口内点哪都没反应（甚至触发系统的 AppFreeze 判定）。这里挪到首帧之后再跑。
+    // 默认不跑：纯 JS 的 curve25519 自检实测单次要 ~280ms，且偶发长时间不返回，
+    // 会把主线程（UI 线程）堵住 —— 表现就是「打开 App/对话页后点哪都没反应」。
+    // 需要验证算法时手动触发：hdc shell aa start -a EntryAbility -b com.flukit.app --ps selfTest 1
+    const selfTestWanted: boolean = want.parameters !== undefined && String(want.parameters['selfTest'] ?? '') === '1';
+    if (selfTestWanted) {
+      setTimeout(() => {
+        const selfTestAt: number = Date.now();
+        try {
+          sodiumSelfTest();
+          Logger.info('sodium self-test ok in ' + (Date.now() - selfTestAt) + 'ms');
+        } catch (err) {
+          Logger.error('sodium self-test threw: ' + JSON.stringify(err));
+        }
+      }, 1200);
     }
     Logger.info('EntryAbility onCreate');
     PreferencesStore.get().init(this.context).then(() => {
@@ -62,6 +73,8 @@ export default class EntryAbility extends UIAbility {
       AppStorage.setOrCreate<string>('workStepMode', PreferencesStore.get().getString('workStepMode', 'detailed'));
       AppStorage.setOrCreate<string>('workStepTiming', PreferencesStore.get().getString('workStepTiming', 'completion'));
       // 外观偏好：必须在 init 完成后再读，否则读到的是兜底值（重启后回默认色就是这个问题）
+      // 语音输入开关：设置页关掉之后要能跨重启生效（会话页靠 @StorageLink 首帧读取）
+      AppStorage.setOrCreate<boolean>('voiceInputEnabled', PreferencesStore.get().getBoolean('voiceInputEnabled', true));
       AppStorage.setOrCreate<string>('statusAppearance', PreferencesStore.get().getString('statusAppearance', 'classic'));
       AppStorage.setOrCreate<string>('procIconStyle', PreferencesStore.get().getString('procIconStyle', 'spin-ring'));
       ThemeManager.get().init(this.context.config.colorMode);

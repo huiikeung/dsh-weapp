@@ -4,10 +4,12 @@ import { display, KeyboardAvoidMode, LengthMetrics, uiMaterial, window } from '@
 import { drawing } from '@kit.ArkGraphics2D';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
+import { FluKeCoin } from '../components/FluKeCoin';
 import { Haptics } from '../services/Haptics';
+import { openSessionRoute } from '../common/SessionRoute';
 import {
   GatewayClient, OceanBackground, PairingResult, PreferencesStore, SessionStore, SessionSummary,
-  DirEntry, DirCrumb, WorkspaceRow, parsePairingPayload
+  DirEntry, DirCrumb, WorkspaceRow, parsePairingPayload, SavedGateway
 } from 'nativecore';
 
 /** 全部会话视图：每个工作区分区默认显示的条数（对齐小程序 ALL_SESSIONS_SECTION_LIMIT） */
@@ -137,6 +139,10 @@ export struct HomePage {
   @StorageLink('dirHome') dirHome: string = '';
   @StorageLink('workspaces') @Watch('onWorkspacesChanged') workspaces: WorkspaceRow[] = [];
   @StorageLink('hostAlias') hostAlias: string = '';
+  // 网关判定保存的设备凭据失效（握手 401）后置位：界面据此提示重新配对，而不是假装没有主机
+  @StorageLink('gatewayCredentialRejected') credentialRejected: boolean = false;
+  // 已保存主机快照（未连接时也要显示，见 refreshSavedHosts）
+  @State savedHosts: SavedGateway[] = [];
   @StorageLink('transportKind') transportKind: string = '';
   @State rowY: number = 0;
   @State rowH: number = 0;
@@ -1560,12 +1566,9 @@ export struct HomePage {
     Column() {
         // 品牌
         Row({ space: 6 }) {
-          // 品牌鲸鱼：与顶部品牌行一致
-          Image(this.isDark ? $r('app.media.whale_white') : $r('app.media.whale_ink'))
-            .width(29)
-            .height(29)
-            .objectFit(ImageFit.Contain)
-            .translate({ y: -3.5 })
+          // 品牌硬币：与顶部品牌行同一枚 3D 硬币（可拖动翻转）
+          FluKeCoin({ diameter: 32 })
+            .translate({ y: -1 })
           // 文字标：与顶部品牌行等高（52×15），侧栏标题高度与主页一致
           Image(this.isDark ? $r('app.media.wordmark_white') : $r('app.media.wordmark_ink'))
             .width(52)
@@ -1779,7 +1782,7 @@ export struct HomePage {
           return;
         }
         SessionStore.get().open(item.id);
-        this.pageStack.pushPathByName('session', null);
+        openSessionRoute(this.pageStack);
       })
       if (!last) {
         Row() {
@@ -2237,7 +2240,7 @@ export struct HomePage {
                 .width('100%')
                 .padding({ left: 19, top: 16, bottom: 6 })
 
-              if (this.gatewayName.length === 0 && this.hostAlias.length === 0) {
+              if (!this.hasSavedHost()) {
                 Column() {
                   Row({ space: 12 }) {
                     this.hostGlyph(22, this.iconColorSecondary())
@@ -2306,7 +2309,8 @@ export struct HomePage {
                         }
                       }
                       .width('100%')
-                      Text(this.connection === 'connected' ? '当前主机 · 已连接' : '点击连接')
+                      Text(this.connection === 'connected' ? '当前主机 · 已连接'
+                        : (this.credentialRejected ? '设备凭据已失效 · 点击重新配对' : '点击连接'))
                         .fontSize(12.5)
                         .fontColor(this.hostRowSubColor(this.connection === 'connected'))
                         .maxLines(1)
@@ -2342,8 +2346,13 @@ export struct HomePage {
                       // 点击主机：关闭面板并立即尝试连接（按当前网络选择局域网/隧道）
                       this.hostSheetOpen = false;
                       if (this.connection !== 'connected') {
-                        GatewayClient.get().revalidateOnForeground();
-                        GatewayClient.get().reconnectCurrent();
+                        if (this.credentialRejected) {
+                          // 网关已拒绝保存的凭据：重连只会再吃一次 401，直接进扫码配对
+                          this.scanPairingNow();
+                        } else {
+                          GatewayClient.get().revalidateOnForeground();
+                          GatewayClient.get().reconnectCurrent();
+                        }
                       }
                     }
                   })
@@ -2890,11 +2899,55 @@ export struct HomePage {
     ];
   }
 
+  /** 重新读取已保存主机：连不上时这些记录仍在本地，界面必须能显示出来。 */
+  private refreshSavedHosts(): void {
+    try {
+      this.savedHosts = GatewayClient.get().savedGateways();
+    } catch (err) {
+      this.savedHosts = [];
+    }
+  }
+
+  private hasSavedHost(): boolean {
+    return this.savedHosts.length > 0 || this.gatewayName.length > 0 || this.hostAlias.length > 0;
+  }
+
+  /** 未连接时的主机名兜底：保存名 → wsUrl 主机段 */
+  private savedHostFallbackName(): string {
+    if (this.savedHosts.length === 0) {
+      return '';
+    }
+    const one: SavedGateway = this.savedHosts[0];
+    if (one.name.length > 0) {
+      return one.name;
+    }
+    const url: string = one.wsUrl;
+    const start: number = url.indexOf('://') >= 0 ? url.indexOf('://') + 3 : 0;
+    const rest: string = url.substring(start);
+    const end: number = rest.indexOf('/') >= 0 ? rest.indexOf('/') : rest.length;
+    return rest.substring(0, end);
+  }
+
   private hostDisplayName(): string {
     if (this.hostAlias.length > 0) {
       return this.hostAlias;
     }
-    return this.gatewayName.length > 0 ? this.gatewayName : '暂无已保存的主机';
+    if (this.gatewayName.length > 0) {
+      return this.gatewayName;
+    }
+    const saved: string = this.savedHostFallbackName();
+    return saved.length > 0 ? saved : '暂无已保存的主机';
+  }
+
+  private hostPillLabel(): string {
+    if (this.gatewayName.length > 0) {
+      return this.gatewayName;
+    }
+    if (this.hostAlias.length > 0) {
+      return this.hostAlias;
+    }
+    const saved: string = this.savedHostFallbackName();
+    return saved.length > 0 ? saved : '本机';
   }
 
   private saveHostAlias(): void {
@@ -2915,12 +2968,14 @@ export struct HomePage {
    * 断线期间桌面端可能开跑或跑完，重连后不能干等下一拍轮询。
    */
   onConnectionChanged(): void {
+    this.refreshSavedHosts();
     if (this.connection === 'connected') {
       SessionStore.get().refreshSessionsNow();
     }
   }
 
   aboutToAppear(): void {
+    this.refreshSavedHosts();
     this.applyStatusBarWhite();
     // 键盘出现时不移动整页，只让底部弹层自己上浮
     try {
@@ -2955,13 +3010,15 @@ export struct HomePage {
           Column() {
           // ── 顶栏：品牌 + 两个圆形玻璃按钮 ──
           Row() {
-            // 品牌鲸鱼：58rpx = 29vp 正方形
-            Image($r('app.media.whale_white'))
-              .width(29)
-              .height(29)
-              .objectFit(ImageFit.Contain)
-              .margin({ right: 3.5 })
-              .translate({ y: -3.5 })
+            // 品牌硬币：App 图标六边形（fluKe）做成 3D 硬币，拖动可上下左右翻转
+            FluKeCoin({
+              diameter: 36,
+              onTap: () => {
+                this.openDrawer();
+              }
+            })
+              .margin({ right: 6 })
+              .translate({ y: -1 })
             // 文字标：与徽章同高，垂直居中（对齐小程序 brand-row）
             Image($r('app.media.wordmark_white'))
               .width(52)
@@ -3005,7 +3062,7 @@ export struct HomePage {
               } else {
                 this.hostGlyph(18, '#FFFFFF')
               }
-              Text(this.gatewayName.length > 0 ? this.gatewayName : '本机')
+              Text(this.hostPillLabel())
                 .fontSize(14)
                 .fontColor('#FFFFFF')
                 .maxLines(1)
@@ -3022,6 +3079,7 @@ export struct HomePage {
             .backgroundColor('rgba(255,255,255,0.05)')
             .shadow({ radius: 12, color: 'rgba(3,14,30,0.22)', offsetY: 4 })
             .onClick(() => {
+              this.refreshSavedHosts();
               this.hostSheetOpen = true;
             })
             }
@@ -3451,7 +3509,7 @@ export struct HomePage {
     GatewayClient.get().createSession('').then((id: string) => {
       this.creating = false;
       SessionStore.get().open(id);
-      this.pageStack.pushPathByName('session', null);
+      openSessionRoute(this.pageStack);
     }).catch((error: Error) => {
       this.creating = false;
       this.createHint = error.message.length > 0 ? error.message : '创建会话失败';

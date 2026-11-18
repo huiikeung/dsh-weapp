@@ -7,7 +7,7 @@ import { KEY_CONNECTION } from '../common/AppState';
 import { GatewayFrame } from '../protocol/GatewayDtos';
 import { decodeFrame } from '../protocol/GatewayFrameCodec';
 import { GatewayRequests } from '../protocol/GatewayRequests';
-import { GatewayRequest, GatewayRequestFactory, GatewayRequestLanePolicy, GatewayRequestLanes, LaneSubmission } from '../protocol/GatewayRequest';
+import { GatewayRequest, GatewayRequestFactory, GatewayRequestLanePolicy, GatewayRequestLanes, LaneSubmission, GatewayGoalReference } from '../protocol/GatewayRequest';
 import { matchesResponse, RequestCorrelation } from '../protocol/RequestCorrelation';
 import { PairingResult } from '../protocol/PairingPayload';
 import { RelaySession } from '../crypto/RelaySession';
@@ -237,10 +237,13 @@ export class GatewayClient {
     // 未就绪时把 tailnet 地址放最后，避免启动时等待隧道拖慢首连。
     const tailnets: string[] = publics.filter((one: string) => this.isTailnetAddress(one));
     const restPublics: string[] = publics.filter((one: string) => !this.isTailnetAddress(one));
-    if (this.tailnetReady()) {
-      return tailnets.concat(restPublics).concat(locals);
+    if (this.networkBearer !== 'cellular') {
+      // Wi‑Fi / 其他：局域网优先。公网候选里经常还留着早已失效的
+      // *.trycloudflare.com 快速隧道地址，先试它只会让启动首连白等一轮超时。
+      return locals.concat(restPublics).concat(tailnets);
     }
-    return restPublics.concat(locals).concat(tailnets);
+    // 蜂窝：局域网不可达，公网优先；内嵌隧道就绪时 tailnet 地址比公网更可靠
+    return (this.tailnetReady() ? tailnets.concat(restPublics) : restPublics.concat(tailnets)).concat(locals);
   }
 
   /** 注册网络类型监听（只注册一次） */
@@ -677,6 +680,7 @@ export class GatewayClient {
     ws.on('open', () => {
       if (this.ws !== ws) return;
       this.suppressConnecting = false;
+      AppStorage.setOrCreate<boolean>('gatewayCredentialRejected', false);
       Logger.info('gateway open ' + profile.wsUrl);
       this.pairCandidates = [];
       this.pairIndex = 0;
@@ -734,6 +738,13 @@ export class GatewayClient {
     ws.on('error', (err: BusinessError) => {
       if (this.ws !== ws) return;
       Logger.error('gateway error ' + JSON.stringify(err));
+      // 握手 401：网关拒绝了保存的设备凭据（token 失效/被轮换，或一次性配对码已消费）。
+      // 记录本身绝不删除：只标记凭据失效并提示重新配对，避免「连不上 = 记录被清除」的观感。
+      if (JSON.stringify(err).indexOf('401') >= 0) {
+        Logger.warn('gateway credential rejected (401): saved credential no longer valid');
+        AppStorage.setOrCreate<boolean>('gatewayCredentialRejected', true);
+        AppStorage.setOrCreate<string>('pairingHint', '设备凭据已失效，请重新扫码配对');
+      }
       this.failSocket(ws);
     });
 
@@ -967,7 +978,7 @@ export class GatewayClient {
   }
 
   /** 请求/响应：按 requestId 或帧 kind 关联，超时失败。 */
-  request(body: string, matchType: string, timeoutMs: number = 10000): Promise<GatewayFrame> {
+  request(body: string, matchType: string, timeoutMs: number = 10000, tolerateTimeout: boolean = false): Promise<GatewayFrame> {
     let payload: RequestPayload = {};
     try { payload = JSON.parse(body) as RequestPayload; } catch (err) { return Promise.reject(new Error('invalid request payload')); }
     const lanePolicy: GatewayRequestLanePolicy = payload.type === 'file-list' || matchType === 'sessions' ||
@@ -978,6 +989,9 @@ export class GatewayClient {
     const correlationId: string | undefined = payload.requestId ?? payload.rpcId ?? payload.transferId ?? payload.itemId ?? payload.command;
     const request: GatewayRequest = GatewayRequestFactory.make(payload.type ?? '', matchType, payload as Record<string, Object>,
       payload.sessionId, correlationId, lanePolicy, timeoutMs);
+    if (tolerateTimeout) {
+      request.timeoutIsFatal = false;
+    }
     return this.enqueueRequest(request, timeoutMs);
   }
 
@@ -1033,7 +1047,11 @@ export class GatewayClient {
       if (!this.queuedLaneRequests.has(request)) return;
       this.queuedLaneRequests.delete(request);
       entry.reject(error);
-      if (error.message.startsWith('timeout:') && this.connectionGeneration === generation && this.ws !== null) {
+      // 只有「必须回执」的请求超时才判定连接坏了。
+      // 会话控制类请求（goal/tasks/queue/context）在旧网关没有回执，
+      // 以前一律 failSocket，等于点一下目标按钮就把整条 WebSocket 打断，页面随之全部失灵。
+      if (error.message.startsWith('timeout:') && request.timeoutIsFatal !== false
+        && this.connectionGeneration === generation && this.ws !== null) {
         this.failSocket(this.ws);
         return;
       }
@@ -1241,8 +1259,12 @@ export class GatewayClient {
     }
     const expectedKind: string = type === 'speech-transcribe' ? 'speech-transcript'
       : (type === 'speech-cancel' ? 'speech-cancelled' : type);
-    return this.requestGateway(GatewayRequestFactory.make(type, expectedKind, fields, undefined, requestId,
-      GatewayRequestLanePolicy.REJECT_IF_BUSY, timeoutMs), timeoutMs);
+    // 插件请求（尤其语音）在插件未安装/未连接时可能永远不回执，
+    // 不能因为超时就把整条网关连接打断。
+    const request: GatewayRequest = GatewayRequestFactory.make(type, expectedKind, fields, undefined, requestId,
+      GatewayRequestLanePolicy.REJECT_IF_BUSY, timeoutMs);
+    request.timeoutIsFatal = false;
+    return this.requestGateway(request, timeoutMs);
   }
 
   requestPluginSettings(ns: string): Promise<GatewayFrame> {
@@ -1471,12 +1493,39 @@ export class GatewayClient {
 
   requestQueue(sessionId: string): Promise<GatewayFrame> {
     const frame: Record<string, Object> = { 'type': 'session-queue', 'sessionId': sessionId };
-    return this.request(JSON.stringify(frame), 'session-queue');
+    return this.request(JSON.stringify(frame), 'session-queue', 10000, true);
   }
 
   /** action: steer（立刻发送）/ remove（删除）。 */
   queueUpdate(sessionId: string, itemId: string, action: string): boolean {
     return this.sendRequest(GatewayRequestFactory.queueUpdate(sessionId, itemId, action));
+  }
+
+  /** 队列操作并等待回执：页面据此立刻反馈成功/失败（失败要把本地乐观删掉的行恢复回来）。 */
+  queueUpdateAndWait(sessionId: string, itemId: string, action: string): Promise<GatewayFrame> {
+    return this.requestGateway(GatewayRequestFactory.queueUpdate(sessionId, itemId, action), 10000);
+  }
+
+  /** 会话任务列表（todo_write 投影）：对齐小程序 client.requestTasks。 */
+  requestTasks(sessionId: string): Promise<GatewayFrame> {
+    const frame: Record<string, Object> = { 'type': 'tasks', 'sessionId': sessionId };
+    return this.request(JSON.stringify(frame), 'tasks', 10000, true);
+  }
+
+  /** 会话目标快照：对齐小程序 client.requestGoal。 */
+  requestGoal(sessionId: string): Promise<GatewayFrame> {
+    const frame: Record<string, Object> = { 'type': 'goal', 'sessionId': sessionId };
+    return this.request(JSON.stringify(frame), 'goal', 10000, true);
+  }
+
+  /** 就地编辑目标（compare-and-set：带当前 revision）。 */
+  goalEdit(sessionId: string, reference: GatewayGoalReference, objective: string): boolean {
+    return this.sendRequest(GatewayRequestFactory.editGoal(sessionId, reference, objective));
+  }
+
+  /** 暂停 / 继续 / 清除目标。 */
+  goalAction(type: string, sessionId: string, reference: GatewayGoalReference): boolean {
+    return this.sendRequest(GatewayRequestFactory.goalAction(type, sessionId, reference));
   }
 
   sendUserMessage(text: string, sessionId: string): boolean {
@@ -1485,12 +1534,15 @@ export class GatewayClient {
     // 乐观置为「运行中」：turns 可能要几百毫秒才回第一帧事件，
     // 这段时间里首页列表不该还显示「已完成」。
     SessionStore.get().notifySessionStarted(sessionId);
+    // 立即本地回显（对齐小程序 appendLocalUserRow）：不等网关 echo
+    SessionStore.get().appendOptimisticUser(text, 0);
     this.requestGateway(request, 60000).catch((error: Error) => Logger.warn('message request failed: ' + error.message));
     return true;
   }
 
   sendUserMessageWithAttachments(text: string, sessionId: string, files: Object[]): Promise<GatewayFrame> {
     SessionStore.get().notifySessionStarted(sessionId);
+    SessionStore.get().appendOptimisticUser(text, files.length);
     this.requestSeq += 1;
     const requestId: string = 'message-' + this.requestSeq;
     const payload: Record<string, Object> = { 'type': 'message', 'requestId': requestId, 'sessionId': sessionId,
@@ -1742,12 +1794,20 @@ export class GatewayClient {
       return false;
     }
     this.ensureNetworkMonitor();
-    // 清理历史遗留的无效入口（ws://100.x:3081），避免蜂窝切换后污染当前连接
+    // 清理历史遗留的无效入口（ws://100.x:3081），避免蜂窝切换后污染当前连接。
+    // 只删除「所有候选都已失效」的记录：旧逻辑只要命中一个 100.x 候选就整条删除，
+    // 会把还带着局域网 / *.ts.net / 公网地址的主机误删（表现为「连接记录自己消失」）。
     for (const one of CredentialStore.get().list()) {
-      const badBase: boolean = this.isTransientTailnetUrl(one.wsUrl);
-      const badExtras: boolean = one.endpoints !== undefined &&
-        one.endpoints.some((url: string) => this.isTransientTailnetUrl(url));
-      if (badBase || badExtras) {
+      let valid: number = this.isTransientTailnetUrl(one.wsUrl) ? 0 : 1;
+      const endpoints: string[] | undefined = one.endpoints;
+      if (endpoints !== undefined) {
+        for (const url of endpoints) {
+          if (!this.isTransientTailnetUrl(url)) {
+            valid += 1;
+          }
+        }
+      }
+      if (valid === 0) {
         Logger.warn('cleanup invalid saved gateway ' + one.wsUrl);
         CredentialStore.get().remove(one.id);
       }
@@ -1756,6 +1816,11 @@ export class GatewayClient {
     if (savedAfterClean === null) {
       return false;
     }
+    // 免扫码重连能不能成功，取决于这条记录里还有没有可用的 token；
+    // 打印长度便于下次直接从日志判断凭据是不是空的/被轮换过。
+    Logger.info('auto connect credential: tokenLen=' + savedAfterClean.token.length
+      + ' pairCodeLen=' + savedAfterClean.pairCode.length
+      + ' accessTokenLen=' + savedAfterClean.accessToken.length);
     const candidates: string[] = (savedAfterClean.endpoints !== undefined && savedAfterClean.endpoints.length > 0
       ? savedAfterClean.endpoints.slice() : [savedAfterClean.wsUrl])
       .filter((url: string) => !this.isTransientTailnetUrl(url));

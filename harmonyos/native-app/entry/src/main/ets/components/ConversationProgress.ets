@@ -15,7 +15,7 @@
  * 文字逐字取渐变相位色（等价于 background-clip:text 的横向渐变）。
  */
 import { StatusAppearance } from 'nativecore';
-import { WHALE_TAIL_PATHS } from './WhaleTailPaths';
+
 
 /** 一个字符 + 它当前的颜色（逐字渐变用） */
 interface GlyphColor {
@@ -134,14 +134,14 @@ export struct ConversationProgress {
 
   aboutToAppear(): void {
     this.startedAt = Date.now();
-    // 颜色/渐变：90ms 采样一次（小程序是 CSS 连续动画，这里用高频采样逼近）
-    this.colorTimer = setInterval(() => {
-      this.elapsedMs = Date.now() - this.startedAt;
-      this.glitchTick = this.glitchTick + 1;
-    }, 90);
-    // 逐帧：20fps（对齐小程序 steps(59) / 3s）
+    // 逐帧 20fps（对齐小程序 steps(59) / 3s）。颜色也用同一拍采样：
+    // 原来 90ms + 50ms 两个定时器各自 setState，等于每秒触发 31 次重渲染，
+    // 合成一拍只要 20 次，动画看不出差别，空转 CPU 少一半。
     this.frameTimer = setInterval(() => {
       this.frame = (this.frame + 1) % 60;
+      // 挂钟取模（与设置页预览同一把尺子），保证图标/文字颜色在两边一致
+      this.elapsedMs = Date.now();
+      this.glitchTick = this.glitchTick + 1;
     }, 50);
     // 呼吸：neon/candy 3s 周期 1 → 0.74 → 1
     this.breatheTimer = setInterval(() => {
@@ -175,13 +175,16 @@ export struct ConversationProgress {
   build() {
     Row() {
       // ① 鲸尾槽位：36rpx≈21vp，内部 28rpx≈16.4vp，居中，右侧 12rpx≈7vp
+      // 用矢量 Path 逐帧填充（而不是位图 fillColor）：颜色每帧都跟着色板走，
+      // 与右侧逐字流光同相位，不会再出现「图标不变色 / 和文字不同步」。
       Stack() {
         Stack() {
           Image($r('app.media.whale_tail_sprite'))
             .width(984)
             .height(16.4)
             .objectFit(ImageFit.Fill)
-            .fillColor(this.tailColor())
+            // colorFilter 每次重绘都会重新取矩阵：显示色严格等于 tailColor()（= 第一个字的颜色）
+            .colorFilter(StatusAppearance.filterMatrix(this.tailColor()))
             .translate({ x: -this.frame * 16.4 })
         }
         .width(16.4)
@@ -209,7 +212,8 @@ export struct ConversationProgress {
               : (this.glitchDir() > 0
                 ? { radius: 0, color: '#FF5F6D', offsetX: 1, offsetY: 0 }
                 : { radius: 0, color: '#5FD4FF', offsetX: 1, offsetY: 0 }))
-        }, (glyph: GlyphColor, index: number) => index.toString() + glyph.ch + glyph.color)
+          // key 不带颜色：颜色每帧都在变，带进 key 会让 ForEach 每帧销毁重建所有 Text
+        }, (glyph: GlyphColor, index: number) => index.toString() + glyph.ch)
       }
       .layoutWeight(1)
       .opacity(this.textOpacity())

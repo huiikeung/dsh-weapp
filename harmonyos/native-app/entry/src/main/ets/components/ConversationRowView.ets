@@ -28,7 +28,6 @@ const KIND_SYSTEM: string = 'SYSTEM';
 export struct ConversationRowView {
   @ObjectLink entry: ConversationFeedEntryModel;
   /** 运行中四格加载动画相位 */
-  @State private loaderPhase: number = 0;
 
   /**
    * rpx → vp：小程序 750rpx 等于屏宽，这里按当前屏宽实时换算。
@@ -43,9 +42,6 @@ export struct ConversationRowView {
       return value * 0.53;
     }
   }
-  /** 已展开的步骤 id（每一步都能点开看详情） */
-  @State private expandedSteps: string[] = [];
-  private loaderTimer: number = -1;
   /** 运行中过程体：限高滚动条，跟随最新一步 */
   private processScroller: Scroller = new Scroller();
   @Prop isDark: boolean = false;
@@ -57,12 +53,18 @@ export struct ConversationRowView {
   onToggle: (id: string) => void = () => {};
   onCopy: (text: string) => void = () => {};
   onShowDetail: (title: string, body: string) => void = () => {};
+  /** 已展开的步骤行 id（会话页统一持有；用数组而不是 Map 传参——Map 传参会崩） */
+  @Prop stepOpenIds: string[] = [];
+  onToggleStep: (id: string) => void = () => {};
 
-  aboutToAppear(): void {
-    this.loaderTimer = setInterval(() => {
-      this.loaderPhase = (this.loaderPhase + 1) % 4;
-    }, 300);
+  /** 步骤是否展开 */
+  private stepOpen(id: string): boolean {
+    return this.stepOpenIds.indexOf(id) >= 0;
   }
+
+  // 注意：这里原本挂了一个 300ms 的 setInterval，每行都在跑，但它的输出（cellOpacity）
+  // 已经没有任何地方使用。结果是每个可见行每秒被无意义地重渲染 3 次，页面空转占满 CPU。
+  // 运行中图标的相位由 ProcLoaderView 自己的定时器驱动，这里不需要再定时。
 
   /** 运行中每来一步都贴到底部（对齐小程序 process body 跟随最新步骤） */
   private followTail(): void {
@@ -78,10 +80,6 @@ export struct ConversationRowView {
   }
 
   aboutToDisappear(): void {
-    if (this.loaderTimer >= 0) {
-      clearInterval(this.loaderTimer);
-      this.loaderTimer = -1;
-    }
   }
 
   private primaryText(): string {
@@ -187,10 +185,6 @@ export struct ConversationRowView {
   @Builder
   procLoader() {
     ProcLoaderView({ style: this.procIconStyle, isDark: this.isDark })
-  }
-
-  private cellOpacity(index: number): number {
-    return this.loaderPhase === index ? 1 : 0.22;
   }
 
   /**
@@ -458,20 +452,49 @@ export struct ConversationRowView {
     return this.procIcon(ToolActivity.kind(item.title));
   }
 
-  /** 单个步骤的状态文案（对齐小程序 tool.statusText）。 */
+  /** 步骤状态（对齐小程序 tool.statusText：失败 / 运行中 / 未返回结果，完成后不显示） */
   private stepStatus(item: ConversationItem): string {
-    const kind: string = item.kind as string;
-    if (kind === 'TOOL_RESULT') {
-      if (item.isError === true) {
-        return '失败';
-      }
-      // 运行中还谈不上「完成」：进行中不显示完成态
-      return this.entry.running ? '' : '完成';
+    const status: string = item.status === undefined ? '' : item.status;
+    if (item.isError === true || status === 'error') {
+      return '失败';
+    }
+    if (status === 'running') {
+      return this.entry.running ? '运行中' : '未返回结果';
     }
     return '';
   }
 
-  /** 步骤详情正文（点开后显示的完整内容）。 */
+  /** 步骤是否可以点开（有参数、结果或详情） */
+  private expandableStep(item: ConversationItem): boolean {
+    const kind: string = item.kind as string;
+    if (kind === 'STATUS') {
+      return false;
+    }
+    if (kind === 'REASONING' || kind === 'CONTEXT') {
+      return this.stepDetail(item).length > 0;
+    }
+    return this.argsText(item).length > 0 || this.resultText(item).length > 0 || this.stepDetail(item).length > 0;
+  }
+
+  /** 调用参数原文（对齐小程序 tool.argumentsText） */
+  private argsText(item: ConversationItem): string {
+    const explicit: string = item.argumentsText === undefined ? '' : item.argumentsText;
+    if (explicit.length > 0) {
+      return explicit;
+    }
+    const kind: string = item.kind as string;
+    if (kind === 'TOOL' || kind === 'JSON_TOOL') {
+      return item.text;
+    }
+    return '';
+  }
+
+  /** 工具结果原文（对齐小程序 tool.resultText） */
+  private resultText(item: ConversationItem): string {
+    return item.resultText === undefined ? '' : item.resultText;
+  }
+
+  /** 步骤详情正文（思考/上下文用；工具行改由参数与结果两段展示）。 */
   private stepDetail(item: ConversationItem): string {
     const text: string = item.text === undefined ? '' : item.text.trim();
     if (text.length > 0) {
@@ -480,7 +503,7 @@ export struct ConversationRowView {
     return ConversationFeed.toolFace(item.title, item.text).detail;
   }
 
-  /** 步骤展开后的内容形态：0=普通文本 1=命令卡 2=思考阅读卡 */
+  /** 步骤展开后的内容形态：0=普通工具详情 1=命令卡 2=思考阅读卡 */
   private stepShape(item: ConversationItem): number {
     const kind: string = item.kind as string;
     if (kind === 'REASONING') {
@@ -490,6 +513,15 @@ export struct ConversationRowView {
       return ConversationFeed.toolFace(item.title, item.text).isCommand ? 1 : 0;
     }
     return 0;
+  }
+
+  /** 子步骤嵌套深度（对齐 .tool-node 每级 28rpx 缩进，最多 3 级） */
+  private depthOf(item: ConversationItem): number {
+    const depth: number = item.depth === undefined ? 0 : item.depth;
+    if (depth <= 0) {
+      return 0;
+    }
+    return depth > 3 ? 3 : depth;
   }
 
   /** 思考阅读卡高度：clamp(51, 210, 行数*25.7)（对齐小程序 readingHeight） */
@@ -521,173 +553,243 @@ export struct ConversationRowView {
   }
 
   /**
-   * 思考卡片（运行中直接展示、不显示上面的步骤标题行）。
-   * 结束后该步骤只保留折叠标题，不再渲染卡片。
+   * 思考阅读卡（对齐小程序 .reasoning-card）：标题行 + 定高滚动正文 + 「完整内容 / 收起阅读」底栏。
+   * 运行中直接展开（policy 把思考默认打开），收起后回到折叠标题行。
    */
   @Builder
-  thinkingCard(item: ConversationItem) {
+  reasoningCard(item: ConversationItem) {
     Column() {
       Row() {
         Text('思考')
-          .fontSize(12)
+          .fontSize(11)
           .fontWeight(FontWeight.Normal)
           .fontColor(this.secondaryText())
         Blank()
       }
       .width('100%')
-      .margin({ bottom: 10.57 })
+      .margin({ bottom: this.rpx(18) })
 
       Scroll() {
         Text(this.stepDetail(item))
-          .fontSize(13.2)
-          .lineHeight(24)
+          .fontSize(13)
+          .lineHeight(this.rpx(48))
           .fontColor(this.secondaryText())
           .width('100%')
-          .padding({ right: 5.87 })
+          .padding({ right: this.rpx(10) })
           .copyOption(CopyOptions.LocalDevice)
       }
       .height(this.readingHeight(this.stepDetail(item)))
       .scrollBar(BarState.Auto)
       .width('100%')
+      // 思考卡是「列表里的定高滚动区」：默认 SELF_FIRST 会把竖向滑动全吃掉，
+      // 手指一落到卡片上整页就滑不动。改成父列表优先，滑到边了才轮到卡片内部。
+      .nestedScroll({
+        scrollForward: NestedScrollMode.PARENT_FIRST,
+        scrollBackward: NestedScrollMode.PARENT_FIRST
+      })
+
+      Row() {
+        Text('完整内容')
+          .fontSize(11)
+          .fontColor(this.secondaryText())
+        Blank()
+        Row({ space: this.rpx(8) }) {
+          Text('收起阅读')
+            .fontSize(11)
+            .fontColor(this.secondaryText())
+          Image($r('app.media.chev_right_gray'))
+            .width(this.rpx(20))
+            .height(this.rpx(20))
+            .objectFit(ImageFit.Contain)
+            .rotate({ angle: -90 })
+            .opacity(0.7)
+        }
+        .constraintSize({ minHeight: this.rpx(52) })
+        .padding({ left: this.rpx(16) })
+        .alignItems(VerticalAlign.Center)
+        .onClick(() => {
+          this.onToggleStep(item.id);
+        })
+      }
+      .width('100%')
+      .margin({ top: this.rpx(12) })
+      .constraintSize({ minHeight: this.rpx(52) })
+      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
-    .padding({ left: 16.43, right: 16.43, top: 11.73, bottom: 11.73 })
-    .borderRadius(11.73)
+    .padding({ left: this.rpx(28), right: this.rpx(28), top: this.rpx(20), bottom: this.rpx(12) })
+    .borderRadius(this.rpx(20))
     .border({ width: 0.5, color: this.ruleColor() })
     .backgroundColor(this.readingBgColor())
-    .margin({ top: 5.87, bottom: 7.04 })
+    .margin({ top: this.rpx(14), bottom: this.rpx(18) })
     .clip(true)
   }
 
+  /** 命令卡（对齐小程序 .command-card：状态点 + cwd + 复制 + $ 命令行 + 输出区） */
   @Builder
-  expandedBody(item: ConversationItem) {
-    if (this.stepShape(item) === 2) {
-      // 已结束的思考：点开后就是纯文本，不再套阅读卡外壳；内容为空则不渲染
-      if (this.stepDetail(item).length === 0) {
-        Column()
-      } else {
-      Column() {
-        Text(this.stepDetail(item))
-          .fontSize(13.2)
-          .lineHeight(24)
+  commandCard(item: ConversationItem) {
+    Column() {
+      Row({ space: this.rpx(14) }) {
+        Circle({ width: this.rpx(10), height: this.rpx(10) })
+          .fill(item.isError === true ? '#DC555C' : (this.stepStatus(item) === '运行中' ? '#D59A31' : '#28B970'))
+        Text(ConversationFeed.toolFace(item.title, item.text).cwdLabel.length > 0
+          ? ConversationFeed.toolFace(item.title, item.text).cwdLabel
+          : '命令')
+          .fontSize(10)
+          .fontColor(this.tertiaryText())
+          .fontFamily('monospace')
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Blank()
+        Text('复制')
+          .fontSize(12)
           .fontColor(this.secondaryText())
-          .width('100%')
-          .copyOption(CopyOptions.LocalDevice)
+          .padding({ left: this.rpx(14), top: this.rpx(4), bottom: this.rpx(4) })
+          .onClick(() => {
+            this.onCopy(ConversationFeed.toolFace(item.title, item.text).commandText);
+          })
       }
       .width('100%')
-      .alignItems(HorizontalAlign.Start)
-      .padding({ left: 18.77, top: 4.69, bottom: 7.04 })
-      }
-    } else if (this.stepShape(item) === 1) {
-      // 命令卡（对齐小程序 .command-card / .command-card-head / .command-code-lines / .command-output）
-      Column() {
-        Row({ space: 8.21 }) {
-          Circle({ width: 5.87, height: 5.87 })
-            .fill(item.isError === true ? '#DC555C' : '#28B970')
-          Text(ConversationFeed.toolFace(item.title, item.text).cwdLabel.length > 0
-            ? ConversationFeed.toolFace(item.title, item.text).cwdLabel
-            : '命令')
-            .fontSize(11.73)
+      .padding({ top: this.rpx(18), left: this.rpx(20), right: this.rpx(20), bottom: this.rpx(8) })
+      .alignItems(VerticalAlign.Center)
+
+      if (ConversationFeed.toolFace(item.title, item.text).commandText.length > 0) {
+        Row({ space: this.rpx(14) }) {
+          Text('$')
+            .fontSize(11)
+            .lineHeight(this.rpx(34))
             .fontColor(this.tertiaryText())
             .fontFamily('monospace')
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Blank()
-          Text('复制')
-            .fontSize(14.08)
-            .fontColor(this.secondaryText())
-            .padding({ left: 8.21, top: 2.35, bottom: 2.35 })
-            .onClick(() => {
-              this.onCopy(ConversationFeed.toolFace(item.title, item.text).commandText);
-            })
-        }
-        .width('100%')
-        .padding({ top: 10.56, left: 11.73, right: 11.73, bottom: 4.69 })
-        .alignItems(VerticalAlign.Center)
-
-        if (ConversationFeed.toolFace(item.title, item.text).commandText.length > 0) {
-          Row({ space: 8.21 }) {
-            Text('$')
-              .fontSize(12.91)
-              .lineHeight(20.66)
-              .fontColor(this.tertiaryText())
-              .fontFamily('monospace')
-            Text(ConversationFeed.toolFace(item.title, item.text).commandText)
-              .fontSize(12.91)
-              .lineHeight(20.66)
-              .fontColor(this.primaryText())
-              .fontFamily('monospace')
-              .layoutWeight(1)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .copyOption(CopyOptions.LocalDevice)
-          }
-          .width('100%')
-          .padding({ top: 2.35, left: 11.73, right: 11.73, bottom: 11.73 })
-          .alignItems(VerticalAlign.Center)
-        } else {
-          Text(item.isError === true ? '未记录命令内容' : '正在接收命令…')
-            .fontSize(12.91)
-            .fontColor(this.tertiaryText())
-            .width('100%')
-            .padding({ top: 9.39, left: 14.08, right: 14.08, bottom: 9.39 })
-        }
-
-        if (this.stepDetail(item).length > 0) {
-          Scroll() {
-            Text(this.stepDetail(item))
-              .fontSize(12.91)
-              .lineHeight(20.66)
-              .fontColor(item.isError === true ? '#D4545B' : this.primaryText())
-              .fontFamily('monospace')
-              .width('100%')
-              .copyOption(CopyOptions.LocalDevice)
-          }
-          .constraintSize({ maxHeight: 258.13 })
-          .scrollBar(BarState.Auto)
-          .width('100%')
-          .padding({ top: 11.73, bottom: 11.73, left: 25.81, right: 25.81 })
-          .border({ width: { top: 0.5 }, color: this.ruleColor() })
-        } else {
-          Text('无输出')
-            .fontSize(12.91)
-            .fontColor(this.tertiaryText())
-            .width('100%')
-            .padding({ top: 9.39, left: 14.08, right: 14.08, bottom: 9.39 })
-            .border({ width: { top: 0.5 }, color: this.ruleColor() })
-        }
-      }
-      .width('100%')
-      .borderRadius(12.91)
-      .border({ width: 0.5, color: this.ruleColor() })
-      .backgroundColor(this.fillColor())
-      .margin({ bottom: 9.39 })
-      .clip(true)
-    } else {
-      // 普通工具详情（对齐小程序 .tool-detail：左缩进 44rpx；.tool-detail-section / .tool-detail-code）
-      Column() {
-        if (this.stepDetail(item).length > 0) {
-          Text('结果')
-            .fontSize(14.08)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(item.isError === true ? '#E5484D' : this.secondaryText())
-            .width('100%')
-            .margin({ top: 5.87, bottom: 5.87 })
-          Text(this.stepDetail(item))
-            .fontSize(14.08)
-            .lineHeight(21.12)
+          Text(ConversationFeed.toolFace(item.title, item.text).commandText)
+            .fontSize(11)
+            .lineHeight(this.rpx(34))
             .fontColor(this.primaryText())
             .fontFamily('monospace')
-            .width('100%')
-            .padding(11.73)
-            .borderRadius(11.73)
-            .backgroundColor(this.fill2Color())
+            .layoutWeight(1)
             .copyOption(CopyOptions.LocalDevice)
         }
+        .width('100%')
+        .padding({ top: this.rpx(4), left: this.rpx(20), right: this.rpx(20), bottom: this.rpx(20) })
+        .alignItems(VerticalAlign.Top)
+      } else {
+        Text(item.isError === true ? '未记录命令内容' : '正在接收命令…')
+          .fontSize(11)
+          .fontColor(this.tertiaryText())
+          .width('100%')
+          .padding({ top: this.rpx(16), left: this.rpx(24), right: this.rpx(24), bottom: this.rpx(16) })
       }
-      .width('100%')
-      .alignItems(HorizontalAlign.Start)
-      .padding({ left: 18.77, bottom: 7.04 })
+
+      if (this.resultText(item).length > 0) {
+        Scroll() {
+          Text(this.resultText(item))
+            .fontSize(11)
+            .lineHeight(this.rpx(34))
+            .fontColor(item.isError === true ? '#D4545B' : this.primaryText())
+            .fontFamily('monospace')
+            .width('100%')
+            .copyOption(CopyOptions.LocalDevice)
+        }
+        .constraintSize({ maxHeight: this.rpx(440) })
+        .scrollBar(BarState.Auto)
+        .width('100%')
+        // 同思考卡：工具结果再长也不能把整页的滑动锁死在这里
+        .nestedScroll({
+          scrollForward: NestedScrollMode.PARENT_FIRST,
+          scrollBackward: NestedScrollMode.PARENT_FIRST
+        })
+        .padding({ top: this.rpx(20), bottom: this.rpx(20), left: this.rpx(44), right: this.rpx(44) })
+        .border({ width: { top: 0.5 }, color: this.ruleColor() })
+      } else if (this.stepStatus(item).length === 0) {
+        Text('无输出')
+          .fontSize(11)
+          .fontColor(this.tertiaryText())
+          .width('100%')
+          .padding({ top: this.rpx(16), left: this.rpx(24), right: this.rpx(24), bottom: this.rpx(16) })
+          .border({ width: { top: 0.5 }, color: this.ruleColor() })
+      }
+    }
+    .width('100%')
+    .borderRadius(this.rpx(22))
+    .border({ width: 0.5, color: this.ruleColor() })
+    .backgroundColor(this.fillColor())
+    .margin({ bottom: this.rpx(16) })
+    .clip(true)
+  }
+
+  /** 普通工具详情（对齐小程序 .tool-detail：左缩进 44rpx，「调用参数」+「结果」两段代码块） */
+  @Builder
+  toolDetail(item: ConversationItem) {
+    Column() {
+      if (this.argsText(item).length > 0) {
+        Text('调用参数')
+          .fontSize(12)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.secondaryText())
+          .width('100%')
+          .margin({ top: this.rpx(10), bottom: this.rpx(10) })
+        Text(this.argsText(item))
+          .fontSize(11)
+          .lineHeight(this.rpx(34))
+          .fontColor(this.primaryText())
+          .fontFamily('monospace')
+          .width('100%')
+          .padding(this.rpx(20))
+          .borderRadius(this.rpx(20))
+          .backgroundColor(this.fill2Color())
+          .copyOption(CopyOptions.LocalDevice)
+      }
+      if (this.resultText(item).length > 0) {
+        Text(item.isError === true ? '错误' : '结果')
+          .fontSize(12)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(item.isError === true ? '#E5484D' : this.secondaryText())
+          .width('100%')
+          .margin({ top: this.rpx(10), bottom: this.rpx(10) })
+        Text(this.resultText(item))
+          .fontSize(11)
+          .lineHeight(this.rpx(34))
+          .fontColor(this.primaryText())
+          .fontFamily('monospace')
+          .width('100%')
+          .padding(this.rpx(20))
+          .borderRadius(this.rpx(20))
+          .backgroundColor(this.fill2Color())
+          .copyOption(CopyOptions.LocalDevice)
+      }
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ left: this.rpx(44), bottom: this.rpx(12) })
+  }
+
+  /** 上下文详情（对齐小程序 .event-body：左侧 2rpx 竖线 + 缩进正文） */
+  @Builder
+  contextDetail(item: ConversationItem) {
+    Column() {
+      Text(this.stepDetail(item))
+        .fontSize(this.contentSize())
+        .lineHeight(this.contentSize() * 1.65)
+        .fontColor(this.secondaryText())
+        .width('100%')
+        .copyOption(CopyOptions.LocalDevice)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .margin({ left: this.rpx(15) })
+    .padding({ left: this.rpx(27), top: this.rpx(10), bottom: this.rpx(6) })
+    .border({ width: { left: 2 }, color: 'rgba(142,142,147,0.24)' })
+  }
+
+  @Builder
+  stepDetailBody(item: ConversationItem) {
+    if (this.stepShape(item) === 2) {
+      this.reasoningCard(item)
+    } else if (this.stepShape(item) === 1) {
+      this.commandCard(item)
+    } else if ((item.kind as string) === 'CONTEXT') {
+      this.contextDetail(item)
+    } else {
+      this.toolDetail(item)
     }
   }
 
@@ -696,18 +798,199 @@ export struct ConversationRowView {
    * 投影层对同一步骤是原地替换（id 不变、text/status 变），
    * 只用 item.id 会让 ForEach 复用旧节点、运行中内容不刷新。
    */
-  /** 运行中的思考步骤：直接显示卡片（结束后只留折叠标题）；内容为空时回落到步骤行，避免空框 */
-  private showThinkingCard(item: ConversationItem): boolean {
-    if (!this.entry.running || (item.kind as string) !== 'REASONING') {
-      return false;
-    }
-    return this.stepDetail(item).length > 0;
+  private stepKey(item: ConversationItem): string {
+    const open: boolean = this.stepOpen(item.id);
+    return item.id + '#' + item.text.length.toString() + '#' + (item.isError === true ? '1' : '0')
+      + '#' + (open ? '1' : '0');
   }
 
-  private stepKey(item: ConversationItem): string {
-    const expanded: boolean = this.expandedSteps.indexOf(item.id) >= 0;
-    return item.id + '#' + item.text.length.toString() + '#' + (item.isError === true ? '1' : '0')
-      + '#' + (expanded ? '1' : '0');
+  /**
+   * 图标槽（对齐小程序 .command-icon-slot / .disclosed）：
+   * 折叠时显示工具图标，展开时图标淡出、同一位置叠出向上箭头。
+   */
+  @Builder
+  stepIconSlot(item: ConversationItem) {
+    Stack({ alignContent: Alignment.Center }) {
+      Image(this.stepIcon(item))
+        .width(this.rpx(32))
+        .height(this.rpx(32))
+        .objectFit(ImageFit.Contain)
+        .opacity(this.stepOpen(item.id) && this.expandableStep(item) ? 0 : 1)
+      if (this.expandableStep(item)) {
+        Image($r('app.media.chev_right_gray'))
+          .width(this.rpx(24))
+          .height(this.rpx(24))
+          .objectFit(ImageFit.Contain)
+          .rotate({ angle: this.stepOpen(item.id) ? -90 : 90 })
+          .opacity(this.stepOpen(item.id) ? 0.65 : 0)
+      }
+    }
+    .width(this.rpx(32))
+    .height(this.rpx(32))
+    .flexShrink(0)
+  }
+
+  /** 步骤行（对齐 .disclosure-head.tool：gap 10rpx、padding 8rpx 0、min-height 56rpx） */
+  @Builder
+  stepHead(item: ConversationItem) {
+    Row({ space: this.rpx(10) }) {
+      this.stepIconSlot(item)
+      if ((item.kind as string) === 'REASONING') {
+        Text('思考')
+          .fontSize(13.2)
+          .fontColor(this.secondaryText())
+          .flexShrink(0)
+          .constraintSize({ maxWidth: '46%' })
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (this.stepDetail(item).length > 0) {
+          Text(ConversationFeed.preview(this.stepDetail(item), 72))
+            .fontSize(13.2)
+            .fontColor(this.secondaryText())
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+      } else if ((item.kind as string) === 'CONTEXT') {
+        Text(item.title.length > 0 ? item.title : '上下文')
+          .fontSize(13.2)
+          .fontColor(this.secondaryText())
+          .flexShrink(0)
+          .constraintSize({ maxWidth: '46%' })
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (this.stepDetail(item).length > 0) {
+          Text(ConversationFeed.preview(this.stepDetail(item), 72))
+            .fontSize(13.2)
+            .fontColor(this.secondaryText())
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+      } else if ((item.kind as string) === 'STATUS') {
+        Text(ConversationFeed.collapse(item.title + ' ' + item.text))
+          .fontSize(13.2)
+          .fontColor(item.isError === true ? DANGER : this.secondaryText())
+          .layoutWeight(1)
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      } else {
+        Text(ConversationFeed.toolFace(item.title, item.text).label)
+          .fontSize(13.2)
+          .fontWeight(FontWeight.Normal)
+          .fontColor(this.secondaryText())
+          .flexShrink(0)
+          .constraintSize({ maxWidth: '48%' })
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (this.stepStatus(item).length > 0) {
+          Text(this.stepStatus(item))
+            .fontSize(10.6)
+            .fontWeight(item.isError === true ? FontWeight.Bold : FontWeight.Normal)
+            .fontColor(item.isError === true ? '#E5533C' : this.tertiaryText())
+            .flexShrink(0)
+            .maxLines(1)
+        }
+        if (ConversationFeed.toolFace(item.title, item.text).detail.length > 0) {
+          Text('·')
+            .fontSize(12.6)
+            .fontColor(this.tertiaryText())
+            .flexShrink(0)
+          Text(ConversationFeed.toolFace(item.title, item.text).detail)
+            .fontSize(11.5)
+            .lineHeight(this.rpx(36))
+            .fontColor(this.tertiaryText())
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+      }
+    }
+    .width('100%')
+    .padding({ top: this.rpx(8), bottom: this.rpx(8) })
+    .constraintSize({ minHeight: this.rpx(56) })
+    .alignItems(VerticalAlign.Center)
+  }
+
+  /** 一级步骤节点：头行 +（展开时）详情 */
+  @Builder
+  stepNodeBase(item: ConversationItem) {
+    Column() {
+      Column() {
+        this.stepHead(item)
+      }
+      .width('100%')
+      .onClick(() => {
+        if (this.expandableStep(item)) {
+          this.onToggleStep(item.id);
+        }
+      })
+      if (this.stepOpen(item.id)) {
+        this.stepDetailBody(item)
+      }
+    }
+    .width('100%')
+  }
+
+  /** 带竖线的步骤块：竖线画在块首，内容再右移 14rpx */
+  @Builder
+  stepRailed(item: ConversationItem) {
+    Column() {
+      this.stepNodeBase(item)
+    }
+    .width('100%')
+    .border({ width: { left: 0.5 }, color: this.ruleColor() })
+    .padding({ left: this.rpx(14) })
+  }
+
+  /**
+   * 子步骤（run_code/PTC 派生）：竖线对齐上级步骤文字的左边——
+   * 行首图标槽 32rpx + 图标与文字间距 10rpx = 42rpx，子行再往右 14rpx 起排；
+   * 更深的层级按 28rpx 一档继续外扩，每档一条竖线（对齐 .tool-node / .tool-branch-track）。
+   */
+  @Builder
+  stepNode(item: ConversationItem) {
+    if (this.depthOf(item) >= 3) {
+      Column() {
+        this.stepNode2(item)
+      }
+      .width('100%')
+      .padding({ left: this.rpx(42) })
+    } else if (this.depthOf(item) === 2) {
+      Column() {
+        this.stepNode1(item)
+      }
+      .width('100%')
+      .padding({ left: this.rpx(42) })
+    } else if (this.depthOf(item) === 1) {
+      Column() {
+        this.stepRailed(item)
+      }
+      .width('100%')
+      .padding({ left: this.rpx(42) })
+    } else {
+      this.stepNodeBase(item)
+    }
+  }
+
+  @Builder
+  stepNode1(item: ConversationItem) {
+    Column() {
+      this.stepRailed(item)
+    }
+    .width('100%')
+    .padding({ left: this.rpx(28) })
+    .border({ width: { left: 0.5 }, color: this.ruleColor() })
+  }
+
+  @Builder
+  stepNode2(item: ConversationItem) {
+    Column() {
+      this.stepNode1(item)
+    }
+    .width('100%')
+    .padding({ left: this.rpx(28) })
+    .border({ width: { left: 0.5 }, color: this.ruleColor() })
   }
 
   @Builder
@@ -720,131 +1003,13 @@ export struct ConversationRowView {
             if (item.text.trim().length > 0) {
               this.narrationBlock(item)
             }
-          } else if (this.showThinkingCard(item)) {
-            // 运行中的思考：直接铺卡片，不再显示上面的「思考 + 预览」标题行
-            this.thinkingCard(item)
           } else if ((item.kind as string) === 'TOOL_RESULT') {
-            // 工具结果行整行不显示（对齐小程序：结果并入工具行，不单独占一行）
+            // 结果已并入工具行（对齐小程序：结果不单独占一行）
+          } else if ((item.kind as string) === 'REASONING' && (this.stepOpen(item.id) || this.entry.running)) {
+            // 展开的思考：直接铺阅读卡（对齐小程序 reasoning 展开态）
+            this.reasoningCard(item)
           } else {
-          // 步骤行（对齐小程序 .disclosure-head.tool）：gap 10rpx、padding 8rpx 0、min-height 56rpx
-          Row({ space: 5.87 }) {
-            Image(this.stepIcon(item))
-              .width(this.rpx(32))
-              .height(this.rpx(32))
-              .objectFit(ImageFit.Contain)
-              .flexShrink(0)
-            if ((item.kind as string) === 'ASSISTANT') {
-              this.narrationBlock(item)
-            } else if (item.kind === 'REASONING') {
-              // .event-title 26rpx / --text-2，max-width 46%
-              Text('思考')
-                .fontSize(13.2)
-                .fontColor(this.secondaryText())
-                .flexShrink(0)
-                .constraintSize({ maxWidth: '46%' })
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(ConversationFeed.preview(item.text, 72))
-                .fontSize(13.2)
-                .fontColor(this.secondaryText())
-                .layoutWeight(1)
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-            } else if (item.kind === 'CONTEXT') {
-              Text(item.title.length > 0 ? item.title : '上下文')
-                .fontSize(13.2)
-                .fontColor(this.secondaryText())
-                .flexShrink(0)
-                .constraintSize({ maxWidth: '46%' })
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(ConversationFeed.preview(item.text, 72))
-                .fontSize(13.2)
-                .fontColor(this.secondaryText())
-                .layoutWeight(1)
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-            } else if (item.kind === 'STATUS') {
-              Text(ConversationFeed.collapse(item.title + ' ' + item.text))
-                .fontSize(13.2)
-                .fontColor(item.isError === true ? DANGER : this.secondaryText())
-                .layoutWeight(1)
-                .maxLines(2)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-            } else if (item.kind === 'TOOL_RESULT') {
-              // .tool-status 20rpx / --text-3；.tool-status.err #E5533C 600
-              Text(this.stepStatus(item))
-                .fontSize(10.6)
-                .fontWeight(item.isError === true ? FontWeight.Bold : FontWeight.Normal)
-                .fontColor(item.isError === true ? '#E5533C' : this.tertiaryText())
-                .flexShrink(0)
-                .maxLines(1)
-              Text(ConversationFeed.preview(item.text, 72))
-                .fontSize(12)
-                .fontColor(this.tertiaryText())
-                .layoutWeight(1)
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-            } else {
-              // .tool-act 26rpx 400 / --text-2，max-width 48%
-              Text(ConversationFeed.toolFace(item.title, item.text).label)
-                .fontSize(13.2)
-                .fontWeight(FontWeight.Normal)
-                .fontColor(this.secondaryText())
-                .flexShrink(0)
-                .constraintSize({ maxWidth: '48%' })
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              if (this.stepStatus(item).length > 0) {
-                Text(this.stepStatus(item))
-                  .fontSize(10.6)
-                  .fontWeight(item.isError === true ? FontWeight.Bold : FontWeight.Normal)
-                  .fontColor(item.isError === true ? '#E5533C' : this.tertiaryText())
-                  .flexShrink(0)
-                  .maxLines(1)
-              }
-              if (ConversationFeed.toolFace(item.title, item.text).detail.length > 0) {
-                // .tool-separator 24rpx / --text-3
-                Text('·')
-                  .fontSize(12.6)
-                  .fontColor(this.tertiaryText())
-                  .flexShrink(0)
-                // .tool-note 23rpx / --text-3
-                Text(ConversationFeed.toolFace(item.title, item.text).detail)
-                  .fontSize(12)
-                  .lineHeight(18.6)
-                  .fontColor(this.tertiaryText())
-                  .layoutWeight(1)
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-              }
-            }
-            // .command-chevron 24rpx：折叠 90°、展开 -90°，opacity 0 → .65
-            Image($r('app.media.chev_right_gray'))
-              .width(this.rpx(24))
-              .height(this.rpx(24))
-              .objectFit(ImageFit.Contain)
-              .opacity(this.expandedSteps.indexOf(item.id) >= 0 ? 0.65 : 0)
-              .rotate({ angle: this.expandedSteps.indexOf(item.id) >= 0 ? -90 : 90 })
-              .flexShrink(0)
-          }
-          .width('100%')
-          // 对齐小程序 .disclosure-head.tool：只有竖向 padding，没有左缩进
-          .padding({ top: 4.69, bottom: 4.69 })
-          .constraintSize({ minHeight: 32.86 })
-          .alignItems(VerticalAlign.Center)
-          .onClick(() => {
-            const at: number = this.expandedSteps.indexOf(item.id);
-            if (at >= 0) {
-              this.expandedSteps.splice(at, 1);
-            } else {
-              this.expandedSteps.push(item.id);
-            }
-          })
-
-          if (this.expandedSteps.indexOf(item.id) >= 0) {
-            this.expandedBody(item)
-          }
+            this.stepNode(item)
           }
         }
         .width('100%')
@@ -852,7 +1017,7 @@ export struct ConversationRowView {
     }
     .width('100%')
     // 对齐小程序 .process-body { padding: 2rpx 0 6rpx }
-    .padding({ top: 1.17, bottom: 3.52 })
+    .padding({ top: this.rpx(2), bottom: this.rpx(6) })
   }
 
   // ==================== PROCESS ====================
@@ -875,6 +1040,13 @@ export struct ConversationRowView {
       .constraintSize({ maxHeight: 400 })
       .scrollBar(BarState.Off)
       .width('100%')
+      // 限高过程体（min(400px,50vh)）：对齐小程序 overflow-y:auto 的行为——
+      // 手指落在框内时先滚框内内容，滚到边界再接力滚整页（SELF_FIRST 的链式滚动）。
+      // 之前用 PARENT_FIRST 是「父列表先滚」，结果框内永远滚不动（已完成的过程点开也滑不了）。
+      .nestedScroll({
+        scrollForward: NestedScrollMode.SELF_FIRST,
+        scrollBackward: NestedScrollMode.SELF_FIRST
+      })
       .onAreaChange(() => {
         this.followTail();
       })
@@ -910,30 +1082,8 @@ export struct ConversationRowView {
         this.bodyBlock()
       }
 
-      // 失败卡（对齐小程序 turn-error-card）
-      if (this.entry.isError && this.entry.summary.length > 0) {
-        Row({ space: 8 }) {
-          Text('!')
-            .fontSize(15)
-            .fontWeight(FontWeight.Bold)
-            .fontColor('#FFFFFF')
-            .width(20)
-            .height(20)
-            .textAlign(TextAlign.Center)
-            .borderRadius(10)
-            .backgroundColor('#DC555C')
-          Text(this.entry.summary)
-            .fontSize(14)
-            .fontColor('#D4545B')
-            .layoutWeight(1)
-        }
-        .width('100%')
-        .padding({ left: 12, right: 12, top: 10, bottom: 10 })
-        .borderRadius(9)
-        .border({ width: 0.5, color: 'rgba(235,87,87,0.42)' })
-        .backgroundColor('rgba(235,87,87,0.08)')
-        .margin({ top: 6 })
-      }
+      // 失败卡（对齐小程序 turn-error-card）：只有回合真的失败（带失败文案）才显示，
+      // 工具单步失败只在该步骤上标红，不升级成整组错误卡。
     }
     .width('100%')
     .padding({ top: 2, bottom: 2 })
@@ -944,36 +1094,19 @@ export struct ConversationRowView {
   turnRow() {
     Column() {
       Column() {
-        this.groupHead(this.entry.title, this.entry.summary, this.entry.isError, this.entry.expanded, this.entry.expandable, false)
+        this.groupHead(this.entry.title,
+          this.entry.expanded && this.entry.expandedSummary.length > 0 ? this.entry.expandedSummary : this.entry.summary,
+          this.entry.isError, this.entry.expanded, this.entry.expandable && this.entry.foldable, false)
       }
       .width('100%')
       .onClick(() => {
-        if (this.entry.expandable) {
+        if (this.entry.expandable && this.entry.foldable) {
           this.onToggle(this.entry.id);
         }
       })
 
-      // 展开「已完成」：逐组显示，每组复用与顶层过程组相同的策略化渲染
-      if (this.entry.expanded && this.entry.expandable) {
-        Column() {
-          ForEach(this.entry.children, (child: ConversationFeedEntryModel, index: number) => {
-            ConversationRowView({
-              entry: child,
-              isDark: this.isDark,
-              onToggle: (id: string) => {
-                this.onToggle(id);
-              },
-              onCopy: (text: string) => {
-                this.onCopy(text);
-              },
-              onShowDetail: (title: string, body: string) => {
-                this.onShowDetail(title, body);
-              }
-            })
-          }, (child: ConversationFeedEntryModel, index: number) => child.id + '#' + (child.expanded ? '1' : '0'))
-        }
-        .width('100%')
-      }
+      // 展开「已完成」时，组行由会话页摊平成同级行渲染（见 ConversationPage.rebuildEntries），
+      // 这里不再嵌套子组件：嵌套 @ObjectLink 行在本机会崩。
     }
     .width('100%')
     .padding({ top: 2, bottom: 2 })

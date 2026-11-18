@@ -18,6 +18,58 @@ export interface SpeechLimits {
 }
 
 /**
+ * 语音输入失败：code 对齐小程序 pages/session/utils/voice-input.js 的错误码，
+ * 页面据此在弹窗里给出「去设置 / 插件设置」动作，而不是把原始系统报错直接甩给用户。
+ */
+export class SpeechFailure extends Error {
+  code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+    this.name = 'SpeechFailure';
+  }
+
+  /** 兜底文案（对齐小程序 MESSAGES 表） */
+  static messageFor(code: string): string {
+    if (code === 'speech/unavailable') {
+      return '请在 DSH 插件管理中启用官方语音输入';
+    }
+    if (code === 'speech/not-ready') {
+      return '请先在 DSH 语音插件中完成模型准备，再按住说话';
+    }
+    if (code === 'speech/busy') {
+      return '语音服务忙，请稍后重试';
+    }
+    if (code === 'speech/timeout') {
+      return '语音识别超时，请重试';
+    }
+    if (code === 'speech/invalid-audio') {
+      return '录音格式或时长不符合要求，请重新录音';
+    }
+    if (code === 'speech/invalid-response') {
+      return '语音服务返回无效，请更新网关插件';
+    }
+    if (code === 'voice/permission') {
+      return '麦克风权限未开启，请在系统设置中允许使用麦克风';
+    }
+    if (code === 'voice/start-timeout') {
+      return '麦克风启动超时，请检查麦克风权限后重试';
+    }
+    if (code === 'voice/interrupted') {
+      return '录音中断，请重试';
+    }
+    if (code === 'voice/connection') {
+      return '请先连接网关，再使用语音输入';
+    }
+    if (code === 'voice/empty') {
+      return '未识别到语音，请再试一次';
+    }
+    return '语音输入失败，请检查 DSH 语音插件后重试';
+  }
+}
+
+/**
  * 长按语音输入（对齐小程序 pages/session/utils/voice-input.js）。
  *
  * 关键：不在本机做识别——鸿蒙的 CoreSpeechKit 在没有语音服务时直接抛 system error。
@@ -48,13 +100,13 @@ export class SpeechInput {
   async catalog(): Promise<SpeechLimits> {
     const client: GatewayClient = GatewayClient.get();
     if (!client.isConnected()) {
-      throw new Error('请先连接网关，再使用语音输入');
+      throw new SpeechFailure('voice/connection', SpeechFailure.messageFor('voice/connection'));
     }
     const frame: GatewayFrame = await client.requestPlugin('speech-catalog', {}, 8000);
     Logger.info('speech catalog available=' + (bool(frame, 'available') === true ? '1' : '0'));
     const available: boolean = bool(frame, 'available') === true;
     if (!available) {
-      throw new Error('请在 DSH 插件管理中启用官方语音输入');
+      throw new SpeechFailure('speech/unavailable', SpeechFailure.messageFor('speech/unavailable'));
     }
     const maxAudioBytes: number = num(frame, 'maxAudioBytes') ?? (4 * 1024 * 1024);
     const maxDurationSeconds: number = num(frame, 'maxDurationSeconds') ?? 120;
@@ -71,7 +123,7 @@ export class SpeechInput {
           if (prepared !== undefined) {
             const phase: string = str(prepared, 'phase') ?? '';
             if (phase !== 'ready' && phase !== 'standby') {
-              throw new Error('请先在 DSH 语音插件中完成模型准备，再按住说话');
+              throw new SpeechFailure('speech/not-ready', SpeechFailure.messageFor('speech/not-ready'));
             }
           }
           const langs: Object | undefined = field(one, 'languages');
@@ -83,7 +135,7 @@ export class SpeechInput {
     }
     const seconds: number = Math.min(120, maxDurationSeconds, (maxAudioBytes - 44) / BYTE_RATE);
     if (!isFinite(seconds) || seconds < 0.1) {
-      throw new Error('语音服务限制无效，请更新网关插件');
+      throw new SpeechFailure('speech/invalid-response', SpeechFailure.messageFor('speech/invalid-response'));
     }
     return {
       providerId: providerId,
@@ -144,13 +196,23 @@ export class SpeechInput {
         }
       };
       readLoop();
-      await capturer.start();
+      // 麦克风被占用 / 权限被拒时 start() 可能一直挂着：给一个看门狗，避免长按后无限等
+      await new Promise<void>((resolve: () => void, reject: (reason: Object) => void) => {
+        const timer = setTimeout(() => {
+          reject(new SpeechFailure('voice/start-timeout', SpeechFailure.messageFor('voice/start-timeout')));
+        }, 10000);
+        active.start().then(() => {
+          clearTimeout(timer);
+          resolve();
+        }).catch((reason: Object) => {
+          clearTimeout(timer);
+          reject(reason);
+        });
+      });
     } catch (err) {
       this.recording = false;
       this.releaseCapturer();
-      const message: string = err instanceof Error ? err.message : String(err);
-      Logger.warn('speech start failed: ' + message);
-      throw new Error('麦克风启动失败：' + message);
+      throw SpeechInput.failureOf(err);
     }
   }
 
@@ -176,11 +238,11 @@ export class SpeechInput {
       return '';
     }
     if (this.totalBytes < 2) {
-      throw new Error('没有录到有效声音，请重试');
+      throw new SpeechFailure('speech/invalid-audio', '没有录到有效声音，请重试');
     }
     const wav: Uint8Array = SpeechInput.pcmToWav(this.chunks, this.totalBytes, limits.maxPcmBytes);
     if (wav.length > limits.maxBytes) {
-      throw new Error('录音格式或时长不符合要求，请重新录音');
+      throw new SpeechFailure('speech/invalid-audio', SpeechFailure.messageFor('speech/invalid-audio'));
     }
     const helper = new util.Base64Helper();
     const base64: string = helper.encodeToStringSync(wav);
@@ -197,7 +259,7 @@ export class SpeechInput {
     const frame: GatewayFrame = await GatewayClient.get().requestPlugin('speech-transcribe', payload, 185000);
     const text: string = str(frame, 'text') ?? '';
     if (text.trim().length === 0) {
-      throw new Error('未识别到语音，请再试一次');
+      throw new SpeechFailure('voice/empty', SpeechFailure.messageFor('voice/empty'));
     }
     return text.trim();
   }
@@ -212,6 +274,30 @@ export class SpeechInput {
     if (requestId !== undefined && requestId.length > 0) {
       GatewayClient.get().requestPlugin('speech-cancel', { 'targetRequestId': requestId }, 6000).catch(() => {});
     }
+  }
+
+  /**
+   * 把音频栈抛出的原始错误翻成可读失败。
+   * 鸿蒙在「未声明/未授予麦克风权限」或「麦克风被其它应用占用」时，createAudioCapturer / start
+   * 会直接抛 6800301「system error」——这行字对用户没有意义，必须翻译成能行动的话。
+   */
+  static failureOf(err: Object): SpeechFailure {
+    if (err instanceof SpeechFailure) {
+      return err;
+    }
+    const message: string = err instanceof Error ? err.message : String(err);
+    const lower: string = message.toLowerCase();
+    if (lower.indexOf('permission') >= 0 || lower.indexOf('not granted') >= 0) {
+      return new SpeechFailure('voice/permission', SpeechFailure.messageFor('voice/permission'));
+    }
+    if (lower.indexOf('system error') >= 0) {
+      return new SpeechFailure('voice/permission',
+        '麦克风启动失败：麦克风权限未开启，或正被其它应用占用。请到系统设置中允许「鲸尾」使用麦克风后重试');
+    }
+    if (lower.indexOf('timeout') >= 0 || message.indexOf('超时') >= 0) {
+      return new SpeechFailure('voice/start-timeout', SpeechFailure.messageFor('voice/start-timeout'));
+    }
+    return new SpeechFailure('voice/start', '麦克风启动失败：' + message);
   }
 
   /** 一帧 PCM16 的 RMS → 0..1（对齐小程序 frameLevel 的 dB 映射） */

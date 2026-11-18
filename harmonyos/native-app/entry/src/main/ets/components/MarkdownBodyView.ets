@@ -5,8 +5,11 @@
  *   段落 / 标题 / 引用 / 列表 / 分隔线 / 表格 / 围栏代码块（横向滚动）。
  * 行内片段用 TextSpan 着色：粗体加粗、行内代码等宽着色、链接主色。
  */
-import { MarkdownLite } from 'nativecore';
+import { Logger, MarkdownLite } from 'nativecore';
 import type { MarkdownBlock, InlineSpan } from 'nativecore';
+
+/** 流式 Markdown 的最小解析间隔：正文越长，单次解析越贵 */
+const MARKDOWN_PARSE_INTERVAL_MS: number = 100;
 
 @Component
 export struct MarkdownBodyView {
@@ -18,13 +21,42 @@ export struct MarkdownBodyView {
   @Prop textColor: string = '#101318';
 
   @State private blocks: MarkdownBlock[] = [];
+  private parseTimer: number = -1;
+  private lastParseAt: number = 0;
 
   aboutToAppear(): void {
-    this.blocks = MarkdownLite.parse(this.text);
+    this.parseNow();
   }
 
-  /** 流式文本更新：重新解析，保证 Markdown 在生成过程中逐步成形。 */
+  aboutToDisappear(): void {
+    if (this.parseTimer >= 0) {
+      clearTimeout(this.parseTimer);
+      this.parseTimer = -1;
+    }
+  }
+
+  /**
+   * 流式文本更新：重新解析，保证 Markdown 在生成过程中逐步成形。
+   * 但解析是 O(正文长度)，长回答 + 高频 delta 会把 UI 线程吃满（页面点不动），
+   * 这里压到最多 10 次/秒，并保留一次尾随解析。
+   */
   private onTextChanged(): void {
+    const elapsed: number = Date.now() - this.lastParseAt;
+    if (elapsed >= MARKDOWN_PARSE_INTERVAL_MS) {
+      this.parseNow();
+      return;
+    }
+    if (this.parseTimer >= 0) {
+      return;
+    }
+    this.parseTimer = setTimeout(() => {
+      this.parseTimer = -1;
+      this.parseNow();
+    }, MARKDOWN_PARSE_INTERVAL_MS - elapsed);
+  }
+
+  private parseNow(): void {
+    this.lastParseAt = Date.now();
     this.blocks = MarkdownLite.parse(this.text);
   }
 
