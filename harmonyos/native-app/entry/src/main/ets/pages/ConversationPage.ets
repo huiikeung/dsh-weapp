@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { KeyboardAvoidMode, window } from '@kit.ArkUI';
 import {
-  asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, GatewayClient, GatewayRequestFactory, Logger, num,
+  asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, GatewayClient, GatewayRequestFactory, num,
   PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, parseNamespace, pickDocuments, uploadAttachment
 } from 'nativecore';
 import type { GatewayFrame, ModelMenuItem, ModelOption } from 'nativecore';
@@ -1161,10 +1161,10 @@ export struct ConversationPage {
     return out;
   }
 
-  /** 推理等级取值：优先映射当前模型配置的 reasoningEfforts（与 DSH 客户端一致），未取到时回退默认档位。 */
+  /** 推理等级取值：对齐 DSH 客户端——开启推理的模型展示完整档位阶梯（Off + Minimal→Max），未取到配置时回退默认四档。 */
   private effortMenuValues(): string[] {
     if (this.modelEfforts.length > 0) {
-      return this.modelEfforts;
+      return ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
     }
     return ['off', 'low', 'medium', 'high'];
   }
@@ -1267,7 +1267,6 @@ export struct ConversationPage {
   /** 拉取模型配置里当前模型的推理等级键列表（reasoningEfforts，DSH 客户端直接映射显示）。 */
   private refreshModelEfforts(): void {
     const model: string = this.currentModelId();
-    Logger.info('[EffortDebug] refresh model=' + model + ' selectedProvider=' + this.selectedProvider);
     const needle: string = model.toLowerCase();
     if (model.length === 0) {
       this.modelEfforts = [];
@@ -1287,21 +1286,6 @@ export struct ConversationPage {
         return;
       }
       const providers = rawProviders as Record<string, Object>;
-      Logger.info('[EffortDebug] providerKeys=' + JSON.stringify(Object.keys(providers)));
-      for (const key of Object.keys(providers)) {
-        const config = providers[key] as Record<string, Object>;
-        const models = config['models'];
-        if (models === undefined || !Array.isArray(models)) {
-          continue;
-        }
-        for (const one of models as Object[]) {
-          const record = one as Record<string, Object>;
-          const efforts = record['reasoningEfforts'];
-          if (efforts !== undefined && efforts !== false) {
-            Logger.info('[EffortDebug] has=' + key + '/' + String(record['id'] ?? '') + ' efforts=' + JSON.stringify(efforts).substring(0, 220));
-          }
-        }
-      }
       let provider: string = this.selectedProvider;
       if (provider.length === 0) {
         for (const key of Object.keys(providers)) {
@@ -1332,7 +1316,6 @@ export struct ConversationPage {
         if (String(record['id'] ?? '').toLowerCase() !== needle) {
           continue;
         }
-        Logger.info('[EffortDebug] record=' + JSON.stringify(record).substring(0, 420));
         const efforts = record['reasoningEfforts'];
         const ids: string[] = [];
         if (efforts !== undefined && Array.isArray(efforts)) {
@@ -1349,7 +1332,6 @@ export struct ConversationPage {
             }
           }
         }
-        Logger.info('[EffortDebug] ids=' + JSON.stringify(ids) + ' provider=' + provider);
         this.modelEfforts = ids;
         return;
       }

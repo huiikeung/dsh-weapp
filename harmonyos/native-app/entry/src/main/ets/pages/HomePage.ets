@@ -2523,13 +2523,6 @@ export struct HomePage {
 
   aboutToAppear(): void {
     this.applyStatusBarWhite();
-    try {
-      console.info('[HiGlass] supported=' + uiMaterial.isImmersiveMaterialSupported()
-        + ' level=' + uiMaterial.getGlobalMaterialLevel()
-        + ' state=' + uiMaterial.getMaterialInfo().state);
-    } catch (err) {
-      console.info('[HiGlass] query failed');
-    }
     // 键盘出现时不移动整页，只让底部弹层自己上浮
     try {
       this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
