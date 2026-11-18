@@ -1434,6 +1434,10 @@ export struct ConversationPage {
       }
       return '';
     }
+    if (kind === 'run') {
+      // 对齐小程序：会话统计弹层右上角显示「x 轮 x 步」
+      return this.runMetric();
+    }
     if (kind !== 'token') {
       return '';
     }
@@ -1876,6 +1880,27 @@ export struct ConversationPage {
     Column({ space: 2 }) {
         // 标题行：标题 + 占比（上下文已用）/ 总量（Token 用量）
         Row() {
+          if (this.metricPopover === 'run') {
+            Image($r('app.media.dsh_gauge'))
+              .width(14)
+              .height(14)
+              .objectFit(ImageFit.Contain)
+              .margin({ right: 6 })
+          } else if (this.metricPopover === 'token') {
+            Image($r('app.media.dsh_storage'))
+              .width(14)
+              .height(14)
+              .objectFit(ImageFit.Contain)
+              .margin({ right: 6 })
+          } else {
+            Circle()
+              .width(14)
+              .height(14)
+              .fill(Color.Transparent)
+              .stroke(this.subColor())
+              .strokeWidth(1.5)
+              .margin({ right: 6 })
+          }
           Text(this.metricTitle)
             .fontSize(14)
             .fontWeight(FontWeight.Medium)
@@ -1886,6 +1911,12 @@ export struct ConversationPage {
               .fontSize(13)
               .fontWeight(FontWeight.Medium)
               .fontColor('#2E6BE6')
+          }
+          if (this.metricPopover === 'run' && this.metricTotal.length > 0) {
+            Text(this.metricTotal)
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.textColor())
           }
           if (this.metricPopover === 'token' && this.metricTotal.length > 0) {
             Text(this.metricTotal)
