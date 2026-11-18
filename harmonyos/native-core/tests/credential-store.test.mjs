@@ -25,11 +25,13 @@ function setup({ secure = '', fallback = '', ready = true, writes = true } = {})
   return { store: context.store, state, values };
 }
 
-test('fallback wins over stale asset and migrates', () => {
-  const s = setup({ secure: JSON.stringify([gateway('old')]), fallback: JSON.stringify([gateway('new')]) });
+test('fallback wins over stale asset and repairs it', () => {
+  const fallback = JSON.stringify([gateway('new')]);
+  const s = setup({ secure: JSON.stringify([gateway('old')]), fallback });
   assert.equal(s.store.load().token, 'new');
   assert.equal(JSON.parse(s.state.secure)[0].token, 'new');
-  assert.equal(s.values.savedGateways, '');
+  // 明文兜底必须保留：卸载重装/签名变化后它是唯一还能读到的一份。
+  assert.equal(s.values.savedGateways, fallback);
 });
 
 test('failed migration preserves fallback', () => {

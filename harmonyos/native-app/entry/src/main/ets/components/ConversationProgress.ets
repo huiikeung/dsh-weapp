@@ -179,13 +179,19 @@ export struct ConversationProgress {
       // 与右侧逐字流光同相位，不会再出现「图标不变色 / 和文字不同步」。
       Stack() {
         Stack() {
+          // 原始 SVG 雪碧图（矢量，边缘清晰）
           Image($r('app.media.whale_tail_sprite'))
             .width(984)
             .height(16.4)
             .objectFit(ImageFit.Fill)
-            // colorFilter 每次重绘都会重新取矩阵：显示色严格等于 tailColor()（= 第一个字的颜色）
-            .colorFilter(StatusAppearance.filterMatrix(this.tailColor()))
             .translate({ x: -this.frame * 16.4 })
+          // 用当前流光色以 SRC_ATOP 叠一层：只保留图形的 alpha，颜色就是 tailColor()，
+          // 且不会像位图着色那样糊边。tailColor() 与右侧第一个字同相位。
+          Rect()
+            .width(16.4)
+            .height(16.4)
+            .fill(this.tailColor())
+            .blendMode(BlendMode.SRC_ATOP, BlendApplyType.OFFSCREEN)
         }
         .width(16.4)
         .height(16.4)

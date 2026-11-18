@@ -13,6 +13,9 @@ export class SecureCredentialStore {
     try {
       const query: asset.AssetMap = new Map<asset.Tag, asset.Value>();
       query.set(asset.Tag.ALIAS, utf8Encode(SecureCredentialStore.ALIAS));
+      // 不显式要 ALL 时查询只回属性，不回 SECRET；之前这里少这一行，读回来永远是 null，
+      // 加密副本变成「只写不读」（设备日志里 secure=0 就是这个原因）。
+      query.set(asset.Tag.RETURN_TYPE, asset.ReturnType.ALL);
       const values: asset.AssetMap[] = asset.querySync(query);
       if (values.length === 0) return null;
       const secret: asset.Value | undefined = values[0].get(asset.Tag.SECRET);

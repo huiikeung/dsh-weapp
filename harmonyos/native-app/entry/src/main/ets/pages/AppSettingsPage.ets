@@ -2,8 +2,8 @@ import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { bundleManager, common } from '@kit.AbilityKit';
 import type { WorkStepOption } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
-import { AttachmentCache, CredentialStore, GatewayClient, NotificationService, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, WorkspaceRow } from 'nativecore';
 import { Haptics } from '../services/Haptics';
+import { AttachmentCache, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, WorkspaceRow } from 'nativecore';
 
 /**
  * 设置（左侧栏「设置」）：逐行对齐小程序 pages/settings。
@@ -55,8 +55,10 @@ export struct AppSettingsPage {
   @State notificationHint: string = '';
   @State attachmentCacheLabel: string = '未读取';
   @State appVersion: string = '1.0.2';
-  @State workStepMode: string = 'detailed';
-  @State workStepTiming: string = 'completion';
+  // 直接绑 AppStorage：选择页（PreferencePickerPage）写 AppStorage 后，本页行文案立刻刷新，
+  // 不依赖返回时的 @Watch/onShown 是否触发。
+  @StorageProp('workStepMode') @Watch('onWorkStepStorage') workStepMode: string = 'detailed';
+  @StorageProp('workStepTiming') @Watch('onWorkStepStorage') workStepTiming: string = 'completion';
   @State glassStylePreset: string = 'glass-default';
   @State nativeStylePreset: string = 'default';
   @State cardStylePreset: string = 'float';
@@ -120,8 +122,12 @@ export struct AppSettingsPage {
     const prefs: PreferencesStore = PreferencesStore.get();
     this.fontSize = prefs.getString('contentFontSize', '标准');
     this.haptics = this.normalizeHaptics(prefs.getString('hapticsLevel', 'medium'));
-    this.workStepMode = WorkStepPresentation.normalizeMode(prefs.getString(WorkStepPresentation.MODE_KEY, 'detailed'));
-    this.workStepTiming = WorkStepPresentation.normalizeTiming(prefs.getString(WorkStepPresentation.TIMING_KEY, 'completion'));
+    const storedMode: string = WorkStepPresentation.normalizeMode(prefs.getString(WorkStepPresentation.MODE_KEY, 'detailed'));
+    const storedTiming: string = WorkStepPresentation.normalizeTiming(prefs.getString(WorkStepPresentation.TIMING_KEY, 'completion'));
+    AppStorage.setOrCreate<string>('workStepMode', storedMode);
+    AppStorage.setOrCreate<string>('workStepTiming', storedTiming);
+    this.workStepMode = storedMode;
+    this.workStepTiming = storedTiming;
     this.textFont = prefs.getString('fontFamilyText', '');
     this.codeFont = prefs.getString('fontFamilyCode', '');
     this.terminalFont = prefs.getString('fontFamilyTerminal', '');
@@ -579,6 +585,23 @@ export struct AppSettingsPage {
     this.applyOptionChoice(id);
   }
 
+  /** 兜底消费二级页选择（@StorageLink 的 @Watch 在部分生命周期下可能不触发） */
+  private consumePickerChoice(): void {
+    const raw: string = AppStorage.get<string>('prefPickerChoice') ?? '';
+    if (raw.length === 0) {
+      return;
+    }
+    AppStorage.setOrCreate<string>('prefPickerChoice', '');
+    const sep: number = raw.indexOf('\u0001');
+    if (sep <= 0) {
+      return;
+    }
+    const kind: string = raw.substring(0, sep);
+    const id: string = raw.substring(sep + 1);
+    this.pickerKind = kind;
+    this.applyOptionChoice(id);
+  }
+
   /** 打开设置项二级页（不再用页内弹层） */
   private openPicker(kind: string): void {
     this.closeSheets();
@@ -604,6 +627,7 @@ export struct AppSettingsPage {
       this.appLanguage = id;
       PreferencesStore.get().putString('appLanguage', id);
     } else if (kind === 'mode') {
+      Logger.info('MODE APPLY ' + id);
       this.workStepMode = WorkStepPresentation.normalizeMode(id);
       PreferencesStore.get().putString(WorkStepPresentation.MODE_KEY, this.workStepMode);
       AppStorage.setOrCreate<string>('workStepMode', this.workStepMode);
@@ -625,6 +649,12 @@ export struct AppSettingsPage {
       PreferencesStore.get().putString('cardStylePreset', id);
     }
     this.pickerOpen = false;
+  }
+
+  /** AppStorage 档位变化：持久化 + 重绘行（选择页直接写 AppStorage 时走这里） */
+  private onWorkStepStorage(): void {
+    PreferencesStore.get().putString(WorkStepPresentation.MODE_KEY, this.workStepMode);
+    PreferencesStore.get().putString(WorkStepPresentation.TIMING_KEY, this.workStepTiming);
   }
 
   private closeSheets(): void {
@@ -1554,6 +1584,8 @@ export struct AppSettingsPage {
     .hideTitleBar(true)
     .backgroundColor(this.pageBg())
     .onShown(() => {
+      // 从二级选择页返回：@Watch 偶发不触发时这里兜底消费一次选择，保证行文案/偏好立即生效
+      this.consumePickerChoice();
       this.refreshPrefs();
     })
   }

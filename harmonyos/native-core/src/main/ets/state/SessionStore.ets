@@ -1,11 +1,12 @@
 import { PreferencesStore } from '../common/PreferencesStore';
-import { GatewayFrame, RawSessionEvent, SessionEvent, GatewayPendingQuestionRequest, GatewayPendingApprovalRequest, GatewayDirectoryItem } from '../protocol/GatewayDtos';
-import { asRec, bool, field, normalizeRawSessionEvent, num, str } from '../protocol/GatewayFrameCodec';
+import { GatewayFrame, RawSessionEvent, SessionEvent, GatewayPendingQuestionRequest, GatewayPendingApprovalRequest, GatewayDirectoryItem, GatewayTask } from '../protocol/GatewayDtos';
+import { arr, asRec, bool, field, normalizeRawSessionEvent, num, str } from '../protocol/GatewayFrameCodec';
 import { GatewayClient } from '../network/GatewayClient';
 import { EventProjector } from './EventProjector';
+import { TeamStore } from './TeamStore';
 import { Logger } from '../common/Logger';
 import { isOlderHistoryPage } from './HistoryPageMatcher';
-import { ConversationItem, ConversationProjectionLabels, ConversationProjector } from '../projection/ConversationProjection';
+import { ConversationItem, ConversationItemKind, ConversationProjectionLabels, ConversationProjector } from '../projection/ConversationProjection';
 
 /** 诊断信息行（对齐小程序 diagnosticRows） */
 export interface DiagnosticRow {
@@ -53,6 +54,39 @@ function sessionIdLabel(id: string): string {
 export interface QueueItem {
   id: string;
   preview: string;
+  /** 附件数量（图片/文件）：对齐小程序 queue-attachment-label */
+  attachmentCount: number;
+  /** queued（下一轮）/ steering（本轮插话）/ context（插件上下文） */
+  placement: string;
+}
+
+/** 会话目标（对齐小程序 goal 卡片）：空 id 表示当前会话没有目标。 */
+export interface SessionGoalView {
+  id: string;
+  revision: number;
+  objective: string;
+  phase: string;
+  phaseLabel: string;
+  active: boolean;
+}
+
+/** 目标阶段文案（对齐小程序 goalPhaseLabel）。 */
+export function goalPhaseLabel(phase: string): string {
+  if (phase === 'active') {
+    return '进行中的目标';
+  }
+  if (phase === 'paused') {
+    return '已暂停的目标';
+  }
+  if (phase === 'blocked') {
+    return '受阻的目标';
+  }
+  return '当前目标';
+}
+
+/** 空目标：没有目标时也发布一个稳定对象，页面按 id.length 判断是否显示。 */
+export function emptySessionGoal(): SessionGoalView {
+  return { id: '', revision: 0, objective: '', phase: '', phaseLabel: '', active: false };
 }
 
 export interface DirEntry {
@@ -139,6 +173,15 @@ export class SessionStore {
   private olderRequestCursor: number = 0;
   private historyFormatVersion: number = 0;
   private sessionGeneration: number = 0;
+  /** 任务/目标快照的 asOfSeq（旧帧丢弃，对齐小程序 tasksAsOfSeq / goalAsOfSeq） */
+  private tasksSeq: number = -1;
+  private goalSeq: number = -1;
+  /** 乐观回显的本地用户消息（对齐小程序 appendLocalUserRow.pending，回显到达时就地合并） */
+  private optimisticUsers: ConversationItem[] = [];
+  /** 最近一次队列快照（队列操作成功后可本地先删一条，再等权威帧覆盖） */
+  private queueItems: QueueItem[] = [];
+  /** 会话历史首屏加载中：页面用骨架代替「新建会话」空状态，避免有记录的会话闪出空态 */
+  private historyLoadingTimer: number = -1;
   private questions: Map<string, GatewayPendingQuestionRequest> = new Map();
   private approvals: Map<string, GatewayPendingApprovalRequest> = new Map();
   /** 对话投影（生成时间线用的过程条目）；与轨迹投影 EventProjector 并行存在。 */
@@ -180,6 +223,11 @@ export class SessionStore {
       AppStorage.setOrCreate<SessionSummary[]>('sessions', []);
       AppStorage.setOrCreate<QueueItem[]>('queueItems', []);
       AppStorage.setOrCreate<number>('queueCount', 0);
+      AppStorage.setOrCreate<GatewayTask[]>('sessionTasks', []);
+      AppStorage.setOrCreate<SessionGoalView>('sessionGoal', emptySessionGoal());
+      AppStorage.setOrCreate<boolean>('goalBusy', false);
+      this.tasksSeq = -1;
+      this.goalSeq = -1;
       AppStorage.setOrCreate<boolean>('historyHasMore', false);
       AppStorage.setOrCreate<number>('historyOldestSeq', 0);
       this.publish();
@@ -320,6 +368,32 @@ export class SessionStore {
     if (frame.kind === 'queue-item-updated' || frame.kind === 'queue-updated') {
       if (this.client !== null && this.sessionId.length > 0) {
         this.client.requestQueue(this.sessionId).catch(() => {});
+      }
+      return;
+    }
+    if (frame.kind === 'tasks' || frame.kind === 'tasks-updated') {
+      const seq: number = frame.asOfSeq !== undefined ? frame.asOfSeq : -1;
+      if (this.tasksSeq < 0 || seq < 0 || seq >= this.tasksSeq) {
+        this.consumeTasks(frame.todos);
+        this.tasksSeq = seq;
+      }
+      return;
+    }
+    if (frame.kind === 'goal' || frame.kind === 'goal-updated') {
+      const seq: number = frame.asOfSeq !== undefined ? frame.asOfSeq : -1;
+      if (this.goalSeq < 0 || seq < 0 || seq >= this.goalSeq) {
+        this.consumeGoal(frame.goal);
+        this.goalSeq = seq;
+      }
+      AppStorage.setOrCreate<boolean>('goalBusy', false);
+      return;
+    }
+    if (frame.kind === 'goal-edited' || frame.kind === 'goal-paused' || frame.kind === 'goal-resumed'
+      || frame.kind === 'goal-cleared') {
+      // 变更回执：立刻拉一次权威快照（对齐小程序 goal-edited/paused/resumed/cleared 处理）
+      AppStorage.setOrCreate<boolean>('goalBusy', false);
+      if (this.client !== null && this.sessionId.length > 0) {
+        this.client.requestGoal(this.sessionId).catch(() => {});
       }
       return;
     }
@@ -488,6 +562,10 @@ export class SessionStore {
     if (frame.kind === 'history') {
       const responseSession: string = frame.sessionId !== undefined ? frame.sessionId : this.sessionId;
       if (this.sessionId.length > 0 && responseSession !== this.sessionId) return;
+      const historyProjections: Record<string, Object> | undefined = asRec(field(frame, 'projections'));
+      if (historyProjections !== undefined) {
+        TeamStore.get().ingestProjection(responseSession, historyProjections);
+      }
       const events: RawSessionEvent[] = frame.events !== undefined ? frame.events : [];
       const wasOlderPage: boolean = this.olderRequestPending && isOlderHistoryPage(frame, this.olderRequestCursor);
       const competingTail: boolean = this.olderRequestPending && !wasOlderPage && frame.resetRequired !== true;
@@ -519,6 +597,9 @@ export class SessionStore {
       }
       AppStorage.setOrCreate<boolean>('historyHasMore', this.hasMore);
       AppStorage.setOrCreate<number>('historyOldestSeq', this.oldestSeq);
+      if (!wasOlderPage) {
+        this.setHistoryLoading(false);
+      }
       this.publish();
       return;
     }
@@ -533,6 +614,10 @@ export class SessionStore {
         if (snapPreset.length > 0) {
           SessionStore.rememberSessionPreset(responseSession, snapPreset);
         }
+      }
+      // 团队协作快照：agentTeam 投影随会话快照下发，交给 TeamStore 合并成右上角协作入口的数据
+      if (snapProjections !== undefined) {
+        TeamStore.get().ingestProjection(responseSession, snapProjections);
       }
       const events: RawSessionEvent[] = frame.events !== undefined ? frame.events : [];
       if (frame.resetRequired === true || frame.replace === true) {
@@ -549,12 +634,18 @@ export class SessionStore {
       this.oldestSeq = minSeq;
       AppStorage.setOrCreate<boolean>('historyHasMore', this.hasMore);
       AppStorage.setOrCreate<number>('historyOldestSeq', this.oldestSeq);
+      this.setHistoryLoading(false);
       this.publish();
       return;
     }
     if (frame.kind === 'event') {
       const frameSession: string = frame.sessionId !== undefined ? frame.sessionId : this.sessionId;
       this.lastEventAt = Date.now();
+      // 团队增量事件（team/member、team/task）与当前打开哪个会话无关，都要并入团队快照
+      const teamEvent: RawSessionEvent | undefined = this.rawFromFrame(frame);
+      if (teamEvent !== undefined) {
+        TeamStore.get().ingestEvent(teamEvent.type, teamEvent.seq, teamEvent.data);
+      }
       // 别的会话的事件：不并入当前对话，但「运行中」标记要照单收下，
       // 否则手机端打开的会话一直空闲时，桌面端新开的会话永远不会亮起。
       if (this.sessionId.length > 0 && frameSession !== this.sessionId) {
@@ -705,6 +796,7 @@ export class SessionStore {
   /** 重置对话投影（切会话 / 重建历史时调用）。 */
   private resetConversation(): void {
     this.conversation = new ConversationProjector(this.conversationLabels());
+    this.optimisticUsers = [];
   }
 
   /**
@@ -1099,6 +1191,9 @@ export class SessionStore {
       if (id.length === 0) {
         continue;
       }
+      if (archivedIds.has(id)) {
+        continue;
+      }
       // 标题在 projections.values.title（网关 sequenced 投影），兼容旧版顶层字段。
       const projections: Record<string, Object> | undefined = asRec(field(item, 'projections'));
       const projValues: Record<string, Object> | undefined =
@@ -1140,6 +1235,18 @@ export class SessionStore {
       this.saveCatalogCache('cacheSessionsV1', JSON.stringify(list));
       Logger.info('sessions updated n=' + list.length.toString() + ' running=' + (anyRunning ? '1' : '0'));
     }
+    // 当前会话的运行态跟着列表走（会话在后台跑的时候，打开它也应立即显示运行中）
+    for (const one of list) {
+      if (one.id === this.sessionId && one.running !== this.running) {
+        this.running = one.running;
+        if (this.running) {
+          this.startLiveTicker();
+        } else {
+          this.stopLiveTicker();
+        }
+        this.publishConversation();
+      }
+    }
     // 让后台保活/前台角标跟列表一起动：之前只在冷启动缓存恢复时算过一次。
     if (anyRunning !== this.agentWorkActive) {
       this.agentWorkActive = anyRunning;
@@ -1166,6 +1273,8 @@ export class SessionStore {
   /** 手动打开某个会话（首页点列表时调用）。 */
   open(sessionId: string): void {
     if (sessionId.length === 0) return;
+    // 团队：打开成员会话时保留团队快照，打开无关会话时清空
+    TeamStore.get().activate(sessionId);
     if (this.sessionId === sessionId && this.client !== null && this.client.isConnected()) {
       return;
     }
@@ -1180,6 +1289,22 @@ export class SessionStore {
     this.hasMore = false;
     this.running = false;
     this.resetConversation();
+    // 有历史记录的会话：首屏历史到达前显示加载骨架，不显示「新建会话」空态
+    // （未连接时不发请求，直接按空态处理，避免白转 10s）
+    if (this.client !== null && this.client.isConnected()) {
+      this.setHistoryLoading(true);
+    }
+    // 从会话列表恢复运行态：列表里 running=true 的会话打开即算运行中，
+    // 否则「排队消息的立即发送」、运行条都要等第一条实时事件才亮。
+    const seeded: SessionSummary[] | undefined = AppStorage.get<SessionSummary[]>('sessions');
+    if (seeded !== undefined) {
+      for (const one of seeded) {
+        if (one.id === sessionId && one.running) {
+          this.running = true;
+          this.startLiveTicker();
+        }
+      }
+    }
     AppStorage.setOrCreate<boolean>('historyHasMore', false);
     AppStorage.setOrCreate<number>('historyOldestSeq', 0);
     AppStorage.setOrCreate<ConversationItem[]>('conversationItems', []);
@@ -1190,10 +1315,20 @@ export class SessionStore {
     AppStorage.setOrCreate<string>('selectedEffort', '');
     this.publish();
     AppStorage.setOrCreate<QueueItem[]>('queueItems', []);
+    this.queueItems = [];
+    AppStorage.setOrCreate<GatewayTask[]>('sessionTasks', []);
+    AppStorage.setOrCreate<SessionGoalView>('sessionGoal', emptySessionGoal());
+    AppStorage.setOrCreate<boolean>('goalBusy', false);
+    this.tasksSeq = -1;
+    this.goalSeq = -1;
     // 会话级模型目录（带 sessionId 才回 current）与权限选项
     if (this.client !== null) {
       this.client.requestModelsCatalog(sessionId);
       this.client.requestPermissionOptions();
+      // 队列 / 任务 / 目标：进入会话就拉一次（对齐小程序 sessionState 初始化）
+      this.client.requestQueue(sessionId).catch(() => {});
+      this.client.requestTasks(sessionId).catch(() => {});
+      this.client.requestGoal(sessionId).catch(() => {});
     }
     if (this.client !== null) {
       this.client.openSession(sessionId);
@@ -1234,6 +1369,12 @@ export class SessionStore {
     this.foldConversation(raw);
     EventProjector.get().consume(event);
     const type: string = event.event.type;
+    if (type === 'user/message') {
+      const source: string = event.event.source !== undefined ? event.event.source : 'user';
+      if (source === 'user') {
+        this.adoptOptimisticUser(event.event.text !== undefined ? event.event.text : '');
+      }
+    }
     const text: string = event.event.text !== undefined ? event.event.text : '';
     if (type === 'user/message') {
       this.push('user', text, event.seq);
@@ -1271,6 +1412,138 @@ export class SessionStore {
     }
   }
 
+  /** 任务列表（todo_write 投影）：只读展示，空列表也发布以便页面收起卡片。 */
+  private consumeTasks(todos: GatewayTask[] | undefined): void {
+    const list: GatewayTask[] = [];
+    for (const raw of (todos !== undefined ? todos : [])) {
+      const rec: Record<string, Object> = raw as Object as Record<string, Object>;
+      const content: string = str(rec, 'content') ?? '';
+      const status: string = str(rec, 'status') ?? 'pending';
+      if (content.length > 0) {
+        list.push({ content: content, status: status });
+      }
+    }
+    AppStorage.setOrCreate<GatewayTask[]>('sessionTasks', list);
+  }
+
+  /** 目标快照：发布成页面直接可渲染的扁平结构。 */
+  private consumeGoal(snapshot: Object | undefined): void {
+    const view: SessionGoalView = emptySessionGoal();
+    const snapshotRec: Record<string, Object> | undefined = asRec(snapshot);
+    if (snapshotRec !== undefined) {
+      const def: Record<string, Object> | undefined = asRec(snapshotRec['goal']);
+      if (def !== undefined) {
+        const phase: string = str(def, 'phase') ?? '';
+        view.id = str(def, 'id') ?? '';
+        view.revision = num(def, 'revision') ?? 0;
+        view.objective = str(def, 'objective') ?? '';
+        view.phase = phase;
+        view.phaseLabel = goalPhaseLabel(phase);
+        view.active = phase === 'active';
+      }
+    }
+    AppStorage.setOrCreate<SessionGoalView>('sessionGoal', view);
+  }
+
+  /** 队列项正文块：DSH 的队列项是 UserMessage，正文在 content[]（可能挂在 message/source/payload 下）。 */
+  private queueContent(raw: Object): Object[] {
+    const rec: Record<string, Object> | undefined = asRec(raw);
+    if (rec === undefined) {
+      return [];
+    }
+    const direct = arr(rec, 'content');
+    if (direct !== undefined) {
+      return direct;
+    }
+    const nestedKeys: string[] = ['message', 'source', 'payload'];
+    for (const key of nestedKeys) {
+      const nested: Record<string, Object> | undefined = asRec(rec[key]);
+      if (nested === undefined) {
+        continue;
+      }
+      const blocks = arr(nested, 'content');
+      if (blocks !== undefined) {
+        return blocks;
+      }
+    }
+    return [];
+  }
+
+  /** 队列项文字：顶层字符串字段 → 嵌套 message/source/payload.text → content 块（对齐小程序 qTextOf）。 */
+  private queueText(raw: Object): string {
+    const rec: Record<string, Object> | undefined = asRec(raw);
+    if (rec === undefined) {
+      return '';
+    }
+    const keys: string[] = ['text', 'preview', 'message', 'content', 'prompt', 'value'];
+    for (const key of keys) {
+      const value: Object = rec[key];
+      if (typeof value === 'string' && (value as string).length > 0) {
+        return value as string;
+      }
+    }
+    const nestedKeys: string[] = ['message', 'source', 'payload'];
+    for (const key of nestedKeys) {
+      const nested: Record<string, Object> | undefined = asRec(rec[key]);
+      if (nested === undefined) {
+        continue;
+      }
+      const text: string = str(nested, 'text') ?? '';
+      if (text.length > 0) {
+        return text;
+      }
+    }
+    const parts: string[] = [];
+    for (const block of this.queueContent(raw)) {
+      if (typeof block === 'string') {
+        if ((block as string).length > 0) {
+          parts.push(block as string);
+        }
+        continue;
+      }
+      // 图片/文件不占正文位置：改用「N 个附件」展示（对齐小程序 textPreview 口径）
+      const text: string = str(block, 'text') ?? '';
+      if (text.length > 0) {
+        parts.push(text);
+      }
+    }
+    return parts.join(' ');
+  }
+
+  /** 队列项附件数：content 里的 image/file 块 → attachmentCount → attachments/images 数组。 */
+  private queueAttachmentCount(raw: Object): number {
+    let count: number = 0;
+    for (const block of this.queueContent(raw)) {
+      if (typeof block === 'string') {
+        continue;
+      }
+      const type: string = str(block, 'type') ?? '';
+      if (type === 'image' || type === 'file') {
+        count += 1;
+      }
+    }
+    if (count > 0) {
+      return count;
+    }
+    const rec: Record<string, Object> | undefined = asRec(raw);
+    if (rec === undefined) {
+      return 0;
+    }
+    const declared: number | undefined = num(rec, 'attachmentCount');
+    if (declared !== undefined && declared > 0) {
+      return declared;
+    }
+    const attachments = arr(rec, 'attachments');
+    if (attachments !== undefined) {
+      return attachments.length;
+    }
+    const images = arr(rec, 'images');
+    if (images !== undefined) {
+      return images.length;
+    }
+    return 0;
+  }
+
   private consumeQueue(sessionId: string, rawItems: Object[] | undefined): void {
     if (sessionId !== this.sessionId) {
       return;
@@ -1281,16 +1554,87 @@ export class SessionStore {
       if (id.length === 0) {
         continue;
       }
-      const preview: string = str(raw, 'preview') ?? str(raw, 'text') ?? str(raw, 'rawText') ?? '';
-      items.push({ id: id, preview: preview });
+      // 正文与附件：对齐小程序 qTextOf / qContentOf（DSH 队列项是 UserMessage，正文在 content[] 里）
+      let preview: string = this.queueText(raw);
+      if (preview.length === 0) {
+        preview = str(raw, 'rawText') ?? '';
+      }
+      items.push({
+        id: id,
+        preview: preview,
+        attachmentCount: this.queueAttachmentCount(raw),
+        placement: str(raw, 'placement') ?? 'queued'
+      });
     }
+    this.queueItems = items;
     AppStorage.setOrCreate<QueueItem[]>('queueItems', items);
     AppStorage.setOrCreate<number>('queueCount', items.length);
   }
 
+  /** 队列操作成功后立即本地移除（不等网关下一帧）；失败时调用方 requestQueue 会恢复。 */
+  removeQueueItem(itemId: string): void {
+    const next: QueueItem[] = [];
+    for (const item of this.queueItems) {
+      if (item.id !== itemId) {
+        next.push(item);
+      }
+    }
+    this.queueItems = next;
+    AppStorage.setOrCreate<QueueItem[]>('queueItems', next);
+    AppStorage.setOrCreate<number>('queueCount', next.length);
+  }
+
+  /** 首屏历史加载态：置 true 时页面显示加载骨架；history 帧到达或 10s 兜底后置 false。 */
+  private setHistoryLoading(loading: boolean): void {
+    if (this.historyLoadingTimer >= 0) {
+      clearTimeout(this.historyLoadingTimer);
+      this.historyLoadingTimer = -1;
+    }
+    AppStorage.setOrCreate<boolean>('historyLoading', loading);
+    if (loading) {
+      this.historyLoadingTimer = setTimeout(() => {
+        this.historyLoadingTimer = -1;
+        AppStorage.setOrCreate<boolean>('historyLoading', false);
+      }, 10000);
+    }
+  }
+
   clear(): void {
     this.rows = [];
+    this.optimisticUsers = [];
+    this.setHistoryLoading(false);
     this.publish();
+  }
+
+  /**
+   * 乐观回显：发送成功后立即本地插入一条用户消息（对齐小程序 store.appendLocalUserRow）。
+   * 真实 user/message 事件到达时按文本就地采纳，避免出现两条气泡。
+   */
+  appendOptimisticUser(text: string, imageCount: number = 0): void {
+    const item: ConversationItem = {
+      id: 'local-user-' + Date.now().toString(),
+      kind: ConversationItemKind.USER,
+      title: '你',
+      text: text,
+      epochSeconds: Math.floor(Date.now() / 1000)
+    };
+    if (imageCount > 0) {
+      item.imageCount = imageCount;
+    }
+    this.optimisticUsers.push(item);
+    this.publishConversation();
+  }
+
+  /**
+   * 回显到达：本地乐观行就此交棒给真实 user/message 行（对齐小程序 pending adoption）。
+   * 发送是串行的，收到任意用户消息就把队首乐观行消掉，避免文本被网关规范化后出现双气泡。
+   */
+  private adoptOptimisticUser(echoed: string): void {
+    if (this.optimisticUsers.length === 0) {
+      return;
+    }
+    this.optimisticUsers.shift();
+    this.publishConversation();
   }
 
   private publish(): void {

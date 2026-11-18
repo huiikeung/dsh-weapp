@@ -8,6 +8,21 @@ export interface ConversationItem {
   id: string; kind: ConversationItemKind; title: string; text: string;
   images?: Object[]; isError?: boolean; epochSeconds: number; turn?: number;
   files?: PresentedFile[]; knownFiles?: PresentedFile[]; textParts?: GatewayTextPart[]; requestId?: string;
+  /** 工具调用（对齐小程序 tool 行：callId 关联调用与结果，depth 决定子步骤缩进） */
+  callId?: string;
+  parentCallId?: string;
+  rootCallId?: string;
+  subCallId?: string;
+  /** 0 = 顶层工具；>0 = run_code/PTC 派生的子步骤（对齐 .tool-node 缩进与竖线） */
+  depth?: number;
+  /** running | done | error（对齐小程序 tool.status） */
+  status?: string;
+  /** 调用参数原文（展开后的「调用参数」段） */
+  argumentsText?: string;
+  /** 工具结果原文（展开后的「结果」段） */
+  resultText?: string;
+  /** 图片数量（本地乐观回显时没有真实 images 数组，只记数量） */
+  imageCount?: number;
 }
 export interface ConversationProjectionOperation { kind: string; item?: ConversationItem; itemId?: string; delta?: string; epochSeconds?: number; items?: ConversationItem[]; }
 export interface AssistantChunkProjection { time: number; chunk: Object; }
@@ -27,12 +42,15 @@ export class ConversationProjector {
   private sequenceMap: Map<number, SessionEvent> = new Map();
   private streamIndexes: Map<string, number> = new Map();
   private finalizedKeys: Set<string> = new Set();
+  /** callId → 工具行 id / 深度（对齐小程序 agg.byCallId：结果并入工具行、子步骤按 parent 深度缩进） */
+  private toolItemIds: Map<string, string> = new Map();
+  private toolDepths: Map<string, number> = new Map();
   private labels: ConversationProjectionLabels;
   lastSequence: number = -1;
   constructor(labels: ConversationProjectionLabels = {}) { this.labels = labels; }
   get items(): ConversationItem[] { return this.mutableItems.slice(); }
   get hasAssistantChunks(): boolean { return this.streamIndexes.size > 0; }
-  reset(): void { this.mutableItems = []; this.records = []; this.sequenceMap.clear(); this.streamIndexes.clear(); this.finalizedKeys.clear(); this.lastSequence = -1; }
+  reset(): void { this.mutableItems = []; this.records = []; this.sequenceMap.clear(); this.streamIndexes.clear(); this.finalizedKeys.clear(); this.toolItemIds.clear(); this.toolDepths.clear(); this.lastSequence = -1; }
   rebuild(events: SessionEvent[]): void { this.reset(); const sorted = events.slice().sort((a: SessionEvent,b: SessionEvent) => a.seq-b.seq); for (const event of sorted) this.fold(event); }
   fold(record: SessionEvent): ConversationProjectionOperation[] {
     if (!Number.isSafeInteger(record.seq) || record.seq < 0) return [];
@@ -128,9 +146,47 @@ export class ConversationProjector {
       return;
     }
     if(e.type==='tool/call') {
-      const name=e.name??'Tool'; this.insert({id,kind:name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL,title:name,text:e.arguments===undefined?'':JSON.stringify(e.arguments),epochSeconds:date,turn:e.turn},out); return;
+      const name=e.name??'Tool';
+      const argsText=ConversationProjector.argumentsText(e.arguments);
+      const callId=e.callId??'';
+      const item:ConversationItem={id,kind:name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL,title:name,text:argsText,epochSeconds:date,turn:e.turn,callId:callId,argumentsText:argsText,status:'running',depth:0};
+      if(callId.length>0){this.toolItemIds.set(callId,id);this.toolDepths.set(callId,0);}
+      this.insert(item,out); return;
     }
-    if(e.type==='tool/result') { this.insert({id,kind:ConversationItemKind.TOOL_RESULT,title:e.isError===true?(this.labels.toolResultFailed??'Tool failed'):(this.labels.toolResultDone??'Tool result'),text:e.preview??e.outcome??'',isError:e.isError,epochSeconds:date,turn:e.turn},out); return; }
+    if(e.type==='tool/result') {
+      // 结果并入对应工具行（对齐小程序：结果不单独占一行，展开时显示在「结果」段）
+      const callId=e.callId??'';
+      const targetId=callId.length>0?this.toolItemIds.get(callId):undefined;
+      const index=targetId!==undefined?this.mutableItems.findIndex((row:ConversationItem)=>row.id===targetId):-1;
+      const preview=e.preview??e.outcome??'';
+      if(index>=0){
+        const old:ConversationItem=this.mutableItems[index];
+        const next:ConversationItem={id:old.id,kind:old.kind,title:old.title,text:old.text,images:old.images,isError:e.isError===true,epochSeconds:old.epochSeconds,turn:old.turn,callId:old.callId,parentCallId:old.parentCallId,rootCallId:old.rootCallId,subCallId:old.subCallId,depth:old.depth,status:e.isError===true?'error':'done',argumentsText:old.argumentsText,resultText:preview};
+        this.mutableItems[index]=next; out.push({kind:'replace',item:next,itemId:next.id}); return;
+      }
+      this.insert({id,kind:ConversationItemKind.TOOL_RESULT,title:e.isError===true?(this.labels.toolResultFailed??'Tool failed'):(this.labels.toolResultDone??'Tool result'),text:preview,isError:e.isError,epochSeconds:date,turn:e.turn,callId:callId},out); return;
+    }
+    if(e.type==='tool/code-dispatch-start'||e.type==='tool/code-dispatch'||e.type==='tool/ptc-dispatch-start'||e.type==='tool/ptc-dispatch') {
+      // PTC 子步骤：root/parent/sub 三级 callId，深度 = 父步骤深度 + 1（对齐小程序 tool.depth）
+      const subCallId=e.subCallId??'';
+      const parentCallId=e.parentCallId??'';
+      const rootCallId=e.rootCallId??'';
+      const name=e.name??'tool';
+      const argsText=ConversationProjector.argumentsText(e.arguments);
+      const start=e.type==='tool/code-dispatch-start'||e.type==='tool/ptc-dispatch-start';
+      const depth=parentCallId.length>0&&this.toolDepths.has(parentCallId)?(this.toolDepths.get(parentCallId)??0)+1:1;
+      const preview=start?'':(e.preview??'');
+      const existingId=subCallId.length>0?this.toolItemIds.get(subCallId):undefined;
+      const existingIndex=existingId!==undefined?this.mutableItems.findIndex((row:ConversationItem)=>row.id===existingId):-1;
+      if(existingIndex>=0){
+        const old:ConversationItem=this.mutableItems[existingIndex];
+        const next:ConversationItem={id:old.id,kind:old.kind,title:old.title,text:argsText.length>0?argsText:old.text,images:old.images,isError:start?old.isError:(e.isError===true),epochSeconds:old.epochSeconds,turn:old.turn,callId:subCallId,parentCallId:parentCallId,rootCallId:rootCallId,subCallId:subCallId,depth:old.depth,status:start?'running':(e.isError===true?'error':'done'),argumentsText:argsText.length>0?argsText:old.argumentsText,resultText:start?old.resultText:preview};
+        this.mutableItems[existingIndex]=next; out.push({kind:'replace',item:next,itemId:next.id}); return;
+      }
+      const item:ConversationItem={id,kind:name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL,title:name,text:argsText,epochSeconds:date,turn:e.turn,callId:subCallId,parentCallId:parentCallId,rootCallId:rootCallId,subCallId:subCallId,depth:depth,argumentsText:argsText,status:start?'running':(e.isError===true?'error':'done'),resultText:preview};
+      if(subCallId.length>0){this.toolItemIds.set(subCallId,id);this.toolDepths.set(subCallId,depth);}
+      this.insert(item,out); return;
+    }
     if(e.type==='turn/end') { const reason=e.reason??''; const title=reason==='error'||reason==='failed'?(this.labels.generationFailed??'Generation failed'):(['aborted','cancelled','canceled'].indexOf(reason)>=0?(this.labels.generationCancelled??'Generation cancelled'):reason==='interrupted'?(this.labels.interrupted??'Generation interrupted'):''); if(title.length>0) this.insert({id,kind:ConversationItemKind.SYSTEM,title,text:e.error??'',isError:reason==='error'||reason==='failed'||reason==='interrupted',epochSeconds:date,turn:e.turn},out); }
     const ext = asRec(e as Object);
     const extLine: string = ext === undefined ? '' : str(ext, 'line') ?? '';
@@ -158,6 +214,12 @@ export class ConversationProjector {
   private finalize(key:string,item:ConversationItem,out:ConversationProjectionOperation[]):void {
     const index=this.streamIndexes.get(key); if(index===undefined){this.insert(item,out);return;}
     const old=this.mutableItems[index]; const next:ConversationItem={id:old.id,kind:item.kind,title:item.title,text:item.text.length>0?item.text:old.text,images:item.images,isError:item.isError,epochSeconds:item.epochSeconds,turn:item.turn}; this.mutableItems[index]=next;this.streamIndexes.delete(key);out.push({kind:'replace',item:next,itemId:next.id});
+  }
+  /** 工具参数 → 展示文本：对象走 JSON，字符串原样（对齐小程序 argumentsText）。 */
+  private static argumentsText(value:Object|undefined):string{
+    if(value===undefined||value===null){return '';}
+    if(typeof value==='string'){return value as string;}
+    try{return JSON.stringify(value);}catch(err){return '';}
   }
   private static epoch(time:number):number{return time>10000000000?time/1000:time;}
 }

@@ -84,12 +84,16 @@ export class CredentialStore {
     if (this.cached.length > 0 && !this.cached.some((item: SavedGateway) => item.id === this.activeId)) {
       this.activeId = this.cached[0].id;
     }
-    // 双向补齐：任一侧缺失时从另一侧回填，避免重装后两端都为空。
+    // 双向自愈：
+    // - 明文兜底（Preferences）优先；它以旧数据赢下时，用同一份内容覆盖陈旧的加密副本，
+    //   否则「忘记主机」写入的 tombstone 只在兜底里生效，旧 asset 过期后会让老凭据复活。
+    // - 反过来，加密副本是唯一来源时回填明文兜底，保证下次覆盖安装/签名变化仍有一份可读记录。
+    const serialized: string = JSON.stringify(this.cached);
+    if (secureRaw !== serialized) {
+      SecureCredentialStore.write(serialized);
+    }
     if (legacyRaw.length === 0 && secureRaw.length > 0) {
       PreferencesStore.get().putString(KEY, secureRaw);
-    }
-    if (legacyRaw.length > 0 && secureRaw.length === 0) {
-      SecureCredentialStore.write(JSON.stringify(this.cached));
     }
     Logger.info('credentials loaded: count=' + this.cached.length);
   }

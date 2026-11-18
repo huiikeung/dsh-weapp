@@ -309,7 +309,9 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
       break;
     }
     case 'tool/code-dispatch-start':
-    case 'tool/code-dispatch': {
+    case 'tool/code-dispatch':
+    case 'tool/ptc-dispatch-start':
+    case 'tool/ptc-dispatch': {
       ev = {
         type,
         turn: partial.turn,

@@ -201,6 +201,23 @@ export class StatusAppearance {
     return StatusAppearance.sampleAtPhase(id, isDark, ratio);
   }
 
+  /**
+   * 把 #RRGGBB 转成 4x5 颜色矩阵，用于 Image.colorFilter：
+   * 不透明像素统一映射成该颜色（保留 alpha），保证图标显示色 === 采样色。
+   */
+  static filterMatrix(color: string): number[] {
+    const hex: string = color.length === 7 ? color : '#A8BEDB';
+    const r: number = parseInt(hex.substring(1, 3), 16) / 255;
+    const g: number = parseInt(hex.substring(3, 5), 16) / 255;
+    const b: number = parseInt(hex.substring(5, 7), 16) / 255;
+    return [
+      0, 0, 0, 0, r,
+      0, 0, 0, 0, g,
+      0, 0, 0, 0, b,
+      0, 0, 0, 1, 0
+    ];
+  }
+
   private static mix(from: string, to: string, t: number): string {
     const r1: number = parseInt(from.substring(1, 3), 16);
     const g1: number = parseInt(from.substring(3, 5), 16);

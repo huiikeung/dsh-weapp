@@ -1,8 +1,9 @@
 import { PreferencesStore, StatusAppearance } from 'nativecore';
 
+
 /**
- * 鲸尾图标：与对话页运行条同一套实现——60 帧雪碧图逐格平移（50ms/帧），
- * 用 1-R 反相 colorFilter 把线条映射成当前流光色，颜色随 @Prop 一起刷新。
+ * 鲸尾图标：与对话页运行条完全同一套实现——60 帧矢量轮廓 Path 逐帧填充（50ms/帧），
+ * 颜色直接用当前流光色，和运行条同相位、同步变化。
  */
 @Component
 struct WhaleTailIcon {
@@ -11,17 +12,25 @@ struct WhaleTailIcon {
 
   build() {
     Stack() {
-      Image($r('app.media.whale_tail_sprite'))
-        .width(1080)
-        .height(18)
-        .objectFit(ImageFit.Fill)
-        .fillColor(this.color)
-        .translate({ x: -this.frame * 18 })
+      Stack() {
+        Image($r('app.media.whale_tail_sprite'))
+          .width(1080)
+          .height(18)
+          .objectFit(ImageFit.Fill)
+          .translate({ x: -this.frame * 18 })
+        Rect()
+          .width(18)
+          .height(18)
+          .fill(this.color)
+          .blendMode(BlendMode.SRC_ATOP, BlendApplyType.OFFSCREEN)
+      }
+      .width(18)
+      .height(18)
+      .clip(true)
+      .alignContent(Alignment.TopStart)
     }
     .width(18)
     .height(18)
-    .clip(true)
-    .alignContent(Alignment.TopStart)
   }
 }
 
@@ -112,6 +121,22 @@ export struct StatusStylesPage {
     return StatusAppearance.sample(option.id, this.isDark, this.elapsedMs);
   }
 
+  /** 预览文字逐字取色：与运行条同一曲线（左端=鲸尾色，横向展开半个色板）。 */
+  private previewGlyphs(option: StatusStyleOption): string[] {
+    const speedMs: number = StatusAppearance.durationMs(option.id);
+    const total: number = speedMs > 0 ? speedMs : 4000;
+    const base: number = ((this.elapsedMs % total) + total) % total / total;
+    const label: string = '正在思考，用时 12 秒…';
+    const chars: string[] = label.split('');
+    const count: number = chars.length;
+    const out: string[] = [];
+    for (let index = 0; index < count; index++) {
+      const at: number = count > 1 ? (index / count) * 0.5 : 0;
+      out.push(StatusAppearance.sampleAtPhase(option.id, this.isDark, base + at));
+    }
+    return out;
+  }
+
   private textColor(): string {
     return this.isDark ? '#F1F4FA' : '#101318';
   }
@@ -164,12 +189,17 @@ export struct StatusStylesPage {
           frame: this.tailFrame
         })
 
-        Text('正在思考，用时 12 秒…')
-          .fontSize(14)
-          .fontColor(this.colorOf(option))
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .layoutWeight(1)
+        Row() {
+          ForEach(this.previewGlyphs(option), (color: string, index: number) => {
+            Text('正在思考，用时 12 秒…'.charAt(index))
+              .fontSize(14)
+              .fontColor(color)
+              .fontFamily(option.id === 'terminal' ? 'monospace' : 'HarmonyOS Sans')
+          }, (color: string, index: number) => index.toString())
+        }
+        .layoutWeight(1)
+        .clip(true)
+        .alignItems(VerticalAlign.Center)
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)

@@ -10,6 +10,7 @@
  * 由设置页的 @Watch 回调复用既有 applyOptionChoice 逻辑（含偏好持久化与主题应用）。
  */
 
+import { PreferencesStore, WorkStepPresentation } from 'nativecore';
 import { ProcLoaderView } from '../components/ProcLoaderView';
 import { NavBackButton } from '../components/NavBackButton';
 
@@ -175,7 +176,18 @@ export struct PreferencePickerPage {
   }
 
   private choose(option: PickerOption): void {
-    // 交给设置页处理：写入偏好 + 应用主题等既有逻辑
+    // 工作步骤展示/收起时机：二级页里就地落库 + 写 AppStorage，
+    // 这样对话页的 @StorageProp 立刻重排，不依赖返回设置页的 @Watch 是否触发。
+    if (this.kind === 'mode') {
+      const mode: string = WorkStepPresentation.normalizeMode(option.id);
+      PreferencesStore.get().putString(WorkStepPresentation.MODE_KEY, mode);
+      AppStorage.setOrCreate<string>('workStepMode', mode);
+    } else if (this.kind === 'timing') {
+      const timing: string = WorkStepPresentation.normalizeTiming(option.id);
+      PreferencesStore.get().putString(WorkStepPresentation.TIMING_KEY, timing);
+      AppStorage.setOrCreate<string>('workStepTiming', timing);
+    }
+    // 其余偏好仍交给设置页处理（写入偏好 + 应用主题等既有逻辑）
     AppStorage.setOrCreate<string>('prefPickerChoice', this.kind + SEP + option.id);
     this.pageStack.pop();
   }

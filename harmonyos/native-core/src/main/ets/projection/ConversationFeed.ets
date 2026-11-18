@@ -173,6 +173,12 @@ export class ConversationFeedEntry {
   titleWrap: boolean = false;
   /** 回合是否已收工 */
   turnClosed: boolean = false;
+  /** 回合展开时显示的工具次数（对齐小程序 turnProcess.expandedSummary） */
+  expandedSummary: string = '';
+  /** 组内活动命名（回合收拢后组标题回到活动命名） */
+  activityTitle: string = '';
+  /** 可折叠（失败/中断的回合恒展开，对齐小程序 turnProcess.alwaysOpen） */
+  foldable: boolean = true;
 }
 
 const PROCESS_KINDS: string[] = ['CONTEXT', 'REASONING', 'TOOL', 'JSON_TOOL', 'TOOL_RESULT'];
@@ -415,7 +421,8 @@ export class ConversationFeed {
       }
       message.streaming = item.title === ConversationFeed.streamingAssistantTitle;
       message.epochSeconds = item.epochSeconds;
-      message.imageCount = item.images === undefined ? 0 : item.images.length;
+      message.imageCount = item.images === undefined
+        ? (item.imageCount === undefined ? 0 : item.imageCount) : item.images.length;
       message.turnKey = item.turn === undefined ? '' : item.turn.toString();
       groups.push(message);
     }
@@ -469,9 +476,8 @@ export class ConversationFeed {
     if (item.epochSeconds > group.epochSeconds) {
       group.epochSeconds = item.epochSeconds;
     }
-    if (item.isError === true) {
-      group.isError = true;
-    }
+    // 工具失败只影响该步骤（红色「失败」），不把整个过程组标成失败——
+    // 小程序里组标题仍是「已完成」，只有回合真正失败才是红标题。
     const kind: string = item.kind as string;
     if (kind === ConversationItemKind.CONTEXT as string) {
       group.contextCount = group.contextCount + 1;
@@ -515,7 +521,10 @@ export class ConversationFeed {
       entry.expandable = entry.items.length > 0;
       entry.running = false;
       entry.activityKind = kinds.length > 0 ? kinds[0] : (hasCommand ? 'commands' : 'thinking');
-      entry.title = hasCommand && kinds.length === 0 ? ConversationFeed.commandTitle(entry) : ConversationFeed.activityTitle(kinds);
+      entry.activityTitle = hasCommand && kinds.length === 0
+        ? ConversationFeed.commandTitle(entry) : ConversationFeed.activityTitle(kinds);
+      // 顶层组标题按状态命名（对齐小程序：已收工的组统一叫「已完成」）；回合收拢后换回活动命名。
+      entry.title = '已完成';
       if (entry.toolCount > 0) {
         entry.summary = entry.toolCount.toString() + ' 次工具调用';
       }
@@ -556,9 +565,10 @@ export class ConversationFeed {
    * - timing=next-input 时只收拢后面已经出现新用户消息的回合。
    */
   static applyWorkStepPolicy(entries: ConversationFeedEntry[], mode: string, timing: string,
-    expandedIds: string[] = []): void {
+    folds: Map<string, boolean> = new Map<string, boolean>()): void {
     const policy: WorkStepPolicy = WorkStepPresentation.policy(mode);
     const normalizedMode: string = WorkStepPresentation.normalizeMode(mode);
+    const processRunning: boolean = ConversationFeed.hasRunningGroup(entries);
     // 运行中的过程组：liveProcessDetail 开启时标题后追加细节（对齐 DSH ProcessGroupHeader）
     if (policy.liveProcessDetail) {
       for (const entry of entries) {
@@ -577,15 +587,21 @@ export class ConversationFeed {
     const lastGroupIndex: number = groupIndices.length > 0 ? groupIndices[groupIndices.length - 1] : -1;
     // 先按档位处理「回合收工折叠」，再逐组套展示策略（对齐小程序 apply 的两段结构）
     if (policy.foldCompletedTurns) {
-      ConversationFeed.mergeSettledTurn(entries, policy.stepGrouping === 'collapsed', timing === 'next-input');
+      ConversationFeed.mergeSettledTurn(entries, timing === 'next-input');
     }
     for (let index = 0; index < entries.length; index++) {
       const entry: ConversationFeedEntry = entries[index];
       // 回合收拢行：内部各过程组同样要套策略（展开「已完成」时逐组显示）
       if (entry.kind === 'TURN') {
+        // 失败/中断的回合不折叠（对齐小程序 turnProcess.alwaysOpen）
+        entry.foldable = !entry.isError;
+        entry.expanded = entry.foldable ? ConversationFeed.foldOf(folds, entry.id, false) : true;
         for (const child of entry.children) {
+          // 详细档：回合展开时各组默认跟着展开（对齐 openInExpandedTurn），
+          // 用户点过就以用户的折叠状态为准。
           ConversationFeed.applyGroupPolicy(child, policy, normalizedMode, timing, false,
-            ConversationFeed.isExpanded(child.id, expandedIds));
+            ConversationFeed.foldOf(folds, child.id, entry.expanded && policy.stepGrouping === 'history'),
+            entry.expanded, processRunning);
         }
         continue;
       }
@@ -595,17 +611,19 @@ export class ConversationFeed {
       const hasInputAfter: boolean = index < lastUserIndex;
       const deferred: boolean = timing === 'next-input' && !hasInputAfter && index === lastGroupIndex;
       ConversationFeed.applyGroupPolicy(entry, policy, normalizedMode, timing, deferred,
-        ConversationFeed.isExpanded(entry.id, expandedIds));
+        ConversationFeed.foldOf(folds, entry.id, false), false, processRunning);
     }
   }
 
-  private static isExpanded(id: string, expandedIds: string[]): boolean {
-    return expandedIds.indexOf(id) >= 0;
+  private static foldOf(folds: Map<string, boolean>, id: string, fallback: boolean): boolean {
+    const value: boolean | undefined = folds.get(id);
+    return value === undefined ? fallback : value;
   }
 
   /** 单个过程组套展示策略（回合内的子组与顶层组共用同一套规则）。 */
   private static applyGroupPolicy(entry: ConversationFeedEntry, policy: WorkStepPolicy,
-    mode: string, timing: string, deferred: boolean, expanded: boolean): void {
+    mode: string, timing: string, deferred: boolean, expanded: boolean, turnOpen: boolean,
+    processRunning: boolean): void {
     const grouped: boolean = policy.stepGrouping === 'collapsed'
       || (policy.stepGrouping === 'history' && entry.turnClosed && !deferred);
     const verbose: boolean = policy.stepGrouping === 'none';
@@ -613,19 +631,27 @@ export class ConversationFeed {
     const capWhenOpen: boolean = grouped
       || (policy.stepGrouping === 'history' && (entry.running || expanded));
     entry.processGrouped = grouped;
-    // 详细档：回合收工后点开「已完成」时各组默认跟着展开；运行中的过程组恒展开组体
-    entry.processAutoOpen = entry.running
-      || (!grouped && !verbose && policy.stepGrouping === 'history');
+    entry.expanded = expanded;
+    // 只有「对话过程中不分组」的详细档才自动铺开组体（对齐小程序 processAutoOpen = !grouped && !verbose）。
+    // 简洁/标准恒分组：运行中也只留一行组标题（标准带实时细节），点开才看步骤。
+    entry.processAutoOpen = !grouped && !verbose && policy.stepGrouping === 'history';
+    // 完全展开（stepGrouping=none）永不收起：没有组标题，过程直接平铺
     entry.processBodyVisible = verbose || expanded || entry.processAutoOpen;
     entry.processBodyCapped = entry.processBodyVisible ? capWhenOpen : (grouped && timing !== 'next-input');
     entry.liveDetail = policy.liveProcessDetail && entry.running
       ? ConversationFeed.liveDetail(entry) : '';
+    // 简洁档运行中：只留活动组那一行「正在…」，已收工组的标题也收起来
+    entry.headingHidden = verbose || (mode === 'compact' && processRunning && entry.running !== true);
     // 简洁档：组标题不带「N 次工具调用 / N 项上下文」计数后缀
     if (mode === 'compact') {
       entry.summary = ConversationFeed.stripCountParts(entry.summary);
       entry.text = entry.summary;
     }
     entry.titleWrap = mode === 'compact';
+    // 详细档回合收工后：组标题回到活动命名（对齐小程序 insertTurnDisclosures 的 title 覆盖）
+    if (turnOpen && entry.activityTitle.length > 0) {
+      entry.title = entry.activityTitle;
+    }
   }
 
   /** 最后一条用户消息的下标（其后为当前回合） */
@@ -810,7 +836,7 @@ export class ConversationFeed {
   }
 
   /** 回合收工：连续已收工的过程组折叠成一条「已完成」行。 */
-  private static mergeSettledTurn(entries: ConversationFeedEntry[], summaryOnly: boolean = false,
+  private static mergeSettledTurn(entries: ConversationFeedEntry[],
     waitForNextInput: boolean = false): void {
     const merged: ConversationFeedEntry[] = [];
     let index: number = 0;
@@ -847,36 +873,53 @@ export class ConversationFeed {
       const turn: ConversationFeedEntry = new ConversationFeedEntry();
       turn.id = 'turn-' + entry.id;
       turn.kind = 'TURN';
-      turn.title = entry.isError ? '工具执行失败' : '已完成';
+      // 回合行标题沿用最后一个组的状态标题（已完成 / 执行失败），摘要只放用时，
+      // 工具次数挪到展开后的 expandedSummary（对齐小程序 turnProcess 行）。
+      turn.title = run[run.length - 1].title;
       turn.isError = run.some((group: ConversationFeedEntry) => group.isError);
       turn.expandable = run.some((group: ConversationFeedEntry) => group.expandable);
       turn.epochSeconds = run[run.length - 1].epochSeconds;
       turn.turnKey = entry.turnKey;
       let tools: number = 0;
       let contexts: number = 0;
+      let duration: string = '';
+      for (const group of run) {
+        for (const part of group.summary.split(' · ')) {
+          if (part.indexOf('用时 ') === 0) {
+            duration = part;
+          }
+        }
+      }
       for (const group of run) {
         // 这些组所属回合已收工（决定 detailed 档是否折叠成标题）
         group.turnClosed = true;
         turn.childIds.push(group.id);
-        // 简洁档只保留汇总，不挂分段明细
-        if (!summaryOnly) {
-          turn.children.push(group);
+        // 回合内各组：标题回到活动命名，摘要去掉用时（用时归回合行）。
+        // 四档都保留这些组：收起「已完成」时整轮折成一行，展开后逐组显示。
+        if (group.activityTitle.length > 0) {
+          group.title = group.activityTitle;
         }
+        const kept: string[] = [];
+        for (const part of group.summary.split(' · ')) {
+          if (part.length > 0 && part.indexOf('用时 ') !== 0) {
+            kept.push(part);
+          }
+        }
+        if (kept.length === 0 && group.toolCount > 0) {
+          kept.push(group.toolCount.toString() + ' 次工具调用');
+        }
+        group.summary = kept.join(' · ');
+        group.text = group.summary;
+        turn.children.push(group);
         tools = tools + group.toolCount;
         contexts = contexts + group.contextCount;
         turn.items = turn.items.concat(group.items);
       }
       turn.toolCount = tools;
       turn.contextCount = contexts;
-      let summary: string = '';
-      if (tools > 0) {
-        summary = tools.toString() + ' 次工具调用';
-      }
-      if (contexts > 0) {
-        summary = summary.length > 0 ? summary + ' · ' + contexts.toString() + ' 项上下文' : contexts.toString() + ' 项上下文';
-      }
-      turn.summary = summary;
-      turn.text = summary;
+      turn.summary = duration;
+      turn.expandedSummary = tools > 0 ? tools.toString() + ' 次工具调用' : '';
+      turn.text = duration;
       merged.push(turn);
       index = scan;
     }
