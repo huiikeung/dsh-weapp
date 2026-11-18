@@ -48,3 +48,10 @@ harmonyos/third_party/
 harmonyos/native-app/entry/libs/
 # Local agent ops state
 .dsh-ops/
+
+# 鸿蒙本机崩溃转储（运行期产生，不入库）
+harmonyos/native-app/Crash_*.dmp
+# Tailscale 本地桩源码（Go 库缺失时的编译回退）
+harmonyos/native-app/entry/src/main/cpp/libtailscale_stub/
+# shell 误建的 Windows 环境变量目录
+/%SystemDrive%/
