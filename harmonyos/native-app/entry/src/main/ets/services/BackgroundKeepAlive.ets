@@ -19,7 +19,7 @@ export class BackgroundKeepAlive {
     BackgroundKeepAlive.context = context;
     try {
       const info: wantAgent.WantAgentInfo = {
-        wants: [{ bundleName: 'com.whaletail.app', abilityName: 'EntryAbility' }],
+        wants: [{ bundleName: context.abilityInfo.bundleName, abilityName: context.abilityInfo.name }],
         actionType: wantAgent.OperationType.START_ABILITY,
         requestCode: 0,
         actionFlags: [wantAgent.WantAgentFlags.UPDATE_PRESENT_FLAG]
