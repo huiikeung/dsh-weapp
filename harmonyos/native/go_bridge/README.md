@@ -22,6 +22,19 @@
 
 ## 一次性准备
 
+新机器一条命令（幂等；已就绪时只做校验，不联网、不改动）：
+
+```bash
+scripts/prepare-tailscale-engine.sh           # 克隆 go-ohos / tailscale 并打补丁
+scripts/prepare-tailscale-engine.sh --build   # 准备好后直接构建 libtailscale_go.so
+scripts/prepare-tailscale-engine.sh --check   # 只读校验（工具链身份 / 版本 / 补丁数 / 22 个 sha256）
+```
+
+需要 bootstrap 时用 `OFFICIAL_GO_ROOT=<官方 go1.27.3 根目录>` 指定官方 Go；脚本也会自动探测
+`D:/Other/P-Program/_ts-build/go1.27.3/go`、`$HOME/sdk/go1.27.3`、`/usr/local/go`。
+
+手动等价步骤：
+
 1. 官方 Go 1.27.3（仅用于 bootstrap 工具链）：解压到任意目录。
 2. OpenHarmony Go 工具链：
 
