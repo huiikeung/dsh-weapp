@@ -1,5 +1,6 @@
 import { PreferencesStore, Logger, GatewayClient } from 'nativecore';
 import { common } from '@kit.AbilityKit';
+import { fileIo } from '@kit.CoreFileKit';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { TsnetBridge } from './TsnetBridge';
 
@@ -24,6 +25,8 @@ export class TailscaleTunnelStore {
   private fastDebugLogged: boolean = false;
   private fastTicks: number = 0;
   private warmInited: boolean = false;
+  private fastNoStateTicks: number = 0;
+  private fastRecovered: boolean = false;
   private lastWarmAt: number = 0;
   private stateDir: string = '';
   private autoOpenOnce: boolean = false;
@@ -74,6 +77,10 @@ export class TailscaleTunnelStore {
   }
 
   private ensureStarted(enabled: boolean): void {
+    // 有 Auth Key 时只跑轻量 tsnet 引擎，避免 tsd 引擎的 needsLogin 状态干扰 UI
+    if (PreferencesStore.get().getString('tsnetAuthKey', '').trim().length > 0) {
+      return;
+    }
     if (!enabled || this.started) {
       return;
     }
@@ -107,12 +114,17 @@ export class TailscaleTunnelStore {
 
   /** 用新的 authKey 重启轻量引擎 */
   reloadFast(): void {
-    TsnetBridge.stopFast();
-    this.fastStarted = false;
-    this.fastWasReady = false;
-    this.fastDebugLogged = false;
-    this.ensureFastStarted(true);
-    this.publish();
+    // 放到下一个事件循环执行，避免 NAPI 停止引擎时阻塞 UI 线程
+    setTimeout(() => {
+      TsnetBridge.stopFast();
+      this.fastStarted = false;
+      this.fastWasReady = false;
+      this.fastDebugLogged = false;
+      this.fastNoStateTicks = 0;
+      this.fastRecovered = false;
+      this.ensureFastStarted(true);
+      this.publish();
+    }, 0);
   }
 
   /** 回到前台立即刷新一次；引擎异常时允许重新启动 */
@@ -246,6 +258,28 @@ export class TailscaleTunnelStore {
       if (this.fastTicks % 5 === 1) {
         Logger.info('TSDBG fast=' + fastStat.substring(0, 200));
       }
+      // 引擎卡在 NoState（未启动）超过 15 秒：自动重启一次，并输出 tsnet 调试日志
+      if (fastStat.indexOf('state=NoState') >= 0) {
+        this.fastNoStateTicks += 1;
+        if (this.fastNoStateTicks === 8 && !this.fastRecovered) {
+          this.fastRecovered = true;
+          Logger.warn('TSDBG fast stuck NoState, restarting engine');
+          Logger.info('TSDBG fastLog=' + TsnetBridge.debugFast().replaceAll('\n', ' ~ ').substring(0, 700));
+          TsnetBridge.stopFast();
+          // 状态文件可能由旧版本引擎写入导致无法启动：清掉后重新注册
+          try {
+            fileIo.rmdirSync(this.stateDir + '/tsnet-node');
+            Logger.warn('TSDBG cleared tsnet state dir');
+          } catch (clearErr) {
+            Logger.warn('TSDBG clear state failed: ' + (clearErr as Error).message);
+          }
+          this.fastStarted = false;
+          this.fastWasReady = false;
+          this.ensureFastStarted(true);
+        }
+      } else {
+        this.fastNoStateTicks = 0;
+      }
       if (fastStat.indexOf('state=Running') >= 0) {
         if (!this.fastWasReady) {
           this.fastWasReady = true;
@@ -284,7 +318,8 @@ export class TailscaleTunnelStore {
       }
     }
     const rawStatus: string = TsnetBridge.status();
-    const stageNow: string = this.stageOf(rawStatus);
+    // 轻量 tsnet 引擎就绪时以它为准（tsd 引擎在新包下可能仍是 needsLogin 的旧状态）
+    const stageNow: string = this.fastWasReady ? TS_STAGE_READY : this.stageOf(rawStatus);
     if (stageNow !== previousStage) {
       const phaseIndex: number = rawStatus.indexOf('phase=');
       const phase: string = phaseIndex >= 0 ? rawStatus.substring(phaseIndex) : 'phase=none';

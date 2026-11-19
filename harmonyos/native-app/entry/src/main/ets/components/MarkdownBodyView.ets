@@ -251,16 +251,16 @@ export struct MarkdownBodyView {
       .width('100%')
       .margin({ top: 8, bottom: 4 })
     } else if (block.kind === 'quote') {
-      Row({ space: 8 }) {
-        Divider().vertical(true).strokeWidth(2.5).color(this.quoteBorderColor())
-        Column() {
-          this.inline(block.spans, this.quoteSize(), this.secondaryColor(),
-            FontWeight.Normal, this.quoteSize() + 9)
-        }
-        .layoutWeight(1)
+      // 引用块：左侧竖线用 border-left 画，高度跟随文字。
+      // 之前用 Divider().vertical(true)：竖向 Divider 会撑满父容器高度，
+      // 在列表里就变成贯穿整屏的长线（文字下面空一大截）。
+      Column() {
+        this.inline(block.spans, this.quoteSize(), this.secondaryColor(),
+          FontWeight.Normal, this.quoteSize() + 9)
       }
       .width('100%')
-      .alignItems(VerticalAlign.Top)
+      .padding({ left: 10 })
+      .border({ width: { left: 2.5 }, color: this.quoteBorderColor() })
       .margin({ top: 4, bottom: 6 })
     } else if (block.kind === 'list') {
       Row({ space: 6 }) {

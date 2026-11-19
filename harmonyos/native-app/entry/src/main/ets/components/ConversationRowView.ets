@@ -23,6 +23,8 @@ const KIND_PROCESS: string = 'PROCESS';
 const KIND_TURN: string = 'TURN';
 const KIND_STATUS: string = 'STATUS';
 const KIND_SYSTEM: string = 'SYSTEM';
+const KIND_CHANGES: string = 'CHANGES';
+const KIND_FILES: string = 'FILES';
 
 @Component
 export struct ConversationRowView {
@@ -59,6 +61,20 @@ export struct ConversationRowView {
   /** 已展开的步骤行 id（会话页统一持有；用数组而不是 Map 传参——Map 传参会崩） */
   @Prop stepOpenIds: string[] = [];
   onToggleStep: (id: string) => void = () => {};
+  /** 本条消息图片的本地路径（会话页预取后下传，顺序即展示顺序） */
+  @Prop imagePaths: string[] = [];
+  /** 点击缩略图：会话页打开全屏预览 */
+  onImageTap: (path: string) => void = () => {};
+  /** 文件附件 chip（编码：kind\u0001name\u0001path\u0001attachmentId\u0001mediaType） */
+  @Prop attachmentChips: string[] = [];
+  /** 点击文件附件：会话页下载并预览 */
+  onAttachmentTap: (name: string, path: string, mediaType: string) => void = () => {};
+  /** 已编辑 / 交付文件卡片（编码：path\u0001name\u0001added\u0001deleted\u0001status） */
+  @Prop fileCards: string[] = [];
+  /** 点击文件卡片：会话页弹窗显示差异 / 内容 */
+  onFileTap: (name: string, path: string, index: number, hasCounts: boolean) => void = () => {};
+  /** 文件列表是否展开（超过 4 个时） */
+  @State filesExpanded: boolean = false;
 
   /** 步骤是否展开 */
   private stepOpen(id: string): boolean {
@@ -248,6 +264,330 @@ export struct ConversationRowView {
     .alignSelf(alignEnd ? ItemAlign.End : ItemAlign.Start)
   }
 
+  /** 十六进制色 → 4x5 颜色矩阵（给 SVG 图标上色） */
+  private tintMatrix(color: string): number[] {
+    const hex: string = color.length === 7 ? color : '#101318';
+    const red: number = parseInt(hex.substring(1, 3), 16) / 255;
+    const green: number = parseInt(hex.substring(3, 5), 16) / 255;
+    const blue: number = parseInt(hex.substring(5, 7), 16) / 255;
+    return [
+      0, 0, 0, 0, red,
+      0, 0, 0, 0, green,
+      0, 0, 0, 0, blue,
+      0, 0, 0, 1, 0
+    ];
+  }
+
+  // ==================== 已编辑 / 交付文件 ====================
+  private filePart(chip: string, index: number): string {
+    const parts: string[] = chip.split('\u0001');
+    return index < parts.length ? parts[index] : '';
+  }
+
+  /** 单个文件 chip 的字段（编码：path\u0001name\u0001display\u0001added\u0001deleted\u0001hasCounts\u0001statusNote） */
+  private fileAt(chip: string, index: number): string {
+    const parts: string[] = chip.split('\u0001');
+    return index < parts.length ? parts[index] : '';
+  }
+
+  /** 文件图标按扩展名分类（对齐小程序 file-deliverables.describe 的 icon） */
+  private fileIcon(chip: string): Resource {
+    const path: string = this.fileAt(chip, 0).length > 0 ? this.fileAt(chip, 0) : this.fileAt(chip, 2);
+    const base: string = path.replace(/\\/g, '/').split('/').pop() ?? '';
+    const dot: number = base.lastIndexOf('.');
+    const ext: string = dot > 0 ? base.substring(dot + 1).toLowerCase() : '';
+    if (/^(png|jpe?g|gif|webp|bmp)$/.test(ext)) {
+      return $r('app.media.deliverable_image');
+    }
+    if (ext === 'pdf') {
+      return $r('app.media.deliverable_pdf');
+    }
+    if (/^(docx?|md|markdown|txt)$/.test(ext)) {
+      return $r('app.media.deliverable_document');
+    }
+    if (/^(xlsx?|csv)$/.test(ext)) {
+      return $r('app.media.deliverable_table');
+    }
+    if (/^pptx?$/.test(ext)) {
+      return $r('app.media.deliverable_slides');
+    }
+    if (/^(md|markdown|txt|html?|css|wxss|wxml|wxs|vue|svelte|scss|less|js|jsx|mjs|cjs|ts|tsx|json|jsonl|csv|log|ya?ml|xml|svg|py|sh|sql|swift|kt|java|c|h|cpp|rs|go|toml|ini)$/.test(ext)) {
+      return $r('app.media.deliverable_code');
+    }
+    return $r('app.media.deliverable_file');
+  }
+
+  private surfaces(): string {
+    return this.isDark ? '#1C1C1E' : '#FFFFFF';
+  }
+
+  private borderStrongColor(): string {
+    return this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.12)';
+  }
+
+  private dividerLineColor(): string {
+    return this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)';
+  }
+
+  private addedColor(): string {
+    return this.isDark ? '#39C975' : '#138547';
+  }
+
+  private deletedColor(): string {
+    return this.isDark ? '#FF6B70' : '#CE3439';
+  }
+
+  /** 卡片标题：单文件「已编辑 xxx.ets」，多文件「已编辑 N 个文件」（对齐小程序 decorateChanges） */
+  private filesTitle(): string {
+    if (this.fileCards.length === 1) {
+      return '已编辑 ' + this.fileAt(this.fileCards[0], 1);
+    }
+    return '已编辑 ' + this.fileCards.length.toString() + ' 个文件';
+  }
+
+  private filesAdded(): number {
+    let sum: number = 0;
+    for (const chip of this.fileCards) {
+      const value: number = Number(this.fileAt(chip, 3));
+      if (!isNaN(value)) {
+        sum += value;
+      }
+    }
+    return sum;
+  }
+
+  private filesDeleted(): number {
+    let sum: number = 0;
+    for (const chip of this.fileCards) {
+      const value: number = Number(this.fileAt(chip, 4));
+      if (!isNaN(value)) {
+        sum += value;
+      }
+    }
+    return sum;
+  }
+
+  /**
+   * 已编辑 / 交付文件卡片，逐项对齐小程序：
+   * .file-card-wrap > .changed-files（1rpx 描边 / 24rpx 圆角 / var(--surface)）
+   *   .changed-files-head（padding 20rpx / gap 18rpx / min-height 84rpx）
+   *     .delivered-file-icon（64×68rpx / 16rpx 圆角 / 灰底 / 1rpx 描边 / 内部 40×46rpx）
+   *     .delivered-file-name（28rpx / 500）+ .changed-counts（24rpx，+绿 −红）
+   *   .changed-file-list（上边框）> .changed-file-row（min-height 88rpx / padding 14rpx 24rpx / gap 16rpx）
+   *     .changed-file-icon（30×36rpx）+ 名称 26rpx + 路径 22rpx + 每行 +N −N
+   *   超过 4 个显示「显示全部文件 (N)」。
+   */
+  @Builder
+  filesCard() {
+    if (this.fileCards.length > 0) {
+      Column() {
+        Column() {
+          Row({ space: this.rpx(18) }) {
+            Stack({ alignContent: Alignment.Center }) {
+              Image(this.fileCards.length === 1 ? this.fileIcon(this.fileCards[0]) : $r('app.media.deliverable_code'))
+                .width(this.rpx(40))
+                .height(this.rpx(46))
+                .objectFit(ImageFit.Contain)
+            }
+            .width(this.rpx(64))
+            .height(this.rpx(68))
+            .borderRadius(this.rpx(16))
+            .backgroundColor('rgba(128,128,128,0.08)')
+            .border({ width: 1, color: this.dividerLineColor() })
+
+            Column({ space: this.rpx(6) }) {
+              Text(this.filesTitle())
+                .fontSize(this.rpx(28))
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.primaryText())
+                .maxLines(2)
+              if (this.fileCards.length === 1 && this.fileAt(this.fileCards[0], 6).length > 0) {
+                Text(this.fileAt(this.fileCards[0], 6))
+                  .fontSize(this.rpx(23))
+                  .fontColor(this.secondaryText())
+                  .maxLines(2)
+              } else if (this.entry.kind === KIND_CHANGES) {
+                Row({ space: this.rpx(14) }) {
+                  Text('+' + this.filesAdded().toString())
+                    .fontSize(this.rpx(24))
+                    .fontColor(this.addedColor())
+                  Text('−' + this.filesDeleted().toString())
+                    .fontSize(this.rpx(24))
+                    .fontColor(this.deletedColor())
+                }
+              } else {
+                Text(this.fileAt(this.fileCards[0], 2))
+                  .fontSize(this.rpx(23))
+                  .fontColor(this.secondaryText())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+              }
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+          }
+          .width('100%')
+          .constraintSize({ minHeight: this.rpx(84) })
+          .padding(this.rpx(20))
+          .onClick(() => {
+            this.onFileTap(this.fileAt(this.fileCards[0], 1), this.fileAt(this.fileCards[0], 0), 0,
+              this.fileAt(this.fileCards[0], 5) === '1');
+          })
+
+          if (this.fileCards.length > 1) {
+            Column() {
+              ForEach(this.fileCards.slice(0, this.filesExpanded ? this.fileCards.length : 4),
+                (chip: string, index: number) => {
+                  Row({ space: this.rpx(16) }) {
+                    Image(this.fileIcon(chip))
+                      .width(this.rpx(30))
+                      .height(this.rpx(36))
+                      .objectFit(ImageFit.Contain)
+                    Column({ space: this.rpx(4) }) {
+                      Text(this.fileAt(chip, 1))
+                        .fontSize(this.rpx(26))
+                        .lineHeight(this.rpx(26) * 1.5)
+                        .fontColor(this.primaryText())
+                        .maxLines(2)
+                      Text(this.fileAt(chip, 2))
+                        .fontSize(this.rpx(22))
+                        .fontColor(this.secondaryText())
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    }
+                    .layoutWeight(1)
+                    .alignItems(HorizontalAlign.Start)
+                    if (this.fileAt(chip, 5) === '1') {
+                      Row({ space: this.rpx(14) }) {
+                        Text('+' + this.fileAt(chip, 3))
+                          .fontSize(this.rpx(24))
+                          .fontColor(this.addedColor())
+                        Text('−' + this.fileAt(chip, 4))
+                          .fontSize(this.rpx(24))
+                          .fontColor(this.deletedColor())
+                      }
+                    }
+                  }
+                  .width('100%')
+                  .constraintSize({ minHeight: this.rpx(88) })
+                  .padding({ left: this.rpx(24), right: this.rpx(24), top: this.rpx(14), bottom: this.rpx(14) })
+                  .onClick(() => {
+                    this.onFileTap(this.fileAt(chip, 1), this.fileAt(chip, 0), index,
+                      this.fileAt(chip, 5) === '1');
+                  })
+                }, (chip: string) => chip)
+            }
+            .width('100%')
+            .border({ width: { top: 1 }, color: this.dividerLineColor() })
+          }
+
+          if (this.fileCards.length > 4) {
+            Text(this.filesExpanded ? '收起' : '显示全部文件 (' + this.fileCards.length.toString() + ')')
+              .fontSize(this.rpx(24))
+              .fontColor(this.secondaryText())
+              .width('100%')
+              .textAlign(TextAlign.Center)
+              .padding(this.rpx(16))
+              .onClick(() => {
+                this.filesExpanded = !this.filesExpanded;
+              })
+          }
+        }
+        .width('100%')
+        .border({ width: 1, color: this.borderStrongColor() })
+        .borderRadius(this.rpx(24))
+        .backgroundColor(this.surfaces())
+        .clip(true)
+      }
+      .width('100%')
+      .alignItems(HorizontalAlign.Start)
+    }
+  }
+
+  // ==================== 文件附件 ====================
+  /** 文件附件 chip 列表（对齐小程序 .message-attachment：胶囊 + 图标 + 文件名） */
+  @Builder
+  attachmentList(alignEnd: boolean) {
+    if (this.attachmentChips.length > 0) {
+      Column({ space: this.rpx(16) }) {
+        ForEach(this.attachmentChips, (chip: string) => {
+          Row({ space: this.rpx(14) }) {
+            Image(chip.startsWith('directory')
+              ? $r('app.media.deliverable_document')
+              : (this.entry.kind === KIND_ASSISTANT ? $r('app.media.deliverable_code') : $r('app.media.deliverable_document')))
+              .width(this.rpx(34))
+              .height(this.rpx(34))
+              .objectFit(ImageFit.Contain)
+              .colorFilter(this.tintMatrix(this.primaryText()))
+            Text(this.attachmentName(chip))
+              .fontSize(this.rpx(26))
+              .fontColor(this.primaryText())
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .constraintSize({ maxWidth: this.rpx(440) })
+          }
+          .constraintSize({ minHeight: this.rpx(72) })
+          .padding({ left: this.rpx(30), right: this.rpx(30), top: this.rpx(12), bottom: this.rpx(12) })
+          .borderRadius(this.rpx(999))
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)')
+          .onClick(() => {
+            this.onAttachmentTap(this.attachmentName(chip), this.attachmentPath(chip), this.attachmentMediaType(chip));
+          })
+        }, (chip: string) => chip)
+      }
+      .width('100%')
+      .alignItems(alignEnd ? HorizontalAlign.End : HorizontalAlign.Start)
+      .margin({ top: this.rpx(12) })
+    }
+  }
+
+  private attachmentName(chip: string): string {
+    const parts: string[] = chip.split('\u0001');
+    return parts.length > 1 ? parts[1] : chip;
+  }
+
+  private attachmentPath(chip: string): string {
+    const parts: string[] = chip.split('\u0001');
+    return parts.length > 2 ? parts[2] : '';
+  }
+
+  private attachmentMediaType(chip: string): string {
+    const parts: string[] = chip.split('\u0001');
+    return parts.length > 4 ? parts[4] : '';
+  }
+
+  // ==================== 图片附件 ====================
+  /** 图片缩略图（单张按 4:3 大图，多张 96rpx 网格；对齐小程序 attach-grid / user-image-one） */
+  @Builder
+  imageGrid() {
+    if (this.imagePaths.length === 1) {
+      Image('file://' + this.imagePaths[0])
+        .width(this.rpx(560))
+        .height(this.rpx(420))
+        .objectFit(ImageFit.Cover)
+        .borderRadius(this.rpx(20))
+        .margin({ top: this.rpx(12) })
+        .onClick(() => {
+          this.onImageTap(this.imagePaths[0]);
+        })
+    } else if (this.imagePaths.length > 1) {
+      Flex({ wrap: FlexWrap.Wrap }) {
+        ForEach(this.imagePaths, (path: string) => {
+          Image('file://' + path)
+            .width(this.rpx(180))
+            .height(this.rpx(180))
+            .objectFit(ImageFit.Cover)
+            .borderRadius(this.rpx(16))
+            .margin({ right: this.rpx(10), top: this.rpx(10) })
+            .onClick(() => {
+              this.onImageTap(path);
+            })
+        }, (path: string) => path)
+      }
+      .margin({ top: this.rpx(2) })
+    }
+  }
+
   // ==================== USER ====================
   /** 用户消息（对齐小程序 .row-user / .row-user-bubble / .row-user-text） */
   @Builder
@@ -261,7 +601,9 @@ export struct ConversationRowView {
             .lineHeight(this.contentSize() * 1.45)
             .fontColor(this.primaryText())
         }
-        if (this.entry.imageCount > 0) {
+        this.imageGrid()
+        this.attachmentList(true)
+        if (this.entry.imageCount > 0 && this.imagePaths.length === 0) {
           Text('图片 × ' + this.entry.imageCount.toString())
             .fontSize(11.73)
             .fontColor(this.secondaryText())
@@ -317,6 +659,8 @@ export struct ConversationRowView {
         // 只有错误态覆盖成红色；正常正文由组件自己跟随实时主题
         textColor: this.entry.isError ? DANGER : ''
       })
+      this.imageGrid()
+      this.attachmentList(false)
       if (this.entry.footerVisible) {
         // .turn-footer：gap 14rpx、padding 4rpx 0；左组 gap 10rpx
         Row() {
@@ -864,21 +1208,27 @@ export struct ConversationRowView {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
       } else if ((item.kind as string) === 'CONTEXT') {
-        Text(item.title.length > 0 ? item.title : '上下文')
-          .fontSize(13.2)
-          .fontColor(this.secondaryText())
-          .flexShrink(0)
-          .constraintSize({ maxWidth: '46%' })
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-        if (this.stepDetail(item).length > 0) {
-          Text(ConversationFeed.preview(this.stepDetail(item), 72))
+        // 上下文注入行：标题就是「上下文注入 · <来源>」（如 dsh-ops：step-tail）。
+        // 之前给它限制 46% 宽 + 单行省略，来源名稍长就变成「dsh-...」，
+        // 现在标题独占剩余宽度并可折两行，注入内容预览挪到第二行。
+        Column({ space: this.rpx(2) }) {
+          Text(item.title.length > 0 ? item.title : '上下文')
             .fontSize(13.2)
             .fontColor(this.secondaryText())
-            .layoutWeight(1)
-            .maxLines(1)
+            .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+          if (this.stepDetail(item).length > 0) {
+            Text(ConversationFeed.preview(this.stepDetail(item), 72))
+              .fontSize(12)
+              .fontColor(this.tertiaryText())
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+          }
         }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
       } else if ((item.kind as string) === 'STATUS') {
         Text(ConversationFeed.collapse(item.title + ' ' + item.text))
           .fontSize(13.2)
@@ -1171,6 +1521,8 @@ export struct ConversationRowView {
         this.turnRow()
       } else if (this.entry.kind === KIND_PROCESS) {
         this.processRow()
+      } else if (this.entry.kind === KIND_CHANGES || this.entry.kind === KIND_FILES) {
+        this.filesCard()
       } else if (this.entry.kind === KIND_STATUS) {
         this.statusRow()
       } else {

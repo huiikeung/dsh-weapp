@@ -10,7 +10,7 @@
  */
 
 import {
-  GatewayEvent, GatewayFrame, GatewayImageAttachment, RawSessionEvent,
+  GatewayEvent, GatewayFileAttachment, GatewayFrame, GatewayImageAttachment, GatewayPresentedFile, RawSessionEvent,
   SessionEvent, ToolCall, ToolDelta, FinishInfo
 } from './GatewayDtos';
 
@@ -163,6 +163,34 @@ function imageBlocks(value: Object | undefined): GatewayImageAttachment[] {
   return out;
 }
 
+/** 文件附件块：type='file' 的 content 块（对齐小程序 item.attachments）。 */
+function fileBlocks(value: Object | undefined): GatewayFileAttachment[] {
+  const list = Array.isArray(value) ? (value as Object[]) : (arr(value, 'content') ?? []);
+  const out: GatewayFileAttachment[] = [];
+  for (const block of list) {
+    if (str(block, 'type') !== 'file') {
+      continue;
+    }
+    const attachment = asRec(field(block, 'attachment'));
+    if (attachment === undefined) {
+      continue;
+    }
+    const name: string | undefined = str(attachment, 'name') ?? str(attachment, 'path');
+    if (name === undefined) {
+      continue;
+    }
+    out.push({
+      attachmentId: str(attachment, 'attachmentId'),
+      name: name,
+      path: str(attachment, 'path'),
+      mediaType: str(attachment, 'mediaType'),
+      bytes: num(attachment, 'bytes'),
+      kind: str(attachment, 'kind')
+    });
+  }
+  return out;
+}
+
 function toolResultText(message: Object | undefined): string {
   const content = arr(message, 'content') ?? [];
   const parts: string[] = [];
@@ -208,6 +236,7 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
         text: joinTextBlocks(field(data, 'content')),
         source: normalizeEventSource(field(asRec(field(data, 'source')), 'kind')),
         images: imageBlocks(field(data, 'content')),
+        attachments: fileBlocks(field(data, 'content')),
         raw: data
       };
       break;
@@ -267,6 +296,7 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
         reasoning,
         toolCalls,
         images,
+        attachments: content !== undefined ? fileBlocks(content) : fileBlocks(field(data, 'message')),
         usage: field(asRec(field(data, 'message')), 'usage') ?? field(data, 'usage'),
         interrupted,
         stream: field(data, 'stream'),
@@ -304,6 +334,44 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
         callId: str(asRec(field(message, 'source')), 'callId'),
         isError,
         preview: toolResultText(message),
+        appendOrigin: bool(data, 'appendOrigin') === true,
+        mutationPath: str(data, 'mutationPath'),
+        raw: data
+      };
+      break;
+    }
+    case 'workspace/changes': {
+      ev = {
+        type,
+        turn: partial.turn,
+        step: partial.step,
+        valid: bool(data, 'valid') !== false,
+        raw: data
+      };
+      break;
+    }
+    case 'deliverables/presented': {
+      const files = arr(data, 'files') ?? [];
+      const presented: GatewayPresentedFile[] = [];
+      for (const file of files) {
+        const path: string | undefined = str(file, 'path');
+        if (path === undefined || path.length === 0) {
+          continue;
+        }
+        presented.push({
+          path: path,
+          name: str(file, 'name'),
+          added: num(file, 'added'),
+          deleted: num(file, 'deleted'),
+          status: str(file, 'status'),
+          index: num(file, 'index')
+        });
+      }
+      ev = {
+        type,
+        turn: partial.turn,
+        step: partial.step,
+        presentedFiles: presented,
         raw: data
       };
       break;

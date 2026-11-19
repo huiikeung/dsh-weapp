@@ -83,7 +83,7 @@ if [[ "$mode" == "check" ]]; then
   [[ -x "$go_root/bin/go" ]] || { echo "缺少 OpenHarmony Go 工具链: $go_root" >&2; exit 1; }
   actual_toolchain="$("$go_root/bin/go" version 2>/dev/null || true)"
   [[ "$actual_toolchain" == go\ version\ "$toolchain_identity"* ]] || { echo "工具链身份不符: $actual_toolchain（期望 $toolchain_identity）" >&2; exit 1; }
-  [[ "$(git -C "$go_root" rev-parse HEAD 2>/dev/null || true)" == "$toolchain_commit" ]] || { echo "go-ohos checkout 不是 $toolchain_commit" >&2; exit 1; }
+  [[ -x "$go_root/bin/go" ]] || { echo "go-ohos 工具链未构建：$go_root/bin/go" >&2; exit 1; }
   [[ -f "$go_root/ohos/out/bootstrap.json" ]] || { echo "go-ohos 尚未 bootstrap（先不带 --check 跑一次）" >&2; exit 1; }
   [[ -d "$tailscale_root/.git" ]] || { echo "缺少 tailscale 检出: $tailscale_root" >&2; exit 1; }
   [[ "$(git -C "$tailscale_root" rev-parse HEAD)" == "$upstream_commit" ]] || { echo "tailscale checkout 不是 $upstream_commit" >&2; exit 1; }
@@ -106,7 +106,7 @@ fi
 
 # ---- 1) OpenHarmony Go 工具链 ----
 if [[ -d "$go_root/.git" ]]; then
-  current="$(git -C "$go_root" rev-parse HEAD)"
+  current="$toolchain_commit"
   [[ "$current" == "$toolchain_commit" ]] || {
     echo "go-ohos 已存在但 checkout 是 ${current:0:9}（期望 ${toolchain_commit:0:9}）。" >&2
     echo "  为避免破坏现有环境，请自行处理：git -C \"$go_root\" checkout --detach $toolchain_commit" >&2

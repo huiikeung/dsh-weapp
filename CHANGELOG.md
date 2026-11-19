@@ -1,5 +1,15 @@
 # 更新记录
 
+## v0.9.136 — 2026-11-20
+
+- 对话页补齐消息附件回显（对齐小程序 `message-attachments` / `attach-grid`）：用户发送与助手回复里的图片按 `attachment` 帧按需拉取并缓存（新增 `AttachmentImageCache`），行内渲染缩略图，点击进全屏预览；`type='file'` 的内容块渲染成文件 chip，点击打开文件差异 / 内容弹窗。
+- 回合「已编辑 / 交付文件」卡片：投影层新增 `CHANGES` / `FILES` 行，同一回合内按 path 合并去重；页面按 `changeSeq` 拉 `workspace-changes-summary` 与 `workspace-changes-diff`（最多 2 并发、按行缓存），卡片显示 `+N / −N` 与状态补充，点击查看逐行差异（首字符 +/-/空格 决定配色）。
+- 过程组行不再挂「用时 X」：用时收进 `durationText`，只由回合折叠行（「已完成」）显示，过程组行回到「N 次工具调用 · N 项上下文」。
+- 会话「⋯」菜单补齐：菜单项图标换成与小程序同款的 PNG 资源（归档 / 文件夹 / 仪表 / 风车 / 加号 / 重命名 / 滑块 / 停止），展开时按钮显示与「协作」一致的高亮底。
+- 网关：新增 `attachment`、`workspace-changes-summary`、`workspace-changes-diff` 三类请求；`GatewayPresentedFile` / `GatewayFileAttachment` / `GatewayImageAttachment` 数据结构与帧编解码补齐。
+- Tailscale 引擎：`libtailscale_go.so` 从 47 MB 降到 24 MB（裁剪构建），`prepare-tailscale-engine.sh` 与 `go_bridge` 依赖同步更新。
+- 鸿蒙 App 版本 1.0.19（versionCode 1000018）。
+
 ## v0.9.135 — 2026-11-19
 
 - 对话正文改为真正的 Markdown 富文本（对齐小程序 `utils/markdown.js` + `.md-*` 样式）：粗体、斜体、行内代码（等宽 + `--fill` 底色 + 圆角）、链接（主色下划线）、标题 h1–h6 加粗分级、引用（次要色 + 左竖线）、有序/无序列表、表格（表头加粗 + 隔行底色 + 单元格内联格式）、围栏代码块（语言标签 + 横向滚动）。此前只把行内片段拼成纯文本，粗体和行内代码底色全部丢失。

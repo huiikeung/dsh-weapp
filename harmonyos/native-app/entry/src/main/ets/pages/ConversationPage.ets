@@ -1,8 +1,9 @@
 import { abilityAccessCtrl, common, Want } from '@kit.AbilityKit';
+import { fileIo } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { display, KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import {
-  asRec, bool, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, downloadAttachment, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
+  arr, field, asRec, AttachmentCache, AttachmentImageCache, bool, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, downloadAttachment, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
   DraftStore, PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechFailure, SpeechInput, TeamStore, WorkStepPresentation,
   normalizeRawSessionEvent, parseNamespace, pickDocuments, pickImages, str, uploadAttachment
 } from 'nativecore';
@@ -92,6 +93,12 @@ interface MetricPair {
   key: string;
   label: string;
   value: string;
+}
+
+/** 会话状态卡片（对齐小程序 buildStatsGroups：标题 + [label, value] 行） */
+interface StatsGroup {
+  title: string;
+  rows: string[][];
 }
 
 /** 权限选项行（对齐小程序 permissionSheet） */
@@ -257,6 +264,18 @@ export struct ConversationPage {
   @State hint: string = '';
   // ===== 顶部轻提示（队列操作等瞬时反馈，替代输入框上方的红色小字）=====
   @State toastText: string = '';
+  /** 消息图片本地缓存：'行id\u0001本地路径'（预取后供行内缩略图使用） */
+  @State imagePathEntries: string[] = [];
+  /** 全屏图片预览路径（空 = 关闭） */
+  @State previewImagePath: string = '';
+  /** 回合文件变更摘要缓存：'行id\u0001state\u0001total\u0001added\u0001deleted\u0001chips' */
+  @State fileSummaries: string[] = [];
+  /** 文件差异/内容弹窗：标题 + 逐行内容（首字符 +/-/空格 决定配色）+ 底部说明 */
+  @State fileDiffOpen: boolean = false;
+  @State fileDiffTitle: string = '';
+  @State fileDiffLines: string[] = [];
+  @State fileDiffNote: string = '';
+  private fileSummaryRequested: Set<string> = new Set<string>();
   @State toastError: boolean = false;
   @State toastOpacity: number = 0;
   @State toastOffset: number = -10;
@@ -320,6 +339,8 @@ export struct ConversationPage {
   @StorageLink('teamLeadSessionId') teamLeadSessionId: string = '';
   @StorageLink('teamFailure') teamFailure: string = '';
   @State teamPopoverOpen: boolean = false;
+  /** 「⋯」菜单是否展开：展开时按钮显示和「协作」同款高亮底 */
+  @State moreMenuOpen: boolean = false;
   @State teamSheetOpen: boolean = false;
   @State teamTaskFilter: string = 'all';
   @State teamExpandedTasks: string[] = [];
@@ -685,6 +706,373 @@ export struct ConversationPage {
 
   // ==================== 投影 ====================
   /** 把 native-core 的对话条目折叠成显示行，并保留展开状态。 */
+  /** 拉取回合文件变更摘要（对齐小程序 loadChangesSummaries：最多 2 个并发，按 changeSeq 缓存） */
+  private loadFileSummaries(rows: ConversationFeedEntry[]): void {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0 || !GatewayClient.get().isConnected()
+      || !GatewayClient.get().supportsWorkspaceChanges()) {
+      return;
+    }
+    let inflight: number = 0;
+    for (const item of this.fileSummaries) {
+      if (item.indexOf('\u0001loading\u0001') > 0) {
+        inflight++;
+      }
+    }
+    for (const row of rows) {
+      if (row.kind !== 'CHANGES' || row.changeSeq <= 0 || this.fileSummaryRequested.has(row.id)) {
+        continue;
+      }
+      if (inflight >= 2) {
+        break;
+      }
+      inflight++;
+      this.fileSummaryRequested.add(row.id);
+      const key: string = row.id;
+      this.fileSummaries = this.fileSummaries.concat([key + '\u0001loading\u00010\u00010\u00010\u0001']);
+      GatewayClient.get().requestChangesSummary(sessionId, row.changeSeq).then((frame: GatewayFrame) => {
+        const value = asRec(field(frame as Object, 'summary'));
+        if (value === undefined) {
+          this.replaceFileSummary(key, 'missing', 0, 0, 0, '');
+          return;
+        }
+        const total: number = num(value, 'total') ?? 0;
+        Logger.info('[CHANGES] summary ok seq=' + row.changeSeq + ' total=' + total
+          + ' files=' + ((arr(value, 'files') ?? []).length));
+        const added: number = num(value, 'added') ?? 0;
+        const deleted: number = num(value, 'deleted') ?? 0;
+        const files = arr(value, 'files') ?? [];
+        const chips: string[] = [];
+        for (const file of files) {
+          const path: string = str(file, 'path') ?? '';
+          const display: string = str(file, 'display') ?? path;
+          const name: string = display.split('/').pop() ?? display;
+          const fileAdded: string = (num(file, 'added') ?? 0).toString();
+          const fileDeleted: string = (num(file, 'deleted') ?? 0).toString();
+          const binary: boolean = bool(file, 'binary') === true;
+          const oversized: boolean = bool(file, 'oversized') === true;
+          const hasCounts: string = binary || oversized ? '0' : '1';
+          const statusNote: string = binary ? '二进制文件已变更，无法显示文本差异'
+            : (oversized ? '文件过大，无法显示文本差异' : '');
+          // 编码：path\u0001name\u0001display\u0001added\u0001deleted\u0001hasCounts\u0001statusNote
+          chips.push(path + '\u0001' + name + '\u0001' + display + '\u0001' + fileAdded + '\u0001'
+            + fileDeleted + '\u0001' + hasCounts + '\u0001' + statusNote);
+        }
+        this.replaceFileSummary(key, 'ready', total, added, deleted, chips.join('\u0002'));
+      }).catch((err: Error) => {
+        Logger.warn('[CHANGES] summary failed seq=' + row.changeSeq + ' ' + err.message);
+        this.replaceFileSummary(key, 'error', 0, 0, 0, '');
+      });
+    }
+  }
+
+  private replaceFileSummary(key: string, state: string, total: number, added: number, deleted: number, chips: string): void {
+    const prefix: string = key + '\u0001';
+    const value: string = key + '\u0001' + state + '\u0001' + total.toString() + '\u0001'
+      + added.toString() + '\u0001' + deleted.toString() + '\u0001' + chips;
+    const next: string[] = [];
+    for (const item of this.fileSummaries) {
+      if (item.startsWith(prefix)) {
+        continue;
+      }
+      next.push(item);
+    }
+    next.push(value);
+    this.fileSummaries = next;
+  }
+
+  /** chip 是否至少有名字或路径（避免渲染空卡片） */
+  private chipHasContent(chip: string): boolean {
+    const parts: string[] = chip.split('\u0001');
+    const name: string = parts.length > 1 ? parts[1] : '';
+    const display: string = parts.length > 2 ? parts[2] : '';
+    return name.length > 0 || display.length > 0;
+  }
+
+  /** 已编辑 / 交付文件卡片编码（display\u0001name\u0001added\u0001deleted\u0001binary\u0001path） */
+  private fileCardsOf(entry: ConversationFeedEntryModel): string[] {
+    if (entry.kind === 'CHANGES') {
+      const prefix: string = entry.id + '\u0001';
+      for (const item of this.fileSummaries) {
+        if (!item.startsWith(prefix)) {
+          continue;
+        }
+        const parts: string[] = item.split('\u0001');
+        if (parts.length < 6 || parts[1] !== 'ready' || parts[5].length === 0) {
+          return [];
+        }
+        const chips: string[] = parts[5].split('\u0002');
+        const valid: string[] = [];
+        for (const chip of chips) {
+          if (chip.length > 0 && this.chipHasContent(chip)) {
+            valid.push(chip);
+          }
+        }
+        Logger.info('[CHANGES] row=' + entry.id + ' state=' + parts[1] + ' total=' + parts[2]
+          + ' added=' + parts[3] + ' deleted=' + parts[4] + ' chips=' + chips.length + ' valid=' + valid.length);
+        return valid;
+      }
+      return [];
+    }
+    const out: string[] = [];
+    const list = entry.files;
+    if (list === undefined || list.length === 0) {
+      return out;
+    }
+    for (const file of list) {
+      const path: string = file.path === undefined ? '' : file.path;
+      const name: string = file.name === undefined || file.name.length === 0
+        ? (path.split('/').pop() ?? path) : file.name;
+      const display: string = path.length > 0 ? path : name;
+      const hasCounts: boolean = file.added !== undefined || file.deleted !== undefined;
+      const added: string = (file.added ?? 0).toString();
+      const deleted: string = (file.deleted ?? 0).toString();
+      const statusNote: string = file.status === undefined ? '' : file.status;
+      out.push(path + '\u0001' + name + '\u0001' + display + '\u0001' + added + '\u0001' + deleted
+        + '\u0001' + (hasCounts ? '1' : '0') + '\u0001' + statusNote);
+    }
+    return out;
+  }
+
+  /** 行内文件附件 chip 编码（kind\u0001name\u0001path\u0001attachmentId\u0001mediaType） */
+  private attachmentChipsOf(entry: ConversationFeedEntryModel): string[] {
+    const out: string[] = [];
+    const list = entry.attachments;
+    if (list === undefined || list.length === 0) {
+      return out;
+    }
+    for (const att of list) {
+      const kind: string = att.kind === undefined ? 'file' : att.kind;
+      const path: string = att.path === undefined ? '' : att.path;
+      const id: string = att.attachmentId === undefined ? '' : att.attachmentId;
+      const mediaType: string = att.mediaType === undefined ? '' : att.mediaType;
+      out.push(kind + '\u0001' + att.name + '\u0001' + path + '\u0001' + id + '\u0001' + mediaType);
+    }
+    return out;
+  }
+
+  /** 打开消息里的文件附件：按工作区路径下载到本机缓存，再交给系统查看器 */
+  private async openMessageAttachment(name: string, path: string, mediaType: string): Promise<void> {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (path.length === 0 || sessionId.length === 0) {
+      this.showToast(name, false);
+      return;
+    }
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const result: DownloadResult = await downloadAttachment(context, GatewayClient.get(), sessionId, path);
+      const mime: string = mediaType.length > 0 ? mediaType : result.mediaType;
+      await AttachmentCache.openExternally(context, result.localPath, mime.length > 0 ? mime : 'application/octet-stream');
+    } catch (err) {
+      this.showToast((err as Error).message, true);
+    }
+  }
+
+  /** 取某行的图片本地路径（顺序即展示顺序） */
+  private imagePathsFor(entryId: string): string[] {
+    const out: string[] = [];
+    const prefix: string = entryId + '\u0001';
+    for (const item of this.imagePathEntries) {
+      if (item.startsWith(prefix)) {
+        out.push(item.substring(prefix.length));
+      }
+    }
+    return out;
+  }
+
+  /** 预取消息里的图片（本地缓存命中直接用，否则按 attachmentId 向网关拉取） */
+  private preloadImages(rows: ConversationFeedEntry[]): void {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0 || !GatewayClient.get().isConnected()) {
+      return;
+    }
+    let added: string[] = [];
+    for (const row of rows) {
+      if (row.images === undefined || row.images.length === 0) {
+        continue;
+      }
+      for (const image of row.images) {
+        const id: string = image.attachmentId;
+        if (id.length === 0) {
+          continue;
+        }
+        const cached: string = AttachmentImageCache.localPath(id, image.mediaType, image.name ?? '');
+        if (cached.length > 0) {
+          const value: string = row.id + '\u0001' + cached;
+          if (this.imagePathEntries.indexOf(value) < 0 && added.indexOf(value) < 0) {
+            added.push(value);
+          }
+          continue;
+        }
+        AttachmentImageCache.fetch(sessionId, id, image.mediaType, image.name ?? '')
+          .then((path: string) => {
+            const value: string = row.id + '\u0001' + path;
+            if (this.imagePathEntries.indexOf(value) < 0) {
+              this.imagePathEntries = this.imagePathEntries.concat([value]);
+            }
+          })
+          .catch(() => {});
+      }
+    }
+    if (added.length > 0) {
+      this.imagePathEntries = this.imagePathEntries.concat(added);
+    }
+  }
+
+  /** 打开文件变更差异（对齐小程序 openChangedFile：workspace-changes-diff → hunks） */
+  private async openChangedFileDiff(entry: ConversationFeedEntryModel, index: number): Promise<void> {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0 || entry.changeSeq <= 0) {
+      return;
+    }
+    this.fileDiffTitle = '文件差异';
+    this.fileDiffLines = [];
+    this.fileDiffNote = '正在加载文件差异…';
+    this.fileDiffOpen = true;
+    try {
+      const frame: GatewayFrame = await GatewayClient.get().requestChangesDiff(sessionId, entry.changeSeq, index);
+      const value = asRec(field(frame as Object, 'diff'));
+      if (value === undefined) {
+        this.fileDiffNote = '该文件的变更快照已失效';
+        return;
+      }
+      const display: string = str(value, 'display') ?? str(value, 'path') ?? '文件差异';
+      const kind: string = str(value, 'kind') ?? 'text';
+      const hunks = arr(value, 'hunks') ?? [];
+      const lines: string[] = [];
+      for (const hunk of hunks) {
+        const oldStart: number = num(hunk, 'oldStart') ?? 0;
+        const oldLines: number = num(hunk, 'oldLines') ?? 0;
+        const newStart: number = num(hunk, 'newStart') ?? 0;
+        const newLines: number = num(hunk, 'newLines') ?? 0;
+        lines.push('@@ -' + oldStart.toString() + ',' + oldLines.toString()
+          + ' +' + newStart.toString() + ',' + newLines.toString() + ' @@');
+        for (const line of (arr(hunk, 'lines') ?? [])) {
+          const text: string = typeof line === 'string' ? (line as string) : '';
+          if (text.length > 0) {
+            lines.push(text);
+          }
+        }
+      }
+      this.fileDiffTitle = display;
+      this.fileDiffLines = lines;
+      this.fileDiffNote = kind === 'binary' ? '二进制文件已变更，无法显示文本差异'
+        : (kind === 'oversized' ? '文件过大，无法显示文本差异'
+          : (lines.length > 1200 ? '仅显示前 1200 行差异' : ''));
+    } catch (err) {
+      this.fileDiffNote = '文件差异加载失败，请关闭后重试';
+    }
+  }
+
+  /** 打开文件内容弹窗：文本文件读正文；其它类型交给系统查看器 */
+  private async openFileContent(name: string, path: string, mediaType: string): Promise<void> {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (path.length === 0 || sessionId.length === 0) {
+      this.showToast(name, false);
+      return;
+    }
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const result: DownloadResult = await downloadAttachment(context, GatewayClient.get(), sessionId, path);
+      const mime: string = mediaType.length > 0 ? mediaType : result.mediaType;
+      const lower: string = (result.name.length > 0 ? result.name : name).toLowerCase();
+      const isText: boolean = mime.startsWith('text/') || mime.indexOf('json') >= 0
+        || /\.(md|markdown|txt|json|jsonl|csv|log|ya?ml|xml|html?|css|js|ts|tsx|py|sh|sql|go|rs|c|h|cpp|java|kt|swift|toml|ini|svg)$/.test(lower);
+      if (isText && result.size <= 512 * 1024) {
+        const content: string = await fileIo.readText(result.localPath);
+        this.fileDiffTitle = result.name.length > 0 ? result.name : name;
+        this.fileDiffLines = content.split('\n');
+        this.fileDiffNote = '';
+        this.fileDiffOpen = true;
+        return;
+      }
+      await AttachmentCache.openExternally(context, result.localPath,
+        mime.length > 0 ? mime : 'application/octet-stream');
+    } catch (err) {
+      this.showToast((err as Error).message, true);
+    }
+  }
+
+  /** 文件差异/内容弹窗：等宽字体逐行渲染，+绿/−红/@ 灰 */
+  @Builder
+  fileDiffOverlay() {
+    Column() {
+      Column() {
+        Row() {
+          Text(this.fileDiffTitle)
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Text('关闭')
+            .fontSize(14)
+            .fontColor('#2E6BE6')
+            .onClick(() => {
+              this.fileDiffOpen = false;
+            })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 12, bottom: 8 })
+
+        if (this.fileDiffNote.length > 0) {
+          Text(this.fileDiffNote)
+            .fontSize(12)
+            .fontColor(this.subColor())
+            .padding({ left: 16, right: 16, bottom: 8 })
+        }
+        Scroll() {
+          Column({ space: 1 }) {
+            ForEach(this.fileDiffLines, (line: string, index: number) => {
+              Text(line)
+                .fontSize(12)
+                .fontFamily('monospace')
+                .lineHeight(18)
+                .fontColor(line.startsWith('+') ? '#138547' : (line.startsWith('-') ? '#CE3439'
+                  : (line.startsWith('@@') ? this.subColor() : this.textColor())))
+                .width('100%')
+              .padding({ left: 16, right: 16 })
+            }, (line: string, index: number) => index.toString())
+          }
+          .padding({ top: 4, bottom: 16 })
+        }
+        .layoutWeight(1)
+        .scrollBar(BarState.Off)
+      }
+      .width('100%')
+      .height('78%')
+      .backgroundColor(this.isDark ? '#1C1C1E' : '#FFFFFF')
+      .borderRadius({ topLeft: 18, topRight: 18 })
+    }
+    .width('100%')
+    .height('100%')
+    .justifyContent(FlexAlign.End)
+    .backgroundColor('rgba(0,0,0,0.45)')
+    .onClick(() => {
+      this.fileDiffOpen = false;
+    })
+  }
+
+  /** 全屏图片预览：黑色遮罩 + 等比大图，点任意处关闭 */
+  @Builder
+  imagePreviewOverlay() {
+    Column() {
+      Image('file://' + this.previewImagePath)
+        .width('100%')
+        .layoutWeight(1)
+        .objectFit(ImageFit.Contain)
+    }
+    .width('100%')
+    .height('100%')
+    .backgroundColor('rgba(0,0,0,0.94)')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .onClick(() => {
+      this.previewImagePath = '';
+    })
+  }
+
   private rebuildEntries(): void {
     const source: ConversationItem[] = this.items === undefined ? [] : this.items;
     const built: ConversationFeedEntryModel[] = [];
@@ -718,6 +1106,10 @@ export struct ConversationPage {
         }
       }
     }
+    // 图片附件：先挑本地缓存，没有的按 attachmentId 向网关预取（异步补进 imagePathEntries）
+    this.preloadImages(rows);
+    // 回合文件变更摘要：拉取后渲染「已编辑 N 个文件 +N −N」卡片
+    this.loadFileSummaries(rows);
     // 同 id 行复用原实例（@ObjectLink 绑定的就是这个对象），否则展开状态更新不到列表项
     const previous: Map<string, ConversationFeedEntryModel> = new Map<string, ConversationFeedEntryModel>();
     for (const old of this.entries) {
@@ -2432,6 +2824,11 @@ export struct ConversationPage {
         Column() {
         // 底部 dock：排队消息 / 任务 / 目标（对齐小程序 dock-stack）
         this.dockStack()
+        // 指标弹层（会话统计 / Token 用量 / 上下文已用）：紧贴输入框上方，输入框保持可见可点
+        // 之前这个 @Builder 只有定义、没有挂到 build 里，点「查看统计」只改了状态、什么都不会显示。
+        if (this.metricPopover.length > 0) {
+          this.metricPopoverPanel()
+        }
         // 权限 / 模型面板：紧贴输入框上方展开，输入框保持可见
         if (this.composerSheet.length > 0) {
           this.composerSheetPanel()
@@ -2630,6 +3027,16 @@ export struct ConversationPage {
       .zIndex(30)
       .hitTestBehavior(HitTestMode.None)
 
+      // 图片大图预览（点缩略图打开，点任意处关闭）
+      if (this.previewImagePath.length > 0) {
+        this.imagePreviewOverlay()
+      }
+
+      // 文件差异 / 内容弹窗
+      if (this.fileDiffOpen) {
+        this.fileDiffOverlay()
+      }
+
       // 会话节点胶囊：常显浮层（左右拖动吸附折叠，点击展开/打开弹层）
       if (this.pageW > 0) {
         this.floatingCapsule()
@@ -2645,12 +3052,28 @@ export struct ConversationPage {
         .width(1)
         .height(1)
         .opacity(0.01)
+        // 工作区文件：与首页「切换主机」同款系统半模态（ImmersiveMaterial 沉浸光感）
         .bindSheet($$this.fileSheetOpen, this.workspaceFilesSheet(), {
           height: '72%',
           dragBar: false,
           showClose: false,
           preferType: SheetType.BOTTOM,
-          backgroundColor: this.isDark ? '#1C1C1E' : '#FFFFFF'
+          backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+          systemMaterial: this.teamSheetMaterial()
+        })
+
+      // 会话状态 sheet 锚点（与工作区文件同款系统半模态）
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.statsSheetOpen, this.statsSheetContent(), {
+          height: '60%',
+          dragBar: false,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+          systemMaterial: this.teamSheetMaterial()
         })
 
       }
@@ -2716,6 +3139,9 @@ export struct ConversationPage {
   @State renameValue: string = '';
   /** 工作区文件 sheet（对齐小程序 files sheet） */
   @State fileSheetOpen: boolean = false;
+  /** 会话状态 sheet（对齐小程序 morePane='stats'：执行 / Token 用量 / 上下文 三张卡片） */
+  @State statsSheetOpen: boolean = false;
+  @State statsGroups: StatsGroup[] = [];
   @State fileEntries: WorkspaceFileEntry[] = [];
   @State filePath: string = '';
   @State fileLoading: boolean = false;
@@ -3028,7 +3454,6 @@ export struct ConversationPage {
     const values: string[] = this.modelEfforts.length > 0
       ? this.modelEfforts
       : ['off', 'low', 'medium', 'high'];
-    Logger.info('[EffortDebug] menuValues=' + JSON.stringify(values) + ' modelEfforts=' + JSON.stringify(this.modelEfforts));
     return values;
   }
 
@@ -3144,7 +3569,6 @@ export struct ConversationPage {
       ? GatewayRequestFactory.make('models', 'models', { 'sessionId': sessionId }, sessionId)
       : GatewayRequestFactory.simple('models');
     client.requestGateway(request, 15000).then((frame: GatewayFrame) => {
-      Logger.info('[EffortDebug] modelsFrame=' + JSON.stringify(frame).substring(0, 700));
       const rec: Record<string, Object> = asRec(frame) ?? ({} as Record<string, Object>);
       const rawGroups = rec['groups'];
       const groups = rawGroups !== undefined && Array.isArray(rawGroups) ? rawGroups as Object[] : [];
@@ -3172,7 +3596,6 @@ export struct ConversationPage {
           if (String(m['id'] ?? '').toLowerCase() !== needle) {
             continue;
           }
-          Logger.info('[EffortDebug] catalogRecord=' + JSON.stringify(m).substring(0, 420));
           const reasoning = m['reasoning'] as Record<string, Object> | undefined;
           const efforts = reasoning === undefined ? undefined : reasoning['efforts'];
           if (efforts !== undefined && Array.isArray(efforts)) {
@@ -3202,7 +3625,6 @@ export struct ConversationPage {
         ids.push(sessionEffort);
         names.push(this.effortName(sessionEffort));
       }
-      Logger.info('[EffortDebug] ids=' + JSON.stringify(ids) + ' names=' + JSON.stringify(names));
       this.modelEfforts = ids;
       this.modelEffortNames = names;
     }).catch((ignored: Error) => {
@@ -3254,6 +3676,61 @@ export struct ConversationPage {
     this.defaultEffort = effort;
     this.effortRows = this.buildEffortRows();
   }
+  // ==================== 会话状态（对齐小程序 morePane='stats'：三张卡片） ====================
+  private openStatsSheet(): void {
+    this.statsGroups = this.buildStatsGroups();
+    this.statsSheetOpen = true;
+  }
+
+  /** 对齐小程序 buildStatsGroups：执行 / Token 用量 / 上下文 */
+  private buildStatsGroups(): StatsGroup[] {
+    const groups: StatsGroup[] = [];
+    const turns: number = this.statsNum('turns');
+    const steps: number = this.statsNum('steps');
+    const execRows: string[][] = [
+      // 小程序是 (st.turns || 0)：拿不到时显示 0 而不是占位符
+      ['轮次', (turns < 0 ? 0 : turns).toString() + ' 轮'],
+      ['步骤', (steps < 0 ? 0 : steps).toString() + ' 步'],
+      ['LLM', this.statDuration(this.statsNum('llmMs'))],
+      ['工具调用', this.statDuration(this.statsNum('toolMs'))],
+      ['首 token 平均', this.statDuration(this.statsNum('firstTokenMs'))]
+    ];
+    groups.push({ title: '执行', rows: execRows });
+
+    let input: number = this.tokenValue('inputTokens', false);
+    if (input < 0) {
+      input = this.tokenValue('uncachedInputTokens', false);
+    }
+    const tokenRows: string[][] = [
+      ['输入', this.tokenLabel(input)],
+      ['输出', this.tokenLabel(this.tokenValue('outputTokens', false))],
+      ['缓存读取', this.tokenLabel(this.tokenValue('cacheReadTokens', false))],
+      ['缓存写入', this.tokenLabel(this.tokenValue('cacheWriteTokens', false))]
+    ];
+    groups.push({ title: 'Token 用量', rows: tokenRows });
+
+    const contextRows: string[][] = [
+      ['当前压力', this.tokenLabel(this.contextUsedTokens())],
+      ['上下文窗口', this.tokenLabel(this.contextWindowTokens())]
+    ];
+    groups.push({ title: '上下文', rows: contextRows });
+    return groups;
+  }
+
+  /** 对齐小程序 fmtDur：>=60s → Xm Ys；>=1s → Xs；否则 Xms */
+  private statDuration(ms: number): string {
+    if (ms < 0) {
+      return '—';
+    }
+    if (ms >= 60000) {
+      return Math.floor(ms / 60000).toString() + 'm ' + Math.round((ms % 60000) / 1000).toString() + 's';
+    }
+    if (ms >= 1000) {
+      return Math.round(ms / 1000).toString() + 's';
+    }
+    return Math.round(ms).toString() + 'ms';
+  }
+
   // ==================== 指标弹层（对齐小程序 statsPop / ctx-pop） ====================
   private openMetricPopover(kind: string): void {
     if (this.metricPopover === kind) {
@@ -3287,8 +3764,8 @@ export struct ConversationPage {
       return '';
     }
     if (kind === 'run') {
-      // 对齐小程序：会话统计弹层右上角显示「x 轮 x 步」
-      return this.runMetric();
+      // 对齐小程序 showStats：会话统计弹层的 statsPopTotal 是空串，轮/步数只在底部指标条显示
+      return '';
     }
     if (kind !== 'token') {
       return '';
@@ -3730,7 +4207,7 @@ export struct ConversationPage {
   metricPopoverPanel() {
     // 不再用全屏遮罩：面板直接叠在输入框上方，输入框保持可见可点
     Column({ space: 2 }) {
-        // 标题行：标题 + 占比（上下文已用）/ 总量（Token 用量）
+        // 标题行：图标 + 标题 + 占比（上下文已用）/ 总量（Token 用量），底部一条分隔线
         Row() {
           if (this.metricPopover === 'run') {
             Image($r('app.media.dsh_gauge'))
@@ -3754,8 +4231,8 @@ export struct ConversationPage {
               .margin({ right: 6 })
           }
           Text(this.metricTitle)
-            .fontSize(14)
-            .fontWeight(FontWeight.Medium)
+            .fontSize(13.5)
+            .fontWeight(FontWeight.Bold)
             .fontColor(this.textColor())
           Blank()
           if (this.metricPopover === 'context' && this.contextPercent() >= 0) {
@@ -3784,7 +4261,10 @@ export struct ConversationPage {
             })
         }
         .width('100%')
-        .height(36)
+        // 小程序 .stats-pop-title：padding-bottom 14rpx + border-bottom 1rpx（divider）
+        .padding({ bottom: 7 })
+        .border({ width: { bottom: 0.5 }, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
+        .margin({ bottom: 2 })
 
         // 上下文：已用/窗口 + 占比进度条（对齐小程序 ctx-pop 头部与 ctx-bar）
         if (this.metricPopover === 'context') {
@@ -3810,28 +4290,34 @@ export struct ConversationPage {
         ForEach(this.metricPairs, (pair: MetricPair) => {
           Row() {
             Text(pair.label)
-              .fontSize(14)
+              .fontSize(12.5)
               .fontColor(this.subColor())
-            Blank()
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .layoutWeight(1)
             Text(pair.value)
-              .fontSize(14)
+              .fontSize(12.5)
+              .fontWeight(FontWeight.Medium)
               .fontColor(this.textColor())
+              .flexShrink(0)
+              .margin({ left: 14 })
           }
           .width('100%')
-          .height(38)
-          .padding({ left: 8, right: 8 })
-          .borderRadius(8)
-          .backgroundColor(Color.Transparent)
+          // 小程序 .stats-pop-row：上下 9rpx≈4.5vp
+          .padding({ top: 4.5, bottom: 4.5 })
+          .alignItems(VerticalAlign.Center)
         }, (pair: MetricPair) => pair.key)
     }
     .alignItems(HorizontalAlign.Start)
-    .width('100%')
-    .padding(16)
-    .borderRadius(18)
+    // 小程序 .stats-pop：width min(560rpx, 100vw-56rpx) ≈ 280vp；padding 24/28rpx = 12/14vp；
+    // 圆角 28rpx = 14vp；run 靠左（我们本来就在左侧）
+    .constraintSize({ maxWidth: 280 })
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .borderRadius(14)
     .backgroundColor(this.surfaceColor())
     .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
-    .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.12)', offsetY: 6 })
-    .margin({ left: 12, right: 12, bottom: 8 })
+    .shadow({ radius: 16, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.12)', offsetY: 4 })
+    .margin({ left: 0, right: 0, bottom: 8 })
   }
 
   // ==================== 智能体团队 ====================
@@ -4208,11 +4694,12 @@ export struct ConversationPage {
         .height(16)
       }
       .id('conversation-session-switch')
-      .width(44)
-      .height(44)
-      .backgroundColor(Color.Transparent)
       .width(36)
       .height(36)
+      // 打开侧栏时保持高亮，和「协作」按钮展开态一致
+      .backgroundColor(this.sessionPickerOpen
+        ? (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+        : Color.Transparent)
       .accessibilityText('会话快捷切换')
       .onClick(() => {
         if (this.sessionPickerOpen) {
@@ -4236,16 +4723,35 @@ export struct ConversationPage {
       })
 
       Button({ type: ButtonType.Circle }) {
-        Text('⋯').fontSize(18).fontColor(this.textColor())
+        // 颜色与左侧侧栏图标（navIconColor）一致
+        Text('⋯').fontSize(18).fontColor(this.navIconColor())
       }
       .id('conversation-overflow')
-      .width(44)
-      .height(44)
-      .backgroundColor(Color.Transparent)
       .width(36)
       .height(36)
+      // 菜单展开时保持高亮（与「协作」按钮同款）
+      .backgroundColor(this.moreMenuOpen
+        ? (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+        : Color.Transparent)
       .accessibilityText('更多')
-      .bindMenu(this.moreMenu())
+      .onClick(() => {
+        this.moreMenuOpen = !this.moreMenuOpen;
+      })
+      .bindMenu(this.moreMenuOpen, this.moreMenu(), {
+        placement: Placement.BottomRight,
+        offset: { x: 0, y: 4 },
+        outlineColor: this.dividerColor(),
+        outlineWidth: 1,
+        onWillDisappear: () => {
+          this.moreMenuOpen = false;
+        },
+        onDisappear: () => {
+          this.moreMenuOpen = false;
+        },
+        onDidDisappear: () => {
+          this.moreMenuOpen = false;
+        }
+      })
     }
     .width('100%')
     .height(64 + this.topSafe())
@@ -4944,6 +5450,22 @@ export struct ConversationPage {
               },
               onShowDetail: (title: string, body: string) => {
                 this.onShowDetail(title, body);
+              },
+              imagePaths: this.imagePathsFor(entry.id),
+              onImageTap: (path: string) => {
+                this.previewImagePath = path;
+              },
+              attachmentChips: this.attachmentChipsOf(entry),
+              onAttachmentTap: (name: string, path: string, mediaType: string) => {
+                this.openMessageAttachment(name, path, mediaType);
+              },
+              fileCards: this.fileCardsOf(entry),
+              onFileTap: (name: string, path: string, index: number, hasCounts: boolean) => {
+                if (entry.kind === 'CHANGES' && hasCounts) {
+                  this.openChangedFileDiff(entry, index);
+                } else {
+                  this.openFileContent(name, path, '');
+                }
               }
             })
           }
@@ -5526,46 +6048,40 @@ export struct ConversationPage {
     return SessionStore.get().currentSessionId().length > 0;
   }
 
-  /** 更多菜单行：图标 + 文案（字号/间距对齐系统菜单行） */
+  /**
+   * 更多菜单行：逐项对齐小程序 session-menu-row
+   * 36rpx 图标(19vp) / 29rpx 文案(15.4fp) / 100rpx 行高(52vp) / 22rpx 间距(12vp)；
+   * 图标与文案同色（浅色黑、深色白），可跳转的行右侧带 24rpx 灰 chevron
+   * （取消回合、归档会话两行没有，与小程序一致）。
+   */
   @Builder
-  moreMenuRow(icon: Resource, label: string, enabled: boolean) {
-    Row({ space: 10 }) {
+  moreMenuRow(icon: Resource, label: string, enabled: boolean, showChevron: boolean = true) {
+    Row({ space: 12 }) {
       Image(icon)
-        .width(18)
-        .height(18)
+        .width(19)
+        .height(19)
         .objectFit(ImageFit.Contain)
         .colorFilter(this.iconTintMatrix(enabled ? this.textColor() : this.subColor()))
       Text(label)
-        .fontSize(15)
+        .fontSize(15.4)
         .fontColor(enabled ? this.textColor() : this.subColor())
         .maxLines(1)
-    }
-    .width(208)
-    .height(40)
-    // 左右留白：内容不贴菜单卡片边缘（原来只有系统内边距，看着挤）
-    .padding({ left: 16, right: 16 })
-    .opacity(enabled ? 1 : 0.5)
-  }
-
-  /** 取消回合行：停止方块图标（无对应素材，按菜单行尺寸绘制） */
-  @Builder
-  moreMenuStopRow(label: string, enabled: boolean) {
-    Row({ space: 10 }) {
-      Stack({ alignContent: Alignment.Center }) {
-        Rect({ width: 9, height: 9, radius: 2 })
-          .fill(enabled ? this.textColor() : this.subColor())
+        .layoutWeight(1)
+      if (showChevron) {
+        Image($r('app.media.chev_right_gray'))
+          .width(13)
+          .height(13)
+          .objectFit(ImageFit.Contain)
+          .opacity(0.55)
       }
-      .width(18)
-      .height(18)
-      Text(label)
-        .fontSize(15)
-        .fontColor(enabled ? this.textColor() : this.subColor())
-        .maxLines(1)
     }
-    .width(208)
-    .height(40)
+    .width(212)
+    .height(52)
+    // 左右留白：内容不贴菜单卡片边缘
     .padding({ left: 16, right: 16 })
-    .opacity(enabled ? 1 : 0.5)
+    // 按下/悬停高亮（系统菜单同款 press 反馈，和「协作」一致）
+    .hoverEffect(HoverEffect.Highlight)
+    .opacity(enabled ? 1 : 0.4)
   }
 
   /** 菜单分组分隔线（对齐小程序 session-menu-group 的模块间隔） */
@@ -5586,7 +6102,7 @@ export struct ConversationPage {
   moreMenu() {
     Menu() {
       // ① iOS：工作区文件（无会话禁用）
-      MenuItem(this.moreMenuRow($r('app.media.workspace_folder_white'), '工作区文件', this.hasSession()))
+      MenuItem(this.moreMenuRow($r('app.media.menu_ic_folder'), '工作区文件', this.hasSession()))
         .id('menu-workspace-files')
         .enabled(this.hasSession())
         .onClick(() => {
@@ -5596,29 +6112,29 @@ export struct ConversationPage {
       MenuItem(this.moreMenuDivider()).enabled(false)
 
       // ② 小程序：重命名 / 查看统计
-      MenuItem(this.moreMenuRow(this.isDark ? $r('app.media.session_menu_rename_white') : $r('app.media.session_menu_rename_dark'),
+      MenuItem(this.moreMenuRow($r('app.media.menu_ic_rename'),
         '重命名会话', this.hasSession()))
         .id('menu-rename-session')
         .enabled(this.hasSession())
         .onClick(() => {
           this.beginRenameSession();
         })
-      MenuItem(this.moreMenuRow($r('app.media.dsh_gauge'), '查看统计', true))
+      MenuItem(this.moreMenuRow($r('app.media.menu_ic_gauge'), '查看统计', true))
         .id('menu-session-stats')
         .onClick(() => {
-          this.openMetricPopover('run');
+          this.openStatsSheet();
         })
 
       MenuItem(this.moreMenuDivider()).enabled(false)
 
       // ③ 小程序：插件
-      MenuItem(this.moreMenuRow(this.isDark ? $r('app.media.pinwheel_white') : $r('app.media.pinwheel_ink'),
+      MenuItem(this.moreMenuRow($r('app.media.menu_ic_pinwheel'),
         '浏览更多插件', true))
         .id('menu-browse-plugins')
         .onClick(() => {
           this.pageStack.pushPathByName('plugins', null);
         })
-      MenuItem(this.moreMenuRow($r('app.media.plus_white'), '创建你的插件', true))
+      MenuItem(this.moreMenuRow($r('app.media.menu_ic_plus'), '创建你的插件', true))
         .id('menu-create-plugin')
         .onClick(() => {
           this.pageStack.pushPathByName('plugins', null);
@@ -5627,7 +6143,7 @@ export struct ConversationPage {
       MenuItem(this.moreMenuDivider()).enabled(false)
 
       // ④ 小程序：回合 / 会话
-      MenuItem(this.moreMenuStopRow('取消当前回合', this.running))
+      MenuItem(this.moreMenuRow($r('app.media.menu_ic_stop'), '取消当前回合', this.running, false))
         .id('menu-cancel-turn')
         .enabled(this.running)
         .onClick(() => {
@@ -5635,7 +6151,7 @@ export struct ConversationPage {
             this.onStop();
           }
         })
-      MenuItem(this.moreMenuRow($r('app.media.session_menu_archive'), '归档会话', this.hasSession()))
+      MenuItem(this.moreMenuRow($r('app.media.menu_ic_archive'), '归档会话', this.hasSession(), false))
         .id('menu-archive-session')
         .enabled(this.hasSession())
         .onClick(() => {
@@ -5645,7 +6161,7 @@ export struct ConversationPage {
       MenuItem(this.moreMenuDivider()).enabled(false)
 
       // ⑤ 原有入口
-      MenuItem(this.moreMenuRow(this.isDark ? $r('app.media.sliders_white') : $r('app.media.sliders_ink'),
+      MenuItem(this.moreMenuRow($r('app.media.menu_ic_sliders'),
         '会话设置', true))
         .id('menu-session-settings')
         .onClick(() => {
@@ -5806,6 +6322,89 @@ export struct ConversationPage {
       return $r('app.media.deliverable_code');
     }
     return $r('app.media.deliverable_file');
+  }
+
+  /** 会话状态 sheet：标题 + 三张卡片（样式与工作区文件同一个系统半模态） */
+  @Builder
+  statsSheetContent() {
+    Column({ space: 0 }) {
+      // 顶部拖动条（与工作区文件 sheet 同款）
+      Column() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
+      }
+      .width('100%')
+      .height(16)
+      .justifyContent(FlexAlign.Center)
+
+      Row() {
+        Text('会话状态')
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+      }
+      .width('100%')
+      .height(44)
+      .justifyContent(FlexAlign.Center)
+
+      Scroll() {
+        Column({ space: 0 }) {
+          ForEach(this.statsGroups, (group: StatsGroup) => {
+            Column() {
+              Text(group.title)
+                .fontSize(12)
+                .fontWeight(FontWeight.Bold)
+                .fontColor(this.subColor())
+                .width('100%')
+                .padding({ top: 8, bottom: 3 })
+              ForEach(group.rows, (row: string[], index: number) => {
+                Row() {
+                  Text(row.length > 0 ? row[0] : '')
+                    .fontSize(13)
+                    .fontColor(this.subColor())
+                    .flexShrink(0)
+                  Blank()
+                  Text(row.length > 1 ? row[1] : '')
+                    .fontSize(13)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.textColor())
+                    .fontFamily('monospace')
+                    .textAlign(TextAlign.End)
+                    .layoutWeight(1)
+                    .margin({ left: 12 })
+                }
+                .width('100%')
+                .padding({ top: 7, bottom: 7 })
+                .alignItems(VerticalAlign.Center)
+                .border({
+                  width: { top: index > 0 ? 0.5 : 0 },
+                  color: this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.08)'
+                })
+              }, (row: string[], index: number) => group.title + '-' + index.toString())
+            }
+            .alignItems(HorizontalAlign.Start)
+            .width('100%')
+            // 小程序 .session-stat-group：边框 1rpx、圆角 22rpx、padding 6/24/14rpx、下间距 16rpx
+            .padding({ left: 12, right: 12, top: 3, bottom: 7 })
+            .borderRadius(11)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.04)')
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
+            .margin({ bottom: 8 })
+          }, (group: StatsGroup) => group.title)
+        }
+        .width('100%')
+        .padding({ left: 18, right: 18, bottom: 24 })
+        .alignItems(HorizontalAlign.Start)
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .scrollBar(BarState.Off)
+    }
+    .width('100%')
+    .height('100%')
   }
 
   /** 工作区文件 sheet 内容（对齐小程序 more-files-sheet：标题 + 上一级 + 列表 + 路径） */
@@ -6208,6 +6807,18 @@ export struct ConversationPage {
         red = (value >> 16) & 255;
         green = (value >> 8) & 255;
         blue = value & 255;
+      }
+    } else if (text.startsWith('rgb')) {
+      // 支持 rgb(r,g,b) / rgba(r,g,b,a)：subColor() 返回的是 rgba，之前会落到默认白色
+      const body: string = text.substring(text.indexOf('(') + 1, text.lastIndexOf(')'));
+      const parts: string[] = body.split(',');
+      if (parts.length >= 3) {
+        red = Math.round(parseFloat(parts[0].trim()));
+        green = Math.round(parseFloat(parts[1].trim()));
+        blue = Math.round(parseFloat(parts[2].trim()));
+      }
+      if (parts.length >= 4) {
+        alpha = parseFloat(parts[3].trim());
       }
     }
     return [

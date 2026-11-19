@@ -9,6 +9,7 @@ export type { PickedAttachment } from './src/main/ets/common/AttachmentPicker';
 export { uploadAttachment, downloadAttachment } from './src/main/ets/common/AttachmentTransfer';
 export type { UploadResult, DownloadResult } from './src/main/ets/common/AttachmentTransfer';
 export { AttachmentCache } from './src/main/ets/common/AttachmentCache';
+export { AttachmentImageCache } from './src/main/ets/common/AttachmentImageCache';
 export { VoiceDictation } from './src/main/ets/common/VoiceDictation';
 export { SpeechInput, SpeechFailure } from './src/main/ets/common/SpeechInput';
 export type { SpeechLimits } from './src/main/ets/common/SpeechInput';

@@ -104,6 +104,28 @@ export interface GatewayPairingPayload {
   endpoints?: string[];
 }
 
+/** 交付/编辑文件（workspace/changes 与 deliverables/presented 事件，对齐小程序 file 卡片） */
+export interface GatewayPresentedFile {
+  path: string;
+  name?: string;
+  added?: number;
+  deleted?: number;
+  /** 状态补充（如「已格式化」「跳过」） */
+  status?: string;
+  index?: number;
+}
+
+/** 文件附件（user/assistant message 里 type='file' 的内容块，对齐小程序 item.attachments） */
+export interface GatewayFileAttachment {
+  attachmentId?: string;
+  name: string;
+  path?: string;
+  mediaType?: string;
+  bytes?: number;
+  /** 'directory' 时用文件夹图标 */
+  kind?: string;
+}
+
 export interface GatewayImageAttachment {
   attachmentId: string;
   mediaType: string;
@@ -370,6 +392,16 @@ export interface GatewayEvent {
   reasoning?: string;
   toolCalls?: ToolCall[];
   images?: GatewayImageAttachment[];
+  /** 文件附件（type='file' 的 content 块） */
+  attachments?: GatewayFileAttachment[];
+  /** workspace/changes 事件是否有效 */
+  valid?: boolean;
+  /** tool/result 的变更路径（appendOrigin=true 时记录到「已编辑文件」） */
+  mutationPath?: string;
+  /** 该工具结果是否是文件写入（对齐小程序 appendOrigin） */
+  appendOrigin?: boolean;
+  /** deliverables/presented 的文件列表 */
+  presentedFiles?: GatewayPresentedFile[];
   callId?: string;
   name?: string;
   arguments?: Object;

@@ -1,4 +1,6 @@
 import { ConversationItem, ConversationItemKind } from '../projection/ConversationProjection';
+import type { PresentedFile } from '../projection/ConversationProjection';
+import type { GatewayFileAttachment, GatewayImageAttachment } from '../protocol/GatewayDtos';
 import { WorkStepPresentation } from './WorkStepPresentation';
 import type { WorkStepPolicy } from './WorkStepPresentation';
 
@@ -133,12 +135,22 @@ export class ConversationFeedEntry {
   expanded: boolean = false;
   items: ConversationItem[] = [];
   imageCount: number = 0;
+  /** 图片附件（用户发送 / 助手回复里的 image 块），用于缩略图回显 */
+  images: GatewayImageAttachment[] = [];
+  /** 文件附件（type='file' 的 content 块），用于文件 chip 回显 */
+  attachments: GatewayFileAttachment[] = [];
+  /** 已编辑 / 交付文件卡片（CHANGES / FILES 行） */
+  files: PresentedFile[] = [];
+  /** CHANGES 行的事件 seq（拉取文件变更摘要用） */
+  changeSeq: number = 0;
   /** 过程组：运行中 / 已完成 / 已停止 / 执行失败 */
   running: boolean = false;
   /** 可展开（有子内容） */
   expandable: boolean = false;
-  /** 组摘要：用时 X / N 次工具调用 · N 项上下文 */
+  /** 组摘要：N 次工具调用 · N 项上下文（用时不上组行，只留给回合折叠行） */
   summary: string = '';
+  /** 组的用时文案（如「1 分 30 秒」）：回合折叠行显示用，不上过程组行 */
+  durationText: string = '';
   /** 组内工具数、上下文数（供标题与摘要使用） */
   toolCount: number = 0;
   contextCount: number = 0;
@@ -410,6 +422,18 @@ export class ConversationFeed {
         groups.push(group);
         continue;
       }
+      if (kind === ConversationItemKind.CHANGES as string || kind === ConversationItemKind.FILES as string) {
+        const filesEntry: ConversationFeedEntry = new ConversationFeedEntry();
+        filesEntry.id = 'files-' + item.id;
+        filesEntry.kind = kind;
+        filesEntry.title = item.title;
+        filesEntry.epochSeconds = item.epochSeconds;
+        filesEntry.turnKey = item.turn === undefined ? '' : item.turn.toString();
+        filesEntry.files = item.files === undefined ? [] : item.files;
+        filesEntry.changeSeq = item.changeSeq === undefined ? 0 : item.changeSeq;
+        groups.push(filesEntry);
+        continue;
+      }
       const message: ConversationFeedEntry = new ConversationFeedEntry();
       message.id = 'message-' + item.id;
       message.kind = kind;
@@ -423,6 +447,8 @@ export class ConversationFeed {
       message.epochSeconds = item.epochSeconds;
       message.imageCount = item.images === undefined
         ? (item.imageCount === undefined ? 0 : item.imageCount) : item.images.length;
+      message.images = item.images === undefined ? [] : (item.images as GatewayImageAttachment[]);
+      message.attachments = item.attachments === undefined ? [] : (item.attachments as GatewayFileAttachment[]);
       message.turnKey = item.turn === undefined ? '' : item.turn.toString();
       groups.push(message);
     }
@@ -534,8 +560,9 @@ export class ConversationFeed {
           : entry.contextCount.toString() + ' 项上下文';
       }
       if (ended > started && ended - started >= 1) {
-        const duration: string = '用时 ' + ConversationFeed.durationLabel(ended - started);
-        entry.summary = entry.summary.length > 0 ? duration + ' · ' + entry.summary : duration;
+        // 用时只记在 durationText 上：过程组行（执行图标那行）不再显示用时，
+        // 回合折叠行（「已完成」那行）仍然用它显示「用时 X」。
+        entry.durationText = ConversationFeed.durationLabel(ended - started);
       }
       entry.text = entry.summary;
       entry.epochSeconds = ended;
@@ -884,10 +911,8 @@ export class ConversationFeed {
       let contexts: number = 0;
       let duration: string = '';
       for (const group of run) {
-        for (const part of group.summary.split(' · ')) {
-          if (part.indexOf('用时 ') === 0) {
-            duration = part;
-          }
+        if (group.durationText.length > 0) {
+          duration = '用时 ' + group.durationText;
         }
       }
       for (const group of run) {

@@ -1634,6 +1634,8 @@ export struct HomePage {
     .height(this.rpx(104))
     .padding({ left: this.rpx(28), right: this.rpx(28) })
     .borderRadius(this.rpx(24))
+    // 按下/悬停高亮：与系统菜单（协作、⋯）同一套 press 反馈
+    .hoverEffect(HoverEffect.Highlight)
     .onClick(() => {
       this.drawerOpen = false;
       this.pageStack.pushPathByName(route, null);

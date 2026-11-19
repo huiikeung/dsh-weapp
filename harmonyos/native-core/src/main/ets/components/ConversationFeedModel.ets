@@ -1,5 +1,7 @@
 import { ConversationItem } from '../projection/ConversationProjection';
 import type { ConversationFeedEntry } from '../projection/ConversationFeed';
+import type { GatewayFileAttachment, GatewayImageAttachment } from '../protocol/GatewayDtos';
+import type { PresentedFile } from '../projection/ConversationProjection';
 
 /**
  * 会话时间线的一行（UI 模型）。
@@ -29,6 +31,14 @@ export class ConversationFeedEntryModel {
   title: string = '';
   text: string = '';
   isError: boolean = false;
+  /** 图片附件（用户发送 / 助手回复的 image 块） */
+  images: GatewayImageAttachment[] = [];
+  /** 文件附件（type='file' 的 content 块） */
+  attachments: GatewayFileAttachment[] = [];
+  /** 已编辑 / 交付文件卡片 */
+  files: PresentedFile[] = [];
+  /** CHANGES 行的事件 seq */
+  changeSeq: number = 0;
   streaming: boolean = false;
   copyable: boolean = false;
   epochSeconds: number = 0;
@@ -82,6 +92,56 @@ export class ConversationFeedEntryModel {
    * 新建实例会让改动丢失，所以同 id 行必须复用同一对象再赋值。
    */
   /** 数组是否「同一个东西」：引用相同，或长度与元素引用都相同（不改就不触发重渲染） */
+  /** 文件卡片是否等价（按 path/名称/增删数比较） */
+  private static sameFiles(left: PresentedFile[], right: PresentedFile[]): boolean {
+    if (left === right) {
+      return true;
+    }
+    if (left === undefined || right === undefined || left.length !== right.length) {
+      return false;
+    }
+    for (let index = 0; index < left.length; index++) {
+      const a: PresentedFile = left[index];
+      const b: PresentedFile = right[index];
+      if (a.path !== b.path || a.name !== b.name || a.added !== b.added || a.deleted !== b.deleted || a.status !== b.status) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** 文件附件是否等价（按 attachmentId/name 序列比较） */
+  private static sameAttachments(left: GatewayFileAttachment[], right: GatewayFileAttachment[]): boolean {
+    if (left === right) {
+      return true;
+    }
+    if (left === undefined || right === undefined || left.length !== right.length) {
+      return false;
+    }
+    for (let index = 0; index < left.length; index++) {
+      if (left[index].name !== right[index].name || left[index].attachmentId !== right[index].attachmentId) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /** 图片列表是否等价（按 attachmentId 序列比较，避免每帧重建行） */
+  private static sameImages(left: GatewayImageAttachment[], right: GatewayImageAttachment[]): boolean {
+    if (left === right) {
+      return true;
+    }
+    if (left === undefined || right === undefined || left.length !== right.length) {
+      return false;
+    }
+    for (let index = 0; index < left.length; index++) {
+      if (left[index].attachmentId !== right[index].attachmentId) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   private static sameRefs(a: Object[], b: Object[]): boolean {
     if (a === b) {
       return true;
@@ -147,6 +207,18 @@ export class ConversationFeedEntryModel {
     }
     if (this.imageCount !== entry.imageCount) {
       this.imageCount = entry.imageCount;
+    }
+    if (!ConversationFeedEntryModel.sameImages(this.images, entry.images)) {
+      this.images = entry.images;
+    }
+    if (!ConversationFeedEntryModel.sameAttachments(this.attachments, entry.attachments)) {
+      this.attachments = entry.attachments;
+    }
+    if (!ConversationFeedEntryModel.sameFiles(this.files, entry.files)) {
+      this.files = entry.files;
+    }
+    if (this.changeSeq !== entry.changeSeq) {
+      this.changeSeq = entry.changeSeq;
     }
     if (this.running !== entry.running) {
       this.running = entry.running;

@@ -1224,6 +1224,34 @@ export class GatewayClient {
     return this.sendRequest(GatewayRequestFactory.archiveSession(sessionId));
   }
 
+  /**
+   * 按 attachmentId 拉取附件内容（图片回显用）：
+   * 请求 { type: 'attachment', sessionId, attachmentId }，响应帧带 data(base64) + attachment。
+   */
+  requestAttachment(sessionId: string, attachmentId: string): Promise<GatewayFrame> {
+    return this.enqueueRequest(
+      GatewayRequestFactory.make('attachment', 'attachment',
+        { 'sessionId': sessionId, 'attachmentId': attachmentId }, sessionId, undefined,
+        GatewayRequestLanePolicy.REJECT_IF_BUSY),
+      this.tunnelTimeout(30000));
+  }
+
+  /** 网关是否支持回合文件变更快照：按连接态尝试请求，旧网关会在请求失败时标为不可用。 */
+  supportsWorkspaceChanges(): boolean {
+    return this.isConnected();
+  }
+
+  /** 单个文件的变更差异（对齐小程序 requestChangesDiff）：value{ path,display,kind,hunks[] }。 */
+  requestChangesDiff(sessionId: string, seq: number, index: number): Promise<GatewayFrame> {
+    return this.requestPlugin('workspace-changes-diff',
+      { 'sessionId': sessionId, 'seq': seq, 'index': index }, 15000);
+  }
+
+  /** 回合文件变更摘要（对齐小程序 requestChangesSummary）：返回帧带 value{ turn,total,added,deleted,files[] }。 */
+  requestChangesSummary(sessionId: string, seq: number): Promise<GatewayFrame> {
+    return this.requestPlugin('workspace-changes-summary', { 'sessionId': sessionId, 'seq': seq }, 15000);
+  }
+
   /** 部署级默认配置（Agent 预设 / 模型 / 权限）。 */
   requestDefaults(): boolean {
     if (!this.isConnected()) {

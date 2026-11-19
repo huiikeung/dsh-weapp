@@ -1,12 +1,24 @@
 import { SessionEvent } from '../protocol/GatewayDtos';
+import { Logger } from '../common/Logger';
 import { asRec, str, num } from '../protocol/GatewayFrameCodec';
 
-export enum ConversationItemKind { USER='USER', CONTEXT='CONTEXT', ASSISTANT='ASSISTANT', REASONING='REASONING', TOOL='TOOL', JSON_TOOL='JSON_TOOL', TOOL_RESULT='TOOL_RESULT', GENERATED_IMAGES='GENERATED_IMAGES', STATUS='STATUS', SYSTEM='SYSTEM' }
-export interface PresentedFile { name: string; path?: string; mediaType?: string; bytes?: number; }
+export enum ConversationItemKind { USER='USER', CONTEXT='CONTEXT', ASSISTANT='ASSISTANT', REASONING='REASONING', TOOL='TOOL', JSON_TOOL='JSON_TOOL', TOOL_RESULT='TOOL_RESULT', GENERATED_IMAGES='GENERATED_IMAGES', STATUS='STATUS', SYSTEM='SYSTEM', CHANGES='CHANGES', FILES='FILES' }
+/** 交付/编辑文件（对齐小程序 delivered-file / changed-file 卡片） */
+export interface PresentedFile {
+  name: string;
+  path?: string;
+  mediaType?: string;
+  bytes?: number;
+  /** 变更行数（+N / −N） */
+  added?: number;
+  deleted?: number;
+  /** 状态补充文案（如「已格式化」） */
+  status?: string;
+}
 export interface GatewayTextPart { type: string; text: string; }
 export interface ConversationItem {
   id: string; kind: ConversationItemKind; title: string; text: string;
-  images?: Object[]; isError?: boolean; epochSeconds: number; turn?: number;
+  images?: Object[]; attachments?: Object[]; isError?: boolean; epochSeconds: number; turn?: number;
   files?: PresentedFile[]; knownFiles?: PresentedFile[]; textParts?: GatewayTextPart[]; requestId?: string;
   /** 工具调用（对齐小程序 tool 行：callId 关联调用与结果，depth 决定子步骤缩进） */
   callId?: string;
@@ -23,6 +35,8 @@ export interface ConversationItem {
   resultText?: string;
   /** 图片数量（本地乐观回显时没有真实 images 数组，只记数量） */
   imageCount?: number;
+  /** CHANGES 行对应的 workspace/changes 事件 seq（用于拉取文件变更摘要） */
+  changeSeq?: number;
 }
 export interface ConversationProjectionOperation { kind: string; item?: ConversationItem; itemId?: string; delta?: string; epochSeconds?: number; items?: ConversationItem[]; }
 export interface AssistantChunkProjection { time: number; chunk: Object; }
@@ -124,6 +138,42 @@ export class ConversationProjector {
     return out;
   }
   private rebuildFromRecords(): void { const events = this.records.slice(); this.mutableItems=[]; this.streamIndexes.clear(); this.finalizedKeys.clear(); this.lastSequence=-1; for(const record of events){this.project(record,[]);this.lastSequence=Math.max(this.lastSequence,record.seq);} }
+  /** 「已编辑文件 / 交付文件」行：同一回合内合并，按 path 去重 */
+  private upsertFilesItem(id: string, kind: ConversationItemKind, turn: number | undefined, date: number,
+    out: ConversationProjectionOperation[], files: PresentedFile[]): void {
+    const index: number = this.mutableItems.findIndex((row: ConversationItem) =>
+      row.kind === kind && row.turn === turn);
+    if (index >= 0) {
+      const old: ConversationItem = this.mutableItems[index];
+      const merged: PresentedFile[] = (old.files ?? []).slice();
+      for (const file of files) {
+        const existing: number = merged.findIndex((item: PresentedFile) => item.path === file.path);
+        if (existing >= 0) {
+          merged[existing] = file;
+        } else {
+          merged.push(file);
+        }
+      }
+      const next: ConversationItem = {
+        id: old.id, kind: old.kind, title: old.title, text: '', epochSeconds: old.epochSeconds,
+        turn: old.turn, files: merged, isError: old.isError
+      };
+      this.mutableItems[index] = next;
+      out.push({ kind: 'replace', item: next, itemId: next.id });
+      return;
+    }
+    const item: ConversationItem = {
+      id: id + '-' + kind,
+      kind: kind,
+      title: kind === ConversationItemKind.CHANGES ? '已编辑文件' : '交付文件',
+      text: '',
+      epochSeconds: date,
+      turn: turn,
+      files: files
+    };
+    this.insert(item, out);
+  }
+
   private project(record: SessionEvent, out: ConversationProjectionOperation[]): void {
     const e=record.event; const turn=e.turn ?? -1; const step=e.step ?? -1; const key=turn+'-'+step; const date=ConversationProjector.epoch(record.time); const id=record.sessionId+'-'+record.seq;
     if(e.type==='user/message') {
@@ -146,6 +196,8 @@ export class ConversationProjector {
       return;
     }
     if (e.type === 'workspace/changes') {
+      Logger.info('[CHANGES] event seq=' + record.seq + ' valid=' + (e.valid === false ? 'false' : 'true')
+        + ' turn=' + (e.turn ?? -1));
       if (e.valid === false) return;
       this.upsertFilesItem(id, ConversationItemKind.CHANGES, e.turn, date, out, []);
       const last: number = this.mutableItems.length - 1;
@@ -185,7 +237,13 @@ export class ConversationProjector {
         const next:ConversationItem={id:old.id,kind:old.kind,title:old.title,text:old.text,images:old.images,isError:e.isError===true,epochSeconds:old.epochSeconds,turn:old.turn,callId:old.callId,parentCallId:old.parentCallId,rootCallId:old.rootCallId,subCallId:old.subCallId,depth:old.depth,status:e.isError===true?'error':'done',argumentsText:old.argumentsText,resultText:preview};
         this.mutableItems[index]=next; out.push({kind:'replace',item:next,itemId:next.id}); return;
       }
-      this.insert({id,kind:ConversationItemKind.TOOL_RESULT,title:e.isError===true?(this.labels.toolResultFailed??'Tool failed'):(this.labels.toolResultDone??'Tool result'),text:preview,isError:e.isError,epochSeconds:date,turn:e.turn,callId:callId},out); return;
+      this.insert({id,kind:ConversationItemKind.TOOL_RESULT,title:e.isError===true?(this.labels.toolResultFailed??'Tool failed'):(this.labels.toolResultDone??'Tool result'),text:preview,isError:e.isError,epochSeconds:date,turn:e.turn,callId:callId},out);
+      if (e.appendOrigin === true && (e.mutationPath ?? '').length > 0 && (e.turn ?? 0) > 0) {
+        const mutationPath: string = e.mutationPath as string;
+        this.upsertFilesItem(id, ConversationItemKind.CHANGES, e.turn, date, out,
+          [{ name: mutationPath.split('/').pop() ?? mutationPath, path: mutationPath }]);
+      }
+      return;
     }
     if(e.type==='tool/code-dispatch-start'||e.type==='tool/code-dispatch'||e.type==='tool/ptc-dispatch-start'||e.type==='tool/ptc-dispatch') {
       // PTC 子步骤：root/parent/sub 三级 callId，深度 = 父步骤深度 + 1（对齐小程序 tool.depth）

@@ -34,6 +34,7 @@ var (
 	tsqAuthURL      string
 	tsqUpError      string
 	tsqStateDir     string
+	tsqUpDone       chan struct{}
 	tsqLogBuffer    []string
 	tsqStartError   string
 	tsqCachedStatus string
@@ -203,9 +204,12 @@ func TSQStart(hostname *C.char, stateDir *C.char, controlURL *C.char, authKey *C
 	}
 	tsqServer = server
 	tsqCachedStatus = "OK | engine=tsnet | state=Starting"
+	done := make(chan struct{})
+	tsqUpDone = done
 	tsqMu.Unlock()
 
 	go func() {
+		defer close(done)
 		upCtx, upCancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer upCancel()
 		_, upErr := server.Up(upCtx)
@@ -269,6 +273,8 @@ func TSQStop() *C.char {
 	proxy := tsqProxy
 	tsqServer = nil
 	tsqProxy = nil
+	_ = tsqUpDone
+	tsqUpDone = nil
 	tsqMu.Unlock()
 	if proxy != nil {
 		_ = proxy.Close()
