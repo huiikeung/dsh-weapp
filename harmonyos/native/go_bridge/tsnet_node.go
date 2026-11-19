@@ -374,4 +374,4 @@ func TSQProxyStart(targetHost *C.char, targetPort C.int, listenPort C.int, useTL
 }
 
 // 编译期引用，避免 ipn 未使用（保持与主引擎一致的依赖集合）
-var _ = ipn.NotifyInitialNetMap
+var _ = ipn.NeedsLogin

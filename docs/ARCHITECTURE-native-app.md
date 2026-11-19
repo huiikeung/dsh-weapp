@@ -51,15 +51,15 @@ entry/src/main/
 | 桥 | `services/TsnetBridge.ets` | 统一封装 NAPI：hello/probe/start/stop/status/authURL/vpnConfig/peers/exitNodes/restartWithTun |
 | NAPI | `cpp/napi_init.cpp` + `types/libtailscale_ohos` | ArkTS ↔ C 方法表、异步版（Promise）封装 |
 | 引擎 | `entry/libs/arm64-v8a/libtailscale_go.so` | Go c-shared：tailscale tsd 引擎 + magicsock + WireGuard + harmony TUN |
-| Go 源码 | `harmonyos/native/go_bridge/` | `main.go`(cgo 导出)、`backend.go`(引擎生命周期)、`harmony_tun.go`(TUN 适配)、`vpnroute/`(路由计算)、taildrop/taildrive |
-| 工具链 | `harmonyos/third_party/ohos-go`(1.24.5)、`third_party/tailscale`(v1.86.5) | `GOOS=openharmony GOARCH=arm64` 交叉编译 |
-| 补丁 | `harmonyos/patches/*.patch` | ohos-go interface-resources、tailscale netmon/wgengine/ipn 的 OHOS 适配 |
+| Go 源码 | `harmonyos/native/go_bridge/` | `main.go`(cgo 导出 50 个 TS\* 接口)、`backend.go`(引擎生命周期)、`engine_upgrade.go`(状态迁移/租约)、`auth_key.go`、`harmony_tun.go`(TUN 适配)、`vpnroute/`(路由计算)、taildrop/taildrive、`proxy.go`+`tsnet_node.go`(轻量 tsnet 内嵌隧道) |
+| 工具链 | `harmonyos/third_party/go-ohos`(go1.27.3-ohos-devel)、`third_party/tailscale`(v1.104.5) | `GOOS=openharmony GOARCH=arm64` 交叉编译 |
+| 补丁 | `harmonyos/native/go_bridge/vendor/patches/*.patch` | tailscale v1.104.5 的 OHOS 适配（platform.patch：netmon/wgengine/magicsock/ipn/tsnet，cold-peer.patch） |
 
 ### 3.2 构建管线
 
 ```
-third_party/ohos-go/bin/go  (OpenHarmony Go 1.24.5)
-   + third_party/tailscale (已打 tailscale-ohos.patch)
+third_party/go-ohos/bin/go  (go1.27.3-ohos-devel)
+   + third_party/tailscale (v1.104.5，已打 vendor/patches/{platform,cold-peer}.patch)
    + native/go_bridge/*.go
         │  GOOS=openharmony GOARCH=arm64 CGO_ENABLED=1
         │  CC=<sdk>/llvm/bin/clang --target=aarch64-linux-ohos --sysroot=<sdk>/sysroot -D__MUSL__

@@ -50,7 +50,7 @@ func TSProbeEngine() (result *C.char) {
 		Dialer:        dialer,
 		SetSubsystem:  sys.Set,
 		ControlKnobs:  sys.ControlKnobs(),
-		HealthTracker: sys.HealthTracker(),
+		HealthTracker: sys.HealthTracker.Get(),
 		Metrics:       sys.UserMetricsRegistry(),
 	})
 	if err != nil {
@@ -106,6 +106,14 @@ func TSBackendTaildropIncomingSnapshot() *C.char {
 //export TSBackendAuthURL
 func TSBackendAuthURL() *C.char {
 	return C.CString(harmonyBackend.authURL())
+}
+
+//export TSBackendLoginWithAuthKey
+func TSBackendLoginWithAuthKey(authKey *C.char) *C.char {
+	if authKey == nil {
+		return C.CString("FAILED | auth key | empty")
+	}
+	return C.CString(harmonyBackend.loginWithAuthKey(C.GoString(authKey)))
 }
 
 //export TSBackendVPNConfig
@@ -306,4 +314,12 @@ func TSBackendNetworkChanged(interfaceName *C.char) *C.char {
 		return C.CString("FAILED | network change | missing interface")
 	}
 	return C.CString(harmonyBackend.networkChanged(C.GoString(interfaceName)))
+}
+
+//export TSBackendPathDiagnostic
+func TSBackendPathDiagnostic(command *C.char) *C.char {
+	if command == nil {
+		return C.CString("{}")
+	}
+	return C.CString(harmonyBackend.pathDiagnostic(C.GoString(command)))
 }

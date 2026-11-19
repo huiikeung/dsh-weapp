@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"tailscale.com/util/mesharcdiag"
 	"time"
 
 	"tailscale.com/client/local"
@@ -41,12 +42,14 @@ import (
 type backendController struct {
 	mu                     sync.Mutex
 	loginMu                sync.Mutex
+	authKeyMu              sync.Mutex
 	taildropMu             sync.Mutex
 	taildriveMu            sync.Mutex
 	taildriveWarmMu        sync.Mutex
 	taildriveWarmAt        map[string]time.Time
 	taildriveDAVReadyAt    map[string]time.Time
 	server                 *tsnet.Server
+	engineLease            *engineStateLease
 	client                 *local.Client
 	starting               bool
 	startErr               string
@@ -317,11 +320,16 @@ func (b *backendController) start(stateDir, deviceModel, osVersion, controlURL s
 }
 
 func (b *backendController) stop() string {
+	mesharcdiag.Stop()
 	b.cancelTaildropTransfer("disconnected")
 	b.cancelTaildriveTransfer("disconnected")
 	b.mu.Lock()
 	server := b.server
-	tunDevice := b.tunDevice
+	engineLease := b.engineLease
+	b.engineLease = nil
+	if engineLease != nil {
+		defer engineLease.Close()
+	}
 	cancelStart := b.cancelStart
 	cancelTaildropWatch := b.taildropWatchStop
 	cancelMeshArcDeviceSync := b.meshArcDeviceSyncStop
@@ -353,15 +361,7 @@ func (b *backendController) stop() string {
 		cancelMeshArcDeviceSync()
 	}
 	if server != nil {
-		if err := server.Close(); err != nil {
-			if tunDevice != nil {
-				_ = tunDevice.Close()
-			}
-			return "FAILED | backend stop"
-		}
-	}
-	if tunDevice != nil {
-		_ = tunDevice.Close()
+		server.Close()
 	}
 	return "OK | backend stopped"
 }
@@ -397,22 +397,33 @@ func (b *backendController) logout() string {
 }
 
 func (b *backendController) startWithDevice(stateDir, deviceModel, controlURL string, device *harmonyTunDevice) string {
-	keepDevice := false
-	defer func() {
-		if !keepDevice && device != nil {
-			_ = device.Close()
-		}
-	}()
+	// This method consumes the adapted TUN, even when no server accepts it.
+	// The original platform descriptor is owned by the caller, not this duplicate.
 	normalizedControlURL, err := normalizeControlURL(controlURL)
 	if err != nil {
+		if device != nil {
+			_ = device.Close()
+		}
 		return "FAILED | backend start | invalid control server"
 	}
 	profileStateDir := controlServerStateDir(stateDir, normalizedControlURL)
 	b.mu.Lock()
 	if b.server != nil || b.starting {
 		b.mu.Unlock()
+		if device != nil {
+			_ = device.Close()
+		}
 		return b.status()
 	}
+	engineLease, err := prepareEngineStateUpgrade(profileStateDir)
+	if err != nil {
+		b.mu.Unlock()
+		if device != nil {
+			_ = device.Close()
+		}
+		return "FAILED | backend start | private state upgrade"
+	}
+	b.engineLease = engineLease
 	// The OpenHarmony Go port intentionally matches Linux build tags, but an
 	// application process cannot use tailscaled's Linux socket marks/network
 	// namespace bypass. Use the ordinary system dialer for control traffic.
@@ -430,14 +441,13 @@ func (b *backendController) startWithDevice(stateDir, deviceModel, controlURL st
 	generation := b.generation
 	startContext, cancelStart := context.WithCancel(context.Background())
 	server := &tsnet.Server{
-		Port:                   41641,
-		Dir:                    profileStateDir,
-		Hostname:               harmonyHostname(trimmedModel),
-		ControlURL:             normalizedControlURL,
-		Ephemeral:              false,
-		UserLogf:               b.userLogf,
-		Logf:                   b.backendLogf,
-		UseNetstackForPeerDial: device != nil,
+		Port:       41641,
+		Dir:        profileStateDir,
+		Hostname:   harmonyHostname(trimmedModel),
+		ControlURL: normalizedControlURL,
+		Ephemeral:  false,
+		UserLogf:   b.userLogf,
+		Logf:       b.backendLogf,
 	}
 	// Assigning a nil *harmonyTunDevice directly to the tun.Device interface
 	// creates a non-nil interface containing a nil pointer. wireguard-go then
@@ -455,10 +465,9 @@ func (b *backendController) startWithDevice(stateDir, deviceModel, controlURL st
 	b.stateDir = profileStateDir
 	b.cancelStart = cancelStart
 	b.meshArcReceiverStatus = meshArcReceiverStatus{State: "idle"}
-	keepDevice = true
 	b.mu.Unlock()
 
-	go b.startAsync(server, profileStateDir, generation, startContext, device)
+	go b.startAsync(server, profileStateDir, generation, startContext)
 	if device != nil {
 		return "OK | VPN backend starting | persistent private state"
 	}
@@ -477,7 +486,11 @@ func (b *backendController) restartWithTun(
 	b.mu.Lock()
 	b.osVersion = strings.TrimSpace(osVersion)
 	oldServer := b.server
-	oldTunDevice := b.tunDevice
+	oldEngineLease := b.engineLease
+	b.engineLease = nil
+	if oldEngineLease != nil {
+		defer oldEngineLease.Close()
+	}
 	cancelStart := b.cancelStart
 	cancelTaildropWatch := b.taildropWatchStop
 	cancelMeshArcDeviceSync := b.meshArcDeviceSyncStop
@@ -508,16 +521,10 @@ func (b *backendController) restartWithTun(
 		cancelMeshArcDeviceSync()
 	}
 	if oldServer != nil {
-		if err := oldServer.Close(); err != nil {
-			_ = device.Close()
-			if oldTunDevice != nil {
-				_ = oldTunDevice.Close()
-			}
-			return "FAILED | VPN backend | previous backend close"
-		}
+		oldServer.Close()
 	}
-	if oldTunDevice != nil {
-		_ = oldTunDevice.Close()
+	if oldEngineLease != nil {
+		_ = oldEngineLease.Close()
 	}
 	return b.startWithDevice(stateDir, deviceModel, controlURL, device)
 }
@@ -570,20 +577,15 @@ func stripHuaweiBrand(deviceName string) string {
 // log this value.
 func (b *backendController) vpnConfig() string {
 	b.mu.Lock()
-	server := b.server
 	client := b.client
 	starting := b.starting
 	stateDir := b.stateDir
-	generation := b.generation
 	b.mu.Unlock()
-	if server == nil || client == nil || starting {
+	if client == nil || starting {
 		return "FAILED | VPN config | backend not ready"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if _, err := waitForCurrentNetMap(ctx, client); err != nil {
-		return "FAILED | VPN config | current network map unavailable"
-	}
 	status, err := client.Status(ctx)
 	if err != nil || status.BackendState != "Running" {
 		return "FAILED | VPN config | backend not running"
@@ -617,14 +619,9 @@ func (b *backendController) vpnConfig() string {
 		return "FAILED | VPN config | exit route unavailable"
 	}
 	b.mu.Lock()
-	if b.server != server || b.client != client || b.generation != generation {
-		b.mu.Unlock()
-		return "FAILED | VPN config | stale backend"
-	}
 	b.subnetRoutes = subnetRoutes
-	config := fmt.Sprintf("%s|%s|%s", v4.String(), v6Text, strings.Join(routes, ","))
 	b.mu.Unlock()
-	return config
+	return fmt.Sprintf("%s|%s|%s", v4.String(), v6Text, strings.Join(routes, ","))
 }
 
 // exitNodes returns the exit-node choices intended for direct rendering in the
@@ -719,12 +716,13 @@ func classifyPeerDevice(osName, deviceModel string) string {
 	if containsAny(model, "mate x", "pocket", "magic v", "galaxy z fold", "galaxy z flip", "pixel fold", "foldable") {
 		return "foldable"
 	}
+	// Match known laptop names before the generic "pad " tablet token (ThinkPad X1).
+	if containsAny(model, "matebook", "macbook", "thinkpad", "notebook", "laptop", "chromebook") {
+		return "laptop"
+	}
 	if containsAny(model, "ipad", "tablet", "matepad", "mediapad", "galaxy tab", "surface go", "surface pro", "pad ") ||
 		strings.HasSuffix(model, " pad") {
 		return "tablet"
-	}
-	if containsAny(model, "matebook", "macbook", "thinkpad", "notebook", "laptop", "chromebook") {
-		return "laptop"
 	}
 	if containsAny(model, "desktop", "imac", "mac mini", "mac studio", "workstation") {
 		return "desktop"
@@ -2668,31 +2666,26 @@ func (b *backendController) clearInteractiveLoginStart(generation uint64) {
 
 func (b *backendController) startAsync(
 	server *tsnet.Server, stateDir string, generation uint64, startContext context.Context,
-	device *harmonyTunDevice,
 ) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			b.setStartErrorFor(server, generation, fmt.Errorf("panic: %v\n%s", recovered, debug.Stack()))
-			b.releaseTunFor(server, generation, device)
 		}
 	}()
 
 	if err := server.Start(); err != nil {
 		b.setStartErrorFor(server, generation, err)
-		b.releaseTunFor(server, generation, device)
 		return
 	}
 	client, err := server.LocalClient()
 	if err != nil {
 		b.setStartErrorFor(server, generation, err)
-		b.releaseTunFor(server, generation, device)
 		return
 	}
 
 	b.mu.Lock()
 	if b.server != server || b.generation != generation || startContext.Err() != nil {
 		b.mu.Unlock()
-		b.releaseTunFor(server, generation, device)
 		return
 	}
 	b.client = client
@@ -2706,27 +2699,12 @@ func (b *backendController) startAsync(
 	b.mu.Lock()
 	if b.server != server || b.generation != generation || startContext.Err() != nil {
 		b.mu.Unlock()
-		b.releaseTunFor(server, generation, device)
 		return
 	}
 	b.starting = false
 	b.cancelStart = nil
 	b.phase = "ready"
 	b.mu.Unlock()
-}
-
-// Close only the descriptor captured by this start, never a newer TUN.
-func (b *backendController) releaseTunFor(server *tsnet.Server, generation uint64, device *harmonyTunDevice) {
-	if device == nil {
-		return
-	}
-	b.mu.Lock()
-	if b.server == server && b.generation == generation && b.tunDevice == device {
-		b.tunDevice = nil
-		b.externalTun = false
-	}
-	b.mu.Unlock()
-	_ = device.Close()
 }
 
 func (b *backendController) setStartErrorFor(server *tsnet.Server, generation uint64, err error) {
@@ -2823,6 +2801,10 @@ func (b *backendController) formatRunningStatus(
 }
 
 func (b *backendController) authURL() string {
+	if !b.authKeyMu.TryLock() {
+		return "PENDING | login URL | key authentication in progress"
+	}
+	defer b.authKeyMu.Unlock()
 	b.mu.Lock()
 	client := b.client
 	starting := b.starting
@@ -2865,4 +2847,31 @@ func (b *backendController) authURL() string {
 		return "FAILED | login URL | rejected unexpected origin"
 	}
 	return status.AuthURL
+}
+
+func (b *backendController) loginWithAuthKey(value string) string {
+	if !b.authKeyMu.TryLock() {
+		return "FAILED | auth key | busy"
+	}
+	defer b.authKeyMu.Unlock()
+	b.mu.Lock()
+	client, server, starting, generation := b.client, b.server, b.starting, b.generation
+	b.mu.Unlock()
+	if client == nil || server == nil || starting {
+		return "FAILED | auth key | backend_not_ready"
+	}
+	authKey, reason := normalizeDeviceAuthKey(value, server.ControlURL != "https://controlplane.tailscale.com")
+	if reason != "" {
+		return "FAILED | auth key | " + reason
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	result := authenticateDeviceWithKey(ctx, client, authKey, func() bool {
+		b.mu.Lock()
+		defer b.mu.Unlock()
+		return b.client == client && b.generation == generation
+	})
+	// No changes to persisted identity or preferences, including on failure.
+	b.clearInteractiveLoginStart(generation)
+	return result
 }

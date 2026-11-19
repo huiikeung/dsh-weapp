@@ -16,7 +16,7 @@ dsh-weapp/
 │   ├── atomic-service/   旧 ASCF 元服务（回退/对照）
 │   ├── native/go_bridge/ ★ 内嵌 Tailscale Go 引擎（tsd + harmony TUN）
 │   ├── paths/patches/    OHOS Go / Tailscale 适配补丁
-│   ├── third_party/      ohos-go 1.24.5 工具链、tailscale v1.86.5
+│   ├── third_party/      go-ohos(1.27.3-ohos-devel) 工具链、tailscale v1.104.5
 │   ├── entry/            HAR 形态的公共模块（历史/资源）
 │   └── docs (PARITY.md / NATIVE.md)
 ├── docs/                 协议、对齐矩阵、验收、专项设计
@@ -109,8 +109,8 @@ GatewayClient
 
 ```
 构建期：
-  third_party/ohos-go (OpenHarmony Go 1.24.5，已打补丁)
-  third_party/tailscale (v1.86.5，已打 tailscale-ohos.patch)
+  third_party/go-ohos (go1.27.3-ohos-devel)
+  third_party/tailscale (v1.104.5，已打 go_bridge/vendor/patches 的 platform+cold-peer)
   native/go_bridge (Go 桥：tsd 引擎 + harmony TUN + vpnroute + taildrop/taildrive)
       └─ go build -buildmode=c-shared → entry/libs/arm64-v8a/libtailscale_go.so
   cpp/CMakeLists: IMPORTED 链接 libtailscale_go.so → libtailscale_ohos.so(NAPI)

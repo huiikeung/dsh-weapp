@@ -1,12 +1,67 @@
 package main
 
 import (
+	"bytes"
 	"errors"
 	"io"
 	"testing"
 
+	"github.com/tailscale/wireguard-go/tun"
 	"golang.org/x/sys/unix"
 )
+
+func TestHarmonyTunSlabReadPreservesSpacingAndDescriptor(t *testing.T) {
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(fds[0])
+	defer unix.Close(fds[1])
+	d, err := newHarmonyTunDevice(fds[0], 1280)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	payload := []byte{0x60, 1, 2, 3, 4, 5, 6, 7}
+	if _, err := unix.Write(fds[1], payload); err != nil {
+		t.Fatal(err)
+	}
+	slab := bytes.Repeat([]byte{0xa5}, len(payload)+2*tun.ReadPacketSpacing)
+	packets := make([]tun.ReadPacket, d.BatchSize())
+	n, err := d.Read(slab, packets)
+	if err != nil || n != 1 {
+		t.Fatalf("Read = %d, %v", n, err)
+	}
+	p := packets[0]
+	if p.Offset != tun.ReadPacketSpacing || p.Size != len(payload) || !bytes.Equal(slab[p.Offset:p.Offset+p.Size], payload) {
+		t.Fatal("slab packet boundary or payload changed")
+	}
+	if !bytes.Equal(slab[:p.Offset], bytes.Repeat([]byte{0xa5}, tun.ReadPacketSpacing)) ||
+		!bytes.Equal(slab[p.Offset+p.Size:], bytes.Repeat([]byte{0xa5}, tun.ReadPacketSpacing)) {
+		t.Fatal("WireGuard headroom or tailroom was overwritten")
+	}
+	if d.readCount.Load() != 1 || d.readByteCount.Load() != uint64(len(payload)) {
+		t.Fatal("TUN counters changed semantics")
+	}
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unix.FcntlInt(uintptr(fds[0]), unix.F_GETFD, 0); err != nil {
+		t.Fatal("closed the platform-owned descriptor")
+	}
+}
+
+func TestHarmonyTunSlabReadRejectsInvalidBuffers(t *testing.T) {
+	d := &harmonyTunDevice{}
+	for _, size := range []int{0, 1, 2*tun.ReadPacketSpacing - 1, 2 * tun.ReadPacketSpacing} {
+		if n, err := d.Read(make([]byte, size), make([]tun.ReadPacket, 1)); n != 0 || err == nil {
+			t.Fatalf("accepted slab size %d", size)
+		}
+	}
+	if n, err := d.Read(make([]byte, 512), nil); n != 0 || err == nil {
+		t.Fatal("accepted missing packet metadata")
+	}
+}
 
 type scriptedTunWrite struct {
 	steps  []scriptedTunWriteStep

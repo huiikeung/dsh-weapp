@@ -62,16 +62,21 @@ func newHarmonyTunDevice(fd, mtu int) (*harmonyTunDevice, error) {
 
 func (d *harmonyTunDevice) File() *os.File { return d.file }
 
-func (d *harmonyTunDevice) Read(bufs [][]byte, sizes []int, offset int) (int, error) {
-	if len(bufs) == 0 || len(sizes) == 0 || offset < 0 || offset >= len(bufs[0]) {
+func (d *harmonyTunDevice) Read(slab []byte, packets []tun.ReadPacket) (int, error) {
+	// The upstream slab API reserves headroom and tailroom around each packet.
+	// Our single-queue descriptor still produces one complete IP packet per read.
+	const spacing = tun.ReadPacketSpacing
+	if len(packets) == 0 || len(slab) <= 2*spacing {
 		return 0, errors.New("invalid TUN read buffer")
 	}
-	n, err := readTunPacket(d.file, bufs[0][offset:])
+	packets[0] = tun.ReadPacket{}
+	buffer := slab[spacing : len(slab)-spacing]
+	n, err := readTunPacket(d.file, buffer)
 	if n > 0 {
-		sizes[0] = n
+		packets[0] = tun.ReadPacket{Offset: spacing, Size: n}
 		d.readCount.Add(1)
 		d.readByteCount.Add(uint64(n))
-		d.observeDNSPacket(bufs[0][offset:offset+n], true)
+		d.observeDNSPacket(buffer[:n], true)
 		return 1, nil
 	}
 	if err != nil && !isRetriableTunError(err) {
