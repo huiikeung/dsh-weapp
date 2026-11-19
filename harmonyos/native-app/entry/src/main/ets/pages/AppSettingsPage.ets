@@ -1,9 +1,9 @@
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { bundleManager, common } from '@kit.AbilityKit';
-import type { WorkStepOption } from 'nativecore';
+import type { ThemeMode, WorkStepOption } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
 import { Haptics } from '../services/Haptics';
-import { AttachmentCache, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, WorkStepPresentation, WorkspaceRow } from 'nativecore';
+import { AttachmentCache, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, ThemeManager, WorkStepPresentation, WorkspaceRow } from 'nativecore';
 
 /**
  * 设置（左侧栏「设置」）：逐行对齐小程序 pages/settings。
@@ -716,10 +716,14 @@ export struct AppSettingsPage {
     return this.labelOf('haptics', this.haptics);
   }
 
+  /**
+   * 切换深浅色：必须走 ThemeManager，它会在写 themeMode 的同时同步刷新
+   * AppStorage 的 isDark。以前这里只写 themeMode，isDark 要等系统配色回调
+   * 才会变，当前页面因此不会重绘——表现为「切换后颜色不变，退出重进才生效」。
+   */
   private applyTheme(mode: string): void {
     this.themeMode = mode;
-    PreferencesStore.get().putString('themeMode', mode);
-    AppStorage.setOrCreate<string>('themeMode', mode);
+    ThemeManager.get().setMode(mode as ThemeMode);
   }
 
   private applyFontSize(value: string): void {

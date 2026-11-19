@@ -1,11 +1,12 @@
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { display, KeyboardAvoidMode, LengthMetrics, uiMaterial, window } from '@kit.ArkUI';
+import { display, KeyboardAvoidMode, LengthMetrics, uiMaterial } from '@kit.ArkUI';
 import { drawing } from '@kit.ArkGraphics2D';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
 import { FluKeCoin } from '../components/FluKeCoin';
 import { Haptics } from '../services/Haptics';
+import { StatusBarStyle, STATUS_BAR_HOME_ROUTE } from '../services/StatusBarStyle';
 import { openSessionRoute } from '../common/SessionRoute';
 import {
   GatewayClient, OceanBackground, PairingResult, PreferencesStore, SessionStore, SessionSummary,
@@ -31,7 +32,7 @@ interface SessionSection {
 
 @Component
 export struct HomePage {
-  @StorageLink('isDark') isDark: boolean = false;
+  @StorageLink('isDark') @Watch('onIsDarkChanged') isDark: boolean = false;
   @StorageLink('connectionState') @Watch('onConnectionChanged') connection: string = 'disconnected';
   @StorageLink('tailscaleTunnelEnabled') tailscaleTunnelEnabled: boolean = false;
   @StorageLink('tailscaleStage') tailscaleStage: string = 'disabled';
@@ -164,22 +165,15 @@ export struct HomePage {
   }
 
   /** 首页恒为深海深色背景：状态栏内容强制白色（浅色主题下系统会重置成黑，需显式覆盖）。
-   *  setColorMode 会异步重置状态栏样式，单次调用可能被盖回，因此延迟重试四次确保最终态为白。 */
+   *  颜色由 StatusBarStyle 按「首页可见 → 白 / 其它页面跟随主题」统一决定，
+   *  切主题、系统配色变化、回前台都会重新写回，避免出现深海背景配黑字。 */
   private applyStatusBarWhite(): void {
-    try {
-      const context = getContext(this) as common.UIAbilityContext;
-      const apply = (): void => {
-        window.getLastWindow(context).then((win: window.Window) => {
-          win.setWindowSystemBarProperties({ statusBarContentColor: '#FFFFFF' });
-        }).catch(() => {
-        });
-      };
-      apply();
-      setTimeout(apply, 100);
-      setTimeout(apply, 400);
-      setTimeout(apply, 1000);
-    } catch (err) {
-    }
+    StatusBarStyle.setRoute(STATUS_BAR_HOME_ROUTE);
+  }
+
+  /** 切换浅色/深色后系统会重刷状态栏（浅色下变黑字），首页背景始终是深海深色，立刻改回白字 */
+  onIsDarkChanged(): void {
+    this.applyStatusBarWhite();
   }
 
   private navPad(): Length {
@@ -3473,7 +3467,12 @@ export struct HomePage {
     }
     .hideTitleBar(true)
     .onShown(() => {
+      // 回到首页：登记可见并重写白字
       this.applyStatusBarWhite();
+    })
+    .onHidden(() => {
+      // 压栈到别的页面：颜色由路由回调 didShow 决定（浅色页面需要黑字），这里只做兜底刷新
+      StatusBarStyle.refresh();
     })
     .backgroundColor(this.drawerOpen ? (this.isDark ? '#181A1F' : '#FFFFFF') : this.bg())
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])

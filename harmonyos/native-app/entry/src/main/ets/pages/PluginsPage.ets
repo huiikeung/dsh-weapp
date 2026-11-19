@@ -819,9 +819,8 @@ export struct PluginsPage {
           if (this.detailMarkdown.length > 0) {
             MarkdownBodyView({
               text: this.detailMarkdown,
-              isDark: this.isDark,
               fontSize: 13,
-              textColor: this.textColor()
+              textColor: ''
             })
               .width('100%')
           }

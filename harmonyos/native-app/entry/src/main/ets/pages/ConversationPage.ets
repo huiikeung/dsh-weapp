@@ -911,14 +911,27 @@ export struct ConversationPage {
     StatusBarStyle.set(this.isDark ? '#FFFFFF' : '#000000');
   }
 
-  /** 切换深浅主题后立刻重写状态栏内容色，并重排时间线 */
+  /** 切换深浅主题后立刻重写状态栏内容色，并强制重载时间线 */
   onIsDarkChanged(): void {
     this.applyStatusBarColor();
-    // 时间线是 LazyForEach：已建好的行不会因父级状态变化重建，主题切换时重排一次，
-    // 让行组件用新配色重新创建（否则正文会一直保持切换前的颜色，退出重进才正常）。
-    if (this.ready) {
-      this.rebuildEntries();
+    // 时间线是 LazyForEach：已建好的行不会因父级状态变化重建，必须整表重载一次，
+    // 让每行（含 Markdown 正文）用新配色重新创建。
+    // 注意不能走 rebuildEntries()：它在「行结构没变」时会提前 return，主题切换正好不改结构。
+    if (!this.ready) {
+      return;
     }
+    this.reloadForTheme();
+  }
+
+  /** 主题切换专用：无条件重载列表，保持当前滚动位置 */
+  private reloadForTheme(): void {
+    const yOffset: number = this.scroller.currentOffset().yOffset;
+    this.suppressReachEnd = true;
+    this.source.update(this.entries);
+    setTimeout(() => {
+      this.scroller.scrollTo({ xOffset: 0, yOffset: yOffset, animation: false });
+      this.suppressReachEnd = false;
+    }, 0);
   }
 
   private textColor(): string {

@@ -28,7 +28,8 @@ export struct ConversationProgress {
   @Prop appearance: string = 'classic';
   /** 实时主题：直接订阅 AppStorage，避免父级 @Prop 未刷新时颜色不跟随 */
   @StorageProp('statusAppearance') appearanceLive: string = 'classic';
-  @Prop isDark: boolean = false;
+  /** 实时主题：LazyForEach 创建的行不会跟随父级 @Prop 刷新，直接订阅 AppStorage */
+  @StorageLink('isDark') isDark: boolean = false;
   /** 如「推敲细节中，用时 12 秒…」 */
   @Prop label: string = '';
   /** 过程组可展开时点击整行回调 */

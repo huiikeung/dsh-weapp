@@ -1,24 +1,32 @@
 /**
  * MarkdownBodyView —— 会话正文的轻量 Markdown 渲染。
  *
- * 由 native-core 的 MarkdownLite 解析成块 + 行内片段，这里只负责排版：
- *   段落 / 标题 / 引用 / 列表 / 分隔线 / 表格 / 围栏代码块（横向滚动）。
- * 行内片段用 TextSpan 着色：粗体加粗、行内代码等宽着色、链接主色。
+ * 解析由 native-core 的 MarkdownLite 完成（块 + 行内片段），这里只负责排版，
+ * 排版口径对齐小程序 pages/session/utils/markdown.js + session.wxss 的 .md-* 规则：
+ *   段落 / 标题（加粗并按 h1..h6 放大）/ 引用（次要色 + 左侧竖线）/
+ *   列表 / 分隔线 / 表格 / 围栏代码块（横向滚动）。
+ * 行内片段用 Span 渲染：**粗体** 加粗、行内代码等宽 + 底色圆角、链接主色下划线、斜体倾斜。
  */
 import { Logger, MarkdownLite } from 'nativecore';
 import type { MarkdownBlock, InlineSpan } from 'nativecore';
 
 /** 流式 Markdown 的最小解析间隔：正文越长，单次解析越贵 */
 const MARKDOWN_PARSE_INTERVAL_MS: number = 100;
+/** 主色（链接） */
+const ACCENT: string = '#2E6BE6';
+/** 正文字体 / 等宽字体 */
+const BODY_FONT: string = 'HarmonyOS Sans';
+const MONO_FONT: string = 'monospace';
 
 @Component
 export struct MarkdownBodyView {
   @Prop @Watch('onTextChanged') text: string = '';
-  @Prop isDark: boolean = false;
+  /** 实时主题：直接订阅 AppStorage，避免所在行（LazyForEach 行）的 @Prop 没刷新时颜色不跟随 */
+  @StorageProp('isDark') isDark: boolean = false;
   /** 正文字号（助手 16 / 紧凑场景 13） */
   @Prop fontSize: number = 18.5;
-  /** 正文色；错误态由调用方传红色 */
-  @Prop textColor: string = '#101318';
+  /** 正文色覆盖：只用于错误态（红色）；空串表示跟随主题 */
+  @Prop textColor: string = '';
 
   @State private blocks: MarkdownBlock[] = [];
   private parseTimer: number = -1;
@@ -60,51 +68,113 @@ export struct MarkdownBodyView {
     this.blocks = MarkdownLite.parse(this.text);
   }
 
+  /** 正文色：调用方给了覆盖色（错误红）就用它，否则跟随实时主题 */
+  private bodyColor(): string {
+    if (this.textColor.length > 0) {
+      return this.textColor;
+    }
+    return this.isDark ? '#F1F4FA' : '#10131A';
+  }
+
   /** 小程序 --text-2：实色（低透明度在暗底上会糊） */
   private secondaryColor(): string {
     return this.isDark ? '#B9C2D0' : '#4A5160';
   }
 
-  private codeBackground(): string {
+  /** 小程序 --fill：代码块与行内代码底色 */
+  private fillColor(): string {
     return this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)';
   }
 
-  private inlineBackground(): string {
-    return this.isDark ? 'rgba(46,107,230,0.20)' : 'rgba(46,107,230,0.08)';
+  /** 小程序 .md-quote 左边线：rgba(191,212,255,.45) */
+  private quoteBorderColor(): string {
+    return this.isDark ? 'rgba(191,212,255,0.45)' : 'rgba(16,19,24,0.16)';
   }
 
-  /** 行内片段的字号：代码略小、其余随正文。 */
-  private spanSize(style: string): number {
-    return style === 'code' ? this.fontSize - 1 : this.fontSize;
+  /** 小程序 .md-hr / 表格边线：--border-strong */
+  private strongBorderColor(): string {
+    return this.isDark ? 'rgba(241,244,250,0.16)' : 'rgba(16,19,24,0.12)';
   }
 
-  /** 行内片段颜色。 */
-  private spanColor(style: string): string {
-    if (style === 'code') {
-      return '#2E6BE6';
+  /** 标题字号：对齐小程序 40/36/33/31rpx（正文 32rpx） */
+  private headingSize(level: number): number {
+    if (level === 1) {
+      return this.fontSize * 1.25;
     }
-    if (style === 'link') {
-      return '#2E6BE6';
+    if (level === 2) {
+      return this.fontSize * 1.125;
     }
-    return this.textColor;
+    if (level === 3) {
+      return this.fontSize * 1.031;
+    }
+    return this.fontSize * 0.969;
   }
 
-  /** 行内文本：拼成普通字符串后整体渲染（ArkUI 的富文本段落见后续版本）。 */
-  private inlineText(spans: InlineSpan[]): string {
-    let out: string = '';
-    for (const span of spans) {
-      out += span.text;
-    }
-    return out;
+  /** 列表正文 30rpx、引用 29rpx、表格 30rpx：按正文比例缩放 */
+  private listSize(): number {
+    return this.fontSize * 0.9375;
   }
 
+  private quoteSize(): number {
+    return this.fontSize * 0.906;
+  }
+
+  private cellSize(): number {
+    return this.fontSize * 0.9375;
+  }
+
+  /**
+   * 行内片段渲染：一个 Span 对应一个片段。
+   * 粗体加粗、行内代码等宽 + 底色圆角、链接主色下划线、斜体倾斜。
+   */
   @Builder
-  inline(spans: InlineSpan[]) {
-    Text(this.inlineText(spans))
-      .width('100%')
-      .lineHeight(this.fontSize + 11)
-      .fontSize(this.fontSize)
-      .fontColor(this.textColor)
+  inline(spans: InlineSpan[], size: number, color: string, weight: FontWeight, lineHeight: number) {
+    Text() {
+      ForEach(spans, (span: InlineSpan, index: number) => {
+        Span(span.text)
+          .fontSize(span.style === 'code' ? size - 1 : size)
+          .fontColor(span.style === 'link' ? ACCENT : color)
+          .fontWeight(span.style === 'bold' ? FontWeight.Bold : weight)
+          .fontStyle(span.style === 'italic' ? FontStyle.Italic : FontStyle.Normal)
+          .fontFamily(span.style === 'code' ? MONO_FONT : BODY_FONT)
+          .textBackgroundStyle(span.style === 'code'
+            ? { color: this.fillColor(), radius: 6 }
+            : { color: Color.Transparent, radius: 0 })
+          .decoration(span.style === 'link'
+            ? { type: TextDecorationType.Underline, color: ACCENT }
+            : { type: TextDecorationType.None, color: Color.Transparent })
+      }, (span: InlineSpan, index: number) => index.toString() + '_' + span.style)
+    }
+    .width('100%')
+    .fontSize(size)
+    .fontColor(color)
+    .fontWeight(weight)
+    .fontFamily(BODY_FONT)
+    .lineHeight(lineHeight)
+  }
+
+  /** 表格单元格：小程序对单元格也走行内 HTML，这里同样按行内片段渲染 */
+  @Builder
+  cell(spans: InlineSpan[], header: boolean) {
+    Text() {
+      ForEach(spans, (span: InlineSpan, index: number) => {
+        Span(span.text)
+          .fontSize(span.style === 'code' ? this.cellSize() - 1 : this.cellSize())
+          .fontColor(span.style === 'link' ? ACCENT : this.bodyColor())
+          .fontWeight(header || span.style === 'bold' ? FontWeight.Medium : FontWeight.Normal)
+          .fontStyle(span.style === 'italic' ? FontStyle.Italic : FontStyle.Normal)
+          .fontFamily(span.style === 'code' ? MONO_FONT : BODY_FONT)
+          .textBackgroundStyle(span.style === 'code'
+            ? { color: this.fillColor(), radius: 4 }
+            : { color: Color.Transparent, radius: 0 })
+      }, (span: InlineSpan, index: number) => index.toString() + '_' + span.style)
+    }
+    .fontSize(this.cellSize())
+    .fontColor(this.bodyColor())
+    .fontFamily(BODY_FONT)
+    .lineHeight(this.cellSize() * 1.5)
+    .width(120)
+    .padding({ left: 8, right: 8, top: 6, bottom: 6 })
   }
 
   @Builder
@@ -119,10 +189,9 @@ export struct MarkdownBodyView {
         Scroll() {
           Text(block.text)
             .fontSize(12)
-            .fontFamily('monospace')
-            .fontColor(this.textColor)
-            .lineHeight(18)
-            .textAlign(TextAlign.Start)
+            .fontFamily(MONO_FONT)
+            .fontColor(this.bodyColor())
+            .lineHeight(17)
         }
         .scrollable(ScrollDirection.Horizontal)
         .scrollBar(BarState.Off)
@@ -133,24 +202,27 @@ export struct MarkdownBodyView {
       .width('100%')
       .padding(10)
       .borderRadius(9)
-      .backgroundColor(this.codeBackground())
+      .backgroundColor(this.fillColor())
+      .border({ width: 0.5, color: this.strongBorderColor() })
       .margin({ top: 4, bottom: 8 })
     } else if (block.kind === 'divider') {
       Divider()
         .strokeWidth(0.5)
-        .color(this.isDark ? 'rgba(241,244,250,0.16)' : 'rgba(16,19,24,0.12)')
+        .color(this.strongBorderColor())
         .margin({ top: 12, bottom: 12 })
     } else if (block.kind === 'heading') {
       Column() {
-        this.inline(block.spans)
+        this.inline(block.spans, this.headingSize(block.level), this.bodyColor(),
+          FontWeight.Bold, this.headingSize(block.level) + 9)
       }
       .width('100%')
       .margin({ top: 8, bottom: 4 })
     } else if (block.kind === 'quote') {
       Row({ space: 8 }) {
-        Divider().vertical(true).strokeWidth(2).color(this.inlineBackground())
+        Divider().vertical(true).strokeWidth(2.5).color(this.quoteBorderColor())
         Column() {
-          this.inline(block.spans)
+          this.inline(block.spans, this.quoteSize(), this.secondaryColor(),
+            FontWeight.Normal, this.quoteSize() + 9)
         }
         .layoutWeight(1)
       }
@@ -160,11 +232,12 @@ export struct MarkdownBodyView {
     } else if (block.kind === 'list') {
       Row({ space: 6 }) {
         Text(block.index > 0 ? block.index.toString() + '.' : '•')
-          .fontSize(this.fontSize)
+          .fontSize(this.listSize())
           .fontColor(this.secondaryColor())
           .width(18)
         Column() {
-          this.inline(block.spans)
+          this.inline(block.spans, this.listSize(), this.bodyColor(),
+            FontWeight.Normal, this.listSize() + 9)
         }
         .layoutWeight(1)
       }
@@ -176,30 +249,22 @@ export struct MarkdownBodyView {
         Column() {
           Row() {
             ForEach(block.headers, (cell: string, index: number) => {
-              Text(cell)
-                .fontSize(12)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(this.textColor)
-                .width(120)
-                .padding({ left: 8, right: 8, top: 6, bottom: 6 })
+              this.cell(MarkdownLite.inline(cell), true)
             }, (cell: string, index: number) => 'h' + index.toString())
           }
-          .backgroundColor(this.codeBackground())
+          .backgroundColor(this.fillColor())
           ForEach(block.rows, (row: string[], rowIndex: number) => {
             Row() {
               ForEach(row, (cell: string, cellIndex: number) => {
-                Text(cell)
-                  .fontSize(12)
-                  .fontColor(this.textColor)
-                  .width(120)
-                  .padding({ left: 8, right: 8, top: 6, bottom: 6 })
+                this.cell(MarkdownLite.inline(cell), false)
               }, (cell: string, cellIndex: number) => 'c' + rowIndex.toString() + '-' + cellIndex.toString())
             }
+            .backgroundColor(rowIndex % 2 === 0 ? this.fillColor() : Color.Transparent)
           }, (row: string[], rowIndex: number) => 'r' + rowIndex.toString())
         }
         .alignItems(HorizontalAlign.Start)
         .borderRadius(8)
-        .border({ width: 0.5, color: this.isDark ? 'rgba(241,244,250,0.14)' : 'rgba(16,19,24,0.10)' })
+        .border({ width: 0.5, color: this.strongBorderColor() })
       }
       .scrollable(ScrollDirection.Horizontal)
       .scrollBar(BarState.Off)
@@ -207,7 +272,8 @@ export struct MarkdownBodyView {
       .margin({ top: 6, bottom: 8 })
     } else {
       Column() {
-        this.inline(block.spans)
+        this.inline(block.spans, this.fontSize, this.bodyColor(),
+          FontWeight.Normal, this.fontSize + 11)
       }
       .width('100%')
       .margin({ top: 2, bottom: 6 })

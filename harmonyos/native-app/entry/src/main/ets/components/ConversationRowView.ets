@@ -44,7 +44,8 @@ export struct ConversationRowView {
   }
   /** 运行中过程体：限高滚动条，跟随最新一步 */
   private processScroller: Scroller = new Scroller();
-  @Prop isDark: boolean = false;
+  /** 实时主题：LazyForEach 创建的行不会跟随父级 @Prop 刷新，直接订阅 AppStorage */
+  @StorageLink('isDark') isDark: boolean = false;
   /** 会话正文/用户气泡字号档位（设置页「字号大小」，响应式） */
   @StorageProp('contentFontSize') contentFontSize: string = '标准';
   /** 执行图标动效样式（设置页「执行图标」，13 种） */
@@ -300,9 +301,9 @@ export struct ConversationRowView {
       }
       MarkdownBodyView({
         text: this.assistantBody(),
-        isDark: this.isDark,
         fontSize: this.contentSize(),
-        textColor: this.entry.isError ? DANGER : this.primaryText()
+        // 只有错误态覆盖成红色；正常正文由组件自己跟随实时主题
+        textColor: this.entry.isError ? DANGER : ''
       })
       if (this.entry.footerVisible) {
         // .turn-footer：gap 14rpx、padding 4rpx 0；左组 gap 10rpx
@@ -542,9 +543,8 @@ export struct ConversationRowView {
     Column() {
       MarkdownBodyView({
         text: item.text,
-        isDark: this.isDark,
         fontSize: this.contentSize(),
-        textColor: this.primaryText()
+        textColor: ''
       })
     }
     .width('100%')

@@ -105,7 +105,8 @@ interface SessionFileEntry {
 
 @Component
 export struct SessionPage {
-  @StorageLink('isDark') isDark: boolean = false;
+  /** 主题切换时重置一次列表数据源：LazyForEach 已建好的气泡不跟随父级状态重建 */
+  @StorageLink('isDark') @Watch('onRowsChanged') isDark: boolean = false;
   @Consume('pageStack') pageStack: NavPathStack;
   @StorageLink('connectionState') @Watch('onPromptConnectionChanged') connection: string = 'disconnected';
   @StorageLink('appLifecycle') @Watch('onVoiceLifecycleChanged') appLifecycle: string = 'foreground';

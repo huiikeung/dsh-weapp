@@ -18,6 +18,7 @@ import { StatusStylesPage } from './StatusStylesPage';
 import { PreferencePickerPage } from './PreferencePickerPage';
 import { FontSizePage } from './FontSizePage';
 import { openSessionRoute } from '../common/SessionRoute';
+import { StatusBarStyle } from '../services/StatusBarStyle';
 
 @Entry
 @Component
@@ -39,6 +40,11 @@ struct Index {
         target = ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT;
       }
       ctx.setColorMode(target);
+      // setColorMode 会让系统按新 colorMode 重刷状态栏内容色（浅色 → 黑字），
+      // 且这次重刷是异步的；页面已经显示时不会再触发 onShown，必须在这里补写回页面登记的颜色。
+      setTimeout(() => StatusBarStyle.refresh(), 60);
+      setTimeout(() => StatusBarStyle.refresh(), 600);
+      setTimeout(() => StatusBarStyle.refresh(), 1200);
     } catch (err) {
       // 旧系统忽略
     }
@@ -56,6 +62,8 @@ struct Index {
 
   aboutToAppear(): void {
     Logger.info('UIBOOT Index aboutToAppear');
+    // 路由切换时同步状态栏归属页面：首页 NavBar 记为 ''，其它记 NavDestination 名字
+    this.pageStack.setInterception({ didShow: this.syncStatusBarRoute });
     SessionStore.restoreCatalogCache();
     this.applyAppColorMode();
     if (this.pendingSessionId.length > 0) this.openPendingSession();
@@ -110,6 +118,15 @@ struct Index {
     } else if (name === 'font-size') {
       FontSizePage();
     }
+  }
+
+  /** 路由切换回调：把「当前显示的是哪个页面」同步给状态栏样式（首页 NavBar 记为 ''） */
+  private syncStatusBarRoute(from: NavDestinationContext | NavBar,
+    to: NavDestinationContext | NavBar, operation: NavigationOperation, isAnimated: boolean): void {
+    const ctx: NavDestinationContext | undefined = to as NavDestinationContext;
+    const routeName: string = ctx !== undefined && ctx.pathInfo !== undefined &&
+      ctx.pathInfo !== null ? ctx.pathInfo.name : '';
+    StatusBarStyle.setRoute(routeName);
   }
 
   build() {

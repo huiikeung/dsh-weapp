@@ -4,6 +4,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { TailscaleTunnelStore } from '../services/TailscaleTunnelStore';
 import { TsnetBridge } from '../services/TsnetBridge';
 import { BackgroundKeepAlive } from '../services/BackgroundKeepAlive';
+import { StatusBarStyle } from '../services/StatusBarStyle';
 import {
   AppState, GatewayClient, Logger, PreferencesStore, SessionStore, ThemeManager,
   parsePairingPayload, sodiumSelfTest
@@ -170,6 +171,8 @@ export default class EntryAbility extends UIAbility {
 
   onForeground(): void {
     void BackgroundKeepAlive.stop();
+    // 回前台时系统会按当前 colorMode 重刷状态栏，按当前页面重新写回正确颜色
+    StatusBarStyle.refresh();
     GatewayClient.get().revalidateOnForeground();
     AppStorage.setOrCreate<string>('appLifecycle', 'foreground');
     // 后台期间桌面端可能开跑或跑完：回前台立刻校准一次会话列表，
@@ -195,5 +198,7 @@ export default class EntryAbility extends UIAbility {
 
   onConfigurationUpdate(newConfig: Configuration): void {
     ThemeManager.get().applySystemColorMode(newConfig.colorMode);
+    // 系统配色变化（含强制浅色/深色）会让状态栏回到默认色，重新计算并写回
+    StatusBarStyle.refresh();
   }
 }
