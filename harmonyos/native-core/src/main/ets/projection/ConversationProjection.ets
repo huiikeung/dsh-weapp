@@ -142,7 +142,28 @@ export class ConversationProjector {
     if(e.type==='assistant/message') {
       this.finalizedKeys.add(key);
       if(e.reasoning!==undefined && e.reasoning.length>0) this.finalize('stream-reason-'+key,{id:id+'-reason',kind:ConversationItemKind.REASONING,title:this.labels.finalReasoning??'Think',text:e.reasoning,isError:e.interrupted,epochSeconds:date,turn:e.turn},out);
-      if((e.text??'').length>0 || (e.images?.length??0)>0) this.finalize('stream-text-'+key,{id,kind:ConversationItemKind.ASSISTANT,title:e.interrupted===true?(this.labels.interrupted??'Generation interrupted'):(this.labels.finalAssistant??'DeepSeek'),text:e.text??'',images:e.images as Object[]|undefined,isError:e.interrupted,epochSeconds:date,turn:e.turn},out);
+      if((e.text??'').length>0 || (e.images?.length??0)>0) this.finalizeAssistantText('stream-text-'+key,{id,kind:ConversationItemKind.ASSISTANT,title:e.interrupted===true?(this.labels.interrupted??'Generation interrupted'):(this.labels.finalAssistant??'DeepSeek'),text:e.text??'',images:e.images as Object[]|undefined,isError:e.interrupted,epochSeconds:date,turn:e.turn},out);
+      return;
+    }
+    if (e.type === 'workspace/changes') {
+      if (e.valid === false) return;
+      this.upsertFilesItem(id, ConversationItemKind.CHANGES, e.turn, date, out, []);
+      const last: number = this.mutableItems.length - 1;
+      if (last >= 0 && this.mutableItems[last].kind === ConversationItemKind.CHANGES) {
+        this.mutableItems[last].changeSeq = record.seq;
+      }
+      return;
+    }
+    if (e.type === 'deliverables/presented') {
+      const presented = e.presentedFiles ?? [];
+      if (presented.length === 0) return;
+      const files: PresentedFile[] = [];
+      for (const file of presented) {
+        const name: string = file.name !== undefined && file.name.length > 0
+          ? file.name : (file.path.split('/').pop() ?? file.path);
+        files.push({ name: name, path: file.path, added: file.added, deleted: file.deleted, status: file.status });
+      }
+      this.upsertFilesItem(id, ConversationItemKind.FILES, e.turn, date, out, files);
       return;
     }
     if(e.type==='tool/call') {
@@ -211,6 +232,30 @@ export class ConversationProjector {
     if(index!==undefined){const old=this.mutableItems[index];const next:ConversationItem={id:old.id,kind:old.kind,title:old.title,text:old.text+delta,images:old.images,isError:old.isError,epochSeconds:time,turn:old.turn};this.mutableItems[index]=next;out.push({kind:'append',itemId:next.id,delta,epochSeconds:time});}
     else {const item:ConversationItem={id:key,kind,title,text:delta,epochSeconds:time};this.streamIndexes.set(key,this.mutableItems.length);this.insert(item,out);}
   }
+  /**
+   * 结算最终正文：把流式正文行挪到「本回合过程行之后」。
+   * 流式正文是最早出现在本回合里的，工具调用都排在它后面；只在原地 replace 的话，
+   * ConversationFeed 会把它当成「回合中段叙述」收进过程组，回合收工折叠成「已完成」时正文就看不见了。
+   */
+  private finalizeAssistantText(key:string,item:ConversationItem,out:ConversationProjectionOperation[]):void {
+    const index=this.streamIndexes.get(key);
+    if(index===undefined){this.insert(item,out);return;}
+    const old=this.mutableItems[index];
+    const next:ConversationItem={id:old.id,kind:item.kind,title:item.title,text:item.text.length>0?item.text:old.text,images:item.images,isError:item.isError,epochSeconds:item.epochSeconds,turn:item.turn};
+    this.streamIndexes.delete(key);
+    if(index===this.mutableItems.length-1){
+      this.mutableItems[index]=next;
+      out.push({kind:'replace',item:next,itemId:next.id});
+      return;
+    }
+    this.mutableItems.splice(index,1);
+    this.streamIndexes.forEach((value:number,streamKey:string)=>{
+      if(value>index){this.streamIndexes.set(streamKey,value-1);}
+    });
+    this.mutableItems.push(next);
+    out.push({kind:'replaceAll',items:this.items});
+  }
+
   private finalize(key:string,item:ConversationItem,out:ConversationProjectionOperation[]):void {
     const index=this.streamIndexes.get(key); if(index===undefined){this.insert(item,out);return;}
     const old=this.mutableItems[index]; const next:ConversationItem={id:old.id,kind:item.kind,title:item.title,text:item.text.length>0?item.text:old.text,images:item.images,isError:item.isError,epochSeconds:item.epochSeconds,turn:item.turn}; this.mutableItems[index]=next;this.streamIndexes.delete(key);out.push({kind:'replace',item:next,itemId:next.id});
