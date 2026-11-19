@@ -44,7 +44,8 @@ harmonyos/.idea/
 preview-qr.jpg
 # Vendored Tailscale/Go toolchain sources (large, rebuilt by scripts)
 harmonyos/third_party/
-# Prebuilt Go bridge binaries (built by scripts/build-go-ohos.sh)
+# Prebuilt Go bridge binaries（built by scripts/build-go-ohos.sh）。已入库以便其他机器 clone 即用；
+# 正式发布前用 git rm --cached harmonyos/native-app/entry/libs/arm64-v8a/libtailscale_go.{so,h} 移除。
 harmonyos/native-app/entry/libs/
 # Local agent ops state
 .dsh-ops/
