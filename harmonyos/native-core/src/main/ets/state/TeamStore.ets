@@ -14,6 +14,20 @@ export interface TeamMemberView {
   canOpen: boolean;
 }
 
+/**
+ * 子智能体：wire 上来自 projections.values.subagentCatalog 与 subagent/catalog 事件。
+ *
+ * 注意：DSH 端「智能体」往往指 subagent（spawn 出来的子智能体），它们不在 agentTeam.members 里，
+ * 而在独立的 subagentCatalog 投影里。只解析 agentTeam 会出现「桌面端 6 个、手机只显示 1 个」。
+ */
+export interface TeamChildView {
+  id: string;
+  /** one-shot | continuable | unknown */
+  mode: string;
+  label: string;
+  statusLabel: string;
+}
+
 /** 团队共享任务：wire 上来自 projections.values.agentTeam.tasks 与 team/task 事件。 */
 export interface TeamTaskView {
   id: string;
@@ -34,6 +48,7 @@ export interface TeamEventInput {
 
 const MEMBER_EVENT: string = 'team/member';
 const TASK_EVENT: string = 'team/task';
+const CHILD_EVENT: string = 'subagent/catalog';
 
 function asRecord(value: Object | undefined): Record<string, Object> | undefined {
   if (value === undefined || value === null) return undefined;
@@ -101,6 +116,47 @@ function parseMember(value: Object | undefined): TeamMemberView | undefined {
   };
 }
 
+/** 子智能体模式归一化（对齐小程序 child()：只认 one-shot / continuable，其余归 unknown） */
+function normalizeChildMode(mode: string): string {
+  if (mode === 'one-shot' || mode === 'continuable') return mode;
+  return 'unknown';
+}
+
+function childStatusLabel(mode: string): string {
+  if (mode === 'one-shot') return '一次性子智能体';
+  if (mode === 'continuable') return '可继续子智能体';
+  return '子智能体';
+}
+
+function parseChild(value: Object | undefined): TeamChildView | undefined {
+  const record: Record<string, Object> | undefined = asRecord(value);
+  if (record === undefined) return undefined;
+  const id: string = textField(record, 'id');
+  if (id.length === 0) return undefined;
+  const mode: string = normalizeChildMode(textField(record, 'mode'));
+  const label: string = textField(record, 'label');
+  return {
+    id: id,
+    mode: mode,
+    label: label.length > 0 ? label : id.substring(0, 8),
+    statusLabel: childStatusLabel(mode)
+  };
+}
+
+/** subagent/catalog 事件的字段是扁平的（childId/mode/label），单独解析避免构造无类型字面量 */
+function parseChildPayload(payload: Record<string, Object>): TeamChildView | undefined {
+  const id: string = textField(payload, 'childId');
+  if (id.length === 0) return undefined;
+  const mode: string = normalizeChildMode(textField(payload, 'mode'));
+  const label: string = textField(payload, 'label');
+  return {
+    id: id,
+    mode: mode,
+    label: label.length > 0 ? label : id.substring(0, 8),
+    statusLabel: childStatusLabel(mode)
+  };
+}
+
 function parseTask(value: Object | undefined): TeamTaskView | undefined {
   const record: Record<string, Object> | undefined = asRecord(value);
   if (record === undefined) return undefined;
@@ -135,6 +191,9 @@ export class TeamStore {
   private leadId: string = '';
   private members: Map<string, TeamMemberView> = new Map<string, TeamMemberView>();
   private tasks: Map<string, TeamTaskView> = new Map<string, TeamTaskView>();
+  private children: Map<string, TeamChildView> = new Map<string, TeamChildView>();
+  /** subagentCatalog 基线 seq（低于它的 catalog 事件丢弃） */
+  private catalogSeq: number = 0;
   private baselineSeq: number = 0;
   private pendingEvents: TeamEventInput[] = [];
   private failure: string = '';
@@ -171,6 +230,15 @@ export class TeamStore {
     return rows;
   }
 
+  childList(): TeamChildView[] {
+    const rows: TeamChildView[] = [];
+    this.children.forEach((one: TeamChildView) => {
+      rows.push(one);
+    });
+    rows.sort((a: TeamChildView, b: TeamChildView) => a.label.localeCompare(b.label));
+    return rows;
+  }
+
   taskList(): TeamTaskView[] {
     const rows: TeamTaskView[] = [];
     this.tasks.forEach((one: TeamTaskView) => {
@@ -188,7 +256,7 @@ export class TeamStore {
   /** 协作入口是否展示：团队协作已开启，或确实存在多个成员/共享任务。 */
   visible(): boolean {
     if (this.leadId.length === 0) return false;
-    return this.enabled || this.members.size >= 2 || this.tasks.size > 0;
+    return this.enabled || this.members.size >= 2 || this.tasks.size > 0 || this.children.size > 0;
   }
 
   /** 切换会话时激活：成员会话沿用当前团队，无关会话清空，避免旧团队串到别的会话。 */
@@ -202,6 +270,8 @@ export class TeamStore {
     this.leadId = '';
     this.members.clear();
     this.tasks.clear();
+    this.children.clear();
+    this.catalogSeq = 0;
     this.baselineSeq = 0;
     this.pendingEvents = [];
     this.failure = '';
@@ -209,13 +279,22 @@ export class TeamStore {
     this.publish();
   }
 
-  /** session-snapshot / history 帧里的 projections（values.agentTeam）。 */
+  /**
+   * session-snapshot / history 帧里的 projections。
+   *
+   * 两条独立投影都要吃：
+   *   · values.agentTeam       → 团队成员 + 共享任务
+   *   · values.subagentCatalog → 子智能体（DSH 端「智能体」多数来自这里）
+   * 两者可能只来其中一个，所以不能因为 agentTeam 缺失就整帧丢掉。
+   */
   ingestProjection(sessionId: string, projections: Record<string, Object> | undefined): void {
     if (projections === undefined || sessionId.length === 0) return;
     const values: Record<string, Object> | undefined = asRecord(recordField(projections, 'values'));
     if (values === undefined) return;
     const team: Record<string, Object> | undefined = asRecord(recordField(values, 'agentTeam'));
-    if (team === undefined) return;
+    const catalogRaw: Object | undefined = recordField(values, 'subagentCatalog');
+    const hasCatalog: boolean = Array.isArray(catalogRaw as Object);
+    if (team === undefined && !hasCatalog) return;
     const seq: number = numberField(projections, 'asOfSeq');
     if (this.leadId === sessionId && seq > 0 && this.baselineSeq > 0 && seq < this.baselineSeq) {
       return;
@@ -223,11 +302,32 @@ export class TeamStore {
     if (this.leadId !== sessionId) {
       this.members.clear();
       this.tasks.clear();
+      this.children.clear();
+      this.catalogSeq = 0;
       this.pendingEvents = [];
     }
     this.leadId = sessionId;
     if (seq > 0) this.baselineSeq = seq;
     this.loaded = true;
+    // 子智能体目录：整表替换（它是完整快照，不是增量）
+    if (hasCatalog) {
+      this.children.clear();
+      for (const item of catalogRaw as Object[]) {
+        const child: TeamChildView | undefined = parseChild(item);
+        if (child !== undefined) this.children.set(child.id, child);
+      }
+      if (seq > 0) this.catalogSeq = seq;
+    }
+    if (team === undefined) {
+      const catalogReplay: TeamEventInput[] = this.pendingEvents.slice();
+      this.pendingEvents = [];
+      for (const event of catalogReplay) {
+        this.applyEvent(event);
+      }
+      Logger.info('subagent catalog session=' + sessionId + ' children=' + this.children.size + ' seq=' + seq);
+      this.publish();
+      return;
+    }
     const enabledValue: Object | undefined = recordField(team, 'enabled');
     this.enabled = typeof enabledValue === 'boolean' && (enabledValue as boolean) === true;
     this.failure = textField(team, 'failure');
@@ -270,13 +370,14 @@ export class TeamStore {
       this.applyEvent(event);
     }
     Logger.info('team projection session=' + sessionId + ' enabled=' + this.enabled
-      + ' members=' + this.members.size + ' tasks=' + this.tasks.size + ' seq=' + this.baselineSeq);
+      + ' members=' + this.members.size + ' tasks=' + this.tasks.size
+      + ' children=' + this.children.size + ' seq=' + this.baselineSeq);
     this.publish();
   }
 
-  /** 实时事件：team/member、team/task（字段拆开传，避免 ArkTS 结构化类型限制）。 */
+  /** 实时事件：team/member、team/task、subagent/catalog（字段拆开传，避免 ArkTS 结构化类型限制）。 */
   ingestEvent(type: string, seq: number, data: Object): void {
-    if (type !== MEMBER_EVENT && type !== TASK_EVENT) return;
+    if (type !== MEMBER_EVENT && type !== TASK_EVENT && type !== CHILD_EVENT) return;
     const event: TeamEventInput = { type: type, seq: seq, data: data };
     if (this.leadId.length === 0) {
       if (this.pendingEvents.length < 200) this.pendingEvents.push(event);
@@ -291,10 +392,22 @@ export class TeamStore {
     let payload: Record<string, Object> | undefined = envelope;
     const nested: Record<string, Object> | undefined = asRecord(recordField(envelope, 'data'));
     if (nested !== undefined && textField(envelope, 'type').length > 0) payload = nested;
+    const version: number = numberField(payload, 'version');
+    // 子智能体目录事件：独立 seq 口径（对齐小程序 subagent/catalog 的 version 0/1）
+    if (input.type === CHILD_EVENT) {
+      if (version !== 0 && version !== 1) return;
+      if (this.catalogSeq > 0 && input.seq > 0 && input.seq <= this.catalogSeq) return;
+      const child: TeamChildView | undefined = parseChildPayload(payload);
+      if (child !== undefined) {
+        this.children.set(child.id, child);
+        this.loaded = true;
+      }
+      this.publish();
+      return;
+    }
     const teamId: string = textField(payload, 'teamId');
     if (teamId.length > 0 && teamId !== this.leadId) return;
     if (this.baselineSeq > 0 && input.seq > 0 && input.seq <= this.baselineSeq) return;
-    const version: number = numberField(payload, 'version');
     if (version !== 0 && version !== 2) {
       this.failure = '团队数据版本暂不支持';
       this.publish();
@@ -321,6 +434,7 @@ export class TeamStore {
     AppStorage.setOrCreate<string>('teamLeadSessionId', this.leadId);
     AppStorage.setOrCreate<TeamMemberView[]>('teamMembers', this.memberList());
     AppStorage.setOrCreate<TeamTaskView[]>('teamTasks', this.taskList());
+    AppStorage.setOrCreate<TeamChildView[]>('teamChildren', this.childList());
     AppStorage.setOrCreate<boolean>('teamVisible', this.visible());
     AppStorage.setOrCreate<string>('teamFailure', this.failure);
   }

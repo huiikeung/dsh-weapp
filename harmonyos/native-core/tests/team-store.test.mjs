@@ -66,3 +66,57 @@ test('opening a member keeps the team, unrelated session clears it', () => {
   assert.equal(store.visible(), false);
   assert.equal(store.memberList().length, 0);
 });
+
+// ==================== 子智能体（subagentCatalog） ====================
+// DSH 端「智能体」多数是 spawn 出来的子智能体，走独立投影而不是 agentTeam.members；
+// 只解析 agentTeam 会出现「桌面端 6 个、手机只显示 1 个」。
+
+const catalog = (seq, children) => ({ asOfSeq: seq, values: { subagentCatalog: children } });
+const child = (id, mode, label) => ({ id, mode, label });
+
+test('subagent catalog projection populates children', () => {
+  const store = setup();
+  store.ingestProjection('lead', catalog(4, [child('c1', 'one-shot', 'Researcher'), child('c2', 'continuable', 'Coder')]));
+  assert.equal(store.childList().length, 2);
+  // 只有子智能体也要显示协作入口
+  assert.equal(store.visible(), true);
+  assert.equal(store.memberList().length, 0);
+  const coder = store.childList().find((one) => one.id === 'c2');
+  assert.equal(coder.statusLabel, '可继续子智能体');
+});
+
+test('unknown child mode and missing label fall back', () => {
+  const store = setup();
+  store.ingestProjection('lead', catalog(2, [{ id: 'abcdef123', mode: 'weird' }]));
+  assert.equal(store.childList().length, 1);
+  assert.equal(store.childList()[0].mode, 'unknown');
+  assert.equal(store.childList()[0].statusLabel, '子智能体');
+  assert.equal(store.childList()[0].label, 'abcdef12');
+});
+
+test('subagent/catalog events merge after baseline and ignore stale seq', () => {
+  const store = setup();
+  store.ingestProjection('lead', catalog(5, [child('c1', 'one-shot', 'A')]));
+  store.ingestEvent('subagent/catalog', 6, { type: 'subagent/catalog', data: { version: 0, childId: 'c2', mode: 'continuable', label: 'B' } });
+  assert.equal(store.childList().length, 2);
+  store.ingestEvent('subagent/catalog', 4, { type: 'subagent/catalog', data: { version: 0, childId: 'c3', mode: 'one-shot', label: 'C' } });
+  assert.equal(store.childList().length, 2);
+});
+
+test('agentTeam and subagentCatalog stay independent', () => {
+  const store = setup();
+  store.ingestProjection('lead', {
+    asOfSeq: 9,
+    values: { agentTeam: { members: [lead, worker], tasks: [], failure: '' }, subagentCatalog: [child('c1', 'one-shot', 'A')] }
+  });
+  assert.equal(store.memberList().length, 2);
+  assert.equal(store.childList().length, 1);
+});
+
+test('catalog without agentTeam still publishes children and resets on other session', () => {
+  const store = setup();
+  store.ingestProjection('lead', catalog(3, [child('c1', 'one-shot', 'A')]));
+  assert.equal(store.leadSessionId(), 'lead');
+  store.activate('other');
+  assert.equal(store.childList().length, 0);
+});
