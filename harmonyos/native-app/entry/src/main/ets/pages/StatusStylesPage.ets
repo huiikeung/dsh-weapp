@@ -161,7 +161,8 @@ export struct StatusStylesPage {
       .width('100%')
 
       // 预览：鲸尾图标 + 流光文字（文字颜色持续变化）
-      Row({ space: 7 }) {
+      // 间隙收窄 7→5vp
+      Row({ space: 5 }) {
         // 内联雪碧图 + fillColor，与对话页运行条同一套画法。
         // 颜色 = colorOf(option) = 预览文字第一个字的颜色（同一条流光的左端）。
         Stack() {
@@ -176,6 +177,8 @@ export struct StatusStylesPage {
         .height(18)
         .clip(true)
         .alignContent(Alignment.TopStart)
+        // 图标下移 0.75vp：底边与右侧文字底边齐平（真机量测校准值）
+        .translate({ y: 0.75 })
 
         Row() {
           ForEach(this.previewGlyphs(option), (color: string, index: number) => {
