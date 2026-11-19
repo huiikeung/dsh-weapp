@@ -1664,6 +1664,16 @@ export struct SessionPage {
   }
 
   aboutToAppear(): void {
+    // 从对话页「更多 → 工作区文件」进入时直接落到文件分组
+    const initialTab: string = AppStorage.get<string>('sessionToolsTab') ?? '';
+    if (initialTab.length > 0) {
+      this.tab = initialTab;
+      AppStorage.setOrCreate<string>('sessionToolsTab', '');
+      // 文件分组内容只在点击分组时加载，直接从「更多 → 工作区文件」进来要手动拉一次
+      if (initialTab === 'files') {
+        this.loadSessionFiles('');
+      }
+    }
     this.voicePageActive = true;
     this.restorePendingPrompts();
     this.loadProcessPreferences();

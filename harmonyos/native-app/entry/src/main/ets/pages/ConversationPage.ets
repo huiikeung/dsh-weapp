@@ -2,14 +2,14 @@ import { abilityAccessCtrl, common, Want } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { display, KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import {
-  asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
+  asRec, bool, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, downloadAttachment, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
   DraftStore, PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechFailure, SpeechInput, TeamStore, WorkStepPresentation,
   normalizeRawSessionEvent, parseNamespace, pickDocuments, uploadAttachment
 } from 'nativecore';
 import type { GatewayEvent, GatewayFrame, GatewayTask, GatewayGoalReference, ModelMenuItem, ModelOption, PresetOption, QueueItem, RawSessionEvent, SessionEvent, SessionGoalView, WorkspaceRow } from 'nativecore';
 import type { TeamMemberView, TeamTaskView } from 'nativecore';
 import type { SpeechLimits } from 'nativecore';
-import type { UploadResult } from 'nativecore';
+import type { DownloadResult, UploadResult } from 'nativecore';
 import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
@@ -37,6 +37,14 @@ const TIMELINE_MIN_INTERVAL_MS: number = 90;
 
 interface UploadReceipt {
   receiptId: string;
+}
+
+/** 工作区文件条目（对齐小程序 files sheet 的 filesEntries） */
+interface WorkspaceFileEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  bytes: number;
 }
 
 /** 会话侧栏的会话行（对齐小程序 conversation-sidebar 的 sessions） */
@@ -2343,25 +2351,28 @@ export struct ConversationPage {
       .zIndex(30)
       .hitTestBehavior(HitTestMode.None)
 
-      // 会话节点弹层（居中卡片，对齐原生菜单样式）：由胶囊点击打开
-      if (this.turnNavOpen) {
-        Column() {
-          this.turnNavPanel()
-        }
-        .width('100%')
-        .height('100%')
-        .zIndex(40)
-      }
-
       // 会话节点胶囊：常显浮层（左右拖动吸附折叠，点击展开/打开弹层）
       if (this.pageW > 0) {
         this.floatingCapsule()
       }
 
-      // 会话侧栏：全屏透明命中层 + 右上角悬浮面板（对齐小程序 conv-sidebar）
-      if (this.sessionPickerOpen) {
-        this.sessionSwitcherOverlay()
+      // 重命名会话弹窗
+      if (this.renameSessionOpen) {
+        this.renameSessionAlert()
       }
+
+      // 工作区文件 sheet 锚点（1×1 透明节点，仅用于承载半模态）
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.fileSheetOpen, this.workspaceFilesSheet(), {
+          height: '72%',
+          dragBar: false,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.isDark ? '#1C1C1E' : '#FFFFFF'
+        })
 
       }
       .width('100%')
@@ -2416,6 +2427,16 @@ export struct ConversationPage {
   }
 
   @State sessionPickerOpen: boolean = false;
+  /** 重命名会话弹窗 */
+  @State renameSessionOpen: boolean = false;
+  @State renameValue: string = '';
+  /** 工作区文件 sheet（对齐小程序 files sheet） */
+  @State fileSheetOpen: boolean = false;
+  @State fileEntries: WorkspaceFileEntry[] = [];
+  @State filePath: string = '';
+  @State fileLoading: boolean = false;
+  @State fileHint: string = '';
+  @State fileBusy: boolean = false;
 
   // ==================== 会话节点弹层（右上角三横线） ====================
   @State turnNavOpen: boolean = false;
@@ -5200,32 +5221,503 @@ export struct ConversationPage {
         .height(38)
         .padding({ left: 16, right: 16 })
       }
-      .width('70%')
+      // 背景材质、圆角、描边、阴影、弹出动画全部由系统菜单容器提供（与「协作」「⋯」同一套）
+      .width(300)
       .height(430)
-      .borderRadius(16)
-      // 背景完全对齐右上角「⋯」原生菜单：同款磨砂玻璃 + 亮边 + 柔和投影
-      .backgroundColor(this.turnNavGlass())
-      .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
-      .border({ width: 0.7, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.60)' })
-      .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.42)' : 'rgba(0,0,0,0.12)', offsetY: 6 })
       .clip(true)
-
-    }
-    .width('100%')
-    .height('100%')
   }
 
-  /** 更多菜单：会话设置 + 任务面板（排队/轨迹/上下文/编队/文件仍走 pages/SessionPage）。 */
+  /** 是否有当前会话（无会话时文件/重命名/归档禁用，对齐 iOS） */
+  private hasSession(): boolean {
+    return SessionStore.get().currentSessionId().length > 0;
+  }
+
+  /** 更多菜单行：图标 + 文案（字号/间距对齐系统菜单行） */
+  @Builder
+  moreMenuRow(icon: Resource, label: string, enabled: boolean) {
+    Row({ space: 10 }) {
+      Image(icon)
+        .width(18)
+        .height(18)
+        .objectFit(ImageFit.Contain)
+        .colorFilter(this.iconTintMatrix(enabled ? this.textColor() : this.subColor()))
+      Text(label)
+        .fontSize(15)
+        .fontColor(enabled ? this.textColor() : this.subColor())
+        .maxLines(1)
+    }
+    .width(208)
+    .height(40)
+    // 左右留白：内容不贴菜单卡片边缘（原来只有系统内边距，看着挤）
+    .padding({ left: 16, right: 16 })
+    .opacity(enabled ? 1 : 0.5)
+  }
+
+  /** 取消回合行：停止方块图标（无对应素材，按菜单行尺寸绘制） */
+  @Builder
+  moreMenuStopRow(label: string, enabled: boolean) {
+    Row({ space: 10 }) {
+      Stack({ alignContent: Alignment.Center }) {
+        Rect({ width: 9, height: 9, radius: 2 })
+          .fill(enabled ? this.textColor() : this.subColor())
+      }
+      .width(18)
+      .height(18)
+      Text(label)
+        .fontSize(15)
+        .fontColor(enabled ? this.textColor() : this.subColor())
+        .maxLines(1)
+    }
+    .width(208)
+    .height(40)
+    .padding({ left: 16, right: 16 })
+    .opacity(enabled ? 1 : 0.5)
+  }
+
+  /** 菜单分组分隔线（对齐小程序 session-menu-group 的模块间隔） */
+  @Builder
+  moreMenuDivider() {
+    Column() {
+      Row()
+        .width('100%')
+        .height(0.5)
+        .backgroundColor(this.dividerColor())
+    }
+    .width(208)
+    .padding({ top: 5, bottom: 5, left: 16, right: 16 })
+  }
+
+  /** 更多菜单：iOS 的「工作区文件」+ 小程序的会话/插件动作 + 原有「会话设置」 */
   @Builder
   moreMenu() {
     Menu() {
-      MenuItem({ content: '会话设置' }).id('menu-session-settings').onClick(() => {
-        this.pageStack.pushPathByName('session-settings', null);
-      })
-      MenuItem({ content: '任务面板' }).id('menu-session-tools').onClick(() => {
-        this.pageStack.pushPathByName('session-tools', null);
-      })
+      // ① iOS：工作区文件（无会话禁用）
+      MenuItem(this.moreMenuRow($r('app.media.workspace_folder_white'), '工作区文件', this.hasSession()))
+        .id('menu-workspace-files')
+        .enabled(this.hasSession())
+        .onClick(() => {
+          this.openWorkspaceFiles();
+        })
+
+      MenuItem(this.moreMenuDivider()).enabled(false)
+
+      // ② 小程序：重命名 / 查看统计
+      MenuItem(this.moreMenuRow(this.isDark ? $r('app.media.session_menu_rename_white') : $r('app.media.session_menu_rename_dark'),
+        '重命名会话', this.hasSession()))
+        .id('menu-rename-session')
+        .enabled(this.hasSession())
+        .onClick(() => {
+          this.beginRenameSession();
+        })
+      MenuItem(this.moreMenuRow($r('app.media.dsh_gauge'), '查看统计', true))
+        .id('menu-session-stats')
+        .onClick(() => {
+          this.openMetricPopover('run');
+        })
+
+      MenuItem(this.moreMenuDivider()).enabled(false)
+
+      // ③ 小程序：插件
+      MenuItem(this.moreMenuRow(this.isDark ? $r('app.media.pinwheel_white') : $r('app.media.pinwheel_ink'),
+        '浏览更多插件', true))
+        .id('menu-browse-plugins')
+        .onClick(() => {
+          this.pageStack.pushPathByName('plugins', null);
+        })
+      MenuItem(this.moreMenuRow($r('app.media.plus_white'), '创建你的插件', true))
+        .id('menu-create-plugin')
+        .onClick(() => {
+          this.pageStack.pushPathByName('plugins', null);
+        })
+
+      MenuItem(this.moreMenuDivider()).enabled(false)
+
+      // ④ 小程序：回合 / 会话
+      MenuItem(this.moreMenuStopRow('取消当前回合', this.running))
+        .id('menu-cancel-turn')
+        .enabled(this.running)
+        .onClick(() => {
+          if (this.running) {
+            this.onStop();
+          }
+        })
+      MenuItem(this.moreMenuRow($r('app.media.session_menu_archive'), '归档会话', this.hasSession()))
+        .id('menu-archive-session')
+        .enabled(this.hasSession())
+        .onClick(() => {
+          this.confirmArchiveSession();
+        })
+
+      MenuItem(this.moreMenuDivider()).enabled(false)
+
+      // ⑤ 原有入口
+      MenuItem(this.moreMenuRow(this.isDark ? $r('app.media.sliders_white') : $r('app.media.sliders_ink'),
+        '会话设置', true))
+        .id('menu-session-settings')
+        .onClick(() => {
+          this.pageStack.pushPathByName('session-settings', null);
+        })
     }
+  }
+
+  /** 打开工作区文件 sheet（对齐小程序 openFilesSheet：根目录起步） */
+  private openWorkspaceFiles(): void {
+    this.fileSheetOpen = true;
+    this.loadWorkspaceFiles('');
+  }
+
+  /** 读取目录（对齐小程序 loadSessionFiles：entries + path） */
+  private loadWorkspaceFiles(path: string): void {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0 || !GatewayClient.get().isConnected()) {
+      this.fileHint = '请先连接网关并打开会话';
+      this.fileEntries = [];
+      return;
+    }
+    this.fileLoading = true;
+    this.fileHint = '';
+    GatewayClient.get().requestFileList(sessionId, path).then((frame: GatewayFrame) => {
+      const raw = asRec(frame as Object);
+      const value: Object | undefined = raw !== undefined ? raw['entries'] : undefined;
+      const list: Object[] = Array.isArray(value) ? value as Object[] : [];
+      const entries: WorkspaceFileEntry[] = [];
+      for (const item of list) {
+        const itemPath: string = str(item, 'path') ?? '';
+        if (itemPath.length === 0) {
+          continue;
+        }
+        const kind: string = str(item, 'kind') ?? '';
+        entries.push({
+          name: str(item, 'name') ?? itemPath,
+          path: itemPath,
+          isDirectory: kind === 'dir' || kind === 'directory' || bool(item, 'isDirectory') === true,
+          bytes: num(item, 'bytes') ?? num(item, 'size') ?? 0
+        });
+      }
+      this.fileEntries = entries;
+      this.filePath = str(frame as Object, 'path') ?? path;
+      this.fileLoading = false;
+    }).catch((error: Error) => {
+      this.fileLoading = false;
+      this.fileHint = error.message.length > 0 ? error.message : '读取目录失败，请重试';
+    });
+  }
+
+  /** 上一级（对齐小程序 sessionFilesGoUp） */
+  private goUpWorkspaceFiles(): void {
+    const value: string = this.filePath.endsWith('/')
+      ? this.filePath.substring(0, this.filePath.length - 1) : this.filePath;
+    const index: number = value.lastIndexOf('/');
+    this.loadWorkspaceFiles(index > 0 ? value.substring(0, index) : '');
+  }
+
+  /** 点条目：目录进入，文件下载到本地（对齐小程序 openSessionFile） */
+  private openWorkspaceEntry(entry: WorkspaceFileEntry): void {
+    if (entry.isDirectory) {
+      this.loadWorkspaceFiles(entry.path);
+      return;
+    }
+    if (this.fileBusy) {
+      return;
+    }
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0) {
+      return;
+    }
+    this.fileBusy = true;
+    this.fileHint = '正在下载…';
+    const context = getContext(this) as common.UIAbilityContext;
+    downloadAttachment(context, GatewayClient.get(), sessionId, entry.path, (percent: number) => {
+      this.fileHint = '正在下载 ' + percent + '%';
+    }).then((result: DownloadResult) => {
+      this.fileBusy = false;
+      this.fileHint = '已保存：' + result.localPath;
+    }).catch((error: Error) => {
+      this.fileBusy = false;
+      this.fileHint = error.message.length > 0 ? error.message : '下载失败，请重试';
+    });
+  }
+
+  /** 是否已在工作区根目录（服务端根目录可能是 '' / '.' / '/'） */
+  private workspaceIsRoot(): boolean {
+    let value: string = this.filePath.trim();
+    while (value.length > 0 && value.endsWith('/')) {
+      value = value.substring(0, value.length - 1);
+    }
+    return value.length === 0 || value === '.' || value === '/';
+  }
+
+  /** 文件大小文案 */
+  private fileSizeText(bytes: number): string {
+    if (bytes < 1024) {
+      return bytes + ' B';
+    }
+    if (bytes < 1024 * 1024) {
+      return (bytes / 1024).toFixed(1) + ' KB';
+    }
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+
+  /** 工作区文件 sheet 内容（对齐小程序 more-files-sheet：标题 + 上一级 + 列表 + 路径） */
+  @Builder
+  workspaceFilesSheet() {
+    Column() {
+      Row() {
+        Text('工作区文件')
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+        Blank()
+        Text('✕')
+          .fontSize(16)
+          .fontColor(this.subColor())
+          .width(32)
+          .height(32)
+          .textAlign(TextAlign.Center)
+          .onClick(() => {
+            this.fileSheetOpen = false;
+          })
+      }
+      .width('100%')
+      .height(52)
+      .padding({ left: 18, right: 12 })
+
+      Row() {
+        if (!this.workspaceIsRoot()) {
+          Text('‹ 上一级')
+            .fontSize(14)
+            .fontColor('#2E6BE6')
+            .onClick(() => {
+              this.goUpWorkspaceFiles();
+            })
+        }
+        Blank()
+      }
+      .width('100%')
+      .height(32)
+      .padding({ left: 18, right: 18 })
+
+      List({ space: 2 }) {
+        if (this.fileLoading) {
+          ListItem() {
+            Text('正在读取工作区文件…')
+              .fontSize(13)
+              .fontColor(this.subColor())
+              .width('100%')
+              .padding({ top: 20, bottom: 20 })
+              .textAlign(TextAlign.Center)
+          }
+        } else if (this.fileHint.length > 0 && this.fileEntries.length === 0) {
+          ListItem() {
+            Text(this.fileHint)
+              .fontSize(13)
+              .fontColor(this.subColor())
+              .width('100%')
+              .padding({ top: 20, bottom: 20 })
+              .textAlign(TextAlign.Center)
+          }
+        } else if (this.fileEntries.length === 0) {
+          ListItem() {
+            Text('此目录为空')
+              .fontSize(13)
+              .fontColor(this.subColor())
+              .width('100%')
+              .padding({ top: 20, bottom: 20 })
+              .textAlign(TextAlign.Center)
+          }
+        } else {
+          ForEach(this.fileEntries, (entry: WorkspaceFileEntry) => {
+            ListItem() {
+              Row({ space: 10 }) {
+                Image(entry.isDirectory ? $r('app.media.workspace_folder_white') : $r('app.media.menu_external_file'))
+                  .width(18)
+                  .height(18)
+                  .objectFit(ImageFit.Contain)
+                  .colorFilter(this.iconTintMatrix(this.isDark ? '#ABB2BE' : '#737985'))
+                Text(entry.name)
+                  .fontSize(15)
+                  .fontColor(this.textColor())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+                if (entry.isDirectory) {
+                  Text('›')
+                    .fontSize(15)
+                    .fontColor(this.subColor())
+                } else {
+                  Text(this.fileSizeText(entry.bytes))
+                    .fontSize(11)
+                    .fontColor(this.subColor())
+                }
+              }
+              .width('100%')
+              .height(44)
+              .padding({ left: 18, right: 18 })
+              .borderRadius(10)
+              .onClick(() => {
+                this.openWorkspaceEntry(entry);
+              })
+            }
+          }, (entry: WorkspaceFileEntry) => entry.path)
+        }
+      }
+      .width('100%')
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
+
+      if (this.fileHint.length > 0) {
+        Text(this.fileHint)
+          .fontSize(11)
+          .fontColor(this.subColor())
+          .width('100%')
+          .padding({ left: 18, right: 18, top: 6, bottom: 6 })
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      Row() {
+        Text(this.workspaceIsRoot() ? '工作区根目录' : this.filePath)
+          .fontSize(11)
+          .fontColor(this.subColor())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .width('100%')
+      .height(30)
+      .padding({ left: 18, right: 18, bottom: 10 })
+    }
+    .width('100%')
+    .height('100%')
+    .padding({ top: 8, bottom: 10 })
+  }
+
+  /** 打开重命名弹窗，初值为当前会话标题 */
+  private beginRenameSession(): void {
+    this.renameValue = this.activeSessionTitle();
+    this.renameSessionOpen = true;
+  }
+
+  /** 提交重命名（对齐 HomePage 的 renameSession 流程） */
+  private submitRenameSession(): void {
+    const title: string = this.renameValue.trim();
+    const sessionId: string = SessionStore.get().currentSessionId();
+    this.renameSessionOpen = false;
+    if (title.length === 0 || sessionId.length === 0) {
+      return;
+    }
+    GatewayClient.get().renameSession(sessionId, title);
+  }
+
+  /** 归档当前会话：二次确认后下发归档并退回上一页 */
+  private confirmArchiveSession(): void {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0) {
+      return;
+    }
+    AlertDialog.show({
+      title: '归档会话',
+      message: '归档后会话将从列表移除，可在归档中找回。',
+      autoCancel: true,
+      primaryButton: {
+        value: '取消',
+        action: () => {
+        }
+      },
+      secondaryButton: {
+        value: '归档',
+        fontColor: '#D9413A',
+        action: () => {
+          GatewayClient.get().archiveSession(sessionId);
+          this.pageStack.pop();
+        }
+      }
+    });
+  }
+
+  /** 重命名会话弹窗（对齐 HomePage.renameSessionAlert 的形态） */
+  @Builder
+  renameSessionAlert() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.35)')
+        .onClick(() => {
+          this.renameSessionOpen = false;
+        })
+      Column() {
+        Column() {
+          Text('重命名会话')
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.textColor())
+            .textAlign(TextAlign.Center)
+            .width('100%')
+          TextInput({ text: this.renameValue, placeholder: '输入新的会话名称' })
+            .caretStyle({ width: 1 })
+            .fontSize(15)
+            .fontColor(this.textColor())
+            .placeholderColor(this.subColor())
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
+            .height(40)
+            .borderRadius(10)
+            .padding({ left: 12, right: 12 })
+            .margin({ top: 14 })
+            .maxLength(80)
+            .defaultFocus(true)
+            .onChange((value: string) => {
+              this.renameValue = value;
+            })
+            .onSubmit(() => {
+              this.submitRenameSession();
+            })
+        }
+        .width('100%')
+        .padding({ left: 16, right: 16, top: 20, bottom: 18 })
+
+        Row()
+          .width('100%')
+          .height(0.5)
+          .backgroundColor(this.dividerColor())
+
+        Row() {
+          Row() {
+            Text('取消')
+              .fontSize(16)
+              .fontColor('#2E6BE6')
+          }
+          .layoutWeight(1)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            this.renameSessionOpen = false;
+          })
+          Column()
+            .width(0.5)
+            .height(44)
+            .backgroundColor(this.dividerColor())
+          Row() {
+            Text('保存')
+              .fontSize(16)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#2E6BE6')
+          }
+          .layoutWeight(1)
+          .height(44)
+          .justifyContent(FlexAlign.Center)
+          .onClick(() => {
+            this.submitRenameSession();
+          })
+        }
+        .width('100%')
+      }
+      .width('86%')
+      .borderRadius(14)
+      .backgroundColor(this.surfaceColor())
+      .clip(true)
+    }
+    .width('100%')
+    .height('100%')
+    .zIndex(70)
   }
 
   // ==================== 会话快捷切换（对齐小程序 .session-switch-overlay） ====================
