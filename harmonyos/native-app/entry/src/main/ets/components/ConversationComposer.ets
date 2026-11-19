@@ -928,7 +928,7 @@ export struct ConversationComposer {
       .width(204)
       .padding({ top: 4, bottom: 4 })
       .borderRadius(16)
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
       .backgroundColor(this.isDark ? 'rgba(26,28,32,0.92)' : 'rgba(252,252,254,0.92)')
       .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.18)', offsetY: 8 })
       .alignItems(HorizontalAlign.Start)
@@ -1089,7 +1089,7 @@ export struct ConversationComposer {
       .width(248)
       .padding({ top: 4, bottom: 4 })
       .borderRadius(16)
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, { colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT })
       .backgroundColor(this.isDark ? 'rgba(26,28,32,0.92)' : 'rgba(252,252,254,0.92)')
       .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.18)', offsetY: 8 })
       .alignItems(HorizontalAlign.Start)
@@ -1632,7 +1632,9 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
+        colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
+      })
       .backgroundColor(this.sheetCardFill())
       .border({ width: 0.5, color: this.cardEdge() })
 

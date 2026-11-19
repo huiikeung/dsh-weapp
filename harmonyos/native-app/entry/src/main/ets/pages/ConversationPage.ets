@@ -4757,7 +4757,9 @@ export struct ConversationPage {
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
         .backgroundColor(this.turnNavGlass())
-        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
+          colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
+        })
         .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.60)' })
         .shadow({ radius: 10, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetY: 2 })
       }
