@@ -1391,7 +1391,23 @@ export struct ConversationPage {
       this.draft = '';
       this.draftRestoreRetries = 0;
       this.restoreDraft();
+      this.afterSessionSwitched();
     }
+  }
+
+  /**
+   * 会话切换后的页面自刷新：`store.open()` 只更新数据层与 AppStorage，
+   * 顶栏标题/时间线/进度条读的是页面自身 @State，不主动重排会停留在上一个会话
+   * （表现为「点了侧栏会话，页面还是旧会话/空态」）。
+   */
+  private afterSessionSwitched(): void {
+    Logger.info('[SidebarTap] refresh page -> ' + SessionStore.get().currentSessionId());
+    this.entries = [];
+    this.autoStick = true;
+    this.rebuildEntries();
+    this.refreshProgress();
+    this.refreshModelEfforts();
+    this.requestDockData();
   }
 
   // ==================== 草稿持久化（对齐小程序 sessionDraftStore） ====================
@@ -5189,7 +5205,8 @@ export struct ConversationPage {
         }
         .width('100%')
         .height(44)
-        .padding({ left: 16, right: 16 })
+        // 品牌币左缘 13：币宽 26 → 中心 26，与下方插件/定时任务图标中心同一竖线
+        .padding({ left: 13, right: 16 })
         .alignItems(VerticalAlign.Center)
 
         // 插件 / 定时任务（对齐小程序 conv-sidebar-item）
@@ -5285,7 +5302,8 @@ export struct ConversationPage {
               .id('conv-group-' + group.id)
               .width('100%')
               .height(38)
-              .padding({ left: 12, right: 8 })
+              // 容器左 8 + 行内 9 + 图标 18/2 = 26，与上方插件/定时任务图标中心同列
+              .padding({ left: 9, right: 8 })
               .borderRadius(9)
               .onClick(() => {
                 Logger.info('[SidebarTap] group=' + group.id + ' expanded=' + (group.expanded ? '1' : '0'));
@@ -5299,7 +5317,7 @@ export struct ConversationPage {
                     .fontSize(12)
                     .fontColor(this.subColor())
                     .width('100%')
-                    .padding({ left: 18, top: 4, bottom: 6 })
+                    .padding({ left: 15, top: 4, bottom: 6 })
                 }
                 ForEach(group.sessions, (session: ConvSidebarSession) => {
                   // 左侧留白与分组行内文件夹图标中心对齐（8 外边距 + 8 内边距 + 19/2 图标中心）
@@ -5322,7 +5340,8 @@ export struct ConversationPage {
                   .id('conv-session-' + session.id)
                   .width('100%')
                   .height(34)
-                  .padding({ left: 18, right: 8 })
+                  // 容器左 8 + 行内 15 + 圆点 3 = 26，与工作区文件夹图标中心同列
+                  .padding({ left: 15, right: 8 })
                   .borderRadius(9)
                   .backgroundColor(session.selected
                     ? (this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
