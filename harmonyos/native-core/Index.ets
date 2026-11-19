@@ -4,7 +4,7 @@ export { DraftStore } from './src/main/ets/common/DraftStore';
 export { StatusAppearance } from './src/main/ets/common/StatusAppearance';
 export type { StatusAppearanceOption } from './src/main/ets/common/StatusAppearance';
 export { NotificationService } from './src/main/ets/common/NotificationService';
-export { pickDocuments } from './src/main/ets/common/AttachmentPicker';
+export { pickDocuments, pickImages } from './src/main/ets/common/AttachmentPicker';
 export type { PickedAttachment } from './src/main/ets/common/AttachmentPicker';
 export { uploadAttachment, downloadAttachment } from './src/main/ets/common/AttachmentTransfer';
 export type { UploadResult, DownloadResult } from './src/main/ets/common/AttachmentTransfer';

@@ -4,14 +4,14 @@ import { display, KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import {
   asRec, bool, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, downloadAttachment, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
   DraftStore, PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechFailure, SpeechInput, TeamStore, WorkStepPresentation,
-  normalizeRawSessionEvent, parseNamespace, pickDocuments, uploadAttachment
+  normalizeRawSessionEvent, parseNamespace, pickDocuments, pickImages, str, uploadAttachment
 } from 'nativecore';
-import type { GatewayEvent, GatewayFrame, GatewayTask, GatewayGoalReference, ModelMenuItem, ModelOption, PresetOption, QueueItem, RawSessionEvent, SessionEvent, SessionGoalView, WorkspaceRow } from 'nativecore';
+import type { DirEntry, GatewayEvent, GatewayFrame, GatewayTask, GatewayGoalReference, ModelMenuItem, ModelOption, PresetOption, QueueItem, RawSessionEvent, SessionEvent, SessionGoalView, WorkspaceRow } from 'nativecore';
 import type { TeamMemberView, TeamTaskView } from 'nativecore';
 import type { SpeechLimits } from 'nativecore';
 import type { DownloadResult, UploadResult } from 'nativecore';
 import { ConversationRowView } from '../components/ConversationRowView';
-import { ConversationComposer, MetricMenuPair } from '../components/ConversationComposer';
+import { ConversationComposer, MetricMenuPair, RefChipItem, RefDirItem, RefSessionItem, SkillItem } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { NavBackButton } from '../components/NavBackButton';
 import { ConversationProgress } from '../components/ConversationProgress';
@@ -198,7 +198,7 @@ export struct ConversationPage {
   @Consume('pageStack') pageStack: NavPathStack;
   @StorageLink('isDark') @Watch('onIsDarkChanged') isDark: boolean = false;
   @StorageLink('connectionState') @Watch('onConnectionChanged') connection: string = 'disconnected';
-  @StorageLink('sessions') sessions: SessionSummary[] = [];
+  @StorageLink('sessions') @Watch('onSessionsChangedForRef') sessions: SessionSummary[] = [];
   @StorageLink('conversationItems') @Watch('onItemsChanged') items: ConversationItem[] = [];
   @StorageLink('conversationRunning') @Watch('onRunningChanged') running: boolean = false;
   @StorageLink('historyHasMore') hasMoreHistory: boolean = false;
@@ -221,6 +221,18 @@ export struct ConversationPage {
   @StorageLink('agentPresetDetails') agentPresetDetails: PresetOption[] = [];
 
   @State entries: ConversationFeedEntryModel[] = [];
+  /** 「@」引用菜单可选的会话列表（全部会话） */
+  @State refSessions: RefSessionItem[] = [];
+  /** 「/」菜单的技能列表（网关 skill 指令） */
+  @State skills: SkillItem[] = [];
+  /** 「@」菜单的工作区条目（来自 directories 帧） */
+  @State refDirs: RefDirItem[] = [];
+  @StorageLink('dirEntries') @Watch('onDirEntriesChanged') dirEntries: DirEntry[] = [];
+  /** 「@」菜单当前浏览的相对目录（空 = 工作区根目录） */
+  @State refCurrentPath: string = '';
+  /** 已选引用 chip（蓝字 + 图标，显示在输入框上方） */
+  @State refChips: RefChipItem[] = [];
+  @StorageLink('dirCurrent') dirCurrent: string = '';
   @State draft: string = '';
 
   // ===== 长按语音输入（对齐小程序 voice-actions.js） =====
@@ -366,6 +378,10 @@ export struct ConversationPage {
     // 半模态的遮罩盖住，表现成「整页点不动、滑不动」。进门先收掉。
     this.teamSheetOpen = false;
     this.ready = true;
+    this.onSessionsChangedForRef();
+    this.loadSkills();
+    this.loadRefDirectory();
+    this.rebuildRefDirs();
     // 胶囊默认态：设置里控制「默认显示 / 默认收起」
     try {
       this.capsuleExpanded = PreferencesStore.get().getBoolean('capsuleDefaultExpanded', true);
@@ -895,9 +911,14 @@ export struct ConversationPage {
     StatusBarStyle.set(this.isDark ? '#FFFFFF' : '#000000');
   }
 
-  /** 切换深浅主题后立刻重写状态栏内容色，不等页面重新显示 */
+  /** 切换深浅主题后立刻重写状态栏内容色，并重排时间线 */
   onIsDarkChanged(): void {
     this.applyStatusBarColor();
+    // 时间线是 LazyForEach：已建好的行不会因父级状态变化重建，主题切换时重排一次，
+    // 让行组件用新配色重新创建（否则正文会一直保持切换前的颜色，退出重进才正常）。
+    if (this.ready) {
+      this.rebuildEntries();
+    }
   }
 
   private textColor(): string {
@@ -935,6 +956,188 @@ export struct ConversationPage {
       }
     }
     return id.length > 0 ? id.substring(0, 8) : '会话';
+  }
+
+  /** 会话列表变化／进页面时重建「@」菜单的会话候选 */
+  private onSessionsChangedForRef(): void {
+    const out: RefSessionItem[] = [];
+    for (const one of this.sessions) {
+      const title: string = one.title.length > 0 ? one.title : one.id.substring(0, 8);
+      out.push({ id: one.id, title: title, detail: one.cwd.length > 0 ? one.cwd : '' });
+    }
+    this.refSessions = out;
+  }
+
+  /** directories 帧变化后同步「@」菜单条目 */
+  private onDirEntriesChanged(): void {
+    this.rebuildRefDirs();
+  }
+
+  /** directories 帧 → 「@」菜单的工作区条目 */
+  private rebuildRefDirs(): void {
+    const out: RefDirItem[] = [];
+    for (const one of this.dirEntries) {
+      if (one.hidden) {
+        continue;
+      }
+      out.push({ name: one.name, path: one.path, isDirectory: one.isDirectory });
+    }
+    this.refDirs = out;
+  }
+
+  /** 拉取当前会话工作区目录（供「@」菜单引用文件/文件夹） */
+  private loadRefDirectory(): void {
+    this.loadFileListAt(this.refCurrentPath);
+  }
+
+  /**
+   * 读取工作区某个目录的文件列表（file-list，与小程序 requestFileList 同源）。
+   * 网关用 kind: 'dir' / 'directory' 标记文件夹，这里同时兼容 isDirectory。
+   */
+  private loadFileListAt(path: string): void {
+    const client: GatewayClient = GatewayClient.get();
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (!client.isConnected() || sessionId.length === 0) {
+      return;
+    }
+    const target: string = path === '/' ? '' : path;
+    client.requestFileList(sessionId, target.length > 0 ? target : undefined).then((frame: GatewayFrame) => {
+      const rec: Record<string, Object> | undefined = asRec(frame);
+      if (rec === undefined) {
+        return;
+      }
+      const raw: Object | undefined = rec['entries'] !== undefined ? rec['entries'] : rec['items'];
+      const items: Object[] = raw !== undefined && Array.isArray(raw) ? raw as Object[] : [];
+      const out: RefDirItem[] = [];
+      for (const one of items) {
+        const item: Record<string, Object> | undefined = asRec(one);
+        if (item === undefined) {
+          continue;
+        }
+        const name: string = (str(item, 'name') ?? str(item, 'title') ?? '');
+        if (name.length === 0) {
+          continue;
+        }
+        const kind: string = str(item, 'kind') ?? '';
+        const isDirectory: boolean = kind === 'dir' || kind === 'directory' || (str(item, 'type') ?? '') === 'dir';
+        let itemPath: string = str(item, 'path') ?? '';
+        if (itemPath.length === 0) {
+          itemPath = target.length > 0 ? target + '/' + name : name;
+        }
+        out.push({ name: name, path: itemPath, isDirectory: isDirectory });
+      }
+      // 文件夹在前，文件在后（对齐桌面端文件树习惯）
+      const dirs: RefDirItem[] = [];
+      const files: RefDirItem[] = [];
+      for (const one of out) {
+        if (one.isDirectory) {
+          dirs.push(one);
+        } else {
+          files.push(one);
+        }
+      }
+      this.refDirs = dirs.concat(files);
+      this.refCurrentPath = target;
+    }).catch((ignored: Error) => {
+    });
+  }
+
+  /** 拉取技能列表（网关 skill 指令） */
+  private loadSkills(): void {
+    const client: GatewayClient = GatewayClient.get();
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (!client.isConnected() || sessionId.length === 0) {
+      return;
+    }
+    client.requestGateway(GatewayRequestFactory.slashCommands(sessionId), 12000).then((frame: GatewayFrame) => {
+      const rec: Record<string, Object> | undefined = asRec(frame);
+      if (rec === undefined) {
+        return;
+      }
+      const groups = rec['groups'];
+      if (groups === undefined || !Array.isArray(groups)) {
+        return;
+      }
+      const out: SkillItem[] = [];
+      for (const group of groups as Object[]) {
+        const items = asRec(group)?.['items'];
+        if (items === undefined || !Array.isArray(items)) {
+          continue;
+        }
+        for (const one of items as Object[]) {
+          const item = asRec(one);
+          if (item === undefined) {
+            continue;
+          }
+          if ((str(item, 'source') ?? '') !== 'skill') {
+            continue;
+          }
+          const name: string = str(item, 'name') ?? '';
+          if (name.length === 0) {
+            continue;
+          }
+          out.push({ name: name, label: str(item, 'name') ?? name, description: str(item, 'description') ?? '' });
+        }
+      }
+      this.skills = out;
+    }).catch((ignored: Error) => {
+    });
+  }
+
+  /** 选中工作区文件/目录：把行尾 @query 换成 @路径，并加引用 chip */
+  private insertPathRef(path: string): void {
+    // 同样只清掉 @query：引用以 chip 呈现，发送时再拼进正文
+    this.draft = this.stripRefTokens(this.draft);
+    console.info('[RefChip] file draft="' + this.draft + '"');
+    const slash: number = path.lastIndexOf('/');
+    const name: string = slash >= 0 ? path.substring(slash + 1) : path;
+    const chip: RefChipItem = {
+      key: 'file:' + path + ':' + Date.now().toString(),
+      label: name,
+      kind: 'file',
+      token: '@' + path
+    };
+    this.refChips = this.refChips.concat([chip]);
+    console.info('[RefChip] file added total=' + this.refChips.length + ' path=' + path);
+  }
+
+  /** 选中会话引用：把行尾的 @query 换成 @标题，并加一个引用 chip */
+  /** 清掉正文里残留的 @引用 token（历史版本会写入正文，避免与 chip 重复） */
+  private stripRefTokens(text: string): string {
+    let out: string = text;
+    for (let guard = 0; guard < 10; guard++) {
+      const next: string = out.replace(/\s*@[^\s]*\s*$/, '');
+      if (next === out) {
+        break;
+      }
+      out = next;
+    }
+    return out;
+  }
+
+  private insertSessionRef(id: string, title: string): void {
+    // 只清掉正在输入的 @query，不把引用文本写进正文（正文里由 chip 呈现，发送时再拼）
+    this.draft = this.stripRefTokens(this.draft);
+    console.info('[RefChip] session draft="' + this.draft + '"');
+    const chip: RefChipItem = {
+      key: 'session:' + id + ':' + Date.now().toString(),
+      label: title,
+      kind: 'session',
+      token: '@' + title
+    };
+    this.refChips = this.refChips.concat([chip]);
+    console.info('[RefChip] session added total=' + this.refChips.length + ' title=' + title);
+  }
+
+  /** 移除引用 chip */
+  private removeRefChip(key: string): void {
+    const next: RefChipItem[] = [];
+    for (const one of this.refChips) {
+      if (one.key !== key) {
+        next.push(one);
+      }
+    }
+    this.refChips = next;
   }
 
   /** 当前会话是否在运行：实时事件优先，其次会话列表快照（外部客户端启动时没有本地事件）。 */
@@ -1108,7 +1311,12 @@ export struct ConversationPage {
   }
 
   private async onSend(): Promise<void> {
-    const text: string = this.draft.trim();
+    const typed: string = this.draft.trim();
+    let refPrefix: string = '';
+    for (const chip of this.refChips) {
+      refPrefix += chip.token + ' ';
+    }
+    const text: string = (refPrefix + typed).trim();
     if (this.sending || (text.length === 0 && this.pickedAttachments.length === 0)) {
       return;
     }
@@ -1148,12 +1356,13 @@ export struct ConversationPage {
       } else if (!client.sendUserMessage(text, sessionId)) {
         throw new Error('发送失败，请检查连接');
       }
-      if (sessionId !== SessionStore.get().currentSessionId() || this.draft.trim() !== text) {
+      if (sessionId !== SessionStore.get().currentSessionId() || this.draft.trim() !== typed) {
         return;
       }
       this.hint = '';
       this.attachmentHint = '';
       this.pickedAttachments = [];
+      this.refChips = [];
       this.draft = '';
       // 发送成功：清掉该会话草稿（含防抖里还没落盘的那一次）
       if (this.draftSaveTimer >= 0) {
@@ -1396,6 +1605,16 @@ export struct ConversationPage {
     }
   }
 
+  private async pickImageAttachments(): Promise<void> {
+    try {
+      const picked: PickedAttachment[] = await pickImages(4);
+      this.pickedAttachments = picked;
+      this.attachmentHint = picked.length > 0 ? '已选择 ' + picked.length + ' 张图片' : '';
+    } catch (err) {
+      this.attachmentHint = '未选择图片';
+    }
+  }
+
   private async pickAttachments(): Promise<void> {
     try {
       const context = getContext(this) as common.UIAbilityContext;
@@ -1507,6 +1726,9 @@ export struct ConversationPage {
   private onConnectionChanged(): void {
     if (this.connection === 'connected') {
       this.requestDockData();
+      // 连上网关后补拉「/」技能列表与「@」工作区目录
+      this.loadSkills();
+      this.loadRefDirectory();
     }
   }
 
@@ -2272,6 +2494,36 @@ export struct ConversationPage {
           },
           onAddAttachment: () => {
             this.pickAttachments();
+          },
+          onPickImages: () => {
+            this.pickImageAttachments();
+          },
+          onPickFiles: () => {
+            this.pickAttachments();
+          },
+          onPickCommand: (name: string) => {
+            this.draft = '/' + name + ' ';
+          },
+          refSessions: this.refSessions,
+          onPickSessionRef: (id: string, title: string) => {
+            this.insertSessionRef(id, title);
+          },
+          skills: this.skills,
+          refDirs: this.refDirs,
+          refDirPath: this.refCurrentPath.length > 0 ? this.refCurrentPath : '文件与文件夹',
+          onRefDirOpen: (path: string) => {
+            this.refCurrentPath = path;
+            this.loadFileListAt(path);
+          },
+          onRequestRefDirs: () => {
+            this.loadRefDirectory();
+          },
+          onPickRefPath: (path: string) => {
+            this.insertPathRef(path);
+          },
+          refChips: this.refChips,
+          onRemoveRefChip: (key: string) => {
+            this.removeRefChip(key);
           },
           onPickPermission: () => {
             this.openComposerSheet('permission');
@@ -3902,17 +4154,18 @@ export struct ConversationPage {
       // 会话快捷切换：三横线圆钮（对齐小程序 nav-actions 的 session-switch-trigger）
       Button({ type: ButtonType.Circle }) {
         // 侧栏图形：圆角框 + 左侧竖线（对齐小程序 nav-sidebar-glyph；配色与左侧「协作」图标一致）
+        // 线宽对齐「协作」图标：dsh_team.svg 为 16 viewBox / stroke 1，显示 20vp → 实际 1.25vp
         Stack({ alignContent: Alignment.TopStart }) {
           Column()
             .width(18)
             .height(16)
-            .border({ width: 1.7, color: this.navIconColor() })
-            .borderRadius(4.5)
+            .border({ width: 1.25, color: this.navIconColor() })
+            .borderRadius(4)
           Column()
-            .width(1.7)
-            .height(12.6)
+            .width(1.25)
+            .height(13.5)
             .backgroundColor(this.navIconColor())
-            .margin({ left: 4.9, top: 1.7 })
+            .margin({ left: 4.9, top: 1.25 })
         }
         .width(18)
         .height(16)
@@ -3923,7 +4176,24 @@ export struct ConversationPage {
       .backgroundColor(Color.Transparent)
       .accessibilityText('会话快捷切换')
       .onClick(() => {
-        this.openSessionSwitcher();
+        if (this.sessionPickerOpen) {
+          this.sessionPickerOpen = false;
+        } else {
+          this.openSessionSwitcher();
+        }
+      })
+      // 与「协作」「⋯」同一个系统菜单容器：原生材质/圆角/描边/弹出动画/点空白收起
+      .bindMenu(this.sessionPickerOpen, this.sidebarMenuPanel(), {
+        placement: Placement.BottomRight,
+        offset: { x: 0, y: 4 },
+        outlineColor: this.dividerColor(),
+        outlineWidth: 1,
+        onWillDisappear: () => {
+          this.sessionPickerOpen = false;
+        },
+        onDisappear: () => {
+          this.sessionPickerOpen = false;
+        }
       })
 
       Button({ type: ButtonType.Circle }) {
@@ -4641,7 +4911,6 @@ export struct ConversationPage {
           ListItem() {
             ConversationRowView({
               entry: entry,
-              isDark: this.isDark,
               procIconStyle: this.procIconStyle,
               stepOpenIds: this.stepOpenIds,
               onToggle: (id: string) => {
@@ -4665,7 +4934,6 @@ export struct ConversationPage {
         if (this.progressLabel.length > 0) {
           ListItem() {
             ConversationProgress({
-              isDark: this.isDark,
               appearance: this.statusAppearance,
               label: this.progressLabel,
               expandable: this.runningProcessId().length > 0,
@@ -4744,8 +5012,8 @@ export struct ConversationPage {
           .width(40)
           .height(40)
           .borderRadius(20)
-          // 投影必须画在不裁剪的容器上：Button 会裁剪自身 shadow，圆形 + offsetY 会在右下角露出方形黑块
-          .shadow({ radius: 12, color: this.isDark ? 'rgba(0,0,0,0.40)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 6 })
+          // 投影与系统菜单同款（画在不裁剪的容器上，Button 会裁剪自身 shadow）
+          .shadow({ radius: 14, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 6 })
         }
         .width('100%')
         .padding({ bottom: 10 })
@@ -4986,6 +5254,19 @@ export struct ConversationPage {
     .width(this.capsuleWidth())
     .position({ x: this.capsuleX(), y: this.capsuleY() })
     .zIndex(60)
+    // 会话节点弹窗：与「协作」「⋯」「侧栏」同一个系统菜单容器（原生材质/圆角/描边/动画/点空白收起）
+    .bindMenu(this.turnNavOpen, this.turnNavPanel(), {
+      placement: this.capsuleSide === 'left' ? Placement.Right : Placement.Left,
+      offset: { x: 4, y: 0 },
+      outlineColor: this.dividerColor(),
+      outlineWidth: 1,
+      onWillDisappear: () => {
+        this.turnNavOpen = false;
+      },
+      onDisappear: () => {
+        this.turnNavOpen = false;
+      }
+    })
     .onClick(() => {
       this.tapCapsule();
     })
@@ -5122,17 +5403,9 @@ export struct ConversationPage {
     .height(TURN_TRACK_HEIGHT)
   }
 
-  /** 会话节点弹层：居中卡片（卡片样式对齐右上角「⋯」原生菜单） */
+  /** 会话节点弹层内容：交给 bindMenu 的系统菜单容器渲染（材质/圆角/描边/动画/点空白收起全部原生） */
   @Builder
   turnNavPanel() {
-    Stack({ alignContent: Alignment.Center }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('rgba(0,0,0,0.04)')
-        .onClick(() => {
-          this.closeTurnNav();
-        })
       Column() {
         Row() {
           Text('会话节点')
@@ -5943,19 +6216,15 @@ export struct ConversationPage {
     return height > 240 ? height : 240;
   }
 
-  /** 会话侧栏（对齐小程序 conv-sidebar）：右上角悬浮面板，工作区分组 + 会话行 + 底部设置 */
-  @Builder
-  sessionSwitcherOverlay() {
-    Stack({ alignContent: Alignment.TopEnd }) {
-      // 全屏透明命中层：点面板外任意位置收起（对齐小程序 .conv-sidebar-mask）
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor(Color.Transparent)
-        .onClick(() => {
-          this.closeSessionSwitcher();
-        })
+  /** 侧栏面板高度：系统菜单容器会限高，超出部分由内部 Scroll 承担 */
+  private convSidebarPanelHeight(): number {
+    const full: number = this.convSidebarHeight();
+    return full > 560 ? 560 : full;
+  }
 
+  /** 会话侧栏内容：交给 bindMenu 的系统菜单容器渲染（材质/圆角/描边/动画/点空白收起全部原生） */
+  @Builder
+  sidebarMenuPanel() {
         Column() {
         // 品牌行：首页左上角同款 3D 品牌币 + 字标 + HARNESS 徽章
         Row() {
@@ -6171,20 +6440,10 @@ export struct ConversationPage {
         }
         .id('conv-sidebar')
         .width(this.convSidebarWidth())
-        .height(this.convSidebarHeight())
+        .height(this.convSidebarPanelHeight())
         .padding({ top: 5 })
-        .margin({ top: this.topSafe() + 8, right: 12 })
-        // 背景对齐右上角「⋯」原生菜单：同款磨砂玻璃 + 16 圆角 + 亮白描边 + 柔和投影
-        .borderRadius(16)
-        .backgroundColor(this.menuMaterial())
-        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-        .border({ width: 0.7, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.60)' })
-        .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.42)' : 'rgba(0,0,0,0.12)', offsetY: 6 })
-        .clip(true)
         .alignItems(HorizontalAlign.Start)
-    }
-    .width('100%')
-    .height('100%')
-    .zIndex(60)
+        .width(this.convSidebarWidth())
+        .padding({ top: 2, bottom: 2 })
   }
 }

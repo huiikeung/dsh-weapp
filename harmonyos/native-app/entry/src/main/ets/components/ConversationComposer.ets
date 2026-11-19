@@ -11,12 +11,50 @@
  * 约束：ArkTS 严格模式；颜色全部字符串字面量。
  */
 import { LengthMetrics } from '@kit.ArkUI';
-import type { ModelMenuItem } from 'nativecore';
+import type { ModelMenuItem, PickedAttachment } from 'nativecore';
 
 /** 指标菜单行（鸿蒙原生 Menu 的 MenuItem：content 在左，labelInfo 数值在右） */
 export interface MetricMenuPair {
   label: string;
   value: string;
+}
+
+/** 「/」指令菜单条目（与「+」菜单同一套内容） */
+export interface CommandMenuItem {
+  name: string;
+  label: string;
+  english: string;
+  desc: string;
+}
+
+/** 输入框里的引用 chip（会话 / 文件夹 / 文件） */
+export interface RefChipItem {
+  key: string;
+  label: string;
+  kind: string;
+  /** 发送时拼进正文的引用 token（如 @标题 / @路径） */
+  token: string;
+}
+
+/** 「/」菜单里的技能条目（网关下发的 skill 指令） */
+export interface SkillItem {
+  name: string;
+  label: string;
+  description: string;
+}
+
+/** 「@」菜单里的工作区目录 / 文件条目 */
+export interface RefDirItem {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+}
+
+/** 「@」引用菜单里的会话条目 */
+export interface RefSessionItem {
+  id: string;
+  title: string;
+  detail: string;
 }
 
 @Component
@@ -85,6 +123,32 @@ export struct ConversationComposer {
   onSend: () => void = () => {};
   onStop: () => void = () => {};
   onAddAttachment: () => void = () => {};
+  /** 「+」弹层：相册图片 / 文件 */
+  onPickImages: () => void = () => {};
+  onPickFiles: () => void = () => {};
+  /** 「+」弹层：选中一条斜杠指令（页面把它写进草稿） */
+  onPickCommand: (name: string) => void = () => {};
+  /** 「@」引用菜单：可引用的会话（由页面传入，排除当前会话与空会话） */
+  @Prop refSessions: RefSessionItem[] = [];
+  onPickSessionRef: (id: string, title: string) => void = () => {};
+  /** 「/」菜单技能列表（网关 skill 指令） */
+  @Prop skills: SkillItem[] = [];
+  /** 「@」菜单工作区条目与当前目录 */
+  @Prop refDirs: RefDirItem[] = [];
+  @Prop refDirPath: string = '';
+  onRefDirOpen: (path: string) => void = () => {};
+  /** 已选引用 chip（会话/文件），显示在输入框上方：蓝字 + 图标 + × */
+  @Prop refChips: RefChipItem[] = [];
+  onRemoveRefChip: (key: string) => void = () => {};
+  /** 「@」菜单打开时若还没有目录数据，让页面去拉一次工作区目录 */
+  onRequestRefDirs: () => void = () => {};
+  onPickRefPath: (path: string) => void = () => {};
+  /** 「+」弹层展开态（bindMenu 控制变量） */
+  @State attachMenuOpen: boolean = false;
+  /** 输入 / 或 @ 触发的菜单：'' 关闭 / 'command' 指令 / 'ref' 引用 */
+  @State triggerMode: string = '';
+  @State triggerQuery: string = '';
+  @State triggerMenuOpen: boolean = false;
   onPickPermission: () => void = () => {};
   onPickModel: () => void = () => {};
   /** 选中权限值（对齐小程序 pickPermissionOption） */
@@ -445,6 +509,63 @@ export struct ConversationComposer {
    *   · 文件 → 回形针图标 + 文件名胶囊
    *   · 右上角圆形删除钮
    */
+  /** 引用 chip 的图标：会话=气泡，目录=文件夹，文件=文档 */
+  private refChipIcon(kind: string): Resource {
+    if (kind === 'session') {
+      return $r('app.media.cmd_session');
+    }
+    if (kind === 'folder') {
+      return $r('app.media.ref_folder');
+    }
+    return $r('app.media.attach_file');
+  }
+
+  /**
+   * 引用 chip 的主色：与小程序一致——浅色 #2E6BE6、深色 #8FB4F2
+   * （小程序 .composer-ref-x / .theme-dark .composer-ref-label 就是这套双色）。
+   */
+  private refChipInk(): string {
+    return this.isDark ? '#8FB4F2' : '#2E6BE6';
+  }
+
+  /** 引用 chip 底色：跟随主色，深色用低透明度避免发灰 */
+  private refChipFill(): string {
+    return this.isDark ? 'rgba(143,180,242,0.16)' : 'rgba(46,107,230,0.10)';
+  }
+
+  /** 已选引用：蓝字 + 图标 + ×（对齐 DSH / 小程序的引用 chip，文件/文件夹/会话同一套样式） */
+  @Builder
+  refChipsRow() {
+    Row({ space: 6 }) {
+      ForEach(this.refChips, (chip: RefChipItem) => {
+        Row({ space: 4 }) {
+          Image(this.refChipIcon(chip.kind))
+            .width(12)
+            .height(12)
+            .objectFit(ImageFit.Contain)
+            .colorFilter(this.iconTintRgba(this.refChipInk()))
+          Text(chip.label)
+            .fontSize(14)
+            .fontColor(this.refChipInk())
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .constraintSize({ maxWidth: 140 })
+          Text('×')
+            .fontSize(13)
+            .fontColor(this.isDark ? 'rgba(143,180,242,0.75)' : 'rgba(46,107,230,0.75)')
+            .onClick(() => {
+              this.onRemoveRefChip(chip.key);
+            })
+        }
+        .padding({ left: 6, right: 6, top: 3, bottom: 3 })
+        .borderRadius(6)
+        .backgroundColor(this.refChipFill())
+      }, (chip: RefChipItem) => chip.key)
+    }
+    .width('100%')
+    .padding({ left: 2, right: 2, bottom: 4 })
+  }
+
   @Builder
   attachmentRow() {
     Scroll() {
@@ -547,6 +668,17 @@ export struct ConversationComposer {
       })
       .onChange((value: string) => {
         this.onDraft(value);
+        this.updateTrigger(value);
+      })
+      .bindMenu(this.triggerMenuOpen, this.triggerMenuPanel(), {
+        placement: Placement.BottomLeft,
+        offset: { x: 0, y: 6 },
+        outlineColor: this.cardEdge(),
+        outlineWidth: 1,
+        onDisappear: () => {
+          this.triggerMenuOpen = false;
+          this.triggerMode = '';
+        }
       })
   }
 
@@ -564,9 +696,325 @@ export struct ConversationComposer {
     .enabled(this.connected)
     .onClick(() => {
       if (this.connected) {
-        this.onAddAttachment();
+        this.attachMenuOpen = !this.attachMenuOpen;
       }
     })
+    .bindMenu(this.attachMenuOpen, this.attachMenuPanel(), {
+      placement: Placement.TopLeft,
+      offset: { x: 0, y: 4 },
+      outlineColor: this.cardEdge(),
+      outlineWidth: 1,
+      onDisappear: () => {
+        this.attachMenuOpen = false;
+      }
+    })
+  }
+
+  /** 「+」弹层分组标题（对齐小程序 composer 菜单的分组小标题） */
+  @Builder
+  attachMenuSection(title: string) {
+    Text(title)
+      .fontSize(12)
+      .fontColor(this.mutedText())
+      .width('100%')
+      .padding({ left: 26, right: 18, top: 12, bottom: 4 })
+  }
+
+  /** 「+」弹层的一行：左图标 + 标题，右侧灰色说明（对齐截图样式） */
+  @Builder
+  attachMenuRow(icon: Resource, iconDark: Resource, tintDark: boolean, label: string, english: string,
+    desc: string, onTap: () => void) {
+    Row({ space: 12 }) {
+      if (this.isDark) {
+        Image(iconDark)
+          .width(20)
+          .height(20)
+          .objectFit(ImageFit.Contain)
+          .colorFilter(tintDark ? this.iconTintRgba('rgba(241,244,250,0.62)') : this.noTint())
+      } else {
+        Image(icon)
+          .width(20)
+          .height(20)
+          .objectFit(ImageFit.Contain)
+      }
+      Text(label)
+        .fontSize(15)
+        .fontColor(this.menuLabelColor())
+      if (english.length > 0) {
+        Text(english)
+          .fontSize(12)
+          .fontColor(this.mutedText())
+      }
+      Blank()
+      Text(desc)
+        .fontSize(12)
+        .fontColor(this.mutedText())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    }
+    .width(340)
+    .height(46)
+    .padding({ left: 26, right: 18 })
+    .borderRadius(10)
+    .stateStyles({
+      pressed: {
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+      },
+      normal: {
+        .backgroundColor(Color.Transparent)
+      }
+    })
+    .onClick(() => {
+      this.attachMenuOpen = false;
+      onTap();
+    })
+  }
+
+  /** 「/」指令清单（与「+」菜单一致） */
+  private commandList(): CommandMenuItem[] {
+    const out: CommandMenuItem[] = [];
+    out.push({ name: 'compact', label: '压缩', english: 'compact', desc: '压缩以上对话内容' });
+    out.push({ name: 'permission', label: '权限', english: 'permission', desc: '切换权限预设' });
+    out.push({ name: 'model', label: '模型', english: 'model', desc: '选择当前会话的模型' });
+    out.push({ name: 'goal', label: '目标', english: 'goal', desc: '设置或查看长期任务目标' });
+    out.push({ name: 'plan', label: '计划', english: 'plan', desc: '进入或退出计划模式' });
+    return out;
+  }
+
+  private commandIcon(name: string): Resource {
+    if (name === 'compact') {
+      return $r('app.media.cmd_compact');
+    }
+    if (name === 'permission') {
+      return $r('app.media.cmd_permission');
+    }
+    if (name === 'model') {
+      return $r('app.media.cmd_model');
+    }
+    if (name === 'goal') {
+      return $r('app.media.cmd_goal');
+    }
+    return $r('app.media.cmd_plan');
+  }
+
+  private commandIconDark(name: string): Resource {
+    if (name === 'compact') {
+      return $r('app.media.cmd_compact_dark');
+    }
+    if (name === 'permission') {
+      return $r('app.media.cmd_permission_dark');
+    }
+    if (name === 'model') {
+      return $r('app.media.cmd_model_dark');
+    }
+    if (name === 'goal') {
+      return $r('app.media.cmd_goal_dark');
+    }
+    return $r('app.media.cmd_plan_dark');
+  }
+
+  private filteredCommands(): CommandMenuItem[] {
+    const query: string = this.triggerQuery.trim().toLowerCase();
+    const out: CommandMenuItem[] = [];
+    for (const item of this.commandList()) {
+      if (query.length > 0
+        && item.name.toLowerCase().indexOf(query) < 0
+        && item.label.indexOf(query) < 0
+        && item.english.toLowerCase().indexOf(query) < 0) {
+        continue;
+      }
+      out.push(item);
+    }
+    return out;
+  }
+
+  private filteredSkills(): SkillItem[] {
+    const query: string = this.triggerQuery.trim().toLowerCase();
+    const out: SkillItem[] = [];
+    for (const item of this.skills) {
+      if (query.length > 0
+        && item.name.toLowerCase().indexOf(query) < 0
+        && item.label.toLowerCase().indexOf(query) < 0) {
+        continue;
+      }
+      out.push(item);
+    }
+    return out;
+  }
+
+  /** 「@」菜单条目过滤：目录/文件按名称，会话按标题 */
+  private filteredRefDirs(): RefDirItem[] {
+    const query: string = this.triggerQuery.trim().toLowerCase();
+    const out: RefDirItem[] = [];
+    for (const item of this.refDirs) {
+      if (query.length > 0 && item.name.toLowerCase().indexOf(query) < 0) {
+        continue;
+      }
+      out.push(item);
+    }
+    return out;
+  }
+
+  private filteredRefSessions(): RefSessionItem[] {
+    const query: string = this.triggerQuery.trim().toLowerCase();
+    const out: RefSessionItem[] = [];
+    for (const item of this.refSessions) {
+      if (query.length > 0 && item.title.toLowerCase().indexOf(query) < 0) {
+        continue;
+      }
+      out.push(item);
+    }
+    return out;
+  }
+
+  /** 输入框内容变化后判定是否要弹「/ 指令」或「@ 引用」菜单 */
+  private updateTrigger(text: string): void {
+    let mode: string = '';
+    let query: string = '';
+    const slash: RegExpExecArray | null = /(^|\s)\/([^\s/]*)$/.exec(text);
+    if (slash !== null) {
+      mode = 'command';
+      query = slash[2];
+    } else {
+      const at: RegExpExecArray | null = /(^|\s)@([^\s]*)$/.exec(text);
+      if (at !== null) {
+        mode = 'ref';
+        query = at[2];
+      }
+    }
+    this.triggerQuery = query;
+    if (mode.length === 0) {
+      this.triggerMode = '';
+      this.triggerMenuOpen = false;
+      return;
+    }
+    this.triggerMode = mode;
+    this.triggerMenuOpen = true;
+    if (mode === 'ref' && this.refDirs.length === 0) {
+      this.onRequestRefDirs();
+    }
+  }
+
+  /** 「/」与「@」共用的弹层（UI 与「+」菜单一致） */
+  @Builder
+  triggerMenuPanel() {
+    Column({ space: 0 }) {
+      if (this.triggerMode === 'command') {
+        // 「/」= 「+」的全部内容（添加 + 指令）+ 技能
+        this.attachMenuSection('添加')
+        this.attachMenuRow($r('app.media.menu_image'), $r('app.media.menu_image'), true, '相册图片', '', '从相册选择', () => {
+          this.triggerMenuOpen = false;
+          this.triggerMode = '';
+          this.onPickImages();
+        })
+        this.attachMenuRow($r('app.media.menu_external_file'), $r('app.media.menu_external_file'), true, '文件', '', '选择本地文件', () => {
+          this.triggerMenuOpen = false;
+          this.triggerMode = '';
+          this.onPickFiles();
+        })
+        this.attachMenuRow($r('app.media.cmd_goal'), $r('app.media.cmd_goal_dark'), false, '目标', 'goal', '设置或查看长期任务目标', () => {
+          this.triggerMenuOpen = false;
+          this.triggerMode = '';
+          this.onPickCommand('goal');
+        })
+        this.attachMenuRow($r('app.media.cmd_plan'), $r('app.media.cmd_plan_dark'), false, '计划', 'plan', '进入或退出计划模式', () => {
+          this.triggerMenuOpen = false;
+          this.triggerMode = '';
+          this.onPickCommand('plan');
+        })
+        this.attachMenuSection('指令')
+        ForEach(this.filteredCommands(), (item: CommandMenuItem) => {
+          this.attachMenuRow(this.commandIcon(item.name), this.commandIconDark(item.name), false,
+            item.label, item.english, item.desc, () => {
+              this.triggerMenuOpen = false;
+              this.triggerMode = '';
+              this.onPickCommand(item.name);
+            })
+        }, (item: CommandMenuItem) => item.name)
+        if (this.filteredSkills().length > 0) {
+          this.attachMenuSection('技能')
+          ForEach(this.filteredSkills(), (item: SkillItem) => {
+            this.attachMenuRow($r('app.media.skill_icon'), $r('app.media.skill_icon_dark'), false,
+              item.label.length > 0 ? item.label : item.name, '', item.description, () => {
+                this.triggerMenuOpen = false;
+                this.triggerMode = '';
+                this.onPickCommand(item.name);
+              })
+          }, (item: SkillItem) => item.name)
+        }
+      } else if (this.triggerMode === 'ref') {
+        // 「@」= 工作区文件与文件夹 + 对话列表全部会话
+        this.attachMenuSection(this.refDirPath.length > 0 ? this.refDirPath : '工作区')
+        ForEach(this.filteredRefDirs(), (dir: RefDirItem) => {
+          // 文件夹/文件图标取自小程序（menu-folder / menu-chat-file），深色主题下提亮
+          this.attachMenuRow(dir.isDirectory ? $r('app.media.ref_folder') : $r('app.media.attach_file'),
+            dir.isDirectory ? $r('app.media.ref_folder') : $r('app.media.attach_file'),
+            true, dir.name, '', dir.isDirectory ? '文件夹' : '文件', () => {
+              if (dir.isDirectory) {
+                // 进目录不关菜单：列表就地切换到该文件夹内容
+                this.onRefDirOpen(dir.path);
+              } else {
+                this.triggerMenuOpen = false;
+                this.triggerMode = '';
+                this.onPickRefPath(dir.path);
+              }
+            })
+        }, (dir: RefDirItem) => dir.path)
+        this.attachMenuSection('会话')
+        ForEach(this.filteredRefSessions(), (item: RefSessionItem) => {
+          this.attachMenuRow($r('app.media.cmd_session'), $r('app.media.cmd_session'), true,
+            item.title, '', item.detail, () => {
+              this.triggerMenuOpen = false;
+              this.triggerMode = '';
+              this.onPickSessionRef(item.id, item.title);
+            })
+        }, (item: RefSessionItem) => item.id)
+      }
+    }
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: 6, bottom: 8 })
+  }
+
+  /** 「+」弹层：添加（图片/文件）+ 指令（压缩/权限/模型），对齐小程序 composer 菜单 */
+  @Builder
+  attachMenuPanel() {
+    Column({ space: 0 }) {
+      this.attachMenuSection('添加')
+      this.attachMenuRow($r('app.media.menu_image'), $r('app.media.menu_image'), true, '相册图片', '', '从相册选择', () => {
+        this.onPickImages();
+      })
+      this.attachMenuRow($r('app.media.menu_external_file'), $r('app.media.menu_external_file'), true, '文件', '', '选择本地文件', () => {
+        this.onPickFiles();
+      })
+      this.attachMenuRow($r('app.media.cmd_goal'), $r('app.media.cmd_goal_dark'), false, '目标', 'goal', '设置或查看长期任务目标', () => {
+        this.onPickCommand('goal');
+      })
+      this.attachMenuRow($r('app.media.cmd_plan'), $r('app.media.cmd_plan_dark'), false, '计划', 'plan', '进入或退出计划模式', () => {
+        this.onPickCommand('plan');
+      })
+      this.attachMenuSection('指令')
+      this.attachMenuRow($r('app.media.cmd_compact'), $r('app.media.cmd_compact_dark'), false, '压缩', 'compact', '压缩以上对话内容', () => {
+        this.onPickCommand('compact');
+      })
+      this.attachMenuRow($r('app.media.cmd_permission'), $r('app.media.cmd_permission_dark'), false, '权限', 'permission', '切换权限预设', () => {
+        this.onPickCommand('permission');
+      })
+      this.attachMenuRow($r('app.media.cmd_model'), $r('app.media.cmd_model_dark'), false, '模型', 'model', '选择当前会话的模型', () => {
+        this.onPickCommand('model');
+      })
+    }
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: 6, bottom: 8 })
+  }
+
+  /** 不改变颜色的颜色矩阵（图标自带配色，只在需要跟随主题时才着色） */
+  private noTint(): number[] {
+    return [
+      1, 0, 0, 0, 0,
+      0, 1, 0, 0, 0,
+      0, 0, 1, 0, 0,
+      0, 0, 0, 1, 0
+    ];
   }
 
   /** 权限 chip（小程序 .chip.permission-chip：文本 12vp、padding 5/4、图标 16vp、末尾 ▾） */
@@ -1474,6 +1922,9 @@ export struct ConversationComposer {
       // 最外圈白色光圈层：白色包边裹住卡片，外圈再叠一层柔和光晕（参考截图的光圈）
       Column() {
       Column() {
+        if (this.refChips.length > 0) {
+          this.refChipsRow()
+        }
         if (this.attachmentCount > 0) {
           this.attachmentRow()
         }
@@ -1500,7 +1951,16 @@ export struct ConversationComposer {
             .enabled(this.connected)
             .onClick(() => {
               if (this.connected) {
-                this.onAddAttachment();
+                this.attachMenuOpen = !this.attachMenuOpen;
+              }
+            })
+            .bindMenu(this.attachMenuOpen, this.attachMenuPanel(), {
+              placement: Placement.TopLeft,
+              offset: { x: 0, y: 4 },
+              outlineColor: this.cardEdge(),
+              outlineWidth: 1,
+              onDisappear: () => {
+                this.attachMenuOpen = false;
               }
             })
             // 文字区 + 语音触摸层（对齐小程序 .voice-touch-surface：

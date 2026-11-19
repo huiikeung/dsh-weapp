@@ -1034,10 +1034,12 @@ export class SessionStore {
       if (path.length === 0) {
         continue;
       }
+      // 网关用 kind: 'dir' / 'directory' 标记目录（兼容 isDirectory 布尔字段）
+      const kind: string = str(item, 'kind') ?? '';
       entries.push({
         name: name.length > 0 ? name : path,
         path: path,
-        isDirectory: bool(item, 'isDirectory') === true,
+        isDirectory: bool(item, 'isDirectory') === true || kind === 'dir' || kind === 'directory',
         hidden: bool(item, 'hidden') === true
       });
     }
