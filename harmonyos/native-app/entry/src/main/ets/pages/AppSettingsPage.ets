@@ -33,6 +33,8 @@ export struct AppSettingsPage {
   @StorageLink('homeAnimationEnabled') homeAnimationEnabled: boolean = true;
   @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
   @StorageLink('showAccountCard') showAccountCard: boolean = false;
+  /** 会话节点胶囊：默认展开显示（关闭则默认收起成贴边把手） */
+  @StorageLink('capsuleDefaultExpanded') capsuleDefaultExpanded: boolean = true;
   @StorageLink('notifyEnabled') notifyEnabled: boolean = false;
   @StorageLink('contextTabVisible') contextTabVisible: boolean = true;
   @StorageLink('fleetTabVisible') fleetTabVisible: boolean = true;
@@ -140,6 +142,7 @@ export struct AppSettingsPage {
     this.homeAnimationEnabled = prefs.getBoolean('homeAnimationEnabled', true);
     this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', true);
     this.showAccountCard = prefs.getBoolean('showAccountCard', false);
+    this.capsuleDefaultExpanded = prefs.getBoolean('capsuleDefaultExpanded', true);
     this.notifyEnabled = prefs.getBoolean('notifyEnabled', false);
     this.contextTabVisible = prefs.getBoolean('contextTabVisible', true);
     this.fleetTabVisible = prefs.getBoolean('fleetTabVisible', true);
@@ -171,6 +174,7 @@ export struct AppSettingsPage {
     this.statusAppearance = prefs.getString('statusAppearance', 'classic');
     this.procIconStyle = prefs.getString('procIconStyle', 'spin-ring');
     this.showAccountCard = prefs.getBoolean('showAccountCard', this.showAccountCard);
+    this.capsuleDefaultExpanded = prefs.getBoolean('capsuleDefaultExpanded', this.capsuleDefaultExpanded);
     this.notifyEnabled = prefs.getBoolean('notifyEnabled', this.notifyEnabled);
     this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', this.voiceInputEnabled);
     this.contextTabVisible = prefs.getBoolean('contextTabVisible', this.contextTabVisible);
@@ -1442,6 +1446,11 @@ export struct AppSettingsPage {
             // ── 对话 ──
             this.groupTitle('对话')
             Column({ space: 0 }) {
+              this.toggleRow('会话节点胶囊', '开启后常显在会话页侧边；关闭后默认收起为贴边把手', this.capsuleDefaultExpanded, (value: boolean) => {
+                this.capsuleDefaultExpanded = value;
+                PreferencesStore.get().putBoolean('capsuleDefaultExpanded', value);
+              })
+              this.divider()
               this.toggleRow('语音输入', '按住说话，由已连接的 DSH 语音插件转写', this.voiceInputEnabled, (value: boolean) => {
                 this.voiceInputEnabled = value;
                 PreferencesStore.get().putBoolean('voiceInputEnabled', value);

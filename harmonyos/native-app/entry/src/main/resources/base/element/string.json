@@ -4,6 +4,7 @@
     { "name": "EntryAbility_desc", "value": "鲸尾 Harness" },
     { "name": "EntryAbility_label", "value": "鲸尾" },
     { "name": "camera_reason", "value": "扫描配对二维码" },
-    { "name": "microphone_reason", "value": "语音输入需要使用麦克风" }
+    { "name": "microphone_reason", "value": "语音输入需要使用麦克风" },
+    { "name": "motion_reason", "value": "根据左右手握持调整会话节点卡带的位置" }
   ]
 }

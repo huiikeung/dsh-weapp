@@ -37,6 +37,10 @@
           "when": "inuse"
         }
       },
+      // 智感握姿（会话节点卡带左右切换）：system_grant，安装即授予
+      {
+        "name": "ohos.permission.DETECT_GESTURE"
+      },
       // 长按录音（语音输入）必需：user_grant 权限，缺失时 audio.createAudioCapturer 直接抛 6800301 system error
       {
         "name": "ohos.permission.MICROPHONE",

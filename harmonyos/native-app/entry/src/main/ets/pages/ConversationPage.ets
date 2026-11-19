@@ -343,6 +343,11 @@ export struct ConversationPage {
     // 半模态的遮罩盖住，表现成「整页点不动、滑不动」。进门先收掉。
     this.teamSheetOpen = false;
     this.ready = true;
+    // 胶囊默认态：设置里控制「默认显示 / 默认收起」
+    try {
+      this.capsuleExpanded = PreferencesStore.get().getBoolean('capsuleDefaultExpanded', true);
+    } catch (ignored) {
+    }
     // 智感握姿：订阅左右手持握变化，卡带据此左右切换（不支持的机型静默跳过）
     try {
       HoldingHand.start();
@@ -921,6 +926,11 @@ export struct ConversationPage {
       }
     }
     return false;
+  }
+
+  /** 顶栏次要图标色：与「协作」图标（dsh_team / dsh_team_dark 的描边）取同一灰度 */
+  private navIconColor(): string {
+    return this.isDark ? '#ABB2BE' : '#737985';
   }
 
   /** 连接状态点：连接中=琥珀、失败=红；已连接时随会话运行状态——运行中绿、空闲灰（对齐产品约定）。 */
@@ -2404,7 +2414,12 @@ export struct ConversationPage {
   /** 页面尺寸（用于胶囊绝对定位） */
   @State pageW: number = 0;
   @State pageH: number = 0;
+  /** 胶囊竖向偏移：上下拖动可调整停靠高度 */
+  @State capsuleYOffset: number = 0;
+  private capsuleDragStartY: number = 0;
   private holdTimer: number = -1;
+  /** 当前拖动主轴：h 横向移动 / v 纵向切节点 */
+  private capsuleAxis: string = '';
   private turnListScroller: Scroller = new Scroller();
   private turnScrubStartIndex: number = 0;
   /** 弹窗内上下滑动切换节点的起始下标与累计位移 */
@@ -3836,17 +3851,17 @@ export struct ConversationPage {
 
       // 会话快捷切换：三横线圆钮（对齐小程序 nav-actions 的 session-switch-trigger）
       Button({ type: ButtonType.Circle }) {
-        // 侧栏图形：圆角框 + 左侧竖线（对齐小程序 nav-sidebar-glyph，粗细与相邻导航图标一致）
+        // 侧栏图形：圆角框 + 左侧竖线（对齐小程序 nav-sidebar-glyph；配色与左侧「协作」图标一致）
         Stack({ alignContent: Alignment.TopStart }) {
           Column()
             .width(18)
             .height(16)
-            .border({ width: 1.7, color: this.textColor() })
+            .border({ width: 1.7, color: this.navIconColor() })
             .borderRadius(4.5)
           Column()
             .width(1.7)
             .height(12.6)
-            .backgroundColor(this.textColor())
+            .backgroundColor(this.navIconColor())
             .margin({ left: 4.9, top: 1.7 })
         }
         .width(18)
@@ -4630,14 +4645,14 @@ export struct ConversationPage {
     }, 500);
   }
 
-  /** 胶囊宽度（展开 36 / 折叠 16） */
+  /** 胶囊宽度（展开 36 / 折叠 12） */
   private capsuleWidth(): number {
-    return this.capsuleExpanded ? TURN_TRACK_WIDTH : 16;
+    return this.capsuleExpanded ? TURN_TRACK_WIDTH : 12;
   }
 
-  /** 胶囊左上角坐标：贴侧边 + 垂直居中偏上，叠加拖动位移 */
+  /** 胶囊左上角坐标：展开时离边 10，折叠后贴边（0）露出细把手，不挡视线 */
   private capsuleX(): number {
-    const edge: number = 10;
+    const edge: number = this.capsuleExpanded ? 10 : 0;
     return this.capsuleSide === 'left'
       ? edge + this.capsuleDragX
       : this.pageW - edge - this.capsuleWidth() + this.capsuleDragX;
@@ -4646,12 +4661,15 @@ export struct ConversationPage {
   private capsuleY(): number {
     const height: number = this.capsuleExpanded ? TURN_TRACK_HEIGHT : 56;
     const centerY: number = this.pageH > 0 ? this.pageH * 0.42 : 240;
-    return centerY - height / 2;
+    const top: number = this.topSafe() + 12;
+    const bottom: number = (this.pageH > 0 ? this.pageH : 800) - height - this.bottomInset - 12;
+    const wanted: number = centerY - height / 2 + this.capsuleYOffset;
+    return Math.max(top, Math.min(bottom, wanted));
   }
 
   /** 拖动结束：越过阈值就吸附到对应边并折叠，否则回弹 */
   private settleCapsule(offsetX: number): void {
-    const threshold: number = 56;
+    const threshold: number = 30;
     if (Math.abs(offsetX) < threshold) {
       animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
         this.capsuleDragX = 0;
@@ -4688,9 +4706,9 @@ export struct ConversationPage {
           Circle().width(4).height(4).fill(this.isDark ? 'rgba(255,255,255,0.45)' : 'rgba(16,19,24,0.30)')
           Circle().width(4).height(4).fill(this.isDark ? 'rgba(255,255,255,0.45)' : 'rgba(16,19,24,0.30)')
         }
-        .width(16)
+        .width(12)
         .height(56)
-        .borderRadius(8)
+        .borderRadius(6)
         .justifyContent(FlexAlign.Center)
         .alignItems(HorizontalAlign.Center)
         .backgroundColor(this.turnNavGlass())
@@ -4706,15 +4724,34 @@ export struct ConversationPage {
       this.tapCapsule();
     })
     .gesture(
-      PanGesture({ direction: PanDirection.Horizontal })
+      PanGesture()
+        .onActionStart(() => {
+          this.capsuleAxis = '';
+          this.turnScrubStartIndex = this.turnNodeIndex;
+          this.capsuleDragStartY = this.capsuleYOffset;
+        })
         .onActionUpdate((event: GestureEvent) => {
-          this.capsuleDragX = event.offsetX;
+          if (this.capsuleAxis.length === 0) {
+            this.capsuleAxis = Math.abs(event.offsetX) >= Math.abs(event.offsetY) ? 'h' : 'v';
+          }
+          if (this.capsuleAxis === 'h') {
+            // 横向：跟手拖动，松手按方向吸附折叠
+            this.capsuleDragX = event.offsetX;
+            return;
+          }
+          // 纵向：整体上下移动胶囊停靠位置（切节点在滑块上拖）
+          this.capsuleYOffset = this.capsuleDragStartY + event.offsetY;
         })
         .onActionEnd((event: GestureEvent) => {
-          this.settleCapsule(event.offsetX);
+          if (this.capsuleAxis === 'h') {
+            this.settleCapsule(event.offsetX);
+          }
+          this.capsuleAxis = '';
         })
         .onActionCancel(() => {
           this.settleCapsule(0);
+          this.turnBarOffset = 0;
+          this.capsuleAxis = '';
         })
     )
   }
@@ -4791,34 +4828,32 @@ export struct ConversationPage {
       .justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Center)
       .position({ x: 0, y: (TURN_TRACK_HEIGHT - TURN_THUMB_HEIGHT) / 2 + this.turnBarOffset })
+      // 拖动滑块：上下切换节点（上滑数字减小、下滑增大），松手回中
+      .gesture(
+        PanGesture()
+          .onActionStart(() => {
+            this.turnScrubStartIndex = this.turnNodeIndex;
+          })
+          .onActionUpdate((event: GestureEvent) => {
+            const limit: number = TURN_TRACK_HEIGHT / 2 - 16;
+            this.turnBarOffset = Math.max(-limit, Math.min(limit, event.offsetY));
+            const delta: number = Math.round(event.offsetY / 16);
+            this.previewTurnNode(this.turnScrubStartIndex + delta);
+          })
+          .onActionEnd(() => {
+            animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+              this.turnBarOffset = 0;
+            });
+          })
+          .onActionCancel(() => {
+            animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+              this.turnBarOffset = 0;
+            });
+          })
+      )
     }
     .width(TURN_TRACK_WIDTH)
     .height(TURN_TRACK_HEIGHT)
-    .gesture(
-      PanGesture()
-        .onActionStart(() => {
-          this.turnScrubStartIndex = this.turnNodeIndex;
-        })
-        .onActionUpdate((event: GestureEvent) => {
-          // 拖动范围限制在上下两根短横杠之间
-          const limit: number = TURN_TRACK_HEIGHT / 2 - 16;
-          this.turnBarOffset = Math.max(-limit, Math.min(limit, event.offsetY));
-          // 上滑（offsetY < 0）数字减小，下滑增大
-          const delta: number = Math.round(event.offsetY / 16);
-          this.previewTurnNode(this.turnScrubStartIndex + delta);
-        })
-        .onActionEnd(() => {
-          // 松手回到中间
-          animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
-            this.turnBarOffset = 0;
-          });
-        })
-        .onActionCancel(() => {
-          animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
-            this.turnBarOffset = 0;
-          });
-        })
-    )
   }
 
   /** 会话节点弹层：居中卡片（卡片样式对齐右上角「⋯」原生菜单） */
@@ -5402,10 +5437,12 @@ export struct ConversationPage {
         .height(this.convSidebarHeight())
         .padding({ top: 5 })
         .margin({ top: this.topSafe() + 8, right: 12 })
-        .borderRadius(28)
-        .backgroundColor(this.surfaceColor())
-        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.10)' })
-        .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.16)', offsetY: 8 })
+        // 背景对齐右上角「⋯」原生菜单：同款磨砂玻璃 + 16 圆角 + 亮白描边 + 柔和投影
+        .borderRadius(16)
+        .backgroundColor(this.menuMaterial())
+        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+        .border({ width: 0.7, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.60)' })
+        .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.42)' : 'rgba(0,0,0,0.12)', offsetY: 6 })
         .clip(true)
         .alignItems(HorizontalAlign.Start)
     }
