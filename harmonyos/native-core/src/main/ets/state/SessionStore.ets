@@ -1,5 +1,5 @@
 import { PreferencesStore } from '../common/PreferencesStore';
-import { GatewayFrame, RawSessionEvent, SessionEvent, GatewayPendingQuestionRequest, GatewayPendingApprovalRequest, GatewayDirectoryItem, GatewayTask } from '../protocol/GatewayDtos';
+import { GatewayEvent, GatewayFrame, RawSessionEvent, SessionEvent, GatewayPendingQuestionRequest, GatewayPendingApprovalRequest, GatewayDirectoryItem, GatewayTask } from '../protocol/GatewayDtos';
 import { arr, asRec, bool, field, normalizeRawSessionEvent, num, str } from '../protocol/GatewayFrameCodec';
 import { GatewayClient } from '../network/GatewayClient';
 import { EventProjector } from './EventProjector';
@@ -188,6 +188,17 @@ export class SessionStore {
   private conversation: ConversationProjector | null = null;
   /** 当前会话是否正在生成：turn/start 起，turn/end 止。 */
   private running: boolean = false;
+  /** 正在吃 assistant-stream 增量（仅用于状态记录） */
+  private assistantStreamActive: boolean = false;
+  /**
+   * 最近一段流式正文（对齐小程序 sessionState.lastAssistantText）：
+   * 网关收尾时可能先推「不含当前答复」的快照/事件，这里留着文本用于回填，
+   * 否则回合一结束正文会整段消失，只能等历史重拉。
+   */
+  private lastAssistantText: string = '';
+  /** 回填用答复正文 + 时间：投影里没有最终答复时，发布投影时补到时间线末尾 */
+  private fallbackAssistantText: string = '';
+  private fallbackAssistantAt: number = 0;
 
   static get(): SessionStore {
     return SessionStore.instance;
@@ -797,6 +808,9 @@ export class SessionStore {
   private resetConversation(): void {
     this.conversation = new ConversationProjector(this.conversationLabels());
     this.optimisticUsers = [];
+    this.lastAssistantText = '';
+    this.fallbackAssistantText = '';
+    this.fallbackAssistantAt = 0;
   }
 
   /**
@@ -944,6 +958,9 @@ export class SessionStore {
     projector.fold(event);
     // 网关可能只发 step/start（不发 turn/start），这些事件都代表本轮仍在进行
     const liveType: string = event.event.type;
+    if (!this.replayingHistory) {
+      this.trackAssistantText(event.event as GatewayEvent);
+    }
     const isRunningSignal: boolean = liveType === 'turn/start' || liveType === 'step/start'
       || liveType === 'assistant/chunk' || liveType === 'tool/call' || liveType === 'tool/result'
       || liveType === 'reasoning/chunk' || liveType === 'reasoning/message';
@@ -964,6 +981,57 @@ export class SessionStore {
       this.stopLiveTicker();
       this.publishConversation();
     }
+  }
+
+  /**
+   * 记录最近流式正文 / 结算正文（对齐小程序 lastAssistantText 口径）：
+   * turn/start 清空；assistant/chunk 累积 delta；assistant/message 用最终文本覆盖。
+   */
+  private trackAssistantText(event: GatewayEvent): void {
+    if (event.type === 'turn/start') {
+      this.lastAssistantText = '';
+      this.fallbackAssistantText = '';
+      return;
+    }
+    if (event.type === 'assistant/chunk') {
+      const chunkType: string = event.chunkType === undefined ? 'text' : event.chunkType;
+      if (chunkType !== 'text' && chunkType !== 'text-delta' && chunkType !== 'text-chunks') {
+        return;
+      }
+      if (event.text !== undefined && event.text.length > 0) {
+        this.lastAssistantText = this.lastAssistantText + event.text;
+      }
+      return;
+    }
+    if (event.type === 'assistant/message') {
+      const text: string = event.text === undefined ? '' : event.text;
+      if (text.length > 0) {
+        this.lastAssistantText = text;
+        this.fallbackAssistantText = '';
+      }
+    }
+  }
+
+  /**
+   * 快照/事件不带最终答复时，用最近流式正文补一条助手行
+   * （对齐小程序：「快照未携带当前回复时回填最近流式文本」）。真实答复到达后自动撤掉。
+   */
+  private refreshFallbackAssistant(): void {
+    if (this.lastAssistantText.length === 0 || this.conversation === null) {
+      this.fallbackAssistantText = '';
+      return;
+    }
+    const projector: ConversationProjector = this.conversation as ConversationProjector;
+    const items: ConversationItem[] = projector.items;
+    for (let index = items.length - 1; index >= 0; index--) {
+      const item: ConversationItem = items[index];
+      if ((item.kind as string) === (ConversationItemKind.ASSISTANT as string) && item.text.length > 0) {
+        this.fallbackAssistantText = '';
+        return;
+      }
+    }
+    this.fallbackAssistantText = this.lastAssistantText;
+    this.fallbackAssistantAt = Math.floor(Date.now() / 1000);
   }
 
   /** 运行期间定时重投影：即使事件流有丢帧，界面也能持续刷新。 */
@@ -1006,6 +1074,20 @@ export class SessionStore {
     this.optimisticUsers = kept;
     for (const item of this.optimisticUsers) {
       items.push(item);
+    }
+    // 回合刚收工、投影里还没有最终答复时先补上最近流式正文，
+    // 保证「已完成」下面立刻有内容（对齐小程序回填逻辑）；真实答复到达后这里会自动让位。
+    if (!this.running) {
+      this.refreshFallbackAssistant();
+      if (this.fallbackAssistantText.length > 0) {
+        items.push({
+          id: 'fallback-assistant',
+          kind: ConversationItemKind.ASSISTANT,
+          title: '',
+          text: this.fallbackAssistantText,
+          epochSeconds: this.fallbackAssistantAt
+        });
+      }
     }
     AppStorage.setOrCreate<ConversationItem[]>('conversationItems', items);
     AppStorage.setOrCreate<boolean>('conversationRunning', this.running);
