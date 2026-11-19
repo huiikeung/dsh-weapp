@@ -95,9 +95,20 @@ export struct ConversationProgress {
     return this.mix(colors[index], colors[next], scaled - Math.floor(scaled));
   }
 
-  /** 鲸尾颜色：小程序 .status-tail-ink 的 background-color 关键帧（reverse 感知） */
+  /**
+   * 鲸尾颜色 = 右侧第一个字的颜色。
+   *
+   * 小程序里两者是同一套 @keyframes：鲸尾走 .status-tail-ink 的 background-color，
+   * 文字走 background-clip:text 的横向渐变，同一时刻左端取到的就是同一个色标。
+   * 所以这里直接把 glyphs()[0] 的颜色拿过来用，保证「图标色 === 第一个字色」不会因
+   * 两条独立采样路径而漂移。
+   */
   private tailColor(): string {
-    return StatusAppearance.sample(this.styleId(), this.isDark, this.elapsedMs);
+    const list: GlyphColor[] = this.glyphs();
+    if (list.length > 0) {
+      return list[0].color;
+    }
+    return StatusAppearance.sampleAtPhase(this.styleId(), this.isDark, this.phase());
   }
 
   /** 文字渐变色：逐字按横向位置 + 相位取色（小程序 background-size 200% 的横向渐变） */
@@ -175,23 +186,18 @@ export struct ConversationProgress {
   build() {
     Row() {
       // ① 鲸尾槽位：36rpx≈21vp，内部 28rpx≈16.4vp，居中，右侧 12rpx≈7vp
-      // 用矢量 Path 逐帧填充（而不是位图 fillColor）：颜色每帧都跟着色板走，
-      // 与右侧逐字流光同相位，不会再出现「图标不变色 / 和文字不同步」。
+      // 60 帧雪碧图 + fillColor 着色，与小程序「mask 雪碧图 + background-color」等价。
+      // 颜色 = tailColor() = 右侧第一个字的颜色：整条流光的左端，与文字同源同拍。
+      // 必须内联在 build()：抽成 @Component/@Builder 后，真机上形状、颜色、游动
+      // 总有一项会冻结（@Prop 不随父级每拍刷新 / 全局 Builder 参数不触发重绘）。
       Stack() {
         Stack() {
-          // 原始 SVG 雪碧图（矢量，边缘清晰）
           Image($r('app.media.whale_tail_sprite'))
             .width(984)
             .height(16.4)
             .objectFit(ImageFit.Fill)
+            .fillColor(this.tailColor())
             .translate({ x: -this.frame * 16.4 })
-          // 用当前流光色以 SRC_ATOP 叠一层：只保留图形的 alpha，颜色就是 tailColor()，
-          // 且不会像位图着色那样糊边。tailColor() 与右侧第一个字同相位。
-          Rect()
-            .width(16.4)
-            .height(16.4)
-            .fill(this.tailColor())
-            .blendMode(BlendMode.SRC_ATOP, BlendApplyType.OFFSCREEN)
         }
         .width(16.4)
         .height(16.4)
@@ -218,8 +224,10 @@ export struct ConversationProgress {
               : (this.glitchDir() > 0
                 ? { radius: 0, color: '#FF5F6D', offsetX: 1, offsetY: 0 }
                 : { radius: 0, color: '#5FD4FF', offsetX: 1, offsetY: 0 }))
-          // key 不带颜色：颜色每帧都在变，带进 key 会让 ForEach 每帧销毁重建所有 Text
-        }, (glyph: GlyphColor, index: number) => index.toString() + glyph.ch)
+          // key 必须带颜色：ArkUI 的 ForEach 在 key 不变时复用子节点、不重跑 itemBuilder，
+          // 文字颜色会冻在首帧，只剩鲸尾单独变色；带进 key 才会和鲸尾同拍流动。
+          // （v0.9.130 就是这个写法，后来「卡顿治理」去掉颜色导致冻结。）
+        }, (glyph: GlyphColor, index: number) => index.toString() + glyph.ch + glyph.color)
       }
       .layoutWeight(1)
       .opacity(this.textOpacity())

@@ -1,40 +1,6 @@
 import { PreferencesStore, StatusAppearance } from 'nativecore';
 
 
-/**
- * 鲸尾图标：与对话页运行条完全同一套实现——60 帧矢量轮廓 Path 逐帧填充（50ms/帧），
- * 颜色直接用当前流光色，和运行条同相位、同步变化。
- */
-@Component
-struct WhaleTailIcon {
-  @Prop color: string = '#FFFFFF';
-  @Prop frame: number = 0;
-
-  build() {
-    Stack() {
-      Stack() {
-        Image($r('app.media.whale_tail_sprite'))
-          .width(1080)
-          .height(18)
-          .objectFit(ImageFit.Fill)
-          .translate({ x: -this.frame * 18 })
-        Rect()
-          .width(18)
-          .height(18)
-          .fill(this.color)
-          .blendMode(BlendMode.SRC_ATOP, BlendApplyType.OFFSCREEN)
-      }
-      .width(18)
-      .height(18)
-      .clip(true)
-      .alignContent(Alignment.TopStart)
-    }
-    .width(18)
-    .height(18)
-  }
-}
-
-
 /** 对话状态条样式（对齐小程序 pages/settings/utils/status-appearance.js 的 OPTIONS） */
 interface StatusStyleOption {
   id: string;
@@ -116,16 +82,28 @@ export struct StatusStylesPage {
     }
   }
 
-  /** 当前样式的流光颜色（随 elapsedMs 变化，对齐小程序 statusAppearance.sampleColor） */
+  /**
+   * 鲸尾颜色 = 预览文字的第一个字颜色。
+   *
+   * 鲸尾和右侧文字是「同一条流光」：小程序里鲸尾是 .status-tail-ink 的 background-color，
+   * 文字是 background-clip:text 的横向渐变，两者共用同一套 @keyframes 与同一时刻，
+   * 所以图标显示的就是整条渐变最左端的那个颜色，不存在独立的第二套颜色。
+   */
   private colorOf(option: StatusStyleOption): string {
-    return StatusAppearance.sample(option.id, this.isDark, this.elapsedMs);
+    const glyphs: string[] = this.previewGlyphs(option);
+    return glyphs.length > 0 ? glyphs[0] : StatusAppearance.sample(option.id, this.isDark, this.elapsedMs);
   }
 
   /** 预览文字逐字取色：与运行条同一曲线（左端=鲸尾色，横向展开半个色板）。 */
   private previewGlyphs(option: StatusStyleOption): string[] {
     const speedMs: number = StatusAppearance.durationMs(option.id);
     const total: number = speedMs > 0 ? speedMs : 4000;
-    const base: number = ((this.elapsedMs % total) + total) % total / total;
+    let base: number = ((this.elapsedMs % total) + total) % total / total;
+    // terminal / glitch 的文字渐变与鲸尾一样是反向播放（小程序 animation-direction: reverse），
+    // 不在这里反转会让第一个字和鲸尾落在相位两端，看起来就是两个颜色。
+    if (option.id === 'terminal' || option.id === 'glitch') {
+      base = 1 - base;
+    }
     const label: string = '正在思考，用时 12 秒…';
     const chars: string[] = label.split('');
     const count: number = chars.length;
@@ -184,10 +162,20 @@ export struct StatusStylesPage {
 
       // 预览：鲸尾图标 + 流光文字（文字颜色持续变化）
       Row({ space: 7 }) {
-        WhaleTailIcon({
-          color: this.colorOf(option),
-          frame: this.tailFrame
-        })
+        // 内联雪碧图 + fillColor，与对话页运行条同一套画法。
+        // 颜色 = colorOf(option) = 预览文字第一个字的颜色（同一条流光的左端）。
+        Stack() {
+          Image($r('app.media.whale_tail_sprite'))
+            .width(1080)
+            .height(18)
+            .objectFit(ImageFit.Fill)
+            .fillColor(this.colorOf(option))
+            .translate({ x: -this.tailFrame * 18 })
+        }
+        .width(18)
+        .height(18)
+        .clip(true)
+        .alignContent(Alignment.TopStart)
 
         Row() {
           ForEach(this.previewGlyphs(option), (color: string, index: number) => {
@@ -195,7 +183,9 @@ export struct StatusStylesPage {
               .fontSize(14)
               .fontColor(color)
               .fontFamily(option.id === 'terminal' ? 'monospace' : 'HarmonyOS Sans')
-          }, (color: string, index: number) => index.toString())
+          // key 必须带颜色：否则 ForEach 复用子节点、不重跑 itemBuilder，文字冻在首帧，
+          // 只剩鲸尾单独变色（与对话页运行条同一个坑）。
+          }, (color: string, index: number) => index.toString() + color)
         }
         .layoutWeight(1)
         .clip(true)
