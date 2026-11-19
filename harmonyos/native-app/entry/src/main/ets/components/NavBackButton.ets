@@ -14,6 +14,8 @@ export struct NavBackButton {
   @Prop label: string = '返回';
   /** 是否显示玻璃底（对话框内嵌等场景可关掉） */
   @Prop glass: boolean = true;
+  /** 圆钮直径（对话页顶栏与右侧 36vp 小圆钮保持一致） */
+  @Prop diameter: number = 40;
 
   /** 箭头颜色：与页面正文同色系 */
   private ink(): string {
@@ -39,12 +41,12 @@ export struct NavBackButton {
     Stack({ alignContent: Alignment.Center }) {
       Button({ type: ButtonType.Circle }) {
         SymbolGlyph($r('sys.symbol.chevron_backward'))
-          .fontSize(18)
+          .fontSize(this.diameter * 0.45)
           .fontColor([this.ink()])
           .fontWeight(FontWeight.Medium)
       }
-      .width(40)
-      .height(40)
+      .width(this.diameter)
+      .height(this.diameter)
       .backgroundColor(this.glass ? this.glassTint() : Color.Transparent)
       .clip(true)
       .backdropBlur(this.glass ? 14 : 0)
@@ -54,9 +56,9 @@ export struct NavBackButton {
         : { width: 0, color: Color.Transparent })
       .accessibilityText(this.label)
     }
-    .width(40)
-    .height(40)
-    .borderRadius(20)
+    .width(this.diameter)
+    .height(this.diameter)
+    .borderRadius(this.diameter / 2)
     // 投影画在不裁剪的容器上（Button 会裁剪自身 shadow）
     .shadow(this.glass
       ? { radius: 14, color: this.menuShadow(), offsetX: 0, offsetY: 6 }

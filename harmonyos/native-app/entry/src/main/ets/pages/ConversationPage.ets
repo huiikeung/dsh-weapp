@@ -1381,6 +1381,11 @@ export struct ConversationPage {
       if (sessionId !== SessionStore.get().currentSessionId() || this.draft.trim() !== typed) {
         return;
       }
+      // 乐观回显（对齐小程序 store.appendLocalUserRow）：发送成功即本地插入用户气泡，
+      // 真实 user/message 到达时由 adoptOptimisticUser 交棒；排队消息由队列行呈现，不重复插。
+      if (!this.running) {
+        SessionStore.get().appendOptimisticUser(text, selected.length);
+      }
       this.hint = '';
       this.attachmentHint = '';
       this.pickedAttachments = [];
@@ -4108,16 +4113,18 @@ export struct ConversationPage {
 
   @Builder
   headerBar() {
-    Row({ space: 4 }) {
-      NavBackButton({ isDark: this.isDark })
+    // 标题/模式字号已调小；右侧三个圆钮之间收紧，标题与返回钮的间距靠标题自身 margin
+    Row({ space: 2 }) {
+      // 与右上角 36vp 小圆钮同尺寸：按下/hover 高亮圈一致
+      NavBackButton({ isDark: this.isDark, diameter: 36 })
         .id('conversation-back')
         .onClick(() => {
           this.pageStack.pop();
         })
 
-      Column({ space: 3 }) {
+      Column({ space: 2 }) {
         Text(this.activeSessionTitle())
-          .fontSize(17)
+          .fontSize(15)
           .fontWeight(FontWeight.Bold)
           .fontColor(this.textColor())
           .maxLines(1)
@@ -4125,9 +4132,9 @@ export struct ConversationPage {
           .width('100%')
         // 绿点 = 连接状态，右侧显示运行模式（Agent 预设），对齐 dsh-mobile ConversationNavigationStatus
         Row({ space: 6 }) {
-          Circle().width(8).height(8).fill(this.connectionDotColor())
+          Circle().width(7).height(7).fill(this.connectionDotColor())
           Text(this.sessionModeLabel())
-            .fontSize(12)
+            .fontSize(11)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.subColor())
             .maxLines(1)
@@ -4137,6 +4144,8 @@ export struct ConversationPage {
       }
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
+      // 与左侧返回按钮拉开距离（按钮之间不放 space，避免右上角三个钮过散）
+      .margin({ left: 12 })
       .onClick(() => {
         this.openSessionSwitcher();
       })
@@ -4151,8 +4160,9 @@ export struct ConversationPage {
             .objectFit(ImageFit.Contain)
         }
         .id('conversation-team')
-        .width(44)
-        .height(44)
+        // 圆钮缩小：hover/按下的高亮圈随之变小
+        .width(36)
+        .height(36)
         .backgroundColor(this.teamPopoverOpen
           ? (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
           : Color.Transparent)
@@ -4201,6 +4211,8 @@ export struct ConversationPage {
       .width(44)
       .height(44)
       .backgroundColor(Color.Transparent)
+      .width(36)
+      .height(36)
       .accessibilityText('会话快捷切换')
       .onClick(() => {
         if (this.sessionPickerOpen) {
@@ -4230,6 +4242,8 @@ export struct ConversationPage {
       .width(44)
       .height(44)
       .backgroundColor(Color.Transparent)
+      .width(36)
+      .height(36)
       .accessibilityText('更多')
       .bindMenu(this.moreMenu())
     }
@@ -4638,34 +4652,16 @@ export struct ConversationPage {
       .height(16)
       .justifyContent(FlexAlign.Center)
 
-      // 标题行：居中标题 + 右侧完成
-      Stack({ alignContent: Alignment.Center }) {
+      // 标题行：只保留居中标题（右上角不再放「完成」）
+      Row() {
         Text(this.teamMembers.length > 1 ? '智能体团队' : '子智能体')
           .fontSize(17)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.textColor())
-        Row() {
-          Blank()
-          // 右侧完成按钮：胶囊样式，与「切换主机」弹窗的编辑按钮一致
-          Text('完成')
-            .fontSize(16)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-            .height(32)
-            .padding({ left: 14, right: 14 })
-            .borderRadius(999)
-            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.60)')
-            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.10)' })
-            .onClick(() => {
-              this.teamSheetOpen = false;
-            })
-        }
-        .width('100%')
-        .height(48)
-        .padding({ left: 16, right: 16 })
       }
       .width('100%')
       .height(48)
+      .justifyContent(FlexAlign.Center)
 
       Scroll() {
         Column() {
@@ -5756,46 +5752,129 @@ export struct ConversationPage {
     return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
   }
 
+  /** 文件类型（对齐小程序 file-deliverables.classify）：按扩展名归到 image/pdf/document/table/slides/code/file */
+  private workspaceFileKind(name: string): string {
+    const slash: number = name.lastIndexOf('/');
+    const base: string = slash >= 0 ? name.substring(slash + 1) : name;
+    const dot: number = base.lastIndexOf('.');
+    const ext: string = dot > 0 ? base.substring(dot + 1).toLowerCase() : '';
+    if (['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'].indexOf(ext) >= 0) {
+      return 'image';
+    }
+    if (ext === 'pdf') {
+      return 'pdf';
+    }
+    if (['doc', 'docx', 'md', 'markdown', 'txt'].indexOf(ext) >= 0) {
+      return 'document';
+    }
+    if (['xls', 'xlsx', 'csv'].indexOf(ext) >= 0) {
+      return 'table';
+    }
+    if (['ppt', 'pptx'].indexOf(ext) >= 0) {
+      return 'slides';
+    }
+    if (['html', 'htm', 'css', 'wxss', 'wxml', 'wxs', 'vue', 'svelte', 'scss', 'less', 'js', 'jsx', 'mjs', 'cjs',
+      'ts', 'tsx', 'json', 'jsonl', 'log', 'yaml', 'yml', 'xml', 'svg', 'py', 'sh', 'sql', 'swift', 'kt', 'java',
+      'c', 'h', 'cpp', 'rs', 'go', 'toml', 'ini'].indexOf(ext) >= 0) {
+      return 'code';
+    }
+    return 'file';
+  }
+
+  /** 工作区文件图标（对齐小程序 iconFileFor）：文件夹=蓝色工作区文件夹，文件=按格式分类的彩色文件图标 */
+  private workspaceFileIcon(entry: WorkspaceFileEntry): Resource {
+    if (entry.isDirectory) {
+      return $r('app.media.workspace_folder_blue');
+    }
+    const kind: string = this.workspaceFileKind(entry.name);
+    if (kind === 'image') {
+      return $r('app.media.deliverable_image');
+    }
+    if (kind === 'pdf') {
+      return $r('app.media.deliverable_pdf');
+    }
+    if (kind === 'document') {
+      return $r('app.media.deliverable_document');
+    }
+    if (kind === 'table') {
+      return $r('app.media.deliverable_table');
+    }
+    if (kind === 'slides') {
+      return $r('app.media.deliverable_slides');
+    }
+    if (kind === 'code') {
+      return $r('app.media.deliverable_code');
+    }
+    return $r('app.media.deliverable_file');
+  }
+
   /** 工作区文件 sheet 内容（对齐小程序 more-files-sheet：标题 + 上一级 + 列表 + 路径） */
   @Builder
   workspaceFilesSheet() {
-    Column() {
+    Column({ space: 0 }) {
+      // 顶部拖动条（与首页「切换主机」半模态同款）
+      Column() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
+      }
+      .width('100%')
+      .height(16)
+      .justifyContent(FlexAlign.Center)
+
+      // 标题行：居中标题（不放右侧「完成」，下拉或点空白即可关闭）
       Row() {
         Text('工作区文件')
           .fontSize(17)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.textColor())
-        Blank()
-        Text('✕')
-          .fontSize(16)
-          .fontColor(this.subColor())
-          .width(32)
-          .height(32)
-          .textAlign(TextAlign.Center)
+      }
+      .width('100%')
+      .height(48)
+      .justifyContent(FlexAlign.Center)
+
+      // 根目录时不占位，「工作区根目录」紧跟标题
+      if (!this.workspaceIsRoot()) {
+        Row({ space: 8 }) {
+          Row({ space: 3 }) {
+            // 箭头用图标：比文字里的「‹」更大，且和「上一级」文字垂直居中对齐
+            Image($r('app.media.chev_right_gray'))
+              .width(16)
+              .height(16)
+              .objectFit(ImageFit.Contain)
+              .rotate({ angle: 180 })
+              .colorFilter(this.iconTintMatrix('#2E6BE6'))
+            Text('上一级')
+              .fontSize(14)
+              .fontColor('#2E6BE6')
+          }
+          .alignItems(VerticalAlign.Center)
+          .height(22)
           .onClick(() => {
-            this.fileSheetOpen = false;
+            this.goUpWorkspaceFiles();
           })
-      }
-      .width('100%')
-      .height(52)
-      .padding({ left: 18, right: 12 })
-
-      Row() {
-        if (!this.workspaceIsRoot()) {
-          Text('‹ 上一级')
-            .fontSize(14)
-            .fontColor('#2E6BE6')
-            .onClick(() => {
-              this.goUpWorkspaceFiles();
-            })
+          Blank()
         }
-        Blank()
+        .width('100%')
+        .height(22)
+        .padding({ left: 18, right: 18 })
+      }
+
+      // 当前路径（在卡片上方，与标题贴紧）
+      Row() {
+        Text(this.workspaceIsRoot() ? '工作区根目录' : this.filePath)
+          .fontSize(11)
+          .fontColor(this.subColor())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
       .width('100%')
-      .height(32)
-      .padding({ left: 18, right: 18 })
+      .height(18)
+      .padding({ left: 18, right: 18, bottom: 4 })
 
-      List({ space: 2 }) {
+      List({ space: 0 }) {
         if (this.fileLoading) {
           ListItem() {
             Text('正在读取工作区文件…')
@@ -5826,44 +5905,63 @@ export struct ConversationPage {
         } else {
           ForEach(this.fileEntries, (entry: WorkspaceFileEntry) => {
             ListItem() {
-              Row({ space: 10 }) {
-                Image(entry.isDirectory ? $r('app.media.workspace_folder_white') : $r('app.media.menu_external_file'))
-                  .width(18)
-                  .height(18)
-                  .objectFit(ImageFit.Contain)
-                  .colorFilter(this.iconTintMatrix(this.isDark ? '#ABB2BE' : '#737985'))
-                Text(entry.name)
-                  .fontSize(15)
-                  .fontColor(this.textColor())
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .layoutWeight(1)
-                if (entry.isDirectory) {
-                  Text('›')
+              Column() {
+                Row({ space: 10 }) {
+                  // 图标对齐小程序：文件夹=蓝色工作区文件夹，文件=按扩展名分类的彩色文件图标
+                  Image(this.workspaceFileIcon(entry))
+                    .width(20)
+                    .height(20)
+                    .objectFit(ImageFit.Contain)
+                  Text(entry.name)
                     .fontSize(15)
-                    .fontColor(this.subColor())
-                } else {
-                  Text(this.fileSizeText(entry.bytes))
-                    .fontSize(11)
-                    .fontColor(this.subColor())
+                    .fontColor(this.textColor())
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .layoutWeight(1)
+                  if (entry.isDirectory) {
+                    Text('›')
+                      .fontSize(15)
+                      .fontColor(this.subColor())
+                  } else {
+                    Text(this.fileSizeText(entry.bytes))
+                      .fontSize(11)
+                      .fontColor(this.subColor())
+                  }
+                }
+                .width('100%')
+                .height(46)
+                .padding({ left: 16, right: 16 })
+                .onClick(() => {
+                  this.openWorkspaceEntry(entry);
+                })
+                if (this.fileEntries.indexOf(entry) < this.fileEntries.length - 1) {
+                  Row() {
+                    Row()
+                      .width('100%')
+                      .height(0.5)
+                      .backgroundColor(this.dividerColor())
+                  }
+                  .width('100%')
+                  .padding({ left: 16 })
                 }
               }
               .width('100%')
-              .height(44)
-              .padding({ left: 18, right: 18 })
-              .borderRadius(10)
-              .onClick(() => {
-                this.openWorkspaceEntry(entry);
-              })
             }
           }, (entry: WorkspaceFileEntry) => entry.path)
         }
       }
-      .width('100%')
+      .width('calc(100% - 28vp)')
       .layoutWeight(1)
       .scrollBar(BarState.Off)
+      // 分组卡片：与「切换主机」弹窗的 inset grouped 卡片同款底色/描边/圆角
+      .margin({ left: 14, right: 14 })
+      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.50)')
+      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.80)' })
+      .borderRadius(16)
+      .clip(true)
 
-      if (this.fileHint.length > 0) {
+      // 空目录时列表里已经显示过一次提示，这里只在有内容时才补充说明
+      if (this.fileHint.length > 0 && this.fileEntries.length > 0) {
         Text(this.fileHint)
           .fontSize(11)
           .fontColor(this.subColor())
@@ -5872,20 +5970,11 @@ export struct ConversationPage {
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       }
-      Row() {
-        Text(this.workspaceIsRoot() ? '工作区根目录' : this.filePath)
-          .fontSize(11)
-          .fontColor(this.subColor())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-      }
-      .width('100%')
-      .height(30)
-      .padding({ left: 18, right: 18, bottom: 10 })
     }
     .width('100%')
     .height('100%')
-    .padding({ top: 8, bottom: 10 })
+    // 卡片离弹窗底部留出更大间距
+    .padding({ top: 0, bottom: 28 })
   }
 
   /** 打开重命名弹窗，初值为当前会话标题 */

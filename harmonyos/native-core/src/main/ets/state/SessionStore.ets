@@ -300,6 +300,12 @@ export class SessionStore {
   }
 
   consume(frame: GatewayFrame): void {
+    // 流式正文：网关运行中会高频推送 assistant-stream（start/chunk/end），
+    // 以前只吃粗粒度的 event 帧，正文要等很久才刷新；这里直接折叠进投影（对齐小程序 handleAssistantStream）。
+    if (frame.kind === 'assistant-stream' || frame.kind === 'assistant-stream-v1') {
+      this.consumeAssistantStream(frame);
+      return;
+    }
     if (frame.kind === 'question-requested' && frame.sessionId && frame.rpcId) {
       this.questions.set(JSON.stringify([frame.sessionId, frame.rpcId]), { rpcId: frame.rpcId, sessionId: frame.sessionId,
         questions: frame.questions ?? [], replay: frame.replay === true });
@@ -637,6 +643,9 @@ export class SessionStore {
         this.rawEvents = this.mergeHistoryEvents(events, this.rawEvents);
       }
       this.rebuildProjection();
+      // 快照可能带「进行中的流式尝试」：把已产出的增量补进投影，
+      // 这样运行中打开会话能立刻看到已生成的部分（对齐小程序 installAssistantBaseline）。
+      this.applyAssistantBaseline(frame);
       if (frame.hasMore !== undefined) this.hasMore = frame.hasMore;
       let minSeq: number = 0;
       for (const raw of this.rawEvents) {
@@ -947,6 +956,10 @@ export class SessionStore {
   private foldConversation(raw: RawSessionEvent): void {
     if (this.conversation === null) {
       this.resetConversation();
+    }
+    // 记录真实事件 seq（流式合成 chunk 复用它，避免把投影的 lastSeq 抬到假高位后丢掉后续真实事件）
+    if (raw.seq > 0 && raw.seq < 900000) {
+      this.lastEventSeq = raw.seq;
     }
     let event: SessionEvent;
     try {
@@ -1440,6 +1453,133 @@ export class SessionStore {
       }
     }
     return undefined;
+  }
+
+  /** 最近一条真实事件 seq：流式 chunk 复用它的 seq，保证与真实事件同一排序域（对齐小程序 liveAttempt.seq） */
+  private lastEventSeq: number = 0;
+
+  /**
+   * assistant-stream 帧（对齐小程序 store.handleAssistantStream）：
+   * start → 立即进入运行态；chunk → 把增量文本折叠进当前助手行；end → 结束流式标记。
+   * 文本走 normalizeRawSessionEvent('assistant/chunk')，与真实事件共用同一投影管线。
+   */
+  private consumeAssistantStream(frame: GatewayFrame): void {
+    if (frame.sessionId !== undefined && frame.sessionId.length > 0 && frame.sessionId !== this.sessionId) {
+      return;
+    }
+    const payload: Record<string, Object> | undefined =
+      asRec(field(frame, 'frame')) ?? asRec(field(frame, 'data')) ?? asRec(field(frame, 'payload'));
+    if (payload === undefined) {
+      return;
+    }
+    const type: string = str(payload, 'type') ?? 'chunk';
+    if (type === 'start') {
+      this.assistantStreamActive = true;
+      if (this.replayingHistory) {
+        return;
+      }
+      if (!this.running) {
+        this.running = true;
+      }
+      this.startLiveTicker();
+      AppStorage.setOrCreate<boolean>('conversationRunning', true);
+      return;
+    }
+    if (type === 'end') {
+      this.assistantStreamActive = false;
+      return;
+    }
+    const chunk: Record<string, Object> | undefined = asRec(field(payload, 'chunk')) ?? asRec(field(payload, 'delta'));
+    let text: string = '';
+    if (chunk !== undefined) {
+      const fromChunk: string | undefined = str(chunk, 'text') ?? str(chunk, 'delta') ?? str(chunk, 'content');
+      if (fromChunk !== undefined) {
+        text = fromChunk;
+      }
+    }
+    if (text.length === 0) {
+      const fromPayload: string | undefined = str(payload, 'text');
+      if (fromPayload !== undefined) {
+        text = fromPayload;
+      }
+    }
+    if (text.length === 0 || this.replayingHistory) {
+      return;
+    }
+    this.assistantStreamActive = true;
+    this.emitLiveAssistantChunk(text, num(payload, 'turn'), num(payload, 'step'));
+    if (this.liveTimer < 0) {
+      this.startLiveTicker();
+    }
+  }
+
+  /** 把一段流式增量文本折进当前助手行（真实事件同一管线）；seq 复用最近真实事件，保持排序域一致 */
+  private emitLiveAssistantChunk(text: string, turn: number | undefined, step: number | undefined): void {
+    if (text.length === 0) {
+      return;
+    }
+    const seq: number = this.lastEventSeq > 0 ? this.lastEventSeq : 1;
+    const chunkData: Record<string, Object> = { 'type': 'text', 'text': text };
+    const data: Record<string, Object> = { 'chunk': chunkData };
+    if (turn !== undefined) {
+      data.turn = turn;
+    }
+    if (step !== undefined) {
+      data.step = step;
+    }
+    const raw: RawSessionEvent = {
+      type: 'assistant/chunk',
+      seq: seq,
+      time: Math.floor(Date.now() / 1000),
+      data: data
+    };
+    this.foldConversation(raw);
+  }
+
+  /**
+   * 快照里的进行中尝试（assistantStream.activeAttempt.stream）→ 补进投影。
+   * 对齐小程序 installAssistantBaseline：文本/推理文本/工具参数增量都还原。
+   */
+  private applyAssistantBaseline(frame: GatewayFrame): void {
+    const stream: Record<string, Object> | undefined = asRec(field(frame, 'assistantStream'));
+    if (stream === undefined) {
+      return;
+    }
+    const active: Record<string, Object> | undefined = asRec(field(stream, 'activeAttempt'));
+    if (active === undefined) {
+      return;
+    }
+    const turn: number | undefined = num(active, 'turn');
+    const step: number | undefined = num(active, 'step');
+    const records: Object[] = arr(active, 'stream') ?? [];
+    for (const record of records) {
+      const type: string = str(record, 'type') ?? '';
+      let text: string = '';
+      if (type === 'chunk') {
+        const chunk: Record<string, Object> | undefined = asRec(field(record, 'chunk'));
+        if (chunk !== undefined) {
+          const value: string | undefined = str(chunk, 'text') ?? str(chunk, 'delta') ?? str(chunk, 'content');
+          if (value !== undefined) {
+            text = value;
+          }
+        }
+      } else if (type === 'text-chunks') {
+        const texts: Object[] = arr(record, 'texts') ?? [];
+        for (const piece of texts) {
+          if (typeof piece === 'string') {
+            text += piece as string;
+          }
+        }
+      } else if (type === 'reasoning-chunks') {
+        const texts: Object[] = arr(record, 'texts') ?? [];
+        for (const piece of texts) {
+          if (typeof piece === 'string') {
+            text += piece as string;
+          }
+        }
+      }
+      this.emitLiveAssistantChunk(text, turn, step);
+    }
   }
 
   private appendRaw(raw: RawSessionEvent): void {
