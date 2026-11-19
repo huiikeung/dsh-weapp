@@ -4457,21 +4457,12 @@ export struct ConversationPage {
             }
             .width(40)
             .height(40)
-            // 极淡同色调底（深色深蓝 tint 22% / 浅色白 10%），透感交给模糊
-            .backgroundColor(this.isDark ? 'rgba(10,30,60,0.22)' : 'rgba(255,255,255,0.10)')
-            // clip(true)：圆形边界内裁掉 backdropBlur 采样不到像素时产生的月牙状暗边
+            // 中性玻璃：不偏蓝的深灰/白底 + 纯背景模糊（系统材质会带主题色调，这里自己控色）
+            .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
             .clip(true)
-            .backdropBlur(12)
-            // 内缘高光：顶部最亮、向下渐暗。浅色页面底色本就更亮，白边要压暗一档才不会变成白圈
-            .border({
-              width: 0.8,
-              color: {
-                top: this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.34)',
-                left: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.16)',
-                right: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.16)',
-                bottom: this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.05)'
-              }
-            })
+            .backdropBlur(14)
+            // 边缘：白色细边（深 16% / 浅 90%，浅色下靠白边提亮）
+            .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
             .onClick(() => {
               this.autoStick = true;
               this.scroller.scrollEdge(Edge.Bottom);

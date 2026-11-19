@@ -1,16 +1,14 @@
 /**
  * 二级页面的返回按钮（鸿蒙原生写法）。
  *
- * 对齐 dsh-mobile（iOS）的 glassCircleButton：
- *   · 深色动态背景 → .glass(.clear.tint(navy 0.22))：极淡深蓝底 + 强模糊
- *   · 普通背景     → .glass：标准液态玻璃
- *   · 旧系统回退   → .ultraThinMaterial + 白色 25% 描边 0.8pt
- *
- * 所以不用实色外圈，只保留「强背景模糊 + 极淡同色调底 + 白色 25% 细边 + 柔和投影」。
+ * 边缘和阴影对齐「⋯」「协作」系统菜单容器：
+ *   bindMenu 那边就是 outlineColor: dividerColor() + outlineWidth: 1，
+ *   也就是深色白 16% / 浅色黑 10% 的中性 1vp 细边，配系统菜单那种柔和投影。
+ *   底色用中性玻璃（不偏蓝），不加外发光——菜单本身也没有发光。
  */
 @Component
 export struct NavBackButton {
-  /** 深色主题：玻璃用深蓝 tint，箭头用亮色 */
+  /** 深色主题 */
   @Prop isDark: boolean = false;
   /** 无障碍文案 */
   @Prop label: string = '返回';
@@ -22,54 +20,46 @@ export struct NavBackButton {
     return this.isDark ? '#F1F4FA' : '#101318';
   }
 
-  /** 玻璃底：对齐 iOS .glass(.clear.tint(navy 0.22))，极低不透明度，透感交给模糊 */
+  /** 玻璃底：深色中性深灰 / 浅色半透明白（保持原样不动） */
   private glassTint(): string {
-    return this.isDark ? 'rgba(10,30,60,0.22)' : 'rgba(255,255,255,0.10)';
+    return this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)';
   }
 
-  /** 描边：iOS 用白色 25% / 0.8pt 勾边缘，不画实色圈 */
-  private glassStroke(): string {
-    return 'rgba(255,255,255,0.25)';
+  /** 边缘：白色细边（深浅色都用白，浅色下更亮更通透） */
+  private menuOutline(): string {
+    return this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)';
   }
 
-  /** 悬浮投影：中性色、向下偏移，把圆盘从背景上「托起来」 */
-  private floatShadow(): string {
+  /** 投影：系统菜单那种柔和下拉阴影 */
+  private menuShadow(): string {
     return this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)';
   }
 
-  /** 可见玻璃圆盘直径 */
-  private discSize(): number {
-    return 40;
-  }
-
   build() {
-    // 单个玻璃圆盘：强模糊 + 极淡底 + 白色 25% 细边 + 柔和投影（对齐 iOS Liquid Glass）
-    Button({ type: ButtonType.Circle }) {
-      SymbolGlyph($r('sys.symbol.chevron_backward'))
-        .fontSize(18)
-        .fontColor([this.ink()])
-        .fontWeight(FontWeight.Medium)
-    }
-    .width(this.discSize())
-    .height(this.discSize())
-    .backgroundColor(this.glass ? this.glassTint() : Color.Transparent)
-    // ultraThinMaterial 的特征：模糊强、底色极淡
-    .backdropBlur(this.glass ? 20 : 0)
-    // 内缘高光（iOS 26 Liquid Glass 特征）：顶部边缘最亮、向下逐渐变暗，形成玻璃反光弧
-    .border(this.glass
-      ? {
-        width: 0.8,
-        color: {
-          top: this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.34)',
-          left: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.16)',
-          right: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.16)',
-          bottom: this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.05)'
-        }
+    Stack({ alignContent: Alignment.Center }) {
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph($r('sys.symbol.chevron_backward'))
+          .fontSize(18)
+          .fontColor([this.ink()])
+          .fontWeight(FontWeight.Medium)
       }
-      : { width: 0, color: Color.Transparent })
-    .accessibilityText(this.label)
+      .width(40)
+      .height(40)
+      .backgroundColor(this.glass ? this.glassTint() : Color.Transparent)
+      .clip(true)
+      .backdropBlur(this.glass ? 14 : 0)
+      // 与系统菜单同款 1vp 中性描边（Button 自己画，避免被外层圆角影响）
+      .border(this.glass
+        ? { width: 1, color: this.menuOutline() }
+        : { width: 0, color: Color.Transparent })
+      .accessibilityText(this.label)
+    }
+    .width(40)
+    .height(40)
+    .borderRadius(20)
+    // 投影画在不裁剪的容器上（Button 会裁剪自身 shadow）
     .shadow(this.glass
-      ? { radius: 16, color: this.floatShadow(), offsetX: 0, offsetY: 8 }
+      ? { radius: 14, color: this.menuShadow(), offsetX: 0, offsetY: 6 }
       : { radius: 0, color: Color.Transparent, offsetX: 0, offsetY: 0 })
   }
 }
