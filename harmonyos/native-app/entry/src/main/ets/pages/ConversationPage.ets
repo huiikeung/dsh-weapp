@@ -4,9 +4,9 @@ import { display, KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import {
   asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
   DraftStore, PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechFailure, SpeechInput, TeamStore, WorkStepPresentation,
-  parseNamespace, pickDocuments, uploadAttachment
+  normalizeRawSessionEvent, parseNamespace, pickDocuments, uploadAttachment
 } from 'nativecore';
-import type { GatewayFrame, GatewayTask, GatewayGoalReference, ModelMenuItem, ModelOption, PresetOption, QueueItem, SessionGoalView, WorkspaceRow } from 'nativecore';
+import type { GatewayEvent, GatewayFrame, GatewayTask, GatewayGoalReference, ModelMenuItem, ModelOption, PresetOption, QueueItem, RawSessionEvent, SessionEvent, SessionGoalView, WorkspaceRow } from 'nativecore';
 import type { TeamMemberView, TeamTaskView } from 'nativecore';
 import type { SpeechLimits } from 'nativecore';
 import type { UploadResult } from 'nativecore';
@@ -19,6 +19,13 @@ import { FluKeCoin } from '../components/FluKeCoin';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 import { Haptics } from '../services/Haptics';
 import { HoldingHand } from '../services/HoldingHand';
+
+/** 协作面板「只读预览」里的一行消息（对齐小程序 collaborationPreview.rows） */
+interface TeamPreviewRow {
+  key: string;
+  role: string;
+  text: string;
+}
 
 /** 会话节点卡带：竖向胶囊轨道高度（vp），滑块为细条 */
 const TURN_TRACK_HEIGHT: number = 78;
@@ -282,6 +289,14 @@ export struct ConversationPage {
   @StorageLink('teamVisible') teamVisible: boolean = false;
   @StorageLink('teamMembers') teamMembers: TeamMemberView[] = [];
   @StorageLink('teamTasks') teamTasks: TeamTaskView[] = [];
+  // 协作面板只读预览（对齐小程序 collaborationPreview）：不切会话，可返回列表
+  @State teamPreviewActive: boolean = false;
+  @State teamPreviewTitle: string = '';
+  @State teamPreviewLoading: boolean = false;
+  @State teamPreviewError: string = '';
+  @State teamPreviewRows: TeamPreviewRow[] = [];
+  /** 预览请求令牌：切成员/返回列表时让在途请求作废 */
+  private teamPreviewToken: number = 0;
   @StorageLink('teamLeadSessionId') teamLeadSessionId: string = '';
   @StorageLink('teamFailure') teamFailure: string = '';
   @State teamPopoverOpen: boolean = false;
@@ -2367,6 +2382,8 @@ export struct ConversationPage {
         onDisappear: () => {
           this.teamTaskFilter = 'all';
           this.teamExpandedTasks = [];
+          // 关弹窗回到列表态，避免下次打开还停在预览
+          this.backTeamPreview();
         }
       })
     }
@@ -3551,6 +3568,11 @@ export struct ConversationPage {
    * 不镜像桌面端投影里的静态字段。
    */
   private teamMemberLiveStatus(member: TeamMemberView): string {
+    // 子智能体（subagentCatalog 合并进来的）不猜运行态，避免显示「状态同步中」；
+    // 模式说明走描述行。
+    if (member.isChild) {
+      return '';
+    }
     if (member.phase === 'provisioning') {
       return '正在创建';
     }
@@ -3583,7 +3605,10 @@ export struct ConversationPage {
     if (member.provider.length > 0) {
       parts.push(member.provider);
     }
-    parts.push(this.teamMemberLiveStatus(member));
+    const status: string = this.teamMemberLiveStatus(member);
+    if (status.length > 0) {
+      parts.push(status);
+    }
     return parts.join(' · ');
   }
 
@@ -3960,6 +3985,174 @@ export struct ConversationPage {
     .padding({ top: 2, bottom: 2 })
   }
 
+  /** 打开只读预览：拉该成员/子智能体的会话记录，不切换当前对话（对齐小程序 openCollaborationItem） */
+  private openTeamPreview(member: TeamMemberView): void {
+    this.teamPreviewToken += 1;
+    const token: number = this.teamPreviewToken;
+    this.teamPreviewActive = true;
+    this.teamPreviewTitle = this.teamMemberName(member);
+    this.teamPreviewLoading = true;
+    this.teamPreviewError = '';
+    this.teamPreviewRows = [];
+    // 子智能体会话要带持久父地址，否则网关以 agent-busy 拒绝且错误帧没有 sessionId
+    const parentId: string = member.isChild ? this.teamLeadSessionId : '';
+    const mode: string = member.isChild ? TeamStore.get().childModeOf(member.id) : '';
+    Logger.info('teamPreview open id=' + member.id + ' child=' + (member.isChild ? 1 : 0)
+      + ' parent=' + parentId + ' mode=' + mode);
+    GatewayClient.get().inspectSession(member.id, parentId, mode).then((frame: GatewayFrame) => {
+      if (token !== this.teamPreviewToken) {
+        return;
+      }
+      const events: RawSessionEvent[] = frame.events !== undefined ? frame.events : [];
+      Logger.info('teamPreview frame kind=' + frame.kind + ' sessionId=' + (frame.sessionId ?? '')
+        + ' events=' + events.length + ' hasMore=' + (frame.hasMore === true ? 1 : 0));
+      this.teamPreviewRows = this.teamPreviewRowsFrom(frame, member.id);
+      Logger.info('teamPreview rows=' + this.teamPreviewRows.length);
+      this.teamPreviewLoading = false;
+      if (this.teamPreviewRows.length === 0) {
+        this.teamPreviewError = '暂无可显示的消息';
+      }
+    }).catch((error: Error) => {
+      Logger.info('teamPreview failed: ' + error.message);
+      if (token !== this.teamPreviewToken) {
+        return;
+      }
+      this.teamPreviewLoading = false;
+      this.teamPreviewError = error.message.startsWith('timeout:')
+        ? '记录请求超时，请重新连接后重试' : '加载记录失败，请重试';
+    });
+  }
+
+  /** 返回列表：作废在途预览请求（对齐小程序 backCollaborationList） */
+  private backTeamPreview(): void {
+    this.teamPreviewToken += 1;
+    this.teamPreviewActive = false;
+    this.teamPreviewTitle = '';
+    this.teamPreviewLoading = false;
+    this.teamPreviewError = '';
+    this.teamPreviewRows = [];
+  }
+
+  /**
+   * 从 history 帧提取用户/助手消息（对齐小程序：只取这两类且有文本的行）。
+   *
+   * 关键：文本不在 data.text 上 ——
+   *   · user/message      → data.content 内容块（codec 用 joinTextBlocks 拼）
+   *   · assistant/message → data.message.content 里 type=text 的块
+   * 所以必须复用 normalizeRawSessionEvent（codec 已把块拼成 event.text），
+   * 自己读 data['text'] 永远拿不到东西，表现为「暂无可显示的消息」。
+   */
+  private teamPreviewRowsFrom(frame: GatewayFrame, sessionId: string): TeamPreviewRow[] {
+    const rows: TeamPreviewRow[] = [];
+    const events: RawSessionEvent[] = frame.events !== undefined ? frame.events : [];
+    let index: number = 0;
+    for (const raw of events) {
+      if (raw.type !== 'user/message' && raw.type !== 'assistant/message') {
+        continue;
+      }
+      const normalized: SessionEvent = normalizeRawSessionEvent(raw, sessionId);
+      const event: GatewayEvent = normalized.event;
+      // user/message 里 source 非 user 的是上下文注入，不算用户消息
+      if (event.type === 'user/message' && event.source !== undefined && event.source !== 'user') {
+        continue;
+      }
+      const text: string = event.text !== undefined ? event.text : '';
+      if (text.trim().length === 0) {
+        continue;
+      }
+      index += 1;
+      rows.push({ key: 'p-' + index, role: event.type === 'user/message' ? '用户' : '助手', text: text });
+    }
+    return rows;
+  }
+
+  /** 只读预览：返回列表 + 标题 + 消息（对齐小程序 collab-preview） */
+  @Builder
+  teamPreviewPanel() {
+    Column({ space: 0 }) {
+      // 箭头与「返回列表」同一水平线（垂直居中），两者留 5vp 间距
+      Row({ space: 5 }) {
+        // 箭头单独放大：‹ 字符在小字号下视觉偏小；字形基线偏低，上移 1vp 与文字看齐
+        Text('‹')
+          .fontSize(22)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#2E6BE6')
+          .translate({ y: -1 })
+        Text('返回列表')
+          .fontSize(15)
+          .fontColor('#2E6BE6')
+        Blank()
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      .padding({ left: 5, top: 2, bottom: 8 })
+      .onClick(() => {
+        this.backTeamPreview();
+      })
+      Text(this.teamPreviewTitle)
+        .fontSize(15)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.textColor())
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+        .padding({ left: 5, bottom: 4 })
+      Text('只读记录，不会切换当前对话或发送任务')
+        .fontSize(11.5)
+        .fontColor(this.subColor())
+        .width('100%')
+        .padding({ left: 5, bottom: 10 })
+      if (this.teamPreviewLoading) {
+        Text('正在加载记录…')
+          .fontSize(13)
+          .fontColor(this.subColor())
+          .width('100%')
+          .padding({ left: 5, top: 12 })
+      } else if (this.teamPreviewError.length > 0) {
+        Text(this.teamPreviewError)
+          .fontSize(13)
+          .fontColor(this.subColor())
+          .width('100%')
+          .padding({ left: 5, top: 12 })
+      } else {
+        Column() {
+          ForEach(this.teamPreviewRows, (row: TeamPreviewRow, index: number) => {
+            Column({ space: 4 }) {
+              Text(row.role)
+                .fontSize(11)
+                .fontColor(this.subColor())
+                .width('100%')
+              Text(row.text)
+                .fontSize(14)
+                .fontColor(this.textColor())
+                .width('100%')
+                .copyOption(CopyOptions.LocalDevice)
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
+            .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+            if (index < this.teamPreviewRows.length - 1) {
+              Row() {
+                Row()
+                  .width('100%')
+                  .height(0.5)
+                  .backgroundColor(this.dividerColor())
+              }
+              .width('100%')
+              .padding({ left: 16 })
+            }
+          }, (row: TeamPreviewRow) => row.key)
+        }
+        .width('100%')
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.50)')
+        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.80)' })
+        .borderRadius(16)
+      }
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
   /** 成员行：彩色头像 + 名字 + 实时状态 + 描述（行样式对齐首页「切换主机」名单）。 */
   @Builder
   teamMemberRow(member: TeamMemberView) {
@@ -4016,7 +4209,8 @@ export struct ConversationPage {
     .opacity(member.canOpen ? 1 : 0.55)
     .onClick(() => {
       if (member.canOpen) {
-        this.selectTeamMember(member.id);
+        // 只读预览，不切走当前对话（对齐小程序）
+        this.openTeamPreview(member);
       }
     })
   }
@@ -4157,6 +4351,9 @@ export struct ConversationPage {
 
       Scroll() {
         Column() {
+          if (this.teamPreviewActive) {
+            this.teamPreviewPanel()
+          } else {
           Text(this.teamLeadTitle())
             .fontSize(14)
             .fontColor(this.subColor())
@@ -4233,6 +4430,7 @@ export struct ConversationPage {
             .width('100%')
             .margin({ bottom: 8 })
           }, (task: TeamTaskView) => 'sheet-task-' + task.id)
+          }
         }
         .width('100%')
         .padding({ left: 14, right: 14, bottom: 16 })
