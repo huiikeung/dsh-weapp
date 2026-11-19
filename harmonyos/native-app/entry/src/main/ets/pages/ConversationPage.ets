@@ -358,6 +358,8 @@ export struct ConversationPage {
   private listTouching: boolean = false;
   /** 手指压着列表时发生结构变化：先记下，抬手后再重建，避免重建把拖动打断 */
   private pendingStructure: boolean = false;
+  /** 正在自动加载更早记录：挡住触顶时的连续触发 */
+  private olderLoading: boolean = false;
   /** 正在重建列表：这期间的 onReachEnd 是重建造成的，不能当成「用户滑到底」而恢复吸底 */
   private suppressReachEnd: boolean = false;
   private lastTouchAt: number = 0;
@@ -4761,22 +4763,27 @@ export struct ConversationPage {
     .padding({ bottom: 8 })
   }
 
-  /** 加载更早记录。 */
-  @Builder
-  loadOlderBar() {
-    Row({ space: 8 }) {
-      Button('加载更早记录')
-        .fontSize(13)
-        .fontColor('#2E6BE6')
-        .backgroundColor(Color.Transparent)
-        .height(40)
-        .enabled(this.connection === 'connected')
-        .onClick(() => {
-          this.loadOlder();
-        })
+  /**
+   * 触顶自动加载更早记录（替代原来的「加载更早记录」按钮）：
+   * 只有用户真的往上滑到顶部才触发，避免列表重建导致的 onReachStart 误触发；
+   * olderLoading 挡住连续触发，加载完若仍贴着顶部，下一次滑动会继续往前翻。
+   */
+  private maybeLoadOlder(): void {
+    if (!this.hasMoreHistory || this.entries.length === 0 || this.olderLoading) {
+      return;
     }
-    .width('100%')
-    .justifyContent(FlexAlign.Center)
+    const now: number = Date.now();
+    const userDriven: boolean = this.listTouching || (now - this.lastUserScrollAt) < 1500;
+    if (!userDriven) {
+      return;
+    }
+    this.olderLoading = true;
+    setTimeout(() => {
+      // 自动加载不弹「没有更早记录了」的提示：滚到顶本来就可能已经没有更早的内容
+      const sent: boolean = SessionStore.get().loadOlder();
+      Logger.info('auto load older sent=' + sent + ' hasMore=' + this.hasMoreHistory);
+      this.olderLoading = false;
+    }, 80);
   }
 
   /** 按扩展名判断图片附件：图片走缩略图，其它走回形针文件胶囊 */
@@ -4924,14 +4931,6 @@ export struct ConversationPage {
             .width('100%')
             .height(64 + this.topSafe())
         }
-        // 列表头：「加载更早记录」在滚动内容顶部（对齐小程序 .hist-banner）
-        if (this.hasMoreHistory && this.entries.length > 0) {
-          ListItem() {
-            this.loadOlderBar()
-          }
-          .width('100%')
-          .padding({ left: 20, right: 20 })
-        }
         LazyForEach(this.source, (entry: ConversationFeedEntryModel) => {
           ListItem() {
             ConversationRowView({
@@ -4995,6 +4994,10 @@ export struct ConversationPage {
         // 用户自己拖动过：停掉自动跟随，给一个不被打断的浏览窗口
         this.autoStick = false;
         this.lastUserScrollAt = Date.now();
+      })
+      .onReachStart(() => {
+        // 滑到顶部自动往前翻一页历史（原来这里是一颗「加载更早记录」按钮）
+        this.maybeLoadOlder();
       })
       .onReachEnd(() => {
         // 只有「用户自己滑到底」才恢复吸底。流式期间内容不断增长、列表重建也会触发 reachEnd，
@@ -5141,11 +5144,8 @@ export struct ConversationPage {
     }
     const target: TurnNode = this.turnNodes[index];
     this.closeTurnNav();
-    // 列表头部有给浮动顶栏让位的占位行；「加载更早记录」条也可能占一行
-    let offset: number = 1;
-    if (this.hasMoreHistory && this.entries.length > 0) {
-      offset += 1;
-    }
+    // 列表头部只有一条给浮动顶栏让位的占位行（加载更早记录按钮已去掉）
+    const offset: number = 1;
     this.autoStick = false;
     const targetIndex: number = offset + target.entryIndex;
     setTimeout(() => {

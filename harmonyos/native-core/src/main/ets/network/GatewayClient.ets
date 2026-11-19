@@ -102,6 +102,9 @@ export class GatewayClient {
   private suppressConnecting: boolean = false;
   private connectRetryTimer: number = 0;
   private bearerPollTimer: number = 0;
+  /** 切蜂窝后等隧道就绪再切终点的轮询（隧道没起来时先把现有连接保住） */
+  private tailnetSwitchTimer: number = 0;
+  private tailnetSwitchTries: number = 0;
   private tailnetEnablerCalled: boolean = false;
   private tailnetEnabler: () => void = () => {};
   private usingTailnetRoute: boolean = false;
@@ -324,6 +327,49 @@ export class GatewayClient {
     } else {
       this.reconnectCurrent();
     }
+    // 切蜂窝时隧道常常还没就绪（AppStorage 里的 dns 后缀要等 tsnet 上报）。
+    // 挂一个轮询：等隧道 ready 且当前还停在局域网入口时，自动改走 tailnet。
+    if (next === 'cellular') {
+      this.scheduleTailnetSwitchWhenReady();
+    } else {
+      this.clearTailnetSwitchTimer();
+    }
+  }
+
+  /**
+   * 蜂窝下「等隧道就绪再切」：每秒检查，最多约 40s。
+   * Wi-Fi 刚断开那几秒隧道还没 ready，先保住连接，等能走 tailnet 了再无缝切过去。
+   */
+  private scheduleTailnetSwitchWhenReady(): void {
+    if (this.tailnetSwitchTimer !== 0) {
+      return;
+    }
+    this.tailnetSwitchTries = 0;
+    this.tailnetSwitchTimer = setInterval(() => {
+      this.tailnetSwitchTries += 1;
+      const profile: GatewayProfile | null = this.currentProfile;
+      const onCellular: boolean = this.networkBearer === 'cellular';
+      const localTarget: boolean = profile !== null && this.isLocalEndpoint(profile.wsUrl);
+      if (onCellular && localTarget && profile !== null && this.tailnetReady()) {
+        const target: string = this.cellularEndpoint(profile.wsUrl);
+        if (target !== profile.wsUrl && this.isTailnetAddress(target)) {
+          Logger.info('tailnet ready, switch endpoint ' + profile.wsUrl + ' -> ' + target);
+          this.clearTailnetSwitchTimer();
+          this.switchEndpoint(target);
+          return;
+        }
+      }
+      if (!onCellular || !localTarget || this.tailnetSwitchTries > 40) {
+        this.clearTailnetSwitchTimer();
+      }
+    }, 1000);
+  }
+
+  private clearTailnetSwitchTimer(): void {
+    if (this.tailnetSwitchTimer !== 0) {
+      clearInterval(this.tailnetSwitchTimer);
+      this.tailnetSwitchTimer = 0;
+    }
   }
 
   /** 网络类型变化：重排端点，必要时自动切换（Wi-Fi→蜂窝 或 蜂窝→Wi-Fi） */
@@ -374,10 +420,17 @@ export class GatewayClient {
       return tailnetFirst.length > 0 ? tailnetFirst[0] : publics[0];
     }
     // 没有保存公网入口时：用 tailnet DNS 后缀合成 wss://<gateway>.ts.net/ws/mobile
-    const suffix: string = AppStorage.get<string>('tailnetDnsSuffix') ?? '';
+    // 后缀此前只存在 AppStorage，冷启动后要等 tsnet 再次上报才恢复 —— 切蜂窝的瞬间往往就是空的，
+    // 于是合成失败、只能继续连局域网地址。这里补一层持久化兜底。
+    const memorySuffix: string = AppStorage.get<string>('tailnetDnsSuffix') ?? '';
+    const suffix: string = memorySuffix.length > 0
+      ? memorySuffix : PreferencesStore.get().getString('tailnetDnsSuffix', '');
     if (suffix.length > 0) {
       // 必须用网关在 tailnet 里的节点名（如 dsh-gateway），不能用用户给主机起的别名
       let name: string = AppStorage.get<string>('tailnetGatewayPeerName') ?? '';
+      if (name.length === 0) {
+        name = PreferencesStore.get().getString('tailnetGatewayPeerName', '');
+      }
       if (name.length === 0) {
         name = 'dsh-gateway';
       }
@@ -1577,6 +1630,7 @@ export class GatewayClient {
     SessionStore.get().clearPendingPrompts();
     this.intentionalClose = true;
     this.reconnectEnabled = false;
+    this.clearTailnetSwitchTimer();
     if (this.reconnectTimer !== 0) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = 0;

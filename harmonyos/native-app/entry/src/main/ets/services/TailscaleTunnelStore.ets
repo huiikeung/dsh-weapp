@@ -228,7 +228,12 @@ export class TailscaleTunnelStore {
         const dns: string = (stop > 0 ? tail.substring(0, stop) : tail).replace(/\.$/, '');
         const dot: number = dns.indexOf('.');
         if (dot > 0) {
-          AppStorage.setOrCreate<string>('tailnetDnsSuffix', dns.substring(dot + 1));
+          const dnsSuffix: string = dns.substring(dot + 1);
+          AppStorage.setOrCreate<string>('tailnetDnsSuffix', dnsSuffix);
+          // 持久化：冷启动后立刻切蜂窝时，GatewayClient 靠它合成 wss://<peer>.ts.net
+          if (PreferencesStore.get().getString('tailnetDnsSuffix', '') !== dnsSuffix) {
+            PreferencesStore.get().putString('tailnetDnsSuffix', dnsSuffix);
+          }
         }
       }
       if (fastStat.indexOf('authMode=') >= 0) {
