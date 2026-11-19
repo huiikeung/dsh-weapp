@@ -2223,6 +2223,9 @@ export struct ConversationPage {
       // 上下都顶到屏幕边缘：内容可以一直滑到状态栏下面（对齐 iOS）
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
+      // 顶部轻毛玻璃：鸿蒙原生最薄的组件材质，透明度高，只做轻微虚化
+      this.topBlurBar()
+
       // 浮动顶栏：透明底叠在时间线之上，内容从它下面滚过（对齐 iOS 导航栏，无遮盖条）
       this.headerBar()
 
@@ -3621,6 +3624,26 @@ export struct ConversationPage {
   /** 顶部安全区：safeTopVp 未就绪时用状态栏兜底高度，避免顶栏被状态栏遮挡 */
   private topSafe(): number {
     return this.topInset > 0 ? this.topInset : 38.9;
+  }
+
+  /**
+   * 顶栏轻模糊：不用系统 BlurStyle 材质（它自带白/浅材质底色，会和页面背景分层），
+   * 改成「纯 backdropBlur + 页面同色半透明底」——色调和背景完全一致，
+   * 只有从下面滚过的内容被轻微虚化，看不到任何分界带。
+   */
+  @Builder
+  topBlurBar() {
+    Column()
+      .width('100%')
+      .height(56 + this.topSafe())
+      .backdropBlur(24)
+      .backgroundColor(this.topBlurTint())
+      .hitTestBehavior(HitTestMode.None)
+  }
+
+  /** 顶栏模糊层的底色：与页面背景同色系的高透明色（浅色 #F2F2F4 / 深色纯黑） */
+  private topBlurTint(): string {
+    return this.isDark ? 'rgba(0,0,0,0.50)' : 'rgba(242,242,244,0.52)';
   }
 
   @Builder
