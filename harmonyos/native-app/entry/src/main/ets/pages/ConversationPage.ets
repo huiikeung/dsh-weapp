@@ -1,6 +1,6 @@
 import { abilityAccessCtrl, common, Want } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import { display, KeyboardAvoidMode, uiMaterial, window } from '@kit.ArkUI';
+import { display, KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import {
   asRec, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
   DraftStore, PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechFailure, SpeechInput, TeamStore, WorkStepPresentation,
@@ -16,6 +16,13 @@ import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { NavBackButton } from '../components/NavBackButton';
 import { ConversationProgress } from '../components/ConversationProgress';
 import { FluKeCoin } from '../components/FluKeCoin';
+import { StatusBarStyle } from '../services/StatusBarStyle';
+import { Haptics } from '../services/Haptics';
+
+/** 会话节点卡带：竖向胶囊轨道高度（vp），滑块为细条 */
+const TURN_TRACK_HEIGHT: number = 78;
+const TURN_TRACK_WIDTH: number = 36;
+const TURN_THUMB_HEIGHT: number = 44;
 
 /** 流式期间重排时间线的最小间隔：太密会把 UI 线程占满，手指点不动、也滑不动 */
 const TIMELINE_MIN_INTERVAL_MS: number = 90;
@@ -24,17 +31,24 @@ interface UploadReceipt {
   receiptId: string;
 }
 
-/** 会话快捷切换的行（对齐小程序 session-switcher rows：分组头行 + 会话行） */
-interface SessionSwitchRow {
-  key: string;
-  header: boolean;
-  groupTitle: string;
-  groupCount: number;
-  sessionId: string;
-  displayTitle: string;
-  activityLabel: string;
-  current: boolean;
+/** 会话侧栏的会话行（对齐小程序 conversation-sidebar 的 sessions） */
+interface ConvSidebarSession {
+  id: string;
+  title: string;
   running: boolean;
+  selected: boolean;
+  timeText: string;
+  updatedAt: number;
+}
+
+/** 会话侧栏的分组（对齐小程序 conversation-sidebar.buildGroups 的 groups） */
+interface ConvSidebarGroup {
+  id: string;
+  title: string;
+  ungrouped: boolean;
+  containsCurrent: boolean;
+  expanded: boolean;
+  sessions: ConvSidebarSession[];
 }
 
 /** iOS AgentAvatar 彩色智能体头像（取自 dsh-mobile Assets.xcassets）。 */
@@ -166,7 +180,7 @@ interface ModelSheetGroup {
 @Component
 export struct ConversationPage {
   @Consume('pageStack') pageStack: NavPathStack;
-  @StorageLink('isDark') isDark: boolean = false;
+  @StorageLink('isDark') @Watch('onIsDarkChanged') isDark: boolean = false;
   @StorageLink('connectionState') @Watch('onConnectionChanged') connection: string = 'disconnected';
   @StorageLink('sessions') sessions: SessionSummary[] = [];
   @StorageLink('conversationItems') @Watch('onItemsChanged') items: ConversationItem[] = [];
@@ -726,6 +740,11 @@ export struct ConversationPage {
       this.pendingItemsWhileHidden = true;
       return;
     }
+    // 节点弹层开着：只刷新节点列表（补齐历史/新消息），暂不重排时间线，避免页面跳动
+    if (this.turnNavOpen) {
+      this.refreshTurnNodes(false);
+      return;
+    }
     this.scheduleTimelineUpdate();
   }
 
@@ -834,22 +853,16 @@ export struct ConversationPage {
     return this.isDark ? '#000000' : '#F2F2F4';
   }
 
-  /** 状态栏内容色跟随页面背景：深色纯黑 → 白，浅色灰底 → 黑。setColorMode 会异步重置，延迟重试四次确保最终态正确 */
+  /** 状态栏内容色跟随页面背景：深色纯黑 → 白，浅色灰底 → 黑。
+   *  交给 StatusBarStyle 统一计算：它在首页以外按 isDark 取值，与这里完全一致，
+   *  因此系统配色变化 / 回前台后能自动写回正确颜色。 */
   private applyStatusBarColor(): void {
-    try {
-      const context = getContext(this) as common.UIAbilityContext;
-      const apply = (): void => {
-        window.getLastWindow(context).then((win: window.Window) => {
-          win.setWindowSystemBarProperties({ statusBarContentColor: this.isDark ? '#FFFFFF' : '#000000' });
-        }).catch(() => {
-        });
-      };
-      apply();
-      setTimeout(apply, 100);
-      setTimeout(apply, 400);
-      setTimeout(apply, 1000);
-    } catch (err) {
-    }
+    StatusBarStyle.set(this.isDark ? '#FFFFFF' : '#000000');
+  }
+
+  /** 切换深浅主题后立刻重写状态栏内容色，不等页面重新显示 */
+  onIsDarkChanged(): void {
+    this.applyStatusBarColor();
   }
 
   private textColor(): string {
@@ -862,6 +875,11 @@ export struct ConversationPage {
 
   private surfaceColor(): string {
     return this.isDark ? '#1C1C1E' : '#FFFFFF';
+  }
+
+  /** 会话节点弹窗玻璃：比系统菜单更通透（模糊更重时基色再降一点不透明度） */
+  private turnNavGlass(): string {
+    return this.isDark ? 'rgba(58,58,60,0.56)' : 'rgba(250,250,252,0.62)';
   }
 
   /** 系统菜单（右上角「⋯」）的磨砂玻璃材质色：模糊会被压暗，故基色偏亮半透明 */
@@ -2249,11 +2267,6 @@ export struct ConversationPage {
       // 浮动顶栏：透明底叠在时间线之上，内容从它下面滚过（对齐 iOS 导航栏，无遮盖条）
       this.headerBar()
 
-      // 会话快捷切换：全屏暗色模糊弹层（对齐小程序 .session-switch-overlay）
-      if (this.sessionPickerOpen) {
-        this.sessionSwitcherOverlay()
-      }
-
       // 长按语音的全屏特效：盖在对话与输入条之上，但不拦触摸（手指还压在下面的输入条上）
       VoiceRipplePanel({
         visible: this.voiceOverlayVisible,
@@ -2286,6 +2299,11 @@ export struct ConversationPage {
         .width('100%')
         .height('100%')
         .zIndex(40)
+      }
+
+      // 会话侧栏：全屏透明命中层 + 右上角悬浮面板（对齐小程序 conv-sidebar）
+      if (this.sessionPickerOpen) {
+        this.sessionSwitcherOverlay()
       }
 
       }
@@ -2345,10 +2363,14 @@ export struct ConversationPage {
   @State turnTrackHeight: number = 0;
   private turnListScroller: Scroller = new Scroller();
   private turnScrubStartIndex: number = 0;
-  /** 会话快捷切换：分组行数据 / 搜索词 / 搜索框展开态 */
-  @State sessionSwitcherRows: SessionSwitchRow[] = [];
-  @State sessionSwitcherQuery: string = '';
-  @State sessionSwitcherSearchOpen: boolean = false;
+  /** 弹窗内上下滑动切换节点的起始下标与累计位移 */
+  private turnSwipeBase: number = 0;
+  private turnSwipeOffset: number = 0;
+  /** 卡带拖动位移：黑色滑块随手指上下移动，松手回中 */
+  @State turnBarOffset: number = 0;
+  /** 会话侧栏（对齐小程序 conv-sidebar）：分组数据与展开的分组 id */
+  @State convSidebarGroups: ConvSidebarGroup[] = [];
+  @State convSidebarExpanded: string[] = [];
   @StorageLink('workspaces') workspaces: WorkspaceRow[] = [];
 
   // ==================== 输入条 chip 弹层（对齐小程序 permission-pop / model-menu） ====================
@@ -3693,7 +3715,7 @@ export struct ConversationPage {
 
   /** 顶栏模糊层的底色：与页面背景同色系的高透明色（浅色 #F2F2F4 / 深色纯黑） */
   private topBlurTint(): string {
-    return this.isDark ? 'rgba(0,0,0,0.50)' : 'rgba(242,242,244,0.52)';
+    return this.isDark ? 'rgba(0,0,0,0.26)' : 'rgba(242,242,244,0.28)';
   }
 
   @Builder
@@ -3770,13 +3792,21 @@ export struct ConversationPage {
 
       // 会话快捷切换：三横线圆钮（对齐小程序 nav-actions 的 session-switch-trigger）
       Button({ type: ButtonType.Circle }) {
-        Column({ space: 3 }) {
-          Row().width(15).height(1.5).borderRadius(1).backgroundColor(this.textColor())
-          Row().width(11.5).height(1.5).borderRadius(1).backgroundColor(this.textColor())
-          Row().width(13.5).height(1.5).borderRadius(1).backgroundColor(this.textColor())
+        // 侧栏图形：圆角框 + 左侧竖线（对齐小程序 nav-sidebar-glyph，粗细与相邻导航图标一致）
+        Stack({ alignContent: Alignment.TopStart }) {
+          Column()
+            .width(18)
+            .height(16)
+            .border({ width: 1.7, color: this.textColor() })
+            .borderRadius(4.5)
+          Column()
+            .width(1.7)
+            .height(12.6)
+            .backgroundColor(this.textColor())
+            .margin({ left: 4.9, top: 1.7 })
         }
-        .width(16)
-        .alignItems(HorizontalAlign.End)
+        .width(18)
+        .height(16)
       }
       .id('conversation-session-switch')
       .width(44)
@@ -4441,11 +4471,47 @@ export struct ConversationPage {
   }
 
   private openTurnNav(): void {
-    const nodes: TurnNode[] = this.buildTurnNodes();
-    this.turnNodes = nodes;
-    this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
+    this.turnBarOffset = 0;
+    this.refreshTurnNodes(true);
     this.turnNavOpen = true;
     this.scrollTurnListTo(this.turnNodeIndex);
+    // 节点要显示全部轮次：弹层打开期间补拉更早历史；期间不刷新时间线，页面不会跳动
+    this.warmHistoryForTurnNav();
+  }
+
+  /** 弹层打开时把更早历史拉完，节点数覆盖所有轮次（时间线暂不重排） */
+  private async warmHistoryForTurnNav(): Promise<void> {
+    let guard: number = 0;
+    while (this.hasMoreHistory && this.turnNavOpen && guard < 60) {
+      if (!SessionStore.get().loadOlder()) {
+        break;
+      }
+      guard += 1;
+      await new Promise<void>((resolve: () => void) => {
+        setTimeout(resolve, 180);
+      });
+    }
+  }
+
+  /** 关闭弹层：把补拉期间累积的变化一次性重排回去 */
+  private closeTurnNav(): void {
+    if (!this.turnNavOpen) {
+      return;
+    }
+    this.turnNavOpen = false;
+    this.turnBarOffset = 0;
+    this.rebuildEntries();
+    this.refreshProgress();
+    this.scheduleTimelineUpdate();
+  }
+
+  /** 重建节点列表；keepSelection=true 时把选中项落到最后一条 */
+  private refreshTurnNodes(keepSelection: boolean): void {
+    const nodes: TurnNode[] = this.buildTurnNodes();
+    this.turnNodes = nodes;
+    if (keepSelection || this.turnNodeIndex >= nodes.length) {
+      this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
+    }
   }
 
   private scrollTurnListTo(index: number): void {
@@ -4468,6 +4534,8 @@ export struct ConversationPage {
       return;
     }
     this.turnNodeIndex = clamped;
+    // 每切换一个节点给一次触感（强度跟随「设置 → 震动反馈」）
+    Haptics.play();
     this.scrollTurnListTo(clamped);
   }
 
@@ -4477,7 +4545,7 @@ export struct ConversationPage {
       return;
     }
     const target: TurnNode = this.turnNodes[index];
-    this.turnNavOpen = false;
+    this.closeTurnNav();
     // 列表头部有给浮动顶栏让位的占位行；「加载更早记录」条也可能占一行
     let offset: number = 1;
     if (this.hasMoreHistory && this.entries.length > 0) {
@@ -4494,7 +4562,7 @@ export struct ConversationPage {
   }
 
   private backToTimelineBottom(): void {
-    this.turnNavOpen = false;
+    this.closeTurnNav();
     this.autoStick = true;
     this.scroller.scrollEdge(Edge.Bottom);
   }
@@ -4505,7 +4573,7 @@ export struct ConversationPage {
     if (count <= 1 || this.turnTrackHeight <= 0) {
       return;
     }
-    const step: number = this.turnTrackHeight / (count - 1);
+    const step: number = (TURN_TRACK_HEIGHT - TURN_THUMB_HEIGHT) / (count - 1);
     const delta: number = Math.round(offsetY / step);
     this.previewTurnNode(this.turnScrubStartIndex + delta);
   }
@@ -4516,52 +4584,110 @@ export struct ConversationPage {
     if (count <= 1 || this.turnTrackHeight <= 0) {
       return 0;
     }
-    const usable: number = Math.max(0, this.turnTrackHeight - 26);
+    const usable: number = Math.max(0, TURN_TRACK_HEIGHT - TURN_THUMB_HEIGHT);
     return usable * (this.turnNodeIndex / (count - 1));
   }
 
-  /** 右侧卡带：轨道 + 滑块 + 序号徽标，上下拨动即可预览节点 */
+  /** 卡带上第 index 条节点横线的纵坐标 */
+  private turnTickTop(index: number): number {
+    const count: number = this.turnNodes.length;
+    const pad: number = 10;
+    const usable: number = TURN_TRACK_HEIGHT - pad * 2;
+    if (count <= 1) {
+      return pad;
+    }
+    return pad + usable * (index / (count - 1));
+  }
+
+  /** 卡带：细竖胶囊 + 每节点一条横线 + 细深色滑块，上下拨动同步切换左侧节点 */
   @Builder
   turnScrubber() {
-    Column() {
-      Text(this.turnNodes.length > 0
-        ? (this.turnNodeIndex + 1).toString() + '/' + this.turnNodes.length.toString()
-        : '0/0')
-        .fontSize(10)
-        .fontColor(this.subColor())
-        .margin({ bottom: 6 })
-      Stack({ alignContent: Alignment.Top }) {
-        Column()
-          .width(3)
-          .height('100%')
-          .borderRadius(1.5)
-          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.10)')
-        Column()
-          .width(6)
-          .height(26)
-          .borderRadius(3)
-          .backgroundColor('#2E6BE6')
-          .margin({ top: this.turnThumbTop() })
+    Stack({ alignContent: Alignment.Top }) {
+      // 细竖胶囊轨道
+      Column()
+        .width(TURN_TRACK_WIDTH)
+        .height(TURN_TRACK_HEIGHT)
+        .borderRadius(TURN_TRACK_WIDTH / 2)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.72)')
+        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.06)' })
+        .shadow({ radius: 10, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.10)', offsetY: 2 })
+      // 胶囊上下各一条短横杠
+      Row()
+        .width(9)
+        .height(2.5)
+        .borderRadius(1.25)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(16,19,24,0.16)')
+        .position({ x: 13.5, y: 10 })
+      Row()
+        .width(9)
+        .height(2.5)
+        .borderRadius(1.25)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(16,19,24,0.16)')
+        .position({ x: 13.5, y: TURN_TRACK_HEIGHT - 8.5 })
+      // 中间三条略长横杠（固定不动）
+      Row()
+        .width(20)
+        .height(2.5)
+        .borderRadius(1.25)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.24)' : 'rgba(16,19,24,0.14)')
+        .position({ x: 8, y: TURN_TRACK_HEIGHT / 2 - 16 })
+      Row()
+        .width(20)
+        .height(2.5)
+        .borderRadius(1.25)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.24)' : 'rgba(16,19,24,0.14)')
+        .position({ x: 8, y: TURN_TRACK_HEIGHT / 2 - 4 })
+      Row()
+        .width(20)
+        .height(2.5)
+        .borderRadius(1.25)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.24)' : 'rgba(16,19,24,0.14)')
+        .position({ x: 8, y: TURN_TRACK_HEIGHT / 2 + 8 })
+      // 滑块：深色圆角条（内显 N/总数），上下拖动切换节点
+      Column({ space: 0 }) {
+        Text((this.turnNodeIndex + 1).toString())
+          .fontSize(15)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+        Text('/ ' + (this.turnNodes.length > 0 ? this.turnNodes.length.toString() : '0'))
+          .fontSize(11)
+          .fontColor('rgba(255,255,255,0.72)')
       }
-      .width(10)
-      .layoutWeight(1)
-      .onAreaChange((oldValue: Area, newValue: Area) => {
-        this.turnTrackHeight = Number(newValue.height);
-      })
-      .gesture(
-        PanGesture()
-          .onActionStart(() => {
-            this.turnScrubStartIndex = this.turnNodeIndex;
-          })
-          .onActionUpdate((event: GestureEvent) => {
-            this.scrubTurnNode(event.offsetY);
-          })
-      )
+      .width(TURN_TRACK_WIDTH)
+      .height(TURN_THUMB_HEIGHT)
+      .borderRadius(TURN_THUMB_HEIGHT / 2)
+      .backgroundColor(this.isDark ? '#4A4A4E' : '#3A3A3C')
+      .justifyContent(FlexAlign.Center)
+      .alignItems(HorizontalAlign.Center)
+      .position({ x: 0, y: (TURN_TRACK_HEIGHT - TURN_THUMB_HEIGHT) / 2 + this.turnBarOffset })
     }
-    .width(52)
-    .height('100%')
-    .justifyContent(FlexAlign.Center)
-    .alignItems(HorizontalAlign.Center)
+    .width(TURN_TRACK_WIDTH)
+    .height(TURN_TRACK_HEIGHT)
+    .gesture(
+      PanGesture()
+        .onActionStart(() => {
+          this.turnScrubStartIndex = this.turnNodeIndex;
+        })
+        .onActionUpdate((event: GestureEvent) => {
+          // 拖动范围限制在上下两根短横杠之间
+          const limit: number = TURN_TRACK_HEIGHT / 2 - 16;
+          this.turnBarOffset = Math.max(-limit, Math.min(limit, event.offsetY));
+          // 上滑（offsetY < 0）数字减小，下滑增大
+          const delta: number = Math.round(event.offsetY / 16);
+          this.previewTurnNode(this.turnScrubStartIndex + delta);
+        })
+        .onActionEnd(() => {
+          // 松手回到中间
+          animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+            this.turnBarOffset = 0;
+          });
+        })
+        .onActionCancel(() => {
+          animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+            this.turnBarOffset = 0;
+          });
+        })
+    )
   }
 
   /** 会话节点弹层：居中卡片（卡片样式对齐右上角「⋯」原生菜单） */
@@ -4571,9 +4697,9 @@ export struct ConversationPage {
       Column()
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(0,0,0,0.28)')
+        .backgroundColor('rgba(0,0,0,0.04)')
         .onClick(() => {
-          this.turnNavOpen = false;
+          this.closeTurnNav();
         })
       Column() {
         Row() {
@@ -4623,15 +4749,29 @@ export struct ConversationPage {
               }
             }, (node: TurnNode) => node.entryIndex.toString() + '|' + node.label)
           }
-          .layoutWeight(1)
+          .width('100%')
           .height('100%')
           .scrollBar(BarState.Off)
-
-          this.turnScrubber()
+          // 弹窗内直接上下滑动切换节点：交给手势处理，列表自身不滚动
+          .enableScrollInteraction(false)
         }
         .width('100%')
         .layoutWeight(1)
-        .padding({ left: 12, right: 6, top: 4, bottom: 4 })
+        .padding({ left: 12, right: 12, top: 4, bottom: 4 })
+        .gesture(
+          PanGesture()
+            .onActionStart(() => {
+              this.turnSwipeBase = this.turnNodeIndex;
+              this.turnSwipeOffset = 0;
+            })
+            .onActionUpdate((event: GestureEvent) => {
+              this.turnSwipeOffset = event.offsetY;
+              // 每滑过 36vp 切换一个节点（上滑看更晚，下滑看更早）
+              // 上滑数字减小，下滑增大
+              const steps: number = Math.round(this.turnSwipeOffset / 36);
+              this.previewTurnNode(this.turnSwipeBase + steps);
+            })
+        )
 
         Divider().strokeWidth(0.5).color(this.dividerColor())
 
@@ -4649,13 +4789,26 @@ export struct ConversationPage {
         .height(38)
         .padding({ left: 16, right: 16 })
       }
-      .width('88%')
+      .width('70%')
       .height(430)
-      .borderRadius(18)
-      .backgroundColor(this.surfaceColor())
-      .border({ width: 0.7, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(12,14,19,0.08)' })
-      .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.16)', offsetY: 8 })
+      .borderRadius(16)
+      // 背景完全对齐右上角「⋯」原生菜单：同款磨砂玻璃 + 亮边 + 柔和投影
+      .backgroundColor(this.turnNavGlass())
+      .backgroundBlurStyle(BlurStyle.COMPONENT_ULTRA_THICK)
+      .border({ width: 0.7, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.60)' })
+      .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.42)' : 'rgba(0,0,0,0.12)', offsetY: 6 })
       .clip(true)
+
+      // 卡带放在卡片外侧（贴屏幕右缘）：竖向胶囊 + 深色滑块显示 N/M
+      Row() {
+        Blank()
+        this.turnScrubber()
+      }
+      .width('100%')
+      .height('100%')
+      .padding({ right: 14 })
+      .alignItems(VerticalAlign.Center)
+      .hitTestBehavior(HitTestMode.Transparent)
     }
     .width('100%')
     .height('100%')
@@ -4677,17 +4830,22 @@ export struct ConversationPage {
   // ==================== 会话快捷切换（对齐小程序 .session-switch-overlay） ====================
   /** 打开会话快捷切换：对齐小程序 openSessionSwitcher */
   private openSessionSwitcher(): void {
-    this.sessionSwitcherQuery = '';
-    this.sessionSwitcherSearchOpen = false;
-    this.sessionSwitcherRows = this.buildSessionSwitcherRows('');
+    let groups: ConvSidebarGroup[] = this.buildConvSidebarGroups();
+    // 每次打开自动展开当前会话所在分组（打开后仍可手动收起）
+    for (const group of groups) {
+      if (group.containsCurrent && !group.expanded) {
+        this.convSidebarExpanded = this.convSidebarExpanded.concat([group.id]);
+        groups = this.buildConvSidebarGroups();
+        break;
+      }
+    }
+    this.convSidebarGroups = groups;
     this.sessionPickerOpen = true;
   }
 
   /** 关闭会话快捷切换 */
   private closeSessionSwitcher(): void {
     this.sessionPickerOpen = false;
-    this.sessionSwitcherSearchOpen = false;
-    this.sessionSwitcherQuery = '';
   }
 
   /** 路径归一：反斜杠转正斜杠并去掉尾部分隔符（对齐小程序 sessionSwitcherRows 的 norm） */
@@ -4699,37 +4857,25 @@ export struct ConversationPage {
     return text;
   }
 
-  /** 会话所属工作区：先按 cwd 前缀匹配，再回退当前会话所在工作区 */
+  /** 工作区显示名：标题优先，其次路径末段 */
+  /** 会话所属工作区：按会话 cwd 与工作区 path 前缀匹配 */
   private workspaceOfSession(session: SessionSummary): WorkspaceRow | undefined {
-    const cwd: string = this.normalizePath(session.cwd);
-    if (cwd.length > 0) {
-      for (const ws of this.workspaces) {
-        const root: string = this.normalizePath(ws.path);
-        if (root.length > 0 && (cwd === root || cwd.indexOf(root + '/') === 0)) {
-          return ws;
-        }
-      }
+    const cwd: string = session.cwd;
+    if (cwd.length === 0) {
+      return undefined;
     }
-    const currentId: string = SessionStore.get().currentSessionId();
-    for (const other of this.sessions) {
-      if (other.id !== currentId) {
+    for (const ws of this.workspaces) {
+      const path: string = ws.path;
+      if (path.length === 0) {
         continue;
       }
-      const otherCwd: string = this.normalizePath(other.cwd);
-      if (otherCwd.length === 0) {
-        continue;
-      }
-      for (const ws of this.workspaces) {
-        const root: string = this.normalizePath(ws.path);
-        if (root.length > 0 && (otherCwd === root || otherCwd.indexOf(root + '/') === 0)) {
-          return ws;
-        }
+      if (cwd === path || cwd.startsWith(path)) {
+        return ws;
       }
     }
     return undefined;
   }
 
-  /** 工作区显示名：标题优先，其次路径末段 */
   private workspaceLabel(ws: WorkspaceRow): string {
     if (ws.title.length > 0) {
       return ws.title;
@@ -4763,262 +4909,384 @@ export struct ConversationPage {
     return Math.floor(hours / 24) + ' 天前';
   }
 
-  /** 组内最新更新时间 */
-  private latestUpdatedAt(bucket: SessionSummary[]): number {
-    let max: number = 0;
-    for (const session of bucket) {
-      if (session.updatedAt > max) {
-        max = session.updatedAt;
+  /** 单色图标着色矩阵（与输入条同款）：只换 RGB，保留透明度 */
+  private iconTintMatrix(color: string): number[] {
+    const text: string = color.trim();
+    let red: number = 255;
+    let green: number = 255;
+    let blue: number = 255;
+    let alpha: number = 1;
+    if (text.startsWith('#')) {
+      const hex: string = text.substring(1);
+      const value: number = parseInt(hex, 16);
+      if (hex.length === 8) {
+        alpha = ((value >>> 24) & 255) / 255;
+        red = (value >> 16) & 255;
+        green = (value >> 8) & 255;
+        blue = value & 255;
+      } else {
+        red = (value >> 16) & 255;
+        green = (value >> 8) & 255;
+        blue = value & 255;
       }
     }
-    return max;
+    return [
+      0, 0, 0, 0, red / 255,
+      0, 0, 0, 0, green / 255,
+      0, 0, 0, 0, blue / 255,
+      0, 0, 0, alpha, 0
+    ];
   }
 
-  /** 行数据：按工作区分组（当前工作区置顶），组内当前会话置顶、其余按更新时间倒序 */
-  private buildSessionSwitcherRows(query: string): SessionSwitchRow[] {
-    const currentId: string = SessionStore.get().currentSessionId();
-    const needle: string = query.trim().toLowerCase();
-    let currentKey: string = '';
+  /** 工作区分组展开/收起（对齐小程序 toggleConvSidebarGroup） */
+  private toggleConvSidebarGroup(id: string): void {
+    const next: string[] = [];
+    let found: boolean = false;
+    for (const one of this.convSidebarExpanded) {
+      if (one === id) {
+        found = true;
+      } else {
+        next.push(one);
+      }
+    }
+    if (!found) {
+      next.push(id);
+    }
+    this.convSidebarExpanded = next;
+    this.convSidebarGroups = this.buildConvSidebarGroups();
+  }
+
+  /** 某个工作区里的会话行（当前会话置顶不动，其余按更新时间倒序） */
+  private convSidebarSessions(ids: string[], currentId: string): ConvSidebarSession[] {
+    const rows: ConvSidebarSession[] = [];
     for (const session of this.sessions) {
-      if (session.id === currentId) {
-        const ws: WorkspaceRow | undefined = this.workspaceOfSession(session);
-        currentKey = ws === undefined ? '' : ws.workspaceId;
+      if (ids.indexOf(session.id) < 0) {
+        continue;
       }
-    }
-    const keys: string[] = [];
-    const names: string[] = [];
-    const buckets: SessionSummary[][] = [];
-    for (const session of this.sessions) {
-      if (needle.length > 0) {
-        const hay: string = (session.title + ' ' + session.id).toLowerCase();
-        if (hay.indexOf(needle) < 0) {
-          continue;
-        }
-      }
-      const workspace: WorkspaceRow | undefined = this.workspaceOfSession(session);
-      const key: string = workspace === undefined ? '__ungrouped' : workspace.workspaceId;
-      const name: string = workspace === undefined ? '其他会话' : this.workspaceLabel(workspace);
-      let index: number = keys.indexOf(key);
-      if (index < 0) {
-        keys.push(key);
-        names.push(name);
-        const bucket: SessionSummary[] = [];
-        buckets.push(bucket);
-        index = buckets.length - 1;
-      }
-      buckets[index].push(session);
-    }
-    for (const bucket of buckets) {
-      bucket.sort((left: SessionSummary, right: SessionSummary): number => {
-        if (left.id === currentId) {
-          return -1;
-        }
-        if (right.id === currentId) {
-          return 1;
-        }
-        return right.updatedAt - left.updatedAt;
-      });
-    }
-    const order: number[] = [];
-    for (let index = 0; index < buckets.length; index++) {
-      order.push(index);
-    }
-    order.sort((left: number, right: number): number => {
-      const leftCurrent: boolean = currentKey.length > 0 && keys[left] === currentKey;
-      const rightCurrent: boolean = currentKey.length > 0 && keys[right] === currentKey;
-      if (leftCurrent !== rightCurrent) {
-        return leftCurrent ? -1 : 1;
-      }
-      return this.latestUpdatedAt(buckets[right]) - this.latestUpdatedAt(buckets[left]);
-    });
-    const rows: SessionSwitchRow[] = [];
-    for (const index of order) {
       rows.push({
-        key: 'group-' + keys[index],
-        header: true,
-        groupTitle: names[index],
-        groupCount: buckets[index].length,
-        sessionId: '',
-        displayTitle: '',
-        activityLabel: '',
-        current: false,
-        running: false
+        id: session.id,
+        title: session.title.length > 0 ? session.title : '未命名会话',
+        running: session.running,
+        selected: session.id === currentId,
+        timeText: this.sessionSwitchTimeLabel(session.updatedAt),
+        updatedAt: session.updatedAt
       });
-      for (const session of buckets[index]) {
-        rows.push({
-          key: session.id,
-          header: false,
-          groupTitle: '',
-          groupCount: 0,
-          sessionId: session.id,
-          displayTitle: session.title.length > 0 ? session.title : session.id.substring(0, 8),
-          activityLabel: session.running ? '运行中' : this.sessionSwitchTimeLabel(session.updatedAt),
-          current: session.id === currentId,
-          running: session.running
-        });
-      }
     }
+    rows.sort((left: ConvSidebarSession, right: ConvSidebarSession): number => right.updatedAt - left.updatedAt);
     return rows;
   }
 
-  /** 会话快捷切换弹层：全屏暗色模糊遮罩 + 顶部搜索 + 分组会话列表（对齐小程序 .session-switch-overlay） */
+  /** 分组数据：按工作区 sessionIds 归属，其余归「未分组」（对齐小程序 conversation-sidebar.buildGroups） */
+  private buildConvSidebarGroups(): ConvSidebarGroup[] {
+    const currentId: string = SessionStore.get().currentSessionId();
+    const owned: string[] = [];
+    for (const ws of this.workspaces) {
+      for (const id of ws.sessionIds) {
+        owned.push(id);
+      }
+    }
+    const groups: ConvSidebarGroup[] = [];
+    for (const ws of this.workspaces) {
+      groups.push({
+        id: ws.workspaceId,
+        title: ws.title.length > 0 ? ws.title : this.workspaceLabel(ws),
+        ungrouped: false,
+        containsCurrent: ws.sessionIds.indexOf(currentId) >= 0,
+        expanded: this.convSidebarExpanded.indexOf(ws.workspaceId) >= 0,
+        sessions: this.convSidebarSessions(ws.sessionIds, currentId)
+      });
+    }
+    const rest: string[] = [];
+    for (const session of this.sessions) {
+      if (owned.indexOf(session.id) < 0) {
+        rest.push(session.id);
+      }
+    }
+    groups.push({
+      id: '__ungrouped__',
+      title: '未分组',
+      ungrouped: true,
+      containsCurrent: rest.indexOf(currentId) >= 0,
+      expanded: this.convSidebarExpanded.indexOf('__ungrouped__') >= 0,
+      sessions: this.convSidebarSessions(rest, currentId)
+    });
+    return groups;
+  }
+
+  /** 在工作区新建会话并切过去（对齐小程序 createConvSidebarSession） */
+  private createSessionInWorkspace(workspaceId: string): void {
+    if (workspaceId.length === 0) {
+      return;
+    }
+    GatewayClient.get().createSession(workspaceId).then((id: string) => {
+      this.closeSessionSwitcher();
+      this.openSession(id);
+    }).catch((ignored: Error) => {
+      this.hint = '新建会话失败';
+    });
+  }
+
+  /** 侧栏宽度：对齐小程序 Math.min(windowWidth - 24, 300)，手机上左右各留 12 */
+  private convSidebarWidth(): number {
+    let screen: number = 375;
+    try {
+      screen = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+    } catch (err) {
+      screen = 375;
+    }
+    const width: number = screen - 24;
+    return width < 300 ? width : 300;
+  }
+
+  /** 侧栏高度：屏高 − 顶部避让 − 底部输入条避让（对齐小程序按导航栏到输入框计算） */
+  private convSidebarHeight(): number {
+    let screen: number = 800;
+    try {
+      screen = this.getUIContext().px2vp(display.getDefaultDisplaySync().height);
+    } catch (err) {
+      screen = 800;
+    }
+    const height: number = screen - (this.topSafe() + 8) - (this.bottomInset + 92);
+    return height > 240 ? height : 240;
+  }
+
+  /** 会话侧栏（对齐小程序 conv-sidebar）：右上角悬浮面板，工作区分组 + 会话行 + 底部设置 */
   @Builder
   sessionSwitcherOverlay() {
-    Stack({ alignContent: Alignment.TopStart }) {
-      // 遮罩：深色半透明 + 背景模糊，点空白关闭
+    Stack({ alignContent: Alignment.TopEnd }) {
+      // 全屏透明命中层：点面板外任意位置收起（对齐小程序 .conv-sidebar-mask）
       Column()
         .width('100%')
         .height('100%')
-        .backgroundColor('rgba(8,10,16,0.72)')
-        .backgroundBlurStyle(BlurStyle.BACKGROUND_THICK)
+        .backgroundColor(Color.Transparent)
         .onClick(() => {
           this.closeSessionSwitcher();
         })
 
-      Column() {
-        // 顶部搜索：圆形玻璃按钮，点开展开为输入框（对齐小程序 .session-switch-search）
+        Column() {
+        // 品牌行：首页左上角同款 3D 品牌币 + 字标 + HARNESS 徽章
         Row() {
-          if (this.sessionSwitcherSearchOpen) {
-            Row({ space: 8 }) {
-              Image($r('app.media.search_white_thin'))
-                .width(16)
-                .height(16)
-                .objectFit(ImageFit.Contain)
-                .fillColor(this.isDark ? '#F1F4FA' : '#10131A')
-              TextInput({ text: this.sessionSwitcherQuery, placeholder: '搜索会话内容' })
-                .layoutWeight(1)
-                .height(36)
-                .padding({ left: 0, right: 0 })
-                .backgroundColor(Color.Transparent)
-                .fontSize(13)
-                .fontColor(this.isDark ? '#F1F4FA' : '#10131A')
-                .placeholderColor(this.subColor())
-                .caretColor('#2E6BE6')
-                .onChange((value: string) => {
-                  this.sessionSwitcherQuery = value;
-                  this.sessionSwitcherRows = this.buildSessionSwitcherRows(value);
-                })
-            }
-            .width('100%')
-            .height(40)
-            .padding({ left: 12, right: 12 })
-            .borderRadius(20)
-            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.92)')
-            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.10)' })
-          } else {
-            Row() {
-              Image($r('app.media.search_white_thin'))
-                .width(16)
-                .height(16)
-                .objectFit(ImageFit.Contain)
-                .fillColor(this.isDark ? '#F1F4FA' : '#10131A')
-            }
-            .width(40)
-            .height(40)
-            .borderRadius(20)
-            .justifyContent(FlexAlign.Center)
-            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.92)')
-            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.10)' })
-            .onClick(() => {
-              this.sessionSwitcherSearchOpen = true;
-            })
-          }
+          FluKeCoin({ diameter: 26 })
+          Image(this.isDark ? $r('app.media.wordmark_white') : $r('app.media.wordmark_ink'))
+            .width(52)
+            .height(16)
+            .objectFit(ImageFit.Contain)
+            .margin({ left: 6 })
+          Text('HARNESS')
+            .fontSize(9)
+            .fontColor(this.textColor())
+            .height(15)
+            .padding({ left: 5, right: 5 })
+            .border({ width: 0.5, color: this.subColor() })
+            .borderRadius(4)
+            .margin({ left: 9 })
           Blank()
         }
         .width('100%')
+        .height(44)
+        .padding({ left: 16, right: 16 })
+        .alignItems(VerticalAlign.Center)
 
-        // 分组列表：分组头 + 会话行（状态点 / 标题 / 活动时间 / 当前会话标记）
-        List() {
-          ForEach(this.sessionSwitcherRows, (row: SessionSwitchRow) => {
-            ListItem() {
-              if (row.header) {
-                Row({ space: 8 }) {
-                  Text(row.groupTitle)
-                    .fontSize(12)
-                    .fontWeight(FontWeight.Medium)
-                    .fontColor(this.isDark ? 'rgba(241,244,250,0.55)' : 'rgba(16,19,24,0.50)')
-                  Text(row.groupCount.toString())
-                    .fontSize(11)
-                    .fontColor(this.isDark ? 'rgba(241,244,250,0.38)' : 'rgba(16,19,24,0.34)')
+        // 插件 / 定时任务（对齐小程序 conv-sidebar-item）
+        Row({ space: 10 }) {
+          Image(this.isDark ? $r('app.media.pinwheel_white') : $r('app.media.pinwheel_ink'))
+            .width(20)
+            .height(20)
+            .objectFit(ImageFit.Contain)
+          Text('插件')
+            .fontSize(15)
+            .fontColor(this.textColor())
+          Blank()
+        }
+        .width('100%')
+        .height(44)
+        .padding({ left: 16, right: 16 })
+        .alignItems(VerticalAlign.Center)
+        .onClick(() => {
+          this.closeSessionSwitcher();
+          this.pageStack.pushPathByName('plugins', null);
+        })
+
+        Row({ space: 10 }) {
+          Image(this.isDark ? $r('app.media.automation_white') : $r('app.media.automation_ink'))
+            .width(20)
+            .height(20)
+            .objectFit(ImageFit.Contain)
+          Text('定时任务')
+            .fontSize(15)
+            .fontColor(this.textColor())
+          Blank()
+        }
+        .width('100%')
+        .height(44)
+        .padding({ left: 16, right: 16 })
+        .alignItems(VerticalAlign.Center)
+        .onClick(() => {
+          this.closeSessionSwitcher();
+          this.pageStack.pushPathByName('schedule', null);
+        })
+
+        // 工作区
+        Text('工作区')
+          .fontSize(12)
+          .fontColor(this.subColor())
+          .width('100%')
+          .padding({ left: 16, top: 11, bottom: 4 })
+
+        Scroll() {
+          Column() {
+            Column() {
+            ForEach(this.convSidebarGroups, (group: ConvSidebarGroup) => {
+              // 分组行：文件夹 + 名称 + 新建会话 + 展开箭头
+              Row({ space: 8 }) {
+                // 工作区文件夹：与首页「工作区卡片」菜单同款图标与着色方式（colorFilter，保留图形层次）
+                Image(group.ungrouped ? $r('app.media.tray_white') : $r('app.media.workspace_folder_white'))
+                  .width(18)
+                  .height(18)
+                  .objectFit(ImageFit.Contain)
+                  .colorFilter(this.iconTintMatrix(group.containsCurrent ? '#2E6BE6' : this.textColor()))
+                Text(group.title)
+                  .fontSize(15)
+                  .fontColor(this.textColor())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+                if (!group.ungrouped) {
+                  // 新建会话：小程序 conv-sidebar-new-ic 同款细描边加号（18vp 图形 / 28 触达区）
+                  Row() {
+                    Stack({ alignContent: Alignment.Center }) {
+                      Row()
+                        .width(14)
+                        .height(1.2)
+                        .borderRadius(0.6)
+                        .backgroundColor(this.textColor())
+                      Row()
+                        .width(1.2)
+                        .height(14)
+                        .borderRadius(0.6)
+                        .backgroundColor(this.textColor())
+                    }
+                    .width(18)
+                    .height(18)
+                    .opacity(0.55)
+                  }
+                  .width(28)
+                  .height(28)
+                  .justifyContent(FlexAlign.Center)
+                  .onClick(() => {
+                    this.createSessionInWorkspace(group.id);
+                  })
                 }
-                .width('100%')
-                .height(32)
-                .padding({ left: 8 })
-              } else {
-                Row({ space: 9 }) {
-                  Column()
-                    .width(6)
-                    .height(6)
-                    .borderRadius(3)
-                    .backgroundColor(row.running || row.current
-                      ? '#31B77A'
-                      : (this.isDark ? 'rgba(241,244,250,0.42)' : 'rgba(16,19,24,0.42)'))
-                  Column({ space: 2 }) {
-                    Text(row.displayTitle)
+                Image($r('app.media.ic_dir_chevron_mist'))
+                  .width(14)
+                  .height(14)
+                  .objectFit(ImageFit.Contain)
+                  .colorFilter(this.iconTintMatrix(this.textColor()))
+                  .rotate({ angle: group.expanded ? 270 : 90 })
+                  .margin({ left: -4 })
+                  .opacity(0.7)
+              }
+              .width('100%')
+              .height(38)
+              .padding({ left: 12, right: 8 })
+              .borderRadius(9)
+              .onClick(() => {
+                this.toggleConvSidebarGroup(group.id);
+              })
+
+              if (group.expanded) {
+                if (group.sessions.length === 0) {
+                  Text('暂无会话')
+                    .fontSize(12)
+                    .fontColor(this.subColor())
+                    .width('100%')
+                    .padding({ left: 18, top: 4, bottom: 6 })
+                }
+                ForEach(group.sessions, (session: ConvSidebarSession) => {
+                  // 左侧留白与分组行内文件夹图标中心对齐（8 外边距 + 8 内边距 + 19/2 图标中心）
+                  Row({ space: 6 }) {
+                    Column()
+                      .width(6)
+                      .height(6)
+                      .borderRadius(3)
+                      .backgroundColor(session.running ? '#31B77A' : Color.Transparent)
+                    Text(session.title)
                       .fontSize(14)
-                      .fontColor(this.isDark ? '#F1F4FA' : '#10131A')
+                      .fontColor(this.textColor())
                       .maxLines(1)
                       .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      .width('100%')
-                    if (row.activityLabel.length > 0) {
-                      Text(row.activityLabel)
-                        .fontSize(11)
-                        .fontColor(this.subColor())
-                        .maxLines(1)
-                        .width('100%')
-                    }
-                  }
-                  .layoutWeight(1)
-                  .alignItems(HorizontalAlign.Start)
-                  if (row.current) {
-                    Text('当前会话')
+                      .layoutWeight(1)
+                    Text(session.timeText)
                       .fontSize(11)
-                      .fontWeight(FontWeight.Bold)
-                      .fontColor('#2E6BE6')
+                      .fontColor(this.subColor())
                   }
-                }
-                .width('100%')
-                .constraintSize({ minHeight: 48 })
-                .padding({ left: 12, right: 12, top: 6, bottom: 6 })
-                .borderRadius(9)
-                .backgroundColor(row.current
-                  ? (this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
-                  : Color.Transparent)
-                .onClick(() => {
-                  this.openSession(row.sessionId);
-                  this.closeSessionSwitcher();
-                })
+                  .width('100%')
+                  .height(34)
+                  .padding({ left: 18, right: 8 })
+                  .borderRadius(9)
+                  .backgroundColor(session.selected
+                    ? (this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
+                    : Color.Transparent)
+                  .onClick(() => {
+                    this.openSession(session.id);
+                    this.closeSessionSwitcher();
+                  })
+                }, (session: ConvSidebarSession) => session.id)
               }
+            }, (group: ConvSidebarGroup) => group.id)
             }
-          }, (row: SessionSwitchRow) => row.key)
-          if (this.sessionSwitcherRows.length === 0) {
-            ListItem() {
-              Text('没有匹配的会话')
-                .fontSize(13)
-                .fontColor(this.subColor())
-                .width('100%')
-                .textAlign(TextAlign.Center)
-                .padding({ top: 36, bottom: 36 })
-            }
+            .width('100%')
+            .padding({ left: 8, right: 8 })
           }
+          .width('100%')
         }
         .width('100%')
         .layoutWeight(1)
         .scrollBar(BarState.Off)
-        .padding({ top: 10 })
-      }
-      .width('100%')
-      .height('100%')
-      .padding({
-        left: 20,
-        right: 20,
-        top: this.topSafe() + 10,
-        bottom: this.bottomInset + 20
-      })
-      .alignItems(HorizontalAlign.Start)
+        .edgeEffect(EdgeEffect.None)
+        .align(Alignment.Top)
+
+        // 底部设置（对齐小程序 conv-sidebar-footer）
+        Column() {
+          Row()
+            .width('100%')
+            .height(0.5)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.08)')
+          Row({ space: 10 }) {
+            Image(this.isDark ? $r('app.media.settings_white') : $r('app.media.settings_ink'))
+              .width(20)
+              .height(20)
+              .objectFit(ImageFit.Contain)
+            Text('设置')
+              .fontSize(15)
+              .fontColor(this.textColor())
+            Blank()
+          }
+          .width('100%')
+          .height(44)
+          .padding({ left: 16, right: 16 })
+          .alignItems(VerticalAlign.Center)
+          .onClick(() => {
+            this.closeSessionSwitcher();
+            this.pageStack.pushPathByName('app-settings', null);
+          })
+        }
+        .width('100%')
+        .padding({ bottom: 4 })
+        }
+        .width(this.convSidebarWidth())
+        .height(this.convSidebarHeight())
+        .padding({ top: 5 })
+        .margin({ top: this.topSafe() + 8, right: 12 })
+        .borderRadius(28)
+        .backgroundColor(this.surfaceColor())
+        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.10)' })
+        .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.16)', offsetY: 8 })
+        .clip(true)
+        .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
     .height('100%')
-    .zIndex(50)
+    .zIndex(60)
   }
 }
