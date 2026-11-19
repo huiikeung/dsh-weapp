@@ -85,7 +85,9 @@ test('subagent catalog projection shows up as members', () => {
   const coder = store.memberList().find((one) => one.id === 'c2');
   assert.equal(coder.name, 'Coder');
   assert.equal(coder.description, '可继续子智能体');
-  assert.equal(coder.canOpen, false);
+  // 与小程序一致：子智能体可点开
+  assert.equal(coder.canOpen, true);
+  assert.equal(coder.isChild, true);
 });
 
 test('unknown child mode and missing label fall back', () => {

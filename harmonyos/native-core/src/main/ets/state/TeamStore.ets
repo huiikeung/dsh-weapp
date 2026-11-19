@@ -12,6 +12,8 @@ export interface TeamMemberView {
   avatarIndex: number;
   statusLabel: string;
   canOpen: boolean;
+  /** 是否由 subagentCatalog 合并而来（子智能体没有独立会话的运行态，UI 据此不猜状态） */
+  isChild: boolean;
 }
 
 /**
@@ -112,7 +114,8 @@ function parseMember(value: Object | undefined): TeamMemberView | undefined {
     error: textField(record, 'error'),
     avatarIndex: avatarIndexOf(id),
     statusLabel: memberStatusLabel(phase),
-    canOpen: phase !== 'provisioning'
+    canOpen: phase !== 'provisioning',
+    isChild: false
   };
 }
 
@@ -242,8 +245,9 @@ export class TeamStore {
         error: '',
         avatarIndex: avatarIndexOf(child.id),
         statusLabel: child.statusLabel,
-        // 子智能体 id 不是会话 id，点开无从切换，保持不可点
-        canOpen: false
+        // 与小程序 child 一致：子智能体也可点开看它的会话内容
+        canOpen: true,
+        isChild: true
       };
       rows.push(childMember);
     });
@@ -386,7 +390,8 @@ export class TeamStore {
         error: '',
         avatarIndex: avatarIndexOf(sessionId),
         statusLabel: '主会话',
-        canOpen: true
+        canOpen: true,
+        isChild: false
       };
       this.members.set(sessionId, leadMember);
     }
