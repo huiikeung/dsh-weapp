@@ -216,10 +216,36 @@ export class TeamStore {
     return this.failure;
   }
 
+  /**
+   * 面板展示用的成员列表 = agentTeam.members + subagentCatalog 子智能体。
+   *
+   * 子智能体并入同一个列表（而不是单独开一个「子智能体」区块）：
+   * 协作面板保持原来「成员 N + 共享任务」的结构，DSH 端的子智能体也一并出现在成员里，
+   * 不会出现「桌面端 6 个、手机只显示 lead 一个」。
+   */
   memberList(): TeamMemberView[] {
     const rows: TeamMemberView[] = [];
     this.members.forEach((one: TeamMemberView) => {
       rows.push(one);
+    });
+    this.children.forEach((child: TeamChildView) => {
+      if (this.members.has(child.id)) {
+        return;
+      }
+      const childMember: TeamMemberView = {
+        id: child.id,
+        name: child.label,
+        role: 'teammate',
+        phase: 'active',
+        provider: '',
+        description: child.statusLabel,
+        error: '',
+        avatarIndex: avatarIndexOf(child.id),
+        statusLabel: child.statusLabel,
+        // 子智能体 id 不是会话 id，点开无从切换，保持不可点
+        canOpen: false
+      };
+      rows.push(childMember);
     });
     rows.sort((a: TeamMemberView, b: TeamMemberView) => {
       const aLead: number = a.role === 'lead' ? 0 : 1;

@@ -74,15 +74,18 @@ test('opening a member keeps the team, unrelated session clears it', () => {
 const catalog = (seq, children) => ({ asOfSeq: seq, values: { subagentCatalog: children } });
 const child = (id, mode, label) => ({ id, mode, label });
 
-test('subagent catalog projection populates children', () => {
+test('subagent catalog projection shows up as members', () => {
   const store = setup();
   store.ingestProjection('lead', catalog(4, [child('c1', 'one-shot', 'Researcher'), child('c2', 'continuable', 'Coder')]));
   assert.equal(store.childList().length, 2);
   // 只有子智能体也要显示协作入口
   assert.equal(store.visible(), true);
-  assert.equal(store.memberList().length, 0);
-  const coder = store.childList().find((one) => one.id === 'c2');
-  assert.equal(coder.statusLabel, '可继续子智能体');
+  // 子智能体并入成员列表：面板仍是「成员 N」，DSH 端 6 个智能体要都能显示
+  assert.equal(store.memberList().length, 2);
+  const coder = store.memberList().find((one) => one.id === 'c2');
+  assert.equal(coder.name, 'Coder');
+  assert.equal(coder.description, '可继续子智能体');
+  assert.equal(coder.canOpen, false);
 });
 
 test('unknown child mode and missing label fall back', () => {
@@ -109,7 +112,8 @@ test('agentTeam and subagentCatalog stay independent', () => {
     asOfSeq: 9,
     values: { agentTeam: { members: [lead, worker], tasks: [], failure: '' }, subagentCatalog: [child('c1', 'one-shot', 'A')] }
   });
-  assert.equal(store.memberList().length, 2);
+  // 2 个团队成员 + 1 个子智能体，全都进成员列表
+  assert.equal(store.memberList().length, 3);
   assert.equal(store.childList().length, 1);
 });
 
