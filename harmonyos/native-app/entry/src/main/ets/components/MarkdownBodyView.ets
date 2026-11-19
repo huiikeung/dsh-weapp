@@ -129,8 +129,9 @@ export struct MarkdownBodyView {
     return this.fontSize * 0.906;
   }
 
+  /** 单元格字号：小程序 .session .md-td 被覆盖成正文字号，这里保持一致 */
   private cellSize(): number {
-    return this.fontSize * 0.9375;
+    return this.fontSize;
   }
 
   /**
@@ -163,7 +164,7 @@ export struct MarkdownBodyView {
     .lineHeight(lineHeight)
   }
 
-  /** 表格单元格：小程序对单元格也走行内 HTML，这里同样按行内片段渲染 */
+  /** 表格单元格：小程序对单元格也走行内 HTML，这里同样按行内片段渲染（宽度由外层 flex 决定） */
   @Builder
   cell(spans: InlineSpan[], header: boolean) {
     Text() {
@@ -171,7 +172,7 @@ export struct MarkdownBodyView {
         Span(span.text)
           .fontSize(span.style === 'code' ? this.cellSize() - 1 : this.cellSize())
           .fontColor(span.style === 'link' ? ACCENT : this.bodyColor())
-          .fontWeight(header || span.style === 'bold' ? FontWeight.Medium : FontWeight.Normal)
+          .fontWeight(header || span.style === 'bold' ? 600 : FontWeight.Normal)
           .fontStyle(span.style === 'italic' ? FontStyle.Italic : FontStyle.Normal)
           .fontFamily(span.style === 'code' ? MONO_FONT : BODY_FONT)
           .textBackgroundStyle(span.style === 'code'
@@ -183,8 +184,30 @@ export struct MarkdownBodyView {
     .fontColor(this.bodyColor())
     .fontFamily(BODY_FONT)
     .lineHeight(this.cellSize() * 1.5)
-    .width(120)
-    .padding({ left: 8, right: 8, top: 6, bottom: 6 })
+    .width('100%')
+  }
+
+  /**
+   * 表格一行：等分 flex 单元格 + 行底分隔线，对齐小程序 .md-tr / .md-td。
+   * 小程序：padding 16rpx 20rpx、单元格 1rpx 左分隔、奇数数据行 var(--fill)、表头 600 + var(--fill)。
+   */
+  @Builder
+  tableRow(cells: string[], header: boolean, rowIndex: number, last: boolean) {
+    Row() {
+      ForEach(cells, (cell: string, cellIndex: number) => {
+        Column() {
+          this.cell(MarkdownLite.inline(cell), header)
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+        .padding({ left: 11, right: 11, top: 9, bottom: 9 })
+        .border({ width: { left: cellIndex === 0 ? 0 : 0.5 }, color: this.strongBorderColor() })
+      }, (cell: string, cellIndex: number) => 'td' + rowIndex.toString() + '-' + cellIndex.toString() + '_' + this.themeGeneration)
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
+    .backgroundColor(header || rowIndex % 2 === 1 ? this.fillColor() : Color.Transparent)
+    .border({ width: { bottom: last ? 0 : 0.5 }, color: this.strongBorderColor() })
   }
 
   @Builder
@@ -255,31 +278,25 @@ export struct MarkdownBodyView {
       .alignItems(VerticalAlign.Top)
       .margin({ top: 2, bottom: 2 })
     } else if (block.kind === 'table') {
+      // 小程序 .md-table: margin 20rpx 0 / 1rpx 描边 / 10rpx 圆角 / 表内分割线；
+      // 宽度铺满容器，单元格 flex:1 等分，长内容在格内换行，不再用固定 120vp 窄列。
       Scroll() {
         Column() {
-          Row() {
-            ForEach(block.headers, (cell: string, index: number) => {
-              this.cell(MarkdownLite.inline(cell), true)
-            }, (cell: string, index: number) => 'h' + index.toString() + '_' + this.themeGeneration)
-          }
-          .backgroundColor(this.fillColor())
+          this.tableRow(block.headers, true, -1, false)
           ForEach(block.rows, (row: string[], rowIndex: number) => {
-            Row() {
-              ForEach(row, (cell: string, cellIndex: number) => {
-                this.cell(MarkdownLite.inline(cell), false)
-              }, (cell: string, cellIndex: number) => 'c' + rowIndex.toString() + '-' + cellIndex.toString() + '_' + this.themeGeneration)
-            }
-            .backgroundColor(rowIndex % 2 === 0 ? this.fillColor() : Color.Transparent)
+            this.tableRow(row, false, rowIndex, rowIndex === block.rows.length - 1)
           }, (row: string[], rowIndex: number) => 'r' + rowIndex.toString() + '_' + this.themeGeneration)
         }
+        .width('100%')
         .alignItems(HorizontalAlign.Start)
-        .borderRadius(8)
+        .borderRadius(6)
         .border({ width: 0.5, color: this.strongBorderColor() })
+        .clip(true)
       }
       .scrollable(ScrollDirection.Horizontal)
       .scrollBar(BarState.Off)
       .width('100%')
-      .margin({ top: 6, bottom: 8 })
+      .margin({ top: 8, bottom: 10 })
     } else {
       Column() {
         this.inline(block.spans, this.fontSize, this.bodyColor(),
