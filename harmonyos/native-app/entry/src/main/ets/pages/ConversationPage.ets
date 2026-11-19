@@ -6,7 +6,7 @@ import {
   DraftStore, PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechFailure, SpeechInput, TeamStore, WorkStepPresentation,
   parseNamespace, pickDocuments, uploadAttachment
 } from 'nativecore';
-import type { GatewayFrame, GatewayTask, GatewayGoalReference, ModelMenuItem, ModelOption, PresetOption, QueueItem, SessionGoalView } from 'nativecore';
+import type { GatewayFrame, GatewayTask, GatewayGoalReference, ModelMenuItem, ModelOption, PresetOption, QueueItem, SessionGoalView, WorkspaceRow } from 'nativecore';
 import type { TeamMemberView, TeamTaskView } from 'nativecore';
 import type { SpeechLimits } from 'nativecore';
 import type { UploadResult } from 'nativecore';
@@ -22,6 +22,19 @@ const TIMELINE_MIN_INTERVAL_MS: number = 90;
 
 interface UploadReceipt {
   receiptId: string;
+}
+
+/** 会话快捷切换的行（对齐小程序 session-switcher rows：分组头行 + 会话行） */
+interface SessionSwitchRow {
+  key: string;
+  header: boolean;
+  groupTitle: string;
+  groupCount: number;
+  sessionId: string;
+  displayTitle: string;
+  activityLabel: string;
+  current: boolean;
+  running: boolean;
 }
 
 /** iOS AgentAvatar 彩色智能体头像（取自 dsh-mobile Assets.xcassets）。 */
@@ -73,6 +86,16 @@ interface EffortRow {
   id: string;
   label: string;
   current: boolean;
+}
+
+/** 会话节点：一条用户消息 = 一个可预览/跳转的节点 */
+interface TurnNode {
+  /** 在 entries 中的下标 */
+  entryIndex: number;
+  /** 1 起的序号 */
+  ordinal: number;
+  /** 消息摘要（用户原话） */
+  label: string;
 }
 
 /**
@@ -2086,10 +2109,7 @@ export struct ConversationPage {
         Column() {
         // 底部 dock：排队消息 / 任务 / 目标（对齐小程序 dock-stack）
         this.dockStack()
-        // 切换会话 / 权限 / 模型面板：同样紧贴输入框上方展开，输入框保持可见
-        if (this.sessionPickerOpen) {
-          this.sessionPicker()
-        }
+        // 权限 / 模型面板：紧贴输入框上方展开，输入框保持可见
         if (this.composerSheet.length > 0) {
           this.composerSheetPanel()
         }
@@ -2229,6 +2249,11 @@ export struct ConversationPage {
       // 浮动顶栏：透明底叠在时间线之上，内容从它下面滚过（对齐 iOS 导航栏，无遮盖条）
       this.headerBar()
 
+      // 会话快捷切换：全屏暗色模糊弹层（对齐小程序 .session-switch-overlay）
+      if (this.sessionPickerOpen) {
+        this.sessionSwitcherOverlay()
+      }
+
       // 长按语音的全屏特效：盖在对话与输入条之上，但不拦触摸（手指还压在下面的输入条上）
       VoiceRipplePanel({
         visible: this.voiceOverlayVisible,
@@ -2252,6 +2277,16 @@ export struct ConversationPage {
       .alignItems(HorizontalAlign.Center)
       .zIndex(30)
       .hitTestBehavior(HitTestMode.None)
+
+      // 会话节点弹层（居中卡片，对齐原生菜单样式）
+      if (this.turnNavOpen) {
+        Column() {
+          this.turnNavPanel()
+        }
+        .width('100%')
+        .height('100%')
+        .zIndex(40)
+      }
 
       }
       .width('100%')
@@ -2300,6 +2335,21 @@ export struct ConversationPage {
   }
 
   @State sessionPickerOpen: boolean = false;
+
+  // ==================== 会话节点弹层（右上角三横线） ====================
+  @State turnNavOpen: boolean = false;
+  @State turnNodes: TurnNode[] = [];
+  /** 当前预览/选中的节点下标 */
+  @State turnNodeIndex: number = 0;
+  /** 右侧卡带轨道高度（用于把拖动位移换算成节点下标） */
+  @State turnTrackHeight: number = 0;
+  private turnListScroller: Scroller = new Scroller();
+  private turnScrubStartIndex: number = 0;
+  /** 会话快捷切换：分组行数据 / 搜索词 / 搜索框展开态 */
+  @State sessionSwitcherRows: SessionSwitchRow[] = [];
+  @State sessionSwitcherQuery: string = '';
+  @State sessionSwitcherSearchOpen: boolean = false;
+  @StorageLink('workspaces') workspaces: WorkspaceRow[] = [];
 
   // ==================== 输入条 chip 弹层（对齐小程序 permission-pop / model-menu） ====================
   private openComposerSheet(kind: string): void {
@@ -3636,7 +3686,7 @@ export struct ConversationPage {
     Column()
       .width('100%')
       .height(56 + this.topSafe())
-      .backdropBlur(24)
+      .backdropBlur(12)
       .backgroundColor(this.topBlurTint())
       .hitTestBehavior(HitTestMode.None)
   }
@@ -3678,7 +3728,7 @@ export struct ConversationPage {
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
       .onClick(() => {
-        this.sessionPickerOpen = true;
+        this.openSessionSwitcher();
       })
 
       // 团队协作入口：圆形玻璃钮 + 双人线框图标，点开成员弹层（对齐 dsh-mobile TeamNavigationEntry）
@@ -3717,6 +3767,45 @@ export struct ConversationPage {
           }
         })
       }
+
+      // 会话快捷切换：三横线圆钮（对齐小程序 nav-actions 的 session-switch-trigger）
+      Button({ type: ButtonType.Circle }) {
+        Column({ space: 3 }) {
+          Row().width(15).height(1.5).borderRadius(1).backgroundColor(this.textColor())
+          Row().width(11.5).height(1.5).borderRadius(1).backgroundColor(this.textColor())
+          Row().width(13.5).height(1.5).borderRadius(1).backgroundColor(this.textColor())
+        }
+        .width(16)
+        .alignItems(HorizontalAlign.End)
+      }
+      .id('conversation-session-switch')
+      .width(44)
+      .height(44)
+      .backgroundColor(Color.Transparent)
+      .accessibilityText('会话快捷切换')
+      .onClick(() => {
+        this.openSessionSwitcher();
+      })
+
+      // 会话节点：三横线（位于「⋯」左侧）
+      Button({ type: ButtonType.Circle }) {
+        Column({ space: 3.5 }) {
+          Row().width(15).height(1.6).borderRadius(1).backgroundColor(this.textColor())
+          Row().width(15).height(1.6).borderRadius(1).backgroundColor(this.textColor())
+          Row().width(15).height(1.6).borderRadius(1).backgroundColor(this.textColor())
+        }
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .hitTestBehavior(HitTestMode.None)
+      }
+      .id('conversation-nodes')
+      .width(44)
+      .height(44)
+      .backgroundColor(Color.Transparent)
+      .accessibilityText('会话节点')
+      .onClick(() => {
+        this.openTurnNav();
+      })
 
       Button({ type: ButtonType.Circle }) {
         Text('⋯').fontSize(18).fontColor(this.textColor())
@@ -4335,6 +4424,243 @@ export struct ConversationPage {
     .height('100%')
   }
 
+  // ==================== 会话节点（移植自小程序 turnNav，弹窗样式对齐原生菜单） ====================
+
+  /** 收集用户消息节点：一条用户消息即一个节点 */
+  private buildTurnNodes(): TurnNode[] {
+    const nodes: TurnNode[] = [];
+    for (let index = 0; index < this.entries.length; index++) {
+      const entry: ConversationFeedEntryModel = this.entries[index];
+      if (entry.kind !== 'USER') {
+        continue;
+      }
+      const raw: string = (entry.text.length > 0 ? entry.text : entry.title).replace(/\s+/g, ' ').trim();
+      nodes.push({ entryIndex: index, ordinal: nodes.length + 1, label: raw.length > 0 ? raw : '（空消息）' });
+    }
+    return nodes;
+  }
+
+  private openTurnNav(): void {
+    const nodes: TurnNode[] = this.buildTurnNodes();
+    this.turnNodes = nodes;
+    this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
+    this.turnNavOpen = true;
+    this.scrollTurnListTo(this.turnNodeIndex);
+  }
+
+  private scrollTurnListTo(index: number): void {
+    setTimeout(() => {
+      try {
+        this.turnListScroller.scrollToIndex(index, true, ScrollAlign.CENTER);
+      } catch (ignored) {
+      }
+    }, 16);
+  }
+
+  /** 预览某个节点：左侧列表滚到该节点（不跳转时间线） */
+  private previewTurnNode(index: number): void {
+    const count: number = this.turnNodes.length;
+    if (count === 0) {
+      return;
+    }
+    const clamped: number = Math.max(0, Math.min(count - 1, index));
+    if (clamped === this.turnNodeIndex) {
+      return;
+    }
+    this.turnNodeIndex = clamped;
+    this.scrollTurnListTo(clamped);
+  }
+
+  /** 点击节点：关闭弹层并跳到时间线对应消息 */
+  private jumpToTurnNode(index: number): void {
+    if (index < 0 || index >= this.turnNodes.length) {
+      return;
+    }
+    const target: TurnNode = this.turnNodes[index];
+    this.turnNavOpen = false;
+    // 列表头部有给浮动顶栏让位的占位行；「加载更早记录」条也可能占一行
+    let offset: number = 1;
+    if (this.hasMoreHistory && this.entries.length > 0) {
+      offset += 1;
+    }
+    this.autoStick = false;
+    const targetIndex: number = offset + target.entryIndex;
+    setTimeout(() => {
+      try {
+        this.scroller.scrollToIndex(targetIndex, true, ScrollAlign.START);
+      } catch (ignored) {
+      }
+    }, 30);
+  }
+
+  private backToTimelineBottom(): void {
+    this.turnNavOpen = false;
+    this.autoStick = true;
+    this.scroller.scrollEdge(Edge.Bottom);
+  }
+
+  /** 拨动右侧卡带：位移换算成节点下标并预览 */
+  private scrubTurnNode(offsetY: number): void {
+    const count: number = this.turnNodes.length;
+    if (count <= 1 || this.turnTrackHeight <= 0) {
+      return;
+    }
+    const step: number = this.turnTrackHeight / (count - 1);
+    const delta: number = Math.round(offsetY / step);
+    this.previewTurnNode(this.turnScrubStartIndex + delta);
+  }
+
+  /** 卡带上滑块的位置 */
+  private turnThumbTop(): number {
+    const count: number = this.turnNodes.length;
+    if (count <= 1 || this.turnTrackHeight <= 0) {
+      return 0;
+    }
+    const usable: number = Math.max(0, this.turnTrackHeight - 26);
+    return usable * (this.turnNodeIndex / (count - 1));
+  }
+
+  /** 右侧卡带：轨道 + 滑块 + 序号徽标，上下拨动即可预览节点 */
+  @Builder
+  turnScrubber() {
+    Column() {
+      Text(this.turnNodes.length > 0
+        ? (this.turnNodeIndex + 1).toString() + '/' + this.turnNodes.length.toString()
+        : '0/0')
+        .fontSize(10)
+        .fontColor(this.subColor())
+        .margin({ bottom: 6 })
+      Stack({ alignContent: Alignment.Top }) {
+        Column()
+          .width(3)
+          .height('100%')
+          .borderRadius(1.5)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.10)')
+        Column()
+          .width(6)
+          .height(26)
+          .borderRadius(3)
+          .backgroundColor('#2E6BE6')
+          .margin({ top: this.turnThumbTop() })
+      }
+      .width(10)
+      .layoutWeight(1)
+      .onAreaChange((oldValue: Area, newValue: Area) => {
+        this.turnTrackHeight = Number(newValue.height);
+      })
+      .gesture(
+        PanGesture()
+          .onActionStart(() => {
+            this.turnScrubStartIndex = this.turnNodeIndex;
+          })
+          .onActionUpdate((event: GestureEvent) => {
+            this.scrubTurnNode(event.offsetY);
+          })
+      )
+    }
+    .width(52)
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+  }
+
+  /** 会话节点弹层：居中卡片（卡片样式对齐右上角「⋯」原生菜单） */
+  @Builder
+  turnNavPanel() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.28)')
+        .onClick(() => {
+          this.turnNavOpen = false;
+        })
+      Column() {
+        Row() {
+          Text('会话节点')
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+          Blank()
+          Text('共 ' + this.turnNodes.length.toString())
+            .fontSize(12)
+            .fontColor(this.subColor())
+        }
+        .width('100%')
+        .height(42)
+        .padding({ left: 16, right: 16 })
+
+        Divider().strokeWidth(0.5).color(this.dividerColor())
+
+        Row() {
+          List({ space: 2, scroller: this.turnListScroller }) {
+            ForEach(this.turnNodes, (node: TurnNode, index: number) => {
+              ListItem() {
+                Row({ space: 8 }) {
+                  Text(node.ordinal.toString())
+                    .fontSize(12)
+                    .fontColor(index === this.turnNodeIndex ? '#2E6BE6' : this.subColor())
+                    .width(20)
+                    .textAlign(TextAlign.Center)
+                  Text(node.label)
+                    .fontSize(13)
+                    .fontWeight(index === this.turnNodeIndex ? FontWeight.Medium : FontWeight.Regular)
+                    .fontColor(this.textColor())
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .layoutWeight(1)
+                }
+                .width('100%')
+                .height(40)
+                .padding({ left: 8, right: 8 })
+                .borderRadius(8)
+                .backgroundColor(index === this.turnNodeIndex
+                  ? (this.isDark ? 'rgba(46,107,230,0.20)' : 'rgba(46,107,230,0.10)')
+                  : Color.Transparent)
+                .onClick(() => {
+                  this.jumpToTurnNode(index);
+                })
+              }
+            }, (node: TurnNode) => node.entryIndex.toString() + '|' + node.label)
+          }
+          .layoutWeight(1)
+          .height('100%')
+          .scrollBar(BarState.Off)
+
+          this.turnScrubber()
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .padding({ left: 12, right: 6, top: 4, bottom: 4 })
+
+        Divider().strokeWidth(0.5).color(this.dividerColor())
+
+        Row() {
+          Text('拨动预览，点击跳转').fontSize(11).fontColor(this.subColor())
+          Blank()
+          Text('回到底部 ↓')
+            .fontSize(12)
+            .fontColor('#2E6BE6')
+            .onClick(() => {
+              this.backToTimelineBottom();
+            })
+        }
+        .width('100%')
+        .height(38)
+        .padding({ left: 16, right: 16 })
+      }
+      .width('88%')
+      .height(430)
+      .borderRadius(18)
+      .backgroundColor(this.surfaceColor())
+      .border({ width: 0.7, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(12,14,19,0.08)' })
+      .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.16)', offsetY: 8 })
+      .clip(true)
+    }
+    .width('100%')
+    .height('100%')
+  }
+
   /** 更多菜单：会话设置 + 任务面板（排队/轨迹/上下文/编队/文件仍走 pages/SessionPage）。 */
   @Builder
   moreMenu() {
@@ -4348,58 +4674,351 @@ export struct ConversationPage {
     }
   }
 
-  /** 切换会话底部面板。 */
-  @Builder
-  sessionPicker() {
-    // 不再用全屏遮罩：面板直接叠在输入框上方，输入框保持可见可点
-    Column() {
-        Row() {
-          Text('切换会话').fontSize(17).fontWeight(FontWeight.Medium).fontColor(this.textColor())
-          Blank()
-          Text('关闭').fontSize(14).fontColor(this.subColor())
-            .onClick(() => {
-              this.sessionPickerOpen = false;
-            })
-        }
-        .width('100%')
-        .height(48)
-        .padding({ left: 16, right: 16 })
+  // ==================== 会话快捷切换（对齐小程序 .session-switch-overlay） ====================
+  /** 打开会话快捷切换：对齐小程序 openSessionSwitcher */
+  private openSessionSwitcher(): void {
+    this.sessionSwitcherQuery = '';
+    this.sessionSwitcherSearchOpen = false;
+    this.sessionSwitcherRows = this.buildSessionSwitcherRows('');
+    this.sessionPickerOpen = true;
+  }
 
-        List({ space: 2 }) {
-          ForEach(this.sessions, (session: SessionSummary) => {
-            ListItem() {
-              Row({ space: 10 }) {
-                Circle({ width: 7, height: 7 }).fill(session.running ? '#2EB85C' : this.subColor())
-                Text(session.title.length > 0 ? session.title : session.id.substring(0, 8))
-                  .fontSize(15)
-                  .fontColor(this.textColor())
-                  .layoutWeight(1)
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-                if (session.id === SessionStore.get().currentSessionId()) {
-                  Text('当前').fontSize(12).fontColor('#2E6BE6')
-                }
-              }
-              .width('100%')
-              .height(48)
-              .padding({ left: 16, right: 16 })
-              .onClick(() => {
-                this.openSession(session.id);
-                this.sessionPickerOpen = false;
-              })
+  /** 关闭会话快捷切换 */
+  private closeSessionSwitcher(): void {
+    this.sessionPickerOpen = false;
+    this.sessionSwitcherSearchOpen = false;
+    this.sessionSwitcherQuery = '';
+  }
+
+  /** 路径归一：反斜杠转正斜杠并去掉尾部分隔符（对齐小程序 sessionSwitcherRows 的 norm） */
+  private normalizePath(value: string): string {
+    let text: string = value.replace(/\\/g, '/');
+    while (text.length > 1 && text.charAt(text.length - 1) === '/') {
+      text = text.substring(0, text.length - 1);
+    }
+    return text;
+  }
+
+  /** 会话所属工作区：先按 cwd 前缀匹配，再回退当前会话所在工作区 */
+  private workspaceOfSession(session: SessionSummary): WorkspaceRow | undefined {
+    const cwd: string = this.normalizePath(session.cwd);
+    if (cwd.length > 0) {
+      for (const ws of this.workspaces) {
+        const root: string = this.normalizePath(ws.path);
+        if (root.length > 0 && (cwd === root || cwd.indexOf(root + '/') === 0)) {
+          return ws;
+        }
+      }
+    }
+    const currentId: string = SessionStore.get().currentSessionId();
+    for (const other of this.sessions) {
+      if (other.id !== currentId) {
+        continue;
+      }
+      const otherCwd: string = this.normalizePath(other.cwd);
+      if (otherCwd.length === 0) {
+        continue;
+      }
+      for (const ws of this.workspaces) {
+        const root: string = this.normalizePath(ws.path);
+        if (root.length > 0 && (otherCwd === root || otherCwd.indexOf(root + '/') === 0)) {
+          return ws;
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /** 工作区显示名：标题优先，其次路径末段 */
+  private workspaceLabel(ws: WorkspaceRow): string {
+    if (ws.title.length > 0) {
+      return ws.title;
+    }
+    const parts: string[] = this.normalizePath(ws.path).split('/');
+    for (let index = parts.length - 1; index >= 0; index--) {
+      if (parts[index].length > 0) {
+        return parts[index];
+      }
+    }
+    return ws.workspaceId;
+  }
+
+  /** 会话行时间标签（口径同 HomePage.timeLabel） */
+  private sessionSwitchTimeLabel(updatedAt: number): string {
+    if (updatedAt <= 0) {
+      return '';
+    }
+    const delta: number = Date.now() - updatedAt;
+    const minutes: number = Math.floor(delta / 60000);
+    if (minutes < 1) {
+      return '刚刚';
+    }
+    if (minutes < 60) {
+      return minutes + ' 分钟前';
+    }
+    const hours: number = Math.floor(minutes / 60);
+    if (hours < 24) {
+      return hours + ' 小时前';
+    }
+    return Math.floor(hours / 24) + ' 天前';
+  }
+
+  /** 组内最新更新时间 */
+  private latestUpdatedAt(bucket: SessionSummary[]): number {
+    let max: number = 0;
+    for (const session of bucket) {
+      if (session.updatedAt > max) {
+        max = session.updatedAt;
+      }
+    }
+    return max;
+  }
+
+  /** 行数据：按工作区分组（当前工作区置顶），组内当前会话置顶、其余按更新时间倒序 */
+  private buildSessionSwitcherRows(query: string): SessionSwitchRow[] {
+    const currentId: string = SessionStore.get().currentSessionId();
+    const needle: string = query.trim().toLowerCase();
+    let currentKey: string = '';
+    for (const session of this.sessions) {
+      if (session.id === currentId) {
+        const ws: WorkspaceRow | undefined = this.workspaceOfSession(session);
+        currentKey = ws === undefined ? '' : ws.workspaceId;
+      }
+    }
+    const keys: string[] = [];
+    const names: string[] = [];
+    const buckets: SessionSummary[][] = [];
+    for (const session of this.sessions) {
+      if (needle.length > 0) {
+        const hay: string = (session.title + ' ' + session.id).toLowerCase();
+        if (hay.indexOf(needle) < 0) {
+          continue;
+        }
+      }
+      const workspace: WorkspaceRow | undefined = this.workspaceOfSession(session);
+      const key: string = workspace === undefined ? '__ungrouped' : workspace.workspaceId;
+      const name: string = workspace === undefined ? '其他会话' : this.workspaceLabel(workspace);
+      let index: number = keys.indexOf(key);
+      if (index < 0) {
+        keys.push(key);
+        names.push(name);
+        const bucket: SessionSummary[] = [];
+        buckets.push(bucket);
+        index = buckets.length - 1;
+      }
+      buckets[index].push(session);
+    }
+    for (const bucket of buckets) {
+      bucket.sort((left: SessionSummary, right: SessionSummary): number => {
+        if (left.id === currentId) {
+          return -1;
+        }
+        if (right.id === currentId) {
+          return 1;
+        }
+        return right.updatedAt - left.updatedAt;
+      });
+    }
+    const order: number[] = [];
+    for (let index = 0; index < buckets.length; index++) {
+      order.push(index);
+    }
+    order.sort((left: number, right: number): number => {
+      const leftCurrent: boolean = currentKey.length > 0 && keys[left] === currentKey;
+      const rightCurrent: boolean = currentKey.length > 0 && keys[right] === currentKey;
+      if (leftCurrent !== rightCurrent) {
+        return leftCurrent ? -1 : 1;
+      }
+      return this.latestUpdatedAt(buckets[right]) - this.latestUpdatedAt(buckets[left]);
+    });
+    const rows: SessionSwitchRow[] = [];
+    for (const index of order) {
+      rows.push({
+        key: 'group-' + keys[index],
+        header: true,
+        groupTitle: names[index],
+        groupCount: buckets[index].length,
+        sessionId: '',
+        displayTitle: '',
+        activityLabel: '',
+        current: false,
+        running: false
+      });
+      for (const session of buckets[index]) {
+        rows.push({
+          key: session.id,
+          header: false,
+          groupTitle: '',
+          groupCount: 0,
+          sessionId: session.id,
+          displayTitle: session.title.length > 0 ? session.title : session.id.substring(0, 8),
+          activityLabel: session.running ? '运行中' : this.sessionSwitchTimeLabel(session.updatedAt),
+          current: session.id === currentId,
+          running: session.running
+        });
+      }
+    }
+    return rows;
+  }
+
+  /** 会话快捷切换弹层：全屏暗色模糊遮罩 + 顶部搜索 + 分组会话列表（对齐小程序 .session-switch-overlay） */
+  @Builder
+  sessionSwitcherOverlay() {
+    Stack({ alignContent: Alignment.TopStart }) {
+      // 遮罩：深色半透明 + 背景模糊，点空白关闭
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(8,10,16,0.72)')
+        .backgroundBlurStyle(BlurStyle.BACKGROUND_THICK)
+        .onClick(() => {
+          this.closeSessionSwitcher();
+        })
+
+      Column() {
+        // 顶部搜索：圆形玻璃按钮，点开展开为输入框（对齐小程序 .session-switch-search）
+        Row() {
+          if (this.sessionSwitcherSearchOpen) {
+            Row({ space: 8 }) {
+              Image($r('app.media.search_white_thin'))
+                .width(16)
+                .height(16)
+                .objectFit(ImageFit.Contain)
+                .fillColor(this.isDark ? '#F1F4FA' : '#10131A')
+              TextInput({ text: this.sessionSwitcherQuery, placeholder: '搜索会话内容' })
+                .layoutWeight(1)
+                .height(36)
+                .padding({ left: 0, right: 0 })
+                .backgroundColor(Color.Transparent)
+                .fontSize(13)
+                .fontColor(this.isDark ? '#F1F4FA' : '#10131A')
+                .placeholderColor(this.subColor())
+                .caretColor('#2E6BE6')
+                .onChange((value: string) => {
+                  this.sessionSwitcherQuery = value;
+                  this.sessionSwitcherRows = this.buildSessionSwitcherRows(value);
+                })
             }
-          }, (session: SessionSummary) => session.id + '|' + (session.running ? '1' : '0') + '|' + session.title)
+            .width('100%')
+            .height(40)
+            .padding({ left: 12, right: 12 })
+            .borderRadius(20)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.92)')
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.10)' })
+          } else {
+            Row() {
+              Image($r('app.media.search_white_thin'))
+                .width(16)
+                .height(16)
+                .objectFit(ImageFit.Contain)
+                .fillColor(this.isDark ? '#F1F4FA' : '#10131A')
+            }
+            .width(40)
+            .height(40)
+            .borderRadius(20)
+            .justifyContent(FlexAlign.Center)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.92)')
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.10)' })
+            .onClick(() => {
+              this.sessionSwitcherSearchOpen = true;
+            })
+          }
+          Blank()
         }
         .width('100%')
-        .height(360)
+
+        // 分组列表：分组头 + 会话行（状态点 / 标题 / 活动时间 / 当前会话标记）
+        List() {
+          ForEach(this.sessionSwitcherRows, (row: SessionSwitchRow) => {
+            ListItem() {
+              if (row.header) {
+                Row({ space: 8 }) {
+                  Text(row.groupTitle)
+                    .fontSize(12)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.isDark ? 'rgba(241,244,250,0.55)' : 'rgba(16,19,24,0.50)')
+                  Text(row.groupCount.toString())
+                    .fontSize(11)
+                    .fontColor(this.isDark ? 'rgba(241,244,250,0.38)' : 'rgba(16,19,24,0.34)')
+                }
+                .width('100%')
+                .height(32)
+                .padding({ left: 8 })
+              } else {
+                Row({ space: 9 }) {
+                  Column()
+                    .width(6)
+                    .height(6)
+                    .borderRadius(3)
+                    .backgroundColor(row.running || row.current
+                      ? '#31B77A'
+                      : (this.isDark ? 'rgba(241,244,250,0.42)' : 'rgba(16,19,24,0.42)'))
+                  Column({ space: 2 }) {
+                    Text(row.displayTitle)
+                      .fontSize(14)
+                      .fontColor(this.isDark ? '#F1F4FA' : '#10131A')
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      .width('100%')
+                    if (row.activityLabel.length > 0) {
+                      Text(row.activityLabel)
+                        .fontSize(11)
+                        .fontColor(this.subColor())
+                        .maxLines(1)
+                        .width('100%')
+                    }
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                  if (row.current) {
+                    Text('当前会话')
+                      .fontSize(11)
+                      .fontWeight(FontWeight.Bold)
+                      .fontColor('#2E6BE6')
+                  }
+                }
+                .width('100%')
+                .constraintSize({ minHeight: 48 })
+                .padding({ left: 12, right: 12, top: 6, bottom: 6 })
+                .borderRadius(9)
+                .backgroundColor(row.current
+                  ? (this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
+                  : Color.Transparent)
+                .onClick(() => {
+                  this.openSession(row.sessionId);
+                  this.closeSessionSwitcher();
+                })
+              }
+            }
+          }, (row: SessionSwitchRow) => row.key)
+          if (this.sessionSwitcherRows.length === 0) {
+            ListItem() {
+              Text('没有匹配的会话')
+                .fontSize(13)
+                .fontColor(this.subColor())
+                .width('100%')
+                .textAlign(TextAlign.Center)
+                .padding({ top: 36, bottom: 36 })
+            }
+          }
+        }
+        .width('100%')
+        .layoutWeight(1)
         .scrollBar(BarState.Off)
+        .padding({ top: 10 })
+      }
+      .width('100%')
+      .height('100%')
+      .padding({
+        left: 20,
+        right: 20,
+        top: this.topSafe() + 10,
+        bottom: this.bottomInset + 20
+      })
+      .alignItems(HorizontalAlign.Start)
     }
     .width('100%')
-    .padding({ top: 8, bottom: 8 })
-    .borderRadius(18)
-    .backgroundColor(this.surfaceColor())
-    .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
-    .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.12)', offsetY: 6 })
-    .margin({ left: 12, right: 12, bottom: 8 })
+    .height('100%')
+    .zIndex(50)
   }
 }
