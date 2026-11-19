@@ -285,8 +285,6 @@ export struct ConversationPage {
   private listTouching: boolean = false;
   /** 手指压着列表时发生结构变化：先记下，抬手后再重建，避免重建把拖动打断 */
   private pendingStructure: boolean = false;
-  /** 顶部毛玻璃强度 0~1：内容在顶部时 0（完全透明），往上滑逐渐出现 */
-  @State private topBarMaterial: number = 0;
   /** 正在重建列表：这期间的 onReachEnd 是重建造成的，不能当成「用户滑到底」而恢复吸底 */
   private suppressReachEnd: boolean = false;
   private lastTouchAt: number = 0;
@@ -2225,9 +2223,6 @@ export struct ConversationPage {
       // 上下都顶到屏幕边缘：内容可以一直滑到状态栏下面（对齐 iOS）
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
-      // 顶部渐进模糊（对齐 iOS 导航栏）：越靠上越糊、往下逐渐变清，内容滑过时被虚化
-      this.topProgressiveBlur()
-
       // 浮动顶栏：透明底叠在时间线之上，内容从它下面滚过（对齐 iOS 导航栏，无遮盖条）
       this.headerBar()
 
@@ -3628,47 +3623,6 @@ export struct ConversationPage {
     return this.topInset > 0 ? this.topInset : 38.9;
   }
 
-  /** 材质高度 = 整条导航栏（状态栏 + 标题行），和 iOS UINavigationBar 的范围一致 */
-  private topBlurHeight(): number {
-    return 56 + this.topSafe();
-  }
-
-  /**
-   * 按滚动位置驱动顶部材质（对齐 iOS 的 scrollEdgeAppearance → standardAppearance）：
-   * 内容在顶部时完全透明，一旦往上滑就在这里平滑浮现一层均匀毛玻璃。
-   * 用 0~1 的透明度做交叉淡入，而不是空间上的渐变，所以不会有分块。
-   */
-  private syncTopBarMaterial(): void {
-    const y: number = this.scroller.currentOffset().yOffset;
-    // 8vp 起步、到 68vp 才完全显现：滚过差不多一整行，材质才慢慢罩满（iOS 的手感）
-    const raw: number = (y - 8) / 60;
-    const target: number = raw < 0 ? 0 : (raw > 1 ? 1 : raw);
-    // 量化到 1/20，避免每个像素都触发一次状态刷新
-    const quantized: number = Math.round(target * 20) / 20;
-    if (Math.abs(quantized - this.topBarMaterial) > 0.001) {
-      this.topBarMaterial = quantized;
-    }
-  }
-
-  /**
-   * 顶部毛玻璃：整块均匀材质 + 底部 hairline，透明度跟随滚动位置淡入。
-   */
-  @Builder
-  topProgressiveBlur() {
-    Column()
-      .width('100%')
-      .height(this.topBlurHeight())
-      .backgroundBlurStyle(
-        this.isDark ? BlurStyle.COMPONENT_THICK : BlurStyle.COMPONENT_ULTRA_THICK,
-        {
-          colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT,
-          adaptiveColor: AdaptiveColor.AVERAGE
-        }
-      )
-      .opacity(this.topBarMaterial)
-      .hitTestBehavior(HitTestMode.None)
-  }
-
   @Builder
   headerBar() {
     Row({ space: 4 }) {
@@ -4289,12 +4243,6 @@ export struct ConversationPage {
             this.scheduleTimelineUpdate();
           }
         }
-      })
-      .onScroll(() => {
-        this.syncTopBarMaterial();
-      })
-      .onScrollStop(() => {
-        this.syncTopBarMaterial();
       })
       .onScrollStart(() => {
         // 用户自己拖动过：停掉自动跟随，给一个不被打断的浏览窗口
