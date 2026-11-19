@@ -363,6 +363,8 @@ export struct ConversationPage {
   private lastTouchAt: number = 0;
   private lastUserScrollAt: number = 0;
   /** 时间线重排节流（流式期间用） */
+  /** 主题在本页隐藏时被改过：回到本页需要整表重载一次配色 */
+  private themeDirty: boolean = false;
   private timelineTimer: number = -1;
   private lastTimelineUpdateAt: number = 0;
 
@@ -914,6 +916,11 @@ export struct ConversationPage {
   /** 切换深浅主题后立刻重写状态栏内容色，并强制重载时间线 */
   onIsDarkChanged(): void {
     this.applyStatusBarColor();
+    if (!this.pageVisible) {
+      // 在别的页面切的主题：先记一笔，回到本页时再整表重载（隐藏页重建意义不大）
+      this.themeDirty = true;
+      return;
+    }
     // 时间线是 LazyForEach：已建好的行不会因父级状态变化重建，必须整表重载一次，
     // 让每行（含 Markdown 正文）用新配色重新创建。
     // 注意不能走 rebuildEntries()：它在「行结构没变」时会提前 return，主题切换正好不改结构。
@@ -2667,6 +2674,11 @@ export struct ConversationPage {
     .onShown(() => {
       this.pageVisible = true;
       this.applyStatusBarColor();
+      // 主题是在设置页之类的地方切的：回到本页整表重载一次，保证回复正文/过程文字按新配色重建
+      if (this.themeDirty) {
+        this.themeDirty = false;
+        this.reloadForTheme();
+      }
       // 每次回到会话页都重新读一次工作步骤偏好：设置页改完回来立刻按新档位重排，
       // 不依赖 @StorageProp 的 @Watch 是否触发（被压栈/重建的边界情况下它可能漏拍）。
       if (this.ready) {

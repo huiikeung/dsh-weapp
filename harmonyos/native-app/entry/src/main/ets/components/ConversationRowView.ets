@@ -110,7 +110,13 @@ export struct ConversationRowView {
   /** 小程序 --border */
   /** 分隔线颜色（改名避开 CustomComponent 基类的 borderColor 属性） */
   private ruleColor(): string {
-    return this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.10)';
+    // 深色下 10% 白几乎看不见（尤其 0.5vp 发丝线），提到 24% 保证「运行中」嵌套竖线清晰
+    return this.isDark ? 'rgba(255,255,255,0.24)' : 'rgba(16,19,24,0.12)';
+  }
+
+  /** 上下文详情左侧 2vp 竖线：跟随主题，深色用偏冷灰避免糊在黑底上 */
+  private contextRuleColor(): string {
+    return this.isDark ? 'rgba(150,162,180,0.50)' : 'rgba(142,142,147,0.30)';
   }
 
   /** 小程序 .reasoning-card --reading-bg */
@@ -777,7 +783,7 @@ export struct ConversationRowView {
     .alignItems(HorizontalAlign.Start)
     .margin({ left: this.rpx(15) })
     .padding({ left: this.rpx(27), top: this.rpx(10), bottom: this.rpx(6) })
-    .border({ width: { left: 2 }, color: 'rgba(142,142,147,0.24)' })
+    .border({ width: { left: 2 }, color: this.contextRuleColor() })
   }
 
   @Builder
@@ -939,7 +945,7 @@ export struct ConversationRowView {
       this.stepNodeBase(item)
     }
     .width('100%')
-    .border({ width: { left: 0.5 }, color: this.ruleColor() })
+    .border({ width: { left: 0.75 }, color: this.ruleColor() })
     .padding({ left: this.rpx(14) })
   }
 
@@ -980,7 +986,7 @@ export struct ConversationRowView {
     }
     .width('100%')
     .padding({ left: this.rpx(28) })
-    .border({ width: { left: 0.5 }, color: this.ruleColor() })
+    .border({ width: { left: 0.75 }, color: this.ruleColor() })
   }
 
   @Builder
@@ -990,7 +996,7 @@ export struct ConversationRowView {
     }
     .width('100%')
     .padding({ left: this.rpx(28) })
-    .border({ width: { left: 0.5 }, color: this.ruleColor() })
+    .border({ width: { left: 0.75 }, color: this.ruleColor() })
   }
 
   @Builder
