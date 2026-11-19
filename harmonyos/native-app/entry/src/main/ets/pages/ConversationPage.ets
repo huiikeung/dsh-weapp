@@ -18,6 +18,7 @@ import { ConversationProgress } from '../components/ConversationProgress';
 import { FluKeCoin } from '../components/FluKeCoin';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 import { Haptics } from '../services/Haptics';
+import { HoldingHand } from '../services/HoldingHand';
 
 /** 会话节点卡带：竖向胶囊轨道高度（vp），滑块为细条 */
 const TURN_TRACK_HEIGHT: number = 78;
@@ -342,6 +343,11 @@ export struct ConversationPage {
     // 半模态的遮罩盖住，表现成「整页点不动、滑不动」。进门先收掉。
     this.teamSheetOpen = false;
     this.ready = true;
+    // 智感握姿：订阅左右手持握变化，卡带据此左右切换（不支持的机型静默跳过）
+    try {
+      HoldingHand.start();
+    } catch (ignored) {
+    }
 
     this.requestDockData();
     this.rebuildEntries();
@@ -401,6 +407,7 @@ export struct ConversationPage {
   }
 
   aboutToDisappear(): void {
+    HoldingHand.stop();
     this.ready = false;
     if (this.progressTimer >= 0) {
       clearInterval(this.progressTimer);
@@ -2291,7 +2298,7 @@ export struct ConversationPage {
       .zIndex(30)
       .hitTestBehavior(HitTestMode.None)
 
-      // 会话节点弹层（居中卡片，对齐原生菜单样式）
+      // 会话节点弹层（居中卡片，对齐原生菜单样式）：由胶囊点击打开
       if (this.turnNavOpen) {
         Column() {
           this.turnNavPanel()
@@ -2299,6 +2306,11 @@ export struct ConversationPage {
         .width('100%')
         .height('100%')
         .zIndex(40)
+      }
+
+      // 会话节点胶囊：常显浮层（左右拖动吸附折叠，点击展开/打开弹层）
+      if (this.pageW > 0) {
+        this.floatingCapsule()
       }
 
       // 会话侧栏：全屏透明命中层 + 右上角悬浮面板（对齐小程序 conv-sidebar）
@@ -2309,6 +2321,10 @@ export struct ConversationPage {
       }
       .width('100%')
       .height('100%')
+      .onAreaChange((oldValue: Area, newValue: Area) => {
+        this.pageW = Number(newValue.width);
+        this.pageH = Number(newValue.height);
+      })
       // 团队内容面板：系统半模态（对齐 dsh-mobile TeamContentSheet 的 detents）
       // 团队内容面板：与首页「切换主机」同款系统半模态（ImmersiveMaterial 沉浸光感）
       .bindSheet($$this.teamSheetOpen, this.teamSheetContent(), {
@@ -2361,6 +2377,18 @@ export struct ConversationPage {
   @State turnNodeIndex: number = 0;
   /** 右侧卡带轨道高度（用于把拖动位移换算成节点下标） */
   @State turnTrackHeight: number = 0;
+  /** 智感握姿：1 = 左手，2 = 右手（3 双手 / 0 / 16 未知） */
+  @StorageLink('holdingHand') @Watch('onHoldingHand') holdingHand: number = 0;
+  /** 胶囊停靠边（握姿去抖结果 + 手动拖动都写这里） */
+  @State capsuleSide: string = 'right';
+  /** 胶囊是否展开（拖动吸附到边后折叠成把手，点击再展开） */
+  @State capsuleExpanded: boolean = true;
+  /** 拖动位移：跟手反馈，松手回弹/吸附都用它 */
+  @State capsuleDragX: number = 0;
+  /** 页面尺寸（用于胶囊绝对定位） */
+  @State pageW: number = 0;
+  @State pageH: number = 0;
+  private holdTimer: number = -1;
   private turnListScroller: Scroller = new Scroller();
   private turnScrubStartIndex: number = 0;
   /** 弹窗内上下滑动切换节点的起始下标与累计位移 */
@@ -3817,26 +3845,6 @@ export struct ConversationPage {
         this.openSessionSwitcher();
       })
 
-      // 会话节点：三横线（位于「⋯」左侧）
-      Button({ type: ButtonType.Circle }) {
-        Column({ space: 3.5 }) {
-          Row().width(15).height(1.6).borderRadius(1).backgroundColor(this.textColor())
-          Row().width(15).height(1.6).borderRadius(1).backgroundColor(this.textColor())
-          Row().width(15).height(1.6).borderRadius(1).backgroundColor(this.textColor())
-        }
-        .justifyContent(FlexAlign.Center)
-        .alignItems(HorizontalAlign.Center)
-        .hitTestBehavior(HitTestMode.None)
-      }
-      .id('conversation-nodes')
-      .width(44)
-      .height(44)
-      .backgroundColor(Color.Transparent)
-      .accessibilityText('会话节点')
-      .onClick(() => {
-        this.openTurnNav();
-      })
-
       Button({ type: ButtonType.Circle }) {
         Text('⋯').fontSize(18).fontColor(this.textColor())
       }
@@ -4400,20 +4408,9 @@ export struct ConversationPage {
       })
 
       if (!this.autoStick && this.entries.length > 0) {
-        // 回到底部：居中圆形按钮，结构与「返回」按钮（NavBackButton）完全一致——
-        // 外层 1.3vp 白色光圈包住 37.4 玻璃圆盘（背景模糊 + 半透明底色 + 0.5 细边），再加轻微悬浮投影。
+        // 回到底部：与「返回」按钮同款的 iOS Liquid Glass 玻璃盘（无实色外圈）
         Row() {
           Stack({ alignContent: Alignment.Center }) {
-            // 运行中：玻璃盘外圈叠一段蓝色弧（对齐小程序 .jump-ring）
-            if (this.running) {
-              Circle()
-                .width(30)
-                .height(30)
-                .fill(Color.Transparent)
-                .stroke('#2E6BE6')
-                .strokeWidth(1.5)
-                .strokeDashArray([24, 60])
-            }
             // 与「返回」按钮完全同款：iOS Liquid Glass 单一玻璃盘（无实色外圈）
             Button({ type: ButtonType.Circle }) {
               // 向下箭头：右 + 下 1.8vp 描边旋转 45°
@@ -4431,7 +4428,9 @@ export struct ConversationPage {
             .height(40)
             // 极淡同色调底（深色深蓝 tint 22% / 浅色白 10%），透感交给模糊
             .backgroundColor(this.isDark ? 'rgba(10,30,60,0.22)' : 'rgba(255,255,255,0.10)')
-            .backdropBlur(20)
+            // clip(true)：圆形边界内裁掉 backdropBlur 采样不到像素时产生的月牙状暗边
+            .clip(true)
+            .backdropBlur(12)
             // 内缘高光：顶部最亮、向下渐暗（玻璃反光弧）
             .border({
               width: 0.8,
@@ -4446,10 +4445,12 @@ export struct ConversationPage {
               this.autoStick = true;
               this.scroller.scrollEdge(Edge.Bottom);
             })
-            .shadow({ radius: 16, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 8 })
           }
           .width(40)
           .height(40)
+          .borderRadius(20)
+          // 投影必须画在不裁剪的容器上：Button 会裁剪自身 shadow，圆形 + offsetY 会在右下角露出方形黑块
+          .shadow({ radius: 12, color: this.isDark ? 'rgba(0,0,0,0.40)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 6 })
         }
         .width('100%')
         .padding({ bottom: 10 })
@@ -4592,6 +4593,114 @@ export struct ConversationPage {
     }
     const usable: number = Math.max(0, TURN_TRACK_HEIGHT - TURN_THUMB_HEIGHT);
     return usable * (this.turnNodeIndex / (count - 1));
+  }
+
+  /** 握姿变化：稳定 500ms 后再切换，且带补间动画，避免生硬跳变 */
+  private onHoldingHand(): void {
+    if (this.holdTimer >= 0) {
+      clearTimeout(this.holdTimer);
+      this.holdTimer = -1;
+    }
+    this.holdTimer = setTimeout(() => {
+      this.holdTimer = -1;
+      const side: string = this.holdingHand === HoldingHand.LEFT ? 'left' : 'right';
+      if (side === this.capsuleSide) {
+        return;
+      }
+      animateTo({ duration: 280, curve: Curve.EaseInOut }, () => {
+        this.capsuleSide = side;
+        this.capsuleDragX = 0;
+      });
+    }, 500);
+  }
+
+  /** 胶囊宽度（展开 36 / 折叠 16） */
+  private capsuleWidth(): number {
+    return this.capsuleExpanded ? TURN_TRACK_WIDTH : 16;
+  }
+
+  /** 胶囊左上角坐标：贴侧边 + 垂直居中偏上，叠加拖动位移 */
+  private capsuleX(): number {
+    const edge: number = 10;
+    return this.capsuleSide === 'left'
+      ? edge + this.capsuleDragX
+      : this.pageW - edge - this.capsuleWidth() + this.capsuleDragX;
+  }
+
+  private capsuleY(): number {
+    const height: number = this.capsuleExpanded ? TURN_TRACK_HEIGHT : 56;
+    const centerY: number = this.pageH > 0 ? this.pageH * 0.42 : 240;
+    return centerY - height / 2;
+  }
+
+  /** 拖动结束：越过阈值就吸附到对应边并折叠，否则回弹 */
+  private settleCapsule(offsetX: number): void {
+    const threshold: number = 56;
+    if (Math.abs(offsetX) < threshold) {
+      animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
+        this.capsuleDragX = 0;
+      });
+      return;
+    }
+    const side: string = offsetX < 0 ? 'left' : 'right';
+    animateTo({ duration: 260, curve: Curve.EaseInOut }, () => {
+      this.capsuleSide = side;
+      this.capsuleExpanded = false;
+      this.capsuleDragX = 0;
+    });
+  }
+
+  /** 点击胶囊：折叠态先展开；展开态打开会话节点弹层 */
+  private tapCapsule(): void {
+    if (!this.capsuleExpanded) {
+      animateTo({ duration: 240, curve: Curve.EaseOut }, () => {
+        this.capsuleExpanded = true;
+      });
+      return;
+    }
+    this.openTurnNav();
+  }
+
+  /** 常显胶囊：展开=刻度卡带；折叠=细把手；横向拖动吸附折叠，点击展开/打开弹层 */
+  @Builder
+  floatingCapsule() {
+    Column() {
+      if (this.capsuleExpanded) {
+        this.turnScrubber()
+      } else {
+        Column({ space: 5 }) {
+          Circle().width(4).height(4).fill(this.isDark ? 'rgba(255,255,255,0.45)' : 'rgba(16,19,24,0.30)')
+          Circle().width(4).height(4).fill(this.isDark ? 'rgba(255,255,255,0.45)' : 'rgba(16,19,24,0.30)')
+        }
+        .width(16)
+        .height(56)
+        .borderRadius(8)
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .backgroundColor(this.turnNavGlass())
+        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.60)' })
+        .shadow({ radius: 10, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetY: 2 })
+      }
+    }
+    .width(this.capsuleWidth())
+    .position({ x: this.capsuleX(), y: this.capsuleY() })
+    .zIndex(60)
+    .onClick(() => {
+      this.tapCapsule();
+    })
+    .gesture(
+      PanGesture({ direction: PanDirection.Horizontal })
+        .onActionUpdate((event: GestureEvent) => {
+          this.capsuleDragX = event.offsetX;
+        })
+        .onActionEnd((event: GestureEvent) => {
+          this.settleCapsule(event.offsetX);
+        })
+        .onActionCancel(() => {
+          this.settleCapsule(0);
+        })
+    )
   }
 
   /** 卡带上第 index 条节点横线的纵坐标 */
@@ -4805,16 +4914,6 @@ export struct ConversationPage {
       .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.42)' : 'rgba(0,0,0,0.12)', offsetY: 6 })
       .clip(true)
 
-      // 卡带放在卡片外侧（贴屏幕右缘）：竖向胶囊 + 深色滑块显示 N/M
-      Row() {
-        Blank()
-        this.turnScrubber()
-      }
-      .width('100%')
-      .height('100%')
-      .padding({ right: 14 })
-      .alignItems(VerticalAlign.Center)
-      .hitTestBehavior(HitTestMode.Transparent)
     }
     .width('100%')
     .height('100%')
@@ -5166,6 +5265,7 @@ export struct ConversationPage {
                       .objectFit(ImageFit.Contain)
                       .opacity(0.55)
                   }
+                  .id('conv-new-' + group.id)
                   .width(28)
                   .height(28)
                   .justifyContent(FlexAlign.Center)
@@ -5182,12 +5282,15 @@ export struct ConversationPage {
                   .margin({ left: -4 })
                   .opacity(0.7)
               }
+              .id('conv-group-' + group.id)
               .width('100%')
               .height(38)
               .padding({ left: 12, right: 8 })
               .borderRadius(9)
               .onClick(() => {
+                Logger.info('[SidebarTap] group=' + group.id + ' expanded=' + (group.expanded ? '1' : '0'));
                 this.toggleConvSidebarGroup(group.id);
+                Logger.info('[SidebarTap] groups=' + this.convSidebarGroups.length + ' open=' + this.convSidebarGroups.filter((g: ConvSidebarGroup) => g.expanded).length.toString());
               })
 
               if (group.expanded) {
@@ -5216,6 +5319,7 @@ export struct ConversationPage {
                       .fontSize(11)
                       .fontColor(this.subColor())
                   }
+                  .id('conv-session-' + session.id)
                   .width('100%')
                   .height(34)
                   .padding({ left: 18, right: 8 })
@@ -5224,12 +5328,16 @@ export struct ConversationPage {
                     ? (this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
                     : Color.Transparent)
                   .onClick(() => {
-                    this.openSession(session.id);
+                    Logger.info('[SidebarTap] session=' + session.id + ' current=' + SessionStore.get().currentSessionId());
                     this.closeSessionSwitcher();
+                    this.openSession(session.id);
+                    Logger.info('[SidebarTap] after open current=' + SessionStore.get().currentSessionId());
                   })
                 }, (session: ConvSidebarSession) => session.id)
               }
-            }, (group: ConvSidebarGroup) => group.id)
+              // key 必须带展开状态：ArkUI 的 ForEach 在 key 不变时复用节点、不重跑 itemBuilder，
+              // 只改 data 里的 expanded 不会刷新出/收起会话行
+            }, (group: ConvSidebarGroup) => group.id + (group.expanded ? ':open' : ':closed'))
             }
             .width('100%')
             .padding({ left: 8, right: 8 })
@@ -5270,6 +5378,7 @@ export struct ConversationPage {
         .width('100%')
         .padding({ bottom: 4 })
         }
+        .id('conv-sidebar')
         .width(this.convSidebarWidth())
         .height(this.convSidebarHeight())
         .padding({ top: 5 })
