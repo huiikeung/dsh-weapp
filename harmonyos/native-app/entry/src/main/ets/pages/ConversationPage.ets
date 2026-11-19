@@ -2216,6 +2216,10 @@ export struct ConversationPage {
           ctxToolsPct: this.contextSegmentPercent('toolsTokens'),
           ctxMsgPct: this.contextSegmentPercent('messageTokens'),
           attachmentCount: this.pickedAttachments.length,
+          attachments: this.pickedAttachments,
+          onRemoveAttachment: (uri: string) => {
+            this.pickedAttachments = this.pickedAttachments.filter((item: PickedAttachment) => item.uri !== uri);
+          },
           metricPairsFor: (kind: string): MetricMenuPair[] => {
             const pairs: MetricMenuPair[] = [];
             const rows: MetricPair[] = this.buildMetricPairs(kind);
@@ -4261,29 +4265,79 @@ export struct ConversationPage {
     .justifyContent(FlexAlign.Center)
   }
 
-  /** 已选附件条。 */
+  /** 按扩展名判断图片附件：图片走缩略图，其它走回形针文件胶囊 */
+  private isImageAttachment(name: string): boolean {
+    const lower: string = name.toLowerCase();
+    return lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') ||
+      lower.endsWith('.webp') || lower.endsWith('.heic') || lower.endsWith('.heif') ||
+      lower.endsWith('.gif') || lower.endsWith('.bmp');
+  }
+
+  /**
+   * 已选附件预览（对齐小程序 composer-images / pending-file，也与 iOS 附件托盘一致）：
+   *   · 图片 → 52×52 缩略图卡（10 圆角）
+   *   · 文件 → 回形针图标 + 文件名胶囊
+   *   · 两者右上角都有圆形删除钮（不再点整块误删）
+   */
   @Builder
   attachmentStrip() {
-    Row({ space: 6 }) {
-      ForEach(this.pickedAttachments, (attachment: PickedAttachment) => {
-        Text(attachment.name)
-          .fontSize(11)
-          .fontColor(this.textColor())
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .padding({ left: 8, right: 8, top: 5, bottom: 5 })
-          .borderRadius(8)
-          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
-          .onClick(() => {
-            this.pickedAttachments = this.pickedAttachments.filter((item: PickedAttachment) => item.uri !== attachment.uri);
-          })
-      }, (attachment: PickedAttachment) => attachment.uri)
-      if (this.attachmentHint.length > 0) {
-        Text(this.attachmentHint).fontSize(11).fontColor(this.subColor())
+    Scroll() {
+      Row({ space: 8 }) {
+        ForEach(this.pickedAttachments, (attachment: PickedAttachment) => {
+          Stack({ alignContent: Alignment.TopEnd }) {
+            if (this.isImageAttachment(attachment.name)) {
+              Image(attachment.uri)
+                .width(52)
+                .height(52)
+                .borderRadius(10)
+                .objectFit(ImageFit.Cover)
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.04)')
+            } else {
+              Row({ space: 5 }) {
+                SymbolGlyph($r('sys.symbol.paperclip'))
+                  .fontSize(13)
+                  .fontColor([this.subColor()])
+                Text(attachment.name)
+                  .fontSize(12)
+                  .fontColor(this.textColor())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .constraintSize({ maxWidth: 110 })
+              }
+              .height(30)
+              .padding({ left: 9, right: 9 })
+              .borderRadius(9)
+              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
+              .alignItems(VerticalAlign.Center)
+            }
+            // 右上角圆形删除钮（半透明黑底 + 白 ×）
+            Stack() {
+              Text('×')
+                .fontSize(11)
+                .fontWeight(FontWeight.Bold)
+                .fontColor('#FFFFFF')
+            }
+            .width(18)
+            .height(18)
+            .borderRadius(9)
+            .backgroundColor('rgba(0,0,0,0.62)')
+            .alignContent(Alignment.Center)
+            .margin({ top: -3, right: -3 })
+            .onClick(() => {
+              this.pickedAttachments = this.pickedAttachments.filter((item: PickedAttachment) => item.uri !== attachment.uri);
+            })
+          }
+        }, (attachment: PickedAttachment) => attachment.uri)
+        if (this.attachmentHint.length > 0) {
+          Text(this.attachmentHint).fontSize(11).fontColor(this.subColor())
+        }
       }
+      .padding({ left: 16, right: 16, top: 4, bottom: 4 })
     }
     .width('100%')
-    .padding({ left: 16, right: 16, top: 2, bottom: 4 })
+    .scrollable(ScrollDirection.Horizontal)
+    .scrollBar(BarState.Off)
+    .align(Alignment.Start)
   }
 
   /** 时间线：LazyForEach + 吸底跟随 + 回到底部。 */

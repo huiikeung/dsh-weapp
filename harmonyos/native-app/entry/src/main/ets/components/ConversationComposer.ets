@@ -34,6 +34,10 @@ export struct ConversationComposer {
   @Prop modelBadge: string = '';
   @Prop effortLabel: string = '';
   @Prop attachmentCount: number = 0;
+  /** 已选附件（图片走缩略图预览、文件走回形针胶囊） */
+  @Prop attachments: PickedAttachment[] = [];
+  /** 点击附件右上角删除钮 */
+  onRemoveAttachment: (uri: string) => void = () => {};
   /** 第一层菜单（模型 / 推理等级）展开态 */
   @State modelRootShown: boolean = false;
   /** 第二层菜单展开态 */
@@ -427,17 +431,77 @@ export struct ConversationComposer {
 
 
   // ==================== 展开态 ====================
+  /** 按扩展名判断图片附件：图片走缩略图，其它走回形针文件胶囊 */
+  private isImageAttachment(name: string): boolean {
+    const lower: string = name.toLowerCase();
+    return lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') ||
+      lower.endsWith('.webp') || lower.endsWith('.heic') || lower.endsWith('.heif') ||
+      lower.endsWith('.gif') || lower.endsWith('.bmp');
+  }
+
+  /**
+   * 已选附件预览（对齐小程序 composer-images / pending-file，也与 iOS 附件托盘一致）：
+   *   · 图片 → 52×52 缩略图卡（10 圆角）
+   *   · 文件 → 回形针图标 + 文件名胶囊
+   *   · 右上角圆形删除钮
+   */
   @Builder
   attachmentRow() {
-    Row() {
-      Text('已选择 ' + this.attachmentCount.toString() + ' 个附件')
-        .fontSize(12)
-        .fontColor(this.chipText())
-        .maxLines(1)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    Scroll() {
+      Row({ space: 8 }) {
+        ForEach(this.attachments, (attachment: PickedAttachment) => {
+          Stack({ alignContent: Alignment.TopEnd }) {
+            if (this.isImageAttachment(attachment.name)) {
+              Image(attachment.uri)
+                .width(52)
+                .height(52)
+                .borderRadius(10)
+                .objectFit(ImageFit.Cover)
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.04)')
+            } else {
+              Row({ space: 5 }) {
+                SymbolGlyph($r('sys.symbol.paperclip'))
+                  .fontSize(13)
+                  .fontColor([this.chipText()])
+                Text(attachment.name)
+                  .fontSize(12)
+                  .fontColor(this.chipText())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .constraintSize({ maxWidth: 110 })
+              }
+              .height(30)
+              .padding({ left: 9, right: 9 })
+              .borderRadius(9)
+              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
+              .alignItems(VerticalAlign.Center)
+            }
+            // 右上角圆形删除钮（半透明黑底 + 白 ×）
+            Stack() {
+              Text('×')
+                .fontSize(11)
+                .fontWeight(FontWeight.Bold)
+                .fontColor('#FFFFFF')
+            }
+            .width(18)
+            .height(18)
+            .borderRadius(9)
+            .backgroundColor('rgba(0,0,0,0.62)')
+            .alignContent(Alignment.Center)
+            // 向内收：负 margin 越界会被父级 Scroll 裁掉上半截
+            .margin({ top: 2, right: 2 })
+            .onClick(() => {
+              this.onRemoveAttachment(attachment.uri);
+            })
+          }
+        }, (attachment: PickedAttachment) => attachment.uri)
+      }
+      .padding({ left: 2, right: 2, top: 4, bottom: 6 })
     }
     .width('100%')
-    .padding({ left: 2, right: 2, bottom: 4 })
+    .scrollable(ScrollDirection.Horizontal)
+    .scrollBar(BarState.Off)
+    .align(Alignment.Start)
   }
 
   @Builder
