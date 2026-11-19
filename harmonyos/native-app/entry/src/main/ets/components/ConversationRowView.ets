@@ -45,7 +45,9 @@ export struct ConversationRowView {
   /** 运行中过程体：限高滚动条，跟随最新一步 */
   private processScroller: Scroller = new Scroller();
   /** 实时主题：LazyForEach 创建的行不会跟随父级 @Prop 刷新，直接订阅 AppStorage */
-  @StorageLink('isDark') isDark: boolean = false;
+  @StorageLink('isDark') @Watch('onThemeChanged') isDark: boolean = false;
+  /** 主题换代号：拼进 ForEach key，切主题时强制重建步骤节点（否则旧配色被复用） */
+  @State themeGeneration: number = 0;
   /** 会话正文/用户气泡字号档位（设置页「字号大小」，响应式） */
   @StorageProp('contentFontSize') contentFontSize: string = '标准';
   /** 执行图标动效样式（设置页「执行图标」，13 种） */
@@ -109,6 +111,10 @@ export struct ConversationRowView {
 
   /** 小程序 --border */
   /** 分隔线颜色（改名避开 CustomComponent 基类的 borderColor 属性） */
+  onThemeChanged(): void {
+    this.themeGeneration += 1;
+  }
+
   private ruleColor(): string {
     // 深色下 10% 白几乎看不见（尤其 0.5vp 发丝线），提到 24% 保证「运行中」嵌套竖线清晰
     return this.isDark ? 'rgba(255,255,255,0.24)' : 'rgba(16,19,24,0.12)';
@@ -1019,7 +1025,7 @@ export struct ConversationRowView {
           }
         }
         .width('100%')
-      }, (item: ConversationItem, index: number) => this.stepKey(item))
+      }, (item: ConversationItem, index: number) => this.stepKey(item) + '#' + this.themeGeneration)
     }
     .width('100%')
     // 对齐小程序 .process-body { padding: 2rpx 0 6rpx }

@@ -22,7 +22,13 @@ const MONO_FONT: string = 'monospace';
 export struct MarkdownBodyView {
   @Prop @Watch('onTextChanged') text: string = '';
   /** 实时主题：直接订阅 AppStorage，避免所在行（LazyForEach 行）的 @Prop 没刷新时颜色不跟随 */
-  @StorageProp('isDark') isDark: boolean = false;
+  @StorageProp('isDark') @Watch('onThemeChanged') isDark: boolean = false;
+  /**
+   * 主题换代号：ForEach 的 key 里带上它。
+   * ArkUI 的 ForEach 在 key 不变时会直接复用旧节点、不重跑 item builder，
+   * 而 Markdown 的颜色/底色是在 builder 里算的 —— 不带代次就会出现「切主题后正文颜色不变」。
+   */
+  @State themeGeneration: number = 0;
   /** 正文字号（助手 16 / 紧凑场景 13） */
   @Prop fontSize: number = 18.5;
   /** 正文色覆盖：只用于错误态（红色）；空串表示跟随主题 */
@@ -34,6 +40,10 @@ export struct MarkdownBodyView {
 
   aboutToAppear(): void {
     this.parseNow();
+  }
+
+  onThemeChanged(): void {
+    this.themeGeneration += 1;
   }
 
   aboutToDisappear(): void {
@@ -143,7 +153,7 @@ export struct MarkdownBodyView {
           .decoration(span.style === 'link'
             ? { type: TextDecorationType.Underline, color: ACCENT }
             : { type: TextDecorationType.None, color: Color.Transparent })
-      }, (span: InlineSpan, index: number) => index.toString() + '_' + span.style)
+      }, (span: InlineSpan, index: number) => index.toString() + '_' + span.style + '_' + this.themeGeneration)
     }
     .width('100%')
     .fontSize(size)
@@ -167,7 +177,7 @@ export struct MarkdownBodyView {
           .textBackgroundStyle(span.style === 'code'
             ? { color: this.fillColor(), radius: 4 }
             : { color: Color.Transparent, radius: 0 })
-      }, (span: InlineSpan, index: number) => index.toString() + '_' + span.style)
+      }, (span: InlineSpan, index: number) => index.toString() + '_' + span.style + '_' + this.themeGeneration)
     }
     .fontSize(this.cellSize())
     .fontColor(this.bodyColor())
@@ -250,17 +260,17 @@ export struct MarkdownBodyView {
           Row() {
             ForEach(block.headers, (cell: string, index: number) => {
               this.cell(MarkdownLite.inline(cell), true)
-            }, (cell: string, index: number) => 'h' + index.toString())
+            }, (cell: string, index: number) => 'h' + index.toString() + '_' + this.themeGeneration)
           }
           .backgroundColor(this.fillColor())
           ForEach(block.rows, (row: string[], rowIndex: number) => {
             Row() {
               ForEach(row, (cell: string, cellIndex: number) => {
                 this.cell(MarkdownLite.inline(cell), false)
-              }, (cell: string, cellIndex: number) => 'c' + rowIndex.toString() + '-' + cellIndex.toString())
+              }, (cell: string, cellIndex: number) => 'c' + rowIndex.toString() + '-' + cellIndex.toString() + '_' + this.themeGeneration)
             }
             .backgroundColor(rowIndex % 2 === 0 ? this.fillColor() : Color.Transparent)
-          }, (row: string[], rowIndex: number) => 'r' + rowIndex.toString())
+          }, (row: string[], rowIndex: number) => 'r' + rowIndex.toString() + '_' + this.themeGeneration)
         }
         .alignItems(HorizontalAlign.Start)
         .borderRadius(8)
@@ -284,7 +294,7 @@ export struct MarkdownBodyView {
     Column({ space: 0 }) {
       ForEach(this.blocks, (block: MarkdownBlock, index: number) => {
         this.blockView(block)
-      }, (block: MarkdownBlock, index: number) => index.toString() + block.kind)
+      }, (block: MarkdownBlock, index: number) => index.toString() + block.kind + '_' + this.themeGeneration)
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')
