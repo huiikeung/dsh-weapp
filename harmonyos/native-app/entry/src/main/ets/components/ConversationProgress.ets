@@ -208,11 +208,7 @@ export struct ConversationProgress {
       .height(21)
       .alignContent(Alignment.Center)
       .flexShrink(0)
-      // 间隙收窄 7→5vp（「再小一点点」）
-      .margin({ right: 5 })
-      // 整体下移 0.75vp：真机量测（彩色像素）无偏移时鲸尾底边比文字底边高约 3px，
-      // 下移 0.75vp 正好让两者底边齐平；2vp 会过头（底边反低 5px）。
-      .translate({ y: 0.75 })
+      .margin({ right: 7 })
 
       // ② 流光文字：24rpx≈14.1vp / 400 / 行高 36rpx≈21vp，逐字渐变
       Row() {
