@@ -4462,14 +4462,14 @@ export struct ConversationPage {
             // clip(true)：圆形边界内裁掉 backdropBlur 采样不到像素时产生的月牙状暗边
             .clip(true)
             .backdropBlur(12)
-            // 内缘高光：顶部最亮、向下渐暗（玻璃反光弧）
+            // 内缘高光：顶部最亮、向下渐暗。浅色页面底色本就更亮，白边要压暗一档才不会变成白圈
             .border({
               width: 0.8,
               color: {
-                top: 'rgba(255,255,255,0.62)',
-                left: 'rgba(255,255,255,0.30)',
-                right: 'rgba(255,255,255,0.30)',
-                bottom: 'rgba(255,255,255,0.12)'
+                top: this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.34)',
+                left: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.16)',
+                right: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.16)',
+                bottom: this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.05)'
               }
             })
             .onClick(() => {

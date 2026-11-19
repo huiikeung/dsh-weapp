@@ -60,10 +60,10 @@ export struct NavBackButton {
       ? {
         width: 0.8,
         color: {
-          top: 'rgba(255,255,255,0.62)',
-          left: 'rgba(255,255,255,0.30)',
-          right: 'rgba(255,255,255,0.30)',
-          bottom: 'rgba(255,255,255,0.12)'
+          top: this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.34)',
+          left: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.16)',
+          right: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.16)',
+          bottom: this.isDark ? 'rgba(255,255,255,0.07)' : 'rgba(255,255,255,0.05)'
         }
       }
       : { width: 0, color: Color.Transparent })
