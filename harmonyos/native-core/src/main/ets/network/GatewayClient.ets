@@ -404,6 +404,20 @@ export class GatewayClient {
   }
 
   /** 蜂窝下把局域网入口换成 tailnet 入口（wss://<gateway>.ts.net/ws/mobile） */
+  /** 用 tailnet DNS 后缀合成网关的 ts.net WebSocket 入口 */
+  private tailnetUrlFromApp(): string {
+    const suffix: string = AppStorage.get<string>('tailnetDnsSuffix') ?? '';
+    if (suffix.length === 0) {
+      return '';
+    }
+    let name: string = AppStorage.get<string>('tailnetGatewayPeerName') ?? '';
+    if (name.length === 0) {
+      name = 'dsh-gateway';
+    }
+    name = name.split('.')[0];
+    return 'wss://' + name + '.' + suffix + '/ws/mobile';
+  }
+
   /** ws://100.x:3081 这类临时 tailnet IP 入口无效（网关只在 ts.net 443 上 serve） */
   private isTransientTailnetUrl(url: string): boolean {
     return this.isTailnetAddress(url) && url.indexOf('.ts.net') < 0;
@@ -690,7 +704,9 @@ export class GatewayClient {
     }
     // Tailscale 开启时或目标是 tailnet 地址：等隧道就绪后走隧道（最多 ~37s，之后回退直连避免卡死）
     // 只有目标是 tailnet 地址时才等隧道；普通局域网/公网入口立即连接（隧道在后台预热）
+    const tailscaleEnabled: boolean = AppStorage.get<boolean>('tailscaleTunnelEnabled') ?? false;
     const tunnelNeeded: boolean = this.isTailnetAddress(profile.wsUrl) ||
+      (tailscaleEnabled && this.isLocalEndpoint(profile.wsUrl)) ||
       (this.networkBearer === 'cellular' && this.isLocalEndpoint(profile.wsUrl) &&
         (AppStorage.get<boolean>('tailscaleTunnelEnabled') ?? false));
     if (tunnelNeeded && !this.tailnetReady()) {
@@ -820,7 +836,8 @@ export class GatewayClient {
     if (tailnetTarget) {
       this.tailnetAttemptFailed = false;
     }
-    const lanDirect: boolean = this.isLocalEndpoint(profile.wsUrl) && this.networkBearer === 'wifi' && !this.forceTailnet;
+    const lanDirect: boolean = this.isLocalEndpoint(profile.wsUrl) && this.networkBearer === 'wifi' &&
+      !this.forceTailnet && !tailscaleEnabled;
     if (!lanDirect && this.tailnetReady() && (tailnetTarget || !this.tailnetAttemptFailed)) {
       const dialed: string = this.tailnetDialer(profile.wsUrl);
       if (dialed.length > 0) {
@@ -1919,9 +1936,17 @@ export class GatewayClient {
     Logger.info('auto connect credential: tokenLen=' + savedAfterClean.token.length
       + ' pairCodeLen=' + savedAfterClean.pairCode.length
       + ' accessTokenLen=' + savedAfterClean.accessToken.length);
-    const candidates: string[] = (savedAfterClean.endpoints !== undefined && savedAfterClean.endpoints.length > 0
+    let candidates: string[] = (savedAfterClean.endpoints !== undefined && savedAfterClean.endpoints.length > 0
       ? savedAfterClean.endpoints.slice() : [savedAfterClean.wsUrl])
       .filter((url: string) => !this.isTransientTailnetUrl(url));
+    const tailscaleOn: boolean = AppStorage.get<boolean>('tailscaleTunnelEnabled') ?? false;
+    if (tailscaleOn) {
+      const synth: string = this.tailnetUrlFromApp();
+      if (synth.length > 0 && candidates.indexOf(synth) < 0) {
+        candidates = [synth].concat(candidates);
+        Logger.info('auto connect prefer tailnet ' + synth);
+      }
+    }
     this.allEndpoints = candidates;
     // 按当前网络类型决定先连局域网还是公网
     const ordered: string[] = this.orderEndpoints(candidates);
