@@ -55,8 +55,17 @@ scripts/prepare-tailscale-engine.sh --check   # 只读校验（工具链身份 /
      "$PWD/harmonyos/native/go_bridge/vendor/patches/cold-peer.patch"
    ```
 
-   `third_party/` 被 git 忽略；但 `entry/libs/` 下的 `libtailscale_go.{so,h}` **已入库**（clone 即用，重新构建会覆盖），
-   正式发布前用 `git rm --cached harmonyos/native-app/entry/libs/arm64-v8a/libtailscale_go.{so,h}` 移除。
+   `third_party/` 被 git 忽略；但 `entry/libs/` 下的 `libtailscale_go.{so,h}` **已入库**（clone 即用，重新构建会覆盖）。
+
+## 移除（正式发布前）
+
+```bash
+git rm --cached harmonyos/native-app/entry/libs/arm64-v8a/libtailscale_go.so \\
+               harmonyos/native-app/entry/libs/arm64-v8a/libtailscale_go.h
+```
+
+移除后 `entry/src/main/cpp/CMakeLists.txt` 回落到 `libtailscale_stub/` 桩（Tailscale 页显示引擎不可用）；
+重新生成用 `scripts/prepare-tailscale-engine.sh --build`，或从其他机器拷贝 `.so`/`.h` 回来。
 
 ## 构建
 

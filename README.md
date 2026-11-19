@@ -156,6 +156,35 @@ DSH 0.2.1-rc.3 起不再提供 `contextTimeline` / `contextActivity` / `costMete
 因此升级本仓库后需要**重新运行上面的安装命令并重启 DSH**，否则「上下文洞察」
 页的耗时/技能/费用仍会停留在旧数据形状（小程序端会显示空态而不是假数据）。
 
+## 内嵌 Tailscale 引擎（预编译产物）
+
+`harmonyos/native-app/entry/libs/arm64-v8a/` 下的 `libtailscale_go.{so,h}` **已入库**（Tailscale v1.104.5，47 MB），
+目的是让 clone 后无需 Go 工具链即可直接出带真引擎的 HAP。它由 `harmonyos/native/go_bridge/` 构建，
+源码、补丁（platform + cold-peer）与 pin 全部在仓库内，见 [go_bridge/README.md](harmonyos/native/go_bridge/README.md)。
+
+- 重新构建：`scripts/prepare-tailscale-engine.sh --build`（首次需官方 Go 1.27.3 + 网络）
+- 只校验：`scripts/build-go-ohos.sh --check`（工具链身份 / 版本 / 补丁数 / 50 个 `TS*` 导出）
+
+**正式发布前移除**
+
+```bash
+# 仅从仓库移除（本地文件保留，方便继续构建）
+git rm --cached harmonyos/native-app/entry/libs/arm64-v8a/libtailscale_go.so \
+               harmonyos/native-app/entry/libs/arm64-v8a/libtailscale_go.h
+
+# 连本地文件一起删（之后 HAP 会回落到桩实现）
+git rm --cached harmonyos/native-app/entry/libs/arm64-v8a/libtailscale_go.so \
+               harmonyos/native-app/entry/libs/arm64-v8a/libtailscale_go.h
+rm -f harmonyos/native-app/entry/libs/arm64-v8a/libtailscale_go.{so,h}
+```
+
+移除后 `entry/src/main/cpp/CMakeLists.txt` 会自动回落到 `libtailscale_stub/` 桩：HAP 仍可编译安装，
+但 App 内 Tailscale 页 / 内嵌隧道显示「引擎不可用」。发布带引擎的包前，先按上面的「重新构建」生成，
+或从其他机器拷贝 `.so`/`.h` 回来。
+
+> 想彻底清理 git 历史里的 47 MB：`git filter-repo --path harmonyos/native-app/entry/libs/ --invert-paths`
+> 或 `bfg --delete-files 'libtailscale_go.*'`。这会重写所有提交哈希，必须 force push 并通知协作者。
+
 ## 目录结构
 
 ```text
