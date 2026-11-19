@@ -4414,8 +4414,9 @@ export struct ConversationPage {
                 .strokeWidth(1.5)
                 .strokeDashArray([24, 60])
             }
+            // 与「返回」按钮完全同款：iOS Liquid Glass 单一玻璃盘（无实色外圈）
             Button({ type: ButtonType.Circle }) {
-              // 向下箭头：右 + 下 1.8vp 描边旋转 45°（与返回箭头同一套画法）
+              // 向下箭头：右 + 下 1.8vp 描边旋转 45°
               Row()
                 .width(8)
                 .height(8)
@@ -4426,24 +4427,29 @@ export struct ConversationPage {
                 .rotate({ angle: 45 })
                 .translate({ y: -1.5 })
             }
-            .width(37.4)
-            .height(37.4)
-            // 与返回按钮同款玻璃：半透明底色 + 背景模糊 + 0.5 内缘细边
-            .backgroundColor(this.isDark ? 'rgba(8,8,10,0.60)' : 'rgba(255,255,255,0.80)')
-            .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)' })
+            .width(40)
+            .height(40)
+            // 极淡同色调底（深色深蓝 tint 22% / 浅色白 10%），透感交给模糊
+            .backgroundColor(this.isDark ? 'rgba(10,30,60,0.22)' : 'rgba(255,255,255,0.10)')
+            .backdropBlur(20)
+            // 内缘高光：顶部最亮、向下渐暗（玻璃反光弧）
+            .border({
+              width: 0.8,
+              color: {
+                top: 'rgba(255,255,255,0.62)',
+                left: 'rgba(255,255,255,0.30)',
+                right: 'rgba(255,255,255,0.30)',
+                bottom: 'rgba(255,255,255,0.12)'
+              }
+            })
             .onClick(() => {
               this.autoStick = true;
               this.scroller.scrollEdge(Edge.Bottom);
             })
+            .shadow({ radius: 16, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 8 })
           }
           .width(40)
           .height(40)
-          .borderRadius(20)
-          // 光圈：1.3vp 实色白环，与返回按钮、输入框卡片同厚度
-          .padding(1.3)
-          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.26)' : 'rgba(255,255,255,0.96)')
-          .shadow({ radius: 6, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 2 })
         }
         .width('100%')
         .padding({ bottom: 10 })
@@ -4767,9 +4773,9 @@ export struct ConversationPage {
             .onActionUpdate((event: GestureEvent) => {
               this.turnSwipeOffset = event.offsetY;
               // 每滑过 36vp 切换一个节点（上滑看更晚，下滑看更早）
-              // 上滑数字减小，下滑增大
+              // 弹窗内跟随手指：下滑内容下滑（看更早），上滑内容上滑（看更晚）
               const steps: number = Math.round(this.turnSwipeOffset / 36);
-              this.previewTurnNode(this.turnSwipeBase + steps);
+              this.previewTurnNode(this.turnSwipeBase - steps);
             })
         )
 
@@ -5152,23 +5158,13 @@ export struct ConversationPage {
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .layoutWeight(1)
                 if (!group.ungrouped) {
-                  // 新建会话：小程序 conv-sidebar-new-ic 同款细描边加号（18vp 图形 / 28 触达区）
+                  // 新建会话：小程序 conv-sidebar-new-ic 同款「圆形描边 + 内部加号」（16 viewBox / 0.8 描边 / 36rpx）
                   Row() {
-                    Stack({ alignContent: Alignment.Center }) {
-                      Row()
-                        .width(14)
-                        .height(1.2)
-                        .borderRadius(0.6)
-                        .backgroundColor(this.textColor())
-                      Row()
-                        .width(1.2)
-                        .height(14)
-                        .borderRadius(0.6)
-                        .backgroundColor(this.textColor())
-                    }
-                    .width(18)
-                    .height(18)
-                    .opacity(0.55)
+                    Image($r('app.media.conv_sidebar_new'))
+                      .width(18)
+                      .height(18)
+                      .objectFit(ImageFit.Contain)
+                      .opacity(0.55)
                   }
                   .width(28)
                   .height(28)
