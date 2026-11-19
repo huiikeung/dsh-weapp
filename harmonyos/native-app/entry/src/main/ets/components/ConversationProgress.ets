@@ -208,7 +208,8 @@ export struct ConversationProgress {
       .height(21)
       .alignContent(Alignment.Center)
       .flexShrink(0)
-      .margin({ right: 7 })
+      // 图标与文字间隙收窄 7→5vp（垂直位置保持原位）
+      .margin({ right: 5 })
 
       // ② 流光文字：24rpx≈14.1vp / 400 / 行高 36rpx≈21vp，逐字渐变
       Row() {

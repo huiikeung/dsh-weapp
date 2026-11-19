@@ -161,7 +161,8 @@ export struct StatusStylesPage {
       .width('100%')
 
       // 预览：鲸尾图标 + 流光文字（文字颜色持续变化）
-      Row({ space: 7 }) {
+      // 图标与文字间隙收窄 7→5vp（垂直位置保持原位）
+      Row({ space: 5 }) {
         // 内联雪碧图 + fillColor，与对话页运行条同一套画法。
         // 颜色 = colorOf(option) = 预览文字第一个字的颜色（同一条流光的左端）。
         Stack() {
