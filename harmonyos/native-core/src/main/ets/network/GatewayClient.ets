@@ -1099,6 +1099,22 @@ export class GatewayClient {
     });
   }
 
+  /**
+   * 只读预览任意会话记录（对齐小程序 inspectSession）。
+   *
+   * 刻意不走 lane、也不在超时后 failSocket：
+   * 预览是旁路操作，不能挤掉当前会话正在飞的历史/订阅请求，也不能因为目标会话
+   * 不存在就把整条连接打断。
+   */
+  inspectSession(sessionId: string, parentSessionId?: string, mode?: string): Promise<GatewayFrame> {
+    if (!this.isConnected()) {
+      return Promise.reject(new Error('not connected'));
+    }
+    const request: GatewayRequest = GatewayRequestFactory.inspectHistory(sessionId, parentSessionId, mode);
+    request.timeoutIsFatal = false;
+    return this.sendCorrelated(request, 8000);
+  }
+
   ping(timeoutMs: number = 8000): Promise<GatewayFrame> {
     return this.enqueueRequest(GatewayRequestFactory.ping(), timeoutMs);
   }

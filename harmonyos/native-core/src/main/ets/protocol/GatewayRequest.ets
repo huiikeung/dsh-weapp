@@ -98,6 +98,27 @@ export class GatewayRequestFactory {
     return GatewayRequestFactory.make('history', 'history', fields, sessionId, undefined,
       GatewayRequestLanePolicy.COALESCE_LATEST, undefined, isBackgroundHistory);
   }
+  /**
+   * 只读预览任意会话的记录（对齐小程序 inspectSession）。
+   *
+   * 子智能体（subagent）会话必须带持久父地址，否则网关以 session/agent-busy 拒绝，
+   * 且错误帧不带 sessionId，只能干等到超时。
+   */
+  static inspectHistory(sessionId: string, parentSessionId?: string, mode?: string,
+    maxMessages: number = 20, maxBytes: number = 262144): GatewayRequest {
+    const fields: Record<string, Object> = { 'sessionId': sessionId, 'maxMessages': maxMessages,
+      'maxBytes': maxBytes, 'view': 'conversation' };
+    const parent: string = parentSessionId !== undefined ? parentSessionId.trim() : '';
+    if (parent.length > 0) {
+      fields['parentSessionId'] = parent;
+      if (mode === 'one-shot' || mode === 'continuable' || mode === 'unknown') {
+        fields['mode'] = mode;
+      }
+    }
+    return GatewayRequestFactory.make('history', 'history', fields, sessionId, undefined,
+      GatewayRequestLanePolicy.REJECT_IF_BUSY, 8000);
+  }
+
   static queueUpdate(sessionId: string, itemId: string, action: string): GatewayRequest {
     if (action !== 'remove' && action !== 'steer') throw new Error('invalid queue action');
     return GatewayRequestFactory.tolerated(

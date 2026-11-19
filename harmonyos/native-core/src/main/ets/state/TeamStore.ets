@@ -260,6 +260,12 @@ export class TeamStore {
     return rows;
   }
 
+  /** 子智能体的 mode（预览记录时作为持久父地址的一部分传给网关） */
+  childModeOf(id: string): string {
+    const child: TeamChildView | undefined = this.children.get(id);
+    return child !== undefined ? child.mode : '';
+  }
+
   childList(): TeamChildView[] {
     const rows: TeamChildView[] = [];
     this.children.forEach((one: TeamChildView) => {
