@@ -41,7 +41,7 @@ export struct TailscalePage {
   @StorageLink('pendingTailscaleLogin') pendingTailscaleLogin: boolean = false;
   @StorageLink('tailscaleAuthInvalid') authInvalid: boolean = false;
   @StorageLink('tailscaleStageError') stageError: string = '';
-  @State hintMenuOpen: boolean = false;
+  @State hintMenuOpen: string = '';
   @State hintText: string = '';
 
   @State tunnelEnabled: boolean = false;
@@ -1128,22 +1128,22 @@ export struct TailscalePage {
         .fontSize(14)
         .fontColor(this.subColor())
         .padding({ left: 2, right: 8, top: 2, bottom: 2 })
-        .bindMenu(this.hintMenuOpen, this.hintMenuBuilder(), {
+        .bindMenu(this.hintMenuOpen === 'account', this.hintMenuBuilder(), {
           outlineColor: this.dividerColor(),
           outlineWidth: 1,
           onWillDisappear: () => {
-            this.hintMenuOpen = false;
+            this.hintMenuOpen = '';
           },
           onDisappear: () => {
-            this.hintMenuOpen = false;
+            this.hintMenuOpen = '';
           },
           onDidDisappear: () => {
-            this.hintMenuOpen = false;
+            this.hintMenuOpen = '';
           }
         })
         .onClick(() => {
           this.hintText = hint;
-          this.hintMenuOpen = !this.hintMenuOpen;
+          this.hintMenuOpen = this.hintMenuOpen === 'account' ? '' : 'account';
         })
     }
     .width('100%')
@@ -1567,22 +1567,22 @@ export struct TailscalePage {
                 .fontSize(14)
                 .fontColor(this.subColor())
                 .padding({ left: 2, right: 8, top: 2, bottom: 2 })
-                .bindMenu(this.hintMenuOpen, this.hintMenuBuilder(), {
+                .bindMenu(this.hintMenuOpen === 'authKey', this.hintMenuBuilder(), {
                   outlineColor: this.dividerColor(),
                   outlineWidth: 1,
                   onWillDisappear: () => {
-                    this.hintMenuOpen = false;
+                    this.hintMenuOpen = '';
                   },
                   onDisappear: () => {
-                    this.hintMenuOpen = false;
+                    this.hintMenuOpen = '';
                   },
                   onDidDisappear: () => {
-                    this.hintMenuOpen = false;
+                    this.hintMenuOpen = '';
                   }
                 })
                 .onClick(() => {
                   this.hintText = '创建 Auth Key：Reusable 打开、Ephemeral 关闭、Expiry 按需（建议 90 天）、Tags 留空。\n主机授权三步：① Tailscale 管理台 Machines 里批准新设备（开启了设备审批时）；② Access Controls 里允许该设备访问网关主机 3081/tcp；③ 回到本页点「AuthKey 登录」，等状态变「已连接」。换 key 会自动清空旧节点状态。';
-                  this.hintMenuOpen = !this.hintMenuOpen;
+                  this.hintMenuOpen = this.hintMenuOpen === 'authKey' ? '' : 'authKey';
                 })
               Blank()
               Text('获取 Auth Key')
