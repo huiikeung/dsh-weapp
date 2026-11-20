@@ -879,6 +879,18 @@ export struct TailscalePage {
           .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.60)' })
           .borderRadius(16)
           .margin({ bottom: 16 })
+          Text('清空')
+            .fontSize(14)
+            .fontColor('#FF3B30')
+            .width('100%')
+            .height(36)
+            .textAlign(TextAlign.Center)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.38)')
+            .borderRadius(10)
+            .margin({ bottom: 16 })
+            .onClick(() => {
+              this.nodeNameDraft = '';
+            })
         }
         .width('100%')
         .padding({ left: 14, right: 14 })
