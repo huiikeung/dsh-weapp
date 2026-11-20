@@ -684,6 +684,32 @@ export struct TailscalePage {
     PreferencesStore.get().putString(KEY_NODE_NAME, value);
   }
 
+  /** 打开 Tailscale 控制台的 Auth Keys 页面（失败则复制链接） */
+  private openAuthKeyPage(): void {
+    const url: string = 'https://login.tailscale.com/admin/settings/keys';
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const want: Want = {
+        action: 'ohos.want.action.viewData',
+        entities: ['entity.system.browsable'],
+        uri: url
+      };
+      context.startAbility(want).catch(() => {
+        this.copyAuthKeyUrl(url);
+      });
+    } catch (err) {
+      this.copyAuthKeyUrl(url);
+    }
+  }
+
+  private copyAuthKeyUrl(url: string): void {
+    const data = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, url);
+    pasteboard.getSystemPasteboard().setData(data).then(() => {
+      this.fastHint = '已复制 Auth Key 管理页链接，粘贴到浏览器打开';
+    }).catch(() => {
+    });
+  }
+
   private saveAuthKey(value: string): void {
     this.authKey = value;
     PreferencesStore.get().putString(KEY_AUTH_KEY, value);
@@ -980,21 +1006,24 @@ export struct TailscalePage {
               }
               .width('100%')
               .padding({ top: 2, bottom: 8 })
-              Row() {
-                Text('切换节点')
-                  .fontSize(15)
-                  .fontColor('#2E6BE6')
-                  .layoutWeight(1)
-                  .height(40)
-                  .textAlign(TextAlign.Center)
+              // 只有「账号登录」和「Auth Key」两种凭据都存在时才需要切换
+              if (this.accountName.length > 0 && this.authKey.trim().length > 0) {
+                Row() {
+                  Text('切换节点')
+                    .fontSize(15)
+                    .fontColor('#2E6BE6')
+                    .layoutWeight(1)
+                    .height(40)
+                    .textAlign(TextAlign.Center)
+                }
+                .width('100%')
+                .justifyContent(FlexAlign.Center)
+                .backgroundColor(this.pillBg())
+                .borderRadius(10)
+                .onClick(() => {
+                  this.authModeDialog = true;
+                })
               }
-              .width('100%')
-              .justifyContent(FlexAlign.Center)
-              .backgroundColor(this.pillBg())
-              .borderRadius(10)
-              .onClick(() => {
-                this.authModeDialog = true;
-              })
             }
             if (this.authInvalid) {
               Text('已保存的 Auth Key 无法加入 tailnet（可能过期或被撤销）。可以改用浏览器登录完成授权，或在下方重新填写密钥。')
@@ -1084,6 +1113,20 @@ export struct TailscalePage {
                 .onChange((value: string) => {
                   this.saveAuthKey(value);
                 })
+              Row() {
+                Text('在 Tailscale 控制台 Settings → Keys 生成，只显示一次')
+                  .fontSize(11)
+                  .fontColor(this.subColor())
+                  .layoutWeight(1)
+                Text('获取 Auth Key')
+                  .fontSize(13)
+                  .fontColor('#2E6BE6')
+                  .onClick(() => {
+                    this.openAuthKeyPage();
+                  })
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 2, bottom: 10 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Row() {
                 Text('自建控制平面')
