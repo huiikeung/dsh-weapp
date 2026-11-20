@@ -125,10 +125,14 @@ export struct TailscalePage {
     const prefs: PreferencesStore = PreferencesStore.get();
     this.tunnelEnabled = prefs.getBoolean(KEY_ENABLED, false);
     this.nodeName = prefs.getString(KEY_NODE_NAME, '');
+    // 兼容旧默认名：去掉 -harmony 后缀，管理台直接显示设备名称
+    if (this.nodeName.endsWith('-harmony')) {
+      this.nodeName = this.nodeName.substring(0, this.nodeName.length - '-harmony'.length);
+    }
     if (this.nodeName.length === 0) {
       this.nodeName = this.defaultNodeName();
-      prefs.putString(KEY_NODE_NAME, this.nodeName);
     }
+    prefs.putString(KEY_NODE_NAME, this.nodeName);
     this.authKey = prefs.getString(KEY_AUTH_KEY, '');
     // 已添加的账号持久化：只要没点删除，重启后仍显示
     if (this.accountName.length === 0) {
@@ -383,7 +387,8 @@ export struct TailscalePage {
     if (name.length === 0) {
       name = 'harmony';
     }
-    return name + '-harmony';
+    // 直接使用设备名称，不再追加系统后缀（-harmony）
+    return name;
   }
 
   private deviceModel(): string {
