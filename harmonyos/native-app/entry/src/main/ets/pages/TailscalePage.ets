@@ -1711,10 +1711,12 @@ export struct TailscalePage {
                     })
                 }
               } else if (this.stage === STAGE_FAILED) {
-                Text('重新连接')
-                  .fontSize(14).fontColor('#2E6BE6').layoutWeight(1).height(38).textAlign(TextAlign.Center)
-                  .backgroundColor(this.pillBg()).borderRadius(10)
+                // 所有方式都失败时仍然给「启动节点」，点击会重新按可用凭据尝试
+                Text('启动节点')
+                  .fontSize(14).fontColor('#FFFFFF').layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .backgroundColor('#2E6BE6').borderRadius(10)
                   .onClick(() => {
+                    this.fallbackTried = false;
                     this.resumeConnection();
                   })
               } else if (this.stage === STAGE_NEEDS_LOGIN && (this.hasAnyAccount() || this.hasAnyKey())) {
