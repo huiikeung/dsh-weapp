@@ -10,7 +10,7 @@ import {
   appGlassShadow
 } from '../common/AppGlass';
 import {
-  arr, field, asRec, AttachmentCache, AttachmentImageCache, bool, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, downloadAttachment, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
+  arr, field, asRec, AttachmentCache, AttachmentImageCache, bool, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, ConversationItemKind, downloadAttachment, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
   DraftStore, PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechFailure, SpeechInput, TeamStore, WorkStepPresentation,
   normalizeRawSessionEvent, parseNamespace, pickDocuments, pickImages, str, uploadAttachment
 } from 'nativecore';
@@ -1205,19 +1205,10 @@ export struct ConversationPage {
       this.pendingItemsWhileHidden = true;
       return;
     }
-    // 节点弹层开着 / 胶囊展开预热中：先刷新节点列表（胶囊上的 N/总数要涨）
+    // 节点弹层开着 / 胶囊展开预热中：完全不重建时间线（不重载列表＝屏幕不闪），
+    // 只用原始 items 数一下轮次，让胶囊上的 N/总数动起来。
     if (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded) {
-      this.refreshTurnNodes(false);
-      // 贴底时补拉的历史是插在顶部，把列表重建后仍钉在底部，视线里内容不变；
-      // 用户已往上翻时不重建，页面完全固定（节点数在收起后一次补齐）。
-      if (this.autoStick && !this.userInteracting()) {
-        this.rebuildEntries();
-        setTimeout(() => {
-          if (this.autoStick && !this.userInteracting()) {
-            this.scroller.scrollEdge(Edge.Bottom);
-          }
-        }, 16);
-      }
+      this.applyTurnNodesPreview();
       return;
     }
     this.scheduleTimelineUpdate();
@@ -5718,10 +5709,11 @@ export struct ConversationPage {
 
   /** 预热/弹层期间的改动先记账，等胶囊收起或弹层关闭后再一次性重排 */
   private flushTimelineAfterWarmup(): void {
-    if (this.turnNavOpen || this.capsuleExpanded) {
+    if (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded) {
       return;
     }
     this.rebuildEntries();
+    this.refreshTurnNodes(false);
     this.refreshProgress();
     this.scheduleTimelineUpdate();
   }
@@ -5736,6 +5728,26 @@ export struct ConversationPage {
     this.rebuildEntries();
     this.refreshProgress();
     this.scheduleTimelineUpdate();
+  }
+
+  /**
+   * 预热/弹层期间的轻量节点预览：直接扫原始 items 里的用户轮次，
+   * 不碰时间线（不重建列表就绝不会闪屏），只让胶囊上的数字变化。
+   * entryIndex 先记 -1，真正跳转时再按 ordinal 映射到时间线行。
+   */
+  private applyTurnNodesPreview(): void {
+    const nodes: TurnNode[] = [];
+    for (const item of this.items) {
+      if (item.kind !== ConversationItemKind.USER) {
+        continue;
+      }
+      const raw: string = (item.text.length > 0 ? item.text : item.title).replace(/\s+/g, ' ').trim();
+      nodes.push({ entryIndex: -1, ordinal: nodes.length + 1, label: raw.length > 0 ? raw : '（空消息）' });
+    }
+    this.turnNodes = nodes;
+    if (this.turnNodeIndex >= nodes.length) {
+      this.turnNodeIndex = nodes.length > 0 ? nodes.length - 1 : 0;
+    }
   }
 
   /** 重建节点列表；keepSelection=true 时把选中项落到最后一条 */
@@ -5782,7 +5794,15 @@ export struct ConversationPage {
     // 列表头部只有一条给浮动顶栏让位的占位行（加载更早记录按钮已去掉）
     const offset: number = 1;
     this.autoStick = false;
-    const targetIndex: number = offset + target.entryIndex;
+    // 预热期间节点来自原始 items（entryIndex = -1）：先把时间线补出来，再按序数映射到行
+    if (target.entryIndex < 0) {
+      this.rebuildEntries();
+      const resolved: TurnNode[] = this.buildTurnNodes();
+      if (target.ordinal > 0 && target.ordinal <= resolved.length) {
+        target.entryIndex = resolved[target.ordinal - 1].entryIndex;
+      }
+    }
+    const targetIndex: number = offset + (target.entryIndex >= 0 ? target.entryIndex : 0);
     setTimeout(() => {
       try {
         this.scroller.scrollToIndex(targetIndex, true, ScrollAlign.START);
