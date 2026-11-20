@@ -26,7 +26,7 @@ const STAGE_FAILED = 'failed';
 
 /**
  * Tailscale 内嵌隧道设置（二级页）：对齐 iOS TailscaleTunnelSettingsView。
- * 布局：节点状态卡片（总览，含启动/停止/授权）/ 账号与网络 / 账号与节点（含底部切换登录方式按钮）。
+ * 布局：节点状态卡片（总览 + 节点身份 + 按凭据类型显示 切换登录/连接账号/使用登录密钥连接）/ 账号与网络。
  *
  * 说明：Go/tsnet 引擎由 OpenHarmony Go 工具链构建的 libtailscale_go.so 提供，
  * NAPI 直链（libtailscale_ohos.so），已在本机跑通 hello/status；登录链接来自引擎 authURL。
@@ -958,22 +958,99 @@ export struct TailscalePage {
             .width('100%')
             if (this.tunnelEnabled) {
               Divider().color(this.dividerColor()).strokeWidth(1)
-              Row() {
-                Row({ space: 6 }) {
+              TextInput({ text: this.nodeName, placeholder: '节点名称' })
+                .fontSize(16)
+                .fontColor(this.textColor())
+                .placeholderColor(this.subColor())
+                .backgroundColor(Color.Transparent)
+                .height(46)
+                .padding({ left: 0, right: 0 })
+                .onChange((value: string) => {
+                  this.saveNodeName(value);
+                })
+              Divider().color(this.dividerColor()).strokeWidth(1)
+              TextInput({ text: this.authKey, placeholder: 'tskey-auth-…（可选：你自己的 Tailscale 账号生成）' })
+                .fontSize(16)
+                .fontColor(this.textColor())
+                .placeholderColor(this.subColor())
+                .backgroundColor(Color.Transparent)
+                .height(46)
+                .padding({ left: 0, right: 0 })
+                .onChange((value: string) => {
+                  this.saveAuthKey(value);
+                })
+              Divider().color(this.dividerColor()).strokeWidth(1)
+              TextInput({ text: this.controlURL, placeholder: 'https://controlplane.tailscale.com' })
+                .fontSize(16)
+                .fontColor(this.textColor())
+                .placeholderColor(this.subColor())
+                .backgroundColor(Color.Transparent)
+                .height(46)
+                .padding({ left: 0, right: 0 })
+                .onChange((value: string) => {
+                  this.saveControlURL(value);
+                })
+              Text('控制平面地址留空即官方；自建 Headscale 填自己的域名。')
+                .fontSize(11)
+                .lineHeight(16)
+                .fontColor(this.subColor())
+                .width('100%')
+                .padding({ top: 4, bottom: 8 })
+              // 只有「账号登录 + Auth Key」两种凭据都存在时，才需要「切换登录」；
+              // 只配置一种时给出对应的连接动作。
+              if (this.accountName.length > 0 && this.authKey.trim().length > 0) {
+                Divider().color(this.dividerColor()).strokeWidth(1)
+                Row() {
                   Text('切换登录')
-                  .fontSize(15)
-                  .fontColor('#2E6BE6')
+                    .fontSize(15)
+                    .fontColor('#2E6BE6')
+                    .layoutWeight(1)
+                    .height(40)
+                    .textAlign(TextAlign.Center)
+                }
+                .width('100%')
+                .justifyContent(FlexAlign.Center)
+                .backgroundColor(this.pillBg())
+                .borderRadius(10)
+                .onClick(() => {
+                  this.authModeDialog = true;
+                })
+              } else if (this.accountName.length > 0) {
+                Divider().color(this.dividerColor()).strokeWidth(1)
+                Row() {
+                  Text('连接账号')
+                    .fontSize(15)
+                    .fontColor('#FFFFFF')
+                    .layoutWeight(1)
+                    .height(40)
+                    .textAlign(TextAlign.Center)
+                }
+                .width('100%')
+                .justifyContent(FlexAlign.Center)
+                .backgroundColor('#2E6BE6')
+                .borderRadius(10)
+                .onClick(() => {
+                  this.startLogin();
+                })
+              } else if (this.authKey.trim().length > 0) {
+                Divider().color(this.dividerColor()).strokeWidth(1)
+                Row() {
+                  Text('使用登录密钥连接')
+                    .fontSize(15)
+                    .fontColor('#2E6BE6')
+                    .layoutWeight(1)
+                    .height(40)
+                    .textAlign(TextAlign.Center)
+                }
+                .width('100%')
+                .justifyContent(FlexAlign.Center)
+                .backgroundColor(this.pillBg())
+                .borderRadius(10)
+                .onClick(() => {
+                  PreferencesStore.get().putString('tsnetAuthKey', this.authKey.trim());
+                  TailscaleTunnelStore.get().reloadFast();
+                })
               }
-              .layoutWeight(1)
-              .height(40)
-              .justifyContent(FlexAlign.Center)
-              .backgroundColor(this.pillBg())
-              .borderRadius(10)
-              .onClick(() => {
-                this.authModeDialog = true;
-              })
-            }
-              .width('100%')
             }
             if (this.authInvalid) {
               Text('已保存的 Auth Key 无法加入 tailnet（可能过期或被撤销）。可以改用浏览器登录完成授权，或在下方重新填写密钥。')
@@ -1179,88 +1256,6 @@ export struct TailscalePage {
             .clip(true)
           }
 
-          // ── 账号与节点：登录方式 / 节点名 / 控制平面 / 登录密钥（已整合原「节点身份」）──
-          if (this.tunnelEnabled) {
-            this.sectionHeader('账号与节点')
-            Column() {
-              Row() {
-                Text('登录方式').fontSize(13).fontColor(this.subColor())
-                Blank()
-                Text(this.authModeState === 'authKey' ? '登录密钥（Auth Key）' :
-                  this.authModeState === 'account' ? '账号登录' : '未设置')
-                  .fontSize(12)
-                  .fontColor(this.subColor())
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 14, bottom: 10 })
-              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              TextInput({ text: this.nodeName, placeholder: '节点名称' })
-                .fontSize(16)
-                .fontColor(this.textColor())
-                .placeholderColor(this.subColor())
-                .backgroundColor(Color.Transparent)
-                .height(48)
-                .padding({ left: 16, right: 16 })
-                .onChange((value: string) => {
-                  this.saveNodeName(value);
-                })
-              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              TextInput({ text: this.authKey, placeholder: 'tskey-auth-…（可选：你自己的 Tailscale 账号生成）' })
-                .fontSize(16)
-                .fontColor(this.textColor())
-                .placeholderColor(this.subColor())
-                .backgroundColor(Color.Transparent)
-                .height(48)
-                .padding({ left: 16, right: 16 })
-                .onChange((value: string) => {
-                  this.saveAuthKey(value);
-                })
-              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              TextInput({ text: this.controlURL, placeholder: 'https://controlplane.tailscale.com' })
-                .fontSize(16)
-                .fontColor(this.textColor())
-                .placeholderColor(this.subColor())
-                .backgroundColor(Color.Transparent)
-                .height(48)
-                .padding({ left: 16, right: 16 })
-                .onChange((value: string) => {
-                  this.saveControlURL(value);
-                })
-              Text('控制平面地址：留空即官方 controlplane；自建 Headscale 填自己的域名。留空登录密钥时，开启后点「登录链接」用浏览器授权你自己的 Tailscale 账号。')
-                .fontSize(12)
-                .lineHeight(18)
-                .fontColor(this.subColor())
-                .width('100%')
-                .padding({ left: 16, right: 16, bottom: 12 })
-              if (this.authKey.length > 0) {
-                Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-                Row() {
-                  Text('使用登录密钥连接')
-                    .fontSize(16)
-                    .fontColor('#2E6BE6')
-                }
-                .width('100%')
-                .height(48)
-                .padding({ left: 16, right: 16 })
-                .onClick(() => {
-                  PreferencesStore.get().putString('tsnetAuthKey', this.authKey.trim());
-                  this.fastHint = this.authKey.trim().length > 0
-                    ? '正在用登录密钥启动轻量隧道…（无需浏览器登录）'
-                    : '请先在上方填写 auth key';
-                  TailscaleTunnelStore.get().reloadFast();
-                })
-              }
-            }
-            .width('100%')
-            .backgroundColor(this.cardBg())
-
-            .border({ width: 1, color: this.dividerColor() })
-
-            .borderRadius(14)
-
-            .clip(true)
-            this.sectionFooter('节点名称只允许小写字母、数字和连字符。登录时默认在浏览器里完成；也可以粘贴 Tailscale 控制台生成的 Auth Key。')
-          }
 
           Blank().height(28)
         }
