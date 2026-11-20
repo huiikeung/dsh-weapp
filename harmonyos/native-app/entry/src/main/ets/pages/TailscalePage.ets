@@ -1714,9 +1714,14 @@ export struct TailscalePage {
                     this.resumeConnection();
                   })
               } else if (this.stage === STAGE_STARTING || this.stage === STAGE_WAITING_ROUTES) {
-                Text(this.loginLabel.length > 0 ? this.loginLabel : '连接中…')
+                // 启动中点击可取消启动
+                Text((this.loginLabel.length > 0 ? this.loginLabel : '连接中…') + ' · 点击取消')
                   .fontSize(13).fontColor(this.subColor()).layoutWeight(1).height(38).textAlign(TextAlign.Center)
                   .backgroundColor(this.pillBg()).borderRadius(10)
+                  .onClick(() => {
+                    this.stopConnection();
+                    this.fastHint = '已取消启动';
+                  })
               } else if (this.stage === STAGE_READY) {
                 if (this.hasAnyKey() && this.hasAnyAccount()) {
                   Text('切换登录')
