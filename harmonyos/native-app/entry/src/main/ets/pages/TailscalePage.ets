@@ -4,6 +4,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import type Want from '@ohos.app.ability.Want';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
+import { fileIo } from '@kit.CoreFileKit';
 import { TsnetBridge } from '../services/TsnetBridge';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
 import { TailscaleTunnelStore } from '../services/TailscaleTunnelStore';
@@ -865,6 +866,37 @@ export struct TailscalePage {
     TailscaleTunnelStore.get().applyAuthKey(this.authKey.trim());
   }
 
+  /** 选择/激活当前账号（走账号登录） */
+  private activateAccount(): void {
+    this.connectWithAccount();
+  }
+
+  /** 删除当前登录账号：退出引擎登录态、清掉账号与密钥并停止隧道 */
+  private deleteAccount(): void {
+    try {
+      TsnetBridge.logout();
+    } catch (err) {
+    }
+    PreferencesStore.get().putString('tsnetAuthKey', '');
+    PreferencesStore.get().putString('tsnetAppliedAuthKey', '');
+    this.authKey = '';
+    this.accountName = '';
+    this.accountLogin = '';
+    this.accountTailnet = '';
+    this.accountAddresses = '';
+    AppStorage.setOrCreate<string>('tailscaleAccount', '');
+    AppStorage.setOrCreate<string>('tsnetAuthMode', '');
+    this.authModeState = '';
+    try {
+      fileIo.rmdirSync(this.stateDir() + '/tsnet-node');
+    } catch (clearErr) {
+    }
+    if (this.tunnelEnabled) {
+      this.setEnabled(false);
+    }
+    this.fastHint = '已删除登录账号';
+  }
+
   private saveAuthKey(value: string): void {
     // 只保存，不自动切换/重连：用哪种凭据由用户在「切换登录」里手动选择
     this.authKey = value;
@@ -1251,12 +1283,29 @@ export struct TailscalePage {
             })
           }
 
-          // ── 区块 2：账号与网络（启动隧道后才显示）──
-          if (this.tunnelEnabled) {
+          // ── 区块 2：账号与网络（登录账号始终显示）──
           this.sectionHeader('账号与网络')
           Column() {
             if (this.accountName.length > 0) {
-              Row() {
+              Row({ space: 10 }) {
+                // 选择按钮挪到最前面：当前账号显示实心圆，点击即用该账号登录
+                Stack({ alignContent: Alignment.Center }) {
+                  Circle()
+                    .width(20)
+                    .height(20)
+                    .fill(Color.Transparent)
+                    .stroke('#2E6BE6')
+                    .strokeWidth(1.5)
+                  Circle()
+                    .width(11)
+                    .height(11)
+                    .fill('#2E6BE6')
+                }
+                .width(20)
+                .height(20)
+                .onClick(() => {
+                  this.activateAccount();
+                })
                 Column({ space: 3 }) {
                   Text(this.accountName).fontSize(16).fontColor(this.textColor())
                   if (this.accountLogin.length > 0 && this.accountLogin !== this.accountName) {
@@ -1269,13 +1318,19 @@ export struct TailscalePage {
                 }
                 .alignItems(HorizontalAlign.Start)
                 .layoutWeight(1)
-                SymbolGlyph($r('sys.symbol.checkmark'))
-                  .fontSize(20)
-                  .fontColor(['#2E6BE6'])
+                .onClick(() => {
+                  this.activateAccount();
+                })
+                Text('删除')
+                  .fontSize(14)
+                  .fontColor('#FF3B30')
+                  .padding({ left: 10, right: 10, top: 8, bottom: 8 })
+                  .onClick(() => {
+                    this.deleteAccount();
+                  })
               }
               .width('100%')
-              .height(64)
-              .padding({ left: 16, right: 16 })
+              .padding({ left: 16, right: 8, top: 12, bottom: 12 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
             }
             Row({ space: 8 }) {
@@ -1302,8 +1357,7 @@ export struct TailscalePage {
           .borderRadius(14)
 
           .clip(true)
-          this.sectionFooter('仅显示已登录账号。点击账号可切换网络，登录状态会分别保留。')
-          }
+          this.sectionFooter('账号始终显示。点前面的圆点用该账号登录，右侧可删除该账号。')
 
           // ── 节点身份（单独卡片）：Auth Key + 自建控制平面（折叠）──
           if (this.tunnelEnabled) {
