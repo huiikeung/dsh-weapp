@@ -297,7 +297,7 @@ export struct TailscalePage {
       return '连接失败';
     }
     if (this.stage === STAGE_DISABLED) {
-      return this.tunnelEnabled ? '已停止' : '未启用';
+      return this.tunnelEnabled ? '节点已停止' : '未启用';
     }
     return '未启用';
   }
@@ -1581,7 +1581,7 @@ export struct TailscalePage {
                     })
                 }
               } else if (this.stage === STAGE_DISABLED) {
-                Text('启动')
+                Text('启动节点')
                   .fontSize(14).fontColor('#FFFFFF').layoutWeight(1).height(38).textAlign(TextAlign.Center)
                   .backgroundColor('#2E6BE6').borderRadius(10)
                   .onClick(() => {
@@ -1603,14 +1603,14 @@ export struct TailscalePage {
                   })
               }
               if (this.tunnelEnabled && this.stage !== STAGE_DISABLED) {
-                Text('停止')
+                Text('停止节点')
                   .fontSize(13).fontColor('#FF3B30').layoutWeight(1).height(38).textAlign(TextAlign.Center)
                   .backgroundColor(this.pillBg()).borderRadius(10)
                   .onClick(() => {
                     this.stopConnection();
                   })
                 Text('关闭隧道')
-                  .fontSize(13).fontColor('#FF3B30').layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .fontSize(13).fontColor(this.subColor()).layoutWeight(1).height(38).textAlign(TextAlign.Center)
                   .backgroundColor(this.pillBg()).borderRadius(10)
                   .onClick(() => {
                     this.setEnabled(false);
