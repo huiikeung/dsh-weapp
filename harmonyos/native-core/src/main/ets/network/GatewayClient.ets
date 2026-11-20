@@ -129,6 +129,8 @@ export class GatewayClient {
     }
     // 局域网地址不能原地重连，必须换成 tailnet 入口（wss://<gateway>.ts.net/ws/mobile）
     const target: string = this.cellularEndpoint(profile.wsUrl);
+    Logger.info('tailnet switch check suffix=' + (AppStorage.get<string>('tailnetDnsSuffix') ?? '') +
+      ' peer=' + (AppStorage.get<string>('tailnetGatewayPeerName') ?? '') + ' target=' + target);
     if (target === profile.wsUrl || !this.isTailnetAddress(target)) {
       // ts.net 后缀可能还没发布出来：最多重试 10 次（每秒一次）
       if (this.tailnetRouteRetries < 10) {
