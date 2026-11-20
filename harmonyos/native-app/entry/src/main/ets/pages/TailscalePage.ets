@@ -1225,8 +1225,23 @@ export struct TailscalePage {
     this.refreshAccounts();
     if (wasActive) {
       // 删除当前登录账号：立即停止节点，按钮变为「启动节点」
+      // 并按剩余凭据自动切换登录方式，点「启动节点」即可直接连上
+      const remainAccounts: TailscaleAccountProfile[] = this.accountsArray();
+      if (remainAccounts.length > 0) {
+        PreferencesStore.get().putString('tsnetLoginMode', 'account');
+        PreferencesStore.get().putString('tsnetAppliedAuthKey', '');
+        TailscaleTunnelStore.get().setActiveAccount(remainAccounts[0].id);
+        this.refreshAccounts();
+        this.fastHint = '已删除当前账号，点「启动节点」将用：' + (remainAccounts[0].name.length > 0 ? remainAccounts[0].name.replaceAll('+', ' ') : remainAccounts[0].login);
+      } else if (this.hasAnyKey()) {
+        PreferencesStore.get().putString('tsnetLoginMode', 'authKey');
+        PreferencesStore.get().putString('tsnetAppliedAuthKey', '');
+        this.fastHint = '已删除当前账号，点「启动节点」将用 Auth Key 登录';
+      } else {
+        PreferencesStore.get().putString('tsnetLoginMode', 'account');
+        this.fastHint = '已删除当前账号，请先添加账号或填写 Auth Key';
+      }
       this.stopConnection();
-      this.fastHint = '已删除当前账号并停止节点';
     } else {
       this.fastHint = '已删除该账号';
     }
