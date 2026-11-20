@@ -5975,28 +5975,38 @@ export struct ConversationPage {
       .justifyContent(FlexAlign.Center)
       .alignItems(HorizontalAlign.Center)
       .position({ x: 0, y: (TURN_TRACK_HEIGHT - TURN_THUMB_HEIGHT) / 2 + this.turnBarOffset })
-      // 拖动滑块：上下切换节点（上滑数字减小、下滑增大），松手回中
+      // 长按滑块：弹出节点弹层并随拖动实时预览（弹层是自绘浮层，不会被手势收起）
+      // 普通拖动：不弹层，只切节点；松手滑块回中
       .gesture(
-        PanGesture()
-          .onActionStart(() => {
-            this.turnScrubStartIndex = this.turnNodeIndex;
-          })
-          .onActionUpdate((event: GestureEvent) => {
-            const limit: number = TURN_TRACK_HEIGHT / 2 - 16;
-            this.turnBarOffset = Math.max(-limit, Math.min(limit, event.offsetY));
-            const delta: number = Math.round(event.offsetY / 16);
-            this.previewTurnNode(this.turnScrubStartIndex + delta);
-          })
-          .onActionEnd(() => {
-            animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
-              this.turnBarOffset = 0;
-            });
-          })
-          .onActionCancel(() => {
-            animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
-              this.turnBarOffset = 0;
-            });
-          })
+        GestureGroup(
+          GestureMode.Parallel,
+          LongPressGesture({ repeat: false, duration: 260 })
+            .onAction(() => {
+              if (!this.turnNavOpen) {
+                this.openTurnNav();
+              }
+            }),
+          PanGesture()
+            .onActionStart(() => {
+              this.turnScrubStartIndex = this.turnNodeIndex;
+            })
+            .onActionUpdate((event: GestureEvent) => {
+              const limit: number = TURN_TRACK_HEIGHT / 2 - 16;
+              this.turnBarOffset = Math.max(-limit, Math.min(limit, event.offsetY));
+              const delta: number = Math.round(event.offsetY / 16);
+              this.previewTurnNode(this.turnScrubStartIndex + delta);
+            })
+            .onActionEnd(() => {
+              animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+                this.turnBarOffset = 0;
+              });
+            })
+            .onActionCancel(() => {
+              animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+                this.turnBarOffset = 0;
+              });
+            })
+        )
       )
     }
     .width(TURN_TRACK_WIDTH)
