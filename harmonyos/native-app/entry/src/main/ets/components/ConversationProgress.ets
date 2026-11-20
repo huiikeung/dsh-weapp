@@ -14,6 +14,7 @@
  * 颜色按「相位 + 方向」从色板插值（等价于小程序 keyframes）；
  * 文字逐字取渐变相位色（等价于 background-clip:text 的横向渐变）。
  */
+import { display } from '@kit.ArkUI';
 import { StatusAppearance } from 'nativecore';
 
 
@@ -48,6 +49,16 @@ export struct ConversationProgress {
   @State private breathe: number = 1;
   /** glitch：错色相位（小程序 statusGlitch 4s，92%/94% 两帧闪烁） */
   @State private glitchTick: number = 0;
+
+  /** 与 ConversationRowView 同一套 rpx 换算（图标尺寸/槽位必须走它，否则窄屏会对不齐） */
+  private rpx(value: number): number {
+    try {
+      const screenW: number = this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+      return value * screenW / 750;
+    } catch (err) {
+      return value * 0.53;
+    }
+  }
 
   // ==================== 色板采样（对齐小程序 keyframes） ====================
 
@@ -186,7 +197,10 @@ export struct ConversationProgress {
 
   build() {
     Row() {
-      // ① 鲸尾槽位：36rpx≈21vp，内部 28rpx≈16.4vp，居中，右侧 12rpx≈7vp
+      // ① 鲸尾槽位：与上方过程组标题行（ConversationRowView.groupHead）完全对齐 ——
+      //    那边是 Row({ space: 7.04 }) + 槽位 rpx(32)，文字起点 = rpx(32)+7.04。
+      //    这里用同一组数值：槽位 rpx(32)、间隙 7.04，鲸尾（16.4vp）在槽内居中，
+      //    于是图标中心与文字左缘都落在步骤行同一条垂线上。
       // 60 帧雪碧图 + fillColor 着色，与小程序「mask 雪碧图 + background-color」等价。
       // 颜色 = tailColor() = 右侧第一个字的颜色：整条流光的左端，与文字同源同拍。
       // 必须内联在 build()：抽成 @Component/@Builder 后，真机上形状、颜色、游动
@@ -205,12 +219,12 @@ export struct ConversationProgress {
         .clip(true)
         .alignContent(Alignment.TopStart)
       }
-      .width(21)
-      .height(21)
+      .width(this.rpx(32))
+      .height(this.rpx(32))
       .alignContent(Alignment.Center)
       .flexShrink(0)
-      // 图标与文字间隙收窄 7→5vp（垂直位置保持原位）
-      .margin({ right: 5 })
+      // 间隙与 groupHead 的 Row({ space: 7.04 }) 一致，保证文字左缘对齐
+      .margin({ right: 7.04 })
 
       // ② 流光文字：24rpx≈14.1vp / 400 / 行高 36rpx≈21vp，逐字渐变
       Row() {
