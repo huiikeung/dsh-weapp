@@ -3,6 +3,7 @@ import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import type Want from '@ohos.app.ability.Want';
 import { deviceInfo } from '@kit.BasicServicesKit';
+import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { TsnetBridge } from '../services/TsnetBridge';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
 import { TailscaleTunnelStore } from '../services/TailscaleTunnelStore';
@@ -113,6 +114,8 @@ export struct TailscalePage {
   }
 
   aboutToAppear(): void {
+    // 输入框（Auth Key / 控制平面）在页面底部：RESIZE 让窗口随键盘收缩，Scroll 自动把焦点输入框滚到键盘上方
+    this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     const prefs: PreferencesStore = PreferencesStore.get();
     this.tunnelEnabled = prefs.getBoolean(KEY_ENABLED, false);
     this.nodeName = prefs.getString(KEY_NODE_NAME, '');
