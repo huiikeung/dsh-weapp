@@ -1170,6 +1170,26 @@ export struct TailscalePage {
     this.fastHint = '已删除该账号';
   }
 
+  private hasAnyKey(): boolean {
+    return PreferencesStore.get().getString('tsnetAuthKey', '').trim().length > 0;
+  }
+
+  private hasAnyAccount(): boolean {
+    return this.accountsArray().length > 0;
+  }
+
+  /** 启动节点：自动用当前登录方式重连，无需再点一次重新连接 */
+  private resumeConnection(): void {
+    this.stage = STAGE_STARTING;
+    const key: string = PreferencesStore.get().getString('tsnetAuthKey', '').trim();
+    const mode: string = PreferencesStore.get().getString('tsnetLoginMode', 'account');
+    if (mode === 'authKey' && key.length > 0) {
+      TailscaleTunnelStore.get().applyAuthKey(key);
+      return;
+    }
+    TailscaleTunnelStore.get().reloadFast();
+  }
+
   /** 停止：只断开 Tailscale，隧道保持启用（账号/AuthKey 模块仍可见） */
   private stopConnection(): void {
     try {
@@ -1545,26 +1565,33 @@ export struct TailscalePage {
                   .backgroundColor('#2E6BE6').borderRadius(10)
                   .onClick(() => {
                     this.setEnabled(true);
-                    TailscaleTunnelStore.get().reloadFast();
+                    this.resumeConnection();
+                  })
+              } else if (this.stage === STAGE_DISABLED) {
+                Text('启动节点')
+                  .fontSize(14).fontColor('#FFFFFF').layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .backgroundColor('#2E6BE6').borderRadius(10)
+                  .onClick(() => {
+                    this.resumeConnection();
                   })
               } else if (this.stage === STAGE_READY) {
-                if (this.accountName.length > 0 && this.authKey.trim().length > 0) {
+                if (this.hasAnyKey() && this.hasAnyAccount()) {
                   Text('切换登录')
                     .fontSize(14).fontColor('#2E6BE6').layoutWeight(1).height(38).textAlign(TextAlign.Center)
                     .backgroundColor(this.pillBg()).borderRadius(10)
                     .onClick(() => {
                       this.authModeDialog = true;
                     })
-                } else {
-                  Text('重新连接')
-                    .fontSize(14).fontColor(this.subColor()).layoutWeight(1).height(38).textAlign(TextAlign.Center)
-                    .backgroundColor(this.pillBg()).borderRadius(10)
-                    .onClick(() => {
-                    })
                 }
-              } else if (this.stage === STAGE_NEEDS_LOGIN && (this.accountName.length > 0 || this.authKey.trim().length > 0)) {
-                // 需要授权时按已填写的凭据给出登录方式
-                if (this.accountName.length > 0) {
+              } else if (this.stage === STAGE_FAILED) {
+                Text('重新连接')
+                  .fontSize(14).fontColor('#2E6BE6').layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .backgroundColor(this.pillBg()).borderRadius(10)
+                  .onClick(() => {
+                    this.resumeConnection();
+                  })
+              } else if (this.stage === STAGE_NEEDS_LOGIN && (this.hasAnyAccount() || this.hasAnyKey())) {
+                if (this.hasAnyAccount()) {
                   Text('账号登录')
                     .fontSize(14).fontColor('#FFFFFF').layoutWeight(1).height(38).textAlign(TextAlign.Center)
                     .backgroundColor('#2E6BE6').borderRadius(10)
@@ -1572,7 +1599,7 @@ export struct TailscalePage {
                       this.connectWithAccount();
                     })
                 }
-                if (this.authKey.trim().length > 0) {
+                if (this.hasAnyKey()) {
                   Text('AuthKey 登录')
                     .fontSize(14).fontColor('#FFFFFF').layoutWeight(1).height(38).textAlign(TextAlign.Center)
                     .backgroundColor('#2E6BE6').borderRadius(10)
@@ -1580,27 +1607,6 @@ export struct TailscalePage {
                       this.connectWithAuthKey();
                     })
                 }
-              } else if (this.stage === STAGE_DISABLED) {
-                Text('启动节点')
-                  .fontSize(14).fontColor('#FFFFFF').layoutWeight(1).height(38).textAlign(TextAlign.Center)
-                  .backgroundColor('#2E6BE6').borderRadius(10)
-                  .onClick(() => {
-                    this.stage = STAGE_STARTING;
-                    TailscaleTunnelStore.get().reloadFast();
-                  })
-              } else {
-                // 已连接时灰字不可点；断开/失败/启动中显示蓝色可点击重连
-                Text('重新连接')
-                  .fontSize(14)
-                  .fontColor(this.stage === STAGE_READY ? this.subColor() : '#2E6BE6')
-                  .layoutWeight(1).height(38).textAlign(TextAlign.Center)
-                  .backgroundColor(this.pillBg()).borderRadius(10)
-                  .onClick(() => {
-                    if (this.stage === STAGE_READY) {
-                      return;
-                    }
-                    this.retryConnection();
-                  })
               }
               if (this.tunnelEnabled && this.stage !== STAGE_DISABLED) {
                 Text('停止节点')
@@ -1609,35 +1615,13 @@ export struct TailscalePage {
                   .onClick(() => {
                     this.stopConnection();
                   })
+              }
+              if (this.tunnelEnabled) {
                 Text('关闭隧道')
                   .fontSize(13).fontColor(this.subColor()).layoutWeight(1).height(38).textAlign(TextAlign.Center)
                   .backgroundColor(this.pillBg()).borderRadius(10)
                   .onClick(() => {
                     this.setEnabled(false);
-                  })
-              }
-              // Auth Key 失效：用 ⓘ 锚点菜单提示（与卡片说明同款）
-              if (this.authInvalid) {
-                Text('ⓘ')
-                  .fontSize(15)
-                  .fontColor('#C2410C')
-                  .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-                  .bindMenu(this.hintMenuOpen === 'authInvalid', this.hintMenuBuilder(), {
-                    outlineColor: this.dividerColor(),
-                    outlineWidth: 1,
-                    onWillDisappear: () => {
-                      this.hintMenuOpen = '';
-                    },
-                    onDisappear: () => {
-                      this.hintMenuOpen = '';
-                    },
-                    onDidDisappear: () => {
-                      this.hintMenuOpen = '';
-                    }
-                  })
-                  .onClick(() => {
-                    this.hintText = '已保存的 Auth Key 无法加入 tailnet（可能过期或被撤销）。可以点「重新连接」，或改用「账号登录」在浏览器完成授权。';
-                    this.hintMenuOpen = this.hintMenuOpen === 'authInvalid' ? '' : 'authInvalid';
                   })
               }
             }
