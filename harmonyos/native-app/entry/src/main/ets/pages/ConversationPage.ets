@@ -6983,10 +6983,21 @@ export struct ConversationPage {
     return height > 240 ? height : 240;
   }
 
-  /** 侧栏面板高度：系统菜单容器会限高，超出部分由内部 Scroll 承担 */
+  /**
+   * 侧栏面板高度：从顶栏下沿一直铺到输入条上方（对齐小程序「导航栏到输入框」的高度）。
+   * 系统菜单容器会按锚点向下排布，内容按可用高度算满，超出部分由内部 Scroll 承担。
+   */
   private convSidebarPanelHeight(): number {
-    const full: number = this.convSidebarHeight();
-    return full > 560 ? 560 : full;
+    let screen: number = 800;
+    try {
+      screen = this.getUIContext().px2vp(display.getDefaultDisplaySync().height);
+    } catch (err) {
+      screen = 800;
+    }
+    // 顶栏下沿 ≈ 安全区 + 58；输入条区域 ≈ 底部安全区 + 100（输入条 + 外边距）
+    // 再留 20 给系统菜单容器自身的上下留白，避免最后一行被容器裁掉
+    const available: number = screen - (this.topSafe() + 58) - (this.bottomInset + 100) - 20;
+    return available > 300 ? available : 300;
   }
 
   /** 会话侧栏内容：交给 bindMenu 的系统菜单容器渲染（材质/圆角/描边/动画/点空白收起全部原生） */
