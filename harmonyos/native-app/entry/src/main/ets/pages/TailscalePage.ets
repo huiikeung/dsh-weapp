@@ -1440,6 +1440,30 @@ export struct TailscalePage {
                     this.setEnabled(false);
                   })
               }
+              // Auth Key 失效：用 ⓘ 锚点菜单提示（与卡片说明同款）
+              if (this.authInvalid) {
+                Text('ⓘ')
+                  .fontSize(15)
+                  .fontColor('#C2410C')
+                  .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                  .bindMenu(this.hintMenuOpen === 'authInvalid', this.hintMenuBuilder(), {
+                    outlineColor: this.dividerColor(),
+                    outlineWidth: 1,
+                    onWillDisappear: () => {
+                      this.hintMenuOpen = '';
+                    },
+                    onDisappear: () => {
+                      this.hintMenuOpen = '';
+                    },
+                    onDidDisappear: () => {
+                      this.hintMenuOpen = '';
+                    }
+                  })
+                  .onClick(() => {
+                    this.hintText = '已保存的 Auth Key 无法加入 tailnet（可能过期或被撤销）。可以点「重新连接」，或改用「账号登录」在浏览器完成授权。';
+                    this.hintMenuOpen = this.hintMenuOpen === 'authInvalid' ? '' : 'authInvalid';
+                  })
+              }
             }
             .width('100%')
             if (this.stageError.length > 0) {
@@ -1464,23 +1488,6 @@ export struct TailscalePage {
           .border({ width: 1, color: this.dividerColor() })
           .borderRadius(14)
           .clip(true)
-
-          // Auth Key 失效提示放到卡片外，避免干扰状态卡片
-          if (this.authInvalid) {
-            Row({ space: 8 }) {
-              Circle({ width: 6, height: 6 }).fill('#C2410C')
-              Text('已保存的 Auth Key 无法加入 tailnet（可能过期或被撤销），点此改用浏览器登录')
-                .fontSize(12)
-                .lineHeight(18)
-                .fontColor('#C2410C')
-                .layoutWeight(1)
-            }
-            .width('100%')
-            .padding({ left: 4, right: 4, top: 8 })
-            .onClick(() => {
-              this.browserReauth();
-            })
-          }
 
           // ── 区块 2：账号与网络（隧道开启后显示；账号本身持久化，直到手动删除）──
           if (this.tunnelEnabled) {
