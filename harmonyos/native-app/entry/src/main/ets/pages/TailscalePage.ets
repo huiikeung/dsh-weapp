@@ -296,6 +296,9 @@ export struct TailscalePage {
       }
       return '连接失败';
     }
+    if (this.stage === STAGE_DISABLED) {
+      return this.tunnelEnabled ? '已停止' : '未启用';
+    }
     return '未启用';
   }
 
@@ -1577,6 +1580,14 @@ export struct TailscalePage {
                       this.connectWithAuthKey();
                     })
                 }
+              } else if (this.stage === STAGE_DISABLED) {
+                Text('启动')
+                  .fontSize(14).fontColor('#FFFFFF').layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .backgroundColor('#2E6BE6').borderRadius(10)
+                  .onClick(() => {
+                    this.stage = STAGE_STARTING;
+                    TailscaleTunnelStore.get().reloadFast();
+                  })
               } else {
                 // 已连接时灰字不可点；断开/失败/启动中显示蓝色可点击重连
                 Text('重新连接')
@@ -1591,7 +1602,7 @@ export struct TailscalePage {
                     this.retryConnection();
                   })
               }
-              if (this.tunnelEnabled) {
+              if (this.tunnelEnabled && this.stage !== STAGE_DISABLED) {
                 Text('停止')
                   .fontSize(13).fontColor('#FF3B30').layoutWeight(1).height(38).textAlign(TextAlign.Center)
                   .backgroundColor(this.pillBg()).borderRadius(10)
