@@ -1205,8 +1205,9 @@ export struct ConversationPage {
       this.pendingItemsWhileHidden = true;
       return;
     }
-    // 节点弹层开着：只刷新节点列表（补齐历史/新消息），暂不重排时间线，避免页面跳动
-    if (this.turnNavOpen) {
+    // 节点弹层开着 / 胶囊展开预热中：只刷新节点列表（补齐历史/新消息），
+    // 暂不重排时间线，避免补拉历史时页面跟着滚动、跳动
+    if (this.turnNavOpen || this.capsuleExpanded) {
       this.refreshTurnNodes(false);
       return;
     }
@@ -5704,6 +5705,16 @@ export struct ConversationPage {
     }
   }
 
+  /** 预热/弹层期间的改动先记账，等胶囊收起或弹层关闭后再一次性重排 */
+  private flushTimelineAfterWarmup(): void {
+    if (this.turnNavOpen || this.capsuleExpanded) {
+      return;
+    }
+    this.rebuildEntries();
+    this.refreshProgress();
+    this.scheduleTimelineUpdate();
+  }
+
   /** 关闭弹层：把补拉期间累积的变化一次性重排回去 */
   private closeTurnNav(): void {
     if (!this.turnNavOpen) {
@@ -5852,6 +5863,8 @@ export struct ConversationPage {
       this.capsuleExpanded = false;
       this.capsuleDragX = 0;
     });
+    // 收起胶囊：把预热期间累积的历史一次性重排回时间线（此时页面才允许动）
+    this.flushTimelineAfterWarmup();
   }
 
   /** 点击胶囊：折叠态先展开（同时开始预热节点）；展开态打开会话节点弹层 */
