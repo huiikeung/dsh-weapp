@@ -9,6 +9,7 @@ import { SessionPage } from './SessionPage';
 import { NodeManagePage } from './NodeManagePage';
 import { PluginsPage } from './PluginsPage';
 import { SchedulePage } from './SchedulePage';
+import { SessionDefaultModelPage } from './SessionDefaultModelPage';
 import { SessionSettingsPage } from './SessionSettingsPage';
 import { AppSettingsPage } from './AppSettingsPage';
 import { SettingsPage } from './SettingsPage';
@@ -103,6 +104,8 @@ struct Index {
       AddNodePage();
     } else if (name === 'session-settings') {
       SessionSettingsPage();
+    } else if (name === 'session-model') {
+      SessionDefaultModelPage();
     } else if (name === 'app-settings') {
       AppSettingsPage();
     } else if (name === 'settings') {

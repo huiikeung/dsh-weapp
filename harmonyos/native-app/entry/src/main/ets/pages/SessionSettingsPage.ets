@@ -4,6 +4,14 @@ import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 
 import { NavBackButton } from '../components/NavBackButton';
 import { openSessionRoute } from '../common/SessionRoute';
 
+/** Agent 预设二级页的选项装载结构（写入 AppStorage，PreferencePickerPage 解析） */
+interface PresetPickOption {
+  id: string;
+  label: string;
+  detail: string;
+  disabled: boolean;
+}
+
 /** 会话设置（右上角滑杆按钮）：对齐小程序 pages/session-settings */
 @Component
 export struct SessionSettingsPage {
@@ -294,7 +302,7 @@ export struct SessionSettingsPage {
       .constraintSize({ minHeight: 44 })
       .padding({ left: 16, right: 16, top: 15, bottom: 15 })
       .onClick(() => {
-        this.openModelPicker();
+        this.pageStack.pushPathByName('session-model', null);
       })
       Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
       // 权限：独立行 + 直接 onClick（同 Agent 预设）
@@ -488,6 +496,10 @@ export struct SessionSettingsPage {
     }
     .hideTitleBar(true)
     .backgroundColor(this.pageBg())
+    .onShown(() => {
+      // 从预设二级页返回：消费选择（应用预设 / 打开创造模式）
+      this.consumePresetChoice();
+    })
   }
 
   @Builder
@@ -1257,15 +1269,6 @@ export struct SessionSettingsPage {
     this.hint = '已切换默认模型为「' + label + '」，仅对新建会话生效';
   }
 
-  /** 打开模型弹窗 */
-  private openModelPicker(): void {
-    this.pickerKind = 'model';
-    this.pickerTitle = '默认模型';
-    this.pickerIntro = '为之后新建的会话设置默认模型与思考等级。这会更新部署级设置，同步影响 WebUI，运行中的会话保持启动时的配置。';
-    this.pickerItems = [];
-    this.pickerOpen = true;
-  }
-
   /** 权限显示名（对齐小程序 labels.permissionName） */
   private permissionDisplayName(id: string): string {
     const v: string = id.toLowerCase().replace(/_/g, '-');
@@ -1342,23 +1345,62 @@ export struct SessionSettingsPage {
     this.hint = '已切换为「' + label + '」，仅对新建会话生效';
   }
 
-  /** 打开预设弹窗（卡片式，对齐小程序 pickAgentPreset） */
+  /** Agent 预设：改为二级页面（复用 pref-picker，动态选项写 AppStorage） */
   private openPresetPicker(): void {
-    this.pickerKind = 'preset';
-    this.pickerTitle = 'Agent 预设';
-    this.pickerIntro = '预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。';
-    this.pickerItems = [];
-    this.pickerOpen = true;
-    // 是否提供创造模式（cordis）：决定是否显示「添加自定义 Agent 预设」
     const defs: PresetOption[] = this.presetOptions();
     let hasCordis: boolean = false;
+    const pickItems: PresetPickOption[] = [];
     for (const one of defs) {
       if (one.id === 'cordis') {
         hasCordis = true;
+      }
+      pickItems.push({
+        id: one.id,
+        label: one.label,
+        // 损坏预设置灰不可选，描述里带原因（对齐卡片弹窗的 ⚠ 提示）
+        detail: one.broken
+          ? ('⚠ ' + (one.brokenReason.length > 0 ? one.brokenReason : '该预设存在配置错误，暂时不能设为默认值'))
+          : one.description,
+        disabled: one.broken
+      });
+    }
+    AppStorage.setOrCreate<string>('sessionPresetPickerJson', JSON.stringify(pickItems));
+    AppStorage.setOrCreate<boolean>('sessionPresetCreatorAvailable', hasCordis);
+    AppStorage.setOrCreate<string>('prefPickerKind', 'session-agent-preset');
+    AppStorage.setOrCreate<string>('prefPickerValue',
+      this.pickPresetId.length > 0 ? this.pickPresetId : this.defaultPreset);
+    this.pageStack.pushPathByName('pref-picker', null);
+  }
+
+  /** 从 pref-picker 返回后消费选择：__create__ 走创造模式，其余应用为默认预设 */
+  private consumePresetChoice(): void {
+    const raw: string = AppStorage.get<string>('prefPickerChoice') ?? '';
+    if (raw.length === 0) {
+      return;
+    }
+    AppStorage.setOrCreate<string>('prefPickerChoice', '');
+    const sep: number = raw.indexOf('\u0001');
+    if (sep <= 0) {
+      return;
+    }
+    const kind: string = raw.substring(0, sep);
+    if (kind !== 'session-agent-preset') {
+      return;
+    }
+    const id: string = raw.substring(sep + 1);
+    if (id === '__create__') {
+      // 延迟一拍：onShown 期间再推会话路由，等导航栈稳定
+      setTimeout(() => this.createCustomPreset(), 60);
+      return;
+    }
+    let label: string = id;
+    for (const one of this.presetOptions()) {
+      if (one.id === id) {
+        label = one.label;
         break;
       }
     }
-    this.presetCreatorAvailable = hasCordis;
+    this.applyPreset(id, label);
   }
 
   /** 添加自定义 Agent 预设：新建创造模式会话并打开（对齐小程序 createCustomAgentPreset） */

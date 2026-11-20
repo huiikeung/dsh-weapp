@@ -18,6 +18,8 @@ interface PickerOption {
   id: string;
   label: string;
   detail: string;
+  /** 会话设置-Agent 预设：损坏预设置灰不可选 */
+  disabled?: boolean;
 }
 
 const SEP: string = '\u0001';
@@ -27,6 +29,28 @@ function optionsFor(kind: string): PickerOption[] {
   const push = (id: string, label: string, detail: string): void => {
     out.push({ id: id, label: label, detail: detail });
   };
+  if (kind === 'session-agent-preset') {
+    // 动态选项：会话设置页打开前把网关下发的预设写进 AppStorage（JSON）
+    const raw: string = AppStorage.get<string>('sessionPresetPickerJson') ?? '';
+    if (raw.length > 0) {
+      try {
+        const parsed: Object = JSON.parse(raw) as Object;
+        if (Array.isArray(parsed)) {
+          for (const one of parsed as Object[]) {
+            const rec = one as Record<string, Object>;
+            const id: string = rec['id'] === undefined ? '' : String(rec['id']);
+            const label: string = rec['label'] === undefined ? '' : String(rec['label']);
+            const detail: string = rec['detail'] === undefined ? '' : String(rec['detail']);
+            const disabled: boolean = rec['disabled'] === undefined ? false : (rec['disabled'] as boolean);
+            out.push({ id: id, label: label, detail: detail, disabled: disabled });
+          }
+        }
+      } catch (err) {
+        // 解析失败不阻断（列表为空时由打开方兜底）
+      }
+    }
+    return out;
+  }
   if (kind === 'appearance') {
     push('auto', '跟随系统', '与系统深浅色保持一致');
     push('light', '浅色', '始终使用浅色界面');
@@ -82,6 +106,9 @@ function optionsFor(kind: string): PickerOption[] {
 }
 
 function titleFor(kind: string): string {
+  if (kind === 'session-agent-preset') {
+    return 'Agent 预设';
+  }
   if (kind === 'appearance') {
     return '外观';
   }
@@ -113,6 +140,9 @@ function titleFor(kind: string): string {
 }
 
 function subtitleFor(kind: string): string {
+  if (kind === 'session-agent-preset') {
+    return '预设决定 Agent 使用的工具、提示词与能力。选择后只对新建会话生效。';
+  }
   if (kind === 'appearance') {
     return '选择界面深浅色';
   }
@@ -176,6 +206,9 @@ export struct PreferencePickerPage {
   }
 
   private choose(option: PickerOption): void {
+    if (option.disabled === true) {
+      return;
+    }
     // 工作步骤展示/收起时机：二级页里就地落库 + 写 AppStorage，
     // 这样对话页的 @StorageProp 立刻重排，不依赖返回设置页的 @Watch 是否触发。
     if (this.kind === 'mode') {
@@ -266,7 +299,7 @@ export struct PreferencePickerPage {
                   Text(option.label)
                     .fontSize(16.4) // 28rpx
                     .fontWeight(FontWeight.Medium)
-                    .fontColor(this.textColor())
+                    .fontColor(option.disabled === true ? this.subColor() : this.textColor())
                   Blank()
                   Text(option.id === this.currentValue ? '已选择' : '')
                     .fontSize(12.9) // 22rpx
@@ -335,6 +368,34 @@ export struct PreferencePickerPage {
                 this.choose(option);
               })
             }, (option: PickerOption) => this.kind + '-' + option.id)
+
+            // 添加自定义 Agent 预设：仅当网关提供 cordis 创造模式时展示（对齐小程序 preset-create-entry）
+            if (this.kind === 'session-agent-preset'
+              && (AppStorage.get<boolean>('sessionPresetCreatorAvailable') ?? false)) {
+              Column({ space: 6 }) {
+                Row({ space: 10 }) {
+                  Text('＋')
+                    .fontSize(18)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor('#2E6BE6')
+                  Text('添加自定义 Agent 预设')
+                    .fontSize(16)
+                    .fontColor(this.textColor())
+                }
+                .alignItems(VerticalAlign.Center)
+                Text('新建创造模式会话，让 Agent 创建或维护预设')
+                  .fontSize(12.5)
+                  .fontColor(this.subColor())
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+              .padding(14)
+              .borderRadius(14)
+              .border({ width: 1, style: BorderStyle.Dashed, color: '#2E6BE6' })
+              .onClick(() => {
+                this.choose({ id: '__create__', label: '', detail: '', disabled: false });
+              })
+            }
 
             Text(this.kind === 'procion' ? '动效保存在当前 App · 自动保存' : '保存在当前 App · 自动保存')
               .fontSize(12.9)
