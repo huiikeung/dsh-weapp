@@ -7237,8 +7237,8 @@ export struct ConversationPage {
         .padding({ top: 2, bottom: 2 })
         // 背景对齐对话页置底「回到底部」玻璃按钮（同一套 iOS Liquid Glass）：
         // 中性半透明底 + 纯背景模糊 14 + 白色细边 + 系统菜单同档投影
-        .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
-        .backdropBlur(14)
+        .backgroundColor(this.isDark ? 'rgba(44,44,48,0.28)' : 'rgba(255,255,255,0.14)')
+        .backdropBlur(26)
         .borderRadius(16)
         .clip(true)
         .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
