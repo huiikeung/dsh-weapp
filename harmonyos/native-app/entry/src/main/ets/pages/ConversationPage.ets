@@ -3072,8 +3072,28 @@ export struct ConversationPage {
       }
 
       // 会话节点胶囊：常显浮层（左右拖动吸附折叠，点击展开/打开弹层）
-      if (this.pageW > 0) {
+      // 侧栏弹窗展开时先收起，避免浮块压在弹窗旁边
+      if (this.pageW > 0 && !this.sessionPickerOpen) {
         this.floatingCapsule()
+      }
+
+      // 会话侧栏：自定义浮层 + 系统同款玻璃材质（系统菜单一点就收，做不到原地展开工作区分组）
+      if (this.sessionPickerOpen) {
+        Stack({ alignContent: Alignment.TopEnd }) {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor(Color.Transparent)
+            .onClick(() => {
+              this.sessionPickerOpen = false;
+            })
+          Column() {
+            this.sidebarMenuPanel()
+          }
+          .padding({ top: 56 + this.topSafe(), right: 12 })
+        }
+        .width('100%')
+        .height('100%')
       }
 
       // 重命名会话弹窗
@@ -4740,19 +4760,6 @@ export struct ConversationPage {
           this.sessionPickerOpen = false;
         } else {
           this.openSessionSwitcher();
-        }
-      })
-      // 与「协作」「⋯」同一个系统菜单容器：原生材质/圆角/描边/弹出动画/点空白收起
-      .bindMenu(this.sessionPickerOpen, this.sidebarMenuPanel(), {
-        placement: Placement.BottomRight,
-        offset: { x: 0, y: 4 },
-        outlineColor: this.dividerColor(),
-        outlineWidth: 1,
-        onWillDisappear: () => {
-          this.sessionPickerOpen = false;
-        },
-        onDisappear: () => {
-          this.sessionPickerOpen = false;
         }
       })
 
@@ -7219,9 +7226,13 @@ export struct ConversationPage {
         .id('conv-sidebar')
         .width(this.convSidebarWidth())
         .height(this.convSidebarPanelHeight())
-        .padding({ top: 5 })
         .alignItems(HorizontalAlign.Start)
-        .width(this.convSidebarWidth())
         .padding({ top: 2, bottom: 2 })
+        // 背景用系统「组件厚材质」模糊（与 ⋯ 菜单同一套 material），只叠一圈细边和轻投影
+        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+        .borderRadius(16)
+        .clip(true)
+        .border({ width: 0.5, color: this.dividerColor() })
+        .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.10)', offsetY: 6 })
   }
 }
