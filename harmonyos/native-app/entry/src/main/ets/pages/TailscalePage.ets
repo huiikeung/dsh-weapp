@@ -1609,7 +1609,7 @@ export struct TailscalePage {
 
           // ── 节点状态卡片（顶部总览，对齐设备卡片样式）──
           this.sectionHeader('节点状态')
-          Column({ space: 15 }) {
+          Column({ space: 20 }) {
             Row() {
               TailscaleMarkView({
                 connected: this.stage === STAGE_READY,
