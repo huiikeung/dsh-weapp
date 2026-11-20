@@ -77,6 +77,10 @@ export class TailscaleTunnelStore {
 
   /** 轻量 tsnet 引擎：首次需要授权一次，就绪后连接切到它（冷启动 1–2s） */
   private ensureFastStarted(enabled: boolean): void {
+    // 用户手动「停止」后不要在轮询里自动拉起，等用户点「启动」
+    if (PreferencesStore.get().getBoolean('tailscaleConnectionStopped', false)) {
+      return;
+    }
     if (!enabled || this.fastStarted) {
       return;
     }
@@ -265,6 +269,8 @@ export class TailscaleTunnelStore {
 
   /** 停止轻量引擎（Go 端已改为异步关闭，不会阻塞 UI 线程） */
   stopFastOnly(): void {
+    // 标记为用户主动停止：轮询不能再自动拉起引擎
+    PreferencesStore.get().putBoolean('tailscaleConnectionStopped', true);
     try {
       TsnetBridge.stopFast();
     } catch (stopErr) {
@@ -299,6 +305,8 @@ export class TailscaleTunnelStore {
   }
 
   reloadFast(): void {
+    // 手动启动/重连：清除「已停止」标记
+    PreferencesStore.get().putBoolean('tailscaleConnectionStopped', false);
     // 3 秒内重复点击直接忽略：stop/start 反复打断 tsnet 会让 UI 线程卡死（系统判定无响应后杀进程）
     const now: number = Date.now();
     if (now - this.lastReloadAt < 3000) {
