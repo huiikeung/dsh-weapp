@@ -170,6 +170,19 @@ func tsqPollStatus(server *tsnet.Server) string {
 		" | upError=" + upErr + " | dnsName=" + dnsName + " | authURL=" + authURL + " | tailscaleIPs=" + strconv.Itoa(len(status.TailscaleIPs))
 }
 
+// tsqDetectLocalProxy 探测本机常见代理端口（Clash 等），返回 socks5 URL
+func tsqDetectLocalProxy() string {
+	for _, port := range []string{"7890", "7891", "7892", "1080", "10808", "10809"} {
+		addr := "127.0.0.1:" + port
+		conn, err := net.DialTimeout("tcp", addr, 250*time.Millisecond)
+		if err == nil {
+			_ = conn.Close()
+			return "socks5://" + addr
+		}
+	}
+	return ""
+}
+
 // tsqProbeControl 探测控制面：DNS 解析 + 每个地址的 TCP/TLS 握手
 func tsqProbeControl(control string, upErr error) string {
 	host := control
@@ -229,6 +242,13 @@ func TSQStart(hostname *C.char, stateDir *C.char, controlURL *C.char, authKey *C
 	tsqMu.Lock()
 	tsqAuthURL = ""
 	tsqMu.Unlock()
+	// 手机开了 Clash 等代理时：自动探测本地 SOCKS 端口，让控制面/DERP 走代理隧道
+	if os.Getenv("ALL_PROXY") == "" {
+		if proxyURL := tsqDetectLocalProxy(); proxyURL != "" {
+			_ = os.Setenv("ALL_PROXY", proxyURL)
+			tsqLogf("TSQ proxy=%s", proxyURL)
+		}
+	}
 	// 管理台优先展示 HarmonyOS（工具链 GOOS=linux，需要覆盖）
 	_ = os.Setenv("TS_OS_OVERRIDE", "HarmonyOS")
 	tsqLogf("TSQ os=%s arch=%s", version.OS(), runtime.GOARCH)
