@@ -3078,11 +3078,6 @@ export struct ConversationPage {
         this.fileDiffOverlay()
       }
 
-      // 会话节点弹层：自绘 overlay（系统菜单会因「按住黑色滑块」判为点空白而收起）
-      if (this.turnNavOpen) {
-        this.turnNavOverlay()
-      }
-
       // 会话节点胶囊：常显浮层（左右拖动吸附折叠，点击展开/打开弹层）
       // 侧栏弹窗展开时先收起，避免浮块压在弹窗旁边
       if (this.pageW > 0 && !this.sessionPickerOpen) {
@@ -5830,11 +5825,6 @@ export struct ConversationPage {
       });
       return;
     }
-    // 弹层开着再点胶囊 = 收起（之前走系统菜单时由「点空白」承担）
-    if (this.turnNavOpen) {
-      this.closeTurnNav();
-      return;
-    }
     this.openTurnNav();
   }
 
@@ -5865,8 +5855,19 @@ export struct ConversationPage {
     .width(this.capsuleWidth())
     .position({ x: this.capsuleX(), y: this.capsuleY() })
     .zIndex(60)
-    // 弹窗改成页面内自绘 overlay（见 turnNavOverlay）：用系统菜单容器时，
-    // 「按住黑色滑块」会被判成「点空白」，弹窗立刻收起，没法边拖边看内容。
+    // 会话节点弹窗：与「协作」「⋯」「侧栏」同一个系统菜单容器（原生材质/圆角/描边/动画/点空白收起）
+    .bindMenu(this.turnNavOpen, this.turnNavPanel(), {
+      placement: this.capsuleSide === 'left' ? Placement.Right : Placement.Left,
+      offset: { x: 4, y: 0 },
+      outlineColor: this.dividerColor(),
+      outlineWidth: 1,
+      onWillDisappear: () => {
+        this.turnNavOpen = false;
+      },
+      onDisappear: () => {
+        this.turnNavOpen = false;
+      }
+    })
     .onClick(() => {
       this.tapCapsule();
     })
@@ -6003,60 +6004,7 @@ export struct ConversationPage {
     .height(TURN_TRACK_HEIGHT)
   }
 
-  /** 弹层面板左上角：贴在胶囊内侧（右侧停靠→面板在左，左侧停靠→面板在右） */
-  private turnNavPanelX(): number {
-    const width: number = 300;
-    if (this.capsuleSide === 'left') {
-      return Math.min(this.pageW - width - 6, this.capsuleX() + this.capsuleWidth() + 6);
-    }
-    return Math.max(6, this.capsuleX() - width - 6);
-  }
-
-  private turnNavPanelY(): number {
-    const height: number = 430;
-    const top: number = this.topSafe() + 12;
-    const lowest: number = Math.max(top, (this.pageH > 0 ? this.pageH : 800) - height - this.bottomInset - 12);
-    const wanted: number = this.capsuleY() + this.capsuleWidth() / 2 - height / 2;
-    return Math.max(top, Math.min(lowest, wanted));
-  }
-
-  /**
-   * 会话节点弹层：自绘遮罩 + 面板。
-   * 关键点：胶囊（含黑色滑块）zIndex 比这一层高，所以按住滑块不会被遮罩吃掉；
-   * 拖动滑块 → previewTurnNode → 弹层列表跟着滚到对应节点，弹层保持打开。
-   */
-  @Builder
-  turnNavOverlay() {
-    Stack({ alignContent: Alignment.TopStart }) {
-      // 空白遮罩：点空白关闭弹层
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor(Color.Transparent)
-        .onClick(() => {
-          this.closeTurnNav();
-        })
-      Column() {
-        this.turnNavPanel()
-      }
-      .width(300)
-      .height(430)
-      .borderRadius(20)
-      .backgroundColor(this.turnNavGlass())
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
-        colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
-      })
-      .border({ width: 0.5, color: this.dividerColor() })
-      .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(16,19,24,0.16)', offsetY: 8 })
-      .clip(true)
-      .position({ x: this.turnNavPanelX(), y: this.turnNavPanelY() })
-    }
-    .width('100%')
-    .height('100%')
-    .zIndex(55)
-  }
-
-  /** 会话节点弹层内容（自绘面板内的标题 + 节点列表 + 底部操作） */
+  /** 会话节点弹层内容：交给 bindMenu 的系统菜单容器渲染（材质/圆角/描边/动画/点空白收起全部原生） */
   @Builder
   turnNavPanel() {
       Column() {
