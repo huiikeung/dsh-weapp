@@ -201,6 +201,41 @@ export class GatewayClient {
       (nums[0] === 169 && nums[1] === 254);
   }
 
+  /** 本机在当前网络下的 IPv4 /24 前缀（如 192.168.0）；拿不到时返回空串。 */
+  private localIpv4Subnet(): string {
+    try {
+      const net: connection.NetHandle = connection.getDefaultNetSync();
+      if (net === undefined || net.netId === 0) {
+        return '';
+      }
+      const props: connection.ConnectionProperties = connection.getConnectionPropertiesSync(net);
+      const links: connection.LinkAddress[] = props.linkAddresses === undefined ? [] : props.linkAddresses;
+      for (const link of links) {
+        const addr: string = link.address === undefined ? '' : link.address.address;
+        const at: number = addr.lastIndexOf('.');
+        if (at > 0 && addr.indexOf(':') < 0 && addr.indexOf('127.') !== 0) {
+          return addr.substring(0, at);
+        }
+      }
+    } catch (err) {
+    }
+    return '';
+  }
+
+  /** 端点所在 /24 前缀（ws://a.b.c.d:port → a.b.c） */
+  private endpointSubnet(url: string): string {
+    const start: number = url.indexOf('://') >= 0 ? url.indexOf('://') + 3 : 0;
+    const rest: string = url.substring(start);
+    const end: number = rest.indexOf('/') >= 0 ? rest.indexOf('/') : rest.length;
+    let host: string = rest.substring(0, end);
+    const colon: number = host.indexOf(':');
+    if (colon >= 0) {
+      host = host.substring(0, colon);
+    }
+    const at: number = host.lastIndexOf('.');
+    return at > 0 ? host.substring(0, at) : '';
+  }
+
   /** 读取当前默认网络类型：wifi / cellular / other */
   private detectNetworkBearer(): string {
     try {
@@ -234,15 +269,26 @@ export class GatewayClient {
         unique.push(one);
       }
     }
-    const locals: string[] = unique.filter((one: string) => this.isLocalEndpoint(one));
+    const allLocals: string[] = unique.filter((one: string) => this.isLocalEndpoint(one));
+    // 局域网候选里可能残留上一张网络的地址（192.168.3.x）：
+    // 先把「和本机当前 IP 同一个 /24」的那些排前面，否则会在不可达地址上白等一轮超时。
+    const mySubnet: string = this.localIpv4Subnet();
+    const sameSubnet: string[] = mySubnet.length === 0 ? []
+      : allLocals.filter((one: string) => this.endpointSubnet(one) === mySubnet);
+    const otherSubnet: string[] = mySubnet.length === 0 ? allLocals
+      : allLocals.filter((one: string) => this.endpointSubnet(one) !== mySubnet);
+    const locals: string[] = sameSubnet.concat(otherSubnet);
     const publics: string[] = unique.filter((one: string) => !this.isLocalEndpoint(one));
     // 用户偏好：公网优先、局域网兜底；内嵌隧道就绪时 tailnet 地址最优先，
     // 未就绪时把 tailnet 地址放最后，避免启动时等待隧道拖慢首连。
     const tailnets: string[] = publics.filter((one: string) => this.isTailnetAddress(one));
     const restPublics: string[] = publics.filter((one: string) => !this.isTailnetAddress(one));
     if (this.networkBearer !== 'cellular') {
-      // Wi‑Fi / 其他：局域网优先。公网候选里经常还留着早已失效的
-      // *.trycloudflare.com 快速隧道地址，先试它只会让启动首连白等一轮超时。
+      // Tailscale 节点已连接：直接走公网（tailnet 优先 → Cloudflare 等公网 → 局域网兜底）
+      if (this.tailnetReady() && tailnets.length > 0) {
+        return tailnets.concat(restPublics).concat(locals);
+      }
+      // 隧道未就绪：局域网优先，避免启动首连白等公网超时
       return locals.concat(restPublics).concat(tailnets);
     }
     // 蜂窝：局域网不可达，公网优先；内嵌隧道就绪时 tailnet 地址比公网更可靠
@@ -705,10 +751,10 @@ export class GatewayClient {
     // Tailscale 开启时或目标是 tailnet 地址：等隧道就绪后走隧道（最多 ~37s，之后回退直连避免卡死）
     // 只有目标是 tailnet 地址时才等隧道；普通局域网/公网入口立即连接（隧道在后台预热）
     const tailscaleEnabled: boolean = AppStorage.get<boolean>('tailscaleTunnelEnabled') ?? false;
+    // 只有 tailnet 目标、或蜂窝下连局域网地址时才必须等隧道；
+    // 同网段的局域网地址直接拨号更快，也不该被「隧道启动中」卡住最多 37 秒。
     const tunnelNeeded: boolean = this.isTailnetAddress(profile.wsUrl) ||
-      (tailscaleEnabled && this.isLocalEndpoint(profile.wsUrl)) ||
-      (this.networkBearer === 'cellular' && this.isLocalEndpoint(profile.wsUrl) &&
-        (AppStorage.get<boolean>('tailscaleTunnelEnabled') ?? false));
+      (this.networkBearer === 'cellular' && this.isLocalEndpoint(profile.wsUrl) && tailscaleEnabled);
     if (tunnelNeeded && !this.tailnetReady()) {
       const stage: string = AppStorage.get<string>('tailscaleStage') ?? 'disabled';
       if (!this.tailnetEnablerCalled) {
@@ -1016,8 +1062,13 @@ export class GatewayClient {
     this.reconnectAttempt = 0;
     this.pairCandidates = [];
     const profile: GatewayProfile | null = this.currentProfile;
-    if (profile !== null && (profile.relayNodeId === undefined || profile.relayNodeId.length === 0)) {
-      this.persistProfile(profile.token ?? '', '');
+    if (profile !== null) {
+      if (profile.relayNodeId !== undefined && profile.relayNodeId.length > 0) {
+        // 中继连接也要记「最近使用」，否则下次启动还是直连那台旧主机
+        CredentialStore.get().markConnected(profile.relayNodeId, profile.wsUrl);
+      } else {
+        this.persistProfile(profile.token ?? '', '');
+      }
     }
     if (profile !== null) {
       // 记录当前实际使用的端点与类型，供设置页展示（局域网优先 / 蜂窝自动切公网）
@@ -1889,24 +1940,44 @@ export class GatewayClient {
     }
     Logger.info('PERSIST_ENTER ws=' + profile.wsUrl + ' cached=' + CredentialStore.get().list().length);
     const relayNodeId: string = profile.relayNodeId !== undefined ? profile.relayNodeId : '';
-    const gatewayId: string = relayNodeId.length > 0 ? relayNodeId : profile.wsUrl;
-    const existing: SavedGateway | null = CredentialStore.get().list().find((item: SavedGateway) => item.id === gatewayId) ?? null;
+    const helloName: string = AppStorage.get<string>('gatewayName') ?? this.pairingGatewayName;
+    // 同一台物理主机在不同网络下地址不同（局域网 IP / *.ts.net / 中继）：
+    // 以前直接拿地址当 id，换一次网络就多一条「新主机」，切换列表重复、
+    // 「最近使用」也永远落在最后一条地址档案上。这里按 中继 id → 网关名 → 地址 复用既有档案。
+    const existing: SavedGateway | null =
+      CredentialStore.get().findExisting(relayNodeId, helloName, profile.wsUrl);
+    const gatewayId: string = existing !== null
+      ? existing.id
+      : (relayNodeId.length > 0 ? relayNodeId : profile.wsUrl);
+    // 端点取并集：换网络时既要记住新地址，也不能丢掉之前能用的地址
+    const endpoints: string[] = existing !== null && existing.endpoints !== undefined
+      ? existing.endpoints.slice() : [];
+    const candidates: string[] = this.allEndpoints.length > 0 ? this.allEndpoints.slice() : [profile.wsUrl];
+    for (const url of candidates) {
+      if (url.length > 0 && endpoints.indexOf(url) < 0) {
+        endpoints.push(url);
+      }
+    }
+    if (endpoints.indexOf(profile.wsUrl) < 0) {
+      endpoints.push(profile.wsUrl);
+    }
     const gateway: SavedGateway = {
       id: gatewayId,
-      name: AppStorage.get<string>('gatewayName') ?? this.pairingGatewayName,
+      name: helloName.length > 0 ? helloName : (existing !== null ? existing.name : ''),
       wsUrl: profile.wsUrl,
-      // 保留全部候选地址，供网络类型变化时切换
-      endpoints: this.allEndpoints.length > 0 ? this.allEndpoints.slice() : [profile.wsUrl],
+      endpoints: endpoints,
       pairCode: profile.pairCode,
       token: token.length > 0 ? token : (existing !== null ? existing.token : ''),
-      relayNodeId: relayNodeId,
+      relayNodeId: relayNodeId.length > 0 ? relayNodeId : (existing !== null ? existing.relayNodeId : ''),
       relayAgentPubKey: profile.relayAgentPubKey !== undefined ? profile.relayAgentPubKey : '',
       inviteToken: profile.inviteToken,
       accessToken: accessToken.length > 0 ? accessToken
-        : (existing !== null && existing.relayNodeId === relayNodeId ? existing.accessToken : profile.accessToken),
-      pairedAt: existing !== null && existing.id === (relayNodeId.length > 0 ? relayNodeId : profile.wsUrl)
-        ? existing.pairedAt : Date.now(),
-      lastConnectedAt: Date.now()
+        : (existing !== null ? existing.accessToken : profile.accessToken),
+      pairedAt: existing !== null ? existing.pairedAt : Date.now(),
+      lastConnectedAt: Date.now(),
+      // 用户起的备注名和主机类型必须原样保留：以前每次重连都会新建档案把它们冲掉
+      alias: existing !== null ? existing.alias : undefined,
+      deviceKind: existing !== null ? existing.deviceKind : undefined
     };
     CredentialStore.get().save(gateway);
     Logger.info('PERSIST_SAVED id=' + gateway.id + ' total=' + CredentialStore.get().list().length);
