@@ -333,8 +333,9 @@ export class TailscaleTunnelStore {
       } else if (fastStat.indexOf('FAILED') >= 0) {
         AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_FAILED);
       } else if (fastStat.indexOf('state=Starting') >= 0 || fastStat.indexOf('state=NoState') >= 0) {
-        AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_STARTING);
-        AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', false);
+        // 引擎会在 Starting/NeedsLogin 之间反复重试；一旦判定密钥不可用，就不要再翻回「启动中」
+        const invalid: boolean = AppStorage.get<boolean>('tailscaleAuthInvalid') ?? false;
+        AppStorage.setOrCreate<string>('tailscaleStage', invalid ? TS_STAGE_NEEDS_LOGIN : TS_STAGE_STARTING);
       }
     }
     // WiFi 下预热隧道：提前把代理指向 ts.net 并拨通 DERP 路径，切蜂窝时才能秒切

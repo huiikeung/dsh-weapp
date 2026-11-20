@@ -4,6 +4,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import type Want from '@ohos.app.ability.Want';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { TsnetBridge } from '../services/TsnetBridge';
+import { TailscaleMarkView } from '../components/TailscaleMarkView';
 import { TailscaleTunnelStore } from '../services/TailscaleTunnelStore';
 
 const KEY_ENABLED: string = 'tailscaleEnabled';
@@ -863,13 +864,13 @@ export struct TailscalePage {
           this.sectionHeader('节点状态')
           Column({ space: 10 }) {
             Row() {
-              Text(this.nodeName.length > 0 ? this.nodeName : this.defaultNodeName())
-                .fontSize(20)
-                .fontWeight(FontWeight.Medium)
-                .fontColor(this.textColor())
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-                .layoutWeight(1)
+              TailscaleMarkView({
+                connected: this.stage === STAGE_READY,
+                tint: this.isDark ? '#8AB4FF' : '#2E6BE6',
+                markSize: 34
+              })
+                .translate({ y: -1 })
+              Blank()
               Row({ space: 5 }) {
                 Circle({ width: 7, height: 7 }).fill(this.stageColor())
                 Text(this.stageLabel()).fontSize(12).fontColor(this.stageColor())
@@ -879,9 +880,17 @@ export struct TailscalePage {
               .borderRadius(20)
             }
             .width('100%')
+            Text(this.nodeName.length > 0 ? this.nodeName : this.defaultNodeName())
+              .fontSize(22)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.textColor())
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
             Text('HarmonyOS · ' + this.deviceModel())
               .fontSize(12)
               .fontColor(this.subColor())
+              .width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
               Text(this.identitySummary()).fontSize(11).fontColor('#2E6BE6')
                 .padding({ left: 8, right: 8, top: 4, bottom: 4 })
@@ -955,6 +964,7 @@ export struct TailscalePage {
           }
           .width('100%')
           .padding(16)
+          .alignItems(HorizontalAlign.Start)
           .backgroundColor(this.cardBg())
           .border({ width: 1, color: this.dividerColor() })
           .borderRadius(14)
