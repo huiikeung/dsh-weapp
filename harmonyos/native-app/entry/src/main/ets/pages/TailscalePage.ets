@@ -88,12 +88,11 @@ export struct TailscalePage {
   /** 以 TailscaleTunnelStore 发布的阶段为准（引擎在 App 进程内启动/轮询） */
   onStoreStage(): void {
     if (this.storeStage === 'ready') {
-      if (this.stage !== STAGE_READY) {
-        this.stage = STAGE_READY;
-        this.failureKind = '';
-        this.loadAccountSummary();
-        this.refreshPeers();
-      }
+      this.stage = STAGE_READY;
+      this.failureKind = '';
+      // 每次都刷新账号摘要：账号名可能晚于阶段就绪到达
+      this.loadAccountSummary();
+      this.refreshPeers();
       return;
     }
     if (this.storeStage === 'needsLogin') {
@@ -1204,6 +1203,27 @@ export struct TailscalePage {
         .fontWeight(FontWeight.Bold)
         .fontColor(this.textColor())
         .width('100%')
+      if (this.accountName.length > 0) {
+        Row({ space: 8 }) {
+          Circle({ width: 8, height: 8 }).fill('#0F9D58')
+          Column({ space: 2 }) {
+            Text('已登录：' + this.accountName)
+              .fontSize(14)
+              .fontColor(this.textColor())
+            if (this.accountLogin.length > 0) {
+              Text(this.accountLogin)
+                .fontSize(11)
+                .fontColor(this.subColor())
+            }
+          }
+          .alignItems(HorizontalAlign.Start)
+          .layoutWeight(1)
+        }
+        .width('100%')
+        .padding(10)
+        .backgroundColor(this.pillBg())
+        .borderRadius(10)
+      }
       Text(this.loginResult.length > 0 ? this.loginResult : '点击下方按钮后，应用会在本机创建 Tailscale 节点并返回登录链接。')
         .fontSize(14)
         .lineHeight(21)

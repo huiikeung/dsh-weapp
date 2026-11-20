@@ -323,6 +323,9 @@ func tsqAccountSummary(srv *tsnet.Server) string {
 			login = u.LoginName
 		}
 	}
+	if display == "" {
+		display = login
+	}
 	addrs := ""
 	if st.Self != nil {
 		parts := make([]string, 0, len(st.Self.TailscaleIPs))

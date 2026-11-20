@@ -345,12 +345,13 @@ export class TailscaleTunnelStore {
         const acctEnd: number = acctTail.indexOf(' | ');
         const acct: string = acctEnd > 0 ? acctTail.substring(0, acctEnd) : acctTail.trim();
         const parts: string[] = acct.split('|');
-        if (parts.length >= 3 && parts[0].length > 0) {
-          const display: string = decodeURIComponent(parts[0]);
+        if (parts.length >= 3 && (parts[0].length > 0 || parts[1].length > 0)) {
           const login: string = decodeURIComponent(parts[1]);
+          const display: string = parts[0].length > 0 ? decodeURIComponent(parts[0]) : login;
           const tailnet: string = decodeURIComponent(parts[2]);
           const addresses: string = parts.length > 3 ? decodeURIComponent(parts[3]) : '';
           AppStorage.setOrCreate<string>('tailscaleAccountName', display);
+          Logger.info('TSDBG acct=' + display + ' | ' + login);
           const acctPrefs: PreferencesStore = PreferencesStore.get();
           acctPrefs.putString('tailscaleAccountName', display);
           acctPrefs.putString('tailscaleAccountLogin', login);
