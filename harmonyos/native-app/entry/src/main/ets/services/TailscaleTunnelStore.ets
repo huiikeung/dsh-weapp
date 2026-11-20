@@ -5,6 +5,8 @@ import { deviceInfo } from '@kit.BasicServicesKit';
 import { TsnetBridge } from './TsnetBridge';
 
 const KEY_ENABLED: string = 'tailscaleEnabled';
+const KEY_CONTROL_URL: string = 'tailscaleControlURL';
+const DEFAULT_CONTROL_URL: string = 'https://controlplane.tailscale.com';
 export const TS_STAGE_DISABLED: string = 'disabled';
 export const TS_STAGE_STARTING: string = 'starting';
 export const TS_STAGE_NEEDS_LOGIN: string = 'needsLogin';
@@ -56,6 +58,12 @@ export class TailscaleTunnelStore {
     }
   }
 
+  /** 控制平面地址：默认官方 controlplane，用户可填自建 Headscale 等自定义域名（账号归用户自己） */
+  private controlURL(): string {
+    const value: string = PreferencesStore.get().getString(KEY_CONTROL_URL, '').trim();
+    return value.length > 0 ? value : DEFAULT_CONTROL_URL;
+  }
+
   /** 轻量 tsnet 引擎：首次需要授权一次，就绪后连接切到它（冷启动 1–2s） */
   private ensureFastStarted(enabled: boolean): void {
     if (!enabled || this.fastStarted) {
@@ -72,7 +80,7 @@ export class TailscaleTunnelStore {
     }
     let authKey: string = PreferencesStore.get().getString('tsnetAuthKey', '').trim();
     Logger.info('TSDBG fast authKeyLen=' + authKey.length);
-    const result: string = TsnetBridge.startFast(hostname, this.stateDir, 'https://controlplane.tailscale.com', authKey);
+    const result: string = TsnetBridge.startFast(hostname, this.stateDir, this.controlURL(), authKey);
     Logger.info('TSDBG fast start=' + result.substring(0, 200));
   }
 
@@ -99,7 +107,7 @@ export class TailscaleTunnelStore {
     } catch (err) {
     }
     const started: string = TsnetBridge.start(this.stateDir, model, osVersion,
-      'https://controlplane.tailscale.com');
+      this.controlURL());
     Logger.info('TSDBG store start=' + started.substring(0, 200));
   }
 

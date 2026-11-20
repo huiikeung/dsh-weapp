@@ -9,6 +9,8 @@ import { TailscaleTunnelStore } from '../services/TailscaleTunnelStore';
 const KEY_ENABLED: string = 'tailscaleEnabled';
 const KEY_NODE_NAME: string = 'tailscaleNodeName';
 const KEY_AUTH_KEY: string = 'tailscaleAuthKey';
+const KEY_CONTROL_URL: string = 'tailscaleControlURL';
+const DEFAULT_CONTROL_URL: string = 'https://controlplane.tailscale.com';
 const KEY_GATEWAY_VIA_TAILNET: string = 'tailnetGatewayViaProxy';
 const GATEWAY_PROXY_PORT: number = 18080;
 const KEY_TAILNET_TARGET: string = 'tailnetGatewayTarget';
@@ -38,6 +40,7 @@ export struct TailscalePage {
   @State tunnelEnabled: boolean = false;
   @State nodeName: string = '';
   @State authKey: string = '';
+  @State controlURL: string = '';
   @State stage: string = STAGE_DISABLED;
   @StorageLink('tailscaleStage') @Watch('onStoreStage') storeStage: string = 'disabled';
   @State failureKind: string = '';
@@ -115,6 +118,7 @@ export struct TailscalePage {
       prefs.putString(KEY_NODE_NAME, this.nodeName);
     }
     this.authKey = prefs.getString(KEY_AUTH_KEY, '');
+    this.controlURL = prefs.getString(KEY_CONTROL_URL, '');
     this.gatewayViaTailnet = prefs.getBoolean(KEY_GATEWAY_VIA_TAILNET, false);
     this.tailnetTarget = prefs.getString(KEY_TAILNET_TARGET, '');
     this.fastAuthKey = '';
@@ -295,7 +299,7 @@ export struct TailscalePage {
     PreferencesStore.get().putBoolean(KEY_ENABLED, next);
     if (next) {
       this.stage = STAGE_STARTING;
-      TsnetBridge.start(this.stateDir(), this.deviceModel(), this.osVersion(), 'https://controlplane.tailscale.com');
+      TsnetBridge.start(this.stateDir(), this.deviceModel(), this.osVersion(), this.effectiveControlURL());
     } else {
       this.stop();
     }
@@ -396,7 +400,7 @@ export struct TailscalePage {
       this.failureKind = 'nativeLoad';
       return;
     }
-    const started: string = TsnetBridge.start(this.stateDir(), this.deviceModel(), this.osVersion(), 'https://controlplane.tailscale.com');
+    const started: string = TsnetBridge.start(this.stateDir(), this.deviceModel(), this.osVersion(), this.effectiveControlURL());
     Logger.info('TSDBG start=' + started.substring(0, 200));
     this.backendLog = started;
     if (started.indexOf('FAILED') >= 0 && started.indexOf('running') < 0) {
@@ -678,6 +682,17 @@ export struct TailscalePage {
     this.authKey = value;
     PreferencesStore.get().putString(KEY_AUTH_KEY, value);
     PreferencesStore.get().putString('tsnetAuthKey', value.trim());
+  }
+
+  private saveControlURL(value: string): void {
+    this.controlURL = value;
+    PreferencesStore.get().putString(KEY_CONTROL_URL, value.trim());
+  }
+
+  /** 控制平面地址：留空即官方 controlplane；自建 Headscale 等填自己的域名 */
+  private effectiveControlURL(): string {
+    const value: string = this.controlURL.trim();
+    return value.length > 0 ? value : DEFAULT_CONTROL_URL;
   }
 
   @Builder
@@ -1055,7 +1070,7 @@ export struct TailscalePage {
                   this.saveNodeName(value);
                 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              TextInput({ text: this.authKey, placeholder: 'tskey-auth-…（可选，用于秒连）' })
+              TextInput({ text: this.authKey, placeholder: 'tskey-auth-…（可选：你自己的 Tailscale 账号生成）' })
                 .fontSize(16)
                 .fontColor(this.textColor())
                 .placeholderColor(this.subColor())
@@ -1065,6 +1080,23 @@ export struct TailscalePage {
                 .onChange((value: string) => {
                   this.saveAuthKey(value);
                 })
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              TextInput({ text: this.controlURL, placeholder: 'https://controlplane.tailscale.com' })
+                .fontSize(16)
+                .fontColor(this.textColor())
+                .placeholderColor(this.subColor())
+                .backgroundColor(Color.Transparent)
+                .height(48)
+                .padding({ left: 16, right: 16 })
+                .onChange((value: string) => {
+                  this.saveControlURL(value);
+                })
+              Text('控制平面地址：留空即官方 controlplane；自建 Headscale 填自己的域名。留空登录密钥时，开启后点「登录链接」用浏览器授权你自己的 Tailscale 账号。')
+                .fontSize(12)
+                .lineHeight(18)
+                .fontColor(this.subColor())
+                .width('100%')
+                .padding({ left: 16, right: 16, bottom: 12 })
               if (this.authKey.length > 0) {
                 Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
                 Row() {
