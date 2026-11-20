@@ -1024,9 +1024,28 @@ export struct TailscalePage {
       TsnetBridge.logout();
     } catch (err) {
     }
-    PreferencesStore.get().putString('tsnetAuthKey', '');
-    PreferencesStore.get().putString('tsnetAppliedAuthKey', '');
-    this.authKey = '';
+    // 先停引擎，避免后台重写状态
+    if (this.tunnelEnabled) {
+      this.setEnabled(false);
+    }
+    try {
+      TailscaleTunnelStore.get().stopFastOnly();
+    } catch (stopErr) {
+    }
+    // 只删除账号登录态（/fast/account），Auth Key 与 /fast/authKey 保留
+    setTimeout(() => {
+      const accountDirs: string[] = [
+        this.stateDir() + '/fast/account',
+        this.stateDir() + '/fast/tsnet-node',
+        this.stateDir() + '/tsnet-node'
+      ];
+      for (const dir of accountDirs) {
+        try {
+          fileIo.rmdirSync(dir);
+        } catch (clearErr) {
+        }
+      }
+    }, 300);
     this.accountName = '';
     this.accountLogin = '';
     this.accountTailnet = '';
@@ -1038,14 +1057,7 @@ export struct TailscalePage {
     PreferencesStore.get().putString('tailscaleAccountLogin', '');
     PreferencesStore.get().putString('tailscaleAccountTailnet', '');
     PreferencesStore.get().putString('tailscaleAccountAddresses', '');
-    try {
-      fileIo.rmdirSync(this.stateDir() + '/tsnet-node');
-    } catch (clearErr) {
-    }
-    if (this.tunnelEnabled) {
-      this.setEnabled(false);
-    }
-    this.fastHint = '已删除登录账号';
+    this.fastHint = '已删除登录账号（Auth Key 保留）';
   }
 
   private saveAuthKey(value: string): void {
