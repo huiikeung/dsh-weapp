@@ -967,12 +967,26 @@ export struct TailscalePage {
             .width('100%')
             Divider().color(this.dividerColor()).strokeWidth(1)
             Row() {
-              Text('当前地址').fontSize(14).fontColor(this.subColor())
-              Blank()
-              Text(this.nodeAddress.length > 0 ? this.nodeAddress :
-                (this.stage === STAGE_READY ? '已连接' : '未连接'))
-                .fontSize(13)
-                .fontColor(this.nodeAddress.length > 0 ? this.textColor() : this.subColor())
+              Column({ space: 3 }) {
+                Text('当前地址').fontSize(11).fontColor(this.subColor())
+                Text(this.nodeAddress.length > 0 ? this.nodeAddress :
+                  (this.stage === STAGE_READY ? '已连接' : '未连接'))
+                  .fontSize(14)
+                  .fontColor(this.nodeAddress.length > 0 ? this.textColor() : this.subColor())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
+              Column({ space: 3 }) {
+                Text('当前连接').fontSize(11).fontColor(this.subColor())
+                Text(this.connectionKindLabel())
+                  .fontSize(14)
+                  .fontColor(this.stage === STAGE_READY ? '#0F9D58' : this.textColor())
+                  .maxLines(1)
+              }
+              .alignItems(HorizontalAlign.Start)
+              .layoutWeight(1)
             }
             .width('100%')
             Row({ space: 8 }) {
@@ -1011,33 +1025,24 @@ export struct TailscalePage {
               }
             }
             .width('100%')
-            if (this.tunnelEnabled) {
+            // 只有「账号登录」和「Auth Key」两种凭据都存在时才需要切换
+            if (this.tunnelEnabled && this.accountName.length > 0 && this.authKey.trim().length > 0) {
               Divider().color(this.dividerColor()).strokeWidth(1)
               Row() {
-                Text('当前连接').fontSize(13).fontColor(this.subColor())
-                Blank()
-                Text(this.connectionKindLabel()).fontSize(13).fontColor(this.textColor())
+                Text('切换节点')
+                  .fontSize(15)
+                  .fontColor('#2E6BE6')
+                  .layoutWeight(1)
+                  .height(40)
+                  .textAlign(TextAlign.Center)
               }
               .width('100%')
-              .padding({ top: 2, bottom: 8 })
-              // 只有「账号登录」和「Auth Key」两种凭据都存在时才需要切换
-              if (this.accountName.length > 0 && this.authKey.trim().length > 0) {
-                Row() {
-                  Text('切换节点')
-                    .fontSize(15)
-                    .fontColor('#2E6BE6')
-                    .layoutWeight(1)
-                    .height(40)
-                    .textAlign(TextAlign.Center)
-                }
-                .width('100%')
-                .justifyContent(FlexAlign.Center)
-                .backgroundColor(this.pillBg())
-                .borderRadius(10)
-                .onClick(() => {
-                  this.authModeDialog = true;
-                })
-              }
+              .justifyContent(FlexAlign.Center)
+              .backgroundColor(this.pillBg())
+              .borderRadius(10)
+              .onClick(() => {
+                this.authModeDialog = true;
+              })
             }
             if (this.authInvalid) {
               Text('已保存的 Auth Key 无法加入 tailnet（可能过期或被撤销）。可以改用浏览器登录完成授权，或在下方重新填写密钥。')
@@ -1115,7 +1120,17 @@ export struct TailscalePage {
 
           // ── 节点身份（单独卡片）：Auth Key + 自建控制平面（折叠）──
           if (this.tunnelEnabled) {
-            this.sectionHeader('节点身份')
+            Row() {
+              Text('节点身份').fontSize(13).fontColor(this.subColor()).layoutWeight(1)
+              Text('获取 Auth Key')
+                .fontSize(13)
+                .fontColor('#2E6BE6')
+                .onClick(() => {
+                  this.openAuthKeyPage();
+                })
+            }
+            .width('100%')
+            .padding({ left: 16, right: 16, top: 18, bottom: 7 })
             Column() {
               TextInput({ text: this.authKey, placeholder: 'tskey-auth-…' })
                 .fontSize(16)
@@ -1127,20 +1142,6 @@ export struct TailscalePage {
                 .onChange((value: string) => {
                   this.saveAuthKey(value);
                 })
-              Row() {
-                Text('在 Tailscale 控制台 Settings → Keys 生成，只显示一次')
-                  .fontSize(11)
-                  .fontColor(this.subColor())
-                  .layoutWeight(1)
-                Text('获取 Auth Key')
-                  .fontSize(13)
-                  .fontColor('#2E6BE6')
-                  .onClick(() => {
-                    this.openAuthKeyPage();
-                  })
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 2, bottom: 10 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Row() {
                 Text('自建控制平面')
@@ -1182,7 +1183,7 @@ export struct TailscalePage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-            this.sectionFooter('节点名称自动使用设备名；登录凭据只保存在本机。')
+            this.sectionFooter('Auth Key 在 Tailscale 控制台 Settings → Keys 生成，只显示一次；登录凭据只保存在本机。')
           }
 
 
