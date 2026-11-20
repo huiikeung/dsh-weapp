@@ -715,55 +715,86 @@ export struct TailscalePage {
 
   @Builder
   authKeySheetContent() {
-    Column({ space: 14 }) {
-      Column()
-        .width(36)
-        .height(4)
-        .borderRadius(2)
-        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
-        .margin({ top: 8 })
-      Row() {
+    Column({ space: 0 }) {
+      // 顶部拖动条（与首页「切换主机」同款）
+      Column() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
+      }
+      .width('100%')
+      .height(16)
+      .justifyContent(FlexAlign.Center)
+
+      // 头部：标题居中 + 左右按钮（与切换主机编辑态一致）
+      Stack({ alignContent: Alignment.Center }) {
         Text('填入 Auth Key')
           .fontSize(17)
           .fontWeight(FontWeight.Medium)
           .fontColor(this.textColor())
-          .layoutWeight(1)
-        Text('取消')
-          .fontSize(15)
-          .fontColor(this.subColor())
-          .onClick(() => {
-            this.authKeySheetOpen = false;
-          })
+        Row() {
+          Text('取消')
+            .fontSize(16)
+            .fontColor(this.textColor())
+            .height(44)
+            .onClick(() => {
+              this.authKeySheetOpen = false;
+            })
+          Blank()
+          Text('保存')
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.textColor())
+            .height(44)
+            .onClick(() => {
+              this.saveAuthKey(this.authKeyDraft.trim());
+              this.authKeySheetOpen = false;
+            })
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
       }
       .width('100%')
-      TextInput({ text: this.authKeyDraft, placeholder: 'tskey-auth-…' })
-        .fontSize(15)
-        .fontColor(this.textColor())
-        .placeholderColor(this.subColor())
-        .height(46)
-        .padding({ left: 12, right: 12 })
-        .backgroundColor(this.isDark ? '#1C1C1E' : '#F2F3F5')
-        .borderRadius(10)
-        .onChange((value: string) => {
-          this.authKeyDraft = value;
-        })
-      Text('保存')
-        .fontSize(16)
-        .fontColor('#FFFFFF')
+      .height(48)
+
+      Scroll() {
+        Column() {
+          Text('Auth Key')
+            .fontSize(14)
+            .fontColor(this.subColor())
+            .width('100%')
+            .padding({ left: 19, top: 16, bottom: 6 })
+          Column() {
+            TextInput({ text: this.authKeyDraft, placeholder: 'tskey-auth-…' })
+              .caretStyle({ width: 1 })
+              .fontSize(16)
+              .fontColor(this.textColor())
+              .placeholderColor(this.subColor())
+              .backgroundColor(Color.Transparent)
+              .height(44)
+              .padding({ left: 16, right: 16 })
+              .onChange((value: string) => {
+                this.authKeyDraft = value;
+              })
+          }
+          .width('100%')
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.38)')
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.60)' })
+          .borderRadius(16)
+          .margin({ bottom: 16 })
+        }
         .width('100%')
-        .height(46)
-        .textAlign(TextAlign.Center)
-        .backgroundColor('#2E6BE6')
-        .borderRadius(12)
-        .onClick(() => {
-          this.saveAuthKey(this.authKeyDraft.trim());
-          this.authKeySheetOpen = false;
-        })
-      Blank().height(16)
+        .padding({ left: 14, right: 14 })
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .scrollBar(BarState.Off)
+      .align(Alignment.Top)
     }
     .width('100%')
-    .padding({ left: 20, right: 20 })
-    .backgroundColor(this.cardBg())
   }
 
   /** 只显示 Auth Key 尾部，避免整串密钥暴露在页面上 */
@@ -1440,11 +1471,11 @@ export struct TailscalePage {
         .height(1)
         .opacity(0.01)
         .bindSheet($$this.authKeySheetOpen, this.authKeySheetContent(), {
-          height: 300,
+          height: 420,
           dragBar: false,
           showClose: false,
           preferType: SheetType.BOTTOM,
-          backgroundColor: this.cardBg(),
+          backgroundColor: this.pageBg(),
           onDisappear: () => {
             this.authKeyDraft = '';
           }
