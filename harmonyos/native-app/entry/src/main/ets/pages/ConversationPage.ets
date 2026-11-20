@@ -1205,10 +1205,19 @@ export struct ConversationPage {
       this.pendingItemsWhileHidden = true;
       return;
     }
-    // 节点弹层开着 / 胶囊展开预热中：只刷新节点列表（补齐历史/新消息），
-    // 暂不重排时间线，避免补拉历史时页面跟着滚动、跳动
+    // 节点弹层开着 / 胶囊展开预热中：先刷新节点列表（胶囊上的 N/总数要涨）
     if (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded) {
       this.refreshTurnNodes(false);
+      // 贴底时补拉的历史是插在顶部，把列表重建后仍钉在底部，视线里内容不变；
+      // 用户已往上翻时不重建，页面完全固定（节点数在收起后一次补齐）。
+      if (this.autoStick && !this.userInteracting()) {
+        this.rebuildEntries();
+        setTimeout(() => {
+          if (this.autoStick && !this.userInteracting()) {
+            this.scroller.scrollEdge(Edge.Bottom);
+          }
+        }, 16);
+      }
       return;
     }
     this.scheduleTimelineUpdate();
