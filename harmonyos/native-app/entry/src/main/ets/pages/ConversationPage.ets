@@ -3071,9 +3071,34 @@ export struct ConversationPage {
         this.fileDiffOverlay()
       }
 
+      // 会话节点弹层：自绘 overlay（系统菜单会因「按住黑色滑块」判为点空白而收起）
+      if (this.turnNavOpen) {
+        this.turnNavOverlay()
+      }
+
       // 会话节点胶囊：常显浮层（左右拖动吸附折叠，点击展开/打开弹层）
-      if (this.pageW > 0) {
+      // 侧栏弹窗展开时先收起，避免浮块压在弹窗旁边
+      if (this.pageW > 0 && !this.sessionPickerOpen) {
         this.floatingCapsule()
+      }
+
+      // 会话侧栏：小程序同款玻璃面板（自绘浮层——系统菜单一点就收，做不到原地展开工作区分组）
+      if (this.sessionPickerOpen) {
+        Stack({ alignContent: Alignment.TopEnd }) {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor(Color.Transparent)
+            .onClick(() => {
+              this.sessionPickerOpen = false;
+            })
+          Column() {
+            this.sidebarMenuPanel()
+          }
+          .padding({ top: 56 + this.topSafe(), right: 12 })
+        }
+        .width('100%')
+        .height('100%')
       }
 
       // 重命名会话弹窗
@@ -4740,19 +4765,6 @@ export struct ConversationPage {
           this.sessionPickerOpen = false;
         } else {
           this.openSessionSwitcher();
-        }
-      })
-      // 与「协作」「⋯」同一个系统菜单容器：原生材质/圆角/描边/弹出动画/点空白收起
-      .bindMenu(this.sessionPickerOpen, this.sidebarMenuPanel(), {
-        placement: Placement.BottomRight,
-        offset: { x: 0, y: 4 },
-        outlineColor: this.dividerColor(),
-        outlineWidth: 1,
-        onWillDisappear: () => {
-          this.sessionPickerOpen = false;
-        },
-        onDisappear: () => {
-          this.sessionPickerOpen = false;
         }
       })
 
@@ -6983,10 +6995,20 @@ export struct ConversationPage {
     return height > 240 ? height : 240;
   }
 
-  /** 侧栏面板高度：系统菜单容器会限高，超出部分由内部 Scroll 承担 */
+  /**
+   * 侧栏面板高度：对齐小程序 convSidebarHeight（导航栏按钮顶部 → 输入条底部）。
+   * 120 = 顶栏下沿偏移；底部再由安全区把输入条让出来。
+   */
   private convSidebarPanelHeight(): number {
-    const full: number = this.convSidebarHeight();
-    return full > 560 ? 560 : full;
+    let screen: number = 800;
+    try {
+      screen = this.getUIContext().px2vp(display.getDefaultDisplaySync().height);
+    } catch (err) {
+      screen = 800;
+    }
+    const top: number = this.topSafe() + 58;
+    const available: number = screen - top - (this.bottomInset + 8);
+    return available > 240 ? available : 240;
   }
 
   /** 会话侧栏内容：交给 bindMenu 的系统菜单容器渲染（材质/圆角/描边/动画/点空白收起全部原生） */
@@ -7208,9 +7230,22 @@ export struct ConversationPage {
         .id('conv-sidebar')
         .width(this.convSidebarWidth())
         .height(this.convSidebarPanelHeight())
-        .padding({ top: 5 })
         .alignItems(HorizontalAlign.Start)
-        .width(this.convSidebarWidth())
         .padding({ top: 2, bottom: 2 })
+        // 对齐小程序 .conv-sidebar-glass：20vp 背景模糊 + 1.35 饱和 + 半透明底 + 1rpx 细边 + 大圆角
+        .backgroundEffect({
+          radius: 20,
+          saturation: 1.35,
+          color: this.isDark ? 'rgba(44,45,49,0.62)' : 'rgba(247,248,251,0.92)'
+        })
+        .borderRadius(30)
+        .clip(true)
+        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.11)' : 'rgba(16,19,24,0.10)' })
+        .shadow({ radius: 22, color: this.isDark ? 'rgba(3,14,30,0.22)' : 'rgba(16,19,24,0.14)', offsetY: 8 })
+        // 小程序入场动画：opacity + scale(0.92) + translateY(-10rpx)，原点贴右上角按钮
+        .transition(TransitionEffect.OPACITY
+          .combine(TransitionEffect.scale({ x: 0.92, y: 0.92, centerX: '100%', centerY: 0 }))
+          .combine(TransitionEffect.translate({ y: -6 }))
+          .animation({ duration: 180, curve: Curve.Friction }))
   }
 }
