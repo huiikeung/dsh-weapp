@@ -127,6 +127,13 @@ export class TailscaleTunnelStore {
    * tsnet 会在 NeedsLogin 状态下给出新的登录链接（页面「去授权」打开）。
    */
   reauthorizeWithBrowser(): void {
+    // 改用浏览器登录：清掉旧节点状态与已应用 key，让 tsnet 重新走登录链接
+    try {
+      fileIo.rmdirSync(this.stateDir + '/tsnet-node');
+    } catch (clearErr) {
+      Logger.info('TSDBG clear tsnet state (browser reauth) skipped: ' + (clearErr as Error).message);
+    }
+    PreferencesStore.get().putString('tsnetAppliedAuthKey', '');
     PreferencesStore.get().putString('tsnetAuthKey', '');
     PreferencesStore.get().putString('tailscaleAuthKey', '');
     AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', false);
@@ -143,6 +150,21 @@ export class TailscaleTunnelStore {
   }
 
   /** 用新的 authKey 重启轻量引擎 */
+  /** 应用新的 Auth Key：仅当 key 变化时清空旧节点状态，其余情况复用已登录状态重连 */
+  applyAuthKey(key: string): void {
+    const applied: string = PreferencesStore.get().getString('tsnetAppliedAuthKey', '');
+    if (applied !== key) {
+      try {
+        fileIo.rmdirSync(this.stateDir + '/tsnet-node');
+        Logger.warn('TSDBG cleared tsnet state because Auth Key changed');
+      } catch (clearErr) {
+        Logger.info('TSDBG clear tsnet state skipped: ' + (clearErr as Error).message);
+      }
+      PreferencesStore.get().putString('tsnetAppliedAuthKey', key);
+    }
+    this.reloadFast();
+  }
+
   reloadFast(): void {
     // 3 秒内重复点击直接忽略：stop/start 反复打断 tsnet 会让 UI 线程卡死（系统判定无响应后杀进程）
     const now: number = Date.now();
@@ -158,14 +180,8 @@ export class TailscaleTunnelStore {
       } catch (stopErr) {
         Logger.warn('TSDBG stopFast failed: ' + (stopErr as Error).message);
       }
-      // 换 key 重连时必须清掉旧节点状态：tsnet 只有在 state 为空时才会用新 AuthKey 注册，
-      // 否则会一直复用旧节点并报 NeedsLogin（表现为“新 key 也失效”）。
-      try {
-        fileIo.rmdirSync(this.stateDir + '/tsnet-node');
-        Logger.warn('TSDBG cleared tsnet state for new key');
-      } catch (clearErr) {
-        Logger.info('TSDBG clear tsnet state skipped: ' + (clearErr as Error).message);
-      }
+      // 注意：这里绝不能清 state —— 一次性 Auth Key 已经被消费，删掉状态后就再也注册不回来，
+      // 会表现成「一直 NeedsLogin / 启动中」。只有换 key 或改用浏览器登录时才清（见 applyAuthKey / reauthorizeWithBrowser）。
       this.fastStarted = false;
       this.fastWasReady = false;
       this.fastDebugLogged = false;

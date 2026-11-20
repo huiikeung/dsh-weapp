@@ -862,7 +862,7 @@ export struct TailscalePage {
     this.authModeState = 'authKey';
     this.stage = STAGE_STARTING;
     this.fastHint = '正在用 Auth Key 连接…（约 10–20 秒）';
-    TailscaleTunnelStore.get().reloadFast();
+    TailscaleTunnelStore.get().applyAuthKey(this.authKey.trim());
   }
 
   private saveAuthKey(value: string): void {
@@ -885,7 +885,7 @@ export struct TailscalePage {
     this.authKeyApplyTimer = setTimeout(() => {
       this.authKeyApplyTimer = -1;
       this.fastHint = '已保存 Auth Key，正在用登录密钥连接…';
-      TailscaleTunnelStore.get().reloadFast();
+      TailscaleTunnelStore.get().applyAuthKey(trimmed);
     }, 800);
   }
 
