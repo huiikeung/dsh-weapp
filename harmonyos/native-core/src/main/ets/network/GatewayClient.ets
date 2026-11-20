@@ -1718,14 +1718,18 @@ export class GatewayClient {
     return this.requestGateway(GatewayRequestFactory.pluginMarketSetIndexes('plugin-market-set-' + this.pluginRequestSeq, indexes), 20000);
   }
 
-  /** 分页加载更早历史（beforeSeq 之前）。 */
-  requestOlderHistory(sessionId: string, beforeSeq: number, historyFormatVersion: number): boolean {
+  /**
+   * 分页加载更早历史（beforeSeq 之前）。
+   * maxMessages/maxBytes 可放大：会话节点预热时一次多取几页的量，减少来回次数。
+   */
+  requestOlderHistory(sessionId: string, beforeSeq: number, historyFormatVersion: number,
+    maxMessages: number = 30, maxBytes: number = 262144): boolean {
     const frame: Record<string, Object> = {
       'type': 'history',
       'sessionId': sessionId,
       'beforeSeq': beforeSeq,
-      'maxMessages': 30,
-      'maxBytes': 262144,
+      'maxMessages': maxMessages,
+      'maxBytes': maxBytes,
       'view': 'conversation'
     };
     if (historyFormatVersion > 0) frame['historyFormatVersion'] = historyFormatVersion;

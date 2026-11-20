@@ -5685,17 +5685,20 @@ export struct ConversationPage {
         });
         continue;
       }
-      if (!store.loadOlder()) {
+      if (!store.loadOlder(true)) {
         break;
       }
       guard += 1;
-      // 等这一页落地（最多 3s，避免主机无响应时死等）
+      // 等这一页落地（最多 6s；超时就放弃本轮预热，避免卡在半路一直转）
       let waited: number = 0;
-      while (store.isOlderRequestPending() && waited < 3000) {
+      while (store.isOlderRequestPending() && waited < 6000) {
         await new Promise<void>((resolve: () => void) => {
           setTimeout(resolve, 16);
         });
         waited += 16;
+      }
+      if (store.isOlderRequestPending()) {
+        break;
       }
       // 每加载一页就刷新节点数：胶囊上的 N/总数、弹层列表都跟着更新
       this.refreshTurnNodes(this.turnNavOpen);

@@ -1432,14 +1432,20 @@ export class SessionStore {
     return this.olderRequestPending;
   }
 
-  /** 加载更早一页历史。 */
-  loadOlder(): boolean {
+  /**
+   * 加载更早一页历史。
+   * aggressive=true 时用大页（240 条 / 2MB）：节点预热要一次拉完历史，
+   * 用默认的 30 条一页会在长会话里来回几十次，很慢。
+   */
+  loadOlder(aggressive: boolean = false): boolean {
     if (this.client === null || this.sessionId.length === 0 || this.oldestSeq <= 0 || this.olderRequestPending) {
       return false;
     }
     this.olderRequestPending = true;
     this.olderRequestCursor = this.oldestSeq;
-    const sent: boolean = this.client.requestOlderHistory(this.sessionId, this.oldestSeq, this.historyFormatVersion);
+    const sent: boolean = aggressive
+      ? this.client.requestOlderHistory(this.sessionId, this.oldestSeq, this.historyFormatVersion, 240, 2097152)
+      : this.client.requestOlderHistory(this.sessionId, this.oldestSeq, this.historyFormatVersion);
     if (!sent) { this.olderRequestPending = false; this.olderRequestCursor = 0; }
     return sent;
   }
