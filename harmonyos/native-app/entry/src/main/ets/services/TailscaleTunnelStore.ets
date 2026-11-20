@@ -29,6 +29,7 @@ export class TailscaleTunnelStore {
   private warmInited: boolean = false;
   private fastNoStateTicks: number = 0;
   private fastRecovered: boolean = false;
+  private fastStartingTicks: number = 0;
   private lastWarmAt: number = 0;
   private stateDir: string = '';
   private autoOpenOnce: boolean = false;
@@ -323,9 +324,12 @@ export class TailscaleTunnelStore {
       }
       // 轻量引擎状态必须发布到页面：否则 Auth Key 过期/失效时会永远停在「启动中」
       if (fastStat.indexOf('state=Running') >= 0) {
+        this.fastStartingTicks = 0;
+        AppStorage.setOrCreate<string>('tailscaleStageError', '');
         AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_READY);
         AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', false);
       } else if (fastStat.indexOf('state=NeedsLogin') >= 0) {
+        this.fastStartingTicks = 0;
         AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_NEEDS_LOGIN);
         const hasKey: boolean = PreferencesStore.get().getString('tsnetAuthKey', '').trim().length > 0;
         const fastAuthUrl: string = TsnetBridge.authURLFast();
@@ -336,6 +340,20 @@ export class TailscaleTunnelStore {
         // 引擎会在 Starting/NeedsLogin 之间反复重试；一旦判定密钥不可用，就不要再翻回「启动中」
         const invalid: boolean = AppStorage.get<boolean>('tailscaleAuthInvalid') ?? false;
         AppStorage.setOrCreate<string>('tailscaleStage', invalid ? TS_STAGE_NEEDS_LOGIN : TS_STAGE_STARTING);
+        // 启动超时（20s 仍未 Running）：把 upError 暴露给页面，避免永远「启动中」
+        this.fastStartingTicks += 1;
+        if (this.fastStartingTicks >= 10) {
+          const upIdx: number = fastStat.indexOf('upError=');
+          let detail: string = '';
+          if (upIdx >= 0) {
+            const tail: string = fastStat.substring(upIdx + 'upError='.length);
+            const end: number = tail.indexOf(' |');
+            detail = end > 0 ? tail.substring(0, end) : tail;
+          }
+          AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_FAILED);
+          AppStorage.setOrCreate<string>('tailscaleStageError',
+            detail.length > 0 ? ('连接超时：' + detail) : '连接超时：请检查 Auth Key 是否有效、手机能否访问控制面');
+        }
       }
     }
     // WiFi 下预热隧道：提前把代理指向 ts.net 并拨通 DERP 路径，切蜂窝时才能秒切

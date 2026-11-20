@@ -39,6 +39,7 @@ export struct TailscalePage {
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   @StorageLink('pendingTailscaleLogin') pendingTailscaleLogin: boolean = false;
   @StorageLink('tailscaleAuthInvalid') authInvalid: boolean = false;
+  @StorageLink('tailscaleStageError') stageError: string = '';
 
   @State tunnelEnabled: boolean = false;
   @State nodeName: string = '';
@@ -819,8 +820,10 @@ export struct TailscalePage {
   private connectWithAuthKey(): void {
     PreferencesStore.get().putString('tsnetAuthKey', this.authKey.trim());
     AppStorage.setOrCreate<string>('tsnetAuthMode', 'authKey');
+    AppStorage.setOrCreate<string>('tailscaleStageError', '');
     this.authModeState = 'authKey';
-    this.fastHint = '正在用 Auth Key 连接…';
+    this.stage = STAGE_STARTING;
+    this.fastHint = '正在用 Auth Key 连接…（约 10–20 秒）';
     TailscaleTunnelStore.get().reloadFast();
   }
 
@@ -1074,7 +1077,11 @@ export struct TailscalePage {
               .layoutWeight(1)
               .margin({ left: 10 })
               Row({ space: 5 }) {
-                Circle({ width: 7, height: 7 }).fill(this.stageColor())
+                if (this.stage === STAGE_STARTING || this.stage === STAGE_WAITING_ROUTES) {
+                  LoadingProgress().width(12).height(12).color('#2E6BE6')
+                } else {
+                  Circle({ width: 7, height: 7 }).fill(this.stageColor())
+                }
                 Text(this.stageLabel()).fontSize(12).fontColor(this.stageColor())
               }
               .padding({ left: 9, right: 9, top: 4, bottom: 4 })
@@ -1166,6 +1173,20 @@ export struct TailscalePage {
               }
             }
             .width('100%')
+            if (this.stageError.length > 0) {
+              Text(this.stageError)
+                .fontSize(12)
+                .lineHeight(18)
+                .fontColor('#C2410C')
+                .width('100%')
+            }
+            if (this.fastHint.length > 0 && this.stage !== STAGE_READY) {
+              Text(this.fastHint)
+                .fontSize(12)
+                .lineHeight(18)
+                .fontColor(this.subColor())
+                .width('100%')
+            }
           }
           .width('100%')
           .padding(16)
