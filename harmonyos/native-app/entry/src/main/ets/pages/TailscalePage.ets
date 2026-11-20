@@ -75,6 +75,7 @@ export struct TailscalePage {
   @StorageLink('tsnetAuthMode') authModeState: string = '';
   @StorageLink('tailnetGatewayTarget') storedTailnetTarget: string = '';
   private gatewayProxyApplied: boolean = false;
+  private authKeyApplyTimer: number = -1;
   private recoveryAttempted: boolean = false;
   private startTimer: number = -1;
 
@@ -714,6 +715,24 @@ export struct TailscalePage {
     this.authKey = value;
     PreferencesStore.get().putString(KEY_AUTH_KEY, value);
     PreferencesStore.get().putString('tsnetAuthKey', value.trim());
+    this.scheduleAuthKeyApply();
+  }
+
+  /** 输入停下 0.8s 自动用新 Auth Key 重连（之前填完没有任何动作，用户不知道还要点哪里） */
+  private scheduleAuthKeyApply(): void {
+    if (this.authKeyApplyTimer >= 0) {
+      clearTimeout(this.authKeyApplyTimer);
+      this.authKeyApplyTimer = -1;
+    }
+    const trimmed: string = this.authKey.trim();
+    if (!this.tunnelEnabled || trimmed.length === 0) {
+      return;
+    }
+    this.authKeyApplyTimer = setTimeout(() => {
+      this.authKeyApplyTimer = -1;
+      this.fastHint = '已保存 Auth Key，正在用登录密钥连接…';
+      TailscaleTunnelStore.get().reloadFast();
+    }, 800);
   }
 
   /** Auth Key 失效时改用浏览器登录：清空密钥并让轻量引擎重新给出登录链接 */
