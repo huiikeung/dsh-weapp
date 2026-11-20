@@ -195,16 +195,18 @@ export struct TailscalePage {
 
   /** 读取账号摘要（backendAccount JSON）并渲染 */
   private loadAccountSummary(): void {
+    // 轻量 tsnet 引擎不经过 tsd：优先用 store 从快速状态解析并持久化的账号
+    const prefs: PreferencesStore = PreferencesStore.get();
+    const storedName: string = prefs.getString('tailscaleAccountName', '');
+    if (storedName.length > 0) {
+      this.accountName = storedName;
+      this.accountLogin = prefs.getString('tailscaleAccountLogin', '');
+      this.accountTailnet = prefs.getString('tailscaleAccountTailnet', '');
+      this.accountAddresses = prefs.getString('tailscaleAccountAddresses', '');
+      return;
+    }
     const json: string = TsnetBridge.account();
     if (json.length === 0 || json.indexOf('{') < 0) {
-      // 轻量 tsnet 引擎不经过 tsd，账号摘要由 store 从快速状态里解析并持久化
-      if (this.accountName.length === 0) {
-        const prefs: PreferencesStore = PreferencesStore.get();
-        this.accountName = prefs.getString('tailscaleAccountName', '');
-        this.accountLogin = prefs.getString('tailscaleAccountLogin', '');
-        this.accountTailnet = prefs.getString('tailscaleAccountTailnet', '');
-        this.accountAddresses = prefs.getString('tailscaleAccountAddresses', '');
-      }
       return;
     }
     this.accountName = this.jsonField(json, 'displayName');
