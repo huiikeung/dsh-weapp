@@ -434,6 +434,13 @@ export class TailscaleTunnelStore {
       AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_DISABLED);
       return;
     }
+    // 用户主动停止节点：阶段固定为 disabled，不再用 tsd 旧状态回退成「启动中」
+    if (PreferencesStore.get().getBoolean('tailscaleConnectionStopped', false)) {
+      this.fastWasReady = false;
+      AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_DISABLED);
+      AppStorage.setOrCreate<string>('tailscaleStageError', '');
+      return;
+    }
     this.ensureStarted(enabled);
     this.ensureFastStarted(enabled);
     if (this.fastStarted) {
