@@ -7,7 +7,7 @@ import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { fileIo } from '@kit.CoreFileKit';
 import { TsnetBridge } from '../services/TsnetBridge';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
-import { TailscaleTunnelStore } from '../services/TailscaleTunnelStore';
+import { TailscaleTunnelStore, TailscaleAccountProfile } from '../services/TailscaleTunnelStore';
 
 const KEY_ENABLED: string = 'tailscaleEnabled';
 const KEY_NODE_NAME: string = 'tailscaleNodeName';
@@ -42,6 +42,8 @@ export struct TailscalePage {
   @StorageLink('tailscaleAuthInvalid') authInvalid: boolean = false;
   @StorageLink('tailscaleStageError') stageError: string = '';
   @State hintMenuOpen: string = '';
+  @State accountsJson: string = '[]';
+  @State activeAccountId: string = '';
   @State hintText: string = '';
 
   @State tunnelEnabled: boolean = false;
@@ -141,6 +143,7 @@ export struct TailscalePage {
       this.accountTailnet = prefs.getString('tailscaleAccountTailnet', '');
       this.accountAddresses = prefs.getString('tailscaleAccountAddresses', '');
     }
+    this.refreshAccounts();
     this.controlURL = prefs.getString(KEY_CONTROL_URL, '');
     this.gatewayViaTailnet = prefs.getBoolean(KEY_GATEWAY_VIA_TAILNET, false);
     this.tailnetTarget = prefs.getString(KEY_TAILNET_TARGET, '');
@@ -1118,6 +1121,62 @@ export struct TailscalePage {
   }
 
   /** 状态卡片上的账号摘要 */
+  private refreshAccounts(): void {
+    const store: TailscaleTunnelStore = TailscaleTunnelStore.get();
+    this.accountsJson = store.accountsJson();
+    this.activeAccountId = store.activeAccountId();
+    const list: TailscaleAccountProfile[] = this.accountsArray();
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].id === this.activeAccountId) {
+        this.accountName = list[i].name.length > 0 ? list[i].name : list[i].login;
+        this.accountLogin = list[i].login;
+        this.accountTailnet = list[i].tailnet;
+        this.accountAddresses = list[i].addresses;
+      }
+    }
+  }
+
+  private accountsArray(): TailscaleAccountProfile[] {
+    try {
+      const list: TailscaleAccountProfile[] = JSON.parse(this.accountsJson) as TailscaleAccountProfile[];
+      return list instanceof Array ? list : [];
+    } catch (parseErr) {
+      return [];
+    }
+  }
+
+  private switchAccount(id: string): void {
+    TailscaleTunnelStore.get().setActiveAccount(id);
+    this.refreshAccounts();
+    this.connectWithAccount();
+  }
+
+  private addAccountFlow(): void {
+    TailscaleTunnelStore.get().addAccountProfile();
+    this.refreshAccounts();
+    this.startAccountLogin();
+  }
+
+  private deleteAccountById(id: string): void {
+    TailscaleTunnelStore.get().removeAccountProfile(id);
+    this.refreshAccounts();
+    if (this.tunnelEnabled) {
+      this.stage = STAGE_STARTING;
+      TailscaleTunnelStore.get().reloadFast();
+    }
+    this.fastHint = '已删除该账号';
+  }
+
+  /** 停止：只断开 Tailscale，隧道保持启用（账号/AuthKey 模块仍可见） */
+  private stopConnection(): void {
+    try {
+      TailscaleTunnelStore.get().stopFastOnly();
+    } catch (stopErr) {
+    }
+    this.stage = STAGE_DISABLED;
+    this.fastHint = 'Tailscale 已停止（隧道仍启用）';
+  }
+
   /** 当前是否为浏览器账号登录模式（AuthKey 模式下账号卡片不显示） */
   private isAccountMode(): boolean {
     return PreferencesStore.get().getString('tsnetLoginMode', 'account') !== 'authKey';
@@ -1534,7 +1593,13 @@ export struct TailscalePage {
               }
               if (this.tunnelEnabled) {
                 Text('停止')
-                  .fontSize(14).fontColor('#FF3B30').layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .fontSize(13).fontColor('#FF3B30').layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .backgroundColor(this.pillBg()).borderRadius(10)
+                  .onClick(() => {
+                    this.stopConnection();
+                  })
+                Text('关闭隧道')
+                  .fontSize(13).fontColor('#FF3B30').layoutWeight(1).height(38).textAlign(TextAlign.Center)
                   .backgroundColor(this.pillBg()).borderRadius(10)
                   .onClick(() => {
                     this.setEnabled(false);
@@ -1593,9 +1658,8 @@ export struct TailscalePage {
           if (this.tunnelEnabled) {
           this.sectionHeaderWithHint('账号与网络', this.accountHintText())
           Column() {
-            if (this.accountName.length > 0 && this.isAccountMode()) {
+            ForEach(this.accountsArray(), (account: TailscaleAccountProfile) => {
               Row({ space: 10 }) {
-                // 选择按钮挪到最前面：当前账号显示实心圆，点击即用该账号登录
                 Stack({ alignContent: Alignment.Center }) {
                   Circle()
                     .width(20)
@@ -1603,43 +1667,50 @@ export struct TailscalePage {
                     .fill(Color.Transparent)
                     .stroke('#2E6BE6')
                     .strokeWidth(1.5)
-                  Circle()
-                    .width(11)
-                    .height(11)
-                    .fill('#2E6BE6')
+                  if (account.id === this.activeAccountId) {
+                    Circle()
+                      .width(11)
+                      .height(11)
+                      .fill('#2E6BE6')
+                  }
                 }
                 .width(20)
                 .height(20)
                 .onClick(() => {
-                  this.activateAccount();
+                  this.switchAccount(account.id);
                 })
                 Column({ space: 3 }) {
-                  Text(this.accountName).fontSize(16).fontColor(this.textColor())
-                  if (this.accountLogin.length > 0 && this.accountLogin !== this.accountName) {
-                    Text(this.accountLogin).fontSize(12).fontColor(this.subColor())
+                  Text(account.name.length > 0 ? account.name : (account.login.length > 0 ? account.login : '未登录账号'))
+                    .fontSize(16)
+                    .fontColor(this.textColor())
+                  if (account.login.length > 0) {
+                    Text(account.login)
+                      .fontSize(12)
+                      .fontColor(this.subColor())
                   }
-                  if (this.accountTailnet.length > 0 && this.accountTailnet !== this.accountName &&
-                      this.accountTailnet !== this.accountLogin) {
-                    Text(this.accountTailnet).fontSize(12).fontColor(this.subColor())
+                  if (account.addresses.length > 0) {
+                    Text(account.addresses.split(',')[0])
+                      .fontSize(12)
+                      .fontColor(this.subColor())
                   }
                 }
                 .alignItems(HorizontalAlign.Start)
                 .layoutWeight(1)
                 .onClick(() => {
-                  this.activateAccount();
+                  this.switchAccount(account.id);
                 })
                 Text('删除')
                   .fontSize(14)
                   .fontColor('#FF3B30')
                   .padding({ left: 10, right: 10, top: 8, bottom: 8 })
                   .onClick(() => {
-                    this.deleteAccount();
+                    this.deleteAccountById(account.id);
                   })
               }
               .width('100%')
               .padding({ left: 16, right: 8, top: 12, bottom: 12 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-            }
+            }, (account: TailscaleAccountProfile) => account.id)
             Row({ space: 8 }) {
               SymbolGlyph($r('sys.symbol.plus'))
                 .fontSize(18)
@@ -1654,6 +1725,7 @@ export struct TailscalePage {
             .onClick(() => {
               this.loginResult = '';
               this.dialogOpen = true;
+              this.addAccountFlow();
             })
           }
           .width('100%')

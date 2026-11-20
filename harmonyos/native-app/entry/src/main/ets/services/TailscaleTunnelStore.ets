@@ -4,6 +4,14 @@ import { fileIo } from '@kit.CoreFileKit';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { TsnetBridge } from './TsnetBridge';
 
+export interface TailscaleAccountProfile {
+  id: string;
+  name: string;
+  login: string;
+  tailnet: string;
+  addresses: string;
+}
+
 const KEY_ENABLED: string = 'tailscaleEnabled';
 const KEY_CONTROL_URL: string = 'tailscaleControlURL';
 const DEFAULT_CONTROL_URL: string = 'https://controlplane.tailscale.com';
@@ -88,7 +96,11 @@ export class TailscaleTunnelStore {
     // 两种登录方式各自使用独立状态目录：切换模式互不污染
     // （以前共用目录时，account 留下的节点状态会让 AuthKey 注册被忽略，反之亦然，
     //  表现为“要点一次另一种登录才能连上”）
-    const modeDir: string = this.stateDir + '/fast/' + (loginMode === 'authKey' ? 'authKey' : 'account');
+    // 每个浏览器账号一个独立状态目录，便于多账号切换
+    const activeAcct: string = PreferencesStore.get().getString('tailscaleActiveAccount', '');
+    // a1 是旧版单账号迁移来的档案，沿用原 /fast/account 目录以复用登录态
+    const accountDirName: string = (activeAcct.length === 0 || activeAcct === 'a1') ? 'account' : ('acct-' + activeAcct);
+    const modeDir: string = this.stateDir + '/fast/' + (loginMode === 'authKey' ? 'authKey' : accountDirName);
     try {
       const legacyState: string = this.stateDir + '/fast/tsnet-node/tailscaled.state';
       const modeState: string = modeDir + '/tsnet-node/tailscaled.state';
@@ -102,6 +114,87 @@ export class TailscaleTunnelStore {
     }
     const result: string = TsnetBridge.startFast(hostname, modeDir, this.controlURL(), authKey);
     Logger.info('TSDBG fast start=' + result.substring(0, 200));
+  }
+
+  /** 多账号档案：JSON 列表 + 当前激活账号 id */
+  accountsJson(): string {
+    return PreferencesStore.get().getString('tailscaleAccounts', '[]');
+  }
+
+  activeAccountId(): string {
+    return PreferencesStore.get().getString('tailscaleActiveAccount', '');
+  }
+
+  setActiveAccount(id: string): void {
+    PreferencesStore.get().putString('tailscaleActiveAccount', id);
+    AppStorage.setOrCreate<string>('tailscaleActiveAccount', id);
+  }
+
+  /** 新增一个账号档案并设为激活（目录留空，下一步走浏览器授权） */
+  addAccountProfile(): string {
+    const id: string = 'a' + Date.now();
+    const list: TailscaleAccountProfile[] = this.parseAccounts();
+    list.push({ id: id, name: '', login: '', tailnet: '', addresses: '' });
+    PreferencesStore.get().putString('tailscaleAccounts', JSON.stringify(list));
+    this.setActiveAccount(id);
+    return id;
+  }
+
+  /** 删除指定账号档案：清目录；若删的是当前账号则自动切换到剩余第一个 */
+  removeAccountProfile(id: string): string {
+    const list: TailscaleAccountProfile[] = this.parseAccounts();
+    const remain: TailscaleAccountProfile[] = [];
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].id !== id) {
+        remain.push(list[i]);
+      }
+    }
+    PreferencesStore.get().putString('tailscaleAccounts', JSON.stringify(remain));
+    try {
+      fileIo.rmdirSync(this.stateDir + '/fast/' + (id === 'a1' ? 'account' : ('acct-' + id)));
+    } catch (clearErr) {
+    }
+    let nextId: string = this.activeAccountId();
+    if (nextId === id || nextId.length === 0) {
+      nextId = remain.length > 0 ? remain[0].id : '';
+      this.setActiveAccount(nextId);
+    }
+    return nextId;
+  }
+
+  private parseAccounts(): TailscaleAccountProfile[] {
+    const raw: string = this.accountsJson();
+    try {
+      const parsed: TailscaleAccountProfile[] = JSON.parse(raw) as TailscaleAccountProfile[];
+      if (parsed instanceof Array) {
+        return parsed;
+      }
+    } catch (parseErr) {
+    }
+    return [];
+  }
+
+  private upsertAccountProfile(name: string, login: string, tailnet: string, addresses: string): void {
+    const list: TailscaleAccountProfile[] = this.parseAccounts();
+    let id: string = this.activeAccountId();
+    if (id.length === 0) {
+      id = list.length > 0 ? list[0].id : 'a1';
+      this.setActiveAccount(id);
+    }
+    let found: boolean = false;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].id === id) {
+        list[i].name = name;
+        list[i].login = login;
+        list[i].tailnet = tailnet;
+        list[i].addresses = addresses;
+        found = true;
+      }
+    }
+    if (!found) {
+      list.push({ id: id, name: name, login: login, tailnet: tailnet, addresses: addresses });
+    }
+    PreferencesStore.get().putString('tailscaleAccounts', JSON.stringify(list));
   }
 
   private ensureStarted(enabled: boolean): void {
@@ -354,11 +447,7 @@ export class TailscaleTunnelStore {
           const addresses: string = parts.length > 3 ? decodeURIComponent(parts[3]) : '';
           AppStorage.setOrCreate<string>('tailscaleAccountName', display);
           Logger.info('TSDBG acct=' + display + ' | ' + login);
-          const acctPrefs: PreferencesStore = PreferencesStore.get();
-          acctPrefs.putString('tailscaleAccountName', display);
-          acctPrefs.putString('tailscaleAccountLogin', login);
-          acctPrefs.putString('tailscaleAccountTailnet', tailnet);
-          acctPrefs.putString('tailscaleAccountAddresses', addresses);
+          this.upsertAccountProfile(display, login, tailnet, addresses);
         }
       }
       const dnsIndex: number = fastStat.indexOf('dnsName=');
