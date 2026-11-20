@@ -1633,17 +1633,17 @@ export struct TailscalePage {
               .alignItems(HorizontalAlign.Start)
               .layoutWeight(1)
               .margin({ left: 10 })
-              Row({ space: 5 }) {
+              Row({ space: 4 }) {
                 if (this.stage === STAGE_STARTING || this.stage === STAGE_WAITING_ROUTES) {
-                  LoadingProgress().width(12).height(12).color('#2E6BE6')
+                  LoadingProgress().width(10).height(10).color('#2E6BE6')
                 } else {
-                  Circle({ width: 7, height: 7 }).fill(this.stageColor())
+                  Circle({ width: 6, height: 6 }).fill(this.stageColor())
                 }
-                Text(this.stageLabel()).fontSize(12).fontColor(this.stageColor())
+                Text(this.stageLabel()).fontSize(11).fontColor(this.stageColor())
               }
-              .padding({ left: 9, right: 9, top: 4, bottom: 4 })
+              .padding({ left: 7, right: 7, top: 3, bottom: 3 })
               .backgroundColor(this.pillBg())
-              .borderRadius(20)
+              .borderRadius(16)
             }
             .width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
