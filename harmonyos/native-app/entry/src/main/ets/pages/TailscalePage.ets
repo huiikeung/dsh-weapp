@@ -1188,20 +1188,35 @@ export struct TailscalePage {
             this.sectionHeader('账号与节点')
             Column() {
               Row() {
-                Text('登录方式').fontSize(16).fontColor(this.textColor())
+                Text('登录方式').fontSize(13).fontColor(this.subColor())
                 Blank()
                 Text(this.authModeState === 'authKey' ? '登录密钥（Auth Key）' :
-                  this.authModeState === 'account' ? '账号登录' : '未启用轻量引擎')
-                  .fontSize(15)
-                  .fontColor(this.authModeState.length > 0 ? '#2E6BE6' : this.subColor())
-                Text(' ›').fontSize(16).fontColor(this.subColor())
+                  this.authModeState === 'account' ? '账号登录' : '未设置')
+                  .fontSize(12)
+                  .fontColor(this.subColor())
               }
               .width('100%')
-              .height(52)
-              .padding({ left: 16, right: 16 })
-              .onClick(() => {
-                this.authModeDialog = true;
-              })
+              .padding({ left: 16, right: 16, top: 14, bottom: 10 })
+              Row() {
+                Row({ space: 6 }) {
+                  Text('切换登录方式')
+                    .fontSize(15)
+                    .fontColor('#2E6BE6')
+                  Text('账号登录 / Auth Key')
+                    .fontSize(12)
+                    .fontColor(this.subColor())
+                }
+                .layoutWeight(1)
+                .height(40)
+                .justifyContent(FlexAlign.Center)
+                .backgroundColor(this.pillBg())
+                .borderRadius(10)
+                .onClick(() => {
+                  this.authModeDialog = true;
+                })
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, bottom: 14 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               TextInput({ text: this.nodeName, placeholder: '节点名称' })
                 .fontSize(16)
