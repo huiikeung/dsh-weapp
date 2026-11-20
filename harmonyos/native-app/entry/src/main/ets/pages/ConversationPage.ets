@@ -5670,16 +5670,31 @@ export struct ConversationPage {
       return;
     }
     this.turnNavWarmupRunning = true;
+    const store: SessionStore = SessionStore.get();
     let guard: number = 0;
-    while (this.hasMoreHistory && (this.turnNavOpen || this.capsuleExpanded) && guard < 80) {
-      if (!SessionStore.get().loadOlder()) {
+    // 一页一页连着拉：等上一页真正落地就立刻发下一页，不再固定 sleep 180ms。
+    // 之前固定 180ms 会在「响应比 180ms 慢」时被 loadOlder 的 pending 判断打断，
+    // 一次展开只能拉一页，看起来就是要点好几次才能加载完。
+    while (guard < 60 && (this.turnNavOpen || this.capsuleExpanded) && store.hasOlderHistory()) {
+      if (store.isOlderRequestPending()) {
+        await new Promise<void>((resolve: () => void) => {
+          setTimeout(resolve, 16);
+        });
+        continue;
+      }
+      if (!store.loadOlder()) {
         break;
       }
       guard += 1;
-      await new Promise<void>((resolve: () => void) => {
-        setTimeout(resolve, 180);
-      });
-      // 每加载一批就刷新节点数：胶囊上的 N/总数、弹层列表都跟着更新
+      // 等这一页落地（最多 3s，避免主机无响应时死等）
+      let waited: number = 0;
+      while (store.isOlderRequestPending() && waited < 3000) {
+        await new Promise<void>((resolve: () => void) => {
+          setTimeout(resolve, 16);
+        });
+        waited += 16;
+      }
+      // 每加载一页就刷新节点数：胶囊上的 N/总数、弹层列表都跟着更新
       this.refreshTurnNodes(this.turnNavOpen);
     }
     this.turnNavWarmupRunning = false;

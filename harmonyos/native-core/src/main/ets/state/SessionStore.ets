@@ -1422,6 +1422,16 @@ export class SessionStore {
     }
   }
 
+  /** 是否还有更早历史可拉（页面预热循环用：拉完一页再看还有没有） */
+  hasOlderHistory(): boolean {
+    return this.hasMore && this.oldestSeq > 0 && this.sessionId.length > 0 && this.client !== null;
+  }
+
+  /** 上一页补拉请求是否还在等主机响应（页面预热要等它落地再发下一页） */
+  isOlderRequestPending(): boolean {
+    return this.olderRequestPending;
+  }
+
   /** 加载更早一页历史。 */
   loadOlder(): boolean {
     if (this.client === null || this.sessionId.length === 0 || this.oldestSeq <= 0 || this.olderRequestPending) {
