@@ -1575,8 +1575,8 @@ export struct TailscalePage {
           .borderRadius(14)
           .clip(true)
 
-          // ── 区块 2：账号与网络（仅浏览器账号登录时显示；AuthKey 模式隐藏）──
-          if (this.tunnelEnabled && this.isAccountMode()) {
+          // ── 区块 2：账号与网络（隧道开启后常驻，保证随时能添加/切换账号）──
+          if (this.tunnelEnabled) {
           this.sectionHeaderWithHint('账号与网络', '点前面的圆点用该账号登录，右侧可删除；不删除会一直保留。')
           Column() {
             if (this.accountName.length > 0 && this.isAccountMode()) {
@@ -1625,6 +1625,14 @@ export struct TailscalePage {
               .width('100%')
               .padding({ left: 16, right: 8, top: 12, bottom: 12 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+            }
+            if (!this.isAccountMode()) {
+              Text('当前使用 Auth Key 登录；也可以添加浏览器账号后切换')
+                .fontSize(12)
+                .lineHeight(18)
+                .fontColor(this.subColor())
+                .width('100%')
+                .padding({ left: 16, right: 16, top: 8, bottom: 4 })
             }
             Row({ space: 8 }) {
               SymbolGlyph($r('sys.symbol.plus'))
