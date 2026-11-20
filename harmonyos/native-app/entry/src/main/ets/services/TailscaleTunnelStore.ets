@@ -515,8 +515,11 @@ export class TailscaleTunnelStore {
         const gwEnd: number = gwTail.indexOf(' | ');
         const gwPeer: string = (gwEnd > 0 ? gwTail.substring(0, gwEnd) : gwTail.trim()).trim();
         if (gwPeer.length > 0) {
-          AppStorage.setOrCreate<string>('tailnetGatewayPeerName', gwPeer);
-          Logger.info('TSDBG gwPeer=' + gwPeer);
+          // 短名给本地代理合成用；完整 DNSName 给客户端直连入口用
+          const shortPeer: string = gwPeer.split('.')[0];
+          AppStorage.setOrCreate<string>('tailnetGatewayPeerName', shortPeer);
+          AppStorage.setOrCreate<string>('tailnetGatewayDnsName', gwPeer);
+          Logger.info('TSDBG gwPeer=' + gwPeer + ' short=' + shortPeer);
           if (PreferencesStore.get().getString('tailnetGatewayPeerName', '') !== gwPeer) {
             PreferencesStore.get().putString('tailnetGatewayPeerName', gwPeer);
           }

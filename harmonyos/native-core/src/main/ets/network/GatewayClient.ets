@@ -166,7 +166,8 @@ export class GatewayClient {
     }
     if (this.tailnetNameCandidates.length === 0) {
       const candidates: string[] = [];
-      const configured: string = (AppStorage.get<string>('tailnetGatewayPeerName') ?? '').trim();
+      const configured: string = (AppStorage.get<string>('tailnetGatewayDnsName') ?? '').trim() ||
+        (AppStorage.get<string>('tailnetGatewayPeerName') ?? '').trim();
       if (configured.length > 0) {
         candidates.push(configured);
       }
