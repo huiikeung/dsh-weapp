@@ -41,6 +41,8 @@ export struct TailscalePage {
   @StorageLink('pendingTailscaleLogin') pendingTailscaleLogin: boolean = false;
   @StorageLink('tailscaleAuthInvalid') authInvalid: boolean = false;
   @StorageLink('tailscaleStageError') stageError: string = '';
+  @State hintOpen: boolean = false;
+  @State hintText: string = '';
 
   @State tunnelEnabled: boolean = false;
   @State nodeName: string = '';
@@ -1119,6 +1121,56 @@ export struct TailscalePage {
   }
 
   @Builder
+  sectionHeaderWithHint(title: string, hint: string) {
+    Row() {
+      Text(title).fontSize(13).fontColor(this.subColor()).layoutWeight(1)
+      Text('说明')
+        .fontSize(12)
+        .fontColor(this.textColor())
+        .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+        .backgroundColor(this.pillBg())
+        .borderRadius(999)
+        .onClick(() => {
+          this.hintText = hint;
+          this.hintOpen = true;
+        })
+    }
+    .width('100%')
+    .padding({ left: 16, right: 16, top: 18, bottom: 7 })
+  }
+
+  @Builder
+  hintSheetContent() {
+    Column({ space: 12 }) {
+      Column() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
+      }
+      .width('100%')
+      .height(16)
+      .justifyContent(FlexAlign.Center)
+      Text('说明')
+        .fontSize(17)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.textColor())
+        .width('100%')
+        .textAlign(TextAlign.Center)
+      Text(this.hintText)
+        .fontSize(14)
+        .lineHeight(21)
+        .fontColor(this.textColor())
+        .width('100%')
+      Blank().height(20)
+    }
+    .width('100%')
+    .padding({ left: 20, right: 20 })
+    .backgroundColor(this.cardBg())
+  }
+
+  @Builder
   sectionHeader(title: string) {
     Text(title)
       .fontSize(13)
@@ -1433,7 +1485,7 @@ export struct TailscalePage {
 
           // ── 区块 2：账号与网络（隧道开启后显示；账号本身持久化，直到手动删除）──
           if (this.tunnelEnabled) {
-          this.sectionHeader('账号与网络')
+          this.sectionHeaderWithHint('账号与网络', '点前面的圆点用该账号登录，右侧可删除；不删除会一直保留。')
           Column() {
             if (this.accountName.length > 0) {
               Row({ space: 10 }) {
@@ -1506,7 +1558,6 @@ export struct TailscalePage {
           .borderRadius(14)
 
           .clip(true)
-          this.sectionFooter('点前面的圆点用该账号登录，右侧可删除；不删除会一直保留。')
           }
 
           // ── 节点身份（单独卡片）：Auth Key + 自建控制平面（折叠）──
@@ -1518,6 +1569,17 @@ export struct TailscalePage {
                 .fontColor('#2E6BE6')
                 .onClick(() => {
                   this.openAuthKeyPage();
+                })
+              Text('说明')
+                .fontSize(12)
+                .fontColor(this.textColor())
+                .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+                .backgroundColor(this.pillBg())
+                .borderRadius(999)
+                .margin({ left: 10 })
+                .onClick(() => {
+                  this.hintText = '创建 Auth Key：Reusable 打开、Ephemeral 关闭、Expiry 按需（建议 90 天）、Tags 留空。\n主机授权三步：① Tailscale 管理台 Machines 里批准新设备（开启了设备审批时）；② Access Controls 里允许该设备访问网关主机 3081/tcp；③ 回到本页点「AuthKey 登录」，等状态变「已连接」。换 key 会自动清空旧节点状态。';
+                  this.hintOpen = true;
                 })
             }
             .width('100%')
@@ -1581,7 +1643,7 @@ export struct TailscalePage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-            this.sectionFooter('创建 Auth Key：Reusable 打开、Ephemeral 关闭、Expiry 按需（建议 90 天）、Tags 留空。\n主机授权三步：① Tailscale 管理台 Machines 里批准新设备（开启了设备审批时）；② Access Controls 里允许该设备访问网关主机 3081/tcp；③ 回到本页点「AuthKey 登录」，等状态变「已连接」。换 key 会自动清空旧节点状态。')
+
           }
 
 
@@ -1743,6 +1805,19 @@ export struct TailscalePage {
           onDisappear: () => {
             this.authKeyDraft = '';
           }
+        })
+
+      // 卡片说明：半模态展示，文字统一黑/白，背景随主题
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.hintOpen, this.hintSheetContent(), {
+          height: 300,
+          dragBar: false,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.cardBg()
         })
 
       // 切换登录方式：系统半模态（与首页「切换主机」同款材质）
