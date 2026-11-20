@@ -120,6 +120,26 @@ export class TailscaleTunnelStore {
     this.publish()
   }
 
+  /**
+   * Auth Key 失效/过期时改用浏览器登录：清空已保存的密钥并重启轻量引擎，
+   * tsnet 会在 NeedsLogin 状态下给出新的登录链接（页面「去授权」打开）。
+   */
+  reauthorizeWithBrowser(): void {
+    PreferencesStore.get().putString('tsnetAuthKey', '');
+    PreferencesStore.get().putString('tailscaleAuthKey', '');
+    AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', false);
+    AppStorage.setOrCreate<string>('tailscaleAuthUrl', '');
+    AppStorage.setOrCreate<string>('tsnetFastAuthUrl', '');
+    TsnetBridge.stopFast();
+    this.fastStarted = false;
+    this.fastWasReady = false;
+    this.fastDebugLogged = false;
+    this.fastNoStateTicks = 0;
+    this.fastRecovered = false;
+    this.ensureFastStarted(true);
+    this.publish();
+  }
+
   /** 用新的 authKey 重启轻量引擎 */
   reloadFast(): void {
     // 放到下一个事件循环执行，避免 NAPI 停止引擎时阻塞 UI 线程
@@ -300,6 +320,21 @@ export class TailscaleTunnelStore {
           AppStorage.setOrCreate<string>('tsnetFastAuthUrl', fastAuth);
           AppStorage.setOrCreate<string>('tailscaleAuthUrl', fastAuth);
         }
+      }
+      // 轻量引擎状态必须发布到页面：否则 Auth Key 过期/失效时会永远停在「启动中」
+      if (fastStat.indexOf('state=Running') >= 0) {
+        AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_READY);
+        AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', false);
+      } else if (fastStat.indexOf('state=NeedsLogin') >= 0) {
+        AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_NEEDS_LOGIN);
+        const hasKey: boolean = PreferencesStore.get().getString('tsnetAuthKey', '').trim().length > 0;
+        const fastAuthUrl: string = TsnetBridge.authURLFast();
+        AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', hasKey && !fastAuthUrl.startsWith('http'));
+      } else if (fastStat.indexOf('FAILED') >= 0) {
+        AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_FAILED);
+      } else if (fastStat.indexOf('state=Starting') >= 0 || fastStat.indexOf('state=NoState') >= 0) {
+        AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_STARTING);
+        AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', false);
       }
     }
     // WiFi 下预热隧道：提前把代理指向 ts.net 并拨通 DERP 路径，切蜂窝时才能秒切

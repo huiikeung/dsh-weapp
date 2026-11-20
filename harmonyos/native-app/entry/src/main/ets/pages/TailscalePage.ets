@@ -25,7 +25,7 @@ const STAGE_FAILED = 'failed';
 
 /**
  * Tailscale 内嵌隧道设置（二级页）：对齐 iOS TailscaleTunnelSettingsView。
- * 四个区块：启用开关 / 账号与网络 / 隧道状态 / 节点身份。
+ * 布局：节点状态卡片（总览）/ 启用开关 / 账号与网络 / 账号与节点（登录方式+节点身份）。
  *
  * 说明：Go/tsnet 引擎由 OpenHarmony Go 工具链构建的 libtailscale_go.so 提供，
  * NAPI 直链（libtailscale_ohos.so），已在本机跑通 hello/status；登录链接来自引擎 authURL。
@@ -36,6 +36,7 @@ export struct TailscalePage {
   @StorageLink('isDark') isDark: boolean = false;
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   @StorageLink('pendingTailscaleLogin') pendingTailscaleLogin: boolean = false;
+  @StorageLink('tailscaleAuthInvalid') authInvalid: boolean = false;
 
   @State tunnelEnabled: boolean = false;
   @State nodeName: string = '';
@@ -684,6 +685,36 @@ export struct TailscalePage {
     PreferencesStore.get().putString('tsnetAuthKey', value.trim());
   }
 
+  /** Auth Key 失效时改用浏览器登录：清空密钥并让轻量引擎重新给出登录链接 */
+  private browserReauth(): void {
+    this.authKey = '';
+    PreferencesStore.get().putString(KEY_AUTH_KEY, '');
+    PreferencesStore.get().putString('tsnetAuthKey', '');
+    TailscaleTunnelStore.get().reauthorizeWithBrowser();
+    this.loginResult = '已清空失效的登录密钥，正在改用浏览器登录…';
+    this.dialogOpen = true;
+  }
+
+  /** 是否显示失败详情（用方法包一层，避免 TS 把 this.stage 收窄成字面量） */
+  private showProblemSection(): boolean {
+    return this.stage === STAGE_FAILED;
+  }
+
+  private pillBg(): string {
+    return this.isDark ? '#23324D' : '#EAF1FF';
+  }
+
+  /** 状态卡片上的账号摘要 */
+  private identitySummary(): string {
+    if (this.accountTailnet.length > 0) {
+      return '账号 ' + this.accountTailnet;
+    }
+    if (this.accountName.length > 0) {
+      return '账号 ' + this.accountName;
+    }
+    return '账号 未登录';
+  }
+
   private saveControlURL(value: string): void {
     this.controlURL = value;
     PreferencesStore.get().putString(KEY_CONTROL_URL, value.trim());
@@ -827,6 +858,108 @@ export struct TailscalePage {
 
       Scroll() {
         Column() {
+
+          // ── 节点状态卡片（顶部总览，对齐设备卡片样式）──
+          this.sectionHeader('节点状态')
+          Column({ space: 10 }) {
+            Row() {
+              Text(this.nodeName.length > 0 ? this.nodeName : this.defaultNodeName())
+                .fontSize(20)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.textColor())
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .layoutWeight(1)
+              Row({ space: 5 }) {
+                Circle({ width: 7, height: 7 }).fill(this.stageColor())
+                Text(this.stageLabel()).fontSize(12).fontColor(this.stageColor())
+              }
+              .padding({ left: 9, right: 9, top: 4, bottom: 4 })
+              .backgroundColor(this.pillBg())
+              .borderRadius(20)
+            }
+            .width('100%')
+            Text('HarmonyOS · ' + this.deviceModel())
+              .fontSize(12)
+              .fontColor(this.subColor())
+            Flex({ wrap: FlexWrap.Wrap }) {
+              Text(this.identitySummary()).fontSize(11).fontColor('#2E6BE6')
+                .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
+              Text(this.authModeState === 'authKey' ? 'Auth Key' : '浏览器登录').fontSize(11).fontColor('#2E6BE6')
+                .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
+              Text(this.controlURL.trim().length > 0 ? '自建控制面' : '官方控制面').fontSize(11).fontColor('#2E6BE6')
+                .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
+              Text('轻量 tsnet').fontSize(11).fontColor('#2E6BE6')
+                .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+                .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
+            }
+            .width('100%')
+            Divider().color(this.dividerColor()).strokeWidth(1)
+            Row() {
+              Text('当前地址').fontSize(14).fontColor(this.subColor())
+              Blank()
+              Text(this.nodeAddress.length > 0 ? this.nodeAddress :
+                (this.stage === STAGE_READY ? '已连接' : '未连接'))
+                .fontSize(13)
+                .fontColor(this.nodeAddress.length > 0 ? this.textColor() : this.subColor())
+            }
+            .width('100%')
+            Row({ space: 8 }) {
+              if (this.stage === STAGE_NEEDS_LOGIN) {
+                Text(this.loginUrl.length > 0 ? '去授权' : '获取登录链接')
+                  .fontSize(14).fontColor('#FFFFFF').layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .backgroundColor('#2E6BE6').borderRadius(10)
+                  .onClick(() => {
+                    this.loginResult = '';
+                    this.dialogOpen = true;
+                    this.startLogin();
+                  })
+              } else if (this.stage === STAGE_READY) {
+                Text('重新连接')
+                  .fontSize(14).fontColor(this.textColor()).layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .backgroundColor(this.pillBg()).borderRadius(10)
+                  .onClick(() => {
+                    this.beginStart();
+                  })
+              } else {
+                Text('启动隧道')
+                  .fontSize(14).fontColor('#FFFFFF').layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .backgroundColor('#2E6BE6').borderRadius(10)
+                  .onClick(() => {
+                    this.setEnabled(true);
+                    this.beginStart();
+                  })
+              }
+              if (this.stage !== STAGE_DISABLED) {
+                Text('停止')
+                  .fontSize(14).fontColor('#FF3B30').layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .backgroundColor(this.pillBg()).borderRadius(10)
+                  .onClick(() => {
+                    this.setEnabled(false);
+                  })
+              }
+            }
+            .width('100%')
+            if (this.authInvalid) {
+              Text('已保存的 Auth Key 无法加入 tailnet（可能过期或被撤销）。可以改用浏览器登录完成授权，或在下方重新填写密钥。')
+                .fontSize(12).lineHeight(18).fontColor('#C2410C').width('100%')
+              Text('改用浏览器登录')
+                .fontSize(14).fontColor('#2E6BE6').height(34)
+                .onClick(() => {
+                  this.browserReauth();
+                })
+            }
+          }
+          .width('100%')
+          .padding(16)
+          .backgroundColor(this.cardBg())
+          .border({ width: 1, color: this.dividerColor() })
+          .borderRadius(14)
+          .clip(true)
+
           // ── 区块 1：启用内嵌隧道 ──
           this.sectionHeader('Tailscale 内嵌隧道')
           Row() {
@@ -906,29 +1039,10 @@ export struct TailscalePage {
           .clip(true)
           this.sectionFooter('仅显示已登录账号。点击账号可切换网络，登录状态会分别保留。')
 
-          // ── 当前登录方式（可切换）──
-          Row() {
-            Text('当前登录方式').fontSize(14).fontColor(this.subColor())
-            Blank()
-            Text(this.authModeState === 'authKey' ? '登录密钥（Auth Key）' :
-              this.authModeState === 'account' ? '账号登录' : '未启用轻量引擎')
-              .fontSize(14)
-              .fontColor(this.authModeState.length > 0 ? '#2E6BE6' : this.subColor())
-            Text(' ›').fontSize(16).fontColor(this.subColor())
-          }
-          .width('100%')
-          .height(48)
-          .padding({ left: 16, right: 16 })
-          .backgroundColor(this.cardBg())
-          .borderRadius(14)
-          .border({ width: 1, color: this.dividerColor() })
-          .onClick(() => {
-            this.authModeDialog = true;
-          })
 
-          // ── 区块 3：隧道状态 ──
-          if (this.tunnelEnabled) {
-            this.sectionHeader('隧道状态')
+          // ── 连接问题（仅失败时展示；状态总览已在顶部卡片，避免重复）──
+          if (this.tunnelEnabled && this.showProblemSection()) {
+            this.sectionHeader('连接问题')
             Column() {
               Row({ space: 8 }) {
                 Circle({ width: 8, height: 8 }).fill(this.stageColor())
@@ -1055,10 +1169,26 @@ export struct TailscalePage {
             .clip(true)
           }
 
-          // ── 区块 4：节点身份 ──
+          // ── 账号与节点：登录方式 / 节点名 / 控制平面 / 登录密钥（已整合原「节点身份」）──
           if (this.tunnelEnabled) {
-            this.sectionHeader('节点身份')
+            this.sectionHeader('账号与节点')
             Column() {
+              Row() {
+                Text('登录方式').fontSize(16).fontColor(this.textColor())
+                Blank()
+                Text(this.authModeState === 'authKey' ? '登录密钥（Auth Key）' :
+                  this.authModeState === 'account' ? '账号登录' : '未启用轻量引擎')
+                  .fontSize(15)
+                  .fontColor(this.authModeState.length > 0 ? '#2E6BE6' : this.subColor())
+                Text(' ›').fontSize(16).fontColor(this.subColor())
+              }
+              .width('100%')
+              .height(52)
+              .padding({ left: 16, right: 16 })
+              .onClick(() => {
+                this.authModeDialog = true;
+              })
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               TextInput({ text: this.nodeName, placeholder: '节点名称' })
                 .fontSize(16)
                 .fontColor(this.textColor())
