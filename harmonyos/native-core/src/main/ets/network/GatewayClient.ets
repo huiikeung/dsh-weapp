@@ -105,6 +105,8 @@ export class GatewayClient {
   /** 切蜂窝后等隧道就绪再切终点的轮询（隧道没起来时先把现有连接保住） */
   private tailnetSwitchTimer: number = 0;
   private tailnetRouteRetries: number = 0;
+  private tailnetNameCandidates: string[] = [];
+  private tailnetNameIdx: number = 0;
   private tailnetSwitchTries: number = 0;
   private tailnetEnablerCalled: boolean = false;
   private tailnetEnabler: () => void = () => {};
@@ -128,9 +130,31 @@ export class GatewayClient {
       return;
     }
     // 局域网地址不能原地重连，必须换成 tailnet 入口（wss://<gateway>.ts.net/ws/mobile）
-    const target: string = this.cellularEndpoint(profile.wsUrl);
-    Logger.info('tailnet switch check suffix=' + (AppStorage.get<string>('tailnetDnsSuffix') ?? '') +
-      ' peer=' + (AppStorage.get<string>('tailnetGatewayPeerName') ?? '') + ' target=' + target);
+    const suffix: string = (AppStorage.get<string>('tailnetDnsSuffix') ?? '') ||
+      PreferencesStore.get().getString('tailnetDnsSuffix', '');
+    if (suffix.length === 0) {
+      if (this.tailnetRouteRetries < 10) {
+        this.tailnetRouteRetries += 1;
+        setTimeout(() => {
+          this.reconnectViaTailnet();
+        }, 1000);
+      }
+      return;
+    }
+    if (this.tailnetNameCandidates.length === 0) {
+      const candidates: string[] = [];
+      const configured: string = (AppStorage.get<string>('tailnetGatewayPeerName') ?? '').trim();
+      if (configured.length > 0) {
+        candidates.push(configured.split('.')[0]);
+      }
+      // 网关节点名默认按平台生成，逐个尝试（win/mac/linux）
+      candidates.push('dsh-gateway-win', 'dsh-gateway-mac', 'dsh-gateway-linux', 'dsh-gateway');
+      this.tailnetNameCandidates = candidates;
+      this.tailnetNameIdx = 0;
+    }
+    const name: string = this.tailnetNameCandidates[Math.min(this.tailnetNameIdx, this.tailnetNameCandidates.length - 1)];
+    const target: string = 'wss://' + name + '.' + suffix + '/ws/mobile';
+    Logger.info('tailnet switch check suffix=' + suffix + ' idx=' + this.tailnetNameIdx + ' target=' + target);
     if (target === profile.wsUrl || !this.isTailnetAddress(target)) {
       // ts.net 后缀可能还没发布出来：最多重试 10 次（每秒一次）
       if (this.tailnetRouteRetries < 10) {
@@ -967,6 +991,13 @@ export class GatewayClient {
         // 目标本来就是 tailnet 地址：只允许走隧道，直接连必然失败
         Logger.warn('gateway tailnet route failed, retrying via tunnel');
         this.tailnetAttemptFailed = false;
+        // 换下一个网关节点头衔（win/mac/linux）再试
+        if (this.tailnetNameIdx < this.tailnetNameCandidates.length - 1) {
+          this.tailnetNameIdx += 1;
+          setTimeout(() => {
+            this.reconnectViaTailnet();
+          }, 800);
+        }
       } else {
         Logger.warn('gateway tailnet route failed, fallback to direct');
         this.tailnetAttemptFailed = true;
@@ -1121,6 +1152,8 @@ export class GatewayClient {
       AppStorage.setOrCreate<string>('endpointKind', this.isLocalEndpoint(profile.wsUrl) ? 'local' : 'public');
     }
     AppStorage.setOrCreate<string>('pairingHint', '已连接：' + (profile !== null ? profile.wsUrl : '网关'));
+    this.tailnetNameCandidates = [];
+    this.tailnetNameIdx = 0;
     this.publish(ConnectionState.CONNECTED);
     this.startHeartbeat();
     SessionStore.get().resumeAfterConnect();
