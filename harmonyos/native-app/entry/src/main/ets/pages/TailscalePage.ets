@@ -1200,11 +1200,35 @@ export struct TailscalePage {
   @Builder
   dialogSheet() {
     Column({ space: 14 }) {
-      Text('添加 Tailscale 账号')
-        .fontSize(17)
-        .fontWeight(FontWeight.Bold)
-        .fontColor(this.textColor())
-        .width('100%')
+      Row({ space: 6 }) {
+        Text('添加 Tailscale 账号')
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.textColor())
+        Text('ⓘ')
+          .fontSize(14)
+          .fontColor(this.subColor())
+          .padding({ left: 2, right: 8, top: 2, bottom: 2 })
+          .bindMenu(this.hintMenuOpen === 'addAccount', this.hintMenuBuilder(), {
+            outlineColor: this.dividerColor(),
+            outlineWidth: 1,
+            onWillDisappear: () => {
+              this.hintMenuOpen = '';
+            },
+            onDisappear: () => {
+              this.hintMenuOpen = '';
+            },
+            onDidDisappear: () => {
+              this.hintMenuOpen = '';
+            }
+          })
+          .onClick(() => {
+            this.hintText = '点「在浏览器登录」后，App 会在这台手机上创建一个 Tailscale 节点并打开登录链接。\n登录完成后，节点状态、本机代理和网络连接都由 App 维护，你不需要另外安装 WireGuard 或 Tailscale 客户端。';
+            this.hintMenuOpen = this.hintMenuOpen === 'addAccount' ? '' : 'addAccount';
+          })
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.Start)
       if (this.accountName.length > 0) {
         Row({ space: 8 }) {
           Circle({ width: 8, height: 8 }).fill('#0F9D58')
@@ -1226,16 +1250,13 @@ export struct TailscalePage {
         .backgroundColor(this.pillBg())
         .borderRadius(10)
       }
-      Text(this.loginResult.length > 0 ? this.loginResult : '点击下方按钮后，应用会在本机创建 Tailscale 节点并返回登录链接。')
-        .fontSize(14)
-        .lineHeight(21)
-        .fontColor(this.subColor())
-        .width('100%')
-      Text('登录完成后，节点状态和本机代理会由应用维护；用户不需要安装 WireGuard 或 Tailscale。')
-        .fontSize(14)
-        .lineHeight(21)
-        .fontColor(this.subColor())
-        .width('100%')
+      if (this.loginResult.length > 0) {
+        Text(this.loginResult)
+          .fontSize(13)
+          .lineHeight(20)
+          .fontColor(this.subColor())
+          .width('100%')
+      }
       Row({ space: 10 }) {
         if (this.loginResult.length > 0 && this.loginUrl.length > 0) {
           Text('复制链接')
