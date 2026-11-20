@@ -953,6 +953,16 @@ export class GatewayClient {
     return CredentialStore.get().list();
   }
 
+  /** 当前活动主机的 id（没有保存记录时为空串）。 */
+  activeGatewayId(): string {
+    return CredentialStore.get().activeGatewayId();
+  }
+
+  /** 修改主机的本机备注名与类型（对齐小程序编辑主机）。 */
+  renameGateway(id: string, alias: string, deviceKind: string): boolean {
+    return CredentialStore.get().rename(id, alias, deviceKind) !== null;
+  }
+
   switchGateway(id: string): boolean {
     const saved: SavedGateway | null = CredentialStore.get().setActive(id);
     if (saved === null) return false;

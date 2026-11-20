@@ -23,6 +23,10 @@ export interface SavedGateway {
   accessToken: string;
   pairedAt: number;
   lastConnectedAt: number;
+  /** 本机备注名：留空用网关上报的 name（旧数据没有该字段）。 */
+  alias?: string;
+  /** 主机类型：desktopcomputer / server.rack（旧数据没有该字段时按电脑显示）。 */
+  deviceKind?: string;
 }
 
 const KEY: string = 'savedGateways';
@@ -177,6 +181,17 @@ export class CredentialStore {
     }
     gateway.lastConnectedAt = Date.now();
     this.save(gateway);
+    return gateway;
+  }
+
+  /** 修改主机的本机备注名与类型（不触碰连接凭据，对齐小程序编辑主机）。 */
+  rename(id: string, alias: string, deviceKind: string): SavedGateway | null {
+    this.ensureLoaded();
+    const gateway: SavedGateway | undefined = this.cached.find((item: SavedGateway) => item.id === id);
+    if (gateway === undefined) return null;
+    gateway.alias = alias;
+    gateway.deviceKind = deviceKind;
+    this.persist();
     return gateway;
   }
 

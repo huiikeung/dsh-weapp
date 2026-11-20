@@ -88,7 +88,10 @@ export struct HomePage {
   @StorageLink('keyboardHeightVp') keyboardHeightVp: number = 0;
   @State hostSheetOpen: boolean = false;
   @State hostEditMode: boolean = false;
-  @State hostSelected: boolean = false;
+  /** 编辑模式下勾选的主机 id（多选删除，对齐小程序 host-select） */
+  @State hostSelectedIds: string[] = [];
+  /** 当前编辑表单对应的主机 id（空 = 编辑当前连接主机） */
+  @State editingGatewayId: string = '';
   @State hostEditOpen: boolean = false;
   @State hostDeleteOpen: boolean = false;
   @State editAlias: string = '';
@@ -2207,11 +2210,11 @@ export struct HomePage {
                 .onClick(() => {
                   this.hostEditMode = !this.hostEditMode;
                   if (!this.hostEditMode) {
-                    this.hostSelected = false;
+                    this.hostSelectedIds = [];
                   }
                 })
               Blank()
-              if (this.hostEditMode && this.hostSelected) {
+              if (this.hostEditMode && this.hostSelectedIds.length > 0) {
                 Text('删除')
                   .fontSize(16)
                   .fontColor(this.destructiveColor())
@@ -2253,110 +2256,122 @@ export struct HomePage {
                   .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.80)' })
                 .borderRadius(16)
               } else {
-                Column() {
-                  Row({ space: 12 }) {
-                    if (this.hostEditMode) {
-                      // 单选圆：40rpx=20vp 外圈 + 选中时内圈实心点（留 2.5vp 空隙）
-                      Stack({ alignContent: Alignment.Center }) {
-                        Circle()
-                          .width(20)
-                          .height(20)
-                          .fill('rgba(0,0,0,0)')
-                          .stroke(this.hostSelected ? this.iconColor() : this.iconColorSecondary())
-                          .strokeWidth(1.5)
-                        if (this.hostSelected) {
+                ForEach(this.distinctHosts(), (gateway: SavedGateway) => {
+                  Column() {
+                    Row({ space: 12 }) {
+                      if (this.hostEditMode) {
+                        // 多选圆：外圈 + 选中时内圈实心点（对齐小程序多选删除）
+                        Stack({ alignContent: Alignment.Center }) {
                           Circle()
-                            .width(11)
-                            .height(11)
-                            .fill(this.iconColor())
+                            .width(20)
+                            .height(20)
+                            .fill('rgba(0,0,0,0)')
+                            .stroke(this.hostSelectedIds.indexOf(gateway.id) >= 0
+                              ? this.iconColor() : this.iconColorSecondary())
+                            .strokeWidth(1.5)
+                          if (this.hostSelectedIds.indexOf(gateway.id) >= 0) {
+                            Circle()
+                              .width(11)
+                              .height(11)
+                              .fill(this.iconColor())
+                          }
                         }
+                        .width(20)
+                        .height(20)
+                        .margin({ right: 2 })
+                        .onClick(() => {
+                          this.toggleHostSelected(gateway.id);
+                        })
                       }
-                      .width(20)
-                      .height(20)
-                      .margin({ right: 2 })
-                      .onClick(() => {
-                        this.hostSelected = !this.hostSelected;
-                      })
-                    }
-                    if (this.editKind === 'server') {
-                      this.serverGlyph(22, this.iconColor())
-                    } else {
-                      this.hostGlyph(22, this.iconColor())
-                    }
-                    Column({ space: 2 }) {
-                      Row({ space: 6 }) {
-                        Text(this.hostDisplayName())
-                          .fontSize(16)
-                          .fontColor(this.labelColor())
+                      if (this.savedHostKind(gateway) === 'server') {
+                        this.serverGlyph(22, this.iconColor())
+                      } else {
+                        this.hostGlyph(22, this.iconColor())
+                      }
+                      Column({ space: 2 }) {
+                        Row({ space: 6 }) {
+                          Text(this.savedHostName(gateway))
+                            .fontSize(16)
+                            .fontColor(this.labelColor())
+                            .maxLines(1)
+                            .textOverflow({ overflow: TextOverflow.Ellipsis })
+                            .constraintSize({ maxWidth: 180 })
+                          if (this.isActiveGateway(gateway) && this.hostLinkLabel().length > 0) {
+                            Text(this.hostLinkLabel())
+                              .fontSize(10.5)
+                              .fontWeight(FontWeight.Medium)
+                              .fontColor(this.hostLinkColor())
+                              .backgroundColor(this.hostLinkBg())
+                              .border({ width: 1, color: this.hostLinkBorder() })
+                              .borderRadius(999)
+                              .height(16)
+                              .padding({ left: 6, right: 6 })
+                              .textAlign(TextAlign.Center)
+                          }
+                        }
+                        .width('100%')
+                        Text(this.savedHostSubLabel(gateway))
+                          .fontSize(12.5)
+                          .fontColor(this.hostRowSubColor(this.isActiveGateway(gateway) && this.connection === 'connected'))
                           .maxLines(1)
                           .textOverflow({ overflow: TextOverflow.Ellipsis })
-                          .constraintSize({ maxWidth: 180 })
-                        if (this.hostLinkLabel().length > 0) {
-                          Text(this.hostLinkLabel())
-                            .fontSize(10.5)
-                            .fontWeight(FontWeight.Medium)
-                            .fontColor(this.hostLinkColor())
-                            .backgroundColor(this.hostLinkBg())
-                            .border({ width: 1, color: this.hostLinkBorder() })
-                            .borderRadius(999)
-                            .height(16)
-                            .padding({ left: 6, right: 6 })
-                            .textAlign(TextAlign.Center)
+                          .width('100%')
+                      }
+                      .alignItems(HorizontalAlign.Start)
+                      .layoutWeight(1)
+                      Circle({ width: 8, height: 8 })
+                        .fill(this.isActiveGateway(gateway) ? this.hostPillDotColor() : this.iconColorSecondary())
+                      if (this.hostEditMode) {
+                        Row() {
+                          Image($r('app.media.pencil_edit_white'))
+                            .width(18)
+                            .height(18)
+                            .objectFit(ImageFit.Contain)
+                            .fillColor(this.iconColor())
+                        }
+                        .width(44)
+                        .height(44)
+                        .justifyContent(FlexAlign.Center)
+                        .onClick(() => {
+                          // 编辑哪台就加载哪台的备注与类型
+                          this.editAlias = gateway.alias !== undefined ? gateway.alias : '';
+                          this.editKind = this.savedHostKind(gateway);
+                          this.editingGatewayId = gateway.id;
+                          this.hostEditOpen = true;
+                        })
+                      }
+                    }
+                    .width('100%')
+                    .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+                    .onClick(() => {
+                      if (this.hostEditMode) {
+                        this.toggleHostSelected(gateway.id);
+                      } else {
+                        this.hostSheetOpen = false;
+                        if (this.isActiveGateway(gateway)) {
+                          // 当前主机：关闭面板并立即尝试连接（按当前网络选择局域网/隧道）
+                          if (this.connection !== 'connected') {
+                            if (this.credentialRejected) {
+                              // 网关已拒绝保存的凭据：重连只会再吃一次 401，直接进扫码配对
+                              this.scanPairingNow();
+                            } else {
+                              GatewayClient.get().revalidateOnForeground();
+                              GatewayClient.get().reconnectCurrent();
+                            }
+                          }
+                        } else {
+                          // 切换到另一台已保存的主机（按其档案里的候选地址连接）
+                          GatewayClient.get().switchGateway(gateway.id);
                         }
                       }
-                      .width('100%')
-                      Text(this.connection === 'connected' ? '当前主机 · 已连接'
-                        : (this.credentialRejected ? '设备凭据已失效 · 点击重新配对' : '点击连接'))
-                        .fontSize(12.5)
-                        .fontColor(this.hostRowSubColor(this.connection === 'connected'))
-                        .maxLines(1)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis })
-                        .width('100%')
-                    }
-                    .alignItems(HorizontalAlign.Start)
-                    .layoutWeight(1)
-                    Circle({ width: 8, height: 8 }).fill(this.hostPillDotColor())
-                    if (this.hostEditMode) {
-                      Row() {
-                        Image($r('app.media.pencil_edit_white'))
-                          .width(18)
-                          .height(18)
-                          .objectFit(ImageFit.Contain)
-                          .fillColor(this.iconColor())
-                      }
-                      .width(44)
-                      .height(44)
-                      .justifyContent(FlexAlign.Center)
-                      .onClick(() => {
-                        this.editAlias = this.hostAlias;
-                        this.hostEditOpen = true;
-                      })
-                    }
+                    })
                   }
                   .width('100%')
-                  .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-                  .onClick(() => {
-                    if (this.hostEditMode) {
-                      this.hostSelected = !this.hostSelected;
-                    } else {
-                      // 点击主机：关闭面板并立即尝试连接（按当前网络选择局域网/隧道）
-                      this.hostSheetOpen = false;
-                      if (this.connection !== 'connected') {
-                        if (this.credentialRejected) {
-                          // 网关已拒绝保存的凭据：重连只会再吃一次 401，直接进扫码配对
-                          this.scanPairingNow();
-                        } else {
-                          GatewayClient.get().revalidateOnForeground();
-                          GatewayClient.get().reconnectCurrent();
-                        }
-                      }
-                    }
-                  })
-                }
-                .width('100%')
                   .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.50)')
                   .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.80)' })
-                .borderRadius(16)
+                  .borderRadius(16)
+                  .margin({ top: 5, bottom: 5 })
+                }, (gateway: SavedGateway) => gateway.id)
               }
             }
             .width('100%')
@@ -2435,7 +2450,7 @@ export struct HomePage {
           .justifyContent(FlexAlign.Center)
           .onClick(() => {
             this.hostDeleteOpen = false;
-            this.forgetHost();
+            this.deleteSelectedHosts();
           })
         }
         .width('100%')
@@ -2748,7 +2763,7 @@ export struct HomePage {
   private confirmDeleteHost(): void {
     AlertDialog.show({
       title: '删除主机？',
-      message: '从 App 移除这台主机及连接凭证；网关上的会话和工作区不会被删除。再次连接需重新配对。',
+      message: '从 App 移除选中的 ' + this.hostSelectedIds.length + ' 台主机及连接凭证；网关上的会话和工作区不会被删除。再次连接需重新配对。',
       autoCancel: true,
       systemMaterial: this.hostSheetMaterial(),
       primaryButton: {
@@ -2760,7 +2775,7 @@ export struct HomePage {
         value: '删除',
         fontColor: this.destructiveColor(),
         action: () => {
-          this.forgetHost();
+          this.deleteSelectedHosts();
         }
       }
     });
@@ -2925,6 +2940,13 @@ export struct HomePage {
   }
 
   private hostDisplayName(): string {
+    // 活动主机档案里的备注名优先（每台主机各自的 alias），再退回旧的全局别名
+    const activeId: string = GatewayClient.get().activeGatewayId();
+    for (const gateway of this.savedHosts) {
+      if (gateway.id === activeId && gateway.alias !== undefined && gateway.alias.length > 0) {
+        return gateway.alias;
+      }
+    }
     if (this.hostAlias.length > 0) {
       return this.hostAlias;
     }
@@ -2946,17 +2968,162 @@ export struct HomePage {
     return saved.length > 0 ? saved : '本机';
   }
 
+  /** 保存编辑表单：备注名与主机类型写入对应主机档案（编辑哪台存哪台）。 */
   private saveHostAlias(): void {
-    this.hostAlias = this.editAlias.trim();
-    PreferencesStore.get().putString('hostAlias', this.hostAlias);
-    AppStorage.setOrCreate<string>('hostAlias', this.hostAlias);
+    const alias: string = this.editAlias.trim();
+    const activeId: string = GatewayClient.get().activeGatewayId();
+    const target: string = this.editingGatewayId.length > 0 ? this.editingGatewayId : activeId;
+    GatewayClient.get().renameGateway(target, alias, this.editKind);
+    // 活动主机的备注同步到旧 hostAlias 偏好：首页顶部胶囊仍从那里读
+    if (target === activeId) {
+      this.hostAlias = alias;
+      PreferencesStore.get().putString('hostAlias', this.hostAlias);
+      AppStorage.setOrCreate<string>('hostAlias', this.hostAlias);
+    }
+    this.refreshSavedHosts();
     this.hostEditOpen = false;
+    this.editingGatewayId = '';
   }
 
-  private forgetHost(): void {
-    GatewayClient.get().forgetSaved();
-    this.hostSelected = false;
-    this.hostSheetOpen = false;
+  /** 当前查看的主机是否是活动连接的那台 */
+  private isActiveGateway(gateway: SavedGateway): boolean {
+    return GatewayClient.get().activeGatewayId() === gateway.id;
+  }
+
+  /** 同一物理主机的归组键：网关名一致视为同一台（历史重复配对会攒出多条档案）。 */
+  private hostGroupKey(gateway: SavedGateway): string {
+    const name: string = gateway.name.trim().toLowerCase();
+    if (name.length > 0) {
+      return 'name:' + name;
+    }
+    const url: string = gateway.wsUrl;
+    const start: number = url.indexOf('://') >= 0 ? url.indexOf('://') + 3 : 0;
+    const rest: string = url.substring(start);
+    const end: number = rest.indexOf('/') >= 0 ? rest.indexOf('/') : rest.length;
+    let hostEnd: number = end;
+    const colon: number = rest.indexOf(':');
+    if (colon >= 0 && colon < end) {
+      hostEnd = colon;
+    }
+    return 'url:' + rest.substring(0, hostEnd).toLowerCase();
+  }
+
+  /** 去重后的主机列表：同一台只留一条——组里有活动档案优先保留它，否则留最近连接的；按最近连接排序。 */
+  private distinctHosts(): SavedGateway[] {
+    const activeId: string = GatewayClient.get().activeGatewayId();
+    const keys: string[] = [];
+    const lists: SavedGateway[][] = [];
+    for (const gateway of this.savedHosts) {
+      const key: string = this.hostGroupKey(gateway);
+      const idx: number = keys.indexOf(key);
+      if (idx < 0) {
+        keys.push(key);
+        lists.push([gateway]);
+      } else {
+        lists[idx].push(gateway);
+      }
+    }
+    const result: SavedGateway[] = [];
+    for (const list of lists) {
+      let kept: SavedGateway = list[0];
+      for (const item of list) {
+        if (item.id === activeId) {
+          kept = item;
+          break;
+        }
+      }
+      if (kept.id !== activeId) {
+        for (const item of list) {
+          if (item.lastConnectedAt > kept.lastConnectedAt) {
+            kept = item;
+          }
+        }
+      }
+      result.push(kept);
+    }
+    result.sort((a: SavedGateway, b: SavedGateway) => b.lastConnectedAt - a.lastConnectedAt);
+    return result;
+  }
+
+  /** 勾选一台时，同组的重复档案 id 一并返回（删除时一起清掉）。 */
+  private duplicateIdsFor(id: string): string[] {
+    const target: SavedGateway | undefined = this.savedHosts.find((item: SavedGateway) => item.id === id);
+    if (target === undefined) {
+      return [id];
+    }
+    const key: string = this.hostGroupKey(target);
+    const ids: string[] = [];
+    for (const item of this.savedHosts) {
+      if (this.hostGroupKey(item) === key) {
+        ids.push(item.id);
+      }
+    }
+    return ids;
+  }
+
+  /** 行显示名：备注名 → 网关上报名 → wsUrl 主机段 */
+  private savedHostName(gateway: SavedGateway): string {
+    if (gateway.alias !== undefined && gateway.alias.length > 0) {
+      return gateway.alias;
+    }
+    if (gateway.name.length > 0) {
+      return gateway.name;
+    }
+    const url: string = gateway.wsUrl;
+    const start: number = url.indexOf('://') >= 0 ? url.indexOf('://') + 3 : 0;
+    const rest: string = url.substring(start);
+    const end: number = rest.indexOf('/') >= 0 ? rest.indexOf('/') : rest.length;
+    return rest.substring(0, end);
+  }
+
+  /** 行图标类型：档案里有 deviceKind 用它，否则按电脑 */
+  private savedHostKind(gateway: SavedGateway): string {
+    return gateway.deviceKind !== undefined && gateway.deviceKind.length > 0
+      ? gateway.deviceKind : 'desktop';
+  }
+
+  /** 行副标题：活动主机看连接状态，其它主机固定「点击连接」 */
+  private savedHostSubLabel(gateway: SavedGateway): string {
+    if (!this.isActiveGateway(gateway)) {
+      return '点击连接';
+    }
+    if (this.connection === 'connected') {
+      return '当前主机 · 已连接';
+    }
+    return this.credentialRejected ? '设备凭据已失效 · 点击重新配对' : '点击连接';
+  }
+
+  /** 编辑模式勾选/取消一台主机（多选删除，对齐小程序 host-select） */
+  private toggleHostSelected(id: string): void {
+    const index: number = this.hostSelectedIds.indexOf(id);
+    if (index >= 0) {
+      const next: string[] = this.hostSelectedIds.slice();
+      next.splice(index, 1);
+      this.hostSelectedIds = next;
+    } else {
+      this.hostSelectedIds = this.hostSelectedIds.concat(id);
+    }
+  }
+
+  /** 删除勾选的主机（对齐小程序 confirmDeleteHosts）：同名重复档案一并移除。 */
+  private deleteSelectedHosts(): void {
+    const ids: string[] = [];
+    for (const id of this.hostSelectedIds) {
+      for (const dup of this.duplicateIdsFor(id)) {
+        if (ids.indexOf(dup) < 0) {
+          ids.push(dup);
+        }
+      }
+    }
+    for (const id of ids) {
+      GatewayClient.get().removeGateway(id);
+    }
+    this.hostSelectedIds = [];
+    this.refreshSavedHosts();
+    // 删到一台不剩且当前没有连接：收起面板（对齐小程序删除后刷新列表）
+    if (this.distinctHosts().length === 0 && this.connection !== 'connected') {
+      this.hostSheetOpen = false;
+    }
   }
 
   /**
@@ -3461,7 +3628,8 @@ export struct HomePage {
         systemMaterial: this.hostSheetMaterial(),
         onDisappear: () => {
           this.hostEditMode = false;
-          this.hostSelected = false;
+          this.hostSelectedIds = [];
+          this.editingGatewayId = '';
           this.hostEditOpen = false;
           this.hostDeleteOpen = false;
         }
