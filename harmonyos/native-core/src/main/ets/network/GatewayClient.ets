@@ -101,6 +101,7 @@ export class GatewayClient {
   private lastBearerSwitchAt: number = 0;
   private suppressConnecting: boolean = false;
   private connectRetryTimer: number = 0;
+  private tailnetFailureCount: number = 0;
   private bearerPollTimer: number = 0;
   /** 切蜂窝后等隧道就绪再切终点的轮询（隧道没起来时先把现有连接保住） */
   private tailnetSwitchTimer: number = 0;
@@ -596,6 +597,44 @@ export class GatewayClient {
     return url;
   }
 
+  /** 依次降级：Tailscale 失败 → Cloudflare/公网 → 局域网 */
+  private fallbackAfterTailnet(current: string): void {
+    const ordered: string[] = this.orderEndpoints(this.allEndpoints);
+    const next: string | undefined = ordered.find((url: string) =>
+      !this.isTailnetAddress(url) && url !== current);
+    if (next !== undefined) {
+      Logger.warn('tailnet unreachable, fallback to ' + next);
+      this.tailnetAttemptFailed = true;
+      this.switchEndpoint(next);
+      return;
+    }
+    const local: string | undefined = ordered.find((url: string) => this.isLocalEndpoint(url) && url !== current);
+    if (local !== undefined) {
+      Logger.warn('no public endpoint reachable, fallback to LAN ' + local);
+      this.forceTailnet = false;
+      this.switchEndpoint(local);
+      return;
+    }
+    this.scheduleReconnect();
+  }
+
+  /** 轻量隧道刚就绪时，把当前局域网直连升级为 Tailscale 公网链路 */
+  preferTailnetNow(): void {
+    const enabled: boolean = AppStorage.get<boolean>('tailscaleTunnelEnabled') ?? false;
+    if (!enabled || !this.tailnetReady() || this.currentProfile === null || this.usingTailnetRoute) {
+      return;
+    }
+    if (!this.isLocalEndpoint(this.currentProfile.wsUrl)) {
+      return;
+    }
+    const synth: string = this.tailnetUrlFromApp();
+    if (synth.length === 0) {
+      return;
+    }
+    Logger.info('upgrade to tailnet endpoint ' + synth);
+    this.switchEndpoint(synth);
+  }
+
   /** 回前台校验网络：后台期间切了 WiFi/蜂窝也要立刻按新网络重连 */
   revalidateOnForeground(): void {
     const before: string = this.networkBearer;
@@ -1014,13 +1053,18 @@ export class GatewayClient {
       this.usingTailnetRoute = false;
       const target: string = this.currentProfile?.wsUrl ?? '';
       if (this.isTailnetAddress(target)) {
-        // 目标本来就是 tailnet 地址：只允许走隧道，直接连必然失败
-        Logger.warn('gateway tailnet route failed, retrying via tunnel');
-        this.tailnetAttemptFailed = false;
-        // 换下一个网关节点头衔（win/mac/linux）再试
-        setTimeout(() => {
-          this.switchToNextTailnetCandidate();
-        }, 800);
+        this.tailnetFailureCount += 1;
+        if (this.tailnetFailureCount >= 2) {
+          // Tailscale 连续失败：按 Cloudflare → 局域网 降级
+          Logger.warn('gateway tailnet failed ' + this.tailnetFailureCount + ' times, degrading');
+          this.fallbackAfterTailnet(target);
+        } else {
+          Logger.warn('gateway tailnet route failed, retrying via tunnel');
+          this.tailnetAttemptFailed = false;
+          setTimeout(() => {
+            this.switchToNextTailnetCandidate();
+          }, 800);
+        }
       } else {
         Logger.warn('gateway tailnet route failed, fallback to direct');
         this.tailnetAttemptFailed = true;

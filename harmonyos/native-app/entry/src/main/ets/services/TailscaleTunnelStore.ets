@@ -53,6 +53,10 @@ export class TailscaleTunnelStore {
   /** 启动状态轮询；enabled 时顺带拉起 Go 引擎（应用启动即生效，不依赖 Tailscale 页） */
   start(stateDir: string, uiContext?: common.UIAbilityContext): void {
     this.stateDir = stateDir;
+    const savedSuffix: string = PreferencesStore.get().getString('tailnetDnsSuffix', '');
+    if (savedSuffix.length > 0) {
+      AppStorage.setOrCreate<string>('tailnetDnsSuffix', savedSuffix);
+    }
     this.uiContext = uiContext;
     if (this.timer >= 0) {
       return;
@@ -588,6 +592,11 @@ export class TailscaleTunnelStore {
           this.fastWasReady = true;
           AppStorage.setOrCreate<boolean>('tsnetFastReady', true);
           Logger.info('TSDBG fast ready (lightweight tsnet available)');
+          try {
+            GatewayClient.get().preferTailnetNow();
+          } catch (upgradeErr) {
+            Logger.warn('tailnet upgrade failed');
+          }
           try {
             Logger.info('TSDBG peers=' + TsnetBridge.peers().slice(0, 900));
           } catch (peerErr) {
