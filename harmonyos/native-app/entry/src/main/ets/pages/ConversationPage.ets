@@ -3071,6 +3071,26 @@ export struct ConversationPage {
         this.fileDiffOverlay()
       }
 
+      // 会话侧栏：自定义浮层（与「⋯」同款玻璃材质）。系统菜单容器一点就收，
+      // 没法原地展开工作区分组，所以这里自己承载：点分组手风琴、点会话跳转、点空白关闭。
+      if (this.sessionPickerOpen) {
+        Stack({ alignContent: Alignment.TopEnd }) {
+          Column()
+            .width('100%')
+            .height('100%')
+            .backgroundColor(Color.Transparent)
+            .onClick(() => {
+              this.sessionPickerOpen = false;
+            })
+          Column() {
+            this.sidebarMenuPanel()
+          }
+          .padding({ top: 56 + this.topSafe(), right: 12 })
+        }
+        .width('100%')
+        .height('100%')
+      }
+
       // 重命名会话弹窗
       if (this.renameSessionOpen) {
         this.renameSessionAlert()
@@ -4735,19 +4755,6 @@ export struct ConversationPage {
           this.sessionPickerOpen = false;
         } else {
           this.openSessionSwitcher();
-        }
-      })
-      // 与「协作」「⋯」同一个系统菜单容器：原生材质/圆角/描边/弹出动画/点空白收起
-      .bindMenu(this.sessionPickerOpen, this.sidebarMenuPanel(), {
-        placement: Placement.BottomRight,
-        offset: { x: 0, y: 4 },
-        outlineColor: this.dividerColor(),
-        outlineWidth: 1,
-        onWillDisappear: () => {
-          this.sessionPickerOpen = false;
-        },
-        onDisappear: () => {
-          this.sessionPickerOpen = false;
         }
       })
 
@@ -7251,9 +7258,14 @@ export struct ConversationPage {
         .id('conv-sidebar')
         .width(this.convSidebarWidth())
         .height(this.convSidebarPanelHeight())
-        .padding({ top: 5 })
         .alignItems(HorizontalAlign.Start)
-        .width(this.convSidebarWidth())
         .padding({ top: 2, bottom: 2 })
+        // 与右上角「⋯」菜单同款玻璃材质，保持视觉一致
+        .backgroundColor(this.menuMaterial())
+        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+        .border({ width: 0.5, color: this.dividerColor() })
+        .borderRadius(16)
+        .clip(true)
+        .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.50)' : 'rgba(16,19,24,0.14)', offsetY: 8 })
   }
 }
