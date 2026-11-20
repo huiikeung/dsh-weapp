@@ -85,21 +85,22 @@ export class TailscaleTunnelStore {
     const loginMode: string = PreferencesStore.get().getString('tsnetLoginMode', 'account');
     let authKey: string = loginMode === 'authKey' ? PreferencesStore.get().getString('tsnetAuthKey', '').trim() : '';
     Logger.info('TSDBG fast authKeyLen=' + authKey.length);
-    // 首次切到 /fast 子目录时，把旧的已登录状态迁移过来，避免重新登录
+    // 两种登录方式各自使用独立状态目录：切换模式互不污染
+    // （以前共用目录时，account 留下的节点状态会让 AuthKey 注册被忽略，反之亦然，
+    //  表现为“要点一次另一种登录才能连上”）
+    const modeDir: string = this.stateDir + '/fast/' + (loginMode === 'authKey' ? 'authKey' : 'account');
     try {
-      const legacyState: string = this.stateDir + '/tailscaled.state';
-      const fastState: string = this.stateDir + '/fast/tailscaled.state';
-      if (!fileIo.accessSync(fastState) && fileIo.accessSync(legacyState)) {
-        fileIo.mkdirSync(this.stateDir + '/fast', true);
-        fileIo.copyFileSync(legacyState, fastState);
-        Logger.warn('TSDBG migrated legacy tailscale state to /fast');
+      const legacyState: string = this.stateDir + '/fast/tsnet-node/tailscaled.state';
+      const modeState: string = modeDir + '/tsnet-node/tailscaled.state';
+      if (!fileIo.accessSync(modeState) && fileIo.accessSync(legacyState)) {
+        fileIo.mkdirSync(modeDir + '/tsnet-node', true);
+        fileIo.copyFileSync(legacyState, modeState);
+        Logger.warn('TSDBG migrated legacy tailscale state to ' + modeDir);
       }
     } catch (migErr) {
       Logger.info('TSDBG migrate tailscale state skipped: ' + (migErr as Error).message);
     }
-    // 轻量引擎用独立子目录：tsd 引擎（若被拉起）会写 <stateDir>/tailscaled.state，
-    // 和 tsnet 同目录会互相覆盖导致状态被清空（表现为已连接后重开 App 变 NeedsLogin）
-    const result: string = TsnetBridge.startFast(hostname, this.stateDir + '/fast', this.controlURL(), authKey);
+    const result: string = TsnetBridge.startFast(hostname, modeDir, this.controlURL(), authKey);
     Logger.info('TSDBG fast start=' + result.substring(0, 200));
   }
 
@@ -149,9 +150,9 @@ export class TailscaleTunnelStore {
     PreferencesStore.get().putString('tsnetLoginMode', 'account');
     // 改用浏览器登录：清掉旧节点状态与已应用 key，让 tsnet 重新走登录链接
     try {
-      fileIo.rmdirSync(this.stateDir + '/fast');
+      fileIo.rmdirSync(this.stateDir + '/fast/account');
     } catch (clearErr) {
-      Logger.info('TSDBG clear tsnet state (browser reauth) skipped: ' + (clearErr as Error).message);
+      Logger.info('TSDBG clear account tsnet state (browser reauth) skipped: ' + (clearErr as Error).message);
     }
     PreferencesStore.get().putString('tsnetAppliedAuthKey', '');
     PreferencesStore.get().putString('tsnetAuthKey', '');
@@ -176,8 +177,8 @@ export class TailscaleTunnelStore {
     const applied: string = PreferencesStore.get().getString('tsnetAppliedAuthKey', '');
     if (applied !== key) {
       try {
-        fileIo.rmdirSync(this.stateDir + '/fast');
-        Logger.warn('TSDBG cleared tsnet state because Auth Key changed');
+        fileIo.rmdirSync(this.stateDir + '/fast/authKey');
+        Logger.warn('TSDBG cleared authKey tsnet state because Auth Key changed');
       } catch (clearErr) {
         Logger.info('TSDBG clear tsnet state skipped: ' + (clearErr as Error).message);
       }
@@ -354,7 +355,7 @@ export class TailscaleTunnelStore {
           TsnetBridge.stopFast();
           // 状态文件可能由旧版本引擎写入导致无法启动：清掉后重新注册
           try {
-            fileIo.rmdirSync(this.stateDir + '/fast');
+            fileIo.rmdirSync(this.stateDir + '/fast/' + (PreferencesStore.get().getString('tsnetLoginMode', 'account') === 'authKey' ? 'authKey' : 'account'));
             Logger.warn('TSDBG cleared tsnet state dir');
           } catch (clearErr) {
             Logger.warn('TSDBG clear state failed: ' + (clearErr as Error).message);
