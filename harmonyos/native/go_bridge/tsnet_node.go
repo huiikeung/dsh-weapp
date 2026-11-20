@@ -354,8 +354,10 @@ func tsqGatewayPeerName(srv *tsnet.Server) string {
 	}
 	st, err := lc.Status(ctx)
 	if err != nil || st == nil {
+		tsqLogf("TSQ peerStatusErr=%v", err)
 		return ""
 	}
+	tsqLogf("TSQ peerCount=%d self=%v", len(st.Peer), st.Self != nil)
 	fallback := ""
 	for _, peer := range st.Peer {
 		name := peer.HostName

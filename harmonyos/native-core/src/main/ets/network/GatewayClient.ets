@@ -129,6 +129,11 @@ export class GatewayClient {
     if (profile === null || !this.isLocalEndpoint(profile.wsUrl)) {
       return;
     }
+    // 必须先从 netmap 里发现真实网关节点名，猜名字会导致「一直连不上」的循环
+    const discoveredPeer: string = (AppStorage.get<string>('tailnetGatewayPeerName') ?? '').trim();
+    if (discoveredPeer.length === 0) {
+      return;
+    }
     // 局域网地址不能原地重连，必须换成 tailnet 入口（wss://<gateway>.ts.net/ws/mobile）
     const target: string = this.tailnetCandidateUrl();
     Logger.info('tailnet switch check idx=' + this.tailnetNameIdx + ' target=' + target);
