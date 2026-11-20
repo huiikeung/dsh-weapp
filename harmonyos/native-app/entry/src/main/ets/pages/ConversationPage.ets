@@ -7006,9 +7006,10 @@ export struct ConversationPage {
     } catch (err) {
       screen = 800;
     }
-    // 底边停在输入框上边框：底部安全区 + 输入条容器 padding(18) + 输入卡片高度(46) + 光圈余量(6)
+    // 底边停在输入框上方：底部安全区 + 输入条容器 padding(18) + 输入卡片高度(46) + 光圈余量(6)
+    // + 18 的悬空间距，避免面板压到输入框上沿的光圈/阴影
     const top: number = this.topSafe() + 58;
-    const available: number = screen - top - (this.bottomInset + 70);
+    const available: number = screen - top - (this.bottomInset + 128);
     return available > 240 ? available : 240;
   }
 
