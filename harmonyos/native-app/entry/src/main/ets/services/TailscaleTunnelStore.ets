@@ -87,6 +87,15 @@ export class TailscaleTunnelStore {
     }
     this.fastStarted = true;
     let hostname: string = PreferencesStore.get().getString('tailscaleNodeName', '');
+    if (loginMode === 'authKey') {
+      // AuthKey 模式用独立节点名，避免与账号节点重名出现 -1
+      const akName: string = PreferencesStore.get().getString('tailscaleAuthKeyNodeName', '').trim();
+      if (akName.length > 0) {
+        hostname = akName;
+      } else if (hostname.length > 0 && !hostname.endsWith('-ak')) {
+        hostname = hostname + '-ak';
+      }
+    }
     if (hostname.length === 0) {
       try {
         hostname = deviceInfo.productModel;

@@ -44,6 +44,7 @@ export struct TailscalePage {
   @State hintMenuOpen: string = '';
   @StorageLink('tailscaleAccountDeleted') accountDeleted: boolean = false;
   @State loginLabel: string = '';
+  @State authKeyNodeName: string = '';
   @State fallbackTried: boolean = false;
   @State accountsJson: string = '[]';
   @State activeAccountId: string = '';
@@ -150,6 +151,7 @@ export struct TailscalePage {
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
     const prefs: PreferencesStore = PreferencesStore.get();
     this.tunnelEnabled = prefs.getBoolean(KEY_ENABLED, false);
+    this.authKeyNodeName = prefs.getString('tailscaleAuthKeyNodeName', '');
     this.nodeName = prefs.getString(KEY_NODE_NAME, '');
     // 兼容旧默认名：去掉 -harmony 后缀，管理台直接显示设备名称
     if (this.nodeName.endsWith('-harmony')) {
@@ -1997,6 +1999,28 @@ export struct TailscalePage {
                     this.saveControlURL(value);
                   })
               }
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              Row() {
+                Text('AuthKey 节点名')
+                  .fontSize(16)
+                  .fontColor(this.textColor())
+                Blank()
+                TextInput({ text: this.authKeyNodeName, placeholder: (this.nodeName.length > 0 ? this.nodeName : 'harmony') + '-ak' })
+                  .fontSize(14)
+                  .fontColor(this.textColor())
+                  .placeholderColor(this.subColor())
+                  .backgroundColor(Color.Transparent)
+                  .textAlign(TextAlign.End)
+                  .width('55%')
+                  .height(44)
+                  .onChange((value: string) => {
+                    this.authKeyNodeName = value;
+                    PreferencesStore.get().putString('tailscaleAuthKeyNodeName', value.trim());
+                  })
+              }
+              .width('100%')
+              .height(52)
+              .padding({ left: 16, right: 16 })
             }
             .width('100%')
             .backgroundColor(this.cardBg())
