@@ -1205,13 +1205,22 @@ export struct TailscalePage {
       store.setActiveAccount('a1');
       this.activeAccountId = 'a1';
     }
+    let matched: boolean = false;
     for (let i = 0; i < list.length; i++) {
       if (list[i].id === this.activeAccountId) {
         this.accountName = list[i].name.length > 0 ? list[i].name : list[i].login;
         this.accountLogin = list[i].login;
         this.accountTailnet = list[i].tailnet;
         this.accountAddresses = list[i].addresses;
+        matched = true;
       }
+    }
+    if (!matched) {
+      // 账号已删除：清掉页面残留信息，避免添加账号弹窗还显示旧登录态
+      this.accountName = '';
+      this.accountLogin = '';
+      this.accountTailnet = '';
+      this.accountAddresses = '';
     }
   }
 
@@ -1235,10 +1244,8 @@ export struct TailscalePage {
     if (!this.tunnelEnabled) {
       this.setEnabled(true);
     }
-    // 没有账号时：先清掉旧节点状态再登录，避免旧 state 让新登录一直 NeedsLogin
-    if (this.accountsArray().length === 0) {
-      TailscaleTunnelStore.get().resetActiveAccountState();
-    }
+    // 不要盲清节点状态：旧设备还在控制台时复用 state 可避免出现 xxx-1 重复设备；
+    // 控制台删除设备的情况由 store 的 NeedsLogin 检测自动重置。
     TailscaleTunnelStore.get().addAccountProfile();
     this.refreshAccounts();
     this.startAccountLogin();
