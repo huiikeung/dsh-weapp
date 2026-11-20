@@ -1207,7 +1207,7 @@ export struct ConversationPage {
     }
     // 节点弹层开着 / 胶囊展开预热中：只刷新节点列表（补齐历史/新消息），
     // 暂不重排时间线，避免补拉历史时页面跟着滚动、跳动
-    if (this.turnNavOpen || this.capsuleExpanded) {
+    if (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded) {
       this.refreshTurnNodes(false);
       return;
     }
@@ -3219,6 +3219,8 @@ export struct ConversationPage {
 
   // ==================== 会话节点弹层（右上角三横线） ====================
   @State turnNavOpen: boolean = false;
+  /** 点胶囊打开的原生系统菜单（长按滑块时改用自绘浮层做拖动跟随） */
+  @State turnNavMenuOpen: boolean = false;
   @State turnNodes: TurnNode[] = [];
   /** 会话节点预热是否进行中（展开胶囊时就开始拉历史，避免开弹层才等） */
   private turnNavWarmupRunning: boolean = false;
@@ -5676,7 +5678,7 @@ export struct ConversationPage {
     // 一页一页连着拉：等上一页真正落地就立刻发下一页，不再固定 sleep 180ms。
     // 之前固定 180ms 会在「响应比 180ms 慢」时被 loadOlder 的 pending 判断打断，
     // 一次展开只能拉一页，看起来就是要点好几次才能加载完。
-    while (guard < 60 && (this.turnNavOpen || this.capsuleExpanded) && store.hasOlderHistory()) {
+    while (guard < 60 && (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded) && store.hasOlderHistory()) {
       if (store.isOlderRequestPending()) {
         await new Promise<void>((resolve: () => void) => {
           setTimeout(resolve, 16);
@@ -5878,12 +5880,18 @@ export struct ConversationPage {
       this.warmHistoryForTurnNav();
       return;
     }
-    // 弹层开着再点胶囊 = 收起（之前走系统菜单时由「点空白」承担）
+    // 弹层开着再点胶囊 = 收起
+    if (this.turnNavMenuOpen) {
+      this.turnNavMenuOpen = false;
+      return;
+    }
     if (this.turnNavOpen) {
       this.closeTurnNav();
       return;
     }
-    this.openTurnNav();
+    // 普通点击：原生系统菜单（样式与「⋯」菜单一致）
+    this.refreshTurnNodes(true);
+    this.turnNavMenuOpen = true;
   }
 
   /** 常显胶囊：展开=刻度卡带；折叠=细把手；横向拖动吸附折叠，点击展开/打开弹层 */
@@ -5913,6 +5921,19 @@ export struct ConversationPage {
     .width(this.capsuleWidth())
     .position({ x: this.capsuleX(), y: this.capsuleY() })
     .zIndex(60)
+    // 点胶囊 = 原生系统菜单（材质 / 圆角 / 描边 / 动画 / 点空白收起全部由系统提供）
+    .bindMenu(this.turnNavMenuOpen, this.turnNavPanel(), {
+      placement: this.capsuleSide === 'left' ? Placement.Right : Placement.Left,
+      offset: { x: 4, y: 0 },
+      outlineColor: this.dividerColor(),
+      outlineWidth: 1,
+      onWillDisappear: () => {
+        this.turnNavMenuOpen = false;
+      },
+      onDisappear: () => {
+        this.turnNavMenuOpen = false;
+      }
+    })
     // 弹窗改成页面内自绘 overlay（见 turnNavOverlay）：用系统菜单容器时，
     // 「按住黑色滑块」会被判成「点空白」，弹窗立刻收起，没法边拖边看内容。
     .onClick(() => {
@@ -6031,6 +6052,8 @@ export struct ConversationPage {
           LongPressGesture({ repeat: false, duration: 260 })
             .onAction(() => {
               if (!this.turnNavOpen) {
+                // 长按要「弹层跟着滑块走」，只能收起原生菜单、改用自绘浮层
+                this.turnNavMenuOpen = false;
                 this.openTurnNav();
               }
             }),
