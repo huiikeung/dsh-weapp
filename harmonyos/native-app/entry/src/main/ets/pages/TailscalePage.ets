@@ -1952,7 +1952,7 @@ export struct TailscalePage {
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Row() {
-                Text('AuthKey 节点名')
+                Text('节点名')
                   .fontSize(16)
                   .fontColor(this.textColor())
                 Text('ⓘ')

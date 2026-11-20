@@ -515,9 +515,10 @@ export class GatewayClient {
     }
     // 蜂窝下优先已保存的公网入口（新版配对会带 wss://<gateway>.ts.net/ws/mobile）
     const publics: string[] = this.allEndpoints.filter((one: string) => !this.isLocalEndpoint(one));
-    if (publics.length > 0) {
-      const tailnetFirst: string[] = publics.filter((one: string) => this.isTailnetAddress(one));
-      return tailnetFirst.length > 0 ? tailnetFirst[0] : publics[0];
+    // 公网优先级：Tailscale（*.ts.net）> 合成 tailnet 入口 > Cloudflare 等公网中继
+    const tailnetFirst: string[] = publics.filter((one: string) => this.isTailnetAddress(one));
+    if (tailnetFirst.length > 0) {
+      return tailnetFirst[0];
     }
     // 没有保存公网入口时：用 tailnet DNS 后缀合成 wss://<gateway>.ts.net/ws/mobile
     // 后缀此前只存在 AppStorage，冷启动后要等 tsnet 再次上报才恢复 —— 切蜂窝的瞬间往往就是空的，
@@ -536,6 +537,10 @@ export class GatewayClient {
       }
       name = name.split('.')[0];
       return 'wss://' + name + '.' + suffix + '/ws/mobile';
+    }
+    // 没有合成出 tailnet 入口时才用 Cloudflare 等公网中继；最后才回落原地址
+    if (publics.length > 0) {
+      return publics[0];
     }
     // 不再退回 ws://100.x:3081（网关只监听 ts.net 443，直连该端口必然失败）
     return url;
