@@ -597,7 +597,10 @@ export class TailscaleTunnelStore {
               stateBytes = 0;
             }
           }
-          if (stateBytes > 100) {
+          // 真正注册过的节点 state ~2.7KB；空状态约 119B。
+          // 只有「有旧节点状态」且当前拿不到登录链接（说明旧 key 被删）时才重置，
+          // 否则会把正在进行的浏览器授权状态清掉，导致登录永远完不成。
+          if (stateBytes > 500 && !fastAuthUrl.startsWith('http')) {
             this.loginRecoveryDone = true;
             // 控制台已删除该设备：账号卡片显示红点，直到重新授权成功
             AppStorage.setOrCreate<boolean>('tailscaleAccountDeleted', true);
