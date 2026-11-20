@@ -445,10 +445,40 @@ export class ConversationFeed {
       }
       message.streaming = item.title === ConversationFeed.streamingAssistantTitle;
       message.epochSeconds = item.epochSeconds;
-      message.imageCount = item.images === undefined
-        ? (item.imageCount === undefined ? 0 : item.imageCount) : item.images.length;
-      message.images = item.images === undefined ? [] : (item.images as GatewayImageAttachment[]);
-      message.attachments = item.attachments === undefined ? [] : (item.attachments as GatewayFileAttachment[]);
+      // 图片既可能来自 images 块，也可能是 mediaType=image/* 的文件附件（手机上传照片即属后者）：
+      // 统一挑出来走图片网格，其余留在文件 chip 列表。
+      const imgs: GatewayImageAttachment[] = item.images === undefined
+        ? [] : (item.images as GatewayImageAttachment[]);
+      const filesAll: GatewayFileAttachment[] = item.attachments === undefined
+        ? [] : (item.attachments as GatewayFileAttachment[]);
+      const filesRest: GatewayFileAttachment[] = [];
+      for (const att of filesAll) {
+        const mt: string = att.mediaType === undefined ? '' : att.mediaType;
+        const aid: string = att.attachmentId === undefined ? '' : att.attachmentId;
+        if (mt.startsWith('image/') && aid.length > 0) {
+          let dup: boolean = false;
+          for (const one of imgs) {
+            if (one.attachmentId === aid) {
+              dup = true;
+            }
+          }
+          if (!dup) {
+            imgs.push({
+              attachmentId: aid,
+              mediaType: mt,
+              bytes: att.bytes === undefined ? 0 : att.bytes,
+              width: 0,
+              height: 0,
+              name: att.name
+            });
+          }
+        } else {
+          filesRest.push(att);
+        }
+      }
+      message.images = imgs;
+      message.imageCount = imgs.length;
+      message.attachments = filesRest;
       message.turnKey = item.turn === undefined ? '' : item.turn.toString();
       groups.push(message);
     }
