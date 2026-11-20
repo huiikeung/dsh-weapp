@@ -1351,7 +1351,7 @@ export struct TailscalePage {
   private authBadgeLabel(): string {
     const hasKey: boolean = this.authKey.trim().length > 0;
     const hasAccount: boolean = this.accountName.length > 0;
-    const method: string = hasKey ? 'Auth Key' : (hasAccount ? '浏览器登录' : 'Auth Key');
+    const method: string = hasKey ? 'Auth Key' : (hasAccount ? '浏览器' : 'Auth Key');
     if (this.stage === STAGE_READY) {
       return method + ' 已连接';
     }
@@ -1647,18 +1647,18 @@ export struct TailscalePage {
             }
             .width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
-              Text(this.identitySummary()).fontSize(11).fontColor('#2E6BE6')
-                .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-                .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
-              Text(this.authBadgeLabel()).fontSize(11).fontColor(this.stage === STAGE_READY ? '#0F9D58' : '#2E6BE6')
-                .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-                .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
-              Text(this.controlURL.trim().length > 0 ? '自定义服务器' : '官方服务器').fontSize(11).fontColor('#2E6BE6')
-                .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-                .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
-              Text('轻量 tsnet').fontSize(11).fontColor('#2E6BE6')
-                .padding({ left: 8, right: 8, top: 4, bottom: 4 })
-                .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
+              Text(this.identitySummary()).fontSize(10).fontColor('#2E6BE6')
+                .maxLines(1).padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                .backgroundColor(this.pillBg()).borderRadius(6).margin({ right: 5 })
+              Text(this.authBadgeLabel()).fontSize(10).fontColor(this.stage === STAGE_READY ? '#0F9D58' : '#2E6BE6')
+                .maxLines(1).padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                .backgroundColor(this.pillBg()).borderRadius(6).margin({ right: 5 })
+              Text(this.controlURL.trim().length > 0 ? '自定义' : '官方').fontSize(10).fontColor('#2E6BE6')
+                .maxLines(1).padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                .backgroundColor(this.pillBg()).borderRadius(6).margin({ right: 5 })
+              Text('tsnet').fontSize(10).fontColor('#2E6BE6')
+                .maxLines(1).padding({ left: 6, right: 6, top: 2, bottom: 2 })
+                .backgroundColor(this.pillBg()).borderRadius(6)
             }
             .width('100%')
             Row() {
