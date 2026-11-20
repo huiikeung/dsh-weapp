@@ -20,8 +20,11 @@ import (
 	"time"
 
 	"tailscale.com/ipn"
+	"runtime"
+
 	"tailscale.com/net/netns"
 	"tailscale.com/tsnet"
+	"tailscale.com/version"
 )
 
 // 轻量 tsnet 节点：只做“加入 tailnet + 本机 TCP 转发”，不启动 tailscaled 的完整控制循环，
@@ -224,6 +227,12 @@ func TSQStart(hostname *C.char, stateDir *C.char, controlURL *C.char, authKey *C
 	// 退化为普通 net.Dialer（实测可正常 TLS 连接控制面）
 	netns.SetEnabled(false)
 	tsqMu.Lock()
+	tsqAuthURL = ""
+	tsqMu.Unlock()
+	// 管理台优先展示 HarmonyOS（工具链 GOOS=linux，需要覆盖）
+	_ = os.Setenv("TS_OS_OVERRIDE", "HarmonyOS")
+	tsqLogf("TSQ os=%s arch=%s", version.OS(), runtime.GOARCH)
+	tsqMu.Lock()
 	tsqStateDir = baseDir
 	tsqMu.Unlock()
 	dir := baseDir
@@ -358,6 +367,7 @@ func TSQStatus() *C.char {
 	if probe != "" {
 		cached = "probe=" + probe + " | " + cached
 	}
+	cached += " | vOS=" + version.OS() + " | goos=" + runtime.GOOS
 	return C.CString(cached)
 }
 
@@ -389,6 +399,8 @@ func TSQStop() *C.char {
 	tsqCachedStatus = "OK | engine=tsnet | state=NoState"
 	tsqProbeResult = ""
 	tsqAccountCache = ""
+	// 清掉旧授权链接：否则页面会再次自动打开已失效的上一次 login.tailscale.com 链接
+	tsqAuthURL = ""
 	tsqMu.Unlock()
 	// 关闭 tsnet 会等待内部 goroutine 退出（数百毫秒~数秒），放到后台执行，避免阻塞 UI 线程
 	go func() {
