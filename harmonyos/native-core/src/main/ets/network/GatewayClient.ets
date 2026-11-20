@@ -168,14 +168,14 @@ export class GatewayClient {
       const candidates: string[] = [];
       const configured: string = (AppStorage.get<string>('tailnetGatewayPeerName') ?? '').trim();
       if (configured.length > 0) {
-        candidates.push(configured.split('.')[0]);
+        candidates.push(configured);
       }
-      candidates.push('dsh-gateway-win', 'dsh-gateway-mac', 'dsh-gateway-linux', 'dsh-gateway');
+      candidates.push('dsh-gateway-win.' + suffix, 'dsh-gateway-mac.' + suffix, 'dsh-gateway-linux.' + suffix, 'dsh-gateway.' + suffix);
       this.tailnetNameCandidates = candidates;
       this.tailnetNameIdx = 0;
     }
     const name: string = this.tailnetNameCandidates[Math.min(this.tailnetNameIdx, this.tailnetNameCandidates.length - 1)];
-    return 'wss://' + name + '.' + suffix + '/ws/mobile';
+    return 'wss://' + name + '/ws/mobile';
   }
 
   /** 切换到下一个 tailnet 候选入口（失败重试用） */

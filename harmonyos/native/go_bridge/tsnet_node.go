@@ -360,7 +360,10 @@ func tsqGatewayPeerName(srv *tsnet.Server) string {
 	tsqLogf("TSQ peerCount=%d self=%v", len(st.Peer), st.Self != nil)
 	fallback := ""
 	for _, peer := range st.Peer {
-		name := peer.HostName
+		name := strings.TrimSuffix(peer.DNSName, ".")
+		if name == "" {
+			name = peer.HostName
+		}
 		if name == "" {
 			continue
 		}
