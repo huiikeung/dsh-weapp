@@ -984,28 +984,24 @@ export struct TailscalePage {
                 .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
             }
             .width('100%')
-            Divider().color(this.dividerColor()).strokeWidth(1)
             Row() {
-              Column({ space: 3 }) {
-                Text('当前地址').fontSize(11).fontColor(this.subColor())
-                Text(this.nodeAddress.length > 0 ? this.nodeAddress :
-                  (this.stage === STAGE_READY ? '已连接' : '未连接'))
-                  .fontSize(14)
-                  .fontColor(this.nodeAddress.length > 0 ? this.textColor() : this.subColor())
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-              }
-              .alignItems(HorizontalAlign.Start)
-              .layoutWeight(1)
-              Column({ space: 3 }) {
-                Text('当前连接').fontSize(11).fontColor(this.subColor())
-                Text(this.connectionKindLabel())
-                  .fontSize(14)
-                  .fontColor(this.stage === STAGE_READY ? '#0F9D58' : this.textColor())
-                  .maxLines(1)
-              }
-              .alignItems(HorizontalAlign.Start)
-              .layoutWeight(1)
+              Text('当前地址').fontSize(13).fontColor(this.subColor())
+              Blank()
+              Text(this.nodeAddress.length > 0 ? this.nodeAddress :
+                (this.stage === STAGE_READY ? '已连接' : '未连接'))
+                .fontSize(13)
+                .fontColor(this.nodeAddress.length > 0 ? this.textColor() : this.subColor())
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .constraintSize({ maxWidth: '62%' })
+            }
+            .width('100%')
+            Row() {
+              Text('当前连接').fontSize(13).fontColor(this.subColor())
+              Blank()
+              Text(this.connectionKindLabel())
+                .fontSize(13)
+                .fontColor(this.stage === STAGE_READY ? '#0F9D58' : this.textColor())
             }
             .width('100%')
             Row({ space: 8 }) {
@@ -1046,7 +1042,6 @@ export struct TailscalePage {
             .width('100%')
             // 只有「账号登录」和「Auth Key」两种凭据都存在时才需要切换
             if (this.tunnelEnabled && this.accountName.length > 0 && this.authKey.trim().length > 0) {
-              Divider().color(this.dividerColor()).strokeWidth(1)
               Row() {
                 Text('切换节点')
                   .fontSize(15)
