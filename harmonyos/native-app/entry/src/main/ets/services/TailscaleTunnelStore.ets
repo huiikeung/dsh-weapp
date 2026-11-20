@@ -560,6 +560,10 @@ export class TailscaleTunnelStore {
           this.fastWasReady = true;
           AppStorage.setOrCreate<boolean>('tsnetFastReady', true);
           Logger.info('TSDBG fast ready (lightweight tsnet available)');
+          try {
+            Logger.info('TSDBG peers=' + TsnetBridge.peers().slice(0, 900));
+          } catch (peerErr) {
+          }
           // 隧道就绪：把首页当前直连切到公网（tailnet）路径。
           // 延迟 2s：dnsName/ts.net 后缀在本轮 publish 稍后才解析出来，否则拿不到 tailnet 入口。
           setTimeout(() => {
