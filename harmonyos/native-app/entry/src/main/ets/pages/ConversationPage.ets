@@ -7235,12 +7235,14 @@ export struct ConversationPage {
         .height(this.convSidebarPanelHeight())
         .alignItems(HorizontalAlign.Start)
         .padding({ top: 2, bottom: 2 })
-        // 背景对齐置底输入框卡片（ConversationComposer）：实底 surfaceColor + 白色光圈边 + 中性投影
-        .backgroundColor(this.isDark ? '#1C1C1E' : '#FFFFFF')
+        // 背景对齐对话页置底「回到底部」玻璃按钮（同一套 iOS Liquid Glass）：
+        // 中性半透明底 + 纯背景模糊 14 + 白色细边 + 系统菜单同档投影
+        .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+        .backdropBlur(14)
         .borderRadius(16)
         .clip(true)
-        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.26)' : 'rgba(255,255,255,0.96)' })
-        .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetY: 8 })
+        .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+        .shadow({ radius: 14, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 6 })
         // 小程序入场动画：opacity + scale(0.92) + translateY(-10rpx)，原点贴右上角按钮
         .transition(TransitionEffect.OPACITY
           .combine(TransitionEffect.scale({ x: 0.92, y: 0.92, centerX: '100%', centerY: 0 }))
