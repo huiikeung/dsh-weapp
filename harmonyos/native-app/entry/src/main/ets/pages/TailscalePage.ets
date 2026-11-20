@@ -1950,6 +1950,50 @@ export struct TailscalePage {
                 this.authKeySheetOpen = true;
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              Row() {
+                Text('AuthKey 节点名')
+                  .fontSize(16)
+                  .fontColor(this.textColor())
+                Text('ⓘ')
+                  .fontSize(14)
+                  .fontColor(this.subColor())
+                  .padding({ left: 6, right: 8, top: 2, bottom: 2 })
+                  .bindMenu(this.hintMenuOpen === 'authKeyName', this.hintMenuBuilder(), {
+                    outlineColor: this.dividerColor(),
+                    outlineWidth: 1,
+                    onWillDisappear: () => {
+                      this.hintMenuOpen = '';
+                    },
+                    onDisappear: () => {
+                      this.hintMenuOpen = '';
+                    },
+                    onDidDisappear: () => {
+                      this.hintMenuOpen = '';
+                    }
+                  })
+                  .onClick(() => {
+                    this.hintText = 'AuthKey 登录会在 tailnet 里创建一台独立节点。默认名称是「设备名-ak」，用来和浏览器账号登录的节点区分，避免控制台出现自动加的 xxx-1。\n留空即自动使用后缀；填写后下次 AuthKey 连接生效。';
+                    this.hintMenuOpen = this.hintMenuOpen === 'authKeyName' ? '' : 'authKeyName';
+                  })
+                Blank()
+                TextInput({ text: this.authKeyNodeName, placeholder: (this.nodeName.length > 0 ? this.nodeName : 'harmony') + '-ak' })
+                  .fontSize(14)
+                  .fontColor(this.textColor())
+                  .placeholderColor(this.subColor())
+                  .backgroundColor(Color.Transparent)
+                  .textAlign(TextAlign.End)
+                  .width('55%')
+                  .height(44)
+                  .onChange((value: string) => {
+                    this.authKeyNodeName = value;
+                    PreferencesStore.get().putString('tailscaleAuthKeyNodeName', value.trim());
+                  })
+              }
+              .width('100%')
+              .height(52)
+              .padding({ left: 16, right: 16 })
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Row() {
                 Text('控制服务器')
                   .fontSize(16)
@@ -1999,49 +2043,6 @@ export struct TailscalePage {
                     this.saveControlURL(value);
                   })
               }
-              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              Row() {
-                Text('AuthKey 节点名')
-                  .fontSize(16)
-                  .fontColor(this.textColor())
-                Text('ⓘ')
-                  .fontSize(14)
-                  .fontColor(this.subColor())
-                  .padding({ left: 6, right: 8, top: 2, bottom: 2 })
-                  .bindMenu(this.hintMenuOpen === 'authKeyName', this.hintMenuBuilder(), {
-                    outlineColor: this.dividerColor(),
-                    outlineWidth: 1,
-                    onWillDisappear: () => {
-                      this.hintMenuOpen = '';
-                    },
-                    onDisappear: () => {
-                      this.hintMenuOpen = '';
-                    },
-                    onDidDisappear: () => {
-                      this.hintMenuOpen = '';
-                    }
-                  })
-                  .onClick(() => {
-                    this.hintText = 'AuthKey 登录会在 tailnet 里创建一台独立节点。默认名称是「设备名-ak」，用来和浏览器账号登录的节点区分，避免控制台出现自动加的 xxx-1。\n留空即自动使用后缀；填写后下次 AuthKey 连接生效。';
-                    this.hintMenuOpen = this.hintMenuOpen === 'authKeyName' ? '' : 'authKeyName';
-                  })
-                Blank()
-                TextInput({ text: this.authKeyNodeName, placeholder: (this.nodeName.length > 0 ? this.nodeName : 'harmony') + '-ak' })
-                  .fontSize(14)
-                  .fontColor(this.textColor())
-                  .placeholderColor(this.subColor())
-                  .backgroundColor(Color.Transparent)
-                  .textAlign(TextAlign.End)
-                  .width('55%')
-                  .height(44)
-                  .onChange((value: string) => {
-                    this.authKeyNodeName = value;
-                    PreferencesStore.get().putString('tailscaleAuthKeyNodeName', value.trim());
-                  })
-              }
-              .width('100%')
-              .height(52)
-              .padding({ left: 16, right: 16 })
             }
             .width('100%')
             .backgroundColor(this.cardBg())
