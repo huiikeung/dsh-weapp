@@ -86,6 +86,8 @@ export class TailscaleTunnelStore {
       return;
     }
     this.fastStarted = true;
+    // 登录方式相互独立：account 模式不把已保存的 AuthKey 传给引擎，authKey 模式才用
+    const loginMode: string = PreferencesStore.get().getString('tsnetLoginMode', 'account');
     let hostname: string = PreferencesStore.get().getString('tailscaleNodeName', '');
     if (loginMode === 'authKey') {
       // AuthKey 模式用独立节点名，避免与账号节点重名出现 -1
@@ -103,8 +105,6 @@ export class TailscaleTunnelStore {
         hostname = 'harmony';
       }
     }
-    // 登录方式相互独立：account 模式不把已保存的 AuthKey 传给引擎，authKey 模式才用
-    const loginMode: string = PreferencesStore.get().getString('tsnetLoginMode', 'account');
     let authKey: string = loginMode === 'authKey' ? PreferencesStore.get().getString('tsnetAuthKey', '').trim() : '';
     Logger.info('TSDBG fast authKeyLen=' + authKey.length);
     // 两种登录方式各自使用独立状态目录：切换模式互不污染
