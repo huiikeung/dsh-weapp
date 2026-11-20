@@ -340,7 +340,9 @@ export class TailscaleTunnelStore {
       const fastStat: string = TsnetBridge.statusFast();
       // 轻量引擎解析出的账号摘要（Go 端 LocalClient.Status）：display|login|tailnet|addresses
       const acctIdx: number = fastStat.indexOf('account=');
-      if (acctIdx >= 0) {
+      // 只有浏览器账号登录模式才写账号卡片；AuthKey 节点的 tailnet 用户不算「账号登录」
+      const acctMode: string = PreferencesStore.get().getString('tsnetLoginMode', 'account');
+      if (acctIdx >= 0 && acctMode !== 'authKey') {
         const acctTail: string = fastStat.substring(acctIdx + 'account='.length);
         const acctEnd: number = acctTail.indexOf(' | ');
         const acct: string = acctEnd > 0 ? acctTail.substring(0, acctEnd) : acctTail.trim();
