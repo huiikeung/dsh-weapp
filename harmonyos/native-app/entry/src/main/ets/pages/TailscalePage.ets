@@ -956,6 +956,23 @@ export struct TailscalePage {
               }
             }
             .width('100%')
+            Divider().color(this.dividerColor()).strokeWidth(1)
+            Row() {
+              Row({ space: 6 }) {
+                Text('切换登录')
+                  .fontSize(15)
+                  .fontColor('#2E6BE6')
+              }
+              .layoutWeight(1)
+              .height(40)
+              .justifyContent(FlexAlign.Center)
+              .backgroundColor(this.pillBg())
+              .borderRadius(10)
+              .onClick(() => {
+                this.authModeDialog = true;
+              })
+            }
+            .width('100%')
             if (this.authInvalid) {
               Text('已保存的 Auth Key 无法加入 tailnet（可能过期或被撤销）。可以改用浏览器登录完成授权，或在下方重新填写密钥。')
                 .fontSize(12).lineHeight(18).fontColor('#C2410C').width('100%')
@@ -1229,27 +1246,6 @@ export struct TailscalePage {
                   TailscaleTunnelStore.get().reloadFast();
                 })
               }
-              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              Row() {
-                Row({ space: 6 }) {
-                  Text('切换登录方式')
-                    .fontSize(15)
-                    .fontColor('#2E6BE6')
-                  Text('账号登录 / Auth Key')
-                    .fontSize(12)
-                    .fontColor(this.subColor())
-                }
-                .layoutWeight(1)
-                .height(42)
-                .justifyContent(FlexAlign.Center)
-                .backgroundColor(this.pillBg())
-                .borderRadius(10)
-                .onClick(() => {
-                  this.authModeDialog = true;
-                })
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 12, bottom: 14 })
             }
             .width('100%')
             .backgroundColor(this.cardBg())
