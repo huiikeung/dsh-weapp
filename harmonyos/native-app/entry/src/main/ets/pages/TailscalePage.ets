@@ -1318,7 +1318,7 @@ export struct TailscalePage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-            this.sectionFooter('Auth Key 在 Tailscale 控制台 Settings → Keys 生成，只显示一次；登录凭据只保存在本机。')
+            this.sectionFooter('创建 Auth Key：Reusable 打开、Ephemeral 关闭、Expiry 按需（建议 90 天）、Tags 留空即可；key 只显示一次。若 tailnet 开了设备审批，首次连接后需在管理台批准该设备；并确保 ACL 放行它访问网关 3081 端口。')
           }
 
 
