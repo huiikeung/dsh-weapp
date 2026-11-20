@@ -3200,6 +3200,8 @@ export struct ConversationPage {
   }
 
   @State sessionPickerOpen: boolean = false;
+  /** 侧栏弹出动画进度：0=收起（scale 0.9 透明）→1=展开，配合系统菜单同款「锚点缩放+淡入」 */
+  @State sessionPickerAnim: number = 0;
   /** 重命名会话弹窗 */
   @State renameSessionOpen: boolean = false;
   @State renameValue: string = '';
@@ -6780,12 +6782,28 @@ export struct ConversationPage {
       }
     }
     this.convSidebarGroups = groups;
+    // 先以收起态挂载，再在下一帧动画到展开态（与系统菜单的弹出节奏一致）
+    this.sessionPickerAnim = 0;
     this.sessionPickerOpen = true;
+    animateTo({ curve: curves.springMotion(0.35, 0.85) }, () => {
+      this.sessionPickerAnim = 1;
+    });
   }
 
-  /** 关闭会话快捷切换 */
+  /** 关闭会话快捷切换（先播收起动画，再卸载面板） */
   private closeSessionSwitcher(): void {
-    this.sessionPickerOpen = false;
+    if (!this.sessionPickerOpen) {
+      return;
+    }
+    animateTo({
+      curve: curves.springMotion(0.35, 0.85),
+      onFinish: () => {
+        this.sessionPickerOpen = false;
+        this.sessionPickerAnim = 0;
+      }
+    }, () => {
+      this.sessionPickerAnim = 0;
+    });
   }
 
   /** 路径归一：反斜杠转正斜杠并去掉尾部分隔符（对齐小程序 sessionSwitcherRows 的 norm） */
@@ -7249,5 +7267,13 @@ export struct ConversationPage {
         .clip(true)
         .border({ width: 1, color: appGlassBorderColor(this.isDark) })
         .shadow(appGlassShadow(this.isDark))
+        // 弹出动画对齐系统菜单（右上角「⋯」）：从锚点（右上角按钮）缩放 0.9 → 1 + 淡入
+        .opacity(this.sessionPickerAnim)
+        .scale({
+          x: 0.9 + 0.1 * this.sessionPickerAnim,
+          y: 0.9 + 0.1 * this.sessionPickerAnim,
+          centerX: '100%',
+          centerY: 0
+        })
   }
 }
