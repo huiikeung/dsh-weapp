@@ -608,6 +608,10 @@ export struct TailscalePage {
   private startAccountLogin(): void {
     this.loginResult = '正在创建 Tailscale 节点并获取登录链接…';
     this.dialogOpen = true;
+    // 清掉上一次的授权链接，避免自动打开已失效的旧链接
+    AppStorage.setOrCreate<string>('tailscaleAuthUrl', '');
+    AppStorage.setOrCreate<string>('tsnetFastAuthUrl', '');
+    this.loginUrl = '';
     this.connectWithAccount();
     this.pollAccountLoginUrl(0);
   }
@@ -1057,6 +1061,8 @@ export struct TailscalePage {
     PreferencesStore.get().putString('tsnetAppliedAuthKey', '');
     AppStorage.setOrCreate<string>('tsnetAuthMode', 'account');
     AppStorage.setOrCreate<boolean>('tailscaleAccountDeleted', false);
+    AppStorage.setOrCreate<string>('tailscaleAuthUrl', '');
+    AppStorage.setOrCreate<string>('tsnetFastAuthUrl', '');
     this.authModeState = 'account';
     this.fastHint = '正在用账号登录…';
     TailscaleTunnelStore.get().reloadFastForced();
