@@ -39,6 +39,7 @@ export class TailscaleTunnelStore {
   private fastRecovered: boolean = false;
   private fastStartingTicks: number = 0;
   private fastNeedsLoginTicks: number = 0;
+  private loginRecoveryDone: boolean = false;
   private lastReloadAt: number = 0;
   private lastWarmAt: number = 0;
   private stateDir: string = '';
@@ -529,6 +530,7 @@ export class TailscaleTunnelStore {
       if (fastStat.indexOf('state=Running') >= 0) {
         this.fastStartingTicks = 0;
         this.fastNeedsLoginTicks = 0;
+        this.loginRecoveryDone = false;
         this.fastDebugLogged = false;
         AppStorage.setOrCreate<string>('tailscaleStageError', '');
         AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_READY);
@@ -546,6 +548,44 @@ export class TailscaleTunnelStore {
         if (this.fastNeedsLoginTicks >= 10 && hasKey && !fastAuthUrl.startsWith('http')) {
           AppStorage.setOrCreate<string>('tailscaleStageError',
             '无法连接 Tailscale 控制面：请关闭手机上的 VPN/代理（Clash 等），或让代理放行 *.tailscale.com / *.ts.net 后重试');
+        }
+        // 管理台删除设备后，state 里的旧节点 key 已失效，会永远 NeedsLogin。
+        // 有历史节点状态且卡住 10s 以上：清掉当前账号状态并重启，重新拿授权链接。
+        if (!this.loginRecoveryDone && this.fastNeedsLoginTicks >= 5) {
+          const bytesIdx: number = fastStat.indexOf('stateBytes=');
+          let stateBytes: number = 0;
+          if (bytesIdx >= 0) {
+            const bytesTail: string = fastStat.substring(bytesIdx + 'stateBytes='.length);
+            const bytesEnd: number = bytesTail.search(/[ |]/);
+            const bytesText: string = bytesEnd > 0 ? bytesTail.substring(0, bytesEnd) : bytesTail.trim();
+            stateBytes = Number.parseInt(bytesText, 10);
+            if (Number.isNaN(stateBytes)) {
+              stateBytes = 0;
+            }
+          }
+          if (stateBytes > 100) {
+            this.loginRecoveryDone = true;
+            Logger.warn('TSDBG needsLogin with stale node state -> reset and re-register');
+            try {
+              TsnetBridge.stopFast();
+            } catch (stopErr) {
+            }
+            try {
+              const activeAcct: string = PreferencesStore.get().getString('tailscaleActiveAccount', '');
+              const nodeDir: string = (activeAcct.length === 0 || activeAcct === 'a1') ? 'account' : ('acct-' + activeAcct);
+              fileIo.rmdirSync(this.stateDir + '/fast/' + nodeDir);
+              Logger.warn('TSDBG cleared stale node state dir=' + nodeDir);
+            } catch (clearErr) {
+            }
+            this.fastStarted = false;
+            this.fastWasReady = false;
+            this.fastNeedsLoginTicks = 0;
+            setTimeout(() => {
+              this.ensureFastStarted(true);
+              this.publish();
+            }, 500);
+            return;
+          }
         }
       } else if (fastStat.indexOf('FAILED') >= 0) {
         AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_FAILED);
