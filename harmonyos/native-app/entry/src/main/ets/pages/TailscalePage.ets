@@ -43,6 +43,8 @@ export struct TailscalePage {
   @StorageLink('tailscaleStageError') stageError: string = '';
   @State hintMenuOpen: string = '';
   @StorageLink('tailscaleAccountDeleted') accountDeleted: boolean = false;
+  @State loginLabel: string = '';
+  @State fallbackTried: boolean = false;
   @State accountsJson: string = '[]';
   @State activeAccountId: string = '';
   @State hintText: string = '';
@@ -91,6 +93,7 @@ export struct TailscalePage {
   /** 以 TailscaleTunnelStore 发布的阶段为准（引擎在 App 进程内启动/轮询） */
   onStoreStage(): void {
     if (this.storeStage === 'ready') {
+      this.fallbackTried = false;
       this.stage = STAGE_READY;
       this.failureKind = '';
       // 每次都刷新账号摘要：账号名可能晚于阶段就绪到达
@@ -106,6 +109,25 @@ export struct TailscalePage {
       this.stage = STAGE_FAILED;
       if (this.failureKind.length === 0) {
         this.failureKind = 'backendStart';
+      }
+      // 当前方式失败：自动尝试另一种可用凭据
+      if (!this.fallbackTried) {
+        this.fallbackTried = true;
+        const keyVal: string = PreferencesStore.get().getString('tsnetAuthKey', '').trim();
+        const modeVal: string = PreferencesStore.get().getString('tsnetLoginMode', 'account');
+        const accounts: TailscaleAccountProfile[] = this.accountsArray();
+        if (modeVal === 'authKey' && accounts.length > 0) {
+          PreferencesStore.get().putString('tsnetLoginMode', 'account');
+          TailscaleTunnelStore.get().setActiveAccount(accounts[0].id);
+          this.refreshAccounts();
+          this.resumeConnection();
+          return;
+        }
+        if (modeVal !== 'authKey' && keyVal.length > 0) {
+          PreferencesStore.get().putString('tsnetLoginMode', 'authKey');
+          this.resumeConnection();
+          return;
+        }
       }
       return;
     }
@@ -1261,11 +1283,34 @@ export struct TailscalePage {
     this.stage = STAGE_STARTING;
     const key: string = PreferencesStore.get().getString('tsnetAuthKey', '').trim();
     const mode: string = PreferencesStore.get().getString('tsnetLoginMode', 'account');
+    const accounts: TailscaleAccountProfile[] = this.accountsArray();
     if (mode === 'authKey' && key.length > 0) {
+      this.loginLabel = 'Auth Key 登录中…';
       TailscaleTunnelStore.get().applyAuthKey(key);
       return;
     }
-    TailscaleTunnelStore.get().reloadFast();
+    if (accounts.length > 0) {
+      const active: TailscaleAccountProfile = accounts[0];
+      for (let i = 0; i < accounts.length; i++) {
+        if (accounts[i].id === this.activeAccountId) {
+          active.id = accounts[i].id;
+          active.name = accounts[i].name;
+          active.login = accounts[i].login;
+        }
+      }
+      const who: string = active.name.length > 0 ? active.name.replaceAll('+', ' ') : active.login.replaceAll('+', ' ');
+      this.loginLabel = (who.length > 0 ? who : '账号') + ' 登录中…';
+      TailscaleTunnelStore.get().reloadFast();
+      return;
+    }
+    if (key.length > 0) {
+      PreferencesStore.get().putString('tsnetLoginMode', 'authKey');
+      this.loginLabel = 'Auth Key 登录中…';
+      TailscaleTunnelStore.get().applyAuthKey(key);
+      return;
+    }
+    this.stage = STAGE_DISABLED;
+    this.fastHint = '请先添加账号或填写 Auth Key';
   }
 
   /** 停止：只断开 Tailscale，隧道保持启用（账号/AuthKey 模块仍可见） */
@@ -1652,6 +1697,9 @@ export struct TailscalePage {
                   .onClick(() => {
                     this.resumeConnection();
                   })
+              } else if (this.stage === STAGE_STARTING || this.stage === STAGE_WAITING_ROUTES) {
+                Text(this.loginLabel.length > 0 ? this.loginLabel : '连接中…')
+                  .fontSize(13).fontColor(this.subColor()).layoutWeight(1).height(38).textAlign(TextAlign.Center)
               } else if (this.stage === STAGE_READY) {
                 if (this.hasAnyKey() && this.hasAnyAccount()) {
                   Text('切换登录')
