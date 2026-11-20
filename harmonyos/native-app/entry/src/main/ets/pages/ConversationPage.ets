@@ -6154,13 +6154,14 @@ export struct ConversationPage {
       }
       .width(300)
       .height(430)
-      .borderRadius(20)
-      .backgroundColor(this.turnNavGlass())
+      // 外观对齐右上角「⋯」原生菜单：同一档材质色 + 同款圆角/细边/投影
+      .borderRadius(16)
+      .backgroundColor(this.menuMaterial())
       .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
         colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
       })
       .border({ width: 0.5, color: this.dividerColor() })
-      .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(16,19,24,0.16)', offsetY: 8 })
+      .shadow({ radius: 20, color: this.isDark ? 'rgba(0,0,0,0.35)' : 'rgba(16,19,24,0.12)', offsetY: 6 })
       .clip(true)
       .position({ x: this.turnNavPanelX(), y: this.turnNavPanelY() })
     }
