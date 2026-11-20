@@ -344,9 +344,14 @@ export struct TailscalePage {
     this.tunnelEnabled = next;
     PreferencesStore.get().putBoolean(KEY_ENABLED, next);
     if (next) {
-      this.stage = STAGE_STARTING;
-      // 只用轻量 tsnet 引擎（tsd 引擎与它共用状态目录会互相清空）
-      TailscaleTunnelStore.get().reloadFast();
+      // 有账号或 Auth Key 直接自动连接；都没有则只启用隧道，等用户点「启动节点」
+      if (this.hasAnyKey() || this.hasAnyAccount()) {
+        this.resumeConnection();
+      } else {
+        PreferencesStore.get().putBoolean('tailscaleConnectionStopped', true);
+        this.stage = STAGE_DISABLED;
+        this.fastHint = '隧道已启用，请先填写账号或 Auth Key，再点「启动节点」';
+      }
     } else {
       this.stop();
     }
@@ -1180,6 +1185,7 @@ export struct TailscalePage {
 
   /** 启动节点：自动用当前登录方式重连，无需再点一次重新连接 */
   private resumeConnection(): void {
+    PreferencesStore.get().putBoolean('tailscaleConnectionStopped', false);
     this.stage = STAGE_STARTING;
     const key: string = PreferencesStore.get().getString('tsnetAuthKey', '').trim();
     const mode: string = PreferencesStore.get().getString('tsnetLoginMode', 'account');
