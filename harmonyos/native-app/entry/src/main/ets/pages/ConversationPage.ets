@@ -7235,14 +7235,12 @@ export struct ConversationPage {
         .height(this.convSidebarPanelHeight())
         .alignItems(HorizontalAlign.Start)
         .padding({ top: 2, bottom: 2 })
-        // 对齐系统弹窗（右上角「⋯」菜单）的材质：COMPONENT_THICK 厚材质模糊 + 主题色底
-        // + 16vp 圆角 + 0.5vp 细边 + 轻投影（系统的菜单就是这么画的）
-        .backgroundColor(this.isDark ? 'rgba(40,41,44,0.58)' : 'rgba(250,250,252,0.66)')
-        .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
+        // 背景对齐置底输入框卡片（ConversationComposer）：实底 surfaceColor + 白色光圈边 + 中性投影
+        .backgroundColor(this.isDark ? '#1C1C1E' : '#FFFFFF')
         .borderRadius(16)
         .clip(true)
-        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
-        .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.40)' : 'rgba(16,19,24,0.12)', offsetY: 8 })
+        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.26)' : 'rgba(255,255,255,0.96)' })
+        .shadow({ radius: 24, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetY: 8 })
         // 小程序入场动画：opacity + scale(0.92) + translateY(-10rpx)，原点贴右上角按钮
         .transition(TransitionEffect.OPACITY
           .combine(TransitionEffect.scale({ x: 0.92, y: 0.92, centerX: '100%', centerY: 0 }))
