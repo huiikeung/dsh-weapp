@@ -45,6 +45,8 @@ export struct TailscalePage {
   @StorageLink('tailscaleAccountDeleted') accountDeleted: boolean = false;
   @State loginLabel: string = '';
   @State authKeyNodeName: string = '';
+  @State nodeNameSheetOpen: boolean = false;
+  @State nodeNameDraft: string = '';
   @State fallbackTried: boolean = false;
   @State accountsJson: string = '[]';
   @State activeAccountId: string = '';
@@ -805,6 +807,88 @@ export struct TailscalePage {
       this.fastHint = '已复制 Auth Key 管理页链接，粘贴到浏览器打开';
     }).catch(() => {
     });
+  }
+
+  @Builder
+  nodeNameSheetContent() {
+    Column({ space: 0 }) {
+      Column() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
+      }
+      .width('100%')
+      .height(16)
+      .justifyContent(FlexAlign.Center)
+      Stack({ alignContent: Alignment.Center }) {
+        Text('修改节点名')
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+        Row() {
+          Text('取消')
+            .fontSize(16)
+            .fontColor(this.textColor())
+            .height(44)
+            .onClick(() => {
+              this.nodeNameSheetOpen = false;
+            })
+          Blank()
+          Text('保存')
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.textColor())
+            .height(44)
+            .onClick(() => {
+              const next: string = this.nodeNameDraft.trim();
+              this.nodeName = next.length > 0 ? next : this.defaultNodeName();
+              PreferencesStore.get().putString(KEY_NODE_NAME, this.nodeName);
+              this.nodeNameSheetOpen = false;
+              this.fastHint = '节点名已更新，重新连接节点后生效';
+            })
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
+      }
+      .width('100%')
+      .height(48)
+      Scroll() {
+        Column() {
+          Text('节点名')
+            .fontSize(14)
+            .fontColor(this.subColor())
+            .width('100%')
+            .padding({ left: 19, top: 16, bottom: 6 })
+          Column() {
+            TextInput({ text: this.nodeNameDraft, placeholder: this.defaultNodeName() })
+              .fontSize(16)
+              .fontColor(this.textColor())
+              .placeholderColor(this.subColor())
+              .backgroundColor(Color.Transparent)
+              .height(56)
+              .padding({ left: 16, right: 16 })
+              .onChange((value: string) => {
+                this.nodeNameDraft = value;
+              })
+          }
+          .width('100%')
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.38)')
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.60)' })
+          .borderRadius(16)
+          .margin({ bottom: 16 })
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14 })
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .scrollBar(BarState.Off)
+      .align(Alignment.Top)
+    }
+    .width('100%')
   }
 
   @Builder
@@ -1656,6 +1740,10 @@ export struct TailscalePage {
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                   .width('100%')
+                  .onClick(() => {
+                    this.nodeNameDraft = this.nodeName;
+                    this.nodeNameSheetOpen = true;
+                  })
                 Text('HarmonyOS · ' + this.deviceModel())
                   .fontSize(11)
                   .fontColor(this.subColor())
@@ -2211,6 +2299,20 @@ export struct TailscalePage {
           onDisappear: () => {
             this.authKeyDraft = '';
           }
+        })
+
+      // 修改节点名：底部半模态
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.nodeNameSheetOpen, this.nodeNameSheetContent(), {
+          height: 300,
+          dragBar: false,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.immersiveSupported() ? Color.Transparent : this.pageBg(),
+          systemMaterial: this.sheetMaterial()
         })
 
       // 切换登录方式：系统半模态（与首页「切换主机」同款材质）
