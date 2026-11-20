@@ -26,7 +26,7 @@ const STAGE_FAILED = 'failed';
 
 /**
  * Tailscale 内嵌隧道设置（二级页）：对齐 iOS TailscaleTunnelSettingsView。
- * 布局：节点状态卡片（总览）/ 启用开关 / 账号与网络 / 账号与节点（登录方式+节点身份）。
+ * 布局：节点状态卡片（总览，含启动/停止/授权）/ 账号与网络 / 账号与节点（含底部切换登录方式按钮）。
  *
  * 说明：Go/tsnet 引擎由 OpenHarmony Go 工具链构建的 libtailscale_go.so 提供，
  * NAPI 直链（libtailscale_ohos.so），已在本机跑通 hello/status；登录链接来自引擎 authURL。
@@ -974,31 +974,6 @@ export struct TailscalePage {
           .borderRadius(14)
           .clip(true)
 
-          // ── 区块 1：启用内嵌隧道 ──
-          this.sectionHeader('Tailscale 内嵌隧道')
-          Row() {
-            Text('启用内嵌隧道')
-              .fontSize(16)
-              .fontColor(this.textColor())
-              .layoutWeight(1)
-            Toggle({ type: ToggleType.Switch, isOn: this.tunnelEnabled })
-              .selectedColor('#2E6BE6')
-              .onChange((value: boolean) => {
-                this.setEnabled(value);
-              })
-          }
-          .width('100%')
-          .height(52)
-          .padding({ left: 16, right: 16 })
-          .backgroundColor(this.cardBg())
-
-          .border({ width: 1, color: this.dividerColor() })
-
-          .borderRadius(14)
-
-          .clip(true)
-          this.sectionFooter('在应用内建立一个 Tailscale 节点：不需要安装 Tailscale，也不会占用系统 VPN。节点只在你自己的 tailnet 内可达。')
-
 
 
           // ── 区块 2：账号与网络 ──
@@ -1197,26 +1172,6 @@ export struct TailscalePage {
               }
               .width('100%')
               .padding({ left: 16, right: 16, top: 14, bottom: 10 })
-              Row() {
-                Row({ space: 6 }) {
-                  Text('切换登录方式')
-                    .fontSize(15)
-                    .fontColor('#2E6BE6')
-                  Text('账号登录 / Auth Key')
-                    .fontSize(12)
-                    .fontColor(this.subColor())
-                }
-                .layoutWeight(1)
-                .height(40)
-                .justifyContent(FlexAlign.Center)
-                .backgroundColor(this.pillBg())
-                .borderRadius(10)
-                .onClick(() => {
-                  this.authModeDialog = true;
-                })
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, bottom: 14 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               TextInput({ text: this.nodeName, placeholder: '节点名称' })
                 .fontSize(16)
@@ -1274,6 +1229,27 @@ export struct TailscalePage {
                   TailscaleTunnelStore.get().reloadFast();
                 })
               }
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              Row() {
+                Row({ space: 6 }) {
+                  Text('切换登录方式')
+                    .fontSize(15)
+                    .fontColor('#2E6BE6')
+                  Text('账号登录 / Auth Key')
+                    .fontSize(12)
+                    .fontColor(this.subColor())
+                }
+                .layoutWeight(1)
+                .height(42)
+                .justifyContent(FlexAlign.Center)
+                .backgroundColor(this.pillBg())
+                .borderRadius(10)
+                .onClick(() => {
+                  this.authModeDialog = true;
+                })
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 12, bottom: 14 })
             }
             .width('100%')
             .backgroundColor(this.cardBg())
