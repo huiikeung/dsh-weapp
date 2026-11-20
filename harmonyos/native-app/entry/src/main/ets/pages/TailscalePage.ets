@@ -951,7 +951,7 @@ export struct TailscalePage {
               .fontColor(this.textColor())
               .placeholderColor(this.subColor())
               .backgroundColor(Color.Transparent)
-              .height(44)
+              .height(64)
               .padding({ left: 16, right: 16 })
               .onChange((value: string) => {
                 this.authKeyDraft = value;
@@ -961,6 +961,32 @@ export struct TailscalePage {
           .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.38)')
           .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.60)' })
           .borderRadius(16)
+          .margin({ bottom: 16 })
+          Row({ space: 10 }) {
+            Text('粘贴')
+              .fontSize(14)
+              .fontColor('#2E6BE6')
+              .height(36)
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.38)')
+              .borderRadius(10)
+              .onClick(() => {
+                this.pasteAuthKey();
+              })
+            Text('清空')
+              .fontSize(14)
+              .fontColor('#FF3B30')
+              .height(36)
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.38)')
+              .borderRadius(10)
+              .onClick(() => {
+                this.authKeyDraft = '';
+              })
+          }
+          .width('100%')
           .margin({ bottom: 16 })
         }
         .width('100%')
@@ -1088,6 +1114,20 @@ export struct TailscalePage {
       AppStorage.setOrCreate<string>('tsnetAuthMode', 'account');
       this.authModeState = 'account';
       this.fastHint = '已删除登录账号，下次需重新授权';
+    }
+  }
+
+  /** 从系统剪贴板粘贴 Auth Key */
+  private pasteAuthKey(): void {
+    try {
+      pasteboard.getSystemPasteboard().getData().then((data: pasteboard.PasteData) => {
+        const text: string = data.getPrimaryText();
+        if (text.length > 0) {
+          this.authKeyDraft = text.trim();
+        }
+      }).catch(() => {
+      });
+    } catch (err) {
     }
   }
 
@@ -2001,7 +2041,7 @@ export struct TailscalePage {
         .height(1)
         .opacity(0.01)
         .bindSheet($$this.authKeySheetOpen, this.authKeySheetContent(), {
-          height: 420,
+          height: 470,
           dragBar: false,
           showClose: false,
           preferType: SheetType.BOTTOM,
