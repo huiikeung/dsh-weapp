@@ -7006,8 +7006,9 @@ export struct ConversationPage {
     } catch (err) {
       screen = 800;
     }
+    // 底边停在输入框上边框：底部安全区 + 输入条容器 padding(18) + 输入卡片高度(46) + 光圈余量(6)
     const top: number = this.topSafe() + 58;
-    const available: number = screen - top - (this.bottomInset + 8);
+    const available: number = screen - top - (this.bottomInset + 70);
     return available > 240 ? available : 240;
   }
 
@@ -7151,7 +7152,8 @@ export struct ConversationPage {
                 }
                 ForEach(group.sessions, (session: ConvSidebarSession) => {
                   // 左侧留白与分组行内文件夹图标中心对齐（8 外边距 + 8 内边距 + 19/2 图标中心）
-                  Row({ space: 6 }) {
+                  // 圆点保持原位（与工作区分组图标同列），文字左缘对齐上方工作区标题文字
+                  Row({ space: 14 }) {
                     Column()
                       .width(6)
                       .height(6)
