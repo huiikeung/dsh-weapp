@@ -78,7 +78,7 @@ export struct TailscalePage {
   @StorageLink('tsnetAuthMode') authModeState: string = '';
   @StorageLink('tailnetGatewayTarget') storedTailnetTarget: string = '';
   private gatewayProxyApplied: boolean = false;
-  private authKeyApplyTimer: number = -1;
+
   private recoveryAttempted: boolean = false;
   private startTimer: number = -1;
 
@@ -866,27 +866,10 @@ export struct TailscalePage {
   }
 
   private saveAuthKey(value: string): void {
+    // 只保存，不自动切换/重连：用哪种凭据由用户在「切换登录」里手动选择
     this.authKey = value;
     PreferencesStore.get().putString(KEY_AUTH_KEY, value);
     PreferencesStore.get().putString('tsnetAuthKey', value.trim());
-    this.scheduleAuthKeyApply();
-  }
-
-  /** 输入停下 0.8s 自动用新 Auth Key 重连（之前填完没有任何动作，用户不知道还要点哪里） */
-  private scheduleAuthKeyApply(): void {
-    if (this.authKeyApplyTimer >= 0) {
-      clearTimeout(this.authKeyApplyTimer);
-      this.authKeyApplyTimer = -1;
-    }
-    const trimmed: string = this.authKey.trim();
-    if (!this.tunnelEnabled || trimmed.length === 0) {
-      return;
-    }
-    this.authKeyApplyTimer = setTimeout(() => {
-      this.authKeyApplyTimer = -1;
-      this.fastHint = '已保存 Auth Key，正在用登录密钥连接…';
-      TailscaleTunnelStore.get().applyAuthKey(trimmed);
-    }, 800);
   }
 
   /** Auth Key 失效时改用浏览器登录：清空密钥并让轻量引擎重新给出登录链接 */
@@ -1169,8 +1152,23 @@ export struct TailscalePage {
                   .backgroundColor('#2E6BE6').borderRadius(10)
                   .onClick(() => {
                     this.setEnabled(true);
-                    this.beginStart();
+                    TailscaleTunnelStore.get().reloadFast();
                   })
+              } else if (this.stage === STAGE_READY) {
+                if (this.accountName.length > 0 && this.authKey.trim().length > 0) {
+                  Text('切换登录')
+                    .fontSize(14).fontColor('#2E6BE6').layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                    .backgroundColor(this.pillBg()).borderRadius(10)
+                    .onClick(() => {
+                      this.authModeDialog = true;
+                    })
+                } else {
+                  Text('重新连接')
+                    .fontSize(14).fontColor(this.subColor()).layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                    .backgroundColor(this.pillBg()).borderRadius(10)
+                    .onClick(() => {
+                    })
+                }
               } else if (this.stage === STAGE_NEEDS_LOGIN && (this.accountName.length > 0 || this.authKey.trim().length > 0)) {
                 // 需要授权时按已填写的凭据给出登录方式
                 if (this.accountName.length > 0) {
@@ -1559,11 +1557,8 @@ export struct TailscalePage {
             }
             .width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 })
             .onClick(() => {
-              PreferencesStore.get().putString('tsnetAuthKey', '');
-              this.authKey = '';
               this.authModeDialog = false;
-              TailscaleTunnelStore.get().reloadFast();
-              this.fastHint = '已切换为账号登录';
+              this.connectWithAccount();
             })
             Divider().color(this.dividerColor()).strokeWidth(1)
             Row() {
@@ -1578,7 +1573,11 @@ export struct TailscalePage {
             .width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 })
             .onClick(() => {
               this.authModeDialog = false;
-              this.fastHint = '请在「节点身份」填写 Auth Key，然后点「使用登录密钥连接」';
+              if (this.authKey.trim().length === 0) {
+                this.fastHint = '请先在「节点身份」填写 Auth Key';
+                return;
+              }
+              this.connectWithAuthKey();
             })
             Divider().color(this.dividerColor()).strokeWidth(1)
             Text('取消').fontSize(16).fontColor(this.subColor())
