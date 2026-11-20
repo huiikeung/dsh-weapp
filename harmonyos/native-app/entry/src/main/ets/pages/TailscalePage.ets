@@ -1122,20 +1122,19 @@ export struct TailscalePage {
 
   @Builder
   sectionHeaderWithHint(title: string, hint: string) {
-    Row() {
-      Text(title).fontSize(13).fontColor(this.subColor()).layoutWeight(1)
-      Text('说明')
-        .fontSize(12)
-        .fontColor(this.textColor())
-        .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-        .backgroundColor(this.pillBg())
-        .borderRadius(999)
+    Row({ space: 4 }) {
+      Text(title).fontSize(13).fontColor(this.subColor())
+      Text('ⓘ')
+        .fontSize(14)
+        .fontColor(this.subColor())
+        .padding({ left: 2, right: 8, top: 2, bottom: 2 })
         .onClick(() => {
           this.hintText = hint;
           this.hintOpen = true;
         })
     }
     .width('100%')
+    .justifyContent(FlexAlign.Start)
     .padding({ left: 16, right: 16, top: 18, bottom: 7 })
   }
 
@@ -1562,24 +1561,22 @@ export struct TailscalePage {
 
           // ── 节点身份（单独卡片）：Auth Key + 自建控制平面（折叠）──
           if (this.tunnelEnabled) {
-            Row() {
-              Text('节点身份').fontSize(13).fontColor(this.subColor()).layoutWeight(1)
+            Row({ space: 4 }) {
+              Text('节点身份').fontSize(13).fontColor(this.subColor())
+              Text('ⓘ')
+                .fontSize(14)
+                .fontColor(this.subColor())
+                .padding({ left: 2, right: 8, top: 2, bottom: 2 })
+                .onClick(() => {
+                  this.hintText = '创建 Auth Key：Reusable 打开、Ephemeral 关闭、Expiry 按需（建议 90 天）、Tags 留空。\n主机授权三步：① Tailscale 管理台 Machines 里批准新设备（开启了设备审批时）；② Access Controls 里允许该设备访问网关主机 3081/tcp；③ 回到本页点「AuthKey 登录」，等状态变「已连接」。换 key 会自动清空旧节点状态。';
+                  this.hintOpen = true;
+                })
+              Blank()
               Text('获取 Auth Key')
                 .fontSize(13)
                 .fontColor('#2E6BE6')
                 .onClick(() => {
                   this.openAuthKeyPage();
-                })
-              Text('说明')
-                .fontSize(12)
-                .fontColor(this.textColor())
-                .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-                .backgroundColor(this.pillBg())
-                .borderRadius(999)
-                .margin({ left: 10 })
-                .onClick(() => {
-                  this.hintText = '创建 Auth Key：Reusable 打开、Ephemeral 关闭、Expiry 按需（建议 90 天）、Tags 留空。\n主机授权三步：① Tailscale 管理台 Machines 里批准新设备（开启了设备审批时）；② Access Controls 里允许该设备访问网关主机 3081/tcp；③ 回到本页点「AuthKey 登录」，等状态变「已连接」。换 key 会自动清空旧节点状态。';
-                  this.hintOpen = true;
                 })
             }
             .width('100%')
