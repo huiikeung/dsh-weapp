@@ -1135,15 +1135,6 @@ export struct TailscalePage {
               }
             }
             .width('100%')
-            if (this.authInvalid) {
-              Text('已保存的 Auth Key 无法加入 tailnet（可能过期或被撤销）。可以改用浏览器登录完成授权，或在下方重新填写密钥。')
-                .fontSize(12).lineHeight(18).fontColor('#C2410C').width('100%')
-              Text('改用浏览器登录')
-                .fontSize(14).fontColor('#2E6BE6').height(34)
-                .onClick(() => {
-                  this.browserReauth();
-                })
-            }
           }
           .width('100%')
           .padding(16)
@@ -1153,7 +1144,22 @@ export struct TailscalePage {
           .borderRadius(14)
           .clip(true)
 
-
+          // Auth Key 失效提示放到卡片外，避免干扰状态卡片
+          if (this.authInvalid) {
+            Row({ space: 8 }) {
+              Circle({ width: 6, height: 6 }).fill('#C2410C')
+              Text('已保存的 Auth Key 无法加入 tailnet（可能过期或被撤销），点此改用浏览器登录')
+                .fontSize(12)
+                .lineHeight(18)
+                .fontColor('#C2410C')
+                .layoutWeight(1)
+            }
+            .width('100%')
+            .padding({ left: 4, right: 4, top: 8 })
+            .onClick(() => {
+              this.browserReauth();
+            })
+          }
 
           // ── 区块 2：账号与网络（启动隧道后才显示）──
           if (this.tunnelEnabled) {
