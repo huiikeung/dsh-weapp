@@ -213,7 +213,7 @@ export struct TailscalePage {
     this.accountLogin = this.jsonField(json, 'loginName');
     this.accountTailnet = this.jsonField(json, 'tailnetName');
     this.accountAddresses = this.jsonField(json, 'addresses');
-    if (this.accountName.length > 0) {
+    if (this.accountName.length > 0 && this.isAccountMode()) {
       const prefs: PreferencesStore = PreferencesStore.get();
       prefs.putString('tailscaleAccountName', this.accountName);
       prefs.putString('tailscaleAccountLogin', this.accountLogin);
@@ -1113,6 +1113,11 @@ export struct TailscalePage {
   }
 
   /** 状态卡片上的账号摘要 */
+  /** 当前是否为浏览器账号登录模式（AuthKey 模式下账号卡片不显示） */
+  private isAccountMode(): boolean {
+    return PreferencesStore.get().getString('tsnetLoginMode', 'account') !== 'authKey';
+  }
+
   private identitySummary(): string {
     if (this.accountTailnet.length > 0) {
       return '账号 ' + this.accountTailnet;
@@ -1267,7 +1272,7 @@ export struct TailscalePage {
       }
       .width('100%')
       .justifyContent(FlexAlign.Start)
-      if (this.accountName.length > 0) {
+      if (this.accountName.length > 0 && this.isAccountMode()) {
         Row({ space: 8 }) {
           Circle({ width: 8, height: 8 }).fill('#0F9D58')
           Column({ space: 2 }) {
@@ -1570,11 +1575,11 @@ export struct TailscalePage {
           .borderRadius(14)
           .clip(true)
 
-          // ── 区块 2：账号与网络（隧道开启后显示；账号本身持久化，直到手动删除）──
-          if (this.tunnelEnabled) {
+          // ── 区块 2：账号与网络（仅浏览器账号登录时显示；AuthKey 模式隐藏）──
+          if (this.tunnelEnabled && this.isAccountMode()) {
           this.sectionHeaderWithHint('账号与网络', '点前面的圆点用该账号登录，右侧可删除；不删除会一直保留。')
           Column() {
-            if (this.accountName.length > 0) {
+            if (this.accountName.length > 0 && this.isAccountMode()) {
               Row({ space: 10 }) {
                 // 选择按钮挪到最前面：当前账号显示实心圆，点击即用该账号登录
                 Stack({ alignContent: Alignment.Center }) {
