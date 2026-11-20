@@ -121,6 +121,18 @@ $HVIGOR --mode module -p product=default assembleHap --no-daemon
 `native-core/src/main/ets/protocol/`（并按 API 26 的 ArkTS 规则改写），页面仍是占位实现。
 后续以 `native-core` 为准，旧工程仅作参考，不再作为构建目标。
 
+## UI 玻璃标准（Liquid Glass）
+
+App 里所有「玻璃/毛玻璃/液态玻璃」样式统一用一套参数，定义在
+`native-app/entry/src/main/ets/common/AppGlass.ets`（`APP_GLASS_RADIUS`、
+`APP_GLASS_BLUR`、`appGlassFill()`、`appGlassBorderColor()`、`appGlassShadow()`），
+参数表与用法见 `docs/app-glass-standard.md`。
+
+- 需求说「xx 玻璃样式」时**默认直接复用本标准**，不要另调一套参数。
+- 基准实现是会话侧栏面板（`ConversationPage.sidebarMenuPanel`）。
+- 系统 `ImmersiveMaterial`（`systemMaterial`）在真机上对普通自绘组件不生效，
+  只有系统容器（bindMenu / bindSheet）能用；自绘组件的玻璃一律走本标准。
+
 ## 注意
 
 - 元服务与应用**分别**在 AGC 注册，bundleName / 签名 / 隐私声明互不相同；
