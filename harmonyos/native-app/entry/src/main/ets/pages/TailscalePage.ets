@@ -41,7 +41,7 @@ export struct TailscalePage {
   @StorageLink('pendingTailscaleLogin') pendingTailscaleLogin: boolean = false;
   @StorageLink('tailscaleAuthInvalid') authInvalid: boolean = false;
   @StorageLink('tailscaleStageError') stageError: string = '';
-  @State hintOpen: boolean = false;
+  @State hintMenuOpen: boolean = false;
   @State hintText: string = '';
 
   @State tunnelEnabled: boolean = false;
@@ -1128,9 +1128,22 @@ export struct TailscalePage {
         .fontSize(14)
         .fontColor(this.subColor())
         .padding({ left: 2, right: 8, top: 2, bottom: 2 })
+        .bindMenu(this.hintMenuOpen, this.hintMenuBuilder(), {
+          outlineColor: this.dividerColor(),
+          outlineWidth: 1,
+          onWillDisappear: () => {
+            this.hintMenuOpen = false;
+          },
+          onDisappear: () => {
+            this.hintMenuOpen = false;
+          },
+          onDidDisappear: () => {
+            this.hintMenuOpen = false;
+          }
+        })
         .onClick(() => {
           this.hintText = hint;
-          this.hintOpen = true;
+          this.hintMenuOpen = !this.hintMenuOpen;
         })
     }
     .width('100%')
@@ -1138,34 +1151,21 @@ export struct TailscalePage {
     .padding({ left: 16, right: 16, top: 18, bottom: 7 })
   }
 
+  /** 说明弹窗：系统菜单（与对话页右上角「⋯」同款动画），锚定在 ⓘ 图标上 */
   @Builder
-  hintSheetContent() {
-    Column({ space: 12 }) {
-      Column() {
-        Column()
-          .width(36)
-          .height(4)
-          .borderRadius(2)
-          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
-      }
-      .width('100%')
-      .height(16)
-      .justifyContent(FlexAlign.Center)
+  hintMenuBuilder() {
+    Column({ space: 6 }) {
       Text('说明')
-        .fontSize(17)
+        .fontSize(13)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.textColor())
-        .width('100%')
-        .textAlign(TextAlign.Center)
       Text(this.hintText)
-        .fontSize(14)
-        .lineHeight(21)
+        .fontSize(13)
+        .lineHeight(20)
         .fontColor(this.textColor())
-        .width('100%')
-      Blank().height(20)
     }
-    .width('100%')
-    .padding({ left: 20, right: 20 })
+    .width(280)
+    .padding(14)
     .backgroundColor(this.cardBg())
   }
 
@@ -1567,9 +1567,22 @@ export struct TailscalePage {
                 .fontSize(14)
                 .fontColor(this.subColor())
                 .padding({ left: 2, right: 8, top: 2, bottom: 2 })
+                .bindMenu(this.hintMenuOpen, this.hintMenuBuilder(), {
+                  outlineColor: this.dividerColor(),
+                  outlineWidth: 1,
+                  onWillDisappear: () => {
+                    this.hintMenuOpen = false;
+                  },
+                  onDisappear: () => {
+                    this.hintMenuOpen = false;
+                  },
+                  onDidDisappear: () => {
+                    this.hintMenuOpen = false;
+                  }
+                })
                 .onClick(() => {
                   this.hintText = '创建 Auth Key：Reusable 打开、Ephemeral 关闭、Expiry 按需（建议 90 天）、Tags 留空。\n主机授权三步：① Tailscale 管理台 Machines 里批准新设备（开启了设备审批时）；② Access Controls 里允许该设备访问网关主机 3081/tcp；③ 回到本页点「AuthKey 登录」，等状态变「已连接」。换 key 会自动清空旧节点状态。';
-                  this.hintOpen = true;
+                  this.hintMenuOpen = !this.hintMenuOpen;
                 })
               Blank()
               Text('获取 Auth Key')
@@ -1802,19 +1815,6 @@ export struct TailscalePage {
           onDisappear: () => {
             this.authKeyDraft = '';
           }
-        })
-
-      // 卡片说明：半模态展示，文字统一黑/白，背景随主题
-      Column()
-        .width(1)
-        .height(1)
-        .opacity(0.01)
-        .bindSheet($$this.hintOpen, this.hintSheetContent(), {
-          height: 300,
-          dragBar: false,
-          showClose: false,
-          preferType: SheetType.BOTTOM,
-          backgroundColor: this.cardBg()
         })
 
       // 切换登录方式：系统半模态（与首页「切换主机」同款材质）
