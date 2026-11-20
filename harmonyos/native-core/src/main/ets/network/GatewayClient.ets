@@ -111,6 +111,35 @@ export class GatewayClient {
   private tunnelWaitCount: number = 0;
 
   /** 内嵌隧道是否就绪（开关打开且 Running） */
+  /** Tailscale 就绪后：把当前直连切成隧道路径（公网优先） */
+  reconnectViaTailnet(): void {
+    if (!this.tailnetReady()) {
+      return;
+    }
+    if (this.state !== ConnectionState.CONNECTED && this.state !== ConnectionState.CONNECTING) {
+      return;
+    }
+    if (this.usingTailnetRoute) {
+      return;
+    }
+    const profile: GatewayProfile | null = this.currentProfile;
+    if (profile === null) {
+      return;
+    }
+    Logger.info('tailnet ready, switch current connection to tunnel endpoint=' + profile.wsUrl);
+    this.forceTailnet = true;
+    this.intentionalClose = true;
+    try {
+      if (this.ws !== null) {
+        this.ws.close();
+      }
+    } catch (closeErr) {
+    }
+    this.ws = null;
+    this.intentionalClose = false;
+    this.connect(profile, true);
+  }
+
   private tailnetReady(): boolean {
     if ((AppStorage.get<boolean>('tsnetFastReady') ?? false) === true) {
       return true;

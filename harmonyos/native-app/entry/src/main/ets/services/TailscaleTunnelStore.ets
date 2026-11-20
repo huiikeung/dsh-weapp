@@ -560,6 +560,12 @@ export class TailscaleTunnelStore {
           this.fastWasReady = true;
           AppStorage.setOrCreate<boolean>('tsnetFastReady', true);
           Logger.info('TSDBG fast ready (lightweight tsnet available)');
+          // 隧道就绪：把首页当前直连立即切到公网（tailnet）路径
+          try {
+            GatewayClient.get().reconnectViaTailnet();
+          } catch (switchErr) {
+            Logger.warn('TSDBG switch to tailnet failed: ' + (switchErr as Error).message);
+          }
         }
       } else if (fastStat.indexOf('state=NeedsLogin') >= 0) {
         const fastAuth: string = TsnetBridge.authURLFast();
