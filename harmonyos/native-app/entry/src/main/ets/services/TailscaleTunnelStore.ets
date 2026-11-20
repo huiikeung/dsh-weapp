@@ -30,6 +30,7 @@ export class TailscaleTunnelStore {
   private fastNoStateTicks: number = 0;
   private fastRecovered: boolean = false;
   private fastStartingTicks: number = 0;
+  private lastReloadAt: number = 0;
   private lastWarmAt: number = 0;
   private stateDir: string = '';
   private autoOpenOnce: boolean = false;
@@ -143,9 +144,20 @@ export class TailscaleTunnelStore {
 
   /** 用新的 authKey 重启轻量引擎 */
   reloadFast(): void {
+    // 3 秒内重复点击直接忽略：stop/start 反复打断 tsnet 会让 UI 线程卡死（系统判定无响应后杀进程）
+    const now: number = Date.now();
+    if (now - this.lastReloadAt < 3000) {
+      Logger.warn('TSDBG reloadFast ignored (debounce)');
+      return;
+    }
+    this.lastReloadAt = now;
     // 放到下一个事件循环执行，避免 NAPI 停止引擎时阻塞 UI 线程
     setTimeout(() => {
-      TsnetBridge.stopFast();
+      try {
+        TsnetBridge.stopFast();
+      } catch (stopErr) {
+        Logger.warn('TSDBG stopFast failed: ' + (stopErr as Error).message);
+      }
       this.fastStarted = false;
       this.fastWasReady = false;
       this.fastDebugLogged = false;

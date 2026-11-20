@@ -557,10 +557,24 @@ export struct TailscalePage {
   }
 
   private startLogin(): void {
+    this.dialogOpen = true;
     if (this.authKey.trim().length > 0) {
       PreferencesStore.get().putString('tsnetAuthKey', this.authKey.trim());
+      // 引擎已在启动/已连接时不要再 stop+start（会把 UI 线程卡死）
+      const fastStat: string = TsnetBridge.statusFast();
+      if (fastStat.indexOf('state=Starting') >= 0 || fastStat.indexOf('state=Running') >= 0) {
+        this.loginResult = '已保存 Auth Key，正在连接中，请等状态变为「已连接」。';
+        return;
+      }
+      if (this.loginBusy) {
+        this.loginResult = '正在启动，请稍候…';
+        return;
+      }
+      this.loginBusy = true;
+      setTimeout(() => {
+        this.loginBusy = false;
+      }, 4000);
       this.loginResult = '正在使用登录密钥启动轻量隧道…';
-      this.dialogOpen = true;
       TailscaleTunnelStore.get().reloadFast();
       return;
     }
@@ -809,6 +823,13 @@ export struct TailscalePage {
 
   /** 用账号登录：清空 Auth Key，让轻量引擎进入账号授权流程 */
   private connectWithAccount(): void {
+    if (this.loginBusy) {
+      return;
+    }
+    this.loginBusy = true;
+    setTimeout(() => {
+      this.loginBusy = false;
+    }, 4000);
     PreferencesStore.get().putString('tsnetAuthKey', '');
     AppStorage.setOrCreate<string>('tsnetAuthMode', 'account');
     this.authModeState = 'account';
@@ -818,6 +839,13 @@ export struct TailscalePage {
 
   /** 用 Auth Key 登录：保存密钥并重启轻量引擎 */
   private connectWithAuthKey(): void {
+    if (this.loginBusy) {
+      return;
+    }
+    this.loginBusy = true;
+    setTimeout(() => {
+      this.loginBusy = false;
+    }, 4000);
     PreferencesStore.get().putString('tsnetAuthKey', this.authKey.trim());
     AppStorage.setOrCreate<string>('tsnetAuthMode', 'authKey');
     AppStorage.setOrCreate<string>('tailscaleStageError', '');
