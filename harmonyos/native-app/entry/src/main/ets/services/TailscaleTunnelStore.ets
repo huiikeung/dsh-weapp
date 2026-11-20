@@ -516,8 +516,14 @@ export class TailscaleTunnelStore {
         const gwPeer: string = (gwEnd > 0 ? gwTail.substring(0, gwEnd) : gwTail.trim()).trim();
         if (gwPeer.length > 0) {
           AppStorage.setOrCreate<string>('tailnetGatewayPeerName', gwPeer);
+          Logger.info('TSDBG gwPeer=' + gwPeer);
           if (PreferencesStore.get().getString('tailnetGatewayPeerName', '') !== gwPeer) {
             PreferencesStore.get().putString('tailnetGatewayPeerName', gwPeer);
+          }
+          // 网关节点名就绪后再触发一次「局域网 -> 公网」切换
+          try {
+            GatewayClient.get().reconnectViaTailnet();
+          } catch (switchErr) {
           }
         }
       }
