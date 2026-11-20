@@ -1235,6 +1235,10 @@ export struct TailscalePage {
     if (!this.tunnelEnabled) {
       this.setEnabled(true);
     }
+    // 没有账号时：先清掉旧节点状态再登录，避免旧 state 让新登录一直 NeedsLogin
+    if (this.accountsArray().length === 0) {
+      TailscaleTunnelStore.get().resetActiveAccountState();
+    }
     TailscaleTunnelStore.get().addAccountProfile();
     this.refreshAccounts();
     this.startAccountLogin();

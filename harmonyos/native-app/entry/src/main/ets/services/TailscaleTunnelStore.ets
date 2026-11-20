@@ -135,6 +135,25 @@ export class TailscaleTunnelStore {
     AppStorage.setOrCreate<string>('tailscaleActiveAccount', id);
   }
 
+  /** 清空当前账号的节点状态（添加账号前重置旧节点用） */
+  resetActiveAccountState(): void {
+    try {
+      TsnetBridge.stopFast();
+    } catch (stopErr) {
+    }
+    const active: string = this.activeAccountId();
+    const dirName: string = (active.length === 0 || active === 'a1') ? 'account' : ('acct-' + active);
+    try {
+      fileIo.rmdirSync(this.stateDir + '/fast/' + dirName);
+      Logger.warn('TSDBG reset node state before add account dir=' + dirName);
+    } catch (clearErr) {
+    }
+    this.fastStarted = false;
+    this.fastWasReady = false;
+    this.loginRecoveryDone = false;
+    this.lastReloadAt = 0;
+  }
+
   /** 新增一个账号档案并设为激活（目录留空，下一步走浏览器授权） */
   addAccountProfile(): string {
     PreferencesStore.get().putString('tsnetLoginMode', 'account');
