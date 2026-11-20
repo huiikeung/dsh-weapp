@@ -6,7 +6,8 @@ import { EventProjector } from './EventProjector';
 import { TeamStore } from './TeamStore';
 import { Logger } from '../common/Logger';
 import { isOlderHistoryPage } from './HistoryPageMatcher';
-import { ConversationItem, ConversationItemKind, ConversationProjectionLabels, ConversationProjector } from '../projection/ConversationProjection';
+import { CONVERSATION_LIVE_SEQ_BASE, ConversationItem, ConversationItemKind, ConversationProjectionLabels, ConversationProjector } from '../projection/ConversationProjection';
+import { ConversationFeed } from '../projection/ConversationFeed';
 
 /** 诊断信息行（对齐小程序 diagnosticRows） */
 export interface DiagnosticRow {
@@ -579,6 +580,8 @@ export class SessionStore {
     if (frame.kind === 'history') {
       const responseSession: string = frame.sessionId !== undefined ? frame.sessionId : this.sessionId;
       if (this.sessionId.length > 0 && responseSession !== this.sessionId) return;
+      // 历史本身就是一次权威对齐：刷新活跃时刻，避免紧接着又触发补拉
+      this.lastLiveEventAt = Date.now();
       const historyProjections: Record<string, Object> | undefined = asRec(field(frame, 'projections'));
       if (historyProjections !== undefined) {
         TeamStore.get().ingestProjection(responseSession, historyProjections);
@@ -623,6 +626,8 @@ export class SessionStore {
     if (frame.kind === 'session-snapshot') {
       const responseSession: string = frame.sessionId !== undefined ? frame.sessionId : this.sessionId;
       if (this.sessionId.length > 0 && responseSession !== this.sessionId) return;
+      // 快照同样是一次权威对齐
+      this.lastLiveEventAt = Date.now();
       // 快照投影里带每会话运行模式（对齐 dsh-mobile：projections.values.agentPreset）
       const snapProjections: Record<string, Object> | undefined = asRec(field(frame, 'projections'));
       const snapValues: Record<string, Object> | undefined = snapProjections !== undefined ? asRec(field(snapProjections, 'values')) : undefined;
@@ -679,6 +684,8 @@ export class SessionStore {
         }
         return;
       }
+      // 当前会话的实时帧：记下时刻（订阅还在正常送数据就不用补拉）
+      this.lastLiveEventAt = Date.now();
       const raw: RawSessionEvent | undefined = this.rawFromFrame(frame);
       if (raw !== undefined && !this.hasRawEvent(raw)) {
         this.rawEvents.push(raw);
@@ -816,6 +823,10 @@ export class SessionStore {
   /** 重置对话投影（切会话 / 重建历史时调用）。 */
   private resetConversation(): void {
     this.conversation = new ConversationProjector(this.conversationLabels());
+    // 合成流式 seq 与投影一起归位：新投影里没有旧记录，保留区从头再排
+    this.liveSeq = CONVERSATION_LIVE_SEQ_BASE;
+    this.liveTurn = -1;
+    this.liveStep = -1;
     this.optimisticUsers = [];
     this.lastAssistantText = '';
     this.fallbackAssistantText = '';
@@ -827,6 +838,17 @@ export class SessionStore {
    * 最近 5 秒内有实时事件、刚回到前台、或本机正处于执行中。
    * 空闲时退化成 1.2s 一拍的低频探测，既不会漏掉桌面端开跑，也不会空转太凶。
    */
+  /**
+   * 手机上漏帧的自救：重新向主机要一次历史并重新订阅当前会话。
+   * 补拉后会走 history 帧的 replace/merge + rebuild，时间线直接对齐主机。
+   */
+  private catchUpCurrentSession(): void {
+    if (this.client === null || this.sessionId.length === 0) {
+      return;
+    }
+    this.client.openSession(this.sessionId);
+  }
+
   private startSessionsPoll(): void {
     if (this.sessionsTimer >= 0) {
       return;
@@ -957,18 +979,27 @@ export class SessionStore {
     if (this.conversation === null) {
       this.resetConversation();
     }
-    // 记录真实事件 seq（流式合成 chunk 复用它，避免把投影的 lastSeq 抬到假高位后丢掉后续真实事件）
-    if (raw.seq > 0 && raw.seq < 900000) {
-      this.lastEventSeq = raw.seq;
-    }
     let event: SessionEvent;
     try {
       event = normalizeRawSessionEvent(raw, this.sessionId);
     } catch (err) {
       return;
     }
+    // 记录真实事件的回合 / 步骤：流式 start 帧缺 turn/step 时用它兜底。
+    // 合成流式事件（seq 在保留区）不参与，避免自己给自己兜底。
+    if (raw.seq > 0 && raw.seq < CONVERSATION_LIVE_SEQ_BASE
+      && event.event.turn !== undefined && event.event.turn >= 0) {
+      this.lastEventTurn = event.event.turn;
+      this.lastEventStep = event.event.step !== undefined ? event.event.step : -1;
+    }
     const projector: ConversationProjector = this.conversation as ConversationProjector;
     projector.fold(event);
+    // 真实答复 / 回合收工之后，还没结算的流式行都是上一轮遗留（半截正文或推理），
+    // 留着会被下一轮继续往里追加，正文交给真实事件与末尾回填接管。
+    if (!this.replayingHistory && (event.event.type === 'assistant/message' || event.event.type === 'turn/end')) {
+      // 定稿而不是删除：推理/正文已经流式显示出来的内容，收尾时不能整行消失
+      projector.settleLiveRows();
+    }
     // 网关可能只发 step/start（不发 turn/start），这些事件都代表本轮仍在进行
     const liveType: string = event.event.type;
     if (!this.replayingHistory) {
@@ -1028,6 +1059,10 @@ export class SessionStore {
   /**
    * 快照/事件不带最终答复时，用最近流式正文补一条助手行
    * （对齐小程序：「快照未携带当前回复时回填最近流式文本」）。真实答复到达后自动撤掉。
+   *
+   * 「最终答复已存在」的判定必须是：最后一条带正文的助手行位于**所有过程行之后**。
+   * 助手行夹在工具/思考行中间 = 回合中段叙述，回合收工时会被「已完成」折叠行吞掉——
+   * 这种不能算已有答复，必须回填，否则回合结束后只剩「已完成」、正文一行都看不见。
    */
   private refreshFallbackAssistant(): void {
     if (this.lastAssistantText.length === 0 || this.conversation === null) {
@@ -1036,12 +1071,25 @@ export class SessionStore {
     }
     const projector: ConversationProjector = this.conversation as ConversationProjector;
     const items: ConversationItem[] = projector.items;
+    let lastAssistantIdx: number = -1;
+    let lastProcessIdx: number = -1;
     for (let index = items.length - 1; index >= 0; index--) {
       const item: ConversationItem = items[index];
-      if ((item.kind as string) === (ConversationItemKind.ASSISTANT as string) && item.text.length > 0) {
-        this.fallbackAssistantText = '';
-        return;
+      const kind: string = item.kind as string;
+      if (lastAssistantIdx < 0 && kind === (ConversationItemKind.ASSISTANT as string) && item.text.length > 0) {
+        lastAssistantIdx = index;
       }
+      if (lastProcessIdx < 0 && ConversationFeed.isProcessKind(kind)) {
+        lastProcessIdx = index;
+      }
+      if (lastAssistantIdx >= 0 && lastProcessIdx >= 0) {
+        break;
+      }
+    }
+    if (lastAssistantIdx >= 0 && (lastProcessIdx < 0 || lastAssistantIdx > lastProcessIdx)) {
+      // 最终答复已经在全部过程行之后：正常显示，不需要回填
+      this.fallbackAssistantText = '';
+      return;
     }
     this.fallbackAssistantText = this.lastAssistantText;
     this.fallbackAssistantAt = Math.floor(Date.now() / 1000);
@@ -1057,9 +1105,9 @@ export class SessionStore {
         this.stopLiveTicker();
         return;
       }
-      // 120ms：比网关事件粒度更细一档，保证运行中内容即时映射到界面
+      // 50ms：贴近一帧，运行中内容随网关推流即时上屏
       this.publishConversation();
-    }, 120);
+    }, 50);
   }
 
   private stopLiveTicker(): void {
@@ -1334,7 +1382,26 @@ export class SessionStore {
     }
     // 当前会话的运行态跟着列表走（会话在后台跑的时候，打开它也应立即显示运行中）
     for (const one of list) {
-      if (one.id === this.sessionId && one.running !== this.running) {
+      if (one.id !== this.sessionId) {
+        continue;
+      }
+      // 自救：主机那边的会话又动了（updatedAt 变化 / 开始运行），但本机事件流已经安静下来，
+      // 说明订阅悄悄丢了帧 —— 主动补一次历史 + 重新订阅。
+      // 之前只有「打开会话 / 重连」才拉历史，订阅一断就永远停在上一个回合：
+      // 桌面端早已进入下一轮，手机还在上一轮的「运行中」里。
+      const now: number = Date.now();
+      const updatedChanged: boolean = this.knownUpdatedAt > 0 && one.updatedAt !== this.knownUpdatedAt;
+      const startedElsewhere: boolean = one.running && !this.running;
+      const quiet: boolean = now - this.lastLiveEventAt > 2500;
+      if ((updatedChanged || startedElsewhere) && quiet && now - this.catchUpAt > 5000) {
+        this.catchUpAt = now;
+        Logger.info('session catch-up: updatedChanged=' + (updatedChanged ? '1' : '0')
+          + ' running=' + (one.running ? '1' : '0')
+          + ' quietMs=' + (now - this.lastLiveEventAt).toString());
+        this.catchUpCurrentSession();
+      }
+      this.knownUpdatedAt = one.updatedAt;
+      if (one.running !== this.running) {
         this.running = one.running;
         if (this.running) {
           this.startLiveTicker();
@@ -1377,6 +1444,10 @@ export class SessionStore {
     }
     this.sessionGeneration += 1;
     this.sessionId = sessionId;
+    // 换会话：补拉用的「主机侧 updatedAt」与事件活跃时刻一起归零，避免刚打开就误触发补拉
+    this.knownUpdatedAt = 0;
+    this.catchUpAt = 0;
+    this.lastLiveEventAt = Date.now();
     this.rows = [];
     this.rawEvents = [];
     this.olderRequestPending = false;
@@ -1455,8 +1526,26 @@ export class SessionStore {
     return undefined;
   }
 
-  /** 最近一条真实事件 seq：流式 chunk 复用它的 seq，保证与真实事件同一排序域（对齐小程序 liveAttempt.seq） */
-  private lastEventSeq: number = 0;
+  /**
+   * 流式合成 chunk 的 seq：在保留区（>= CONVERSATION_LIVE_SEQ_BASE）里严格递增。
+   * 绝不能复用真实事件的 seq —— 撞号会把那条真实事件从投影的 sequenceMap 里顶掉，
+   * 于是本轮的 user/message、上一轮已完成的答复直接从时间线上消失，只剩一条运行状态条。
+   */
+  private liveSeq: number = CONVERSATION_LIVE_SEQ_BASE;
+  /** 流式诊断：本尝试第几个 chunk（用于抽样打「网关发出 → 本机收到」时延） */
+  private streamChunkCount: number = 0;
+  /** 当前流式尝试的回合 / 步骤：网关只在 start 帧给一次，后续 chunk 帧不带 */
+  private liveTurn: number = -1;
+  private liveStep: number = -1;
+  /** 最近一条真实事件的回合 / 步骤：start 帧缺 turn/step 时兜底 */
+  private lastEventTurn: number = -1;
+  private lastEventStep: number = -1;
+  /** 最近一次收到「当前会话」实时事件/历史的时刻：用来判断事件流是不是安静到漏帧了 */
+  private lastLiveEventAt: number = 0;
+  /** 会话列表里当前会话的 updatedAt：它变了而事件流又安静 = 手机漏了事件，需要补拉 */
+  private knownUpdatedAt: number = 0;
+  /** 补拉节流时间戳：列表每秒都在变，别把历史请求打成风暴 */
+  private catchUpAt: number = 0;
 
   /**
    * assistant-stream 帧（对齐小程序 store.handleAssistantStream）：
@@ -1467,6 +1556,8 @@ export class SessionStore {
     if (frame.sessionId !== undefined && frame.sessionId.length > 0 && frame.sessionId !== this.sessionId) {
       return;
     }
+    // 流还在送 = 订阅正常，不需要补拉
+    this.lastLiveEventAt = Date.now();
     const payload: Record<string, Object> | undefined =
       asRec(field(frame, 'frame')) ?? asRec(field(frame, 'data')) ?? asRec(field(frame, 'payload'));
     if (payload === undefined) {
@@ -1478,6 +1569,9 @@ export class SessionStore {
       if (this.replayingHistory) {
         return;
       }
+      // start 帧带本尝试的 turn/step，chunk 帧不带：先记下来，否则流式行会一直落在 -1 回合上
+      this.rememberLiveAttempt(payload);
+      this.streamChunkCount = 0;
       if (!this.running) {
         this.running = true;
       }
@@ -1507,29 +1601,65 @@ export class SessionStore {
       return;
     }
     this.assistantStreamActive = true;
-    this.emitLiveAssistantChunk(text, num(payload, 'turn'), num(payload, 'step'));
+    // 抽样记录「网关时间 → 本机收到」的时延，用于判断卡顿在网关推送还是本机渲染
+    this.streamChunkCount += 1;
+    const sentAt: number | undefined = num(payload, 'time');
+    if (sentAt !== undefined && sentAt > 0 && this.streamChunkCount % 50 === 1) {
+      const sentMs: number = sentAt > 10000000000 ? sentAt : sentAt * 1000;
+      Logger.info('stream lag=' + (Date.now() - sentMs).toString() + 'ms chunk=' + this.streamChunkCount.toString());
+    }
+    const declaredType: string = chunk === undefined ? 'text' : (str(chunk, 'type') ?? 'text');
+    this.emitLiveAssistantChunk(this.liveChunkType(declaredType), text,
+      num(payload, 'turn'), num(payload, 'step'));
     if (this.liveTimer < 0) {
       this.startLiveTicker();
     }
   }
 
-  /** 把一段流式增量文本折进当前助手行（真实事件同一管线）；seq 复用最近真实事件，保持排序域一致 */
-  private emitLiveAssistantChunk(text: string, turn: number | undefined, step: number | undefined): void {
+  /** start 帧记下本尝试的回合 / 步骤；缺省回落到最近一条真实事件（本轮用户消息所在回合）。 */
+  private rememberLiveAttempt(payload: Record<string, Object>): void {
+    const turn: number | undefined = num(payload, 'turn');
+    const step: number | undefined = num(payload, 'step');
+    this.liveTurn = turn !== undefined && turn >= 0 ? turn : this.lastEventTurn;
+    this.liveStep = step !== undefined && step >= 0 ? step : this.lastEventStep;
+  }
+
+  /** 网关 chunk 类型 → 投影认识的类型（text / reasoning 简写兼容）。 */
+  private liveChunkType(declared: string): string {
+    if (declared === 'text' || declared === 'text-delta') {
+      return 'text-delta';
+    }
+    if (declared === 'reasoning' || declared === 'reasoning-delta') {
+      return 'reasoning-delta';
+    }
+    return declared;
+  }
+
+  /**
+   * 把一段流式增量折进当前助手行（与真实事件同一条投影管线）。
+   * seq 用保留区里严格递增的合成号：既不覆盖真实事件，也不会每来一段就整表重放；
+   * 回合 / 步骤取 start 帧记下的值，最终 assistant/message 才能按同一个 key 结算这一行。
+   */
+  private emitLiveAssistantChunk(chunkType: string, text: string, turn: number | undefined, step: number | undefined): void {
     if (text.length === 0) {
       return;
     }
-    const seq: number = this.lastEventSeq > 0 ? this.lastEventSeq : 1;
-    const chunkData: Record<string, Object> = { 'type': 'text', 'text': text };
+    const targetTurn: number = turn !== undefined && turn >= 0 ? turn
+      : (this.liveTurn >= 0 ? this.liveTurn : this.lastEventTurn);
+    const targetStep: number = step !== undefined && step >= 0 ? step
+      : (this.liveStep >= 0 ? this.liveStep : this.lastEventStep);
+    this.liveSeq += 1;
+    const chunkData: Record<string, Object> = { 'type': chunkType, 'text': text };
     const data: Record<string, Object> = { 'chunk': chunkData };
-    if (turn !== undefined) {
-      data.turn = turn;
+    if (targetTurn >= 0) {
+      data.turn = targetTurn;
     }
-    if (step !== undefined) {
-      data.step = step;
+    if (targetStep >= 0) {
+      data.step = targetStep;
     }
     const raw: RawSessionEvent = {
       type: 'assistant/chunk',
-      seq: seq,
+      seq: this.liveSeq,
       time: Math.floor(Date.now() / 1000),
       data: data
     };
@@ -1551,13 +1681,20 @@ export class SessionStore {
     }
     const turn: number | undefined = num(active, 'turn');
     const step: number | undefined = num(active, 'step');
+    // 快照里的进行中尝试同样带回合 / 步骤：记下来，后续 chunk 帧才知道该追加到哪一行
+    if (turn !== undefined && turn >= 0) {
+      this.liveTurn = turn;
+      this.liveStep = step !== undefined && step >= 0 ? step : -1;
+    }
     const records: Object[] = arr(active, 'stream') ?? [];
     for (const record of records) {
       const type: string = str(record, 'type') ?? '';
+      let chunkType: string = 'text-delta';
       let text: string = '';
       if (type === 'chunk') {
         const chunk: Record<string, Object> | undefined = asRec(field(record, 'chunk'));
         if (chunk !== undefined) {
+          chunkType = this.liveChunkType(str(chunk, 'type') ?? 'text');
           const value: string | undefined = str(chunk, 'text') ?? str(chunk, 'delta') ?? str(chunk, 'content');
           if (value !== undefined) {
             text = value;
@@ -1571,6 +1708,7 @@ export class SessionStore {
           }
         }
       } else if (type === 'reasoning-chunks') {
+        chunkType = 'reasoning-delta';
         const texts: Object[] = arr(record, 'texts') ?? [];
         for (const piece of texts) {
           if (typeof piece === 'string') {
@@ -1578,7 +1716,7 @@ export class SessionStore {
           }
         }
       }
-      this.emitLiveAssistantChunk(text, turn, step);
+      this.emitLiveAssistantChunk(chunkType, text, turn, step);
     }
   }
 

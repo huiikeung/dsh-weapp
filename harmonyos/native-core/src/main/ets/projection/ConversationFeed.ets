@@ -592,7 +592,7 @@ export class ConversationFeed {
    * - timing=next-input 时只收拢后面已经出现新用户消息的回合。
    */
   static applyWorkStepPolicy(entries: ConversationFeedEntry[], mode: string, timing: string,
-    folds: Map<string, boolean> = new Map<string, boolean>()): void {
+    folds: Map<string, boolean> = new Map<string, boolean>(), conversationRunning: boolean = false): void {
     const policy: WorkStepPolicy = WorkStepPresentation.policy(mode);
     const normalizedMode: string = WorkStepPresentation.normalizeMode(mode);
     const processRunning: boolean = ConversationFeed.hasRunningGroup(entries);
@@ -614,7 +614,7 @@ export class ConversationFeed {
     const lastGroupIndex: number = groupIndices.length > 0 ? groupIndices[groupIndices.length - 1] : -1;
     // 先按档位处理「回合收工折叠」，再逐组套展示策略（对齐小程序 apply 的两段结构）
     if (policy.foldCompletedTurns) {
-      ConversationFeed.mergeSettledTurn(entries, timing === 'next-input');
+      ConversationFeed.mergeSettledTurn(entries, timing === 'next-input', processRunning || conversationRunning);
     }
     for (let index = 0; index < entries.length; index++) {
       const entry: ConversationFeedEntry = entries[index];
@@ -655,6 +655,8 @@ export class ConversationFeed {
       || (policy.stepGrouping === 'history' && entry.turnClosed && !deferred);
     const verbose: boolean = policy.stepGrouping === 'none';
     // 组体一可见就限高：分组模式点开时、详细档对话过程中都要限高；完全展开不设上限
+    // 运行中同样限高：组体始终待在那个容器里（内层小滚动并自动跟随最新一步），
+    // 之前放开限高后，运行中的步骤会脱离容器直接铺满整页，行多了还要不停往上翻。
     const capWhenOpen: boolean = grouped
       || (policy.stepGrouping === 'history' && (entry.running || expanded));
     entry.processGrouped = grouped;
@@ -864,7 +866,7 @@ export class ConversationFeed {
 
   /** 回合收工：连续已收工的过程组折叠成一条「已完成」行。 */
   private static mergeSettledTurn(entries: ConversationFeedEntry[],
-    waitForNextInput: boolean = false): void {
+    waitForNextInput: boolean = false, conversationRunning: boolean = false): void {
     const merged: ConversationFeedEntry[] = [];
     let index: number = 0;
     while (index < entries.length) {
@@ -880,22 +882,23 @@ export class ConversationFeed {
         run.push(entries[scan]);
         scan++;
       }
-      if (waitForNextInput) {
-        // 只有后面已经出现新的用户消息，才认为该回合已真正收工
-        let hasUserAfter: boolean = false;
-        for (let probe: number = scan; probe < entries.length; probe++) {
-          if (entries[probe].kind === 'USER') {
-            hasUserAfter = true;
-            break;
-          }
+      // 这一串过程组后面还有没有新的用户消息：有 = 回合确实收工了
+      let hasUserAfter: boolean = false;
+      for (let probe: number = scan; probe < entries.length; probe++) {
+        if (entries[probe].kind === 'USER') {
+          hasUserAfter = true;
+          break;
         }
-        if (!hasUserAfter) {
-          for (const group of run) {
-            merged.push(group);
-          }
-          index = scan;
-          continue;
+      }
+      // 还在跑的这一轮不能折叠：收起时机=「回答结束后」时，以前会把「已经跑完但整轮还没结束」
+      // 的过程组立刻折成一条「已完成」，于是运行中只剩最后一行「正在调用…」，
+      // 思考、执行代码这些步骤全被吞进折叠行，要等回合结束才看得到。
+      if (!hasUserAfter && (waitForNextInput || conversationRunning)) {
+        for (const group of run) {
+          merged.push(group);
         }
+        index = scan;
+        continue;
       }
       const turn: ConversationFeedEntry = new ConversationFeedEntry();
       turn.id = 'turn-' + entry.id;

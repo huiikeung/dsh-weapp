@@ -2,6 +2,14 @@ import { SessionEvent } from '../protocol/GatewayDtos';
 import { Logger } from '../common/Logger';
 import { asRec, str, num } from '../protocol/GatewayFrameCodec';
 
+/**
+ * 合成流式事件（assistant-stream 增量）的 seq 保留区起点。
+ * 真实事件 seq 从 0 单调递增，永远到不了这个区间；合成事件在这个区间里严格递增，
+ * 于是既不会和真实事件撞号（撞号会把那条真实事件从 sequenceMap 里顶掉），
+ * 也不会被当成历史事件写进 records / sequenceMap（历史重放与合并只认真实事件）。
+ */
+export const CONVERSATION_LIVE_SEQ_BASE: number = 900000;
+
 export enum ConversationItemKind { USER='USER', CONTEXT='CONTEXT', ASSISTANT='ASSISTANT', REASONING='REASONING', TOOL='TOOL', JSON_TOOL='JSON_TOOL', TOOL_RESULT='TOOL_RESULT', GENERATED_IMAGES='GENERATED_IMAGES', STATUS='STATUS', SYSTEM='SYSTEM', CHANGES='CHANGES', FILES='FILES' }
 /** 交付/编辑文件（对齐小程序 delivered-file / changed-file 卡片） */
 export interface PresentedFile {
@@ -68,6 +76,15 @@ export class ConversationProjector {
   rebuild(events: SessionEvent[]): void { this.reset(); const sorted = events.slice().sort((a: SessionEvent,b: SessionEvent) => a.seq-b.seq); for (const event of sorted) this.fold(event); }
   fold(record: SessionEvent): ConversationProjectionOperation[] {
     if (!Number.isSafeInteger(record.seq) || record.seq < 0) return [];
+    // 流式增量是合成事件：只叠加到当前投影，不进 records / sequenceMap。
+    // 以前它们复用「最近一条真实事件」的 seq，fold 会走 sequenceMap 覆盖 + 整表重放，
+    // 把那条真实事件（本轮用户消息、上一轮已完成的最终答复）顶掉，表现就是
+    // 「新消息被塞进上一轮已完成的回合里，本轮只剩运行状态条」。
+    if (record.seq >= CONVERSATION_LIVE_SEQ_BASE) {
+      const liveOperations: ConversationProjectionOperation[] = [];
+      this.project(record, liveOperations);
+      return liveOperations;
+    }
     const existing = this.sequenceMap.get(record.seq);
     if (existing !== undefined && JSON.stringify(existing) === JSON.stringify(record)) return [];
     if (record.seq <= this.lastSequence || existing !== undefined) {
@@ -132,6 +149,49 @@ export class ConversationProjector {
     }
     return out;
   }
+
+  /**
+   * 回合收尾：把还没结算的流式行就地定稿（改标题、退出流式索引），而不是整行删掉。
+   * 以前这里直接 clear：网关的 assistant/message 不带推理文本、或回合被中断时，
+   * 已经流式显示出来的「思考 / 正文」会在收尾瞬间整行消失，看起来就是「行没显示全」。
+   */
+  settleLiveRows(): ConversationProjectionOperation[] {
+    const out: ConversationProjectionOperation[] = [];
+    const keys: string[] = [];
+    this.streamIndexes.forEach((value: number, key: string) => { keys.push(key); });
+    for (const key of keys) {
+      const index: number = this.streamIndexes.get(key) === undefined ? -1 : (this.streamIndexes.get(key) as number);
+      if (index < 0 || index >= this.mutableItems.length) {
+        this.streamIndexes.delete(key);
+        continue;
+      }
+      const old: ConversationItem = this.mutableItems[index];
+      this.streamIndexes.delete(key);
+      if (old.text.length === 0) {
+        continue;
+      }
+      let title: string = old.title;
+      if (key.indexOf('stream-text-') === 0) {
+        title = this.labels.finalAssistant ?? 'DeepSeek';
+      } else if (key.indexOf('stream-reason-') === 0) {
+        title = this.labels.finalReasoning ?? 'Think';
+      } else if (key.indexOf('stream-tool-') === 0) {
+        title = old.title;
+      }
+      const next: ConversationItem = {
+        id: old.id, kind: old.kind, title: title, text: old.text, images: old.images,
+        attachments: old.attachments, isError: old.isError, epochSeconds: old.epochSeconds, turn: old.turn,
+        files: old.files, knownFiles: old.knownFiles, textParts: old.textParts, requestId: old.requestId,
+        callId: old.callId, parentCallId: old.parentCallId, rootCallId: old.rootCallId, subCallId: old.subCallId,
+        depth: old.depth, status: old.status, argumentsText: old.argumentsText, resultText: old.resultText,
+        imageCount: old.imageCount, changeSeq: old.changeSeq
+      };
+      this.mutableItems[index] = next;
+      out.push({ kind: 'replace', item: next, itemId: next.id });
+    }
+    return out;
+  }
+
   clearAssistantChunks(): ConversationProjectionOperation[] {
     const out: ConversationProjectionOperation[] = [];
     for (const key of this.streamIndexes.keys()) { const index=this.streamIndexes.get(key); if(index!==undefined){const item=this.mutableItems[index]; this.mutableItems.splice(index,1); this.streamIndexes.delete(key); out.push({kind:'remove',itemId:item.id});} }
@@ -178,21 +238,21 @@ export class ConversationProjector {
     const e=record.event; const turn=e.turn ?? -1; const step=e.step ?? -1; const key=turn+'-'+step; const date=ConversationProjector.epoch(record.time); const id=record.sessionId+'-'+record.seq;
     if(e.type==='user/message') {
       const kind=e.source===undefined||e.source==='user'?ConversationItemKind.USER:ConversationItemKind.CONTEXT;
-      if((e.text??'').length===0 && (e.images?.length??0)===0) return;
-      const item:ConversationItem={id,kind,title:kind===ConversationItemKind.USER?(this.labels.userMessage??'You'):(this.labels.context??'Context · ')+(e.source??'Context'),text:e.text??'',images:e.images as Object[]|undefined,epochSeconds:date,turn:e.turn};
+      if((e.text??'').length===0 && (e.images?.length??0)===0 && (e.attachments?.length??0)===0) return;
+      const item:ConversationItem={id,kind,title:kind===ConversationItemKind.USER?(this.labels.userMessage??'You'):(this.labels.context??'Context · ')+(e.source??'Context'),text:e.text??'',images:e.images as Object[]|undefined,attachments:e.attachments as Object[]|undefined,epochSeconds:date,turn:e.turn};
       this.insert(item,out); return;
     }
     if(e.type==='assistant/chunk') {
       if(this.finalizedKeys.has(key)) return;
-      const chunk=e.chunkType; if(chunk==='text-delta') this.append('stream-text-'+key,ConversationItemKind.ASSISTANT,this.labels.streamingAssistant??'DeepSeek',e.text??'',date,out);
-      else if(chunk==='reasoning-delta') this.append('stream-reason-'+key,ConversationItemKind.REASONING,this.labels.streamingReasoning??'Think',e.text??'',date,out);
+      const chunk=e.chunkType; if(chunk==='text-delta'||chunk==='text') this.append('stream-text-'+key,ConversationItemKind.ASSISTANT,this.labels.streamingAssistant??'DeepSeek',e.text??'',date,out);
+      else if(chunk==='reasoning-delta'||chunk==='reasoning') this.append('stream-reason-'+key,ConversationItemKind.REASONING,this.labels.streamingReasoning??'Think',e.text??'',date,out);
       else if(chunk==='tool-call-delta') { const name=e.tool?.name??this.labels.assemblingTool??'Tool'; this.append('stream-tool-'+(e.tool?.id??key),name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL,name,e.tool?.argumentsDelta??'',date,out); }
       return;
     }
     if(e.type==='assistant/message') {
       this.finalizedKeys.add(key);
       if(e.reasoning!==undefined && e.reasoning.length>0) this.finalize('stream-reason-'+key,{id:id+'-reason',kind:ConversationItemKind.REASONING,title:this.labels.finalReasoning??'Think',text:e.reasoning,isError:e.interrupted,epochSeconds:date,turn:e.turn},out);
-      if((e.text??'').length>0 || (e.images?.length??0)>0) this.finalizeAssistantText('stream-text-'+key,{id,kind:ConversationItemKind.ASSISTANT,title:e.interrupted===true?(this.labels.interrupted??'Generation interrupted'):(this.labels.finalAssistant??'DeepSeek'),text:e.text??'',images:e.images as Object[]|undefined,isError:e.interrupted,epochSeconds:date,turn:e.turn},out);
+      if((e.text??'').length>0 || (e.images?.length??0)>0 || (e.attachments?.length??0)>0) this.finalizeAssistantText('stream-text-'+key,{id,kind:ConversationItemKind.ASSISTANT,title:e.interrupted===true?(this.labels.interrupted??'Generation interrupted'):(this.labels.finalAssistant??'DeepSeek'),text:e.text??'',images:e.images as Object[]|undefined,attachments:e.attachments as Object[]|undefined,isError:e.interrupted,epochSeconds:date,turn:e.turn},out);
       return;
     }
     if (e.type === 'workspace/changes') {

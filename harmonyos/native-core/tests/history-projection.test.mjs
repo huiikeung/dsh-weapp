@@ -5,14 +5,15 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 const load=p=>{
  let source=readFileSync(new URL('../src/main/ets/'+p,import.meta.url),'utf8');
- source=source.replace("export enum ConversationItemKind { USER='USER', CONTEXT='CONTEXT', ASSISTANT='ASSISTANT', REASONING='REASONING', TOOL='TOOL', JSON_TOOL='JSON_TOOL', TOOL_RESULT='TOOL_RESULT', GENERATED_IMAGES='GENERATED_IMAGES', STATUS='STATUS', SYSTEM='SYSTEM' }", "const ConversationItemKind={USER:'USER',CONTEXT:'CONTEXT',ASSISTANT:'ASSISTANT',REASONING:'REASONING',TOOL:'TOOL',JSON_TOOL:'JSON_TOOL',TOOL_RESULT:'TOOL_RESULT',GENERATED_IMAGES:'GENERATED_IMAGES',STATUS:'STATUS',SYSTEM:'SYSTEM'};");
- source=source.replace("export enum TrajectoryNodeKind { INPUT='INPUT', CONTEXT='CONTEXT', REQUEST='REQUEST', ASSISTANT='ASSISTANT', TOOL='TOOL', SUBTOOL='SUBTOOL' }", "const TrajectoryNodeKind={INPUT:'INPUT',CONTEXT:'CONTEXT',REQUEST:'REQUEST',ASSISTANT:'ASSISTANT',TOOL:'TOOL',SUBTOOL:'SUBTOOL'};");
+ // 枚举花括号里的写法本身就是合法的对象字面量：直接包一层 {} 转成常量对象，
+ // 这样枚举新增成员时测试加载器不需要再跟着改字符串。
+ source=source.replace(/export enum (\w+)\s*\{([^}]*)\}/g,(m,name,body)=>'globalThis.'+name+'={'+body.replace(/([A-Za-z_0-9]+)\s*=\s*/g,'$1:')+',};');
  return source.replace(/^import[\s\S]*?;$/gm,'').replace(/export /g,'');
 };
 const ctx={Map,Set,Object,Array,JSON,Number,Math,Date,Error,Promise,setTimeout,clearTimeout,asRec:v=>v&&typeof v==='object'?v:undefined,str:(v,k)=>typeof v?.[k]==='string'?v[k]:undefined,num:(v,k)=>typeof v?.[k]==='number'?v[k]:undefined};
-const files=[['sync/HistoryReducer.ets','HistoryReducer, HistoryEventMerger'],['sync/HistorySyncEngine.ets','HistorySyncEngine'],['sync/AssistantStreamState.ets','AssistantStreamState'],['projection/ConversationProjection.ets','ConversationProjector, ConversationItemKind'],['projection/TrajectoryProjection.ets','TrajectoryProjector, TrajectoryProjection'],['projection/ToolActivitySummary.ets','ToolActivitySummaryFormatter']];
-for(const [file,names] of files)runInNewContext(stripTypeScriptTypes(load(file))+';globalThis.api={...(globalThis.api||{}),'+names.split(', ').map(n=>n+':'+n).join(',')+'};',ctx);
-const {HistoryReducer:H,HistoryEventMerger:M,HistorySyncEngine:E,AssistantStreamState:S,ConversationProjector:C,TrajectoryProjector:T,TrajectoryProjection:TP,ToolActivitySummaryFormatter:F}=ctx.api;
+const files=[['sync/HistoryReducer.ets','HistoryReducer, HistoryEventMerger'],['sync/HistorySyncEngine.ets','HistorySyncEngine'],['sync/AssistantStreamState.ets','AssistantStreamState'],['projection/ConversationProjection.ets','ConversationProjector, ConversationItemKind'],['projection/WorkStepPresentation.ets','WorkStepPresentation'],['projection/ConversationFeed.ets','ConversationFeed'],['projection/TrajectoryProjection.ets','TrajectoryProjector, TrajectoryProjection'],['projection/ToolActivitySummary.ets','ToolActivitySummaryFormatter']];
+for(const [file,names] of files){const xs=names.split(', ');runInNewContext(stripTypeScriptTypes(load(file))+';'+xs.map(n=>'globalThis.'+n+'='+n+';').join('')+'globalThis.api={...(globalThis.api||{}),'+xs.map(n=>n+':'+n).join(',')+'};',ctx);}
+const {HistoryReducer:H,HistoryEventMerger:M,HistorySyncEngine:E,AssistantStreamState:S,ConversationProjector:C,TrajectoryProjector:T,TrajectoryProjection:TP,ToolActivitySummaryFormatter:F,ConversationFeed:CF}=ctx.api;
 const event=(sessionId,seq,type,fields={})=>({sessionId,seq,time:1700000000000+seq,event:{type,...fields}});
 test('history paging batches two pages and rejects missing or repeated cursor',()=>{
  let state=H.initial();let r=H.reduce(state,{kind:'Start',sessionId:'s',older:false,hasLocalEvents:true});state=r.state;assert.equal(r.result.kind,'RequestPage');
@@ -52,4 +53,39 @@ test('assistant stream requires subscription baseline and monotonic revision/ind
  const chunk={kind:'assistant-stream',sessionId:'s',subscriptionId:'sub',streamId:'st',frame:{type:'start',revision:1,attemptId:'a',turn:2,step:1}};assert.equal(s.accept(chunk).accepted,true);
  const c={kind:'assistant-stream',sessionId:'s',subscriptionId:'sub',streamId:'st',frame:{type:'chunk',revision:2,attemptId:'a',index:0,time:1,chunk:{type:'text-delta',text:'x'}}};assert.equal(s.accept(c).chunks.length,1);assert.equal(s.accept(c).accepted,false);
  const gap={kind:'assistant-stream',sessionId:'s',subscriptionId:'sub',streamId:'st',frame:{type:'chunk',revision:4,attemptId:'a',index:1,chunk:{type:'text-delta',text:'y'}}};assert.equal(s.accept(gap).resubscribe,true);
+});
+test('running turn keeps process steps unfolded until the turn ends',()=>{
+ const p=new C();
+ p.fold(event('s',1,'user/message',{text:'do it',turn:1}));
+ p.fold(event('s',2,'tool/call',{turn:1,step:1,callId:'c1',name:'run_code',arguments:{code:'1'}}));
+ p.fold(event('s',3,'assistant/message',{turn:1,step:1,text:'partial'}));
+ p.fold(event('s',4,'tool/call',{turn:1,step:2,callId:'c2',name:'bash',arguments:{command:'ls'}}));
+ const items=p.items;
+ // 运行中：已跑完的过程组不能被折成「已完成」，否则思考/执行代码在运行期间看不到
+ const live=CF.build(items,true);
+ CF.applyWorkStepPolicy(live,'detailed','completion',new Map(),true);
+ assert.equal(live.filter(r=>r.kind==='TURN').length,0);
+ assert.ok(live.filter(r=>r.kind==='PROCESS').some(g=>g.processBodyVisible));
+ // 回合结束：仍按「回答结束后」收拢
+ const done=CF.build(items,false);
+ CF.applyWorkStepPolicy(done,'detailed','completion',new Map(),false);
+ assert.ok(done.filter(r=>r.kind==='TURN').length>0);
+});
+test('live synthetic assistant chunks never take over real event slots',()=>{
+ const p=new C();
+ p.fold(event('s',1,'user/message',{text:'first'}));
+ p.fold(event('s',2,'assistant/message',{turn:1,step:1,text:'done'}));
+ p.fold(event('s',3,'user/message',{text:'second'}));
+ // 合成流式增量在保留区里：不能顶掉 seq=3 的用户消息，也不能抬高 lastSequence
+ const live=p.fold(event('s',900001,'assistant/chunk',{turn:2,step:1,chunkType:'text-delta',text:'streamed'}));
+ assert.ok(live.length>0);
+ assert.equal(p.items.filter(i=>i.kind==='USER').map(i=>i.text).join('|'),'first|second');
+ assert.equal(p.items.filter(i=>i.kind==='ASSISTANT').pop().text,'streamed');
+ assert.equal(p.lastSequence,3);
+ // 真实答复按同一 turn/step 结算流式行，不另起一行
+ const settled=p.fold(event('s',4,'assistant/message',{turn:2,step:1,text:'streamed final'}));
+ assert.equal(settled[0].kind,'replace');
+ const answers=p.items.filter(i=>i.kind==='ASSISTANT');
+ assert.equal(answers.length,2);
+ assert.equal(answers[1].text,'streamed final');
 });

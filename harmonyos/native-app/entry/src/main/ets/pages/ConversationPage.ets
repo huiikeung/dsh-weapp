@@ -34,7 +34,9 @@ const TURN_TRACK_WIDTH: number = 36;
 const TURN_THUMB_HEIGHT: number = 44;
 
 /** 流式期间重排时间线的最小间隔：太密会把 UI 线程占满，手指点不动、也滑不动 */
-const TIMELINE_MIN_INTERVAL_MS: number = 90;
+// 时间线重排的最小间隔：≈一帧。以前是 90ms，流式正文一格一格地慢半拍；
+// 实际耗时超过阈值时由 timelineInterval 自适应退让，避免把主线程压死。
+const TIMELINE_MIN_INTERVAL_MS: number = 16;
 
 interface UploadReceipt {
   receiptId: string;
@@ -383,6 +385,10 @@ export struct ConversationPage {
   private olderLoading: boolean = false;
   /** 正在重建列表：这期间的 onReachEnd 是重建造成的，不能当成「用户滑到底」而恢复吸底 */
   private suppressReachEnd: boolean = false;
+  /** 重载后的忽略窗口（毫秒时间戳）：onDataReloaded 的 reachEnd 往往下一帧才到，布尔标记来不及挡 */
+  private suppressReachEndUntil: number = 0;
+  /** 列表最后一条可见行下标（onScrollIndex 维护）：判断用户是否真的滑到了底部 */
+  private lastVisibleEnd: number = -1;
   private lastTouchAt: number = 0;
   private lastUserScrollAt: number = 0;
   /** 时间线重排节流（流式期间用） */
@@ -390,6 +396,8 @@ export struct ConversationPage {
   private themeDirty: boolean = false;
   private timelineTimer: number = -1;
   private lastTimelineUpdateAt: number = 0;
+  /** 自适应重排间隔：重建很快就跟到 16ms，重活时退到 24/48ms */
+  private timelineInterval: number = TIMELINE_MIN_INTERVAL_MS;
 
   // ==================== 生命周期 ====================
   aboutToAppear(): void {
@@ -1079,7 +1087,8 @@ export struct ConversationPage {
     let rows: ConversationFeedEntry[] = ConversationFeed.build(source, this.running && this.connection === 'connected');
     // 任何时候都要算策略：运行中也要决定组体是否可见 / 限高 / 标题隐藏
     // （对齐小程序：workSteps.apply 每帧无条件执行，运行态由 policy 内部判断）
-    ConversationFeed.applyWorkStepPolicy(rows, this.workStepMode, this.workStepTiming, this.folds);
+    ConversationFeed.applyWorkStepPolicy(rows, this.workStepMode, this.workStepTiming, this.folds,
+      this.running && this.connection === 'connected');
     // 回合展开时，把组行摊平到它下面当同级行（对齐小程序：turnProcess 行 + 各 processGroup 行，
     // 收起时按 turnProcessKey 过滤）。不嵌套组件——嵌套 @ObjectLink 行在本机会崩。
     const flat: ConversationFeedEntry[] = [];
@@ -1151,6 +1160,8 @@ export struct ConversationPage {
     const keepOffset: boolean = !this.autoStick;
     const yOffset: number = keepOffset ? this.scroller.currentOffset().yOffset : 0;
     this.suppressReachEnd = true;
+    // 重载产生的 reachEnd 可能在下一帧才到：留 300ms 窗口，别让它把用户「恢复吸底」
+    this.suppressReachEndUntil = Date.now() + 300;
     this.entries = built;
     this.source.update(built);
     setTimeout(() => {
@@ -1204,7 +1215,7 @@ export struct ConversationPage {
     if (this.timelineTimer >= 0) {
       return;
     }
-    const wait: number = TIMELINE_MIN_INTERVAL_MS - (Date.now() - this.lastTimelineUpdateAt);
+    const wait: number = this.timelineInterval - (Date.now() - this.lastTimelineUpdateAt);
     if (wait <= 0) {
       this.applyTimelineUpdate();
       return;
@@ -1218,8 +1229,11 @@ export struct ConversationPage {
   }
 
   private applyTimelineUpdate(): void {
-    this.lastTimelineUpdateAt = Date.now();
+    const startedAt: number = Date.now();
+    this.lastTimelineUpdateAt = startedAt;
     this.rebuildEntries();
+    const spent: number = Date.now() - startedAt;
+    this.timelineInterval = spent >= 12 ? 48 : (spent >= 6 ? 24 : TIMELINE_MIN_INTERVAL_MS);
     this.refreshProgress();
     const tail: ConversationFeedEntryModel | null = this.entries.length > 0 ? this.entries[this.entries.length - 1] : null;
     const key: string = tail === null ? '' : tail.id + ':' + tail.text.length.toString();
@@ -1249,6 +1263,25 @@ export struct ConversationPage {
       return true;
     }
     return now - this.lastUserScrollAt < 800;
+  }
+
+  /**
+   * 恢复「吸底跟随」的唯一入口：必须确认是用户自己把列表拖到了末尾。
+   * 流式期间正文增长、onDataReloaded 重排都会触发 onReachEnd / onScrollIndex，
+   * 以前在 onReachEnd 里无条件 autoStick = true，用户往上翻两屏就被拽回底部
+   * （表现就是「运行中一直翻不到上面的内容」）。
+   */
+  private maybeResumeAutoStick(): void {
+    if (this.suppressReachEnd || Date.now() < this.suppressReachEndUntil) {
+      return;
+    }
+    if (!this.userInteracting()) {
+      return;
+    }
+    if (this.entries.length === 0 || this.lastVisibleEnd < this.entries.length - 1) {
+      return;
+    }
+    this.autoStick = true;
   }
 
   /** 运行中的过程组 id（点击运行条时展开它） */
@@ -1328,6 +1361,7 @@ export struct ConversationPage {
   private reloadForTheme(): void {
     const yOffset: number = this.scroller.currentOffset().yOffset;
     this.suppressReachEnd = true;
+    this.suppressReachEndUntil = Date.now() + 300;
     this.source.update(this.entries);
     setTimeout(() => {
       this.scroller.scrollTo({ xOffset: 0, yOffset: yOffset, animation: false });
@@ -5518,12 +5552,19 @@ export struct ConversationPage {
         // 滑到顶部自动往前翻一页历史（原来这里是一颗「加载更早记录」按钮）
         this.maybeLoadOlder();
       })
+      .onScrollIndex((start: number, end: number) => {
+        // 记录最后一条可见行：只凭它判断「用户真的滑到底了」
+        this.lastVisibleEnd = end;
+        // 用户把列表从底部拖开就先停掉吸底：不依赖 onScrollStart 是否触发（它偶尔会漏）
+        if (this.entries.length > 0 && end < this.entries.length - 1 && this.userInteracting()) {
+          this.autoStick = false;
+        }
+        this.maybeResumeAutoStick();
+      })
       .onReachEnd(() => {
         // 只有「用户自己滑到底」才恢复吸底。流式期间内容不断增长、列表重建也会触发 reachEnd，
         // 若据此恢复吸底，用户往上看的历史会被立刻拽回底部（表现就是「运行时滑不动」）。
-        if (!this.suppressReachEnd) {
-          this.autoStick = true;
-        }
+        this.maybeResumeAutoStick();
       })
 
       if (!this.autoStick && this.entries.length > 0) {

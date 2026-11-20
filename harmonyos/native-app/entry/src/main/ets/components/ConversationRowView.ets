@@ -1208,27 +1208,30 @@ export struct ConversationRowView {
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
       } else if ((item.kind as string) === 'CONTEXT') {
-        // 上下文注入行：标题就是「上下文注入 · <来源>」（如 dsh-ops：step-tail）。
-        // 之前给它限制 46% 宽 + 单行省略，来源名稍长就变成「dsh-...」，
-        // 现在标题独占剩余宽度并可折两行，注入内容预览挪到第二行。
-        Column({ space: this.rpx(2) }) {
+        // 上下文注入行：标题「上下文注入 · <来源>」与注入内容预览必须同一行
+        // （对齐小程序 .disclosure-head 的单行布局）。标题过长自己省略，预览吃满余宽。
+        if (this.stepDetail(item).length > 0) {
           Text(item.title.length > 0 ? item.title : '上下文')
             .fontSize(13.2)
             .fontColor(this.secondaryText())
-            .maxLines(2)
+            .flexShrink(0)
+            .constraintSize({ maxWidth: '70%' })
+            .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
-          if (this.stepDetail(item).length > 0) {
-            Text(ConversationFeed.preview(this.stepDetail(item), 72))
-              .fontSize(12)
-              .fontColor(this.tertiaryText())
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%')
-          }
+          Text(ConversationFeed.preview(this.stepDetail(item), 72))
+            .fontSize(12)
+            .fontColor(this.tertiaryText())
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        } else {
+          Text(item.title.length > 0 ? item.title : '上下文')
+            .fontSize(13.2)
+            .fontColor(this.secondaryText())
+            .layoutWeight(1)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
       } else if ((item.kind as string) === 'STATUS') {
         Text(ConversationFeed.collapse(item.title + ' ' + item.text))
           .fontSize(13.2)
