@@ -1738,16 +1738,11 @@ export struct TailscalePage {
                   this.switchAccount(account.id);
                 })
                 Column({ space: 3 }) {
-                  Text(account.name.length > 0 ? account.name : (account.login.length > 0 ? account.login : '未登录账号'))
+                  Text(account.name.length > 0 ? account.name.replaceAll('+', ' ') : (account.login.length > 0 ? account.login.replaceAll('+', ' ') : '未登录账号'))
                     .fontSize(16)
                     .fontColor(this.textColor())
                   if (account.login.length > 0) {
                     Text(account.login)
-                      .fontSize(12)
-                      .fontColor(this.subColor())
-                  }
-                  if (account.addresses.length > 0) {
-                    Text(account.addresses.split(',')[0])
                       .fontSize(12)
                       .fontColor(this.subColor())
                   }

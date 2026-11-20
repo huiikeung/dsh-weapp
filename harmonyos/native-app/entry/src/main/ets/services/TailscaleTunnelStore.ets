@@ -457,10 +457,11 @@ export class TailscaleTunnelStore {
         const acct: string = acctEnd > 0 ? acctTail.substring(0, acctEnd) : acctTail.trim();
         const parts: string[] = acct.split('|');
         if (parts.length >= 3 && (parts[0].length > 0 || parts[1].length > 0)) {
-          const login: string = decodeURIComponent(parts[1]);
-          const display: string = parts[0].length > 0 ? decodeURIComponent(parts[0]) : login;
-          const tailnet: string = decodeURIComponent(parts[2]);
-          const addresses: string = parts.length > 3 ? decodeURIComponent(parts[3]) : '';
+          // Go 端用 url.QueryEscape 编码，空格会变成 '+'，需要先还原
+          const login: string = decodeURIComponent(parts[1].replace(/\+/g, '%20'));
+          const display: string = parts[0].length > 0 ? decodeURIComponent(parts[0].replace(/\+/g, '%20')) : login;
+          const tailnet: string = decodeURIComponent(parts[2].replace(/\+/g, '%20'));
+          const addresses: string = parts.length > 3 ? decodeURIComponent(parts[3].replace(/\+/g, '%20')) : '';
           AppStorage.setOrCreate<string>('tailscaleAccountName', display);
           Logger.info('TSDBG acct=' + display + ' | ' + login);
           this.upsertAccountProfile(display, login, tailnet, addresses);
