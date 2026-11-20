@@ -508,6 +508,19 @@ export class TailscaleTunnelStore {
           this.upsertAccountProfile(display, login, tailnet, addresses);
         }
       }
+      // 网关 tailnet 节点名（Go 端从 netmap 取），用于合成 wss://<peer>.ts.net
+      const gwIdx: number = fastStat.indexOf('gwPeer=');
+      if (gwIdx >= 0) {
+        const gwTail: string = fastStat.substring(gwIdx + 'gwPeer='.length);
+        const gwEnd: number = gwTail.indexOf(' | ');
+        const gwPeer: string = (gwEnd > 0 ? gwTail.substring(0, gwEnd) : gwTail.trim()).trim();
+        if (gwPeer.length > 0) {
+          AppStorage.setOrCreate<string>('tailnetGatewayPeerName', gwPeer);
+          if (PreferencesStore.get().getString('tailnetGatewayPeerName', '') !== gwPeer) {
+            PreferencesStore.get().putString('tailnetGatewayPeerName', gwPeer);
+          }
+        }
+      }
       const dnsIndex: number = fastStat.indexOf('dnsName=');
       if (dnsIndex >= 0) {
         const tail: string = fastStat.substring(dnsIndex + 'dnsName='.length);
