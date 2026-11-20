@@ -81,7 +81,9 @@ export class TailscaleTunnelStore {
         hostname = 'harmony';
       }
     }
-    let authKey: string = PreferencesStore.get().getString('tsnetAuthKey', '').trim();
+    // 登录方式相互独立：account 模式不把已保存的 AuthKey 传给引擎，authKey 模式才用
+    const loginMode: string = PreferencesStore.get().getString('tsnetLoginMode', 'account');
+    let authKey: string = loginMode === 'authKey' ? PreferencesStore.get().getString('tsnetAuthKey', '').trim() : '';
     Logger.info('TSDBG fast authKeyLen=' + authKey.length);
     // 首次切到 /fast 子目录时，把旧的已登录状态迁移过来，避免重新登录
     try {
@@ -144,6 +146,7 @@ export class TailscaleTunnelStore {
    * tsnet 会在 NeedsLogin 状态下给出新的登录链接（页面「去授权」打开）。
    */
   reauthorizeWithBrowser(): void {
+    PreferencesStore.get().putString('tsnetLoginMode', 'account');
     // 改用浏览器登录：清掉旧节点状态与已应用 key，让 tsnet 重新走登录链接
     try {
       fileIo.rmdirSync(this.stateDir + '/fast');
@@ -169,6 +172,7 @@ export class TailscaleTunnelStore {
   /** 用新的 authKey 重启轻量引擎 */
   /** 应用新的 Auth Key：仅当 key 变化时清空旧节点状态，其余情况复用已登录状态重连 */
   applyAuthKey(key: string): void {
+    PreferencesStore.get().putString('tsnetLoginMode', 'authKey');
     const applied: string = PreferencesStore.get().getString('tsnetAppliedAuthKey', '');
     if (applied !== key) {
       try {

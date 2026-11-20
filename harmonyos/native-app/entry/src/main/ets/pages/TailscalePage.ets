@@ -557,6 +557,31 @@ export struct TailscalePage {
     });
   }
 
+  /** 添加账号：始终走浏览器授权（即使已保存 AuthKey 也不用 key 登录） */
+  private startAccountLogin(): void {
+    this.loginResult = '正在创建 Tailscale 节点并获取登录链接…';
+    this.dialogOpen = true;
+    this.connectWithAccount();
+    this.pollAccountLoginUrl(0);
+  }
+
+  private pollAccountLoginUrl(tick: number): void {
+    if (tick > 25) {
+      this.loginResult = '获取登录链接超时，请检查手机网络（DNS/代理）后重试';
+      return;
+    }
+    const url: string = AppStorage.get<string>('tailscaleAuthUrl') ?? '';
+    if (url.startsWith('http')) {
+      this.loginUrl = url;
+      this.loginResult = '正在浏览器打开 Tailscale 登录页：\n' + url;
+      this.openLoginUrl();
+      return;
+    }
+    setTimeout(() => {
+      this.pollAccountLoginUrl(tick + 1);
+    }, 1000);
+  }
+
   private startLogin(): void {
     this.dialogOpen = true;
     if (this.authKey.trim().length > 0) {
@@ -841,7 +866,8 @@ export struct TailscalePage {
     setTimeout(() => {
       this.loginBusy = false;
     }, 4000);
-    PreferencesStore.get().putString('tsnetAuthKey', '');
+    // 账号模式与 AuthKey 相互独立：只切换模式，保留已保存的 key 供之后切回
+    PreferencesStore.get().putString('tsnetLoginMode', 'account');
     AppStorage.setOrCreate<string>('tsnetAuthMode', 'account');
     this.authModeState = 'account';
     this.fastHint = '正在用账号登录…';
@@ -857,6 +883,7 @@ export struct TailscalePage {
     setTimeout(() => {
       this.loginBusy = false;
     }, 4000);
+    PreferencesStore.get().putString('tsnetLoginMode', 'authKey');
     PreferencesStore.get().putString('tsnetAuthKey', this.authKey.trim());
     AppStorage.setOrCreate<string>('tsnetAuthMode', 'authKey');
     AppStorage.setOrCreate<string>('tailscaleStageError', '');
@@ -1051,7 +1078,7 @@ export struct TailscalePage {
             .height(44)
             .textAlign(TextAlign.Center)
             .onClick(() => {
-              this.startLogin();
+              this.startAccountLogin();
             })
         }
         Text('关闭')
