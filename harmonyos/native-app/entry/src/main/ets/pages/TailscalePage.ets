@@ -1118,6 +1118,15 @@ export struct TailscalePage {
     return PreferencesStore.get().getString('tsnetLoginMode', 'account') !== 'authKey';
   }
 
+  /** 账号与网络卡片的说明（按当前登录模式补充） */
+  private accountHintText(): string {
+    let text: string = '点前面的圆点用该账号登录，右侧可删除；不删除会一直保留。';
+    if (!this.isAccountMode()) {
+      text += '\n当前使用 Auth Key 登录；也可以在这里添加浏览器账号后切换。';
+    }
+    return text;
+  }
+
   private identitySummary(): string {
     if (this.accountTailnet.length > 0) {
       return '账号 ' + this.accountTailnet;
@@ -1577,7 +1586,7 @@ export struct TailscalePage {
 
           // ── 区块 2：账号与网络（隧道开启后常驻，保证随时能添加/切换账号）──
           if (this.tunnelEnabled) {
-          this.sectionHeaderWithHint('账号与网络', '点前面的圆点用该账号登录，右侧可删除；不删除会一直保留。')
+          this.sectionHeaderWithHint('账号与网络', this.accountHintText())
           Column() {
             if (this.accountName.length > 0 && this.isAccountMode()) {
               Row({ space: 10 }) {
@@ -1625,14 +1634,6 @@ export struct TailscalePage {
               .width('100%')
               .padding({ left: 16, right: 8, top: 12, bottom: 12 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-            }
-            if (!this.isAccountMode()) {
-              Text('当前使用 Auth Key 登录；也可以添加浏览器账号后切换')
-                .fontSize(12)
-                .lineHeight(18)
-                .fontColor(this.subColor())
-                .width('100%')
-                .padding({ left: 16, right: 16, top: 8, bottom: 4 })
             }
             Row({ space: 8 }) {
               SymbolGlyph($r('sys.symbol.plus'))
