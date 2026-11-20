@@ -45,6 +45,8 @@ export struct TailscalePage {
   @State authKey: string = '';
   @State controlURL: string = '';
   @State selfHostedOpen: boolean = false;
+  @State authKeyDialogOpen: boolean = false;
+  @State authKeyDraft: string = '';
   @State stage: string = STAGE_DISABLED;
   @StorageLink('tailscaleStage') @Watch('onStoreStage') storeStage: string = 'disabled';
   @State failureKind: string = '';
@@ -711,6 +713,15 @@ export struct TailscalePage {
     });
   }
 
+  /** 只显示 Auth Key 尾部，避免整串密钥暴露在页面上 */
+  private maskAuthKey(): string {
+    const key: string = this.authKey.trim();
+    if (key.length <= 10) {
+      return '••••••';
+    }
+    return '••••' + key.substring(key.length - 6);
+  }
+
   private saveAuthKey(value: string): void {
     this.authKey = value;
     PreferencesStore.get().putString(KEY_AUTH_KEY, value);
@@ -1146,16 +1157,23 @@ export struct TailscalePage {
             .width('100%')
             .padding({ left: 16, right: 16, top: 18, bottom: 7 })
             Column() {
-              TextInput({ text: this.authKey, placeholder: 'tskey-auth-…' })
-                .fontSize(16)
-                .fontColor(this.textColor())
-                .placeholderColor(this.subColor())
-                .backgroundColor(Color.Transparent)
-                .height(48)
-                .padding({ left: 16, right: 16 })
-                .onChange((value: string) => {
-                  this.saveAuthKey(value);
-                })
+              Row() {
+                Text('Auth Key')
+                  .fontSize(16)
+                  .fontColor(this.textColor())
+                Blank()
+                Text(this.authKey.trim().length > 0 ? this.maskAuthKey() : '未填写')
+                  .fontSize(14)
+                  .fontColor(this.authKey.trim().length > 0 ? this.textColor() : this.subColor())
+                Text(' ›').fontSize(16).fontColor(this.subColor())
+              }
+              .width('100%')
+              .height(48)
+              .padding({ left: 16, right: 16 })
+              .onClick(() => {
+                this.authKeyDraft = this.authKey;
+                this.authKeyDialogOpen = true;
+              })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Row() {
                 Text('自建控制平面')
@@ -1343,6 +1361,60 @@ export struct TailscalePage {
       .width('100%')
       .height('100%')
       .backgroundColor(this.pageBg())
+
+      if (this.authKeyDialogOpen) {
+        Column() {
+          Column({ space: 0 }) {
+            Text('填入 Auth Key').fontSize(17).fontWeight(FontWeight.Medium).fontColor(this.textColor())
+              .width('100%').textAlign(TextAlign.Center).padding({ top: 18, bottom: 12 })
+            Divider().color(this.dividerColor()).strokeWidth(1)
+            TextInput({ text: this.authKeyDraft, placeholder: 'tskey-auth-…' })
+              .fontSize(15)
+              .fontColor(this.textColor())
+              .placeholderColor(this.subColor())
+              .backgroundColor(Color.Transparent)
+              .height(48)
+              .padding({ left: 16, right: 16 })
+              .onChange((value: string) => {
+                this.authKeyDraft = value;
+              })
+            Text('在 Tailscale 控制台 Settings → Keys 生成，只显示一次；保存后自动用它连接。')
+              .fontSize(11)
+              .lineHeight(16)
+              .fontColor(this.subColor())
+              .width('100%')
+              .padding({ left: 16, right: 16, bottom: 12 })
+            Divider().color(this.dividerColor()).strokeWidth(1)
+            Row() {
+              Text('取消')
+                .fontSize(16).fontColor(this.subColor())
+                .layoutWeight(1).height(48).textAlign(TextAlign.Center)
+                .onClick(() => {
+                  this.authKeyDialogOpen = false;
+                })
+              Divider().vertical(true).height(24).color(this.dividerColor())
+              Text('保存')
+                .fontSize(16).fontColor('#2E6BE6')
+                .layoutWeight(1).height(48).textAlign(TextAlign.Center)
+                .onClick(() => {
+                  this.saveAuthKey(this.authKeyDraft.trim());
+                  this.authKeyDialogOpen = false;
+                })
+            }
+            .width('100%')
+          }
+          .width('86%')
+          .backgroundColor(this.cardBg())
+          .borderRadius(16)
+        }
+        .width('100%')
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .backgroundColor('rgba(0,0,0,0.35)')
+        .onClick(() => {
+          this.authKeyDialogOpen = false;
+        })
+      }
 
       if (this.authModeDialog) {
         Column() {
