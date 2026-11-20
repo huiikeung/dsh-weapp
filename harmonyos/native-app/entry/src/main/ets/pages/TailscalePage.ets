@@ -3,7 +3,7 @@ import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import type Want from '@ohos.app.ability.Want';
 import { deviceInfo } from '@kit.BasicServicesKit';
-import { KeyboardAvoidMode } from '@kit.ArkUI';
+import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { fileIo } from '@kit.CoreFileKit';
 import { TsnetBridge } from '../services/TsnetBridge';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
@@ -751,6 +751,119 @@ export struct TailscalePage {
     pasteboard.getSystemPasteboard().setData(data).then(() => {
       this.fastHint = '已复制 Auth Key 管理页链接，粘贴到浏览器打开';
     }).catch(() => {
+    });
+  }
+
+  @Builder
+  authModeSheetContent() {
+    Column({ space: 0 }) {
+      Column() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)')
+      }
+      .width('100%')
+      .height(16)
+      .justifyContent(FlexAlign.Center)
+      Stack({ alignContent: Alignment.Center }) {
+        Text('切换登录方式')
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+        Row() {
+          Blank()
+          Text('取消')
+            .fontSize(16)
+            .fontColor(this.textColor())
+            .height(44)
+            .onClick(() => {
+              this.authModeDialog = false;
+            })
+        }
+        .width('100%')
+        .height(48)
+        .padding({ left: 16, right: 16 })
+      }
+      .width('100%')
+      .height(48)
+      Scroll() {
+        Column({ space: 10 }) {
+          Row() {
+            Column({ space: 3 }) {
+              Text('账号登录').fontSize(16).fontColor(this.textColor())
+              Text('浏览器授权一次，之后用已保存的登录态').fontSize(11).fontColor(this.subColor())
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            if (this.authModeState === 'account') {
+              SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor(['#2E6BE6'])
+            }
+          }
+          .width('100%')
+          .padding(16)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.38)')
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.60)' })
+          .borderRadius(16)
+          .onClick(() => {
+            this.authModeDialog = false;
+            this.connectWithAccount();
+          })
+          Row() {
+            Column({ space: 3 }) {
+              Text('登录密钥（Auth Key）').fontSize(16).fontColor(this.textColor())
+              Text('用已保存的密钥直接加入 tailnet').fontSize(11).fontColor(this.subColor())
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            if (this.authModeState === 'authKey') {
+              SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor(['#2E6BE6'])
+            }
+          }
+          .width('100%')
+          .padding(16)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.38)')
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.60)' })
+          .borderRadius(16)
+          .onClick(() => {
+            this.authModeDialog = false;
+            if (this.authKey.trim().length === 0) {
+              this.fastHint = '请先在「节点身份」填写 Auth Key';
+              return;
+            }
+            this.connectWithAuthKey();
+          })
+        }
+        .width('100%')
+        .padding({ left: 14, right: 14, top: 4 })
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .scrollBar(BarState.Off)
+      .align(Alignment.Top)
+    }
+    .width('100%')
+  }
+
+  /** 半模态材质：与首页「切换主机」一致 */
+  private immersiveSupported(): boolean {
+    try {
+      return uiMaterial.isImmersiveMaterialSupported();
+    } catch (err) {
+      return false;
+    }
+  }
+
+  private sheetMaterial(): uiMaterial.Material | undefined {
+    if (!this.immersiveSupported()) {
+      return undefined;
+    }
+    return new uiMaterial.ImmersiveMaterial({
+      style: uiMaterial.ImmersiveStyle.THICK,
+      materialColor: this.isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.34)',
+      colorInvert: true,
+      applyShadow: true
     });
   }
 
@@ -1621,68 +1734,26 @@ export struct TailscalePage {
           dragBar: false,
           showClose: false,
           preferType: SheetType.BOTTOM,
-          backgroundColor: this.pageBg(),
+          backgroundColor: this.immersiveSupported() ? Color.Transparent : this.pageBg(),
+          systemMaterial: this.sheetMaterial(),
           onDisappear: () => {
             this.authKeyDraft = '';
           }
         })
 
-      if (this.authModeDialog) {
-        Column() {
-          Column({ space: 0 }) {
-            Text('切换登录方式').fontSize(17).fontWeight(FontWeight.Medium).fontColor(this.textColor())
-              .width('100%').textAlign(TextAlign.Center).padding({ top: 18, bottom: 12 })
-            Divider().color(this.dividerColor()).strokeWidth(1)
-            Row() {
-              Column({ space: 3 }) {
-                Text('账号登录').fontSize(16).fontColor(this.textColor())
-                Text('浏览器授权一次，之后用已保存的登录态').fontSize(11).fontColor(this.subColor())
-              }
-              .alignItems(HorizontalAlign.Start)
-              .layoutWeight(1)
-              Text(this.authModeState === 'account' ? '✓' : '').fontSize(16).fontColor('#2E6BE6')
-            }
-            .width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 })
-            .onClick(() => {
-              this.authModeDialog = false;
-              this.connectWithAccount();
-            })
-            Divider().color(this.dividerColor()).strokeWidth(1)
-            Row() {
-              Column({ space: 3 }) {
-                Text('登录密钥（Auth Key）').fontSize(16).fontColor(this.textColor())
-                Text('每次启动自动授权，无需浏览器登录').fontSize(11).fontColor(this.subColor())
-              }
-              .alignItems(HorizontalAlign.Start)
-              .layoutWeight(1)
-              Text(this.authModeState === 'authKey' ? '✓' : '').fontSize(16).fontColor('#2E6BE6')
-            }
-            .width('100%').padding({ left: 16, right: 16, top: 12, bottom: 12 })
-            .onClick(() => {
-              this.authModeDialog = false;
-              if (this.authKey.trim().length === 0) {
-                this.fastHint = '请先在「节点身份」填写 Auth Key';
-                return;
-              }
-              this.connectWithAuthKey();
-            })
-            Divider().color(this.dividerColor()).strokeWidth(1)
-            Text('取消').fontSize(16).fontColor(this.subColor())
-              .width('100%').height(48).textAlign(TextAlign.Center)
-              .onClick(() => { this.authModeDialog = false; })
-          }
-          .width('86%')
-          .backgroundColor(this.cardBg())
-          .borderRadius(16)
-        }
-        .width('100%')
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
-        .backgroundColor('rgba(0,0,0,0.35)')
-        .onClick(() => {
-          this.authModeDialog = false;
+      // 切换登录方式：系统半模态（与首页「切换主机」同款材质）
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.authModeDialog, this.authModeSheetContent(), {
+          height: 340,
+          dragBar: false,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.immersiveSupported() ? Color.Transparent : this.pageBg(),
+          systemMaterial: this.sheetMaterial()
         })
-      }
 
       if (this.dialogOpen) {
         Column() {
