@@ -333,16 +333,20 @@ func TSQStop() *C.char {
 	proxy := tsqProxy
 	tsqServer = nil
 	tsqProxy = nil
-	_ = tsqUpDone
 	tsqUpDone = nil
+	tsqCachedStatus = "OK | engine=tsnet | state=NoState"
+	tsqProbeResult = ""
 	tsqMu.Unlock()
-	if proxy != nil {
-		_ = proxy.Close()
-	}
-	if server != nil {
-		_ = server.Close()
-	}
-	return C.CString("OK | tsnet stopped")
+	// 关闭 tsnet 会等待内部 goroutine 退出（数百毫秒~数秒），放到后台执行，避免阻塞 UI 线程
+	go func() {
+		if proxy != nil {
+			_ = proxy.Close()
+		}
+		if server != nil {
+			_ = server.Close()
+		}
+	}()
+	return C.CString("OK | tsnet stopping")
 }
 
 func tsqProxyConn(local net.Conn, target string, useTLS bool) {

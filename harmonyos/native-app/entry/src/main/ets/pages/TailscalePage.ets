@@ -490,15 +490,11 @@ export struct TailscalePage {
 
   private stop(): void {
     this.stopTimer();
-    try {
-      TsnetBridge.stopFast();
-    } catch (stopErr) {
-    }
-    try {
-      TsnetBridge.stop();
-    } catch (stopErr) {
-    }
+    // 先切 UI 状态，再在下一个事件循环里停引擎（tsnet 关闭要等内部 goroutine，直接调会卡住页面）
     this.stage = STAGE_DISABLED;
+    setTimeout(() => {
+      TailscaleTunnelStore.get().stopFastOnly();
+    }, 0);
     this.failureKind = '';
     this.nodeAddress = '';
     this.peerCount = 0;

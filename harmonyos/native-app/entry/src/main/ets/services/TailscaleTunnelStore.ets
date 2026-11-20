@@ -170,6 +170,24 @@ export class TailscaleTunnelStore {
     this.publish();
   }
 
+  /** 停止轻量引擎（Go 端已改为异步关闭，不会阻塞 UI 线程） */
+  stopFastOnly(): void {
+    try {
+      TsnetBridge.stopFast();
+    } catch (stopErr) {
+      Logger.warn('TSDBG stopFast failed: ' + (stopErr as Error).message);
+    }
+    this.fastStarted = false;
+    this.fastWasReady = false;
+    this.fastDebugLogged = false;
+    this.fastStartingTicks = 0;
+    this.fastNeedsLoginTicks = 0;
+    this.fastNoStateTicks = 0;
+    this.fastRecovered = false;
+    AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_DISABLED);
+    AppStorage.setOrCreate<string>('tailscaleStageError', '');
+  }
+
   /** 用新的 authKey 重启轻量引擎 */
   /** 应用新的 Auth Key：仅当 key 变化时清空旧节点状态，其余情况复用已登录状态重连 */
   applyAuthKey(key: string): void {
@@ -343,7 +361,7 @@ export class TailscaleTunnelStore {
         AppStorage.setOrCreate<string>('tsnetAuthMode', mode);
       }
       if (this.fastTicks % 5 === 1) {
-        Logger.info('TSDBG fast=' + fastStat.substring(0, 200));
+        Logger.info('TSDBG fast=' + fastStat.substring(0, 1100));
       }
       // 引擎卡在 NoState（未启动）超过 15 秒：自动重启一次，并输出 tsnet 调试日志
       if (fastStat.indexOf('state=NoState') >= 0) {
