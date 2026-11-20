@@ -3071,11 +3071,6 @@ export struct ConversationPage {
         this.fileDiffOverlay()
       }
 
-      // 会话节点胶囊：常显浮层（左右拖动吸附折叠，点击展开/打开弹层）
-      if (this.pageW > 0) {
-        this.floatingCapsule()
-      }
-
       // 重命名会话弹窗
       if (this.renameSessionOpen) {
         this.renameSessionAlert()
@@ -4753,6 +4748,43 @@ export struct ConversationPage {
         },
         onDisappear: () => {
           this.sessionPickerOpen = false;
+        }
+      })
+
+      // 会话节点：三横线圆钮（对齐小程序 nav-actions 的 session-switch-trigger），
+      // 顶替原来右侧常显的滑动胶囊，避免浮块压住内容。
+      Button({ type: ButtonType.Circle }) {
+        Column({ space: 3 }) {
+          Row().width(14).height(1.5).borderRadius(1).backgroundColor(this.navIconColor())
+          Row().width(14).height(1.5).borderRadius(1).backgroundColor(this.navIconColor())
+          Row().width(14).height(1.5).borderRadius(1).backgroundColor(this.navIconColor())
+        }
+      }
+      .id('conversation-turn-nav')
+      .width(36)
+      .height(36)
+      .backgroundColor(this.turnNavOpen
+        ? (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+        : Color.Transparent)
+      .accessibilityText('会话节点')
+      .onClick(() => {
+        if (this.turnNavOpen) {
+          this.closeTurnNav();
+        } else {
+          this.openTurnNav();
+        }
+      })
+      // 与「协作」「侧栏」「⋯」同一个系统菜单容器
+      .bindMenu(this.turnNavOpen, this.turnNavPanel(), {
+        placement: Placement.BottomRight,
+        offset: { x: 0, y: 4 },
+        outlineColor: this.dividerColor(),
+        outlineWidth: 1,
+        onWillDisappear: () => {
+          this.turnNavOpen = false;
+        },
+        onDisappear: () => {
+          this.turnNavOpen = false;
         }
       })
 
