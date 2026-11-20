@@ -1700,6 +1700,7 @@ export struct TailscalePage {
               } else if (this.stage === STAGE_STARTING || this.stage === STAGE_WAITING_ROUTES) {
                 Text(this.loginLabel.length > 0 ? this.loginLabel : '连接中…')
                   .fontSize(13).fontColor(this.subColor()).layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .backgroundColor(this.pillBg()).borderRadius(10)
               } else if (this.stage === STAGE_READY) {
                 if (this.hasAnyKey() && this.hasAnyAccount()) {
                   Text('切换登录')
@@ -1734,7 +1735,7 @@ export struct TailscalePage {
                     })
                 }
               }
-              if (this.tunnelEnabled && this.stage !== STAGE_DISABLED) {
+              if (this.tunnelEnabled && this.stage === STAGE_READY) {
                 Text('停止节点')
                   .fontSize(13).fontColor('#FF3B30').layoutWeight(1).height(38).textAlign(TextAlign.Center)
                   .backgroundColor(this.pillBg()).borderRadius(10)
