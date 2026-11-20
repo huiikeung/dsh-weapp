@@ -42,6 +42,7 @@ export struct TailscalePage {
   @StorageLink('tailscaleAuthInvalid') authInvalid: boolean = false;
   @StorageLink('tailscaleStageError') stageError: string = '';
   @State hintMenuOpen: string = '';
+  @StorageLink('tailscaleAccountDeleted') accountDeleted: boolean = false;
   @State accountsJson: string = '[]';
   @State activeAccountId: string = '';
   @State hintText: string = '';
@@ -1205,14 +1206,30 @@ export struct TailscalePage {
     this.startAccountLogin();
   }
 
+  private accountDotColor(account: TailscaleAccountProfile): string {
+    if (account.id !== this.activeAccountId) {
+      return '#8E8E93';
+    }
+    if (this.accountDeleted) {
+      return '#FF3B30';
+    }
+    if (this.stage === STAGE_READY) {
+      return '#34C759';
+    }
+    return '#8E8E93';
+  }
+
   private deleteAccountById(id: string): void {
+    const wasActive: boolean = id === this.activeAccountId;
     TailscaleTunnelStore.get().removeAccountProfile(id);
     this.refreshAccounts();
-    if (this.tunnelEnabled) {
-      this.stage = STAGE_STARTING;
-      TailscaleTunnelStore.get().reloadFast();
+    if (wasActive) {
+      // 删除当前登录账号：立即停止节点，按钮变为「启动节点」
+      this.stopConnection();
+      this.fastHint = '已删除当前账号并停止节点';
+    } else {
+      this.fastHint = '已删除该账号';
     }
-    this.fastHint = '已删除该账号';
   }
 
   private hasAnyKey(): boolean {
@@ -1740,6 +1757,9 @@ export struct TailscalePage {
                 .onClick(() => {
                   this.switchAccount(account.id);
                 })
+                Circle({ width: 8, height: 8 })
+                  .fill(this.accountDotColor(account))
+                  .margin({ left: 4 })
                 Text('删除')
                   .fontSize(14)
                   .fontColor('#FF3B30')

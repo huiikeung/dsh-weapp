@@ -531,6 +531,7 @@ export class TailscaleTunnelStore {
         this.fastStartingTicks = 0;
         this.fastNeedsLoginTicks = 0;
         this.loginRecoveryDone = false;
+        AppStorage.setOrCreate<boolean>('tailscaleAccountDeleted', false);
         this.fastDebugLogged = false;
         AppStorage.setOrCreate<string>('tailscaleStageError', '');
         AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_READY);
@@ -565,6 +566,8 @@ export class TailscaleTunnelStore {
           }
           if (stateBytes > 100) {
             this.loginRecoveryDone = true;
+            // 控制台已删除该设备：账号卡片显示红点，直到重新授权成功
+            AppStorage.setOrCreate<boolean>('tailscaleAccountDeleted', true);
             Logger.warn('TSDBG needsLogin with stale node state -> reset and re-register');
             try {
               TsnetBridge.stopFast();
