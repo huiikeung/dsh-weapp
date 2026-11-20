@@ -123,21 +123,18 @@ export class GatewayClient {
       return;
     }
     const profile: GatewayProfile | null = this.currentProfile;
-    if (profile === null) {
+    if (profile === null || !this.isLocalEndpoint(profile.wsUrl)) {
       return;
     }
-    Logger.info('tailnet ready, switch current connection to tunnel endpoint=' + profile.wsUrl);
-    this.forceTailnet = true;
-    this.intentionalClose = true;
-    try {
-      if (this.ws !== null) {
-        this.ws.close();
-      }
-    } catch (closeErr) {
+    // 局域网地址不能原地重连，必须换成 tailnet 入口（wss://<gateway>.ts.net/ws/mobile）
+    const target: string = this.cellularEndpoint(profile.wsUrl);
+    if (target === profile.wsUrl || !this.isTailnetAddress(target)) {
+      Logger.warn('tailnet ready but no tailnet endpoint available for ' + profile.wsUrl);
+      return;
     }
-    this.ws = null;
-    this.intentionalClose = false;
-    this.connect(profile, true);
+    Logger.info('tailnet ready, switch endpoint ' + profile.wsUrl + ' -> ' + target);
+    this.forceTailnet = true;
+    this.switchEndpoint(target);
   }
 
   private tailnetReady(): boolean {
