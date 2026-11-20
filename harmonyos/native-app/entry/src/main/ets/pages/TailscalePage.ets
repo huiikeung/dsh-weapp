@@ -196,6 +196,14 @@ export struct TailscalePage {
   private loadAccountSummary(): void {
     const json: string = TsnetBridge.account();
     if (json.length === 0 || json.indexOf('{') < 0) {
+      // 轻量 tsnet 引擎不经过 tsd，账号摘要由 store 从快速状态里解析并持久化
+      if (this.accountName.length === 0) {
+        const prefs: PreferencesStore = PreferencesStore.get();
+        this.accountName = prefs.getString('tailscaleAccountName', '');
+        this.accountLogin = prefs.getString('tailscaleAccountLogin', '');
+        this.accountTailnet = prefs.getString('tailscaleAccountTailnet', '');
+        this.accountAddresses = prefs.getString('tailscaleAccountAddresses', '');
+      }
       return;
     }
     this.accountName = this.jsonField(json, 'displayName');

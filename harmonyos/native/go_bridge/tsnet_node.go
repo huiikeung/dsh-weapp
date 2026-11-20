@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -41,6 +42,7 @@ var (
 	tsqCachedStatus string
 	tsqAuthMode     string
 	tsqProbeResult  string
+	tsqAccountCache string
 )
 
 // 复用旧 tsd 引擎留下的 tailscaled.state（同版本格式兼容），避免重新登录。
@@ -287,11 +289,54 @@ func TSQStart(hostname *C.char, stateDir *C.char, controlURL *C.char, authKey *C
 			cached := tsqPollStatus(server)
 			tsqMu.Lock()
 			tsqCachedStatus = cached
+			needAccount := strings.Contains(cached, "state=Running") && tsqAccountCache == ""
 			tsqMu.Unlock()
+			if needAccount {
+				if acct := tsqAccountSummary(server); acct != "" {
+					tsqMu.Lock()
+					tsqAccountCache = acct
+					tsqMu.Unlock()
+				}
+			}
 			time.Sleep(800 * time.Millisecond)
 		}
 	}()
 	return C.CString("OK | engine=tsnet | state=Starting")
+}
+
+// tsqAccountSummary 返回当前登录账号摘要（URL 转义，用 | 分隔）：display|login|tailnet|addresses
+func tsqAccountSummary(srv *tsnet.Server) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	lc, err := srv.LocalClient()
+	if err != nil {
+		return ""
+	}
+	st, err := lc.Status(ctx)
+	if err != nil || st == nil {
+		return ""
+	}
+	display, login := "", ""
+	if st.Self != nil {
+		if u, ok := st.User[st.Self.UserID]; ok {
+			display = u.DisplayName
+			login = u.LoginName
+		}
+	}
+	addrs := ""
+	if st.Self != nil {
+		parts := make([]string, 0, len(st.Self.TailscaleIPs))
+		for _, ip := range st.Self.TailscaleIPs {
+			parts = append(parts, ip.String())
+		}
+		addrs = strings.Join(parts, ",")
+	}
+	tailnetName := ""
+	if st.CurrentTailnet != nil {
+		tailnetName = st.CurrentTailnet.Name
+	}
+	return url.QueryEscape(display) + "|" + url.QueryEscape(login) + "|" +
+		url.QueryEscape(tailnetName) + "|" + url.QueryEscape(addrs)
 }
 
 //export TSQStatus
@@ -299,7 +344,11 @@ func TSQStatus() *C.char {
 	tsqMu.Lock()
 	cached := tsqCachedStatus
 	probe := tsqProbeResult
+	account := tsqAccountCache
 	tsqMu.Unlock()
+	if account != "" {
+		cached += " | account=" + account
+	}
 	if cached == "" {
 		cached = "OK | engine=tsnet | state=Starting"
 	}
@@ -336,6 +385,7 @@ func TSQStop() *C.char {
 	tsqUpDone = nil
 	tsqCachedStatus = "OK | engine=tsnet | state=NoState"
 	tsqProbeResult = ""
+	tsqAccountCache = ""
 	tsqMu.Unlock()
 	// 关闭 tsnet 会等待内部 goroutine 退出（数百毫秒~数秒），放到后台执行，避免阻塞 UI 线程
 	go func() {

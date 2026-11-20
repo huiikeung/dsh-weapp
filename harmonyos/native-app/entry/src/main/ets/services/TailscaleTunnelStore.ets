@@ -338,6 +338,26 @@ export class TailscaleTunnelStore {
     if (this.fastStarted) {
       this.fastTicks = this.fastTicks + 1;
       const fastStat: string = TsnetBridge.statusFast();
+      // 轻量引擎解析出的账号摘要（Go 端 LocalClient.Status）：display|login|tailnet|addresses
+      const acctIdx: number = fastStat.indexOf('account=');
+      if (acctIdx >= 0) {
+        const acctTail: string = fastStat.substring(acctIdx + 'account='.length);
+        const acctEnd: number = acctTail.indexOf(' | ');
+        const acct: string = acctEnd > 0 ? acctTail.substring(0, acctEnd) : acctTail.trim();
+        const parts: string[] = acct.split('|');
+        if (parts.length >= 3 && parts[0].length > 0) {
+          const display: string = decodeURIComponent(parts[0]);
+          const login: string = decodeURIComponent(parts[1]);
+          const tailnet: string = decodeURIComponent(parts[2]);
+          const addresses: string = parts.length > 3 ? decodeURIComponent(parts[3]) : '';
+          AppStorage.setOrCreate<string>('tailscaleAccountName', display);
+          const acctPrefs: PreferencesStore = PreferencesStore.get();
+          acctPrefs.putString('tailscaleAccountName', display);
+          acctPrefs.putString('tailscaleAccountLogin', login);
+          acctPrefs.putString('tailscaleAccountTailnet', tailnet);
+          acctPrefs.putString('tailscaleAccountAddresses', addresses);
+        }
+      }
       const dnsIndex: number = fastStat.indexOf('dnsName=');
       if (dnsIndex >= 0) {
         const tail: string = fastStat.substring(dnsIndex + 'dnsName='.length);
