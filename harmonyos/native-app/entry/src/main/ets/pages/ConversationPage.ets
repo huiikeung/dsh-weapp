@@ -4754,9 +4754,10 @@ export struct ConversationPage {
       })
     }
     .width('100%')
-    .height(64 + this.topSafe())
+    // 顶栏整体上移：高度与上内边距各收 6~8vp，标题与按钮离状态栏更近
+    .height(56 + this.topSafe())
     // 左缘与输入条一致（输入条容器 padding 14）：返回按钮和输入框左边缘对齐
-    .padding({ left: 14, right: 14, top: 6 + this.topSafe() })
+    .padding({ left: 14, right: 14, top: this.topSafe() > 2 ? this.topSafe() - 2 : 0 })
     // 浮动顶栏完全不铺底：内容上滑时直接从标题下面穿过去（纯 iOS 透明导航栏）
   }
 
