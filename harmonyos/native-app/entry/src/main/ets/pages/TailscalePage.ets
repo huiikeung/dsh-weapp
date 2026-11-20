@@ -1054,10 +1054,12 @@ export struct TailscalePage {
     }, 4000);
     // 账号模式与 AuthKey 相互独立：只切换模式，保留已保存的 key 供之后切回
     PreferencesStore.get().putString('tsnetLoginMode', 'account');
+    PreferencesStore.get().putString('tsnetAppliedAuthKey', '');
     AppStorage.setOrCreate<string>('tsnetAuthMode', 'account');
+    AppStorage.setOrCreate<boolean>('tailscaleAccountDeleted', false);
     this.authModeState = 'account';
     this.fastHint = '正在用账号登录…';
-    TailscaleTunnelStore.get().reloadFast();
+    TailscaleTunnelStore.get().reloadFastForced();
   }
 
   /** 用 Auth Key 登录：保存密钥并重启轻量引擎 */
@@ -1198,6 +1200,11 @@ export struct TailscalePage {
     this.accountsJson = store.accountsJson();
     this.activeAccountId = store.activeAccountId();
     const list: TailscaleAccountProfile[] = this.accountsArray();
+    if (list.length === 0 && this.activeAccountId.length === 0) {
+      // 无档案时沿用旧版 /fast/account 登录态
+      store.setActiveAccount('a1');
+      this.activeAccountId = 'a1';
+    }
     for (let i = 0; i < list.length; i++) {
       if (list[i].id === this.activeAccountId) {
         this.accountName = list[i].name.length > 0 ? list[i].name : list[i].login;

@@ -137,8 +137,15 @@ export class TailscaleTunnelStore {
 
   /** 新增一个账号档案并设为激活（目录留空，下一步走浏览器授权） */
   addAccountProfile(): string {
-    const id: string = 'a' + Date.now();
+    PreferencesStore.get().putString('tsnetLoginMode', 'account');
+    AppStorage.setOrCreate<boolean>('tailscaleAccountDeleted', false);
     const list: TailscaleAccountProfile[] = this.parseAccounts();
+    if (list.length === 0) {
+      // 第一个账号复用旧版 /fast/account 登录态，避免登录信息丢失
+      this.setActiveAccount('a1');
+      return 'a1';
+    }
+    const id: string = 'a' + Date.now();
     list.push({ id: id, name: '', login: '', tailnet: '', addresses: '' });
     PreferencesStore.get().putString('tailscaleAccounts', JSON.stringify(list));
     this.setActiveAccount(id);
@@ -302,6 +309,12 @@ export class TailscaleTunnelStore {
       }
       PreferencesStore.get().putString('tsnetAppliedAuthKey', key);
     }
+    this.reloadFast();
+  }
+
+  /** 强制重启（忽略 3 秒防抖），用于切换账号/登录方式 */
+  reloadFastForced(): void {
+    this.lastReloadAt = 0;
     this.reloadFast();
   }
 
