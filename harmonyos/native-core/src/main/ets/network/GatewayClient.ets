@@ -104,6 +104,7 @@ export class GatewayClient {
   private bearerPollTimer: number = 0;
   /** 切蜂窝后等隧道就绪再切终点的轮询（隧道没起来时先把现有连接保住） */
   private tailnetSwitchTimer: number = 0;
+  private tailnetRouteRetries: number = 0;
   private tailnetSwitchTries: number = 0;
   private tailnetEnablerCalled: boolean = false;
   private tailnetEnabler: () => void = () => {};
@@ -129,9 +130,20 @@ export class GatewayClient {
     // 局域网地址不能原地重连，必须换成 tailnet 入口（wss://<gateway>.ts.net/ws/mobile）
     const target: string = this.cellularEndpoint(profile.wsUrl);
     if (target === profile.wsUrl || !this.isTailnetAddress(target)) {
-      Logger.warn('tailnet ready but no tailnet endpoint available for ' + profile.wsUrl);
+      // ts.net 后缀可能还没发布出来：最多重试 10 次（每秒一次）
+      if (this.tailnetRouteRetries < 10) {
+        this.tailnetRouteRetries += 1;
+        Logger.info('tailnet endpoint not ready, retry ' + this.tailnetRouteRetries);
+        setTimeout(() => {
+          this.reconnectViaTailnet();
+        }, 1000);
+      } else {
+        this.tailnetRouteRetries = 0;
+        Logger.warn('tailnet ready but no tailnet endpoint available for ' + profile.wsUrl);
+      }
       return;
     }
+    this.tailnetRouteRetries = 0;
     Logger.info('tailnet ready, switch endpoint ' + profile.wsUrl + ' -> ' + target);
     this.forceTailnet = true;
     this.switchEndpoint(target);
