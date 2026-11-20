@@ -3,6 +3,13 @@ import { fileIo } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { display, KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import {
+  APP_GLASS_BLUR,
+  APP_GLASS_RADIUS,
+  appGlassBorderColor,
+  appGlassFill,
+  appGlassShadow
+} from '../common/AppGlass';
+import {
   arr, field, asRec, AttachmentCache, AttachmentImageCache, bool, ConversationFeed, ConversationFeedEntry, ConversationFeedEntryModel, ConversationItem, downloadAttachment, emptySessionGoal, GatewayClient, GatewayRequestFactory, Logger, num,
   DraftStore, PI_NS, PickedAttachment, PreferencesStore, SessionStore, SessionSummary, SpeechFailure, SpeechInput, TeamStore, WorkStepPresentation,
   normalizeRawSessionEvent, parseNamespace, pickDocuments, pickImages, str, uploadAttachment
@@ -7235,18 +7242,12 @@ export struct ConversationPage {
         .height(this.convSidebarPanelHeight())
         .alignItems(HorizontalAlign.Start)
         .padding({ top: 2, bottom: 2 })
-        // 背景对齐对话页置底「回到底部」玻璃按钮（同一套 iOS Liquid Glass）：
-        // 中性半透明底 + 纯背景模糊 14 + 白色细边 + 系统菜单同档投影
-        .backgroundColor(this.isDark ? 'rgba(44,44,48,0.28)' : 'rgba(255,255,255,0.14)')
-        .backdropBlur(26)
-        .borderRadius(16)
+        // APP 玻璃标准（见 common/AppGlass.ets）：侧栏就是这个标准的基准实现
+        .backgroundColor(appGlassFill(this.isDark))
+        .backdropBlur(APP_GLASS_BLUR)
+        .borderRadius(APP_GLASS_RADIUS)
         .clip(true)
-        .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
-        .shadow({ radius: 14, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 6 })
-        // 小程序入场动画：opacity + scale(0.92) + translateY(-10rpx)，原点贴右上角按钮
-        .transition(TransitionEffect.OPACITY
-          .combine(TransitionEffect.scale({ x: 0.92, y: 0.92, centerX: '100%', centerY: 0 }))
-          .combine(TransitionEffect.translate({ y: -6 }))
-          .animation({ duration: 180, curve: Curve.Friction }))
+        .border({ width: 1, color: appGlassBorderColor(this.isDark) })
+        .shadow(appGlassShadow(this.isDark))
   }
 }
