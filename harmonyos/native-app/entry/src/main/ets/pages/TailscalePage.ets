@@ -98,6 +98,7 @@ export struct TailscalePage {
       this.failureKind = '';
       // 每次都刷新账号摘要：账号名可能晚于阶段就绪到达
       this.loadAccountSummary();
+      this.refreshAccounts();
       this.refreshPeers();
       return;
     }
@@ -1223,6 +1224,10 @@ export struct TailscalePage {
   }
 
   private addAccountFlow(): void {
+    // 添加账号即视为要使用隧道：自动启用隧道并开始授权，不需要先点「启动节点」
+    if (!this.tunnelEnabled) {
+      this.setEnabled(true);
+    }
     TailscaleTunnelStore.get().addAccountProfile();
     this.refreshAccounts();
     this.startAccountLogin();
