@@ -28,7 +28,7 @@ const STAGE_FAILED = 'failed';
 
 /**
  * Tailscale 内嵌隧道设置（二级页）：对齐 iOS TailscaleTunnelSettingsView。
- * 布局：节点状态卡片（总览 + 当前连接类型 + 账号/AuthKey 登录按钮）/ 账号与网络 / 节点身份（Auth Key + 自建控制平面折叠）。
+ * 布局：节点状态卡片（总览 + 当前连接类型 + 账号/AuthKey 登录按钮）/ 账号与网络 / 节点身份（Auth Key + 控制服务器折叠）。
  *
  * 说明：Go/tsnet 引擎由 OpenHarmony Go 工具链构建的 libtailscale_go.so 提供，
  * NAPI 直链（libtailscale_ohos.so），已在本机跑通 hello/status；登录链接来自引擎 authURL。
@@ -1368,7 +1368,7 @@ export struct TailscalePage {
               Text(this.authBadgeLabel()).fontSize(11).fontColor(this.stage === STAGE_READY ? '#0F9D58' : '#2E6BE6')
                 .padding({ left: 8, right: 8, top: 4, bottom: 4 })
                 .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
-              Text(this.controlURL.trim().length > 0 ? '自建控制面' : '官方控制面').fontSize(11).fontColor('#2E6BE6')
+              Text(this.controlURL.trim().length > 0 ? '自定义服务器' : '官方服务器').fontSize(11).fontColor('#2E6BE6')
                 .padding({ left: 8, right: 8, top: 4, bottom: 4 })
                 .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
               Text('轻量 tsnet').fontSize(11).fontColor('#2E6BE6')
@@ -1641,9 +1641,30 @@ export struct TailscalePage {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Row() {
-                Text('自建控制平面')
+                Text('控制服务器')
                   .fontSize(16)
                   .fontColor(this.textColor())
+                Text('ⓘ')
+                  .fontSize(14)
+                  .fontColor(this.subColor())
+                  .padding({ left: 6, right: 8, top: 2, bottom: 2 })
+                  .bindMenu(this.hintMenuOpen === 'controlURL', this.hintMenuBuilder(), {
+                    outlineColor: this.dividerColor(),
+                    outlineWidth: 1,
+                    onWillDisappear: () => {
+                      this.hintMenuOpen = '';
+                    },
+                    onDisappear: () => {
+                      this.hintMenuOpen = '';
+                    },
+                    onDidDisappear: () => {
+                      this.hintMenuOpen = '';
+                    }
+                  })
+                  .onClick(() => {
+                    this.hintText = '留空就用 Tailscale 官方服务器（大多数情况保持留空）。如果你自己搭了 Headscale 之类的服务器，填它的地址，例如 https://headscale.example.com，保存后重新连接生效。';
+                    this.hintMenuOpen = this.hintMenuOpen === 'controlURL' ? '' : 'controlURL';
+                  })
                 Blank()
                 Text(this.selfHostedOpen ? '收起' : (this.controlURL.trim().length > 0 ? '已设置' : '设置'))
                   .fontSize(14)
@@ -1667,12 +1688,6 @@ export struct TailscalePage {
                   .onChange((value: string) => {
                     this.saveControlURL(value);
                   })
-                Text('留空使用官方 controlplane；自建 Headscale 填自己的域名，保存后重新连接生效。')
-                  .fontSize(12)
-                  .lineHeight(18)
-                  .fontColor(this.subColor())
-                  .width('100%')
-                  .padding({ left: 16, right: 16, bottom: 12 })
               }
             }
             .width('100%')
