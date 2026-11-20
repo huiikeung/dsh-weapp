@@ -516,10 +516,16 @@ export class TailscaleTunnelStore {
         const gwPeer: string = (gwEnd > 0 ? gwTail.substring(0, gwEnd) : gwTail.trim()).trim();
         if (gwPeer.length > 0) {
           // 短名给本地代理合成用；完整 DNSName 给客户端直连入口用
-          const shortPeer: string = gwPeer.split('.')[0];
+          const gwParts: string[] = gwPeer.split('|');
+          const gwDns: string = gwParts.length > 0 ? gwParts[0] : gwPeer;
+          const gwIp: string = gwParts.length > 1 ? gwParts[1] : '';
+          const shortPeer: string = gwDns.split('.')[0];
           AppStorage.setOrCreate<string>('tailnetGatewayPeerName', shortPeer);
-          AppStorage.setOrCreate<string>('tailnetGatewayDnsName', gwPeer);
-          Logger.info('TSDBG gwPeer=' + gwPeer + ' short=' + shortPeer);
+          AppStorage.setOrCreate<string>('tailnetGatewayDnsName', gwDns);
+          if (gwIp.length > 0) {
+            AppStorage.setOrCreate<string>('tailnetGatewayIp', gwIp);
+          }
+          Logger.info('TSDBG gwPeer=' + gwDns + ' ip=' + gwIp + ' short=' + shortPeer);
           if (PreferencesStore.get().getString('tailnetGatewayPeerName', '') !== gwPeer) {
             PreferencesStore.get().putString('tailnetGatewayPeerName', gwPeer);
           }

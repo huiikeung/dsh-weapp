@@ -368,10 +368,18 @@ func tsqGatewayPeerName(srv *tsnet.Server) string {
 			continue
 		}
 		if strings.HasPrefix(name, "dsh-gateway") {
-			return name
+			ip := ""
+			if len(peer.TailscaleIPs) > 0 {
+				ip = peer.TailscaleIPs[0].String()
+			}
+			return name + "|" + ip
 		}
 		if fallback == "" && strings.Contains(name, "gateway") {
-			fallback = name
+			ip := ""
+			if len(peer.TailscaleIPs) > 0 {
+				ip = peer.TailscaleIPs[0].String()
+			}
+			fallback = name + "|" + ip
 		}
 	}
 	return fallback

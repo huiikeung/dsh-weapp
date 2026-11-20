@@ -164,6 +164,11 @@ export class GatewayClient {
     if (suffix.length === 0) {
       return '';
     }
+    // 网关 helper 只监听明文 ws://<tailnetIP>:3081，走 tsnet 代理拨这个地址
+    const gwIp: string = (AppStorage.get<string>('tailnetGatewayIp') ?? '').trim();
+    if (gwIp.length > 0) {
+      return 'ws://' + gwIp + ':3081/ws/mobile';
+    }
     if (this.tailnetNameCandidates.length === 0) {
       const candidates: string[] = [];
       const configured: string = (AppStorage.get<string>('tailnetGatewayDnsName') ?? '').trim() ||
