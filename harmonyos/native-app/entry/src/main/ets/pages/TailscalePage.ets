@@ -1367,7 +1367,7 @@ export struct TailscalePage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-            this.sectionFooter('创建 Auth Key：Reusable 打开、Ephemeral 关闭、Expiry 按需（建议 90 天）、Tags 留空即可；key 只显示一次。若 tailnet 开了设备审批，首次连接后需在管理台批准该设备；并确保 ACL 放行它访问网关 3081 端口。')
+            this.sectionFooter('创建 Auth Key：Reusable 打开、Ephemeral 关闭、Expiry 按需（建议 90 天）、Tags 留空。\n主机授权三步：① Tailscale 管理台 Machines 里批准新设备（开启了设备审批时）；② Access Controls 里允许该设备访问网关主机 3081/tcp；③ 回到本页点「AuthKey 登录」，等状态变「已连接」。换 key 会自动清空旧节点状态。')
           }
 
 

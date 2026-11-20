@@ -158,6 +158,14 @@ export class TailscaleTunnelStore {
       } catch (stopErr) {
         Logger.warn('TSDBG stopFast failed: ' + (stopErr as Error).message);
       }
+      // 换 key 重连时必须清掉旧节点状态：tsnet 只有在 state 为空时才会用新 AuthKey 注册，
+      // 否则会一直复用旧节点并报 NeedsLogin（表现为“新 key 也失效”）。
+      try {
+        fileIo.rmdirSync(this.stateDir + '/tsnet-node');
+        Logger.warn('TSDBG cleared tsnet state for new key');
+      } catch (clearErr) {
+        Logger.info('TSDBG clear tsnet state skipped: ' + (clearErr as Error).message);
+      }
       this.fastStarted = false;
       this.fastWasReady = false;
       this.fastDebugLogged = false;
@@ -352,6 +360,7 @@ export class TailscaleTunnelStore {
         // 引擎会在 Starting/NeedsLogin 之间反复重试；一旦判定密钥不可用，就不要再翻回「启动中」
         const invalid: boolean = AppStorage.get<boolean>('tailscaleAuthInvalid') ?? false;
         AppStorage.setOrCreate<string>('tailscaleStage', invalid ? TS_STAGE_NEEDS_LOGIN : TS_STAGE_STARTING);
+        AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', false);
         // 启动超时（20s 仍未 Running）：把 upError 暴露给页面，避免永远「启动中」
         this.fastStartingTicks += 1;
         if (this.fastStartingTicks >= 10) {
@@ -363,6 +372,7 @@ export class TailscaleTunnelStore {
             detail = end > 0 ? tail.substring(0, end) : tail;
           }
           AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_FAILED);
+          AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', false);
           AppStorage.setOrCreate<string>('tailscaleStageError',
             detail.length > 0 ? ('连接超时：' + detail) : '连接超时：请检查 Auth Key 是否有效、手机能否访问控制面');
         }
