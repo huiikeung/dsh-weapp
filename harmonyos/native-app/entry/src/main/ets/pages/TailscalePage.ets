@@ -1071,7 +1071,7 @@ export struct TailscalePage {
           if (this.tunnelEnabled) {
             this.sectionHeader('节点身份')
             Column() {
-              TextInput({ text: this.authKey, placeholder: 'tskey-auth-…（你自己的 Tailscale 账号生成）' })
+              TextInput({ text: this.authKey, placeholder: 'tskey-auth-…' })
                 .fontSize(16)
                 .fontColor(this.textColor())
                 .placeholderColor(this.subColor())
@@ -1081,23 +1081,6 @@ export struct TailscalePage {
                 .onChange((value: string) => {
                   this.saveAuthKey(value);
                 })
-              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              Row() {
-                Text(this.authKey.trim().length > 0 ? '保存并使用登录密钥' : '先填入 Auth Key')
-                  .fontSize(16)
-                  .fontColor(this.authKey.trim().length > 0 ? '#2E6BE6' : this.subColor())
-              }
-              .width('100%')
-              .height(48)
-              .padding({ left: 16, right: 16 })
-              .onClick(() => {
-                if (this.authKey.trim().length === 0) {
-                  return;
-                }
-                PreferencesStore.get().putString('tsnetAuthKey', this.authKey.trim());
-                this.fastHint = '正在用登录密钥启动轻量隧道…（无需浏览器登录）';
-                TailscaleTunnelStore.get().reloadFast();
-              })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Row() {
                 Text('自建控制平面')
