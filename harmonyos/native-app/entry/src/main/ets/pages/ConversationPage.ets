@@ -3219,6 +3219,8 @@ export struct ConversationPage {
   // ==================== 会话节点弹层（右上角三横线） ====================
   @State turnNavOpen: boolean = false;
   @State turnNodes: TurnNode[] = [];
+  /** 会话节点预热是否进行中（展开胶囊时就开始拉历史，避免开弹层才等） */
+  private turnNavWarmupRunning: boolean = false;
   /** 当前预览/选中的节点下标 */
   @State turnNodeIndex: number = 0;
   /** 右侧卡带轨道高度（用于把拖动位移换算成节点下标） */
@@ -5658,10 +5660,18 @@ export struct ConversationPage {
     this.warmHistoryForTurnNav();
   }
 
-  /** 弹层打开时把更早历史拉完，节点数覆盖所有轮次（时间线暂不重排） */
+  /**
+   * 把更早历史拉完，节点数覆盖所有轮次（时间线暂不重排）。
+   * 触发时机：① 折叠把手展开成胶囊时就预热；② 弹层打开期间继续补拉。
+   * 这样点开弹层时数据已经就绪，不用当场等。
+   */
   private async warmHistoryForTurnNav(): Promise<void> {
+    if (this.turnNavWarmupRunning) {
+      return;
+    }
+    this.turnNavWarmupRunning = true;
     let guard: number = 0;
-    while (this.hasMoreHistory && this.turnNavOpen && guard < 60) {
+    while (this.hasMoreHistory && (this.turnNavOpen || this.capsuleExpanded) && guard < 80) {
       if (!SessionStore.get().loadOlder()) {
         break;
       }
@@ -5669,6 +5679,13 @@ export struct ConversationPage {
       await new Promise<void>((resolve: () => void) => {
         setTimeout(resolve, 180);
       });
+      // 每加载一批就刷新节点数：胶囊上的 N/总数、弹层列表都跟着更新
+      this.refreshTurnNodes(this.turnNavOpen);
+    }
+    this.turnNavWarmupRunning = false;
+    if (this.turnNavOpen) {
+      this.refreshTurnNodes(true);
+      this.scrollTurnListTo(this.turnNodeIndex);
     }
   }
 
@@ -5822,12 +5839,15 @@ export struct ConversationPage {
     });
   }
 
-  /** 点击胶囊：折叠态先展开；展开态打开会话节点弹层 */
+  /** 点击胶囊：折叠态先展开（同时开始预热节点）；展开态打开会话节点弹层 */
   private tapCapsule(): void {
     if (!this.capsuleExpanded) {
       animateTo({ duration: 240, curve: Curve.EaseOut }, () => {
         this.capsuleExpanded = true;
       });
+      // 展开成卡带的瞬间就预热：先把当前节点刷新出来，再补拉更早历史
+      this.refreshTurnNodes(this.turnNavOpen);
+      this.warmHistoryForTurnNav();
       return;
     }
     // 弹层开着再点胶囊 = 收起（之前走系统菜单时由「点空白」承担）
