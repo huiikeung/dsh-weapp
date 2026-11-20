@@ -1057,7 +1057,22 @@ export struct TailscalePage {
     PreferencesStore.get().putString('tailscaleAccountLogin', '');
     PreferencesStore.get().putString('tailscaleAccountTailnet', '');
     PreferencesStore.get().putString('tailscaleAccountAddresses', '');
-    this.fastHint = '已删除登录账号（Auth Key 保留）';
+    // 账号删除后按剩余凭据自动选择登录方式
+    const prefs: PreferencesStore = PreferencesStore.get();
+    const remainingKey: string = prefs.getString('tsnetAuthKey', '').trim();
+    if (remainingKey.length > 0) {
+      prefs.putString('tsnetLoginMode', 'authKey');
+      prefs.putString('tsnetAppliedAuthKey', '');
+      AppStorage.setOrCreate<string>('tsnetAuthMode', 'authKey');
+      this.authModeState = 'authKey';
+      this.fastHint = '已删除登录账号，下次将用 Auth Key 登录';
+    } else {
+      prefs.putString('tsnetLoginMode', 'account');
+      prefs.putString('tsnetAppliedAuthKey', '');
+      AppStorage.setOrCreate<string>('tsnetAuthMode', 'account');
+      this.authModeState = 'account';
+      this.fastHint = '已删除登录账号，下次需重新授权';
+    }
   }
 
   private saveAuthKey(value: string): void {
@@ -1065,6 +1080,17 @@ export struct TailscalePage {
     this.authKey = value;
     PreferencesStore.get().putString(KEY_AUTH_KEY, value);
     PreferencesStore.get().putString('tsnetAuthKey', value.trim());
+    // Auth Key 被清空时自动回退到账号登录
+    if (value.trim().length === 0) {
+      const currentMode: string = PreferencesStore.get().getString('tsnetLoginMode', 'account');
+      if (currentMode === 'authKey') {
+        PreferencesStore.get().putString('tsnetLoginMode', 'account');
+        PreferencesStore.get().putString('tsnetAppliedAuthKey', '');
+        AppStorage.setOrCreate<string>('tsnetAuthMode', 'account');
+        this.authModeState = 'account';
+        this.fastHint = '已清空 Auth Key，将改用账号登录';
+      }
+    }
   }
 
   /** Auth Key 失效时改用浏览器登录：清空密钥并让轻量引擎重新给出登录链接 */
