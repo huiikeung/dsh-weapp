@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"tailscale.com/ipn"
+	"tailscale.com/net/netns"
 	"tailscale.com/tsnet"
 )
 
@@ -39,6 +40,7 @@ var (
 	tsqStartError   string
 	tsqCachedStatus string
 	tsqAuthMode     string
+	tsqProbeResult  string
 )
 
 // 复用旧 tsd 引擎留下的 tailscaled.state（同版本格式兼容），避免重新登录。
@@ -163,10 +165,62 @@ func tsqPollStatus(server *tsnet.Server) string {
 		" | upError=" + upErr + " | dnsName=" + dnsName + " | authURL=" + authURL + " | tailscaleIPs=" + strconv.Itoa(len(status.TailscaleIPs))
 }
 
+// tsqProbeControl 探测控制面：DNS 解析 + 每个地址的 TCP/TLS 握手
+func tsqProbeControl(control string, upErr error) string {
+	host := control
+	if strings.HasPrefix(host, "https://") {
+		host = host[len("https://"):]
+	} else if strings.HasPrefix(host, "http://") {
+		host = host[len("http://"):]
+	}
+	if i := strings.IndexByte(host, '/'); i >= 0 {
+		host = host[:i]
+	}
+	if host == "" {
+		host = "controlplane.tailscale.com"
+	}
+	result := "upErr=" + upErr.Error() + " host=" + host
+	defer func() {
+		tsqMu.Lock()
+		tsqProbeResult = result
+		tsqMu.Unlock()
+	}()
+	addrs, dnsErr := net.LookupHost(host)
+	if dnsErr != nil {
+		return result + " | dns=ERR:" + dnsErr.Error()
+	}
+	result += " | dns=" + strings.Join(addrs, ",")
+	for _, addr := range addrs {
+		ip := net.ParseIP(addr)
+		network := "tcp4"
+		if ip != nil && ip.To4() == nil {
+			network = "tcp6"
+		}
+		dialer := net.Dialer{Timeout: 8 * time.Second}
+		conn, dialErr := dialer.Dial(network, net.JoinHostPort(addr, "443"))
+		if dialErr != nil {
+			result += " | " + addr + " dial=" + dialErr.Error()
+			continue
+		}
+		tlsConn := tls.Client(conn, &tls.Config{ServerName: host})
+		_ = tlsConn.SetDeadline(time.Now().Add(8 * time.Second))
+		if hsErr := tlsConn.Handshake(); hsErr != nil {
+			result += " | " + addr + " tls=" + hsErr.Error()
+		} else {
+			result += " | " + addr + " tls=OK"
+		}
+		_ = conn.Close()
+	}
+	return result
+}
+
 //export TSQStart
 func TSQStart(hostname *C.char, stateDir *C.char, controlURL *C.char, authKey *C.char) *C.char {
 	host := C.GoString(hostname)
 	baseDir := C.GoString(stateDir)
+	// OHOS 上 netmon 拿不到默认路由，netns 绑定接口会让控制面/DERP 拨号全部超时；
+	// 退化为普通 net.Dialer（实测可正常 TLS 连接控制面）
+	netns.SetEnabled(false)
 	tsqMu.Lock()
 	tsqStateDir = baseDir
 	tsqMu.Unlock()
@@ -217,6 +271,8 @@ func TSQStart(hostname *C.char, stateDir *C.char, controlURL *C.char, authKey *C
 			tsqMu.Lock()
 			tsqUpError = upErr.Error()
 			tsqMu.Unlock()
+			// 诊断：Up 失败时探测控制面 DNS/TCP/TLS，结果写入日志缓冲
+			tsqLogf("TSQ probe: %s", tsqProbeControl(control, upErr))
 		}
 	}()
 	// 异步轮询状态：所有阻塞调用都在锁外，TSQStatus 只读缓存，绝不阻塞 JS 线程
@@ -242,9 +298,13 @@ func TSQStart(hostname *C.char, stateDir *C.char, controlURL *C.char, authKey *C
 func TSQStatus() *C.char {
 	tsqMu.Lock()
 	cached := tsqCachedStatus
+	probe := tsqProbeResult
 	tsqMu.Unlock()
 	if cached == "" {
 		cached = "OK | engine=tsnet | state=Starting"
+	}
+	if probe != "" {
+		cached = "probe=" + probe + " | " + cached
 	}
 	return C.CString(cached)
 }
