@@ -746,6 +746,20 @@ export struct TailscalePage {
     return '账号 未登录';
   }
 
+  /** 状态卡片徽标：登录方式 + 登录状态（如「Auth Key 未登录」「浏览器登录 已连接」） */
+  private authBadgeLabel(): string {
+    const hasKey: boolean = this.authKey.trim().length > 0;
+    const hasAccount: boolean = this.accountName.length > 0;
+    const method: string = hasKey ? 'Auth Key' : (hasAccount ? '浏览器登录' : 'Auth Key');
+    if (this.stage === STAGE_READY) {
+      return method + ' 已连接';
+    }
+    if (this.stage === STAGE_STARTING || this.stage === STAGE_WAITING_ROUTES) {
+      return method + ' 连接中';
+    }
+    return method + ' 未登录';
+  }
+
   /** 状态卡片上显示的当前连接类型 */
   private connectionKindLabel(): string {
     if (this.authModeState === 'authKey') {
@@ -940,7 +954,7 @@ export struct TailscalePage {
               Text(this.identitySummary()).fontSize(11).fontColor('#2E6BE6')
                 .padding({ left: 8, right: 8, top: 4, bottom: 4 })
                 .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
-              Text(this.authModeState === 'authKey' ? 'Auth Key' : '浏览器登录').fontSize(11).fontColor('#2E6BE6')
+              Text(this.authBadgeLabel()).fontSize(11).fontColor(this.stage === STAGE_READY ? '#0F9D58' : '#2E6BE6')
                 .padding({ left: 8, right: 8, top: 4, bottom: 4 })
                 .backgroundColor(this.pillBg()).borderRadius(8).margin({ right: 6, bottom: 4 })
               Text(this.controlURL.trim().length > 0 ? '自建控制面' : '官方控制面').fontSize(11).fontColor('#2E6BE6')
