@@ -2923,12 +2923,35 @@ export struct HomePage {
     return this.savedHosts.length > 0 || this.gatewayName.length > 0 || this.hostAlias.length > 0;
   }
 
-  /** 未连接时的主机名兜底：保存名 → wsUrl 主机段 */
-  private savedHostFallbackName(): string {
+  /**
+   * 最近使用的那台已保存主机：活动档案优先，否则取 lastConnectedAt 最大的一条。
+   * 注意不能用 savedHosts[0] —— 那是「最早保存」的一条，不是「最近使用」的。
+   */
+  private recentSavedHost(): SavedGateway | null {
     if (this.savedHosts.length === 0) {
+      return null;
+    }
+    const activeId: string = GatewayClient.get().activeGatewayId();
+    for (const gateway of this.savedHosts) {
+      if (gateway.id === activeId) {
+        return gateway;
+      }
+    }
+    let newest: SavedGateway = this.savedHosts[0];
+    for (const gateway of this.savedHosts) {
+      if (gateway.lastConnectedAt > newest.lastConnectedAt) {
+        newest = gateway;
+      }
+    }
+    return newest;
+  }
+
+  /** 未连接时的主机名兜底：最近使用的主机名 → wsUrl 主机段 */
+  private savedHostFallbackName(): string {
+    const one: SavedGateway | null = this.recentSavedHost();
+    if (one === null) {
       return '';
     }
-    const one: SavedGateway = this.savedHosts[0];
     if (one.name.length > 0) {
       return one.name;
     }
@@ -2940,32 +2963,44 @@ export struct HomePage {
   }
 
   private hostDisplayName(): string {
-    // 活动主机档案里的备注名优先（每台主机各自的 alias），再退回旧的全局别名
+    // 活动主机档案里的备注名优先（每台主机各自的 alias），再退回网关上报名与最近使用的主机
     const activeId: string = GatewayClient.get().activeGatewayId();
     for (const gateway of this.savedHosts) {
       if (gateway.id === activeId && gateway.alias !== undefined && gateway.alias.length > 0) {
         return gateway.alias;
       }
     }
-    if (this.hostAlias.length > 0) {
-      return this.hostAlias;
-    }
     if (this.gatewayName.length > 0) {
       return this.gatewayName;
     }
     const saved: string = this.savedHostFallbackName();
-    return saved.length > 0 ? saved : '暂无已保存的主机';
+    if (saved.length > 0) {
+      return saved;
+    }
+    return this.hostAlias.length > 0 ? this.hostAlias : '暂无已保存的主机';
   }
 
+  /**
+   * 顶部胶囊的主机名：连接中显示网关上报名，未连接/重连中显示「最近使用」的那台。
+   * 顺序：网关上报名 → 最近使用主机的备注名/名称 → 旧的全局别名 → 本机。
+   * 以前把全局 hostAlias 排在已保存主机前面：只要你给某台主机改过备注，
+   * 之后切到别的主机、或冷启动时，胶囊还会顶着上一台的备注名。
+   */
   private hostPillLabel(): string {
     if (this.gatewayName.length > 0) {
       return this.gatewayName;
     }
+    const recent: SavedGateway | null = this.recentSavedHost();
+    if (recent !== null) {
+      const name: string = this.savedHostName(recent);
+      if (name.length > 0) {
+        return name;
+      }
+    }
     if (this.hostAlias.length > 0) {
       return this.hostAlias;
     }
-    const saved: string = this.savedHostFallbackName();
-    return saved.length > 0 ? saved : '本机';
+    return '本机';
   }
 
   /** 保存编辑表单：备注名与主机类型写入对应主机档案（编辑哪台存哪台）。 */
