@@ -30,6 +30,7 @@ export class TailscaleTunnelStore {
   private fastNoStateTicks: number = 0;
   private fastRecovered: boolean = false;
   private fastStartingTicks: number = 0;
+  private fastNeedsLoginTicks: number = 0;
   private lastReloadAt: number = 0;
   private lastWarmAt: number = 0;
   private stateDir: string = '';
@@ -377,20 +378,25 @@ export class TailscaleTunnelStore {
       // 轻量引擎状态必须发布到页面：否则 Auth Key 过期/失效时会永远停在「启动中」
       if (fastStat.indexOf('state=Running') >= 0) {
         this.fastStartingTicks = 0;
+        this.fastNeedsLoginTicks = 0;
         this.fastDebugLogged = false;
         AppStorage.setOrCreate<string>('tailscaleStageError', '');
         AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_READY);
         AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', false);
       } else if (fastStat.indexOf('state=NeedsLogin') >= 0) {
         this.fastStartingTicks = 0;
-        if (!this.fastDebugLogged) {
-          this.fastDebugLogged = true;
-          Logger.info('TSDBG authLog=' + TsnetBridge.debugFast().replaceAll('\n', ' ~ ').substring(0, 900));
+        this.fastNeedsLoginTicks += 1;
+        if (this.fastNeedsLoginTicks % 5 === 1) {
+          Logger.info('TSDBG authLogTail=' + TsnetBridge.debugFast().replaceAll('\n', ' ~ ').slice(-2600));
         }
         AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_NEEDS_LOGIN);
         const hasKey: boolean = PreferencesStore.get().getString('tsnetAuthKey', '').trim().length > 0;
         const fastAuthUrl: string = TsnetBridge.authURLFast();
         AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', hasKey && !fastAuthUrl.startsWith('http'));
+        if (this.fastNeedsLoginTicks >= 10 && hasKey && !fastAuthUrl.startsWith('http')) {
+          AppStorage.setOrCreate<string>('tailscaleStageError',
+            '无法连接 Tailscale 控制面：请关闭手机上的 VPN/代理（Clash 等），或让代理放行 *.tailscale.com / *.ts.net 后重试');
+        }
       } else if (fastStat.indexOf('FAILED') >= 0) {
         AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_FAILED);
       } else if (fastStat.indexOf('state=Starting') >= 0 || fastStat.indexOf('state=NoState') >= 0) {
