@@ -821,6 +821,16 @@ export struct TailscalePage {
     return '••••' + key.substring(key.length - 6);
   }
 
+  /** 重新连接：有 Auth Key 就用它重连，否则重启引擎走账号授权 */
+  private retryConnection(): void {
+    if (this.authKey.trim().length > 0) {
+      this.connectWithAuthKey();
+      return;
+    }
+    this.fastHint = '正在重新连接…';
+    TailscaleTunnelStore.get().reloadFast();
+  }
+
   /** 用账号登录：清空 Auth Key，让轻量引擎进入账号授权流程 */
   private connectWithAccount(): void {
     if (this.loginBusy) {
@@ -1161,15 +1171,8 @@ export struct TailscalePage {
                     this.setEnabled(true);
                     this.beginStart();
                   })
-              } else if (this.stage === STAGE_READY) {
-                Text('重新连接')
-                  .fontSize(14).fontColor(this.textColor()).layoutWeight(1).height(38).textAlign(TextAlign.Center)
-                  .backgroundColor(this.pillBg()).borderRadius(10)
-                  .onClick(() => {
-                    this.beginStart();
-                  })
-              } else {
-                // 已填写的凭据各给一个连接按钮；两个都填就并排两个
+              } else if (this.stage === STAGE_NEEDS_LOGIN && (this.accountName.length > 0 || this.authKey.trim().length > 0)) {
+                // 需要授权时按已填写的凭据给出登录方式
                 if (this.accountName.length > 0) {
                   Text('账号登录')
                     .fontSize(14).fontColor('#FFFFFF').layoutWeight(1).height(38).textAlign(TextAlign.Center)
@@ -1186,10 +1189,19 @@ export struct TailscalePage {
                       this.connectWithAuthKey();
                     })
                 }
-                if (this.accountName.length === 0 && this.authKey.trim().length === 0) {
-                  Text('先在下方填写账号或 Auth Key')
-                    .fontSize(13).fontColor(this.subColor()).layoutWeight(1).height(38).textAlign(TextAlign.Center)
-                }
+              } else {
+                // 已连接时灰字不可点；断开/失败/启动中显示蓝色可点击重连
+                Text('重新连接')
+                  .fontSize(14)
+                  .fontColor(this.stage === STAGE_READY ? this.subColor() : '#2E6BE6')
+                  .layoutWeight(1).height(38).textAlign(TextAlign.Center)
+                  .backgroundColor(this.pillBg()).borderRadius(10)
+                  .onClick(() => {
+                    if (this.stage === STAGE_READY) {
+                      return;
+                    }
+                    this.retryConnection();
+                  })
               }
               if (this.tunnelEnabled) {
                 Text('停止')
