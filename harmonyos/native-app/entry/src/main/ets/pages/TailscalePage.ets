@@ -129,6 +129,13 @@ export struct TailscalePage {
       prefs.putString(KEY_NODE_NAME, this.nodeName);
     }
     this.authKey = prefs.getString(KEY_AUTH_KEY, '');
+    // 已添加的账号持久化：只要没点删除，重启后仍显示
+    if (this.accountName.length === 0) {
+      this.accountName = prefs.getString('tailscaleAccountName', '');
+      this.accountLogin = prefs.getString('tailscaleAccountLogin', '');
+      this.accountTailnet = prefs.getString('tailscaleAccountTailnet', '');
+      this.accountAddresses = prefs.getString('tailscaleAccountAddresses', '');
+    }
     this.controlURL = prefs.getString(KEY_CONTROL_URL, '');
     this.gatewayViaTailnet = prefs.getBoolean(KEY_GATEWAY_VIA_TAILNET, false);
     this.tailnetTarget = prefs.getString(KEY_TAILNET_TARGET, '');
@@ -195,6 +202,13 @@ export struct TailscalePage {
     this.accountLogin = this.jsonField(json, 'loginName');
     this.accountTailnet = this.jsonField(json, 'tailnetName');
     this.accountAddresses = this.jsonField(json, 'addresses');
+    if (this.accountName.length > 0) {
+      const prefs: PreferencesStore = PreferencesStore.get();
+      prefs.putString('tailscaleAccountName', this.accountName);
+      prefs.putString('tailscaleAccountLogin', this.accountLogin);
+      prefs.putString('tailscaleAccountTailnet', this.accountTailnet);
+      prefs.putString('tailscaleAccountAddresses', this.accountAddresses);
+    }
   }
 
   private jsonField(json: string, key: string): string {
@@ -887,6 +901,10 @@ export struct TailscalePage {
     AppStorage.setOrCreate<string>('tailscaleAccount', '');
     AppStorage.setOrCreate<string>('tsnetAuthMode', '');
     this.authModeState = '';
+    PreferencesStore.get().putString('tailscaleAccountName', '');
+    PreferencesStore.get().putString('tailscaleAccountLogin', '');
+    PreferencesStore.get().putString('tailscaleAccountTailnet', '');
+    PreferencesStore.get().putString('tailscaleAccountAddresses', '');
     try {
       fileIo.rmdirSync(this.stateDir() + '/tsnet-node');
     } catch (clearErr) {
@@ -1283,7 +1301,8 @@ export struct TailscalePage {
             })
           }
 
-          // ── 区块 2：账号与网络（登录账号始终显示）──
+          // ── 区块 2：账号与网络（隧道开启后显示；账号本身持久化，直到手动删除）──
+          if (this.tunnelEnabled) {
           this.sectionHeader('账号与网络')
           Column() {
             if (this.accountName.length > 0) {
@@ -1357,7 +1376,8 @@ export struct TailscalePage {
           .borderRadius(14)
 
           .clip(true)
-          this.sectionFooter('账号始终显示。点前面的圆点用该账号登录，右侧可删除该账号。')
+          this.sectionFooter('点前面的圆点用该账号登录，右侧可删除；不删除会一直保留。')
+          }
 
           // ── 节点身份（单独卡片）：Auth Key + 自建控制平面（折叠）──
           if (this.tunnelEnabled) {
