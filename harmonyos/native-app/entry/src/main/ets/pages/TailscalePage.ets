@@ -324,7 +324,8 @@ export struct TailscalePage {
     PreferencesStore.get().putBoolean(KEY_ENABLED, next);
     if (next) {
       this.stage = STAGE_STARTING;
-      TsnetBridge.start(this.stateDir(), this.deviceModel(), this.osVersion(), this.effectiveControlURL());
+      // 只用轻量 tsnet 引擎（tsd 引擎与它共用状态目录会互相清空）
+      TailscaleTunnelStore.get().reloadFast();
     } else {
       this.stop();
     }
@@ -403,41 +404,19 @@ export struct TailscalePage {
     this.failureKind = '';
     this.nodeAddress = '';
     this.peerCount = 0;
-    const liveStatus: string = TsnetBridge.status();
-    if (liveStatus.indexOf('state=Running') >= 0 || liveStatus.indexOf('state=Starting') >= 0 ||
-        liveStatus.indexOf('starting') >= 0) {
-      const running: boolean = liveStatus.indexOf('state=Running') >= 0;
-      Logger.info('TSDBG beginStart reuse live engine running=' + running);
-      this.backendLog = liveStatus;
-      this.stage = running ? STAGE_READY : STAGE_WAITING_ROUTES;
-      if (running) {
-        this.loadAccountSummary();
-        this.refreshPeers();
-      }
-      this.pollStatus(0);
-      return;
+    // 统一走轻量 tsnet 引擎：状态由 TailscaleTunnelStore 轮询并发布到 tailscaleStage
+    const key: string = this.authKey.trim();
+    if (key.length > 0) {
+      TailscaleTunnelStore.get().applyAuthKey(key);
+    } else {
+      TailscaleTunnelStore.get().reloadFast();
     }
-    const hello: string = TsnetBridge.hello();
-    Logger.info('TSDBG hello=' + hello);
-    this.backendLog = hello;
-    if (hello.indexOf('OK') < 0) {
-      this.stage = STAGE_FAILED;
-      this.failureKind = 'nativeLoad';
-      return;
-    }
-    const started: string = TsnetBridge.start(this.stateDir(), this.deviceModel(), this.osVersion(), this.effectiveControlURL());
-    Logger.info('TSDBG start=' + started.substring(0, 200));
-    this.backendLog = started;
-    if (started.indexOf('FAILED') >= 0 && started.indexOf('running') < 0) {
-      this.stage = STAGE_FAILED;
-      this.failureKind = 'backendStart';
-      return;
-    }
-    this.pollStatus(0);
   }
 
   /** 轮询 Go 引擎状态：state=Running / NeedsLogin / Starting */
   private pollStatus(tick: number): void {
+    // 引擎状态已由 TailscaleTunnelStore 统一轮询发布，这里不再直接驱动 tsd 引擎
+    return;
     if (this.stage === STAGE_DISABLED || tick > 150) {
       return;
     }
@@ -511,7 +490,14 @@ export struct TailscalePage {
 
   private stop(): void {
     this.stopTimer();
-    TsnetBridge.stop();
+    try {
+      TsnetBridge.stopFast();
+    } catch (stopErr) {
+    }
+    try {
+      TsnetBridge.stop();
+    } catch (stopErr) {
+    }
     this.stage = STAGE_DISABLED;
     this.failureKind = '';
     this.nodeAddress = '';

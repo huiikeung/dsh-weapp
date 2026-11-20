@@ -198,7 +198,7 @@ func TSQStart(hostname *C.char, stateDir *C.char, controlURL *C.char, authKey *C
 		Dir:        dir,
 		ControlURL: control,
 		AuthKey:    authKeyValue,
-		Ephemeral:  authKeyValue != "",
+		Ephemeral:  false,
 		Logf:       tsqLogf,
 		UserLogf:   tsqLogf,
 	}

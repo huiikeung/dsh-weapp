@@ -82,11 +82,27 @@ export class TailscaleTunnelStore {
     }
     let authKey: string = PreferencesStore.get().getString('tsnetAuthKey', '').trim();
     Logger.info('TSDBG fast authKeyLen=' + authKey.length);
-    const result: string = TsnetBridge.startFast(hostname, this.stateDir, this.controlURL(), authKey);
+    // 首次切到 /fast 子目录时，把旧的已登录状态迁移过来，避免重新登录
+    try {
+      const legacyState: string = this.stateDir + '/tailscaled.state';
+      const fastState: string = this.stateDir + '/fast/tailscaled.state';
+      if (!fileIo.accessSync(fastState) && fileIo.accessSync(legacyState)) {
+        fileIo.mkdirSync(this.stateDir + '/fast', true);
+        fileIo.copyFileSync(legacyState, fastState);
+        Logger.warn('TSDBG migrated legacy tailscale state to /fast');
+      }
+    } catch (migErr) {
+      Logger.info('TSDBG migrate tailscale state skipped: ' + (migErr as Error).message);
+    }
+    // 轻量引擎用独立子目录：tsd 引擎（若被拉起）会写 <stateDir>/tailscaled.state，
+    // 和 tsnet 同目录会互相覆盖导致状态被清空（表现为已连接后重开 App 变 NeedsLogin）
+    const result: string = TsnetBridge.startFast(hostname, this.stateDir + '/fast', this.controlURL(), authKey);
     Logger.info('TSDBG fast start=' + result.substring(0, 200));
   }
 
   private ensureStarted(enabled: boolean): void {
+    // 只用轻量 tsnet 引擎：tsd 引擎会与它争抢状态/网络，且移动端不需要完整 tailscaled
+    return;
     // 有 Auth Key 时只跑轻量 tsnet 引擎，避免 tsd 引擎的 needsLogin 状态干扰 UI
     if (PreferencesStore.get().getString('tsnetAuthKey', '').trim().length > 0) {
       return;
@@ -129,7 +145,7 @@ export class TailscaleTunnelStore {
   reauthorizeWithBrowser(): void {
     // 改用浏览器登录：清掉旧节点状态与已应用 key，让 tsnet 重新走登录链接
     try {
-      fileIo.rmdirSync(this.stateDir + '/tsnet-node');
+      fileIo.rmdirSync(this.stateDir + '/fast');
     } catch (clearErr) {
       Logger.info('TSDBG clear tsnet state (browser reauth) skipped: ' + (clearErr as Error).message);
     }
@@ -155,7 +171,7 @@ export class TailscaleTunnelStore {
     const applied: string = PreferencesStore.get().getString('tsnetAppliedAuthKey', '');
     if (applied !== key) {
       try {
-        fileIo.rmdirSync(this.stateDir + '/tsnet-node');
+        fileIo.rmdirSync(this.stateDir + '/fast');
         Logger.warn('TSDBG cleared tsnet state because Auth Key changed');
       } catch (clearErr) {
         Logger.info('TSDBG clear tsnet state skipped: ' + (clearErr as Error).message);
@@ -333,7 +349,7 @@ export class TailscaleTunnelStore {
           TsnetBridge.stopFast();
           // 状态文件可能由旧版本引擎写入导致无法启动：清掉后重新注册
           try {
-            fileIo.rmdirSync(this.stateDir + '/tsnet-node');
+            fileIo.rmdirSync(this.stateDir + '/fast');
             Logger.warn('TSDBG cleared tsnet state dir');
           } catch (clearErr) {
             Logger.warn('TSDBG clear state failed: ' + (clearErr as Error).message);
@@ -361,11 +377,16 @@ export class TailscaleTunnelStore {
       // 轻量引擎状态必须发布到页面：否则 Auth Key 过期/失效时会永远停在「启动中」
       if (fastStat.indexOf('state=Running') >= 0) {
         this.fastStartingTicks = 0;
+        this.fastDebugLogged = false;
         AppStorage.setOrCreate<string>('tailscaleStageError', '');
         AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_READY);
         AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', false);
       } else if (fastStat.indexOf('state=NeedsLogin') >= 0) {
         this.fastStartingTicks = 0;
+        if (!this.fastDebugLogged) {
+          this.fastDebugLogged = true;
+          Logger.info('TSDBG authLog=' + TsnetBridge.debugFast().replaceAll('\n', ' ~ ').substring(0, 900));
+        }
         AppStorage.setOrCreate<string>('tailscaleStage', TS_STAGE_NEEDS_LOGIN);
         const hasKey: boolean = PreferencesStore.get().getString('tsnetAuthKey', '').trim().length > 0;
         const fastAuthUrl: string = TsnetBridge.authURLFast();
