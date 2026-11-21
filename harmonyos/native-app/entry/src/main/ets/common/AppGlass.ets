@@ -20,8 +20,13 @@
 /** 标准圆角（vp） */
 export const APP_GLASS_RADIUS: number = 16;
 
-/** 标准背景模糊强度 */
+/** 标准背景模糊强度（浅色）；深色用 appGlassBlur() 的更强档以对齐原生菜单 */
 export const APP_GLASS_BLUR: number = 26;
+
+/** 深色下模糊更强：原生菜单（COMPONENT_THICK 材质）实测背景内容糊得更彻底，浅色不变 */
+export function appGlassBlur(isDark: boolean): number {
+  return isDark ? 64 : APP_GLASS_BLUR;
+}
 
 /**
  * 标准玻璃底色：直接对齐系统原生弹窗（右上角「⋯」菜单）的材质色/不透明度，
@@ -32,9 +37,9 @@ export function appGlassFill(isDark: boolean): string {
   return isDark ? 'rgba(37,37,39,0.72)' : 'rgba(248,248,250,0.78)';
 }
 
-/** 标准高光细边：深色 16% 白、浅色 90% 白（浅色下靠白边出玻璃感） */
+/** 标准高光细边：深色 20% 白（实测原生菜单描边比旧值亮一档）、浅色 90% 白 */
 export function appGlassBorderColor(isDark: boolean): string {
-  return isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)';
+  return isDark ? 'rgba(255,255,255,0.20)' : 'rgba(255,255,255,0.90)';
 }
 
 /** 标准投影：与系统菜单同档悬浮感 */

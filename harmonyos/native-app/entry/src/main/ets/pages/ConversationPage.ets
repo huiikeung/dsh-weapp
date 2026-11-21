@@ -3,8 +3,8 @@ import { fileIo } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { curves, display, KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import {
-  APP_GLASS_BLUR,
   APP_GLASS_RADIUS,
+  appGlassBlur,
   appGlassBorderColor,
   appGlassFill,
   appGlassShadow
@@ -7528,7 +7528,7 @@ export struct ConversationPage {
         .padding({ top: 2, bottom: 2 })
         // APP 玻璃标准（见 common/AppGlass.ets）：侧栏就是这个标准的基准实现
         .backgroundColor(appGlassFill(this.isDark))
-        .backdropBlur(APP_GLASS_BLUR)
+        .backdropBlur(appGlassBlur(this.isDark))
         .borderRadius(APP_GLASS_RADIUS)
         .clip(true)
         .border({ width: 1, color: appGlassBorderColor(this.isDark) })
