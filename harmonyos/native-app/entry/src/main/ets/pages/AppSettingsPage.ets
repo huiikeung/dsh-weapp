@@ -1454,12 +1454,13 @@ export struct AppSettingsPage {
             // ── 对话 ──
             this.groupTitle('对话')
             Column({ space: 0 }) {
-              this.toggleRow('会话节点胶囊', '开启后常显在会话页侧边；关闭后默认收起为贴边把手', this.capsuleDefaultExpanded, (value: boolean) => {
-                this.capsuleDefaultExpanded = value;
-                PreferencesStore.get().putBoolean('capsuleDefaultExpanded', value);
+              // 开关含义统一成「收起」：开启 = 进入会话页时默认收起成贴边把手（存储取反）
+              this.toggleRow('胶囊收起', '开启后进入会话页默认收起为贴边把手，点击再展开', !this.capsuleDefaultExpanded, (value: boolean) => {
+                this.capsuleDefaultExpanded = !value;
+                PreferencesStore.get().putBoolean('capsuleDefaultExpanded', !value);
               })
               this.divider()
-              this.toggleRow('胶囊常显', '关闭后会话页不显示侧边胶囊（会话节点入口一并隐藏）', this.capsuleAlwaysVisible, (value: boolean) => {
+              this.toggleRow('会话节点胶囊', '关闭后会话页不显示侧边胶囊（会话节点入口一并隐藏）', this.capsuleAlwaysVisible, (value: boolean) => {
                 this.capsuleAlwaysVisible = value;
                 PreferencesStore.get().putBoolean('capsuleAlwaysVisible', value);
               })
