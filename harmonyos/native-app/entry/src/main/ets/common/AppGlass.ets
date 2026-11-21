@@ -34,8 +34,8 @@ export function appGlassBlur(isDark: boolean): number {
  */
 export function appGlassFill(isDark: boolean): string {
   // 深色底：原生那种「透黑」——基色压暗、保留较多透光，靠中等模糊打散背景细节：
-  //   36 * 0.72 ≈ 25.9（纯黑底 ≈ #1A1A1B），透光 28%（比上一档更透一丢丢）
-  return isDark ? 'rgba(36,36,38,0.72)' : 'rgba(248,248,250,0.78)';
+  //   41 * 0.64 ≈ 26.2（纯黑底 ≈ #1A1A1B），透光 36%（玻璃更透、背景层次更清楚）
+  return isDark ? 'rgba(41,41,43,0.64)' : 'rgba(248,248,250,0.78)';
 }
 
 /** 标准高光细边：深色 20% 白（实测原生菜单描边比旧值亮一档）、浅色 90% 白 */
