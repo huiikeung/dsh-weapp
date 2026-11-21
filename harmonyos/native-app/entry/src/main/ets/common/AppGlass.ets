@@ -28,7 +28,8 @@ export const APP_GLASS_BLUR: number = 26;
  * 深色 rgba(61,61,61,0.72)、浅色 rgba(248,248,250,0.78)；模糊由 backdropBlur 提供。
  */
 export function appGlassFill(isDark: boolean): string {
-  return isDark ? 'rgba(61,61,61,0.72)' : 'rgba(248,248,250,0.78)';
+  // 深色底实测对齐系统菜单：面板实测 #1B1B1C ≈ rgba(37,37,39,0.72) 叠在纯黑页面上
+  return isDark ? 'rgba(37,37,39,0.72)' : 'rgba(248,248,250,0.78)';
 }
 
 /** 标准高光细边：深色 16% 白、浅色 90% 白（浅色下靠白边出玻璃感） */
