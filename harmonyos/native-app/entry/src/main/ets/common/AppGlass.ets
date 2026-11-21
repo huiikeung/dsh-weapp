@@ -25,7 +25,7 @@ export const APP_GLASS_BLUR: number = 26;
 
 /** 深色下模糊更强：原生菜单（COMPONENT_THICK 材质）实测背景内容糊得更彻底，浅色不变 */
 export function appGlassBlur(isDark: boolean): number {
-  return isDark ? 64 : APP_GLASS_BLUR;
+  return isDark ? 96 : APP_GLASS_BLUR;
 }
 
 /**
@@ -33,10 +33,10 @@ export function appGlassBlur(isDark: boolean): number {
  * 深色 rgba(61,61,61,0.72)、浅色 rgba(248,248,250,0.78)；模糊由 backdropBlur 提供。
  */
 export function appGlassFill(isDark: boolean): string {
-  // 深色底：纯黑页面合成值对齐原生（#1B1B1C ≈ 26.7），同时把背景透光压到 ~8%：
-  // 亮部透光越低，面板越不会被背景亮文字「染灰」（原生菜单实测亮部峰值 ≈47）
-  //   29 * 0.92 ≈ 26.7（黑底）；255 亮部 → 0.08*255 + 26.7 ≈ 47（与原生一致）
-  return isDark ? 'rgba(29,29,31,0.92)' : 'rgba(248,248,250,0.78)';
+  // 深色底：纯黑页面合成值对齐原生（#1B1B1C ≈ 26.7），透光保持原生那种「有玻璃感但不灰」：
+  // 不用高不透明度硬压，而是靠更强的背景模糊把亮部糊开（亮部被摊薄后不会形成灰雾）
+  //   34 * 0.78 ≈ 26.5（黑底），透光 22%
+  return isDark ? 'rgba(34,34,36,0.78)' : 'rgba(248,248,250,0.78)';
 }
 
 /** 标准高光细边：深色 20% 白（实测原生菜单描边比旧值亮一档）、浅色 90% 白 */
