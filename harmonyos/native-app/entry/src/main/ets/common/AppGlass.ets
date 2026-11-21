@@ -25,7 +25,7 @@ export const APP_GLASS_BLUR: number = 26;
 
 /** 深色下模糊更强：原生菜单（COMPONENT_THICK 材质）实测背景内容糊得更彻底，浅色不变 */
 export function appGlassBlur(isDark: boolean): number {
-  return isDark ? 56 : APP_GLASS_BLUR;
+  return isDark ? 44 : APP_GLASS_BLUR;
 }
 
 /**
