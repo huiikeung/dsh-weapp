@@ -592,6 +592,7 @@ export class SessionStore {
       if (wasOlderPage || frame.resetRequired === true) {
         this.olderRequestPending = false;
         this.olderRequestCursor = 0;
+        this.clearOlderRequestTimeout();
       }
       if (!wasOlderPage && frame.historyFormatVersion !== undefined) {
         this.historyFormatVersion = frame.historyFormatVersion;
@@ -1432,6 +1433,28 @@ export class SessionStore {
     return this.olderRequestPending;
   }
 
+  /** 补拉请求的超时兜底定时器：响应丢了也要把 pending 放掉，否则预热会一直卡住 */
+  private olderRequestTimer: number = -1;
+
+  private clearOlderRequestTimeout(): void {
+    if (this.olderRequestTimer >= 0) {
+      clearTimeout(this.olderRequestTimer);
+      this.olderRequestTimer = -1;
+    }
+  }
+
+  private armOlderRequestTimeout(): void {
+    this.clearOlderRequestTimeout();
+    this.olderRequestTimer = setTimeout(() => {
+      this.olderRequestTimer = -1;
+      if (this.olderRequestPending) {
+        Logger.warn('older history request timeout, reset pending sessionId=' + this.sessionId);
+        this.olderRequestPending = false;
+        this.olderRequestCursor = 0;
+      }
+    }, 15000);
+  }
+
   /**
    * 加载更早一页历史。
    * aggressive=true 时用大页（240 条 / 2MB）：节点预热要一次拉完历史，
@@ -1443,6 +1466,7 @@ export class SessionStore {
     }
     this.olderRequestPending = true;
     this.olderRequestCursor = this.oldestSeq;
+    this.armOlderRequestTimeout();
     const sent: boolean = aggressive
       ? this.client.requestOlderHistory(this.sessionId, this.oldestSeq, this.historyFormatVersion, 240, 2097152)
       : this.client.requestOlderHistory(this.sessionId, this.oldestSeq, this.historyFormatVersion);

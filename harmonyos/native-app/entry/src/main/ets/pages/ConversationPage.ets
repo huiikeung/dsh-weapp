@@ -5678,6 +5678,7 @@ export struct ConversationPage {
     // 一页一页连着拉：等上一页真正落地就立刻发下一页，不再固定 sleep 180ms。
     // 之前固定 180ms 会在「响应比 180ms 慢」时被 loadOlder 的 pending 判断打断，
     // 一次展开只能拉一页，看起来就是要点好几次才能加载完。
+    let stuck: number = 0;
     while (guard < 60 && (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded) && store.hasOlderHistory()) {
       if (store.isOlderRequestPending()) {
         await new Promise<void>((resolve: () => void) => {
@@ -5686,20 +5687,28 @@ export struct ConversationPage {
         continue;
       }
       if (!store.loadOlder(true)) {
-        break;
+        // 拉不到（暂无更多/游标异常）：留一次重试机会，避免偶发失败就停
+        stuck += 1;
+        if (stuck >= 3) {
+          break;
+        }
+        await new Promise<void>((resolve: () => void) => {
+          setTimeout(resolve, 400);
+        });
+        continue;
       }
+      stuck = 0;
       guard += 1;
-      // 等这一页落地（最多 6s；超时就放弃本轮预热，避免卡在半路一直转）
+      // 等这一页落地（最多 8s；store 侧 15s 超时兜底会放掉 pending）
       let waited: number = 0;
-      while (store.isOlderRequestPending() && waited < 6000) {
+      while (store.isOlderRequestPending() && waited < 8000) {
         await new Promise<void>((resolve: () => void) => {
           setTimeout(resolve, 16);
         });
         waited += 16;
       }
-      if (store.isOlderRequestPending()) {
-        break;
-      }
+      Logger.info('[TurnNavWarmup] page done guard=' + guard + ' pending=' + (store.isOlderRequestPending() ? '1' : '0') +
+        ' hasOlder=' + (store.hasOlderHistory() ? '1' : '0') + ' nodes=' + this.turnNodes.length.toString());
       // 每加载一页就刷新节点数：胶囊上的 N/总数、弹层列表都跟着更新
       this.refreshTurnNodes(this.turnNavOpen);
     }
@@ -6083,10 +6092,10 @@ export struct ConversationPage {
           GestureMode.Parallel,
           LongPressGesture({ repeat: false, duration: 260 })
             .onAction(() => {
-              if (!this.turnNavOpen) {
-                // 长按要「弹层跟着滑块走」，只能收起原生菜单、改用自绘浮层
-                this.turnNavMenuOpen = false;
-                this.openTurnNav();
+              // 与点击胶囊同一个原生系统菜单（材质/圆角/动画完全一致）
+              if (!this.turnNavMenuOpen) {
+                this.refreshTurnNodes(true);
+                this.turnNavMenuOpen = true;
               }
             }),
           PanGesture()
