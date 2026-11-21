@@ -35,6 +35,8 @@ export struct AppSettingsPage {
   @StorageLink('showAccountCard') showAccountCard: boolean = false;
   /** 会话节点胶囊：默认展开显示（关闭则默认收起成贴边把手） */
   @StorageLink('capsuleDefaultExpanded') capsuleDefaultExpanded: boolean = true;
+  /** 胶囊常显：关闭后会话页不再显示侧边胶囊 */
+  @StorageLink('capsuleAlwaysVisible') capsuleAlwaysVisible: boolean = true;
   @StorageLink('notifyEnabled') notifyEnabled: boolean = false;
   @StorageLink('contextTabVisible') contextTabVisible: boolean = true;
   @StorageLink('fleetTabVisible') fleetTabVisible: boolean = true;
@@ -143,6 +145,7 @@ export struct AppSettingsPage {
     this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', true);
     this.showAccountCard = prefs.getBoolean('showAccountCard', false);
     this.capsuleDefaultExpanded = prefs.getBoolean('capsuleDefaultExpanded', true);
+    this.capsuleAlwaysVisible = prefs.getBoolean('capsuleAlwaysVisible', true);
     this.notifyEnabled = prefs.getBoolean('notifyEnabled', false);
     this.contextTabVisible = prefs.getBoolean('contextTabVisible', true);
     this.fleetTabVisible = prefs.getBoolean('fleetTabVisible', true);
@@ -175,6 +178,7 @@ export struct AppSettingsPage {
     this.procIconStyle = prefs.getString('procIconStyle', 'spin-ring');
     this.showAccountCard = prefs.getBoolean('showAccountCard', this.showAccountCard);
     this.capsuleDefaultExpanded = prefs.getBoolean('capsuleDefaultExpanded', this.capsuleDefaultExpanded);
+    this.capsuleAlwaysVisible = prefs.getBoolean('capsuleAlwaysVisible', this.capsuleAlwaysVisible);
     this.notifyEnabled = prefs.getBoolean('notifyEnabled', this.notifyEnabled);
     this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', this.voiceInputEnabled);
     this.contextTabVisible = prefs.getBoolean('contextTabVisible', this.contextTabVisible);
@@ -1453,6 +1457,11 @@ export struct AppSettingsPage {
               this.toggleRow('会话节点胶囊', '开启后常显在会话页侧边；关闭后默认收起为贴边把手', this.capsuleDefaultExpanded, (value: boolean) => {
                 this.capsuleDefaultExpanded = value;
                 PreferencesStore.get().putBoolean('capsuleDefaultExpanded', value);
+              })
+              this.divider()
+              this.toggleRow('胶囊常显', '关闭后会话页不显示侧边胶囊（会话节点入口一并隐藏）', this.capsuleAlwaysVisible, (value: boolean) => {
+                this.capsuleAlwaysVisible = value;
+                PreferencesStore.get().putBoolean('capsuleAlwaysVisible', value);
               })
               this.divider()
               this.toggleRow('语音输入', '按住说话，由已连接的 DSH 语音插件转写', this.voiceInputEnabled, (value: boolean) => {

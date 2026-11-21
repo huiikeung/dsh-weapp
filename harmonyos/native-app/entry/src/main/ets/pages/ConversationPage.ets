@@ -425,6 +425,7 @@ export struct ConversationPage {
     // 胶囊默认态：设置里控制「默认显示 / 默认收起」
     try {
       this.capsuleExpanded = PreferencesStore.get().getBoolean('capsuleDefaultExpanded', true);
+      this.capsuleAlwaysVisible = PreferencesStore.get().getBoolean('capsuleAlwaysVisible', true);
     } catch (ignored) {
     }
     // 智感握姿：订阅左右手持握变化，卡带据此左右切换（不支持的机型静默跳过）
@@ -3089,9 +3090,22 @@ export struct ConversationPage {
         this.turnNavOverlay()
       }
 
+      // 展开胶囊时：点胶囊以外的任何区域都收起为贴边把手（透明遮罩，Z 序压在胶囊下面）
+      if (this.pageW > 0 && this.capsuleAlwaysVisible && this.capsuleExpanded
+        && !this.sessionPickerOpen && !this.turnNavOpen && !this.turnNavMenuOpen) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor(Color.Transparent)
+          .zIndex(59)
+          .onClick(() => {
+            this.collapseCapsuleByOutsideTap();
+          })
+      }
+
       // 会话节点胶囊：常显浮层（左右拖动吸附折叠，点击展开/打开弹层）
-      // 侧栏弹窗展开时先收起，避免浮块压在弹窗旁边
-      if (this.pageW > 0 && !this.sessionPickerOpen) {
+      // 侧栏弹窗展开时先收起，避免浮块压在弹窗旁边；设置里可整体关闭常显
+      if (this.pageW > 0 && this.capsuleAlwaysVisible && !this.sessionPickerOpen) {
         this.floatingCapsule()
       }
 
@@ -3241,6 +3255,8 @@ export struct ConversationPage {
   @State capsuleSide: string = 'right';
   /** 胶囊是否展开（拖动吸附到边后折叠成把手，点击再展开） */
   @State capsuleExpanded: boolean = true;
+  /** 设置项「胶囊常显」：关闭后会话页不渲染侧边胶囊 */
+  @StorageLink('capsuleAlwaysVisible') capsuleAlwaysVisible: boolean = true;
   /** 拖动位移：跟手反馈，松手回弹/吸附都用它 */
   @State capsuleDragX: number = 0;
   /** 页面尺寸（用于胶囊绝对定位） */
@@ -5957,6 +5973,19 @@ export struct ConversationPage {
       this.capsuleDragX = 0;
     });
     // 收起胶囊：把预热期间累积的历史一次性重排回时间线（此时页面才允许动）
+    this.flushTimelineAfterWarmup();
+  }
+
+  /** 点胶囊以外区域：收起成贴边把手，并把预热期间累积的历史补进时间线 */
+  private collapseCapsuleByOutsideTap(): void {
+    if (!this.capsuleExpanded) {
+      return;
+    }
+    animateTo({ duration: 220, curve: Curve.EaseOut }, () => {
+      this.capsuleExpanded = false;
+      this.capsuleDragX = 0;
+      this.turnBarOffset = 0;
+    });
     this.flushTimelineAfterWarmup();
   }
 
