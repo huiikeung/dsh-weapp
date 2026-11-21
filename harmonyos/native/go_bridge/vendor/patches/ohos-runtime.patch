@@ -1,0 +1,61 @@
+diff --git a/net/netmon/polling.go b/net/netmon/polling.go
+index 806f0b0..24a3f93 100644
+--- a/net/netmon/polling.go
++++ b/net/netmon/polling.go
+@@ -58,7 +58,11 @@ func (pm *pollingMon) isCloudRun() bool {
+ 
+ func (pm *pollingMon) Receive() (message, error) {
+ 	d := 10 * time.Second
+-	if runtime.GOOS == "android" {
++	if runtime.GOOS == "openharmony" {
++		// HarmonyOS 缺少可用的 AF_NETLINK 组播，只能轮询；App 需要尽快感知
++		// Wi-Fi/蜂窝切换（默认 10s 会导致切网后隧道长时间不回连），这里缩短到 2s。
++		d = 2 * time.Second
++	} else if runtime.GOOS == "android" {
+ 		// We'll have Android notify the link monitor to wake up earlier,
+ 		// so this can go very slowly there, to save battery.
+ 		// https://github.com/tailscale/tailscale/issues/1427
+diff --git a/version/prop.go b/version/prop.go
+index 59ca740..315ea15 100644
+--- a/version/prop.go
++++ b/version/prop.go
+@@ -54,6 +54,11 @@ func OS() string {
+ 	if runtime.GOOS == "darwin" {
+ 		return "macOS"
+ 	}
++	// OpenHarmony 的 Go 移植在工具链里以 build tag 区分，runtime.GOOS 仍是 linux；
++	// 这里显式上报 HarmonyOS，控制台/设备列表才不会被识别成 Linux。
++	if openharmonyBuild {
++		return "HarmonyOS"
++	}
+ 	return runtime.GOOS
+ }
+ 
+diff --git a/version/znotopenharmony.go b/version/znotopenharmony.go
+new file mode 100644
+index 0000000..50bf5bb
+--- /dev/null
++++ b/version/znotopenharmony.go
+@@ -0,0 +1,8 @@
++// Copyright (c) Tailscale Inc & contributors
++// SPDX-License-Identifier: BSD-3-Clause
++
++//go:build !openharmony
++
++package version
++
++const openharmonyBuild = false
+diff --git a/version/zopenharmony.go b/version/zopenharmony.go
+new file mode 100644
+index 0000000..79b1b8f
+--- /dev/null
++++ b/version/zopenharmony.go
+@@ -0,0 +1,8 @@
++// Copyright (c) Tailscale Inc & contributors
++// SPDX-License-Identifier: BSD-3-Clause
++
++//go:build openharmony
++
++package version
++
++const openharmonyBuild = true

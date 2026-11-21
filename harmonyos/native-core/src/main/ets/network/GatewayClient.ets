@@ -102,6 +102,7 @@ export class GatewayClient {
   private suppressConnecting: boolean = false;
   private connectRetryTimer: number = 0;
   private tailnetFailureCount: number = 0;
+  private tailnetBlockedUntil: number = 0;
   private bearerPollTimer: number = 0;
   /** 切蜂窝后等隧道就绪再切终点的轮询（隧道没起来时先把现有连接保住） */
   private tailnetSwitchTimer: number = 0;
@@ -432,10 +433,23 @@ export class GatewayClient {
     }
     this.lastBearerSwitchAt = now;
     this.networkBearer = next;
+    this.tailnetFailureCount = 0;
+    this.tailnetAttemptFailed = false;
+    this.tailnetBlockedUntil = 0;
     AppStorage.setOrCreate<string>('networkBearer', next);
     Logger.info('network bearer ' + previous + ' -> ' + next);
     const profile: GatewayProfile | null = this.currentProfile;
     if (this.allEndpoints.length === 0 || profile === null) {
+      return;
+    }
+    // 已经在隧道链路上时，切 Wi-Fi/蜂窝不需要重连：tsnet 会自行换底层路径，
+    // 强行重连会踢掉正在传输的 WebSocket，表现为「连上又断、反复重试」。
+    const connectedNow: boolean = this.state === ConnectionState.CONNECTED && this.ws !== null;
+    if (connectedNow && this.usingTailnetRoute && this.isTailnetAddress(profile.wsUrl)) {
+      Logger.info('bearer change to ' + next + ': already on tunnel, keep connection');
+      if (next === 'cellular') {
+        this.scheduleTailnetSwitchWhenReady();
+      }
       return;
     }
     this.forceTailnet = next === 'cellular';
@@ -447,12 +461,28 @@ export class GatewayClient {
       }
     } else {
       AppStorage.setOrCreate<string>('pairingHint', '已回到 Wi-Fi，正在改用局域网直连…');
-      const localSaved: SavedGateway | undefined = CredentialStore.get().list()
-        .find((item: SavedGateway) => this.isLocalEndpoint(item.wsUrl));
-      if (localSaved !== undefined &&
-          (this.currentProfile === null || !this.isLocalEndpoint(this.currentProfile.wsUrl))) {
-        Logger.info('wifi restored saved LAN gateway ' + localSaved.wsUrl);
-        this.switchGateway(localSaved.id);
+      // 只在「当前这台主机」内切回它的局域网入口；绝不能因为列表里第一台主机
+      // 有局域网地址就切到别的主机（否则会莫名其妙换主机、看起来像连不上）。
+      const activeId: string = CredentialStore.get().activeGatewayId();
+      const savedActive: SavedGateway | null = CredentialStore.get().list()
+        .find((item: SavedGateway) => item.id === activeId) ?? null;
+      let sameGatewayLan: string = '';
+      if (savedActive !== null) {
+        if (this.isLocalEndpoint(savedActive.wsUrl)) {
+          sameGatewayLan = savedActive.wsUrl;
+        } else if (savedActive.endpoints !== undefined) {
+          for (const one of savedActive.endpoints) {
+            if (this.isLocalEndpoint(one)) {
+              sameGatewayLan = one;
+              break;
+            }
+          }
+        }
+      }
+      if (sameGatewayLan.length > 0 && sameGatewayLan !== profile.wsUrl &&
+          !this.isLocalEndpoint(profile.wsUrl)) {
+        Logger.info('wifi restore same-gateway LAN endpoint ' + sameGatewayLan);
+        this.switchEndpoint(sameGatewayLan);
         return;
       }
     }
@@ -602,6 +632,8 @@ export class GatewayClient {
     const ordered: string[] = this.orderEndpoints(this.allEndpoints);
     const next: string | undefined = ordered.find((url: string) =>
       !this.isTailnetAddress(url) && url !== current);
+    // 15 秒冷却后重新尝试 Tailscale（网络切换瞬间的失败通常会自行恢复）
+    this.tailnetBlockedUntil = Date.now() + 15000;
     if (next !== undefined) {
       Logger.warn('tailnet unreachable, fallback to ' + next);
       this.tailnetAttemptFailed = true;
@@ -1126,6 +1158,41 @@ export class GatewayClient {
     }
   }
 
+  /** 重连时按优先级重新挑选端点：Tailscale → 公网 → 局域网（蜂窝下跳过局域网） */
+  private reconnectBest(): void {
+    const current: string = this.currentProfile !== null ? this.currentProfile.wsUrl : '';
+    if (current.length === 0) {
+      this.scheduleReconnect();
+      return;
+    }
+    const ordered: string[] = this.orderEndpoints(this.allEndpoints);
+    const ready: boolean = this.tailnetReady();
+    let best: string = current;
+    for (const url of ordered) {
+      if (this.isTailnetAddress(url)) {
+        if (!ready) {
+          continue;
+        }
+        if (Date.now() < this.tailnetBlockedUntil) {
+          continue;
+        }
+        best = url;
+        break;
+      }
+      if (this.networkBearer === 'cellular' && this.isLocalEndpoint(url)) {
+        continue;
+      }
+      best = url;
+      break;
+    }
+    if (best.length > 0 && best !== current) {
+      Logger.info('reconnect switch endpoint ' + current + ' -> ' + best);
+      this.switchEndpoint(best);
+    } else {
+      this.connect(this.currentProfile as GatewayProfile, true);
+    }
+  }
+
   private scheduleReconnect(): void {
     if (!this.reconnectEnabled || this.intentionalClose || this.currentProfile === null || this.reconnectTimer !== 0) return;
     const schedule: number[] = [1000, 2000, 3000, 5000, 8000, 13000, 20000, 30000];
@@ -1134,7 +1201,7 @@ export class GatewayClient {
     AppStorage.setOrCreate<string>('pairingHint', '连接中断，' + Math.ceil(delay / 1000) + ' 秒后重试');
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = 0;
-      if (!this.intentionalClose && this.currentProfile !== null) this.connect(this.currentProfile, true);
+      if (!this.intentionalClose && this.currentProfile !== null) this.reconnectBest();
     }, delay);
   }
 

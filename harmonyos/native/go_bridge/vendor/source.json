@@ -104,6 +104,10 @@
     {
       "sha256": "70a7ec0553f7ed28aaee30eb5d163e606cec3387157bd7fbf6915d2b61528d40",
       "path": "patches/cold-peer.patch"
+    },
+    {
+      "sha256": "c1145228b2bac2105f104355db19a6d2c1d821919340597a335007365b4c466d",
+      "path": "patches/ohos-runtime.patch"
     }
   ]
 }

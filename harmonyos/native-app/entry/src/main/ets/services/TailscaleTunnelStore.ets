@@ -694,6 +694,44 @@ export class TailscaleTunnelStore {
         AppStorage.setOrCreate<boolean>('tailscaleAuthInvalid', false);
         // 启动超时（20s 仍未 Running）：把 upError 暴露给页面，避免永远「启动中」
         this.fastStartingTicks += 1;
+        // 卡在 Starting 且本地有旧节点状态、又拿不到登录链接：说明该 profile 已失效
+        // （控制台删除设备 / 节点 key 过期），清掉后重新注册才能拿到新的授权链接。
+        if (this.fastStartingTicks === 12 && !this.loginRecoveryDone) {
+          const bytesIdx2: number = fastStat.indexOf('stateBytes=');
+          let staleBytes: number = 0;
+          if (bytesIdx2 >= 0) {
+            const bytesTail2: string = fastStat.substring(bytesIdx2 + 'stateBytes='.length);
+            const bytesEnd2: number = bytesTail2.search(/[ |]/);
+            const bytesText2: string = bytesEnd2 > 0 ? bytesTail2.substring(0, bytesEnd2) : bytesTail2.trim();
+            staleBytes = Number.parseInt(bytesText2, 10);
+            if (Number.isNaN(staleBytes)) {
+              staleBytes = 0;
+            }
+          }
+          const authProbe: string = TsnetBridge.authURLFast();
+          if (staleBytes > 500 && !authProbe.startsWith('http')) {
+            this.loginRecoveryDone = true;
+            AppStorage.setOrCreate<boolean>('tailscaleAccountDeleted', true);
+            Logger.warn('TSDBG stuck Starting with stale state -> reset and re-register');
+            try {
+              TsnetBridge.stopFast();
+            } catch (stopErr2) {
+            }
+            try {
+              fileIo.rmdirSync(this.stateDir + '/fast/' +
+                (PreferencesStore.get().getString('tsnetLoginMode', 'account') === 'authKey' ? 'authKey' : 'account'));
+              Logger.warn('TSDBG cleared stale tsnet profile state');
+            } catch (clearErr2) {
+              Logger.warn('TSDBG clear stale profile failed: ' + (clearErr2 as Error).message);
+            }
+            this.fastStarted = false;
+            this.fastWasReady = false;
+            this.fastStartingTicks = 0;
+            this.fastNeedsLoginTicks = 0;
+            this.ensureFastStarted(true);
+            return;
+          }
+        }
         if (this.fastStartingTicks >= 10) {
           const upIdx: number = fastStat.indexOf('upError=');
           let detail: string = '';
