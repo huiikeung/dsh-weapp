@@ -3224,6 +3224,8 @@ export struct ConversationPage {
   @State turnNodes: TurnNode[] = [];
   /** 会话节点预热是否进行中（展开胶囊时就开始拉历史，避免开弹层才等） */
   private turnNavWarmupRunning: boolean = false;
+  /** 预热的自愈重试定时器：首屏还没落地 / 某页偶发失败时，展开期间持续检查并续拉 */
+  private warmupRetryTimer: number = -1;
   /** 当前预览/选中的节点下标 */
   @State turnNodeIndex: number = 0;
   /** 右侧卡带轨道高度（用于把拖动位移换算成节点下标） */
@@ -5664,6 +5666,30 @@ export struct ConversationPage {
   }
 
   /**
+   * 展开胶囊期间持续自愈：只要还有更早历史且当前没在拉，就再拉一轮。
+   * 覆盖两种情况：① 展开时首屏历史还没落地（oldestSeq/hasMore 未知，warmup 直接退出）；
+   * ② 某一页偶发失败导致本轮中断。
+   */
+  private scheduleWarmupRetry(): void {
+    if (this.warmupRetryTimer >= 0) {
+      return;
+    }
+    this.warmupRetryTimer = setTimeout(() => {
+      this.warmupRetryTimer = -1;
+      if (!this.turnNavOpen && !this.turnNavMenuOpen && !this.capsuleExpanded) {
+        return;
+      }
+      const store: SessionStore = SessionStore.get();
+      if (!this.turnNavWarmupRunning && store.hasOlderHistory()) {
+        this.warmHistoryForTurnNav();
+      }
+      if (store.hasOlderHistory() || store.isOlderRequestPending()) {
+        this.scheduleWarmupRetry();
+      }
+    }, 1200);
+  }
+
+  /**
    * 把更早历史拉完，节点数覆盖所有轮次（时间线暂不重排）。
    * 触发时机：① 折叠把手展开成胶囊时就预热；② 弹层打开期间继续补拉。
    * 这样点开弹层时数据已经就绪，不用当场等。
@@ -5674,6 +5700,8 @@ export struct ConversationPage {
     }
     this.turnNavWarmupRunning = true;
     const store: SessionStore = SessionStore.get();
+    Logger.info('[TurnNavWarmup] start hasOlder=' + (store.hasOlderHistory() ? '1' : '0') +
+      ' pending=' + (store.isOlderRequestPending() ? '1' : '0') + ' nodes=' + this.turnNodes.length.toString());
     let guard: number = 0;
     // 一页一页连着拉：等上一页真正落地就立刻发下一页，不再固定 sleep 180ms。
     // 之前固定 180ms 会在「响应比 180ms 慢」时被 loadOlder 的 pending 判断打断，
@@ -5713,9 +5741,15 @@ export struct ConversationPage {
       this.refreshTurnNodes(this.turnNavOpen);
     }
     this.turnNavWarmupRunning = false;
+    Logger.info('[TurnNavWarmup] end guard=' + guard + ' hasOlder=' + (store.hasOlderHistory() ? '1' : '0') +
+      ' pending=' + (store.isOlderRequestPending() ? '1' : '0') + ' nodes=' + this.turnNodes.length.toString());
     if (this.turnNavOpen) {
       this.refreshTurnNodes(true);
       this.scrollTurnListTo(this.turnNodeIndex);
+    }
+    // 还有没拉完的（首屏晚到/失败自愈）：展开期间继续安排下一轮
+    if (store.hasOlderHistory() && (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded)) {
+      this.scheduleWarmupRetry();
     }
   }
 
@@ -5916,9 +5950,11 @@ export struct ConversationPage {
       animateTo({ duration: 240, curve: Curve.EaseOut }, () => {
         this.capsuleExpanded = true;
       });
-      // 展开成卡带的瞬间就预热：先把当前节点刷新出来，再补拉更早历史
+      // 展开成卡带的瞬间就预热：先把当前节点刷新出来，再补拉更早历史；
+      // 同时挂上自愈重试，首屏还没落地 / 某页失败时也能自己续上
       this.refreshTurnNodes(this.turnNavOpen);
       this.warmHistoryForTurnNav();
+      this.scheduleWarmupRetry();
       return;
     }
     // 弹层开着再点胶囊 = 收起
