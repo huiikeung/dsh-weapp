@@ -24,7 +24,7 @@ export const APP_GLASS_BLUR: number = 26;
 
 /** 标准玻璃底色：深色偏中性黑、浅色近白；不透明度提高后背景更实、文字对比更稳 */
 export function appGlassFill(isDark: boolean): string {
-  return isDark ? 'rgba(44,44,48,0.58)' : 'rgba(255,255,255,0.34)';
+  return isDark ? 'rgba(44,44,48,0.68)' : 'rgba(255,255,255,0.34)';
 }
 
 /** 标准高光细边：深色 16% 白、浅色 90% 白（浅色下靠白边出玻璃感） */
