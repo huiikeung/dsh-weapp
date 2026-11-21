@@ -402,6 +402,10 @@ export struct ConversationPage {
   /** 主题在本页隐藏时被改过：回到本页需要整表重载一次配色 */
   private themeDirty: boolean = false;
   private timelineTimer: number = -1;
+  /** 刚切换会话、新会话内容还没落地：期间绕过「胶囊展开就冻结时间线」的保护 */
+  private pendingSessionRender: boolean = false;
+  /** 顶栏标题依赖的当前会话 id：切换会话时更新，保证标题跟着变（否则 Text 不重算） */
+  @State pageSessionId: string = '';
   private lastTimelineUpdateAt: number = 0;
   /** 自适应重排间隔：重建很快就跟到 16ms，重活时退到 24/48ms */
   private timelineInterval: number = TIMELINE_MIN_INTERVAL_MS;
@@ -418,6 +422,7 @@ export struct ConversationPage {
     // 半模态的遮罩盖住，表现成「整页点不动、滑不动」。进门先收掉。
     this.teamSheetOpen = false;
     this.ready = true;
+    this.pageSessionId = SessionStore.get().currentSessionId();
     this.onSessionsChangedForRef();
     this.loadSkills();
     this.loadRefDirectory();
@@ -1206,6 +1211,19 @@ export struct ConversationPage {
       this.pendingItemsWhileHidden = true;
       return;
     }
+    // 会话刚切换：新会话的首屏历史正在路上，必须照常重排。
+    // 否则胶囊默认展开态下会命中下面的「冻结」分支，页面一直停在旧会话（表现为点侧栏会话切不过去）。
+    if (this.pendingSessionRender) {
+      this.applyTimelineUpdate();
+      this.applyTurnNodesPreview();
+      if (this.items.length > 0) {
+        this.pendingSessionRender = false;
+      }
+      if (this.capsuleExpanded) {
+        this.scheduleWarmupRetry();
+      }
+      return;
+    }
     // 节点弹层开着 / 胶囊展开预热中：完全不重建时间线（不重载列表＝屏幕不闪），
     // 只用原始 items 数一下轮次，让胶囊上的 N/总数动起来。
     if (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded) {
@@ -1411,7 +1429,9 @@ export struct ConversationPage {
   }
 
   private activeSessionTitle(): string {
-    const id: string = SessionStore.get().currentSessionId();
+    // 读 pageSessionId（@State）而不是只读 store：切会话时标题才会重建
+    const storeId: string = SessionStore.get().currentSessionId();
+    const id: string = this.pageSessionId.length > 0 ? this.pageSessionId : storeId;
     for (const session of this.sessions) {
       if (session.id === id) {
         return session.title.length > 0 ? session.title : id.substring(0, 8);
@@ -2121,6 +2141,10 @@ export struct ConversationPage {
    */
   private afterSessionSwitched(): void {
     Logger.info('[SidebarTap] refresh page -> ' + SessionStore.get().currentSessionId());
+    // 切换后的新会话历史还没到：这段时间禁止时间线冻结（胶囊展开态默认开着，
+    // 不放过这一小段会让页面一直显示旧会话内容）
+    this.pendingSessionRender = true;
+    this.pageSessionId = SessionStore.get().currentSessionId();
     this.entries = [];
     this.autoStick = true;
     this.rebuildEntries();
@@ -3194,6 +3218,7 @@ export struct ConversationPage {
     .hideTitleBar(true)
     .onShown(() => {
       this.pageVisible = true;
+      this.pageSessionId = SessionStore.get().currentSessionId();
       this.applyStatusBarColor();
       // 主题是在设置页之类的地方切的：回到本页整表重载一次，保证回复正文/过程文字按新配色重建
       if (this.themeDirty) {
