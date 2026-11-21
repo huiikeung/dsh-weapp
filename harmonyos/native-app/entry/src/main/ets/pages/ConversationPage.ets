@@ -1209,6 +1209,11 @@ export struct ConversationPage {
     // 只用原始 items 数一下轮次，让胶囊上的 N/总数动起来。
     if (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded) {
       this.applyTurnNodesPreview();
+      // 胶囊默认就是展开态（偏好里 capsuleDefaultExpanded=true），进页面时不会走 tapCapsule，
+      // 这里兜底启动预热：只要展开着就保证历史会被拉完（重试定时器会自愈晚到的首屏）。
+      if (this.capsuleExpanded) {
+        this.scheduleWarmupRetry();
+      }
       return;
     }
     this.scheduleTimelineUpdate();
@@ -5680,6 +5685,10 @@ export struct ConversationPage {
         return;
       }
       const store: SessionStore = SessionStore.get();
+      Logger.info('[TurnNavWarmup] tick hasOlder=' + (store.hasOlderHistory() ? '1' : '0') +
+        ' pending=' + (store.isOlderRequestPending() ? '1' : '0') +
+        ' running=' + (this.turnNavWarmupRunning ? '1' : '0') +
+        ' nodes=' + this.turnNodes.length.toString());
       if (!this.turnNavWarmupRunning && store.hasOlderHistory()) {
         this.warmHistoryForTurnNav();
       }
