@@ -5,6 +5,10 @@ App 里所有「玻璃样式」统一用这一套参数。**底色与不透明�
 代码在 `harmonyos/native-app/entry/src/main/ets/common/AppGlass.ets`，
 会话侧栏（`ConversationPage.sidebarMenuPanel`）是本标准的基准实现。
 
+> 状态：深色档 2026-11-21 定稿为**黑底透黑**（`rgba(0,0,0,0.72)` + `blur(44)`）；
+> 浅色档保持既有参数（`rgba(248,248,250,0.78)` + `blur(26)`）。两档互不影响，改深色不要动浅色。
+> 以后新增任何玻璃面板，直接 `import { appGlassFill, appGlassBlur, appGlassBorderColor, appGlassShadow, APP_GLASS_RADIUS }` 使用。
+
 ## 参数
 
 | 项 | 深色 | 浅色 |
@@ -55,6 +59,7 @@ Column() { /* ... */ }
 
 - 需求里说「xx 玻璃 / 玻璃效果 / 毛玻璃」时，默认用本标准的常量，不再另调一套参数。
 - 底色/透明度基准 = 系统原生弹窗；深色 `appGlassFill()` 一处控制，浅色另一处，互不影响。
+- 深色面板**不要**改用灰色基色（会整体发灰）；要更黑/更透只调 alpha：`0.64` 更透、`0.80` 更黑。
 - 模糊按主题分档（`appGlassBlur(isDark)`）：深色 44、浅色 26；要调只改这一个函数。
 - 需要更圆/更重投影时，同样只改本标准，全 App 一起变，避免各组件参数漂移。
 - 已知限制：系统材质自带的镜面高光/饱和度提升无法用 `backdropBlur` 完全复刻。
