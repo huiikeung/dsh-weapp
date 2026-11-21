@@ -3112,9 +3112,12 @@ export struct ConversationPage {
       // 会话侧栏：小程序同款玻璃面板（自绘浮层——系统菜单一点就收，做不到原地展开工作区分组）
       if (this.sessionPickerOpen) {
         Stack({ alignContent: Alignment.TopEnd }) {
+          // 遮罩只铺顶栏以下：顶栏按钮（协作 / 侧栏 / ⋯）保持可点，
+          // 之前整屏遮罩把顶栏盖住，导致点旁边的按钮没反应、点侧栏按钮也关不掉弹窗
           Column()
             .width('100%')
-            .height('100%')
+            .height(this.pageH > 0 ? this.pageH - (this.topSafe() + 56) : 600)
+            .margin({ top: this.topSafe() + 56 })
             .backgroundColor(Color.Transparent)
             .onClick(() => {
               this.sessionPickerOpen = false;
@@ -4750,6 +4753,10 @@ export struct ConversationPage {
           : Color.Transparent)
         .accessibilityText('智能体团队')
         .onClick(() => {
+          // 侧栏弹窗开着时先关掉它，再打开团队弹层
+          if (this.sessionPickerOpen) {
+            this.closeSessionSwitcher();
+          }
           this.teamPopoverOpen = !this.teamPopoverOpen;
         })
         // 弹窗直接用右上角「⋯」同款系统菜单容器（原生材质/圆角/点空白收起），内容不变
@@ -4818,6 +4825,10 @@ export struct ConversationPage {
         : Color.Transparent)
       .accessibilityText('更多')
       .onClick(() => {
+        // 侧栏弹窗开着时先关掉它，再展开「⋯」菜单
+        if (this.sessionPickerOpen) {
+          this.closeSessionSwitcher();
+        }
         this.moreMenuOpen = !this.moreMenuOpen;
       })
       .bindMenu(this.moreMenuOpen, this.moreMenu(), {
