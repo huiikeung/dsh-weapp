@@ -33,6 +33,11 @@ export struct MarkdownBodyView {
   @Prop fontSize: number = 18.5;
   /** 正文色覆盖：只用于错误态（红色）；空串表示跟随主题 */
   @Prop textColor: string = '';
+  /**
+   * 点击正文里的图片（http(s)/file 地址），由会话页打开全屏预览。
+   * 注意：API 23 起 @Prop 不能修饰函数类型，这里用普通成员，父组件构造时传入即可。
+   */
+  onImageTap: (src: string) => void = (src: string) => {};
 
   @State private blocks: MarkdownBlock[] = [];
   private parseTimer: number = -1;
@@ -76,6 +81,36 @@ export struct MarkdownBodyView {
   private parseNow(): void {
     this.lastParseAt = Date.now();
     this.blocks = MarkdownLite.parse(this.text);
+    // 安全网：解析结果如果明显丢字（各块文本拼起来远少于原文），
+    // 直接退回「整段纯文本」渲染。自定义 Markdown 解析在某些混排（中文 + 行内代码 +
+    // 全角标点）下会丢段，界面上就出现「每行只剩几个字、后半句没了」。
+    // 统计「解析后仍然存在的字符」：表格内容在 rows / headers 里，不在 text/spans，
+    // 之前漏算表格 → 含表格的回复会被误判成「丢字」，退回纯文本，界面上就出现 ** 符号。
+    let parsedChars: number = 0;
+    for (const block of this.blocks) {
+      parsedChars += block.text === undefined ? 0 : block.text.length;
+      for (const span of block.spans) {
+        parsedChars += span.text.length;
+      }
+      for (const cell of block.headers) {
+        parsedChars += cell.length;
+      }
+      for (const row of block.rows) {
+        for (const cell of row) {
+          parsedChars += cell.length;
+        }
+      }
+    }
+    const sourceChars: number = this.text.length;
+    // 阈值放宽到 60%：Markdown 语法符号（**、#、- 等）本来就会少一些，
+    // 只有真的丢了大段内容才退回纯文本。
+    if (sourceChars > 40 && parsedChars < Math.floor(sourceChars * 0.6)) {
+      const plain: MarkdownBlock = {
+        kind: 'paragraph', level: 0, language: '', text: this.text, src: '',
+        spans: MarkdownLite.inline(this.text), index: 0, headers: [], rows: []
+      };
+      this.blocks = [plain];
+    }
   }
 
   /** 正文色：调用方给了覆盖色（错误红）就用它，否则跟随实时主题 */
@@ -238,6 +273,18 @@ export struct MarkdownBodyView {
       .backgroundColor(this.fillColor())
       .border({ width: 0.5, color: this.strongBorderColor() })
       .margin({ top: 4, bottom: 8 })
+    } else if (block.kind === 'image') {
+      // 正文里的图片（![](url) 整行）：等比缩放，点击全屏预览
+      Image(block.src)
+        .width('100%')
+        .constraintSize({ maxHeight: 320, minHeight: 60 })
+        .objectFit(ImageFit.Contain)
+        .borderRadius(8)
+        .backgroundColor(this.fillColor())
+        .margin({ top: 4, bottom: 8 })
+        .onClick(() => {
+          this.onImageTap(block.src);
+        })
     } else if (block.kind === 'divider') {
       Divider()
         .strokeWidth(0.5)

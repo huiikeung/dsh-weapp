@@ -46,6 +46,8 @@ export class ConversationFeedEntryModel {
   expanded: boolean = false;
   items: ConversationItem[] = [];
   imageCount: number = 0;
+  /** 本地乐观回显图片 URI */
+  localImages: string[] = [];
   /** 过程组：运行中 */
   running: boolean = false;
   /** 可展开（有子内容） */
@@ -85,6 +87,8 @@ export class ConversationFeedEntryModel {
   foldable: boolean = true;
   /** 上一次写进 items 的内容签名（原地更新的工具行靠它判断要不要重渲染） */
   private itemsSignatureValue: string = '';
+  /** 组体内容变更代次：每次 items 被替换就 +1，页面据此让 LazyForEach 重建这一行 */
+  itemsRevision: number = 0;
 
   /**
    * 原地覆盖字段（保持实例 identity）。
@@ -203,10 +207,17 @@ export class ConversationFeedEntryModel {
       if (itemsSignature !== this.itemsSignatureValue) {
         this.items = entry.items;
         this.itemsSignatureValue = itemsSignature;
+        // @ObjectLink 对「数组被整体替换」的通知在本机不稳定：
+        // 运行中组头标题能刷新、但组体里的新步骤不出来。
+        // 记一个代次，页面用 onDataChange 让这一行真正重建。
+        this.itemsRevision = this.itemsRevision + 1;
       }
     }
     if (this.imageCount !== entry.imageCount) {
       this.imageCount = entry.imageCount;
+    }
+    if (!ConversationFeedEntryModel.sameRefs(this.localImages, entry.localImages)) {
+      this.localImages = entry.localImages;
     }
     if (!ConversationFeedEntryModel.sameImages(this.images, entry.images)) {
       this.images = entry.images;

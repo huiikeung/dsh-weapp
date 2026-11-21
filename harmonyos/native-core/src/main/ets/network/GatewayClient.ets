@@ -2017,6 +2017,20 @@ export class GatewayClient {
    * 网关每收到一次 subscribe 都会重建订阅（快照 + 重新挂流），
    * 8 秒一次的重订阅会让实时事件永远接不上（这正是「只有退出重进才刷新」的根因）。
    */
+  /**
+   * 重新订阅当前会话（真正的自救入口）。
+   * 实测：手机端的订阅会在运行途中悄悄失效 —— 之后只有 sessions 轮询和补拉的历史帧到达，
+   * 实时事件（tool/call、assistant-stream）全部收不到，表现就是「鲸尾用时在跳、步骤一行不动」，
+   * 退出重进（= 重新 openSession/subscribe）才恢复。这里把它自动化。
+   */
+  resubscribe(sessionId: string): void {
+    if (!this.isConnected() || sessionId.length === 0) {
+      return;
+    }
+    Logger.info('gateway resubscribe session=' + sessionId);
+    this.requestGateway(GatewayRequestFactory.subscribe(sessionId)).catch((error: Error) => Logger.warn(error.message));
+  }
+
   requestHistoryRefresh(sessionId: string): void {
     if (!this.isConnected() || sessionId.length === 0) {
       return;

@@ -116,6 +116,8 @@ export class ToolActivity {
 export interface ToolFace {
   label: string;
   detail: string;
+  /** 未识别具体动作的通用工具（标签统一为「工具调用」，工具名拼进 detail） */
+  genericTool?: boolean;
   isCommand: boolean;
   commandText: string;
   cwdLabel: string;
@@ -137,6 +139,8 @@ export class ConversationFeedEntry {
   imageCount: number = 0;
   /** 图片附件（用户发送 / 助手回复里的 image 块），用于缩略图回显 */
   images: GatewayImageAttachment[] = [];
+  /** 本地乐观回显图片（发送瞬间的本地 URI，真实附件到达前用它渲染缩略图） */
+  localImages: string[] = [];
   /** 文件附件（type='file' 的 content 块），用于文件 chip 回显 */
   attachments: GatewayFileAttachment[] = [];
   /** 已编辑 / 交付文件卡片（CHANGES / FILES 行） */
@@ -246,7 +250,7 @@ export class ConversationFeed {
   /** 工具展示：命令工具取 command，其余按类型取代表字段（对齐小程序）。 */
   static toolFace(name: string, argumentsText: string): ToolFace {
     const face: ToolFace = {
-      label: '工具调用', detail: '', isCommand: false, commandText: '', cwdLabel: ''
+      label: '工具调用', detail: '', genericTool: false, isCommand: false, commandText: '', cwdLabel: ''
     };
     const raw: string = argumentsText === undefined ? '' : argumentsText;
     const fields: Record<string, string> = ConversationFeed.parseFields(raw);
@@ -267,7 +271,11 @@ export class ConversationFeed {
     } else if (kind === 'code') {
       face.label = '运行代码';
     } else {
-      face.label = trimmed.length > 0 ? trimmed : '工具调用';
+      // 未识别到具体动作的工具（ops_stat / ops_edit_file 等）：左侧标签固定为「工具调用」，
+      // 工具名放到右侧详情里（对齐桌面端显示为「工具调用  ops_stat · <路径>」）。
+      // 之前这里直接把工具名当标签，手机端就只剩「ops_stat · 路径」，前面的汉字没了。
+      face.label = '工具调用';
+      face.genericTool = true;
     }
     face.isCommand = kind === 'commands';
     const description: string = ConversationFeed.field(fields, ['description', 'title']);
@@ -276,7 +284,7 @@ export class ConversationFeed {
     const query: string = ConversationFeed.field(fields, ['query', 'pattern', 'search', 'regex']);
     const url: string = ConversationFeed.field(fields, ['url']);
     let detail: string = description;
-    if (detail.length === 0) {
+  if (detail.length === 0) {
       if (kind === 'commands') {
         detail = command;
       } else if (kind === 'search') {
@@ -297,6 +305,12 @@ export class ConversationFeed {
       } else {
         detail = path.length > 0 ? path : (command.length > 0 ? command : (query.length > 0 ? query : url));
       }
+    }
+    // 通用工具：把工具名拼到详情最前面，标签仍保留「工具调用」
+    if (face.genericTool && detail.length > 0 && trimmed.length > 0) {
+      detail = trimmed + ' · ' + detail;
+    } else if (face.genericTool && detail.length === 0 && trimmed.length > 0) {
+      detail = trimmed;
     }
     const firstLine: string = detail.split('\n')[0].trim();
     face.detail = firstLine.length > 240 ? firstLine.substring(0, 240) : firstLine;
@@ -402,6 +416,20 @@ export class ConversationFeed {
         lastUserEpoch = item.epochSeconds;
       }
       if (ConversationFeed.isProcessKind(kind)) {
+        // 按 turn 隔离过程组：同一轮里的步骤才并进同一个「执行图标」行。
+        // 之前只按「遇到非过程行就关组」切分：从电脑端在同一会话里发消息时，
+        // 手机端可能先收到 tool/call 而没收到那条用户气泡，工具行就会续接进上一轮的过程组，
+        // 看起来像新回合跑到了上一次运行里。
+        const itemTurn: string = item.turn === undefined ? '' : item.turn.toString();
+        if (open !== null) {
+          if (itemTurn.length > 0 && open.turnKey.length > 0 && open.turnKey !== itemTurn) {
+            // 已知轮次发生变化：新一轮另起一组
+            open = null;
+          } else if (itemTurn.length > 0 && open.turnKey.length === 0) {
+            // 组创建时轮次未知，现在知道了就补齐（不拆组，否则同一轮出现两组、界面闪跳）
+            open.turnKey = itemTurn;
+          }
+        }
         if (open === null) {
           open = ConversationFeed.newProcessGroup(item);
           groups.push(open);
@@ -443,7 +471,13 @@ export class ConversationFeed {
       if (message.isError) {
         message.failureTitle = ConversationFeed.humanizeFailure(item.title + ' ' + item.text);
       }
-      message.streaming = item.title === ConversationFeed.streamingAssistantTitle;
+      // turn/end 一到就立刻把流式行收口（对齐小程序 turn/end：row.streaming=false、标题清空）。
+      // 否则 assistant/message 稍晚或丢失时，界面会一直显示「正在生成」，看起来回合结束不即时。
+      const holdingStream: boolean = item.title === ConversationFeed.streamingAssistantTitle;
+      message.streaming = holdingStream && running;
+      if (holdingStream && !running) {
+        message.title = '';
+      }
       message.epochSeconds = item.epochSeconds;
       // 图片既可能来自 images 块，也可能是 mediaType=image/* 的文件附件（手机上传照片即属后者）：
       // 统一挑出来走图片网格，其余留在文件 chip 列表。
@@ -478,6 +512,7 @@ export class ConversationFeed {
       }
       message.images = imgs;
       message.imageCount = imgs.length;
+      message.localImages = item.localImagePaths === undefined ? [] : item.localImagePaths.slice();
       message.attachments = filesRest;
       message.turnKey = item.turn === undefined ? '' : item.turn.toString();
       groups.push(message);
@@ -696,6 +731,7 @@ export class ConversationFeed {
     entry.processAutoOpen = !grouped && !verbose && policy.stepGrouping === 'history';
     // 完全展开（stepGrouping=none）永不收起：没有组标题，过程直接平铺
     entry.processBodyVisible = verbose || expanded || entry.processAutoOpen;
+    // 运行中/展开时都套限高容器（原始结构）；思考卡保持卡片样式在容器内滚动。
     entry.processBodyCapped = entry.processBodyVisible ? capWhenOpen : (grouped && timing !== 'next-input');
     entry.liveDetail = policy.liveProcessDetail && entry.running
       ? ConversationFeed.liveDetail(entry) : '';
@@ -901,7 +937,10 @@ export class ConversationFeed {
     let index: number = 0;
     while (index < entries.length) {
       const entry: ConversationFeedEntry = entries[index];
-      if (entry.kind !== 'PROCESS' || entry.running) {
+      // 刚有进展的组不折叠：避免「执行过程中冒出好几个已完成」。
+      const nowSeconds: number = Math.floor(Date.now() / 1000);
+      const isFresh: boolean = entry.epochSeconds > 0 && nowSeconds - entry.epochSeconds < 3;
+      if (entry.kind !== 'PROCESS' || entry.running || isFresh) {
         merged.push(entry);
         index++;
         continue;
@@ -909,6 +948,14 @@ export class ConversationFeed {
       const run: ConversationFeedEntry[] = [entry];
       let scan: number = index + 1;
       while (scan < entries.length && entries[scan].kind === 'PROCESS' && !entries[scan].running) {
+        // 只合并同一轮的连续过程组：不同轮次的过程组挨在一起时（中间没有用户气泡、
+        // 比如电脑端发起的回合、或用户消息被识别成上下文注入），以前会把两轮折叠进
+        // 同一条「已完成」行，展开后上一轮和这一轮的步骤全混在一起、看起来在乱跳。
+        const nextTurn: string = entries[scan].turnKey;
+        const groupTurn: string = entry.turnKey;
+        if (nextTurn.length > 0 && groupTurn.length > 0 && nextTurn !== groupTurn) {
+          break;
+        }
         run.push(entries[scan]);
         scan++;
       }

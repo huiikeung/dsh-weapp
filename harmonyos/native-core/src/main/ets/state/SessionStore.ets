@@ -179,6 +179,24 @@ export class SessionStore {
   private goalSeq: number = -1;
   /** 乐观回显的本地用户消息（对齐小程序 appendLocalUserRow.pending，回显到达时就地合并） */
   private optimisticUsers: ConversationItem[] = [];
+  /** 每条乐观气泡发送时刻已存在的投影条目数：决定它插在时间线的哪个位置 */
+  private optimisticSince: number[] = [];
+  /** 运行态防抖锁：本机刚判定的「运行中」在这之前不接受列表的「已结束」覆盖 */
+  private runningLockUntil: number = 0;
+  /** 上次发布的内容签名：内容没变就不写 AppStorage，避免 50ms 一次的无意义重排 */
+  private publishedSignature: string = '';
+  /** 结算宽限定时器（对齐小程序 scheduleSettleClear） */
+  private settleTimer: number = 0;
+  /** 上次补拉历史的时刻（限流，避免把网关打爆） */
+  private lastCatchUpAt: number = 0;
+  /** 上次（重新）订阅的时刻 */
+  private lastSubscribeAt: number = 0;
+  /** 最近一次收到 turn/end 的时刻：这段时间内不采纳「列表说还在跑」的滞后状态 */
+  private turnEndedAt: number = 0;
+  /** 投影里已经吃到的最大的事件 seq：用于补拉时只增量追加新事件 */
+  private projectedMaxSeq: number = 0;
+  /** 模型目录内容签名：相同就不重复写 AppStorage（避免触发页面 @Watch 死循环） */
+  private modelDetailsSignature: string = '';
   /** 最近一次队列快照（队列操作成功后可本地先删一条，再等权威帧覆盖） */
   private queueItems: QueueItem[] = [];
   /** 会话历史首屏加载中：页面用骨架代替「新建会话」空状态，避免有记录的会话闪出空态 */
@@ -524,8 +542,16 @@ export class SessionStore {
           });
         }
       }
-      AppStorage.setOrCreate<string[]>('modelList', names);
-      AppStorage.setOrCreate<ModelOption[]>('modelDetails', details);
+      // 内容没变就不写：这两项挂着页面 @Watch，重复写会触发无意义的重新请求/重排
+      let modelSignature: string = '';
+      for (const one of details) {
+        modelSignature += one.provider + '/' + one.model + ';';
+      }
+      if (modelSignature !== this.modelDetailsSignature) {
+        this.modelDetailsSignature = modelSignature;
+        AppStorage.setOrCreate<string[]>('modelList', names);
+        AppStorage.setOrCreate<ModelOption[]>('modelDetails', details);
+      }
       // 目录里的 current 才是「当前模型」的真实来源（defaults 只给新建会话的默认值）
       const current: Object | undefined = field(frame, 'current');
       if (current !== undefined) {
@@ -603,9 +629,19 @@ export class SessionStore {
       } else {
         this.rawEvents = this.mergeHistoryEvents(events, this.rawEvents);
       }
-      // 批量补拉期间只合并事件，重投影留到 endBulkOlder() 统一做
+      // 批量补拉期间只合并事件，重投影留到 endBulkOlder() 统一做。
+      // 关键：非 reset 补拉只把「比投影更新的那几条」追加进去，
+      // 绝不整表重放 —— 全量重放几千条事件会阻塞主线程数秒，
+      // 系统直接按 THREAD_BLOCK_6S 杀掉进程（App 莫名消失、页面冻结的真正原因）。
       if (this.bulkOlderDepth === 0) {
-        this.rebuildProjection();
+        // 只要已经有投影，就走增量追加：网关的快照帧经常带 replace/resetRequired，
+        // 以前会被当成「必须整表重放」，于是每次补拉都阻塞主线程数秒（THREAD_BLOCK 被系统杀掉）。
+        // 增量只追加 seq 比投影新的那几条，replace 掉的历史本来也不影响已渲染的尾部。
+        if (this.projectedMaxSeq > 0 && this.conversation !== null) {
+          this.appendNewerEvents();
+        } else {
+          this.rebuildProjection();
+        }
       }
       if (!competingTail && frame.hasMore !== undefined) this.hasMore = frame.hasMore;
       let minSeq: number = 0;
@@ -694,6 +730,9 @@ export class SessionStore {
       this.lastLiveEventAt = Date.now();
       const raw: RawSessionEvent | undefined = this.rawFromFrame(frame);
       if (raw !== undefined && !this.hasRawEvent(raw)) {
+        if (raw.seq > this.projectedMaxSeq) {
+          this.projectedMaxSeq = raw.seq;
+        }
         this.rawEvents.push(raw);
         if (this.rawEvents.length > 5000) this.rawEvents.splice(0, this.rawEvents.length - 5000);
         this.appendRaw(raw);
@@ -716,6 +755,42 @@ export class SessionStore {
         }
       }
     }
+  }
+
+  /**
+   * 结算判定（对齐小程序 noteAssistantSettlement + scheduleSettleClear）：
+   * 最终答复（assistant/message，无工具调用）到达后给 1.6s 宽限，期间没有新事件就收口运行态。
+   * 之前只等 turn/end：一旦那帧丢了或迟到，鲸尾条会一直亮着/或反过来状态不一致。
+   */
+  private scheduleSettleClear(): void {
+    if (this.settleTimer !== 0) {
+      clearTimeout(this.settleTimer);
+      this.settleTimer = 0;
+    }
+    this.settleTimer = setTimeout(() => {
+      this.settleTimer = 0;
+      if (!this.running) {
+        return;
+      }
+      // 宽限要够长：模型两步之间常有 2~5 秒静默（下一轮工具调用还没发出），
+      // 判太早会把还在跑的回合提前收口，界面就出现「运行中突然蹦出已完成」。
+      if (Date.now() - this.lastLiveEventAt < 5000) {
+        return;
+      }
+      const projector: ConversationProjector = this.conversation as ConversationProjector;
+      for (const item of projector.items) {
+        const kind: string = item.kind as string;
+        if ((kind === ConversationItemKind.TOOL as string || kind === ConversationItemKind.JSON_TOOL as string)
+          && item.status === 'running') {
+          return;
+        }
+      }
+      Logger.info('session running=false by=settle-clear');
+      this.running = false;
+      this.runningLockUntil = 0;
+      this.stopLiveTicker();
+      this.publishConversation();
+    }, 6000);
   }
 
   /** turn 结束类事件：只有这些能把列表状态改回「已结束」 */
@@ -752,14 +827,37 @@ export class SessionStore {
 
   private mergeHistoryEvents(snapshot: RawSessionEvent[], live: RawSessionEvent[]): RawSessionEvent[] {
     const eventsByKey: Map<string, RawSessionEvent> = new Map<string, RawSessionEvent>();
-    for (const event of snapshot) eventsByKey.set(this.rawEventKey(event), event);
+    const contentKeys: Set<string> = new Set<string>();
+    for (const event of snapshot) {
+      eventsByKey.set(this.rawEventKey(event), event);
+      contentKeys.add(this.contentSignature(event));
+    }
     // Live wins when the same sequence appeared after the snapshot request started.
-    for (const event of live) eventsByKey.set(this.rawEventKey(event), event);
+    // 但实时帧常常不带 seq（我们用合成 seq），同一事件在快照里还会以真实 seq 再来一次；
+    // 只按 seq 去重会把「上下文注入 / 助手消息」重复投影两遍。这里再按内容指纹去重。
+    for (const event of live) {
+      if (event.seq <= 0 && contentKeys.has(this.contentSignature(event))) {
+        continue;
+      }
+      eventsByKey.set(this.rawEventKey(event), event);
+    }
     const merged: RawSessionEvent[] = [];
     eventsByKey.forEach((event: RawSessionEvent) => merged.push(event));
     merged.sort((a: RawSessionEvent, b: RawSessionEvent) => a.seq - b.seq);
     if (merged.length > 5000) merged.splice(0, merged.length - 5000);
     return merged;
+  }
+
+  /** 事件内容指纹：用于「实时帧（无 seq）与历史快照（有 seq）」之间去重 */
+  private contentSignature(event: RawSessionEvent): string {
+    let payload: string = '';
+    try {
+      payload = JSON.stringify(event.data);
+    } catch (err) {
+      payload = '';
+    }
+    const clipped: string = payload.length > 400 ? payload.substring(0, 400) : payload;
+    return event.type + '|' + clipped;
   }
 
   private replaceSnapshot(snapshot: RawSessionEvent[], cursorValue: number | undefined, resetRequired: boolean): void {
@@ -780,18 +878,63 @@ export class SessionStore {
     this.rawEvents = this.mergeHistoryEvents(snapshot, preserved);
   }
 
+  /** 只把比投影更新的事件追加进投影（补拉历史时用，避免全表重放阻塞主线程） */
+  private appendNewerEvents(): void {
+    const fresh: RawSessionEvent[] = [];
+    for (const raw of this.rawEvents) {
+      if (raw.seq > this.projectedMaxSeq) {
+        fresh.push(raw);
+      }
+    }
+    if (fresh.length === 0) {
+      this.publishConversation();
+      return;
+    }
+    fresh.sort((left: RawSessionEvent, right: RawSessionEvent) => left.seq - right.seq);
+    for (const raw of fresh) {
+      this.appendRaw(raw);
+      if (raw.seq > this.projectedMaxSeq) {
+        this.projectedMaxSeq = raw.seq;
+      }
+    }
+    Logger.info('history incremental +' + fresh.length.toString() + ' maxSeq=' + this.projectedMaxSeq.toString());
+    this.publishConversation();
+  }
+
   private rebuildProjection(): void {
+    // 回放历史只重建「内容」，不能动实时运行态：
+    // 历史里没有「这一轮还在跑」的权威结论，以前一律 running=false，
+    // 于是每次补拉历史（开回合补拉、断线重订阅、看门狗）运行条都会消失一次，
+    // 用户看到的就是「运行态不显示，只有页面在闪」。
+    const wasRunning: boolean = this.running;
+    const lockUntil: number = this.runningLockUntil;
+    const signature: string = this.publishedSignature;
     this.stopLiveTicker();
     this.replayingHistory = true;
     this.rows = [];
-    this.running = false;
     EventProjector.get().reset();
     this.resetConversation();
-    for (const raw of this.rawEvents) this.appendRaw(raw);
+    // 只回放最近 300 条：界面只渲染最近 150 条，回放全部（几百上千条）
+    // 会在打开会话时把主线程占住 3~6 秒，系统按 THREAD_BLOCK 直接杀掉进程。
+    const replayStart: number = this.rawEvents.length > 300 ? this.rawEvents.length - 300 : 0;
+    for (let index = replayStart; index < this.rawEvents.length; index++) {
+      const raw: RawSessionEvent = this.rawEvents[index];
+      this.appendRaw(raw);
+      if (raw.seq > this.projectedMaxSeq) {
+        this.projectedMaxSeq = raw.seq;
+      }
+    }
     this.replayingHistory = false;
-    // 回放结束后 running 归零，只有真正的新事件才能点亮
-    this.running = false;
-    this.stopLiveTicker();
+    this.running = wasRunning;
+    this.runningLockUntil = lockUntil;
+    // 内容签名也保留：回放后内容若完全一致，就不要写 AppStorage，
+    // 否则页面会白白重排一次（这正是「有数据刷新时页面闪」的来源）。
+    this.publishedSignature = signature;
+    if (this.running) {
+      this.startLiveTicker();
+    } else {
+      this.stopLiveTicker();
+    }
     this.publishConversation();
   }
 
@@ -834,6 +977,7 @@ export class SessionStore {
     this.liveTurn = -1;
     this.liveStep = -1;
     this.optimisticUsers = [];
+    this.optimisticSince = [];
     this.lastAssistantText = '';
     this.fallbackAssistantText = '';
     this.fallbackAssistantAt = 0;
@@ -852,7 +996,15 @@ export class SessionStore {
     if (this.client === null || this.sessionId.length === 0) {
       return;
     }
-    this.client.openSession(this.sessionId);
+    this.lastLiveEventAt = Date.now();
+    this.lastCatchUpAt = Date.now();
+    // 先补一次历史把内容追上；再按 30s 节流重发订阅 ——
+    // 订阅静默失效时，只有重新 subscribe 才能恢复实时事件流（等价于用户退出重进）。
+    // 只补历史，绝不周期性重发 subscribe：
+    // 网关对每次 subscribe 都会 stop + start 一个 session follower（快照+重新挂流），
+    // 我们每 15~20 秒重订阅一次，等于每隔 20 秒把实时推流重置一次 ——
+    // 这就是「手机几乎收不到实时事件、只能靠补拉」的直接原因。
+    this.client.requestHistoryRefresh(this.sessionId);
   }
 
   private startSessionsPoll(): void {
@@ -919,6 +1071,18 @@ export class SessionStore {
   /** 发消息后立刻把该会话标成运行中（乐观更新，等事件流与列表快照校正）。 */
   notifySessionStarted(sessionId: string): void {
     this.markSessionRunning(sessionId, true);
+    // 发出去就算运行中：鲸尾条立刻出现（对齐小程序发送后立即进入 run 态），
+    // 不用等 turns 回第一帧；同时上防抖锁，避免列表帧滞后导致的「闪过又消失」。
+    if (sessionId.length > 0 && sessionId === this.sessionId) {
+      this.runningLockUntil = Date.now() + 5000;
+      this.lastLiveEventAt = Date.now();
+      if (!this.running) {
+        this.running = true;
+        this.startLiveTicker();
+        AppStorage.setOrCreate<boolean>('conversationRunning', true);
+      }
+      this.publishConversation();
+    }
   }
 
   /** 回到前台：桌面端可能在后台跑完了，立刻校准一次（对齐小程序的运行态兜底）。 */
@@ -1018,16 +1182,24 @@ export class SessionStore {
       return;
     }
     if (isRunningSignal) {
+      this.runningLockUntil = Date.now() + 5000;
       if (!this.running) {
         this.running = true;
         Logger.info('session running=true by=' + liveType);
       }
       this.startLiveTicker();
+    } else if (liveType === 'assistant/message') {
+      const toolCalls: Object[] | undefined = event.event.toolCalls;
+      if (toolCalls === undefined || toolCalls.length === 0) {
+        this.scheduleSettleClear();
+      }
     } else if (liveType === 'turn/end') {
       if (this.running) {
         Logger.info('session running=false by=turn/end');
       }
       this.running = false;
+      this.runningLockUntil = 0;
+      this.turnEndedAt = Date.now();
       this.stopLiveTicker();
       this.publishConversation();
     }
@@ -1107,12 +1279,22 @@ export class SessionStore {
       return;
     }
     this.liveTimer = setInterval(() => {
-      if (!this.running) {
+      // 列表说在跑就别停刷新器（只看 this.running 会因为漏帧提前停掉，内容就不刷新了）
+      if (!this.running && !this.listSaysRunning()) {
         this.stopLiveTicker();
         return;
       }
       // 50ms：贴近一帧，运行中内容随网关推流即时上屏
       this.publishConversation();
+      // 运行中保活：连续 3 秒没有实时事件 = 订阅已悄悄失效（网络切换/网关重连最常见）。
+      // 主动补一次历史 + 重新订阅，等价于用户手动「退出重进」，但自动完成。
+      const now: number = Date.now();
+      // 先验会不会是「我们自己轮询太勤」把网关的实时推流挤掉：
+      // 暂时只在静默 20 秒后才补一次快照，且不再周期性重订阅。
+      if (this.sessionId.length > 0 && this.client !== null
+        && now - this.lastLiveEventAt > 20000 && now - this.lastCatchUpAt > 20000) {
+        this.catchUpCurrentSession();
+      }
     }, 50);
   }
 
@@ -1129,18 +1311,33 @@ export class SessionStore {
       this.resetConversation();
     }
     const projector: ConversationProjector = this.conversation as ConversationProjector;
-    const items: ConversationItem[] = projector.items;
-    // 本地乐观回显排在时间线末尾（对齐小程序 seq 9e9 的 pending 行）
+    // 新建数组再拼：绝不能往 projector.items 里 push —— 它会被下一次发布再拼一遍，
+    // 同一条乐观气泡重复插入，时间线上就会出现多份、看起来像「上一轮和这一轮都在」。
+    // 只把最近 150 条交给页面：ArkUI 的 LazyForEach 虽然只渲染可见行，
+    // 但 build() 每帧都会遍历整份 items 做分组/策略计算；一个跑了 900 多步的会话
+    // 每帧遍历上千条会把主线程顶到 3~6 秒，系统直接按 THREAD_BLOCK 杀进程。
+    const source: ConversationItem[] = projector.items;
+    const cap: number = 150;
+    const items: ConversationItem[] = source.length > cap
+      ? source.slice(source.length - cap) : source.slice();
     const nowSeconds: number = Math.floor(Date.now() / 1000);
     const kept: ConversationItem[] = [];
-    for (const item of this.optimisticUsers) {
+    const keptSince: number[] = [];
+    for (let index = 0; index < this.optimisticUsers.length; index++) {
+      const item: ConversationItem = this.optimisticUsers[index];
       if (nowSeconds - item.epochSeconds <= 60) {
         kept.push(item);
+        keptSince.push(index < this.optimisticSince.length ? this.optimisticSince[index] : -1);
       }
     }
     this.optimisticUsers = kept;
-    for (const item of this.optimisticUsers) {
-      items.push(item);
+    this.optimisticSince = keptSince;
+    // 乐观气泡必须插在「发送那一刻已存在的条目之后、发送之后才到的条目之前」。
+    // 直接追加到末尾时，新回合先到的工具行会排在气泡前面、被并进上一轮的过程组。
+    for (let index = 0; index < kept.length; index++) {
+      const since: number = keptSince[index];
+      const at: number = since >= 0 ? Math.min(since + index, items.length) : items.length;
+      items.splice(at, 0, kept[index]);
     }
     // 回合刚收工、投影里还没有最终答复时先补上最近流式正文，
     // 保证「已完成」下面立刻有内容（对齐小程序回填逻辑）；真实答复到达后这里会自动让位。
@@ -1156,8 +1353,24 @@ export class SessionStore {
         });
       }
     }
+    // 内容没变化就别写：页面 @StorageLink 每次写入都会重排时间线，
+    // 运行中 50ms 一写等于每秒重排 20 次，是「画面闪、步骤不跟手」的主要来源。
+    // 签名必须覆盖每一条的内容长度与状态：运行中大量更新是「原地变」的
+    // （工具从"运行中"变"完成"、结果文本增长），条数和尾行 id 都不变。
+    // 之前只看尾行，这类更新会被误判成「没变化」而跳过发布 —— 表现为过程不刷新、页面不跟随滚动。
+    let signature: string = items.length.toString() + '|' + this.running.toString();
+    for (const item of items) {
+      signature += '|' + item.id + ':' + (item.kind as string) + ':' + item.text.length.toString()
+        + ':' + (item.resultText === undefined ? '' : item.resultText.length.toString())
+        + ':' + (item.status === undefined ? '' : item.status)
+        + (item.isError === true ? '!' : '');
+    }
+    if (signature === this.publishedSignature) {
+      return;
+    }
+    this.publishedSignature = signature;
     AppStorage.setOrCreate<ConversationItem[]>('conversationItems', items);
-    AppStorage.setOrCreate<boolean>('conversationRunning', this.running);
+    AppStorage.setOrCreate<boolean>('conversationRunning', this.running || this.listSaysRunning());
   }
 
   /** 输入条「停止」：取消当前会话生成。 */
@@ -1170,6 +1383,33 @@ export class SessionStore {
 
   isRunning(): boolean {
     return this.running;
+  }
+
+  /**
+   * 会话列表里当前会话是否在运行中（主机权威状态）。
+   * 实测：运行途中 this.running 会因漏帧/turn 判定等原因变 false，
+   * 而列表仍是「运行中」。这会让 50ms 刷新器停掉 —— 之后鲸尾用时照跳（页面自己算的），
+   * 但内容只在偶发的事件帧里才更新一次，观感就是「过程不刷新 / 不跟随」。
+   */
+  private listSaysRunning(): boolean {
+    if (this.sessionId.length === 0) {
+      return false;
+    }
+    // turn/end 刚到的 10 秒内，会话列表往往还是「运行中」（主机侧状态滞后），
+    // 直接采纳会让鲸尾条收不掉、过程组也不折叠。
+    if (this.turnEndedAt > 0 && Date.now() - this.turnEndedAt < 10000) {
+      return false;
+    }
+    const list: SessionSummary[] | undefined = AppStorage.get<SessionSummary[]>('sessions');
+    if (list === undefined) {
+      return false;
+    }
+    for (const one of list) {
+      if (one.id === this.sessionId) {
+        return one.running === true;
+      }
+    }
+    return false;
   }
 
   /** 目录列表：directories 帧 → 添加工作区弹层。 */
@@ -1407,10 +1647,26 @@ export class SessionStore {
         this.catchUpCurrentSession();
       }
       this.knownUpdatedAt = one.updatedAt;
+      const nowMs: number = Date.now();
+      const recentlyLive: boolean = nowMs - this.lastLiveEventAt < 2500 || this.assistantStreamActive;
+      // 列表帧可能滞后：刚发消息/刚收到实时事件时它会短暂报 running=false，
+      // 直接照抄会让鲸尾行反复消失再出现（用户看到的闪烁）。
+      const staleFalse: boolean = !one.running && this.running
+        && (recentlyLive || nowMs < this.runningLockUntil);
+      if (staleFalse) {
+        this.knownUpdatedAt = one.updatedAt;
+        continue;
+      }
       if (one.running !== this.running) {
         this.running = one.running;
         if (this.running) {
           this.startLiveTicker();
+          this.runningLockUntil = Date.now() + 5000;
+          // 会话刚开始跑：立刻补一次历史 + 重新订阅（等价于重进会话）。
+          // 只靠自己收实时事件的话，订阅若已悄悄失效，运行中就一直看不到步骤，
+          // 必须退出重进才一次性刷出来——这正是「执行过程当前页不加载」的根因。
+          Logger.info('session start catch-up sessionId=' + this.sessionId);
+          this.catchUpCurrentSession();
         } else {
           this.stopLiveTicker();
         }
@@ -1504,6 +1760,10 @@ export class SessionStore {
     // 团队：打开成员会话时保留团队快照，打开无关会话时清空
     TeamStore.get().activate(sessionId);
     if (this.sessionId === sessionId && this.client !== null && this.client.isConnected()) {
+      // 同会话再次打开（页面重进、前台恢复）：状态不动，但必须重新拉一次历史并重新订阅，
+      // 否则订阅悄悄失效后只能靠退出重进「碰运气」恢复。
+      this.client.openSession(sessionId);
+      this.lastLiveEventAt = Date.now();
       return;
     }
     this.sessionGeneration += 1;
@@ -1563,15 +1823,34 @@ export class SessionStore {
       this.client.requestGoal(sessionId).catch(() => {});
     }
     if (this.client !== null) {
+      this.lastSubscribeAt = Date.now();
       this.client.openSession(sessionId);
     }
+  }
+
+  /**
+   * 实时事件缺 seq 时的兜底序号：网关的实时 event 帧不一定带顶层 seq，
+   * 以前一律兜成 0，投影的 sequenceMap 永远只有一个槽位——每帧都覆盖同一 seq 并整表重放，
+   * 结果就是「运行中过程不增长，回合结束/重进页面才一次性出现」。
+   * 这里用保留区（>= CONVERSATION_LIVE_SEQ_BASE）里严格递增的序号，让每帧都能增量投影。
+   */
+  private syntheticEventSeq: number = CONVERSATION_LIVE_SEQ_BASE;
+
+  private nextSyntheticEventSeq(): number {
+    this.syntheticEventSeq += 1;
+    return this.syntheticEventSeq;
   }
 
   private rawFromFrame(frame: GatewayFrame): RawSessionEvent | undefined {
     const nested: SessionEvent | undefined = undefined;
     if (frame.event !== undefined) {
       const evt = frame.event;
-      const seq: number = frame.seq !== undefined ? frame.seq : 0;
+      let seq: number = frame.seq !== undefined ? frame.seq : 0;
+      if (seq <= 0) {
+        // 兼容把 seq 放在事件体里的网关
+        const inner: number | undefined = num(evt as Object, 'seq');
+        seq = inner !== undefined && inner > 0 ? inner : this.nextSyntheticEventSeq();
+      }
       const raw: RawSessionEvent = {
         type: evt.type,
         seq: seq,
@@ -2028,6 +2307,7 @@ export class SessionStore {
   clear(): void {
     this.rows = [];
     this.optimisticUsers = [];
+    this.optimisticSince = [];
     this.setHistoryLoading(false);
     this.publish();
   }
@@ -2036,7 +2316,7 @@ export class SessionStore {
    * 乐观回显：发送成功后立即本地插入一条用户消息（对齐小程序 store.appendLocalUserRow）。
    * 真实 user/message 事件到达时按文本就地采纳，避免出现两条气泡。
    */
-  appendOptimisticUser(text: string, imageCount: number = 0): void {
+  appendOptimisticUser(text: string, imageCount: number = 0, localImagePaths: string[] = []): void {
     const item: ConversationItem = {
       id: 'local-user-' + Date.now().toString(),
       kind: ConversationItemKind.USER,
@@ -2047,7 +2327,13 @@ export class SessionStore {
     if (imageCount > 0) {
       item.imageCount = imageCount;
     }
+    // 本地图片：发送后立刻用本地 URI 显示缩略图（网关回显的附件随后接管）
+    if (localImagePaths.length > 0) {
+      item.localImagePaths = localImagePaths.slice();
+    }
     this.optimisticUsers.push(item);
+    const projector: ConversationProjector = this.conversation as ConversationProjector;
+    this.optimisticSince.push(projector !== null && projector !== undefined ? projector.items.length : 0);
     this.publishConversation();
   }
 
@@ -2060,6 +2346,9 @@ export class SessionStore {
       return;
     }
     this.optimisticUsers.shift();
+    if (this.optimisticSince.length > 0) {
+      this.optimisticSince.shift();
+    }
     this.publishConversation();
   }
 

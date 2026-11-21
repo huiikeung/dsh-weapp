@@ -43,7 +43,7 @@ const TURN_THUMB_HEIGHT: number = 44;
 /** 流式期间重排时间线的最小间隔：太密会把 UI 线程占满，手指点不动、也滑不动 */
 // 时间线重排的最小间隔：≈一帧。以前是 90ms，流式正文一格一格地慢半拍；
 // 实际耗时超过阈值时由 timelineInterval 自适应退让，避免把主线程压死。
-const TIMELINE_MIN_INTERVAL_MS: number = 16;
+const TIMELINE_MIN_INTERVAL_MS: number = 120;
 
 interface UploadReceipt {
   receiptId: string;
@@ -177,10 +177,57 @@ class FeedDataSource implements IDataSource {
    * 这里只负责通知结构变化。
    * 注意：不要改用手工 DataOperation 增量，ArkUI 的增量替换 + @ObjectLink 组合在本机会崩（SIGSEGV）。
    */
-  update(rows: ConversationFeedEntryModel[]): void {
-    this.rows = rows;
+  /**
+   * 强制整表重载。行 key 里带 itemsRevision，所以组体内容变化后
+   * LazyForEach 会把该行当成新条目重建 —— 这是本机唯一验证过能让组体刷新的路径。
+   */
+  reload(): void {
     for (const listener of this.listeners) {
       listener.onDataReloaded();
+    }
+  }
+
+  /** 让指定行重建（组体内容变化时用；只重建这一行，不整表重载） */
+  notifyChanged(indexes: number[]): void {
+    for (const index of indexes) {
+      if (index < 0 || index >= this.rows.length) {
+        continue;
+      }
+      for (const listener of this.listeners) {
+        listener.onDataChange(index);
+      }
+    }
+  }
+
+  update(rows: ConversationFeedEntryModel[]): void {
+    const previous: ConversationFeedEntryModel[] = this.rows;
+    // 纯追加是最常见的运行中结构变化（新的用户气泡、新过程组、新的上下文行）。
+    // 走 onDataAdd 只创建新行，已有的行一个都不重建 —— 之前一律 onDataReloaded，
+    // 每加一行就把整屏可见行拆了重建，用户看到的就是「闪一下、内容消失再出现」。
+    let appendOnly: boolean = rows.length >= previous.length;
+    if (appendOnly) {
+      for (let index = 0; index < previous.length; index++) {
+        if (previous[index] !== rows[index]) {
+          appendOnly = false;
+          break;
+        }
+      }
+    }
+    this.rows = rows;
+    if (!appendOnly) {
+      for (const listener of this.listeners) {
+        listener.onDataReloaded();
+      }
+      return;
+    }
+    const added: number = rows.length - previous.length;
+    if (added === 0) {
+      return;
+    }
+    for (let index = previous.length; index < rows.length; index++) {
+      for (const listener of this.listeners) {
+        listener.onDataAdd(index);
+      }
     }
   }
 }
@@ -214,7 +261,14 @@ export struct ConversationPage {
   @Consume('pageStack') pageStack: NavPathStack;
   @StorageLink('isDark') @Watch('onIsDarkChanged') isDark: boolean = false;
   @StorageLink('connectionState') @Watch('onConnectionChanged') connection: string = 'disconnected';
-  @StorageLink('sessions') @Watch('onSessionsChangedForRef') sessions: SessionSummary[] = [];
+  @StorageLink('sessions') @Watch('onSessionsChangedRun') sessions: SessionSummary[] = [];
+  /** 列表里的 running 变化也要重算运行条（兜底来源） */
+  private onSessionsChangedRun(): void {
+    this.onSessionsChangedForRef();
+    if (this.ready) {
+      this.refreshProgress();
+    }
+  }
   @StorageLink('conversationItems') @Watch('onItemsChanged') items: ConversationItem[] = [];
   @StorageLink('conversationRunning') @Watch('onRunningChanged') running: boolean = false;
   @StorageLink('historyHasMore') hasMoreHistory: boolean = false;
@@ -302,12 +356,16 @@ export struct ConversationPage {
   private folds: Map<string, boolean> = new Map<string, boolean>();
   /** 已展开的步骤行 id（图标换成箭头那一层）；用数组做 @Prop 传给行组件（Map 传参会崩） */
   @State stepOpenIds: string[] = [];
+  /** 用户手动折叠的思考卡 id */
+  @State stepClosedIds: string[] = [];
+  /** 点过「完整内容」的思考卡：整段展开 */
+  @State reasonFullIds: string[] = [];
   @State progressLabel: string = '';
   /** 工作步骤展示档位与收起时机（对齐 DSH 客户端 presentation policy） */
   /** 工作步骤展示档位/收起时机：响应式绑定，设置页改完立刻重排 */
   @StorageProp('workStepMode') @Watch('onWorkStepPrefsChanged') workStepMode: string = 'detailed';
   @StorageProp('workStepTiming') @Watch('onWorkStepPrefsChanged') workStepTiming: string = 'completion';
-  @StorageLink('statusAppearance') statusAppearance: string = 'classic';
+  @StorageLink('statusAppearance') statusAppearance: string = 'original';
 
   /** 输入条是否聚焦（决定折叠/展开两态） */
   @State composerFocused: boolean = false;
@@ -330,6 +388,8 @@ export struct ConversationPage {
   @State effortRows: EffortRow[] = [];
   @StorageLink('permissionValues') permissionValues: string[] = [];
   @StorageLink('modelDetails') @Watch('onModelDetailsChanged') modelOptions: ModelOption[] = [];
+  /** 已请求过推理等级的「会话|模型」键：防止 models 帧 → 再请求 → 再回帧的死循环 */
+  private modelEffortsKey: string = '';
   @State metricTitle: string = '';
   @State metricPairs: MetricPair[] = [];
 
@@ -390,6 +450,19 @@ export struct ConversationPage {
   private pendingStructure: boolean = false;
   /** 正在自动加载更早记录：挡住触顶时的连续触发 */
   private olderLoading: boolean = false;
+  /** 吸底心跳定时器：运行中每 250ms 把列表钉到底部（比事件驱动可靠） */
+  private stickTimer: number = -1;
+  /** running 变 false 的时刻：10 秒内不采纳会话列表的滞后「运行中」 */
+  private runningFalseAt: number = 0;
+  /** 临时诊断计数 */
+  private diagTick: number = 0;
+  private diagApplied: number = 0;
+  /** 手指按下列表的时刻：用于识别「只有 Down 没有 Up」的卡死手势 */
+  private listTouchStartedAt: number = 0;
+  /** 程序化滚动保护窗口：这期间触发的 onScrollStart 不是用户拖动，不能停掉吸底 */
+  private stickScrollUntil: number = 0;
+  /** 上次吸底滚动的时刻（节流） */
+  private lastStickAt: number = 0;
   /** 正在重建列表：这期间的 onReachEnd 是重建造成的，不能当成「用户滑到底」而恢复吸底 */
   private suppressReachEnd: boolean = false;
   /** 重载后的忽略窗口（毫秒时间戳）：onDataReloaded 的 reachEnd 往往下一帧才到，布尔标记来不及挡 */
@@ -443,6 +516,7 @@ export struct ConversationPage {
     this.rebuildEntries();
     this.refreshProgress();
     this.refreshModelEfforts();
+    this.startStickTimer();
     this.progressTimer = setInterval(() => {
       if (!this.pageVisible) {
         return;
@@ -450,6 +524,8 @@ export struct ConversationPage {
       this.refreshProgress();
       // 工作步骤档位兜底轮询：无论设置页走哪条返回路径，1s 内都会按最新偏好重排
       this.syncWorkStepLive();
+      // 结构变化兜底：任何原因被推迟的重排，1s 内一定补上（防「内容冻结」）
+      this.flushPendingStructure();
     }, 1000);
     // 进页恢复该会话上次没发出去的草稿
     this.restoreDraft();
@@ -497,6 +573,7 @@ export struct ConversationPage {
   }
 
   aboutToDisappear(): void {
+    this.stopStickTimer();
     HoldingHand.stop();
     this.ready = false;
     if (this.progressTimer >= 0) {
@@ -890,6 +967,46 @@ export struct ConversationPage {
   }
 
   /** 取某行的图片本地路径（顺序即展示顺序） */
+  /** 图片路径同步到 AppStorage：行组件订阅它，下载完成即可原行出图 */
+  private publishImagePaths(): void {
+    AppStorage.setOrCreate<string[]>('imagePathEntries', this.imagePathEntries.slice());
+  }
+
+  /** 是否正在下载「步骤里的图片路径」 */
+  private hostImageBusy: boolean = false;
+
+  /**
+   * 打开过程步骤里出现的图片路径（如「读取图片 · /tmp/a.jpg」）：
+   * 通过网关门控的 file-download 把该路径下载到本机缓存，再走全屏预览。
+   */
+  private openHostImage(path: string): void {
+    if (path.length === 0 || this.hostImageBusy) {
+      return;
+    }
+    const client: GatewayClient = GatewayClient.get();
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (!client.isConnected()) {
+      this.hint = '未连接网关：图片需要在连接后可预览';
+      return;
+    }
+    if (sessionId.length === 0) {
+      return;
+    }
+    this.hostImageBusy = true;
+    this.hint = '正在加载图片…';
+    const context = getContext(this) as common.UIAbilityContext;
+    downloadAttachment(context, client, sessionId, path, (percent: number) => {
+      this.hint = '正在加载图片 ' + percent.toString() + '%';
+    }).then((result: DownloadResult) => {
+      this.hostImageBusy = false;
+      this.hint = '';
+      this.previewImagePath = result.localPath;
+    }).catch((err: Error) => {
+      this.hostImageBusy = false;
+      this.hint = err.message.length > 0 ? err.message : '图片加载失败';
+    });
+  }
+
   private imagePathsFor(entryId: string): string[] {
     const out: string[] = [];
     const prefix: string = entryId + '\u0001';
@@ -913,6 +1030,19 @@ export struct ConversationPage {
         continue;
       }
       for (const image of row.images) {
+        // 本地乐观回显（刚发出去的图片）：images 里是本地 URI 字符串，
+        // 之前这里只认结构化 attachmentId，于是自己发的图永远停在「图片加载中…」。
+        const rawImage: Object = image as Object;
+        if (typeof rawImage === 'string') {
+          const localPath: string = rawImage as string;
+          if (localPath.length > 0) {
+            const localValue: string = row.id + '\u0001' + localPath;
+            if (this.imagePathEntries.indexOf(localValue) < 0 && added.indexOf(localValue) < 0) {
+              added.push(localValue);
+            }
+          }
+          continue;
+        }
         const id: string = image.attachmentId;
         if (id.length === 0) {
           continue;
@@ -930,6 +1060,7 @@ export struct ConversationPage {
             const value: string = row.id + '\u0001' + path;
             if (this.imagePathEntries.indexOf(value) < 0) {
               this.imagePathEntries = this.imagePathEntries.concat([value]);
+              this.publishImagePaths();
             }
           })
           .catch(() => {});
@@ -937,6 +1068,7 @@ export struct ConversationPage {
     }
     if (added.length > 0) {
       this.imagePathEntries = this.imagePathEntries.concat(added);
+      this.publishImagePaths();
     }
   }
 
@@ -1075,11 +1207,20 @@ export struct ConversationPage {
     })
   }
 
+  /** 预览源：本地路径补 file://，http(s)/datashare 原样使用（正文里的网络图片、相册 URI） */
+  private previewSource(path: string): string {
+    if (path.startsWith('http://') || path.startsWith('https://')
+      || path.startsWith('file://') || path.startsWith('datashare://')) {
+      return path;
+    }
+    return 'file://' + path;
+  }
+
   /** 全屏图片预览：黑色遮罩 + 等比大图，点任意处关闭 */
   @Builder
   imagePreviewOverlay() {
     Column() {
-      Image('file://' + this.previewImagePath)
+      Image(this.previewSource(this.previewImagePath))
         .width('100%')
         .layoutWeight(1)
         .objectFit(ImageFit.Contain)
@@ -1097,7 +1238,7 @@ export struct ConversationPage {
   private rebuildEntries(): void {
     const source: ConversationItem[] = this.items === undefined ? [] : this.items;
     const built: ConversationFeedEntryModel[] = [];
-    let rows: ConversationFeedEntry[] = ConversationFeed.build(source, this.running && this.connection === 'connected');
+    let rows: ConversationFeedEntry[] = ConversationFeed.build(source, this.runActive() && this.connection === 'connected');
     // 任何时候都要算策略：运行中也要决定组体是否可见 / 限高 / 标题隐藏
     // （对齐小程序：workSteps.apply 每帧无条件执行，运行态由 policy 内部判断）
     ConversationFeed.applyWorkStepPolicy(rows, this.workStepMode, this.workStepTiming, this.folds,
@@ -1137,10 +1278,15 @@ export struct ConversationPage {
     for (const old of this.entries) {
       previous.set(old.id, old);
     }
+    const grewIndexes: number[] = [];
     for (const entry of rows) {
       const existing: ConversationFeedEntryModel | undefined = previous.get(entry.id);
       if (existing !== undefined) {
+        const beforeRevision: number = existing.itemsRevision;
         existing.assign(entry, entry.expanded);
+        if (existing.itemsRevision !== beforeRevision) {
+          grewIndexes.push(built.length);
+        }
         built.push(existing);
       } else {
         const model: ConversationFeedEntryModel = ConversationFeedEntryModel.from(entry);
@@ -1161,13 +1307,27 @@ export struct ConversationPage {
       }
     }
     if (!structureChanged) {
+      // 结构没变但组体内容涨了（运行中常见）。
+      // 让 entries 换一个新数组引用，@State 才能触发 ForEach 重跑；
+      // ForEach 的 key 里带 itemsRevision，于是只有内容变化的那几行会重建。
+      if (grewIndexes.length > 0) {
+        this.entries = built;
+      }
       return;
     }
     // 手指压在列表上时先不重建：onDataReloaded 会把可见行整体拆掉重建，
     // 正在拖的手势被中断 —— 表现出来就是「运行中滑不动」。抬手后补一次。
-    if (this.listTouching) {
+    // 只在这一下触摸确实还在进行时推迟重建。
+    // 之前只看 listTouching 布尔：一旦漏掉 Up/Cancel（切后台、手势被系统打断、
+    // uitest 注入的触摸不完整都会），它会一直为 true，于是结构变化被永久推迟 ——
+    // 表现就是「内容冻结在某一步、鲸尾用时还在跳，只有退出重进才刷新」。
+    if (this.listTouching && Date.now() - this.listTouchStartedAt < 1500) {
       this.pendingStructure = true;
       return;
+    }
+    if (this.listTouching) {
+      this.listTouching = false;
+      this.pendingStructure = false;
     }
     // 用户已经往上翻（不再吸底）时，重建后把滚动位置放回去，避免列表自己跳到顶部
     const keepOffset: boolean = !this.autoStick;
@@ -1187,6 +1347,19 @@ export struct ConversationPage {
   }
 
   private onRunningChanged(): void {
+    if (!this.running) {
+      this.runningFalseAt = Date.now();
+      // 回合结束：稍后补两次重排，让过程组按「已收工」折叠成「已完成」
+      // （折叠条件里带 3 秒活跃窗口，结束后不一定还有新的数据推送来触发重排）。
+      setTimeout(() => {
+        this.flushPendingStructure();
+      }, 900);
+      setTimeout(() => {
+        this.flushPendingStructure();
+      }, 3600);
+    } else {
+      this.runningFalseAt = 0;
+    }
     // 重新运行起来后允许再次尝试「立即发送」
     if (this.running && this.steerFailedIds.length > 0) {
       this.steerFailedIds = [];
@@ -1203,6 +1376,14 @@ export struct ConversationPage {
 
   /** 时间线变化：重排并吸底；运行指示器同步刷新。 */
   private onItemsChanged(): void {
+    // 临时诊断：确认 items 变化有没有真的进到页面重排
+    this.diagTick += 1;
+    if (this.diagTick % 25 === 1) {
+      Logger.info('page items n=' + (this.items === undefined ? -1 : this.items.length).toString()
+        + ' entries=' + this.entries.length.toString() + ' ready=' + (this.ready ? '1' : '0')
+        + ' visible=' + (this.pageVisible ? '1' : '0')
+        + ' tail=' + (this.entries.length > 0 ? this.entries[this.entries.length - 1].id : '-'));
+    }
     if (!this.ready) {
       return;
     }
@@ -1262,22 +1443,113 @@ export struct ConversationPage {
 
   private applyTimelineUpdate(): void {
     const startedAt: number = Date.now();
+    // 临时诊断：重排后的行数与尾行 id
+    this.diagApplied += 1;
+    if (this.diagApplied % 20 === 1) {
+      if (this.diagApplied % 20 === 3) {
+      let dump: string = '';
+      for (let i = 0; i < this.entries.length && i < 8; i++) {
+        const e: ConversationFeedEntryModel = this.entries[i];
+        dump += '[' + e.kind + '|' + e.title.substring(0, 12) + '|' + e.text.length.toString()
+          + '|vis=' + (e.processBodyVisible ? '1' : '0') + '] ';
+      }
+      Logger.info('page entries ' + dump);
+    }
+    Logger.info('page apply n=' + (this.items === undefined ? -1 : this.items.length).toString()
+        + ' entries=' + this.entries.length.toString()
+        + ' stick=' + (this.autoStick ? '1' : '0'));
+    }
     this.lastTimelineUpdateAt = startedAt;
     this.rebuildEntries();
     const spent: number = Date.now() - startedAt;
-    this.timelineInterval = spent >= 12 ? 48 : (spent >= 6 ? 24 : TIMELINE_MIN_INTERVAL_MS);
+    this.timelineInterval = spent >= 12 ? 220 : (spent >= 6 ? 160 : TIMELINE_MIN_INTERVAL_MS);
     this.refreshProgress();
     const tail: ConversationFeedEntryModel | null = this.entries.length > 0 ? this.entries[this.entries.length - 1] : null;
-    const key: string = tail === null ? '' : tail.id + ':' + tail.text.length.toString();
-    if (key !== this.lastTailKey) {
-      this.lastTailKey = key;
-      if (this.autoStick && !this.userInteracting()) {
-        setTimeout(() => {
-          if (!this.userInteracting()) {
-            this.scroller.scrollEdge(Edge.Bottom);
-          }
-        }, 30);
+    // 吸底 key 必须包含「所有行内的步骤总数 + 尾行内容长度」：
+    // 之前只看尾行 id + 正文长度，运行中新增步骤（行数不变、正文不变）不会触发跟随，
+    // 表现就是「新过程出来了但页面不往上滚」。
+    let stepCount: number = 0;
+    let stepChars: number = 0;
+    for (const one of this.entries) {
+      if (one.items === undefined) {
+        continue;
       }
+      stepCount += one.items.length;
+      for (const step of one.items) {
+        stepChars += step.text.length;
+        stepChars += step.resultText === undefined ? 0 : step.resultText.length;
+      }
+    }
+    // key 里必须包含「组内每一步的正文长度」：
+    // 第一段思考出现时组内只有 1 条 item，它的正文一直在长，
+    // 但行数/步骤数/尾行正文都不变 —— 之前 key 不变，就不会跟底，
+    // 思考越长把运行条挤得越远（这就是「第一个是思考时被挤掉」的原因）。
+    const key: string = (tail === null ? '' : tail.id + ':' + tail.text.length.toString())
+      + ':' + this.entries.length.toString() + ':' + stepCount.toString()
+      + ':' + stepChars.toString();
+    const contentChanged: boolean = key !== this.lastTailKey;
+    if (contentChanged) {
+      this.lastTailKey = key;
+    }
+    // 跟随：只在「内容真的变了」且还在吸底时贴底。
+    // 之前每次重排都无条件 scrollEdge，配合 16ms 的重排间隔就是持续顶动 → 页面一直抖。
+    // 运行中检测：在跑时内容一变化就重新打开吸底并跟底，
+    // 让运行条（列表最后一项）始终停在输入框上方可见。
+    if (contentChanged && this.runActive()) {
+      this.autoStick = true;
+    }
+    // 吸底降频到 400ms：内容高度在连续变化时，过频的 scrollEdge 会让画面来回微调（抖）。
+    if (contentChanged && this.entries.length > 0 && !this.listTouching && this.autoStick
+      && Date.now() - this.lastStickAt > 400) {
+      this.stickToBottom();
+    }
+  }
+
+  /** 吸底心跳：运行中只要用户没按住列表，就持续把视图钉在底部 */
+  private startStickTimer(): void {
+    if (this.stickTimer >= 0) {
+      return;
+    }
+    this.stickTimer = setInterval(() => {
+      if (!this.pageVisible || this.listTouching || this.entries.length === 0) {
+        return;
+      }
+      if (!this.autoStick || !this.runActive()) {
+        return;
+      }
+      // 运行中无条件贴底：贴底判断失准会导致「跳回第一个内容」，这里直接滚到底。
+      this.stickScrollUntil = Date.now() + 400;
+      try {
+        this.scroller.scrollEdge(Edge.Bottom);
+      } catch (err) {
+      }
+    }, 400);
+    return;
+    // 心跳已停用：它会隔 600ms 把视图拉回底部，
+    // 把「运行中滚到当前过程组顶部」的意图覆盖掉 —— 于是思考卡标题永远看不到。
+    // 现在只保留内容变化驱动的跟随（见 applyTimelineUpdate）。
+    this.stickTimer = -1;
+  }
+
+  private stopStickTimer(): void {
+    if (this.stickTimer >= 0) {
+      clearInterval(this.stickTimer);
+      this.stickTimer = -1;
+    }
+  }
+
+  /** 滚到内容底部：先平滑跟随（贴近桌面端观感），再兜底一次瞬时贴底 */
+  private stickToBottom(): void {
+    if (this.entries.length === 0) {
+      return;
+    }
+    this.lastStickAt = Date.now();
+    this.stickScrollUntil = Date.now() + 500;
+    // 只用「瞬时贴底」：动画版 scrollToIndex 会被下一帧的新内容打断、不断重启动画，
+    // 表现就是页面一直抖。内容本身是持续小步增长的，瞬时贴底看起来就是连续的跟随。
+    try {
+      this.scroller.scrollEdge(Edge.Bottom);
+    } catch (err) {
     }
   }
 
@@ -1343,8 +1615,51 @@ export struct ConversationPage {
     this.rebuildEntries();
   }
 
+  /**
+   * 运行态兜底（对齐小程序 setRunning 的列表校准）：
+   * 会话列表是主机权威状态，首页已能正确显示「运行中」；会话页若只信本地事件流，
+   * 事件流没到或被历史重建打断时鲸尾条就不出现。两个来源任一为真即视为运行中。
+   */
+  private listRunning(): boolean {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0) {
+      return false;
+    }
+    for (const one of this.sessions) {
+      if (one.id === sessionId) {
+        return one.running === true;
+      }
+    }
+    return false;
+  }
+
+  /** 运行中（本地事件流 或 列表权威状态） */
+  private runActive(): boolean {
+    if (this.running) {
+      return true;
+    }
+    // 回合刚结束的 10 秒内，列表可能还报「运行中」——不能据此继续显示运行条/不折叠过程组
+    if (this.runningFalseAt > 0 && Date.now() - this.runningFalseAt < 10000) {
+      return false;
+    }
+    return this.listRunning();
+  }
+
+  /** 兜底：有被推迟的结构变化且已不在拖动，就补一次重排（防止任何原因导致的冻结） */
+  private flushPendingStructure(): void {
+    if (!this.pendingStructure) {
+      return;
+    }
+    if (this.listTouching && Date.now() - this.listTouchStartedAt < 1500) {
+      return;
+    }
+    this.pendingStructure = false;
+    this.listTouching = false;
+    this.scheduleTimelineUpdate();
+  }
+
   private refreshProgress(): void {
-    if (!this.running) {
+    if (!this.runActive()) {
       if (this.progressLabel.length > 0) {
         this.progressLabel = '';
       }
@@ -1765,9 +2080,47 @@ export struct ConversationPage {
   }
 
   /** 步骤行展开/收起（图标槽换成箭头那一层） */
+  private onToggleReasonFull(id: string): void {
+    const at: number = this.reasonFullIds.indexOf(id);
+    const next: string[] = this.reasonFullIds.slice();
+    if (at >= 0) {
+      next.splice(at, 1);
+    } else {
+      next.push(id);
+    }
+    this.reasonFullIds = next;
+  }
+
+  private onToggleReasonCard(id: string): void {
+    const at: number = this.stepClosedIds.indexOf(id);
+    const next: string[] = this.stepClosedIds.slice();
+    if (at >= 0) {
+      next.splice(at, 1);
+    } else {
+      next.push(id);
+      // 收起成一行时，顺手清掉「整段展开」标记，下次展开回到正常卡片
+      const fullAt: number = this.reasonFullIds.indexOf(id);
+      if (fullAt >= 0) {
+        const fullNext: string[] = this.reasonFullIds.slice();
+        fullNext.splice(fullAt, 1);
+        this.reasonFullIds = fullNext;
+      }
+    }
+    this.stepClosedIds = next;
+  }
+
   private onToggleStep(id: string): void {
     const at: number = this.stepOpenIds.indexOf(id);
     const next: string[] = this.stepOpenIds.slice();
+    if (at < 0) {
+      // 展开这一步时，把它从「已收起」里移除，否则卡片会被折叠态一直挡住
+      const closedAt: number = this.stepClosedIds.indexOf(id);
+      if (closedAt >= 0) {
+        const closedNext: string[] = this.stepClosedIds.slice();
+        closedNext.splice(closedAt, 1);
+        this.stepClosedIds = closedNext;
+      }
+    }
     if (at >= 0) {
       next.splice(at, 1);
     } else {
@@ -1844,7 +2197,13 @@ export struct ConversationPage {
       // 乐观回显（对齐小程序 store.appendLocalUserRow）：发送成功即本地插入用户气泡，
       // 真实 user/message 到达时由 adoptOptimisticUser 交棒；排队消息由队列行呈现，不重复插。
       if (!this.running) {
-        SessionStore.get().appendOptimisticUser(text, selected.length);
+        const localImages: string[] = [];
+        for (const one of selected) {
+          if (this.isImageAttachment(one.name)) {
+            localImages.push(one.uri);
+          }
+        }
+        SessionStore.get().appendOptimisticUser(text, selected.length, localImages);
       }
       this.hint = '';
       this.attachmentHint = '';
@@ -3691,6 +4050,15 @@ export struct ConversationPage {
       return;
     }
     const sessionId: string = SessionStore.get().currentSessionId();
+    // 断环：models 响应会写 AppStorage('modelDetails')，而本页对它挂了 @Watch，
+    // 之前每次响应都再发一次 models 请求 —— 网关回一帧、页面再问一次，形成 60 次/秒的死循环，
+    // 把连接打满，实时事件（工具步骤/流式正文）就再也送不进来了。
+    // 这里按「会话 + 当前模型」去重：同一组合只请求一次。
+    const effortKey: string = sessionId + '|' + this.currentModelId();
+    if (effortKey === this.modelEffortsKey) {
+      return;
+    }
+    this.modelEffortsKey = effortKey;
     const request = sessionId.length > 0
       ? GatewayRequestFactory.make('models', 'models', { 'sessionId': sessionId }, sessionId)
       : GatewayRequestFactory.simple('models');
@@ -5439,6 +5807,10 @@ export struct ConversationPage {
                 .borderRadius(10)
                 .objectFit(ImageFit.Cover)
                 .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.04)')
+                // 点缩略图看大图（对齐小程序 composer 缩略图预览）
+                .onClick(() => {
+                  this.previewImagePath = attachment.uri;
+                })
             } else {
               Row({ space: 5 }) {
                 SymbolGlyph($r('sys.symbol.paperclip'))
@@ -5557,12 +5929,23 @@ export struct ConversationPage {
             .width('100%')
             .height(64 + this.topSafe())
         }
-        LazyForEach(this.source, (entry: ConversationFeedEntryModel) => {
+        // 用普通 ForEach（非虚拟列表）渲染时间线：
+        // LazyForEach 在本机不会因「行内数组被替换」而重建该行 —— 组头能刷新、组体新步骤不出现。
+        // 时间线窗口只有最近几十行，普通 ForEach 每次重建代价可控，但能保证 100% 实时。
+        ForEach(this.entries, (entry: ConversationFeedEntryModel) => {
           ListItem() {
             ConversationRowView({
               entry: entry,
               procIconStyle: this.procIconStyle,
               stepOpenIds: this.stepOpenIds,
+              stepClosedIds: this.stepClosedIds,
+              reasonFullIds: this.reasonFullIds,
+              onToggleReasonFull: (id: string) => {
+                this.onToggleReasonFull(id);
+              },
+              onToggleReasonCard: (id: string) => {
+                this.onToggleReasonCard(id);
+              },
               onToggle: (id: string) => {
                 this.onToggleEntry(id);
               },
@@ -5575,9 +5958,12 @@ export struct ConversationPage {
               onShowDetail: (title: string, body: string) => {
                 this.onShowDetail(title, body);
               },
-              imagePaths: this.imagePathsFor(entry.id),
+              imagePaths: entry.localImages.concat(this.imagePathsFor(entry.id)),
               onImageTap: (path: string) => {
                 this.previewImagePath = path;
+              },
+              onImagePathTap: (path: string) => {
+                this.openHostImage(path);
               },
               attachmentChips: this.attachmentChipsOf(entry),
               onAttachmentTap: (name: string, path: string, mediaType: string) => {
@@ -5595,9 +5981,9 @@ export struct ConversationPage {
           }
           .width('100%')
           .padding({ left: 20, right: 20 })
-        }, (entry: ConversationFeedEntryModel) => entry.id)
-        // 列表尾：运行中的鲸尾状态条在滚动内容末尾（对齐小程序 .progress-strip 在 scroll-view 内）
-        if (this.progressLabel.length > 0) {
+        }, (entry: ConversationFeedEntryModel) => entry.id + '#' + entry.itemsRevision.toString() + '#' + entry.text.length.toString())
+        // 运行状态条：普通列表行（跟随内容滚动，不做"始终固定可见"的处理）。
+        if (this.progressLabel.length > 0 && this.entries.length > 0) {
           ListItem() {
             ConversationProgress({
               appearance: this.statusAppearance,
@@ -5611,6 +5997,9 @@ export struct ConversationPage {
           .width('100%')
           .padding({ left: 20, right: 20 })
         }
+
+
+
       }
       .id('conversation-list')
       .width('100%')
@@ -5618,10 +6007,14 @@ export struct ConversationPage {
       .cachedCount(8)
       .scrollBar(BarState.Off)
       .contentEndOffset(12)
+      // 运行条放在 List 之外（Stack 底部、列表下方）：以前它是 List 的最后一个 ListItem，
+      // 列表任何一次结构变化都会把它卸掉再装回去 —— 表现就是「运行态不显示 / 只有页面在闪」。
+      // 现在它独立于列表存在，运行状态一置位就稳定显示，列表怎么重建都不影响。
       .onTouch((event: TouchEvent) => {
         // 只记录触摸，不在这里改 autoStick：轻点某行不应该打断跟随
         if (event.type === TouchType.Down) {
           this.listTouching = true;
+          this.listTouchStartedAt = Date.now();
         } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
           this.listTouching = false;
           this.lastTouchAt = Date.now();
@@ -5633,7 +6026,12 @@ export struct ConversationPage {
         }
       })
       .onScrollStart(() => {
-        // 用户自己拖动过：停掉自动跟随，给一个不被打断的浏览窗口
+        // 只有「手指真的按在列表上」才算用户拖动。
+        // 程序化吸底、惯性滑动、重建重排都会触发 onScrollStart，
+        // 以前据此关掉跟随，第一次自动滚到底就把跟随永久关了（这就是「不跟随」的根因）。
+        if (!this.listTouching) {
+          return;
+        }
         this.autoStick = false;
         this.lastUserScrollAt = Date.now();
       })
@@ -5644,8 +6042,10 @@ export struct ConversationPage {
       .onScrollIndex((start: number, end: number) => {
         // 记录最后一条可见行：只凭它判断「用户真的滑到底了」
         this.lastVisibleEnd = end;
-        // 用户把列表从底部拖开就先停掉吸底：不依赖 onScrollStart 是否触发（它偶尔会漏）
-        if (this.entries.length > 0 && end < this.entries.length - 1 && this.userInteracting()) {
+        // 手指拖动离开底部才停跟随；回到末尾立刻恢复（不依赖 userInteracting，那个会被程序化滚动点亮）
+        if (this.entries.length > 0 && end >= this.entries.length - 2) {
+          this.autoStick = true;
+        } else if (this.listTouching) {
           this.autoStick = false;
         }
         this.maybeResumeAutoStick();

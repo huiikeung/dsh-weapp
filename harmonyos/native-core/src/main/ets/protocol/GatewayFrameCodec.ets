@@ -121,18 +121,56 @@ export function normalizeEventSource(v: Object | undefined): string | undefined 
 
 /** ---- RawSessionEvent.normalized(sessionId) ---- */
 
-function joinTextBlocks(value: Object | undefined): string {
-  const list = Array.isArray(value) ? (value as Object[]) : (arr(value, 'content') ?? []);
-  const parts: string[] = [];
-  for (const b of list) {
-    if (str(b, 'type') === 'text') {
-      const t = str(b, 'text');
-      if (t !== undefined) {
-        parts.push(t);
-      }
-    }
+/** 递归展开文本：DSH 事件里的正文可能是「分片字符串数组」，层级各版本不一致 */
+function textOfValue(value: Object | undefined): string {
+  if (value === undefined || value === null) {
+    return '';
   }
-  return parts.join('');
+  if (typeof value === 'string') {
+    return value as string;
+  }
+  if (Array.isArray(value)) {
+    let out: string = '';
+    for (const one of value as Object[]) {
+      out += textOfValue(one);
+    }
+    return out;
+  }
+  const rec: Record<string, Object> = value as Record<string, Object>;
+  const inner: Object | undefined = rec['text'] ?? rec['delta'] ?? rec['content'] ?? rec['chunks'] ?? rec['parts'];
+  if (inner !== undefined) {
+    return textOfValue(inner);
+  }
+  return '';
+}
+
+function joinTextBlocks(value: Object | undefined): string {
+  if (value === undefined || value === null) {
+    return '';
+  }
+  if (typeof value === 'string') {
+    return value as string;
+  }
+  const list: Object[] = Array.isArray(value) ? (value as Object[]) : [value as Object];
+  let out: string = '';
+  for (const b of list) {
+    if (b === undefined || b === null) {
+      continue;
+    }
+    if (typeof b === 'string') {
+      out += b as string;
+      continue;
+    }
+    const rec: Record<string, Object> = b as Record<string, Object>;
+    const type: string | undefined = str(rec, 'type');
+    if (type !== undefined && type !== 'text') {
+      continue;
+    }
+    // text 可能是字符串，也可能是「分片字符串数组」：只认 string 会把数组形态整段丢掉，
+    // 于是每条回复只剩每段开头一小截（要重进页面才完整）。
+    out += textOfValue(rec);
+  }
+  return out;
 }
 
 function imageBlocks(value: Object | undefined): GatewayImageAttachment[] {
@@ -191,6 +229,60 @@ function fileBlocks(value: Object | undefined): GatewayFileAttachment[] {
   return out;
 }
 
+/**
+ * 顶层附件数组（data.attachments / message.attachments）：不同连接器版本会把图片/文件挂在
+ * 这里而不是 content 块里（对齐小程序 protocol.js：attachmentBlocks(content).concat(data.attachments)）。
+ */
+function topLevelFileBlocks(data: Object | undefined): GatewayFileAttachment[] {
+  const out: GatewayFileAttachment[] = [];
+  const list: Object[] = arr(data, 'attachments') ?? [];
+  for (const entry of list) {
+    const rec: Record<string, Object> | undefined = asRec(field(entry, 'attachment')) ?? asRec(entry);
+    if (rec === undefined) {
+      continue;
+    }
+    const name: string | undefined = str(rec, 'name') ?? str(rec, 'path');
+    if (name === undefined) {
+      continue;
+    }
+    out.push({
+      attachmentId: str(rec, 'attachmentId'),
+      name: name,
+      path: str(rec, 'path'),
+      mediaType: str(rec, 'mediaType'),
+      bytes: num(rec, 'bytes'),
+      kind: str(rec, 'kind')
+    });
+  }
+  return out;
+}
+
+/** 顶层图片数组（data.images）：直接给出 attachmentId/mediaType，无嵌套 attachment。 */
+function topLevelImageBlocks(data: Object | undefined): GatewayImageAttachment[] {
+  const out: GatewayImageAttachment[] = [];
+  const list: Object[] = arr(data, 'images') ?? [];
+  for (const entry of list) {
+    const rec: Record<string, Object> | undefined = asRec(field(entry, 'attachment')) ?? asRec(entry);
+    if (rec === undefined) {
+      continue;
+    }
+    const id: string | undefined = str(rec, 'attachmentId') ?? str(rec, 'id');
+    if (id === undefined || id.length === 0) {
+      continue;
+    }
+    const mediaType: string = str(rec, 'mediaType') ?? str(rec, 'mimeType') ?? 'image/jpeg';
+    out.push({
+      attachmentId: id,
+      mediaType: mediaType,
+      bytes: num(rec, 'bytes') ?? 0,
+      width: num(rec, 'width') ?? 0,
+      height: num(rec, 'height') ?? 0,
+      name: str(rec, 'name')
+    });
+  }
+  return out;
+}
+
 function toolResultText(message: Object | undefined): string {
   const content = arr(message, 'content') ?? [];
   const parts: string[] = [];
@@ -229,14 +321,31 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
   let ev: GatewayEvent;
   switch (type) {
     case 'user/message': {
+      // 正文/附件兜底：不同连接器版本把内容放在 content / text / message 里（对齐小程序 normalizeRawEvent）
+      let userText: string = joinTextBlocks(field(data, 'content'));
+      if (userText.length === 0) {
+        const flat: string | undefined = str(data, 'text');
+        if (flat !== undefined) {
+          userText = flat;
+        }
+      }
+      if (userText.length === 0 && field(data, 'message') !== undefined) {
+        userText = joinTextBlocks(field(data, 'message'));
+      }
       ev = {
         type,
         turn: partial.turn,
         step: partial.step,
-        text: joinTextBlocks(field(data, 'content')),
-        source: normalizeEventSource(field(asRec(field(data, 'source')), 'kind')),
-        images: imageBlocks(field(data, 'content')),
-        attachments: fileBlocks(field(data, 'content')),
+        text: userText,
+        // source 可能是字符串（'dsh-ops:step-tail'）也可能是 { kind } 对象。
+        // 之前只认后者，字符串来源会被当成「无来源」→ 上下文注入被误判成用户消息
+        // （于是注入内容以「我发送的蓝色气泡」出现）。
+        source: normalizeEventSource(
+          typeof field(data, 'source') === 'string'
+            ? (field(data, 'source') as string)
+            : (field(asRec(field(data, 'source')), 'kind') ?? field(asRec(field(data, 'message')), 'source'))),
+        images: imageBlocks(field(data, 'content')).concat(topLevelImageBlocks(data)),
+        attachments: fileBlocks(field(data, 'content')).concat(topLevelFileBlocks(data)),
         raw: data
       };
       break;
@@ -286,7 +395,13 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
           }
         }
       }
-      const images = content !== undefined ? imageBlocks(content) : imageBlocks(field(data, 'message'));
+      const messageObj: Object | undefined = field(data, 'message');
+      const images = (content !== undefined ? imageBlocks(content) : imageBlocks(messageObj))
+        .concat(topLevelImageBlocks(data))
+        .concat(topLevelImageBlocks(messageObj));
+      const attachments = (content !== undefined ? fileBlocks(content) : fileBlocks(messageObj))
+        .concat(topLevelFileBlocks(data))
+        .concat(topLevelFileBlocks(messageObj));
       const interrupted = bool(data, 'interrupted');
       ev = {
         type,
@@ -296,7 +411,7 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
         reasoning,
         toolCalls,
         images,
-        attachments: content !== undefined ? fileBlocks(content) : fileBlocks(field(data, 'message')),
+        attachments: attachments,
         usage: field(asRec(field(data, 'message')), 'usage') ?? field(data, 'usage'),
         interrupted,
         stream: field(data, 'stream'),

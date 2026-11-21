@@ -1,12 +1,14 @@
 import { fileIo, hash } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
 import { util } from '@kit.ArkTS';
+import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { GatewayClient } from '../network/GatewayClient';
 import { base64Decode } from '../crypto/DshCrypto';
 import { randomBytes } from '../crypto/Sodium';
 import { GatewayFrame } from '../protocol/GatewayDtos';
 import { asRec, num, str } from '../protocol/GatewayFrameCodec';
 import { PickedAttachment } from './AttachmentPicker';
+import { Logger } from './Logger';
 
 export interface UploadResult {
   receiptId: string;
@@ -24,6 +26,35 @@ function checkConnection(client: GatewayClient, generation: number): void {
   if (!client.isConnected() || client.generation() !== generation) {
     throw new Error('连接已变化，请重新操作');
   }
+}
+
+/**
+ * 按文件描述符计算 SHA-256。
+ * 之前用 hash.hash(uri)：对相册选择器返回的 file://media/... URI 会直接抛错，
+ * 表现就是「选了图片点发送没反应/提示附件发送失败」。
+ */
+async function sha256OfFile(fd: number, size: number): Promise<string> {
+  const md: cryptoFramework.Md = cryptoFramework.createMd('SHA256');
+  const chunk: number = 256 * 1024;
+  let offset: number = 0;
+  while (offset < size) {
+    const length: number = Math.min(chunk, size - offset);
+    const buffer: ArrayBuffer = new ArrayBuffer(length);
+    const read: number = await fileIo.read(fd, buffer, { offset: offset, length: length });
+    if (read <= 0) {
+      break;
+    }
+    const bytes: Uint8Array = new Uint8Array(buffer, 0, read);
+    await md.update({ data: bytes });
+    offset += read;
+  }
+  const digest: cryptoFramework.DataBlob = await md.digest();
+  let hex: string = '';
+  for (let i = 0; i < digest.data.length; i++) {
+    const part: string = digest.data[i].toString(16);
+    hex += part.length === 1 ? '0' + part : part;
+  }
+  return hex;
 }
 
 /** Read, hash, and upload a picker URI with offset/receipt validation. */
@@ -44,7 +75,7 @@ export async function uploadAttachment(
     if (!Number.isSafeInteger(size) || size < 0 || size > MAX_UPLOAD_BYTES) {
       throw new Error('文件不能超过 50 MB');
     }
-    const digest: string = (await hash.hash(attachment.uri, 'sha256')).toLowerCase();
+    const digest: string = (await sha256OfFile(file.fd, size)).toLowerCase();
     checkConnection(client, generation);
     const opened: GatewayFrame = await client.openFileUpload(sessionId, attachment.name, size, digest);
     checkConnection(client, generation);
@@ -121,7 +152,9 @@ export async function downloadAttachment(
   const chunkBytes: number = opened.chunkBytes ?? 0;
   const rawName: string = opened.name ?? path.substring(path.lastIndexOf('/') + 1);
   const name: string = sanitizeFileName(rawName.length > 0 ? rawName : 'file');
-  if (opened.sessionId !== sessionId || opened.path !== path || transferId.length === 0 ||
+  // 只校验归属（sessionId/transferId/尺寸）：网关会把绝对路径规范化（如 macOS /tmp → /private/tmp），
+  // 之前要求 opened.path 与请求路径严格相等，图片/文件预览会直接判成「文件下载响应无效」。
+  if (opened.sessionId !== sessionId || transferId.length === 0 ||
     !Number.isSafeInteger(size) || size < 0 || size > MAX_DOWNLOAD_BYTES ||
     !Number.isSafeInteger(chunkBytes) || chunkBytes < 1 || chunkBytes > 4 * 1024 * 1024) {
     if (transferId.length > 0 && client.isConnected()) {
