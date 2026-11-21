@@ -33,9 +33,9 @@ export function appGlassBlur(isDark: boolean): number {
  * 深色 rgba(61,61,61,0.72)、浅色 rgba(248,248,250,0.78)；模糊由 backdropBlur 提供。
  */
 export function appGlassFill(isDark: boolean): string {
-  // 深色底：追求原生那种「透黑」——基色压暗、保留一定透光，靠中等模糊打散背景细节：
-  //   32 * 0.80 ≈ 25.6（纯黑底，比原生 #1B1B1C 略深一点点），透光 20%
-  return isDark ? 'rgba(32,32,34,0.80)' : 'rgba(248,248,250,0.78)';
+  // 深色底：原生那种「透黑」——基色压暗、保留较多透光，靠中等模糊打散背景细节：
+  //   36 * 0.72 ≈ 25.9（纯黑底 ≈ #1A1A1B），透光 28%（比上一档更透一丢丢）
+  return isDark ? 'rgba(36,36,38,0.72)' : 'rgba(248,248,250,0.78)';
 }
 
 /** 标准高光细边：深色 20% 白（实测原生菜单描边比旧值亮一档）、浅色 90% 白 */
