@@ -309,6 +309,41 @@ export struct AppSettingsPage {
     .padding({ left: 16, right: 16, top: 12, bottom: 12 })
   }
 
+  /**
+   * 子设置行：嵌在父开关下面。
+   * 样式：左侧 2vp 引导线（缩进 24，从属感）+ 标题比父项小一号（15）+ 描述小一号（12）+ 开关略缩；
+   * 与父行之间用同款 divider 分隔，不额外加背景，保持设置页整体干净。
+   */
+  @Builder
+  subToggleRow(label: string, desc: string, isOn: boolean, onChanged: (value: boolean) => void) {
+    Row() {
+      Column()
+        .width(2)
+        .height(30)
+        .borderRadius(1)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.10)')
+        .margin({ left: 24, right: 12 })
+      Column({ space: 2 }) {
+        Text(label).fontSize(15).fontColor(this.textColor())
+        if (desc.length > 0) {
+          Text(desc).fontSize(12).fontColor(this.subColor())
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      Toggle({ type: ToggleType.Switch, isOn: isOn })
+        .selectedColor('#2E6BE6')
+        .scale({ x: 0.9, y: 0.9 })
+        .onChange((value: boolean) => {
+          onChanged(value);
+        })
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 44 })
+    .padding({ left: 0, right: 16, top: 10, bottom: 12 })
+  }
+
   @Builder
   divider() {
     Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
@@ -1454,16 +1489,19 @@ export struct AppSettingsPage {
             // ── 对话 ──
             this.groupTitle('对话')
             Column({ space: 0 }) {
-              // 开关含义统一成「收起」：开启 = 进入会话页时默认收起成贴边把手（存储取反）
-              this.toggleRow('胶囊收起', '开启后进入会话页默认收起为贴边把手，点击再展开', !this.capsuleDefaultExpanded, (value: boolean) => {
-                this.capsuleDefaultExpanded = !value;
-                PreferencesStore.get().putBoolean('capsuleDefaultExpanded', !value);
-              })
-              this.divider()
               this.toggleRow('会话节点胶囊', '关闭后会话页不显示侧边胶囊（会话节点入口一并隐藏）', this.capsuleAlwaysVisible, (value: boolean) => {
                 this.capsuleAlwaysVisible = value;
                 PreferencesStore.get().putBoolean('capsuleAlwaysVisible', value);
               })
+              // 子设置：只有胶囊开启时才显示（关闭胶囊后「收起」没有意义）
+              if (this.capsuleAlwaysVisible) {
+                this.divider()
+                // 开关含义统一成「收起」：开启 = 进入会话页时默认收起成贴边把手（存储取反）
+                this.subToggleRow('胶囊收起', '开启后进入会话页默认收起为贴边把手，点击再展开', !this.capsuleDefaultExpanded, (value: boolean) => {
+                  this.capsuleDefaultExpanded = !value;
+                  PreferencesStore.get().putBoolean('capsuleDefaultExpanded', !value);
+                })
+              }
               this.divider()
               this.toggleRow('语音输入', '按住说话，由已连接的 DSH 语音插件转写', this.voiceInputEnabled, (value: boolean) => {
                 this.voiceInputEnabled = value;
