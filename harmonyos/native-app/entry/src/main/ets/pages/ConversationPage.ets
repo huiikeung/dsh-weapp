@@ -3129,6 +3129,8 @@ export struct ConversationPage {
         }
         .width('100%')
         .height('100%')
+        // 浮层层级压在顶栏(70)之下：遮罩/面板都不会盖住顶栏按钮的点击区域
+        .zIndex(30)
       }
 
       // 重命名会话弹窗
@@ -4852,6 +4854,8 @@ export struct ConversationPage {
     .height(56 + this.topSafe())
     // 左缘与输入条一致（输入条容器 padding 14）：返回按钮和输入框左边缘对齐
     .padding({ left: 14, right: 14, top: this.topSafe() > 2 ? this.topSafe() - 2 : 0 })
+    // 顶栏永远压在页面内浮层之上：侧栏弹窗打开时其透明遮罩不能再吃顶栏按钮的点击
+    .zIndex(70)
     // 浮动顶栏完全不铺底：内容上滑时直接从标题下面穿过去（纯 iOS 透明导航栏）
   }
 
