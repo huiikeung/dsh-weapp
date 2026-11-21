@@ -5711,11 +5711,14 @@ export struct ConversationPage {
     const store: SessionStore = SessionStore.get();
     Logger.info('[TurnNavWarmup] start hasOlder=' + (store.hasOlderHistory() ? '1' : '0') +
       ' pending=' + (store.isOlderRequestPending() ? '1' : '0') + ' nodes=' + this.turnNodes.length.toString());
+    // 批量模式：每页只合并事件，结束时统一重投影一次（长会话否则每页都要全量重投影，很慢）
+    store.beginBulkOlder();
     let guard: number = 0;
     // 一页一页连着拉：等上一页真正落地就立刻发下一页，不再固定 sleep 180ms。
     // 之前固定 180ms 会在「响应比 180ms 慢」时被 loadOlder 的 pending 判断打断，
     // 一次展开只能拉一页，看起来就是要点好几次才能加载完。
     let stuck: number = 0;
+    try {
     while (guard < 60 && (this.turnNavOpen || this.turnNavMenuOpen || this.capsuleExpanded) && store.hasOlderHistory()) {
       if (store.isOlderRequestPending()) {
         await new Promise<void>((resolve: () => void) => {
@@ -5749,7 +5752,11 @@ export struct ConversationPage {
       // 每加载一页就刷新节点数：胶囊上的 N/总数、弹层列表都跟着更新
       this.refreshTurnNodes(this.turnNavOpen);
     }
+    } catch (err) {
+      Logger.warn('[TurnNavWarmup] loop failed: ' + String(err));
+    }
     this.turnNavWarmupRunning = false;
+    store.endBulkOlder();
     Logger.info('[TurnNavWarmup] end guard=' + guard + ' hasOlder=' + (store.hasOlderHistory() ? '1' : '0') +
       ' pending=' + (store.isOlderRequestPending() ? '1' : '0') + ' nodes=' + this.turnNodes.length.toString());
     if (this.turnNavOpen) {

@@ -603,7 +603,10 @@ export class SessionStore {
       } else {
         this.rawEvents = this.mergeHistoryEvents(events, this.rawEvents);
       }
-      this.rebuildProjection();
+      // 批量补拉期间只合并事件，重投影留到 endBulkOlder() 统一做
+      if (this.bulkOlderDepth === 0) {
+        this.rebuildProjection();
+      }
       if (!competingTail && frame.hasMore !== undefined) this.hasMore = frame.hasMore;
       let minSeq: number = 0;
       for (const raw of this.rawEvents) {
@@ -621,7 +624,9 @@ export class SessionStore {
       if (!wasOlderPage) {
         this.setHistoryLoading(false);
       }
-      this.publish();
+      if (this.bulkOlderDepth === 0) {
+        this.publish();
+      }
       return;
     }
     if (frame.kind === 'session-snapshot') {
@@ -1435,6 +1440,25 @@ export class SessionStore {
 
   /** 补拉请求的超时兜底定时器：响应丢了也要把 pending 放掉，否则预热会一直卡住 */
   private olderRequestTimer: number = -1;
+
+  /** 批量补拉深度：>0 时每页只合并原始事件，不重投影/不发布，结束后统一做一次 */
+  private bulkOlderDepth: number = 0;
+
+  /** 进入批量补拉：预热循环开始时调用，避免每页都全量重投影（长会话会很慢） */
+  beginBulkOlder(): void {
+    this.bulkOlderDepth += 1;
+  }
+
+  /** 退出批量补拉：最后一页落地后统一重投影 + 发布一次，前端数字一次性到位 */
+  endBulkOlder(): void {
+    if (this.bulkOlderDepth > 0) {
+      this.bulkOlderDepth -= 1;
+    }
+    if (this.bulkOlderDepth === 0) {
+      this.rebuildProjection();
+      this.publish();
+    }
+  }
 
   private clearOlderRequestTimeout(): void {
     if (this.olderRequestTimer >= 0) {
