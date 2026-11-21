@@ -27,6 +27,8 @@ export interface SavedGateway {
   alias?: string;
   /** 主机类型：desktopcomputer / server.rack（旧数据没有该字段时按电脑显示）。 */
   deviceKind?: string;
+  /** 上次成功连接的端点（对齐 iOS preferredEndpoint）：冷启动优先尝试它。 */
+  preferredEndpoint?: string;
 }
 
 const KEY: string = 'savedGateways';

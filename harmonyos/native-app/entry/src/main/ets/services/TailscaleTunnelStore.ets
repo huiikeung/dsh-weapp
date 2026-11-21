@@ -785,6 +785,11 @@ export class TailscaleTunnelStore {
       if (previousStage !== TS_STAGE_READY) {
         GatewayClient.get().resetTailnetAttempt();
       }
+      // 蜂窝冷启动时首个候选可能已失败（局域网不可达），隧道就绪后补一次连接
+      try {
+        GatewayClient.get().ensureConnectedViaTailnet();
+      } catch (ensureErr) {
+      }
       const account: string = TsnetBridge.account();
       if (account.length > 0) {
         AppStorage.setOrCreate<string>('tailscaleAccount', account);

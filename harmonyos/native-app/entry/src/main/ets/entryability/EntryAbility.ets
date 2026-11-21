@@ -188,11 +188,13 @@ export default class EntryAbility extends UIAbility {
   onBackground(): void {
     AppStorage.setOrCreate<string>('appLifecycle', 'background');
     Logger.info('EntryAbility background: websocket lifecycle retained');
+    // 只要内嵌隧道开启就保持后台存活：回到 App 时无需等隧道冷启动（约 8–10 秒）。
+    const tunnelOn: boolean = AppStorage.get<boolean>('tailscaleTunnelEnabled') ?? false;
     const agentWork: boolean = AppStorage.get<boolean>('agentWorkActive') ?? false;
-    if (agentWork) {
+    if (tunnelOn || agentWork) {
       BackgroundKeepAlive.start(this.context).catch(() => {});
     } else {
-      Logger.info('BGKEEP skipped (no agent work)');
+      Logger.info('BGKEEP skipped (tunnel off)');
     }
   }
 

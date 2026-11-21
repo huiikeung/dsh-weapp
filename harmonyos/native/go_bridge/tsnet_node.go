@@ -94,6 +94,30 @@ func tsqLogf(format string, args ...any) {
 	tsqMu.Unlock()
 }
 
+// 备用实现（当前未启用）：tsnet 的 EditPrefs(RouteAll) 会破坏数据面，
+// 曾导致隧道端点全部 15 秒超时，已回退。以后要启用需要改用 UpdatePrefs 并重新验证。
+//
+// 接受网关广告的子网路由：这样即使手机不在同一局域网，也能通过 tailnet
+// 直接拨网关的局域网地址（与 iOS 的 acceptRoutes 对齐）。
+func tsqAcceptRoutes(server *tsnet.Server) {
+	client, err := server.LocalClient()
+	if err != nil {
+		tsqLogf("acceptRoutes: local client: %v", err)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	prefs := &ipn.MaskedPrefs{
+		Prefs: ipn.Prefs{RouteAll: true},
+		RouteAllSet: true,
+	}
+	if _, err := client.EditPrefs(ctx, prefs); err != nil {
+		tsqLogf("acceptRoutes: edit prefs: %v", err)
+		return
+	}
+	tsqLogf("acceptRoutes: RouteAll=true applied")
+}
+
 func tsqStatusDirect() string {
 	server := tsqServer
 	if server == nil {

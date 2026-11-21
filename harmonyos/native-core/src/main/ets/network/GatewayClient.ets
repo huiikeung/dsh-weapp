@@ -102,6 +102,9 @@ export class GatewayClient {
   private suppressConnecting: boolean = false;
   private connectRetryTimer: number = 0;
   private tailnetFailureCount: number = 0;
+  private lastTailnetEnsureAt: number = 0;
+  private pairRetryCount: number = 0;
+  private altCredentialTried: string[] = [];
   private tailnetBlockedUntil: number = 0;
   private bearerPollTimer: number = 0;
   /** 切蜂窝后等隧道就绪再切终点的轮询（隧道没起来时先把现有连接保住） */
@@ -157,6 +160,76 @@ export class GatewayClient {
     Logger.info('tailnet ready, switch endpoint ' + profile.wsUrl + ' -> ' + target);
     this.forceTailnet = true;
     this.switchEndpoint(target);
+  }
+
+  /** 两条保存记录是否指向同一台网关（重复配对产生的记录） */
+  private sameGatewayRecord(a: SavedGateway, b: SavedGateway): boolean {
+    if (a.id === b.id) {
+      return true;
+    }
+    if (a.relayNodeId.length > 0 && b.relayNodeId.length > 0 && a.relayNodeId === b.relayNodeId) {
+      return true;
+    }
+    const hostOf = (url: string): string => {
+      let h: string = url;
+      const scheme: number = h.indexOf('://');
+      if (scheme >= 0) {
+        h = h.substring(scheme + 3);
+      }
+      const slash: number = h.indexOf('/');
+      if (slash >= 0) {
+        h = h.substring(0, slash);
+      }
+      const colon: number = h.indexOf(':');
+      if (colon >= 0) {
+        h = h.substring(0, colon);
+      }
+      return h;
+    };
+    if (a.name.length > 0 && a.name === b.name && hostOf(a.wsUrl) !== '' && hostOf(b.wsUrl) !== '') {
+      return true;
+    }
+    return false;
+  }
+
+  /** 401 时从重复主机记录里借一份仍有效的凭据，写回当前主机后重连 */
+  private mergeSiblingCredentials(): boolean {
+    const active: SavedGateway | null = CredentialStore.get().load();
+    if (active === null) {
+      return false;
+    }
+    for (const rec of CredentialStore.get().list()) {
+      if (rec.id === active.id || !this.sameGatewayRecord(active, rec)) {
+        continue;
+      }
+      const hasCredential: boolean = rec.token.length > 0 || rec.accessToken.length > 0 || rec.pairCode.length > 0;
+      if (!hasCredential) {
+        continue;
+      }
+      if (rec.token === active.token && rec.accessToken === active.accessToken && rec.pairCode === active.pairCode) {
+        continue;
+      }
+      const merged: SavedGateway = {
+        id: active.id,
+        name: active.name,
+        wsUrl: active.wsUrl,
+        endpoints: active.endpoints,
+        pairCode: rec.pairCode.length > 0 ? rec.pairCode : active.pairCode,
+        token: rec.token.length > 0 ? rec.token : active.token,
+        relayNodeId: active.relayNodeId.length > 0 ? active.relayNodeId : rec.relayNodeId,
+        relayAgentPubKey: active.relayAgentPubKey,
+        inviteToken: rec.inviteToken.length > 0 ? rec.inviteToken : active.inviteToken,
+        accessToken: rec.accessToken.length > 0 ? rec.accessToken : active.accessToken,
+        pairedAt: active.pairedAt,
+        lastConnectedAt: Date.now(),
+        alias: active.alias,
+        deviceKind: active.deviceKind
+      };
+      CredentialStore.get().save(merged);
+      Logger.info('credential merge: borrowed tokens from sibling host ' + rec.id);
+      return true;
+    }
+    return false;
   }
 
   /** 计算下一个 tailnet 候选入口（wss://<name>.ts.net/ws/mobile）；无后缀时返回空串 */
@@ -244,6 +317,11 @@ export class GatewayClient {
 
   /** 判定端点是否属于局域网/本机（对齐 dsh-mobile 的 GatewayIdentity.isLocal） */
   private isLocalEndpoint(url: string): boolean {
+    // Tailscale 的 100.64/10 是隧道地址，不是局域网：分类错了会导致蜂窝下把它当成
+    // 「不可达的局域网」直接丢弃（表现为蜂窝完全连不上，Wi-Fi 正常）。
+    if (this.isTailnetAddress(url)) {
+      return false;
+    }
     let host: string = url;
     const schemeAt: number = host.indexOf('://');
     if (schemeAt >= 0) {
@@ -361,30 +439,31 @@ export class GatewayClient {
         unique.push(one);
       }
     }
+    // 对齐 iOS：完全尊重网关下发的顺序（Cloudflare → ts.net → 局域网），
+    // 客户端只做两类必要调整，不擅自改变「网关认为的优劣次序」：
+    //   1) 蜂窝下把局域网地址挪到最后（物理不可达，避免白等超时）；
+    //   2) 局域网内部把「与本机同 /24」的排前面（旧网络残留地址不拖慢首连）。
     const allLocals: string[] = unique.filter((one: string) => this.isLocalEndpoint(one));
-    // 局域网候选里可能残留上一张网络的地址（192.168.3.x）：
-    // 先把「和本机当前 IP 同一个 /24」的那些排前面，否则会在不可达地址上白等一轮超时。
     const mySubnet: string = this.localIpv4Subnet();
     const sameSubnet: string[] = mySubnet.length === 0 ? []
       : allLocals.filter((one: string) => this.endpointSubnet(one) === mySubnet);
     const otherSubnet: string[] = mySubnet.length === 0 ? allLocals
       : allLocals.filter((one: string) => this.endpointSubnet(one) !== mySubnet);
     const locals: string[] = sameSubnet.concat(otherSubnet);
-    const publics: string[] = unique.filter((one: string) => !this.isLocalEndpoint(one));
-    // 用户偏好：公网优先、局域网兜底；内嵌隧道就绪时 tailnet 地址最优先，
-    // 未就绪时把 tailnet 地址放最后，避免启动时等待隧道拖慢首连。
-    const tailnets: string[] = publics.filter((one: string) => this.isTailnetAddress(one));
-    const restPublics: string[] = publics.filter((one: string) => !this.isTailnetAddress(one));
-    if (this.networkBearer !== 'cellular') {
-      // Tailscale 节点已连接：直接走公网（tailnet 优先 → Cloudflare 等公网 → 局域网兜底）
-      if (this.tailnetReady() && tailnets.length > 0) {
-        return tailnets.concat(restPublics).concat(locals);
+    const result: string[] = [];
+    for (const one of unique) {
+      if (this.isLocalEndpoint(one)) {
+        continue;
       }
-      // 隧道未就绪：局域网优先，避免启动首连白等公网超时
-      return locals.concat(restPublics).concat(tailnets);
+      result.push(one);
     }
-    // 蜂窝：局域网不可达，公网优先；内嵌隧道就绪时 tailnet 地址比公网更可靠
-    return (this.tailnetReady() ? tailnets.concat(restPublics) : restPublics.concat(tailnets)).concat(locals);
+    // 蜂窝：局域网地址物理不可达，直接不纳入候选（iOS 留着只会白等超时）；
+    // 其余按网关下发顺序（公网在前 → 秒连，随后再升级到 Tailscale）。
+    if (this.networkBearer === 'cellular') {
+      return result;
+    }
+    // 按网关下发顺序（与 iOS 一致）：局域网只在末尾兜底，不抢占前面的入口。
+    return result.concat(locals);
   }
 
   /** 注册网络类型监听（只注册一次） */
@@ -585,9 +664,13 @@ export class GatewayClient {
     return 'wss://' + name + '.' + suffix + '/ws/mobile';
   }
 
-  /** ws://100.x:3081 这类临时 tailnet IP 入口无效（网关只在 ts.net 443 上 serve） */
+  /**
+   * 历史上的「临时 tailnet IP 入口」过滤（当时网关只在 ts.net:443 serve，ws://100.x:3081 必然失败）。
+   * 现在网关的内嵌节点会在 tailnet 上监听 :3081，ws://100.x:3081 是有效入口，
+   * 所以这里不再过滤任何 tailnet 地址——否则蜂窝下会被整条丢掉。
+   */
   private isTransientTailnetUrl(url: string): boolean {
-    return this.isTailnetAddress(url) && url.indexOf('.ts.net') < 0;
+    return false;
   }
 
   private cellularEndpoint(url: string): string {
@@ -648,6 +731,59 @@ export class GatewayClient {
       return;
     }
     this.scheduleReconnect();
+  }
+
+  /** 从一条已保存记录里挑出当前网络最合适的入口 */
+  private pickEndpointForBearer(rec: SavedGateway): string {
+    const cellular: boolean = this.networkBearer === 'cellular';
+    const list: string[] = rec.endpoints !== undefined && rec.endpoints.length > 0 ? rec.endpoints : [rec.wsUrl];
+    for (const one of list) {
+      const local: boolean = this.isLocalEndpoint(one);
+      if (cellular && local) {
+        continue;
+      }
+      if (!cellular && local) {
+        return one;
+      }
+    }
+    for (const one of list) {
+      if (cellular && !this.isLocalEndpoint(one)) {
+        return one;
+      }
+    }
+    return rec.wsUrl;
+  }
+
+  /** 隧道就绪但当前没连上（例如蜂窝冷启动首个候选失败）：主动用 tailnet 入口重连 */
+  ensureConnectedViaTailnet(): void {
+    if (!this.tailnetReady() || this.currentProfile === null) {
+      return;
+    }
+    if (this.state === ConnectionState.CONNECTED || this.state === ConnectionState.CONNECTING) {
+      return;
+    }
+    const now: number = Date.now();
+    if (now - this.lastTailnetEnsureAt < 5000) {
+      return;
+    }
+    const target: string = this.tailnetCandidateUrl() || this.tailnetUrlFromApp();
+    if (target.length === 0) {
+      return;
+    }
+    this.lastTailnetEnsureAt = now;
+    const base: GatewayProfile = this.currentProfile;
+    const next: GatewayProfile = {
+      wsUrl: target,
+      pairCode: base.pairCode,
+      leaseToken: base.leaseToken,
+      inviteToken: base.inviteToken,
+      accessToken: base.accessToken,
+      token: base.token,
+      relayNodeId: base.relayNodeId,
+      relayAgentPubKey: base.relayAgentPubKey
+    };
+    Logger.info('tunnel ready but not connected, reconnect via tailnet -> ' + target);
+    this.connect(next, true);
   }
 
   /** 轻量隧道刚就绪时，把当前局域网直连升级为 Tailscale 公网链路 */
@@ -1023,6 +1159,92 @@ export class GatewayClient {
       // 记录本身绝不删除：只标记凭据失效并提示重新配对，避免「连不上 = 记录被清除」的观感。
       if (JSON.stringify(err).indexOf('401') >= 0) {
         Logger.warn('gateway credential rejected (401): saved credential no longer valid');
+        // 先用存储里最新的凭据重试（内存 profile 可能持有被轮换掉的旧 token）
+        const stored: SavedGateway | null = CredentialStore.get().load();
+        const currentForRefresh: GatewayProfile | null = this.currentProfile;
+        if (stored !== null && currentForRefresh !== null &&
+            (stored.token !== currentForRefresh.token || stored.accessToken !== currentForRefresh.accessToken ||
+             stored.pairCode !== currentForRefresh.pairCode)) {
+          Logger.info('refresh credential from store and retry current host');
+          this.failSocket(ws);
+          const refreshed: GatewayProfile = {
+            wsUrl: currentForRefresh.wsUrl,
+            pairCode: stored.pairCode,
+            leaseToken: currentForRefresh.leaseToken,
+            inviteToken: stored.inviteToken,
+            accessToken: stored.accessToken,
+            token: stored.token,
+            relayNodeId: stored.relayNodeId,
+            relayAgentPubKey: stored.relayAgentPubKey
+          };
+          this.connect(refreshed, true);
+          return;
+        }
+        // 诊断：打印所有保存记录的凭据概况（不含 token 本身）
+        try {
+          const activeForLog: string = CredentialStore.get().activeGatewayId();
+          for (const rec of CredentialStore.get().list()) {
+            Logger.warn('credDiag id=' + rec.id + ' active=' + (rec.id === activeForLog) +
+              ' name=' + rec.name + ' url=' + rec.wsUrl +
+              ' tokenLen=' + rec.token.length + ' accessLen=' + rec.accessToken.length +
+              ' pairLen=' + rec.pairCode.length + ' relay=' + rec.relayNodeId +
+              ' eps=' + (rec.endpoints !== undefined ? rec.endpoints.length : 0));
+          }
+        } catch (diagErr) {
+        }
+        // 先尝试从「同一台网关的重复记录」借凭据写回当前主机（不需要换主机）
+        if (this.mergeSiblingCredentials()) {
+          const current: GatewayProfile | null = this.currentProfile;
+          if (current !== null) {
+            const refreshed: GatewayProfile = {
+              wsUrl: current.wsUrl,
+              pairCode: CredentialStore.get().load() !== null ? (CredentialStore.get().load() as SavedGateway).pairCode : current.pairCode,
+              leaseToken: current.leaseToken,
+              inviteToken: current.inviteToken,
+              accessToken: CredentialStore.get().load() !== null ? (CredentialStore.get().load() as SavedGateway).accessToken : current.accessToken,
+              token: CredentialStore.get().load() !== null ? (CredentialStore.get().load() as SavedGateway).token : current.token,
+              relayNodeId: current.relayNodeId,
+              relayAgentPubKey: current.relayAgentPubKey
+            };
+            Logger.info('retry current host with merged credential');
+            this.failSocket(ws);
+            this.connect(refreshed, true);
+            return;
+          }
+        }
+        // 凭据被拒：再尝试列表里其它已保存主机的凭据（等同手动切换一次主机），
+        // 成功则设为当前主机；都失败再提示重新扫码。
+        const activeId: string = CredentialStore.get().activeGatewayId();
+        const records: SavedGateway[] = CredentialStore.get().list();
+        let switched: boolean = false;
+        for (const rec of records) {
+          if (rec.id === activeId || this.altCredentialTried.indexOf(rec.id) >= 0) {
+            continue;
+          }
+          if (rec.token.length === 0 && rec.accessToken.length === 0 && rec.pairCode.length === 0) {
+            continue;
+          }
+          this.altCredentialTried.push(rec.id);
+          const recUrl: string = this.pickEndpointForBearer(rec);
+          Logger.info('credential rejected, try saved host ' + rec.id + ' url=' + recUrl);
+          const next: GatewayProfile = {
+            wsUrl: recUrl,
+            pairCode: rec.pairCode,
+            leaseToken: '',
+            inviteToken: rec.accessToken.length > 0 ? '' : rec.inviteToken,
+            accessToken: rec.accessToken,
+            token: rec.token,
+            relayNodeId: rec.relayNodeId,
+            relayAgentPubKey: rec.relayAgentPubKey
+          };
+          this.failSocket(ws);
+          this.connect(next, true);
+          switched = true;
+          break;
+        }
+        if (switched) {
+          return;
+        }
         AppStorage.setOrCreate<boolean>('gatewayCredentialRejected', true);
         AppStorage.setOrCreate<string>('pairingHint', '设备凭据已失效，请重新扫码配对');
       }
@@ -1789,6 +2011,19 @@ export class GatewayClient {
    * 分页加载更早历史（beforeSeq 之前）。
    * maxMessages/maxBytes 可放大：会话节点预热时一次多取几页的量，减少来回次数。
    */
+  /**
+   * 只补拉历史，不动订阅。
+   * 关键：不要用 openSession() 做补拉 —— 那会重发 subscribe，
+   * 网关每收到一次 subscribe 都会重建订阅（快照 + 重新挂流），
+   * 8 秒一次的重订阅会让实时事件永远接不上（这正是「只有退出重进才刷新」的根因）。
+   */
+  requestHistoryRefresh(sessionId: string): void {
+    if (!this.isConnected() || sessionId.length === 0) {
+      return;
+    }
+    this.request(GatewayRequests.history(sessionId), 'history').catch((error: Error) => Logger.warn(error.message));
+  }
+
   requestOlderHistory(sessionId: string, beforeSeq: number, historyFormatVersion: number,
     maxMessages: number = 30, maxBytes: number = 262144): boolean {
     const frame: Record<string, Object> = {
@@ -1977,6 +2212,11 @@ export class GatewayClient {
   }
 
   /** 订阅解码后的控制帧；返回取消订阅函数。 */
+  /** 临时诊断状态（定位实时事件链路用，问题解决后删除） */
+  private frameKindCounts: Map<string, number> = new Map<string, number>();
+  private framesWithSession: number = 0;
+  private diagLastAt: number = 0;
+
   onFrame(listener: (frame: GatewayFrame) => void): () => void {
     this.frameListeners.push(listener);
     return () => {
@@ -2043,6 +2283,26 @@ export class GatewayClient {
       AppStorage.setOrCreate<string>('gatewayName', frame.gatewayName);
     }
     AppStorage.setOrCreate<string>('lastFrameKind', frame.kind);
+    // 临时诊断：每 5 秒打一次「收到的帧种类直方图 + 是否带 sessionId」，
+    // 用于判断实时事件到底有没有从网关发到手机（问题定位后移除）。
+    this.frameKindCounts.set(frame.kind, (this.frameKindCounts.get(frame.kind) ?? 0) + 1);
+    if (frame.sessionId !== undefined && frame.sessionId.length > 0) {
+      this.framesWithSession += 1;
+    }
+    const nowMs: number = Date.now();
+    if (this.diagLastAt === 0) {
+      this.diagLastAt = nowMs;
+    } else if (nowMs - this.diagLastAt > 5000) {
+      let report: string = '';
+      this.frameKindCounts.forEach((count: number, kind: string) => {
+        report += kind + '=' + count.toString() + ' ';
+      });
+      Logger.info('frame diag 5s: ' + report + 'withSession=' + this.framesWithSession.toString()
+        + ' lastKind=' + frame.kind + ' lastSession=' + (frame.sessionId !== undefined ? frame.sessionId : '-'));
+      this.frameKindCounts.clear();
+      this.framesWithSession = 0;
+      this.diagLastAt = nowMs;
+    }
     for (const listener of this.frameListeners) {
       try {
         listener(frame);
@@ -2193,9 +2453,21 @@ export class GatewayClient {
       lastConnectedAt: Date.now(),
       // 用户起的备注名和主机类型必须原样保留：以前每次重连都会新建档案把它们冲掉
       alias: existing !== null ? existing.alias : undefined,
-      deviceKind: existing !== null ? existing.deviceKind : undefined
+      deviceKind: existing !== null ? existing.deviceKind : undefined,
+      preferredEndpoint: (this.isTailnetAddress(profile.wsUrl) && profile.wsUrl.indexOf('.ts.net') < 0)
+        ? (existing !== null ? existing.preferredEndpoint : undefined)
+        : profile.wsUrl
     };
     CredentialStore.get().save(gateway);
+    // 关键：配对/认证可能轮换 token，内存里的 profile 必须同步更新，
+    // 否则后续切蜂窝/切端点重连会拿旧 token → 网关 401。
+    if (this.currentProfile !== null) {
+      this.currentProfile.token = gateway.token;
+      this.currentProfile.accessToken = gateway.accessToken;
+      this.currentProfile.pairCode = gateway.pairCode;
+      this.currentProfile.relayNodeId = gateway.relayNodeId;
+      this.currentProfile.relayAgentPubKey = gateway.relayAgentPubKey;
+    }
     Logger.info('PERSIST_SAVED id=' + gateway.id + ' total=' + CredentialStore.get().list().length);
   }
 
@@ -2242,6 +2514,15 @@ export class GatewayClient {
       if (synth.length > 0 && candidates.indexOf(synth) < 0) {
         candidates = [synth].concat(candidates);
         Logger.info('auto connect prefer tailnet ' + synth);
+      }
+    }
+    // 上次成功连接的端点优先（对齐 iOS preferredEndpoint）：冷启动命中率更高。
+    const preferred: string = (savedAfterClean.preferredEndpoint ?? '').trim();
+    if (preferred.length > 0 && candidates.indexOf(preferred) >= 0) {
+      const usable: boolean = this.networkBearer !== 'cellular' || !this.isLocalEndpoint(preferred);
+      if (usable && candidates[0] !== preferred) {
+        candidates = [preferred].concat(candidates.filter((one: string) => one !== preferred));
+        Logger.info('prioritize preferred endpoint ' + preferred);
       }
     }
     this.allEndpoints = candidates;
