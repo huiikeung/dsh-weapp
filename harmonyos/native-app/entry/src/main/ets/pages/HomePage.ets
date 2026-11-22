@@ -1640,6 +1640,8 @@ export struct HomePage {
     // 按下/悬停高亮：与系统菜单（协作、⋯）同一套 press 反馈
     .hoverEffect(HoverEffect.Highlight)
     .onClick(() => {
+      // 侧栏每一项都按「设置 → 震动反馈」的档位给一次触感
+      Haptics.play();
       this.drawerOpen = false;
       this.pageStack.pushPathByName(route, null);
     })
