@@ -1474,6 +1474,24 @@ export struct ConversationRowView {
             })
           }
 
+          if (this.entry.turnElapsedText.length > 0) {
+            // 本轮用时：用量胶囊右侧，时钟图标 + 「用时 5 分 19 秒」（对齐 iOS 回复页脚）
+            Row({ space: 3 }) {
+              Image($r('app.media.proc_clock'))
+                .width(12)
+                .height(12)
+                .objectFit(ImageFit.Contain)
+                .opacity(0.6)
+                .colorFilter(this.tintMatrix(this.tertiaryText()))
+              Text(this.entry.turnElapsedText)
+                .fontSize(11)
+                .lineHeight(15)
+                .fontColor(this.tertiaryText())
+                .maxLines(1)
+            }
+            .alignItems(VerticalAlign.Center)
+          }
+
           if (this.entry.turnTimeText.length > 0) {
             // .turn-time 23rpx --text-3：紧跟在用量按钮右侧（小程序也是 flex 左对齐，不推到最右）
             Text(this.entry.turnTimeText)

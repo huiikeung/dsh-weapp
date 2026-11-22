@@ -181,6 +181,8 @@ export class ConversationFeedEntry {
   /** 用量弹窗分项行（label\u0001value） */
   turnUsageRows: string[] = [];
   turnTimeText: string = '';
+  /** 本轮用时（用户发出 → 回复落地），如「用时 5 分 19 秒」 */
+  turnElapsedText: string = '';
   failureTitle: string = '';
   // ===== 工作步骤展示策略（对齐小程序 work-step-presentation.apply 的字段）=====
   /** 组体是否整块收起（grouped && !expanded） */
@@ -409,6 +411,18 @@ export class ConversationFeed {
       return Math.floor(total / 60).toString() + ' 分钟 ' + (total % 60).toString() + ' 秒';
     }
     return total.toString() + ' 秒';
+  }
+
+  /** 回复页脚的「用时」文案：用时 5 分 19 秒 / 用时 42 秒 / 用时 1 小时 5 分 */
+  static elapsedLabel(seconds: number): string {
+    const total: number = Math.max(0, Math.round(seconds));
+    if (total >= 3600) {
+      return '用时 ' + Math.floor(total / 3600).toString() + ' 小时 ' + Math.floor((total % 3600) / 60).toString() + ' 分';
+    }
+    if (total >= 60) {
+      return '用时 ' + Math.floor(total / 60).toString() + ' 分 ' + (total % 60).toString() + ' 秒';
+    }
+    return '用时 ' + total.toString() + ' 秒';
   }
 
   /**
@@ -1212,7 +1226,14 @@ export class ConversationFeed {
    * 小程序按「回合分组」给每组最后一条挂页脚，这里每条助手回复本身就是一行的结束）。
    */
   static applyTurnFooters(entries: ConversationFeedEntry[]): void {
+    let turnStartEpoch: number = 0;
     for (const entry of entries) {
+      if (entry.kind === ConversationItemKind.USER as string) {
+        if (entry.epochSeconds > 0) {
+          turnStartEpoch = entry.epochSeconds;
+        }
+        continue;
+      }
       if (entry.kind !== ConversationItemKind.ASSISTANT as string) {
         continue;
       }
@@ -1223,6 +1244,10 @@ export class ConversationFeed {
       entry.footerVisible = true;
       // turnMetaText（本轮用量）由会话页按 SessionStore 的每轮 token 统计填充，这里不猜
       entry.turnTimeText = ConversationFeed.clockText(entry.epochSeconds);
+      // 本轮用时：用户消息时间 → 这条回复落地时间（对齐 iOS 回复页脚的「用时 X 分 Y 秒」）
+      if (turnStartEpoch > 0 && entry.epochSeconds > turnStartEpoch) {
+        entry.turnElapsedText = ConversationFeed.elapsedLabel(entry.epochSeconds - turnStartEpoch);
+      }
     }
   }
 

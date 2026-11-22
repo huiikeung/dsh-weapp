@@ -80,6 +80,8 @@ export class ConversationFeedEntryModel {
   /** 用量弹窗分项行（label\u0001value） */
   turnUsageRows: string[] = [];
   turnTimeText: string = '';
+  /** 本轮用时文案（如「用时 5 分 19 秒」） */
+  turnElapsedText: string = '';
   failureTitle: string = '';
   // ===== 工作步骤展示策略（由 ConversationFeed.applyWorkStepPolicy 算出）=====
   processGrouped: boolean = false;
@@ -299,6 +301,9 @@ export class ConversationFeedEntryModel {
     if (this.turnTimeText !== entry.turnTimeText) {
       this.turnTimeText = entry.turnTimeText;
     }
+    if (this.turnElapsedText !== entry.turnElapsedText) {
+      this.turnElapsedText = entry.turnElapsedText;
+    }
     if (this.failureTitle !== entry.failureTitle) {
       this.failureTitle = entry.failureTitle;
     }
@@ -402,6 +407,7 @@ export class ConversationFeedEntryModel {
     next.turnUsageTotal = entry.turnUsageTotal;
     next.turnUsageRows = entry.turnUsageRows;
     next.turnTimeText = entry.turnTimeText;
+    next.turnElapsedText = entry.turnElapsedText;
     next.failureTitle = entry.failureTitle;
     next.processGrouped = entry.processGrouped;
     next.processAutoOpen = entry.processAutoOpen;
