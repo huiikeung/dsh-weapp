@@ -2364,8 +2364,8 @@ export class GatewayClient {
   }
 
   /** 队列操作并等待回执：页面据此立刻反馈成功/失败（失败要把本地乐观删掉的行恢复回来）。 */
-  queueUpdateAndWait(sessionId: string, itemId: string, action: string): Promise<GatewayFrame> {
-    return this.requestGateway(GatewayRequestFactory.queueUpdate(sessionId, itemId, action), 10000);
+  queueUpdateAndWait(sessionId: string, itemId: string, action: string, timeoutMs: number = 10000): Promise<GatewayFrame> {
+    return this.requestGateway(GatewayRequestFactory.queueUpdate(sessionId, itemId, action), timeoutMs);
   }
 
   /** 会话任务列表（todo_write 投影）：对齐小程序 client.requestTasks。 */

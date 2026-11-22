@@ -2716,6 +2716,22 @@ export class SessionStore {
    * 真实 user/message 事件到达时按文本就地采纳，避免出现两条气泡。
    */
   appendOptimisticUser(text: string, imageCount: number = 0, localImagePaths: string[] = []): void {
+    // 幂等：发送链路里 GatewayClient.sendUserMessage 与页面都会尝试插乐观气泡，
+    // 同一条消息重复插入会让时间线出现两条一样的用户气泡，这里按文本合并。
+    for (let index = 0; index < this.optimisticUsers.length; index++) {
+      const existing: ConversationItem = this.optimisticUsers[index];
+      if (existing.text === text) {
+        if ((existing.imageCount ?? 0) === 0 && imageCount > 0) {
+          existing.imageCount = imageCount;
+        }
+        if (localImagePaths.length > 0 && (existing.localImagePaths?.length ?? 0) === 0) {
+          existing.localImagePaths = localImagePaths.slice();
+          this.pendingLocalImages.push(localImagePaths.slice());
+        }
+        this.publishConversation();
+        return;
+      }
+    }
     const item: ConversationItem = {
       id: 'local-user-' + Date.now().toString(),
       kind: ConversationItemKind.USER,
@@ -2772,8 +2788,22 @@ export class SessionStore {
     if (this.optimisticUsers.length === 0) {
       return;
     }
-    this.optimisticUsers.shift();
-    if (this.optimisticSince.length > 0) {
+    // 先按文本找对应的乐观行（回显顺序可能和发送顺序不完全一致）；
+    // 找不到再退回队首，保证任意用户消息都能推进采纳。
+    let index: number = -1;
+    for (let i = 0; i < this.optimisticUsers.length; i++) {
+      if (this.optimisticUsers[i].text === echoed) {
+        index = i;
+        break;
+      }
+    }
+    if (index < 0) {
+      index = 0;
+    }
+    this.optimisticUsers.splice(index, 1);
+    if (index < this.optimisticSince.length) {
+      this.optimisticSince.splice(index, 1);
+    } else if (this.optimisticSince.length > 0) {
       this.optimisticSince.shift();
     }
     this.publishConversation();

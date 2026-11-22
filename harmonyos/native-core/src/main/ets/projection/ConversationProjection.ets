@@ -309,6 +309,19 @@ export class ConversationProjector {
       if (userText.length === 0 && rawUserText.length > 0 && (e.images?.length ?? 0) === 0) {
         return;
       }
+      // 同一条用户消息被网关重复投递（队列帧 + 回合事件、或断线补发）时只保留一条：
+      // 只有「紧邻的上一条也是用户消息且正文/附件完全一致」才判重，避免误吞用户连续发的相同文字。
+      const lastItem: ConversationItem | undefined = this.mutableItems.length > 0
+        ? this.mutableItems[this.mutableItems.length - 1] : undefined;
+      if (lastItem !== undefined && (lastItem.kind as string) === (ConversationItemKind.USER as string)
+        && lastItem.text === userText
+        && ((lastItem.images?.length ?? 0) === (e.images?.length ?? 0))
+        && ((lastItem.attachments?.length ?? 0) === (e.attachments?.length ?? 0))) {
+        Logger.info('[PROJ] skip duplicate user message seq=' + record.seq.toString() + ' len=' + userText.length.toString());
+        return;
+      }
+      Logger.info('[PROJ] user item seq=' + record.seq.toString() + ' turn=' + turn.toString()
+        + ' len=' + userText.length.toString() + ' head=' + userText.substring(0, 12));
       const item:ConversationItem={id,kind,title:kind===ConversationItemKind.USER?(this.labels.userMessage??'You'):(this.labels.context??'Context · ')+(e.source??'Context'),text:userText,images:e.images as Object[]|undefined,attachments:e.attachments as Object[]|undefined,epochSeconds:date,turn:effectiveTurn};
       this.insert(item,out);
       // 人工用户消息 = 新回合边界：它常不带 turn。不在这里切断继承的话，

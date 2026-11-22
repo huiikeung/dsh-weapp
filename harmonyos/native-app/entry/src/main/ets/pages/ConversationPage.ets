@@ -570,6 +570,10 @@ export struct ConversationPage {
   @State questionSelections: string[][] = [];
   @State questionCustom: string[] = [];
   @State questionBusy: boolean = false;
+  /** 已点「立即发送」的队列项 id：本地先隐藏，等主机队列帧收敛，避免点完还挂在队列里 */
+  @State hiddenQueueIds: string[] = [];
+  /** 隐藏时间戳：主机队列帧迟到时不要马上清除隐藏标记，避免行又冒出来 */
+  private hiddenQueueSince: Map<string, number> = new Map<string, number>();
   @State questionCollapsed: boolean = false;
   @State questionIndex: number = 0;
   @State questionReplay: boolean = false;
@@ -2939,6 +2943,7 @@ export struct ConversationPage {
 
   /** 时间线变化：重排并吸底；运行指示器同步刷新。 */
   private onItemsChanged(): void {
+    this.hideDeliveredQueueItems();
     // 临时诊断：确认 items 变化有没有真的进到页面重排
     this.diagTick += 1;
     if (this.diagTick % 25 === 1) {
@@ -4385,6 +4390,23 @@ export struct ConversationPage {
       this.queuedImagesByText.clear();
       this.queuedImagesRevision = this.queuedImagesRevision + 1;
     }
+    // 隐藏标记保留 60 秒：主机可能先推一帧不含该条的队列、随后又推回旧快照，
+    // 过早清除会让已经发出的消息重新冒出来。
+    if (this.hiddenQueueIds.length > 0) {
+      const now: number = Date.now();
+      const keep: string[] = [];
+      for (const id of this.hiddenQueueIds) {
+        const since: number = this.hiddenQueueSince.get(id) ?? now;
+        if (now - since < 60000) {
+          keep.push(id);
+        } else {
+          this.hiddenQueueSince.delete(id);
+        }
+      }
+      if (keep.length !== this.hiddenQueueIds.length) {
+        this.hiddenQueueIds = keep;
+      }
+    }
     // steer 失败标记：队列里已不存在该项就清掉，避免 id 列表无限增长
     if (this.steerFailedIds.length > 0) {
       const kept: string[] = [];
@@ -4416,6 +4438,77 @@ export struct ConversationPage {
   private onTasksChanged(): void {
   }
 
+  private visibleQueueCount(): number {
+    return this.visibleQueueItems().length;
+  }
+
+  /** 标记/取消某个队列项的本地隐藏（点发送后立刻从队列消失）。 */
+  private setQueueItemHidden(id: string, hidden: boolean): void {
+    const next: string[] = this.hiddenQueueIds.slice();
+    const at: number = next.indexOf(id);
+    if (hidden && at < 0) {
+      next.push(id);
+      this.hiddenQueueSince.set(id, Date.now());
+    } else if (!hidden && at >= 0) {
+      next.splice(at, 1);
+      this.hiddenQueueSince.delete(id);
+    } else {
+      return;
+    }
+    this.hiddenQueueIds = next;
+  }
+
+  /** 消息已经在会话里出现（队列消息被主机处理完）：对应的队列行立刻隐藏，不等队列帧迟到。 */
+  private hideDeliveredQueueItems(): void {
+    if (this.queue.length === 0) {
+      return;
+    }
+    const items: ConversationItem[] = this.items;
+    if (items.length === 0) {
+      return;
+    }
+    for (const queued of this.queue) {
+      if (this.hiddenQueueIds.indexOf(queued.id) >= 0) {
+        continue;
+      }
+      const text: string = queued.preview;
+      if (text.length < 2) {
+        continue;
+      }
+      const probe: string = text.substring(0, Math.min(12, text.length));
+      let matched: boolean = false;
+      let scanned: number = 0;
+      for (let index = items.length - 1; index >= 0 && scanned < 12; index--) {
+        const item: ConversationItem = items[index];
+        if ((item.kind as string) === (ConversationItemKind.USER as string)) {
+          matched = item.text === text || item.text.indexOf(probe) >= 0;
+          break;
+        }
+        scanned += 1;
+      }
+      if (matched) {
+        this.setQueueItemHidden(queued.id, true);
+      }
+    }
+  }
+
+  /** 发送成功后补一条本地用户气泡（主机回显到达时会按文本采纳，不会重复）。 */
+  private appendSentUserBubble(text: string): void {
+    const items: ConversationItem[] = this.items;
+    let checked: number = 0;
+    for (let index = items.length - 1; index >= 0 && checked < 6; index--) {
+      const item: ConversationItem = items[index];
+      if ((item.kind as string) === (ConversationItemKind.USER as string)) {
+        if (item.text === text) {
+          return;
+        }
+        break;
+      }
+      checked += 1;
+    }
+    SessionStore.get().appendOptimisticUser(text, 0, []);
+  }
+
   private async queueAction(item: QueueItem, action: string): Promise<void> {
     const sessionId: string = SessionStore.get().currentSessionId();
     if (sessionId.length === 0 || this.queueBusyId.length > 0) {
@@ -4423,13 +4516,17 @@ export struct ConversationPage {
     }
     if (action === 'steer') {
       this.queueBusyId = item.id + ':steer';
+      // 点下发送就立刻从队列里消失，不再显示「还在队列」的状态
+      this.setQueueItemHidden(item.id, true);
       let steered: boolean = false;
       try {
-        const frame: GatewayFrame = await GatewayClient.get().queueUpdateAndWait(sessionId, item.id, 'steer');
+        // 立即发送 = 强行插入当前回合（steer）；主机 2.5 秒内不回执就回落为移出队列立即发新消息
+        const frame: GatewayFrame = await GatewayClient.get().queueUpdateAndWait(sessionId, item.id, 'steer', 2500);
         const failed: boolean = frame.kind === 'error' || frame.code !== undefined;
         if (!failed) {
           steered = true;
           SessionStore.get().removeQueueItem(item.id);
+          this.appendSentUserBubble(item.preview);
           this.hint = '';
           this.autoStick = true;
           setTimeout(() => {
@@ -4442,10 +4539,10 @@ export struct ConversationPage {
       } catch (err) {
       }
       if (!steered) {
-        // steer 不被接受（回合已结束/消息已被处理）：移出队列并立即作为新消息发出
         try {
           await this.sendQueuedImmediately(item, sessionId);
         } catch (error) {
+          this.setQueueItemHidden(item.id, false);
           this.showToast(error instanceof Error ? error.message : '立即发送失败，请重试', true);
           this.requestDockData();
         }
@@ -4515,7 +4612,7 @@ export struct ConversationPage {
    * 用于回合已结束（steer 不再被接受）或本来就没有运行中回合的情况。
    */
   private async sendQueuedImmediately(item: QueueItem, sessionId: string): Promise<void> {
-    const frame: GatewayFrame = await GatewayClient.get().queueUpdateAndWait(sessionId, item.id, 'remove');
+    const frame: GatewayFrame = await GatewayClient.get().queueUpdateAndWait(sessionId, item.id, 'remove', 2500);
     const failed: boolean = frame.kind === 'error' || frame.code !== undefined;
     if (failed) {
       const raw: string = frame.message !== undefined ? frame.message : '';
@@ -4524,6 +4621,7 @@ export struct ConversationPage {
       return;
     }
     SessionStore.get().removeQueueItem(item.id);
+    this.appendSentUserBubble(item.preview);
     const sent: boolean = GatewayClient.get().sendUserMessage(item.preview, sessionId);
     if (!sent) {
       this.showToast('未连接网关，无法立即发送', true);
@@ -4839,7 +4937,7 @@ export struct ConversationPage {
       this.approvalDockCard()
       this.questionDockCard()
       this.localQueueRowsView()
-      if (this.queue.length > 0) {
+      if (this.visibleQueueCount() > 0) {
         this.queueDock()
       }
       if (this.tasks.length > 0) {
@@ -4936,10 +5034,13 @@ export struct ConversationPage {
     return true;
   }
 
-  /** 需要渲染的主机队列项：已经被本地带图行顶替的就不再重复渲染 */
+  /** 需要渲染的主机队列项：已被本地带图行顶替、或已点「立即发送」正在发出的都不再渲染 */
   private visibleQueueItems(): QueueItem[] {
     const out: QueueItem[] = [];
     for (const item of this.queue) {
+      if (this.hiddenQueueIds.indexOf(item.id) >= 0) {
+        continue;
+      }
       if (!this.hostItemCovered(item)) {
         out.push(item);
       }
@@ -5167,10 +5268,10 @@ export struct ConversationPage {
   @Builder
   queueDock() {
     Column() {
-      if (this.queue.length > 1) {
+      if (this.visibleQueueCount() > 1) {
         Row({ space: this.rpx(20) }) {
           this.queueBubbleIcon(this.rpx(38))
-          Text('排队消息 · ' + this.queue.length.toString())
+          Text('排队消息 · ' + this.visibleQueueCount().toString())
             .fontSize(13)
             .fontWeight(FontWeight.Medium)
             .fontColor(this.textColor())
@@ -5192,7 +5293,7 @@ export struct ConversationPage {
           this.queueExpanded = !this.queueExpanded;
         })
       }
-      if (this.queueExpanded || this.queue.length === 1) {
+      if (this.queueExpanded || this.visibleQueueCount() === 1) {
         Scroll() {
           Column() {
             ForEach(this.visibleQueueItems(), (item: QueueItem, index: number) => {
@@ -5329,7 +5430,7 @@ export struct ConversationPage {
                 .padding({ left: this.rpx(24), right: this.rpx(8) })
                 .alignItems(VerticalAlign.Center)
                 .opacity(this.queueBusyId.indexOf(item.id + ':') === 0 ? 0.5 : 1)
-                if (index < this.queue.length - 1) {
+                if (index < this.visibleQueueCount() - 1) {
                   Row()
                     .width('100%')
                     .height(1)
