@@ -46,6 +46,8 @@ export class ConversationFeedEntryModel {
   expanded: boolean = false;
   items: ConversationItem[] = [];
   imageCount: number = 0;
+  /** 所属回合 key（= 回合号字符串），页脚用量按它查每轮统计 */
+  turnKey: string = '';
   /** 本地乐观回显图片 URI */
   localImages: string[] = [];
   /** 过程组：运行中 */
@@ -69,6 +71,12 @@ export class ConversationFeedEntryModel {
   /** 回合页脚 */
   footerVisible: boolean = false;
   turnMetaText: string = '';
+  /** 本轮用量明细（点用量胶囊时在按钮上方弹出） */
+  turnUsageDetail: string = '';
+  /** 用量弹窗标题右侧精确总量 */
+  turnUsageTotal: string = '';
+  /** 用量弹窗分项行（label\u0001value） */
+  turnUsageRows: string[] = [];
   turnTimeText: string = '';
   failureTitle: string = '';
   // ===== 工作步骤展示策略（由 ConversationFeed.applyWorkStepPolicy 算出）=====
@@ -216,6 +224,15 @@ export class ConversationFeedEntryModel {
     if (this.imageCount !== entry.imageCount) {
       this.imageCount = entry.imageCount;
     }
+    if (this.turnKey !== entry.turnKey) {
+      this.turnKey = entry.turnKey;
+    }
+    if (this.turnMetaText !== entry.turnMetaText) {
+      this.turnMetaText = entry.turnMetaText;
+    }
+    if (this.turnUsageDetail !== entry.turnUsageDetail) {
+      this.turnUsageDetail = entry.turnUsageDetail;
+    }
     if (!ConversationFeedEntryModel.sameRefs(this.localImages, entry.localImages)) {
       this.localImages = entry.localImages;
     }
@@ -263,6 +280,15 @@ export class ConversationFeedEntryModel {
     }
     if (this.turnMetaText !== entry.turnMetaText) {
       this.turnMetaText = entry.turnMetaText;
+    }
+    if (this.turnUsageDetail !== entry.turnUsageDetail) {
+      this.turnUsageDetail = entry.turnUsageDetail;
+    }
+    if (this.turnUsageTotal !== entry.turnUsageTotal) {
+      this.turnUsageTotal = entry.turnUsageTotal;
+    }
+    if (!ConversationFeedEntryModel.sameRefs(this.turnUsageRows, entry.turnUsageRows)) {
+      this.turnUsageRows = entry.turnUsageRows;
     }
     if (this.turnTimeText !== entry.turnTimeText) {
       this.turnTimeText = entry.turnTimeText;
@@ -356,6 +382,9 @@ export class ConversationFeedEntryModel {
     next.narration = entry.narration;
     next.footerVisible = entry.footerVisible;
     next.turnMetaText = entry.turnMetaText;
+    next.turnUsageDetail = entry.turnUsageDetail;
+    next.turnUsageTotal = entry.turnUsageTotal;
+    next.turnUsageRows = entry.turnUsageRows;
     next.turnTimeText = entry.turnTimeText;
     next.failureTitle = entry.failureTitle;
     next.processGrouped = entry.processGrouped;

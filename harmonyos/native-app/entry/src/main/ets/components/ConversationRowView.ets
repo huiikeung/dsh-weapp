@@ -342,9 +342,9 @@ export struct ConversationRowView {
     return index < parts.length ? parts[index] : '';
   }
 
-  /** 单个文件 chip 的字段（编码：path\u0001name\u0001display\u0001added\u0001deleted\u0001hasCounts\u0001statusNote） */
+  /** 单个文件 chip 的字段（编码：path\u0003name\u0003display\u0003added\u0003deleted\u0003hasCounts\u0003statusNote） */
   private fileAt(chip: string, index: number): string {
-    const parts: string[] = chip.split('\u0001');
+    const parts: string[] = chip.split('\u0003');
     return index < parts.length ? parts[index] : '';
   }
 
@@ -757,72 +757,87 @@ export struct ConversationRowView {
     return parts.length > 1 ? parts[1] : '';
   }
 
-  /**
-   * 用量弹层：卡片样式对齐输入框底部的 token 用量弹层（标题行 + 分隔线 + 左标签右数值），
-   * 从用量胶囊正上方展开（对齐小程序 turnUsageSheet 的锚定弹层）。
-   */
+  /** 菜单标题行：库图标 + 本轮用量 + 右侧精确总量（与「⋯」菜单的行同口径，只做展示） */
   @Builder
-  usagePopupPanel() {
-    Column() {
-      // 标题行：库（存储）图标 + 本轮用量 + 右侧精确总量，底部一条分隔线
-      Row({ space: 6 }) {
-        Image($r('app.media.dsh_storage'))
-          .width(15)
-          .height(15)
-          .objectFit(ImageFit.Contain)
-        Text('本轮用量')
-          .fontSize(13.5)
-          .fontWeight(FontWeight.Bold)
+  usageMenuHeader() {
+    Row({ space: 12 }) {
+      Image($r('app.media.dsh_storage'))
+        .width(19)
+        .height(19)
+        .objectFit(ImageFit.Contain)
+        .colorFilter(this.tintMatrix(this.primaryText()))
+      Text('本轮用量')
+        .fontSize(14)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.primaryText())
+        .maxLines(1)
+      Blank()
+      if (this.turnUsageTotal.length > 0) {
+        Text(this.turnUsageTotal)
+          .fontSize(14)
+          .fontWeight(FontWeight.Medium)
           .fontColor(this.primaryText())
-        Blank()
-        if (this.turnUsageTotal.length > 0) {
-          Text(this.turnUsageTotal)
-            .fontSize(13.5)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.primaryText())
-            .maxLines(1)
-        }
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-      .padding({ bottom: 8 })
-      .border({ width: { bottom: 0.5 }, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
-
-      if (this.turnUsageRows.length > 0) {
-        ForEach(this.turnUsageRows, (line: string) => {
-          Row() {
-            Text(this.usageRowLabel(line))
-              .fontSize(12.5)
-              .fontColor(this.secondaryText())
-              .layoutWeight(1)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-            Text(this.usageRowValue(line))
-              .fontSize(12.5)
-              .fontWeight(FontWeight.Medium)
-              .fontColor(this.primaryText())
-              .flexShrink(0)
-              .margin({ left: 14 })
-              .maxLines(1)
-          }
-          .width('100%')
-          .padding({ top: 5, bottom: 5 })
-          .alignItems(VerticalAlign.Center)
-        }, (line: string) => line)
-      } else {
-        Text('本轮暂无用量数据')
-          .fontSize(12)
-          .fontColor(this.tertiaryText())
-          .margin({ top: 6 })
+          .maxLines(1)
       }
     }
-    .alignItems(HorizontalAlign.Start)
+    .width(308)
+    .height(48)
+    .padding({ left: 16, right: 16 })
+    .alignItems(VerticalAlign.Center)
+  }
+
+  /** 菜单分隔线（与「⋯」菜单同款：0.5vp 分隔色条 + 上下留白） */
+  @Builder
+  usageMenuDivider() {
+    Column() {
+      Row()
+        .width('100%')
+        .height(0.5)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)')
+    }
     .width(292)
-    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
-    .borderRadius(14)
-    .backgroundColor(this.isDark ? '#22262E' : '#FFFFFF')
-    .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
-    .shadow({ radius: 16, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.12)', offsetY: 4 })
+    .padding({ top: 5, bottom: 5, left: 16, right: 16 })
+  }
+
+  /** 单行用量：左标签右数值（与「⋯」菜单行同为 52vp 高、15.4 字号） */
+  @Builder
+  usageMenuLine(label: string, value: string) {
+    Row() {
+      Text(label)
+        .fontSize(13.5)
+        .fontColor(this.secondaryText())
+        .flexShrink(0)
+        .maxLines(1)
+      Text(value)
+        .fontSize(13.5)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.primaryText())
+        .layoutWeight(1)
+        .textAlign(TextAlign.End)
+        .margin({ left: 14 })
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+    }
+    .width(308)
+    .height(40)
+    .padding({ left: 16, right: 16 })
+    .alignItems(VerticalAlign.Center)
+  }
+
+  /** 用量菜单：原生系统菜单（bindMenu），样式与顶栏右上角「⋯」完全一致 */
+  @Builder
+  usageMenu() {
+    Menu() {
+      MenuItem(this.usageMenuHeader()).enabled(false)
+      MenuItem(this.usageMenuDivider()).enabled(false)
+      if (this.turnUsageRows.length > 0) {
+        ForEach(this.turnUsageRows, (line: string) => {
+          MenuItem(this.usageMenuLine(this.usageRowLabel(line), this.usageRowValue(line))).enabled(false)
+        }, (line: string) => line)
+      } else {
+        MenuItem(this.usageMenuLine('本轮暂无用量数据', '')).enabled(false)
+      }
+    }
   }
 
   @Builder
@@ -900,24 +915,27 @@ export struct ConversationRowView {
             .borderRadius(10)
             .backgroundColor(this.fillColor())
             .alignItems(VerticalAlign.Center)
+            // 与顶栏「⋯」同款系统菜单：锚定胶囊、向上展开、点空白收起
             .onClick(() => {
-              if (this.turnUsageDetail.length > 0) {
-                this.usagePopupOpen = true;
+              if (this.turnUsageRows.length > 0) {
+                this.usageMenuOpen = !this.usageMenuOpen;
               } else {
                 this.onTurnUsage(this.entry.turnKey);
               }
             })
-            .bindPopup(this.usagePopupOpen, {
-              builder: this.usagePopupPanel(),
+            .bindMenu(this.usageMenuOpen, this.usageMenu(), {
               placement: Placement.Top,
-              popupColor: Color.Transparent,
-              enableArrow: false,
-              autoCancel: true,
-              radius: 14,
-              onStateChange: (event) => {
-                if (!event.isVisible) {
-                  this.usagePopupOpen = false;
-                }
+              offset: { x: 0, y: -4 },
+              outlineColor: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)',
+              outlineWidth: 1,
+              onWillDisappear: () => {
+                this.usageMenuOpen = false;
+              },
+              onDisappear: () => {
+                this.usageMenuOpen = false;
+              },
+              onDidDisappear: () => {
+                this.usageMenuOpen = false;
               }
             })
           }

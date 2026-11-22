@@ -17,10 +17,11 @@ export interface StatusAppearanceOption {
 
 export class StatusAppearance {
   static readonly KEY: string = 'statusAppearance';
-  static readonly DEFAULT_ID: string = 'classic';
+  static readonly DEFAULT_ID: string = 'original';
 
   static choices(): StatusAppearanceOption[] {
     return [
+      { id: 'dsh', label: 'DSH 默认' },
       { id: 'classic', label: '经典流光' },
       { id: 'neon', label: '霓虹' },
       { id: 'terminal', label: '终端' },
@@ -52,6 +53,9 @@ export class StatusAppearance {
   /** 循环周期（毫秒）。 */
   static durationMs(id: string): number {
     const normalized: string = StatusAppearance.normalize(id);
+    if (normalized === 'dsh') {
+      return 2400;
+    }
     if (normalized === 'neon') {
       return 3000;
     }
@@ -76,6 +80,11 @@ export class StatusAppearance {
    */
   static keyframes(id: string, isDark: boolean): StatusKeyframe[] {
     const normalized: string = StatusAppearance.normalize(id);
+    if (normalized === 'dsh') {
+      // 扫光底色（高光由 glyphColor 逐字叠加）：鲸尾/文字底色都是这个单色
+      const ink: string = isDark ? '#8FB4F2' : '#345DBA';
+      return [{ at: 0, color: ink }, { at: 100, color: ink }];
+    }
     if (normalized === 'neon') {
       return isDark
         ? [
@@ -109,7 +118,7 @@ export class StatusAppearance {
         : [{ at: 0, color: '#D92B4B' }, { at: 50, color: '#0E7490' }, { at: 100, color: '#D92B4B' }];
     }
     if (normalized === 'original') {
-      // 非对称：0 → 33.3% 变暗，66.7% 回亮，之后停在首色
+      // DSH 桌面客户端的默认状态色（label-deep-diving / shimmer）：非对称，0 → 33.3% 变暗，66.7% 回亮
       return isDark
         ? [
           { at: 0, color: '#7D9ADE' }, { at: 33.3333, color: '#8ABBFE' },
@@ -139,6 +148,9 @@ export class StatusAppearance {
   /** 色板：按 appearance + 主题返回颜色序列（#RRGGBB）。 */
   static colors(id: string, isDark: boolean): string[] {
     const normalized: string = StatusAppearance.normalize(id);
+    if (normalized === 'dsh') {
+      return [isDark ? '#8FB4F2' : '#345DBA'];
+    }
     if (normalized === 'neon') {
       return isDark
         ? ['#22D3EE', '#A78BFA', '#F472B6']
@@ -162,6 +174,33 @@ export class StatusAppearance {
     return isDark
       ? ['#FF5F6D', '#FFC371', '#FFDD55', '#7DFF7D', '#5FD4FF', '#A78BFA', '#FF8ADB']
       : ['#D92B4B', '#C2410C', '#A16207', '#15803D', '#0E7490', '#6D28D9', '#BE185D'];
+  }
+
+  /**
+   * 逐字颜色（对话状态条用）。
+   * original（DSH 客户端默认）：一道亮光自左向右扫过整行文字 —— 底色是单一蓝灰，
+   * 高光带随相位移动，扫过处提亮，等价 dsh 端 label 的 shimmer。
+   * 其它样式：按横向位置展开半个色板的渐变采样。
+   */
+  static glyphColor(id: string, isDark: boolean, phase: number, index: number, count: number): string {
+    const normalized: string = StatusAppearance.normalize(id);
+    if (normalized === 'dsh') {
+      const base: string = isDark ? '#8FB4F2' : '#345DBA';
+      const highlight: string = isDark ? '#FFFFFF' : '#0A59F7';
+      let p: number = phase % 1;
+      if (p < 0) {
+        p = p + 1;
+      }
+      // 扫光带：宽度约全行的 35%，从左侧屏外扫到右侧屏外
+      const band: number = Math.max(3, count * 0.35);
+      const center: number = p * (count + band * 2) - band;
+      const distance: number = Math.abs(index - center);
+      const raw: number = distance < band ? 1 - distance / band : 0;
+      const intensity: number = raw * raw;
+      return StatusAppearance.mix(base, highlight, intensity);
+    }
+    const at: number = count > 1 ? (index / count) * 0.5 : 0;
+    return StatusAppearance.sampleAtPhase(id, isDark, phase + at);
   }
 
   /** 正向相位（0..1，不反向）上采样关键帧颜色：文字与鲸尾共用同一条曲线。 */

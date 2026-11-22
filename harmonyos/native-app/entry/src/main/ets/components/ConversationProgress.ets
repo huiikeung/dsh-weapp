@@ -26,9 +26,9 @@ interface GlyphColor {
 
 @Component
 export struct ConversationProgress {
-  @Prop appearance: string = 'classic';
+  @Prop appearance: string = 'original';
   /** 实时主题：直接订阅 AppStorage，避免父级 @Prop 未刷新时颜色不跟随 */
-  @StorageProp('statusAppearance') appearanceLive: string = 'classic';
+  @StorageProp('statusAppearance') appearanceLive: string = 'original';
   /** 实时主题：LazyForEach 创建的行不会跟随父级 @Prop 刷新，直接订阅 AppStorage */
   @StorageLink('isDark') isDark: boolean = false;
   /** 如「推敲细节中，用时 12 秒…」 */
@@ -133,9 +133,8 @@ export struct ConversationProgress {
       // 小程序 background-size:200% 100% → 元素宽度只覆盖色板的一半
       // 小程序：background-size:200%（整条渐变铺两遍），元素宽度只占其中一半，
       // 因此文字横向覆盖「半个色板」；左端颜色 == 鲸尾颜色
-      const at: number = count > 1 ? (i / count) * 0.5 : 0;
-      // 与鲸尾同一条关键帧曲线，横向展开半个色板
-      result.push({ ch: chars[i], color: StatusAppearance.sampleAtPhase(this.styleId(), this.isDark, base + at) });
+      // orginal（DSH 默认）= 自左向右的扫光；其它样式 = 横向半个色板的渐变
+      result.push({ ch: chars[i], color: StatusAppearance.glyphColor(this.styleId(), this.isDark, base, i, count) });
     }
     return result;
   }
@@ -251,9 +250,10 @@ export struct ConversationProgress {
       .alignItems(VerticalAlign.Center)
     }
     .width('100%')
-    .constraintSize({ minHeight: 30.5 })
-    .padding({ left: 0, right: 0, top: 5.9, bottom: 5.9 })
-    .margin({ top: 9.4 })
+    // 对齐小程序 .progress-row：min-height 52rpx(≈27.3vp) / padding 10rpx 0(≈5.3vp)
+    // 之前多了 9.4vp margin-top，运行条和上面「执行图标行」之间空出 ~21vp，显得断层。
+    .constraintSize({ minHeight: 27.3 })
+    .padding({ left: 0, right: 0, top: 5.3, bottom: 5.3 })
     .alignItems(VerticalAlign.Center)
     .onClick(() => {
       if (this.expandable) {

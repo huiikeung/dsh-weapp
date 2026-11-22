@@ -1690,6 +1690,7 @@ export struct ConversationComposer {
 
   /** 上下文分段色：系统提示词=灰、工具定义=紫、对话消息=蓝（对齐小程序 ctx-bar 分段） */
   private segmentColor(label: string): string {
+    // 标准（有 breakdown）：系统提示词灰 / 工具定义紫 / 对话消息蓝
     if (label.indexOf('系统') >= 0 || label.indexOf('提示') >= 0) {
       return '#8E8E93';
     }
@@ -1699,38 +1700,96 @@ export struct ConversationComposer {
     if (label.indexOf('消息') >= 0 || label.indexOf('对话') >= 0) {
       return '#3B82F6';
     }
+    // 兜底（网关无 breakdown，用 token 三项）：未缓存输入灰 / 缓存读取紫 / 模型输出蓝
+    if (label.indexOf('未缓存') >= 0 || label.indexOf('输入') >= 0) {
+      return '#8E8E93';
+    }
+    if (label.indexOf('读取') >= 0) {
+      return '#AF7AE1';
+    }
+    if (label.indexOf('输出') >= 0) {
+      return '#3B82F6';
+    }
     return '';
   }
 
-  /** 上下文标题下的彩色用量条：按 系统/工具/消息 三段占比铺满 */
+  /** 彩条可用宽度（232 - 左右 padding 24*2） */
+  private static readonly CTX_BAR_WIDTH: number = 184;
+  /** 每个非零分段的最小可见宽度：占比再小也要留一块，避免「工具定义」这类极小分段整段消失 */
+  private static readonly CTX_BAR_MIN_BLOCK: number = 3;
+
+  private ctxSegFraction(which: string): number {
+    if (which === 'system') {
+      return Math.max(0, this.ctxSystemPct);
+    }
+    if (which === 'tools') {
+      return Math.max(0, this.ctxToolsPct);
+    }
+    return Math.max(0, this.ctxMsgPct);
+  }
+
+  /**
+   * 三段颜色块的显示宽度。
+   * 已用比例 = 三段之和（相对上下文窗口），已用部分再按占比分配，并给每个非零分段保底最小块，
+   * 返回 [系统, 工具, 对话, 底轨]；全是 0 时只返回底轨满宽。
+   */
+  private ctxBarWidths(): number[] {
+    const avail: number = ConversationComposer.CTX_BAR_WIDTH;
+    const system: number = this.ctxSegFraction('system');
+    const tools: number = this.ctxSegFraction('tools');
+    const messages: number = this.ctxSegFraction('messages');
+    const used: number = Math.min(1, system + tools + messages);
+    if (used <= 0) {
+      return [0, 0, 0, avail];
+    }
+    const filled: number = avail * used;
+    const parts: number[] = [system, tools, messages];
+    let visible: number = 0;
+    for (const part of parts) {
+      if (part > 0) {
+        visible++;
+      }
+    }
+    const minTotal: number = ConversationComposer.CTX_BAR_MIN_BLOCK * visible;
+    const tail: number = filled > minTotal ? filled - minTotal : 0;
+    const widths: number[] = [0, 0, 0, Math.max(0, avail - filled)];
+    for (let index = 0; index < parts.length; index++) {
+      if (parts[index] <= 0) {
+        continue;
+      }
+      const share: number = (parts[index] / (system + tools + messages)) * tail;
+      widths[index] = ConversationComposer.CTX_BAR_MIN_BLOCK + share;
+    }
+    return widths;
+  }
+
+  /** 上下文标题下的彩色用量条：按 系统/工具/消息 三段铺满已用部分，剩余为底轨 */
   @Builder
   contextBarRow() {
     Row() {
       Row() {
-        if (this.ctxSystemPct > 0) {
+        if (this.ctxBarWidths()[0] > 0) {
           Row()
             .height(4)
-            .layoutWeight(this.ctxSystemPct)
+            .width(this.ctxBarWidths()[0])
             .backgroundColor('#8E8E93')
         }
-        if (this.ctxToolsPct > 0) {
+        if (this.ctxBarWidths()[1] > 0) {
           Row()
             .height(4)
-            .layoutWeight(this.ctxToolsPct)
+            .width(this.ctxBarWidths()[1])
             .backgroundColor('#AF7AE1')
         }
-        if (this.ctxMsgPct > 0) {
+        if (this.ctxBarWidths()[2] > 0) {
           Row()
             .height(4)
-            .layoutWeight(this.ctxMsgPct)
+            .width(this.ctxBarWidths()[2])
             .backgroundColor('#3B82F6')
         }
-        if (this.ctxSystemPct <= 0 && this.ctxToolsPct <= 0 && this.ctxMsgPct <= 0) {
-          Row()
-            .height(4)
-            .layoutWeight(1)
-            .backgroundColor(this.menuSeparator())
-        }
+        Row()
+          .height(4)
+          .layoutWeight(1)
+          .backgroundColor(Color.Transparent)
       }
       .width('100%')
       .height(4)

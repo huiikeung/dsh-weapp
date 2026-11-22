@@ -172,6 +172,12 @@ export class ConversationFeedEntry {
   /** 回合页脚：复制 / 用量 / 时间（对齐小程序 turn-footer） */
   footerVisible: boolean = false;
   turnMetaText: string = '';
+  /** 本轮用量明细（点用量胶囊时在按钮上方弹出） */
+  turnUsageDetail: string = '';
+  /** 用量弹窗标题行右侧的精确总量（如 8,853,566 tok） */
+  turnUsageTotal: string = '';
+  /** 用量弹窗分项行（label\u0001value） */
+  turnUsageRows: string[] = [];
   turnTimeText: string = '';
   failureTitle: string = '';
   // ===== 工作步骤展示策略（对齐小程序 work-step-presentation.apply 的字段）=====
@@ -534,6 +540,7 @@ export class ConversationFeed {
     }
     ConversationFeed.finishGroups(groups, running, lastUserEpoch);
     ConversationFeed.applyCopyRules(groups);
+    ConversationFeed.applyTurnFooters(groups);
     return groups;
   }
 
@@ -1057,28 +1064,31 @@ export class ConversationFeed {
     }
   }
 
-  /** 回合页脚：最后一条正式回复下显示复制/时间（对齐小程序 turn-footer）。 */
+  /**
+   * 回合页脚：**每条已完成的正式回复**下面都挂复制 / 用量 / 时间（对齐小程序 turn-footer：
+   * 小程序按「回合分组」给每组最后一条挂页脚，这里每条助手回复本身就是一行的结束）。
+   */
   static applyTurnFooters(entries: ConversationFeedEntry[]): void {
-    let lastAssistant: number = -1;
-    for (let index = entries.length - 1; index >= 0; index--) {
-      if (entries[index].kind === ConversationItemKind.ASSISTANT as string) {
-        lastAssistant = index;
-        break;
+    for (const entry of entries) {
+      if (entry.kind !== ConversationItemKind.ASSISTANT as string) {
+        continue;
       }
+      // 运行中的流式行不挂页脚；空回复（只有图片/附件）也挂（有时间可看）
+      if (entry.streaming) {
+        continue;
+      }
+      entry.footerVisible = true;
+      // turnMetaText（本轮用量）由会话页按 SessionStore 的每轮 token 统计填充，这里不猜
+      entry.turnTimeText = ConversationFeed.clockText(entry.epochSeconds);
     }
-    if (lastAssistant < 0) {
-      return;
-    }
-    const entry: ConversationFeedEntry = entries[lastAssistant];
-    if (entry.streaming) {
-      return;
-    }
-    entry.footerVisible = true;
-    // turnMetaText（本轮用量）由会话页按 SessionStore 的每轮 token 统计填充，这里不猜
-    const date: Date = new Date(entry.epochSeconds * 1000);
-    const hh: string = date.getHours().toString();
+  }
+
+  /** epoch 秒 → 本地 HH:MM（页脚时间，对齐小程序 turnTimeText）。 */
+  private static clockText(epochSeconds: number): string {
+    const date: Date = new Date(epochSeconds * 1000);
+    const hh: string = date.getHours() < 10 ? '0' + date.getHours().toString() : date.getHours().toString();
     const mm: string = date.getMinutes() < 10 ? '0' + date.getMinutes().toString() : date.getMinutes().toString();
-    entry.turnTimeText = hh + ':' + mm;
+    return hh + ':' + mm;
   }
 
   /** 复制按钮规则：用户消息有正文即可复制，助手仅最后一条正式回复。 */

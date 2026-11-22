@@ -701,15 +701,37 @@ export struct ConversationPage {
 
   /** 上下文分段占比（系统提示词 / 工具定义 / 对话消息），用于标题下彩色用量条 */
   private contextSegmentPercent(key: string): number {
-    const system: number = Math.max(0, this.breakdownNum('systemTokens'));
-    const tools: number = Math.max(0, this.breakdownNum('toolsTokens'));
-    const messages: number = Math.max(0, this.breakdownNum('messageTokens'));
-    const total: number = system + tools + messages;
-    if (total <= 0) {
+    // 口径：各分段占「上下文窗口」的比例（不是占分段合计），这样彩条长度 = 实际占用宽度，
+    // 剩余部分留出底轨，视觉上和小程序 ctx-bar 一致。
+    const window: number = this.contextWindowTokens();
+    if (window <= 0) {
       return 0;
     }
-    const value: number = key === 'systemTokens' ? system : (key === 'toolsTokens' ? tools : messages);
-    return value / total;
+    const system: number = this.breakdownNum('systemTokens');
+    const tools: number = this.breakdownNum('toolsTokens');
+    const messages: number = this.breakdownNum('messageTokens');
+    if (system < 0 && tools < 0 && messages < 0) {
+      // 网关没给 contextUsage.breakdown：彩条退回用 token 用量三项着色
+      //   系统槽 ← 未缓存输入（灰）、工具槽 ← 缓存读取（紫）、消息槽 ← 模型输出（蓝）
+      // 否则整条彩条只剩底轨，看起来就是「颜色块没有」。
+      const uncached: number = Math.max(0, this.tokenValue('uncachedInputTokens', true));
+      const cacheRead: number = Math.max(0, this.tokenValue('cacheReadTokens', false));
+      const output: number = Math.max(0, this.tokenValue('outputTokens', false));
+      const sum: number = uncached + cacheRead + output;
+      if (sum <= 0) {
+        return 0;
+      }
+      // 三项是会话累计量（可能远超上下文窗口），不能直接除以 window：
+      // 先按三者占比分配，再整体缩放到「上下文已用比例」，彩条长度才等于 47% 这类真实占用。
+      const usedPercent: number = this.contextPercent();
+      const usedFraction: number = usedPercent >= 0 ? Math.min(1, usedPercent / 100) : 1;
+      const fallback: number = key === 'systemTokens' ? uncached
+        : (key === 'toolsTokens' ? cacheRead : output);
+      return Math.min(1, (fallback / sum) * usedFraction);
+    }
+    const value: number = Math.max(0, key === 'systemTokens' ? system
+      : (key === 'toolsTokens' ? tools : messages));
+    return Math.min(1, value / window);
   }
 
   /** 上下文指标：「37%」。 */

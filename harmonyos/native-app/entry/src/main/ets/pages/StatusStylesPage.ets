@@ -12,6 +12,11 @@ interface StatusStyleOption {
 
 const STATUS_OPTIONS: StatusStyleOption[] = [
   {
+    id: 'dsh', label: 'DSH 默认', detail: '一道亮光从左到右扫过（默认）',
+    colors: ['#345dba'],
+    darkColors: ['#8fb4f2']
+  },
+  {
     id: 'classic', label: '经典流光', detail: '日夜自适应 · 彩虹渐变',
     colors: ['#d92b4b', '#c2410c', '#a16207', '#15803d', '#0e7490', '#6d28d9', '#be185d'],
     darkColors: ['#ff5f6d', '#ffc371', '#ffdd55', '#7dff7d', '#5fd4ff', '#a78bfa', '#ff8adb']
@@ -52,7 +57,7 @@ export struct StatusStylesPage {
   @Consume('pageStack') pageStack: NavPathStack;
   @StorageLink('isDark') isDark: boolean = false;
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
-  @StorageLink('statusAppearance') statusAppearance: string = 'classic';
+  @StorageLink('statusAppearance') statusAppearance: string = 'original';
   /** 颜色循环用的时间基准（与运行中指示条同一套采样） */
   @State private elapsedMs: number = 0;
   /** 雪碧图当前帧（60 帧循环，对齐运行中指示条 50ms/帧） */
@@ -109,8 +114,7 @@ export struct StatusStylesPage {
     const count: number = chars.length;
     const out: string[] = [];
     for (let index = 0; index < count; index++) {
-      const at: number = count > 1 ? (index / count) * 0.5 : 0;
-      out.push(StatusAppearance.sampleAtPhase(option.id, this.isDark, base + at));
+      out.push(StatusAppearance.glyphColor(option.id, this.isDark, base, index, count));
     }
     return out;
   }

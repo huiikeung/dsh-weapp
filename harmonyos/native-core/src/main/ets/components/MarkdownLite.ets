@@ -27,6 +27,8 @@ export interface MarkdownBlock {
   language: string;
   /** 正文（table 为空串） */
   text: string;
+  /** image 块的图片地址（其它块为空串） */
+  src: string;
   /** 行内片段（code 块为空） */
   spans: InlineSpan[];
   /** 有序列表序号；无序列表与其它块为 0 */
@@ -52,6 +54,7 @@ export class MarkdownLite {
       level: 0,
       language: '',
       text: '',
+      src: '',
       spans: [],
       index: 0,
       headers: [],
@@ -176,12 +179,40 @@ export class MarkdownLite {
         continue;
       }
 
+      // 7.5) 图片：整行只有 ![alt](src) 时作为图片块（对齐小程序 markdown.js 的 image 块）
+      const imageSrc: string = MarkdownLite.imageSrc(trimmed);
+      if (imageSrc.length > 0) {
+        MarkdownLite.flushParagraph(blocks, cursor);
+        const block: MarkdownBlock = MarkdownLite.emptyBlock('image');
+        block.src = imageSrc;
+        blocks.push(block);
+        cursor.index++;
+        continue;
+      }
+
       // 8) 普通段落行
       cursor.paragraph.push(trimmed);
       cursor.index++;
     }
     MarkdownLite.flush(blocks, cursor);
     return blocks;
+  }
+
+  /** 整行图片语法 ![alt](src) → 返回 src；不是图片行返回空串（只认绝对地址，避免误判正文） */
+  private static imageSrc(line: string): string {
+    if (!line.startsWith('![')) {
+      return '';
+    }
+    const close: number = line.indexOf('](');
+    if (close < 0 || !line.endsWith(')')) {
+      return '';
+    }
+    const src: string = line.substring(close + 2, line.length - 1).trim();
+    if (src.startsWith('http://') || src.startsWith('https://')
+      || src.startsWith('file://') || src.startsWith('datashare://')) {
+      return src;
+    }
+    return '';
   }
 
   private static flush(blocks: MarkdownBlock[], cursor: ParseCursor): void {
