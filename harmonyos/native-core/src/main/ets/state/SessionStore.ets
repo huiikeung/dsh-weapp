@@ -216,6 +216,8 @@ export class SessionStore {
    * 同一回合可能有多次 attempt/重试，按小程序 turn-usage 的口径累加（都是真实计费）。
    */
   private turnTokenTotals: Map<string, number[]> = new Map<string, number[]>();
+  /** 每轮的提供方/模型（用量弹窗首行「提供方 / 模型」） */
+  private turnRoutes: Map<string, string> = new Map<string, string>();
   /**
    * 最近一段流式正文（对齐小程序 sessionState.lastAssistantText）：
    * 网关收尾时可能先推「不含当前答复」的快照/事件，这里留着文本用于回填，
@@ -961,7 +963,57 @@ export class SessionStore {
     } else {
       this.stopLiveTicker();
     }
+    // 历史回放不经过 foldConversation 的实时累计分支，这里按 rawEvents 重建每轮用量
+    this.rebuildTurnUsageFromRaw();
     this.publishConversation();
+  }
+
+  /**
+   * 按 rawEvents 重建「每轮 token 用量」（打开会话 / 补拉历史后调用）。
+   * 实时路径由 foldConversation 累计；历史回放路径（replayingHistory=true）不累计，
+   * 所以重建时统一重算一遍，页脚「用量」按钮在重进会话后也能显示。
+   */
+  private rebuildTurnUsageFromRaw(): void {
+    this.turnTokenTotals.clear();
+    for (const raw of this.rawEvents) {
+      if (raw.type !== 'assistant/message') {
+        continue;
+      }
+      let event: SessionEvent;
+      try {
+        event = normalizeRawSessionEvent(raw, this.sessionId);
+      } catch (err) {
+        continue;
+      }
+      if (event.event.usage === undefined) {
+        continue;
+      }
+      const turnNo: number | undefined = event.event.turn !== undefined ? event.event.turn
+        : (num(raw.data as Object, 'turn'));
+      this.accumulateTurnUsage(turnNo, event.event.usage, this.usageRouteOf(event.event));
+    }
+    this.turnRoutes.clear();
+    for (const raw of this.rawEvents) {
+      // 路由(提供方/模型)单独再扫一遍：只有 assistant/message 的 message.source 里才有
+      if (raw.type !== 'assistant/message') {
+        continue;
+      }
+      let routeEvent: SessionEvent;
+      try {
+        routeEvent = normalizeRawSessionEvent(raw, this.sessionId);
+      } catch (err) {
+        continue;
+      }
+      const route: string = this.usageRouteOf(routeEvent.event);
+      if (route.length === 0) {
+        continue;
+      }
+      const turnNo: number = routeEvent.event.turn !== undefined ? routeEvent.event.turn
+        : (num(raw.data as Object, 'turn') ?? -1);
+      if (turnNo >= 0) {
+        this.turnRoutes.set(turnNo.toString(), route);
+      }
+    }
   }
 
   /**
@@ -1198,7 +1250,7 @@ export class SessionStore {
     }
     // 累计每轮用量：assistant/message 的 usage（同一轮回退重试也累加，对齐小程序 turn-usage）
     if (!this.replayingHistory && event.event.usage !== undefined) {
-      this.accumulateTurnUsage(event.event.turn, event.event.usage);
+      this.accumulateTurnUsage(event.event.turn, event.event.usage, this.usageRouteOf(event.event));
     }
     // 网关可能只发 step/start（不发 turn/start），这些事件都代表本轮仍在进行
     const liveType: string = event.event.type;
@@ -1239,12 +1291,15 @@ export class SessionStore {
    * 记录最近流式正文 / 结算正文（对齐小程序 lastAssistantText 口径）：
    * turn/start 清空；assistant/chunk 累积 delta；assistant/message 用最终文本覆盖。
    */
-  private accumulateTurnUsage(turn: number | undefined, usage: Object): void {
+  private accumulateTurnUsage(turn: number | undefined, usage: Object, route: string = ''): void {
     const turnNo: number = turn === undefined ? this.lastEventTurn : turn;
     if (turnNo < 0) {
       return;
     }
     const key: string = turnNo.toString();
+    if (route.length > 0) {
+      this.turnRoutes.set(key, route);
+    }
     const current: number[] = this.turnTokenTotals.get(key) ?? [0, 0, 0, 0, 0, 0];
     // 0 总 1 输入 2 输出 3 缓存读 4 缓存写 5 推理
     current[1] += num(usage, 'inputTokens') ?? 0;
@@ -1258,6 +1313,80 @@ export class SessionStore {
     this.turnTokenTotals.set(key, current);
   }
 
+  /** 从 assistant/message 的 raw 里取「提供方/模型」（对齐小程序 messageRoute）。 */
+  private usageRouteOf(event: GatewayEvent): string {
+    const raw: Record<string, Object> | undefined = event.raw as Record<string, Object> | undefined;
+    if (raw === undefined) {
+      return '';
+    }
+    const message: Record<string, Object> | undefined = raw['message'] as Record<string, Object> | undefined;
+    const sourceRaw: Object | undefined = message !== undefined && message['source'] !== undefined
+      ? message['source'] : raw['source'];
+    const source: Record<string, Object> | undefined = sourceRaw as Record<string, Object> | undefined;
+    if (source === undefined) {
+      return '';
+    }
+    const provider: string = source['provider'] !== undefined ? String(source['provider']) : '';
+    const model: string = source['model'] !== undefined ? String(source['model']) : '';
+    if (provider.length === 0 || model.length === 0) {
+      return '';
+    }
+    return provider + '/' + model;
+  }
+
+  /** 千分位数字（用量弹窗里的精确总量，如 8,853,566）。 */
+  private static grouped(value: number): string {
+    const text: string = Math.round(value).toString();
+    let out: string = '';
+    for (let index = 0; index < text.length; index++) {
+      const remain: number = text.length - index;
+      if (index > 0 && remain % 3 === 0) {
+        out += ',';
+      }
+      out += text.charAt(index);
+    }
+    return out;
+  }
+
+  /** 用量弹窗标题行右侧的精确总量（含分组），无数据返回空串。 */
+  turnUsageTotalExact(turnKey: string): string {
+    const value: number[] | undefined = this.turnTokenTotals.get(turnKey);
+    if (value === undefined || value[0] <= 0) {
+      return '';
+    }
+    return SessionStore.grouped(value[0]) + ' tok';
+  }
+
+  /**
+   * 用量弹窗的分项行（编码 label\u0001value），对齐小程序用量弹层的行：
+   * 提供方/模型 · 缓存命中 · 未缓存输入 · 缓存读取 · 缓存写入 · 输出。
+   */
+  turnUsageRows(turnKey: string): string[] {
+    const value: number[] | undefined = this.turnTokenTotals.get(turnKey);
+    if (value === undefined || value[0] <= 0) {
+      return [];
+    }
+    const uncached: number = value[1];
+    const output: number = value[2];
+    const cacheRead: number = value[3];
+    const cacheWrite: number = value[4];
+    const billedInput: number = uncached + cacheRead + cacheWrite;
+    const rows: string[] = [];
+    const route: string | undefined = this.turnRoutes.get(turnKey);
+    if (route !== undefined && route.length > 0) {
+      rows.push('提供方 / 模型\u0001' + route);
+    }
+    if (billedInput > 0) {
+      const hit: string = (Math.round((cacheRead * 1000) / billedInput) / 10).toString();
+      rows.push('缓存命中\u0001' + hit + '%');
+    }
+    rows.push('未缓存输入\u0001' + SessionStore.grouped(uncached) + ' tok');
+    rows.push('缓存读取\u0001' + SessionStore.grouped(cacheRead) + ' tok');
+    rows.push('缓存写入\u0001' + SessionStore.grouped(cacheWrite) + ' tok');
+    rows.push('输出\u0001' + SessionStore.grouped(output) + ' tok');
+    return rows;
+  }
+
   /** 每轮用量短文本（页脚「用量」按钮），如 '12.3k tok'；无数据返回空串。 */
   turnUsageText(turnKey: string): string {
     if (turnKey.length === 0) {
@@ -1267,7 +1396,7 @@ export class SessionStore {
     if (value === undefined || value[0] <= 0) {
       return '';
     }
-    return SessionStore.formatTokens(value[0]) + ' tok';
+    return '用量 ' + SessionStore.formatTokens(value[0]) + ' tok';
   }
 
   /** 每轮用量明细（点击「用量」按钮弹出）。 */

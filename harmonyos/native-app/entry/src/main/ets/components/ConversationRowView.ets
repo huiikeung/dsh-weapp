@@ -81,6 +81,15 @@ export struct ConversationRowView {
   onImagePathTap: (path: string) => void = (path: string) => {};
   /** 回合页脚「用量」按钮点击（参数是该回合的 turnKey） */
   onTurnUsage: (turnKey: string) => void = (turnKey: string) => {};
+  /** 本轮用量明细（页面按 turnKey 从 SessionStore 取好传入，点击用量胶囊时在按钮正上方弹出）
+   *  必须是 @Prop：行组件按 id 复用，普通成员只在创建时赋值，弹层内容会停在旧值。 */
+  @Prop turnUsageDetail: string = '';
+  /** 用量弹窗标题右侧的精确总量（如 8,853,566 tok） */
+  @Prop turnUsageTotal: string = '';
+  /** 用量弹窗分项行（label\u0001value） */
+  @Prop turnUsageRows: string[] = [];
+  /** 用量弹层是否展开（bindPopup 锚定在胶囊上方） */
+  @State usagePopupOpen: boolean = false;
   /**
    * 图片本地路径（会话页拉取后写入 AppStorage）。LazyForEach 的行不会因父级 @State 变化而重建，
    * 订阅 AppStorage 才能「图片下载完成后原行直接出图」，不必重进页面。编码：entryId + '\u0001' + 路径。
@@ -737,6 +746,85 @@ export struct ConversationRowView {
 
   // ==================== ASSISTANT ====================
   /** 助手回复（对齐小程序 .row-assistant + .turn-footer） */
+  /** 用量分项行的标签 / 数值 */
+  private usageRowLabel(line: string): string {
+    const parts: string[] = line.split('\u0001');
+    return parts.length > 0 ? parts[0] : line;
+  }
+
+  private usageRowValue(line: string): string {
+    const parts: string[] = line.split('\u0001');
+    return parts.length > 1 ? parts[1] : '';
+  }
+
+  /**
+   * 用量弹层：卡片样式对齐输入框底部的 token 用量弹层（标题行 + 分隔线 + 左标签右数值），
+   * 从用量胶囊正上方展开（对齐小程序 turnUsageSheet 的锚定弹层）。
+   */
+  @Builder
+  usagePopupPanel() {
+    Column() {
+      // 标题行：库（存储）图标 + 本轮用量 + 右侧精确总量，底部一条分隔线
+      Row({ space: 6 }) {
+        Image($r('app.media.dsh_storage'))
+          .width(15)
+          .height(15)
+          .objectFit(ImageFit.Contain)
+        Text('本轮用量')
+          .fontSize(13.5)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.primaryText())
+        Blank()
+        if (this.turnUsageTotal.length > 0) {
+          Text(this.turnUsageTotal)
+            .fontSize(13.5)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.primaryText())
+            .maxLines(1)
+        }
+      }
+      .width('100%')
+      .alignItems(VerticalAlign.Center)
+      .padding({ bottom: 8 })
+      .border({ width: { bottom: 0.5 }, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
+
+      if (this.turnUsageRows.length > 0) {
+        ForEach(this.turnUsageRows, (line: string) => {
+          Row() {
+            Text(this.usageRowLabel(line))
+              .fontSize(12.5)
+              .fontColor(this.secondaryText())
+              .layoutWeight(1)
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+            Text(this.usageRowValue(line))
+              .fontSize(12.5)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.primaryText())
+              .flexShrink(0)
+              .margin({ left: 14 })
+              .maxLines(1)
+          }
+          .width('100%')
+          .padding({ top: 5, bottom: 5 })
+          .alignItems(VerticalAlign.Center)
+        }, (line: string) => line)
+      } else {
+        Text('本轮暂无用量数据')
+          .fontSize(12)
+          .fontColor(this.tertiaryText())
+          .margin({ top: 6 })
+      }
+    }
+    .alignItems(HorizontalAlign.Start)
+    .width(292)
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .borderRadius(14)
+    .backgroundColor(this.isDark ? '#22262E' : '#FFFFFF')
+    .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)' })
+    .shadow({ radius: 16, color: this.isDark ? 'rgba(0,0,0,0.55)' : 'rgba(0,0,0,0.12)', offsetY: 4 })
+  }
+
   @Builder
   assistantRow() {
     Column() {
@@ -775,46 +863,67 @@ export struct ConversationRowView {
       this.attachmentList(false)
       if (this.entry.footerVisible) {
         // .turn-footer：gap 14rpx、padding 4rpx 0；左组 gap 10rpx
-        Row() {
-          Row({ space: 5.87 }) {
+        // .turn-footer：gap 14rpx(≈7vp)、padding 4rpx 0；左组依次 复制 / 用量 / 时间，整体左对齐
+        Row({ space: 7 }) {
+          // 复制：与消息下方那个复制按钮完全一致（11vp 图标 + 22vp 命中区 + opacity 0.45）
+          Row() {
             Image($r('app.media.copy_gray'))
               .width(11)
               .height(11)
               .objectFit(ImageFit.Contain)
               .opacity(0.45)
-              .padding(4)
-              .onClick(() => {
-                this.onCopy(this.entry.text);
-              })
-            if (this.entry.turnMetaText.length > 0) {
-              // .turn-meta：图标 + 用量文字的可点胶囊（点击看本轮用量明细，对齐小程序 openTurnUsage）
-              Row({ space: 3 }) {
-                Image($r('app.media.dsh_gauge'))
-                  .width(10)
-                  .height(10)
-                  .objectFit(ImageFit.Contain)
-                  .opacity(0.55)
-                Text(this.entry.turnMetaText)
-                  .fontSize(11)
-                  .lineHeight(15)
-                  .fontColor(this.secondaryText())
-                  .maxLines(1)
-              }
-              .padding({ left: 6, right: 6 })
-              .constraintSize({ minHeight: 20 })
-              .borderRadius(10)
-              .backgroundColor(this.fillColor())
-              .alignItems(VerticalAlign.Center)
-              .onClick(() => {
-                this.onTurnUsage(this.entry.turnKey);
-              })
-            }
           }
+          .width(22)
+          .height(22)
+          .justifyContent(FlexAlign.Center)
           .alignItems(VerticalAlign.Center)
+          .onClick(() => {
+            this.onCopy(this.entry.text);
+          })
 
-          Blank()
+          if (this.entry.turnMetaText.length > 0) {
+            // .turn-meta：图标 + 用量文字胶囊；点击 → 在胶囊正上方展开用量弹层
+            Row({ space: 3 }) {
+              Image($r('app.media.dsh_gauge'))
+                .width(13)
+                .height(13)
+                .objectFit(ImageFit.Contain)
+                .opacity(0.7)
+              Text(this.entry.turnMetaText)
+                .fontSize(11)
+                .lineHeight(15)
+                .fontColor(this.secondaryText())
+                .maxLines(1)
+            }
+            .padding({ left: 7, right: 7 })
+            .constraintSize({ minHeight: 20 })
+            .borderRadius(10)
+            .backgroundColor(this.fillColor())
+            .alignItems(VerticalAlign.Center)
+            .onClick(() => {
+              if (this.turnUsageDetail.length > 0) {
+                this.usagePopupOpen = true;
+              } else {
+                this.onTurnUsage(this.entry.turnKey);
+              }
+            })
+            .bindPopup(this.usagePopupOpen, {
+              builder: this.usagePopupPanel(),
+              placement: Placement.Top,
+              popupColor: Color.Transparent,
+              enableArrow: false,
+              autoCancel: true,
+              radius: 14,
+              onStateChange: (event) => {
+                if (!event.isVisible) {
+                  this.usagePopupOpen = false;
+                }
+              }
+            })
+          }
+
           if (this.entry.turnTimeText.length > 0) {
-            // .turn-time 23rpx --text-3（右对齐，对齐小程序 .turn-footer 的时间位）
+            // .turn-time 23rpx --text-3：紧跟在用量按钮右侧（小程序也是 flex 左对齐，不推到最右）
             Text(this.entry.turnTimeText)
               .fontSize(11)
               .lineHeight(15)

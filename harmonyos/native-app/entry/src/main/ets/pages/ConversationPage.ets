@@ -1078,6 +1078,7 @@ export struct ConversationPage {
           }
           continue;
         }
+        Logger.info('[IMG] fetch ' + id.substring(0, 12) + ' row=' + row.id);
         AttachmentImageCache.fetch(sessionId, id, image.mediaType, image.name ?? '')
           .then((path: string) => {
             const value: string = row.id + '\u0001' + path;
@@ -1097,7 +1098,8 @@ export struct ConversationPage {
               this.publishImageFailures();
             }
           })
-          .catch(() => {
+          .catch((error: Error) => {
+            Logger.warn('[IMG] fetch failed ' + id.substring(0, 12) + ' row=' + row.id + ' ' + error.message);
             // 失败也要记下来：否则输入框上方那条「图片 N 张加载中…」永远转圈
             if (this.imageFailedEntries.indexOf(row.id) < 0) {
               this.imageFailedEntries = this.imageFailedEntries.concat([row.id]);
@@ -1289,6 +1291,12 @@ export struct ConversationPage {
     for (const usageRow of rows) {
       if (usageRow.kind === 'ASSISTANT' && usageRow.turnKey.length > 0) {
         usageRow.turnMetaText = usageStore.turnUsageText(usageRow.turnKey);
+        usageRow.turnUsageDetail = usageRow.turnMetaText.length > 0
+          ? usageStore.turnUsageDetail(usageRow.turnKey) : '';
+        usageRow.turnUsageTotal = usageRow.turnMetaText.length > 0
+          ? usageStore.turnUsageTotalExact(usageRow.turnKey) : '';
+        usageRow.turnUsageRows = usageRow.turnMetaText.length > 0
+          ? usageStore.turnUsageRows(usageRow.turnKey) : [];
       }
     }
     // 回合展开时，把组行摊平到它下面当同级行（对齐小程序：turnProcess 行 + 各 processGroup 行，
@@ -1571,11 +1579,8 @@ export struct ConversationPage {
     }
     // 跟随：只在「内容真的变了」且还在吸底时贴底。
     // 之前每次重排都无条件 scrollEdge，配合 16ms 的重排间隔就是持续顶动 → 页面一直抖。
-    // 运行中检测：在跑时内容一变化就重新打开吸底并跟底，
-    // 让运行条（列表最后一项）始终停在输入框上方可见。
-    if (contentChanged && this.runActive()) {
-      this.autoStick = true;
-    }
+    // 注意：不要在这里把 autoStick 重新打开 —— 用户往上翻看历史时会被不断拽回底部。
+    // 只有用户自己滑回底部（onScrollIndex/onReachEnd）、点「回到底部」或发消息才恢复跟随。
     // 吸底降频到 400ms：内容高度在连续变化时，过频的 scrollEdge 会让画面来回微调（抖）。
     if (contentChanged && this.entries.length > 0 && !this.listTouching && this.autoStick
       && Date.now() - this.lastStickAt > 400) {
@@ -2534,11 +2539,63 @@ export struct ConversationPage {
   private async pickImageAttachments(): Promise<void> {
     try {
       const picked: PickedAttachment[] = await pickImages(4);
-      this.pickedAttachments = picked;
-      this.attachmentHint = picked.length > 0 ? '已选择 ' + picked.length + ' 张图片' : '';
+      const localized: PickedAttachment[] = this.localizePickedImages(picked);
+      this.pickedAttachments = localized;
+      this.attachmentHint = localized.length > 0 ? '已选择 ' + localized.length + ' 张图片' : '';
     } catch (err) {
       this.attachmentHint = '未选择图片';
     }
+  }
+
+  /**
+   * 相册选择器返回的是 file://media/... 这种「临时授权 URI」：
+   * ① ArkUI 的 Image 不能直接渲染它（显示空白）；
+   * ② 进程重启后授权失效，历史消息里的图片也会变空白。
+   * 这里把字节复制进应用缓存目录，改用普通沙箱路径显示/上传
+   * （对齐小程序 attachment-cache.js 的 adoptFromFile：发送前先把临时文件归入缓存）。
+   */
+  private localizePickedImages(picked: PickedAttachment[]): PickedAttachment[] {
+    if (picked.length === 0) {
+      return picked;
+    }
+    const out: PickedAttachment[] = [];
+    let dir: string = '';
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      dir = context.cacheDir + '/picked-images';
+      try {
+        fileIo.mkdirSync(dir);
+      } catch (ignored) {
+      }
+    } catch (err) {
+      dir = '';
+    }
+    for (const one of picked) {
+      if (dir.length === 0) {
+        out.push(one);
+        continue;
+      }
+      const raw: string = one.uri.startsWith('file://') ? one.uri.substring(7) : one.uri;
+      const dot: number = raw.lastIndexOf('.');
+      const ext: string = dot > raw.lastIndexOf('/') ? raw.substring(dot) : '.jpg';
+      const dest: string = dir + '/' + Date.now().toString() + '-' + out.length.toString() + ext;
+      try {
+        const source: fileIo.File = fileIo.openSync(one.uri, fileIo.OpenMode.READ_ONLY);
+        try {
+          fileIo.copyFileSync(source.fd, dest);
+        } finally {
+          fileIo.closeSync(source);
+        }
+        out.push({ uri: 'file://' + dest, name: one.name });
+        Logger.info('[IMG] localized ' + one.uri.substring(0, 24) + ' -> ' + dest);
+      } catch (err) {
+        // 复制失败就沿用原 URI：至少当前会话内可能还能显示
+        Logger.warn('[IMG] localize failed ' + one.uri.substring(0, 24) + ' '
+          + (err instanceof Error ? err.message : String(err)));
+        out.push(one);
+      }
+    }
+    return out;
   }
 
   private async pickAttachments(): Promise<void> {
@@ -6068,8 +6125,11 @@ export struct ConversationPage {
               onImagePathTap: (path: string) => {
                 this.openHostImage(path);
               },
+              turnUsageDetail: entry.turnUsageDetail,
+              turnUsageTotal: entry.turnUsageTotal,
+              turnUsageRows: entry.turnUsageRows,
               onTurnUsage: (turnKey: string) => {
-                // 本轮用量明细（小程序 openTurnUsage 的等价物：轻提示展示分项）
+                // 兜底：行内没有明细时（老数据）用轻提示给出结论
                 this.hint = SessionStore.get().turnUsageDetail(turnKey).split('\n').join(' · ');
               },
               attachmentChips: this.attachmentChipsOf(entry),
