@@ -236,8 +236,7 @@ export class GatewayClient {
 
   /** 计算下一个 tailnet 候选入口（wss://<name>.ts.net/ws/mobile）；无后缀时返回空串 */
   private tailnetCandidateUrl(): string {
-    const suffix: string = (AppStorage.get<string>('tailnetDnsSuffix') ?? '') ||
-      PreferencesStore.get().getString('tailnetDnsSuffix', '');
+    const suffix: string = this.cleanTailnetSuffix();
     if (suffix.length === 0) {
       return '';
     }
@@ -690,19 +689,13 @@ export class GatewayClient {
     // 没有保存公网入口时：用 tailnet DNS 后缀合成 wss://<gateway>.ts.net/ws/mobile
     // 后缀此前只存在 AppStorage，冷启动后要等 tsnet 再次上报才恢复 —— 切蜂窝的瞬间往往就是空的，
     // 于是合成失败、只能继续连局域网地址。这里补一层持久化兜底。
-    const memorySuffix: string = AppStorage.get<string>('tailnetDnsSuffix') ?? '';
-    const suffix: string = memorySuffix.length > 0
-      ? memorySuffix : PreferencesStore.get().getString('tailnetDnsSuffix', '');
+    const suffix: string = this.cleanTailnetSuffix();
     if (suffix.length > 0) {
       // 必须用网关在 tailnet 里的节点名（如 dsh-gateway），不能用用户给主机起的别名
-      let name: string = AppStorage.get<string>('tailnetGatewayPeerName') ?? '';
+      let name: string = this.cleanGatewayPeerName();
       if (name.length === 0) {
-        name = PreferencesStore.get().getString('tailnetGatewayPeerName', '');
+        name = 'dsh-gateway-mac';
       }
-      if (name.length === 0) {
-        name = 'dsh-gateway';
-      }
-      name = name.split('.')[0];
       return 'wss://' + name + '.' + suffix + '/ws/mobile';
     }
     // 没有合成出 tailnet 入口时才用 Cloudflare 等公网中继；最后才回落原地址
@@ -887,6 +880,52 @@ export class GatewayClient {
    * 鸿蒙端无法运行 tsnet 隧道（iOS 用 Go/tsnet 在进程内建节点），
    * 识别出来是为了给出可执行的提示，而不是笼统的「无法连接」。
    */
+  /** 合法的 tailnet 后缀：只允许 x.y.ts.net 形式（防止历史脏数据拼出垃圾入口） */
+  private isValidTailnetSuffix(value: string): boolean {
+    return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.ts\.net$/i.test(value);
+  }
+
+  /** 合法的 peer DNS label */
+  private isValidPeerName(value: string): boolean {
+    return /^[a-z0-9-]{1,63}$/i.test(value);
+  }
+
+  /** 读后缀时统一校验并顺手清掉脏数据（内存 + Preferences 两份都要清） */
+  private cleanTailnetSuffix(): string {
+    let suffix: string = AppStorage.get<string>('tailnetDnsSuffix') ?? '';
+    if (!this.isValidTailnetSuffix(suffix)) {
+      suffix = PreferencesStore.get().getString('tailnetDnsSuffix', '');
+    }
+    if (!this.isValidTailnetSuffix(suffix)) {
+      if ((AppStorage.get<string>('tailnetDnsSuffix') ?? '').length > 0) {
+        AppStorage.setOrCreate<string>('tailnetDnsSuffix', '');
+      }
+      if (PreferencesStore.get().getString('tailnetDnsSuffix', '').length > 0) {
+        PreferencesStore.get().putString('tailnetDnsSuffix', '');
+      }
+      return '';
+    }
+    return suffix;
+  }
+
+  /** 读 peer 短名时统一校验 */
+  private cleanGatewayPeerName(): string {
+    let name: string = (AppStorage.get<string>('tailnetGatewayPeerName') ?? '').split('.')[0];
+    if (!this.isValidPeerName(name)) {
+      name = PreferencesStore.get().getString('tailnetGatewayPeerName', '').split('.')[0];
+    }
+    if (!this.isValidPeerName(name)) {
+      if ((AppStorage.get<string>('tailnetGatewayPeerName') ?? '').length > 0) {
+        AppStorage.setOrCreate<string>('tailnetGatewayPeerName', '');
+      }
+      if (PreferencesStore.get().getString('tailnetGatewayPeerName', '').length > 0) {
+        PreferencesStore.get().putString('tailnetGatewayPeerName', '');
+      }
+      return '';
+    }
+    return name;
+  }
+
   /** 合成入口必须是合法 ts.net 域名，避免把登录 URL 之类的内容拼进地址 */
   private isValidSynthesizedUrl(url: string): boolean {
     if (url.indexOf('//') < 0) {
