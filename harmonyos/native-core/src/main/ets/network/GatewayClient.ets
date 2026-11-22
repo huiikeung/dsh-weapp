@@ -2493,10 +2493,10 @@ export class GatewayClient {
       Logger.warn('PERSIST_SKIP_NULL_PROFILE');
       return;
     }
-    if (this.isTailnetAddress(profile.wsUrl) && profile.wsUrl.indexOf('.ts.net') < 0) {
-      // 临时 tailnet IP 地址不写盘，避免污染已保存的入口
-      return;
-    }
+    // 注意：这里以前对「tailnet IP 入口（ws://100.x）」直接 return 不落盘，
+    // 结果扫码配对换来的 token 根本没存下来 —— 杀掉 App 重启后拿旧 token 连接就是 401。
+    // 现在照常落盘，只在记录里避免把临时 IP 当成主入口（wsUrl 复用已有记录）。
+    const transientUrl: boolean = this.isTailnetAddress(profile.wsUrl) && profile.wsUrl.indexOf('.ts.net') < 0;
     Logger.info('PERSIST_ENTER ws=' + profile.wsUrl + ' cached=' + CredentialStore.get().list().length);
     const relayNodeId: string = profile.relayNodeId !== undefined ? profile.relayNodeId : '';
     const helloName: string = AppStorage.get<string>('gatewayName') ?? this.pairingGatewayName;
@@ -2523,7 +2523,7 @@ export class GatewayClient {
     const gateway: SavedGateway = {
       id: gatewayId,
       name: helloName.length > 0 ? helloName : (existing !== null ? existing.name : ''),
-      wsUrl: profile.wsUrl,
+      wsUrl: (transientUrl && existing !== null && !this.isTailnetAddress(existing.wsUrl)) ? existing.wsUrl : profile.wsUrl,
       endpoints: endpoints,
       pairCode: profile.pairCode,
       token: token.length > 0 ? token : (existing !== null ? existing.token : ''),
