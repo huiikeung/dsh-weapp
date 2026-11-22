@@ -31,8 +31,18 @@ export type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 
 export { OceanBackground } from './src/main/ets/components/OceanBackground.ets';
 export { ParticleBackground } from './src/main/ets/components/ParticleBackground.ets';
 export { GlassCard } from './src/main/ets/components/GlassCard.ets';
-export { ScheduleStore } from './src/main/ets/state/ScheduleStore';
+export { ScheduleStore, parseScheduleTask } from './src/main/ets/state/ScheduleStore';
 export type { ScheduleTask } from './src/main/ets/state/ScheduleStore';
+export {
+  SCHEDULE_RULES, SCHEDULE_INTERVAL_UNITS, SCHEDULE_INTERVAL_UNIT_TITLES,
+  SCHEDULE_RULE_AT, SCHEDULE_RULE_EVERY, SCHEDULE_RULE_DAILY, SCHEDULE_RULE_WEEKDAYS,
+  SCHEDULE_RULE_WEEKLY, SCHEDULE_RULE_CRON,
+  makeScheduleDraft, buildScheduleChange, validateScheduleDraft,
+  shortScheduleRule, fullScheduleRule, scheduleDurationText,
+  formatScheduleDate, parseScheduleIsoMs, localTimeZone, todayDateText,
+  weekDayShortName, pad2
+} from './src/main/ets/common/ScheduleFormat';
+export type { ScheduleDraft, ScheduleRuleOption } from './src/main/ets/common/ScheduleFormat';
 export { PluginStore } from './src/main/ets/state/PluginStore';
 export type { PluginItem, OfficialPluginItem } from './src/main/ets/state/PluginStore';
 export { EventProjector } from './src/main/ets/state/EventProjector';

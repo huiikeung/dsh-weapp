@@ -339,10 +339,14 @@ export class GatewayRequestFactory {
       undefined, undefined, GatewayRequestLanePolicy.REJECT_IF_BUSY);
   }
   static scheduleList(sessionId: string): GatewayRequest { return GatewayRequestFactory.sessionControl('schedule-list', sessionId); }
-  static scheduleHistory(sessionId: string, id: string, limit: number = 100, before?: string): GatewayRequest {
+  static scheduleHistory(sessionId: string, id: string, limit: number = 100, before?: string,
+    requestId?: string): GatewayRequest {
     const fields: Record<string, Object> = { 'sessionId': sessionId, 'id': id, 'limit': limit };
     if (before !== undefined) fields['before'] = before;
-    return GatewayRequestFactory.make('schedule-history', 'schedule-history', fields, sessionId);
+    if (requestId !== undefined) fields['requestId'] = requestId;
+    // 运行记录按 requestId 关联（对齐小程序 requestScheduleHistory）：同一任务连着翻页时
+    // 不能靠 kind 猜，否则两页记录会串。
+    return GatewayRequestFactory.make('schedule-history', 'schedule-history', fields, sessionId, requestId);
   }
   static scheduleUpdate(sessionId: string, id: string, expected: Object, title?: string, prompt?: string,
     change?: Object, requestId?: string): GatewayRequest {

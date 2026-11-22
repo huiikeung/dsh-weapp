@@ -16,7 +16,7 @@ import { randomBytes } from '../crypto/Sodium';
 import { PreferencesStore } from '../common/PreferencesStore';
 import { CredentialStore, SavedGateway } from '../state/CredentialStore';
 import { PluginStore } from '../state/PluginStore';
-import { ScheduleStore } from '../state/ScheduleStore';
+import { ScheduleStore, ScheduleTask } from '../state/ScheduleStore';
 import { SessionStore } from '../state/SessionStore';
 
 interface RequestPayload {
@@ -92,6 +92,8 @@ export class GatewayClient {
   private relaySession: RelaySession | null = null;
   private relayNodeId: string = '';
   private pluginRequestSeq: number = 0;
+  /** 自动化任务请求序号（生成 requestId，运行记录/变更回执靠它关联） */
+  private scheduleRequestSeq: number = 0;
   // 内嵌 tailnet 代理：启用后本机 ws 连接改走 127.0.0.1 代理端口
   private tailnetProxyEnabled: boolean = false;
   // 内嵌 tailnet：把 100.x / *.ts.net 网关地址改写成经本机代理的 ws 地址
@@ -1902,6 +1904,56 @@ export class GatewayClient {
   /** 拉自动化任务目录。 */
   requestScheduleCatalog(): boolean {
     return this.sendRequest(GatewayRequestFactory.scheduleCatalog());
+  }
+
+  /**
+   * 拉自动化任务目录（Promise 版）：页面据此控制「加载中 / 失败重试」与 12s 兜底超时，
+   * 目录解析仍由 ScheduleStore.consume 完成（对齐小程序 requestScheduleCatalog）。
+   */
+  requestScheduleCatalogAsync(timeoutMs: number = 12000): Promise<GatewayFrame> {
+    if (!this.isConnected()) {
+      return Promise.reject(new Error('未连接网关'));
+    }
+    return this.requestGateway(GatewayRequestFactory.scheduleCatalog(), timeoutMs);
+  }
+
+  /** 任务运行记录（对齐小程序 requestScheduleHistory；按 requestId 关联，超时不视为断线） */
+  requestScheduleHistory(sessionId: string, id: string, before?: string): Promise<GatewayFrame> {
+    if (!this.isConnected()) {
+      return Promise.reject(new Error('未连接网关'));
+    }
+    this.scheduleRequestSeq += 1;
+    const requestId: string = 'schedule-history-' + this.scheduleRequestSeq;
+    const request: GatewayRequest = GatewayRequestFactory.scheduleHistory(sessionId, id, 20, before, requestId);
+    request.timeoutIsFatal = false;
+    return this.requestGateway(request, 15000);
+  }
+
+  /**
+   * 更新自动化任务：expected 为任务原始记录（乐观并发），change 只在时间规则变化时下发。
+   * 回执 kind=schedule-update（updated 布尔），失败走 error 帧（reject）。
+   */
+  updateScheduleTask(task: ScheduleTask, title: string, prompt: string,
+    change: Record<string, Object> | undefined): Promise<GatewayFrame> {
+    if (!this.isConnected()) {
+      return Promise.reject(new Error('未连接网关'));
+    }
+    this.scheduleRequestSeq += 1;
+    const requestId: string = 'schedule-update-' + this.scheduleRequestSeq;
+    const request: GatewayRequest = GatewayRequestFactory.scheduleUpdate(task.sessionId, task.id,
+      task.raw, title, prompt, change, requestId);
+    return this.requestGateway(request, 15000);
+  }
+
+  /** 删除自动化任务及其投递记录（回执 kind=schedule-delete, deleted 布尔） */
+  deleteScheduleTask(task: ScheduleTask): Promise<GatewayFrame> {
+    if (!this.isConnected()) {
+      return Promise.reject(new Error('未连接网关'));
+    }
+    this.scheduleRequestSeq += 1;
+    const requestId: string = 'schedule-delete-' + this.scheduleRequestSeq;
+    const request: GatewayRequest = GatewayRequestFactory.scheduleDelete(task.sessionId, task.id, requestId);
+    return this.requestGateway(request, 15000);
   }
 
   /** 启用/停用自动化任务。 */
