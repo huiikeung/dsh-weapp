@@ -73,6 +73,8 @@ export class ConversationFeedEntryModel {
   turnMetaText: string = '';
   /** 本轮用量明细（点用量胶囊时在按钮上方弹出） */
   turnUsageDetail: string = '';
+  /** 正文内联图片 id（这些图在正文位置显示，行尾网格排除） */
+  inlineImageIds: string[] = [];
   /** 用量弹窗标题右侧精确总量 */
   turnUsageTotal: string = '';
   /** 用量弹窗分项行（label\u0001value） */
@@ -285,6 +287,9 @@ export class ConversationFeedEntryModel {
     if (this.turnUsageDetail !== entry.turnUsageDetail) {
       this.turnUsageDetail = entry.turnUsageDetail;
     }
+    if (!ConversationFeedEntryModel.sameRefs(this.inlineImageIds, entry.inlineImageIds)) {
+      this.inlineImageIds = entry.inlineImageIds;
+    }
     if (this.turnUsageTotal !== entry.turnUsageTotal) {
       this.turnUsageTotal = entry.turnUsageTotal;
     }
@@ -393,6 +398,7 @@ export class ConversationFeedEntryModel {
     next.footerVisible = entry.footerVisible;
     next.turnMetaText = entry.turnMetaText;
     next.turnUsageDetail = entry.turnUsageDetail;
+    next.inlineImageIds = entry.inlineImageIds;
     next.turnUsageTotal = entry.turnUsageTotal;
     next.turnUsageRows = entry.turnUsageRows;
     next.turnTimeText = entry.turnTimeText;

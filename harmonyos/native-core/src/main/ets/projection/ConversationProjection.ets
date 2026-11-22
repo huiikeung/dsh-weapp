@@ -422,7 +422,7 @@ export class ConversationProjector {
         const next:ConversationItem={id:row.id,kind:row.kind,title:row.title,text:row.text,images:row.images,isError:e.isError===true,epochSeconds:row.epochSeconds,turn:row.turn,callId:row.callId,parentCallId:row.parentCallId,rootCallId:row.rootCallId,subCallId:row.subCallId,depth:row.depth,status:e.isError===true?'error':'done',argumentsText:row.argumentsText,resultText:preview};
         this.mutableItems[i]=next; out.push({kind:'replace',item:next,itemId:next.id}); return;
       }
-      this.insert({id,kind:ConversationItemKind.TOOL_RESULT,title:e.isError===true?(this.labels.toolResultFailed??'Tool failed'):(this.labels.toolResultDone??'Tool result'),text:preview,isError:e.isError,epochSeconds:date,turn:effectiveTurn,callId:callId},out);
+      this.insert({id,kind:ConversationItemKind.TOOL_RESULT,title:e.isError===true?(this.labels.toolResultFailed??'Tool failed'):(this.labels.toolResultDone??'Tool result'),text:preview,isError:e.isError,epochSeconds:date,turn:effectiveTurn,callId:callId,images:(e.images===undefined?[]:e.images)},out);
       if (e.appendOrigin === true && (e.mutationPath ?? '').length > 0 && (e.turn ?? 0) > 0) {
         const mutationPath: string = e.mutationPath as string;
         this.upsertFilesItem(id, ConversationItemKind.CHANGES, effectiveTurn, date, out,
@@ -447,10 +447,11 @@ export class ConversationProjector {
       const existingIndex=existingId!==undefined?this.mutableItems.findIndex((row:ConversationItem)=>row.id===existingId):-1;
       if(existingIndex>=0){
         const old:ConversationItem=this.mutableItems[existingIndex];
-        const next:ConversationItem={id:old.id,kind:old.kind,title:old.title,text:argsText.length>0?argsText:old.text,images:old.images,isError:start?old.isError:(e.isError===true),epochSeconds:old.epochSeconds,turn:old.turn,callId:subCallId,parentCallId:parentCallId,rootCallId:rootCallId,subCallId:subCallId,depth:old.depth,status:start?'running':(e.isError===true?'error':'done'),argumentsText:argsText.length>0?argsText:old.argumentsText,resultText:start?old.resultText:preview};
+        const mergedImages:Object[]=(e.images!==undefined&&e.images.length>0)?e.images:(old.images===undefined?[]:old.images);
+        const next:ConversationItem={id:old.id,kind:old.kind,title:old.title,text:argsText.length>0?argsText:old.text,images:mergedImages,isError:start?old.isError:(e.isError===true),epochSeconds:old.epochSeconds,turn:old.turn,callId:subCallId,parentCallId:parentCallId,rootCallId:rootCallId,subCallId:subCallId,depth:old.depth,status:start?'running':(e.isError===true?'error':'done'),argumentsText:argsText.length>0?argsText:old.argumentsText,resultText:start?old.resultText:preview};
         this.mutableItems[existingIndex]=next; out.push({kind:'replace',item:next,itemId:next.id}); return;
       }
-      const item:ConversationItem={id,kind:name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL,title:name,text:argsText,epochSeconds:date,turn:effectiveTurn,callId:subCallId,parentCallId:parentCallId,rootCallId:rootCallId,subCallId:subCallId,depth:depth,argumentsText:argsText,status:start?'running':(e.isError===true?'error':'done'),resultText:preview};
+      const item:ConversationItem={id,kind:name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL,title:name,text:argsText,epochSeconds:date,turn:effectiveTurn,callId:subCallId,parentCallId:parentCallId,rootCallId:rootCallId,subCallId:subCallId,depth:depth,argumentsText:argsText,status:start?'running':(e.isError===true?'error':'done'),resultText:preview,images:(e.images===undefined?[]:e.images)};
       if(subCallId.length>0){this.toolItemIds.set(subCallId,id);this.toolDepths.set(subCallId,depth);}
       this.insert(item,out); return;
     }

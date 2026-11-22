@@ -1,6 +1,7 @@
 import { abilityAccessCtrl, common, Want } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { util } from '@kit.ArkTS';
 import { curves, display, KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import {
   APP_GLASS_RADIUS,
@@ -17,12 +18,13 @@ import {
 import type { DirEntry, GatewayEvent, GatewayFrame, GatewayTask, GatewayGoalReference, ModelMenuItem, ModelOption, PresetOption, QueueItem, RawSessionEvent, SessionEvent, SessionGoalView, WorkspaceRow } from 'nativecore';
 import type { TeamMemberView, TeamTaskView } from 'nativecore';
 import type { SpeechLimits } from 'nativecore';
-import type { DownloadResult, UploadResult } from 'nativecore';
+import type { DownloadResult, GatewayImageAttachment, UploadResult } from 'nativecore';
 import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair, RefChipItem, RefDirItem, RefSessionItem, SkillItem } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { NavBackButton } from '../components/NavBackButton';
 import { ConversationProgress } from '../components/ConversationProgress';
+import { TrajectoryPanel } from '../components/TrajectoryPanel';
 import { FluKeCoin } from '../components/FluKeCoin';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 import { Haptics } from '../services/Haptics';
@@ -47,6 +49,13 @@ const TURN_THUMB_HEIGHT: number = 44;
 // 时间线重排的最小间隔：≈一帧。以前是 90ms，流式正文一格一格地慢半拍；
 // 实际耗时超过阈值时由 timelineInterval 自适应退让，避免把主线程压死。
 const TIMELINE_MIN_INTERVAL_MS: number = 120;
+
+/** 图片发送载荷（ArkTS 不允许未声明类型的对象字面量） */
+interface ImagePayload {
+  mediaType: string;
+  data: string;
+  name: string;
+}
 
 interface UploadReceipt {
   receiptId: string;
@@ -340,6 +349,19 @@ export struct ConversationPage {
   @State previewImageOpen: boolean = false;
   /** 下拉刷新（加载更早历史）的动画状态 */
   @State private refreshing: boolean = false;
+  /** 运行中排队的消息若带图片：按消息文本缓存本地 uri，队列卡片里显示缩略图 */
+  private queuedImagesByText: Map<string, string[]> = new Map<string, string[]>();
+  @State private queuedImagesRevision: number = 0;
+  private lastQueuedImageAt: number = 0;
+  /** 本地立即生成的「排队消息（带图）」行：text\u0001uri\u0002uri，等主机队列到达后移除 */
+  @State private localQueueRows: string[] = [];
+  /** 队列消息图片：attachmentId\u0001本地路径（从主机队列项的 attachmentId 拉取） */
+  @State private queueThumbPaths: string[] = [];
+  private queueThumbInflight: Set<string> = new Set<string>();
+  /** 拉取失败的图片 id：主机不允许读取「还没进会话」的排队附件，失败就不再重试 */
+  private queueThumbFailed: Set<string> = new Set<string>();
+  /** 底部 dock（队列/任务/目标+输入条）实测高度：时间线底部留白与「回到底部」按钮避让用 */
+  @State private dockHeight: number = 220;
   /** 下拉刷新连续补页：一直加载到顶部是「用户消息」为止 */
   private pullLoadAttempts: number = 0;
   private pullLoadTimer: number = -1;
@@ -407,6 +429,8 @@ export struct ConversationPage {
     .alignItems(VerticalAlign.Center)
   }
 
+  /** 思考卡「暂停跟随」的行 id */
+  private reasonFollowPausedIds: Set<string> = new Set<string>();
   /** 阅读档：哪些过程行的折叠条处于展开状态 */
   private liveFoldOpenIds: Set<string> = new Set<string>();
   /** 摘要请求失败的 changeSeq 对应的行 id：允许后续重试（网关忙/断线时第一次会失败） */
@@ -458,6 +482,12 @@ export struct ConversationPage {
   @StorageLink('keyboardHeightVp') @Watch('onKeyboardChanged') keyboardHeightVp: number = 0;
   /** 指标弹层：'' | run | token | context */
   @State metricPopover: string = '';
+  /** 会话页顶部双 Tab：0=对话，1=轨迹（对齐 iOS 会话页，支持左右滑动切换） */
+  @State sessionTab: number = 0;
+  /** 顶部分页指示点（iOS 那种「两个小眼睛」）：切换时淡入，停止后淡出 */
+  @State tabDotsOpacity: number = 0;
+  private sessionSwiper: SwiperController = new SwiperController();
+  private tabDotsTimer: number = -1;
   /** 输入条 chip 弹层：'' | model（权限改用系统菜单） */
   @State composerSheet: string = '';
   /** 权限菜单展开态（仅用于 ▾ 旋转与底色） */
@@ -1366,6 +1396,40 @@ export struct ConversationPage {
       return;
     }
     let added: string[] = [];
+    // 过程步骤里的工具图片（read_image / 截图工具）：步骤行只显示文件名链接，
+    // 点击弹预览 —— 这里先按 attachmentId 预取，保证点的时候大概率已在本机缓存。
+    for (const row of rows) {
+      if (row.items === undefined || row.items.length === 0) {
+        continue;
+      }
+      for (const stepItem of row.items) {
+        const stepImages: Object[] | undefined = stepItem.images;
+        if (stepImages === undefined || stepImages.length === 0) {
+          continue;
+        }
+        for (const raw of stepImages) {
+          const image = raw as GatewayImageAttachment;
+          const stepId: string = image.attachmentId === undefined ? '' : image.attachmentId;
+          if (stepId.length === 0) {
+            continue;
+          }
+          if (AttachmentImageCache.localPath(stepId, image.mediaType, image.name ?? '').length > 0) {
+            continue;
+          }
+          AttachmentImageCache.fetch(sessionId, stepId, image.mediaType, image.name ?? '')
+            .then((path: string) => {
+              const value: string = row.id + '\u0001' + path;
+              if (this.imagePathEntries.indexOf(value) < 0) {
+                this.imagePathEntries = this.imagePathEntries.concat([value]);
+                this.publishImagePaths();
+              }
+            })
+            .catch((error: Error) => {
+              Logger.warn('[IMG] step fetch failed ' + stepId.substring(0, 12) + ' ' + error.message);
+            });
+        }
+      }
+    }
     for (const row of rows) {
       if (row.images === undefined || row.images.length === 0) {
         continue;
@@ -1654,6 +1718,7 @@ export struct ConversationPage {
     const source: ConversationItem[] = this.items === undefined ? [] : this.items;
     const built: ConversationFeedEntryModel[] = [];
     let rows: ConversationFeedEntry[] = ConversationFeed.build(source, this.runActive() && this.connection === 'connected');
+    this.resolveQueueImages();
     // 任何时候都要算策略：运行中也要决定组体是否可见 / 限高 / 标题隐藏
     // （对齐小程序：workSteps.apply 每帧无条件执行，运行态由 policy 内部判断）
     ConversationFeed.applyWorkStepPolicy(rows, this.workStepMode, this.workStepTiming, this.folds,
@@ -2507,21 +2572,31 @@ export struct ConversationPage {
     });
   }
 
-  /** 选中工作区文件/目录：把行尾 @query 换成 @路径，并加引用 chip */
-  private insertPathRef(path: string): void {
-    // 同样只清掉 @query：引用以 chip 呈现，发送时再拼进正文
+  /**
+   * 选中工作区文件/目录：清掉行尾 @query，加引用 chip（正文由 chip 呈现，发送时再拼）。
+   * 文件夹引用按小程序协议带末尾斜杠（@path/），chip 也显示「名称/」+ 文件夹图标。
+   */
+  private insertPathRef(path: string, isDirectory: boolean): void {
     this.draft = this.stripRefTokens(this.draft);
-    console.info('[RefChip] file draft="' + this.draft + '"');
-    const slash: number = path.lastIndexOf('/');
-    const name: string = slash >= 0 ? path.substring(slash + 1) : path;
+    let normalized: string = path.replace(/\\/g, '/');
+    if (isDirectory && normalized.length > 0 && !normalized.endsWith('/')) {
+      normalized = normalized + '/';
+    }
+    const trimmed: string = normalized.endsWith('/') ? normalized.substring(0, normalized.length - 1) : normalized;
+    const slash: number = trimmed.lastIndexOf('/');
+    const name: string = slash >= 0 ? trimmed.substring(slash + 1) : trimmed;
+    if (name.length === 0) {
+      return;
+    }
+    const token: string = normalized.indexOf(' ') >= 0 ? '@"' + normalized + '"' : '@' + normalized;
     const chip: RefChipItem = {
-      key: 'file:' + path + ':' + Date.now().toString(),
-      label: name,
-      kind: 'file',
-      token: '@' + path
+      key: (isDirectory ? 'folder:' : 'file:') + normalized + ':' + Date.now().toString(),
+      label: isDirectory ? name + '/' : name,
+      kind: isDirectory ? 'folder' : 'file',
+      token: token
     };
     this.refChips = this.refChips.concat([chip]);
-    console.info('[RefChip] file added total=' + this.refChips.length + ' path=' + path);
+    console.info('[RefChip] path added total=' + this.refChips.length + ' kind=' + chip.kind + ' path=' + normalized);
   }
 
   /** 选中会话引用：把行尾的 @query 换成 @标题，并加一个引用 chip */
@@ -2799,8 +2874,21 @@ export struct ConversationPage {
     const generation: number = client.generation();
     const selected: PickedAttachment[] = this.pickedAttachments.slice();
     try {
-      const uploaded: UploadResult[] = [];
+      // 图片走 images(base64)，其余文件才走上传回执
+      const imagePayloads: Object[] = [];
+      const fileAttachments: PickedAttachment[] = [];
       for (const attachment of selected) {
+        if (this.isImageAttachment(attachment.name)) {
+          const payload: Object | undefined = this.imagePayloadOf(attachment);
+          if (payload !== undefined) {
+            imagePayloads.push(payload);
+            continue;
+          }
+        }
+        fileAttachments.push(attachment);
+      }
+      const uploaded: UploadResult[] = [];
+      for (const attachment of fileAttachments) {
         if (client.generation() !== generation || sessionId !== SessionStore.get().currentSessionId()) {
           throw new Error('连接或会话已变化，草稿已保留');
         }
@@ -2812,9 +2900,9 @@ export struct ConversationPage {
       if (client.generation() !== generation || sessionId !== SessionStore.get().currentSessionId()) {
         throw new Error('连接或会话已变化，草稿已保留');
       }
-      if (uploaded.length > 0) {
+      if (uploaded.length > 0 || imagePayloads.length > 0) {
         const receipts: UploadReceipt[] = uploaded.map((item: UploadResult): UploadReceipt => ({ receiptId: item.receiptId }));
-        const ack = await client.sendUserMessageWithAttachments(text, sessionId, receipts);
+        const ack = await client.sendUserMessageWithMedia(text, sessionId, imagePayloads, receipts);
         if (ack.sessionId !== sessionId) {
           throw new Error('发送确认无效，草稿已保留');
         }
@@ -2828,14 +2916,30 @@ export struct ConversationPage {
       // 真实 user/message 到达时由 adoptOptimisticUser 交棒；排队消息由队列行呈现，不重复插。
       Logger.info('[SEND] ok sid=' + sessionId.slice(-8) + ' running=' + (this.running ? '1' : '0')
         + ' optimistic=' + (!this.running ? '1' : '0') + ' len=' + text.length.toString());
-      if (!this.running) {
-        const localImages: string[] = [];
-        for (const one of selected) {
-          if (this.isImageAttachment(one.name)) {
-            localImages.push(one.uri);
-          }
+      // 这次发送带图时先记下本地图片 uri：如果主机把它排进队列（运行中/忙），
+      // 队列行只有 preview 文本和附件数量，靠这份记录才能显示缩略图。
+      const sentImages: string[] = [];
+      for (const one of selected) {
+        if (this.isImageAttachment(one.name)) {
+          sentImages.push(one.uri);
         }
-        SessionStore.get().appendOptimisticUser(text, selected.length, localImages);
+      }
+      Logger.info('[QUEUEIMG] send running=' + (this.running ? '1' : '0')
+        + ' selected=' + selected.length.toString() + ' images=' + sentImages.length.toString());
+      if (sentImages.length > 0) {
+        this.queuedImagesByText.set(text, sentImages);
+        this.lastQueuedImageAt = Date.now();
+        this.queuedImagesRevision = this.queuedImagesRevision + 1;
+        // 立即生成一条本地排队行（不等主机队列帧）：主机的队列项往往没有图片信息
+        this.localQueueRows = this.localQueueRows.concat([text + '\u0001' + sentImages.join('\u0002')]);
+        this.persistQueueImages(text, sentImages);
+        Logger.info('[QUEUEIMG] record key="' + text.substring(0, 20) + '" images=' + sentImages.length.toString());
+        setTimeout(() => {
+          this.dropLocalQueueRow(text);
+        }, 20000);
+      }
+      if (!this.running) {
+        SessionStore.get().appendOptimisticUser(text, selected.length, sentImages);
       }
       this.hint = '';
       this.attachmentHint = '';
@@ -3363,6 +3467,16 @@ export struct ConversationPage {
   }
 
   private onQueueChanged(): void {
+    // 队列变化时立刻按 attachmentId 拉队列消息里的图片（缩略图要用）
+    this.resolveQueueImages();
+    // 队列清空后丢掉本地图片记录，避免一直缓存。
+    // 注意刚发完的 15 秒内不清：发送后主机可能先推一帧空队列，再推带这条消息的队列，
+    // 过早清掉会导致队列卡片永远拿不到本地缩略图。
+    if (this.queue.length === 0 && this.queuedImagesByText.size > 0
+      && Date.now() - this.lastQueuedImageAt > 15000) {
+      this.queuedImagesByText.clear();
+      this.queuedImagesRevision = this.queuedImagesRevision + 1;
+    }
     // steer 失败标记：队列里已不存在该项就清掉，避免 id 列表无限增长
     if (this.steerFailedIds.length > 0) {
       const kept: string[] = [];
@@ -3542,6 +3656,7 @@ export struct ConversationPage {
   @Builder
   dockStack() {
     Column() {
+      this.localQueueRowsView()
       if (this.queue.length > 0) {
         this.queueDock()
       }
@@ -3553,6 +3668,181 @@ export struct ConversationPage {
       }
     }
     .width('100%')
+  }
+
+  /**
+   * 把排队消息的本地图片复制到应用沙箱，并写进偏好。
+   * 原因：主机拒绝读取「还没进入会话」的队列附件（Image is not referenced by this session），
+   * 唯一能显示缩略图的来源就是发送时的本地文件；进程重启后 picker 的临时 uri 可能失效，
+   * 所以复制到 files/queue-images 持久化。
+   */
+  private persistQueueImages(text: string, uris: string[]): void {
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const dirPath: string = context.filesDir + '/queue-images';
+      if (!fileIo.accessSync(dirPath)) {
+        fileIo.mkdirSync(dirPath, true);
+      }
+      const stored: string[] = [];
+      let index: number = 0;
+      for (const uri of uris) {
+        index += 1;
+        const source: string = uri.startsWith('file://') ? uri.substring(7) : uri;
+        const ext: string = uri.toLowerCase().endsWith('.png') ? '.png' : '.jpg';
+        const target: string = dirPath + '/q-' + Date.now().toString() + '-' + index.toString() + ext;
+        try {
+          fileIo.copyFileSync(source, target);
+          stored.push('file://' + target);
+        } catch (err) {
+          stored.push(uri);
+        }
+      }
+      const prefs = PreferencesStore.get();
+      const existing: string = prefs.getString('queueImageEntries', '');
+      const entries: string[] = existing.length > 0 ? existing.split('\u0003') : [];
+      entries.push(text + '\u0001' + stored.join('\u0002'));
+      while (entries.length > 8) {
+        entries.shift();
+      }
+      prefs.putString('queueImageEntries', entries.join('\u0003'));
+    } catch (err) {
+    }
+  }
+
+  /** 启动时恢复持久化的排队图片（进程重启后队列还在的场景） */
+  private restoreQueueImages(): void {
+    try {
+      const stored: string = PreferencesStore.get().getString('queueImageEntries', '');
+      if (stored.length === 0) {
+        return;
+      }
+      const rows: string[] = [];
+      for (const entry of stored.split('\u0003')) {
+        if (entry.length === 0) {
+          continue;
+        }
+        rows.push(entry);
+        const parts: string[] = entry.split('\u0001');
+        if (parts.length >= 2 && parts[1].length > 0) {
+          this.queuedImagesByText.set(parts[0], parts[1].split('\u0002'));
+        }
+      }
+      if (rows.length > 0) {
+        this.localQueueRows = rows;
+        this.queuedImagesRevision = this.queuedImagesRevision + 1;
+      }
+    } catch (err) {
+    }
+  }
+
+  /** 队列里已经出现这条消息时，移除本地占位行 */
+  private dropLocalQueueRow(text: string): void {
+    const keep: string[] = [];
+    for (const row of this.localQueueRows) {
+      const parts: string[] = row.split('\u0001');
+      if (parts[0] !== text) {
+        keep.push(row);
+      }
+    }
+    if (keep.length !== this.localQueueRows.length) {
+      this.localQueueRows = keep;
+    }
+  }
+
+  /** 本地行始终显示（它带真实缩略图）；主机队列里同一条改由它顶替 */
+  private localRowVisible(row: string): boolean {
+    return true;
+  }
+
+  /** 需要渲染的主机队列项：已经被本地带图行顶替的就不再重复渲染 */
+  private visibleQueueItems(): QueueItem[] {
+    const out: QueueItem[] = [];
+    for (const item of this.queue) {
+      if (!this.hostItemCovered(item)) {
+        out.push(item);
+      }
+    }
+    return out;
+  }
+
+  /** 主机队列项是否已被本地带图行顶替（顶替时不再渲染主机那条，避免出现占位图标） */
+  private hostItemCovered(item: QueueItem): boolean {
+    const preview: string = item.preview;
+    for (const row of this.localQueueRows) {
+      const text: string = this.localRowText(row);
+      if (text.length === 0) {
+        continue;
+      }
+      const probe: string = text.substring(0, 12);
+      if (preview.indexOf(probe) >= 0 || probe.indexOf(preview.substring(0, 12)) >= 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** 本地排队行：文字 + 图片 uri */
+  private localRowText(row: string): string {
+    const parts: string[] = row.split('\u0001');
+    return parts.length > 0 ? parts[0] : '';
+  }
+
+  private localRowImages(row: string): string[] {
+    const parts: string[] = row.split('\u0001');
+    if (parts.length < 2 || parts[1].length === 0) {
+      return [];
+    }
+    const out: string[] = [];
+    for (const uri of parts[1].split('\u0002')) {
+      if (uri.length > 0) {
+        out.push(uri);
+      }
+    }
+    return out;
+  }
+
+  /** 某条排队消息的本地图片预览（按文本匹配；队列里的 preview 可能是截断文本） */
+  private queuedImagesOf(item: QueueItem): string[] {
+    if (this.queuedImagesByText.size === 0) {
+      return [];
+    }
+    // 队列里的 preview 可能被截断（末尾带「…」）或去掉换行，先归一化再比
+    const normalize = (value: string): string => {
+      let out: string = value.replace(/\n/g, ' ').trim();
+      while (out.endsWith('…') || out.endsWith('...')) {
+        out = out.substring(0, out.length - 1).trim();
+      }
+      return out;
+    };
+    const preview: string = normalize(item.preview);
+    let matched: string[] = [];
+    this.queuedImagesByText.forEach((uris: string[], key: string) => {
+      const normalizedKey: string = normalize(key);
+      if (normalizedKey.length === 0) {
+        return;
+      }
+      if (preview.length === 0
+        || preview.indexOf(normalizedKey.substring(0, 12)) >= 0
+        || normalizedKey.indexOf(preview.substring(0, 12)) >= 0) {
+        matched = uris;
+      }
+    });
+    // 兜底：只有一条带图的本地记录、这条队列表明确有附件 → 就认为是它
+    if (matched.length === 0 && item.attachmentCount > 0 && this.queuedImagesByText.size === 1) {
+      this.queuedImagesByText.forEach((uris: string[]) => {
+        matched = uris;
+      });
+    }
+    if (matched.length === 0 && item.attachmentCount > 0) {
+      let keys: string = '';
+      this.queuedImagesByText.forEach((uris: string[], key: string) => {
+        keys += '[' + key.substring(0, 20) + ']';
+      });
+      Logger.info('[QUEUEIMG] unmatched preview="' + item.preview.substring(0, 30)
+        + '" attachments=' + item.attachmentCount.toString() + ' cached=' + this.queuedImagesByText.size.toString()
+        + ' keys=' + keys);
+    }
+    return matched;
   }
 
   /** 排队消息图标（小程序同款 queue-message.svg，38rpx，0.72 透明度）。 */
@@ -3592,6 +3882,106 @@ export struct ConversationPage {
     .flexShrink(0)
   }
 
+  /** 队列项里的图片：按 attachmentId 向网关拉取并缓存本地路径 */
+  private resolveQueueImages(): void {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0 || this.queue.length === 0) {
+      return;
+    }
+    for (const item of this.queue) {
+      const refs = item.images === undefined ? [] : item.images;
+      for (const ref of refs) {
+        if (ref.attachmentId.length === 0 || this.queueThumbInflight.has(ref.attachmentId)
+          || this.queueThumbFailed.has(ref.attachmentId)) {
+          continue;
+        }
+        let known: boolean = false;
+        for (const entry of this.queueThumbPaths) {
+          if (entry.indexOf(ref.attachmentId + '\u0001') === 0) {
+            known = true;
+            break;
+          }
+        }
+        if (known) {
+          continue;
+        }
+        this.queueThumbInflight.add(ref.attachmentId);
+        AttachmentImageCache.fetch(sessionId, ref.attachmentId, ref.mediaType, ref.name)
+          .then((path: string) => {
+            this.queueThumbInflight.delete(ref.attachmentId);
+            if (path.length > 0) {
+              this.queueThumbPaths = this.queueThumbPaths.concat([ref.attachmentId + '\u0001' + path]);
+            }
+          })
+          .catch((err: Error) => {
+            this.queueThumbInflight.delete(ref.attachmentId);
+            this.queueThumbFailed.add(ref.attachmentId);
+            Logger.warn('[QUEUEIMG] fetch failed id=' + ref.attachmentId.substring(0, 20) + ' ' + err.message);
+          });
+      }
+    }
+  }
+
+  /** 队列项图片的本地路径列表（按 attachmentId 顺序） */
+  private queueThumbPathsOf(item: QueueItem): string[] {
+    const out: string[] = [];
+    const refs = item.images === undefined ? [] : item.images;
+    for (const ref of refs) {
+      for (const entry of this.queueThumbPaths) {
+        const parts: string[] = entry.split('\u0001');
+        if (parts.length >= 2 && parts[0] === ref.attachmentId) {
+          out.push(parts[1]);
+        }
+      }
+    }
+    return out;
+  }
+
+  /** 本地排队消息（带图）占位行：主机队列帧可能不含图片，先用本地记录把样式显示出来 */
+  @Builder
+  localQueueRowsView() {
+    if (this.localQueueRows.length > 0) {
+      Column({ space: this.rpx(6) }) {
+        ForEach(this.localQueueRows, (row: string) => {
+          if (this.localRowVisible(row)) {
+          Row({ space: this.rpx(8) }) {
+            this.queueBubbleIcon(this.rpx(38))
+            ForEach(this.localRowImages(row), (uri: string) => {
+              Image(uri)
+                .width(this.rpx(56))
+                .height(this.rpx(56))
+                .borderRadius(this.rpx(8))
+                .objectFit(ImageFit.Cover)
+                .flexShrink(0)
+                .onClick(() => {
+                  this.previewImagePath = uri;
+                  this.previewImageOpen = true;
+                })
+            }, (uri: string) => uri)
+            Text(this.localRowText(row))
+              .fontSize(13)
+              .lineHeight(this.rpx(36))
+              .fontColor(this.subColor())
+              .layoutWeight(1)
+              .maxLines(2)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          .width('100%')
+          .padding({ left: this.rpx(20), right: this.rpx(20), top: this.rpx(6), bottom: this.rpx(6) })
+          .alignItems(VerticalAlign.Center)
+          }
+        }, (row: string) => row)
+      }
+      .width('100%')
+      .padding({ top: this.rpx(8), bottom: this.rpx(4) })
+      .borderRadius(this.rpx(36))
+      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+      .backdropBlur(14)
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+      .margin({ bottom: this.rpx(12) })
+    }
+  }
+
   @Builder
   queueDock() {
     Column() {
@@ -3623,10 +4013,53 @@ export struct ConversationPage {
       if (this.queueExpanded || this.queue.length === 1) {
         Scroll() {
           Column() {
-            ForEach(this.queue, (item: QueueItem, index: number) => {
+            ForEach(this.visibleQueueItems(), (item: QueueItem, index: number) => {
               Column() {
                 Row({ space: this.rpx(8) }) {
                   this.queueBubbleIcon(this.rpx(38))
+                  // 图片：优先用主机队列项里的 attachmentId 拉到的真实缩略图；
+                  // 其次用发送时记录的本地图；都没有才显示占位图标。
+                  if (this.queueThumbPathsOf(item).length > 0) {
+                    ForEach(this.queueThumbPathsOf(item), (path: string) => {
+                      Image(path)
+                        .width(this.rpx(56))
+                        .height(this.rpx(56))
+                        .borderRadius(this.rpx(8))
+                        .objectFit(ImageFit.Cover)
+                        .flexShrink(0)
+                        .onClick(() => {
+                          this.previewImagePath = path;
+                          this.previewImageOpen = true;
+                        })
+                    }, (path: string) => path)
+                  } else if (this.queuedImagesRevision >= 0 && this.queuedImagesOf(item).length > 0) {
+                    ForEach(this.queuedImagesOf(item), (uri: string) => {
+                      Image(uri)
+                        .width(this.rpx(56))
+                        .height(this.rpx(56))
+                        .borderRadius(this.rpx(8))
+                        .objectFit(ImageFit.Cover)
+                        .flexShrink(0)
+                        .onClick(() => {
+                          this.previewImagePath = uri;
+                          this.previewImageOpen = true;
+                        })
+                    }, (uri: string) => uri)
+                  }
+                  // 没有本地缩略图但有附件：先摆一个图片占位块（看起来是图片样式，而不是「N 个附件」文字）
+                  if (item.attachmentCount > 0 && this.queuedImagesOf(item).length === 0) {
+                    Stack({ alignContent: Alignment.Center }) {
+                      Image($r('app.media.deliverable_image'))
+                        .width(this.rpx(32))
+                        .height(this.rpx(32))
+                        .objectFit(ImageFit.Contain)
+                    }
+                    .width(this.rpx(56))
+                    .height(this.rpx(56))
+                    .borderRadius(this.rpx(8))
+                    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)')
+                    .flexShrink(0)
+                  }
                   Column({ space: this.rpx(4) }) {
                     if (item.preview.length > 0 || item.attachmentCount === 0) {
                       Text(item.preview.length > 0 ? item.preview : '（空消息）')
@@ -3637,12 +4070,7 @@ export struct ConversationPage {
                         .maxLines(2)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
                     }
-                    if (item.attachmentCount > 0) {
-                      Text(item.attachmentCount.toString() + ' 个附件')
-                        .fontSize(11)
-                        .fontColor(this.subColor())
-                        .width('100%')
-                    }
+
                   }
                   .layoutWeight(1)
                   .alignItems(HorizontalAlign.Start)
@@ -3743,8 +4171,10 @@ export struct ConversationPage {
     .width('100%')
     .padding({ top: this.rpx(4), bottom: this.rpx(4) })
     .borderRadius(this.rpx(36))
-    .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.12)' })
-    .backgroundColor(this.surfaceColor())
+    // 与左上角返回按钮同一套玻璃标准（AppGlass：半透明底 + 背景模糊 + 白色高光细边 + 柔和投影）
+    .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+    .backdropBlur(14)
+    .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
     .margin({ bottom: this.rpx(12) })
     .clip(true)
   }
@@ -3806,8 +4236,10 @@ export struct ConversationPage {
     }
     .width('100%')
     .borderRadius(this.rpx(36))
-    .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.12)' })
-    .backgroundColor(this.surfaceColor())
+    // 与左上角返回按钮同一套玻璃标准（AppGlass：半透明底 + 背景模糊 + 白色高光细边 + 柔和投影）
+    .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+    .backdropBlur(14)
+    .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
     .margin({ bottom: this.rpx(12) })
     .clip(true)
   }
@@ -3852,8 +4284,10 @@ export struct ConversationPage {
       .padding({ left: this.rpx(20), right: this.rpx(16), top: this.rpx(12), bottom: this.rpx(12) })
       .alignItems(VerticalAlign.Center)
       .borderRadius(this.rpx(36))
-      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.12)' })
-      .backgroundColor(this.surfaceColor())
+      // 与左上角返回按钮同一套玻璃标准（AppGlass：半透明底 + 背景模糊 + 白色高光细边 + 柔和投影）
+      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+      .backdropBlur(14)
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
       .margin({ bottom: this.rpx(12) })
     } else {
       Row({ space: this.rpx(16) }) {
@@ -3925,13 +4359,266 @@ export struct ConversationPage {
       .padding({ left: this.rpx(28), right: this.rpx(24) })
       .alignItems(VerticalAlign.Center)
       .borderRadius(this.rpx(36))
-      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.12)' })
-      .backgroundColor(this.surfaceColor())
+      // 与左上角返回按钮同一套玻璃标准（AppGlass：半透明底 + 背景模糊 + 白色高光细边 + 柔和投影）
+      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+      .backdropBlur(14)
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
       .margin({ bottom: this.rpx(12) })
     }
   }
 
+  /** 底部浮层：队列/任务/目标 + 输入条（下方内容透过玻璃模糊，与顶部遮罩对称） */
+  @Builder
+  bottomDockLayer() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Column() {
+          if (this.hint.length > 0) {
+            Text(this.hint)
+              .fontSize(12)
+              .fontColor('#D65D64')
+              .width('100%')
+              .padding({ left: 20, right: 20, top: 2, bottom: 2 })
+          }
+          // 输入条容器：小程序 dock-stack 左右 14vp 内边距 + 底部安全区
+          Column() {
+          // 底部 dock：排队消息 / 任务 / 目标（对齐小程序 dock-stack）
+          this.dockStack()
+          // 指标弹层（会话统计 / Token 用量 / 上下文已用）：紧贴输入框上方，输入框保持可见可点
+          // 之前这个 @Builder 只有定义、没有挂到 build 里，点「查看统计」只改了状态、什么都不会显示。
+          if (this.metricPopover.length > 0) {
+            this.metricPopoverPanel()
+          }
+          // 权限 / 模型面板：紧贴输入框上方展开，输入框保持可见
+          if (this.composerSheet.length > 0) {
+            this.composerSheetPanel()
+          }
+          ConversationComposer({
+            isDark: this.isDark,
+            draft: this.draft,
+            placeholder: this.composerPlaceholder(),
+            connected: this.connection === 'connected',
+            running: this.running,
+            sending: this.sending,
+            voiceEnabled: this.voiceInputEnabled,
+            voiceMode: this.voiceMode,
+            voiceRecording: this.voiceRecording,
+            voiceCancelArmed: this.voiceCancelArmed,
+            voiceHint: this.voiceStatus,
+            onToggleVoiceMode: () => {
+              this.toggleVoiceMode();
+            },
+            onVoiceHoldStart: () => {
+              this.onVoiceHoldStart().catch(() => {});
+            },
+            onVoiceHoldMove: (cancel: boolean) => {
+              this.onVoiceHoldMove(cancel);
+            },
+            onVoiceHoldEnd: (cancel: boolean) => {
+              this.onVoiceHoldEnd(cancel);
+            },
+            permissionTitle: this.permissionTitle(),
+            permissionIcon: this.permissionIconGlyph(),
+            permissionOpen: this.permissionMenuOpen,
+            permissionLabels: this.permissionMenuLabels(),
+            permissionValues: this.permissionMenuValues(),
+            permissionCurrent: this.defaultPermission,
+            modelOpen: this.modelMenuOpen,
+            modelMenuItems: this.modelMenuItems(),
+            modelProviders: this.modelProviderItems(),
+            currentProvider: this.currentModelProvider(),
+            modelMenuCurrent: this.currentModelId(),
+            effortValues: this.effortMenuValues(),
+            effortLabels: this.effortMenuLabels(),
+            effortCurrent: this.currentEffort(),
+            effort: this.effortName(this.currentEffort()),
+            modelTitle: this.currentModelLabel(),
+            modelBadge: this.currentModelBadge(),
+            effortLabel: this.effortLabel(),
+            contextPercent: this.contextPercent(),
+            runMetric: this.runMetric(),
+            tokenMetric: this.tokenMetric(),
+            tokenTotal: this.tokenTotalLabel(),
+            contextMetric: this.contextMetric(),
+            contextTotal: this.contextTotalLabel(),
+            ctxSystemPct: this.contextSegmentPercent('systemTokens'),
+            ctxToolsPct: this.contextSegmentPercent('toolsTokens'),
+            ctxMsgPct: this.contextSegmentPercent('messageTokens'),
+            attachmentCount: this.pickedAttachments.length,
+            attachments: this.pickedAttachments,
+            onRemoveAttachment: (uri: string) => {
+              this.pickedAttachments = this.pickedAttachments.filter((item: PickedAttachment) => item.uri !== uri);
+            },
+            metricPairsFor: (kind: string): MetricMenuPair[] => {
+              const pairs: MetricMenuPair[] = [];
+              const rows: MetricPair[] = this.buildMetricPairs(kind);
+              for (const p of rows) {
+                const pair: MetricMenuPair = { label: p.label, value: p.value };
+                pairs.push(pair);
+              }
+              return pairs;
+            },
+            focused: this.composerFocused,
+            onFocusChange: (focused: boolean) => {
+              // 输入条弹层开着时不塌回：点弹窗会连带收起键盘并让输入框失焦，这时必须保住 chip 行
+              if (!focused && this.composerSheet.length > 0) {
+                return;
+              }
+              this.composerFocused = focused;
+            },
+            onDraft: (value: string) => {
+              this.draft = value;
+              this.scheduleDraftSave();
+            },
+            onSend: () => {
+              this.onSend();
+            },
+            onStop: () => {
+              this.onStop();
+            },
+            onAddAttachment: () => {
+              this.pickAttachments();
+            },
+            onPickImages: () => {
+              this.pickImageAttachments();
+            },
+            onPickFiles: () => {
+              this.pickAttachments();
+            },
+            onPickCommand: (name: string) => {
+              this.draft = '/' + name + ' ';
+            },
+            refSessions: this.refSessions,
+            onPickSessionRef: (id: string, title: string) => {
+              this.insertSessionRef(id, title);
+            },
+            skills: this.skills,
+            refDirs: this.refDirs,
+            refDirPath: this.refCurrentPath.length > 0 ? this.refCurrentPath : '文件与文件夹',
+            onRefDirOpen: (path: string) => {
+              this.refCurrentPath = path;
+              this.loadFileListAt(path);
+            },
+            onRequestRefDirs: () => {
+              this.loadRefDirectory();
+            },
+            onPickRefPath: (path: string, isDirectory: boolean) => {
+              this.insertPathRef(path, isDirectory);
+            },
+            refChips: this.refChips,
+            onRemoveRefChip: (key: string) => {
+              this.removeRefChip(key);
+            },
+            onPickPermission: () => {
+              this.openComposerSheet('permission');
+            },
+            onPickPermissionOption: (value: string) => {
+              this.permissionMenuOpen = false;
+              this.selectPermission(value);
+            },
+            onPermissionMenuVisible: (visible: boolean) => {
+              this.permissionMenuOpen = visible;
+            },
+            onPickModel: () => {
+              this.openComposerSheet('model');
+            },
+            onPickModelOption: (provider: string, model: string) => {
+              this.selectModel(provider, model);
+            },
+            onPickEffortOption: (value: string) => {
+              this.selectEffortAndModel(value);
+            },
+            onModelMenuVisible: (visible: boolean) => {
+              this.modelMenuOpen = visible;
+              if (visible) {
+                // 展开模型菜单时刷新当前模型的推理等级列表（含 Max 等，避免进页时拉取过早）
+                this.refreshModelEfforts();
+              }
+            },
+            onContext: () => {
+              this.openMetricPopover('context');
+            },
+            onStats: () => {
+              this.openMetricPopover('run');
+            },
+            onTokenStats: () => {
+              this.openMetricPopover('token');
+            }
+          })
+          }
+          .width('100%')
+          .padding({ left: 14, right: 14, bottom: 18 + this.bottomInset })
+          // 录音时整条输入区让位给全屏语音特效（对齐小程序 .dock-stack.voice-holding { opacity: 0 }）
+          .opacity(this.voiceOverlayVisible ? 0 : 1)
+      }
+      .width('100%')
+    }
+    .width('100%')
+    // 底部整块：完全透明底色 + backdropBlur(24)（只模糊、不加色）
+    .backgroundColor(Color.Transparent)
+    .backdropBlur(24)
+    .onAreaChange((oldArea: Area, newArea: Area) => {
+      const height: number = Number(newArea.height);
+      if (height > 0 && Math.abs(height - this.dockHeight) > 1) {
+        this.dockHeight = height;
+      }
+    })
+  }
+
   // ==================== 视图 ====================
+  /** 切换时让分页点出现，并在停止 900ms 后自动淡出（对齐 iOS 翻页时的「两个小眼睛」） */
+  private flashTabDots(): void {
+    if (this.tabDotsTimer >= 0) {
+      clearTimeout(this.tabDotsTimer);
+      this.tabDotsTimer = -1;
+    }
+    if (this.tabDotsOpacity < 1) {
+      this.getUIContext().animateTo({ duration: 120, curve: Curve.EaseOut }, () => {
+        this.tabDotsOpacity = 1;
+      });
+    }
+    this.tabDotsTimer = setTimeout(() => {
+      this.tabDotsTimer = -1;
+      this.getUIContext().animateTo({ duration: 260, curve: Curve.EaseIn }, () => {
+        this.tabDotsOpacity = 0;
+      });
+    }, 900);
+  }
+
+  /** 顶部分页指示点：两个小圆点，点按可切换（隐藏时不拦触摸） */
+  @Builder
+  sessionPageDots() {
+    Column() {
+      Row({ space: 6 }) {
+        ForEach([0, 1], (index: number) => {
+          Row()
+            .width(this.sessionTab === index ? 8 : 6)
+            .height(this.sessionTab === index ? 8 : 6)
+            .borderRadius(this.sessionTab === index ? 4 : 3)
+            .backgroundColor(this.sessionTab === index
+              ? (this.isDark ? 'rgba(241,244,250,0.92)' : 'rgba(16,19,24,0.72)')
+              : (this.isDark ? 'rgba(241,244,250,0.38)' : 'rgba(16,19,24,0.26)'))
+            .onClick(() => {
+              if (this.sessionTab === index) {
+                return;
+              }
+              this.sessionTab = index;
+              this.sessionSwiper.changeIndex(index, true);
+              this.flashTabDots();
+            })
+        }, (index: number) => index.toString())
+      }
+      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
+      .borderRadius(14)
+      .backgroundColor(this.isDark ? 'rgba(0,0,0,0.34)' : 'rgba(255,255,255,0.72)')
+    }
+    .width('100%')
+    .padding({ top: this.topSafe() + 54 })
+    .alignItems(HorizontalAlign.Center)
+    .opacity(this.tabDotsOpacity)
+    .zIndex(45)
+    .hitTestBehavior(this.tabDotsOpacity > 0.05 ? HitTestMode.Transparent : HitTestMode.None)
+  }
+
   build() {
     NavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
@@ -3939,189 +4626,38 @@ export struct ConversationPage {
         // 顶栏不再占位：时间线从屏幕顶部铺满，往上滚时内容直接在标题下面穿过去（对齐 iOS 导航栏）
         // 「加载更早记录」与运行条都在滚动内容内部（对齐小程序：横幅在 scroll-view 里，
         // 运行条在列表末尾），随内容一起滚动，而不是固定在容器外的两条横条。
-        Column() {
-          this.timeline()
+        Swiper(this.sessionSwiper) {
+          Column() {
+            this.timeline()
+          }
+          .width('100%')
+          .height('100%')
+          .padding({ bottom: this.bottomInset })
+
+          TrajectoryPanel({ topInset: this.topSafe() + 62 })
         }
         .layoutWeight(1)
         .width('100%')
-        .padding({ bottom: this.bottomInset })
-        if (this.hint.length > 0) {
-          Text(this.hint)
-            .fontSize(12)
-            .fontColor('#D65D64')
-            .width('100%')
-            .padding({ left: 20, right: 20, top: 2, bottom: 2 })
-        }
-        // 输入条容器：小程序 dock-stack 左右 14vp 内边距 + 底部安全区
-        Column() {
-        // 底部 dock：排队消息 / 任务 / 目标（对齐小程序 dock-stack）
-        this.dockStack()
-        // 指标弹层（会话统计 / Token 用量 / 上下文已用）：紧贴输入框上方，输入框保持可见可点
-        // 之前这个 @Builder 只有定义、没有挂到 build 里，点「查看统计」只改了状态、什么都不会显示。
-        if (this.metricPopover.length > 0) {
-          this.metricPopoverPanel()
-        }
-        // 权限 / 模型面板：紧贴输入框上方展开，输入框保持可见
-        if (this.composerSheet.length > 0) {
-          this.composerSheetPanel()
-        }
-        ConversationComposer({
-          isDark: this.isDark,
-          draft: this.draft,
-          placeholder: this.composerPlaceholder(),
-          connected: this.connection === 'connected',
-          running: this.running,
-          sending: this.sending,
-          voiceEnabled: this.voiceInputEnabled,
-          voiceMode: this.voiceMode,
-          voiceRecording: this.voiceRecording,
-          voiceCancelArmed: this.voiceCancelArmed,
-          voiceHint: this.voiceStatus,
-          onToggleVoiceMode: () => {
-            this.toggleVoiceMode();
-          },
-          onVoiceHoldStart: () => {
-            this.onVoiceHoldStart().catch(() => {});
-          },
-          onVoiceHoldMove: (cancel: boolean) => {
-            this.onVoiceHoldMove(cancel);
-          },
-          onVoiceHoldEnd: (cancel: boolean) => {
-            this.onVoiceHoldEnd(cancel);
-          },
-          permissionTitle: this.permissionTitle(),
-          permissionIcon: this.permissionIconGlyph(),
-          permissionOpen: this.permissionMenuOpen,
-          permissionLabels: this.permissionMenuLabels(),
-          permissionValues: this.permissionMenuValues(),
-          permissionCurrent: this.defaultPermission,
-          modelOpen: this.modelMenuOpen,
-          modelMenuItems: this.modelMenuItems(),
-          modelProviders: this.modelProviderItems(),
-          currentProvider: this.currentModelProvider(),
-          modelMenuCurrent: this.currentModelId(),
-          effortValues: this.effortMenuValues(),
-          effortLabels: this.effortMenuLabels(),
-          effortCurrent: this.currentEffort(),
-          effort: this.effortName(this.currentEffort()),
-          modelTitle: this.currentModelLabel(),
-          modelBadge: this.currentModelBadge(),
-          effortLabel: this.effortLabel(),
-          contextPercent: this.contextPercent(),
-          runMetric: this.runMetric(),
-          tokenMetric: this.tokenMetric(),
-          tokenTotal: this.tokenTotalLabel(),
-          contextMetric: this.contextMetric(),
-          contextTotal: this.contextTotalLabel(),
-          ctxSystemPct: this.contextSegmentPercent('systemTokens'),
-          ctxToolsPct: this.contextSegmentPercent('toolsTokens'),
-          ctxMsgPct: this.contextSegmentPercent('messageTokens'),
-          attachmentCount: this.pickedAttachments.length,
-          attachments: this.pickedAttachments,
-          onRemoveAttachment: (uri: string) => {
-            this.pickedAttachments = this.pickedAttachments.filter((item: PickedAttachment) => item.uri !== uri);
-          },
-          metricPairsFor: (kind: string): MetricMenuPair[] => {
-            const pairs: MetricMenuPair[] = [];
-            const rows: MetricPair[] = this.buildMetricPairs(kind);
-            for (const p of rows) {
-              const pair: MetricMenuPair = { label: p.label, value: p.value };
-              pairs.push(pair);
-            }
-            return pairs;
-          },
-          focused: this.composerFocused,
-          onFocusChange: (focused: boolean) => {
-            // 输入条弹层开着时不塌回：点弹窗会连带收起键盘并让输入框失焦，这时必须保住 chip 行
-            if (!focused && this.composerSheet.length > 0) {
-              return;
-            }
-            this.composerFocused = focused;
-          },
-          onDraft: (value: string) => {
-            this.draft = value;
-            this.scheduleDraftSave();
-          },
-          onSend: () => {
-            this.onSend();
-          },
-          onStop: () => {
-            this.onStop();
-          },
-          onAddAttachment: () => {
-            this.pickAttachments();
-          },
-          onPickImages: () => {
-            this.pickImageAttachments();
-          },
-          onPickFiles: () => {
-            this.pickAttachments();
-          },
-          onPickCommand: (name: string) => {
-            this.draft = '/' + name + ' ';
-          },
-          refSessions: this.refSessions,
-          onPickSessionRef: (id: string, title: string) => {
-            this.insertSessionRef(id, title);
-          },
-          skills: this.skills,
-          refDirs: this.refDirs,
-          refDirPath: this.refCurrentPath.length > 0 ? this.refCurrentPath : '文件与文件夹',
-          onRefDirOpen: (path: string) => {
-            this.refCurrentPath = path;
-            this.loadFileListAt(path);
-          },
-          onRequestRefDirs: () => {
-            this.loadRefDirectory();
-          },
-          onPickRefPath: (path: string) => {
-            this.insertPathRef(path);
-          },
-          refChips: this.refChips,
-          onRemoveRefChip: (key: string) => {
-            this.removeRefChip(key);
-          },
-          onPickPermission: () => {
-            this.openComposerSheet('permission');
-          },
-          onPickPermissionOption: (value: string) => {
-            this.permissionMenuOpen = false;
-            this.selectPermission(value);
-          },
-          onPermissionMenuVisible: (visible: boolean) => {
-            this.permissionMenuOpen = visible;
-          },
-          onPickModel: () => {
-            this.openComposerSheet('model');
-          },
-          onPickModelOption: (provider: string, model: string) => {
-            this.selectModel(provider, model);
-          },
-          onPickEffortOption: (value: string) => {
-            this.selectEffortAndModel(value);
-          },
-          onModelMenuVisible: (visible: boolean) => {
-            this.modelMenuOpen = visible;
-            if (visible) {
-              // 展开模型菜单时刷新当前模型的推理等级列表（含 Max 等，避免进页时拉取过早）
-              this.refreshModelEfforts();
-            }
-          },
-          onContext: () => {
-            this.openMetricPopover('context');
-          },
-          onStats: () => {
-            this.openMetricPopover('run');
-          },
-          onTokenStats: () => {
-            this.openMetricPopover('token');
-          }
+        .indicator(false)
+        .loop(false)
+        .duration(220)
+        .index(this.sessionTab)
+        // 拖动中/切换动画期间显示分页点，停稳后自动隐藏
+        .onGestureSwipe((index: number, extraInfo: SwiperAnimationEvent) => {
+          this.flashTabDots();
         })
-        }
-        .width('100%')
-        .padding({ left: 14, right: 14, bottom: 18 + this.bottomInset })
-        // 录音时整条输入区让位给全屏语音特效（对齐小程序 .dock-stack.voice-holding { opacity: 0 }）
-        .opacity(this.voiceOverlayVisible ? 0 : 1)
+        .onAnimationStart((index: number, targetIndex: number) => {
+          this.flashTabDots();
+        })
+        .onChange((index: number) => {
+          if (this.sessionTab !== index) {
+            this.sessionTab = index;
+          }
+          this.flashTabDots();
+        })
+        .onAnimationEnd((index: number) => {
+          this.flashTabDots();
+        })
       }
       .width('100%')
       .height('100%')
@@ -4134,6 +4670,20 @@ export struct ConversationPage {
 
       // 浮动顶栏：透明底叠在时间线之上，内容从它下面滚过（对齐 iOS 导航栏，无遮盖条）
       this.headerBar()
+
+      // 会话页顶部双 Tab 指示点：切换时淡入、停止后淡出（对齐 iOS 翻页小圆点）
+      this.sessionPageDots()
+      // 底部浮层：底下时间线内容以模糊方式透出（对齐顶部模糊遮罩）
+      // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
+      Column() {
+        if (this.sessionTab === 0) {
+          this.bottomDockLayer()
+        }
+      }
+      .width('100%')
+      .height('100%')
+      .justifyContent(FlexAlign.End)
+      .hitTestBehavior(HitTestMode.Transparent)
 
       // 长按语音的全屏特效：盖在对话与输入条之上，但不拦触摸（手指还压在下面的输入条上）
       VoiceRipplePanel({
@@ -4301,6 +4851,7 @@ export struct ConversationPage {
     .onShown(() => {
       Logger.info('[PAGE] onShown ready=' + (this.ready ? '1' : '0') + ' entries=' + this.entries.length.toString());
       this.pageVisible = true;
+      this.restoreQueueImages();
       this.pageSessionId = SessionStore.get().currentSessionId();
       this.applyStatusBarColor();
       // 主题是在设置页之类的地方切的：回到本页整表重载一次，保证回复正文/过程文字按新配色重建
@@ -6520,6 +7071,59 @@ export struct ConversationPage {
   }
 
   /** 按扩展名判断图片附件：图片走缩略图，其它走回形针文件胶囊 */
+  /** 图片扩展名 → mediaType（网关 images[] 必填） */
+  private imageMediaTypeOf(name: string): string {
+    const lower: string = name.toLowerCase();
+    const dot: number = lower.lastIndexOf('.');
+    const ext: string = dot >= 0 ? lower.substring(dot + 1) : '';
+    if (ext === 'png') {
+      return 'image/png';
+    }
+    if (ext === 'gif') {
+      return 'image/gif';
+    }
+    if (ext === 'webp') {
+      return 'image/webp';
+    }
+    if (ext === 'bmp') {
+      return 'image/bmp';
+    }
+    if (ext === 'heic' || ext === 'heif') {
+      return 'image/heic';
+    }
+    return 'image/jpeg';
+  }
+
+  /**
+   * 图片附件 → { mediaType, data(base64), name }。
+   * 走网关 images[] 而不是上传回执：host 只把 type=image 块计入会话引用，
+   * file 块按 attachmentId 回读会被拒（Image is not referenced by this session）。
+   */
+  private imagePayloadOf(att: PickedAttachment): Object | undefined {
+    try {
+      const raw: string = att.uri.startsWith('file://') ? att.uri.substring(7) : att.uri;
+      const source: fileIo.File = fileIo.openSync(raw, fileIo.OpenMode.READ_ONLY);
+      try {
+        const size: number = fileIo.statSync(source.fd).size;
+        if (size <= 0 || size > 12 * 1024 * 1024) {
+          return undefined;
+        }
+        const buffer: ArrayBuffer = new ArrayBuffer(size);
+        fileIo.readSync(source.fd, buffer);
+        const bytes: Uint8Array = new Uint8Array(buffer);
+        const encoded: string = new util.Base64Helper().encodeToStringSync(bytes);
+        const payload: ImagePayload = { mediaType: this.imageMediaTypeOf(att.name), data: encoded, name: att.name };
+        return payload as Object;
+      } finally {
+        fileIo.closeSync(source);
+      }
+    } catch (err) {
+      Logger.warn('[SEND] image payload failed ' + att.name + ' '
+        + (err instanceof Error ? err.message : String(err)));
+      return undefined;
+    }
+  }
+
   private isImageAttachment(name: string): boolean {
     const lower: string = name.toLowerCase();
     return lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.png') ||
@@ -6750,6 +7354,15 @@ export struct ConversationPage {
               },
               fileCards: this.inlineAssistantFiles.get(entry.id) ?? this.fileCardsOf(entry),
               filesInline: this.inlineAssistantFiles.has(entry.id),
+              reasonFollowPaused: this.reasonFollowPausedIds.has(entry.id),
+              onToggleReasonFollow: () => {
+                if (this.reasonFollowPausedIds.has(entry.id)) {
+                  this.reasonFollowPausedIds.delete(entry.id);
+                } else {
+                  this.reasonFollowPausedIds.add(entry.id);
+                }
+                this.scheduleTimelineUpdate();
+              },
               onFileTap: (name: string, path: string, index: number, hasCounts: boolean) => {
                 // 内联在助手回复里的「已编辑文件」卡片：按该轮的变更 seq 拉差异弹窗
                 const inlineSeq: number | undefined = this.inlineChangeSeqByAssistant.get(entry.id);
@@ -6795,7 +7408,9 @@ export struct ConversationPage {
       .height('100%')
       .cachedCount(8)
       .scrollBar(BarState.Off)
-      .contentEndOffset(12)
+      // 时间线铺满整屏（dock 浮在上面）：列表末尾留出 dock 的高度，
+      // 运行条 / 最后一条内容才会停在输入框上方而不是被遮住。
+      .contentEndOffset(this.dockHeight + 8)
       // 运行条放在 List 之外（Stack 底部、列表下方）：以前它是 List 的最后一个 ListItem，
       // 列表任何一次结构变化都会把它卸掉再装回去 —— 表现就是「运行态不显示 / 只有页面在闪」。
       // 现在它独立于列表存在，运行状态一置位就稳定显示，列表怎么重建都不影响。
@@ -6900,7 +7515,8 @@ export struct ConversationPage {
           .shadow({ radius: 14, color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)', offsetX: 0, offsetY: 6 })
         }
         .width('100%')
-        .padding({ bottom: 10 })
+        // 回到底部按钮同样避让底部 dock，显示在输入框上方
+        .padding({ bottom: this.dockHeight + 10 })
         .justifyContent(FlexAlign.Center)
       }
     }
@@ -8770,11 +9386,11 @@ export struct ConversationPage {
         .alignItems(HorizontalAlign.Start)
         .padding({ top: 2, bottom: 2 })
         // APP 玻璃标准（见 common/AppGlass.ets）：侧栏就是这个标准的基准实现
-        .backgroundColor(appGlassFill(this.isDark))
-        .backdropBlur(appGlassBlur(this.isDark))
+        .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+        .backdropBlur(14)
         .borderRadius(APP_GLASS_RADIUS)
         .clip(true)
-        .border({ width: 1, color: appGlassBorderColor(this.isDark) })
+        .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
         .shadow(appGlassShadow(this.isDark))
         // 弹出动画对齐系统菜单（右上角「⋯」）：从锚点（右上角按钮）缩放 0.9 → 1 + 淡入
         .opacity(this.sessionPickerAnim)

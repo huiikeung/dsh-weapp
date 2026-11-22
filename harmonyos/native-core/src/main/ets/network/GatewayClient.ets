@@ -1814,11 +1814,14 @@ export class GatewayClient {
    * 请求 { type: 'attachment', sessionId, attachmentId }，响应帧带 data(base64) + attachment。
    */
   requestAttachment(sessionId: string, attachmentId: string): Promise<GatewayFrame> {
-    return this.enqueueRequest(
-      GatewayRequestFactory.make('attachment', 'attachment',
-        { 'sessionId': sessionId, 'attachmentId': attachmentId }, sessionId, undefined,
-        GatewayRequestLanePolicy.REJECT_IF_BUSY),
-      this.tunnelTimeout(30000));
+    // 图片回显常常要同时拉好几张：REJECT_IF_BUSY 会让「第二张起」立刻以 request busy 失败，
+    // 界面上就是「图片加载失败」。改成 FIFO 排队，一张一张来。
+    // 同时超时不算连接坏（只是这张图没拿到），避免为一张图把整条 WebSocket 打断。
+    const request: GatewayRequest = GatewayRequestFactory.make('attachment', 'attachment',
+      { 'sessionId': sessionId, 'attachmentId': attachmentId }, sessionId, undefined,
+      GatewayRequestLanePolicy.FIFO, 30000);
+    request.timeoutIsFatal = false;
+    return this.enqueueRequest(request, this.tunnelTimeout(30000));
   }
 
   /** 网关是否支持回合文件变更快照：按连接态尝试请求，旧网关会在请求失败时标为不可用。 */
@@ -2296,20 +2299,41 @@ export class GatewayClient {
     const request: GatewayRequest = GatewayRequestFactory.message(text, [], sessionId, undefined, 'Asia/Shanghai');
     // 乐观置为「运行中」：turns 可能要几百毫秒才回第一帧事件，
     // 这段时间里首页列表不该还显示「已完成」。
-    SessionStore.get().notifySessionStarted(sessionId);
-    // 立即本地回显（对齐小程序 appendLocalUserRow）：不等网关 echo
-    SessionStore.get().appendOptimisticUser(text, 0);
+    // 运行中发消息 = 进入消息队列（由用户点「立即发送」才插话）；
+    // 这里不要再本地回显成会话里的用户气泡，否则看起来像「已经直接发出去了」。
+    const store: SessionStore = SessionStore.get();
+    if (!store.isRunning()) {
+      store.notifySessionStarted(sessionId);
+      // 立即本地回显（对齐小程序 appendLocalUserRow）：不等网关 echo
+      store.appendOptimisticUser(text, 0);
+    }
     this.requestGateway(request, 60000).catch((error: Error) => Logger.warn('message request failed: ' + error.message));
     return true;
   }
 
   sendUserMessageWithAttachments(text: string, sessionId: string, files: Object[]): Promise<GatewayFrame> {
-    SessionStore.get().notifySessionStarted(sessionId);
-    SessionStore.get().appendOptimisticUser(text, files.length);
+    const store: SessionStore = SessionStore.get();
+    if (!store.isRunning()) {
+      store.notifySessionStarted(sessionId);
+      store.appendOptimisticUser(text, files.length);
+    }
     this.requestSeq += 1;
     const requestId: string = 'message-' + this.requestSeq;
     const payload: Record<string, Object> = { 'type': 'message', 'requestId': requestId, 'sessionId': sessionId,
       'text': text, 'images': [], 'attachments': [], 'files': files, 'clientTimeZone': 'Asia/Shanghai' };
+    return this.request(JSON.stringify(payload), 'sent', 60000);
+  }
+
+  /**
+   * 带图片/文件发送：图片走 images(base64) —— 网关会把它建成 type=image 的内容块，
+   * 这样 host 的「按 id 回读附件」才能命中（file 块不在 host 的引用索引里，重进会话就只剩空白）。
+   * 文件仍走上传回执 receipts。
+   */
+  sendUserMessageWithMedia(text: string, sessionId: string, images: Object[], files: Object[]): Promise<GatewayFrame> {
+    this.requestSeq += 1;
+    const requestId: string = 'message-' + this.requestSeq;
+    const payload: Record<string, Object> = { 'type': 'message', 'requestId': requestId, 'sessionId': sessionId,
+      'text': text, 'images': images, 'attachments': [], 'files': files, 'clientTimeZone': 'Asia/Shanghai' };
     return this.request(JSON.stringify(payload), 'sent', 60000);
   }
 

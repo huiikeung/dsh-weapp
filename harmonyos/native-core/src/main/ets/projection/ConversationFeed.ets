@@ -174,6 +174,8 @@ export class ConversationFeedEntry {
   turnMetaText: string = '';
   /** 本轮用量明细（点用量胶囊时在按钮上方弹出） */
   turnUsageDetail: string = '';
+  /** 正文里已用 Markdown 引用的图片 id：行尾图片网格要把它们排除，避免同一张图显示两次 */
+  inlineImageIds: string[] = [];
   /** 用量弹窗标题行右侧的精确总量（如 8,853,566 tok） */
   turnUsageTotal: string = '';
   /** 用量弹窗分项行（label\u0001value） */
@@ -417,6 +419,8 @@ export class ConversationFeed {
     const groups: ConversationFeedEntry[] = [];
     let open: ConversationFeedEntry | null = null;
     let lastUserEpoch: number = 0;
+    // 工具结果里的图片（如 read_image 输出）先缓存，挂到随后的助手回复行上显示
+    const pendingToolImages: GatewayImageAttachment[] = [];
     // 「已编辑文件」行缓冲到本轮结尾再插入：投影里它出现在最终回复之前，
     // 直接 push 会变成卡片在回复上方（还被吸底挤出屏幕），用户看不到。
     const pendingFiles: ConversationFeedEntry[] = [];
@@ -437,6 +441,14 @@ export class ConversationFeed {
     for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
       const item: ConversationItem = items[itemIndex];
       const kind: string = item.kind as string;
+      // 工具结果里的图片先攒着，等本轮助手回复行建出来再挂上去（否则只存在于过程组里，没人渲染）
+      if ((kind === ConversationItemKind.TOOL_RESULT as string || kind === ConversationItemKind.TOOL as string
+        || kind === ConversationItemKind.JSON_TOOL as string) && item.images !== undefined
+        && item.images.length > 0) {
+        for (const one of item.images) {
+          pendingToolImages.push(one as GatewayImageAttachment);
+        }
+      }
       if (kind === ConversationItemKind.USER as string) {
         // 新一轮开始前，把上一轮缓冲的「已编辑文件」行落位
         for (const pending of pendingFiles) {
@@ -544,6 +556,36 @@ export class ConversationFeed {
           filesRest.push(att);
         }
       }
+      // 工具产出的图片只有「回复正文真正用 Markdown 引用了」才收集：
+      // 否则每个调用过 read_image / 截图工具的回合都会在末尾多出一张图（用户明确不要）。
+      if (kind === ConversationItemKind.ASSISTANT as string && pendingToolImages.length > 0) {
+        for (const pending of pendingToolImages) {
+          const pendingName: string = pending.name === undefined ? '' : pending.name;
+          if (!ConversationFeed.referencedInText(item.text, pendingName)) {
+            continue;
+          }
+          let dup: boolean = false;
+          for (const one of imgs) {
+            if (one.attachmentId === pending.attachmentId) {
+              dup = true;
+            }
+          }
+          if (!dup) {
+            imgs.push(pending);
+          }
+        }
+        pendingToolImages.length = 0;
+      }
+      // 正文 Markdown 里以文件名引用了哪些图（如 ![…](/tmp/style_mock2.png)）：
+      // 这些图要在正文对应位置内联渲染，行尾图片网格不再重复显示。
+      const inlineIds: string[] = [];
+      for (const one of imgs) {
+        const imageName: string = one.name === undefined ? '' : one.name;
+        if (ConversationFeed.referencedInText(item.text, imageName)) {
+          inlineIds.push(one.attachmentId);
+        }
+      }
+      message.inlineImageIds = inlineIds;
       message.images = imgs;
       message.imageCount = imgs.length;
       message.localImages = item.localImagePaths === undefined ? [] : item.localImagePaths.slice();
@@ -555,6 +597,8 @@ export class ConversationFeed {
       groups.push(pending);
     }
     pendingFiles.length = 0;
+    // 未在正文引用的工具图片直接丢弃（不追加到回复末尾）
+    pendingToolImages.length = 0;
     ConversationFeed.finishGroups(groups, running, lastUserEpoch);
     ConversationFeed.applyCopyRules(groups);
     ConversationFeed.applyTurnFooters(groups);
@@ -589,6 +633,30 @@ export class ConversationFeed {
   /**
    * 失败码 → 人话（对齐 DSH 客户端 FAILURE_COPY：只对少数已知码特殊处理，其余给通用文案）。
    */
+  /** 正文里是否有 ![](…/name) 这种 Markdown 图片引用（按文件名精确匹配，避免“正文提到文件名”就误判）。 */
+  static referencedInText(text: string, name: string): boolean {
+    if (name.length === 0 || text.length === 0) {
+      return false;
+    }
+    let from: number = 0;
+    while (true) {
+      const at: number = text.indexOf('](', from);
+      if (at < 0) {
+        return false;
+      }
+      const close: number = text.indexOf(')', at + 2);
+      if (close < 0) {
+        return false;
+      }
+      const src: string = text.substring(at + 2, close).trim();
+      const base: string = src.split('/').pop() ?? '';
+      if (base === name) {
+        return true;
+      }
+      from = close + 1;
+    }
+  }
+
   /** 文件名是否是图片扩展名（jpg/jpeg/png/gif/webp/heic/bmp）。 */
   static imageName(name: string): boolean {
     const lower: string = name.toLowerCase();

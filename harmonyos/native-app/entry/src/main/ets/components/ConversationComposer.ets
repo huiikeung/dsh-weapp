@@ -10,7 +10,8 @@
  * 视觉来源：miniprogram/pages/session/session.wxss 5569-5602（两态）、893-1050、2694-2800。
  * 约束：ArkTS 严格模式；颜色全部字符串字面量。
  */
-import { LengthMetrics } from '@kit.ArkUI';
+import { display, LengthMetrics } from '@kit.ArkUI';
+import { KeyCode } from '@kit.InputKit';
 import type { ModelMenuItem, PickedAttachment } from 'nativecore';
 
 /** 指标菜单行（鸿蒙原生 Menu 的 MenuItem：content 在左，labelInfo 数值在右） */
@@ -60,7 +61,8 @@ export interface RefSessionItem {
 @Component
 export struct ConversationComposer {
   @Prop isDark: boolean = false;
-  @Prop draft: string = '';
+  /** 草稿：外部（页面）改写时同步解析斜杠指令前缀，输入框里把 /goal、/plan 显示成蓝色 */
+  @Prop @Watch('onDraftPropChanged') draft: string = '';
   @Prop placeholder: string = '描述你想要构建的内容';
   @Prop connected: boolean = false;
   @Prop running: boolean = false;
@@ -142,9 +144,15 @@ export struct ConversationComposer {
   onRemoveRefChip: (key: string) => void = () => {};
   /** 「@」菜单打开时若还没有目录数据，让页面去拉一次工作区目录 */
   onRequestRefDirs: () => void = () => {};
-  onPickRefPath: (path: string) => void = () => {};
+  /** 选中 @ 菜单里的文件/文件夹（isDirectory 区分文件夹 → 引用 chip 用文件夹图标 + 末尾斜杠） */
+  onPickRefPath: (path: string, isDirectory: boolean) => void = () => {};
   /** 「+」弹层展开态（bindMenu 控制变量） */
   @State attachMenuOpen: boolean = false;
+  /** 斜杠指令前缀：草稿以 /goal、/plan 开头时，输入框把前缀显示成蓝色（对齐小程序 composer-slash-token） */
+  @State draftToken: string = '';
+  @State draftTokenLabel: string = '';
+  /** 文字域光标位置（判断退格是否已退到蓝色 token 之后，用于一键删除指令） */
+  @State draftCaret: number = 0;
   /** 输入 / 或 @ 触发的菜单：'' 关闭 / 'command' 指令 / 'ref' 引用 */
   @State triggerMode: string = '';
   @State triggerQuery: string = '';
@@ -204,6 +212,127 @@ export struct ConversationComposer {
 
   // ==================== 状态 ====================
   /** 展开态：聚焦、有草稿或有附件（对齐小程序 composer-expanded 判定） */
+  aboutToAppear(): void {
+    this.resolveDraftToken(this.draft);
+  }
+
+  /** 页面改写草稿（如从「+」菜单选目标/计划、发送后清空）时重新解析指令前缀 */
+  onDraftPropChanged(): void {
+    this.resolveDraftToken(this.draft);
+  }
+
+  /** 指令名 → 蓝色 token 文案（对齐小程序 commandLabel：内置指令用中文，技能用 /name） */
+  private slashCommandLabel(name: string): string {
+    if (name === 'compact') {
+      return '/压缩';
+    }
+    if (name === 'permission') {
+      return '/权限';
+    }
+    if (name === 'model') {
+      return '/模型';
+    }
+    if (name === 'goal') {
+      return '/目标';
+    }
+    if (name === 'plan') {
+      return '/计划';
+    }
+    return '/' + name;
+  }
+
+  /** 是否为已识别的斜杠指令：内置指令或网关下发的技能（技能名即指令名） */
+  private isKnownSlashCommand(name: string): boolean {
+    for (const command of this.commandList()) {
+      if (command.name === name) {
+        return true;
+      }
+    }
+    for (const skill of this.skills) {
+      if (skill.name === name) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 草稿 → 需要蓝色显示的指令前缀。
+   * 覆盖所有从「+ / 「/」菜单选中的指令与技能（/目标、/压缩、/code-review …）：
+   * 输入框显示蓝色 token，文字域只承载参数。
+   */
+  private resolveDraftToken(text: string): void {
+    this.draftToken = '';
+    this.draftTokenLabel = '';
+    if (text.length < 2 || text.charAt(0) !== '/') {
+      return;
+    }
+    const spaceIndex: number = text.indexOf(' ');
+    const name: string = spaceIndex < 0 ? text.substring(1) : text.substring(1, spaceIndex);
+    if (name.length === 0 || (spaceIndex >= 0 && spaceIndex !== name.length + 1)) {
+      return;
+    }
+    if (!this.isKnownSlashCommand(name)) {
+      return;
+    }
+    this.draftToken = '/' + name;
+    this.draftTokenLabel = this.slashCommandLabel(name);
+  }
+
+  /** 文字域显示值：有指令前缀时只显示参数部分（前缀由蓝色 Text 单独渲染） */
+  private draftArgument(): string {
+    if (this.draftToken.length === 0) {
+      return this.draft;
+    }
+    if (this.draft.length <= this.draftToken.length) {
+      return '';
+    }
+    const rest: string = this.draft.substring(this.draftToken.length);
+    return rest.startsWith(' ') ? rest.substring(1) : rest;
+  }
+
+  /**
+   * 文字域展示值：指令前缀不进文字域，用一个零宽占位符（U+200B）代表它。
+   * 这样输入法退格删光参数后再退一格会删掉占位符 → onChange 收到空串 → 一键移除整条指令。
+   */
+  private draftFieldText(): string {
+    const argument: string = this.draftArgument();
+    return this.draftToken.length > 0 ? '\u200B' + argument : argument;
+  }
+
+  /** 输入框只改参数：拼回「/token 参数」写回草稿 */
+  private applyDraftArgument(value: string): void {
+    const next: string = this.draftToken.length > 0 ? this.draftToken + ' ' + value : value;
+    this.resolveDraftToken(next);
+    this.onDraft(next);
+    this.updateTrigger(next);
+  }
+
+  /**
+   * 输入法退格：光标已经在文字域最前面（或参数为空）时，一次退格就删掉整条蓝色指令。
+   * 之前蓝色 token 是文字域之外的独立节点，退格只能删参数，退到底也删不掉 token。
+   */
+  private onDraftKeyEvent(event: KeyEvent): void {
+    if (this.draftToken.length === 0) {
+      return;
+    }
+    if (event.type !== KeyType.Down || event.keyCode !== KeyCode.KEYCODE_DEL) {
+      return;
+    }
+    const argument: string = this.draftArgument();
+    if (argument.length === 0 || this.draftCaret <= 0) {
+      this.clearDraftToken();
+    }
+  }
+
+  /** 点蓝色指令前缀 = 取消这条指令（文字域为空时也能退出该指令） */
+  private clearDraftToken(): void {
+    this.draftToken = '';
+    this.draftTokenLabel = '';
+    this.onDraft('');
+    this.updateTrigger('');
+  }
+
   private expanded(): boolean {
     return this.focused || this.draft.length > 0 || this.attachmentCount > 0;
   }
@@ -435,8 +564,8 @@ export struct ConversationComposer {
   }
 
   private sheetCardFill(): string {
-    // 与返回按钮的玻璃盘同一底色（深色贴黑、浅色接近纯白）
-    return this.isDark ? 'rgba(8,8,10,0.60)' : 'rgba(255,255,255,0.80)';
+    // 输入卡玻璃底：降低不透明度，让时间线文字滚到输入框下面时也能透出来（模糊仍保留）
+    return this.isDark ? 'rgba(8,8,10,0.30)' : 'rgba(255,255,255,0.34)';
   }
 
   /**
@@ -511,6 +640,10 @@ export struct ConversationComposer {
    */
   /** 引用 chip 的图标：会话=气泡，目录=文件夹，文件=文档 */
   private refChipIcon(kind: string): Resource {
+    if (kind === 'quote') {
+      // 引用回复：气泡图标（与「引用：xxx」语义一致）
+      return $r('app.media.cmd_session');
+    }
     if (kind === 'session') {
       return $r('app.media.cmd_session');
     }
@@ -533,23 +666,91 @@ export struct ConversationComposer {
     return this.isDark ? 'rgba(143,180,242,0.16)' : 'rgba(46,107,230,0.10)';
   }
 
+  /** 是否有「引用回复」chip（kind='quote'）：引用用独立卡片样式，不混进普通 chip 行 */
+  private hasQuote(): boolean {
+    for (const chip of this.refChips) {
+      if (chip.kind === 'quote') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private hasPlainRef(): boolean {
+    for (const chip of this.refChips) {
+      if (chip.kind !== 'quote') {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private quoteChip(): RefChipItem | null {
+    for (const chip of this.refChips) {
+      if (chip.kind === 'quote') {
+        return chip;
+      }
+    }
+    return null;
+  }
+
+  /** 引用卡片：灰色圆角块 + 引文 + 右上角 ×（对齐 iOS 新版引用样式） */
+  @Builder
+  quoteCard() {
+    Row() {
+      Text(this.quoteChip() === null ? '' : (this.quoteChip() as RefChipItem).label)
+        .fontSize(15)
+        .lineHeight(21)
+        .fontColor(this.isDark ? 'rgba(241,244,250,0.92)' : 'rgba(16,19,24,0.9)')
+        .maxLines(3)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+      Stack() {
+        Text('×')
+          .fontSize(12)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.isDark ? 'rgba(0,0,0,0.75)' : 'rgba(255,255,255,0.95)')
+      }
+      .width(20)
+      .height(20)
+      .borderRadius(10)
+      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.92)' : 'rgba(16,19,24,0.72)')
+      .alignContent(Alignment.Center)
+      .margin({ left: 8 })
+      .onClick(() => {
+        const chip: RefChipItem | null = this.quoteChip();
+        if (chip !== null) {
+          this.onRemoveRefChip(chip.key);
+        }
+      })
+    }
+    .width('100%')
+    .padding({ left: 14, right: 10, top: 10, bottom: 10 })
+    .borderRadius(14)
+    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.05)')
+    .alignItems(VerticalAlign.Top)
+    .margin({ bottom: 8 })
+  }
+
   /** 已选引用：蓝字 + 图标 + ×（对齐 DSH / 小程序的引用 chip，文件/文件夹/会话同一套样式） */
   @Builder
   refChipsRow() {
-    Row({ space: 6 }) {
+    Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.Start, alignItems: ItemAlign.Center }) {
       ForEach(this.refChips, (chip: RefChipItem) => {
-        Row({ space: 4 }) {
+        // 对齐小程序 composer-ref-chip / 鸿蒙端截图：透明底，蓝色图标 + 蓝色标题 + 浅色 ×
+        Row({ space: 5 }) {
           Image(this.refChipIcon(chip.kind))
-            .width(12)
-            .height(12)
+            .width(15)
+            .height(15)
             .objectFit(ImageFit.Contain)
             .colorFilter(this.iconTintRgba(this.refChipInk()))
           Text(chip.label)
             .fontSize(14)
+            .fontWeight(FontWeight.Medium)
             .fontColor(this.refChipInk())
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .constraintSize({ maxWidth: 140 })
+            .constraintSize({ maxWidth: 190 })
           Text('×')
             .fontSize(13)
             .fontColor(this.isDark ? 'rgba(143,180,242,0.75)' : 'rgba(46,107,230,0.75)')
@@ -557,9 +758,10 @@ export struct ConversationComposer {
               this.onRemoveRefChip(chip.key);
             })
         }
-        .padding({ left: 6, right: 6, top: 3, bottom: 3 })
-        .borderRadius(6)
-        .backgroundColor(this.refChipFill())
+        .padding({ left: 2, right: 2, top: 2, bottom: 2 })
+        .margin({ right: 12, bottom: 2 })
+        .backgroundColor(Color.Transparent)
+        .visibility(chip.kind === 'quote' ? Visibility.None : Visibility.Visible)
       }, (chip: RefChipItem) => chip.key)
     }
     .width('100%')
@@ -627,7 +829,34 @@ export struct ConversationComposer {
 
   @Builder
   draftField() {
-    TextArea({ text: this.draft, placeholder: this.placeholder })
+    Row({ space: 0 }) {
+      // 斜杠指令前缀：蓝色显示（对齐小程序 composer-slash-token），点一下取消该指令
+      if (this.draftTokenLabel.length > 0) {
+        Text(this.draftTokenLabel + ' ')
+          .fontSize(14)
+          .fontWeight(350)
+          .lineHeight(20)
+          .fontColor('#2E6BE6')
+          .padding({ top: 4 })
+          .maxLines(1)
+          .onClick(() => {
+            this.clearDraftToken();
+          })
+      }
+      Stack({ alignContent: Alignment.TopStart }) {
+        // 有蓝色指令前缀且还没输入参数时，用灰色提示代替被零宽占位符占掉的 placeholder
+        if (this.draftToken.length > 0 && this.draftArgument().length === 0) {
+          Text(this.placeholder)
+            .fontSize(14)
+            .fontWeight(350)
+            .lineHeight(20)
+            .fontColor(this.placeholderColor())
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .padding({ top: 4 })
+            .hitTestBehavior(HitTestMode.None)
+        }
+      TextArea({ text: this.draftFieldText(), placeholder: this.placeholder })
       .id('composer-draft-area')
       .width('100%')
       // 文字度量对齐小程序 .composer-input：28rpx≈14vp / 字重 350 / 行高 1.4(≈20vp)
@@ -667,8 +896,25 @@ export struct ConversationComposer {
         }, 140);
       })
       .onChange((value: string) => {
-        this.onDraft(value);
-        this.updateTrigger(value);
+        if (this.draftToken.length === 0) {
+          this.applyDraftArgument(value);
+          return;
+        }
+        // 文字域开头的零宽占位符代表蓝色指令：它被退格删掉（value 为空）时一键移除整条指令；
+        // 其余情况把占位符剥掉后按参数写回草稿。
+        if (value.length === 0) {
+          this.clearDraftToken();
+          return;
+        }
+        this.applyDraftArgument(value.split('\u200B').join(''));
+      })
+      // 光标位置：退格删到 token 后面时据此判断「一次退格删整条指令」
+      .onTextSelectionChange((selectionStart: number, selectionEnd: number) => {
+        this.draftCaret = selectionStart;
+      })
+      // 输入法退格：蓝色指令前缀不在文字域里，退到最前面时一键删除整条指令
+      .onKeyEvent((event: KeyEvent) => {
+        this.onDraftKeyEvent(event);
       })
       .bindMenu(this.triggerMenuOpen, this.triggerMenuPanel(), {
         placement: Placement.BottomLeft,
@@ -680,6 +926,11 @@ export struct ConversationComposer {
           this.triggerMode = '';
         }
       })
+      }
+      .layoutWeight(1)
+    }
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
   }
 
   @Builder
@@ -717,14 +968,91 @@ export struct ConversationComposer {
       .fontSize(12)
       .fontColor(this.mutedText())
       .width('100%')
-      .padding({ left: 26, right: 18, top: 12, bottom: 4 })
+      .padding({ left: 16, right: 20, top: 12, bottom: 4 })
+  }
+
+  /**
+   * @ 菜单里的文件/文件夹行（对齐小程序 file-mention-row）：
+   * 点整行 = 把该条目作为引用 chip；文件夹右侧的 › 才是「进入目录」。
+   */
+  @Builder
+  refMenuRow(dir: RefDirItem) {
+    Row({ space: 10 }) {
+      Image(dir.isDirectory ? $r('app.media.ref_folder') : $r('app.media.attach_file'))
+        .width(18)
+        .height(18)
+        .objectFit(ImageFit.Contain)
+        .colorFilter(this.iconTintRgba(this.refChipInk()))
+      Text(dir.name + (dir.isDirectory ? '/' : ''))
+        .fontSize(14)
+        .fontColor(this.menuLabelColor())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+      if (dir.isDirectory) {
+        Row() {
+          Image($r('app.media.chev_right_gray'))
+            .width(14)
+            .height(14)
+            .objectFit(ImageFit.Contain)
+            .opacity(0.7)
+        }
+        .width(30)
+        .height(30)
+        .borderRadius(15)
+        .justifyContent(FlexAlign.Center)
+        .onClick(() => {
+          // 进目录不关菜单：列表就地切换到该文件夹内容
+          this.onRefDirOpen(dir.path);
+        })
+      } else {
+        Text('文件')
+          .fontSize(12)
+          .fontColor(this.mutedText())
+      }
+    }
+    .width('100%')
+    .height(46)
+    .padding({ left: 16, right: 20 })
+    .borderRadius(10)
+    .stateStyles({
+      pressed: {
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+      },
+      normal: {
+        .backgroundColor(Color.Transparent)
+      }
+    })
+    .onClick(() => {
+      this.triggerMenuOpen = false;
+      this.triggerMode = '';
+      this.onPickRefPath(dir.path, dir.isDirectory);
+    })
+  }
+
+  /** 屏幕宽度（vp）：菜单宽度跟随输入框 */
+  private screenWidthVp(): number {
+    try {
+      return this.getUIContext().px2vp(display.getDefaultDisplaySync().width);
+    } catch (err) {
+      return 360;
+    }
+  }
+
+  /**
+   * 弹层宽度：对齐输入框宽度（输入条左右各 14vp 内边距），再各留 10vp 余量，
+   * 避免系统菜单容器的内边距把最右侧文字裁掉。
+   */
+  private menuPanelWidth(): number {
+    const width: number = this.screenWidthVp() - 48;
+    return width > 260 ? width : 260;
   }
 
   /** 「+」弹层的一行：左图标 + 标题，右侧灰色说明（对齐截图样式） */
   @Builder
   attachMenuRow(icon: Resource, iconDark: Resource, tintDark: boolean, label: string, english: string,
     desc: string, onTap: () => void) {
-    Row({ space: 12 }) {
+    Row({ space: 8 }) {
       if (this.isDark) {
         Image(iconDark)
           .width(20)
@@ -737,24 +1065,33 @@ export struct ConversationComposer {
           .height(20)
           .objectFit(ImageFit.Contain)
       }
+      // 标题按内容宽度（不占满整行），英文别名紧跟在标题后面
       Text(label)
-        .fontSize(15)
+        .fontSize(14)
         .fontColor(this.menuLabelColor())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .constraintSize({ maxWidth: this.menuPanelWidth() * 0.42 })
       if (english.length > 0) {
         Text(english)
-          .fontSize(12)
+          .fontSize(11)
           .fontColor(this.mutedText())
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .constraintSize({ maxWidth: this.menuPanelWidth() * 0.18 })
       }
-      Blank()
       Text(desc)
-        .fontSize(12)
+        .fontSize(11.5)
         .fontColor(this.mutedText())
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .textAlign(TextAlign.End)
+        // 右侧说明优先展示（左侧标题可收缩），比例 2 给说明更多空间
+        .layoutWeight(2)
     }
-    .width(340)
+    .width('100%')
     .height(46)
-    .padding({ left: 26, right: 18 })
+    .padding({ left: 16, right: 20 })
     .borderRadius(10)
     .stateStyles({
       pressed: {
@@ -817,6 +1154,10 @@ export struct ConversationComposer {
     const query: string = this.triggerQuery.trim().toLowerCase();
     const out: CommandMenuItem[] = [];
     for (const item of this.commandList()) {
+      // 目标 / 计划归在「添加」分组（与「+」菜单一致），「指令」分组不再重复列出
+      if (item.name === 'goal' || item.name === 'plan') {
+        continue;
+      }
       if (query.length > 0
         && item.name.toLowerCase().indexOf(query) < 0
         && item.label.indexOf(query) < 0
@@ -899,6 +1240,9 @@ export struct ConversationComposer {
   @Builder
   triggerMenuPanel() {
     Column({ space: 0 }) {
+      // 内容超高时用内部 Scroll（隐藏滚动条）：交给系统菜单容器滚会在右侧露出滚动条
+      Scroll() {
+        Column({ space: 0 }) {
       if (this.triggerMode === 'command') {
         // 「/」= 「+」的全部内容（添加 + 指令）+ 技能
         this.attachMenuSection('添加')
@@ -946,19 +1290,7 @@ export struct ConversationComposer {
         // 「@」= 工作区文件与文件夹 + 对话列表全部会话
         this.attachMenuSection(this.refDirPath.length > 0 ? this.refDirPath : '工作区')
         ForEach(this.filteredRefDirs(), (dir: RefDirItem) => {
-          // 文件夹/文件图标取自小程序（menu-folder / menu-chat-file），深色主题下提亮
-          this.attachMenuRow(dir.isDirectory ? $r('app.media.ref_folder') : $r('app.media.attach_file'),
-            dir.isDirectory ? $r('app.media.ref_folder') : $r('app.media.attach_file'),
-            true, dir.name, '', dir.isDirectory ? '文件夹' : '文件', () => {
-              if (dir.isDirectory) {
-                // 进目录不关菜单：列表就地切换到该文件夹内容
-                this.onRefDirOpen(dir.path);
-              } else {
-                this.triggerMenuOpen = false;
-                this.triggerMode = '';
-                this.onPickRefPath(dir.path);
-              }
-            })
+          this.refMenuRow(dir)
         }, (dir: RefDirItem) => dir.path)
         this.attachMenuSection('会话')
         ForEach(this.filteredRefSessions(), (item: RefSessionItem) => {
@@ -970,39 +1302,60 @@ export struct ConversationComposer {
             })
         }, (item: RefSessionItem) => item.id)
       }
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+      }
+      .constraintSize({ maxHeight: 420 })
+      .scrollBar(BarState.Off)
+      .align(Alignment.Top)
+      .width('100%')
     }
-    .alignItems(HorizontalAlign.Start)
+    .width(this.menuPanelWidth())
     .padding({ top: 6, bottom: 8 })
+    .alignItems(HorizontalAlign.Start)
   }
 
   /** 「+」弹层：添加（图片/文件）+ 指令（压缩/权限/模型），对齐小程序 composer 菜单 */
   @Builder
   attachMenuPanel() {
     Column({ space: 0 }) {
-      this.attachMenuSection('添加')
-      this.attachMenuRow($r('app.media.menu_image'), $r('app.media.menu_image'), true, '相册图片', '', '从相册选择', () => {
-        this.onPickImages();
-      })
-      this.attachMenuRow($r('app.media.menu_external_file'), $r('app.media.menu_external_file'), true, '文件', '', '选择本地文件', () => {
-        this.onPickFiles();
-      })
-      this.attachMenuRow($r('app.media.cmd_goal'), $r('app.media.cmd_goal_dark'), false, '目标', 'goal', '设置或查看长期任务目标', () => {
-        this.onPickCommand('goal');
-      })
-      this.attachMenuRow($r('app.media.cmd_plan'), $r('app.media.cmd_plan_dark'), false, '计划', 'plan', '进入或退出计划模式', () => {
-        this.onPickCommand('plan');
-      })
-      this.attachMenuSection('指令')
-      this.attachMenuRow($r('app.media.cmd_compact'), $r('app.media.cmd_compact_dark'), false, '压缩', 'compact', '压缩以上对话内容', () => {
-        this.onPickCommand('compact');
-      })
-      this.attachMenuRow($r('app.media.cmd_permission'), $r('app.media.cmd_permission_dark'), false, '权限', 'permission', '切换权限预设', () => {
-        this.onPickCommand('permission');
-      })
-      this.attachMenuRow($r('app.media.cmd_model'), $r('app.media.cmd_model_dark'), false, '模型', 'model', '选择当前会话的模型', () => {
-        this.onPickCommand('model');
-      })
+      // 与「/」弹窗同一套：输入框宽度、内部滚动隐藏滚动条
+      Scroll() {
+        Column({ space: 0 }) {
+          this.attachMenuSection('添加')
+          this.attachMenuRow($r('app.media.menu_image'), $r('app.media.menu_image'), true, '相册图片', '', '从相册选择', () => {
+            this.onPickImages();
+          })
+          this.attachMenuRow($r('app.media.menu_external_file'), $r('app.media.menu_external_file'), true, '文件', '', '选择本地文件', () => {
+            this.onPickFiles();
+          })
+          this.attachMenuRow($r('app.media.cmd_goal'), $r('app.media.cmd_goal_dark'), false, '目标', 'goal', '设置或查看长期任务目标', () => {
+            this.onPickCommand('goal');
+          })
+          this.attachMenuRow($r('app.media.cmd_plan'), $r('app.media.cmd_plan_dark'), false, '计划', 'plan', '进入或退出计划模式', () => {
+            this.onPickCommand('plan');
+          })
+          this.attachMenuSection('指令')
+          this.attachMenuRow($r('app.media.cmd_compact'), $r('app.media.cmd_compact_dark'), false, '压缩', 'compact', '压缩以上对话内容', () => {
+            this.onPickCommand('compact');
+          })
+          this.attachMenuRow($r('app.media.cmd_permission'), $r('app.media.cmd_permission_dark'), false, '权限', 'permission', '切换权限预设', () => {
+            this.onPickCommand('permission');
+          })
+          this.attachMenuRow($r('app.media.cmd_model'), $r('app.media.cmd_model_dark'), false, '模型', 'model', '选择当前会话的模型', () => {
+            this.onPickCommand('model');
+          })
+        }
+        .alignItems(HorizontalAlign.Start)
+        .width('100%')
+      }
+      .constraintSize({ maxHeight: 420 })
+      .scrollBar(BarState.Off)
+      .align(Alignment.Top)
+      .width('100%')
     }
+    .width(this.menuPanelWidth())
     .alignItems(HorizontalAlign.Start)
     .padding({ top: 6, bottom: 8 })
   }
@@ -1981,7 +2334,10 @@ export struct ConversationComposer {
       // 最外圈白色光圈层：白色包边裹住卡片，外圈再叠一层柔和光晕（参考截图的光圈）
       Column() {
       Column() {
-        if (this.refChips.length > 0) {
+        if (this.hasQuote()) {
+          this.quoteCard()
+        }
+        if (this.hasPlainRef()) {
           this.refChipsRow()
         }
         if (this.attachmentCount > 0) {
@@ -2151,18 +2507,19 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
-        colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
-      })
-      .backgroundColor(this.sheetCardFill())
-      .border({ width: 0.5, color: this.cardEdge() })
+      // 与左上角返回按钮同一套玻璃背景
+      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.40)' : 'rgba(255,255,255,0.16)')
+      // 模糊调小：文字轮廓更清楚
+      .backdropBlur(8)
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
 
       }
       .width('100%')
       // 光圈层：统一 1.3vp 白环（深/浅色同一厚度，细而可见）
       .padding(1.3)
       .borderRadius(25.3)
-      .backgroundColor(this.ringColor())
+      // 光圈层不要再用白色底：白底会透在卡片下面，把输入框「垫」得比返回按钮更实
+      .backgroundColor(Color.Transparent)
       // 与返回按钮同一套悬浮投影：中性色、向下偏移 2vp
       .shadow({ radius: 6, color: this.haloShadow(), offsetX: 0, offsetY: 2 })
 

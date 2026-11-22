@@ -5,6 +5,7 @@ import { GatewayClient } from '../network/GatewayClient';
 import { EventProjector } from './EventProjector';
 import { TeamStore } from './TeamStore';
 import { Logger } from '../common/Logger';
+import { AttachmentImageCache } from '../common/AttachmentImageCache';
 import { isOlderHistoryPage } from './HistoryPageMatcher';
 import { CONVERSATION_LIVE_SEQ_BASE, ConversationItem, ConversationItemKind, ConversationProjectionLabels, ConversationProjector } from '../projection/ConversationProjection';
 import { ConversationFeed } from '../projection/ConversationFeed';
@@ -52,9 +53,19 @@ function sessionIdLabel(id: string): string {
   return head.length > 8 ? head.substring(0, 8) : head;
 }
 
+/** 队列消息里的图片引用（主机 UserMessage content 里的 image 块） */
+export interface QueueImageRef {
+  attachmentId: string;
+  mediaType: string;
+  name: string;
+  bytes?: number;
+}
+
 export interface QueueItem {
   id: string;
   preview: string;
+  /** 这条排队消息带有的图片（按 attachmentId 可拉取缩略图） */
+  images?: QueueImageRef[];
   /** 附件数量（图片/文件）：对齐小程序 queue-attachment-label */
   attachmentCount: number;
   /** queued（下一轮）/ steering（本轮插话）/ context（插件上下文） */
@@ -2332,6 +2343,12 @@ export class SessionStore {
           if (proj !== null && proj !== undefined) {
             proj.attachLocalImagesToLastUser(localPaths);
           }
+          // 同步认领进附件缓存：网关对「手机上传的 file 块」不提供按 id 回读
+          // （host 只认 type=image 的引用），重进会话会拉取失败 → 本机缓存兜底出图。
+          const ids: string[] = SessionStore.attachmentIdsOf(event.event.raw);
+          for (let index = 0; index < localPaths.length && index < ids.length; index++) {
+            AttachmentImageCache.adoptLocal(ids[index], '', 'image.png', localPaths[index]);
+          }
         }
       }
     }
@@ -2519,11 +2536,48 @@ export class SessionStore {
       if (preview.length === 0) {
         preview = str(raw, 'rawText') ?? '';
       }
+      // 从队列项里抽出图片附件：真正的消息体在 raw.message 里
+      // （raw = {id, placement, rpcId, message:{content:[image..., text...]}}）
+      const imageRefs: QueueImageRef[] = [];
+      const messageObj: Record<string, Object> | undefined = asRec(field(raw, 'message'));
+      const contentSource: Object = messageObj !== undefined ? messageObj : raw;
+      const contentBlocks: Object[] = arr(contentSource, 'content') ?? [];
+      const seenImageIds: Set<string> = new Set<string>();
+      const pushImage = (rec: Record<string, Object> | undefined): void => {
+        if (rec === undefined) {
+          return;
+        }
+        const attachment = asRec(field(rec, 'attachment')) ?? rec;
+        const attachmentId: string = str(attachment, 'attachmentId') ?? '';
+        if (attachmentId.length === 0) {
+          return;
+        }
+        if (seenImageIds.has(attachmentId)) {
+          return;
+        }
+        seenImageIds.add(attachmentId);
+        imageRefs.push({
+          attachmentId: attachmentId,
+          mediaType: str(attachment, 'mediaType') ?? 'image/jpeg',
+          name: str(attachment, 'name') ?? '',
+          bytes: num(attachment, 'bytes')
+        });
+      };
+      for (const block of contentBlocks) {
+        if (str(block, 'type') === 'image') {
+          pushImage(asRec(field(block, 'attachment')) ?? asRec(block));
+        }
+      }
+      const topImages: Object[] = arr(contentSource, 'images') ?? [];
+      for (const one of topImages) {
+        pushImage(asRec(one));
+      }
       items.push({
         id: id,
         preview: preview,
         attachmentCount: this.queueAttachmentCount(raw),
-        placement: str(raw, 'placement') ?? 'queued'
+        placement: str(raw, 'placement') ?? 'queued',
+        images: imageRefs
       });
     }
     this.queueItems = items;
@@ -2599,6 +2653,31 @@ export class SessionStore {
    * 回显到达：本地乐观行就此交棒给真实 user/message 行（对齐小程序 pending adoption）。
    * 发送是串行的，收到任意用户消息就把队首乐观行消掉，避免文本被网关规范化后出现双气泡。
    */
+  /** 从 user/message 原始 content 里按顺序取出附件 id（file / image 块）。 */
+  private static attachmentIdsOf(raw: Object | undefined): string[] {
+    const ids: string[] = [];
+    const data: Record<string, Object> | undefined = raw as Record<string, Object> | undefined;
+    if (data === undefined) {
+      return ids;
+    }
+    const content: Object[] = arr(data, 'content') ?? [];
+    for (const block of content) {
+      const type: string = str(block, 'type') ?? '';
+      if (type !== 'file' && type !== 'image') {
+        continue;
+      }
+      const attachment: Record<string, Object> | undefined = asRec(field(block, 'attachment'));
+      if (attachment === undefined) {
+        continue;
+      }
+      const id: string = str(attachment, 'attachmentId') ?? str(attachment, 'id') ?? '';
+      if (id.length > 0) {
+        ids.push(id);
+      }
+    }
+    return ids;
+  }
+
   private adoptOptimisticUser(echoed: string): void {
     if (this.optimisticUsers.length === 0) {
       return;
