@@ -1693,35 +1693,37 @@ export struct AppSettingsPage {
                   this.authorizeNotifications();
                 }
               })
-              this.divider()
-              // 直接写 onClick（不经 @Builder 函数参数）：部分 ArkUI 版本下 builder 传函数不触发
-              Row() {
-                Column({ space: 3 }) {
-                  Text('发送测试通知')
-                    .fontSize(16)
-                    .fontColor(this.textColor())
-                  Text(this.notificationHint.length > 0 ? this.notificationHint : '立即发一条系统通知，验证权限与通道是否正常')
-                    .fontSize(12)
-                    .lineHeight(17)
-                    .fontColor(this.notificationHint.length > 0 ? '#2E6BE6' : this.subColor())
+              // 仅在订阅通知开启时显示测试入口
+              if (this.notifyEnabled) {
+                this.divider()
+                // 直接写 onClick（不经 @Builder 函数参数）：部分 ArkUI 版本下 builder 传函数不触发
+                Row() {
+                  Column({ space: 3 }) {
+                    Text('发送测试通知')
+                      .fontSize(16)
+                      .fontColor(this.textColor())
+                    Text(this.notificationHint.length > 0 ? this.notificationHint : '立即发一条系统通知，验证权限与通道是否正常')
+                      .fontSize(12)
+                      .lineHeight(17)
+                      .fontColor(this.notificationHint.length > 0 ? '#2E6BE6' : this.subColor())
+                  }
+                  .alignItems(HorizontalAlign.Start)
+                  .layoutWeight(1)
+                  Text('›')
+                    .fontSize(18)
+                    .fontColor(this.subColor())
+                    .margin({ left: 8 })
                 }
-                .alignItems(HorizontalAlign.Start)
-                .layoutWeight(1)
-                Text('›')
-                  .fontSize(18)
-                  .fontColor(this.subColor())
-                  .margin({ left: 8 })
+                .width('100%')
+                .constraintSize({ minHeight: 44 })
+                .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+                .onClick(() => {
+                  this.sendTestNotification();
+                })
               }
-              .width('100%')
-              .constraintSize({ minHeight: 44 })
-              .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-              .onClick(() => {
-                this.sendTestNotification();
-              })
               this.divider()
-              this.toggleRow('微信 ClawBot 私聊接线', '将微信私聊接入指定 DSH 会话；微信凭据保存在电脑端', this.clawbotBridgeEnabled, (value: boolean) => {
-                this.clawbotBridgeEnabled = value;
-                PreferencesStore.get().putBoolean('clawbotBridgeEnabled', value);
+              this.rowDescPref('微信 ClawBot 私聊接线', '将微信私聊接入指定 DSH 会话；微信凭据保存在电脑端', 'clawbot', () => {
+                this.pageStack.pushPathByName('clawbot', null);
               })
             }
             .width('100%')
