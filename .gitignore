@@ -56,3 +56,6 @@ harmonyos/native-app/Crash_*.dmp
 harmonyos/native-app/entry/src/main/cpp/libtailscale_stub/
 # shell 误建的 Windows 环境变量目录
 /%SystemDrive%/
+
+# Local runtime state (device id etc.)
+.local/

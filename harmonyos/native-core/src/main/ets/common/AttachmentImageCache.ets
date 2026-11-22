@@ -92,6 +92,48 @@ export class AttachmentImageCache {
     return AttachmentImageCache.root.length > 0;
   }
 
+  /** 图片缓存目录总字节数（存储空间统计用）。 */
+  static bytes(): number {
+    if (!AttachmentImageCache.isReady()) {
+      return 0;
+    }
+    let total: number = 0;
+    try {
+      const names: string[] = fileIo.listFileSync(AttachmentImageCache.root);
+      for (const name of names) {
+        try {
+          total += fileIo.statSync(AttachmentImageCache.root + '/' + name).size;
+        } catch (err) {
+          // 单文件统计失败忽略
+        }
+      }
+    } catch (err) {
+      return 0;
+    }
+    return total;
+  }
+
+  /** 清空图片缓存目录并重置内存索引，返回释放的字节数。 */
+  static clear(): number {
+    if (!AttachmentImageCache.isReady()) {
+      return 0;
+    }
+    const freed: number = AttachmentImageCache.bytes();
+    try {
+      fileIo.rmdirSync(AttachmentImageCache.root);
+    } catch (err) {
+    }
+    AttachmentImageCache.memory.clear();
+    AttachmentImageCache.absent.clear();
+    AttachmentImageCache.inflight.clear();
+    try {
+      fileIo.mkdirSync(AttachmentImageCache.root);
+    } catch (err) {
+    }
+    Logger.info('[IMG] cache cleared (' + freed.toString() + 'B)');
+    return freed;
+  }
+
   /** 同步查询本地缓存：命中返回文件路径，否则返回 ''。 */
   static localPath(attachmentId: string, mediaType: string, name: string): string {
     if (!AttachmentImageCache.isReady() || attachmentId.length === 0) {

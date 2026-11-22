@@ -339,6 +339,34 @@ export class SessionStore {
   clearPendingPrompts(): void {
     this.questions.clear();
     this.approvals.clear();
+    this.publishPendingQuestion();
+    this.publishPendingApproval();
+  }
+
+  /** 把当前会话等待中的问题发布到 AppStorage（会话页「确认选择」弹窗订阅它）。 */
+  publishPendingQuestion(): void {
+    const pending: GatewayPendingQuestionRequest | null = this.pendingQuestion(this.sessionId);
+    const json: string = pending === null ? '' : JSON.stringify(pending);
+    Logger.info('[Q] store publish len=' + json.length.toString() + ' session=' + this.sessionId.slice(-8));
+    AppStorage.setOrCreate<string>('pendingQuestionJson', json);
+  }
+
+  /** 把当前会话等待中的工具审批发布到 AppStorage（会话页「等待审批」卡片订阅它）。 */
+  publishPendingApproval(): void {
+    const pending: GatewayPendingApprovalRequest | null = this.pendingApproval(this.sessionId);
+    const json: string = pending === null ? '' : JSON.stringify(pending);
+    Logger.info('[A] store publish len=' + json.length.toString() + ' session=' + this.sessionId.slice(-8));
+    AppStorage.setOrCreate<string>('pendingApprovalJson', json);
+  }
+
+  /** 会话页出现/切换会话时主动刷新一次待回答问题（避免错过早期帧）。 */
+  refreshPendingQuestion(): void {
+    this.publishPendingQuestion();
+  }
+
+  /** 会话页出现/切换会话时主动刷新一次待审批（避免错过早期帧）。 */
+  refreshPendingApproval(): void {
+    this.publishPendingApproval();
   }
 
   consume(frame: GatewayFrame): void {
@@ -351,12 +379,14 @@ export class SessionStore {
     if (frame.kind === 'question-requested' && frame.sessionId && frame.rpcId) {
       this.questions.set(JSON.stringify([frame.sessionId, frame.rpcId]), { rpcId: frame.rpcId, sessionId: frame.sessionId,
         questions: frame.questions ?? [], replay: frame.replay === true });
+      this.publishPendingQuestion();
       return;
     }
     if (frame.kind === 'approval-requested' && frame.sessionId && frame.rpcId) {
       this.approvals.set(JSON.stringify([frame.sessionId, frame.rpcId]), { rpcId: frame.rpcId, sessionId: frame.sessionId,
         approvalId: frame.approvalId ?? '', toolName: frame.toolName ?? '工具操作',
         callId: frame.callId, reason: frame.reason, replay: frame.replay === true });
+      this.publishPendingApproval();
       return;
     }
     if (frame.kind === 'question-resolved' && frame.rpcId) {
@@ -365,6 +395,7 @@ export class SessionStore {
         if (request.rpcId === frame.rpcId && (!frame.sessionId || frame.sessionId === request.sessionId)) keys.push(key);
       });
       if (keys.length === 1) this.questions.delete(keys[0]);
+      this.publishPendingQuestion();
       return;
     }
     if (frame.kind === 'approval-resolved' && frame.rpcId) {
@@ -373,6 +404,7 @@ export class SessionStore {
         if (request.rpcId === frame.rpcId && (!frame.sessionId || frame.sessionId === request.sessionId)) keys.push(key);
       });
       if (keys.length === 1) this.approvals.delete(keys[0]);
+      this.publishPendingApproval();
       return;
     }
     if (frame.kind === 'context-dashboard') {
@@ -488,6 +520,25 @@ export class SessionStore {
         if (effort.length > 0) {
           AppStorage.setOrCreate<string>('defaultEffort', effort);
         }
+      }
+      return;
+    }
+    if (frame.kind === 'host') {
+      // 主机信息（对齐小程序 normalizeHostInfo）：新版用 defaultModel/defaultProvider，
+      // 旧版用 model/provider；存 AppStorage 供会话设置「主机信息」兜底显示。
+      const hostDefaultModel: string = str(frame, 'defaultModel') ?? '';
+      const hostProvider: string = hostDefaultModel.length > 0
+        ? (str(frame, 'defaultProvider') ?? '') : (str(frame, 'provider') ?? '');
+      const hostModel: string = hostDefaultModel.length > 0 ? hostDefaultModel : (str(frame, 'model') ?? '');
+      const hostCwd: string = str(frame, 'cwd') ?? '';
+      if (hostProvider.length > 0) {
+        AppStorage.setOrCreate<string>('hostProvider', hostProvider);
+      }
+      if (hostModel.length > 0) {
+        AppStorage.setOrCreate<string>('hostModel', hostModel);
+      }
+      if (hostCwd.length > 0) {
+        AppStorage.setOrCreate<string>('hostCwd', hostCwd);
       }
       return;
     }

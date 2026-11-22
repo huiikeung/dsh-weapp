@@ -6,14 +6,18 @@ import { TsnetBridge } from '../services/TsnetBridge';
 import { BackgroundKeepAlive } from '../services/BackgroundKeepAlive';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 import {
-  AppState, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
+  AppState, AttachmentImageCache, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
   parsePairingPayload, sodiumSelfTest
 } from 'nativecore';
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     AppState.init();
     SessionStore.restoreCatalogCache();
-    Logger.info('UIBOOT onCreate');
+    // 图片附件缓存目录：必须在这里注入 filesDir，否则 AttachmentImageCache.isReady() 永远是 false，
+    // 所有缩略图都会以「图片附件信息不完整」失败 —— 表现就是「图片加载失败，点击重试」。
+    // （小程序用 wx.env.USER_DATA_PATH 直接算路径，所以它一直正常。）
+    AttachmentImageCache.configure(this.context.filesDir);
+    Logger.info('UIBOOT onCreate imageCache=' + this.context.filesDir);
     AppStorage.setOrCreate<string>('appLifecycle', 'foreground');
     AppStorage.setOrCreate<Context>('uiAbilityContext', this.context);
     // 系统通知需要在后台无页面上下文时也能发：把 UIAbilityContext 交给通知服务
@@ -90,7 +94,18 @@ export default class EntryAbility extends UIAbility {
         PreferencesStore.get().putBoolean('statusAppearanceSimpleMigrated', true);
       }
       AppStorage.setOrCreate<string>('statusAppearance', PreferencesStore.get().getString('statusAppearance', 'original'));
-      AppStorage.setOrCreate<string>('procIconStyle', PreferencesStore.get().getString('procIconStyle', 'spin-ring'));
+      // 执行图标：新增「默认（系统加载图）」并作为默认选项。
+      // 首次升级时把旧选择统一重置为 default（一次性迁移），之后保留用户自己的选择。
+      let storedProcIcon: string = PreferencesStore.get().getString('procIconStyle', 'default');
+      if (!PreferencesStore.get().getBoolean('procIconDefaultMigrated', false)) {
+        storedProcIcon = 'default';
+        PreferencesStore.get().putString('procIconStyle', 'default');
+        PreferencesStore.get().putBoolean('procIconDefaultMigrated', true);
+      }
+      if (storedProcIcon === 'cells' || storedProcIcon.length === 0) {
+        storedProcIcon = 'default';
+      }
+      AppStorage.setOrCreate<string>('procIconStyle', storedProcIcon);
       ThemeManager.get().init(this.context.config.colorMode);
     TailscaleTunnelStore.get().start(this.context.filesDir + '/tailscale', this.context);
     GatewayClient.get().setTailnetEnabler(() => {

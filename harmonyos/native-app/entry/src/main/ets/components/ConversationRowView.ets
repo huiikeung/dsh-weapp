@@ -63,7 +63,7 @@ export struct ConversationRowView {
   @StorageProp('contentFontSize') contentFontSize: string = '标准';
   /** 执行图标动效样式（设置页「执行图标」，13 种） */
   /** 执行图标样式（由 ConversationPage 下传，保证 LazyForEach 行能重渲染） */
-  @Prop procIconStyle: string = 'spin-ring';
+  @Prop procIconStyle: string = 'default';
   onToggle: (id: string) => void = () => {};
   onCopy: (text: string) => void = () => {};
   onShowDetail: (title: string, body: string) => void = () => {};

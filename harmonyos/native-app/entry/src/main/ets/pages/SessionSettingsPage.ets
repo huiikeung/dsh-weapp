@@ -1,4 +1,4 @@
-import { KeyboardAvoidMode } from '@kit.ArkUI';
+import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { GatewayClient, PreferencesStore, SessionStore, SessionSummary, WorkspaceRow } from 'nativecore';
 import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
@@ -25,6 +25,13 @@ export struct SessionSettingsPage {
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   @StorageLink('defaultAgentPreset') defaultPreset: string = '';
   @StorageLink('defaultModel') defaultModelValue: string = '';
+  @StorageLink('defaultProvider') defaultProviderValue: string = '';
+  /** 会话当前模型（网关目录帧的 current），主机信息在无部署默认值时兜底 */
+  @StorageLink('selectedProvider') selectedProviderValue: string = '';
+  @StorageLink('selectedModel') selectedModelValue: string = '';
+  /** host 帧下发的主机服务商/模型（兜底） */
+  @StorageLink('hostProvider') hostProviderValue: string = '';
+  @StorageLink('hostModel') hostModelValue: string = '';
   @StorageLink('defaultPermission') defaultPermissionValue: string = '';
   @StorageLink('tailscaleTunnelEnabled') tailscaleEnabledState: boolean = false;
   @StorageLink('tailscaleStage') tailscaleStageState: string = 'disabled';
@@ -49,10 +56,13 @@ export struct SessionSettingsPage {
   @State presetCreatorAvailable: boolean = false;
   @State creatingPreset: boolean = false;
   @State hint: string = '';
-  @State utilityOpen: boolean = false;
-  @State utilityTitle: string = '';
-  @State utilityRows: string[] = [];
-  @State utilityKind: string = '';
+  /** 诊断信息：原生玻璃半模态（bindSheet + ImmersiveMaterial），高度按内容估算 */
+  @State diagSheetOpen: boolean = false;
+  @State diagSheetHeight: number = 0;
+  /** 清理缓存：页面中间的玻璃弹窗（自绘半透明底 + 实时模糊） */
+  @State cacheDialogOpen: boolean = false;
+  /** 如何在外网使用：原生玻璃底部半模态 */
+  @State networkInfoOpen: boolean = false;
   @State cacheClearing: boolean = false;
   @State cacheError: string = '';
   @StorageLink('modelList') modelCatalog: string[] = [];
@@ -131,6 +141,56 @@ export struct SessionSettingsPage {
     for (const one of this.modelDetails) {
       if (one.model === id) {
         return one.label;
+      }
+    }
+    return id;
+  }
+
+  /** 主机信息用的服务商 id：优先部署级默认选择，其次会话当前模型 */
+  private hostProviderId(): string {
+    if (this.defaultProviderValue.length > 0) {
+      return this.defaultProviderValue;
+    }
+    if (this.hostProviderValue.length > 0) {
+      return this.hostProviderValue;
+    }
+    return this.selectedProviderValue;
+  }
+
+  private hostModelId(): string {
+    if (this.defaultModelValue.length > 0) {
+      return this.defaultModelValue;
+    }
+    if (this.hostModelValue.length > 0) {
+      return this.hostModelValue;
+    }
+    return this.selectedModelValue;
+  }
+
+  /** 模型服务商显示名（用模型目录里的 providerName，找不到回退 id） */
+  private hostProviderLabel(): string {
+    const id: string = this.hostProviderId();
+    if (id.length === 0) {
+      return '—';
+    }
+    for (const one of this.modelDetails) {
+      if (one.provider === id) {
+        return one.providerName.length > 0 ? one.providerName : one.provider;
+      }
+    }
+    return id;
+  }
+
+  /** 模型显示名（用模型目录里的显示名，provider+model 需要匹配同一条选择） */
+  private hostModelLabel(): string {
+    const provider: string = this.hostProviderId();
+    const id: string = this.hostModelId();
+    if (id.length === 0) {
+      return '—';
+    }
+    for (const one of this.modelDetails) {
+      if (one.model === id && (provider.length === 0 || one.provider === provider)) {
+        return one.label.length > 0 ? one.label : one.model;
       }
     }
     return id;
@@ -381,22 +441,11 @@ export struct SessionSettingsPage {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               this.cardRow('诊断信息', '', true, () => {
-                this.utilityKind = 'diagnostics';
-                this.utilityTitle = '诊断信息';
-                this.utilityRows = [
-                  '版本：' + (this.gatewayVersion.length > 0 ? this.gatewayVersion : '—'),
-                  '会话数：' + this.sessions.length,
-                  '工作目录：' + this.workspacePath(),
-                  '网关：' + (this.gatewayName.length > 0 ? this.gatewayName : '—')
-                ];
-                this.utilityOpen = true;
+                this.openDiagnosticsSheet();
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               this.cardRow('清理缓存', '', true, () => {
-                this.utilityKind = 'clearCache';
-                this.utilityTitle = '清理缓存';
-                this.utilityRows = ['仅清理本机的会话列表与正文缓存。', '不会删除聊天记录、配对信息或公网有效期。'];
-                this.utilityOpen = true;
+                this.openCacheDialog();
               })
             }
             .width('100%')
@@ -445,10 +494,10 @@ export struct SessionSettingsPage {
             // 主机信息
             this.groupTitle('主机信息')
             Column() {
-              this.cardRow('模型服务商', '—', false, () => {
+              this.cardRow('模型服务商', this.hostProviderLabel(), false, () => {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              this.cardRow('模型', '—', false, () => {
+              this.cardRow('模型', this.hostModelLabel(), false, () => {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               this.cardRow('已连接会话', this.sessions.length + ' 个', false, () => {
@@ -487,9 +536,38 @@ export struct SessionSettingsPage {
         if (this.pickerOpen) {
           this.pickerSheet()
         }
-        if (this.utilityOpen) {
-          this.utilitySheet()
+        // 诊断信息：原生玻璃半模态（底部弹出，内容排版对齐小程序 utility-sheet）
+        Column()
+          .width(1)
+          .height(1)
+          .opacity(0.01)
+          .bindSheet($$this.diagSheetOpen, this.diagnosticsSheet(), {
+            height: this.diagSheetHeight > 0 ? this.diagSheetHeight : '52%',
+            dragBar: false,
+            showClose: false,
+            preferType: SheetType.BOTTOM,
+            backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+            systemMaterial: this.teamSheetMaterial()
+          })
+
+        // 清理缓存：页面中间的玻璃弹窗（自绘半透明底 + 实时模糊）
+        if (this.cacheDialogOpen) {
+          this.cacheCenterDialog()
         }
+
+        // 如何在外网使用：原生玻璃底部半模态（Tailscale / Funnel / Cloudflare 指南）
+        Column()
+          .width(1)
+          .height(1)
+          .opacity(0.01)
+          .bindSheet($$this.networkInfoOpen, this.networkInfoSheet(), {
+            height: '82%',
+            dragBar: false,
+            showClose: false,
+            preferType: SheetType.BOTTOM,
+            backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+            systemMaterial: this.teamSheetMaterial()
+          })
       }
       .width('100%')
       .height('100%')
@@ -502,64 +580,281 @@ export struct SessionSettingsPage {
     })
   }
 
+  /** 诊断信息：原生玻璃半模态内容（标题 + 关闭 X + 键值行卡片，布局对齐小程序 utility-sheet） */
   @Builder
-  utilitySheet() {
-    Stack({ alignContent: Alignment.Bottom }) {
+  diagnosticsSheet() {
+    Column() {
+      Row() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(16,19,24,0.18)')
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
+      .padding({ top: 8, bottom: 2 })
+
+      Row() {
+        Text('诊断信息')
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.textColor())
+        Blank()
+        Text('✕')
+          .fontSize(16)
+          .fontColor(this.subColor())
+          .onClick(() => {
+            this.diagSheetOpen = false;
+          })
+      }
+      .width('100%')
+      .height(46)
+      .padding({ left: 18, right: 18 })
+
+      Scroll() {
+        Column({ space: 0 }) {
+          ForEach(this.diagnosticRows(), (row: DiagnosticRow, index: number) => {
+            Row({ space: 12 }) {
+              Text(row.label)
+                .fontSize(13)
+                .fontColor(this.subColor())
+                .flexShrink(0)
+              if (row.mono) {
+                Text(row.value)
+                  .fontSize(13)
+                  .fontColor(this.textColor())
+                  .fontFamily('monospace')
+                  .textAlign(TextAlign.End)
+                  .maxLines(6)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .layoutWeight(1)
+              } else {
+                Text(row.value)
+                  .fontSize(13)
+                  .fontColor(this.textColor())
+                  .textAlign(TextAlign.End)
+                  .layoutWeight(1)
+              }
+            }
+            .width('100%')
+            .alignItems(VerticalAlign.Top)
+            .padding({ top: 12, bottom: 12, left: 14, right: 14 })
+            .border({
+              width: { top: index > 0 ? 0.5 : 0 },
+              color: this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)'
+            })
+          }, (row: DiagnosticRow) => row.label)
+        }
+        .width('100%')
+        .borderRadius(12)
+        .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.10)' })
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.55)')
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, bottom: 16 })
+      .scrollBar(BarState.Off)
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  /** 清理缓存：页面中间的玻璃弹窗（自绘半透明底 + 实时模糊，遮罩居中） */
+  @Builder
+  cacheCenterDialog() {
+    Stack({ alignContent: Alignment.Center }) {
       Column()
         .width('100%')
         .height('100%')
         .backgroundColor('rgba(0,0,0,0.45)')
         .onClick(() => {
-          this.utilityOpen = false;
+          if (!this.cacheClearing) {
+            this.cacheDialogOpen = false;
+          }
         })
       Column({ space: 0 }) {
-        Row() {
-          Text(this.utilityTitle).fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.textColor())
-          Blank()
-          Text('关闭').fontSize(14).fontColor(this.subColor())
+        Text('清理缓存')
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.textColor())
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .margin({ top: 22, bottom: 12 })
+        Text('仅清理本机的会话列表与正文缓存，下次打开时重新加载。')
+          .fontSize(13.5)
+          .lineHeight(20)
+          .fontColor(this.textColor())
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .padding({ left: 20, right: 20 })
+        Text('不会删除聊天记录、配对信息或公网有效期。')
+          .fontSize(12.5)
+          .lineHeight(19)
+          .fontColor(this.subColor())
+          .width('100%')
+          .textAlign(TextAlign.Center)
+          .margin({ top: 5 })
+          .padding({ left: 20, right: 20 })
+        if (this.cacheError.length > 0) {
+          Text(this.cacheError)
+            .fontSize(12.5)
+            .fontColor('#FF3B30')
+            .width('100%')
+            .textAlign(TextAlign.Center)
+            .margin({ top: 8 })
+            .padding({ left: 20, right: 20 })
+        }
+        Row({ space: 12 }) {
+          Text('取消')
+            .fontSize(15)
+            .fontColor(this.textColor())
+            .textAlign(TextAlign.Center)
+            .layoutWeight(1)
+            .height(42)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+            .borderRadius(12)
             .onClick(() => {
-              this.utilityOpen = false;
+              if (!this.cacheClearing) {
+                this.cacheDialogOpen = false;
+              }
+            })
+          Text(this.cacheClearing ? '清理中…' : '确认清理')
+            .fontSize(15)
+            .fontColor('#FFFFFF')
+            .textAlign(TextAlign.Center)
+            .layoutWeight(1)
+            .height(42)
+            .backgroundColor('#BF3D31')
+            .borderRadius(12)
+            .opacity(this.cacheClearing ? 0.5 : 1)
+            .onClick(() => {
+              this.confirmClearCache();
             })
         }
         .width('100%')
-        .height(48)
-        .padding({ left: 16, right: 16 })
-        ForEach(this.utilityRows, (row: string) => {
-          Text(row)
-            .fontSize(14)
-            .fontColor(this.textColor())
-            .width('100%')
-            .padding({ left: 16, right: 16, top: 8, bottom: 8 })
-        }, (row: string) => row)
-        if (this.utilityKind === 'clearCache') {
-          Button('确认清理')
-            .width('calc(100% - 32vp)')
-            .height(44)
-            .fontSize(15)
-            .fontColor('#FFFFFF')
-            .backgroundColor('#FF3B30')
-            .margin({ top: 12, bottom: 8 })
-            .onClick(() => {
-              this.utilityOpen = false;
-              this.hint = '已清理本机缓存';
-            })
-        } else {
-          Button('关闭')
-            .width('calc(100% - 32vp)')
-            .height(44)
-            .fontSize(15)
-            .fontColor(this.textColor())
-            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.05)')
-            .margin({ top: 12, bottom: 8 })
-            .onClick(() => {
-              this.utilityOpen = false;
-            })
-        }
+        .padding({ left: 18, right: 18, top: 18, bottom: 18 })
+      }
+      .width(300)
+      .borderRadius(18)
+      .backgroundColor(this.isDark ? 'rgba(44,46,52,0.70)' : 'rgba(255,255,255,0.72)')
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
+        colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
+      })
+      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.65)' })
+      .shadow({ radius: 28, color: 'rgba(0,0,0,0.28)', offsetY: 12 })
+      .clip(true)
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  /** 外网使用说明：分组标题 */
+  @Builder
+  networkSectionTitle(text: string) {
+    Text(text)
+      .fontSize(14)
+      .fontWeight(FontWeight.Bold)
+      .fontColor(this.textColor())
+      .width('100%')
+      .margin({ top: 14, bottom: 6 })
+  }
+
+  /** 外网使用说明：正文 */
+  @Builder
+  networkBody(text: string) {
+    Text(text)
+      .fontSize(13)
+      .lineHeight(20)
+      .fontColor(this.subColor())
+      .width('100%')
+      .margin({ bottom: 4 })
+  }
+
+  /** 外网使用说明：命令行 / 地址块（等宽） */
+  @Builder
+  networkCode(text: string) {
+    Text(text)
+      .fontSize(12)
+      .lineHeight(18)
+      .fontFamily('monospace')
+      .fontColor(this.textColor())
+      .width('100%')
+      .padding({ left: 10, right: 10, top: 8, bottom: 8 })
+      .borderRadius(8)
+      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.05)')
+      .margin({ top: 4, bottom: 6 })
+  }
+
+  /** 如何在外网使用：原生玻璃底部半模态内容（Tailscale / Funnel / Cloudflare 配置指南） */
+  @Builder
+  networkInfoSheet() {
+    Column({ space: 0 }) {
+      Row() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(16,19,24,0.18)')
       }
       .width('100%')
-      .padding({ top: 8, bottom: 20 })
-      .borderRadius({ topLeft: 18, topRight: 18 })
-      .backgroundColor(this.pageBg())
+      .justifyContent(FlexAlign.Center)
+      .padding({ top: 8, bottom: 2 })
+
+      Row() {
+        Text('如何在外网使用')
+          .fontSize(17)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(this.textColor())
+        Blank()
+        Text('✕')
+          .fontSize(16)
+          .fontColor(this.subColor())
+          .onClick(() => {
+            this.networkInfoOpen = false;
+          })
+      }
+      .width('100%')
+      .height(46)
+      .padding({ left: 18, right: 18 })
+
+      Scroll() {
+        Column({ space: 0 }) {
+          this.networkBody('手机在户外用蜂窝数据时，要访问家里电脑上的 DSH，需要把网关端口暴露到公网。下面任选一种方案即可；App 会自动「Wi-Fi 走局域网、蜂窝切公网」，不用手动切。')
+
+          this.networkSectionTitle('① Tailscale（推荐，免费、最稳）')
+          this.networkBody('1. 电脑：安装并登录 Tailscale（macOS 用 App Store 或 brew install --cask tailscale，Windows 用官网安装包），在 Tailscale 控制台记下这台电脑的机器名，形如 my-mac.tailxxxx.ts.net。')
+          this.networkBody('2. 手机：不用另装 Tailscale，直接用本页「Tailscale 内嵌隧道」登录同一个 Tailscale 账号；也可以装 Tailscale App 登录同账号。')
+          this.networkBody('3. 在 App 顶栏「切换主机」里新增手动地址，填：')
+          this.networkCode('wss://my-mac.tailxxxx.ts.net:3081/ws/mobile')
+          this.networkBody('端口换成你网关的端口（见下方本机端点）。也可以在网关 WebUI 的「对外地址」填同一个地址并重新配对，之后 App 自动保存局域网 + 公网两个地址。')
+
+          this.networkSectionTitle('② Tailscale Funnel（手机不想登录 Tailscale 时）')
+          this.networkBody('先在 Tailscale 控制台开启 HTTPS Certificates，然后在电脑上执行：')
+          this.networkCode('tailscale funnel 3081 on')
+          this.networkBody('会得到 https://my-mac.tailxxxx.ts.net/ ，手机端地址填：')
+          this.networkCode('wss://my-mac.tailxxxx.ts.net/ws/mobile')
+
+          this.networkSectionTitle('③ Cloudflare Tunnel（有域名即可，不依赖 Tailscale）')
+          this.networkBody('1. 电脑安装 cloudflared，然后登录并创建隧道：')
+          this.networkCode('cloudflared tunnel login\ncloudflared tunnel create dsh')
+          this.networkBody('2. 新建 ~/.cloudflared/config.yml：')
+          this.networkCode('tunnel: <tunnel-id>\ncredentials-file: /Users/you/.cloudflared/<tunnel-id>.json\ningress:\n  - hostname: dsh.example.com\n    service: http://localhost:3081\n  - service: http_status:404')
+          this.networkBody('3. 绑定域名并启动隧道（常驻用 sudo cloudflared service install）：')
+          this.networkCode('cloudflared tunnel route dns dsh dsh.example.com\ncloudflared tunnel run dsh')
+          this.networkBody('4. 手机端地址填：')
+          this.networkCode('wss://dsh.example.com/ws/mobile')
+          this.networkBody('注意：Cloudflare 默认支持 WebSocket；如果开了 Access 保护，需要给 /ws/ 路径设 Bypass，否则 App 连不上。')
+
+          this.networkSectionTitle('④ 回到 App 连接')
+          this.networkBody('顶栏「切换主机」→ 添加/编辑手动地址为上面的 wss 地址即可；或在网关 WebUI「对外地址」填好后重新配对。本机当前端点：')
+          this.networkCode(this.activeEndpointState.length > 0 ? this.activeEndpointState : '（未连接）')
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+        .padding({ left: 18, right: 18, bottom: 24 })
+      }
+      .layoutWeight(1)
+      .scrollBar(BarState.Off)
     }
     .width('100%')
     .height('100%')
@@ -1085,21 +1380,78 @@ export struct SessionSettingsPage {
 
   /** 诊断信息四行（对齐小程序 diagnosticRows） */
   private diagnosticRows(): DiagnosticRow[] {
+    let connectionLabel: string = '未连接';
+    if (this.connection === 'connected') {
+      connectionLabel = '已连接';
+    } else if (this.connection === 'connecting') {
+      connectionLabel = '连接中';
+    } else if (this.connection === 'failed') {
+      connectionLabel = '连接失败';
+    }
+    const address: string = this.activeEndpointState.length > 0 ? this.activeEndpointState : '未配置';
     return [
-      { label: '连接状态', value: this.connection === 'connected' ? '已连接' : (this.connection === 'connecting' ? '连接中' : '未连接'), mono: false },
-      { label: '地址', value: this.gatewayName.length > 0 ? this.gatewayName : '未配置', mono: true },
+      { label: '连接状态', value: connectionLabel, mono: false },
+      { label: '地址', value: address, mono: true },
       { label: '网关', value: this.gatewayName.length > 0 ? this.gatewayName : '—', mono: false },
-      { label: '帧统计', value: '（暂无）', mono: true }
+      { label: '帧统计', value: GatewayClient.get().frameStatsSummary(), mono: true }
     ];
   }
 
-  private openDiagnostics(): void {
-    this.pickerKind = 'diagnostics';
-    this.pickerTitle = '诊断信息';
-    this.pickerIntro = '';
-    this.pickerItems = [];
+  /** 半模态材质：与首页「切换主机」/会话页弹窗同款（ImmersiveMaterial，系统不支持时回退） */
+  private immersiveSupported(): boolean {
+    try {
+      return uiMaterial.isImmersiveMaterialSupported();
+    } catch (err) {
+      return false;
+    }
+  }
+
+  private teamSheetMaterial(): uiMaterial.Material | undefined {
+    if (!this.immersiveSupported()) {
+      return undefined;
+    }
+    return new uiMaterial.ImmersiveMaterial({
+      style: uiMaterial.ImmersiveStyle.THICK,
+      materialColor: this.isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.34)',
+      colorInvert: true,
+      applyShadow: true
+    });
+  }
+
+  /** 打开诊断信息（原生玻璃半模态）：按内容估算高度，默认一屏显示全部（含帧统计换行） */
+  private openDiagnosticsSheet(): void {
+    const rows: DiagnosticRow[] = this.diagnosticRows();
+    let frameLines: number = 1;
+    if (rows.length > 3) {
+      const frameText: string = rows[3].value;
+      frameLines = Math.ceil(frameText.length / 34);
+      if (frameLines < 1) {
+        frameLines = 1;
+      }
+      if (frameLines > 6) {
+        frameLines = 6;
+      }
+    }
+    const otherRows: number = rows.length > 3 ? 3 : rows.length;
+    let estimated: number = 80 + otherRows * 46 + (24 + frameLines * 18) + 36;
+    const cap: number = 620;
+    if (estimated > cap) {
+      estimated = cap;
+    }
+    this.diagSheetHeight = estimated;
+    this.diagSheetOpen = true;
+  }
+
+  /** 打开清理缓存（页面中间玻璃弹窗） */
+  private openCacheDialog(): void {
     this.cacheError = '';
-    this.pickerOpen = true;
+    this.cacheClearing = false;
+    this.cacheDialogOpen = true;
+  }
+
+  /** 打开「如何在外网使用」（原生玻璃底部半模态） */
+  private openNetworkInfo(): void {
+    this.networkInfoOpen = true;
   }
 
   /** Tailscale 隧道概况（对齐 iOS 设置页入口行）：已连接 / 连接中 / 需要登录 / 未启用 */
@@ -1165,15 +1517,6 @@ export struct SessionSettingsPage {
     ];
   }
 
-  private openNetworkInfo(): void {
-    this.pickerKind = 'networkInfo';
-    this.pickerTitle = '如何在外网使用';
-    this.pickerIntro = '';
-    this.pickerItems = [];
-    this.cacheError = '';
-    this.pickerOpen = true;
-  }
-
   private openClearCache(): void {
     this.pickerKind = 'cache';
     this.pickerTitle = '清理缓存';
@@ -1191,9 +1534,23 @@ export struct SessionSettingsPage {
     }
     this.cacheClearing = true;
     this.cacheError = '';
-    this.cacheClearing = false;
-    this.pickerOpen = false;
-    this.hint = '已清理本机缓存';
+    try {
+      // 与「设置 → 清理缓存」一致：只清 UI 投影缓存，保留凭据与网关数据
+      SessionStore.get().clear();
+      AppStorage.setOrCreate<SessionSummary[]>('sessions', []);
+      AppStorage.setOrCreate<Object[]>('dirEntries', []);
+      AppStorage.setOrCreate<Object[]>('queueItems', []);
+      AppStorage.setOrCreate<number>('queueCount', 0);
+      this.hint = '已清理本机缓存（不含凭据与网关数据）';
+    } catch (err) {
+      this.cacheError = '清理失败：' + (err as Error).message;
+      this.cacheClearing = false;
+      return;
+    }
+    setTimeout(() => {
+      this.cacheClearing = false;
+      this.cacheDialogOpen = false;
+    }, 350);
   }
 
   /** 模型目录弹窗（功能区的「模型」） */

@@ -3735,6 +3735,27 @@ export struct ConversationPage {
     this.hint = body.length > 240 ? body.substring(0, 240) + '…' : body;
   }
 
+  /** 发送时判断当前会话是否繁忙：页面状态 / store 运行态 / 主机会话列表 running 三级兜底。 */
+  private sessionBusyNow(): boolean {
+    if (this.running || SessionStore.get().isRunning()) {
+      return true;
+    }
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0) {
+      return false;
+    }
+    try {
+      const list: SessionSummary[] = this.sessions;
+      for (const one of list) {
+        if (one.id === sessionId && one.running) {
+          return true;
+        }
+      }
+    } catch (err) {
+    }
+    return false;
+  }
+
   private async onSend(): Promise<void> {
     const typed: string = this.draft.trim();
     let refPrefix: string = '';
@@ -3756,6 +3777,8 @@ export struct ConversationPage {
       return;
     }
     this.sending = true;
+    // 运行中（含规划/思考阶段）：发送应进入队列，而不是直接插进会话。
+    const sessionBusy: boolean = this.sessionBusyNow();
     const generation: number = client.generation();
     const selected: PickedAttachment[] = this.pickedAttachments.slice();
     try {
@@ -3799,8 +3822,8 @@ export struct ConversationPage {
       }
       // 乐观回显（对齐小程序 store.appendLocalUserRow）：发送成功即本地插入用户气泡，
       // 真实 user/message 到达时由 adoptOptimisticUser 交棒；排队消息由队列行呈现，不重复插。
-      Logger.info('[SEND] ok sid=' + sessionId.slice(-8) + ' running=' + (this.running ? '1' : '0')
-        + ' optimistic=' + (!this.running ? '1' : '0') + ' len=' + text.length.toString());
+      Logger.info('[SEND] ok sid=' + sessionId.slice(-8) + ' running=' + (sessionBusy ? '1' : '0')
+        + ' optimistic=' + (!sessionBusy ? '1' : '0') + ' len=' + text.length.toString());
       // 这次发送带图时先记下本地图片 uri：如果主机把它排进队列（运行中/忙），
       // 队列行只有 preview 文本和附件数量，靠这份记录才能显示缩略图。
       const sentImages: string[] = [];
@@ -3809,7 +3832,7 @@ export struct ConversationPage {
           sentImages.push(one.uri);
         }
       }
-      Logger.info('[QUEUEIMG] send running=' + (this.running ? '1' : '0')
+      Logger.info('[QUEUEIMG] send running=' + (sessionBusy ? '1' : '0')
         + ' selected=' + selected.length.toString() + ' images=' + sentImages.length.toString());
       if (sentImages.length > 0) {
         this.queuedImagesByText.set(text, sentImages);
@@ -3823,7 +3846,7 @@ export struct ConversationPage {
           this.dropLocalQueueRow(text);
         }, 20000);
       }
-      if (!this.running) {
+      if (!sessionBusy) {
         SessionStore.get().appendOptimisticUser(text, selected.length, sentImages);
       }
       this.hint = '';
@@ -4398,6 +4421,38 @@ export struct ConversationPage {
     if (sessionId.length === 0 || this.queueBusyId.length > 0) {
       return;
     }
+    if (action === 'steer') {
+      this.queueBusyId = item.id + ':steer';
+      let steered: boolean = false;
+      try {
+        const frame: GatewayFrame = await GatewayClient.get().queueUpdateAndWait(sessionId, item.id, 'steer');
+        const failed: boolean = frame.kind === 'error' || frame.code !== undefined;
+        if (!failed) {
+          steered = true;
+          SessionStore.get().removeQueueItem(item.id);
+          this.hint = '';
+          this.autoStick = true;
+          setTimeout(() => {
+            this.scroller.scrollEdge(Edge.Bottom);
+          }, 60);
+          setTimeout(() => {
+            this.requestDockData();
+          }, 600);
+        }
+      } catch (err) {
+      }
+      if (!steered) {
+        // steer 不被接受（回合已结束/消息已被处理）：移出队列并立即作为新消息发出
+        try {
+          await this.sendQueuedImmediately(item, sessionId);
+        } catch (error) {
+          this.showToast(error instanceof Error ? error.message : '立即发送失败，请重试', true);
+          this.requestDockData();
+        }
+      }
+      this.queueBusyId = '';
+      return;
+    }
     let operation: string = action;
     if (action === 'edit') {
       // 编辑：取回草稿并从队列移除（对齐小程序 queueAction edit 分支）
@@ -4453,6 +4508,36 @@ export struct ConversationPage {
     } finally {
       this.queueBusyId = '';
     }
+  }
+
+  /**
+   * 队列里的消息「立即发送」：先让网关把它移出队列，再立刻作为一条新用户消息发出去。
+   * 用于回合已结束（steer 不再被接受）或本来就没有运行中回合的情况。
+   */
+  private async sendQueuedImmediately(item: QueueItem, sessionId: string): Promise<void> {
+    const frame: GatewayFrame = await GatewayClient.get().queueUpdateAndWait(sessionId, item.id, 'remove');
+    const failed: boolean = frame.kind === 'error' || frame.code !== undefined;
+    if (failed) {
+      const raw: string = frame.message !== undefined ? frame.message : '';
+      this.showToast(raw.length > 0 ? raw : '移出队列失败，请重试', true);
+      this.requestDockData();
+      return;
+    }
+    SessionStore.get().removeQueueItem(item.id);
+    const sent: boolean = GatewayClient.get().sendUserMessage(item.preview, sessionId);
+    if (!sent) {
+      this.showToast('未连接网关，无法立即发送', true);
+      this.requestDockData();
+      return;
+    }
+    this.hint = '';
+    this.autoStick = true;
+    setTimeout(() => {
+      this.scroller.scrollEdge(Edge.Bottom);
+    }, 60);
+    setTimeout(() => {
+      this.requestDockData();
+    }, 600);
   }
 
   private goalReference(): GatewayGoalReference {
@@ -5214,10 +5299,8 @@ export struct ConversationPage {
                     .onClick(() => {
                       this.queueAction(item, 'remove');
                     })
-                    // 立即发送只在回合进行中才有意义（网关：current turn no longer accepts steering）；
-                    // 回合结束后排队项等下一轮自动发送，不再露出这个按钮。
-                    if (this.running && this.steerFailedIds.indexOf(item.id) < 0) {
-                      Stack({ alignContent: Alignment.Center }) {
+                    // 立即发送常驻：回合中走 steer 插话；回合已结束则移出队列后立刻作为新消息发出。
+                    Stack({ alignContent: Alignment.Center }) {
                         if (this.queueBusyId === item.id + ':steer') {
                           LoadingProgress()
                             .width(this.rpx(26))
@@ -5238,7 +5321,6 @@ export struct ConversationPage {
                       .onClick(() => {
                         this.queueAction(item, 'steer');
                       })
-                    }
                   }
                   .alignItems(VerticalAlign.Center)
                 }

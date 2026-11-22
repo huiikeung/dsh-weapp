@@ -70,6 +70,66 @@ export class PreferencesStore {
     });
   }
 
+  /** 统计前缀匹配的本地键值缓存字节数（近似：字符串长度，用于「存储空间」）。 */
+  localCacheBytes(prefixes: string[]): number {
+    if (this.store === null) {
+      return 0;
+    }
+    let total: number = 0;
+    const all: Object = this.store.getAllSync();
+    const rec: Record<string, Object> = all as Record<string, Object>;
+    const keys: string[] = Object.keys(rec);
+    for (const key of keys) {
+      let matched: boolean = false;
+      for (const prefix of prefixes) {
+        if (key.indexOf(prefix) === 0) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        continue;
+      }
+      const value: Object = rec[key];
+      total += typeof value === 'string' ? (value as string).length : JSON.stringify(value).length;
+    }
+    return total;
+  }
+
+  /** 删除前缀匹配的本地缓存键，返回释放的字节数（近似）。 */
+  removeLocalCacheByPrefixes(prefixes: string[]): number {
+    if (this.store === null) {
+      return 0;
+    }
+    let freed: number = 0;
+    const all: Object = this.store.getAllSync();
+    const rec: Record<string, Object> = all as Record<string, Object>;
+    const keys: string[] = Object.keys(rec);
+    for (const key of keys) {
+      let matched: boolean = false;
+      for (const prefix of prefixes) {
+        if (key.indexOf(prefix) === 0) {
+          matched = true;
+          break;
+        }
+      }
+      if (!matched) {
+        continue;
+      }
+      const value: Object = rec[key];
+      freed += typeof value === 'string' ? (value as string).length : JSON.stringify(value).length;
+      try {
+        this.store.deleteSync(key);
+      } catch (err) {
+        // 单项删除失败不影响其它键
+      }
+    }
+    this.store.flush().catch((err: BusinessError) => {
+      Logger.error('preferences flush failed: ' + JSON.stringify(err));
+    });
+    return freed;
+  }
+
   /** 读取数字偏好（字符串形式存储，兼容小程序）。 */
   getNumber(key: string, fallback: number): number {
     const raw: string = this.getString(key, '');

@@ -120,18 +120,53 @@ export struct SessionDefaultModelPage {
       return;
     }
     this.loading = true;
+    // 模型目录帧一般带 default/current；旧网关可能没有，先单独拉一次部署级选择兜底
+    client.requestDefaultModel();
     const sessionId: string = SessionStore.get().currentSessionId();
     const request = sessionId.length > 0
       ? GatewayRequestFactory.make('models', 'models', { 'sessionId': sessionId }, sessionId)
       : GatewayRequestFactory.simple('models');
-    client.requestGateway(request, 15000).then((frame: GatewayFrame) => {
+    const applyFrame = (frame: GatewayFrame): boolean => {
+      const rows: ModelRow[] = this.parseCatalog(frame);
+      if (rows.length === 0) {
+        return false;
+      }
       this.loading = false;
       this.loaded = true;
-      this.rows = this.parseCatalog(frame);
+      this.rows = rows;
+      return true;
+    };
+    client.requestGateway(request, 15000).then((frame: GatewayFrame) => {
+      if (applyFrame(frame)) {
+        return;
+      }
+      // 会话级目录拿不到模型（会话已归档/切换到未知会话等）时，退回部署级目录：
+      // 默认模型本来就是部署级设置，选择列表不应为空。
+      client.requestGateway(GatewayRequestFactory.simple('models'), 15000).then((fallback: GatewayFrame) => {
+        if (!applyFrame(fallback)) {
+          this.loading = false;
+          this.loaded = true;
+          this.rows = [];
+        }
+      }).catch((error: Error) => {
+        this.loading = false;
+        this.loaded = true;
+        this.rows = [];
+        this.toast('模型目录加载失败');
+      });
     }).catch((error: Error) => {
-      this.loading = false;
-      this.rows = [];
-      this.toast('模型目录加载失败');
+      client.requestGateway(GatewayRequestFactory.simple('models'), 15000).then((fallback: GatewayFrame) => {
+        if (!applyFrame(fallback)) {
+          this.loading = false;
+          this.loaded = true;
+          this.rows = [];
+        }
+      }).catch((fallbackError: Error) => {
+        this.loading = false;
+        this.loaded = true;
+        this.rows = [];
+        this.toast('模型目录加载失败');
+      });
     });
   }
 
