@@ -51,11 +51,31 @@ export class TailscaleTunnelStore {
   }
 
   /** 启动状态轮询；enabled 时顺带拉起 Go 引擎（应用启动即生效，不依赖 Tailscale 页） */
+  /** 合法的 tailnet 后缀形如 tail09f60a.ts.net；解析失败（例如把登录 URL 拼进来）时必须丢弃 */
+  private static isValidTailnetSuffix(value: string): boolean {
+    return /^[a-z0-9-]+(\.[a-z0-9-]+)*\.ts\.net$/i.test(value);
+  }
+
+  /** 合法的 peer 短名（DNS label） */
+  private static isValidPeerName(value: string): boolean {
+    return /^[a-z0-9-]{1,63}$/i.test(value);
+  }
+
   start(stateDir: string, uiContext?: common.UIAbilityContext): void {
     this.stateDir = stateDir;
     const savedSuffix: string = PreferencesStore.get().getString('tailnetDnsSuffix', '');
     if (savedSuffix.length > 0) {
-      AppStorage.setOrCreate<string>('tailnetDnsSuffix', savedSuffix);
+      if (TailscaleTunnelStore.isValidTailnetSuffix(savedSuffix)) {
+        AppStorage.setOrCreate<string>('tailnetDnsSuffix', savedSuffix);
+      } else {
+        // 旧版本解析 bug 会把 authURL 之类的内容写进后缀，直接清掉
+        Logger.warn('drop invalid saved tailnet suffix: ' + savedSuffix.substring(0, 80));
+        PreferencesStore.get().putString('tailnetDnsSuffix', '');
+      }
+    }
+    const savedPeer: string = PreferencesStore.get().getString('tailnetGatewayPeerName', '');
+    if (savedPeer.length > 0 && !TailscaleTunnelStore.isValidPeerName(savedPeer.split('.')[0])) {
+      PreferencesStore.get().putString('tailnetGatewayPeerName', '');
     }
     this.uiContext = uiContext;
     if (this.timer >= 0) {
@@ -524,7 +544,9 @@ export class TailscaleTunnelStore {
           const gwDns: string = gwParts.length > 0 ? gwParts[0] : gwPeer;
           const gwIp: string = gwParts.length > 1 ? gwParts[1] : '';
           const shortPeer: string = gwDns.split('.')[0];
-          AppStorage.setOrCreate<string>('tailnetGatewayPeerName', shortPeer);
+          if (TailscaleTunnelStore.isValidPeerName(shortPeer)) {
+            AppStorage.setOrCreate<string>('tailnetGatewayPeerName', shortPeer);
+          }
           AppStorage.setOrCreate<string>('tailnetGatewayDnsName', gwDns);
           if (gwIp.length > 0) {
             AppStorage.setOrCreate<string>('tailnetGatewayIp', gwIp);
@@ -544,12 +566,13 @@ export class TailscaleTunnelStore {
       if (dnsIndex >= 0) {
         const tail: string = fastStat.substring(dnsIndex + 'dnsName='.length);
         const stop: number = tail.search(/[ |]/);
-        const dns: string = (stop > 0 ? tail.substring(0, stop) : tail).replace(/\.$/, '');
-        const dot: number = dns.indexOf('.');
-        if (dot > 0) {
-          const dnsSuffix: string = dns.substring(dot + 1);
+        // stop === 0 表示 dnsName 为空（如 NeedsLogin 时），此时 tail 以 " | authURL=..." 开头，
+        // 旧代码会把整段后续内容当成 DNS 名，最终合成出 wss://dsh-gateway.tailscale.com/a/xxxx 这种垃圾入口。
+        const rawDns: string = stop === 0 ? '' : (stop > 0 ? tail.substring(0, stop) : tail);
+        const dns: string = rawDns.trim().replace(/\.$/, '');
+        if (TailscaleTunnelStore.isValidTailnetSuffix(dns)) {
+          const dnsSuffix: string = dns.substring(dns.indexOf('.') + 1);
           AppStorage.setOrCreate<string>('tailnetDnsSuffix', dnsSuffix);
-          // 持久化：冷启动后立刻切蜂窝时，GatewayClient 靠它合成 wss://<peer>.ts.net
           if (PreferencesStore.get().getString('tailnetDnsSuffix', '') !== dnsSuffix) {
             PreferencesStore.get().putString('tailnetDnsSuffix', dnsSuffix);
           }

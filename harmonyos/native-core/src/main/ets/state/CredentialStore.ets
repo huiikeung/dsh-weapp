@@ -37,6 +37,9 @@ const ACTIVE_KEY: string = 'activeSavedGateway';
 export class CredentialStore {
   private static instance: CredentialStore = new CredentialStore();
   private cached: SavedGateway[] = [];
+  private persistTimer: number = 0;
+  private persistPending: string = '';
+  private lastPersistFp: string = '';
   private activeId: string = '';
   private loaded: boolean = false;
 
@@ -210,12 +213,24 @@ export class CredentialStore {
 
   private persist(): void {
     const serialized: string = JSON.stringify(this.cached);
-    // 双写：AssetStore 提供加密存储，Preferences 同步保留一份。
-    // 只写 AssetStore 时，重装/签名变化后密钥库会读不到，导致已配对主机丢失；
-    // Preferences 位于应用沙箱内（其它应用无法读取），作为跨安装的可靠兜底。
-    SecureCredentialStore.write(serialized);
-    PreferencesStore.get().putString(KEY, serialized);
-    PreferencesStore.get().putString(ACTIVE_KEY, this.activeId);
+    const fingerprint: string = this.activeId + '\n' + serialized;
+    if (fingerprint === this.lastPersistFp) {
+      return;
+    }
+    this.lastPersistFp = fingerprint;
+    this.persistPending = serialized;
+    // AssetStore 的同步写会阻塞 UI 线程（连接成功瞬间写一次会让页面卡住），
+    // 这里合并写并延后一帧执行：视觉上先完成连接，再落盘。
+    if (this.persistTimer !== 0) {
+      return;
+    }
+    this.persistTimer = setTimeout(() => {
+      this.persistTimer = 0;
+      const payload: string = this.persistPending;
+      SecureCredentialStore.write(payload);
+      PreferencesStore.get().putString(KEY, payload);
+      PreferencesStore.get().putString(ACTIVE_KEY, this.activeId);
+    }, 60);
   }
 
   list(): SavedGateway[] {

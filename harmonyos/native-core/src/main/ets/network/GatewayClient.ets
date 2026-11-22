@@ -104,6 +104,7 @@ export class GatewayClient {
   private tailnetFailureCount: number = 0;
   private lastTailnetEnsureAt: number = 0;
   private pairRetryCount: number = 0;
+  private lastConnectAttemptAt: number = 0;
   private altCredentialTried: string[] = [];
   private tailnetBlockedUntil: number = 0;
   private bearerPollTimer: number = 0;
@@ -661,7 +662,8 @@ export class GatewayClient {
       name = 'dsh-gateway';
     }
     name = name.split('.')[0];
-    return 'wss://' + name + '.' + suffix + '/ws/mobile';
+    const synth: string = 'wss://' + name + '.' + suffix + '/ws/mobile';
+    return this.isValidSynthesizedUrl(synth) ? synth : '';
   }
 
   /**
@@ -881,6 +883,15 @@ export class GatewayClient {
    * 鸿蒙端无法运行 tsnet 隧道（iOS 用 Go/tsnet 在进程内建节点），
    * 识别出来是为了给出可执行的提示，而不是笼统的「无法连接」。
    */
+  /** 合成入口必须是合法 ts.net 域名，避免把登录 URL 之类的内容拼进地址 */
+  private isValidSynthesizedUrl(url: string): boolean {
+    if (url.indexOf('//') < 0) {
+      return false;
+    }
+    const host: string = url.substring(url.indexOf('//') + 2).split('/')[0];
+    return /\.ts\.net$/i.test(host) && host.indexOf(' ') < 0;
+  }
+
   private isTailnetAddress(url: string): boolean {
     let host: string = url;
     if (host.indexOf('://') >= 0) {
@@ -1033,6 +1044,21 @@ export class GatewayClient {
   }
 
   connect(profile: GatewayProfile, keepReconnect: boolean = false): void {
+    // 失败后多个路径（401 重试、候选推进、网络事件）可能在同一帧里连续发起连接，
+    // 这会在 UI 线程堆出一串同步 socket 操作，表现为「Tailscale 一连上就卡几秒」。
+    // 这里统一节流到 400ms 一次。
+    const nowAttempt: number = Date.now();
+    if (nowAttempt - this.lastConnectAttemptAt < 400) {
+      const wait: number = 400 - (nowAttempt - this.lastConnectAttemptAt);
+      setTimeout(() => {
+        try {
+          this.connect(profile);
+        } catch (retryErr) {
+        }
+      }, wait);
+      return;
+    }
+    this.lastConnectAttemptAt = nowAttempt;
     if (this.networkBearer === 'cellular' && this.isLocalEndpoint(profile.wsUrl)) {
       const rewritten: string = this.cellularEndpoint(profile.wsUrl);
       if (rewritten !== profile.wsUrl) {
