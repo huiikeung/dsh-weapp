@@ -906,6 +906,46 @@ export struct AppSettingsPage {
     this.hint = '已清理本机缓存（不含凭据与网关数据）';
   }
 
+  /** 发一条测试通知（设置页验证权限/通道）。 */
+  private async sendTestNotification(): Promise<void> {
+    Logger.info('notify test start');
+    try {
+      const context = getContext(this) as common.UIAbilityContext;
+      const enabled: boolean = await NotificationService.ensureAuthorized(context);
+      Logger.info('notify test authorized=' + enabled);
+      if (!enabled) {
+        this.notificationHint = '通知未启用：请在系统设置中允许 flukit 通知';
+        this.prompt('通知权限未开启，请在系统设置 → 通知中允许 flukit');
+        return;
+      }
+      await NotificationService.ensureHighSlot();
+      const sent: boolean = await NotificationService.notifyTaskDone('test-session', '通知测试',
+        '如果你看到这条系统通知，说明通知通道已接通；任务完成后会自动发送。');
+      Logger.info('notify test sent=' + sent);
+      // 5 秒后再发一条：方便用户切到后台验证「横幅」是否只在后台出现
+      setTimeout(() => {
+        NotificationService.notifyTaskDone('test-session-bg', '后台横幅测试',
+          '这条是 5 秒后发送的；如果你已经切到后台，应看到横幅通知。').catch(() => {
+        });
+      }, 5000);
+      this.notificationHint = sent
+        ? '测试通知已发送；5 秒后会再发一条后台横幅测试（可先按 Home 切后台）'
+        : '测试通知发送失败，请检查系统通知权限';
+      this.prompt(sent ? '已发送，5 秒后还有一条后台横幅测试' : '测试通知发送失败（权限或通道异常）');
+    } catch (err) {
+      Logger.warn('notify test failed: ' + String(err));
+      this.notificationHint = '测试通知异常：' + String(err);
+      this.prompt('测试通知异常：' + String(err));
+    }
+  }
+
+  private prompt(message: string): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message, duration: 2500 });
+    } catch (ignored) {
+    }
+  }
+
   private async authorizeNotifications(): Promise<void> {
     const context = getContext(this) as common.UIAbilityContext;
     const enabled: boolean = await NotificationService.ensureAuthorized(context);
@@ -1618,12 +1658,65 @@ export struct AppSettingsPage {
             // ── 实验性功能 ──
             this.groupTitle('实验性功能')
             Column({ space: 0 }) {
-              this.toggleRow('订阅通知', '发送任务后申请订阅消息授权，回合完成时通过服务通知提醒', this.notifyEnabled, (value: boolean) => {
-                this.notifyEnabled = value;
-                PreferencesStore.get().putBoolean('notifyEnabled', value);
-                if (value) {
+              // 直接内联 Toggle（不经 @Builder 回调参数）：确保开关状态一定写入偏好并申请权限
+              Row() {
+                Column({ space: 3 }) {
+                  Text('订阅通知')
+                    .fontSize(16)
+                    .fontColor(this.textColor())
+                  Text('任务完成时通过鸿蒙系统通知提醒（需允许通知权限）')
+                    .fontSize(12)
+                    .lineHeight(17)
+                    .fontColor(this.subColor())
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+                Toggle({ type: ToggleType.Switch, isOn: this.notifyEnabled })
+                  .selectedColor('#2E6BE6')
+                  .onChange((value: boolean) => {
+                    this.notifyEnabled = value;
+                    PreferencesStore.get().putBoolean('notifyEnabled', value);
+                    if (value) {
+                      this.authorizeNotifications();
+                    }
+                  })
+              }
+              .width('100%')
+              .constraintSize({ minHeight: 44 })
+              .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+              .onClick(() => {
+                // 整行点击也能切换开关
+                const next: boolean = !this.notifyEnabled;
+                this.notifyEnabled = next;
+                PreferencesStore.get().putBoolean('notifyEnabled', next);
+                if (next) {
                   this.authorizeNotifications();
                 }
+              })
+              this.divider()
+              // 直接写 onClick（不经 @Builder 函数参数）：部分 ArkUI 版本下 builder 传函数不触发
+              Row() {
+                Column({ space: 3 }) {
+                  Text('发送测试通知')
+                    .fontSize(16)
+                    .fontColor(this.textColor())
+                  Text(this.notificationHint.length > 0 ? this.notificationHint : '立即发一条系统通知，验证权限与通道是否正常')
+                    .fontSize(12)
+                    .lineHeight(17)
+                    .fontColor(this.notificationHint.length > 0 ? '#2E6BE6' : this.subColor())
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+                Text('›')
+                  .fontSize(18)
+                  .fontColor(this.subColor())
+                  .margin({ left: 8 })
+              }
+              .width('100%')
+              .constraintSize({ minHeight: 44 })
+              .padding({ left: 16, right: 16, top: 12, bottom: 12 })
+              .onClick(() => {
+                this.sendTestNotification();
               })
               this.divider()
               this.toggleRow('微信 ClawBot 私聊接线', '将微信私聊接入指定 DSH 会话；微信凭据保存在电脑端', this.clawbotBridgeEnabled, (value: boolean) => {

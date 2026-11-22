@@ -208,8 +208,10 @@ export class MarkdownLite {
       return '';
     }
     const src: string = line.substring(close + 2, line.length - 1).trim();
+    // 绝对路径（/tmp/x.png 这类宿主机本地路径）也要识别成图片块：
+    // 手机端访问不到宿主路径，但如果不识别，它会被当成「!alt 链接」渲染成蓝色文字。
     if (src.startsWith('http://') || src.startsWith('https://')
-      || src.startsWith('file://') || src.startsWith('datashare://')) {
+      || src.startsWith('file://') || src.startsWith('datashare://') || src.startsWith('/')) {
       return src;
     }
     return '';

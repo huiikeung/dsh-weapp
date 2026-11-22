@@ -46,6 +46,10 @@ export struct MarkdownBodyView {
   linkTapEnabled: boolean = false;
   /** 链接点击回调（对话正文里的蓝色下划线链接） */
   onLinkTap: (text: string, href: string) => void = (text: string, href: string) => {};
+  /** 把 Markdown 图片地址解析成本机可渲染路径（宿主机路径由行组件按文件名匹配附件缓存；解析不到返回空串） */
+  resolveImage: (src: string) => string = (src: string) => '';
+  /** 附件缓存代次：缓存/下载进度变化时让内联图片重新解析并重绘（否则首帧解析不到就一直是空） */
+  @Prop imageRevision: number = 0;
 
   @State private blocks: MarkdownBlock[] = [];
   private parseTimer: number = -1;
@@ -351,17 +355,21 @@ export struct MarkdownBodyView {
       .border({ width: 0.5, color: this.strongBorderColor() })
       .margin({ top: 4, bottom: 8 })
     } else if (block.kind === 'image') {
-      // 正文里的图片（![](url) 整行）：等比缩放，点击全屏预览
-      Image(block.src)
-        .width('100%')
-        .constraintSize({ maxHeight: 320, minHeight: 60 })
-        .objectFit(ImageFit.Contain)
-        .borderRadius(8)
-        .backgroundColor(this.fillColor())
-        .margin({ top: 4, bottom: 8 })
-        .onClick(() => {
-          this.onImageTap(block.src);
-        })
+      // 正文里的图片（![](url) 整行）：等比缩放，点击全屏预览。
+      // 地址可能是 http(s)、也可能是宿主机本地路径 —— 统一交给 resolveImage 解析成
+      // 本机可渲染路径（宿主机路径按文件名映射到工具结果的附件缓存），解析不到就不渲染。
+      if (this.resolveImage(block.src).length > 0) {
+        Image(this.resolveImage(block.src))
+          .width('100%')
+          .constraintSize({ maxHeight: 320, minHeight: 60 })
+          .objectFit(ImageFit.Contain)
+          .borderRadius(8)
+          .backgroundColor(this.fillColor())
+          .margin({ top: 4, bottom: 8 })
+          .onClick(() => {
+            this.onImageTap(this.resolveImage(block.src));
+          })
+      }
     } else if (block.kind === 'divider') {
       Divider()
         .strokeWidth(0.5)
@@ -435,7 +443,8 @@ export struct MarkdownBodyView {
     Column({ space: 0 }) {
       ForEach(this.blocks, (block: MarkdownBlock, index: number) => {
         this.blockView(block)
-      }, (block: MarkdownBlock, index: number) => index.toString() + block.kind + '_' + this.themeGeneration)
+      }, (block: MarkdownBlock, index: number) => index.toString() + block.kind + '_' + this.themeGeneration
+        + '_' + this.imageRevision.toString())
     }
     .alignItems(HorizontalAlign.Start)
     .width('100%')

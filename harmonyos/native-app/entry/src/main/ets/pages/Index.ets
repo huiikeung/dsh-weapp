@@ -9,6 +9,7 @@ import { NodeManagePage } from './NodeManagePage';
 import { PluginsPage } from './PluginsPage';
 import { SchedulePage } from './SchedulePage';
 import { SessionDefaultModelPage } from './SessionDefaultModelPage';
+import { AddProviderPage } from './AddProviderPage';
 import { SessionSettingsPage } from './SessionSettingsPage';
 import { AppSettingsPage } from './AppSettingsPage';
 import { SettingsPage } from './SettingsPage';
@@ -107,6 +108,8 @@ struct Index {
       AppSettingsPage();
     } else if (name === 'settings') {
       SettingsPage();
+    } else if (name === 'add-provider') {
+      AddProviderPage();
     } else if (name === 'models') {
       ModelsPage();
     } else if (name === 'tailscale') {

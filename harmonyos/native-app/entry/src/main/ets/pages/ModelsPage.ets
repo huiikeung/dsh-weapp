@@ -1,4 +1,5 @@
 import { uiMaterial } from '@kit.ArkUI';
+import { appGlassBorderColor, appGlassBlur, appGlassFill, appGlassShadow } from '../common/AppGlass';
 import { GatewayClient, Logger } from 'nativecore';
 import type { GatewayFrame, PluginNamespace, ProviderRow, ModelRow, DiscoveredModel } from 'nativecore';
 import {
@@ -57,6 +58,15 @@ export struct ModelsPage {
   @State discoverOpen: boolean = false;
   @State discoverLoading: boolean = false;
   @State discoverError: string = '';
+  /** 发现失败是因为该提供商没有内置目录：引导手动添加模型 */
+  @State discoverNeedsManual: boolean = false;
+  /** 删除确认弹窗 */
+  @State deleteOpen: boolean = false;
+  @State deleteKind: string = '';
+  @State deleteProviderId: string = '';
+  @State deleteProviderName: string = '';
+  @State deleteModelId: string = '';
+  @State deleteModelName: string = '';
   @State discoverRows: DiscoveredModel[] = [];
   @State discoverSelected: string[] = [];
   private discoverProviderId: string = '';
@@ -122,13 +132,15 @@ export struct ModelsPage {
   }
 
   /** 卡片玻璃底（与 Agent 预设弹窗卡片一致） */
+  /** 卡片底 = 页面背景色（靠细描边 + 投影分层，不再用白色玻璃底） */
   private glassCardBg(): string {
-    return this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.55)';
+    return this.pageBg();
   }
 
   /** 卡片玻璃描边（与 Agent 预设弹窗卡片一致） */
+  /** 卡片边框 = 返回按钮同款（浅色白 90%、深色白 16%） */
   private glassEdge(): string {
-    return this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.38)';
+    return this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)';
   }
 
   /** 虚线新增入口底色/描边（与预设弹窗添加卡片一致） */
@@ -276,6 +288,48 @@ export struct ModelsPage {
     });
   }
 
+  private openDeleteProvider(provider: ProviderRow): void {
+    this.deleteKind = 'provider';
+    this.deleteProviderId = provider.id;
+    this.deleteProviderName = provider.name;
+    this.deleteModelId = '';
+    this.deleteModelName = '';
+    this.deleteOpen = true;
+  }
+
+  private openDeleteModel(providerId: string, providerName: string, model: ModelRow): void {
+    this.deleteKind = 'model';
+    this.deleteProviderId = providerId;
+    this.deleteProviderName = providerName;
+    this.deleteModelId = model.id;
+    this.deleteModelName = model.name;
+    this.deleteOpen = true;
+  }
+
+  private closeDelete(): void {
+    this.deleteOpen = false;
+  }
+
+  private deleteTitle(): string {
+    return this.deleteKind === 'provider' ? '删除模型提供商？' : '删除模型？';
+  }
+
+  private deleteMessage(): string {
+    if (this.deleteKind === 'provider') {
+      return '将删除「' + this.deleteProviderName + '」及其全部模型配置，DSH 端会同步移除。';
+    }
+    return '将从「' + this.deleteProviderName + '」移除模型「' + this.deleteModelName + '」，DSH 端会同步移除。';
+  }
+
+  private confirmDelete(): void {
+    this.deleteOpen = false;
+    if (this.deleteKind === 'provider') {
+      this.deleteProvider(this.deleteProviderId);
+    } else {
+      this.deleteModel(this.deleteProviderId, this.deleteModelId);
+    }
+  }
+
   /** 打开添加模型表单 */
   private openAddModel(providerId: string, providerName: string): void {
     this.addProviderId = providerId;
@@ -381,6 +435,7 @@ export struct ModelsPage {
     this.discoverRows = [];
     this.discoverSelected = [];
     this.discoverError = '';
+    this.discoverNeedsManual = false;
     this.discoverLoading = true;
     this.discoverOpen = true;
     this.sheetKind = 'discover';
@@ -389,9 +444,9 @@ export struct ModelsPage {
     for (const row of provider.models) {
       existing.push(row.id);
     }
-    // 内置提供商按小程序 catalog 模式只传 provider，让网关用自身凭据解析；
-    // 自定义提供商才带上它自己的 baseURL，否则会让网关按错误端点找 Key。
-    const discoverBase: string = provider.custom ? provider.baseURL : '';
+    // 与小程序一致：只要提供商配置里有 baseURL 就带上；没有内置目录的提供商
+    // （如 step）必须靠 baseURL 才能列出模型。
+    const discoverBase: string = provider.baseURL;
     GatewayClient.get().discoverModels(PI_NS, provider.id, discoverBase, '', '').then((frame: GatewayFrame) => {
       this.discoverLoading = false;
       this.discoverRows = parseDiscoveredModels(frame, existing, this.levelLabels());
@@ -400,8 +455,16 @@ export struct ModelsPage {
       }
     }).catch((err: Error) => {
       this.discoverLoading = false;
-      this.discoverError = err.message.length > 0 ? err.message : '获取模型失败，请重试';
-      Logger.warn('discover failed provider=' + provider.id + ' custom=' + provider.custom + ' err=' + this.discoverError);
+      const raw: string = err.message;
+      const lower: string = raw.toLowerCase();
+      // 宿主原始报错（pi-ai ships no catalog … set a baseURL … by hand）翻译成可操作提示
+      if (lower.indexOf('no catalog') >= 0 || lower.indexOf('baseurl') >= 0 || lower.indexOf('by hand') >= 0) {
+        this.discoverNeedsManual = true;
+        this.discoverError = '该提供商没有内置模型目录：需要先在提供商配置里填写接口地址（baseURL），或直接手动添加模型。';
+      } else {
+        this.discoverError = raw.length > 0 ? raw : '获取模型失败，请重试';
+      }
+      Logger.warn('discover failed provider=' + provider.id + ' baseURL=' + discoverBase + ' err=' + raw);
     });
   }
 
@@ -631,6 +694,10 @@ export struct ModelsPage {
                     .fontColor(this.subColor())
                     .letterSpacing(0.5)
                   Blank()
+                  Text(this.providers.length.toString() + ' 个')
+                    .fontSize(12)
+                    .fontColor(this.subColor())
+                    .margin({ right: 10 })
                   Row() {
                     Text('↻')
                       .fontSize(15)
@@ -672,22 +739,26 @@ export struct ModelsPage {
                         .fill(this.providerStatusColor(provider.status))
                         .margin({ left: 8 })
                       Blank()
-                      Text(this.expandedId === provider.id ? '完成' : '编辑')
-                        .fontSize(14.5)
-                        .fontColor(this.textColor())
-                        .backgroundColor(this.fieldBg())
-                        .border({ width: 1, color: this.dividerColor() })
-                        .borderRadius(999)
-                        .height(34)
-                        .padding({ left: 15, right: 15 })
-                        .textAlign(TextAlign.Center)
-                      Text('删除')
-                        .fontSize(14)
-                        .fontColor('#FF3B30')
-                        .padding({ left: 10, right: 2, top: 8, bottom: 8 })
-                        .onClick(() => {
-                          this.deleteProvider(provider.id);
-                        })
+                      // 展开/收起只靠箭头提示，整行可点（去掉「编辑/完成」按钮）
+                      Text('›')
+                        .fontSize(16)
+                        .fontColor(this.subColor())
+                        .rotate({ angle: this.expandedId === provider.id ? 90 : 0 })
+                      Row() {
+                        Image($r('app.media.trash_red'))
+                          .width(15)
+                          .height(15)
+                          .objectFit(ImageFit.Contain)
+                      }
+                      .width(34)
+                      .height(34)
+                      .justifyContent(FlexAlign.Center)
+                      .borderRadius(17)
+                      .margin({ left: 6 })
+                      .hitTestBehavior(HitTestMode.Block)
+                      .onClick(() => {
+                        this.openDeleteProvider(provider);
+                      })
                     }
                     .width('100%')
                     .constraintSize({ minHeight: 56 })
@@ -806,14 +877,21 @@ export struct ModelsPage {
                             .alignItems(HorizontalAlign.Start)
                             .layoutWeight(1)
 
-                            Image($r('app.media.trash_red'))
-                              .width(20)
-                              .height(20)
-                              .objectFit(ImageFit.Contain)
-                              .margin({ left: 10 })
-                              .onClick(() => {
-                                this.deleteModel(provider.id, model.id);
-                              })
+                            Row() {
+                              Image($r('app.media.trash_red'))
+                                .width(15)
+                                .height(15)
+                                .objectFit(ImageFit.Contain)
+                            }
+                            .width(34)
+                            .height(34)
+                            .justifyContent(FlexAlign.Center)
+                            .borderRadius(17)
+                            .margin({ left: 6 })
+                            .hitTestBehavior(HitTestMode.Block)
+                            .onClick(() => {
+                              this.openDeleteModel(provider.id, provider.name, model);
+                            })
                           }
                           .width('100%')
                           .alignItems(VerticalAlign.Center)
@@ -849,9 +927,8 @@ export struct ModelsPage {
                   .width('100%')
                   .backgroundColor(this.glassCardBg())
                   .border({ width: 1, color: this.glassEdge() })
-                  .borderRadius(14)
-                  .backdropBlur(8)
-                  .margin({ bottom: 8 })
+                  .borderRadius(16)
+                  .margin({ bottom: 10 })
                   .clip(true)
                 }, (provider: ProviderRow) => provider.id)
                 }
@@ -861,21 +938,23 @@ export struct ModelsPage {
                 Row() {
                   Row() {
                     Text('＋')
-                      .fontSize(19)
-                      .fontColor(this.subColor())
+                      .fontSize(18)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor('#2E6BE6')
                     Text('添加模型提供商')
                       .fontSize(15.5)
-                      .fontColor(this.subColor())
-                      .margin({ left: 4 })
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor('#2E6BE6')
+                      .margin({ left: 6 })
                   }
                   .width('100%')
-                  .height(52)
+                  .height(50)
                   .justifyContent(FlexAlign.Center)
-                  .backgroundColor(this.dashBg())
+                  .backgroundColor(Color.Transparent)
                   .border({ width: 1, color: this.dashEdge(), style: BorderStyle.Dashed })
                   .borderRadius(14)
                   .onClick(() => {
-                    this.hint = '请先在 DSH 客户端 → 设置 → 模型中添加模型提供商，保存后会自动同步。';
+                    this.pageStack.pushPathByName('add-provider', null);
                   })
                 }
                 .width('100%')
@@ -978,12 +1057,33 @@ export struct ModelsPage {
                 .padding({ top: 34, bottom: 44 })
                 .textAlign(TextAlign.Center)
             } else if (this.discoverError.length > 0) {
-              Text(this.discoverError)
-                .fontSize(13)
-                .lineHeight(19)
-                .fontColor('#FF5A5F')
-                .width('100%')
-                .padding({ left: 18, right: 18, top: 8, bottom: 24 })
+              Column({ space: 12 }) {
+                Text(this.discoverError)
+                  .fontSize(13)
+                  .lineHeight(19)
+                  .fontColor('#FF5A5F')
+                  .width('100%')
+                if (this.discoverNeedsManual) {
+                  Text('手动添加模型')
+                    .fontSize(14)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor('#FFFFFF')
+                    .width('100%')
+                    .height(42)
+                    .textAlign(TextAlign.Center)
+                    .borderRadius(11)
+                    .backgroundColor('#2E6BE6')
+                    .onClick(() => {
+                      const providerId: string = this.discoverProviderId;
+                      const providerName: string = this.discoverProviderName;
+                      this.closeSheets();
+                      this.openAddModel(providerId, providerName);
+                    })
+                }
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+              .padding({ left: 18, right: 18, top: 8, bottom: 24 })
             } else {
               Row() {
                 Text('已选择 ' + this.discoverSelected.length + ' 个')
@@ -1104,10 +1204,11 @@ export struct ModelsPage {
           }
           .width('100%')
           .constraintSize({ maxHeight: '86%' })
-          .borderRadius({ topLeft: 28, topRight: 28 })
-          .backgroundColor(this.isDark ? 'rgba(46,46,46,0.92)' : 'rgba(247,248,250,0.94)')
-          .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-          .shadow({ radius: 26, color: 'rgba(0,0,0,0.30)', offsetY: -3 })
+          .borderRadius({ topLeft: 20, topRight: 20 })
+          .backgroundColor(appGlassFill(this.isDark))
+          .backdropBlur(appGlassBlur(this.isDark))
+          .border({ width: 1, color: appGlassBorderColor(this.isDark) })
+          .shadow(appGlassShadow(this.isDark))
           .padding({ bottom: this.safeBottomStorage > 0 ? this.safeBottomStorage : 20 })
           .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 420 })).animation({ duration: 320, curve: Curve.Friction }))
         }
@@ -1472,12 +1573,83 @@ export struct ModelsPage {
           }
           .width('100%')
           .constraintSize({ maxHeight: '86%' })
-          .borderRadius({ topLeft: 28, topRight: 28 })
-          .backgroundColor(this.isDark ? 'rgba(46,46,46,0.92)' : 'rgba(247,248,250,0.94)')
-          .backgroundBlurStyle(BlurStyle.COMPONENT_THICK)
-          .shadow({ radius: 26, color: 'rgba(0,0,0,0.30)', offsetY: -3 })
+          .borderRadius({ topLeft: 20, topRight: 20 })
+          .backgroundColor(appGlassFill(this.isDark))
+          .backdropBlur(appGlassBlur(this.isDark))
+          .border({ width: 1, color: appGlassBorderColor(this.isDark) })
+          .shadow(appGlassShadow(this.isDark))
           .padding({ bottom: this.safeBottomStorage > 0 ? this.safeBottomStorage : 20 })
           .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 420 })).animation({ duration: 320, curve: Curve.Friction }))
+        }
+
+        // 删除确认（原生玻璃居中弹窗）
+        if (this.deleteOpen) {
+          Stack({ alignContent: Alignment.Center }) {
+            Column()
+              .width('100%')
+              .height('100%')
+              .backgroundColor('rgba(0,0,0,0.42)')
+              .onClick(() => {
+                if (!this.saving) {
+                  this.closeDelete();
+                }
+              })
+            Column({ space: 0 }) {
+              Column({ space: 8 }) {
+                Text(this.deleteTitle())
+                  .fontSize(16.5)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.textColor())
+                  .width('100%')
+                Text(this.deleteMessage())
+                  .fontSize(13)
+                  .lineHeight(19)
+                  .fontColor(this.subColor())
+                  .width('100%')
+              }
+              .width('100%')
+              .alignItems(HorizontalAlign.Start)
+              .padding({ left: 18, right: 18, top: 18, bottom: 16 })
+
+              Row() {
+                Text('取消')
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.subColor())
+                  .layoutWeight(1)
+                  .height(42)
+                  .textAlign(TextAlign.Center)
+                  .borderRadius(10)
+                  .border({ width: 1, color: this.dividerColor() })
+                  .margin({ right: 8 })
+                  .onClick(() => {
+                    this.closeDelete();
+                  })
+                Text('删除')
+                  .fontSize(15)
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor('#FFFFFF')
+                  .layoutWeight(1)
+                  .height(42)
+                  .textAlign(TextAlign.Center)
+                  .borderRadius(10)
+                  .backgroundColor('#FF3B30')
+                  .onClick(() => {
+                    this.confirmDelete();
+                  })
+              }
+              .width('100%')
+              .padding({ left: 18, right: 18, top: 4, bottom: 16 })
+            }
+            .width('86%')
+            .borderRadius(16)
+            .backgroundColor(appGlassFill(this.isDark))
+            .backdropBlur(appGlassBlur(this.isDark))
+            .border({ width: 1, color: appGlassBorderColor(this.isDark) })
+            .shadow(appGlassShadow(this.isDark))
+          }
+          .width('100%')
+          .height('100%')
         }
 
       }

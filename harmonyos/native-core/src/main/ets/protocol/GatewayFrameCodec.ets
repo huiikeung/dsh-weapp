@@ -456,6 +456,9 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
         callId: str(asRec(field(message, 'source')), 'callId'),
         isError,
         preview: toolResultText(message),
+        // 工具结果里的图片（read_image / 截图类工具）：host 把 tool/result 的 image 块计入会话引用，
+        // 解析出来挂到回合的回复行上，手机端就能按 attachmentId 回读显示。
+        images: imageBlocks(arr(message, 'content')),
         appendOrigin: bool(data, 'appendOrigin') === true,
         mutationPath: str(data, 'mutationPath'),
         raw: data
@@ -511,6 +514,8 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
         arguments: field(data, 'arguments'),
         isError: bool(data, 'isError'),
         preview: joinTextBlocks(field(data, 'content')),
+        // PTC 子工具的图片输出（read_image 等）：host 把 tool/ptc-dispatch 的 image 块计入会话引用
+        images: imageBlocks(field(data, 'content')),
         rootCallId: str(data, 'rootCallId'),
         parentCallId: str(data, 'parentCallId'),
         subCallId: str(data, 'subCallId'),

@@ -29,6 +29,74 @@ export interface ReasoningLevel {
 
 /** llm 插件命名空间（与小程序 model-settings.PI_NS 一致） */
 export const PI_NS: string = 'llm-pi-ai';
+/** 提供商配置在命名空间里的根路径（对齐小程序 PI_PREFIX） */
+export const PI_PREFIX: string = 'providers';
+
+/** 新建提供商可选的 API 协议（对齐小程序 PROTOCOLS） */
+export interface ProviderProtocol {
+  id: string;
+  label: string;
+}
+
+export const PROVIDER_PROTOCOLS: ProviderProtocol[] = [
+  { id: 'openai-completions', label: 'OpenAI Chat Completions' },
+  { id: 'openai-responses', label: 'OpenAI Responses' },
+  { id: 'anthropic-messages', label: 'Anthropic Messages' }
+];
+
+/** 提供商 ID 规则（与 DSH 自定义 provider 的 ROUTE_PATTERN 一致）。 */
+export function validateProviderId(id: string, existingIds: string[]): string {
+  const value: string = id.trim();
+  if (value.length === 0) {
+    return '请输入 Provider ID';
+  }
+  if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(value)) {
+    return 'Provider ID 需以小写字母开头，只能包含小写字母、数字和连字符';
+  }
+  if (existingIds.indexOf(value) >= 0) {
+    return 'Provider ID 已存在';
+  }
+  return '';
+}
+
+/** 接口地址必须是带主机的 http(s) 绝对地址。 */
+export function isValidProviderBaseURL(value: string): boolean {
+  return /^https?:\/\/[^\s/?#]+(?:\/[^\s]*)?$/i.test(value.trim());
+}
+
+/** 与 DSH 一致的派生凭据引用：<ROUTE>_API_KEY。 */
+export function credentialRefFor(providerId: string): string {
+  const stem: string = providerId.toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return (stem.length > 0 ? stem : 'MODEL') + '_API_KEY';
+}
+
+/** 新建提供商草稿 → 写入 llm-pi-ai 的 provider 配置对象。 */
+export interface ProviderConfigDraft {
+  displayName: string;
+  api: string;
+  baseURL: string;
+  apiKeyEnv: string;
+  models: Object[];
+}
+
+export function buildProviderConfig(draft: ProviderConfigDraft): Record<string, Object> {
+  const config: Record<string, Object> = { 'models': draft.models.slice() };
+  if (draft.apiKeyEnv.length > 0) {
+    config['apiKeyEnv'] = draft.apiKeyEnv;
+  }
+  if (draft.displayName.length > 0) {
+    config['displayName'] = draft.displayName;
+  }
+  if (draft.api.length > 0) {
+    config['api'] = draft.api;
+  }
+  if (draft.baseURL.length > 0) {
+    config['baseURL'] = draft.baseURL;
+  }
+  return config;
+}
+
+/** 新建提供商对应的 plugin-settings-mutate ops（实现见下方 providerCreateMutation）。 */
 
 /** 协议展示名（对齐 protocolLabel） */
 export function protocolLabel(api: string): string {

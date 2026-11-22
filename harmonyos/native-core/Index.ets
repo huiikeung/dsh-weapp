@@ -22,11 +22,13 @@ export type { GatewayProfile } from './src/main/ets/network/GatewayClient';
 export { SessionStore, goalPhaseLabel, emptySessionGoal } from './src/main/ets/state/SessionStore';
 export type { GatewayFrame } from './src/main/ets/protocol/GatewayDtos';
 export {
-  PI_NS, buildProviderRows, protocolLabel, formatTokenCount, modelMeta,
+  PI_NS, PI_PREFIX, buildProviderRows, protocolLabel, formatTokenCount, modelMeta,
   parseNamespace, appendModelsMutation, removeModelMutation, editModelMutation,
-  providerCreateMutation, providerRemoveMutation, parseDiscoveredModels, discoveredModelPayload
+  providerCreateMutation, providerRemoveMutation, parseDiscoveredModels, discoveredModelPayload,
+  PROVIDER_PROTOCOLS, validateProviderId, isValidProviderBaseURL, credentialRefFor, buildProviderConfig
 } from './src/main/ets/state/ModelSettingsStore';
-export type { ProviderRow, ModelRow, ReasoningLevel, PluginNamespace, DiscoveredModel } from './src/main/ets/state/ModelSettingsStore';
+export type { ProviderRow, ModelRow, ReasoningLevel, PluginNamespace, DiscoveredModel,
+  ProviderProtocol, ProviderConfigDraft } from './src/main/ets/state/ModelSettingsStore';
 export type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from './src/main/ets/state/SessionStore';
 export { OceanBackground } from './src/main/ets/components/OceanBackground.ets';
 export { ParticleBackground } from './src/main/ets/components/ParticleBackground.ets';

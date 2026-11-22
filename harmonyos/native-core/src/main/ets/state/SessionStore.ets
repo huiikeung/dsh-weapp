@@ -5,6 +5,7 @@ import { GatewayClient } from '../network/GatewayClient';
 import { EventProjector } from './EventProjector';
 import { TeamStore } from './TeamStore';
 import { Logger } from '../common/Logger';
+import { NotificationService } from '../common/NotificationService';
 import { AttachmentImageCache } from '../common/AttachmentImageCache';
 import { isOlderHistoryPage } from './HistoryPageMatcher';
 import { CONVERSATION_LIVE_SEQ_BASE, ConversationItem, ConversationItemKind, ConversationProjectionLabels, ConversationProjector } from '../projection/ConversationProjection';
@@ -1313,6 +1314,44 @@ export class SessionStore {
       this.turnEndedAt = Date.now();
       this.stopLiveTicker();
       this.publishConversation();
+      // 任务完成：通知开关开启且 App 在后台时，发鸿蒙系统通知（前台正看着该会话就不打扰）
+      this.publishTurnCompletedNotification();
+    }
+  }
+
+  /** 回合完成的系统通知（对齐设置页「订阅通知」开关）。 */
+  private publishTurnCompletedNotification(): void {
+    try {
+      const notifyEnabled: boolean = PreferencesStore.get().getBoolean('notifyEnabled', false);
+      Logger.info('notify turn completed check enabled=' + notifyEnabled + ' session=' + this.sessionId);
+      if (!notifyEnabled) {
+        return;
+      }
+      // 开关开启后不再区分前后台：任务完成就发系统通知（前台看该会话时系统也只会弹横幅）
+      const sessionId: string = this.sessionId;
+      if (sessionId.length === 0) {
+        return;
+      }
+      let title: string = '鲸尾 Harness';
+      const list: SessionSummary[] | undefined = AppStorage.get<SessionSummary[]>('sessions');
+      if (list !== undefined) {
+        for (const one of list) {
+          if (one.id === sessionId && one.title.length > 0) {
+            title = one.title;
+            break;
+          }
+        }
+      }
+      const raw: string = this.lastAssistantText.replace(/\s+/g, ' ').trim();
+      let detail: string = '任务已完成，点击查看结果';
+      if (raw.length > 0) {
+        detail = raw.length > 56 ? raw.substring(0, 56) + '…' : raw;
+      }
+      Logger.info('notify turn completed session=' + sessionId);
+      NotificationService.notifyTaskDone(sessionId, title, detail).catch(() => {
+      });
+    } catch (err) {
+      Logger.warn('notify turn completed failed: ' + String(err));
     }
   }
 

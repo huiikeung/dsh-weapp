@@ -1,4 +1,4 @@
-import { asRec, GatewayClient, GatewayFrame, GatewayRequestFactory, SessionStore } from 'nativecore';
+import { asRec, GatewayClient, GatewayFrame, GatewayRequestFactory, Logger, SessionStore } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
 
 /** 模型行（网关 models 目录） */
@@ -79,8 +79,9 @@ export struct SessionDefaultModelPage {
     return this.isDark ? '#000000' : '#F2F2F7';
   }
 
+  /** 卡片底 = 页面背景色（靠描边 + 投影分层） */
   private cardBg(): string {
-    return this.isDark ? '#1C1C1E' : '#FFFFFF';
+    return this.pageBg();
   }
 
   private textColor(): string {
@@ -93,6 +94,11 @@ export struct SessionDefaultModelPage {
 
   private dividerColor(): string {
     return this.isDark ? 'rgba(241,244,250,0.08)' : 'rgba(16,19,24,0.06)';
+  }
+
+  /** 卡片边框 = 返回按钮同款 */
+  private cardEdge(): string {
+    return this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)';
   }
 
   private toast(message: string): void {
@@ -133,13 +139,16 @@ export struct SessionDefaultModelPage {
     const rec = asRec(frame) ?? ({} as Record<string, Object>);
     const rawGroups = rec['groups'];
     const groups = rawGroups !== undefined && Array.isArray(rawGroups) ? rawGroups as Object[] : [];
-    // 权威当前模型/档位（网关帧 current），回退本地 AppStorage 默认值
+    // 权威当前模型/档位：host 的模型目录帧用 `default` 字段（selection 结构），
+    // 旧版本/其它命令可能用 `current`，两者都兼容；最后回退本地 AppStorage 默认值。
     let currentModel: string = this.defaultModelValue;
     let currentProvider: string = this.savedProvider;
     let currentEffort: string = this.defaultEffortValue;
-    const rawCurrent = rec['current'];
-    if (rawCurrent !== undefined && !Array.isArray(rawCurrent)) {
-      const cur = rawCurrent as Record<string, Object>;
+    const applySelection = (value: Object | undefined): void => {
+      if (value === undefined || Array.isArray(value)) {
+        return;
+      }
+      const cur = value as Record<string, Object>;
       const cm: string = String(cur['model'] ?? '');
       if (cm.length > 0) {
         currentModel = cm;
@@ -152,11 +161,14 @@ export struct SessionDefaultModelPage {
       if (ce.length > 0) {
         currentEffort = ce;
       }
-    }
+    };
+    applySelection(rec['default']);
+    applySelection(rec['current']);
     const rows: ModelRow[] = [];
     for (const group of groups) {
       const g = group as Record<string, Object>;
-      const provider: string = String(g['provider'] ?? '');
+      // host 目录帧的 provider 分组形状：{ id, name, models[] }（不是 provider/providerName）
+      const provider: string = String(g['id'] ?? g['provider'] ?? '');
       const rawModels = g['models'];
       if (rawModels === undefined || !Array.isArray(rawModels)) {
         continue;
@@ -168,9 +180,12 @@ export struct SessionDefaultModelPage {
         row.model = String(m['id'] ?? '');
         const name: string = String(m['name'] ?? '');
         row.label = name.length > 0 ? name : row.model;
-        const de = m['defaultEffort'];
-        row.defaultEffort = de === undefined ? '' : String(de);
         const reasoning = m['reasoning'] as Record<string, Object> | undefined;
+        // 默认档位在 reasoning.defaultEffort 上（host 目录帧结构），顶层字段仅作兼容
+        const reasoningDefault: Object | undefined = reasoning === undefined ? undefined : reasoning['defaultEffort'];
+        const topDefault: Object | undefined = m['defaultEffort'];
+        row.defaultEffort = reasoningDefault !== undefined ? String(reasoningDefault)
+          : (topDefault === undefined ? '' : String(topDefault));
         const efforts = reasoning === undefined ? undefined : reasoning['efforts'];
         if (efforts !== undefined && Array.isArray(efforts)) {
           for (const level of efforts as Object[]) {
@@ -189,12 +204,12 @@ export struct SessionDefaultModelPage {
         rows.push(row);
       }
     }
-    // 提供商显示名（网关 groups 里可能只有 provider id，回退用 id）
+    // 提供商显示名：分组帧的 name 即显示名，缺失时回退 id
     this.providerTitles = new Map<string, string>();
     for (const group of groups) {
       const g = group as Record<string, Object>;
-      const provider: string = String(g['provider'] ?? '');
-      const pn: string = String(g['providerName'] ?? '');
+      const provider: string = String(g['id'] ?? g['provider'] ?? '');
+      const pn: string = String(g['name'] ?? g['providerName'] ?? '');
       this.providerTitles.set(provider, pn.length > 0 ? pn : provider);
     }
     this.savedModel = currentModel;
@@ -242,6 +257,49 @@ export struct SessionDefaultModelPage {
     return provider.length === 0 || provider === row.provider;
   }
 
+  /** 页面顶部摘要：当前默认模型 + 档位 */
+  private currentSummary(): string {
+    for (const row of this.rows) {
+      if (!this.isCurrentModel(row)) {
+        continue;
+      }
+      const effort: string = this.currentEffortOf(row);
+      return effort.length > 0 ? row.label + ' · ' + effortName(effort) : row.label;
+    }
+    return '未设置';
+  }
+
+  /** 顶部说明卡：当前默认摘要 + 说明 */
+  @Builder
+  introCard() {
+    Column({ space: 6 }) {
+      Row({ space: 8 }) {
+        Text('当前默认')
+          .fontSize(12.4)
+          .fontColor(this.subColor())
+        Text(this.currentSummary())
+          .fontSize(12.4)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#2E6BE6')
+          .layoutWeight(1)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .width('100%')
+      Text('为之后新建的会话设置默认模型与思考等级，运行中的会话保持启动时的配置；修改会同步 WebUI。')
+        .fontSize(12.2)
+        .lineHeight(18.4)
+        .fontColor(this.subColor())
+        .width('100%')
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .padding({ left: 14, right: 14, top: 12, bottom: 12 })
+    .borderRadius(14)
+    .backgroundColor(this.isDark ? 'rgba(46,107,230,0.15)' : 'rgba(46,107,230,0.07)')
+    .margin({ bottom: 2 })
+  }
+
   /** 当前模型的选中档位（只有当前模型才显示选中态，对齐小程序） */
   private currentEffortOf(row: ModelRow): string {
     if (this.isCurrentModel(row)) {
@@ -269,6 +327,7 @@ export struct SessionDefaultModelPage {
       this.toast('已保存');
     }).catch((error: Error) => {
       this.saving = false;
+      Logger.warn('[MODEL] save default failed ' + error.message);
       this.toast('保存失败：' + (error.message.length > 0 ? error.message : '请稍后再试'));
     });
   }
@@ -284,15 +343,17 @@ export struct SessionDefaultModelPage {
   @Builder
   effortChip(row: ModelRow, option: EffortOption) {
     Text(option.name)
-      .fontSize(12.5)
-      .fontWeight(FontWeight.Medium)
+      .fontSize(12.3)
+      .fontWeight(this.currentEffortOf(row) === option.id ? FontWeight.Medium : FontWeight.Normal)
       .fontColor(this.currentEffortOf(row) === option.id ? '#FFFFFF' : this.textColor())
-      .padding({ left: 11, right: 11, top: 5.5, bottom: 5.5 })
+      .height(29)
+      .padding({ left: 13, right: 13 })
+      .textAlign(TextAlign.Center)
       .borderRadius(999)
       .backgroundColor(this.currentEffortOf(row) === option.id
         ? '#2E6BE6'
-        : (this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.05)'))
-      .margin({ right: 12, bottom: 8 })
+        : (this.isDark ? 'rgba(255,255,255,0.09)' : 'rgba(16,19,24,0.055)'))
+      .margin({ right: 8, bottom: 8 })
       .onClick(() => {
         this.save(row, option.id);
       })
@@ -301,26 +362,36 @@ export struct SessionDefaultModelPage {
   /** 空态卡片（未连接 / 读取中 / 无可用模型） */
   @Builder
   stateCard(title: string, detail: string, withRetry: boolean) {
-    Column({ space: 10 }) {
-      Text(title)
-        .fontSize(16)
-        .fontWeight(FontWeight.Medium)
-        .fontColor(this.textColor())
+    Column({ space: 12 }) {
+      Row({ space: 9 }) {
+        if (!withRetry) {
+          LoadingProgress()
+            .width(16)
+            .height(16)
+            .color('#2E6BE6')
+        }
+        Text(title)
+          .fontSize(15.5)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+      }
+      .width('100%')
       Text(detail)
-        .fontSize(13)
-        .lineHeight(19.5)
+        .fontSize(12.8)
+        .lineHeight(19)
         .fontColor(this.subColor())
+        .width('100%')
       if (withRetry) {
         Text('重新加载')
           .fontSize(14)
           .fontWeight(FontWeight.Medium)
-          .fontColor('#2E6BE6')
+          .fontColor('#FFFFFF')
           .width('100%')
-          .height(38)
+          .height(40)
           .textAlign(TextAlign.Center)
-          .borderRadius(10)
-          .border({ width: 0.5, color: '#2E6BE6' })
-          .margin({ top: 4 })
+          .borderRadius(12)
+          .backgroundColor('#2E6BE6')
+          .margin({ top: 2 })
           .onClick(() => {
             this.reload();
           })
@@ -328,31 +399,44 @@ export struct SessionDefaultModelPage {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding(16)
-    .borderRadius(14)
+    .padding(18)
+    .borderRadius(16)
     .backgroundColor(this.cardBg())
-    .border({ width: 0.5, color: this.dividerColor() })
+    .border({ width: 1, color: this.cardEdge() })
   }
 
-  /** 单个模型卡片：名称行 + 「思考等级」常显档位（对齐小程序 model-option-card） */
+  /** 模型卡片：选中态高亮 + 名称行（点击切换）+ 思考等级 chips */
   @Builder
   modelCard(row: ModelRow) {
     Column({ space: 0 }) {
-      Row({ space: 8 }) {
-        Text(row.label)
-          .fontSize(16)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(this.textColor())
-          .layoutWeight(1)
-          .maxLines(1)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Row({ space: 10 }) {
+        Column({ space: 4 }) {
+          Text(row.label)
+            .fontSize(16.5)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (this.isCurrentModel(row)) {
+            Text('当前使用')
+              .fontSize(11)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#2E6BE6')
+          }
+        }
+        .alignItems(HorizontalAlign.Start)
+        .layoutWeight(1)
+
         if (this.isCurrentModel(row)) {
-          Text('当前使用')
-            .fontSize(10.5)
+          Text('✓')
+            .fontSize(14)
+            .fontWeight(FontWeight.Bold)
             .fontColor('#2E6BE6')
-            .backgroundColor(this.isDark ? 'rgba(46,107,230,0.22)' : 'rgba(46,107,230,0.10)')
-            .borderRadius(4)
-            .padding({ left: 5, right: 5, top: 2, bottom: 2 })
+            .width(24)
+            .height(24)
+            .textAlign(TextAlign.Center)
+            .borderRadius(12)
+            .backgroundColor(this.isDark ? 'rgba(46,107,230,0.24)' : 'rgba(46,107,230,0.12)')
         }
       }
       .width('100%')
@@ -360,11 +444,10 @@ export struct SessionDefaultModelPage {
         this.pickModel(row);
       })
 
-      // 思考等级：常显（对齐小程序 model-effort-section）
       if (row.efforts.length > 0) {
-        Column({ space: 8 }) {
+        Column({ space: 6 }) {
           Text('思考等级')
-            .fontSize(12)
+            .fontSize(11.6)
             .fontColor(this.subColor())
             .width('100%')
           Flex({ wrap: FlexWrap.Wrap, alignItems: ItemAlign.Start }) {
@@ -376,20 +459,20 @@ export struct SessionDefaultModelPage {
         }
         .width('100%')
         .alignItems(HorizontalAlign.Start)
-        .margin({ top: 12 })
+        .margin({ top: 14 })
       }
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding(14)
-    .margin({ bottom: 9.4 })
-    .borderRadius(14)
+    .padding({ left: 16, right: 16, top: 15, bottom: 15 })
+    .margin({ bottom: 10 })
+    .borderRadius(16)
     .border({
-      width: 1,
-      color: this.isCurrentModel(row) ? '#6B87D7' : this.dividerColor()
+      width: this.isCurrentModel(row) ? 1.2 : 1,
+      color: this.isCurrentModel(row) ? '#2E6BE6' : this.cardEdge()
     })
     .backgroundColor(this.isCurrentModel(row)
-      ? (this.isDark ? 'rgba(83,112,198,0.14)' : 'rgba(83,112,198,0.06)')
+      ? (this.isDark ? 'rgba(46,107,230,0.14)' : 'rgba(46,107,230,0.055)')
       : this.cardBg())
   }
 
@@ -416,12 +499,7 @@ export struct SessionDefaultModelPage {
 
         Scroll() {
           Column() {
-            Text('为之后新建的会话设置默认模型与思考等级。这会更新部署级设置，同步影响 WebUI，运行中的会话保持启动时的配置。')
-              .fontSize(14)
-              .lineHeight(20)
-              .fontColor(this.subColor())
-              .width('100%')
-              .padding({ bottom: 14 })
+            this.introCard()
 
             if (this.connection !== 'connected') {
               this.stateCard('未连接网关', '连接网关后自动读取模型目录与思考等级。', true)
@@ -432,12 +510,13 @@ export struct SessionDefaultModelPage {
             } else {
               ForEach(this.groupedRows(), (group: ModelGroupVm) => {
                 Column({ space: 0 }) {
-                  // 提供商标题行（对齐小程序 .picker-provider-title）
+                  // 提供商标题行（分组小标题）
                   Text(group.title)
-                    .fontSize(12)
+                    .fontSize(12.4)
+                    .fontWeight(FontWeight.Medium)
                     .fontColor(this.subColor())
                     .width('100%')
-                    .padding({ left: 4, top: 10, bottom: 6 })
+                    .padding({ left: 4, top: 18, bottom: 8 })
 
                   ForEach(group.items, (row: ModelRow) => {
                     this.modelCard(row)
@@ -447,11 +526,11 @@ export struct SessionDefaultModelPage {
               }, (group: ModelGroupVm) => group.title)
 
               Text('保存在网关 · 自动同步 WebUI')
-                .fontSize(12.9)
-                .fontColor(this.subColor())
+                .fontSize(12.2)
+                .fontColor(this.isDark ? 'rgba(241,244,250,0.34)' : 'rgba(16,19,24,0.34)')
                 .width('100%')
                 .textAlign(TextAlign.Center)
-                .padding({ top: 9, bottom: 24 })
+                .padding({ top: 14, bottom: 30 })
             }
           }
           .width('100%')

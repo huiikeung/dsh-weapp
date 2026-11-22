@@ -6,7 +6,7 @@ import { TsnetBridge } from '../services/TsnetBridge';
 import { BackgroundKeepAlive } from '../services/BackgroundKeepAlive';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 import {
-  AppState, GatewayClient, Logger, PreferencesStore, SessionStore, ThemeManager,
+  AppState, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
   parsePairingPayload, sodiumSelfTest
 } from 'nativecore';
 export default class EntryAbility extends UIAbility {
@@ -16,6 +16,8 @@ export default class EntryAbility extends UIAbility {
     Logger.info('UIBOOT onCreate');
     AppStorage.setOrCreate<string>('appLifecycle', 'foreground');
     AppStorage.setOrCreate<Context>('uiAbilityContext', this.context);
+    // 系统通知需要在后台无页面上下文时也能发：把 UIAbilityContext 交给通知服务
+    NotificationService.attachContext(this.context);
     const deepSession: string = want.parameters !== undefined && want.parameters['sessionId'] !== undefined
       ? String(want.parameters['sessionId']) : '';
     if (deepSession.length > 0) {
@@ -191,6 +193,9 @@ export default class EntryAbility extends UIAbility {
     GatewayClient.get().revalidateOnForeground();
     Logger.info('FG_TIMING revalidate +' + (Date.now() - fgStart));
     AppStorage.setOrCreate<string>('appLifecycle', 'foreground');
+    // 回到前台：清掉任务完成的桌面角标
+    NotificationService.clearBadge().catch(() => {
+    });
     // 后台期间桌面端可能开跑或跑完：回前台立刻校准一次会话列表，
     // 不要再等下一拍轮询（用户看到的第一眼就是旧状态）。
     SessionStore.get().refreshSessionsNow();
