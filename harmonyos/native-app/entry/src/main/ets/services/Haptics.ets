@@ -21,6 +21,19 @@ export class Haptics {
     }
   }
 
+  /** 预览某个档位的触感（选择震动等级时立即感受强弱，不读写当前偏好） */
+  static preview(level: string): void {
+    const duration: number = Haptics.durationOf(level);
+    if (duration <= 0) {
+      return;
+    }
+    try {
+      vibrator.startVibration({ type: 'time', duration: duration }, { id: 0, usage: 'touch' }).catch(() => {
+      });
+    } catch (ignored) {
+    }
+  }
+
   /** 设置页未写过时按「中」处理；兼容旧版按中文保存的档位 */
   private static level(): string {
     try {

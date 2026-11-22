@@ -107,6 +107,11 @@ export struct FontSizePage {
     this.fontSize = value;
     PreferencesStore.get().putString('contentFontSize', value);
     AppStorage.setOrCreate<string>('contentFontSize', value);
+    // 立即同步给设置页并自动返回上一级
+    AppStorage.setOrCreate<string>('prefPickerChoice', 'fontsize\u0001' + value);
+    const revision: number = AppStorage.get<number>('prefPickerRevision') ?? 0;
+    AppStorage.setOrCreate<number>('prefPickerRevision', revision + 1);
+    this.pageStack.pop();
   }
 
   private commitFamily(role: string, value: string): void {

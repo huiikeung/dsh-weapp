@@ -19,6 +19,7 @@ import type { DirEntry, GatewayEvent, GatewayFrame, GatewayTask, GatewayGoalRefe
 import type { TeamMemberView, TeamTaskView } from 'nativecore';
 import type { SpeechLimits } from 'nativecore';
 import type { DownloadResult, GatewayImageAttachment, UploadResult } from 'nativecore';
+import type { GatewayPendingQuestionRequest, GatewayQuestion, GatewayQuestionAnswer, GatewayQuestionOption } from 'nativecore';
 import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair, RefChipItem, RefDirItem, RefSessionItem, SkillItem } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
@@ -34,6 +35,23 @@ import { HoldingHand } from '../services/HoldingHand';
 const sharedFileSummaries: Map<string, string> = new Map<string, string>();
 
 /** 协作面板「只读预览」里的一行消息（对齐小程序 collaborationPreview.rows） */
+
+/** 确认选择弹窗：单个选项 */
+interface QuestionOptionView {
+  label: string;
+  description: string;
+}
+
+/** 确认选择弹窗：单个问题 */
+interface QuestionView {
+  id: string;
+  header: string;
+  question: string;
+  detail: string;
+  multiSelect: boolean;
+  options: QuestionOptionView[];
+}
+
 interface TeamPreviewRow {
   key: string;
   role: string;
@@ -297,6 +315,9 @@ export struct ConversationPage {
   @StorageLink('contextDashboard') dashboard: Object | null = null;
   /** 部署级默认 Agent 预设（运行模式）：新会话没有 per-session 值时用它 */
   @StorageLink('defaultAgentPreset') defaultAgentPreset: string = '';
+  /** 新会话左上角「模式切换」：弹窗开关与当前显示文案 */
+  @State private modeChipOpen: boolean = false;
+  @State private modeChipLabel: string = '标准模式';
   /** 每会话运行模式缓存（sessionId → preset id）：网关每会话回执/事件写入 */
   @StorageLink('sessionAgentPresets') sessionAgentPresets: Record<string, Object> = {};
   /** 预设详细列表：提供网关下发的显示名（自定义预设名优先） */
@@ -540,7 +561,27 @@ export struct ConversationPage {
   /** 系统状态栏高度（vp）：EntryAbility 建窗时写入 AppStorage，页面据此避让。 */
   @StorageLink('safeTopVp') topInset: number = 0;
   /** 执行图标样式（设置页「执行图标」） */
-  @StorageLink('procIconStyle') procIconStyle: string = 'spin-ring';
+  @StorageLink('procIconStyle') procIconStyle: string = 'default';
+  /** 等待回答的问题（question-requested 帧由 SessionStore 发布到这里） */
+  @StorageProp('pendingQuestionJson') @Watch('onPendingQuestionChanged') pendingQuestionJson: string = '';
+  @State questionOpen: boolean = false;
+  @State questionRpcId: string = '';
+  @State questionViews: QuestionView[] = [];
+  @State questionSelections: string[][] = [];
+  @State questionCustom: string[] = [];
+  @State questionBusy: boolean = false;
+  @State questionCollapsed: boolean = false;
+  @State questionIndex: number = 0;
+  @State questionReplay: boolean = false;
+  /** 等待审批的工具调用（approval-requested 帧由 SessionStore 发布到这里） */
+  @StorageProp('pendingApprovalJson') @Watch('onPendingApprovalChanged') pendingApprovalJson: string = '';
+  @State approvalOpen: boolean = false;
+  @State approvalRpcId: string = '';
+  @State approvalId: string = '';
+  @State approvalTool: string = '';
+  @State approvalReason: string = '';
+  @State approvalReplay: boolean = false;
+  @State approvalBusy: boolean = false;
   // ===== 底部 dock：排队消息 / 任务 / 目标（对齐小程序 dock-stack）=====
   @StorageLink('queueItems') @Watch('onQueueChanged') queue: QueueItem[] = [];
   @StorageLink('sessionTasks') @Watch('onTasksChanged') tasks: GatewayTask[] = [];
@@ -619,6 +660,11 @@ export struct ConversationPage {
     this.teamSheetOpen = false;
     this.ready = true;
     this.pageSessionId = SessionStore.get().currentSessionId();
+    SessionStore.get().refreshPendingQuestion();
+    SessionStore.get().refreshPendingApproval();
+    // 进入页面前可能已经有等待中的问题/审批：主动按当前值打开一次内嵌卡片
+    this.onPendingQuestionChanged();
+    this.onPendingApprovalChanged();
     this.onSessionsChangedForRef();
     this.loadSkills();
     this.loadRefDirectory();
@@ -1924,6 +1970,572 @@ export struct ConversationPage {
     }
     .width('100%')
     .height('100%')
+  }
+
+  // ── 确认选择弹窗（question-requested）──
+
+  private onPendingQuestionChanged(): void {
+    Logger.info('[Q] page pending len=' + this.pendingQuestionJson.length.toString());
+    if (this.pendingQuestionJson.length === 0) {
+      this.questionOpen = false;
+      return;
+    }
+    try {
+      const raw: Record<string, Object> = JSON.parse(this.pendingQuestionJson) as Record<string, Object>;
+      const sessionId: string = typeof raw['sessionId'] === 'string' ? raw['sessionId'] as string : '';
+      if (sessionId.length === 0 || sessionId !== SessionStore.get().currentSessionId()) {
+        this.questionOpen = false;
+        return;
+      }
+      const rpcId: string = typeof raw['rpcId'] === 'string' ? raw['rpcId'] as string : '';
+      const rawQuestions: Object[] = Array.isArray(raw['questions']) ? raw['questions'] as Object[] : [];
+      const views: QuestionView[] = [];
+      for (const item of rawQuestions) {
+        const rec: Record<string, Object> = item as Record<string, Object>;
+        const optionsRaw: Object[] = Array.isArray(rec['options']) ? rec['options'] as Object[] : [];
+        const options: QuestionOptionView[] = [];
+        for (const one of optionsRaw) {
+          const opt: Record<string, Object> = one as Record<string, Object>;
+          options.push({
+            label: typeof opt['label'] === 'string' ? opt['label'] as string : '',
+            description: typeof opt['description'] === 'string' ? opt['description'] as string : ''
+          });
+        }
+        views.push({
+          id: typeof rec['id'] === 'string' ? rec['id'] as string : '',
+          header: typeof rec['header'] === 'string' ? rec['header'] as string : '',
+          question: typeof rec['question'] === 'string' ? rec['question'] as string : '',
+          detail: typeof rec['detail'] === 'string' ? rec['detail'] as string : '',
+          multiSelect: rec['multiSelect'] === true,
+          options: options
+        });
+      }
+      const selections: string[][] = [];
+      const customs: string[] = [];
+      for (let i = 0; i < views.length; i++) {
+        selections.push([]);
+        customs.push('');
+      }
+      this.questionRpcId = rpcId;
+      this.questionViews = views;
+      this.questionSelections = selections;
+      this.questionCustom = customs;
+      this.questionBusy = false;
+      this.questionIndex = 0;
+      this.questionCollapsed = false;
+      this.questionReplay = raw['replay'] === true;
+      this.questionOpen = views.length > 0;
+    } catch (err) {
+      this.questionOpen = false;
+    }
+  }
+
+  private isQuestionSelected(index: number, label: string): boolean {
+    if (index < 0 || index >= this.questionSelections.length) {
+      return false;
+    }
+    return this.questionSelections[index].indexOf(label) >= 0;
+  }
+
+  private toggleQuestionOption(index: number, label: string): void {
+    if (index < 0 || index >= this.questionViews.length) {
+      return;
+    }
+    const multi: boolean = this.questionViews[index].multiSelect;
+    const current: string[] = this.questionSelections[index];
+    let next: string[] = [];
+    if (multi) {
+      next = current.slice();
+      const at: number = next.indexOf(label);
+      if (at >= 0) {
+        next.splice(at, 1);
+      } else {
+        next.push(label);
+      }
+    } else {
+      next = current.indexOf(label) >= 0 ? [] : [label];
+    }
+    const all: string[][] = [];
+    for (let i = 0; i < this.questionSelections.length; i++) {
+      all.push(i === index ? next : this.questionSelections[i]);
+    }
+    this.questionSelections = all;
+  }
+
+  private setQuestionCustom(index: number, value: string): void {
+    if (index < 0 || index >= this.questionCustom.length) {
+      return;
+    }
+    const next: string[] = [];
+    for (let i = 0; i < this.questionCustom.length; i++) {
+      next.push(i === index ? value : this.questionCustom[i]);
+    }
+    this.questionCustom = next;
+  }
+
+  private async submitQuestion(): Promise<void> {
+    if (this.questionBusy) {
+      return;
+    }
+    if (this.questionRpcId.length === 0) {
+      this.showToast('问题请求已失效，请重新触发', false);
+      return;
+    }
+    const sessionId: string = SessionStore.get().currentSessionId();
+    const answers: GatewayQuestionAnswer[] = [];
+    for (let i = 0; i < this.questionViews.length; i++) {
+      const selected: string[] = i < this.questionSelections.length ? this.questionSelections[i] : [];
+      const custom: string = i < this.questionCustom.length ? this.questionCustom[i].trim() : '';
+      if (selected.length === 0 && custom.length === 0) {
+        if (i !== this.questionIndex) {
+          this.questionIndex = i;
+        }
+        this.showToast('第 ' + (i + 1).toString() + ' 题还没选，请先完成', false);
+        return;
+      }
+      const answer: GatewayQuestionAnswer = { id: this.questionViews[i].id, selected: selected };
+      if (custom.length > 0) {
+        answer.custom = custom;
+      }
+      answers.push(answer);
+    }
+    this.questionBusy = true;
+    GatewayClient.get().answerQuestion(this.questionRpcId, sessionId, answers).then((frame: GatewayFrame) => {
+      this.questionBusy = false;
+      if (frame.accepted === true) {
+        this.questionOpen = false;
+        SessionStore.get().refreshPendingQuestion();
+        this.showToast('已提交回答', false);
+      } else {
+        this.showToast('提交失败：' + (frame.reason !== undefined ? frame.reason : '网关未接受'), true);
+      }
+    }).catch((err: Error) => {
+      this.questionBusy = false;
+      this.showToast(err.message.length > 0 ? err.message : '提交失败', true);
+    });
+  }
+
+  private cancelQuestionPrompt(): void {
+    if (this.questionRpcId.length === 0) {
+      this.questionOpen = false;
+      return;
+    }
+    const rpcId: string = this.questionRpcId;
+    const sessionId: string = SessionStore.get().currentSessionId();
+    this.questionOpen = false;
+    GatewayClient.get().cancelQuestion(rpcId, sessionId).then((frame: GatewayFrame) => {
+      SessionStore.get().refreshPendingQuestion();
+    }).catch((err: Error) => {
+    });
+  }
+
+  // ── 问题 / 批准：输入框上方的内嵌卡片（对齐小程序 pending-card，背景参考队列消息）──
+
+  private questionCurrent(): QuestionView | undefined {
+    if (this.questionIndex < 0 || this.questionIndex >= this.questionViews.length) {
+      return undefined;
+    }
+    return this.questionViews[this.questionIndex];
+  }
+
+  private questionHeaderText(): string {
+    const item: QuestionView | undefined = this.questionCurrent();
+    return item !== undefined && item.header.length > 0 ? item.header : '确认';
+  }
+
+  private questionIsMulti(): boolean {
+    const item: QuestionView | undefined = this.questionCurrent();
+    return item !== undefined && item.multiSelect;
+  }
+
+  private questionPrevPage(): void {
+    if (this.questionIndex > 0) {
+      this.questionIndex -= 1;
+    }
+  }
+
+  private questionNextPage(): void {
+    if (this.questionIndex < this.questionViews.length - 1) {
+      this.questionIndex += 1;
+    }
+  }
+
+  @Builder
+  questionDockCard() {
+    if (this.questionOpen && this.questionViews.length > 0) {
+      Column() {
+        if (this.questionCollapsed) {
+          Row({ space: this.rpx(20) }) {
+            Stack({ alignContent: Alignment.Center }) {
+              Column()
+                .width(this.rpx(44))
+                .height(this.rpx(44))
+                .borderRadius(this.rpx(22))
+                .backgroundColor('rgba(46,107,230,0.18)')
+              Text('?')
+                .fontSize(15)
+                .fontWeight(FontWeight.Medium)
+                .fontColor('#7FA7FF')
+            }
+            Column({ space: this.rpx(4) }) {
+              Text('Agent 正在等待回答')
+                .fontSize(13)
+                .fontWeight(FontWeight.Medium)
+                .fontColor(this.textColor())
+              Text(this.questionCurrent() !== undefined ? this.questionCurrent()!.question : '')
+                .fontSize(12)
+                .fontColor(this.subColor())
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+            Image($r('app.media.chev_right_gray'))
+              .width(this.rpx(22))
+              .height(this.rpx(22))
+              .objectFit(ImageFit.Contain)
+              .rotate({ angle: 90 })
+              .opacity(0.72)
+          }
+          .width('100%')
+          .constraintSize({ minHeight: this.rpx(92) })
+          .padding({ left: this.rpx(24), right: this.rpx(24) })
+          .alignItems(VerticalAlign.Center)
+          .onClick(() => {
+            this.questionCollapsed = false;
+          })
+        } else {
+          Row({ space: this.rpx(12) }) {
+            Text(this.questionHeaderText())
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#7FA7FF')
+            if (this.questionReplay) {
+              Text('已恢复')
+                .fontSize(11)
+                .fontColor(this.subColor())
+            }
+            Blank()
+            Text('收起')
+              .fontSize(12)
+              .fontColor(this.subColor())
+              .padding({ left: this.rpx(12), right: this.rpx(12), top: this.rpx(4), bottom: this.rpx(4) })
+              .onClick(() => {
+                this.questionCollapsed = true;
+              })
+            Text('✕')
+              .fontSize(14)
+              .fontColor(this.subColor())
+              .padding({ left: this.rpx(6), right: this.rpx(2), top: this.rpx(4), bottom: this.rpx(4) })
+              .onClick(() => {
+                this.cancelQuestionPrompt();
+              })
+          }
+          .width('100%')
+          .padding({ left: this.rpx(28), right: this.rpx(20), top: this.rpx(20) })
+
+          if (this.questionCurrent() !== undefined) {
+            Column({ space: this.rpx(10) }) {
+              Text(this.questionCurrent()!.question)
+                .fontSize(17)
+                .fontWeight(FontWeight.Medium)
+                .lineHeight(this.rpx(44))
+                .fontColor(this.textColor())
+                .width('100%')
+              if (this.questionCurrent()!.detail.length > 0) {
+                Text(this.questionCurrent()!.detail)
+                  .fontSize(12.5)
+                  .lineHeight(this.rpx(38))
+                  .fontColor(this.subColor())
+                  .width('100%')
+              }
+              if (this.questionIsMulti()) {
+                Text('☑ 可以选择多项')
+                  .fontSize(11.5)
+                  .fontColor(this.subColor())
+                  .width('100%')
+              }
+              ForEach(this.questionCurrent()!.options, (opt: QuestionOptionView, oi: number) => {
+                Row({ space: this.rpx(14) }) {
+                  Stack({ alignContent: Alignment.Center }) {
+                    Column()
+                      .width(this.rpx(44))
+                      .height(this.rpx(44))
+                      .borderRadius(this.rpx(10))
+                      .backgroundColor(this.isQuestionSelected(this.questionIndex, opt.label)
+                        ? '#2E6BE6'
+                        : (this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.10)'))
+                    Text((oi + 1).toString())
+                      .fontSize(13)
+                      .fontColor(this.isQuestionSelected(this.questionIndex, opt.label) ? '#FFFFFF' : this.subColor())
+                  }
+                  .width(this.rpx(44))
+                  .height(this.rpx(44))
+                  Column({ space: this.rpx(4) }) {
+                    Text(opt.label)
+                      .fontSize(14.5)
+                      .fontWeight(FontWeight.Medium)
+                      .fontColor(this.textColor())
+                    if (opt.description.length > 0) {
+                      Text(opt.description)
+                        .fontSize(13)
+                        .lineHeight(this.rpx(36))
+                        .fontColor(this.subColor())
+                    }
+                  }
+                  .layoutWeight(1)
+                  .alignItems(HorizontalAlign.Start)
+                }
+                .width('100%')
+                .padding({ left: this.rpx(4), right: this.rpx(4), top: this.rpx(10), bottom: this.rpx(10) })
+                .borderRadius(this.rpx(16))
+                .border({
+                  width: 1,
+                  color: this.isQuestionSelected(this.questionIndex, opt.label)
+                    ? 'rgba(46,107,230,0.55)' : Color.Transparent
+                })
+                .backgroundColor(this.isQuestionSelected(this.questionIndex, opt.label)
+                  ? 'rgba(46,107,230,0.10)' : Color.Transparent)
+                .onClick(() => {
+                  this.toggleQuestionOption(this.questionIndex, opt.label);
+                })
+              }, (opt: QuestionOptionView, oi: number) => this.questionIndex.toString() + '-' + oi.toString())
+              if (this.questionCurrent()!.options.length > 0) {
+                Row({ space: this.rpx(10) }) {
+                  Text('✎')
+                    .fontSize(13)
+                    .fontColor(this.subColor())
+                  TextInput({
+                    text: this.questionIndex < this.questionCustom.length ? this.questionCustom[this.questionIndex] : '',
+                    placeholder: '或输入自定义答案'
+                  })
+                    .fontSize(13)
+                    .layoutWeight(1)
+                    .height(this.rpx(64))
+                    .backgroundColor(Color.Transparent)
+                    .placeholderColor(this.subColor())
+                    .onChange((value: string) => {
+                      this.setQuestionCustom(this.questionIndex, value);
+                    })
+                }
+                .width('100%')
+                .padding({ left: this.rpx(16), right: this.rpx(16) })
+                .borderRadius(this.rpx(20))
+                .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.04)')
+              } else {
+                TextInput({
+                  text: this.questionIndex < this.questionCustom.length ? this.questionCustom[this.questionIndex] : '',
+                  placeholder: '输入你的答案'
+                })
+                  .fontSize(13)
+                  .height(this.rpx(64))
+                  .width('100%')
+                  .padding({ left: this.rpx(16), right: this.rpx(16) })
+                  .borderRadius(this.rpx(20))
+                  .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.04)')
+                  .placeholderColor(this.subColor())
+                  .onChange((value: string) => {
+                    this.setQuestionCustom(this.questionIndex, value);
+                  })
+              }
+            }
+            .width('100%')
+            .alignItems(HorizontalAlign.Start)
+            .padding({ left: this.rpx(28), right: this.rpx(28), top: this.rpx(12) })
+          }
+
+          Row({ space: this.rpx(4) }) {
+            Text('‹')
+              .fontSize(14)
+              .fontColor(this.questionIndex > 0 ? this.subColor() : 'rgba(128,128,128,0.35)')
+              .width(this.rpx(40))
+              .height(this.rpx(40))
+              .textAlign(TextAlign.Center)
+              .onClick(() => {
+                this.questionPrevPage();
+              })
+            Text((this.questionIndex + 1).toString() + ' / ' + this.questionViews.length.toString())
+              .fontSize(12)
+              .fontFamily('monospace')
+              .fontColor(this.subColor())
+            Text('›')
+              .fontSize(14)
+              .fontColor(this.questionIndex < this.questionViews.length - 1 ? this.subColor() : 'rgba(128,128,128,0.35)')
+              .width(this.rpx(40))
+              .height(this.rpx(40))
+              .textAlign(TextAlign.Center)
+              .onClick(() => {
+                this.questionNextPage();
+              })
+            Blank()
+            Text('跳过问题')
+              .fontSize(13)
+              .fontColor(this.subColor())
+              .padding({ left: this.rpx(20), right: this.rpx(20), top: this.rpx(12), bottom: this.rpx(12) })
+              .borderRadius(this.rpx(36))
+              .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(16,19,24,0.16)' })
+              .onClick(() => {
+                this.cancelQuestionPrompt();
+              })
+            if (this.questionIndex < this.questionViews.length - 1) {
+              Text('下一题')
+                .fontSize(13)
+                .fontColor('#FFFFFF')
+                .padding({ left: this.rpx(24), right: this.rpx(24), top: this.rpx(12), bottom: this.rpx(12) })
+                .borderRadius(this.rpx(36))
+                .backgroundColor('#2E6BE6')
+                .margin({ left: this.rpx(14) })
+                .onClick(() => {
+                  this.questionNextPage();
+                })
+            } else {
+              Text(this.questionBusy ? '提交中…' : '提交')
+                .fontSize(13)
+                .fontColor('#FFFFFF')
+                .padding({ left: this.rpx(24), right: this.rpx(24), top: this.rpx(12), bottom: this.rpx(12) })
+                .borderRadius(this.rpx(36))
+                .backgroundColor('#2E6BE6')
+                .opacity(this.questionBusy ? 0.5 : 1)
+                .margin({ left: this.rpx(14) })
+                .onClick(() => {
+                  this.submitQuestion();
+                })
+            }
+          }
+          .width('100%')
+          .padding({ left: this.rpx(24), right: this.rpx(24), top: this.rpx(18), bottom: this.rpx(20) })
+          .alignItems(VerticalAlign.Center)
+        }
+      }
+      .width('100%')
+      .borderRadius(this.rpx(36))
+      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+      .backdropBlur(14)
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+      .margin({ bottom: this.rpx(12) })
+      .clip(true)
+    }
+  }
+
+  private onPendingApprovalChanged(): void {
+    if (this.pendingApprovalJson.length === 0) {
+      this.approvalOpen = false;
+      return;
+    }
+    try {
+      const raw: Record<string, Object> = JSON.parse(this.pendingApprovalJson) as Record<string, Object>;
+      const sessionId: string = typeof raw['sessionId'] === 'string' ? raw['sessionId'] as string : '';
+      if (sessionId.length === 0 || sessionId !== SessionStore.get().currentSessionId()) {
+        this.approvalOpen = false;
+        return;
+      }
+      this.approvalRpcId = typeof raw['rpcId'] === 'string' ? raw['rpcId'] as string : '';
+      this.approvalId = typeof raw['approvalId'] === 'string' ? raw['approvalId'] as string : '';
+      this.approvalTool = typeof raw['toolName'] === 'string' ? raw['toolName'] as string : '工具操作';
+      const reason: string = typeof raw['reason'] === 'string' ? raw['reason'] as string : '';
+      this.approvalReason = reason.length > 0 ? reason : this.approvalTool + ' 请求执行需要审批的操作';
+      this.approvalReplay = raw['replay'] === true;
+      this.approvalBusy = false;
+      this.approvalOpen = true;
+    } catch (err) {
+      this.approvalOpen = false;
+    }
+  }
+
+  private answerApproval(outcome: string): void {
+    if (this.approvalBusy || this.approvalRpcId.length === 0) {
+      return;
+    }
+    this.approvalBusy = true;
+    const sessionId: string = SessionStore.get().currentSessionId();
+    GatewayClient.get().approvalResponse(this.approvalRpcId, sessionId, this.approvalId, outcome).then((frame: GatewayFrame) => {
+      this.approvalBusy = false;
+      this.approvalOpen = false;
+      SessionStore.get().refreshPendingApproval();
+    }).catch((err: Error) => {
+      this.approvalBusy = false;
+      this.hint = err.message.length > 0 ? err.message : '提交审批失败';
+    });
+  }
+
+  @Builder
+  approvalDockCard() {
+    if (this.approvalOpen) {
+      Column() {
+        Row({ space: this.rpx(12) }) {
+          Column()
+            .width(this.rpx(18))
+            .height(this.rpx(18))
+            .borderRadius(this.rpx(9))
+            .backgroundColor('#F59C0D')
+          Text('等待审批')
+            .fontSize(13)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.isDark ? '#F59C0D' : '#B26B00')
+          if (this.approvalReplay) {
+            Text('· 已恢复')
+              .fontSize(12)
+              .fontColor(this.subColor())
+          }
+          Blank()
+        }
+        .width('100%')
+        .padding({ left: this.rpx(24), right: this.rpx(24), top: this.rpx(16), bottom: this.rpx(16) })
+        .backgroundColor('rgba(245,156,13,0.10)')
+
+        Column({ space: this.rpx(8) }) {
+          Text(this.approvalTool)
+            .fontSize(13)
+            .fontFamily('monospace')
+            .fontColor(this.subColor())
+            .width('100%')
+          Text(this.approvalReason)
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .lineHeight(this.rpx(44))
+            .fontColor(this.textColor())
+            .width('100%')
+        }
+        .width('100%')
+        .alignItems(HorizontalAlign.Start)
+        .padding({ left: this.rpx(24), right: this.rpx(24), top: this.rpx(20), bottom: this.rpx(8) })
+
+        Row() {
+          Blank()
+          Text('拒绝')
+            .fontSize(14)
+            .fontColor(this.subColor())
+            .padding({ left: this.rpx(28), right: this.rpx(28), top: this.rpx(12), bottom: this.rpx(12) })
+            .borderRadius(this.rpx(36))
+            .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(16,19,24,0.16)' })
+            .opacity(this.approvalBusy ? 0.5 : 1)
+            .onClick(() => {
+              this.answerApproval('rejected');
+            })
+          Text('允许一次')
+            .fontSize(14)
+            .fontColor('#FFFFFF')
+            .padding({ left: this.rpx(28), right: this.rpx(28), top: this.rpx(12), bottom: this.rpx(12) })
+            .borderRadius(this.rpx(36))
+            .backgroundColor('#2E6BE6')
+            .opacity(this.approvalBusy ? 0.5 : 1)
+            .margin({ left: this.rpx(18) })
+            .onClick(() => {
+              this.answerApproval('allowed-once');
+            })
+        }
+        .width('100%')
+        .padding({ left: this.rpx(24), right: this.rpx(24), top: this.rpx(8), bottom: this.rpx(20) })
+        .alignItems(VerticalAlign.Center)
+      }
+      .width('100%')
+      .borderRadius(this.rpx(36))
+      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+      .backdropBlur(14)
+      .border({ width: 1, color: 'rgba(245,156,13,0.55)' })
+      .margin({ bottom: this.rpx(12) })
+      .clip(true)
+    }
   }
 
   /** 图片预览底部弹窗内容：等比大图（点缩略图从底部弹起，下拉或点空白关闭） */
@@ -3926,9 +4538,221 @@ export struct ConversationPage {
     return parts.join(' · ');
   }
 
+  /** 新会话是否显示模式切换（还没有任何消息、也没在跑） */
+  private showModeChip(): boolean {
+    return this.entries.length === 0 && !this.runActive() && this.queue.length === 0;
+  }
+
+  /** 内置模式的默认说明（网关没给 description 时兜底） */
+  private defaultModeDesc(id: string): string {
+    if (id === 'standard') {
+      return '完整工具，适合日常开发';
+    }
+    if (id === 'code' || id === 'ptc') {
+      return '用代码组合多步工具操作';
+    }
+    if (id === 'minimal') {
+      return '仅用 Shell，轻量直接';
+    }
+    if (id === 'cordis') {
+      return '创建和调试自定义 Agent';
+    }
+    return '自定义 Agent 模式';
+  }
+
+  /** 内置四个模式的固定中文名与说明（对齐小程序/iOS 文案） */
+  private builtinModeLabel(id: string): string {
+    if (id === 'standard') {
+      return '标准模式';
+    }
+    if (id === 'code' || id === 'ptc') {
+      return 'PTC 模式';
+    }
+    if (id === 'minimal') {
+      return '极简模式';
+    }
+    if (id === 'cordis') {
+      return '创造模式';
+    }
+    return '';
+  }
+
+  /** 模式选项：网关预设优先，否则用内置几个；内置模式统一中文名+固定说明 */
+  private modeOptions(): PresetOption[] {
+    const out: PresetOption[] = [];
+    if (this.agentPresetDetails.length > 0) {
+      for (const one of this.agentPresetDetails) {
+        const builtin: string = this.builtinModeLabel(one.id);
+        out.push({
+          id: one.id,
+          label: builtin.length > 0 ? builtin : (one.label.length > 0 ? one.label : one.id),
+          description: this.defaultModeDesc(one.id),
+          broken: one.broken,
+          brokenReason: one.brokenReason
+        });
+      }
+      return out;
+    }
+    out.push({ id: 'standard', label: '标准模式', description: this.defaultModeDesc('standard'), broken: false, brokenReason: '' });
+    out.push({ id: 'code', label: 'PTC 模式', description: this.defaultModeDesc('code'), broken: false, brokenReason: '' });
+    out.push({ id: 'minimal', label: '极简模式', description: this.defaultModeDesc('minimal'), broken: false, brokenReason: '' });
+    out.push({ id: 'cordis', label: '创造模式', description: this.defaultModeDesc('cordis'), broken: false, brokenReason: '' });
+    return out;
+  }
+
+  /** 左上角模式胶囊（输入框同款玻璃：半透明底 + 背景模糊 + 白色细描边） */
+  @Builder
+  modeChip() {
+    Row({ space: this.rpx(8) }) {
+      Text(this.modeChipLabel)
+        .fontSize(12.5)
+        .fontColor(this.textColor())
+        .maxLines(1)
+      Image($r('app.media.chev_right_gray'))
+        .width(this.rpx(18))
+        .height(this.rpx(18))
+        .objectFit(ImageFit.Contain)
+        .rotate({ angle: -90 })
+        .opacity(0.7)
+    }
+    .constraintSize({ minHeight: this.rpx(56) })
+    .padding({ left: this.rpx(22), right: this.rpx(18) })
+    .alignItems(VerticalAlign.Center)
+    .borderRadius(this.rpx(999))
+    .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+    .backdropBlur(14)
+    .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+    .onClick(() => {
+      this.modeChipOpen = !this.modeChipOpen;
+    })
+    // 原生菜单（与右上角「⋯」同款容器/描边/收起行为）
+    .bindMenu(this.modeChipOpen, this.modeMenu(), {
+      placement: Placement.TopLeft,
+      offset: { x: 0, y: -6 },
+      outlineColor: this.dividerColor(),
+      outlineWidth: 1,
+      onWillDisappear: () => {
+        this.modeChipOpen = false;
+      },
+      onDisappear: () => {
+        this.modeChipOpen = false;
+      },
+      onDidDisappear: () => {
+        this.modeChipOpen = false;
+      }
+    })
+  }
+
+  /** 模式菜单（原生 bindMenu 内容，与右上角「⋯」菜单同款） */
+  /** 菜单行：模式名称 + 说明（放进原生 MenuItem） */
+  @Builder
+  modeMenuRow(item: PresetOption, current: boolean) {
+    Column() {
+      // hover 底色只铺在内容胶囊上，胶囊左右各留 12，避免贴着菜单边框
+      Column({ space: 2 }) {
+        Row() {
+          Text(item.label.length > 0 ? item.label : item.id)
+            .fontSize(15)
+            .fontColor(item.broken ? this.subColor() : this.textColor())
+            .maxLines(1)
+          Blank()
+          if (current) {
+            // 选中标记：蓝色圆底 + 白色对勾，垂直居中
+            Stack({ alignContent: Alignment.Center }) {
+              Text('✓')
+                .fontSize(11)
+                .fontWeight(FontWeight.Bold)
+                .fontColor('#FFFFFF')
+            }
+            .width(19)
+            .height(19)
+            .borderRadius(9.5)
+            .backgroundColor('#2E6BE6')
+          }
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+        if (item.description.length > 0) {
+          Text(item.description)
+            .fontSize(11.5)
+            .fontColor(this.subColor())
+            .maxLines(2)
+            .width('100%')
+        }
+      }
+      .width('100%')
+      .padding({ left: 18, right: 18, top: 9, bottom: 9 })
+      .borderRadius(12)
+      .alignItems(HorizontalAlign.Start)
+      .stateStyles({
+        normal: {
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.055)' : 'rgba(16,19,24,0.035)')
+        },
+        pressed: {
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.10)')
+        }
+      })
+    }
+    .width(236)
+    .padding({ left: 6, right: 6 })
+    .alignItems(HorizontalAlign.Start)
+    .margin({ bottom: this.rpx(12) })
+  }
+
+  /** 模式菜单：原生 Menu + MenuItem（与右上角「⋯」完全同款容器/描边/收起） */
+  @Builder
+  modeMenu() {
+    Menu() {
+      ForEach(this.modeOptions(), (item: PresetOption) => {
+        MenuItem(this.modeMenuRow(item, item.id === this.selectedModeId()))
+          .enabled(!item.broken)
+          .onClick(() => {
+            if (item.broken) {
+              return;
+            }
+            this.selectMode(item.id, item.label.length > 0 ? item.label : item.id);
+          })
+      }, (item: PresetOption) => item.id)
+    }
+  }
+
+  /** 当前选择的模式 id（偏好 > AppStorage 默认） */
+  private selectedModeId(): string {
+    const stored: string = PreferencesStore.get().getString('defaultAgentPreset', '');
+    if (stored.length > 0) {
+      return stored;
+    }
+    return this.defaultAgentPreset.length > 0 ? this.defaultAgentPreset : 'standard';
+  }
+
+  private syncModeChipLabel(): void {
+    const id: string = this.selectedModeId();
+    let label: string = '';
+    for (const one of this.modeOptions()) {
+      if (one.id === id) {
+        label = one.label.length > 0 ? one.label : one.id;
+        break;
+      }
+    }
+    this.modeChipLabel = label.length > 0 ? label : this.presetModeName(id);
+  }
+
+  private selectMode(id: string, label: string): void {
+    PreferencesStore.get().putString('defaultAgentPreset', id);
+    AppStorage.setOrCreate<string>('defaultAgentPreset', id);
+    const sessionId: string = SessionStore.get().currentSessionId();
+    const sent: boolean = GatewayClient.get().selectAgentPreset(sessionId, id);
+    this.modeChipLabel = label;
+    this.modeChipOpen = false;
+    Logger.info('[MODE] select id=' + id + ' session=' + sessionId.slice(-8) + ' sent=' + (sent ? '1' : '0'));
+    this.showToast('已切换为「' + label + '」' + (sent ? '' : '（未连接网关，仅记录偏好）'), false);
+  }
+
   @Builder
   dockStack() {
     Column() {
+      this.approvalDockCard()
+      this.questionDockCard()
       this.localQueueRowsView()
       if (this.queue.length > 0) {
         this.queueDock()
@@ -4652,6 +5476,15 @@ export struct ConversationPage {
               .width('100%')
               .padding({ left: 20, right: 20, top: 2, bottom: 2 })
           }
+          // 新会话：输入框左上方显示模式切换胶囊
+          if (this.showModeChip()) {
+            Row() {
+              this.modeChip()
+              Blank()
+            }
+            .width('100%')
+            .padding({ left: this.rpx(28), right: this.rpx(28), bottom: this.rpx(10) })
+          }
           // 输入条容器：小程序 dock-stack 左右 14vp 内边距 + 底部安全区
           Column() {
           // 底部 dock：排队消息 / 任务 / 目标（对齐小程序 dock-stack）
@@ -4886,8 +5719,9 @@ export struct ConversationPage {
         })
     }
     .width('100%')
-    .padding({ left: 16, top: this.topSafe() + 52 })
-    .alignItems(HorizontalAlign.Start)
+    .padding({ left: 16, right: 16, top: this.topSafe() + 52 })
+    // 当前页标签（对话/轨迹）居中显示
+    .alignItems(HorizontalAlign.Center)
     .opacity(this.tabDotsOpacity)
     .zIndex(45)
     .hitTestBehavior(this.tabDotsOpacity > 0.05 ? HitTestMode.Transparent : HitTestMode.None)
@@ -5150,6 +5984,7 @@ export struct ConversationPage {
       Logger.info('[PAGE] onShown ready=' + (this.ready ? '1' : '0') + ' entries=' + this.entries.length.toString());
       this.pageVisible = true;
       this.restoreQueueImages();
+      this.syncModeChipLabel();
       this.pageSessionId = SessionStore.get().currentSessionId();
       this.applyStatusBarColor();
       // 主题是在设置页之类的地方切的：回到本页整表重载一次，保证回复正文/过程文字按新配色重建

@@ -18,6 +18,8 @@ import { TailscalePage } from './TailscalePage';
 import { StatusStylesPage } from './StatusStylesPage';
 import { PreferencePickerPage } from './PreferencePickerPage';
 import { FontSizePage } from './FontSizePage';
+import { ClawbotPage } from './ClawbotPage';
+import { StorageSpacePage } from './StorageSpacePage';
 import { openSessionRoute } from '../common/SessionRoute';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 
@@ -120,6 +122,10 @@ struct Index {
       PreferencePickerPage();
     } else if (name === 'font-size') {
       FontSizePage();
+    } else if (name === 'clawbot') {
+      ClawbotPage();
+    } else if (name === 'storage-space') {
+      StorageSpacePage();
     }
   }
 

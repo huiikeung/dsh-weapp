@@ -12,6 +12,7 @@
 
 import { Logger, PreferencesStore, WorkStepPresentation } from 'nativecore';
 import { ProcLoaderView } from '../components/ProcLoaderView';
+import { Haptics } from '../services/Haptics';
 import { NavBackButton } from '../components/NavBackButton';
 
 interface PickerOption {
@@ -56,19 +57,20 @@ function optionsFor(kind: string): PickerOption[] {
     push('light', '浅色', '始终使用浅色界面');
     push('dark', '深色', '始终使用深色界面');
   } else if (kind === 'procion') {
-    push('spin-ring', '旋转圆环', '经典转圈，最克制');
-    push('cells', '格子', '四格依次点亮');
-    push('terra', '思考球', '三点呼吸');
-    push('morph', '变形方', '方框随相位变形');
-    push('grid', '点阵', '3×3 点阵流动');
-    push('orbit', '轨道', '单点绕圈');
-    push('ripple', '波纹', '圆环扩散');
-    push('wave', '声波', '竖条起伏');
-    push('pulse-ring', '脉冲环', '圆环脉冲');
-    push('breathe-bars', '呼吸条', '竖条呼吸');
-    push('spin-square', '旋方', '方框旋转');
-    push('typing-dots', '打字点', '三点跳动');
-    push('scan-line', '扫描线', '横线扫描');
+    // 默认置顶（系统加载图）；其余名称与说明逐条对齐小程序 proc-icon-style.js，「格子」已下线
+    push('default', '默认', '系统加载图 · 跟随系统');
+    push('spin-ring', '旋转圆环', '圆环缺口旋转 · 经典 spinner');
+    push('terra', '思考球', '点阵球体旋转 · 参考 TerraWork');
+    push('morph', '变形方', '圆 · 三角 · 方形的点阵变形');
+    push('grid', '点阵', '九宫格呼吸脉冲');
+    push('orbit', '轨道', '光点沿方形轨道环绕');
+    push('ripple', '波纹', '方形波纹向外扩散');
+    push('wave', '声波', '等宽声波起伏');
+    push('pulse-ring', '脉冲环', '单个圆环放大淡出 · 最克制');
+    push('breathe-bars', '呼吸条', '三根竖条正弦呼吸');
+    push('spin-square', '旋方', '方框旋转并带一个角点');
+    push('typing-dots', '打字点', '三点依次点亮 · 经典加载');
+    push('scan-line', '扫描线', '方框内横线往返扫描');
   } else if (kind === 'language') {
     push('system', '跟随系统', '');
     push('zh', '简体中文', '');
@@ -221,6 +223,28 @@ export struct PreferencePickerPage {
       const timing: string = WorkStepPresentation.normalizeTiming(option.id);
       PreferencesStore.get().putString(WorkStepPresentation.TIMING_KEY, timing);
       AppStorage.setOrCreate<string>('workStepTiming', timing);
+    }
+    // 震动等级：选中的瞬间就按该档位震一下，方便感受强弱（与最终保存的档位一致）
+    if (this.kind === 'haptics') {
+      Haptics.preview(option.id);
+    }
+    // 其余偏好：二级页就地写 AppStorage，设置页的独立订阅组件立即重绘
+    if (this.kind === 'appearance') {
+      AppStorage.setOrCreate<string>('appearanceMode', option.id);
+    } else if (this.kind === 'status') {
+      AppStorage.setOrCreate<string>('statusAppearance', option.id);
+    } else if (this.kind === 'procion') {
+      AppStorage.setOrCreate<string>('procIconStyle', option.id);
+    } else if (this.kind === 'language') {
+      AppStorage.setOrCreate<string>('appLanguage', option.id);
+    } else if (this.kind === 'haptics') {
+      AppStorage.setOrCreate<string>('hapticsLevel', option.id);
+    } else if (this.kind === 'glass') {
+      AppStorage.setOrCreate<string>('glassStylePreset', option.id);
+    } else if (this.kind === 'native') {
+      AppStorage.setOrCreate<string>('nativeStylePreset', option.id);
+    } else if (this.kind === 'card') {
+      AppStorage.setOrCreate<string>('cardStylePreset', option.id);
     }
     // 其余偏好仍交给设置页处理（写入偏好 + 应用主题等既有逻辑）
     AppStorage.setOrCreate<string>('prefPickerChoice', this.kind + SEP + option.id);

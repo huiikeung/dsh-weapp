@@ -4,7 +4,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { Logger } from '../common/Logger';
 import { NotificationService } from '../common/NotificationService';
 import { KEY_CONNECTION } from '../common/AppState';
-import { GatewayFrame } from '../protocol/GatewayDtos';
+import { GatewayFrame, GatewayQuestionAnswer } from '../protocol/GatewayDtos';
 import { decodeFrame } from '../protocol/GatewayFrameCodec';
 import { GatewayRequests } from '../protocol/GatewayRequests';
 import { GatewayRequest, GatewayRequestFactory, GatewayRequestLanePolicy, GatewayRequestLanes, LaneSubmission, GatewayGoalReference } from '../protocol/GatewayRequest';
@@ -1587,6 +1587,8 @@ export class GatewayClient {
     this.startHeartbeat();
     SessionStore.get().resumeAfterConnect();
     this.requestDefaults();
+    // 默认模型不在 defaults 帧里，单独拉一次（会话设置 / 模型页展示用）
+    this.requestDefaultModel();
     this.requestModelsCatalog();
     this.requestAgentPresets();
     this.requestPermissionOptions();
@@ -1782,6 +1784,37 @@ export class GatewayClient {
   }
 
   /** 新建会话：返回 sessionId。 */
+  /**
+   * 微信 ClawBot 私聊接线控制（对齐小程序 clawbot-control 请求）。
+   * action: status / sessions / route / enabled / login.start / login.poll / login.cancel / disconnect
+   */
+  clawbotControl(action: string, fields: Record<string, Object> = {}): Promise<GatewayFrame> {
+    if (!this.isConnected()) {
+      return Promise.reject(new Error('未连接网关'));
+    }
+    const requestId: string = 'clawbot-' + action.replace(/\./g, '-') + '-' + Date.now().toString();
+    const extra: Record<string, Object> = { 'action': action, 'requestId': requestId };
+    const keys: string[] = Object.keys(fields);
+    for (const key of keys) {
+      extra[key] = fields[key];
+    }
+    return this.requestGateway(GatewayRequestFactory.make('clawbot-control', 'clawbot-control', extra), 30000);
+  }
+
+  /** 切换当前会话的 Agent 预设（新会话首次发消息前有效） */
+  selectAgentPreset(sessionId: string, agentPreset: string): boolean {
+    if (!this.isConnected() || sessionId.length === 0 || agentPreset.length === 0) {
+      return false;
+    }
+    const request: GatewayRequest = GatewayRequestFactory.make('select-agent-preset', 'select-agent-preset', {
+      'sessionId': sessionId,
+      'agentPreset': agentPreset,
+      'requestId': 'select-' + agentPreset + '-' + Date.now().toString()
+    }, sessionId);
+    this.requestGateway(request).catch((error: Error) => Logger.warn('select agent preset failed: ' + error.message));
+    return true;
+  }
+
   createSession(workspaceId: string, agentPreset: string = ''): Promise<string> {
     return new Promise<string>((resolve: (id: string) => void, reject: (error: Error) => void) => {
       if (!this.isConnected()) {
@@ -1846,6 +1879,18 @@ export class GatewayClient {
       return false;
     }
     return this.sendRequest(GatewayRequestFactory.simple('defaults'));
+  }
+
+  /**
+   * 部署级默认模型选择（selection{provider,model,reasoningEffort}）。
+   * 网关的 defaults 帧不含 model，必须单独发 default-model，否则会话设置里的
+   * 「默认模型」右侧一直没有内容（只有保存过一次后才显示）。
+   */
+  requestDefaultModel(): boolean {
+    if (!this.isConnected()) {
+      return false;
+    }
+    return this.sendRequest(GatewayRequestFactory.simple('default-model'));
   }
 
   /**
@@ -2205,6 +2250,44 @@ export class GatewayClient {
     return this.request(JSON.stringify(frame), 'file-resolved', 30000);
   }
 
+  /** 提交整批问题答案（question-answer → question-response），供会话页「确认选择」弹窗使用。 */
+  answerQuestion(rpcId: string, sessionId: string, answers: GatewayQuestionAnswer[]): Promise<GatewayFrame> {
+    this.requestSeq += 1;
+    const encoded: Record<string, Object>[] = [];
+    for (const answer of answers) {
+      const item: Record<string, Object> = { 'id': answer.id, 'selected': answer.selected };
+      if (answer.custom !== undefined && answer.custom.trim().length > 0) {
+        item['custom'] = answer.custom.trim();
+      }
+      encoded.push(item);
+    }
+    const frame: Record<string, Object> = {
+      'type': 'question-answer', 'requestId': 'question-answer-' + this.requestSeq,
+      'rpcId': rpcId, 'sessionId': sessionId, 'answers': encoded
+    };
+    return this.request(JSON.stringify(frame), 'question-response', 30000);
+  }
+
+  /** 取消等待中的问题（question-cancel → question-response）。 */
+  cancelQuestion(rpcId: string, sessionId: string): Promise<GatewayFrame> {
+    this.requestSeq += 1;
+    const frame: Record<string, Object> = {
+      'type': 'question-cancel', 'requestId': 'question-cancel-' + this.requestSeq,
+      'rpcId': rpcId, 'sessionId': sessionId
+    };
+    return this.request(JSON.stringify(frame), 'question-response', 30000);
+  }
+
+  /** 提交工具审批决定（approval-response → approval-response 帧）。 */
+  approvalResponse(rpcId: string, sessionId: string, approvalId: string, outcome: string): Promise<GatewayFrame> {
+    this.requestSeq += 1;
+    const frame: Record<string, Object> = {
+      'type': 'approval-response', 'requestId': 'approval-response-' + this.requestSeq,
+      'rpcId': rpcId, 'sessionId': sessionId, 'approvalId': approvalId, 'outcome': outcome
+    };
+    return this.request(JSON.stringify(frame), 'approval-response', 30000);
+  }
+
   /** Read the next bounded base64 chunk from a download transfer. */
   readFileDownload(transferId: string, offset: number): Promise<GatewayFrame> {
     this.requestSeq += 1;
@@ -2388,8 +2471,23 @@ export class GatewayClient {
   /** 订阅解码后的控制帧；返回取消订阅函数。 */
   /** 临时诊断状态（定位实时事件链路用，问题解决后删除） */
   private frameKindCounts: Map<string, number> = new Map<string, number>();
+  /** 帧种类累计（不清零）：诊断信息面板的「帧统计」 */
+  private frameKindTotals: Map<string, number> = new Map<string, number>();
   private framesWithSession: number = 0;
   private diagLastAt: number = 0;
+
+  /** 帧种类累计统计（诊断信息）：kind×count，最多前 12 类。 */
+  frameStatsSummary(): string {
+    if (this.frameKindTotals.size === 0) {
+      return '（暂无）';
+    }
+    const parts: string[] = [];
+    this.frameKindTotals.forEach((count: number, kind: string) => {
+      parts.push(kind + '×' + count.toString());
+    });
+    parts.sort();
+    return parts.slice(0, 8).join('  ');
+  }
 
   onFrame(listener: (frame: GatewayFrame) => void): () => void {
     this.frameListeners.push(listener);
@@ -2460,6 +2558,7 @@ export class GatewayClient {
     // 临时诊断：每 5 秒打一次「收到的帧种类直方图 + 是否带 sessionId」，
     // 用于判断实时事件到底有没有从网关发到手机（问题定位后移除）。
     this.frameKindCounts.set(frame.kind, (this.frameKindCounts.get(frame.kind) ?? 0) + 1);
+    this.frameKindTotals.set(frame.kind, (this.frameKindTotals.get(frame.kind) ?? 0) + 1);
     if (frame.sessionId !== undefined && frame.sessionId.length > 0) {
       this.framesWithSession += 1;
     }

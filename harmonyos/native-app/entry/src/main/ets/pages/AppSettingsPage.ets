@@ -29,6 +29,68 @@ struct WorkStepValueText {
 }
 
 /**
+ * 设置行右侧值：独立组件直接订阅 AppStorage，二级页写入后自己重绘
+ * （与 WorkStepValueText 同一思路，覆盖外观/状态条/执行图标/语言/震动/字号）。
+ */
+@Component
+struct PrefValueText {
+  @Prop kind: string = '';
+  @Prop textColor: string = '';
+  @StorageProp('appearanceMode') appearanceMode: string = 'auto';
+  @StorageProp('statusAppearance') statusAppearance: string = 'original';
+  @StorageProp('procIconStyle') procIconStyle: string = 'default';
+  @StorageProp('appLanguage') appLanguage: string = 'system';
+  @StorageProp('hapticsLevel') hapticsLevel: string = 'medium';
+  @StorageProp('contentFontSize') contentFontSize: string = '标准';
+  @StorageProp('clawbotStatusSummary') clawbotStatusSummary: string = '未读取';
+
+  private pick(ids: string[], labels: string[], id: string): string {
+    for (let i = 0; i < ids.length; i++) {
+      if (ids[i] === id) {
+        return labels[i];
+      }
+    }
+    return labels.length > 0 ? labels[0] : '';
+  }
+
+  private label(): string {
+    if (this.kind === 'appearance') {
+      return this.pick(['auto', 'light', 'dark'], ['跟随系统', '浅色', '深色'], this.appearanceMode);
+    }
+    if (this.kind === 'status') {
+      return this.pick(['dsh', 'classic', 'neon', 'terminal', 'candy', 'glitch', 'original'],
+        ['DSH 默认', '经典流光', '霓虹', '终端', '糖果', '故障', '简约'], this.statusAppearance);
+    }
+    if (this.kind === 'procion') {
+      return this.pick(['default', 'spin-ring', 'terra', 'morph', 'grid', 'orbit', 'ripple', 'wave', 'pulse-ring', 'breathe-bars', 'spin-square', 'typing-dots', 'scan-line'],
+        ['默认', '旋转圆环', '思考球', '变形方', '点阵', '轨道', '波纹', '声波', '脉冲环', '呼吸条', '旋方', '打字点', '扫描线'], this.procIconStyle);
+    }
+    if (this.kind === 'language') {
+      return this.pick(['system', 'zh', 'en'], ['跟随系统', '简体中文', 'English'], this.appLanguage);
+    }
+    if (this.kind === 'haptics') {
+      return this.pick(['off', 'light', 'medium', 'heavy'], ['关闭', '轻', '中', '重'], this.hapticsLevel);
+    }
+    if (this.kind === 'fontsize') {
+      return this.contentFontSize;
+    }
+    if (this.kind === 'clawbot') {
+      return this.clawbotStatusSummary;
+    }
+    return '';
+  }
+
+  build() {
+    Text(this.label())
+      .fontSize(15)
+      .fontColor(this.textColor)
+      .maxLines(1)
+      .textOverflow({ overflow: TextOverflow.Ellipsis })
+      .constraintSize({ maxWidth: 200 })
+  }
+}
+
+/**
  * 设置（左侧栏「设置」）：逐行对齐小程序 pages/settings。
  * 分组顺序：连接 → 外观 → 通用设置 → 对话 → 实验性功能 → 关于（逐行对齐 settings.wxml）。
  * 无原生数据源的行在本页用 AppStorage（小写驼峰键）保存开关，并同步 PreferencesStore 持久化。
@@ -61,13 +123,11 @@ export struct AppSettingsPage {
   /** 胶囊常显：关闭后会话页不再显示侧边胶囊 */
   @StorageLink('capsuleAlwaysVisible') capsuleAlwaysVisible: boolean = true;
   @StorageLink('notifyEnabled') notifyEnabled: boolean = false;
-  @StorageLink('contextTabVisible') contextTabVisible: boolean = true;
-  @StorageLink('fleetTabVisible') fleetTabVisible: boolean = true;
   @StorageLink('clawbotBridgeEnabled') clawbotBridgeEnabled: boolean = false;
   @StorageLink('appLanguage') appLanguage: string = 'system';
   @StorageLink('appearanceMode') appearanceMode: string = 'auto';
   @StorageLink('statusAppearance') statusAppearance: string = 'original';
-  @StorageLink('procIconStyle') procIconStyle: string = 'spin-ring';
+  @StorageLink('procIconStyle') procIconStyle: string = 'default';
   /** 二级页回传的选择（kind\u0001id），@Watch 复用 applyOptionChoice */
   @StorageLink('prefPickerChoice') @Watch('onPrefPickerChoice') prefPickerChoice: string = '';
 
@@ -80,7 +140,6 @@ export struct AppSettingsPage {
   @State terminalSize: string = '';
   @State hint: string = '';
   @State notificationHint: string = '';
-  @State attachmentCacheLabel: string = '未读取';
   @State appVersion: string = '1.0.2';
   // 直接绑 AppStorage：选择页（PreferencePickerPage）写 AppStorage 后，本页行文案立刻刷新，
   // 不依赖返回时的 @Watch/onShown 是否触发。
@@ -101,7 +160,6 @@ export struct AppSettingsPage {
   @State pickerTitle: string = '';
   @State pickerSubtitle: string = '';
   @State fontSheetOpen: boolean = false;
-  @State storageSheetOpen: boolean = false;
   @State infoOpen: boolean = false;
   @State infoTitle: string = '';
   @State infoText: string = '';
@@ -176,9 +234,10 @@ export struct AppSettingsPage {
     this.capsuleDefaultExpanded = prefs.getBoolean('capsuleDefaultExpanded', false);
     this.capsuleAlwaysVisible = prefs.getBoolean('capsuleAlwaysVisible', true);
     this.notifyEnabled = prefs.getBoolean('notifyEnabled', false);
-    this.contextTabVisible = prefs.getBoolean('contextTabVisible', true);
-    this.fleetTabVisible = prefs.getBoolean('fleetTabVisible', true);
     this.clawbotBridgeEnabled = prefs.getBoolean('clawbotBridgeEnabled', false);
+    if (AppStorage.get<string>('clawbotStatusSummary') === undefined) {
+      AppStorage.setOrCreate<string>('clawbotStatusSummary', '未读取');
+    }
     this.appLanguage = prefs.getString('appLanguage', 'system');
     const storedAppearance: string = prefs.getString('appearanceMode', '');
     if (storedAppearance.length > 0) {
@@ -187,32 +246,56 @@ export struct AppSettingsPage {
       this.appearanceMode = this.themeMode === 'light' ? 'light' : (this.themeMode === 'dark' ? 'dark' : 'auto');
     }
     this.statusAppearance = prefs.getString('statusAppearance', 'original');
-    this.procIconStyle = prefs.getString('procIconStyle', 'spin-ring');
+    this.procIconStyle = prefs.getString('procIconStyle', 'default');
     this.glassStylePreset = prefs.getString('glassStylePreset', 'glass-default');
     this.nativeStylePreset = prefs.getString('nativeStylePreset', 'default');
     this.cardStylePreset = prefs.getString('cardStylePreset', 'float');
     this.appVersion = this.readAppVersion();
-
-    this.refreshAttachmentCache();
     try {
       this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
     } catch (ignored) {
     }
   }
 
-  /** 从二级页（如「对话状态条」）返回时刷新偏好行，避免父页停留在旧值 */
+  /**
+   * 从二级页返回时刷新所有卡片右侧的值。
+   * 二级页保存后父页不会自动重渲染，这里统一按偏好重读一遍（与「工作步骤展示」
+   * 独立订阅 AppStorage 的做法等价，但覆盖全部行）。
+   */
   private refreshPrefs(): void {
     const prefs: PreferencesStore = PreferencesStore.get();
-    this.statusAppearance = prefs.getString('statusAppearance', 'original');
-    this.procIconStyle = prefs.getString('procIconStyle', 'spin-ring');
-    this.showAccountCard = prefs.getBoolean('showAccountCard', this.showAccountCard);
+    this.fontSize = prefs.getString('contentFontSize', this.fontSize);
+    this.haptics = this.normalizeHaptics(prefs.getString('hapticsLevel', this.haptics));
+    const storedMode: string = WorkStepPresentation.ensureDefaultMode(prefs);
+    const storedTiming: string = WorkStepPresentation.normalizeTiming(prefs.getString(WorkStepPresentation.TIMING_KEY, this.workStepTiming));
+    AppStorage.setOrCreate<string>('workStepMode', storedMode);
+    AppStorage.setOrCreate<string>('workStepTiming', storedTiming);
+    this.workStepMode = storedMode;
+    this.workStepTiming = storedTiming;
+    this.textFont = prefs.getString('fontFamilyText', this.textFont);
+    this.codeFont = prefs.getString('fontFamilyCode', this.codeFont);
+    this.terminalFont = prefs.getString('fontFamilyTerminal', this.terminalFont);
+    this.codeSize = prefs.getString('codeFontSize', this.codeSize);
+    this.terminalSize = prefs.getString('terminalFontSize', this.terminalSize);
+    this.settingsGlassEnabled = prefs.getBoolean('settingsGlassEnabled', this.settingsGlassEnabled);
+    this.sessionGlassEnabled = prefs.getBoolean('sessionGlassEnabled', this.sessionGlassEnabled);
+    this.bottomSheetGlassEnabled = prefs.getBoolean('bottomSheetGlassEnabled', this.bottomSheetGlassEnabled);
+    this.homeAnimationEnabled = prefs.getBoolean('homeAnimationEnabled', this.homeAnimationEnabled);
+    this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', this.voiceInputEnabled);
     this.capsuleDefaultExpanded = prefs.getBoolean('capsuleDefaultExpanded', this.capsuleDefaultExpanded);
     this.capsuleAlwaysVisible = prefs.getBoolean('capsuleAlwaysVisible', this.capsuleAlwaysVisible);
     this.notifyEnabled = prefs.getBoolean('notifyEnabled', this.notifyEnabled);
-    this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', this.voiceInputEnabled);
-    this.contextTabVisible = prefs.getBoolean('contextTabVisible', this.contextTabVisible);
-    this.fleetTabVisible = prefs.getBoolean('fleetTabVisible', this.fleetTabVisible);
-    this.homeAnimationEnabled = prefs.getBoolean('homeAnimationEnabled', this.homeAnimationEnabled);
+    this.clawbotBridgeEnabled = prefs.getBoolean('clawbotBridgeEnabled', this.clawbotBridgeEnabled);
+    this.appLanguage = prefs.getString('appLanguage', this.appLanguage);
+    const storedAppearance: string = prefs.getString('appearanceMode', '');
+    if (storedAppearance.length > 0) {
+      this.appearanceMode = storedAppearance;
+    }
+    this.statusAppearance = prefs.getString('statusAppearance', this.statusAppearance);
+    this.procIconStyle = prefs.getString('procIconStyle', this.procIconStyle);
+    this.glassStylePreset = prefs.getString('glassStylePreset', this.glassStylePreset);
+    this.nativeStylePreset = prefs.getString('nativeStylePreset', this.nativeStylePreset);
+    this.cardStylePreset = prefs.getString('cardStylePreset', this.cardStylePreset);
   }
 
   /** 兼容旧版按中文保存的震动档位，统一成小程序档位 id。 */
@@ -280,6 +363,47 @@ export struct AppSettingsPage {
     .width('100%')
     .constraintSize({ minHeight: 44 })
     .padding({ left: 16, right: 16, top: 15, bottom: 15 })
+    .onClick(onTap)
+  }
+
+  /** 值行：右侧用 PrefValueText 独立订阅，选择后立即刷新 */
+  @Builder
+  rowPref(label: string, kind: string, onTap: () => void) {
+    Row() {
+      Text(label).fontSize(16).fontColor(this.textColor())
+      Blank()
+      Row({ space: 6 }) {
+        PrefValueText({ kind: kind, textColor: this.subColor() })
+        Text('›').fontSize(18).fontColor(this.subColor())
+      }
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 44 })
+    .padding({ left: 16, right: 16, top: 15, bottom: 15 })
+    .onClick(onTap)
+  }
+
+  /** 标题 + 说明 + 独立订阅值 */
+  @Builder
+  rowDescPref(label: string, desc: string, kind: string, onTap: () => void) {
+    Row() {
+      Column({ space: 3 }) {
+        Text(label).fontSize(16).fontColor(this.textColor())
+        if (desc.length > 0) {
+          Text(desc).fontSize(12).fontColor(this.subColor())
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      Row({ space: 6 }) {
+        PrefValueText({ kind: kind, textColor: this.subColor() })
+        Text('›').fontSize(18).fontColor(this.subColor())
+      }
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 44 })
+    .padding({ left: 16, right: 16, top: 13, bottom: 13 })
     .onClick(onTap)
   }
 
@@ -466,7 +590,7 @@ export struct AppSettingsPage {
       return ['dsh', 'classic', 'neon', 'terminal', 'candy', 'glitch', 'original'];
     }
     if (kind === 'procion') {
-      return ['spin-ring', 'cells', 'terra', 'morph', 'grid', 'orbit', 'ripple', 'wave', 'pulse-ring', 'breathe-bars', 'spin-square', 'typing-dots', 'scan-line'];
+      return ['default', 'spin-ring', 'terra', 'morph', 'grid', 'orbit', 'ripple', 'wave', 'pulse-ring', 'breathe-bars', 'spin-square', 'typing-dots', 'scan-line'];
     }
     if (kind === 'language') {
       return ['system', 'zh', 'en'];
@@ -508,7 +632,7 @@ export struct AppSettingsPage {
       return ['DSH 默认', '经典流光', '霓虹', '终端', '糖果', '故障', '简约'];
     }
     if (kind === 'procion') {
-      return ['旋转圆环', '格子', '思考球', '变形方', '点阵', '轨道', '波纹', '声波', '脉冲环', '呼吸条', '旋方', '打字点', '扫描线'];
+      return ['默认', '旋转圆环', '思考球', '变形方', '点阵', '轨道', '波纹', '声波', '脉冲环', '呼吸条', '旋方', '打字点', '扫描线'];
     }
     if (kind === 'language') {
       return ['跟随系统', '简体中文', 'English'];
@@ -709,6 +833,7 @@ export struct AppSettingsPage {
 
   private applyOptionChoice(id: string): void {
     const kind: string = this.pickerKind;
+    Logger.info('[SETTINGS] apply kind=' + kind + ' id=' + id);
     if (kind === 'appearance') {
       this.appearanceMode = id;
       PreferencesStore.get().putString('appearanceMode', id);
@@ -751,10 +876,21 @@ export struct AppSettingsPage {
 
   /** AppStorage 档位变化：持久化 + 重绘行（选择页直接写 AppStorage 时走这里） */
   onPageShow(): void {
+    // 每次都重读偏好：二级页面（字号/字体/玻璃/语言/工作步骤…）改完返回立即同步
+    this.refreshPrefs();
     this.syncWorkStepLabels();
   }
 
+  /**
+   * 二级页写入后 prefPickerRevision 自增 → 这里立即消费选择并刷新行文案。
+   * 不依赖 onShown / @Watch('onPrefPickerChoice')（NavDestination 嵌套时它们不一定触发），
+   * 所以从二级页返回前，一级页卡片右侧文字就已经换成新值。
+   */
   private onPickerRevision(): void {
+    Logger.info('[SETTINGS] revision=' + this.prefPickerRevision.toString()
+      + ' choice=' + (AppStorage.get<string>('prefPickerChoice') ?? ''));
+    this.consumePickerChoice();
+    this.refreshPrefs();
     this.syncWorkStepLabels();
   }
 
@@ -780,7 +916,6 @@ export struct AppSettingsPage {
     this.connectionSheetOpen = false;
     this.pickerOpen = false;
     this.fontSheetOpen = false;
-    this.storageSheetOpen = false;
     this.infoOpen = false;
   }
 
@@ -795,12 +930,6 @@ export struct AppSettingsPage {
   private openFontSizePage(): void {
     this.closeSheets();
     this.pageStack.pushPathByName('font-size', null);
-  }
-
-  private openStorageSheet(): void {
-    this.closeSheets();
-    this.storageSheetOpen = true;
-    this.refreshAttachmentCache();
   }
 
   private openConnectionSheet(kind: string): void {
@@ -859,54 +988,6 @@ export struct AppSettingsPage {
 
   // ── 存储空间 / 通知 ──
 
-  private async refreshAttachmentCache(): Promise<void> {
-    try {
-      const context = getContext(this) as common.UIAbilityContext;
-      const entries = await AttachmentCache.list(context);
-      let total: number = 0;
-      for (const entry of entries) {
-        total += entry.bytes;
-      }
-      this.attachmentCacheLabel = entries.length + ' 个文件 · ' + this.bytesLabel(total);
-    } catch (err) {
-      this.attachmentCacheLabel = '暂不可用';
-    }
-  }
-
-  private bytesLabel(bytes: number): string {
-    if (bytes < 1024) {
-      return bytes + ' B';
-    }
-    if (bytes < 1024 * 1024) {
-      return (bytes / 1024).toFixed(1) + ' KB';
-    }
-    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
-  }
-
-  private async clearAttachmentCache(): Promise<void> {
-    try {
-      const context = getContext(this) as common.UIAbilityContext;
-      const removed: number = await AttachmentCache.clear(context);
-      this.attachmentCacheLabel = '已清理 ' + removed + ' 个文件';
-      this.hint = '已清理下载文件缓存';
-    } catch (err) {
-      this.hint = '清理下载文件失败';
-    }
-  }
-
-  private clearLocalCache(): void {
-    // Clear UI-restorable projections while preserving credentials and gateway data.
-    SessionStore.get().clear();
-    AppStorage.setOrCreate<SessionSummary[]>('sessions', []);
-    AppStorage.setOrCreate<Object[]>('dirEntries', []);
-    AppStorage.setOrCreate<Object[]>('queueItems', []);
-    AppStorage.setOrCreate<Object[]>('sessionRows', []);
-    AppStorage.setOrCreate<number>('queueCount', 0);
-    AppStorage.setOrCreate<number>('sessionRowCount', 0);
-    this.hint = '已清理本机缓存（不含凭据与网关数据）';
-  }
-
-  /** 发一条测试通知（设置页验证权限/通道）。 */
   private async sendTestNotification(): Promise<void> {
     Logger.info('notify test start');
     try {
@@ -1201,79 +1282,6 @@ export struct AppSettingsPage {
     .height('100%')
   }
 
-  // ── 弹层：存储空间（保留清理能力）──
-
-  @Builder
-  storageSheet() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('rgba(0,0,0,0.45)')
-        .onClick(() => {
-          this.closeSheets();
-        })
-      Column({ space: 0 }) {
-        Row() {
-          Column({ space: 4 }) {
-            Text('存储空间').fontSize(17).fontWeight(FontWeight.Bold).fontColor(this.textColor())
-            Text('本机缓存与清理').fontSize(12).fontColor(this.subColor())
-          }
-          .alignItems(HorizontalAlign.Start)
-          .layoutWeight(1)
-          Text('✕')
-            .fontSize(16)
-            .fontColor(this.subColor())
-            .padding(8)
-            .onClick(() => {
-              this.closeSheets();
-            })
-        }
-        .width('100%')
-        .padding({ left: 16, right: 16, top: 14, bottom: 12 })
-
-        Column({ space: 0 }) {
-          this.row('聊天记录', this.sessions.length + ' 个会话', false, () => {
-          })
-          this.divider()
-          this.row('图片缓存', '暂未缓存', false, () => {
-          })
-          this.divider()
-          this.row('下载文件缓存', this.attachmentCacheLabel, false, () => {
-            this.refreshAttachmentCache();
-          })
-          this.divider()
-          this.row('清理下载文件', '', true, () => {
-            this.clearAttachmentCache();
-          })
-          this.divider()
-          this.row('清理会话状态', '', true, () => {
-            this.clearLocalCache();
-          })
-        }
-        .width('100%')
-        .backgroundColor(this.cardBg())
-        .borderRadius(14)
-        .margin({ left: 16, right: 16 })
-        .clip(true)
-
-        this.groupHint('清理下载文件会删除本地附件缓存；清理会话状态只移除本机会话副本与目录列表，不会删除网关记录或设备文件。')
-        if (this.hint.length > 0) {
-          Text(this.hint)
-            .fontSize(12)
-            .fontColor(this.subColor())
-            .width('100%')
-            .padding({ left: 16, top: 8 })
-        }
-      }
-      .width('100%')
-      .padding({ top: 6, bottom: 24 })
-      .borderRadius({ topLeft: 18, topRight: 18 })
-      .backgroundColor(this.pageBg())
-    }
-    .width('100%')
-    .height('100%')
-  }
 
   // ── 弹层：轻量说明 ──
 
@@ -1553,15 +1561,15 @@ export struct AppSettingsPage {
             // ── 外观 ──
             this.groupTitle('外观')
             Column({ space: 0 }) {
-              this.row('界面', this.appearanceLabel(), true, () => {
+              this.rowPref('界面', 'appearance', () => {
                 this.openPicker('appearance');
               })
               this.divider()
-              this.row('对话状态条', this.statusLabel(), true, () => {
+              this.rowPref('对话状态条', 'status', () => {
                 this.pageStack.pushPathByName('status-styles', null);
               })
               this.divider()
-              this.row('执行图标', this.procIconLabel(), true, () => {
+              this.rowPref('执行图标', 'procion', () => {
                 this.openPicker('procion');
               })
               this.divider()
@@ -1579,21 +1587,16 @@ export struct AppSettingsPage {
             // ── 通用设置 ──
             this.groupTitle('通用设置')
             Column({ space: 0 }) {
-              this.row('语言', this.languageLabel(), true, () => {
+              this.rowPref('语言', 'language', () => {
                 this.openPicker('language');
               })
               this.divider()
-              this.row('震动反馈', this.hapticsLabel(), true, () => {
+              this.rowPref('震动反馈', 'haptics', () => {
                 this.openPicker('haptics');
               })
               this.divider()
-              this.rowDesc('字号大小', '仅影响会话内容的字号', this.fontSize, true, () => {
+              this.rowDescPref('字号大小', '仅影响会话内容的字号', 'fontsize', () => {
                 this.openFontSizePage();
-              })
-              this.divider()
-              this.toggleRow('显示账号卡片', '在设置页和会话设置顶部显示账号与余额卡片', this.showAccountCard, (value: boolean) => {
-                this.showAccountCard = value;
-                PreferencesStore.get().putBoolean('showAccountCard', value);
               })
             }
             .width('100%')
@@ -1636,16 +1639,6 @@ export struct AppSettingsPage {
               this.divider()
               this.rowWorkStep('工作步骤收起时机', '选择何时自动收起工作步骤', 'timing', () => {
                 this.openPicker('timing');
-              })
-              this.divider()
-              this.toggleRow('上下文标签页', '在会话顶部显示上下文标签页', this.contextTabVisible, (value: boolean) => {
-                this.contextTabVisible = value;
-                PreferencesStore.get().putBoolean('contextTabVisible', value);
-              })
-              this.divider()
-              this.toggleRow('编队标签页', '在会话顶部显示编队标签页', this.fleetTabVisible, (value: boolean) => {
-                this.fleetTabVisible = value;
-                PreferencesStore.get().putBoolean('fleetTabVisible', value);
               })
             }
             .width('100%')
@@ -1736,8 +1729,9 @@ export struct AppSettingsPage {
             // ── 关于 ──
             this.groupTitle('关于')
             Column({ space: 0 }) {
-              this.row('存储空间', this.attachmentCacheLabel, true, () => {
-                this.openStorageSheet();
+              this.row('存储空间', '', true, () => {
+                this.closeSheets();
+                this.pageStack.pushPathByName('storage-space', null);
               })
               this.divider()
               this.row('开发者公告', '', true, () => {
@@ -1803,9 +1797,7 @@ export struct AppSettingsPage {
       if (this.pickerOpen) {
         this.choiceSheet()
       }
-      if (this.storageSheetOpen) {
-        this.storageSheet()
-      }
+
       if (this.infoOpen) {
         this.infoSheet()
       }

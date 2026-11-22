@@ -146,6 +146,12 @@ export struct StatusStylesPage {
   private select(id: string): void {
     this.statusAppearance = id;
     PreferencesStore.get().putString('statusAppearance', id);
+    // 立即同步给设置页（AppStorage 订阅 + 偏好版本号），并自动返回上一级
+    AppStorage.setOrCreate<string>('statusAppearance', id);
+    AppStorage.setOrCreate<string>('prefPickerChoice', 'status\u0001' + id);
+    const revision: number = AppStorage.get<number>('prefPickerRevision') ?? 0;
+    AppStorage.setOrCreate<number>('prefPickerRevision', revision + 1);
+    this.pageStack.pop();
   }
 
   /** 一张样式卡：名称 + 已选择 + 流光预览 + 说明（对齐小程序 .status-style-option） */
