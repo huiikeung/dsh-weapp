@@ -409,6 +409,20 @@ export class ConversationFeed {
     const groups: ConversationFeedEntry[] = [];
     let open: ConversationFeedEntry | null = null;
     let lastUserEpoch: number = 0;
+    // 标记哪些工具步骤下面还有子步骤（对齐小程序：有子过程的父行只显示名称，不带「运行」）
+    const parents: Set<string> = new Set<string>();
+    for (const one of items) {
+      const parentCall: string = one.parentCallId === undefined ? '' : one.parentCallId;
+      if (parentCall.length > 0) {
+        parents.add(parentCall);
+      }
+    }
+    for (const one of items) {
+      const call: string = one.callId === undefined ? '' : one.callId;
+      if (call.length > 0 && parents.has(call)) {
+        one.hasChildren = true;
+      }
+    }
     for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
       const item: ConversationItem = items[itemIndex];
       const kind: string = item.kind as string;
@@ -436,6 +450,7 @@ export class ConversationFeed {
         }
         ConversationFeed.appendToGroup(open, item);
         continue;
+        // 注：title 为 'tool' 的包装事件已在投影层忽略，这里不需要再过滤
       }
       if (kind === ConversationItemKind.ASSISTANT as string && open !== null
         && ConversationFeed.hasProcessAhead(items, itemIndex)) {
@@ -743,6 +758,14 @@ export class ConversationFeed {
       entry.text = entry.summary;
     }
     entry.titleWrap = mode === 'compact';
+    // 阅读档：折叠行带步骤计数摘要（运行中也显示），轮次结束后可点开回看
+    if (policy.readingSummary && entry.running) {
+      const steps: number = entry.items.length;
+      entry.summary = entry.toolCount > 0
+        ? entry.toolCount.toString() + ' 步'
+        : (steps > 0 ? steps.toString() + ' 步' : '');
+      entry.text = entry.summary;
+    }
     // 详细档回合收工后：组标题回到活动命名（对齐小程序 insertTurnDisclosures 的 title 覆盖）
     if (turnOpen && entry.activityTitle.length > 0) {
       entry.title = entry.activityTitle;
@@ -1051,7 +1074,7 @@ export class ConversationFeed {
       return;
     }
     entry.footerVisible = true;
-    entry.turnMetaText = entry.toolCount > 0 ? entry.toolCount.toString() + ' tok' : '';
+    // turnMetaText（本轮用量）由会话页按 SessionStore 的每轮 token 统计填充，这里不猜
     const date: Date = new Date(entry.epochSeconds * 1000);
     const hh: string = date.getHours().toString();
     const mm: string = date.getMinutes() < 10 ? '0' + date.getMinutes().toString() : date.getMinutes().toString();

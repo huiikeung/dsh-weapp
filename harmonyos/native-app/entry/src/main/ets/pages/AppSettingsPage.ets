@@ -43,7 +43,7 @@ export struct AppSettingsPage {
   @StorageLink('clawbotBridgeEnabled') clawbotBridgeEnabled: boolean = false;
   @StorageLink('appLanguage') appLanguage: string = 'system';
   @StorageLink('appearanceMode') appearanceMode: string = 'auto';
-  @StorageLink('statusAppearance') statusAppearance: string = 'classic';
+  @StorageLink('statusAppearance') statusAppearance: string = 'original';
   @StorageLink('procIconStyle') procIconStyle: string = 'spin-ring';
   /** 二级页回传的选择（kind\u0001id），@Watch 复用 applyOptionChoice */
   @StorageLink('prefPickerChoice') @Watch('onPrefPickerChoice') prefPickerChoice: string = '';
@@ -63,6 +63,11 @@ export struct AppSettingsPage {
   // 不依赖返回时的 @Watch/onShown 是否触发。
   @StorageProp('workStepMode') @Watch('onWorkStepStorage') workStepMode: string = 'detailed';
   @StorageProp('workStepTiming') @Watch('onWorkStepStorage') workStepTiming: string = 'completion';
+  /** 选择页写入后递增：用作「偏好已变化」的可靠信号，让本页行文案立即刷新 */
+  @StorageProp('prefPickerRevision') @Watch('onPickerRevision') prefPickerRevision: number = 0;
+  /** 行文案镜像（@State），避免 @Builder 参数不随 @StorageProp 重算 */
+  @State workStepLabel: string = '详细';
+  @State workStepTimingLabel: string = '回答结束后';
   @State glassStylePreset: string = 'glass-default';
   @State nativeStylePreset: string = 'default';
   @State cardStylePreset: string = 'float';
@@ -132,6 +137,7 @@ export struct AppSettingsPage {
     AppStorage.setOrCreate<string>('workStepTiming', storedTiming);
     this.workStepMode = storedMode;
     this.workStepTiming = storedTiming;
+    this.syncWorkStepLabels();
     this.textFont = prefs.getString('fontFamilyText', '');
     this.codeFont = prefs.getString('fontFamilyCode', '');
     this.terminalFont = prefs.getString('fontFamilyTerminal', '');
@@ -157,7 +163,7 @@ export struct AppSettingsPage {
     } else {
       this.appearanceMode = this.themeMode === 'light' ? 'light' : (this.themeMode === 'dark' ? 'dark' : 'auto');
     }
-    this.statusAppearance = prefs.getString('statusAppearance', 'classic');
+    this.statusAppearance = prefs.getString('statusAppearance', 'original');
     this.procIconStyle = prefs.getString('procIconStyle', 'spin-ring');
     this.glassStylePreset = prefs.getString('glassStylePreset', 'glass-default');
     this.nativeStylePreset = prefs.getString('nativeStylePreset', 'default');
@@ -174,7 +180,7 @@ export struct AppSettingsPage {
   /** 从二级页（如「对话状态条」）返回时刷新偏好行，避免父页停留在旧值 */
   private refreshPrefs(): void {
     const prefs: PreferencesStore = PreferencesStore.get();
-    this.statusAppearance = prefs.getString('statusAppearance', 'classic');
+    this.statusAppearance = prefs.getString('statusAppearance', 'original');
     this.procIconStyle = prefs.getString('procIconStyle', 'spin-ring');
     this.showAccountCard = prefs.getBoolean('showAccountCard', this.showAccountCard);
     this.capsuleDefaultExpanded = prefs.getBoolean('capsuleDefaultExpanded', this.capsuleDefaultExpanded);
@@ -410,7 +416,7 @@ export struct AppSettingsPage {
       return ['auto', 'light', 'dark'];
     }
     if (kind === 'status') {
-      return ['classic', 'neon', 'terminal', 'candy', 'glitch', 'original'];
+      return ['dsh', 'classic', 'neon', 'terminal', 'candy', 'glitch', 'original'];
     }
     if (kind === 'procion') {
       return ['spin-ring', 'cells', 'terra', 'morph', 'grid', 'orbit', 'ripple', 'wave', 'pulse-ring', 'breathe-bars', 'spin-square', 'typing-dots', 'scan-line'];
@@ -452,7 +458,7 @@ export struct AppSettingsPage {
       return ['跟随系统', '浅色', '深色'];
     }
     if (kind === 'status') {
-      return ['经典流光', '霓虹', '终端', '糖果', '故障', '简约'];
+      return ['DSH 默认', '经典流光', '霓虹', '终端', '糖果', '故障', '简约'];
     }
     if (kind === 'procion') {
       return ['旋转圆环', '格子', '思考球', '变形方', '点阵', '轨道', '波纹', '声波', '脉冲环', '呼吸条', '旋方', '打字点', '扫描线'];
@@ -674,10 +680,12 @@ export struct AppSettingsPage {
       this.workStepMode = WorkStepPresentation.normalizeMode(id);
       PreferencesStore.get().putString(WorkStepPresentation.MODE_KEY, this.workStepMode);
       AppStorage.setOrCreate<string>('workStepMode', this.workStepMode);
+      this.workStepLabel = WorkStepPresentation.modeLabel(this.workStepMode);
     } else if (kind === 'timing') {
       this.workStepTiming = WorkStepPresentation.normalizeTiming(id);
       PreferencesStore.get().putString(WorkStepPresentation.TIMING_KEY, this.workStepTiming);
       AppStorage.setOrCreate<string>('workStepTiming', this.workStepTiming);
+      this.workStepTimingLabel = WorkStepPresentation.timingLabel(this.workStepTiming);
     } else if (kind === 'haptics') {
       this.haptics = id;
       PreferencesStore.get().putString('hapticsLevel', id);
@@ -695,7 +703,28 @@ export struct AppSettingsPage {
   }
 
   /** AppStorage 档位变化：持久化 + 重绘行（选择页直接写 AppStorage 时走这里） */
+  onPageShow(): void {
+    this.syncWorkStepLabels();
+  }
+
+  private onPickerRevision(): void {
+    this.syncWorkStepLabels();
+  }
+
+  private syncWorkStepLabels(): void {
+    const modeLabel: string = WorkStepPresentation.modeLabel(this.workStepMode);
+    const timingLabel: string = WorkStepPresentation.timingLabel(this.workStepTiming);
+    Logger.info('[SETTINGS] sync labels mode=' + this.workStepMode + ' label=' + modeLabel + ' state=' + this.workStepLabel);
+    if (this.workStepLabel !== modeLabel) {
+      this.workStepLabel = modeLabel;
+    }
+    if (this.workStepTimingLabel !== timingLabel) {
+      this.workStepTimingLabel = timingLabel;
+    }
+  }
+
   private onWorkStepStorage(): void {
+    this.syncWorkStepLabels();
     PreferencesStore.get().putString(WorkStepPresentation.MODE_KEY, this.workStepMode);
     PreferencesStore.get().putString(WorkStepPresentation.TIMING_KEY, this.workStepTiming);
   }
@@ -1514,11 +1543,11 @@ export struct AppSettingsPage {
                 })
                 this.divider()
               }
-              this.rowDesc('工作步骤展示', '选择希望看到多少工具调用细节', WorkStepPresentation.modeLabel(this.workStepMode), true, () => {
+              this.rowDesc('工作步骤展示', '选择希望看到多少工具调用细节', this.workStepLabel, true, () => {
                 this.openPicker('mode');
               })
               this.divider()
-              this.rowDesc('工作步骤收起时机', '选择何时自动收起工作步骤', WorkStepPresentation.timingLabel(this.workStepTiming), true, () => {
+              this.rowDesc('工作步骤收起时机', '选择何时自动收起工作步骤', this.workStepTimingLabel, true, () => {
                 this.openPicker('timing');
               })
               this.divider()
@@ -1646,8 +1675,19 @@ export struct AppSettingsPage {
     .backgroundColor(this.pageBg())
     .onShown(() => {
       // 从二级选择页返回：@Watch 偶发不触发时这里兜底消费一次选择，保证行文案/偏好立即生效
+      Logger.info('[SETTINGS] onShown');
       this.consumePickerChoice();
       this.refreshPrefs();
+      // 直接从 AppStorage / 偏好里读回档位并强制刷新行文案（不依赖 @Watch 是否触发）
+      const storedMode: string = WorkStepPresentation.normalizeMode(
+        AppStorage.get<string>('workStepMode') ?? PreferencesStore.get().getString(WorkStepPresentation.MODE_KEY, this.workStepMode));
+      const storedTiming: string = WorkStepPresentation.normalizeTiming(
+        AppStorage.get<string>('workStepTiming') ?? PreferencesStore.get().getString(WorkStepPresentation.TIMING_KEY, this.workStepTiming));
+      Logger.info('[SETTINGS] onShown restore mode=' + storedMode + ' label=' + WorkStepPresentation.modeLabel(storedMode));
+      this.workStepMode = storedMode;
+      this.workStepTiming = storedTiming;
+      this.workStepLabel = WorkStepPresentation.modeLabel(storedMode);
+      this.workStepTimingLabel = WorkStepPresentation.timingLabel(storedTiming);
     })
   }
 }

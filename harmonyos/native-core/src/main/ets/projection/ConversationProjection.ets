@@ -31,6 +31,8 @@ export interface ConversationItem {
   /** 工具调用（对齐小程序 tool 行：callId 关联调用与结果，depth 决定子步骤缩进） */
   callId?: string;
   parentCallId?: string;
+  /** 该工具步骤下面还有子步骤（ptc 派发）：组头显示时不要「运行」前缀 */
+  hasChildren?: boolean;
   rootCallId?: string;
   subCallId?: string;
   /** 0 = 顶层工具；>0 = run_code/PTC 派生的子步骤（对齐 .tool-node 缩进与竖线） */
@@ -79,6 +81,29 @@ export class ConversationProjector {
   lastSequence: number = -1;
   constructor(labels: ConversationProjectionLabels = {}) { this.labels = labels; }
   get items(): ConversationItem[] { return this.mutableItems.slice(); }
+
+  /**
+   * 本地图片交棒：把「发送那一刻」的本地 URI 挂到刚刚到达的用户消息行上。
+   * 网关回显的 images 只有 attachmentId，要再向网关拉一次才出图；
+   * 挂上本地 URI 后，自己发的图片立刻显示缩略图（对齐小程序 row.images[].localUrl），
+   * 拉取失败也不会变成「图片加载失败」。
+   */
+  attachLocalImagesToLastUser(paths: string[]): void {
+    if (paths.length === 0) {
+      return;
+    }
+    for (let index = this.mutableItems.length - 1; index >= 0; index--) {
+      const item: ConversationItem = this.mutableItems[index];
+      const kind: string = item.kind as string;
+      if (kind === ConversationItemKind.ASSISTANT as string) {
+        return;
+      }
+      if (kind === ConversationItemKind.USER as string) {
+        item.localImagePaths = paths.slice();
+        return;
+      }
+    }
+  }
   get hasAssistantChunks(): boolean { return this.streamIndexes.size > 0; }
   reset(): void { this.mutableItems = []; this.records = []; this.sequenceMap.clear(); this.streamIndexes.clear(); this.finalizedKeys.clear(); this.toolItemIds.clear(); this.toolDepths.clear(); this.lastSequence = -1; }
   rebuild(events: SessionEvent[]): void { this.reset(); const sorted = events.slice().sort((a: SessionEvent,b: SessionEvent) => a.seq-b.seq); for (const event of sorted) this.fold(event); }
@@ -149,6 +174,12 @@ export class ConversationProjector {
     for (const row of chunks) {
       const type = str(row.chunk, 'type'); const name = str(row.chunk, 'name');
       if (type !== 'text-delta' && type !== 'reasoning-delta' && type !== 'tool-call-delta') continue;
+      if (type === 'tool-call-delta') {
+        // 流式工具分片还没带真实工具名时不建行：等 tool/call 到了再建完整行，
+        // 否则界面会残留「工具调用 · tool」这种没有信息的占位行。
+        const streamName: string = (name ?? '').trim();
+        if (streamName.length === 0 || streamName.toLowerCase() === 'tool') continue;
+      }
       const kind = type === 'text-delta' ? ConversationItemKind.ASSISTANT : type === 'reasoning-delta' ? ConversationItemKind.REASONING : (name?.toLowerCase() === 'run_code' ? ConversationItemKind.JSON_TOOL : ConversationItemKind.TOOL);
       const suffix = str(row.chunk, 'index') ?? str(row.chunk, 'id') ?? '0';
       const key = 'live-' + attemptId + '-' + type + '-' + suffix;
@@ -256,6 +287,7 @@ export class ConversationProjector {
     const key=turn+'-'+step;
     if(e.type==='user/message') {
       let kind=e.source===undefined||e.source==='user'?ConversationItemKind.USER:ConversationItemKind.CONTEXT;
+      Logger.info('[PROJ] user/message source=' + (e.source===undefined?'-':e.source) + ' kind=' + (kind as string) + ' turn=' + (e.turn??-1).toString() + ' len=' + ((e.text??'').length).toString());
       // 兜底：网关某些版本不带 source。注入内容有明显的形态特征（以 '[' 开头的插件/时间上下文、
       // 或者 <path> 图片块），这类绝不能当成「用户发送的消息」渲染成蓝色气泡。
       if (kind === ConversationItemKind.USER) {
@@ -285,7 +317,7 @@ export class ConversationProjector {
       if(this.finalizedKeys.has(key)) return;
       const chunk=e.chunkType; if(chunk==='text-delta'||chunk==='text') this.appendStreamText(this.resolveStreamKey('stream-text-',turn,step),ConversationItemKind.ASSISTANT,this.labels.streamingAssistant??'DeepSeek',e.text??'',date,out);
       else if(chunk==='reasoning-delta'||chunk==='reasoning') this.appendStreamText(this.resolveStreamKey('stream-reason-',turn,step),ConversationItemKind.REASONING,this.labels.streamingReasoning??'Think',e.text??'',date,out);
-      else if(chunk==='tool-call-delta') { const name=e.tool?.name??this.labels.assemblingTool??'Tool'; this.append('stream-tool-'+(e.tool?.id??key),name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL,name,e.tool?.argumentsDelta??'',date,out); }
+      else if(chunk==='tool-call-delta') { const name=(e.tool?.name??'').trim(); if(name.length===0||name.toLowerCase()==='tool'){ return; } this.append('stream-tool-'+(e.tool?.id??key),name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL,name,e.tool?.argumentsDelta??'',date,out); }
       return;
     }
     if(e.type==='assistant/message') {
@@ -319,11 +351,49 @@ export class ConversationProjector {
     }
     if(e.type==='tool/call') {
       const name=e.name??'Tool';
+      // 宿主会补发 name='tool' 的包装事件（没有真实工具名），它不是一次真正的工具调用；
+      // 之前把它渲染成「工具调用 · tool」并一直挂「运行中」，看起来就是多出来的行。
+      if(name.trim().toLowerCase()==='tool'){ return; }
       const argsText=ConversationProjector.argumentsText(e.arguments);
       const callId=e.callId??'';
-      const item:ConversationItem={id,kind:name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL,title:name,text:argsText,epochSeconds:date,turn:effectiveTurn,callId:callId,argumentsText:argsText,status:'running',depth:0};
-      if(callId.length>0){this.toolItemIds.set(callId,id);this.toolDepths.set(callId,0);}
-      this.insert(item,out); return;
+      const kind=name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL;
+      // 流式阶段先到的 tool-call-delta 已经建了一行（标题只有 'tool'、参数是半截 JSON）。
+      // 这里要把它「升级」成完整的工具行，而不是再插一条新的 ——
+      // 否则界面上会停在那条只显示「工具调用 · tool」的半成品行。
+      const streamId='stream-tool-'+callId;
+      let at:number=-1;
+      if(callId.length>0){
+        at=this.mutableItems.findIndex((row:ConversationItem)=>row.id===streamId);
+      }
+      // 兜底：流式行的 id 可能和 callId 不一致，找不到时按「还没绑 callId 的占位工具行」升级
+      if(at<0){
+        for(let i=this.mutableItems.length-1;i>=0;i--){
+          const row:ConversationItem=this.mutableItems[i];
+          const k:string=row.kind as string;
+          if(!(k===ConversationItemKind.TOOL as string || k===ConversationItemKind.JSON_TOOL as string)) continue;
+          if((row.callId??'').length>0) continue;
+          const title:string=row.title??'';
+          if(title===(this.labels.assemblingTool??'Tool')||title.toLowerCase()==='tool'||title.length===0){
+            at=i; break;
+          }
+        }
+      }
+      let targetId:string='';
+      if(at>=0){
+        targetId=this.mutableItems[at].id;
+        const next:ConversationItem={id:targetId,kind:kind,title:name,text:argsText,epochSeconds:date,turn:effectiveTurn,callId:callId,argumentsText:argsText,status:'running',depth:0};
+        this.mutableItems[at]=next;
+        if(callId.length>0){this.toolItemIds.set(callId,targetId);this.toolDepths.set(callId,0);}
+        out.push({kind:'replace',item:next,itemId:next.id});
+      } else {
+        const item:ConversationItem={id,kind:kind,title:name,text:argsText,epochSeconds:date,turn:effectiveTurn,callId:callId,argumentsText:argsText,status:'running',depth:0};
+        if(callId.length>0){this.toolItemIds.set(callId,id);this.toolDepths.set(callId,0);}
+        this.insert(item,out);
+        targetId=item.id;
+      }
+      // 同一个父过程里会残留多条「工具调用 运行中 · tool」占位行：这里统一清掉，只留下刚落定的这条
+      this.dropPlaceholderToolRows(targetId,out);
+      return;
     }
     if(e.type==='tool/result') {
       // 结果并入对应工具行（对齐小程序：结果不单独占一行，展开时显示在「结果」段）
@@ -335,6 +405,16 @@ export class ConversationProjector {
         const old:ConversationItem=this.mutableItems[index];
         const next:ConversationItem={id:old.id,kind:old.kind,title:old.title,text:old.text,images:old.images,isError:e.isError===true,epochSeconds:old.epochSeconds,turn:old.turn,callId:old.callId,parentCallId:old.parentCallId,rootCallId:old.rootCallId,subCallId:old.subCallId,depth:old.depth,status:e.isError===true?'error':'done',argumentsText:old.argumentsText,resultText:preview};
         this.mutableItems[index]=next; out.push({kind:'replace',item:next,itemId:next.id}); return;
+      }
+      // callId 对不上时兜底：把最近一条「运行中」的工具行收尾，
+      // 否则它会一直显示「运行中」，界面上就变成每一行工具调用都挂着「运行中」。
+      for(let i=this.mutableItems.length-1;i>=0;i--){
+        const row:ConversationItem=this.mutableItems[i];
+        const k:string=row.kind as string;
+        if(!(k===ConversationItemKind.TOOL as string||k===ConversationItemKind.JSON_TOOL as string)) continue;
+        if(row.status!=='running') continue;
+        const next:ConversationItem={id:row.id,kind:row.kind,title:row.title,text:row.text,images:row.images,isError:e.isError===true,epochSeconds:row.epochSeconds,turn:row.turn,callId:row.callId,parentCallId:row.parentCallId,rootCallId:row.rootCallId,subCallId:row.subCallId,depth:row.depth,status:e.isError===true?'error':'done',argumentsText:row.argumentsText,resultText:preview};
+        this.mutableItems[i]=next; out.push({kind:'replace',item:next,itemId:next.id}); return;
       }
       this.insert({id,kind:ConversationItemKind.TOOL_RESULT,title:e.isError===true?(this.labels.toolResultFailed??'Tool failed'):(this.labels.toolResultDone??'Tool result'),text:preview,isError:e.isError,epochSeconds:date,turn:effectiveTurn,callId:callId},out);
       if (e.appendOrigin === true && (e.mutationPath ?? '').length > 0 && (e.turn ?? 0) > 0) {
@@ -349,7 +429,10 @@ export class ConversationProjector {
       const subCallId=e.subCallId??'';
       const parentCallId=e.parentCallId??'';
       const rootCallId=e.rootCallId??'';
-      const name=e.name??'tool';
+      const name=(e.name??'').trim();
+      // 没有真实工具名的派发事件（宿主可能补发 name 缺失/'tool' 的包装事件）不建行：
+      // 否则会留下「工具调用 运行中 · tool」这种多余行。
+      if(name.length===0||name.toLowerCase()==='tool'){ return; }
       const argsText=ConversationProjector.argumentsText(e.arguments);
       const start=e.type==='tool/code-dispatch-start'||e.type==='tool/ptc-dispatch-start';
       const depth=parentCallId.length>0&&this.toolDepths.has(parentCallId)?(this.toolDepths.get(parentCallId)??0)+1:1;
@@ -364,6 +447,19 @@ export class ConversationProjector {
       const item:ConversationItem={id,kind:name.toLowerCase()==='run_code'?ConversationItemKind.JSON_TOOL:ConversationItemKind.TOOL,title:name,text:argsText,epochSeconds:date,turn:effectiveTurn,callId:subCallId,parentCallId:parentCallId,rootCallId:rootCallId,subCallId:subCallId,depth:depth,argumentsText:argsText,status:start?'running':(e.isError===true?'error':'done'),resultText:preview};
       if(subCallId.length>0){this.toolItemIds.set(subCallId,id);this.toolDepths.set(subCallId,depth);}
       this.insert(item,out); return;
+    }
+    if(e.type==='turn/end') {
+      // 回合结束：清掉所有占位工具行（没有真实工具信息的半成品行）
+      this.dropPlaceholderToolRows('',out);
+      // 回合结束：所有还挂在「运行中」的工具行统一收尾，避免残留状态
+      for(let i=0;i<this.mutableItems.length;i++){
+        const row:ConversationItem=this.mutableItems[i];
+        const k:string=row.kind as string;
+        if(!(k===ConversationItemKind.TOOL as string||k===ConversationItemKind.JSON_TOOL as string)) continue;
+        if(row.status!=='running') continue;
+        const next:ConversationItem={id:row.id,kind:row.kind,title:row.title,text:row.text,images:row.images,isError:row.isError,epochSeconds:row.epochSeconds,turn:row.turn,callId:row.callId,parentCallId:row.parentCallId,rootCallId:row.rootCallId,subCallId:row.subCallId,depth:row.depth,status:'done',argumentsText:row.argumentsText,resultText:row.resultText};
+        this.mutableItems[i]=next; out.push({kind:'replace',item:next,itemId:next.id});
+      }
     }
     if(e.type==='turn/end') { const reason=e.reason??''; const title=reason==='error'||reason==='failed'?(this.labels.generationFailed??'Generation failed'):(['aborted','cancelled','canceled'].indexOf(reason)>=0?(this.labels.generationCancelled??'Generation cancelled'):reason==='interrupted'?(this.labels.interrupted??'Generation interrupted'):''); if(title.length>0) this.insert({id,kind:ConversationItemKind.SYSTEM,title,text:e.error??'',isError:reason==='error'||reason==='failed'||reason==='interrupted',epochSeconds:date,turn:effectiveTurn},out); }
     const ext = asRec(e as Object);
@@ -412,7 +508,17 @@ export class ConversationProjector {
     return out;
   }
 
-  private insert(item:ConversationItem,out:ConversationProjectionOperation[]):void {this.mutableItems.push(item);out.push({kind:'insert',item});}
+  private insert(item:ConversationItem,out:ConversationProjectionOperation[]):void {
+    // 上下文注入去重：实时帧 + 历史快照可能各来一次，同一 turn 里标题+正文一致的只保留一条
+    if((item.kind as string)===(ConversationItemKind.CONTEXT as string)){
+      for(let i=this.mutableItems.length-1;i>=0;i--){
+        const row:ConversationItem=this.mutableItems[i];
+        if((row.kind as string)!==(ConversationItemKind.CONTEXT as string)) continue;
+        if(row.title===item.title&&row.text===item.text) return;
+      }
+    }
+    this.mutableItems.push(item);out.push({kind:'insert',item});
+  }
   private append(key:string,kind:ConversationItemKind,title:string,delta:string,time:number,out:ConversationProjectionOperation[]):void {
     if(delta.length===0)return; const index=this.streamIndexes.get(key);
     if(index!==undefined){const old=this.mutableItems[index];const next:ConversationItem={id:old.id,kind:old.kind,title:old.title,text:old.text+delta,images:old.images,isError:old.isError,epochSeconds:time,turn:old.turn};this.mutableItems[index]=next;out.push({kind:'append',itemId:next.id,delta,epochSeconds:time});}
@@ -453,6 +559,29 @@ export class ConversationProjector {
     }
     this.streamCommitted.set(key, cut);
     this.append(key, kind, title, accumulated.substring(committed, cut), epochSeconds, out);
+  }
+
+  /** 清掉还没绑 callId 的占位工具行（残留会显示成「工具调用 运行中 · tool」） */
+  private dropPlaceholderToolRows(keepId: string, out: ConversationProjectionOperation[]): void {
+    for(let i=this.mutableItems.length-1;i>=0;i--){
+      const row:ConversationItem=this.mutableItems[i];
+      if(row.id===keepId) continue;
+      const k:string=row.kind as string;
+      if(!(k===ConversationItemKind.TOOL as string||k===ConversationItemKind.JSON_TOOL as string)) continue;
+      // 真正的工具行一定绑了 callId；流式占位行（stream-tool-* / live-*）没有 callId。
+      // 之前按「有没有参数」判断，占位行已经攒了半截参数 JSON，于是被当成真行留下。
+      const hasCallId:boolean=(row.callId??'').length>0;
+      const isStreamRow:boolean=row.id.indexOf('stream-tool-')===0||row.id.indexOf('live-')===0;
+      if(hasCallId||!isStreamRow) continue;
+      {
+        const removedId:string=row.id;
+        this.mutableItems.splice(i,1);
+        this.streamBuffers.delete(removedId);
+        this.streamCommitted.delete(removedId);
+        this.streamIndexes.delete(removedId);
+        out.push({kind:'remove',itemId:removedId});
+      }
+    }
   }
 
   private resolveStreamKey(prefix: string, turn: number, step: number): string {

@@ -6,6 +6,7 @@
  * - standard 标准：收拢，但运行中仍显示细节
  * - detailed 详细：收拢，展开后按过程组分段显示历史
  * - verbose  完全展开：不再收拢，过程组逐组显示
+ * - reading  阅读：过程实时折叠成一行摘要（带步骤计数），轮次结束后仍可展开回看
  */
 export interface WorkStepOption {
   id: string;
@@ -18,6 +19,8 @@ export interface WorkStepPolicy {
   stepGrouping: string;
   liveProcessDetail: boolean;
   settledReasoningPreview: boolean;
+  /** 阅读档：折叠行显示步骤计数摘要（对齐交互阅读的折叠摘要） */
+  readingSummary: boolean;
 }
 
 export class WorkStepPresentation {
@@ -29,6 +32,7 @@ export class WorkStepPresentation {
       { id: 'compact', label: '简洁' },
       { id: 'standard', label: '标准' },
       { id: 'detailed', label: '详细' },
+      { id: 'reading', label: '阅读' },
       { id: 'verbose', label: '完全展开' }
     ];
   }
@@ -85,7 +89,8 @@ export class WorkStepPresentation {
         foldCompletedTurns: true,
         stepGrouping: 'collapsed',
         liveProcessDetail: false,
-        settledReasoningPreview: false
+        settledReasoningPreview: false,
+        readingSummary: false
       };
     }
     if (normalized === 'standard') {
@@ -93,7 +98,18 @@ export class WorkStepPresentation {
         foldCompletedTurns: true,
         stepGrouping: 'collapsed',
         liveProcessDetail: true,
-        settledReasoningPreview: true
+        settledReasoningPreview: true,
+        readingSummary: false
+      };
+    }
+    if (normalized === 'reading') {
+      return {
+        foldCompletedTurns: true,
+        // 运行中展开（步骤在限高容器里滚），收工后折叠成计数摘要行
+        stepGrouping: 'history',
+        liveProcessDetail: true,
+        settledReasoningPreview: true,
+        readingSummary: true
       };
     }
     if (normalized === 'verbose') {
@@ -101,14 +117,16 @@ export class WorkStepPresentation {
         foldCompletedTurns: false,
         stepGrouping: 'none',
         liveProcessDetail: false,
-        settledReasoningPreview: true
+        settledReasoningPreview: true,
+        readingSummary: false
       };
     }
     return {
       foldCompletedTurns: true,
       stepGrouping: 'history',
       liveProcessDetail: true,
-      settledReasoningPreview: true
+      settledReasoningPreview: true,
+      readingSummary: false
     };
   }
 }

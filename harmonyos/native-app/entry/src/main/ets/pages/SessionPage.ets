@@ -649,6 +649,7 @@ export struct SessionPage {
   private processModeLabel(mode: string): string {
     if (mode === 'compact') return '简洁';
     if (mode === 'standard') return '标准';
+    if (mode === 'reading') return '阅读';
     if (mode === 'verbose') return '完全展开';
     return '详细';
   }

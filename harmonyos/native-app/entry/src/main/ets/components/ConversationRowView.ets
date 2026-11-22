@@ -70,6 +70,8 @@ export struct ConversationRowView {
   /** 点过「完整内容」的思考卡：整段展开显示全部内容 */
   @Prop reasonFullIds: string[] = [];
   onToggleReasonFull: (id: string) => void = (id: string) => {};
+  /** 过程步骤展示档位：compact / standard / detailed / verbose */
+  @Prop workStepMode: string = 'detailed';
   /** 思考卡展开/折叠（底部两个按钮都走这个） */
   onToggleReasonCard: (id: string) => void = (id: string) => {};
   onToggleStep: (id: string) => void = () => {};
@@ -77,11 +79,18 @@ export struct ConversationRowView {
   @Prop imagePaths: string[] = [];
   /** 过程步骤里的图片路径点击（如「读取图片 · /tmp/a.jpg」）→ 会话页下载并预览 */
   onImagePathTap: (path: string) => void = (path: string) => {};
+  /** 回合页脚「用量」按钮点击（参数是该回合的 turnKey） */
+  onTurnUsage: (turnKey: string) => void = (turnKey: string) => {};
   /**
    * 图片本地路径（会话页拉取后写入 AppStorage）。LazyForEach 的行不会因父级 @State 变化而重建，
    * 订阅 AppStorage 才能「图片下载完成后原行直接出图」，不必重进页面。编码：entryId + '\u0001' + 路径。
    */
   @StorageProp('imagePathEntries') imagePathEntries: string[] = [];
+  /** 预取失败的条目 id（父页写入）：这些行不再显示「加载中」，改显示「加载失败」 */
+  @StorageProp('imageFailedEntries') imageFailedEntries: string[] = [];
+  /** 点击「加载失败」重试（父页重新发起预取） */
+  private onRetryImages: () => void = () => {
+  };
   /** 点击缩略图：会话页打开全屏预览 */
   onImageTap: (path: string) => void = () => {};
   /** 文件附件 chip（编码：kind\u0001name\u0001path\u0001attachmentId\u0001mediaType） */
@@ -112,12 +121,20 @@ export struct ConversationRowView {
   // 已经没有任何地方使用。结果是每个可见行每秒被无意义地重渲染 3 次，页面空转占满 CPU。
   // 运行中图标的相位由 ProcLoaderView 自己的定时器驱动，这里不需要再定时。
 
+  /** 用户正在容器内滑动 / 刚滑完的暂停窗口：这期间不要自动跟底（否则会被新内容顶掉） */
+  private innerScrolling: boolean = false;
+  private innerPauseUntil: number = 0;
+
   /** 上次渲染看到的步骤数：用于判断「新增了一步」并让限高框滚到底 */
   private lastItemCount: number = 0;
 
   /** 运行中每来一步都贴到底部（对齐小程序 process body 跟随最新步骤） */
   private followTail(): void {
     if (!this.entry.running) {
+      return;
+    }
+    // 用户正在滑/刚滑完：暂停自动跟底 1.5 秒，避免"滑一点就被顶回去"
+    if (this.innerScrolling || Date.now() < this.innerPauseUntil) {
       return;
     }
     setTimeout(() => {
@@ -615,16 +632,20 @@ export struct ConversationRowView {
     return list;
   }
 
-  /** 图片缩略图（单张按 4:3 大图，多张 96rpx 网格；对齐小程序 attach-grid / user-image-one） */
+  /**
+   * 图片缩略图（单张按 4:3 大图，多张 96rpx 网格；对齐小程序 attach-grid / user-image-one）。
+   * topRpx/bottomRpx 由调用方给：用户消息里图片在文字「上方」，所以是 bottom 间距；
+   * 助手消息里图片接在正文「下方」，所以是 top 间距。
+   */
   @Builder
-  imageGrid() {
+  imageGrid(topRpx: number = 12, bottomRpx: number = 0) {
     if (this.imageList().length === 1) {
       Image(this.imageSource(this.imageList()[0]))
         .width(this.rpx(560))
         .height(this.rpx(420))
         .objectFit(ImageFit.Cover)
         .borderRadius(this.rpx(20))
-        .margin({ top: this.rpx(12) })
+        .margin({ top: this.rpx(topRpx), bottom: this.rpx(bottomRpx) })
         .onClick(() => {
           this.onImageTap(this.imageList()[0]);
         })
@@ -642,7 +663,7 @@ export struct ConversationRowView {
             })
         }, (path: string) => path)
       }
-      .margin({ top: this.rpx(2) })
+      .margin({ top: this.rpx(topRpx > 2 ? 2 : 0), bottom: this.rpx(bottomRpx) })
     }
   }
 
@@ -651,18 +672,24 @@ export struct ConversationRowView {
   @Builder
   userRow() {
     Column() {
-      Column() {
-        if (this.entry.text.length > 0) {
-          // 用户消息字号与助手正文一致（不再额外放大）
-          Text(this.entry.text)
-            .fontSize(this.contentSize())
-            .lineHeight(this.contentSize() * 1.45)
-            .fontColor(this.primaryText())
-        }
-        this.imageGrid()
-        this.attachmentList(true)
-        // 图片还在下载（或下载失败）：给一个占位，避免气泡里什么都没有
-        if (this.entry.imageCount > 0 && this.imageList().length === 0) {
+      // ① 图片在文字上方（对齐小程序 .row-user：user-image-single / user-image-stack 是
+      //    .row-user-bubble 的兄弟节点，排在文字前面，且不套蓝色气泡底）
+      this.imageGrid(0, this.entry.text.length > 0 ? 16 : 0)
+
+      // 图片还没拿到：下载中显示转圈，失败则显示可点重试（不再永远停在「加载中」）
+      if (this.entry.imageCount > 0 && this.imageList().length === 0) {
+        if (this.imageFailedEntries.indexOf(this.entry.id) >= 0) {
+          Row({ space: 4 }) {
+            Text('图片 ' + this.entry.imageCount.toString() + ' 张加载失败，点击重试')
+              .fontSize(11.73)
+              .fontColor(DANGER)
+          }
+          .alignItems(VerticalAlign.Center)
+          .padding({ top: 2, bottom: 2 })
+          .onClick(() => {
+            this.onRetryImages();
+          })
+        } else {
           Row({ space: 4 }) {
             LoadingProgress().width(11).height(11).color(this.secondaryText())
             Text('图片 ' + this.entry.imageCount.toString() + ' 张加载中…')
@@ -677,13 +704,26 @@ export struct ConversationRowView {
             .margin({ top: 2.35 })
         }
       }
-      .alignItems(HorizontalAlign.Start)
-      // .row-user-bubble：圆角 30rpx、padding 20rpx 28rpx
-      .padding({ left: 16.43, right: 16.43, top: 11.73, bottom: 11.73 })
-      .borderRadius(17.6)
-      .backgroundColor(this.userBubbleFill())
-      .border({ width: 0.7, color: this.userBubbleEdge() })
-      .constraintSize({ maxWidth: '100%' })
+
+      // ② 文字气泡（只有文字时才画气泡；纯图片消息不再套一层空蓝底）
+      if (this.entry.text.length > 0) {
+        Column() {
+          // 用户消息字号与助手正文一致（不再额外放大）
+          Text(this.entry.text)
+            .fontSize(this.contentSize())
+            .lineHeight(this.contentSize() * 1.45)
+            .fontColor(this.primaryText())
+        }
+        .alignItems(HorizontalAlign.Start)
+        // .row-user-bubble：圆角 30rpx、padding 20rpx 28rpx
+        .padding({ left: 16.43, right: 16.43, top: 11.73, bottom: 11.73 })
+        .borderRadius(17.6)
+        .backgroundColor(this.userBubbleFill())
+        .border({ width: 0.7, color: this.userBubbleEdge() })
+        .constraintSize({ maxWidth: '100%' })
+      }
+
+      this.attachmentList(true)
 
       if (this.entry.copyable) {
         this.copyButton(true)
@@ -731,7 +771,7 @@ export struct ConversationRowView {
           this.onImageTap(src);
         }
       })
-      this.imageGrid()
+      this.imageGrid(12, 0)
       this.attachmentList(false)
       if (this.entry.footerVisible) {
         // .turn-footer：gap 14rpx、padding 4rpx 0；左组 gap 10rpx
@@ -747,22 +787,34 @@ export struct ConversationRowView {
                 this.onCopy(this.entry.text);
               })
             if (this.entry.turnMetaText.length > 0) {
-              // .turn-meta：高 44rpx、padding 0 14rpx、胶囊填充；文字 23rpx --text-2
-              Text(this.entry.turnMetaText)
-                .fontSize(11)
-                .lineHeight(15)
-                .fontColor(this.secondaryText())
-                .maxLines(1)
-                .constraintSize({ minHeight: 20 })
-                .padding({ left: 6, right: 6 })
-                .borderRadius(10)
-                .backgroundColor(this.fillColor())
+              // .turn-meta：图标 + 用量文字的可点胶囊（点击看本轮用量明细，对齐小程序 openTurnUsage）
+              Row({ space: 3 }) {
+                Image($r('app.media.dsh_gauge'))
+                  .width(10)
+                  .height(10)
+                  .objectFit(ImageFit.Contain)
+                  .opacity(0.55)
+                Text(this.entry.turnMetaText)
+                  .fontSize(11)
+                  .lineHeight(15)
+                  .fontColor(this.secondaryText())
+                  .maxLines(1)
+              }
+              .padding({ left: 6, right: 6 })
+              .constraintSize({ minHeight: 20 })
+              .borderRadius(10)
+              .backgroundColor(this.fillColor())
+              .alignItems(VerticalAlign.Center)
+              .onClick(() => {
+                this.onTurnUsage(this.entry.turnKey);
+              })
             }
           }
           .alignItems(VerticalAlign.Center)
 
+          Blank()
           if (this.entry.turnTimeText.length > 0) {
-            // .turn-time 23rpx --text-3
+            // .turn-time 23rpx --text-3（右对齐，对齐小程序 .turn-footer 的时间位）
             Text(this.entry.turnTimeText)
               .fontSize(11)
               .lineHeight(15)
@@ -924,6 +976,15 @@ export struct ConversationRowView {
   }
 
   /** 步骤详情正文（思考/上下文用；工具行改由参数与结果两段展示）。 */
+  /** 步骤标题：有子步骤的父过程只显示名称（去掉「运行」），单行步骤保留「运行xx」 */
+  private stepTitle(item: ConversationItem): string {
+    const label: string = ConversationFeed.toolFace(item.title, item.text).label;
+    if (item.hasChildren === true && label.indexOf('运行') === 0) {
+      return label.substring(2);
+    }
+    return label;
+  }
+
   private stepDetail(item: ConversationItem): string {
     const text: string = item.text === undefined ? '' : item.text.trim();
     if (text.length > 0) {
@@ -1016,16 +1077,38 @@ export struct ConversationRowView {
           .padding({ right: this.rpx(10) })
           .copyOption(CopyOptions.LocalDevice)
       } else {
-        Scroll() {
-          Text(this.stepDetail(item))
-            .fontSize(13)
-            .lineHeight(this.rpx(48))
-            .fontColor(this.secondaryText())
-            .width('100%')
-            .padding({ right: this.rpx(10) })
-            .copyOption(CopyOptions.LocalDevice)
+        Scroll(this.reasonScroller) {
+          Column() {
+            Text(this.stepDetail(item))
+              .fontSize(13)
+              .lineHeight(this.rpx(48))
+              .fontColor(this.secondaryText())
+              .width('100%')
+              .padding({ right: this.rpx(10) })
+              .copyOption(CopyOptions.LocalDevice)
+          }
+          .width('100%')
+          .alignItems(HorizontalAlign.Start)
+          .onAreaChange(() => {
+            // 运行中：卡片高度固定，正文只在卡内向上滚，页面高度不变 → 外层不用一直上推
+            if (!this.entry.running) {
+              return;
+            }
+            const now: number = Date.now();
+            if (now - this.reasonFollowAt < 150) {
+              return;
+            }
+            this.reasonFollowAt = now;
+            setTimeout(() => {
+              try {
+                this.reasonScroller.scrollEdge(Edge.Bottom);
+              } catch (err) {
+              }
+            }, 40);
+          })
         }
-      .height(this.readingHeight(this.stepDetail(item)))
+        // 运行中固定高度（不再随内容变高把页面往上顶）；结束后按内容估算高度
+        .height(this.entry.running ? this.RUNNING_CARD_HEIGHT : this.readingHeight(this.stepDetail(item)))
         .scrollBar(BarState.Auto)
         .width('100%')
         // 思考卡是「列表里的定高滚动区」：默认 SELF_FIRST 会把竖向滑动全吃掉，
@@ -1334,7 +1417,7 @@ export struct ConversationRowView {
           .constraintSize({ maxWidth: '46%' })
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        if (this.stepDetail(item).length > 0) {
+        if (this.stepDetail(item).length > 0 && this.workStepMode !== 'compact') {
           Text(ConversationFeed.preview(this.stepDetail(item), 72))
             .fontSize(13.2)
             .fontColor(this.secondaryText())
@@ -1375,7 +1458,7 @@ export struct ConversationRowView {
           .maxLines(2)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
       } else {
-        Text(ConversationFeed.toolFace(item.title, item.text).label)
+        Text(this.stepTitle(item))
           .fontSize(13.2)
           .fontWeight(FontWeight.Normal)
           .fontColor(this.secondaryText())
@@ -1403,8 +1486,9 @@ export struct ConversationRowView {
             // 图片路径仍然可以点开预览，但不再靠颜色区分。
             .fontColor(this.tertiaryText())
             .layoutWeight(1)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            // 不省略：路径/命令参数要完整显示，允许换行（用户要求对齐截图的完整展示）
+            .maxLines(3)
+            .wordBreak(WordBreak.BREAK_ALL)
             .onClick(() => {
               const imagePath: string = this.stepImagePath(item);
               if (imagePath.length > 0) {
@@ -1523,7 +1607,7 @@ export struct ConversationRowView {
             .onClick(() => {
               this.onToggleReasonCard(item.id);
             })
-          } else if ((item.kind as string) === 'REASONING' && (this.stepOpen(item.id) || this.entry.running)) {
+          } else if ((item.kind as string) === 'REASONING' && (this.stepOpen(item.id) || this.entry.running || this.workStepMode === 'verbose')) {
             // 有思考正文就用「思考阅读卡」（左上角带「思考」标题 + 完整内容/收起阅读底栏）。
             // 之前只有「展开状态或运行中」才用卡片，结算后思考会变成一行紧凑步骤，样式就变了。
             // 展开的思考：直接铺阅读卡（对齐小程序 reasoning 展开态）
@@ -1567,6 +1651,20 @@ export struct ConversationRowView {
       }
       .constraintSize({ maxHeight: 400 })
       .scrollBar(BarState.Off)
+      // 手指一按下就暂停自动跟底；滑动结束后再等 1.5 秒恢复，
+      // 这样容器内可以自由上下翻看，不会被下面新增的内容顶掉。
+      .onTouch((event: TouchEvent) => {
+        if (event.type === TouchType.Down) {
+          this.innerPauseUntil = Date.now() + 2500;
+        }
+      })
+      .onScrollStart(() => {
+        this.innerScrolling = true;
+      })
+      .onScrollStop(() => {
+        this.innerScrolling = false;
+        this.innerPauseUntil = Date.now() + 1500;
+      })
       .width('100%')
       // 限高过程体（min(400px,50vh)）：对齐小程序 overflow-y:auto 的行为——
       // 手指落在框内时先滚框内内容，滚到边界再接力滚整页（SELF_FIRST 的链式滚动）。
@@ -1588,15 +1686,115 @@ export struct ConversationRowView {
     }
   }
 
+  /** 阅读档折叠行：思考× N · 工具× N · 记录× N，右侧箭头（对齐 iOS/交互阅读样式） */
+  @Builder
+  readingHead() {
+    Row({ space: this.rpx(8) }) {
+      Text(this.readingCounts())
+        .fontSize(13.2)
+        .fontColor(this.entry.isError ? DANGER : this.secondaryText())
+        .layoutWeight(1)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Image($r('app.media.chev_right_gray'))
+        .width(this.rpx(20))
+        .height(this.rpx(20))
+        .objectFit(ImageFit.Contain)
+        .rotate({ angle: this.entry.expanded ? -90 : 90 })
+        .opacity(0.7)
+        .flexShrink(0)
+    }
+    .width('100%')
+    .padding({ top: this.rpx(8), bottom: this.rpx(8) })
+    .constraintSize({ minHeight: this.rpx(56) })
+    .alignItems(VerticalAlign.Center)
+    .onClick(() => {
+      if (this.entry.expandable) {
+        this.onToggle(this.entry.id);
+      }
+    })
+  }
+
+  /**
+   * 折叠摘要计数 —— 与 dsh-interactive-reader 的 foldSummary() 完全一致：
+   * 思考×N（推理）· 输出×N（正文叙述）· 工具×N（工具调用）· 记录×N（其余步骤），
+   * 无空格、按该顺序拼接；都为 0 时回退「此前步骤」。
+   */
+  private readingSummaryOf(items: ConversationItem[]): string {
+    let reasoning: number = 0;
+    let body: number = 0;
+    let tools: number = 0;
+    let extra: number = 0;
+    for (const one of items) {
+      const kind: string = one.kind as string;
+      if (kind === 'REASONING') {
+        reasoning = reasoning + 1;
+      } else if (kind === 'ASSISTANT') {
+        body = body + 1;
+      } else if (kind === 'TOOL' || kind === 'JSON_TOOL') {
+        tools = tools + 1;
+      } else {
+        extra = extra + 1;
+      }
+    }
+    const parts: string[] = [];
+    if (reasoning > 0) {
+      parts.push('思考×' + reasoning.toString());
+    }
+    if (body > 0) {
+      parts.push('输出×' + body.toString());
+    }
+    if (tools > 0) {
+      parts.push('工具×' + tools.toString());
+    }
+    if (extra > 0) {
+      parts.push('记录×' + extra.toString());
+    }
+    return parts.length > 0 ? parts.join(' · ') : '此前步骤';
+  }
+
+  private readingTurnCounts(): string {
+    const all: ConversationItem[] = [];
+    for (const group of this.entry.children) {
+      for (const item of group.items) {
+        all.push(item);
+      }
+    }
+    return this.readingSummaryOf(all);
+  }
+
+  private readingCounts(): string {
+    return this.readingSummaryOf(this.entry.items);
+  }
+
   @Builder
   processRow() {
     Column() {
+      // 阅读档：顶部计数行 → 步骤 → 执行图标行（保持原来的位置：贴底、在鲸尾行上方）
+      if (this.workStepMode === 'reading') {
+        this.readingHead()
+        if (this.bodyVisible()) {
+          this.bodyBlock()
+        }
+        if (this.entry.running) {
+          Column() {
+            this.groupHead(this.entry.title, this.entry.summary, this.entry.isError, true,
+              this.entry.expandable, true)
+          }
+          .width('100%')
+          .onClick(() => {
+            if (this.entry.expandable) {
+              this.onToggle(this.entry.id);
+            }
+          })
+        }
+      } else {
+
       // 运行中：组体在上、组头贴底（对齐 .process-block.running 的 order: body 0 / head 1）
       if (this.entry.running && this.bodyVisible()) {
         this.bodyBlock()
       }
 
-      // 组标题：完全展开档不显示标题；简洁档运行中只留活动组标题
       if (!this.entry.headingHidden) {
         Column() {
           this.groupHead(this.entry.title, this.entry.summary, this.entry.isError,
@@ -1613,6 +1811,7 @@ export struct ConversationRowView {
       if (!this.entry.running && this.bodyVisible()) {
         this.bodyBlock()
       }
+      }
 
       // 失败卡（对齐小程序 turn-error-card）：只有回合真的失败（带失败文案）才显示，
       // 工具单步失败只在该步骤上标红，不升级成整组错误卡。
@@ -1625,6 +1824,7 @@ export struct ConversationRowView {
   @Builder
   turnRow() {
     Column() {
+      // 收工后最上面就是「已完成」：计数摘要只在展开后的过程里出现，避免重复
       Column() {
         this.groupHead(this.entry.title,
           this.entry.expanded && this.entry.expandedSummary.length > 0 ? this.entry.expandedSummary : this.entry.summary,

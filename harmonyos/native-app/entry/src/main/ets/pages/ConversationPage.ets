@@ -329,6 +329,8 @@ export struct ConversationPage {
   @State toastText: string = '';
   /** 消息图片本地缓存：'行id\u0001本地路径'（预取后供行内缩略图使用） */
   @State imagePathEntries: string[] = [];
+  /** 图片预取失败的条目 id：行内改显示「加载失败」（否则离线/附件失效时永远转圈） */
+  @State imageFailedEntries: string[] = [];
   /** 全屏图片预览路径（空 = 关闭） */
   @State previewImagePath: string = '';
   /** 回合文件变更摘要缓存：'行id\u0001state\u0001total\u0001added\u0001deleted\u0001chips' */
@@ -829,7 +831,9 @@ export struct ConversationPage {
       const key: string = row.id;
       this.fileSummaries = this.fileSummaries.concat([key + '\u0001loading\u00010\u00010\u00010\u0001']);
       GatewayClient.get().requestChangesSummary(sessionId, row.changeSeq).then((frame: GatewayFrame) => {
-        const value = asRec(field(frame as Object, 'summary'));
+        // 网关把插件响应放在 frame.value（对齐小程序 changes-actions.js：frame.value），
+        // 之前读 'summary' 永远 undefined → 摘要一直是 missing → 「已编辑」卡片永远不显示。
+        const value = asRec(frame.value as Object) ?? asRec(field(frame as Object, 'summary'));
         if (value === undefined) {
           this.replaceFileSummary(key, 'missing', 0, 0, 0, '');
           return;
@@ -972,6 +976,25 @@ export struct ConversationPage {
     AppStorage.setOrCreate<string[]>('imagePathEntries', this.imagePathEntries.slice());
   }
 
+  private publishImageFailures(): void {
+    AppStorage.setOrCreate<string[]>('imageFailedEntries', this.imageFailedEntries.slice());
+  }
+
+  /** 手动重试某行的图片（行内「加载失败」点击触发） */
+  private retryImages(entryId: string): void {
+    if (this.imageFailedEntries.indexOf(entryId) >= 0) {
+      const next: string[] = [];
+      for (const item of this.imageFailedEntries) {
+        if (item !== entryId) {
+          next.push(item);
+        }
+      }
+      this.imageFailedEntries = next;
+      this.publishImageFailures();
+    }
+    this.rebuildEntries();
+  }
+
   /** 是否正在下载「步骤里的图片路径」 */
   private hostImageBusy: boolean = false;
 
@@ -1062,8 +1085,25 @@ export struct ConversationPage {
               this.imagePathEntries = this.imagePathEntries.concat([value]);
               this.publishImagePaths();
             }
+            // 成功后清掉失败标记（重试成功的场合）
+            if (this.imageFailedEntries.indexOf(row.id) >= 0) {
+              const next: string[] = [];
+              for (const item of this.imageFailedEntries) {
+                if (item !== row.id) {
+                  next.push(item);
+                }
+              }
+              this.imageFailedEntries = next;
+              this.publishImageFailures();
+            }
           })
-          .catch(() => {});
+          .catch(() => {
+            // 失败也要记下来：否则输入框上方那条「图片 N 张加载中…」永远转圈
+            if (this.imageFailedEntries.indexOf(row.id) < 0) {
+              this.imageFailedEntries = this.imageFailedEntries.concat([row.id]);
+              this.publishImageFailures();
+            }
+          });
       }
     }
     if (added.length > 0) {
@@ -1084,7 +1124,8 @@ export struct ConversationPage {
     this.fileDiffOpen = true;
     try {
       const frame: GatewayFrame = await GatewayClient.get().requestChangesDiff(sessionId, entry.changeSeq, index);
-      const value = asRec(field(frame as Object, 'diff'));
+      // 同上：插件响应在 frame.value，旧字段名 diff 仅作兼容兜底。
+      const value = asRec(frame.value as Object) ?? asRec(field(frame as Object, 'diff'));
       if (value === undefined) {
         this.fileDiffNote = '该文件的变更快照已失效';
         return;
@@ -1243,6 +1284,13 @@ export struct ConversationPage {
     // （对齐小程序：workSteps.apply 每帧无条件执行，运行态由 policy 内部判断）
     ConversationFeed.applyWorkStepPolicy(rows, this.workStepMode, this.workStepTiming, this.folds,
       this.running && this.connection === 'connected');
+    // 回合页脚「用量」：用 SessionStore 的每轮 token 累计填充（对齐小程序 turn-footer）
+    const usageStore: SessionStore = SessionStore.get();
+    for (const usageRow of rows) {
+      if (usageRow.kind === 'ASSISTANT' && usageRow.turnKey.length > 0) {
+        usageRow.turnMetaText = usageStore.turnUsageText(usageRow.turnKey);
+      }
+    }
     // 回合展开时，把组行摊平到它下面当同级行（对齐小程序：turnProcess 行 + 各 processGroup 行，
     // 收起时按 turnProcessKey 过滤）。不嵌套组件——嵌套 @ObjectLink 行在本机会崩。
     const flat: ConversationFeedEntry[] = [];
@@ -1335,8 +1383,30 @@ export struct ConversationPage {
     this.suppressReachEnd = true;
     // 重载产生的 reachEnd 可能在下一帧才到：留 300ms 窗口，别让它把用户「恢复吸底」
     this.suppressReachEndUntil = Date.now() + 300;
+    const hadEntries: boolean = this.entries.length > 0;
     this.entries = built;
     this.source.update(built);
+    // 首次进入会话：List 还留着上一个会话的滚动偏移，内容变短后偏移在内容之外 → 一片空白，
+    // 只有触摸事件才会触发系统把偏移 clamp 回来。这里主动把偏移归零再贴底。
+    if (!hadEntries) {
+      try {
+        this.scroller.scrollTo({ xOffset: 0, yOffset: 0, animation: false });
+      } catch (err) {
+      }
+    }
+    // 首次/重建赋值时列表尚未完成布局，立刻贴底可能落在「内容之外」→ 一片空白，
+    // 要等一次触摸才被纠正。这里在布局完成后再补一次贴底。
+    if (this.autoStick) {
+      setTimeout(() => {
+        if (!this.autoStick || this.listTouching || !this.pageVisible) {
+          return;
+        }
+        try {
+          this.scroller.scrollEdge(Edge.Bottom);
+        } catch (err) {
+        }
+      }, 90);
+    }
     setTimeout(() => {
       if (keepOffset) {
         // 用户已经往上翻：无条件把位置放回去（重建会让列表自己跳到别处）
@@ -1414,6 +1484,11 @@ export struct ConversationPage {
       if (this.capsuleExpanded) {
         this.scheduleWarmupRetry();
       }
+      // 首屏必须建一次时间线：否则第一次点进会话时，胶囊是展开态 → 一直走这条「冻结」分支，
+      // 页面空白，只有点一下（胶囊收起/其它状态变化）才触发重排 —— 就是「第一次点进去不加载」。
+      if (this.entries.length === 0) {
+        this.applyTimelineUpdate();
+      }
       return;
     }
     this.scheduleTimelineUpdate();
@@ -1442,6 +1517,9 @@ export struct ConversationPage {
   }
 
   private applyTimelineUpdate(): void {
+    Logger.info('[PAGE] apply enter visible=' + (this.pageVisible ? '1' : '0') + ' ready=' + (this.ready ? '1' : '0')
+      + ' touching=' + (this.listTouching ? '1' : '0') + ' entries=' + this.entries.length.toString()
+      + ' running=' + (this.running ? '1' : '0'));
     const startedAt: number = Date.now();
     // 临时诊断：重排后的行数与尾行 id
     this.diagApplied += 1;
@@ -2196,6 +2274,8 @@ export struct ConversationPage {
       }
       // 乐观回显（对齐小程序 store.appendLocalUserRow）：发送成功即本地插入用户气泡，
       // 真实 user/message 到达时由 adoptOptimisticUser 交棒；排队消息由队列行呈现，不重复插。
+      Logger.info('[SEND] ok sid=' + sessionId.slice(-8) + ' running=' + (this.running ? '1' : '0')
+        + ' optimistic=' + (!this.running ? '1' : '0') + ' len=' + text.length.toString());
       if (!this.running) {
         const localImages: string[] = [];
         for (const one of selected) {
@@ -2579,6 +2659,23 @@ export struct ConversationPage {
       // 连上网关后补拉「/」技能列表与「@」工作区目录
       this.loadSkills();
       this.loadRefDirectory();
+      // 断开时预取过的图片 / 文件变更摘要都失败了：连上后重排一次，
+      // 让 preloadImages / loadFileSummaries 重新发起（否则占位会一直停着）。
+      const stale: string[] = [];
+      for (const item of this.fileSummaries) {
+        if (item.indexOf('\u0001ready\u0001') < 0) {
+          continue;
+        }
+        const parts: string[] = item.split('\u0001');
+        if (parts.length > 0) {
+          stale.push(parts[0]);
+        }
+      }
+      this.fileSummaryRequested.clear();
+      this.fileSummaries = [];
+      this.imageFailedEntries = [];
+      this.publishImageFailures();
+      this.rebuildEntries();
     }
   }
 
@@ -3576,6 +3673,7 @@ export struct ConversationPage {
     }
     .hideTitleBar(true)
     .onShown(() => {
+      Logger.info('[PAGE] onShown ready=' + (this.ready ? '1' : '0') + ' entries=' + this.entries.length.toString());
       this.pageVisible = true;
       this.pageSessionId = SessionStore.get().currentSessionId();
       this.applyStatusBarColor();
@@ -3596,6 +3694,7 @@ export struct ConversationPage {
       }
     })
     .onHidden(() => {
+      Logger.info('[PAGE] onHidden entries=' + this.entries.length.toString());
       // 被压栈盖住：先把草稿落盘，再停掉重排与进度刷新
       this.flushDraft();
       this.teamSheetOpen = false;
@@ -5940,6 +6039,7 @@ export struct ConversationPage {
               stepOpenIds: this.stepOpenIds,
               stepClosedIds: this.stepClosedIds,
               reasonFullIds: this.reasonFullIds,
+              workStepMode: this.workStepMode,
               onToggleReasonFull: (id: string) => {
                 this.onToggleReasonFull(id);
               },
@@ -5959,11 +6059,18 @@ export struct ConversationPage {
                 this.onShowDetail(title, body);
               },
               imagePaths: entry.localImages.concat(this.imagePathsFor(entry.id)),
+              onRetryImages: () => {
+                this.retryImages(entry.id);
+              },
               onImageTap: (path: string) => {
                 this.previewImagePath = path;
               },
               onImagePathTap: (path: string) => {
                 this.openHostImage(path);
+              },
+              onTurnUsage: (turnKey: string) => {
+                // 本轮用量明细（小程序 openTurnUsage 的等价物：轻提示展示分项）
+                this.hint = SessionStore.get().turnUsageDetail(turnKey).split('\n').join(' · ');
               },
               attachmentChips: this.attachmentChipsOf(entry),
               onAttachmentTap: (name: string, path: string, mediaType: string) => {
@@ -7463,6 +7570,10 @@ export struct ConversationPage {
   // ==================== 会话快捷切换（对齐小程序 .session-switch-overlay） ====================
   /** 打开会话快捷切换：对齐小程序 openSessionSwitcher */
   private openSessionSwitcher(): void {
+    // 打开左侧栏也给一次触感，与首页抽屉一致；强度取「设置 → 震动反馈」
+    if (!this.sessionPickerOpen) {
+      Haptics.play();
+    }
     let groups: ConvSidebarGroup[] = this.buildConvSidebarGroups();
     // 每次打开自动展开当前会话所在分组（打开后仍可手动收起）
     for (const group of groups) {
@@ -7773,6 +7884,8 @@ export struct ConversationPage {
         .padding({ left: 16, right: 16 })
         .alignItems(VerticalAlign.Center)
         .onClick(() => {
+          // 侧栏按钮的触感统一走 Haptics：强度取「设置 → 震动反馈」
+          Haptics.play();
           this.closeSessionSwitcher();
           this.pageStack.pushPathByName('plugins', null);
         })
@@ -7792,6 +7905,7 @@ export struct ConversationPage {
         .padding({ left: 16, right: 16 })
         .alignItems(VerticalAlign.Center)
         .onClick(() => {
+          Haptics.play();
           this.closeSessionSwitcher();
           this.pageStack.pushPathByName('schedule', null);
         })
@@ -7835,6 +7949,7 @@ export struct ConversationPage {
                   .height(28)
                   .justifyContent(FlexAlign.Center)
                   .onClick(() => {
+                    Haptics.play();
                     this.createSessionInWorkspace(group.id);
                   })
                 }
@@ -7854,6 +7969,7 @@ export struct ConversationPage {
               .padding({ left: 9, right: 8 })
               .borderRadius(9)
               .onClick(() => {
+                Haptics.play();
                 Logger.info('[SidebarTap] group=' + group.id + ' expanded=' + (group.expanded ? '1' : '0'));
                 this.toggleConvSidebarGroup(group.id);
                 Logger.info('[SidebarTap] groups=' + this.convSidebarGroups.length + ' open=' + this.convSidebarGroups.filter((g: ConvSidebarGroup) => g.expanded).length.toString());
@@ -7896,6 +8012,7 @@ export struct ConversationPage {
                     ? (this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
                     : Color.Transparent)
                   .onClick(() => {
+                    Haptics.play();
                     Logger.info('[SidebarTap] session=' + session.id + ' current=' + SessionStore.get().currentSessionId());
                     this.closeSessionSwitcher();
                     this.openSession(session.id);
@@ -7939,6 +8056,7 @@ export struct ConversationPage {
           .padding({ left: 16, right: 16 })
           .alignItems(VerticalAlign.Center)
           .onClick(() => {
+            Haptics.play();
             this.closeSessionSwitcher();
             this.pageStack.pushPathByName('app-settings', null);
           })

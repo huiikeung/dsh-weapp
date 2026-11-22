@@ -10,7 +10,7 @@
  * 由设置页的 @Watch 回调复用既有 applyOptionChoice 逻辑（含偏好持久化与主题应用）。
  */
 
-import { PreferencesStore, WorkStepPresentation } from 'nativecore';
+import { Logger, PreferencesStore, WorkStepPresentation } from 'nativecore';
 import { ProcLoaderView } from '../components/ProcLoaderView';
 import { NavBackButton } from '../components/NavBackButton';
 
@@ -77,6 +77,7 @@ function optionsFor(kind: string): PickerOption[] {
     push('compact', '简洁', '只显示最终结果');
     push('standard', '标准', '显示主要步骤');
     push('detailed', '详细', '显示每个工具调用');
+    push('reading', '阅读', '过程实时折叠成一行摘要，可展开回看');
     push('verbose', '完全展开', '显示所有细节');
   } else if (kind === 'timing') {
     push('completion', '回答结束后', '整轮回答结束就收起过程');
@@ -206,6 +207,7 @@ export struct PreferencePickerPage {
   }
 
   private choose(option: PickerOption): void {
+    Logger.info('[PICKER] choose kind=' + this.kind + ' id=' + option.id);
     if (option.disabled === true) {
       return;
     }
@@ -222,6 +224,9 @@ export struct PreferencePickerPage {
     }
     // 其余偏好仍交给设置页处理（写入偏好 + 应用主题等既有逻辑）
     AppStorage.setOrCreate<string>('prefPickerChoice', this.kind + SEP + option.id);
+    // 递增偏好版本号：设置页监听它刷新行文案（@StorageProp 单独变化在本机不一定触发重绘）
+    const revision: number = AppStorage.get<number>('prefPickerRevision') ?? 0;
+    AppStorage.setOrCreate<number>('prefPickerRevision', revision + 1);
     this.pageStack.pop();
   }
 

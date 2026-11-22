@@ -181,6 +181,8 @@ export class SessionStore {
   private optimisticUsers: ConversationItem[] = [];
   /** 每条乐观气泡发送时刻已存在的投影条目数：决定它插在时间线的哪个位置 */
   private optimisticSince: number[] = [];
+  /** 发送时的本地图片 URI 队列：真实 user/message 回显时按序挂到那一行（对齐小程序 localUrl） */
+  private pendingLocalImages: string[][] = [];
   /** 运行态防抖锁：本机刚判定的「运行中」在这之前不接受列表的「已结束」覆盖 */
   private runningLockUntil: number = 0;
   /** 上次发布的内容签名：内容没变就不写 AppStorage，避免 50ms 一次的无意义重排 */
@@ -209,6 +211,11 @@ export class SessionStore {
   private running: boolean = false;
   /** 正在吃 assistant-stream 增量（仅用于状态记录） */
   private assistantStreamActive: boolean = false;
+  /**
+   * 每轮 token 用量（对话页脚「用量」按钮）：turnKey → 累计值。
+   * 同一回合可能有多次 attempt/重试，按小程序 turn-usage 的口径累加（都是真实计费）。
+   */
+  private turnTokenTotals: Map<string, number[]> = new Map<string, number[]>();
   /**
    * 最近一段流式正文（对齐小程序 sessionState.lastAssistantText）：
    * 网关收尾时可能先推「不含当前答复」的快照/事件，这里留着文本用于回填，
@@ -917,6 +924,25 @@ export class SessionStore {
     // 只回放最近 300 条：界面只渲染最近 150 条，回放全部（几百上千条）
     // 会在打开会话时把主线程占住 3~6 秒，系统按 THREAD_BLOCK 直接杀掉进程。
     const replayStart: number = this.rawEvents.length > 300 ? this.rawEvents.length - 300 : 0;
+    // 窗口外的「用户自己发的消息」不能丢：一轮跑很久时（30+ 步），用户消息早被挤出 300 条窗口，
+    // 于是点进会话看不到自己发过的话，只剩过程。这里把窗口外的真人用户消息单独补投一次。
+    const olderUserEvents: RawSessionEvent[] = [];
+    for (let index = 0; index < replayStart; index++) {
+      const raw: RawSessionEvent = this.rawEvents[index];
+      if (raw.type !== 'user/message') {
+        continue;
+      }
+      const payload: Record<string, Object> | undefined = raw.data as Record<string, Object> | undefined;
+      const source: Record<string, Object> | undefined = payload === undefined
+        ? undefined : payload['source'] as Record<string, Object> | undefined;
+      const kind: string = source === undefined ? '' : String(source['kind'] ?? '');
+      if (kind === 'user') {
+        olderUserEvents.push(raw);
+      }
+    }
+    for (const raw of olderUserEvents.slice(-20)) {
+      this.appendRaw(raw);
+    }
     for (let index = replayStart; index < this.rawEvents.length; index++) {
       const raw: RawSessionEvent = this.rawEvents[index];
       this.appendRaw(raw);
@@ -1170,6 +1196,10 @@ export class SessionStore {
       // 定稿而不是删除：推理/正文已经流式显示出来的内容，收尾时不能整行消失
       projector.settleLiveRows();
     }
+    // 累计每轮用量：assistant/message 的 usage（同一轮回退重试也累加，对齐小程序 turn-usage）
+    if (!this.replayingHistory && event.event.usage !== undefined) {
+      this.accumulateTurnUsage(event.event.turn, event.event.usage);
+    }
     // 网关可能只发 step/start（不发 turn/start），这些事件都代表本轮仍在进行
     const liveType: string = event.event.type;
     if (!this.replayingHistory) {
@@ -1209,6 +1239,71 @@ export class SessionStore {
    * 记录最近流式正文 / 结算正文（对齐小程序 lastAssistantText 口径）：
    * turn/start 清空；assistant/chunk 累积 delta；assistant/message 用最终文本覆盖。
    */
+  private accumulateTurnUsage(turn: number | undefined, usage: Object): void {
+    const turnNo: number = turn === undefined ? this.lastEventTurn : turn;
+    if (turnNo < 0) {
+      return;
+    }
+    const key: string = turnNo.toString();
+    const current: number[] = this.turnTokenTotals.get(key) ?? [0, 0, 0, 0, 0, 0];
+    // 0 总 1 输入 2 输出 3 缓存读 4 缓存写 5 推理
+    current[1] += num(usage, 'inputTokens') ?? 0;
+    current[2] += num(usage, 'outputTokens') ?? 0;
+    current[3] += num(usage, 'cacheReadTokens') ?? 0;
+    current[4] += num(usage, 'cacheWriteTokens') ?? 0;
+    current[5] += num(usage, 'reasoningTokens') ?? 0;
+    const total: number | undefined = num(usage, 'totalTokens');
+    current[0] += total !== undefined ? total
+      : (num(usage, 'inputTokens') ?? 0) + (num(usage, 'outputTokens') ?? 0);
+    this.turnTokenTotals.set(key, current);
+  }
+
+  /** 每轮用量短文本（页脚「用量」按钮），如 '12.3k tok'；无数据返回空串。 */
+  turnUsageText(turnKey: string): string {
+    if (turnKey.length === 0) {
+      return '';
+    }
+    const value: number[] | undefined = this.turnTokenTotals.get(turnKey);
+    if (value === undefined || value[0] <= 0) {
+      return '';
+    }
+    return SessionStore.formatTokens(value[0]) + ' tok';
+  }
+
+  /** 每轮用量明细（点击「用量」按钮弹出）。 */
+  turnUsageDetail(turnKey: string): string {
+    const value: number[] | undefined = this.turnTokenTotals.get(turnKey);
+    if (value === undefined || value[0] <= 0) {
+      return '本轮暂无用量数据';
+    }
+    const billedInput: number = value[3] + value[4] > 0 ? value[3] + value[4] : value[1];
+    const lines: string[] = [
+      '总用量 ' + SessionStore.formatTokens(value[0]) + ' tok',
+      '输入 ' + SessionStore.formatTokens(billedInput) + ' tok（未命中 ' + SessionStore.formatTokens(value[1]) + '）',
+      '输出 ' + SessionStore.formatTokens(value[2]) + ' tok'
+    ];
+    if (value[5] > 0) {
+      lines.push('推理 ' + SessionStore.formatTokens(value[5]) + ' tok');
+    }
+    if (value[3] > 0 || value[4] > 0) {
+      const hit: number = billedInput > 0 ? Math.round((value[3] * 100) / billedInput) : 0;
+      lines.push('缓存读 ' + SessionStore.formatTokens(value[3]) + ' · 写 ' + SessionStore.formatTokens(value[4])
+        + ' · 命中 ' + hit.toString() + '%');
+    }
+    return lines.join('\n');
+  }
+
+  /** 1234 → '1.2k'，1234567 → '1.2m'（对齐小程序 turn-usage.exact 的量级写法）。 */
+  private static formatTokens(value: number): string {
+    if (value < 1000) {
+      return value.toString();
+    }
+    if (value < 1000000) {
+      return (Math.round(value / 100) / 10).toString() + 'k';
+    }
+    return (Math.round(value / 100000) / 10).toString() + 'm';
+  }
+
   private trackAssistantText(event: GatewayEvent): void {
     if (event.type === 'turn/start') {
       this.lastAssistantText = '';
@@ -2078,6 +2173,16 @@ export class SessionStore {
       const source: string = event.event.source !== undefined ? event.event.source : 'user';
       if (source === 'user') {
         this.adoptOptimisticUser(event.event.text !== undefined ? event.event.text : '');
+        // 回显的图片只有 attachmentId，要再向网关拉一次才出图；
+        // 先把发送时的本地 URI 挂到刚到达的那条用户消息上（对齐小程序 row.images[].localUrl），
+        // 这样自己刚发的图立刻显示缩略图，拉取失败也不会变成「图片加载失败」。
+        if (this.pendingLocalImages.length > 0) {
+          const localPaths: string[] = this.pendingLocalImages.shift() ?? [];
+          const proj: ConversationProjector = this.conversation as ConversationProjector;
+          if (proj !== null && proj !== undefined) {
+            proj.attachLocalImagesToLastUser(localPaths);
+          }
+        }
       }
     }
     const text: string = event.event.text !== undefined ? event.event.text : '';
@@ -2332,6 +2437,9 @@ export class SessionStore {
       item.localImagePaths = localImagePaths.slice();
     }
     this.optimisticUsers.push(item);
+    if (localImagePaths.length > 0) {
+      this.pendingLocalImages.push(localImagePaths.slice());
+    }
     const projector: ConversationProjector = this.conversation as ConversationProjector;
     this.optimisticSince.push(projector !== null && projector !== undefined ? projector.items.length : 0);
     this.publishConversation();
