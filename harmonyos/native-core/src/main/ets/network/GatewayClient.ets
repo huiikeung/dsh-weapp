@@ -463,8 +463,10 @@ export class GatewayClient {
     if (this.networkBearer === 'cellular') {
       return result;
     }
-    // 按网关下发顺序（与 iOS 一致）：局域网只在末尾兜底，不抢占前面的入口。
-    return result.concat(locals);
+    // WiFi：局域网可用时优先（~50ms 连上，扫码/打开 App 立刻可用），
+    // 连上后由 upgradeToTailnet 在后台升级到 tailnet；蜂窝仍按网关下发顺序（跳过局域网）。
+    // 注意：这只影响客户端选路偏好，不改变网关下发的载荷与优先级语义。
+    return locals.concat(result);
   }
 
   /** 注册网络类型监听（只注册一次） */
