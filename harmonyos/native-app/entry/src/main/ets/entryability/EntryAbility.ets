@@ -76,7 +76,18 @@ export default class EntryAbility extends UIAbility {
       // 外观偏好：必须在 init 完成后再读，否则读到的是兜底值（重启后回默认色就是这个问题）
       // 语音输入开关：设置页关掉之后要能跨重启生效（会话页靠 @StorageLink 首帧读取）
       AppStorage.setOrCreate<boolean>('voiceInputEnabled', PreferencesStore.get().getBoolean('voiceInputEnabled', true));
-      AppStorage.setOrCreate<string>('statusAppearance', PreferencesStore.get().getString('statusAppearance', 'classic'));
+      // 对话状态条默认改为「简约」（original）：
+      // 一次性把上一版默认值 dsh（DSH 扫光）与历史遗留的空值/ios 迁到 original；
+      // 用户自己选过的其它样式（经典流光/霓虹等）保持不动。
+      const statusMigrated: boolean = PreferencesStore.get().getBoolean('statusAppearanceSimpleMigrated', false);
+      if (!statusMigrated) {
+        const storedStatus: string = PreferencesStore.get().getString('statusAppearance', '');
+        if (storedStatus.length === 0 || storedStatus === 'dsh' || storedStatus === 'ios') {
+          PreferencesStore.get().putString('statusAppearance', 'original');
+        }
+        PreferencesStore.get().putBoolean('statusAppearanceSimpleMigrated', true);
+      }
+      AppStorage.setOrCreate<string>('statusAppearance', PreferencesStore.get().getString('statusAppearance', 'original'));
       AppStorage.setOrCreate<string>('procIconStyle', PreferencesStore.get().getString('procIconStyle', 'spin-ring'));
       ThemeManager.get().init(this.context.config.colorMode);
     TailscaleTunnelStore.get().start(this.context.filesDir + '/tailscale', this.context);
@@ -170,19 +181,26 @@ export default class EntryAbility extends UIAbility {
   }
 
   onForeground(): void {
+    const fgStart: number = Date.now();
+    Logger.info('FG_TIMING start');
     void BackgroundKeepAlive.stop();
+    Logger.info('FG_TIMING keepalive-stopped +' + (Date.now() - fgStart));
     // 回前台时系统会按当前 colorMode 重刷状态栏，按当前页面重新写回正确颜色
     StatusBarStyle.refresh();
+    Logger.info('FG_TIMING statusbar +' + (Date.now() - fgStart));
     GatewayClient.get().revalidateOnForeground();
+    Logger.info('FG_TIMING revalidate +' + (Date.now() - fgStart));
     AppStorage.setOrCreate<string>('appLifecycle', 'foreground');
     // 后台期间桌面端可能开跑或跑完：回前台立刻校准一次会话列表，
     // 不要再等下一拍轮询（用户看到的第一眼就是旧状态）。
     SessionStore.get().refreshSessionsNow();
+    Logger.info('FG_TIMING refresh-sessions +' + (Date.now() - fgStart));
     const state: string = AppStorage.get<string>('connectionState') ?? 'disconnected';
     if (PreferencesStore.get().isReady() && state !== 'connected' && state !== 'connecting') {
       GatewayClient.get().autoConnect();
     }
-    Logger.info('EntryAbility foreground: reconnect checked');
+    Logger.info('FG_TIMING auto-connect +' + (Date.now() - fgStart));
+    Logger.info('EntryAbility foreground: reconnect checked +' + (Date.now() - fgStart));
   }
 
   onBackground(): void {

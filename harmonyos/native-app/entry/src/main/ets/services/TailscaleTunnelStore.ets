@@ -33,6 +33,7 @@ export class TailscaleTunnelStore {
   private fastStarted: boolean = false;
   private fastWasReady: boolean = false;
   private ensureConnectDeferred: boolean = false;
+  private lastPublishAtBg: number = 0;
   private fastDebugLogged: boolean = false;
   private fastTicks: number = 0;
   private warmInited: boolean = false;
@@ -494,6 +495,18 @@ export class TailscaleTunnelStore {
   }
 
   private publish(): void {
+    // 后台时把轮询从 2s 降到 10s：后台每 2 秒写一堆 AppStorage，
+    // 回到前台时 ArkUI 会一次性消化堆积的状态变更，表现为「点开 App 页面卡住几秒」。
+    const lifecycle: string = AppStorage.get<string>('appLifecycle') ?? 'foreground';
+    if (lifecycle === 'background') {
+      const nowBg: number = Date.now();
+      if (nowBg - this.lastPublishAtBg < 10000) {
+        return;
+      }
+      this.lastPublishAtBg = nowBg;
+    } else {
+      this.lastPublishAtBg = Date.now();
+    }
     const previousStage: string = AppStorage.get<string>('tailscaleStage') ?? '';
     const enabled: boolean = PreferencesStore.get().getBoolean(KEY_ENABLED, false);
     AppStorage.setOrCreate<boolean>('tailscaleTunnelEnabled', enabled);
