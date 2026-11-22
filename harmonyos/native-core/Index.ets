@@ -46,7 +46,7 @@ export type { ScheduleDraft, ScheduleRuleOption } from './src/main/ets/common/Sc
 export { PluginStore } from './src/main/ets/state/PluginStore';
 export type { PluginItem, OfficialPluginItem } from './src/main/ets/state/PluginStore';
 export { EventProjector } from './src/main/ets/state/EventProjector';
-export type { ProjTurn, ProjStep, ProjTool } from './src/main/ets/state/EventProjector';
+export type { ProjTurn, ProjStep, ProjTool, TraceRow, TraceBand, TraceOverview } from './src/main/ets/state/EventProjector';
 export { CredentialStore } from './src/main/ets/state/CredentialStore';
 export type { SavedGateway } from './src/main/ets/state/CredentialStore';
 export type { DirEntry, DirCrumb, SessionRow, SessionSummary, QueueItem, WorkspaceRow, SessionGoalView } from './src/main/ets/state/SessionStore';

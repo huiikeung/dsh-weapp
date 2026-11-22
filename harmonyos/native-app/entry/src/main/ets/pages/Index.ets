@@ -5,7 +5,6 @@ import { SessionStore } from 'nativecore';
 import { HomePage } from './HomePage';
 import { AddNodePage } from './AddNodePage';
 import { ConversationPage } from './ConversationPage';
-import { SessionPage } from './SessionPage';
 import { NodeManagePage } from './NodeManagePage';
 import { PluginsPage } from './PluginsPage';
 import { SchedulePage } from './SchedulePage';
@@ -92,8 +91,6 @@ struct Index {
   PageMap(name: string) {
     if (name === 'session') {
       ConversationPage();
-    } else if (name === 'session-tools') {
-      SessionPage();
     } else if (name === 'plugins') {
       PluginsPage();
     } else if (name === 'schedule') {

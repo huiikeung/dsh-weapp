@@ -447,6 +447,14 @@ export struct ConversationPage {
   @State fileDiffTitle: string = '';
   @State fileDiffLines: string[] = [];
   @State fileDiffNote: string = '';
+  /** 正文蓝色链接 → 文件内容预览（底部弹窗）：路径 / 标题 / 内容 / 加载态 */
+  @State linkPreviewOpen: boolean = false;
+  @State linkPreviewTitle: string = '';
+  @State linkPreviewPath: string = '';
+  @State linkPreviewLines: string[] = [];
+  @State linkPreviewBody: string = '';
+  @State linkPreviewLoading: boolean = false;
+  @State linkPreviewError: string = '';
   private fileSummaryRequested: Set<string> = new Set<string>();
   @State toastError: boolean = false;
   @State toastOpacity: number = 0;
@@ -1582,6 +1590,171 @@ export struct ConversationPage {
     }
   }
 
+  /** 路径里的文件名（链接标题缺失时兜底） */
+  private fileNameOf(path: string): string {
+    const index: number = path.lastIndexOf('/');
+    return index >= 0 && index + 1 < path.length ? path.substring(index + 1) : path;
+  }
+
+  /** http(s)/mailto 等外链：保持原来的「复制链接」弹窗 */
+  private showWebLinkDialog(text: string, href: string): void {
+    const title: string = text.length > 0 && text !== href ? text : '链接';
+    try {
+      this.getUIContext().getPromptAction().showDialog({
+        title: title,
+        message: href,
+        buttons: [
+          { text: '复制链接', color: '#2E6BE6' },
+          { text: '关闭', color: this.subColor() }
+        ]
+      }).then((result) => {
+        if (result.index === 0) {
+          this.copyTextToClipboard(href, '已复制链接');
+        }
+      }).catch((err: Error) => {
+      });
+    } catch (err) {
+    }
+  }
+
+  private copyTextToClipboard(text: string, toastMessage: string): void {
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, text);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        this.showToast(toastMessage, false);
+      }).catch((err: Error) => {
+        this.showToast('复制失败', true);
+      });
+    } catch (err) {
+      this.showToast('复制失败', true);
+    }
+  }
+
+  /**
+   * 正文蓝色下划线链接点击：
+   * - 文件路径（工作区相对路径 / 绝对路径 / file://）→ 底部弹窗预览文件内容（只读，可复制）；
+   * - http(s) / mailto 等外链 → 复制链接弹窗。
+   */
+  private async openMarkdownLink(text: string, href: string): Promise<void> {
+    const target: string = href.trim();
+    if (target.length === 0) {
+      return;
+    }
+    const lower: string = target.toLowerCase();
+    if (lower.startsWith('#') || lower.startsWith('http://') || lower.startsWith('https://')
+      || lower.startsWith('mailto:') || lower.startsWith('tel:') || lower.startsWith('data:')) {
+      this.showWebLinkDialog(text.trim(), target);
+      return;
+    }
+    let path: string = target;
+    if (path.startsWith('file://')) {
+      path = path.substring('file://'.length);
+    }
+    try {
+      path = decodeURIComponent(path);
+    } catch (err) {
+    }
+    const hashIndex: number = path.indexOf('#');
+    if (hashIndex >= 0) {
+      path = path.substring(0, hashIndex);
+    }
+    const queryIndex: number = path.indexOf('?');
+    if (queryIndex >= 0) {
+      path = path.substring(0, queryIndex);
+    }
+    const requested: string = path.trim();
+    if (requested.length === 0) {
+      this.showWebLinkDialog(text.trim(), target);
+      return;
+    }
+    this.linkPreviewTitle = text.trim().length > 0 ? text.trim() : this.fileNameOf(requested);
+    this.linkPreviewPath = requested;
+    this.linkPreviewBody = '';
+    this.linkPreviewLines = [];
+    this.linkPreviewError = '';
+    this.linkPreviewLoading = true;
+    this.linkPreviewOpen = true;
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0) {
+      this.linkPreviewLoading = false;
+      this.linkPreviewError = '当前没有会话，无法读取文件';
+      return;
+    }
+    const context = getContext(this) as common.UIAbilityContext;
+    try {
+      // 先解析成工作区相对路径（网关的下载接口只接受相对路径，链接可能是绝对路径）
+      let relativePath: string = requested;
+      try {
+        const resolved: GatewayFrame = await GatewayClient.get().resolveFile(sessionId, requested);
+        const resolvedPath: string | undefined = str(resolved, 'path');
+        if (resolvedPath !== undefined && resolvedPath.length > 0) {
+          relativePath = resolvedPath;
+        }
+        const resolvedName: string | undefined = str(resolved, 'name');
+        if (resolvedName !== undefined && resolvedName.length > 0) {
+          this.linkPreviewTitle = resolvedName;
+        }
+        this.linkPreviewPath = relativePath;
+      } catch (resolveErr) {
+        // 解析失败：链接可能不是工作区文件，退回按原路径尝试
+      }
+      const result: DownloadResult = await downloadAttachment(context, GatewayClient.get(), sessionId, relativePath);
+      const mime: string = result.mediaType.toLowerCase();
+      if (mime.indexOf('image/') === 0) {
+        // 链接指向图片：直接走图片预览弹窗
+        this.linkPreviewOpen = false;
+        this.previewImagePath = result.localPath;
+        this.previewImageOpen = true;
+        return;
+      }
+      const lowerName: string = (result.name.length > 0 ? result.name : relativePath).toLowerCase();
+      const isText: boolean = mime.startsWith('text/') || mime.indexOf('json') >= 0
+        || /\.(md|markdown|txt|json|jsonl|csv|log|ya?ml|xml|html?|css|js|ts|tsx|jsx|ets|py|sh|sql|go|rs|c|h|cpp|java|kt|swift|toml|ini|conf|properties|gradle|dart|rb|php|vue|svelte)$/.test(lowerName);
+      if (!isText) {
+        this.linkPreviewLoading = false;
+        this.linkPreviewError = '该文件不是文本，暂不支持预览';
+        return;
+      }
+      if (result.size > 512 * 1024) {
+        this.linkPreviewLoading = false;
+        this.linkPreviewError = '文件超过 512 KB，暂不支持预览';
+        return;
+      }
+      const content: string = await fileIo.readText(result.localPath);
+      this.linkPreviewBody = content;
+      this.linkPreviewLines = content.split('\n');
+      this.linkPreviewLoading = false;
+      if (this.linkPreviewTitle.length === 0) {
+        this.linkPreviewTitle = result.name.length > 0 ? result.name : this.fileNameOf(relativePath);
+      }
+    } catch (err) {
+      this.linkPreviewLoading = false;
+      this.linkPreviewError = this.linkPreviewErrorMessage((err as Error).message);
+    }
+  }
+
+  /** 网关错误文案 → 中文提示（文件不存在 / 不在工作区 / 过大 / 不可读） */
+  private linkPreviewErrorMessage(raw: string): string {
+    const message: string = raw.toLowerCase();
+    if (message.indexOf('not-found') >= 0 || message.indexOf('not exist') >= 0) {
+      return '文件不存在或已被删除';
+    }
+    if (message.indexOf('not-allowed') >= 0 || message.indexOf('outside') >= 0
+      || message.indexOf('inside the session') >= 0) {
+      return '文件不在当前会话的工作目录内';
+    }
+    if (message.indexOf('too-large') >= 0) {
+      return '文件太大，暂不支持预览';
+    }
+    if (message.indexOf('unreadable') >= 0 || message.indexOf('not-regular') >= 0) {
+      return '该路径不是可预览的普通文件';
+    }
+    if (message.indexOf('download-disabled') >= 0) {
+      return '当前网关未开启文件读取';
+    }
+    return raw.length > 0 ? raw : '文件读取失败';
+  }
+
   /** 文件差异弹窗内容：原生沉浸玻璃半模态（与工作区文件/切换主机同款系统材质） */
   @Builder
   fileDiffSheet() {
@@ -1651,6 +1824,106 @@ export struct ConversationPage {
       return path;
     }
     return 'file://' + path;
+  }
+
+  /** 正文文件链接预览底部弹窗：只读文本内容（可复制） */
+  @Builder
+  linkPreviewSheet() {
+    Column() {
+      // 自绘抓取条
+      Row() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(16,19,24,0.18)')
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
+      .padding({ top: 8, bottom: 2 })
+
+      Row({ space: 10 }) {
+        Column({ space: 2 }) {
+          Text(this.linkPreviewTitle)
+            .fontSize(15)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+          if (this.linkPreviewPath.length > 0) {
+            Text(this.linkPreviewPath)
+              .fontSize(11)
+              .fontColor(this.subColor())
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+          }
+        }
+        .layoutWeight(1)
+        .alignItems(HorizontalAlign.Start)
+
+        if (!this.linkPreviewLoading && this.linkPreviewError.length === 0 && this.linkPreviewBody.length > 0) {
+          Text('复制')
+            .fontSize(14)
+            .fontColor('#2E6BE6')
+            .onClick(() => {
+              this.copyTextToClipboard(this.linkPreviewBody, '已复制文件内容');
+            })
+        }
+        Text('关闭')
+          .fontSize(14)
+          .fontColor('#2E6BE6')
+          .onClick(() => {
+            this.linkPreviewOpen = false;
+          })
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16, top: 12, bottom: 8 })
+      .alignItems(VerticalAlign.Center)
+
+      if (this.linkPreviewLoading) {
+        Column() {
+          LoadingProgress()
+            .width(28)
+            .height(28)
+            .color('#2E6BE6')
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else if (this.linkPreviewError.length > 0) {
+        Column() {
+          Text(this.linkPreviewError)
+            .fontSize(13)
+            .fontColor(this.subColor())
+            .textAlign(TextAlign.Center)
+            .padding({ left: 24, right: 24 })
+        }
+        .width('100%')
+        .layoutWeight(1)
+        .justifyContent(FlexAlign.Center)
+      } else {
+        Scroll() {
+          Column({ space: 1 }) {
+            ForEach(this.linkPreviewLines, (line: string, index: number) => {
+              Text(line.length > 0 ? line : ' ')
+                .fontSize(12)
+                .fontFamily('monospace')
+                .lineHeight(18)
+                .fontColor(this.textColor())
+                .width('100%')
+                .padding({ left: 16, right: 16 })
+            }, (line: string, index: number) => index.toString())
+          }
+          .padding({ top: 4, bottom: 16 })
+        }
+        .layoutWeight(1)
+        .scrollBar(BarState.Off)
+      }
+    }
+    .width('100%')
+    .height('100%')
   }
 
   /** 图片预览底部弹窗内容：等比大图（点缩略图从底部弹起，下拉或点空白关闭） */
@@ -4587,33 +4860,34 @@ export struct ConversationPage {
   /** 顶部分页指示点：两个小圆点，点按可切换（隐藏时不拦触摸） */
   @Builder
   sessionPageDots() {
+    // 左上角的当前页标签（文字 + 玻璃底），切换时淡入、停止后淡出；点它可切到另一页
     Column() {
-      Row({ space: 6 }) {
-        ForEach([0, 1], (index: number) => {
-          Row()
-            .width(this.sessionTab === index ? 8 : 6)
-            .height(this.sessionTab === index ? 8 : 6)
-            .borderRadius(this.sessionTab === index ? 4 : 3)
-            .backgroundColor(this.sessionTab === index
-              ? (this.isDark ? 'rgba(241,244,250,0.92)' : 'rgba(16,19,24,0.72)')
-              : (this.isDark ? 'rgba(241,244,250,0.38)' : 'rgba(16,19,24,0.26)'))
-            .onClick(() => {
-              if (this.sessionTab === index) {
-                return;
-              }
-              this.sessionTab = index;
-              this.sessionSwiper.changeIndex(index, true);
-              this.flashTabDots();
-            })
-        }, (index: number) => index.toString())
-      }
-      .padding({ left: 10, right: 10, top: 6, bottom: 6 })
-      .borderRadius(14)
-      .backgroundColor(this.isDark ? 'rgba(0,0,0,0.34)' : 'rgba(255,255,255,0.72)')
+      Text(this.sessionTab === 0 ? '对话' : '轨迹')
+        .fontSize(11)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.isDark ? 'rgba(241,244,250,0.92)' : 'rgba(16,19,24,0.78)')
+        .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+        .borderRadius(11)
+        .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+        .backdropBlur(14)
+        .shadow({
+          radius: 14,
+          color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)',
+          offsetX: 0,
+          offsetY: 6
+        })
+        .onClick(() => {
+          // 触感走全局「设置 → 震动反馈」档位（off 时不震）
+          Haptics.play();
+          const next: number = this.sessionTab === 0 ? 1 : 0;
+          this.sessionTab = next;
+          this.sessionSwiper.changeIndex(next, true);
+          this.flashTabDots();
+        })
     }
     .width('100%')
-    .padding({ top: this.topSafe() + 54 })
-    .alignItems(HorizontalAlign.Center)
+    .padding({ left: 16, top: this.topSafe() + 52 })
+    .alignItems(HorizontalAlign.Start)
     .opacity(this.tabDotsOpacity)
     .zIndex(45)
     .hitTestBehavior(this.tabDotsOpacity > 0.05 ? HitTestMode.Transparent : HitTestMode.None)
@@ -4652,6 +4926,8 @@ export struct ConversationPage {
         .onChange((index: number) => {
           if (this.sessionTab !== index) {
             this.sessionTab = index;
+            // 滑动切页也震一下，强度取「设置 → 震动反馈」
+            Haptics.play();
           }
           this.flashTabDots();
         })
@@ -4666,7 +4942,10 @@ export struct ConversationPage {
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
       // 顶部轻毛玻璃：鸿蒙原生最薄的组件材质，透明度高，只做轻微虚化
-      this.topBlurBar()
+      // 轨迹页没有从顶栏下滚过的内容，毛玻璃会把顶部压亮、和下面的概览底色分层，所以只在对话页画
+      if (this.sessionTab === 0) {
+        this.topBlurBar()
+      }
 
       // 浮动顶栏：透明底叠在时间线之上，内容从它下面滚过（对齐 iOS 导航栏，无遮盖条）
       this.headerBar()
@@ -4739,6 +5018,24 @@ export struct ConversationPage {
           preferType: SheetType.BOTTOM,
           backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
           systemMaterial: this.teamSheetMaterial()
+        })
+
+      // 正文文件链接预览：1×1 透明锚点，系统半模态承载（原生玻璃材质）
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.linkPreviewOpen, this.linkPreviewSheet(), {
+          height: '78%',
+          dragBar: true,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+          systemMaterial: this.teamSheetMaterial(),
+          onDisappear: () => {
+            this.linkPreviewLines = [];
+            this.linkPreviewBody = '';
+          }
         })
 
       // 会话节点弹层：自绘 overlay（系统菜单会因「按住黑色滑块」判为点空白而收起）
@@ -4815,7 +5112,8 @@ export struct ConversationPage {
         .height(1)
         .opacity(0.01)
         .bindSheet($$this.statsSheetOpen, this.statsSheetContent(), {
-          height: '60%',
+          // 打开时按内容算高度，默认把执行 / Token 用量 / 上下文三组全部显示出来
+          height: this.statsSheetHeight > 0 ? this.statsSheetHeight : '60%',
           dragBar: false,
           showClose: false,
           preferType: SheetType.BOTTOM,
@@ -4908,6 +5206,8 @@ export struct ConversationPage {
   @State fileSheetOpen: boolean = false;
   /** 会话状态 sheet（对齐小程序 morePane='stats'：执行 / Token 用量 / 上下文 三张卡片） */
   @State statsSheetOpen: boolean = false;
+  /** 会话状态弹窗高度：打开时按内容估算，默认一次把三组统计全部显示出来 */
+  @State statsSheetHeight: number = 0;
   @State statsGroups: StatsGroup[] = [];
   @State fileEntries: WorkspaceFileEntry[] = [];
   @State filePath: string = '';
@@ -5463,7 +5763,32 @@ export struct ConversationPage {
   // ==================== 会话状态（对齐小程序 morePane='stats'：三张卡片） ====================
   private openStatsSheet(): void {
     this.statsGroups = this.buildStatsGroups();
+    this.statsSheetHeight = this.statsSheetTargetHeight();
     this.statsSheetOpen = true;
+  }
+
+  /**
+   * 会话状态弹窗的目标高度：按三组统计的行数估算，默认一屏展示全部内容。
+   * 上限取页面高度的 88%（超出才内部滚动），下限 320vp。
+   */
+  private statsSheetTargetHeight(): number {
+    const dragBar: number = 16;
+    const titleRow: number = 44;
+    const bottomPadding: number = 24;
+    let content: number = 0;
+    for (const group of this.statsGroups) {
+      // 组标题(≈28) + 行(每行 14 padding + 约 19 文本) + 组内边距/边框/组间距(≈19)
+      let groupHeight: number = 28 + 19;
+      groupHeight += group.rows.length * 33;
+      content += groupHeight;
+    }
+    const target: number = dragBar + titleRow + content + bottomPadding + 20;
+    const cap: number = this.pageH > 0 ? this.pageH * 0.88 : 760;
+    const minHeight: number = 320;
+    if (target > cap) {
+      return cap;
+    }
+    return target < minHeight ? minHeight : target;
   }
 
   /** 对齐小程序 buildStatsGroups：执行 / Token 用量 / 上下文 */
@@ -7340,6 +7665,9 @@ export struct ConversationPage {
               },
               onImagePathTap: (path: string) => {
                 this.openHostImage(path);
+              },
+              onMarkdownLink: (text: string, href: string) => {
+                this.openMarkdownLink(text, href);
               },
               turnUsageDetail: entry.turnUsageDetail,
               turnUsageTotal: entry.turnUsageTotal,
