@@ -382,7 +382,13 @@ func tsqGatewayPeerName(srv *tsnet.Server) string {
 		return ""
 	}
 	tsqLogf("TSQ peerCount=%d self=%v", len(st.Peer), st.Self != nil)
-	fallback := ""
+	// 关键：必须优先选「在线」的网关节点。netmap 里常留着一堆历史节点
+	// （dsh-gateway-win / 旧 dsh-gateway / 旧克隆），它们离线但仍出现在 Peer 列表里；
+	// 以前按名字取第一个，会挑中离线的 Windows 节点，导致反复拨号超时、页面卡死。
+	bestOnlinePrefix := ""
+	bestOnlineAny := ""
+	bestPrefix := ""
+	bestFallback := ""
 	for _, peer := range st.Peer {
 		name := strings.TrimSuffix(peer.DNSName, ".")
 		if name == "" {
@@ -391,22 +397,39 @@ func tsqGatewayPeerName(srv *tsnet.Server) string {
 		if name == "" {
 			continue
 		}
-		if strings.HasPrefix(name, "dsh-gateway") {
-			ip := ""
-			if len(peer.TailscaleIPs) > 0 {
-				ip = peer.TailscaleIPs[0].String()
-			}
-			return name + "|" + ip
+		ip := ""
+		if len(peer.TailscaleIPs) > 0 {
+			ip = peer.TailscaleIPs[0].String()
 		}
-		if fallback == "" && strings.Contains(name, "gateway") {
-			ip := ""
-			if len(peer.TailscaleIPs) > 0 {
-				ip = peer.TailscaleIPs[0].String()
-			}
-			fallback = name + "|" + ip
+		target := name + "|" + ip
+		hasPrefix := strings.HasPrefix(name, "dsh-gateway")
+		isGatewayish := hasPrefix || strings.Contains(name, "gateway")
+		if !isGatewayish {
+			continue
+		}
+		if peer.Online && hasPrefix && bestOnlinePrefix == "" {
+			bestOnlinePrefix = target
+		}
+		if peer.Online && bestOnlineAny == "" {
+			bestOnlineAny = target
+		}
+		if hasPrefix && bestPrefix == "" {
+			bestPrefix = target
+		}
+		if bestFallback == "" {
+			bestFallback = target
 		}
 	}
-	return fallback
+	switch {
+	case bestOnlinePrefix != "":
+		return bestOnlinePrefix
+	case bestOnlineAny != "":
+		return bestOnlineAny
+	case bestPrefix != "":
+		return bestPrefix
+	default:
+		return bestFallback
+	}
 }
 
 func tsqAccountSummary(srv *tsnet.Server) string {

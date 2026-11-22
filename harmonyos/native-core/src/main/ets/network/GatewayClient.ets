@@ -103,6 +103,7 @@ export class GatewayClient {
   private connectRetryTimer: number = 0;
   private tailnetFailureCount: number = 0;
   private lastTailnetEnsureAt: number = 0;
+  private tailnetEnsureFailures: number = 0;
   private pairRetryCount: number = 0;
   private lastConnectAttemptAt: number = 0;
   private altCredentialTried: string[] = [];
@@ -765,9 +766,12 @@ export class GatewayClient {
       return;
     }
     const now: number = Date.now();
-    if (now - this.lastTailnetEnsureAt < 5000) {
+    // 连续失败时指数退避（5s → 10s → 20s → 40s，封顶 60s），避免对着离线节点狂拨
+    const backoff: number = Math.min(60000, 5000 * Math.pow(2, Math.min(this.tailnetEnsureFailures, 4)));
+    if (now - this.lastTailnetEnsureAt < backoff) {
       return;
     }
+    this.tailnetEnsureFailures += 1;
     const target: string = this.tailnetCandidateUrl() || this.tailnetUrlFromApp();
     if (target.length === 0) {
       return;

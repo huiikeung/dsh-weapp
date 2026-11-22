@@ -32,6 +32,7 @@ export class TailscaleTunnelStore {
   private started: boolean = false;
   private fastStarted: boolean = false;
   private fastWasReady: boolean = false;
+  private ensureConnectDeferred: boolean = false;
   private fastDebugLogged: boolean = false;
   private fastTicks: number = 0;
   private warmInited: boolean = false;
@@ -808,10 +809,17 @@ export class TailscaleTunnelStore {
       if (previousStage !== TS_STAGE_READY) {
         GatewayClient.get().resetTailnetAttempt();
       }
-      // 蜂窝冷启动时首个候选可能已失败（局域网不可达），隧道就绪后补一次连接
-      try {
-        GatewayClient.get().ensureConnectedViaTailnet();
-      } catch (ensureErr) {
+      // 蜂窝冷启动时首个候选可能已失败（局域网不可达），隧道就绪后补一次连接。
+      // 放到下一个事件循环，避免在 publish（UI 线程、2 秒一次）里做连接动作。
+      if (this.ensureConnectDeferred !== true) {
+        this.ensureConnectDeferred = true;
+        setTimeout(() => {
+          this.ensureConnectDeferred = false;
+          try {
+            GatewayClient.get().ensureConnectedViaTailnet();
+          } catch (ensureErr) {
+          }
+        }, 0);
       }
       const account: string = TsnetBridge.account();
       if (account.length > 0) {
