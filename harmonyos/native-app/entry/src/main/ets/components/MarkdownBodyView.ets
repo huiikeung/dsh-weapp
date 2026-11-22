@@ -7,6 +7,7 @@
  *   列表 / 分隔线 / 表格 / 围栏代码块（横向滚动）。
  * 行内片段用 Span 渲染：**粗体** 加粗、行内代码等宽 + 底色圆角、链接主色下划线、斜体倾斜。
  */
+import { pasteboard } from '@kit.BasicServicesKit';
 import { Logger, MarkdownLite } from 'nativecore';
 import type { MarkdownBlock, InlineSpan } from 'nativecore';
 
@@ -38,6 +39,13 @@ export struct MarkdownBodyView {
    * 注意：API 23 起 @Prop 不能修饰函数类型，这里用普通成员，父组件构造时传入即可。
    */
   onImageTap: (src: string) => void = (src: string) => {};
+  /**
+   * 链接点击是否交给父级处理（会话页：文件路径 → 底部弹窗预览文件内容）。
+   * ArkUI 里函数成员无法判断「是否被赋值」，所以用显式开关：不打开时保持原来的复制链接弹窗。
+   */
+  linkTapEnabled: boolean = false;
+  /** 链接点击回调（对话正文里的蓝色下划线链接） */
+  onLinkTap: (text: string, href: string) => void = (text: string, href: string) => {};
 
   @State private blocks: MarkdownBlock[] = [];
   private parseTimer: number = -1;
@@ -170,6 +178,64 @@ export struct MarkdownBodyView {
   }
 
   /**
+   * 点击正文里的蓝色下划线链接：弹窗显示链接文字与完整地址，可一键复制。
+   * 之前链接只有视觉样式（主色 + 下划线），点了没有任何反应。
+   */
+  private handleLink(text: string, href: string): void {
+    if (this.linkTapEnabled) {
+      this.onLinkTap(text, href);
+      return;
+    }
+    this.openLinkDialog(text, href);
+  }
+
+  private openLinkDialog(text: string, href: string): void {
+    const target: string = href.trim();
+    const label: string = text.trim();
+    if (target.length === 0 && label.length === 0) {
+      return;
+    }
+    const title: string = target.length > 0 && label.length > 0 && label !== target ? label : '链接';
+    const message: string = target.length > 0 ? target : label;
+    try {
+      this.getUIContext().getPromptAction().showDialog({
+        title: title,
+        message: message,
+        buttons: [
+          { text: '复制链接', color: ACCENT },
+          { text: '关闭', color: this.secondaryColor() }
+        ]
+      }).then((result) => {
+        if (result.index === 0) {
+          this.copyLink(target.length > 0 ? target : label);
+        }
+      }).catch((err: Error) => {
+      });
+    } catch (err) {
+    }
+  }
+
+  private copyLink(value: string): void {
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, value);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        this.toast('已复制链接');
+      }).catch((err: Error) => {
+        this.toast('复制失败');
+      });
+    } catch (err) {
+      this.toast('复制失败');
+    }
+  }
+
+  private toast(message: string): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: message, duration: 2000 });
+    } catch (err) {
+    }
+  }
+
+  /**
    * 行内片段渲染：一个 Span 对应一个片段。
    * 粗体加粗、行内代码等宽 + 底色圆角、链接主色下划线、斜体倾斜。
    */
@@ -189,6 +255,12 @@ export struct MarkdownBodyView {
           .decoration(span.style === 'link'
             ? { type: TextDecorationType.Underline, color: ACCENT }
             : { type: TextDecorationType.None, color: Color.Transparent })
+          // Span 只支持 onClick / onHover 两个通用事件：链接点击后弹窗看完整地址
+          .onClick(() => {
+            if (span.style === 'link') {
+              this.handleLink(span.text, span.href);
+            }
+          })
       }, (span: InlineSpan, index: number) => index.toString() + '_' + span.style + '_' + this.themeGeneration)
     }
     .width('100%')
@@ -213,6 +285,11 @@ export struct MarkdownBodyView {
           .textBackgroundStyle(span.style === 'code'
             ? { color: this.fillColor(), radius: 4 }
             : { color: Color.Transparent, radius: 0 })
+          .onClick(() => {
+            if (span.style === 'link') {
+              this.handleLink(span.text, span.href);
+            }
+          })
       }, (span: InlineSpan, index: number) => index.toString() + '_' + span.style + '_' + this.themeGeneration)
     }
     .fontSize(this.cellSize())

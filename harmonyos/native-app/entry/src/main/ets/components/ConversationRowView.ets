@@ -113,6 +113,8 @@ export struct ConversationRowView {
   };
   /** 点击缩略图：会话页打开全屏预览 */
   onImageTap: (path: string) => void = () => {};
+  /** 正文里的链接点击：会话页按「文件路径 → 底部弹窗预览内容 / http → 复制链接」处理 */
+  onMarkdownLink: (text: string, href: string) => void = (text: string, href: string) => {};
   /** 引用这条回复：在输入框里插入引用 chip（对齐 iOS 最新版回复左下角的箭头引用按钮） */
   onQuoteReply: (text: string) => void = () => {};
   /** 文件附件 chip（编码：kind\u0001name\u0001path\u0001attachmentId\u0001mediaType） */
@@ -1374,6 +1376,10 @@ export struct ConversationRowView {
           this.onImageTap(src);
         },
         resolveImage: (src: string) => this.resolveMarkdownImage(src),
+        linkTapEnabled: true,
+        onLinkTap: (text: string, href: string) => {
+          this.onMarkdownLink(text, href);
+        },
         imageRevision: this.imagePathEntries.length
       })
       this.imageGrid(12, 0)
@@ -1699,6 +1705,10 @@ export struct ConversationRowView {
           this.onImageTap(src);
         },
         resolveImage: (src: string) => this.resolveMarkdownImage(src),
+        linkTapEnabled: true,
+        onLinkTap: (text: string, href: string) => {
+          this.onMarkdownLink(text, href);
+        },
         imageRevision: this.imagePathEntries.length
       })
     }

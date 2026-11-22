@@ -2192,6 +2192,19 @@ export class GatewayClient {
     return this.enqueueRequest(request, 30000);
   }
 
+  /**
+   * 把 Markdown 里的文件链接（可能是绝对路径 / 工作区相对路径）解析成工作区相对路径。
+   * 网关的 file-resolve 允许绝对路径，file-download-open 只接受相对路径，所以链接预览先解析再下载。
+   */
+  resolveFile(sessionId: string, path: string): Promise<GatewayFrame> {
+    this.requestSeq += 1;
+    const frame: Record<string, Object> = {
+      'type': 'file-resolve', 'requestId': 'file-resolve-' + this.requestSeq,
+      'sessionId': sessionId, 'path': path
+    };
+    return this.request(JSON.stringify(frame), 'file-resolved', 30000);
+  }
+
   /** Read the next bounded base64 chunk from a download transfer. */
   readFileDownload(transferId: string, offset: number): Promise<GatewayFrame> {
     this.requestSeq += 1;
