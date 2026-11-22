@@ -8,6 +8,8 @@
  * - verbose  完全展开：不再收拢，过程组逐组显示
  * - reading  阅读：过程实时折叠成一行摘要（带步骤计数），轮次结束后仍可展开回看
  */
+import { PreferencesStore } from '../common/PreferencesStore';
+
 export interface WorkStepOption {
   id: string;
   label: string;
@@ -25,6 +27,10 @@ export interface WorkStepPolicy {
 
 export class WorkStepPresentation {
   static readonly MODE_KEY: string = 'workStepMode';
+  /** 默认档位：阅读（运行中折叠成计数摘要，结束后整轮收起） */
+  static readonly DEFAULT_MODE: string = 'reading';
+  /** 一次性默认值迁移标记：老用户升级后也切到新默认档，之后尊重用户自己的选择 */
+  static readonly DEFAULT_APPLIED_KEY: string = 'workStepDefaultApplied';
   static readonly TIMING_KEY: string = 'workStepTiming';
 
   static modes(): WorkStepOption[] {
@@ -35,6 +41,17 @@ export class WorkStepPresentation {
       { id: 'reading', label: '阅读' },
       { id: 'verbose', label: '完全展开' }
     ];
+  }
+
+  /** 首次启动/升级一次性把默认档切到「阅读」；之后不再覆盖用户选择 */
+  static ensureDefaultMode(prefs: PreferencesStore): string {
+    const stored: string = WorkStepPresentation.normalizeMode(prefs.getString(WorkStepPresentation.MODE_KEY, WorkStepPresentation.DEFAULT_MODE));
+    if (prefs.getBoolean(WorkStepPresentation.DEFAULT_APPLIED_KEY, false)) {
+      return stored;
+    }
+    prefs.putBoolean(WorkStepPresentation.DEFAULT_APPLIED_KEY, true);
+    prefs.putString(WorkStepPresentation.MODE_KEY, WorkStepPresentation.DEFAULT_MODE);
+    return WorkStepPresentation.DEFAULT_MODE;
   }
 
   static timings(): WorkStepOption[] {
@@ -50,7 +67,7 @@ export class WorkStepPresentation {
         return value;
       }
     }
-    return 'detailed';
+    return WorkStepPresentation.DEFAULT_MODE;
   }
 
   static normalizeTiming(value: string): string {

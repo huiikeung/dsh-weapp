@@ -286,7 +286,12 @@ export class ConversationProjector {
     const turn: number = effectiveTurn !== undefined ? effectiveTurn : -1;
     const key=turn+'-'+step;
     if(e.type==='user/message') {
-      let kind=e.source===undefined||e.source==='user'?ConversationItemKind.USER:ConversationItemKind.CONTEXT;
+      // 手机发的图片走 ptc-mode 通道（source.kind='ptc-mode'），它仍然是「用户自己发的」：
+      // 之前被当成上下文注入，图片块整条被吞掉 → 界面上完全看不到图。
+      // 只要消息里带图片，也强制按用户消息渲染。
+      const realUserMessage: boolean = e.source===undefined || e.source==='user' || e.source==='ptc-mode'
+        || ((e.images?.length ?? 0) > 0);
+      let kind=realUserMessage?ConversationItemKind.USER:ConversationItemKind.CONTEXT;
       Logger.info('[PROJ] user/message source=' + (e.source===undefined?'-':e.source) + ' kind=' + (kind as string) + ' turn=' + (e.turn??-1).toString() + ' len=' + ((e.text??'').length).toString());
       // 兜底：网关某些版本不带 source。注入内容有明显的形态特征（以 '[' 开头的插件/时间上下文、
       // 或者 <path> 图片块），这类绝不能当成「用户发送的消息」渲染成蓝色气泡。
@@ -344,7 +349,8 @@ export class ConversationProjector {
       for (const file of presented) {
         const name: string = file.name !== undefined && file.name.length > 0
           ? file.name : (file.path.split('/').pop() ?? file.path);
-        files.push({ name: name, path: file.path, added: file.added, deleted: file.deleted, status: file.status });
+        files.push({ name: name, path: file.path, added: file.added, deleted: file.deleted,
+          status: file.description !== undefined && file.description.length > 0 ? file.description : file.status });
       }
       this.upsertFilesItem(id, ConversationItemKind.FILES, effectiveTurn, date, out, files);
       return;

@@ -184,17 +184,20 @@ function imageBlocks(value: Object | undefined): GatewayImageAttachment[] {
     if (attachment === undefined) {
       continue;
     }
+    // 只要求 attachmentId：历史帧里网关常常只给 attachmentId + mediaType，
+    // 不带 bytes/width/height（小程序 protocol.js 的 imageBlocks 同样不要求这几个字段）。
+    // 之前严格要求五个字段齐全，缺一个就整块丢弃 → 历史消息的图直接变成「没有图」。
     const attachmentId = str(attachment, 'attachmentId');
-    const mediaType = str(attachment, 'mediaType');
+    if (attachmentId === undefined || attachmentId.length === 0) {
+      continue;
+    }
+    const mediaType = str(attachment, 'mediaType') ?? str(attachment, 'mimeType') ?? 'image/jpeg';
     const bytes = num(attachment, 'bytes');
     const width = num(attachment, 'width');
     const height = num(attachment, 'height');
-    if (attachmentId === undefined || mediaType === undefined ||
-      bytes === undefined || width === undefined || height === undefined) {
-      continue;
-    }
     out.push({
-      attachmentId, mediaType, bytes, width, height,
+      attachmentId, mediaType, bytes: bytes === undefined ? 0 : bytes,
+      width: width === undefined ? 0 : width, height: height === undefined ? 0 : height,
       name: str(attachment, 'name')
     });
   }
@@ -355,8 +358,12 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
       const chunkType = str(chunk, 'type');
       let tool: ToolDelta | undefined;
       if (chunkType === 'tool-call-delta') {
+        // 有的实现用 id，有的用 callId / toolCallId：统一兼容，否则流式行和 tool/call 对不上号
+        const deltaId: string = str(chunk, 'id') ?? '';
+        const deltaCallId: string = str(chunk, 'callId') ?? '';
+        const deltaToolCallId: string = str(chunk, 'toolCallId') ?? '';
         tool = {
-          id: str(chunk, 'id'),
+          id: deltaId.length > 0 ? deltaId : (deltaCallId.length > 0 ? deltaCallId : deltaToolCallId),
           name: str(chunk, 'name'),
           argumentsDelta: str(chunk, 'argumentsDelta')
         };
@@ -479,6 +486,7 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
           added: num(file, 'added'),
           deleted: num(file, 'deleted'),
           status: str(file, 'status'),
+          description: str(file, 'description'),
           index: num(file, 'index')
         });
       }

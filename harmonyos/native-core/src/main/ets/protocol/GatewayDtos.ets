@@ -112,6 +112,8 @@ export interface GatewayPresentedFile {
   deleted?: number;
   /** 状态补充（如「已格式化」「跳过」） */
   status?: string;
+  /** deliverables/presented 的说明文字（卡片副标题） */
+  description?: string;
   index?: number;
 }
 

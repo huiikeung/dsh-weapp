@@ -14,6 +14,10 @@ import { ConversationFeed, ConversationFeedEntryModel, ToolActivity } from 'nati
 import type { ConversationItem, ToolFace } from 'nativecore';
 import { MarkdownBodyView } from './MarkdownBodyView';
 import { ProcLoaderView } from './ProcLoaderView';
+import { AttachmentImageCache, GatewayClient, Logger, SessionStore, downloadAttachment } from 'nativecore';
+import type { DownloadResult } from 'nativecore';
+import { common } from '@kit.AbilityKit';
+import type { GatewayImageAttachment } from 'nativecore';
 
 const OCEAN: string = '#2E6BE6';
 const DANGER: string = '#D4545B';
@@ -71,7 +75,7 @@ export struct ConversationRowView {
   @Prop reasonFullIds: string[] = [];
   onToggleReasonFull: (id: string) => void = (id: string) => {};
   /** 过程步骤展示档位：compact / standard / detailed / verbose */
-  @Prop workStepMode: string = 'detailed';
+  @Prop workStepMode: string = 'reading';
   /** 思考卡展开/折叠（底部两个按钮都走这个） */
   onToggleReasonCard: (id: string) => void = (id: string) => {};
   onToggleStep: (id: string) => void = () => {};
@@ -88,8 +92,8 @@ export struct ConversationRowView {
   @Prop turnUsageTotal: string = '';
   /** 用量弹窗分项行（label\u0001value） */
   @Prop turnUsageRows: string[] = [];
-  /** 用量弹层是否展开（bindPopup 锚定在胶囊上方） */
-  @State usagePopupOpen: boolean = false;
+  /** 用量菜单是否展开（bindMenu 原生系统菜单，锚定在胶囊上方，与顶栏「⋯」同款） */
+  @State usageMenuOpen: boolean = false;
   /**
    * 图片本地路径（会话页拉取后写入 AppStorage）。LazyForEach 的行不会因父级 @State 变化而重建，
    * 订阅 AppStorage 才能「图片下载完成后原行直接出图」，不必重进页面。编码：entryId + '\u0001' + 路径。
@@ -97,17 +101,28 @@ export struct ConversationRowView {
   @StorageProp('imagePathEntries') imagePathEntries: string[] = [];
   /** 预取失败的条目 id（父页写入）：这些行不再显示「加载中」，改显示「加载失败」 */
   @StorageProp('imageFailedEntries') imageFailedEntries: string[] = [];
+  /** 图片解码/读取失败时记下路径，行内直接显示出来（排查空白图用） */
+  @State private brokenImagePaths: string[] = [];
+  /** 本行自己解析出来的图片本地路径（按 attachmentId 拉取后缓存，不再依赖页面级预取） */
+  @State private resolvedImages: string[] = [];
+  /** 文件附件里的图片：chip\u0001本地路径（按网关 path 下载后缓存，行内直接出缩略图） */
+  @State private chipImages: string[] = [];
+  private chipImageBusy: boolean = false;
   /** 点击「加载失败」重试（父页重新发起预取） */
   private onRetryImages: () => void = () => {
   };
   /** 点击缩略图：会话页打开全屏预览 */
   onImageTap: (path: string) => void = () => {};
+  /** 引用这条回复：在输入框里插入引用 chip（对齐 iOS 最新版回复左下角的箭头引用按钮） */
+  onQuoteReply: (text: string) => void = () => {};
   /** 文件附件 chip（编码：kind\u0001name\u0001path\u0001attachmentId\u0001mediaType） */
   @Prop attachmentChips: string[] = [];
   /** 点击文件附件：会话页下载并预览 */
   onAttachmentTap: (name: string, path: string, mediaType: string) => void = () => {};
   /** 已编辑 / 交付文件卡片（编码：path\u0001name\u0001added\u0001deleted\u0001status） */
   @Prop fileCards: string[] = [];
+  /** 卡片内联在助手回复里（显示在复制/用量/时间页脚上方） */
+  @Prop filesInline: boolean = false;
   /** 点击文件卡片：会话页弹窗显示差异 / 内容 */
   onFileTap: (name: string, path: string, index: number, hasCounts: boolean) => void = () => {};
   /** 文件列表是否展开（超过 4 个时） */
@@ -132,6 +147,9 @@ export struct ConversationRowView {
 
   /** 用户正在容器内滑动 / 刚滑完的暂停窗口：这期间不要自动跟底（否则会被新内容顶掉） */
   private innerScrolling: boolean = false;
+  /** 阅读档折叠条是否展开（状态存在会话页，行重建后也能保持） */
+  @Prop liveFoldOpen: boolean = false;
+  onToggleLiveFold: () => void = () => {};
   private innerPauseUntil: number = 0;
 
   /** 上次渲染看到的步骤数：用于判断「新增了一步」并让限高框滚到底 */
@@ -306,13 +324,13 @@ export struct ConversationRowView {
   copyButton(alignEnd: boolean) {
     Row() {
       Image($r('app.media.copy_gray'))
-        .width(11)
-        .height(11)
+        .width(14)
+        .height(14)
         .objectFit(ImageFit.Contain)
         .opacity(0.45)
     }
-    .width(22)
-    .height(22)
+    .width(26)
+    .height(26)
     .justifyContent(FlexAlign.Center)
     .alignItems(VerticalAlign.Center)
     .margin({ top: 4 })
@@ -459,12 +477,14 @@ export struct ConversationRowView {
                 .fontWeight(FontWeight.Medium)
                 .fontColor(this.primaryText())
                 .maxLines(2)
-              if (this.fileCards.length === 1 && this.fileAt(this.fileCards[0], 6).length > 0) {
+              if (this.fileCards.length === 1 && this.fileAt(this.fileCards[0], 6).length > 0
+                && (this.entry.kind === KIND_CHANGES || this.filesInline)) {
                 Text(this.fileAt(this.fileCards[0], 6))
                   .fontSize(this.rpx(23))
                   .fontColor(this.secondaryText())
                   .maxLines(2)
-              } else if (this.entry.kind === KIND_CHANGES) {
+              } else if (this.entry.kind === KIND_CHANGES || this.filesInline) {
+                // 对齐客户端：多文件卡片副标题显示汇总 +A −R（内联在助手回复里的同理）
                 Row({ space: this.rpx(14) }) {
                   Text('+' + this.filesAdded().toString())
                     .fontSize(this.rpx(24))
@@ -501,17 +521,25 @@ export struct ConversationRowView {
                       .width(this.rpx(30))
                       .height(this.rpx(36))
                       .objectFit(ImageFit.Contain)
+                      .flexShrink(0)
                     Column({ space: this.rpx(4) }) {
                       Text(this.fileAt(chip, 1))
                         .fontSize(this.rpx(26))
                         .lineHeight(this.rpx(26) * 1.5)
                         .fontColor(this.primaryText())
-                        .maxLines(2)
+                        .maxLines(1)
+                        .textOverflow({ overflow: TextOverflow.Ellipsis })
                       Text(this.fileAt(chip, 2))
                         .fontSize(this.rpx(22))
                         .fontColor(this.secondaryText())
                         .maxLines(1)
                         .textOverflow({ overflow: TextOverflow.Ellipsis })
+                      if (this.fileAt(chip, 6).length > 0) {
+                        Text(this.fileAt(chip, 6))
+                          .fontSize(this.rpx(21))
+                          .fontColor(this.tertiaryText())
+                          .maxLines(2)
+                      }
                     }
                     .layoutWeight(1)
                     .alignItems(HorizontalAlign.Start)
@@ -524,6 +552,7 @@ export struct ConversationRowView {
                           .fontSize(this.rpx(24))
                           .fontColor(this.deletedColor())
                       }
+                      .flexShrink(0)
                     }
                   }
                   .width('100%')
@@ -540,12 +569,13 @@ export struct ConversationRowView {
           }
 
           if (this.fileCards.length > 4) {
+            // 对齐截图：「显示全部文件 (N)」居中，点击展开/收起
             Text(this.filesExpanded ? '收起' : '显示全部文件 (' + this.fileCards.length.toString() + ')')
               .fontSize(this.rpx(24))
               .fontColor(this.secondaryText())
               .width('100%')
               .textAlign(TextAlign.Center)
-              .padding(this.rpx(16))
+              .padding({ top: this.rpx(18), bottom: this.rpx(18) })
               .onClick(() => {
                 this.filesExpanded = !this.filesExpanded;
               })
@@ -554,7 +584,8 @@ export struct ConversationRowView {
         .width('100%')
         .border({ width: 1, color: this.borderStrongColor() })
         .borderRadius(this.rpx(24))
-        .backgroundColor(this.surfaces())
+        // 直接透出页面底色
+        .backgroundColor(Color.Transparent)
         .clip(true)
       }
       .width('100%')
@@ -569,7 +600,93 @@ export struct ConversationRowView {
     if (this.attachmentChips.length > 0) {
       Column({ space: this.rpx(16) }) {
         ForEach(this.attachmentChips, (chip: string) => {
-          Row({ space: this.rpx(14) }) {
+          if (this.isImageAttachmentChip(chip) && alignEnd) {
+            // 用户发送的图片：直接显示缩略图（与输入框里的预览一致），点击从底部弹出大图
+            Stack({ alignContent: Alignment.Center }) {
+              if (this.chipImagePath(chip).length > 0) {
+                Image(this.imageSource(this.chipImagePath(chip)))
+                  .width(this.rpx(220))
+                  .height(this.rpx(220))
+                  .borderRadius(this.rpx(18))
+                  .objectFit(ImageFit.Cover)
+              } else {
+                LoadingProgress()
+                  .width(this.rpx(30))
+                  .height(this.rpx(30))
+                  .color(this.secondaryText())
+              }
+            }
+            .width(this.rpx(220))
+            .height(this.rpx(220))
+            .borderRadius(this.rpx(18))
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.035)')
+            .border({ width: 1, color: this.dividerLineColor() })
+            .clip(true)
+            .margin({ top: this.rpx(8) })
+            .onClick(() => {
+              const local: string = this.chipImagePath(chip);
+              if (local.length > 0) {
+                this.onImageTap(local);
+              } else {
+                this.resolveChipImages();
+              }
+            })
+          } else if (this.isImageAttachmentChip(chip)) {
+            // 回复里的图片：卡片式（图标 + 文件名 + 说明 + 右侧分享/打开按钮，对齐截图）
+            Row({ space: this.rpx(16) }) {
+              Stack({ alignContent: Alignment.Center }) {
+                Image($r('app.media.deliverable_image'))
+                  .width(this.rpx(44))
+                  .height(this.rpx(44))
+                  .objectFit(ImageFit.Contain)
+              }
+              .width(this.rpx(64))
+              .height(this.rpx(64))
+              .borderRadius(this.rpx(16))
+              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+              .border({ width: 0.5, color: this.dividerLineColor() })
+
+              Column({ space: this.rpx(4) }) {
+                Text(this.attachmentName(chip))
+                  .fontSize(this.rpx(28))
+                  .fontWeight(FontWeight.Medium)
+                  .fontColor(this.primaryText())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                Text('点击预览图片')
+                  .fontSize(this.rpx(22))
+                  .fontColor(this.secondaryText())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+              }
+              .layoutWeight(1)
+              .alignItems(HorizontalAlign.Start)
+
+              Stack({ alignContent: Alignment.Center }) {
+                SymbolGlyph($r('sys.symbol.share'))
+                  .fontSize(this.rpx(30))
+                  .fontColor([this.secondaryText()])
+              }
+              .width(this.rpx(64))
+              .height(this.rpx(64))
+              .borderRadius(this.rpx(16))
+              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)')
+              .border({ width: 0.5, color: this.dividerLineColor() })
+              .onClick(() => {
+                this.onAttachmentTap(this.attachmentName(chip), this.attachmentPath(chip), this.attachmentMediaType(chip));
+              })
+            }
+            .width('100%')
+            .constraintSize({ minHeight: this.rpx(96) })
+            .padding({ left: this.rpx(18), right: this.rpx(18), top: this.rpx(14), bottom: this.rpx(14) })
+            .borderRadius(this.rpx(24))
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(16,19,24,0.035)')
+            .border({ width: 0.5, color: this.dividerLineColor() })
+            .margin({ top: this.rpx(8) })
+            .onClick(() => {
+              this.onAttachmentTap(this.attachmentName(chip), this.attachmentPath(chip), this.attachmentMediaType(chip));
+            })
+          } else {          Row({ space: this.rpx(14) }) {
             Image(chip.startsWith('directory')
               ? $r('app.media.deliverable_document')
               : (this.entry.kind === KIND_ASSISTANT ? $r('app.media.deliverable_code') : $r('app.media.deliverable_document')))
@@ -591,12 +708,28 @@ export struct ConversationRowView {
           .onClick(() => {
             this.onAttachmentTap(this.attachmentName(chip), this.attachmentPath(chip), this.attachmentMediaType(chip));
           })
+          }
         }, (chip: string) => chip)
       }
       .width('100%')
       .alignItems(alignEnd ? HorizontalAlign.End : HorizontalAlign.Start)
       .margin({ top: this.rpx(12) })
     }
+  }
+
+  /** 图片附件判定：mediaType 以 image/ 开头，或扩展名是图片 */
+  private isImageAttachmentChip(chip: string): boolean {
+    const mediaType: string = this.attachmentMediaType(chip).toLowerCase();
+    if (mediaType.indexOf('image/') === 0) {
+      return true;
+    }
+    const name: string = this.attachmentName(chip).toLowerCase();
+    return /\.(jpg|jpeg|png|webp|heic|heif|gif|bmp)$/.test(name);
+  }
+
+  private attachmentDescription(chip: string): string {
+    const parts: string[] = chip.split('\u0001');
+    return parts.length > 5 ? parts[5] : '';
   }
 
   private attachmentName(chip: string): string {
@@ -624,13 +757,142 @@ export struct ConversationRowView {
     return 'file://' + path;
   }
 
+  aboutToAppear(): void {
+    this.resolveRowImages();
+    this.resolveChipImages();
+  }
+
+  /** 该图片附件 chip 对应的本地路径（没下载好时为空） */
+  private chipImagePath(chip: string): string {
+    const prefix: string = chip + '\u0001';
+    for (const item of this.chipImages) {
+      if (item.startsWith(prefix)) {
+        return item.substring(prefix.length);
+      }
+    }
+    return '';
+  }
+
+  /**
+   * 图片附件（type='file' + mediaType image/*，只有网关工作区路径、没有 attachmentId）：
+   * 通过 file-download 拉到本地，行内直接当缩略图显示（对齐小程序「在侧边栏预览→缩略图」）。
+   */
+  private resolveChipImages(): void {
+    if (this.chipImageBusy) {
+      return;
+    }
+    const sessionId: string = SessionStore.get().currentSessionId();
+    const client: GatewayClient = GatewayClient.get();
+    if (sessionId.length === 0 || !client.isConnected()) {
+      return;
+    }
+    const pending: string[] = [];
+    for (const chip of this.attachmentChips) {
+      if (!this.isImageAttachmentChip(chip) || this.chipImagePath(chip).length > 0) {
+        continue;
+      }
+      if (this.attachmentPath(chip).length > 0) {
+        pending.push(chip);
+      }
+    }
+    if (pending.length === 0) {
+      return;
+    }
+    this.chipImageBusy = true;
+    const context = getContext(this) as common.UIAbilityContext;
+    this.fetchChipImageAt(context, client, sessionId, pending, 0);
+  }
+
+  private fetchChipImageAt(context: common.UIAbilityContext, client: GatewayClient, sessionId: string,
+    pending: string[], index: number): void {
+    if (index >= pending.length) {
+      this.chipImageBusy = false;
+      return;
+    }
+    const chip: string = pending[index];
+    downloadAttachment(context, client, sessionId, this.attachmentPath(chip), () => {})
+      .then((result: DownloadResult) => {
+        if (result.localPath.length > 0 && this.chipImages.indexOf(chip + '\u0001' + result.localPath) < 0) {
+          this.chipImages = this.chipImages.concat([chip + '\u0001' + result.localPath]);
+        }
+        this.fetchChipImageAt(context, client, sessionId, pending, index + 1);
+      })
+      .catch((error: Error) => {
+        Logger.warn('[IMG] chip download failed ' + error.message);
+        this.fetchChipImageAt(context, client, sessionId, pending, index + 1);
+      });
+  }
+
+  /**
+   * 本行图片自适应解析（对齐小程序 decorateRowImages + pumpAttachmentThumbs）：
+   * 历史行的 images 只有 attachmentId，这里逐张查缓存/向网关拉取，拿到本地路径后写进
+   * resolvedImages 直接渲染 —— 不依赖页面级 imagePathEntries 那条链路。
+   */
+  private resolveRowImages(): void {
+    const images: GatewayImageAttachment[] = this.entry.images;
+    if (images === undefined || images.length === 0) {
+      return;
+    }
+    const sessionId: string = this.sessionIdForImages();
+    for (const image of images) {
+      if (image === null || image === undefined) {
+        continue;
+      }
+      const id: string = image.attachmentId === undefined ? '' : image.attachmentId;
+      if (id.length === 0) {
+        continue;
+      }
+      const mediaType: string = image.mediaType === undefined ? 'image/jpeg' : image.mediaType;
+      const name: string = image.name === undefined ? '' : image.name;
+      const cached: string = AttachmentImageCache.localPath(id, mediaType, name);
+      if (cached.length > 0) {
+        this.appendResolved(cached);
+        continue;
+      }
+      if (sessionId.length === 0) {
+        continue;
+      }
+      AttachmentImageCache.fetch(sessionId, id, mediaType, name).then((path: string) => {
+        this.appendResolved(path);
+      }).catch((error: Error) => {
+        Logger.warn('[IMG] row fetch failed ' + id.substring(0, 12) + ' ' + error.message);
+      });
+    }
+  }
+
+  private sessionIdForImages(): string {
+    return SessionStore.get().currentSessionId();
+  }
+
+  private appendResolved(path: string): void {
+    if (path.length === 0 || this.resolvedImages.indexOf(path) >= 0) {
+      return;
+    }
+    this.resolvedImages = this.resolvedImages.concat([path]);
+  }
+
   /** 本行图片：本地乐观图 + 已下载附件图（订阅 AppStorage，下载完自动出图） */
   private imageList(): string[] {
-    const list: string[] = this.entry.localImages.slice();
+    const list: string[] = [];
+    const pushUnique = (path: string): void => {
+      if (path.length > 0 && list.indexOf(path) < 0) {
+        list.push(path);
+      }
+    };
+    for (const one of this.entry.localImages) {
+      pushUnique(one);
+    }
+    // 自己刚发的图：本地路径就是权威源，直接返回，避免网关卡回同一张图又叠一条 → 单图变「多图卡片」
+    if (list.length > 0) {
+      return list;
+    }
+    for (const path of this.resolvedImages) {
+      pushUnique(path);
+    }
     const prefix: string = this.entry.id + '\u0001';
     for (const item of this.imagePathEntries) {
       if (item.startsWith(prefix)) {
-        list.push(item.substring(prefix.length));
+        pushUnique(item.substring(prefix.length));
       }
     }
     for (const extra of this.imagePaths) {
@@ -655,18 +917,33 @@ export struct ConversationRowView {
         .objectFit(ImageFit.Cover)
         .borderRadius(this.rpx(20))
         .margin({ top: this.rpx(topRpx), bottom: this.rpx(bottomRpx) })
+        .onError(() => {
+          const source: string = this.imageSource(this.imageList()[0]);
+          if (this.brokenImagePaths.indexOf(source) < 0) {
+            Logger.warn('[IMG] render failed ' + source);
+            this.brokenImagePaths = this.brokenImagePaths.concat([source]);
+          }
+        })
         .onClick(() => {
           this.onImageTap(this.imageList()[0]);
         })
     } else if (this.imageList().length > 1) {
+      // 多图：直接显示图片缩略图网格（不显示文件名/「点击预览图片」文案），点击大图预览
       Flex({ wrap: FlexWrap.Wrap }) {
         ForEach(this.imageList(), (path: string) => {
           Image(this.imageSource(path))
-            .width(this.rpx(180))
-            .height(this.rpx(180))
+            .width(this.rpx(176))
+            .height(this.rpx(176))
             .objectFit(ImageFit.Cover)
             .borderRadius(this.rpx(16))
-            .margin({ right: this.rpx(10), top: this.rpx(10) })
+            .margin({ right: this.rpx(10), bottom: this.rpx(10) })
+            .onError(() => {
+              const source: string = this.imageSource(path);
+              if (this.brokenImagePaths.indexOf(source) < 0) {
+                Logger.warn('[IMG] render failed ' + source);
+                this.brokenImagePaths = this.brokenImagePaths.concat([source]);
+              }
+            })
             .onClick(() => {
               this.onImageTap(path);
             })
@@ -876,6 +1153,10 @@ export struct ConversationRowView {
       })
       this.imageGrid(12, 0)
       this.attachmentList(false)
+      if (this.filesInline) {
+        // 已编辑文件卡片：在回复正文之后、复制/用量/时间页脚之前
+        this.filesCard()
+      }
       if (this.entry.footerVisible) {
         // .turn-footer：gap 14rpx、padding 4rpx 0；左组 gap 10rpx
         // .turn-footer：gap 14rpx(≈7vp)、padding 4rpx 0；左组依次 复制 / 用量 / 时间，整体左对齐
@@ -883,17 +1164,34 @@ export struct ConversationRowView {
           // 复制：与消息下方那个复制按钮完全一致（11vp 图标 + 22vp 命中区 + opacity 0.45）
           Row() {
             Image($r('app.media.copy_gray'))
-              .width(11)
-              .height(11)
+              .width(14)
+              .height(14)
               .objectFit(ImageFit.Contain)
               .opacity(0.45)
           }
-          .width(22)
-          .height(22)
+          .width(26)
+          .height(26)
           .justifyContent(FlexAlign.Center)
           .alignItems(VerticalAlign.Center)
           .onClick(() => {
             this.onCopy(this.entry.text);
+          })
+
+          // 复制右侧：引用（箭头图标，对齐 iOS 最新版回复左下角的引用按钮）
+          Row() {
+            // 引用箭头：20×20，左右只留 1vp 余量（之前 32 宽命中区导致左右间隙过大）
+            Image($r('app.media.quote_reply'))
+              .width(20)
+              .height(20)
+              .objectFit(ImageFit.Contain)
+              .opacity(0.45)
+          }
+          .width(22)
+          .height(30)
+          .justifyContent(FlexAlign.Center)
+          .alignItems(VerticalAlign.Center)
+          .onClick(() => {
+            this.onQuoteReply(this.entry.text);
           })
 
           if (this.entry.turnMetaText.length > 0) {
@@ -1181,6 +1479,28 @@ export struct ConversationRowView {
    * 思考阅读卡（对齐小程序 .reasoning-card）：标题行 + 定高滚动正文 + 「完整内容 / 收起阅读」底栏。
    * 运行中直接展开（policy 把思考默认打开），收起后回到折叠标题行。
    */
+  /**
+   * 这一组是否还在「进行中」：不只是 entry.running，
+   * 某些档位下运行态没有传到行上（liveDetail 有值/组体限高/最后一步仍在跑），
+   * 用这几个信号兜底，避免思考卡按已结束处理→高度随内容增长把页面顶上去。
+   */
+  private cardIsLive(): boolean {
+    if (this.entry.running) {
+      return true;
+    }
+    if (this.entry.liveDetail.length > 0) {
+      return true;
+    }
+    const items: ConversationItem[] = this.entry.items;
+    if (items.length > 0) {
+      const last: ConversationItem = items[items.length - 1];
+      if (last.status === 'running') {
+        return true;
+      }
+    }
+    return false;
+  }
+
   @Builder
   reasoningCard(item: ConversationItem) {
     Column() {
@@ -1218,7 +1538,7 @@ export struct ConversationRowView {
           .alignItems(HorizontalAlign.Start)
           .onAreaChange(() => {
             // 运行中：卡片高度固定，正文只在卡内向上滚，页面高度不变 → 外层不用一直上推
-            if (!this.entry.running) {
+            if (!this.cardIsLive()) {
               return;
             }
             const now: number = Date.now();
@@ -1235,7 +1555,7 @@ export struct ConversationRowView {
           })
         }
         // 运行中固定高度（不再随内容变高把页面往上顶）；结束后按内容估算高度
-        .height(this.entry.running ? this.RUNNING_CARD_HEIGHT : this.readingHeight(this.stepDetail(item)))
+        .height(this.cardIsLive() ? this.RUNNING_CARD_HEIGHT : this.readingHeight(this.stepDetail(item)))
         .scrollBar(BarState.Auto)
         .width('100%')
         // 思考卡是「列表里的定高滚动区」：默认 SELF_FIRST 会把竖向滑动全吃掉，
@@ -1769,7 +2089,7 @@ export struct ConversationRowView {
         // 内层 Column 的面积随步骤增长而变化：这里的 onAreaChange 才是「新增一步」的可靠信号
         // （Scroll 自身的 onAreaChange 只在视口尺寸变化时触发，内容变长不触发，所以运行中不跟手）。
         Column() {
-          this.processBody(this.entry.items)
+          this.processBody(this.displayItems())
         }
         .width('100%')
         // 不再「内容一长就自动滚内层」：
@@ -1809,36 +2129,104 @@ export struct ConversationRowView {
       })
     } else {
       // 完全展开档：不设上限，整段铺开
-      this.processBody(this.entry.items)
+      this.processBody(this.displayItems())
     }
+  }
+
+  /** 阅读档实时折叠：要渲染的步骤（折叠时跳过已收进折叠条的前缀） */
+  private displayItems(): ConversationItem[] {
+    const items: ConversationItem[] = this.entry.items;
+    if (this.workStepMode === 'reading' && this.entry.running && this.entry.liveFoldCount > 0
+      && !this.liveFoldOpen) {
+      return items.slice(this.entry.liveFoldCount);
+    }
+    return items;
+  }
+
+  /** 实时折叠条上的计数：只统计被收起来的那段步骤 */
+  private liveFoldLabel(): string {
+    let think: number = 0;
+    let out: number = 0;
+    let tool: number = 0;
+    let record: number = 0;
+    const end: number = Math.min(this.entry.liveFoldCount, this.entry.items.length);
+    for (let index = 0; index < end; index++) {
+      const kind: string = this.entry.items[index].kind as string;
+      if (kind === 'REASONING') {
+        think++;
+      } else if (kind === 'TOOL' || kind === 'JSON_TOOL') {
+        tool++;
+      } else if (kind === 'ASSISTANT') {
+        out++;
+      } else {
+        record++;
+      }
+    }
+    const parts: string[] = [];
+    if (think > 0) {
+      parts.push('思考×' + think.toString());
+    }
+    if (out > 0) {
+      parts.push('输出×' + out.toString());
+    }
+    if (tool > 0) {
+      parts.push('工具×' + tool.toString());
+    }
+    if (record > 0) {
+      parts.push('记录×' + record.toString());
+    }
+    return parts.length > 0 ? parts.join(' · ') : '此前步骤';
+  }
+
+  /** 实时折叠条（阅读档运行中：之前的步骤收成一行） */
+  @Builder
+  liveFoldRow() {
+    Row({ space: this.rpx(6) }) {
+      Text(this.liveFoldLabel())
+        .fontSize(13.2)
+        .fontColor(this.secondaryText())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Image($r('app.media.chev_right_gray'))
+        .flexShrink(0)
+        .width(this.rpx(20))
+        .height(this.rpx(20))
+        .objectFit(ImageFit.Contain)
+        .rotate({ angle: this.liveFoldOpen ? 90 : 0 })
+        .opacity(0.7)
+    }
+    .width('100%')
+    .padding({ top: this.rpx(6), bottom: this.rpx(6) })
+    .onClick(() => {
+      this.liveFoldOpen = !this.liveFoldOpen;
+    })
   }
 
   /** 阅读档折叠行：思考× N · 工具× N · 记录× N，右侧箭头（对齐 iOS/交互阅读样式） */
   @Builder
   readingHead() {
     Row({ space: this.rpx(8) }) {
-      Text(this.readingCounts())
+      // 标题只统计「已经折叠起来」的步骤（当前正在进行的这一段不计入）
+      Text(this.liveFoldLabel())
         .fontSize(13.2)
         .fontColor(this.entry.isError ? DANGER : this.secondaryText())
-        .layoutWeight(1)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
       Image($r('app.media.chev_right_gray'))
+        .flexShrink(0)
         .width(this.rpx(20))
         .height(this.rpx(20))
         .objectFit(ImageFit.Contain)
-        .rotate({ angle: this.entry.expanded ? -90 : 90 })
+        .rotate({ angle: this.liveFoldOpen ? 90 : 0 })
         .opacity(0.7)
-        .flexShrink(0)
     }
     .width('100%')
     .padding({ top: this.rpx(8), bottom: this.rpx(8) })
     .constraintSize({ minHeight: this.rpx(56) })
     .alignItems(VerticalAlign.Center)
     .onClick(() => {
-      if (this.entry.expandable) {
-        this.onToggle(this.entry.id);
-      }
+      // 阅读档：点折叠条 = 展开/收起之前链条的步骤（容器内）
+      this.onToggleLiveFold();
     })
   }
 
@@ -1899,7 +2287,10 @@ export struct ConversationRowView {
     Column() {
       // 阅读档：顶部计数行 → 步骤 → 执行图标行（保持原来的位置：贴底、在鲸尾行上方）
       if (this.workStepMode === 'reading') {
-        this.readingHead()
+        // 折叠条（容器外顶部）：累计「之前链条」的思考×N · 工具×N · 记录×N，点击展开/收起
+        if (this.workStepMode === 'reading' && this.entry.running && this.entry.liveFoldCount > 0) {
+          this.readingHead()
+        }
         if (this.bodyVisible()) {
           this.bodyBlock()
         }
@@ -1948,10 +2339,42 @@ export struct ConversationRowView {
   }
 
   // ==================== TURN（回合收拢行）====================
+  /** 阅读档回合行文案：「已完成 · 思考×… · 工具×… · 记录×…」 */
+  private readingTurnLabel(): string {
+    if (this.entry.text.length === 0) {
+      return this.entry.title;
+    }
+    return this.entry.title.length > 0 ? this.entry.title + ' · ' + this.entry.text : this.entry.text;
+  }
+
   @Builder
   turnRow() {
     Column() {
-      // 收工后最上面就是「已完成」：计数摘要只在展开后的过程里出现，避免重复
+      // 阅读档：回合折叠成计数摘要行（右侧箭头），点击展开该回合的过程
+      if (this.workStepMode === 'reading' && this.entry.title.length > 0) {
+        Row({ space: this.rpx(6) }) {
+          // 阅读档回合行：标题 + 步骤计数（页面在 rebuildEntries 里把计数写到 entry.text）
+          Text(this.readingTurnLabel())
+            .fontSize(13.2)
+            .fontColor(this.secondaryText())
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Image($r('app.media.chev_right_gray'))
+            .width(this.rpx(20))
+            .height(this.rpx(20))
+            .objectFit(ImageFit.Contain)
+            .rotate({ angle: this.entry.expanded ? 90 : 0 })
+            .opacity(0.7)
+            .flexShrink(0)
+        }
+        .width('100%')
+        .padding({ top: this.rpx(6), bottom: this.rpx(6) })
+        .onClick(() => {
+          this.onToggle(this.entry.id);
+        })
+      }
+      // 非阅读档 / 无计数：保持「已完成」标题行
+      if (this.workStepMode !== 'reading' || this.entry.title.length === 0) {
       Column() {
         this.groupHead(this.entry.title,
           this.entry.expanded && this.entry.expandedSummary.length > 0 ? this.entry.expandedSummary : this.entry.summary,
@@ -1963,6 +2386,7 @@ export struct ConversationRowView {
           this.onToggle(this.entry.id);
         }
       })
+      }
 
       // 展开「已完成」时，组行由会话页摊平成同级行渲染（见 ConversationPage.rebuildEntries），
       // 这里不再嵌套子组件：嵌套 @ObjectLink 行在本机会崩。

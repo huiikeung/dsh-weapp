@@ -172,6 +172,8 @@ export class SessionStore {
   private rawEvents: RawSessionEvent[] = [];
   private olderRequestPending: boolean = false;
   private olderRequestCursor: number = 0;
+  /** 回放窗口大小：初始 300 条；每加载一页更早历史就扩大，保证新加载的旧消息能被投影出来 */
+  private replayWindow: number = 300;
   private historyFormatVersion: number = 0;
   private sessionGeneration: number = 0;
   /** 任务/目标快照的 asOfSeq（旧帧丢弃，对齐小程序 tasksAsOfSeq / goalAsOfSeq） */
@@ -642,11 +644,21 @@ export class SessionStore {
       // 关键：非 reset 补拉只把「比投影更新的那几条」追加进去，
       // 绝不整表重放 —— 全量重放几千条事件会阻塞主线程数秒，
       // 系统直接按 THREAD_BLOCK_6S 杀掉进程（App 莫名消失、页面冻结的真正原因）。
+      if (wasOlderPage) {
+        // 补拉的更早一页：扩大回放窗口后重投影，否则旧事件虽然合进了 rawEvents，
+        // 但投影窗口仍然只覆盖最近 300 条 → 页面上永远看不到更早的消息。
+        this.replayWindow = Math.min(4000, this.replayWindow + events.length + 60);
+        Logger.info('[PULL] older page events=' + events.length.toString()
+          + ' raw=' + this.rawEvents.length.toString() + ' window=' + this.replayWindow.toString()
+          + ' oldestSeq=' + this.oldestSeq.toString());
+      }
       if (this.bulkOlderDepth === 0) {
         // 只要已经有投影，就走增量追加：网关的快照帧经常带 replace/resetRequired，
         // 以前会被当成「必须整表重放」，于是每次补拉都阻塞主线程数秒（THREAD_BLOCK 被系统杀掉）。
         // 增量只追加 seq 比投影新的那几条，replace 掉的历史本来也不影响已渲染的尾部。
-        if (this.projectedMaxSeq > 0 && this.conversation !== null) {
+        if (wasOlderPage) {
+          this.rebuildProjection();
+        } else if (this.projectedMaxSeq > 0 && this.conversation !== null) {
           this.appendNewerEvents();
         } else {
           this.rebuildProjection();
@@ -925,13 +937,19 @@ export class SessionStore {
     this.resetConversation();
     // 只回放最近 300 条：界面只渲染最近 150 条，回放全部（几百上千条）
     // 会在打开会话时把主线程占住 3~6 秒，系统按 THREAD_BLOCK 直接杀掉进程。
-    const replayStart: number = this.rawEvents.length > 300 ? this.rawEvents.length - 300 : 0;
+    const windowSize: number = Math.min(this.rawEvents.length, Math.max(300, this.replayWindow));
+    const replayStart: number = this.rawEvents.length - windowSize;
     // 窗口外的「用户自己发的消息」不能丢：一轮跑很久时（30+ 步），用户消息早被挤出 300 条窗口，
     // 于是点进会话看不到自己发过的话，只剩过程。这里把窗口外的真人用户消息单独补投一次。
     const olderUserEvents: RawSessionEvent[] = [];
     for (let index = 0; index < replayStart; index++) {
       const raw: RawSessionEvent = this.rawEvents[index];
-      if (raw.type !== 'user/message') {
+      if (raw.type !== 'user/message' && raw.type !== 'assistant/message') {
+        continue;
+      }
+      if (raw.type === 'assistant/message') {
+        // 窗口外的助手回复也要补投，否则历史只剩用户气泡、回复全丢
+        olderUserEvents.push(raw);
         continue;
       }
       const payload: Record<string, Object> | undefined = raw.data as Record<string, Object> | undefined;
@@ -1541,7 +1559,9 @@ export class SessionStore {
     // 但 build() 每帧都会遍历整份 items 做分组/策略计算；一个跑了 900 多步的会话
     // 每帧遍历上千条会把主线程顶到 3~6 秒，系统直接按 THREAD_BLOCK 杀进程。
     const source: ConversationItem[] = projector.items;
-    const cap: number = 150;
+    // 页面只拿最近 N 条：加载更早历史后要同步放宽，否则旧消息投影出来了又被截断，
+    // 下拉刷新看起来「加载成功但内容不出现」。
+    const cap: number = Math.min(800, 150 + Math.max(0, this.replayWindow - 300));
     const items: ConversationItem[] = source.length > cap
       ? source.slice(source.length - cap) : source.slice();
     const nowSeconds: number = Math.floor(Date.now() / 1000);
@@ -2000,6 +2020,7 @@ export class SessionStore {
     this.rawEvents = [];
     this.olderRequestPending = false;
     this.olderRequestCursor = 0;
+    this.replayWindow = 300;
     this.historyFormatVersion = 0;
     this.oldestSeq = 0;
     this.hasMore = false;

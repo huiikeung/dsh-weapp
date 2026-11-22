@@ -28,6 +28,9 @@ import { StatusBarStyle } from '../services/StatusBarStyle';
 import { Haptics } from '../services/Haptics';
 import { HoldingHand } from '../services/HoldingHand';
 
+/** 跨页面实例的文件变更摘要缓存：退出会话再进来不需要重新请求（否则第二次打开卡片会消失） */
+const sharedFileSummaries: Map<string, string> = new Map<string, string>();
+
 /** 协作面板「只读预览」里的一行消息（对齐小程序 collaborationPreview.rows） */
 interface TeamPreviewRow {
   key: string;
@@ -333,8 +336,88 @@ export struct ConversationPage {
   @State imageFailedEntries: string[] = [];
   /** 全屏图片预览路径（空 = 关闭） */
   @State previewImagePath: string = '';
+  /** 图片预览底部弹窗开关（对齐小程序：点缩略图从底部弹出大图） */
+  @State previewImageOpen: boolean = false;
+  /** 下拉刷新（加载更早历史）的动画状态 */
+  @State private refreshing: boolean = false;
+  /** 下拉刷新连续补页：一直加载到顶部是「用户消息」为止 */
+  private pullLoadAttempts: number = 0;
+  private pullLoadTimer: number = -1;
   /** 回合文件变更摘要缓存：'行id\u0001state\u0001total\u0001added\u0001deleted\u0001chips' */
   @State fileSummaries: string[] = [];
+  /** 下拉刷新：循环加载更早页，直到顶部是用户消息（或没有更早记录/次数上限） */
+  private pullLoadToTurnBoundary(): void {
+    if (this.pullLoadTimer >= 0) {
+      clearTimeout(this.pullLoadTimer);
+      this.pullLoadTimer = -1;
+    }
+    const store: SessionStore = SessionStore.get();
+    if (!this.pageVisible || !this.refreshing) {
+      return;
+    }
+    if (this.pullLoadAttempts >= 8) {
+      this.refreshing = false;
+      return;
+    }
+    // 已有内容：顶部第一行是用户消息就停
+    if (this.pullLoadAttempts > 0) {
+      const first: ConversationFeedEntryModel | undefined = this.entries.length > 0 ? this.entries[0] : undefined;
+      if (first !== undefined && first.kind === 'USER') {
+        this.refreshing = false;
+        return;
+      }
+    }
+    if (!store.hasOlderHistory()) {
+      this.refreshing = false;
+      if (this.pullLoadAttempts === 0) {
+        this.showToast('没有更早的记录了', false);
+      }
+      return;
+    }
+    this.pullLoadAttempts += 1;
+    const sent: boolean = store.loadOlder();
+    Logger.info('[PULL] attempt=' + this.pullLoadAttempts.toString() + ' sent=' + (sent ? '1' : '0'));
+    this.pullLoadTimer = setTimeout(() => {
+      this.pullLoadTimer = -1;
+      this.pullLoadToTurnBoundary();
+    }, 450);
+  }
+
+  /** 系统下拉指示器留空（只保留我们贴正文的那一条，避免顶部再冒一个转圈） */
+  @Builder
+  emptyRefreshIndicator() {
+    Column()
+      .width(0)
+      .height(0)
+  }
+
+  /** 下拉刷新指示器：紧凑高度（系统默认太高会被顶部标题栏盖住） */
+  @Builder
+  refreshIndicator() {
+    Row() {
+      LoadingProgress()
+        .width(20)
+        .height(20)
+        .color(this.subColor())
+    }
+    .width('100%')
+    .height(22)
+    .padding({ top: 0, bottom: 0 })
+    .justifyContent(FlexAlign.Center)
+    .alignItems(VerticalAlign.Center)
+  }
+
+  /** 阅读档：哪些过程行的折叠条处于展开状态 */
+  private liveFoldOpenIds: Set<string> = new Set<string>();
+  /** 摘要请求失败的 changeSeq 对应的行 id：允许后续重试（网关忙/断线时第一次会失败） */
+  private fileSummaryFailed: Set<string> = new Set<string>();
+  private fileSummaryRetryTimer: number = -1;
+  /** 已编辑文件卡片内联到助手回复（显示在复制/用量/时间行上方） */
+  private inlineAssistantFiles: Map<string, string[]> = new Map<string, string[]>();
+  /** 内联卡片对应的变更行 seq（点文件时按 seq 拉取差异） */
+  private inlineChangeSeqByAssistant: Map<string, number> = new Map<string, number>();
+  /** 助手产出的图片文件（deliverables）：内联成图片卡片显示在回复下方 */
+  private inlineAssistantAttachments: Map<string, string[]> = new Map<string, string[]>();
   /** 文件差异/内容弹窗：标题 + 逐行内容（首字符 +/-/空格 决定配色）+ 底部说明 */
   @State fileDiffOpen: boolean = false;
   @State fileDiffTitle: string = '';
@@ -504,7 +587,8 @@ export struct ConversationPage {
     this.rebuildRefDirs();
     // 胶囊默认态：设置里控制「默认显示 / 默认收起」
     try {
-      this.capsuleExpanded = PreferencesStore.get().getBoolean('capsuleDefaultExpanded', true);
+      // 进入会话页默认收起为贴边把手（用户要求：进来先收起，点开才展开）
+      this.capsuleExpanded = PreferencesStore.get().getBoolean('capsuleDefaultExpanded', false);
       this.capsuleAlwaysVisible = PreferencesStore.get().getBoolean('capsuleAlwaysVisible', true);
     } catch (ignored) {
     }
@@ -539,8 +623,7 @@ export struct ConversationPage {
 
   /** 读取工作步骤展示偏好（对齐 DSH 客户端 presentation policy） */
   private syncWorkStepPrefs(): void {
-    const mode: string = WorkStepPresentation.normalizeMode(
-      PreferencesStore.get().getString(WorkStepPresentation.MODE_KEY, 'detailed'));
+    const mode: string = WorkStepPresentation.ensureDefaultMode(PreferencesStore.get());
     const timing: string = WorkStepPresentation.normalizeTiming(
       PreferencesStore.get().getString(WorkStepPresentation.TIMING_KEY, 'completion'));
     AppStorage.setOrCreate<string>('workStepMode', mode);
@@ -552,7 +635,7 @@ export struct ConversationPage {
   /** 轮询兜底：偏好变了就重排（@StorageProp 的 watch 漏拍时靠它保证 1s 内生效） */
   private syncWorkStepLive(): void {
     const mode: string = WorkStepPresentation.normalizeMode(
-      PreferencesStore.get().getString(WorkStepPresentation.MODE_KEY, 'detailed'));
+      PreferencesStore.get().getString(WorkStepPresentation.MODE_KEY, WorkStepPresentation.DEFAULT_MODE));
     const timing: string = WorkStepPresentation.normalizeTiming(
       PreferencesStore.get().getString(WorkStepPresentation.TIMING_KEY, 'completion'));
     if (mode === this.workStepMode && timing === this.workStepTiming) {
@@ -835,6 +918,31 @@ export struct ConversationPage {
       || !GatewayClient.get().supportsWorkspaceChanges()) {
       return;
     }
+    // 先用跨实例缓存补上已拿到的摘要，避免「重新进入会话卡片消失」
+    let seeded: boolean = false;
+    for (const row of rows) {
+      if (row.kind !== 'CHANGES') {
+        continue;
+      }
+      const cached: string | undefined = sharedFileSummaries.get(row.id);
+      if (cached === undefined) {
+        continue;
+      }
+      let exists: boolean = false;
+      for (const item of this.fileSummaries) {
+        if (item.startsWith(row.id + '\u0001')) {
+          exists = true;
+          break;
+        }
+      }
+      if (!exists) {
+        this.fileSummaries = this.fileSummaries.concat([cached]);
+        seeded = true;
+      }
+    }
+    if (seeded) {
+      this.scheduleTimelineUpdate();
+    }
     let inflight: number = 0;
     for (const item of this.fileSummaries) {
       if (item.indexOf('\u0001loading\u0001') > 0) {
@@ -842,7 +950,11 @@ export struct ConversationPage {
       }
     }
     for (const row of rows) {
-      if (row.kind !== 'CHANGES' || row.changeSeq <= 0 || this.fileSummaryRequested.has(row.id)) {
+      if (row.kind !== 'CHANGES' || row.changeSeq <= 0) {
+        continue;
+      }
+      // 之前失败过的行允许重试，否则一次 request busy 就永远没有卡片
+      if (this.fileSummaryRequested.has(row.id) && !this.fileSummaryFailed.has(row.id)) {
         continue;
       }
       if (inflight >= 2) {
@@ -866,24 +978,34 @@ export struct ConversationPage {
         const added: number = num(value, 'added') ?? 0;
         const deleted: number = num(value, 'deleted') ?? 0;
         const files = arr(value, 'files') ?? [];
+        if (files.length > 0) {
+          Logger.info('[CHANGES] file0=' + JSON.stringify(files[0]));
+        }
         const chips: string[] = [];
         for (const file of files) {
-          const path: string = str(file, 'path') ?? '';
+          // 兼容不同实现：path 可能缺失，用 display 兜底；增删数也兼容 additions/deletions 命名
+          const rawPath: string = str(file, 'path') ?? '';
+          const path: string = rawPath.length > 0 ? rawPath : (str(file, 'display') ?? '');
           const display: string = str(file, 'display') ?? path;
           const name: string = display.split('/').pop() ?? display;
-          const fileAdded: string = (num(file, 'added') ?? 0).toString();
-          const fileDeleted: string = (num(file, 'deleted') ?? 0).toString();
+          const fileAdded: string = (num(file, 'added') ?? num(file, 'additions') ?? 0).toString();
+          const fileDeleted: string = (num(file, 'deleted') ?? num(file, 'deletions') ?? 0).toString();
           const binary: boolean = bool(file, 'binary') === true;
           const oversized: boolean = bool(file, 'oversized') === true;
           const hasCounts: string = binary || oversized ? '0' : '1';
           const statusNote: string = binary ? '二进制文件已变更，无法显示文本差异'
             : (oversized ? '文件过大，无法显示文本差异' : '');
-          // 编码：path\u0001name\u0001display\u0001added\u0001deleted\u0001hasCounts\u0001statusNote
-          chips.push(path + '\u0001' + name + '\u0001' + display + '\u0001' + fileAdded + '\u0001'
-            + fileDeleted + '\u0001' + hasCounts + '\u0001' + statusNote);
+          // 编码：path\u0003name\u0003display\u0003added\u0003deleted\u0003hasCounts\u0003statusNote
+          // chip 内部字段必须用 \u0003：外层摘要记录用 \u0001 分隔，同字符会让外层 split 把 chip 劈开。
+          chips.push(path + '\u0003' + name + '\u0003' + display + '\u0003' + fileAdded + '\u0003'
+            + fileDeleted + '\u0003' + hasCounts + '\u0003' + statusNote);
         }
+        Logger.info('[CHANGES] chips built n=' + chips.length.toString() + ' joinedLen=' + chips.join('\u0002').length.toString()
+          + ' first=' + (chips.length > 0 ? chips[0].substring(0, 80) : '-'));
+        this.fileSummaryFailed.delete(row.id);
         this.replaceFileSummary(key, 'ready', total, added, deleted, chips.join('\u0002'));
       }).catch((err: Error) => {
+        this.fileSummaryFailed.add(row.id);
         Logger.warn('[CHANGES] summary failed seq=' + row.changeSeq + ' ' + err.message);
         this.replaceFileSummary(key, 'error', 0, 0, 0, '');
       });
@@ -903,11 +1025,15 @@ export struct ConversationPage {
     }
     next.push(value);
     this.fileSummaries = next;
+    sharedFileSummaries.set(key, value);
+    // 摘要到达后要重新折叠时间线：内联卡片的数据是在 rebuildEntries 里算的，
+    // 只改 @State 不会触发重算 → 卡片永远不出现。
+    this.scheduleTimelineUpdate();
   }
 
   /** chip 是否至少有名字或路径（避免渲染空卡片） */
   private chipHasContent(chip: string): boolean {
-    const parts: string[] = chip.split('\u0001');
+    const parts: string[] = chip.split('\u0003');
     const name: string = parts.length > 1 ? parts[1] : '';
     const display: string = parts.length > 2 ? parts[2] : '';
     return name.length > 0 || display.length > 0;
@@ -923,8 +1049,11 @@ export struct ConversationPage {
         }
         const parts: string[] = item.split('\u0001');
         if (parts.length < 6 || parts[1] !== 'ready' || parts[5].length === 0) {
-          return [];
+          // 摘要还没到/失败：先用行自带文件列表渲染，保证「已编辑」卡片始终显示
+          return this.fileChipsFromEntry(entry);
         }
+        Logger.info('[CHANGES] read row parts=' + parts.length.toString() + ' state=' + parts[1]
+          + ' chipsLen=' + parts[5].length.toString() + ' head=' + parts[5].substring(0, 80));
         const chips: string[] = parts[5].split('\u0002');
         const valid: string[] = [];
         for (const chip of chips) {
@@ -934,12 +1063,172 @@ export struct ConversationPage {
         }
         Logger.info('[CHANGES] row=' + entry.id + ' state=' + parts[1] + ' total=' + parts[2]
           + ' added=' + parts[3] + ' deleted=' + parts[4] + ' chips=' + chips.length + ' valid=' + valid.length);
+        return valid.length > 0 ? valid : this.fileChipsFromEntry(entry);
+      }
+      return this.fileChipsFromEntry(entry);
+    }
+    return this.fileChipsFromEntry(entry);
+  }
+
+  /** 阅读档：把一组 feed 行的步骤汇总成「思考×N · 输出×N · 工具×N · 记录×N」 */
+  private readingCountsOfRows(rows: ConversationFeedEntry[]): string {
+    let think: number = 0;
+    let out: number = 0;
+    let tool: number = 0;
+    let record: number = 0;
+    // 已完成回合行本身 items 为空，真正的步骤在 children 里，必须一起统计
+    const allGroups: ConversationFeedEntry[] = [];
+    for (const group of rows) {
+      allGroups.push(group);
+      if (group.kind === 'TURN') {
+        for (const child of group.children) {
+          allGroups.push(child);
+        }
+      }
+    }
+    for (const group of allGroups) {
+      for (const item of group.items) {
+        const kind: string = item.kind as string;
+        if (kind === 'REASONING') {
+          think++;
+        } else if (kind === 'TOOL' || kind === 'JSON_TOOL') {
+          tool++;
+        } else if (kind === 'ASSISTANT') {
+          out++;
+        } else {
+          record++;
+        }
+      }
+    }
+    const parts: string[] = [];
+    if (think > 0) {
+      parts.push('思考×' + think.toString());
+    }
+    if (out > 0) {
+      parts.push('输出×' + out.toString());
+    }
+    if (tool > 0) {
+      parts.push('工具×' + tool.toString());
+    }
+    if (record > 0) {
+      parts.push('记录×' + record.toString());
+    }
+    return parts.length > 0 ? parts.join(' · ') : '此前步骤';
+  }
+
+  /** 阅读档：按回合内条目统计「思考×N · 输出×N · 工具×N · 记录×N」 */
+  private readingTurnCountsOf(children: ConversationFeedEntry[]): string {
+    let think: number = 0;
+    let out: number = 0;
+    let tool: number = 0;
+    let record: number = 0;
+    for (const group of children) {
+      for (const item of group.items) {
+        const kind: string = item.kind as string;
+        if (kind === 'REASONING') {
+          think++;
+        } else if (kind === 'TOOL' || kind === 'JSON_TOOL') {
+          tool++;
+        } else if (kind === 'ASSISTANT') {
+          out++;
+        } else {
+          record++;
+        }
+      }
+    }
+    const parts: string[] = [];
+    if (think > 0) {
+      parts.push('思考×' + think.toString());
+    }
+    if (out > 0) {
+      parts.push('输出×' + out.toString());
+    }
+    if (tool > 0) {
+      parts.push('工具×' + tool.toString());
+    }
+    if (record > 0) {
+      parts.push('记录×' + record.toString());
+    }
+    return parts.join(' · ');
+  }
+
+  /** 把 feed 行的 files 转成附件 chip（kind\u0001name\u0001path\u0001attachmentId\u0001mediaType） */
+  private attachmentChipsFromFiles(entry: ConversationFeedEntry): string[] {
+    const out: string[] = [];
+    for (const file of entry.files) {
+      const path: string = file.path === undefined ? '' : file.path;
+      if (path.length === 0) {
+        continue;
+      }
+      const name: string = file.name.length > 0 ? file.name : (path.split('/').pop() ?? path);
+      const lower: string = name.toLowerCase();
+      let mediaType: string = '';
+      if (/\.(jpg|jpeg)$/.test(lower)) {
+        mediaType = 'image/jpeg';
+      } else if (/\.png$/.test(lower)) {
+        mediaType = 'image/png';
+      } else if (/\.webp$/.test(lower)) {
+        mediaType = 'image/webp';
+      } else if (/\.(heic|heif)$/.test(lower)) {
+        mediaType = 'image/heic';
+      } else if (/\.gif$/.test(lower)) {
+        mediaType = 'image/gif';
+      } else if (/\.bmp$/.test(lower)) {
+        mediaType = 'image/bmp';
+      }
+      const description: string = file.status === undefined ? '' : file.status;
+      out.push('image\u0001' + name + '\u0001' + path + '\u0001' + '\u0001' + mediaType
+        + '\u0001' + description);
+    }
+    return out;
+  }
+
+  /** 给 feed 行直接生成卡片 chip（摘要 + 行自带文件列表兜底） */
+  private chipsFromFeedEntry(entry: ConversationFeedEntry): string[] {
+    const prefix: string = entry.id + '\u0001';
+    for (const item of this.fileSummaries) {
+      if (!item.startsWith(prefix)) {
+        continue;
+      }
+      const parts: string[] = item.split('\u0001');
+      if (parts.length < 6 || parts[1] !== 'ready' || parts[5].length === 0) {
+        break;
+      }
+      const chips: string[] = parts[5].split('\u0002');
+      const valid: string[] = [];
+      for (const chip of chips) {
+        if (chip.length > 0 && this.chipHasContent(chip)) {
+          valid.push(chip);
+        }
+      }
+      if (valid.length > 0) {
         return valid;
       }
-      return [];
+      break;
     }
     const out: string[] = [];
+    for (const file of entry.files) {
+      const path: string = file.path === undefined ? '' : file.path;
+      const name: string = file.name.length > 0 ? file.name : (path.split('/').pop() ?? path);
+      const display: string = path.length > 0 ? path : name;
+      if (path.length === 0 && name.length === 0) {
+        continue;
+      }
+      const hasCounts: boolean = file.added !== undefined || file.deleted !== undefined;
+      out.push(path + '\u0003' + name + '\u0003' + display + '\u0003' + (file.added ?? 0).toString()
+        + '\u0003' + (file.deleted ?? 0).toString() + '\u0003' + (hasCounts ? '1' : '0')
+        + '\u0003' + (file.status === undefined ? '' : file.status));
+    }
+    return out;
+  }
+
+  /** 用行自带文件列表生成卡片 chip（摘要未就绪时的兜底，保证卡片一直显示） */
+  private fileChipsFromEntry(entry: ConversationFeedEntryModel): string[] {
+    const out: string[] = [];
     const list = entry.files;
+    if (list === undefined || list.length === 0) {
+      return out;
+    }
     if (list === undefined || list.length === 0) {
       return out;
     }
@@ -952,8 +1241,8 @@ export struct ConversationPage {
       const added: string = (file.added ?? 0).toString();
       const deleted: string = (file.deleted ?? 0).toString();
       const statusNote: string = file.status === undefined ? '' : file.status;
-      out.push(path + '\u0001' + name + '\u0001' + display + '\u0001' + added + '\u0001' + deleted
-        + '\u0001' + (hasCounts ? '1' : '0') + '\u0001' + statusNote);
+      out.push(path + '\u0003' + name + '\u0003' + display + '\u0003' + added + '\u0003' + deleted
+        + '\u0003' + (hasCounts ? '1' : '0') + '\u0003' + statusNote);
     }
     return out;
   }
@@ -986,6 +1275,12 @@ export struct ConversationPage {
       const context = getContext(this) as common.UIAbilityContext;
       const result: DownloadResult = await downloadAttachment(context, GatewayClient.get(), sessionId, path);
       const mime: string = mediaType.length > 0 ? mediaType : result.mediaType;
+      if (mime.indexOf('image/') === 0) {
+        // 图片附件：应用内弹窗预览（之前直接交给系统看图器，用户看到的是「跳出 App」）
+        this.previewImagePath = result.localPath;
+        this.previewImageOpen = true;
+        return;
+      }
       await AttachmentCache.openExternally(context, result.localPath, mime.length > 0 ? mime : 'application/octet-stream');
     } catch (err) {
       this.showToast((err as Error).message, true);
@@ -1046,6 +1341,7 @@ export struct ConversationPage {
       this.hostImageBusy = false;
       this.hint = '';
       this.previewImagePath = result.localPath;
+      this.previewImageOpen = true;
     }).catch((err: Error) => {
       this.hostImageBusy = false;
       this.hint = err.message.length > 0 ? err.message : '图片加载失败';
@@ -1138,8 +1434,13 @@ export struct ConversationPage {
 
   /** 打开文件变更差异（对齐小程序 openChangedFile：workspace-changes-diff → hunks） */
   private async openChangedFileDiff(entry: ConversationFeedEntryModel, index: number): Promise<void> {
+    await this.openChangedFileDiffSeq(entry.changeSeq, index);
+  }
+
+  /** 内联「已编辑文件」卡片用：只知道变更 seq 也能打开差异弹窗 */
+  private async openChangedFileDiffSeq(changeSeq: number, index: number): Promise<void> {
     const sessionId: string = SessionStore.get().currentSessionId();
-    if (sessionId.length === 0 || entry.changeSeq <= 0) {
+    if (sessionId.length === 0 || changeSeq <= 0) {
       return;
     }
     this.fileDiffTitle = '文件差异';
@@ -1147,7 +1448,7 @@ export struct ConversationPage {
     this.fileDiffNote = '正在加载文件差异…';
     this.fileDiffOpen = true;
     try {
-      const frame: GatewayFrame = await GatewayClient.get().requestChangesDiff(sessionId, entry.changeSeq, index);
+      const frame: GatewayFrame = await GatewayClient.get().requestChangesDiff(sessionId, changeSeq, index);
       // 同上：插件响应在 frame.value，旧字段名 diff 仅作兼容兜底。
       const value = asRec(frame.value as Object) ?? asRec(field(frame as Object, 'diff'));
       if (value === undefined) {
@@ -1194,6 +1495,12 @@ export struct ConversationPage {
       const result: DownloadResult = await downloadAttachment(context, GatewayClient.get(), sessionId, path);
       const mime: string = mediaType.length > 0 ? mediaType : result.mediaType;
       const lower: string = (result.name.length > 0 ? result.name : name).toLowerCase();
+      if (mime.indexOf('image/') === 0) {
+        // 图片附件：下载到本地缓存后直接弹图片预览
+        this.previewImagePath = result.localPath;
+        this.previewImageOpen = true;
+        return;
+      }
       const isText: boolean = mime.startsWith('text/') || mime.indexOf('json') >= 0
         || /\.(md|markdown|txt|json|jsonl|csv|log|ya?ml|xml|html?|css|js|ts|tsx|py|sh|sql|go|rs|c|h|cpp|java|kt|swift|toml|ini|svg)$/.test(lower);
       if (isText && result.size <= 512 * 1024) {
@@ -1211,11 +1518,22 @@ export struct ConversationPage {
     }
   }
 
-  /** 文件差异/内容弹窗：等宽字体逐行渲染，+绿/−红/@ 灰 */
+  /** 文件差异弹窗内容：原生沉浸玻璃半模态（与工作区文件/切换主机同款系统材质） */
   @Builder
-  fileDiffOverlay() {
+  fileDiffSheet() {
     Column() {
-      Column() {
+        // 自绘抓取条：系统 dragBar 在沉浸材质下常常看不见，这里补一条显式的
+        Row() {
+          Column()
+            .width(36)
+            .height(4)
+            .borderRadius(2)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(16,19,24,0.18)')
+        }
+        .width('100%')
+        .justifyContent(FlexAlign.Center)
+        .padding({ top: 8, bottom: 2 })
+
         Row() {
           Text(this.fileDiffTitle)
             .fontSize(15)
@@ -1257,19 +1575,9 @@ export struct ConversationPage {
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
-      }
-      .width('100%')
-      .height('78%')
-      .backgroundColor(this.isDark ? '#1C1C1E' : '#FFFFFF')
-      .borderRadius({ topLeft: 18, topRight: 18 })
     }
     .width('100%')
     .height('100%')
-    .justifyContent(FlexAlign.End)
-    .backgroundColor('rgba(0,0,0,0.45)')
-    .onClick(() => {
-      this.fileDiffOpen = false;
-    })
   }
 
   /** 预览源：本地路径补 file://，http(s)/datashare 原样使用（正文里的网络图片、相册 URI） */
@@ -1281,23 +1589,65 @@ export struct ConversationPage {
     return 'file://' + path;
   }
 
-  /** 全屏图片预览：黑色遮罩 + 等比大图，点任意处关闭 */
+  /** 图片预览底部弹窗内容：等比大图（点缩略图从底部弹起，下拉或点空白关闭） */
   @Builder
-  imagePreviewOverlay() {
+  imagePreviewSheet() {
     Column() {
+      // 自绘抓取条（系统 dragBar 在沉浸材质/深色背景下常看不见）
+      Row() {
+        Column()
+          .width(36)
+          .height(4)
+          .borderRadius(2)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(16,19,24,0.18)')
+      }
+      .width('100%')
+      .justifyContent(FlexAlign.Center)
+      .padding({ top: 8, bottom: 6 })
+
       Image(this.previewSource(this.previewImagePath))
         .width('100%')
         .layoutWeight(1)
         .objectFit(ImageFit.Contain)
+        .margin({ bottom: 12 })
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('rgba(0,0,0,0.94)')
-    .justifyContent(FlexAlign.Center)
-    .alignItems(HorizontalAlign.Center)
-    .onClick(() => {
-      this.previewImagePath = '';
-    })
+    .padding({ left: 12, right: 12, top: 4, bottom: 8 })
+    .backgroundColor(this.isDark ? '#000000' : '#F2F2F4')
+  }
+
+  /**
+   * 引用一条回复：在输入框上方插入引用 chip，发送时把「> 引文」拼进正文。
+   * 对齐 iOS 最新版回复左下角（复制按钮右边）的箭头引用按钮。
+   */
+  private quoteReply(text: string): void {
+    const raw: string = text.trim();
+    if (raw.length === 0) {
+      return;
+    }
+    let preview: string = '';
+    for (const line of raw.split('\n')) {
+      const trimmed: string = line.trim();
+      if (trimmed.length > 0) {
+        preview = trimmed;
+        break;
+      }
+    }
+    preview = preview.replace(/^[#>*\-\s]+/, '');
+    if (preview.length > 24) {
+      preview = preview.substring(0, 24) + '…';
+    }
+    if (preview.length === 0) {
+      return;
+    }
+    const chip: RefChipItem = {
+      key: 'quote:' + Date.now().toString(),
+      label: preview,
+      kind: 'quote',
+      token: '\n> ' + raw + '\n'
+    };
+    this.refChips = this.refChips.concat([chip]);
   }
 
   private rebuildEntries(): void {
@@ -1323,6 +1673,92 @@ export struct ConversationPage {
     }
     // 回合展开时，把组行摊平到它下面当同级行（对齐小程序：turnProcess 行 + 各 processGroup 行，
     // 收起时按 turnProcessKey 过滤）。不嵌套组件——嵌套 @ObjectLink 行在本机会崩。
+    // 阅读档：每个回合结束后折叠成「思考×N · 输出×N · 工具×N · 记录×N ›」一行，
+    // 点开展开该回合内容（组行由下面摊平逻辑渲染）。
+    if (this.workStepMode === 'reading') {
+      for (const row of rows) {
+        if (row.kind !== 'TURN') {
+          continue;
+        }
+        row.text = this.readingTurnCountsOf(row.children);
+        row.expandable = true;
+        row.foldable = true;
+      }
+    }
+    // 阅读档：把「当前运行回合之前」的过程收进一条计数折叠行；
+    // 容器里只保留当前回合（从思考开始）的过程。点计数行展开历史过程。
+    if (false && this.workStepMode === 'reading') {
+      let runningIndex: number = -1;
+      for (let index = 0; index < rows.length; index++) {
+        if (rows[index].kind === 'PROCESS' && rows[index].running) {
+          runningIndex = index;
+          break;
+        }
+      }
+      const boundary: number = runningIndex >= 0 ? runningIndex : rows.length;
+      const historyMarks: boolean[] = [];
+      const historyRows: ConversationFeedEntry[] = [];
+      for (let index = 0; index < boundary; index++) {
+        const one: ConversationFeedEntry = rows[index];
+        const isProcessLike: boolean = one.kind === 'PROCESS' || one.kind === 'TURN';
+        historyMarks.push(isProcessLike);
+        if (isProcessLike) {
+          historyRows.push(one);
+        }
+      }
+      Logger.info('[READING] rows=' + rows.length.toString() + ' runningIndex=' + runningIndex.toString()
+        + ' history=' + historyRows.length.toString());
+      if (historyRows.length > 0) {
+        const counts: string = this.readingCountsOfRows(historyRows);
+        Logger.info('[READING] fold title=' + counts);
+        const foldId: string = 'reading-history-fold';
+        const foldEntry: ConversationFeedEntry = new ConversationFeedEntry();
+        foldEntry.id = foldId;
+        foldEntry.kind = 'TURN';
+        foldEntry.title = counts;
+        foldEntry.text = '';
+        foldEntry.expandable = true;
+        foldEntry.foldable = true;
+        foldEntry.epochSeconds = Date.now() / 1000;
+        const expanded: boolean = this.folds.get(foldId) === true;
+        foldEntry.expanded = expanded;
+        // 折叠行插在「当前回合容器」正上方（不要插到历史行原来的位置，
+        // 否则它在滚出屏幕的上方，用户看不到这一行）。
+        let insertAt: number = 0;
+        const next: ConversationFeedEntry[] = [];
+        for (let index = 0; index < rows.length; index++) {
+          if (index < boundary && historyMarks[index]) {
+            continue;
+          }
+          if (index < boundary) {
+            insertAt++;
+          }
+          next.push(rows[index]);
+        }
+        next.splice(insertAt, 0, foldEntry);
+        if (expanded) {
+          const withHistory: ConversationFeedEntry[] = [];
+          for (let index = 0; index < next.length; index++) {
+            withHistory.push(next[index]);
+            if (next[index] === foldEntry) {
+              // 展开时铺开每个已完成回合的过程步骤（而不是「已完成」汇总行）
+              for (const one of historyRows) {
+                if (one.kind === 'TURN') {
+                  for (const child of one.children) {
+                    withHistory.push(child);
+                  }
+                } else {
+                  withHistory.push(one);
+                }
+              }
+            }
+          }
+          rows = withHistory;
+        } else {
+          rows = next;
+        }
+      }
+    }
     const flat: ConversationFeedEntry[] = [];
     for (const row of rows) {
       flat.push(row);
@@ -1333,6 +1769,83 @@ export struct ConversationPage {
       }
     }
     rows = flat;
+    // 「已编辑文件」卡片改为内联到最后一条助手回复里（显示在复制/用量/时间页脚上方），
+    // 不再作为独立行追加在时间线末尾。
+    this.inlineAssistantFiles.clear();
+    this.inlineChangeSeqByAssistant.clear();
+    this.inlineAssistantAttachments.clear();
+    const changesRows: ConversationFeedEntry[] = [];
+    for (const one of rows) {
+      if (one.kind === 'CHANGES' || one.kind === 'FILES') {
+        changesRows.push(one);
+      }
+    }
+    if (changesRows.length > 0) {
+      // 这些变更行马上会从 rows 里摘掉，摘掉前必须先发起摘要请求，
+      // 否则 loadFileSummaries(rows) 永远看不到它们 → 卡片永远是空的。
+      this.loadFileSummaries(changesRows);
+      const lastAssistantByTurn: Map<string, string> = new Map<string, string>();
+      for (const one of rows) {
+        if (one.kind === 'ASSISTANT' && one.turnKey.length > 0) {
+          lastAssistantByTurn.set(one.turnKey, one.id);
+        }
+      }
+      // 只要这轮有助手回复，变更行一律内联（哪怕摘要还没到、chips 暂时为空）：
+      // 否则「摘要未就绪」时会保留独立行 → 显示在页脚下面，位置就乱了。
+      // 兜底：turnKey 对不上时（历史数据/空 turn），挂到最后一条助手回复上，
+      // 否则会退回独立行 → 又被排到时间线末尾、显示在页脚和按钮下面。
+      let lastAssistantId: string = '';
+      for (const one of rows) {
+        if (one.kind === 'ASSISTANT') {
+          lastAssistantId = one.id;
+        }
+      }
+      const inlinedIds: Set<string> = new Set<string>();
+      for (const filesRow of changesRows) {
+        let assistantId: string | undefined = lastAssistantByTurn.get(filesRow.turnKey);
+        if (assistantId === undefined || assistantId.length === 0) {
+          assistantId = lastAssistantId.length > 0 ? lastAssistantId : undefined;
+        }
+        if (assistantId === undefined) {
+          continue;
+        }
+        inlinedIds.add(filesRow.id);
+        if (filesRow.kind === 'FILES') {
+          // 助手产出的文件（截图等）：内联成附件图片卡片，不并进「已编辑」卡片
+          const attachChips: string[] = this.attachmentChipsFromFiles(filesRow);
+          if (attachChips.length > 0) {
+            this.inlineAssistantAttachments.set(assistantId, attachChips);
+          }
+          continue;
+        }
+        this.inlineChangeSeqByAssistant.set(assistantId, filesRow.changeSeq);
+        const chips: string[] = this.chipsFromFeedEntry(filesRow);
+        Logger.info('[CHANGES] inline assistant=' + assistantId.slice(-10) + ' seq=' + filesRow.changeSeq.toString()
+          + ' chips=' + chips.length.toString() + ' summaries=' + this.fileSummaries.length.toString());
+        if (chips.length > 0) {
+          this.inlineAssistantFiles.set(assistantId, chips);
+        } else {
+          // 摘要还没到或失败：强制下次重试，并在 1.5s 后主动重排一次拿结果
+          this.fileSummaryRequested.delete(filesRow.id);
+          if (this.fileSummaryRetryTimer < 0) {
+            this.fileSummaryRetryTimer = setTimeout(() => {
+              this.fileSummaryRetryTimer = -1;
+              this.scheduleTimelineUpdate();
+            }, 1500);
+          }
+        }
+      }
+      if (inlinedIds.size > 0) {
+        const keep: ConversationFeedEntry[] = [];
+        for (const one of rows) {
+          if (inlinedIds.has(one.id)) {
+            continue;
+          }
+          keep.push(one);
+        }
+        rows = keep;
+      }
+    }
     // 运行中标题最短展示 150ms，避免快速切换闪烁（对齐客户端 PROCESS_TITLE_MINIMUM_MS）
     const nowMs: number = Date.now();
     for (const entry of rows) {
@@ -1687,7 +2200,15 @@ export struct ConversationPage {
     if (!this.userInteracting()) {
       return;
     }
-    if (this.entries.length === 0 || this.lastVisibleEnd < this.entries.length - 1) {
+    // 用「是否真的在底部」判断，而不是行下标：会话行数少时，任何一个位置都满足
+    // end >= length-2，用户往上滑一点就又被判成在底部 → 被拽回去。
+    let atEnd: boolean = false;
+    try {
+      atEnd = this.scroller.isAtEnd();
+    } catch (err) {
+      atEnd = false;
+    }
+    if (this.entries.length === 0 || !atEnd) {
       return;
     }
     this.autoStick = true;
@@ -2181,6 +2702,10 @@ export struct ConversationPage {
       }
     }
     this.folds.set(id, next);
+    // 点行是明确的阅读动作，必须当场生效：如果 onClick 早于 onTouch(Up) 到达，
+    // rebuildEntries 会被「手指按住 / 结构变化待重排」的守卫吞掉，表现就是点了没反应。
+    this.listTouching = false;
+    this.pendingStructure = false;
     this.rebuildEntries();
   }
 
@@ -3629,20 +4154,42 @@ export struct ConversationPage {
         this.topToast()
       }
       .width('100%')
-      .padding({ left: 16, right: 16, top: this.topInset + 58 })
+      // 轻提示下移到标题栏下方（原来贴得太近，被标题栏压住）
+      .padding({ left: 16, right: 16, top: this.topSafe() + 68 })
       .alignItems(HorizontalAlign.Center)
-      .zIndex(30)
+      // 悬浮在最上层：盖住胶囊/侧栏等所有浮层
+      .zIndex(200)
       .hitTestBehavior(HitTestMode.None)
 
-      // 图片大图预览（点缩略图打开，点任意处关闭）
-      if (this.previewImagePath.length > 0) {
-        this.imagePreviewOverlay()
-      }
+      // 图片大图预览：底部系统半模态（与工作区文件同一个 bindSheet 容器）
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.previewImageOpen, this.imagePreviewSheet(), {
+          height: '78%',
+          dragBar: true,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.isDark ? '#000000' : '#F2F2F4',
+          onDisappear: () => {
+            this.previewImagePath = '';
+          }
+        })
 
-      // 文件差异 / 内容弹窗
-      if (this.fileDiffOpen) {
-        this.fileDiffOverlay()
-      }
+      // 文件差异弹窗：1×1 透明锚点，用系统半模态承载（原生玻璃材质）
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.fileDiffOpen, this.fileDiffSheet(), {
+          height: '78%',
+          dragBar: true,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+          systemMaterial: this.teamSheetMaterial()
+        })
 
       // 会话节点弹层：自绘 overlay（系统菜单会因「按住黑色滑块」判为点空白而收起）
       if (this.turnNavOpen) {
@@ -3770,6 +4317,20 @@ export struct ConversationPage {
       if (this.pendingItemsWhileHidden) {
         this.pendingItemsWhileHidden = false;
         this.scheduleTimelineUpdate();
+      }
+      // 首屏兜底：内容可能在上屏前一刻才到（赋值落在组件还没建好的窗口里被吞掉）。
+      // 这里在几个时间点各补一次重排+贴底，保证第一帧就能看到内容，不需要用户点一下。
+      for (const delay of [60, 220, 600]) {
+        setTimeout(() => {
+          if (!this.pageVisible) {
+            return;
+          }
+          this.rebuildEntries();
+          try {
+            this.scroller.scrollEdge(Edge.Bottom);
+          } catch (err) {
+          }
+        }, delay);
       }
     })
     .onHidden(() => {
@@ -5988,6 +6549,7 @@ export struct ConversationPage {
                 // 点缩略图看大图（对齐小程序 composer 缩略图预览）
                 .onClick(() => {
                   this.previewImagePath = attachment.uri;
+                  this.previewImageOpen = true;
                 })
             } else {
               Row({ space: 5 }) {
@@ -6100,7 +6662,15 @@ export struct ConversationPage {
         // 提到 List 之上，硬币才能收到手势。
         .zIndex(1)
       }
+      Refresh({ refreshing: $$this.refreshing, builder: this.emptyRefreshIndicator() }) {
       List({ space: 0, scroller: this.scroller }) {
+        // 下拉刷新时在列表顶部插一条紧凑指示器：紧贴正文，不依赖系统指示器位置
+        if (this.refreshing) {
+          ListItem() {
+            this.refreshIndicator()
+          }
+          .width('100%')
+        }
         // 顶部占位：给浮动顶栏让出高度；往上滚时这段空白先滑走，内容直接从标题下面穿过
         ListItem() {
           Column()
@@ -6119,6 +6689,21 @@ export struct ConversationPage {
               stepClosedIds: this.stepClosedIds,
               reasonFullIds: this.reasonFullIds,
               workStepMode: this.workStepMode,
+              liveFoldOpen: this.liveFoldOpenIds.has(entry.id),
+              onToggleLiveFold: () => {
+                if (this.liveFoldOpenIds.has(entry.id)) {
+                  this.liveFoldOpenIds.delete(entry.id);
+                } else {
+                  this.liveFoldOpenIds.add(entry.id);
+                }
+                // Set 的增删不会通知 UI，行内的 @Prop liveFoldOpen 也不会自己更新：
+                // 必须换一个数组引用让 ForEach 重跑（key 里带折叠位），这一行才会重建、
+                // 拿到新的 liveFoldOpen 并把被折叠的前缀步骤铺出来。
+                // 之前只 scheduleTimelineUpdate：entries 引用没变、行数也没变，
+                // rebuild 提前 return —— 于是「点计数折叠行完全没反应」。
+                this.entries = this.entries.slice();
+                this.scheduleTimelineUpdate();
+              },
               onToggleReasonFull: (id: string) => {
                 this.onToggleReasonFull(id);
               },
@@ -6137,12 +6722,17 @@ export struct ConversationPage {
               onShowDetail: (title: string, body: string) => {
                 this.onShowDetail(title, body);
               },
-              imagePaths: entry.localImages.concat(this.imagePathsFor(entry.id)),
+              // 本地图由行内 entry.localImages 提供；这里只传下载好的附件图，避免同一张图重复一条
+              imagePaths: this.imagePathsFor(entry.id),
               onRetryImages: () => {
                 this.retryImages(entry.id);
               },
               onImageTap: (path: string) => {
                 this.previewImagePath = path;
+                this.previewImageOpen = true;
+              },
+              onQuoteReply: (text: string) => {
+                this.quoteReply(text);
               },
               onImagePathTap: (path: string) => {
                 this.openHostImage(path);
@@ -6154,13 +6744,18 @@ export struct ConversationPage {
                 // 兜底：行内没有明细时（老数据）用轻提示给出结论
                 this.hint = SessionStore.get().turnUsageDetail(turnKey).split('\n').join(' · ');
               },
-              attachmentChips: this.attachmentChipsOf(entry),
+              attachmentChips: this.attachmentChipsOf(entry).concat(this.inlineAssistantAttachments.get(entry.id) ?? []),
               onAttachmentTap: (name: string, path: string, mediaType: string) => {
                 this.openMessageAttachment(name, path, mediaType);
               },
-              fileCards: this.fileCardsOf(entry),
+              fileCards: this.inlineAssistantFiles.get(entry.id) ?? this.fileCardsOf(entry),
+              filesInline: this.inlineAssistantFiles.has(entry.id),
               onFileTap: (name: string, path: string, index: number, hasCounts: boolean) => {
-                if (entry.kind === 'CHANGES' && hasCounts) {
+                // 内联在助手回复里的「已编辑文件」卡片：按该轮的变更 seq 拉差异弹窗
+                const inlineSeq: number | undefined = this.inlineChangeSeqByAssistant.get(entry.id);
+                if (inlineSeq !== undefined && inlineSeq > 0) {
+                  this.openChangedFileDiffSeq(inlineSeq, index);
+                } else if (entry.kind === 'CHANGES' && hasCounts) {
                   this.openChangedFileDiff(entry, index);
                 } else {
                   this.openFileContent(name, path, '');
@@ -6170,7 +6765,12 @@ export struct ConversationPage {
           }
           .width('100%')
           .padding({ left: 20, right: 20 })
-        }, (entry: ConversationFeedEntryModel) => entry.id + '#' + entry.itemsRevision.toString() + '#' + entry.text.length.toString())
+        }, (entry: ConversationFeedEntryModel) =>
+          entry.id + '#' + entry.itemsRevision.toString() + '#' + entry.text.length.toString()
+          + '#' + (this.inlineAssistantFiles.get(entry.id) ?? []).length.toString()
+          + '#' + (this.inlineAssistantFiles.get(entry.id)?.length ? this.inlineAssistantFiles.get(entry.id)![0].length.toString() : '0')
+          // 折叠条展开状态参与 key：否则页面状态变了但 ForEach 复用旧行，@Prop 不更新 → 点了没反应
+          + '#' + (this.liveFoldOpenIds.has(entry.id) ? '1' : '0'))
         // 运行状态条：普通列表行（跟随内容滚动，不做"始终固定可见"的处理）。
         if (this.progressLabel.length > 0 && this.entries.length > 0) {
           ListItem() {
@@ -6231,8 +6831,14 @@ export struct ConversationPage {
       .onScrollIndex((start: number, end: number) => {
         // 记录最后一条可见行：只凭它判断「用户真的滑到底了」
         this.lastVisibleEnd = end;
-        // 手指拖动离开底部才停跟随；回到末尾立刻恢复（不依赖 userInteracting，那个会被程序化滚动点亮）
-        if (this.entries.length > 0 && end >= this.entries.length - 2) {
+        // 用真实滚动位置判断是否在底部（行数少时行下标不可靠）
+        let atEnd: boolean = false;
+        try {
+          atEnd = this.scroller.isAtEnd();
+        } catch (err) {
+          atEnd = false;
+        }
+        if (this.entries.length > 0 && atEnd) {
           this.autoStick = true;
         } else if (this.listTouching) {
           this.autoStick = false;
@@ -6244,6 +6850,18 @@ export struct ConversationPage {
         // 若据此恢复吸底，用户往上看的历史会被立刻拽回底部（表现就是「运行时滑不动」）。
         this.maybeResumeAutoStick();
       })
+      }
+      .refreshOffset(0)
+      .pullDownRatio(0.4)
+      .onRefreshing(() => {
+        // 下拉刷新：连续加载更早历史，直到列表最上面是一条「用户消息」为止
+        // （否则分页会停在助手回复中间，看着像内容缺失）
+        this.refreshing = true;
+        this.pullLoadAttempts = 0;
+        this.pullLoadToTurnBoundary();
+      })
+      .width('100%')
+      .height('100%')
 
       if (!this.autoStick && this.entries.length > 0) {
         // 回到底部：与「返回」按钮同款的 iOS Liquid Glass 玻璃盘（无实色外圈）

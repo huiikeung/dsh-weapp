@@ -6,6 +6,29 @@ import { Haptics } from '../services/Haptics';
 import { AttachmentCache, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, ThemeManager, WorkStepPresentation, WorkspaceRow } from 'nativecore';
 
 /**
+ * 工作步骤档位文案：作为独立组件直接订阅 AppStorage，
+ * 二级选择页写入后这个 Text 一定会自己重绘（不依赖父页面的 @Builder 参数是否重算）。
+ */
+@Component
+struct WorkStepValueText {
+  @Prop kind: string = 'mode';
+  @Prop textColor: string = '';
+  @StorageProp('workStepMode') workStepMode: string = 'reading';
+  @StorageProp('workStepTiming') workStepTiming: string = 'completion';
+
+  build() {
+    Text(this.kind === 'mode'
+      ? WorkStepPresentation.modeLabel(this.workStepMode)
+      : WorkStepPresentation.timingLabel(this.workStepTiming))
+      .fontSize(15)
+      .fontColor(this.textColor)
+      .maxLines(1)
+      .textOverflow({ overflow: TextOverflow.Ellipsis })
+      .constraintSize({ maxWidth: 200 })
+  }
+}
+
+/**
  * 设置（左侧栏「设置」）：逐行对齐小程序 pages/settings。
  * 分组顺序：连接 → 外观 → 通用设置 → 对话 → 实验性功能 → 关于（逐行对齐 settings.wxml）。
  * 无原生数据源的行在本页用 AppStorage（小写驼峰键）保存开关，并同步 PreferencesStore 持久化。
@@ -34,7 +57,7 @@ export struct AppSettingsPage {
   @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
   @StorageLink('showAccountCard') showAccountCard: boolean = false;
   /** 会话节点胶囊：默认展开显示（关闭则默认收起成贴边把手） */
-  @StorageLink('capsuleDefaultExpanded') capsuleDefaultExpanded: boolean = true;
+  @StorageLink('capsuleDefaultExpanded') capsuleDefaultExpanded: boolean = false;
   /** 胶囊常显：关闭后会话页不再显示侧边胶囊 */
   @StorageLink('capsuleAlwaysVisible') capsuleAlwaysVisible: boolean = true;
   @StorageLink('notifyEnabled') notifyEnabled: boolean = false;
@@ -61,7 +84,7 @@ export struct AppSettingsPage {
   @State appVersion: string = '1.0.2';
   // 直接绑 AppStorage：选择页（PreferencePickerPage）写 AppStorage 后，本页行文案立刻刷新，
   // 不依赖返回时的 @Watch/onShown 是否触发。
-  @StorageProp('workStepMode') @Watch('onWorkStepStorage') workStepMode: string = 'detailed';
+  @StorageProp('workStepMode') @Watch('onWorkStepStorage') workStepMode: string = 'reading';
   @StorageProp('workStepTiming') @Watch('onWorkStepStorage') workStepTiming: string = 'completion';
   /** 选择页写入后递增：用作「偏好已变化」的可靠信号，让本页行文案立即刷新 */
   @StorageProp('prefPickerRevision') @Watch('onPickerRevision') prefPickerRevision: number = 0;
@@ -131,7 +154,7 @@ export struct AppSettingsPage {
     const prefs: PreferencesStore = PreferencesStore.get();
     this.fontSize = prefs.getString('contentFontSize', '标准');
     this.haptics = this.normalizeHaptics(prefs.getString('hapticsLevel', 'medium'));
-    const storedMode: string = WorkStepPresentation.normalizeMode(prefs.getString(WorkStepPresentation.MODE_KEY, 'detailed'));
+    const storedMode: string = WorkStepPresentation.ensureDefaultMode(prefs);
     const storedTiming: string = WorkStepPresentation.normalizeTiming(prefs.getString(WorkStepPresentation.TIMING_KEY, 'completion'));
     AppStorage.setOrCreate<string>('workStepMode', storedMode);
     AppStorage.setOrCreate<string>('workStepTiming', storedTiming);
@@ -150,7 +173,7 @@ export struct AppSettingsPage {
     this.homeAnimationEnabled = prefs.getBoolean('homeAnimationEnabled', true);
     this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', true);
     this.showAccountCard = prefs.getBoolean('showAccountCard', false);
-    this.capsuleDefaultExpanded = prefs.getBoolean('capsuleDefaultExpanded', true);
+    this.capsuleDefaultExpanded = prefs.getBoolean('capsuleDefaultExpanded', false);
     this.capsuleAlwaysVisible = prefs.getBoolean('capsuleAlwaysVisible', true);
     this.notifyEnabled = prefs.getBoolean('notifyEnabled', false);
     this.contextTabVisible = prefs.getBoolean('contextTabVisible', true);
@@ -257,6 +280,30 @@ export struct AppSettingsPage {
     .width('100%')
     .constraintSize({ minHeight: 44 })
     .padding({ left: 16, right: 16, top: 15, bottom: 15 })
+    .onClick(onTap)
+  }
+
+  /** 工作步骤档位行：值文案用独立组件渲染，保证选择后立即刷新 */
+  @Builder
+  rowWorkStep(label: string, desc: string, kind: string, onTap: () => void) {
+    Row() {
+      Column({ space: 3 }) {
+        Text(label).fontSize(16).fontColor(this.textColor())
+        if (desc.length > 0) {
+          Text(desc).fontSize(12).fontColor(this.subColor())
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+
+      Row({ space: 6 }) {
+        WorkStepValueText({ kind: kind, textColor: this.subColor() })
+        Text('›').fontSize(18).fontColor(this.subColor())
+      }
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 44 })
+    .padding({ left: 16, right: 16, top: 13, bottom: 13 })
     .onClick(onTap)
   }
 
@@ -1543,11 +1590,11 @@ export struct AppSettingsPage {
                 })
                 this.divider()
               }
-              this.rowDesc('工作步骤展示', '选择希望看到多少工具调用细节', this.workStepLabel, true, () => {
+              this.rowWorkStep('工作步骤展示', '选择希望看到多少工具调用细节', 'mode', () => {
                 this.openPicker('mode');
               })
               this.divider()
-              this.rowDesc('工作步骤收起时机', '选择何时自动收起工作步骤', this.workStepTimingLabel, true, () => {
+              this.rowWorkStep('工作步骤收起时机', '选择何时自动收起工作步骤', 'timing', () => {
                 this.openPicker('timing');
               })
               this.divider()

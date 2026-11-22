@@ -187,6 +187,8 @@ export class ConversationFeedEntry {
   processAutoOpen: boolean = false;
   /** 组体此刻是否可见 */
   processBodyVisible: boolean = false;
+  /** 阅读档实时折叠：本轮新思考出现时，把前面这些步骤收进折叠条（条目数前缀） */
+  liveFoldCount: number = 0;
   /** 组体是否限高滚动 */
   processBodyCapped: boolean = false;
   /** 组标题隐藏（完全展开档 / 简洁档运行中只留活动组） */
@@ -415,6 +417,9 @@ export class ConversationFeed {
     const groups: ConversationFeedEntry[] = [];
     let open: ConversationFeedEntry | null = null;
     let lastUserEpoch: number = 0;
+    // 「已编辑文件」行缓冲到本轮结尾再插入：投影里它出现在最终回复之前，
+    // 直接 push 会变成卡片在回复上方（还被吸底挤出屏幕），用户看不到。
+    const pendingFiles: ConversationFeedEntry[] = [];
     // 标记哪些工具步骤下面还有子步骤（对齐小程序：有子过程的父行只显示名称，不带「运行」）
     const parents: Set<string> = new Set<string>();
     for (const one of items) {
@@ -433,6 +438,11 @@ export class ConversationFeed {
       const item: ConversationItem = items[itemIndex];
       const kind: string = item.kind as string;
       if (kind === ConversationItemKind.USER as string) {
+        // 新一轮开始前，把上一轮缓冲的「已编辑文件」行落位
+        for (const pending of pendingFiles) {
+          groups.push(pending);
+        }
+        pendingFiles.length = 0;
         lastUserEpoch = item.epochSeconds;
       }
       if (ConversationFeed.isProcessKind(kind)) {
@@ -480,7 +490,7 @@ export class ConversationFeed {
         filesEntry.turnKey = item.turn === undefined ? '' : item.turn.toString();
         filesEntry.files = item.files === undefined ? [] : item.files;
         filesEntry.changeSeq = item.changeSeq === undefined ? 0 : item.changeSeq;
-        groups.push(filesEntry);
+        pendingFiles.push(filesEntry);
         continue;
       }
       const message: ConversationFeedEntry = new ConversationFeedEntry();
@@ -510,7 +520,10 @@ export class ConversationFeed {
       for (const att of filesAll) {
         const mt: string = att.mediaType === undefined ? '' : att.mediaType;
         const aid: string = att.attachmentId === undefined ? '' : att.attachmentId;
-        if (mt.startsWith('image/') && aid.length > 0) {
+        // 图片判定：mediaType 优先；网关有时只给文件名（上传回执路径），按扩展名兜底
+        // （对齐小程序 file-deliverables 的 classify/iconFileFor：附件类型靠扩展名识别）
+        const looksImage: boolean = mt.startsWith('image/') || ConversationFeed.imageName(att.name);
+        if (looksImage && aid.length > 0) {
           let dup: boolean = false;
           for (const one of imgs) {
             if (one.attachmentId === aid) {
@@ -538,15 +551,56 @@ export class ConversationFeed {
       message.turnKey = item.turn === undefined ? '' : item.turn.toString();
       groups.push(message);
     }
+    for (const pending of pendingFiles) {
+      groups.push(pending);
+    }
+    pendingFiles.length = 0;
     ConversationFeed.finishGroups(groups, running, lastUserEpoch);
     ConversationFeed.applyCopyRules(groups);
     ConversationFeed.applyTurnFooters(groups);
-    return groups;
+    // 「已编辑文件」卡片固定放在整轮最后一行：回复正文之后、输入框上方。
+    // （投影里它产生在最终回复之前，若按原序渲染会跑到回复上方并被吸底顶出屏幕。）
+    const filesRows: ConversationFeedEntry[] = [];
+    const rest: ConversationFeedEntry[] = [];
+    // 当前正在跑的这轮先不显示卡片：否则会在「执行图标行」和鲸尾行之间冒出来。
+    // 等这轮结束（running=false）后，卡片才落到回复正文之后、输入框上方。
+    let lastProcessTurn: string = '';
+    for (const entry of groups) {
+      if (entry.kind === 'PROCESS' && entry.turnKey.length > 0) {
+        lastProcessTurn = entry.turnKey;
+      }
+    }
+    for (const entry of groups) {
+      if (entry.kind === 'CHANGES' || entry.kind === 'FILES') {
+        if (running && lastProcessTurn.length > 0 && entry.turnKey === lastProcessTurn) {
+          continue;
+        }
+        filesRows.push(entry);
+      } else {
+        rest.push(entry);
+      }
+    }
+    for (const entry of filesRows) {
+      rest.push(entry);
+    }
+    return rest;
   }
 
   /**
    * 失败码 → 人话（对齐 DSH 客户端 FAILURE_COPY：只对少数已知码特殊处理，其余给通用文案）。
    */
+  /** 文件名是否是图片扩展名（jpg/jpeg/png/gif/webp/heic/bmp）。 */
+  static imageName(name: string): boolean {
+    const lower: string = name.toLowerCase();
+    const dot: number = lower.lastIndexOf('.');
+    if (dot < 0) {
+      return false;
+    }
+    const ext: string = lower.substring(dot + 1);
+    return ext === 'jpg' || ext === 'jpeg' || ext === 'png' || ext === 'gif'
+      || ext === 'webp' || ext === 'heic' || ext === 'bmp';
+  }
+
   static humanizeFailure(raw: string): string {
     const text: string = raw.toLowerCase();
     if (text.indexOf('version-conflict') >= 0 || text.indexOf('version conflict') >= 0) {
@@ -714,7 +768,8 @@ export class ConversationFeed {
           // 详细档：回合展开时各组默认跟着展开（对齐 openInExpandedTurn），
           // 用户点过就以用户的折叠状态为准。
           ConversationFeed.applyGroupPolicy(child, policy, normalizedMode, timing, false,
-            ConversationFeed.foldOf(folds, child.id, entry.expanded && policy.stepGrouping === 'history'),
+            ConversationFeed.foldOf(folds, child.id, policy.readingSummary ? entry.expanded
+              : (entry.expanded && policy.stepGrouping === 'history')),
             entry.expanded, processRunning);
         }
         continue;
@@ -725,7 +780,8 @@ export class ConversationFeed {
       const hasInputAfter: boolean = index < lastUserIndex;
       const deferred: boolean = timing === 'next-input' && !hasInputAfter && index === lastGroupIndex;
       ConversationFeed.applyGroupPolicy(entry, policy, normalizedMode, timing, deferred,
-        ConversationFeed.foldOf(folds, entry.id, false), false, processRunning);
+        ConversationFeed.foldOf(folds, entry.id, policy.readingSummary && entry.running),
+        false, processRunning);
     }
   }
 
@@ -751,12 +807,31 @@ export class ConversationFeed {
     // 只有「对话过程中不分组」的详细档才自动铺开组体（对齐小程序 processAutoOpen = !grouped && !verbose）。
     // 简洁/标准恒分组：运行中也只留一行组标题（标准带实时细节），点开才看步骤。
     entry.processAutoOpen = !grouped && !verbose && policy.stepGrouping === 'history';
+    if (policy.readingSummary) {
+      // 阅读档：过程正文的展开/收起完全由用户点箭头控制（运行中也能实时折叠）
+      entry.processAutoOpen = false;
+    }
     // 完全展开（stepGrouping=none）永不收起：没有组标题，过程直接平铺
     entry.processBodyVisible = verbose || expanded || entry.processAutoOpen;
     // 运行中/展开时都套限高容器（原始结构）；思考卡保持卡片样式在容器内滚动。
     entry.processBodyCapped = entry.processBodyVisible ? capWhenOpen : (grouped && timing !== 'next-input');
     entry.liveDetail = policy.liveProcessDetail && entry.running
       ? ConversationFeed.liveDetail(entry) : '';
+    // 阅读档（对齐 dsh-interactive-reader 的 live chain）：
+    // 「新的思考出现」= 上一段链条结束，把该点之前的步骤收进折叠条，
+    // 容器内只保留最新这段（从最后一次思考开始）的过程。
+    entry.liveFoldCount = 0;
+    if (policy.readingSummary && entry.running && entry.items.length > 1) {
+      let lastReasoning: number = -1;
+      for (let index = 0; index < entry.items.length; index++) {
+        if (entry.items[index].kind === ConversationItemKind.REASONING) {
+          lastReasoning = index;
+        }
+      }
+      if (lastReasoning > 0) {
+        entry.liveFoldCount = lastReasoning;
+      }
+    }
     // 简洁档运行中：只留活动组那一行「正在…」，已收工组的标题也收起来
     entry.headingHidden = verbose || (mode === 'compact' && processRunning && entry.running !== true);
     // 简洁档：组标题不带「N 次工具调用 / N 项上下文」计数后缀

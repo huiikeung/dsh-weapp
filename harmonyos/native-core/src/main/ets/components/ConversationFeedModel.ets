@@ -83,6 +83,7 @@ export class ConversationFeedEntryModel {
   processGrouped: boolean = false;
   processAutoOpen: boolean = false;
   processBodyVisible: boolean = false;
+  liveFoldCount: number = 0;
   processBodyCapped: boolean = false;
   headingHidden: boolean = false;
   titleWrap: boolean = false;
@@ -302,6 +303,9 @@ export class ConversationFeedEntryModel {
     if (this.processAutoOpen !== entry.processAutoOpen) {
       this.processAutoOpen = entry.processAutoOpen;
     }
+    if (this.liveFoldCount !== entry.liveFoldCount) {
+      this.liveFoldCount = entry.liveFoldCount;
+    }
     if (this.processBodyVisible !== entry.processBodyVisible) {
       this.processBodyVisible = entry.processBodyVisible;
     }
@@ -370,6 +374,12 @@ export class ConversationFeedEntryModel {
     next.epochSeconds = entry.epochSeconds;
     next.expanded = entry.expanded;
     next.items = entry.items;
+    // 这几个字段必须一起复制：历史行的图片/附件就是靠它们渲染的。
+    // 之前 from() 漏了 images / attachments / localImages，新建行永远是空数组，
+    // 于是历史消息里的图片只能靠页面级预取兜底（一旦那条链路没命中就是空白）。
+    next.images = entry.images;
+    next.attachments = entry.attachments;
+    next.localImages = entry.localImages;
     next.imageCount = entry.imageCount;
     next.running = entry.running;
     next.expandable = entry.expandable;
@@ -390,6 +400,7 @@ export class ConversationFeedEntryModel {
     next.processGrouped = entry.processGrouped;
     next.processAutoOpen = entry.processAutoOpen;
     next.processBodyVisible = entry.processBodyVisible;
+    next.liveFoldCount = entry.liveFoldCount;
     next.processBodyCapped = entry.processBodyCapped;
     next.headingHidden = entry.headingHidden;
     next.titleWrap = entry.titleWrap;
@@ -397,6 +408,11 @@ export class ConversationFeedEntryModel {
     next.expandedSummary = entry.expandedSummary;
     next.activityTitle = entry.activityTitle;
     next.foldable = entry.foldable;
+    // 「已编辑 / 交付文件」卡片的数据：files 与 changeSeq 必须一起复制，
+    // 否则新建的行 changeSeq=0，页面拉不到变更摘要 → 卡片永远不显示。
+    next.files = entry.files;
+    next.changeSeq = entry.changeSeq;
+    next.localImages = entry.localImages;
     for (const child of entry.children) {
       next.children.push(ConversationFeedEntryModel.from(child));
     }
