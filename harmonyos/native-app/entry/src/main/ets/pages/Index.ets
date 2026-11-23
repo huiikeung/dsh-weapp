@@ -25,12 +25,21 @@ import { PrivacyPolicyPage } from './PrivacyPolicyPage';
 import { UserAgreementPage } from './UserAgreementPage';
 import { openSessionRoute } from '../common/SessionRoute';
 import { StatusBarStyle } from '../services/StatusBarStyle';
+import { PrivacyConsent } from '../services/PrivacyConsent';
+import { uiMaterial } from '@kit.ArkUI';
+import { PrivacyConsentDialog } from '../components/PrivacyConsentDialog';
 
 @Entry
 @Component
 struct Index {
   @Provide('pageStack') pageStack: NavPathStack = new NavPathStack();
   @StorageLink('isDark') isDark: boolean = false;
+  /** 首次启动隐私同意：unknown / required / granted，未同意前不自动联网（见 EntryAbility.startNetworking） */
+  @StorageLink('privacyConsentState') @Watch('onConsentStateChanged') consentState: string = 'unknown';
+  /** 正在查看《用户协议》/《隐私政策》：此时不弹同意弹窗，返回首页后再弹 */
+  @State consentDocOpen: boolean = false;
+  /** 系统同意弹窗的控制器（第一次需要弹时才创建） */
+  private consentDialog: CustomDialogController | undefined = undefined;
   @StorageLink('themeMode') @Watch('applyAppColorMode') themeMode: string = 'system';
   @StorageLink('pendingSessionId') @Watch('openPendingSession') pendingSessionId: string = '';
   @StorageLink('pendingPageRoute') @Watch('openPendingPageRoute') pendingPageRoute: string = '';
@@ -76,6 +85,7 @@ struct Index {
     }, 80);
     this.applyAppColorMode();
     if (this.pendingSessionId.length > 0) this.openPendingSession();
+    this.syncConsentDialog();
     if (this.pendingPageRoute.length > 0) {
       setTimeout(() => this.openPendingPageRoute(), 700);
     }
@@ -150,16 +160,125 @@ struct Index {
     StatusBarStyle.setRoute(routeName);
     // 首页是否可见：进入二级页后暂停首页背景动效，降低后台绘制发热
     AppStorage.setOrCreate<boolean>('homePageVisible', routeName === '');
+    // 从协议页返回首页：还没同意的话把同意弹窗重新弹出来
+    if (routeName.length === 0) {
+      this.consentDocOpen = false;
+      this.syncConsentDialog();
+    }
   }
 
 
-  build() {
-    Navigation(this.pageStack) {
-      HomePage();
+  /** 偏好里的同意状态同步到 AppStorage 后触发 */
+  onConsentStateChanged(): void {
+    this.syncConsentDialog();
+  }
+
+  /**
+   * 同意状态：unknown（偏好还没读出来）/ required（需要用户同意）/ granted（已同意）。
+   * 由 EntryAbility 在偏好初始化后写入，用户点同意后由 PrivacyConsent.agree() 改成 granted。
+   */
+  private syncConsentDialog(): void {
+    if (this.consentState === 'granted') {
+      const granted: CustomDialogController | undefined = this.consentDialog;
+      if (granted !== undefined && granted.isOpen()) {
+        granted.close();
+      }
+      return;
     }
-    .navDestination(this.PageMap)
-    .hideTitleBar(true)
-    .mode(NavigationMode.Stack)
+    if (this.consentState === 'required' && !this.consentDocOpen) {
+      // 等页面首帧之后再弹，避免在页面还没挂载时 open()
+      setTimeout(() => {
+        this.showConsentDialog();
+      }, 60);
+    }
+  }
+
+  /** 同意弹窗的材质：与「切换主机」半模态同一套沉浸光感（旧系统降级为普通弹窗） */
+  private consentMaterial(): uiMaterial.Material | undefined {
+    try {
+      if (!uiMaterial.isImmersiveMaterialSupported()) {
+        return undefined;
+      }
+      return new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.THICK,
+        materialColor: this.isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.34)',
+        colorInvert: true,
+        applyShadow: true
+      });
+    } catch (err) {
+      return undefined;
+    }
+  }
+
+  /** 首次启动隐私同意弹窗：系统 CustomDialog + 沉浸光感材质，模态且不会被返回键/遮罩关掉 */
+  private showConsentDialog(): void {
+    if (this.consentState !== 'required' || this.consentDocOpen) {
+      return;
+    }
+    try {
+      let dialog: CustomDialogController | undefined = this.consentDialog;
+      if (dialog === undefined) {
+        // 第一次需要弹的时候再建：材质要按当时的深浅色取
+        dialog = new CustomDialogController({
+          builder: PrivacyConsentDialog({
+            onAgree: () => {
+              PrivacyConsent.agree();
+            },
+            onDisagree: () => {
+              // 不同意则退出应用；下次启动仍会看到同意弹窗
+              const ctx = getContext(this) as common.UIAbilityContext;
+              ctx.terminateSelf().catch(() => {
+              });
+            },
+            onOpenDoc: (route: string) => {
+              this.openConsentDoc(route);
+            }
+          }),
+          alignment: Alignment.Center,
+          autoCancel: false,
+          isModal: true,
+          systemMaterial: this.consentMaterial(),
+          onWillDismiss: (action: DismissDialogAction) => {
+            // 注册了这个回调后，返回键/点遮罩不会直接关闭；未同意前什么都不做，弹窗保持打开
+          }
+        }, this);
+        this.consentDialog = dialog;
+      }
+      dialog.open();
+    } catch (err) {
+      Logger.error('consent dialog failed: ' + JSON.stringify(err));
+    }
+  }
+
+  /** 打开协议页查看全文：先收起弹窗，返回首页时 syncConsentDialog 会重新弹出来 */
+  private openConsentDoc(route: string): void {
+    this.consentDocOpen = true;
+    const dialog: CustomDialogController | undefined = this.consentDialog;
+    if (dialog !== undefined) {
+      dialog.close();
+    }
+    this.pageStack.pushPathByName(route, null);
+  }
+  build() {
+    Stack() {
+      Navigation(this.pageStack) {
+        HomePage();
+      }
+      .navDestination(this.PageMap)
+      .hideTitleBar(true)
+      .mode(NavigationMode.Stack)
+      .width('100%')
+      .height('100%')
+      .backgroundColor(this.isDark ? '#000000' : '#F2F2F7')
+
+      // 未同意期间的兜底：弹窗本身是模态的，这里只挡弹窗出现/消失动画期间的触摸空档
+      if (this.consentState === 'required' && !this.consentDocOpen) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .hitTestBehavior(HitTestMode.Block)
+      }
+    }
     .width('100%')
     .height('100%')
     .backgroundColor(this.isDark ? '#000000' : '#F2F2F7')
