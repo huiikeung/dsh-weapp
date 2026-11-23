@@ -15,7 +15,7 @@ import { renderBrandFlow } from '../core/BrandFlow';
  * 底部压暗与 settle 用静态渐变组件，完全不参与重绘。
  * 流体光带只在首次渲染一次（周期性重算 fbm 噪声会把 CPU 从 ~15% 推到 ~75%）。
  */
-interface Pixel { x: number; y: number; luminance: number; edge: number; phase: number; light: number; }
+interface Pixel { x: number; y: number; luminance: number; edge: number; phase: number; light: number; bucket: number; }
 
 @Component
 export struct OceanBackground {
@@ -29,6 +29,9 @@ export struct OceanBackground {
   private whale: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
   private pixels: Pixel[] = [];
+  private drawOrder: Pixel[] = [];
+  private bucketColors: string[] = [];
+  private bucketAlphas: number[] = [];
   private canvasWidth: number = 0;
   private canvasHeight: number = 0;
   private tick: number = -1;
@@ -237,13 +240,10 @@ export struct OceanBackground {
     if (w <= 0 || h <= 0 || this.pixels.length === 0) {
       return;
     }
-    // iOS 的 Canvas 覆盖整屏且不做安全区平移：这里同样用原始画布坐标
     const totalH: number = h;
     ctx.clearRect(0, 0, w, h);
     ctx.save();
 
-    // 与 iOS HarnessWhaleField 相同的几何与参数
-    // 与 iOS 完全一致：不做额外缩放
     const baseSquare: number = Math.max(w * 1.15, totalH * 0.48);
     const square: number = baseSquare * 1.10;
     const cx: number = w * 0.55;
@@ -251,27 +251,36 @@ export struct OceanBackground {
     const baseDot: number = Math.max(1.35, baseSquare / 240);
     const t: number = this.reduceMotion ? 0 : this.phase;
 
-    this.pixels.forEach((pixel: Pixel) => {
+    // 按 bucket 排序后一次性分组填充：fillStyle/globalAlpha 每帧只切换 ~18 次
+    let currentBucket: number = -1;
+    let pathOpen: boolean = false;
+    for (let i = 0; i < this.drawOrder.length; i++) {
+      const pixel: Pixel = this.drawOrder[i];
+      if (pixel.bucket !== currentBucket) {
+        if (pathOpen) {
+          ctx.fill();
+        }
+        currentBucket = pixel.bucket;
+        ctx.fillStyle = this.bucketColors[currentBucket];
+        ctx.globalAlpha = Math.min(1, Math.max(0, this.bucketAlphas[currentBucket] *
+          (0.90 + 0.10 * Math.sin(t * 1.5 + pixel.x * 15 + pixel.y * 9))));
+        ctx.beginPath();
+        pathOpen = true;
+      }
       const tail: number = this.smoothstep(0.54, 0.94, pixel.x);
       const edgeDrift: number = 0.35 + 0.65 * pixel.edge;
-      // iOS 用每颗粒子的固定 phase；这里用坐标做确定性伪随机，视觉一致
       const pphase: number = pixel.phase;
       const driftX: number = Math.sin(t * 0.50 + pphase * 0.53) * 2.8 * edgeDrift;
       const driftY: number = Math.cos(t * 0.42 + pphase * 0.71) * 2.6 * edgeDrift;
       const tailWave: number = Math.sin(t * 1.10 - pixel.x * 7.0) * 7.0 * tail;
-      const shimmer: number = 0.90 + 0.10 * Math.sin(t * 1.5 + pixel.x * 15 + pixel.y * 9);
       const dotSize: number = baseDot * (0.72 + pixel.luminance * 0.58);
       const x: number = cx + (pixel.x - 0.5) * square + driftX;
       const y: number = cy + (pixel.y - 0.5) * square + driftY + tailWave;
-      // iOS：alpha = (0.10 + lum*0.38) * shimmer，再叠 Canvas opacity 0.56
-      // iOS 的整层 opacity 0.56 + blur 会让点更柔；这里降一点峰值，避免「抢眼」
-      const alpha: number = Math.min(1, Math.max(0, (0.10 + pixel.luminance * 0.38) * shimmer * 0.47));
-      ctx.globalAlpha = alpha;
-      ctx.fillStyle = 'rgb(' + Math.round((0.73 + 0.15 * pixel.light) * 255) + ',' +
-        Math.round((0.79 + 0.12 * pixel.light) * 255) + ',' + Math.round((0.92 + 0.08 * pixel.light) * 255) + ')';
-      // iOS 用 roundedRect（cornerRadius = dotSize*0.18），视觉上就是小方块
-      ctx.fillRect(x - dotSize / 2, y - dotSize / 2, dotSize, dotSize);
-    });
+      ctx.rect(x - dotSize / 2, y - dotSize / 2, dotSize, dotSize);
+    }
+    if (pathOpen) {
+      ctx.fill();
+    }
     ctx.globalAlpha = 1;
     ctx.restore();
   }
@@ -285,8 +294,27 @@ export struct OceanBackground {
     // 与 iOS HeroWhaleMask 60x60 采样结果一致（含 phase / light）
     this.pixels = WHALE_PIXELS_IOS.map((point: number[]): Pixel => ({
       x: point[0], y: point[1], luminance: point[2], edge: point[3],
-      phase: point[4], light: point[5]
+      phase: point[4], light: point[5], bucket: 0
     }));
+    // 把颜色/透明度量化成有限几档：绘制时可合并成 ~18 次 Path 填充，CPU 大幅下降
+    const colorLut: string[] = [];
+    const alphaLut: number[] = [];
+    this.pixels.forEach((pixel: Pixel) => {
+      const lightLevel: number = Math.min(5, Math.max(0, Math.floor(pixel.light * 6)));
+      const lumLevel: number = Math.min(2, Math.max(0, Math.floor(pixel.luminance * 3)));
+      const bucket: number = lightLevel * 3 + lumLevel;
+      pixel.bucket = bucket;
+      if (colorLut[bucket] === undefined) {
+        const light: number = (lightLevel + 0.5) / 6;
+        const lum: number = (lumLevel + 0.5) / 3;
+        colorLut[bucket] = 'rgb(' + Math.round((0.73 + 0.15 * light) * 255) + ',' +
+          Math.round((0.79 + 0.12 * light) * 255) + ',' + Math.round((0.92 + 0.08 * light) * 255) + ')';
+        alphaLut[bucket] = (0.10 + lum * 0.38) * 0.47;
+      }
+    });
+    this.bucketColors = colorLut;
+    this.bucketAlphas = alphaLut;
+    this.drawOrder = this.pixels.slice().sort((a: Pixel, b: Pixel) => a.bucket - b.bucket);
   }
 
   private restart(): void {
