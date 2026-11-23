@@ -370,6 +370,9 @@ export struct ConversationPage {
   /** 多图预览：整组图片路径 + 当前下标（Swiper 左右翻） */
   @State previewImageList: string[] = [];
   @State previewImageIndex: number = 0;
+  /** 大图预览的双指缩放比例（1~4，切图/关闭时复位） */
+  @State private previewZoom: number = 1;
+  private previewZoomBase: number = 1;
   /** 图片预览底部弹窗开关（对齐小程序：点缩略图从底部弹出大图） */
   @State previewImageOpen: boolean = false;
   /** 下拉刷新（加载更早历史）的动画状态 */
@@ -2582,10 +2585,7 @@ export struct ConversationPage {
       if (this.previewImageList.length > 1) {
         Swiper() {
           ForEach(this.previewImageList, (path: string) => {
-            Image(this.previewSource(path))
-              .width('100%')
-              .height('100%')
-              .objectFit(ImageFit.Contain)
+            this.zoomablePreviewImage(path)
           }, (path: string) => path)
         }
         .index(this.previewImageIndex)
@@ -2597,19 +2597,42 @@ export struct ConversationPage {
         .onChange((index: number) => {
           this.previewImageIndex = index;
           this.previewImagePath = this.previewImageList[index];
+          // 翻到下一张时缩放复位，避免带着上一张的放大倍数
+          this.previewZoom = 1;
+          this.previewZoomBase = 1;
         })
       } else {
-        Image(this.previewSource(this.previewImagePath))
-          .width('100%')
-          .layoutWeight(1)
-          .objectFit(ImageFit.Contain)
-          .margin({ bottom: 12 })
+        this.zoomablePreviewImage(this.previewImagePath)
       }
     }
     .width('100%')
     .height('100%')
     .padding({ left: 12, right: 12, top: 4, bottom: 8 })
-    .backgroundColor(this.isDark ? '#000000' : '#F2F2F4')
+    // 透出系统半模态的原生玻璃底（不再自己铺黑/灰实色）
+    .backgroundColor(Color.Transparent)
+  }
+
+  /** 大图 + 双指缩放：图片跟着手指放大缩小（1~4 倍，松手保持） */
+  @Builder
+  zoomablePreviewImage(path: string) {
+    if (path.length > 0) {
+      Image(this.previewSource(path))
+        .width('100%')
+        .layoutWeight(1)
+        .objectFit(ImageFit.Contain)
+        .margin({ bottom: 12 })
+        .scale({ x: this.previewZoom, y: this.previewZoom })
+        .gesture(
+          PinchGesture({ fingers: 2 })
+            .onActionStart(() => {
+              this.previewZoomBase = this.previewZoom;
+            })
+            .onActionUpdate((event: GestureEvent) => {
+              const next: number = this.previewZoomBase * event.scale;
+              this.previewZoom = next < 1 ? 1 : (next > 4 ? 4 : next);
+            })
+        )
+    }
   }
 
   /**
@@ -6162,11 +6185,17 @@ export struct ConversationPage {
           dragBar: true,
           showClose: false,
           preferType: SheetType.BOTTOM,
-          backgroundColor: this.isDark ? '#000000' : '#F2F2F4',
+          // 原生玻璃底（与文件差异 / 回复详情弹窗同一套材质）；不支持沉浸材质的设备退回纯色
+          backgroundColor: this.immersiveSupported()
+            ? Color.Transparent
+            : (this.isDark ? '#1C1C1E' : '#F7F8FA'),
+          systemMaterial: this.teamSheetMaterial(),
           onDisappear: () => {
             this.previewImagePath = '';
             this.previewImageList = [];
             this.previewImageIndex = 0;
+            this.previewZoom = 1;
+            this.previewZoomBase = 1;
           }
         })
 

@@ -115,7 +115,11 @@ export struct ConversationRowView {
   /** 本行自己解析出来的图片本地路径（按 attachmentId 拉取后缓存，不再依赖页面级预取） */
   @State private resolvedImages: string[] = [];
   /** 文件附件里的图片：chip\u0001本地路径（按网关 path 下载后缓存，行内直接出缩略图） */
-  @State private chipImages: string[] = [];
+  @State @Watch('onChipImagesChanged') private chipImages: string[] = [];
+  /** 待打开的图片组：被点图片在 attachmentChips 里的下标（>=0 表示还在等本地图就绪） */
+  private pendingImageChip: number = -1;
+  private pendingImageFallbackChip: string = '';
+  private pendingImageTimer: number = -1;
   private chipImageBusy: boolean = false;
   /** 点击「加载失败」重试（父页重新发起预取） */
   private onRetryImages: () => void = () => {
@@ -617,7 +621,7 @@ export struct ConversationRowView {
   attachmentList(alignEnd: boolean) {
     if (this.attachmentChips.length > 0) {
       Column({ space: this.rpx(16) }) {
-        ForEach(this.attachmentChips, (chip: string) => {
+        ForEach(this.attachmentChips, (chip: string, chipIndex: number) => {
           if (this.isImageAttachmentChip(chip) && alignEnd) {
             // 用户发送的图片：直接显示缩略图（与输入框里的预览一致），点击从底部弹出大图
             Stack({ alignContent: Alignment.Center }) {
@@ -702,7 +706,9 @@ export struct ConversationRowView {
             .border({ width: 0.5, color: this.dividerLineColor() })
             .margin({ top: this.rpx(8) })
             .onClick(() => {
-              this.onAttachmentTap(this.attachmentName(chip), this.attachmentPath(chip), this.attachmentMediaType(chip));
+              // 同一条回复里的图片当作一组：点卡片打开大图预览，可左右翻看整组；
+              // 附件是 attachmentId 形式（无工作区路径）时先拉缓存/下载，就绪后再开
+              this.openImageGroup(chipIndex, chip);
             })
           } else {          Row({ space: this.rpx(14) }) {
             Image(chip.startsWith('directory')
@@ -806,9 +812,10 @@ export struct ConversationRowView {
     }
     const pending: string[] = [];
     for (const chip of this.attachmentChips) {
-      if (!this.isImageAttachmentChip(chip) || this.chipImagePath(chip).length > 0) {
+      if (!this.isImageAttachmentChip(chip) || this.chipResolvedImage(chip).length > 0) {
         continue;
       }
+      // 只有工作区路径的附件才走 file-download；attachmentId 形式的在 kickChipImageFetch 里处理
       if (this.attachmentPath(chip).length > 0) {
         pending.push(chip);
       }
@@ -839,6 +846,127 @@ export struct ConversationRowView {
         Logger.warn('[IMG] chip download failed ' + error.message);
         this.fetchChipImageAt(context, client, sessionId, pending, index + 1);
       });
+  }
+
+  /** chip 里第 4 段是 attachmentId（kind\u0001name\u0001path\u0001attachmentId\u0001mediaType） */
+  private chipAttachmentId(chip: string): string {
+    const parts: string[] = chip.split('\u0001');
+    return parts.length > 3 ? parts[3] : '';
+  }
+
+  /** 图片 chip 的本地可渲染路径：行内下载结果 → 附件缓存（按 attachmentId） */
+  private chipResolvedImage(chip: string): string {
+    const fromState: string = this.chipImagePath(chip);
+    if (fromState.length > 0) {
+      return fromState;
+    }
+    const id: string = this.chipAttachmentId(chip);
+    if (id.length === 0) {
+      return '';
+    }
+    return AttachmentImageCache.localPath(id, this.attachmentMediaType(chip), this.attachmentName(chip));
+  }
+
+  /** 为 attachmentId 形式的图片附件拉取本地缓存（缓存命中会同步返回） */
+  private kickChipImageFetch(): void {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0 || !GatewayClient.get().isConnected()) {
+      return;
+    }
+    for (const chip of this.attachmentChips) {
+      if (!this.isImageAttachmentChip(chip) || this.chipResolvedImage(chip).length > 0) {
+        continue;
+      }
+      const id: string = this.chipAttachmentId(chip);
+      if (id.length === 0) {
+        continue;
+      }
+      AttachmentImageCache.fetch(sessionId, id, this.attachmentMediaType(chip), this.attachmentName(chip))
+        .then((path: string) => {
+          if (path.length > 0 && this.chipImages.indexOf(chip + '\u0001' + path) < 0) {
+            this.chipImages = this.chipImages.concat([chip + '\u0001' + path]);
+          }
+        })
+        .catch(() => {
+        });
+    }
+  }
+
+  private allImageChipsResolved(): boolean {
+    for (const chip of this.attachmentChips) {
+      if (this.isImageAttachmentChip(chip) && this.chipResolvedImage(chip).length === 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private onChipImagesChanged(): void {
+    if (this.pendingImageChip >= 0 && this.allImageChipsResolved()) {
+      this.tryOpenPendingImageGroup();
+    }
+  }
+
+  /** 点回复图片卡片：打开整组大图（等所有图就绪，最多等 1.5s，超时用手上已就绪的） */
+  private openImageGroup(chipIndex: number, fallbackChip: string): void {
+    this.pendingImageChip = chipIndex;
+    this.pendingImageFallbackChip = fallbackChip;
+    this.kickChipImageFetch();
+    this.resolveChipImages();
+    if (this.allImageChipsResolved()) {
+      this.tryOpenPendingImageGroup();
+      return;
+    }
+    if (this.pendingImageTimer >= 0) {
+      clearTimeout(this.pendingImageTimer);
+    }
+    this.pendingImageTimer = setTimeout(() => {
+      this.pendingImageTimer = -1;
+      if (this.pendingImageChip < 0) {
+        return;
+      }
+      if (this.chipResolvedImage(this.pendingImageFallbackChip).length > 0) {
+        this.tryOpenPendingImageGroup();
+        return;
+      }
+      // 连被点的那张都没下来：退回原来的「打开附件」逻辑（会给出提示或外部预览）
+      const chip: string = this.pendingImageFallbackChip;
+      this.pendingImageChip = -1;
+      this.pendingImageFallbackChip = '';
+      this.onAttachmentTap(this.attachmentName(chip), this.attachmentPath(chip), this.attachmentMediaType(chip));
+    }, 1500);
+  }
+
+  private tryOpenPendingImageGroup(): void {
+    if (this.pendingImageChip < 0) {
+      return;
+    }
+    const group: string[] = [];
+    let current: number = -1;
+    for (let i = 0; i < this.attachmentChips.length; i++) {
+      const one: string = this.attachmentChips[i];
+      if (!this.isImageAttachmentChip(one)) {
+        continue;
+      }
+      const local: string = this.chipResolvedImage(one);
+      if (local.length === 0) {
+        continue;
+      }
+      if (i === this.pendingImageChip) {
+        current = group.length;
+      }
+      group.push(local);
+    }
+    if (current < 0) {
+      return;
+    }
+    if (this.pendingImageTimer >= 0) {
+      clearTimeout(this.pendingImageTimer);
+      this.pendingImageTimer = -1;
+    }
+    this.pendingImageChip = -1;
+    this.pendingImageFallbackChip = '';
+    this.onImageListTap(group, current);
   }
 
   /**
