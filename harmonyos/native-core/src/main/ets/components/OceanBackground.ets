@@ -169,6 +169,12 @@ export struct OceanBackground {
       glow.addColorStop(1, '#010510');
       ctx.fillStyle = glow;
       ctx.fillRect(0, 0, w, totalH);
+      // 流体位图就绪前的静态近似：右下角暖光带，避免「光带晚出现」的视觉跳变
+      const warm = ctx.createRadialGradient(w * 1.02, totalH * 0.96, 0, w * 1.02, totalH * 0.96, Math.max(w, totalH) * 0.42);
+      warm.addColorStop(0, 'rgba(238,216,170,0.14)');
+      warm.addColorStop(1, 'rgba(238,216,170,0)');
+      ctx.fillStyle = warm;
+      ctx.fillRect(0, 0, w, totalH);
     }
 
     ctx.strokeStyle = 'rgba(255,255,255,0.043)';
@@ -288,13 +294,13 @@ export struct OceanBackground {
       const now: number = Date.now();
       this.phase = (this.phase + (now - last) / 1000) % 4096;
       last = now;
-      // 保持动效的前提下省电：鲸鱼 25fps（iOS 30fps），流体约 6fps
+      // 保持动效前提下继续省电：鲸鱼 20fps，流体约 4fps（Canvas 由 GPU 合成，CPU 只发少量绘制指令）
       this.drawWhale();
-      this.bgFrame = (this.bgFrame + 1) % 4;
+      this.bgFrame = (this.bgFrame + 1) % 5;
       if (this.bgFrame === 0) {
         this.updateFlow();
       }
-    }, 40);
+    }, 50);
   }
 
   private isAnimating(): boolean {
