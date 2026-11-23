@@ -82,8 +82,7 @@ class FluidField {
         const radiusA: number = Math.hypot(warpedX - aspect * 0.58, warpedY - 0.16);
         const radiusB: number = Math.hypot(warpedX + aspect * 0.20, warpedY - 0.13);
         const ribbonA: number = Math.exp(-Math.pow((radiusA - (0.35 + 0.025 * Math.sin(t * 1.5))) / 0.042, 2));
-        // 半径略放大：让第二条丝带扫过右下角（iOS 观感中的右下光带）
-        const ribbonB: number = Math.exp(-Math.pow((radiusB - (0.98 + 0.020 * Math.cos(t * 1.15))) / 0.075, 2));
+        const ribbonB: number = Math.exp(-Math.pow((radiusB - (0.83 + 0.020 * Math.cos(t * 1.15))) / 0.070, 2));
         const ribbon: number = Math.max(0, Math.min(1, ribbonA * 0.78 + ribbonB * 0.62));
         const glow: number = this.smoothstep(0.90, 0.18, Math.hypot((uvx - 0.58) * 0.82, uvy - 0.32));
         const vignette: number = this.smoothstep(0.95, 0.23, Math.hypot((uvx - 0.5) * 0.86, uvy - 0.5));
@@ -94,7 +93,7 @@ class FluidField {
           let color: number = this.mix(black[c], deepBlue[c], this.smoothstep(0.14, 0.63, fluid));
           color = this.mix(color, oceanBlue[c], this.smoothstep(0.42, 0.82, fluid + swirl * 0.18));
           color = this.mix(color, mistBlue[c], this.smoothstep(0.74, 0.98, swirl) * 0.18);
-          color = this.mix(color, warmLight[c], ribbon * (0.56 + 0.24 * swirl));
+          color = this.mix(color, warmLight[c], ribbon * (0.62 + 0.24 * swirl));
           color += deepBlue[c] * glow * 0.22;
           color *= 0.38 + 0.72 * vignette;
           color += grain;
