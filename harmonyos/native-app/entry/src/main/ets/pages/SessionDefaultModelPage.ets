@@ -258,6 +258,22 @@ export struct SessionDefaultModelPage {
     this.savedModel = currentModel;
     this.savedProvider = currentProvider;
     this.savedEffort = currentEffort;
+    // 同组模型显示名完全一致时（provider 名重复），回退到模型 id
+    for (const one of rows) {
+      let same: number = 0;
+      let total: number = 0;
+      for (const other of rows) {
+        if (other.provider === one.provider) {
+          total++;
+          if (other.label === one.label) {
+            same++;
+          }
+        }
+      }
+      if (total > 1 && same === total) {
+        one.label = one.model;
+      }
+    }
     return rows;
   }
 

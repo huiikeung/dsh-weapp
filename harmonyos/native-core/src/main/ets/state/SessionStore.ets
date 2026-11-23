@@ -632,6 +632,23 @@ export class SessionStore {
           });
         }
       }
+      // 同组内所有模型 name 相同（网关常把 provider 名当模型名）时，改用模型 id
+      for (const one of details) {
+        let same: number = 0;
+        let total: number = 0;
+        for (const other of details) {
+          if (other.provider === one.provider) {
+            total++;
+            if (other.label === one.label) {
+              same++;
+            }
+          }
+        }
+        if (total > 1 && same === total) {
+          one.label = one.model;
+        }
+      }
+
       // 内容没变就不写：这两项挂着页面 @Watch，重复写会触发无意义的重新请求/重排
       let modelSignature: string = '';
       for (const one of details) {

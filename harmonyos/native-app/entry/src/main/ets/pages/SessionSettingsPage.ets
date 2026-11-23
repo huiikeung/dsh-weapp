@@ -172,6 +172,23 @@ export struct SessionSettingsPage {
     if (id.length === 0) {
       id = PreferencesStore.get().getString('defaultModel', '');
     }
+    // 网关的默认值有时给的是 provider id（如 deepseek）：用它所在分组的当前/主机模型代替
+    let matched: boolean = false;
+    for (const one of this.modelDetails) {
+      if (one.model === id) {
+        matched = true;
+        break;
+      }
+    }
+    if (!matched && id.length > 0) {
+      const alt: string = this.selectedModelValue.length > 0 ? this.selectedModelValue : this.hostModelValue;
+      for (const one of this.modelDetails) {
+        if (one.model === alt && (one.provider === id || id.length === 0)) {
+          id = alt;
+          break;
+        }
+      }
+    }
     if (id.length === 0) {
       return '';
     }
