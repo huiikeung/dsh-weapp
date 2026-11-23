@@ -188,9 +188,19 @@ export struct OceanBackground {
       ctx.imageSmoothingEnabled = true;
       // 宽屏（平板/大窗口）：流体光带按面积等比放大后容易过曝发白，压低不透明度更接近 iOS 大屏观感
       const wide: boolean = w / Math.max(1, h) > 0.95;
-      ctx.globalAlpha = wide ? 0.5 : 1;
+      // iOS iPad 的流体光带更收敛：宽屏压暗一档，并在四周叠一层径向压暗，
+      // 让光带只剩中间一团柔光（避免平板上出现横贯屏幕的白色光柱）
+      ctx.globalAlpha = wide ? 0.24 : 1;
       ctx.drawImage(this.flow, 0, 0, w, totalH);
       ctx.globalAlpha = 1;
+      if (wide) {
+        const vignette = ctx.createRadialGradient(w * 0.50, totalH * 0.42, 0, w * 0.50, totalH * 0.42, Math.max(w, totalH) * 0.72);
+        vignette.addColorStop(0, 'rgba(4,10,20,0)');
+        vignette.addColorStop(0.55, 'rgba(4,10,20,0.35)');
+        vignette.addColorStop(1, 'rgba(4,10,20,0.78)');
+        ctx.fillStyle = vignette;
+        ctx.fillRect(0, 0, w, totalH);
+      }
     } else {
       const glow = ctx.createRadialGradient(w * .46, totalH * .28, 0, w * .46, totalH * .28, Math.max(w, totalH) * .82);
       glow.addColorStop(0, '#234B79');
