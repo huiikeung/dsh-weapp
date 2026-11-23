@@ -31,6 +31,10 @@ export struct NetworkPage {
   @State wsSamples: WsSample[] = [];
   @State wsTab: string = '延迟';
   private wsTimer: number = -1;
+  private chartCtx: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
+  private chartReady: boolean = false;
+  private chartW: number = 0;
+  private chartH: number = 0;
   @State toastText: string = '';
   @State toastError: boolean = false;
   @State toastOpacity: number = 0;
@@ -89,6 +93,7 @@ export struct NetworkPage {
       next.shift();
     }
     this.wsSamples = next;
+    this.drawChart();
   }
 
   private okSamples(): WsSample[] {
@@ -190,6 +195,100 @@ export struct NetworkPage {
   }
 
   /** 当前标签下，这一根柱子的相对高度（0-1） */
+  private wsTxText(): string {
+    if (this.wsSamples.length === 0) {
+      return '—';
+    }
+    return '0.0 KiB/s';
+  }
+
+  private wsValueOf(one: WsSample): number {
+    if (this.wsTab === '丢包') {
+      return one.ok ? 0 : 100;
+    }
+    if (this.wsTab === '抖动') {
+      return one.ok ? Math.abs(one.ms - this.wsAvgValue()) : 0;
+    }
+    if (this.wsTab === '流量') {
+      return one.bytes;
+    }
+    return one.ok ? one.ms : 0;
+  }
+
+  private drawChart(): void {
+    if (!this.chartReady || this.chartW <= 0 || this.chartH <= 0) {
+      return;
+    }
+    const ctx: CanvasRenderingContext2D = this.chartCtx;
+    const w: number = this.chartW;
+    const h: number = this.chartH;
+    const padL: number = 4;
+    const padR: number = 4;
+    const padT: number = 8;
+    const padB: number = 6;
+    ctx.clearRect(0, 0, w, h);
+    ctx.strokeStyle = this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 3; i++) {
+      const gy: number = padT + (h - padT - padB) * i / 3;
+      ctx.beginPath();
+      ctx.moveTo(padL, gy);
+      ctx.lineTo(w - padR, gy);
+      ctx.stroke();
+    }
+    const list: WsSample[] = this.wsSamples;
+    if (list.length < 2) {
+      return;
+    }
+    let maxV: number = 1;
+    for (const one of list) {
+      const v: number = this.wsValueOf(one);
+      if (v > maxV) {
+        maxV = v;
+      }
+    }
+    if (this.wsTab === '延迟') {
+      maxV = Math.max(50, maxV);
+    } else if (this.wsTab === '丢包') {
+      maxV = 100;
+    } else if (this.wsTab === '流量') {
+      maxV = Math.max(maxV, 96);
+    }
+    const stepX: number = (w - padL - padR) / Math.max(1, list.length - 1);
+    const plotH: number = h - padT - padB;
+    const yOf = (v: number): number => padT + plotH * (1 - Math.min(1, v / maxV));
+    const xOf = (i: number): number => padL + i * stepX;
+    const drawLine = (pts: number[], color: string): void => {
+      if (pts.length < 4) {
+        return;
+      }
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(pts[0], pts[1]);
+      for (let i = 2; i < pts.length; i += 2) {
+        ctx.lineTo(pts[i], pts[i + 1]);
+      }
+      ctx.stroke();
+    };
+    if (this.wsTab === '流量') {
+      const rx: number[] = [];
+      const tx: number[] = [];
+      for (let i = 0; i < list.length; i++) {
+        rx.push(xOf(i), yOf(list[i].bytes));
+        tx.push(xOf(i), yOf(96));
+      }
+      drawLine(tx, '#FF9F0A');
+      drawLine(rx, '#2E6BE6');
+    } else {
+      const pts: number[] = [];
+      for (let i = 0; i < list.length; i++) {
+        pts.push(xOf(i), yOf(this.wsValueOf(list[i])));
+      }
+      drawLine(pts, this.wsTab === '丢包' ? '#FF9F0A' : '#2E6BE6');
+    }
+  }
+
   private wsBarRatio(one: WsSample): number {
     if (this.wsTab === '丢包') {
       return one.ok ? 0.06 : 1;
@@ -521,7 +620,6 @@ export struct NetworkPage {
                 Row() {
                   Text('断开连接').fontSize(15).fontColor('#D4545B')
                   Blank()
-                  Text('›').fontSize(16).fontColor(this.subColor())
                 }
                 .width('100%')
                 .constraintSize({ minHeight: 44 })
@@ -592,6 +690,7 @@ export struct NetworkPage {
                     .backgroundColor(tab === this.wsTab ? (this.isDark ? '#2C2C2E' : '#FFFFFF') : Color.Transparent)
                     .onClick(() => {
                       this.wsTab = tab;
+                      this.drawChart();
                     })
                 }, (tab: string) => tab)
               }
@@ -607,20 +706,19 @@ export struct NetworkPage {
                   .width('100%')
                   .padding({ left: 16, right: 16, top: 70, bottom: 70 })
               } else {
-                Row() {
-                  ForEach(this.wsSamples, (one: WsSample, index: number) => {
-                    Column()
-                      .width(4)
-                      .height(this.wsBarHeight(one))
-                      .borderRadius(2)
-                      .backgroundColor(one.ok ? this.wsBarColor() : '#FF9F0A')
-                  }, (one: WsSample, index: number) => index.toString() + one.ms.toString())
-                }
-                .width('100%')
-                .height(120)
-                .alignItems(VerticalAlign.Bottom)
-                .justifyContent(FlexAlign.SpaceBetween)
-                .padding({ left: 16, right: 16, top: 14 })
+                Canvas(this.chartCtx)
+                  .width('100%')
+                  .height(140)
+                  .onReady(() => {
+                    this.chartReady = true;
+                    this.drawChart();
+                  })
+                  .onAreaChange((_b: Area, a: Area) => {
+                    this.chartW = Number(a.width);
+                    this.chartH = Number(a.height);
+                    this.drawChart();
+                  })
+                  .margin({ left: 16, right: 16, top: 10 })
               }
 
               Row() {
@@ -639,9 +737,18 @@ export struct NetworkPage {
                   .fontSize(12.5)
                   .fontColor(this.subColor())
                 Blank()
+                Text('接收 ' + this.wsRxText() + ' · 发送 ' + this.wsTxText())
+                  .fontSize(12.5)
+                  .fontColor(this.subColor())
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 10 })
+
+              Row() {
                 Text('成功 ' + this.wsOkCount() + ' / 超时 ' + this.wsTimeoutCount())
                   .fontSize(12.5)
                   .fontColor(this.subColor())
+                Blank()
               }
               .width('100%')
               .padding({ left: 16, right: 16, top: 10, bottom: 14 })
