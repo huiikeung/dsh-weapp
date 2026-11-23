@@ -219,11 +219,13 @@ export struct OceanBackground {
     ctx.save();
 
     // 与 iOS HarnessWhaleField 相同的几何与参数
-    const square: number = Math.max(w * 1.15, totalH * 0.48);
+    // iOS 上鲸鱼占屏更满：整体放大 18%，点径仍按 iOS 基础尺寸算，避免点变大
+    const baseSquare: number = Math.max(w * 1.15, totalH * 0.48);
+    const square: number = baseSquare * 1.18;
     const cx: number = w * 0.55;
     const cy: number = totalH * 0.34;
     // 与 iOS 观感一致：iPhone 3x 下约 6px；鸿蒙 vp 偏大，收小一点更精致
-    const baseDot: number = Math.max(1.05, square / 300);
+    const baseDot: number = Math.max(1.05, baseSquare / 300);
     const t: number = this.reduceMotion ? 0 : this.phase;
 
     this.pixels.forEach((pixel: Pixel) => {
