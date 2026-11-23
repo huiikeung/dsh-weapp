@@ -277,6 +277,11 @@ export struct SessionDefaultModelPage {
         one.label = one.model;
       }
     }
+    let dbgRows: string = '';
+    for (const one of rows.slice(0, 5)) {
+      dbgRows += one.provider + '/' + one.model + '=' + one.label + '; ';
+    }
+    Logger.info('modelRows: ' + dbgRows + ' total=' + rows.length);
     return rows;
   }
 
