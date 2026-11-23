@@ -2,7 +2,7 @@ import { LengthMetricsUnit, window } from '@kit.ArkUI';
 import { common } from '@kit.AbilityKit';
 import { taskpool } from '@kit.ArkTS';
 import { prepareBrandFlow } from '../core/BrandFlowWorker';
-import { BRAND_PIXELS, BRAND_WIDE_PIXELS } from '../core/BrandPixels';
+import { WHALE_PIXELS_IOS } from '../core/WhalePixelsIOS';
 
 /**
  * 首页深海鲸鱼背景：移植 dsh-mobile/harmonyApp 的 BrandBackground，按性能分层绘制。
@@ -14,7 +14,7 @@ import { BRAND_PIXELS, BRAND_WIDE_PIXELS } from '../core/BrandPixels';
  * 底部压暗与 settle 用静态渐变组件，完全不参与重绘。
  * 流体光带只在首次渲染一次（周期性重算 fbm 噪声会把 CPU 从 ~15% 推到 ~75%）。
  */
-interface Pixel { x: number; y: number; luminance: number; edge: number; light: number; }
+interface Pixel { x: number; y: number; luminance: number; edge: number; phase: number; light: number; }
 
 @Component
 export struct OceanBackground {
@@ -154,10 +154,7 @@ export struct OceanBackground {
 
     if (this.flow) {
       ctx.imageSmoothingEnabled = true;
-      // 与 iOS Metal 流体相近的缓慢漂移：只平移预渲染位图，不重算噪声（低功耗）
-      const driftX: number = Math.sin(this.phase * 0.32) * Math.max(4, w * 0.012);
-      const driftY: number = Math.cos(this.phase * 0.21) * Math.max(3, totalH * 0.006);
-      ctx.drawImage(this.flow, driftX - w * 0.01, driftY - totalH * 0.01, w * 1.02, totalH * 1.02);
+      ctx.drawImage(this.flow, 0, 0, w, totalH);
     } else {
       const glow = ctx.createRadialGradient(w * .46, totalH * .28, 0, w * .46, totalH * .28, Math.max(w, totalH) * .82);
       glow.addColorStop(0, '#234B79');
@@ -225,7 +222,7 @@ export struct OceanBackground {
       const tail: number = this.smoothstep(0.54, 0.94, pixel.x);
       const edgeDrift: number = 0.35 + 0.65 * pixel.edge;
       // iOS 用每颗粒子的固定 phase；这里用坐标做确定性伪随机，视觉一致
-      const pphase: number = ((pixel.x * 137 + pixel.y * 73) % 6.283);
+      const pphase: number = pixel.phase;
       const driftX: number = Math.sin(t * 0.50 + pphase * 0.53) * 2.8 * edgeDrift;
       const driftY: number = Math.cos(t * 0.42 + pphase * 0.71) * 2.6 * edgeDrift;
       const tailWave: number = Math.sin(t * 1.10 - pixel.x * 7.0) * 7.0 * tail;
@@ -250,10 +247,10 @@ export struct OceanBackground {
   }
 
   private sample(): void {
-    const source = this.canvasWidth >= 600 ? BRAND_WIDE_PIXELS : BRAND_PIXELS;
-    this.pixels = source.map((point: number[]): Pixel => ({
+    // 与 iOS HeroWhaleMask 60x60 采样结果一致（含 phase / light）
+    this.pixels = WHALE_PIXELS_IOS.map((point: number[]): Pixel => ({
       x: point[0], y: point[1], luminance: point[2], edge: point[3],
-      light: Math.max(0, 1 - Math.hypot(point[0] - .30, point[1] - .28) / .92)
+      phase: point[4], light: point[5]
     }));
   }
 
@@ -281,11 +278,11 @@ export struct OceanBackground {
       const now: number = Date.now();
       this.phase = (this.phase + (now - last) / 1000) % 4096;
       last = now;
-      // 鲸鱼 30fps（对齐 iOS TimelineView 1/30）；流体每 3 帧重绘 ≈10fps，降低发热
+      // 鲸鱼 30fps（对齐 iOS TimelineView 1/30）；流体每 3 帧重算 ≈10fps（TaskPool 低分辨率，降发热）
       this.drawWhale();
       this.bgFrame = (this.bgFrame + 1) % 3;
       if (this.bgFrame === 0) {
-        this.drawBackground();
+        this.updateFlow();
       }
     }, 33);
   }
