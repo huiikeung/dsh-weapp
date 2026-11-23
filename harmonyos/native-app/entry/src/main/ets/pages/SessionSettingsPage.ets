@@ -118,6 +118,19 @@ export struct SessionSettingsPage {
       this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.NONE);
     } catch (ignored) {
     }
+    this.refreshDefaultConfiguration();
+  }
+
+  /** 进入本页（或从二级页返回）时主动拉一次默认配置，右侧值不再需要点进去才显示 */
+  private refreshDefaultConfiguration(): void {
+    if (this.connection !== 'connected') {
+      return;
+    }
+    const client: GatewayClient = GatewayClient.get();
+    client.requestDefaults();
+    client.requestAgentPresets();
+    client.requestModelsCatalog();
+    client.requestPermissionOptions();
   }
 
   private presetLabel(): string {
@@ -668,6 +681,7 @@ export struct SessionSettingsPage {
     .onShown(() => {
       // 从预设二级页返回：消费选择（应用预设 / 打开创造模式）
       this.consumePresetChoice();
+      this.refreshDefaultConfiguration();
     })
   }
 
