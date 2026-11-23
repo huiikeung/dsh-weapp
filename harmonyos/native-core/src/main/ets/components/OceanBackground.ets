@@ -119,10 +119,13 @@ export struct OceanBackground {
   /** 首帧同步渲染一张低分辨率流体：保证启动第一帧就有光带，不出现「晚出来」 */
   private buildInitialFlow(): ImageBitmap | undefined {
     const w: number = 96;
-    const h: number = Math.max(1, Math.round(w * this.canvasHeight / Math.max(1, this.canvasWidth)));
+    const wide: boolean = this.canvasWidth / Math.max(1, this.canvasHeight) > 0.95;
+    // 宽屏按手机竖构图渲染，再由绘制层等比放大 —— 这样平板上的光带就是手机光带的放大版
+    const artAspect: number = wide ? 0.46 : this.canvasWidth / Math.max(1, this.canvasHeight);
+    const h: number = Math.max(1, Math.round(w / artAspect));
     try {
-      const aspect: number = this.canvasWidth / Math.max(1, this.canvasHeight);
-      const buffer = renderBrandFlow(w, h, aspect, 0, Math.min(this.canvasWidth, this.canvasHeight) >= 600);
+      const aspect: number = artAspect;
+      const buffer = renderBrandFlow(w, h, aspect, 0, false);
       const offscreen = new OffscreenCanvas(w, h, LengthMetricsUnit.PX);
       const ctx = offscreen.getContext('2d');
       ctx.putImageData(new ImageData(w, h, new Uint8ClampedArray(buffer), LengthMetricsUnit.PX), 0, 0);
@@ -138,14 +141,15 @@ export struct OceanBackground {
       return;
     }
     const totalH: number = this.canvasHeight;
-    const aspect: number = this.canvasWidth / Math.max(1, totalH);
+    const wide: boolean = this.canvasWidth / Math.max(1, totalH) > 0.95;
+    const aspect: number = wide ? 0.46 : this.canvasWidth / Math.max(1, totalH);
     const fw: number = 144;
-    const fh: number = Math.max(1, Math.min(256, Math.round(fw / aspect)));
+    const fh: number = Math.max(1, Math.min(384, Math.round(fw / aspect)));
     const revision: number = this.flowRevision;
     this.flowBusy = true;
     try {
       const buffer = await taskpool.execute(
-        new taskpool.Task(prepareBrandFlow, fw, fh, aspect, this.phase, Math.min(this.canvasWidth, this.canvasHeight) >= 600)) as ArrayBuffer;
+        new taskpool.Task(prepareBrandFlow, fw, fh, aspect, this.phase, false)) as ArrayBuffer;
       if (!this.alive || revision !== this.flowRevision) {
         return;
       }
@@ -185,47 +189,16 @@ export struct OceanBackground {
     ctx.save();
 
     const wide: boolean = w / Math.max(1, h) > 0.95;
-    if (wide) {
-      // 对齐 iOS iPad 首页：深蓝基底 + 一条从左中斜扫到右下的宽光带 + 右下暖光
-      // （手机那两条圆弧带在宽屏会被拉成竖直光柱，所以平板单独构图）
-      const baseGrad = ctx.createLinearGradient(w, 0, 0, totalH);
-      baseGrad.addColorStop(0, '#2c5a8e');
-      baseGrad.addColorStop(0.30, '#1b4272');
-      baseGrad.addColorStop(0.55, '#12294a');
-      baseGrad.addColorStop(1, '#070d18');
-      ctx.fillStyle = baseGrad;
-      ctx.fillRect(0, 0, w, totalH);
-      // 顶部整体提亮（iOS 平板上半屏是亮蓝，向下迅速压暗）
-      const lift = ctx.createLinearGradient(0, 0, 0, totalH);
-      lift.addColorStop(0, 'rgba(82,132,186,0.20)');
-      lift.addColorStop(0.42, 'rgba(50,92,142,0.10)');
-      lift.addColorStop(0.62, 'rgba(20,40,66,0.02)');
-      lift.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = lift;
-      ctx.fillRect(0, 0, w, totalH);
-      const bandLen: number = Math.max(w, totalH) * 1.8;
-      // 光带跨度必须和屏幕同量级，否则渐变被拉平，整屏变成一层均匀提亮（看起来就是「光带没了」）
-      const bandSpan: number = totalH * 1.15;
-      ctx.save();
-      ctx.translate(w * 0.46, totalH * 0.40);
-      ctx.rotate(-15 * Math.PI / 180);
-      const band = ctx.createLinearGradient(0, -bandSpan / 2, 0, bandSpan / 2);
-      band.addColorStop(0, 'rgba(140,170,210,0.00)');
-      band.addColorStop(0.30, 'rgba(140,172,212,0.10)');
-      band.addColorStop(0.44, 'rgba(168,194,226,0.34)');
-      band.addColorStop(0.505, 'rgba(190,210,236,0.60)');
-      band.addColorStop(0.56, 'rgba(160,186,220,0.34)');
-      band.addColorStop(0.70, 'rgba(112,134,166,0.10)');
-      band.addColorStop(1, 'rgba(140,170,210,0.00)');
-      ctx.fillStyle = band;
-      ctx.fillRect(-bandLen / 2, -bandSpan / 2, bandLen, bandSpan);
-      ctx.restore();
-      const warm = ctx.createRadialGradient(w * 0.84, totalH * 0.96, 0, w * 0.84, totalH * 0.96, Math.max(w, totalH) * 0.58);
-      warm.addColorStop(0, 'rgba(158,134,94,0.34)');
-      warm.addColorStop(0.55, 'rgba(120,100,70,0.16)');
-      warm.addColorStop(1, 'rgba(60,50,36,0)');
-      ctx.fillStyle = warm;
-      ctx.fillRect(0, 0, w, totalH);
+    if (wide && this.flow) {
+      // 平板：不重画构图，直接把手机那套流体光带「等比放大」铺满（cover）
+      // 手机是竖构图（aspect≈0.46），放大后就是 iPad 上那种大弧度宽光带
+      const fw: number = 144;
+      const fh: number = Math.max(1, Math.round(fw / 0.46));
+      const scale: number = Math.max(w / fw, totalH / fh);
+      const dw: number = fw * scale;
+      const dh: number = fh * scale;
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this.flow, (w - dw) / 2, (totalH - dh) / 2, dw, dh);
     } else if (this.flow) {
       ctx.imageSmoothingEnabled = true;
       ctx.drawImage(this.flow, 0, 0, w, totalH);
