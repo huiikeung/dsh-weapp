@@ -4823,20 +4823,21 @@ export struct ConversationPage {
   /** 左上角模式胶囊（输入框同款玻璃：半透明底 + 背景模糊 + 白色细描边） */
   @Builder
   modeChip() {
-    Row({ space: this.rpx(8) }) {
+    Row({ space: this.rpx(this.wideInset() > 0 ? 6 : 8) }) {
       Text(this.modeChipLabel)
-        .fontSize(12.5)
+        // 平板/宽屏：模式胶囊整体收小一档（原来在平板上偏大）
+        .fontSize(this.wideInset() > 0 ? 11 : 12.5)
         .fontColor(this.textColor())
         .maxLines(1)
       Image($r('app.media.chev_right_gray'))
-        .width(this.rpx(18))
-        .height(this.rpx(18))
+        .width(this.rpx(this.wideInset() > 0 ? 14 : 18))
+        .height(this.rpx(this.wideInset() > 0 ? 14 : 18))
         .objectFit(ImageFit.Contain)
         .rotate({ angle: -90 })
         .opacity(0.7)
     }
-    .constraintSize({ minHeight: this.rpx(56) })
-    .padding({ left: this.rpx(22), right: this.rpx(18) })
+    .constraintSize({ minHeight: this.rpx(this.wideInset() > 0 ? 42 : 56) })
+    .padding({ left: this.rpx(this.wideInset() > 0 ? 16 : 22), right: this.rpx(this.wideInset() > 0 ? 14 : 18) })
     .alignItems(VerticalAlign.Center)
     .borderRadius(this.rpx(999))
     .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
@@ -5882,7 +5883,12 @@ export struct ConversationPage {
           }
           .width('100%')
           // 宽屏（平板）：输入条与正文同宽、一起居中（对齐 iOS iPad）
-          .padding({ left: 14 + this.wideInset(), right: 14 + this.wideInset(), bottom: 18 + this.bottomInset })
+          .padding({
+            left: 14 + this.wideInset(),
+            right: 14 + this.wideInset(),
+            // 平板底部是手势条区域：再留一点，保证「N 轮 N 步 · tok · %」整行可见
+            bottom: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0)
+          })
           // 录音时整条输入区让位给全屏语音特效（对齐小程序 .dock-stack.voice-holding { opacity: 0 }）
           .opacity(this.voiceOverlayVisible ? 0 : 1)
       }

@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { NavBackButton } from '../components/NavBackButton';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import {
   GatewayClient, GatewayProfile, PairingResult, parsePairingPayload, ThemeManager, ThemeMode
@@ -220,6 +221,8 @@ export struct SettingsPage {
       .width('100%')
       .height('100%')
       .scrollBar(BarState.Off)
+      // 平板/宽屏：设置列表居中一栏（对齐 iOS iPad 设置页）
+      .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
       }
       .width('100%')
       .height('100%')

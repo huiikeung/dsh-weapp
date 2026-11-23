@@ -3,6 +3,7 @@ import { bundleManager, common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import type { GatewayFrame, ThemeMode, WorkStepOption } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 import { NodeManageSheet } from '../components/NodeManageSheet';
 import { Haptics } from '../services/Haptics';
 import { AttachmentCache, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, ThemeManager, WorkStepPresentation, WorkspaceRow } from 'nativecore';
@@ -2075,6 +2076,8 @@ export struct AppSettingsPage {
         .layoutWeight(1)
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
+        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
         .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
       }
       .width('100%')
