@@ -40,6 +40,8 @@ struct Index {
   @State consentDocOpen: boolean = false;
   /** 系统同意弹窗的控制器（第一次需要弹时才创建） */
   private consentDialog: CustomDialogController | undefined = undefined;
+  /** 弹窗是否正在显示（这个 SDK 的 CustomDialogController 没有 isOpen 可查） */
+  private consentDialogShown: boolean = false;
   @StorageLink('themeMode') @Watch('applyAppColorMode') themeMode: string = 'system';
   @StorageLink('pendingSessionId') @Watch('openPendingSession') pendingSessionId: string = '';
   @StorageLink('pendingPageRoute') @Watch('openPendingPageRoute') pendingPageRoute: string = '';
@@ -234,7 +236,7 @@ struct Index {
               this.openConsentDoc(route);
             }
           }),
-          alignment: Alignment.Center,
+          alignment: DialogAlignment.Center,
           autoCancel: false,
           isModal: true,
           systemMaterial: this.consentMaterial(),
@@ -244,19 +246,28 @@ struct Index {
         });
         this.consentDialog = dialog;
       }
-      dialog.open();
+      // 启动时 aboutToAppear 和首页 didShow 都会调到这里：已显示就不重复 open
+      if (!this.consentDialogShown) {
+        this.consentDialogShown = true;
+        dialog.open();
+      }
     } catch (err) {
       Logger.error('consent dialog failed: ' + JSON.stringify(err));
+    }
+  }
+
+  private closeConsentDialog(): void {
+    const dialog: CustomDialogController | undefined = this.consentDialog;
+    if (dialog !== undefined && this.consentDialogShown) {
+      this.consentDialogShown = false;
+      dialog.close();
     }
   }
 
   /** 打开协议页查看全文：先收起弹窗，返回首页时 syncConsentDialog 会重新弹出来 */
   private openConsentDoc(route: string): void {
     this.consentDocOpen = true;
-    const dialog: CustomDialogController | undefined = this.consentDialog;
-    if (dialog !== undefined) {
-      dialog.close();
-    }
+    this.closeConsentDialog();
     this.pageStack.pushPathByName(route, null);
   }
   build() {
