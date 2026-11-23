@@ -495,27 +495,6 @@ export struct SessionSettingsPage {
             this.cardBox()
 
 
-            // 功能
-            this.groupTitle('功能')
-            Column() {
-              this.functionRow('模型', this.modelList.length > 0 ? (this.modelList.length + ' 个可用') : '', () => {
-                this.pageStack.pushPathByName('models', null);
-              })
-              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              this.cardRow('诊断信息', '', true, () => {
-                this.openDiagnosticsSheet();
-              })
-              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              this.cardRow('清理缓存', '', true, () => {
-                this.openCacheDialog();
-              })
-            }
-            .width('100%')
-            .backgroundColor(this.cardBg())
-            .border({ width: 1, color: this.dividerColor() })
-            .borderRadius(14)
-            .clip(true)
-
             // Tailscale 内嵌隧道（对齐 iOS SettingsView 的独立 Section）
             this.groupTitle('Tailscale 内嵌隧道', '在应用内建立一个 Tailscale 节点：不需要安装 Tailscale，也不会占用系统 VPN。节点只在你自己的 tailnet 内可达。')
             Column() {
@@ -580,6 +559,27 @@ export struct SessionSettingsPage {
             .borderRadius(14)
             .clip(true)
 
+
+            // 功能
+            this.groupTitle('功能')
+            Column() {
+              this.functionRow('模型', this.modelList.length > 0 ? (this.modelList.length + ' 个可用') : '', () => {
+                this.pageStack.pushPathByName('models', null);
+              })
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              this.cardRow('诊断信息', '', true, () => {
+                this.openDiagnosticsSheet();
+              })
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              this.cardRow('清理缓存', '', true, () => {
+                this.openCacheDialog();
+              })
+            }
+            .width('100%')
+            .backgroundColor(this.cardBg())
+            .border({ width: 1, color: this.dividerColor() })
+            .borderRadius(14)
+            .clip(true)
 
             // 主机信息
             this.groupTitle('主机信息')
