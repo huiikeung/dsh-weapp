@@ -237,6 +237,8 @@ export struct ConnectorsPage {
         .width('100%')
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
+        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
       }
       .width('100%')
       .height('100%')

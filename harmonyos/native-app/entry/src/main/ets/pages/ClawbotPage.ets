@@ -5,6 +5,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { GatewayFrame, Logger, asRec, arr, bool, num, str } from 'nativecore';
 import { GatewayClient } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 /** 会话选择项 / 接入目标 */
 interface ClawbotSession {
@@ -925,6 +926,8 @@ export struct ClawbotPage {
         .height('100%')
         .align(Alignment.TopStart)
         .scrollBar(BarState.Off)
+        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
 
         this.navBar()
 

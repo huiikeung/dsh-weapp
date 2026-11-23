@@ -5,6 +5,7 @@ import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 
 import { NavBackButton } from '../components/NavBackButton';
 import { TopToast, TopToastView } from '../components/TopToast';
 import { openSessionRoute } from '../common/SessionRoute';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 /** Agent 预设二级页的选项装载结构（写入 AppStorage，PreferencePickerPage 解析） */
 interface PresetPickOption {
@@ -666,6 +667,8 @@ export struct SessionSettingsPage {
         .layoutWeight(1)
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
+        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
         // 小程序（webview）没有橡皮筋回弹；这里关掉，避免滚动到顶/底时页面「抖」
         .edgeEffect(EdgeEffect.None)
         .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })

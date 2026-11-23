@@ -1,5 +1,6 @@
 import { NavBackButton } from '../components/NavBackButton';
 import { PRIVACY_POLICY_UPDATED_AT } from '../common/LegalDocs';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 /** 政策章节 */
 interface PolicySection {
@@ -251,6 +252,8 @@ export struct PrivacyPolicyPage {
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.None)
+        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
 
         this.navBar()
       }

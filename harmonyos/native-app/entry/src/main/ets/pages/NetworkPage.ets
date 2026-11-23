@@ -1,6 +1,7 @@
 import { http } from '@kit.NetworkKit';
 import { GatewayClient, SavedGateway } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 class WsSample {
   ms: number = 0;
@@ -855,6 +856,8 @@ export struct NetworkPage {
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
         .margin({ top: -(56 + this.topInset()) })
+        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
       }
       .width('100%')
       .height('100%')

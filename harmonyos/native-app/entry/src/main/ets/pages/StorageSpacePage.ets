@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { AttachmentCache, AttachmentImageCache, PreferencesStore, SessionStore, SessionSummary } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 /** 存储空间分类（对齐小程序 storage-usage CATEGORIES） */
 interface StorageCategoryItem {
@@ -524,6 +525,8 @@ export struct StorageSpacePage {
           .align(Alignment.Top)
           .scrollBar(BarState.Off)
           .edgeEffect(EdgeEffect.None)
+          // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+          .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
         }
       }
       .width('100%')

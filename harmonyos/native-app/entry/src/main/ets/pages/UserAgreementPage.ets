@@ -1,5 +1,6 @@
 import { NavBackButton } from '../components/NavBackButton';
 import { APP_DISPLAY_NAME, DEVELOPER_NAME, USER_AGREEMENT_EFFECTIVE_AT, USER_AGREEMENT_VERSION } from '../common/LegalDocs';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 /** 协议章节 */
 interface AgreementSection {
@@ -275,6 +276,8 @@ export struct UserAgreementPage {
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.None)
+        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
 
         this.navBar()
       }
