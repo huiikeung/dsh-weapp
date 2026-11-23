@@ -67,10 +67,6 @@ struct Index {
     Logger.info('UIBOOT Index aboutToAppear');
     // 路由切换时同步状态栏归属页面：首页 NavBar 记为 ''，其它记 NavDestination 名字
     this.pageStack.setInterception({ didShow: this.syncStatusBarRoute });
-    // 启动页只保留一帧过渡，尽快消失（对齐 iOS/Android 秒开）
-    setTimeout(() => {
-      this.splashVisible = false;
-    }, 60);
     // 大缓存放到首帧后读，避免堵住启动
     setTimeout(() => {
       SessionStore.restoreCatalogCache();
@@ -147,10 +143,8 @@ struct Index {
     AppStorage.setOrCreate<boolean>('homePageVisible', routeName === '');
   }
 
-  @State private splashVisible: boolean = true;
 
   build() {
-    Stack({ alignContent: Alignment.TopStart }) {
     Navigation(this.pageStack) {
       HomePage();
     }
@@ -160,19 +154,5 @@ struct Index {
     .width('100%')
     .height('100%')
     .backgroundColor(this.isDark ? '#000000' : '#F2F2F7')
-
-    if (this.splashVisible) {
-      Column() {
-        Image(this.isDark ? $r('app.media.wordmark_white') : $r('app.media.wordmark_ink'))
-          .height(26)
-          .objectFit(ImageFit.Contain)
-      }
-      .width('100%')
-      .height('100%')
-      .alignItems(HorizontalAlign.Start)
-      .padding({ left: 24, top: (AppStorage.get<number>('safeTopVp') ?? 0) + 18 })
-      .backgroundColor(this.isDark ? '#000000' : '#FFFFFF')
-    }
-    }
   }
 }
