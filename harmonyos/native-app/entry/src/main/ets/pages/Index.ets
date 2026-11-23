@@ -180,7 +180,7 @@ struct Index {
   private syncConsentDialog(): void {
     if (this.consentState === 'granted') {
       const granted: CustomDialogController | undefined = this.consentDialog;
-      if (granted !== undefined && granted.isOpen()) {
+      if (granted !== undefined) {
         granted.close();
       }
       return;
@@ -241,7 +241,7 @@ struct Index {
           onWillDismiss: (action: DismissDialogAction) => {
             // 注册了这个回调后，返回键/点遮罩不会直接关闭；未同意前什么都不做，弹窗保持打开
           }
-        }, this);
+        });
         this.consentDialog = dialog;
       }
       dialog.open();
