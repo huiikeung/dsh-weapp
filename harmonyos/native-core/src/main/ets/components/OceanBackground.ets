@@ -3,6 +3,7 @@ import { common } from '@kit.AbilityKit';
 import { taskpool } from '@kit.ArkTS';
 import { prepareBrandFlow } from '../core/BrandFlowWorker';
 import { WHALE_PIXELS_IOS } from '../core/WhalePixelsIOS';
+import { renderBrandFlow } from '../core/BrandFlow';
 
 /**
  * 首页深海鲸鱼背景：移植 dsh-mobile/harmonyApp 的 BrandBackground，按性能分层绘制。
@@ -104,6 +105,22 @@ export struct OceanBackground {
     }
     if (this.whaleReady) {
       this.drawWhale();
+    }
+  }
+
+  /** 首帧同步渲染一张低分辨率流体：保证启动第一帧就有光带，不出现「晚出来」 */
+  private buildInitialFlow(): ImageBitmap | undefined {
+    const w: number = 64;
+    const h: number = Math.max(1, Math.round(w * this.canvasHeight / Math.max(1, this.canvasWidth)));
+    try {
+      const aspect: number = this.canvasWidth / Math.max(1, this.canvasHeight);
+      const buffer = renderBrandFlow(w, h, aspect, 0, this.canvasWidth >= 600);
+      const offscreen = new OffscreenCanvas(w, h, LengthMetricsUnit.PX);
+      const ctx = offscreen.getContext('2d');
+      ctx.putImageData(new ImageData(w, h, new Uint8ClampedArray(buffer), LengthMetricsUnit.PX), 0, 0);
+      return offscreen.transferToImageBitmap();
+    } catch (err) {
+      return undefined;
     }
   }
 
@@ -316,6 +333,9 @@ export struct OceanBackground {
         .height('100%')
         .onReady(() => {
           this.bgReady = true;
+          if (!this.flow && this.canvasWidth > 0) {
+            this.flow = this.buildInitialFlow();
+          }
           this.drawBackground();
           this.updateFlow();
         })
