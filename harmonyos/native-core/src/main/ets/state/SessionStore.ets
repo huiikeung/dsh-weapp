@@ -544,6 +544,7 @@ export class SessionStore {
       const hostGatewayVersion: string = str(frame, 'gatewayVersion') ?? '';
       if (hostGatewayVersion.length > 0) {
         AppStorage.setOrCreate<string>('gatewayVersion', hostGatewayVersion);
+        AppStorage.setOrCreate<string>('gatewayPluginVersion', hostGatewayVersion);
         const hostGatewayPackage: string = str(frame, 'gatewayPackage') ?? '';
         if (hostGatewayPackage.length > 0) {
           AppStorage.setOrCreate<string>('gatewayPackage', hostGatewayPackage);
@@ -557,10 +558,27 @@ export class SessionStore {
         + ' model=' + (str(frame, 'model') ?? '')
         + ' provider=' + (str(frame, 'provider') ?? '')
         + ' effort=' + (str(frame, 'reasoningEffort') ?? ''));
-      AppStorage.setOrCreate<string>('defaultAgentPreset', str(frame, 'agentPresetDefault') ?? '');
-      AppStorage.setOrCreate<string>('defaultModel', str(frame, 'model') ?? '');
-      AppStorage.setOrCreate<string>('defaultProvider', str(frame, 'provider') ?? '');
-      AppStorage.setOrCreate<string>('defaultPermission', str(frame, 'permissionDefault') ?? '');
+      // 网关的 defaults 帧常不带 model/provider（为空）：不能把空值写回，否则会清掉用户刚选的默认模型
+      const defPreset: string = str(frame, 'agentPresetDefault') ?? '';
+      const defModel: string = str(frame, 'model') ?? '';
+      const defProvider: string = str(frame, 'provider') ?? '';
+      const defPermission: string = str(frame, 'permissionDefault') ?? '';
+      const defEffort: string = str(frame, 'reasoningEffort') ?? '';
+      if (defPreset.length > 0) {
+        AppStorage.setOrCreate<string>('defaultAgentPreset', defPreset);
+      }
+      if (defModel.length > 0) {
+        AppStorage.setOrCreate<string>('defaultModel', defModel);
+      }
+      if (defProvider.length > 0) {
+        AppStorage.setOrCreate<string>('defaultProvider', defProvider);
+      }
+      if (defEffort.length > 0) {
+        AppStorage.setOrCreate<string>('defaultEffort', defEffort);
+      }
+      if (defPermission.length > 0) {
+        AppStorage.setOrCreate<string>('defaultPermission', defPermission);
+      }
       return;
     }
     if (frame.kind === 'session-agent-preset' || frame.kind === 'session-agent-preset-updated' || frame.kind === 'select-agent-preset') {
