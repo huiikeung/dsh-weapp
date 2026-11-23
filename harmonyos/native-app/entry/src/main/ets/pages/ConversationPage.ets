@@ -4823,21 +4823,24 @@ export struct ConversationPage {
   /** 左上角模式胶囊（输入框同款玻璃：半透明底 + 背景模糊 + 白色细描边） */
   @Builder
   modeChip() {
-    Row({ space: this.rpx(this.wideInset() > 0 ? 6 : 8) }) {
+    // 平板/宽屏：rpx 会按整屏宽度放大（42rpx≈80vp，显得巨大），这里直接用 vp 定死小尺寸
+    Row({ space: this.wideInset() > 0 ? 5 : this.rpx(8) }) {
       Text(this.modeChipLabel)
-        // 平板/宽屏：模式胶囊整体收小一档（原来在平板上偏大）
         .fontSize(this.wideInset() > 0 ? 11 : 12.5)
         .fontColor(this.textColor())
         .maxLines(1)
       Image($r('app.media.chev_right_gray'))
-        .width(this.rpx(this.wideInset() > 0 ? 14 : 18))
-        .height(this.rpx(this.wideInset() > 0 ? 14 : 18))
+        .width(this.wideInset() > 0 ? 12 : this.rpx(18))
+        .height(this.wideInset() > 0 ? 12 : this.rpx(18))
         .objectFit(ImageFit.Contain)
         .rotate({ angle: -90 })
         .opacity(0.7)
     }
-    .constraintSize({ minHeight: this.rpx(this.wideInset() > 0 ? 42 : 56) })
-    .padding({ left: this.rpx(this.wideInset() > 0 ? 16 : 22), right: this.rpx(this.wideInset() > 0 ? 14 : 18) })
+    .constraintSize({ minHeight: this.wideInset() > 0 ? 32 : this.rpx(56) })
+    .padding({
+      left: this.wideInset() > 0 ? 12 : this.rpx(22),
+      right: this.wideInset() > 0 ? 10 : this.rpx(18)
+    })
     .alignItems(VerticalAlign.Center)
     .borderRadius(this.rpx(999))
     .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')

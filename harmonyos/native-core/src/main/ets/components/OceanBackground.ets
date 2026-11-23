@@ -183,7 +183,11 @@ export struct OceanBackground {
 
     if (this.flow) {
       ctx.imageSmoothingEnabled = true;
+      // 宽屏（平板/大窗口）：流体光带按面积等比放大后容易过曝发白，压低不透明度更接近 iOS 大屏观感
+      const wide: boolean = w / Math.max(1, h) > 0.95;
+      ctx.globalAlpha = wide ? 0.5 : 1;
       ctx.drawImage(this.flow, 0, 0, w, totalH);
+      ctx.globalAlpha = 1;
     } else {
       const glow = ctx.createRadialGradient(w * .46, totalH * .28, 0, w * .46, totalH * .28, Math.max(w, totalH) * .82);
       glow.addColorStop(0, '#234B79');
