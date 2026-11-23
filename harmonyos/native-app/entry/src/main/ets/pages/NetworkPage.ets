@@ -21,6 +21,7 @@ export struct NetworkPage {
   @State probing: boolean = false;
   @State probes: NetProbe[] = [];
   @State hint: string = '';
+  @State lastPing: string = '';
   @State toastText: string = '';
   @State toastError: boolean = false;
   @State toastOpacity: number = 0;
@@ -176,7 +177,8 @@ export struct NetworkPage {
     }
     const started: number = Date.now();
     GatewayClient.get().requestHost().then(() => {
-      this.showToast('Ping 成功：' + (Date.now() - started) + ' ms', false);
+      this.lastPing = (Date.now() - started) + ' ms';
+      this.showToast('Ping 成功：' + this.lastPing, false);
     }).catch((err: Error) => {
       this.showToast('Ping 失败：' + this.shortError(err.message), true);
     });
@@ -305,21 +307,44 @@ export struct NetworkPage {
                 .width('100%')
                 .padding({ left: 16, right: 16, bottom: 10 })
 
-              Row({ space: 10 }) {
-                this.actionChip('连接', () => {
-                  GatewayClient.get().autoConnect();
-                })
-                this.actionChip('Ping 网关', () => {
-                  this.pingGateway();
-                })
-                if (this.connection === 'connected' || this.connection === 'connecting') {
-                  this.actionChip('断开连接', () => {
-                    GatewayClient.get().disconnect();
-                  })
-                }
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              Row() {
+                Text(this.connection === 'connected' ? '重新连接' : '连接').fontSize(15).fontColor(this.textColor())
+                Blank()
+                Text('›').fontSize(16).fontColor(this.subColor())
               }
               .width('100%')
-              .padding({ left: 16, right: 16, top: 2, bottom: 14 })
+              .constraintSize({ minHeight: 44 })
+              .padding({ left: 16, right: 16 })
+              .onClick(() => {
+                GatewayClient.get().autoConnect();
+              })
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              Row() {
+                Text('Ping 网关').fontSize(15).fontColor(this.textColor())
+                Blank()
+                Text(this.lastPing.length > 0 ? this.lastPing : '—').fontSize(13).fontColor(this.subColor())
+              }
+              .width('100%')
+              .constraintSize({ minHeight: 44 })
+              .padding({ left: 16, right: 16 })
+              .onClick(() => {
+                this.pingGateway();
+              })
+              if (this.connection === 'connected' || this.connection === 'connecting') {
+                Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+                Row() {
+                  Text('断开连接').fontSize(15).fontColor('#D4545B')
+                  Blank()
+                  Text('›').fontSize(16).fontColor(this.subColor())
+                }
+                .width('100%')
+                .constraintSize({ minHeight: 44 })
+                .padding({ left: 16, right: 16 })
+                .onClick(() => {
+                  GatewayClient.get().disconnect();
+                })
+              }
             }
             .width('100%')
             .backgroundColor(this.cardBg())
@@ -332,14 +357,16 @@ export struct NetworkPage {
                 Text('端点可达性').fontSize(15).fontColor(this.textColor())
                 Blank()
                 Text(this.probing ? '检测中…' : '开始检测')
-                  .fontSize(13.5)
-                  .fontColor('#2E6BE6')
-                  .onClick(() => {
-                    this.runProbes();
-                  })
+                  .fontSize(13)
+                  .fontColor(this.subColor())
+                Text('›').fontSize(16).fontColor(this.subColor()).margin({ left: 6 })
               }
               .width('100%')
-              .padding({ left: 16, right: 16, top: 14, bottom: 10 })
+              .constraintSize({ minHeight: 44 })
+              .padding({ left: 16, right: 16 })
+              .onClick(() => {
+                this.runProbes();
+              })
 
               if (this.probes.length === 0) {
                 Text('检测当前保存的局域网 / 公网 / 隧道端点，显示往返耗时。')
