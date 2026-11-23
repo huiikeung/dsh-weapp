@@ -221,7 +221,7 @@ export struct OceanBackground {
     // 与 iOS HarnessWhaleField 相同的几何与参数
     // iOS 上鲸鱼占屏更满：整体放大 18%，点径仍按 iOS 基础尺寸算，避免点变大
     const baseSquare: number = Math.max(w * 1.15, totalH * 0.48);
-    const square: number = baseSquare * 1.10;
+    const square: number = baseSquare * 1.00;
     const cx: number = w * 0.55;
     const cy: number = totalH * 0.34;
     // 与 iOS 观感一致：iPhone 3x 下约 6px；鸿蒙 vp 偏大，收小一点更精致
