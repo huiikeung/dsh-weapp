@@ -25,8 +25,11 @@ export struct ConnectorStatusPage {
   aboutToAppear(): void {
     DeviceConnectors.bind();
     this.refresh();
+    // 对齐 iOS：只在「尚未注册」时每 10s 轮询状态；已注册后不再打扰
     this.timer = setInterval(() => {
-      this.refresh();
+      if (this.state !== 'registered') {
+        this.refresh();
+      }
     }, 10000);
   }
 
@@ -183,19 +186,13 @@ export struct ConnectorStatusPage {
               Row({ space: 14 }) {
                 Stack({ alignContent: Alignment.Center }) {
                   if (this.state === 'registering' || this.checking) {
-                    LoadingProgress().width(12).height(12).color(this.stateColor())
-                  } else if (this.state === 'registered' || this.state === 'failed') {
-                    Circle({ width: 8, height: 8 }).fill(this.stateColor())
+                    LoadingProgress().width(28).height(28).color(this.stateColor())
                   } else {
-                    // 未注册：小空心圈，仅作状态提示
-                    Circle({ width: 9, height: 9 })
-                      .fill(Color.Transparent)
-                      .stroke(this.stateColor())
-                      .strokeWidth(1.5)
+                    Circle({ width: 8, height: 8 }).fill(this.stateColor())
                   }
                 }
-                .width(12)
-                .height(12)
+                .width(28)
+                .height(28)
 
                 Column({ space: 4 }) {
                   Text(this.stateTitle())
@@ -333,7 +330,7 @@ export struct ConnectorStatusPage {
             .borderRadius(14)
 
             if (this.clockLabel(this.refreshedAt).length > 0) {
-              Text('每 10 秒自动刷新 · 上次 ' + this.clockLabel(this.refreshedAt))
+              Text((this.state === 'registered' ? '上次检查 ' : '未注册时每 10 秒自动检查 · 上次 ') + this.clockLabel(this.refreshedAt))
                 .fontSize(11.5)
                 .fontColor(this.subColor())
                 .width('100%')
