@@ -3852,7 +3852,11 @@ export struct HomePage {
   private createSession(): void {
     this.creating = true;
     this.createHint = '';
-    GatewayClient.get().createSession('').then((id: string) => {
+    // 新会话按「新会话默认配置 → Agent 预设」创建（网关不持久化默认预设，需客户端显式传）
+    const defaultPreset: string = AppStorage.get<string>('defaultAgentPreset') ?? '';
+    const presetToUse: string = defaultPreset.length > 0
+      ? defaultPreset : PreferencesStore.get().getString('defaultAgentPreset', '');
+    GatewayClient.get().createSession('', presetToUse).then((id: string) => {
       this.creating = false;
       SessionStore.get().open(id);
       openSessionRoute(this.pageStack);

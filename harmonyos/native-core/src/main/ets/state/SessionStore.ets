@@ -564,7 +564,9 @@ export class SessionStore {
       const defProvider: string = str(frame, 'provider') ?? '';
       const defPermission: string = str(frame, 'permissionDefault') ?? '';
       const defEffort: string = str(frame, 'reasoningEffort') ?? '';
-      if (defPreset.length > 0) {
+      // 网关下发的是部署默认值：用户在本机选过预设后不再覆盖，否则每次刷新都会跳回旧模式
+      const localPreset: string = PreferencesStore.get().getString('defaultAgentPreset', '');
+      if (defPreset.length > 0 && localPreset.length === 0) {
         AppStorage.setOrCreate<string>('defaultAgentPreset', defPreset);
       }
       if (defModel.length > 0) {
@@ -576,7 +578,8 @@ export class SessionStore {
       if (defEffort.length > 0) {
         AppStorage.setOrCreate<string>('defaultEffort', defEffort);
       }
-      if (defPermission.length > 0) {
+      const localPermission: string = PreferencesStore.get().getString('defaultPermission', '');
+      if (defPermission.length > 0 && localPermission.length === 0) {
         AppStorage.setOrCreate<string>('defaultPermission', defPermission);
       }
       return;

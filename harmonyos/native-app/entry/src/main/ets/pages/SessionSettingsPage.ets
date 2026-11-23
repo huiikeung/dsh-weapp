@@ -1957,6 +1957,8 @@ export struct SessionSettingsPage {
   private applyPreset(id: string, label: string): void {
     this.pickPresetId = id;
     this.pickPreset = label;
+    // 同时写入 AppStorage：页面重建后仍能读到；新建会话也会带上这个预设
+    AppStorage.setOrCreate<string>('defaultAgentPreset', id);
     PreferencesStore.get().putString('defaultAgentPreset', id);
     this.pickerOpen = false;
     this.hint = '已切换为「' + label + '」，仅对新建会话生效';
