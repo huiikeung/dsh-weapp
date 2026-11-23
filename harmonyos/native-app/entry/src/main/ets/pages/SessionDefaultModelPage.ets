@@ -211,9 +211,15 @@ export struct SessionDefaultModelPage {
     // 冷启动时把网关下发的默认模型/档位写入全局，供会话设置页行副标题使用
     if (currentModel.length > 0) {
       AppStorage.setOrCreate<string>('defaultModel', currentModel);
+      PreferencesStore.get().putString('defaultModel', currentModel);
+    }
+    if (currentProvider.length > 0) {
+      AppStorage.setOrCreate<string>('defaultProvider', currentProvider);
+      PreferencesStore.get().putString('defaultProvider', currentProvider);
     }
     if (currentEffort.length > 0) {
       AppStorage.setOrCreate<string>('defaultEffort', currentEffort);
+      PreferencesStore.get().putString('defaultEffort', currentEffort);
     }
     const rows: ModelRow[] = [];
     for (const group of groups) {
@@ -269,6 +275,9 @@ export struct SessionDefaultModelPage {
     }
     this.savedModel = currentModel;
     this.savedProvider = currentProvider;
+    Logger.info('MODELDBG app=' + this.defaultModelValue + ' prefs=' + PreferencesStore.get().getString('defaultModel', '')
+      + ' saved=' + this.savedModel + ' provider=' + this.savedProvider + ' rows=' + rows.length
+      + (rows.length > 0 ? (' first=' + rows[0].provider + '/' + rows[0].model) : ''));
     this.savedEffort = currentEffort;
     // 同组模型显示名完全一致时（provider 名重复），回退到模型 id
     for (const one of rows) {
