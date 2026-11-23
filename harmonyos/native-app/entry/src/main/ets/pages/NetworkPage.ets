@@ -625,10 +625,12 @@ export struct NetworkPage {
                 Circle().width(8).height(8).fill(this.stateColor())
                 Text(this.stateLabel()).fontSize(15).fontColor(this.textColor())
                 Blank()
-                Text(this.portLabel()).fontSize(13).fontColor(this.subColor())
+                Text(this.portLabel()).fontSize(15).fontColor(this.subColor())
               }
               .width('100%')
-              .padding({ left: 16, right: 16, top: 14, bottom: 6 })
+              .constraintSize({ minHeight: 44 })
+              .alignItems(VerticalAlign.Center)
+              .padding({ left: 16, right: 16 })
 
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Row() {
