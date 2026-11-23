@@ -48,7 +48,7 @@ interface RegisterFrame {
   version: number;
   requestId: string;
   capabilityRevision: number;
-  platform: string;
+  platform?: string;
   modules: ModulePayload[];
   permissionChanges?: Record<string, boolean>;
 }
@@ -80,6 +80,9 @@ class DeviceConnectorsStore {
   private permissions: Map<string, boolean> = new Map();
   private pendingInvocation: string = '';
   private hostKey: string = '';
+  /** 旧网关不认 platform=harmonyos，失败后降级不带 platform 再注册一次 */
+  private omitPlatform: boolean = false;
+  private retriedWithoutPlatform: boolean = false;
 
   bind(): void {
     if (this.bound) {
@@ -202,9 +205,11 @@ class DeviceConnectorsStore {
       version: 1,
       requestId: request,
       capabilityRevision: this.revision,
-      platform: 'harmonyos',
       modules: modules
     };
+    if (!this.omitPlatform) {
+      frame.platform = 'harmonyos';
+    }
     if (this.queuedChanges.size > 0) {
       const changes: Record<string, boolean> = {};
       this.queuedChanges.forEach((value: boolean, key: string) => {
@@ -214,6 +219,7 @@ class DeviceConnectorsStore {
       this.queuedChanges.clear();
     }
     this.sendFrame(frame);
+    Logger.info('connectors register send revision=' + this.revision.toString() + ' supported=' + this.supported.toString());
   }
 
   private handleFrame(frame: GatewayFrame): void {
@@ -230,6 +236,7 @@ class DeviceConnectorsStore {
         });
       }
       this.supported = supported;
+      Logger.info('connectors hello caps=' + (caps !== undefined ? caps.length.toString() : '0') + ' supported=' + supported.toString());
       if (supported) {
         this.onConnected();
       } else {
@@ -272,8 +279,19 @@ class DeviceConnectorsStore {
       this.cancelPending('cancelled');
       return;
     }
+    if (kind === 'error') {
+      Logger.info('connectors error frame requestType=' + (str(frame, 'requestType') ?? '-') + ' code=' + (str(frame, 'code') ?? '-'));
+    }
     if (kind === 'error' && (str(frame, 'requestType') ?? '') === 'device-tools-register') {
       const code: string = str(frame, 'code') ?? '';
+      if (code === 'invalid_request' && !this.retriedWithoutPlatform) {
+        // 老网关只接受 android/ios：去掉 platform 重试一次
+        this.retriedWithoutPlatform = true;
+        this.omitPlatform = true;
+        Logger.info('connectors retry without platform');
+        this.register();
+        return;
+      }
       if (code === 'unsupported-version' || code === 'invalid_request') {
         this.supported = false;
         this.publish('unsupported');

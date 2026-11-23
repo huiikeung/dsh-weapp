@@ -17,10 +17,33 @@ export struct ConnectorStatusPage {
   @StorageProp('safeTopVp') safeTop: number = 0;
   @StorageProp('safeBottomVp') safeBottom: number = 0;
   @State private expanded: boolean = false;
+  @State private checking: boolean = false;
+  @State private refreshedAt: number = 0;
+
+  private timer: number = -1;
 
   aboutToAppear(): void {
     DeviceConnectors.bind();
+    this.refresh();
+    this.timer = setInterval(() => {
+      this.refresh();
+    }, 10000);
+  }
+
+  aboutToDisappear(): void {
+    if (this.timer >= 0) {
+      clearInterval(this.timer);
+      this.timer = -1;
+    }
+  }
+
+  private refresh(): void {
+    this.checking = true;
     DeviceConnectors.refreshStatus();
+    setTimeout(() => {
+      this.checking = false;
+      this.refreshedAt = Date.now();
+    }, 900);
   }
 
   private stateTitle(): string {
@@ -43,22 +66,22 @@ export struct ConnectorStatusPage {
   }
 
   private stateDetail(): string {
+    if (this.state === 'registering') {
+      return '正在把本机能力登记到网关，通常一两秒内完成。';
+    }
+    if (this.state === 'unverified') {
+      return '没有收到网关确认。请检查网络连接后点「重新注册」。';
+    }
+    if (this.state === 'unsupported') {
+      return '当前网关版本较旧，没有连接器能力。请升级网关插件并重启服务，然后重新连接。';
+    }
+    if (this.state === 'failed') {
+      return '网关拒绝了本次注册。请确认网关插件已更新，再重新注册。';
+    }
     if (this.state === 'registered') {
       return '';
     }
-    if (this.state === 'registering') {
-      return '正在向网关登记本机能力，请稍候。';
-    }
-    if (this.state === 'unverified') {
-      return '未收到网关确认，请检查连接并重新注册。';
-    }
-    if (this.state === 'unsupported') {
-      return '当前网关版本过旧，升级网关插件后重新连接。';
-    }
-    if (this.state === 'failed') {
-      return '网关未接受本次注册，请检查网关版本并重新注册。';
-    }
-    return '聊天连接正常，但网关没有当前连接的能力登记。请重新注册。';
+    return '聊天连接正常，但网关还没有这次连接的能力登记。点「重新注册」即可。';
   }
 
   private stateColor(): string {
@@ -72,6 +95,13 @@ export struct ConnectorStatusPage {
       return '#FF9500';
     }
     return '#8E8E93';
+  }
+
+  private stateIcon(): Resource {
+    if (this.state === 'registered') {
+      return $r('app.media.connector_status_caps');
+    }
+    return $r('app.media.connector_status_caps');
   }
 
   private modules(): ModuleRow[] {
@@ -97,11 +127,11 @@ export struct ConnectorStatusPage {
     return rows;
   }
 
-  private confirmedLabel(): string {
-    if (this.confirmedAt <= 0) {
+  private clockLabel(millis: number): string {
+    if (millis <= 0) {
       return '';
     }
-    const date: Date = new Date(this.confirmedAt);
+    const date: Date = new Date(millis);
     const hh: string = date.getHours().toString().padStart(2, '0');
     const mm: string = date.getMinutes().toString().padStart(2, '0');
     const ss: string = date.getSeconds().toString().padStart(2, '0');
@@ -128,6 +158,11 @@ export struct ConnectorStatusPage {
     return this.isDark ? '#000000' : '#F2F2F7';
   }
 
+  private statusTint(): string {
+    const color: string = this.stateColor();
+    return color + '1F';
+  }
+
   build() {
     NavDestination() {
       Column() {
@@ -147,67 +182,73 @@ export struct ConnectorStatusPage {
         .margin({ top: this.safeTop > 0 ? this.safeTop : 38.9 })
 
         Scroll() {
-          Column({ space: 8 }) {
-            Text('网关注册')
-              .fontSize(13)
-              .fontColor(this.subColor())
-              .width('100%')
-              .padding({ left: 16, top: 8, bottom: 6 })
-
+          Column({ space: 10 }) {
+            // ── 状态总览 ──
             Column() {
-              Row({ space: 9 }) {
-                Circle({ width: 8, height: 8 }).fill(this.stateColor())
-                Text(this.stateTitle())
-                  .fontSize(16)
-                  .fontColor(this.textColor())
-                Blank()
-                if (this.state === 'registering') {
-                  LoadingProgress().width(16).height(16).color(this.subColor())
+              Row({ space: 14 }) {
+                Stack({ alignContent: Alignment.Center }) {
+                  if (this.state === 'registering' || this.checking) {
+                    LoadingProgress().width(30).height(30).color(this.stateColor())
+                  } else {
+                    Circle({ width: 16, height: 16 }).fill(this.stateColor())
+                  }
                 }
+                .width(36)
+                .height(36)
+
+                Column({ space: 4 }) {
+                  Text(this.stateTitle())
+                    .fontSize(17)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.textColor())
+                  Text(this.state === 'registered'
+                    ? '网关已确认 ' + this.toolCount.toString() + ' 项能力'
+                    : '轻点下方按钮重试')
+                    .fontSize(13)
+                    .fontColor(this.subColor())
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
               }
               .width('100%')
-              .height(48)
-              .padding({ left: 16, right: 16 })
-              if (this.state === 'registered') {
+              .padding({ left: 16, right: 16, top: 18, bottom: 16 })
+
+              if (this.state !== 'registered') {
+                Text(this.stateDetail())
+                  .fontSize(13)
+                  .lineHeight(20)
+                  .fontColor(this.subColor())
+                  .width('100%')
+                  .padding({ left: 16, right: 16, bottom: 16 })
+              }
+
+              if (this.state === 'registered' && this.clockLabel(this.confirmedAt).length > 0) {
+                Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
                 Row() {
-                  Text('网关已确认')
-                    .fontSize(14)
+                  Text('最近确认')
+                    .fontSize(13)
                     .fontColor(this.subColor())
                   Blank()
-                  Text(this.toolCount.toString() + ' 项能力')
-                    .fontSize(14)
+                  Text(this.clockLabel(this.confirmedAt))
+                    .fontSize(13)
                     .fontColor(this.textColor())
                 }
                 .width('100%')
-                .height(40)
+                .height(44)
                 .padding({ left: 16, right: 16 })
-                Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              } else {
-                Text(this.stateDetail())
-                  .fontSize(13)
-                  .lineHeight(19)
-                  .fontColor(this.subColor())
-                  .width('100%')
-                  .padding({ left: 16, right: 16, bottom: 12 })
-              }
-              if (this.state === 'registered' && this.confirmedLabel().length > 0) {
-                Text('最近确认 ' + this.confirmedLabel())
-                  .fontSize(12)
-                  .fontColor(this.subColor())
-                  .width('100%')
-                  .padding({ left: 16, right: 16, top: 8, bottom: 12 })
               }
             }
             .width('100%')
             .backgroundColor(this.cardBg())
-            .borderRadius(12)
+            .borderRadius(14)
 
+            // ── 已登记能力 ──
             if (this.state === 'registered') {
               Column() {
                 Row({ space: 12 }) {
                   Image($r('app.media.connector_status_caps'))
-                    .width(26)
-                    .height(26)
+                    .width(30)
+                    .height(30)
                     .objectFit(ImageFit.Contain)
                   Column({ space: 2 }) {
                     Text('网关已登记的能力')
@@ -226,16 +267,18 @@ export struct ConnectorStatusPage {
                     .rotate({ angle: this.expanded ? 90 : 0 })
                 }
                 .width('100%')
-                .height(56)
+                .height(62)
                 .padding({ left: 16, right: 16 })
                 .onClick(() => {
                   this.expanded = !this.expanded;
                 })
+
                 if (this.expanded) {
-                  ForEach(this.modules(), (row: ModuleRow) => {
+                  Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+                  ForEach(this.modules(), (row: ModuleRow, index: number) => {
                     Row() {
                       Text(row.title)
-                        .fontSize(14)
+                        .fontSize(15)
                         .fontColor(this.textColor())
                       Blank()
                       Text(row.tools.toString() + ' 个工具')
@@ -243,43 +286,62 @@ export struct ConnectorStatusPage {
                         .fontColor(this.subColor())
                     }
                     .width('100%')
-                    .height(40)
+                    .height(44)
                     .padding({ left: 16, right: 16 })
+                    if (index < this.modules().length - 1) {
+                      Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+                    }
                   }, (row: ModuleRow) => row.id)
                 }
               }
               .width('100%')
               .backgroundColor(this.cardBg())
-              .borderRadius(12)
+              .borderRadius(14)
               .clip(true)
             }
 
+            // ── 操作 ──
             Column() {
               Row() {
-                Text('刷新状态')
-                  .fontSize(15)
-                  .fontColor('#2E6BE6')
-                  .onClick(() => {
-                    DeviceConnectors.refreshStatus();
-                  })
+                Row({ space: 8 }) {
+                  if (this.checking) {
+                    LoadingProgress().width(16).height(16).color('#2E6BE6')
+                  }
+                  Text(this.checking ? '刷新中…' : '刷新状态')
+                    .fontSize(15)
+                    .fontColor('#2E6BE6')
+                }
+                .onClick(() => {
+                  this.refresh();
+                })
                 Blank()
                 Text('重新注册')
                   .fontSize(15)
                   .fontColor('#2E6BE6')
                   .onClick(() => {
                     DeviceConnectors.retryRegister();
+                    this.refresh();
                   })
               }
               .width('100%')
-              .height(48)
+              .height(50)
               .padding({ left: 16, right: 16 })
             }
             .width('100%')
             .backgroundColor(this.cardBg())
-            .borderRadius(12)
+            .borderRadius(14)
+
+            if (this.clockLabel(this.refreshedAt).length > 0) {
+              Text('每 10 秒自动刷新 · 上次 ' + this.clockLabel(this.refreshedAt))
+                .fontSize(11.5)
+                .fontColor(this.subColor())
+                .width('100%')
+                .textAlign(TextAlign.Center)
+                .padding({ top: 4 })
+            }
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 4, bottom: 24 + this.safeBottom })
+          .padding({ left: 16, right: 16, top: 8, bottom: 24 + this.safeBottom })
         }
         .layoutWeight(1)
         .width('100%')
