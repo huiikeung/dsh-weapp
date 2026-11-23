@@ -376,6 +376,17 @@ export struct SessionDefaultModelPage {
       return;
     }
     this.saving = true;
+    // 先本地乐观更新，切换后立刻可见；网关回执失败再回滚
+    const prevModel: string = this.savedModel;
+    const prevProvider: string = this.savedProvider;
+    const prevEffort: string = this.savedEffort;
+    const prevDefaultModel: string = AppStorage.get<string>('defaultModel') ?? '';
+    const prevDefaultEffort: string = AppStorage.get<string>('defaultEffort') ?? '';
+    this.savedModel = row.model;
+    this.savedProvider = row.provider;
+    this.savedEffort = effort;
+    AppStorage.setOrCreate<string>('defaultModel', row.model);
+    AppStorage.setOrCreate<string>('defaultEffort', effort);
     const request = GatewayRequestFactory.make('save-default-model', 'save-default-model',
       { 'provider': row.provider, 'model': row.model, 'reasoningEffort': effort });
     GatewayClient.get().requestGateway(request, 15000).then((frame: GatewayFrame) => {
@@ -389,6 +400,11 @@ export struct SessionDefaultModelPage {
       this.toast('已保存');
     }).catch((error: Error) => {
       this.saving = false;
+      this.savedModel = prevModel;
+      this.savedProvider = prevProvider;
+      this.savedEffort = prevEffort;
+      AppStorage.setOrCreate<string>('defaultModel', prevDefaultModel);
+      AppStorage.setOrCreate<string>('defaultEffort', prevDefaultEffort);
       Logger.warn('[MODEL] save default failed ' + error.message);
       this.toast('保存失败：' + (error.message.length > 0 ? error.message : '请稍后再试'));
     });
