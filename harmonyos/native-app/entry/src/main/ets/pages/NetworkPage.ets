@@ -812,26 +812,33 @@ export struct NetworkPage {
               .padding({ left: 16, right: 16, top: 10, bottom: 10 })
 
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              Row() {
-                Text('平均 ' + this.wsAvgText() + ' · P95 ' + this.wsP95Text())
-                  .fontSize(12.5)
-                  .fontColor(this.subColor())
-                Blank()
-                Text('接收 ' + this.wsRxText() + ' · 发送 ' + this.wsTxText())
-                  .fontSize(12.5)
-                  .fontColor(this.subColor())
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 10 })
+              Column({ space: 7 }) {
+                Row() {
+                  Text('平均 ' + this.wsAvgText() + ' · P95 ' + this.wsP95Text())
+                    .fontSize(12.5)
+                    .fontColor(this.subColor())
+                  Blank()
+                }
+                .width('100%')
 
-              Row() {
-                Text('成功 ' + this.wsOkCount() + ' / 超时 ' + this.wsTimeoutCount())
-                  .fontSize(12.5)
-                  .fontColor(this.subColor())
-                Blank()
+                Row() {
+                  Text('接收 ' + this.wsRxText() + ' · 发送 ' + this.wsTxText())
+                    .fontSize(12.5)
+                    .fontColor(this.subColor())
+                  Blank()
+                }
+                .width('100%')
+
+                Row() {
+                  Text('成功 ' + this.wsOkCount() + ' / 超时 ' + this.wsTimeoutCount())
+                    .fontSize(12.5)
+                    .fontColor(this.subColor())
+                  Blank()
+                }
+                .width('100%')
               }
               .width('100%')
-              .padding({ left: 16, right: 16, top: 10, bottom: 14 })
+              .padding({ left: 16, right: 16, top: 12, bottom: 14 })
             }
             .width('100%')
             .backgroundColor(this.cardBg())
