@@ -1,4 +1,5 @@
 import { NavBackButton } from '../components/NavBackButton';
+import { APP_DISPLAY_NAME, DEVELOPER_NAME, USER_AGREEMENT_EFFECTIVE_AT, USER_AGREEMENT_VERSION } from '../common/LegalDocs';
 
 /** 协议章节 */
 interface AgreementSection {
@@ -19,16 +20,9 @@ interface AgreementSection {
  *   配对码在 DSH WebUI「移动设备」面板生成；手机端在「设置 → 连接 → 管理」管理已配对节点；
  *   本版本没有独立账号体系与会员，公网访问 / Tailscale 内嵌隧道为可选功能。
  */
-const AGREEMENT_EFFECTIVE_AT: string = '2026年11月23日';
-const AGREEMENT_VERSION: string = 'v1.0';
-
-const APP_NAME: string = '鲸尾 Harness';
-
-/** 开发者 / 运营者（与文末「七、联系我们」一致）。如需改为法定姓名或公司主体，只改这一处。 */
-const DEVELOPER_NAME: string = '0the';
-
+/** 应用名、开发者、生效日期、版本统一在 common/LegalDocs */
 const AGREEMENT_INTRO: string =
-  '欢迎使用' + APP_NAME + '（以下简称「本应用」）。本应用由开发者 ' + DEVELOPER_NAME + ' 开发和运营。请你在使用前认真阅读本协议的全部条款；你下载、安装、启动或以任何方式使用本应用，即视为你已阅读并同意本协议。若你不同意本协议的任何内容，请立即停止使用并卸载本应用。';
+  '欢迎使用' + APP_DISPLAY_NAME + '（以下简称「本应用」）。本应用由开发者 ' + DEVELOPER_NAME + ' 开发和运营。请你在使用前认真阅读本协议的全部条款；你下载、安装、启动或以任何方式使用本应用，即视为你已阅读并同意本协议。若你不同意本协议的任何内容，请立即停止使用并卸载本应用。';
 
 const AGREEMENT_SECTIONS: AgreementSection[] = [
   {
@@ -57,7 +51,7 @@ const AGREEMENT_SECTIONS: AgreementSection[] = [
     paragraphs: [
       '1. 本应用按「现状」提供。在法律允许的最大范围内，我们不对服务的及时性、安全性、准确性作出任何明示或默示的保证。',
       '2. 因下列原因导致的服务中断、数据丢失或其它损失，我们不承担责任：① 你的网络或设备故障；② 电脑端 DeepSeek Harness 或网关插件本身的问题；③ 你误操作或未妥善保管配对码；④ 公网通路（含 Tailscale 隧道与中继服务器链路）出现中断、延迟或抖动；⑤ 不可抗力或第三方原因。',
-      '3. 在法律允许的最大范围内，我们对你承担的全部赔偿责任，以你为使用本应用而实际支付的费用为上限；本应用的局域网功能免费提供，公网访问等增值服务按实际支付金额计算。'
+      '3. 在法律允许的最大范围内，我们对你承担的全部赔偿责任，以你为使用本应用而实际支付的费用为上限；本应用的局域网功能免费提供。'
     ]
   },
   {
@@ -169,7 +163,7 @@ export struct UserAgreementPage {
   @Builder
   introCard() {
     Column({ space: 10 }) {
-      Text(APP_NAME)
+      Text(APP_DISPLAY_NAME)
         .fontSize(12)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.accentColor())
@@ -177,7 +171,7 @@ export struct UserAgreementPage {
         .fontSize(22)
         .fontWeight(FontWeight.Bold)
         .fontColor(this.textColor())
-      Text('生效日期：' + AGREEMENT_EFFECTIVE_AT + '    版本：' + AGREEMENT_VERSION)
+      Text('生效日期：' + USER_AGREEMENT_EFFECTIVE_AT + '    版本：' + USER_AGREEMENT_VERSION)
         .fontSize(12)
         .fontColor(this.subColor())
       Text(AGREEMENT_INTRO)

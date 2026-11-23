@@ -218,6 +218,25 @@ class DeviceConnectorsStore {
 
   private handleFrame(frame: GatewayFrame): void {
     const kind: string = frame.kind;
+    if (kind === 'hello') {
+      // 问候帧决定网关注册能力；有 device-tools-v1 才能逐模块登记
+      const caps: Object[] | undefined = arr(frame, 'capabilities');
+      let supported: boolean = false;
+      if (caps !== undefined) {
+        caps.forEach((cap: Object) => {
+          if (cap === 'device-tools-v1') {
+            supported = true;
+          }
+        });
+      }
+      this.supported = supported;
+      if (supported) {
+        this.onConnected();
+      } else {
+        this.publish('unsupported');
+      }
+      return;
+    }
     if (kind === 'device-tools-registered') {
       this.lease = str(frame, 'connectionLeaseId') ?? '';
       this.acceptModules(frame);

@@ -52,6 +52,8 @@ export struct ConversationRowView {
   private processScroller: Scroller = new Scroller();
   /** 实时主题：LazyForEach 创建的行不会跟随父级 @Prop 刷新，直接订阅 AppStorage */
   @StorageLink('isDark') @Watch('onThemeChanged') isDark: boolean = false;
+  /** 设置 → 对话 → 「AI 生成标识」开关（默认开启）：关闭后每轮回复开头不显示「AI 生成内容，仅供参考」 */
+  @StorageLink('aiContentLabelEnabled') aiLabelEnabled: boolean = true;
   /** 主题换代号：拼进 ForEach key，切主题时强制重建步骤节点（否则旧配色被复用） */
   @State themeGeneration: number = 0;
   /** 运行中思考卡固定高度；正文变长时只在卡内向上滚，页面高度不变（不抖） */
@@ -2775,8 +2777,34 @@ export struct ConversationRowView {
     .backgroundColor(this.isDark ? 'rgba(46,107,230,0.14)' : 'rgba(46,107,230,0.06)')
   }
 
+  /**
+   * AI 生成内容显式标识：每轮第一条助手侧行的顶部。
+   * 回合组 / 过程行 / 正式回复都可能是这一行，所以挂在 build() 的最外层而不是只挂在回复行上。
+   */
+  @Builder
+  aiBadge() {
+    Row({ space: 5 }) {
+      Text('AI')
+        .fontSize(10)
+        .fontWeight(FontWeight.Bold)
+        .fontColor('#FFFFFF')
+        .padding({ left: 5, right: 5, top: 1.5, bottom: 1.5 })
+        .borderRadius(4)
+        .backgroundColor(OCEAN)
+      Text('生成内容，仅供参考')
+        .fontSize(11)
+        .lineHeight(15)
+        .fontColor(this.tertiaryText())
+    }
+    .alignItems(VerticalAlign.Center)
+    .margin({ bottom: 6 })
+  }
+
   build() {
     Column() {
+      if (this.entry.aiLabelVisible && this.aiLabelEnabled) {
+        this.aiBadge()
+      }
       if (this.entry.kind === KIND_USER) {
         this.userRow()
       } else if (this.entry.kind === KIND_ASSISTANT) {

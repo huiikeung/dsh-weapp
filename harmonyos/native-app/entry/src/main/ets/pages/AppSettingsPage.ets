@@ -1,7 +1,7 @@
 import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { bundleManager, common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
-import type { ThemeMode, WorkStepOption } from 'nativecore';
+import type { GatewayFrame, ThemeMode, WorkStepOption } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
 import { NodeManageSheet } from '../components/NodeManageSheet';
 import { Haptics } from '../services/Haptics';
@@ -124,6 +124,8 @@ export struct AppSettingsPage {
   @StorageLink('bottomSheetGlassEnabled') bottomSheetGlassEnabled: boolean = true;
   @StorageLink('homeAnimationEnabled') homeAnimationEnabled: boolean = true;
   @StorageLink('voiceInputEnabled') voiceInputEnabled: boolean = true;
+  /** 对话页每轮 AI 回复开头的「AI 生成内容，仅供参考」标识（默认开启） */
+  @StorageLink('aiContentLabelEnabled') aiContentLabelEnabled: boolean = true;
   @StorageLink('showAccountCard') showAccountCard: boolean = false;
   /** 会话节点胶囊：默认展开显示（关闭则默认收起成贴边把手） */
   @StorageLink('capsuleDefaultExpanded') capsuleDefaultExpanded: boolean = false;
@@ -243,6 +245,7 @@ export struct AppSettingsPage {
     this.bottomSheetGlassEnabled = prefs.getBoolean('bottomSheetGlassEnabled', true);
     this.homeAnimationEnabled = prefs.getBoolean('homeAnimationEnabled', true);
     this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', true);
+    this.aiContentLabelEnabled = prefs.getBoolean('aiContentLabelEnabled', true);
     this.showAccountCard = prefs.getBoolean('showAccountCard', false);
     this.capsuleDefaultExpanded = prefs.getBoolean('capsuleDefaultExpanded', false);
     this.capsuleAlwaysVisible = prefs.getBoolean('capsuleAlwaysVisible', true);
@@ -295,6 +298,7 @@ export struct AppSettingsPage {
     this.bottomSheetGlassEnabled = prefs.getBoolean('bottomSheetGlassEnabled', this.bottomSheetGlassEnabled);
     this.homeAnimationEnabled = prefs.getBoolean('homeAnimationEnabled', this.homeAnimationEnabled);
     this.voiceInputEnabled = prefs.getBoolean('voiceInputEnabled', this.voiceInputEnabled);
+    this.aiContentLabelEnabled = prefs.getBoolean('aiContentLabelEnabled', this.aiContentLabelEnabled);
     this.capsuleDefaultExpanded = prefs.getBoolean('capsuleDefaultExpanded', this.capsuleDefaultExpanded);
     this.capsuleAlwaysVisible = prefs.getBoolean('capsuleAlwaysVisible', this.capsuleAlwaysVisible);
     this.notifyEnabled = prefs.getBoolean('notifyEnabled', this.notifyEnabled);
@@ -1068,6 +1072,38 @@ export struct AppSettingsPage {
     // 每次都重读偏好：二级页面（字号/字体/玻璃/语言/工作步骤…）改完返回立即同步
     this.refreshPrefs();
     this.syncWorkStepLabels();
+    // 顺带刷新 ClawBot 接线状态：「微信 ClawBot 私聊接线」行右侧不该一直停在「未读取」
+    this.probeClawbotStatus();
+  }
+
+  /**
+   * 后台探测 ClawBot 接线状态（网关 clawbot-control status）。
+   * 设置页打开时就能显示「运行中/已暂停/未绑定微信」，不必先进入 ClawBot 页再返回。
+   */
+  private probeClawbotStatus(): void {
+    if (this.connection !== 'connected') {
+      AppStorage.setOrCreate<string>('clawbotStatusSummary', '未连接');
+      return;
+    }
+    GatewayClient.get().clawbotControl('status').then((frame: GatewayFrame) => {
+      const value: Object | undefined = frame.value;
+      if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        AppStorage.setOrCreate<string>('clawbotStatusSummary', '未读取');
+        return;
+      }
+      const rec = value as Record<string, Object>;
+      const supported: boolean = rec['supported'] === true;
+      if (!supported) {
+        AppStorage.setOrCreate<string>('clawbotStatusSummary', '网关不支持');
+        return;
+      }
+      const enabled: boolean = rec['enabled'] === true;
+      const paired: boolean = rec['paired'] === true;
+      AppStorage.setOrCreate<string>('clawbotStatusSummary',
+        enabled ? '运行中' : (paired ? '已暂停' : '未绑定微信'));
+    }).catch((ignored: Error) => {
+      AppStorage.setOrCreate<string>('clawbotStatusSummary', '未读取');
+    });
   }
 
   /**
@@ -1900,6 +1936,12 @@ export struct AppSettingsPage {
                   })
                 this.divider()
               }
+              this.divider()
+              this.toggleRow('AI 生成标识', '在每轮 AI 回复开头显示「AI 生成内容，仅供参考」', this.aiContentLabelEnabled, (value: boolean) => {
+                this.aiContentLabelEnabled = value;
+                PreferencesStore.get().putBoolean('aiContentLabelEnabled', value);
+              })
+              this.divider()
               this.rowWorkStep('工作步骤展示', '选择希望看到多少工具调用细节', 'mode', () => {
                 this.openPicker('mode');
               })

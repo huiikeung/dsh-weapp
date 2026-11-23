@@ -120,11 +120,12 @@ export struct ClawbotPage {
     if (!this.loaded) {
       return '正在读取状态…';
     }
-    if (this.state === 'error') {
-      return 'ClawBot 异常';
-    }
+    // enabled 是动作直接改写的字段，优先用它判断，避免回执缺 state 时文案不切换
     if (this.bridgeEnabled) {
       return '接线运行中';
+    }
+    if (this.state === 'error') {
+      return 'ClawBot 异常';
     }
     return this.paired ? '已暂停' : '未绑定微信';
   }
@@ -144,6 +145,7 @@ export struct ClawbotPage {
     if (rec === undefined || bool(rec, 'supported') !== true) {
       this.supported = false;
       this.loaded = true;
+      AppStorage.setOrCreate<string>('clawbotStatusSummary', '网关不支持');
       return;
     }
     this.supported = true;
@@ -174,6 +176,7 @@ export struct ClawbotPage {
     this.refreshSummary();
   }
 
+  /** 状态文案写回 AppStorage，设置页「微信 ClawBot」行右侧即时反映（运行中/已暂停/未绑定） */
   private refreshSummary(): void {
     let summary: string = '未绑定微信';
     if (this.bridgeEnabled) {
@@ -255,6 +258,9 @@ export struct ClawbotPage {
           return;
         }
         this.applyStatus(value);
+        // 网关对 enabled 等动作的回执可能只带部分字段：再拉一次 status 保证
+        // 顶部状态点/文案/按钮/设置页行副标题同时切到新状态（不再需要退出重进）
+        this.refresh(true);
       })
       .catch((err: Error) => {
         this.error = err.message;
@@ -368,11 +374,24 @@ export struct ClawbotPage {
   @Builder
   hero() {
     Row({ space: 12 }) {
-      Circle()
-        .width(10)
-        .height(10)
-        .fill(this.bridgeEnabled ? this.successColor() : (this.paired ? '#FFAD1F' : '#8A9099'))
-        .shadow(this.bridgeEnabled ? { radius: 8, color: 'rgba(25,135,84,0.45)' } : { radius: 0, color: Color.Transparent })
+      // 状态点：光环用「半透明圆」而不是 shadow —— shadow 按矩形绘制，
+      // 浅色主题下会在圆点外露出四个方形角（看起来多了一圈白角）。
+      Stack({ alignContent: Alignment.Center }) {
+        if (this.bridgeEnabled) {
+          Stack()
+            .width(18)
+            .height(18)
+            .borderRadius(9)
+            .backgroundColor('rgba(25,135,84,0.22)')
+        }
+        Stack()
+          .width(10)
+          .height(10)
+          .borderRadius(5)
+          .backgroundColor(this.bridgeEnabled ? this.successColor() : (this.paired ? '#FFAD1F' : '#8A9099'))
+      }
+      .width(18)
+      .height(18)
       Column({ space: 4 }) {
         Text(this.stateLabel())
           .fontSize(16.5)

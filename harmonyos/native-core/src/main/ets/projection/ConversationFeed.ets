@@ -171,6 +171,8 @@ export class ConversationFeedEntry {
   narration: boolean = false;
   /** 回合页脚：复制 / 用量 / 时间（对齐小程序 turn-footer） */
   footerVisible: boolean = false;
+  /** AI 生成内容显式标识：每轮第一条助手侧的行顶部显示（applyTurnFooters 标记） */
+  aiLabelVisible: boolean = false;
   turnMetaText: string = '';
   /** 本轮用量明细（点用量胶囊时在按钮上方弹出） */
   turnUsageDetail: string = '';
@@ -1171,6 +1173,8 @@ export class ConversationFeed {
       // 工具次数挪到展开后的 expandedSummary（对齐小程序 turnProcess 行）。
       turn.title = run[run.length - 1].title;
       turn.isError = run.some((group: ConversationFeedEntry) => group.isError);
+      // AI 生成内容标识挂在每轮第一条助手侧行上；过程组被折进回合行后，标记要带到回合行上，否则标识会丢
+      turn.aiLabelVisible = run.some((group: ConversationFeedEntry) => group.aiLabelVisible);
       turn.expandable = run.some((group: ConversationFeedEntry) => group.expandable);
       turn.epochSeconds = run[run.length - 1].epochSeconds;
       turn.turnKey = entry.turnKey;
@@ -1227,12 +1231,21 @@ export class ConversationFeed {
    */
   static applyTurnFooters(entries: ConversationFeedEntry[]): void {
     let turnStartEpoch: number = 0;
+    // AI 生成内容显式标识：每轮（用户消息之后）第一条助手侧的行挂标识；
+    // 列表开头直接是助手行（历史被截断）时也要标。
+    let awaitingAiLead: boolean = true;
     for (const entry of entries) {
       if (entry.kind === ConversationItemKind.USER as string) {
         if (entry.epochSeconds > 0) {
           turnStartEpoch = entry.epochSeconds;
         }
+        awaitingAiLead = true;
         continue;
+      }
+      // 助手侧会显示模型文字的行：回合组 / 过程行 / 正式回复（文件卡片、状态、系统行不算）
+      if (entry.kind === ConversationItemKind.ASSISTANT as string || entry.kind === 'TURN' || entry.kind === 'PROCESS') {
+        entry.aiLabelVisible = awaitingAiLead;
+        awaitingAiLead = false;
       }
       if (entry.kind !== ConversationItemKind.ASSISTANT as string) {
         continue;

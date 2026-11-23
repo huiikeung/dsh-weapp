@@ -70,6 +70,8 @@ export class ConversationFeedEntryModel {
   narration: boolean = false;
   /** 回合页脚 */
   footerVisible: boolean = false;
+  /** AI 生成内容显式标识（每轮第一条助手侧行） */
+  aiLabelVisible: boolean = false;
   turnMetaText: string = '';
   /** 本轮用量明细（点用量胶囊时在按钮上方弹出） */
   turnUsageDetail: string = '';
@@ -283,6 +285,9 @@ export class ConversationFeedEntryModel {
     if (this.footerVisible !== entry.footerVisible) {
       this.footerVisible = entry.footerVisible;
     }
+    if (this.aiLabelVisible !== entry.aiLabelVisible) {
+      this.aiLabelVisible = entry.aiLabelVisible;
+    }
     if (this.turnMetaText !== entry.turnMetaText) {
       this.turnMetaText = entry.turnMetaText;
     }
@@ -401,6 +406,7 @@ export class ConversationFeedEntryModel {
     next.liveDetail = entry.liveDetail;
     next.narration = entry.narration;
     next.footerVisible = entry.footerVisible;
+    next.aiLabelVisible = entry.aiLabelVisible;
     next.turnMetaText = entry.turnMetaText;
     next.turnUsageDetail = entry.turnUsageDetail;
     next.inlineImageIds = entry.inlineImageIds;

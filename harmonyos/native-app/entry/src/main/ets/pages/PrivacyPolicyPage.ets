@@ -1,4 +1,5 @@
 import { NavBackButton } from '../components/NavBackButton';
+import { PRIVACY_POLICY_UPDATED_AT } from '../common/LegalDocs';
 
 /** 政策章节 */
 interface PolicySection {
@@ -17,7 +18,6 @@ interface PolicySection {
  *   小程序存储 → 本机应用存储；微信授权 → 系统权限（相机/麦克风/通知）；
  *   微信客服入口 → 鸿蒙版「联系客服」说明；去掉小程序专属的虚拟支付/分享活动章节。
  */
-const POLICY_UPDATED_AT: string = '2026年11月23日';
 
 const POLICY_INTRO: string =
   '本政策适用于鲸尾 Harness 及其配套公网服务。应用通过网关插件 dsh-plugin-weapp-gateway 连接你自行配对的 DeepSeek Harness（DSH）节点，并非连接运营方统一提供的 AI 主机。隐私问题可通过「设置 → 关于 → 联系客服」提出。';
@@ -164,7 +164,7 @@ export struct PrivacyPolicyPage {
         .fontSize(22)
         .fontWeight(FontWeight.Bold)
         .fontColor(this.textColor())
-      Text('更新日期：' + POLICY_UPDATED_AT)
+      Text('更新日期：' + PRIVACY_POLICY_UPDATED_AT)
         .fontSize(12)
         .fontColor(this.subColor())
       Text(POLICY_INTRO)
