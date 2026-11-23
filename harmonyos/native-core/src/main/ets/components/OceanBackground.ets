@@ -196,8 +196,8 @@ export struct OceanBackground {
       if (wide) {
         const vignette = ctx.createRadialGradient(w * 0.50, totalH * 0.42, 0, w * 0.50, totalH * 0.42, Math.max(w, totalH) * 0.72);
         vignette.addColorStop(0, 'rgba(4,10,20,0)');
-        vignette.addColorStop(0.55, 'rgba(4,10,20,0.35)');
-        vignette.addColorStop(1, 'rgba(4,10,20,0.78)');
+        vignette.addColorStop(0.62, 'rgba(4,10,20,0.22)');
+        vignette.addColorStop(1, 'rgba(4,10,20,0.62)');
         ctx.fillStyle = vignette;
         ctx.fillRect(0, 0, w, totalH);
       }
@@ -274,13 +274,14 @@ export struct OceanBackground {
     if (this.padStyle) {
       const aspect: number = w / Math.max(1, totalH);
       const wideProgress: number = Math.min(1, Math.max(0, (aspect - 0.65) / 0.75));
-      square = Math.min(Math.max(w * 1.15, totalH * 0.48), totalH * 1.12) * 0.82;
+      // 参考实机观感：平板也把鲸鱼放大到接近铺满（iOS 0.82 的构图在大屏上偏小）
+      square = Math.min(Math.max(w * 1.15, totalH * 0.48), totalH * 1.12) * 1.02;
       cx = w * (0.55 + 0.05 * wideProgress);
       cy = totalH * (0.34 + 0.12 * wideProgress);
       motionScale = Math.min(2, Math.max(1, square / 460));
       driftXBase = 1.8;
       driftYBase = 1.7;
-      baseDot = Math.min(2.4, Math.max(0.8, square / 360));
+      baseDot = Math.min(2.2, Math.max(0.8, square / 420));
     } else {
       square = Math.max(w * 1.15, totalH * 0.48);
       cx = w * 0.55;
