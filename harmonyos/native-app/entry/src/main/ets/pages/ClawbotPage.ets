@@ -13,6 +13,12 @@ interface ClawbotSession {
   workspaceTitle: string;
 }
 
+/** 「选择接入会话」按工作区分组 */
+interface ClawbotSessionGroup {
+  title: string;
+  items: ClawbotSession[];
+}
+
 /**
  * 微信 ClawBot 私聊接线（视觉对齐小程序 clawbot 面板）：
  * hero 状态卡 → 接入会话/待处理 tile → 操作按钮 → 扫码绑定卡。
@@ -45,6 +51,9 @@ export struct ClawbotPage {
   @State private loaded: boolean = false;
   @State private confirmDisconnect: boolean = false;
   @State private sessionsOpen: boolean = false;
+  /** 底部说明弹层：开关键 + 文案 */
+  @State private hintMenuOpen: string = '';
+  @State private hintText: string = '';
   @State private sessionsLoading: boolean = false;
   @State private sessions: ClawbotSession[] = [];
 
@@ -142,13 +151,20 @@ export struct ClawbotPage {
 
   private applyStatus(value: Object | undefined): void {
     const rec = asRec(value);
-    if (rec === undefined || bool(rec, 'supported') !== true) {
+    if (rec === undefined) {
+      return;
+    }
+    // 只有「明确 supported=false」才判定不支持；动作回执常常只带 enabled 等字段，
+    // 没有 supported 字段时按部分字段合并，避免把运行中误判成「网关不支持」。
+    if (rec['supported'] !== undefined && rec['supported'] !== true) {
       this.supported = false;
       this.loaded = true;
       AppStorage.setOrCreate<string>('clawbotStatusSummary', '网关不支持');
       return;
     }
-    this.supported = true;
+    if (rec['supported'] === true) {
+      this.supported = true;
+    }
     this.revision = num(rec, 'revision') ?? this.revision;
     this.bridgeEnabled = bool(rec, 'enabled') ?? false;
     this.state = str(rec, 'state') ?? this.state;
@@ -293,12 +309,85 @@ export struct ClawbotPage {
     this.sessionsOpen = true;
   }
 
+  /** 按 workspaceTitle 分组（保持首次出现顺序；没有工作区的归到「未分组」并排最后） */
+  private sessionGroups(): ClawbotSessionGroup[] {
+    const groups: ClawbotSessionGroup[] = [];
+    const loose: ClawbotSession[] = [];
+    for (const one of this.sessions) {
+      if (one.workspaceTitle.length === 0) {
+        loose.push(one);
+        continue;
+      }
+      let target: ClawbotSessionGroup | undefined = undefined;
+      for (const g of groups) {
+        if (g.title === one.workspaceTitle) {
+          target = g;
+        }
+      }
+      if (target === undefined) {
+        target = { title: one.workspaceTitle, items: [] };
+        groups.push(target);
+      }
+      target.items.push(one);
+    }
+    if (loose.length > 0) {
+      groups.push({ title: '未分组', items: loose });
+    }
+    return groups;
+  }
+
+  /** 单个可选会话行（组内复用） */
+  @Builder
+  sessionRow(one: ClawbotSession) {
+    Row() {
+      Column({ space: 3 }) {
+        Text(one.title.length > 0 ? one.title : one.id)
+          .fontSize(14)
+          .fontColor(this.textColor())
+          .maxLines(2)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%')
+        if (one.workspaceTitle.length > 0) {
+          Text(one.workspaceTitle)
+            .fontSize(11.5)
+            .fontColor(this.subColor())
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .width('100%')
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      if (this.targetTitle.length > 0 && one.title === this.targetTitle) {
+        Text('✓').fontSize(14).fontColor(this.ocean())
+      }
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 52 })
+    .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+    .borderRadius(14)
+    .backgroundColor(this.tileBg())
+    .border({
+      width: 1,
+      color: this.targetTitle.length > 0 && one.title === this.targetTitle
+        ? this.ocean() : this.dividerColor()
+    })
+    .onClick(() => {
+      this.chooseSession(one.id);
+    })
+  }
+
   private toggleEnabled(): void {
     if (!this.paired || this.targetTitle.length === 0) {
       this.error = '请先绑定微信并选择接入会话';
       return;
     }
-    this.run('enabled', { 'enabled': !this.bridgeEnabled, 'expectedRevision': this.revision });
+    const next: boolean = !this.bridgeEnabled;
+    // 乐观切换：按钮（开启/暂停接线）与状态点立刻切过去，不必等网关回执
+    this.bridgeEnabled = next;
+    this.state = next ? 'enabled' : 'paused';
+    this.refreshSummary();
+    this.run('enabled', { 'enabled': next, 'expectedRevision': this.revision });
   }
 
   private startLogin(): void {
@@ -350,24 +439,77 @@ export struct ClawbotPage {
     this.run('disconnect', { 'expectedRevision': this.revision, 'abandonPending': true });
   }
 
+  /** 说明弹层：系统菜单（与其他页 ⓘ 一致） */
   @Builder
-  navBar() {
-    Row() {
-      NavBackButton({ isDark: this.isDark })
-        .onClick(() => {
-          this.pageStack.pop();
-        })
-      Text('微信 ClawBot')
-        .fontSize(17)
+  hintMenuBuilder() {
+    Column({ space: 6 }) {
+      Text('说明')
+        .fontSize(13)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.textColor())
-        .layoutWeight(1)
-        .textAlign(TextAlign.Center)
-      Row().width(44).height(44)
+      Text(this.hintText)
+        .fontSize(13)
+        .lineHeight(20)
+        .fontColor(this.textColor())
+    }
+    .width(280)
+    .padding(14)
+  }
+
+  /** 行内提示按钮：ⓘ + 系统菜单（替代底部灰色小字） */
+  @Builder
+  infoHint(key: string, desc: string) {
+    Text('ⓘ')
+      .fontSize(12)
+      .fontColor(this.subColor())
+      .padding({ left: 4, right: 4, top: 2, bottom: 2 })
+      .bindMenu(this.hintMenuOpen === key, this.hintMenuBuilder(), {
+        outlineColor: this.dividerColor(),
+        outlineWidth: 1,
+        onWillDisappear: () => {
+          this.hintMenuOpen = '';
+        },
+        onDisappear: () => {
+          this.hintMenuOpen = '';
+        }
+      })
+      .onClick(() => {
+        this.hintText = desc;
+        this.hintMenuOpen = this.hintMenuOpen === key ? '' : key;
+      })
+  }
+
+  @Builder
+  navBar() {
+    // 与一级页（设置）一致：玻璃底覆盖「状态栏 + 导航栏」整条
+    Stack({ alignContent: Alignment.TopStart }) {
+      Column()
+        .width('100%')
+        .height(56 + this.topInset())
+        .backdropBlur(12)
+        .backgroundColor(Color.Transparent)
+        .hitTestBehavior(HitTestMode.None)
+
+      Row() {
+        NavBackButton({ isDark: this.isDark })
+          .onClick(() => {
+            this.pageStack.pop();
+          })
+        Text('微信 ClawBot')
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+        Row().width(44).height(44)
+      }
+      .width('100%')
+      .height(56)
+      .padding({ left: 14, right: 14 })
+      .margin({ top: this.topInset() })
     }
     .width('100%')
-    .height(56 + this.topInset())
-    .padding({ left: 14, right: 14, top: this.topInset() > 2 ? this.topInset() - 2 : 0 })
+    .zIndex(10)
   }
 
   /** hero：状态点 + 标题 + 副标题 + 刷新胶囊（运行中绿色高亮，对齐小程序 .clawbot-hero） */
@@ -532,6 +674,7 @@ export struct ClawbotPage {
           .borderRadius(16)
           .backgroundColor('#FFFFFF')
           .padding(8)
+          .clip(true)
       } else if (this.pairingQrPath.length > 0) {
         Image(this.pairingQrPath)
           .width(220)
@@ -540,6 +683,7 @@ export struct ClawbotPage {
           .borderRadius(16)
           .backgroundColor('#FFFFFF')
           .padding(8)
+          .clip(true)
       } else {
         Text('二维码暂不可显示，请在电脑端扫码')
           .fontSize(12.5)
@@ -623,11 +767,16 @@ export struct ClawbotPage {
       if (this.pairingId.length > 0) {
         this.pairingCard()
       }
-      Text('微信凭据只保存在电脑端；接线开启后，发给该微信的私聊会转交给所选 DSH 会话。')
-        .fontSize(11.5)
-        .fontColor(this.subColor())
-        .lineHeight(17)
-        .width('100%')
+      // 底部说明收进 ⓘ（点开弹层看，不再占用页面高度）
+      Row({ space: 6 }) {
+        Text('说明')
+          .fontSize(11.5)
+          .fontColor(this.subColor())
+        this.infoHint('clawbot-about',
+          '微信凭据只保存在电脑端；接线开启后，发给该微信的私聊会转交给所选 DSH 会话。')
+      }
+      .width('100%')
+      .padding({ left: 2, top: 2 })
     }
     .width('100%')
   }
@@ -667,46 +816,32 @@ export struct ClawbotPage {
           .padding({ left: 18, right: 18, top: 8, bottom: 12 })
         }
         List({ space: 8 }) {
-          ForEach(this.sessions, (one: ClawbotSession) => {
+          ForEach(this.sessionGroups(), (group: ClawbotSessionGroup) => {
             ListItem() {
-              Row() {
-                Column({ space: 3 }) {
-                  Text(one.title.length > 0 ? one.title : one.id)
-                    .fontSize(14)
-                    .fontColor(this.textColor())
-                    .maxLines(2)
+              Column({ space: 8 }) {
+                // 工作区分组标题
+                Row() {
+                  Text(group.title)
+                    .fontSize(12)
+                    .fontWeight(FontWeight.Medium)
+                    .fontColor(this.subColor())
+                    .layoutWeight(1)
+                    .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .width('100%')
-                  if (one.workspaceTitle.length > 0) {
-                    Text(one.workspaceTitle)
-                      .fontSize(11.5)
-                      .fontColor(this.subColor())
-                      .maxLines(1)
-                      .textOverflow({ overflow: TextOverflow.Ellipsis })
-                      .width('100%')
-                  }
+                  Text(group.items.length.toString() + ' 个会话')
+                    .fontSize(11)
+                    .fontColor(this.subColor())
                 }
-                .alignItems(HorizontalAlign.Start)
-                .layoutWeight(1)
-                if (this.targetTitle.length > 0 && one.title === this.targetTitle) {
-                  Text('✓').fontSize(14).fontColor(this.ocean())
-                }
+                .width('100%')
+                .padding({ left: 4, right: 4 })
+
+                ForEach(group.items, (one: ClawbotSession) => {
+                  this.sessionRow(one)
+                }, (one: ClawbotSession) => one.id)
               }
               .width('100%')
-              .constraintSize({ minHeight: 52 })
-              .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-              .borderRadius(14)
-              .backgroundColor(this.tileBg())
-              .border({
-                width: 1,
-                color: this.targetTitle.length > 0 && one.title === this.targetTitle
-                  ? this.ocean() : this.dividerColor()
-              })
-              .onClick(() => {
-                this.chooseSession(one.id);
-              })
             }
-          }, (one: ClawbotSession) => one.id)
+          }, (group: ClawbotSessionGroup) => group.title)
         }
         .layoutWeight(1)
         .width('100%')
@@ -777,25 +912,21 @@ export struct ClawbotPage {
   build() {
     NavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
-        Column() {
-          this.navBar()
-          Scroll() {
-            Column() {
-              this.sections()
-            }
-            .width('100%')
-            .alignItems(HorizontalAlign.Start)
-            .padding({ left: 16, right: 16, top: 4, bottom: 40 })
+        Scroll() {
+          Column() {
+            this.sections()
           }
-          .layoutWeight(1)
           .width('100%')
-          .align(Alignment.TopStart)
-          .scrollBar(BarState.Off)
+          .alignItems(HorizontalAlign.Start)
+          // 顶部让出玻璃导航高度，内容可滚到导航下方
+          .padding({ left: 16, right: 16, top: 56 + this.topInset() + 4, bottom: 40 })
         }
         .width('100%')
         .height('100%')
-        .justifyContent(FlexAlign.Start)
-        .alignItems(HorizontalAlign.Start)
+        .align(Alignment.TopStart)
+        .scrollBar(BarState.Off)
+
+        this.navBar()
 
         if (this.sessionsOpen) {
           this.sessionsSheet()
