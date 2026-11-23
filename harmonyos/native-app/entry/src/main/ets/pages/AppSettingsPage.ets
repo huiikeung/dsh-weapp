@@ -1462,6 +1462,7 @@ export struct AppSettingsPage {
           .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
         }
         .width('100%')
+        .zIndex(10)
 
         Scroll() {
           Column() {
@@ -1791,11 +1792,12 @@ export struct AppSettingsPage {
             }
           }
           .width('100%')
-          .padding({ left: 16, right: 16, top: 4, bottom: 30 })
+          .padding({ left: 16, right: 16, top: 4 + 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9), bottom: 30 })
         }
         .layoutWeight(1)
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
+        .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
       }
       .width('100%')
       .height('100%')
