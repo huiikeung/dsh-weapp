@@ -251,6 +251,14 @@ export struct FontSizePage {
     NavDestination() {
       Column() {
         // 导航：返回 + 居中标题（与设置页其他二级页一致）
+        Stack({ alignContent: Alignment.TopStart }) {
+          Column()
+            .width('100%')
+            .height(56 + this.topInset())
+            .backdropBlur(12)
+            .backgroundColor(Color.Transparent)
+            .hitTestBehavior(HitTestMode.None)
+
         Row() {
           NavBackButton({ isDark: this.isDark })
             .onClick(() => {
@@ -270,6 +278,9 @@ export struct FontSizePage {
         .height(56)
         .padding({ left: 16, right: 16 })
         .margin({ top: this.topInset() })
+        }
+        .width('100%')
+        .zIndex(10)
 
         Scroll() {
           Column() {
@@ -366,6 +377,8 @@ export struct FontSizePage {
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
+        .padding({ top: 56 + this.topInset() })
+        .margin({ top: -(56 + this.topInset()) })
         .align(Alignment.Top)
       }
       .width('100%')

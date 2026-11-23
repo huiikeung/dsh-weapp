@@ -290,6 +290,14 @@ export struct PreferencePickerPage {
     NavDestination() {
       Column() {
         // 导航：返回 + 居中标题（与「设置」「对话状态条」等二级页一致）
+        Stack({ alignContent: Alignment.TopStart }) {
+          Column()
+            .width('100%')
+            .height(56 + ((AppStorage.get<number>('safeTopVp') ?? 0) > 0 ? (AppStorage.get<number>('safeTopVp') ?? 0) : 38.9))
+            .backdropBlur(12)
+            .backgroundColor(Color.Transparent)
+            .hitTestBehavior(HitTestMode.None)
+
         Row() {
           NavBackButton({ isDark: this.isDark })
             .onClick(() => {
@@ -309,6 +317,10 @@ export struct PreferencePickerPage {
         .height(56)
         // 左右与内容一致（内容区 padding 18.7）
         .padding({ left: 18.7, right: 18.7 })
+        .margin({ top: (AppStorage.get<number>('safeTopVp') ?? 0) > 0 ? (AppStorage.get<number>('safeTopVp') ?? 0) : 38.9 })
+        }
+        .width('100%')
+        .zIndex(10)
 
         Scroll() {
           Column() {
@@ -438,6 +450,8 @@ export struct PreferencePickerPage {
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
+        .padding({ top: 56 + ((AppStorage.get<number>('safeTopVp') ?? 0) > 0 ? (AppStorage.get<number>('safeTopVp') ?? 0) : 38.9) })
+        .margin({ top: -(56 + ((AppStorage.get<number>('safeTopVp') ?? 0) > 0 ? (AppStorage.get<number>('safeTopVp') ?? 0) : 38.9)) })
         .align(Alignment.Top)
       }
       .width('100%')
