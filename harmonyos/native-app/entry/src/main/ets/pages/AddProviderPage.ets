@@ -540,13 +540,13 @@ export struct AddProviderPage {
 
   @Builder
   modeTabs() {
-    Row() {
+    Row({ space: 4 }) {
       Text('第三方模型提供商')
         .fontSize(13.5)
         .fontWeight(this.mode === 'catalog' ? FontWeight.Medium : FontWeight.Normal)
         .fontColor(this.mode === 'catalog' ? '#2E6BE6' : this.subColor())
         .height(34)
-        .padding({ left: 16, right: 16 })
+        .layoutWeight(1)
         .textAlign(TextAlign.Center)
         .borderRadius(999)
         .backgroundColor(this.mode === 'catalog' ? this.accentFill() : Color.Transparent)
@@ -558,11 +558,10 @@ export struct AddProviderPage {
         .fontWeight(this.mode === 'custom' ? FontWeight.Medium : FontWeight.Normal)
         .fontColor(this.mode === 'custom' ? '#2E6BE6' : this.subColor())
         .height(34)
-        .padding({ left: 16, right: 16 })
+        .layoutWeight(1)
         .textAlign(TextAlign.Center)
         .borderRadius(999)
         .backgroundColor(this.mode === 'custom' ? this.accentFill() : Color.Transparent)
-        .margin({ left: 4 })
         .onClick(() => {
           this.mode = 'custom';
         })
