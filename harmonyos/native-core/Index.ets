@@ -121,6 +121,8 @@ export * from './src/main/ets/transport/RtcDiagnostics';
 export * from './src/main/ets/transport/RtcSelectedPath';
 export * from './src/main/ets/tailscale/TailscalePlatformStatus';
 export * from './src/main/ets/diagnostics/NetworkDiagnosticsStore';
+export * from './src/main/ets/connectors/DeviceConnectors';
+export { locationConnector } from './src/main/ets/connectors/LocationConnector';
 export { aeadSeal, aeadOpen, blake2s, hmacBlake2s, chacha20Xor, wireGuardSelfTest } from './src/main/ets/crypto/WireGuardCrypto';
 export { WireGuardTunnel } from './src/main/ets/crypto/WireGuardTunnel';
 export type { WireGuardPeerConfig } from './src/main/ets/crypto/WireGuardTunnel';

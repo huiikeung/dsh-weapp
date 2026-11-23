@@ -5,11 +5,17 @@ import { TailscaleTunnelStore } from '../services/TailscaleTunnelStore';
 import { TsnetBridge } from '../services/TsnetBridge';
 import { BackgroundKeepAlive } from '../services/BackgroundKeepAlive';
 import { StatusBarStyle } from '../services/StatusBarStyle';
+import { PrivacyConsent } from '../services/PrivacyConsent';
 import {
-  AppState, AttachmentImageCache, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
+  AppState, AttachmentImageCache, DeviceConnectors, locationConnector, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
   parsePairingPayload, sodiumSelfTest
 } from 'nativecore';
 export default class EntryAbility extends UIAbility {
+  /** 调试/深度链接传入的配对载荷：同意协议后才发起连接 */
+  private pendingPairPayload: string = '';
+  /** 网络/隧道初始化只执行一次 */
+  private networkingStarted: boolean = false;
+
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     AppState.init();
     // 会话目录缓存体积大，放到首帧之后再读，避免阻塞启动
@@ -42,19 +48,9 @@ export default class EntryAbility extends UIAbility {
     const paramPayload: string = want.parameters !== undefined && want.parameters['pairPayload'] !== undefined
       ? String(want.parameters['pairPayload']) : '';
     if (paramPayload.length > 0) {
+      // 不在这里直接连接：必须等用户同意《用户协议》《隐私政策》后才允许联网（见 startNetworking）
       Logger.info('pairing payload from launch param, length=' + paramPayload.length);
-      try {
-        const parsed = parsePairingPayload(paramPayload);
-        if (parsed.ok) {
-          setTimeout(() => {
-            GatewayClient.get().connectPairing(parsed);
-          }, 500);
-        } else {
-          Logger.error('payload invalid: ' + parsed.error);
-        }
-      } catch (e) {
-        Logger.error('payload parse failed: ' + JSON.stringify(e));
-      }
+      this.pendingPairPayload = paramPayload;
     }
     SessionStore.get().attach(GatewayClient.get());
     // 启动自检：X25519 + XSalsa20-Poly1305 与 tweetnacl 向量比对（失败会打日志）。
@@ -76,6 +72,8 @@ export default class EntryAbility extends UIAbility {
       }, 1200);
     }
     Logger.info('EntryAbility onCreate');
+    DeviceConnectors.bind();
+    DeviceConnectors.registerAdapter(locationConnector);
     PreferencesStore.get().init(this.context).then(() => {
       // 会话内容字号（小/标准/大/特大）→ AppStorage，供对话页与设置预览统一读取
       AppStorage.setOrCreate<string>('contentFontSize', PreferencesStore.get().getString('contentFontSize', '标准'));
@@ -113,7 +111,34 @@ export default class EntryAbility extends UIAbility {
       }
       AppStorage.setOrCreate<string>('procIconStyle', storedProcIcon);
       ThemeManager.get().init(this.context.config.colorMode);
-    // 网络/隧道初始化推迟到首帧之后：先让页面秒开，再在后台连网
+      // 首次启动隐私同意：未同意前不初始化隧道、不自动连接网关，同意后由 PrivacyConsent 回调补做
+      const agreed: boolean = PrivacyConsent.isAgreed();
+      AppStorage.setOrCreate<string>('privacyConsentState', agreed ? 'granted' : 'required');
+      if (agreed) {
+        this.startNetworking();
+      } else {
+        PrivacyConsent.onAgreed(() => {
+          this.startNetworking();
+        });
+      }
+    })
+    .catch((err: BusinessError) => {
+      Logger.error('init preferences failed: ' + JSON.stringify(err));
+      // 偏好读不出来时同样无法落盘同意状态：按「需要同意」处理
+      AppStorage.setOrCreate<string>('privacyConsentState', 'required');
+      ThemeManager.get().init(this.context.config.colorMode);
+    });
+  }
+
+  /**
+   * 网络/隧道初始化：只在用户同意协议后执行，且只执行一次。
+   * 推迟到首帧之后：先让页面秒开，再在后台连网。
+   */
+  private startNetworking(): void {
+    if (this.networkingStarted) {
+      return;
+    }
+    this.networkingStarted = true;
     setTimeout(() => {
     TailscaleTunnelStore.get().start(this.context.filesDir + '/tailscale', this.context);
     GatewayClient.get().setTailnetEnabler(() => {
@@ -134,11 +159,27 @@ export default class EntryAbility extends UIAbility {
       if (!GatewayClient.get().autoConnect()) {
         Logger.info('no saved gateway, waiting for scan');
       }
+      this.runPendingPairing();
     }, 120);
-    }).catch((err: BusinessError) => {
-      Logger.error('init preferences failed: ' + JSON.stringify(err));
-      ThemeManager.get().init(this.context.config.colorMode);
-    });
+  }
+
+  /** 调试/深度链接传入的配对载荷：同意协议后发起连接 */
+  private runPendingPairing(): void {
+    const payload: string = this.pendingPairPayload;
+    if (payload.length === 0) {
+      return;
+    }
+    this.pendingPairPayload = '';
+    try {
+      const parsed = parsePairingPayload(payload);
+      if (parsed.ok) {
+        GatewayClient.get().connectPairing(parsed);
+      } else {
+        Logger.error('payload invalid: ' + parsed.error);
+      }
+    } catch (e) {
+      Logger.error('payload parse failed: ' + JSON.stringify(e));
+    }
   }
 
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
@@ -225,7 +266,13 @@ export default class EntryAbility extends UIAbility {
     SessionStore.get().refreshSessionsNow();
     Logger.info('FG_TIMING refresh-sessions +' + (Date.now() - fgStart));
     const state: string = AppStorage.get<string>('connectionState') ?? 'disconnected';
-    if (PreferencesStore.get().isReady() && state !== 'connected' && state !== 'connecting') {
+    if (state === 'connected') {
+      DeviceConnectors.onConnected();
+    } else {
+      DeviceConnectors.onDisconnected();
+    }
+    // 未同意隐私协议前不自动重连
+    if (PrivacyConsent.isAgreed() && PreferencesStore.get().isReady() && state !== 'connected' && state !== 'connecting') {
       GatewayClient.get().autoConnect();
     }
     Logger.info('FG_TIMING auto-connect +' + (Date.now() - fgStart));

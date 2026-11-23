@@ -20,14 +20,16 @@ import { PreferencePickerPage } from './PreferencePickerPage';
 import { FontSizePage } from './FontSizePage';
 import { ClawbotPage } from './ClawbotPage';
 import { StorageSpacePage } from './StorageSpacePage';
+import { ConnectorsPage } from './ConnectorsPage';
 import { NetworkPage } from './NetworkPage';
 import { PrivacyPolicyPage } from './PrivacyPolicyPage';
 import { UserAgreementPage } from './UserAgreementPage';
 import { openSessionRoute } from '../common/SessionRoute';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 import { PrivacyConsent } from '../services/PrivacyConsent';
-import { uiMaterial } from '@kit.ArkUI';
-import { PrivacyConsentDialog } from '../components/PrivacyConsentDialog';
+import { promptAction } from '@kit.ArkUI';
+import { BusinessError } from '@kit.BasicServicesKit';
+import { PrivacyConsentDialog, consentDialogMaterial } from '../components/PrivacyConsentDialog';
 
 @Entry
 @Component
@@ -38,10 +40,12 @@ struct Index {
   @StorageLink('privacyConsentState') @Watch('onConsentStateChanged') consentState: string = 'unknown';
   /** 正在查看《用户协议》/《隐私政策》：此时不弹同意弹窗，返回首页后再弹 */
   @State consentDocOpen: boolean = false;
-  /** 系统同意弹窗的控制器（第一次需要弹时才创建） */
-  private consentDialog: CustomDialogController | undefined = undefined;
-  /** 弹窗是否正在显示（这个 SDK 的 CustomDialogController 没有 isOpen 可查） */
+  /** 系统同意弹窗的 id（openCustomDialog 返回）；-1 表示没在显示 */
+  private consentDialogId: number = -1;
+  /** 正在打开或已经显示：启动时 aboutToAppear 和首页 didShow 都会触发，避免重复弹 */
   private consentDialogShown: boolean = false;
+  /** 系统弹窗打不开时的兜底：改用自绘同意层，保证用户始终能看到并同意 */
+  @State consentFallback: boolean = false;
   @StorageLink('themeMode') @Watch('applyAppColorMode') themeMode: string = 'system';
   @StorageLink('pendingSessionId') @Watch('openPendingSession') pendingSessionId: string = '';
   @StorageLink('pendingPageRoute') @Watch('openPendingPageRoute') pendingPageRoute: string = '';
@@ -112,6 +116,8 @@ struct Index {
   PageMap(name: string) {
     if (name === 'session') {
       ConversationPage();
+    } else if (name === 'connectors') {
+      ConnectorsPage();
     } else if (name === 'plugins') {
       PluginsPage();
     } else if (name === 'schedule') {
@@ -162,11 +168,14 @@ struct Index {
     StatusBarStyle.setRoute(routeName);
     // 首页是否可见：进入二级页后暂停首页背景动效，降低后台绘制发热
     AppStorage.setOrCreate<boolean>('homePageVisible', routeName === '');
-    // 从协议页返回首页：还没同意的话把同意弹窗重新弹出来
-    if (routeName.length === 0) {
-      this.consentDocOpen = false;
-      this.syncConsentDialog();
+    // 协议页在前台时先不弹同意弹窗（它是在弹窗收起后推入的）；其它任何页面显示时（首页、会话页、
+    // 设置页……），还没同意就把同意弹窗重新弹出来。
+    // 不能只认首页：深链可能先打开了别的页面，协议页是在它上面推入的，返回时回到的是那个页面而不是首页。
+    this.consentDocOpen = routeName === 'privacy-policy' || routeName === 'user-agreement';
+    if (this.consentState === 'required') {
+      Logger.info('CONSENT route="' + routeName + '" shown, dialogShown=' + this.consentDialogShown + ' docOpen=' + this.consentDocOpen);
     }
+    this.syncConsentDialog();
   }
 
 
@@ -181,10 +190,7 @@ struct Index {
    */
   private syncConsentDialog(): void {
     if (this.consentState === 'granted') {
-      const granted: CustomDialogController | undefined = this.consentDialog;
-      if (granted !== undefined) {
-        granted.close();
-      }
+      this.closeConsentDialog();
       return;
     }
     if (this.consentState === 'required' && !this.consentDocOpen) {
@@ -195,81 +201,134 @@ struct Index {
     }
   }
 
-  /** 同意弹窗的材质：与「切换主机」半模态同一套沉浸光感（旧系统降级为普通弹窗） */
-  private consentMaterial(): uiMaterial.Material | undefined {
-    try {
-      if (!uiMaterial.isImmersiveMaterialSupported()) {
-        return undefined;
+  /** 同意弹窗内容（openCustomDialog 的 builder 必须写成 () => { this.内部builder() } 的形式） */
+  @Builder
+  consentDialogContent() {
+    PrivacyConsentDialog({
+      onAgree: () => {
+        PrivacyConsent.agree();
+      },
+      onDisagree: () => {
+        Logger.info('CONSENT disagree (system dialog) -> terminateSelf');
+        // 不同意则退出应用；下次启动仍会看到同意弹窗
+        const ctx = getContext(this) as common.UIAbilityContext;
+        ctx.terminateSelf().catch(() => {
+        });
+      },
+      onOpenDoc: (route: string) => {
+        this.openConsentDoc(route);
       }
-      return new uiMaterial.ImmersiveMaterial({
-        style: uiMaterial.ImmersiveStyle.THICK,
-        materialColor: this.isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.34)',
-        colorInvert: true,
-        applyShadow: true
-      });
-    } catch (err) {
-      return undefined;
-    }
+    })
   }
 
-  /** 首次启动隐私同意弹窗：系统 CustomDialog + 沉浸光感材质，模态且不会被返回键/遮罩关掉 */
+  /**
+   * 首次启动隐私同意弹窗：全局自定义弹窗（promptAction.openCustomDialog）+ 沉浸光感材质，
+   * 模态且不会被返回键/遮罩关掉。
+   *
+   * 不用 CustomDialogController：这个 SDK 下它的 builder 写成组件调用时，编译器不会转成 builder 闭包，
+   * 运行时会以「class constructor cannot called without new」崩溃。
+   */
   private showConsentDialog(): void {
-    if (this.consentState !== 'required' || this.consentDocOpen) {
+    if (this.consentState !== 'required' || this.consentDocOpen || this.consentFallback || this.consentDialogShown) {
       return;
     }
+    this.consentDialogShown = true;
+    Logger.info('CONSENT opening dialog');
     try {
-      let dialog: CustomDialogController | undefined = this.consentDialog;
-      if (dialog === undefined) {
-        // 第一次需要弹的时候再建：材质要按当时的深浅色取
-        dialog = new CustomDialogController({
-          builder: PrivacyConsentDialog({
-            onAgree: () => {
-              PrivacyConsent.agree();
-            },
-            onDisagree: () => {
-              // 不同意则退出应用；下次启动仍会看到同意弹窗
-              const ctx = getContext(this) as common.UIAbilityContext;
-              ctx.terminateSelf().catch(() => {
-              });
-            },
-            onOpenDoc: (route: string) => {
-              this.openConsentDoc(route);
-            }
-          }),
-          alignment: DialogAlignment.Center,
-          autoCancel: false,
-          isModal: true,
-          systemMaterial: this.consentMaterial(),
-          onWillDismiss: (action: DismissDialogAction) => {
-            // 注册了这个回调后，返回键/点遮罩不会直接关闭；未同意前什么都不做，弹窗保持打开
-          }
-        });
-        this.consentDialog = dialog;
-      }
-      // 启动时 aboutToAppear 和首页 didShow 都会调到这里：已显示就不重复 open
-      if (!this.consentDialogShown) {
-        this.consentDialogShown = true;
-        dialog.open();
-      }
+      this.getUIContext().getPromptAction().openCustomDialog({
+        builder: () => {
+          this.consentDialogContent();
+        },
+        onWillAppear: () => {
+          Logger.info('CONSENT dialog will appear');
+        },
+        alignment: DialogAlignment.Center,
+        autoCancel: false,
+        isModal: true,
+        systemMaterial: consentDialogMaterial(),
+        onWillDismiss: (action: DismissDialogAction) => {
+          // 注册了这个回调后，返回键/点遮罩不会直接关闭；未同意前什么都不做，弹窗保持打开
+        }
+      }).then((dialogId: number) => {
+        Logger.info('CONSENT dialog opened id=' + dialogId);
+        this.consentDialogId = dialogId;
+        // 打开动画期间用户已经同意、或点了协议链接：拿到 id 后立刻补关
+        if (this.consentState === 'granted' || this.consentDocOpen) {
+          this.closeConsentDialog();
+        }
+      }).catch((err: BusinessError) => {
+        Logger.error('consent dialog failed: code=' + err.code + ' message=' + err.message);
+        this.consentDialogShown = false;
+        this.consentFallback = true;
+      });
     } catch (err) {
-      Logger.error('consent dialog failed: ' + JSON.stringify(err));
+      const fail = err as BusinessError;
+      Logger.error('consent dialog failed: code=' + fail.code + ' message=' + fail.message);
+      this.consentDialogShown = false;
+      this.consentFallback = true;
     }
   }
 
   private closeConsentDialog(): void {
-    const dialog: CustomDialogController | undefined = this.consentDialog;
-    if (dialog !== undefined && this.consentDialogShown) {
-      this.consentDialogShown = false;
-      dialog.close();
+    Logger.info('CONSENT close dialog id=' + this.consentDialogId + ' state=' + this.consentState + ' docOpen=' + this.consentDocOpen);
+    this.consentDialogShown = false;
+    if (this.consentDialogId >= 0) {
+      try {
+        this.getUIContext().getPromptAction().closeCustomDialog(this.consentDialogId);
+      } catch (err) {
+        Logger.error('consent dialog close failed: ' + JSON.stringify(err));
+      }
+      this.consentDialogId = -1;
     }
   }
 
   /** 打开协议页查看全文：先收起弹窗，返回首页时 syncConsentDialog 会重新弹出来 */
   private openConsentDoc(route: string): void {
+    Logger.info('CONSENT open doc ' + route);
     this.consentDocOpen = true;
     this.closeConsentDialog();
     this.pageStack.pushPathByName(route, null);
   }
+  /** 自绘同意层：和系统弹窗同一份内容，外面套一层半透明遮罩 + 奶白/深色玻璃卡片 */
+  @Builder
+  consentFallbackOverlay() {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width('100%')
+        .height('100%')
+        .backgroundColor('rgba(0,0,0,0.45)')
+        .hitTestBehavior(HitTestMode.Block)
+      Column() {
+        PrivacyConsentDialog({
+          onAgree: () => {
+            PrivacyConsent.agree();
+          },
+          onDisagree: () => {
+            Logger.info('CONSENT disagree (fallback overlay) -> terminateSelf');
+            const ctx = getContext(this) as common.UIAbilityContext;
+            ctx.terminateSelf().catch(() => {
+            });
+          },
+          onOpenDoc: (route: string) => {
+            this.openConsentDoc(route);
+          }
+        })
+      }
+      // 留白由 PrivacyConsentDialog 自己带（和系统弹窗里保持一致）
+      .width('calc(100% - 48vp)')
+      .borderRadius(20)
+      .backgroundColor(this.isDark ? 'rgba(44,46,52,0.70)' : 'rgba(255,255,255,0.72)')
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
+        colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
+      })
+      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.65)' })
+      .shadow({ radius: 28, color: 'rgba(0,0,0,0.28)', offsetY: 12 })
+      .clip(true)
+    }
+    .width('100%')
+    .height('100%')
+  }
+
   build() {
     Stack() {
       Navigation(this.pageStack) {
@@ -282,8 +341,12 @@ struct Index {
       .height('100%')
       .backgroundColor(this.isDark ? '#000000' : '#F2F2F7')
 
+      // 系统弹窗打不开时的兜底：自绘玻璃同意层（内容复用 PrivacyConsentDialog）
+      if (this.consentFallback && this.consentState === 'required' && !this.consentDocOpen) {
+        this.consentFallbackOverlay()
+      }
       // 未同意期间的兜底：弹窗本身是模态的，这里只挡弹窗出现/消失动画期间的触摸空档
-      if (this.consentState === 'required' && !this.consentDocOpen) {
+      if (this.consentState === 'required' && !this.consentDocOpen && !this.consentFallback) {
         Column()
           .width('100%')
           .height('100%')
