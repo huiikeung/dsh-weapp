@@ -199,11 +199,19 @@ export struct SessionDefaultModelPage {
     };
     applySelection(rec['default']);
     applySelection(rec['current']);
+    // 冷启动时把网关下发的默认模型/档位写入全局，供会话设置页行副标题使用
+    if (currentModel.length > 0) {
+      AppStorage.setOrCreate<string>('defaultModel', currentModel);
+    }
+    if (currentEffort.length > 0) {
+      AppStorage.setOrCreate<string>('defaultEffort', currentEffort);
+    }
     const rows: ModelRow[] = [];
     for (const group of groups) {
       const g = group as Record<string, Object>;
       // host 目录帧的 provider 分组形状：{ id, name, models[] }（不是 provider/providerName）
       const provider: string = String(g['id'] ?? g['provider'] ?? '');
+      const providerName: string = String(g['name'] ?? provider);
       const rawModels = g['models'];
       if (rawModels === undefined || !Array.isArray(rawModels)) {
         continue;
@@ -214,7 +222,7 @@ export struct SessionDefaultModelPage {
         row.provider = provider;
         row.model = String(m['id'] ?? '');
         const name: string = String(m['name'] ?? '');
-        row.label = name.length > 0 ? name : row.model;
+        row.label = name.length > 0 && name !== provider && name !== providerName ? name : row.model;
         const reasoning = m['reasoning'] as Record<string, Object> | undefined;
         // 默认档位在 reasoning.defaultEffort 上（host 目录帧结构），顶层字段仅作兼容
         const reasoningDefault: Object | undefined = reasoning === undefined ? undefined : reasoning['defaultEffort'];
@@ -359,6 +367,9 @@ export struct SessionDefaultModelPage {
       this.savedModel = row.model;
       this.savedProvider = row.provider;
       this.savedEffort = effort;
+      // 同步到全局：会话设置页「默认模型」行右侧要显示「模型 · 推理强度」
+      AppStorage.setOrCreate<string>('defaultModel', row.model);
+      AppStorage.setOrCreate<string>('defaultEffort', effort);
       this.toast('已保存');
     }).catch((error: Error) => {
       this.saving = false;
@@ -475,9 +486,6 @@ export struct SessionDefaultModelPage {
         }
       }
       .width('100%')
-      .onClick(() => {
-        this.pickModel(row);
-      })
 
       if (row.efforts.length > 0) {
         Column({ space: 6 }) {
@@ -509,6 +517,10 @@ export struct SessionDefaultModelPage {
     .backgroundColor(this.isCurrentModel(row)
       ? (this.isDark ? 'rgba(46,107,230,0.14)' : 'rgba(46,107,230,0.055)')
       : this.cardBg())
+    // 整张卡片（含内边距与空白区）都可点：点一下即切换为该模型
+    .onClick(() => {
+      this.pickModel(row);
+    })
   }
 
   build() {
@@ -516,13 +528,6 @@ export struct SessionDefaultModelPage {
       Column() {
         // 导航：返回 + 居中标题（与「设置」「对话状态条」等二级页一致）
         Stack({ alignContent: Alignment.TopStart }) {
-          Column()
-            .width('100%')
-            .height(56)
-            .backdropBlur(12)
-            .backgroundColor(Color.Transparent)
-            .hitTestBehavior(HitTestMode.None)
-
         Row() {
           NavBackButton({ isDark: this.isDark })
             .onClick(() => {
@@ -539,6 +544,7 @@ export struct SessionDefaultModelPage {
         .width('100%')
         .height(56)
         .padding({ left: 18.7, right: 18.7 })
+        .backdropBlur(12)
         }
         .width('100%')
         .zIndex(10)
@@ -584,8 +590,8 @@ export struct SessionDefaultModelPage {
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
-        .padding({ top: 56 })
-        .margin({ top: -56 })
+        // 不要用「padding + 负 margin」补位：负 margin 会让渲染位置与点按区域错开，
+        // 表现为点模型没反应/点错行。导航在 Stack 里独立占 56，内容自然排在它下面。
         .align(Alignment.Top)
         .edgeEffect(EdgeEffect.None)
       }

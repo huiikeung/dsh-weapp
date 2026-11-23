@@ -540,11 +540,23 @@ export class SessionStore {
       if (hostCwd.length > 0) {
         AppStorage.setOrCreate<string>('hostCwd', hostCwd);
       }
+      // host 帧也可能带网关版本：以最新上报为准（对齐小程序 store.js 的 host 分支）
+      const hostGatewayVersion: string = str(frame, 'gatewayVersion') ?? '';
+      if (hostGatewayVersion.length > 0) {
+        AppStorage.setOrCreate<string>('gatewayVersion', hostGatewayVersion);
+        const hostGatewayPackage: string = str(frame, 'gatewayPackage') ?? '';
+        if (hostGatewayPackage.length > 0) {
+          AppStorage.setOrCreate<string>('gatewayPackage', hostGatewayPackage);
+        }
+      }
       return;
     }
     if (frame.kind === 'defaults') {
       Logger.info('defaults frame: preset=' + (str(frame, 'agentPresetDefault') ?? '')
-        + ' perm=' + (str(frame, 'permissionDefault') ?? ''));
+        + ' perm=' + (str(frame, 'permissionDefault') ?? '')
+        + ' model=' + (str(frame, 'model') ?? '')
+        + ' provider=' + (str(frame, 'provider') ?? '')
+        + ' effort=' + (str(frame, 'reasoningEffort') ?? ''));
       AppStorage.setOrCreate<string>('defaultAgentPreset', str(frame, 'agentPresetDefault') ?? '');
       AppStorage.setOrCreate<string>('defaultModel', str(frame, 'model') ?? '');
       AppStorage.setOrCreate<string>('defaultProvider', str(frame, 'provider') ?? '');
@@ -602,7 +614,11 @@ export class SessionStore {
           if (modelId.length === 0) {
             continue;
           }
-          const label: string = str(one, 'name') ?? modelId;
+          let label: string = str(one, 'name') ?? modelId;
+          // 网关部分 provider 的 name 与 provider 同名（如 deepseek）：回退显示模型 id，避免所有模型都叫 deepseek
+          if (label.length === 0 || label === provider || label === providerName) {
+            label = modelId;
+          }
           names.push(label);
           details.push({
             provider: provider,
@@ -625,6 +641,11 @@ export class SessionStore {
         this.modelDetailsSignature = modelSignature;
         AppStorage.setOrCreate<string[]>('modelList', names);
         AppStorage.setOrCreate<ModelOption[]>('modelDetails', details);
+        let dbg: string = '';
+        for (const one of details.slice(0, 5)) {
+          dbg += one.provider + '/' + one.model + '=' + one.label + '; ';
+        }
+        Logger.info('modelDetails: ' + dbg);
       }
       // 目录里的 current 才是「当前模型」的真实来源（defaults 只给新建会话的默认值）
       const current: Object | undefined = field(frame, 'current');
