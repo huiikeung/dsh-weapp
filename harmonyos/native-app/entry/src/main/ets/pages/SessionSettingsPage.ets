@@ -18,7 +18,7 @@ interface PresetPickOption {
 export struct SessionSettingsPage {
   @Consume('pageStack') pageStack: NavPathStack;
   @StorageLink('isDark') isDark: boolean = false;
-  @StorageLink('connectionState') connection: string = 'disconnected';
+  @StorageLink('connectionState') @Watch('onConnectionChanged') connection: string = 'disconnected';
   @StorageLink('gatewayName') gatewayName: string = '';
   @StorageLink('gatewayVersion') gatewayVersion: string = '';
   @StorageLink('sessions') sessions: SessionSummary[] = [];
@@ -119,6 +119,17 @@ export struct SessionSettingsPage {
     } catch (ignored) {
     }
     this.refreshDefaultConfiguration();
+    // 冷启动时可能还在连接中：稍后再补两次
+    setTimeout(() => {
+      this.refreshDefaultConfiguration();
+    }, 700);
+    setTimeout(() => {
+      this.refreshDefaultConfiguration();
+    }, 2000);
+  }
+
+  private onConnectionChanged(): void {
+    this.refreshDefaultConfiguration();
   }
 
   /** 进入本页（或从二级页返回）时主动拉一次默认配置，右侧值不再需要点进去才显示 */
@@ -152,7 +163,10 @@ export struct SessionSettingsPage {
     if (this.connection !== 'connected') {
       return '';
     }
-    const id: string = this.pickModel.length > 0 ? this.pickModel : this.defaultModelValue;
+    let id: string = this.pickModel.length > 0 ? this.pickModel : this.defaultModelValue;
+    if (id.length === 0) {
+      id = this.hostModelValue.length > 0 ? this.hostModelValue : this.selectedModelValue;
+    }
     if (id.length === 0) {
       return '';
     }
