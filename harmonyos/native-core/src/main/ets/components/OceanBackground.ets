@@ -36,6 +36,7 @@ export struct OceanBackground {
   private whaleReady: boolean = false;
   private flow?: ImageBitmap = undefined;
   private flowBusy: boolean = false;
+  private flowLogged: boolean = false;
   private flowRevision: number = 0;
   private alive: boolean = false;
   private topInset: number = 0;
@@ -111,9 +112,9 @@ export struct OceanBackground {
     if (!this.active || this.flowBusy || this.canvasWidth <= 0 || this.canvasHeight <= 0) {
       return;
     }
-    const totalH: number = this.canvasHeight + this.topInset + this.bottomInset;
+    const totalH: number = this.canvasHeight;
     const aspect: number = this.canvasWidth / Math.max(1, totalH);
-    const fw: number = 96;
+    const fw: number = 144;
     const fh: number = Math.max(1, Math.min(256, Math.round(fw / aspect)));
     const revision: number = this.flowRevision;
     this.flowBusy = true;
@@ -129,11 +130,18 @@ export struct OceanBackground {
       const next: ImageBitmap = offscreen.transferToImageBitmap();
       this.flow?.close();
       this.flow = next;
+      if (!this.flowLogged) {
+        this.flowLogged = true;
+        console.info('OCEAN flow ready ' + fw + 'x' + fh);
+      }
       if (this.bgReady) {
         this.drawBackground();
       }
     } catch (err) {
-      // 失败保留径向渐变兜底
+      if (!this.flowLogged) {
+        this.flowLogged = true;
+        console.info('OCEAN flow failed ' + JSON.stringify(err));
+      }
     } finally {
       this.flowBusy = false;
     }
@@ -147,10 +155,9 @@ export struct OceanBackground {
     if (w <= 0 || h <= 0) {
       return;
     }
-    const totalH: number = h + this.topInset + this.bottomInset;
+    const totalH: number = h;
     ctx.clearRect(0, 0, w, h);
     ctx.save();
-    ctx.translate(0, -this.topInset);
 
     if (this.flow) {
       ctx.imageSmoothingEnabled = true;
@@ -206,15 +213,16 @@ export struct OceanBackground {
     if (w <= 0 || h <= 0 || this.pixels.length === 0) {
       return;
     }
-    const totalH: number = h + this.topInset + this.bottomInset;
+    // iOS 的 Canvas 覆盖整屏且不做安全区平移：这里同样用原始画布坐标
+    const totalH: number = h;
     ctx.clearRect(0, 0, w, h);
     ctx.save();
-    ctx.translate(0, -this.topInset);
 
     // 与 iOS HarnessWhaleField 相同的几何与参数
     const square: number = Math.max(w * 1.15, totalH * 0.48);
     const cx: number = w * 0.55;
     const cy: number = totalH * 0.34;
+    // 与 iOS 观感一致：iPhone 3x 下约 6px；鸿蒙 vp 偏大，收小一点更精致
     const baseDot: number = Math.max(1.45, square / 220);
     const t: number = this.reduceMotion ? 0 : this.phase;
 
@@ -235,6 +243,7 @@ export struct OceanBackground {
       ctx.globalAlpha = alpha;
       ctx.fillStyle = 'rgb(' + Math.round((0.73 + 0.15 * pixel.light) * 255) + ',' +
         Math.round((0.79 + 0.12 * pixel.light) * 255) + ',' + Math.round((0.92 + 0.08 * pixel.light) * 255) + ')';
+      // iOS 用 roundedRect（cornerRadius = dotSize*0.18），视觉上就是小方块
       ctx.fillRect(x - dotSize / 2, y - dotSize / 2, dotSize, dotSize);
     });
     ctx.globalAlpha = 1;

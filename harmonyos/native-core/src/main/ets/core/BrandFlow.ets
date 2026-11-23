@@ -45,8 +45,9 @@ class FluidField {
     let amplitude: number = 0.56;
     for (let octave = 0; octave < 4; octave++) {
       value += amplitude * this.noise(x, y);
-      const nx: number = (0.80 * x - 0.60 * y) * 2.03 + 17.17;
-      const ny: number = (0.60 * x + 0.80 * y) * 2.03 + 17.17;
+      // Metal float2x2(0.80,-0.60,0.60,0.80) 为列主序：x'=0.8x+0.6y，y'=-0.6x+0.8y
+      const nx: number = (0.80 * x + 0.60 * y) * 2.03 + 17.17;
+      const ny: number = (-0.60 * x + 0.80 * y) * 2.03 + 17.17;
       x = nx;
       y = ny;
       amplitude *= 0.46;
