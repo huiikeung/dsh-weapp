@@ -533,6 +533,41 @@ export struct SessionSettingsPage {
               this.cardRow('连接方式', this.endpointKindLabel(), false, () => {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              // Mobile Gateway（对齐 iOS SettingsView 的 Mobile Gateway 分组）
+              Row({ space: 8 }) {
+                Circle().width(8).height(8).fill(this.gatewayDotColor())
+                Text(this.gatewayStateLabel())
+                  .fontSize(15)
+                  .fontColor(this.textColor())
+                Blank()
+                Text(this.gatewayPortLabel())
+                  .fontSize(13)
+                  .fontColor(this.subColor())
+              }
+              .width('100%')
+              .constraintSize({ minHeight: 44 })
+              .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              Row({ space: 10 }) {
+                this.gatewayActionChip(this.connection === 'connected' ? '重新连接' : '连接', () => {
+                  if (this.connection === 'connected') {
+                    GatewayClient.get().autoConnect();
+                  } else {
+                    GatewayClient.get().autoConnect();
+                  }
+                })
+                this.gatewayActionChip('Ping 网关', () => {
+                  this.pingGateway();
+                })
+                if (this.connection === 'connected' || this.connection === 'connecting') {
+                  this.gatewayActionChip('断开连接', () => {
+                    GatewayClient.get().disconnect();
+                  })
+                }
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 4, bottom: 12 })
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               this.cardRow('端点地址', this.activeEndpointLabel(), false, () => {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
@@ -1617,6 +1652,62 @@ export struct SessionSettingsPage {
     this.pickerIntro = '';
     this.pickerItems = this.modelList.length > 0 ? this.modelList : ['网关未提供模型目录'];
     this.pickerOpen = true;
+  }
+
+  /** Mobile Gateway：连接状态文案（对齐 iOS ConnectionDot + label） */
+  private gatewayStateLabel(): string {
+    if (this.connection === 'connected') {
+      return '已连接';
+    }
+    if (this.connection === 'connecting') {
+      return '连接中';
+    }
+    if (this.connection === 'reconnecting') {
+      return '重连中';
+    }
+    return '未连接';
+  }
+
+  private gatewayDotColor(): string {
+    if (this.connection === 'connected') {
+      return '#34C759';
+    }
+    if (this.connection === 'connecting' || this.connection === 'reconnecting') {
+      return '#FF9F0A';
+    }
+    return '#8E8E93';
+  }
+
+  /** 从当前端点解析端口，没有则显示 — */
+  private gatewayPortLabel(): string {
+    const url: string = (AppStorage.get<string>('activeEndpoint') ?? '').trim();
+    const match: RegExpMatchArray | null = url.match(/:([0-9]{2,5})(\/|$)/);
+    return match !== null && match.length > 1 ? ('Port ' + match[1]) : 'Port —';
+  }
+
+  @Builder
+  gatewayActionChip(label: string, onTap: () => void) {
+    Text(label)
+      .fontSize(13.5)
+      .fontColor('#2E6BE6')
+      .padding({ left: 12, right: 12, top: 7, bottom: 7 })
+      .borderRadius(999)
+      .backgroundColor(this.isDark ? 'rgba(46,107,230,0.20)' : 'rgba(46,107,230,0.10)')
+      .onClick(onTap)
+  }
+
+  /** Ping 网关：走一次 host 请求，用页面提示反馈 */
+  private pingGateway(): void {
+    if (this.connection !== 'connected') {
+      this.hint = '未连接网关，先点「连接」';
+      return;
+    }
+    this.hint = '正在 Ping 网关…';
+    GatewayClient.get().requestHost().then(() => {
+      this.hint = 'Ping 成功：网关在线';
+    }).catch((err: Error) => {
+      this.hint = 'Ping 失败：' + (err.message.length > 0 ? err.message : '无响应');
+    });
   }
 
   /** 权限四项（对齐小程序 pickDefaultPermission） */
