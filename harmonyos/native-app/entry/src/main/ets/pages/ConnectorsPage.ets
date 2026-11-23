@@ -14,6 +14,9 @@ export struct ConnectorsPage {
   @StorageProp('safeTopVp') safeTop: number = 0;
   @StorageProp('safeBottomVp') safeBottom: number = 0;
   @State private switchState: Record<string, boolean> = {};
+  @State private permDialogOpen: boolean = false;
+  @State private permDialogTitle: string = '';
+  @State private permDialogBody: string = '';
 
   aboutToAppear(): void {
     DeviceConnectors.bind();
@@ -179,8 +182,13 @@ export struct ConnectorsPage {
                     .selectedColor('#2E6BE6')
                     .enabled(this.isAvailable(index))
                     .onChange((value: boolean) => {
-                      DeviceConnectors.setEnabled(module.id, value).then(() => {
+                      DeviceConnectors.setEnabled(module.id, value).then((ok: boolean) => {
                         this.syncEnabled();
+                        if (!ok) {
+                          this.permDialogTitle = module.title + '权限未开启';
+                          this.permDialogBody = '「' + module.title + '」需要系统权限才能接入 Agent。请到应用设置里允许后再回来打开开关。';
+                          this.permDialogOpen = true;
+                        }
                       });
                     })
                 }
@@ -236,5 +244,59 @@ export struct ConnectorsPage {
     }
     .hideTitleBar(true)
     .backgroundColor(this.pageBg())
+    .bindContentCover(this.permDialogOpen, this.permissionDialog(), {
+      modalTransition: ModalTransition.DEFAULT,
+      backgroundColor: 'rgba(0,0,0,0.35)'
+    })
+  }
+
+  @Builder
+  permissionDialog() {
+    Column({ space: 14 }) {
+      Text(this.permDialogTitle)
+        .fontSize(17)
+        .fontWeight(FontWeight.Bold)
+        .fontColor(this.textColor())
+        .width('100%')
+        .textAlign(TextAlign.Center)
+      Text(this.permDialogBody)
+        .fontSize(13.5)
+        .lineHeight(20)
+        .fontColor(this.subColor())
+        .width('100%')
+      Row({ space: 10 }) {
+        Text('稍后')
+          .fontSize(15)
+          .fontColor(this.textColor())
+          .layoutWeight(1)
+          .height(42)
+          .textAlign(TextAlign.Center)
+          .borderRadius(10)
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
+          .onClick(() => {
+            this.permDialogOpen = false;
+          })
+        Text('去设置')
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor('#FFFFFF')
+          .layoutWeight(1)
+          .height(42)
+          .textAlign(TextAlign.Center)
+          .borderRadius(10)
+          .backgroundColor('#2E6BE6')
+          .onClick(() => {
+            this.permDialogOpen = false;
+            this.openPermissionSettings();
+          })
+      }
+      .width('100%')
+      .margin({ top: 4 })
+    }
+    .width('84%')
+    .padding(20)
+    .borderRadius(16)
+    .backgroundColor(this.cardBg())
+    .shadow({ radius: 24, color: 'rgba(0,0,0,0.18)' })
   }
 }
