@@ -1432,11 +1432,20 @@ export struct AppSettingsPage {
       Stack({ alignContent: Alignment.TopStart }) {
       Column() {
         // 导航（标题字号/字重/缩进与「会话设置」「Tailscale 内嵌隧道」页一致）
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-            .onClick(() => {
-              this.pageStack.pop();
-            })
+        Stack({ alignContent: Alignment.TopStart }) {
+          // 与对话页顶栏一致的轻模糊：backdropBlur + 页面同色半透明底
+          Column()
+            .width('100%')
+            .height(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9))
+            .backdropBlur(12)
+            .backgroundColor(this.isDark ? 'rgba(0,0,0,0.26)' : 'rgba(242,242,244,0.28)')
+            .hitTestBehavior(HitTestMode.None)
+
+          Row() {
+            NavBackButton({ isDark: this.isDark })
+              .onClick(() => {
+                this.pageStack.pop();
+              })
 
           Text('设置')
             .fontSize(17)
@@ -1447,11 +1456,12 @@ export struct AppSettingsPage {
 
           Row().width(44).height(44)
         }
+          .width('100%')
+          .height(56)
+          .padding({ left: 16, right: 16 })
+          .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
+        }
         .width('100%')
-        .height(56)
-        // 左右与下方内容一致（内容区 padding 16）
-        .padding({ left: 16, right: 16 })
-        .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
 
         Scroll() {
           Column() {

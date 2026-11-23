@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { NavBackButton } from '../components/NavBackButton';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import {
   GatewayClient, GatewayProfile, PairingResult, parsePairingPayload, ThemeManager, ThemeMode
@@ -22,6 +23,8 @@ export struct SettingsPage {
   @StorageLink('pairingHint') pairingHint: string = '';
   @StorageLink('gatewayName') gatewayName: string = '';
   @StorageLink('transportKind') transportKind: string = '';
+  @Consume('pageStack') pageStack: NavPathStack;
+  @StorageLink('safeTopVp') safeTopVp: number = 0;
 
   private options: ThemeOption[] = [
     { key: 'system', title: '跟随系统', subtitle: '随系统深浅色切换' },
@@ -51,6 +54,37 @@ export struct SettingsPage {
 
   build() {
     NavDestination() {
+      Column() {
+        Stack({ alignContent: Alignment.TopStart }) {
+          Column()
+            .width('100%')
+            .height(56 + (this.safeTopVp > 0 ? this.safeTopVp : 38.9))
+            .backdropBlur(12)
+            .backgroundColor(this.isDark ? 'rgba(0,0,0,0.26)' : 'rgba(242,242,244,0.28)')
+            .hitTestBehavior(HitTestMode.None)
+
+          Row() {
+            NavBackButton({ isDark: this.isDark })
+              .onClick(() => {
+                this.pageStack.pop();
+              })
+
+            Text('设置')
+              .fontSize(17)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.textColor())
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+
+            Row().width(44).height(44)
+          }
+          .width('100%')
+          .height(56)
+          .padding({ left: 16, right: 16 })
+          .margin({ top: this.safeTopVp > 0 ? this.safeTopVp : 38.9 })
+        }
+        .width('100%')
+
       Scroll() {
         Column({ space: 14 }) {
           Text('外观')
@@ -186,8 +220,11 @@ export struct SettingsPage {
       .width('100%')
       .height('100%')
       .scrollBar(BarState.Off)
+      }
+      .width('100%')
+      .height('100%')
     }
-    .title('设置')
+    .hideTitleBar(true)
     .backgroundColor(this.pageBg())
   }
 
