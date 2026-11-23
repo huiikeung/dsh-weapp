@@ -1,4 +1,4 @@
-import { asRec, GatewayClient, GatewayFrame, GatewayRequestFactory, Logger, SessionStore } from 'nativecore';
+import { asRec, GatewayClient, GatewayFrame, GatewayRequestFactory, Logger, PreferencesStore, SessionStore } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
 
 /** 模型行（网关 models 目录） */
@@ -177,9 +177,17 @@ export struct SessionDefaultModelPage {
     const groups = rawGroups !== undefined && Array.isArray(rawGroups) ? rawGroups as Object[] : [];
     // 权威当前模型/档位：host 的模型目录帧用 `default` 字段（selection 结构），
     // 旧版本/其它命令可能用 `current`，两者都兼容；最后回退本地 AppStorage 默认值。
+    // AppStorage 冷启动可能还没恢复：回落到本地偏好里保存的默认模型
     let currentModel: string = this.defaultModelValue;
-    let currentProvider: string = this.savedProvider;
+    if (currentModel.length === 0) {
+      currentModel = PreferencesStore.get().getString('defaultModel', '');
+    }
+    let currentProvider: string = this.savedProvider.length > 0
+      ? this.savedProvider : PreferencesStore.get().getString('defaultProvider', '');
     let currentEffort: string = this.defaultEffortValue;
+    if (currentEffort.length === 0) {
+      currentEffort = PreferencesStore.get().getString('defaultEffort', '');
+    }
     const applySelection = (value: Object | undefined): void => {
       if (value === undefined || Array.isArray(value)) {
         return;
@@ -317,15 +325,37 @@ export struct SessionDefaultModelPage {
 
   /** 当前默认模型（只标记第一个匹配项，避免同名模型多个勾） */
   /** 解析当前默认模型所属 provider：优先已保存，其次部署默认，最后取第一个匹配行（避免同名模型在两个 provider 都打勾） */
+  private currentModelKey(): string {
+    if (this.savedModel.length > 0) {
+      return this.savedModel;
+    }
+    if (this.defaultModelValue.length > 0) {
+      return this.defaultModelValue;
+    }
+    return PreferencesStore.get().getString('defaultModel', '');
+  }
+
+  private providerHasModel(provider: string, model: string): boolean {
+    if (provider.length === 0 || model.length === 0) {
+      return false;
+    }
+    for (const one of this.rows) {
+      if (one.provider === provider && one.model === model) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   private currentProvider(): string {
-    if (this.savedProvider.length > 0) {
+    const model: string = this.currentModelKey();
+    // 已保存的 provider 必须能在目录里和该模型对上，否则视为失效（换过 provider 时会出现）
+    if (this.providerHasModel(this.savedProvider, model)) {
       return this.savedProvider;
     }
-    const stored: string = this.defaultProviderValue;
-    if (stored.length > 0) {
-      return stored;
+    if (this.providerHasModel(this.defaultProviderValue, model)) {
+      return this.defaultProviderValue;
     }
-    const model: string = this.savedModel.length > 0 ? this.savedModel : this.defaultModelValue;
     for (const one of this.rows) {
       if (one.model === model) {
         return one.provider;
@@ -335,7 +365,7 @@ export struct SessionDefaultModelPage {
   }
 
   private isCurrentModel(row: ModelRow): boolean {
-    const model: string = this.savedModel.length > 0 ? this.savedModel : this.defaultModelValue;
+    const model: string = this.currentModelKey();
     if (model.length === 0 || model !== row.model) {
       return false;
     }
@@ -412,7 +442,12 @@ export struct SessionDefaultModelPage {
     this.savedProvider = row.provider;
     this.savedEffort = effort;
     AppStorage.setOrCreate<string>('defaultModel', row.model);
+    AppStorage.setOrCreate<string>('defaultProvider', row.provider);
     AppStorage.setOrCreate<string>('defaultEffort', effort);
+    // 同时落盘：重启 App 后模型页仍能标出已选模型
+    PreferencesStore.get().putString('defaultModel', row.model);
+    PreferencesStore.get().putString('defaultProvider', row.provider);
+    PreferencesStore.get().putString('defaultEffort', effort);
     const request = GatewayRequestFactory.make('save-default-model', 'save-default-model',
       { 'provider': row.provider, 'model': row.model, 'reasoningEffort': effort });
     GatewayClient.get().requestGateway(request, 15000).then((frame: GatewayFrame) => {
@@ -431,6 +466,8 @@ export struct SessionDefaultModelPage {
       this.savedEffort = prevEffort;
       AppStorage.setOrCreate<string>('defaultModel', prevDefaultModel);
       AppStorage.setOrCreate<string>('defaultEffort', prevDefaultEffort);
+      PreferencesStore.get().putString('defaultModel', prevDefaultModel);
+      PreferencesStore.get().putString('defaultEffort', prevDefaultEffort);
       Logger.warn('[MODEL] save default failed ' + error.message);
       this.toast('保存失败：' + (error.message.length > 0 ? error.message : '请稍后再试'));
     });

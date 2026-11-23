@@ -1877,6 +1877,7 @@ export struct SessionSettingsPage {
 
   private applyModel(provider: string, model: string, label: string): void {
     this.pickModel = model;
+    AppStorage.setOrCreate<string>('defaultModel', model);
     PreferencesStore.get().putString('defaultModel', model);
     this.pickerOpen = false;
     this.hint = '已切换默认模型为「' + label + '」，仅对新建会话生效';

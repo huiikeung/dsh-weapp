@@ -85,12 +85,27 @@ export default class EntryAbility extends UIAbility {
       // 新会话权限：启动即同步到 AppStorage，对话页输入框直接显示
       AppStorage.setOrCreate<string>('defaultPermission',
         PreferencesStore.get().getString('defaultPermission', 'workspace-write'));
+      // 默认模型/思考强度：冷启动从偏好恢复，设置页与对话页首帧就能显示
+      const storedDefaultModel: string = PreferencesStore.get().getString('defaultModel', '');
+      if (storedDefaultModel.length > 0) {
+        AppStorage.setOrCreate<string>('defaultModel', storedDefaultModel);
+      }
+      const storedDefaultProvider: string = PreferencesStore.get().getString('defaultProvider', '');
+      if (storedDefaultProvider.length > 0) {
+        AppStorage.setOrCreate<string>('defaultProvider', storedDefaultProvider);
+      }
+      const storedDefaultEffort: string = PreferencesStore.get().getString('defaultEffort', '');
+      if (storedDefaultEffort.length > 0) {
+        AppStorage.setOrCreate<string>('defaultEffort', storedDefaultEffort);
+      }
       // 工作步骤展示偏好 → AppStorage（对话页 StorageProp 响应式读取）
       AppStorage.setOrCreate<string>('workStepMode', PreferencesStore.get().getString('workStepMode', 'detailed'));
       AppStorage.setOrCreate<string>('workStepTiming', PreferencesStore.get().getString('workStepTiming', 'completion'));
       // 外观偏好：必须在 init 完成后再读，否则读到的是兜底值（重启后回默认色就是这个问题）
       // 语音输入开关：设置页关掉之后要能跨重启生效（会话页靠 @StorageLink 首帧读取）
       AppStorage.setOrCreate<boolean>('voiceInputEnabled', PreferencesStore.get().getBoolean('voiceInputEnabled', true));
+      // 对话页「AI 生成内容，仅供参考」标识开关（设置 → 对话，默认开启）
+      AppStorage.setOrCreate<boolean>('aiContentLabelEnabled', PreferencesStore.get().getBoolean('aiContentLabelEnabled', true));
       // 对话状态条默认改为「简约」（original）：
       // 一次性把上一版默认值 dsh（DSH 扫光）与历史遗留的空值/ios 迁到 original；
       // 用户自己选过的其它样式（经典流光/霓虹等）保持不动。
