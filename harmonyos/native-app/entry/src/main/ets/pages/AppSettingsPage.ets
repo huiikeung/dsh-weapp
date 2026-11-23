@@ -1,7 +1,8 @@
-import { KeyboardAvoidMode } from '@kit.ArkUI';
+import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { bundleManager, common } from '@kit.AbilityKit';
 import type { ThemeMode, WorkStepOption } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
+import { NodeManageSheet } from '../components/NodeManageSheet';
 import { Haptics } from '../services/Haptics';
 import { AttachmentCache, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, ThemeManager, WorkStepPresentation, WorkspaceRow } from 'nativecore';
 
@@ -165,6 +166,8 @@ export struct AppSettingsPage {
   @State pickerSubtitle: string = '';
   @State fontSheetOpen: boolean = false;
   @State infoOpen: boolean = false;
+  /** 节点管理底部弹窗 */
+  @State nodeSheetOpen: boolean = false;
   @State infoTitle: string = '';
   @State infoText: string = '';
 
@@ -327,14 +330,21 @@ export struct AppSettingsPage {
 
   // ── 分组标题 / 行 / 分隔线：沿用页面既有风格 ──
 
-  /** 分组标题：字号/字重/缩进与「会话设置」「Tailscale 内嵌隧道」页一致 */
+  /** 分组标题：标题右侧紧跟说明按钮 ⓘ（点开系统菜单看该模块的说明） */
   @Builder
-  groupTitle(title: string) {
-    Text(title)
-      .fontSize(13)
-      .fontColor(this.subColor())
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 18, bottom: 7 })
+  groupTitle(title: string, hint: string = '') {
+    Row({ space: 2 }) {
+      Text(title)
+        .fontSize(13)
+        .fontColor(this.subColor())
+      if (hint.length > 0) {
+        this.infoHint('group:' + title, hint)
+      }
+    }
+    .width('100%')
+    .justifyContent(FlexAlign.Start)
+    .alignItems(VerticalAlign.Center)
+    .padding({ left: 16, right: 16, top: 18, bottom: 7 })
   }
 
   /** 说明弹窗：系统菜单（与 Tailscale 页 ⓘ 同款），锚定在 ⓘ 上 */
@@ -378,16 +388,6 @@ export struct AppSettingsPage {
         this.hintText = desc;
         this.hintMenuOpen = this.hintMenuOpen === key ? '' : key;
       })
-  }
-
-  /** 分组说明：只留 ⓘ，点开看说明 */
-  @Builder
-  groupHint(text: string) {
-    Row() {
-      this.infoHint('group:' + text, text)
-    }
-    .width('100%')
-    .padding({ left: 8, top: 2, bottom: 2 })
   }
 
   /** 值 / 箭头行（对齐小程序 card-row） */
@@ -569,6 +569,33 @@ export struct AppSettingsPage {
     .padding({ left: 0, right: 16, top: 10, bottom: 12 })
   }
 
+  /** 子操作行：与「胶囊收起」同款缩进 + 左侧 2vp 引导线，用于父开关下的二级入口 */
+  @Builder
+  subActionRow(label: string, desc: string, descColor: string, onTap: () => void) {
+    Row() {
+      Column()
+        .width(2)
+        .height(30)
+        .borderRadius(1)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.10)')
+        .margin({ left: 24, right: 12 })
+      Column({ space: 3 }) {
+        Text(label).fontSize(15).fontColor(this.textColor())
+        Text(desc).fontSize(12).lineHeight(17).fontColor(descColor)
+      }
+      .alignItems(HorizontalAlign.Start)
+      .layoutWeight(1)
+      Text('›')
+        .fontSize(16)
+        .fontColor(this.subColor())
+        .margin({ left: 8 })
+    }
+    .width('100%')
+    .constraintSize({ minHeight: 44 })
+    .padding({ left: 0, right: 16, top: 10, bottom: 12 })
+    .onClick(onTap)
+  }
+
   @Builder
   divider() {
     Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
@@ -712,6 +739,45 @@ export struct AppSettingsPage {
       return ['悬浮卡片', '平面卡片', '紧凑卡片'];
     }
     return [];
+  }
+
+  /** 沉浸光感能力判断（旧系统降级） */
+  private immersiveSupported(): boolean {
+    try {
+      return uiMaterial.isImmersiveMaterialSupported();
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /** 半模态弹窗材质：浅色=奶白玻璃、深色=通透深玻璃（系统按算力自动降级） */
+  private hostSheetMaterial(): uiMaterial.Material | undefined {
+    if (!this.immersiveSupported()) {
+      return undefined;
+    }
+    return new uiMaterial.ImmersiveMaterial({
+      style: uiMaterial.ImmersiveStyle.THICK,
+      materialColor: this.isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.34)',
+      colorInvert: true,
+      applyShadow: true
+    });
+  }
+
+  /** 节点管理底部弹窗内容 */
+  @Builder
+  nodeManageSheetContent() {
+    NodeManageSheet({
+      onClose: () => {
+        this.nodeSheetOpen = false;
+      },
+      onAddNode: () => {
+        // 先收起弹窗，等动画结束再推「添加节点」二级页
+        this.nodeSheetOpen = false;
+        setTimeout(() => {
+          this.pageStack.pushPathByName('add-node', null);
+        }, 280);
+      }
+    })
   }
 
   private labelOf(kind: string, id: string): string {
@@ -1561,7 +1627,8 @@ export struct AppSettingsPage {
                 .backgroundColor(this.innerFill())
                 .borderRadius(999)
                 .onClick(() => {
-                  this.pageStack.pushPathByName('node-manage', null);
+                  // 节点管理改为底部弹窗（系统沉浸光感材质，对齐切换主机弹窗）
+                  this.nodeSheetOpen = true;
                 })
               }
               .width('100%')
@@ -1632,7 +1699,7 @@ export struct AppSettingsPage {
                 this.openPicker('procion');
               })
               this.divider()
-              this.toggleRow('首页动画', '对齐 iOS 的动态海洋背景；关闭后保留静态画面并降低发热', this.homeAnimationEnabled, (value: boolean) => {
+              this.toggleRow('首页动画', '动态海洋背景；关闭后保留静态画面并降低发热', this.homeAnimationEnabled, (value: boolean) => {
                 this.homeAnimationEnabled = value;
                 PreferencesStore.get().putBoolean('homeAnimationEnabled', value);
               })
@@ -1665,7 +1732,7 @@ export struct AppSettingsPage {
             .clip(true)
 
             // ── 对话 ──
-            this.groupTitle('对话')
+            this.groupTitle('对话', '完全展开时不自动收起；设置保存在本机。')
             Column({ space: 0 }) {
               this.toggleRow('会话节点胶囊', '关闭后会话页不显示侧边胶囊（会话节点入口一并隐藏）', this.capsuleAlwaysVisible, (value: boolean) => {
                 this.capsuleAlwaysVisible = value;
@@ -1705,10 +1772,10 @@ export struct AppSettingsPage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-            this.groupHint('完全展开时不自动收起；设置保存在本机。')
+
 
             // ── 实验性功能 ──
-            this.groupTitle('实验性功能')
+            this.groupTitle('实验性功能', '实验性功能默认关闭，可能随基础库版本变化不稳定，仅供试用。')
             Column({ space: 0 }) {
               // 直接内联 Toggle（不经 @Builder 回调参数）：确保开关状态一定写入偏好并申请权限
               Row() {
@@ -1748,30 +1815,12 @@ export struct AppSettingsPage {
               // 仅在订阅通知开启时显示测试入口
               if (this.notifyEnabled) {
                 this.divider()
-                // 直接写 onClick（不经 @Builder 函数参数）：部分 ArkUI 版本下 builder 传函数不触发
-                Row() {
-                  Column({ space: 3 }) {
-                    Text('发送测试通知')
-                      .fontSize(16)
-                      .fontColor(this.textColor())
-                    Text(this.notificationHint.length > 0 ? this.notificationHint : '立即发一条系统通知，验证权限与通道是否正常')
-                      .fontSize(12)
-                      .lineHeight(17)
-                      .fontColor(this.notificationHint.length > 0 ? '#2E6BE6' : this.subColor())
-                  }
-                  .alignItems(HorizontalAlign.Start)
-                  .layoutWeight(1)
-                  Text('›')
-                    .fontSize(18)
-                    .fontColor(this.subColor())
-                    .margin({ left: 8 })
-                }
-                .width('100%')
-                .constraintSize({ minHeight: 44 })
-                .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-                .onClick(() => {
-                  this.sendTestNotification();
-                })
+                this.subActionRow('发送测试通知',
+                  this.notificationHint.length > 0 ? this.notificationHint : '立即发一条系统通知，验证权限与通道是否正常',
+                  this.notificationHint.length > 0 ? '#2E6BE6' : this.subColor(),
+                  () => {
+                    this.sendTestNotification();
+                  })
               }
               this.divider()
               this.rowDescPref('微信 ClawBot 私聊接线', '将微信私聊接入指定 DSH 会话；微信凭据保存在电脑端', 'clawbot', () => {
@@ -1783,10 +1832,10 @@ export struct AppSettingsPage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-            this.groupHint('实验性功能默认关闭，可能随基础库版本变化不稳定，仅供试用。')
+
 
             // ── 关于 ──
-            this.groupTitle('关于')
+            this.groupTitle('关于', '适配基线：0.8.6+；旧版移动网关 0.10.0+。')
             Column({ space: 0 }) {
               this.row('存储空间', '', true, () => {
                 this.closeSheets();
@@ -1822,7 +1871,7 @@ export struct AppSettingsPage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-            this.groupHint('适配基线：0.8.6+；旧版移动网关 0.10.0+。')
+
 
             if (this.notificationHint.length > 0) {
               Text(this.notificationHint)
@@ -1867,6 +1916,18 @@ export struct AppSettingsPage {
     }
     .hideTitleBar(true)
     .backgroundColor(this.pageBg())
+    // 节点管理：系统半模态 + 沉浸材质（与「切换主机」一致）
+    .bindSheet($$this.nodeSheetOpen, this.nodeManageSheetContent(), {
+      height: '82%',
+      dragBar: false,
+      showClose: false,
+      preferType: SheetType.BOTTOM,
+      backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+      systemMaterial: this.hostSheetMaterial(),
+      onDisappear: () => {
+        this.nodeSheetOpen = false;
+      }
+    })
     .onShown(() => {
       // 从二级选择页返回：@Watch 偶发不触发时这里兜底消费一次选择，保证行文案/偏好立即生效
       Logger.info('[SETTINGS] onShown');
