@@ -19,6 +19,12 @@ import type { DownloadResult } from 'nativecore';
 import { common } from '@kit.AbilityKit';
 import type { GatewayImageAttachment } from 'nativecore';
 
+/** 用户多图网格的一格：path + 折叠时最后一格的「+N」数量（0 = 普通格） */
+interface UserImageTile {
+  path: string;
+  moreCount: number;
+}
+
 const OCEAN: string = '#2E6BE6';
 const DANGER: string = '#D4545B';
 const KIND_USER: string = 'USER';
@@ -115,6 +121,8 @@ export struct ConversationRowView {
   };
   /** 点击缩略图：会话页打开全屏预览 */
   onImageTap: (path: string) => void = () => {};
+  /** 多图点击：整组图片 + 起始下标交给页面弹多图预览 */
+  onImageListTap: (paths: string[], index: number) => void = () => {};
   /** 正文里的链接点击：会话页按「文件路径 → 底部弹窗预览内容 / http → 复制链接」处理 */
   onMarkdownLink: (text: string, href: string) => void = (text: string, href: string) => {};
   /** 引用这条回复：在输入框里插入引用 chip（对齐 iOS 最新版回复左下角的箭头引用按钮） */
@@ -1086,7 +1094,22 @@ export struct ConversationRowView {
     }
   }
 
-  // ==================== 用户图片（对齐小程序 user-image-single / user-image-stack） ====================
+  // ==================== 用户图片（多图用小图标网格，对齐 iOS 图片组） ====================
+  private userImageTileList(): UserImageTile[] {
+    const list: string[] = this.imageList();
+    const maxVisible: number = 8;
+    const shown: number = list.length > maxVisible ? maxVisible : list.length;
+    const tiles: UserImageTile[] = [];
+    for (let index = 0; index < shown; index++) {
+      const isLast: boolean = index === maxVisible - 1;
+      tiles.push({
+        path: list[index],
+        moreCount: isLast && list.length > maxVisible ? list.length - maxVisible : 0
+      });
+    }
+    return tiles;
+  }
+
   private userVisibleCount(): number {
     return Math.min(this.imageList().length, 3);
   }
@@ -1137,42 +1160,50 @@ export struct ConversationRowView {
       })
   }
 
-  /** 用户多图：最多 3 张的斜向叠卡 + 「N张」角标（小程序 .user-image-stack） */
+  /**
+   * 用户多图：4 列小图标网格（一行最多 4 张，多了换行）。
+   * 超过 8 张折叠为 8 格，最后一格盖「+N」；点任意一格弹多图预览，可左右翻看每一张。
+   */
   @Builder
-  userImageStack() {
-    Stack({ alignContent: Alignment.TopStart }) {
-      ForEach(this.imageList().slice(0, this.userVisibleCount()), (path: string, index: number) => {
-        Image(this.imageSource(path))
-          .width(this.rpx(this.userStackSide()))
-          .height(this.rpx(this.userStackSide()))
-          .objectFit(ImageFit.Cover)
-          .borderRadius(this.rpx(36))
-          .border({ width: this.rpx(4), color: this.isDark ? '#0B0D12' : '#F4F5F7' })
-          .position({ x: this.rpx(24 * index), y: this.rpx(24 * (this.userVisibleCount() - 1 - index)) })
-          .zIndex(this.userVisibleCount() - index)
-          .onError(() => {
-            const source: string = this.imageSource(path);
-            if (this.brokenImagePaths.indexOf(source) < 0) {
-              this.brokenImagePaths = this.brokenImagePaths.concat([source]);
+  userImageGrid() {
+    Flex({ wrap: FlexWrap.Wrap }) {
+      ForEach(this.userImageTileList(), (tile: UserImageTile, index: number) => {
+        Stack({ alignContent: Alignment.Center }) {
+          Image(this.imageSource(tile.path))
+            .width(this.rpx(132))
+            .height(this.rpx(132))
+            .objectFit(ImageFit.Cover)
+            .borderRadius(this.rpx(18))
+            .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.08)' })
+            .onError(() => {
+              const source: string = this.imageSource(tile.path);
+              if (this.brokenImagePaths.indexOf(source) < 0) {
+                this.brokenImagePaths = this.brokenImagePaths.concat([source]);
+              }
+            })
+          if (tile.moreCount > 0) {
+            Column() {
+              Text('+' + tile.moreCount.toString())
+                .fontSize(this.rpx(30))
+                .fontWeight(FontWeight.Medium)
+                .fontColor('#FFFFFF')
             }
-          })
-          .onClick(() => {
-            this.onImageTap(path);
-          })
-      }, (path: string) => path)
-      Text(this.entry.imageCount.toString() + '张')
-        .fontSize(this.rpx(22))
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#FFFFFF')
-        .backgroundColor('rgba(0,0,0,0.58)')
-        .borderRadius(this.rpx(24))
-        .padding({ left: this.rpx(12), right: this.rpx(12), top: this.rpx(4), bottom: this.rpx(4) })
-        .position({ x: this.rpx(this.userStackSide() + 24 * (this.userVisibleCount() - 1) - 90),
-          y: this.rpx(this.userStackSide() + 24 * (this.userVisibleCount() - 1) - 56) })
-        .zIndex(this.userVisibleCount() + 1)
+            .width(this.rpx(132))
+            .height(this.rpx(132))
+            .justifyContent(FlexAlign.Center)
+            .alignItems(HorizontalAlign.Center)
+            .borderRadius(this.rpx(18))
+            .backgroundColor('rgba(0,0,0,0.48)')
+          }
+        }
+        .width(this.rpx(132))
+        .height(this.rpx(132))
+        .margin({ right: this.rpx(14), bottom: this.rpx(14) })
+        .onClick(() => {
+          this.onImageListTap(this.imageList(), index);
+        })
+      }, (tile: UserImageTile) => tile.path)
     }
-    .width(this.rpx(this.userStackSide() + 24 * (this.userVisibleCount() - 1)))
-    .height(this.rpx(this.userStackSide() + 24 * (this.userVisibleCount() - 1)))
     .margin({ bottom: this.entry.text.length > 0 ? this.rpx(16) : 0 })
   }
 
@@ -1186,7 +1217,7 @@ export struct ConversationRowView {
       if (this.imageList().length === 1) {
         this.userImageSingle()
       } else if (this.imageList().length > 1) {
-        this.userImageStack()
+        this.userImageGrid()
       }
 
       // 图片还没拿到：下载中显示转圈，失败则显示可点重试（不再永远停在「加载中」）

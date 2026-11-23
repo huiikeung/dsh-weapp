@@ -366,6 +366,9 @@ export struct ConversationPage {
   @State imageFailedEntries: string[] = [];
   /** 全屏图片预览路径（空 = 关闭） */
   @State previewImagePath: string = '';
+  /** 多图预览：整组图片路径 + 当前下标（Swiper 左右翻） */
+  @State previewImageList: string[] = [];
+  @State previewImageIndex: number = 0;
   /** 图片预览底部弹窗开关（对齐小程序：点缩略图从底部弹出大图） */
   @State previewImageOpen: boolean = false;
   /** 下拉刷新（加载更早历史）的动画状态 */
@@ -1867,6 +1870,18 @@ export struct ConversationPage {
     .height('100%')
   }
 
+  /** 多图预览：整组图片 + 起始下标，底部弹窗里 Swiper 左右翻看每一张 */
+  private openImagePreviewList(paths: string[], index: number): void {
+    if (paths.length === 0) {
+      return;
+    }
+    const safeIndex: number = index >= 0 && index < paths.length ? index : 0;
+    this.previewImageList = paths;
+    this.previewImageIndex = safeIndex;
+    this.previewImagePath = paths[safeIndex];
+    this.previewImageOpen = true;
+  }
+
   /** 预览源：本地路径补 file://，http(s)/datashare 原样使用（正文里的网络图片、相册 URI） */
   private previewSource(path: string): string {
     if (path.startsWith('http://') || path.startsWith('https://')
@@ -2558,11 +2573,32 @@ export struct ConversationPage {
       .justifyContent(FlexAlign.Center)
       .padding({ top: 8, bottom: 6 })
 
-      Image(this.previewSource(this.previewImagePath))
+      if (this.previewImageList.length > 1) {
+        Swiper() {
+          ForEach(this.previewImageList, (path: string) => {
+            Image(this.previewSource(path))
+              .width('100%')
+              .height('100%')
+              .objectFit(ImageFit.Contain)
+          }, (path: string) => path)
+        }
+        .index(this.previewImageIndex)
+        .loop(false)
+        .indicator(true)
         .width('100%')
         .layoutWeight(1)
-        .objectFit(ImageFit.Contain)
         .margin({ bottom: 12 })
+        .onChange((index: number) => {
+          this.previewImageIndex = index;
+          this.previewImagePath = this.previewImageList[index];
+        })
+      } else {
+        Image(this.previewSource(this.previewImagePath))
+          .width('100%')
+          .layoutWeight(1)
+          .objectFit(ImageFit.Contain)
+          .margin({ bottom: 12 })
+      }
     }
     .width('100%')
     .height('100%')
@@ -6028,6 +6064,8 @@ export struct ConversationPage {
           backgroundColor: this.isDark ? '#000000' : '#F2F2F4',
           onDisappear: () => {
             this.previewImagePath = '';
+            this.previewImageList = [];
+            this.previewImageIndex = 0;
           }
         })
 
@@ -8721,7 +8759,12 @@ export struct ConversationPage {
               },
               onImageTap: (path: string) => {
                 this.previewImagePath = path;
+                this.previewImageList = [];
+                this.previewImageIndex = 0;
                 this.previewImageOpen = true;
+              },
+              onImageListTap: (paths: string[], index: number) => {
+                this.openImagePreviewList(paths, index);
               },
               onQuoteReply: (text: string) => {
                 this.quoteReply(text);
