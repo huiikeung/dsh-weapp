@@ -537,8 +537,23 @@ export struct SessionSettingsPage {
               this.cardRow('连接方式', this.endpointKindLabel(), false, () => {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              this.cardRow('端点地址', this.activeEndpointLabel(), false, () => {
-              })
+              Row() {
+                Text('端点地址')
+                  .fontSize(15)
+                  .fontColor(this.textColor())
+                  .margin({ right: 12 })
+                Text(this.activeEndpointLabel())
+                  .fontSize(12.5)
+                  .fontColor(this.subColor())
+                  .layoutWeight(1)
+                  .textAlign(TextAlign.End)
+                  .maxLines(3)
+                  .wordBreak(WordBreak.BREAK_ALL)
+              }
+              .width('100%')
+              .constraintSize({ minHeight: 44 })
+              .alignItems(VerticalAlign.Center)
+              .padding({ left: 16, right: 16, top: 8, bottom: 8 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               this.cardRow('网络检测', this.connection === 'connected' ? '端点可达性 / Ping' : '检测已保存端点', true, () => {
                 this.pageStack.pushPathByName('network', null);
