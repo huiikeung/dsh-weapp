@@ -1374,6 +1374,48 @@ export struct TailscalePage {
     return '#8E8E93';
   }
 
+  /** 账号行右侧状态文案（仅当前账号有状态） */
+  private accountStatusText(account: TailscaleAccountProfile): string {
+    if (account.id !== this.activeAccountId) {
+      return '';
+    }
+    if (this.accountDeleted) {
+      return '已失效';
+    }
+    if (this.stage === STAGE_READY) {
+      return '已连接';
+    }
+    if (this.stage === STAGE_STARTING || this.stage === STAGE_WAITING_ROUTES) {
+      return '连接中';
+    }
+    if (this.stage === STAGE_NEEDS_LOGIN) {
+      return '待登录';
+    }
+    if (this.stage === STAGE_FAILED) {
+      return '连接失败';
+    }
+    return '未连接';
+  }
+
+  private accountStatusColor(account: TailscaleAccountProfile): string {
+    if (account.id !== this.activeAccountId) {
+      return this.subColor();
+    }
+    if (this.accountDeleted || this.stage === STAGE_FAILED) {
+      return '#FF3B30';
+    }
+    if (this.stage === STAGE_READY) {
+      return '#34C759';
+    }
+    if (this.stage === STAGE_STARTING || this.stage === STAGE_WAITING_ROUTES) {
+      return '#2E6BE6';
+    }
+    if (this.stage === STAGE_NEEDS_LOGIN) {
+      return '#FF9500';
+    }
+    return this.subColor();
+  }
+
   private deleteAccountById(id: string): void {
     const wasActive: boolean = id === this.activeAccountId;
     TailscaleTunnelStore.get().removeAccountProfile(id);
@@ -1967,9 +2009,15 @@ export struct TailscalePage {
                 .onClick(() => {
                   this.switchAccount(account.id);
                 })
-                Circle({ width: 8, height: 8 })
-                  .fill(this.accountDotColor(account))
-                  .margin({ left: 4 })
+                Row({ space: 4 }) {
+                  Circle({ width: 6, height: 6 }).fill(this.accountDotColor(account))
+                  if (this.accountStatusText(account).length > 0) {
+                    Text(this.accountStatusText(account))
+                      .fontSize(11)
+                      .fontColor(this.accountStatusColor(account))
+                  }
+                }
+                .margin({ left: 4 })
                 Text('删除')
                   .fontSize(14)
                   .fontColor('#FF3B30')
