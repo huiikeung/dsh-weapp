@@ -1471,13 +1471,11 @@ export struct TailscalePage {
   }
 
   private identitySummary(): string {
-    if (this.accountTailnet.length > 0) {
-      return '账号 ' + this.accountTailnet;
+    // 账号与网络分区已经展示邮箱/账号名，这里只表达「登录方式」，避免重复占位
+    if (this.accountTailnet.length > 0 || this.accountName.length > 0) {
+      return '账号登录';
     }
-    if (this.accountName.length > 0) {
-      return '账号 ' + this.accountName;
-    }
-    return '账号 未登录';
+    return '账号未登录';
   }
 
   /** 状态卡片徽标：登录方式 + 登录状态（如「Auth Key 未登录」「浏览器登录 已连接」） */
@@ -1795,7 +1793,7 @@ export struct TailscalePage {
                 .backgroundColor(Color.Transparent)
                 .border({ width: 1, color: this.chipBorder() })
                 .borderRadius(6).margin({ right: 6, bottom: 5 })
-              Text(this.controlURL.trim().length > 0 ? '自定义' : '官方').fontSize(10).fontColor('#2E6BE6')
+              Text(this.controlURL.trim().length > 0 ? '自建控制面' : '官方控制面').fontSize(10).fontColor('#2E6BE6')
                 .maxLines(1).padding({ left: 6, right: 6, top: 2, bottom: 2 })
                 .backgroundColor(Color.Transparent)
                 .border({ width: 1, color: this.chipBorder() })
