@@ -18,6 +18,7 @@ export struct TopToastView {
   @StorageLink('topToastMessage') message: string = '';
   @StorageLink('topToastNonce') @Watch('onNonce') nonce: number = 0;
   @StorageLink('safeTopVp') safeTop: number = 0;
+  @StorageLink('isDark') isDark: boolean = false;
   @State private shown: boolean = false;
   @State private offsetY: number = -10;
   private timer: number = -1;
@@ -46,30 +47,42 @@ export struct TopToastView {
   }
 
   build() {
-    Row({ space: 8 }) {
-      Circle()
-        .width(6)
-        .height(6)
-        .fill('#2E6BE6')
-      Text(this.message)
-        .fontSize(14)
-        .fontWeight(FontWeight.Medium)
-        .fontColor('#FFFFFF')
-        .maxLines(2)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .layoutWeight(1)
+    // 与对话页 topToast 完全一致的卡片样式：徽标 + 玻璃底 + 细描边 + 居中
+    Column() {
+      Row({ space: 9 }) {
+        Text('!')
+          .fontSize(12)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .width(18)
+          .height(18)
+          .borderRadius(9)
+          .textAlign(TextAlign.Center)
+          .backgroundColor('#2E6BE6')
+        Text(this.message)
+          .fontSize(13)
+          .lineHeight(19)
+          .fontColor(this.isDark ? '#F1F4FA' : '#101318')
+          .layoutWeight(1)
+          .maxLines(3)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .constraintSize({ maxWidth: '92%' })
+      .padding({ left: 14, right: 18, top: 12, bottom: 12 })
+      .borderRadius(16)
+      .backgroundColor(this.isDark ? 'rgba(32,34,40,0.96)' : 'rgba(255,255,255,0.97)')
+      .border({
+        width: 0.5,
+        color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)'
+      })
+      .shadow({ radius: 18, color: this.isDark ? 'rgba(0,0,0,0.5)' : 'rgba(16,19,24,0.16)', offsetY: 4 })
+      .opacity(this.shown ? 1 : 0)
+      .translate({ y: this.offsetY })
+      .animation({ duration: 180, curve: Curve.EaseOut })
     }
-    .width('92%')
-    .constraintSize({ maxWidth: 520 })
-    .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-    .borderRadius(16)
-    .backgroundColor('rgba(28,32,40,0.92)')
-    .backdropBlur(18)
-    .shadow({ radius: 24, color: 'rgba(0,0,0,0.22)', offsetY: 8 })
-    .opacity(this.shown ? 1 : 0)
-    .translate({ y: this.offsetY })
-    .animation({ duration: 180, curve: Curve.EaseOut })
-    .margin({ top: (this.safeTop > 0 ? this.safeTop : 38.9) + 8 })
+    .width('100%')
+    .alignItems(HorizontalAlign.Center)
+    .padding({ top: (this.safeTop > 0 ? this.safeTop : 38.9) + 8 })
     .hitTestBehavior(HitTestMode.None)
   }
 }
