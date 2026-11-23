@@ -25,6 +25,7 @@ export struct SessionSettingsPage {
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   @StorageLink('defaultAgentPreset') defaultPreset: string = '';
   @StorageLink('defaultModel') defaultModelValue: string = '';
+  @StorageLink('defaultEffort') defaultEffortValue: string = '';
   @StorageLink('defaultProvider') defaultProviderValue: string = '';
   /** 会话当前模型（网关目录帧的 current），主机信息在无部署默认值时兜底 */
   @StorageLink('selectedProvider') selectedProviderValue: string = '';
@@ -141,12 +142,15 @@ export struct SessionSettingsPage {
       return '';
     }
     // 优先显示网关下发的模型显示名，找不到则回退 id
+    let name: string = id;
     for (const one of this.modelDetails) {
       if (one.model === id) {
-        return one.label;
+        name = one.label;
       }
     }
-    return id;
+    // 右侧同时展示推理强度：模型 · high
+    const effort: string = this.defaultEffortValue;
+    return effort.length > 0 ? name + ' · ' + effort : name;
   }
 
   /** 主机信息用的服务商 id：优先部署级默认选择，其次会话当前模型 */
@@ -396,7 +400,7 @@ export struct SessionSettingsPage {
               .fontColor(this.subColor())
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .constraintSize({ maxWidth: 200 })
+              .constraintSize({ maxWidth: 230 })
           }
           Text('›')
             .fontSize(18)
@@ -532,41 +536,6 @@ export struct SessionSettingsPage {
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               this.cardRow('连接方式', this.endpointKindLabel(), false, () => {
               })
-              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              // Mobile Gateway（对齐 iOS SettingsView 的 Mobile Gateway 分组）
-              Row({ space: 8 }) {
-                Circle().width(8).height(8).fill(this.gatewayDotColor())
-                Text(this.gatewayStateLabel())
-                  .fontSize(15)
-                  .fontColor(this.textColor())
-                Blank()
-                Text(this.gatewayPortLabel())
-                  .fontSize(13)
-                  .fontColor(this.subColor())
-              }
-              .width('100%')
-              .constraintSize({ minHeight: 44 })
-              .padding({ left: 16, right: 16, top: 11, bottom: 11 })
-              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              Row({ space: 10 }) {
-                this.gatewayActionChip(this.connection === 'connected' ? '重新连接' : '连接', () => {
-                  if (this.connection === 'connected') {
-                    GatewayClient.get().autoConnect();
-                  } else {
-                    GatewayClient.get().autoConnect();
-                  }
-                })
-                this.gatewayActionChip('Ping 网关', () => {
-                  this.pingGateway();
-                })
-                if (this.connection === 'connected' || this.connection === 'connecting') {
-                  this.gatewayActionChip('断开连接', () => {
-                    GatewayClient.get().disconnect();
-                  })
-                }
-              }
-              .width('100%')
-              .padding({ left: 16, right: 16, top: 4, bottom: 12 })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               this.cardRow('端点地址', this.activeEndpointLabel(), false, () => {
               })

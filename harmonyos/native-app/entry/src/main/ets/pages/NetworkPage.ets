@@ -495,9 +495,8 @@ export struct NetworkPage {
 
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Row() {
-                Text(this.connection === 'connected' ? '重新连接' : '连接').fontSize(15).fontColor(this.textColor())
+                Text(this.connection === 'connected' ? '重新连接' : '连接').fontSize(15).fontColor('#2E6BE6')
                 Blank()
-                Text('›').fontSize(16).fontColor(this.subColor())
               }
               .width('100%')
               .constraintSize({ minHeight: 44 })
@@ -507,7 +506,7 @@ export struct NetworkPage {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Row() {
-                Text('Ping 网关').fontSize(15).fontColor(this.textColor())
+                Text('Ping 网关').fontSize(15).fontColor('#2E6BE6')
                 Blank()
                 Text(this.lastPing.length > 0 ? this.lastPing : '—').fontSize(13).fontColor(this.subColor())
               }
