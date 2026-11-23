@@ -70,7 +70,7 @@ struct Index {
     // 启动页只保留一帧过渡，尽快消失（对齐 iOS/Android 秒开）
     setTimeout(() => {
       this.splashVisible = false;
-    }, 120);
+    }, 60);
     // 大缓存放到首帧后读，避免堵住启动
     setTimeout(() => {
       SessionStore.restoreCatalogCache();
