@@ -220,7 +220,10 @@ export struct SessionDefaultModelPage {
         const m = one as Record<string, Object>;
         const row: ModelRow = new ModelRow();
         row.provider = provider;
-        row.model = String(m['id'] ?? '');
+        row.model = String(m['id'] ?? m['model'] ?? '');
+        if (row.model.length === 0) {
+          continue;
+        }
         const name: string = String(m['name'] ?? '');
         row.label = name.length > 0 && name !== provider && name !== providerName ? name : row.model;
         const reasoning = m['reasoning'] as Record<string, Object> | undefined;
