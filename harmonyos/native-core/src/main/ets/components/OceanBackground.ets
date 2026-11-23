@@ -132,7 +132,7 @@ export struct OceanBackground {
     }
     const totalH: number = this.canvasHeight;
     const aspect: number = this.canvasWidth / Math.max(1, totalH);
-    const fw: number = 160;
+    const fw: number = 144;
     const fh: number = Math.max(1, Math.min(256, Math.round(fw / aspect)));
     const revision: number = this.flowRevision;
     this.flowBusy = true;
@@ -265,7 +265,7 @@ export struct OceanBackground {
       const y: number = cy + (pixel.y - 0.5) * square + driftY + tailWave;
       // iOS：alpha = (0.10 + lum*0.38) * shimmer，再叠 Canvas opacity 0.56
       // iOS 的整层 opacity 0.56 + blur 会让点更柔；这里降一点峰值，避免「抢眼」
-      const alpha: number = Math.min(1, Math.max(0, (0.10 + pixel.luminance * 0.38) * shimmer * 0.50));
+      const alpha: number = Math.min(1, Math.max(0, (0.10 + pixel.luminance * 0.38) * shimmer * 0.47));
       ctx.globalAlpha = alpha;
       ctx.fillStyle = 'rgb(' + Math.round((0.73 + 0.15 * pixel.light) * 255) + ',' +
         Math.round((0.79 + 0.12 * pixel.light) * 255) + ',' + Math.round((0.92 + 0.08 * pixel.light) * 255) + ')';
@@ -313,13 +313,13 @@ export struct OceanBackground {
       const now: number = Date.now();
       this.phase = (this.phase + (now - last) / 1000) % 4096;
       last = now;
-      // 保持动效前提下继续省电：鲸鱼 20fps，流体约 4fps（Canvas 由 GPU 合成，CPU 只发少量绘制指令）
+      // 省电：鲸鱼 18fps，流体约 3fps；去掉整层 blur（全屏模糊每帧都很吃 GPU）
       this.drawWhale();
-      this.bgFrame = (this.bgFrame + 1) % 5;
+      this.bgFrame = (this.bgFrame + 1) % 6;
       if (this.bgFrame === 0) {
         this.updateFlow();
       }
-    }, 50);
+    }, 55);
   }
 
   private isAnimating(): boolean {
@@ -348,7 +348,6 @@ export struct OceanBackground {
       Canvas(this.whale)
         .width('100%')
         .height('100%')
-        .blur(0.6)
         .onReady(() => {
           this.whaleReady = true;
           this.sample();
