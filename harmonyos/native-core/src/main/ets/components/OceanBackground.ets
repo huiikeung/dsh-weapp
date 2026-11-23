@@ -264,7 +264,8 @@ export struct OceanBackground {
       const x: number = cx + (pixel.x - 0.5) * square + driftX;
       const y: number = cy + (pixel.y - 0.5) * square + driftY + tailWave;
       // iOS：alpha = (0.10 + lum*0.38) * shimmer，再叠 Canvas opacity 0.56
-      const alpha: number = Math.min(1, Math.max(0, (0.10 + pixel.luminance * 0.38) * shimmer * 0.56));
+      // iOS 的整层 opacity 0.56 + blur 会让点更柔；这里降一点峰值，避免「抢眼」
+      const alpha: number = Math.min(1, Math.max(0, (0.10 + pixel.luminance * 0.38) * shimmer * 0.50));
       ctx.globalAlpha = alpha;
       ctx.fillStyle = 'rgb(' + Math.round((0.73 + 0.15 * pixel.light) * 255) + ',' +
         Math.round((0.79 + 0.12 * pixel.light) * 255) + ',' + Math.round((0.92 + 0.08 * pixel.light) * 255) + ')';
@@ -347,6 +348,7 @@ export struct OceanBackground {
       Canvas(this.whale)
         .width('100%')
         .height('100%')
+        .blur(0.6)
         .onReady(() => {
           this.whaleReady = true;
           this.sample();
