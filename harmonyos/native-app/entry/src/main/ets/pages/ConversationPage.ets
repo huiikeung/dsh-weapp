@@ -6387,6 +6387,15 @@ export struct ConversationPage {
 
   /** 当前模型 id：目录 current 优先，其次会话默认模型。 */
   private currentModelId(): string {
+    // 新建会话还没有会话级模型：优先跟随「新会话默认配置 → 默认模型」
+    if (this.pageSessionId.length === 0 && this.defaultModel.length > 0) {
+      for (const option of this.modelOptions) {
+        if (option.model === this.defaultModel || option.label === this.defaultModel) {
+          return option.model;
+        }
+      }
+      return this.defaultModel;
+    }
     if (this.selectedModel.length > 0) {
       return this.selectedModel;
     }
@@ -6406,6 +6415,15 @@ export struct ConversationPage {
   /** 当前模型显示名：按 id 在目录里找 label，找不到回退 id。 */
   private currentModelLabel(): string {
     const id: string = this.currentModelId();
+    // 同名模型可能存在于多个 provider：优先按默认 provider 匹配
+    const preferredProvider: string = AppStorage.get<string>('defaultProvider') ?? '';
+    if (preferredProvider.length > 0) {
+      for (const option of this.modelOptions) {
+        if (option.model === id && option.provider === preferredProvider) {
+          return option.label;
+        }
+      }
+    }
     for (const option of this.modelOptions) {
       if (option.model === id) {
         return option.label;
