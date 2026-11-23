@@ -596,11 +596,10 @@ export struct NetworkPage {
                     })
                 }, (tab: string) => tab)
               }
-              .width('100%')
               .padding(4)
-              .borderRadius(20)
+              .borderRadius(21)
               .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
-              .margin({ left: 16, right: 16, top: 2 })
+              .margin({ left: 28, right: 28, top: 6, bottom: 4 })
 
               if (this.wsSamples.length === 0) {
                 Text(this.connection === 'connected' ? '等待探测结果…' : '连接网关后自动开始每秒探测')
