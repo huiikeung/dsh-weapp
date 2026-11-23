@@ -292,6 +292,11 @@ export struct OceanBackground {
     // 鲸鱼轮廓以中心为基准横向舒展 8%（iOS 同款）
     const whaleWidth: number = square * 1.08;
     const t: number = this.reduceMotion ? 0 : this.phase;
+    try {
+      ctx.globalCompositeOperation = 'screen';
+    } catch (err) {
+      // 部分版本不支持 screen，退化为正常混合
+    }
 
     // 按 bucket 排序后一次性分组填充：fillStyle/globalAlpha 每帧只切换 ~18 次
     let currentBucket: number = -1;
@@ -318,12 +323,20 @@ export struct OceanBackground {
       const dotSize: number = baseDot * (0.72 + pixel.luminance * 0.58);
       const x: number = cx + (pixel.x - 0.5) * whaleWidth + driftX;
       const y: number = cy + (pixel.y - 0.5) * square + driftY + tailWave;
-      ctx.rect(x - dotSize / 2, y - dotSize / 2, dotSize, dotSize);
+      // 与 iOS 一致用圆点（iOS 是 dotSize*0.18 圆角的圆角矩形 + 轻微模糊），
+      // 方点在大屏上会显得很「网格化」
+      const r: number = dotSize / 2;
+      ctx.moveTo(x + r, y);
+      ctx.arc(x, y, r, 0, Math.PI * 2);
     }
     if (pathOpen) {
       ctx.fill();
     }
     ctx.globalAlpha = 1;
+    try {
+      ctx.globalCompositeOperation = 'source-over';
+    } catch (err) {
+    }
     ctx.restore();
   }
 
