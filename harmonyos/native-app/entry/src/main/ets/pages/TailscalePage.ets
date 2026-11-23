@@ -1731,6 +1731,7 @@ export struct TailscalePage {
       }
       .width('100%')
       .height(56)
+      .padding({ left: 16, right: 16 })
       .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
         .zIndex(10)
 
