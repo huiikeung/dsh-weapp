@@ -1835,7 +1835,7 @@ export struct TailscalePage {
                 .backgroundColor(Color.Transparent)
                 .border({ width: 1, color: this.chipBorder() })
                 .borderRadius(6).margin({ right: 6, bottom: 5 })
-              Text(this.controlURL.trim().length > 0 ? '自建控制面' : '官方控制面').fontSize(10).fontColor('#2E6BE6')
+              Text(this.controlURL.trim().length > 0 ? '自建服务器' : '官方服务器').fontSize(10).fontColor('#2E6BE6')
                 .maxLines(1).padding({ left: 6, right: 6, top: 2, bottom: 2 })
                 .backgroundColor(Color.Transparent)
                 .border({ width: 1, color: this.chipBorder() })
