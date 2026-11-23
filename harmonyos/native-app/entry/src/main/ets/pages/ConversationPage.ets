@@ -6172,6 +6172,11 @@ export struct ConversationPage {
     }
     .hideTitleBar(true)
     .onShown(() => {
+      // 从设置等二级页返回时，那些页面把键盘避让改成 NONE；这里恢复 RESIZE，否则输入法弹出时输入框不跟随
+      try {
+        this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
+      } catch (ignored) {
+      }
       Logger.info('[PAGE] onShown ready=' + (this.ready ? '1' : '0') + ' entries=' + this.entries.length.toString());
       this.pageVisible = true;
       this.restoreQueueImages();
