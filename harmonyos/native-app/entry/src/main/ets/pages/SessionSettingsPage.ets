@@ -519,7 +519,7 @@ export struct SessionSettingsPage {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               Row() {
-                Text('端点地址')
+                Text('网关地址')
                   .fontSize(15)
                   .fontColor(this.textColor())
                 Blank()
@@ -1709,11 +1709,11 @@ export struct SessionSettingsPage {
     });
   }
 
-  /** 端点地址：行内弹出原生玻璃菜单，完整显示 + 复制 */
+  /** 网关地址：行内弹出原生玻璃菜单，完整显示 + 复制 */
   @Builder
   endpointMenu() {
     Column({ space: 10 }) {
-      Text('端点地址')
+      Text('网关地址')
         .fontSize(12.5)
         .fontColor(this.subColor())
         .width('100%')
@@ -1751,13 +1751,13 @@ export struct SessionSettingsPage {
   private copyEndpoint(): void {
     const url: string = this.activeEndpointLabel();
     if (url.length === 0 || url === '—') {
-      this.hint = '当前还没有端点地址';
+      this.hint = '当前还没有网关地址';
       return;
     }
     try {
       const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, url);
       pasteboard.getSystemPasteboard().setData(data).then(() => {
-        this.hint = '端点地址已复制';
+        this.hint = '网关地址已复制';
       }).catch(() => {
         this.hint = '复制失败';
       });
