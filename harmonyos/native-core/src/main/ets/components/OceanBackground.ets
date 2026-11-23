@@ -248,7 +248,7 @@ export struct OceanBackground {
     const square: number = baseSquare * 1.10;
     const cx: number = w * 0.55;
     const cy: number = totalH * 0.34;
-    const baseDot: number = Math.max(1.45, baseSquare / 220);
+    const baseDot: number = Math.max(1.35, baseSquare / 240);
     const t: number = this.reduceMotion ? 0 : this.phase;
 
     this.pixels.forEach((pixel: Pixel) => {
