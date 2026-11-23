@@ -202,6 +202,52 @@ export struct NetworkPage {
     return '0.0 KiB/s';
   }
 
+  private wsPeak(): number {
+    let peak: number = 0;
+    for (const one of this.wsSamples) {
+      const v: number = this.wsValueOf(one);
+      if (v > peak) {
+        peak = v;
+      }
+    }
+    return peak;
+  }
+
+  private wsMaxText(): string {
+    if (this.wsSamples.length === 0) {
+      return '—';
+    }
+    if (this.wsTab === '丢包') {
+      const lost: number = this.wsSamples.length - this.okSamples().length;
+      return (Math.round(lost * 1000 / this.wsSamples.length) / 10).toString() + '%';
+    }
+    if (this.wsTab === '流量') {
+      let rxPeak: number = 0;
+      let txPeak: number = 0;
+      for (const one of this.wsSamples) {
+        rxPeak = Math.max(rxPeak, one.bytes);
+        txPeak = Math.max(txPeak, 96);
+      }
+      return '接收 ' + (Math.round(rxPeak / 102.4) / 10) + ' · 发送 ' + (Math.round(txPeak / 102.4) / 10) + ' KiB/s';
+    }
+    if (this.wsTab === '抖动') {
+      return Math.round(this.wsPeak()).toString() + ' ms';
+    }
+    return Math.round(this.wsPeak()).toString() + ' ms';
+  }
+
+  private wsRxHeight(one: WsSample): number {
+    let peak: number = 1;
+    for (const s of this.wsSamples) {
+      peak = Math.max(peak, s.bytes);
+    }
+    return Math.max(2, Math.round(one.bytes / peak * 105));
+  }
+
+  private wsTxHeight(one: WsSample): number {
+    return 12;
+  }
+
   private wsValueOf(one: WsSample): number {
     if (this.wsTab === '丢包') {
       return one.ok ? 0 : 100;
@@ -706,25 +752,59 @@ export struct NetworkPage {
                   .width('100%')
                   .padding({ left: 16, right: 16, top: 70, bottom: 70 })
               } else {
-                Canvas(this.chartCtx)
-                  .width('100%')
-                  .height(140)
-                  .onReady(() => {
-                    this.chartReady = true;
-                    this.drawChart();
-                  })
-                  .onAreaChange((_b: Area, a: Area) => {
-                    this.chartW = Number(a.width);
-                    this.chartH = Number(a.height);
-                    this.drawChart();
-                  })
-                  .margin({ left: 16, right: 16, top: 10 })
+                Row() {
+                  Text('最大 ' + this.wsMaxText()).fontSize(11).fontColor(this.subColor())
+                  Blank()
+                }
+                .width('100%')
+                .padding({ left: 16, right: 16, top: 8 })
+
+                Row() {
+                  ForEach(this.wsSamples, (one: WsSample, index: number) => {
+                    Row({ space: 1 }) {
+                      if (this.wsTab === '流量') {
+                        Column()
+                          .width(2)
+                          .height(this.wsRxHeight(one))
+                          .borderRadius(1)
+                          .backgroundColor('#2E6BE6')
+                        Column()
+                          .width(2)
+                          .height(this.wsTxHeight(one))
+                          .borderRadius(1)
+                          .backgroundColor('#FF9F0A')
+                      } else {
+                        Column()
+                          .width(4)
+                          .height(this.wsBarHeight(one))
+                          .borderRadius(2)
+                          .backgroundColor(one.ok ? this.wsBarColor() : '#FF9F0A')
+                      }
+                    }
+                    .alignItems(VerticalAlign.Bottom)
+                    .height(110)
+                  }, (one: WsSample, index: number) => index.toString() + one.ms.toString())
+                }
+                .width('100%')
+                .height(120)
+                .alignItems(VerticalAlign.Bottom)
+                .justifyContent(FlexAlign.SpaceBetween)
+                .padding({ left: 16, right: 16, top: 6 })
               }
 
               Row() {
                 Text('60 秒前').fontSize(12).fontColor(this.subColor())
                 Blank()
-                Text(this.wsUnit()).fontSize(12).fontColor(this.subColor())
+                if (this.wsTab === '流量') {
+                  Row({ space: 6 }) {
+                    Circle().width(6).height(6).fill('#2E6BE6')
+                    Text('接收').fontSize(12).fontColor(this.subColor())
+                    Circle().width(6).height(6).fill('#FF9F0A').margin({ left: 8 })
+                    Text('发送').fontSize(12).fontColor(this.subColor())
+                  }
+                } else {
+                  Text(this.wsUnit()).fontSize(12).fontColor(this.subColor())
+                }
                 Blank()
                 Text('现在').fontSize(12).fontColor(this.subColor())
               }
