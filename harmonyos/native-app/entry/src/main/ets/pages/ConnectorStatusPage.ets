@@ -183,21 +183,19 @@ export struct ConnectorStatusPage {
               Row({ space: 14 }) {
                 Stack({ alignContent: Alignment.Center }) {
                   if (this.state === 'registering' || this.checking) {
-                    LoadingProgress().width(26).height(26).color(this.stateColor())
-                  } else if (this.state === 'registered') {
-                    SymbolGlyph($r('sys.symbol.checkmark_circle'))
-                      .fontSize(26)
-                      .fontColor([this.stateColor()])
+                    LoadingProgress().width(12).height(12).color(this.stateColor())
+                  } else if (this.state === 'registered' || this.state === 'failed') {
+                    Circle({ width: 8, height: 8 }).fill(this.stateColor())
                   } else {
-                    // 未注册：空心圈（不是"停止"的实心灰点）
-                    Circle({ width: 22, height: 22 })
+                    // 未注册：小空心圈，仅作状态提示
+                    Circle({ width: 9, height: 9 })
                       .fill(Color.Transparent)
                       .stroke(this.stateColor())
-                      .strokeWidth(2)
+                      .strokeWidth(1.5)
                   }
                 }
-                .width(32)
-                .height(32)
+                .width(12)
+                .height(12)
 
                 Column({ space: 4 }) {
                   Text(this.stateTitle())
