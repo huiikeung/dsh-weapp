@@ -1090,16 +1090,18 @@ export struct TailscalePage {
           .borderRadius(16)
           .margin({ bottom: 16 })
           Row({ space: 10 }) {
-            Text('粘贴')
+            // 安全控件：用户点击即临时授权读取剪贴板，无需 READ_PASTEBOARD 权限
+            PasteButton({ icon: PasteIconStyle.LINES, text: PasteDescription.PASTE, buttonType: ButtonType.Normal })
               .fontSize(14)
               .fontColor('#2E6BE6')
               .height(36)
-              .layoutWeight(1)
-              .textAlign(TextAlign.Center)
+              .width('48%')
               .backgroundColor(this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.38)')
               .borderRadius(10)
-              .onClick(() => {
-                this.pasteAuthKey();
+              .onClick((event: ClickEvent, result: PasteButtonOnClickResult) => {
+                if (result === PasteButtonOnClickResult.SUCCESS) {
+                  this.pasteAuthKey();
+                }
               })
             Text('清空')
               .fontSize(14)
