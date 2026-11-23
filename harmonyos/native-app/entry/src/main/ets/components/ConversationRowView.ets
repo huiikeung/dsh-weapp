@@ -956,6 +956,33 @@ export struct ConversationRowView {
     return false;
   }
 
+  /** 正文里的所有 Markdown 图片（按出现顺序解析成本机路径），用于「整组大图预览」 */
+  private markdownImageGroup(text: string): string[] {
+    const group: string[] = [];
+    const re: RegExp = new RegExp('!\\[[^\\]]*\\]\\(([^)\\s]+)', 'g');
+    let match: RegExpExecArray | null = re.exec(text);
+    while (match !== null) {
+      const src: string = match[1];
+      const local: string = this.resolveMarkdownImage(src);
+      if (local.length > 0 && group.indexOf(local) < 0) {
+        group.push(local);
+      }
+      match = re.exec(text);
+    }
+    return group;
+  }
+
+  /** 点正文内联图：同一条回复里的多张图按一组打开（可左右翻 + 双指缩放），单张走原来的单图预览 */
+  private openMarkdownImage(src: string, text: string): void {
+    const group: string[] = this.markdownImageGroup(text);
+    const index: number = group.indexOf(src);
+    if (group.length > 1 && index >= 0) {
+      this.onImageListTap(group, index);
+      return;
+    }
+    this.onImageTap(src);
+  }
+
   /**
    * Markdown 内联图片地址 → 本机可渲染路径。
    * http(s) 原样；宿主机本地路径按文件名匹配本条消息里的图片附件，再用附件缓存/已下载路径兜底。
@@ -1411,7 +1438,7 @@ export struct ConversationRowView {
           fontSize: this.contentSize(),
           textColor: this.entry.isError ? DANGER : '',
           onImageTap: (src: string) => {
-            this.onImageTap(src);
+            this.openMarkdownImage(src, this.assistantBody());
           },
           resolveImage: (src: string) => this.resolveMarkdownImage(src),
           linkTapEnabled: true,
@@ -1768,7 +1795,7 @@ export struct ConversationRowView {
         fontSize: this.contentSize(),
         textColor: '',
         onImageTap: (src: string) => {
-          this.onImageTap(src);
+          this.openMarkdownImage(src, item.text);
         },
         resolveImage: (src: string) => this.resolveMarkdownImage(src),
         linkTapEnabled: true,
