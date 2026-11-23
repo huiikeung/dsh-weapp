@@ -1,4 +1,5 @@
 import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
+import { pasteboard } from '@kit.BasicServicesKit';
 import { GatewayClient, PreferencesStore, SessionStore, SessionSummary, WorkspaceRow } from 'nativecore';
 import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
@@ -537,23 +538,9 @@ export struct SessionSettingsPage {
               this.cardRow('连接方式', this.endpointKindLabel(), false, () => {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              Row() {
-                Text('端点地址')
-                  .fontSize(15)
-                  .fontColor(this.textColor())
-                  .margin({ right: 12 })
-                Text(this.activeEndpointLabel())
-                  .fontSize(12.5)
-                  .fontColor(this.subColor())
-                  .layoutWeight(1)
-                  .textAlign(TextAlign.End)
-                  .maxLines(3)
-                  .wordBreak(WordBreak.BREAK_ALL)
-              }
-              .width('100%')
-              .constraintSize({ minHeight: 44 })
-              .alignItems(VerticalAlign.Center)
-              .padding({ left: 16, right: 16, top: 8, bottom: 8 })
+              this.cardRow('端点地址', this.activeEndpointLabel(), false, () => {
+                this.showEndpointDialog();
+              })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               this.cardRow('网络检测', this.connection === 'connected' ? '端点可达性 / Ping' : '检测已保存端点', true, () => {
                 this.pageStack.pushPathByName('network', null);
@@ -1695,6 +1682,41 @@ export struct SessionSettingsPage {
       this.hint = 'Ping 成功：网关在线';
     }).catch((err: Error) => {
       this.hint = 'Ping 失败：' + (err.message.length > 0 ? err.message : '无响应');
+    });
+  }
+
+  /** 端点地址：弹窗完整显示 + 一键复制 */
+  private showEndpointDialog(): void {
+    const url: string = this.activeEndpointLabel();
+    if (url.length === 0 || url === '—') {
+      this.hint = '当前还没有端点地址';
+      return;
+    }
+    AlertDialog.show({
+      title: '端点地址',
+      message: url,
+      autoCancel: true,
+      alignment: DialogAlignment.Center,
+      primaryButton: {
+        value: '复制',
+        action: () => {
+          try {
+            const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, url);
+            pasteboard.getSystemPasteboard().setData(data).then(() => {
+              this.hint = '端点地址已复制';
+            }).catch(() => {
+              this.hint = '复制失败';
+            });
+          } catch (err) {
+            this.hint = '复制失败';
+          }
+        }
+      },
+      secondaryButton: {
+        value: '关闭',
+        action: () => {
+        }
+      }
     });
   }
 
