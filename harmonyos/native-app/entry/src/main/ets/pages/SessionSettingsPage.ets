@@ -151,9 +151,11 @@ export struct SessionSettingsPage {
     if (this.pickPreset.length > 0) {
       return this.pickPreset;
     }
-    if (this.defaultPreset.length > 0) {
+    const presetStored: string = this.defaultPreset.length > 0
+      ? this.defaultPreset : PreferencesStore.get().getString('defaultAgentPreset', '');
+    if (presetStored.length > 0) {
       // 网关下发的是 id：显示为本地化名称（standard → 标准模式）
-      return this.presetDisplayName(this.defaultPreset, this.defaultPreset);
+      return this.presetDisplayName(presetStored, presetStored);
     }
     return this.presetModeName('standard');
   }
@@ -166,6 +168,9 @@ export struct SessionSettingsPage {
     let id: string = this.pickModel.length > 0 ? this.pickModel : this.defaultModelValue;
     if (id.length === 0) {
       id = this.hostModelValue.length > 0 ? this.hostModelValue : this.selectedModelValue;
+    }
+    if (id.length === 0) {
+      id = PreferencesStore.get().getString('defaultModel', '');
     }
     if (id.length === 0) {
       return '';
