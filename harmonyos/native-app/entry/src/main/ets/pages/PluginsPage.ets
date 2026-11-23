@@ -3,6 +3,7 @@ import { uiMaterial } from '@kit.ArkUI';
 import { GatewayClient, OfficialPluginItem, PluginItem, parseNamespace } from 'nativecore';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
 import type { PluginNamespace } from 'nativecore';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 const MORE_BUNDLES: string[] = [
   'dsh-experimental-tool-worktree',
@@ -1421,6 +1422,9 @@ export struct PluginsPage {
         .layoutWeight(1)
         .width('100%')
         .scrollBar(BarState.Off)
+        // 平板/宽屏：与其它设置页一致，插件列表居中一栏（对齐 iOS iPad）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
+        .align(Alignment.Top)
         .bindSheet($$this.detailOpen, this.detailSheetContent(), {
           height: '85%',
           dragBar: false,
