@@ -144,32 +144,36 @@ export struct AddNodePage {
     .margin({ top: 12 })
   }
 
+  /**
+   * 扫描二维码小图标：组件绘制（对齐小程序 .ico-scan）。
+   * 颜色必须跟随正文色 —— 之前写死 #FFFFFF，浅色主题下白底白图完全看不见。
+   */
   @Builder
   scanIconSmall() {
     Stack() {
       Column().width(4.6).height(4.6)
-        .borderWidth({ left: 1.1, top: 1.1 }).borderColor('#FFFFFF')
+        .borderWidth({ left: 1.1, top: 1.1 }).borderColor(this.textColor())
         .borderRadius({ topLeft: 2.1 })
         .position({ x: 0, y: 0 })
       Column().width(4.6).height(4.6)
-        .borderWidth({ right: 1.1, top: 1.1 }).borderColor('#FFFFFF')
+        .borderWidth({ right: 1.1, top: 1.1 }).borderColor(this.textColor())
         .borderRadius({ topRight: 2.1 })
         .position({ x: 10.4, y: 0 })
       Column().width(4.6).height(4.6)
-        .borderWidth({ left: 1.1, bottom: 1.1 }).borderColor('#FFFFFF')
+        .borderWidth({ left: 1.1, bottom: 1.1 }).borderColor(this.textColor())
         .borderRadius({ bottomLeft: 2.1 })
         .position({ x: 0, y: 10.4 })
       Column().width(4.6).height(4.6)
-        .borderWidth({ right: 1.1, bottom: 1.1 }).borderColor('#FFFFFF')
+        .borderWidth({ right: 1.1, bottom: 1.1 }).borderColor(this.textColor())
         .borderRadius({ bottomRight: 2.1 })
         .position({ x: 10.4, y: 10.4 })
       this.scanFindSmall(2.9, 2.9)
       this.scanFindSmall(7.9, 2.9)
       this.scanFindSmall(2.9, 7.9)
-      Circle({ width: 1.85, height: 1.85 }).fill('#FFFFFF').position({ x: 7.9, y: 7.9 })
-      Circle({ width: 1.85, height: 1.85 }).fill('#FFFFFF').position({ x: 10.25, y: 7.9 })
-      Circle({ width: 1.85, height: 1.85 }).fill('#FFFFFF').position({ x: 7.9, y: 10.25 })
-      Circle({ width: 1.85, height: 1.85 }).fill('#FFFFFF').position({ x: 10.25, y: 10.25 })
+      Circle({ width: 1.85, height: 1.85 }).fill(this.textColor()).position({ x: 7.9, y: 7.9 })
+      Circle({ width: 1.85, height: 1.85 }).fill(this.textColor()).position({ x: 10.25, y: 7.9 })
+      Circle({ width: 1.85, height: 1.85 }).fill(this.textColor()).position({ x: 7.9, y: 10.25 })
+      Circle({ width: 1.85, height: 1.85 }).fill(this.textColor()).position({ x: 10.25, y: 10.25 })
     }
     .width(15)
     .height(15)
@@ -179,15 +183,43 @@ export struct AddNodePage {
   scanFindSmall(x: number, y: number) {
     Stack() {
       Column().width(4.2).height(4.2)
-        .border({ width: 0.9, color: '#FFFFFF' })
+        .border({ width: 0.9, color: this.textColor() })
         .borderRadius(0.9)
-      Circle({ width: 1.25, height: 1.25 }).fill('#FFFFFF')
+      Circle({ width: 1.25, height: 1.25 }).fill(this.textColor())
     }
     .width(4.2)
     .height(4.2)
     .position({ x: x, y: y })
   }
 
+  /** 单色 SVG 着色（颜色矩阵）：只替换 RGB、保留透明度，让图标与文字同色 */
+  private iconTint(color: string): number[] {
+    const text: string = color.trim();
+    let alpha: number = 1;
+    let red: number = 255;
+    let green: number = 255;
+    let blue: number = 255;
+    if (text.startsWith('#')) {
+      const hex: string = text.substring(1);
+      const value: number = parseInt(hex, 16);
+      if (hex.length === 8) {
+        alpha = ((value >>> 24) & 255) / 255;
+        red = (value >> 16) & 255;
+        green = (value >> 8) & 255;
+        blue = value & 255;
+      } else {
+        red = (value >> 16) & 255;
+        green = (value >> 8) & 255;
+        blue = value & 255;
+      }
+    }
+    return [
+      0, 0, 0, 0, red / 255,
+      0, 0, 0, 0, green / 255,
+      0, 0, 0, 0, blue / 255,
+      0, 0, 0, alpha, 0
+    ];
+  }
   build() {
     NavDestination() {
       Column() {
@@ -305,6 +337,8 @@ export struct AddNodePage {
                       .width(20)
                       .height(20)
                       .objectFit(ImageFit.Contain)
+                      // 该 SVG 是白色描边：浅色主题下必须按正文色重着色，否则白底白图
+                      .colorFilter(this.iconTint(this.textColor()))
                   }
                   .width(20)
                   .height(20)

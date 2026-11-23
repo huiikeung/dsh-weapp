@@ -1,7 +1,7 @@
 import { util } from '@kit.ArkTS';
 import { str, num, asRec } from './GatewayFrameCodec';
 
-/** 配对信息，与 dsh-plugin-mobile-gateway v2 直连协议一致。 */
+/** 配对信息，与 dsh-plugin-weapp-gateway v2 直连协议一致。 */
 export interface PairingResult {
   ok: boolean;
   error: string;

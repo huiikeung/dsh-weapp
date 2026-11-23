@@ -700,6 +700,128 @@ export struct HomePage {
     .position({ x: x, y: y })
   }
 
+  /**
+   * 扫描二维码图标：组件绘制（对齐小程序 .ico-scan）。
+   *
+   * 不用 scan_white.svg：那份 SVG 依赖根节点 fill="none" 继承，ArkUI 会把其中的
+   * 取景框 rect 当成实心填充渲染（框内背景不透明），且右下角小点的填充分组被单独
+   * 着色，颜色和描边不一致。这里按小程序几何直接画：
+   *   4 个角括号（只画外侧两边）+ 3 个取景框（仅描边 + 中心点）+ 右下 2×2 小点
+   * 全部用同一个 color，框内天然透明。
+   */
+  @Builder
+  scanGlyph(size: number, color: string) {
+    Stack({ alignContent: Alignment.TopStart }) {
+      // 四角括号（11/36 边长、3/36 描边、5/36 外圆角）
+      Column()
+        .width(size * 11 / 36)
+        .height(size * 11 / 36)
+        .border({
+          width: { top: size * 2.5 / 36, left: size * 2.5 / 36 },
+          color: color,
+          radius: { topLeft: size * 5 / 36 }
+        })
+        .position({ x: 0, y: 0 })
+      Column()
+        .width(size * 11 / 36)
+        .height(size * 11 / 36)
+        .border({
+          width: { top: size * 2.5 / 36, right: size * 2.5 / 36 },
+          color: color,
+          radius: { topRight: size * 5 / 36 }
+        })
+        .position({ x: size * 25 / 36, y: 0 })
+      Column()
+        .width(size * 11 / 36)
+        .height(size * 11 / 36)
+        .border({
+          width: { bottom: size * 2.5 / 36, left: size * 2.5 / 36 },
+          color: color,
+          radius: { bottomLeft: size * 5 / 36 }
+        })
+        .position({ x: 0, y: size * 25 / 36 })
+      Column()
+        .width(size * 11 / 36)
+        .height(size * 11 / 36)
+        .border({
+          width: { bottom: size * 2.5 / 36, right: size * 2.5 / 36 },
+          color: color,
+          radius: { bottomRight: size * 5 / 36 }
+        })
+        .position({ x: size * 25 / 36, y: size * 25 / 36 })
+
+      // 三个取景框：10/36 边长、2/36 描边、2/36 圆角，内部透明 + 3/36 中心点
+      this.scanFinder(size, color, size * 7 / 36, size * 7 / 36)
+      this.scanFinder(size, color, size * 19 / 36, size * 7 / 36)
+      this.scanFinder(size, color, size * 7 / 36, size * 19 / 36)
+
+      // 右下 2×2 小点（3/36 点、2/36 间距、距右/下各 6/36）
+      Column()
+        .width(size * 3 / 36)
+        .height(size * 3 / 36)
+        .borderRadius(size / 36)
+        .backgroundColor(color)
+        .position({ x: size * 20 / 36, y: size * 20 / 36 })
+      Column()
+        .width(size * 3 / 36)
+        .height(size * 3 / 36)
+        .borderRadius(size / 36)
+        .backgroundColor(color)
+        .position({ x: size * 25 / 36, y: size * 20 / 36 })
+      Column()
+        .width(size * 3 / 36)
+        .height(size * 3 / 36)
+        .borderRadius(size / 36)
+        .backgroundColor(color)
+        .position({ x: size * 20 / 36, y: size * 25 / 36 })
+      Column()
+        .width(size * 3 / 36)
+        .height(size * 3 / 36)
+        .borderRadius(size / 36)
+        .backgroundColor(color)
+        .position({ x: size * 25 / 36, y: size * 25 / 36 })
+    }
+    .width(size)
+    .height(size)
+  }
+
+  /** 扫描图标里的单个取景框：仅描边 + 中心点（框内透明） */
+  @Builder
+  scanFinder(size: number, color: string, px: number, py: number) {
+    Stack({ alignContent: Alignment.TopStart }) {
+      Column()
+        .width(size * 10 / 36)
+        .height(size * 10 / 36)
+        .border({ width: size * 2 / 36, color: color, radius: size * 2 / 36 })
+      Column()
+        .width(size * 3 / 36)
+        .height(size * 3 / 36)
+        .borderRadius(size / 36)
+        .backgroundColor(color)
+        .position({ x: size * 3.5 / 36, y: size * 3.5 / 36 })
+    }
+    .width(size * 10 / 36)
+    .height(size * 10 / 36)
+    .position({ x: px, y: py })
+  }
+
+  /** 配对菜单里的「扫描二维码」行：图标用组件绘制，其余排版与 menuRow 一致 */
+  @Builder
+  scanMenuRow(label: string, rowWidth: number) {
+    Row({ space: this.rpx(24) }) {
+      this.scanGlyph(this.rpx(36), this.iconColor())
+      Text(label)
+        .fontSize(this.rpx(32))
+        .fontColor(this.labelColor())
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
+    }
+    .width(rowWidth)
+    .height(this.rpx(84))
+    .padding({ left: this.rpx(48), right: this.rpx(48) })
+  }
+
   /** 系统菜单里的行：完全按小程序 .ws-pop-row 换算（行高84rpx / 图标36rpx / 间距24rpx / 左右48rpx） */
   @Builder
   menuRow(icon: Resource, label: string, selected: boolean, rowWidth: number) {
@@ -2040,7 +2162,7 @@ export struct HomePage {
   @Builder
   pairMenuBuilder() {
     Menu() {
-      MenuItem(this.menuRow($r('app.media.scan_white'), '扫描二维码', false, this.pairMenuWidth()))
+      MenuItem(this.scanMenuRow('扫描二维码', this.pairMenuWidth()))
         .id('pair-scan')
         .onClick(() => {
           this.pairMenuOpen = false;
