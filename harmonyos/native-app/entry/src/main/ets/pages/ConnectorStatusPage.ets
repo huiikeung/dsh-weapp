@@ -283,10 +283,12 @@ export struct ConnectorStatusPage {
         }
         .layoutWeight(1)
         .width('100%')
+        .align(Alignment.Top)
         .scrollBar(BarState.Off)
       }
       .width('100%')
       .height('100%')
+      .justifyContent(FlexAlign.Start)
     }
     .hideTitleBar(true)
     .backgroundColor(this.pageBg())

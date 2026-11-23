@@ -127,6 +127,8 @@ export { calendarConnector } from './src/main/ets/connectors/CalendarConnector';
 export { remindersConnector } from './src/main/ets/connectors/RemindersConnector';
 export { photosConnector } from './src/main/ets/connectors/PhotosConnector';
 export { alarmsConnector } from './src/main/ets/connectors/AlarmsConnector';
+export { musicConnector } from './src/main/ets/connectors/MusicConnector';
+export { healthConnector } from './src/main/ets/connectors/HealthConnector';
 export { aeadSeal, aeadOpen, blake2s, hmacBlake2s, chacha20Xor, wireGuardSelfTest } from './src/main/ets/crypto/WireGuardCrypto';
 export { WireGuardTunnel } from './src/main/ets/crypto/WireGuardTunnel';
 export type { WireGuardPeerConfig } from './src/main/ets/crypto/WireGuardTunnel';

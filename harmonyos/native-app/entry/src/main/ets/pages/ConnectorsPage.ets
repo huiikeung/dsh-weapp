@@ -1,4 +1,4 @@
-import { common } from '@kit.AbilityKit';
+import { common, Want } from '@kit.AbilityKit';
 import { NavBackButton } from '../components/NavBackButton';
 import { CONNECTOR_MODULES, ConnectorModuleDefinition, DeviceConnectors } from 'nativecore';
 
@@ -88,22 +88,21 @@ export struct ConnectorsPage {
     return this.isDark ? '#000000' : '#F2F2F7';
   }
 
+  /** 跳到系统「应用信息 / 权限」页（本 App 的设置页） */
   private openPermissionSettings(): void {
-    const context: common.UIAbilityContext | undefined = AppStorage.get<common.UIAbilityContext>('uiAbilityContext');
-    if (context === undefined) {
-      return;
-    }
     try {
-      context.startAbility({
-        action: 'ohos.settings.action.APP_SETTINGS',
-        parameters: { bundleName: 'com.flukit.app' }
-      }).catch(() => {
-        try {
-          context.startAbility({ action: 'ohos.settings.action.SETTINGS' }).catch(() => {});
-        } catch (err) {
-        }
+      const context = getContext(this) as common.UIAbilityContext;
+      const want: Want = {
+        bundleName: 'com.huawei.hmos.settings',
+        abilityName: 'com.huawei.hmos.settings.MainAbility',
+        uri: 'application_info_entry',
+        parameters: { pushParams: context.abilityInfo.bundleName }
+      };
+      context.startAbility(want).catch(() => {
+        this.notice = '请在「设置 > 应用和元服务 > 鲸尾 > 权限」中开启';
       });
     } catch (err) {
+      this.notice = '请在「设置 > 应用和元服务 > 鲸尾 > 权限」中开启';
     }
   }
 
