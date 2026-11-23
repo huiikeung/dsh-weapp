@@ -3,6 +3,7 @@ import { common } from '@kit.AbilityKit';
 import { taskpool } from '@kit.ArkTS';
 import { prepareBrandFlow } from '../core/BrandFlowWorker';
 import { WHALE_PIXELS_IOS } from '../core/WhalePixelsIOS';
+import { WHALE_PIXELS_PAD } from '../core/WhalePixelsPad';
 import { renderBrandFlow } from '../core/BrandFlow';
 
 /**
@@ -30,6 +31,8 @@ export struct OceanBackground {
   private whale: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
   private pixels: Pixel[] = [];
+  /** 是否使用 iPad 构图（短边 >= 600vp，对齐 iOS HarnessBackgroundStyle.resolve） */
+  private padStyle: boolean = false;
   private drawOrder: Pixel[] = [];
   private bucketColors: string[] = [];
   private bucketAlphas: number[] = [];
@@ -119,7 +122,7 @@ export struct OceanBackground {
     const h: number = Math.max(1, Math.round(w * this.canvasHeight / Math.max(1, this.canvasWidth)));
     try {
       const aspect: number = this.canvasWidth / Math.max(1, this.canvasHeight);
-      const buffer = renderBrandFlow(w, h, aspect, 0, this.canvasWidth >= 600);
+      const buffer = renderBrandFlow(w, h, aspect, 0, Math.min(this.canvasWidth, this.canvasHeight) >= 600);
       const offscreen = new OffscreenCanvas(w, h, LengthMetricsUnit.PX);
       const ctx = offscreen.getContext('2d');
       ctx.putImageData(new ImageData(w, h, new Uint8ClampedArray(buffer), LengthMetricsUnit.PX), 0, 0);
@@ -142,7 +145,7 @@ export struct OceanBackground {
     this.flowBusy = true;
     try {
       const buffer = await taskpool.execute(
-        new taskpool.Task(prepareBrandFlow, fw, fh, aspect, this.phase, this.canvasWidth >= 600)) as ArrayBuffer;
+        new taskpool.Task(prepareBrandFlow, fw, fh, aspect, this.phase, Math.min(this.canvasWidth, this.canvasHeight) >= 600)) as ArrayBuffer;
       if (!this.alive || revision !== this.flowRevision) {
         return;
       }
@@ -205,7 +208,8 @@ export struct OceanBackground {
 
     ctx.strokeStyle = 'rgba(255,255,255,0.043)';
     ctx.lineWidth = .55;
-    const spacing: number = w >= 600 ? Math.min(64, Math.max(42, Math.min(w, totalH) / 16)) : 42;
+    const spacing: number = Math.min(w, totalH) >= 600
+      ? Math.min(64, Math.max(42, Math.min(w, totalH) / 16)) : 42;
     for (let x = 0; x < w; x += spacing) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
@@ -249,11 +253,34 @@ export struct OceanBackground {
     ctx.clearRect(0, 0, w, h);
     ctx.save();
 
-    const baseSquare: number = Math.max(w * 1.15, totalH * 0.48);
-    const square: number = baseSquare * 1.10;
-    const cx: number = w * 0.55;
-    const cy: number = totalH * 0.34;
-    const baseDot: number = Math.max(1.35, baseSquare / 240);
+    // 构图规则与 iOS HarnessBackgroundComposition 完全一致
+    let square: number = 0;
+    let cx: number = 0;
+    let cy: number = 0;
+    let baseDot: number = 0;
+    let driftXBase: number = 0;
+    let driftYBase: number = 0;
+    let motionScale: number = 1;
+    if (this.padStyle) {
+      const aspect: number = w / Math.max(1, totalH);
+      const wideProgress: number = Math.min(1, Math.max(0, (aspect - 0.65) / 0.75));
+      square = Math.min(Math.max(w * 1.15, totalH * 0.48), totalH * 1.12) * 0.82;
+      cx = w * (0.55 + 0.05 * wideProgress);
+      cy = totalH * (0.34 + 0.12 * wideProgress);
+      motionScale = Math.min(2, Math.max(1, square / 460));
+      driftXBase = 1.8;
+      driftYBase = 1.7;
+      baseDot = Math.min(2.4, Math.max(0.8, square / 360));
+    } else {
+      square = Math.max(w * 1.15, totalH * 0.48);
+      cx = w * 0.55;
+      cy = totalH * 0.34;
+      baseDot = Math.max(1.45, square / 220);
+      driftXBase = 2.8;
+      driftYBase = 2.6;
+    }
+    // 鲸鱼轮廓以中心为基准横向舒展 8%（iOS 同款）
+    const whaleWidth: number = square * 1.08;
     const t: number = this.reduceMotion ? 0 : this.phase;
 
     // 按 bucket 排序后一次性分组填充：fillStyle/globalAlpha 每帧只切换 ~18 次
@@ -275,11 +302,11 @@ export struct OceanBackground {
       const tail: number = this.smoothstep(0.54, 0.94, pixel.x);
       const edgeDrift: number = 0.35 + 0.65 * pixel.edge;
       const pphase: number = pixel.phase;
-      const driftX: number = Math.sin(t * 0.50 + pphase * 0.53) * 2.8 * edgeDrift;
-      const driftY: number = Math.cos(t * 0.42 + pphase * 0.71) * 2.6 * edgeDrift;
-      const tailWave: number = Math.sin(t * 1.10 - pixel.x * 7.0) * 7.0 * tail;
+      const driftX: number = Math.sin(t * 0.50 + pphase * 0.53) * driftXBase * edgeDrift * motionScale;
+      const driftY: number = Math.cos(t * 0.42 + pphase * 0.71) * driftYBase * edgeDrift * motionScale;
+      const tailWave: number = Math.sin(t * 1.10 - pixel.x * 7.0) * 7.0 * tail * motionScale;
       const dotSize: number = baseDot * (0.72 + pixel.luminance * 0.58);
-      const x: number = cx + (pixel.x - 0.5) * square + driftX;
+      const x: number = cx + (pixel.x - 0.5) * whaleWidth + driftX;
       const y: number = cy + (pixel.y - 0.5) * square + driftY + tailWave;
       ctx.rect(x - dotSize / 2, y - dotSize / 2, dotSize, dotSize);
     }
@@ -296,8 +323,10 @@ export struct OceanBackground {
   }
 
   private sample(): void {
-    // 与 iOS HeroWhaleMask 60x60 采样结果一致（含 phase / light）
-    this.pixels = WHALE_PIXELS_IOS.map((point: number[]): Pixel => ({
+    // 平板/大窗口用 100x100 细密粒子（对齐 iOS WhaleParticleMask.particles(for:)）
+    this.padStyle = Math.min(this.canvasWidth, this.canvasHeight) >= 600;
+    const source: number[][] = this.padStyle ? WHALE_PIXELS_PAD : WHALE_PIXELS_IOS;
+    this.pixels = source.map((point: number[]): Pixel => ({
       x: point[0], y: point[1], luminance: point[2], edge: point[3],
       phase: point[4], light: point[5], bucket: 0
     }));
@@ -314,7 +343,8 @@ export struct OceanBackground {
         const lum: number = (lumLevel + 0.5) / 3;
         colorLut[bucket] = 'rgb(' + Math.round((0.73 + 0.15 * light) * 255) + ',' +
           Math.round((0.79 + 0.12 * light) * 255) + ',' + Math.round((0.92 + 0.08 * light) * 255) + ')';
-        alphaLut[bucket] = (0.10 + lum * 0.38) * 0.47;
+        // 与 iOS 一致：单个粒子 alpha=(0.10+lum*0.38)，整层再乘 0.56
+        alphaLut[bucket] = (0.10 + lum * 0.38) * 0.56;
       }
     });
     this.bucketColors = colorLut;
