@@ -197,23 +197,25 @@ export struct OceanBackground {
       ctx.fillRect(0, 0, w, totalH);
       // 顶部整体提亮（iOS 平板上半屏是亮蓝，向下迅速压暗）
       const lift = ctx.createLinearGradient(0, 0, 0, totalH);
-      lift.addColorStop(0, 'rgba(82,132,186,0.30)');
-      lift.addColorStop(0.42, 'rgba(50,92,142,0.14)');
+      lift.addColorStop(0, 'rgba(82,132,186,0.20)');
+      lift.addColorStop(0.42, 'rgba(50,92,142,0.10)');
       lift.addColorStop(0.62, 'rgba(20,40,66,0.02)');
       lift.addColorStop(1, 'rgba(0,0,0,0)');
       ctx.fillStyle = lift;
       ctx.fillRect(0, 0, w, totalH);
-      const bandLen: number = Math.max(w, totalH) * 2.0;
-      const bandSpan: number = totalH * 2.2;
+      const bandLen: number = Math.max(w, totalH) * 1.8;
+      // 光带跨度必须和屏幕同量级，否则渐变被拉平，整屏变成一层均匀提亮（看起来就是「光带没了」）
+      const bandSpan: number = totalH * 1.15;
       ctx.save();
-      ctx.translate(w * 0.52, totalH * 0.46);
-      ctx.rotate(-17 * Math.PI / 180);
+      ctx.translate(w * 0.46, totalH * 0.40);
+      ctx.rotate(-15 * Math.PI / 180);
       const band = ctx.createLinearGradient(0, -bandSpan / 2, 0, bandSpan / 2);
       band.addColorStop(0, 'rgba(140,170,210,0.00)');
-      band.addColorStop(0.26, 'rgba(140,172,212,0.16)');
-      band.addColorStop(0.44, 'rgba(178,200,228,0.42)');
-      band.addColorStop(0.56, 'rgba(150,178,212,0.30)');
-      band.addColorStop(0.74, 'rgba(104,126,158,0.10)');
+      band.addColorStop(0.30, 'rgba(140,172,212,0.10)');
+      band.addColorStop(0.44, 'rgba(168,194,226,0.34)');
+      band.addColorStop(0.505, 'rgba(190,210,236,0.60)');
+      band.addColorStop(0.56, 'rgba(160,186,220,0.34)');
+      band.addColorStop(0.70, 'rgba(112,134,166,0.10)');
       band.addColorStop(1, 'rgba(140,170,210,0.00)');
       ctx.fillStyle = band;
       ctx.fillRect(-bandLen / 2, -bandSpan / 2, bandLen, bandSpan);
