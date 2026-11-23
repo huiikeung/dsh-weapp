@@ -2,6 +2,12 @@ import { http } from '@kit.NetworkKit';
 import { GatewayClient, SavedGateway } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
 
+class WsSample {
+  ms: number = 0;
+  ok: boolean = false;
+  bytes: number = 0;
+}
+
 class NetProbe {
   url: string = '';
   label: string = '';
@@ -22,11 +28,191 @@ export struct NetworkPage {
   @State probes: NetProbe[] = [];
   @State hint: string = '';
   @State lastPing: string = '';
+  @State wsSamples: WsSample[] = [];
+  @State wsTab: string = '延迟';
+  private wsTimer: number = -1;
   @State toastText: string = '';
   @State toastError: boolean = false;
   @State toastOpacity: number = 0;
   @State toastOffset: number = -10;
   private toastTimer: number = -1;
+
+  aboutToAppear(): void {
+    this.startWsProbe();
+  }
+
+  aboutToDisappear(): void {
+    if (this.wsTimer >= 0) {
+      clearInterval(this.wsTimer);
+      this.wsTimer = -1;
+    }
+  }
+
+  private startWsProbe(): void {
+    if (this.wsTimer >= 0) {
+      clearInterval(this.wsTimer);
+    }
+    this.wsTimer = setInterval(() => {
+      this.probeOnce();
+    }, 1000);
+    this.probeOnce();
+  }
+
+  private probeOnce(): void {
+    const one: WsSample = new WsSample();
+    if (this.connection !== 'connected') {
+      one.ok = false;
+      this.pushWsSample(one);
+      return;
+    }
+    const started: number = Date.now();
+    GatewayClient.get().requestHost().then((frame: Object) => {
+      one.ok = true;
+      one.ms = Date.now() - started;
+      try {
+        one.bytes = JSON.stringify(frame).length;
+      } catch (err) {
+        one.bytes = 512;
+      }
+      this.pushWsSample(one);
+    }).catch(() => {
+      one.ok = false;
+      one.ms = 0;
+      this.pushWsSample(one);
+    });
+  }
+
+  private pushWsSample(one: WsSample): void {
+    const next: WsSample[] = this.wsSamples.slice();
+    next.push(one);
+    while (next.length > 60) {
+      next.shift();
+    }
+    this.wsSamples = next;
+  }
+
+  private okSamples(): WsSample[] {
+    return this.wsSamples.filter((one: WsSample) => one.ok);
+  }
+
+  private wsRttText(): string {
+    const list: WsSample[] = this.okSamples();
+    if (list.length === 0) {
+      return '—';
+    }
+    let sum: number = 0;
+    for (const one of list) {
+      sum += one.ms;
+    }
+    return Math.round(sum / list.length).toString() + ' ms';
+  }
+
+  private wsLossText(): string {
+    if (this.wsSamples.length === 0) {
+      return '—';
+    }
+    const lost: number = this.wsSamples.length - this.okSamples().length;
+    return (Math.round(lost * 1000 / this.wsSamples.length) / 10).toString() + '%';
+  }
+
+  private wsJitterText(): string {
+    const list: WsSample[] = this.okSamples();
+    if (list.length < 2) {
+      return '—';
+    }
+    let sum: number = 0;
+    for (let i = 1; i < list.length; i++) {
+      sum += Math.abs(list[i].ms - list[i - 1].ms);
+    }
+    return Math.round(sum / (list.length - 1)).toString() + ' ms';
+  }
+
+  private wsRxText(): string {
+    const list: WsSample[] = this.okSamples();
+    if (list.length === 0) {
+      return '—';
+    }
+    let bytes: number = 0;
+    for (const one of list) {
+      bytes += one.bytes;
+    }
+    return (Math.round(bytes / Math.max(1, list.length) / 102.4) / 10).toString() + ' KiB/s';
+  }
+
+  private wsAvgValue(): number {
+    const list: WsSample[] = this.okSamples();
+    if (list.length === 0) {
+      return 0;
+    }
+    let sum: number = 0;
+    for (const one of list) {
+      sum += one.ms;
+    }
+    return sum / list.length;
+  }
+
+  private wsP95Value(): number {
+    const list: number[] = this.okSamples().map((one: WsSample) => one.ms).sort((a: number, b: number) => a - b);
+    if (list.length === 0) {
+      return 0;
+    }
+    const idx: number = Math.min(list.length - 1, Math.floor(list.length * 0.95));
+    return list[idx];
+  }
+
+  private wsAvgText(): string {
+    return this.okSamples().length > 0 ? (Math.round(this.wsAvgValue()).toString() + ' ms') : '—';
+  }
+
+  private wsP95Text(): string {
+    return this.okSamples().length > 0 ? (Math.round(this.wsP95Value()).toString() + ' ms') : '—';
+  }
+
+  private wsOkCount(): string {
+    return this.okSamples().length.toString();
+  }
+
+  private wsTimeoutCount(): string {
+    return (this.wsSamples.length - this.okSamples().length).toString();
+  }
+
+  private wsUnit(): string {
+    if (this.wsTab === '丢包') {
+      return '丢包 · %';
+    }
+    if (this.wsTab === '抖动') {
+      return '毫秒 · ms';
+    }
+    if (this.wsTab === '流量') {
+      return 'KiB/s';
+    }
+    return '毫秒 · ms';
+  }
+
+  /** 当前标签下，这一根柱子的相对高度（0-1） */
+  private wsBarRatio(one: WsSample): number {
+    if (this.wsTab === '丢包') {
+      return one.ok ? 0.06 : 1;
+    }
+    if (this.wsTab === '流量') {
+      return Math.min(1, one.bytes / 4096);
+    }
+    if (this.wsTab === '抖动') {
+      return Math.min(1, Math.abs(one.ms - this.wsAvgValue()) / 120);
+    }
+    return Math.min(1, one.ms / 400);
+  }
+
+  private wsBarHeight(one: WsSample): number {
+    return Math.max(3, Math.round(this.wsBarRatio(one) * 110));
+  }
+
+  private wsBarColor(): string {
+    if (this.wsTab === '丢包') {
+      return '#FF9F0A';
+    }
+    return '#2E6BE6';
+  }
 
   private topInset(): number {
     return this.safeTopStorage > 0 ? this.safeTopStorage : 38.9;
@@ -351,58 +537,116 @@ export struct NetworkPage {
             .borderRadius(14)
             .border({ width: 1, color: this.dividerColor() })
 
-            // 端点检测
+            // WebSocket 网络检测（对齐 iOS：延迟 / 丢包 / 抖动 / 流量，最近 60 秒）
             Column() {
               Row() {
-                Text('端点可达性').fontSize(15).fontColor(this.textColor())
+                Text('WebSocket').fontSize(21).fontWeight(FontWeight.Medium).fontColor('#2E6BE6')
                 Blank()
-                Text(this.probing ? '检测中…' : '开始检测')
-                  .fontSize(13)
-                  .fontColor(this.subColor())
-                Text('›').fontSize(16).fontColor(this.subColor()).margin({ left: 6 })
+                Text('每秒检测 · 最近 60 秒').fontSize(12.5).fontColor(this.subColor())
               }
               .width('100%')
-              .constraintSize({ minHeight: 44 })
-              .padding({ left: 16, right: 16 })
-              .onClick(() => {
-                this.runProbes();
-              })
+              .padding({ left: 16, right: 16, top: 14, bottom: 12 })
 
-              if (this.probes.length === 0) {
-                Text('检测当前保存的局域网 / 公网 / 隧道端点，显示往返耗时。')
-                  .fontSize(12)
+              Row() {
+                Column({ space: 6 }) {
+                  Text('往返延迟').fontSize(13).fontColor(this.subColor())
+                  Text(this.wsRttText()).fontSize(22).fontColor(this.textColor())
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+                Column({ space: 6 }) {
+                  Text('探测丢包率').fontSize(13).fontColor(this.subColor())
+                  Text(this.wsLossText()).fontSize(22).fontColor(this.textColor())
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, bottom: 14 })
+
+              Row() {
+                Column({ space: 6 }) {
+                  Text('延迟抖动').fontSize(13).fontColor(this.subColor())
+                  Text(this.wsJitterText()).fontSize(22).fontColor(this.textColor())
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+                Column({ space: 6 }) {
+                  Text('接收速率').fontSize(13).fontColor(this.subColor())
+                  Text(this.wsRxText()).fontSize(22).fontColor(this.textColor())
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, bottom: 14 })
+
+              Row() {
+                ForEach(['延迟', '丢包', '抖动', '流量'], (tab: string) => {
+                  Text(tab)
+                    .fontSize(14)
+                    .fontColor(tab === this.wsTab ? this.textColor() : this.subColor())
+                    .layoutWeight(1)
+                    .height(34)
+                    .textAlign(TextAlign.Center)
+                    .borderRadius(17)
+                    .backgroundColor(tab === this.wsTab ? (this.isDark ? '#2C2C2E' : '#FFFFFF') : Color.Transparent)
+                    .onClick(() => {
+                      this.wsTab = tab;
+                    })
+                }, (tab: string) => tab)
+              }
+              .width('100%')
+              .padding(4)
+              .borderRadius(20)
+              .backgroundColor(this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(16,19,24,0.06)')
+              .margin({ left: 16, right: 16, top: 2 })
+
+              if (this.wsSamples.length === 0) {
+                Text(this.connection === 'connected' ? '等待探测结果…' : '连接网关后自动开始每秒探测')
+                  .fontSize(13)
                   .fontColor(this.subColor())
                   .width('100%')
-                  .padding({ left: 16, right: 16, bottom: 14 })
-              }
-              ForEach(this.probes, (one: NetProbe) => {
-                Column() {
-                  Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-                  Row() {
-                    Circle().width(6).height(6).fill(one.ok ? '#34C759' : '#FF3B30')
-                    Column({ space: 2 }) {
-                      Text(one.label)
-                        .fontSize(12)
-                        .fontColor(this.textColor())
-                        .maxLines(1)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis })
-                        .width('100%')
-                      Text(one.url)
-                        .fontSize(10.5)
-                        .fontColor(this.subColor())
-                        .maxLines(1)
-                        .textOverflow({ overflow: TextOverflow.Ellipsis })
-                        .width('100%')
-                    }
-                    .alignItems(HorizontalAlign.Start)
-                    .layoutWeight(1)
-                    .margin({ left: 10 })
-                    Text(one.note).fontSize(12).fontColor(one.ok ? '#34C759' : '#FF3B30')
-                  }
-                  .width('100%')
-                  .padding({ left: 16, right: 16, top: 11, bottom: 11 })
+                  .padding({ left: 16, right: 16, top: 70, bottom: 70 })
+              } else {
+                Row() {
+                  ForEach(this.wsSamples, (one: WsSample, index: number) => {
+                    Column()
+                      .width(4)
+                      .height(this.wsBarHeight(one))
+                      .borderRadius(2)
+                      .backgroundColor(one.ok ? this.wsBarColor() : '#FF9F0A')
+                  }, (one: WsSample, index: number) => index.toString() + one.ms.toString())
                 }
-              }, (one: NetProbe) => one.url + one.note)
+                .width('100%')
+                .height(120)
+                .alignItems(VerticalAlign.Bottom)
+                .justifyContent(FlexAlign.SpaceBetween)
+                .padding({ left: 16, right: 16, top: 14 })
+              }
+
+              Row() {
+                Text('60 秒前').fontSize(12).fontColor(this.subColor())
+                Blank()
+                Text(this.wsUnit()).fontSize(12).fontColor(this.subColor())
+                Blank()
+                Text('现在').fontSize(12).fontColor(this.subColor())
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              Row() {
+                Text('平均 ' + this.wsAvgText() + ' · P95 ' + this.wsP95Text())
+                  .fontSize(12.5)
+                  .fontColor(this.subColor())
+                Blank()
+                Text('成功 ' + this.wsOkCount() + ' / 超时 ' + this.wsTimeoutCount())
+                  .fontSize(12.5)
+                  .fontColor(this.subColor())
+              }
+              .width('100%')
+              .padding({ left: 16, right: 16, top: 10, bottom: 14 })
             }
             .width('100%')
             .backgroundColor(this.cardBg())
