@@ -6177,6 +6177,20 @@ export struct ConversationPage {
         this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
       } catch (ignored) {
       }
+      // 从会话设置返回：同步标题下方的模式标签（在设置里切换过 Agent 预设）
+      this.syncModeChipLabel();
+      // 空白新会话：把刚设置的新默认预设应用到当前草稿会话，标题下的模式立即变化
+      const shownSessionId: string = SessionStore.get().currentSessionId();
+      const emptyDraft: boolean = shownSessionId.length > 0 && this.items.length === 0 && !this.running;
+      if (emptyDraft && this.defaultAgentPreset.length > 0 && this.currentAgentPresetId() !== this.defaultAgentPreset) {
+        GatewayClient.get().selectAgentPreset(shownSessionId, this.defaultAgentPreset);
+        const nextPresets: Record<string, Object> = {};
+        for (const key of Object.keys(this.sessionAgentPresets)) {
+          nextPresets[key] = this.sessionAgentPresets[key];
+        }
+        nextPresets[shownSessionId] = this.defaultAgentPreset;
+        this.sessionAgentPresets = nextPresets;
+      }
       Logger.info('[PAGE] onShown ready=' + (this.ready ? '1' : '0') + ' entries=' + this.entries.length.toString());
       this.pageVisible = true;
       this.restoreQueueImages();
