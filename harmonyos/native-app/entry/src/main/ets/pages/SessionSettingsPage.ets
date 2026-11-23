@@ -3,6 +3,7 @@ import { pasteboard } from '@kit.BasicServicesKit';
 import { GatewayClient, PreferencesStore, SessionStore, SessionSummary, WorkspaceRow } from 'nativecore';
 import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
+import { TopToast, TopToastView } from '../components/TopToast';
 import { openSessionRoute } from '../common/SessionRoute';
 
 /** Agent 预设二级页的选项装载结构（写入 AppStorage，PreferencePickerPage 解析） */
@@ -708,6 +709,7 @@ export struct SessionSettingsPage {
             backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
             systemMaterial: this.teamSheetMaterial()
           })
+        TopToastView()
       }
       .width('100%')
       .height('100%')
@@ -1840,7 +1842,7 @@ export struct SessionSettingsPage {
     AppStorage.setOrCreate<string>('defaultPermission', id);
     PreferencesStore.get().putString('defaultPermission', id);
     this.pickerOpen = false;
-    this.hint = '已切换权限为「' + label + '」，仅对新建会话生效';
+    TopToast.show('已切换权限为「' + label + '」，仅对新建会话生效');
   }
 
   /** 模型分组顺序（去重，保持网关顺序） */
@@ -1962,7 +1964,7 @@ export struct SessionSettingsPage {
     AppStorage.setOrCreate<string>('defaultAgentPreset', id);
     PreferencesStore.get().putString('defaultAgentPreset', id);
     this.pickerOpen = false;
-    this.hint = '已切换为「' + label + '」，仅对新建会话生效';
+    TopToast.show('已切换为「' + label + '」，仅对新建会话生效');
   }
 
   /** Agent 预设：改为二级页面（复用 pref-picker，动态选项写 AppStorage） */
@@ -2048,7 +2050,7 @@ export struct SessionSettingsPage {
       this.pickerOpen = false;
       this.hint = '请先连接网关';
       try {
-        this.getUIContext().getPromptAction().showToast({ message: '请先连接网关', duration: 2000 });
+        TopToast.show('请先连接网关');
       } catch (ignored) {
       }
       return;
@@ -2056,7 +2058,7 @@ export struct SessionSettingsPage {
     this.creatingPreset = true;
     this.hint = '正在创建创造模式会话…';
     try {
-      this.getUIContext().getPromptAction().showToast({ message: '正在创建创造模式会话…', duration: 1500 });
+      TopToast.show('正在创建创造模式会话…');
     } catch (ignored) {
     }
     const workspaceId: string = this.currentWorkspaceId();
@@ -2073,7 +2075,7 @@ export struct SessionSettingsPage {
       const msg: string = raw.length > 0 ? raw : '当前 DSH 配置未提供创造模式';
       this.hint = msg;
       try {
-        this.getUIContext().getPromptAction().showToast({ message: msg, duration: 2500 });
+        TopToast.show(msg);
       } catch (ignored) {
       }
     });

@@ -1,5 +1,6 @@
 import { asRec, GatewayClient, GatewayFrame, GatewayRequestFactory, Logger, PreferencesStore, SessionStore } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
+import { TopToast, TopToastView } from '../components/TopToast';
 
 /** 模型行（网关 models 目录） */
 class ModelRow {
@@ -102,9 +103,14 @@ export struct SessionDefaultModelPage {
     return this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)';
   }
 
+  @Builder
+  topToastLayer() {
+    TopToastView()
+  }
+
   private toast(message: string): void {
     try {
-      this.getUIContext().getPromptAction().showToast({ message: message, duration: 2000 });
+      TopToast.show(message);
     } catch (ignored) {
     }
   }
@@ -733,6 +739,7 @@ export struct SessionDefaultModelPage {
       .height('100%')
       .padding({ top: this.topInset() })
       .backgroundColor(this.pageBg())
+      .overlay(this.topToastLayer(), { align: Alignment.Top })
     }
     .hideTitleBar(true)
     .backgroundColor(this.pageBg())
