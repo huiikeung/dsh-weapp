@@ -157,7 +157,7 @@ export struct SessionSettingsPage {
       // 网关下发的是 id：显示为本地化名称（standard → 标准模式）
       return this.presetDisplayName(presetStored, presetStored);
     }
-    return this.presetModeName('standard');
+    return '';
   }
 
   private modelLabel(): string {
@@ -244,7 +244,7 @@ export struct SessionSettingsPage {
     if (id.length > 0) {
       return this.permissionDisplayName(id);
     }
-    return '工作区写入';
+    return '';
   }
 
   private permissionLabelOld(): string {
