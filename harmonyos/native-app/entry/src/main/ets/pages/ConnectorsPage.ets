@@ -33,26 +33,26 @@ export struct ConnectorsPage {
     return this.availableFlags.length > index && this.availableFlags.charAt(index) === '1';
   }
 
-  private moduleIcon(id: string): Resource {
+  private moduleSymbol(id: string): Resource {
     if (id === 'calendar') {
-      return $r('app.media.connector_calendar');
+      return $r('sys.symbol.calendar');
     }
     if (id === 'reminders') {
-      return $r('app.media.connector_reminders');
+      return $r('sys.symbol.checkmark_circle');
     }
     if (id === 'location') {
-      return $r('app.media.connector_location');
+      return $r('sys.symbol.location');
     }
     if (id === 'photos') {
-      return $r('app.media.connector_photos');
+      return $r('sys.symbol.photo');
     }
     if (id === 'music') {
       return $r('app.media.connector_music');
     }
     if (id === 'health') {
-      return $r('app.media.connector_health');
+      return $r('sys.symbol.heart');
     }
-    return $r('app.media.connector_alarms');
+    return $r('sys.symbol.alarm');
   }
 
   private stateColor(): string {
@@ -160,10 +160,15 @@ export struct ConnectorsPage {
             Column() {
               ForEach(CONNECTOR_MODULES, (module: ConnectorModuleDefinition, index: number) => {
                 Row({ space: 12 }) {
-                  Image(this.moduleIcon(module.id))
-                    .width(34)
-                    .height(34)
-                    .objectFit(ImageFit.Contain)
+                  Stack({ alignContent: Alignment.Center }) {
+                    SymbolGlyph(this.moduleSymbol(module.id))
+                      .fontSize(19)
+                      .fontColor(['#FFFFFF'])
+                  }
+                  .width(34)
+                  .height(34)
+                  .backgroundColor('#2E6BE6')
+                  .borderRadius(9)
                   Column({ space: 2 }) {
                     Text(module.title)
                       .fontSize(16)
