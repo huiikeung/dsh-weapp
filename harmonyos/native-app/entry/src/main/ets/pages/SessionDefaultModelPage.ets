@@ -49,6 +49,7 @@ export struct SessionDefaultModelPage {
   @StorageLink('isDark') isDark: boolean = false;
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   @StorageLink('defaultModel') defaultModelValue: string = '';
+  @StorageLink('defaultProvider') defaultProviderValue: string = '';
   @StorageLink('defaultEffort') defaultEffortValue: string = '';
   @StorageLink('connectionState') @Watch('onConnectionChanged') connection: string = 'disconnected';
 
@@ -315,13 +316,30 @@ export struct SessionDefaultModelPage {
   }
 
   /** 当前默认模型（只标记第一个匹配项，避免同名模型多个勾） */
+  /** 解析当前默认模型所属 provider：优先已保存，其次部署默认，最后取第一个匹配行（避免同名模型在两个 provider 都打勾） */
+  private currentProvider(): string {
+    if (this.savedProvider.length > 0) {
+      return this.savedProvider;
+    }
+    const stored: string = this.defaultProviderValue;
+    if (stored.length > 0) {
+      return stored;
+    }
+    const model: string = this.savedModel.length > 0 ? this.savedModel : this.defaultModelValue;
+    for (const one of this.rows) {
+      if (one.model === model) {
+        return one.provider;
+      }
+    }
+    return '';
+  }
+
   private isCurrentModel(row: ModelRow): boolean {
     const model: string = this.savedModel.length > 0 ? this.savedModel : this.defaultModelValue;
     if (model.length === 0 || model !== row.model) {
       return false;
     }
-    const provider: string = this.savedProvider;
-    return provider.length === 0 || provider === row.provider;
+    return this.currentProvider() === row.provider;
   }
 
   /** 页面顶部摘要：当前默认模型 + 档位 */
