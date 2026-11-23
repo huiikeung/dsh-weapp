@@ -394,7 +394,6 @@ export struct OceanBackground {
       }
       this.updateFlow();
     })
-    .opacity(this.revealed ? 1 : 0)
     .backgroundColor('#05101f')
   }
 }

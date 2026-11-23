@@ -12,7 +12,10 @@ import {
 export default class EntryAbility extends UIAbility {
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     AppState.init();
-    SessionStore.restoreCatalogCache();
+    // 会话目录缓存体积大，放到首帧之后再读，避免阻塞启动
+    setTimeout(() => {
+      SessionStore.restoreCatalogCache();
+    }, 80);
     // 图片附件缓存目录：必须在这里注入 filesDir，否则 AttachmentImageCache.isReady() 永远是 false，
     // 所有缩略图都会以「图片附件信息不完整」失败 —— 表现就是「图片加载失败，点击重试」。
     // （小程序用 wx.env.USER_DATA_PATH 直接算路径，所以它一直正常。）
@@ -107,6 +110,8 @@ export default class EntryAbility extends UIAbility {
       }
       AppStorage.setOrCreate<string>('procIconStyle', storedProcIcon);
       ThemeManager.get().init(this.context.config.colorMode);
+    // 网络/隧道初始化推迟到首帧之后：先让页面秒开，再在后台连网
+    setTimeout(() => {
     TailscaleTunnelStore.get().start(this.context.filesDir + '/tailscale', this.context);
     GatewayClient.get().setTailnetEnabler(() => {
       TailscaleTunnelStore.get().enableAndStart();
@@ -126,6 +131,7 @@ export default class EntryAbility extends UIAbility {
       if (!GatewayClient.get().autoConnect()) {
         Logger.info('no saved gateway, waiting for scan');
       }
+    }, 120);
     }).catch((err: BusinessError) => {
       Logger.error('init preferences failed: ' + JSON.stringify(err));
       ThemeManager.get().init(this.context.config.colorMode);
