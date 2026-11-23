@@ -13,6 +13,7 @@ import { display } from '@kit.ArkUI';
 import { ConversationFeed, ConversationFeedEntryModel, ToolActivity } from 'nativecore';
 import type { ConversationItem, ToolFace } from 'nativecore';
 import { MarkdownBodyView } from './MarkdownBodyView';
+import { Haptics } from '../services/Haptics';
 import { ProcLoaderView } from './ProcLoaderView';
 import { AttachmentImageCache, GatewayClient, Logger, SessionStore, downloadAttachment } from 'nativecore';
 import type { DownloadResult } from 'nativecore';
@@ -127,6 +128,8 @@ export struct ConversationRowView {
   onMarkdownLink: (text: string, href: string) => void = (text: string, href: string) => {};
   /** 引用这条回复：在输入框里插入引用 chip（对齐 iOS 最新版回复左下角的箭头引用按钮） */
   onQuoteReply: (text: string) => void = () => {};
+  /** 长按回复正文：交给会话页弹底部弹窗（可选中/复制） */
+  onReplyLongPress: (text: string) => void = (text: string) => {};
   /** 文件附件 chip（编码：kind\u0001name\u0001path\u0001attachmentId\u0001mediaType） */
   @Prop attachmentChips: string[] = [];
   /** 点击文件附件：会话页下载并预览 */
@@ -1401,20 +1404,32 @@ export struct ConversationRowView {
       // 正文恢复 Markdown 渲染（用户要求：纯文本里 ** 看着别扭）。
       // MarkdownBodyView 内部有「解析丢字 > 20% 就退回整段纯文本」的安全网，
       // 所以样式和完整性可以兼顾。
-      MarkdownBodyView({
-        text: this.assistantBody(),
-        fontSize: this.contentSize(),
-        textColor: this.entry.isError ? DANGER : '',
-        onImageTap: (src: string) => {
-          this.onImageTap(src);
-        },
-        resolveImage: (src: string) => this.resolveMarkdownImage(src),
-        linkTapEnabled: true,
-        onLinkTap: (text: string, href: string) => {
-          this.onMarkdownLink(text, href);
-        },
-        imageRevision: this.imagePathEntries.length
-      })
+      // 正文容器挂长按：打开"可选中/复制"的底部弹窗（对话页统一定义弹窗本体）
+      Column() {
+        MarkdownBodyView({
+          text: this.assistantBody(),
+          fontSize: this.contentSize(),
+          textColor: this.entry.isError ? DANGER : '',
+          onImageTap: (src: string) => {
+            this.onImageTap(src);
+          },
+          resolveImage: (src: string) => this.resolveMarkdownImage(src),
+          linkTapEnabled: true,
+          onLinkTap: (text: string, href: string) => {
+            this.onMarkdownLink(text, href);
+          },
+          imageRevision: this.imagePathEntries.length
+        })
+      }
+      .width('100%')
+      .gesture(LongPressGesture({ repeat: false, duration: 480 }).onAction(() => {
+        const body: string = this.assistantBody();
+        if (body.length > 0) {
+          // 触感走全局「设置 → 震动反馈」档位（off 时不震）
+          Haptics.play();
+          this.onReplyLongPress(body);
+        }
+      }))
       this.imageGrid(12, 0)
       this.attachmentList(false)
       if (this.filesInline) {
@@ -2789,23 +2804,84 @@ export struct ConversationRowView {
     .padding({ top: 3, bottom: 3 })
   }
 
+  /**
+   * 回合结束状态行。
+   * 失败态对齐小程序 .turn-error-card：红色描边卡片 + 圆形「!」+ 标题 + 可换行详情；
+   * 非失败态（生成已取消等）保持低调的浅色提示。
+   */
   @Builder
   systemRow() {
-    Column({ space: 2 }) {
-      Text(this.entry.title)
-        .fontSize(11)
-        .fontColor(this.entry.isError ? DANGER : this.secondaryText())
-      if (this.entry.text.length > 0) {
-        Text(this.entry.text)
-          .fontSize(11)
-          .fontColor(this.tertiaryText())
+    if (this.entry.isError) {
+      Column({ space: 10 }) {
+        Row({ space: 10 }) {
+          Text('!')
+            .fontSize(12)
+            .fontWeight(FontWeight.Bold)
+            .fontColor('#FFFFFF')
+            .width(18)
+            .height(18)
+            .borderRadius(9)
+            .textAlign(TextAlign.Center)
+            .backgroundColor(this.isDark ? '#FF7178' : '#EB5757')
+          Text(this.entry.title)
+            .fontSize(14)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.isDark ? '#FF9B9F' : '#C0392B')
+            .layoutWeight(1)
+            .maxLines(2)
+          // 错误码徽标（对齐小程序 .turn-error-code 的红色小方块）
+          if (this.entry.failureCode.length > 0) {
+            Text(this.entry.failureCode)
+              .fontSize(10.5)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.isDark ? '#FF9B9F' : '#C0392B')
+              .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+              .borderRadius(4)
+              .backgroundColor(this.isDark ? 'rgba(255,113,120,0.18)' : 'rgba(235,87,87,0.12)')
+              .maxLines(1)
+              .flexShrink(0)
+          }
+        }
+        .width('100%')
+        .alignItems(VerticalAlign.Center)
+
+        if (this.entry.text.length > 0) {
+          Text(this.entry.text)
+            .fontSize(13)
+            .lineHeight(19)
+            .fontColor(this.secondaryText())
+            .width('100%')
+            .maxLines(8)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
       }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .padding({ left: 12, right: 12, top: 10, bottom: 10 })
+      .borderRadius(this.rpx(16))
+      .backgroundColor(this.isDark ? 'rgba(255,113,120,0.12)' : 'rgba(235,87,87,0.08)')
+      .border({
+        width: 1,
+        color: this.isDark ? 'rgba(255,113,120,0.46)' : 'rgba(235,87,87,0.42)'
+      })
+      .margin({ top: 4, bottom: 2 })
+    } else {
+      Column({ space: 2 }) {
+        Text(this.entry.title)
+          .fontSize(11)
+          .fontColor(this.secondaryText())
+        if (this.entry.text.length > 0) {
+          Text(this.entry.text)
+            .fontSize(11)
+            .fontColor(this.tertiaryText())
+        }
+      }
+      .alignItems(HorizontalAlign.Start)
+      .width('100%')
+      .padding(8)
+      .borderRadius(10)
+      .backgroundColor(this.isDark ? 'rgba(46,107,230,0.14)' : 'rgba(46,107,230,0.06)')
     }
-    .alignItems(HorizontalAlign.Start)
-    .width('100%')
-    .padding(8)
-    .borderRadius(10)
-    .backgroundColor(this.isDark ? 'rgba(46,107,230,0.14)' : 'rgba(46,107,230,0.06)')
   }
 
   /**

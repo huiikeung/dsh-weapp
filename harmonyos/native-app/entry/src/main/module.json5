@@ -7,6 +7,7 @@
     "deviceTypes": ["phone", "tablet"],
     "deliveryWithInstall": true,
     "installationFree": false,
+    "querySchemes": ["petalmaps"],
     "pages": "$profile:main_pages",
     // 鸿蒙沉浸光感：应用级开启系统材质（entry 模块，targetAPI 26+）
     "metadata": [

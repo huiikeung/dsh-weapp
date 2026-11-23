@@ -49,6 +49,10 @@ export interface ConversationItem {
   localImagePaths?: string[];
   /** CHANGES 行对应的 workspace/changes 事件 seq（用于拉取文件变更摘要） */
   changeSeq?: number;
+  /** 回合失败错误码（如 CONTENT_REFUSED），对齐小程序 failureCode */
+  failureCode?: string;
+  /** 回合失败可读信息，对齐小程序 failureMessage */
+  failureMessage?: string;
 }
 export interface ConversationProjectionOperation { kind: string; item?: ConversationItem; itemId?: string; delta?: string; epochSeconds?: number; items?: ConversationItem[]; }
 export interface AssistantChunkProjection { time: number; chunk: Object; }
@@ -481,7 +485,7 @@ export class ConversationProjector {
         this.mutableItems[i]=next; out.push({kind:'replace',item:next,itemId:next.id});
       }
     }
-    if(e.type==='turn/end') { const reason=e.reason??''; const title=reason==='error'||reason==='failed'?(this.labels.generationFailed??'Generation failed'):(['aborted','cancelled','canceled'].indexOf(reason)>=0?(this.labels.generationCancelled??'Generation cancelled'):reason==='interrupted'?(this.labels.interrupted??'Generation interrupted'):''); if(title.length>0) this.insert({id,kind:ConversationItemKind.SYSTEM,title,text:e.error??'',isError:reason==='error'||reason==='failed'||reason==='interrupted',epochSeconds:date,turn:effectiveTurn},out); }
+    if(e.type==='turn/end') { const reason=e.reason??''; const title=reason==='error'||reason==='failed'?(this.labels.generationFailed??'Generation failed'):(['aborted','cancelled','canceled'].indexOf(reason)>=0?(this.labels.generationCancelled??'Generation cancelled'):reason==='interrupted'?(this.labels.interrupted??'Generation interrupted'):''); if(title.length>0) this.insert({id,kind:ConversationItemKind.SYSTEM,title,text:(e.failureMessage??'')||(e.error??''),isError:reason==='error'||reason==='failed'||reason==='interrupted',failureCode:e.failureCode??'',failureMessage:e.failureMessage??'',epochSeconds:date,turn:effectiveTurn},out); }
     const ext = asRec(e as Object);
     const extLine: string = ext === undefined ? '' : str(ext, 'line') ?? '';
     const extResult: string = ext === undefined ? '' : str(ext, 'result') ?? '';

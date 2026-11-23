@@ -186,6 +186,8 @@ export class ConversationFeedEntry {
   /** 本轮用时（用户发出 → 回复落地），如「用时 5 分 19 秒」 */
   turnElapsedText: string = '';
   failureTitle: string = '';
+  /** 回合失败错误码（如 CONTENT_REFUSED） */
+  failureCode: string = '';
   // ===== 工作步骤展示策略（对齐小程序 work-step-presentation.apply 的字段）=====
   /** 组体是否整块收起（grouped && !expanded） */
   processGrouped: boolean = false;
@@ -529,6 +531,7 @@ export class ConversationFeed {
       message.isError = item.isError === true;
       if (message.isError) {
         message.failureTitle = ConversationFeed.humanizeFailure(item.title + ' ' + item.text);
+        message.failureCode = item.failureCode === undefined ? '' : item.failureCode;
       }
       // turn/end 一到就立刻把流式行收口（对齐小程序 turn/end：row.streaming=false、标题清空）。
       // 否则 assistant/message 稍晚或丢失时，界面会一直显示「正在生成」，看起来回合结束不即时。
@@ -1189,6 +1192,9 @@ export class ConversationFeed {
       for (const group of run) {
         // 这些组所属回合已收工（决定 detailed 档是否折叠成标题）
         group.turnClosed = true;
+        // AI 生成标识已经提升到回合行（上面 turn.aiLabelVisible = run.some(...)），
+        // 展开回合时这些子组会作为同级行重新渲染，不能再各带一次标识，否则会出现两条
+        group.aiLabelVisible = false;
         turn.childIds.push(group.id);
         // 回合内各组：标题回到活动命名，摘要去掉用时（用时归回合行）。
         // 四档都保留这些组：收起「已完成」时整轮折成一行，展开后逐组显示。

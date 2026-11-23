@@ -23,6 +23,31 @@ export class PreferencesStore {
     return this.store !== null;
   }
 
+  /** 当前存储里的全部 key（用于一次性迁移旧版本按主机分键的开关）。 */
+  allKeys(): string[] {
+    if (this.store === null) {
+      return [];
+    }
+    try {
+      const all: Object = this.store.getAllSync();
+      return Object.keys(all as Record<string, Object>);
+    } catch (err) {
+      return [];
+    }
+  }
+
+  /** 删除一个 key（迁移完成后清理旧键）。 */
+  deleteKey(key: string): void {
+    if (this.store === null) {
+      return;
+    }
+    try {
+      this.store.deleteSync(key);
+      this.store.flush();
+    } catch (err) {
+    }
+  }
+
   getString(key: string, fallback: string): string {
     if (this.store === null) {
       return fallback;

@@ -532,6 +532,8 @@ export function normalizeRawSessionEvent(raw: RawSessionEvent, sessionId: string
         turn: partial.turn,
         step: partial.step,
         reason: str(asRec(field(data, 'reason')), 'kind'),
+        failureCode: str(asRec(field(asRec(field(data, 'reason')), 'error')), 'code'),
+        failureMessage: str(asRec(field(asRec(field(data, 'reason')), 'error')), 'message'),
         raw: data
       };
       break;

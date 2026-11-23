@@ -2,6 +2,7 @@ import { abilityAccessCtrl, common, Permissions } from '@kit.AbilityKit';
 import { reminderAgentManager } from '@kit.BackgroundTasksKit';
 import { ConnectorAdapter } from './DeviceConnectors';
 import { Logger } from '../common/Logger';
+import { NotificationService } from '../common/NotificationService';
 
 interface ReminderRow {
   title: string;
@@ -47,7 +48,9 @@ class RemindersConnector implements ConnectorAdapter {
     try {
       const manager = abilityAccessCtrl.createAtManager();
       const result = await manager.requestPermissionsFromUser(context, permissions);
-      this.authorized = result.authResults.every((code: number) => code === 0);
+      // 代理提醒依赖系统通知：通知未开启时发布会报 1700002（数量超限）
+      const notifications: boolean = await NotificationService.ensureAuthorized(context);
+      this.authorized = result.authResults.every((code: number) => code === 0) && notifications;
       return this.authorized;
     } catch (err) {
       Logger.warn('reminders authorize failed');
@@ -93,7 +96,25 @@ class RemindersConnector implements ConnectorAdapter {
       notificationId: Math.floor(Math.random() * 100000) + 1,
       triggerTimeInSeconds: due !== null ? Math.max(1, Math.floor((Date.parse(due) - Date.now()) / 1000)) : 60
     };
-    const id: number = await reminderAgentManager.publishReminder(reminder);
+    let id: number = 0;
+    try {
+      id = await reminderAgentManager.publishReminder(reminder);
+    } catch (err) {
+      const message: string = err instanceof Error ? err.message : JSON.stringify(err);
+      Logger.warn('reminders publish failed: ' + message);
+      // 1700002：本 App 的提醒数量达到系统上限（历史测试/过期提醒也算）。清一次再重试。
+      if (message.indexOf('exceeds the limit') >= 0 || message.indexOf('1700002') >= 0) {
+        Logger.warn('reminders over limit, cancel all before retry');
+        try {
+          await reminderAgentManager.cancelAllReminders();
+        } catch (cancelErr) {
+          Logger.warn('reminders cancelAll failed');
+        }
+        id = await reminderAgentManager.publishReminder(reminder);
+      } else {
+        throw new Error(message);
+      }
+    }
     return {
       id: String(id),
       title: title,

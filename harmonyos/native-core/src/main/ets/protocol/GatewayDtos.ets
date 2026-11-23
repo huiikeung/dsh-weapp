@@ -422,6 +422,9 @@ export interface GatewayEvent {
   shadowedItemCount?: number;
   shadowedTokenCount?: number;
   error?: string;
+  /** turn/end 失败详情：错误码（如 CONTENT_REFUSED）与可读信息 */
+  failureCode?: string;
+  failureMessage?: string;
   raw?: Object;
   interrupted?: boolean;
   stream?: Object;

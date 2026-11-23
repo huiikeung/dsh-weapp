@@ -52,6 +52,8 @@ export struct ClawbotPage {
   @State private loaded: boolean = false;
   @State private confirmDisconnect: boolean = false;
   @State private sessionsOpen: boolean = false;
+  /** 会话选择弹窗：下拉关闭的位移 */
+  @State private sheetDragY: number = 0;
   /** 底部说明弹层：开关键 + 文案 */
   @State private hintMenuOpen: string = '';
   @State private hintText: string = '';
@@ -168,6 +170,8 @@ export struct ClawbotPage {
     }
     this.revision = num(rec, 'revision') ?? this.revision;
     this.bridgeEnabled = bool(rec, 'enabled') ?? false;
+    Logger.info('[CLAWBOT] apply enabled=' + (this.bridgeEnabled ? '1' : '0')
+      + ' state=' + this.state + ' rev=' + this.revision.toString());
     this.state = str(rec, 'state') ?? this.state;
     this.paired = bool(rec, 'paired') ?? false;
     this.bindingState = str(rec, 'bindingState') ?? this.bindingState;
@@ -260,16 +264,21 @@ export struct ClawbotPage {
       });
   }
 
-  private run(action: string, fields: Record<string, Object>): void {
+  private run(action: string, fields: Record<string, Object>, retry: number = 0): void {
     if (this.busy) {
       return;
     }
     this.busy = true;
     this.error = '';
+    Logger.info('[CLAWBOT] action=' + action + ' rev=' + (fields['expectedRevision'] ?? -1).toString()
+      + ' retry=' + retry.toString());
     GatewayClient.get().clawbotControl(action, fields)
       .then((frame: GatewayFrame) => {
         const value = frame.value;
         const rec = asRec(value);
+        Logger.info('[CLAWBOT] action ok=' + action
+          + ' enabled=' + String(rec !== undefined && rec['enabled'] !== undefined ? rec['enabled'] : 'n/a')
+          + ' rev=' + String(rec !== undefined && rec['revision'] !== undefined ? rec['revision'] : 'n/a'));
         if (rec !== undefined && rec['sessions'] !== undefined) {
           this.applySessions(arr(rec, 'sessions'));
           return;
@@ -280,7 +289,26 @@ export struct ClawbotPage {
         this.refresh(true);
       })
       .catch((err: Error) => {
+        Logger.warn('[CLAWBOT] action fail=' + action + ' ' + err.message);
         this.error = err.message;
+        // revision 冲突：刷新一次状态，用最新 revision 自动重试一次
+        const conflict: boolean = err.message.indexOf('状态已经变化') >= 0 || err.message.indexOf('clawbot-conflict') >= 0;
+        if (conflict && retry < 1) {
+          this.busy = false;
+          this.refresh(true);
+          setTimeout(() => {
+            const nextFields: Record<string, Object> = {};
+            const keys: string[] = Object.keys(fields);
+            for (const key of keys) {
+              nextFields[key] = fields[key];
+            }
+            if (nextFields['expectedRevision'] !== undefined) {
+              nextFields['expectedRevision'] = this.revision;
+            }
+            this.run(action, nextFields, retry + 1);
+          }, 350);
+          return;
+        }
       })
       .finally(() => {
         this.busy = false;
@@ -341,24 +369,13 @@ export struct ClawbotPage {
   @Builder
   sessionRow(one: ClawbotSession) {
     Row() {
-      Column({ space: 3 }) {
-        Text(one.title.length > 0 ? one.title : one.id)
-          .fontSize(14)
-          .fontColor(this.textColor())
-          .maxLines(2)
-          .textOverflow({ overflow: TextOverflow.Ellipsis })
-          .width('100%')
-        if (one.workspaceTitle.length > 0) {
-          Text(one.workspaceTitle)
-            .fontSize(11.5)
-            .fontColor(this.subColor())
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
-        }
-      }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
+      // 卡片里只显示会话标题（不再显示工作区名称）
+      Text(one.title.length > 0 ? one.title : one.id)
+        .fontSize(14)
+        .fontColor(this.textColor())
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .layoutWeight(1)
       if (this.targetTitle.length > 0 && one.title === this.targetTitle) {
         Text('✓').fontSize(14).fontColor(this.ocean())
       }
@@ -367,11 +384,13 @@ export struct ClawbotPage {
     .constraintSize({ minHeight: 52 })
     .padding({ left: 16, right: 16, top: 10, bottom: 10 })
     .borderRadius(14)
-    .backgroundColor(this.tileBg())
+    // 半透明卡片：叠在玻璃弹窗上时不发白（透明度比弹窗底色再低一档）
+    .backgroundColor(this.isDark ? 'rgba(255,255,255,0.045)' : 'rgba(255,255,255,0.20)')
     .border({
       width: 1,
       color: this.targetTitle.length > 0 && one.title === this.targetTitle
-        ? this.ocean() : this.dividerColor()
+        ? this.ocean()
+        : (this.isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.50)')
     })
     .onClick(() => {
       this.chooseSession(one.id);
@@ -384,6 +403,8 @@ export struct ClawbotPage {
       return;
     }
     const next: boolean = !this.bridgeEnabled;
+    Logger.info('[CLAWBOT] toggle next=' + (next ? '1' : '0') + ' rev=' + this.revision.toString()
+      + ' busy=' + (this.busy ? '1' : '0'));
     // 乐观切换：按钮（开启/暂停接线）与状态点立刻切过去，不必等网关回执
     this.bridgeEnabled = next;
     this.state = next ? 'enabled' : 'paused';
@@ -643,21 +664,85 @@ export struct ClawbotPage {
       })
   }
 
+  /** 重新绑定：运行中 / 扫码流程进行中不可点 */
+  private rebindDisabled(): boolean {
+    return this.busy || this.bridgeEnabled || this.pairingId.length > 0;
+  }
+
+  /** 开启/暂停接线：未绑定或未选会话时不可点 */
+  private toggleDisabled(): boolean {
+    return this.busy || !this.paired || this.targetTitle.length === 0;
+  }
+
+  /** 移除绑定：运行中不可点 */
+  private removeDisabled(): boolean {
+    return this.busy || this.bridgeEnabled;
+  }
+
+  /**
+   * 操作按钮直接内联：不用带参数的 @Builder（参数在 ArkUI 里是值捕获，
+   * 状态变化后按钮文案/灰态不会重算，表现为「点了暂停但按钮还是暂停」）。
+   */
   @Builder
   ops() {
     Row({ space: 10 }) {
-      this.opButton(this.paired ? '重新绑定微信' : '绑定微信', false,
-        this.busy || this.bridgeEnabled || this.pairingId.length > 0, () => {
-          this.startLogin();
+      Text(this.paired ? '重新绑定微信' : '绑定微信')
+        .fontSize(13.5)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.rebindDisabled() ? this.subColor() : this.textColor())
+        .textAlign(TextAlign.Center)
+        .constraintSize({ minHeight: 42 })
+        .padding({ left: 12, right: 12 })
+        .layoutWeight(1)
+        .borderRadius(14)
+        .backgroundColor(this.tileBg())
+        .border({ width: 1, color: this.dividerColor() })
+        .opacity(this.rebindDisabled() ? 0.45 : 1)
+        .onClick(() => {
+          if (!this.rebindDisabled()) {
+            this.startLogin();
+          }
         })
-      this.opButton(this.bridgeEnabled ? '暂停接线' : '开启接线', false,
-        this.busy || !this.paired || this.targetTitle.length === 0, () => {
-          this.toggleEnabled();
+
+      Text(this.bridgeEnabled ? '暂停接线' : '开启接线')
+        .fontSize(13.5)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.toggleDisabled() ? this.subColor() : this.textColor())
+        .textAlign(TextAlign.Center)
+        .constraintSize({ minHeight: 42 })
+        .padding({ left: 12, right: 12 })
+        .layoutWeight(1)
+        .borderRadius(14)
+        .backgroundColor(this.tileBg())
+        .border({ width: 1, color: this.dividerColor() })
+        .opacity(this.toggleDisabled() ? 0.45 : 1)
+        .onClick(() => {
+          if (!this.toggleDisabled()) {
+            this.toggleEnabled();
+          }
         })
+
       if (this.paired) {
-        this.opButton('移除绑定', true, this.busy || this.bridgeEnabled, () => {
-          this.confirmDisconnect = true;
-        })
+        Text('移除绑定')
+          .fontSize(13.5)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.removeDisabled() ? this.subColor() : this.dangerColor())
+          .textAlign(TextAlign.Center)
+          .constraintSize({ minHeight: 42 })
+          .padding({ left: 12, right: 12 })
+          .layoutWeight(1)
+          .borderRadius(14)
+          .backgroundColor(this.tileBg())
+          .border({
+            width: 1,
+            color: this.removeDisabled() ? this.dividerColor() : 'rgba(196,72,72,0.34)'
+          })
+          .opacity(this.removeDisabled() ? 0.45 : 1)
+          .onClick(() => {
+            if (!this.removeDisabled()) {
+              this.confirmDisconnect = true;
+            }
+          })
       }
     }
     .width('100%')
@@ -793,6 +878,28 @@ export struct ClawbotPage {
           this.sessionsOpen = false;
         })
       Column({ space: 0 }) {
+        // 顶部拖动条：下拉超过 90vp 关闭
+        Column() {
+          Row()
+            .width(36)
+            .height(4)
+            .borderRadius(2)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(16,19,24,0.20)')
+        }
+        .width('100%')
+        .height(26)
+        .justifyContent(FlexAlign.Center)
+        .gesture(PanGesture({ distance: 6 })
+          .onActionUpdate((event: GestureEvent) => {
+            const dy: number = event.offsetY;
+            this.sheetDragY = dy > 0 ? dy : 0;
+          })
+          .onActionEnd(() => {
+            if (this.sheetDragY > 90) {
+              this.sessionsOpen = false;
+            }
+            this.sheetDragY = 0;
+          }))
         Row() {
           Text('选择接入会话')
             .fontSize(16)
@@ -807,7 +914,7 @@ export struct ClawbotPage {
             })
         }
         .width('100%')
-        .height(52)
+        .height(44)
         .padding({ left: 18, right: 18 })
         if (this.sessionsLoading) {
           Row({ space: 8 }) {
@@ -820,7 +927,7 @@ export struct ClawbotPage {
           ForEach(this.sessionGroups(), (group: ClawbotSessionGroup) => {
             ListItem() {
               Column({ space: 8 }) {
-                // 工作区分组标题
+                // 工作区分区标题（仅作分区，不写进每张卡片）
                 Row() {
                   Text(group.title)
                     .fontSize(12)
@@ -850,10 +957,17 @@ export struct ClawbotPage {
         .scrollBar(BarState.Off)
       }
       .width('100%')
-      .height('64%')
-      .backgroundColor(this.pageBg())
+      .height('82%')
+      // 原生玻璃样式（与返回按钮/设置页玻璃同一套）
+      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+      .backdropBlur(14)
+      .border({
+        width: 1,
+        color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)'
+      })
       .borderRadius({ topLeft: 22, topRight: 22 })
       .clip(true)
+      .translate({ y: this.sheetDragY })
     }
     .width('100%')
     .height('100%')

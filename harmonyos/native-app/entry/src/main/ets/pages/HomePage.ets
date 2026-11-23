@@ -3341,7 +3341,8 @@ export struct HomePage {
               .fontSize(25)
               .fontWeight(FontWeight.Bold)
               .fontColor('#FFFFFF')
-            Text('从想法到落地，一个对话即可。')
+            // 未连接：介绍文案；连上网关：显示产品/版本标识（对齐 iOS 首页 Hero 副标题）
+            Text(this.connection === 'connected' ? 'DeepSeek Harness 预览版' : '从想法到落地，一个对话即可。')
               .fontSize(13)
               .fontColor('rgba(255,255,255,0.65)')
           }

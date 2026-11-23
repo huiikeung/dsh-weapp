@@ -2117,6 +2117,9 @@ export struct AppSettingsPage {
       Logger.info('[SETTINGS] onShown');
       this.consumePickerChoice();
       this.refreshPrefs();
+      // NavDestination 不会触发 onPageShow：在这里探测 ClawBot 状态，
+      // 设置行右侧才会显示「运行中/已暂停/未绑定微信」而不是一直「未读取」
+      this.probeClawbotStatus();
       // 直接从 AppStorage / 偏好里读回档位并强制刷新行文案（不依赖 @Watch 是否触发）
       const storedMode: string = WorkStepPresentation.normalizeMode(
         AppStorage.get<string>('workStepMode') ?? PreferencesStore.get().getString(WorkStepPresentation.MODE_KEY, this.workStepMode));

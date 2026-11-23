@@ -51,6 +51,8 @@ export struct SessionSettingsPage {
   // 当前预设的 id（用于选中态比较；pickPreset 只存显示名）
   @State pickPresetId: string = '';
   @State pickModel: string = '';
+  /** 内联选择模型时记录的服务商：模型显示名要按 provider+model 精确匹配 */
+  @State pickProviderValue: string = '';
   @State pickPermission: string = '';
   @State endpointMenuOpen: boolean = false;
   @State pickerOpen: boolean = false;
@@ -194,12 +196,39 @@ export struct SessionSettingsPage {
     if (id.length === 0) {
       return '';
     }
-    // 优先显示网关下发的模型显示名，找不到则回退 id
-    let name: string = id;
-    for (const one of this.modelDetails) {
-      if (one.model === id) {
-        name = one.label;
+    // 优先显示网关下发的模型显示名，找不到则回退 id。
+    // 注意：同一个 model id 可能挂在多个服务商下（如 workbuddy 也聚合了同名模型），
+    // 必须先用 provider+model 精确匹配，否则会显示成另一个服务商的同名模型。
+    const providerHint: string = this.defaultProviderValue.length > 0
+      ? this.defaultProviderValue : this.pickProviderValue;
+    let name: string = '';
+    if (providerHint.length > 0) {
+      for (const one of this.modelDetails) {
+        if (one.model === id && one.provider === providerHint) {
+          name = one.label;
+          break;
+        }
       }
+    }
+    if (name.length === 0 && providerHint.length === 0) {
+      for (const one of this.modelDetails) {
+        if (one.model === id) {
+          name = one.label;
+          break;
+        }
+      }
+    }
+    if (name.length === 0) {
+      // 没有 provider 线索时才退化为按 model 名称匹配
+      for (const one of this.modelDetails) {
+        if (one.model === id) {
+          name = one.label;
+          break;
+        }
+      }
+    }
+    if (name.length === 0) {
+      name = id;
     }
     // 右侧同时展示推理强度：模型 · high
     const effort: string = this.defaultEffortValue;
@@ -1882,8 +1911,11 @@ export struct SessionSettingsPage {
 
   private applyModel(provider: string, model: string, label: string): void {
     this.pickModel = model;
+    this.pickProviderValue = provider;
     AppStorage.setOrCreate<string>('defaultModel', model);
+    AppStorage.setOrCreate<string>('defaultProvider', provider);
     PreferencesStore.get().putString('defaultModel', model);
+    PreferencesStore.get().putString('defaultProvider', provider);
     this.pickerOpen = false;
     this.hint = '已切换默认模型为「' + label + '」，仅对新建会话生效';
   }

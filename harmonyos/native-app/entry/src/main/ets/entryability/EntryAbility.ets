@@ -4,11 +4,12 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { TailscaleTunnelStore } from '../services/TailscaleTunnelStore';
 import { TsnetBridge } from '../services/TsnetBridge';
 import { BackgroundKeepAlive } from '../services/BackgroundKeepAlive';
+import { PushService, GatewaySendBridge } from '../services/PushService';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 import { PrivacyConsent } from '../services/PrivacyConsent';
 import {
-  AppState, AttachmentImageCache, DeviceConnectors, locationConnector, calendarConnector, remindersConnector, photosConnector, alarmsConnector,
-  musicConnector, healthConnector,
+  AppState, AttachmentImageCache, DeviceConnectors, MergedConnectorAdapter, locationConnector, calendarConnector, remindersConnector, photosConnector, alarmsConnector,
+  musicConnector, healthConnector, mapsConnector,
   GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
   parsePairingPayload, sodiumSelfTest
 } from 'nativecore';
@@ -74,8 +75,12 @@ export default class EntryAbility extends UIAbility {
       }, 1200);
     }
     Logger.info('EntryAbility onCreate');
+    // Push Kit：拿 pushToken 并上报网关（未在 AGC 关联推送时静默降级，不影响其他功能）
+    GatewaySendBridge.setGateway((text: string): boolean => GatewayClient.get().send(text));
+    void PushService.init();
     DeviceConnectors.bind();
-    DeviceConnectors.registerAdapter(locationConnector);
+    // 位置与地图共用 location 模块（网关 MODULES 无独立 maps 模块，maps.* 归 location）
+    DeviceConnectors.registerAdapter(new MergedConnectorAdapter('location', [locationConnector, mapsConnector]));
     DeviceConnectors.registerAdapter(calendarConnector);
     DeviceConnectors.registerAdapter(remindersConnector);
     DeviceConnectors.registerAdapter(photosConnector);
@@ -83,6 +88,8 @@ export default class EntryAbility extends UIAbility {
     DeviceConnectors.registerAdapter(musicConnector);
     DeviceConnectors.registerAdapter(healthConnector);
     PreferencesStore.get().init(this.context).then(() => {
+      // 偏好就绪：重新读一次连接器开关（冷启动时 onConnected 可能早于这里）
+      DeviceConnectors.reloadEnabled();
       // 会话内容字号（小/标准/大/特大）→ AppStorage，供对话页与设置预览统一读取
       AppStorage.setOrCreate<string>('contentFontSize', PreferencesStore.get().getString('contentFontSize', '标准'));
       // 新会话权限：启动即同步到 AppStorage，对话页输入框直接显示
@@ -276,6 +283,11 @@ export default class EntryAbility extends UIAbility {
   }
 
   onForeground(): void {
+    // 回到前台：连接器未注册时自动重试，不用每次手动点「重新注册」
+    try {
+      DeviceConnectors.onAppForeground();
+    } catch (err) {
+    }
     const fgStart: number = Date.now();
     Logger.info('FG_TIMING start');
     void BackgroundKeepAlive.stop();
@@ -296,6 +308,9 @@ export default class EntryAbility extends UIAbility {
     const state: string = AppStorage.get<string>('connectionState') ?? 'disconnected';
     if (state === 'connected') {
       DeviceConnectors.onConnected();
+      // 连接重建：pushToken 允许重新上报（网关重启会丢 token 表）
+      PushService.resetReported();
+      void PushService.reportToken();
     } else {
       DeviceConnectors.onDisconnected();
     }
@@ -313,7 +328,10 @@ export default class EntryAbility extends UIAbility {
     // 只要内嵌隧道开启就保持后台存活：回到 App 时无需等隧道冷启动（约 8–10 秒）。
     const tunnelOn: boolean = AppStorage.get<boolean>('tailscaleTunnelEnabled') ?? false;
     const agentWork: boolean = AppStorage.get<boolean>('agentWorkActive') ?? false;
-    if (tunnelOn || agentWork) {
+    // 连接器已注册时同样保活：否则 App 退后台租约断开，主机侧所有 phone_* 调用
+    // （定闹钟/建日程等）都会失败——这是「连着却指令收不到」的根因。
+    const connectorsOn: boolean = (AppStorage.get<string>('connectorsState') ?? '') === 'registered';
+    if (tunnelOn || agentWork || connectorsOn) {
       BackgroundKeepAlive.start(this.context).catch(() => {});
     } else {
       Logger.info('BGKEEP skipped (tunnel off)');

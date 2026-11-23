@@ -501,8 +501,10 @@ export struct SessionDefaultModelPage {
       this.savedModel = row.model;
       this.savedProvider = row.provider;
       this.savedEffort = effort;
-      // 同步到全局：会话设置页「默认模型」行右侧要显示「模型 · 推理强度」
+      // 同步到全局：会话设置页「默认模型」行右侧要显示「模型 · 推理强度」，
+      // provider 也要一起写，否则同名模型可能显示成其他服务商（如 workbuddy）的同名项。
       AppStorage.setOrCreate<string>('defaultModel', row.model);
+      AppStorage.setOrCreate<string>('defaultProvider', row.provider);
       AppStorage.setOrCreate<string>('defaultEffort', effort);
       this.toast('已保存');
     }).catch((error: Error) => {

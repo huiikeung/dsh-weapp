@@ -471,6 +471,9 @@ export struct ConversationPage {
   private inlineAssistantAttachments: Map<string, string[]> = new Map<string, string[]>();
   /** 文件差异/内容弹窗：标题 + 逐行内容（首字符 +/-/空格 决定配色）+ 底部说明 */
   @State fileDiffOpen: boolean = false;
+  /** 长按回复正文的底部弹窗：可选中文字、复制全文 */
+  @State replySheetOpen: boolean = false;
+  @State replySheetText: string = '';
   @State fileDiffTitle: string = '';
   @State fileDiffLines: string[] = [];
   @State fileDiffNote: string = '';
@@ -3793,6 +3796,66 @@ export struct ConversationPage {
     this.hint = body.length > 240 ? body.substring(0, 240) + '…' : body;
   }
 
+  /** 长按回复文本 → 底部弹窗：正文可长按选中，右上角一键复制全文 */
+  @Builder
+  replySheet() {
+    Column() {
+      // 顶部拖动条：与轨迹详情弹窗一致（自绘，因为系统 dragBar 在玻璃底上不明显）
+      Column()
+        .width(36)
+        .height(4)
+        .borderRadius(2)
+        .backgroundColor(this.isDark ? 'rgba(255,255,255,0.32)' : 'rgba(0,0,0,0.18)')
+        .margin({ top: 10, bottom: 8 })
+      Row({ space: 8 }) {
+        Text('回复内容')
+          .fontSize(15)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+        Blank()
+        Text('复制全文')
+          .fontSize(13)
+          .fontColor('#2E6BE6')
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .onClick(() => {
+            this.onCopyEntry(this.replySheetText);
+          })
+        Text('关闭')
+          .fontSize(13)
+          .fontColor(this.subColor())
+          .padding({ left: 8, right: 8, top: 4, bottom: 4 })
+          .onClick(() => {
+            this.replySheetOpen = false;
+          })
+      }
+      .width('100%')
+      .padding({ left: 20, right: 12, top: 6, bottom: 6 })
+      .alignItems(VerticalAlign.Center)
+
+      Text('长按正文可选择文字，选择后可直接复制')
+        .fontSize(11)
+        .fontColor(this.subColor())
+        .width('100%')
+        .padding({ left: 20, right: 20, bottom: 10 })
+
+      Scroll() {
+        Text(this.replySheetText)
+          .fontSize(15)
+          .lineHeight(23)
+          .fontColor(this.textColor())
+          .copyOption(CopyOptions.LocalDevice)
+          .width('100%')
+      }
+      .layoutWeight(1)
+      .width('100%')
+      .padding({ left: 20, right: 20, bottom: 30 })
+      .align(Alignment.TopStart)
+      .scrollBar(BarState.Off)
+    }
+    .width('100%')
+    .height('100%')
+  }
+
   /** 发送时判断当前会话是否繁忙：页面状态 / store 运行态 / 主机会话列表 running 三级兜底。 */
   private sessionBusyNow(): boolean {
     if (this.running || SessionStore.get().isRunning()) {
@@ -3892,7 +3955,9 @@ export struct ConversationPage {
       }
       Logger.info('[QUEUEIMG] send running=' + (sessionBusy ? '1' : '0')
         + ' selected=' + selected.length.toString() + ' images=' + sentImages.length.toString());
-      if (sentImages.length > 0) {
+      // 只有「运行中发送」才会进主机队列；空闲发送直接进入对话，
+      // 这时不能再生成排队行（否则会出现一条假排队消息）。
+      if (sessionBusy && sentImages.length > 0) {
         this.queuedImagesByText.set(text, sentImages);
         this.lastQueuedImageAt = Date.now();
         this.queuedImagesRevision = this.queuedImagesRevision + 1;
@@ -3903,6 +3968,9 @@ export struct ConversationPage {
         setTimeout(() => {
           this.dropLocalQueueRow(text);
         }, 20000);
+      } else if (sentImages.length > 0) {
+        // 空闲发送：不记队列图，直接随用户气泡展示
+        this.queuedImagesByText.delete(text);
       }
       if (!sessionBusy) {
         SessionStore.get().appendOptimisticUser(text, selected.length, sentImages);
@@ -4438,6 +4506,10 @@ export struct ConversationPage {
     // 队列清空后丢掉本地图片记录，避免一直缓存。
     // 注意刚发完的 15 秒内不清：发送后主机可能先推一帧空队列，再推带这条消息的队列，
     // 过早清掉会导致队列卡片永远拿不到本地缩略图。
+    // 空闲且队列为空：本地排队行没有存在意义（那是运行中才有的东西），立即清掉
+    if (this.queue.length === 0 && !this.runActive() && this.localQueueRows.length > 0) {
+      this.localQueueRows = [];
+    }
     if (this.queue.length === 0 && this.queuedImagesByText.size > 0
       && Date.now() - this.lastQueuedImageAt > 15000) {
       this.queuedImagesByText.clear();
@@ -5061,21 +5133,17 @@ export struct ConversationPage {
       if (stored.length === 0) {
         return;
       }
-      const rows: string[] = [];
       for (const entry of stored.split('\u0003')) {
         if (entry.length === 0) {
           continue;
         }
-        rows.push(entry);
         const parts: string[] = entry.split('\u0001');
         if (parts.length >= 2 && parts[1].length > 0) {
           this.queuedImagesByText.set(parts[0], parts[1].split('\u0002'));
         }
       }
-      if (rows.length > 0) {
-        this.localQueueRows = rows;
-        this.queuedImagesRevision = this.queuedImagesRevision + 1;
-      }
+      // 只恢复「图片映射」，不恢复本地排队行：进程重启后队列行可能早已不存在，
+      // 恢复出来会变成一条没有在进行的假排队消息（本行只为刚发送的图片补缩略图）。
     } catch (err) {
     }
   }
@@ -5288,7 +5356,9 @@ export struct ConversationPage {
   /** 本地排队消息（带图）占位行：主机队列帧可能不含图片，先用本地记录把样式显示出来 */
   @Builder
   localQueueRowsView() {
-    if (this.localQueueRows.length > 0) {
+    // 只有会话在运行（或主机队列里确实有消息）时才显示本地排队行；
+    // 空闲发送是直接进对话的，不能留下一条「排队消息」。
+    if (this.localQueueRows.length > 0 && (this.runActive() || this.queue.length > 0)) {
       Column({ space: this.rpx(6) }) {
         ForEach(this.localQueueRows, (row: string) => {
           if (this.localRowVisible(row)) {
@@ -5731,8 +5801,9 @@ export struct ConversationPage {
               Blank()
             }
             .width('100%')
-            // 宽屏：模式胶囊与居中的输入条左缘对齐（输入条外层 14vp + 居中留白）
-            .padding({ left: this.rpx(14) + this.wideInset(), right: this.rpx(14) + this.wideInset(), bottom: this.rpx(10) })
+            // 与输入框左缘对齐：输入条外层左右 14vp（+ 宽屏居中留白），再加输入框最外圈 1.3vp 白色光圈。
+            // 之前这里用的是 rpx(14)（≈7vp），所以模式胶囊比输入框明显偏左。
+            .padding({ left: 14 + this.wideInset() + 1.3, right: 14 + this.wideInset(), bottom: this.rpx(10) })
           }
           // 输入条容器：小程序 dock-stack 左右 14vp 内边距 + 底部安全区
           Column() {
@@ -6111,6 +6182,23 @@ export struct ConversationPage {
           preferType: SheetType.BOTTOM,
           backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
           systemMaterial: this.teamSheetMaterial()
+        })
+
+      // 长按回复正文的弹窗：可选中文字 / 复制全文（原生玻璃底，与文件差异弹窗一致）
+      Column()
+        .width(1)
+        .height(1)
+        .opacity(0.01)
+        .bindSheet($$this.replySheetOpen, this.replySheet(), {
+          height: '76%',
+          dragBar: false,
+          showClose: false,
+          preferType: SheetType.BOTTOM,
+          backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
+          systemMaterial: this.teamSheetMaterial(),
+          onDisappear: () => {
+            this.replySheetText = '';
+          }
         })
 
       // 正文文件链接预览：1×1 透明锚点，系统半模态承载（原生玻璃材质）
@@ -8803,6 +8891,10 @@ export struct ConversationPage {
               },
               onQuoteReply: (text: string) => {
                 this.quoteReply(text);
+              },
+              onReplyLongPress: (text: string) => {
+                this.replySheetText = text;
+                this.replySheetOpen = true;
               },
               onImagePathTap: (path: string) => {
                 this.openHostImage(path);

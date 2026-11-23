@@ -85,6 +85,8 @@ export class ConversationFeedEntryModel {
   /** 本轮用时文案（如「用时 5 分 19 秒」） */
   turnElapsedText: string = '';
   failureTitle: string = '';
+  /** 回合失败错误码 */
+  failureCode: string = '';
   // ===== 工作步骤展示策略（由 ConversationFeed.applyWorkStepPolicy 算出）=====
   processGrouped: boolean = false;
   processAutoOpen: boolean = false;
@@ -311,6 +313,9 @@ export class ConversationFeedEntryModel {
     }
     if (this.failureTitle !== entry.failureTitle) {
       this.failureTitle = entry.failureTitle;
+    }
+    if (this.failureCode !== entry.failureCode) {
+      this.failureCode = entry.failureCode;
     }
     if (this.processGrouped !== entry.processGrouped) {
       this.processGrouped = entry.processGrouped;

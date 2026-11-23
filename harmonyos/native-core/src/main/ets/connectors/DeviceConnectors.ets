@@ -14,7 +14,7 @@ export interface ConnectorModuleDefinition {
 export const CONNECTOR_MODULES: ConnectorModuleDefinition[] = [
   { id: 'calendar', title: '日历', subtitle: '查询忙闲、创建日程', tools: ['calendar.busy', 'calendar.create'] },
   { id: 'reminders', title: '提醒事项', subtitle: '创建、查询提醒', tools: ['reminders.list', 'reminders.create'] },
-  { id: 'location', title: '位置与地图', subtitle: '当前位置、地址解析、地点标记', tools: ['location.current', 'location.precise'] },
+  { id: 'location', title: '位置', subtitle: '当前位置（近似/精确）', tools: ['location.current', 'location.precise'] },
   { id: 'photos', title: '照片', subtitle: '系统选择器选一张照片', tools: ['photos.select'] },
   { id: 'music', title: '音乐', subtitle: '本机音乐搜索与播放控制', tools: ['music.search', 'music.state', 'music.play', 'music.pause', 'music.seek'] },
   { id: 'health', title: '健康', subtitle: '步数、睡眠等健康摘要', tools: ['health.daily-summary'] },
@@ -27,6 +27,62 @@ export interface ConnectorAdapter {
   authorize(): Promise<boolean>;
   invoke(tool: string, args: Record<string, Object>): Promise<Object>;
   cancel(invocationId: string): void;
+}
+
+/** 同一模块下合并多个适配器（位置 + 地图共用 location 模块，maps.* 归 location）。 */
+export class MergedConnectorAdapter implements ConnectorAdapter {
+  private readonly mergedId: string;
+  private readonly parts: ConnectorAdapter[];
+
+  constructor(id: string, parts: ConnectorAdapter[]) {
+    this.mergedId = id;
+    this.parts = parts;
+  }
+
+  get id(): string {
+    return this.mergedId;
+  }
+
+  available(): boolean {
+    for (const part of this.parts) {
+      if (!part.available()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async authorize(): Promise<boolean> {
+    for (const part of this.parts) {
+      if (!(await part.authorize())) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  async invoke(tool: string, args: Record<string, Object>): Promise<Object> {
+    for (const part of this.parts) {
+      try {
+        return await part.invoke(tool, args);
+      } catch (err) {
+        const message: string = err instanceof Error ? err.message : String(err);
+        if (message !== 'tool_unsupported') {
+          throw new Error(message);
+        }
+      }
+    }
+    throw new Error('tool_unsupported');
+  }
+
+  cancel(invocationId: string): void {
+    for (const part of this.parts) {
+      try {
+        part.cancel(invocationId);
+      } catch (err) {
+      }
+    }
+  }
 }
 
 export interface RegisteredConnectorModule {
@@ -60,12 +116,14 @@ interface StatusFrame {
 }
 
 interface ResultFrame {
-  kind: string;
+  /** 宿主按 type 识别上行消息（device-tool-result / device-tool-cancelled），不是 kind */
+  type: string;
   version: number;
   invocationId: string;
   connectionLeaseId: string;
+  status?: string;
   result?: Object;
-  code?: string;
+  error?: Record<string, string>;
 }
 
 class DeviceConnectorsStore {
@@ -108,6 +166,10 @@ class DeviceConnectorsStore {
     this.hostKey = AppStorage.get<string>('activeEndpoint') ?? '';
     this.loadEnabled();
     this.register();
+    // hello/连接建立时刻注册帧偶尔会丢：自动补两次重试，避免用户每次都要手动点「重新注册」
+    this.scheduleRegisterRetry(800);
+    this.scheduleRegisterRetry(2600);
+    this.scheduleRegisterRetry(6000);
   }
 
   onDisconnected(): void {
@@ -356,6 +418,7 @@ class DeviceConnectorsStore {
       this.sendError(invocationId, 'tool_unsupported');
       return;
     }
+    Logger.info('connectors invoke tool=' + tool + ' invocation=' + invocationId.slice(0, 8));
     this.pendingInvocation = invocationId;
     const argRec: Record<string, Object> = (args !== undefined && args !== null) ? args as Record<string, Object> : {};
     adapter.invoke(tool, argRec).then((result: Object) => {
@@ -363,15 +426,19 @@ class DeviceConnectorsStore {
         this.pendingInvocation = '';
       }
       const out: ResultFrame = {
-        kind: 'device-tool-result', version: 1, invocationId: invocationId,
-        connectionLeaseId: this.lease, result: result
+        type: 'device-tool-result', version: 1, invocationId: invocationId,
+        connectionLeaseId: this.lease, status: 'success', result: result
       };
       this.sendFrame(out);
     }).catch((err: Error) => {
       if (this.pendingInvocation === invocationId) {
         this.pendingInvocation = '';
       }
-      this.sendError(invocationId, 'outcome_unknown');
+      const raw: string = err !== undefined && err !== null && err.message !== undefined ? err.message : 'error';
+      Logger.warn('connectors invoke failed tool=' + tool + ' err=' + raw);
+      // 把原生错误码传回宿主，便于定位（匹配 [a-z_]{1,64} 才向下传，否则 device_error）
+      const code: string = /^[a-z_]{1,64}$/.test(raw) ? raw : 'device_error';
+      this.sendError(invocationId, code);
     });
   }
 
@@ -394,8 +461,8 @@ class DeviceConnectorsStore {
       return;
     }
     const frame: ResultFrame = {
-      kind: 'device-tool-error', version: 1, invocationId: invocationId,
-      connectionLeaseId: this.lease, code: code
+      type: 'device-tool-result', version: 1, invocationId: invocationId,
+      connectionLeaseId: this.lease, status: 'error', error: { 'code': code }
     };
     this.sendFrame(frame);
   }
@@ -428,13 +495,90 @@ class DeviceConnectorsStore {
     AppStorage.setOrCreate<string>('connectorsAvailable', available);
   }
 
+  /** 能力开关是「本机」的，不跟具体主机绑定：固定 key，避免重连后 host 变化导致开关被当成未设置。 */
   private storageKey(): string {
-    const host: string = this.hostKey.length > 0 ? this.hostKey : (AppStorage.get<string>('activeEndpoint') ?? 'default');
-    return 'connectors.enabled.' + host;
+    return 'connectors.enabled';
+  }
+
+  /** 兼容旧版本按主机分键存的开关：扫描所有 connectors.enabled.* 旧键，合并 true 后迁移到固定键。 */
+  private migrateLegacyEnabled(): boolean {
+    try {
+      const keys: string[] = PreferencesStore.get().allKeys();
+      let migrated: boolean = false;
+      const legacyKeys: string[] = [];
+      for (const key of keys) {
+        if (key === this.storageKey()) {
+          continue;
+        }
+        if (key.indexOf('connectors.enabled') !== 0) {
+          continue;
+        }
+        legacyKeys.push(key);
+        const raw: string = PreferencesStore.get().getString(key, '');
+        if (raw.length === 0 || raw === '{}') {
+          continue;
+        }
+        let parsed: Record<string, Object>;
+        try {
+          parsed = JSON.parse(raw) as Record<string, Object>;
+        } catch (err) {
+          continue;
+        }
+        Object.keys(parsed).forEach((id: string) => {
+          const value: Object = parsed[id];
+          if (value === true) {
+            this.enabled.set(id, true);
+            migrated = true;
+          }
+        });
+      }
+      if (migrated) {
+        this.persistEnabled();
+      }
+      for (const key of legacyKeys) {
+        PreferencesStore.get().deleteKey(key);
+      }
+      return migrated;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /** 偏好存储就绪后重新加载一次开关（冷启动时 onConnected 可能早于 Preferences 初始化）。 */
+  reloadEnabled(): void {
+    this.loadEnabled();
+  }
+
+  /** 回到前台：补一次状态刷新 + 未注册时自动重试注册，免得每次都要手动点「重新注册」。 */
+  onAppForeground(): void {
+    this.loadEnabled();
+    if (!this.supported) {
+      return;
+    }
+    this.refreshStatus();
+    if ((AppStorage.get<string>('connectorsState') ?? '') !== 'registered') {
+      this.register();
+      this.scheduleRegisterRetry(1200);
+      this.scheduleRegisterRetry(3500);
+    }
+  }
+
+  /** 注册回执迟迟不来时自动重试（不打扰用户）。 */
+  private scheduleRegisterRetry(delayMs: number): void {
+    setTimeout(() => {
+      if (!this.supported) {
+        return;
+      }
+      if ((AppStorage.get<string>('connectorsState') ?? '') === 'registered') {
+        return;
+      }
+      this.register();
+    }, delayMs);
   }
 
   private loadEnabled(): void {
     this.enabled.clear();
+    let loadedAny: boolean = false;
     try {
       const raw: string = PreferencesStore.get().getString(this.storageKey(), '{}');
       const parsed: Record<string, Object> = JSON.parse(raw) as Record<string, Object>;
@@ -442,10 +586,14 @@ class DeviceConnectorsStore {
         const value: Object = parsed[key];
         if (typeof value === 'boolean') {
           this.enabled.set(key, value as boolean);
+          loadedAny = true;
         }
       });
     } catch (err) {
       Logger.warn('connectors enabled parse failed');
+    }
+    if (!loadedAny) {
+      this.migrateLegacyEnabled();
     }
     this.publishEnabled();
   }
