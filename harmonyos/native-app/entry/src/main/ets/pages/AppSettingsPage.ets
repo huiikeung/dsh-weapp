@@ -2071,6 +2071,9 @@ export struct AppSettingsPage {
             }
           }
           .width('100%')
+          // 宽屏：只给 Scroll 加 maxWidth 时，内容列仍按整屏宽度测量，
+          // 「会话/工作区/定时任务/插件/节点」那行会被卡片右边裁掉；这里给内容列也加上同一个约束
+          .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
           .padding({ left: 16, right: 16, top: 4 + 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9), bottom: 30 })
         }
         .layoutWeight(1)
