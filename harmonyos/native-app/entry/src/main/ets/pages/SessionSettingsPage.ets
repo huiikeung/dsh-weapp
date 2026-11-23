@@ -50,6 +50,7 @@ export struct SessionSettingsPage {
   @State pickPresetId: string = '';
   @State pickModel: string = '';
   @State pickPermission: string = '';
+  @State endpointMenuOpen: boolean = false;
   @State pickerOpen: boolean = false;
   @State pickerTitle: string = '';
   @State pickerKind: string = '';
@@ -538,8 +539,31 @@ export struct SessionSettingsPage {
               this.cardRow('连接方式', this.endpointKindLabel(), false, () => {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
-              this.cardRow('端点地址', this.activeEndpointLabel(), false, () => {
-                this.showEndpointDialog();
+              Row() {
+                Text('端点地址')
+                  .fontSize(15)
+                  .fontColor(this.textColor())
+                Blank()
+                Text(this.activeEndpointLabel())
+                  .fontSize(15)
+                  .fontColor(this.subColor())
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .constraintSize({ maxWidth: 220 })
+              }
+              .width('100%')
+              .constraintSize({ minHeight: 44 })
+              .padding({ left: 16, right: 16 })
+              .onClick(() => {
+                this.endpointMenuOpen = !this.endpointMenuOpen;
+              })
+              .bindMenu(this.endpointMenuOpen, this.endpointMenu(), {
+                placement: Placement.Bottom,
+                outlineColor: this.dividerColor(),
+                outlineWidth: 1,
+                onDisappear: () => {
+                  this.endpointMenuOpen = false;
+                }
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               this.cardRow('网络检测', this.connection === 'connected' ? '端点可达性 / Ping' : '检测已保存端点', true, () => {
@@ -1685,39 +1709,61 @@ export struct SessionSettingsPage {
     });
   }
 
-  /** 端点地址：弹窗完整显示 + 一键复制 */
-  private showEndpointDialog(): void {
+  /** 端点地址：行内弹出原生玻璃菜单，完整显示 + 复制 */
+  @Builder
+  endpointMenu() {
+    Column({ space: 10 }) {
+      Text('端点地址')
+        .fontSize(12.5)
+        .fontColor(this.subColor())
+        .width('100%')
+      Text(this.activeEndpointLabel())
+        .fontSize(13)
+        .lineHeight(19)
+        .fontColor(this.textColor())
+        .wordBreak(WordBreak.BREAK_ALL)
+        .maxLines(6)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width('100%')
+      Divider().color(this.dividerColor()).strokeWidth(1)
+      Row() {
+        Text('复制')
+          .fontSize(14)
+          .fontColor('#2E6BE6')
+          .onClick(() => {
+            this.copyEndpoint();
+            this.endpointMenuOpen = false;
+          })
+        Blank()
+        Text('关闭')
+          .fontSize(14)
+          .fontColor(this.subColor())
+          .onClick(() => {
+            this.endpointMenuOpen = false;
+          })
+      }
+      .width('100%')
+    }
+    .width(280)
+    .padding({ left: 16, right: 16, top: 14, bottom: 12 })
+  }
+
+  private copyEndpoint(): void {
     const url: string = this.activeEndpointLabel();
     if (url.length === 0 || url === '—') {
       this.hint = '当前还没有端点地址';
       return;
     }
-    AlertDialog.show({
-      title: '端点地址',
-      message: url,
-      autoCancel: true,
-      alignment: DialogAlignment.Center,
-      primaryButton: {
-        value: '复制',
-        action: () => {
-          try {
-            const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, url);
-            pasteboard.getSystemPasteboard().setData(data).then(() => {
-              this.hint = '端点地址已复制';
-            }).catch(() => {
-              this.hint = '复制失败';
-            });
-          } catch (err) {
-            this.hint = '复制失败';
-          }
-        }
-      },
-      secondaryButton: {
-        value: '关闭',
-        action: () => {
-        }
-      }
-    });
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, url);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        this.hint = '端点地址已复制';
+      }).catch(() => {
+        this.hint = '复制失败';
+      });
+    } catch (err) {
+      this.hint = '复制失败';
+    }
   }
 
   /** 权限四项（对齐小程序 pickDefaultPermission） */
