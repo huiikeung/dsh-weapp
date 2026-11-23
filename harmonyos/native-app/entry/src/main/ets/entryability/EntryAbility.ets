@@ -86,6 +86,11 @@ export default class EntryAbility extends UIAbility {
       AppStorage.setOrCreate<string>('defaultPermission',
         PreferencesStore.get().getString('defaultPermission', 'workspace-write'));
       // 默认模型/思考强度：冷启动从偏好恢复，设置页与对话页首帧就能显示
+      // 默认 Agent 预设：冷启动从偏好恢复，设置页/预设页首帧就显示已选项
+      const storedDefaultPreset: string = PreferencesStore.get().getString('defaultAgentPreset', '');
+      if (storedDefaultPreset.length > 0) {
+        AppStorage.setOrCreate<string>('defaultAgentPreset', storedDefaultPreset);
+      }
       const storedDefaultModel: string = PreferencesStore.get().getString('defaultModel', '');
       if (storedDefaultModel.length > 0) {
         AppStorage.setOrCreate<string>('defaultModel', storedDefaultModel);

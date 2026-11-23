@@ -1987,8 +1987,11 @@ export struct SessionSettingsPage {
     AppStorage.setOrCreate<string>('sessionPresetPickerJson', JSON.stringify(pickItems));
     AppStorage.setOrCreate<boolean>('sessionPresetCreatorAvailable', hasCordis);
     AppStorage.setOrCreate<string>('prefPickerKind', 'session-agent-preset');
-    AppStorage.setOrCreate<string>('prefPickerValue',
-      this.pickPresetId.length > 0 ? this.pickPresetId : this.defaultPreset);
+    // 选中值：本次选择 > AppStorage 默认 > 本地偏好（重启后靠它回显）
+    const pickerValue: string = this.pickPresetId.length > 0
+      ? this.pickPresetId
+      : (this.defaultPreset.length > 0 ? this.defaultPreset : PreferencesStore.get().getString('defaultAgentPreset', ''));
+    AppStorage.setOrCreate<string>('prefPickerValue', pickerValue);
     this.pageStack.pushPathByName('pref-picker', null);
   }
 
