@@ -143,6 +143,8 @@ struct Index {
     const routeName: string = ctx !== undefined && ctx.pathInfo !== undefined &&
       ctx.pathInfo !== null ? ctx.pathInfo.name : '';
     StatusBarStyle.setRoute(routeName);
+    // 首页是否可见：进入二级页后暂停首页背景动效，降低后台绘制发热
+    AppStorage.setOrCreate<boolean>('homePageVisible', routeName === '');
   }
 
   @State private splashVisible: boolean = true;

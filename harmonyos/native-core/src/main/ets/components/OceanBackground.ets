@@ -23,6 +23,7 @@ export struct OceanBackground {
   @Prop @Watch('restart') reduceMotion: boolean = false;
   @StorageLink('homeAnimationEnabled') @Watch('restart') homeAnimationEnabled: boolean = true;
   @StorageLink('appLifecycle') @Watch('restart') appLifecycle: string = 'foreground';
+  @StorageLink('homePageVisible') @Watch('restart') homePageVisible: boolean = true;
 
   @State private revealed: boolean = false;
   private bg: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
@@ -341,18 +342,18 @@ export struct OceanBackground {
       const now: number = Date.now();
       this.phase = (this.phase + (now - last) / 1000) % 4096;
       last = now;
-      // 省电：鲸鱼 18fps，流体约 3fps；去掉整层 blur（全屏模糊每帧都很吃 GPU）
+      // 省电：鲸鱼 15fps，流体约 2fps；离开首页/后台时直接停
       this.drawWhale();
-      this.bgFrame = (this.bgFrame + 1) % 6;
+      this.bgFrame = (this.bgFrame + 1) % 8;
       if (this.bgFrame === 0) {
         this.updateFlow();
       }
-    }, 55);
+    }, 66);
   }
 
   private isAnimating(): boolean {
     return this.alive && this.active && this.homeAnimationEnabled && !this.reduceMotion &&
-      this.appLifecycle === 'foreground';
+      this.appLifecycle === 'foreground' && this.homePageVisible;
   }
 
   build() {
