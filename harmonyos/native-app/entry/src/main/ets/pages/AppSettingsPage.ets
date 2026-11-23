@@ -1438,7 +1438,7 @@ export struct AppSettingsPage {
             .width('100%')
             .height(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9))
             .backdropBlur(12)
-            .backgroundColor(this.isDark ? 'rgba(0,0,0,0.26)' : 'rgba(242,242,244,0.28)')
+            .backgroundColor(Color.Transparent)
             .hitTestBehavior(HitTestMode.None)
 
           Row() {
