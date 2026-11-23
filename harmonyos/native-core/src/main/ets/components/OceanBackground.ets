@@ -114,7 +114,7 @@ export struct OceanBackground {
     }
     const totalH: number = this.canvasHeight;
     const aspect: number = this.canvasWidth / Math.max(1, totalH);
-    const fw: number = 144;
+    const fw: number = 200;
     const fh: number = Math.max(1, Math.min(256, Math.round(fw / aspect)));
     const revision: number = this.flowRevision;
     this.flowBusy = true;
@@ -199,7 +199,7 @@ export struct OceanBackground {
     const gridVeil = ctx.createLinearGradient(0, 0, 0, totalH);
     gridVeil.addColorStop(0, 'rgba(6,23,43,0)');
     gridVeil.addColorStop(.56, 'rgba(6,23,43,0)');
-    gridVeil.addColorStop(1, '#06172B');
+    gridVeil.addColorStop(1, 'rgba(6,23,43,0.30)');
     ctx.fillStyle = gridVeil;
     ctx.fillRect(0, 0, w, totalH);
     ctx.restore();
@@ -223,7 +223,7 @@ export struct OceanBackground {
     const cx: number = w * 0.55;
     const cy: number = totalH * 0.34;
     // 与 iOS 观感一致：iPhone 3x 下约 6px；鸿蒙 vp 偏大，收小一点更精致
-    const baseDot: number = Math.max(1.45, square / 220);
+    const baseDot: number = Math.max(1.05, square / 300);
     const t: number = this.reduceMotion ? 0 : this.phase;
 
     this.pixels.forEach((pixel: Pixel) => {
@@ -338,13 +338,6 @@ export struct OceanBackground {
         })
         .hitTestBehavior(HitTestMode.None)
 
-      // settle 压暗
-      Column()
-        .width('100%')
-        .height('100%')
-        .backgroundColor('#020711')
-        .opacity(0.10)
-        .hitTestBehavior(HitTestMode.None)
     }
     .width('100%')
     .height('100%')
