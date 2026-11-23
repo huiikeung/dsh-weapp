@@ -1,3 +1,4 @@
+import { NavBackButton } from '../components/NavBackButton';
 import { PreferencesStore, Logger, GatewayClient } from 'nativecore';
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -1556,7 +1557,8 @@ export struct TailscalePage {
     }
     .width(280)
     .padding(14)
-    .backgroundColor(this.cardBg())
+    // 不设底色：bindMenu 的系统菜单自带磨砂材质，再叠实色会在文字后露出内缩方块
+    // （看起来像多余的 hover 背景），这里只留内边距。
   }
 
   @Builder
@@ -1703,20 +1705,20 @@ export struct TailscalePage {
   build() {
     NavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
+
+        Column()
+          .width('100%')
+          .height(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9))
+          .backdropBlur(12)
+          .backgroundColor(Color.Transparent)
+          .hitTestBehavior(HitTestMode.None)
       Column() {
       // 导航栏
       Row() {
-        Row() {
-          Text('‹')
-            .fontSize(24)
-            .fontColor(this.textColor())
-        }
-        .width(44)
-        .height(44)
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          this.pageStack.pop();
-        })
+        NavBackButton({ isDark: this.isDark })
+          .onClick(() => {
+            this.pageStack.pop();
+          })
 
         Text('Tailscale 内嵌隧道')
           .fontSize(17)
@@ -1730,6 +1732,7 @@ export struct TailscalePage {
       .width('100%')
       .height(56)
       .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
+        .zIndex(10)
 
       Scroll() {
         Column() {
@@ -2290,6 +2293,8 @@ export struct TailscalePage {
       }
       .layoutWeight(1)
       .scrollBar(BarState.Off)
+              .padding({ top: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) })
+              .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
       .align(Alignment.Top)
     }
       .width('100%')

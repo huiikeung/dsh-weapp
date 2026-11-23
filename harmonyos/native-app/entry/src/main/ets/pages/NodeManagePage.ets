@@ -1,3 +1,4 @@
+import { NavBackButton } from '../components/NavBackButton';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { CredentialStore, GatewayClient } from 'nativecore';
 import type { SavedGateway } from 'nativecore';
@@ -97,12 +98,7 @@ export struct NodeManagePage {
       Column() {
         // 头部：返回 + 标题
         Row() {
-          Text('‹')
-            .fontSize(26)
-            .fontColor(this.textColor())
-            .width(40)
-            .height(40)
-            .textAlign(TextAlign.Center)
+          NavBackButton({ isDark: this.isDark })
             .onClick(() => {
               this.pageStack.pop();
             })

@@ -1,3 +1,4 @@
+import { NavBackButton } from '../components/NavBackButton';
 import { common } from '@kit.AbilityKit';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -37,7 +38,7 @@ export struct AddNodePage {
   }
 
   private pluginName(): string {
-    return 'dsh-plugin-mobile-gateway';
+    return 'dsh-plugin-weapp-gateway';
   }
 
   @Builder
@@ -192,12 +193,7 @@ export struct AddNodePage {
       Column() {
         // 导航
         Row() {
-          Text('‹')
-            .fontSize(26)
-            .fontColor(this.textColor())
-            .width(40)
-            .height(40)
-            .textAlign(TextAlign.Center)
+          NavBackButton({ isDark: this.isDark })
             .onClick(() => {
               this.pageStack.pop();
             })
@@ -237,7 +233,7 @@ export struct AddNodePage {
                   .lineHeight(21)
                   .margin({ top: 8 })
                 this.cardStep1('安装移动网关插件',
-                  '在电脑端 DSH 插件管理中安装并启用下方的 dsh-plugin-mobile-gateway。')
+                  '在电脑端 DSH 插件管理中安装并启用下方的 dsh-plugin-weapp-gateway。')
                 this.cardStep('2', '开启移动连接与设备鉴权',
                   '打开 DSH WebUI 的「移动设备」面板，启用移动连接和设备鉴权。')
                 this.cardStep('3', '生成一次性配对二维码',

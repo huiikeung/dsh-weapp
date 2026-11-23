@@ -1,3 +1,4 @@
+import { NavBackButton } from '../components/NavBackButton';
 import { PreferencesStore, StatusAppearance } from 'nativecore';
 
 
@@ -229,17 +230,10 @@ export struct StatusStylesPage {
       Column() {
         // 导航：与「设置」「会话设置」「Tailscale 内嵌隧道」一致
         Row() {
-          Row() {
-            Text('‹')
-              .fontSize(24)
-              .fontColor(this.textColor())
-          }
-          .width(44)
-          .height(44)
-          .justifyContent(FlexAlign.Center)
-          .onClick(() => {
-            this.pageStack.pop();
-          })
+          NavBackButton({ isDark: this.isDark })
+            .onClick(() => {
+              this.pageStack.pop();
+            })
 
           Text('对话状态条')
             .fontSize(17)

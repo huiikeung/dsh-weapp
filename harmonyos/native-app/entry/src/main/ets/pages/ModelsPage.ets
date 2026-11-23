@@ -1,3 +1,4 @@
+import { NavBackButton } from '../components/NavBackButton';
 import { uiMaterial } from '@kit.ArkUI';
 import { appGlassBorderColor, appGlassBlur, appGlassFill, appGlassShadow } from '../common/AppGlass';
 import { GatewayClient, Logger } from 'nativecore';
@@ -614,15 +615,17 @@ export struct ModelsPage {
   build() {
     NavDestination() {
       Stack({ alignContent: Alignment.BottomStart }) {
+
+        Column()
+          .width('100%')
+          .height(44 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9))
+          .backdropBlur(12)
+          .backgroundColor(Color.Transparent)
+          .hitTestBehavior(HitTestMode.None)
         Column() {
           // 导航
           Row() {
-            Text('‹')
-              .fontSize(26)
-              .fontColor(this.textColor())
-              .width(40)
-              .height(40)
-              .textAlign(TextAlign.Center)
+            NavBackButton({ isDark: this.isDark })
               .onClick(() => {
                 this.pageStack.pop();
               })
@@ -638,6 +641,7 @@ export struct ModelsPage {
           .height(44)
           .padding({ left: 8, right: 8 })
           .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
+        .zIndex(10)
 
           Scroll() {
             Column({ space: 0 }) {
@@ -980,6 +984,8 @@ export struct ModelsPage {
           .layoutWeight(1)
           .align(Alignment.Top)
           .scrollBar(BarState.Off)
+              .padding({ top: 44 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) })
+              .margin({ top: -(44 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
         }
         .width('100%')
         .height('100%')
