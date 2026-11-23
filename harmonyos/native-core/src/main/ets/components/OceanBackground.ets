@@ -245,7 +245,7 @@ export struct OceanBackground {
     // 与 iOS HarnessWhaleField 相同的几何与参数
     // 与 iOS 完全一致：不做额外缩放
     const baseSquare: number = Math.max(w * 1.15, totalH * 0.48);
-    const square: number = baseSquare * 1.12;
+    const square: number = baseSquare * 1.10;
     const cx: number = w * 0.55;
     const cy: number = totalH * 0.34;
     const baseDot: number = Math.max(1.45, baseSquare / 220);
