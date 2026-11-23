@@ -1299,6 +1299,11 @@ export struct TailscalePage {
     return this.isDark ? '#23324D' : '#EAF1FF';
   }
 
+  /** 摘要/身份标签边框色（低对比，去掉整块底色） */
+  private chipBorder(): string {
+    return this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.12)';
+  }
+
   /** 状态卡片上的账号摘要 */
   private refreshAccounts(): void {
     const store: TailscaleTunnelStore = TailscaleTunnelStore.get();
@@ -1776,24 +1781,30 @@ export struct TailscalePage {
                 }
                 Text(this.stageLabel()).fontSize(11).fontColor(this.stageColor())
               }
-              .padding({ left: 7, right: 7, top: 3, bottom: 3 })
-              .backgroundColor(this.pillBg())
-              .borderRadius(16)
+              .padding({ left: 2, right: 2 })
             }
             .width('100%')
             Flex({ wrap: FlexWrap.Wrap }) {
               Text(this.identitySummary()).fontSize(10).fontColor('#2E6BE6')
                 .maxLines(1).padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                .backgroundColor(this.pillBg()).borderRadius(6).margin({ right: 5 })
+                .backgroundColor(Color.Transparent)
+                .border({ width: 1, color: this.chipBorder() })
+                .borderRadius(6).margin({ right: 6 })
               Text(this.authBadgeLabel()).fontSize(10).fontColor(this.stage === STAGE_READY ? '#0F9D58' : '#2E6BE6')
                 .maxLines(1).padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                .backgroundColor(this.pillBg()).borderRadius(6).margin({ right: 5 })
+                .backgroundColor(Color.Transparent)
+                .border({ width: 1, color: this.chipBorder() })
+                .borderRadius(6).margin({ right: 6 })
               Text(this.controlURL.trim().length > 0 ? '自定义' : '官方').fontSize(10).fontColor('#2E6BE6')
                 .maxLines(1).padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                .backgroundColor(this.pillBg()).borderRadius(6).margin({ right: 5 })
+                .backgroundColor(Color.Transparent)
+                .border({ width: 1, color: this.chipBorder() })
+                .borderRadius(6).margin({ right: 6 })
               Text('tsnet').fontSize(10).fontColor('#2E6BE6')
                 .maxLines(1).padding({ left: 6, right: 6, top: 2, bottom: 2 })
-                .backgroundColor(this.pillBg()).borderRadius(6)
+                .backgroundColor(Color.Transparent)
+                .border({ width: 1, color: this.chipBorder() })
+                .borderRadius(6)
             }
             .width('100%')
             Row() {
