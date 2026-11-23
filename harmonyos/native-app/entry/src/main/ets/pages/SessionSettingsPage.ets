@@ -65,6 +65,9 @@ export struct SessionSettingsPage {
   @State networkInfoOpen: boolean = false;
   @State cacheClearing: boolean = false;
   @State cacheError: string = '';
+  /** 行内说明的 ⓘ 弹窗：当前打开的键（空=关闭）与文案 */
+  @State hintMenuOpen: string = '';
+  @State hintText: string = '';
   @StorageLink('modelList') modelCatalog: string[] = [];
 
   private textColor(): string {
@@ -223,13 +226,57 @@ export struct SessionSettingsPage {
       .padding({ left: 16, right: 16, top: 18, bottom: 7 })
   }
 
+  /** 说明弹窗：系统菜单（与 Tailscale 页 ⓘ 同款），锚定在 ⓘ 上 */
+  @Builder
+  hintMenuBuilder() {
+    Column({ space: 6 }) {
+      Text('说明')
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.textColor())
+      Text(this.hintText)
+        .fontSize(13)
+        .lineHeight(20)
+        .fontColor(this.textColor())
+    }
+    .width(280)
+    .padding(14)
+  }
+
+  /** 行内提示按钮：ⓘ + 系统菜单（替代行内灰色说明文字） */
+  @Builder
+  infoHint(key: string, desc: string) {
+    Text('ⓘ')
+      .fontSize(12)
+      .fontColor(this.subColor())
+      .padding({ left: 4, right: 2, top: 2, bottom: 2 })
+      .bindMenu(this.hintMenuOpen === key, this.hintMenuBuilder(), {
+        outlineColor: this.dividerColor(),
+        outlineWidth: 1,
+        onWillDisappear: () => {
+          this.hintMenuOpen = '';
+        },
+        onDisappear: () => {
+          this.hintMenuOpen = '';
+        },
+        onDidDisappear: () => {
+          this.hintMenuOpen = '';
+        }
+      })
+      .onClick(() => {
+        this.hintText = desc;
+        this.hintMenuOpen = this.hintMenuOpen === key ? '' : key;
+      })
+  }
+
+  /** 分组说明：只留 ⓘ，点开看说明 */
   @Builder
   groupHint(text: string) {
-    Text(text)
-      .fontSize(12.5)
-      .fontColor(this.subColor())
-      .width('100%')
-      .padding({ left: 8, top: 8 })
+    Row() {
+      this.infoHint('group:' + text, text)
+    }
+    .width('100%')
+    .padding({ left: 8, top: 2, bottom: 2 })
   }
 
   /** 功能行：直接 onClick（避免 @Builder 传函数参数不触发的问题） */

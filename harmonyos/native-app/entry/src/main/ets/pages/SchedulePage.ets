@@ -10,6 +10,7 @@ import {
 } from 'nativecore';
 import { openSessionRoute } from '../common/SessionRoute';
 import { appGlassFill, appGlassBlur, APP_GLASS_RADIUS, appGlassBorderColor, appGlassShadow } from '../common/AppGlass';
+import { NavBackButton } from '../components/NavBackButton';
 
 /** 任务运行记录行（对齐小程序 loadHistory 里的 records 映射） */
 interface ScheduleHistoryRow {
@@ -742,34 +743,18 @@ export struct SchedulePage {
         .fontWeight(FontWeight.Medium)
         .fontColor(this.textColor())
       Row() {
-        Row() {
-          Image($r('app.media.ic_dir_chevron_mist'))
-            .width(15)
-            .height(15)
-            .rotate({ angle: 180 })
-            .colorFilter(this.iconTint(this.textColor()))
-        }
-        .width(32)
-        .height(32)
-        .borderRadius(16)
-        // 玻璃标准（docs/app-glass-standard.md）：页面按钮统一用 appGlass* 参数
-        .backgroundColor(appGlassFill(this.isDark))
-        .backdropBlur(appGlassBlur(this.isDark))
-        .clip(true)
-        .border({ width: 1, color: appGlassBorderColor(this.isDark) })
-        .shadow(appGlassShadow(this.isDark))
-        .justifyContent(FlexAlign.Center)
-        .onClick(() => {
-          if (this.editing) {
-            this.cancelEdit();
-            return;
-          }
-          if (this.sheetOpen) {
-            this.closeSheet();
-            return;
-          }
-          this.pageStack.pop();
-        })
+        NavBackButton({ isDark: this.isDark })
+          .onClick(() => {
+            if (this.editing) {
+              this.cancelEdit();
+              return;
+            }
+            if (this.sheetOpen) {
+              this.closeSheet();
+              return;
+            }
+            this.pageStack.pop();
+          })
         Blank()
       }
       .width('100%')

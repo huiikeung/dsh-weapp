@@ -1,3 +1,4 @@
+import { NavBackButton } from '../components/NavBackButton';
 import { uiMaterial } from '@kit.ArkUI';
 import { GatewayClient, OfficialPluginItem, PluginItem, parseNamespace } from 'nativecore';
 import { MarkdownBodyView } from '../components/MarkdownBodyView';
@@ -1225,25 +1226,14 @@ export struct PluginsPage {
             .fontWeight(FontWeight.Medium)
             .fontColor(this.textColor())
           Row() {
-            Row() {
-              Image($r('app.media.ic_dir_chevron_mist'))
-                .width(15)
-                .height(15)
-                .rotate({ angle: 180 })
-                .colorFilter(this.iconTint(this.textColor()))
-            }
-            .width(32)
-            .height(32)
-            .borderRadius(16)
-            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.12)' })
-            .justifyContent(FlexAlign.Center)
-            .onClick(() => {
-              if (this.showingMore) {
-                this.showingMore = false;
-              } else {
-                this.pageStack.pop();
-              }
-            })
+            NavBackButton({ isDark: this.isDark })
+              .onClick(() => {
+                if (this.showingMore) {
+                  this.showingMore = false;
+                } else {
+                  this.pageStack.pop();
+                }
+              })
             Blank()
           }
           .width('100%')

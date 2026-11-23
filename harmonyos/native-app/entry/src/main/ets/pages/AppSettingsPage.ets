@@ -154,6 +154,10 @@ export struct AppSettingsPage {
   @State nativeStylePreset: string = 'default';
   @State cardStylePreset: string = 'float';
 
+  /** 行内说明的 ⓘ 弹窗：当前打开的键（空=关闭）与文案 */
+  @State hintMenuOpen: string = '';
+  @State hintText: string = '';
+
   // 页内轻量弹层（复用半模态写法）
   @State pickerOpen: boolean = false;
   @State pickerKind: string = '';
@@ -333,13 +337,57 @@ export struct AppSettingsPage {
       .padding({ left: 16, right: 16, top: 18, bottom: 7 })
   }
 
+  /** 说明弹窗：系统菜单（与 Tailscale 页 ⓘ 同款），锚定在 ⓘ 上 */
+  @Builder
+  hintMenuBuilder() {
+    Column({ space: 6 }) {
+      Text('说明')
+        .fontSize(13)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.textColor())
+      Text(this.hintText)
+        .fontSize(13)
+        .lineHeight(20)
+        .fontColor(this.textColor())
+    }
+    .width(280)
+    .padding(14)
+  }
+
+  /** 行内提示按钮：ⓘ + 系统菜单（替代行内灰色说明文字） */
+  @Builder
+  infoHint(key: string, desc: string) {
+    Text('ⓘ')
+      .fontSize(12)
+      .fontColor(this.subColor())
+      .padding({ left: 4, right: 2, top: 2, bottom: 2 })
+      .bindMenu(this.hintMenuOpen === key, this.hintMenuBuilder(), {
+        outlineColor: this.dividerColor(),
+        outlineWidth: 1,
+        onWillDisappear: () => {
+          this.hintMenuOpen = '';
+        },
+        onDisappear: () => {
+          this.hintMenuOpen = '';
+        },
+        onDidDisappear: () => {
+          this.hintMenuOpen = '';
+        }
+      })
+      .onClick(() => {
+        this.hintText = desc;
+        this.hintMenuOpen = this.hintMenuOpen === key ? '' : key;
+      })
+  }
+
+  /** 分组说明：只留 ⓘ，点开看说明 */
   @Builder
   groupHint(text: string) {
-    Text(text)
-      .fontSize(12.5)
-      .fontColor(this.subColor())
-      .width('100%')
-      .padding({ left: 8, top: 8 })
+    Row() {
+      this.infoHint('group:' + text, text)
+    }
+    .width('100%')
+    .padding({ left: 8, top: 2, bottom: 2 })
   }
 
   /** 值 / 箭头行（对齐小程序 card-row） */
@@ -387,13 +435,13 @@ export struct AppSettingsPage {
   @Builder
   rowDescPref(label: string, desc: string, kind: string, onTap: () => void) {
     Row() {
-      Column({ space: 3 }) {
+      Row({ space: 2 }) {
         Text(label).fontSize(16).fontColor(this.textColor())
         if (desc.length > 0) {
-          Text(desc).fontSize(12).fontColor(this.subColor())
+          this.infoHint(label, desc)
         }
       }
-      .alignItems(HorizontalAlign.Start)
+      .alignItems(VerticalAlign.Center)
       .layoutWeight(1)
 
       Row({ space: 6 }) {
@@ -411,13 +459,13 @@ export struct AppSettingsPage {
   @Builder
   rowWorkStep(label: string, desc: string, kind: string, onTap: () => void) {
     Row() {
-      Column({ space: 3 }) {
+      Row({ space: 2 }) {
         Text(label).fontSize(16).fontColor(this.textColor())
         if (desc.length > 0) {
-          Text(desc).fontSize(12).fontColor(this.subColor())
+          this.infoHint(label, desc)
         }
       }
-      .alignItems(HorizontalAlign.Start)
+      .alignItems(VerticalAlign.Center)
       .layoutWeight(1)
 
       Row({ space: 6 }) {
@@ -435,13 +483,13 @@ export struct AppSettingsPage {
   @Builder
   rowDesc(label: string, desc: string, value: string, chevron: boolean, onTap: () => void) {
     Row() {
-      Column({ space: 3 }) {
+      Row({ space: 2 }) {
         Text(label).fontSize(16).fontColor(this.textColor())
         if (desc.length > 0) {
-          Text(desc).fontSize(12).fontColor(this.subColor())
+          this.infoHint(label, desc)
         }
       }
-      .alignItems(HorizontalAlign.Start)
+      .alignItems(VerticalAlign.Center)
       .layoutWeight(1)
 
       Row({ space: 6 }) {
@@ -466,13 +514,13 @@ export struct AppSettingsPage {
   @Builder
   toggleRow(label: string, desc: string, isOn: boolean, onChanged: (value: boolean) => void) {
     Row() {
-      Column({ space: 3 }) {
+      Row({ space: 2 }) {
         Text(label).fontSize(16).fontColor(this.textColor())
         if (desc.length > 0) {
-          Text(desc).fontSize(12).fontColor(this.subColor())
+          this.infoHint(label, desc)
         }
       }
-      .alignItems(HorizontalAlign.Start)
+      .alignItems(VerticalAlign.Center)
       .layoutWeight(1)
 
       Toggle({ type: ToggleType.Switch, isOn: isOn })
@@ -500,13 +548,13 @@ export struct AppSettingsPage {
         .borderRadius(1)
         .backgroundColor(this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.10)')
         .margin({ left: 24, right: 12 })
-      Column({ space: 2 }) {
+      Row({ space: 2 }) {
         Text(label).fontSize(15).fontColor(this.textColor())
         if (desc.length > 0) {
-          Text(desc).fontSize(12).fontColor(this.subColor())
+          this.infoHint(label, desc)
         }
       }
-      .alignItems(HorizontalAlign.Start)
+      .alignItems(VerticalAlign.Center)
       .layoutWeight(1)
 
       Toggle({ type: ToggleType.Switch, isOn: isOn })
