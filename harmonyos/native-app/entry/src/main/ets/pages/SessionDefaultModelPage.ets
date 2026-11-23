@@ -152,8 +152,8 @@ export struct SessionDefaultModelPage {
       }).catch((error: Error) => {
         this.loading = false;
         this.loaded = true;
-        this.rows = [];
-        this.toast('模型目录加载失败');
+        this.loadCachedRows();
+        this.toast('模型目录加载失败，已显示缓存');
       });
     }).catch((error: Error) => {
       client.requestGateway(GatewayRequestFactory.simple('models'), 15000).then((fallback: GatewayFrame) => {
@@ -165,10 +165,40 @@ export struct SessionDefaultModelPage {
       }).catch((fallbackError: Error) => {
         this.loading = false;
         this.loaded = true;
-        this.rows = [];
-        this.toast('模型目录加载失败');
+        this.loadCachedRows();
+        this.toast('模型目录加载失败，已显示缓存');
       });
     });
+  }
+
+  /** 网关不可用时用本地缓存的模型目录兜底，保证选中态仍能显示 */
+  private loadCachedRows(): void {
+    const cached: Object[] = AppStorage.get<Object[]>('modelDetails') ?? [];
+    if (cached.length === 0) {
+      this.rows = [];
+      return;
+    }
+    const rows: ModelRow[] = [];
+    for (const one of cached) {
+      const rec = one as Record<string, Object>;
+      const model: string = String(rec['model'] ?? '');
+      if (model.length === 0) {
+        continue;
+      }
+      const row: ModelRow = new ModelRow();
+      row.provider = String(rec['provider'] ?? '');
+      row.model = model;
+      const label: string = String(rec['label'] ?? '');
+      row.label = label.length > 0 ? label : model;
+      row.defaultEffort = String(rec['defaultEffort'] ?? '');
+      rows.push(row);
+    }
+    this.rows = rows;
+    this.savedModel = this.defaultModelValue.length > 0
+      ? this.defaultModelValue : PreferencesStore.get().getString('defaultModel', '');
+    this.savedProvider = this.defaultProviderValue.length > 0
+      ? this.defaultProviderValue : PreferencesStore.get().getString('defaultProvider', '');
+    Logger.info('MODELDBG cache rows=' + rows.length + ' saved=' + this.savedModel + ' provider=' + this.savedProvider);
   }
 
   private parseCatalog(frame: GatewayFrame): ModelRow[] {
