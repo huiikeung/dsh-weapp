@@ -38,21 +38,21 @@ export struct ConnectorsPage {
       return $r('sys.symbol.calendar');
     }
     if (id === 'reminders') {
-      return $r('sys.symbol.checkmark_circle');
+      return $r('app.media.connector_reminders');
     }
     if (id === 'location') {
-      return $r('sys.symbol.location');
+      return $r('app.media.connector_location');
     }
     if (id === 'photos') {
-      return $r('sys.symbol.photo');
+      return $r('app.media.connector_photos');
     }
     if (id === 'music') {
       return $r('app.media.connector_music');
     }
     if (id === 'health') {
-      return $r('sys.symbol.heart');
+      return $r('app.media.connector_health');
     }
-    return $r('sys.symbol.alarm');
+    return $r('app.media.connector_alarms');
   }
 
   private stateColor(): string {
