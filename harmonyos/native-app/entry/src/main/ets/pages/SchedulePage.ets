@@ -11,6 +11,7 @@ import {
 import { openSessionRoute } from '../common/SessionRoute';
 import { appGlassFill, appGlassBlur, APP_GLASS_RADIUS, appGlassBorderColor, appGlassShadow } from '../common/AppGlass';
 import { NavBackButton } from '../components/NavBackButton';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 /** 任务运行记录行（对齐小程序 loadHistory 里的 records 映射） */
 interface ScheduleHistoryRow {
@@ -1867,6 +1868,8 @@ export struct SchedulePage {
           .scrollBar(BarState.Off)
           .edgeEffect(EdgeEffect.None)
           .align(Alignment.Top)
+          // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+          .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
         }
         .layoutWeight(1)
         .width('100%')

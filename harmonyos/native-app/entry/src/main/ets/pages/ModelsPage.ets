@@ -8,6 +8,7 @@ import {
   appendModelsMutation, removeModelMutation, providerRemoveMutation,
   parseDiscoveredModels, discoveredModelPayload
 } from 'nativecore';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 /** 推理等级可选档位（对齐 REASONING_LEVELS） */
 const REASONING_LEVELS: string[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -958,6 +959,8 @@ export struct ModelsPage {
           .layoutWeight(1)
           .align(Alignment.Top)
           .scrollBar(BarState.Off)
+          // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+          .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
         }
         .width('100%')
         .height('100%')

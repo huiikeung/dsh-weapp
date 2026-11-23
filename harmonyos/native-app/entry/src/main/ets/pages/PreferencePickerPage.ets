@@ -1,3 +1,4 @@
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 /**
  * 设置项二级页（对齐小程序 settings 二级页形态）。
  *
@@ -460,6 +461,9 @@ export struct PreferencePickerPage {
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
+        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
+        .align(Alignment.Top)
         // 不要用「padding + 负 margin」补位：负 margin 会让渲染位置与点按区域错开，
         // 表现为点选项没反应/点错行。导航在 Stack 里独立占 56，内容自然排在它下面。
         .align(Alignment.Top)

@@ -1,3 +1,4 @@
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 /**
  * 字号大小二级页（对齐小程序 pages/settings 的字体与字号弹窗内容）。
  *
@@ -380,6 +381,8 @@ export struct FontSizePage {
         .padding({ top: 56 + this.topInset() })
         .margin({ top: -(56 + this.topInset()) })
         .align(Alignment.Top)
+        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
       }
       .width('100%')
       .height('100%')

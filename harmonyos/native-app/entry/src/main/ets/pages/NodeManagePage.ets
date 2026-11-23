@@ -2,6 +2,7 @@ import { NavBackButton } from '../components/NavBackButton';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { CredentialStore, GatewayClient } from 'nativecore';
 import type { SavedGateway } from 'nativecore';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 /** 节点管理：对齐小程序 settings 页「管理 → 节点管理」面板。 */
 interface NodeRowView {
@@ -254,6 +255,8 @@ export struct NodeManagePage {
         .layoutWeight(1)
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
+        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
       }
       .width('100%')
       .height('100%')

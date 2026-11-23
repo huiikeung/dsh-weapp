@@ -1,5 +1,6 @@
 import { NavBackButton } from '../components/NavBackButton';
 import { PreferencesStore, StatusAppearance } from 'nativecore';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 
 /** 对话状态条样式（对齐小程序 pages/settings/utils/status-appearance.js 的 OPTIONS） */
@@ -272,6 +273,9 @@ export struct StatusStylesPage {
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
+        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+        .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
+        .align(Alignment.Top)
       }
       .width('100%')
       .height('100%')

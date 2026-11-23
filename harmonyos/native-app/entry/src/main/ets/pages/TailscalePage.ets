@@ -9,6 +9,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { TsnetBridge } from '../services/TsnetBridge';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
 import { TailscaleTunnelStore, TailscaleAccountProfile } from '../services/TailscaleTunnelStore';
+import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 const KEY_ENABLED: string = 'tailscaleEnabled';
 const KEY_NODE_NAME: string = 'tailscaleNodeName';
@@ -2351,6 +2352,8 @@ export struct TailscalePage {
               .padding({ top: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) })
               .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
       .align(Alignment.Top)
+      // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
+      .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
     }
       .width('100%')
       .height('100%')
