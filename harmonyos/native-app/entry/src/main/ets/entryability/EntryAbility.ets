@@ -79,6 +79,9 @@ export default class EntryAbility extends UIAbility {
     PreferencesStore.get().init(this.context).then(() => {
       // 会话内容字号（小/标准/大/特大）→ AppStorage，供对话页与设置预览统一读取
       AppStorage.setOrCreate<string>('contentFontSize', PreferencesStore.get().getString('contentFontSize', '标准'));
+      // 新会话权限：启动即同步到 AppStorage，对话页输入框直接显示
+      AppStorage.setOrCreate<string>('defaultPermission',
+        PreferencesStore.get().getString('defaultPermission', 'workspace-write'));
       // 工作步骤展示偏好 → AppStorage（对话页 StorageProp 响应式读取）
       AppStorage.setOrCreate<string>('workStepMode', PreferencesStore.get().getString('workStepMode', 'detailed'));
       AppStorage.setOrCreate<string>('workStepTiming', PreferencesStore.get().getString('workStepTiming', 'completion'));

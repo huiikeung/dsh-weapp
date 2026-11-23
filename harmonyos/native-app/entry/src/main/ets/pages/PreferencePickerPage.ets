@@ -30,6 +30,20 @@ function optionsFor(kind: string): PickerOption[] {
   const push = (id: string, label: string, detail: string): void => {
     out.push({ id: id, label: label, detail: detail });
   };
+  if (kind === 'session-permission') {
+    // 会话设置-权限：由 SessionSettingsPage push 前写入的 \u0003/\u0002 分隔数据（避免 ArkTS JSON 泛型）
+    const raw: string = AppStorage.get<string>('sessionPermissionPickerJson') ?? '';
+    for (const one of raw.split('\u0003')) {
+      if (one.length === 0) {
+        continue;
+      }
+      const parts: string[] = one.split('\u0002');
+      if (parts.length >= 3) {
+        out.push({ id: parts[0], label: parts[1], detail: parts[2] });
+      }
+    }
+    return out;
+  }
   if (kind === 'session-agent-preset') {
     // 动态选项：会话设置页打开前把网关下发的预设写进 AppStorage（JSON）
     const raw: string = AppStorage.get<string>('sessionPresetPickerJson') ?? '';
@@ -111,6 +125,9 @@ function optionsFor(kind: string): PickerOption[] {
 function titleFor(kind: string): string {
   if (kind === 'session-agent-preset') {
     return 'Agent 预设';
+  }
+  if (kind === 'session-permission') {
+    return '权限';
   }
   if (kind === 'appearance') {
     return '外观';

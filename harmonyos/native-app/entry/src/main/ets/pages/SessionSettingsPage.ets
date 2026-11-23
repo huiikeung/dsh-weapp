@@ -217,13 +217,21 @@ export struct SessionSettingsPage {
   }
 
   /** 分组标题：字号/字重/缩进与「Tailscale 内嵌隧道」页的 sectionHeader 完全一致 */
+  /** 分组标题：标题右侧紧跟说明按钮 ⓘ（点开系统菜单看该模块的说明） */
   @Builder
-  groupTitle(title: string) {
-    Text(title)
-      .fontSize(13)
-      .fontColor(this.subColor())
-      .width('100%')
-      .padding({ left: 16, right: 16, top: 18, bottom: 7 })
+  groupTitle(title: string, hint: string = '') {
+    Row({ space: 2 }) {
+      Text(title)
+        .fontSize(13)
+        .fontColor(this.subColor())
+      if (hint.length > 0) {
+        this.infoHint('group:' + title, hint)
+      }
+    }
+    .width('100%')
+    .justifyContent(FlexAlign.Start)
+    .alignItems(VerticalAlign.Center)
+    .padding({ left: 16, right: 16, top: 18, bottom: 7 })
   }
 
   /** 说明弹窗：系统菜单（与 Tailscale 页 ⓘ 同款），锚定在 ⓘ 上 */
@@ -267,16 +275,6 @@ export struct SessionSettingsPage {
         this.hintText = desc;
         this.hintMenuOpen = this.hintMenuOpen === key ? '' : key;
       })
-  }
-
-  /** 分组说明：只留 ⓘ，点开看说明 */
-  @Builder
-  groupHint(text: string) {
-    Row() {
-      this.infoHint('group:' + text, text)
-    }
-    .width('100%')
-    .padding({ left: 8, top: 2, bottom: 2 })
   }
 
   /** 功能行：直接 onClick（避免 @Builder 传函数参数不触发的问题） */
@@ -434,7 +432,7 @@ export struct SessionSettingsPage {
       .constraintSize({ minHeight: 44 })
       .padding({ left: 16, right: 16, top: 15, bottom: 15 })
       .onClick(() => {
-        this.openPermissionPicker();
+        this.openPermissionPage();
       })
     }
     .width('100%')
@@ -487,9 +485,9 @@ export struct SessionSettingsPage {
           Column() {
 
             // 新会话默认配置
-            this.groupTitle('新会话默认配置')
+            this.groupTitle('新会话默认配置', '与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。')
             this.cardBox()
-            this.groupHint('与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。')
+
 
             // 功能
             this.groupTitle('功能')
@@ -513,7 +511,7 @@ export struct SessionSettingsPage {
             .clip(true)
 
             // Tailscale 内嵌隧道（对齐 iOS SettingsView 的独立 Section）
-            this.groupTitle('Tailscale 内嵌隧道')
+            this.groupTitle('Tailscale 内嵌隧道', '在应用内建立一个 Tailscale 节点：不需要安装 Tailscale，也不会占用系统 VPN。节点只在你自己的 tailnet 内可达。')
             Column() {
               this.tailscaleRow('内嵌隧道', () => {
                 this.pageStack.pushPathByName('tailscale', null);
@@ -524,10 +522,10 @@ export struct SessionSettingsPage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-            this.groupHint('在应用内建立一个 Tailscale 节点：不需要安装 Tailscale，也不会占用系统 VPN。节点只在你自己的 tailnet 内可达。')
+
 
             // 网络与连接：当前网络类型与正在使用的端点（局域网优先 / 蜂窝自动切公网）
-            this.groupTitle('网络与连接')
+            this.groupTitle('网络与连接', '在家走 Wi-Fi 时优先局域网直连；切到蜂窝数据后自动改用公网地址。')
             Column() {
               this.cardRow('当前网络', this.networkBearerLabel(), false, () => {
               })
@@ -547,7 +545,7 @@ export struct SessionSettingsPage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-            this.groupHint('在家走 Wi-Fi 时优先局域网直连；切到蜂窝数据后自动改用公网地址。')
+
 
             // 主机信息
             this.groupTitle('主机信息')
@@ -1641,6 +1639,8 @@ export struct SessionSettingsPage {
 
   private applyPermission(id: string, label: string): void {
     this.pickPermission = id;
+    this.defaultPermissionValue = id;
+    AppStorage.setOrCreate<string>('defaultPermission', id);
     PreferencesStore.get().putString('defaultPermission', id);
     this.pickerOpen = false;
     this.hint = '已切换权限为「' + label + '」，仅对新建会话生效';
@@ -1703,13 +1703,17 @@ export struct SessionSettingsPage {
     return id;
   }
 
-  /** 打开权限弹窗 */
-  private openPermissionPicker(): void {
-    this.pickerKind = 'permission';
-    this.pickerTitle = '权限';
-    this.pickerIntro = '权限预设用于控制新会话可以执行的操作。';
-    this.pickerItems = [];
-    this.pickerOpen = true;
+  /** 权限改为二级页面（复用 pref-picker，样式与 Agent 预设一致） */
+  private openPermissionPage(): void {
+    const rows: string[] = [];
+    for (const one of this.permissionOptions()) {
+      rows.push(one.id + '\u0002' + one.label + '\u0002' + one.description);
+    }
+    AppStorage.setOrCreate<string>('sessionPermissionPickerJson', rows.join('\u0003'));
+    AppStorage.setOrCreate<string>('prefPickerKind', 'session-permission');
+    const current: string = this.pickPermission.length > 0 ? this.pickPermission : this.defaultPermissionValue;
+    AppStorage.setOrCreate<string>('prefPickerValue', current.length > 0 ? current : 'workspace-write');
+    this.pageStack.pushPathByName('pref-picker', null);
   }
 
   /** 预设选项：应用名称/描述映射（对齐小程序 pickAgentPreset） */
@@ -1800,6 +1804,18 @@ export struct SessionSettingsPage {
       return;
     }
     const kind: string = raw.substring(0, sep);
+    if (kind === 'session-permission') {
+      const pid: string = raw.substring(sep + 1);
+      let plabel: string = pid;
+      for (const one of this.permissionOptions()) {
+        if (one.id === pid) {
+          plabel = one.label;
+          break;
+        }
+      }
+      this.applyPermission(pid, plabel);
+      return;
+    }
     if (kind !== 'session-agent-preset') {
       return;
     }
