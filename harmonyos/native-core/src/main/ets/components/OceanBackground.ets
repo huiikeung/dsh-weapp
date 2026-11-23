@@ -114,7 +114,7 @@ export struct OceanBackground {
     }
     const totalH: number = this.canvasHeight;
     const aspect: number = this.canvasWidth / Math.max(1, totalH);
-    const fw: number = 200;
+    const fw: number = 160;
     const fh: number = Math.max(1, Math.min(256, Math.round(fw / aspect)));
     const revision: number = this.flowRevision;
     this.flowBusy = true;
@@ -219,13 +219,12 @@ export struct OceanBackground {
     ctx.save();
 
     // 与 iOS HarnessWhaleField 相同的几何与参数
-    // iOS 上鲸鱼占屏更满：整体放大 18%，点径仍按 iOS 基础尺寸算，避免点变大
+    // 与 iOS 完全一致：不做额外缩放
     const baseSquare: number = Math.max(w * 1.15, totalH * 0.48);
-    const square: number = baseSquare * 1.04;
+    const square: number = baseSquare;
     const cx: number = w * 0.55;
     const cy: number = totalH * 0.34;
-    // 与 iOS 观感一致：iPhone 3x 下约 6px；鸿蒙 vp 偏大，收小一点更精致
-    const baseDot: number = Math.max(1.05, baseSquare / 300);
+    const baseDot: number = Math.max(1.45, baseSquare / 220);
     const t: number = this.reduceMotion ? 0 : this.phase;
 
     this.pixels.forEach((pixel: Pixel) => {
@@ -289,13 +288,13 @@ export struct OceanBackground {
       const now: number = Date.now();
       this.phase = (this.phase + (now - last) / 1000) % 4096;
       last = now;
-      // 鲸鱼 30fps（对齐 iOS TimelineView 1/30）；流体每 3 帧重算 ≈10fps（TaskPool 低分辨率，降发热）
+      // 保持动效的前提下省电：鲸鱼 25fps（iOS 30fps），流体约 6fps
       this.drawWhale();
-      this.bgFrame = (this.bgFrame + 1) % 3;
+      this.bgFrame = (this.bgFrame + 1) % 4;
       if (this.bgFrame === 0) {
         this.updateFlow();
       }
-    }, 33);
+    }, 40);
   }
 
   private isAnimating(): boolean {
