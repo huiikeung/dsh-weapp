@@ -5711,7 +5711,8 @@ export struct ConversationPage {
               Blank()
             }
             .width('100%')
-            .padding({ left: this.rpx(28), right: this.rpx(28), bottom: this.rpx(10) })
+            // 宽屏：模式胶囊与居中的输入条左缘对齐（输入条外层 14vp + 居中留白）
+            .padding({ left: this.rpx(14) + this.wideInset(), right: this.rpx(14) + this.wideInset(), bottom: this.rpx(10) })
           }
           // 输入条容器：小程序 dock-stack 左右 14vp 内边距 + 底部安全区
           Column() {
