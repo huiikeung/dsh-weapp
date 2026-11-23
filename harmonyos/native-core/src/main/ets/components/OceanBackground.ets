@@ -24,6 +24,7 @@ export struct OceanBackground {
   @StorageLink('homeAnimationEnabled') @Watch('restart') homeAnimationEnabled: boolean = true;
   @StorageLink('appLifecycle') @Watch('restart') appLifecycle: string = 'foreground';
 
+  @State private revealed: boolean = false;
   private bg: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private whale: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
@@ -110,7 +111,7 @@ export struct OceanBackground {
 
   /** 首帧同步渲染一张低分辨率流体：保证启动第一帧就有光带，不出现「晚出来」 */
   private buildInitialFlow(): ImageBitmap | undefined {
-    const w: number = 64;
+    const w: number = 96;
     const h: number = Math.max(1, Math.round(w * this.canvasHeight / Math.max(1, this.canvasWidth)));
     try {
       const aspect: number = this.canvasWidth / Math.max(1, this.canvasHeight);
@@ -379,14 +380,21 @@ export struct OceanBackground {
       this.flowRevision++;
       this.flow?.close();
       this.flow = undefined;
+      // 尺寸确定后立刻同步生成一张流体，保证第一次可见就是完整背景
+      this.flow = this.buildInitialFlow();
       if (this.whaleReady) {
         this.sample();
         this.drawWhale();
       }
       if (this.bgReady) {
         this.drawBackground();
-        this.updateFlow();
       }
+      if (!this.revealed) {
+        this.revealed = true;
+      }
+      this.updateFlow();
     })
+    .opacity(this.revealed ? 1 : 0)
+    .backgroundColor('#05101f')
   }
 }
