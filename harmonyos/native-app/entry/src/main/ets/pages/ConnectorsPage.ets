@@ -33,26 +33,26 @@ export struct ConnectorsPage {
     return this.availableFlags.length > index && this.availableFlags.charAt(index) === '1';
   }
 
-  private moduleSymbol(id: string): Resource {
+  private moduleIcon(id: string): Resource {
     if (id === 'calendar') {
-      return $r('sys.symbol.calendar');
+      return $r('app.media.ic_connector_calendar');
     }
     if (id === 'reminders') {
-      return $r('app.media.connector_reminders');
+      return $r('app.media.ic_connector_reminders');
     }
     if (id === 'location') {
-      return $r('app.media.connector_location');
+      return $r('app.media.ic_connector_location');
     }
     if (id === 'photos') {
-      return $r('app.media.connector_photos');
+      return $r('app.media.ic_connector_photos');
     }
     if (id === 'music') {
-      return $r('app.media.connector_music');
+      return $r('app.media.ic_connector_music');
     }
     if (id === 'health') {
-      return $r('app.media.connector_health');
+      return $r('app.media.ic_connector_health');
     }
-    return $r('app.media.connector_alarms');
+    return $r('app.media.ic_connector_alarms');
   }
 
   private stateColor(): string {
@@ -160,15 +160,10 @@ export struct ConnectorsPage {
             Column() {
               ForEach(CONNECTOR_MODULES, (module: ConnectorModuleDefinition, index: number) => {
                 Row({ space: 12 }) {
-                  Stack({ alignContent: Alignment.Center }) {
-                    SymbolGlyph(this.moduleSymbol(module.id))
-                      .fontSize(19)
-                      .fontColor(['#FFFFFF'])
-                  }
-                  .width(34)
-                  .height(34)
-                  .backgroundColor('#2E6BE6')
-                  .borderRadius(9)
+                  Image(this.moduleIcon(module.id))
+                    .width(36)
+                    .height(36)
+                    .objectFit(ImageFit.Contain)
                   Column({ space: 2 }) {
                     Text(module.title)
                       .fontSize(16)
@@ -233,10 +228,12 @@ export struct ConnectorsPage {
         }
         .layoutWeight(1)
         .width('100%')
+        .align(Alignment.Top)
         .scrollBar(BarState.Off)
       }
       .width('100%')
       .height('100%')
+      .justifyContent(FlexAlign.Start)
     }
     .hideTitleBar(true)
     .backgroundColor(this.pageBg())
