@@ -4865,14 +4865,22 @@ export struct ConversationPage {
       }
       .width('100%')
       .padding({ left: 18, right: 18, top: 9, bottom: 9 })
-      .borderRadius(12)
+      // 只有选中项显示底色，圆角拉到最大；未选中保持全透明
+      .borderRadius(current ? 20 : 12)
       .alignItems(HorizontalAlign.Start)
+      .backgroundColor(current
+        ? (this.isDark ? 'rgba(46,107,230,0.26)' : 'rgba(46,107,230,0.10)')
+        : Color.Transparent)
       .stateStyles({
         normal: {
-          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.055)' : 'rgba(16,19,24,0.035)')
+          .backgroundColor(current
+            ? (this.isDark ? 'rgba(46,107,230,0.26)' : 'rgba(46,107,230,0.10)')
+            : Color.Transparent)
         },
         pressed: {
-          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(16,19,24,0.10)')
+          .backgroundColor(current
+            ? (this.isDark ? 'rgba(46,107,230,0.34)' : 'rgba(46,107,230,0.16)')
+            : (this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(16,19,24,0.06)'))
         }
       })
     }
