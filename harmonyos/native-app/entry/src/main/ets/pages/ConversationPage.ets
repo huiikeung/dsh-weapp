@@ -463,6 +463,8 @@ export struct ConversationPage {
   private fileSummaryRetryTimer: number = -1;
   /** 已编辑文件卡片内联到助手回复（显示在复制/用量/时间行上方） */
   private inlineAssistantFiles: Map<string, string[]> = new Map<string, string[]>();
+  /** 上一轮「已编辑文件」内联卡片的状态签名：摘要晚到时用它判断要不要整表重载 */
+  private inlineFilesSig: string = '';
   /** 内联卡片对应的变更行 seq（点文件时按 seq 拉取差异） */
   private inlineChangeSeqByAssistant: Map<string, number> = new Map<string, number>();
   /** 助手产出的图片文件（deliverables）：内联成图片卡片显示在回复下方 */
@@ -2888,12 +2890,26 @@ export struct ConversationPage {
         }
       }
     }
+    // 「已编辑文件」卡片是异步摘要：回合结束后 1~2 秒才拿到 chips，
+    // 行 key 里带了卡片数量，所以摘要晚到时必须整表（或该行）重载，否则卡片要退出重进才出现。
+    let filesSig: string = '';
+    for (const row of rows) {
+      const chips: string[] | undefined = this.inlineAssistantFiles.get(row.id);
+      filesSig += row.id + ':' + (chips === undefined ? 0 : chips.length).toString() + '|';
+    }
+    const filesChanged: boolean = filesSig !== this.inlineFilesSig;
+    this.inlineFilesSig = filesSig;
     if (!structureChanged) {
       // 结构没变但组体内容涨了（运行中常见）。
       // 让 entries 换一个新数组引用，@State 才能触发 ForEach 重跑；
       // ForEach 的 key 里带 itemsRevision，于是只有内容变化的那几行会重建。
-      if (grewIndexes.length > 0) {
+      if (grewIndexes.length > 0 || filesChanged) {
         this.entries = built;
+        this.source.update(built);
+        if (filesChanged) {
+          // 卡片摘要晚到：key 变了但行实例没变，靠整表重载让 LazyForEach 重新算 key
+          this.source.reload();
+        }
       }
       return;
     }
