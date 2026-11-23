@@ -362,7 +362,6 @@ export struct ClawbotPage {
     .width('100%')
     .height(56 + this.topInset())
     .padding({ left: 14, right: 14, top: this.topInset() > 2 ? this.topInset() - 2 : 0 })
-    .zIndex(10)
   }
 
   /** hero：状态点 + 标题 + 副标题 + 刷新胶囊（运行中绿色高亮，对齐小程序 .clawbot-hero） */
@@ -759,12 +758,6 @@ export struct ClawbotPage {
   build() {
     NavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
-        Column()
-          .width('100%')
-          .height(56 + this.topInset())
-          .backdropBlur(12)
-          .backgroundColor(Color.Transparent)
-          .hitTestBehavior(HitTestMode.None)
         Column() {
           this.navBar()
           Scroll() {
@@ -777,8 +770,6 @@ export struct ClawbotPage {
           }
           .layoutWeight(1)
           .width('100%')
-          .padding({ top: 56 + this.topInset() })
-          .margin({ top: -(56 + this.topInset()) })
           .align(Alignment.TopStart)
           .scrollBar(BarState.Off)
         }

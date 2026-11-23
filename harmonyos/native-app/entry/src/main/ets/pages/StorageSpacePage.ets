@@ -295,7 +295,6 @@ export struct StorageSpacePage {
     .height(56)
     .padding({ left: 16, right: 16 })
     .margin({ top: this.topInset() })
-    .zIndex(10)
   }
 
   /** iOS 分组标题 */
@@ -486,13 +485,6 @@ export struct StorageSpacePage {
   build() {
     NavDestination() {
       Column() {
-        Column()
-          .width('100%')
-          .height(56 + this.topInset())
-          .backdropBlur(12)
-          .backgroundColor(Color.Transparent)
-          .position({ x: 0, y: 0 })
-          .hitTestBehavior(HitTestMode.None)
         this.navBar()
         if (this.loading) {
           Column() {
@@ -531,8 +523,6 @@ export struct StorageSpacePage {
           .layoutWeight(1)
           .align(Alignment.Top)
           .scrollBar(BarState.Off)
-          .padding({ top: 56 + this.topInset() })
-          .margin({ top: -(56 + this.topInset()) })
           .edgeEffect(EdgeEffect.None)
         }
       }
