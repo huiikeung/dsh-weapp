@@ -21,6 +21,11 @@ export struct NetworkPage {
   @State probing: boolean = false;
   @State probes: NetProbe[] = [];
   @State hint: string = '';
+  @State toastText: string = '';
+  @State toastError: boolean = false;
+  @State toastOpacity: number = 0;
+  @State toastOffset: number = -10;
+  private toastTimer: number = -1;
 
   private topInset(): number {
     return this.safeTopStorage > 0 ? this.safeTopStorage : 38.9;
@@ -147,7 +152,7 @@ export struct NetworkPage {
     }
     const urls: string[] = this.candidates();
     if (urls.length === 0) {
-      this.hint = '还没有已保存的端点，先连接一次网关';
+      this.showToast('还没有已保存的端点，先连接一次网关', true);
       return;
     }
     this.probing = true;
@@ -160,24 +165,95 @@ export struct NetworkPage {
       this.probes = results.slice();
     }
     this.probing = false;
-    this.hint = '检测完成：' + results.filter((one: NetProbe) => one.ok).length + '/' + results.length + ' 个端点可达';
+    const okCount: number = results.filter((one: NetProbe) => one.ok).length;
+    this.showToast('检测完成：' + okCount + '/' + results.length + ' 个端点可达', okCount === 0);
   }
 
   private pingGateway(): void {
     if (this.connection !== 'connected') {
-      this.hint = '未连接网关，先点「连接」';
+      this.showToast('未连接网关，先点「连接」', true);
       return;
     }
     const started: number = Date.now();
     GatewayClient.get().requestHost().then(() => {
-      this.hint = 'Ping 成功：' + (Date.now() - started) + ' ms';
+      this.showToast('Ping 成功：' + (Date.now() - started) + ' ms', false);
     }).catch((err: Error) => {
-      this.hint = 'Ping 失败：' + this.shortError(err.message);
+      this.showToast('Ping 失败：' + this.shortError(err.message), true);
     });
+  }
+
+  /** 顶部悬浮提示：淡入 + 停留 2.6s + 淡出（与对话页一致） */
+  private showToast(message: string, error: boolean = false): void {
+    if (message.length === 0) {
+      return;
+    }
+    if (this.toastTimer >= 0) {
+      clearTimeout(this.toastTimer);
+      this.toastTimer = -1;
+    }
+    this.toastText = message;
+    this.toastError = error;
+    this.toastOffset = -10;
+    this.toastOpacity = 0;
+    this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+      this.toastOpacity = 1;
+      this.toastOffset = 0;
+    });
+    this.toastTimer = setTimeout(() => {
+      this.getUIContext().animateTo({ duration: 160, curve: Curve.EaseIn }, () => {
+        this.toastOpacity = 0;
+        this.toastOffset = -10;
+      });
+      setTimeout(() => {
+        if (this.toastOpacity === 0) {
+          this.toastText = '';
+        }
+      }, 200);
+      this.toastTimer = -1;
+    }, 2600);
+  }
+
+  @Builder
+  topToast() {
+    if (this.toastText.length > 0) {
+      Row({ space: 9 }) {
+        Text('!')
+          .fontSize(12)
+          .fontWeight(FontWeight.Bold)
+          .fontColor('#FFFFFF')
+          .width(18)
+          .height(18)
+          .borderRadius(9)
+          .textAlign(TextAlign.Center)
+          .backgroundColor(this.toastError ? '#E5533C' : '#2E6BE6')
+        Text(this.toastText)
+          .fontSize(13)
+          .lineHeight(19)
+          .fontColor(this.toastError ? (this.isDark ? '#FF9B9F' : '#C0392B') : this.textColor())
+          .layoutWeight(1)
+          .maxLines(3)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+      .constraintSize({ maxWidth: '92%' })
+      .padding({ left: 14, right: 18, top: 12, bottom: 12 })
+      .borderRadius(16)
+      .backgroundColor(this.isDark ? 'rgba(32,34,40,0.96)' : 'rgba(255,255,255,0.97)')
+      .border({
+        width: 0.5,
+        color: this.toastError
+          ? 'rgba(235,87,87,0.38)'
+          : (this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(16,19,24,0.08)')
+      })
+      .shadow({ radius: 18, color: this.isDark ? 'rgba(0,0,0,0.5)' : 'rgba(16,19,24,0.16)', offsetY: 4 })
+      .opacity(this.toastOpacity)
+      .translate({ y: this.toastOffset })
+      .margin({ top: this.topInset() + 6 })
+    }
   }
 
   build() {
     NavDestination() {
+      Stack({ alignContent: Alignment.Top }) {
       Column() {
         Stack({ alignContent: Alignment.TopStart }) {
           Column()
@@ -326,6 +402,8 @@ export struct NetworkPage {
       .width('100%')
       .height('100%')
       .backgroundColor(this.pageBg())
+      }
+      this.topToast()
     }
     .hideTitleBar(true)
   }
