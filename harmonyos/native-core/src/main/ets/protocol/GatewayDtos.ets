@@ -454,6 +454,10 @@ export interface GatewayFrame {
   protocol?: number;
   capabilities?: string[];
   dshVersion?: string;
+  /** 网关插件包名（如 dsh-plugin-weapp-gateway），hello/host 帧上报 */
+  gatewayPackage?: string;
+  /** 网关插件版本（如 0.2.2-rc.5），优先于 dshVersion 展示 */
+  gatewayVersion?: string;
   historyFormatVersion?: number;
   subscriptionId?: string;
   streamId?: string;

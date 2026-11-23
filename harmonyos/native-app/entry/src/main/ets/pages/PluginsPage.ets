@@ -63,6 +63,8 @@ export struct PluginsPage {
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   @Consume('pageStack') pageStack: NavPathStack;
   @State pluginTab: string = 'installed';
+  /** 从设置页「语音插件设置」跳转过来时的深链标记 */
+  @StorageProp('pluginsDeepLinkVoice') @Watch('onVoiceDeepLink') voiceDeepLink: boolean = false;
   @State showingMore: boolean = false;
   @State hint: string = '';
   @State loading: boolean = false;
@@ -708,6 +710,40 @@ export struct PluginsPage {
     }
     .width('100%')
     .height('100%')
+  }
+
+  aboutToAppear(): void {
+    // 页面创建时 deep link 可能已经是 true（@Watch 不会为初始值触发）
+    this.consumeVoiceDeepLink();
+  }
+
+  onVoiceDeepLink(): void {
+    this.consumeVoiceDeepLink();
+  }
+
+  /** 从设置页「语音插件设置」进来：自动打开语音插件的详情（即该插件的语音设置） */
+  private consumeVoiceDeepLink(): void {
+    if (!this.voiceDeepLink) {
+      return;
+    }
+    AppStorage.setOrCreate<boolean>('pluginsDeepLinkVoice', false);
+    this.openVoicePluginDetail(0);
+  }
+
+  private openVoicePluginDetail(tick: number): void {
+    for (const item of this.bundles) {
+      const name: string = item.name.toLowerCase();
+      if (name.indexOf('voice') >= 0) {
+        this.openDetail(item);
+        return;
+      }
+    }
+    // 插件列表可能还没拉到：短暂重试几次
+    if (tick < 12) {
+      setTimeout(() => {
+        this.openVoicePluginDetail(tick + 1);
+      }, 300);
+    }
   }
 
   @Builder

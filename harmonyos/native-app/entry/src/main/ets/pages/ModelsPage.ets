@@ -1,6 +1,6 @@
 import { NavBackButton } from '../components/NavBackButton';
 import { uiMaterial } from '@kit.ArkUI';
-import { appGlassBorderColor, appGlassBlur, appGlassFill, appGlassShadow } from '../common/AppGlass';
+import { appGlassShadow } from '../common/AppGlass';
 import { GatewayClient, Logger } from 'nativecore';
 import type { GatewayFrame, PluginNamespace, ProviderRow, ModelRow, DiscoveredModel } from 'nativecore';
 import {
@@ -615,34 +615,7 @@ export struct ModelsPage {
   build() {
     NavDestination() {
       Stack({ alignContent: Alignment.BottomStart }) {
-
-        Column()
-          .width('100%')
-          .height(44 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9))
-          .backdropBlur(12)
-          .backgroundColor(Color.Transparent)
-          .hitTestBehavior(HitTestMode.None)
         Column() {
-          // 导航
-          Row() {
-            NavBackButton({ isDark: this.isDark })
-              .onClick(() => {
-                this.pageStack.pop();
-              })
-            Text('模型')
-              .fontSize(17)
-              .fontWeight(FontWeight.Bold)
-              .fontColor(this.textColor())
-              .layoutWeight(1)
-              .textAlign(TextAlign.Center)
-            Row().width(40)
-          }
-          .width('100%')
-          .height(44)
-          .padding({ left: 8, right: 8 })
-          .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
-        .zIndex(10)
-
           Scroll() {
             Column({ space: 0 }) {
               if (this.hint.length > 0) {
@@ -979,18 +952,39 @@ export struct ModelsPage {
               }
             }
             .width('100%')
-            .padding({ top: 4 })
+            // 顶部让出导航浮层高度（内容可滚到玻璃导航下方）
+            .padding({ top: 44 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 4 })
           }
           .layoutWeight(1)
           .align(Alignment.Top)
           .scrollBar(BarState.Off)
-              .padding({ top: 44 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) })
-              .margin({ top: -(44 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
         }
         .width('100%')
         .height('100%')
         .backgroundColor(this.pageBg())
 
+        // 导航浮层：独立于滚动内容，避免负 margin 造成点按区域错位
+        Row() {
+          NavBackButton({ isDark: this.isDark })
+            .onClick(() => {
+              this.pageStack.pop();
+            })
+          Text('模型')
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.textColor())
+            .layoutWeight(1)
+            .textAlign(TextAlign.Center)
+          Row().width(40)
+        }
+        .width('100%')
+        .height(44 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9))
+        .padding({ left: 8, right: 8, top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
+        .backdropBlur(12)
+        .backgroundColor(Color.Transparent)
+        // Stack 的 alignContent 是 BottomStart（给底部弹层用），导航必须绝对定位到顶部
+        .position({ x: 0, y: 0 })
+        .zIndex(10)
 
         if (this.discoverOpen) {
           Column()
@@ -1211,9 +1205,12 @@ export struct ModelsPage {
           .width('100%')
           .constraintSize({ maxHeight: '86%' })
           .borderRadius({ topLeft: 20, topRight: 20 })
-          .backgroundColor(appGlassFill(this.isDark))
-          .backdropBlur(appGlassBlur(this.isDark))
-          .border({ width: 1, color: appGlassBorderColor(this.isDark) })
+          // 原生玻璃：系统 COMPONENT_THICK 模糊材质 + 玻璃色叠层（对齐设置页/系统弹窗）
+          .backgroundColor(this.isDark ? 'rgba(44,46,52,0.70)' : 'rgba(255,255,255,0.72)')
+          .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
+            colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
+          })
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.65)' })
           .shadow(appGlassShadow(this.isDark))
           .padding({ bottom: this.safeBottomStorage > 0 ? this.safeBottomStorage : 20 })
           .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 420 })).animation({ duration: 320, curve: Curve.Friction }))
@@ -1580,9 +1577,12 @@ export struct ModelsPage {
           .width('100%')
           .constraintSize({ maxHeight: '86%' })
           .borderRadius({ topLeft: 20, topRight: 20 })
-          .backgroundColor(appGlassFill(this.isDark))
-          .backdropBlur(appGlassBlur(this.isDark))
-          .border({ width: 1, color: appGlassBorderColor(this.isDark) })
+          // 原生玻璃：系统 COMPONENT_THICK 模糊材质 + 玻璃色叠层（对齐设置页/系统弹窗）
+          .backgroundColor(this.isDark ? 'rgba(44,46,52,0.70)' : 'rgba(255,255,255,0.72)')
+          .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
+            colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
+          })
+          .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.65)' })
           .shadow(appGlassShadow(this.isDark))
           .padding({ bottom: this.safeBottomStorage > 0 ? this.safeBottomStorage : 20 })
           .transition(TransitionEffect.OPACITY.combine(TransitionEffect.translate({ y: 420 })).animation({ duration: 320, curve: Curve.Friction }))
@@ -1649,9 +1649,11 @@ export struct ModelsPage {
             }
             .width('86%')
             .borderRadius(16)
-            .backgroundColor(appGlassFill(this.isDark))
-            .backdropBlur(appGlassBlur(this.isDark))
-            .border({ width: 1, color: appGlassBorderColor(this.isDark) })
+            .backgroundColor(this.isDark ? 'rgba(44,46,52,0.70)' : 'rgba(255,255,255,0.72)')
+            .backgroundBlurStyle(BlurStyle.COMPONENT_THICK, {
+              colorMode: this.isDark ? ThemeColorMode.DARK : ThemeColorMode.LIGHT
+            })
+            .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.65)' })
             .shadow(appGlassShadow(this.isDark))
           }
           .width('100%')

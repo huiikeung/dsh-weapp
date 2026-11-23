@@ -208,7 +208,10 @@ export struct NodeManagePage {
                     }
                   }
                   .width('100%')
-                  .backgroundColor(row.active ? this.innerFill() : Color.Transparent)
+                  // 当前连接节点：明显的蓝色底
+                  .backgroundColor(row.active
+                    ? (this.isDark ? 'rgba(46,107,230,0.24)' : 'rgba(46,107,230,0.10)')
+                    : Color.Transparent)
                 }, (row: NodeRowView) => row.id)
               }
             }

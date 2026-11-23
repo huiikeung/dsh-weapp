@@ -2839,9 +2839,19 @@ export class GatewayClient {
       return;
     }
     // 默认配置由 maybeActivate 在完成 paired/hello 握手后统一拉取。
-    const version: string = frame.dshVersion !== undefined ? frame.dshVersion : '';
+    // 网关插件版本（frame.gatewayVersion）才是「已连接网关版本」的正确来源，
+    // dshVersion 是主机 DSH 内核版本，老网关可能缺字段。
+    const pluginVersion: string = frame.gatewayVersion !== undefined ? frame.gatewayVersion : '';
+    const dshVersion: string = frame.dshVersion !== undefined ? frame.dshVersion : '';
+    const version: string = pluginVersion.length > 0 ? pluginVersion : dshVersion;
     const protocol: number = frame.protocol !== undefined ? frame.protocol : 0;
+    const pkg: string = frame.gatewayPackage !== undefined ? frame.gatewayPackage : '';
     AppStorage.setOrCreate<string>('gatewayVersion', version);
+    AppStorage.setOrCreate<string>('gatewayPluginVersion', pluginVersion);
+    AppStorage.setOrCreate<string>('gatewayDshVersion', dshVersion);
+    if (pkg.length > 0) {
+      AppStorage.setOrCreate<string>('gatewayPackage', pkg);
+    }
     AppStorage.setOrCreate<number>('gatewayProtocol', protocol);
   }
 

@@ -308,13 +308,6 @@ export struct PreferencePickerPage {
       Column() {
         // 导航：返回 + 居中标题（与「设置」「对话状态条」等二级页一致）
         Stack({ alignContent: Alignment.TopStart }) {
-          Column()
-            .width('100%')
-            .height(56)
-            .backdropBlur(12)
-            .backgroundColor(Color.Transparent)
-            .hitTestBehavior(HitTestMode.None)
-
         Row() {
           NavBackButton({ isDark: this.isDark })
             .onClick(() => {
@@ -334,6 +327,7 @@ export struct PreferencePickerPage {
         .height(56)
         // 左右与内容一致（内容区 padding 18.7）
         .padding({ left: 18.7, right: 18.7 })
+        .backdropBlur(12)
         }
         .width('100%')
         .zIndex(10)
@@ -466,8 +460,8 @@ export struct PreferencePickerPage {
         }
         .layoutWeight(1)
         .scrollBar(BarState.Off)
-        .padding({ top: 56 })
-        .margin({ top: -56 })
+        // 不要用「padding + 负 margin」补位：负 margin 会让渲染位置与点按区域错开，
+        // 表现为点选项没反应/点错行。导航在 Stack 里独立占 56，内容自然排在它下面。
         .align(Alignment.Top)
       }
       .width('100%')

@@ -1,10 +1,12 @@
 import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { bundleManager, common } from '@kit.AbilityKit';
+import { pasteboard } from '@kit.BasicServicesKit';
 import type { ThemeMode, WorkStepOption } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
 import { NodeManageSheet } from '../components/NodeManageSheet';
 import { Haptics } from '../services/Haptics';
 import { AttachmentCache, CredentialStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, SessionSummary, ThemeManager, WorkStepPresentation, WorkspaceRow } from 'nativecore';
+import type { SavedGateway } from 'nativecore';
 
 /**
  * 工作步骤档位文案：作为独立组件直接订阅 AppStorage，
@@ -109,6 +111,10 @@ export struct AppSettingsPage {
   @StorageLink('workspaces') workspaces: WorkspaceRow[] = [];
   @StorageLink('safeTopVp') safeTopStorage: number = 0;
   @StorageLink('gatewayVersion') gatewayVersion: string = '';
+  /** 网关插件自报版本（hello.gatewayVersion），为空时回落到插件目录 */
+  @StorageLink('gatewayPluginVersion') gatewayPluginVersion: string = '';
+  /** 主机 DSH 内核版本（hello.dshVersion） */
+  @StorageLink('gatewayDshVersion') gatewayDshVersion: string = '';
   @StorageLink('pluginBundles') pluginBundles: Object[] = [];
   @StorageLink('scheduleTasks') scheduleTasks: Object[] = [];
 
@@ -579,11 +585,13 @@ export struct AppSettingsPage {
         .borderRadius(1)
         .backgroundColor(this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(16,19,24,0.10)')
         .margin({ left: 24, right: 12 })
-      Column({ space: 3 }) {
+      Row({ space: 2 }) {
         Text(label).fontSize(15).fontColor(this.textColor())
-        Text(desc).fontSize(12).lineHeight(17).fontColor(descColor)
+        if (desc.length > 0) {
+          this.infoHint('sub:' + label, desc)
+        }
       }
-      .alignItems(HorizontalAlign.Start)
+      .alignItems(VerticalAlign.Center)
       .layoutWeight(1)
       Text('›')
         .fontSize(16)
@@ -739,6 +747,73 @@ export struct AppSettingsPage {
       return ['悬浮卡片', '平面卡片', '紧凑卡片'];
     }
     return [];
+  }
+
+  /** 当前连接主机的类型：'server' | 'desktop'（读活动主机档案的 deviceKind） */
+  private currentHostKind(): string {
+    try {
+      const activeId: string = CredentialStore.get().activeGatewayId();
+      for (const saved of CredentialStore.get().list()) {
+        if (saved.id === activeId) {
+          const kind: string = saved.deviceKind !== undefined ? saved.deviceKind : '';
+          return kind === 'server' || kind === 'server.rack' ? 'server' : 'desktop';
+        }
+      }
+    } catch (err) {
+      return 'desktop';
+    }
+    return 'desktop';
+  }
+
+  /** iOS 风格「桌面电脑」图标（屏幕 + 支架 + 底座，同 HomePage.hostGlyph） */
+  @Builder
+  hostGlyph(size: number, color: string) {
+    Column() {
+      Column()
+        .width(size * 0.94)
+        .height(size * 0.60)
+        .border({ width: 1.4, color: color })
+        .borderRadius(size * 0.12)
+      Column()
+        .width(1.4)
+        .height(size * 0.14)
+        .backgroundColor(color)
+      Column()
+        .width(size * 0.42)
+        .height(1.4)
+        .borderRadius(1)
+        .backgroundColor(color)
+    }
+    .width(size)
+    .height(size)
+    .justifyContent(FlexAlign.Center)
+  }
+
+  /** iOS 风格「服务器」图标（机箱 + 两道分隔线 + 状态点，同 HomePage.serverGlyph） */
+  @Builder
+  serverGlyph(size: number, color: string) {
+    Stack({ alignContent: Alignment.Center }) {
+      Column()
+        .width(size * 0.90)
+        .height(size * 0.76)
+        .border({ width: 1.4, color: color })
+        .borderRadius(size * 0.14)
+      Column()
+        .width(size * 0.90)
+        .height(1.2)
+        .backgroundColor(color)
+        .translate({ y: -size * 0.127 })
+      Column()
+        .width(size * 0.90)
+        .height(1.2)
+        .backgroundColor(color)
+        .translate({ y: size * 0.127 })
+      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: -size * 0.253 })
+      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: 0 })
+      Circle({ width: size * 0.075, height: size * 0.075 }).fill(color).translate({ x: -size * 0.30, y: size * 0.253 })
+    }
+    .width(size)
+    .height(size)
   }
 
   /** 沉浸光感能力判断（旧系统降级） */
@@ -1131,6 +1206,65 @@ export struct AppSettingsPage {
       Logger.warn('notify test failed: ' + String(err));
       this.notificationHint = '测试通知异常：' + String(err);
       this.prompt('测试通知异常：' + String(err));
+    }
+  }
+
+  /**
+   * 「已连接网关版本」文案：
+   * 1) hello/host 帧上报的网关插件版本（gatewayVersion）
+   * 2) 插件目录里网关插件（dsh-plugin-weapp-gateway / dsh-plugin-mobile-gateway）的版本
+   * 3) 帧里的 gatewayVersion（可能是 DSH 内核版本）
+   * 4) 未上报
+   */
+  private gatewayVersionText(): string {
+    if (this.connection !== 'connected') {
+      return '未连接';
+    }
+    if (this.gatewayPluginVersion.length > 0) {
+      return this.gatewayPluginVersion;
+    }
+    const fromCatalog: string = this.gatewayVersionFromCatalog();
+    if (fromCatalog.length > 0) {
+      return fromCatalog;
+    }
+    return this.gatewayVersion.length > 0 ? this.gatewayVersion : '未上报';
+  }
+
+  private gatewayVersionFromCatalog(): string {
+    const baselines: string[] = ['dsh-plugin-weapp-gateway', 'dsh-plugin-mobile-gateway'];
+    for (const raw of this.pluginBundles) {
+      if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+        continue;
+      }
+      const item = raw as Record<string, Object>;
+      const name: string = item['name'] !== undefined ? String(item['name']) : '';
+      if (baselines.indexOf(name) < 0) {
+        continue;
+      }
+      const enabled: boolean = item['enabled'] === undefined ? true : item['enabled'] === true;
+      if (!enabled) {
+        continue;
+      }
+      const version: string = item['version'] !== undefined ? String(item['version']) : '';
+      if (version.length > 0) {
+        return version;
+      }
+    }
+    return '';
+  }
+
+  /** 联系客服邮箱：点击整行即复制，并给出提示 */
+  private copyServiceEmail(): void {
+    const email: string = 'wo.nbplus@qq.com';
+    try {
+      const data: pasteboard.PasteData = pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN, email);
+      pasteboard.getSystemPasteboard().setData(data).then(() => {
+        this.prompt('已复制邮箱 ' + email);
+      }).catch((err: Error) => {
+        this.prompt('复制失败：' + err.message);
+      });
+    } catch (err) {
+      this.prompt('复制失败：' + String(err));
     }
   }
 
@@ -1585,10 +1719,12 @@ export struct AppSettingsPage {
             Column({ space: 0 }) {
               Row({ space: 12 }) {
                 Row() {
-                  Image(this.isDark ? $r('app.media.node_router_white') : $r('app.media.node_router'))
-                    .width(23)
-                    .height(23)
-                    .objectFit(ImageFit.Contain)
+                  // 当前主机是什么类型就画什么图标（电脑 / 服务器），对齐「切换主机」里的类型
+                  if (this.currentHostKind() === 'server') {
+                    this.serverGlyph(23, this.textColor())
+                  } else {
+                    this.hostGlyph(23, this.textColor())
+                  }
                 }
                 .width(42)
                 .height(42)
@@ -1754,9 +1890,14 @@ export struct AppSettingsPage {
               })
               this.divider()
               if (this.voiceInputEnabled) {
-                this.row('语音插件设置', '', true, () => {
-                  this.openInfo('语音插件设置', '语音输入由已连接的 DSH 语音插件转写；请在网关侧安装并连接语音插件后使用。');
-                })
+                // 子菜单行（样式同「胶囊收起」）：点击进入插件页的语音插件设置
+                this.subActionRow('语音插件设置',
+                  '语音输入由已连接的 DSH 语音插件转写；点开可在插件页配置语音插件',
+                  this.subColor(),
+                  () => {
+                    AppStorage.setOrCreate<boolean>('pluginsDeepLinkVoice', true);
+                    this.pageStack.pushPathByName('plugins', null);
+                  })
                 this.divider()
               }
               this.rowWorkStep('工作步骤展示', '选择希望看到多少工具调用细节', 'mode', () => {
@@ -1779,16 +1920,13 @@ export struct AppSettingsPage {
             Column({ space: 0 }) {
               // 直接内联 Toggle（不经 @Builder 回调参数）：确保开关状态一定写入偏好并申请权限
               Row() {
-                Column({ space: 3 }) {
+                Row({ space: 2 }) {
                   Text('订阅通知')
                     .fontSize(16)
                     .fontColor(this.textColor())
-                  Text('任务完成时通过鸿蒙系统通知提醒（需允许通知权限）')
-                    .fontSize(12)
-                    .lineHeight(17)
-                    .fontColor(this.subColor())
+                  this.infoHint('订阅通知', '任务完成时通过鸿蒙系统通知提醒（需允许通知权限）')
                 }
-                .alignItems(HorizontalAlign.Start)
+                .alignItems(VerticalAlign.Center)
                 .layoutWeight(1)
                 Toggle({ type: ToggleType.Switch, isOn: this.notifyEnabled })
                   .selectedColor('#2E6BE6')
@@ -1803,15 +1941,8 @@ export struct AppSettingsPage {
               .width('100%')
               .constraintSize({ minHeight: 44 })
               .padding({ left: 16, right: 16, top: 12, bottom: 12 })
-              .onClick(() => {
-                // 整行点击也能切换开关
-                const next: boolean = !this.notifyEnabled;
-                this.notifyEnabled = next;
-                PreferencesStore.get().putBoolean('notifyEnabled', next);
-                if (next) {
-                  this.authorizeNotifications();
-                }
-              })
+              // 订阅通知只能点右侧开关切换：整行不再响应点击（避免误触关闭提醒）
+
               // 仅在订阅通知开启时显示测试入口
               if (this.notifyEnabled) {
                 this.divider()
@@ -1842,12 +1973,8 @@ export struct AppSettingsPage {
                 this.pageStack.pushPathByName('storage-space', null);
               })
               this.divider()
-              this.row('开发者公告', '', true, () => {
-                this.openInfo('开发者公告', '暂无开发者公告。');
-              })
-              this.divider()
-              this.row('联系客服', '', true, () => {
-                this.openInfo('联系客服', '请在小程序「鲸尾助手」中联系客服，或通过开发者公告获取支持渠道。');
+              this.row('联系客服', 'wo.nbplus@qq.com', true, () => {
+                this.copyServiceEmail();
               })
               this.divider()
               this.row('客户端', '鲸尾助手鸿蒙版', false, () => {
@@ -1859,11 +1986,23 @@ export struct AppSettingsPage {
               this.row('要求网关版本', '≥ 0.8.6', false, () => {
               })
               this.divider()
-              this.row('已连接网关版本', this.connection === 'connected' ? (this.gatewayVersion.length > 0 ? this.gatewayVersion : '未上报') : '未连接', false, () => {
+              this.row('已连接网关版本', this.gatewayVersionText(), false, () => {
+              })
+              this.divider()
+              this.row('DSH 版本', this.connection === 'connected'
+                ? (this.gatewayDshVersion.length > 0 ? this.gatewayDshVersion : '未上报')
+                : '未连接', false, () => {
+              })
+              this.divider()
+              this.row('用户协议', '', true, () => {
+                this.closeSheets();
+                this.pageStack.pushPathByName('user-agreement', null);
               })
               this.divider()
               this.row('隐私政策', '', true, () => {
-                this.openInfo('隐私政策', '账号与网关凭据仅保存在本机与已连接的 DSH 网关；语音、通知等能力需在系统中单独授权，可随时关闭。');
+                // 改为二级页面（内容对齐小程序隐私政策）
+                this.closeSheets();
+                this.pageStack.pushPathByName('privacy-policy', null);
               })
             }
             .width('100%')

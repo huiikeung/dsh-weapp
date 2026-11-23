@@ -67,18 +67,34 @@ export struct HomePage {
     Haptics.play();
   }
 
-  /** 首页右滑手势结束：横向位移够大且以横向为主时打开左侧栏 */
-  private onDrawerSwipeEnd(event: GestureEvent): void {
-    if (this.drawerOpen) {
-      return;
-    }
+  /**
+   * 首页横向手势结束：
+   * 右滑（dx>0）→ 打开左侧栏；左滑（dx<0）→ 打开会话设置页面。
+   * 位移需 ≥64vp 且以横向为主，避免与 Scroll 的竖向滚动互相误触。
+   */
+  private onHomeSwipeEnd(event: GestureEvent): void {
     const dx: number = event.offsetX;
     const dy: number = event.offsetY;
-    // 64vp 起、且横向位移明显大于纵向，避免垂直滚动（Scroll）时误触
-    if (dx < 64 || dx < Math.abs(dy) * 1.2) {
+    if (Math.abs(dx) < 64 || Math.abs(dx) < Math.abs(dy) * 1.2) {
       return;
     }
-    this.openDrawer();
+    if (dx > 0) {
+      this.openDrawer();
+      return;
+    }
+    // 左滑：侧栏展开时先收起，否则打开会话设置
+    if (this.drawerOpen) {
+      this.drawerOpen = false;
+      Haptics.play();
+      return;
+    }
+    Haptics.play();
+    this.pageStack.pushPathByName('session-settings', null);
+  }
+
+  /** 兼容旧入口：右滑结束 */
+  private onDrawerSwipeEnd(event: GestureEvent): void {
+    this.onHomeSwipeEnd(event);
   }
   @State manualSheetOpen: boolean = false;
   /** 配对按钮屏幕左边缘（用于把菜单水平居中） */
@@ -3741,11 +3757,11 @@ export struct HomePage {
         .clip(true)
         .translate({ x: this.drawerShift(), y: this.drawerInsetVp() })
         .animation({ duration: 320, curve: Curve.FastOutSlowIn })
-        // 首页右滑打开左侧栏（只吃横向滑动，避免抢走 Scroll 的竖向手势）
+        // 首页横向手势：右滑打开左侧栏，左滑打开会话设置（只吃横向滑动，避免抢走 Scroll 的竖向手势）
         .gesture(
-          PanGesture({ fingers: 1, direction: PanDirection.Right, distance: 12 })
+          PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: 12 })
             .onActionEnd((event: GestureEvent) => {
-              this.onDrawerSwipeEnd(event);
+              this.onHomeSwipeEnd(event);
             })
         )
 
