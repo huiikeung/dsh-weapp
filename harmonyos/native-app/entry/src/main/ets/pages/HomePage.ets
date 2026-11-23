@@ -1727,10 +1727,10 @@ export struct HomePage {
 
         // 插件
         this.drawerItem($r('app.media.pinwheel_ink'), $r('app.media.pinwheel_ink'), '插件', 'plugins')
-        // 连接器
-        this.drawerItem($r('app.media.connector_ink'), $r('app.media.connector_white'), '连接器', 'connectors')
         // 自动化任务
         this.drawerItem($r('app.media.automation_ink'), $r('app.media.automation_white'), '自动化任务', 'schedule')
+        // 连接器（对齐 iOS：在自动化任务下面）
+        this.drawerItem($r('app.media.connector_ink'), $r('app.media.connector_white'), '连接器', 'connectors')
 
         Blank()
 

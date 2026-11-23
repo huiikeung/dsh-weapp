@@ -7,7 +7,8 @@ import { BackgroundKeepAlive } from '../services/BackgroundKeepAlive';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 import { PrivacyConsent } from '../services/PrivacyConsent';
 import {
-  AppState, AttachmentImageCache, DeviceConnectors, locationConnector, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
+  AppState, AttachmentImageCache, DeviceConnectors, locationConnector, calendarConnector, remindersConnector, photosConnector, alarmsConnector,
+  GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
   parsePairingPayload, sodiumSelfTest
 } from 'nativecore';
 export default class EntryAbility extends UIAbility {
@@ -74,6 +75,10 @@ export default class EntryAbility extends UIAbility {
     Logger.info('EntryAbility onCreate');
     DeviceConnectors.bind();
     DeviceConnectors.registerAdapter(locationConnector);
+    DeviceConnectors.registerAdapter(calendarConnector);
+    DeviceConnectors.registerAdapter(remindersConnector);
+    DeviceConnectors.registerAdapter(photosConnector);
+    DeviceConnectors.registerAdapter(alarmsConnector);
     PreferencesStore.get().init(this.context).then(() => {
       // 会话内容字号（小/标准/大/特大）→ AppStorage，供对话页与设置预览统一读取
       AppStorage.setOrCreate<string>('contentFontSize', PreferencesStore.get().getString('contentFontSize', '标准'));

@@ -222,6 +222,7 @@ class DeviceConnectorsStore {
       this.lease = str(frame, 'connectionLeaseId') ?? '';
       this.acceptModules(frame);
       this.acceptPermissions(frame);
+      AppStorage.setOrCreate<number>('connectorsConfirmedAt', Date.now());
       this.publish('registered');
       Logger.info('connectors registered tools=' + this.registeredToolCount().toString());
       return;
@@ -232,6 +233,7 @@ class DeviceConnectorsStore {
         this.lease = str(frame, 'connectionLeaseId') ?? this.lease;
         this.acceptModules(frame);
         this.acceptPermissions(frame);
+        AppStorage.setOrCreate<number>('connectorsConfirmedAt', Date.now());
         this.publish('registered');
       } else {
         this.publish('unverified');

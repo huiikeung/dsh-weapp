@@ -21,6 +21,7 @@ import { FontSizePage } from './FontSizePage';
 import { ClawbotPage } from './ClawbotPage';
 import { StorageSpacePage } from './StorageSpacePage';
 import { ConnectorsPage } from './ConnectorsPage';
+import { ConnectorStatusPage } from './ConnectorStatusPage';
 import { NetworkPage } from './NetworkPage';
 import { PrivacyPolicyPage } from './PrivacyPolicyPage';
 import { UserAgreementPage } from './UserAgreementPage';
@@ -84,7 +85,14 @@ struct Index {
   aboutToAppear(): void {
     Logger.info('UIBOOT Index aboutToAppear');
     // 路由切换时同步状态栏归属页面：首页 NavBar 记为 ''，其它记 NavDestination 名字
-    this.pageStack.setInterception({ didShow: this.syncStatusBarRoute });
+// 必须用箭头函数包一层：直接传方法引用会丢 this（回调里的 this 不是页面实例），
+    // 之后在回调里读写页面状态会抛 TypeError，框架回调里的异常无法捕获，进程会被直接杀掉。
+    this.pageStack.setInterception({
+      didShow: (from: NavDestinationContext | NavBar, to: NavDestinationContext | NavBar, operation: NavigationOperation,
+        isAnimated: boolean) => {
+        this.syncStatusBarRoute(from, to, operation, isAnimated);
+      }
+    });
     // 大缓存放到首帧后读，避免堵住启动
     setTimeout(() => {
       SessionStore.restoreCatalogCache();
@@ -118,6 +126,8 @@ struct Index {
       ConversationPage();
     } else if (name === 'connectors') {
       ConnectorsPage();
+    } else if (name === 'connector-status') {
+      ConnectorStatusPage();
     } else if (name === 'plugins') {
       PluginsPage();
     } else if (name === 'schedule') {
@@ -172,9 +182,6 @@ struct Index {
     // 设置页……），还没同意就把同意弹窗重新弹出来。
     // 不能只认首页：深链可能先打开了别的页面，协议页是在它上面推入的，返回时回到的是那个页面而不是首页。
     this.consentDocOpen = routeName === 'privacy-policy' || routeName === 'user-agreement';
-    if (this.consentState === 'required') {
-      Logger.info('CONSENT route="' + routeName + '" shown, dialogShown=' + this.consentDialogShown + ' docOpen=' + this.consentDocOpen);
-    }
     this.syncConsentDialog();
   }
 
@@ -270,9 +277,9 @@ struct Index {
   }
 
   private closeConsentDialog(): void {
-    Logger.info('CONSENT close dialog id=' + this.consentDialogId + ' state=' + this.consentState + ' docOpen=' + this.consentDocOpen);
     this.consentDialogShown = false;
     if (this.consentDialogId >= 0) {
+      Logger.info('CONSENT close dialog id=' + this.consentDialogId + ' state=' + this.consentState);
       try {
         this.getUIContext().getPromptAction().closeCustomDialog(this.consentDialogId);
       } catch (err) {

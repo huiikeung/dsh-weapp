@@ -1,6 +1,8 @@
 {
   "string": [
     { "name": "location_reason", "value": "用于向 Agent 提供当前位置与地点信息" },
+    { "name": "calendar_reason", "value": "用于向 Agent 提供日历忙闲与创建日程" },
+    { "name": "reminder_reason", "value": "用于为 Agent 创建提醒事项" },
     { "name": "module_desc", "value": "鲸尾 Harness 原生应用" },
     { "name": "EntryAbility_desc", "value": "鲸尾 Harness" },
     { "name": "EntryAbility_label", "value": "鲸尾" },
