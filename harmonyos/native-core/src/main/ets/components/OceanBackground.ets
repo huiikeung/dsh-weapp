@@ -20,6 +20,8 @@ interface Pixel { x: number; y: number; luminance: number; edge: number; light: 
 export struct OceanBackground {
   @Prop @Watch('restart') active: boolean = true;
   @Prop @Watch('restart') reduceMotion: boolean = false;
+  @StorageLink('homeAnimationEnabled') @Watch('restart') homeAnimationEnabled: boolean = true;
+  @StorageLink('appLifecycle') @Watch('restart') appLifecycle: string = 'foreground';
 
   private bg: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private whale: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
@@ -28,6 +30,7 @@ export struct OceanBackground {
   private canvasWidth: number = 0;
   private canvasHeight: number = 0;
   private tick: number = -1;
+  private bgFrame: number = 0;
   private phase: number = 0;
   private bgReady: boolean = false;
   private whaleReady: boolean = false;
@@ -151,7 +154,10 @@ export struct OceanBackground {
 
     if (this.flow) {
       ctx.imageSmoothingEnabled = true;
-      ctx.drawImage(this.flow, 0, 0, w, totalH);
+      // 与 iOS Metal 流体相近的缓慢漂移：只平移预渲染位图，不重算噪声（低功耗）
+      const driftX: number = Math.sin(this.phase * 0.32) * Math.max(4, w * 0.012);
+      const driftY: number = Math.cos(this.phase * 0.21) * Math.max(3, totalH * 0.006);
+      ctx.drawImage(this.flow, driftX - w * 0.01, driftY - totalH * 0.01, w * 1.02, totalH * 1.02);
     } else {
       const glow = ctx.createRadialGradient(w * .46, totalH * .28, 0, w * .46, totalH * .28, Math.max(w, totalH) * .82);
       glow.addColorStop(0, '#234B79');
@@ -208,36 +214,31 @@ export struct OceanBackground {
     ctx.save();
     ctx.translate(0, -this.topInset);
 
-    const wide: boolean = w >= 600;
-    const sampleSize: number = wide ? 100 : 72;
-    const size: number = wide ? Math.min(Math.max(w * 1.15, totalH * .48), totalH * 1.12) * .82 : Math.max(w * 1.15, totalH * .48);
-    const progress: number = Math.max(0, Math.min(1, (w / totalH - .65) / .75));
-    const cx: number = w * (wide ? .55 + .05 * progress : .55);
-    const cy: number = totalH * (wide ? .34 + .12 * progress : .34);
-    const baseDot: number = wide ? Math.max(.8, Math.min(2.4, size / 360)) : Math.max(1.45, size / 220) * (60 / 72);
+    // 与 iOS HarnessWhaleField 相同的几何与参数
+    const square: number = Math.max(w * 1.15, totalH * 0.48);
+    const cx: number = w * 0.55;
+    const cy: number = totalH * 0.34;
+    const baseDot: number = Math.max(1.45, square / 220);
     const t: number = this.reduceMotion ? 0 : this.phase;
-    const stagger: number = size / sampleSize * .14;
-    const staticPixel: number = this.getUIContext().px2vp(1);
 
     this.pixels.forEach((pixel: Pixel) => {
-      const edge: number = .35 + .65 * pixel.edge;
-      const column: number = pixel.x * sampleSize;
-      const row: number = pixel.y * sampleSize;
-      const dx: number = Math.sin(t * .50 + pixel.x * 5 + pixel.y * 3) * (this.reduceMotion ? 2.8 * staticPixel : 4) * edge;
-      const dy: number = Math.cos(t * .42 + pixel.x * 4 - pixel.y * 3) * (this.reduceMotion ? 2.6 * staticPixel : 4) * edge;
-      const sx: number = Math.sin(row * 1.05 + column * .35 + t * .50) * stagger;
-      const sy: number = Math.sin(column * .90 - row * Math.PI / 2 + t * .42) * stagger * .7;
-      const tail: number = Math.sin(t * 1.10 - pixel.x * 7) * (this.reduceMotion ? 7 * staticPixel : 10) * this.smoothstep(.54, .94, pixel.x);
-      const shimmer: number = .90 + .10 * Math.sin(t * 1.5 + pixel.x * 15 + pixel.y * 9);
-      ctx.globalAlpha = (.10 + pixel.luminance * .38) * shimmer * .42;
-      ctx.fillStyle = 'rgb(' + Math.round((.73 + .15 * pixel.light) * 255) + ',' +
-        Math.round((.79 + .12 * pixel.light) * 255) + ',' + Math.round((.92 + .08 * pixel.light) * 255) + ')';
-      const dot: number = baseDot * (.72 + pixel.luminance * .58);
-      const x: number = cx + (pixel.x - .5) * size * 1.08 + dx + sx;
-      const y: number = cy + (pixel.y - .5) * size + dy + sy + tail;
-      // 用 fillRect 直接填充：省掉每点一次 beginPath/roundRect 的路径构建开销。
-      // dot 只有 1.4~3vp，18% 圆角在肉眼尺度上不可分辨。
-      ctx.fillRect(x - dot / 2, y - dot / 2, dot, dot);
+      const tail: number = this.smoothstep(0.54, 0.94, pixel.x);
+      const edgeDrift: number = 0.35 + 0.65 * pixel.edge;
+      // iOS 用每颗粒子的固定 phase；这里用坐标做确定性伪随机，视觉一致
+      const pphase: number = ((pixel.x * 137 + pixel.y * 73) % 6.283);
+      const driftX: number = Math.sin(t * 0.50 + pphase * 0.53) * 2.8 * edgeDrift;
+      const driftY: number = Math.cos(t * 0.42 + pphase * 0.71) * 2.6 * edgeDrift;
+      const tailWave: number = Math.sin(t * 1.10 - pixel.x * 7.0) * 7.0 * tail;
+      const shimmer: number = 0.90 + 0.10 * Math.sin(t * 1.5 + pixel.x * 15 + pixel.y * 9);
+      const dotSize: number = baseDot * (0.72 + pixel.luminance * 0.58);
+      const x: number = cx + (pixel.x - 0.5) * square + driftX;
+      const y: number = cy + (pixel.y - 0.5) * square + driftY + tailWave;
+      // iOS：alpha = (0.10 + lum*0.38) * shimmer，再叠 Canvas opacity 0.56
+      const alpha: number = Math.min(1, Math.max(0, (0.10 + pixel.luminance * 0.38) * shimmer * 0.56));
+      ctx.globalAlpha = alpha;
+      ctx.fillStyle = 'rgb(' + Math.round((0.73 + 0.15 * pixel.light) * 255) + ',' +
+        Math.round((0.79 + 0.12 * pixel.light) * 255) + ',' + Math.round((0.92 + 0.08 * pixel.light) * 255) + ')';
+      ctx.fillRect(x - dotSize / 2, y - dotSize / 2, dotSize, dotSize);
     });
     ctx.globalAlpha = 1;
     ctx.restore();
@@ -259,25 +260,39 @@ export struct OceanBackground {
   private restart(): void {
     clearInterval(this.tick);
     this.tick = -1;
-    if (!this.whaleReady || !this.active) {
+    if (!this.whaleReady) {
       return;
     }
     this.drawWhale();
     if (!this.flow) {
       this.updateFlow();
     }
-    if (!this.reduceMotion) {
-      let last: number = Date.now();
-      this.tick = setInterval(() => {
-        if (!this.alive) {
-          return;
-        }
-        const now: number = Date.now();
-        this.phase = (this.phase + (now - last) / 1000) % 4096;
-        last = now;
-        this.drawWhale();
-      }, 200);
+    if (!this.isAnimating()) {
+      // 静态模式：只保留一帧（设置页关闭动画 / 后台 / 系统减少动效）
+      this.drawBackground();
+      return;
     }
+    let last: number = Date.now();
+    this.bgFrame = 0;
+    this.tick = setInterval(() => {
+      if (!this.alive || !this.isAnimating()) {
+        return;
+      }
+      const now: number = Date.now();
+      this.phase = (this.phase + (now - last) / 1000) % 4096;
+      last = now;
+      // 鲸鱼 30fps（对齐 iOS TimelineView 1/30）；流体每 3 帧重绘 ≈10fps，降低发热
+      this.drawWhale();
+      this.bgFrame = (this.bgFrame + 1) % 3;
+      if (this.bgFrame === 0) {
+        this.drawBackground();
+      }
+    }, 33);
+  }
+
+  private isAnimating(): boolean {
+    return this.alive && this.active && this.homeAnimationEnabled && !this.reduceMotion &&
+      this.appLifecycle === 'foreground';
   }
 
   build() {

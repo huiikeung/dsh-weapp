@@ -1573,7 +1573,7 @@ export struct AppSettingsPage {
                 this.openPicker('procion');
               })
               this.divider()
-              this.toggleRow('首页动画', '控制首页动态海洋背景，关闭后保留静态画面', this.homeAnimationEnabled, (value: boolean) => {
+              this.toggleRow('首页动画', '对齐 iOS 的动态海洋背景；关闭后保留静态画面并降低发热', this.homeAnimationEnabled, (value: boolean) => {
                 this.homeAnimationEnabled = value;
                 PreferencesStore.get().putBoolean('homeAnimationEnabled', value);
               })
