@@ -158,11 +158,6 @@ export struct ConnectorStatusPage {
     return this.isDark ? '#000000' : '#F2F2F7';
   }
 
-  private statusTint(): string {
-    const color: string = this.stateColor();
-    return color + '1F';
-  }
-
   build() {
     NavDestination() {
       Column() {
@@ -188,13 +183,21 @@ export struct ConnectorStatusPage {
               Row({ space: 14 }) {
                 Stack({ alignContent: Alignment.Center }) {
                   if (this.state === 'registering' || this.checking) {
-                    LoadingProgress().width(30).height(30).color(this.stateColor())
+                    LoadingProgress().width(26).height(26).color(this.stateColor())
+                  } else if (this.state === 'registered') {
+                    SymbolGlyph($r('sys.symbol.checkmark_circle'))
+                      .fontSize(26)
+                      .fontColor([this.stateColor()])
                   } else {
-                    Circle({ width: 16, height: 16 }).fill(this.stateColor())
+                    // 未注册：空心圈（不是"停止"的实心灰点）
+                    Circle({ width: 22, height: 22 })
+                      .fill(Color.Transparent)
+                      .stroke(this.stateColor())
+                      .strokeWidth(2)
                   }
                 }
-                .width(36)
-                .height(36)
+                .width(32)
+                .height(32)
 
                 Column({ space: 4 }) {
                   Text(this.stateTitle())
