@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { display, KeyboardAvoidMode, LengthMetrics, uiMaterial } from '@kit.ArkUI';
+import { HOME_MAX_WIDTH, isWideWidth } from '../common/Responsive';
 import { drawing } from '@kit.ArkGraphics2D';
 import { scanBarcode, scanCore } from '@kit.ScanKit';
 import { TailscaleMarkView } from '../components/TailscaleMarkView';
@@ -3330,6 +3331,262 @@ export struct HomePage {
     }
   }
 
+  /** 平板两栏左栏：Hero + 工作区卡片 + 新建会话（对齐 iOS iPad 首页左栏） */
+  @Builder
+  homeHeroActions() {
+    Column() {
+          // ── Hero ──
+          Column({ space: 6 }) {
+            Text('探索未至之境')
+              .fontSize(25)
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#FFFFFF')
+            Text('从想法到落地，一个对话即可。')
+              .fontSize(13)
+              .fontColor('rgba(255,255,255,0.65)')
+          }
+          .alignItems(HorizontalAlign.Start)
+          .width('100%')
+          .margin({ top: 60, bottom: 18 })
+          // ── 工作区卡片 ──
+          Row({ space: 10 }) {
+            Image($r('app.media.workspace_folder_blue'))
+              .height(26)
+              .objectFit(ImageFit.Contain)
+            Column({ space: 2 }) {
+              Text(this.workspaceTitle())
+                .fontSize(15) // 30rpx（对齐小程序 .ws-title）
+                .fontWeight(FontWeight.Medium)
+                .fontColor('#FFFFFF')
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Text(this.workspaceSubtitle())
+                .fontSize(12) // 24rpx（对齐小程序 .ws-path）
+                .fontColor('rgba(255,255,255,0.55)')
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+            .alignItems(HorizontalAlign.Start)
+            .layoutWeight(1)
+            Row({ space: 8 }) {
+              Circle({ width: 7, height: 7 }).fill(this.statusColor())
+              Image($r('app.media.ic_dir_chevron_mist'))
+                .height(14)
+                .fillColor('rgba(255,255,255,0.5)')
+            }
+          }
+          .width('100%')
+          .padding({ top: 14, bottom: 14, left: 16, right: 16 })
+          .borderRadius(21)
+          .border({ width: 1, color: 'rgba(255,255,255,0.22)' })
+          .backgroundEffect({ radius: 1, saturation: 1, brightness: 1 })
+          .linearGradient({
+            angle: 165,
+            colors: [['rgba(255,255,255,0.018)', 0], ['rgba(255,255,255,0.004)', 1]]
+          })
+          .shadow({ radius: 14, color: 'rgba(3,14,30,0.12)', offsetY: 4 })
+          .onAreaChange((oldValue: Area, newValue: Area) => {
+            this.wsCardW = Number(newValue.width);
+            this.wsCardH = Number(newValue.height);
+          })
+          .onClick(() => {
+            this.wsMenuOpen = !this.wsMenuOpen;
+          })
+          // 系统菜单：打开时卡片隐藏（保留布局做锚点），关闭后恢复
+          .bindMenu(this.wsMenuOpen, this.workspaceMenuBuilder(), {
+            // 描边用中性色，深色模式下不再出现系统蓝边
+            outlineColor: this.separatorColor(),
+            outlineWidth: 1,
+            // 菜单中心对齐工作区卡片（比默认贴在卡片下方更高）
+            anchorPosition: {
+              // 菜单比卡片窄：补偿容器差值后水平居中
+              x: (this.wsCardW - (this.wsMenuWidth() + 15)) / 2,
+              // 垂直方向不再居中上浮：菜单顶贴着卡片顶向下展开，整体位置更低
+              y: 0
+            },
+            onWillDisappear: () => {
+              this.wsMenuOpen = false;
+            },
+            onDisappear: () => {
+              this.wsMenuOpen = false;
+            },
+            onDidDisappear: () => {
+              this.wsMenuOpen = false;
+            }
+          })
+          .opacity(this.wsMenuOpen ? 0 : 1)
+          .hitTestBehavior(this.wsMenuOpen ? HitTestMode.None : HitTestMode.Default)
+
+          // ── 新建会话 ──
+          Row() {
+            // plus-circle：24vp 玻璃圆（48rpx）
+            Row() {
+              Text('＋')
+                .fontSize(15) // 30rpx 图标（对齐小程序 .plus-img）
+                .fontColor('#FFFFFF')
+            }
+            .width(28)
+            .height(28)
+            .borderRadius(14)
+            .justifyContent(FlexAlign.Center)
+            .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
+            .backgroundColor('rgba(255,255,255,0.07)')
+            .border({ width: 1, color: 'rgba(255,255,255,0.20)' })
+            .margin({ right: 11 })
+            Text(this.creating ? '正在新建…' : '新建会话')
+              .fontSize(15) // 30rpx（对齐小程序 .new-session-text）
+              .fontWeight(FontWeight.Bold)
+              .fontColor('#FFFFFF')
+          }
+          .width('100%')
+          .justifyContent(FlexAlign.Center)
+          .padding({ top: 10.5, bottom: 10.5 })
+          .borderRadius(19)
+          .border({ width: 1, color: 'rgba(255,255,255,0.38)' })
+          .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
+          .linearGradient({
+            angle: 165,
+            colors: [['rgba(255,255,255,0.06)', 0], ['rgba(255,255,255,0.015)', 1]]
+          })
+          .shadow({ radius: 16, color: 'rgba(3,14,30,0.18)', offsetY: 4 })
+          .enabled(!this.creating)
+          .opacity(this.creating ? 0.6 : 1)
+          .margin({ top: 21, bottom: 21 })
+          .onClick(() => {
+            this.createSession();
+          })
+
+          if (this.createHint.length > 0) {
+            Text(this.createHint)
+              .fontSize(12)
+              .fontColor('#FF6B60')
+              .width('100%')
+              .margin({ bottom: 10 })
+          }
+
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 平板两栏右栏：最近会话（标题 + 搜索 + 列表，对齐 iOS iPad 首页右栏） */
+  @Builder
+  homeRecentBlock() {
+    Column() {
+          // ── 最近会话 ──
+          Row() {
+            Text('最近会话')
+              .fontSize(14)
+              .fontWeight(FontWeight.Medium)
+              .fontColor('#FFFFFF')
+            Blank()
+            Text(this.statusText())
+              .fontSize(12)
+              .fontColor(this.statusColor())
+          }
+          .width('100%')
+          .margin({ bottom: 12 })
+
+          // ── 搜索条 ──
+          Row({ space: 8 }) {
+            Image($r('app.media.search_white_thin'))
+              .width(20)
+              .height(20)
+              .objectFit(ImageFit.Contain)
+              .opacity(0.68)
+            TextInput({ text: this.search, placeholder: '搜索会话内容' })
+              .caretStyle({ width: 1 })
+              .fontSize(16)
+              .fontColor('rgba(255,255,255,0.92)')
+              .placeholderColor('rgba(255,255,255,0.58)')
+              .backgroundColor(Color.Transparent)
+              .padding(0)
+              .height('100%')
+              .layoutWeight(1)
+              .onChange((value: string) => {
+                this.search = value;
+              })
+          }
+          .width('100%')
+          .height(42)
+          .padding({ left: 12, right: 12 })
+          .borderRadius(13)
+          .border({ width: 1, color: 'rgba(255,255,255,0.15)' })
+          .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
+          .linearGradient({
+            angle: 165,
+            colors: [['rgba(255,255,255,0.05)', 0], ['rgba(255,255,255,0.012)', 1]]
+          })
+          .margin({ bottom: 14 })
+
+          // ── 会话列表（对齐小程序 .session-list / .session-row / .session-section）──
+          if (this.filtered().length === 0) {
+            Text(this.sessions.length === 0 ? '暂无会话' : '没有匹配的会话')
+              .fontSize(15)
+              .fontColor('rgba(255,255,255,0.5)')
+              .width('100%')
+              .textAlign(TextAlign.Start)
+              .padding(18)
+              .borderRadius(15)
+              .backgroundColor('rgba(255,255,255,0.04)')
+              .margin({ bottom: 8 })
+          } else if (this.wsFilter === 'all') {
+            // 全部会话：按工作区分区，未分组排最后，每区默认只显示 5 条
+            ForEach(this.sessionSections(), (sec: SessionSection, si: number) => {
+              Column() {
+                Row({ space: 10 }) {
+                  Text(sec.title)
+                    .fontSize(12)
+                    .fontColor('rgba(255,255,255,0.55)')
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .constraintSize({ maxWidth: '55%' })
+                  // 与会话行分割线一致：0.5vp / rgba(255,255,255,0.10)
+                  Row()
+                    .layoutWeight(1)
+                    .height(0.5)
+                    .backgroundColor('rgba(255,255,255,0.10)')
+                  Text(sec.rows.length + ' 个会话')
+                    .fontSize(11)
+                    .fontColor('rgba(255,255,255,0.55)')
+                    .margin({ left: 10 })
+                }
+                .width('100%')
+                .alignItems(VerticalAlign.Center)
+                .padding({ bottom: 8 })
+                .margin({ top: si === 0 ? 8 : 24 })
+                ForEach(sec.shown, (item: SessionSummary, index: number) => {
+                  this.sessionRow(item, sec.lastSection && sec.toggleLabel.length === 0 && index === sec.shown.length - 1)
+                }, (item: SessionSummary) => this.sessionKey(item))
+                if (sec.toggleLabel.length > 0) {
+                  this.sessionToggle(sec.toggleLabel, sec.expanded, sec.id)
+                }
+              }
+              .width('100%')
+            }, (sec: SessionSection) => this.sectionKey(sec))
+          } else {
+            // 最近会话 / 单个工作区：默认只显示 12 条
+            ForEach(this.recentRows(), (item: SessionSummary, index: number) => {
+              this.sessionRow(item, this.filtered().length <= SESSION_RECENT_LIMIT && index === this.recentRows().length - 1)
+            }, (item: SessionSummary) => this.sessionKey(item))
+            if (this.filtered().length > SESSION_RECENT_LIMIT) {
+              this.sessionToggle(this.recentExpanded ? '收起' : ('展开其余 ' + (this.filtered().length - SESSION_RECENT_LIMIT) + ' 个会话'), this.recentExpanded, '')
+            }
+          }
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  /** 是否平板/宽屏（>=840vp）：对齐 iOS iPad 的两栏首页 */
+  private isWideLayout(): boolean {
+    try {
+      return isWideWidth(this.getUIContext().px2vp(display.getDefaultDisplaySync().width));
+    } catch (err) {
+      return false;
+    }
+  }
+
   build() {
     NavDestination() {
       // 左上对齐：抽屉必须从屏幕左缘 (x=0) 展开，默认居中会把它推到中间
@@ -3500,234 +3757,27 @@ export struct HomePage {
             this.rowH = Number(newValue.height);
           })
 
-          // ── Hero ──
-          Column({ space: 6 }) {
-            Text('探索未至之境')
-              .fontSize(25)
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#FFFFFF')
-            Text('从想法到落地，一个对话即可。')
-              .fontSize(13)
-              .fontColor('rgba(255,255,255,0.65)')
-          }
-          .alignItems(HorizontalAlign.Start)
-          .width('100%')
-          .margin({ top: 60, bottom: 18 })
-          // ── 工作区卡片 ──
-          Row({ space: 10 }) {
-            Image($r('app.media.workspace_folder_blue'))
-              .height(26)
-              .objectFit(ImageFit.Contain)
-            Column({ space: 2 }) {
-              Text(this.workspaceTitle())
-                .fontSize(15) // 30rpx（对齐小程序 .ws-title）
-                .fontWeight(FontWeight.Medium)
-                .fontColor('#FFFFFF')
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(this.workspaceSubtitle())
-                .fontSize(12) // 24rpx（对齐小程序 .ws-path）
-                .fontColor('rgba(255,255,255,0.55)')
-                .maxLines(1)
-                .textOverflow({ overflow: TextOverflow.Ellipsis })
-            }
-            .alignItems(HorizontalAlign.Start)
-            .layoutWeight(1)
-            Row({ space: 8 }) {
-              Circle({ width: 7, height: 7 }).fill(this.statusColor())
-              Image($r('app.media.ic_dir_chevron_mist'))
-                .height(14)
-                .fillColor('rgba(255,255,255,0.5)')
-            }
-          }
-          .width('100%')
-          .padding({ top: 14, bottom: 14, left: 16, right: 16 })
-          .borderRadius(21)
-          .border({ width: 1, color: 'rgba(255,255,255,0.22)' })
-          .backgroundEffect({ radius: 1, saturation: 1, brightness: 1 })
-          .linearGradient({
-            angle: 165,
-            colors: [['rgba(255,255,255,0.018)', 0], ['rgba(255,255,255,0.004)', 1]]
-          })
-          .shadow({ radius: 14, color: 'rgba(3,14,30,0.12)', offsetY: 4 })
-          .onAreaChange((oldValue: Area, newValue: Area) => {
-            this.wsCardW = Number(newValue.width);
-            this.wsCardH = Number(newValue.height);
-          })
-          .onClick(() => {
-            this.wsMenuOpen = !this.wsMenuOpen;
-          })
-          // 系统菜单：打开时卡片隐藏（保留布局做锚点），关闭后恢复
-          .bindMenu(this.wsMenuOpen, this.workspaceMenuBuilder(), {
-            // 描边用中性色，深色模式下不再出现系统蓝边
-            outlineColor: this.separatorColor(),
-            outlineWidth: 1,
-            // 菜单中心对齐工作区卡片（比默认贴在卡片下方更高）
-            anchorPosition: {
-              // 菜单比卡片窄：补偿容器差值后水平居中
-              x: (this.wsCardW - (this.wsMenuWidth() + 15)) / 2,
-              // 垂直方向不再居中上浮：菜单顶贴着卡片顶向下展开，整体位置更低
-              y: 0
-            },
-            onWillDisappear: () => {
-              this.wsMenuOpen = false;
-            },
-            onDisappear: () => {
-              this.wsMenuOpen = false;
-            },
-            onDidDisappear: () => {
-              this.wsMenuOpen = false;
-            }
-          })
-          .opacity(this.wsMenuOpen ? 0 : 1)
-          .hitTestBehavior(this.wsMenuOpen ? HitTestMode.None : HitTestMode.Default)
-
-          // ── 新建会话 ──
-          Row() {
-            // plus-circle：24vp 玻璃圆（48rpx）
-            Row() {
-              Text('＋')
-                .fontSize(15) // 30rpx 图标（对齐小程序 .plus-img）
-                .fontColor('#FFFFFF')
-            }
-            .width(28)
-            .height(28)
-            .borderRadius(14)
-            .justifyContent(FlexAlign.Center)
-            .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
-            .backgroundColor('rgba(255,255,255,0.07)')
-            .border({ width: 1, color: 'rgba(255,255,255,0.20)' })
-            .margin({ right: 11 })
-            Text(this.creating ? '正在新建…' : '新建会话')
-              .fontSize(15) // 30rpx（对齐小程序 .new-session-text）
-              .fontWeight(FontWeight.Bold)
-              .fontColor('#FFFFFF')
-          }
-          .width('100%')
-          .justifyContent(FlexAlign.Center)
-          .padding({ top: 10.5, bottom: 10.5 })
-          .borderRadius(19)
-          .border({ width: 1, color: 'rgba(255,255,255,0.38)' })
-          .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
-          .linearGradient({
-            angle: 165,
-            colors: [['rgba(255,255,255,0.06)', 0], ['rgba(255,255,255,0.015)', 1]]
-          })
-          .shadow({ radius: 16, color: 'rgba(3,14,30,0.18)', offsetY: 4 })
-          .enabled(!this.creating)
-          .opacity(this.creating ? 0.6 : 1)
-          .margin({ top: 21, bottom: 21 })
-          .onClick(() => {
-            this.createSession();
-          })
-
-          if (this.createHint.length > 0) {
-            Text(this.createHint)
-              .fontSize(12)
-              .fontColor('#FF6B60')
-              .width('100%')
-              .margin({ bottom: 10 })
-          }
-
-          // ── 最近会话 ──
-          Row() {
-            Text('最近会话')
-              .fontSize(14)
-              .fontWeight(FontWeight.Medium)
-              .fontColor('#FFFFFF')
-            Blank()
-            Text(this.statusText())
-              .fontSize(12)
-              .fontColor(this.statusColor())
-          }
-          .width('100%')
-          .margin({ bottom: 12 })
-
-          // ── 搜索条 ──
-          Row({ space: 8 }) {
-            Image($r('app.media.search_white_thin'))
-              .width(20)
-              .height(20)
-              .objectFit(ImageFit.Contain)
-              .opacity(0.68)
-            TextInput({ text: this.search, placeholder: '搜索会话内容' })
-              .caretStyle({ width: 1 })
-              .fontSize(16)
-              .fontColor('rgba(255,255,255,0.92)')
-              .placeholderColor('rgba(255,255,255,0.58)')
-              .backgroundColor(Color.Transparent)
-              .padding(0)
-              .height('100%')
-              .layoutWeight(1)
-              .onChange((value: string) => {
-                this.search = value;
-              })
-          }
-          .width('100%')
-          .height(42)
-          .padding({ left: 12, right: 12 })
-          .borderRadius(13)
-          .border({ width: 1, color: 'rgba(255,255,255,0.15)' })
-          .backgroundEffect({ radius: 1.5, saturation: 1, brightness: 1 })
-          .linearGradient({
-            angle: 165,
-            colors: [['rgba(255,255,255,0.05)', 0], ['rgba(255,255,255,0.012)', 1]]
-          })
-          .margin({ bottom: 14 })
-
-          // ── 会话列表（对齐小程序 .session-list / .session-row / .session-section）──
-          if (this.filtered().length === 0) {
-            Text(this.sessions.length === 0 ? '暂无会话' : '没有匹配的会话')
-              .fontSize(15)
-              .fontColor('rgba(255,255,255,0.5)')
-              .width('100%')
-              .textAlign(TextAlign.Start)
-              .padding(18)
-              .borderRadius(15)
-              .backgroundColor('rgba(255,255,255,0.04)')
-              .margin({ bottom: 8 })
-          } else if (this.wsFilter === 'all') {
-            // 全部会话：按工作区分区，未分组排最后，每区默认只显示 5 条
-            ForEach(this.sessionSections(), (sec: SessionSection, si: number) => {
+          // ── 平板/宽屏：对齐 iOS iPad 两栏布局（左：Hero/工作区/新建会话；右：最近会话）──
+          if (this.isWideLayout()) {
+            Row({ space: 44 }) {
               Column() {
-                Row({ space: 10 }) {
-                  Text(sec.title)
-                    .fontSize(12)
-                    .fontColor('rgba(255,255,255,0.55)')
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .constraintSize({ maxWidth: '55%' })
-                  // 与会话行分割线一致：0.5vp / rgba(255,255,255,0.10)
-                  Row()
-                    .layoutWeight(1)
-                    .height(0.5)
-                    .backgroundColor('rgba(255,255,255,0.10)')
-                  Text(sec.rows.length + ' 个会话')
-                    .fontSize(11)
-                    .fontColor('rgba(255,255,255,0.55)')
-                    .margin({ left: 10 })
-                }
-                .width('100%')
-                .alignItems(VerticalAlign.Center)
-                .padding({ bottom: 8 })
-                .margin({ top: si === 0 ? 8 : 24 })
-                ForEach(sec.shown, (item: SessionSummary, index: number) => {
-                  this.sessionRow(item, sec.lastSection && sec.toggleLabel.length === 0 && index === sec.shown.length - 1)
-                }, (item: SessionSummary) => this.sessionKey(item))
-                if (sec.toggleLabel.length > 0) {
-                  this.sessionToggle(sec.toggleLabel, sec.expanded, sec.id)
-                }
+                this.homeHeroActions()
               }
-              .width('100%')
-            }, (sec: SessionSection) => this.sectionKey(sec))
-          } else {
-            // 最近会话 / 单个工作区：默认只显示 12 条
-            ForEach(this.recentRows(), (item: SessionSummary, index: number) => {
-              this.sessionRow(item, this.filtered().length <= SESSION_RECENT_LIMIT && index === this.recentRows().length - 1)
-            }, (item: SessionSummary) => this.sessionKey(item))
-            if (this.filtered().length > SESSION_RECENT_LIMIT) {
-              this.sessionToggle(this.recentExpanded ? '收起' : ('展开其余 ' + (this.filtered().length - SESSION_RECENT_LIMIT) + ' 个会话'), this.recentExpanded, '')
+              .layoutWeight(46)
+              .alignItems(HorizontalAlign.Start)
+
+              Column() {
+                this.homeRecentBlock()
+              }
+              .layoutWeight(54)
+              .alignItems(HorizontalAlign.Start)
             }
+            .width('100%')
+            .constraintSize({ maxWidth: HOME_MAX_WIDTH })
+            .alignItems(VerticalAlign.Top)
+          } else {
+            this.homeHeroActions()
+            this.homeRecentBlock()
           }
           }
           .width('100%')

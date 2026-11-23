@@ -3,6 +3,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
 import { curves, display, KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
+import { wideSideInset } from '../common/Responsive';
 import {
   APP_GLASS_RADIUS,
   appGlassBlur,
@@ -5879,7 +5880,8 @@ export struct ConversationPage {
           })
           }
           .width('100%')
-          .padding({ left: 14, right: 14, bottom: 18 + this.bottomInset })
+          // 宽屏（平板）：输入条与正文同宽、一起居中（对齐 iOS iPad）
+          .padding({ left: 14 + this.wideInset(), right: 14 + this.wideInset(), bottom: 18 + this.bottomInset })
           // 录音时整条输入区让位给全屏语音特效（对齐小程序 .dock-stack.voice-holding { opacity: 0 }）
           .opacity(this.voiceOverlayVisible ? 0 : 1)
       }
@@ -5888,7 +5890,8 @@ export struct ConversationPage {
     .width('100%')
     // 底部整块：完全透明底色 + backdropBlur(24)（只模糊、不加色）
     .backgroundColor(Color.Transparent)
-    .backdropBlur(24)
+    // 宽屏下输入条已居中限宽，底部不再铺整条模糊带
+    .backdropBlur(this.wideInset() > 0 ? 0 : 24)
     .onAreaChange((oldArea: Area, newArea: Area) => {
       const height: number = Number(newArea.height);
       if (height > 0 && Math.abs(height - this.dockHeight) > 1) {
@@ -5967,7 +5970,8 @@ export struct ConversationPage {
           }
           .width('100%')
           .height('100%')
-          .padding({ bottom: this.bottomInset })
+          // 宽屏（平板）：正文居中一栏、左右留白（对齐 iOS iPad）
+          .padding({ left: this.wideInset(), right: this.wideInset(), bottom: this.bottomInset })
 
           TrajectoryPanel({ topInset: this.topSafe() + 62 })
         }
@@ -7785,6 +7789,11 @@ export struct ConversationPage {
   /** 顶部安全区：safeTopVp 未就绪时用状态栏兜底高度，避免顶栏被状态栏遮挡 */
   private topSafe(): number {
     return this.topInset > 0 ? this.topInset : 38.9;
+  }
+
+  /** 平板/宽屏下正文与输入条居中限宽（对齐 iOS iPad 阅读栏）；手机为 0 */
+  private wideInset(): number {
+    return wideSideInset(this.pageW);
   }
 
   /**
