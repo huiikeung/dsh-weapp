@@ -20,6 +20,7 @@ import { PreferencePickerPage } from './PreferencePickerPage';
 import { FontSizePage } from './FontSizePage';
 import { ClawbotPage } from './ClawbotPage';
 import { StorageSpacePage } from './StorageSpacePage';
+import { NetworkPage } from './NetworkPage';
 import { openSessionRoute } from '../common/SessionRoute';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 
@@ -129,6 +130,8 @@ struct Index {
       ClawbotPage();
     } else if (name === 'storage-space') {
       StorageSpacePage();
+    } else if (name === 'network') {
+      NetworkPage();
     }
   }
 

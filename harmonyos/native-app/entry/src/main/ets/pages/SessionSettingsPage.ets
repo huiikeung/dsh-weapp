@@ -571,6 +571,10 @@ export struct SessionSettingsPage {
               this.cardRow('端点地址', this.activeEndpointLabel(), false, () => {
               })
               Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
+              this.cardRow('网络检测', this.connection === 'connected' ? '端点可达性 / Ping' : '检测已保存端点', true, () => {
+                this.pageStack.pushPathByName('network', null);
+              })
+              Divider().color(this.dividerColor()).strokeWidth(1).margin({ left: 16, right: 16 })
               this.cardRow('如何在外网使用', '', true, () => {
                 this.openNetworkInfo();
               })
