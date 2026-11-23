@@ -186,18 +186,43 @@ export struct OceanBackground {
 
     const wide: boolean = w / Math.max(1, h) > 0.95;
     if (wide) {
-      // 平板/大窗口：不再铺手机那两条「圆弧光带」（在宽高比下会被拉成竖直光柱），
-      // 改成 iOS iPad 那种「深蓝底 + 靠近鲸鱼的一团柔光」，其余交给网格与鲸鱼点阵
-      const glowWide = ctx.createRadialGradient(w * 0.56, totalH * 0.30, 0, w * 0.56, totalH * 0.30, Math.max(w, totalH) * 0.78);
-      glowWide.addColorStop(0, 'rgba(52,96,146,0.30)');
-      glowWide.addColorStop(0.45, 'rgba(28,58,96,0.16)');
-      glowWide.addColorStop(1, 'rgba(4,10,20,0)');
-      ctx.fillStyle = glowWide;
+      // 对齐 iOS iPad 首页：深蓝基底 + 一条从左中斜扫到右下的宽光带 + 右下暖光
+      // （手机那两条圆弧带在宽屏会被拉成竖直光柱，所以平板单独构图）
+      const baseGrad = ctx.createLinearGradient(w, 0, 0, totalH);
+      baseGrad.addColorStop(0, '#2c5a8e');
+      baseGrad.addColorStop(0.30, '#1b4272');
+      baseGrad.addColorStop(0.55, '#12294a');
+      baseGrad.addColorStop(1, '#070d18');
+      ctx.fillStyle = baseGrad;
       ctx.fillRect(0, 0, w, totalH);
-      const core = ctx.createRadialGradient(w * 0.60, totalH * 0.34, 0, w * 0.60, totalH * 0.34, Math.max(w, totalH) * 0.34);
-      core.addColorStop(0, 'rgba(120,168,214,0.10)');
-      core.addColorStop(1, 'rgba(120,168,214,0)');
-      ctx.fillStyle = core;
+      // 顶部整体提亮（iOS 平板上半屏是亮蓝，向下迅速压暗）
+      const lift = ctx.createLinearGradient(0, 0, 0, totalH);
+      lift.addColorStop(0, 'rgba(82,132,186,0.30)');
+      lift.addColorStop(0.42, 'rgba(50,92,142,0.14)');
+      lift.addColorStop(0.62, 'rgba(20,40,66,0.02)');
+      lift.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = lift;
+      ctx.fillRect(0, 0, w, totalH);
+      const bandLen: number = Math.max(w, totalH) * 2.0;
+      const bandSpan: number = totalH * 2.2;
+      ctx.save();
+      ctx.translate(w * 0.52, totalH * 0.46);
+      ctx.rotate(-17 * Math.PI / 180);
+      const band = ctx.createLinearGradient(0, -bandSpan / 2, 0, bandSpan / 2);
+      band.addColorStop(0, 'rgba(140,170,210,0.00)');
+      band.addColorStop(0.26, 'rgba(140,172,212,0.16)');
+      band.addColorStop(0.44, 'rgba(178,200,228,0.42)');
+      band.addColorStop(0.56, 'rgba(150,178,212,0.30)');
+      band.addColorStop(0.74, 'rgba(104,126,158,0.10)');
+      band.addColorStop(1, 'rgba(140,170,210,0.00)');
+      ctx.fillStyle = band;
+      ctx.fillRect(-bandLen / 2, -bandSpan / 2, bandLen, bandSpan);
+      ctx.restore();
+      const warm = ctx.createRadialGradient(w * 0.84, totalH * 0.96, 0, w * 0.84, totalH * 0.96, Math.max(w, totalH) * 0.58);
+      warm.addColorStop(0, 'rgba(158,134,94,0.34)');
+      warm.addColorStop(0.55, 'rgba(120,100,70,0.16)');
+      warm.addColorStop(1, 'rgba(60,50,36,0)');
+      ctx.fillStyle = warm;
       ctx.fillRect(0, 0, w, totalH);
     } else if (this.flow) {
       ctx.imageSmoothingEnabled = true;
