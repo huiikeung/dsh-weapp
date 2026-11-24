@@ -2454,7 +2454,9 @@ export struct ConversationPage {
       .width('100%')
       .borderRadius(this.rpx(36))
       .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
-      .backdropBlur(14)
+      .backdropBlur(this.immersiveSupported() ? 0 : 14)
+      // 提问卡：沉浸光感常规玻璃（材质生效时覆盖上面的半透明底与模糊）
+      .systemMaterial(this.panelGlassMaterial())
       .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
       .margin({ bottom: this.rpx(12) })
       .clip(true)
@@ -2575,7 +2577,9 @@ export struct ConversationPage {
       .width('100%')
       .borderRadius(this.rpx(36))
       .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
-      .backdropBlur(14)
+      .backdropBlur(this.immersiveSupported() ? 0 : 14)
+      // 审批卡：沉浸光感常规玻璃，保留琥珀色描边表示「等待操作」
+      .systemMaterial(this.panelGlassMaterial())
       .border({ width: 1, color: 'rgba(245,156,13,0.55)' })
       .margin({ bottom: this.rpx(12) })
       .clip(true)
@@ -7893,20 +7897,31 @@ export struct ConversationPage {
     }
   }
 
-  /** 底部悬浮玻璃材质（沉浸光感）：THIN 更通透，失败/不支持时返回 undefined 走原有模糊兜底 */
-  private dockGlassMaterial(): uiMaterial.Material | undefined {
+  /** 沉浸光感材质：失败/不支持时返回 undefined，调用方保留原有模糊兜底 */
+  private glassMaterial(style: uiMaterial.ImmersiveStyle, interactive: boolean): uiMaterial.Material | undefined {
     if (!this.immersiveSupported()) {
       return undefined;
     }
     try {
       return new uiMaterial.ImmersiveMaterial({
-        style: uiMaterial.ImmersiveStyle.THIN,
-        interactive: true,
-        lightEffect: {}
+        style: style,
+        interactive: interactive,
+        lightEffect: {},
+        applyShadow: true
       });
     } catch (err) {
       return undefined;
     }
+  }
+
+  /** 底部输入条：薄玻璃（THIN），要透出下方内容 */
+  private dockGlassMaterial(): uiMaterial.Material | undefined {
+    return this.glassMaterial(uiMaterial.ImmersiveStyle.THIN, true);
+  }
+
+  /** 悬浮卡片（审批/提问/任务/队列）：常规厚度（REGULAR），保证文字可读 */
+  private panelGlassMaterial(): uiMaterial.Material | undefined {
+    return this.glassMaterial(uiMaterial.ImmersiveStyle.REGULAR, false);
   }
 
   /** 底部悬浮区顶沿高光（光感边缘） */

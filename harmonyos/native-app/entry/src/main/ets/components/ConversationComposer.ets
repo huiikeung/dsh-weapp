@@ -120,6 +120,9 @@ export struct ConversationComposer {
   @Prop teamEnabled: boolean = false;
   onToggleTeam: (next: boolean) => void = () => {};
   @State private teamTipOpen: boolean = false;
+  /** 光感流光：高光扫过输入框的横向进度（-1 ~ 2，循环） */
+  @State private sheenOffset: number = -1;
+  private sheenTimer: number = -1;
   /** 推理等级菜单（小程序 effortSheet：Off/Low/Medium/High） */
   @Prop effortValues: string[] = [];
   @Prop effortLabels: string[] = [];
@@ -217,6 +220,7 @@ export struct ConversationComposer {
   // ==================== 状态 ====================
   /** 展开态：聚焦、有草稿或有附件（对齐小程序 composer-expanded 判定） */
   aboutToAppear(): void {
+    this.startSheen();
     this.resolveDraftToken(this.draft);
   }
 
@@ -582,6 +586,46 @@ export struct ConversationComposer {
   }
 
   /** 光圈外的投影：与返回按钮同为中性色（深色黑色、浅色淡灰），不再用白色光晕 */
+  /** 流光高光条：45% 宽度、斜向渐变，随 sheenOffset 平移 */
+  @Builder
+  glassSweep() {
+    Column()
+      .width('45%')
+      .height('100%')
+      .linearGradient({
+        angle: 100,
+        colors: [
+          ['rgba(255,255,255,0)', 0],
+          [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.50)', 0.5],
+          ['rgba(255,255,255,0)', 1]
+        ]
+      })
+      .translate({ x: this.sheenOffset * 200 + '%' })
+      .hitTestBehavior(HitTestMode.None)
+  }
+
+  /** 流光：每 40ms 推进一次高光位置，扫过输入框（只在输入框上有，成本很低） */
+  private startSheen(): void {
+    if (this.sheenTimer >= 0) {
+      return;
+    }
+    this.sheenTimer = setInterval(() => {
+      const next: number = this.sheenOffset + 0.02;
+      this.sheenOffset = next > 1.6 ? -1 : next;
+    }, 40);
+  }
+
+  private stopSheen(): void {
+    if (this.sheenTimer >= 0) {
+      clearInterval(this.sheenTimer);
+      this.sheenTimer = -1;
+    }
+  }
+
+  aboutToDisappear(): void {
+    this.stopSheen();
+  }
+
   /** 玻璃顶沿高光 + 左上漏光：沉浸光感里最直观的「光」 */
   @Builder
   glassSheen(radius: number) {
@@ -613,6 +657,22 @@ export struct ConversationComposer {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .hitTestBehavior(HitTestMode.None)
+  }
+
+  /** 小芯胶囊玻璃（ULTRA_THIN）：权限/模型 chip 这类小面积元素 */
+  private chipGlassMaterial(): uiMaterial.Material | undefined {
+    if (!this.immersiveGlass()) {
+      return undefined;
+    }
+    try {
+      return new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
+        interactive: true,
+        lightEffect: {}
+      });
+    } catch (err) {
+      return undefined;
+    }
   }
 
   /** 当前设备是否支持沉浸光感（API 26+ 且设备算力足够） */
@@ -2678,6 +2738,8 @@ export struct ConversationComposer {
       .border({ width: 1, color: this.immersiveGlass() ? 'rgba(255,255,255,0.10)' : (this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)') })
       // 光感：顶沿高光 + 左上角漏光（材质生效时叠在材质上，不生效时就是玻璃质感本体）
       .overlay(() => { this.glassSheen(24) }, { align: Alignment.Top })
+      // 流光：一道很淡的高光缓慢扫过玻璃表面
+      .overlay(() => { this.glassSweep() }, { align: Alignment.Start })
 
       }
       .width('100%')
