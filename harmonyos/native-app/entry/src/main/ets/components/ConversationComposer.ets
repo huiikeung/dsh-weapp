@@ -2776,8 +2776,9 @@ export struct ConversationComposer {
         ? { left: 14, right: 14, top: 12, bottom: 12 }
         : { left: 10, right: 10, top: 6, bottom: 6 })
       // 玻璃由 HdsTabs 悬浮 TabBar 的 systemMaterialEffect 提供（IMMERSIVE/ADAPTIVE），
-      // 输入框本体只保留描边与圆角，不再自绘模糊
+      // 本体加半透明深色底：玻璃轮廓在黑背景上也可辨（全透明会隐形）
       .borderRadius(28)
+      .backgroundColor(this.isDark ? 'rgba(30,32,38,0.55)' : 'rgba(255,255,255,0.55)')
       .border({ width: 1, color: '#66FFFFFF' })
 
       }
