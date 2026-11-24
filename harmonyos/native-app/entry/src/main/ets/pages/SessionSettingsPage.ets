@@ -546,7 +546,8 @@ export struct SessionSettingsPage {
             .hitTestBehavior(HitTestMode.None)
 
           Row() {
-          NavBackButton({ isDark: this.isDark })
+          // 返回按钮由根 Stack 的最上层覆盖层绘制（见下方 overlayBack），这里只占位
+          Row().width(40).height(40)
 
           Text('会话设置')
             .fontSize(17)
@@ -562,6 +563,17 @@ export struct SessionSettingsPage {
         // 左右与内容一致（内容区 padding 16）
         .padding({ left: 16, right: 16 })
         .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
+
+        // 底部渐隐：模糊带与正文之间不要硬切一条线（浅色/深色各自用页面底色淡出）
+        Column()
+          .width('100%')
+          .height(16)
+          .position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 16 })
+          .linearGradient({
+            direction: GradientDirection.Bottom,
+            colors: [[this.pageBg() + '00', 0.0], [this.pageBg() + 'E6', 0.55], [this.pageBg(), 1.0]]
+          })
+          .hitTestBehavior(HitTestMode.None)
         }
         .width('100%')
         .zIndex(10)
@@ -705,6 +717,14 @@ export struct SessionSettingsPage {
       .width('100%')
       .height('100%')
       .backgroundColor(this.pageBg())
+
+        // 覆盖层返回键：根 Stack 的最后一个子节点，永远在最上层，不会被 Scroll 吃掉点击
+        Row() {
+          NavBackButton({ isDark: this.isDark })
+        }
+        .width(40)
+        .height(40)
+        .margin({ left: 16, top: (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 8 })
 
         if (this.pickerOpen) {
           this.pickerSheet()
