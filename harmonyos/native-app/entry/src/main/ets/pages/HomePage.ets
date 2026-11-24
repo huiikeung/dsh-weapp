@@ -9,6 +9,7 @@ import { FluKeCoin } from '../components/FluKeCoin';
 import { Haptics } from '../services/Haptics';
 import { StatusBarStyle, STATUS_BAR_HOME_ROUTE } from '../services/StatusBarStyle';
 import { openSessionRoute } from '../common/SessionRoute';
+import { startModeWave } from '../common/ModeTransition';
 import {
   GatewayClient, OceanBackground, PairingResult, PreferencesStore, SessionStore, SessionSummary,
   DirEntry, DirCrumb, WorkspaceRow, parsePairingPayload, SavedGateway
@@ -44,6 +45,8 @@ export struct HomePage {
   @State createHint: string = '';
   @State search: string = '';
   @State drawerOpen: boolean = false;
+  /** 模式切换时抽屉要「立即无动画归零」（对齐 iOS selectDrawerItem 的 disablesAnimations） */
+  @State drawerInstant: boolean = false;
   // 侧栏右推：抽屉在下层，首页整体右移（对齐小程序 contentX / contentCornerRadius）
   @State drawerWidth: number = 280;
   private drawerShift(): number {
@@ -1727,7 +1730,7 @@ export struct HomePage {
         .padding({ left: this.rpx(24), bottom: this.rpx(32) })
 
         // Bot 模式（对齐 dsh-mobile：抽屉首项进入 DS-Bot）
-        this.drawerItem($r('app.media.bot_mode'), $r('app.media.bot_mode'), 'Bot 模式', 'bot-home')
+        this.drawerItem($r('app.media.bot_drawer_mark'), $r('app.media.bot_drawer_mark'), '切换到 Bot 模式', 'bot-home')
         // 插件
         this.drawerItem($r('app.media.pinwheel_ink'), $r('app.media.pinwheel_ink'), '插件', 'plugins')
         // 自动化任务
@@ -1759,7 +1762,7 @@ export struct HomePage {
       .position({ x: 0, y: 0 })
       // 抽屉自身从左向右展开；关闭时缩回屏外（对齐小程序 translateX(-100%) → 0）
       .translate({ x: this.drawerOpen ? 0 : -this.drawerWidth })
-      .animation({ duration: 320, curve: Curve.FastOutSlowIn })
+      .animation({ duration: this.drawerInstant ? 0 : 320, curve: Curve.FastOutSlowIn })
   }
 
   @Builder
@@ -1782,10 +1785,20 @@ export struct HomePage {
     .borderRadius(this.rpx(24))
     // 按下/悬停高亮：与系统菜单（协作、⋯）同一套 press 反馈
     .hoverEffect(HoverEffect.Highlight)
-    .onClick(() => {
+    .onClick((event: ClickEvent) => {
       // 侧栏每一项都按「设置 → 震动反馈」的档位给一次触感
       Haptics.play();
       this.drawerOpen = false;
+      if (route === 'bot-home') {
+        // 对齐 iOS：抽屉立即无动画归零 → 以点击点为圆心播放模式波纹 → 无滑动转场切到 Bot 首页
+        this.drawerInstant = true;
+        startModeWave(event.windowX, event.windowY, this.isDark ? '#17161F' : '#F4F1FA');
+        setTimeout(() => {
+          this.pageStack.pushPathByName('bot-home', null, false);
+          this.drawerInstant = false;
+        }, 430);
+        return;
+      }
       this.pageStack.pushPathByName(route, null);
     })
   }

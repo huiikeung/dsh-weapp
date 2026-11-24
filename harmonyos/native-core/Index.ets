@@ -32,6 +32,8 @@ export type { ProviderRow, ModelRow, ReasoningLevel, PluginNamespace, Discovered
   ProviderProtocol, ProviderConfigDraft } from './src/main/ets/state/ModelSettingsStore';
 export type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from './src/main/ets/state/SessionStore';
 export { OceanBackground } from './src/main/ets/components/OceanBackground.ets';
+export { WHALE_PIXELS_IOS } from './src/main/ets/core/WhalePixelsIOS';
+export { WHALE_PIXELS_PAD } from './src/main/ets/core/WhalePixelsPad';
 export { ParticleBackground } from './src/main/ets/components/ParticleBackground.ets';
 export { GlassCard } from './src/main/ets/components/GlassCard.ets';
 export { ScheduleStore, parseScheduleTask } from './src/main/ets/state/ScheduleStore';

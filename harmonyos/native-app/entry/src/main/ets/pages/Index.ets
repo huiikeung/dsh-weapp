@@ -9,7 +9,9 @@ import { BotHomePage } from './BotHomePage';
 import { BotChatPage } from './BotChatPage';
 import { BotRolePage } from './BotRolePage';
 import { BotCreatePage } from './BotCreatePage';
+import { BotManagePage } from './BotManagePage';
 import { BotNewChatPage } from './BotNewChatPage';
+import { ModeWave } from '../components/ModeWave';
 
 import { NodeManagePage } from './NodeManagePage';
 import { PluginsPage } from './PluginsPage';
@@ -116,7 +118,7 @@ struct Index {
       const mode: string = AppStorage.get<string>('botMode') ?? '0';
       const names: string[] = this.pageStack.getAllPathName();
       if (mode === '1' && names.length === 0) {
-        this.pageStack.pushPathByName('bot-home', null);
+        this.pageStack.pushPathByName('bot-home', null, false);
       }
     }, 900);
   }
@@ -144,6 +146,8 @@ struct Index {
       BotChatPage();
     } else if (name === 'bot-role') {
       BotRolePage();
+    } else if (name === 'bot-manage') {
+      BotManagePage();
     } else if (name === 'bot-create') {
       BotCreatePage();
     } else if (name === 'bot-new-chat') {
@@ -373,6 +377,9 @@ struct Index {
       .width('100%')
       .height('100%')
       .backgroundColor(this.isDark ? '#000000' : '#F2F2F7')
+
+      // 模式切换波纹（工作 ⇄ Bot，对齐 iOS WorkspaceModeWave）
+      ModeWave()
 
       // 系统弹窗打不开时的兜底：自绘玻璃同意层（内容复用 PrivacyConsentDialog）
       if (this.consentFallback && this.consentState === 'required' && !this.consentDocOpen) {

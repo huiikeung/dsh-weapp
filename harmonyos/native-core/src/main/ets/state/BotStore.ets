@@ -12,8 +12,11 @@ import {
   BotActivity, BotAnswerChoice, BotAvatarPhoto, BotChat, BotChatImage, BotChatMessage, BotChatIndicator,
   BotConversationState, BotCreationAgent, BotCreationAppearance, BotCreationColor, BotCreationShape,
   BotInteraction, BotLiveWork, BotMemory, BotPresentedFile, BotQuestionAnswer,
+  BotReferenceCandidate, BotReferenceSearch,
   BotRoleDetails, BotRoleOption, BotRoleProfile, BotSchedule, BotSnapshot, emptyBotSnapshot
 } from '../protocol/BotDtos';
+import { BotCache, BotCachePayload, RestoredBotCache } from './BotCache';
+import { BotNotify } from './BotNotify';
 
 interface BotPending {
   endpoint: string;
@@ -73,6 +76,10 @@ export class BotStore {
   private prefetched: boolean = false;
   /** 分块读取（Bot 图片）用的一次性回执等待者 */
   private waiters: Map<string, (value: Record<string, Object> | undefined) => void> = new Map();
+  /** BotCache 恢复完成前不落盘（否则空状态会覆盖上次缓存）。 */
+  private cacheRestored: boolean = false;
+  /** 是否已收到过主机数据：收到后缓存只补空位，不覆盖在线状态。 */
+  private hostDataSeen: boolean = false;
 
   static get(): BotStore {
     return BotStore.instance;
@@ -84,6 +91,8 @@ export class BotStore {
     }
     this.attached = true;
     this.client = client;
+    // 冷启动先读本地缓存（按主机分文件），只填可展示状态，不触发网络
+    this.restoreCache();
     client.onFrame((frame: GatewayFrame) => {
       try {
         this.consume(frame);
@@ -106,6 +115,10 @@ export class BotStore {
 
   /** 连接建立 / 回到前台时调用：必要的话重新订阅并拉全量。 */
   refreshAll(): void {
+    // 重连 / 回前台重新拉取：清空已发通知集合（同一 boot:seq 不会重复提醒）
+    BotNotify.reset();
+    // 设置页切换主机后回到前台：重新绑定缓存分文件键（旧主机缓存不串台）
+    BotCache.get().bind(this.cacheHostKey());
     if (this.client === null || !this.client.isConnected()) {
       this.state.connected = false;
       this.publish();
@@ -184,7 +197,22 @@ export class BotStore {
     this.pending.set(id, { endpoint: endpoint, chatId: chatId, older: older, part: part });
     const frame: Record<string, Object> = { 'type': 'bot-call', 'requestId': id, 'endpoint': endpoint, 'payload': payload };
     this.post(frame);
+    // 32s 兜底超时（对齐 iOS Bot 请求超时）：主机不回包时清掉 pending 并落到失败态，
+    // 否则写操作会一直 Spinner、pending 槽位也会被占满。
+    const requestId: string = id;
+    setTimeout(() => {
+      if (this.pending.has(requestId)) {
+        this.fail(requestId, 'request-timeout');
+      }
+    }, 32000);
     return id;
+  }
+
+  /** 角色类写操作（失败要落到 roleError，并解除 roleSaving） */
+  private isRoleWrite(endpoint: string): boolean {
+    return endpoint === 'update-bot' || endpoint === 'memory-add' || endpoint === 'memory-edit'
+      || endpoint === 'memory-forget' || endpoint === 'schedule-create' || endpoint === 'schedule-delete'
+      || endpoint === 'duplicate-bot' || endpoint === 'delete-bot' || endpoint === 'set-main';
   }
 
   /**
@@ -221,9 +249,95 @@ export class BotStore {
   }
 
   private fail(id: string, code: string): void {
+    const pending: BotPending | undefined = this.pending.get(id);
     this.pending.delete(id);
+    // @ 引用候选失败：只清 loading 并标记不可用，不冒泡全局 error（对齐 iOS SharedBotStore.fail）。
+    if (pending !== undefined && pending.endpoint === 'reference-candidates') {
+      this.applyReferenceFailure(pending);
+      return;
+    }
     this.state.error = code;
+    if (pending !== undefined) {
+      // 发送超时/失败：乐观气泡转「状态待确认」，不自动重发（对齐 iOS 的 delivery=unknown）
+      if (pending.endpoint === 'send' || pending.endpoint === 'send-attachments') {
+        const list: BotChatMessage[] = this.optimistic.get(pending.chatId) ?? [];
+        for (let i = list.length - 1; i >= 0; i--) {
+          if (list[i].delivery === 'sending') {
+            list[i].delivery = 'unknown';
+            break;
+          }
+        }
+        this.optimistic.set(pending.chatId, list);
+      }
+      // 角色写失败：解除保存中并写 roleError，让角色页能显示具体原因
+      if (this.isRoleWrite(pending.endpoint)) {
+        this.state.roleSaving = false;
+        this.state.roleError = code;
+        this.publish();
+        return;
+      }
+    }
+    if (pending !== undefined && this.applyCreationFailure(pending, code)) {
+      return;
+    }
     this.publish();
+  }
+
+  /** 新建 Bot 相关请求失败：清掉 loading 并落到 failed 态，避免页面一直转圈。 */
+  private applyCreationFailure(pending: BotPending, code: string): boolean {
+    const endpoint: string = pending.endpoint;
+    if (endpoint === 'creation-appearance') {
+      this.state.creation.loadingAppearance = false;
+      this.state.creation.appearanceFailed = true;
+      this.publish();
+      return true;
+    }
+    if (endpoint === 'local-agents') {
+      this.state.creation.loadingAgents = false;
+      this.state.creation.agentsFailed = true;
+      this.publish();
+      return true;
+    }
+    if (endpoint === 'local-agent-models') {
+      if (this.state.creation.agentRoute === pending.chatId) {
+        this.state.creation.loadingAgentModels = false;
+      }
+      this.publish();
+      return true;
+    }
+    if (endpoint === 'avatar-library' || endpoint === 'avatar-import') {
+      this.state.creation.loadingPhotos = false;
+      this.state.creation.photosFailed = true;
+      this.publish();
+      return true;
+    }
+    if (endpoint === 'create-bot') {
+      const timedOut: boolean = code === 'bot-timeout' || code === 'request-timeout'
+        || code === 'timeout' || code === 'disconnected' || code === 'connection-lost';
+      this.state.creation.saving = false;
+      this.state.creation.createdId = undefined;
+      this.state.creation.error = timedOut ? 'uncertain' : code;
+      this.revision = -1;
+      this.readState();
+      this.publish();
+      return true;
+    }
+    return false;
+  }
+
+  /** 新建 Bot 的一次性 bot-call：补 15s 超时，主机不回包时也能落到失败态。 */
+  private creationCall(endpoint: string, payload: Record<string, Object>,
+    chatId: string = EMPTY): string | null {
+    const id: string | null = this.call(endpoint, payload, chatId);
+    if (id !== null) {
+      const requestId: string = id;
+      setTimeout(() => {
+        if (this.pending.has(requestId)) {
+          this.fail(requestId, 'request-timeout');
+        }
+      }, 15000);
+    }
+    return id;
   }
 
   // ==================== 帧分发 ====================
@@ -244,6 +358,7 @@ export class BotStore {
         return;
       }
       this.pending.delete(requestId);
+      this.hostDataSeen = true;
       if (subscriptionId === null || subscriptionId === undefined) {
         this.subscription = EMPTY;
         this.state.feedActive = false;
@@ -418,7 +533,12 @@ export class BotStore {
   // ==================== 回执解析 ====================
 
   private onReply(endpoint: string, pending: BotPending, value: Record<string, Object> | undefined): void {
+    this.hostDataSeen = true;
     const obj: Record<string, Object> = value !== undefined ? value : {};
+    if (endpoint === 'reference-candidates') {
+      this.applyReferenceCandidates(pending, value);
+      return;
+    }
     if (endpoint === 'state') {
       this.applyState(obj);
       return;
@@ -1155,6 +1275,8 @@ export class BotStore {
     this.queuedNotices.forEach((value: Record<string, Object>, key: number) => {
       if (key > this.noticeSeq && key <= tip) {
         this.recordNotice(key, value, key > this.noticeSeq);
+        // 乱序补洞的 notice 仍属于主机实时下发：done 可触发完成提醒（notices 历史回放行不触发）
+        this.maybeNotifyDone(key, value);
       }
     });
     this.noticeSeq = Math.max(this.noticeSeq, tip);
@@ -1179,6 +1301,8 @@ export class BotStore {
     this.boot = nextBoot;
     this.queuedNotices.clear();
     this.readThrough.clear();
+    // 主机 boot 变化：已发通知集合作废（切换 boot 后同一 seq 是不同事件）
+    BotNotify.reset();
   }
 
   private recordNotice(seq: number, value: Record<string, Object>, countUnread: boolean): void {
@@ -1208,6 +1332,28 @@ export class BotStore {
       && seq > (this.readThrough.get(chatId) ?? 0)) {
       const count: number = this.state.unreadCounts[chatId] ?? 0;
       this.state.unreadCounts[chatId] = count + 1;
+    }
+  }
+
+  /**
+   * 「完成提醒」通知钩子（docs/bot-mode-ios-spec.md §9.6）：只在主机实时下发 notice kind=done 时触发，
+   * 不根据普通回复猜测完成；done 不计未读；前台且正打开该聊天时不打扰。
+   * 去重 / 开关 / 系统通知与失败兜底都在 BotNotify，本方法任何异常都不影响 Bot 主流程。
+   */
+  private maybeNotifyDone(seq: number, value: Record<string, Object>): void {
+    try {
+      if (text(value, 'kind') !== 'done') {
+        return;
+      }
+      const chatId: string = text(value, 'roomId').length > 0 ? text(value, 'roomId') : text(value, 'botId');
+      if (this.foreground && chatId.length > 0 && this.state.selectedChatId === chatId) {
+        return;
+      }
+      const chat: BotChat | null = this.chatOf(chatId);
+      BotNotify.onDoneNotice(this.boot + ':' + seq.toString(), chatId,
+        chat !== null ? chat.name : EMPTY, text(value, 'text'));
+    } catch (error) {
+      Logger.warn('bot notify hook failed: ' + (error instanceof Error ? error.message : String(error)));
     }
   }
 
@@ -1356,6 +1502,7 @@ export class BotStore {
   // ==================== 事件 ====================
 
   private onBotEvent(kind: string, data: Record<string, Object> | undefined): void {
+    this.hostDataSeen = true;
     if (kind === 'hello') {
       const nextBoot: string = data !== undefined ? text(data, 'boot') : EMPTY;
       if (nextBoot.length > 0) {
@@ -1403,6 +1550,7 @@ export class BotStore {
           const row = this.queuedNotices.get(next);
           if (row !== undefined) {
             this.recordNotice(next, row, true);
+            this.maybeNotifyDone(next, row);
           }
           this.queuedNotices.delete(next);
           this.noticeSeq = next;
@@ -1485,6 +1633,13 @@ export class BotStore {
     payload.text = message;
     payload.images = images;
     payload.receipts = receipts;
+    // 带附件时官方协议要 sessionId(官方会话) + chatId；主机只认 botId/roomId 的老版本忽略多余字段即可。
+    if (images.length > 0 || receipts.length > 0) {
+      payload.chatId = chatId;
+      if (chat !== null && chat.sessionId !== undefined && chat.sessionId.length > 0) {
+        payload.sessionId = chat.sessionId;
+      }
+    }
     return payload;
   }
 
@@ -1524,6 +1679,131 @@ export class BotStore {
   answerApproval(id: string, allow: boolean): boolean {
     const payload: Record<string, Object> = { 'id': id, 'choice': allow ? 'allow' : 'reject' };
     return this.call('approval-answer', payload) !== null;
+  }
+
+  // ==================== @ 引用候选 ====================
+
+  /**
+   * @ 引用候选搜索（对齐 iOS BotMentionDraft / SharedBotStore.searchReferences）：
+   * 仅在 referencesSupported 且已连接时向主机发 reference-candidates，结果写入 state.referenceSearch。
+   */
+  searchReferences(query: string, quoted: boolean): void {
+    const chatId: string = this.state.selectedChatId ?? EMPTY;
+    if (chatId.length === 0 || !this.state.referencesSupported || !this.state.connected) {
+      return;
+    }
+    if (query.length > 256 || this.hasReferenceControl(query)) {
+      return;
+    }
+    const current: BotReferenceSearch | undefined = this.state.referenceSearch;
+    const same: boolean = current !== undefined && current.chatId === chatId
+      && current.query === query && current.quoted === quoted;
+    if (same && current !== undefined && !current.unavailable) {
+      return;                                   // 已有结果 / 已在请求中，不重复发
+    }
+    this.state.referenceSearch = {
+      chatId: chatId, query: query, quoted: quoted,
+      loading: true, unavailable: false, items: []
+    };
+    // 丢弃旧查询：call() 对同 endpoint + chatId 有去重，旧请求在途会让新查询永远发不出去。
+    this.cancelReferenceRequest();
+    const payload: Record<string, Object> = {
+      'chatId': chatId, 'query': query, 'quoted': quoted
+    };
+    const id: string | null = this.call('reference-candidates', payload, chatId);
+    if (id === null) {
+      this.state.referenceSearch = {
+        chatId: chatId, query: query, quoted: quoted,
+        loading: false, unavailable: true, items: []
+      };
+    }
+    this.publish();
+  }
+
+  /** 关闭 @ 引用弹层：丢弃在途请求与候选结果。 */
+  clearReferenceSearch(): void {
+    this.cancelReferenceRequest();
+    if (this.state.referenceSearch === undefined) {
+      return;
+    }
+    this.state.referenceSearch = undefined;
+    this.publish();
+  }
+
+  /** 取消在途的 reference-candidates（避免 call() 的 endpoint 去重吞掉新查询）。 */
+  private cancelReferenceRequest(): void {
+    const stale: string[] = [];
+    this.pending.forEach((p: BotPending, id: string) => {
+      if (p.endpoint === 'reference-candidates') {
+        stale.push(id);
+      }
+    });
+    for (const id of stale) {
+      this.pending.delete(id);
+    }
+  }
+
+  /** 回执：items[] → BotReferenceSearch（≤48；非法行跳过；失败时只清 loading）。 */
+  private applyReferenceCandidates(pending: BotPending, value: Record<string, Object> | undefined): void {
+    const search: BotReferenceSearch | undefined = this.state.referenceSearch;
+    if (search === undefined || search.chatId !== pending.chatId) {
+      return;
+    }
+    const items: BotReferenceCandidate[] = [];
+    const rows: Object[] = value === undefined ? [] : array(value, 'items');
+    for (const row of rows) {
+      if (items.length >= 48) {
+        break;
+      }
+      const one: Record<string, Object> | undefined = rec(row);
+      if (one === undefined) {
+        continue;
+      }
+      const label: string = text(one, 'label');
+      const wire: string = text(one, 'wire');
+      if (label.length === 0 || wire.length === 0) {
+        continue;
+      }
+      const id: string = text(one, 'id');
+      const item: BotReferenceCandidate = {
+        id: id.length > 0 ? id : label,
+        kind: text(one, 'kind'),
+        label: label,
+        detail: text(one, 'detail'),
+        wire: wire,
+        path: text(one, 'path')
+      };
+      items.push(item);
+    }
+    this.state.referenceSearch = {
+      chatId: search.chatId, query: search.query, quoted: search.quoted,
+      loading: false, unavailable: value === undefined, items: items
+    };
+    this.publish();
+  }
+
+  /** 引用查询失败/超时：清 loading 并标记不可用（不冒泡全局 error）。 */
+  private applyReferenceFailure(pending: BotPending): void {
+    const search: BotReferenceSearch | undefined = this.state.referenceSearch;
+    if (search === undefined || search.chatId !== pending.chatId) {
+      return;
+    }
+    this.state.referenceSearch = {
+      chatId: search.chatId, query: search.query, quoted: search.quoted,
+      loading: false, unavailable: true, items: []
+    };
+    this.publish();
+  }
+
+  /** 引用查询里不允许出现 ISO 控制字符（对齐 iOS 的候选查询校验）。 */
+  private hasReferenceControl(value: string): boolean {
+    for (let i = 0; i < value.length; i++) {
+      const code: number = value.charCodeAt(i);
+      if (code < 0x20 || code === 0x7f) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // ==================== 选择 / 历史 / 角色 ====================
@@ -1843,7 +2123,7 @@ export class BotStore {
     }
     this.state.creation.agents = agents;
     this.state.creation.loadingAgents = false;
-    this.state.creation.agentsFailed = agents.length === 0;
+    this.state.creation.agentsFailed = false;
     this.publish();
   }
 
@@ -1941,14 +2221,14 @@ export class BotStore {
     this.state.chats = kept;
     this.state.conversation.createdId = room.id;
     this.state.conversation.saving = false;
+    // 创建成功后一律记下要进入的会话：带首条消息时也要跳到聊天页（之前只有消息留空才跳）
+    this.state.conversation.openedId = room.id;
     const message: string = this.state.conversation.message.trim();
-    if (message.length === 0) {
-      this.state.conversation.openedId = room.id;
-    } else {
+    if (message.length > 0) {
       const payload: Record<string, Object> = { 'sessionId': room.id, 'text': message };
       this.call('send', payload, room.id);
-      this.state.conversation.message = '';
     }
+    this.state.conversation.message = '';
     this.readState();
     this.publish();
   }
@@ -1982,7 +2262,7 @@ export class BotStore {
     this.state.creation.createdId = undefined;
     this.state.creation.error = undefined;
     if (this.state.creation.appearance === undefined) {
-      const sent: string | null = this.call('creation-appearance', {});
+      const sent: string | null = this.creationCall('creation-appearance', {});
       if (sent !== null) {
         this.state.creation.loadingAppearance = true;
         this.state.creation.appearanceFailed = false;
@@ -1995,7 +2275,7 @@ export class BotStore {
     if (!this.canCreate() || this.state.creation.loadingAgents) {
       return;
     }
-    const sent: string | null = this.call('local-agents', {});
+    const sent: string | null = this.creationCall('local-agents', {});
     if (sent !== null) {
       this.state.creation.loadingAgents = true;
       this.state.creation.agentsFailed = false;
@@ -2017,7 +2297,7 @@ export class BotStore {
       return;
     }
     const payload: Record<string, Object> = { 'route': route };
-    const sent: string | null = this.call('local-agent-models', payload, route);
+    const sent: string | null = this.creationCall('local-agent-models', payload, route);
     if (sent !== null) {
       this.state.creation.agentRoute = route;
       this.state.creation.agentModels = [];
@@ -2035,7 +2315,7 @@ export class BotStore {
     }
     const offset: number = reset ? 0 : this.state.creation.photoOffset;
     const payload: Record<string, Object> = { 'offset': offset };
-    const sent: string | null = this.call('avatar-library', payload, offset.toString());
+    const sent: string | null = this.creationCall('avatar-library', payload, offset.toString());
     if (sent !== null) {
       this.state.creation.loadingPhotos = true;
       this.state.creation.photosFailed = false;
@@ -2053,7 +2333,7 @@ export class BotStore {
     const item: Record<string, Object> = { 'image': image, 'name': name.substring(0, 120) };
     const items: Object[] = [item];
     const payload: Record<string, Object> = { 'items': items };
-    const sent: string | null = this.call('avatar-import', payload);
+    const sent: string | null = this.creationCall('avatar-import', payload);
     if (sent !== null) {
       this.state.creation.loadingPhotos = true;
       this.state.creation.photosFailed = false;
@@ -2068,7 +2348,8 @@ export class BotStore {
       return;
     }
     const trimmed: string = name.trim();
-    if (trimmed.length === 0 || trimmed.length > 40 || trimmed.indexOf('@') >= 0 || trimmed.indexOf('`') >= 0) {
+    if (trimmed.length === 0 || trimmed.length > 40 || this.hasForbiddenNameChars(trimmed)
+      || this.isReservedName(trimmed)) {
       this.state.creation.error = 'invalid-name';
       this.publish();
       return;
@@ -2091,6 +2372,30 @@ export class BotStore {
       this.publish();
       return;
     }
+    // 本地 Agent 的模型引用形如 local-<route>/<model>，必须落在可用 Agent 上。
+    let localRoute: string = '';
+    if (model !== undefined && model.length > 0 && this.isLocalModelRef(model)) {
+      localRoute = model.substring(0, model.indexOf('/'));
+      let routeAvailable: boolean = false;
+      for (const agent of this.state.creation.agents) {
+        if (agent.id === localRoute && agent.available) {
+          routeAvailable = true;
+        }
+      }
+      let modelListed: boolean = model === localRoute + '/default';
+      if (!modelListed && this.state.creation.agentRoute === localRoute) {
+        for (const option of this.state.creation.agentModels) {
+          if (option.id === model) {
+            modelListed = true;
+          }
+        }
+      }
+      if (!routeAvailable || !modelListed) {
+        this.state.creation.error = 'invalid-model';
+        this.publish();
+        return;
+      }
+    }
     const avatar: Record<string, Object> = { 'shape': shape };
     if (image !== undefined) {
       avatar.image = image;
@@ -2099,13 +2404,20 @@ export class BotStore {
     if (model !== undefined && model.length > 0) {
       payload.model = model;
     }
-    if (agentAppearance) {
+    // 只有本地 Agent 且没有自定义头像时，才让主机沿用 Agent 的形象。
+    if (agentAppearance && localRoute.length > 0 && image === undefined) {
       payload.agentAppearance = true;
     }
-    if (effort !== undefined && effort.length > 0) {
-      payload.effort = effort;
+    // 思考强度只对云端模型有意义，且必须是当前模型已加载的档位。
+    if (effort !== undefined && effort.length > 0 && localRoute.length === 0
+      && model !== undefined && this.state.effortModel === model) {
+      for (const option of this.state.efforts) {
+        if (option.id === effort) {
+          payload.effort = effort;
+        }
+      }
     }
-    const sent: string | null = this.call('create-bot', payload);
+    const sent: string | null = this.creationCall('create-bot', payload);
     if (sent !== null) {
       this.state.creation.saving = true;
       this.state.creation.createdId = undefined;
@@ -2130,6 +2442,33 @@ export class BotStore {
 
   private isPhotoData(value: string): boolean {
     return value.length <= 160000 && /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/]+={0,2}$/.test(value);
+  }
+
+  /** 本地 Agent 模型引用：local-<route>/<model>（对齐 BotCreationRules.localRef）。 */
+  private isLocalModelRef(ref: string): boolean {
+    if (!ref.startsWith('local-')) {
+      return false;
+    }
+    const slash: number = ref.indexOf('/');
+    return slash > 'local-'.length && slash < ref.length - 1;
+  }
+
+  /** 名字里不能包含 @、反引号或控制字符。 */
+  private hasForbiddenNameChars(value: string): boolean {
+    for (let i = 0; i < value.length; i++) {
+      const code: number = value.charCodeAt(i);
+      if (code === 64 || code === 96 || code < 32 || code === 127) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** 群聊里有保留用途的名字（对齐 BotCreationRules.reservedNames）。 */
+  private isReservedName(value: string): boolean {
+    const lower: string = value.toLowerCase();
+    return lower === 'all' || lower === 'everyone' || lower === '所有人'
+      || lower === '全体' || lower === 'user' || lower === 'you';
   }
 
   // ---- 新建会话 / 群聊 ----
@@ -2219,6 +2558,156 @@ export class BotStore {
     this.call('set-flags', payload, id);
   }
 
+  // ==================== 本地缓存（按主机隔离，对齐 iOS §9.5） ====================
+
+  /**
+   * 冷启动恢复：读本机 Bot 缓存填充可展示字段 + 历史/乐观消息 + 通知游标。
+   * 只读本地文件，不触发任何网络请求；主机数据到达后以主机为准。
+   */
+  private restoreCache(): void {
+    const cache: BotCache = BotCache.get();
+    cache.bind(this.cacheHostKey());
+    void cache.load().then((restored: RestoredBotCache | undefined) => {
+      if (restored !== undefined) {
+        this.applyRestoredCache(restored);
+      }
+      // 恢复（或确认没有缓存）之后才允许写盘，避免空状态覆盖上次缓存
+      this.cacheRestored = true;
+    }).catch((error: Error) => {
+      this.cacheRestored = true;
+      Logger.warn('bot cache restore failed: ' + error.message);
+    });
+  }
+
+  /** 把缓存快照合并进内存态：可展示字段 + 历史/乐观消息 + 通知游标；恢复后不假装在线。 */
+  private applyRestoredCache(restored: RestoredBotCache): void {
+    // 切换主机后旧缓存迟到：身份不一致直接丢弃，避免串台
+    const expected: string = this.cacheHostKey();
+    if (expected.length > 0 && restored.hostKey.length > 0 && expected !== restored.hostKey) {
+      Logger.info('bot cache ignored: host changed');
+      return;
+    }
+    // 历史 / 乐观消息 / 已读游标只补空位：已从主机拉到的聊天以主机为准
+    restored.histories.forEach((messages: BotChatMessage[], chatId: string) => {
+      if (!this.histories.has(chatId)) {
+        this.histories.set(chatId, messages);
+      }
+    });
+    restored.optimistic.forEach((messages: BotChatMessage[], chatId: string) => {
+      if (!this.optimistic.has(chatId)) {
+        this.optimistic.set(chatId, messages);
+      }
+    });
+    restored.readThrough.forEach((seq: number, chatId: string) => {
+      if (!this.readThrough.has(chatId)) {
+        this.readThrough.set(chatId, seq);
+      }
+    });
+    if (this.boot.length === 0 && restored.noticeBoot.length > 0) {
+      this.boot = restored.noticeBoot;
+    }
+    if (restored.noticeSeq > this.noticeSeq) {
+      this.noticeSeq = restored.noticeSeq;
+    }
+    if (restored.noticeSeq > this.noticeTip) {
+      this.noticeTip = restored.noticeSeq;
+    }
+    if (this.hostDataSeen) {
+      // 主机数据已到：在线态以主机为准，只保留上面补齐的历史/游标后发布
+      this.publish();
+      return;
+    }
+    const cached: BotSnapshot = restored.snapshot;
+    this.state.connected = false;                 // 恢复态不假装已连接
+    this.state.supported = false;                 // 能力位等订阅/hello 确认
+    this.state.loading = false;
+    this.state.error = undefined;
+    this.state.feedActive = false;
+    this.state.capabilities = cached.capabilities;
+    this.state.mainBotId = cached.mainBotId;
+    this.state.mainBotIds = cached.mainBotIds;
+    this.state.rosterIds = cached.rosterIds;
+    this.state.chats = cached.chats;
+    this.state.selectedChatId = undefined;        // 选中会话清空：回首页重新选
+    this.state.messages = [];
+    this.state.historyLoading = false;
+    this.state.hasEarlier = false;
+    this.state.schedules = cached.schedules;
+    this.state.schedulesAvailable = cached.schedulesAvailable;
+    this.state.recent = cached.recent;
+    this.state.interactions = [];
+    this.state.models = cached.models;
+    this.state.permissions = cached.permissions;
+    this.state.defaultModel = cached.defaultModel;
+    this.state.effortModel = undefined;
+    this.state.efforts = [];
+    this.state.memoryAvailable = cached.memoryAvailable;
+    this.state.computerEnabled = cached.computerEnabled;
+    this.state.writable = cached.writable;
+    this.state.roleDetails = undefined;
+    this.state.roleSaving = false;
+    this.state.roleError = undefined;
+    this.state.roleSettingsSupported = false;
+    this.state.attachmentsSupported = false;
+    this.state.referencesSupported = false;
+    this.state.botDeletionSupported = false;
+    this.state.attachmentSending = false;
+    this.state.creation = cached.creation;
+    this.state.conversation = cached.conversation;
+    this.state.referenceSearch = undefined;
+    this.state.liveWork = cached.liveWork;        // 运行中状态不缓存
+    this.state.unreadCounts = cached.unreadCounts;
+    Logger.info('bot cache restored chats=' + cached.chats.length.toString());
+    this.publish();
+  }
+
+  /** 缓存分文件用的主机身份：已保存主机 id 优先，其次当前连接端点；都没有返回空串（BotCache 回落 'default'）。 */
+  private cacheHostKey(): string {
+    if (this.client !== null) {
+      const saved: string = this.client.activeGatewayId();
+      if (saved.length > 0) {
+        return 'gateway:' + saved;
+      }
+    }
+    const stored: string = AppStorage.get<string>('activeGatewayId') ?? EMPTY;
+    if (stored.length > 0) {
+      return 'gateway:' + stored;
+    }
+    const endpoint: string = AppStorage.get<string>('activeEndpoint') ?? EMPTY;
+    if (endpoint.length > 0) {
+      return 'endpoint:' + endpoint;
+    }
+    return EMPTY;
+  }
+
+  /**
+   * 状态变化后交给 BotCache 防抖落盘：这里只传引用、不做序列化，
+   * 避免每帧同步 JSON.stringify 卡 UI（600ms 防抖与串行写由 BotCache 负责）。
+   */
+  private persistSoon(): void {
+    if (!this.cacheRestored) {
+      return;
+    }
+    BotCache.get().scheduleSave(this.cachePayload());
+  }
+
+  private cachePayload(): BotCachePayload {
+    const payload: BotCachePayload = {
+      snapshot: this.state,
+      histories: this.histories,
+      optimistic: this.optimistic,
+      noticeBoot: this.boot,
+      noticeSeq: this.noticeSeq,
+      readThrough: this.readThrough
+    };
+    return payload;
+  }
+
+  /** 测试 / 退后台入口：跳过 600ms 防抖立即落盘（不改变任何业务语义）。 */
+  saveCacheNow(): Promise<boolean> {
+    return BotCache.get().saveNow(this.cachePayload());
+  }
+
   // ==================== 发布 ====================
 
   private publish(): void {
@@ -2247,6 +2736,8 @@ export class BotStore {
     });
     this.state.attachmentSending = attachmentSending;
     AppStorage.setOrCreate<BotSnapshot>('botState', this.cloneSnapshot());
+    // 状态变化后交给 BotCache 防抖落盘（这里不序列化，避免每帧开销）
+    this.persistSoon();
   }
 
   /** 发布用浅拷贝：ArkUI 只有对象引用变化才刷新页面。 */
