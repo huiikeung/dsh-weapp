@@ -746,18 +746,19 @@ export struct SessionSettingsPage {
           })
         TopToastView()
 
-        // 顶部「逐渐模糊」过渡带：导航栏上下共 60vp 内做 10 级递变，
-        // 越往下模糊越弱（12 → 3），内容滚进来是慢慢变糊而不是一刀切。
-        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 0 }).backdropBlur(12).hitTestBehavior(HitTestMode.None)
-        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 6 }).backdropBlur(11).hitTestBehavior(HitTestMode.None)
-        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 12 }).backdropBlur(10).hitTestBehavior(HitTestMode.None)
-        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 18 }).backdropBlur(9).hitTestBehavior(HitTestMode.None)
-        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 24 }).backdropBlur(8).hitTestBehavior(HitTestMode.None)
-        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 30 }).backdropBlur(7).hitTestBehavior(HitTestMode.None)
-        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 36 }).backdropBlur(6).hitTestBehavior(HitTestMode.None)
-        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 42 }).backdropBlur(5).hitTestBehavior(HitTestMode.None)
-        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 48 }).backdropBlur(4).hitTestBehavior(HitTestMode.None)
-        Column().width('100%').height(6).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 18 + 54 }).backdropBlur(3).hitTestBehavior(HitTestMode.None)
+        // 顶部模糊的淡出遮罩：一整层模糊 + 向上透明、向下页面底色的渐变。
+        // 不再用多条 blur 带拼接（会出现一条条的断裂感），渐变是连续的。
+        Column()
+          .width('100%')
+          .height(26)
+          .position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 26 })
+          .linearGradient({
+            direction: GradientDirection.Bottom,
+            colors: this.isDark
+              ? [['rgba(0,0,0,0)', 0.0], ['rgba(0,0,0,0.35)', 0.45], ['rgba(0,0,0,0.85)', 0.8], ['rgba(0,0,0,0.96)', 1.0]]
+              : [['rgba(242,242,247,0)', 0.0], ['rgba(242,242,247,0.35)', 0.45], ['rgba(242,242,247,0.85)', 0.8], ['rgba(242,242,247,0.96)', 1.0]]
+          })
+          .hitTestBehavior(HitTestMode.None)
 
         // 覆盖层返回键：必须是根 Stack 的最后一个子节点，
         // 这样才排在任何 Scroll/Toast/弹窗之上（之前放在中间会被后面的层吃掉点击）。

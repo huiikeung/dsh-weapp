@@ -2095,6 +2095,27 @@ export struct AppSettingsPage {
       if (this.infoOpen) {
         this.infoSheet()
       }
+
+      // 顶部模糊的连续淡出遮罩（单层模糊 + 页面底色渐变，不会出现一条条断裂）
+      Column()
+        .width('100%')
+        .height(26)
+        .position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 26 })
+        .linearGradient({
+          direction: GradientDirection.Bottom,
+          colors: this.isDark
+            ? [['rgba(0,0,0,0)', 0.0], ['rgba(0,0,0,0.35)', 0.45], ['rgba(0,0,0,0.85)', 0.8], ['rgba(0,0,0,0.96)', 1.0]]
+            : [['rgba(242,242,247,0)', 0.0], ['rgba(242,242,247,0.35)', 0.45], ['rgba(242,242,247,0.85)', 0.8], ['rgba(242,242,247,0.96)', 1.0]]
+        })
+        .hitTestBehavior(HitTestMode.None)
+
+      // 覆盖层返回键：根 Stack 最后一个子节点，不被 Scroll 吃掉点击
+      Row() {
+        NavBackButton({ isDark: this.isDark })
+      }
+      .width(40)
+      .height(40)
+      .margin({ left: 16, top: (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 8 })
       }
       .width('100%')
       .height('100%')
