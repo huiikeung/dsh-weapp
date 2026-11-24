@@ -218,12 +218,8 @@ export struct ConversationComposer {
   /** 展开态：聚焦、有草稿或有附件（对齐小程序 composer-expanded 判定） */
   /** 输入卡实测高度：上报给页面，供玻璃背板对齐 */
   @State private cardHeight: number = 0;
-  /** 玻璃条高度回调 */
+  /** 卡片高度回调 */
   onCardHeightChange: (height: number) => void = () => {};
-  /** 玻璃条下方区域（展开态 chip 行 / 常驻指标行）高度回调 */
-  onBelowHeightChange: (height: number) => void = () => {};
-  @State private belowHeight: number = 34;
-
   aboutToAppear(): void {
     this.resolveDraftToken(this.draft);
   }
@@ -430,7 +426,7 @@ export struct ConversationComposer {
         this.onVoiceHoldEnd(cancel);
         return;
       }
-      // 轻点语音面不切输入态：切回文字由右侧键盘按钮负责
+      this.onFocusChange(true);
     }
   }
 
@@ -807,12 +803,13 @@ export struct ConversationComposer {
           .fontWeight(350)
           .lineHeight(20)
           .fontColor('#2E6BE6')
+          .padding({ top: 4 })
           .maxLines(1)
           .onClick(() => {
             this.clearDraftToken();
           })
       }
-      Stack({ alignContent: Alignment.Start }) {
+      Stack({ alignContent: Alignment.TopStart }) {
         // 有蓝色指令前缀且还没输入参数时，用灰色提示代替被零宽占位符占掉的 placeholder
         if (this.draftToken.length > 0 && this.draftArgument().length === 0) {
           Text(this.placeholder)
@@ -822,6 +819,7 @@ export struct ConversationComposer {
             .fontColor(this.placeholderColor())
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .padding({ top: 4 })
             .hitTestBehavior(HitTestMode.None)
         }
       TextArea({ text: this.draftFieldText(), placeholder: this.placeholder })
@@ -847,10 +845,9 @@ export struct ConversationComposer {
       // 首行/末行都不会贴边；下缘的 4vp 也让 g/y/p 这类下伸字形不会触到内容框底边。
       // 左右 0：文字左缘与下方 chip 行的「+」按钮同一条线（小程序 .composer-input
       // 没有额外内边距，就是卡片 28rpx 内边距）；上下各 4vp 留给字形不贴边。
-      // 玻璃条是固定单行高度（36）：多行内容在文本域内部滚动，
-      // 不再靠文本域长高把玻璃条撑成长胶囊
-      .padding({ left: 0, right: 0, top: 2, bottom: 2 })
-      .constraintSize({ minHeight: 36, maxHeight: 36 })
+      .padding({ left: 0, right: 0, top: 4, bottom: 4 })
+      // 小程序：min-height 76rpx≈38vp / max-height 320rpx≈160vp
+      .constraintSize({ minHeight: 38, maxHeight: 160 })
       // 不在这里用 defaultFocus：条件挂载 + defaultFocus 在本机会崩；改为点击文本域即获焦，
       // onBlur 时若草稿与附件均为空才塌回单栏。
       .onFocus(() => {
@@ -898,8 +895,8 @@ export struct ConversationComposer {
       }
       .layoutWeight(1)
     }
-    .layoutWeight(1)
-    .alignItems(VerticalAlign.Center)
+    .width('100%')
+    .alignItems(VerticalAlign.Top)
   }
 
   @Builder
@@ -2399,139 +2396,197 @@ export struct ConversationComposer {
   // 并用 wx:if 控制 chip 行；如果这里按条件挂载两套子树，TextArea 会被重建 → 丢焦点 → 立刻 onBlur
   // 又塌回折叠态（点击后展不开）。所以下面只做三件事：
   //   ① 卡片 padding/圆角随 expanded 变化；② chip 行与折叠占位分别显示；③ 右侧按钮按需显示。
-  /** 玻璃条内容：+ / 文本域（或语音面）/ 发送·停止·麦克风 —— 固定单行，不随内容长高 */
-  @Builder
-  inputBar() {
-    Row({ space: 6 }) {
-      // 「+」附件菜单（复用原有的 attachMenuPanel 弹层）
-      Stack() {
-        Text('+').fontSize(17).fontColor(this.chipText())
-      }
-      .width(32)
-      .height(32)
-      .borderRadius(16)
-      .border({ width: 0.9, color: this.plusBorder() })
-      .opacity(this.connected ? 1 : 0.4)
-      .enabled(this.connected)
-      .onClick(() => {
-        if (this.connected) {
-          this.attachMenuOpen = !this.attachMenuOpen;
-        }
-      })
-      .bindMenu(this.attachMenuOpen, this.attachMenuPanel(), {
-        placement: Placement.TopLeft,
-        offset: { x: 0, y: 4 },
-        outlineColor: this.cardEdge(),
-        outlineWidth: 1,
-        onDisappear: () => {
-          this.attachMenuOpen = false;
-        }
-      })
-
-      if (this.voiceEnabled && this.voiceMode) {
-        // 语音态：文本域位置换成「按住说话」触摸面（长按录音、上滑取消）
-        Stack({ alignContent: Alignment.Center }) {
-          Text(this.voiceRecording ? this.voiceHint : '按住说话')
-            .fontSize(this.voiceRecording ? 13 : 15)
-            .lineHeight(20)
-            .fontColor(this.voiceCancelArmed ? '#D9413A' : this.collapsedPlaceholderColor())
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
-            .textAlign(TextAlign.Center)
-          Column()
-            .width('100%')
-            .height('100%')
-            .backgroundColor('#00000000')
-            .onTouch((event: TouchEvent) => this.onVoiceTouch(event))
-        }
-        .layoutWeight(1)
-        .height(36)
-      } else {
-        this.draftField()
-      }
-
-      // 右侧按钮三态：运行中 → 停止；有草稿/附件 → 发送；否则语音开关
-      if (this.showStopState()) {
-        Stack() {
-          Rect({ width: 13, height: 13, radius: 3 }).fill('#FFFFFF')
-        }
-        .width(34)
-        .height(34)
-        .borderRadius(17)
-        .backgroundColor('#2E6BE6')
-        .onClick(() => {
-          this.onStop();
-        })
-      } else if (this.canSendNow()) {
-        Stack() {
-          Image($r('app.media.arrow_up_white'))
-            .width(18)
-            .height(18)
-            .objectFit(ImageFit.Contain)
-            .draggable(false)
-        }
-        .width(34)
-        .height(34)
-        .borderRadius(17)
-        .backgroundColor('#2E6BE6')
-        .onClick(() => {
-          this.onSend();
-        })
-      } else if (this.voiceEnabled) {
-        Stack() {
-          Image(this.voiceMode ? $r('app.media.voice_keyboard') : $r('app.media.voice_wave'))
-            .width(18)
-            .height(18)
-            .objectFit(ImageFit.Contain)
-            .draggable(false)
-            .syncLoad(true)
-        }
-        .width(34)
-        .height(34)
-        .borderRadius(17)
-        .backgroundColor('#2E6BE6')
-        .accessibilityText(this.voiceMode ? '切换到文字输入' : '切换到语音输入')
-        .onClick(() => {
-          this.onToggleVoiceMode();
-        })
-      }
-    }
-    .width('100%')
-    .height(36)
-    .alignItems(VerticalAlign.Center)
-  }
-
   build() {
     Column() {
-      // 玻璃条上方：引用卡片 / 引用 chip / 附件预览（都在玻璃外面，不会把玻璃撑高）
-      if (this.hasQuote() || this.hasPlainRef() || this.attachmentCount > 0) {
+      // 最外圈白色光圈层：白色包边裹住卡片，外圈再叠一层柔和光晕（参考截图的光圈）
+      Column() {
+      Column() {
+        if (this.hasQuote()) {
+          this.quoteCard()
+        }
+        if (this.hasPlainRef()) {
+          this.refChipsRow()
+        }
+        if (this.attachmentCount > 0) {
+          this.attachmentRow()
+        }
+
+        // 文本域常驻同一节点（保焦点）；折叠态用 visibility 收起，展开态显示
         Column() {
-          if (this.hasQuote()) {
-            this.quoteCard()
-          }
-          if (this.hasPlainRef()) {
-            this.refChipsRow()
-          }
-          if (this.attachmentCount > 0) {
-            this.attachmentRow()
-          }
+          this.draftField()
         }
         .width('100%')
-        .padding({ bottom: 8 })
-      }
+        .visibility(this.expanded() ? Visibility.Visible : Visibility.None)
 
-      // 玻璃条本体：固定 52vp（上下 8 + 单行 36），高度不随展开变化。
-      // 系统沉浸光感胶囊的形状是「高度一半」，只有让输入条一直是一条矮条，
-      // 形状才是稳定的圆角矩形，不会随展开拉成长胶囊。
-      Column() {
-        this.inputBar()
+
+        // 折叠态的一整条：+ / 占位文案 / （可选）停止键
+        if (!this.expanded()) {
+          // 折叠态 = 悬浮玻璃条的内容：单行 52vp 高，左侧 + 圆钮 / 中间占位文字 / 右侧发送圆钮。
+          // 几何对齐 HdsTabs 悬浮 TabBar 的迷你栏输入条（+ 36 圆钮、发送 34 圆钮）。
+          Row({ space: 6 }) {
+            Stack() {
+              Text('+').fontSize(17).fontColor(this.chipText())
+            }
+            .width(36)
+            .height(36)
+            .borderRadius(18)
+            .border({ width: 0.9, color: this.plusBorder() })
+            .opacity(this.connected ? 1 : 0.4)
+            .enabled(this.connected)
+            .onClick(() => {
+              if (this.connected) {
+                this.attachMenuOpen = !this.attachMenuOpen;
+              }
+            })
+            .bindMenu(this.attachMenuOpen, this.attachMenuPanel(), {
+              placement: Placement.TopLeft,
+              offset: { x: 0, y: 4 },
+              outlineColor: this.cardEdge(),
+              outlineWidth: 1,
+              onDisappear: () => {
+                this.attachMenuOpen = false;
+              }
+            })
+            // 文字区 + 语音触摸层（对齐小程序 .voice-touch-surface：
+            // 单独一层覆盖在文字区上接收长按滑动，而不是依赖文字节点自身的触摸）
+            Stack({ alignContent: Alignment.Start }) {
+            // 折叠态占位：小程序 28rpx≈14vp、行高 1.4、垂直居中
+            Text(this.voiceRecording ? this.voiceHint
+              : (this.voiceEnabled && this.voiceMode ? '按住说话' : this.placeholder))
+              .fontSize(this.voiceRecording ? 13 : 15)
+              .lineHeight(this.voiceRecording ? 18 : 21)
+              .fontColor(this.voiceCancelArmed ? '#D9413A' : this.collapsedPlaceholderColor())
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+              .width('100%')
+            // 折叠态默认就挂语音触摸层（对齐小程序 voice-touch-surface 的可见条件）：
+            // 不必先点麦克风，直接在占位区按住就能说话；轻点仍然展开去打字。
+            if (this.voiceEnabled) {
+              Column()
+                .width('100%')
+                .height('100%')
+                .backgroundColor('#00000000')
+                .onTouch((event: TouchEvent) => this.onVoiceTouch(event))
+            }
+            }
+            .layoutWeight(1)
+            .height(36)
+            .alignContent(Alignment.Start)
+              .onClick(() => {
+                // 长按已经被当成录音：吞掉这次点击，不要再展开输入框
+                if (this.voiceHoldConsumed) {
+                  this.voiceHoldConsumed = false;
+                  return;
+                }
+                // 录音中（或刚松手等待识别）也不展开
+                if (this.voiceRecording) {
+                  return;
+                }
+                // 语音态下轻点：切回文字输入（对齐小程序 voice surface 的 tap 行为）
+                if (this.voiceMode) {
+                  this.onToggleVoiceMode();
+                }
+                this.onFocusChange(true);
+                // 点击折叠态占位：展开后延迟拉起键盘（节点刚从 Visibility.None 转可见，
+                // 立即 focus 会落在布局完成前；两次重试保证真机一次点按即弹键盘）
+                setTimeout(() => {
+                  this.getUIContext().getFocusController().requestFocus('composer-draft-area');
+                }, 80);
+                setTimeout(() => {
+                  this.getUIContext().getFocusController().requestFocus('composer-draft-area');
+                }, 240);
+              })
+            // 折叠态右侧按钮（对齐小程序 composer-inline-send 三态）：
+            //   运行中 → 停止方块；有草稿 → 发送箭头；否则开了语音 → 麦克风/键盘切换
+            if (this.showStopState()) {
+              Stack() {
+                Rect({ width: 13, height: 13, radius: 3 }).fill('#FFFFFF')
+              }
+              .width(34)
+              .height(34)
+              .borderRadius(17)
+              .backgroundColor('#2E6BE6')
+              .onClick(() => {
+                this.onStop();
+              })
+            } else if (this.canSendNow()) {
+              Stack() {
+                Image($r('app.media.arrow_up_white'))
+                  .width(18)
+                  .height(18)
+                  .objectFit(ImageFit.Contain)
+                  .draggable(false)
+              }
+              .width(34)
+              .height(34)
+              .borderRadius(17)
+              .backgroundColor('#2E6BE6')
+              .onClick(() => {
+                this.onSend();
+              })
+            } else if (this.voiceEnabled) {
+              Stack() {
+                // 和小程序同一套图标：文字态 voice-wave.svg（五根波形条，点了切到语音），
+                // 语音态 voice-keyboard.svg（点了切回文字）。inline 尺寸 36rpx≈18vp。
+                Image(this.voiceMode ? $r('app.media.voice_keyboard') : $r('app.media.voice_wave'))
+                  .width(18)
+                  .height(18)
+                  .objectFit(ImageFit.Contain)
+                  .draggable(false)
+                  .syncLoad(true)
+              }
+              .width(34)
+              .height(34)
+              .borderRadius(17)
+              .backgroundColor('#2E6BE6')
+              .accessibilityText(this.voiceMode ? '切换到文字输入' : '切换到语音输入')
+              .onClick(() => {
+                this.onToggleVoiceMode();
+              })
+            }
+          }
+          .width('100%')
+          // 录音特效已经移到全屏 VoiceRipplePanel：折叠条保持 36，不再为波纹加高
+          .height(36)
+          .alignItems(VerticalAlign.Center)
+        }
+
+        // 展开态才出现的底部 chip 行
+        if (this.expanded()) {
+          Row({ space: 0 }) {
+            this.plusButton()
+            this.permissionChip()
+            Blank()
+            this.modelChip()
+            // 第二层菜单的隐形锚点（贴在 model chip 右侧）
+            this.modelListAnchor()
+            this.primaryButton()
+          }
+          .width('100%')
+          .height(34)
+          .alignItems(VerticalAlign.Center)
+          .margin({ top: 8 })
+        }
       }
       .width('100%')
-      .padding({ left: 8, right: 8, top: 8, bottom: 8 })
-      .borderRadius(26)
-      .backgroundColor(Color.Transparent)
-      // 实测玻璃条高度上报：页面用它把系统材质背板精确对齐到这一条
+      // 对齐小程序 .composer：展开 28/28/24rpx = 14/14/12vp；折叠 12/20rpx = 6/10vp
+      .padding(this.expanded()
+        ? { left: 14, right: 14, top: 12, bottom: 12 }
+        : { left: 8, right: 8, top: 8, bottom: 8 })
+      // 收起态：不铺底色、不画描边，玻璃由底部系统 TabBar 材质渲染（一条细玻璃条）；
+      // 展开态：回到修改前那张默认卡片 —— 半透明深底 + 1vp 细亮边 + 28 圆角。
+      .borderRadius(this.expanded() ? 28 : 26)
+      .backgroundColor(this.expanded()
+        ? (this.isDark ? 'rgba(35,35,35,0.90)' : 'rgba(255,255,255,0.60)')
+        : Color.Transparent)
+      .border({ width: this.expanded() ? 1 : 0, color: '#66FFFFFF' })
+
+      }
+      .width('100%')
+      // 不再额外套一层 1.3vp 光圈环（与返回按钮保持单层玻璃）
+      .padding(0)
+      .borderRadius(24)
+      // 实测卡片高度上报：页面用它把玻璃背板精确对齐到卡片
       .onAreaChange((_old: Area, nw: Area) => {
         const hgt: number = Number(nw.height);
         if (hgt > 0 && Math.abs(hgt - this.cardHeight) > 0.5) {
@@ -2539,42 +2594,20 @@ export struct ConversationComposer {
           this.onCardHeightChange(hgt);
         }
       })
+      // 光圈层不要再用白色底：白底会透在卡片下面，把输入框「垫」得比返回按钮更实
+      .backgroundColor(Color.Transparent)
+      // 光圈环不再投阴影（与输入框一起去阴影）
 
-      // 玻璃条下方：展开态多一行权限/模型 chip；指标行常驻
-      Column({ space: 0 }) {
-        if (this.expanded()) {
-          Row({ space: 0 }) {
-            this.permissionChip()
-            Blank()
-            this.modelChip()
-            // 第二层菜单的隐形锚点（贴在 model chip 右侧）
-            this.modelListAnchor()
-          }
-          .width('100%')
-          .height(34)
-          .padding({ left: 8, right: 8 })
-          .margin({ top: 8 })
-          .alignItems(VerticalAlign.Center)
-        }
-        Row({ space: 10 }) {
-          this.runMetricItem()
-          this.tokenMetricItem()
-          this.contextMetricItem()
-        }
-        .width('100%')
-        .justifyContent(FlexAlign.Center)
-        .alignItems(VerticalAlign.Center)
-        .padding({ top: 8 })
+      // 卡片下方三个指标按钮：折叠/展开都常驻（对齐小程序 composer-metrics）
+      Row({ space: 10 }) {
+        this.runMetricItem()
+        this.tokenMetricItem()
+        this.contextMetricItem()
       }
       .width('100%')
-      // 实测下方区域高度上报：页面用它把玻璃条底边压在下方区域上面
-      .onAreaChange((_old: Area, nw: Area) => {
-        const hgt: number = Number(nw.height);
-        if (hgt > 0 && Math.abs(hgt - this.belowHeight) > 0.5) {
-          this.belowHeight = hgt;
-          this.onBelowHeightChange(hgt);
-        }
-      })
+      .justifyContent(FlexAlign.Center)
+      .alignItems(VerticalAlign.Center)
+      .padding({ top: 8 })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Center)

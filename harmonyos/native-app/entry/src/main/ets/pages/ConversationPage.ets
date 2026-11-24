@@ -402,8 +402,8 @@ export struct ConversationPage {
   @State private dockHeight: number = 220;
   /** 输入卡实测高度（composer 上报）：玻璃背板用它精确对齐 */
   @State dockCardHeight: number = 0;
-  /** 玻璃条下方区域（展开态 chip 行 + 常驻指标行）实测高度 */
-  @State dockBelowHeight: number = 34;
+  /** 玻璃条下方指标行高度（固定：一行 13vp 文字 + 8vp 上边距 ≈ 34） */
+  private dockMetricsRowHeight: number = 34;
   /** 下拉刷新连续补页：一直加载到顶部是「用户消息」为止 */
   private pullLoadAttempts: number = 0;
   private pullLoadTimer: number = -1;
@@ -5906,6 +5906,11 @@ export struct ConversationPage {
     return style;
   }
 
+  /** 输入区是否处于展开态（与 ConversationComposer.expanded() 同一套判定） */
+  private composerExpanded(): boolean {
+    return this.composerFocused || this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
+  }
+
   /** 胶囊离屏幕底部的距离：手势条安全区 + 平板额外留白 */
   private dockBarMargin(): number {
     return 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0);
@@ -5928,8 +5933,8 @@ export struct ConversationPage {
 
   /** 胶囊底边与屏幕底部的距离 = 底部留白 + 玻璃条下方区域（chip 行 / 指标行）实测高度 */
   private dockBarBottomMargin(): number {
-    const below: number = this.dockBelowHeight > 0 ? this.dockBelowHeight : 34;
-    return this.dockBarMargin() + below;
+    // 胶囊底边落在指标行上方：底部留白 + 指标行高度
+    return this.dockBarMargin() + this.dockMetricsRowHeight;
   }
 
   /** HDS IMMERSIVE 材质（与顶栏 systemMaterialEffect 同一套管线） */
@@ -6050,9 +6055,6 @@ export struct ConversationPage {
             },
             onCardHeightChange: (height: number) => {
               this.dockCardHeight = height;
-            },
-            onBelowHeightChange: (height: number) => {
-              this.dockBelowHeight = height;
             },
             metricPairsFor: (kind: string): MetricMenuPair[] => {
               const pairs: MetricMenuPair[] = [];
@@ -6295,6 +6297,8 @@ export struct ConversationPage {
       // 底部浮层：底下时间线内容以模糊方式透出（对齐顶部模糊遮罩）
       // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
       // 第一层：系统沉浸光感背板（ArkUI 原生 Tabs 悬浮 TabBar + FloatingTabBarStyle.systemMaterial）
+      // 只在收起态显示：展开态用修改前那张卡片（半透明底 + 细亮边），
+      // 两个轮廓叠在一起会在卡片圆角处露出胶囊的弧线。
       Column() {
         if (this.sessionTab === 0) {
           this.dockAsFloatingGlass()
@@ -6302,6 +6306,7 @@ export struct ConversationPage {
       }
       .width('100%')
       .height('100%')
+      .visibility(this.composerExpanded() ? Visibility.None : Visibility.Visible)
       .hitTestBehavior(HitTestMode.None)
 
       // 第二层：真实输入区，叠在背板之上
