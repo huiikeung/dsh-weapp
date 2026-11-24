@@ -116,6 +116,10 @@ export struct ConversationComposer {
   /** 当前模型所属提供商（第二层默认打开它） */
   @Prop currentProvider: string = '';
   @Prop modelMenuCurrent: string = '';
+  /** 智能体团队协作开关（模型面板根页） */
+  @Prop teamEnabled: boolean = false;
+  onToggleTeam: (next: boolean) => void = () => {};
+  @State private teamTipOpen: boolean = false;
   /** 推理等级菜单（小程序 effortSheet：Off/Low/Medium/High） */
   @Prop effortValues: string[] = [];
   @Prop effortLabels: string[] = [];
@@ -1740,6 +1744,18 @@ export struct ConversationComposer {
     .padding({ left: 14, right: 14, bottom: 6 })
   }
 
+  @Builder
+  teamTipBuilder() {
+    Text('通过共享任务板协调多个智能体的分工与进度，复杂任务表现更佳，token 开销也相应更高。')
+      .fontSize(13)
+      .lineHeight(19.5)
+      .fontColor('#FFFFFF')
+      .constraintSize({ maxWidth: 270 })
+      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+      .backgroundColor('rgba(28,30,36,0.96)')
+      .borderRadius(10)
+  }
+
   /** 模型菜单卡片：两级（根：模型 / 推理等级 → 分组模型列表 / 推理等级列表），观感对齐右上角三点系统菜单 */
   @Builder
   modelSheet() {
@@ -1785,6 +1801,49 @@ export struct ConversationComposer {
           .onClick(() => {
             this.openModelList('effort');
           })
+          Row()
+            .width('100%')
+            .height(1)
+            .backgroundColor(this.isDark ? 'rgba(255,255,255,0.20)' : 'rgba(0,0,0,0.20)')
+            .margin({ left: 16, right: 16 })
+          Row({ space: 6 }) {
+            Text('启用智能体团队协作')
+              .fontSize(16)
+              .fontColor(this.menuLabelColor())
+              .maxLines(1)
+            Text('ⓘ')
+              .fontSize(12)
+              .fontColor(this.mutedText())
+              .padding(4)
+              .onClick(() => {
+                this.teamTipOpen = !this.teamTipOpen;
+              })
+              .bindPopup(this.teamTipOpen, {
+                builder: this.teamTipBuilder(),
+                placement: Placement.Top,
+                popupColor: Color.Transparent,
+                enableArrow: false,
+                autoCancel: true,
+                radius: 10,
+                onStateChange: (event) => {
+                  if (!event.isVisible) {
+                    this.teamTipOpen = false;
+                  }
+                }
+              })
+            Blank()
+            Toggle({ type: ToggleType.Switch, isOn: this.teamEnabled })
+              .selectedColor('#2E6BE6')
+              .switchPointColor('#FFFFFF')
+              .width(40)
+              .height(24)
+              .onChange((isOn: boolean) => {
+                this.onToggleTeam(isOn);
+              })
+          }
+          .width('100%')
+          .height(48)
+          .padding({ left: 16, right: 16 })
         } else {
           Scroll() {
             Column() {

@@ -5879,6 +5879,10 @@ export struct ConversationPage {
             modelProviders: this.modelProviderItems(),
             currentProvider: this.currentModelProvider(),
             modelMenuCurrent: this.currentModelId(),
+            teamEnabled: this.teamEnabled,
+            onToggleTeam: (next: boolean) => {
+              this.toggleTeamEnabled(next);
+            },
             effortValues: this.effortMenuValues(),
             effortLabels: this.effortMenuLabels(),
             effortCurrent: this.currentEffort(),
