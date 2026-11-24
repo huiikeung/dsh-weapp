@@ -5944,8 +5944,11 @@ export struct ConversationPage {
     this.permissionMenuOpen = false;
     this.modelMenuOpen = false;
     this.metricPopover = '';
+    // 收键盘 + 收起输入条同时开始：两者都用 200ms 补间，视觉上是同步的一次过渡
     this.getUIContext().getFocusController().clearFocus();
-    this.composerFocused = false;
+    this.getUIContext().animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+      this.composerFocused = false;
+    });
   }
 
   /** 胶囊离屏幕底部的距离：手势条安全区 + 平板额外留白 */
@@ -6091,7 +6094,12 @@ export struct ConversationPage {
               this.pickedAttachments = this.pickedAttachments.filter((item: PickedAttachment) => item.uri !== uri);
             },
             onCardHeightChange: (height: number) => {
-              this.dockCardHeight = height;
+              // 量化到 2vp：输入卡每帧的高度微变都去改 HdsTabs 的 barHeight 会让系统 bar
+              // 频繁重新布局，表现就是卡；2vp 步进肉眼看不出来
+              const quantized: number = Math.round(height / 2) * 2;
+              if (Math.abs(quantized - this.dockCardHeight) >= 2) {
+                this.dockCardHeight = quantized;
+              }
             },
             metricPairsFor: (kind: string): MetricMenuPair[] => {
               const pairs: MetricMenuPair[] = [];
@@ -6108,7 +6116,10 @@ export struct ConversationPage {
               if (!focused && this.composerSheet.length > 0) {
                 return;
               }
-              this.composerFocused = focused;
+              // 展开/收起用补间过渡：卡片高度和胶囊高度一起变，避免瞬间跳变看着卡
+              this.getUIContext().animateTo({ duration: 200, curve: Curve.EaseOut }, () => {
+                this.composerFocused = focused;
+              });
             },
             onDraft: (value: string) => {
               this.draft = value;
