@@ -2750,11 +2750,11 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 对照官方 Stack + backgroundBlurStyle 输入栏示例：
-      // 输入栏叠在 List 上方，列表内容从背后滚过时被实时虚化（毛玻璃）
-      .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
-      // 极淡的半透明底叠在模糊上，让玻璃更「实」一点、文字可读
-      .backgroundColor(this.isDark ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.10)')
+      // 经典毛玻璃配方：backdropBlur 只负责虚化背后内容，不附带任何材质底色；
+      // 再叠 55% 半透明底，模糊后的内容形状能透过玻璃看到（COMPONENT_THIN 自带近纯白底，
+      // 浅色模式下会把透出的内容全盖住，看起来就像没有效果）
+      .backdropBlur(20)
+      .backgroundColor(this.isDark ? 'rgba(20,22,28,0.55)' : 'rgba(255,255,255,0.55)')
       // 与返回按钮同款 1vp 白描边
       .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
       // 与返回按钮同款柔和投影
