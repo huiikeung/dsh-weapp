@@ -1,4 +1,5 @@
-import { PreferencesStore, Logger, GatewayClient } from 'nativecore';
+import { PreferencesStore, Logger, GatewayClient, CredentialStore } from 'nativecore';
+import type { SavedGateway } from 'nativecore';
 import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { deviceInfo } from '@kit.BasicServicesKit';
@@ -32,6 +33,8 @@ export class TailscaleTunnelStore {
   private started: boolean = false;
   private fastStarted: boolean = false;
   private fastWasReady: boolean = false;
+  private pairedIpsCache: string[] = [];
+  private pairedIpsCacheAt: number = 0;
   private ensureConnectDeferred: boolean = false;
   private lastPublishAtBg: number = 0;
   private fastDebugLogged: boolean = false;
@@ -576,6 +579,53 @@ export class TailscaleTunnelStore {
           }
         }
       }
+      // netmap 里可能有多个「像网关」的节点（dsh-gateway-win-1 等），必须在线的、
+      // 且与「配对时网关下发的 tailnet IP」一致的那一台才是真正的网关。
+      const peersIdx: number = fastStat.indexOf('gwPeers=');
+      if (peersIdx >= 0) {
+        const peersTail: string = fastStat.substring(peersIdx + 'gwPeers='.length);
+        const peersEnd: number = peersTail.indexOf(' | ');
+        const peersRaw: string = (peersEnd > 0 ? peersTail.substring(0, peersEnd) : peersTail).trim();
+        if (peersRaw.length > 0) {
+          const pairedIps: string[] = this.pairedTailnetIps();
+          let chosenName: string = '';
+          let chosenIp: string = '';
+          let fallbackName: string = '';
+          let fallbackIp: string = '';
+          for (const entry of peersRaw.split(';')) {
+            const parts: string[] = entry.split('|');
+            if (parts.length < 3) {
+              continue;
+            }
+            const name: string = parts[0];
+            const ip: string = parts[1];
+            const online: boolean = parts[2] === '1';
+            if (online && pairedIps.indexOf(ip) >= 0 && chosenIp.length === 0) {
+              chosenName = name;
+              chosenIp = ip;
+            }
+            if (online && fallbackIp.length === 0) {
+              fallbackName = name;
+              fallbackIp = ip;
+            }
+          }
+          if (chosenIp.length === 0) {
+            chosenName = fallbackName;
+            chosenIp = fallbackIp;
+          }
+          if (chosenIp.length > 0) {
+            const shortName: string = chosenName.split('.')[0];
+            if (AppStorage.get<string>('tailnetGatewayDnsName') !== chosenName ||
+                AppStorage.get<string>('tailnetGatewayIp') !== chosenIp) {
+              Logger.info('TSDBG pick gateway peer ' + chosenName + ' ip=' + chosenIp +
+                ' (paired=' + pairedIps.join(',') + ')');
+            }
+            AppStorage.setOrCreate<string>('tailnetGatewayDnsName', chosenName);
+            AppStorage.setOrCreate<string>('tailnetGatewayIp', chosenIp);
+            AppStorage.setOrCreate<string>('tailnetGatewayPeerName', shortName);
+          }
+        }
+      }
       const dnsIndex: number = fastStat.indexOf('dnsName=');
       if (dnsIndex >= 0) {
         const tail: string = fastStat.substring(dnsIndex + 'dnsName='.length);
@@ -849,4 +899,30 @@ export class TailscaleTunnelStore {
       }
     }
   }
+  /** 配对记录里出现过的 tailnet IP（100.64/10），用来认准「真正的网关节点」 */
+  private pairedTailnetIps(): string[] {
+    const now: number = Date.now();
+    if (now - this.pairedIpsCacheAt < 30000 && this.pairedIpsCache.length > 0) {
+      return this.pairedIpsCache;
+    }
+    const result: string[] = [];
+    try {
+      const saved: SavedGateway | null = CredentialStore.get().load();
+      if (saved !== null) {
+        const urls: string[] = [saved.wsUrl].concat(saved.endpoints !== undefined ? saved.endpoints : []);
+        for (const url of urls) {
+          const match = /ws:\/\/(100\.(?:6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\.[0-9]+\.[0-9]+)/.exec(url);
+          if (match !== null && result.indexOf(match[1]) < 0) {
+            result.push(match[1]);
+          }
+        }
+      }
+    } catch (err) {
+    }
+    this.pairedIpsCache = result;
+    this.pairedIpsCacheAt = now;
+    return result;
+  }
+
+  /** 隧道补偿连接：等隧道就绪后切到 tailnet 入口 */
 }

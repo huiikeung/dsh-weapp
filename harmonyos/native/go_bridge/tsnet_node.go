@@ -47,6 +47,7 @@ var (
 	tsqProbeResult  string
 	tsqAccountCache string
 	tsqGwPeer       string
+	tsqGwPeers      string
 )
 
 // 复用旧 tsd 引擎留下的 tailscaled.state（同版本格式兼容），避免重新登录。
@@ -354,6 +355,12 @@ func TSQStart(hostname *C.char, stateDir *C.char, controlURL *C.char, authKey *C
 				}
 			}
 			if needPeer {
+				peers := tsqGatewayPeerCandidates(server)
+				if peers != "" {
+					tsqMu.Lock()
+					tsqGwPeers = peers
+					tsqMu.Unlock()
+				}
 				if peer := tsqGatewayPeerName(server); peer != "" {
 					tsqMu.Lock()
 					tsqGwPeer = peer
@@ -432,6 +439,44 @@ func tsqGatewayPeerName(srv *tsnet.Server) string {
 	}
 }
 
+// tsqGatewayPeerCandidates 返回 netmap 里所有「像网关」的节点：name|ip|online(1/0)，用 ; 分隔。
+// 客户端据此选「上次配对的那台」，避免把别的在线 gateway 误当网关。
+func tsqGatewayPeerCandidates(srv *tsnet.Server) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	lc, err := srv.LocalClient()
+	if err != nil {
+		return ""
+	}
+	st, err := lc.Status(ctx)
+	if err != nil || st == nil {
+		return ""
+	}
+	parts := make([]string, 0, 8)
+	for _, peer := range st.Peer {
+		name := strings.TrimSuffix(peer.DNSName, ".")
+		if name == "" {
+			name = peer.HostName
+		}
+		if name == "" || !(strings.Contains(name, "gateway") || strings.HasPrefix(name, "dsh-gateway")) {
+			continue
+		}
+		ip := ""
+		if len(peer.TailscaleIPs) > 0 {
+			ip = peer.TailscaleIPs[0].String()
+		}
+		online := "0"
+		if peer.Online {
+			online = "1"
+		}
+		parts = append(parts, name+"|"+ip+"|"+online)
+		if len(parts) >= 8 {
+			break
+		}
+	}
+	return strings.Join(parts, ";")
+}
+
 func tsqAccountSummary(srv *tsnet.Server) string {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -476,12 +521,16 @@ func TSQStatus() *C.char {
 	probe := tsqProbeResult
 	account := tsqAccountCache
 	gwPeer := tsqGwPeer
+	gwPeers := tsqGwPeers
 	tsqMu.Unlock()
 	if account != "" {
 		cached += " | account=" + account
 	}
 	if gwPeer != "" {
 		cached += " | gwPeer=" + gwPeer
+	}
+	if gwPeers != "" {
+		cached += " | gwPeers=" + gwPeers
 	}
 	if cached == "" {
 		cached = "OK | engine=tsnet | state=Starting"
@@ -522,6 +571,7 @@ func TSQStop() *C.char {
 	tsqProbeResult = ""
 	tsqAccountCache = ""
 	tsqGwPeer = ""
+	tsqGwPeers = ""
 	// 清掉旧授权链接：否则页面会再次自动打开已失效的上一次 login.tailscale.com 链接
 	tsqAuthURL = ""
 	tsqMu.Unlock()

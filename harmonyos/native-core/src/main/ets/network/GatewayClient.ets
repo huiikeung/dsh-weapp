@@ -107,6 +107,8 @@ export class GatewayClient {
   private lastTailnetEnsureAt: number = 0;
   private tailnetEnsureFailures: number = 0;
   private pairRetryCount: number = 0;
+  // 当前连接收到的 hello 里的 gatewayId（每次新建连接清空）
+  private helloGatewayIdOwn: string = '';
   private lastConnectAttemptAt: number = 0;
   private altCredentialTried: string[] = [];
   private tailnetBlockedUntil: number = 0;
@@ -1136,6 +1138,10 @@ export class GatewayClient {
       return;
     }
     this.lastConnectAttemptAt = nowAttempt;
+    // 新连接开始时清掉上一次的 hello 身份：否则「添加新主机」会拿旧 gatewayId
+    // 命中旧档案，把旧主机覆盖掉（切换列表永远只剩一个）。
+    this.helloGatewayIdOwn = '';
+    AppStorage.setOrCreate<string>('gatewayId', '');
     if (this.networkBearer === 'cellular' && this.isLocalEndpoint(profile.wsUrl)) {
       const rewritten: string = this.cellularEndpoint(profile.wsUrl);
       if (rewritten !== profile.wsUrl) {
@@ -2631,6 +2637,7 @@ export class GatewayClient {
     if (frame.gatewayId !== undefined && frame.gatewayId.length > 0) {
       // 网关实例 id：跨网络稳定，用作主机档案的稳定身份，避免换 IP 就多一条主机
       AppStorage.setOrCreate<string>('gatewayId', frame.gatewayId);
+      this.helloGatewayIdOwn = frame.gatewayId;
     }
     AppStorage.setOrCreate<string>('lastFrameKind', frame.kind);
     // 临时诊断：每 5 秒打一次「收到的帧种类直方图 + 是否带 sessionId」，
@@ -2771,7 +2778,8 @@ export class GatewayClient {
     // 同一台物理主机在不同网络下地址不同（局域网 IP / *.ts.net / 中继）：
     // 以前直接拿地址当 id，换一次网络就多一条「新主机」，切换列表重复、
     // 「最近使用」也永远落在最后一条地址档案上。这里按 中继 id → 网关名 → 地址 复用既有档案。
-    const helloGatewayId: string = AppStorage.get<string>('gatewayId') ?? '';
+    const helloGatewayId: string = this.helloGatewayIdOwn.length > 0
+      ? this.helloGatewayIdOwn : (AppStorage.get<string>('gatewayId') ?? '');
     const existing: SavedGateway | null =
       CredentialStore.get().findExisting(relayNodeId, helloGatewayId, profile.wsUrl);
     const gatewayId: string = existing !== null
