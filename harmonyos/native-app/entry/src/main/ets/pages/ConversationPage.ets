@@ -5845,6 +5845,45 @@ export struct ConversationPage {
       .hitTestBehavior(HitTestMode.None)
   }
 
+  /**
+   * 底部输入区 = HdsTabs 悬浮 TabBar 的内容（对照《沉浸式系统材质视效》官方示例）：
+   * 输入区放进 tabBar，玻璃胶囊自动包裹输入区的实际高度（展开/收起都跟随）；
+   * ULTRA_THIN + colorInvert 让滚动到背后的内容清晰透出；maskHeight 0 关闭自带的渐变遮罩。
+   */
+  @Builder
+  dockAsFloatingGlass() {
+    Tabs({ barPosition: BarPosition.End, index: 0 }) {
+      TabContent() {
+        // 内容区不用：只借 TabBar 的位置与材质
+        Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
+      }
+      .tabBar(this.bottomDockLayer())
+    }
+    .barMode(BarMode.Fixed)
+    .scrollable(false)
+    .barOverlap(true)
+    .barFloatingStyle({
+      adaptToHandedness: true,
+      maskHeight: 0,
+      barSideMargin: 14,
+      barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
+      barWidth: {
+        smallBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+        mediumBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+        largeBarWidth: this.pageW > 0 ? this.pageW - 28 : 320
+      },
+      systemMaterial: new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
+        colorInvert: true,
+        interactive: true,
+        lightEffect: {}
+      })
+    })
+    .width('100%')
+    .height('100%')
+    .hitTestBehavior(HitTestMode.Transparent)
+  }
+
   @Builder
   bottomDockLayer() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -9139,9 +9178,9 @@ export struct ConversationPage {
       .height('100%')
       .cachedCount(8)
       .scrollBar(BarState.Off)
-      // 时间线铺满整屏（dock 浮在上面）：列表末尾留出 dock 的高度，
-      // 运行条 / 最后一条内容才会停在输入框上方而不是被遮住。
-      .contentEndOffset(this.dockHeight + 8)
+      // 时间线铺满整屏（dock 浮在上面）：列表末尾允许最后一段内容压进输入框玻璃下方，
+      // 否则玻璃背后永远是空白页面，沉浸光感/毛玻璃什么都显不出来（对齐 iOS 聊天）。
+      .contentEndOffset(Math.max(120, this.dockHeight - 88))
       // 运行条放在 List 之外（Stack 底部、列表下方）：以前它是 List 的最后一个 ListItem，
       // 列表任何一次结构变化都会把它卸掉再装回去 —— 表现就是「运行态不显示 / 只有页面在闪」。
       // 现在它独立于列表存在，运行状态一置位就稳定显示，列表怎么重建都不影响。
