@@ -52,6 +52,16 @@ interface MapPlacesResult {
   source: string;
 }
 
+/** maps.open 回执：网关校验要求 status/latitude/longitude/name/mode(/transport) */
+interface MapOpenResult {
+  status: string;
+  latitude: number;
+  longitude: number;
+  name: string;
+  mode: string;
+  transport?: string;
+}
+
 function num(args: Record<string, Object>, key: string): number {
   const value: Object | undefined = args[key];
   return typeof value === 'number' ? value as number : NaN;
@@ -330,7 +340,7 @@ class MapsConnector implements ConnectorAdapter {
       Logger.warn('maps.geocode unavailable: ' + (err instanceof Error ? err.message : String(err)));
       items = [];
     }
-    return { items: items.slice(0, limit), truncated: items.length > limit, source: 'harmonyos-geocoder' };
+    return { items: items.slice(0, limit), truncated: items.length > limit, source: 'android-geocoder' };
   }
 
   /** maps.search：本机没有 POI 检索能力，返回空候选（不伪造），由模型改用地图应用或经纬度。 */
@@ -339,12 +349,88 @@ class MapsConnector implements ConnectorAdapter {
     if (query.length === 0) {
       throw new Error('invalid_request');
     }
-    return { items: [], truncated: false, source: 'harmonyos-no-poi-search' };
+    return { items: [], truncated: false, source: 'android-geocoder' };
+  }
+
+  /** maps.open：拉起地图并回执网关要求的字段（status/坐标/name/mode[/transport]） */
+  private async openReceipt(args: Record<string, Object>): Promise<MapOpenResult> {
+    const latitude: number = num(args, 'latitude');
+    const longitude: number = num(args, 'longitude');
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      throw new Error('invalid_request');
+    }
+    const modeRaw: string = optStr(args, 'mode');
+    const mode: string = modeRaw === 'directions' ? 'directions' : 'show';
+    const name: string = optStr(args, 'name');
+    const inner: Record<string, Object> = {};
+    inner['latitude'] = latitude;
+    inner['longitude'] = longitude;
+    inner['name'] = name;
+    inner['mode'] = mode;
+    if (mode === 'directions') {
+      const transportRaw: string = optStr(args, 'transport');
+      inner['transport'] = (transportRaw === 'walking' || transportRaw === 'transit') ? transportRaw : 'driving';
+    }
+    const shown: MapResult = await this.open(inner);
+    const label: string = pointName(latitude, longitude, name);
+    const out: MapOpenResult = {
+      status: shown.ready ? 'ready' : 'handoff-requested',
+      latitude: latitude,
+      longitude: longitude,
+      name: label,
+      mode: mode
+    };
+    if (mode === 'directions') {
+      const transport: Object | undefined = inner['transport'];
+      out.transport = typeof transport === 'string' ? transport as string : 'driving';
+    }
+    return out;
+  }
+
+  /** maps.reverse-geocode：坐标 → 地址候选（系统逆地理，失败返回空列表） */
+  private async reverseGeocode(args: Record<string, Object>): Promise<MapPlacesResult> {
+    const latitude: number = num(args, 'latitude');
+    const longitude: number = num(args, 'longitude');
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      throw new Error('invalid_request');
+    }
+    const items: MapPlaceItem[] = [];
+    try {
+      const request: geoLocationManager.ReverseGeoCodeRequest = {
+        latitude: latitude,
+        longitude: longitude,
+        maxItems: 1
+      };
+      const found: geoLocationManager.GeoAddress[] = await geoLocationManager.getAddressesFromLocation(request);
+      for (const one of found) {
+        const name: string = (one.placeName !== undefined && one.placeName.length > 0) ? one.placeName : '';
+        const parts: string[] = [];
+        const fields: (string | undefined)[] = [one.countryName, one.administrativeArea, one.locality, one.subLocality];
+        for (const one2 of fields) {
+          if (one2 !== undefined && one2.length > 0) {
+            parts.push(one2);
+          }
+        }
+        const addr: string = parts.length > 0 ? parts.join(' ') : name;
+        items.push({
+          name: name.length > 0 ? name : addr,
+          latitude: latitude,
+          longitude: longitude,
+          address: addr
+        });
+      }
+    } catch (err) {
+      Logger.warn('maps.reverse-geocode unavailable');
+    }
+    return { items: items.slice(0, 1), truncated: false, source: 'android-geocoder' };
   }
 
   async invoke(tool: string, args: Record<string, Object>): Promise<Object> {
     if (tool === 'maps.open') {
-      return await this.open(args) as Object;
+      return await this.openReceipt(args) as Object;
+    }
+    if (tool === 'maps.reverse-geocode') {
+      return await this.reverseGeocode(args) as Object;
     }
     if (tool === 'maps.search') {
       return await this.searchPlaces(args) as Object;

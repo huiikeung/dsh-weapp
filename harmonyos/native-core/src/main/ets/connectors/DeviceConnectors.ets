@@ -14,7 +14,7 @@ export interface ConnectorModuleDefinition {
 export const CONNECTOR_MODULES: ConnectorModuleDefinition[] = [
   { id: 'calendar', title: '日历', subtitle: '查询忙闲、创建日程', tools: ['calendar.busy', 'calendar.create'] },
   { id: 'reminders', title: '提醒事项', subtitle: '创建、查询提醒', tools: ['reminders.list', 'reminders.create'] },
-  { id: 'location', title: '位置', subtitle: '当前位置（近似/精确）与地图', tools: ['location.current', 'location.precise', 'maps.search', 'maps.geocode', 'maps.directions', 'maps.open'] },
+  { id: 'location', title: '位置', subtitle: '当前位置（近似/精确）与地图', tools: ['location.current', 'location.precise', 'maps.search', 'maps.geocode', 'maps.reverse-geocode', 'maps.open'] },
   { id: 'photos', title: '照片', subtitle: '系统选择器选一张照片', tools: ['photos.select'] },
   { id: 'music', title: '音乐', subtitle: '本机音乐搜索与播放控制', tools: ['music.search', 'music.state', 'music.play', 'music.pause', 'music.seek'] },
   { id: 'health', title: '健康', subtitle: '步数、睡眠等健康摘要', tools: ['health.daily-summary'] },

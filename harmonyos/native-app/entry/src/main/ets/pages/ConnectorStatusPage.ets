@@ -628,6 +628,9 @@ export struct ConnectorStatusPage {
       Column() {
         Row() {
           NavBackButton({ isDark: this.isDark })
+            .onClick(() => {
+              this.pageStack.pop();
+            })
           Blank()
           Row().width(40)
         }
