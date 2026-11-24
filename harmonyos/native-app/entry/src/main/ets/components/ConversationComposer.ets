@@ -2775,14 +2775,13 @@ export struct ConversationComposer {
       .padding(this.expanded()
         ? { left: 14, right: 14, top: 12, bottom: 12 }
         : { left: 10, right: 10, top: 6, bottom: 6 })
-      // 官方沉浸光感示例结构（用户提供的 ChatInputBar 版本）：
-      // 外层 backgroundImage 提供光感基底 → 输入行透明 → systemMaterial 引用 @State 材质成员，
-      // systemMaterial 置于样式链最后（要点：放最后否则效果被覆盖）
+      // 玻璃透光三件套（用户提供的 GlassInputDemo 配方）：
+      // backgroundBlurStyle(Regular) 实时虚化背后内容 + 半透明白增强质感 + 透光描边模拟玻璃反光
+      .backgroundBlurStyle(BlurStyle.Regular)
+      .backgroundColor('rgba(255,255,255,0.2)')
+      .border({ width: 1, color: '#66FFFFFF' })
       .borderRadius(28)
-      .backgroundColor(Color.Transparent)
-      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.65)' })
-      .clip(true)
-      .systemMaterial(this.myMaterial)
+      .shadow({ radius: 12, color: 'rgba(0,0,0,0.08)', offsetY: 4 })
 
       }
       .width('100%')
