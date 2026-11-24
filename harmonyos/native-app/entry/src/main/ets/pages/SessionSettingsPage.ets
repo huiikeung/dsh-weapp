@@ -2,7 +2,8 @@ import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { GatewayClient, PreferencesStore, SessionStore, SessionSummary, WorkspaceRow } from 'nativecore';
 import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 'nativecore';
-import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType } from '@kit.UIDesignKit';
+import { LengthMetrics } from '@kit.ArkUI';
 import { TopToast, TopToastView } from '../components/TopToast';
 import { openSessionRoute } from '../common/SessionRoute';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
@@ -528,48 +529,15 @@ export struct SessionSettingsPage {
     .clip(true)
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       // 根容器必须是 Stack：底部弹窗需覆盖在本页之上。
       // 若根为 Column，弹窗会被 Scroll(layoutWeight(1)) 挤成 0 高度而不可见。
+      HdsNavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
-        Column() {
-        // 导航（标题字号/字重/缩进与「Tailscale 内嵌隧道」页完全一致）
-        // 命中修复：下方 Scroll 因负 margin 上移，加了 hitTestBehavior(Transparent)，
-        // 点击会同时命中导航，返回键才点得到（不要再把导航挪到根 Stack，会导致顶部内容被遮挡）。
-        Stack({ alignContent: Alignment.TopStart }) {
-          Column()
-            .width('100%')
-            .height(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9))
-            .backdropBlur(12)
-            .backgroundColor(Color.Transparent)
-            .hitTestBehavior(HitTestMode.None)
-
-          Row() {
-          // 返回按钮由根 Stack 的最上层覆盖层绘制（见下方 overlayBack），这里只占位
-          Row().width(40).height(40)
-
-          Text('会话设置')
-            .fontSize(17)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-
-          Row().width(44).height(44)
-        }
-        .width('100%')
-        .height(56)
-        // 左右与内容一致（内容区 padding 16）
-        .padding({ left: 16, right: 16 })
-        .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
-
-
-        }
-        .width('100%')
-        .zIndex(10)
-
-        Scroll() {
+        Scroll(this.scroller) {
           Column() {
 
             // 新会话默认配置
@@ -702,8 +670,6 @@ export struct SessionSettingsPage {
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
         // 小程序（webview）没有橡皮筋回弹；这里关掉，避免滚动到顶/底时页面「抖」
         .edgeEffect(EdgeEffect.None)
-        .margin({ top: -(56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) })
-        .hitTestBehavior(HitTestMode.Transparent)
       }
       .width('100%')
       .height('100%')
@@ -746,33 +712,24 @@ export struct SessionSettingsPage {
           })
         TopToastView()
 
-        // 顶部模糊的淡出遮罩：一整层模糊 + 向上透明、向下页面底色的渐变。
-        // 不再用多条 blur 带拼接（会出现一条条的断裂感），渐变是连续的。
-        Column()
-          .width('100%')
-          .height(26)
-          .position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 26 })
-          .linearGradient({
-            direction: GradientDirection.Bottom,
-            colors: this.isDark
-              ? [['rgba(0,0,0,0)', 0.0], ['rgba(0,0,0,0.35)', 0.45], ['rgba(0,0,0,0.85)', 0.8], ['rgba(0,0,0,0.96)', 1.0]]
-              : [['rgba(242,242,247,0)', 0.0], ['rgba(242,242,247,0.35)', 0.45], ['rgba(242,242,247,0.85)', 0.8], ['rgba(242,242,247,0.96)', 1.0]]
-          })
-          .hitTestBehavior(HitTestMode.None)
-
-        // 覆盖层返回键：必须是根 Stack 的最后一个子节点，
-        // 这样才排在任何 Scroll/Toast/弹窗之上（之前放在中间会被后面的层吃掉点击）。
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-        }
-        .width(40)
-        .height(40)
-        .margin({ left: 16, top: (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 8 })
       }
       .width('100%')
       .height('100%')
+      .backgroundColor(this.pageBg())
     }
-    .hideTitleBar(true)
+    // 原生标题栏：内容从标题栏下面滚过时出现系统渐变模糊（GRADIENT_BLUR），
+    // 返回键由标题栏自带（默认 pop 当前栈），不再手写。
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '会话设置' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
     .onShown(() => {
       // 从预设二级页返回：消费选择（应用预设 / 打开创造模式）
