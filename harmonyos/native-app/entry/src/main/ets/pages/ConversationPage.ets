@@ -402,8 +402,13 @@ export struct ConversationPage {
   @State private dockHeight: number = 220;
   /** 输入卡实测高度（composer 上报）：玻璃背板用它精确对齐 */
   @State dockCardHeight: number = 0;
-  /** 玻璃条下方指标行高度（固定：一行 13vp 文字 + 8vp 上边距 ≈ 34） */
-  private dockMetricsRowHeight: number = 34;
+  /** 指标行高度（实测：13vp 文字 + 8vp 上边距 ≈ 26vp） */
+  private dockMetricsRowHeight: number = 26;
+  /**
+   * 悬浮 TabBar 自带的手势条避让（实测约 5vp）：我们自己的底部留白已经把安全区算进去了，
+   * 系统 bar 又会自己再避让一次，不减掉这个量的话胶囊会被顶高一截（看着「偏上」）。
+   */
+  private dockFloatingBarGap: number = 3.3;
   /** 下拉刷新连续补页：一直加载到顶部是「用户消息」为止 */
   private pullLoadAttempts: number = 0;
   private pullLoadTimer: number = -1;
@@ -5933,8 +5938,8 @@ export struct ConversationPage {
 
   /** 胶囊底边与屏幕底部的距离 = 底部留白 + 玻璃条下方区域（chip 行 / 指标行）实测高度 */
   private dockBarBottomMargin(): number {
-    // 胶囊底边落在指标行上方：底部留白 + 指标行高度
-    return this.dockBarMargin() + this.dockMetricsRowHeight;
+    // 胶囊底边落在指标行上方：底部留白 + 指标行高度 - bar 自带避让
+    return this.dockBarMargin() + this.dockMetricsRowHeight - this.dockFloatingBarGap;
   }
 
   /** HDS IMMERSIVE 材质（与顶栏 systemMaterialEffect 同一套管线） */
