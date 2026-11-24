@@ -72,10 +72,11 @@ export class CredentialStore {
         const parsed = JSON.parse(raw) as Object;
         if (Array.isArray(parsed)) {
           for (const item of parsed as SavedGateway[]) {
+            // 单条损坏只跳过这一条：以前直接 cached=[] 返回，下一次保存就把所有主机清空
             if (item === null || typeof item.id !== 'string' || item.id.length === 0 ||
               typeof item.wsUrl !== 'string' || item.wsUrl.length === 0) {
-              this.cached = [];
-              return;
+              Logger.warn('skip malformed saved gateway');
+              continue;
             }
             this.cached.push(item);
           }
@@ -121,11 +122,25 @@ export class CredentialStore {
     if (item.relayNodeId !== undefined && item.relayNodeId.length > 0) {
       return 'relay:' + item.relayNodeId;
     }
-    const name: string = item.name.trim().toLowerCase();
-    if (name.length > 0) {
-      return 'name:' + name;
+    // 以前用「网关名」当归组键：两台不同主机若上报同名会被误合并，
+    // 表现为「添加新主机后旧主机消失」。改为只认地址，宁可有重复也不丢主机。
+    const host: string = CredentialStore.hostOf(item.wsUrl);
+    return host.length > 0 ? 'host:' + host : 'url:' + item.wsUrl;
+  }
+
+  /** 从 ws(s)://host:port/... 取主机名（去掉端口与路径） */
+  private static hostOf(url: string): string {
+    const schemeAt: number = url.indexOf('://');
+    let rest: string = schemeAt >= 0 ? url.substring(schemeAt + 3) : url;
+    const slash: number = rest.indexOf('/');
+    if (slash >= 0) {
+      rest = rest.substring(0, slash);
     }
-    return 'url:' + item.wsUrl;
+    const colon: number = rest.lastIndexOf(':');
+    if (colon > 0) {
+      rest = rest.substring(0, colon);
+    }
+    return rest.trim().toLowerCase();
   }
 
   /**
@@ -298,17 +313,20 @@ export class CredentialStore {
         return byRelay;
       }
     }
-    const trimmed: string = name.trim().toLowerCase();
-    if (trimmed.length > 0) {
-      const byName: SavedGateway | undefined =
-        this.cached.find((item: SavedGateway) => item.name.trim().toLowerCase() === trimmed);
-      if (byName !== undefined) {
-        return byName;
-      }
-    }
+    // 不再按「网关名」复用档案：不同主机可能同名，按名字命中会把新主机写进旧档案，
+    // 造成「添加新主机后旧主机消失」。只认地址一致，或历史端点包含本次地址（同一主机换网络）。
     const byUrl: SavedGateway | undefined =
       this.cached.find((item: SavedGateway) => item.wsUrl === wsUrl);
-    return byUrl !== undefined ? byUrl : null;
+    if (byUrl !== undefined) {
+      return byUrl;
+    }
+    const byEndpoint: SavedGateway | undefined = this.cached.find((item: SavedGateway) => {
+      if (item.endpoints === undefined) {
+        return false;
+      }
+      return item.endpoints.some((one: string) => one === wsUrl);
+    });
+    return byEndpoint !== undefined ? byEndpoint : null;
   }
 
   /**
@@ -333,6 +351,11 @@ export class CredentialStore {
 
   save(gateway: SavedGateway): void {
     this.ensureLoaded();
+    // 偏好还没加载完就保存会把已有主机覆盖成只剩这一条，先拒绝落盘
+    if (!this.loaded) {
+      Logger.warn('credential save skipped: preferences not ready');
+      return;
+    }
     const index: number = this.cached.findIndex((item: SavedGateway) => item.id === gateway.id);
     if (index >= 0) this.cached[index] = gateway;
     else this.cached.push(gateway);
