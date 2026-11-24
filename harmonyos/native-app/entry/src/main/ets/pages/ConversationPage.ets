@@ -9222,10 +9222,14 @@ export struct ConversationPage {
             }
             .width(40)
             .height(40)
-            // 中性玻璃：不偏蓝的深灰/白底 + 纯背景模糊（系统材质会带主题色调，这里自己控色）
-            .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
+            // 与返回键完全同一套系统液态玻璃材质（IMMERSIVE + 交互高光 + 光感）
+            .backgroundColor(Color.Transparent)
             .clip(true)
-            .backdropBlur(14)
+            .systemMaterial(new uiMaterial.ImmersiveMaterial({
+              style: uiMaterial.ImmersiveStyle.THIN,
+              interactive: true,
+              lightEffect: {}
+            }))
             // 边缘：白色细边（深 16% / 浅 90%，浅色下靠白边提亮）
             .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
             .onClick(() => {
