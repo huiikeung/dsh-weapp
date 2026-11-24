@@ -1,4 +1,3 @@
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { uiMaterial } from '@kit.ArkUI';
 import {
   GatewayClient, SessionStore, SessionSummary, GatewayFrame, ScheduleTask, ScheduleDraft,
@@ -13,12 +12,6 @@ import { openSessionRoute } from '../common/SessionRoute';
 import { appGlassFill, appGlassBlur, APP_GLASS_RADIUS, appGlassBorderColor, appGlassShadow } from '../common/AppGlass';
 import { NavBackButton } from '../components/NavBackButton';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
-
-// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
-const CONTENT_STYLE: HdsTitleBarContentStyle = {
-  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
-  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
-};
 
 /** 任务运行记录行（对齐小程序 loadHistory 里的 records 映射） */
 interface ScheduleHistoryRow {
@@ -750,6 +743,23 @@ export struct SchedulePage {
         .fontSize(17)
         .fontWeight(FontWeight.Medium)
         .fontColor(this.textColor())
+      Row() {
+        NavBackButton({ isDark: this.isDark })
+          .onClick(() => {
+            if (this.editing) {
+              this.cancelEdit();
+              return;
+            }
+            if (this.sheetOpen) {
+              this.closeSheet();
+              return;
+            }
+            this.pageStack.pop();
+          })
+        Blank()
+      }
+      .width('100%')
+      .padding({ left: 16, right: 16 })
     }
     .width('100%')
     .height(44)
@@ -1806,10 +1816,8 @@ export struct SchedulePage {
   }
 
   // ───────────── build ─────────────
-  private scroller: Scroller = new Scroller();
-
   build() {
-    HdsNavDestination() {
+    NavDestination() {
       Column() {
         this.headerRow()
         this.searchToolbar()
@@ -1824,13 +1832,8 @@ export struct SchedulePage {
             .margin({ left: 16, right: 16, bottom: 6 })
         }
         Refresh({ refreshing: $$this.refreshing }) {
-          Scroll(this.scroller) {
+          Scroll() {
             Column({ space: 10 }) {
-              // 内容起始留白：标题栏浮动在内容上，先让出标题栏高度
-              Column()
-                .width('100%')
-                .height(((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) + 56 + 8)
-
               if (this.loading && this.tasks.length === 0) {
                 this.loadingState()
               } else if (this.error.length > 0 && this.tasks.length === 0) {
@@ -1891,6 +1894,7 @@ export struct SchedulePage {
         }
       })
     }
+    .hideTitleBar(true)
     .backgroundColor(this.pageBg())
     .onShown(() => {
       if (this.loadedOnce && this.connection === 'connected') {

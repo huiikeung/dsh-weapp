@@ -1,14 +1,7 @@
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { NavBackButton } from '../components/NavBackButton';
 import { CONNECTOR_MODULES, ConnectorModuleDefinition, DeviceConnectors } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
-
-// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
-const CONTENT_STYLE: HdsTitleBarContentStyle = {
-  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
-  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
-};
 
 interface ModuleRow {
   id: string;
@@ -630,19 +623,21 @@ export struct ConnectorStatusPage {
     .height('100%')
   }
 
-  private scroller: Scroller = new Scroller();
-
   build() {
-    HdsNavDestination() {
+    NavDestination() {
       Column() {
+        Row() {
+          NavBackButton({ isDark: this.isDark })
+          Blank()
+          Row().width(40)
+        }
+        .width('100%')
+        .height(44)
+        .padding({ left: 8, right: 8 })
+        .margin({ top: this.safeTop > 0 ? this.safeTop : 38.9 })
 
-        Scroll(this.scroller) {
+        Scroll() {
           Column({ space: 10 }) {
-            // 内容起始留白：标题栏浮动在内容上，先让出标题栏高度
-            Column()
-              .width('100%')
-              .height(((this.safeTop > 0 ? this.safeTop : 38.9)) + 56 + 8)
-
             Column({ space: 6 }) {
               Text('连接器状态')
                 .fontSize(30)
@@ -840,6 +835,7 @@ export struct ConnectorStatusPage {
       .height('100%')
       .justifyContent(FlexAlign.Start)
     }
+    .hideTitleBar(true)
     .backgroundColor(this.pageBg())
   }
 }

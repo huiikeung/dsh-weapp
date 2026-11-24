@@ -1,16 +1,9 @@
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import {
   GatewayClient, GatewayFrame, PI_NS, PI_PREFIX, PROVIDER_PROTOCOLS, ProviderConfigDraft, ProviderProtocol,
   asRec, buildProviderConfig, credentialRefFor, formatTokenCount, isValidProviderBaseURL, parseNamespace,
   providerCreateMutation, validateProviderId
 } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
-
-// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
-const CONTENT_STYLE: HdsTitleBarContentStyle = {
-  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
-  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
-};
 
 /** 内置目录里的提供商候选 */
 class ProviderOption {
@@ -916,19 +909,25 @@ export struct AddProviderPage {
     .width('100%')
   }
 
-  private scroller: Scroller = new Scroller();
-
   build() {
-    HdsNavDestination() {
+    NavDestination() {
       Column() {
+        Row() {
+          NavBackButton({ isDark: this.isDark })
+          Text('添加模型提供商')
+            .fontSize(17)
+            .fontWeight(FontWeight.Medium)
+            .fontColor(this.textColor())
+            .layoutWeight(1)
+            .textAlign(TextAlign.Center)
+          Row().width(40).height(40)
+        }
+        .width('100%')
+        .height(56)
+        .padding({ left: 18.7, right: 18.7 })
 
-        Scroll(this.scroller) {
+        Scroll() {
           Column({ space: 12 }) {
-            // 内容起始留白：标题栏浮动在内容上，先让出标题栏高度
-            Column()
-              .width('100%')
-              .height((this.topInset()) + 56 + 8)
-
             Text('提供商配置会写入 DSH 的 llm-pi-ai 设置，与 DSH 客户端、WebUI 双向同步。')
               .fontSize(12.2)
               .lineHeight(18)
@@ -981,6 +980,7 @@ export struct AddProviderPage {
       .padding({ top: this.topInset() })
       .backgroundColor(this.pageBg())
     }
+    .hideTitleBar(true)
     .backgroundColor(this.pageBg())
   }
 }

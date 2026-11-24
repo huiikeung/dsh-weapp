@@ -1,4 +1,3 @@
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { NavBackButton } from '../components/NavBackButton';
 import { uiMaterial } from '@kit.ArkUI';
 import { appGlassShadow } from '../common/AppGlass';
@@ -10,12 +9,6 @@ import {
   parseDiscoveredModels, discoveredModelPayload
 } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
-
-// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
-const CONTENT_STYLE: HdsTitleBarContentStyle = {
-  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
-  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
-};
 
 /** 推理等级可选档位（对齐 REASONING_LEVELS） */
 const REASONING_LEVELS: string[] = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
@@ -620,19 +613,12 @@ export struct ModelsPage {
     });
   }
 
-  private scroller: Scroller = new Scroller();
-
   build() {
-    HdsNavDestination() {
+    NavDestination() {
       Stack({ alignContent: Alignment.BottomStart }) {
         Column() {
-          Scroll(this.scroller) {
+          Scroll() {
             Column({ space: 0 }) {
-              // 内容起始留白：标题栏浮动在内容上，先让出标题栏高度
-              Column()
-                .width('100%')
-                .height(((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) + 56 + 8)
-
               if (this.hint.length > 0) {
                 Text(this.hint)
                   .fontSize(12.5)
@@ -981,6 +967,19 @@ export struct ModelsPage {
         .backgroundColor(this.pageBg())
 
         // 导航浮层：独立于滚动内容，避免负 margin 造成点按区域错位
+        Row() {
+          NavBackButton({ isDark: this.isDark })
+          Text('模型')
+            .fontSize(17)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(this.textColor())
+            .layoutWeight(1)
+            .textAlign(TextAlign.Center)
+          Row().width(40)
+        }
+        .width('100%')
+        .height(44 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9))
+        .padding({ left: 8, right: 8, top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
         .backdropBlur(12)
         .backgroundColor(Color.Transparent)
         // Stack 的 alignContent 是 BottomStart（给底部弹层用），导航必须绝对定位到顶部
@@ -1665,6 +1664,7 @@ export struct ModelsPage {
       .width('100%')
       .height('100%')
     }
+    .hideTitleBar(true)
     .backgroundColor(this.pageBg())
   }
 }

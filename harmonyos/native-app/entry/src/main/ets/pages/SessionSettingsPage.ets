@@ -2,17 +2,11 @@ import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { GatewayClient, PreferencesStore, SessionStore, SessionSummary, WorkspaceRow } from 'nativecore';
 import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 'nativecore';
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
+import { HdsNavDestination, ScrollEffectType } from '@kit.UIDesignKit';
 import { LengthMetrics } from '@kit.ArkUI';
 import { TopToast, TopToastView } from '../components/TopToast';
 import { openSessionRoute } from '../common/SessionRoute';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
-
-// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
-const CONTENT_STYLE: HdsTitleBarContentStyle = {
-  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
-  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
-};
 
 /** Agent 预设二级页的选项装载结构（写入 AppStorage，PreferencePickerPage 解析） */
 interface PresetPickOption {
@@ -732,9 +726,7 @@ export struct SessionSettingsPage {
         scrollEffectOpts: {
           enableScrollEffect: true,
           scrollEffectType: ScrollEffectType.GRADIENT_BLUR
-        },
-        originalStyle: { contentStyle: CONTENT_STYLE },
-        scrollEffectStyle: { contentStyle: CONTENT_STYLE }
+        }
       }
     })
     .bindToScrollable([this.scroller])

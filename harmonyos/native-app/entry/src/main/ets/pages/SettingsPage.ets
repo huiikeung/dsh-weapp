@@ -1,4 +1,3 @@
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { common } from '@kit.AbilityKit';
 import { NavBackButton } from '../components/NavBackButton';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
@@ -6,12 +5,6 @@ import { scanBarcode, scanCore } from '@kit.ScanKit';
 import {
   GatewayClient, GatewayProfile, PairingResult, parsePairingPayload, ThemeManager, ThemeMode
 } from 'nativecore';
-
-// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
-const CONTENT_STYLE: HdsTitleBarContentStyle = {
-  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
-  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
-};
 
 interface ThemeOption {
   key: string;
@@ -60,19 +53,38 @@ export struct SettingsPage {
     return this.isDark ? '#2C2C2E' : '#FFFFFF';
   }
 
-  private scroller: Scroller = new Scroller();
-
   build() {
-    HdsNavDestination() {
+    NavDestination() {
       Column() {
-
-      Scroll(this.scroller) {
-        Column({ space: 14 }) {
-          // 内容起始留白：标题栏浮动在内容上，先让出标题栏高度
+        Stack({ alignContent: Alignment.TopStart }) {
           Column()
             .width('100%')
-            .height(((this.safeTopVp > 0 ? this.safeTopVp : 38.9)) + 56 + 8)
+            .height(56 + (this.safeTopVp > 0 ? this.safeTopVp : 38.9))
+            .backdropBlur(12)
+            .backgroundColor(Color.Transparent)
+            .hitTestBehavior(HitTestMode.None)
 
+          Row() {
+            NavBackButton({ isDark: this.isDark })
+
+            Text('设置')
+              .fontSize(17)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(this.textColor())
+              .layoutWeight(1)
+              .textAlign(TextAlign.Center)
+
+            Row().width(44).height(44)
+          }
+          .width('100%')
+          .height(56)
+          .padding({ left: 16, right: 16 })
+          .margin({ top: this.safeTopVp > 0 ? this.safeTopVp : 38.9 })
+        }
+        .width('100%')
+
+      Scroll() {
+        Column({ space: 14 }) {
           Text('外观')
             .fontSize(13)
             .fontColor(this.subColor())
@@ -212,6 +224,7 @@ export struct SettingsPage {
       .width('100%')
       .height('100%')
     }
+    .hideTitleBar(true)
     .backgroundColor(this.pageBg())
   }
 

@@ -1,15 +1,8 @@
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { AttachmentCache, AttachmentImageCache, PreferencesStore, SessionStore, SessionSummary } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
-
-// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
-const CONTENT_STYLE: HdsTitleBarContentStyle = {
-  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
-  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
-};
 
 /** 存储空间分类（对齐小程序 storage-usage CATEGORIES） */
 interface StorageCategoryItem {
@@ -277,6 +270,32 @@ export struct StorageSpacePage {
   // ── UI ──
   @Builder
   navBar() {
+    Row() {
+      NavBackButton({ isDark: this.isDark })
+        .onClick(() => {
+          if (this.busy) {
+            return;
+          }
+          if (this.detailKey.length > 0) {
+            this.detailKey = '';
+          } else {
+            this.pageStack.pop();
+          }
+        })
+      Text(this.detailKey.length > 0 ? this.detailTitle() : '存储空间')
+        .fontSize(17)
+        .fontWeight(FontWeight.Medium)
+        .fontColor(this.textColor())
+        .layoutWeight(1)
+        .textAlign(TextAlign.Center)
+        .maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Row().width(44).height(44)
+    }
+    .width('100%')
+    .height(56)
+    .padding({ left: 16, right: 16 })
+    .margin({ top: this.topInset() })
   }
 
   /** iOS 分组标题 */
@@ -464,10 +483,8 @@ export struct StorageSpacePage {
     .opacity(this.busy ? 0.5 : 1)
   }
 
-  private scroller: Scroller = new Scroller();
-
   build() {
-    HdsNavDestination() {
+    NavDestination() {
       Column() {
         this.navBar()
         if (this.loading) {
@@ -480,13 +497,8 @@ export struct StorageSpacePage {
           .layoutWeight(1)
           .justifyContent(FlexAlign.Center)
         } else {
-          Scroll(this.scroller) {
+          Scroll() {
             Column({ space: 0 }) {
-              // 内容起始留白：标题栏浮动在内容上，先让出标题栏高度
-              Column()
-                .width('100%')
-                .height(((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9)) + 56 + 8)
-
               if (this.detailKey.length === 0) {
                 this.heroCard()
                 this.groupTitle('缓存分类')
@@ -521,6 +533,7 @@ export struct StorageSpacePage {
       .height('100%')
       .backgroundColor(this.pageBg())
     }
+    .hideTitleBar(true)
     .backgroundColor(this.pageBg())
   }
 }

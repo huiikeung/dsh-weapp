@@ -1,13 +1,6 @@
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { NavBackButton } from '../components/NavBackButton';
 import { APP_DISPLAY_NAME, DEVELOPER_NAME, USER_AGREEMENT_EFFECTIVE_AT, USER_AGREEMENT_VERSION } from '../common/LegalDocs';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
-
-// 标题栏内容风格：滚动模糊生效时保持正文色标题，避免系统默认切成白字
-const CONTENT_STYLE: HdsTitleBarContentStyle = {
-  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
-  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
-};
 
 /** 协议章节 */
 interface AgreementSection {
@@ -124,6 +117,33 @@ export struct UserAgreementPage {
   @Builder
   navBar() {
     // 与一级页（设置）一致：玻璃底覆盖「状态栏 + 导航栏」整条，内容从下方滚过时透出模糊
+    Stack({ alignContent: Alignment.TopStart }) {
+      Column()
+        .width('100%')
+        .height(56 + this.topInset())
+        .backdropBlur(12)
+        .backgroundColor(Color.Transparent)
+        .hitTestBehavior(HitTestMode.None)
+
+      Row() {
+        NavBackButton({ isDark: this.isDark })
+        Text('用户协议')
+          .fontSize(17)
+          .fontWeight(FontWeight.Medium)
+          .fontColor(this.textColor())
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+          .maxLines(1)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Row().width(44).height(44)
+      }
+      .width('100%')
+      .height(56)
+      .padding({ left: 16, right: 16 })
+      .margin({ top: this.topInset() })
+    }
+    .width('100%')
+    .zIndex(10)
   }
 
   /** iOS 分组 footer 说明 */
@@ -232,18 +252,11 @@ export struct UserAgreementPage {
     .margin({ top: 12 })
   }
 
-  private scroller: Scroller = new Scroller();
-
   build() {
-    HdsNavDestination() {
+    NavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
-        Scroll(this.scroller) {
+        Scroll() {
           Column({ space: 0 }) {
-            // 内容起始留白：标题栏浮动在内容上，先让出标题栏高度
-            Column()
-              .width('100%')
-              .height((this.topInset()) + 56 + 8)
-
             this.introCard()
             ForEach(AGREEMENT_SECTIONS, (section: AgreementSection) => {
               this.sectionCard(section)
@@ -269,6 +282,7 @@ export struct UserAgreementPage {
       .height('100%')
       .backgroundColor(this.pageBg())
     }
+    .hideTitleBar(true)
     .backgroundColor(this.pageBg())
   }
 }
