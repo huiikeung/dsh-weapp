@@ -538,19 +538,13 @@ export struct SessionSettingsPage {
 
   build() {
     HdsNavDestination() {
-      // 根容器必须是 Stack：底部弹窗需覆盖在本页之上。
-      // 若根为 Column，弹窗会被 Scroll(layoutWeight(1)) 挤成 0 高度而不可见。
-      HdsNavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
         Scroll(this.scroller) {
           Column() {
-
             // 新会话默认配置
             this.groupTitle('新会话默认配置', '与 WebUI 使用同一份部署级设置。修改只影响之后新建的会话，运行中的会话保持启动时的配置。')
             this.cardBox()
-
-
-            // Tailscale 内嵌隧道（对齐 iOS SettingsView 的独立 Section）
+            // Tailscale 内嵌隧道
             this.groupTitle('Tailscale 内嵌隧道', '在应用内建立一个 Tailscale 节点：不需要安装 Tailscale，也不会占用系统 VPN。节点只在你自己的 tailnet 内可达。')
             Column() {
               this.tailscaleRow('内嵌隧道', () => {
@@ -562,9 +556,7 @@ export struct SessionSettingsPage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-
-
-            // 网络与连接：当前网络类型与正在使用的端点（局域网优先 / 蜂窝自动切公网）
+            // 网络与连接
             this.groupTitle('网络与连接', '在家走 Wi-Fi 时优先局域网直连；切到蜂窝数据后自动改用公网地址。')
             Column() {
               this.cardRow('当前网络', this.networkBearerLabel(), false, () => {
@@ -613,8 +605,6 @@ export struct SessionSettingsPage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-
-
             // 功能
             this.groupTitle('功能')
             Column() {
@@ -635,7 +625,6 @@ export struct SessionSettingsPage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-
             // 主机信息
             this.groupTitle('主机信息')
             Column() {
@@ -656,7 +645,6 @@ export struct SessionSettingsPage {
             .border({ width: 1, color: this.dividerColor() })
             .borderRadius(14)
             .clip(true)
-
             if (this.hint.length > 0) {
               Text(this.hint)
                 .fontSize(12)
@@ -671,19 +659,14 @@ export struct SessionSettingsPage {
         .layoutWeight(1)
         .align(Alignment.Top)
         .scrollBar(BarState.Off)
-        // 平板/宽屏：设置内容居中一栏（对齐 iOS iPad 设置页）
         .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
-        // 小程序（webview）没有橡皮筋回弹；这里关掉，避免滚动到顶/底时页面「抖」
         .edgeEffect(EdgeEffect.None)
-      }
-      .width('100%')
-      .height('100%')
-      .backgroundColor(this.pageBg())
+        .backgroundColor(this.pageBg())
 
         if (this.pickerOpen) {
           this.pickerSheet()
         }
-        // 诊断信息：原生玻璃半模态（底部弹出，内容排版对齐小程序 utility-sheet）
+        // 诊断信息：原生玻璃半模态
         Column()
           .width(1)
           .height(1)
@@ -696,13 +679,11 @@ export struct SessionSettingsPage {
             backgroundColor: this.immersiveSupported() ? Color.Transparent : (this.isDark ? '#2E2E2E' : '#F7F8FA'),
             systemMaterial: this.teamSheetMaterial()
           })
-
-        // 清理缓存：页面中间的玻璃弹窗（自绘半透明底 + 实时模糊）
+        // 清理缓存
         if (this.cacheDialogOpen) {
           this.cacheCenterDialog()
         }
-
-        // 如何在外网使用：原生玻璃底部半模态（Tailscale / Funnel / Cloudflare 指南）
+        // 如何在外网使用
         Column()
           .width(1)
           .height(1)
@@ -716,14 +697,11 @@ export struct SessionSettingsPage {
             systemMaterial: this.teamSheetMaterial()
           })
         TopToastView()
-
       }
       .width('100%')
       .height('100%')
       .backgroundColor(this.pageBg())
     }
-    // 原生标题栏：内容从标题栏下面滚过时出现系统渐变模糊（GRADIENT_BLUR），
-    // 返回键由标题栏自带（默认 pop 当前栈），不再手写。
     .titleBar({
       avoidLayoutSafeArea: true,
       content: { title: { mainTitle: '会话设置' } },
@@ -732,8 +710,6 @@ export struct SessionSettingsPage {
           enableScrollEffect: true,
           scrollEffectType: ScrollEffectType.GRADIENT_BLUR
         },
-        // 模糊生效时保持正文色标题：系统默认会切成白字（按深色头图假设），浅色页看不清
-        // 玻璃材质：不加的话 GRADIENT_BLUR 默认压一层深色 scrim（浅色页看起来发黑）
         systemMaterialEffect: {
           materialType: hdsMaterial.MaterialType.IMMERSIVE,
           materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
@@ -745,11 +721,11 @@ export struct SessionSettingsPage {
     .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
     .onShown(() => {
-      // 从预设二级页返回：消费选择（应用预设 / 打开创造模式）
       this.consumePresetChoice();
       this.refreshDefaultConfiguration();
     })
   }
+
 
   /** 诊断信息：原生玻璃半模态内容（标题 + 关闭 X + 键值行卡片，布局对齐小程序 utility-sheet） */
   @Builder
