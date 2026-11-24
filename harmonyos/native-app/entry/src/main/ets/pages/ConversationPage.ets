@@ -8058,8 +8058,10 @@ export struct ConversationPage {
       this.headerBar()
     }
     .width('100%')
+    // 高度与标题栏一致；底部留 12 的 padding 让内容整体上移，标题行紧贴状态栏下方
     .height(56)
-    .padding({ left: 8, right: 8 })
+    .alignItems(VerticalAlign.Center)
+    .padding({ left: 8, right: 8, bottom: 12 })
   }
 
   /** 顶栏模糊层的底色：与页面背景同色系的高透明色（浅色 #F2F2F4 / 深色纯黑） */
