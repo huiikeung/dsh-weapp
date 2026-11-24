@@ -402,6 +402,8 @@ export struct ConversationPage {
   @State private dockHeight: number = 220;
   /** 输入卡实测高度（composer 上报）：玻璃背板用它精确对齐 */
   @State dockCardHeight: number = 0;
+  /** 玻璃条下方区域（展开态 chip 行 + 常驻指标行）实测高度 */
+  @State dockBelowHeight: number = 34;
   /** 下拉刷新连续补页：一直加载到顶部是「用户消息」为止 */
   private pullLoadAttempts: number = 0;
   private pullLoadTimer: number = -1;
@@ -5852,7 +5854,7 @@ export struct ConversationPage {
    */
   @Builder
   dockAsFloatingGlass() {
-    HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
+    Tabs({ barPosition: BarPosition.End, index: 0 }) {
       TabContent() {
         // 内容区不用：只借 TabBar 的位置与材质
         Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
@@ -5861,23 +5863,8 @@ export struct ConversationPage {
     }
     .barMode(BarMode.Fixed)
     .scrollable(false)
-    // 小艺同款三条件：横向 + 底部 + 浮在内容之上（缺一材质不生效）
-    .vertical(false)
     .barOverlap(true)
-    // 注意：开启 systemMaterialEffect 后不能再设 barBackgroundColor / barBackgroundBlurStyle，
-    // 两者会与沉浸光感材质冲突，材质不渲染（小艺踩坑清单第 5 条）
-    .barFloatingStyle({
-      adaptToHandedness: true,
-      barSideMargin: 14,
-      barBottomMargin: this.dockBarBottomMargin(),
-      barWidth: {
-        smallWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-        mediumWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-        largeWidth: this.pageW > 0 ? this.pageW - 28 : 320
-      },
-      // 沉浸光感：HDS 管线系统材质（与顶栏同一套）
-      systemMaterialEffect: this.dockGlassMaterial()
-    })
+    .barFloatingStyle(this.dockFloatingBar())
     // 胶囊高度跟随输入区实测高度（折叠矮、展开高）。输入区不在胶囊内部，
     // 所以测量值不会被胶囊裁剪，不会出现「改高度 → 重新测量 → 再改高度」的震荡。
     .barHeight(this.dockGlassHeight())
@@ -5898,6 +5885,27 @@ export struct ConversationPage {
     Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
   }
 
+  /** ArkUI 原生悬浮 TabBar 样式：沉浸光感材质挂在 TabBar 背板上 */
+  private dockFloatingBar(): FloatingTabBarStyle {
+    const widthOpt: FloatingTabBarWidth = {
+      smallBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+      mediumBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+      largeBarWidth: this.pageW > 0 ? this.pageW - 28 : 320
+    };
+    const style: FloatingTabBarStyle = {
+      barWidth: widthOpt,
+      barSideMargin: 14,
+      barBottomMargin: this.dockBarBottomMargin(),
+      adaptToHandedness: true,
+      systemMaterial: new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.THIN,
+        interactive: true,
+        lightEffect: {}
+      })
+    };
+    return style;
+  }
+
   /** 胶囊离屏幕底部的距离：手势条安全区 + 平板额外留白 */
   private dockBarMargin(): number {
     return 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0);
@@ -5915,19 +5923,13 @@ export struct ConversationPage {
    * 两者都由实测值算，不写死尺寸。
    */
   private dockGlassHeight(): number {
-    if (this.dockCardHeight > 0) {
-      return this.dockCardHeight;
-    }
-    return this.composerFocused || this.draft.trim().length > 0 ? 150 : 64;
+    return this.dockCardHeight > 0 ? this.dockCardHeight : 52;
   }
 
-  /** 胶囊底边与屏幕底部的距离：把指标行让到胶囊外面 */
+  /** 胶囊底边与屏幕底部的距离 = 底部留白 + 玻璃条下方区域（chip 行 / 指标行）实测高度 */
   private dockBarBottomMargin(): number {
-    if (this.dockHeight > 0 && this.dockCardHeight > 0) {
-      const margin: number = this.dockHeight - this.dockCardHeight;
-      return margin > 0 ? margin : this.dockBarMargin();
-    }
-    return this.dockBarMargin() + 34;
+    const below: number = this.dockBelowHeight > 0 ? this.dockBelowHeight : 34;
+    return this.dockBarMargin() + below;
   }
 
   /** HDS IMMERSIVE 材质（与顶栏 systemMaterialEffect 同一套管线） */
@@ -6048,6 +6050,9 @@ export struct ConversationPage {
             },
             onCardHeightChange: (height: number) => {
               this.dockCardHeight = height;
+            },
+            onBelowHeightChange: (height: number) => {
+              this.dockBelowHeight = height;
             },
             metricPairsFor: (kind: string): MetricMenuPair[] => {
               const pairs: MetricMenuPair[] = [];
@@ -6289,7 +6294,7 @@ export struct ConversationPage {
       this.sessionPageDots()
       // 底部浮层：底下时间线内容以模糊方式透出（对齐顶部模糊遮罩）
       // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
-      // 第一层：沉浸光感玻璃胶囊（HdsTabs 悬浮 TabBar 背板，材质只在合法作用域内渲染）
+      // 第一层：系统沉浸光感背板（ArkUI 原生 Tabs 悬浮 TabBar + FloatingTabBarStyle.systemMaterial）
       Column() {
         if (this.sessionTab === 0) {
           this.dockAsFloatingGlass()
@@ -6299,7 +6304,7 @@ export struct ConversationPage {
       .height('100%')
       .hitTestBehavior(HitTestMode.None)
 
-      // 第二层：真实输入区，叠在胶囊之上（不被 TabBar 固定高度裁剪）
+      // 第二层：真实输入区，叠在背板之上
       Column() {
         if (this.sessionTab === 0) {
           this.bottomDockLayer()
