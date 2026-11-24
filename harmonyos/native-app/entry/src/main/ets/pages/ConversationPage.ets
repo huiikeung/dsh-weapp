@@ -6028,10 +6028,12 @@ export struct ConversationPage {
       .width('100%')
     }
     .width('100%')
-    // 底部整块：完全透明底色 + backdropBlur(24)（只模糊、不加色）
+    // 底部整块：与顶部标题栏同一套系统 IMMERSIVE 玻璃材质（不再是手写 backdropBlur）
     .backgroundColor(Color.Transparent)
-    // 宽屏下输入条已居中限宽，底部不再铺整条模糊带
-    .backdropBlur(this.wideInset() > 0 ? 0 : 24)
+    // 宽屏下输入条已居中限宽，底部不铺整条材质带
+    .systemMaterial(this.wideInset() > 0
+      ? undefined
+      : new uiMaterial.ImmersiveMaterial({ style: uiMaterial.ImmersiveStyle.THIN }))
     .onAreaChange((oldArea: Area, newArea: Area) => {
       const height: number = Number(newArea.height);
       if (height > 0 && Math.abs(height - this.dockHeight) > 1) {
@@ -8054,14 +8056,8 @@ export struct ConversationPage {
   /** 原生标题栏内容：沿用原 headerBar（返回 + 标题/状态 + 团队/会话切换/更多） */
   @Builder
   nativeTitleBar() {
-    Row() {
-      this.headerBar()
-    }
-    .width('100%')
-    // 高度与标题栏一致；底部留 12 的 padding 让内容整体上移，标题行紧贴状态栏下方
-    .height(56)
-    .alignItems(VerticalAlign.Center)
-    .padding({ left: 8, right: 8, bottom: 12 })
+    // headerBar(true)：内嵌模式，不再重复叠加状态栏高度
+    this.headerBar(true)
   }
 
   /** 顶栏模糊层的底色：与页面背景同色系的高透明色（浅色 #F2F2F4 / 深色纯黑） */
@@ -8070,7 +8066,7 @@ export struct ConversationPage {
   }
 
   @Builder
-  headerBar() {
+  headerBar(embedded: boolean = false) {
     // 标题/模式字号已调小；右侧三个圆钮之间收紧，标题与返回钮的间距靠标题自身 margin
     Row({ space: 2 }) {
       // 与右上角 36vp 小圆钮同尺寸：按下/hover 高亮圈一致
@@ -8218,10 +8214,14 @@ export struct ConversationPage {
       })
     }
     .width('100%')
-    // 顶栏整体上移：高度与上内边距各收 6~8vp，标题与按钮离状态栏更近
-    .height(56 + this.topSafe())
+    // 内嵌进原生标题栏时：高度 56、不再叠加安全区（否则标题会被压到偏下）
+    .height(embedded ? 56 : 56 + this.topSafe())
     // 左缘与输入条一致（输入条容器 padding 14）：返回按钮和输入框左边缘对齐
-    .padding({ left: 14, right: 14, top: this.topSafe() > 2 ? this.topSafe() - 2 : 0 })
+    .padding({
+      left: 14,
+      right: 14,
+      top: embedded ? 0 : (this.topSafe() > 2 ? this.topSafe() - 2 : 0)
+    })
     // 顶栏永远压在页面内浮层之上：侧栏弹窗打开时其透明遮罩不能再吃顶栏按钮的点击
     .zIndex(70)
     // 浮动顶栏完全不铺底：内容上滑时直接从标题下面穿过去（纯 iOS 透明导航栏）

@@ -6,6 +6,7 @@
  *   也就是深色白 16% / 浅色黑 10% 的中性 1vp 细边，配系统菜单那种柔和投影。
  *   底色用中性玻璃（不偏蓝），不加外发光——菜单本身也没有发光。
  */
+import { uiMaterial } from '@kit.ArkUI';
 import { Logger } from 'nativecore';
 
 @Component
@@ -49,9 +50,13 @@ export struct NavBackButton {
       }
       .width(this.diameter)
       .height(this.diameter)
-      .backgroundColor(this.glass ? this.glassTint() : Color.Transparent)
+      .backgroundColor(Color.Transparent)
       .clip(true)
-      .backdropBlur(this.glass ? 14 : 0)
+      // 系统液态玻璃材质（与原生标题栏 systemMaterialEffect 同一套 IMMERSIVE 材质），
+      // 不再用「半透明白 + backdropBlur」的手写玻璃
+      .systemMaterial(this.glass
+        ? new uiMaterial.ImmersiveMaterial({ style: uiMaterial.ImmersiveStyle.THIN })
+        : undefined)
       // 与系统菜单同款 1vp 中性描边（Button 自己画，避免被外层圆角影响）
       .border(this.glass
         ? { width: 1, color: this.menuOutline() }
