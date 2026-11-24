@@ -5845,6 +5845,48 @@ export struct ConversationPage {
       .hitTestBehavior(HitTestMode.None)
   }
 
+  /** 椭圆胶囊几何：左右 14、宽 pageW-28、高=输入卡实测高、底部=安全区+18+40（与输入卡上沿留白） */
+  private dockFloatingStyle(): HdsTabsFloatingStyle {
+    const widthOpt: HdsBarWidthRangeOptions = {
+      smallWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+      mediumWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+      largeWidth: this.pageW > 0 ? this.pageW - 28 : 320
+    };
+    return {
+      adaptToHandedness: true,
+      barSideMargin: 14,
+      barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
+      barWidth: widthOpt,
+      systemMaterialEffect: this.dockGlassMaterial()
+    };
+  }
+
+  /** tabBar 占位内容：只提供高度（= 输入卡实测高），不画任何东西 */
+  @Builder
+  dockBackplateBar() {
+    Row().width('100%').height(this.dockCardHeight > 0 ? this.dockCardHeight : 200)
+  }
+
+  /** 椭圆玻璃背板：HdsTabs 悬浮 TabBar 的胶囊自带圆角，垫在输入卡身后、不拦截触摸 */
+  @Builder
+  dockMaterialBackplate() {
+    HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
+      TabContent() {
+        Row().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
+      }
+      .tabBar(this.dockBackplateBar())
+    }
+    .barMode(BarMode.Fixed)
+    .barOverlap(true)
+    .barFloatingStyle(this.dockFloatingStyle())
+    .barHeight(Math.max(96, this.dockCardHeight > 0 ? this.dockCardHeight : 190))
+    .barBackgroundColor(Color.Transparent)
+    .width('100%')
+    .height(this.dockCardHeight > 0 ? this.dockCardHeight + 190 : 300)
+    .hitTestBehavior(HitTestMode.None)
+    .accessibilityLevel('no')
+  }
+
   @Builder
   bottomDockLayer() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -6185,8 +6227,13 @@ export struct ConversationPage {
       // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
       Column() {
         if (this.sessionTab === 0) {
-          // 输入区：玻璃效果直接做在输入框本体上（backgroundEffect，圆角 24 跟随卡片）
-          this.bottomDockLayer()
+          Stack({ alignContent: Alignment.Bottom }) {
+            // 椭圆玻璃背板（HDS IMMERSIVE 材质，就是你要的那个效果）
+            this.dockMaterialBackplate()
+            // 输入区浮层：透明，玻璃从它身后透出
+            this.bottomDockLayer()
+          }
+          .width('100%')
         }
       }
       .width('100%')
