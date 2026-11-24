@@ -5822,18 +5822,18 @@ export struct ConversationPage {
   }
 
   /** 底部浮层：队列/任务/目标 + 输入条（下方内容透过玻璃模糊，与顶部遮罩对称） */
-  /** 玻璃条上方 80vp 渐进遮罩：内容越贴近玻璃越「沉」，等效页签栏 maskHeight 渐进模糊的观感 */
+  /** 底部玻璃条上沿的渐变过渡（透明 → 页面底色），避免内容与玻璃之间出现硬切边 */
   @Builder
   bottomFadeOverlay() {
     Column()
       .width('100%')
-      .height(80)
-      .position({ x: 0, y: -80 })
+      // 渐变过渡带加高到 44vp、多档色阶：内容进入玻璃前逐级淡出，模拟顶部「越往上越糊」的渐进效果
+      .height(44)
       .linearGradient({
         direction: GradientDirection.Bottom,
         colors: this.isDark
-          ? [['rgba(0,0,0,0)', 0.0], ['rgba(0,0,0,0.10)', 0.45], ['rgba(0,0,0,0.26)', 0.72], ['rgba(0,0,0,0.40)', 1.0]]
-          : [['rgba(242,242,247,0)', 0.0], ['rgba(242,242,247,0.10)', 0.45], ['rgba(242,242,247,0.26)', 0.72], ['rgba(242,242,247,0.40)', 1.0]]
+          ? [['rgba(0,0,0,0)', 0.0], ['rgba(0,0,0,0.18)', 0.45], ['rgba(0,0,0,0.45)', 0.75], ['rgba(0,0,0,0.72)', 1.0]]
+          : [['rgba(242,242,247,0)', 0.0], ['rgba(242,242,247,0.28)', 0.45], ['rgba(242,242,247,0.62)', 0.75], ['rgba(242,242,247,0.86)', 1.0]]
       })
       .hitTestBehavior(HitTestMode.None)
   }
@@ -6050,19 +6050,21 @@ export struct ConversationPage {
       .width('100%')
     }
     .width('100%')
-    // 底部整块：复刻 HdsTabs 页签栏「渐变模糊」配方（barBackgroundEffect + barBackgroundStyle 1:1）
-    // 页签栏的实现 = backgroundEffect(radius 80 高斯模糊 + 半透明遮罩色) + barBackgroundStyle(maskColor/maskHeight 渐进遮罩)
+    // 底部整块：与顶部标题栏同一套系统 IMMERSIVE 玻璃材质（不再是手写 backdropBlur）
     .backgroundColor(Color.Transparent)
     // 宽屏下输入条已居中限宽，底部不铺整条材质带
-    .backgroundEffect(this.wideInset() > 0 ? {
-      radius: 0,
-      color: Color.Transparent
-    } : {
-      radius: 80,
-      saturation: 1,
-      brightness: 1,
-      color: this.isDark ? '#66000000' : '#66F1F1F3'
-    })
+    .systemMaterial(this.wideInset() > 0
+      ? undefined
+      : new uiMaterial.ImmersiveMaterial({
+        // 底部要托住整块输入区：THICK 提供最强模糊，贴近顶部渐变模糊的强度
+        style: uiMaterial.ImmersiveStyle.THICK,
+        interactive: true,
+        lightEffect: {}
+      }))
+    // 材质自身模糊偏柔和，再叠一层背景模糊把「透出的内容」压得更糊（对齐顶部观感）
+    .backdropBlur(this.wideInset() > 0 ? 0 : 20)
+    // 上沿渐变过渡：内容进入玻璃条前先柔和淡出（对齐顶部「渐变模糊」的观感，避免硬切边）
+    .overlay(() => { this.bottomFadeOverlay() }, { align: Alignment.Top })
     .onAreaChange((oldArea: Area, newArea: Area) => {
       const height: number = Number(newArea.height);
       if (height > 0 && Math.abs(height - this.dockHeight) > 1) {
