@@ -2,7 +2,7 @@ import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { GatewayClient, PreferencesStore, SessionStore, SessionSummary, WorkspaceRow } from 'nativecore';
 import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 'nativecore';
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { LengthMetrics } from '@kit.ArkUI';
 import { TopToast, TopToastView } from '../components/TopToast';
 import { openSessionRoute } from '../common/SessionRoute';
@@ -733,6 +733,11 @@ export struct SessionSettingsPage {
           scrollEffectType: ScrollEffectType.GRADIENT_BLUR
         },
         // 模糊生效时保持正文色标题：系统默认会切成白字（按深色头图假设），浅色页看不清
+        // 玻璃材质：不加的话 GRADIENT_BLUR 默认压一层深色 scrim（浅色页看起来发黑）
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
         originalStyle: { contentStyle: this.TITLE_BAR_CONTENT },
         scrollEffectStyle: { contentStyle: this.TITLE_BAR_CONTENT }
       }
