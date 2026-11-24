@@ -564,16 +564,11 @@ export struct SessionSettingsPage {
         .padding({ left: 16, right: 16 })
         .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
 
-        // 底部渐隐：模糊带与正文之间不要硬切一条线（浅色/深色各自用页面底色淡出）
-        Column()
-          .width('100%')
-          .height(16)
-          .position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) - 16 })
-          .linearGradient({
-            direction: GradientDirection.Bottom,
-            colors: [[this.pageBg() + '00', 0.0], [this.pageBg() + 'E6', 0.55], [this.pageBg(), 1.0]]
-          })
-          .hitTestBehavior(HitTestMode.None)
+        // 模糊层底部用「逐级降低不透明度」的窄条收尾：
+        // 不用 linearGradient 叠在毛玻璃上（会渲染出一条明显的色带），
+        // 而是靠多个低不透明度的 blur 条把边缘柔化掉。
+        Column().width('100%').height(4).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) }).backdropBlur(12).opacity(0.66).hitTestBehavior(HitTestMode.None)
+        Column().width('100%').height(4).position({ x: 0, y: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 4 }).backdropBlur(12).opacity(0.33).hitTestBehavior(HitTestMode.None)
         }
         .width('100%')
         .zIndex(10)
@@ -718,14 +713,6 @@ export struct SessionSettingsPage {
       .height('100%')
       .backgroundColor(this.pageBg())
 
-        // 覆盖层返回键：根 Stack 的最后一个子节点，永远在最上层，不会被 Scroll 吃掉点击
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-        }
-        .width(40)
-        .height(40)
-        .margin({ left: 16, top: (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 8 })
-
         if (this.pickerOpen) {
           this.pickerSheet()
         }
@@ -762,6 +749,15 @@ export struct SessionSettingsPage {
             systemMaterial: this.teamSheetMaterial()
           })
         TopToastView()
+
+        // 覆盖层返回键：必须是根 Stack 的最后一个子节点，
+        // 这样才排在任何 Scroll/Toast/弹窗之上（之前放在中间会被后面的层吃掉点击）。
+        Row() {
+          NavBackButton({ isDark: this.isDark })
+        }
+        .width(40)
+        .height(40)
+        .margin({ left: 16, top: (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 8 })
       }
       .width('100%')
       .height('100%')
