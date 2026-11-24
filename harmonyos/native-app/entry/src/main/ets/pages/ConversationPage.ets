@@ -5855,6 +5855,8 @@ export struct ConversationPage {
     .barMode(BarMode.Fixed)
     .scrollable(false)
     .barOverlap(true)
+    // 玻璃直接长在 TabBar 背板上（backgroundEffect 不受「仅标题栏/TabBar」限制，
+    // 形状跟随 TabBar 内容=输入框本体的圆角矩形；saturation 让滚过的内容颜色折射进玻璃）
     .barFloatingStyle({
       adaptToHandedness: true,
       maskHeight: 0,
@@ -5864,13 +5866,13 @@ export struct ConversationPage {
         smallBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
         mediumBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
         largeBarWidth: this.pageW > 0 ? this.pageW - 28 : 320
-      },
-      systemMaterial: new uiMaterial.ImmersiveMaterial({
-        style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
-        colorInvert: true,
-        interactive: true,
-        lightEffect: {}
-      })
+      }
+    })
+    .barBackgroundEffect({
+      radius: 40,
+      color: this.isDark ? 'rgba(18,20,26,0.45)' : 'rgba(255,255,255,0.42)',
+      saturation: 1.9,
+      brightness: 1.05
     })
     .width('100%')
     .height('100%')
