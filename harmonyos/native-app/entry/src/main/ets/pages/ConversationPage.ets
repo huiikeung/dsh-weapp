@@ -6133,11 +6133,10 @@ export struct ConversationPage {
   build() {
     HdsNavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
-      // 输入条放进横向 Tabs 的底部 TabBar 区域：这是 systemMaterial 液态玻璃官方支持的生效位置
-      Tabs({ barPosition: BarPosition.End }) {
-        TabContent() {
       Column() {
         // 顶栏不再占位：时间线从屏幕顶部铺满，往上滚时内容直接在标题下面穿过去（对齐 iOS 导航栏）
+        // 「加载更早记录」与运行条都在滚动内容内部（对齐小程序：横幅在 scroll-view 里，
+        // 运行条在列表末尾），随内容一起滚动，而不是固定在容器外的两条横条。
         Swiper(this.sessionSwiper) {
           Column() {
             this.timeline()
@@ -6177,24 +6176,24 @@ export struct ConversationPage {
       .width('100%')
       .height('100%')
       .backgroundColor(this.pageBg())
+      // 上下都顶到屏幕边缘：内容可以一直滑到状态栏下面（对齐 iOS）
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
-      }
-      // composer 进入底部 TabBar 生效区：内容通过 barOverlap 压到玻璃下面
-      .tabBar(this.bottomDockLayer)
-      }
-      // Tabs 属性：内容通过 barOverlap 压到玻璃输入条下面（液态玻璃生效区）
-      .barOverlap(true)
-      .barBackgroundColor(Color.Transparent)
-      .vertical(false)
-      .scrollable(false)
-      .width('100%')
-      .height('100%')
 
 
 
       // 会话页顶部双 Tab 指示点：切换时淡入、停止后淡出（对齐 iOS 翻页小圆点）
       this.sessionPageDots()
-      // 底部 dock 已移入 Tabs 的 tabBar（systemMaterial 液态玻璃官方生效区），不再作为浮层渲染
+      // 底部浮层：底下时间线内容以模糊方式透出（对齐顶部模糊遮罩）
+      // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
+      Column() {
+        if (this.sessionTab === 0) {
+          this.bottomDockLayer()
+        }
+      }
+      .width('100%')
+      .height('100%')
+      .justifyContent(FlexAlign.End)
+      .hitTestBehavior(HitTestMode.Transparent)
 
       // 长按语音的全屏特效：盖在对话与输入条之上，但不拦触摸（手指还压在下面的输入条上）
       VoiceRipplePanel({
