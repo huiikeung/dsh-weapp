@@ -2760,21 +2760,7 @@ export struct ConversationComposer {
       .systemMaterial(this.glassMaterial())
       // 玻璃边缘：外圈白色细描边 + 柔和外阴影（托起悬浮感）
       .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.95)' })
-      // 外发光呼吸：柔和光晕随相位变化，肉眼能看出「特效在动」
-      .shadow({
-        radius: 20 + 10 * this.glow,
-        color: this.isDark
-          ? 'rgba(150,190,255,' + (0.10 + 0.12 * this.glow).toFixed(3) + ')'
-          : 'rgba(120,160,230,' + (0.12 + 0.16 * this.glow).toFixed(3) + ')',
-        offsetX: 0,
-        offsetY: 6
-      })
-      .shadow({
-        radius: 10,
-        color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(36,44,64,0.18)',
-        offsetX: 0,
-        offsetY: 6
-      })
+      // 阴影已按需求去掉（只保留边框与磨砂层，观感更干净）
       // 裁到圆角：顶沿高光只亮在卡片内部
       .clip(true)
       // 光感：玻璃表面一层很轻的纵向明暗（上亮下暗）+ 顶沿受光边，
@@ -2788,8 +2774,7 @@ export struct ConversationComposer {
       .borderRadius(25.3)
       // 光圈层不要再用白色底：白底会透在卡片下面，把输入框「垫」得比返回按钮更实
       .backgroundColor(Color.Transparent)
-      // 与返回按钮同一套悬浮投影：中性色、向下偏移 2vp
-      .shadow({ radius: 6, color: this.haloShadow(), offsetX: 0, offsetY: 2 })
+      // 光圈环不再投阴影（与输入框一起去阴影）
 
       // 卡片下方三个指标按钮：折叠/展开都常驻（对齐小程序 composer-metrics）
       Row({ space: 10 }) {
