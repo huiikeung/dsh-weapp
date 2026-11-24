@@ -2750,25 +2750,27 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 与顶栏完全同一套玻璃做法（页面里实测最好看的那个）：
-      // 纯 backdropBlur(12) + 页面同色高透明底，不引入系统 BlurStyle 材质底色
-      .backdropBlur(12)
-      .backgroundColor(this.isDark ? 'rgba(0,0,0,0.26)' : 'rgba(242,242,244,0.28)')
-      .systemMaterial(this.glassMaterial())
-      // 玻璃边缘：外圈白色细描边 + 柔和外阴影（托起悬浮感）
-      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.95)' })
-      // 阴影已按需求去掉（只保留边框与磨砂层，观感更干净）
-      // 裁到圆角：顶沿高光只亮在卡片内部
+      // 对照官方 Stack + backgroundBlurStyle 输入栏示例：
+      // 输入栏叠在 List 上方，列表内容从背后滚过时被实时虚化（毛玻璃）
+      .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
+      // 极淡的半透明底叠在模糊上，让玻璃更「实」一点、文字可读
+      .backgroundColor(this.isDark ? 'rgba(0,0,0,0.18)' : 'rgba(255,255,255,0.10)')
+      // 与返回按钮同款 1vp 白描边
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+      // 与返回按钮同款柔和投影
+      .shadow({
+        radius: 14,
+        color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)',
+        offsetX: 0,
+        offsetY: 6
+      })
       .clip(true)
-      // 光感：玻璃表面一层很轻的纵向明暗（上亮下暗）+ 顶沿受光边，
-      // 不依赖模糊，也能读成「一块玻璃」
-      .overlay(() => { this.glassSurface() }, { align: Alignment.Top })
 
       }
       .width('100%')
-      // 光圈层：统一 1.3vp 白环（深/浅色同一厚度，细而可见）
-      .padding(1.3)
-      .borderRadius(25.3)
+      // 不再额外套一层 1.3vp 光圈环（与返回按钮保持单层玻璃）
+      .padding(0)
+      .borderRadius(24)
       // 光圈层不要再用白色底：白底会透在卡片下面，把输入框「垫」得比返回按钮更实
       .backgroundColor(Color.Transparent)
       // 光圈环不再投阴影（与输入框一起去阴影）
