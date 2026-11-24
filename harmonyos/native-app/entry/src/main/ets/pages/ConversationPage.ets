@@ -6387,7 +6387,6 @@ export struct ConversationPage {
         scrollEffectStyle: { contentStyle: TITLE_BAR_CONTENT }
       }
     })
-    .hideBackButton(true)
     .bindToScrollable([this.scroller])
     .onShown(() => {
       // 从设置等二级页返回时，那些页面把键盘避让改成 NONE；这里恢复 RESIZE，否则输入法弹出时输入框不跟随
@@ -8069,9 +8068,13 @@ export struct ConversationPage {
   headerBar(embedded: boolean = false) {
     // 标题/模式字号已调小；右侧三个圆钮之间收紧，标题与返回钮的间距靠标题自身 margin
     Row({ space: 2 }) {
-      // 与右上角 36vp 小圆钮同尺寸：按下/hover 高亮圈一致
-      NavBackButton({ isDark: this.isDark, diameter: 36 })
-        .id('conversation-back')
+      // 内嵌进原生标题栏时使用系统返回键（液态玻璃 + 自动 pop），不再自己画；
+      // 非内嵌（旧布局）时保留自定义返回钮
+      if (!embedded) {
+        // 与右上角 36vp 小圆钮同尺寸：按下/hover 高亮圈一致
+        NavBackButton({ isDark: this.isDark, diameter: 36 })
+          .id('conversation-back')
+      }
 
       Column({ space: 2 }) {
         Text(this.activeSessionTitle())
@@ -8218,7 +8221,8 @@ export struct ConversationPage {
     .height(embedded ? 56 : 56 + this.topSafe())
     // 左缘与输入条一致（输入条容器 padding 14）：返回按钮和输入框左边缘对齐
     .padding({
-      left: 14,
+      // 内嵌时系统返回键占左侧约 48vp，标题从这里开始，避免压住返回键
+      left: embedded ? 56 : 14,
       right: 14,
       top: embedded ? 0 : (this.topSafe() > 2 ? this.topSafe() - 2 : 0)
     })
