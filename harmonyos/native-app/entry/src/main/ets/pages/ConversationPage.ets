@@ -25,7 +25,7 @@ import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair, RefChipItem, RefDirItem, RefSessionItem, SkillItem } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { NavBackButton } from '../components/NavBackButton';
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, HdsTabs, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, HdsTabs, HdsBarWidthRangeOptions, HdsTabsFloatingStyle, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
 import { ConversationProgress } from '../components/ConversationProgress';
 import { TrajectoryPanel } from '../components/TrajectoryPanel';
 import { FluKeCoin } from '../components/FluKeCoin';
@@ -5849,7 +5849,7 @@ export struct ConversationPage {
     Row().width('100%').height(this.dockHeight > 0 ? this.dockHeight : 300)
   }
 
-  /** 材质背板：HdsTabs 悬浮 TabBar + IMMERSIVE 材质，垫在输入区身后、不拦截触摸 */
+  /** 材质背板：HdsTabs 悬浮 TabBar + IMMERSIVE 材质，几何与输入卡完全对齐 */
   @Builder
   dockMaterialBackplate() {
     HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
@@ -5860,15 +5860,28 @@ export struct ConversationPage {
     }
     .barMode(BarMode.Fixed)
     .barOverlap(true)
-    .barFloatingStyle({
-      barSideMargin: 0,
-      barBottomMargin: 0,
-      systemMaterialEffect: this.dockGlassMaterial()
-    })
+    // 胶囊几何 = 输入卡几何：左右 14、宽度 pageW-28、高度=实测 dock 高、底部=安全区+18
+    .barFloatingStyle(this.dockFloatingStyle())
+    .barHeight(Math.max(120, this.dockHeight - 18 - this.bottomInset - (this.wideInset() > 0 ? 14 : 0)))
     .width('100%')
     .height(this.dockHeight > 0 ? this.dockHeight : 300)
     .hitTestBehavior(HitTestMode.None)
     .accessibilityLevel('no')
+  }
+
+  /** 胶囊几何 = 输入卡几何：左右 14、宽 pageW-28、高=实测 dock 高、底部=安全区+18 */
+  private dockFloatingStyle(): HdsTabsFloatingStyle {
+    const widthOpt: HdsBarWidthRangeOptions = {
+      smallWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+      mediumWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+      largeWidth: this.pageW > 0 ? this.pageW - 28 : 320
+    };
+    return {
+      barSideMargin: 14,
+      barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
+      barWidth: widthOpt,
+      systemMaterialEffect: this.dockGlassMaterial()
+    };
   }
 
   @Builder

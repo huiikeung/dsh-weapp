@@ -222,6 +222,23 @@ export struct ConversationComposer {
   @State private glow: number = 0;
   private sheenTimer: number = -1;
 
+  /** 原生玻璃弹窗同款材质：THICK + materialColor + colorInvert + applyShadow */
+  private composerSheetMaterial(): uiMaterial.Material | undefined {
+    try {
+      if (!uiMaterial.isImmersiveMaterialSupported()) {
+        return undefined;
+      }
+      return new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.THICK,
+        materialColor: this.isDark ? 'rgba(255,255,255,0.02)' : 'rgba(255,255,255,0.34)',
+        colorInvert: true,
+        applyShadow: true
+      });
+    } catch (err) {
+      return undefined;
+    }
+  }
+
   aboutToAppear(): void {
     this.resolveDraftToken(this.draft);
     this.startSheen();
@@ -2750,17 +2767,11 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 玻璃由底部 HDS IMMERSIVE 材质背板提供；卡片只留一层薄白保证文字可读
-      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.28)')
-      // 与返回按钮同款 1vp 白描边
+      // 与原生玻璃弹窗完全同一套材质（imagePreviewSheet / fileDiffSheet 的 teamSheetMaterial）：
+      // THICK 厚玻璃 + colorInvert 自动反色 + 材质自带阴影 —— 弹窗长什么样，输入框就长什么样
+      .backgroundColor(Color.Transparent)
+      .systemMaterial(this.composerSheetMaterial())
       .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
-      // 与返回按钮同款柔和投影
-      .shadow({
-        radius: 14,
-        color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)',
-        offsetX: 0,
-        offsetY: 6
-      })
       .clip(true)
 
       }
