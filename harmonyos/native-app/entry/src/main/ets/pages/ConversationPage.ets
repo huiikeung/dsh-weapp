@@ -25,12 +25,19 @@ import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair, RefChipItem, RefDirItem, RefSessionItem, SkillItem } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { ConversationProgress } from '../components/ConversationProgress';
 import { TrajectoryPanel } from '../components/TrajectoryPanel';
 import { FluKeCoin } from '../components/FluKeCoin';
 import { StatusBarStyle } from '../services/StatusBarStyle';
 import { Haptics } from '../services/Haptics';
 import { HoldingHand } from '../services/HoldingHand';
+
+// 标题栏内容风格：滚动模糊生效时保持正文色标题（系统默认会切成白字）
+const TITLE_BAR_CONTENT: HdsTitleBarContentStyle = {
+  titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
+  menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
+};
 
 /** 跨页面实例的文件变更摘要缓存：退出会话再进来不需要重新请求（否则第二次打开卡片会消失） */
 const sharedFileSummaries: Map<string, string> = new Map<string, string>();
@@ -6091,7 +6098,7 @@ export struct ConversationPage {
   }
 
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
       Column() {
         // 顶栏不再占位：时间线从屏幕顶部铺满，往上滚时内容直接在标题下面穿过去（对齐 iOS 导航栏）
@@ -6139,14 +6146,7 @@ export struct ConversationPage {
       // 上下都顶到屏幕边缘：内容可以一直滑到状态栏下面（对齐 iOS）
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
 
-      // 顶部轻毛玻璃：鸿蒙原生最薄的组件材质，透明度高，只做轻微虚化
-      // 轨迹页没有从顶栏下滚过的内容，毛玻璃会把顶部压亮、和下面的概览底色分层，所以只在对话页画
-      if (this.sessionTab === 0) {
-        this.topBlurBar()
-      }
 
-      // 浮动顶栏：透明底叠在时间线之上，内容从它下面滚过（对齐 iOS 导航栏，无遮盖条）
-      this.headerBar()
 
       // 会话页顶部双 Tab 指示点：切换时淡入、停止后淡出（对齐 iOS 翻页小圆点）
       this.sessionPageDots()
@@ -6368,7 +6368,25 @@ export struct ConversationPage {
         }
       })
     }
-    .hideTitleBar(true)
+    // 原生标题栏：内容从标题栏下滚过时系统渐变模糊 + 玻璃材质；标题栏内容用原 headerBar（保留标题/状态/三个圆钮）
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { stackBuilder: (): void => { this.nativeTitleBar() } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: TITLE_BAR_CONTENT },
+        scrollEffectStyle: { contentStyle: TITLE_BAR_CONTENT }
+      }
+    })
+    .hideBackButton(true)
+    .bindToScrollable([this.scroller])
     .onShown(() => {
       // 从设置等二级页返回时，那些页面把键盘避让改成 NONE；这里恢复 RESIZE，否则输入法弹出时输入框不跟随
       try {
@@ -8031,6 +8049,17 @@ export struct ConversationPage {
       .backdropBlur(12)
       .backgroundColor(this.topBlurTint())
       .hitTestBehavior(HitTestMode.None)
+  }
+
+  /** 原生标题栏内容：沿用原 headerBar（返回 + 标题/状态 + 团队/会话切换/更多） */
+  @Builder
+  nativeTitleBar() {
+    Row() {
+      this.headerBar()
+    }
+    .width('100%')
+    .height(56)
+    .padding({ left: 8, right: 8 })
   }
 
   /** 顶栏模糊层的底色：与页面背景同色系的高透明色（浅色 #F2F2F4 / 深色纯黑） */
