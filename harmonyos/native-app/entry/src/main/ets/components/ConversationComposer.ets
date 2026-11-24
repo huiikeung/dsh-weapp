@@ -2771,10 +2771,16 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 玻璃 = 身后的 HDS IMMERSIVE 椭圆背板（与输入卡像素级重合）：
-      // 卡片本体全透明，文字/按钮直接坐在那块系统玻璃上（材质不能挂到内容区组件，
-      // 但重合堆叠后视觉效果等同「材质用在输入框上」）
+      // 输入框本体直接挂沉浸光感材质（文档《组件适配沉浸光感》Button/输入类：
+      // 组件级 systemMaterial，生效条件=组件位于底部 TabBar —— 输入区已在 HdsTabs tabBar 内）
+      // THIN：文档推荐搜索框类用薄玻璃；colorInvert 自动反色；interactive+lightEffect 交互反馈
       .backgroundColor(Color.Transparent)
+      .systemMaterial(new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.THIN,
+        colorInvert: true,
+        interactive: true,
+        lightEffect: {}
+      }))
       .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.65)' })
       .clip(true)
 
