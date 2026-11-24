@@ -2604,7 +2604,9 @@ export struct ConversationComposer {
       // 收起态：不铺底色、不画描边，玻璃由底部系统 TabBar 材质渲染（一条细玻璃条）；
       // 展开态：自绘磨砂玻璃 —— 半径 40 / 饱和度 1.35 / 半透明深底，背后内容明显糊掉但仍透出光影。
       .borderRadius(this.expanded() ? 28 : 26)
-      .backgroundEffect(this.expanded() ? this.expandedFrost() : this.noFrost())
+      // 磨砂只在卡片已经长到展开高度时才叠上：backgroundEffect 的模糊/底色不能被补间，
+      // 一点输入框就立刻铺上去的话（卡片还是折叠高度），观感就是「点击瞬间整个输入框发暗」
+      .backgroundEffect(this.cardHeight >= 90 ? this.expandedFrost() : this.noFrost())
       .border({ width: this.expanded() ? 1 : 0, color: '#66FFFFFF' })
 
       }

@@ -6310,6 +6310,10 @@ export struct ConversationPage {
     // 输入区自己要参与命中测试：否则在输入框上的横向拖拽会穿透到底层 Swiper，
     // 表现为「在输入框上滑动，页面在左右翻」
     .hitTestBehavior(HitTestMode.Default)
+    // 吞掉落在输入区上的点击：否则这个浮层是透明命中，点击会穿到底下的对话列表，
+    // 被列表 onTouch(Down) 当成「点输入框以外」→ 刚点输入框就被折叠
+    .onClick(() => {
+    })
     .gesture(
       PanGesture({ fingers: 1, direction: PanDirection.Horizontal, distance: 6 })
         .onActionStart(() => {
