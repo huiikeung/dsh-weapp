@@ -11,6 +11,7 @@
 // 坐标系：中国大陆 GCJ02、台湾/海外 WGS84（Petal 官方约定）。location 连接器上报已是此约定，直接透传。
 
 import { common, Want, bundleManager } from '@kit.AbilityKit';
+import { geoLocationManager } from '@kit.LocationKit';
 import { ConnectorAdapter } from './DeviceConnectors';
 import { Logger } from '../common/Logger';
 
@@ -35,6 +36,20 @@ interface MapResult {
   ready: boolean;
   detail: string;
   mapLinks: MapLinkItem[];
+}
+
+/** 网关 device-tools 结果校验要求的候选结构（对齐 iOS：name/latitude/longitude/address） */
+interface MapPlaceItem {
+  name: string;
+  latitude: number;
+  longitude: number;
+  address: string;
+}
+
+interface MapPlacesResult {
+  items: MapPlaceItem[];
+  truncated: boolean;
+  source: string;
 }
 
 function num(args: Record<string, Object>, key: string): number {
@@ -274,19 +289,57 @@ class MapsConnector implements ConnectorAdapter {
     return out;
   }
 
-  /** maps.geocode：地址 → 地图搜索链接（诚实降级：不返回伪造坐标候选） */
-  private async geocode(args: Record<string, Object>): Promise<MapResult> {
+  /**
+   * maps.geocode：地址 → 坐标候选。
+   * 优先用系统正地理编码（geoLocationManager.getAddressesFromLocationName），
+   * 拿不到时返回空列表（诚实降级，不伪造坐标）。结果结构必须与网关校验一致。
+   */
+  private async geocode(args: Record<string, Object>): Promise<MapPlacesResult> {
     const address: string = optStr(args, 'address');
     if (address.length === 0) {
-      throw new Error('invalid_argument: address required');
+      throw new Error('invalid_request');
     }
-    const link: MapLinkItem = {
-      cardURL: PETAL_SCHEME + '://search?q=' + encodeURIComponent(address),
-      url: PETAL_APP_LINK + '/search/?q=' + encodeURIComponent(address),
-      label: address
-    };
-    const ok: boolean = await this.openLink(link.url);
-    return this.result(ok, ok ? '已在地图搜索「' + address + '」' : '未找到可打开的地图应用', link);
+    const rawLimit: number = optNum(args, 'limit') ?? 3;
+    const limit: number = Math.max(1, Math.min(5, Math.round(rawLimit)));
+    let items: MapPlaceItem[] = [];
+    try {
+      const request: geoLocationManager.GeoCodeRequest = {
+        description: address,
+        maxItems: limit,
+        locale: 'zh'
+      };
+      const found: geoLocationManager.GeoAddress[] = await geoLocationManager.getAddressesFromLocationName(request);
+      for (const one of found) {
+        const lat: number | undefined = one.latitude;
+        const lon: number | undefined = one.longitude;
+        if (lat === undefined || lon === undefined) {
+          continue;
+        }
+        const name: string = (one.placeName !== undefined && one.placeName.length > 0) ? one.placeName : address;
+        const parts: string[] = [];
+        const fields: (string | undefined)[] = [one.countryName, one.administrativeArea, one.locality, one.subLocality];
+        for (const one2 of fields) {
+          if (one2 !== undefined && one2.length > 0) {
+            parts.push(one2);
+          }
+        }
+        const addr: string = parts.length > 0 ? parts.join(' ') : name;
+        items.push({ name: name, latitude: lat, longitude: lon, address: addr });
+      }
+    } catch (err) {
+      Logger.warn('maps.geocode unavailable: ' + (err instanceof Error ? err.message : String(err)));
+      items = [];
+    }
+    return { items: items.slice(0, limit), truncated: items.length > limit, source: 'harmonyos-geocoder' };
+  }
+
+  /** maps.search：本机没有 POI 检索能力，返回空候选（不伪造），由模型改用地图应用或经纬度。 */
+  private async searchPlaces(args: Record<string, Object>): Promise<MapPlacesResult> {
+    const query: string = optStr(args, 'query');
+    if (query.length === 0) {
+      throw new Error('invalid_request');
+    }
+    return { items: [], truncated: false, source: 'harmonyos-no-poi-search' };
   }
 
   async invoke(tool: string, args: Record<string, Object>): Promise<Object> {
@@ -294,7 +347,7 @@ class MapsConnector implements ConnectorAdapter {
       return await this.open(args) as Object;
     }
     if (tool === 'maps.search') {
-      return await this.search(args) as Object;
+      return await this.searchPlaces(args) as Object;
     }
     if (tool === 'maps.directions') {
       return await this.directions(args) as Object;

@@ -754,12 +754,37 @@ export class GatewayClient {
     return rec.wsUrl;
   }
 
+  /** 候选地址里是否存在局域网端点（用于判断能否优先直连） */
+  private hasLocalEndpointCandidate(): boolean {
+    for (const url of this.allEndpoints) {
+      if (!this.isTailnetAddress(url) && this.isLocalEndpoint(url)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** 隧道就绪但当前没连上（例如蜂窝冷启动首个候选失败）：主动用 tailnet 入口重连 */
   ensureConnectedViaTailnet(): void {
     if (!this.tailnetReady() || this.currentProfile === null) {
       return;
     }
     if (this.state === ConnectionState.CONNECTED || this.state === ConnectionState.CONNECTING) {
+      return;
+    }
+    // 已经是局域网直连时不要强行改走 tailnet：
+    // 目标主机没跑 Tailscale / 隧道 IP 不可达时，每次强连都会把好好的 LAN 连接打断，
+    // 表现为「网关连上就断、一直重连」。
+    if (this.isLocalEndpoint(this.currentProfile.wsUrl)) {
+      return;
+    }
+    // tailnet 连续失败到一定次数后，静默 5 分钟，避免持续抖动
+    if (this.tailnetEnsureFailures >= 3 && Date.now() - this.lastTailnetEnsureAt < 300000) {
+      return;
+    }
+    // 只要能找到局域网端点，就绝不强连隧道（否则会反复打断已建立的 LAN 连接）
+    if (this.hasLocalEndpointCandidate()) {
+      this.reconnectBest();
       return;
     }
     const now: number = Date.now();
@@ -798,6 +823,11 @@ export class GatewayClient {
     if (!this.isLocalEndpoint(this.currentProfile.wsUrl)) {
       return;
     }
+    // 关闭「LAN 自动升级到 tailnet」：
+    // 目标主机没跑 Tailscale（例如 Windows 主机只开 LAN/3081）时，隧道 IP 不可达，
+    // 每次升级都会把好好的 LAN 连接关掉重连，表现为「网关连上就断、连接器一直 not-registered」。
+    // 需要走公网时由用户在主机设置里切到公网地址，不再自动切换。
+    return;
     const synth: string = this.tailnetUrlFromApp();
     if (synth.length === 0) {
       return;

@@ -171,11 +171,14 @@ class DeviceConnectorsStore {
   private hostKey: string = '';
 
   private registrationRequest: string = '';
+  private lastRegisterAt: number = 0;
   private registrationTimer: number = -1;
   private statusRequest: string = '';
   private statusTimer: number = -1;
   private checkingRegistration: boolean = false;
   private permissionSyncSupported: boolean = false;
+  /** 每次登记只自动补同步一次权限，避免和网关来回刷 */
+  private autoSyncedThisLease: boolean = false;
   private statusQuerySupported: boolean = false;
   private syncing: boolean = false;
 
@@ -217,10 +220,8 @@ class DeviceConnectorsStore {
     this.hostKey = AppStorage.get<string>('activeEndpoint') ?? '';
     this.loadEnabled();
     this.register();
-    // hello/连接建立时刻注册帧偶尔会丢：自动补两次重试，避免用户每次都要手动点「重新注册」
-    this.scheduleRegisterRetry(800);
+    // 只补一次重试：多档重试会与 hello 触发的注册互相顶掉 revision
     this.scheduleRegisterRetry(2600);
-    this.scheduleRegisterRetry(6000);
   }
 
   onDisconnected(): void {
@@ -239,6 +240,7 @@ class DeviceConnectorsStore {
     this.syncing = false;
     this.permissionSyncSupported = false;
     this.statusQuerySupported = false;
+    this.autoSyncedThisLease = false;
     this.publish('disconnected');
   }
 
@@ -361,6 +363,12 @@ class DeviceConnectorsStore {
     if (!this.supported || !this.connected) {
       return;
     }
+    // 1.5s 内不重复发注册帧（自动重试/状态回调会重复触发）
+    const now: number = Date.now();
+    if (now - this.lastRegisterAt < 1500 && this.registrationRequest.length > 0) {
+      return;
+    }
+    this.lastRegisterAt = now;
     this.cancelRegistrationTimeout();
     this.cancelStatusCheck();
     this.clearSnapshot();
@@ -466,6 +474,14 @@ class DeviceConnectorsStore {
       this.supported = supported;
       Logger.info('connectors hello supported=' + supported.toString());
       if (supported) {
+        // 已经注册成功过：只刷新状态，不要重新走整轮注册。
+        // 每次 hello 都重注册会让 capabilityRevision 自增，把在途回执作废，
+        // 导致永远 registered 不了、并不断重发（CPU/网络抖动 + 连接看起来不稳）。
+        if (this.connected && this.lease.length > 0
+          && (AppStorage.get<string>('connectorsState') ?? '') === 'registered') {
+          this.refreshStatus();
+          return;
+        }
         this.onConnected();
       } else {
         this.connected = false;
@@ -551,6 +567,9 @@ class DeviceConnectorsStore {
     this.syncing = false;
     const previousLease: string = this.lease;
     this.lease = lease;
+    if (previousLease !== lease) {
+      this.autoSyncedThisLease = false;
+    }
     this.permissionSyncSupported = bool(frame, 'permissionSync') === true;
     this.statusQuerySupported = bool(frame, 'statusQuery') === true;
     AppStorage.setOrCreate<boolean>('connectorsPermissionSync', this.permissionSyncSupported);
@@ -571,6 +590,9 @@ class DeviceConnectorsStore {
     AppStorage.setOrCreate<number>('connectorsConfirmedAt', Date.now());
     this.publish('registered');
     Logger.info('connectors registered tools=' + this.registeredToolCount().toString());
+    // 换网关/新设备时，网关侧权限默认全 false；本地已开启的模块要主动补同步一次，
+    // 否则会一直 tool_disabled，必须用户手动关一次再开。
+    this.syncEnabledPermissions();
   }
 
   private onStatus(frame: GatewayFrame): void {
@@ -608,6 +630,41 @@ class DeviceConnectorsStore {
     }
     AppStorage.setOrCreate<number>('connectorsConfirmedAt', Date.now());
     this.publish('registered');
+    this.syncEnabledPermissions();
+  }
+
+  /**
+   * 把「本地已开启、网关还没授权」的模块补发给网关。
+   * 场景：切到新网关 / 重新配对后，网关设备表的 permissions 为空，
+   * 此时只靠用户手动开关一次才能生效，体验很差。
+   */
+  private syncEnabledPermissions(): void {
+    if (!this.connected || this.lease.length === 0) {
+      return;
+    }
+    if (this.autoSyncedThisLease) {
+      return;
+    }
+    if (!this.permissionSyncSupported) {
+      return;
+    }
+    const missing: Record<string, boolean> = {};
+    let count: number = 0;
+    this.enabled.forEach((value: boolean, id: string) => {
+      if (value && this.permissions.get(id) !== true) {
+        missing[id] = true;
+        count += 1;
+      }
+    });
+    if (count === 0) {
+      return;
+    }
+    this.autoSyncedThisLease = true;
+    Object.keys(missing).forEach((id: string) => {
+      this.queuedChanges.set(id, true);
+    });
+    Logger.info('connectors sync permissions count=' + count.toString());
+    this.register();
   }
 
   /** 回执里的模块清单：id 必须已知、不重复、布尔字段齐全、工具必须是本机声明过的子集。 */
