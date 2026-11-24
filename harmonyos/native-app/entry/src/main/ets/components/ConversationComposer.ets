@@ -216,8 +216,33 @@ export struct ConversationComposer {
 
   // ==================== 状态 ====================
   /** 展开态：聚焦、有草稿或有附件（对齐小程序 composer-expanded 判定） */
+  /** 流光位置（-0.6 ~ 1.8 循环），让玻璃表面有一道缓慢移动的高光 */
+  @State private sheen: number = -0.6;
+  private sheenTimer: number = -1;
+
   aboutToAppear(): void {
     this.resolveDraftToken(this.draft);
+    this.startSheen();
+  }
+
+  aboutToDisappear(): void {
+    this.stopSheen();
+  }
+
+  private startSheen(): void {
+    if (this.sheenTimer >= 0) {
+      return;
+    }
+    this.sheenTimer = setInterval(() => {
+      this.sheen = this.sheen + 0.014 > 1.9 ? -0.6 : this.sheen + 0.014;
+    }, 60);
+  }
+
+  private stopSheen(): void {
+    if (this.sheenTimer >= 0) {
+      clearInterval(this.sheenTimer);
+      this.sheenTimer = -1;
+    }
   }
 
   /** 页面改写草稿（如从「+」菜单选目标/计划、发送后清空）时重新解析指令前缀 */
@@ -603,35 +628,73 @@ export struct ConversationComposer {
     }
   }
 
-  /** 玻璃表面：一层极轻的纵向明暗 + 顶沿受光边（不模糊，只做光感） */
+  /**
+   * 玻璃表面（光感来源，全部自绘、不依赖系统材质）：
+   * 1) 顶沿受光边：中间最亮、两端收敛；
+   * 2) 斜向流光：一道 40% 宽的柔光带缓慢扫过（60ms 推进，12s 一轮）；
+   * 3) 内阴影：底部压暗 + 左侧冷光，做出玻璃的厚度与折射感；
+   * 4) 聚焦时整体提亮（lightEffect 的交互反馈近似）。
+   */
   @Builder
   glassSurface() {
-    Column() {
-      // 受光边
+    Stack({ alignContent: Alignment.TopStart }) {
+      // 1) 顶沿受光边
       Column()
         .width('100%')
-        .height(1)
+        .height(1.2)
         .linearGradient({
           angle: 90,
           colors: [
-            [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)', 0],
-            [this.isDark ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.98)', 0.5],
-            [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)', 1]
+            [this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.65)', 0],
+            [this.isDark ? 'rgba(255,255,255,0.78)' : 'rgba(255,255,255,1)', 0.5],
+            [this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.65)', 1]
           ]
         })
-      // 表面明暗：顶部微亮、底部微暗，像一块受光的玻璃
+      // 2) 斜向流光带
+      Column()
+        .width('42%')
+        .height('100%')
+        .linearGradient({
+          angle: 102,
+          colors: [
+            ['rgba(255,255,255,0)', 0],
+            [this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.42)', 0.5],
+            ['rgba(255,255,255,0)', 1]
+          ]
+        })
+        .translate({ x: this.sheen * 240 + '%' })
+        .hitTestBehavior(HitTestMode.None)
+      // 3) 底部内阴影 + 左侧冷光（折射感）
       Column()
         .width('100%')
-        .layoutWeight(1)
+        .height('100%')
         .linearGradient({
           angle: 180,
           colors: this.isDark
-            ? [['rgba(255,255,255,0.10)', 0], ['rgba(255,255,255,0.02)', 0.5], ['rgba(0,0,0,0.10)', 1]]
-            : [['rgba(255,255,255,0.18)', 0], ['rgba(255,255,255,0.04)', 0.5], ['rgba(0,0,0,0.02)', 1]]
+            ? [['rgba(255,255,255,0.10)', 0], ['rgba(255,255,255,0.00)', 0.42], ['rgba(0,0,0,0.16)', 1]]
+            : [['rgba(255,255,255,0.26)', 0], ['rgba(255,255,255,0.00)', 0.42], ['rgba(0,0,0,0.05)', 1]]
         })
+        .hitTestBehavior(HitTestMode.None)
+      Column()
+        .width(1)
+        .height('100%')
+        .linearGradient({
+          angle: 180,
+          colors: [['rgba(255,255,255,0.45)', 0], ['rgba(255,255,255,0)', 1]]
+        })
+        .hitTestBehavior(HitTestMode.None)
+      // 4) 聚焦时的一层轻薄提亮
+      if (this.focused) {
+        Column()
+          .width('100%')
+          .height('100%')
+          .backgroundColor(this.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.10)')
+          .hitTestBehavior(HitTestMode.None)
+      }
     }
     .width('100%')
     .height('100%')
+    .clip(true)
     .hitTestBehavior(HitTestMode.None)
   }
 
