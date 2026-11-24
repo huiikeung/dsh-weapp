@@ -243,6 +243,13 @@ export struct ConversationComposer {
     }
   }
 
+  /** 沉浸光感材质（对照官方示例：@State 成员，ULTRA_THIN + 交互形变 + 白色流光） */
+  @State myMaterial: uiMaterial.Material = new uiMaterial.ImmersiveMaterial({
+    style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
+    interactive: true,
+    lightEffect: { color: undefined }
+  });
+
   aboutToAppear(): void {
     this.resolveDraftToken(this.draft);
     this.startSheen();
@@ -2768,26 +2775,23 @@ export struct ConversationComposer {
       .padding(this.expanded()
         ? { left: 14, right: 14, top: 12, bottom: 12 }
         : { left: 10, right: 10, top: 6, bottom: 6 })
-      // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
-      // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
-      .borderRadius(24)
-      // 沉浸光感要点（官方）：背景必须透明；systemMaterial 放样式链最后，
-      // 否则材质效果可能被前面的样式覆盖
+      // 官方沉浸光感示例结构（用户提供的 ChatInputBar 版本）：
+      // 外层 backgroundImage 提供光感基底 → 输入行透明 → systemMaterial 引用 @State 材质成员，
+      // systemMaterial 置于样式链最后（要点：放最后否则效果被覆盖）
+      .borderRadius(28)
       .backgroundColor(Color.Transparent)
       .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.65)' })
       .clip(true)
-      .systemMaterial(new uiMaterial.ImmersiveMaterial({
-        style: uiMaterial.ImmersiveStyle.THIN,
-        colorInvert: true,
-        interactive: true,
-        lightEffect: {}
-      }))
+      .systemMaterial(this.myMaterial)
 
       }
       .width('100%')
       // 不再额外套一层 1.3vp 光圈环（与返回按钮保持单层玻璃）
       .padding(0)
       .borderRadius(24)
+      // 光感基底：背景图是材质折射的基础（官方要点：没有它效果不明显）
+      .backgroundImage($r('app.media.composer_glass_bg'))
+      .backgroundImageSize(ImageSize.FILL)
       // 实测卡片高度上报：页面用它把玻璃背板精确对齐到卡片
       .onAreaChange((_old: Area, nw: Area) => {
         const hgt: number = Number(nw.height);
