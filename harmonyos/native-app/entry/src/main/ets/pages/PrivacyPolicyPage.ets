@@ -21,7 +21,7 @@ interface PolicySection {
  */
 
 const POLICY_INTRO: string =
-  '本政策适用于鲸尾 Harness 及其配套公网服务。应用通过网关插件 dsh-plugin-weapp-gateway 连接你自行配对的 DeepSeek Harness（DSH）节点，并非连接运营方统一提供的 AI 主机。隐私问题可通过「设置 → 关于 → 联系客服」提出。';
+  '本政策适用于 flukit 及其配套公网服务。应用通过网关插件 dsh-plugin-weapp-gateway 连接你自行配对的 DeepSeek Harness（DSH）节点，并非连接运营方统一提供的 AI 主机。隐私问题可通过「设置 → 关于 → 联系客服」提出。';
 
 const POLICY_SECTIONS: PolicySection[] = [
   {
@@ -157,7 +157,7 @@ export struct PrivacyPolicyPage {
   @Builder
   introCard() {
     Column({ space: 10 }) {
-      Text('鲸尾 Harness')
+      Text('flukit')
         .fontSize(12)
         .fontWeight(FontWeight.Medium)
         .fontColor('#2E6BE6')

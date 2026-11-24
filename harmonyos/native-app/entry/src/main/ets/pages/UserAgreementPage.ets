@@ -16,7 +16,7 @@ interface AgreementSection {
  * + 分章节卡片 + 联系方式卡片。
  *
  * 条款按鸿蒙版实际功能表述（与 App 内文案保持同一套名称）：
- *   应用名 = 「鲸尾 Harness」（entry/string.json: EntryAbility_desc）；
+ *   应用名 = flukit（首页品牌标识；系统应用名显示为「鲸尾」）；
  *   电脑端 = DeepSeek Harness（DSH）+ 网关插件 dsh-plugin-weapp-gateway；
  *   配对码在 DSH WebUI「移动设备」面板生成；手机端在「设置 → 连接 → 管理」管理已配对节点；
  *   本版本没有独立账号体系与会员，公网访问 / Tailscale 内嵌隧道为可选功能。
@@ -229,7 +229,7 @@ export struct UserAgreementPage {
           .fontSize(14)
           .fontColor(this.subColor())
         Blank()
-        Text('0the')
+        Text(DEVELOPER_NAME)
           .fontSize(14)
           .fontColor(this.textColor())
           .copyOption(CopyOptions.LocalDevice)
