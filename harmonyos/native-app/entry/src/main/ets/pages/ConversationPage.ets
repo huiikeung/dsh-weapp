@@ -6224,8 +6224,33 @@ export struct ConversationPage {
       // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
       Column() {
         if (this.sessionTab === 0) {
-          // 单组件集成：输入框本体自带 systemMaterial 玻璃，无背板、无叠加
-          this.bottomDockLayer()
+          // 文档要求：容器组件的 systemMaterial 需位于底部 TabBar 区域内才渲染。
+          // 这个 Tabs 只提供合法区域（bar 透明、无自带材质），玻璃由输入框自己的
+          // systemMaterial 出 —— 单组件集成，无背板叠加
+          Tabs({ barPosition: BarPosition.End, index: 0 }) {
+            TabContent() {
+              Row().width(1).height(1).opacity(0)
+            }
+            .tabBar(this.bottomDockLayer())
+          }
+          .barMode(BarMode.Fixed)
+          .scrollable(false)
+          .barOverlap(true)
+          .barBackgroundColor(Color.Transparent)
+          .barFloatingStyle({
+            adaptToHandedness: true,
+            maskHeight: 0,
+            barSideMargin: 14,
+            barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
+            barWidth: {
+              smallBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+              mediumBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+              largeBarWidth: this.pageW > 0 ? this.pageW - 28 : 320
+            }
+          })
+          .width('100%')
+          .height('100%')
+          .hitTestBehavior(HitTestMode.Transparent)
         }
       }
       .width('100%')
