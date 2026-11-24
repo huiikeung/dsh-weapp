@@ -311,8 +311,8 @@ export struct PreferencePickerPage {
       Column() {
         Scroll(this.scroller) {
           Column() {
-            // 首屏让出原生标题栏
-            Column().width('100%').height((this.topInset()) + 56)
+            // 首屏让出原生标题栏（统一标准：安全区 + 56 + 4，与对话状态条页一致）
+            Column().width('100%').height((this.topInset()) + 56 + 4)
             // 说明（小程序 status-style-hint）：标题已上移到导航栏居中显示
             if (subtitleFor(this.kind).length > 0) {
               Text(subtitleFor(this.kind))
