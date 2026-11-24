@@ -5954,6 +5954,8 @@ export struct ConversationPage {
   private keyboardHeightCallback: ((height: number) => void) | null = null;
   /** 键盘高度归 0 后的确认定时器（过滤过渡期的瞬时 0） */
   private keyboardCollapseTimer: number = -1;
+  /** 最近一次手指落在输入条内部的时间：这类触摸不该触发任何折叠 */
+  private lastInsideComposerTouchAt: number = 0;
   private hostWindowRef: arkWindow.Window | null = null;
 
   /**
@@ -6024,6 +6026,10 @@ export struct ConversationPage {
    * 所以输入条一直不收。这里显式清焦点 + 关掉面板，再让 expanded 判定自然回落。
    */
   private collapseComposer(): void {
+    // 手指刚落在输入条内部（点空白、点 chip、点文本域）：这次失焦不是「点外面」，不要折叠
+    if (Date.now() - this.lastInsideComposerTouchAt < 400) {
+      return;
+    }
     if (!this.composerFocused && this.composerSheet.length === 0
       && !this.permissionMenuOpen && !this.modelMenuOpen) {
       return;
@@ -6206,6 +6212,9 @@ export struct ConversationPage {
             attachments: this.pickedAttachments,
             onRemoveAttachment: (uri: string) => {
               this.pickedAttachments = this.pickedAttachments.filter((item: PickedAttachment) => item.uri !== uri);
+            },
+            onInsideTouch: () => {
+              this.lastInsideComposerTouchAt = Date.now();
             },
             onCardHeightChange: (height: number) => {
               const quantized: number = Math.round(height / 2) * 2;

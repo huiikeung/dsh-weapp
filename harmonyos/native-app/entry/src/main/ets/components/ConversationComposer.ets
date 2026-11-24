@@ -218,6 +218,10 @@ export struct ConversationComposer {
   /** 展开态：聚焦、有草稿或有附件（对齐小程序 composer-expanded 判定） */
   /** 输入卡实测高度：上报给页面，供玻璃背板对齐 */
   @State private cardHeight: number = 0;
+  /** 最近一次「手指落在输入条内部」的时间：区分「点输入条导致的失焦」与「真的点到外面」 */
+  private insideTouchAt: number = 0;
+  /** 手指落在输入条内部时通知页面（页面据此忽略键盘/取消防误折叠） */
+  onInsideTouch: () => void = () => {};
   /** 卡片高度回调 */
   onCardHeightChange: (height: number) => void = () => {};
   aboutToAppear(): void {
@@ -859,6 +863,11 @@ export struct ConversationComposer {
         // 菜单弹出瞬间可能短暂抢焦点：稍等一帧再确认（chip 菜单在开时不收起输入态）。
         // 这里不能等太久：收键盘（系统返回键/键盘收起键）时如果延迟 140ms 才开始塌回，
         // 会变成「键盘先落完 → 输入条再塌一次」两段式，看着就是卡；30ms 能和键盘动画重叠。
+        // 点输入条内部的空白/按钮也会让 TextArea 失焦：这种失焦不能折叠，
+        // 否则「点输入框」就会塌回去（点外面收起由页面的列表 onTouch 负责）
+        if (Date.now() - this.insideTouchAt < 400) {
+          return;
+        }
         // 下一帧就通知（16ms）：和「点空白处」那条路径的时序一致，
         // 只留一帧给「点 chip 弹面板」这种同步 setState 先落地
         setTimeout(() => {
@@ -2610,7 +2619,7 @@ export struct ConversationComposer {
       // 只有卡片真长到展开高度时才开模糊，避免糊住胶囊。
       // 收起态一律不要自绘模糊（胶囊玻璃只由底部 HdsTabs 系统材质出）：
       // 只按 cardHeight 判定的话，展开→收起后实测值可能还是旧的大值，胶囊就被糊了一层
-      .backdropBlur(this.expanded() && this.cardHeight >= 54 ? 22 : 0)
+      .backdropBlur(this.expanded() && this.cardHeight >= 92 ? 22 : 0)
       .backgroundColor(this.expanded()
         ? (this.isDark ? 'rgba(30,30,32,0.72)' : 'rgba(255,255,255,0.72)')
         : Color.Transparent)
@@ -2646,5 +2655,12 @@ export struct ConversationComposer {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Center)
+    // 记录手指落在输入条内部：TextArea 因此失焦时不折叠（点外面收起由页面列表负责）
+    .onTouch((event: TouchEvent) => {
+      if (event.type === TouchType.Down) {
+        this.insideTouchAt = Date.now();
+        this.onInsideTouch();
+      }
+    })
   }
 }
