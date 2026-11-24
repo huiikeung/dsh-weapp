@@ -5977,6 +5977,31 @@ export struct ConversationPage {
     return this.dockBarMargin() + this.dockMetricsRowHeight - this.dockFloatingBarGap;
   }
 
+  /** 时间线可视区底边 = 输入框底边（距屏幕底部）：文字滑到输入框底部就消失 */
+  private timelineClipBottom(): number {
+    return this.dockBarBottomMargin();
+  }
+
+  /** 输入框圆角半径（折叠 26 / 展开 28，取大值遮挡更保险） */
+  private composerCornerRadius(): number {
+    return 28;
+  }
+
+  /** 左右下角遮挡块宽度（时间线坐标系，页面已扣掉宽屏留白）：输入框左侧 14vp 留白 + 圆角半径 */
+  private cornerMaskWidth(): number {
+    return 14 + this.composerCornerRadius() + 1;
+  }
+
+  /** 遮挡块底边到时间线底边的距离：输入框底边（时间线容器已扣掉底部安全区） */
+  private cornerMaskBottomMargin(): number {
+    return 18 + (this.wideInset() > 0 ? 14 : 0) + this.dockMetricsRowHeight - this.dockFloatingBarGap;
+  }
+
+  /** 列表末尾留白：滚到底时最后一条消息停在输入框上沿，不被输入框盖住 */
+  private timelineEndOffset(): number {
+    return this.dockGlassHeight() + 4;
+  }
+
   /** HDS IMMERSIVE 材质（与顶栏 systemMaterialEffect 同一套管线） */
   private dockGlassMaterial(): SystemMaterialParams {
     return { materialType: hdsMaterial.MaterialType.IMMERSIVE, materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE };
@@ -9177,7 +9202,9 @@ export struct ConversationPage {
         // 提到 List 之上，硬币才能收到手势。
         .zIndex(1)
       }
-      Refresh({ refreshing: $$this.refreshing, builder: this.emptyRefreshIndicator() }) {
+      // 时间线滚动视口：Refresh/List 对 padding 不生效，用外层 Column 的 padding 把可视区裁到输入框底边
+      Column() {
+        Refresh({ refreshing: $$this.refreshing, builder: this.emptyRefreshIndicator() }) {
       List({ space: 0, scroller: this.scroller }) {
         // 下拉刷新时在列表顶部插一条紧凑指示器：紧贴正文，不依赖系统指示器位置
         if (this.refreshing) {
@@ -9331,9 +9358,9 @@ export struct ConversationPage {
       .height('100%')
       .cachedCount(8)
       .scrollBar(BarState.Off)
-      // 时间线铺满整屏（dock 浮在上面）：列表末尾允许最后一段内容压进输入框玻璃下方，
-      // 否则玻璃背后永远是空白页面，沉浸光感/毛玻璃什么都显不出来（对齐 iOS 聊天）。
-      .contentEndOffset(Math.max(120, this.dockHeight - 88))
+      // 列表底边已裁到输入框底边，末尾只留出「最后一条停在输入框上沿」的余量：
+      // 滚到底时最后一条消息完整可见，不用再滑到列表最末尾。
+      .contentEndOffset(this.timelineEndOffset())
       // 运行条放在 List 之外（Stack 底部、列表下方）：以前它是 List 的最后一个 ListItem，
       // 列表任何一次结构变化都会把它卸掉再装回去 —— 表现就是「运行态不显示 / 只有页面在闪」。
       // 现在它独立于列表存在，运行状态一置位就稳定显示，列表怎么重建都不影响。
@@ -9400,6 +9427,29 @@ export struct ConversationPage {
       })
       .width('100%')
       .height('100%')
+      }
+      .width('100%')
+      .height('100%')
+      // 可视区底边 = 输入框底边：再往下的文字不显示
+      .padding({ bottom: this.timelineClipBottom() })
+      .alignItems(HorizontalAlign.Start)
+
+      // 输入框左右下角防漏：把圆角缺口/边槽里露出的时间线文字挡住（只占底部 28vp，不影响列表滑动）
+      Row() {
+        Column()
+          .width(this.cornerMaskWidth())
+          .height(this.composerCornerRadius())
+          .backgroundColor(this.pageBg())
+        Blank()
+        Column()
+          .width(this.cornerMaskWidth())
+          .height(this.composerCornerRadius())
+          .backgroundColor(this.pageBg())
+      }
+      .width('100%')
+      .height(this.composerCornerRadius())
+      .margin({ bottom: this.cornerMaskBottomMargin() })
+      .hitTestBehavior(HitTestMode.None)
 
       if (!this.autoStick && this.entries.length > 0) {
         // 回到底部：与「返回」按钮同款的 iOS Liquid Glass 玻璃盘（无实色外圈）
