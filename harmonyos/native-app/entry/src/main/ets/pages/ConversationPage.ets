@@ -6053,14 +6053,9 @@ export struct ConversationPage {
     // 底部整块：与顶部标题栏同一套系统 IMMERSIVE 玻璃材质（不再是手写 backdropBlur）
     .backgroundColor(Color.Transparent)
     // 宽屏下输入条已居中限宽，底部不铺整条材质带
-    .systemMaterial(this.wideInset() > 0
-      ? undefined
-      : new uiMaterial.ImmersiveMaterial({
-        // 底部要托住整块输入区：THICK 提供最强模糊，贴近顶部渐变模糊的强度
-        style: uiMaterial.ImmersiveStyle.THICK,
-        interactive: true,
-        lightEffect: {}
-      }))
+    .systemMaterial(this.wideInset() > 0 ? undefined : this.dockGlassMaterial())
+    // 顶沿高光：光感边缘（材质生效时叠在材质上，不生效时也保留玻璃边缘）
+    .overlay(() => { this.dockSheen() }, { align: Alignment.Top })
     // 材质自身模糊偏柔和，再叠一层背景模糊把「透出的内容」压得更糊（对齐顶部观感）
     .backdropBlur(this.wideInset() > 0 ? 0 : 20)
     // 上沿渐变过渡：内容进入玻璃条前先柔和淡出（对齐顶部「渐变模糊」的观感，避免硬切边）
@@ -7896,6 +7891,39 @@ export struct ConversationPage {
     } catch (err) {
       return false;
     }
+  }
+
+  /** 底部悬浮玻璃材质（沉浸光感）：THIN 更通透，失败/不支持时返回 undefined 走原有模糊兜底 */
+  private dockGlassMaterial(): uiMaterial.Material | undefined {
+    if (!this.immersiveSupported()) {
+      return undefined;
+    }
+    try {
+      return new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.THIN,
+        interactive: true,
+        lightEffect: {}
+      });
+    } catch (err) {
+      return undefined;
+    }
+  }
+
+  /** 底部悬浮区顶沿高光（光感边缘） */
+  @Builder
+  dockSheen() {
+    Column()
+      .width('100%')
+      .height(1)
+      .linearGradient({
+        angle: 90,
+        colors: [
+          ['rgba(255,255,255,0)', 0],
+          [this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.80)', 0.5],
+          ['rgba(255,255,255,0)', 1]
+        ]
+      })
+      .hitTestBehavior(HitTestMode.None)
   }
 
   private teamSheetMaterial(): uiMaterial.Material | undefined {

@@ -10,7 +10,7 @@
  * 视觉来源：miniprogram/pages/session/session.wxss 5569-5602（两态）、893-1050、2694-2800。
  * 约束：ArkTS 严格模式；颜色全部字符串字面量。
  */
-import { display, LengthMetrics } from '@kit.ArkUI';
+import { display, LengthMetrics, uiMaterial } from '@kit.ArkUI';
 import { KeyCode } from '@kit.InputKit';
 import type { ModelMenuItem, PickedAttachment } from 'nativecore';
 
@@ -582,6 +582,64 @@ export struct ConversationComposer {
   }
 
   /** 光圈外的投影：与返回按钮同为中性色（深色黑色、浅色淡灰），不再用白色光晕 */
+  /** 玻璃顶沿高光 + 左上漏光：沉浸光感里最直观的「光」 */
+  @Builder
+  glassSheen(radius: number) {
+    Column() {
+      // 顶沿 1vp 高光：中间最亮、两端收敛
+      Column()
+        .width('100%')
+        .height(1)
+        .borderRadius({ topLeft: radius, topRight: radius })
+        .linearGradient({
+          angle: 90,
+          colors: [
+            [this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.45)', 0],
+            [this.isDark ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.98)', 0.45],
+            [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.50)', 1]
+          ]
+        })
+      // 左上角柔和漏光
+      Column()
+        .width('62%')
+        .height(46)
+        .borderRadius({ topLeft: radius, topRight: 26 })
+        .linearGradient({
+          angle: 145,
+          colors: [[this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)', 0], ['rgba(255,255,255,0)', 1]]
+        })
+        .margin({ top: -1 })
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+    .hitTestBehavior(HitTestMode.None)
+  }
+
+  /** 当前设备是否支持沉浸光感（API 26+ 且设备算力足够） */
+  private immersiveGlass(): boolean {
+    try {
+      return uiMaterial.isImmersiveMaterialSupported();
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /** 输入框玻璃材质：THIN（薄玻璃，透视强），带交互形变与光感反馈 */
+  private inputGlassMaterial(): uiMaterial.Material | undefined {
+    if (!this.immersiveGlass()) {
+      return undefined;
+    }
+    try {
+      return new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.THIN,
+        interactive: true,
+        lightEffect: {}
+      });
+    } catch (err) {
+      return undefined;
+    }
+  }
+
   private haloShadow(): string {
     // 与返回按钮同一档悬浮感（按钮调轻后同步）
     return this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(16,19,24,0.12)';
@@ -2609,14 +2667,17 @@ export struct ConversationComposer {
       .padding(this.expanded()
         ? { left: 14, right: 14, top: 12, bottom: 12 }
         : { left: 10, right: 10, top: 6, bottom: 6 })
-      // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
-      // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
+      // 沉浸光感（API 26 ImmersiveMaterial）：输入框是一块悬浮玻璃，
+      // 支持设备上交给系统材质出光感/折射/交互反馈；不支持的设备保持原来的模糊 + 半透明底
       .borderRadius(24)
-      // 与左上角返回按钮同一套玻璃背景
+      .systemMaterial(this.inputGlassMaterial())
+      // 与左上角返回按钮同一套玻璃背景（材质生效时基本被材质覆盖，仅作为兜底底色调）
       .backgroundColor(this.isDark ? 'rgba(44,44,48,0.40)' : 'rgba(255,255,255,0.16)')
       // 模糊调小：文字轮廓更清楚
-      .backdropBlur(8)
-      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+      .backdropBlur(this.immersiveGlass() ? 0 : 8)
+      .border({ width: 1, color: this.immersiveGlass() ? 'rgba(255,255,255,0.10)' : (this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)') })
+      // 光感：顶沿高光 + 左上角漏光（材质生效时叠在材质上，不生效时就是玻璃质感本体）
+      .overlay(() => { this.glassSheen(24) }, { align: Alignment.Top })
 
       }
       .width('100%')
