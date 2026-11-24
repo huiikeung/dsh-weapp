@@ -791,6 +791,18 @@ export struct ConversationPage {
     }
   }
 
+  /**
+   * 返回键先收输入条：键盘被返回键收起时，如果等系统收完再 collapse，就是「键盘先落、
+   * 输入条再塌」两段。这里直接走 collapseComposer（清焦点 + 补间收缩），和点空白完全一致。
+   */
+  onBackPress(): boolean {
+    if (this.composerExpanded()) {
+      this.collapseComposer();
+      return true;
+    }
+    return false;
+  }
+
   aboutToDisappear(): void {
     this.unbindKeyboardHeightListener();
     this.stopStickTimer();
