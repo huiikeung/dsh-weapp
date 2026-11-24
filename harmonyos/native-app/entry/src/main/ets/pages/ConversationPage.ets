@@ -5827,12 +5827,13 @@ export struct ConversationPage {
   bottomFadeOverlay() {
     Column()
       .width('100%')
-      .height(26)
+      // 渐变过渡带加高到 44vp、多档色阶：内容进入玻璃前逐级淡出，模拟顶部「越往上越糊」的渐进效果
+      .height(44)
       .linearGradient({
         direction: GradientDirection.Bottom,
         colors: this.isDark
-          ? [['rgba(0,0,0,0)', 0.0], ['rgba(0,0,0,0.55)', 1.0]]
-          : [['rgba(242,242,247,0)', 0.0], ['rgba(242,242,247,0.80)', 1.0]]
+          ? [['rgba(0,0,0,0)', 0.0], ['rgba(0,0,0,0.18)', 0.45], ['rgba(0,0,0,0.45)', 0.75], ['rgba(0,0,0,0.72)', 1.0]]
+          : [['rgba(242,242,247,0)', 0.0], ['rgba(242,242,247,0.28)', 0.45], ['rgba(242,242,247,0.62)', 0.75], ['rgba(242,242,247,0.86)', 1.0]]
       })
       .hitTestBehavior(HitTestMode.None)
   }
@@ -9228,11 +9229,15 @@ export struct ConversationPage {
             }
             .width(40)
             .height(40)
-            // 按原生返回键实测复刻：几乎全透明的底 + 纯背景模糊 + 白色细边 + 柔投影
-            // （原生返回键采样：填充≈页面底色，只有白色细边和投影勾勒轮廓）
-            .backgroundColor(Color.Transparent)
-            .clip(true)
-            .backdropBlur(10)
+            // 去掉 Button 默认的系统蓝底，否则会盖住/混出蓝色玻璃
+            .buttonStyle(ButtonStyleMode.NORMAL)
+            // ArkClash 同款写法：只用 systemMaterial（液态玻璃），不设 backgroundColor/clip，
+            // 设了 backgroundColor 会盖掉材质层，之前就是这样看起来「没加」
+            .systemMaterial(new uiMaterial.ImmersiveMaterial({
+              style: uiMaterial.ImmersiveStyle.THIN,
+              interactive: true,
+              lightEffect: {}
+            }))
             // 边缘：白色细边（深 16% / 浅 90%，浅色下靠白边提亮）
             .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
             .onClick(() => {
