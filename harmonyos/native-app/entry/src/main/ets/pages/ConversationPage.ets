@@ -5930,6 +5930,24 @@ export struct ConversationPage {
     return this.composerFocused || this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
   }
 
+  /**
+   * 点输入区以外的区域 → 收起输入条。
+   * 之前只依赖 TextArea 的 onBlur：点到的区域不可聚焦（消息卡片、空白）时 TextArea 根本不会失焦，
+   * 所以输入条一直不收。这里显式清焦点 + 关掉面板，再让 expanded 判定自然回落。
+   */
+  private collapseComposer(): void {
+    if (!this.composerFocused && this.composerSheet.length === 0
+      && !this.permissionMenuOpen && !this.modelMenuOpen) {
+      return;
+    }
+    this.composerSheet = '';
+    this.permissionMenuOpen = false;
+    this.modelMenuOpen = false;
+    this.metricPopover = '';
+    this.getUIContext().getFocusController().clearFocus();
+    this.composerFocused = false;
+  }
+
   /** 胶囊离屏幕底部的距离：手势条安全区 + 平板额外留白 */
   private dockBarMargin(): number {
     return 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0);
@@ -6283,6 +6301,10 @@ export struct ConversationPage {
           }
           .width('100%')
           .height('100%')
+          // 点对话区域任意位置都算「点输入框以外」→ 收起输入条
+          .onClick(() => {
+            this.collapseComposer();
+          })
           // 宽屏（平板）：正文居中一栏、左右留白（对齐 iOS iPad）
           .padding({ left: this.wideInset(), right: this.wideInset(), bottom: this.bottomInset })
 
