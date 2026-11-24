@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { AttachmentCache, AttachmentImageCache, PreferencesStore, SessionStore, SessionSummary } from 'nativecore';
 import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
 /** 存储空间分类（对齐小程序 storage-usage CATEGORIES） */
@@ -483,10 +484,11 @@ export struct StorageSpacePage {
     .opacity(this.busy ? 0.5 : 1)
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        this.navBar()
         if (this.loading) {
           Column() {
             Text('正在统计…')
@@ -497,8 +499,10 @@ export struct StorageSpacePage {
           .layoutWeight(1)
           .justifyContent(FlexAlign.Center)
         } else {
-          Scroll() {
+          Scroll(this.scroller) {
             Column({ space: 0 }) {
+              // 首屏让出原生标题栏
+              Column().width('100%').height((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 56)
               if (this.detailKey.length === 0) {
                 this.heroCard()
                 this.groupTitle('缓存分类')
@@ -533,7 +537,23 @@ export struct StorageSpacePage {
       .height('100%')
       .backgroundColor(this.pageBg())
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '存储空间' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
   }
 }

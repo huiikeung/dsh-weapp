@@ -1,4 +1,4 @@
-import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { uiMaterial } from '@kit.ArkUI';
 import { appGlassShadow } from '../common/AppGlass';
 import { GatewayClient, Logger } from 'nativecore';
@@ -613,11 +613,13 @@ export struct ModelsPage {
     });
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Stack({ alignContent: Alignment.BottomStart }) {
         Column() {
-          Scroll() {
+          Scroll(this.scroller) {
             Column({ space: 0 }) {
               if (this.hint.length > 0) {
                 Text(this.hint)
@@ -954,7 +956,7 @@ export struct ModelsPage {
             }
             .width('100%')
             // 顶部让出导航浮层高度（内容可滚到玻璃导航下方）
-            .padding({ top: 44 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 4 })
+            .padding({ top: 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 4 })
           }
           .layoutWeight(1)
           .align(Alignment.Top)
@@ -965,26 +967,6 @@ export struct ModelsPage {
         .width('100%')
         .height('100%')
         .backgroundColor(this.pageBg())
-
-        // 导航浮层：独立于滚动内容，避免负 margin 造成点按区域错位
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-          Text('模型')
-            .fontSize(17)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.textColor())
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-          Row().width(40)
-        }
-        .width('100%')
-        .height(44 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9))
-        .padding({ left: 8, right: 8, top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
-        .backdropBlur(12)
-        .backgroundColor(Color.Transparent)
-        // Stack 的 alignContent 是 BottomStart（给底部弹层用），导航必须绝对定位到顶部
-        .position({ x: 0, y: 0 })
-        .zIndex(10)
 
         if (this.discoverOpen) {
           Column()
@@ -1664,7 +1646,23 @@ export struct ModelsPage {
       .width('100%')
       .height('100%')
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '模型' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
   }
 }

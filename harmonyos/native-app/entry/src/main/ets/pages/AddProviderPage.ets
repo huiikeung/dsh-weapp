@@ -3,7 +3,7 @@ import {
   asRec, buildProviderConfig, credentialRefFor, formatTokenCount, isValidProviderBaseURL, parseNamespace,
   providerCreateMutation, validateProviderId
 } from 'nativecore';
-import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 
 /** 内置目录里的提供商候选 */
 class ProviderOption {
@@ -909,24 +909,12 @@ export struct AddProviderPage {
     .width('100%')
   }
 
-  build() {
-    NavDestination() {
-      Column() {
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-          Text('添加模型提供商')
-            .fontSize(17)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-          Row().width(40).height(40)
-        }
-        .width('100%')
-        .height(56)
-        .padding({ left: 18.7, right: 18.7 })
+  private scroller: Scroller = new Scroller();
 
-        Scroll() {
+  build() {
+    HdsNavDestination() {
+      Column() {
+        Scroll(this.scroller) {
           Column({ space: 12 }) {
             Text('提供商配置会写入 DSH 的 llm-pi-ai 设置，与 DSH 客户端、WebUI 双向同步。')
               .fontSize(12.2)
@@ -977,10 +965,26 @@ export struct AddProviderPage {
       }
       .width('100%')
       .height('100%')
-      .padding({ top: this.topInset() })
+      .padding({ top: this.topInset() + 12 })
       .backgroundColor(this.pageBg())
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '添加模型提供商' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
   }
 }

@@ -1,4 +1,4 @@
-import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { common } from '@kit.AbilityKit';
 import { KeyboardAvoidMode } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
@@ -221,24 +221,13 @@ export struct AddNodePage {
       0, 0, 0, alpha, 0
     ];
   }
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        // 导航
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-          Blank()
-          Text('添加节点')
-            .fontSize(17)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(this.textColor())
-          Blank()
-          Row().width(40)
-        }
-        .width('100%')
-        .height(48)
-        .padding({ left: 8, right: 8 })
-        .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
+        // 首屏让出原生标题栏
+        Column().width('100%').height((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 56)
 
         // 进度点
         Row() {
@@ -249,7 +238,7 @@ export struct AddNodePage {
         .justifyContent(FlexAlign.Center)
         .padding({ top: 2, bottom: 0 })
 
-        Scroll() {
+        Scroll(this.scroller) {
           Column() {
             if (this.step === 0) {
               Column() {
@@ -396,7 +385,23 @@ export struct AddNodePage {
         this.manualSheet()
       }
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '添加节点' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.isDark ? '#000000' : '#F2F2F7')
   }
 

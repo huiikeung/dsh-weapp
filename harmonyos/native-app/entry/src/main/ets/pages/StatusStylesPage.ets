@@ -1,4 +1,4 @@
-import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { PreferencesStore, StatusAppearance } from 'nativecore';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
@@ -226,28 +226,15 @@ export struct StatusStylesPage {
     })
   }
 
+  private scroller: Scroller = new Scroller();
+
   build() {
-    NavDestination() {
+    HdsNavDestination() {
       Column() {
-        // 导航：与「设置」「会话设置」「Tailscale 内嵌隧道」一致
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-
-          Text('对话状态条')
-            .fontSize(17)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-
-          Row().width(44).height(44)
-        }
-        .width('100%')
-        .height(56)
-        .margin({ top: this.safeTopStorage > 0 ? this.safeTopStorage : 38.9 })
-
-        Scroll() {
+        Scroll(this.scroller) {
           Column({ space: 10 }) {
+            // 首屏让出原生标题栏
+            Column().width('100%').height((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 56)
             Text('只改变外观，保留原有文案和计时')
               .fontSize(12)
               .fontColor(this.subColor())
@@ -278,7 +265,23 @@ export struct StatusStylesPage {
       .height('100%')
       .backgroundColor(this.pageBg())
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '对话状态条' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
   }
 }

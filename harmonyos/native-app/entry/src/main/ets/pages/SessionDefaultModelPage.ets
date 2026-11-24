@@ -1,5 +1,5 @@
 import { asRec, GatewayClient, GatewayFrame, GatewayRequestFactory, Logger, PreferencesStore, SessionStore } from 'nativecore';
-import { NavBackButton } from '../components/NavBackButton';
+import { HdsNavDestination, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
 import { TopToast, TopToastView } from '../components/TopToast';
 import { SETTINGS_MAX_WIDTH } from '../common/Responsive';
 
@@ -666,31 +666,15 @@ export struct SessionDefaultModelPage {
     })
   }
 
-  build() {
-    NavDestination() {
-      Column() {
-        // 导航：返回 + 居中标题（与「设置」「对话状态条」等二级页一致）
-        Stack({ alignContent: Alignment.TopStart }) {
-        Row() {
-          NavBackButton({ isDark: this.isDark })
-          Text('默认模型')
-            .fontSize(17)
-            .fontWeight(FontWeight.Medium)
-            .fontColor(this.textColor())
-            .layoutWeight(1)
-            .textAlign(TextAlign.Center)
-          Row().width(44).height(44)
-        }
-        .width('100%')
-        .height(56)
-        .padding({ left: 18.7, right: 18.7 })
-        .backdropBlur(12)
-        }
-        .width('100%')
-        .zIndex(10)
+  private scroller: Scroller = new Scroller();
 
-        Scroll() {
+  build() {
+    HdsNavDestination() {
+      Column() {
+        Scroll(this.scroller) {
           Column() {
+            // 首屏让出原生标题栏
+            Column().width('100%').height((this.safeTopStorage > 0 ? this.safeTopStorage : 38.9) + 56)
             this.introCard()
 
             if (this.connection !== 'connected') {
@@ -740,11 +724,27 @@ export struct SessionDefaultModelPage {
       }
       .width('100%')
       .height('100%')
-      .padding({ top: this.topInset() })
+      .padding({ top: this.topInset() + 12 })
       .backgroundColor(this.pageBg())
       .overlay(this.topToastLayer(), { align: Alignment.Top })
     }
-    .hideTitleBar(true)
+    .titleBar({
+      avoidLayoutSafeArea: true,
+      content: { title: { mainTitle: '默认模型' } },
+      style: {
+        scrollEffectOpts: {
+          enableScrollEffect: true,
+          scrollEffectType: ScrollEffectType.GRADIENT_BLUR
+        },
+        systemMaterialEffect: {
+          materialType: hdsMaterial.MaterialType.IMMERSIVE,
+          materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE
+        },
+        originalStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } },
+        scrollEffectStyle: { contentStyle: { titleStyle: { mainTitleColor: $r('sys.color.font_primary') }, menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') } } }
+      }
+    })
+    .bindToScrollable([this.scroller])
     .backgroundColor(this.pageBg())
   }
 }
