@@ -473,6 +473,7 @@ export class TeamStore {
     AppStorage.setOrCreate<TeamTaskView[]>('teamTasks', this.taskList());
     AppStorage.setOrCreate<TeamChildView[]>('teamChildren', this.childList());
     AppStorage.setOrCreate<boolean>('teamVisible', this.visible());
+    AppStorage.setOrCreate<boolean>('teamEnabled', this.enabled);
     AppStorage.setOrCreate<string>('teamFailure', this.failure);
   }
 }

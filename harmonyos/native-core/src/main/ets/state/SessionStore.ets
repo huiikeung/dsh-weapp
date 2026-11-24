@@ -552,6 +552,20 @@ export class SessionStore {
       }
       return;
     }
+    if (frame.kind === 'agent-team' || frame.kind === 'agent-team-mode-set') {
+      // 团队协作开关回执：把 agentTeam 投影交给 TeamStore（成员/任务/enabled 一起刷新）
+      const teamRecord: Record<string, Object> | undefined = asRec(field(frame, 'agentTeam'));
+      const teamSession: string = frame.sessionId !== undefined && frame.sessionId.length > 0
+        ? frame.sessionId : this.currentSessionId();
+      if (teamRecord !== undefined && teamSession.length > 0) {
+        const values: Record<string, Object> = {};
+        values['agentTeam'] = teamRecord;
+        const projection: Record<string, Object> = {};
+        projection['values'] = values;
+        TeamStore.get().ingestProjection(teamSession, projection);
+      }
+      return;
+    }
     if (frame.kind === 'defaults') {
       Logger.info('defaults frame: preset=' + (str(frame, 'agentPresetDefault') ?? '')
         + ' perm=' + (str(frame, 'permissionDefault') ?? '')

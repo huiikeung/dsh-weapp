@@ -551,6 +551,7 @@ export struct ConversationPage {
 
   // ===== 智能体团队（右上角协作入口 + 成员弹层 + 团队内容面板，对齐 dsh-mobile） =====
   @StorageLink('teamVisible') teamVisible: boolean = false;
+  @StorageLink('teamEnabled') teamEnabled: boolean = false;
   @StorageLink('teamMembers') teamMembers: TeamMemberView[] = [];
   @StorageLink('teamTasks') teamTasks: TeamTaskView[] = [];
   // 协作面板只读预览（对齐小程序 collaborationPreview）：不切会话，可返回列表
@@ -7966,9 +7967,6 @@ export struct ConversationPage {
       // 与右上角 36vp 小圆钮同尺寸：按下/hover 高亮圈一致
       NavBackButton({ isDark: this.isDark, diameter: 36 })
         .id('conversation-back')
-        .onClick(() => {
-          this.pageStack.pop();
-        })
 
       Column({ space: 2 }) {
         Text(this.activeSessionTitle())
@@ -9851,6 +9849,31 @@ export struct ConversationPage {
     .opacity(enabled ? 1 : 0.4)
   }
 
+  /** 智能体团队协作开关行（对齐 dsh-mobile 三点菜单里的 toggle） */
+  @Builder
+  teamMenuRow() {
+    Row({ space: 8 }) {
+      Text('启用智能体团队协作')
+        .fontSize(15.4)
+        .fontColor(this.hasTeamSession() ? this.textColor() : this.subColor())
+        .maxLines(1)
+      Text('ⓘ')
+        .fontSize(12)
+        .fontColor(this.subColor())
+      Blank()
+      Toggle({ type: ToggleType.Switch, isOn: this.teamEnabled })
+        .selectedColor('#2E6BE6')
+        .width(42)
+        .height(24)
+        .enabled(false)
+    }
+    .width(232)
+    .height(52)
+    .padding({ left: 16, right: 16 })
+    .hoverEffect(HoverEffect.Highlight)
+    .opacity(this.hasTeamSession() ? 1 : 0.4)
+  }
+
   /** 菜单分组分隔线（对齐小程序 session-menu-group 的模块间隔） */
   @Builder
   moreMenuDivider() {
@@ -9927,13 +9950,48 @@ export struct ConversationPage {
 
       MenuItem(this.moreMenuDivider()).enabled(false)
 
-      // ⑤ 原有入口
+      // ⑤ 智能体团队协作开关（对齐 dsh-mobile 三点菜单）
+      MenuItem(this.teamMenuRow())
+        .id('menu-team-enabled')
+        .enabled(this.hasTeamSession())
+        .onClick(() => {
+          this.toggleTeamEnabled(!this.teamEnabled);
+        })
+
+      MenuItem(this.moreMenuDivider()).enabled(false)
+
+      // ⑥ 原有入口
       MenuItem(this.moreMenuRow($r('app.media.menu_ic_sliders'),
         '会话设置', true))
         .id('menu-session-settings')
         .onClick(() => {
           this.pageStack.pushPathByName('session-settings', null);
         })
+    }
+  }
+
+  /** 团队协作开关是否可用：需要已连接的会话 */
+  private hasTeamSession(): boolean {
+    return SessionStore.get().currentSessionId().length > 0 && GatewayClient.get().isConnected();
+  }
+
+  /** 切换智能体团队协作（乐观更新，网关回执后再由 TeamStore 校正） */
+  private toggleTeamEnabled(next: boolean): void {
+    const sessionId: string = SessionStore.get().currentSessionId();
+    if (sessionId.length === 0) {
+      this.showToast('请先创建会话');
+      return;
+    }
+    if (!GatewayClient.get().isConnected()) {
+      this.showToast('请先连接网关');
+      return;
+    }
+    this.teamEnabled = next;
+    AppStorage.setOrCreate<boolean>('teamEnabled', next);
+    const sent: boolean = GatewayClient.get().setAgentTeamEnabled(sessionId, next);
+    this.showToast(next ? '已开启智能体团队协作' : '已关闭智能体团队协作');
+    if (!sent) {
+      this.showToast('操作未发送：网关未连接');
     }
   }
 
