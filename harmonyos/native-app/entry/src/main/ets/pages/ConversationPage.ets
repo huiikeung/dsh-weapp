@@ -5891,7 +5891,7 @@ export struct ConversationPage {
    */
   @Builder
   dockAsFloatingGlass() {
-    Tabs({ barPosition: BarPosition.End, index: 0 }) {
+    HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
       TabContent() {
         // 内容区不用：只借 TabBar 的位置与材质
         Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
@@ -5900,8 +5900,11 @@ export struct ConversationPage {
     }
     .barMode(BarMode.Fixed)
     .scrollable(false)
+    // 小艺同款三条件：横向 + 底部 + 浮在内容之上（缺一材质不生效）
+    .vertical(false)
     .barOverlap(true)
-    .barFloatingStyle(this.dockFloatingBar())
+    // 材质走 HDS 管线：systemMaterialEffect = IMMERSIVE + ADAPTIVE
+    .barFloatingStyle(this.dockFloatingStyle())
     // 胶囊高度跟随输入区实测高度（折叠矮、展开高）。输入区不在胶囊内部，
     // 所以测量值不会被胶囊裁剪，不会出现「改高度 → 重新测量 → 再改高度」的震荡。
     .barHeight(this.dockGlassHeight())
@@ -5920,27 +5923,6 @@ export struct ConversationPage {
   @Builder
   emptyTabItem() {
     Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
-  }
-
-  /** ArkUI 原生悬浮 TabBar 样式：沉浸光感材质挂在 TabBar 背板上 */
-  private dockFloatingBar(): FloatingTabBarStyle {
-    const widthOpt: FloatingTabBarWidth = {
-      smallBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-      mediumBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-      largeBarWidth: this.pageW > 0 ? this.pageW - 28 : 320
-    };
-    const style: FloatingTabBarStyle = {
-      barWidth: widthOpt,
-      barSideMargin: 14,
-      barBottomMargin: this.dockBarBottomMargin(),
-      adaptToHandedness: true,
-      systemMaterial: new uiMaterial.ImmersiveMaterial({
-        style: uiMaterial.ImmersiveStyle.THIN,
-        interactive: true,
-        lightEffect: {}
-      })
-    };
-    return style;
   }
 
   /** 输入区是否处于展开态（与 ConversationComposer.expanded() 同一套判定） */
@@ -5989,7 +5971,7 @@ export struct ConversationPage {
     return {
       adaptToHandedness: true,
       barSideMargin: 14,
-      barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
+      barBottomMargin: this.dockBarBottomMargin(),
       barWidth: widthOpt,
       systemMaterialEffect: this.dockGlassMaterial()
     };
