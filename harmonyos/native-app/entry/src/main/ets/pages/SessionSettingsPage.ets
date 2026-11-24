@@ -2,7 +2,7 @@ import { KeyboardAvoidMode, uiMaterial } from '@kit.ArkUI';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { GatewayClient, PreferencesStore, SessionStore, SessionSummary, WorkspaceRow } from 'nativecore';
 import type { PresetOption, ModelOption, PermissionOption, DiagnosticRow } from 'nativecore';
-import { HdsNavDestination, ScrollEffectType } from '@kit.UIDesignKit';
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType } from '@kit.UIDesignKit';
 import { LengthMetrics } from '@kit.ArkUI';
 import { TopToast, TopToastView } from '../components/TopToast';
 import { openSessionRoute } from '../common/SessionRoute';
@@ -530,6 +530,11 @@ export struct SessionSettingsPage {
   }
 
   private scroller: Scroller = new Scroller();
+  private readonly titleBarContent: HdsTitleBarContentStyle = {
+    titleStyle: { mainTitleColor: $r('sys.color.font_primary') },
+    menuStyle: { iconColor: $r('sys.color.icon_primary'), backgroundColor: $r('sys.color.comp_background_tertiary') }
+  };
+  private readonly TITLE_BAR_CONTENT = this.titleBarContent;
 
   build() {
     HdsNavDestination() {
@@ -726,7 +731,10 @@ export struct SessionSettingsPage {
         scrollEffectOpts: {
           enableScrollEffect: true,
           scrollEffectType: ScrollEffectType.GRADIENT_BLUR
-        }
+        },
+        // 模糊生效时保持正文色标题：系统默认会切成白字（按深色头图假设），浅色页看不清
+        originalStyle: { contentStyle: this.TITLE_BAR_CONTENT },
+        scrollEffectStyle: { contentStyle: this.TITLE_BAR_CONTENT }
       }
     })
     .bindToScrollable([this.scroller])
