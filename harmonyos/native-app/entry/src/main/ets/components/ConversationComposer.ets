@@ -10,7 +10,7 @@
  * 视觉来源：miniprogram/pages/session/session.wxss 5569-5602（两态）、893-1050、2694-2800。
  * 约束：ArkTS 严格模式；颜色全部字符串字面量。
  */
-import { display, LengthMetrics } from '@kit.ArkUI';
+import { display, LengthMetrics, uiMaterial } from '@kit.ArkUI';
 import { KeyCode } from '@kit.InputKit';
 import type { ModelMenuItem, PickedAttachment } from 'nativecore';
 
@@ -582,6 +582,27 @@ export struct ConversationComposer {
   }
 
   /** 光圈外的投影：与返回按钮同为中性色（深色黑色、浅色淡灰），不再用白色光晕 */
+  /**
+   * 输入框的沉浸光感材质（对照《组件适配沉浸光感》）：
+   * 薄玻璃 THIN + 交互形变 + 光感交互反馈；设备不支持时返回 undefined，
+   * 卡片退化为半透明纯色底（不再自己画 backdropBlur）。
+   */
+  private glassMaterial(): uiMaterial.Material | undefined {
+    try {
+      if (!uiMaterial.isImmersiveMaterialSupported()) {
+        return undefined;
+      }
+      return new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.THIN,
+        interactive: true,
+        lightEffect: {},
+        applyShadow: true
+      });
+    } catch (err) {
+      return undefined;
+    }
+  }
+
   /** 顶沿高光：中间亮、两端收敛的 1vp 细线，给玻璃一个「受光边」 */
   @Builder
   topGlint() {
@@ -2629,14 +2650,16 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 与左上角返回按钮同一套玻璃背景
-      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.40)' : 'rgba(255,255,255,0.16)')
-      // 玻璃模糊：比原来 8 更实一点，透出的内容不会糊成一片，也不会透得太清楚
-      .backdropBlur(14)
-      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
-      // 裁到圆角：下面那层顶沿高光只亮在卡片内部
+      // 沉浸光感：不再自己画模糊，交给系统 ImmersiveMaterial（API 26，应用级开关已在 module.json5 打开）
+      .backgroundColor(this.glassMaterial() === undefined
+        ? (this.isDark ? 'rgba(30,30,34,0.72)' : 'rgba(255,255,255,0.72)')
+        : Color.Transparent)
+      .systemMaterial(this.glassMaterial())
+      // 材质自带高光/阴影，这里只留一条极细的边界，避免叠出「白框」
+      .border({ width: 0.5, color: this.isDark ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.75)' })
+      // 裁到圆角：顶沿高光只亮在卡片内部
       .clip(true)
-      // 光感：只有一道很淡的顶沿高光（不做扫光动画，避免抢注意力）
+      // 光感：顶沿一道很淡的受光边（系统材质之外的点缀，不抢材质本身的观感）
       .overlay(() => { this.topGlint() }, { align: Alignment.Top })
 
       }
