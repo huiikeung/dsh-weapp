@@ -218,6 +218,8 @@ export struct ConversationComposer {
   /** 展开态：聚焦、有草稿或有附件（对齐小程序 composer-expanded 判定） */
   /** 流光位置（-0.6 ~ 1.8 循环），让玻璃表面有一道缓慢移动的高光 */
   @State private sheen: number = -0.6;
+  /** 外发光呼吸相位（0~1） */
+  @State private glow: number = 0;
   private sheenTimer: number = -1;
 
   aboutToAppear(): void {
@@ -234,7 +236,9 @@ export struct ConversationComposer {
       return;
     }
     this.sheenTimer = setInterval(() => {
-      this.sheen = this.sheen + 0.014 > 1.9 ? -0.6 : this.sheen + 0.014;
+      // 6 秒扫一轮，亮度和速度都比之前明显
+      this.sheen = this.sheen + 0.028 > 1.9 ? -0.6 : this.sheen + 0.028;
+      this.glow = (this.glow + 0.05) % 1;
     }, 60);
   }
 
@@ -652,13 +656,14 @@ export struct ConversationComposer {
         })
       // 2) 斜向流光带
       Column()
-        .width('42%')
+        .width('46%')
         .height('100%')
         .linearGradient({
           angle: 102,
           colors: [
             ['rgba(255,255,255,0)', 0],
-            [this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.42)', 0.5],
+            [this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.85)', 0.45],
+            [this.isDark ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.40)', 0.6],
             ['rgba(255,255,255,0)', 1]
           ]
         })
@@ -2745,22 +2750,30 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 自绘玻璃（系统材质在内容区不生效，改为可控的渐变玻璃）：
-      // 纵向由亮到暗，模拟玻璃受光后的明暗层次
-      .linearGradient({
-        angle: 180,
-        colors: this.isDark
-          ? [['rgba(60,62,70,0.70)', 0], ['rgba(36,38,44,0.62)', 0.55], ['rgba(24,26,31,0.58)', 1]]
-          : [['rgba(255,255,255,0.92)', 0], ['rgba(250,251,253,0.80)', 0.55], ['rgba(242,244,248,0.72)', 1]]
-      })
+      // 磨砂玻璃：用系统 backgroundBlurStyle（够厚，背后内容会被明显虚化）
+      .backgroundBlurStyle(
+        this.isDark ? BlurStyle.COMPONENT_THICK : BlurStyle.COMPONENT_THICK,
+        { colorMode: ThemeColorMode.SYSTEM }
+      )
+      // 玻璃上的淡淡色调（深色偏冷黑、浅色偏白），叠在模糊之上
+      .backgroundColor(this.isDark ? 'rgba(34,36,44,0.34)' : 'rgba(255,255,255,0.30)')
       .systemMaterial(this.glassMaterial())
       // 玻璃边缘：外圈白色细描边 + 柔和外阴影（托起悬浮感）
       .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.95)' })
+      // 外发光呼吸：柔和光晕随相位变化，肉眼能看出「特效在动」
       .shadow({
-        radius: 18,
-        color: this.isDark ? 'rgba(0,0,0,0.42)' : 'rgba(36,44,64,0.16)',
+        radius: 20 + 10 * this.glow,
+        color: this.isDark
+          ? 'rgba(150,190,255,' + (0.10 + 0.12 * this.glow).toFixed(3) + ')'
+          : 'rgba(120,160,230,' + (0.12 + 0.16 * this.glow).toFixed(3) + ')',
         offsetX: 0,
-        offsetY: 8
+        offsetY: 6
+      })
+      .shadow({
+        radius: 10,
+        color: this.isDark ? 'rgba(0,0,0,0.45)' : 'rgba(36,44,64,0.18)',
+        offsetX: 0,
+        offsetY: 6
       })
       // 裁到圆角：顶沿高光只亮在卡片内部
       .clip(true)
