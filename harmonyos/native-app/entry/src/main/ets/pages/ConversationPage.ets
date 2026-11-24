@@ -6049,11 +6049,13 @@ export struct ConversationPage {
     .systemMaterial(this.wideInset() > 0
       ? undefined
       : new uiMaterial.ImmersiveMaterial({
-        // 底部要托住整块输入区，用 REGULAR（比顶部 THIN 更厚）才能接近顶部的模糊强度
-        style: uiMaterial.ImmersiveStyle.REGULAR,
+        // 底部要托住整块输入区：THICK 提供最强模糊，贴近顶部渐变模糊的强度
+        style: uiMaterial.ImmersiveStyle.THICK,
         interactive: true,
         lightEffect: {}
       }))
+    // 材质自身模糊偏柔和，再叠一层背景模糊把「透出的内容」压得更糊（对齐顶部观感）
+    .backdropBlur(this.wideInset() > 0 ? 0 : 20)
     // 上沿渐变过渡：内容进入玻璃条前先柔和淡出（对齐顶部「渐变模糊」的观感，避免硬切边）
     .overlay(() => { this.bottomFadeOverlay() }, { align: Alignment.Top })
     .onAreaChange((oldArea: Area, newArea: Area) => {
