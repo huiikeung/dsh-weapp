@@ -3416,6 +3416,23 @@ export struct ConversationPage {
     return this.isDark ? '#1C1C1E' : '#FFFFFF';
   }
 
+  // ==================== 悬浮胶囊同款玻璃（输入条收起态那一套） ====================
+  // 置底按钮 / 排队消息 / 任务 / 目标 统一用这套底色和细亮边，和输入条胶囊保持一致。
+  /** 胶囊底色：深色 rgba(35,35,35,0.90) / 浅色 60% 白 */
+  private dockGlassFill(): string {
+    return this.isDark ? 'rgba(35,35,35,0.90)' : 'rgba(255,255,255,0.60)';
+  }
+
+  /** 胶囊细亮边：与输入条同一条 #66FFFFFF */
+  private dockGlassEdge(): string {
+    return '#66FFFFFF';
+  }
+
+  /** 胶囊圆角：26vp —— 矮条会被自动夹成胶囊（半径=高度一半），多行面板则是圆角矩形 */
+  private dockGlassRadius(): number {
+    return 26;
+  }
+
   /** 会话节点弹窗玻璃：比系统菜单更通透（模糊更重时基色再降一点不透明度） */
   private turnNavGlass(): string {
     return this.isDark ? 'rgba(58,58,60,0.56)' : 'rgba(250,250,252,0.62)';
@@ -5443,10 +5460,10 @@ export struct ConversationPage {
       }
       .width('100%')
       .padding({ top: this.rpx(8), bottom: this.rpx(4) })
-      .borderRadius(this.rpx(36))
-      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
-      .backdropBlur(14)
-      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+      // 与输入条胶囊同一套玻璃：同底色 + 同细亮边 + 同圆角
+      .borderRadius(this.dockGlassRadius())
+      .backgroundColor(this.dockGlassFill())
+      .border({ width: 1, color: this.dockGlassEdge() })
       .margin({ bottom: this.rpx(12) })
     }
   }
@@ -5636,11 +5653,10 @@ export struct ConversationPage {
     }
     .width('100%')
     .padding({ top: this.rpx(4), bottom: this.rpx(4) })
-    .borderRadius(this.rpx(36))
-    // 与左上角返回按钮同一套玻璃标准（AppGlass：半透明底 + 背景模糊 + 白色高光细边 + 柔和投影）
-    .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
-    .backdropBlur(14)
-    .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+    // 与输入条胶囊同一套玻璃：同底色 + 同细亮边 + 同圆角
+    .borderRadius(this.dockGlassRadius())
+    .backgroundColor(this.dockGlassFill())
+    .border({ width: 1, color: this.dockGlassEdge() })
     .margin({ bottom: this.rpx(12) })
     .clip(true)
   }
@@ -5701,11 +5717,10 @@ export struct ConversationPage {
       }
     }
     .width('100%')
-    .borderRadius(this.rpx(36))
-    // 与左上角返回按钮同一套玻璃标准（AppGlass：半透明底 + 背景模糊 + 白色高光细边 + 柔和投影）
-    .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
-    .backdropBlur(14)
-    .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+    // 与输入条胶囊同一套玻璃：同底色 + 同细亮边 + 同圆角
+    .borderRadius(this.dockGlassRadius())
+    .backgroundColor(this.dockGlassFill())
+    .border({ width: 1, color: this.dockGlassEdge() })
     .margin({ bottom: this.rpx(12) })
     .clip(true)
   }
@@ -5749,11 +5764,10 @@ export struct ConversationPage {
       .constraintSize({ minHeight: this.rpx(96) })
       .padding({ left: this.rpx(20), right: this.rpx(16), top: this.rpx(12), bottom: this.rpx(12) })
       .alignItems(VerticalAlign.Center)
-      .borderRadius(this.rpx(36))
-      // 与左上角返回按钮同一套玻璃标准（AppGlass：半透明底 + 背景模糊 + 白色高光细边 + 柔和投影）
-      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
-      .backdropBlur(14)
-      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+      // 与输入条胶囊同一套玻璃：同底色 + 同细亮边 + 同圆角
+      .borderRadius(this.dockGlassRadius())
+      .backgroundColor(this.dockGlassFill())
+      .border({ width: 1, color: this.dockGlassEdge() })
       .margin({ bottom: this.rpx(12) })
     } else {
       Row({ space: this.rpx(16) }) {
@@ -5824,11 +5838,10 @@ export struct ConversationPage {
       .constraintSize({ minHeight: this.rpx(92) })
       .padding({ left: this.rpx(28), right: this.rpx(24) })
       .alignItems(VerticalAlign.Center)
-      .borderRadius(this.rpx(36))
-      // 与左上角返回按钮同一套玻璃标准（AppGlass：半透明底 + 背景模糊 + 白色高光细边 + 柔和投影）
-      .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
-      .backdropBlur(14)
-      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+      // 与输入条胶囊同一套玻璃：同底色 + 同细亮边 + 同圆角
+      .borderRadius(this.dockGlassRadius())
+      .backgroundColor(this.dockGlassFill())
+      .border({ width: 1, color: this.dockGlassEdge() })
       .margin({ bottom: this.rpx(12) })
     }
   }
@@ -9359,17 +9372,11 @@ export struct ConversationPage {
             }
             .width(40)
             .height(40)
-            // 去掉 Button 默认的系统蓝底，否则会盖住/混出蓝色玻璃
+            // 去掉 Button 默认的系统蓝底
             .buttonStyle(ButtonStyleMode.NORMAL)
-            // ArkClash 同款写法：只用 systemMaterial（液态玻璃），不设 backgroundColor/clip，
-            // 设了 backgroundColor 会盖掉材质层，之前就是这样看起来「没加」
-            .systemMaterial(new uiMaterial.ImmersiveMaterial({
-              style: uiMaterial.ImmersiveStyle.THIN,
-              interactive: true,
-              lightEffect: {}
-            }))
-            // 边缘：白色细边（深 16% / 浅 90%，浅色下靠白边提亮）
-            .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+            // 与输入条胶囊同一套玻璃：同底色 + 同细亮边（不再是浅色液态玻璃盘）
+            .backgroundColor(this.dockGlassFill())
+            .border({ width: 1, color: this.dockGlassEdge() })
             .onClick(() => {
               this.autoStick = true;
               this.scroller.scrollEdge(Edge.Bottom);
