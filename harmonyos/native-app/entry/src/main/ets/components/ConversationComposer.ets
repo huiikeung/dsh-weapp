@@ -342,7 +342,9 @@ export struct ConversationComposer {
   }
 
   private expanded(): boolean {
-    return this.focused || this.draft.length > 0 || this.attachmentCount > 0;
+    // 草稿不再强制展开：点输入框以外区域 / 收键盘时应该能自动折叠；
+    // 草稿本身不会丢，重新点输入框会带着草稿展开
+    return this.focused || this.attachmentCount > 0;
   }
 
   private hasDraft(): boolean {
@@ -2400,8 +2402,8 @@ export struct ConversationComposer {
    */
   private expandedFrost(): BackgroundEffectOptions {
     const effect: BackgroundEffectOptions = {
-      radius: 40,
-      saturation: 1.35,
+      radius: 22,
+      saturation: 1.2,
       brightness: 1,
       // 底色浓度贴近「原来那张展开卡片」（深 0.80 / 浅 0.72），只是把模糊度加大：
       // 太透会显得发白发飘，和展开态的观感差太多

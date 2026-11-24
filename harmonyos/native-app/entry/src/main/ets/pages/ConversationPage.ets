@@ -5927,7 +5927,8 @@ export struct ConversationPage {
 
   /** 输入区是否处于展开态（与 ConversationComposer.expanded() 同一套判定） */
   private composerExpanded(): boolean {
-    return this.composerFocused || this.draft.trim().length > 0 || this.pickedAttachments.length > 0;
+    // 与 ConversationComposer.expanded() 保持一致：草稿不再算展开（草稿不丢，重新点输入框会带出来）
+    return this.composerFocused || this.pickedAttachments.length > 0;
   }
 
   /**
@@ -9369,6 +9370,10 @@ export struct ConversationPage {
         if (event.type === TouchType.Down) {
           this.listTouching = true;
           this.listTouchStartedAt = Date.now();
+          // 手指落在对话内容上 = 点输入框以外 → 收起输入条。
+          // 用 onTouch 而不是 onClick：列表里很多子节点（消息卡片、按钮）会把点击吃掉，
+          // 外层 Column 的 onClick 收不到，这就是「点了外面不折叠」的原因。
+          this.collapseComposer();
         } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
           this.listTouching = false;
           this.lastTouchAt = Date.now();
