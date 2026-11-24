@@ -7557,19 +7557,28 @@ export struct ConversationPage {
                   .fontSize(11)
                   .fontColor(this.subColor())
                 Blank()
-                Toggle({ type: ToggleType.Switch, isOn: this.teamEnabled })
-                  .selectedColor('#2E6BE6')
-                  .switchPointColor('#FFFFFF')
-                  .width(40)
-                  .height(24)
-                  .enabled(this.hasTeamSession())
-                  .onChange((isOn: boolean) => {
-                    this.toggleTeamEnabled(isOn);
-                  })
+                // 命中区域严格限制在开关本体（40×24），点文字/空白不切换
+                Stack() {
+                  Toggle({ type: ToggleType.Switch, isOn: this.teamEnabled })
+                    .selectedColor('#2E6BE6')
+                    .switchPointColor('#FFFFFF')
+                    .width(40)
+                    .height(24)
+                    .enabled(this.hasTeamSession())
+                    .onChange((isOn: boolean) => {
+                      this.toggleTeamEnabled(isOn);
+                    })
+                }
+                .width(40)
+                .height(24)
+                .clip(true)
               }
               .width('100%')
-              .height(44)
+              .height(40)
               .padding({ left: 8, right: 8 })
+              .onClick(() => {
+                // 行本身不响应：避免点标签/空白误触开关
+              })
             }
             .width('100%')
           }
