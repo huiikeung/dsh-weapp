@@ -5849,10 +5849,10 @@ export struct ConversationPage {
     Row().width('100%').height(this.dockHeight > 0 ? this.dockHeight : 300)
   }
 
-  /** 材质背板：HdsTabs 悬浮 TabBar + IMMERSIVE 材质，几何与输入卡完全对齐 */
+  /** 材质背板：官方《沉浸式系统材质视效》悬浮 TabBar 配方（ULTRA_THIN + colorInvert + maskHeight:0） */
   @Builder
   dockMaterialBackplate() {
-    HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
+    Tabs({ barPosition: BarPosition.End, index: 0 }) {
       TabContent() {
         Row().width(1).height(1).opacity(0)
       }
@@ -5869,18 +5869,25 @@ export struct ConversationPage {
     .accessibilityLevel('no')
   }
 
-  /** 胶囊几何 = 输入卡几何：左右 14、宽 pageW-28、高=实测 dock 高、底部=安全区+18 */
-  private dockFloatingStyle(): HdsTabsFloatingStyle {
-    const widthOpt: HdsBarWidthRangeOptions = {
-      smallWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-      mediumWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-      largeWidth: this.pageW > 0 ? this.pageW - 28 : 320
+  /** 悬浮栏样式：官方配方 ULTRA_THIN + colorInvert + interactive + lightEffect + maskHeight 0 */
+  private dockFloatingStyle(): FloatingTabBarStyle {
+    const widthOpt: FloatingTabBarWidth = {
+      smallBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+      mediumBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+      largeBarWidth: this.pageW > 0 ? this.pageW - 28 : 320
     };
     return {
       barSideMargin: 14,
       barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
       barWidth: widthOpt,
-      systemMaterialEffect: this.dockGlassMaterial()
+      // 官方示例：悬浮栏默认自带底部渐变遮罩，会洗淡玻璃效果，显式关掉
+      maskHeight: 0,
+      systemMaterial: new uiMaterial.ImmersiveMaterial({
+        style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
+        colorInvert: true,
+        interactive: true,
+        lightEffect: {}
+      })
     };
   }
 
