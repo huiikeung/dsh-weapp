@@ -2755,8 +2755,16 @@ export struct ConversationComposer {
         this.isDark ? BlurStyle.COMPONENT_THICK : BlurStyle.COMPONENT_THICK,
         { colorMode: ThemeColorMode.SYSTEM }
       )
-      // 玻璃上的淡淡色调（深色偏冷黑、浅色偏白），叠在模糊之上
-      .backgroundColor(this.isDark ? 'rgba(34,36,44,0.34)' : 'rgba(255,255,255,0.30)')
+      // 玻璃色调：比页面底更冷一点（浅色偏蓝灰、深色偏冷黑），
+      // 这样在纯白页面上也能一眼看出这是一块玻璃，而不是和背景同色的白卡
+      .backgroundColor(this.isDark ? 'rgba(30,33,40,0.42)' : 'rgba(228,235,247,0.52)')
+      // 轻微投影，把玻璃从页面「托起来」（只留一点点，不要之前的强光晕）
+      .shadow({
+        radius: 12,
+        color: this.isDark ? 'rgba(0,0,0,0.40)' : 'rgba(40,60,100,0.16)',
+        offsetX: 0,
+        offsetY: 4
+      })
       .systemMaterial(this.glassMaterial())
       // 玻璃边缘：外圈白色细描边 + 柔和外阴影（托起悬浮感）
       .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.28)' : 'rgba(255,255,255,0.95)' })
