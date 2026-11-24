@@ -395,8 +395,15 @@ export struct ConversationPage {
   private queueThumbInflight: Set<string> = new Set<string>();
   /** 拉取失败的图片 id：主机不允许读取「还没进会话」的排队附件，失败就不再重试 */
   private queueThumbFailed: Set<string> = new Set<string>();
+  /** 底部玻璃材质：HDS 管线 IMMERSIVE（与顶栏同一套，仅 HDS 悬浮 TabBar 渲染） */
+  private dockGlassMaterial(): SystemMaterialParams {
+    return { materialType: hdsMaterial.MaterialType.IMMERSIVE, materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE };
+  }
+
   /** 底部 dock（队列/任务/目标+输入条）实测高度：时间线底部留白与「回到底部」按钮避让用 */
   @State private dockHeight: number = 220;
+  /** 输入卡实测高度（composer 上报）：玻璃背板用它精确对齐 */
+  @State dockCardHeight: number = 0;
   /** 下拉刷新连续补页：一直加载到顶部是「用户消息」为止 */
   private pullLoadAttempts: number = 0;
   private pullLoadTimer: number = -1;
@@ -5838,47 +5845,6 @@ export struct ConversationPage {
       .hitTestBehavior(HitTestMode.None)
   }
 
-  /**
-   * 底部输入区 = HdsTabs 悬浮 TabBar 的内容（对照《沉浸式系统材质视效》官方示例）：
-   * 输入区放进 tabBar，玻璃胶囊自动包裹输入区的实际高度（展开/收起都跟随）；
-   * ULTRA_THIN + colorInvert 让滚动到背后的内容清晰透出；maskHeight 0 关闭自带的渐变遮罩。
-   */
-  @Builder
-  dockAsFloatingGlass() {
-    Tabs({ barPosition: BarPosition.End, index: 0 }) {
-      TabContent() {
-        // 内容区不用：只借 TabBar 的位置与材质
-        Column().width(1).height(1).opacity(0).hitTestBehavior(HitTestMode.None)
-      }
-      .tabBar(this.bottomDockLayer())
-    }
-    .barMode(BarMode.Fixed)
-    .scrollable(false)
-    .barOverlap(true)
-    // 玻璃直接长在 TabBar 背板上（backgroundEffect 不受「仅标题栏/TabBar」限制，
-    // 形状跟随 TabBar 内容=输入框本体的圆角矩形；saturation 让滚过的内容颜色折射进玻璃）
-    .barFloatingStyle({
-      adaptToHandedness: true,
-      maskHeight: 0,
-      barSideMargin: 14,
-      barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
-      barWidth: {
-        smallBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-        mediumBarWidth: this.pageW > 0 ? this.pageW - 28 : 320,
-        largeBarWidth: this.pageW > 0 ? this.pageW - 28 : 320
-      }
-    })
-    .barBackgroundEffect({
-      radius: 40,
-      color: this.isDark ? 'rgba(18,20,26,0.45)' : 'rgba(255,255,255,0.42)',
-      saturation: 1.9,
-      brightness: 1.05
-    })
-    .width('100%')
-    .height('100%')
-    .hitTestBehavior(HitTestMode.Transparent)
-  }
-
   @Builder
   bottomDockLayer() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -5973,6 +5939,9 @@ export struct ConversationPage {
             attachments: this.pickedAttachments,
             onRemoveAttachment: (uri: string) => {
               this.pickedAttachments = this.pickedAttachments.filter((item: PickedAttachment) => item.uri !== uri);
+            },
+            onCardHeightChange: (height: number) => {
+              this.dockCardHeight = height;
             },
             metricPairsFor: (kind: string): MetricMenuPair[] => {
               const pairs: MetricMenuPair[] = [];
@@ -6216,8 +6185,8 @@ export struct ConversationPage {
       // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
       Column() {
         if (this.sessionTab === 0) {
-          // 输入区 = 悬浮 TabBar（玻璃胶囊自动包裹输入区实际高度）
-          this.dockAsFloatingGlass()
+          // 输入区：玻璃效果直接做在输入框本体上（backgroundEffect，圆角 24 跟随卡片）
+          this.bottomDockLayer()
         }
       }
       .width('100%')

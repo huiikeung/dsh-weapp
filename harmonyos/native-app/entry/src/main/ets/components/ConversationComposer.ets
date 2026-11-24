@@ -216,6 +216,10 @@ export struct ConversationComposer {
 
   // ==================== 状态 ====================
   /** 展开态：聚焦、有草稿或有附件（对齐小程序 composer-expanded 判定） */
+  /** 输入卡实测高度：上报给页面，供玻璃背板对齐 */
+  @State private cardHeight: number = 0;
+  /** 卡片高度回调 */
+  onCardHeightChange: (height: number) => void = () => {};
   /** 流光位置（-0.6 ~ 1.8 循环），让玻璃表面有一道缓慢移动的高光 */
   @State private sheen: number = -0.6;
   /** 外发光呼吸相位（0~1） */
@@ -2767,10 +2771,16 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 输入区已在 HdsTabs 悬浮 TabBar 内，玻璃由 barFloatingStyle 的
-      // ULTRA_THIN 材质提供（胶囊自动包裹输入区实际高度）；卡片本体保持透明
+      // 玻璃直接做在卡片上：backgroundEffect = 模糊 + 色调 + 饱和度 + 亮度四件套，
+      // 形状就是卡片本体（圆角 24），按钮/输入行全部落在玻璃上，不再是「挤在椭圆里」
+      .backgroundEffect({
+        radius: 60,
+        color: this.isDark ? 'rgba(18,20,26,0.40)' : 'rgba(255,255,255,0.38)',
+        saturation: 1.9,
+        brightness: 1.05
+      })
       .backgroundColor(Color.Transparent)
-      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.60)' })
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.14)' : 'rgba(255,255,255,0.85)' })
       .clip(true)
 
       }
@@ -2778,6 +2788,14 @@ export struct ConversationComposer {
       // 不再额外套一层 1.3vp 光圈环（与返回按钮保持单层玻璃）
       .padding(0)
       .borderRadius(24)
+      // 实测卡片高度上报：页面用它把玻璃背板精确对齐到卡片
+      .onAreaChange((_old: Area, nw: Area) => {
+        const hgt: number = Number(nw.height);
+        if (hgt > 0 && Math.abs(hgt - this.cardHeight) > 0.5) {
+          this.cardHeight = hgt;
+          this.onCardHeightChange(hgt);
+        }
+      })
       // 光圈层不要再用白色底：白底会透在卡片下面，把输入框「垫」得比返回按钮更实
       .backgroundColor(Color.Transparent)
       // 光圈环不再投阴影（与输入框一起去阴影）
