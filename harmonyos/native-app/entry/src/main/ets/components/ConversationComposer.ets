@@ -1570,7 +1570,52 @@ export struct ConversationComposer {
         .onClick(() => {
           this.openModelList('effort');
         })
+      MenuItem(this.teamToggleRow())
+        .id('team-entry')
     }
+  }
+
+  /** 第一层菜单里的团队协作开关行 */
+  @Builder
+  teamToggleRow() {
+    Row({ space: 6 }) {
+      Text('启用智能体团队协作')
+        .fontSize(14)
+        .fontColor(this.menuLabelColor())
+        .maxLines(1)
+      Text('ⓘ')
+        .fontSize(11)
+        .fontColor(this.mutedText())
+        .padding(4)
+        .onClick(() => {
+          this.teamTipOpen = !this.teamTipOpen;
+        })
+        .bindPopup(this.teamTipOpen, {
+          builder: this.teamTipBuilder(),
+          placement: Placement.Top,
+          popupColor: Color.Transparent,
+          enableArrow: false,
+          autoCancel: true,
+          radius: 10,
+          onStateChange: (event) => {
+            if (!event.isVisible) {
+              this.teamTipOpen = false;
+            }
+          }
+        })
+      Blank()
+      Toggle({ type: ToggleType.Switch, isOn: this.teamEnabled })
+        .selectedColor('#2E6BE6')
+        .switchPointColor('#FFFFFF')
+        .width(40)
+        .height(24)
+        .onChange((isOn: boolean) => {
+          this.onToggleTeam(isOn);
+        })
+    }
+    .width(212)
+    .height(44)
+    .padding({ left: 16, right: 16 })
   }
 
   /** 第二层：全部模型按提供商分组（自带滚动、隐藏滑块）/ 推理等级保持原生菜单样式，✓ 放最右 */
