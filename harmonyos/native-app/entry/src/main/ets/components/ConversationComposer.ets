@@ -2750,15 +2750,8 @@ export struct ConversationComposer {
       // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
       // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      // 真正的「液态玻璃」：backgroundEffect 支持 半径+色调+饱和度+亮度 四个参数一起调。
-      // 高饱和度让背后滚过的内容颜色被「折射」进玻璃（滚动时最明显），
-      // 低不透明度让模糊后的形状清晰可见 —— 这就是原生沉浸光感的玻璃质感
-      .backgroundEffect({
-        radius: 60,
-        color: this.isDark ? 'rgba(18,20,26,0.42)' : 'rgba(255,255,255,0.36)',
-        saturation: 1.9,
-        brightness: 1.06
-      })
+      // 玻璃由底部 HDS IMMERSIVE 材质背板提供；卡片只留一层薄白保证文字可读
+      .backgroundColor(this.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.28)')
       // 与返回按钮同款 1vp 白描边
       .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
       // 与返回按钮同款柔和投影

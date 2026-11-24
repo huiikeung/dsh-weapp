@@ -25,7 +25,7 @@ import { ConversationRowView } from '../components/ConversationRowView';
 import { ConversationComposer, MetricMenuPair, RefChipItem, RefDirItem, RefSessionItem, SkillItem } from '../components/ConversationComposer';
 import { VoiceRipplePanel } from '../components/VoiceRipplePanel';
 import { NavBackButton } from '../components/NavBackButton';
-import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, hdsMaterial } from '@kit.UIDesignKit';
+import { HdsNavDestination, HdsTitleBarContentStyle, ScrollEffectType, HdsTabs, hdsMaterial, SystemMaterialParams } from '@kit.UIDesignKit';
 import { ConversationProgress } from '../components/ConversationProgress';
 import { TrajectoryPanel } from '../components/TrajectoryPanel';
 import { FluKeCoin } from '../components/FluKeCoin';
@@ -5838,6 +5838,39 @@ export struct ConversationPage {
       .hitTestBehavior(HitTestMode.None)
   }
 
+  /** 底部 HDS 材质（与顶栏玻璃同一套 IMMERSIVE，仅在 HDS 悬浮 TabBar 上渲染） */
+  private dockGlassMaterial(): SystemMaterialParams {
+    return { materialType: hdsMaterial.MaterialType.IMMERSIVE, materialLevel: hdsMaterial.MaterialLevel.ADAPTIVE };
+  }
+
+  /** tabBar 占位内容：只提供高度，不画任何东西 */
+  @Builder
+  dockBackplateBar() {
+    Row().width('100%').height(this.dockHeight > 0 ? this.dockHeight : 300)
+  }
+
+  /** 材质背板：HdsTabs 悬浮 TabBar + IMMERSIVE 材质，垫在输入区身后、不拦截触摸 */
+  @Builder
+  dockMaterialBackplate() {
+    HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
+      TabContent() {
+        Row().width(1).height(1).opacity(0)
+      }
+      .tabBar(this.dockBackplateBar())
+    }
+    .barMode(BarMode.Fixed)
+    .barOverlap(true)
+    .barFloatingStyle({
+      barSideMargin: 0,
+      barBottomMargin: 0,
+      systemMaterialEffect: this.dockGlassMaterial()
+    })
+    .width('100%')
+    .height(this.dockHeight > 0 ? this.dockHeight : 300)
+    .hitTestBehavior(HitTestMode.None)
+    .accessibilityLevel('no')
+  }
+
   @Builder
   bottomDockLayer() {
     Stack({ alignContent: Alignment.Bottom }) {
@@ -6175,7 +6208,13 @@ export struct ConversationPage {
       // 轨迹 Tab 不显示输入条：避免在只读轨迹页误触发送
       Column() {
         if (this.sessionTab === 0) {
-          this.bottomDockLayer()
+          Stack({ alignContent: Alignment.Bottom }) {
+            // HDS 材质背板：与顶栏同一套 IMMERSIVE 材质（借悬浮 TabBar 的位置渲染）
+            this.dockMaterialBackplate()
+            // 输入区浮层：透明底，露出下面的系统玻璃
+            this.bottomDockLayer()
+          }
+          .width('100%')
         }
       }
       .width('100%')
