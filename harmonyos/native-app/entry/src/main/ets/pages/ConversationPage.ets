@@ -5879,7 +5879,8 @@ export struct ConversationPage {
       systemMaterial: this.dockGlassMaterial()
     })
     .width('100%')
-    .height(this.dockHeight > 0 ? this.dockHeight : 160)
+    // 高度要给 tabBar 内容留余量：等于实测高度会把内容压到刚好，展开态 chip 行会被裁掉
+    .height(this.dockHeight > 0 ? this.dockHeight + 28 : 300)
     .hitTestBehavior(HitTestMode.Transparent)
   }
 
