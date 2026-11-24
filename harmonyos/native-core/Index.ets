@@ -68,6 +68,10 @@ export type { PairingResult } from './src/main/ets/protocol/PairingPayload';
 
 // 协议层（自旧原生工程迁入）：DTO 与 fail-closed 帧解码
 export * from './src/main/ets/protocol/GatewayDtos';
+// DS-Bot 模式：数据模型与状态层（对齐 dsh-mobile SharedBotStore）
+export * from './src/main/ets/protocol/BotDtos';
+export { BotStore } from './src/main/ets/state/BotStore';
+export { BotImageCache } from './src/main/ets/state/BotImageCache';
 export {
   GatewayFrameError, isObj, asRec, str, num, bool, arr, field, isNullValue,
   decodeFrame, normalizeEventSource, normalizeRawSessionEvent

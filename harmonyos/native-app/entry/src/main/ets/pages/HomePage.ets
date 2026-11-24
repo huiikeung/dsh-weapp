@@ -1726,6 +1726,8 @@ export struct HomePage {
         .alignItems(VerticalAlign.Center)
         .padding({ left: this.rpx(24), bottom: this.rpx(32) })
 
+        // Bot 模式（对齐 dsh-mobile：抽屉首项进入 DS-Bot）
+        this.drawerItem($r('app.media.bot_mode'), $r('app.media.bot_mode'), 'Bot 模式', 'bot-home')
         // 插件
         this.drawerItem($r('app.media.pinwheel_ink'), $r('app.media.pinwheel_ink'), '插件', 'plugins')
         // 自动化任务

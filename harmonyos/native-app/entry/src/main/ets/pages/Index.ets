@@ -5,6 +5,12 @@ import { SessionStore } from 'nativecore';
 import { HomePage } from './HomePage';
 import { AddNodePage } from './AddNodePage';
 import { ConversationPage } from './ConversationPage';
+import { BotHomePage } from './BotHomePage';
+import { BotChatPage } from './BotChatPage';
+import { BotRolePage } from './BotRolePage';
+import { BotCreatePage } from './BotCreatePage';
+import { BotNewChatPage } from './BotNewChatPage';
+
 import { NodeManagePage } from './NodeManagePage';
 import { PluginsPage } from './PluginsPage';
 import { SchedulePage } from './SchedulePage';
@@ -105,6 +111,14 @@ struct Index {
     if (this.pendingPageRoute.length > 0) {
       setTimeout(() => this.openPendingPageRoute(), 700);
     }
+    // 上次停留在 Bot 模式：进入首页后自动切回 Bot 模式
+    setTimeout(() => {
+      const mode: string = AppStorage.get<string>('botMode') ?? '0';
+      const names: string[] = this.pageStack.getAllPathName();
+      if (mode === '1' && names.length === 0) {
+        this.pageStack.pushPathByName('bot-home', null);
+      }
+    }, 900);
   }
 
   private openPendingPageRoute(): void {
@@ -124,7 +138,17 @@ struct Index {
 
   @Builder
   PageMap(name: string) {
-    if (name === 'session') {
+    if (name === 'bot-home') {
+      BotHomePage();
+    } else if (name === 'bot-chat') {
+      BotChatPage();
+    } else if (name === 'bot-role') {
+      BotRolePage();
+    } else if (name === 'bot-create') {
+      BotCreatePage();
+    } else if (name === 'bot-new-chat') {
+      BotNewChatPage();
+    } else if (name === 'session') {
       ConversationPage();
     } else if (name === 'connectors') {
       ConnectorsPage();

@@ -10,7 +10,7 @@ import { PrivacyConsent } from '../services/PrivacyConsent';
 import {
   AppState, AttachmentImageCache, DeviceConnectors, MergedConnectorAdapter, locationConnector, calendarConnector, remindersConnector, photosConnector, alarmsConnector,
   musicConnector, healthConnector, mapsConnector,
-  GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
+  BotStore, GatewayClient, Logger, NotificationService, PreferencesStore, SessionStore, ThemeManager,
   parsePairingPayload, sodiumSelfTest
 } from 'nativecore';
 export default class EntryAbility extends UIAbility {
@@ -56,6 +56,7 @@ export default class EntryAbility extends UIAbility {
       this.pendingPairPayload = paramPayload;
     }
     SessionStore.get().attach(GatewayClient.get());
+    BotStore.get().attach(GatewayClient.get());
     // 启动自检：X25519 + XSalsa20-Poly1305 与 tweetnacl 向量比对（失败会打日志）。
     // 注意：纯 JS 的 curve25519 自检很吃 CPU，放在 onCreate 里同步跑会把主线程堵住、
     // 启动窗口内点哪都没反应（甚至触发系统的 AppFreeze 判定）。这里挪到首帧之后再跑。
@@ -92,6 +93,8 @@ export default class EntryAbility extends UIAbility {
       DeviceConnectors.reloadEnabled();
       // 会话内容字号（小/标准/大/特大）→ AppStorage，供对话页与设置预览统一读取
       AppStorage.setOrCreate<string>('contentFontSize', PreferencesStore.get().getString('contentFontSize', '标准'));
+      // Bot 模式：上次停留在 Bot 模式时冷启动自动进入（Bot 页返回会写回 0）
+      AppStorage.setOrCreate<string>('botMode', PreferencesStore.get().getString('botMode', '0'));
       // 新会话权限：启动即同步到 AppStorage，对话页输入框直接显示
       AppStorage.setOrCreate<string>('defaultPermission',
         PreferencesStore.get().getString('defaultPermission', 'workspace-write'));
@@ -305,6 +308,7 @@ export default class EntryAbility extends UIAbility {
     // 后台期间桌面端可能开跑或跑完：回前台立刻校准一次会话列表，
     // 不要再等下一拍轮询（用户看到的第一眼就是旧状态）。
     SessionStore.get().refreshSessionsNow();
+    BotStore.get().setForeground(true);
     Logger.info('FG_TIMING refresh-sessions +' + (Date.now() - fgStart));
     const state: string = AppStorage.get<string>('connectionState') ?? 'disconnected';
     if (state === 'connected') {
@@ -325,6 +329,7 @@ export default class EntryAbility extends UIAbility {
 
   onBackground(): void {
     AppStorage.setOrCreate<string>('appLifecycle', 'background');
+    BotStore.get().setForeground(false);
     // 后台立即中断在途连接器调用（写类工具回 outcome_unknown，照片选择器除外）
     try {
       DeviceConnectors.setForeground(false);
