@@ -2403,7 +2403,9 @@ export struct ConversationComposer {
       radius: 40,
       saturation: 1.35,
       brightness: 1,
-      color: this.isDark ? 'rgba(24,24,26,0.58)' : 'rgba(252,252,255,0.42)'
+      // 底色浓度贴近「原来那张展开卡片」（深 0.80 / 浅 0.72），只是把模糊度加大：
+      // 太透会显得发白发飘，和展开态的观感差太多
+      color: this.isDark ? 'rgba(30,30,32,0.80)' : 'rgba(255,255,255,0.72)'
     };
     return effect;
   }
