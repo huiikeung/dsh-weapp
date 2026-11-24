@@ -5950,8 +5950,10 @@ export struct ConversationPage {
     return this.composerFocused || this.pickedAttachments.length > 0;
   }
 
-  /** 系统键盘高度监听（收起键盘时立即折叠输入条，不等 onBlur） */
+  /** 系统键盘高度监听（收起键盘时折叠输入条，不等 onBlur） */
   private keyboardHeightCallback: ((height: number) => void) | null = null;
+  /** 键盘高度归 0 后的确认定时器（过滤过渡期的瞬时 0） */
+  private keyboardCollapseTimer: number = -1;
   private hostWindowRef: arkWindow.Window | null = null;
 
   /**
@@ -5967,10 +5969,28 @@ export struct ConversationPage {
     if (ctx === undefined) {
       return;
     }
+    let lastHeight: number = 1;
     const cb = (height: number): void => {
-      if (height <= 0) {
-        this.collapseComposer();
+      if (height > 0) {
+        lastHeight = height;
+        if (this.keyboardCollapseTimer >= 0) {
+          clearTimeout(this.keyboardCollapseTimer);
+          this.keyboardCollapseTimer = -1;
+        }
+        return;
       }
+      lastHeight = 0;
+      // 键盘弹出/收起的过渡里会瞬时上报 0：等一小会儿确认「确实是收起了」再折叠，
+      // 否则点输入框（键盘正在弹）会被误判成收起 → 输入条刚展开就塌回去
+      if (this.keyboardCollapseTimer >= 0) {
+        return;
+      }
+      this.keyboardCollapseTimer = setTimeout(() => {
+        this.keyboardCollapseTimer = -1;
+        if (lastHeight <= 0) {
+          this.collapseComposer();
+        }
+      }, 120);
     };
     this.keyboardHeightCallback = cb;
     arkWindow.getLastWindow(ctx).then((win: arkWindow.Window) => {

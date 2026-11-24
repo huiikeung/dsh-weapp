@@ -2604,10 +2604,14 @@ export struct ConversationComposer {
       // 收起态：不铺底色、不画描边，玻璃由底部系统 TabBar 材质渲染（一条细玻璃条）；
       // 展开态：自绘磨砂玻璃 —— 半径 40 / 饱和度 1.35 / 半透明深底，背后内容明显糊掉但仍透出光影。
       .borderRadius(this.expanded() ? 28 : 26)
-      // 磨砂跟着卡片高度走，但阈值放低（54）：
-      // 阈值太高（90）时，收起动画走到一半磨砂会被抽掉 → 先看到「展开态的白底」、
-      // 再看到「透明底缩成胶囊」两段背景。现在磨砂一直保留到卡片真正缩回 52 才撤。
-      .backgroundEffect(this.cardHeight >= 54 ? this.expandedFrost() : this.noFrost())
+      // 背景 = 恒定模糊 + 可补间的底色：
+      // backgroundEffect 的模糊/底色都不能补间，收起末尾会「白底 → 突然透明」跳一下；
+      // 改成 blur 常开、底色用 backgroundColor 跟随 expanded 在同一个 animateTo 里淡出，
+      // 收起/展开都是连续过渡
+      .backdropBlur(22)
+      .backgroundColor(this.expanded()
+        ? (this.isDark ? 'rgba(30,30,32,0.72)' : 'rgba(255,255,255,0.72)')
+        : Color.Transparent)
       .border({ width: this.expanded() ? 1 : 0, color: '#66FFFFFF' })
 
       }
