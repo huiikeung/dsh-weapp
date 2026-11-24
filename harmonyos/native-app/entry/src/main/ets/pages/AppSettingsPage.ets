@@ -1727,7 +1727,7 @@ export struct AppSettingsPage {
             .hitTestBehavior(HitTestMode.None)
 
           Row() {
-            NavBackButton({ isDark: this.isDark })
+            Row().width(40).height(40)
 
           Text('设置')
             .fontSize(17)
