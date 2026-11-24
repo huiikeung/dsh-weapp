@@ -2778,7 +2778,9 @@ export struct ConversationComposer {
       // 玻璃由 HdsTabs 悬浮 TabBar 的 systemMaterialEffect 提供（IMMERSIVE/ADAPTIVE），
       // 本体加半透明深色底：玻璃轮廓在黑背景上也可辨（全透明会隐形）
       .borderRadius(28)
-      .backgroundColor(this.isDark ? 'rgba(30,32,38,0.55)' : 'rgba(255,255,255,0.55)')
+      // 色调对齐 HdsTabs 悬浮 TabBar 的玻璃（实测其底色约 (35,35,35)）：
+      // 深色同款冷灰；浅色用白 60% —— 与 TabBar 观感一致
+      .backgroundColor(this.isDark ? 'rgba(35,35,35,0.90)' : 'rgba(255,255,255,0.60)')
       .border({ width: 1, color: '#66FFFFFF' })
 
       }
