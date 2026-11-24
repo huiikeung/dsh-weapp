@@ -5969,19 +5969,24 @@ export struct ConversationPage {
     if (ctx === undefined) {
       return;
     }
-    let lastHeight: number = 1;
+    // 只有「之前在显示、现在变 0」才算键盘收起：
+    // 键盘弹出的过渡里会先上报一次 0（此时 lastHeight 本来就是 0），
+    // 以前把这种 0 当成收起 → 点输入框刚展开就被塌回去
+    let lastHeight: number = 0;
     const cb = (height: number): void => {
+      const wasShown: boolean = lastHeight > 0;
+      lastHeight = height;
       if (height > 0) {
-        lastHeight = height;
         if (this.keyboardCollapseTimer >= 0) {
           clearTimeout(this.keyboardCollapseTimer);
           this.keyboardCollapseTimer = -1;
         }
         return;
       }
-      lastHeight = 0;
-      // 键盘弹出/收起的过渡里会瞬时上报 0：等一小会儿确认「确实是收起了」再折叠，
-      // 否则点输入框（键盘正在弹）会被误判成收起 → 输入条刚展开就塌回去
+      if (!wasShown) {
+        return;
+      }
+      // 真收起：再等 60ms 确认没有被新的弹出抢先，然后走和点空白同一条折叠路径
       if (this.keyboardCollapseTimer >= 0) {
         return;
       }
@@ -5990,7 +5995,7 @@ export struct ConversationPage {
         if (lastHeight <= 0) {
           this.collapseComposer();
         }
-      }, 120);
+      }, 60);
     };
     this.keyboardHeightCallback = cb;
     arkWindow.getLastWindow(ctx).then((win: arkWindow.Window) => {
