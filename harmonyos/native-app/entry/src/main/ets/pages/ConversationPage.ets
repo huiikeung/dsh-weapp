@@ -6369,7 +6369,10 @@ export struct ConversationPage {
       }
       .width('100%')
       .height('100%')
-      .visibility(this.composerExpanded() ? Visibility.None : Visibility.Visible)
+      // 胶囊只在「输入卡真的已经是折叠高度」时才显示：
+      // 之前用 composerExpanded() 判定，收起动画一开始就先把大胶囊亮出来（卡片还在慢慢缩），
+      // 于是看到「一个大椭圆胶囊闪一下再缩小」—— 现在等卡片缩到 58 以下才亮，全程看不到大胶囊
+      .visibility(this.dockCardHeight > 58 ? Visibility.None : Visibility.Visible)
       .hitTestBehavior(HitTestMode.None)
 
       // 第二层：真实输入区，叠在背板之上
