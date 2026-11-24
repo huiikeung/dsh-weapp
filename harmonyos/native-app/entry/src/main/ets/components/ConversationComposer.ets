@@ -2775,19 +2775,10 @@ export struct ConversationComposer {
       .padding(this.expanded()
         ? { left: 14, right: 14, top: 12, bottom: 12 }
         : { left: 10, right: 10, top: 6, bottom: 6 })
-      // 玻璃配方（用户提供的 backgroundEffect 版本）：
-      // radius 40 雾面模糊 + saturation 1.9 通透感 + brightness 1.05 微提亮
-      // + 白色薄纱 50% 混合（SDK 的 BackgroundEffectOptions 无 colorOptions 数组，
-      //   薄纱用单色 color 字段实现，圆角由卡片自身 borderRadius(28)+clip 提供）
-      .backgroundEffect({
-        radius: 40,
-        saturation: 1.9,
-        brightness: 1.05
-      })
+      // 玻璃由 HdsTabs 悬浮 TabBar 的 systemMaterialEffect 提供（IMMERSIVE/ADAPTIVE），
+      // 输入框本体只保留描边与圆角，不再自绘模糊
       .borderRadius(28)
-      .clip(true)
       .border({ width: 1, color: '#66FFFFFF' })
-      .shadow({ radius: 12, color: 'rgba(0,0,0,0.08)', offsetY: 4 })
 
       }
       .width('100%')

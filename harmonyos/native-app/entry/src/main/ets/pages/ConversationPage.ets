@@ -5861,13 +5861,23 @@ export struct ConversationPage {
     .scrollable(false)
     .barOverlap(true)
     .barBackgroundColor(Color.Transparent)
-    .barFloatingStyle(this.dockFloatingStyle())
-    // barBackgroundEffect 与系统材质叠加：加强模糊与通透感
-    .barBackgroundEffect({
-      radius: 40,
-      color: this.isDark ? 'rgba(18,20,26,0.30)' : 'rgba(255,255,255,0.30)',
-      saturation: 1.9,
-      brightness: 1.05
+    .barFloatingStyle({
+      adaptToHandedness: true,
+      barSideMargin: 14,
+      barBottomMargin: 18 + this.bottomInset + (this.wideInset() > 0 ? 14 : 0),
+      barWidth: {
+        smallWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+        mediumWidth: this.pageW > 0 ? this.pageW - 28 : 320,
+        largeWidth: this.pageW > 0 ? this.pageW - 28 : 320
+      },
+      // 沉浸光感：HDS 管线系统材质（与顶栏同一套）
+      systemMaterialEffect: this.dockGlassMaterial(),
+      // 输入区折叠为 miniBar 时也用同一段内容
+      miniBar: {
+        miniBarBuilder: (): void => {
+          this.bottomDockLayer()
+        }
+      }
     })
     .width('100%')
     .height('100%')
