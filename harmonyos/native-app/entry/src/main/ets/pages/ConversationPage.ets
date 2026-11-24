@@ -675,6 +675,12 @@ export struct ConversationPage {
 
   // ==================== 生命周期 ====================
   aboutToAppear(): void {
+    // 诊断：确认设备是否支持 IMMERSIVE（液态玻璃）材质
+    try {
+      Logger.info('GLASSDIAG immersiveSupported=' + uiMaterial.isImmersiveMaterialSupported().toString());
+    } catch (err) {
+      Logger.warn('GLASSDIAG check failed');
+    }
     // 其他页面（首页/设置）把全局键盘避让设成了 NONE，进对话页必须恢复：
     // RESIZE = 键盘弹出时根布局收缩，输入条整体上浮到输入法上方（标题栏不动）
     this.getUIContext().setKeyboardAvoidMode(KeyboardAvoidMode.RESIZE);
@@ -9222,14 +9228,11 @@ export struct ConversationPage {
             }
             .width(40)
             .height(40)
-            // 与返回键完全同一套系统液态玻璃材质（IMMERSIVE + 交互高光 + 光感）
+            // 按原生返回键实测复刻：几乎全透明的底 + 纯背景模糊 + 白色细边 + 柔投影
+            // （原生返回键采样：填充≈页面底色，只有白色细边和投影勾勒轮廓）
             .backgroundColor(Color.Transparent)
             .clip(true)
-            .systemMaterial(new uiMaterial.ImmersiveMaterial({
-              style: uiMaterial.ImmersiveStyle.THIN,
-              interactive: true,
-              lightEffect: {}
-            }))
+            .backdropBlur(10)
             // 边缘：白色细边（深 16% / 浅 90%，浅色下靠白边提亮）
             .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
             .onClick(() => {
