@@ -10,7 +10,7 @@
  * 视觉来源：miniprogram/pages/session/session.wxss 5569-5602（两态）、893-1050、2694-2800。
  * 约束：ArkTS 严格模式；颜色全部字符串字面量。
  */
-import { display, LengthMetrics, uiMaterial } from '@kit.ArkUI';
+import { display, LengthMetrics } from '@kit.ArkUI';
 import { KeyCode } from '@kit.InputKit';
 import type { ModelMenuItem, PickedAttachment } from 'nativecore';
 
@@ -120,9 +120,6 @@ export struct ConversationComposer {
   @Prop teamEnabled: boolean = false;
   onToggleTeam: (next: boolean) => void = () => {};
   @State private teamTipOpen: boolean = false;
-  /** 光感流光：高光扫过输入框的横向进度（-1 ~ 2，循环） */
-  @State private sheenOffset: number = -1;
-  private sheenTimer: number = -1;
   /** 推理等级菜单（小程序 effortSheet：Off/Low/Medium/High） */
   @Prop effortValues: string[] = [];
   @Prop effortLabels: string[] = [];
@@ -220,7 +217,6 @@ export struct ConversationComposer {
   // ==================== 状态 ====================
   /** 展开态：聚焦、有草稿或有附件（对齐小程序 composer-expanded 判定） */
   aboutToAppear(): void {
-    this.startSheen();
     this.resolveDraftToken(this.draft);
   }
 
@@ -586,118 +582,21 @@ export struct ConversationComposer {
   }
 
   /** 光圈外的投影：与返回按钮同为中性色（深色黑色、浅色淡灰），不再用白色光晕 */
-  /** 流光高光条：45% 宽度、斜向渐变，随 sheenOffset 平移 */
+  /** 顶沿高光：中间亮、两端收敛的 1vp 细线，给玻璃一个「受光边」 */
   @Builder
-  glassSweep() {
+  topGlint() {
     Column()
-      .width('45%')
-      .height('100%')
+      .width('100%')
+      .height(1)
       .linearGradient({
-        angle: 100,
+        angle: 90,
         colors: [
-          ['rgba(255,255,255,0)', 0],
-          [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.50)', 0.5],
-          ['rgba(255,255,255,0)', 1]
+          [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)', 0],
+          [this.isDark ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.98)', 0.5],
+          [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)', 1]
         ]
       })
-      .translate({ x: this.sheenOffset * 200 + '%' })
       .hitTestBehavior(HitTestMode.None)
-  }
-
-  /** 流光：每 40ms 推进一次高光位置，扫过输入框（只在输入框上有，成本很低） */
-  private startSheen(): void {
-    if (this.sheenTimer >= 0) {
-      return;
-    }
-    this.sheenTimer = setInterval(() => {
-      const next: number = this.sheenOffset + 0.02;
-      this.sheenOffset = next > 1.6 ? -1 : next;
-    }, 40);
-  }
-
-  private stopSheen(): void {
-    if (this.sheenTimer >= 0) {
-      clearInterval(this.sheenTimer);
-      this.sheenTimer = -1;
-    }
-  }
-
-  aboutToDisappear(): void {
-    this.stopSheen();
-  }
-
-  /** 玻璃顶沿高光 + 左上漏光：沉浸光感里最直观的「光」 */
-  @Builder
-  glassSheen(radius: number) {
-    Column() {
-      // 顶沿 1vp 高光：中间最亮、两端收敛
-      Column()
-        .width('100%')
-        .height(1)
-        .borderRadius({ topLeft: radius, topRight: radius })
-        .linearGradient({
-          angle: 90,
-          colors: [
-            [this.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.45)', 0],
-            [this.isDark ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.98)', 0.45],
-            [this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.50)', 1]
-          ]
-        })
-      // 左上角柔和漏光
-      Column()
-        .width('62%')
-        .height(46)
-        .borderRadius({ topLeft: radius, topRight: 26 })
-        .linearGradient({
-          angle: 145,
-          colors: [[this.isDark ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.55)', 0], ['rgba(255,255,255,0)', 1]]
-        })
-        .margin({ top: -1 })
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .hitTestBehavior(HitTestMode.None)
-  }
-
-  /** 小芯胶囊玻璃（ULTRA_THIN）：权限/模型 chip 这类小面积元素 */
-  private chipGlassMaterial(): uiMaterial.Material | undefined {
-    if (!this.immersiveGlass()) {
-      return undefined;
-    }
-    try {
-      return new uiMaterial.ImmersiveMaterial({
-        style: uiMaterial.ImmersiveStyle.ULTRA_THIN,
-        interactive: true,
-        lightEffect: {}
-      });
-    } catch (err) {
-      return undefined;
-    }
-  }
-
-  /** 当前设备是否支持沉浸光感（API 26+ 且设备算力足够） */
-  private immersiveGlass(): boolean {
-    try {
-      return uiMaterial.isImmersiveMaterialSupported();
-    } catch (err) {
-      return false;
-    }
-  }
-
-  /** 输入框玻璃材质：THIN（薄玻璃，透视强），带交互形变与光感反馈 */
-  private inputGlassMaterial(): uiMaterial.Material | undefined {
-    if (!this.immersiveGlass()) {
-      return undefined;
-    }
-    try {
-      return new uiMaterial.ImmersiveMaterial({
-        style: uiMaterial.ImmersiveStyle.THIN,
-        interactive: true,
-        lightEffect: {}
-      });
-    } catch (err) {
-      return undefined;
-    }
   }
 
   private haloShadow(): string {
@@ -2727,19 +2626,18 @@ export struct ConversationComposer {
       .padding(this.expanded()
         ? { left: 14, right: 14, top: 12, bottom: 12 }
         : { left: 10, right: 10, top: 6, bottom: 6 })
-      // 沉浸光感（API 26 ImmersiveMaterial）：输入框是一块悬浮玻璃，
-      // 支持设备上交给系统材质出光感/折射/交互反馈；不支持的设备保持原来的模糊 + 半透明底
+      // 首页「切换主机」半模态的观感：背景模糊 + 玻璃上叠淡白的半透明底 + 白色细描边；圆角 24
+      // （ImmersiveMaterial 只能在 bindSheet 的 systemMaterial 上生效，普通容器用模糊 + 半透明底等价逼近）
       .borderRadius(24)
-      .systemMaterial(this.inputGlassMaterial())
-      // 与左上角返回按钮同一套玻璃背景（材质生效时基本被材质覆盖，仅作为兜底底色调）
+      // 与左上角返回按钮同一套玻璃背景
       .backgroundColor(this.isDark ? 'rgba(44,44,48,0.40)' : 'rgba(255,255,255,0.16)')
-      // 模糊调小：文字轮廓更清楚
-      .backdropBlur(this.immersiveGlass() ? 0 : 8)
-      .border({ width: 1, color: this.immersiveGlass() ? 'rgba(255,255,255,0.10)' : (this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)') })
-      // 光感：顶沿高光 + 左上角漏光（材质生效时叠在材质上，不生效时就是玻璃质感本体）
-      .overlay(() => { this.glassSheen(24) }, { align: Alignment.Top })
-      // 流光：一道很淡的高光缓慢扫过玻璃表面
-      .overlay(() => { this.glassSweep() }, { align: Alignment.Start })
+      // 玻璃模糊：比原来 8 更实一点，透出的内容不会糊成一片，也不会透得太清楚
+      .backdropBlur(14)
+      .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
+      // 裁到圆角：下面那层顶沿高光只亮在卡片内部
+      .clip(true)
+      // 光感：只有一道很淡的顶沿高光（不做扫光动画，避免抢注意力）
+      .overlay(() => { this.topGlint() }, { align: Alignment.Top })
 
       }
       .width('100%')

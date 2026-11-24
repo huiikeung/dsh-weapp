@@ -2454,9 +2454,7 @@ export struct ConversationPage {
       .width('100%')
       .borderRadius(this.rpx(36))
       .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
-      .backdropBlur(this.immersiveSupported() ? 0 : 14)
-      // 提问卡：沉浸光感常规玻璃（材质生效时覆盖上面的半透明底与模糊）
-      .systemMaterial(this.panelGlassMaterial())
+      .backdropBlur(14)
       .border({ width: 1, color: this.isDark ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.90)' })
       .margin({ bottom: this.rpx(12) })
       .clip(true)
@@ -2577,9 +2575,7 @@ export struct ConversationPage {
       .width('100%')
       .borderRadius(this.rpx(36))
       .backgroundColor(this.isDark ? 'rgba(44,44,48,0.46)' : 'rgba(255,255,255,0.24)')
-      .backdropBlur(this.immersiveSupported() ? 0 : 14)
-      // 审批卡：沉浸光感常规玻璃，保留琥珀色描边表示「等待操作」
-      .systemMaterial(this.panelGlassMaterial())
+      .backdropBlur(14)
       .border({ width: 1, color: 'rgba(245,156,13,0.55)' })
       .margin({ bottom: this.rpx(12) })
       .clip(true)
@@ -6057,9 +6053,14 @@ export struct ConversationPage {
     // 底部整块：与顶部标题栏同一套系统 IMMERSIVE 玻璃材质（不再是手写 backdropBlur）
     .backgroundColor(Color.Transparent)
     // 宽屏下输入条已居中限宽，底部不铺整条材质带
-    .systemMaterial(this.wideInset() > 0 ? undefined : this.dockGlassMaterial())
-    // 顶沿高光：光感边缘（材质生效时叠在材质上，不生效时也保留玻璃边缘）
-    .overlay(() => { this.dockSheen() }, { align: Alignment.Top })
+    .systemMaterial(this.wideInset() > 0
+      ? undefined
+      : new uiMaterial.ImmersiveMaterial({
+        // 底部要托住整块输入区：THICK 提供最强模糊，贴近顶部渐变模糊的强度
+        style: uiMaterial.ImmersiveStyle.THICK,
+        interactive: true,
+        lightEffect: {}
+      }))
     // 材质自身模糊偏柔和，再叠一层背景模糊把「透出的内容」压得更糊（对齐顶部观感）
     .backdropBlur(this.wideInset() > 0 ? 0 : 20)
     // 上沿渐变过渡：内容进入玻璃条前先柔和淡出（对齐顶部「渐变模糊」的观感，避免硬切边）
@@ -7895,50 +7896,6 @@ export struct ConversationPage {
     } catch (err) {
       return false;
     }
-  }
-
-  /** 沉浸光感材质：失败/不支持时返回 undefined，调用方保留原有模糊兜底 */
-  private glassMaterial(style: uiMaterial.ImmersiveStyle, interactive: boolean): uiMaterial.Material | undefined {
-    if (!this.immersiveSupported()) {
-      return undefined;
-    }
-    try {
-      return new uiMaterial.ImmersiveMaterial({
-        style: style,
-        interactive: interactive,
-        lightEffect: {},
-        applyShadow: true
-      });
-    } catch (err) {
-      return undefined;
-    }
-  }
-
-  /** 底部输入条：薄玻璃（THIN），要透出下方内容 */
-  private dockGlassMaterial(): uiMaterial.Material | undefined {
-    return this.glassMaterial(uiMaterial.ImmersiveStyle.THIN, true);
-  }
-
-  /** 悬浮卡片（审批/提问/任务/队列）：常规厚度（REGULAR），保证文字可读 */
-  private panelGlassMaterial(): uiMaterial.Material | undefined {
-    return this.glassMaterial(uiMaterial.ImmersiveStyle.REGULAR, false);
-  }
-
-  /** 底部悬浮区顶沿高光（光感边缘） */
-  @Builder
-  dockSheen() {
-    Column()
-      .width('100%')
-      .height(1)
-      .linearGradient({
-        angle: 90,
-        colors: [
-          ['rgba(255,255,255,0)', 0],
-          [this.isDark ? 'rgba(255,255,255,0.30)' : 'rgba(255,255,255,0.80)', 0.5],
-          ['rgba(255,255,255,0)', 1]
-        ]
-      })
-      .hitTestBehavior(HitTestMode.None)
   }
 
   private teamSheetMaterial(): uiMaterial.Material | undefined {
