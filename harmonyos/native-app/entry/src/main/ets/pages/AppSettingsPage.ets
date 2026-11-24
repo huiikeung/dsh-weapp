@@ -2048,6 +2048,8 @@ export struct AppSettingsPage {
           // 宽屏：只给 Scroll 加 maxWidth 时，内容列仍按整屏宽度测量，
           // 「会话/工作区/定时任务/插件/节点」那行会被卡片右边裁掉；这里给内容列也加上同一个约束
           .constraintSize({ maxWidth: SETTINGS_MAX_WIDTH })
+          // 原生标题栏是浮动的（不占布局空间），内容首屏需要手动让出标题栏高度；
+          // 滚动时内容从标题栏下面穿过，被系统渐变模糊
           .padding({ left: 16, right: 16, top: 4 + 56 + (this.safeTopStorage > 0 ? this.safeTopStorage : 38.9), bottom: 30 })
         }
         .layoutWeight(1)
